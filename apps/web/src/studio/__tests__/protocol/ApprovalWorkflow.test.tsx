@@ -27,7 +27,7 @@ describe("ApprovalWorkflow", () => {
       createdAt: "2024-01-15T10:30:00Z",
       createdBy: "AI System",
       changes: "Initial draft",
-      draft: {} as Record<string, unknown>,
+      draft: {} as any,
     },
   ];
 

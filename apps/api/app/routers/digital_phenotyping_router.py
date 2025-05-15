@@ -365,15 +365,13 @@ def recompute_digital_phenotyping(
         patient_id=patient_id,
         action="recompute",
         actor_id=actor.actor_id,
-        summary="Recompute requested (stub pipeline)",
-        extra={"job_id": job_id},
+        summary="Recompute requested — passive signal ingest pipeline is in preview",
+        extra={"job_id": job_id, "status": "preview"},
     )
 
     return {
-        "ok": True,
-        "job_id": job_id,
-        "estimated_ready_at": datetime.now(timezone.utc).isoformat(),
-        "message": "Stub recompute accepted; passive ingest pipeline not yet connected.",
+        "status": "preview",
+        "message": "Passive signal ingest pipeline is in preview. Live recompute not yet connected.",
     }
 
 
@@ -658,3 +656,212 @@ def get_digital_phenotyping_audit(
     rows = _repo_list_recent_audit(db, patient_id=patient_id, limit=100)
     events = audit_rows_to_payload_events(rows)
     return {"patient_id": patient_id, "events": events, "total": len(events)}
+
+
+# ── Behaviour sub-router (preview — full backend integration pending) ──────────
+
+_behaviour_router = APIRouter(
+    prefix="/api/v1/digital-phenotyping/behaviour",
+    tags=["Digital Phenotyping — Behaviour"],
+)
+
+
+# core-schema-exempt: behaviour response shape; not reused outside this router
+class BehaviourProtocolOut(BaseModel):
+    type: str
+    label: str
+    status: str
+    notes: str | None = None
+    started_at: str | None = None
+
+
+# core-schema-exempt: behaviour response shape; not reused outside this router
+class BehaviourObservationOut(BaseModel):
+    recorded_at: str | None = None
+    category: str
+    note: str
+    recorded_by: str | None = None
+
+
+# core-schema-exempt: behaviour response shape; not reused outside this router
+class BehaviourOutcomeOut(BaseModel):
+    type: str
+    label: str
+    latest_value: float | None = None
+    previous_value: float | None = None
+    trend: str = "stable"
+    history: list[float] = Field(default_factory=list)
+
+
+# core-schema-exempt: behaviour response shape; not reused outside this router
+class BehaviourSafetyFlagOut(BaseModel):
+    level: str
+    category: str
+    description: str | None = None
+    raised_at: str | None = None
+    raised_by: str | None = None
+
+
+# core-schema-exempt: behaviour response shape; not reused outside this router
+class BehaviourPatientProfileOut(BaseModel):
+    patient_id: str
+    patient_name: str
+    protocols: list[BehaviourProtocolOut] = Field(default_factory=list)
+    observations: list[BehaviourObservationOut] = Field(default_factory=list)
+    outcomes: list[BehaviourOutcomeOut] = Field(default_factory=list)
+    safety_flags: list[BehaviourSafetyFlagOut] = Field(default_factory=list)
+    last_reviewed_at: str | None = None
+    reviewed_by: str | None = None
+
+
+# core-schema-exempt: behaviour response shape; not reused outside this router
+class BehaviourClinicPatientOut(BaseModel):
+    patient_id: str
+    patient_name: str
+    active_protocol_count: int = 0
+    flag_count: int = 0
+    last_observation_at: str | None = None
+    worst_flag: str | None = None
+
+
+# core-schema-exempt: behaviour response shape; not reused outside this router
+class BehaviourClinicSummaryOut(BaseModel):
+    patients: list[BehaviourClinicPatientOut] = Field(default_factory=list)
+    total_active_protocols: int = 0
+    total_flags: int = 0
+    captured_at: str | None = None
+    preview_note: str = "Preview workspace — full behavioural backend integration pending"
+
+
+def _check_behaviour_consent(db: Session, patient_id: str) -> bool:
+    """Check if patient has consented to behavioural data collection."""
+    state = _repo_load_or_create_state(
+        db,
+        patient_id=patient_id,
+        default_domains_enabled=DEFAULT_DOMAINS_ENABLED,
+    )
+    domains = _parse_domains_json(state.domains_enabled_json)
+    return domains.get("ema_active", False) or domains.get("device_engagement", False)
+
+
+def _minimal_behaviour_profile(patient_id: str, patient_name: str | None) -> BehaviourPatientProfileOut:
+    """Return a minimal honest profile when no behavioural backend is connected."""
+    return BehaviourPatientProfileOut(
+        patient_id=patient_id,
+        patient_name=patient_name or patient_id,
+        protocols=[],
+        observations=[],
+        outcomes=[],
+        safety_flags=[],
+        last_reviewed_at=None,
+        reviewed_by=None,
+    )
+
+
+def _minimal_behaviour_clinic_summary(clinic_id: str) -> BehaviourClinicSummaryOut:
+    """Return a minimal honest clinic summary when no behavioural backend is connected."""
+    return BehaviourClinicSummaryOut(
+        patients=[],
+        total_active_protocols=0,
+        total_flags=0,
+        captured_at=datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        preview_note="Preview workspace — full behavioural backend integration pending",
+    )
+
+
+@_behaviour_router.get("/clinic-summary", response_model=BehaviourClinicSummaryOut)
+def get_behaviour_clinic_summary(
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+):
+    """Return clinic-scoped behavioural summary (preview — returns minimal data)."""
+    require_minimum_role(actor, "clinician")
+
+    _append_audit(
+        db,
+        patient_id=f"clinic-{actor.clinic_id}",
+        action="behaviour_clinic_summary",
+        actor_id=actor.actor_id,
+        summary="Behaviour clinic summary requested (preview)",
+        extra={"clinic_id": actor.clinic_id, "status": "preview"},
+    )
+
+    patients = _repo_list_clinic_patients(
+        db,
+        clinic_id=actor.clinic_id,
+        include_all=actor.role == "admin",
+    )
+
+    items: list[BehaviourClinicPatientOut] = []
+    for patient in patients:
+        pname = _patient_display_name(db, patient.id) or patient.id
+        items.append(BehaviourClinicPatientOut(
+            patient_id=patient.id,
+            patient_name=pname or patient.id,
+            active_protocol_count=0,
+            flag_count=0,
+            last_observation_at=None,
+            worst_flag=None,
+        ))
+
+    return BehaviourClinicSummaryOut(
+        patients=items,
+        total_active_protocols=0,
+        total_flags=0,
+        captured_at=datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        preview_note="Preview workspace — full behavioural backend integration pending",
+    )
+
+
+@_behaviour_router.get("/patient/{patient_id}/profile", response_model=BehaviourPatientProfileOut)
+def get_behaviour_patient_profile(
+    patient_id: str,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+):
+    """Return behavioural profile for one patient (preview — returns minimal data)."""
+    require_minimum_role(actor, "clinician")
+    _require_known_patient(db, patient_id)
+    _gate_patient(actor, patient_id, db)
+
+    consent_ok = _check_behaviour_consent(db, patient_id)
+    pname = _patient_display_name(db, patient_id)
+
+    _append_audit(
+        db,
+        patient_id=patient_id,
+        action="behaviour_profile_view",
+        actor_id=actor.actor_id,
+        summary="Behaviour patient profile viewed (preview)",
+        extra={"consent_ok": consent_ok, "status": "preview"},
+    )
+
+    return _minimal_behaviour_profile(patient_id, pname)
+
+
+@_behaviour_router.get("/patient/{patient_id}/audit")
+def get_behaviour_patient_audit(
+    patient_id: str,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+):
+    """Return behavioural audit trail for one patient (preview — returns empty)."""
+    require_minimum_role(actor, "clinician")
+    _require_known_patient(db, patient_id)
+    _gate_patient(actor, patient_id, db)
+
+    _append_audit(
+        db,
+        patient_id=patient_id,
+        action="behaviour_audit_view",
+        actor_id=actor.actor_id,
+        summary="Behaviour patient audit viewed (preview)",
+        extra={"status": "preview"},
+    )
+
+    rows = _repo_list_recent_audit(db, patient_id=patient_id, limit=50)
+    events = audit_rows_to_payload_events(rows)
+    return {"patient_id": patient_id, "items": events, "total": len(events), "preview_note": "Preview workspace — full behavioural backend integration pending"}
+
+
+router_behaviour = _behaviour_router
