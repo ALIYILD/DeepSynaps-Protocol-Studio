@@ -26,7 +26,7 @@ export function HandbooksPage() {
   const [kind, setKind] = useState<HandbookKindApi>("clinician_handbook");
   const [condition, setCondition] = useState("Parkinson's disease");
   const [modality, setModality] = useState<Modality>("TPS");
-  const [document, setDocument] = useState<HandbookGenerationResult | null>(null);
+  const [handbookDoc, setHandbookDoc] = useState<HandbookGenerationResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isUnauthorized, setIsUnauthorized] = useState(false);
@@ -37,7 +37,7 @@ export function HandbooksPage() {
 
     async function loadHandbook() {
       if (role === "guest") {
-        setDocument(null);
+        setHandbookDoc(null);
         setError(null);
         setIsUnauthorized(false);
         setLoading(false);
@@ -58,7 +58,7 @@ export function HandbooksPage() {
         if (cancelled) {
           return;
         }
-        setDocument(response);
+        setHandbookDoc(response);
       } catch (caught) {
         if (cancelled) {
           return;
@@ -69,7 +69,7 @@ export function HandbooksPage() {
         } else {
           setError("Handbook preview could not be generated.");
         }
-        setDocument(null);
+        setHandbookDoc(null);
       } finally {
         if (!cancelled) {
           setLoading(false);
@@ -93,7 +93,7 @@ export function HandbooksPage() {
         role,
       );
       const url = URL.createObjectURL(blob);
-      const anchor = document.createElement("a");
+      const anchor = window.document.createElement("a");
       anchor.href = url;
       anchor.download = `handbook_${condition}_${modality}.docx`.replace(/[^a-zA-Z0-9._-]/g, "_");
       anchor.click();
@@ -157,7 +157,7 @@ export function HandbooksPage() {
               body={error}
               tone="warning"
             />
-          ) : document ? (
+          ) : handbookDoc ? (
             <>
               <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--border)] pb-4">
                 <div>
@@ -176,14 +176,14 @@ export function HandbooksPage() {
                 </div>
               </div>
               <div className="mt-6 grid gap-6">
-                <DocSection title="Overview" items={[document.document.overview]} />
-                <DocSection title="Eligibility" items={document.document.eligibility} />
-                <DocSection title="Setup" items={document.document.setup} />
-                <DocSection title="Session workflow" items={document.document.sessionWorkflow} />
-                <DocSection title="Safety" items={document.document.safety} />
-                <DocSection title="Troubleshooting" items={document.document.troubleshooting} />
-                <DocSection title="Escalation" items={document.document.escalation} />
-                <DocSection title="References" items={document.document.references} />
+                <DocSection title="Overview" items={[handbookDoc.document.overview]} />
+                <DocSection title="Eligibility" items={handbookDoc.document.eligibility} />
+                <DocSection title="Setup" items={handbookDoc.document.setup} />
+                <DocSection title="Session workflow" items={handbookDoc.document.sessionWorkflow} />
+                <DocSection title="Safety" items={handbookDoc.document.safety} />
+                <DocSection title="Troubleshooting" items={handbookDoc.document.troubleshooting} />
+                <DocSection title="Escalation" items={handbookDoc.document.escalation} />
+                <DocSection title="References" items={handbookDoc.document.references} />
               </div>
             </>
           ) : null}
