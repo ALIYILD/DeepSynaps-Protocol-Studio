@@ -7,6 +7,8 @@ const navItems = [
   { to: "/", label: "Dashboard" },
   { to: "/evidence-library", label: "Evidence Library" },
   { to: "/device-registry", label: "Device Registry" },
+  { to: "/brain-regions", label: "Brain Regions" },
+  { to: "/qeeg-maps", label: "qEEG Maps" },
   { to: "/assessment-builder", label: "Assessment Builder" },
   { to: "/protocols", label: "Protocols" },
   { to: "/handbooks", label: "Handbooks" },

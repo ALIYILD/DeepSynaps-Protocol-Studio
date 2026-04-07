@@ -4,6 +4,9 @@ import { describe, expect, it, vi } from "vitest";
 import { renderApp } from "./renderApp";
 
 vi.mock("../lib/api/services", () => ({
+  listBrainRegions: vi.fn().mockResolvedValue([]),
+  listQEEGBiomarkers: vi.fn().mockResolvedValue([]),
+  listQEEGConditionMap: vi.fn().mockResolvedValue([]),
   fetchEvidenceLibrary: vi.fn().mockResolvedValue({
     items: [],
     disclaimers: {
@@ -97,6 +100,8 @@ describe("App route smoke tests", () => {
     ["/upload-review", "Clinician-gated upload staging"],
     ["/governance-safety", "Human review and safety layer"],
     ["/pricing-access", "Plans for every stage of practice"],
+    ["/brain-regions", "FNON targeting reference"],
+    ["/qeeg-maps", "Biomarker and condition reference"],
   ])("renders %s", async (route, title) => {
     renderApp({ route, state: { role: "admin" } });
     expect(await screen.findByText(title)).toBeInTheDocument();

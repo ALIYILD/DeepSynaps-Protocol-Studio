@@ -18,17 +18,21 @@ import {
 } from "../../types/domain";
 import {
   adaptAuditEvent,
+  adaptBrainRegion,
   adaptCaseSummary,
   adaptDeviceRecord,
   adaptDisclaimerSet,
   adaptEvidenceRecord,
   adaptHandbookResult,
   adaptProtocolDraft,
+  adaptQEEGBiomarker,
+  adaptQEEGConditionMap,
 } from "./adapters";
 import { getAuthorizationHeader } from "./auth";
 import { requestJson } from "./client";
 import {
   ApiAuditTrailResponse,
+  ApiBrainRegionListResponse,
   ApiCaseSummaryRequest,
   ApiCaseSummaryResponse,
   ApiDeviceListResponse,
@@ -37,6 +41,8 @@ import {
   ApiHandbookGenerateResponse,
   ApiProtocolDraftRequest,
   ApiProtocolDraftResponse,
+  ApiQEEGBiomarkerListResponse,
+  ApiQEEGConditionMapListResponse,
   ApiReviewActionRequest,
   ApiReviewActionResponse,
 } from "./types";
@@ -163,4 +169,19 @@ export async function fetchAuditTrailForRole(role: UserRole): Promise<{
     items: response.items.map(adaptAuditEvent),
     disclaimers: adaptDisclaimerSet(response.disclaimers),
   };
+}
+
+export async function listBrainRegions(): Promise<BrainRegion[]> {
+  const response = await requestJson<ApiBrainRegionListResponse>("/api/v1/brain-regions");
+  return response.items.map(adaptBrainRegion);
+}
+
+export async function listQEEGBiomarkers(): Promise<QEEGBiomarker[]> {
+  const response = await requestJson<ApiQEEGBiomarkerListResponse>("/api/v1/qeeg/biomarkers");
+  return response.items.map(adaptQEEGBiomarker);
+}
+
+export async function listQEEGConditionMap(): Promise<QEEGConditionMap[]> {
+  const response = await requestJson<ApiQEEGConditionMapListResponse>("/api/v1/qeeg/condition-map");
+  return response.items.map(adaptQEEGConditionMap);
 }

@@ -225,3 +225,49 @@ export type FeatureMatrixRow = {
   feature: string;
   availability: Record<PricingTierName, string>;
 };
+
+export type BrainRegion = {
+  regionId: string;
+  regionName: string;
+  abbreviation: string;
+  lobe: string;
+  depth: string;
+  eegPosition: string;
+  brodmannArea: string;
+  primaryFunctions: string;
+  fnonNetwork: string;
+  keyConditions: string;
+  targetableModalities: string;
+  notes: string;
+  reviewStatus: string;
+};
+
+export type QEEGBiomarker = {
+  bandId: string;
+  bandName: string;
+  hzRange: string;
+  normalBrainState: string;
+  keyRegions: string;
+  eegPositions: string;
+  pathologicalIncrease: string;
+  pathologicalDecrease: string;
+  associatedDisorders: string;
+  clinicalSignificance: string;
+  reviewStatus: string;
+};
+
+export type QEEGConditionMap = {
+  mapId: string;
+  conditionId: string;
+  conditionName: string;
+  keySymptoms: string;
+  qeegPatterns: string;
+  keyElectrodeSites: string;
+  affectedBrainRegions: string;
+  primaryNetworksDisrupted: string;
+  networkDysfunctionPattern: string;
+  recommendedNeuromodTechniques: string;
+  primaryStimulationTargets: string;
+  stimulationRationale: string;
+  reviewStatus: string;
+};

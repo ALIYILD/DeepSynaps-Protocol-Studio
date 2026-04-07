@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 
 from deepsynaps_core_schema import (
     AuditTrailResponse,
+    BrainRegionListResponse,
     CaseSummaryRequest,
     CaseSummaryResponse,
     DeviceListResponse,
@@ -25,6 +26,8 @@ from deepsynaps_core_schema import (
     IntakePreviewResponse,
     ProtocolDraftRequest,
     ProtocolDraftResponse,
+    QEEGBiomarkerListResponse,
+    QEEGConditionMapListResponse,
     ReviewActionRequest,
     ReviewActionResponse,
 )
@@ -36,11 +39,13 @@ from app.logging_setup import configure_logging, get_logger
 from app.repositories.clinical import get_latest_snapshot
 from app.settings import get_settings
 from app.services.audit import get_audit_trail
+from app.services.brain_regions import list_brain_regions
 from app.services.clinical_data import seed_clinical_dataset
 from app.services.devices import list_devices
 from app.services.evidence import list_evidence
 from app.services.generation import generate_handbook, generate_protocol_draft
 from app.services.preview import build_intake_preview
+from app.services.qeeg import list_qeeg_biomarkers, list_qeeg_condition_map
 from app.services.review import record_review_action
 from app.services.uploads import build_case_summary
 
@@ -192,6 +197,21 @@ def evidence() -> EvidenceListResponse:
 @app.get("/api/v1/devices", response_model=DeviceListResponse)
 def devices() -> DeviceListResponse:
     return list_devices()
+
+
+@app.get("/api/v1/brain-regions", response_model=BrainRegionListResponse)
+def brain_regions() -> BrainRegionListResponse:
+    return list_brain_regions()
+
+
+@app.get("/api/v1/qeeg/biomarkers", response_model=QEEGBiomarkerListResponse)
+def qeeg_biomarkers() -> QEEGBiomarkerListResponse:
+    return list_qeeg_biomarkers()
+
+
+@app.get("/api/v1/qeeg/condition-map", response_model=QEEGConditionMapListResponse)
+def qeeg_condition_map() -> QEEGConditionMapListResponse:
+    return list_qeeg_condition_map()
 
 
 @app.post("/api/v1/uploads/case-summary", response_model=CaseSummaryResponse)

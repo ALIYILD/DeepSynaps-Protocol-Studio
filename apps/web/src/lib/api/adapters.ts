@@ -1,5 +1,6 @@
 import {
   AuditEvent,
+  BrainRegion,
   CaseSummary,
   DeviceRecord,
   DisclaimerSet,
@@ -7,9 +8,12 @@ import {
   HandbookDocumentPreview,
   HandbookGenerationResult,
   ProtocolDraft,
+  QEEGBiomarker,
+  QEEGConditionMap,
 } from "../../types/domain";
 import {
   ApiAuditEvent,
+  ApiBrainRegion,
   ApiCaseSummaryResponse,
   ApiDeviceRecord,
   ApiDisclaimerSet,
@@ -17,6 +21,8 @@ import {
   ApiHandbookDocument,
   ApiHandbookGenerateResponse,
   ApiProtocolDraftResponse,
+  ApiQEEGBiomarker,
+  ApiQEEGConditionMap,
 } from "./types";
 
 export function adaptDisclaimerSet(input: ApiDisclaimerSet): DisclaimerSet {
@@ -125,5 +131,57 @@ export function adaptAuditEvent(input: ApiAuditEvent): AuditEvent {
     role: input.role,
     note: input.note,
     createdAt: input.created_at,
+  };
+}
+
+export function adaptBrainRegion(input: ApiBrainRegion): BrainRegion {
+  return {
+    regionId: input.region_id,
+    regionName: input.region_name,
+    abbreviation: input.abbreviation,
+    lobe: input.lobe,
+    depth: input.depth,
+    eegPosition: input.eeg_position_10_20,
+    brodmannArea: input.brodmann_area,
+    primaryFunctions: input.primary_functions,
+    fnonNetwork: input.fnon_network,
+    keyConditions: input.key_conditions,
+    targetableModalities: input.targetable_modalities,
+    notes: input.notes,
+    reviewStatus: input.review_status,
+  };
+}
+
+export function adaptQEEGBiomarker(input: ApiQEEGBiomarker): QEEGBiomarker {
+  return {
+    bandId: input.band_id,
+    bandName: input.band_name,
+    hzRange: input.hz_range,
+    normalBrainState: input.normal_brain_state,
+    keyRegions: input.key_regions,
+    eegPositions: input.eeg_positions,
+    pathologicalIncrease: input.pathological_increase,
+    pathologicalDecrease: input.pathological_decrease,
+    associatedDisorders: input.associated_disorders,
+    clinicalSignificance: input.clinical_significance,
+    reviewStatus: input.review_status,
+  };
+}
+
+export function adaptQEEGConditionMap(input: ApiQEEGConditionMap): QEEGConditionMap {
+  return {
+    mapId: input.map_id,
+    conditionId: input.condition_id,
+    conditionName: input.condition_name,
+    keySymptoms: input.key_symptoms,
+    qeegPatterns: input.qeeg_patterns,
+    keyElectrodeSites: input.key_qeeg_electrode_sites,
+    affectedBrainRegions: input.affected_brain_regions,
+    primaryNetworksDisrupted: input.primary_networks_disrupted,
+    networkDysfunctionPattern: input.network_dysfunction_pattern,
+    recommendedNeuromodTechniques: input.recommended_neuromod_techniques,
+    primaryStimulationTargets: input.primary_stimulation_targets,
+    stimulationRationale: input.stimulation_rationale,
+    reviewStatus: input.review_status,
   };
 }

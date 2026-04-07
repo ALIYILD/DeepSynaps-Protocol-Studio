@@ -292,7 +292,7 @@ class BrainRegion(BaseModel):
     eeg_position_10_20: str
     brodmann_area: str
     primary_functions: str
-    fnon_network: str
+    brain_network: str
     key_conditions: str
     targetable_modalities: list[str] = Field(default_factory=list)
     notes: str
