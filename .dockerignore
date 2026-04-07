@@ -1,0 +1,12 @@
+node_modules
+apps/web/node_modules
+apps/web/dist
+**/__pycache__
+**/*.pyc
+**/*.pyo
+*.db
+*.db-journal
+.git
+.gitignore
+.env
+.env.*

@@ -1,5 +1,6 @@
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from pathlib import Path
 from time import perf_counter
 from uuid import uuid4
 
@@ -7,6 +8,7 @@ from fastapi import Depends, FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
@@ -243,3 +245,9 @@ def audit_trail(
     session: Session = Depends(get_db_session),
 ) -> AuditTrailResponse:
     return get_audit_trail(actor, session)
+
+
+# Serve React frontend — must be mounted after all API routes
+_frontend_dist = Path(__file__).resolve().parents[3] / "apps" / "web" / "dist"
+if _frontend_dist.exists():
+    app.mount("/", StaticFiles(directory=str(_frontend_dist), html=True), name="frontend")

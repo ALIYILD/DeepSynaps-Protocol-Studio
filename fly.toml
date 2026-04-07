@@ -1,0 +1,28 @@
+app = "deepsynaps-protocol-studio"
+primary_region = "lhr"
+
+[build]
+
+[env]
+  DEEPSYNAPS_APP_ENV = "production"
+  DEEPSYNAPS_LOG_LEVEL = "INFO"
+  DEEPSYNAPS_DATABASE_URL = "sqlite:///./deepsynaps_protocol_studio.db"
+  # Set this to your Fly.io app URL after first deploy:
+  # DEEPSYNAPS_CORS_ORIGINS = "https://deepsynaps-protocol-studio.fly.dev"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = true
+  auto_start_machines = true
+  min_machines_running = 0
+
+  [http_service.concurrency]
+    type = "connections"
+    hard_limit = 25
+    soft_limit = 20
+
+[[vm]]
+  memory = "512mb"
+  cpu_kind = "shared"
+  cpus = 1
