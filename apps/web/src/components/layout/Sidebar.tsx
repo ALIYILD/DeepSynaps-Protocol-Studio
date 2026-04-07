@@ -5,21 +5,21 @@ import { useAppState } from "../../app/useAppStore";
 
 const navGroups = [
   {
-    label: "Reference",
-    items: [
-      { to: "/evidence-library", icon: "📚", label: "Evidence Library" },
-      { to: "/device-registry", icon: "🖥️", label: "Device Registry" },
-      { to: "/brain-regions", icon: "🧠", label: "Brain Regions" },
-      { to: "/qeeg-maps", icon: "📊", label: "qEEG Maps" },
-    ],
-  },
-  {
     label: "Clinical Tools",
     items: [
       { to: "/protocols", icon: "⚡", label: "Protocol Generator" },
       { to: "/assessment-builder", icon: "📋", label: "Assessment Builder" },
       { to: "/handbooks", icon: "📄", label: "Handbooks" },
       { to: "/upload-review", icon: "📁", label: "Upload Review" },
+    ],
+  },
+  {
+    label: "Reference",
+    items: [
+      { to: "/evidence-library", icon: "📚", label: "Evidence Library" },
+      { to: "/device-registry", icon: "🖥️", label: "Device Registry" },
+      { to: "/brain-regions", icon: "🧠", label: "Brain Regions" },
+      { to: "/qeeg-maps", icon: "📊", label: "qEEG Maps" },
     ],
   },
   {
