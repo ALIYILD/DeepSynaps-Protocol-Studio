@@ -1,7 +1,9 @@
 import { useEffect, useState } from "react";
 
 import { useAppState } from "../app/useAppStore";
+import { PackageGate } from "../components/domain/PackageGate";
 import { RoleGate } from "../components/domain/RoleGate";
+import { FEATURES } from "../lib/packages";
 import { Badge } from "../components/ui/Badge";
 import { Button } from "../components/ui/Button";
 import { Card } from "../components/ui/Card";
@@ -94,6 +96,7 @@ export function HandbooksPage() {
         title="Verified clinician access required"
         description="Document generation previews are available to clinician and admin simulation roles."
       >
+        <PackageGate anyOf={[FEATURES.HANDBOOK_GENERATE_FULL, FEATURES.HANDBOOK_GENERATE_LIMITED]}>
         <InfoNotice
           title="Document generation notice"
           body={`${PROFESSIONAL_USE_ONLY} ${DRAFT_SUPPORT_ONLY} These previews are backend-generated deterministic outputs. Export actions remain visual only in the MVP.`}
@@ -164,6 +167,7 @@ export function HandbooksPage() {
             </>
           ) : null}
         </Card>
+        </PackageGate>
       </RoleGate>
     </div>
   );

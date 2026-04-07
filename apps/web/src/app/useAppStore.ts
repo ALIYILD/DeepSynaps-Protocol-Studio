@@ -1,5 +1,6 @@
 import { useContext } from "react";
 
+import { Feature, hasFeature } from "../lib/packages";
 import { AppDispatchContext, AppStateContext } from "./appStore";
 
 export function useAppState() {
@@ -16,4 +17,13 @@ export function useAppDispatch() {
     throw new Error("useAppDispatch must be used inside AppProvider");
   }
   return context;
+}
+
+/** Convenience hook for package-level entitlement checks. */
+export function usePackage() {
+  const { packageId } = useAppState();
+  return {
+    packageId,
+    hasFeature: (feature: Feature) => hasFeature(packageId, feature),
+  };
 }

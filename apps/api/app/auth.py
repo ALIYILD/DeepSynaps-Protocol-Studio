@@ -14,6 +14,7 @@ class AuthenticatedActor:
     actor_id: str
     display_name: str
     role: UserRole
+    package_id: str = "explorer"
     token_id: str | None = None
 
 
@@ -31,6 +32,7 @@ def get_authenticated_actor(authorization: str | None = Header(default=None)) ->
             actor_id=ANONYMOUS_ACTOR.actor_id,
             display_name=ANONYMOUS_ACTOR.display_name,
             role=ANONYMOUS_ACTOR.role,
+            package_id=ANONYMOUS_ACTOR.package_id,
         )
 
     actor = DEMO_ACTOR_TOKENS.get(token)
@@ -46,6 +48,7 @@ def get_authenticated_actor(authorization: str | None = Header(default=None)) ->
         actor_id=actor.actor_id,
         display_name=actor.display_name,
         role=actor.role,
+        package_id=actor.package_id,
         token_id=token,
     )
 

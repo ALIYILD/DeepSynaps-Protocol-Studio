@@ -1,6 +1,8 @@
 import { useMemo, useState } from "react";
 
+import { PackageGate } from "../components/domain/PackageGate";
 import { RoleGate } from "../components/domain/RoleGate";
+import { FEATURES } from "../lib/packages";
 import { Badge } from "../components/ui/Badge";
 import { Card } from "../components/ui/Card";
 import { InfoNotice } from "../components/ui/InfoNotice";
@@ -40,6 +42,7 @@ export function AssessmentBuilderPage() {
         title="Verified clinician access required"
         description="Assessment drafting is reserved for clinician and admin simulation roles in the MVP."
       >
+        <PackageGate anyOf={[FEATURES.ASSESSMENT_BUILDER_FULL, FEATURES.ASSESSMENT_BUILDER_LIMITED]}>
         <InfoNotice
           title="In-memory draft notice"
           body="Drafts are kept only in active app state. Nothing is written to local storage or permanent backend storage in this MVP."
@@ -133,6 +136,7 @@ export function AssessmentBuilderPage() {
             </div>
           </form>
         </Card>
+        </PackageGate>
       </RoleGate>
     </div>
   );

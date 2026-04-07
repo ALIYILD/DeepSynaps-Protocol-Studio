@@ -1,5 +1,6 @@
 import {
   AuditEvent,
+  BrainRegion,
   CaseSummary,
   DeviceRecord,
   EvidenceItem,
@@ -7,6 +8,8 @@ import {
   HandbookKindApi,
   Modality,
   ProtocolDraft,
+  QEEGBiomarker,
+  QEEGConditionMap,
   ReviewActionType,
   ReviewTargetType,
   SymptomCluster,

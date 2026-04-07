@@ -167,3 +167,70 @@ export type ApiAuditTrailResponse = {
   total: number;
   disclaimers: ApiDisclaimerSet;
 };
+
+// ── Brain Regions ──────────────────────────────────────────────────────────────
+
+export type ApiBrainRegion = {
+  region_id: string;
+  region_name: string;
+  abbreviation: string;
+  lobe: string;
+  depth: string;
+  eeg_position_10_20: string;
+  brodmann_area: string;
+  primary_functions: string;
+  fnon_network: string;
+  key_conditions: string;
+  targetable_modalities: string;
+  notes: string;
+  review_status: string;
+};
+
+export type ApiBrainRegionListResponse = {
+  items: ApiBrainRegion[];
+  total: number;
+};
+
+// ── qEEG Biomarkers ────────────────────────────────────────────────────────────
+
+export type ApiQEEGBiomarker = {
+  band_id: string;
+  band_name: string;
+  hz_range: string;
+  normal_brain_state: string;
+  key_regions: string;
+  eeg_positions: string;
+  pathological_increase: string;
+  pathological_decrease: string;
+  associated_disorders: string;
+  clinical_significance: string;
+  review_status: string;
+};
+
+export type ApiQEEGBiomarkerListResponse = {
+  items: ApiQEEGBiomarker[];
+  total: number;
+};
+
+// ── qEEG Condition Map ─────────────────────────────────────────────────────────
+
+export type ApiQEEGConditionMap = {
+  map_id: string;
+  condition_id: string;
+  condition_name: string;
+  key_symptoms: string;
+  qeeg_patterns: string;
+  key_qeeg_electrode_sites: string;
+  affected_brain_regions: string;
+  primary_networks_disrupted: string;
+  network_dysfunction_pattern: string;
+  recommended_neuromod_techniques: string;
+  primary_stimulation_targets: string;
+  stimulation_rationale: string;
+  review_status: string;
+};
+
+export type ApiQEEGConditionMapListResponse = {
+  items: ApiQEEGConditionMap[];
+  total: number;
+};

@@ -5,6 +5,7 @@ import { AppAction, AppDispatchContext, AppState, AppStateContext } from "./appS
 
 export const defaultAppState: AppState = {
   role: "clinician",
+  packageId: "clinician_pro",
   theme: "dark",
   searchQuery: "",
   notificationsOpen: false,
@@ -16,6 +17,8 @@ function reducer(state: AppState, action: AppAction): AppState {
   switch (action.type) {
     case "set_role":
       return { ...state, role: action.role };
+    case "set_package":
+      return { ...state, packageId: action.packageId };
     case "toggle_theme":
       return { ...state, theme: state.theme === "dark" ? "light" : "dark" };
     case "set_search":

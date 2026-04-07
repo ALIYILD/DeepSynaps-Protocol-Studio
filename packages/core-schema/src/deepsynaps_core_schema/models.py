@@ -281,3 +281,64 @@ class AuditTrailResponse(BaseModel):
     items: list[AuditEvent] = Field(default_factory=list)
     total: int
     disclaimers: DisclaimerSet
+
+
+class BrainRegion(BaseModel):
+    id: str
+    name: str
+    abbreviation: str
+    lobe: str
+    depth: str
+    eeg_position_10_20: str
+    brodmann_area: str
+    primary_functions: str
+    fnon_network: str
+    key_conditions: str
+    targetable_modalities: list[str] = Field(default_factory=list)
+    notes: str
+    review_status: str
+
+
+class BrainRegionListResponse(BaseModel):
+    items: list[BrainRegion] = Field(default_factory=list)
+    total: int
+
+
+class QEEGBiomarker(BaseModel):
+    id: str
+    band_name: str
+    hz_range: str
+    normal_brain_state: str
+    key_regions: str
+    eeg_positions: str
+    pathological_increase: str
+    pathological_decrease: str
+    associated_disorders: str
+    clinical_significance: str
+    review_status: str
+
+
+class QEEGBiomarkerListResponse(BaseModel):
+    items: list[QEEGBiomarker] = Field(default_factory=list)
+    total: int
+
+
+class QEEGConditionMap(BaseModel):
+    id: str
+    condition_id: str
+    condition_name: str
+    key_symptoms: str
+    qeeg_patterns: str
+    key_qeeg_electrode_sites: str
+    affected_brain_regions: str
+    primary_networks_disrupted: str
+    network_dysfunction_pattern: str
+    recommended_neuromod_techniques: str
+    primary_stimulation_targets: str
+    stimulation_rationale: str
+    review_status: str
+
+
+class QEEGConditionMapListResponse(BaseModel):
+    items: list[QEEGConditionMap] = Field(default_factory=list)
+    total: int

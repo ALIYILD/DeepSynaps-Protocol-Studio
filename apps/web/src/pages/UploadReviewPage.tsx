@@ -1,7 +1,9 @@
 import { useEffect, useState } from "react";
 
 import { useAppState } from "../app/useAppStore";
+import { PackageGate } from "../components/domain/PackageGate";
 import { RoleGate } from "../components/domain/RoleGate";
+import { FEATURES } from "../lib/packages";
 import { Badge } from "../components/ui/Badge";
 import { Button } from "../components/ui/Button";
 import { Card } from "../components/ui/Card";
@@ -122,6 +124,7 @@ export function UploadReviewPage() {
         title="Clinician review role required"
         description="Upload review and metadata interpretation are reserved for clinician and admin simulation roles."
       >
+        <PackageGate feature={FEATURES.UPLOADS_CASE_FILES}>
         <InfoNotice
           title="Interpretation and storage warning"
           body={`${PROFESSIONAL_USE_ONLY} ${DRAFT_SUPPORT_ONLY} Staged files are simulated only, require clinician interpretation, and are never stored permanently in this MVP. ${OFF_LABEL_REVIEW_REQUIRED}`}
@@ -228,6 +231,7 @@ export function UploadReviewPage() {
             )}
           </Card>
         </div>
+        </PackageGate>
       </RoleGate>
     </div>
   );

@@ -1,0 +1,15 @@
+Metadata-Version: 2.4
+Name: deepsynaps-api
+Version: 0.1.0
+Requires-Python: >=3.11
+Requires-Dist: fastapi<1.0.0,>=0.116.0
+Requires-Dist: pydantic<3.0.0,>=2.11.0
+Requires-Dist: sqlalchemy<3.0.0,>=2.0.0
+Requires-Dist: uvicorn[standard]<1.0.0,>=0.35.0
+Requires-Dist: aiofiles<25.0.0,>=23.0.0
+Requires-Dist: deepsynaps-core-schema
+Requires-Dist: deepsynaps-condition-registry
+Requires-Dist: deepsynaps-modality-registry
+Requires-Dist: deepsynaps-device-registry
+Requires-Dist: deepsynaps-safety-engine
+Requires-Dist: deepsynaps-generation-engine

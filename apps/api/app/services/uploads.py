@@ -3,6 +3,8 @@ from dataclasses import dataclass
 from deepsynaps_core_schema import CaseSummaryRequest, CaseSummaryResponse, UploadedAsset
 
 from app.auth import AuthenticatedActor, require_minimum_role
+from app.entitlements import require_feature
+from app.packages import Feature
 from app.registries.shared import standard_disclaimers
 
 
@@ -19,6 +21,11 @@ def build_case_summary(payload: CaseSummaryRequest, actor: AuthenticatedActor) -
         actor,
         "clinician",
         warnings=["Upload review requires clinician or admin access."],
+    )
+    require_feature(
+        actor.package_id,
+        Feature.UPLOADS_CASE_FILES,
+        message="Upload review and case summary generation require Clinician Pro or higher.",
     )
     uploads = prepare_upload_manifest(payload.uploads)
     upload_types = {item.type for item in uploads}

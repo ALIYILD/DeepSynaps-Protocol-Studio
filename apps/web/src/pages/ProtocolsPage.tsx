@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 
 import { useAppState } from "../app/useAppStore";
+import { PackageGate } from "../components/domain/PackageGate";
 import { Badge } from "../components/ui/Badge";
 import { Button } from "../components/ui/Button";
 import { Card } from "../components/ui/Card";
@@ -10,6 +11,7 @@ import { SelectField } from "../components/ui/SelectField";
 import { DRAFT_SUPPORT_ONLY, OFF_LABEL_REVIEW_REQUIRED, PROFESSIONAL_USE_ONLY } from "../content/disclaimers";
 import { protocolGeneratorOptions } from "../data/mockData";
 import { ApiError } from "../lib/api/client";
+import { FEATURES } from "../lib/packages";
 import { generateProtocolDraft } from "../lib/api/services";
 import { ProtocolDraft } from "../types/domain";
 
@@ -96,6 +98,7 @@ export function ProtocolsPage() {
         description="Generate structured protocol guidance from registry-driven backend rules with no AI or LLM composition."
         badge="Same input, same output"
       />
+      <PackageGate anyOf={[FEATURES.PROTOCOL_GENERATE, FEATURES.PROTOCOL_GENERATE_LIMITED]}>
       <InfoNotice
         title="Deterministic generation notice"
         body={`${PROFESSIONAL_USE_ONLY} Protocol outputs are derived from backend registry rules only. The generator remains deterministic and does not use AI composition.`}
@@ -218,6 +221,7 @@ export function ProtocolsPage() {
           ) : null}
         </Card>
       </div>
+      </PackageGate>
     </div>
   );
 }

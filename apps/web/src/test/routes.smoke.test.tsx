@@ -96,7 +96,7 @@ describe("App route smoke tests", () => {
     ["/handbooks", "Deterministic document generator"],
     ["/upload-review", "Clinician-gated upload staging"],
     ["/governance-safety", "Human review and safety layer"],
-    ["/pricing-access", "Access models for professional users"],
+    ["/pricing-access", "Plans for every stage of practice"],
   ])("renders %s", async (route, title) => {
     renderApp({ route, state: { role: "admin" } });
     expect(await screen.findByText(title)).toBeInTheDocument();

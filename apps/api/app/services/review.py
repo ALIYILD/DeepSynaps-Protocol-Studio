@@ -5,6 +5,8 @@ from sqlalchemy.orm import Session
 from deepsynaps_core_schema import ReviewActionRequest, ReviewActionResponse
 
 from app.auth import AuthenticatedActor, require_minimum_role
+from app.entitlements import require_feature
+from app.packages import Feature
 from app.registries.audit import AUDIT_DISCLAIMERS, AUDIT_EVENTS
 from app.repositories.audit import count_audit_events, create_audit_event, seed_audit_events
 
@@ -18,6 +20,11 @@ def record_review_action(
         actor,
         "clinician",
         warnings=["Review actions require clinician or admin role."],
+    )
+    require_feature(
+        actor.package_id,
+        Feature.REVIEW_QUEUE_PERSONAL,
+        message="Review queue access requires Clinician Pro or higher.",
     )
     seed_audit_events(session, AUDIT_EVENTS)
 

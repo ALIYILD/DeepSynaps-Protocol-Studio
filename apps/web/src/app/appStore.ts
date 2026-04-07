@@ -1,9 +1,10 @@
 import { createContext, Dispatch } from "react";
 
-import { ThemeMode, UserRole } from "../types/domain";
+import { PackageId, ThemeMode, UserRole } from "../types/domain";
 
 export type AppState = {
   role: UserRole;
+  packageId: PackageId;
   theme: ThemeMode;
   searchQuery: string;
   notificationsOpen: boolean;
@@ -13,6 +14,7 @@ export type AppState = {
 
 export type AppAction =
   | { type: "set_role"; role: UserRole }
+  | { type: "set_package"; packageId: PackageId }
   | { type: "toggle_theme" }
   | { type: "set_search"; value: string }
   | { type: "toggle_notifications" }

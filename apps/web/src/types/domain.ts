@@ -1,4 +1,5 @@
 export type UserRole = "guest" | "clinician" | "admin";
+export type PackageId = "explorer" | "resident" | "clinician_pro" | "clinic_team" | "enterprise";
 export type ThemeMode = "light" | "dark";
 export type WorkspaceSection =
   | "Dashboard"
@@ -24,7 +25,7 @@ export type SymptomCluster =
   | "Cognitive fatigue";
 export type DeviceUseType = "Clinic" | "Home" | "Hybrid";
 export type UploadType = "PDF" | "qEEG Summary" | "MRI Report" | "Intake Form" | "Clinician Notes";
-export type PricingTierName = "Free Explorer" | "Pro Clinician" | "Clinic Team" | "Enterprise / Manufacturer";
+export type PricingTierName = "Explorer" | "Resident / Fellow" | "Clinician Pro" | "Clinic Team" | "Enterprise";
 export type ApprovalBadge = "approved use" | "clinician-reviewed draft" | "off-label" | "emerging evidence";
 export type HandbookKindApi = "clinician_handbook" | "patient_guide" | "technician_sop";
 export type ReviewTargetType = "upload" | "protocol" | "handbook" | "evidence";
