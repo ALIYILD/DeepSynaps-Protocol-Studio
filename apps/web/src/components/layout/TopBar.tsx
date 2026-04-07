@@ -21,7 +21,7 @@ export function TopBar() {
           <span className="text-[var(--text-muted)]">Role</span>
           <select
             aria-label="Role switcher"
-            className="bg-transparent text-[var(--text)] outline-none"
+            className="bg-transparent text-[var(--text)] outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] focus-visible:ring-offset-1 rounded"
             value={state.role}
             onChange={(event) =>
               dispatch({ type: "set_role", role: event.target.value as (typeof roleProfiles)[number]["role"] })
@@ -59,7 +59,7 @@ export function TopBar() {
                     <p className="mt-2 text-sm text-[var(--text-muted)]">{alert.body}</p>
                     {state.unreadNotifications.includes(alert.id) ? (
                       <button
-                        className="mt-3 text-sm text-[var(--accent)]"
+                        className="mt-3 text-sm text-[var(--accent)] focus-visible:ring-2 focus-visible:ring-[var(--accent)] focus-visible:ring-offset-1 rounded focus-visible:outline-none"
                         onClick={() => dispatch({ type: "dismiss_notification", id: alert.id })}
                       >
                         Mark reviewed

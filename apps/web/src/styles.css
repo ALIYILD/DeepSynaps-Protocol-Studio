@@ -75,6 +75,27 @@ a {
   border: 1px solid var(--border);
 }
 
+/* Badge tone overrides — ensures readable contrast in both light and dark modes */
+.badge-success {
+  background-color: #d1fae5; /* emerald-100 */
+  color: #065f46; /* emerald-800 */
+}
+
+.badge-warning {
+  background-color: #fef3c7; /* amber-100 */
+  color: #92400e; /* amber-800 */
+}
+
+[data-theme="dark"] .badge-success {
+  background-color: rgba(6, 78, 59, 0.4); /* emerald-900/40 */
+  color: #a7f3d0; /* emerald-200 */
+}
+
+[data-theme="dark"] .badge-warning {
+  background-color: rgba(120, 53, 15, 0.4); /* amber-900/40 */
+  color: #fde68a; /* amber-200 */
+}
+
 .clinical-grid {
   background-image:
     linear-gradient(rgba(31, 139, 143, 0.06) 1px, transparent 1px),

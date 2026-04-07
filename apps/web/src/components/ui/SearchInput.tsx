@@ -12,7 +12,7 @@ export function SearchInput({
       </span>
       <input
         aria-label="Global search"
-        className="w-full border-0 bg-transparent text-sm text-[var(--text)] outline-none placeholder:text-[var(--text-muted)]"
+        className="w-full border-0 bg-transparent text-sm text-[var(--text)] outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] focus-visible:ring-offset-1 rounded-lg placeholder:text-[var(--text-muted)]"
         placeholder="Search protocols, handbooks, evidence notes"
         value={value}
         onChange={(event) => onChange(event.target.value)}

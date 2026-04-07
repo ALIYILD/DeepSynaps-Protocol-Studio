@@ -39,7 +39,7 @@ export function Sidebar() {
                 to={item.to}
                 end={item.to === "/"}
                 className={({ isActive }) =>
-                  `block rounded-2xl px-4 py-3 text-sm transition ${
+                  `block rounded-2xl px-4 py-3 text-sm transition focus-visible:ring-2 focus-visible:ring-[var(--accent)] focus-visible:outline-none ${
                     isActive
                       ? "bg-[var(--accent-soft)] font-medium text-[var(--accent)]"
                       : "text-[var(--text-muted)] hover:bg-[var(--bg-subtle)] hover:text-[var(--text)]"

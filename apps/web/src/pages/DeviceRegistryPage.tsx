@@ -2,8 +2,10 @@ import { useEffect, useMemo, useState } from "react";
 
 import { useAppState } from "../app/useAppStore";
 import { Badge } from "../components/ui/Badge";
+import { Breadcrumb } from "../components/ui/Breadcrumb";
 import { Button } from "../components/ui/Button";
 import { Card } from "../components/ui/Card";
+import { ContraindicationWarning } from "../components/ui/ContraindicationWarning";
 import { EmptyState } from "../components/ui/EmptyState";
 import { InfoNotice } from "../components/ui/InfoNotice";
 import { PageHeader } from "../components/ui/PageHeader";
@@ -88,6 +90,7 @@ export function DeviceRegistryPage() {
 
   return (
     <div className="grid gap-6">
+      <Breadcrumb items={[{ label: "Home", to: "/" }, { label: "Device Registry" }]} />
       <PageHeader
         eyebrow="Device Registry"
         title="Sample registry for professional review"
@@ -165,15 +168,18 @@ export function DeviceRegistryPage() {
         <div className="grid gap-4 xl:grid-cols-[1fr_360px]">
           {view === "table" ? (
             <Card className="overflow-x-auto">
-              <table className="min-w-full border-separate border-spacing-y-3">
+              <table
+                className="min-w-full border-separate border-spacing-y-3"
+                aria-label="Device registry records"
+              >
                 <thead>
                   <tr className="text-left text-xs uppercase tracking-[0.18em] text-[var(--text-muted)]">
-                    <th>Name</th>
-                    <th>Modality</th>
-                    <th>Channels</th>
-                    <th>Use</th>
-                    <th>Region</th>
-                    <th>Status</th>
+                    <th scope="col">Name</th>
+                    <th scope="col">Modality</th>
+                    <th scope="col">Channels</th>
+                    <th scope="col">Use</th>
+                    <th scope="col">Region</th>
+                    <th scope="col">Status</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -192,7 +198,7 @@ export function DeviceRegistryPage() {
                       <td className="px-4 py-4 text-sm text-[var(--text-muted)]">{item.useType}</td>
                       <td className="px-4 py-4 text-sm text-[var(--text-muted)]">{item.regions.join(", ")}</td>
                       <td className="rounded-r-2xl px-4 py-4">
-                        <Badge>{item.regulatoryStatus}</Badge>
+                        <RegulatoryBadge status={item.regulatoryStatus} />
                       </td>
                     </tr>
                   ))}
@@ -202,11 +208,11 @@ export function DeviceRegistryPage() {
           ) : (
             <div className="grid gap-4">
               {devices.map((item) => (
-                <button key={item.id} className="text-left" onClick={() => setSelectedId(item.id)}>
+                <button key={item.id} className="text-left w-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] focus-visible:ring-offset-2 rounded-[2rem]" onClick={() => setSelectedId(item.id)}>
                   <Card className={selected?.id === item.id ? "ring-1 ring-[var(--accent)]" : ""}>
                     <div className="flex flex-wrap gap-2">
                       <Badge tone="accent">{item.modality}</Badge>
-                      <Badge>{item.regulatoryStatus}</Badge>
+                      <RegulatoryBadge status={item.regulatoryStatus} />
                     </div>
                     <h2 className="mt-4 font-display text-xl text-[var(--text)]">{item.name}</h2>
                     <p className="mt-2 text-sm text-[var(--text-muted)]">{item.summary}</p>
@@ -218,7 +224,10 @@ export function DeviceRegistryPage() {
 
           {selected ? (
             <Card className="h-fit xl:sticky xl:top-6">
-              <Badge tone="warning">Sample MVP record</Badge>
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge tone="warning">Sample MVP record</Badge>
+                <RegulatoryBadge status={selected.regulatoryStatus} />
+              </div>
               <h2 className="mt-4 font-display text-2xl text-[var(--text)]">{selected.name}</h2>
               <p className="mt-2 text-sm text-[var(--text-muted)]">{selected.manufacturer}</p>
               <p className="mt-4 text-sm leading-6 text-[var(--text-muted)]">{selected.summary}</p>
@@ -226,7 +235,12 @@ export function DeviceRegistryPage() {
                 <InfoNotice title="Registry caution" body={selected.sampleDataNotice} tone="warning" />
               </div>
               <DetailList title="Best fit" items={selected.bestFor} />
-              <DetailList title="Constraints" items={selected.constraints} />
+              <div className="mt-5">
+                <ContraindicationWarning items={selected.constraints} />
+                {selected.constraints.length === 0 && (
+                  <DetailList title="Safety Constraints & Contraindications" items={[]} />
+                )}
+              </div>
             </Card>
           ) : null}
         </div>
@@ -245,5 +259,26 @@ function DetailList({ title, items }: { title: string; items: string[] }) {
         ))}
       </ul>
     </section>
+  );
+}
+
+function RegulatoryBadge({ status }: { status: string }) {
+  const lower = status?.toLowerCase() ?? "";
+  let classes = "bg-[var(--bg-subtle)] text-[var(--text)]";
+
+  if (lower.includes("fda") || lower.includes("cleared") || lower.includes("approved")) {
+    classes = "bg-emerald-500/15 text-emerald-300 ring-1 ring-emerald-500/30";
+  } else if (lower.includes("ce") || lower.includes("marked") || lower.includes("eu")) {
+    classes = "bg-sky-500/15 text-sky-300 ring-1 ring-sky-500/30";
+  } else if (lower.includes("research") || lower.includes("investigational")) {
+    classes = "bg-amber-500/15 text-amber-300 ring-1 ring-amber-500/30";
+  } else if (lower.includes("not") || lower.includes("none") || lower.includes("uncleared")) {
+    classes = "bg-red-500/15 text-red-400 ring-1 ring-red-500/30";
+  }
+
+  return (
+    <span className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${classes}`}>
+      {status}
+    </span>
   );
 }

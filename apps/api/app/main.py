@@ -9,8 +9,13 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
+from slowapi.util import get_remote_address
 from sqlalchemy import text
 from sqlalchemy.orm import Session
+from starlette.middleware.base import BaseHTTPMiddleware
 
 from deepsynaps_core_schema import (
     AuditTrailResponse,
@@ -53,6 +58,8 @@ settings = get_settings()
 configure_logging(settings)
 logger = get_logger(__name__)
 
+limiter = Limiter(key_func=get_remote_address, default_limits=["200/minute"])
+
 
 @asynccontextmanager
 async def lifespan(app_instance: FastAPI) -> AsyncIterator[None]:
@@ -71,13 +78,43 @@ async def lifespan(app_instance: FastAPI) -> AsyncIterator[None]:
 
 
 app = FastAPI(title=settings.api_title, version=settings.api_version, lifespan=lifespan)
+
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "X-Request-ID", "Accept"],
 )
+
+app.add_middleware(SlowAPIMiddleware)
+
+
+class MaxBodySizeMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        content_length = request.headers.get("content-length")
+        if content_length and int(content_length) > 10 * 1024 * 1024:  # 10MB
+            return JSONResponse({"error": "Request body too large"}, status_code=413)
+        return await call_next(request)
+
+
+app.add_middleware(MaxBodySizeMiddleware)
+
+
+@app.middleware("http")
+async def security_headers_middleware(request: Request, call_next):
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["X-XSS-Protection"] = "1; mode=block"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+    if settings.app_env == "production":
+        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+    return response
 
 
 @app.middleware("http")
@@ -185,7 +222,8 @@ async def unexpected_error_handler(
     response_model=IntakePreviewResponse,
     responses={404: {"model": ErrorResponse}, 422: {"model": ErrorResponse}},
 )
-def intake_preview(payload: IntakePreviewRequest) -> IntakePreviewResponse:
+@limiter.limit("30/minute")
+def intake_preview(request: Request, payload: IntakePreviewRequest) -> IntakePreviewResponse:
     return build_intake_preview(payload)
 
 
@@ -227,7 +265,9 @@ def case_summary(
     response_model=ProtocolDraftResponse,
     responses={403: {"model": ErrorResponse}, 422: {"model": ErrorResponse}},
 )
+@limiter.limit("10/minute")
 def protocol_draft(
+    request: Request,
     payload: ProtocolDraftRequest,
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
 ) -> ProtocolDraftResponse:
@@ -239,7 +279,9 @@ def protocol_draft(
     response_model=HandbookGenerateResponse,
     responses={403: {"model": ErrorResponse}},
 )
+@limiter.limit("10/minute")
 def handbook(
+    request: Request,
     payload: HandbookGenerateRequest,
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
 ) -> HandbookGenerateResponse:

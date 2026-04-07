@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import { useAppState } from "../app/useAppStore";
 import { Badge } from "../components/ui/Badge";
+import { Breadcrumb } from "../components/ui/Breadcrumb";
 import { Card } from "../components/ui/Card";
 import { EmptyState } from "../components/ui/EmptyState";
 import { PageHeader } from "../components/ui/PageHeader";
@@ -106,6 +107,7 @@ export function BrainRegionsPage() {
 
   return (
     <div className="grid gap-6">
+      <Breadcrumb items={[{ label: "Home", to: "/" }, { label: "Brain Regions" }]} />
       <PageHeader
         eyebrow="Brain Regions"
         title="Neuromodulation targeting reference"
@@ -166,15 +168,18 @@ export function BrainRegionsPage() {
             <p className="mb-3 text-xs text-[var(--text-muted)]">
               Showing {filtered.length} of {items.length} regions
             </p>
-            <table className="min-w-full border-separate border-spacing-y-2">
+            <table
+              className="min-w-full border-separate border-spacing-y-2"
+              aria-label="Brain regions atlas"
+            >
               <thead>
                 <tr className="text-left text-xs uppercase tracking-[0.18em] text-[var(--text-muted)]">
-                  <th className="px-3 pb-2">Region</th>
-                  <th className="px-3 pb-2">Lobe</th>
-                  <th className="px-3 pb-2">Depth</th>
-                  <th className="px-3 pb-2">EEG Position</th>
-                  <th className="px-3 pb-2">Network</th>
-                  <th className="px-3 pb-2">Modalities</th>
+                  <th scope="col" className="px-3 pb-2">Region</th>
+                  <th scope="col" className="px-3 pb-2">Lobe</th>
+                  <th scope="col" className="px-3 pb-2">Depth</th>
+                  <th scope="col" className="px-3 pb-2">EEG Position</th>
+                  <th scope="col" className="px-3 pb-2">Network</th>
+                  <th scope="col" className="px-3 pb-2">Modalities</th>
                 </tr>
               </thead>
               <tbody>
@@ -193,8 +198,8 @@ export function BrainRegionsPage() {
                       <DepthBadge depth={r.depth} />
                     </td>
                     <td className="px-3 py-3 font-mono text-xs text-[var(--text-muted)]">{r.eegPosition}</td>
-                    <td className="px-3 py-3 text-xs text-[var(--text-muted)]">{r.brainNetwork}</td>
-                    <td className="rounded-r-2xl px-3 py-3 text-xs text-[var(--text-muted)]">
+                    <td className="px-3 py-3 text-sm text-[var(--text-muted)]">{r.brainNetwork}</td>
+                    <td className="rounded-r-2xl px-3 py-3 text-sm text-[var(--text-muted)]">
                       <span className="line-clamp-2">{r.targetableModalities}</span>
                     </td>
                   </tr>

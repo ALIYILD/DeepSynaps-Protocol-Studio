@@ -1,3 +1,12 @@
+# DeepSynaps Protocol Studio — Fly.io configuration
+#
+# Required secrets (set via `fly secrets set KEY=value`):
+#   DEEPSYNAPS_DATABASE_URL   — PostgreSQL connection string for production DB
+#   STRIPE_SECRET_KEY         — Stripe secret key (when payments are enabled)
+#   STRIPE_WEBHOOK_SECRET     — Stripe webhook signing secret
+#   JWT_SECRET_KEY            — Secret key for JWT signing (when auth is enabled)
+#   SENTRY_DSN                — Sentry DSN for error tracking (optional)
+
 app = "deepsynaps-studio"
 primary_region = "lhr"
 
@@ -6,22 +15,28 @@ primary_region = "lhr"
 [env]
   DEEPSYNAPS_APP_ENV = "production"
   DEEPSYNAPS_LOG_LEVEL = "INFO"
-  # Set this to your Fly.io app URL after first deploy:
-  # DEEPSYNAPS_CORS_ORIGINS = "https://deepsynaps-studio.fly.dev"
+  DEEPSYNAPS_CORS_ORIGINS = "https://deepsynaps-studio.fly.dev"
 
 [http_service]
   internal_port = 8080
   force_https = true
   auto_stop_machines = true
   auto_start_machines = true
-  min_machines_running = 0
+  min_machines_running = 1
 
   [http_service.concurrency]
     type = "connections"
     hard_limit = 25
     soft_limit = 20
 
+[[http_service.checks]]
+  grace_period = "5s"
+  interval = "10s"
+  method = "GET"
+  timeout = "5s"
+  path = "/health"
+
 [[vm]]
-  memory = "512mb"
+  memory = "1gb"
   cpu_kind = "shared"
   cpus = 1

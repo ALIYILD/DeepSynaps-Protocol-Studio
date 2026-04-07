@@ -18,6 +18,7 @@ dependencies = [
     "deepsynaps-device-registry",
     "deepsynaps-safety-engine",
     "deepsynaps-generation-engine",
+    "slowapi>=0.1.9",
 ]
 
 [tool.setuptools]

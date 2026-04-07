@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { useAppState } from "../app/useAppStore";
 import { RoleGate } from "../components/domain/RoleGate";
 import { Badge } from "../components/ui/Badge";
+import { Breadcrumb } from "../components/ui/Breadcrumb";
 import { Button } from "../components/ui/Button";
 import { Card } from "../components/ui/Card";
 import { InfoNotice } from "../components/ui/InfoNotice";
@@ -82,6 +83,7 @@ export function GovernanceSafetyPage() {
 
   return (
     <div className="grid gap-6">
+      <Breadcrumb items={[{ label: "Home", to: "/" }, { label: "Governance & Safety" }]} />
       <PageHeader
         eyebrow="Governance / Safety"
         title="Human review and safety layer"

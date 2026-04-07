@@ -2,9 +2,12 @@ import { useEffect, useMemo, useState } from "react";
 
 import { useAppState } from "../app/useAppStore";
 import { Badge } from "../components/ui/Badge";
+import { Breadcrumb } from "../components/ui/Breadcrumb";
 import { Button } from "../components/ui/Button";
 import { Card } from "../components/ui/Card";
+import { ContraindicationWarning } from "../components/ui/ContraindicationWarning";
 import { EmptyState } from "../components/ui/EmptyState";
+import { EvidenceGradeBadge } from "../components/ui/EvidenceGradeBadge";
 import { InfoNotice } from "../components/ui/InfoNotice";
 import { PageHeader } from "../components/ui/PageHeader";
 import { SelectField } from "../components/ui/SelectField";
@@ -90,6 +93,7 @@ export function EvidenceLibraryPage() {
 
   return (
     <div className="grid gap-6">
+      <Breadcrumb items={[{ label: "Home", to: "/" }, { label: "Evidence Library" }]} />
       <PageHeader
         eyebrow="Evidence Library"
         title="Structured evidence review"
@@ -167,8 +171,8 @@ export function EvidenceLibraryPage() {
             {filteredItems.map((item) => (
               <button key={item.id} className="text-left" onClick={() => setSelectedId(item.id)}>
                 <Card className={selectedItem?.id === item.id ? "ring-2 ring-[var(--accent)]" : ""}>
-                  <div className="flex flex-wrap gap-2">
-                    <Badge tone="accent">{item.evidenceLevel}</Badge>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <EvidenceGradeBadge grade={item.evidenceLevel} />
                     <Badge>{item.regulatoryStatus}</Badge>
                   </div>
                   <h2 className="mt-4 font-display text-xl text-[var(--text)]">{item.title}</h2>
@@ -183,15 +187,21 @@ export function EvidenceLibraryPage() {
 
           {selectedItem ? (
             <Card>
-              <div className="flex flex-wrap gap-2">
-                <Badge tone="accent">{selectedItem.evidenceLevel}</Badge>
-                <Badge>{selectedItem.regulatoryStatus}</Badge>
+              {/* Prominent safety summary header */}
+              <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-strong)] p-4">
+                <p className="text-xs font-semibold uppercase tracking-[0.12em] text-[var(--text-muted)] mb-2">
+                  Evidence summary
+                </p>
+                <div className="flex flex-wrap items-center gap-3">
+                  <EvidenceGradeBadge grade={selectedItem.evidenceLevel} size="lg" />
+                  <Badge>{selectedItem.regulatoryStatus}</Badge>
+                </div>
+                <p className="mt-3 text-sm leading-6 text-[var(--text-muted)]">{selectedItem.evidenceStrength}</p>
               </div>
               <h2 className="mt-4 font-display text-3xl text-[var(--text)]">{selectedItem.title}</h2>
-              <p className="mt-3 text-sm leading-6 text-[var(--text-muted)]">{selectedItem.evidenceStrength}</p>
               <div className="mt-6 grid gap-4 md:grid-cols-2">
                 <DetailBlock title="Supported methods" items={selectedItem.supportedMethods} />
-                <DetailBlock title="Contraindications" items={selectedItem.contraindications} />
+                <ContraindicationWarning items={selectedItem.contraindications} />
                 <DetailBlock title="References" items={selectedItem.references} />
                 <DetailBlock title="Related devices" items={selectedItem.relatedDevices} />
               </div>

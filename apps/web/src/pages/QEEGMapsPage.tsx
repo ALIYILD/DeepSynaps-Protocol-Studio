@@ -2,10 +2,12 @@ import { useEffect, useMemo, useState } from "react";
 
 import { useAppState } from "../app/useAppStore";
 import { Badge } from "../components/ui/Badge";
+import { Breadcrumb } from "../components/ui/Breadcrumb";
 import { Card } from "../components/ui/Card";
 import { EmptyState } from "../components/ui/EmptyState";
 import { PageHeader } from "../components/ui/PageHeader";
 import { SelectField } from "../components/ui/SelectField";
+import { TabList } from "../components/ui/Tabs";
 import { listQEEGBiomarkers, listQEEGConditionMap } from "../lib/api/services";
 import { QEEGBiomarker, QEEGConditionMap } from "../types/domain";
 
@@ -123,23 +125,25 @@ export function QEEGMapsPage() {
     }
   }, [filteredConditions, selectedMapId]);
 
+  const qeegTabs = [
+    { id: "conditions", label: `Condition Maps${conditionItems.length > 0 ? ` (${conditionItems.length})` : ""}` },
+    { id: "biomarkers", label: `Biomarker Bands${biomarkerItems.length > 0 ? ` (${biomarkerItems.length})` : ""}` },
+  ];
+
   return (
     <div className="grid gap-6">
+      <Breadcrumb items={[{ label: "Home", to: "/" }, { label: "qEEG Maps" }]} />
       <PageHeader
         eyebrow="qEEG Maps"
         title="Biomarker and condition reference"
         description="Frequency band biomarkers with normal and pathological ranges alongside condition-level qEEG patterns, disrupted networks, and recommended neuromodulation strategies."
       />
 
-      {/* Tab bar */}
-      <div className="flex gap-2">
-        <TabButton active={activeTab === "conditions"} onClick={() => setActiveTab("conditions")}>
-          Condition Maps{conditionItems.length > 0 ? ` (${conditionItems.length})` : ""}
-        </TabButton>
-        <TabButton active={activeTab === "biomarkers"} onClick={() => setActiveTab("biomarkers")}>
-          Biomarker Bands{biomarkerItems.length > 0 ? ` (${biomarkerItems.length})` : ""}
-        </TabButton>
-      </div>
+      <TabList
+        tabs={qeegTabs}
+        activeTab={activeTab}
+        onTabChange={(id) => setActiveTab(id as Tab)}
+      />
 
       {/* ── CONDITIONS TAB ─────────────────────────────────────────────── */}
       {activeTab === "conditions" && (
@@ -252,21 +256,30 @@ export function QEEGMapsPage() {
                     <Badge tone="accent">{b.hzRange}</Badge>
                   </div>
 
-                  <p className="mt-3 text-sm leading-6 text-[var(--text-muted)]">{b.normalBrainState}</p>
+                  <div className="mt-3 rounded-2xl border border-emerald-500/25 bg-emerald-500/[0.08] px-3 py-2">
+                    <span className="text-xs font-semibold uppercase tracking-[0.10em] text-emerald-400">Normal state: </span>
+                    <span className="text-xs text-[var(--text)]">{b.normalBrainState}</span>
+                  </div>
 
                   <div className="mt-4 grid gap-2">
                     <BiomarkerRow label="Key regions" value={b.keyRegions} />
                     <BiomarkerRow label="EEG sites" value={b.eegPositions} mono />
                   </div>
 
-                  <div className="mt-4 rounded-2xl border border-[var(--border)] bg-[var(--bg-strong)] p-3 grid gap-2">
-                    <div>
-                      <span className="text-xs font-semibold text-amber-300">Pathological increase: </span>
-                      <span className="text-xs text-[var(--text)]">{b.pathologicalIncrease}</span>
+                  <div className="mt-4 rounded-2xl border border-red-500/30 bg-red-500/[0.08] p-3 grid gap-2">
+                    <div className="flex items-start gap-1.5">
+                      <span className="mt-0.5 h-2 w-2 flex-shrink-0 rounded-full bg-red-400" aria-hidden="true" />
+                      <div>
+                        <span className="text-xs font-semibold text-red-400">Pathological increase: </span>
+                        <span className="text-xs text-[var(--text)]">{b.pathologicalIncrease}</span>
+                      </div>
                     </div>
-                    <div>
-                      <span className="text-xs font-semibold text-sky-300">Pathological decrease: </span>
-                      <span className="text-xs text-[var(--text)]">{b.pathologicalDecrease}</span>
+                    <div className="flex items-start gap-1.5">
+                      <span className="mt-0.5 h-2 w-2 flex-shrink-0 rounded-full bg-red-400" aria-hidden="true" />
+                      <div>
+                        <span className="text-xs font-semibold text-red-400">Pathological decrease: </span>
+                        <span className="text-xs text-[var(--text)]">{b.pathologicalDecrease}</span>
+                      </div>
                     </div>
                   </div>
 
@@ -289,28 +302,6 @@ export function QEEGMapsPage() {
   );
 }
 
-function TabButton({
-  active,
-  onClick,
-  children,
-}: {
-  active: boolean;
-  onClick: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <button
-      onClick={onClick}
-      className={`rounded-2xl px-5 py-2.5 text-sm font-medium transition ${
-        active
-          ? "bg-[var(--accent-soft)] text-[var(--accent)]"
-          : "bg-[var(--bg-strong)] text-[var(--text-muted)] hover:bg-[var(--bg-subtle)] hover:text-[var(--text)]"
-      }`}
-    >
-      {children}
-    </button>
-  );
-}
 
 function QEEGDetailBlock({ title, text }: { title: string; text: string }) {
   if (!text) return null;

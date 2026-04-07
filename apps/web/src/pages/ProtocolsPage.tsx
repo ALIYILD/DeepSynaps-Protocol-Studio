@@ -3,8 +3,11 @@ import { useEffect, useState } from "react";
 import { useAppState } from "../app/useAppStore";
 import { PackageGate } from "../components/domain/PackageGate";
 import { Badge } from "../components/ui/Badge";
+import { Breadcrumb } from "../components/ui/Breadcrumb";
 import { Button } from "../components/ui/Button";
 import { Card } from "../components/ui/Card";
+import { ContraindicationWarning } from "../components/ui/ContraindicationWarning";
+import { EvidenceGradeBadge } from "../components/ui/EvidenceGradeBadge";
 import { InfoNotice } from "../components/ui/InfoNotice";
 import { PageHeader } from "../components/ui/PageHeader";
 import { SelectField } from "../components/ui/SelectField";
@@ -92,6 +95,7 @@ export function ProtocolsPage() {
 
   return (
     <div className="grid gap-6">
+      <Breadcrumb items={[{ label: "Home", to: "/" }, { label: "Protocol Generator" }]} />
       <PageHeader
         eyebrow="Protocol Generator"
         title="Deterministic protocol drafting"
@@ -195,26 +199,34 @@ export function ProtocolsPage() {
             </div>
           ) : output ? (
             <>
-              <div className="flex flex-wrap gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <Badge tone={output.approvalStatusBadge === "approved use" ? "success" : output.approvalStatusBadge === "off-label" ? "warning" : "accent"}>
                   {output.approvalStatusBadge}
                 </Badge>
-                <Badge>{output.evidenceGrade}</Badge>
+                <EvidenceGradeBadge grade={output.evidenceGrade} size="lg" />
               </div>
               <h2 className="mt-4 font-display text-3xl text-[var(--text)]">Generated protocol preview</h2>
               <p className="mt-3 text-sm leading-6 text-[var(--text-muted)]">{output.rationale}</p>
               {output.offLabelReviewRequired ? (
-                <p className="mt-3 rounded-2xl border border-amber-400/30 bg-amber-500/10 px-4 py-3 text-sm leading-6 text-amber-100">
-                  {output.disclaimers.draftSupportOnly ?? DRAFT_SUPPORT_ONLY}{" "}
-                  {output.disclaimers.offLabelReviewRequired ?? OFF_LABEL_REVIEW_REQUIRED}
-                </p>
+                <div className="mt-4 rounded-2xl border-2 border-amber-400/50 bg-amber-500/12 px-5 py-4">
+                  <div className="flex items-center gap-2 mb-2">
+                    <svg aria-hidden="true" className="h-5 w-5 flex-shrink-0 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" />
+                    </svg>
+                    <span className="text-sm font-bold text-amber-300">Off-label use — Independent clinical review required</span>
+                  </div>
+                  <p className="text-sm leading-6 text-amber-200">
+                    {output.disclaimers.draftSupportOnly ?? DRAFT_SUPPORT_ONLY}{" "}
+                    {output.disclaimers.offLabelReviewRequired ?? OFF_LABEL_REVIEW_REQUIRED}
+                  </p>
+                </div>
               ) : null}
               <div className="mt-5 grid gap-4 md:grid-cols-2">
                 <PreviewBlock title="Target region" items={[output.targetRegion]} />
                 <PreviewBlock title="Session frequency" items={[output.sessionFrequency, output.duration]} />
                 <PreviewBlock title="Escalation logic" items={output.escalationLogic} />
                 <PreviewBlock title="Monitoring plan" items={output.monitoringPlan} />
-                <PreviewBlock title="Contraindications" items={output.contraindications} />
+                <ContraindicationWarning items={output.contraindications} />
                 <PreviewBlock title="Patient communication notes" items={output.patientCommunicationNotes} />
               </div>
             </>
