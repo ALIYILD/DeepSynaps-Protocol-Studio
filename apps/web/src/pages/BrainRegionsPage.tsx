@@ -53,7 +53,7 @@ export function BrainRegionsPage() {
       [
         ...new Set(
           items.flatMap((r) =>
-            r.fnonNetwork
+            r.brainNetwork
               .split(",")
               .map((n) => n.trim())
               .filter(Boolean),
@@ -82,14 +82,14 @@ export function BrainRegionsPage() {
     return items.filter((r) => {
       const matchesQuery =
         query.length === 0 ||
-        [r.regionName, r.abbreviation, r.fnonNetwork, r.keyConditions, r.targetableModalities, r.primaryFunctions]
+        [r.regionName, r.abbreviation, r.brainNetwork, r.keyConditions, r.targetableModalities, r.primaryFunctions]
           .join(" ")
           .toLowerCase()
           .includes(query);
       const matchesLobe = lobeFilter === "all" || r.lobe === lobeFilter;
       const matchesDepth = depthFilter === "all" || r.depth === depthFilter;
       const matchesNetwork =
-        networkFilter === "all" || r.fnonNetwork.split(",").map((n) => n.trim()).includes(networkFilter);
+        networkFilter === "all" || r.brainNetwork.split(",").map((n) => n.trim()).includes(networkFilter);
       const matchesModality =
         modalityFilter === "all" || r.targetableModalities.split(",").map((m) => m.trim()).includes(modalityFilter);
       return matchesQuery && matchesLobe && matchesDepth && matchesNetwork && matchesModality;
@@ -108,8 +108,8 @@ export function BrainRegionsPage() {
     <div className="grid gap-6">
       <PageHeader
         eyebrow="Brain Regions"
-        title="FNON targeting reference"
-        description="Browse the 46-region Functional Network-Oriented Neuromodulation (FNON) atlas. Each entry maps anatomical location to EEG position, network membership, and targetable modalities."
+        title="Neuromodulation targeting reference"
+        description="Browse the 46-region anatomical atlas. Each entry maps anatomical location to EEG position, network membership, and targetable modalities."
       />
 
       <Card>
@@ -130,7 +130,7 @@ export function BrainRegionsPage() {
               </option>
             ))}
           </SelectField>
-          <SelectField label="Network (FNON)" value={networkFilter} onChange={setNetworkFilter} disabled={loading || items.length === 0}>
+          <SelectField label="Network" value={networkFilter} onChange={setNetworkFilter} disabled={loading || items.length === 0}>
             <option value="all">All networks</option>
             {networks.map((v) => (
               <option key={v} value={v}>
@@ -193,7 +193,7 @@ export function BrainRegionsPage() {
                       <DepthBadge depth={r.depth} />
                     </td>
                     <td className="px-3 py-3 font-mono text-xs text-[var(--text-muted)]">{r.eegPosition}</td>
-                    <td className="px-3 py-3 text-xs text-[var(--text-muted)]">{r.fnonNetwork}</td>
+                    <td className="px-3 py-3 text-xs text-[var(--text-muted)]">{r.brainNetwork}</td>
                     <td className="rounded-r-2xl px-3 py-3 text-xs text-[var(--text-muted)]">
                       <span className="line-clamp-2">{r.targetableModalities}</span>
                     </td>
@@ -206,7 +206,7 @@ export function BrainRegionsPage() {
           {selected ? (
             <Card className="h-fit xl:sticky xl:top-6">
               <div className="flex flex-wrap gap-2">
-                <Badge tone="accent">{selected.fnonNetwork.split(",")[0].trim()}</Badge>
+                <Badge tone="accent">{selected.brainNetwork.split(",")[0].trim()}</Badge>
                 <DepthBadge depth={selected.depth} />
               </div>
               <h2 className="mt-4 font-display text-2xl text-[var(--text)]">{selected.regionName}</h2>
@@ -218,7 +218,7 @@ export function BrainRegionsPage() {
 
               <RegionDetailBlock title="Key conditions" text={selected.keyConditions} />
               <RegionDetailBlock title="Targetable modalities" text={selected.targetableModalities} />
-              <RegionDetailBlock title="Networks" text={selected.fnonNetwork} />
+              <RegionDetailBlock title="Networks" text={selected.brainNetwork} />
               {selected.notes && <RegionDetailBlock title="Clinical notes" text={selected.notes} />}
             </Card>
           ) : null}

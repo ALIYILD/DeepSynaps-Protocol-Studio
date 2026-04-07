@@ -100,7 +100,7 @@ describe("App route smoke tests", () => {
     ["/upload-review", "Clinician-gated upload staging"],
     ["/governance-safety", "Human review and safety layer"],
     ["/pricing-access", "Plans for every stage of practice"],
-    ["/brain-regions", "FNON targeting reference"],
+    ["/brain-regions", "Neuromodulation targeting reference"],
     ["/qeeg-maps", "Biomarker and condition reference"],
   ])("renders %s", async (route, title) => {
     renderApp({ route, state: { role: "admin" } });

@@ -179,7 +179,7 @@ export type ApiBrainRegion = {
   eeg_position_10_20: string;
   brodmann_area: string;
   primary_functions: string;
-  fnon_network: string;
+  brain_network: string;
   key_conditions: string;
   targetable_modalities: string;
   notes: string;

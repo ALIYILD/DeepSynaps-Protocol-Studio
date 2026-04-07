@@ -235,7 +235,7 @@ export type BrainRegion = {
   eegPosition: string;
   brodmannArea: string;
   primaryFunctions: string;
-  fnonNetwork: string;
+  brainNetwork: string;
   keyConditions: string;
   targetableModalities: string;
   notes: string;

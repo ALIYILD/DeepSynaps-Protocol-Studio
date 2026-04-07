@@ -17,7 +17,7 @@
 | 7 | Assessments | 22 | Assessment_ID | 22 condition-assessment mappings with scales, neuropsych, qEEG |
 | 8 | Protocols | 100 | Protocol_ID | 100 evidence-graded treatment protocols across 11 modalities |
 | 9 | Sources | 37 | Source_ID | 37 high-quality literature sources with DOIs |
-| 10 | Brain_Regions | 46 | Region_ID | 46 anatomical regions with EEG mapping and FNON networks |
+| 10 | Brain_Regions | 46 | Region_ID | 46 anatomical regions with EEG mapping and brain networks |
 | 11 | qEEG_Condition_Map | 22 | Map_ID | 22 conditions with qEEG biomarker signatures |
 | 12 | qEEG_Biomarkers | 7 | Band_ID | 7 frequency bands with clinical significance |
 
@@ -70,7 +70,7 @@
 | EEG_Position_10_20 | string | 10-20 system position(s) |
 | Brodmann_Area | string | Brodmann area(s) |
 | Primary_Functions | text | Key functions |
-| FNON_Network | string | Network assignment(s) |
+| Brain_Network | string | Network assignment(s) |
 | Key_Conditions | text | Conditions where this is a target |
 | Targetable_Modalities | text | Which modalities can reach it |
 

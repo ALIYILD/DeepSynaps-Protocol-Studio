@@ -48,7 +48,7 @@ def list_brain_regions_from_csv() -> BrainRegionListResponse:
                 eeg_position_10_20=row["EEG_Position_10_20"],
                 brodmann_area=row["Brodmann_Area"],
                 primary_functions=row["Primary_Functions"],
-                fnon_network=row["FNON_Network"],
+                brain_network=row["Brain_Network"],
                 key_conditions=row["Key_Conditions"],
                 targetable_modalities=_split_values(row["Targetable_Modalities"]),
                 notes=row["Notes"],

@@ -57,7 +57,7 @@
 --- Brain Regions & qEEG Checks ---
   ✅ PASS: 46 brain regions populated
   ✅ PASS: Brain regions have EEG positions
-  ✅ PASS: Brain regions have FNON network
+  ✅ PASS: Brain regions have brain network
   ✅ PASS: 22 qEEG condition maps populated
   ✅ PASS: 7 qEEG biomarker bands populated
 

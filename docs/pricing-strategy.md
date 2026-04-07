@@ -58,7 +58,7 @@ DeepSynaps Studio is the only clinical platform that unifies **all 16 neuromodul
 |---|---|
 | Full evidence library | All 450+ records, 16 modalities, 46 brain regions |
 | Protocol generator | Generate evidence-graded protocols per condition |
-| qEEG-guided targeting | FNON framework, electrode site recommendations |
+| qEEG-guided targeting | Network-based framework, electrode site recommendations |
 | Assessment battery builder | Condition-specific assessment recommendations |
 | Brain region & network maps | Interactive targeting reference |
 | Device comparison (full) | Cross-modality device comparison tables |

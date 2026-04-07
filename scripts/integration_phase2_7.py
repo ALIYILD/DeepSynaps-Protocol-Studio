@@ -428,9 +428,9 @@ print("\n" + "=" * 60)
 print("PHASE 5: Brain Regions + qEEG Tables")
 print("=" * 60)
 
-# Brain Regions from FNON file (46 entries)
-wb_fnon = openpyxl.load_workbook('/home/user/workspace/Brain_Networks_qEEG_FNON.xlsx', data_only=True)
-ws_br = wb_fnon['Brain_Regions']
+# Brain Regions from network file (46 entries)
+wb_neuro = openpyxl.load_workbook('/home/user/workspace/Brain_Networks_qEEG.xlsx', data_only=True)
+ws_br = wb_neuro['Brain_Regions']
 
 brain_regions = []
 br_counter = 1
@@ -448,7 +448,7 @@ for row_idx in range(3, ws_br.max_row + 1):
         "EEG_Position_10_20": str(ws_br.cell(row=row_idx, column=5).value or "").strip(),
         "Brodmann_Area": str(ws_br.cell(row=row_idx, column=6).value or "").strip(),
         "Primary_Functions": str(ws_br.cell(row=row_idx, column=7).value or "").strip(),
-        "FNON_Network": str(ws_br.cell(row=row_idx, column=8).value or "").strip(),
+        "Brain_Network": str(ws_br.cell(row=row_idx, column=8).value or "").strip(),
         "Key_Conditions": str(ws_br.cell(row=row_idx, column=11).value or "").strip(),
         "Targetable_Modalities": str(ws_br.cell(row=row_idx, column=12).value or "").strip(),
         "Notes": str(ws_br.cell(row=row_idx, column=13).value or "").strip() if ws_br.cell(row=row_idx, column=13).value else "",
@@ -460,7 +460,7 @@ for row_idx in range(3, ws_br.max_row + 1):
 print(f"  Brain Regions: {len(brain_regions)} entries")
 
 # qEEG Biomarkers (7 entries)
-ws_qeeg = wb_fnon['qEEG_Biomarkers']
+ws_qeeg = wb_neuro['qEEG_Biomarkers']
 qeeg_biomarkers = []
 qb_counter = 1
 for row_idx in range(3, ws_qeeg.max_row + 1):
@@ -575,7 +575,7 @@ for row_idx in range(3, ws_am.max_row + 1):
     neuroimaging = str(ws_am.cell(row=row_idx, column=10).value or "").strip()
     physiological = str(ws_am.cell(row=row_idx, column=11).value or "").strip()
     functional = str(ws_am.cell(row=row_idx, column=12).value or "").strip()
-    fnon_target = str(ws_am.cell(row=row_idx, column=13).value or "").strip()
+    network_target = str(ws_am.cell(row=row_idx, column=13).value or "").strip()
     rationale = str(ws_am.cell(row=row_idx, column=14).value or "").strip()
     
     assessment = {
@@ -593,7 +593,7 @@ for row_idx in range(3, ws_am.max_row + 1):
         "Neuroimaging": neuroimaging,
         "Physiological_Assessments": physiological,
         "Functional_Behavioural": functional,
-        "FNON_qEEG_Treatment_Target": fnon_target,
+        "Brain_qEEG_Treatment_Target": network_target,
         "Clinical_Rationale": rationale,
         "Review_Status": "Reviewed",
         "Import_Source": "Assessments_Master.xlsx",
@@ -954,7 +954,7 @@ report = f"""# DeepSynaps Studio — Data Integration Report
 
 ## New Tables Added
 
-1. **Brain_Regions** — {len(brain_regions)} anatomical regions with 10-20 EEG positions, Brodmann areas, FNON network assignments
+1. **Brain_Regions** — {len(brain_regions)} anatomical regions with 10-20 EEG positions, Brodmann areas, brain network assignments
 2. **qEEG_Condition_Map** — {len(qeeg_condition_map)} conditions with qEEG biomarker signatures, electrode sites, network dysfunction patterns, stimulation rationale
 3. **qEEG_Biomarkers** — {len(qeeg_biomarkers)} frequency bands with normal/pathological signatures and clinical significance
 
@@ -1154,7 +1154,7 @@ Primary key: Assessment_ID
 | Neuroimaging | text | Imaging recommendations | |
 | Physiological_Assessments | text | HRV, sleep, etc. | |
 | Functional_Behavioural | text | Functional assessments | |
-| FNON_qEEG_Treatment_Target | text | qEEG-guided treatment target | |
+| Brain_qEEG_Treatment_Target | text | qEEG-guided treatment target | |
 | Clinical_Rationale | text | Why these assessments | |
 | Review_Status | enum | Reviewed / Pending / To Verify | Reviewed |
 | Import_Source | string | Source file | |
@@ -1221,7 +1221,7 @@ Primary key: Region_ID
 | EEG_Position_10_20 | string | 10-20 system positions | "F3(L),F4(R)" |
 | Brodmann_Area | string | Brodmann area(s) | "BA9,46" |
 | Primary_Functions | text | Key functions | |
-| FNON_Network | string | Network assignment(s) | "ECN, Salience, DMN" |
+| Brain_Network | string | Network assignment(s) | "ECN, Salience, DMN" |
 | Key_Conditions | text | Targeted conditions | |
 | Targetable_Modalities | text | Modalities that can reach it | |
 | Notes | text | Clinical notes | |

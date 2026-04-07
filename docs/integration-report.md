@@ -29,7 +29,7 @@
 
 ## New Tables Added
 
-1. **Brain_Regions** — 46 anatomical regions with 10-20 EEG positions, Brodmann areas, FNON network assignments
+1. **Brain_Regions** — 46 anatomical regions with 10-20 EEG positions, Brodmann areas, brain network assignments
 2. **qEEG_Condition_Map** — 22 conditions with qEEG biomarker signatures, electrode sites, network dysfunction patterns, stimulation rationale
 3. **qEEG_Biomarkers** — 7 frequency bands with normal/pathological signatures and clinical significance
 

@@ -23,7 +23,7 @@ A complete clinical neuromodulation database (DeepSynaps Studio v2.0) integratin
 | Assessments | 22 | Full batteries per condition |
 | Protocols | 100 | ALL status = "Pending" (never auto-published) |
 | Sources | 37 | High-quality peer-reviewed papers |
-| Brain_Regions (NEW) | 46 | FNON framework mapped |
+| Brain_Regions (NEW) | 46 | Network framework mapped |
 | qEEG_Condition_Map (NEW) | 22 | Condition-to-qEEG biomarker links |
 | qEEG_Biomarkers (NEW) | 7 | Core qEEG metrics |
 
@@ -94,7 +94,7 @@ These rules were established by the user and must never be violated:
 |---|---|
 | `SOZO_Master_Neuromodulation_Protocols_v2.xlsx` | PRIMARY — 111 rows across 11 modality sheets (100 actual protocols; last row per sheet is "Source:" attribution) |
 | `Master-with-QEEG-places.xlsx` | Conditions_QEEG_Map sheet |
-| `Brain_Networks_qEEG_FNON.xlsx` | FNON framework, 46 brain regions, qEEG biomarkers (note: headers in row 2, data from row 3) |
+| `Brain_Networks_qEEG.xlsx` | network framework, 46 brain regions, qEEG biomarkers (note: headers in row 2, data from row 3) |
 | `Assessments_Master.xlsx` | 22 conditions × assessment batteries |
 | `transcinal-pulse-stimulations-04-Apr-2026-1.csv` | 2,995 TPS/tFUS papers |
 | `brain-networks-for-neurmodulation-04-Apr-2026.csv` | 86 papers |
@@ -105,7 +105,7 @@ These rules were established by the user and must never be violated:
 ## Key Technical Notes
 
 1. **Protocol count is 100, not 111** — each of the 11 modality sheets has a final "Source:" attribution row that is not a protocol
-2. **Brain_Regions FNON file** has a title row in row 1, headers in row 2, and data starting from row 3 — direct pandas read will misalign columns
+2. **Brain_Regions network file** has a title row in row 1, headers in row 2, and data starting from row 3 — direct pandas read will misalign columns
 3. **New conditions added (11)**: Schizophrenia (COND-021), Disorders of Consciousness (COND-022), MCI (COND-023), MS (COND-024), Fibromyalgia (COND-025), Cognitive Enhancement (COND-026), Inflammatory Arthritis (COND-027), Motor/Perceptual Learning (COND-028), Tourette's (COND-029), VCI (COND-030), MS-related Pain (COND-031)
 4. **New modalities added (4)**: tACS (MOD-013), PEMF (MOD-014), LIFU/tFUS (MOD-015), tRNS (MOD-016)
 
@@ -117,7 +117,7 @@ These rules were established by the user and must never be violated:
 2. Proposed 3 new tables (Brain_Regions, qEEG_Condition_Map, qEEG_Biomarkers) — user approved
 3. User asked about pricing → created 4-tier pricing strategy with competitive analysis
 4. User said "continue with this" → executed full integration (Phases 2–10)
-5. First integration run hit error on FNON file (header offset) — fixed and re-ran
+5. First integration run hit error on network file (header offset) — fixed and re-ran
 6. Generated all CSVs + Excel workbook
 7. Built full-stack web app (Express + React + Tailwind)
 8. QA: 53/53 passed

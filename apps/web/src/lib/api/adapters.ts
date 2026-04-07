@@ -144,7 +144,7 @@ export function adaptBrainRegion(input: ApiBrainRegion): BrainRegion {
     eegPosition: input.eeg_position_10_20,
     brodmannArea: input.brodmann_area,
     primaryFunctions: input.primary_functions,
-    fnonNetwork: input.fnon_network,
+    brainNetwork: input.brain_network,
     keyConditions: input.key_conditions,
     targetableModalities: input.targetable_modalities,
     notes: input.notes,
