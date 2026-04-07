@@ -12,7 +12,7 @@ import { PageHeader } from "../components/ui/PageHeader";
 import { SelectField } from "../components/ui/SelectField";
 import { DRAFT_SUPPORT_ONLY, PROFESSIONAL_USE_ONLY } from "../content/disclaimers";
 import { ApiError } from "../lib/api/client";
-import { generateHandbook } from "../lib/api/services";
+import { exportHandbookDocx, generateHandbook } from "../lib/api/services";
 import { HandbookGenerationResult, HandbookKindApi, Modality } from "../types/domain";
 
 const handbookOptions: Array<{ label: string; value: HandbookKindApi }> = [
@@ -30,6 +30,7 @@ export function HandbooksPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isUnauthorized, setIsUnauthorized] = useState(false);
+  const [exportingDocx, setExportingDocx] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -83,6 +84,26 @@ export function HandbooksPage() {
   }, [role, kind, condition, modality]);
 
   const selectedLabel = handbookOptions.find((option) => option.value === kind)?.label ?? "Document";
+
+  async function handleExportDocx() {
+    setExportingDocx(true);
+    try {
+      const blob = await exportHandbookDocx(
+        { condition_name: condition, modality_name: modality, device_name: "" },
+        role,
+      );
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = `handbook_${condition}_${modality}.docx`.replace(/[^a-zA-Z0-9._-]/g, "_");
+      anchor.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      // silently ignore export errors — the preview is still visible
+    } finally {
+      setExportingDocx(false);
+    }
+  }
 
   return (
     <div className="grid gap-6">
@@ -149,8 +170,8 @@ export function HandbooksPage() {
                   <Button variant="secondary" disabled>
                     Export PDF
                   </Button>
-                  <Button variant="secondary" disabled>
-                    Export DOCX
+                  <Button variant="secondary" onClick={() => void handleExportDocx()} disabled={exportingDocx}>
+                    {exportingDocx ? "Exporting…" : "Export DOCX"}
                   </Button>
                 </div>
               </div>

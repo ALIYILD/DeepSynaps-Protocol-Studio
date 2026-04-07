@@ -15,7 +15,7 @@ import { DRAFT_SUPPORT_ONLY, OFF_LABEL_REVIEW_REQUIRED, PROFESSIONAL_USE_ONLY } 
 import { protocolGeneratorOptions } from "../data/mockData";
 import { ApiError } from "../lib/api/client";
 import { FEATURES } from "../lib/packages";
-import { generateProtocolDraft } from "../lib/api/services";
+import { exportProtocolDocx, generateProtocolDraft } from "../lib/api/services";
 import { ProtocolDraft } from "../types/domain";
 
 const deviceOptions = ["NEUROLITH", "PulseArc Clinical", "FocusLoop Hybrid", "LumaBand Home"] as const;
@@ -35,8 +35,36 @@ export function ProtocolsPage() {
   const [warnings, setWarnings] = useState<string[]>([]);
   const [isUnauthorized, setIsUnauthorized] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
+  const [exportingDocx, setExportingDocx] = useState(false);
 
   const canUseOffLabel = role !== "guest";
+
+  async function handleExportDocx() {
+    setExportingDocx(true);
+    try {
+      const blob = await exportProtocolDocx(
+        {
+          condition_name: condition,
+          modality_name: modality,
+          device_name: device,
+          setting: setting,
+          evidence_threshold: threshold,
+          off_label: offLabel,
+        },
+        role,
+      );
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = `protocol_${condition}_${modality}.docx`.replace(/[^a-zA-Z0-9._-]/g, "_");
+      anchor.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      // silently ignore export errors — the preview is still visible
+    } finally {
+      setExportingDocx(false);
+    }
+  }
 
   useEffect(() => {
     if (!canUseOffLabel && offLabel) {
@@ -199,11 +227,18 @@ export function ProtocolsPage() {
             </div>
           ) : output ? (
             <>
-              <div className="flex flex-wrap items-center gap-2">
-                <Badge tone={output.approvalStatusBadge === "approved use" ? "success" : output.approvalStatusBadge === "off-label" ? "warning" : "accent"}>
-                  {output.approvalStatusBadge}
-                </Badge>
-                <EvidenceGradeBadge grade={output.evidenceGrade} size="lg" />
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge tone={output.approvalStatusBadge === "approved use" ? "success" : output.approvalStatusBadge === "off-label" ? "warning" : "accent"}>
+                    {output.approvalStatusBadge}
+                  </Badge>
+                  <EvidenceGradeBadge grade={output.evidenceGrade} size="lg" />
+                </div>
+                {role !== "guest" ? (
+                  <Button variant="secondary" onClick={() => void handleExportDocx()} disabled={exportingDocx}>
+                    {exportingDocx ? "Exporting…" : "Export as DOCX"}
+                  </Button>
+                ) : null}
               </div>
               <h2 className="mt-4 font-display text-3xl text-[var(--text)]">Generated protocol preview</h2>
               <p className="mt-3 text-sm leading-6 text-[var(--text-muted)]">{output.rationale}</p>

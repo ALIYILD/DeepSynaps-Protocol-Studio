@@ -29,7 +29,8 @@ import {
   adaptQEEGConditionMap,
 } from "./adapters";
 import { getAuthorizationHeader } from "./auth";
-import { requestJson } from "./client";
+import { ApiError, requestJson } from "./client";
+import { apiBaseUrl } from "../../config/api";
 import {
   ApiAuditTrailResponse,
   ApiBrainRegionListResponse,
@@ -184,4 +185,100 @@ export async function listQEEGBiomarkers(): Promise<QEEGBiomarker[]> {
 export async function listQEEGConditionMap(): Promise<QEEGConditionMap[]> {
   const response = await requestJson<ApiQEEGConditionMapListResponse>("/api/v1/qeeg/condition-map");
   return response.items.map(adaptQEEGConditionMap);
+}
+
+async function requestBlob(path: string, init?: RequestInit): Promise<Blob> {
+  let response: Response;
+  try {
+    response = await fetch(`${apiBaseUrl}${path}`, {
+      ...init,
+      headers: {
+        ...(init?.body ? { "Content-Type": "application/json" } : {}),
+        ...(init?.headers ?? {}),
+      },
+    });
+  } catch (error) {
+    throw new ApiError({
+      code: "network_error",
+      message: "The API could not be reached.",
+      status: 0,
+      warnings: error instanceof Error ? [error.message] : [],
+    });
+  }
+  if (!response.ok) {
+    throw new ApiError({
+      code: "request_failed",
+      message: "The export request could not be completed.",
+      status: response.status,
+    });
+  }
+  return response.blob();
+}
+
+export async function exportProtocolDocx(params: {
+  condition_name: string;
+  modality_name: string;
+  device_name: string;
+  setting?: string;
+  evidence_threshold?: string;
+  off_label?: boolean;
+}, role: UserRole): Promise<Blob> {
+  return requestBlob("/api/v1/export/protocol-docx", {
+    method: "POST",
+    headers: getAuthorizationHeader(role),
+    body: JSON.stringify(params),
+  });
+}
+
+export async function exportHandbookDocx(params: {
+  condition_name: string;
+  modality_name: string;
+  device_name: string;
+}, role: UserRole): Promise<Blob> {
+  return requestBlob("/api/v1/export/handbook-docx", {
+    method: "POST",
+    headers: getAuthorizationHeader(role),
+    body: JSON.stringify(params),
+  });
+}
+
+export interface AuthUser {
+  id: string;
+  email: string;
+  display_name: string;
+  role: string;
+  package_id: string;
+}
+
+export interface AuthTokenResponse {
+  access_token: string;
+  refresh_token: string;
+  user: AuthUser;
+}
+
+export async function registerUser(data: {
+  email: string;
+  display_name: string;
+  password: string;
+}): Promise<AuthTokenResponse> {
+  return requestJson<AuthTokenResponse>("/api/v1/auth/register", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+export async function loginUser(data: {
+  email: string;
+  password: string;
+}): Promise<AuthTokenResponse> {
+  return requestJson<AuthTokenResponse>("/api/v1/auth/login", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+export async function getMe(token: string): Promise<AuthUser> {
+  return requestJson<AuthUser>("/api/v1/auth/me", {
+    headers: { Authorization: `Bearer ${token}` },
+  });
 }

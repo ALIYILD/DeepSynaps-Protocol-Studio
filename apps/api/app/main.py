@@ -42,6 +42,10 @@ from app.database import SessionLocal, get_db_session, init_database
 from app.errors import ApiServiceError
 from app.logging_setup import configure_logging, get_logger
 from app.repositories.clinical import get_latest_snapshot
+from app.routers.auth_router import router as auth_router
+from app.routers.export_router import router as export_router
+from app.routers.payments_router import router as payments_router
+from app.sentry_setup import init_sentry
 from app.settings import get_settings
 from app.services.audit import get_audit_trail
 from app.services.brain_regions import list_brain_regions
@@ -57,6 +61,7 @@ from app.services.uploads import build_case_summary
 settings = get_settings()
 configure_logging(settings)
 logger = get_logger(__name__)
+init_sentry(settings.sentry_dsn, settings.app_env)
 
 limiter = Limiter(key_func=get_remote_address, default_limits=["200/minute"])
 
@@ -78,6 +83,9 @@ async def lifespan(app_instance: FastAPI) -> AsyncIterator[None]:
 
 
 app = FastAPI(title=settings.api_title, version=settings.api_version, lifespan=lifespan)
+app.include_router(auth_router)
+app.include_router(payments_router)
+app.include_router(export_router)
 
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)

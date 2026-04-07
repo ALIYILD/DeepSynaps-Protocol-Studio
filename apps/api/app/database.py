@@ -5,24 +5,33 @@ from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
 from app.settings import get_settings
 
-DATABASE_URL = get_settings().database_url
-
 
 class Base(DeclarativeBase):
     pass
 
 
-def _create_engine(url: str):
-    connect_args = {"check_same_thread": False} if url.startswith("sqlite") else {}
-    return create_engine(url, future=True, connect_args=connect_args)
+def _make_engine():
+    url = get_settings().database_url
+    if url.startswith("sqlite"):
+        return create_engine(url, future=True, connect_args={"check_same_thread": False})
+    else:
+        # PostgreSQL - connection pooling
+        return create_engine(
+            url,
+            future=True,
+            pool_size=10,
+            max_overflow=20,
+            pool_pre_ping=True,   # detect stale connections
+            pool_recycle=3600,    # recycle connections every hour
+        )
 
 
-engine = _create_engine(DATABASE_URL)
+engine = _make_engine()
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, class_=Session)
 
 
 def init_database() -> None:
-    import app.persistence.models  # noqa: F401
+    import app.persistence.models  # noqa: F401  # registers all models with Base.metadata
 
     Base.metadata.create_all(bind=engine)
 

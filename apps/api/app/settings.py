@@ -33,6 +33,28 @@ class AppSettings(BaseModel):
     database_backup_root: Path = REPO_ROOT / "data" / "backups"
     request_timeout_seconds: int = 30
 
+    # JWT
+    jwt_secret_key: str = Field(default="CHANGE-THIS-IN-PRODUCTION-use-openssl-rand-hex-32")
+    jwt_algorithm: str = Field(default="HS256")
+    jwt_access_token_expire_minutes: int = Field(default=60)
+    jwt_refresh_token_expire_days: int = Field(default=30)
+
+    # Stripe
+    stripe_secret_key: str = Field(default="")
+    stripe_publishable_key: str = Field(default="")
+    stripe_webhook_secret: str = Field(default="")
+
+    # Stripe Price IDs (set these in Fly.io secrets after creating products in Stripe dashboard)
+    stripe_price_resident: str = Field(default="")
+    stripe_price_clinician_pro: str = Field(default="")
+    stripe_price_clinic_team: str = Field(default="")
+
+    # Sentry
+    sentry_dsn: str = Field(default="")
+
+    # App URL (used for Stripe redirect URLs)
+    app_url: str = Field(default="http://localhost:5173")
+
     @field_validator("database_url")
     @classmethod
     def validate_database_url(cls, value: str) -> str:
@@ -90,6 +112,29 @@ def load_settings() -> AppSettings:
                 "request_timeout_seconds": int(
                     os.getenv("DEEPSYNAPS_REQUEST_TIMEOUT_SECONDS", "30")
                 ),
+                # JWT
+                "jwt_secret_key": os.getenv(
+                    "JWT_SECRET_KEY",
+                    "CHANGE-THIS-IN-PRODUCTION-use-openssl-rand-hex-32",
+                ),
+                "jwt_algorithm": os.getenv("JWT_ALGORITHM", "HS256"),
+                "jwt_access_token_expire_minutes": int(
+                    os.getenv("JWT_ACCESS_TOKEN_EXPIRE_MINUTES", "60")
+                ),
+                "jwt_refresh_token_expire_days": int(
+                    os.getenv("JWT_REFRESH_TOKEN_EXPIRE_DAYS", "30")
+                ),
+                # Stripe
+                "stripe_secret_key": os.getenv("STRIPE_SECRET_KEY", ""),
+                "stripe_publishable_key": os.getenv("STRIPE_PUBLISHABLE_KEY", ""),
+                "stripe_webhook_secret": os.getenv("STRIPE_WEBHOOK_SECRET", ""),
+                "stripe_price_resident": os.getenv("STRIPE_PRICE_RESIDENT", ""),
+                "stripe_price_clinician_pro": os.getenv("STRIPE_PRICE_CLINICIAN_PRO", ""),
+                "stripe_price_clinic_team": os.getenv("STRIPE_PRICE_CLINIC_TEAM", ""),
+                # Sentry
+                "sentry_dsn": os.getenv("SENTRY_DSN", ""),
+                # App URL
+                "app_url": os.getenv("APP_URL", "http://localhost:5173"),
             }
         )
     except ValidationError as exc:

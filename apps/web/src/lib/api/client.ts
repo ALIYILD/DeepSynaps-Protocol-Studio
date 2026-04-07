@@ -25,16 +25,27 @@ export class ApiError extends Error {
   }
 }
 
+function getJwtAuthHeader(): Record<string, string> {
+  const token = localStorage.getItem("access_token");
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
 export async function requestJson<TResponse>(
   path: string,
   init?: RequestInit,
 ): Promise<TResponse> {
+  // Explicit Authorization header in init takes precedence over the stored JWT.
+  const hasExplicitAuth =
+    init?.headers != null &&
+    "Authorization" in (init.headers as Record<string, string>);
+
   let response: Response;
   try {
     response = await fetch(`${apiBaseUrl}${path}`, {
       ...init,
       headers: {
         ...(init?.body ? { "Content-Type": "application/json" } : {}),
+        ...(!hasExplicitAuth ? getJwtAuthHeader() : {}),
         ...(init?.headers ?? {}),
       },
     });
