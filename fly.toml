@@ -6,7 +6,6 @@ primary_region = "lhr"
 [env]
   DEEPSYNAPS_APP_ENV = "production"
   DEEPSYNAPS_LOG_LEVEL = "INFO"
-  DEEPSYNAPS_DATABASE_URL = "sqlite:///./deepsynaps_protocol_studio.db"
   # Set this to your Fly.io app URL after first deploy:
   # DEEPSYNAPS_CORS_ORIGINS = "https://deepsynaps-studio.fly.dev"
 
