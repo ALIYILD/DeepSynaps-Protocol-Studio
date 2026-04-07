@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "deepsynaps-worker"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+    "pydantic>=2.11.0,<3.0.0",
+    "deepsynaps-generation-engine",
+    "deepsynaps-render-engine",
+]
+
+[tool.setuptools]
+py-modules = []

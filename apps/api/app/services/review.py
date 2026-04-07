@@ -1,0 +1,35 @@
+from datetime import datetime, timezone
+
+from sqlalchemy.orm import Session
+
+from deepsynaps_core_schema import ReviewActionRequest, ReviewActionResponse
+
+from app.auth import AuthenticatedActor, require_minimum_role
+from app.registries.audit import AUDIT_DISCLAIMERS, AUDIT_EVENTS
+from app.repositories.audit import count_audit_events, create_audit_event, seed_audit_events
+
+
+def record_review_action(
+    payload: ReviewActionRequest,
+    actor: AuthenticatedActor,
+    session: Session,
+) -> ReviewActionResponse:
+    require_minimum_role(
+        actor,
+        "clinician",
+        warnings=["Review actions require clinician or admin role."],
+    )
+    seed_audit_events(session, AUDIT_EVENTS)
+
+    event = create_audit_event(
+        session,
+        event_id=f"evt-{1000 + count_audit_events(session) + 1}",
+        target_id=payload.target_id,
+        target_type=payload.target_type,
+        action=payload.action,
+        role=actor.role,
+        actor_id=actor.actor_id,
+        note=payload.note,
+        created_at=datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+    )
+    return ReviewActionResponse(event=event, disclaimers=AUDIT_DISCLAIMERS)

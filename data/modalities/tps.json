@@ -1,0 +1,11 @@
+{
+  "slug": "tps",
+  "name": "TPS",
+  "treatment_family": "ultrasound-neuromodulation",
+  "supported_device_slugs": [
+    "neurolith"
+  ],
+  "safety_notes": [
+    "Confirm device-specific operating ranges before treatment generation."
+  ]
+}

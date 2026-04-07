@@ -1,0 +1,14 @@
+{
+  "slug": "parkinsons-disease",
+  "name": "Parkinson's disease",
+  "phenotypes": [
+    "motor-dominant",
+    "gait-instability"
+  ],
+  "contraindications": [
+    "Review implanted device status before stimulation planning."
+  ],
+  "notes": [
+    "Starter sample record for registry-driven protocol generation."
+  ]
+}

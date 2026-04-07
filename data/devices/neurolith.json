@@ -1,0 +1,14 @@
+{
+  "slug": "neurolith",
+  "name": "NEUROLITH",
+  "manufacturer": "Storz Medical",
+  "supported_modality_slugs": [
+    "tps"
+  ],
+  "markets": [
+    "clinical-research"
+  ],
+  "notes": [
+    "Starter sample device entry used for compatibility validation."
+  ]
+}

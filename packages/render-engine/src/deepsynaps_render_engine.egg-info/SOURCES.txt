@@ -1,0 +1,9 @@
+README.md
+pyproject.toml
+src/deepsynaps_render_engine/__init__.py
+src/deepsynaps_render_engine/renderers.py
+src/deepsynaps_render_engine.egg-info/PKG-INFO
+src/deepsynaps_render_engine.egg-info/SOURCES.txt
+src/deepsynaps_render_engine.egg-info/dependency_links.txt
+src/deepsynaps_render_engine.egg-info/requires.txt
+src/deepsynaps_render_engine.egg-info/top_level.txt

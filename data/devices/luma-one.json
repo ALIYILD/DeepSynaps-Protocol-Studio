@@ -1,0 +1,14 @@
+{
+  "slug": "luma-one",
+  "name": "LUMA-ONE",
+  "manufacturer": "Example Medical",
+  "supported_modality_slugs": [
+    "pbm"
+  ],
+  "markets": [
+    "prototype"
+  ],
+  "notes": [
+    "Sample unsupported device used for negative compatibility tests."
+  ]
+}

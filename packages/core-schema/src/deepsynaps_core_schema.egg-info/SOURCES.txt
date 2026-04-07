@@ -1,0 +1,9 @@
+README.md
+pyproject.toml
+src/deepsynaps_core_schema/__init__.py
+src/deepsynaps_core_schema/models.py
+src/deepsynaps_core_schema.egg-info/PKG-INFO
+src/deepsynaps_core_schema.egg-info/SOURCES.txt
+src/deepsynaps_core_schema.egg-info/dependency_links.txt
+src/deepsynaps_core_schema.egg-info/requires.txt
+src/deepsynaps_core_schema.egg-info/top_level.txt

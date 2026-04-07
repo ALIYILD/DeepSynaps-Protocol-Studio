@@ -1,0 +1,16 @@
+{
+  "name": "deepsynaps-protocol-studio",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": [
+    "apps/web"
+  ],
+  "scripts": {
+    "build": "npm run build:web",
+    "test": "npm run test:web",
+    "dev:web": "npm run dev --workspace @deepsynaps/web",
+    "build:web": "npm run build --workspace @deepsynaps/web",
+    "lint:web": "npm run lint --workspace @deepsynaps/web",
+    "test:web": "npm run test --workspace @deepsynaps/web"
+  }
+}

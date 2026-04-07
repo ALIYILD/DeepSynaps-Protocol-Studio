@@ -1,0 +1,245 @@
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+from time import perf_counter
+from uuid import uuid4
+
+from fastapi import Depends, FastAPI, Request
+from fastapi.exceptions import RequestValidationError
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from sqlalchemy import text
+from sqlalchemy.orm import Session
+
+from deepsynaps_core_schema import (
+    AuditTrailResponse,
+    CaseSummaryRequest,
+    CaseSummaryResponse,
+    DeviceListResponse,
+    ErrorResponse,
+    EvidenceListResponse,
+    HandbookGenerateRequest,
+    HandbookGenerateResponse,
+    IntakePreviewRequest,
+    IntakePreviewResponse,
+    ProtocolDraftRequest,
+    ProtocolDraftResponse,
+    ReviewActionRequest,
+    ReviewActionResponse,
+)
+
+from app.auth import AuthenticatedActor, get_authenticated_actor
+from app.database import SessionLocal, get_db_session, init_database
+from app.errors import ApiServiceError
+from app.logging_setup import configure_logging, get_logger
+from app.repositories.clinical import get_latest_snapshot
+from app.settings import get_settings
+from app.services.audit import get_audit_trail
+from app.services.clinical_data import seed_clinical_dataset
+from app.services.devices import list_devices
+from app.services.evidence import list_evidence
+from app.services.generation import generate_handbook, generate_protocol_draft
+from app.services.preview import build_intake_preview
+from app.services.review import record_review_action
+from app.services.uploads import build_case_summary
+
+settings = get_settings()
+configure_logging(settings)
+logger = get_logger(__name__)
+
+
+@asynccontextmanager
+async def lifespan(app_instance: FastAPI) -> AsyncIterator[None]:
+    init_database()
+    session = SessionLocal()
+    try:
+        snapshot = seed_clinical_dataset(session)
+        app_instance.state.clinical_snapshot_id = snapshot.snapshot_id
+        logger.info(
+            "application startup complete",
+            extra={"snapshot_id": snapshot.snapshot_id},
+        )
+    finally:
+        session.close()
+    yield
+
+
+app = FastAPI(title=settings.api_title, version=settings.api_version, lifespan=lifespan)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.cors_origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    request_id = request.headers.get("x-request-id", str(uuid4()))
+    start = perf_counter()
+    request.state.request_id = request_id
+
+    try:
+        response = await call_next(request)
+    except Exception:
+        duration_ms = round((perf_counter() - start) * 1000, 2)
+        logger.exception(
+            "request failed",
+            extra={
+                "request_id": request_id,
+                "method": request.method,
+                "path": request.url.path,
+                "duration_ms": duration_ms,
+            },
+        )
+        raise
+
+    duration_ms = round((perf_counter() - start) * 1000, 2)
+    response.headers["X-Request-ID"] = request_id
+    logger.info(
+        "request completed",
+        extra={
+            "request_id": request_id,
+            "method": request.method,
+            "path": request.url.path,
+            "status_code": response.status_code,
+            "duration_ms": duration_ms,
+        },
+    )
+    return response
+
+
+@app.get("/health")
+def health(session: Session = Depends(get_db_session)) -> dict[str, object]:
+    session.execute(text("SELECT 1"))
+    snapshot = get_latest_snapshot(session)
+    return {
+        "status": "ok",
+        "environment": settings.app_env,
+        "version": settings.api_version,
+        "database": "ok",
+        "clinical_snapshot": {
+            "snapshot_id": snapshot.snapshot_id if snapshot is not None else None,
+            "total_records": snapshot.total_records if snapshot is not None else 0,
+        },
+    }
+
+
+@app.get("/healthz")
+def healthz(session: Session = Depends(get_db_session)) -> dict[str, object]:
+    return health(session)
+
+
+@app.exception_handler(ApiServiceError)
+async def api_service_error_handler(
+    _request: Request,
+    exc: ApiServiceError,
+) -> JSONResponse:
+    payload = ErrorResponse(code=exc.code, message=exc.message, warnings=exc.warnings)
+    return JSONResponse(status_code=exc.status_code, content=payload.model_dump())
+
+
+@app.exception_handler(RequestValidationError)
+async def request_validation_error_handler(
+    _request: Request,
+    exc: RequestValidationError,
+) -> JSONResponse:
+    payload = ErrorResponse(
+        code="invalid_request",
+        message="One or more request fields are missing or invalid.",
+        warnings=[error["msg"] for error in exc.errors()],
+    )
+    return JSONResponse(status_code=422, content=payload.model_dump())
+
+
+@app.exception_handler(Exception)
+async def unexpected_error_handler(
+    request: Request,
+    exc: Exception,
+) -> JSONResponse:
+    logger.exception(
+        "unhandled application error",
+        extra={
+            "request_id": getattr(request.state, "request_id", None),
+            "method": request.method,
+            "path": request.url.path,
+        },
+    )
+    payload = ErrorResponse(
+        code="internal_error",
+        message="The server could not complete the request.",
+        warnings=["Retry the request or review the API logs for the associated request id."],
+    )
+    return JSONResponse(status_code=500, content=payload.model_dump())
+
+
+@app.post(
+    "/api/v1/intake/preview",
+    response_model=IntakePreviewResponse,
+    responses={404: {"model": ErrorResponse}, 422: {"model": ErrorResponse}},
+)
+def intake_preview(payload: IntakePreviewRequest) -> IntakePreviewResponse:
+    return build_intake_preview(payload)
+
+
+@app.get("/api/v1/evidence", response_model=EvidenceListResponse)
+def evidence() -> EvidenceListResponse:
+    return list_evidence()
+
+
+@app.get("/api/v1/devices", response_model=DeviceListResponse)
+def devices() -> DeviceListResponse:
+    return list_devices()
+
+
+@app.post("/api/v1/uploads/case-summary", response_model=CaseSummaryResponse)
+def case_summary(
+    payload: CaseSummaryRequest,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> CaseSummaryResponse:
+    return build_case_summary(payload, actor)
+
+
+@app.post(
+    "/api/v1/protocols/generate-draft",
+    response_model=ProtocolDraftResponse,
+    responses={403: {"model": ErrorResponse}, 422: {"model": ErrorResponse}},
+)
+def protocol_draft(
+    payload: ProtocolDraftRequest,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> ProtocolDraftResponse:
+    return generate_protocol_draft(payload, actor)
+
+
+@app.post(
+    "/api/v1/handbooks/generate",
+    response_model=HandbookGenerateResponse,
+    responses={403: {"model": ErrorResponse}},
+)
+def handbook(
+    payload: HandbookGenerateRequest,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> HandbookGenerateResponse:
+    return generate_handbook(payload, actor)
+
+
+@app.post(
+    "/api/v1/review-actions",
+    response_model=ReviewActionResponse,
+    responses={403: {"model": ErrorResponse}},
+)
+def review_action(
+    payload: ReviewActionRequest,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    session: Session = Depends(get_db_session),
+) -> ReviewActionResponse:
+    return record_review_action(payload, actor, session)
+
+
+@app.get("/api/v1/audit-trail", response_model=AuditTrailResponse)
+def audit_trail(
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    session: Session = Depends(get_db_session),
+) -> AuditTrailResponse:
+    return get_audit_trail(actor, session)

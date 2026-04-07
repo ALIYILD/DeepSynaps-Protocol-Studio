@@ -1,0 +1,9 @@
+README.md
+pyproject.toml
+src/deepsynaps_generation_engine/__init__.py
+src/deepsynaps_generation_engine/protocols.py
+src/deepsynaps_generation_engine.egg-info/PKG-INFO
+src/deepsynaps_generation_engine.egg-info/SOURCES.txt
+src/deepsynaps_generation_engine.egg-info/dependency_links.txt
+src/deepsynaps_generation_engine.egg-info/requires.txt
+src/deepsynaps_generation_engine.egg-info/top_level.txt
