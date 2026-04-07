@@ -10,12 +10,17 @@ import { InfoNotice } from "../components/ui/InfoNotice";
 import { PageHeader } from "../components/ui/PageHeader";
 import { SelectField } from "../components/ui/SelectField";
 import { assessmentTemplates } from "../data/mockData";
+import { loadAssessmentDraft, saveAssessmentDraft } from "../lib/api/services";
 
 type DraftState = Record<string, string | boolean>;
 
 export function AssessmentBuilderPage() {
   const [templateId, setTemplateId] = useState(assessmentTemplates[0].id);
-  const [draft, setDraft] = useState<DraftState>({});
+  const [draft, setDraft] = useState<DraftState>(() => {
+    // Pre-populate from localStorage on initial render for the default template
+    const saved = loadAssessmentDraft(assessmentTemplates[0].id);
+    return saved ? (saved.data as DraftState) : {};
+  });
   const [savedAt, setSavedAt] = useState<string | null>(null);
 
   const template = useMemo(
@@ -23,18 +28,37 @@ export function AssessmentBuilderPage() {
     [templateId],
   );
 
+  function handleTemplateChange(newTemplateId: string) {
+    setTemplateId(newTemplateId);
+    // Load persisted draft for the newly selected template
+    const saved = loadAssessmentDraft(newTemplateId);
+    setDraft(saved ? (saved.data as DraftState) : {});
+    setSavedAt(saved ? saved.savedAt : null);
+  }
+
   function updateField(fieldId: string, value: string | boolean) {
     setDraft((current) => ({ ...current, [fieldId]: value }));
   }
 
   function saveDraft() {
-    setSavedAt("Draft stored in memory for the current session");
+    saveAssessmentDraft(templateId, draft as Record<string, unknown>);
+    const saved = loadAssessmentDraft(templateId);
+    setSavedAt(saved?.savedAt ?? new Date().toISOString());
+  }
+
+  function formatSavedAt(iso: string): string {
+    try {
+      return new Intl.DateTimeFormat(undefined, { dateStyle: "short", timeStyle: "short" }).format(new Date(iso));
+    } catch {
+      return iso;
+    }
   }
 
   return (
     <div className="grid gap-6">
       <Breadcrumb items={[{ label: "Home", to: "/" }, { label: "Assessment Builder" }]} />
       <PageHeader
+        icon="📋"
         eyebrow="Assessment Builder"
         title="Structured assessment drafting"
         description="Select a template, complete a realistic clinician-facing form, and keep the draft in memory only for the current session."
@@ -46,12 +70,12 @@ export function AssessmentBuilderPage() {
       >
         <PackageGate anyOf={[FEATURES.ASSESSMENT_BUILDER_FULL, FEATURES.ASSESSMENT_BUILDER_LIMITED]}>
         <InfoNotice
-          title="In-memory draft notice"
-          body="Drafts are kept only in active app state. Nothing is written to local storage or permanent backend storage in this MVP."
+          title="Draft persistence notice"
+          body="Drafts are saved to browser localStorage and will persist across page refreshes. No data is sent to a remote server."
         />
         <Card>
           <div className="grid gap-4 md:grid-cols-[280px_1fr]">
-            <SelectField label="Template" value={templateId} onChange={setTemplateId}>
+            <SelectField label="Template" value={templateId} onChange={handleTemplateChange}>
               {assessmentTemplates.map((item) => (
                 <option key={item.id} value={item.id}>
                   {item.title}
@@ -138,7 +162,11 @@ export function AssessmentBuilderPage() {
               >
                 Save draft
               </button>
-              {savedAt ? <Badge tone="success">{savedAt}</Badge> : null}
+              {savedAt ? (
+                <Badge tone="success">
+                  Draft saved locally — {formatSavedAt(savedAt)} — will persist across page refreshes
+                </Badge>
+              ) : null}
             </div>
           </form>
         </Card>

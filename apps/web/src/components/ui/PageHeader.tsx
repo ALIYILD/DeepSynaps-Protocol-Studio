@@ -3,12 +3,14 @@ import { ReactNode } from "react";
 import { Badge } from "./Badge";
 
 export function PageHeader({
+  icon,
   eyebrow,
   title,
   description,
   badge,
   actions,
 }: {
+  icon?: string | ReactNode;
   eyebrow: string;
   title: string;
   description: string;
@@ -18,6 +20,11 @@ export function PageHeader({
   return (
     <header className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
       <div>
+        {icon ? (
+          <div className="mb-3 text-4xl leading-none" aria-hidden="true">
+            {icon}
+          </div>
+        ) : null}
         <p className="text-xs uppercase tracking-[0.3em] text-[var(--accent)]">{eyebrow}</p>
         <div className="mt-3 flex flex-wrap items-center gap-3">
           <h1 className="font-display text-3xl font-semibold text-[var(--text)] md:text-4xl">

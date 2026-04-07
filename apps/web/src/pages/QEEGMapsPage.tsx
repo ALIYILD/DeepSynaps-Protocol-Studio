@@ -134,6 +134,7 @@ export function QEEGMapsPage() {
     <div className="grid gap-6">
       <Breadcrumb items={[{ label: "Home", to: "/" }, { label: "qEEG Maps" }]} />
       <PageHeader
+        icon="📊"
         eyebrow="qEEG Maps"
         title="Biomarker and condition reference"
         description="Frequency band biomarkers with normal and pathological ranges alongside condition-level qEEG patterns, disrupted networks, and recommended neuromodulation strategies."

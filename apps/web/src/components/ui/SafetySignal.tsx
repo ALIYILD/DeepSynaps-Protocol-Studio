@@ -18,7 +18,7 @@ const config: Record<
       </svg>
     ),
     label: "Safe",
-    classes: "bg-emerald-500/15 text-emerald-300",
+    classes: "text-[var(--success-text)] bg-[var(--success-bg)]",
   },
   warning: {
     icon: (
@@ -38,7 +38,7 @@ const config: Record<
       </svg>
     ),
     label: "Warning",
-    classes: "bg-amber-500/15 text-amber-300",
+    classes: "text-[var(--warning-text)] bg-[var(--warning-bg)]",
   },
   danger: {
     icon: (
@@ -54,7 +54,7 @@ const config: Record<
       </svg>
     ),
     label: "Danger",
-    classes: "bg-red-500/15 text-red-400",
+    classes: "text-[var(--danger-text)] bg-[var(--danger-bg)]",
   },
 };
 

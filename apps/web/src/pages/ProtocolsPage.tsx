@@ -15,18 +15,24 @@ import { DRAFT_SUPPORT_ONLY, OFF_LABEL_REVIEW_REQUIRED, PROFESSIONAL_USE_ONLY } 
 import { protocolGeneratorOptions } from "../data/mockData";
 import { ApiError } from "../lib/api/client";
 import { FEATURES } from "../lib/packages";
-import { exportProtocolDocx, generateProtocolDraft } from "../lib/api/services";
-import { ProtocolDraft } from "../types/domain";
-
-const deviceOptions = ["NEUROLITH", "PulseArc Clinical", "FocusLoop Hybrid", "LumaBand Home"] as const;
+import { exportProtocolDocx, fetchDeviceRegistry, fetchEvidenceLibrary, generateProtocolDraft } from "../lib/api/services";
+import { Modality, ProtocolDraft, SymptomCluster } from "../types/domain";
 
 export function ProtocolsPage() {
   const { role } = useAppState();
-  const [condition, setCondition] = useState(protocolGeneratorOptions.conditions[0]);
-  const [symptomCluster, setSymptomCluster] = useState(protocolGeneratorOptions.symptomClusters[0]);
-  const [modality, setModality] = useState(protocolGeneratorOptions.modalities[0]);
-  const [device, setDevice] = useState<(typeof deviceOptions)[number]>(deviceOptions[0]);
-  const [setting, setSetting] = useState(protocolGeneratorOptions.settings[0]);
+
+  // Dynamic dropdown options loaded from API
+  const [conditionOptions, setConditionOptions] = useState<string[]>([]);
+  const [modalityOptions, setModalityOptions] = useState<string[]>([]);
+  const [deviceOptions, setDeviceOptions] = useState<string[]>([]);
+  const [optionsLoading, setOptionsLoading] = useState(true);
+
+  // Form state — initialised to empty strings; set to first item once options load
+  const [condition, setCondition] = useState("");
+  const [symptomCluster, setSymptomCluster] = useState<SymptomCluster>(protocolGeneratorOptions.symptomClusters[0]);
+  const [modality, setModality] = useState<Modality | "">("");
+  const [device, setDevice] = useState("");
+  const [setting, setSetting] = useState<"Clinic" | "Home">(protocolGeneratorOptions.settings[0]);
   const [threshold, setThreshold] = useState(protocolGeneratorOptions.evidenceThresholds[1]);
   const [offLabel, setOffLabel] = useState(false);
   const [output, setOutput] = useState<ProtocolDraft | null>(null);
@@ -39,14 +45,51 @@ export function ProtocolsPage() {
 
   const canUseOffLabel = role !== "guest";
 
+  // Load condition, modality, device options from API on mount
+  useEffect(() => {
+    let cancelled = false;
+    setOptionsLoading(true);
+
+    void Promise.all([
+      fetchEvidenceLibrary().catch(() => ({ items: [], disclaimers: { professionalUseOnly: "", clinicianJudgment: "" } })),
+      fetchDeviceRegistry().catch(() => ({ items: [], disclaimers: { professionalUseOnly: "", clinicianJudgment: "" } })),
+    ]).then(([evidenceResult, deviceResult]) => {
+      if (cancelled) return;
+
+      const conditions = [...new Set(evidenceResult.items.map((item) => item.condition))].filter(Boolean);
+      const modalities = [...new Set(evidenceResult.items.map((item) => item.modality))].filter(Boolean);
+      const devices = [...new Set(deviceResult.items.map((item) => item.name))].filter(Boolean);
+
+      // Fall back to mock data if API returns empty arrays
+      const finalConditions = conditions.length > 0 ? conditions : [...protocolGeneratorOptions.conditions];
+      const finalModalities = modalities.length > 0 ? modalities : [...protocolGeneratorOptions.modalities];
+      const finalDevices = devices.length > 0 ? devices : ["NEUROLITH", "PulseArc Clinical", "FocusLoop Hybrid", "LumaBand Home"];
+
+      setConditionOptions(finalConditions);
+      setModalityOptions(finalModalities);
+      setDeviceOptions(finalDevices);
+
+      // Default selected values to first item once data is available
+      setCondition((prev) => (prev === "" ? finalConditions[0] ?? "" : prev));
+      setModality((prev) => (prev === "" ? finalModalities[0] ?? "" : prev));
+      setDevice((prev) => (prev === "" ? finalDevices[0] ?? "" : prev));
+
+      setOptionsLoading(false);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   async function handleExportDocx() {
     setExportingDocx(true);
     try {
       const blob = await exportProtocolDocx(
         {
-          condition_name: condition,
-          modality_name: modality,
-          device_name: device,
+          condition,
+          modality,
+          device,
           setting: setting,
           evidence_threshold: threshold,
           off_label: offLabel,
@@ -86,7 +129,7 @@ export function ProtocolsPage() {
           role,
           condition,
           symptomCluster,
-          modality,
+          modality: (modality || "") as Modality,
           device,
           setting,
           evidenceThreshold: threshold,
@@ -125,6 +168,7 @@ export function ProtocolsPage() {
     <div className="grid gap-6">
       <Breadcrumb items={[{ label: "Home", to: "/" }, { label: "Protocol Generator" }]} />
       <PageHeader
+        icon="⚡"
         eyebrow="Protocol Generator"
         title="Deterministic protocol drafting"
         description="Generate structured protocol guidance from registry-driven backend rules with no AI or LLM composition."
@@ -138,33 +182,34 @@ export function ProtocolsPage() {
       <div className="grid gap-4 xl:grid-cols-[0.9fr_1.1fr]">
         <Card>
           <div className="grid gap-4 md:grid-cols-2">
-            <SelectField label="Condition" value={condition} onChange={(value) => setCondition(value as typeof condition)}>
-              {protocolGeneratorOptions.conditions.map((item) => (
-                <option key={item} value={item}>
-                  {item}
-                </option>
-              ))}
+            <SelectField label="Condition" value={condition} onChange={setCondition} disabled={optionsLoading}>
+              {optionsLoading
+                ? <option value="">Loading…</option>
+                : conditionOptions.map((item) => (
+                    <option key={item} value={item}>{item}</option>
+                  ))}
             </SelectField>
-            <SelectField label="Symptom cluster" value={symptomCluster} onChange={(value) => setSymptomCluster(value as typeof symptomCluster)}>
+            {/* Symptom cluster: kept from static registry — known limitation, no API source yet */}
+            <SelectField label="Symptom cluster" value={symptomCluster} onChange={(value) => setSymptomCluster(value as SymptomCluster)}>
               {protocolGeneratorOptions.symptomClusters.map((item) => (
                 <option key={item} value={item}>
                   {item}
                 </option>
               ))}
             </SelectField>
-            <SelectField label="Modality" value={modality} onChange={(value) => setModality(value as typeof modality)}>
-              {protocolGeneratorOptions.modalities.map((item) => (
-                <option key={item} value={item}>
-                  {item}
-                </option>
-              ))}
+            <SelectField label="Modality" value={modality} onChange={(v) => setModality(v as Modality)} disabled={optionsLoading}>
+              {optionsLoading
+                ? <option value="">Loading…</option>
+                : modalityOptions.map((item) => (
+                    <option key={item} value={item}>{item}</option>
+                  ))}
             </SelectField>
-            <SelectField label="Device" value={device} onChange={(value) => setDevice(value as (typeof deviceOptions)[number])}>
-              {deviceOptions.map((item) => (
-                <option key={item} value={item}>
-                  {item}
-                </option>
-              ))}
+            <SelectField label="Device" value={device} onChange={setDevice} disabled={optionsLoading}>
+              {optionsLoading
+                ? <option value="">Loading…</option>
+                : deviceOptions.map((item) => (
+                    <option key={item} value={item}>{item}</option>
+                  ))}
             </SelectField>
             <SelectField label="Setting" value={setting} onChange={(value) => setSetting(value as typeof setting)}>
               {protocolGeneratorOptions.settings.map((item) => (

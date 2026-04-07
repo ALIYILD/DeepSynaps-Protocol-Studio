@@ -95,6 +95,7 @@ export function EvidenceLibraryPage() {
     <div className="grid gap-6">
       <Breadcrumb items={[{ label: "Home", to: "/" }, { label: "Evidence Library" }]} />
       <PageHeader
+        icon="📚"
         eyebrow="Evidence Library"
         title="Structured evidence review"
         description="Search condition-level evidence, compare supported methods, and inspect contraindications with approved versus emerging notes shown together."
@@ -162,8 +163,9 @@ export function EvidenceLibraryPage() {
         </Card>
       ) : filteredItems.length === 0 ? (
         <EmptyState
-          title="No evidence records match the current filters"
-          body="Adjust the library filters or the global search input to broaden the review set."
+          icon="🔍"
+          title="No results found"
+          body="No results for your search. Try broader terms or clear filters to see the full evidence library."
         />
       ) : (
         <div className="grid gap-4 xl:grid-cols-[0.95fr_1.05fr]">

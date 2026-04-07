@@ -92,6 +92,7 @@ export function DeviceRegistryPage() {
     <div className="grid gap-6">
       <Breadcrumb items={[{ label: "Home", to: "/" }, { label: "Device Registry" }]} />
       <PageHeader
+        icon="🖥️"
         eyebrow="Device Registry"
         title="Sample registry for professional review"
         description="Browse sample device records by modality, operational context, region, and regulatory posture without implying real-world claims."
@@ -163,7 +164,11 @@ export function DeviceRegistryPage() {
           <p className="mt-3 text-sm leading-6 text-[var(--text-muted)]">{error}</p>
         </Card>
       ) : devices.length === 0 ? (
-        <EmptyState title="No device records match the current view" body="Broaden the filters to see the sample registry again." />
+        <EmptyState
+          icon="🔍"
+          title="No devices found"
+          body="No results for your search or filters. Try broader terms or clear filters to see the full device registry."
+        />
       ) : (
         <div className="grid gap-4 xl:grid-cols-[1fr_360px]">
           {view === "table" ? (

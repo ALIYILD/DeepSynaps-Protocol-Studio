@@ -182,6 +182,42 @@ export async function listQEEGBiomarkers(): Promise<QEEGBiomarker[]> {
   return response.items.map(adaptQEEGBiomarker);
 }
 
+// ── Dashboard stat helpers ─────────────────────────────────────────────────────
+// These fetch only what is needed for the workspace stats tiles (total counts).
+
+export async function fetchEvidenceTotal(): Promise<number> {
+  const response = await requestJson<ApiEvidenceListResponse>("/api/v1/evidence");
+  return response.total;
+}
+
+export async function fetchDeviceTotal(): Promise<number> {
+  const response = await requestJson<ApiDeviceListResponse>("/api/v1/devices");
+  return response.total;
+}
+
+export async function fetchBrainRegionTotal(): Promise<number> {
+  const response = await requestJson<ApiBrainRegionListResponse>("/api/v1/brain-regions");
+  return response.total;
+}
+
+export async function fetchQEEGBiomarkerTotal(): Promise<number> {
+  const response = await requestJson<ApiQEEGBiomarkerListResponse>("/api/v1/qeeg/biomarkers");
+  return response.total;
+}
+
+// ── Assessment draft persistence (localStorage) ────────────────────────────────
+
+export function saveAssessmentDraft(templateId: string, data: Record<string, unknown>): void {
+  const key = `assessment_draft_${templateId}`;
+  localStorage.setItem(key, JSON.stringify({ data, savedAt: new Date().toISOString() }));
+}
+
+export function loadAssessmentDraft(templateId: string): { data: Record<string, unknown>; savedAt: string } | null {
+  const key = `assessment_draft_${templateId}`;
+  const raw = localStorage.getItem(key);
+  return raw ? (JSON.parse(raw) as { data: Record<string, unknown>; savedAt: string }) : null;
+}
+
 export async function listQEEGConditionMap(): Promise<QEEGConditionMap[]> {
   const response = await requestJson<ApiQEEGConditionMapListResponse>("/api/v1/qeeg/condition-map");
   return response.items.map(adaptQEEGConditionMap);
@@ -216,9 +252,9 @@ async function requestBlob(path: string, init?: RequestInit): Promise<Blob> {
 }
 
 export async function exportProtocolDocx(params: {
-  condition_name: string;
-  modality_name: string;
-  device_name: string;
+  condition: string;
+  modality: string;
+  device: string;
   setting?: string;
   evidence_threshold?: string;
   off_label?: boolean;

@@ -115,6 +115,7 @@ export function UploadReviewPage() {
   return (
     <div className="grid gap-6">
       <PageHeader
+        icon="📁"
         eyebrow="Upload Review Workspace"
         title="Clinician-gated upload staging"
         description="Stage sample source files, inspect a generated case summary from metadata, and keep all review activity transient inside the current session."

@@ -1,22 +1,15 @@
+import { Badge } from "./Badge";
+
 type EvidenceGrade = "A" | "B" | "C" | "D" | string;
 
-const gradeConfig: Record<string, { classes: string; label: string }> = {
-  A: {
-    classes: "bg-emerald-500/15 text-emerald-300 ring-1 ring-emerald-500/30",
-    label: "Grade A — Strong evidence",
-  },
-  B: {
-    classes: "bg-sky-500/15 text-sky-300 ring-1 ring-sky-500/30",
-    label: "Grade B — Moderate evidence",
-  },
-  C: {
-    classes: "bg-amber-500/15 text-amber-300 ring-1 ring-amber-500/30",
-    label: "Grade C — Weak evidence",
-  },
-  D: {
-    classes: "bg-red-500/15 text-red-400 ring-1 ring-red-500/30",
-    label: "Grade D — Very limited / preliminary",
-  },
+const gradeConfig: Record<
+  string,
+  { label: string; tone: "success" | "info" | "warning" | "danger"; description: string }
+> = {
+  A: { label: "Grade A", tone: "success", description: "Guideline-level evidence" },
+  B: { label: "Grade B", tone: "info", description: "Systematic review evidence" },
+  C: { label: "Grade C", tone: "warning", description: "Emerging evidence" },
+  D: { label: "Grade D", tone: "danger", description: "Experimental / preliminary" },
 };
 
 function resolveGrade(grade: string): string {
@@ -28,33 +21,31 @@ function resolveGrade(grade: string): string {
 export function EvidenceGradeBadge({
   grade,
   size = "sm",
+  showDescription = false,
 }: {
   grade: EvidenceGrade;
   size?: "sm" | "lg";
+  showDescription?: boolean;
 }) {
   const key = resolveGrade(grade);
   const config = gradeConfig[key];
 
   if (!config) {
-    // Fallback: render as neutral badge matching Badge.tsx style
     return (
-      <span className="inline-flex rounded-full px-3 py-1 text-xs font-semibold bg-[var(--bg-subtle)] text-[var(--text)]">
-        {grade}
-      </span>
+      <Badge tone="neutral">{grade}</Badge>
     );
   }
 
-  const sizeClasses =
-    size === "lg"
-      ? "px-4 py-2 text-sm font-bold"
-      : "px-3 py-1 text-xs font-semibold";
-
   return (
-    <span
-      className={`inline-flex rounded-full ${sizeClasses} ${config.classes}`}
-      title={config.label}
-    >
-      {grade}
+    <span className="inline-flex flex-col items-start gap-0.5">
+      <Badge tone={config.tone}>
+        <span className={size === "lg" ? "text-sm font-bold" : "text-xs font-semibold"}>
+          {grade}
+        </span>
+      </Badge>
+      {size === "lg" && showDescription && (
+        <span className="text-xs text-[var(--text-muted)]">{config.description}</span>
+      )}
     </span>
   );
 }

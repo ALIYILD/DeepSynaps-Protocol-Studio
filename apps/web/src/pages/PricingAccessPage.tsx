@@ -50,6 +50,7 @@ export function PricingAccessPage() {
   return (
     <div className="grid gap-6">
       <PageHeader
+        icon="💳"
         eyebrow="Pricing / Access"
         title="Plans for every stage of practice"
         description="DeepSynaps Studio is available across five tiers — from free exploration to enterprise deployment. Governance and evidence restrictions apply regardless of plan."

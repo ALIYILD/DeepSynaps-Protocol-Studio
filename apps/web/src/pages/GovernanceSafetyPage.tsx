@@ -85,6 +85,7 @@ export function GovernanceSafetyPage() {
     <div className="grid gap-6">
       <Breadcrumb items={[{ label: "Home", to: "/" }, { label: "Governance & Safety" }]} />
       <PageHeader
+        icon="🔒"
         eyebrow="Governance / Safety"
         title="Human review and safety layer"
         description="Evidence grading, contraindication status, review workflow, audit visibility, and disclaimer language are grouped into one governance view."

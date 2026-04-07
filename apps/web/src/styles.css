@@ -16,6 +16,63 @@
   --accent: #1f8b8f;
   --accent-soft: rgba(31, 139, 143, 0.14);
   --shadow: 0 24px 64px rgba(19, 33, 42, 0.08);
+
+  /* Semantic status colors */
+  --success: #16a34a;
+  --success-bg: #f0fdf4;
+  --success-border: #bbf7d0;
+  --success-text: #15803d;
+
+  --warning: #d97706;
+  --warning-bg: #fffbeb;
+  --warning-border: #fde68a;
+  --warning-text: #92400e;
+
+  --danger: #dc2626;
+  --danger-bg: #fef2f2;
+  --danger-border: #fecaca;
+  --danger-text: #991b1b;
+
+  --info: #0891b2;
+  --info-bg: #f0f9ff;
+  --info-border: #bae6fd;
+  --info-text: #0e7490;
+
+  /* Sidebar */
+  --sidebar-bg: #f0f7f9;
+  --sidebar-border: rgba(19,33,42,0.06);
+  --sidebar-active-bg: rgba(31,139,143,0.12);
+  --sidebar-active-text: #1f8b8f;
+  --sidebar-hover-bg: rgba(19,33,42,0.04);
+
+  /* Nav */
+  --nav-text: #4a5568;
+
+  /* Typography scale */
+  --font-xs: 0.75rem;
+  --font-sm: 0.875rem;
+  --font-base: 1rem;
+  --font-lg: 1.125rem;
+  --font-xl: 1.25rem;
+  --font-2xl: 1.5rem;
+  --font-3xl: 1.875rem;
+
+  /* Spacing scale */
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.25rem;
+  --space-6: 1.5rem;
+  --space-8: 2rem;
+
+  /* Border radius scale */
+  --radius-sm: 0.5rem;
+  --radius-md: 0.75rem;
+  --radius-lg: 1rem;
+  --radius-xl: 1.25rem;
+  --radius-2xl: 1.5rem;
+  --radius-full: 9999px;
 }
 
 [data-theme="dark"] {
@@ -30,6 +87,33 @@
   --accent: #5fc3c0;
   --accent-soft: rgba(95, 195, 192, 0.16);
   --shadow: 0 28px 80px rgba(0, 0, 0, 0.34);
+
+  --success: #22c55e;
+  --success-bg: rgba(34,197,94,0.1);
+  --success-border: rgba(34,197,94,0.2);
+  --success-text: #86efac;
+
+  --warning: #f59e0b;
+  --warning-bg: rgba(245,158,11,0.1);
+  --warning-border: rgba(245,158,11,0.2);
+  --warning-text: #fde68a;
+
+  --danger: #ef4444;
+  --danger-bg: rgba(239,68,68,0.1);
+  --danger-border: rgba(239,68,68,0.2);
+  --danger-text: #fca5a5;
+
+  --info: #06b6d4;
+  --info-bg: rgba(6,182,212,0.1);
+  --info-border: rgba(6,182,212,0.2);
+  --info-text: #67e8f9;
+
+  --sidebar-bg: rgba(13,23,29,0.6);
+  --sidebar-border: rgba(223,244,243,0.06);
+  --sidebar-active-bg: rgba(95,195,192,0.12);
+  --sidebar-active-text: #5fc3c0;
+  --sidebar-hover-bg: rgba(223,244,243,0.04);
+  --nav-text: #9db0b8;
 }
 
 html,
@@ -75,26 +159,11 @@ a {
   border: 1px solid var(--border);
 }
 
-/* Badge tone overrides — ensures readable contrast in both light and dark modes */
-.badge-success {
-  background-color: #d1fae5; /* emerald-100 */
-  color: #065f46; /* emerald-800 */
-}
-
-.badge-warning {
-  background-color: #fef3c7; /* amber-100 */
-  color: #92400e; /* amber-800 */
-}
-
-[data-theme="dark"] .badge-success {
-  background-color: rgba(6, 78, 59, 0.4); /* emerald-900/40 */
-  color: #a7f3d0; /* emerald-200 */
-}
-
-[data-theme="dark"] .badge-warning {
-  background-color: rgba(120, 53, 15, 0.4); /* amber-900/40 */
-  color: #fde68a; /* amber-200 */
-}
+/* Status panels */
+.status-success { background: var(--success-bg); border: 1px solid var(--success-border); color: var(--success-text); }
+.status-warning { background: var(--warning-bg); border: 1px solid var(--warning-border); color: var(--warning-text); }
+.status-danger { background: var(--danger-bg); border: 1px solid var(--danger-border); color: var(--danger-text); }
+.status-info { background: var(--info-bg); border: 1px solid var(--info-border); color: var(--info-text); }
 
 .clinical-grid {
   background-image:

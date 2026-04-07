@@ -1,5 +1,6 @@
 import { Outlet } from "react-router-dom";
 
+import { DemoControls } from "./DemoControls";
 import { Sidebar } from "./Sidebar";
 import { TopBar } from "./TopBar";
 
@@ -12,15 +13,27 @@ export function AppShell() {
       >
         Skip to main content
       </a>
-      <div className="mx-auto grid min-h-[calc(100vh-2rem)] max-w-[1600px] gap-4 lg:grid-cols-[280px_minmax(0,1fr)]">
+
+      <div className="mx-auto grid min-h-[calc(100vh-2rem)] max-w-[1600px] gap-4 lg:grid-cols-[260px_minmax(0,1fr)]">
         <Sidebar />
-        <div className="app-surface rounded-[2rem] p-4 md:p-6">
-          <TopBar />
-          <main id="main-content" className="mt-6">
-            <Outlet />
+
+        {/* Main content panel */}
+        <div
+          className="app-surface rounded-[2rem] flex flex-col"
+          style={{ borderLeft: "1px solid var(--border)" }}
+        >
+          <div className="px-6 pt-5">
+            <TopBar />
+          </div>
+          <main id="main-content" className="flex-1 px-6 py-6">
+            <div className="max-w-7xl mx-auto">
+              <Outlet />
+            </div>
           </main>
         </div>
       </div>
+
+      <DemoControls />
     </div>
   );
 }

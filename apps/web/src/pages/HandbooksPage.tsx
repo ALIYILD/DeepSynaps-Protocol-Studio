@@ -12,7 +12,7 @@ import { PageHeader } from "../components/ui/PageHeader";
 import { SelectField } from "../components/ui/SelectField";
 import { DRAFT_SUPPORT_ONLY, PROFESSIONAL_USE_ONLY } from "../content/disclaimers";
 import { ApiError } from "../lib/api/client";
-import { exportHandbookDocx, generateHandbook } from "../lib/api/services";
+import { exportHandbookDocx, fetchEvidenceLibrary, generateHandbook } from "../lib/api/services";
 import { HandbookGenerationResult, HandbookKindApi, Modality } from "../types/domain";
 
 const handbookOptions: Array<{ label: string; value: HandbookKindApi }> = [
@@ -24,19 +24,60 @@ const handbookOptions: Array<{ label: string; value: HandbookKindApi }> = [
 export function HandbooksPage() {
   const { role } = useAppState();
   const [kind, setKind] = useState<HandbookKindApi>("clinician_handbook");
-  const [condition, setCondition] = useState("Parkinson's disease");
-  const [modality, setModality] = useState<Modality>("TPS");
+  const [condition, setCondition] = useState("");
+  const [modality, setModality] = useState<Modality | "">("");
+  const [conditionOptions, setConditionOptions] = useState<string[]>([]);
+  const [modalityOptions, setModalityOptions] = useState<string[]>([]);
+  const [optionsLoading, setOptionsLoading] = useState(true);
   const [handbookDoc, setHandbookDoc] = useState<HandbookGenerationResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isUnauthorized, setIsUnauthorized] = useState(false);
   const [exportingDocx, setExportingDocx] = useState(false);
 
+  // Fetch condition and modality options from evidence API on mount
+  useEffect(() => {
+    let cancelled = false;
+    setOptionsLoading(true);
+
+    void fetchEvidenceLibrary()
+      .then(({ items }) => {
+        if (cancelled) return;
+
+        const conditions = [...new Set(items.map((item) => item.condition))].filter(Boolean);
+        const modalities = [...new Set(items.map((item) => item.modality))].filter(Boolean);
+
+        const finalConditions = conditions.length > 0 ? conditions : ["Parkinson's disease", "ADHD", "Depression"];
+        const finalModalities = modalities.length > 0 ? modalities : ["TPS", "TMS", "Neurofeedback", "PBM"];
+
+        setConditionOptions(finalConditions);
+        setModalityOptions(finalModalities);
+        setCondition((prev) => (prev === "" ? finalConditions[0] ?? "" : prev));
+        setModality((prev) => (prev === "" ? (finalModalities[0] as Modality) ?? "" : prev));
+        setOptionsLoading(false);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        // Fall back to static options on error
+        const fallbackConditions = ["Parkinson's disease", "ADHD", "Depression"];
+        const fallbackModalities: Modality[] = ["TPS", "TMS", "Neurofeedback", "PBM"];
+        setConditionOptions(fallbackConditions);
+        setModalityOptions(fallbackModalities);
+        setCondition(fallbackConditions[0]);
+        setModality(fallbackModalities[0]);
+        setOptionsLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
 
     async function loadHandbook() {
-      if (role === "guest") {
+      if (role === "guest" || !condition || !modality) {
         setHandbookDoc(null);
         setError(null);
         setIsUnauthorized(false);
@@ -53,7 +94,7 @@ export function HandbooksPage() {
           role,
           handbookKind: kind,
           condition,
-          modality,
+          modality: modality as Modality,
         });
         if (cancelled) {
           return;
@@ -108,6 +149,7 @@ export function HandbooksPage() {
   return (
     <div className="grid gap-6">
       <PageHeader
+        icon="📄"
         eyebrow="Handbook Generator"
         title="Deterministic document generator"
         description="Generate clinician handbooks, patient guides, and technician SOPs from backend registry structures and preview them in a document-style layout."
@@ -131,19 +173,19 @@ export function HandbooksPage() {
                 </option>
               ))}
             </SelectField>
-            <SelectField label="Condition" value={condition} onChange={setCondition}>
-              {["Parkinson's disease", "ADHD", "Depression"].map((item) => (
-                <option key={item} value={item}>
-                  {item}
-                </option>
-              ))}
+            <SelectField label="Condition" value={condition} onChange={setCondition} disabled={optionsLoading}>
+              {optionsLoading
+                ? <option value="">Loading…</option>
+                : conditionOptions.map((item) => (
+                    <option key={item} value={item}>{item}</option>
+                  ))}
             </SelectField>
-            <SelectField label="Modality" value={modality} onChange={(value) => setModality(value as Modality)}>
-              {["TPS", "TMS", "Neurofeedback", "PBM"].map((item) => (
-                <option key={item} value={item}>
-                  {item}
-                </option>
-              ))}
+            <SelectField label="Modality" value={modality} onChange={(value) => setModality(value as Modality)} disabled={optionsLoading}>
+              {optionsLoading
+                ? <option value="">Loading…</option>
+                : modalityOptions.map((item) => (
+                    <option key={item} value={item}>{item}</option>
+                  ))}
             </SelectField>
           </div>
         </Card>

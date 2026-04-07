@@ -109,6 +109,7 @@ export function BrainRegionsPage() {
     <div className="grid gap-6">
       <Breadcrumb items={[{ label: "Home", to: "/" }, { label: "Brain Regions" }]} />
       <PageHeader
+        icon="🧠"
         eyebrow="Brain Regions"
         title="Neuromodulation targeting reference"
         description="Browse the 46-region anatomical atlas. Each entry maps anatomical location to EEG position, network membership, and targetable modalities."
@@ -161,7 +162,11 @@ export function BrainRegionsPage() {
           <p className="mt-3 text-sm leading-6 text-[var(--text-muted)]">{error}</p>
         </Card>
       ) : filtered.length === 0 ? (
-        <EmptyState title="No brain regions match the current filters" body="Broaden the filters or clear the search to see the full atlas." />
+        <EmptyState
+          icon="🔍"
+          title="No regions found"
+          body="No brain regions match your search or filters. Try broader terms or clear all filters to see the full anatomical atlas."
+        />
       ) : (
         <div className="grid gap-4 xl:grid-cols-[1fr_380px]">
           <Card className="overflow-x-auto">

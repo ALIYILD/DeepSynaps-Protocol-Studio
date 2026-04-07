@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { NavLink } from "react-router-dom";
 
 import { useAppState } from "../app/useAppStore";
@@ -6,7 +7,14 @@ import { DocumentList } from "../components/domain/DocumentList";
 import { Card } from "../components/ui/Card";
 import { MetricTile } from "../components/ui/MetricTile";
 import { PageHeader } from "../components/ui/PageHeader";
-import { roleProfiles, workspaceMetrics } from "../data/mockData";
+import { Skeleton } from "../components/ui/Skeleton";
+import { roleProfiles } from "../data/mockData";
+import {
+  fetchBrainRegionTotal,
+  fetchDeviceTotal,
+  fetchEvidenceTotal,
+  fetchQEEGBiomarkerTotal,
+} from "../lib/api/services";
 
 const quickActions = [
   {
@@ -47,45 +55,81 @@ const gettingStartedItems = [
   { label: "View Brain Regions Atlas", to: "/brain-regions" },
 ];
 
-const workspaceStatTiles = [
-  {
-    id: "ws1",
-    label: "Evidence Records",
-    value: "42",
-    delta: "6 newly curated",
-    detail: "Structured clinical library entries with regulatory posture notes.",
-  },
-  {
-    id: "ws2",
-    label: "Devices in Registry",
-    value: "4",
-    delta: "Sample MVP records",
-    detail: "Device entries browseable by modality, region, and regulatory status.",
-  },
-  {
-    id: "ws3",
-    label: "Brain Regions",
-    value: "46",
-    delta: "Full atlas loaded",
-    detail: "Anatomical regions mapped to EEG positions, networks, and targetable modalities.",
-  },
-  {
-    id: "ws4",
-    label: "qEEG Mappings",
-    value: "22",
-    delta: "Biomarker + condition maps",
-    detail: "Frequency band biomarkers and condition-level qEEG patterns with neuromod strategies.",
-  },
-];
+type StatCounts = {
+  evidence: number | null;
+  devices: number | null;
+  brainRegions: number | null;
+  qeegBiomarkers: number | null;
+};
 
 export function DashboardPage() {
   const { role, searchQuery } = useAppState();
   const roleLabel = roleProfiles.find((profile) => profile.role === role)?.label ?? "Guest";
   const isGuest = role === "guest";
 
+  const [statsLoading, setStatsLoading] = useState(true);
+  const [counts, setCounts] = useState<StatCounts>({
+    evidence: null,
+    devices: null,
+    brainRegions: null,
+    qeegBiomarkers: null,
+  });
+
+  useEffect(() => {
+    let cancelled = false;
+    setStatsLoading(true);
+
+    void Promise.all([
+      fetchEvidenceTotal().catch(() => null),
+      fetchDeviceTotal().catch(() => null),
+      fetchBrainRegionTotal().catch(() => null),
+      fetchQEEGBiomarkerTotal().catch(() => null),
+    ]).then(([evidence, devices, brainRegions, qeegBiomarkers]) => {
+      if (cancelled) return;
+      setCounts({ evidence, devices, brainRegions, qeegBiomarkers });
+      setStatsLoading(false);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const workspaceStatTiles = [
+    {
+      id: "ws1",
+      label: "Evidence Records",
+      value: counts.evidence !== null ? String(counts.evidence) : "—",
+      delta: "Structured clinical library",
+      detail: "Structured clinical library entries with regulatory posture notes.",
+    },
+    {
+      id: "ws2",
+      label: "Devices in Registry",
+      value: counts.devices !== null ? String(counts.devices) : "—",
+      delta: "Device registry entries",
+      detail: "Device entries browseable by modality, region, and regulatory status.",
+    },
+    {
+      id: "ws3",
+      label: "Brain Regions",
+      value: counts.brainRegions !== null ? String(counts.brainRegions) : "—",
+      delta: "Full atlas loaded",
+      detail: "Anatomical regions mapped to EEG positions, networks, and targetable modalities.",
+    },
+    {
+      id: "ws4",
+      label: "qEEG Mappings",
+      value: counts.qeegBiomarkers !== null ? String(counts.qeegBiomarkers) : "—",
+      delta: "Biomarker + condition maps",
+      detail: "Frequency band biomarkers and condition-level qEEG patterns with neuromod strategies.",
+    },
+  ];
+
   return (
     <div className="grid gap-6">
       <PageHeader
+        icon="🏠"
         eyebrow="Workspace overview"
         title="Clinical operations workspace"
         description="A focused environment for evidence-based assessments, protocols, handbooks, and clinician-gated upload review."
@@ -118,9 +162,17 @@ export function DashboardPage() {
       <section className="grid gap-4">
         <h2 className="font-display text-xl text-[var(--text)]">Workspace Stats</h2>
         <div className="grid gap-4 xl:grid-cols-4">
-          {workspaceStatTiles.map((metric) => (
-            <MetricTile key={metric.id} metric={metric} />
-          ))}
+          {statsLoading
+            ? Array.from({ length: 4 }).map((_, i) => (
+                <div key={i} className="rounded-3xl border border-[var(--border)] bg-[var(--bg)] p-5 grid gap-3">
+                  <Skeleton className="h-8 w-16" />
+                  <Skeleton className="h-4 w-32" />
+                  <Skeleton className="h-3 w-24" />
+                </div>
+              ))
+            : workspaceStatTiles.map((metric) => (
+                <MetricTile key={metric.id} metric={metric} />
+              ))}
         </div>
       </section>
 
