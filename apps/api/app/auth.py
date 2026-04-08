@@ -35,21 +35,50 @@ def get_authenticated_actor(authorization: str | None = Header(default=None)) ->
             package_id=ANONYMOUS_ACTOR.package_id,
         )
 
-    actor = DEMO_ACTOR_TOKENS.get(token)
-    if actor is None:
-        raise ApiServiceError(
-            code="invalid_auth_token",
-            message="The provided demo authentication token is not recognized.",
-            warnings=["Use a supported Bearer token for guest, clinician, or admin demo access."],
-            status_code=401,
+    # Check demo tokens first (backward compat)
+    demo_actor = DEMO_ACTOR_TOKENS.get(token)
+    if demo_actor is not None:
+        return AuthenticatedActor(
+            actor_id=demo_actor.actor_id,
+            display_name=demo_actor.display_name,
+            role=demo_actor.role,
+            package_id=demo_actor.package_id,
+            token_id=token,
         )
 
-    return AuthenticatedActor(
-        actor_id=actor.actor_id,
-        display_name=actor.display_name,
-        role=actor.role,
-        package_id=actor.package_id,
-        token_id=token,
+    # Try real JWT
+    try:
+        from app.services.auth_service import decode_token
+        from app.database import SessionLocal
+        from app.repositories.users import get_user_by_id
+
+        payload = decode_token(token)
+        if payload and payload.get("type") == "access":
+            user_id = payload.get("sub")
+            if user_id:
+                db = SessionLocal()
+                try:
+                    user = get_user_by_id(db, user_id)
+                finally:
+                    db.close()
+                display_name = user.display_name if user else payload.get("email", "User")
+                role = payload.get("role", "guest")
+                package_id = payload.get("package_id", "explorer")
+                return AuthenticatedActor(
+                    actor_id=user_id,
+                    display_name=display_name,
+                    role=role,
+                    package_id=package_id,
+                    token_id=token,
+                )
+    except Exception:
+        pass
+
+    raise ApiServiceError(
+        code="invalid_auth_token",
+        message="The provided authentication token is not valid.",
+        warnings=["Log in again to obtain a fresh token."],
+        status_code=401,
     )
 
 

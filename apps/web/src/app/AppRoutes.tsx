@@ -19,6 +19,7 @@ import { QEEGMapsPage } from "../pages/QEEGMapsPage";
 import { SessionsPage } from "../pages/SessionsPage";
 import { SettingsPage } from "../pages/SettingsPage";
 import { UploadReviewPage } from "../pages/UploadReviewPage";
+import { AnalyticsPage } from "../pages/AnalyticsPage";
 
 export function AppRoutes() {
   return (
@@ -44,6 +45,9 @@ export function AppRoutes() {
         <Route path="/device-registry" element={<DeviceRegistryPage />} />
         <Route path="/brain-regions" element={<BrainRegionsPage />} />
         <Route path="/qeeg-maps" element={<QEEGMapsPage />} />
+
+        {/* Analytics */}
+        <Route path="/analytics" element={<AnalyticsPage />} />
 
         {/* Account */}
         <Route path="/settings" element={<SettingsPage />} />

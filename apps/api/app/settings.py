@@ -49,8 +49,15 @@ class AppSettings(BaseModel):
     stripe_price_clinician_pro: str = Field(default="")
     stripe_price_clinic_team: str = Field(default="")
 
+    # Telegram
+    telegram_bot_token: str = Field(default="")
+    telegram_webhook_secret: str = Field(default="")
+
     # Sentry
     sentry_dsn: str = Field(default="")
+
+    # Anthropic
+    anthropic_api_key: str = Field(default="")
 
     # App URL (used for Stripe redirect URLs)
     app_url: str = Field(default="http://localhost:5173")
@@ -131,8 +138,13 @@ def load_settings() -> AppSettings:
                 "stripe_price_resident": os.getenv("STRIPE_PRICE_RESIDENT", ""),
                 "stripe_price_clinician_pro": os.getenv("STRIPE_PRICE_CLINICIAN_PRO", ""),
                 "stripe_price_clinic_team": os.getenv("STRIPE_PRICE_CLINIC_TEAM", ""),
+                # Telegram
+                "telegram_bot_token": os.getenv("TELEGRAM_BOT_TOKEN", ""),
+                "telegram_webhook_secret": os.getenv("TELEGRAM_WEBHOOK_SECRET", ""),
                 # Sentry
                 "sentry_dsn": os.getenv("SENTRY_DSN", ""),
+                # Anthropic
+                "anthropic_api_key": os.getenv("ANTHROPIC_API_KEY", ""),
                 # App URL
                 "app_url": os.getenv("APP_URL", "http://localhost:5173"),
             }

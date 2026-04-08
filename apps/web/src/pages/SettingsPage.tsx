@@ -1,6 +1,7 @@
 import { useState } from "react";
 
 import { useAppDispatch, useAppState } from "../app/useAppStore";
+import { getTelegramLinkCode, sendTelegramTest } from "../lib/api/services";
 import { Badge } from "../components/ui/Badge";
 import { Button } from "../components/ui/Button";
 import { PageHeader } from "../components/ui/PageHeader";
@@ -92,6 +93,48 @@ export function SettingsPage() {
   const toggleNotification = (key: NotificationKey) => {
     setNotifications((prev) => ({ ...prev, [key]: !prev[key] }));
   };
+
+  // Telegram state
+  const [telegramCode, setTelegramCode] = useState<string | null>(null);
+  const [telegramExpiry, setTelegramExpiry] = useState<number | null>(null);
+  const [linkLoading, setLinkLoading] = useState(false);
+  const [linkError, setLinkError] = useState<string | null>(null);
+  const [testLoading, setTestLoading] = useState(false);
+  const [testFeedback, setTestFeedback] = useState<{ ok: boolean; message: string } | null>(null);
+
+  async function handleGetLinkCode() {
+    setLinkLoading(true);
+    setLinkError(null);
+    setTelegramCode(null);
+    setTelegramExpiry(null);
+    setTestFeedback(null);
+    try {
+      const result = await getTelegramLinkCode();
+      setTelegramCode(result.code);
+      setTelegramExpiry(result.expires_in_seconds);
+    } catch {
+      setLinkError("Could not fetch a link code. Please try again.");
+    } finally {
+      setLinkLoading(false);
+    }
+  }
+
+  async function handleSendTest() {
+    setTestLoading(true);
+    setTestFeedback(null);
+    try {
+      const result = await sendTelegramTest();
+      setTestFeedback(
+        result.sent
+          ? { ok: true, message: "Test message sent successfully." }
+          : { ok: false, message: "Message was not delivered. Check your Telegram link." }
+      );
+    } catch {
+      setTestFeedback({ ok: false, message: "Failed to send test message. Please try again." });
+    } finally {
+      setTestLoading(false);
+    }
+  }
 
   const initials = getInitials(role);
   const displayName = getDisplayName(role);
@@ -253,6 +296,83 @@ export function SettingsPage() {
               </li>
             ))}
           </ul>
+        </div>
+      </section>
+
+      {/* Telegram Notifications card */}
+      <section>
+        <h2 className="font-display text-sm font-semibold mb-3" style={{ color: "var(--text)" }}>
+          ✈️ Telegram Notifications
+        </h2>
+        <div className="rounded-xl p-5 flex flex-col gap-4" style={CARD_STYLE}>
+          <p className="text-sm" style={{ color: "var(--text-muted)" }}>
+            Link your Telegram account to receive session reminders and patient alerts.
+          </p>
+
+          <div className="flex items-center gap-3 flex-wrap">
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={handleGetLinkCode}
+              disabled={linkLoading}
+            >
+              {linkLoading ? "Fetching…" : "Get Link Code"}
+            </Button>
+
+            {telegramCode && (
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={handleSendTest}
+                disabled={testLoading}
+              >
+                {testLoading ? "Sending…" : "Send Test Message"}
+              </Button>
+            )}
+          </div>
+
+          {linkError && (
+            <p className="text-xs rounded-lg px-3 py-2" style={{ color: "var(--danger, #e53e3e)", background: "var(--danger-soft, #fff5f5)", border: "1px solid var(--danger-border, #fed7d7)" }}>
+              {linkError}
+            </p>
+          )}
+
+          {telegramCode && (
+            <div className="flex flex-col gap-2">
+              <p className="text-xs font-medium" style={{ color: "var(--text-muted)" }}>
+                Open Telegram, find <span style={{ color: "var(--accent)" }}>@DeepSynapsBot</span>, and send:
+              </p>
+              <div
+                className="rounded-lg px-4 py-3 font-mono text-sm select-all"
+                style={{
+                  background: "var(--bg)",
+                  border: "1px solid var(--border)",
+                  color: "var(--text-primary, var(--text))",
+                  letterSpacing: "0.02em",
+                }}
+              >
+                /link {telegramCode}
+              </div>
+              {telegramExpiry !== null && (
+                <p className="text-xs" style={{ color: "var(--text-muted)" }}>
+                  This code expires in {telegramExpiry} seconds. Do not share it.
+                </p>
+              )}
+            </div>
+          )}
+
+          {testFeedback && (
+            <p
+              className="text-xs rounded-lg px-3 py-2"
+              style={{
+                color: testFeedback.ok ? "var(--success, #276749)" : "var(--danger, #e53e3e)",
+                background: testFeedback.ok ? "var(--success-soft, #f0fff4)" : "var(--danger-soft, #fff5f5)",
+                border: `1px solid ${testFeedback.ok ? "var(--success-border, #c6f6d5)" : "var(--danger-border, #fed7d7)"}`,
+              }}
+            >
+              {testFeedback.message}
+            </p>
+          )}
         </div>
       </section>
 

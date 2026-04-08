@@ -19,6 +19,7 @@ const navItems = [
       { to: "/how-to-use", icon: "📖", label: "How to Use" },
       { to: "/sessions", icon: "📅", label: "Sessions & Calendar" },
       { to: "/documents", icon: "📁", label: "Documents" },
+      { to: "/analytics", icon: "📊", label: "Analytics" },
     ],
   },
   {

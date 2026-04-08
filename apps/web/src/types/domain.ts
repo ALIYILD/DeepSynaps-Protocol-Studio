@@ -271,3 +271,71 @@ export type QEEGConditionMap = {
   stimulationRationale: string;
   reviewStatus: string;
 };
+
+// ── Clinical Practice Types ────────────────────────────────────────────────────
+
+export type PatientStatus = "active" | "on_hold" | "discharged";
+
+export type Patient = {
+  id: string;
+  clinicianId: string;
+  firstName: string;
+  lastName: string;
+  fullName: string;
+  dob: string | null;
+  email: string | null;
+  phone: string | null;
+  gender: string | null;
+  primaryCondition: string | null;
+  secondaryConditions: string[];
+  primaryModality: string | null;
+  referringClinician: string | null;
+  insuranceProvider: string | null;
+  insuranceNumber: string | null;
+  consentSigned: boolean;
+  consentDate: string | null;
+  status: PatientStatus;
+  notes: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type SessionStatus = "scheduled" | "completed" | "cancelled" | "no_show";
+export type SessionOutcome = "positive" | "neutral" | "negative";
+export type BillingStatus = "unbilled" | "billed" | "paid";
+
+export type ClinicalSession = {
+  id: string;
+  patientId: string;
+  clinicianId: string;
+  scheduledAt: string;
+  durationMinutes: number;
+  modality: string | null;
+  protocolRef: string | null;
+  sessionNumber: number | null;
+  totalSessions: number | null;
+  status: SessionStatus;
+  outcome: SessionOutcome | null;
+  sessionNotes: string | null;
+  adverseEvents: string | null;
+  billingCode: string | null;
+  billingStatus: BillingStatus;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type AssessmentStatus = "draft" | "completed";
+
+export type AssessmentRecord = {
+  id: string;
+  clinicianId: string;
+  patientId: string | null;
+  templateId: string;
+  templateTitle: string;
+  data: Record<string, unknown>;
+  clinicianNotes: string | null;
+  status: AssessmentStatus;
+  score: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
