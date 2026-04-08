@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 
 import { useAppState } from "../app/useAppStore";
 import { Badge } from "../components/ui/Badge";
@@ -117,6 +118,12 @@ function approvalBadgeTone(
 
 export function ProtocolsPage() {
   const { role } = useAppState();
+  const [searchParams] = useSearchParams();
+
+  // Pre-fill from patient prescribe flow (?patient=X&condition=Y&modality=Z)
+  const prefilledPatient   = searchParams.get("patient") ?? null;
+  const prefilledCondition = searchParams.get("condition") ?? "All";
+  const prefilledModality  = searchParams.get("modality") ?? "All";
 
   // Shared
   const [activeTab, setActiveTab] = useState<ActiveTab>("evidence");
@@ -125,8 +132,8 @@ export function ProtocolsPage() {
 
   // List filtering
   const [search, setSearch] = useState("");
-  const [filterCondition, setFilterCondition] = useState("All");
-  const [filterModality, setFilterModality] = useState("All");
+  const [filterCondition, setFilterCondition] = useState(prefilledCondition);
+  const [filterModality, setFilterModality] = useState(prefilledModality);
 
   // Selected + generation
   const [selected, setSelected] = useState<EvidenceItem | null>(null);
@@ -347,6 +354,18 @@ export function ProtocolsPage() {
         title="Protocol Library"
         description="Browse evidence-based and off-label neuromodulation protocols, or upload patient documents for personalised matching."
       />
+
+      {prefilledPatient && (
+        <div
+          className="flex items-center gap-3 rounded-xl px-4 py-3"
+          style={{ background: "var(--accent-soft)", border: "1px solid var(--accent-soft-border)" }}
+        >
+          <span className="text-lg" aria-hidden="true">👥</span>
+          <p className="text-sm font-medium" style={{ color: "var(--accent)" }}>
+            Prescribing for <strong>{prefilledPatient}</strong> — filters pre-set from patient profile.
+          </p>
+        </div>
+      )}
 
       <InfoNotice
         title="Clinical reference only"

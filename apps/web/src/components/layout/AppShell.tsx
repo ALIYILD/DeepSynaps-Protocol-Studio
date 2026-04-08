@@ -6,7 +6,7 @@ import { TopBar } from "./TopBar";
 
 export function AppShell() {
   return (
-    <div className="min-h-screen px-4 py-4 md:px-6">
+    <div className="min-h-screen p-3 md:p-4" style={{ background: "var(--bg)" }}>
       <a
         href="#main-content"
         className="sr-only focus:not-sr-only focus:absolute focus:top-4 focus:left-4 focus:z-50 focus:rounded-lg focus:bg-[var(--accent)] focus:px-4 focus:py-2 focus:text-white"
@@ -14,21 +14,23 @@ export function AppShell() {
         Skip to main content
       </a>
 
-      <div className="mx-auto grid min-h-[calc(100vh-2rem)] max-w-[1600px] gap-4 lg:grid-cols-[260px_minmax(0,1fr)]">
+      <div className="mx-auto grid min-h-[calc(100vh-2rem)] max-w-[1600px] gap-3 lg:grid-cols-[240px_minmax(0,1fr)]">
         <Sidebar />
 
         {/* Main content panel */}
         <div
-          className="app-surface rounded-[2rem] flex flex-col"
-          style={{ borderLeft: "1px solid var(--border)" }}
+          className="flex flex-col rounded-2xl overflow-hidden"
+          style={{
+            background: "var(--bg-elevated)",
+            border: "1px solid var(--border)",
+            boxShadow: "var(--shadow-sm)",
+          }}
         >
-          <div className="px-6 pt-5">
+          <div className="px-6 pt-4 pb-0">
             <TopBar />
           </div>
           <main id="main-content" className="flex-1 px-6 py-6">
-            <div className="max-w-7xl mx-auto">
-              <Outlet />
-            </div>
+            <Outlet />
           </main>
         </div>
       </div>

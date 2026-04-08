@@ -20,7 +20,8 @@ export default {
       },
       fontFamily: {
         display: ["'Space Grotesk'", "sans-serif"],
-        body: ["'IBM Plex Sans'", "sans-serif"],
+        body: ["'Inter'", "sans-serif"],
+        sans: ["'Inter'", "sans-serif"],
       },
     },
   },

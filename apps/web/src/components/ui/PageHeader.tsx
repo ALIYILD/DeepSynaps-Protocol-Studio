@@ -18,23 +18,31 @@ export function PageHeader({
   actions?: ReactNode;
 }) {
   return (
-    <header className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-      <div>
+    <header className="flex flex-col gap-4 pb-5 mb-2 border-b border-[var(--border)] lg:flex-row lg:items-start lg:justify-between">
+      <div className="flex items-start gap-4">
         {icon ? (
-          <div className="mb-3 text-4xl leading-none" aria-hidden="true">
+          <div
+            className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-xl text-xl"
+            style={{ background: "var(--accent-soft)", border: "1px solid var(--accent-soft-border)" }}
+            aria-hidden="true"
+          >
             {icon}
           </div>
         ) : null}
-        <p className="text-xs uppercase tracking-[0.3em] text-[var(--accent)]">{eyebrow}</p>
-        <div className="mt-3 flex flex-wrap items-center gap-3">
-          <h1 className="font-display text-3xl font-semibold text-[var(--text)] md:text-4xl">
-            {title}
-          </h1>
-          {badge ? <Badge tone="accent">{badge}</Badge> : null}
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-widest" style={{ color: "var(--accent)" }}>
+            {eyebrow}
+          </p>
+          <div className="mt-1 flex flex-wrap items-center gap-2.5">
+            <h1 className="font-display text-2xl font-semibold text-[var(--text)] md:text-3xl">
+              {title}
+            </h1>
+            {badge ? <Badge tone="accent">{badge}</Badge> : null}
+          </div>
+          <p className="mt-1.5 max-w-2xl text-sm leading-6 text-[var(--text-muted)]">{description}</p>
         </div>
-        <p className="mt-3 max-w-3xl text-sm leading-6 text-[var(--text-muted)]">{description}</p>
       </div>
-      {actions ? <div className="flex items-center gap-3">{actions}</div> : null}
+      {actions ? <div className="flex items-center gap-2 flex-shrink-0">{actions}</div> : null}
     </header>
   );
 }

@@ -18,14 +18,18 @@ export function SelectField({
   const generatedId = useId();
 
   return (
-    <div className="grid gap-2 text-sm">
-      <label htmlFor={generatedId} className="text-[var(--text-muted)]">
+    <div className="grid gap-1.5 text-sm">
+      <label htmlFor={generatedId} className="text-xs font-medium text-[var(--text-muted)] uppercase tracking-wide">
         {label}
         {required ? <span className="ml-1 text-[var(--accent)]" aria-hidden="true">*</span> : null}
       </label>
       <select
         id={generatedId}
-        className="rounded-2xl border border-[var(--border)] bg-[var(--bg-strong)] px-4 py-3 text-[var(--text)] outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] focus-visible:ring-offset-1 disabled:cursor-not-allowed disabled:opacity-60"
+        className="rounded-xl px-3 py-2.5 text-sm text-[var(--text)] outline-none transition focus-visible:ring-2 focus-visible:ring-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-50"
+        style={{
+          background: "var(--bg-elevated)",
+          border: "1px solid var(--border)",
+        }}
         value={value}
         disabled={disabled}
         required={required}
