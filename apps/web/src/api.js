@@ -145,6 +145,27 @@ export const api = {
     return apiFetch(`/api/v1/review-queue${q ? '?' + q : ''}`);
   },
 
+  // ── Phenotype assignments ─────────────────────────────────────────────────
+  assignPhenotype: (data) =>
+    apiFetch('/api/v1/phenotype-assignments', { method: 'POST', body: JSON.stringify(data) }),
+  listPhenotypeAssignments: (params = {}) => {
+    const q = new URLSearchParams(params).toString();
+    return apiFetch(`/api/v1/phenotype-assignments${q ? '?' + q : ''}`);
+  },
+  deletePhenotypeAssignment: (id) =>
+    apiFetch(`/api/v1/phenotype-assignments/${id}`, { method: 'DELETE' }),
+
+  // ── Consent records ───────────────────────────────────────────────────────
+  createConsent: (data) =>
+    apiFetch('/api/v1/consent-records', { method: 'POST', body: JSON.stringify(data) }),
+  listConsents: (params = {}) => {
+    const q = new URLSearchParams(params).toString();
+    return apiFetch(`/api/v1/consent-records${q ? '?' + q : ''}`);
+  },
+  getConsent: (id) => apiFetch(`/api/v1/consent-records/${id}`),
+  updateConsent: (id, data) =>
+    apiFetch(`/api/v1/consent-records/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+
   // ── Outcomes ─────────────────────────────────────────────────────────────
   recordOutcome: (data) =>
     apiFetch('/api/v1/outcomes', { method: 'POST', body: JSON.stringify(data) }),

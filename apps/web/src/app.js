@@ -13,6 +13,7 @@ import {
 } from './pages-practice.js';
 import {
   pgCourses, pgSessionExecution, pgReviewQueue, pgOutcomes, pgProtocolRegistry,
+  pgCourseDetail,
 } from './pages-courses.js';
 
 // ── State ─────────────────────────────────────────────────────────────────────
@@ -66,6 +67,7 @@ function setTopbar(title, html = '') {
 async function navigate(id) {
   currentPage = id;
   setProStep(0);
+  if (id !== 'course-detail') window._cdTab = 'overview';
   renderNav();
   await renderPage();
 }
@@ -94,6 +96,10 @@ async function renderPage() {
     // ── New clinical workflow pages ──────────────────────────────────────
     case 'courses':
       await pgCourses(setTopbar, navigate);
+      break;
+    case 'course-detail':
+      window._cdTab = window._cdTab || 'overview';
+      await pgCourseDetail(setTopbar, navigate);
       break;
     case 'session-execution':
       await pgSessionExecution(setTopbar, navigate);

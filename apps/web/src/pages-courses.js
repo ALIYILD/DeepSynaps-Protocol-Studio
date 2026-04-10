@@ -34,7 +34,7 @@ function courseCard(c) {
     ? `<span style="font-size:10px;padding:2px 6px;border-radius:4px;background:rgba(245,158,11,0.15);color:var(--amber);margin-left:8px">⚠ ${c.governance_warnings.length} flag${c.governance_warnings.length > 1 ? 's' : ''}</span>`
     : '';
 
-  return `<div class="card" style="padding:16px 20px;cursor:pointer" onclick="window._nav('courses')">
+  return `<div class="card" style="padding:16px 20px;cursor:pointer" onclick="window._openCourse('${c.id}')">
     <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
       <span style="font-size:13px;font-weight:600;color:var(--text-primary);flex:1">
         ${c.condition_slug} · ${c.modality_slug}
@@ -111,6 +111,11 @@ export async function pgCourses(setTopbar, navigate) {
         </div>
       </div>`;
   }
+
+  window._openCourse = function(id) {
+    window._selectedCourseId = id;
+    window._nav('course-detail');
+  };
 }
 
 // ── pgSessionExecution — Today's Sessions ────────────────────────────────────
@@ -510,4 +515,284 @@ export async function pgProtocolRegistry(setTopbar) {
   } catch (e) {
     el.innerHTML = emptyState('◇', 'Protocol registry loading failed. Ensure backend is running.');
   }
+}
+
+// ── pgCourseDetail — Full course drill-down ───────────────────────────────────
+export async function pgCourseDetail(setTopbar, navigate) {
+  const id = window._selectedCourseId;
+  if (!id) { navigate('courses'); return; }
+
+  const el = document.getElementById('content');
+  el.innerHTML = spinner();
+
+  let course = null, sessions = [], outcomes = [], adverse = [];
+  try {
+    [course, sessions, outcomes, adverse] = await Promise.all([
+      api.getCourse(id),
+      api.listCourseSessions(id).then(r => r?.items || []).catch(() => []),
+      api.listOutcomes({ course_id: id }).then(r => r?.items || []).catch(() => []),
+      api.listAdverseEvents({ course_id: id }).then(r => r?.items || []).catch(() => []),
+    ]);
+  } catch (e) {
+    el.innerHTML = '<div class="notice notice-warn">Could not load course.</div>';
+    return;
+  }
+  if (!course) { navigate('courses'); return; }
+
+  const sc = STATUS_COLOR[course.status] || 'var(--text-tertiary)';
+  const gc = GRADE_COLOR[course.evidence_grade] || 'var(--text-tertiary)';
+  const pct = course.planned_sessions_total > 0
+    ? Math.min(100, Math.round(course.sessions_delivered / course.planned_sessions_total * 100))
+    : 0;
+
+  setTopbar(
+    course.condition_slug + ' · ' + course.modality_slug,
+    '<button class="btn btn-ghost btn-sm" onclick="window._nav(\'courses\')">← Courses</button>'
+    + (course.status === 'pending_approval' ? ' <button class="btn btn-primary btn-sm" onclick="window._cdActivate()">Approve &amp; Activate</button>' : '')
+    + (course.status === 'active' ? ' <button class="btn btn-sm" onclick="window._cdSwitchTab(\'sessions\')">+ Log Session</button>' : '')
+  );
+
+  if (!window._cdTab) window._cdTab = 'overview';
+
+  const tabNames = ['overview', 'sessions', 'outcomes', 'adverse events'];
+
+  function rowKV(k, v) {
+    return '<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--border);font-size:12px">'
+      + '<span style="color:var(--text-tertiary)">' + k + '</span>'
+      + '<span style="color:var(--text-primary);font-weight:500">' + (v ?? '—') + '</span></div>';
+  }
+
+  function renderTab() {
+    const tab = window._cdTab;
+
+    if (tab === 'overview') {
+      const params = [
+        ['Protocol ID', course.protocol_id],
+        ['Condition', course.condition_slug],
+        ['Modality', course.modality_slug],
+        ['Device', course.device_slug || '—'],
+        ['Target Region', course.target_region || '—'],
+        ['Frequency', course.planned_frequency_hz ? course.planned_frequency_hz + ' Hz' : '—'],
+        ['Intensity', course.planned_intensity || '—'],
+        ['Coil / Electrode', course.coil_placement || '—'],
+        ['Sessions / Week', course.planned_sessions_per_week],
+        ['Total Sessions', course.planned_sessions_total],
+        ['Duration / Session', course.planned_session_duration_minutes + ' min'],
+      ];
+      const status = [
+        ['Status', '<span style="font-weight:600;color:' + sc + '">' + course.status.replace(/_/g,' ') + '</span>'],
+        ['Evidence Grade', '<span style="font-weight:600;color:' + gc + '">' + (course.evidence_grade || '—') + '</span>'],
+        ['Labelling', course.on_label ? '<span style="color:var(--teal)">On-label</span>' : '<span style="color:var(--amber)">Off-label</span>'],
+        ['Approved By', course.approved_by || '—'],
+        ['Started', course.started_at ? course.started_at.split('T')[0] : '—'],
+        ['Completed', course.completed_at ? course.completed_at.split('T')[0] : '—'],
+        ['Sessions Delivered', course.sessions_delivered + ' / ' + course.planned_sessions_total],
+      ];
+      return '<div class="g2">'
+        + '<div><div class="card" style="padding:20px">'
+        + '<div style="font-size:11px;text-transform:uppercase;letter-spacing:.8px;color:var(--text-tertiary);margin-bottom:14px">Protocol Parameters</div>'
+        + params.map(([k,v]) => rowKV(k, v)).join('')
+        + '</div></div>'
+        + '<div><div class="card" style="padding:20px;margin-bottom:16px">'
+        + '<div style="font-size:11px;text-transform:uppercase;letter-spacing:.8px;color:var(--text-tertiary);margin-bottom:14px">Status &amp; Progress</div>'
+        + status.map(([k,v]) => rowKV(k, v)).join('')
+        + '<div style="margin-top:14px">'
+        + '<div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text-tertiary);margin-bottom:5px"><span>Progress</span><span>' + pct + '%</span></div>'
+        + '<div style="height:6px;border-radius:3px;background:var(--border)"><div style="height:6px;border-radius:3px;background:' + sc + ';width:' + pct + '%"></div></div>'
+        + '</div></div>'
+        + (course.governance_warnings && course.governance_warnings.length ? '<div class="card" style="padding:16px;border-color:rgba(245,158,11,0.3)"><div style="font-size:11px;text-transform:uppercase;letter-spacing:.8px;color:var(--amber);margin-bottom:8px">Governance Flags</div>' + course.governance_warnings.map(w => '<div style="font-size:12px;color:var(--text-secondary);padding:4px 0;border-bottom:1px solid var(--border)">⚠ ' + w + '</div>').join('') + '</div>' : '')
+        + (course.clinician_notes ? '<div class="card" style="padding:16px;margin-top:16px"><div style="font-size:11px;text-transform:uppercase;letter-spacing:.8px;color:var(--text-tertiary);margin-bottom:8px">Clinician Notes</div><div style="font-size:12px;color:var(--text-secondary);line-height:1.6">' + course.clinician_notes + '</div></div>' : '')
+        + '</div></div>';
+    }
+
+    if (tab === 'sessions') {
+      const canLog = course.status === 'active';
+      let body;
+      if (sessions.length === 0) {
+        body = '<div style="padding:32px;text-align:center;color:var(--text-tertiary)">' + emptyState('◧', 'No sessions logged yet.') + '</div>';
+      } else {
+        const rows = sessions.map((s, i) => {
+          const tolCol = s.tolerance_rating === 'well-tolerated' ? 'var(--teal)' : s.tolerance_rating === 'poor' ? 'var(--red)' : 'var(--text-secondary)';
+          return '<tr>'
+            + '<td style="font-family:monospace;color:var(--text-tertiary)">' + (i+1) + '</td>'
+            + '<td style="color:var(--text-secondary)">' + (s.created_at ? s.created_at.split('T')[0] : '—') + '</td>'
+            + '<td>' + (s.device_slug || '—') + '</td>'
+            + '<td style="font-family:monospace">' + (s.frequency_hz || '—') + '</td>'
+            + '<td style="font-family:monospace">' + (s.intensity_pct_rmt || '—') + '</td>'
+            + '<td style="font-family:monospace">' + (s.duration_minutes ? s.duration_minutes + ' min' : '—') + '</td>'
+            + '<td><span style="font-size:11px;padding:2px 6px;border-radius:3px;color:' + tolCol + '">' + (s.tolerance_rating || '—') + '</span></td>'
+            + '<td style="font-size:11px;color:var(--text-secondary);max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + (s.post_session_notes || '—') + '</td>'
+            + '</tr>';
+        }).join('');
+        body = '<div class="card" style="overflow-x:auto"><table class="ds-table">'
+          + '<thead><tr><th>#</th><th>Date</th><th>Device</th><th>Hz</th><th>Intensity</th><th>Duration</th><th>Tolerance</th><th>Notes</th></tr></thead>'
+          + '<tbody>' + rows + '</tbody></table></div>';
+      }
+      const logBtn = canLog
+        ? '<div id="cd-log-form" style="display:none;margin-bottom:16px"><div class="card" style="padding:20px">'
+          + '<div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:12px;margin-bottom:12px">'
+          + '<div><label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:4px">Frequency (Hz)</label><input id="cds-freq" placeholder="e.g. 10" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;background:var(--bg-secondary);color:var(--text-primary);font-size:12px"></div>'
+          + '<div><label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:4px">Intensity (% RMT)</label><input id="cds-int" placeholder="e.g. 120%" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;background:var(--bg-secondary);color:var(--text-primary);font-size:12px"></div>'
+          + '<div><label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:4px">Duration (min)</label><input id="cds-dur" type="number" placeholder="40" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;background:var(--bg-secondary);color:var(--text-primary);font-size:12px"></div>'
+          + '<div><label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:4px">Tolerance</label><select id="cds-tol" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;background:var(--bg-secondary);color:var(--text-primary);font-size:12px"><option value="">—</option><option value="well-tolerated">Well tolerated</option><option value="moderate">Moderate</option><option value="poor">Poor</option></select></div>'
+          + '</div>'
+          + '<div style="margin-bottom:12px"><label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:4px">Notes</label><input id="cds-notes" placeholder="Post-session observations…" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;background:var(--bg-secondary);color:var(--text-primary);font-size:12px"></div>'
+          + '<div id="cds-error" style="display:none;color:var(--red);font-size:12px;margin-bottom:8px"></div>'
+          + '<div style="display:flex;gap:8px"><button class="btn" onclick="document.getElementById(\'cd-log-form\').style.display=\'none\'">Cancel</button><button class="btn btn-primary" onclick="window._cdSaveSession()">Log Session</button></div>'
+          + '</div></div>'
+        : '';
+      return '<div style="margin-bottom:12px">'
+        + (canLog ? '<button class="btn btn-primary btn-sm" onclick="document.getElementById(\'cd-log-form\').style.display=\'\'">+ Log Session</button>' : '<div style="font-size:12px;color:var(--text-tertiary);padding:6px 0">Activate course to log sessions.</div>')
+        + '</div>' + logBtn + body;
+    }
+
+    if (tab === 'outcomes') {
+      const rows = outcomes.map(o => '<tr>'
+        + '<td style="font-weight:600">' + o.template_id + '</td>'
+        + '<td><span style="font-size:11px;padding:2px 6px;border-radius:3px;background:var(--border);color:var(--text-secondary)">' + o.measurement_point + '</span></td>'
+        + '<td style="font-family:monospace;color:var(--teal)">' + (o.score ?? '—') + '</td>'
+        + '<td style="color:var(--text-secondary)">' + (o.administered_at ? o.administered_at.split('T')[0] : '—') + '</td>'
+        + '</tr>').join('');
+      const form = '<div id="cd-outcome-form" style="display:none;margin-bottom:16px"><div class="card" style="padding:20px">'
+        + '<div style="display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:12px;align-items:flex-end">'
+        + '<div><label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:4px">Template</label><select id="cdo-template" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;background:var(--bg-secondary);color:var(--text-primary);font-size:12px"><option value="PHQ-9">PHQ-9</option><option value="GAD-7">GAD-7</option><option value="PCL-5">PCL-5</option><option value="ISI">ISI</option><option value="DASS-21">DASS-21</option><option value="NRS-Pain">NRS-Pain</option><option value="ADHD-RS-5">ADHD-RS-5</option><option value="UPDRS-III">UPDRS-III</option></select></div>'
+        + '<div><label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:4px">Point</label><select id="cdo-point" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;background:var(--bg-secondary);color:var(--text-primary);font-size:12px"><option value="baseline">Baseline</option><option value="mid">Mid-course</option><option value="post">Post-treatment</option><option value="follow_up">Follow-up</option></select></div>'
+        + '<div><label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:4px">Score</label><input id="cdo-score" type="number" step="0.1" placeholder="e.g. 14" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;background:var(--bg-secondary);color:var(--text-primary);font-size:12px"></div>'
+        + '<div style="display:flex;gap:8px"><button class="btn" onclick="document.getElementById(\'cd-outcome-form\').style.display=\'none\'">Cancel</button><button class="btn btn-primary" onclick="window._cdSaveOutcome()">Save</button></div>'
+        + '</div><div id="cdo-error" style="display:none;color:var(--red);font-size:12px;margin-top:8px"></div>'
+        + '</div></div>';
+      const table = outcomes.length === 0
+        ? '<div style="padding:32px;text-align:center;color:var(--text-tertiary)">' + emptyState('◫', 'No outcome measurements yet.') + '</div>'
+        : '<div class="card" style="overflow-x:auto"><table class="ds-table"><thead><tr><th>Template</th><th>Point</th><th>Score</th><th>Date</th></tr></thead><tbody>' + rows + '</tbody></table></div>';
+      return '<div style="margin-bottom:12px"><button class="btn btn-primary btn-sm" onclick="document.getElementById(\'cd-outcome-form\').style.display=\'\'">+ Record Outcome</button></div>' + form + table;
+    }
+
+    if (tab === 'adverse events') {
+      const rows = adverse.map(a => {
+        const sevCol = {mild:'var(--teal)',moderate:'var(--amber)',severe:'var(--red)',serious:'var(--red)'}[a.severity] || 'var(--text-tertiary)';
+        return '<tr>'
+          + '<td style="font-weight:600">' + a.event_type + '</td>'
+          + '<td><span style="font-size:11px;padding:2px 6px;border-radius:3px;background:' + sevCol + '22;color:' + sevCol + '">' + a.severity + '</span></td>'
+          + '<td style="color:var(--text-secondary)">' + (a.action_taken || '—') + '</td>'
+          + '<td style="font-size:11.5px;color:var(--text-secondary);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + (a.description || '—') + '</td>'
+          + '<td style="color:var(--text-secondary)">' + (a.reported_at ? a.reported_at.split('T')[0] : '—') + '</td>'
+          + '</tr>';
+      }).join('');
+      const form = '<div id="cd-ae-form" style="display:none;margin-bottom:16px"><div class="card" style="padding:20px">'
+        + '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:12px">'
+        + '<div><label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:4px">Event Type</label><input id="ae-type" placeholder="e.g. headache" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;background:var(--bg-secondary);color:var(--text-primary);font-size:12px"></div>'
+        + '<div><label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:4px">Severity</label><select id="ae-severity" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;background:var(--bg-secondary);color:var(--text-primary);font-size:12px"><option value="mild">Mild</option><option value="moderate">Moderate</option><option value="severe">Severe</option><option value="serious">Serious</option></select></div>'
+        + '<div><label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:4px">Action Taken</label><select id="ae-action" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;background:var(--bg-secondary);color:var(--text-primary);font-size:12px"><option value="none">None</option><option value="session_paused">Session paused</option><option value="session_stopped">Session stopped</option><option value="referred">Referred</option></select></div>'
+        + '</div>'
+        + '<div style="margin-bottom:12px"><label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:4px">Description</label><textarea id="ae-desc" rows="2" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;background:var(--bg-secondary);color:var(--text-primary);font-size:12px;resize:vertical" placeholder="Describe the event…"></textarea></div>'
+        + '<div id="ae-error" style="display:none;color:var(--red);font-size:12px;margin-bottom:8px"></div>'
+        + '<div style="display:flex;gap:8px"><button class="btn" onclick="document.getElementById(\'cd-ae-form\').style.display=\'none\'">Cancel</button><button class="btn btn-primary" onclick="window._cdSaveAE()">Report</button></div>'
+        + '</div></div>';
+      const table = adverse.length === 0
+        ? '<div style="padding:32px;text-align:center;color:var(--text-tertiary)">' + emptyState('◱', 'No adverse events reported.') + '</div>'
+        : '<div class="card" style="overflow-x:auto"><table class="ds-table"><thead><tr><th>Event</th><th>Severity</th><th>Action</th><th>Description</th><th>Date</th></tr></thead><tbody>' + rows + '</tbody></table></div>';
+      return '<div style="margin-bottom:12px"><button class="btn btn-primary btn-sm" onclick="document.getElementById(\'cd-ae-form\').style.display=\'\'">+ Report Adverse Event</button></div>' + form + table;
+    }
+    return '';
+  }
+
+  el.innerHTML = '<div style="background:linear-gradient(135deg,rgba(0,212,188,0.05),rgba(74,158,255,0.05));border:1px solid var(--border);border-radius:var(--radius-lg);padding:20px;margin-bottom:20px">'
+    + '<div style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:12px">'
+    + '<div><div style="font-size:20px;font-weight:700;font-family:var(--font-display);color:var(--text-primary)">' + course.condition_slug + ' · ' + course.modality_slug + '</div>'
+    + '<div style="font-size:12px;color:var(--text-secondary);margin-top:4px">Protocol: ' + course.protocol_id + ' · Created ' + (course.created_at ? course.created_at.split('T')[0] : '—') + '</div></div>'
+    + '<div style="display:flex;flex-direction:column;align-items:flex-end;gap:8px">'
+    + '<span style="font-size:12px;font-weight:600;padding:4px 12px;border-radius:6px;background:' + sc + '22;color:' + sc + '">' + course.status.replace(/_/g,' ') + '</span>'
+    + '<span style="font-size:11px;padding:2px 8px;border-radius:4px;background:' + gc + '22;color:' + gc + '">' + (course.evidence_grade || '—') + '</span>'
+    + '</div></div>'
+    + '<div style="margin-top:16px">'
+    + '<div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text-tertiary);margin-bottom:5px"><span>Sessions delivered</span><span>' + course.sessions_delivered + ' / ' + course.planned_sessions_total + ' · ' + pct + '%</span></div>'
+    + '<div style="height:8px;border-radius:4px;background:var(--border)"><div style="height:8px;border-radius:4px;background:' + sc + ';width:' + pct + '%"></div></div>'
+    + '</div></div>'
+    + '<div class="tab-bar" style="margin-bottom:20px">'
+    + tabNames.map(t => '<button class="tab-btn ' + (window._cdTab === t ? 'active' : '') + '" onclick="window._cdSwitchTab(\'' + t + '\')">'
+      + t + (t === 'sessions' ? ' (' + sessions.length + ')' : t === 'adverse events' && adverse.length ? ' (' + adverse.length + ')' : '')
+      + '</button>').join('')
+    + '</div>'
+    + '<div id="cd-tab-body">' + renderTab() + '</div>';
+
+  window._cdSwitchTab = function(t) {
+    window._cdTab = t;
+    document.querySelectorAll('.tab-btn').forEach(b => {
+      b.classList.toggle('active', b.textContent.trim().startsWith(t));
+    });
+    document.getElementById('cd-tab-body').innerHTML = renderTab();
+    bindCourseDetailActions(course, id);
+  };
+
+  bindCourseDetailActions(course, id);
+}
+
+function bindCourseDetailActions(course, courseId) {
+  window._cdActivate = async function() {
+    try {
+      await api.activateCourse(courseId);
+      window._cdTab = 'overview';
+      window._nav('course-detail');
+    } catch (e) { alert(e.message || 'Activation failed.'); }
+  };
+
+  window._cdSaveSession = async function() {
+    const errEl = document.getElementById('cds-error');
+    if (errEl) errEl.style.display = 'none';
+    try {
+      await api.logSession(courseId, {
+        frequency_hz: document.getElementById('cds-freq')?.value || null,
+        intensity_pct_rmt: document.getElementById('cds-int')?.value || null,
+        duration_minutes: parseInt(document.getElementById('cds-dur')?.value) || null,
+        tolerance_rating: document.getElementById('cds-tol')?.value || null,
+        post_session_notes: document.getElementById('cds-notes')?.value || null,
+      });
+      window._cdTab = 'sessions';
+      window._nav('course-detail');
+    } catch (e) {
+      if (errEl) { errEl.textContent = e.message || 'Failed.'; errEl.style.display = 'block'; }
+    }
+  };
+
+  window._cdSaveOutcome = async function() {
+    const errEl = document.getElementById('cdo-error');
+    if (errEl) errEl.style.display = 'none';
+    const score = document.getElementById('cdo-score')?.value;
+    if (!score) { if (errEl) { errEl.textContent = 'Enter a score.'; errEl.style.display = 'block'; } return; }
+    try {
+      await api.recordOutcome({
+        patient_id: course.patient_id,
+        course_id: courseId,
+        template_id: document.getElementById('cdo-template')?.value || 'PHQ-9',
+        template_title: document.getElementById('cdo-template')?.value || 'PHQ-9',
+        score: score, score_numeric: parseFloat(score),
+        measurement_point: document.getElementById('cdo-point')?.value || 'mid',
+      });
+      window._cdTab = 'outcomes';
+      window._nav('course-detail');
+    } catch (e) {
+      if (errEl) { errEl.textContent = e.message || 'Failed.'; errEl.style.display = 'block'; }
+    }
+  };
+
+  window._cdSaveAE = async function() {
+    const errEl = document.getElementById('ae-error');
+    if (errEl) errEl.style.display = 'none';
+    const evType = document.getElementById('ae-type')?.value.trim();
+    if (!evType) { if (errEl) { errEl.textContent = 'Enter event type.'; errEl.style.display = 'block'; } return; }
+    try {
+      await api.reportAdverseEvent({
+        patient_id: course.patient_id,
+        course_id: courseId,
+        event_type: evType,
+        severity: document.getElementById('ae-severity')?.value || 'mild',
+        description: document.getElementById('ae-desc')?.value || null,
+        action_taken: document.getElementById('ae-action')?.value || null,
+      });
+      window._cdTab = 'adverse events';
+      window._nav('course-detail');
+    } catch (e) {
+      if (errEl) { errEl.textContent = e.message || 'Failed.'; errEl.style.display = 'block'; }
+    }
+  };
 }
