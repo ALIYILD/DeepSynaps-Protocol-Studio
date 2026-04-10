@@ -590,24 +590,41 @@ function renderProStep() {
       <div style="font-size:12px;color:var(--text-secondary);margin-bottom:12px">Select from your patient list or enter context manually.</div>
       <button class="btn btn-sm" onclick="window._nav('patients')">Open Patient List →</button>
     `)}
-    ${cardWrap('Clinical Context', [
-      ['Primary Diagnosis', 'select', `<option>Major Depressive Disorder</option><option>Chronic Pain</option><option>Parkinson's</option><option>ADHD</option><option>Anxiety / GAD</option><option>PTSD</option><option>Post-Stroke</option><option>Insomnia</option>`],
-      ['Key Symptoms', 'input', 'e.g. anhedonia, fatigue, poor concentration'],
-      ['Prior Treatments', 'input', 'e.g. SSRIs, CBT, rTMS'],
-      ['Contraindications', 'input', 'e.g. pacemaker, epilepsy'],
-    ].map(([l, t, v]) => `<div class="form-group"><label class="form-label">${l}</label>${t === 'select' ? `<select id="proto-${l.replace(/\s/g,'-').toLowerCase()}" class="form-control">${v}</select>` : `<input id="proto-${l.replace(/\s/g,'-').toLowerCase()}" class="form-control" placeholder="${v}">`}</div>`).join(''))}
+    ${cardWrap('Clinical Context', `
+      <div class="form-group">
+        <label class="form-label">Primary Diagnosis</label>
+        <select id="proto-condition" class="form-control">
+          <option value="">Loading conditions...</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Phenotype / Subtype</label>
+        <select id="proto-phenotype" class="form-control">
+          <option value="">Select condition first…</option>
+        </select>
+      </div>
+      <div class="form-group"><label class="form-label">Key Symptoms</label><input id="proto-key-symptoms" class="form-control" placeholder="e.g. anhedonia, fatigue, poor concentration"></div>
+      <div class="form-group"><label class="form-label">Prior Treatments</label><input id="proto-prior-treatments" class="form-control" placeholder="e.g. SSRIs, CBT, rTMS"></div>
+      <div class="form-group"><label class="form-label">Contraindications</label><input id="proto-contraindications" class="form-control" placeholder="e.g. pacemaker, epilepsy"></div>
+    `)}
   </div>
   <div style="text-align:right;margin-top:4px"><button class="btn btn-primary" onclick="window.nextStep()">Next: Modality & Type →</button></div>`;
 
   if (proStep === 1) return `
-    ${cardWrap('Select Modality', `<div style="display:flex;flex-wrap:wrap;padding:4px 0">
-      ${[
-        { l: 'tDCS', s: 'Transcranial DC' }, { l: 'TPS', s: 'Transcranial Pulse' },
-        { l: 'TMS / rTMS', s: 'Magnetic' }, { l: 'taVNS', s: 'Transcutaneous VNS' },
-        { l: 'CES', s: 'Cranial Electrotherapy' }, { l: 'Neurofeedback', s: 'qEEG-guided NFB' },
-        { l: 'PBM', s: 'Photobiomodulation' }, { l: 'Multimodal', s: 'Combined' },
-      ].map(m => `<div class="mod-chip ${selMods.includes(m.l) ? 'selected' : ''}" onclick="window.toggleMod('${m.l}')">${m.l} <span style="font-weight:400;font-size:10.5px;opacity:.6">· ${m.s}</span></div>`).join('')}
-    </div>`)}
+    ${cardWrap('Select Modality', `
+      <div id="modality-chips" style="display:flex;flex-wrap:wrap;padding:4px 0">
+        ${[
+          { l: 'tDCS', s: 'Transcranial DC' }, { l: 'TPS', s: 'Transcranial Pulse' },
+          { l: 'TMS / rTMS', s: 'Magnetic' }, { l: 'taVNS', s: 'Transcutaneous VNS' },
+          { l: 'CES', s: 'Cranial Electrotherapy' }, { l: 'Neurofeedback', s: 'qEEG-guided NFB' },
+          { l: 'PBM', s: 'Photobiomodulation' }, { l: 'Multimodal', s: 'Combined' },
+        ].map(m => `<div class="mod-chip ${selMods.includes(m.l) ? 'selected' : ''}" onclick="window.toggleMod('${m.l}')">${m.l} <span style="font-weight:400;font-size:10.5px;opacity:.6">· ${m.s}</span></div>`).join('')}
+      </div>
+      <div id="registry-modalities-loading" style="font-size:11px;color:var(--text-tertiary);margin-top:8px">Loading modalities from registry…</div>
+    `)}
+    ${cardWrap('Matching Registry Protocols', `
+      <div id="registry-protocols-list" style="font-size:12px;color:var(--text-secondary)">Select a modality above to see matching protocols.</div>
+    `)}
     ${cardWrap('Protocol Type', `<div class="g3">
       ${[
         { t: 'evidence', l: 'Evidence-Based', s: 'Standard Clinical', d: 'Published RCT-derived protocols.', c: 'var(--blue)' },
@@ -624,17 +641,52 @@ function renderProStep() {
       <button class="btn btn-primary" onclick="window.nextStep()">Next: Configure →</button>
     </div>`;
 
-  if (proStep === 2) return `<div class="g2">
-    ${cardWrap('Stimulation Parameters', [
-      ['Target Region', 'select', `<option>DLPFC (F3/F4)</option><option>Motor Cortex (C3/C4)</option><option>Occipital</option><option>Temporal</option><option>Cerebellum</option>`],
-      ['Intensity (mA)', 'number', '2.0'], ['Duration (min)', 'number', '20'],
-      ['Ramp Up/Down (s)', 'number', '30'], ['Total Sessions', 'number', '10'],
-      ['Session Frequency', 'select', '<option>Daily 5×/week</option><option>3× / week</option><option>2× / week</option><option>Weekly</option>'],
-    ].map(([l, t, v]) => `<div class="form-group"><label class="form-label">${l}</label>${t === 'select' ? `<select class="form-control">${v}</select>` : `<input class="form-control" type="${t}" value="${v}">`}</div>`).join(''))}
+  if (proStep === 2) {
+    // Use registry-preloaded parameters if available, otherwise fall back to defaults
+    const rp = window._registryProtocol || {};
+    const targetRegion = rp.Target_Region || '';
+    const freqHz = rp.Frequency_Hz || '';
+    const intensity = rp.Intensity || '2.0';
+    const sessionDuration = rp.Session_Duration || '20';
+    const sessPerWeek = rp.Sessions_per_Week || '';
+    const totalCourse = rp.Total_Course || '10';
+    const coilPlacement = rp.Coil_or_Electrode_Placement || '';
+    const protocolBadge = rp.Protocol_Name
+      ? `<div class="notice notice-info" style="margin-bottom:16px">
+           Pre-filled from registry: <strong>${rp.Protocol_Name}</strong>
+           ${rp.Evidence_Grade ? `<span style="margin-left:8px;font-size:11px;color:var(--teal)">${rp.Evidence_Grade}</span>` : ''}
+         </div>`
+      : '';
+    return `<div>
+    ${protocolBadge}
+    <div class="g2">
+    ${cardWrap('Stimulation Parameters', `
+      <div class="form-group"><label class="form-label">Target Region</label>
+        <input id="param-target-region" class="form-control" value="${targetRegion}" placeholder="e.g. DLPFC (F3/F4)">
+      </div>
+      <div class="form-group"><label class="form-label">Frequency (Hz)</label>
+        <input id="param-frequency" class="form-control" type="text" value="${freqHz}" placeholder="e.g. 10">
+      </div>
+      <div class="form-group"><label class="form-label">Intensity (mA)</label>
+        <input id="param-intensity" class="form-control" type="text" value="${intensity}" placeholder="e.g. 2.0">
+      </div>
+      <div class="form-group"><label class="form-label">Duration per Session (min)</label>
+        <input id="param-duration" class="form-control" type="number" value="${sessionDuration}">
+      </div>
+      <div class="form-group"><label class="form-label">Sessions per Week</label>
+        <input id="param-sessions-per-week" class="form-control" type="text" value="${sessPerWeek}" placeholder="e.g. 5">
+      </div>
+      <div class="form-group"><label class="form-label">Total Course Sessions</label>
+        <input id="param-total-course" class="form-control" type="text" value="${totalCourse}" placeholder="e.g. 20–30">
+      </div>
+    `)}
     <div>
-      ${cardWrap('Electrode Placement', `
-        ${[['Anode Placement', 'F3 (Left DLPFC)'], ['Cathode Placement', 'Right Supraorbital']].map(([l, v]) => `<div class="form-group"><label class="form-label">${l}</label><input class="form-control" value="${v}"></div>`).join('')}
-        <div class="form-group"><label class="form-label">Electrode Size</label><select class="form-control"><option>25 cm² (5×5)</option><option>35 cm² standard</option><option>Custom</option></select></div>
+      ${cardWrap('Coil / Electrode Placement', `
+        <div class="form-group"><label class="form-label">Placement</label>
+          <input id="param-coil-placement" class="form-control" value="${coilPlacement}" placeholder="e.g. F3 (Left DLPFC)">
+        </div>
+        <div class="form-group"><label class="form-label">Ramp Up/Down (s)</label><input id="param-ramp" class="form-control" type="number" value="30"></div>
+        <div class="form-group"><label class="form-label">Electrode Size</label><select id="param-electrode-size" class="form-control"><option>25 cm² (5×5)</option><option>35 cm² standard</option><option>Custom</option></select></div>
       `)}
       ${cardWrap('Adjunct Notes', `
         <div class="form-group"><label class="form-label">Concurrent interventions</label><input class="form-control" placeholder="e.g. CBT, physiotherapy"></div>
@@ -643,11 +695,12 @@ function renderProStep() {
         </div>
       `)}
     </div>
-  </div>
-  <div style="display:flex;justify-content:space-between;margin-top:4px">
-    <button class="btn" onclick="window.prevStep()">← Back</button>
-    <button class="btn btn-primary" onclick="window.nextStep()">Review & Generate →</button>
-  </div>`;
+    </div>
+    <div style="display:flex;justify-content:space-between;margin-top:4px">
+      <button class="btn" onclick="window.prevStep()">← Back</button>
+      <button class="btn btn-primary" onclick="window.nextStep()">Review & Generate →</button>
+    </div></div>`;
+  }
 
   if (proStep === 3) return `<div id="proto-review">
     <div class="notice notice-info" style="margin-bottom:16px">Click <strong>Generate via API</strong> to create a protocol using the backend engine.</div>
@@ -663,11 +716,134 @@ function renderProStep() {
   return '';
 }
 
+// ── Registry integration for Protocol Wizard ──────────────────────────────────
+async function loadProtocolWizardRegistry() {
+  // 1. Populate conditions dropdown
+  try {
+    const condData = await api.conditions();
+    const condEl = document.getElementById('proto-condition');
+    if (condEl && condData) {
+      const items = condData.items || condData || [];
+      if (items.length > 0) {
+        condEl.innerHTML = `<option value="">Select condition…</option>` +
+          items.map(c => `<option value="${c.id || c.Condition_ID || c.name}">${c.name || c.Condition_Name || c.id}</option>`).join('');
+      } else {
+        // Fallback static list if API returns empty
+        condEl.innerHTML = `<option value="">Select condition…</option>
+          <option>Major Depressive Disorder</option><option>ADHD</option><option>Anxiety / GAD</option>
+          <option>PTSD</option><option>Chronic Pain</option><option>Parkinson's Disease</option>
+          <option>Post-Stroke Rehabilitation</option><option>Insomnia</option><option>Autism Spectrum</option>`;
+      }
+    }
+
+    // When condition changes, load phenotypes
+    if (condEl) {
+      condEl.addEventListener('change', async () => {
+        const condId = condEl.value;
+        const phenoEl = document.getElementById('proto-phenotype');
+        if (!condId || !phenoEl) return;
+        phenoEl.innerHTML = `<option value="">Loading phenotypes…</option>`;
+        try {
+          const phenoData = await api.phenotypes({ condition_id: condId });
+          const phenoItems = phenoData?.items || phenoData || [];
+          phenoEl.innerHTML = phenoItems.length > 0
+            ? `<option value="">Select phenotype…</option>` +
+              phenoItems.map(p => `<option value="${p.id || p.Phenotype_ID || p.name}">${p.name || p.Phenotype_Name || p.id}</option>`).join('')
+            : `<option value="">No phenotypes found</option>`;
+        } catch {
+          phenoEl.innerHTML = `<option value="">Phenotypes unavailable</option>`;
+        }
+      });
+    }
+  } catch {
+    const condEl = document.getElementById('proto-condition');
+    if (condEl) {
+      condEl.innerHTML = `<option value="">Select condition…</option>
+        <option>Major Depressive Disorder</option><option>ADHD</option><option>Anxiety / GAD</option>
+        <option>PTSD</option><option>Chronic Pain</option><option>Parkinson's Disease</option>
+        <option>Post-Stroke Rehabilitation</option><option>Insomnia</option><option>Autism Spectrum</option>`;
+    }
+  }
+
+  // 2. Load modalities from registry (supplement hardcoded chips)
+  try {
+    const modData = await api.modalities();
+    const loadingEl = document.getElementById('registry-modalities-loading');
+    if (loadingEl) {
+      const modItems = modData?.items || modData || [];
+      loadingEl.textContent = modItems.length > 0
+        ? `${modItems.length} modalities loaded from registry.`
+        : 'Registry modalities unavailable — using defaults.';
+      setTimeout(() => { if (loadingEl) loadingEl.style.display = 'none'; }, 2000);
+    }
+  } catch {
+    const loadingEl = document.getElementById('registry-modalities-loading');
+    if (loadingEl) loadingEl.style.display = 'none';
+  }
+}
+
+// Load matching protocols for condition+modality selection (Step 1)
+async function loadMatchingProtocols(conditionId, modalityLabel) {
+  const listEl = document.getElementById('registry-protocols-list');
+  if (!listEl) return;
+  if (!conditionId && !modalityLabel) {
+    listEl.innerHTML = `<span style="color:var(--text-tertiary)">Select a condition and modality to see matching protocols.</span>`;
+    return;
+  }
+  listEl.innerHTML = `<span style="color:var(--text-tertiary)">Loading…</span>`;
+  try {
+    const params = {};
+    if (conditionId) params.condition_id = conditionId;
+    if (modalityLabel) params.modality = modalityLabel;
+    const data = await api.protocols(params);
+    const items = data?.items || [];
+    if (items.length === 0) {
+      listEl.innerHTML = `<span style="color:var(--text-tertiary)">No registry protocols found for this combination.</span>`;
+      return;
+    }
+    listEl.innerHTML = items.map(p => `
+      <div style="padding:10px 12px;border:1px solid var(--border);border-radius:var(--radius-md);margin-bottom:8px;cursor:pointer;transition:border-color var(--transition)"
+           onmouseover="this.style.borderColor='var(--border-teal)'" onmouseout="this.style.borderColor='var(--border)'"
+           onclick="window.selectRegistryProtocol(${JSON.stringify(p).replace(/"/g,'&quot;')})">
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+          <span style="font-size:12px;font-weight:600;color:var(--text-primary);flex:1">${p.Protocol_Name || p.name || ''}</span>
+          ${p.Evidence_Grade ? `<span style="font-size:10px;font-weight:600;padding:1px 6px;border-radius:3px;background:rgba(0,212,188,0.1);color:var(--teal)">${p.Evidence_Grade}</span>` : ''}
+          ${p.On_Label_vs_Off_Label?.includes('On-label') ? `<span style="font-size:10px;color:var(--teal)">On-label</span>` : `<span style="font-size:10px;color:var(--amber)">Off-label</span>`}
+        </div>
+        <div style="font-size:11px;color:var(--text-secondary);margin-top:4px;display:flex;gap:12px;flex-wrap:wrap">
+          ${p.Target_Region ? `<span>Target: ${p.Target_Region}</span>` : ''}
+          ${p.Sessions_per_Week ? `<span>${p.Sessions_per_Week}×/wk</span>` : ''}
+          ${p.Total_Course ? `<span>${p.Total_Course} total</span>` : ''}
+        </div>
+      </div>
+    `).join('');
+  } catch {
+    listEl.innerHTML = `<span style="color:var(--text-tertiary)">Registry protocols unavailable.</span>`;
+  }
+}
+
 export function bindProtoPage() {
   window.nextStep = () => { if (proStep < 3) { proStep++; document.getElementById('pro-step-body').innerHTML = renderProStep(); bindProtoPage(); } };
   window.prevStep = () => { if (proStep > 0) { proStep--; document.getElementById('pro-step-body').innerHTML = renderProStep(); bindProtoPage(); } };
-  window.toggleMod = m => { if (selMods.includes(m)) selMods = selMods.filter(x => x !== m); else selMods.push(m); document.getElementById('pro-step-body').innerHTML = renderProStep(); bindProtoPage(); };
+  window.toggleMod = m => {
+    if (selMods.includes(m)) selMods = selMods.filter(x => x !== m); else selMods.push(m);
+    document.getElementById('pro-step-body').innerHTML = renderProStep();
+    bindProtoPage();
+    // After re-render, trigger protocol list refresh
+    const condEl = document.getElementById('proto-condition');
+    const condId = condEl ? condEl.value : '';
+    loadMatchingProtocols(condId, selMods[0] || '');
+  };
   window.selectProType = t => { proType = t; document.getElementById('pro-step-body').innerHTML = renderProStep(); bindProtoPage(); };
+
+  // Handle registry protocol selection from Step 1 list
+  window.selectRegistryProtocol = function(proto) {
+    window._registryProtocol = proto;
+    // Auto-advance to Step 2 (Configure Parameters) with pre-filled data
+    proStep = 2;
+    document.getElementById('pro-step-body').innerHTML = renderProStep();
+    bindProtoPage();
+  };
   window.generateProtoAPI = async () => {
     const btn = document.getElementById('gen-btn');
     if (btn) btn.disabled = true;
@@ -705,6 +881,23 @@ export function bindProtoPage() {
       downloadBlob(blob, 'protocol.docx');
     } catch (e) { alert(e.message); }
   };
+
+  // Load registry data for Step 0 (conditions) and Step 1 (modalities + protocols)
+  if (proStep === 0) {
+    // Defer slightly so DOM is ready
+    setTimeout(() => loadProtocolWizardRegistry(), 50);
+  }
+  if (proStep === 1) {
+    // Load modalities from registry and wire condition→protocol refresh
+    setTimeout(async () => {
+      await loadProtocolWizardRegistry();
+      // If a condition was already chosen in step 0, fetch matching protocols now
+      const condEl = document.getElementById('proto-condition');
+      if (condEl && condEl.value) {
+        loadMatchingProtocols(condEl.value, selMods[0] || '');
+      }
+    }, 50);
+  }
 }
 
 // ── Assessments ───────────────────────────────────────────────────────────────

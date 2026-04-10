@@ -11,6 +11,9 @@ import {
 import {
   pgSchedule, pgTelehealth, pgMsg, pgPrograms, pgBilling, pgReports, pgSettings,
 } from './pages-practice.js';
+import {
+  pgCourses, pgSessionExecution, pgReviewQueue, pgOutcomes, pgProtocolRegistry,
+} from './pages-courses.js';
 
 // ── State ─────────────────────────────────────────────────────────────────────
 let currentPage = 'dashboard';
@@ -19,28 +22,23 @@ let currentPage = 'dashboard';
 const NAV = [
   { section: 'Overview' },
   { id: 'dashboard', label: 'Dashboard', icon: '◈' },
-  { section: 'Clinical' },
+  { section: 'Clinical Workflow' },
   { id: 'patients', label: 'Patients', icon: '◉' },
-  { id: 'profile', label: 'Patient Profile', icon: '◎' },
-  { id: 'protocols', label: 'Protocol Generator', icon: '⬡', ai: true },
-  { id: 'assessments', label: 'Assessments', icon: '◧' },
-  { id: 'charting', label: 'AI Charting', icon: '◫', ai: true },
-  { id: 'braindata', label: 'Brain Data Vault', icon: '◈' },
-  { section: 'Knowledge Base' },
+  { id: 'courses', label: 'Treatment Courses', icon: '◎', badge: null },
+  { id: 'session-execution', label: 'Session Execution', icon: '◧' },
+  { id: 'review-queue', label: 'Review Queue', icon: '◱', badge: null },
+  { section: 'Protocol Intelligence' },
+  { id: 'protocol-wizard', label: 'Protocol Wizard', icon: '⬡', ai: false },
+  { id: 'outcomes', label: 'Outcomes & Trends', icon: '◫' },
+  { id: 'braindata', label: 'qEEG / Brain Data', icon: '◈' },
+  { section: 'Knowledge Registries' },
   { id: 'evidence', label: 'Evidence Library', icon: '◉' },
+  { id: 'protocols-registry', label: 'Protocol Registry', icon: '◇' },
   { id: 'devices', label: 'Device Registry', icon: '◇' },
   { id: 'brainregions', label: 'Brain Regions', icon: '◎' },
   { id: 'qeegmaps', label: 'qEEG Maps', icon: '◫' },
   { id: 'handbooks', label: 'Handbooks', icon: '◧' },
-  { section: 'Practice' },
-  { id: 'scheduling', label: 'Scheduling', icon: '◻' },
-  { id: 'telehealth', label: 'Telehealth', icon: '◯' },
-  { id: 'messaging', label: 'Messaging', icon: '◱' },
-  { id: 'programs', label: 'Programs', icon: '◩' },
-  { section: 'Finance' },
-  { id: 'billing', label: 'Billing', icon: '◇' },
-  { id: 'reports', label: 'Reports', icon: '◈' },
-  { section: 'Admin' },
+  { section: 'Governance' },
   { id: 'audittrail', label: 'Audit Trail', icon: '◧' },
   { id: 'pricing', label: 'Plans & Pricing', icon: '◇' },
   { id: 'settings', label: 'Settings', icon: '◎' },
@@ -93,22 +91,35 @@ async function renderPage() {
     case 'profile':
       await pgProfile(setTopbar, navigate);
       break;
+    // ── New clinical workflow pages ──────────────────────────────────────
+    case 'courses':
+      await pgCourses(setTopbar, navigate);
+      break;
+    case 'session-execution':
+      await pgSessionExecution(setTopbar, navigate);
+      break;
+    case 'review-queue':
+      await pgReviewQueue(setTopbar, navigate);
+      break;
+    // ── Protocol Intelligence ────────────────────────────────────────────
+    case 'protocol-wizard':
     case 'protocols':
       el.innerHTML = pgProtocols(setTopbar);
       bindProtoPage();
       break;
-    case 'assessments':
-      await pgAssess(setTopbar);
-      break;
-    case 'charting':
-      el.innerHTML = pgChart(setTopbar);
+    case 'outcomes':
+      await pgOutcomes(setTopbar, navigate);
       break;
     case 'braindata':
       el.innerHTML = pgBrainData(setTopbar);
       bindBrainData();
       break;
+    // ── Knowledge Registries ─────────────────────────────────────────────
     case 'evidence':
       await pgEvidence(setTopbar);
+      break;
+    case 'protocols-registry':
+      await pgProtocolRegistry(setTopbar);
       break;
     case 'devices':
       await pgDevices(setTopbar);
@@ -122,6 +133,13 @@ async function renderPage() {
     case 'handbooks':
       el.innerHTML = pgHandbooks(setTopbar);
       bindHandbooks();
+      break;
+    // ── Legacy pages (kept functional) ───────────────────────────────────
+    case 'assessments':
+      await pgAssess(setTopbar);
+      break;
+    case 'charting':
+      el.innerHTML = pgChart(setTopbar);
       break;
     case 'scheduling':
       el.innerHTML = pgSchedule(setTopbar);
@@ -141,6 +159,7 @@ async function renderPage() {
     case 'reports':
       el.innerHTML = pgReports(setTopbar);
       break;
+    // ── Governance ───────────────────────────────────────────────────────
     case 'audittrail':
       await pgAuditTrail(setTopbar);
       break;

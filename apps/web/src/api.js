@@ -103,6 +103,29 @@ export const api = {
   chatPatient: (messages, patient_context) =>
     apiFetch('/api/v1/chat/patient', { method: 'POST', body: JSON.stringify({ messages, patient_context }) }),
 
+  // ── Registry endpoints (public — no auth needed but token attached if present) ──
+  conditions: () => apiFetch('/api/v1/registry/conditions'),
+  modalities: () => apiFetch('/api/v1/registry/modalities'),
+  devices_registry: () => apiFetch('/api/v1/registry/devices'),
+  protocols: (params = {}) => {
+    const q = new URLSearchParams(params).toString();
+    return apiFetch(`/api/v1/registry/protocols${q ? '?' + q : ''}`);
+  },
+  protocolDetail: (id) => apiFetch(`/api/v1/registry/protocols/${id}`),
+  phenotypes: (params = {}) => {
+    const q = new URLSearchParams(params).toString();
+    return apiFetch(`/api/v1/registry/phenotypes${q ? '?' + q : ''}`);
+  },
+
+  // ── Treatment courses ────────────────────────────────────────────────────
+  listCourses: (patientId) => apiFetch(`/api/v1/courses?patient_id=${patientId}`),
+  createCourse: (data) => apiFetch('/api/v1/courses', { method: 'POST', body: JSON.stringify(data) }),
+  getCourse: (id) => apiFetch(`/api/v1/courses/${id}`),
+  updateCourse: (id, data) => apiFetch(`/api/v1/courses/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+
+  // ── Review queue ─────────────────────────────────────────────────────────
+  listReviewQueue: () => apiFetch('/api/v1/review-queue'),
+
   // ── Health ──────────────────────────────────────────────────────────────
   health: () => apiFetch('/health'),
 };
