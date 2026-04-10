@@ -13,7 +13,13 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 
 def _parse_cors_origins(value: str | None) -> list[str]:
     if not value:
-        return ["http://127.0.0.1:5173", "http://localhost:5173"]
+        return [
+            "http://127.0.0.1:5173", "http://localhost:5173",
+            "http://127.0.0.1:5174", "http://localhost:5174",
+            "http://127.0.0.1:5175", "http://localhost:5175",
+            "http://127.0.0.1:5176", "http://localhost:5176",
+            "http://127.0.0.1:5177", "http://localhost:5177",
+        ]
     return [item.strip() for item in value.split(",") if item.strip()]
 
 
@@ -26,7 +32,13 @@ class AppSettings(BaseModel):
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
     database_url: str = "sqlite:///./deepsynaps_protocol_studio.db"
     cors_origins: list[str] = Field(
-        default_factory=lambda: ["http://127.0.0.1:5173", "http://localhost:5173"]
+        default_factory=lambda: [
+            "http://127.0.0.1:5173", "http://localhost:5173",
+            "http://127.0.0.1:5174", "http://localhost:5174",
+            "http://127.0.0.1:5175", "http://localhost:5175",
+            "http://127.0.0.1:5176", "http://localhost:5176",
+            "http://127.0.0.1:5177", "http://localhost:5177",
+        ]
     )
     clinical_data_root: Path = REPO_ROOT / "data" / "imports" / "clinical-database"
     clinical_snapshot_root: Path = REPO_ROOT / "data" / "snapshots" / "clinical-database"
