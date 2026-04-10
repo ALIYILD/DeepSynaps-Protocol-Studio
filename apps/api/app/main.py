@@ -45,6 +45,7 @@ from app.repositories.clinical import get_latest_snapshot
 from app.routers.auth_router import router as auth_router
 from app.routers.assessments_router import router as assessments_router
 from app.routers.chat_router import router as chat_router
+from app.routers.registries_router import router as registries_router
 from app.routers.telegram_router import router as telegram_router
 from app.routers.export_router import router as export_router
 from app.routers.patients_router import router as patients_router
@@ -96,6 +97,7 @@ app.include_router(sessions_router)
 app.include_router(assessments_router)
 app.include_router(telegram_router)
 app.include_router(chat_router)
+app.include_router(registries_router)
 
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
