@@ -1475,22 +1475,657 @@ function bindAI(pt) {
   };
 }
 
-// ── Protocol Generator page ───────────────────────────────────────────────────
-export function pgProtocols(setTopbar) {
-  setTopbar('Protocol Intelligence', `<button class="btn btn-ghost btn-sm">My Protocols</button><button class="btn btn-primary btn-sm" onclick="window._nav('handbooks')">Handbooks →</button>`);
-  const steps = ['Patient & Context', 'Modality & Type', 'Configure Parameters', 'Review & Generate'];
-  return `
-  <div style="display:flex;gap:8px;margin-bottom:22px;flex-wrap:wrap;align-items:center">
-    ${steps.map((s, i) => `<div style="display:flex;align-items:center;gap:7px">
-      <div class="step-dot ${i < proStep ? 'done' : i === proStep ? 'active' : 'idle'}">${i < proStep ? '✓' : i + 1}</div>
-      <span style="font-size:12.5px;font-weight:${i === proStep ? 600 : 400};color:var(--${i === proStep ? 'text-primary' : 'text-tertiary'})">${s}</span>
-      ${i < steps.length - 1 ? '<span style="color:var(--text-tertiary);margin:0 2px">›</span>' : ''}
-    </div>`).join('')}
-  </div>
-  <div id="pro-step-body">${renderProStep()}</div>`;
+// ── Protocol Wizard — 5-step deep wizard ─────────────────────────────────────
+
+const WIZ_STEPS = [
+  'Patient & Condition',
+  'Phenotype & Modality',
+  'Device & Parameters',
+  'AI Generation',
+  'Saved',
+];
+
+const TARGET_REGION_SUGGESTIONS = ['DLPFC', 'M1', 'Cerebellum', 'PFC', 'SMA', 'VMPFC', 'Insula', 'DMPFC', 'OFC', 'Primary somatosensory'];
+
+function wizState() { return window._wizState || {}; }
+
+function renderWizIndicator(step) {
+  return `<div style="display:flex;gap:0;margin-bottom:28px;align-items:center;max-width:760px;margin-left:auto;margin-right:auto">
+    ${WIZ_STEPS.map((s, i) => {
+      const done = i < step;
+      const active = i === step;
+      const pipStyle = done
+        ? `background:var(--teal);border-color:var(--teal);color:#fff`
+        : active
+          ? `background:rgba(0,212,188,0.15);border-color:var(--teal);color:var(--teal)`
+          : `background:transparent;border-color:var(--border);color:var(--text-tertiary)`;
+      return `<div style="display:flex;align-items:center;flex:1;min-width:0">
+        <div style="display:flex;flex-direction:column;align-items:center;gap:4px;flex-shrink:0">
+          <div class="step-pip" style="width:28px;height:28px;border-radius:50%;border:2px solid;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;transition:all .2s;${pipStyle}">${done ? '✓' : i + 1}</div>
+          <span style="font-size:10px;font-weight:${active ? 600 : 400};color:var(--${active ? 'text-primary' : 'text-tertiary'});white-space:nowrap;max-width:80px;text-align:center;line-height:1.2">${s}</span>
+        </div>
+        ${i < WIZ_STEPS.length - 1 ? `<div style="flex:1;height:2px;background:${done ? 'var(--teal)' : 'var(--border)'};margin:0 6px;margin-bottom:16px;transition:background .2s"></div>` : ''}
+      </div>`;
+    }).join('')}
+  </div>`;
 }
 
-function renderProStep() {
+function wizChipStyle(selected) {
+  return selected
+    ? `background:rgba(0,212,188,0.15);border:1px solid var(--teal);color:var(--teal);border-radius:20px;padding:5px 14px;font-size:12px;cursor:pointer;transition:all .15s`
+    : `background:rgba(0,212,188,0.05);border:1px solid var(--border);color:var(--text-secondary);border-radius:20px;padding:5px 14px;font-size:12px;cursor:pointer;transition:all .15s`;
+}
+
+// ── Step renderers ────────────────────────────────────────────────────────────
+
+function renderWizStep1() {
+  const ws = wizState();
+  return `<div style="max-width:760px;margin:0 auto">
+    <div class="card" style="margin-bottom:16px">
+      <div class="card-header"><h3>Patient</h3></div>
+      <div class="card-body">
+        <div class="form-group">
+          <label class="form-label">Select Patient</label>
+          <select id="wiz-patient" class="form-control">
+            <option value="">Loading patients…</option>
+          </select>
+        </div>
+        <div style="font-size:11px;color:var(--text-tertiary)">Or <button class="btn btn-ghost btn-sm" onclick="window._nav('patients')">add a new patient →</button></div>
+      </div>
+    </div>
+    <div class="card" style="margin-bottom:16px">
+      <div class="card-header"><h3>Primary Condition</h3></div>
+      <div class="card-body">
+        <div class="form-group">
+          <label class="form-label">Condition</label>
+          <div id="wiz-condition-chips" style="display:flex;flex-wrap:wrap;gap:8px;padding:4px 0">
+            <span style="font-size:12px;color:var(--text-tertiary)">Loading conditions…</span>
+          </div>
+        </div>
+        <div class="form-group" style="margin-top:16px">
+          <label class="form-label">Chief Complaint / Symptom Cluster</label>
+          <input id="wiz-symptom" class="form-control" placeholder="e.g. anhedonia, fatigue, poor concentration, insomnia" value="${ws.symptomCluster || ''}">
+        </div>
+      </div>
+    </div>
+    <div style="display:flex;justify-content:flex-end;margin-top:8px">
+      <button class="btn btn-primary" onclick="window._wizNext()">Next →</button>
+    </div>
+  </div>`;
+}
+
+function renderWizStep2() {
+  const ws = wizState();
+  return `<div style="max-width:760px;margin:0 auto">
+    <div class="card" style="margin-bottom:16px">
+      <div class="card-header"><h3>Phenotype / Subtype</h3><span style="font-size:11px;color:var(--text-tertiary)">Optional — <button class="btn btn-ghost btn-sm" onclick="window._wizSkipPheno()">Skip</button></span></div>
+      <div class="card-body">
+        <div id="wiz-phenotype-cards" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px">
+          <div style="font-size:12px;color:var(--text-tertiary)">${spinner()} Loading phenotypes…</div>
+        </div>
+      </div>
+    </div>
+    <div class="card" style="margin-bottom:16px">
+      <div class="card-header"><h3>Modality</h3><span style="font-size:11px;color:var(--text-tertiary)">Select one or more</span></div>
+      <div class="card-body">
+        <div id="wiz-modality-chips" style="display:flex;flex-wrap:wrap;gap:8px;padding:4px 0">
+          <span style="font-size:12px;color:var(--text-tertiary)">Loading modalities…</span>
+        </div>
+      </div>
+    </div>
+    <div style="display:flex;justify-content:space-between;margin-top:8px">
+      <button class="btn" onclick="window._wizBack()">← Back</button>
+      <button class="btn btn-primary" onclick="window._wizNext()">Next →</button>
+    </div>
+  </div>`;
+}
+
+function renderWizStep3() {
+  const ws = wizState();
+  const suggestions = TARGET_REGION_SUGGESTIONS.map(r =>
+    `<button class="btn btn-ghost btn-sm" style="font-size:10px;padding:2px 8px;margin:2px" onclick="document.getElementById('wiz-target').value='${r}'">${r}</button>`
+  ).join('');
+  return `<div style="max-width:760px;margin:0 auto">
+    <div class="card" style="margin-bottom:16px">
+      <div class="card-header"><h3>Device</h3></div>
+      <div class="card-body">
+        <div class="form-group">
+          <label class="form-label">Device</label>
+          <select id="wiz-device" class="form-control">
+            <option value="">Loading devices…</option>
+          </select>
+        </div>
+      </div>
+    </div>
+    <div class="card" style="margin-bottom:16px">
+      <div class="card-header"><h3>Stimulation Parameters</h3></div>
+      <div class="card-body">
+        <div class="form-group">
+          <label class="form-label">Target Region</label>
+          <input id="wiz-target" class="form-control" placeholder="e.g. DLPFC" value="${ws.targetRegion || ''}">
+          <div style="margin-top:6px;display:flex;flex-wrap:wrap;gap:0">${suggestions}</div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+          <div class="form-group">
+            <label class="form-label">Frequency (Hz)</label>
+            <input id="wiz-freq" class="form-control" type="number" step="0.1" placeholder="e.g. 10" value="${ws.frequencyHz || ''}">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Intensity (% RMT)</label>
+            <input id="wiz-intensity" class="form-control" type="number" step="1" placeholder="e.g. 110" value="${ws.intensityPct || ''}">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Sessions / Week</label>
+            <select id="wiz-spw" class="form-control">
+              ${[1,2,3,4,5,6,7].map(n => `<option value="${n}" ${(ws.sessionsPerWeek||5) == n ? 'selected' : ''}>${n}×/week</option>`).join('')}
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Total Sessions</label>
+            <input id="wiz-total" class="form-control" type="number" min="1" value="${ws.totalSessions || 20}">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Session Duration (min)</label>
+            <input id="wiz-dur" class="form-control" type="number" min="1" value="${ws.sessionDurationMin || 30}">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Laterality</label>
+            <select id="wiz-lat" class="form-control">
+              <option value="left" ${ws.laterality === 'left' ? 'selected' : ''}>Left</option>
+              <option value="right" ${ws.laterality === 'right' ? 'selected' : ''}>Right</option>
+              <option value="bilateral" ${(ws.laterality === 'bilateral' || !ws.laterality) ? 'selected' : ''}>Bilateral</option>
+            </select>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div style="display:flex;justify-content:space-between;margin-top:8px">
+      <button class="btn" onclick="window._wizBack()">← Back</button>
+      <button class="btn btn-primary" onclick="window._wizGenerate()">Generate Protocol →</button>
+    </div>
+  </div>`;
+}
+
+function renderWizStep4Loading() {
+  return `<div style="max-width:760px;margin:0 auto">
+    <div class="card">
+      <div class="card-body" style="text-align:center;padding:48px 24px">
+        ${spinner()}
+        <div style="margin-top:16px;font-size:13px;color:var(--text-secondary)">Generating AI protocol…</div>
+        <div style="margin-top:6px;font-size:11px;color:var(--text-tertiary)">This may take a few seconds.</div>
+      </div>
+    </div>
+  </div>`;
+}
+
+function renderWizStep4Error(msg) {
+  return `<div style="max-width:760px;margin:0 auto">
+    <div class="card">
+      <div class="card-body">
+        <div style="color:var(--red);font-size:13px;font-weight:600;margin-bottom:8px">Protocol generation failed</div>
+        <div style="font-size:12px;color:var(--text-secondary);margin-bottom:16px">${msg || 'Unknown error.'}</div>
+        <div style="display:flex;gap:8px">
+          <button class="btn btn-primary btn-sm" onclick="window._wizGenerate()">Try Again</button>
+          <button class="btn btn-sm" onclick="window._wizSkipAI()">Skip AI / Manual Entry</button>
+        </div>
+      </div>
+    </div>
+    <div style="display:flex;justify-content:space-between;margin-top:8px">
+      <button class="btn" onclick="window._wizBack()">← Back</button>
+    </div>
+  </div>`;
+}
+
+function renderWizStep4Result(result) {
+  const ws = wizState();
+  const grade = result?.evidence_grade || result?.Evidence_Grade || '';
+  const onLabel = result?.on_label_vs_off_label || result?.on_label || '';
+  const warnings = result?.governance_warnings || result?.warnings || [];
+  const rationale = result?.rationale || result?.notes || result?.description || result?.summary || '';
+
+  const paramsRows = [
+    ['Condition', ws.conditionSlug],
+    ['Modality', (ws.modalitySlugs||[]).join(', ')],
+    ['Device', ws.deviceSlug],
+    ['Target Region', ws.targetRegion],
+    ['Frequency', ws.frequencyHz ? `${ws.frequencyHz} Hz` : '—'],
+    ['Intensity', ws.intensityPct ? `${ws.intensityPct}% RMT` : '—'],
+    ['Sessions/Week', ws.sessionsPerWeek],
+    ['Total Sessions', ws.totalSessions],
+    ['Duration', ws.sessionDurationMin ? `${ws.sessionDurationMin} min` : '—'],
+    ['Laterality', ws.laterality],
+  ].filter(([, v]) => v).map(([k, v]) => fr(k, v)).join('');
+
+  const govHtml = warnings.length
+    ? warnings.map(w => govFlag(w)).join('')
+    : '';
+
+  return `<div style="max-width:760px;margin:0 auto">
+    <div class="card" style="margin-bottom:14px">
+      <div class="card-header">
+        <h3>Generated Protocol</h3>
+        <div style="display:flex;gap:6px;align-items:center">
+          ${grade ? evidenceBadge(grade) : ''}
+          ${onLabel ? labelBadge(onLabel) : ''}
+          ${warnings.length ? safetyBadge(warnings) : ''}
+        </div>
+      </div>
+      <div class="card-body">
+        ${govHtml}
+        <div style="background:rgba(0,212,188,0.04);border:1px solid var(--border);border-radius:var(--radius-md);padding:14px;margin-bottom:14px">
+          ${paramsRows}
+        </div>
+        ${rationale ? `<div style="font-size:12.5px;color:var(--text-secondary);line-height:1.7;margin-bottom:14px;padding:12px;background:rgba(255,255,255,0.02);border-radius:var(--radius-md)">${rationale}</div>` : ''}
+        <div class="form-group">
+          <label class="form-label">Clinician Notes</label>
+          <textarea id="wiz-clinician-notes" class="form-control" rows="3" placeholder="Add clinical rationale, patient-specific considerations, contraindication context…">${ws.clinicianNotes || ''}</textarea>
+        </div>
+      </div>
+    </div>
+    <div style="display:flex;justify-content:space-between;margin-top:8px;flex-wrap:wrap;gap:8px">
+      <button class="btn" onclick="window._wizBack()">← Back</button>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-sm" onclick="window._wizSave('draft')">Save as Draft Course →</button>
+        <button class="btn btn-primary" onclick="window._wizSave('active')">Activate Course →</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+function renderWizStep5() {
+  const ws = wizState();
+  const course = ws.savedCourse || {};
+  return `<div style="max-width:760px;margin:0 auto">
+    <div class="card" style="margin-bottom:16px">
+      <div class="card-body" style="text-align:center;padding:36px 24px">
+        <div style="font-size:32px;margin-bottom:12px">✓</div>
+        <div style="font-size:18px;font-weight:700;color:var(--teal);margin-bottom:8px">Course Created</div>
+        <div style="font-size:13px;color:var(--text-secondary);margin-bottom:6px">Course ID: <strong>${course.id || '—'}</strong></div>
+        ${course.status ? `<div style="font-size:12px;color:var(--text-tertiary)">Status: ${course.status.replace(/_/g,' ')}</div>` : ''}
+        ${course.planned_sessions_total ? `<div style="font-size:12px;color:var(--text-tertiary);margin-top:4px">${course.planned_sessions_total} sessions planned · ${course.planned_sessions_per_week || ws.sessionsPerWeek}×/week</div>` : ''}
+        ${course.review_required ? `<div style="font-size:12px;color:var(--amber);margin-top:8px">Review required before the course can be activated.</div>` : ''}
+        <div style="display:flex;gap:10px;justify-content:center;margin-top:22px;flex-wrap:wrap">
+          ${course.id ? `<button class="btn btn-primary" onclick="window._openCourse('${course.id}')">View Course →</button>` : ''}
+          <button class="btn" onclick="window._nav('session-execution')">Start Session →</button>
+        </div>
+      </div>
+    </div>
+    <div style="text-align:center">
+      <button class="btn btn-ghost btn-sm" onclick="window._wizReset()">Create Another Protocol →</button>
+    </div>
+  </div>`;
+}
+
+// ── Wizard core ───────────────────────────────────────────────────────────────
+
+function renderWizPage() {
+  const ws = wizState();
+  const step = ws.step || 0;
+  const el = document.getElementById('content');
+  if (!el) return;
+
+  let body = '';
+  if (step === 0) body = renderWizStep1();
+  else if (step === 1) body = renderWizStep2();
+  else if (step === 2) body = renderWizStep3();
+  else if (step === 3) body = ws._step4Html || renderWizStep4Loading();
+  else if (step === 4) body = renderWizStep5();
+
+  el.innerHTML = `
+    <div style="padding:0">
+      ${renderWizIndicator(step)}
+      <div id="wiz-body">${body}</div>
+    </div>`;
+
+  // After render, load async data for each step
+  if (step === 0) _wizLoadStep1Data();
+  if (step === 1) _wizLoadStep2Data();
+  if (step === 2) _wizLoadStep3Data();
+}
+
+async function _wizLoadStep1Data() {
+  const ws = wizState();
+  // Load patients
+  try {
+    const pts = await api.listPatients();
+    const items = pts?.items || pts || [];
+    const sel = document.getElementById('wiz-patient');
+    if (sel) {
+      sel.innerHTML = `<option value="">No specific patient</option>` +
+        items.map(p => `<option value="${p.id}" ${p.id === ws.patientId ? 'selected' : ''}>${p.first_name || ''} ${p.last_name || ''}</option>`).join('');
+    }
+  } catch {
+    const sel = document.getElementById('wiz-patient');
+    if (sel) sel.innerHTML = `<option value="">No specific patient</option>`;
+  }
+
+  // Load conditions
+  try {
+    const condData = await api.conditions();
+    const items = condData?.items || condData || [];
+    const container = document.getElementById('wiz-condition-chips');
+    if (container) {
+      const list = items.length > 0 ? items : FALLBACK_CONDITIONS.map(c => ({ name: c, slug: c.toLowerCase().replace(/\s+/g,'-').replace(/[^a-z0-9-]/g,'') }));
+      container.innerHTML = list.map(c => {
+        const slug = c.slug || c.id || c.Condition_ID || c.name;
+        const label = c.name || c.Condition_Name || slug;
+        const sel = ws.conditionSlug === slug;
+        return `<button style="${wizChipStyle(sel)}" onclick="window._wizSelectCondition('${slug}','${label.replace(/'/g,"\\'")}',this)">${label}</button>`;
+      }).join('');
+    }
+  } catch {
+    const container = document.getElementById('wiz-condition-chips');
+    if (container) {
+      container.innerHTML = FALLBACK_CONDITIONS.map(c => {
+        const slug = c.toLowerCase().replace(/\s+/g,'-').replace(/[^a-z0-9-]/g,'');
+        const sel = ws.conditionSlug === slug;
+        return `<button style="${wizChipStyle(sel)}" onclick="window._wizSelectCondition('${slug}','${c.replace(/'/g,"\\'")}',this)">${c}</button>`;
+      }).join('');
+    }
+  }
+}
+
+async function _wizLoadStep2Data() {
+  const ws = wizState();
+  // Load phenotypes
+  const phenoContainer = document.getElementById('wiz-phenotype-cards');
+  try {
+    const params = ws.conditionSlug ? { condition_id: ws.conditionSlug } : {};
+    const data = await api.phenotypes(params);
+    const items = data?.items || data || [];
+    if (phenoContainer) {
+      if (items.length === 0) {
+        phenoContainer.innerHTML = `<div style="font-size:12px;color:var(--text-tertiary)">No phenotypes available for this condition. <button class="btn btn-ghost btn-sm" onclick="window._wizSkipPheno()">Skip →</button></div>`;
+      } else {
+        phenoContainer.innerHTML = items.map(p => {
+          const pid = p.id || p.Phenotype_ID || p.name;
+          const pname = p.name || p.Phenotype_Name || pid;
+          const pdesc = p.description || p.Description || '';
+          const sel = ws.phenotypeId === pid;
+          return `<div onclick="window._wizSelectPhenotype('${pid}',this)" style="padding:12px;border:1px solid ${sel ? 'var(--teal)' : 'var(--border)'};border-radius:var(--radius-md);cursor:pointer;background:${sel ? 'rgba(0,212,188,0.07)' : 'transparent'};transition:all .15s">
+            <div style="font-size:12.5px;font-weight:600;color:${sel ? 'var(--teal)' : 'var(--text-primary)'};margin-bottom:4px">${pname}</div>
+            ${pdesc ? `<div style="font-size:11px;color:var(--text-tertiary);line-height:1.4">${pdesc.slice(0,100)}${pdesc.length>100?'…':''}</div>` : ''}
+          </div>`;
+        }).join('');
+      }
+    }
+  } catch {
+    if (phenoContainer) phenoContainer.innerHTML = `<div style="font-size:12px;color:var(--text-tertiary)">Phenotypes unavailable. <button class="btn btn-ghost btn-sm" onclick="window._wizSkipPheno()">Skip →</button></div>`;
+  }
+
+  // Load modalities
+  const modContainer = document.getElementById('wiz-modality-chips');
+  try {
+    const data = await api.modalities();
+    const items = data?.items || data || [];
+    const list = items.length > 0 ? items : FALLBACK_MODALITIES.map(m => ({ name: m, slug: m }));
+    if (modContainer) {
+      modContainer.innerHTML = list.map(m => {
+        const slug = m.slug || m.id || m.Modality_ID || m.name;
+        const label = m.name || m.Modality_Name || slug;
+        const sel = (ws.modalitySlugs || []).includes(slug);
+        return `<button style="${wizChipStyle(sel)}" onclick="window._wizToggleModality('${slug}',this)">${label}</button>`;
+      }).join('');
+    }
+  } catch {
+    const modContainer2 = document.getElementById('wiz-modality-chips');
+    if (modContainer2) {
+      modContainer2.innerHTML = FALLBACK_MODALITIES.map(m => {
+        const sel = (ws.modalitySlugs || []).includes(m);
+        return `<button style="${wizChipStyle(sel)}" onclick="window._wizToggleModality('${m}',this)">${m}</button>`;
+      }).join('');
+    }
+  }
+}
+
+async function _wizLoadStep3Data() {
+  const ws = wizState();
+  const devSel = document.getElementById('wiz-device');
+  try {
+    const data = await api.devices_registry();
+    const items = data?.items || data || [];
+    if (devSel) {
+      devSel.innerHTML = `<option value="">Select device…</option>` +
+        items.map(d => {
+          const slug = d.slug || d.id || d.Device_ID || d.name;
+          const label = d.name || d.Device_Name || slug;
+          return `<option value="${slug}" ${ws.deviceSlug === slug ? 'selected' : ''}>${label}</option>`;
+        }).join('');
+    }
+  } catch {
+    if (devSel) devSel.innerHTML = `<option value="">No devices available</option>`;
+  }
+}
+
+// ── Wizard actions ────────────────────────────────────────────────────────────
+
+function _wizBindActions() {
+  window._wizSelectCondition = (slug, label, btn) => {
+    const ws = wizState();
+    if (ws.conditionSlug === slug) {
+      ws.conditionSlug = '';
+      ws.conditionLabel = '';
+    } else {
+      ws.conditionSlug = slug;
+      ws.conditionLabel = label;
+    }
+    // Update chip styles
+    document.querySelectorAll('#wiz-condition-chips button').forEach(b => {
+      b.style.cssText = wizChipStyle(false);
+    });
+    if (ws.conditionSlug) btn.style.cssText = wizChipStyle(true);
+  };
+
+  window._wizSelectPhenotype = (pid, card) => {
+    const ws = wizState();
+    if (ws.phenotypeId === pid) {
+      ws.phenotypeId = '';
+    } else {
+      ws.phenotypeId = pid;
+    }
+    // Update card styles
+    document.querySelectorAll('#wiz-phenotype-cards > div').forEach(c => {
+      c.style.border = `1px solid var(--border)`;
+      c.style.background = 'transparent';
+      const title = c.querySelector('div');
+      if (title) title.style.color = 'var(--text-primary)';
+    });
+    if (ws.phenotypeId) {
+      card.style.border = `1px solid var(--teal)`;
+      card.style.background = 'rgba(0,212,188,0.07)';
+      const title = card.querySelector('div');
+      if (title) title.style.color = 'var(--teal)';
+    }
+  };
+
+  window._wizSkipPheno = () => {
+    const ws = wizState();
+    ws.phenotypeId = '';
+    const container = document.getElementById('wiz-phenotype-cards');
+    if (container) container.innerHTML = `<div style="font-size:12px;color:var(--text-tertiary)">Phenotype skipped.</div>`;
+  };
+
+  window._wizToggleModality = (slug, btn) => {
+    const ws = wizState();
+    if (!ws.modalitySlugs) ws.modalitySlugs = [];
+    const idx = ws.modalitySlugs.indexOf(slug);
+    if (idx >= 0) {
+      ws.modalitySlugs.splice(idx, 1);
+      btn.style.cssText = wizChipStyle(false);
+    } else {
+      ws.modalitySlugs.push(slug);
+      btn.style.cssText = wizChipStyle(true);
+    }
+  };
+
+  window._wizNext = () => {
+    const ws = wizState();
+    const step = ws.step || 0;
+    if (step === 0) {
+      // Collect step 1 data
+      const patEl = document.getElementById('wiz-patient');
+      const symEl = document.getElementById('wiz-symptom');
+      ws.patientId = patEl?.value || '';
+      ws.symptomCluster = symEl?.value?.trim() || '';
+    } else if (step === 1) {
+      // Data collected via callbacks; nothing extra to do
+    }
+    ws.step = step + 1;
+    ws._step4Html = null;
+    renderWizPage();
+  };
+
+  window._wizBack = () => {
+    const ws = wizState();
+    ws.step = Math.max(0, (ws.step || 0) - 1);
+    ws._step4Html = null;
+    renderWizPage();
+  };
+
+  window._wizGenerate = async () => {
+    const ws = wizState();
+    // Collect step 3 data
+    ws.deviceSlug = document.getElementById('wiz-device')?.value || ws.deviceSlug || '';
+    ws.targetRegion = document.getElementById('wiz-target')?.value?.trim() || ws.targetRegion || '';
+    ws.frequencyHz = document.getElementById('wiz-freq')?.value || ws.frequencyHz || '';
+    ws.intensityPct = document.getElementById('wiz-intensity')?.value || ws.intensityPct || '';
+    ws.sessionsPerWeek = document.getElementById('wiz-spw')?.value || ws.sessionsPerWeek || 5;
+    ws.totalSessions = document.getElementById('wiz-total')?.value || ws.totalSessions || 20;
+    ws.sessionDurationMin = document.getElementById('wiz-dur')?.value || ws.sessionDurationMin || 30;
+    ws.laterality = document.getElementById('wiz-lat')?.value || ws.laterality || 'bilateral';
+
+    ws.step = 3;
+    ws._step4Html = renderWizStep4Loading();
+    renderWizPage();
+
+    try {
+      const payload = {
+        condition_slug: ws.conditionSlug || '',
+        modality_slug: (ws.modalitySlugs || [])[0] || '',
+        device_slug: ws.deviceSlug || '',
+        target_region: ws.targetRegion || '',
+        frequency_hz: ws.frequencyHz ? parseFloat(ws.frequencyHz) : undefined,
+        intensity_pct_rmt: ws.intensityPct ? parseFloat(ws.intensityPct) : undefined,
+        sessions_per_week: ws.sessionsPerWeek ? parseInt(ws.sessionsPerWeek) : undefined,
+        total_sessions: ws.totalSessions ? parseInt(ws.totalSessions) : undefined,
+        session_duration_min: ws.sessionDurationMin ? parseInt(ws.sessionDurationMin) : undefined,
+        laterality: ws.laterality || '',
+        phenotype_id: ws.phenotypeId || undefined,
+        patient_id: ws.patientId || undefined,
+      };
+      // Remove undefined keys
+      Object.keys(payload).forEach(k => payload[k] === undefined && delete payload[k]);
+
+      const result = await api.generateProtocol(payload);
+      ws.generatedProtocol = result;
+      ws._step4Html = renderWizStep4Result(result);
+    } catch (e) {
+      ws._step4Html = renderWizStep4Error(e?.message || 'Generation failed.');
+    }
+    const body = document.getElementById('wiz-body');
+    if (body) body.innerHTML = ws._step4Html;
+  };
+
+  window._wizSkipAI = () => {
+    const ws = wizState();
+    ws.generatedProtocol = null;
+    ws._step4Html = renderWizStep4Result({});
+    const body = document.getElementById('wiz-body');
+    if (body) body.innerHTML = ws._step4Html;
+  };
+
+  window._wizSave = async (mode) => {
+    const ws = wizState();
+    // Collect clinician notes from textarea
+    const notesEl = document.getElementById('wiz-clinician-notes');
+    ws.clinicianNotes = notesEl?.value?.trim() || '';
+
+    const result = ws.generatedProtocol || {};
+    const saveBtn1 = document.querySelector('[onclick="_wizSave(\'draft\')"]');
+    const saveBtn2 = document.querySelector('[onclick="_wizSave(\'active\')"]');
+
+    // Disable buttons during save
+    document.querySelectorAll('#wiz-body button').forEach(b => b.disabled = true);
+
+    try {
+      const courseData = {
+        condition_slug: ws.conditionSlug || undefined,
+        modality_slug: (ws.modalitySlugs || [])[0] || undefined,
+        device_slug: ws.deviceSlug || undefined,
+        target_region: ws.targetRegion || undefined,
+        planned_frequency_hz: ws.frequencyHz ? parseFloat(ws.frequencyHz) : undefined,
+        planned_intensity_pct_rmt: ws.intensityPct ? parseFloat(ws.intensityPct) : undefined,
+        planned_sessions_per_week: ws.sessionsPerWeek ? parseInt(ws.sessionsPerWeek) : undefined,
+        planned_sessions_total: ws.totalSessions ? parseInt(ws.totalSessions) : undefined,
+        planned_session_duration_min: ws.sessionDurationMin ? parseInt(ws.sessionDurationMin) : undefined,
+        laterality: ws.laterality || undefined,
+        patient_id: ws.patientId || undefined,
+        phenotype_id: ws.phenotypeId || undefined,
+        protocol_id: result?.id || undefined,
+        evidence_grade: result?.evidence_grade || undefined,
+        on_label: result?.on_label_vs_off_label ? result.on_label_vs_off_label.toLowerCase().startsWith('on') : undefined,
+        clinician_notes: ws.clinicianNotes || undefined,
+      };
+      Object.keys(courseData).forEach(k => courseData[k] === undefined && delete courseData[k]);
+
+      const course = await api.createCourse(courseData);
+
+      if (mode === 'active' && course?.id) {
+        try { await api.activateCourse(course.id); } catch {}
+        // Refresh course status
+        try { const refreshed = await api.getCourse(course.id); if (refreshed) ws.savedCourse = refreshed; else ws.savedCourse = course; } catch { ws.savedCourse = course; }
+      } else {
+        ws.savedCourse = course;
+      }
+      ws.step = 4;
+      ws._step4Html = null;
+      renderWizPage();
+    } catch (e) {
+      document.querySelectorAll('#wiz-body button').forEach(b => b.disabled = false);
+      const body = document.getElementById('wiz-body');
+      const errDiv = document.createElement('div');
+      errDiv.className = 'notice notice-warn';
+      errDiv.style.marginTop = '10px';
+      errDiv.textContent = e?.message || 'Failed to save course.';
+      if (body) body.appendChild(errDiv);
+    }
+  };
+
+  window._wizReset = () => {
+    window._wizState = {
+      step: 0, patientId: '', conditionSlug: '', conditionLabel: '',
+      symptomCluster: '', phenotypeId: '', modalitySlugs: [],
+      deviceSlug: '', targetRegion: '', frequencyHz: '', intensityPct: '',
+      sessionsPerWeek: 5, totalSessions: 20, sessionDurationMin: 30,
+      laterality: 'bilateral', generatedProtocol: null, clinicianNotes: '',
+      savedCourse: null, _step4Html: null,
+    };
+    renderWizPage();
+  };
+}
+
+export async function pgProtocols(setTopbar) {
+  setTopbar('Protocol Intelligence', `<button class="btn btn-primary btn-sm" onclick="window._nav('handbooks')">Handbooks →</button>`);
+
+  // Init state fresh only if not already on this page (step > 0 means we came via back)
+  if (!window._wizState || window._wizState._fresh) {
+    window._wizState = {
+      step: 0, patientId: window._wizardPatientId || '', conditionSlug: '',
+      conditionLabel: '', symptomCluster: '', phenotypeId: '',
+      modalitySlugs: [], deviceSlug: '', targetRegion: '', frequencyHz: '',
+      intensityPct: '', sessionsPerWeek: 5, totalSessions: 20,
+      sessionDurationMin: 30, laterality: 'bilateral',
+      generatedProtocol: null, clinicianNotes: '', savedCourse: null,
+      _step4Html: null, _fresh: false,
+    };
+  }
+
+  _wizBindActions();
+  renderWizPage();
+}
+
+// ── (Legacy renderProStep removed — replaced by new wizard) ──────────────────
+function renderProStep_UNUSED() {
   if (proStep === 0) {
     const prefilledName = window._wizardPatientName ? `<div class="notice notice-info" style="margin-bottom:12px">Patient: <strong>${window._wizardPatientName}</strong></div>` : '';
     return `<div class="g2">

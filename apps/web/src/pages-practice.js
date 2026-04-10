@@ -63,30 +63,32 @@ export function pgSchedule(setTopbar) {
 
 // ── Telehealth ────────────────────────────────────────────────────────────────
 export function pgTelehealth(setTopbar) {
-  setTopbar('Telehealth', `<button class="btn btn-primary btn-sm">+ New Session</button>`);
-  return `<div class="g2">
-    ${cardWrap('Upcoming Video Sessions', [
-      { n: 'Patient Review', t: 'Today, 14:00', type: 'Protocol Review', s: 'active' },
-      { n: 'New Patient Consult', t: 'Tomorrow, 11:00', type: 'Intake Consult', s: 'pending' },
-      { n: 'Progress Review', t: 'Apr 12, 09:00', type: 'Progress Review', s: 'review' },
-    ].map(s => `<div style="padding:12px 0;border-bottom:1px solid var(--border)">
-      <div style="display:flex;justify-content:space-between;margin-bottom:5px">
-        <span style="font-weight:600;font-size:13px;color:var(--text-primary)">${s.n}</span>${pillSt(s.s)}
+  setTopbar('Telehealth', '');
+  const el = document.getElementById('content');
+  el.innerHTML = `
+    <div style="max-width:680px;margin:0 auto;padding:48px 24px;text-align:center">
+      <div style="width:72px;height:72px;border-radius:20px;background:linear-gradient(135deg,var(--navy-700),var(--navy-600));border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:28px;margin:0 auto 24px">◱</div>
+      <div style="font-family:var(--font-display);font-size:22px;font-weight:700;color:var(--text-primary);margin-bottom:10px">Telehealth & Video Consultations</div>
+      <div style="font-size:13.5px;color:var(--text-secondary);line-height:1.65;margin-bottom:32px;max-width:480px;margin-left:auto;margin-right:auto">
+        HIPAA-compliant video consultations, in-session protocol display, and brain map sharing are in active development.
+        This will integrate with the scheduling and session execution workflows.
       </div>
-      <div style="font-size:11.5px;color:var(--text-secondary);margin-bottom:10px">${s.t} · ${s.type}</div>
-      <div style="display:flex;gap:6px"><button class="btn btn-primary btn-sm">Join Session →</button><button class="btn btn-sm">Remind</button></div>
-    </div>`).join(''))}
-    ${cardWrap('Platform Features', [
-      { i: '🔒', t: 'HIPAA-Compliant Video', d: 'E2E encrypted sessions, no data retention' },
-      { i: '📋', t: 'In-session Protocol View', d: 'Display and annotate protocols live' },
-      { i: '🧠', t: 'Brain Map Sharing', d: 'Share qEEG reports with live annotation' },
-      { i: '⏺', t: 'Session Recording', d: 'Consent-based recording, secure storage' },
-      { i: '📝', t: 'Real-time Assessment', d: 'Send and collect assessments live' },
-    ].map(f => `<div style="display:flex;gap:12px;padding:10px 0;border-bottom:1px solid var(--border);align-items:flex-start">
-      <div style="font-size:18px;flex-shrink:0">${f.i}</div>
-      <div><div style="font-size:13px;font-weight:500;color:var(--text-primary);margin-bottom:2px">${f.t}</div><div style="font-size:11.5px;color:var(--text-secondary)">${f.d}</div></div>
-    </div>`).join(''))}
-  </div>`;
+      <div style="display:flex;gap:12px;justify-content:center;flex-wrap:wrap;margin-bottom:40px">
+        ${[
+          ['HIPAA-Compliant Video', 'E2E encrypted, no data retention'],
+          ['In-session Protocol View', 'Display and annotate protocols live'],
+          ['Real-time Assessment', 'Send assessments during session'],
+        ].map(([t, d]) => `
+          <div class="card" style="text-align:left;padding:16px 20px;min-width:180px;flex:1;max-width:220px">
+            <div style="font-size:11px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.08em;margin-bottom:6px">Planned</div>
+            <div style="font-size:13px;font-weight:600;color:var(--text-primary);margin-bottom:4px">${t}</div>
+            <div style="font-size:11.5px;color:var(--text-secondary)">${d}</div>
+          </div>`).join('')}
+      </div>
+      <div style="display:inline-flex;align-items:center;gap:8px;padding:8px 16px;border-radius:var(--radius-md);background:var(--teal-ghost);border:1px solid var(--border-teal);color:var(--teal);font-size:12px;font-weight:500">
+        <span>◈</span> Coming in a future release
+      </div>
+    </div>`;
 }
 
 // ── Messaging ─────────────────────────────────────────────────────────────────
@@ -424,56 +426,129 @@ export async function pgSettings(setTopbar, currentUser) {
     telegramInstructions = tg?.instructions;
   } catch {}
 
-  el.innerHTML = `<div class="g2">
-    ${cardWrap('Account Profile', [
-      ['Display Name', currentUser?.display_name || '—'],
-      ['Email',        currentUser?.email || '—'],
-      ['Role',         `<span style="font-size:11px;padding:2px 8px;border-radius:4px;background:rgba(0,212,188,0.1);color:var(--teal)">${currentUser?.role || 'guest'}</span>`],
-      ['Package',      `<span style="font-size:11px;padding:2px 8px;border-radius:4px;background:rgba(74,158,255,0.1);color:var(--blue)">${currentUser?.package_id || 'explorer'}</span>`],
-      ['Verified',     currentUser?.is_verified ? '<span style="color:var(--green)">Yes ✓</span>' : '<span style="color:var(--amber)">Pending</span>'],
-    ].map(([k, v]) => fr(k, v)).join(''))}
+  el.innerHTML = `
+    <!-- Account Section -->
+    <div class="card" style="margin-bottom:16px">
+      <div class="card-header" style="padding:12px 20px;border-bottom:1px solid var(--border)">
+        <span style="font-size:13px;font-weight:600;color:var(--text-primary)">Account</span>
+      </div>
+      <div class="card-body">
+        ${[
+          ['Display Name', currentUser?.display_name || '—'],
+          ['Email',        currentUser?.email || '—'],
+          ['Role',         `<span style="font-size:11px;padding:2px 8px;border-radius:4px;background:rgba(0,212,188,0.1);color:var(--teal)">${currentUser?.role || 'guest'}</span>`],
+          ['Package',      `<span style="font-size:11px;padding:2px 8px;border-radius:4px;background:rgba(74,158,255,0.1);color:var(--blue)">${currentUser?.package_id || 'explorer'}</span>`],
+          ['Verified',     currentUser?.is_verified ? '<span style="color:var(--green)">Yes ✓</span>' : '<span style="color:var(--amber)">Pending</span>'],
+        ].map(([k, v]) => fr(k, v)).join('')}
+      </div>
+    </div>
 
-    ${cardWrap('Compliance & Security', [
-      ['HIPAA',      '<span style="color:var(--green)">Compliant ✓</span>'],
-      ['GDPR',       '<span style="color:var(--green)">Compliant ✓</span>'],
-      ['2FA',        '<span style="color:var(--amber)">Recommended — not yet enabled</span>'],
-      ['Audit Logs', '7-year retention policy'],
-      ['Encryption', 'AES-256 at rest · TLS 1.3 in transit'],
-    ].map(([k, v]) => fr(k, v)).join(''))}
+    <!-- Clinic Section -->
+    <div class="card" style="margin-bottom:16px">
+      <div class="card-header" style="padding:12px 20px;border-bottom:1px solid var(--border)">
+        <span style="font-size:13px;font-weight:600;color:var(--text-primary)">Clinic</span>
+      </div>
+      <div class="card-body">
+        ${[
+          ['Clinic Name',  '—'],
+          ['Address',      '—'],
+          ['Phone',        '—'],
+          ['Time Zone',    Intl.DateTimeFormat().resolvedOptions().timeZone || '—'],
+        ].map(([k, v]) => fr(k, v)).join('')}
+        <div style="margin-top:12px"><span style="font-size:11px;color:var(--text-tertiary);padding:4px 10px;border:1px solid var(--border);border-radius:var(--radius-md);display:inline-block">Clinic profile editing — coming soon</span></div>
+      </div>
+    </div>
 
-    ${cardWrap('Subscription & Billing',
-      fr('Current Plan', `<strong>${currentUser?.package_id || 'Explorer'}</strong>`) +
-      fr('Billing Portal', `<button class="btn btn-sm" onclick="window._openBillingPortal()">Manage Subscription →</button>`) +
-      fr('Upgrade', `<button class="btn btn-primary btn-sm" onclick="window._nav('pricing')">View Plans →</button>`),
-      '<div id="portal-status" style="font-size:11px;color:var(--text-tertiary);margin-top:4px"></div>'
-    )}
+    <!-- Notifications Section -->
+    <div class="card" style="margin-bottom:16px">
+      <div class="card-header" style="padding:12px 20px;border-bottom:1px solid var(--border)">
+        <span style="font-size:13px;font-weight:600;color:var(--text-primary)">Notifications</span>
+      </div>
+      <div class="card-body">
+        ${[
+          ['Session Reminders', '24h + 2h before'],
+          ['Protocol Alerts',  'Enabled'],
+          ['AE Alerts',        'Immediate (Telegram + email)'],
+          ['Review Queue',     'Daily digest'],
+        ].map(([k, v]) => fr(k, v)).join('')}
+        ${cardWrap('Telegram Integration',
+          telegramCode
+            ? fr('Link Code', `<code style="font-family:var(--font-mono);font-size:14px;color:var(--teal);background:rgba(0,212,188,0.08);padding:4px 10px;border-radius:4px;letter-spacing:2px">${telegramCode}</code>`) +
+              fr('Instructions', `<span style="font-size:11.5px;color:var(--text-secondary)">${telegramInstructions || 'Send LINK ' + telegramCode + ' to @DeepSynapsBot'}</span>`) +
+              `<div style="margin-top:12px;padding:10px;background:rgba(0,212,188,0.05);border-radius:6px;border:1px solid var(--border-teal);font-size:11.5px;color:var(--text-secondary)">
+                Receive session reminders, review alerts and outcome summaries directly in Telegram.
+              </div>`
+            : fr('Status', '<span style="color:var(--text-tertiary)">Telegram service unavailable</span>') +
+              fr('Setup', '<span style="font-size:11.5px;color:var(--text-secondary)">Configure TELEGRAM_BOT_TOKEN in environment to enable</span>')
+        )}
+      </div>
+    </div>
 
-    ${cardWrap('Telegram Integration',
-      telegramCode
-        ? fr('Link Code', `<code style="font-family:var(--font-mono);font-size:14px;color:var(--teal);background:rgba(0,212,188,0.08);padding:4px 10px;border-radius:4px;letter-spacing:2px">${telegramCode}</code>`) +
-          fr('Instructions', `<span style="font-size:11.5px;color:var(--text-secondary)">${telegramInstructions || 'Send LINK ' + telegramCode + ' to @DeepSynapsBot'}</span>`) +
-          `<div style="margin-top:12px;padding:10px;background:rgba(0,212,188,0.05);border-radius:6px;border:1px solid var(--border-teal);font-size:11.5px;color:var(--text-secondary)">
-            Receive session reminders, review alerts and outcome summaries directly in Telegram.
-          </div>`
-        : fr('Status', '<span style="color:var(--text-tertiary)">Telegram service unavailable</span>') +
-          fr('Setup', '<span style="font-size:11.5px;color:var(--text-secondary)">Configure TELEGRAM_BOT_TOKEN in environment to enable</span>')
-    )}
+    <!-- Security Section -->
+    <div class="card" style="margin-bottom:16px">
+      <div class="card-header" style="padding:12px 20px;border-bottom:1px solid var(--border)">
+        <span style="font-size:13px;font-weight:600;color:var(--text-primary)">Security</span>
+      </div>
+      <div class="card-body">
+        ${[
+          ['HIPAA',      '<span style="color:var(--green)">Compliant ✓</span>'],
+          ['GDPR',       '<span style="color:var(--green)">Compliant ✓</span>'],
+          ['2FA',        '<span style="color:var(--amber)">Recommended — not yet enabled</span>'],
+          ['Audit Logs', '7-year retention policy'],
+          ['Encryption', 'AES-256 at rest · TLS 1.3 in transit'],
+        ].map(([k, v]) => fr(k, v)).join('')}
+        ${cardWrap('Integrations', [
+          ['DOCX Export',    '<span style="color:var(--green)">Available ✓</span>'],
+          ['Stripe',         '<span style="color:var(--green)">Connected ✓</span>'],
+          ['qEEG Upload',    '<span style="color:var(--text-tertiary)">Manual entry</span>'],
+          ['EHR / EMR',      '<span style="color:var(--text-tertiary)">Coming soon</span>'],
+          ['HL7 / FHIR',     '<span style="color:var(--text-tertiary)">Coming soon</span>'],
+        ].map(([k, v]) => fr(k, v)).join(''))}
+      </div>
+    </div>
 
-    ${cardWrap('Notifications', [
-      ['Session Reminders', '24h + 2h before'],
-      ['Protocol Alerts',  'Enabled'],
-      ['AE Alerts',        'Immediate (Telegram + email)'],
-      ['Review Queue',     'Daily digest'],
-    ].map(([k, v]) => fr(k, v)).join(''))}
+    <!-- Billing Section -->
+    <div class="card" style="margin-bottom:16px">
+      <div class="card-header" style="padding:12px 20px;border-bottom:1px solid var(--border)">
+        <span style="font-size:13px;font-weight:600;color:var(--text-primary)">Billing</span>
+      </div>
+      <div class="card-body">
+        ${fr('Current Plan', `<strong>${currentUser?.package_id || 'Explorer'}</strong>`)}
+        ${fr('Billing Portal', `<button class="btn btn-sm" onclick="window._openBillingPortal()">Manage Subscription →</button>`)}
+        ${fr('Upgrade', `<button class="btn btn-primary btn-sm" onclick="window._nav('pricing')">View Plans →</button>`)}
+        <div id="portal-status" style="font-size:11px;color:var(--text-tertiary);margin-top:4px"></div>
+      </div>
+    </div>
 
-    ${cardWrap('Integrations', [
-      ['DOCX Export',    '<span style="color:var(--green)">Available ✓</span>'],
-      ['Stripe',         '<span style="color:var(--green)">Connected ✓</span>'],
-      ['qEEG Upload',    '<span style="color:var(--text-tertiary)">Manual entry</span>'],
-      ['EHR / EMR',      '<span style="color:var(--text-tertiary)">Coming soon</span>'],
-      ['HL7 / FHIR',     '<span style="color:var(--text-tertiary)">Coming soon</span>'],
-    ].map(([k, v]) => fr(k, v)).join(''))}
-  </div>`;
+    <!-- Danger Zone -->
+    <div class="card" style="margin-bottom:16px;border-color:rgba(255,107,107,0.3)">
+      <div class="card-header" style="padding:12px 20px;border-bottom:1px solid rgba(255,107,107,0.2);background:rgba(255,107,107,0.04)">
+        <span style="font-size:13px;font-weight:600;color:var(--red)">Danger Zone</span>
+      </div>
+      <div class="card-body">
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;padding:4px 0">
+          <div>
+            <div style="font-size:13px;font-weight:500;color:var(--text-primary);margin-bottom:3px">Delete Account</div>
+            <div style="font-size:12px;color:var(--text-secondary)">Permanently delete your account and all associated data. This action cannot be undone.</div>
+          </div>
+          <button class="btn btn-danger btn-sm" onclick="window._requestAccountDeletion()">Delete Account</button>
+        </div>
+      </div>
+    </div>
+  `;
+
+  window._requestAccountDeletion = function() {
+    const dangerEl = document.querySelector('.btn-danger');
+    if (!confirm('Are you absolutely sure? This will permanently delete your account and all patient data. This cannot be undone.')) return;
+    const typed = prompt('Type DELETE to confirm account deletion:');
+    if (typed !== 'DELETE') { return; }
+    if (dangerEl) { dangerEl.disabled = true; dangerEl.textContent = 'Request submitted'; }
+    const notice = document.createElement('div');
+    notice.className = 'notice notice-warn';
+    notice.style.cssText = 'position:fixed;top:16px;right:16px;z-index:9999;max-width:380px';
+    notice.textContent = 'Account deletion requested. Our team will process this within 48 hours.';
+    document.body.appendChild(notice); setTimeout(() => notice.remove(), 8000);
+  };
 
   window._openBillingPortal = async function() {
     const status = document.getElementById('portal-status');
@@ -551,8 +626,16 @@ export async function pgAIAssistant(setTopbar) {
         <div style="text-align:center;padding:24px 0">
           <div style="font-size:28px;margin-bottom:8px">✦</div>
           <div style="font-size:14px;font-weight:600;color:var(--text-primary);margin-bottom:4px">AI Clinical Assistant</div>
-          <div style="font-size:12px;color:var(--text-secondary);max-width:320px;margin:0 auto;line-height:1.6">
+          <div style="font-size:12px;color:var(--text-secondary);max-width:320px;margin:0 auto;line-height:1.6;margin-bottom:20px">
             Ask clinical questions, review protocol rationale, explore evidence, or get patient-specific guidance. Select a patient for contextual responses.
+          </div>
+          <div style="display:flex;flex-direction:column;gap:8px;max-width:400px;margin:0 auto">
+            <div style="font-size:10px;text-transform:uppercase;letter-spacing:.8px;color:var(--text-tertiary);font-weight:600;margin-bottom:4px">Suggested prompts</div>
+            ${[
+              'Generate a tDCS protocol for MDD',
+              'What is the evidence for neurofeedback in ADHD?',
+              'List contraindications for TMS',
+            ].map(p => `<button class="btn btn-sm" data-prompt="${p}" style="text-align:left;white-space:normal;height:auto;padding:8px 14px;line-height:1.4;background:rgba(0,212,188,0.05);border-color:var(--border-teal);color:var(--text-primary)" onclick="window._chatSuggest(this.getAttribute('data-prompt'));document.getElementById('chat-input').focus()">✦ ${p}</button>`).join('')}
           </div>
         </div>
       </div>

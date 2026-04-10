@@ -1000,6 +1000,7 @@ export async function pgSessionExecution(setTopbar, navigate) {
                 </div>
               </div>
               <style>@keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.5;transform:scale(1.15)}}</style>
+              <div id="se-timer-notice" style="display:none;padding:8px 12px;background:rgba(74,222,128,0.08);border:1px solid rgba(74,222,128,0.2);border-radius:var(--radius-md);color:var(--green);font-size:12.5px;margin-bottom:12px"></div>
 
               <div style="font-size:10px;font-weight:600;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:1px;margin-bottom:10px;padding-bottom:6px;border-bottom:1px solid var(--border)">Pre / Post Session Checklist</div>
               <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:16px">
@@ -1209,7 +1210,10 @@ export async function pgSessionExecution(setTopbar, navigate) {
         clearInterval(_seTimerInterval);
         _seTimerInterval = null;
         window._seTimerStop();
-        alert('Session timer complete! Please complete your post-session checklist.');
+        const timerDisp = document.getElementById('se-timer-display');
+        if (timerDisp) { timerDisp.textContent = '00:00'; timerDisp.style.color = 'var(--green)'; }
+        const notice = document.getElementById('se-timer-notice');
+        if (notice) { notice.style.display = ''; notice.innerHTML = '✓ Session complete — please complete your post-session checklist.'; }
       }
     }, 1000);
   };

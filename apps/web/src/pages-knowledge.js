@@ -1,9 +1,10 @@
 import { api, downloadBlob } from './api.js';
 import { cardWrap, fr, evBar, pillSt, tag, spinner, emptyState } from './helpers.js';
+import { FALLBACK_CONDITIONS, FALLBACK_MODALITIES } from './constants.js';
 
 // ── Evidence Library ──────────────────────────────────────────────────────────
 export async function pgEvidence(setTopbar) {
-  setTopbar('Evidence Library', `<button class="btn btn-ghost btn-sm">Export CSV</button>`);
+  setTopbar('Evidence Library', '');
   const el = document.getElementById('content');
   el.innerHTML = spinner();
 
@@ -24,9 +25,10 @@ export async function pgEvidence(setTopbar) {
     <input class="form-control" id="ev-search" placeholder="Search conditions, modalities, summaries…" style="flex:1;min-width:200px" oninput="window.filterEvidence()">
     <select class="form-control" id="ev-level" style="width:auto" onchange="window.filterEvidence()">
       <option value="">All Evidence Levels</option>
-      <option value="A">EV-A (Strong RCT)</option>
-      <option value="B">EV-B (Moderate)</option>
-      <option value="C">EV-C (Emerging)</option>
+      <option value="A" style="color:#00d4bc;background:#0a1628">Grade A — Strong RCT</option>
+      <option value="B" style="color:#4a9eff;background:#0a1628">Grade B — Moderate</option>
+      <option value="C" style="color:#f59e0b;background:#0a1628">Grade C — Emerging</option>
+      <option value="D" style="color:#f87171;background:#0a1628">Grade D — Limited</option>
     </select>
     <select class="form-control" id="ev-modality" style="width:auto" onchange="window.filterEvidence()">
       <option value="">All Modalities</option>
@@ -70,10 +72,10 @@ function renderEvidenceTable(items) {
         const evColor = e.evidence_level === 'A' ? 'var(--teal)' : e.evidence_level === 'B' ? '#60a5fa' : 'var(--amber)';
         return `
         <div id="ev-row-${idx}" style="border-bottom:1px solid var(--border);transition:background var(--transition)">
-          <div style="display:flex;align-items:center;gap:10px;padding:10px 4px;cursor:pointer;flex-wrap:wrap"
+          <div class="ev-row-header" style="display:flex;align-items:center;gap:10px;padding:10px 4px;cursor:pointer;flex-wrap:wrap"
                onclick="window._toggleEvidence(${idx})"
-               onmouseover="this.closest('#ev-row-${idx}').style.background='rgba(255,255,255,0.02)'"
-               onmouseout="this.closest('#ev-row-${idx}').style.background=''">
+               onmouseover="this.querySelector('.ev-view-link').style.opacity='1';this.closest('#ev-row-${idx}').style.background='rgba(255,255,255,0.02)'"
+               onmouseout="this.querySelector('.ev-view-link').style.opacity='0';this.closest('#ev-row-${idx}').style.background=''">
             <span style="font-size:10px;font-weight:700;padding:2px 6px;border-radius:3px;background:${evColor}22;color:${evColor};flex-shrink:0">EV-${e.evidence_level || '?'}</span>
             <div style="flex:1;min-width:0">
               <div style="font-weight:600;font-size:12.5px;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${e.title || e.condition || '—'}</div>
@@ -81,6 +83,7 @@ function renderEvidenceTable(items) {
             </div>
             <span class="tag" style="flex-shrink:0">${e.modality || '—'}</span>
             <span style="font-size:11px;color:var(--text-tertiary);flex-shrink:0">${e.regulatory_status || ''}</span>
+            <span class="ev-view-link" style="font-size:11px;color:var(--teal);flex-shrink:0;opacity:0;transition:opacity 0.15s;white-space:nowrap" onclick="event.stopPropagation();window._toggleEvidence(${idx})">View study →</span>
             <span style="color:var(--text-tertiary);font-size:13px;flex-shrink:0" id="ev-chevron-${idx}">›</span>
           </div>
           <div id="ev-expand-${idx}" style="display:none;padding:12px 4px 16px;border-top:1px solid var(--border)">
@@ -166,22 +169,46 @@ export async function pgDevices(setTopbar) {
 
 function renderDeviceGrid(items) {
   return `<div class="g3">
-    ${items.map(d => `<div class="card" style="margin-bottom:0;transition:border-color var(--transition)" onmouseover="this.style.borderColor='var(--border-teal)'" onmouseout="this.style.borderColor='var(--border)'">
-      <div class="card-body">
-        <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px">
-          <div>
-            <div style="font-family:var(--font-display);font-size:13px;font-weight:600;color:var(--text-primary)">${d.name || '—'}</div>
-            <div style="font-size:11px;color:var(--text-tertiary);margin-top:2px">${d.manufacturer || '—'}</div>
+    ${items.map((d, idx) => {
+      const isCertified = d.regulatory_status && (
+        d.regulatory_status.toLowerCase().includes('fda') ||
+        d.regulatory_status.toLowerCase().includes('ce mark') ||
+        d.regulatory_status.toLowerCase().includes('approved') ||
+        d.regulatory_status.toLowerCase().includes('cleared')
+      );
+      return `<div class="card" style="margin-bottom:0;transition:border-color var(--transition)" onmouseover="this.style.borderColor='var(--border-teal)'" onmouseout="this.style.borderColor='var(--border)'">
+        <div class="card-body">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px">
+            <div>
+              <div style="font-family:var(--font-display);font-size:13px;font-weight:600;color:var(--text-primary)">${d.name || '—'}</div>
+              <div style="font-size:11px;color:var(--text-tertiary);margin-top:2px">${d.manufacturer || '—'}</div>
+            </div>
+            <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px">
+              <span class="tag">${d.modality || '—'}</span>
+              ${isCertified ? '<span style="font-size:9.5px;font-weight:700;padding:2px 6px;border-radius:3px;background:rgba(74,222,128,0.12);color:var(--green);white-space:nowrap">✓ Certified</span>' : ''}
+            </div>
           </div>
-          <span class="tag">${d.modality || '—'}</span>
+          <div style="font-size:11.5px;color:var(--text-secondary);line-height:1.55;margin-bottom:12px">${(d.summary || '—').slice(0, 100)}${(d.summary || '').length > 100 ? '…' : ''}</div>
+          ${d.regulatory_status ? `<div style="font-size:10.5px;color:var(--text-tertiary);margin-bottom:8px">Regulatory: ${d.regulatory_status}</div>` : ''}
+          ${d.channels ? fr('Channels', String(d.channels)) : ''}
+          ${d.use_type ? `<div style="margin-top:8px">${tag(d.use_type)}</div>` : ''}
+          ${d.best_for?.length ? `<div style="margin-top:8px;font-size:11px;color:var(--text-secondary)">Best for: ${d.best_for.join(', ')}</div>` : ''}
+          <div style="margin-top:12px;border-top:1px solid var(--border);padding-top:10px">
+            <button class="btn btn-sm" style="font-size:10.5px;width:100%" onclick="(function(){const s=document.getElementById('dev-specs-${idx}');if(s){s.style.display=s.style.display==='none'?'':'none';this.textContent=s.style.display==='none'?'Show specs':'Hide specs';}}).call(this)">Show specs</button>
+            <div id="dev-specs-${idx}" style="display:none;margin-top:10px">
+              <div style="font-size:9.5px;text-transform:uppercase;letter-spacing:.8px;color:var(--text-tertiary);font-weight:600;margin-bottom:8px">Specifications</div>
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;font-size:11.5px">
+                ${d.max_intensity_ma != null ? `<div><span style="color:var(--text-tertiary)">Max intensity:</span> <span style="color:var(--text-primary);font-family:var(--font-mono)">${d.max_intensity_ma} mA</span></div>` : ''}
+                ${d.frequency_hz_range ? `<div><span style="color:var(--text-tertiary)">Frequency:</span> <span style="color:var(--text-primary);font-family:var(--font-mono)">${d.frequency_hz_range} Hz</span></div>` : ''}
+                ${d.pulse_width_us != null ? `<div><span style="color:var(--text-tertiary)">Pulse width:</span> <span style="color:var(--text-primary);font-family:var(--font-mono)">${d.pulse_width_us} µs</span></div>` : ''}
+                ${d.channels ? `<div><span style="color:var(--text-tertiary)">Channels:</span> <span style="color:var(--text-primary);font-family:var(--font-mono)">${d.channels}</span></div>` : ''}
+                ${!d.max_intensity_ma && !d.frequency_hz_range && !d.pulse_width_us && !d.channels ? '<div style="color:var(--text-tertiary);font-style:italic;grid-column:1/-1">Detailed specs not available</div>' : ''}
+              </div>
+            </div>
+          </div>
         </div>
-        <div style="font-size:11.5px;color:var(--text-secondary);line-height:1.55;margin-bottom:12px">${(d.summary || '—').slice(0, 100)}${(d.summary || '').length > 100 ? '…' : ''}</div>
-        ${d.regulatory_status ? `<div style="font-size:10.5px;color:var(--text-tertiary);margin-bottom:8px">📋 ${d.regulatory_status}</div>` : ''}
-        ${d.channels ? fr('Channels', String(d.channels)) : ''}
-        ${d.use_type ? `<div style="margin-top:8px">${tag(d.use_type)}</div>` : ''}
-        ${d.best_for?.length ? `<div style="margin-top:8px;font-size:11px;color:var(--text-secondary)">Best for: ${d.best_for.join(', ')}</div>` : ''}
-      </div>
-    </div>`).join('')}
+      </div>`;
+    }).join('')}
   </div>`;
 }
 
@@ -315,6 +342,22 @@ export function pgHandbooks(setTopbar) {
   return `
   <div class="notice notice-info" style="margin-bottom:20px">Generate evidence-based handbooks, patient guides, and clinician SOPs. Requires clinician role.</div>
 
+  <div class="g2" style="margin-bottom:24px">
+    ${[
+      { title: 'tDCS Clinical Protocol Manual', desc: 'Comprehensive clinical reference covering transcranial Direct Current Stimulation protocols, montage selection, parameter ranges, and monitoring requirements.', icon: '◧', color: 'var(--blue)' },
+      { title: 'TMS Safety Guidelines', desc: 'Evidence-based safety guidelines for Transcranial Magnetic Stimulation including contraindications, screening procedures, and emergency protocols.', icon: '◱', color: 'var(--amber)' },
+      { title: 'Adverse Event Reporting Procedures', desc: 'Standard operating procedures for identifying, documenting and escalating adverse events during neuromodulation therapy.', icon: '⚠', color: 'var(--red)' },
+      { title: 'Patient Consent Templates', desc: 'Compliant informed consent documentation templates for off-label and on-label neuromodulation treatments.', icon: '◉', color: 'var(--green)' },
+    ].map(h => `<div class="card" style="margin-bottom:0;display:flex;align-items:center;gap:16px;padding:16px 20px">
+      <div style="width:44px;height:44px;border-radius:10px;background:${h.color}18;border:1px solid ${h.color}44;display:flex;align-items:center;justify-content:center;font-size:18px;color:${h.color};flex-shrink:0">${h.icon}</div>
+      <div style="flex:1;min-width:0">
+        <div style="font-size:13px;font-weight:600;color:var(--text-primary);margin-bottom:4px">${h.title}</div>
+        <div style="font-size:11.5px;color:var(--text-secondary);line-height:1.5">${h.desc}</div>
+      </div>
+      <button class="btn btn-sm" style="flex-shrink:0" onclick="window._nav('handbooks')">Open →</button>
+    </div>`).join('')}
+  </div>
+
   <div class="g3" style="margin-bottom:24px">
     ${[
       { kind: 'clinician_handbook', icon: '📋', t: 'Clinician Handbook', d: 'Full clinical handbook with protocol, evidence base, monitoring, and safety guidelines.', color: 'var(--blue)' },
@@ -402,7 +445,10 @@ export function bindHandbooks() {
             ? await api.exportPatientGuideDocx(payload)
             : await api.exportHandbookDocx(payload);
           downloadBlob(blob, `${k}-${c.replace(/\s/g, '-')}-${m}.docx`);
-        } catch (e) { alert(e.message); }
+        } catch (e) {
+          const errEl2 = document.getElementById('hb-error');
+          if (errEl2) { errEl2.textContent = e.message || 'Download failed.'; errEl2.style.display = ''; }
+        }
       };
     } catch (e) {
       errEl.textContent = e.message;
@@ -503,6 +549,12 @@ export async function pgPricing(setTopbar) {
     try {
       const res = await api.createCheckout(pkg);
       if (res?.checkout_url) window.location.href = res.checkout_url;
-    } catch (e) { alert(e.message || 'Checkout unavailable.'); }
+    } catch (e) {
+      const b = document.createElement('div');
+      b.className = 'notice notice-warn';
+      b.style.cssText = 'position:fixed;top:16px;right:16px;z-index:9999;max-width:380px';
+      b.textContent = e.message || 'Checkout unavailable.';
+      document.body.appendChild(b); setTimeout(() => b.remove(), 5000);
+    }
   };
 }
