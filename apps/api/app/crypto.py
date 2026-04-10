@@ -9,6 +9,38 @@ generated with:
 Set the key via the WEARABLE_TOKEN_ENC_KEY environment variable.
 If the variable is absent (development default), tokens are stored as
 plaintext and a WARNING is emitted on every write.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+OAuth V2 Production Checklist — complete ALL items before enabling OAuth
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+[ ] 1. WEARABLE_TOKEN_ENC_KEY env var present in environment
+        Verify: `echo $WEARABLE_TOKEN_ENC_KEY` (must be non-empty)
+
+[ ] 2. Fly.io secret set (production)
+        fly secrets set WEARABLE_TOKEN_ENC_KEY=<generated_key> --app deepsynaps-api
+
+[ ] 3. Every OAuth token write goes through encrypt_token()
+        Search: grep -r "access_token_enc" apps/api --include="*.py"
+        Every match must call encrypt_token() before assignment.
+
+[ ] 4. Every OAuth token read goes through decrypt_token()
+        Search: grep -r "access_token_enc" apps/api --include="*.py"
+        Every match that uses the value must call decrypt_token().
+
+[ ] 5. Legacy plaintext fallback is monitored
+        decrypt_token() logs WARNING on Fernet failure — ensure log sink
+        surfaces these. A spike means rows written before encryption was enabled.
+
+[ ] 6. No secrets in application logs
+        Confirm no endpoint or service logs the raw token value.
+        encrypt_token / decrypt_token do not log plaintext — verify call sites.
+
+[ ] 7. Key rotation plan documented
+        To rotate: set new key, migrate existing rows with a one-off script that
+        reads each row with old key → re-encrypts with new key → writes back.
+        Never delete the old key until all rows are migrated.
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 """
 from __future__ import annotations
 

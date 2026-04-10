@@ -489,6 +489,20 @@ def connect_wearable_source(
     patient = _require_patient(actor, db)
 
     # Upsert — one connection per patient+source
+    # ── OAuth V2 integration note ──────────────────────────────────────────────
+    # V1: ConnectSourceIn carries no token fields; access_token_enc and
+    # refresh_token_enc are left empty (OAuth flows not yet implemented).
+    #
+    # When V2 OAuth is added, extend ConnectSourceIn with optional token fields
+    # and apply encryption BEFORE writing to DeviceConnection:
+    #
+    #   from app.crypto import encrypt_token
+    #   conn.access_token_enc  = encrypt_token(body.access_token)
+    #   conn.refresh_token_enc = encrypt_token(body.refresh_token)
+    #
+    # NEVER assign a raw token string without wrapping it in encrypt_token().
+    # See apps/api/app/crypto.py for the full OAuth V2 production checklist.
+    # ─────────────────────────────────────────────────────────────────────────���
     existing = db.query(DeviceConnection).filter_by(patient_id=patient.id, source=body.source).first()
     now = datetime.utcnow()
     if existing:

@@ -4,13 +4,14 @@ import uuid
 from datetime import datetime
 from typing import Optional
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.auth import AuthenticatedActor, get_authenticated_actor
 from app.database import get_db_session
 from app.errors import ApiServiceError
+from app.limiter import limiter
 from app.persistence.models import AiSummaryAudit, Patient, WearableDailySummary, WearableAlertFlag
 from app.services.chat_service import (
     chat_clinician,
@@ -24,6 +25,12 @@ from app.services.chat_service import (
 router = APIRouter(prefix="/api/v1/chat", tags=["chat"])
 _audit_logger = logging.getLogger(__name__)
 
+# Roles permitted to call /wearable-patient.
+# Patients: get DB-sourced context (spoofing-safe).
+# Clinicians/admins/supervisors: intentional preview mode (client-supplied context).
+# Technician, reviewer, guest: no legitimate use-case for patient-facing AI.
+_WEARABLE_PATIENT_ALLOWED_ROLES = frozenset({'patient', 'clinician', 'admin', 'supervisor'})
+
 
 class ChatMessage(BaseModel):
     role: str  # "user" or "assistant"
@@ -33,6 +40,7 @@ class ChatMessage(BaseModel):
 class ChatRequest(BaseModel):
     messages: list[ChatMessage]
     patient_context: str | None = None  # optional patient info for clinician context
+    language: str = "en"               # BCP-47 locale code for patient responses
 
 
 class AgentChatRequest(BaseModel):
@@ -86,7 +94,7 @@ def patient_chat(
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
 ) -> ChatResponse:
     msgs = [{"role": m.role, "content": m.content} for m in body.messages]
-    reply = chat_patient(msgs)
+    reply = chat_patient(msgs, language=body.language)
     return ChatResponse(reply=reply)
 
 
@@ -173,18 +181,30 @@ def _log_ai_summary(
 
 
 @router.post("/wearable-patient", response_model=ChatResponse)
+@limiter.limit("20/minute")
 def wearable_patient_chat(
+    request: Request,
     body: WearablePatientChatRequest,
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
     db: Session = Depends(get_db_session),
 ) -> ChatResponse:
     """Patient asks questions about their own wearable data.
 
-    For authenticated patients, wearable context is always fetched from the
-    database — the client-supplied patient_context field is ignored for patients
-    to prevent context spoofing. Clinicians previewing this endpoint receive
-    the client-supplied context (they use /wearable-clinician for real queries).
+    Access policy:
+      patient    — DB-sourced context only (client-supplied context ignored to prevent spoofing)
+      clinician / admin / supervisor — preview mode; client-supplied context accepted
+      technician / reviewer / guest  — 403 (no legitimate use-case)
+
+    Rate limit: 20 requests/minute per IP (AI endpoint cost control).
+    All non-patient calls are logged at INFO for audit purposes.
     """
+    if actor.role not in _WEARABLE_PATIENT_ALLOWED_ROLES:
+        raise ApiServiceError(
+            code="forbidden",
+            message="This endpoint is restricted to patients and clinical staff.",
+            status_code=403,
+        )
+
     msgs = [{"role": m.role, "content": m.content} for m in body.messages]
     pt = None
     wearable_context = body.patient_context  # fallback for clinician preview
@@ -203,6 +223,12 @@ def wearable_patient_chat(
                 wearable_context = _build_wearable_context(pt.id, db)
         except Exception:
             _audit_logger.warning("Failed to resolve patient wearable context from DB for actor %s", actor.actor_id)
+    else:
+        # Non-patient (clinician preview) — explicit audit trail
+        _audit_logger.info(
+            "wearable_patient_chat_preview actor=%s role=%s used_client_context=%s",
+            actor.actor_id, actor.role, bool(body.patient_context),
+        )
 
     reply = chat_wearable_patient(msgs, wearable_context)
 
