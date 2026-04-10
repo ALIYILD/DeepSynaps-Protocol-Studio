@@ -51,6 +51,9 @@ from app.routers.export_router import router as export_router
 from app.routers.patients_router import router as patients_router
 from app.routers.payments_router import router as payments_router
 from app.routers.sessions_router import router as sessions_router
+from app.routers.treatment_courses_router import router as treatment_courses_router
+from app.routers.treatment_courses_router import review_router as review_queue_router
+from app.routers.adverse_events_router import router as adverse_events_router
 from app.sentry_setup import init_sentry
 from app.settings import get_settings
 from app.services.audit import get_audit_trail
@@ -98,6 +101,9 @@ app.include_router(assessments_router)
 app.include_router(telegram_router)
 app.include_router(chat_router)
 app.include_router(registries_router)
+app.include_router(treatment_courses_router)
+app.include_router(review_queue_router)
+app.include_router(adverse_events_router)
 
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)

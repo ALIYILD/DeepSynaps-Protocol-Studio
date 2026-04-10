@@ -118,13 +118,32 @@ export const api = {
   },
 
   // ── Treatment courses ────────────────────────────────────────────────────
-  listCourses: (patientId) => apiFetch(`/api/v1/courses?patient_id=${patientId}`),
-  createCourse: (data) => apiFetch('/api/v1/courses', { method: 'POST', body: JSON.stringify(data) }),
-  getCourse: (id) => apiFetch(`/api/v1/courses/${id}`),
-  updateCourse: (id, data) => apiFetch(`/api/v1/courses/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  listCourses: (params = {}) => {
+    const q = new URLSearchParams(params).toString();
+    return apiFetch(`/api/v1/treatment-courses${q ? '?' + q : ''}`);
+  },
+  createCourse: (data) => apiFetch('/api/v1/treatment-courses', { method: 'POST', body: JSON.stringify(data) }),
+  getCourse: (id) => apiFetch(`/api/v1/treatment-courses/${id}`),
+  updateCourse: (id, data) => apiFetch(`/api/v1/treatment-courses/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  activateCourse: (id, data = {}) =>
+    apiFetch(`/api/v1/treatment-courses/${id}/activate`, { method: 'PATCH', body: JSON.stringify(data) }),
+  logSession: (courseId, data) =>
+    apiFetch(`/api/v1/treatment-courses/${courseId}/sessions`, { method: 'POST', body: JSON.stringify(data) }),
+  listCourseSessions: (courseId) => apiFetch(`/api/v1/treatment-courses/${courseId}/sessions`),
+
+  // ── Adverse events ────────────────────────────────────────────────────────
+  reportAdverseEvent: (data) =>
+    apiFetch('/api/v1/adverse-events', { method: 'POST', body: JSON.stringify(data) }),
+  listAdverseEvents: (params = {}) => {
+    const q = new URLSearchParams(params).toString();
+    return apiFetch(`/api/v1/adverse-events${q ? '?' + q : ''}`);
+  },
 
   // ── Review queue ─────────────────────────────────────────────────────────
-  listReviewQueue: () => apiFetch('/api/v1/review-queue'),
+  listReviewQueue: (params = {}) => {
+    const q = new URLSearchParams(params).toString();
+    return apiFetch(`/api/v1/review-queue${q ? '?' + q : ''}`);
+  },
 
   // ── Health ──────────────────────────────────────────────────────────────
   health: () => apiFetch('/health'),

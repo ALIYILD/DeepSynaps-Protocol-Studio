@@ -1,0 +1,561 @@
+"""Treatment courses router.
+
+Endpoints
+---------
+POST   /api/v1/treatment-courses                    Create a new treatment course
+GET    /api/v1/treatment-courses                    List courses (filter by patient, status)
+GET    /api/v1/treatment-courses/{id}               Get course detail
+PATCH  /api/v1/treatment-courses/{id}               Update notes / status
+PATCH  /api/v1/treatment-courses/{id}/activate      Governance gate → approve + activate
+POST   /api/v1/treatment-courses/{id}/sessions      Log a delivered session
+GET    /api/v1/treatment-courses/{id}/sessions      List delivered sessions for a course
+GET    /api/v1/review-queue                         List pending review queue items
+"""
+from __future__ import annotations
+
+import json
+from datetime import datetime
+from typing import Optional
+
+from fastapi import APIRouter, Depends, Query
+from pydantic import BaseModel
+from sqlalchemy.orm import Session
+
+from app.auth import AuthenticatedActor, get_authenticated_actor, require_minimum_role
+from app.database import get_db_session
+from app.errors import ApiServiceError
+from app.persistence.models import (
+    DeliveredSessionParameters,
+    ReviewQueueItem,
+    TreatmentCourse,
+)
+from app.services.protocol_registry import build_course_structure_from_protocol, get_protocol_parameters
+from app.services.registries import get_condition, get_protocol
+
+router = APIRouter(prefix="/api/v1/treatment-courses", tags=["Treatment Courses"])
+review_router = APIRouter(prefix="/api/v1/review-queue", tags=["Review Queue"])
+
+
+# ── Schemas ────────────────────────────────────────────────────────────────────
+
+class CourseCreate(BaseModel):
+    patient_id: str
+    protocol_id: str                          # Registry Protocol_ID (e.g. "P001")
+    condition_slug: Optional[str] = None      # Override — inferred from registry if omitted
+    modality_slug: Optional[str] = None       # Override — inferred from registry if omitted
+    device_slug: Optional[str] = None
+    phenotype_id: Optional[str] = None
+    clinician_notes: Optional[str] = None
+
+
+class CourseUpdate(BaseModel):
+    clinician_notes: Optional[str] = None
+    status: Optional[str] = None             # Only admin/clinician may set; activate endpoint preferred
+
+
+class CourseActivate(BaseModel):
+    notes: Optional[str] = None             # Optional approval note
+
+
+class CourseOut(BaseModel):
+    id: str
+    patient_id: str
+    clinician_id: str
+    protocol_id: str
+    condition_slug: str
+    modality_slug: str
+    device_slug: Optional[str]
+    target_region: Optional[str]
+    phenotype_id: Optional[str]
+    evidence_grade: Optional[str]
+    on_label: bool
+    planned_sessions_total: int
+    planned_sessions_per_week: int
+    planned_session_duration_minutes: int
+    planned_frequency_hz: Optional[str]
+    planned_intensity: Optional[str]
+    coil_placement: Optional[str]
+    status: str
+    approved_by: Optional[str]
+    approved_at: Optional[str]
+    started_at: Optional[str]
+    completed_at: Optional[str]
+    sessions_delivered: int
+    clinician_notes: Optional[str]
+    review_required: bool
+    governance_warnings: list[str]
+    created_at: str
+    updated_at: str
+
+    @classmethod
+    def from_record(cls, r: TreatmentCourse, governance_warnings: list[str] | None = None) -> "CourseOut":
+        def _dt(v) -> Optional[str]:
+            return v.isoformat() if isinstance(v, datetime) else v
+
+        protocol_json = {}
+        if r.protocol_json:
+            try:
+                protocol_json = json.loads(r.protocol_json)
+            except Exception:
+                pass
+
+        return cls(
+            id=r.id,
+            patient_id=r.patient_id,
+            clinician_id=r.clinician_id,
+            protocol_id=r.protocol_id,
+            condition_slug=r.condition_slug,
+            modality_slug=r.modality_slug,
+            device_slug=r.device_slug,
+            target_region=r.target_region,
+            phenotype_id=r.phenotype_id,
+            evidence_grade=r.evidence_grade,
+            on_label=r.on_label,
+            planned_sessions_total=r.planned_sessions_total,
+            planned_sessions_per_week=r.planned_sessions_per_week,
+            planned_session_duration_minutes=r.planned_session_duration_minutes,
+            planned_frequency_hz=r.planned_frequency_hz,
+            planned_intensity=r.planned_intensity,
+            coil_placement=r.coil_placement,
+            status=r.status,
+            approved_by=r.approved_by,
+            approved_at=_dt(r.approved_at),
+            started_at=_dt(r.started_at),
+            completed_at=_dt(r.completed_at),
+            sessions_delivered=r.sessions_delivered,
+            clinician_notes=r.clinician_notes,
+            review_required=r.review_required,
+            governance_warnings=governance_warnings or protocol_json.get("governance_warnings", []),
+            created_at=r.created_at.isoformat(),
+            updated_at=r.updated_at.isoformat(),
+        )
+
+
+class CourseListResponse(BaseModel):
+    items: list[CourseOut]
+    total: int
+
+
+# ── Delivered session schemas ──────────────────────────────────────────────────
+
+class SessionLog(BaseModel):
+    device_slug: Optional[str] = None
+    device_serial: Optional[str] = None
+    coil_position: Optional[str] = None
+    frequency_hz: Optional[str] = None
+    intensity_pct_rmt: Optional[str] = None
+    pulses_delivered: Optional[int] = None
+    duration_minutes: Optional[int] = None
+    side: Optional[str] = None
+    montage: Optional[str] = None
+    tolerance_rating: Optional[str] = None   # "well-tolerated" | "moderate" | "poor"
+    interruptions: bool = False
+    interruption_reason: Optional[str] = None
+    post_session_notes: Optional[str] = None
+    checklist: dict = {}                      # Technician safety checklist responses
+
+
+class SessionLogOut(BaseModel):
+    id: str
+    course_id: str
+    session_id: str
+    device_slug: Optional[str]
+    coil_position: Optional[str]
+    frequency_hz: Optional[str]
+    intensity_pct_rmt: Optional[str]
+    pulses_delivered: Optional[int]
+    duration_minutes: Optional[int]
+    tolerance_rating: Optional[str]
+    interruptions: bool
+    interruption_reason: Optional[str]
+    post_session_notes: Optional[str]
+    created_at: str
+
+    @classmethod
+    def from_record(cls, r: DeliveredSessionParameters) -> "SessionLogOut":
+        return cls(
+            id=r.id,
+            course_id=r.course_id,
+            session_id=r.session_id,
+            device_slug=r.device_slug,
+            coil_position=r.coil_position,
+            frequency_hz=r.frequency_hz,
+            intensity_pct_rmt=r.intensity_pct_rmt,
+            pulses_delivered=r.pulses_delivered,
+            duration_minutes=r.duration_minutes,
+            tolerance_rating=r.tolerance_rating,
+            interruptions=r.interruptions,
+            interruption_reason=r.interruption_reason,
+            post_session_notes=r.post_session_notes,
+            created_at=r.created_at.isoformat(),
+        )
+
+
+class SessionLogListResponse(BaseModel):
+    items: list[SessionLogOut]
+    total: int
+
+
+# ── Review queue schema ────────────────────────────────────────────────────────
+
+class ReviewQueueOut(BaseModel):
+    id: str
+    item_type: str
+    target_id: str
+    target_type: str
+    patient_id: str
+    assigned_to: Optional[str]
+    priority: str
+    status: str
+    created_by: str
+    due_by: Optional[str]
+    notes: Optional[str]
+    created_at: str
+
+    @classmethod
+    def from_record(cls, r: ReviewQueueItem) -> "ReviewQueueOut":
+        def _dt(v) -> Optional[str]:
+            return v.isoformat() if isinstance(v, datetime) else v
+        return cls(
+            id=r.id,
+            item_type=r.item_type,
+            target_id=r.target_id,
+            target_type=r.target_type,
+            patient_id=r.patient_id,
+            assigned_to=r.assigned_to,
+            priority=r.priority,
+            status=r.status,
+            created_by=r.created_by,
+            due_by=_dt(r.due_by),
+            notes=r.notes,
+            created_at=r.created_at.isoformat(),
+        )
+
+
+class ReviewQueueListResponse(BaseModel):
+    items: list[ReviewQueueOut]
+    total: int
+
+
+# ── Helpers ────────────────────────────────────────────────────────────────────
+
+def _run_governance(params: dict, actor: AuthenticatedActor) -> list[str]:
+    """Apply governance rules and return warning strings."""
+    from deepsynaps_safety_engine import apply_governance_rules
+    on_label: bool = params.get("on_label", True)
+    evidence_grade: str = params.get("evidence_grade", "EV-B")
+    warnings = apply_governance_rules(on_label, evidence_grade, actor.role)
+    return warnings
+
+
+def _get_course_or_404(db: Session, course_id: str, actor: AuthenticatedActor) -> TreatmentCourse:
+    course = db.query(TreatmentCourse).filter_by(id=course_id).first()
+    if course is None:
+        raise ApiServiceError(code="not_found", message="Treatment course not found.", status_code=404)
+    # Clinicians can only see their own courses; admins see all
+    if actor.role != "admin" and course.clinician_id != actor.actor_id:
+        raise ApiServiceError(code="not_found", message="Treatment course not found.", status_code=404)
+    return course
+
+
+def _push_review_queue(db: Session, course: TreatmentCourse, actor: AuthenticatedActor) -> None:
+    item = ReviewQueueItem(
+        item_type="protocol_approval",
+        target_id=course.id,
+        target_type="treatment_course",
+        patient_id=course.patient_id,
+        priority="normal",
+        status="pending",
+        created_by=actor.actor_id,
+    )
+    db.add(item)
+
+
+# ── Course endpoints ───────────────────────────────────────────────────────────
+
+@router.post("", response_model=CourseOut, status_code=201)
+def create_course(
+    body: CourseCreate,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> CourseOut:
+    require_minimum_role(actor, "clinician")
+
+    # Resolve protocol from registry
+    params = get_protocol_parameters(body.protocol_id)
+    if params is None:
+        # Protocol ID not found — try fetching raw and building
+        raw_proto = get_protocol(body.protocol_id)
+        if raw_proto is None:
+            raise ApiServiceError(
+                code="protocol_not_found",
+                message=f"Protocol '{body.protocol_id}' not found in registry.",
+                status_code=404,
+            )
+        params = build_course_structure_from_protocol(raw_proto)
+
+    # Run governance checks
+    gov_warnings = _run_governance(params, actor)
+
+    # Hard block on EV-D
+    if any("EV-D" in w for w in gov_warnings):
+        raise ApiServiceError(
+            code="governance_block",
+            message="Protocol blocked by governance rules (EV-D evidence level).",
+            warnings=gov_warnings,
+            status_code=403,
+        )
+
+    # Resolve condition/modality slugs from registry if not provided
+    condition_slug = body.condition_slug or ""
+    modality_slug = body.modality_slug or ""
+
+    if not condition_slug or not modality_slug:
+        raw_proto = get_protocol(body.protocol_id)
+        if raw_proto:
+            condition_slug = condition_slug or raw_proto.get("Condition_ID", "")
+            modality_slug = modality_slug or raw_proto.get("Modality_ID", "")
+
+    needs_review = params.get("clinician_review_required", True) or bool(gov_warnings)
+
+    protocol_meta = {
+        "governance_warnings": gov_warnings,
+        "protocol_name": params.get("protocol_name", ""),
+        "evidence_grade": params.get("evidence_grade", ""),
+        "on_label": params.get("on_label", True),
+    }
+
+    course = TreatmentCourse(
+        patient_id=body.patient_id,
+        clinician_id=actor.actor_id,
+        protocol_id=body.protocol_id,
+        condition_slug=condition_slug,
+        modality_slug=modality_slug,
+        device_slug=body.device_slug,
+        phenotype_id=body.phenotype_id,
+        evidence_grade=params.get("evidence_grade", ""),
+        on_label=params.get("on_label", True),
+        planned_sessions_total=params.get("total_sessions", 20),
+        planned_sessions_per_week=params.get("sessions_per_week", 5),
+        planned_session_duration_minutes=params.get("session_duration_minutes", 40),
+        planned_frequency_hz=str(params.get("frequency_hz", "")),
+        planned_intensity=str(params.get("intensity", "")),
+        coil_placement=str(params.get("coil_placement", "")),
+        target_region=str(params.get("target_region", "")),
+        status="pending_approval",
+        review_required=needs_review,
+        clinician_notes=body.clinician_notes,
+        protocol_json=json.dumps(protocol_meta),
+    )
+    db.add(course)
+    db.flush()  # get the id before commit
+
+    if needs_review:
+        _push_review_queue(db, course, actor)
+
+    db.commit()
+    db.refresh(course)
+    return CourseOut.from_record(course, gov_warnings)
+
+
+@router.get("", response_model=CourseListResponse)
+def list_courses(
+    patient_id: Optional[str] = Query(default=None),
+    status: Optional[str] = Query(default=None),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> CourseListResponse:
+    require_minimum_role(actor, "clinician")
+
+    q = db.query(TreatmentCourse)
+    if actor.role != "admin":
+        q = q.filter(TreatmentCourse.clinician_id == actor.actor_id)
+    if patient_id:
+        q = q.filter(TreatmentCourse.patient_id == patient_id)
+    if status:
+        q = q.filter(TreatmentCourse.status == status)
+
+    records = q.order_by(TreatmentCourse.created_at.desc()).all()
+    items = [CourseOut.from_record(r) for r in records]
+    return CourseListResponse(items=items, total=len(items))
+
+
+@router.get("/{course_id}", response_model=CourseOut)
+def get_course(
+    course_id: str,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> CourseOut:
+    require_minimum_role(actor, "clinician")
+    course = _get_course_or_404(db, course_id, actor)
+    return CourseOut.from_record(course)
+
+
+@router.patch("/{course_id}", response_model=CourseOut)
+def update_course(
+    course_id: str,
+    body: CourseUpdate,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> CourseOut:
+    require_minimum_role(actor, "clinician")
+    course = _get_course_or_404(db, course_id, actor)
+
+    if body.clinician_notes is not None:
+        course.clinician_notes = body.clinician_notes
+    if body.status is not None:
+        require_minimum_role(actor, "admin")
+        course.status = body.status
+
+    course.updated_at = datetime.utcnow()
+    db.commit()
+    db.refresh(course)
+    return CourseOut.from_record(course)
+
+
+@router.patch("/{course_id}/activate", response_model=CourseOut)
+def activate_course(
+    course_id: str,
+    body: CourseActivate,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> CourseOut:
+    """Governance gate: run checks then approve and activate the course.
+
+    Requires clinician role at minimum.  Re-runs governance rules and surfaces
+    any warnings.  Hard blocks (EV-D) prevent activation.
+    """
+    require_minimum_role(actor, "clinician")
+    course = _get_course_or_404(db, course_id, actor)
+
+    if course.status not in ("pending_approval", "paused"):
+        raise ApiServiceError(
+            code="invalid_state",
+            message=f"Cannot activate a course with status '{course.status}'.",
+            status_code=422,
+        )
+
+    # Re-run governance with current course data
+    from deepsynaps_safety_engine import apply_governance_rules
+    gov_warnings = apply_governance_rules(course.on_label, course.evidence_grade or "EV-B", actor.role)
+    if any("EV-D" in w for w in gov_warnings):
+        raise ApiServiceError(
+            code="governance_block",
+            message="Protocol blocked by governance rules (EV-D evidence level).",
+            warnings=gov_warnings,
+            status_code=403,
+        )
+
+    now = datetime.utcnow()
+    course.status = "active"
+    course.approved_by = actor.actor_id
+    course.approved_at = now
+    if course.started_at is None:
+        course.started_at = now
+    course.updated_at = now
+
+    # Close any pending review queue items for this course
+    db.query(ReviewQueueItem).filter_by(
+        target_id=course_id, status="pending"
+    ).update({"status": "completed", "completed_at": now})
+
+    db.commit()
+    db.refresh(course)
+    return CourseOut.from_record(course, gov_warnings)
+
+
+# ── Delivered session endpoints ────────────────────────────────────────────────
+
+@router.post("/{course_id}/sessions", response_model=SessionLogOut, status_code=201)
+def log_session(
+    course_id: str,
+    body: SessionLog,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> SessionLogOut:
+    require_minimum_role(actor, "clinician")
+    course = _get_course_or_404(db, course_id, actor)
+
+    if course.status != "active":
+        raise ApiServiceError(
+            code="invalid_state",
+            message="Sessions can only be logged for active courses.",
+            status_code=422,
+        )
+
+    import uuid as uuid_mod
+    session_id = str(uuid_mod.uuid4())
+
+    record = DeliveredSessionParameters(
+        session_id=session_id,
+        course_id=course_id,
+        device_slug=body.device_slug or course.device_slug,
+        device_serial=body.device_serial,
+        coil_position=body.coil_position or course.coil_placement,
+        frequency_hz=body.frequency_hz or course.planned_frequency_hz,
+        intensity_pct_rmt=body.intensity_pct_rmt or course.planned_intensity,
+        pulses_delivered=body.pulses_delivered,
+        duration_minutes=body.duration_minutes or course.planned_session_duration_minutes,
+        side=body.side,
+        montage=body.montage,
+        tech_id=actor.actor_id,
+        tolerance_rating=body.tolerance_rating,
+        interruptions=body.interruptions,
+        interruption_reason=body.interruption_reason,
+        post_session_notes=body.post_session_notes,
+        checklist_json=json.dumps(body.checklist) if body.checklist else None,
+    )
+    db.add(record)
+
+    # Increment delivered counter
+    course.sessions_delivered = (course.sessions_delivered or 0) + 1
+
+    # Auto-complete if all sessions delivered
+    if course.sessions_delivered >= course.planned_sessions_total:
+        course.status = "completed"
+        course.completed_at = datetime.utcnow()
+
+    course.updated_at = datetime.utcnow()
+    db.commit()
+    db.refresh(record)
+    return SessionLogOut.from_record(record)
+
+
+@router.get("/{course_id}/sessions", response_model=SessionLogListResponse)
+def list_sessions(
+    course_id: str,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> SessionLogListResponse:
+    require_minimum_role(actor, "clinician")
+    _get_course_or_404(db, course_id, actor)  # access check
+
+    records = (
+        db.query(DeliveredSessionParameters)
+        .filter_by(course_id=course_id)
+        .order_by(DeliveredSessionParameters.created_at)
+        .all()
+    )
+    items = [SessionLogOut.from_record(r) for r in records]
+    return SessionLogListResponse(items=items, total=len(items))
+
+
+# ── Review queue router ────────────────────────────────────────────────────────
+
+@review_router.get("", response_model=ReviewQueueListResponse)
+def list_review_queue(
+    status: Optional[str] = Query(default=None, description="pending | completed"),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> ReviewQueueListResponse:
+    require_minimum_role(actor, "clinician")
+
+    q = db.query(ReviewQueueItem)
+    if actor.role != "admin":
+        q = q.filter(ReviewQueueItem.created_by == actor.actor_id)
+    if status:
+        q = q.filter(ReviewQueueItem.status == status)
+
+    records = q.order_by(ReviewQueueItem.created_at.desc()).all()
+    items = [ReviewQueueOut.from_record(r) for r in records]
+    return ReviewQueueListResponse(items=items, total=len(items))
