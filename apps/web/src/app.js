@@ -1,5 +1,6 @@
 import { api } from './api.js';
 import { currentUser, setCurrentUser, updateUserBar, showApp, showLogin, doLogout } from './auth.js';
+import { ROLE_ENTRY_PAGE } from './constants.js';
 import {
   pgDash, pgPatients, pgProfile, pgProtocols, pgAssess, pgChart, pgBrainData,
   bindProtoPage, bindBrainData, ptab, eegBand, proStep, setProStep,
@@ -10,10 +11,11 @@ import {
 } from './pages-knowledge.js';
 import {
   pgSchedule, pgTelehealth, pgMsg, pgPrograms, pgBilling, pgReports, pgSettings,
+  pgAIAssistant,
 } from './pages-practice.js';
 import {
   pgCourses, pgSessionExecution, pgReviewQueue, pgOutcomes, pgProtocolRegistry,
-  pgCourseDetail,
+  pgCourseDetail, pgAdverseEvents,
 } from './pages-courses.js';
 
 // ── State ─────────────────────────────────────────────────────────────────────
@@ -21,28 +23,30 @@ let currentPage = 'dashboard';
 
 // ── Nav definition ────────────────────────────────────────────────────────────
 const NAV = [
-  { section: 'Overview' },
-  { id: 'dashboard', label: 'Dashboard', icon: '◈' },
-  { section: 'Clinical Workflow' },
-  { id: 'patients', label: 'Patients', icon: '◉' },
-  { id: 'courses', label: 'Treatment Courses', icon: '◎', badge: null },
-  { id: 'session-execution', label: 'Session Execution', icon: '◧' },
-  { id: 'review-queue', label: 'Review Queue', icon: '◱', badge: null },
+  { section: 'Operations' },
+  { id: 'dashboard',         label: 'Dashboard',            icon: '◈' },
+  { id: 'patients',          label: 'Patients',             icon: '◉' },
+  { id: 'courses',           label: 'Treatment Courses',    icon: '◎', badge: null },
+  { id: 'session-execution', label: 'Session Execution',    icon: '◧' },
+  { id: 'review-queue',      label: 'Review Queue',         icon: '◱', badge: null },
   { section: 'Protocol Intelligence' },
-  { id: 'protocol-wizard', label: 'Protocol Wizard', icon: '⬡', ai: false },
-  { id: 'outcomes', label: 'Outcomes & Trends', icon: '◫' },
-  { id: 'braindata', label: 'qEEG / Brain Data', icon: '◈' },
-  { section: 'Knowledge Registries' },
-  { id: 'evidence', label: 'Evidence Library', icon: '◉' },
-  { id: 'protocols-registry', label: 'Protocol Registry', icon: '◇' },
-  { id: 'devices', label: 'Device Registry', icon: '◇' },
-  { id: 'brainregions', label: 'Brain Regions', icon: '◎' },
-  { id: 'qeegmaps', label: 'qEEG Maps', icon: '◫' },
-  { id: 'handbooks', label: 'Handbooks', icon: '◧' },
+  { id: 'protocol-wizard',   label: 'Protocol Intelligence',icon: '⬡' },
+  { id: 'protocols-registry',label: 'Protocol Registry',   icon: '◇' },
+  { id: 'outcomes',          label: 'Outcomes & Trends',    icon: '◫' },
+  { id: 'ai-assistant',      label: 'AI Clinical Assistant',icon: '✦', ai: true },
+  { section: 'Brain Data & Assessment' },
+  { id: 'braindata',         label: 'qEEG / Brain Data',    icon: '◈' },
+  { id: 'qeegmaps',          label: 'qEEG Maps',            icon: '◫' },
+  { id: 'assessments',       label: 'Assessments',          icon: '◉' },
+  { section: 'Registries & Knowledge' },
+  { id: 'evidence',          label: 'Evidence Library',     icon: '◉' },
+  { id: 'devices',           label: 'Device Registry',      icon: '◇' },
+  { id: 'brainregions',      label: 'Brain Regions',        icon: '◎' },
+  { id: 'handbooks',         label: 'Handbooks',            icon: '◧' },
   { section: 'Governance' },
-  { id: 'audittrail', label: 'Audit Trail', icon: '◧' },
-  { id: 'pricing', label: 'Plans & Pricing', icon: '◇' },
-  { id: 'settings', label: 'Settings', icon: '◎' },
+  { id: 'adverse-events',    label: 'Adverse Events',       icon: '⚠' },
+  { id: 'audittrail',        label: 'Audit Trail',          icon: '◧' },
+  { id: 'settings',          label: 'Settings',             icon: '◎' },
 ];
 
 // ── Nav render ────────────────────────────────────────────────────────────────
@@ -67,6 +71,7 @@ function setTopbar(title, html = '') {
 async function navigate(id) {
   currentPage = id;
   setProStep(0);
+  if (id !== 'protocol-wizard') window._wizardProtocolId = null;
   if (id !== 'course-detail') window._cdTab = 'overview';
   renderNav();
   await renderPage();
@@ -143,8 +148,12 @@ async function renderPage() {
     case 'assessments':
       await pgAssess(setTopbar);
       break;
+    // ── Deprioritised scaffolds (kept functional, not in primary nav) ────
     case 'charting':
       el.innerHTML = pgChart(setTopbar);
+      break;
+    case 'ai-assistant':
+      await pgAIAssistant(setTopbar, navigate);
       break;
     case 'scheduling':
       el.innerHTML = pgSchedule(setTopbar);
@@ -164,15 +173,18 @@ async function renderPage() {
     case 'reports':
       el.innerHTML = pgReports(setTopbar);
       break;
-    // ── Governance ───────────────────────────────────────────────────────
-    case 'audittrail':
-      await pgAuditTrail(setTopbar);
-      break;
     case 'pricing':
       await pgPricing(setTopbar);
       break;
+    // ── Governance ───────────────────────────────────────────────────────
+    case 'adverse-events':
+      await pgAdverseEvents(setTopbar, navigate);
+      break;
+    case 'audittrail':
+      await pgAuditTrail(setTopbar);
+      break;
     case 'settings':
-      el.innerHTML = pgSettings(setTopbar, currentUser);
+      await pgSettings(setTopbar, currentUser);
       break;
     default:
       el.innerHTML = `<div style="text-align:center;padding:48px;color:var(--text-tertiary)">Page not found.</div>`;
@@ -181,6 +193,12 @@ async function renderPage() {
 
 // ── Boot after login ──────────────────────────────────────────────────────────
 async function bootApp() {
+  // Role-based entry: redirect technician → session-execution, reviewer → review-queue, etc.
+  if (currentPage === 'dashboard') {
+    const role  = currentUser?.role || 'clinician';
+    const entry = ROLE_ENTRY_PAGE[role];
+    if (entry && entry !== 'dashboard') currentPage = entry;
+  }
   renderNav();
   await renderPage();
 }

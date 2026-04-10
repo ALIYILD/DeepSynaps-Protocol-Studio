@@ -352,8 +352,11 @@ export function bindHandbooks() {
       `);
       window.downloadHandbook = async (k, c, m) => {
         try {
-          const blob = await api.exportHandbookDocx({ condition_name: c, modality_name: m, device_name: '' });
-          downloadBlob(blob, `handbook-${c.replace(/\s/g, '-')}-${m}.docx`);
+          const payload = { condition_name: c, modality_name: m, device_name: '' };
+          const blob = k === 'patient_guide'
+            ? await api.exportPatientGuideDocx(payload)
+            : await api.exportHandbookDocx(payload);
+          downloadBlob(blob, `${k}-${c.replace(/\s/g, '-')}-${m}.docx`);
         } catch (e) { alert(e.message); }
       };
     } catch (e) {

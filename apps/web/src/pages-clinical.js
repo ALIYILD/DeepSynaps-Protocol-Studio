@@ -1,9 +1,10 @@
 import { api, downloadBlob } from './api.js';
-import { cardWrap, fr, evBar, pillSt, initials, tag, spinner, emptyState, spark, brainMapSVG } from './helpers.js';
+import { cardWrap, fr, evBar, pillSt, initials, tag, spinner, emptyState, spark, brainMapSVG, evidenceBadge, labelBadge, approvalBadge, safetyBadge, govFlag } from './helpers.js';
 import { currentUser } from './auth.js';
+import { FALLBACK_CONDITIONS, FALLBACK_MODALITIES, FALLBACK_ASSESSMENT_TEMPLATES, COURSE_STATUS_COLORS } from './constants.js';
 
 // ── Shared state for patient profile ────────────────────────────────────────
-export let ptab = 'overview';
+export let ptab = 'courses';
 export let eegBand = 'alpha';
 export let proStep = 0;
 export let selMods = ['tDCS'];
@@ -27,68 +28,159 @@ export function setSelectedPatient(v) { selectedPatient = v; }
 
 // ── Dashboard ────────────────────────────────────────────────────────────────
 export async function pgDash(setTopbar, navigate) {
-  setTopbar('Dashboard', `<button class="btn btn-ghost btn-sm">Export</button><button class="btn btn-primary btn-sm" onclick="window._nav('protocols')">+ New Protocol</button>`);
+  const role = currentUser?.role || 'clinician';
+  setTopbar('Dashboard', `<button class="btn btn-primary btn-sm" onclick="window._nav('protocol-wizard')">+ New Course</button>`);
 
   let patCount = '—', activeCoursesCount = '—', pendingReviewCount = '—', deliveredCount = '—';
+  let aeCount = '—', responderRate = '—', activeCourses = [];
   try {
-    const [pts, courses, queue] = await Promise.all([
+    const [pts, courses, queue, aeRes, outcomes] = await Promise.all([
       api.listPatients().catch(() => null),
       api.listCourses().catch(() => null),
       api.listReviewQueue({ status: 'pending' }).catch(() => null),
+      api.listAdverseEvents().catch(() => null),
+      api.aggregateOutcomes().catch(() => null),
     ]);
     if (pts) patCount = pts.total ?? pts.items?.length ?? '—';
     if (courses) {
       const items = courses.items || [];
-      activeCoursesCount = items.filter(c => c.status === 'active').length;
+      activeCourses = items.filter(c => c.status === 'active');
+      activeCoursesCount = activeCourses.length;
       deliveredCount = items.reduce((sum, c) => sum + (c.sessions_delivered || 0), 0);
     }
     if (queue) pendingReviewCount = queue.total ?? queue.items?.length ?? '—';
+    if (aeRes) {
+      const aes = aeRes.items || [];
+      const cutoff = new Date(Date.now() - 7 * 86400000);
+      aeCount = aes.filter(a => a.occurred_at && new Date(a.occurred_at) >= cutoff).length;
+    }
+    if (outcomes) {
+      const rate = outcomes.responder_rate_pct ?? outcomes.responder_rate;
+      if (rate !== undefined && rate !== null) responderRate = Math.round(rate) + '%';
+    }
   } catch {}
 
+  // Role-specific quick actions
+  const quickActions = {
+    technician: [
+      { l: 'Session Execution Queue', icon: '◧', page: 'session-execution' },
+      { l: 'Active Courses', icon: '◎', page: 'courses' },
+      { l: 'Report Adverse Event', icon: '◻', page: 'courses' },
+    ],
+    reviewer: [
+      { l: 'Review Queue', icon: '◱', page: 'review-queue' },
+      { l: 'Audit Trail', icon: '◧', page: 'audittrail' },
+      { l: 'Protocol Registry', icon: '◇', page: 'protocols-registry' },
+    ],
+    supervisor: [
+      { l: 'Review Queue', icon: '◱', page: 'review-queue' },
+      { l: 'Outcomes & Trends', icon: '◫', page: 'outcomes' },
+      { l: 'Audit Trail', icon: '◧', page: 'audittrail' },
+    ],
+    admin: [
+      { l: 'Audit Trail', icon: '◧', page: 'audittrail' },
+      { l: 'Settings', icon: '◎', page: 'settings' },
+      { l: 'Review Queue', icon: '◱', page: 'review-queue' },
+      { l: 'Treatment Courses', icon: '◎', page: 'courses' },
+    ],
+    'clinic-admin': [
+      { l: 'Patients', icon: '◉', page: 'patients' },
+      { l: 'Treatment Courses', icon: '◎', page: 'courses' },
+      { l: 'Review Queue', icon: '◱', page: 'review-queue' },
+      { l: 'Settings', icon: '◎', page: 'settings' },
+    ],
+  };
+  const defaultActions = [
+    { l: '+ New Treatment Course', icon: '◎', page: 'protocol-wizard' },
+    { l: 'Treatment Courses', icon: '◎', page: 'courses' },
+    { l: 'Review Queue', icon: '◱', page: 'review-queue' },
+    { l: 'Session Execution', icon: '◧', page: 'session-execution' },
+    { l: 'Protocol Registry', icon: '◇', page: 'protocols-registry' },
+    { l: 'Outcomes & Trends', icon: '◫', page: 'outcomes' },
+  ];
+  const actions = quickActions[role] || defaultActions;
+
+  // Role-specific course view — technician sees active courses directly
+  const activeCoursePanel = (role === 'technician' && activeCourses.length > 0) ? `
+    <div class="card" style="margin-bottom:0">
+      <div class="card-header" style="padding:14px 20px;border-bottom:1px solid var(--border)">
+        <span style="font-weight:600;font-size:13px">Active Courses — Ready to Execute</span>
+      </div>
+      <div style="padding:12px;display:flex;flex-direction:column;gap:6px">
+        ${activeCourses.slice(0, 4).map(c => `
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 12px;border:1px solid var(--border);border-radius:7px;cursor:pointer" onclick="window._nav('session-execution')">
+            <div>
+              <div style="font-size:12.5px;font-weight:500">${c.condition_slug?.replace(/-/g,' ')} · <span style="color:var(--teal)">${c.modality_slug}</span></div>
+              <div style="font-size:11px;color:var(--text-secondary)">Session ${(c.sessions_delivered || 0) + 1} of ${c.planned_sessions_total || '?'}</div>
+            </div>
+            <span style="font-size:11px;color:var(--teal)">Execute →</span>
+          </div>`).join('')}
+      </div>
+    </div>` : '';
+
+  const pendingStr = typeof pendingReviewCount === 'number' && pendingReviewCount > 0
+    ? pendingReviewCount : pendingReviewCount;
+
   return `
-  <div class="g4">
+  <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:12px">
     ${[
-      { l: 'Active Patients', v: patCount, d: 'from your client list' },
-      { l: 'Active Courses', v: activeCoursesCount, d: 'ongoing treatment courses' },
-      { l: 'Sessions Delivered', v: deliveredCount, d: 'across all courses' },
-      { l: 'Pending Reviews', v: pendingReviewCount, d: 'awaiting approval' },
-    ].map(m => `<div class="metric-card"><div class="metric-label">${m.l}</div><div class="metric-value">${m.v}</div><div class="metric-delta">${m.d}</div></div>`).join('')}
+      { l: 'Active Patients',     v: patCount,           d: 'in your panel',          c: 'var(--teal)',   nav: 'patients' },
+      { l: 'Active Courses',      v: activeCoursesCount, d: 'ongoing treatment',       c: 'var(--blue)',   nav: 'courses' },
+      { l: 'Sessions Delivered',  v: deliveredCount,     d: 'across all courses',      c: 'var(--violet)', nav: 'session-execution' },
+    ].map(m => `<div class="metric-card" style="cursor:pointer" onclick="window._nav('${m.nav}')" onmouseover="this.style.borderColor='var(--border-teal)'" onmouseout="this.style.borderColor='var(--border)'"><div class="metric-label">${m.l}</div><div class="metric-value" style="color:${m.c}">${m.v}</div><div class="metric-delta">${m.d}</div></div>`).join('')}
+  </div>
+  <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:20px">
+    ${[
+      { l: 'Pending Reviews',    v: pendingStr,     d: 'awaiting approval',       c: (typeof pendingStr === 'number' && pendingStr > 0) ? 'var(--amber)' : 'var(--text-secondary)', nav: 'review-queue' },
+      { l: 'Adverse Events (7d)',v: aeCount,        d: 'last 7 days',             c: typeof aeCount === 'number' && aeCount > 0 ? 'var(--red)' : 'var(--green)',                   nav: 'adverse-events' },
+      { l: 'Responder Rate',     v: responderRate,  d: 'outcomes ≥50% reduction', c: 'var(--teal)',                                                                                 nav: 'outcomes' },
+    ].map(m => `<div class="metric-card" style="cursor:pointer" onclick="window._nav('${m.nav}')" onmouseover="this.style.borderColor='var(--border-teal)'" onmouseout="this.style.borderColor='var(--border)'"><div class="metric-label">${m.l}</div><div class="metric-value" style="color:${m.c}">${m.v}</div><div class="metric-delta">${m.d}</div></div>`).join('')}
   </div>
   <div class="g2">
-    <div>
-      ${cardWrap('Quick Actions', `
-        <div style="display:grid;gap:8px">
-          ${[
-            { l: '+ New Treatment Course', icon: '◎', page: 'protocol-wizard' },
-            { l: '+ Add Patient', icon: '◉', page: 'patients' },
-            { l: 'Review Queue', icon: '◱', page: 'review-queue' },
-            { l: 'Session Execution', icon: '◧', page: 'session-execution' },
-            { l: 'Protocol Registry', icon: '◇', page: 'protocols-registry' },
-            { l: 'Evidence Library', icon: '◉', page: 'evidence' },
-          ].map(a => `<button class="btn" style="text-align:left;display:flex;align-items:center;gap:10px" onclick="window._nav('${a.page}')"><span style="color:var(--teal)">${a.icon}</span>${a.l}</button>`).join('')}
-        </div>
-      `)}
+    <div style="display:flex;flex-direction:column;gap:16px">
+      ${cardWrap(`Quick Actions — ${role.replace(/-/g,' ')}`,
+        `<div style="display:grid;gap:8px">
+          ${actions.map(a => `<button class="btn" style="text-align:left;display:flex;align-items:center;gap:10px" onclick="window._nav('${a.page}')"><span style="color:var(--teal)">${a.icon}</span>${a.l}</button>`).join('')}
+        </div>`
+      )}
+      ${activeCoursePanel}
     </div>
-    <div>
-      ${cardWrap('Clinical Workflow', `
-        <div style="font-size:12px;color:var(--text-secondary);line-height:1.8">
-          <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px"><span style="color:var(--teal);font-size:16px">①</span> Add patient → <strong>Patients</strong></div>
-          <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px"><span style="color:var(--teal);font-size:16px">②</span> Create course → <strong>Protocol Wizard</strong></div>
-          <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px"><span style="color:var(--amber);font-size:16px">③</span> Review &amp; approve → <strong>Review Queue</strong></div>
-          <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px"><span style="color:var(--teal);font-size:16px">④</span> Deliver session → <strong>Session Execution</strong></div>
-          <div style="display:flex;align-items:center;gap:8px"><span style="color:var(--violet);font-size:16px">⑤</span> Track outcomes → <strong>Outcomes &amp; Trends</strong></div>
+    <div style="display:flex;flex-direction:column;gap:16px">
+      ${cardWrap('Treatment Workflow', `
+        <div style="font-size:12px;color:var(--text-secondary);line-height:1.9">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px"><span style="color:var(--teal);font-size:14px">①</span> Add patient → <strong>Patients</strong></div>
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px"><span style="color:var(--teal);font-size:14px">②</span> Create course → <strong>Protocol Intelligence</strong></div>
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px"><span style="color:var(--amber);font-size:14px">③</span> Review &amp; approve → <strong>Review Queue</strong></div>
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px"><span style="color:var(--teal);font-size:14px">④</span> Deliver session → <strong>Session Execution</strong></div>
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px"><span style="color:var(--violet);font-size:14px">⑤</span> Track outcomes → <strong>Outcomes &amp; Trends</strong></div>
+          <div style="display:flex;align-items:center;gap:8px"><span style="color:var(--blue);font-size:14px">⑥</span> Course review → <strong>Course Detail</strong></div>
         </div>
       `)}
-      ${cardWrap('System Status', `
-        <div style="display:flex;align-items:center;gap:8px;padding:8px 0">
+      ${cardWrap('Session', `
+        <div style="display:flex;align-items:center;gap:8px;padding:6px 0">
           <span class="status-dot online"></span>
-          <span style="font-size:12.5px;color:var(--text-primary)">Backend API</span>
-          <span style="margin-left:auto;font-size:11px;color:var(--green)">Online</span>
+          <span style="font-size:12.5px;color:var(--text-primary)">${currentUser?.display_name || currentUser?.email || 'Clinician'}</span>
+          <span style="margin-left:auto;font-size:11px;padding:2px 8px;border-radius:4px;background:rgba(0,212,188,0.08);color:var(--teal)">${role}</span>
         </div>
-        <div style="font-size:11.5px;color:var(--text-secondary);margin-top:4px">
-          Logged in as <strong style="color:var(--teal)">${currentUser?.display_name || currentUser?.email || 'User'}</strong> · Role: ${currentUser?.role || 'guest'}
-        </div>
+        <div style="font-size:11.5px;color:var(--text-secondary);margin-top:4px">Backend API connected</div>
       `)}
+      ${cardWrap('Recent Courses', (() => {
+        const recent = activeCourses.slice(0, 5);
+        if (!recent.length) return `<div style="font-size:12px;color:var(--text-tertiary);padding:8px 0">No active courses yet.</div>`;
+        return recent.map(c => {
+          const pct = c.planned_sessions_total > 0 ? Math.min(100, Math.round(c.sessions_delivered / c.planned_sessions_total * 100)) : 0;
+          return `<div style="display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid var(--border);cursor:pointer" onclick="window._openCourse('${c.id}')">
+            <div style="flex:1;min-width:0">
+              <div style="font-size:12px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${c.condition_slug?.replace(/-/g,' ') || '—'} · <span style="color:var(--teal)">${c.modality_slug || ''}</span></div>
+              <div style="font-size:10.5px;color:var(--text-secondary)">${c.sessions_delivered}/${c.planned_sessions_total} sessions</div>
+            </div>
+            <div style="width:50px;flex-shrink:0">
+              <div style="height:3px;border-radius:2px;background:var(--border)"><div style="height:3px;border-radius:2px;background:var(--teal);width:${pct}%"></div></div>
+              <div style="font-size:9.5px;color:var(--text-tertiary);text-align:right;margin-top:2px">${pct}%</div>
+            </div>
+          </div>`;
+        }).join('');
+      })())}
     </div>
   </div>`;
 }
@@ -102,14 +194,36 @@ export async function pgPatients(setTopbar, navigate) {
   const el = document.getElementById('content');
   el.innerHTML = spinner();
 
-  let items = [];
+  let items = [], conditions = [], modalities = [];
   try {
-    const res = await api.listPatients();
-    items = res?.items || [];
+    const [patientsRes, condRes, modRes] = await Promise.all([
+      api.listPatients().catch(() => null),
+      api.conditions().catch(() => null),
+      api.modalities().catch(() => null),
+    ]);
+    items      = patientsRes?.items || [];
+    conditions = condRes?.items     || [];
+    modalities = modRes?.items      || [];
+    if (!patientsRes) {
+      el.innerHTML = `<div class="notice notice-warn">Could not load patients.</div>`;
+      return;
+    }
   } catch (e) {
     el.innerHTML = `<div class="notice notice-warn">Could not load patients: ${e.message}</div>`;
     return;
   }
+
+  // Build registry-backed option lists; fall back to static if registry unavailable
+  const conditionOptions = conditions.length
+    ? conditions.map(c => `<option value="${c.name || c.Condition_Name}">${c.name || c.Condition_Name}</option>`).join('')
+    : `<option>Major Depressive Disorder</option><option>ADHD</option><option>Anxiety / GAD</option>
+       <option>PTSD</option><option>Chronic Pain</option><option>Parkinson's Disease</option>
+       <option>Post-Stroke Rehabilitation</option><option>Insomnia</option><option>Autism Spectrum</option><option>Other</option>`;
+
+  const modalityOptions = modalities.length
+    ? modalities.map(m => `<option value="${m.name || m.Modality_Name}">${m.name || m.Modality_Name}</option>`).join('')
+    : `<option>tDCS</option><option>TMS / rTMS</option><option>taVNS</option>
+       <option>CES</option><option>Neurofeedback</option><option>TPS</option><option>PBM</option>`;
 
   el.innerHTML = `
   <div id="add-patient-panel" style="display:none;margin-bottom:16px">
@@ -128,16 +242,13 @@ export async function pgPatients(setTopbar, navigate) {
           <div class="form-group"><label class="form-label">Primary Condition</label>
             <select id="np-condition" class="form-control">
               <option value="">Select condition…</option>
-              <option>Major Depressive Disorder</option><option>ADHD</option><option>Anxiety / GAD</option>
-              <option>PTSD</option><option>Chronic Pain</option><option>Parkinson's Disease</option>
-              <option>Post-Stroke Rehabilitation</option><option>Insomnia</option><option>Autism Spectrum</option><option>Other</option>
+              ${conditionOptions}
             </select>
           </div>
           <div class="form-group"><label class="form-label">Primary Modality</label>
             <select id="np-modality" class="form-control">
               <option value="">Select modality…</option>
-              <option>tDCS</option><option>TMS / rTMS</option><option>taVNS</option>
-              <option>CES</option><option>Neurofeedback</option><option>TPS</option><option>PBM</option>
+              ${modalityOptions}
             </select>
           </div>
           <div class="form-group"><label class="form-label">Notes</label><textarea id="np-notes" class="form-control" placeholder="Clinical notes…"></textarea></div>
@@ -152,10 +263,15 @@ export async function pgPatients(setTopbar, navigate) {
   </div>
 
   <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;align-items:center">
-    <input class="form-control" id="pt-search" placeholder="Search patients…" style="flex:1;min-width:200px" oninput="window.filterPatients()">
+    <input class="form-control" id="pt-search" placeholder="Search patients by name or condition…" style="flex:1;min-width:200px" oninput="window.filterPatients()">
     <select class="form-control" id="pt-status-filter" style="width:auto" onchange="window.filterPatients()">
       <option value="">All Status</option><option>active</option><option>pending</option><option>inactive</option>
     </select>
+    <select class="form-control" id="pt-modality-filter" style="width:auto" onchange="window.filterPatients()">
+      <option value="">All Modalities</option>
+      <option>tDCS</option><option>TMS / rTMS</option><option>taVNS</option><option>CES</option><option>Neurofeedback</option><option>TPS</option><option>PBM</option>
+    </select>
+    <span id="pt-count" style="font-size:11px;color:var(--text-tertiary);white-space:nowrap">${items.length} patients</span>
   </div>
 
   <div class="card" style="overflow-x:auto">
@@ -192,12 +308,16 @@ export async function pgPatients(setTopbar, navigate) {
   window.filterPatients = function() {
     const q = document.getElementById('pt-search').value.toLowerCase();
     const st = document.getElementById('pt-status-filter').value;
+    const mod = document.getElementById('pt-modality-filter')?.value || '';
     const filtered = (window._patientsData || []).filter(p => {
       const name = `${p.first_name} ${p.last_name}`.toLowerCase();
-      const matchQ = !q || name.includes(q) || (p.primary_condition || '').toLowerCase().includes(q);
+      const matchQ = !q || name.includes(q) || (p.primary_condition || '').toLowerCase().includes(q) || (p.email || '').toLowerCase().includes(q);
       const matchSt = !st || p.status === st;
-      return matchQ && matchSt;
+      const matchMod = !mod || (p.primary_modality || '') === mod;
+      return matchQ && matchSt && matchMod;
     });
+    const countEl = document.getElementById('pt-count');
+    if (countEl) countEl.textContent = filtered.length + ' patient' + (filtered.length !== 1 ? 's' : '');
     const tbody = document.getElementById('patients-body');
     if (!tbody) return;
     tbody.innerHTML = filtered.length === 0
@@ -306,7 +426,7 @@ export async function pgProfile(setTopbar, navigate) {
   </div>
 
   <div class="tab-bar">
-    ${['overview', 'courses', 'sessions', 'protocol', 'assessments', 'notes'].map(t =>
+    ${['overview', 'courses', 'sessions', 'outcomes', 'protocol', 'assessments', 'notes', 'phenotype', 'consent'].map(t =>
       `<button class="tab-btn ${ptab === t ? 'active' : ''}" onclick="window.switchPT('${t}')">${t}${t === 'courses' && courses.length ? ` (${courses.length})` : ''}</button>`
     ).join('')}
   </div>
@@ -316,9 +436,33 @@ export async function pgProfile(setTopbar, navigate) {
   window._currentSessions = sessions;
   window._currentCourses = courses;
 
-  window.switchPT = function(t) {
+  window.switchPT = async function(t) {
     ptab = t;
     document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.textContent.trim().startsWith(t)));
+    if (t === 'phenotype') {
+      document.getElementById('ptab-body').innerHTML = spinner();
+      const [assigns, phenos] = await Promise.all([
+        api.listPhenotypeAssignments({ patient_id: pt.id }).then(r => r?.items || []).catch(() => []),
+        api.phenotypes().then(r => r?.items || r || []).catch(() => []),
+      ]);
+      document.getElementById('ptab-body').innerHTML = renderPhenotypeTab(pt, assigns, phenos);
+      bindPhenotypeActions(pt);
+      return;
+    }
+    if (t === 'consent') {
+      document.getElementById('ptab-body').innerHTML = spinner();
+      const consents = await api.listConsents({ patient_id: pt.id }).then(r => r?.items || []).catch(() => []);
+      document.getElementById('ptab-body').innerHTML = renderConsentTab(pt, consents);
+      bindConsentActions(pt);
+      return;
+    }
+    if (t === 'outcomes') {
+      document.getElementById('ptab-body').innerHTML = spinner();
+      const outcomes = await api.listOutcomes({ patient_id: pt.id }).then(r => r?.items || []).catch(() => []);
+      document.getElementById('ptab-body').innerHTML = renderOutcomesTab(pt, outcomes, window._currentCourses || []);
+      bindOutcomesActions(pt);
+      return;
+    }
     document.getElementById('ptab-body').innerHTML = renderProfileTab(pt, sessions, window._currentCourses || []);
     if (t === 'protocol') bindAI(pt);
   };
@@ -332,13 +476,29 @@ export async function pgProfile(setTopbar, navigate) {
   window._activateCourseFromProfile = async function(courseId) {
     try {
       await api.activateCourse(courseId);
-      // Refresh courses for this patient
       const updated = await api.listCourses({ patient_id: pt.id }).then(r => r?.items || []).catch(() => []);
       window._currentCourses = updated;
       document.getElementById('ptab-body').innerHTML = renderProfileTab(pt, sessions, updated);
     } catch (e) {
       alert(e.message || 'Activation failed.');
     }
+  };
+
+  window._updateCourseStatus = async function(courseId, status) {
+    if (!confirm(`Set course status to "${status}"?`)) return;
+    try {
+      await api.updateCourse(courseId, { status });
+      const updated = await api.listCourses({ patient_id: pt.id }).then(r => r?.items || []).catch(() => []);
+      window._currentCourses = updated;
+      document.getElementById('ptab-body').innerHTML = renderProfileTab(pt, sessions, updated);
+    } catch (e) {
+      alert(e.message || 'Update failed.');
+    }
+  };
+
+  window._openCourse = function(id) {
+    window._selectedCourseId = id;
+    navigate('course-detail');
   };
 
   if (ptab === 'protocol') bindAI(pt);
@@ -348,8 +508,6 @@ function renderProfileTab(pt, sessions, courses = []) {
   const name = `${pt.first_name} ${pt.last_name}`;
 
   if (ptab === 'courses') {
-    const STATUS_COLOR = { pending_approval:'var(--amber)', approved:'var(--blue)', active:'var(--teal)', paused:'var(--amber)', completed:'var(--green)', discontinued:'var(--red)' };
-    const GRADE_COLOR = { 'EV-A':'var(--teal)', 'EV-B':'var(--blue)', 'EV-C':'var(--amber)', 'EV-D':'var(--red)' };
     return `
       <div style="margin-bottom:12px;display:flex;gap:8px">
         <button class="btn btn-primary btn-sm" onclick="window.startNewCourse()">+ New Treatment Course</button>
@@ -358,30 +516,43 @@ function renderProfileTab(pt, sessions, courses = []) {
         ? emptyState('◎', 'No treatment courses yet. Click "+ New Treatment Course" to start.')
         : `<div style="display:flex;flex-direction:column;gap:8px">
             ${courses.map(c => {
-              const sc = STATUS_COLOR[c.status] || 'var(--text-tertiary)';
-              const gc = GRADE_COLOR[c.evidence_grade] || 'var(--text-tertiary)';
+              const sc = COURSE_STATUS_COLORS[c.status] || 'var(--text-tertiary)';
               const pct = c.planned_sessions_total > 0 ? Math.min(100, Math.round(c.sessions_delivered / c.planned_sessions_total * 100)) : 0;
+              const actionBtns = [];
+              if (c.status === 'pending_approval' || c.status === 'approved')
+                actionBtns.push(`<button class="btn btn-sm" onclick="window._activateCourseFromProfile('${c.id}')">Approve &amp; Activate</button>`);
+              if (c.status === 'active')
+                actionBtns.push(`<button class="btn btn-sm" onclick="window._updateCourseStatus('${c.id}','paused')">Pause</button>`);
+              if (c.status === 'paused')
+                actionBtns.push(`<button class="btn btn-sm" onclick="window._updateCourseStatus('${c.id}','active')">Resume</button>`);
+              if (c.status === 'active' || c.status === 'paused')
+                actionBtns.push(`<button class="btn btn-sm" onclick="window._updateCourseStatus('${c.id}','completed')">Complete</button>`);
+              if (c.status !== 'discontinued' && c.status !== 'completed')
+                actionBtns.push(`<button class="btn btn-sm" style="color:var(--red)" onclick="window._updateCourseStatus('${c.id}','discontinued')">Discontinue</button>`);
+              actionBtns.push(`<button class="btn btn-sm" onclick="window._openCourse('${c.id}')">Detail →</button>`);
               return `<div class="card" style="padding:14px 18px">
-                <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-                  <span style="font-size:13px;font-weight:600;color:var(--text-primary);flex:1">${c.condition_slug} · ${c.modality_slug}</span>
-                  <span style="font-size:11px;font-weight:600;padding:2px 8px;border-radius:4px;background:${sc}22;color:${sc}">${c.status.replace(/_/g,' ')}</span>
-                  <span style="font-size:10px;padding:1px 6px;border-radius:3px;background:${gc}22;color:${gc}">${c.evidence_grade || '—'}</span>
-                  ${c.on_label ? '' : '<span style="font-size:10px;color:var(--amber)">Off-label</span>'}
+                <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px">
+                  <span style="font-size:13px;font-weight:600;color:var(--text-primary);flex:1">${c.condition_slug?.replace(/-/g,' ') || '—'} · <span style="color:var(--teal)">${c.modality_slug || '—'}</span></span>
+                  ${approvalBadge(c.status)}
+                  ${evidenceBadge(c.evidence_grade)}
+                  ${c.on_label === false ? labelBadge(false) : ''}
+                  ${safetyBadge(c.governance_warnings)}
                 </div>
-                <div style="margin-top:8px;font-size:11px;color:var(--text-secondary)">
-                  ${c.planned_sessions_per_week}×/wk · ${c.planned_sessions_total} sessions
+                <div style="font-size:11px;color:var(--text-secondary);margin-bottom:8px">
+                  ${c.planned_sessions_per_week || '?'}×/wk · ${c.planned_sessions_total || '?'} sessions
                   ${c.planned_frequency_hz ? ` · ${c.planned_frequency_hz} Hz` : ''}
+                  ${c.target_region ? ` · ${c.target_region}` : ''}
                 </div>
-                <div style="margin-top:8px">
+                <div style="margin-bottom:8px">
                   <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--text-tertiary);margin-bottom:3px">
-                    <span>Progress</span><span>${c.sessions_delivered}/${c.planned_sessions_total}</span>
+                    <span>Progress</span><span>${c.sessions_delivered || 0}/${c.planned_sessions_total || '?'}</span>
                   </div>
                   <div style="height:3px;border-radius:2px;background:var(--border)">
                     <div style="height:3px;border-radius:2px;background:${sc};width:${pct}%"></div>
                   </div>
                 </div>
-                ${c.status === 'pending_approval' ? `<div style="margin-top:8px"><button class="btn btn-sm" onclick="window._activateCourseFromProfile('${c.id}')">Approve &amp; Activate</button></div>` : ''}
-                ${c.governance_warnings?.length ? `<div style="margin-top:6px;font-size:11px;color:var(--amber)">⚠ ${c.governance_warnings.join(' · ')}</div>` : ''}
+                ${(c.governance_warnings || []).map(w => `<div style="font-size:11px;color:var(--amber);margin-bottom:3px">⚠ ${w}</div>`).join('')}
+                <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:4px">${actionBtns.join('')}</div>
               </div>`;
             }).join('')}
           </div>`
@@ -426,7 +597,7 @@ function renderProfileTab(pt, sessions, courses = []) {
             <div class="form-group"><label class="form-label">Duration (min)</label><input id="ns-dur" class="form-control" type="number" value="30"></div>
             <div class="form-group"><label class="form-label">Modality</label>
               <select id="ns-mod" class="form-control"><option value="">Select…</option>
-                <option>tDCS</option><option>TMS / rTMS</option><option>taVNS</option><option>CES</option><option>Neurofeedback</option><option>TPS</option>
+                ${FALLBACK_MODALITIES.map(m => `<option>${m}</option>`).join('')}
               </select>
             </div>
           </div>
@@ -503,7 +674,309 @@ function renderProfileTab(pt, sessions, courses = []) {
     </div>
   `);
 
+  if (ptab === 'outcomes') return spinner();
+  if (ptab === 'phenotype') return spinner();
+  if (ptab === 'consent') return spinner();
+
   return '';
+}
+
+// ── Outcomes tab ──────────────────────────────────────────────────────────────
+function renderOutcomesTab(pt, outcomes, courses) {
+  const courseMap = {};
+  courses.forEach(c => { courseMap[c.id] = `${c.condition_slug?.replace(/-/g,' ') || '—'} · ${c.modality_slug || '—'}`; });
+
+  return `
+    <div style="margin-bottom:14px;display:flex;gap:8px">
+      <button class="btn btn-primary btn-sm" onclick="document.getElementById('new-outcome-form').style.display=''">+ Record Outcome</button>
+    </div>
+    <div id="new-outcome-form" style="display:none;margin-bottom:16px">
+      ${cardWrap('Record Outcome', `
+        <div class="g2">
+          <div>
+            <div class="form-group"><label class="form-label">Course</label>
+              <select id="oc-course" class="form-control">
+                <option value="">Select course…</option>
+                ${courses.map(c => `<option value="${c.id}">${courseMap[c.id]}</option>`).join('')}
+              </select>
+            </div>
+            <div class="form-group"><label class="form-label">Assessment</label>
+              <select id="oc-template" class="form-control">
+                <option value="">Select…</option>
+                ${FALLBACK_ASSESSMENT_TEMPLATES.map(t => `<option value="${t.id}">${t.label}</option>`).join('')}
+              </select>
+            </div>
+            <div class="form-group"><label class="form-label">Score</label>
+              <input id="oc-score" class="form-control" type="number" step="0.1" placeholder="0">
+            </div>
+          </div>
+          <div>
+            <div class="form-group"><label class="form-label">Baseline Score</label>
+              <input id="oc-baseline" class="form-control" type="number" step="0.1" placeholder="Pre-treatment score">
+            </div>
+            <div class="form-group"><label class="form-label">Assessment Date</label>
+              <input id="oc-date" class="form-control" type="date">
+            </div>
+            <div class="form-group"><label class="form-label">Notes</label>
+              <textarea id="oc-notes" class="form-control" style="height:60px" placeholder="Clinician notes…"></textarea>
+            </div>
+          </div>
+        </div>
+        <div id="oc-error" style="color:var(--red);font-size:12px;display:none;margin-bottom:8px"></div>
+        <div style="display:flex;gap:8px">
+          <button class="btn btn-sm" onclick="document.getElementById('new-outcome-form').style.display='none'">Cancel</button>
+          <button class="btn btn-primary btn-sm" onclick="window._saveOutcome()">Save Outcome</button>
+        </div>
+      `)}
+    </div>
+    ${outcomes.length === 0
+      ? emptyState('◫', 'No outcomes recorded yet. Record assessment scores to track treatment response.')
+      : `<div class="card" style="overflow-x:auto">
+          <table class="ds-table">
+            <thead><tr>
+              <th>Date</th><th>Assessment</th><th>Score</th><th>Baseline</th><th>Δ Change</th><th>Course</th><th>Notes</th>
+            </tr></thead>
+            <tbody>
+              ${outcomes.map(o => {
+                const delta = (o.score !== null && o.score !== undefined && o.baseline_score !== null && o.baseline_score !== undefined)
+                  ? (o.score - o.baseline_score).toFixed(1) : null;
+                const deltaColor = delta !== null ? (parseFloat(delta) < 0 ? 'var(--green)' : parseFloat(delta) > 0 ? 'var(--red)' : 'var(--text-secondary)') : '';
+                return `<tr>
+                  <td class="mono" style="white-space:nowrap">${o.assessed_at ? o.assessed_at.split('T')[0] : '—'}</td>
+                  <td style="font-size:12px;font-weight:500">${o.assessment_template_id || '—'}</td>
+                  <td class="mono">${o.score ?? '—'}</td>
+                  <td class="mono" style="color:var(--text-secondary)">${o.baseline_score ?? '—'}</td>
+                  <td class="mono" style="color:${deltaColor}">${delta !== null ? (parseFloat(delta) < 0 ? delta : '+' + delta) : '—'}</td>
+                  <td style="font-size:11px;color:var(--text-secondary)">${courseMap[o.course_id] || (o.course_id ? o.course_id.slice(0,8) + '…' : '—')}</td>
+                  <td style="font-size:11.5px;color:var(--text-secondary);max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${o.notes || '—'}</td>
+                </tr>`;
+              }).join('')}
+            </tbody>
+          </table>
+        </div>`
+    }`;
+}
+
+function bindOutcomesActions(pt) {
+  window._saveOutcome = async function() {
+    const errEl = document.getElementById('oc-error');
+    errEl.style.display = 'none';
+    const score = parseFloat(document.getElementById('oc-score').value);
+    const baseline = parseFloat(document.getElementById('oc-baseline').value);
+    const data = {
+      patient_id: pt.id,
+      course_id: document.getElementById('oc-course').value || null,
+      assessment_template_id: document.getElementById('oc-template').value || null,
+      score: isNaN(score) ? null : score,
+      baseline_score: isNaN(baseline) ? null : baseline,
+      assessed_at: document.getElementById('oc-date').value || null,
+      notes: document.getElementById('oc-notes').value.trim() || null,
+    };
+    if (!data.assessment_template_id) { errEl.textContent = 'Select an assessment.'; errEl.style.display = ''; return; }
+    try {
+      await api.recordOutcome(data);
+      const [outcomes, courses] = await Promise.all([
+        api.listOutcomes({ patient_id: pt.id }).then(r => r?.items || []).catch(() => []),
+        api.listCourses({ patient_id: pt.id }).then(r => r?.items || []).catch(() => []),
+      ]);
+      window._currentCourses = courses;
+      document.getElementById('ptab-body').innerHTML = renderOutcomesTab(pt, outcomes, courses);
+      bindOutcomesActions(pt);
+    } catch (e) { errEl.textContent = e.message || 'Save failed.'; errEl.style.display = ''; }
+  };
+}
+
+// ── Phenotype tab ─────────────────────────────────────────────────────────────
+function renderPhenotypeTab(pt, assigns, phenos) {
+  const CONF_COLOR = { high: 'var(--teal)', moderate: 'var(--blue)', low: 'var(--amber)' };
+  return `
+    <div style="margin-bottom:14px;display:flex;gap:8px">
+      <button class="btn btn-primary btn-sm" onclick="document.getElementById('new-pheno-form').style.display=''">+ Assign Phenotype</button>
+    </div>
+    <div id="new-pheno-form" style="display:none;margin-bottom:16px">
+      ${cardWrap('Assign Phenotype', `
+        <div class="g2">
+          <div>
+            <div class="form-group"><label class="form-label">Phenotype</label>
+              <select id="ph-id" class="form-control">
+                <option value="">Select…</option>
+                ${phenos.map(p => `<option value="${p.id}">${p.name || p.slug || p.id}</option>`).join('')}
+              </select>
+            </div>
+            <div class="form-group"><label class="form-label">Confidence</label>
+              <select id="ph-conf" class="form-control">
+                <option value="moderate">Moderate</option>
+                <option value="high">High</option>
+                <option value="low">Low</option>
+              </select>
+            </div>
+          </div>
+          <div>
+            <div class="form-group"><label class="form-label">Rationale</label>
+              <textarea id="ph-rationale" class="form-control" style="height:76px" placeholder="Clinical basis for this phenotype…"></textarea>
+            </div>
+            <div class="form-group" style="margin-top:8px">
+              <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer">
+                <input type="checkbox" id="ph-qeeg"> qEEG-supported
+              </label>
+            </div>
+          </div>
+        </div>
+        <div id="ph-error" style="color:var(--red);font-size:12px;display:none;margin-bottom:8px"></div>
+        <div style="display:flex;gap:8px">
+          <button class="btn btn-sm" onclick="document.getElementById('new-pheno-form').style.display='none'">Cancel</button>
+          <button class="btn btn-primary btn-sm" onclick="window._savePhenotype()">Save Assignment</button>
+        </div>
+      `)}
+    </div>
+    ${assigns.length === 0
+      ? emptyState('◎', 'No phenotype assignments yet.')
+      : `<div style="display:flex;flex-direction:column;gap:8px">
+          ${assigns.map(a => {
+            const cc = CONF_COLOR[a.confidence] || 'var(--text-tertiary)';
+            return `<div class="card" style="padding:14px 18px">
+              <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+                <span style="font-size:13px;font-weight:600;color:var(--text-primary);flex:1">${a.phenotype_id}</span>
+                <span style="font-size:11px;padding:2px 8px;border-radius:4px;background:${cc}22;color:${cc}">${a.confidence}</span>
+                ${a.qeeg_supported ? '<span style="font-size:10px;color:var(--teal)">qEEG ✓</span>' : ''}
+                <button class="btn btn-sm" style="color:var(--red)" onclick="window._deletePheno('${a.id}')">Remove</button>
+              </div>
+              ${a.rationale ? `<div style="margin-top:6px;font-size:12px;color:var(--text-secondary)">${a.rationale}</div>` : ''}
+              <div style="margin-top:4px;font-size:11px;color:var(--text-tertiary)">${a.assigned_at ? a.assigned_at.split('T')[0] : ''}</div>
+            </div>`;
+          }).join('')}
+        </div>`
+    }`;
+}
+
+function bindPhenotypeActions(pt) {
+  window._savePhenotype = async function() {
+    const errEl = document.getElementById('ph-error');
+    errEl.style.display = 'none';
+    const phenotype_id = document.getElementById('ph-id').value;
+    if (!phenotype_id) { errEl.textContent = 'Select a phenotype.'; errEl.style.display = ''; return; }
+    const data = {
+      patient_id: pt.id,
+      phenotype_id,
+      confidence: document.getElementById('ph-conf').value,
+      rationale: document.getElementById('ph-rationale').value.trim() || null,
+      qeeg_supported: document.getElementById('ph-qeeg').checked,
+    };
+    try {
+      await api.assignPhenotype(data);
+      const [assigns, phenos] = await Promise.all([
+        api.listPhenotypeAssignments({ patient_id: pt.id }).then(r => r?.items || []).catch(() => []),
+        api.phenotypes().then(r => r?.items || r || []).catch(() => []),
+      ]);
+      document.getElementById('ptab-body').innerHTML = renderPhenotypeTab(pt, assigns, phenos);
+      bindPhenotypeActions(pt);
+    } catch (e) { errEl.textContent = e.message || 'Save failed.'; errEl.style.display = ''; }
+  };
+
+  window._deletePheno = async function(id) {
+    if (!confirm('Remove this phenotype assignment?')) return;
+    try {
+      await api.deletePhenotypeAssignment(id);
+      const [assigns, phenos] = await Promise.all([
+        api.listPhenotypeAssignments({ patient_id: pt.id }).then(r => r?.items || []).catch(() => []),
+        api.phenotypes().then(r => r?.items || r || []).catch(() => []),
+      ]);
+      document.getElementById('ptab-body').innerHTML = renderPhenotypeTab(pt, assigns, phenos);
+      bindPhenotypeActions(pt);
+    } catch (e) { alert(e.message); }
+  };
+}
+
+// ── Consent tab ───────────────────────────────────────────────────────────────
+function renderConsentTab(pt, consents) {
+  return `
+    <div style="margin-bottom:14px;display:flex;gap:8px">
+      <button class="btn btn-primary btn-sm" onclick="document.getElementById('new-consent-form').style.display=''">+ Add Consent Record</button>
+    </div>
+    <div id="new-consent-form" style="display:none;margin-bottom:16px">
+      ${cardWrap('New Consent Record', `
+        <div class="g2">
+          <div>
+            <div class="form-group"><label class="form-label">Consent Type</label>
+              <select id="cn-type" class="form-control">
+                <option value="general">General</option>
+                <option value="off_label">Off-Label</option>
+                <option value="research">Research</option>
+              </select>
+            </div>
+            <div class="form-group"><label class="form-label">Modality (optional)</label>
+              <input id="cn-modality" class="form-control" placeholder="e.g. tDCS, TMS">
+            </div>
+          </div>
+          <div>
+            <div class="form-group"><label class="form-label">Document Ref (URL/path)</label>
+              <input id="cn-doc" class="form-control" placeholder="https://… or file path">
+            </div>
+            <div class="form-group"><label class="form-label">Notes</label>
+              <textarea id="cn-notes" class="form-control" style="height:60px" placeholder="Optional notes…"></textarea>
+            </div>
+          </div>
+        </div>
+        <div class="form-group" style="margin-top:4px">
+          <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer">
+            <input type="checkbox" id="cn-signed"> Mark as signed now
+          </label>
+        </div>
+        <div id="cn-error" style="color:var(--red);font-size:12px;display:none;margin-bottom:8px"></div>
+        <div style="display:flex;gap:8px">
+          <button class="btn btn-sm" onclick="document.getElementById('new-consent-form').style.display='none'">Cancel</button>
+          <button class="btn btn-primary btn-sm" onclick="window._saveConsent()">Save Consent</button>
+        </div>
+      `)}
+    </div>
+    ${consents.length === 0
+      ? emptyState('◇', 'No consent records yet.')
+      : `<div style="display:flex;flex-direction:column;gap:8px">
+          ${consents.map(c => `<div class="card" style="padding:14px 18px">
+            <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+              <span style="font-size:13px;font-weight:600;color:var(--text-primary);flex:1">${c.consent_type.replace(/_/g,' ')}${c.modality_slug ? ' · ' + c.modality_slug : ''}</span>
+              ${c.signed
+                ? '<span style="font-size:11px;padding:2px 8px;border-radius:4px;background:rgba(0,212,188,0.15);color:var(--teal)">Signed ✓</span>'
+                : `<span style="font-size:11px;padding:2px 8px;border-radius:4px;background:rgba(255,171,0,0.15);color:var(--amber)">Unsigned</span>
+                   <button class="btn btn-sm" onclick="window._signConsent('${c.id}')">Mark Signed</button>`}
+            </div>
+            ${c.signed_at ? `<div style="margin-top:4px;font-size:11px;color:var(--text-secondary)">Signed: ${c.signed_at.split('T')[0]}</div>` : ''}
+            ${c.document_ref ? `<div style="margin-top:4px;font-size:11px;color:var(--blue)">${c.document_ref}</div>` : ''}
+            ${c.notes ? `<div style="margin-top:4px;font-size:12px;color:var(--text-secondary)">${c.notes}</div>` : ''}
+            <div style="margin-top:4px;font-size:11px;color:var(--text-tertiary)">${c.created_at ? c.created_at.split('T')[0] : ''}</div>
+          </div>`).join('')}
+        </div>`
+    }`;
+}
+
+function bindConsentActions(pt) {
+  window._saveConsent = async function() {
+    const errEl = document.getElementById('cn-error');
+    errEl.style.display = 'none';
+    const data = {
+      patient_id: pt.id,
+      consent_type: document.getElementById('cn-type').value,
+      modality_slug: document.getElementById('cn-modality').value.trim() || null,
+      document_ref: document.getElementById('cn-doc').value.trim() || null,
+      notes: document.getElementById('cn-notes').value.trim() || null,
+      signed: document.getElementById('cn-signed').checked,
+    };
+    try {
+      await api.createConsent(data);
+      const consents = await api.listConsents({ patient_id: pt.id }).then(r => r?.items || []).catch(() => []);
+      document.getElementById('ptab-body').innerHTML = renderConsentTab(pt, consents);
+      bindConsentActions(pt);
+    } catch (e) { errEl.textContent = e.message || 'Save failed.'; errEl.style.display = ''; }
+  };
+
+  window._signConsent = async function(id) {
+    try {
+      await api.updateConsent(id, { signed: true });
+      const consents = await api.listConsents({ patient_id: pt.id }).then(r => r?.items || []).catch(() => []);
+      document.getElementById('ptab-body').innerHTML = renderConsentTab(pt, consents);
+      bindConsentActions(pt);
+    } catch (e) { alert(e.message); }
+  };
 }
 
 window.showNewSession = function() {
@@ -668,6 +1141,7 @@ function renderProStep() {
         </select>
       </div>
       <div style="font-size:11px;color:var(--text-tertiary);margin-top:4px">Or <button class="btn btn-ghost btn-sm" onclick="window._nav('patients')">add a new patient →</button></div>
+      <div id="wizard-pheno-note"></div>
     `)}
     ${cardWrap('Clinical Context', `
       <div class="form-group">
@@ -1032,6 +1506,19 @@ export function bindProtoPage() {
           patEl.innerHTML = `<option value="">Select patient…</option>` +
             pts.items.map(p => `<option value="${p.id}" ${p.id === window._wizardPatientId ? 'selected' : ''}>${p.first_name} ${p.last_name}</option>`).join('');
         }
+        // If pre-filled patient, load their latest phenotype assignment for display
+        if (window._wizardPatientId) {
+          try {
+            const assigns = await api.listPhenotypeAssignments({ patient_id: window._wizardPatientId }).then(r => r?.items || []).catch(() => []);
+            if (assigns.length > 0) {
+              const latest = assigns[0];
+              const phNote = document.getElementById('wizard-pheno-note');
+              if (phNote) {
+                phNote.innerHTML = `<div class="notice notice-info" style="margin-top:8px;font-size:12px">Phenotype on file: <strong>${latest.phenotype_id}</strong> (${latest.confidence} confidence${latest.qeeg_supported ? ', qEEG-supported' : ''})</div>`;
+              }
+            }
+          } catch {}
+        }
       } catch {}
     }, 50);
   }
@@ -1039,10 +1526,28 @@ export function bindProtoPage() {
     // Load modalities from registry and wire condition→protocol refresh
     setTimeout(async () => {
       await loadProtocolWizardRegistry();
-      // If a condition was already chosen in step 0, fetch matching protocols now
-      const condEl = document.getElementById('proto-condition');
-      if (condEl && condEl.value) {
-        loadMatchingProtocols(condEl.value, selMods[0] || '');
+      // If launched from Protocol Registry with a pre-selected protocol, auto-load it
+      if (window._wizardProtocolId) {
+        const listEl = document.getElementById('registry-protocols-list');
+        if (listEl) listEl.innerHTML = `<span style="color:var(--text-tertiary)">Loading protocol ${window._wizardProtocolId}…</span>`;
+        try {
+          const proto = await api.protocolDetail(window._wizardProtocolId);
+          if (proto && listEl) {
+            listEl.innerHTML = `<div style="padding:10px 12px;border:2px solid var(--border-teal);border-radius:var(--radius-md);background:rgba(0,212,188,0.04)">
+              <div style="font-size:12px;font-weight:600;color:var(--teal);margin-bottom:4px">Pre-selected from Registry</div>
+              <div style="font-size:13px;font-weight:600;color:var(--text-primary)">${proto.name || proto.id}</div>
+              <div style="font-size:11px;color:var(--text-secondary);margin-top:4px">${proto.condition_id || ''} · ${proto.modality_id || ''} · ${proto.evidence_grade || ''}</div>
+              <button class="btn btn-primary btn-sm" style="margin-top:10px" onclick="window.selectRegistryProtocol(${JSON.stringify(proto).replace(/"/g,'&quot;')})">Use this Protocol →</button>
+              <button class="btn btn-sm" style="margin-top:10px;margin-left:8px" onclick="window._wizardProtocolId=null;document.getElementById('registry-protocols-list').innerHTML='<span style=\'color:var(--text-tertiary)\'>Select a condition to browse protocols.</span>'">Clear</button>
+            </div>`;
+          }
+        } catch { window._wizardProtocolId = null; }
+      } else {
+        // If a condition was already chosen in step 0, fetch matching protocols now
+        const condEl = document.getElementById('proto-condition');
+        if (condEl && condEl.value) {
+          loadMatchingProtocols(condEl.value, selMods[0] || '');
+        }
       }
     }, 50);
   }
@@ -1349,9 +1854,11 @@ export async function pgBrainData(setTopbar) {
                   <span style="font-size:13px;font-weight:600;color:var(--text-primary);flex:1">${patMap[r.patient_id] || r.patient_id}</span>
                   <span style="font-size:11px;padding:2px 7px;border-radius:4px;background:var(--teal-ghost);color:var(--teal)">${r.recording_type}</span>
                   <span style="font-size:11px;color:var(--text-tertiary)">${r.recording_date || '—'}</span>
+                  <button class="btn btn-sm" style="font-size:10px" onclick="window._interpretQEEG('${r.id}','${r.patient_id}')">Interpret ✦</button>
                 </div>
                 ${r.equipment ? `<div style="margin-top:5px;font-size:11.5px;color:var(--text-secondary)">Equipment: ${r.equipment}</div>` : ''}
                 ${r.summary_notes ? `<div style="margin-top:5px;font-size:11.5px;color:var(--text-secondary);font-style:italic">${r.summary_notes.slice(0,120)}${r.summary_notes.length > 120 ? '…' : ''}</div>` : ''}
+                <div id="interp-${r.id}" style="display:none;margin-top:10px;padding:10px;background:rgba(0,212,188,0.04);border-radius:6px;border:1px solid var(--border-teal)"></div>
               </div>`).join('')}
           </div>`
       }
@@ -1375,6 +1882,55 @@ export function bindBrainData() {
 
   window._showQEEGForm = () => {
     document.getElementById('qeeg-form-panel').style.display = '';
+  };
+
+  window._interpretQEEG = async function(recordId, patientId) {
+    const panel = document.getElementById('interp-' + recordId);
+    if (!panel) return;
+    // Toggle
+    if (panel.style.display !== 'none' && panel.innerHTML) { panel.style.display = 'none'; return; }
+    panel.style.display = '';
+    panel.innerHTML = '<span style="font-size:11px;color:var(--text-secondary)">Loading biomarker interpretation…</span>';
+    try {
+      const [pt, condMap, biomarkers] = await Promise.all([
+        api.getPatient(patientId).catch(() => null),
+        api.listQEEGConditionMap().then(r => r?.items || r || []).catch(() => []),
+        api.listQEEGBiomarkers().then(r => r?.items || r || []).catch(() => []),
+      ]);
+      const condition = pt?.primary_condition || '';
+      // Find matching condition entries (case-insensitive partial match)
+      const condLower = condition.toLowerCase();
+      const matching = condMap.filter(c => {
+        const cName = (c.condition_name || c.condition || '').toLowerCase();
+        return condLower && (cName.includes(condLower.split(' ')[0]) || condLower.includes(cName.split(' ')[0]));
+      });
+      // Build biomarker lookup
+      const bMap = {};
+      biomarkers.forEach(b => { bMap[b.biomarker_id || b.id] = b; });
+
+      if (matching.length === 0) {
+        panel.innerHTML = '<div style="font-size:11px;color:var(--text-tertiary)">No condition-specific biomarker map found for: <em>' + (condition || 'unknown condition') + '</em>. Add condition to patient profile for interpretation.</div>';
+        return;
+      }
+      panel.innerHTML = `
+        <div style="font-size:11px;font-weight:600;color:var(--teal);margin-bottom:8px">Biomarker Interpretation · ${condition}</div>
+        <div style="display:flex;flex-direction:column;gap:6px">
+          ${matching.slice(0, 8).map(c => {
+            const b = bMap[c.biomarker_id] || {};
+            const bandColor = { alpha:'var(--blue)', theta:'var(--violet)', beta:'var(--teal)', delta:'var(--amber)', gamma:'var(--red)' };
+            const bc = bandColor[(b.band || '').toLowerCase()] || 'var(--text-tertiary)';
+            return `<div style="display:flex;gap:10px;align-items:flex-start;padding:6px 0;border-bottom:1px solid var(--border)">
+              <span style="font-size:10px;padding:1px 6px;border-radius:3px;background:${bc}22;color:${bc};flex-shrink:0;margin-top:1px">${b.band || c.band || '?'}</span>
+              <div>
+                <div style="font-size:11.5px;font-weight:500;color:var(--text-primary)">${b.biomarker_name || c.biomarker_id || '—'}</div>
+                <div style="font-size:10.5px;color:var(--text-secondary);margin-top:1px">${c.clinical_relevance || b.description || '—'}</div>
+              </div>
+            </div>`;
+          }).join('')}
+        </div>`;
+    } catch (e) {
+      panel.innerHTML = '<div style="font-size:11px;color:var(--red)">Interpretation failed: ' + (e.message || 'error') + '</div>';
+    }
   };
 
   window._saveQEEGRecord = async function() {

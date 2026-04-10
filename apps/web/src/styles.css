@@ -514,6 +514,9 @@ select.form-control { background-image: url("data:image/svg+xml,%3Csvg xmlns='ht
 .act-row { display: flex; align-items: flex-start; gap: 12px; padding: 9px 18px; border-bottom: 1px solid var(--border); cursor: pointer; transition: background var(--transition); }
 .act-row:hover { background: var(--bg-surface); }
 
+/* ── Page section wrapper ── */
+.page-section { display: flex; flex-direction: column; gap: 0; }
+
 /* ── Misc ── */
 .divider { height: 1px; background: var(--border); margin: 4px 0; }
 .glow-line { height: 1px; background: linear-gradient(90deg, transparent, var(--teal), transparent); margin-bottom: 20px; opacity: 0.3; }

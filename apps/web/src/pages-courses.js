@@ -1,7 +1,17 @@
-import { api } from './api.js';
-import { spinner, emptyState } from './helpers.js';
+import { api, downloadBlob } from './api.js';
+import { spinner, emptyState, evidenceBadge, labelBadge, safetyBadge, approvalBadge, govFlag, fr, cardWrap, tag } from './helpers.js';
 
-// ── helpers ───────────────────────────────────────────────────────────────────
+// ── Shared color maps ─────────────────────────────────────────────────────────
+const STATUS_COLOR = {
+  pending_approval: 'var(--amber)',
+  approved:         'var(--blue)',
+  active:           'var(--teal)',
+  paused:           'var(--amber)',
+  completed:        'var(--green)',
+  discontinued:     'var(--red)',
+};
+
+// ── Local helpers ─────────────────────────────────────────────────────────────
 
 function metricCard(label, value, color, sub) {
   return `<div class="metric-card">
@@ -11,293 +21,993 @@ function metricCard(label, value, color, sub) {
   </div>`;
 }
 
-const STATUS_COLOR = {
-  pending_approval: 'var(--amber)',
-  approved: 'var(--blue)',
-  active: 'var(--teal)',
-  paused: 'var(--amber)',
-  completed: 'var(--green)',
-  discontinued: 'var(--red)',
-};
-
-const GRADE_COLOR = {
-  'EV-A': 'var(--teal)', 'EV-B': 'var(--blue)', 'EV-C': 'var(--amber)', 'EV-D': 'var(--red)',
-};
-
 function courseCard(c) {
   const statusCol = STATUS_COLOR[c.status] || 'var(--text-tertiary)';
-  const gradeCol = GRADE_COLOR[c.evidence_grade] || 'var(--text-tertiary)';
   const progress = c.planned_sessions_total > 0
     ? Math.min(100, Math.round((c.sessions_delivered / c.planned_sessions_total) * 100))
     : 0;
-  const govBadges = (c.governance_warnings || []).length
-    ? `<span style="font-size:10px;padding:2px 6px;border-radius:4px;background:rgba(245,158,11,0.15);color:var(--amber);margin-left:8px">⚠ ${c.governance_warnings.length} flag${c.governance_warnings.length > 1 ? 's' : ''}</span>`
-    : '';
 
-  return `<div class="card" style="padding:16px 20px;cursor:pointer" onclick="window._openCourse('${c.id}')">
-    <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
-      <span style="font-size:13px;font-weight:600;color:var(--text-primary);flex:1">
-        ${c.condition_slug} · ${c.modality_slug}
-      </span>
-      <span style="font-size:11px;font-weight:600;padding:2px 8px;border-radius:4px;
-        background:${statusCol}22;color:${statusCol}">${c.status.replace(/_/g,' ')}</span>
-      <span style="font-size:11px;font-weight:600;padding:2px 8px;border-radius:4px;
-        background:${gradeCol}22;color:${gradeCol}">${c.evidence_grade || '—'}</span>
-      ${govBadges}
-    </div>
-    <div style="margin-top:10px;font-size:11.5px;color:var(--text-secondary);display:flex;gap:16px;flex-wrap:wrap">
-      ${c.target_region ? `<span>Target: ${c.target_region}</span>` : ''}
-      ${c.planned_frequency_hz ? `<span>Freq: ${c.planned_frequency_hz} Hz</span>` : ''}
-      <span>${c.planned_sessions_per_week}×/wk · ${c.planned_sessions_total} sessions total</span>
+  return `<div class="card" style="padding:16px 20px;cursor:pointer;transition:background 0.15s" onmouseover="this.style.background='var(--bg-card-hover)'" onmouseout="this.style.background=''" onclick="window._openCourse('${c.id}')">
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+      <div style="flex:1;min-width:0">
+        <div style="font-size:13px;font-weight:600;color:var(--text-primary);margin-bottom:4px">
+          ${c.condition_slug ? c.condition_slug.replace(/-/g,' ') : '—'} · <span style="color:var(--teal)">${c.modality_slug || '—'}</span>
+        </div>
+        <div style="font-size:11px;color:var(--text-secondary)">
+          ${c.planned_sessions_per_week || '?'}×/wk · ${c.planned_sessions_total || '?'} sessions total
+          ${c.planned_frequency_hz ? ` · ${c.planned_frequency_hz} Hz` : ''}
+          ${c.target_region ? ` · Target: ${c.target_region}` : ''}
+        </div>
+      </div>
+      <div style="display:flex;align-items:center;gap:6px;flex-shrink:0">
+        ${approvalBadge(c.status)}
+        ${evidenceBadge(c.evidence_grade)}
+        ${c.on_label === false ? labelBadge(false) : ''}
+        ${safetyBadge(c.governance_warnings)}
+      </div>
     </div>
     <div style="margin-top:12px">
-      <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text-tertiary);margin-bottom:4px">
-        <span>Progress</span><span>${c.sessions_delivered} / ${c.planned_sessions_total}</span>
+      <div style="display:flex;justify-content:space-between;font-size:10.5px;color:var(--text-tertiary);margin-bottom:4px">
+        <span>Progress</span><span>${c.sessions_delivered || 0} / ${c.planned_sessions_total || '?'}</span>
       </div>
       <div style="height:4px;border-radius:2px;background:var(--border)">
-        <div style="height:4px;border-radius:2px;background:${statusCol};width:${progress}%"></div>
+        <div style="height:4px;border-radius:2px;background:${statusCol};width:${progress}%;transition:width 0.3s"></div>
       </div>
     </div>
     ${c.clinician_notes ? `<div style="margin-top:8px;font-size:11px;color:var(--text-tertiary);font-style:italic">${c.clinician_notes}</div>` : ''}
+    ${(c.governance_warnings || []).map(w => `<div style="margin-top:4px;font-size:11px;color:var(--amber)">⚠ ${w}</div>`).join('')}
   </div>`;
 }
 
-// ── pgCourses — Treatment Courses page ───────────────────────────────────────
+// ── pgCourses — Treatment Courses list ───────────────────────────────────────
 export async function pgCourses(setTopbar, navigate) {
-  setTopbar('Treatment Courses', `<button class="btn btn-primary" onclick="window._nav('protocol-wizard')">+ New Course</button>`);
+  setTopbar('Treatment Courses',
+    `<select id="course-filter" class="form-control" style="width:auto;font-size:12px;padding:5px 10px" onchange="window._filterCourses()">
+       <option value="">All Status</option>
+       <option value="active">Active</option>
+       <option value="pending_approval">Pending Approval</option>
+       <option value="approved">Approved</option>
+       <option value="completed">Completed</option>
+       <option value="paused">Paused</option>
+     </select>
+     <button class="btn btn-primary btn-sm" onclick="window._nav('protocol-wizard')">+ New Course</button>`
+  );
   const el = document.getElementById('content');
   el.innerHTML = spinner();
 
   try {
     const data = await api.listCourses();
     const items = data?.items || [];
+    window._allCourses = items;
 
-    const active = items.filter(c => c.status === 'active').length;
-    const pending = items.filter(c => c.status === 'pending_approval').length;
+    const active    = items.filter(c => c.status === 'active').length;
+    const pending   = items.filter(c => c.status === 'pending_approval').length;
     const completed = items.filter(c => c.status === 'completed').length;
+    const flagged   = items.filter(c => (c.governance_warnings || []).length > 0).length;
 
     el.innerHTML = `
       <div class="page-section">
-        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:24px">
-          ${metricCard('Active Courses', active || '0', 'var(--teal)', 'Ongoing treatment')}
-          ${metricCard('Pending Approval', pending || '0', 'var(--amber)', 'Awaiting review')}
-          ${metricCard('Completed', completed || '0', 'var(--green)', 'This quarter')}
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:24px">
+          ${metricCard('Active Courses',     active    || '0', 'var(--teal)',  'Ongoing treatment')}
+          ${metricCard('Pending Approval',   pending   || '0', 'var(--amber)', 'Awaiting review')}
+          ${metricCard('Completed',          completed || '0', 'var(--green)', 'This quarter')}
+          ${metricCard('Governance Flags',   flagged   || '0', 'var(--red)',   'Require attention')}
         </div>
         <div class="card">
-          <div class="card-header" style="padding:16px 20px;border-bottom:1px solid var(--border)">
+          <div class="card-header" style="padding:14px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
             <span style="font-weight:600;font-size:14px">Treatment Courses</span>
+            <span style="font-size:11px;color:var(--text-tertiary)">${items.length} total</span>
           </div>
-          <div style="padding:16px;display:flex;flex-direction:column;gap:8px">
+          <div id="courses-list" style="padding:16px;display:flex;flex-direction:column;gap:8px">
             ${items.length
               ? items.map(courseCard).join('')
-              : `<div style="padding:32px;text-align:center;color:var(--text-tertiary)">${emptyState('◎', 'No treatment courses yet. Use the Protocol Wizard to create the first course for a patient.')}</div>`
-            }
+              : emptyState('◎', 'No treatment courses yet. Use Protocol Intelligence to create the first course.')}
           </div>
         </div>
       </div>`;
   } catch (e) {
-    // Backend offline — show empty state rather than crash
     el.innerHTML = `
       <div class="page-section">
-        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:24px">
-          ${metricCard('Active Courses', '—', 'var(--teal)', 'Ongoing treatment')}
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:24px">
+          ${metricCard('Active Courses',   '—', 'var(--teal)',  'Ongoing treatment')}
           ${metricCard('Pending Approval', '—', 'var(--amber)', 'Awaiting review')}
-          ${metricCard('Completed', '—', 'var(--green)', 'This quarter')}
+          ${metricCard('Completed',        '—', 'var(--green)', 'This quarter')}
+          ${metricCard('Governance Flags', '—', 'var(--red)',   'Require attention')}
         </div>
         <div class="card">
-          <div style="padding:48px;text-align:center;color:var(--text-tertiary)">
-            ${emptyState('◎', 'No treatment courses yet. Use the Protocol Wizard to create the first course for a patient.')}
+          <div style="padding:48px;text-align:center">
+            ${emptyState('◎', 'Could not load courses. Ensure the backend is running.')}
           </div>
         </div>
       </div>`;
   }
 
+  window._filterCourses = function() {
+    const filter = document.getElementById('course-filter')?.value || '';
+    const items  = window._allCourses || [];
+    const visible = filter ? items.filter(c => c.status === filter) : items;
+    const list = document.getElementById('courses-list');
+    if (list) list.innerHTML = visible.length ? visible.map(courseCard).join('') : emptyState('◎', 'No courses match filter.');
+  };
+
   window._openCourse = function(id) {
     window._selectedCourseId = id;
-    window._nav('course-detail');
+    navigate('course-detail');
   };
 }
 
-// ── pgSessionExecution — Today's Sessions ────────────────────────────────────
+// ── pgCourseDetail — Full course detail ──────────────────────────────────────
+export async function pgCourseDetail(setTopbar, navigate) {
+  const id = window._selectedCourseId;
+  if (!id) { navigate('courses'); return; }
+
+  const el = document.getElementById('content');
+  el.innerHTML = spinner();
+
+  let course = null, sessions = [], adverseEvents = [], patient = null, protocolDetail = null, outcomes = [], outcomeSummary = null;
+  try {
+    course = await api.getCourse(id);
+    [sessions, adverseEvents, outcomes] = await Promise.all([
+      api.listCourseSessions(id).then(r => r?.items || []).catch(() => []),
+      api.listAdverseEvents({ course_id: id }).then(r => r?.items || []).catch(() => []),
+      api.listOutcomes({ course_id: id }).then(r => r?.items || []).catch(() => []),
+    ]);
+    if (course?.patient_id) {
+      patient = await api.getPatient(course.patient_id).catch(() => null);
+    }
+    if (course?.protocol_id) {
+      protocolDetail = await api.protocolDetail(course.protocol_id).catch(() => null);
+    }
+    outcomeSummary = await api.courseOutcomeSummary(id).catch(() => null);
+  } catch (e) {
+    el.innerHTML = `<div class="notice notice-warn">Could not load course: ${e.message}</div>`;
+    return;
+  }
+
+  if (!course) { navigate('courses'); return; }
+
+  const patName   = patient ? `${patient.first_name} ${patient.last_name}` : 'Unknown Patient';
+  const progress  = course.planned_sessions_total > 0
+    ? Math.min(100, Math.round((course.sessions_delivered / course.planned_sessions_total) * 100))
+    : 0;
+  const statusCol = STATUS_COLOR[course.status] || 'var(--text-tertiary)';
+
+  setTopbar(
+    `${course.condition_slug ? course.condition_slug.replace(/-/g,' ') : 'Course'} · ${course.modality_slug || ''}`,
+    `<button class="btn btn-ghost btn-sm" onclick="window._nav('courses')">← Courses</button>
+     <button class="btn btn-sm" onclick="window._downloadCourseReport()">↓ Report</button>
+     ${course.status === 'pending_approval'
+       ? `<button class="btn btn-primary btn-sm" onclick="window._activateCourseDetail('${course.id}')">Approve &amp; Activate</button>`
+       : course.status === 'active'
+       ? `<button class="btn btn-sm" onclick="window._nav('session-execution')">Log Session →</button>`
+       : ''}`
+  );
+
+  const tab = window._cdTab || 'overview';
+
+  el.innerHTML = `
+    <div class="card" style="margin-bottom:20px;background:linear-gradient(135deg,rgba(0,212,188,0.04),rgba(74,158,255,0.04))">
+      <div style="padding:20px">
+        <div style="display:flex;align-items:flex-start;gap:16px;flex-wrap:wrap">
+          <div style="flex:1;min-width:240px">
+            <div style="font-family:var(--font-display);font-size:18px;font-weight:700;color:var(--text-primary);margin-bottom:6px">
+              ${course.condition_slug ? course.condition_slug.replace(/-/g,' ') : '—'}
+              <span style="color:var(--teal)"> · ${course.modality_slug || '—'}</span>
+            </div>
+            <div style="font-size:12px;color:var(--text-secondary);margin-bottom:10px">
+              Patient: <strong style="color:var(--text-primary)">${patName}</strong>
+              ${course.device_slug ? ` · Device: <span class="tag">${course.device_slug}</span>` : ''}
+              ${course.target_region ? ` · Target: <span class="tag">${course.target_region}</span>` : ''}
+            </div>
+            <div style="display:flex;gap:6px;flex-wrap:wrap">
+              ${approvalBadge(course.status)}
+              ${evidenceBadge(course.evidence_grade)}
+              ${course.on_label === false ? labelBadge(false) : labelBadge(true)}
+              ${safetyBadge(course.governance_warnings)}
+              ${course.review_required ? `<span style="font-size:10px;padding:2px 7px;border-radius:4px;background:rgba(255,107,107,0.1);color:var(--red);font-weight:600">Review Required</span>` : ''}
+            </div>
+          </div>
+          <div style="text-align:right;flex-shrink:0">
+            <div style="font-size:11px;color:var(--text-tertiary);margin-bottom:8px">Session Progress</div>
+            <div style="font-size:26px;font-weight:700;color:${statusCol}">${course.sessions_delivered || 0}<span style="font-size:14px;color:var(--text-tertiary)"> / ${course.planned_sessions_total || '?'}</span></div>
+            <div style="width:160px;height:5px;border-radius:3px;background:var(--border);margin-top:8px">
+              <div style="height:5px;border-radius:3px;background:${statusCol};width:${progress}%"></div>
+            </div>
+            <div style="font-size:10px;color:var(--text-tertiary);margin-top:4px">${progress}% complete</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="tab-bar" style="margin-bottom:20px">
+      ${['overview','sessions','outcomes','protocol','adverse-events','governance'].map(t =>
+        `<button class="tab-btn ${tab === t ? 'active' : ''}" onclick="window._cdSwitchTab('${t}')">${
+          t === 'adverse-events' ? `Adverse Events${adverseEvents.length ? ` (${adverseEvents.length})` : ''}`
+          : t === 'sessions' ? `Sessions (${sessions.length})`
+          : t === 'outcomes' ? `Outcomes${outcomes.length ? ` (${outcomes.length})` : ''}`
+          : t.charAt(0).toUpperCase() + t.slice(1)
+        }</button>`
+      ).join('')}
+    </div>
+
+    <div id="cd-tab-body">${renderCourseTab(course, sessions, adverseEvents, protocolDetail, tab, outcomes, outcomeSummary)}</div>`;
+
+  window._cdSwitchTab = function(t) {
+    window._cdTab = t;
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.getAttribute('onclick')?.includes(`'${t}'`)));
+    document.getElementById('cd-tab-body').innerHTML = renderCourseTab(course, sessions, adverseEvents, protocolDetail, t, outcomes, outcomeSummary);
+  };
+
+  window._downloadCourseReport = async function() {
+    try {
+      const blob = await api.exportProtocolDocx({
+        condition_name: course.condition_slug || '',
+        modality_name: course.modality_slug || '',
+        device_name: course.device_slug || '',
+        setting: 'clinical',
+        evidence_threshold: course.evidence_grade || 'B',
+        off_label: course.on_label === false,
+        symptom_cluster: course.phenotype_id || '',
+      });
+      downloadBlob(blob, 'course-report-' + (course.condition_slug || course.id) + '.docx');
+    } catch (e) { alert(e.message || 'Export failed.'); }
+  };
+
+  window._activateCourseDetail = async function(courseId) {
+    try {
+      await api.activateCourse(courseId);
+      window._nav('course-detail');
+    } catch (e) { alert(e.message || 'Activation failed.'); }
+  };
+}
+
+function renderCourseTab(course, sessions, adverseEvents, protocolDetail, tab, outcomes = [], outcomeSummary = null) {
+  if (tab === 'overview') {
+    const params = [
+      ['Condition',        course.condition_slug?.replace(/-/g,' ') || '—'],
+      ['Modality',         course.modality_slug || '—'],
+      ['Device',           course.device_slug || '—'],
+      ['Target Region',    course.target_region || '—'],
+      ['Frequency',        course.planned_frequency_hz ? `${course.planned_frequency_hz} Hz` : '—'],
+      ['Intensity',        course.planned_intensity_pct_rmt ? `${course.planned_intensity_pct_rmt}% RMT` : '—'],
+      ['Session Duration', course.planned_session_duration_min ? `${course.planned_session_duration_min} min` : '—'],
+      ['Sessions/Week',    course.planned_sessions_per_week ? `${course.planned_sessions_per_week}×/week` : '—'],
+      ['Total Sessions',   course.planned_sessions_total || '—'],
+      ['Delivered',        course.sessions_delivered || 0],
+    ];
+
+    const milestones = [
+      { n: 5,  label: 'Initial tolerance check', done: (course.sessions_delivered || 0) >= 5 },
+      { n: 10, label: 'Mid-course assessment',   done: (course.sessions_delivered || 0) >= 10 },
+      { n: 20, label: 'Course completion review', done: (course.sessions_delivered || 0) >= 20 },
+    ].filter(m => m.n <= (course.planned_sessions_total || 0));
+
+    return `<div class="g2">
+      <div>
+        ${cardWrap('Treatment Parameters', params.map(([k,v]) => fr(k,v)).join(''))}
+        ${course.clinician_notes ? cardWrap('Clinician Notes', `<div style="font-size:12.5px;color:var(--text-secondary);line-height:1.65">${course.clinician_notes}</div>`) : ''}
+      </div>
+      <div>
+        ${cardWrap('Course Status',
+          `<div style="margin-bottom:12px">${approvalBadge(course.status)}</div>` +
+          fr('Evidence Grade',  evidenceBadge(course.evidence_grade)) +
+          fr('Label Status',    labelBadge(course.on_label !== false)) +
+          fr('Review Required', course.review_required ? '<span style="color:var(--amber)">Yes</span>' : '<span style="color:var(--green)">No</span>') +
+          fr('Protocol ID',     course.protocol_id ? `<span class="mono" style="font-size:11px">${course.protocol_id}</span>` : '—')
+        )}
+        ${milestones.length ? cardWrap('Milestones',
+          milestones.map(m => `<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border)">
+            <span style="font-size:14px;color:${m.done ? 'var(--green)' : 'var(--text-tertiary)'}">${m.done ? '✓' : '○'}</span>
+            <span style="font-size:12px;color:${m.done ? 'var(--text-primary)' : 'var(--text-secondary)'};flex:1">Session ${m.n}: ${m.label}</span>
+          </div>`).join('')
+        ) : ''}
+      </div>
+    </div>`;
+  }
+
+  if (tab === 'sessions') {
+    return `<div class="card">
+      <div class="card-header" style="padding:14px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
+        <span style="font-weight:600">Session Log</span>
+        <button class="btn btn-primary btn-sm" onclick="window._nav('session-execution')">+ Log Session</button>
+      </div>
+      <div style="overflow-x:auto">
+        ${sessions.length === 0
+          ? `<div style="padding:32px">${emptyState('◧', 'No sessions logged yet. Go to Session Execution to log sessions.')}</div>`
+          : `<table class="ds-table">
+              <thead><tr>
+                <th>#</th><th>Date</th><th>Device</th><th>Freq (Hz)</th><th>Intensity %</th><th>Pulses</th><th>Duration</th><th>Tolerance</th><th>Interrupted</th><th>Notes</th>
+              </tr></thead>
+              <tbody>
+                ${sessions.map((s, i) => `<tr>
+                  <td class="mono" style="color:var(--text-secondary)">${sessions.length - i}</td>
+                  <td style="color:var(--text-secondary);font-size:11.5px">${s.created_at ? s.created_at.split('T')[0] : '—'}</td>
+                  <td>${s.device_slug ? `<span class="tag">${s.device_slug}</span>` : '—'}</td>
+                  <td class="mono">${s.frequency_hz || '—'}</td>
+                  <td class="mono">${s.intensity_pct_rmt ? s.intensity_pct_rmt + '%' : '—'}</td>
+                  <td class="mono">${s.pulses_delivered || '—'}</td>
+                  <td class="mono">${s.duration_minutes ? s.duration_minutes + ' min' : '—'}</td>
+                  <td>${s.tolerance_rating
+                    ? `<span style="font-size:11px;padding:2px 7px;border-radius:4px;background:${
+                        s.tolerance_rating === 'well-tolerated' ? 'rgba(74,222,128,0.1)' :
+                        s.tolerance_rating === 'poor' ? 'rgba(255,107,107,0.1)' : 'rgba(255,181,71,0.1)'
+                      };color:${
+                        s.tolerance_rating === 'well-tolerated' ? 'var(--green)' :
+                        s.tolerance_rating === 'poor' ? 'var(--red)' : 'var(--amber)'
+                      }">${s.tolerance_rating}</span>`
+                    : '—'}</td>
+                  <td>${s.interruptions ? '<span style="color:var(--amber);font-size:11px">⚠ Yes</span>' : '<span style="color:var(--text-tertiary);font-size:11px">No</span>'}</td>
+                  <td style="font-size:11px;color:var(--text-secondary);max-width:180px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${s.post_session_notes || '—'}</td>
+                </tr>`).join('')}
+              </tbody>
+            </table>`
+        }
+      </div>
+    </div>`;
+  }
+
+  if (tab === 'protocol') {
+    const p = protocolDetail;
+    if (!p && !course.protocol_id) return `<div class="card" style="padding:32px">${emptyState('⬡', 'No protocol assigned to this course.')}</div>`;
+    if (!p) return `<div class="card" style="padding:20px"><div style="font-size:12px;color:var(--text-secondary)">Protocol ID: <span class="mono">${course.protocol_id}</span> — full detail unavailable.</div></div>`;
+    const isOn = String(p.on_label_vs_off_label || '').toLowerCase().startsWith('on');
+    return `<div class="g2">
+      <div>
+        ${cardWrap('Protocol Detail',
+          `<div style="font-size:15px;font-weight:700;color:var(--text-primary);margin-bottom:4px">${p.name || p.id}</div>
+           <div style="display:flex;gap:6px;margin-bottom:14px">
+             ${evidenceBadge(p.evidence_grade)}
+             ${labelBadge(isOn)}
+           </div>` +
+          [
+            ['Protocol ID',      p.id],
+            ['Condition',        p.condition_id],
+            ['Phenotype',        p.phenotype_id || '—'],
+            ['Modality',         p.modality_id],
+            ['Device',           p.device_id_if_specific || 'Any compatible'],
+            ['Target Region',    p.target_region],
+            ['Laterality',       p.laterality || '—'],
+            ['Frequency',        p.frequency_hz ? `${p.frequency_hz} Hz` : '—'],
+            ['Intensity',        p.intensity || '—'],
+            ['Session Duration', p.session_duration || '—'],
+            ['Sessions/Week',    p.sessions_per_week || '—'],
+            ['Total Course',     p.total_course || '—'],
+            ['Coil/Placement',   p.coil_or_electrode_placement || '—'],
+          ].map(([k,v]) => fr(k, `<span class="mono" style="font-size:11.5px">${v}</span>`)).join('')
+        )}
+      </div>
+      <div>
+        ${p.clinician_review_required === 'Yes' ? cardWrap('Approval Note',
+          govFlag('This protocol requires clinician review and approval before activation.', 'warn')
+        ) : ''}
+        ${p.monitoring_requirements ? cardWrap('Monitoring Requirements',
+          `<div style="font-size:12.5px;color:var(--text-secondary);line-height:1.65">${p.monitoring_requirements}</div>`
+        ) : ''}
+      </div>
+    </div>`;
+  }
+
+  if (tab === 'outcomes') {
+    const summary = outcomeSummary?.summaries || [];
+    const LOWER = new Set(['PHQ-9','GAD-7','PCL-5','ISI','DASS-21','NRS-Pain','UPDRS-III']);
+    return `<div style="display:flex;flex-direction:column;gap:16px">
+      ${summary.length > 0 ? summary.map(s => {
+        const isResponder = s.is_responder;
+        const dir = LOWER.has(s.template_name) ? 'lower = better' : 'higher = better';
+        return `<div class="card" style="padding:16px 20px">
+          <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:12px">
+            <span style="font-size:14px;font-weight:700;color:var(--text-primary);flex:1">${s.template_name}</span>
+            ${isResponder
+              ? '<span style="font-size:11px;padding:2px 8px;border-radius:4px;background:rgba(74,222,128,0.12);color:var(--green);font-weight:600">Responder ✓</span>'
+              : '<span style="font-size:11px;padding:2px 8px;border-radius:4px;background:rgba(255,181,71,0.12);color:var(--amber);font-weight:600">Non-responder</span>'}
+            <span style="font-size:10.5px;color:var(--text-tertiary)">${dir}</span>
+          </div>
+          <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px">
+            <div style="text-align:center;padding:12px;background:rgba(0,0,0,0.2);border-radius:6px">
+              <div style="font-size:10px;color:var(--text-tertiary);margin-bottom:4px">Baseline</div>
+              <div style="font-size:22px;font-weight:700;color:var(--text-primary)">${s.baseline_score !== null && s.baseline_score !== undefined ? s.baseline_score : '—'}</div>
+            </div>
+            <div style="text-align:center;padding:12px;background:rgba(0,0,0,0.2);border-radius:6px">
+              <div style="font-size:10px;color:var(--text-tertiary);margin-bottom:4px">Latest</div>
+              <div style="font-size:22px;font-weight:700;color:var(--teal)">${s.latest_score !== null && s.latest_score !== undefined ? s.latest_score : '—'}</div>
+            </div>
+            <div style="text-align:center;padding:12px;background:rgba(0,0,0,0.2);border-radius:6px">
+              <div style="font-size:10px;color:var(--text-tertiary);margin-bottom:4px">Change</div>
+              <div style="font-size:22px;font-weight:700;color:${isResponder ? 'var(--green)' : 'var(--amber)'}">
+                ${s.pct_change !== null && s.pct_change !== undefined ? (s.pct_change > 0 ? '+' : '') + Math.round(s.pct_change) + '%' : '—'}
+              </div>
+            </div>
+          </div>
+        </div>`;
+      }).join('') : ''}
+      <div class="card" style="overflow:hidden">
+        <div style="padding:14px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
+          <span style="font-weight:600">Outcome Records</span>
+          <button class="btn btn-primary btn-sm" onclick="document.getElementById('cd-outcome-form').style.display=''">+ Record Outcome</button>
+        </div>
+        <div id="cd-outcome-form" style="display:none;padding:16px;border-bottom:1px solid var(--border)">
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:10px">
+            <div>
+              <label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:4px">Assessment Tool</label>
+              <select id="cdo-template" class="form-control" style="font-size:12px">
+                ${['PHQ-9','GAD-7','PCL-5','ISI','DASS-21','NRS-Pain','UPDRS-III','CGI-I','PSQI','MoCA'].map(t => `<option value="${t}">${t}</option>`).join('')}
+              </select>
+            </div>
+            <div>
+              <label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:4px">Score</label>
+              <input id="cdo-score" class="form-control" type="number" placeholder="e.g. 14" style="font-size:12px">
+            </div>
+            <div>
+              <label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:4px">Measurement Point</label>
+              <select id="cdo-point" class="form-control" style="font-size:12px">
+                <option value="baseline">Baseline</option>
+                <option value="mid">Mid-course</option>
+                <option value="post">Post-course</option>
+                <option value="followup_4w">4-week follow-up</option>
+                <option value="followup_3m">3-month follow-up</option>
+              </select>
+            </div>
+          </div>
+          <div style="display:flex;gap:8px">
+            <button class="btn btn-sm" onclick="document.getElementById('cd-outcome-form').style.display='none'">Cancel</button>
+            <button class="btn btn-primary btn-sm" onclick="window._cdSaveOutcome('${course.id}','${course.patient_id}')">Save</button>
+          </div>
+        </div>
+        <div style="overflow-x:auto">
+          ${outcomes.length === 0
+            ? `<div style="padding:32px">${emptyState('◫', 'No outcome records yet. Click "+ Record Outcome" to add the first measurement.')}</div>`
+            : `<table class="ds-table">
+                <thead><tr><th>Tool</th><th>Score</th><th>Point</th><th>Session #</th><th>Date</th></tr></thead>
+                <tbody>
+                  ${outcomes.map(o => `<tr>
+                    <td style="font-weight:500">${o.template_name || '—'}</td>
+                    <td class="mono">${o.score !== null && o.score !== undefined ? o.score : '—'}</td>
+                    <td><span class="tag" style="font-size:10px">${o.measurement_point || '—'}</span></td>
+                    <td class="mono" style="color:var(--text-secondary)">${o.session_number || '—'}</td>
+                    <td style="font-size:11.5px;color:var(--text-secondary)">${o.recorded_at ? o.recorded_at.split('T')[0] : '—'}</td>
+                  </tr>`).join('')}
+                </tbody>
+              </table>`
+          }
+        </div>
+      </div>
+    </div>`;
+  }
+
+  if (tab === 'adverse-events') {
+    return `<div class="card">
+      <div class="card-header" style="padding:14px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
+        <span style="font-weight:600">Adverse Events</span>
+        <button class="btn btn-sm" onclick="window._showAEForm()">+ Report Event</button>
+      </div>
+      <div id="ae-form" style="display:none;padding:16px;border-bottom:1px solid var(--border)">
+        ${renderAEForm(course.id, course.patient_id)}
+      </div>
+      <div style="overflow-x:auto">
+        ${adverseEvents.length === 0
+          ? `<div style="padding:32px">${emptyState('◻', 'No adverse events reported for this course.')}</div>`
+          : `<table class="ds-table">
+              <thead><tr><th>Date</th><th>Type</th><th>Severity</th><th>Onset</th><th>Resolution</th><th>Action</th><th>Notes</th></tr></thead>
+              <tbody>
+                ${adverseEvents.map(ae => {
+                  const sevCol = ae.severity === 'serious' ? 'var(--red)' : ae.severity === 'moderate' ? 'var(--amber)' : 'var(--text-secondary)';
+                  return `<tr>
+                    <td style="font-size:11.5px;color:var(--text-secondary)">${ae.created_at ? ae.created_at.split('T')[0] : '—'}</td>
+                    <td style="font-size:12px;font-weight:500">${ae.event_type || '—'}</td>
+                    <td><span style="font-size:11px;padding:2px 7px;border-radius:4px;background:${sevCol}22;color:${sevCol};font-weight:600">${ae.severity || '—'}</span></td>
+                    <td style="font-size:11.5px">${ae.onset_timing || '—'}</td>
+                    <td style="font-size:11.5px">${ae.resolution || '—'}</td>
+                    <td style="font-size:11.5px">${ae.action_taken || '—'}</td>
+                    <td style="font-size:11px;color:var(--text-secondary);max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${ae.notes || '—'}</td>
+                  </tr>`;
+                }).join('')}
+              </tbody>
+            </table>`
+        }
+      </div>
+    </div>`;
+  }
+
+  if (tab === 'governance') {
+    const warnings = course.governance_warnings || [];
+    return `<div class="g2">
+      <div>
+        ${cardWrap('Governance Summary',
+          fr('Status',         approvalBadge(course.status)) +
+          fr('Review Required', course.review_required ? '<span style="color:var(--amber)">Yes</span>' : '<span style="color:var(--green)">No</span>') +
+          fr('Label Status',   labelBadge(course.on_label !== false)) +
+          fr('Evidence Grade', evidenceBadge(course.evidence_grade))
+        )}
+      </div>
+      <div>
+        ${cardWrap('Governance Flags',
+          warnings.length === 0
+            ? `<div style="padding:12px 0;color:var(--green);font-size:12.5px">✓ No governance flags on this course</div>`
+            : warnings.map(w => govFlag(w, 'warn')).join('')
+        )}
+        ${adverseEvents.filter(ae => ae.severity === 'serious').length > 0
+          ? cardWrap('Serious Adverse Events',
+              adverseEvents.filter(ae => ae.severity === 'serious').map(ae =>
+                govFlag(`${ae.event_type} — ${ae.onset_timing || 'timing unknown'} — Action: ${ae.action_taken || 'none documented'}`, 'error')
+              ).join('')
+            )
+          : ''
+        }
+      </div>
+    </div>`;
+  }
+
+  return '';
+}
+
+function renderAEForm(courseId, patientId) {
+  return `
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:12px">
+      <div>
+        <label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:4px">Event Type</label>
+        <select id="ae-type" class="form-control" style="font-size:12px">
+          <option value="">Select…</option>
+          <option value="headache">Headache</option>
+          <option value="scalp_discomfort">Scalp Discomfort</option>
+          <option value="tingling">Tingling / Paresthesia</option>
+          <option value="dizziness">Dizziness</option>
+          <option value="nausea">Nausea</option>
+          <option value="seizure">Seizure</option>
+          <option value="syncope">Syncope / Near-syncope</option>
+          <option value="hearing_change">Hearing Change</option>
+          <option value="mood_change">Mood Change</option>
+          <option value="other">Other</option>
+        </select>
+      </div>
+      <div>
+        <label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:4px">Severity</label>
+        <select id="ae-severity" class="form-control" style="font-size:12px">
+          <option value="minor">Minor</option>
+          <option value="moderate">Moderate</option>
+          <option value="serious">Serious</option>
+        </select>
+      </div>
+      <div>
+        <label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:4px">Onset Timing</label>
+        <select id="ae-onset" class="form-control" style="font-size:12px">
+          <option value="during_session">During session</option>
+          <option value="immediate_post">Immediate post-session</option>
+          <option value="hours_post">Hours post-session</option>
+          <option value="next_day">Next day</option>
+          <option value="delayed">Delayed (>24h)</option>
+        </select>
+      </div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
+      <div>
+        <label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:4px">Resolution</label>
+        <select id="ae-resolution" class="form-control" style="font-size:12px">
+          <option value="self_resolving">Self-resolving</option>
+          <option value="resolved_with_intervention">Resolved with intervention</option>
+          <option value="ongoing">Ongoing</option>
+          <option value="unknown">Unknown</option>
+        </select>
+      </div>
+      <div>
+        <label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:4px">Action Taken</label>
+        <select id="ae-action" class="form-control" style="font-size:12px">
+          <option value="none">None required</option>
+          <option value="session_paused">Session paused</option>
+          <option value="session_stopped">Session stopped early</option>
+          <option value="protocol_modified">Protocol modified</option>
+          <option value="course_paused">Course paused</option>
+          <option value="course_discontinued">Course discontinued</option>
+          <option value="medical_referral">Medical referral made</option>
+        </select>
+      </div>
+    </div>
+    <div style="margin-bottom:12px">
+      <label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:4px">Notes</label>
+      <textarea id="ae-notes" class="form-control" rows="2" placeholder="Describe the event in clinical detail…" style="font-size:12px;resize:vertical"></textarea>
+    </div>
+    <div id="ae-error" style="display:none;color:var(--red);font-size:12px;margin-bottom:8px"></div>
+    <div style="display:flex;gap:8px">
+      <button class="btn btn-sm" onclick="document.getElementById('ae-form').style.display='none'">Cancel</button>
+      <button class="btn btn-primary btn-sm" onclick="window._submitAE('${courseId}','${patientId || ''}')">Submit Report</button>
+    </div>`;
+}
+
+window._showAEForm = function() {
+  const f = document.getElementById('ae-form');
+  if (f) f.style.display = f.style.display === 'none' ? '' : 'none';
+};
+
+window._cdSaveOutcome = async function(courseId, patientId) {
+  const template = document.getElementById('cdo-template')?.value;
+  const score    = parseFloat(document.getElementById('cdo-score')?.value);
+  const point    = document.getElementById('cdo-point')?.value || 'post';
+  if (!template || isNaN(score)) { alert('Template and score are required.'); return; }
+  try {
+    await api.recordOutcome({ course_id: courseId, patient_id: patientId || null, template_name: template, score, measurement_point: point });
+    window._cdTab = 'outcomes';
+    window._nav('course-detail');
+  } catch (e) { alert(e.message || 'Save failed.'); }
+};
+
+window._submitAE = async function(courseId, patientId) {
+  const errEl = document.getElementById('ae-error');
+  if (errEl) errEl.style.display = 'none';
+  const type = document.getElementById('ae-type')?.value;
+  if (!type) { if (errEl) { errEl.textContent = 'Select event type.'; errEl.style.display = ''; } return; }
+  try {
+    await api.reportAdverseEvent({
+      course_id:    courseId,
+      patient_id:   patientId || null,
+      event_type:   type,
+      severity:     document.getElementById('ae-severity')?.value || 'minor',
+      onset_timing: document.getElementById('ae-onset')?.value || null,
+      resolution:   document.getElementById('ae-resolution')?.value || null,
+      action_taken: document.getElementById('ae-action')?.value || null,
+      notes:        document.getElementById('ae-notes')?.value || null,
+    });
+    window._cdTab = 'adverse-events';
+    window._nav('course-detail');
+  } catch (e) {
+    if (errEl) { errEl.textContent = e.message || 'Report failed.'; errEl.style.display = ''; }
+  }
+};
+
+// ── pgSessionExecution — Clinical session delivery ────────────────────────────
 export async function pgSessionExecution(setTopbar, navigate) {
   setTopbar('Session Execution', '');
   const el = document.getElementById('content');
   el.innerHTML = spinner();
 
-  // Load active courses so technician can pick which one to log
-  let activeCourses = [];
+  let activeCourses = [], devices = [];
   try {
-    const data = await api.listCourses({ status: 'active' });
-    activeCourses = data?.items || [];
+    [activeCourses, devices] = await Promise.all([
+      api.listCourses({ status: 'active' }).then(r => r?.items || []).catch(() => []),
+      api.devices_registry().then(r => r?.items || []).catch(() => []),
+    ]);
   } catch (_) {}
 
   const courseOptions = activeCourses.map(c =>
-    `<option value="${c.id}">${c.condition_slug} · ${c.modality_slug} (${c.sessions_delivered}/${c.planned_sessions_total} sessions)</option>`
+    `<option value="${c.id}">${c.condition_slug?.replace(/-/g,' ') || c.condition_slug} · ${c.modality_slug} — Session ${(c.sessions_delivered || 0) + 1} of ${c.planned_sessions_total || '?'}</option>`
+  ).join('');
+
+  const deviceOptions = devices.map(d =>
+    `<option value="${d.id || d.Device_ID || d.name}">${d.name || d.Device_Name || d.id}</option>`
   ).join('');
 
   el.innerHTML = `
     <div class="page-section">
+      <!-- Active courses queue -->
       <div class="card" style="margin-bottom:16px">
-        <div style="padding:20px">
-          <div style="font-size:13px;font-weight:600;color:var(--text-primary);margin-bottom:16px">Today's Sessions</div>
+        <div style="padding:14px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
+          <span style="font-size:13px;font-weight:600">Active Treatment Courses</span>
+          <span style="font-size:11px;color:var(--text-tertiary)">${activeCourses.length} active</span>
+        </div>
+        <div style="padding:16px">
           ${activeCourses.length === 0
-            ? emptyState('◧', 'No active courses. Sessions will appear here once treatment courses are approved and activated.')
+            ? emptyState('◧', 'No active courses. Courses appear here once approved and activated.')
             : `<div style="display:flex;flex-direction:column;gap:8px">
-                ${activeCourses.map(c => `
-                  <div style="display:flex;align-items:center;justify-content:space-between;padding:12px;border:1px solid var(--border);border-radius:8px">
-                    <span style="font-size:13px;color:var(--text-primary)">${c.condition_slug} · ${c.modality_slug}</span>
-                    <span style="font-size:11px;color:var(--text-secondary)">${c.sessions_delivered}/${c.planned_sessions_total} sessions</span>
-                  </div>`).join('')}
+                ${activeCourses.map(c => {
+                  const pct = c.planned_sessions_total > 0
+                    ? Math.min(100, Math.round(c.sessions_delivered / c.planned_sessions_total * 100)) : 0;
+                  return `<div style="display:flex;align-items:center;gap:12px;padding:10px 12px;border:1px solid var(--border);border-radius:8px;cursor:pointer" onclick="document.getElementById('se-course').value='${c.id}'">
+                    <div style="flex:1">
+                      <div style="font-size:13px;font-weight:500;color:var(--text-primary)">${c.condition_slug?.replace(/-/g,' ')} · <span style="color:var(--teal)">${c.modality_slug}</span></div>
+                      <div style="font-size:11px;color:var(--text-secondary);margin-top:2px">
+                        Session ${(c.sessions_delivered || 0) + 1} of ${c.planned_sessions_total || '?'}
+                        ${c.planned_frequency_hz ? ` · Protocol: ${c.planned_frequency_hz} Hz` : ''}
+                        ${c.target_region ? ` · ${c.target_region}` : ''}
+                      </div>
+                    </div>
+                    <div style="width:80px;text-align:right">
+                      <div style="font-size:10px;color:var(--text-tertiary);margin-bottom:3px">${pct}%</div>
+                      <div style="height:3px;border-radius:2px;background:var(--border)">
+                        <div style="height:3px;border-radius:2px;background:var(--teal);width:${pct}%"></div>
+                      </div>
+                    </div>
+                    <span style="font-size:11px;color:var(--text-tertiary)">Select →</span>
+                  </div>`;
+                }).join('')}
               </div>`
           }
         </div>
       </div>
+
+      <!-- Session log form -->
       <div class="card">
-        <div style="padding:20px">
-          <div style="font-size:13px;font-weight:600;color:var(--text-primary);margin-bottom:12px">Log Delivered Session</div>
-          ${activeCourses.length === 0
-            ? `<p style="font-size:12px;color:var(--text-secondary)">No active courses to log a session for.</p>`
-            : `
-            <div style="display:flex;flex-direction:column;gap:12px">
-              <div>
-                <label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:4px">Course</label>
-                <select id="se-course" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;background:var(--bg-secondary);color:var(--text-primary);font-size:13px">
+        <div style="padding:14px 20px;border-bottom:1px solid var(--border)">
+          <span style="font-size:13px;font-weight:600">Log Delivered Session Parameters</span>
+        </div>
+        ${activeCourses.length === 0
+          ? `<div style="padding:32px">${emptyState('◧', 'No active courses to log sessions for.')}</div>`
+          : `<div style="padding:20px">
+              <div style="margin-bottom:16px">
+                <label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:4px;font-weight:500">Treatment Course <span style="color:var(--red)">*</span></label>
+                <select id="se-course" class="form-control" style="font-size:12.5px" onchange="window._seAutoFill(this.value)">
+                  <option value="">Select course…</option>
                   ${courseOptions}
                 </select>
+                <div id="se-protocol-banner" style="display:none;margin-top:8px;padding:8px 12px;background:rgba(0,212,188,0.06);border:1px solid var(--border-teal);border-radius:6px;font-size:11.5px;color:var(--text-secondary)"></div>
               </div>
-              <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+
+              <div style="font-size:10px;font-weight:600;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:1px;margin-bottom:10px;padding-bottom:6px;border-bottom:1px solid var(--border)">Device &amp; Setup</div>
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px">
+                <div>
+                  <label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:4px">Device Used</label>
+                  <select id="se-device" class="form-control" style="font-size:12.5px">
+                    <option value="">Select device…</option>
+                    ${deviceOptions}
+                    <option value="other">Other (specify in notes)</option>
+                  </select>
+                </div>
+                <div>
+                  <label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:4px">Stimulation Site / Montage</label>
+                  <input id="se-montage" class="form-control" placeholder="e.g. Left DLPFC, F3-Fp2" style="font-size:12.5px">
+                </div>
+              </div>
+
+              <div style="font-size:10px;font-weight:600;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:1px;margin-bottom:10px;padding-bottom:6px;border-bottom:1px solid var(--border)">Delivered Parameters</div>
+              <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:12px;margin-bottom:16px">
                 <div>
                   <label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:4px">Frequency (Hz)</label>
-                  <input id="se-freq" type="text" placeholder="e.g. 10" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;background:var(--bg-secondary);color:var(--text-primary);font-size:13px">
+                  <input id="se-freq" class="form-control" type="number" step="0.1" placeholder="e.g. 10" style="font-size:12.5px">
                 </div>
                 <div>
                   <label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:4px">Intensity (% RMT)</label>
-                  <input id="se-intensity" type="text" placeholder="e.g. 120% RMT" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;background:var(--bg-secondary);color:var(--text-primary);font-size:13px">
+                  <input id="se-intensity" class="form-control" type="number" step="1" placeholder="e.g. 120" style="font-size:12.5px">
+                </div>
+                <div>
+                  <label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:4px">Pulses Delivered</label>
+                  <input id="se-pulses" class="form-control" type="number" placeholder="e.g. 3000" style="font-size:12.5px">
                 </div>
                 <div>
                   <label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:4px">Duration (min)</label>
-                  <input id="se-duration" type="number" placeholder="40" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;background:var(--bg-secondary);color:var(--text-primary);font-size:13px">
+                  <input id="se-duration" class="form-control" type="number" placeholder="e.g. 37" style="font-size:12.5px">
                 </div>
+              </div>
+
+              <div style="font-size:10px;font-weight:600;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:1px;margin-bottom:10px;padding-bottom:6px;border-bottom:1px solid var(--border)">Tolerance &amp; Outcome</div>
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px">
                 <div>
-                  <label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:4px">Tolerance</label>
-                  <select id="se-tolerance" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;background:var(--bg-secondary);color:var(--text-primary);font-size:13px">
+                  <label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:4px">Tolerance Rating</label>
+                  <select id="se-tolerance" class="form-control" style="font-size:12.5px">
                     <option value="">Select…</option>
                     <option value="well-tolerated">Well tolerated</option>
-                    <option value="moderate">Moderate</option>
-                    <option value="poor">Poor</option>
+                    <option value="mild-discomfort">Mild discomfort</option>
+                    <option value="moderate">Moderate discomfort</option>
+                    <option value="poor">Poor — intervention required</option>
+                  </select>
+                </div>
+                <div>
+                  <label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:4px">Session Outcome</label>
+                  <select id="se-outcome" class="form-control" style="font-size:12.5px">
+                    <option value="completed">Completed as planned</option>
+                    <option value="partially_completed">Partially completed</option>
+                    <option value="parameters_modified">Parameters modified</option>
+                    <option value="stopped_early">Stopped early</option>
                   </select>
                 </div>
               </div>
-              <div>
-                <label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:4px">Post-session notes</label>
-                <textarea id="se-notes" rows="3" placeholder="Observations, patient response…" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;background:var(--bg-secondary);color:var(--text-primary);font-size:13px;resize:vertical"></textarea>
+
+              <div style="font-size:10px;font-weight:600;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:1px;margin-bottom:10px;padding-bottom:6px;border-bottom:1px solid var(--border)">Pre / Post Session Checklist</div>
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:16px">
+                ${[
+                  ['ck-consent',    'Consent verified'],
+                  ['ck-contra',     'Contraindications checked'],
+                  ['ck-rmt',        'RMT established / verified'],
+                  ['ck-device',     'Device calibration confirmed'],
+                  ['ck-post-check', 'Post-session patient check completed'],
+                  ['ck-documented', 'Session documented in clinical record'],
+                ].map(([cid, lbl]) => `
+                  <div style="display:flex;align-items:center;gap:8px;padding:7px 10px;border:1px solid var(--border);border-radius:6px">
+                    <input id="${cid}" type="checkbox" style="accent-color:var(--teal)">
+                    <label for="${cid}" style="font-size:12px;color:var(--text-secondary);cursor:pointer">${lbl}</label>
+                  </div>`).join('')}
               </div>
-              <div style="display:flex;align-items:center;gap:8px">
-                <input id="se-interrupt" type="checkbox">
-                <label for="se-interrupt" style="font-size:12px;color:var(--text-secondary)">Session interrupted</label>
+
+              <div style="display:flex;gap:16px;margin-bottom:16px;flex-wrap:wrap">
+                <div style="display:flex;align-items:center;gap:8px">
+                  <input id="se-interrupt" type="checkbox" style="accent-color:var(--amber)">
+                  <label for="se-interrupt" style="font-size:12px;color:var(--text-secondary)">Session interrupted</label>
+                </div>
+                <div style="display:flex;align-items:center;gap:8px">
+                  <input id="se-deviation" type="checkbox" style="accent-color:var(--red)">
+                  <label for="se-deviation" style="font-size:12px;color:var(--text-secondary)">Protocol deviation (explain in notes)</label>
+                </div>
               </div>
-              <div id="se-error" style="display:none;color:var(--red);font-size:12px"></div>
-              <button class="btn btn-primary" onclick="window._logSession()">Log Session Parameters</button>
+
+              <div style="margin-bottom:16px">
+                <label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:4px">Post-session Notes &amp; Observations</label>
+                <textarea id="se-notes" class="form-control" rows="3" placeholder="Patient response, observations, any adverse reactions, deviation rationale…" style="font-size:12.5px;resize:vertical"></textarea>
+              </div>
+
+              <div id="se-error"   style="display:none;color:var(--red);font-size:12px;margin-bottom:10px;padding:8px 10px;border-radius:6px;background:rgba(255,107,107,0.07)"></div>
+              <div id="se-success" style="display:none;color:var(--green);font-size:12px;margin-bottom:10px;padding:8px 10px;border-radius:6px;background:rgba(74,222,128,0.07)"></div>
+              <button class="btn btn-primary" onclick="window._logSession()">Submit Session Log</button>
             </div>`
-          }
-        </div>
+        }
       </div>
     </div>`;
 
-  // Bind log action
   window._logSession = async function() {
     const courseId = document.getElementById('se-course')?.value;
-    if (!courseId) return;
     const errEl = document.getElementById('se-error');
+    const okEl  = document.getElementById('se-success');
     errEl.style.display = 'none';
+    okEl.style.display  = 'none';
+
+    if (!courseId) {
+      errEl.textContent = 'Select a treatment course.';
+      errEl.style.display = '';
+      return;
+    }
+
     try {
       await api.logSession(courseId, {
-        frequency_hz: document.getElementById('se-freq')?.value || null,
-        intensity_pct_rmt: document.getElementById('se-intensity')?.value || null,
-        duration_minutes: parseInt(document.getElementById('se-duration')?.value) || null,
-        tolerance_rating: document.getElementById('se-tolerance')?.value || null,
+        device_slug:        document.getElementById('se-device')?.value || null,
+        coil_position:      document.getElementById('se-montage')?.value || null,
+        frequency_hz:       parseFloat(document.getElementById('se-freq')?.value) || null,
+        intensity_pct_rmt:  parseFloat(document.getElementById('se-intensity')?.value) || null,
+        pulses_delivered:   parseInt(document.getElementById('se-pulses')?.value) || null,
+        duration_minutes:   parseInt(document.getElementById('se-duration')?.value) || null,
+        tolerance_rating:   document.getElementById('se-tolerance')?.value || null,
+        session_outcome:    document.getElementById('se-outcome')?.value || 'completed',
+        interruptions:      document.getElementById('se-interrupt')?.checked || false,
+        protocol_deviation: document.getElementById('se-deviation')?.checked || false,
         post_session_notes: document.getElementById('se-notes')?.value || null,
-        interruptions: document.getElementById('se-interrupt')?.checked || false,
       });
-      await pgSessionExecution(setTopbar, navigate);
+      okEl.textContent = 'Session logged successfully.';
+      okEl.style.display = '';
+      setTimeout(() => pgSessionExecution(setTopbar, navigate), 1200);
     } catch (e) {
       errEl.textContent = e.message || 'Failed to log session.';
-      errEl.style.display = 'block';
+      errEl.style.display = '';
+    }
+  };
+
+  // Store courses for auto-fill lookup
+  window._seActiveCourses = activeCourses;
+
+  window._seAutoFill = function(courseId) {
+    const banner = document.getElementById('se-protocol-banner');
+    if (!courseId) { if (banner) banner.style.display = 'none'; return; }
+    const course = (window._seActiveCourses || []).find(c => c.id === courseId);
+    if (!course) return;
+    // Auto-populate fields
+    const freqEl      = document.getElementById('se-freq');
+    const intensEl    = document.getElementById('se-intensity');
+    const durEl       = document.getElementById('se-duration');
+    const montageEl   = document.getElementById('se-montage');
+    if (freqEl && course.planned_frequency_hz)  freqEl.value    = parseFloat(course.planned_frequency_hz) || '';
+    if (intensEl && course.planned_intensity)   intensEl.value  = parseFloat(course.planned_intensity) || '';
+    if (durEl && course.planned_session_duration_minutes) durEl.value = course.planned_session_duration_minutes;
+    if (montageEl && course.coil_placement && !montageEl.value) montageEl.value = course.coil_placement;
+    // Show protocol banner
+    if (banner) {
+      banner.style.display = '';
+      banner.innerHTML = [
+        course.planned_frequency_hz ? `Freq: <strong>${course.planned_frequency_hz} Hz</strong>` : null,
+        course.planned_intensity ? `Intensity: <strong>${course.planned_intensity}</strong>` : null,
+        course.planned_session_duration_minutes ? `Duration: <strong>${course.planned_session_duration_minutes} min</strong>` : null,
+        course.target_region ? `Target: <strong>${course.target_region}</strong>` : null,
+        course.coil_placement ? `Placement: <strong>${course.coil_placement}</strong>` : null,
+      ].filter(Boolean).join(' · ');
     }
   };
 }
 
-// ── pgReviewQueue — Pending approvals ────────────────────────────────────────
+// ── pgReviewQueue — Protocol & course approvals ───────────────────────────────
 export async function pgReviewQueue(setTopbar, navigate) {
   setTopbar('Review Queue', '');
   const el = document.getElementById('content');
   el.innerHTML = spinner();
 
+  let pending = [], resolved = [], courses = [], patients = [];
   try {
-    const data = await api.listReviewQueue();
-    const items = data?.items || [];
-    const pending = items.filter(i => i.status === 'pending');
-    const completed = items.filter(i => i.status === 'completed');
+    const [queueData, coursesData, patientsData] = await Promise.all([
+      api.listReviewQueue().catch(() => ({ items: [] })),
+      api.listCourses().then(r => r?.items || []).catch(() => []),
+      api.listPatients().then(r => r?.items || []).catch(() => []),
+    ]);
+    const items = queueData?.items || [];
+    pending  = items.filter(i => i.status === 'pending');
+    resolved = items.filter(i => i.status !== 'pending');
+    courses  = coursesData;
+    patients = patientsData;
+  } catch (_) {}
 
-    el.innerHTML = `
-      <div class="page-section">
-        <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:16px;margin-bottom:24px">
-          ${metricCard('Pending Reviews', pending.length, 'var(--amber)', 'Awaiting action')}
-          ${metricCard('Completed', completed.length, 'var(--green)', 'Resolved')}
-        </div>
-        <div class="card">
-          <div class="card-header" style="padding:16px 20px;border-bottom:1px solid var(--border)">
-            <span style="font-weight:600;font-size:14px">Pending Reviews</span>
+  const courseMap  = {};
+  courses.forEach(c => { courseMap[c.id] = c; });
+  const patientMap = {};
+  patients.forEach(p => { patientMap[p.id] = p; });
+
+  function reviewItemCard(item) {
+    const course  = courseMap[item.target_id] || {};
+    const patient = patientMap[course.patient_id] || {};
+    const patName = patient.first_name ? `${patient.first_name} ${patient.last_name}` : null;
+    const priorityColor = item.priority === 'urgent' ? 'var(--red)' : item.priority === 'high' ? 'var(--amber)' : 'var(--text-tertiary)';
+
+    return `<div style="padding:16px 18px;border:1px solid var(--border);border-radius:8px;margin-bottom:8px">
+      <div style="display:flex;align-items:flex-start;gap:12px;flex-wrap:wrap">
+        <div style="flex:1;min-width:200px">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap">
+            <span style="font-size:11px;font-weight:600;padding:2px 8px;border-radius:4px;background:rgba(255,181,71,0.12);color:var(--amber)">${item.item_type?.replace(/_/g,' ') || 'Review'}</span>
+            ${item.priority ? `<span style="font-size:10.5px;font-weight:600;color:${priorityColor}">${item.priority.toUpperCase()} PRIORITY</span>` : ''}
           </div>
-          <div style="padding:16px;display:flex;flex-direction:column;gap:8px">
-            ${pending.length
-              ? pending.map(item => `
-                <div style="padding:14px 16px;border:1px solid var(--border);border-radius:8px">
-                  <div style="display:flex;align-items:center;gap:12px">
-                    <span style="font-size:12px;font-weight:600;color:var(--amber);padding:2px 8px;border-radius:4px;background:rgba(245,158,11,0.1)">${item.item_type.replace(/_/g,' ')}</span>
-                    <span style="font-size:11px;color:var(--text-tertiary)">${item.priority} priority</span>
-                    <span style="flex:1"></span>
-                    <button class="btn" style="font-size:11px;padding:4px 10px" onclick="window._activateCourse('${item.target_id}')">Approve &amp; Activate</button>
-                  </div>
-                  ${item.notes ? `<div style="margin-top:8px;font-size:11px;color:var(--text-secondary)">${item.notes}</div>` : ''}
-                </div>`).join('')
-              : `<div style="padding:32px;text-align:center;color:var(--text-tertiary)">${emptyState('◱', 'Review queue empty. Protocol approvals will appear here.')}</div>`
-            }
+          ${patName ? `<div style="font-size:13px;font-weight:600;color:var(--text-primary);margin-bottom:3px">${patName}</div>` : ''}
+          ${course.condition_slug ? `<div style="font-size:12px;color:var(--text-secondary)">
+            ${course.condition_slug.replace(/-/g,' ')} · ${course.modality_slug || '—'}
+            ${course.planned_frequency_hz ? ` · ${course.planned_frequency_hz} Hz` : ''}
+            ${course.target_region ? ` · Target: ${course.target_region}` : ''}
+          </div>` : ''}
+          <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap">
+            ${evidenceBadge(course.evidence_grade)}
+            ${course.on_label === false ? labelBadge(false) : ''}
+            ${safetyBadge(course.governance_warnings)}
           </div>
+          ${item.notes ? `<div style="margin-top:8px;font-size:11.5px;color:var(--text-secondary)">${item.notes}</div>` : ''}
         </div>
-      </div>`;
-  } catch (_) {
-    el.innerHTML = `
-      <div class="page-section">
-        <div class="card">
-          <div style="padding:20px">
-            <div style="font-size:13px;font-weight:600;color:var(--text-primary);margin-bottom:12px">Pending Reviews</div>
-            ${emptyState('◱', 'Review queue empty. Protocol approvals and course reviews will appear here.')}
-          </div>
+        <div style="display:flex;flex-direction:column;gap:6px;align-items:flex-end;flex-shrink:0">
+          <button class="btn btn-primary btn-sm" onclick="window._approveItem('${item.target_id}','${item.id}')">Approve &amp; Activate</button>
+          <button class="btn btn-sm" onclick="window._openCourseFromReview('${item.target_id}')">View Course →</button>
         </div>
-      </div>`;
+      </div>
+    </div>`;
   }
 
-  window._activateCourse = async function(courseId) {
+  el.innerHTML = `
+    <div class="page-section">
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:24px">
+        ${metricCard('Pending Reviews', pending.length, 'var(--amber)', 'Awaiting action')}
+        ${metricCard('Resolved',        resolved.length, 'var(--green)', 'This session')}
+        ${metricCard('Off-label Items',
+          courses.filter(c => c.on_label === false && c.status === 'pending_approval').length,
+          'var(--amber)', 'Require off-label review')}
+      </div>
+      <div class="card">
+        <div class="card-header" style="padding:14px 20px;border-bottom:1px solid var(--border)">
+          <span style="font-weight:600;font-size:14px">Pending Reviews</span>
+        </div>
+        <div style="padding:16px">
+          ${pending.length
+            ? pending.map(reviewItemCard).join('')
+            : emptyState('◱', 'Review queue is clear. Protocol approvals and course reviews will appear here.')}
+        </div>
+      </div>
+      ${resolved.length ? `
+        <div class="card" style="margin-top:16px">
+          <div class="card-header" style="padding:14px 20px;border-bottom:1px solid var(--border)">
+            <span style="font-weight:600;font-size:14px;color:var(--text-secondary)">Recently Resolved</span>
+          </div>
+          <div style="padding:16px;opacity:0.7">
+            ${resolved.slice(0, 5).map(item => `<div style="padding:10px 14px;border:1px solid var(--border);border-radius:6px;margin-bottom:6px;display:flex;align-items:center;gap:10px">
+              <span style="color:var(--green);font-size:14px">✓</span>
+              <span style="font-size:12px;color:var(--text-secondary)">${item.item_type?.replace(/_/g,' ')} — ${item.notes || 'Resolved'}</span>
+            </div>`).join('')}
+          </div>
+        </div>
+      ` : ''}
+    </div>`;
+
+  window._approveItem = async function(courseId) {
     try {
       await api.activateCourse(courseId);
       await pgReviewQueue(setTopbar, navigate);
-    } catch (e) {
-      alert(e.message || 'Activation failed.');
-    }
+    } catch (e) { alert(e.message || 'Activation failed.'); }
+  };
+
+  window._openCourseFromReview = function(courseId) {
+    window._selectedCourseId = courseId;
+    navigate('course-detail');
   };
 }
 
-// ── pgOutcomes — Outcomes & Trends ───────────────────────────────────────────
+// ── pgOutcomes — Outcomes & Trends ────────────────────────────────────────────
 export async function pgOutcomes(setTopbar, navigate) {
   setTopbar('Outcomes & Trends', `<button class="btn btn-primary btn-sm" onclick="window._showRecordOutcome()">+ Record Outcome</button>`);
   const el = document.getElementById('content');
   el.innerHTML = spinner();
 
-  let agg = { responders: '—', avg_phq9_drop: '—', courses_with_outcomes: '—' };
-  let allOutcomes = [];
-  let courses = [];
-
+  let agg = {}, allOutcomes = [], courses = [];
   try {
     [agg, allOutcomes, courses] = await Promise.all([
       api.aggregateOutcomes().catch(() => ({})),
@@ -306,13 +1016,11 @@ export async function pgOutcomes(setTopbar, navigate) {
     ]);
   } catch (_) {}
 
-  // Group outcomes by course_id + template_id for sparkline display
   const byCourse = {};
   allOutcomes.forEach(o => {
-    const key = o.course_id;
-    if (!byCourse[key]) byCourse[key] = {};
-    if (!byCourse[key][o.template_id]) byCourse[key][o.template_id] = [];
-    byCourse[key][o.template_id].push(o);
+    if (!byCourse[o.course_id]) byCourse[o.course_id] = {};
+    if (!byCourse[o.course_id][o.template_id]) byCourse[o.course_id][o.template_id] = [];
+    byCourse[o.course_id][o.template_id].push(o);
   });
 
   const courseMap = {};
@@ -321,58 +1029,96 @@ export async function pgOutcomes(setTopbar, navigate) {
   const trendRows = Object.entries(byCourse).map(([cid, byTemplate]) => {
     const course = courseMap[cid] || {};
     return Object.entries(byTemplate).map(([tid, pts]) => {
-      const sorted = pts.sort((a, b) => a.administered_at.localeCompare(b.administered_at));
-      const baseline = sorted.find(p => p.measurement_point === 'baseline');
-      const latest = sorted[sorted.length - 1];
-      const baseScore = baseline?.score_numeric;
+      const sorted      = pts.sort((a, b) => (a.administered_at || '').localeCompare(b.administered_at || ''));
+      const baseline    = sorted.find(p => p.measurement_point === 'baseline');
+      const latest      = sorted[sorted.length - 1];
+      const baseScore   = baseline?.score_numeric;
       const latestScore = latest?.score_numeric;
       let delta = null, pct = null, responder = false;
       if (baseScore != null && latestScore != null && baseScore !== 0) {
-        delta = baseScore - latestScore;
-        pct = Math.round(delta / baseScore * 100);
+        delta     = baseScore - latestScore;
+        pct       = Math.round(delta / baseScore * 100);
         responder = pct >= 50;
       }
-      const sparkPoints = sorted.map(p => p.score_numeric).filter(v => v != null);
-      const maxV = Math.max(...sparkPoints, 1);
-      const minV = Math.min(...sparkPoints, 0);
-      const range = maxV - minV || 1;
-      const svgPts = sparkPoints.map((v, i) => {
-        const x = sparkPoints.length < 2 ? 50 : Math.round(i / (sparkPoints.length - 1) * 100);
-        const y = Math.round((1 - (v - minV) / range) * 30);
+      const sparkPts = sorted.map(p => p.score_numeric).filter(v => v != null);
+      const maxV = Math.max(...sparkPts, 1), minV = Math.min(...sparkPts, 0), range = maxV - minV || 1;
+      const svgPts = sparkPts.map((v, i) => {
+        const x = sparkPts.length < 2 ? 50 : Math.round(i / (sparkPts.length - 1) * 100);
+        const y = Math.round((1 - (v - minV) / range) * 28);
         return `${x},${y}`;
       }).join(' ');
 
       return `<tr>
-        <td style="font-size:12px;color:var(--text-secondary)">${course.condition_slug || cid.slice(0,8)+'…'} · ${course.modality_slug || ''}</td>
-        <td style="font-weight:600;font-size:12px">${tid}</td>
-        <td style="font-size:12px">${baseScore ?? '—'}</td>
-        <td style="font-size:12px">${latestScore ?? '—'}</td>
+        <td style="font-size:12px">
+          <div style="font-weight:500">${course.condition_slug?.replace(/-/g,' ') || cid.slice(0,8)+'…'}</div>
+          <div style="font-size:10.5px;color:var(--text-tertiary)">${course.modality_slug || ''}</div>
+        </td>
+        <td style="font-size:11.5px;font-weight:600;color:var(--text-secondary)">${tid}</td>
+        <td class="mono" style="font-size:12px">${baseScore ?? '—'}</td>
+        <td class="mono" style="font-size:12px">${latestScore ?? '—'}</td>
         <td style="font-size:12px;color:${delta == null ? 'var(--text-tertiary)' : delta > 0 ? 'var(--green)' : 'var(--red)'}">
-          ${delta == null ? '—' : (delta > 0 ? '↓' : '↑') + Math.abs(delta).toFixed(1)}
-        </td>
-        <td style="font-size:12px">${pct == null ? '—' : pct + '%'}</td>
-        <td>${responder ? '<span style="color:var(--green);font-size:11px;font-weight:600">✓ Responder</span>' : pct != null ? '<span style="color:var(--text-tertiary);font-size:11px">Non-responder</span>' : '—'}</td>
-        <td>
-          <svg width="100" height="32" viewBox="0 0 100 32" style="overflow:visible">
-            ${sparkPoints.length > 1 ? `<polyline points="${svgPts}" fill="none" stroke="var(--teal)" stroke-width="1.5" stroke-linejoin="round"/>` : ''}
-            ${sparkPoints.map((v, i) => {
-              const x = sparkPoints.length < 2 ? 50 : Math.round(i / (sparkPoints.length - 1) * 100);
-              const y = Math.round((1 - (v - minV) / range) * 30);
-              return `<circle cx="${x}" cy="${y}" r="2.5" fill="var(--teal)"/>`;
-            }).join('')}
-          </svg>
-        </td>
+          ${delta == null ? '—' : (delta > 0 ? '↓' : '↑') + Math.abs(delta).toFixed(1)}</td>
+        <td class="mono" style="font-size:12px">${pct == null ? '—' : pct + '%'}</td>
+        <td>${responder
+          ? '<span style="color:var(--green);font-size:11px;font-weight:600">✓ Responder</span>'
+          : pct != null ? '<span style="color:var(--text-tertiary);font-size:11px">Non-responder</span>' : '—'}</td>
+        <td><svg width="100" height="32" viewBox="0 0 100 32" style="overflow:visible">
+          ${sparkPts.length > 1 ? `<polyline points="${svgPts}" fill="none" stroke="var(--teal)" stroke-width="1.5" stroke-linejoin="round"/>` : ''}
+          ${sparkPts.map((v, i) => {
+            const x = sparkPts.length < 2 ? 50 : Math.round(i / (sparkPts.length - 1) * 100);
+            const y = Math.round((1 - (v - minV) / range) * 28);
+            return `<circle cx="${x}" cy="${y}" r="2.5" fill="var(--teal)"/>`;
+          }).join('')}
+        </svg></td>
       </tr>`;
     }).join('');
   }).join('');
 
+  // Build per-condition responder breakdown from trendRows data
+  const condResponders = {};
+  Object.entries(byCourse).forEach(([cid, byTemplate]) => {
+    const course = courseMap[cid] || {};
+    const cond = course.condition_slug?.replace(/-/g, ' ') || 'Unknown';
+    if (!condResponders[cond]) condResponders[cond] = { responders: 0, total: 0 };
+    Object.values(byTemplate).forEach(pts => {
+      const sorted = pts.sort((a, b) => (a.administered_at || '').localeCompare(b.administered_at || ''));
+      const baseline = sorted.find(p => p.measurement_point === 'baseline');
+      const latest = sorted[sorted.length - 1];
+      const bs = baseline?.score_numeric, ls = latest?.score_numeric;
+      if (bs != null && ls != null && bs !== 0) {
+        condResponders[cond].total++;
+        const pct = Math.round((bs - ls) / bs * 100);
+        if (pct >= 50) condResponders[cond].responders++;
+      }
+    });
+  });
+  const condBreakdown = Object.entries(condResponders).filter(([, v]) => v.total > 0);
+
   el.innerHTML = `
     <div class="page-section">
-      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:24px">
-        ${metricCard('Responders', agg.responders ?? '—', 'var(--teal)', '≥50% symptom reduction')}
-        ${metricCard('Avg PHQ-9 Drop', agg.avg_phq9_drop != null ? agg.avg_phq9_drop + ' pts' : '—', 'var(--blue)', 'Across courses with data')}
-        ${metricCard('Courses Tracked', agg.courses_with_outcomes ?? '—', 'var(--violet)', 'With outcome measurements')}
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:${condBreakdown.length ? '16px' : '24px'}">
+        ${metricCard('Responders',      agg.responders ?? '—',                                         'var(--teal)',   '≥50% symptom reduction')}
+        ${metricCard('Avg PHQ-9 Drop',  agg.avg_phq9_drop != null ? agg.avg_phq9_drop + ' pts' : '—', 'var(--blue)',   'Across courses with data')}
+        ${metricCard('Courses Tracked', agg.courses_with_outcomes ?? '—',                              'var(--violet)', 'With outcome measurements')}
       </div>
+      ${condBreakdown.length ? `
+      <div class="card" style="margin-bottom:24px;padding:16px 20px">
+        <div style="font-size:12px;font-weight:600;color:var(--text-primary);margin-bottom:14px">Responder Rate by Condition</div>
+        <div style="display:flex;flex-direction:column;gap:10px">
+          ${condBreakdown.map(([cond, data]) => {
+            const rate = data.total > 0 ? Math.round(data.responders / data.total * 100) : 0;
+            return `<div>
+              <div style="display:flex;justify-content:space-between;font-size:11.5px;margin-bottom:4px">
+                <span style="color:var(--text-primary);font-weight:500">${cond}</span>
+                <span style="color:${rate >= 50 ? 'var(--green)' : rate >= 30 ? 'var(--amber)' : 'var(--red)'}">${rate}% (${data.responders}/${data.total})</span>
+              </div>
+              <div style="height:6px;border-radius:3px;background:var(--border)">
+                <div style="height:6px;border-radius:3px;background:${rate >= 50 ? 'var(--teal)' : rate >= 30 ? 'var(--amber)' : 'var(--red)'};width:${rate}%;transition:width 0.4s"></div>
+              </div>
+            </div>`;
+          }).join('')}
+        </div>
+      </div>` : ''}
 
       <div id="record-outcome-panel" style="display:none;margin-bottom:16px">
         <div class="card" style="padding:20px">
@@ -380,27 +1126,25 @@ export async function pgOutcomes(setTopbar, navigate) {
           <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:12px">
             <div>
               <label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:4px">Course</label>
-              <select id="oc-course" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;background:var(--bg-secondary);color:var(--text-primary);font-size:13px">
+              <select id="oc-course" class="form-control" style="font-size:12.5px">
                 <option value="">Select course…</option>
-                ${courses.map(c => `<option value="${c.id}|${c.patient_id}">${c.condition_slug} · ${c.modality_slug} (${c.status})</option>`).join('')}
+                ${courses.map(c => `<option value="${c.id}|${c.patient_id}">${c.condition_slug?.replace(/-/g,' ')} · ${c.modality_slug} (${c.status})</option>`).join('')}
               </select>
             </div>
             <div>
               <label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:4px">Assessment Template</label>
-              <select id="oc-template" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;background:var(--bg-secondary);color:var(--text-primary);font-size:13px">
-                <option value="PHQ-9">PHQ-9</option>
-                <option value="GAD-7">GAD-7</option>
-                <option value="PCL-5">PCL-5</option>
-                <option value="ISI">ISI</option>
-                <option value="DASS-21">DASS-21</option>
-                <option value="NRS-Pain">NRS-Pain</option>
-                <option value="ADHD-RS-5">ADHD-RS-5</option>
-                <option value="UPDRS-III">UPDRS-III</option>
+              <select id="oc-template" class="form-control" style="font-size:12.5px">
+                <option value="PHQ-9">PHQ-9</option><option value="GAD-7">GAD-7</option>
+                <option value="PCL-5">PCL-5</option><option value="ISI">ISI</option>
+                <option value="DASS-21">DASS-21</option><option value="NRS-Pain">NRS-Pain</option>
+                <option value="ADHD-RS-5">ADHD-RS-5</option><option value="UPDRS-III">UPDRS-III</option>
+                <option value="HAM-D">HAM-D</option><option value="MADRS">MADRS</option>
+                <option value="QIDS">QIDS</option><option value="Y-BOCS">Y-BOCS</option>
               </select>
             </div>
             <div>
               <label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:4px">Measurement Point</label>
-              <select id="oc-point" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;background:var(--bg-secondary);color:var(--text-primary);font-size:13px">
+              <select id="oc-point" class="form-control" style="font-size:12.5px">
                 <option value="baseline">Baseline (pre-treatment)</option>
                 <option value="mid">Mid-course</option>
                 <option value="post">Post-treatment</option>
@@ -411,11 +1155,11 @@ export async function pgOutcomes(setTopbar, navigate) {
           <div style="display:grid;grid-template-columns:1fr 2fr;gap:12px;margin-bottom:12px">
             <div>
               <label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:4px">Score</label>
-              <input id="oc-score" type="number" step="0.1" placeholder="e.g. 14" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;background:var(--bg-secondary);color:var(--text-primary);font-size:13px">
+              <input id="oc-score" class="form-control" type="number" step="0.1" placeholder="e.g. 14" style="font-size:12.5px">
             </div>
             <div>
               <label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:4px">Notes (optional)</label>
-              <input id="oc-notes" placeholder="Clinical context…" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;background:var(--bg-secondary);color:var(--text-primary);font-size:13px">
+              <input id="oc-notes" class="form-control" placeholder="Clinical context…" style="font-size:12.5px">
             </div>
           </div>
           <div id="oc-error" style="display:none;color:var(--red);font-size:12px;margin-bottom:8px"></div>
@@ -427,7 +1171,7 @@ export async function pgOutcomes(setTopbar, navigate) {
       </div>
 
       <div class="card">
-        <div class="card-header" style="padding:16px 20px;border-bottom:1px solid var(--border)">
+        <div class="card-header" style="padding:14px 20px;border-bottom:1px solid var(--border)">
           <span style="font-weight:600;font-size:14px">Outcome Measurements</span>
         </div>
         <div style="padding:16px;overflow-x:auto">
@@ -436,7 +1180,7 @@ export async function pgOutcomes(setTopbar, navigate) {
                 <thead><tr><th>Course</th><th>Template</th><th>Baseline</th><th>Latest</th><th>Change</th><th>% Drop</th><th>Response</th><th>Trend</th></tr></thead>
                 <tbody>${trendRows}</tbody>
               </table>`
-            : `<div style="padding:32px;text-align:center;color:var(--text-tertiary)">${emptyState('◫', 'No outcome measurements yet. Click "+ Record Outcome" to add the first measurement for a treatment course.')}</div>`
+            : emptyState('◫', 'No outcome measurements yet. Click "+ Record Outcome" to start tracking.')
           }
         </div>
       </div>
@@ -447,352 +1191,266 @@ export async function pgOutcomes(setTopbar, navigate) {
   };
 
   window._saveOutcome = async function() {
-    const errEl = document.getElementById('oc-error');
+    const errEl    = document.getElementById('oc-error');
     errEl.style.display = 'none';
     const courseVal = document.getElementById('oc-course')?.value || '';
     const [courseId, patientId] = courseVal.split('|');
     const score = document.getElementById('oc-score')?.value;
-    if (!courseId || !patientId) { errEl.textContent = 'Select a course.'; errEl.style.display = 'block'; return; }
-    if (!score) { errEl.textContent = 'Enter a score.'; errEl.style.display = 'block'; return; }
+    if (!courseId || !patientId) { errEl.textContent = 'Select a course.'; errEl.style.display = ''; return; }
+    if (!score) { errEl.textContent = 'Enter a score.'; errEl.style.display = ''; return; }
     const tid = document.getElementById('oc-template')?.value || 'PHQ-9';
     try {
       await api.recordOutcome({
-        patient_id: patientId,
-        course_id: courseId,
-        template_id: tid,
-        template_title: tid,
-        score: score,
-        score_numeric: parseFloat(score),
+        patient_id:        patientId,
+        course_id:         courseId,
+        template_id:       tid,
+        template_title:    tid,
+        score:             score,
+        score_numeric:     parseFloat(score),
         measurement_point: document.getElementById('oc-point')?.value || 'mid',
+        notes:             document.getElementById('oc-notes')?.value || null,
       });
       await pgOutcomes(setTopbar, navigate);
     } catch (e) {
       errEl.textContent = e.message || 'Save failed.';
-      errEl.style.display = 'block';
+      errEl.style.display = '';
     }
   };
 }
 
-// ── pgProtocolRegistry — Browse all protocols from registry ──────────────────
+// ── pgAdverseEvents — Clinic-wide AE monitoring ───────────────────────────────
+export async function pgAdverseEvents(setTopbar, navigate) {
+  setTopbar('Adverse Events Monitor', `<button class="btn btn-sm" onclick="window._nav('courses')">← Courses</button>`);
+  const el = document.getElementById('content');
+  el.innerHTML = spinner();
+
+  let aes = [], courses = [], patients = [];
+  try {
+    [aes, courses, patients] = await Promise.all([
+      api.listAdverseEvents().then(r => r?.items || []).catch(() => []),
+      api.listCourses().then(r => r?.items || []).catch(() => []),
+      api.listPatients().then(r => r?.items || []).catch(() => []),
+    ]);
+  } catch {}
+
+  const courseMap = {};
+  courses.forEach(c => { courseMap[c.id] = c; });
+  const patMap = {};
+  patients.forEach(p => { patMap[p.id] = `${p.first_name} ${p.last_name}`; });
+
+  const counts = { mild: 0, moderate: 0, severe: 0, serious: 0 };
+  aes.forEach(ae => { if (counts[ae.severity] !== undefined) counts[ae.severity]++; });
+
+  const SEV_COLOR = { mild: 'var(--text-secondary)', moderate: 'var(--amber)', severe: 'var(--red)', serious: 'var(--red)' };
+
+  el.innerHTML = `
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:24px">
+      ${['mild','moderate','severe','serious'].map(s => `
+        <div class="metric-card" style="cursor:pointer" onclick="window._aeFilter('${s}')">
+          <div class="metric-label">${s.charAt(0).toUpperCase()+s.slice(1)}</div>
+          <div class="metric-value" style="color:${SEV_COLOR[s]}">${counts[s]}</div>
+          <div class="metric-delta">reported events</div>
+        </div>`).join('')}
+    </div>
+
+    <div class="card" style="margin-bottom:16px">
+      <div style="padding:12px 20px;border-bottom:1px solid var(--border);display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+        <select id="ae-sev-filter" class="form-control" style="width:auto;font-size:12px" onchange="window._aeFilter()">
+          <option value="">All Severities</option>
+          <option value="mild">Mild</option>
+          <option value="moderate">Moderate</option>
+          <option value="severe">Severe</option>
+          <option value="serious">Serious</option>
+        </select>
+        <input id="ae-search" class="form-control" placeholder="Search event type or notes…" style="flex:1;min-width:180px;font-size:12px" oninput="window._aeFilter()">
+        <span id="ae-count" style="font-size:11px;color:var(--text-tertiary);white-space:nowrap">${aes.length} events</span>
+      </div>
+      <div style="overflow-x:auto">
+        ${aes.length === 0 ? `<div style="padding:32px">${emptyState('◻', 'No adverse events reported. Events are logged from the Course Detail page.')}</div>` : `
+        <table class="ds-table" id="ae-table">
+          <thead><tr><th>Date</th><th>Patient</th><th>Course</th><th>Event Type</th><th>Severity</th><th>Onset</th><th>Action</th><th>Resolution</th><th></th></tr></thead>
+          <tbody id="ae-tbody">
+            ${aes.map(ae => {
+              const sev = ae.severity || 'mild';
+              const sc = SEV_COLOR[sev] || 'var(--text-secondary)';
+              const course = courseMap[ae.course_id] || {};
+              const patName = patMap[ae.patient_id] || (course.patient_id ? patMap[course.patient_id] : '') || '—';
+              return `<tr data-sev="${sev}" data-text="${(ae.event_type||'') + ' ' + (ae.notes||'')}">
+                <td style="font-size:11.5px;color:var(--text-secondary);white-space:nowrap">${ae.occurred_at ? ae.occurred_at.split('T')[0] : ae.created_at?.split('T')[0] || '—'}</td>
+                <td style="font-size:12px">${patName}</td>
+                <td style="font-size:12px">${course.condition_slug ? course.condition_slug.replace(/-/g,' ') + ' · ' + (course.modality_slug||'') : '—'}</td>
+                <td style="font-size:12.5px;font-weight:500">${ae.event_type || '—'}</td>
+                <td><span style="font-size:11px;padding:2px 8px;border-radius:4px;background:${sc}22;color:${sc};font-weight:600">${sev}</span></td>
+                <td style="font-size:11.5px">${ae.onset_timing || '—'}</td>
+                <td style="font-size:11.5px">${ae.action_taken || '—'}</td>
+                <td style="font-size:11.5px">${ae.resolution || ae.resolved ? '<span style="color:var(--green)">Resolved</span>' : '<span style="color:var(--amber)">Ongoing</span>'}</td>
+                <td>${ae.course_id ? `<button class="btn btn-sm" onclick="window._openCourse('${ae.course_id}')">View →</button>` : ''}</td>
+              </tr>`;
+            }).join('')}
+          </tbody>
+        </table>`}
+      </div>
+    </div>`;
+
+  window._aeFilter = function(directSev) {
+    const sevEl = document.getElementById('ae-sev-filter');
+    const q     = (document.getElementById('ae-search')?.value || '').toLowerCase();
+    if (directSev && sevEl) sevEl.value = directSev;
+    const sev = sevEl?.value || '';
+    const rows = document.querySelectorAll('#ae-tbody tr');
+    let visible = 0;
+    rows.forEach(row => {
+      const matchSev  = !sev  || row.dataset.sev === sev;
+      const matchText = !q    || (row.dataset.text || '').toLowerCase().includes(q);
+      row.style.display = matchSev && matchText ? '' : 'none';
+      if (matchSev && matchText) visible++;
+    });
+    const countEl = document.getElementById('ae-count');
+    if (countEl) countEl.textContent = visible + ' event' + (visible !== 1 ? 's' : '');
+  };
+}
+
+// ── pgProtocolRegistry — Browse registry protocols ────────────────────────────
 export async function pgProtocolRegistry(setTopbar) {
   setTopbar('Protocol Registry', '');
   const el = document.getElementById('content');
   el.innerHTML = spinner();
-  try {
-    const data = await api.protocols();
-    const items = data.items || [];
-    const grouped = {};
-    items.forEach(p => {
-      const cond = p.condition_id || 'Other';
-      if (!grouped[cond]) grouped[cond] = [];
-      grouped[cond].push(p);
-    });
 
-    const gradeColor = { 'EV-A': 'var(--teal)', 'EV-B': 'var(--blue)', 'EV-C': 'var(--amber)', 'EV-D': 'var(--red)' };
+  try {
+    const [protoData, condData] = await Promise.all([
+      api.protocols(),
+      api.conditions().catch(() => ({ items: [] })),
+    ]);
+    const items   = protoData?.items || [];
+    const conds   = condData?.items  || [];
+    const condMap = {};
+    conds.forEach(c => { condMap[c.id || c.Condition_ID] = c.name || c.Condition_Name || c.id; });
 
     el.innerHTML = `
       <div class="page-section">
-        <div style="margin-bottom:16px;font-size:12px;color:var(--text-secondary)">${items.length} protocols across ${Object.keys(grouped).length} conditions</div>
-        <div style="display:flex;flex-direction:column;gap:8px">
-          ${items.map(p => `
-            <div class="card" style="padding:16px 20px">
-              <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
-                <span style="font-size:11px;font-family:monospace;color:var(--text-tertiary);min-width:60px">${p.id || ''}</span>
-                <span style="font-size:13px;font-weight:600;color:var(--text-primary);flex:1">${p.name || ''}</span>
-                <span style="font-size:11px;font-weight:600;padding:2px 8px;border-radius:4px;background:${(gradeColor[p.evidence_grade] || 'var(--text-tertiary)') + '22'};color:${gradeColor[p.evidence_grade] || 'var(--text-tertiary)'}">${p.evidence_grade || ''}</span>
-                <span style="font-size:11px;padding:2px 8px;border-radius:4px;background:${p.on_label_vs_off_label?.toLowerCase().startsWith('on-label') ? 'var(--teal-ghost)' : 'rgba(245,158,11,0.1)'};color:${p.on_label_vs_off_label?.toLowerCase().startsWith('on-label') ? 'var(--teal)' : 'var(--amber)'}">${p.on_label_vs_off_label?.toLowerCase().startsWith('on-label') ? 'On-label' : 'Off-label'}</span>
-              </div>
-              <div style="margin-top:8px;font-size:11.5px;color:var(--text-secondary);display:flex;gap:16px;flex-wrap:wrap">
-                ${p.target_region ? `<span>Target: ${p.target_region}</span>` : ''}
-                ${p.frequency_hz ? `<span>Freq: ${p.frequency_hz} Hz</span>` : ''}
-                ${p.sessions_per_week ? `<span>${p.sessions_per_week}×/wk</span>` : ''}
-                ${p.total_course ? `<span>${p.total_course}</span>` : ''}
-              </div>
-            </div>
-          `).join('')}
+        <div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap">
+          <input id="pr-search" class="form-control" placeholder="Search protocols, conditions, modalities…" style="flex:1;min-width:200px;font-size:12.5px" oninput="window._filterProtocols()">
+          <select id="pr-grade" class="form-control" style="width:auto;font-size:12.5px" onchange="window._filterProtocols()">
+            <option value="">All Evidence Grades</option>
+            <option value="EV-A">EV-A (Highest)</option>
+            <option value="EV-B">EV-B</option>
+            <option value="EV-C">EV-C</option>
+            <option value="EV-D">EV-D</option>
+          </select>
+          <select id="pr-label" class="form-control" style="width:auto;font-size:12.5px" onchange="window._filterProtocols()">
+            <option value="">On &amp; Off-label</option>
+            <option value="on">On-label only</option>
+            <option value="off">Off-label only</option>
+          </select>
+        </div>
+        <div style="margin-bottom:12px;font-size:12px;color:var(--text-secondary)">${items.length} registry protocols</div>
+        <div id="pr-list" style="display:flex;flex-direction:column;gap:8px">
+          ${items.map(p => renderProtocolCard(p, condMap)).join('')}
         </div>
       </div>`;
+
+    window._allProtocols = items;
+    window._condMap      = condMap;
+
+    bindProtocolRegistry();
+
+    window._filterProtocols = function() {
+      const q     = (document.getElementById('pr-search')?.value || '').toLowerCase();
+      const grade = document.getElementById('pr-grade')?.value || '';
+      const label = document.getElementById('pr-label')?.value || '';
+      const visible = (window._allProtocols || []).filter(p => {
+        const text = `${p.name} ${p.condition_id} ${p.modality_id} ${p.target_region}`.toLowerCase();
+        const isOn = String(p.on_label_vs_off_label || '').toLowerCase().startsWith('on');
+        return (!q || text.includes(q))
+          && (!grade || p.evidence_grade === grade)
+          && (!label || (label === 'on' ? isOn : !isOn));
+      });
+      const listEl = document.getElementById('pr-list');
+      if (listEl) listEl.innerHTML = visible.length
+        ? visible.map(p => renderProtocolCard(p, window._condMap || {})).join('')
+        : emptyState('◇', 'No protocols match filter.');
+      bindProtocolRegistry();
+    };
   } catch (e) {
-    el.innerHTML = emptyState('◇', 'Protocol registry loading failed. Ensure backend is running.');
+    el.innerHTML = `<div style="padding:32px">${emptyState('◇', 'Protocol registry unavailable. Ensure backend is running.')}</div>`;
   }
 }
 
-// ── pgCourseDetail — Full course drill-down ───────────────────────────────────
-export async function pgCourseDetail(setTopbar, navigate) {
-  const id = window._selectedCourseId;
-  if (!id) { navigate('courses'); return; }
-
-  const el = document.getElementById('content');
-  el.innerHTML = spinner();
-
-  let course = null, sessions = [], outcomes = [], adverse = [];
-  try {
-    [course, sessions, outcomes, adverse] = await Promise.all([
-      api.getCourse(id),
-      api.listCourseSessions(id).then(r => r?.items || []).catch(() => []),
-      api.listOutcomes({ course_id: id }).then(r => r?.items || []).catch(() => []),
-      api.listAdverseEvents({ course_id: id }).then(r => r?.items || []).catch(() => []),
-    ]);
-  } catch (e) {
-    el.innerHTML = '<div class="notice notice-warn">Could not load course.</div>';
-    return;
-  }
-  if (!course) { navigate('courses'); return; }
-
-  const sc = STATUS_COLOR[course.status] || 'var(--text-tertiary)';
-  const gc = GRADE_COLOR[course.evidence_grade] || 'var(--text-tertiary)';
-  const pct = course.planned_sessions_total > 0
-    ? Math.min(100, Math.round(course.sessions_delivered / course.planned_sessions_total * 100))
-    : 0;
-
-  setTopbar(
-    course.condition_slug + ' · ' + course.modality_slug,
-    '<button class="btn btn-ghost btn-sm" onclick="window._nav(\'courses\')">← Courses</button>'
-    + (course.status === 'pending_approval' ? ' <button class="btn btn-primary btn-sm" onclick="window._cdActivate()">Approve &amp; Activate</button>' : '')
-    + (course.status === 'active' ? ' <button class="btn btn-sm" onclick="window._cdSwitchTab(\'sessions\')">+ Log Session</button>' : '')
-  );
-
-  if (!window._cdTab) window._cdTab = 'overview';
-
-  const tabNames = ['overview', 'sessions', 'outcomes', 'adverse events'];
-
-  function rowKV(k, v) {
-    return '<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--border);font-size:12px">'
-      + '<span style="color:var(--text-tertiary)">' + k + '</span>'
-      + '<span style="color:var(--text-primary);font-weight:500">' + (v ?? '—') + '</span></div>';
-  }
-
-  function renderTab() {
-    const tab = window._cdTab;
-
-    if (tab === 'overview') {
-      const params = [
-        ['Protocol ID', course.protocol_id],
-        ['Condition', course.condition_slug],
-        ['Modality', course.modality_slug],
-        ['Device', course.device_slug || '—'],
-        ['Target Region', course.target_region || '—'],
-        ['Frequency', course.planned_frequency_hz ? course.planned_frequency_hz + ' Hz' : '—'],
-        ['Intensity', course.planned_intensity || '—'],
-        ['Coil / Electrode', course.coil_placement || '—'],
-        ['Sessions / Week', course.planned_sessions_per_week],
-        ['Total Sessions', course.planned_sessions_total],
-        ['Duration / Session', course.planned_session_duration_minutes + ' min'],
-      ];
-      const status = [
-        ['Status', '<span style="font-weight:600;color:' + sc + '">' + course.status.replace(/_/g,' ') + '</span>'],
-        ['Evidence Grade', '<span style="font-weight:600;color:' + gc + '">' + (course.evidence_grade || '—') + '</span>'],
-        ['Labelling', course.on_label ? '<span style="color:var(--teal)">On-label</span>' : '<span style="color:var(--amber)">Off-label</span>'],
-        ['Approved By', course.approved_by || '—'],
-        ['Started', course.started_at ? course.started_at.split('T')[0] : '—'],
-        ['Completed', course.completed_at ? course.completed_at.split('T')[0] : '—'],
-        ['Sessions Delivered', course.sessions_delivered + ' / ' + course.planned_sessions_total],
-      ];
-      return '<div class="g2">'
-        + '<div><div class="card" style="padding:20px">'
-        + '<div style="font-size:11px;text-transform:uppercase;letter-spacing:.8px;color:var(--text-tertiary);margin-bottom:14px">Protocol Parameters</div>'
-        + params.map(([k,v]) => rowKV(k, v)).join('')
-        + '</div></div>'
-        + '<div><div class="card" style="padding:20px;margin-bottom:16px">'
-        + '<div style="font-size:11px;text-transform:uppercase;letter-spacing:.8px;color:var(--text-tertiary);margin-bottom:14px">Status &amp; Progress</div>'
-        + status.map(([k,v]) => rowKV(k, v)).join('')
-        + '<div style="margin-top:14px">'
-        + '<div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text-tertiary);margin-bottom:5px"><span>Progress</span><span>' + pct + '%</span></div>'
-        + '<div style="height:6px;border-radius:3px;background:var(--border)"><div style="height:6px;border-radius:3px;background:' + sc + ';width:' + pct + '%"></div></div>'
-        + '</div></div>'
-        + (course.governance_warnings && course.governance_warnings.length ? '<div class="card" style="padding:16px;border-color:rgba(245,158,11,0.3)"><div style="font-size:11px;text-transform:uppercase;letter-spacing:.8px;color:var(--amber);margin-bottom:8px">Governance Flags</div>' + course.governance_warnings.map(w => '<div style="font-size:12px;color:var(--text-secondary);padding:4px 0;border-bottom:1px solid var(--border)">⚠ ' + w + '</div>').join('') + '</div>' : '')
-        + (course.clinician_notes ? '<div class="card" style="padding:16px;margin-top:16px"><div style="font-size:11px;text-transform:uppercase;letter-spacing:.8px;color:var(--text-tertiary);margin-bottom:8px">Clinician Notes</div><div style="font-size:12px;color:var(--text-secondary);line-height:1.6">' + course.clinician_notes + '</div></div>' : '')
-        + '</div></div>';
-    }
-
-    if (tab === 'sessions') {
-      const canLog = course.status === 'active';
-      let body;
-      if (sessions.length === 0) {
-        body = '<div style="padding:32px;text-align:center;color:var(--text-tertiary)">' + emptyState('◧', 'No sessions logged yet.') + '</div>';
-      } else {
-        const rows = sessions.map((s, i) => {
-          const tolCol = s.tolerance_rating === 'well-tolerated' ? 'var(--teal)' : s.tolerance_rating === 'poor' ? 'var(--red)' : 'var(--text-secondary)';
-          return '<tr>'
-            + '<td style="font-family:monospace;color:var(--text-tertiary)">' + (i+1) + '</td>'
-            + '<td style="color:var(--text-secondary)">' + (s.created_at ? s.created_at.split('T')[0] : '—') + '</td>'
-            + '<td>' + (s.device_slug || '—') + '</td>'
-            + '<td style="font-family:monospace">' + (s.frequency_hz || '—') + '</td>'
-            + '<td style="font-family:monospace">' + (s.intensity_pct_rmt || '—') + '</td>'
-            + '<td style="font-family:monospace">' + (s.duration_minutes ? s.duration_minutes + ' min' : '—') + '</td>'
-            + '<td><span style="font-size:11px;padding:2px 6px;border-radius:3px;color:' + tolCol + '">' + (s.tolerance_rating || '—') + '</span></td>'
-            + '<td style="font-size:11px;color:var(--text-secondary);max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + (s.post_session_notes || '—') + '</td>'
-            + '</tr>';
-        }).join('');
-        body = '<div class="card" style="overflow-x:auto"><table class="ds-table">'
-          + '<thead><tr><th>#</th><th>Date</th><th>Device</th><th>Hz</th><th>Intensity</th><th>Duration</th><th>Tolerance</th><th>Notes</th></tr></thead>'
-          + '<tbody>' + rows + '</tbody></table></div>';
-      }
-      const logBtn = canLog
-        ? '<div id="cd-log-form" style="display:none;margin-bottom:16px"><div class="card" style="padding:20px">'
-          + '<div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:12px;margin-bottom:12px">'
-          + '<div><label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:4px">Frequency (Hz)</label><input id="cds-freq" placeholder="e.g. 10" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;background:var(--bg-secondary);color:var(--text-primary);font-size:12px"></div>'
-          + '<div><label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:4px">Intensity (% RMT)</label><input id="cds-int" placeholder="e.g. 120%" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;background:var(--bg-secondary);color:var(--text-primary);font-size:12px"></div>'
-          + '<div><label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:4px">Duration (min)</label><input id="cds-dur" type="number" placeholder="40" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;background:var(--bg-secondary);color:var(--text-primary);font-size:12px"></div>'
-          + '<div><label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:4px">Tolerance</label><select id="cds-tol" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;background:var(--bg-secondary);color:var(--text-primary);font-size:12px"><option value="">—</option><option value="well-tolerated">Well tolerated</option><option value="moderate">Moderate</option><option value="poor">Poor</option></select></div>'
-          + '</div>'
-          + '<div style="margin-bottom:12px"><label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:4px">Notes</label><input id="cds-notes" placeholder="Post-session observations…" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;background:var(--bg-secondary);color:var(--text-primary);font-size:12px"></div>'
-          + '<div id="cds-error" style="display:none;color:var(--red);font-size:12px;margin-bottom:8px"></div>'
-          + '<div style="display:flex;gap:8px"><button class="btn" onclick="document.getElementById(\'cd-log-form\').style.display=\'none\'">Cancel</button><button class="btn btn-primary" onclick="window._cdSaveSession()">Log Session</button></div>'
-          + '</div></div>'
-        : '';
-      return '<div style="margin-bottom:12px">'
-        + (canLog ? '<button class="btn btn-primary btn-sm" onclick="document.getElementById(\'cd-log-form\').style.display=\'\'">+ Log Session</button>' : '<div style="font-size:12px;color:var(--text-tertiary);padding:6px 0">Activate course to log sessions.</div>')
-        + '</div>' + logBtn + body;
-    }
-
-    if (tab === 'outcomes') {
-      const rows = outcomes.map(o => '<tr>'
-        + '<td style="font-weight:600">' + o.template_id + '</td>'
-        + '<td><span style="font-size:11px;padding:2px 6px;border-radius:3px;background:var(--border);color:var(--text-secondary)">' + o.measurement_point + '</span></td>'
-        + '<td style="font-family:monospace;color:var(--teal)">' + (o.score ?? '—') + '</td>'
-        + '<td style="color:var(--text-secondary)">' + (o.administered_at ? o.administered_at.split('T')[0] : '—') + '</td>'
-        + '</tr>').join('');
-      const form = '<div id="cd-outcome-form" style="display:none;margin-bottom:16px"><div class="card" style="padding:20px">'
-        + '<div style="display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:12px;align-items:flex-end">'
-        + '<div><label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:4px">Template</label><select id="cdo-template" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;background:var(--bg-secondary);color:var(--text-primary);font-size:12px"><option value="PHQ-9">PHQ-9</option><option value="GAD-7">GAD-7</option><option value="PCL-5">PCL-5</option><option value="ISI">ISI</option><option value="DASS-21">DASS-21</option><option value="NRS-Pain">NRS-Pain</option><option value="ADHD-RS-5">ADHD-RS-5</option><option value="UPDRS-III">UPDRS-III</option></select></div>'
-        + '<div><label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:4px">Point</label><select id="cdo-point" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;background:var(--bg-secondary);color:var(--text-primary);font-size:12px"><option value="baseline">Baseline</option><option value="mid">Mid-course</option><option value="post">Post-treatment</option><option value="follow_up">Follow-up</option></select></div>'
-        + '<div><label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:4px">Score</label><input id="cdo-score" type="number" step="0.1" placeholder="e.g. 14" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;background:var(--bg-secondary);color:var(--text-primary);font-size:12px"></div>'
-        + '<div style="display:flex;gap:8px"><button class="btn" onclick="document.getElementById(\'cd-outcome-form\').style.display=\'none\'">Cancel</button><button class="btn btn-primary" onclick="window._cdSaveOutcome()">Save</button></div>'
-        + '</div><div id="cdo-error" style="display:none;color:var(--red);font-size:12px;margin-top:8px"></div>'
-        + '</div></div>';
-      const table = outcomes.length === 0
-        ? '<div style="padding:32px;text-align:center;color:var(--text-tertiary)">' + emptyState('◫', 'No outcome measurements yet.') + '</div>'
-        : '<div class="card" style="overflow-x:auto"><table class="ds-table"><thead><tr><th>Template</th><th>Point</th><th>Score</th><th>Date</th></tr></thead><tbody>' + rows + '</tbody></table></div>';
-      return '<div style="margin-bottom:12px"><button class="btn btn-primary btn-sm" onclick="document.getElementById(\'cd-outcome-form\').style.display=\'\'">+ Record Outcome</button></div>' + form + table;
-    }
-
-    if (tab === 'adverse events') {
-      const rows = adverse.map(a => {
-        const sevCol = {mild:'var(--teal)',moderate:'var(--amber)',severe:'var(--red)',serious:'var(--red)'}[a.severity] || 'var(--text-tertiary)';
-        return '<tr>'
-          + '<td style="font-weight:600">' + a.event_type + '</td>'
-          + '<td><span style="font-size:11px;padding:2px 6px;border-radius:3px;background:' + sevCol + '22;color:' + sevCol + '">' + a.severity + '</span></td>'
-          + '<td style="color:var(--text-secondary)">' + (a.action_taken || '—') + '</td>'
-          + '<td style="font-size:11.5px;color:var(--text-secondary);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + (a.description || '—') + '</td>'
-          + '<td style="color:var(--text-secondary)">' + (a.reported_at ? a.reported_at.split('T')[0] : '—') + '</td>'
-          + '</tr>';
-      }).join('');
-      const form = '<div id="cd-ae-form" style="display:none;margin-bottom:16px"><div class="card" style="padding:20px">'
-        + '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:12px">'
-        + '<div><label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:4px">Event Type</label><input id="ae-type" placeholder="e.g. headache" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;background:var(--bg-secondary);color:var(--text-primary);font-size:12px"></div>'
-        + '<div><label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:4px">Severity</label><select id="ae-severity" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;background:var(--bg-secondary);color:var(--text-primary);font-size:12px"><option value="mild">Mild</option><option value="moderate">Moderate</option><option value="severe">Severe</option><option value="serious">Serious</option></select></div>'
-        + '<div><label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:4px">Action Taken</label><select id="ae-action" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;background:var(--bg-secondary);color:var(--text-primary);font-size:12px"><option value="none">None</option><option value="session_paused">Session paused</option><option value="session_stopped">Session stopped</option><option value="referred">Referred</option></select></div>'
-        + '</div>'
-        + '<div style="margin-bottom:12px"><label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:4px">Description</label><textarea id="ae-desc" rows="2" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;background:var(--bg-secondary);color:var(--text-primary);font-size:12px;resize:vertical" placeholder="Describe the event…"></textarea></div>'
-        + '<div id="ae-error" style="display:none;color:var(--red);font-size:12px;margin-bottom:8px"></div>'
-        + '<div style="display:flex;gap:8px"><button class="btn" onclick="document.getElementById(\'cd-ae-form\').style.display=\'none\'">Cancel</button><button class="btn btn-primary" onclick="window._cdSaveAE()">Report</button></div>'
-        + '</div></div>';
-      const table = adverse.length === 0
-        ? '<div style="padding:32px;text-align:center;color:var(--text-tertiary)">' + emptyState('◱', 'No adverse events reported.') + '</div>'
-        : '<div class="card" style="overflow-x:auto"><table class="ds-table"><thead><tr><th>Event</th><th>Severity</th><th>Action</th><th>Description</th><th>Date</th></tr></thead><tbody>' + rows + '</tbody></table></div>';
-      return '<div style="margin-bottom:12px"><button class="btn btn-primary btn-sm" onclick="document.getElementById(\'cd-ae-form\').style.display=\'\'">+ Report Adverse Event</button></div>' + form + table;
-    }
-    return '';
-  }
-
-  el.innerHTML = '<div style="background:linear-gradient(135deg,rgba(0,212,188,0.05),rgba(74,158,255,0.05));border:1px solid var(--border);border-radius:var(--radius-lg);padding:20px;margin-bottom:20px">'
-    + '<div style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:12px">'
-    + '<div><div style="font-size:20px;font-weight:700;font-family:var(--font-display);color:var(--text-primary)">' + course.condition_slug + ' · ' + course.modality_slug + '</div>'
-    + '<div style="font-size:12px;color:var(--text-secondary);margin-top:4px">Protocol: ' + course.protocol_id + ' · Created ' + (course.created_at ? course.created_at.split('T')[0] : '—') + '</div></div>'
-    + '<div style="display:flex;flex-direction:column;align-items:flex-end;gap:8px">'
-    + '<span style="font-size:12px;font-weight:600;padding:4px 12px;border-radius:6px;background:' + sc + '22;color:' + sc + '">' + course.status.replace(/_/g,' ') + '</span>'
-    + '<span style="font-size:11px;padding:2px 8px;border-radius:4px;background:' + gc + '22;color:' + gc + '">' + (course.evidence_grade || '—') + '</span>'
-    + '</div></div>'
-    + '<div style="margin-top:16px">'
-    + '<div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text-tertiary);margin-bottom:5px"><span>Sessions delivered</span><span>' + course.sessions_delivered + ' / ' + course.planned_sessions_total + ' · ' + pct + '%</span></div>'
-    + '<div style="height:8px;border-radius:4px;background:var(--border)"><div style="height:8px;border-radius:4px;background:' + sc + ';width:' + pct + '%"></div></div>'
-    + '</div></div>'
-    + '<div class="tab-bar" style="margin-bottom:20px">'
-    + tabNames.map(t => '<button class="tab-btn ' + (window._cdTab === t ? 'active' : '') + '" onclick="window._cdSwitchTab(\'' + t + '\')">'
-      + t + (t === 'sessions' ? ' (' + sessions.length + ')' : t === 'adverse events' && adverse.length ? ' (' + adverse.length + ')' : '')
-      + '</button>').join('')
-    + '</div>'
-    + '<div id="cd-tab-body">' + renderTab() + '</div>';
-
-  window._cdSwitchTab = function(t) {
-    window._cdTab = t;
-    document.querySelectorAll('.tab-btn').forEach(b => {
-      b.classList.toggle('active', b.textContent.trim().startsWith(t));
-    });
-    document.getElementById('cd-tab-body').innerHTML = renderTab();
-    bindCourseDetailActions(course, id);
-  };
-
-  bindCourseDetailActions(course, id);
+function renderProtocolCard(p, condMap = {}) {
+  const isOn = String(p.on_label_vs_off_label || '').toLowerCase().startsWith('on');
+  const pid = (p.id || '').replace(/'/g, '');
+  return `<div class="card" style="padding:0;overflow:hidden">
+    <div style="padding:16px 20px;cursor:pointer;transition:background 0.15s" onmouseover="this.style.background='var(--bg-card-hover)'" onmouseout="this.style.background=''" onclick="window._toggleProtoDetail('${pid}')">
+      <div style="display:flex;align-items:flex-start;gap:12px;flex-wrap:wrap">
+        <div style="flex:1;min-width:200px">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;flex-wrap:wrap">
+            <span style="font-size:10px;font-family:var(--font-mono);color:var(--text-tertiary)">${p.id || ''}</span>
+            <span style="font-size:13px;font-weight:600;color:var(--text-primary)">${p.name || ''}</span>
+          </div>
+          <div style="font-size:11.5px;color:var(--text-secondary);display:flex;gap:12px;flex-wrap:wrap">
+            ${p.condition_id  ? `<span>Condition: ${condMap[p.condition_id] || p.condition_id}</span>` : ''}
+            ${p.modality_id   ? `<span>Modality: ${p.modality_id}</span>` : ''}
+            ${p.target_region ? `<span>Target: ${p.target_region}</span>` : ''}
+            ${p.frequency_hz  ? `<span>${p.frequency_hz} Hz</span>` : ''}
+            ${p.sessions_per_week ? `<span>${p.sessions_per_week}×/wk</span>` : ''}
+            ${p.total_course  ? `<span>${p.total_course}</span>` : ''}
+          </div>
+        </div>
+        <div style="display:flex;gap:6px;align-items:center;flex-shrink:0">
+          ${evidenceBadge(p.evidence_grade)}
+          ${labelBadge(isOn)}
+          <span style="font-size:10px;color:var(--text-tertiary)" id="proto-chevron-${pid}">▼</span>
+        </div>
+      </div>
+    </div>
+    <div id="proto-detail-${pid}" style="display:none;border-top:1px solid var(--border);padding:16px 20px;background:rgba(0,212,188,0.02)">
+      <div class="g2" style="margin-bottom:14px">
+        <div>
+          ${[
+            ['Protocol ID',      p.id],
+            ['Condition',        condMap[p.condition_id] || p.condition_id || '—'],
+            ['Phenotype',        p.phenotype_id || '—'],
+            ['Modality',         p.modality_id || '—'],
+            ['Device',           p.device_id_if_specific || 'Any compatible'],
+            ['Target Region',    p.target_region || '—'],
+            ['Laterality',       p.laterality || '—'],
+          ].map(([k,v]) => `<div style="display:flex;gap:8px;padding:4px 0;border-bottom:1px solid var(--border);font-size:12px"><span style="color:var(--text-tertiary);width:120px;flex-shrink:0">${k}</span><span style="color:var(--text-primary)">${v}</span></div>`).join('')}
+        </div>
+        <div>
+          ${[
+            ['Frequency',        p.frequency_hz ? p.frequency_hz + ' Hz' : '—'],
+            ['Intensity',        p.intensity || '—'],
+            ['Session Duration', p.session_duration || '—'],
+            ['Sessions/Week',    p.sessions_per_week ? p.sessions_per_week + '×/wk' : '—'],
+            ['Total Course',     p.total_course || '—'],
+            ['Coil/Placement',   p.coil_or_electrode_placement || '—'],
+            ['Review Required',  p.clinician_review_required === 'Yes' ? '<span style="color:var(--amber)">Yes</span>' : '<span style="color:var(--green)">No</span>'],
+          ].map(([k,v]) => `<div style="display:flex;gap:8px;padding:4px 0;border-bottom:1px solid var(--border);font-size:12px"><span style="color:var(--text-tertiary);width:120px;flex-shrink:0">${k}</span><span style="color:var(--text-primary)">${v}</span></div>`).join('')}
+        </div>
+      </div>
+      ${p.monitoring_requirements ? `<div style="font-size:11.5px;color:var(--text-secondary);margin-bottom:12px;padding:10px;background:rgba(255,181,71,0.06);border-radius:6px;border-left:3px solid var(--amber)">Monitoring: ${p.monitoring_requirements}</div>` : ''}
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn btn-primary btn-sm" onclick="window._startCourseFromProtocol('${pid}')">+ Create Treatment Course →</button>
+        <button class="btn btn-sm" onclick="window._toggleProtoDetail('${pid}')">Close</button>
+      </div>
+    </div>
+  </div>`;
 }
 
-function bindCourseDetailActions(course, courseId) {
-  window._cdActivate = async function() {
-    try {
-      await api.activateCourse(courseId);
-      window._cdTab = 'overview';
-      window._nav('course-detail');
-    } catch (e) { alert(e.message || 'Activation failed.'); }
+// bind in pgProtocolRegistry
+function bindProtocolRegistry() {
+  window._toggleProtoDetail = function(id) {
+    const panel = document.getElementById('proto-detail-' + id);
+    const chev  = document.getElementById('proto-chevron-' + id);
+    if (!panel) return;
+    const open = panel.style.display !== 'none';
+    panel.style.display = open ? 'none' : '';
+    if (chev) chev.textContent = open ? '▼' : '▲';
   };
 
-  window._cdSaveSession = async function() {
-    const errEl = document.getElementById('cds-error');
-    if (errEl) errEl.style.display = 'none';
-    try {
-      await api.logSession(courseId, {
-        frequency_hz: document.getElementById('cds-freq')?.value || null,
-        intensity_pct_rmt: document.getElementById('cds-int')?.value || null,
-        duration_minutes: parseInt(document.getElementById('cds-dur')?.value) || null,
-        tolerance_rating: document.getElementById('cds-tol')?.value || null,
-        post_session_notes: document.getElementById('cds-notes')?.value || null,
-      });
-      window._cdTab = 'sessions';
-      window._nav('course-detail');
-    } catch (e) {
-      if (errEl) { errEl.textContent = e.message || 'Failed.'; errEl.style.display = 'block'; }
-    }
-  };
-
-  window._cdSaveOutcome = async function() {
-    const errEl = document.getElementById('cdo-error');
-    if (errEl) errEl.style.display = 'none';
-    const score = document.getElementById('cdo-score')?.value;
-    if (!score) { if (errEl) { errEl.textContent = 'Enter a score.'; errEl.style.display = 'block'; } return; }
-    try {
-      await api.recordOutcome({
-        patient_id: course.patient_id,
-        course_id: courseId,
-        template_id: document.getElementById('cdo-template')?.value || 'PHQ-9',
-        template_title: document.getElementById('cdo-template')?.value || 'PHQ-9',
-        score: score, score_numeric: parseFloat(score),
-        measurement_point: document.getElementById('cdo-point')?.value || 'mid',
-      });
-      window._cdTab = 'outcomes';
-      window._nav('course-detail');
-    } catch (e) {
-      if (errEl) { errEl.textContent = e.message || 'Failed.'; errEl.style.display = 'block'; }
-    }
-  };
-
-  window._cdSaveAE = async function() {
-    const errEl = document.getElementById('ae-error');
-    if (errEl) errEl.style.display = 'none';
-    const evType = document.getElementById('ae-type')?.value.trim();
-    if (!evType) { if (errEl) { errEl.textContent = 'Enter event type.'; errEl.style.display = 'block'; } return; }
-    try {
-      await api.reportAdverseEvent({
-        patient_id: course.patient_id,
-        course_id: courseId,
-        event_type: evType,
-        severity: document.getElementById('ae-severity')?.value || 'mild',
-        description: document.getElementById('ae-desc')?.value || null,
-        action_taken: document.getElementById('ae-action')?.value || null,
-      });
-      window._cdTab = 'adverse events';
-      window._nav('course-detail');
-    } catch (e) {
-      if (errEl) { errEl.textContent = e.message || 'Failed.'; errEl.style.display = 'block'; }
-    }
+  window._startCourseFromProtocol = function(protocolId) {
+    window._wizardProtocolId = protocolId;
+    window._nav('protocol-wizard');
   };
 }
+

@@ -1,5 +1,71 @@
 // ── Render helpers ─────────────────────────────────────────────────────────
 
+// Clinical-domain badges — explicit, scannable at a glance
+export function evidenceBadge(grade) {
+  const map = {
+    'EV-A': { bg: 'rgba(0,212,188,0.12)', color: 'var(--teal)', label: 'EV-A' },
+    'EV-B': { bg: 'rgba(74,158,255,0.12)', color: 'var(--blue)', label: 'EV-B' },
+    'EV-C': { bg: 'rgba(255,181,71,0.12)', color: 'var(--amber)', label: 'EV-C' },
+    'EV-D': { bg: 'rgba(255,107,107,0.12)', color: 'var(--red)', label: 'EV-D' },
+  };
+  const s = map[grade] || { bg: 'rgba(255,255,255,0.06)', color: 'var(--text-tertiary)', label: grade || '—' };
+  return `<span style="font-size:10px;font-weight:700;padding:2px 7px;border-radius:4px;background:${s.bg};color:${s.color};font-family:var(--font-mono);letter-spacing:0.5px">${s.label}</span>`;
+}
+
+export function labelBadge(onLabel) {
+  const on = String(onLabel).toLowerCase().startsWith('on');
+  return on
+    ? `<span style="font-size:10px;font-weight:600;padding:2px 7px;border-radius:4px;background:rgba(0,212,188,0.08);color:var(--teal)">On-label</span>`
+    : `<span style="font-size:10px;font-weight:600;padding:2px 7px;border-radius:4px;background:rgba(255,181,71,0.1);color:var(--amber)">Off-label</span>`;
+}
+
+export function safetyBadge(warnings = []) {
+  if (!warnings || warnings.length === 0) return '';
+  return `<span style="font-size:10px;font-weight:600;padding:2px 7px;border-radius:4px;background:rgba(255,107,107,0.1);color:var(--red)">⚠ ${warnings.length} flag${warnings.length > 1 ? 's' : ''}</span>`;
+}
+
+export function approvalBadge(status) {
+  const map = {
+    pending_approval: { bg: 'rgba(255,181,71,0.12)', color: 'var(--amber)', label: 'Pending Approval' },
+    approved:         { bg: 'rgba(74,158,255,0.12)', color: 'var(--blue)',  label: 'Approved' },
+    active:           { bg: 'rgba(0,212,188,0.12)',  color: 'var(--teal)',  label: 'Active' },
+    paused:           { bg: 'rgba(255,181,71,0.12)', color: 'var(--amber)', label: 'Paused' },
+    completed:        { bg: 'rgba(74,222,128,0.12)', color: 'var(--green)', label: 'Completed' },
+    discontinued:     { bg: 'rgba(255,107,107,0.12)',color: 'var(--red)',   label: 'Discontinued' },
+    draft:            { bg: 'rgba(255,255,255,0.06)', color: 'var(--text-tertiary)', label: 'Draft' },
+  };
+  const s = map[status] || { bg: 'rgba(255,255,255,0.06)', color: 'var(--text-tertiary)', label: status || '—' };
+  return `<span style="font-size:10.5px;font-weight:600;padding:3px 9px;border-radius:5px;background:${s.bg};color:${s.color}">${s.label}</span>`;
+}
+
+// Registry-backed select — renders <select> with fetched options; falls back to static list
+export function registrySelect(id, label, options, selected = '') {
+  const opts = options.map(o =>
+    typeof o === 'string'
+      ? `<option value="${o}" ${selected === o ? 'selected' : ''}>${o}</option>`
+      : `<option value="${o.value}" ${selected === o.value ? 'selected' : ''}>${o.label}</option>`
+  ).join('');
+  return `<div class="form-group">
+    <label class="form-label">${label}</label>
+    <select id="${id}" class="form-control"><option value="">Select…</option>${opts}</select>
+  </div>`;
+}
+
+// Section divider
+export function sectionDivider(title) {
+  return `<div style="font-size:10px;font-weight:600;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:1.2px;padding:16px 0 8px;border-bottom:1px solid var(--border);margin-bottom:12px">${title}</div>`;
+}
+
+// Governance flag row
+export function govFlag(text, severity = 'warn') {
+  const col = severity === 'error' ? 'var(--red)' : 'var(--amber)';
+  const bg  = severity === 'error' ? 'rgba(255,107,107,0.07)' : 'rgba(255,181,71,0.07)';
+  return `<div style="display:flex;align-items:flex-start;gap:8px;padding:8px 10px;border-radius:6px;background:${bg};border:1px solid ${col}33;margin-bottom:6px">
+    <span style="color:${col};font-size:12px;flex-shrink:0">⚠</span>
+    <span style="font-size:11.5px;color:${col};line-height:1.5">${text}</span>
+  </div>`;
+}
+
 export function cardWrap(title, body, action = '') {
   return `<div class="card">
     <div class="card-header"><h3>${title}</h3>${action}</div>

@@ -187,6 +187,9 @@ export const api = {
   updateQEEGRecord: (id, data) =>
     apiFetch(`/api/v1/qeeg-records/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
 
+  // ── Telegram ────────────────────────────────────────────────────────────
+  telegramLinkCode: () => apiFetch('/api/v1/telegram/link-code'),
+
   // ── Health ──────────────────────────────────────────────────────────────
   health: () => apiFetch('/health'),
 };
