@@ -1458,12 +1458,7 @@ export async function pgOutcomes(setTopbar, navigate) {
             <div>
               <label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:4px">Assessment Template</label>
               <select id="oc-template" class="form-control" style="font-size:12.5px">
-                <option value="PHQ-9">PHQ-9</option><option value="GAD-7">GAD-7</option>
-                <option value="PCL-5">PCL-5</option><option value="ISI">ISI</option>
-                <option value="DASS-21">DASS-21</option><option value="NRS-Pain">NRS-Pain</option>
-                <option value="ADHD-RS-5">ADHD-RS-5</option><option value="UPDRS-III">UPDRS-III</option>
-                <option value="HAM-D">HAM-D</option><option value="MADRS">MADRS</option>
-                <option value="QIDS">QIDS</option><option value="Y-BOCS">Y-BOCS</option>
+                ${FALLBACK_ASSESSMENT_TEMPLATES.map(t => `<option value="${t.id}">${t.label}</option>`).join('')}
               </select>
             </div>
             <div>

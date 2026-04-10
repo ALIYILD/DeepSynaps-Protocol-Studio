@@ -451,14 +451,11 @@ export async function pgPatients(setTopbar, navigate) {
   // Build registry-backed option lists; fall back to static if registry unavailable
   const conditionOptions = conditions.length
     ? conditions.map(c => `<option value="${c.name || c.Condition_Name}">${c.name || c.Condition_Name}</option>`).join('')
-    : `<option>Major Depressive Disorder</option><option>ADHD</option><option>Anxiety / GAD</option>
-       <option>PTSD</option><option>Chronic Pain</option><option>Parkinson's Disease</option>
-       <option>Post-Stroke Rehabilitation</option><option>Insomnia</option><option>Autism Spectrum</option><option>Other</option>`;
+    : FALLBACK_CONDITIONS.map(c => `<option>${c}</option>`).join('');
 
   const modalityOptions = modalities.length
     ? modalities.map(m => `<option value="${m.name || m.Modality_Name}">${m.name || m.Modality_Name}</option>`).join('')
-    : `<option>tDCS</option><option>TMS / rTMS</option><option>taVNS</option>
-       <option>CES</option><option>Neurofeedback</option><option>TPS</option><option>PBM</option>`;
+    : FALLBACK_MODALITIES.map(m => `<option>${m}</option>`).join('');
 
   el.innerHTML = `
   <div id="add-patient-panel" style="display:none;margin-bottom:16px">
@@ -504,7 +501,7 @@ export async function pgPatients(setTopbar, navigate) {
     </select>
     <select class="form-control" id="pt-modality-filter" style="width:auto" onchange="window.filterPatients()">
       <option value="">All Modalities</option>
-      <option>tDCS</option><option>TMS / rTMS</option><option>taVNS</option><option>CES</option><option>Neurofeedback</option><option>TPS</option><option>PBM</option>
+      ${FALLBACK_MODALITIES.map(m => `<option>${m}</option>`).join('')}
     </select>
     <span id="pt-count" style="font-size:11px;color:var(--text-tertiary);white-space:nowrap">${items.length} patients</span>
   </div>
@@ -1334,14 +1331,13 @@ function renderAIZone(pt) {
       <div class="form-group"><label class="form-label">Condition</label>
         <select id="ai-condition" class="form-control">
           <option value="${pt?.primary_condition || ''}">${pt?.primary_condition || 'Select…'}</option>
-          <option>Major Depressive Disorder</option><option>ADHD</option><option>Anxiety / GAD</option>
-          <option>PTSD</option><option>Chronic Pain</option><option>Parkinson's Disease</option><option>Insomnia</option>
+          ${FALLBACK_CONDITIONS.map(c => `<option>${c}</option>`).join('')}
         </select>
       </div>
       <div class="form-group"><label class="form-label">Modality</label>
         <select id="ai-modality" class="form-control">
           <option value="${pt?.primary_modality || ''}">${pt?.primary_modality || 'Select…'}</option>
-          <option>tDCS</option><option>TMS</option><option>taVNS</option><option>CES</option><option>Neurofeedback</option>
+          ${FALLBACK_MODALITIES.map(m => `<option>${m}</option>`).join('')}
         </select>
       </div>
     </div>
