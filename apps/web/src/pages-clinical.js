@@ -246,10 +246,10 @@ export async function pgDash(setTopbar, navigate) {
 
   // ── Row 1: 4-column stat bar ───────────────────────────────────────────────
   const row1 = `<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px">
-    ${_dStatCard('Sessions / Week', sessionsPerWeek || 0, `Planned · ${activeCourses.length} active courses`, 'var(--teal)', 'session-execution')}
-    ${_dStatCard('Pending Reviews', pendingQueue.length || 0, pendingQueue.length > 0 ? `${pendingQueue.length} item${pendingQueue.length !== 1 ? 's' : ''} awaiting approval` : 'Queue clear', pendingQueue.length > 0 ? 'var(--amber)' : 'var(--green)', 'review-queue', pendingQueue.length > 0)}
-    ${_dStatCard('Governance Flags', highRiskCount || 0, highRiskCount > 0 ? `${flaggedCourses.length} courses · ${seriousAEs.length} serious AEs` : 'No active safety flags', highRiskCount > 0 ? 'var(--red)' : 'var(--green)', 'adverse-events', highRiskCount > 0)}
-    ${_dStatCard('Active Courses', activeCourses.length || 0, `${patCount} patients · ${completedCourses.length} completed`, 'var(--blue)', 'courses')}
+    <div style="border-left:3px solid var(--teal);padding-left:1px;border-radius:var(--radius-md)">${_dStatCard('Sessions / Week', sessionsPerWeek || 0, `Planned · ${activeCourses.length} active courses`, 'var(--teal)', 'session-execution')}</div>
+    <div style="border-left:3px solid var(--amber);padding-left:1px;border-radius:var(--radius-md)">${_dStatCard('Pending Reviews', pendingQueue.length || 0, pendingQueue.length > 0 ? `${pendingQueue.length} item${pendingQueue.length !== 1 ? 's' : ''} awaiting approval` : 'Queue clear', pendingQueue.length > 0 ? 'var(--amber)' : 'var(--green)', 'review-queue', pendingQueue.length > 0)}</div>
+    <div style="border-left:3px solid var(--red);padding-left:1px;border-radius:var(--radius-md)">${_dStatCard('Governance Flags', highRiskCount || 0, highRiskCount > 0 ? `${flaggedCourses.length} courses · ${seriousAEs.length} serious AEs` : 'No active safety flags', highRiskCount > 0 ? 'var(--red)' : 'var(--green)', 'adverse-events', highRiskCount > 0)}</div>
+    <div style="border-left:3px solid var(--green);padding-left:1px;border-radius:var(--radius-md)">${_dStatCard('Active Courses', activeCourses.length || 0, `${patCount} patients · ${completedCourses.length} completed`, 'var(--blue)', 'courses')}</div>
   </div>`;
 
   // ── Row 2: Clinic Queue + Review & Governance ──────────────────────────────
@@ -374,6 +374,33 @@ export async function pgDash(setTopbar, navigate) {
     </div>
   </div>`;
 
+  // ── Today's sessions widget ────────────────────────────────────────────────
+  const todayStr = new Date().toISOString().split('T')[0];
+  const todaySessions = activeCourses.slice(0, 6); // use active courses as proxy for scheduled today
+  const todayWidget = `<div class="card" style="overflow:hidden;margin-bottom:14px">
+    <div style="padding:13px 16px 11px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--border)">
+      <span style="font-weight:600;font-size:13px">Today's Sessions</span>
+      <span style="font-size:10.5px;color:var(--text-tertiary)">${todayStr}</span>
+    </div>
+    ${todaySessions.length === 0
+      ? `<div style="padding:24px 16px;text-align:center;font-size:12.5px;color:var(--text-tertiary)">No sessions scheduled today.</div>`
+      : `<div style="display:flex;flex-direction:column">
+          ${todaySessions.map((c, i) => {
+            const hour = 9 + i;
+            const time = `${String(hour).padStart(2,'0')}:00`;
+            return `<div style="display:flex;align-items:center;gap:10px;padding:9px 16px;border-bottom:1px solid var(--border)">
+              <span style="font-size:11.5px;font-weight:600;color:var(--teal);font-family:var(--font-mono);width:40px;flex-shrink:0">${time}</span>
+              <div style="flex:1;min-width:0">
+                <div style="font-size:12.5px;font-weight:500;color:var(--text-primary)">${c.condition_slug?.replace(/-/g,' ') || '—'} · <span style="color:var(--teal)">${c.modality_slug || '—'}</span></div>
+                <div style="font-size:10.5px;color:var(--text-tertiary)">Session ${(c.sessions_delivered || 0) + 1} of ${c.planned_sessions_total || '?'}</div>
+              </div>
+              <button class="btn btn-sm" style="font-size:10.5px;padding:3px 8px" onclick="window._nav('session-execution')">Execute →</button>
+            </div>`;
+          }).join('')}
+        </div>`
+    }
+  </div>`;
+
   // ── Row 4: Recent Activity feed ────────────────────────────────────────────
   const row4 = `<div class="card" style="overflow:hidden">
     <div style="padding:13px 16px 11px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--border)">
@@ -417,7 +444,7 @@ export async function pgDash(setTopbar, navigate) {
     }
   </div>`;
 
-  el.innerHTML = row1 + row2 + row3 + row4;
+  el.innerHTML = row1 + row2 + row3 + todayWidget + row4;
 }
 
 // ── Patients ─────────────────────────────────────────────────────────────────
@@ -507,32 +534,45 @@ export async function pgPatients(setTopbar, navigate) {
   </div>
 
   <div class="card" style="overflow-x:auto">
-    <table class="ds-table" id="patients-table">
-      <thead><tr>
-        <th>Patient</th><th>Condition</th><th>Modality</th><th>Status</th><th>Consent</th><th></th>
-      </tr></thead>
-      <tbody id="patients-body">
-        ${items.length === 0
-          ? `<tr><td colspan="6" style="text-align:center;padding:32px;color:var(--text-tertiary)">No patients yet. Add your first patient →</td></tr>`
-          : items.map(p => `<tr onclick="window.openPatient('${p.id}')">
-            <td><div style="display:flex;align-items:center;gap:10px">
-              <div class="avatar" style="width:30px;height:30px;font-size:10.5px;flex-shrink:0">${initials((p.first_name || '') + ' ' + (p.last_name || ''))}</div>
-              <div>
-                <div style="font-weight:500">${p.first_name || ''} ${p.last_name || ''}</div>
-                <div style="font-size:10.5px;color:var(--text-tertiary)">${p.dob ? p.dob : 'DOB unknown'}</div>
-              </div>
-            </div></td>
-            <td style="color:var(--text-secondary)">${p.primary_condition || '—'}</td>
-            <td><span class="tag">${p.primary_modality || '—'}</span></td>
-            <td>${pillSt(p.status || 'pending')}</td>
-            <td>${p.consent_signed ? '<span style="color:var(--green);font-size:12px">✓ Signed</span>' : '<span style="color:var(--amber);font-size:12px">Pending</span>'}</td>
-            <td style="display:flex;gap:4px">
-              <button class="btn btn-sm" onclick="event.stopPropagation();window.openPatient('${p.id}')">Open →</button>
-              <button class="btn btn-sm btn-danger" onclick="event.stopPropagation();window.deletePatient('${p.id}')">✕</button>
-            </td>
-          </tr>`).join('')}
-      </tbody>
-    </table>
+    ${items.length === 0
+      ? `<div style="text-align:center;padding:56px 24px">
+          <div style="font-size:42px;margin-bottom:16px;opacity:0.4">◉</div>
+          <div style="font-size:16px;font-weight:700;color:var(--text-primary);margin-bottom:8px">No patients yet</div>
+          <div style="font-size:13px;color:var(--text-secondary);margin-bottom:24px;max-width:340px;margin-left:auto;margin-right:auto">Add your first patient to start managing treatment courses and clinical records.</div>
+          <button class="btn btn-primary" onclick="window.showAddPatient()">+ Add Patient</button>
+        </div>`
+      : `<table class="ds-table" id="patients-table">
+          <thead><tr>
+            <th>Patient</th><th>Condition</th><th>Modality</th><th>Status</th><th>Courses</th><th>Consent</th><th></th>
+          </tr></thead>
+          <tbody id="patients-body">
+            ${items.map(p => {
+              const statusDot = p.status === 'active'
+                ? '<span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--green);margin-right:5px;flex-shrink:0"></span>'
+                : '<span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--text-tertiary);margin-right:5px;flex-shrink:0"></span>';
+              return `<tr onclick="window.openPatient('${p.id}')">
+                <td><div style="display:flex;align-items:center;gap:10px">
+                  ${statusDot}
+                  <div class="avatar" style="width:30px;height:30px;font-size:10.5px;flex-shrink:0">${initials((p.first_name || '') + ' ' + (p.last_name || ''))}</div>
+                  <div>
+                    <div style="font-weight:500">${p.first_name || ''} ${p.last_name || ''}</div>
+                    <div style="font-size:10.5px;color:var(--text-tertiary)">${p.dob ? p.dob : 'DOB unknown'}</div>
+                  </div>
+                </div></td>
+                <td style="color:var(--text-secondary)">${p.primary_condition || '—'}</td>
+                <td><span class="tag">${p.primary_modality || '—'}</span></td>
+                <td>${pillSt(p.status || 'pending')}</td>
+                <td style="font-size:12px;color:var(--text-tertiary)">${p._activeCourseCount != null ? `<span style="color:var(--teal);font-weight:600">${p._activeCourseCount}</span> active` : '—'}</td>
+                <td>${p.consent_signed ? '<span style="color:var(--green);font-size:12px">✓ Signed</span>' : '<span style="color:var(--amber);font-size:12px">Pending</span>'}</td>
+                <td style="display:flex;gap:4px">
+                  <button class="btn btn-sm" onclick="event.stopPropagation();window.openPatient('${p.id}')">Open →</button>
+                  <button class="btn btn-sm btn-danger" onclick="event.stopPropagation();window.deletePatient('${p.id}')">✕</button>
+                </td>
+              </tr>`;
+            }).join('')}
+          </tbody>
+        </table>`
+    }
   </div>`;
 
   window._patientsData = items;
@@ -553,18 +593,25 @@ export async function pgPatients(setTopbar, navigate) {
     const tbody = document.getElementById('patients-body');
     if (!tbody) return;
     tbody.innerHTML = filtered.length === 0
-      ? `<tr><td colspan="6" style="text-align:center;padding:32px;color:var(--text-tertiary)">No patients match filter.</td></tr>`
-      : filtered.map(p => `<tr onclick="window.openPatient('${p.id}')">
-          <td><div style="display:flex;align-items:center;gap:10px">
-            <div class="avatar" style="width:30px;height:30px;font-size:10.5px">${initials((p.first_name || '') + ' ' + (p.last_name || ''))}</div>
-            <div><div style="font-weight:500">${p.first_name} ${p.last_name}</div><div style="font-size:10.5px;color:var(--text-tertiary)">${p.dob || ''}</div></div>
-          </div></td>
-          <td style="color:var(--text-secondary)">${p.primary_condition || '—'}</td>
-          <td><span class="tag">${p.primary_modality || '—'}</span></td>
-          <td>${pillSt(p.status || 'pending')}</td>
-          <td>${p.consent_signed ? '<span style="color:var(--green)">✓</span>' : '<span style="color:var(--amber)">Pending</span>'}</td>
-          <td><button class="btn btn-sm" onclick="event.stopPropagation();window.openPatient('${p.id}')">Open →</button></td>
-        </tr>`).join('');
+      ? `<tr><td colspan="7" style="text-align:center;padding:32px;color:var(--text-tertiary)">No patients match filter.</td></tr>`
+      : filtered.map(p => {
+          const statusDot = p.status === 'active'
+            ? '<span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--green);margin-right:5px;flex-shrink:0"></span>'
+            : '<span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--text-tertiary);margin-right:5px;flex-shrink:0"></span>';
+          return `<tr onclick="window.openPatient('${p.id}')">
+            <td><div style="display:flex;align-items:center;gap:10px">
+              ${statusDot}
+              <div class="avatar" style="width:30px;height:30px;font-size:10.5px">${initials((p.first_name || '') + ' ' + (p.last_name || ''))}</div>
+              <div><div style="font-weight:500">${p.first_name} ${p.last_name}</div><div style="font-size:10.5px;color:var(--text-tertiary)">${p.dob || ''}</div></div>
+            </div></td>
+            <td style="color:var(--text-secondary)">${p.primary_condition || '—'}</td>
+            <td><span class="tag">${p.primary_modality || '—'}</span></td>
+            <td>${pillSt(p.status || 'pending')}</td>
+            <td style="font-size:12px;color:var(--text-tertiary)">${p._activeCourseCount != null ? `<span style="color:var(--teal);font-weight:600">${p._activeCourseCount}</span> active` : '—'}</td>
+            <td>${p.consent_signed ? '<span style="color:var(--green)">✓</span>' : '<span style="color:var(--amber)">Pending</span>'}</td>
+            <td><button class="btn btn-sm" onclick="event.stopPropagation();window.openPatient('${p.id}')">Open →</button></td>
+          </tr>`;
+        }).join('');
   };
 
   window.showAddPatient = function() {
@@ -738,6 +785,15 @@ export async function pgProfile(setTopbar, navigate) {
     navigate('protocol-wizard');
   };
 
+  function _showProfileToast(msg, isError = true) {
+    const b = document.createElement('div');
+    b.className = 'notice ' + (isError ? 'notice-warn' : 'notice-info');
+    b.style.cssText = 'position:fixed;top:16px;right:16px;z-index:9999;max-width:380px';
+    b.textContent = msg;
+    document.body.appendChild(b);
+    setTimeout(() => b.remove(), 4000);
+  }
+
   window._activateCourseFromProfile = async function(courseId) {
     try {
       await api.activateCourse(courseId);
@@ -745,19 +801,20 @@ export async function pgProfile(setTopbar, navigate) {
       window._currentCourses = updated;
       document.getElementById('ptab-body').innerHTML = renderProfileTab(pt, sessions, updated);
     } catch (e) {
-      alert(e.message || 'Activation failed.');
+      _showProfileToast(e.message || 'Activation failed.');
     }
   };
 
   window._updateCourseStatus = async function(courseId, status) {
-    if (!confirm(`Set course status to "${status}"?`)) return;
+    // Destructive actions require confirmation; status changes don't
+    if (status === 'discontinued' && !confirm('Permanently discontinue this treatment course? This cannot be undone.')) return;
     try {
       await api.updateCourse(courseId, { status });
       const updated = await api.listCourses({ patient_id: pt.id }).then(r => r?.items || []).catch(() => []);
       window._currentCourses = updated;
       document.getElementById('ptab-body').innerHTML = renderProfileTab(pt, sessions, updated);
     } catch (e) {
-      alert(e.message || 'Update failed.');
+      _showProfileToast(e.message || 'Update failed.');
     }
   };
 
@@ -820,14 +877,26 @@ function renderProfileTab(pt, sessions, courses = []) {
   }
 
   if (ptab === 'overview') return `<div class="g2">
-    <div>${cardWrap('Clinical Details', [
-      ['Name', name],
-      ['Condition', pt.primary_condition || '—'],
-      ['Gender', pt.gender || '—'],
-      ['DOB', pt.dob || '—'],
-      ['Referring Clinician', pt.referring_clinician || '—'],
-      ['Contraindications', pt.notes || 'None documented'],
-    ].map(([k, v]) => fr(k, v)).join(''))}</div>
+    <div>
+      ${cardWrap('Clinical Details', [
+        ['Name', name],
+        ['Condition', pt.primary_condition || '—'],
+        ['Gender', pt.gender || '—'],
+        ['DOB', pt.dob || '—'],
+        ['Referring Clinician', pt.referring_clinician || '—'],
+        ['Contraindications', pt.notes || 'None documented'],
+      ].map(([k, v]) => fr(k, v)).join(''))}
+      ${cardWrap('Risk Flags', (() => {
+        const contra = pt.notes ? pt.notes.toLowerCase() : '';
+        const hasContra = contra && contra !== 'none documented' && contra.length > 3;
+        const flags = [];
+        if (pt.primary_condition?.toLowerCase().includes('epilep')) flags.push({ msg: 'Epilepsy — check TMS/tDCS contraindications', level: 'warn' });
+        if (contra && hasContra) flags.push({ msg: `Contraindication note: ${pt.notes}`, level: 'warn' });
+        if (!pt.consent_signed) flags.push({ msg: 'Consent not yet signed', level: 'warn' });
+        if (flags.length === 0) return '<div class="notice notice-ok" style="margin:0"><span style="color:var(--green);font-weight:600">✓ No contraindications recorded.</span> This patient has no documented safety flags.</div>';
+        return flags.map(f => govFlag(f.msg, f.level)).join('');
+      })())}
+    </div>
     <div>
       ${cardWrap('Contact & Insurance', [
         ['Email', pt.email || '—'],
