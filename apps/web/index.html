@@ -1,12 +1,47 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>DeepSynaps Protocol Studio</title>
-    <script type="module" src="/src/main.tsx"></script>
-  </head>
-  <body class="bg-stone-950">
-    <div id="root"></div>
-  </body>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DeepSynaps Studio — Clinical OS</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;1,9..40,400&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/src/styles.css">
+</head>
+<body>
+
+<!-- Login overlay -->
+<div id="login-overlay"></div>
+
+<!-- Sidebar -->
+<div id="sidebar">
+  <div class="logo-wrap">
+    <div class="logo-icon">🧠</div>
+    <div>
+      <div class="logo-name">DeepSynaps</div>
+      <div class="logo-sub">Studio · Clinical OS</div>
+    </div>
+  </div>
+  <nav id="nav-list"></nav>
+  <div class="user-bar" id="user-bar">
+    <div class="avatar" id="user-avatar">?</div>
+    <div style="flex:1;min-width:0">
+      <div class="user-name" id="user-name">Loading…</div>
+      <div class="user-role" id="user-role">—</div>
+    </div>
+    <button class="btn btn-ghost btn-sm" onclick="window.doLogout()" title="Sign out" style="padding:4px 8px;flex-shrink:0">↪</button>
+  </div>
+</div>
+
+<!-- App shell -->
+<div id="app-shell">
+  <div id="topbar">
+    <div id="page-title">Dashboard</div>
+    <div style="display:flex;gap:8px;align-items:center" id="topbar-actions"></div>
+  </div>
+  <div id="content"></div>
+</div>
+
+<script type="module" src="/src/main.js"></script>
+</body>
 </html>
