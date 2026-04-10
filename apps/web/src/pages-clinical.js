@@ -29,20 +29,29 @@ export function setSelectedPatient(v) { selectedPatient = v; }
 export async function pgDash(setTopbar, navigate) {
   setTopbar('Dashboard', `<button class="btn btn-ghost btn-sm">Export</button><button class="btn btn-primary btn-sm" onclick="window._nav('protocols')">+ New Protocol</button>`);
 
-  let patCount = '—', sessCount = '—';
+  let patCount = '—', activeCoursesCount = '—', pendingReviewCount = '—', deliveredCount = '—';
   try {
-    const [pts, sess] = await Promise.all([api.listPatients(), api.listSessions()]);
+    const [pts, courses, queue] = await Promise.all([
+      api.listPatients().catch(() => null),
+      api.listCourses().catch(() => null),
+      api.listReviewQueue({ status: 'pending' }).catch(() => null),
+    ]);
     if (pts) patCount = pts.total ?? pts.items?.length ?? '—';
-    if (sess) sessCount = sess.total ?? sess.items?.length ?? '—';
+    if (courses) {
+      const items = courses.items || [];
+      activeCoursesCount = items.filter(c => c.status === 'active').length;
+      deliveredCount = items.reduce((sum, c) => sum + (c.sessions_delivered || 0), 0);
+    }
+    if (queue) pendingReviewCount = queue.total ?? queue.items?.length ?? '—';
   } catch {}
 
   return `
   <div class="g4">
     ${[
       { l: 'Active Patients', v: patCount, d: 'from your client list' },
-      { l: 'Total Sessions', v: sessCount, d: 'all recorded sessions' },
-      { l: 'Protocols Generated', v: '—', d: 'use Protocol Generator' },
-      { l: 'Avg. Outcome Score', v: '—', d: 'track via assessments' },
+      { l: 'Active Courses', v: activeCoursesCount, d: 'ongoing treatment courses' },
+      { l: 'Sessions Delivered', v: deliveredCount, d: 'across all courses' },
+      { l: 'Pending Reviews', v: pendingReviewCount, d: 'awaiting approval' },
     ].map(m => `<div class="metric-card"><div class="metric-label">${m.l}</div><div class="metric-value">${m.v}</div><div class="metric-delta">${m.d}</div></div>`).join('')}
   </div>
   <div class="g2">
@@ -50,20 +59,24 @@ export async function pgDash(setTopbar, navigate) {
       ${cardWrap('Quick Actions', `
         <div style="display:grid;gap:8px">
           ${[
-            { l: '+ Add New Patient', icon: '◉', page: 'patients' },
-            { l: 'Generate Protocol', icon: '⬡', page: 'protocols' },
-            { l: 'Run Assessment', icon: '◧', page: 'assessments' },
-            { l: 'Schedule Session', icon: '◻', page: 'scheduling' },
-            { l: 'Browse Evidence Library', icon: '◈', page: 'evidence' },
-            { l: 'Generate Handbook', icon: '◧', page: 'handbooks' },
+            { l: '+ New Treatment Course', icon: '◎', page: 'protocol-wizard' },
+            { l: '+ Add Patient', icon: '◉', page: 'patients' },
+            { l: 'Review Queue', icon: '◱', page: 'review-queue' },
+            { l: 'Session Execution', icon: '◧', page: 'session-execution' },
+            { l: 'Protocol Registry', icon: '◇', page: 'protocols-registry' },
+            { l: 'Evidence Library', icon: '◉', page: 'evidence' },
           ].map(a => `<button class="btn" style="text-align:left;display:flex;align-items:center;gap:10px" onclick="window._nav('${a.page}')"><span style="color:var(--teal)">${a.icon}</span>${a.l}</button>`).join('')}
         </div>
       `)}
     </div>
     <div>
-      ${cardWrap("Today's Schedule", `
-        <div style="padding:16px 0;text-align:center;color:var(--text-tertiary)">
-          <div style="font-size:11.5px">Go to <button class="btn btn-ghost btn-sm" onclick="window._nav('scheduling')">Scheduling →</button> to manage sessions</div>
+      ${cardWrap('Clinical Workflow', `
+        <div style="font-size:12px;color:var(--text-secondary);line-height:1.8">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px"><span style="color:var(--teal);font-size:16px">①</span> Add patient → <strong>Patients</strong></div>
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px"><span style="color:var(--teal);font-size:16px">②</span> Create course → <strong>Protocol Wizard</strong></div>
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px"><span style="color:var(--amber);font-size:16px">③</span> Review &amp; approve → <strong>Review Queue</strong></div>
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px"><span style="color:var(--teal);font-size:16px">④</span> Deliver session → <strong>Session Execution</strong></div>
+          <div style="display:flex;align-items:center;gap:8px"><span style="color:var(--violet);font-size:16px">⑤</span> Track outcomes → <strong>Outcomes &amp; Trends</strong></div>
         </div>
       `)}
       ${cardWrap('System Status', `
@@ -249,11 +262,12 @@ export async function pgProfile(setTopbar, navigate) {
   const el = document.getElementById('content');
   el.innerHTML = spinner();
 
-  let pt = null, sessions = [];
+  let pt = null, sessions = [], courses = [];
   try {
-    [pt, sessions] = await Promise.all([
+    [pt, sessions, courses] = await Promise.all([
       api.getPatient(id),
       api.listSessions(id).then(r => r?.items || []),
+      api.listCourses({ patient_id: id }).then(r => r?.items || []).catch(() => []),
     ]);
   } catch {}
 
@@ -265,7 +279,7 @@ export async function pgProfile(setTopbar, navigate) {
 
   setTopbar(`${name}`,
     `<button class="btn btn-ghost btn-sm" onclick="window._nav('patients')">← Patients</button>
-     <button class="btn btn-primary btn-sm" onclick="window.bookSession()">+ Book Session</button>`
+     <button class="btn btn-primary btn-sm" onclick="window.startNewCourse()">+ New Course</button>`
   );
 
   el.innerHTML = `
@@ -292,32 +306,88 @@ export async function pgProfile(setTopbar, navigate) {
   </div>
 
   <div class="tab-bar">
-    ${['overview', 'sessions', 'protocol', 'assessments', 'notes', 'billing'].map(t =>
-      `<button class="tab-btn ${ptab === t ? 'active' : ''}" onclick="window.switchPT('${t}')">${t}</button>`
+    ${['overview', 'courses', 'sessions', 'protocol', 'assessments', 'notes'].map(t =>
+      `<button class="tab-btn ${ptab === t ? 'active' : ''}" onclick="window.switchPT('${t}')">${t}${t === 'courses' && courses.length ? ` (${courses.length})` : ''}</button>`
     ).join('')}
   </div>
-  <div id="ptab-body">${renderProfileTab(pt, sessions)}</div>`;
+  <div id="ptab-body">${renderProfileTab(pt, sessions, courses)}</div>`;
 
   window._currentPatient = pt;
   window._currentSessions = sessions;
+  window._currentCourses = courses;
 
   window.switchPT = function(t) {
     ptab = t;
-    document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.textContent.trim() === t));
-    document.getElementById('ptab-body').innerHTML = renderProfileTab(pt, sessions);
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.textContent.trim().startsWith(t)));
+    document.getElementById('ptab-body').innerHTML = renderProfileTab(pt, sessions, window._currentCourses || []);
     if (t === 'protocol') bindAI(pt);
   };
 
-  window.bookSession = function() {
-    ptab = 'sessions';
-    navigate('profile');
+  window.startNewCourse = function() {
+    window._wizardPatientId = pt.id;
+    window._wizardPatientName = `${pt.first_name} ${pt.last_name}`;
+    navigate('protocol-wizard');
+  };
+
+  window._activateCourseFromProfile = async function(courseId) {
+    try {
+      await api.activateCourse(courseId);
+      // Refresh courses for this patient
+      const updated = await api.listCourses({ patient_id: pt.id }).then(r => r?.items || []).catch(() => []);
+      window._currentCourses = updated;
+      document.getElementById('ptab-body').innerHTML = renderProfileTab(pt, sessions, updated);
+    } catch (e) {
+      alert(e.message || 'Activation failed.');
+    }
   };
 
   if (ptab === 'protocol') bindAI(pt);
 }
 
-function renderProfileTab(pt, sessions) {
+function renderProfileTab(pt, sessions, courses = []) {
   const name = `${pt.first_name} ${pt.last_name}`;
+
+  if (ptab === 'courses') {
+    const STATUS_COLOR = { pending_approval:'var(--amber)', approved:'var(--blue)', active:'var(--teal)', paused:'var(--amber)', completed:'var(--green)', discontinued:'var(--red)' };
+    const GRADE_COLOR = { 'EV-A':'var(--teal)', 'EV-B':'var(--blue)', 'EV-C':'var(--amber)', 'EV-D':'var(--red)' };
+    return `
+      <div style="margin-bottom:12px;display:flex;gap:8px">
+        <button class="btn btn-primary btn-sm" onclick="window.startNewCourse()">+ New Treatment Course</button>
+      </div>
+      ${courses.length === 0
+        ? emptyState('◎', 'No treatment courses yet. Click "+ New Treatment Course" to start.')
+        : `<div style="display:flex;flex-direction:column;gap:8px">
+            ${courses.map(c => {
+              const sc = STATUS_COLOR[c.status] || 'var(--text-tertiary)';
+              const gc = GRADE_COLOR[c.evidence_grade] || 'var(--text-tertiary)';
+              const pct = c.planned_sessions_total > 0 ? Math.min(100, Math.round(c.sessions_delivered / c.planned_sessions_total * 100)) : 0;
+              return `<div class="card" style="padding:14px 18px">
+                <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+                  <span style="font-size:13px;font-weight:600;color:var(--text-primary);flex:1">${c.condition_slug} · ${c.modality_slug}</span>
+                  <span style="font-size:11px;font-weight:600;padding:2px 8px;border-radius:4px;background:${sc}22;color:${sc}">${c.status.replace(/_/g,' ')}</span>
+                  <span style="font-size:10px;padding:1px 6px;border-radius:3px;background:${gc}22;color:${gc}">${c.evidence_grade || '—'}</span>
+                  ${c.on_label ? '' : '<span style="font-size:10px;color:var(--amber)">Off-label</span>'}
+                </div>
+                <div style="margin-top:8px;font-size:11px;color:var(--text-secondary)">
+                  ${c.planned_sessions_per_week}×/wk · ${c.planned_sessions_total} sessions
+                  ${c.planned_frequency_hz ? ` · ${c.planned_frequency_hz} Hz` : ''}
+                </div>
+                <div style="margin-top:8px">
+                  <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--text-tertiary);margin-bottom:3px">
+                    <span>Progress</span><span>${c.sessions_delivered}/${c.planned_sessions_total}</span>
+                  </div>
+                  <div style="height:3px;border-radius:2px;background:var(--border)">
+                    <div style="height:3px;border-radius:2px;background:${sc};width:${pct}%"></div>
+                  </div>
+                </div>
+                ${c.status === 'pending_approval' ? `<div style="margin-top:8px"><button class="btn btn-sm" onclick="window._activateCourseFromProfile('${c.id}')">Approve &amp; Activate</button></div>` : ''}
+                ${c.governance_warnings?.length ? `<div style="margin-top:6px;font-size:11px;color:var(--amber)">⚠ ${c.governance_warnings.join(' · ')}</div>` : ''}
+              </div>`;
+            }).join('')}
+          </div>`
+      }`;
+  }
+
   if (ptab === 'overview') return `<div class="g2">
     <div>${cardWrap('Clinical Details', [
       ['Name', name],
@@ -336,7 +406,8 @@ function renderProfileTab(pt, sessions) {
         ['Consent Signed', pt.consent_signed ? `<span style="color:var(--green)">Yes — ${pt.consent_date || ''}</span>` : '<span style="color:var(--amber)">Not yet</span>'],
       ].map(([k, v]) => fr(k, v)).join(''))}
       ${cardWrap('Quick Links', `<div style="display:grid;gap:7px">
-        <button class="btn btn-sm" onclick="window.switchPT('protocol')">Generate Protocol ⬡</button>
+        <button class="btn btn-sm" onclick="window.startNewCourse()">+ New Treatment Course ◎</button>
+        <button class="btn btn-sm" onclick="window.switchPT('courses')">View Courses</button>
         <button class="btn btn-sm" onclick="window.switchPT('sessions')">View Sessions</button>
         <button class="btn btn-sm" onclick="window.switchPT('assessments')">Run Assessment</button>
       </div>`)}
@@ -585,10 +656,18 @@ export function pgProtocols(setTopbar) {
 }
 
 function renderProStep() {
-  if (proStep === 0) return `<div class="g2">
+  if (proStep === 0) {
+    const prefilledName = window._wizardPatientName ? `<div class="notice notice-info" style="margin-bottom:12px">Patient: <strong>${window._wizardPatientName}</strong></div>` : '';
+    return `<div class="g2">
     ${cardWrap('Select Patient', `
-      <div style="font-size:12px;color:var(--text-secondary);margin-bottom:12px">Select from your patient list or enter context manually.</div>
-      <button class="btn btn-sm" onclick="window._nav('patients')">Open Patient List →</button>
+      ${prefilledName}
+      <div class="form-group">
+        <label class="form-label">Patient</label>
+        <select id="proto-patient" class="form-control">
+          <option value="${window._wizardPatientId || ''}">${window._wizardPatientName || 'Loading patients…'}</option>
+        </select>
+      </div>
+      <div style="font-size:11px;color:var(--text-tertiary);margin-top:4px">Or <button class="btn btn-ghost btn-sm" onclick="window._nav('patients')">add a new patient →</button></div>
     `)}
     ${cardWrap('Clinical Context', `
       <div class="form-group">
@@ -604,11 +683,10 @@ function renderProStep() {
         </select>
       </div>
       <div class="form-group"><label class="form-label">Key Symptoms</label><input id="proto-key-symptoms" class="form-control" placeholder="e.g. anhedonia, fatigue, poor concentration"></div>
-      <div class="form-group"><label class="form-label">Prior Treatments</label><input id="proto-prior-treatments" class="form-control" placeholder="e.g. SSRIs, CBT, rTMS"></div>
-      <div class="form-group"><label class="form-label">Contraindications</label><input id="proto-contraindications" class="form-control" placeholder="e.g. pacemaker, epilepsy"></div>
     `)}
   </div>
   <div style="text-align:right;margin-top:4px"><button class="btn btn-primary" onclick="window.nextStep()">Next: Modality & Type →</button></div>`;
+  }
 
   if (proStep === 1) return `
     ${cardWrap('Select Modality', `
@@ -702,16 +780,29 @@ function renderProStep() {
     </div></div>`;
   }
 
-  if (proStep === 3) return `<div id="proto-review">
-    <div class="notice notice-info" style="margin-bottom:16px">Click <strong>Generate via API</strong> to create a protocol using the backend engine.</div>
+  if (proStep === 3) {
+    const rp = window._registryProtocol || {};
+    const protocolId = rp.Protocol_ID || rp.id || '';
+    const hasProto = !!protocolId;
+    return `<div id="proto-review">
+    ${hasProto
+      ? `<div class="notice notice-info" style="margin-bottom:16px">
+           <strong>Registry Protocol:</strong> ${rp.Protocol_Name || rp.name || protocolId}
+           ${rp.Evidence_Grade ? `· <span style="color:var(--teal)">${rp.Evidence_Grade}</span>` : ''}
+           ${rp.On_Label_vs_Off_Label?.toLowerCase().startsWith('on') ? '' : ' · <span style="color:var(--amber)">Off-label</span>'}
+         </div>`
+      : `<div class="notice notice-warn" style="margin-bottom:16px">No registry protocol selected. Go back to Step 2 and click a protocol card.</div>`
+    }
     <div style="display:flex;gap:8px;justify-content:space-between">
       <button class="btn" onclick="window.prevStep()">← Back</button>
       <div style="display:flex;gap:8px">
-        <button class="btn btn-primary" onclick="window.generateProtoAPI()" id="gen-btn">Generate Protocol ✦</button>
+        <button class="btn btn-sm" onclick="window.generateProtoAPI()">Generate DOCX only</button>
+        <button class="btn btn-primary" onclick="window.createTreatmentCourse()" id="gen-btn" ${hasProto ? '' : 'disabled'}>Create Treatment Course ◎</button>
       </div>
     </div>
     <div id="proto-result" style="margin-top:20px"></div>
   </div>`;
+  }
 
   return '';
 }
@@ -882,10 +973,67 @@ export function bindProtoPage() {
     } catch (e) { alert(e.message); }
   };
 
+  // Create treatment course from registry protocol
+  window.createTreatmentCourse = async function() {
+    const btn = document.getElementById('gen-btn');
+    const res = document.getElementById('proto-result');
+    const rp = window._registryProtocol || {};
+    const protocolId = rp.Protocol_ID || rp.id || '';
+    if (!protocolId) { if (res) res.innerHTML = `<div class="notice notice-warn">No registry protocol selected.</div>`; return; }
+
+    const patientEl = document.getElementById('proto-patient');
+    const patientId = patientEl?.value || window._wizardPatientId || '';
+    if (!patientId) { if (res) res.innerHTML = `<div class="notice notice-warn">Please select a patient first (Step 1).</div>`; return; }
+
+    if (btn) btn.disabled = true;
+    if (res) res.innerHTML = spinner();
+    try {
+      const course = await api.createCourse({
+        patient_id: patientId,
+        protocol_id: protocolId,
+        clinician_notes: document.getElementById('proto-key-symptoms')?.value || null,
+      });
+      const govWarn = course.governance_warnings?.length
+        ? `<div class="notice notice-warn" style="margin-top:10px">⚠ Governance flags:<br>${course.governance_warnings.join('<br>')}</div>`
+        : '';
+      if (res) res.innerHTML = `
+        <div class="card" style="padding:20px">
+          <div style="color:var(--green);font-size:13px;font-weight:600;margin-bottom:8px">✓ Treatment Course Created</div>
+          <div style="font-size:12px;color:var(--text-secondary);display:flex;flex-direction:column;gap:4px">
+            <div>Status: <strong style="color:var(--amber)">${course.status?.replace(/_/g,' ')}</strong></div>
+            <div>Protocol: ${rp.Protocol_Name || protocolId}</div>
+            <div>Sessions: ${course.planned_sessions_total} total · ${course.planned_sessions_per_week}×/wk</div>
+            ${course.planned_frequency_hz ? `<div>Frequency: ${course.planned_frequency_hz} Hz</div>` : ''}
+            ${course.planned_intensity ? `<div>Intensity: ${course.planned_intensity}</div>` : ''}
+            ${course.review_required ? `<div style="color:var(--amber);margin-top:4px">Review required before activation.</div>` : ''}
+          </div>
+          ${govWarn}
+          <div style="margin-top:14px;display:flex;gap:8px">
+            <button class="btn btn-primary btn-sm" onclick="window._nav('courses')">View Treatment Courses</button>
+            ${course.review_required ? `<button class="btn btn-sm" onclick="window._nav('review-queue')">Go to Review Queue</button>` : ''}
+          </div>
+        </div>`;
+    } catch (e) {
+      if (res) res.innerHTML = `<div class="notice notice-warn">${e.message || 'Failed to create course.'}</div>`;
+    }
+    if (btn) btn.disabled = false;
+  };
+
   // Load registry data for Step 0 (conditions) and Step 1 (modalities + protocols)
   if (proStep === 0) {
     // Defer slightly so DOM is ready
-    setTimeout(() => loadProtocolWizardRegistry(), 50);
+    setTimeout(async () => {
+      await loadProtocolWizardRegistry();
+      // Also load patients for patient selector
+      try {
+        const pts = await api.listPatients();
+        const patEl = document.getElementById('proto-patient');
+        if (patEl && pts?.items?.length) {
+          patEl.innerHTML = `<option value="">Select patient…</option>` +
+            pts.items.map(p => `<option value="${p.id}" ${p.id === window._wizardPatientId ? 'selected' : ''}>${p.first_name} ${p.last_name}</option>`).join('');
+        }
+      } catch {}
+    }, 50);
   }
   if (proStep === 1) {
     // Load modalities from registry and wire condition→protocol refresh
