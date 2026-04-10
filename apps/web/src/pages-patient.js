@@ -5,25 +5,27 @@ import { currentUser } from './auth.js';
 
 // ── Nav definition ────────────────────────────────────────────────────────────
 const PATIENT_NAV = [
-  { id: 'patient-portal',       label: 'My Dashboard',      icon: '◈' },
-  { id: 'patient-sessions',     label: 'Sessions',           icon: '◧' },
-  { id: 'patient-course',       label: 'My Treatment',       icon: '◎' },
-  { id: 'patient-assessments',  label: 'Assessments',        icon: '◉' },
-  { id: 'patient-reports',      label: 'Reports',            icon: '◱' },
-  { id: 'patient-messages',     label: 'Messages',           icon: '◫' },
-  { id: 'patient-wearables',    label: 'Wearables',          icon: '◌' },
-  { id: 'pt-wellness',          label: 'Wellness Check-in',  icon: '💚' },
-  { id: 'pt-learn',             label: 'Learn & Resources',  icon: '📚' },
-  { id: 'patient-profile',      label: 'Profile & Settings', icon: '◇' },
+  { id: 'patient-portal',       label: 'My Dashboard',        icon: '◈' },
+  { id: 'patient-sessions',     label: 'Sessions',             icon: '◧' },
+  { id: 'patient-course',       label: 'Treatment Plan',       icon: '◎' },
+  { id: 'patient-assessments',  label: 'Assessments',          icon: '◉' },
+  { id: 'patient-reports',      label: 'Documents & Reports',  icon: '◱' },
+  { id: 'patient-messages',     label: 'Secure Messages',      icon: '◫' },
+  { id: 'patient-wearables',    label: 'Wearables',            icon: '◌' },
+  { id: 'pt-wellness',          label: 'Daily Check-in',       icon: '💚' },
+  { id: 'pt-learn',             label: 'Learn & Resources',    icon: '📚' },
+  { id: 'patient-profile',      label: 'Profile & Settings',   icon: '◇' },
 ];
 
 // Bottom nav: 5 key items for mobile
 const PATIENT_BOTTOM_NAV = [
-  { id: 'patient-portal',    label: 'Portal',    icon: '◈' },
+  { id: 'patient-portal',    label: 'Home',      icon: '◈' },
   { id: 'patient-sessions',  label: 'Sessions',  icon: '◧' },
-  { id: 'pt-wellness',       label: 'Wellness',  icon: '💚' },
-  { id: 'pt-learn',          label: 'Learn',     icon: '📚' },
+  { id: 'pt-wellness',       label: 'Check-in',  icon: '💚' },
+  { id: 'patient-messages',  label: 'Messages',  icon: '◫' },
   { id: 'patient-profile',   label: 'Profile',   icon: '◇' },
+  { id: 'pt-journal',        label: 'Journal',   icon: '📔' },
+  { id: 'pt-notifications',  label: 'Alerts',    icon: '🔔' },
 ];
 
 export function renderPatientNav(currentPage) {
@@ -47,7 +49,7 @@ export function renderPatientNav(currentPage) {
   }
 }
 
-function setTopbar(title, html = '') {
+export function setTopbar(title, html = '') {
   document.getElementById('patient-page-title').textContent = title;
   document.getElementById('patient-topbar-actions').innerHTML = html;
 }
@@ -149,287 +151,348 @@ function daysUntil(d) {
   } catch (_e) { return null; }
 }
 
-// ── Dashboard ─────────────────────────────────────────────────────────────────
+// ── Dashboard ─────────────────────────────────────────────────────────────────────────────
 export async function pgPatientDashboard(user) {
   setTopbar('My Dashboard');
   const firstName = (user?.display_name || 'there').split(' ')[0];
-  const uid = user?.id;
 
   const el = document.getElementById('patient-content');
   el.innerHTML = spinner();
 
-  // Fetch live data via patient portal endpoints (no clinician role required)
-  const [portalSessions, portalCourses] = await Promise.all([
+  const [portalSessions, portalCourses, portalOutcomes] = await Promise.all([
     api.patientPortalSessions().catch(() => null),
     api.patientPortalCourses().catch(() => null),
+    api.patientPortalOutcomes().catch(() => null),
   ]);
 
   const sessions = Array.isArray(portalSessions) ? portalSessions : [];
-  const messages = [];  // Messages via Telegram — no portal endpoint yet
+  const outcomes = Array.isArray(portalOutcomes) ? portalOutcomes : [];
 
   // Resolve active course
-  let activeCourse = null;
-  const coursesArr = Array.isArray(portalCourses) ? portalCourses : [];
-  activeCourse = coursesArr.find(c => c.status === 'active') || coursesArr[0] || null;
+  const coursesArr   = Array.isArray(portalCourses) ? portalCourses : [];
+  const activeCourse = coursesArr.find(c => c.status === 'active') || coursesArr[0] || null;
 
-  // Metrics — portal sessions are all delivered (no status/scheduled_at)
-  const sessionsDone  = sessions.length;
+  // Session metrics
   const totalPlanned  = activeCourse?.total_sessions_planned ?? null;
-  const sessDelivered = activeCourse?.session_count ?? sessionsDone;
+  const sessDelivered = activeCourse?.session_count ?? sessions.length;
   const progressPct   = (totalPlanned && sessDelivered) ? Math.round((sessDelivered / totalPlanned) * 100) : null;
 
-  // No upcoming session data from portal endpoint
-  const upcomingSessions = [];
-  // Try to find next session from sessions array (look for scheduled_at in the future)
+  // Next upcoming session
   const now = Date.now();
   const upcomingFromSessions = sessions.filter(s => s.scheduled_at && new Date(s.scheduled_at).getTime() > now);
   upcomingFromSessions.sort((a, b) => new Date(a.scheduled_at) - new Date(b.scheduled_at));
   const nextSess  = upcomingFromSessions[0] || null;
-  const nextDays  = nextSess ? daysUntil(nextSess.scheduled_at) : null;
-  const nextHrs   = 0;
   const nextLabel = nextSess
-    ? new Date(nextSess.scheduled_at).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
+    ? new Date(nextSess.scheduled_at).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
+    : null;
+  const nextTime  = nextSess
+    ? new Date(nextSess.scheduled_at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
     : null;
 
-  // Wellness check-in state
-  const todayStr = new Date().toISOString().slice(0, 10);
-  const lastCheckin = localStorage.getItem('ds_last_checkin');
-  const checkedInToday = lastCheckin === todayStr;
+  // Daily check-in state
+  const todayStr       = new Date().toISOString().slice(0, 10);
+  const checkedInToday = localStorage.getItem('ds_last_checkin') === todayStr;
 
-  // Unread messages
-  const unreadCount = messages.filter(m => m.is_read === false || m.read === false || m.unread === true).length;
+  // Tasks due
+  const tasks = [];
+  if (!checkedInToday) tasks.push({ label: 'Complete your daily check-in', link: 'pt-wellness' });
+  const taskCount = tasks.length;
 
-  // Recent messages (first 3)
-  const recentMsgs = messages.slice(0, 3);
+  // Latest outcome / document
+  const sortedOutcomes = outcomes.slice().sort((a, b) =>
+    new Date(b.administered_at || 0) - new Date(a.administered_at || 0));
+  const latestDoc = sortedOutcomes[0] || null;
 
-  // Wellbeing sparkline data (dummy series — real series not available in API)
-  const sparkData = {
-    depression:  [28, 35, 42, 50, 55, 61, 65, 68],
-    anxiety:     [20, 27, 33, 40, 44, 50, 52, 55],
-    sleep:       [40, 45, 52, 58, 62, 67, 70, 72],
-    wellbeing:   [30, 37, 44, 50, 54, 59, 62, 65],
-  };
+  // Treatment phase + plain-language helpers (defined as named functions to avoid lint warnings)
+  function phaseLabel(pct) {
+    if (!pct)       return 'Starting';
+    if (pct <= 25)  return 'Initial Phase';
+    if (pct <= 50)  return 'Active Phase';
+    if (pct <= 75)  return 'Consolidation';
+    if (pct < 100)  return 'Final Phase';
+    return 'Complete';
+  }
+  function plainLang(pct) {
+    if (!pct)
+      return "Your treatment plan has been set up. Your first session will begin your programme.";
+    if (pct <= 25)
+      return "You\'re in the early phase. It\'s normal not to notice changes yet — your brain is starting to respond. Consistent attendance matters most now.";
+    if (pct <= 50)
+      return "You\'re making solid progress. Many patients begin noticing early changes in this phase. Keep attending sessions and tracking your daily check-ins.";
+    if (pct <= 75)
+      return "You\'re past the halfway point. Your brain is consolidating the training. Continue tracking symptoms and raise any changes with your clinician.";
+    if (pct < 100)
+      return "You\'re in the final stretch. This phase reinforces the changes made so far. Your clinician may discuss a review or next steps soon.";
+    return "You\'ve completed your treatment plan. Your clinician will discuss next steps or a maintenance schedule at your review.";
+  }
 
-  // Milestones data
-  const milestonesData = getPatientMilestones(sessions, []);
+  // Greeting
+  const hour     = new Date().getHours();
+  const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
+  const todayFmt = new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
 
   el.innerHTML = `
-    <div style="margin-bottom:24px">
-      <div style="font-family:var(--font-display);font-size:19px;font-weight:600;color:var(--text-primary);margin-bottom:4px">
-        Welcome back, ${firstName} 👋
+    <!-- Header -->
+    <div style="margin-bottom:20px">
+      <div style="font-family:var(--font-display);font-size:19px;font-weight:600;color:var(--text-primary);margin-bottom:3px">
+        ${greeting}, ${firstName}
       </div>
-      <div style="font-size:12.5px;color:var(--text-secondary)">Here's your treatment journey at a glance.</div>
+      <div style="font-size:12.5px;color:var(--text-secondary)">${todayFmt}</div>
     </div>
 
-    <!-- Countdown timer card -->
-    ${nextSess
-      ? `<div class="ds-card" style="margin-bottom:16px;padding:16px;border-radius:var(--radius-lg);border:1px solid var(--teal,#00d4bc);background:linear-gradient(135deg,rgba(0,212,188,0.1),rgba(99,102,241,0.1))">
-          <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px">
-            <div>
-              <div style="font-size:0.75rem;text-transform:uppercase;letter-spacing:.05em;color:var(--teal);margin-bottom:4px">Next Session</div>
-              <div style="font-size:1.1rem;font-weight:600" id="next-session-name">${nextSess.modality_slug?.toUpperCase() || nextSess.condition_slug || 'Treatment Session'}</div>
-              <div style="font-size:0.85rem;color:var(--text-secondary);margin-top:2px" id="next-session-date">${nextLabel}</div>
-            </div>
-            <div id="session-countdown" style="text-align:center">
-              <div style="font-family:'DM Mono',monospace;font-size:2rem;font-weight:700;color:var(--teal)" id="countdown-display">--:--:--</div>
-              <div style="font-size:0.7rem;color:var(--text-secondary);margin-top:4px">until your session</div>
-            </div>
-          </div>
-        </div>`
-      : `<div class="card" style="margin-bottom:16px">
-          <div class="card-body" style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 16px">
-            <div style="font-size:13px;color:var(--text-secondary)">No upcoming sessions scheduled.</div>
-            <a href="#" onclick="window._navPatient('patient-messages');return false;" style="font-size:12px;color:var(--teal);text-decoration:none;font-weight:500">Message your clinician →</a>
-          </div>
-        </div>`}
+    <!-- 3 Primary Cards -->
+    <div class="pt-primary-cards">
 
-    <!-- Wellness quick card -->
+      <div class="pt-primary-card ${nextSess ? 'session' : 'muted'}" onclick="window._navPatient('patient-sessions')" style="cursor:pointer" role="button" tabindex="0">
+        <div class="pt-pc-eyebrow">Next Session</div>
+        ${nextSess
+          ? `<div class="pt-pc-main">${nextLabel}</div>
+             <div class="pt-pc-detail">${nextTime}${nextSess.modality_slug ? ' · ' + nextSess.modality_slug.toUpperCase() : ''}</div>`
+          : `<div class="pt-pc-main pt-pc-main--muted">Not scheduled</div>
+             <div class="pt-pc-detail">Contact your clinic</div>`}
+        <div class="pt-pc-action">View sessions →</div>
+      </div>
+
+      <div class="pt-primary-card plan" onclick="window._navPatient('patient-course')" style="cursor:pointer" role="button" tabindex="0">
+        <div class="pt-pc-eyebrow">Treatment Plan</div>
+        ${activeCourse
+          ? `<div class="pt-pc-main">${activeCourse.condition_slug || 'Active'}</div>
+             <div class="pt-pc-detail">${sessDelivered} of ${totalPlanned ?? '?'} sessions${progressPct !== null ? ' · ' + progressPct + '%' : ''}</div>`
+          : `<div class="pt-pc-main pt-pc-main--muted">Not assigned</div>
+             <div class="pt-pc-detail">Speak with your clinic</div>`}
+        <div class="pt-pc-action">View plan →</div>
+      </div>
+
+      <div class="pt-primary-card ${taskCount > 0 ? 'tasks' : 'clear'}"
+           onclick="window._navPatient('${taskCount > 0 ? tasks[0].link : 'patient-assessments'}')"
+           style="cursor:pointer" role="button" tabindex="0">
+        <div class="pt-pc-eyebrow">Tasks Due</div>
+        ${taskCount > 0
+          ? `<div class="pt-pc-main">${taskCount} task${taskCount > 1 ? 's' : ''}</div>
+             <div class="pt-pc-detail">${tasks[0].label}</div>`
+          : `<div class="pt-pc-main pt-pc-main--clear">All caught up</div>
+             <div class="pt-pc-detail">Nothing pending today</div>`}
+        <div class="pt-pc-action">${taskCount > 0 ? 'Complete now →' : 'View assessments →'}</div>
+      </div>
+    </div>
+
+    <!-- Daily Check-in -->
     ${checkedInToday
-      ? `<div class="card" style="margin-bottom:16px;background:rgba(0,212,188,0.05);border-color:var(--teal)">
-          <div class="card-body" style="display:flex;align-items:center;gap:12px;padding:14px 16px">
-            <span style="font-size:20px">✅</span>
-            <div style="flex:1;font-size:13px;color:var(--text-primary);font-weight:500">Wellness check-in complete for today</div>
+      ? `<div class="card" style="margin-bottom:20px;border-color:rgba(0,212,188,0.35);background:rgba(0,212,188,0.04)">
+          <div class="card-body" style="display:flex;align-items:center;gap:12px;padding:13px 16px">
+            <span style="font-size:15px;color:var(--teal)">✓</span>
+            <div style="flex:1">
+              <span style="font-size:13px;font-weight:500;color:var(--text-primary)">Daily check-in complete</span>
+              <span style="font-size:11.5px;color:var(--text-tertiary);margin-left:8px">Your care team can see today's update.</span>
+            </div>
             <button class="btn btn-ghost btn-sm" onclick="window._navPatient('pt-wellness')">View →</button>
           </div>
         </div>`
-      : `<div class="card" style="margin-bottom:16px">
-          <div class="card-body" style="display:flex;align-items:center;gap:12px;padding:14px 16px">
-            <span style="font-size:20px">💚</span>
-            <div style="flex:1">
-              <div style="font-size:13px;font-weight:500;color:var(--text-primary)">How are you feeling today?</div>
-              <div style="font-size:11.5px;color:var(--text-secondary);margin-top:2px">Track mood, sleep &amp; energy for your care team</div>
+      : `<div class="card" style="margin-bottom:20px" id="pt-dash-checkin-card">
+          <div class="card-header" style="display:flex;justify-content:space-between;align-items:center">
+            <h3>Daily Check-in</h3>
+            <span style="font-size:10.5px;font-weight:600;color:var(--amber,#f59e0b);background:rgba(245,158,11,0.1);padding:3px 9px;border-radius:99px;border:1px solid rgba(245,158,11,0.25)">Due today</span>
+          </div>
+          <div class="card-body" style="padding:16px 20px">
+            <div style="font-size:12px;color:var(--text-tertiary);margin-bottom:18px;line-height:1.55">
+              Rate how you're doing today. Your care team reviews this daily as part of your treatment monitoring.
             </div>
-            <button class="btn btn-primary btn-sm" onclick="window._navPatient('pt-wellness')">Check in now →</button>
+            <div class="pt-checkin-grid">
+              ${[
+                { id: 'dc-mood',   label: 'Mood',    color: 'var(--teal)',   low: 'Low',  high: 'Good' },
+                { id: 'dc-sleep',  label: 'Sleep',   color: 'var(--blue)',   low: 'Poor', high: 'Good' },
+                { id: 'dc-energy', label: 'Energy',  color: 'var(--violet)', low: 'Low',  high: 'High' },
+              ].map(s => `
+                <div class="pt-checkin-row">
+                  <div style="display:flex;justify-content:space-between;margin-bottom:5px">
+                    <label style="font-size:12.5px;font-weight:500;color:var(--text-primary)">${s.label}</label>
+                    <span id="${s.id}-val" style="font-size:12px;font-weight:600;color:${s.color};min-width:18px;text-align:right">5</span>
+                  </div>
+                  <input type="range" id="${s.id}" min="1" max="10" value="5"
+                         oninput="document.getElementById('${s.id}-val').textContent=this.value"
+                         style="width:100%;accent-color:${s.color}">
+                  <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--text-tertiary);margin-top:3px">
+                    <span>${s.low}</span><span>${s.high}</span>
+                  </div>
+                </div>
+              `).join('')}
+            </div>
+            <div style="margin-top:14px">
+              <label style="font-size:12.5px;font-weight:500;color:var(--text-primary);display:block;margin-bottom:6px">Side effects today</label>
+              <select id="dc-side-effects" class="form-control" style="font-size:12.5px">
+                <option value="none">None</option>
+                <option value="headache">Headache</option>
+                <option value="fatigue">Fatigue / tiredness</option>
+                <option value="dizziness">Dizziness or lightheadedness</option>
+                <option value="tingling">Tingling or scalp sensation</option>
+                <option value="mood_change">Mood change</option>
+                <option value="concentration">Difficulty concentrating</option>
+                <option value="other">Other (describe in notes)</option>
+              </select>
+            </div>
+            <div style="margin-top:10px">
+              <textarea id="dc-notes" class="form-control" rows="2"
+                        placeholder="Any notes for your care team… (optional)"
+                        style="resize:none;font-size:12.5px"></textarea>
+            </div>
+            <button class="btn btn-primary" style="width:100%;margin-top:14px;padding:11px"
+                    onclick="window._dashSubmitCheckin()">
+              Submit Check-in
+            </button>
           </div>
         </div>`}
 
-    <!-- Milestones badges -->
-    <div class="card" style="margin-bottom:24px">
-      <div class="card-header"><h3>Your Progress</h3></div>
+    <!-- Treatment Progress -->
+    <div class="card" style="margin-bottom:20px">
+      <div class="card-header" style="display:flex;justify-content:space-between;align-items:center">
+        <h3>Treatment Progress</h3>
+        <button class="btn btn-ghost btn-sm" onclick="window._navPatient('patient-course')">Full plan →</button>
+      </div>
+      <div class="card-body" style="padding:16px 20px">
+        ${activeCourse
+          ? `<div class="pt-progress-rows">
+              <div class="pt-progress-row">
+                <span class="pt-pr-label">Phase</span>
+                <span class="pt-pr-value">${phaseLabel(progressPct)}</span>
+              </div>
+              <div class="pt-progress-row">
+                <span class="pt-pr-label">Sessions completed</span>
+                <span class="pt-pr-value">${sessDelivered} of ${totalPlanned ?? '—'}</span>
+              </div>
+              ${latestDoc ? `
+              <div class="pt-progress-row">
+                <span class="pt-pr-label">Latest assessment</span>
+                <span class="pt-pr-value">${latestDoc.template_title || 'Assessment'} · ${fmtDate(latestDoc.administered_at)}</span>
+              </div>` : ''}
+              <div class="pt-progress-row">
+                <span class="pt-pr-label">Care status</span>
+                <span class="pt-pr-value" style="color:var(--teal)">${activeCourse.status === 'active' ? 'Active — attending' : (activeCourse.status || 'Assigned')}</span>
+              </div>
+            </div>
+            <div class="progress-bar" style="height:7px;margin:14px 0 4px">
+              <div class="progress-fill" style="width:${progressPct || 0}%"></div>
+            </div>
+            <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text-tertiary);margin-bottom:16px">
+              <span>0 sessions</span>
+              <span>${totalPlanned ? totalPlanned + ' sessions total' : 'No total set'}</span>
+            </div>
+            <div class="pt-plain-language">
+              <div class="pt-pl-title">What this means</div>
+              <div class="pt-pl-body">${plainLang(progressPct)}</div>
+              <div class="pt-pl-footer">
+                <a href="#" onclick="window._navPatient('pt-learn');return false"
+                   style="color:var(--teal);text-decoration:none;font-size:11.5px">Treatment glossary →</a>
+                <span style="color:var(--text-tertiary);margin:0 8px">·</span>
+                <span style="font-size:11.5px;color:var(--text-tertiary)">Have a question? Note it for your next session.</span>
+              </div>
+            </div>`
+          : `<div style="text-align:center;padding:24px;color:var(--text-tertiary)">
+              <div style="font-size:18px;margin-bottom:8px;opacity:.4">◎</div>
+              No active treatment course.<br>
+              <span style="font-size:12px">Contact your clinic to get started.</span>
+            </div>`}
+      </div>
+    </div>
+
+    <!-- Latest Document -->
+    <div class="card" style="margin-bottom:20px">
+      <div class="card-header" style="display:flex;justify-content:space-between;align-items:center">
+        <h3>Latest Document</h3>
+        <button class="btn btn-ghost btn-sm" onclick="window._navPatient('patient-reports')">All documents →</button>
+      </div>
       <div class="card-body" style="padding:14px 16px">
-        <div style="display:flex;gap:10px;overflow-x:auto;padding-bottom:4px">
-          ${milestonesData.map(m => `
-            <div style="flex-shrink:0;width:90px;text-align:center;opacity:${m.earned ? '1' : '0.4'}">
-              <div style="width:52px;height:52px;border-radius:50%;margin:0 auto 6px;display:flex;align-items:center;justify-content:center;font-size:22px;border:2px solid ${m.earned ? 'var(--teal)' : 'var(--border)'};background:${m.earned ? 'rgba(0,212,188,0.1)' : 'rgba(255,255,255,0.03)'}">${m.icon}</div>
-              <div style="font-size:10.5px;font-weight:${m.earned ? '600' : '400'};color:${m.earned ? 'var(--text-primary)' : 'var(--text-tertiary)'};line-height:1.3">${m.title}</div>
-            </div>
-          `).join('')}
-        </div>
+        ${latestDoc
+          ? `<div style="display:flex;align-items:flex-start;gap:14px">
+              <div style="width:40px;height:40px;border-radius:var(--radius-md);background:rgba(74,158,255,0.1);display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0;color:var(--blue)">◱</div>
+              <div style="flex:1">
+                <div style="font-size:13px;font-weight:500;color:var(--text-primary)">${latestDoc.template_title || latestDoc.template_id || 'Outcome Report'}</div>
+                <div style="font-size:11.5px;color:var(--text-tertiary);margin-top:3px">${fmtDate(latestDoc.administered_at)}${latestDoc.score != null ? ' · Score: ' + latestDoc.score : ''}${latestDoc.measurement_point ? ' · ' + latestDoc.measurement_point : ''}</div>
+                <div class="pt-plain-language" style="margin-top:10px">
+                  <div class="pt-pl-title">About this report</div>
+                  <div class="pt-pl-body">This assessment was completed as part of your routine monitoring. Your clinician uses these scores to track your progress over time.</div>
+                  <div class="pt-pl-footer">
+                    <span style="font-size:11.5px;color:var(--text-tertiary)">Questions about your results? Bring them up at your next session.</span>
+                  </div>
+                </div>
+              </div>
+            </div>`
+          : `<div style="text-align:center;padding:24px;color:var(--text-tertiary)">
+              <div style="font-size:18px;margin-bottom:8px;opacity:.4">◱</div>
+              No reports available yet.<br>
+              <span style="font-size:12px">Your care team will add reports after each assessment.</span>
+            </div>`}
       </div>
     </div>
 
-    <div class="g3" style="margin-bottom:24px">
-      <div class="metric-card" style="border-color:var(--border-blue)">
-        <div class="metric-label">Sessions Completed</div>
-        <div class="metric-value" style="color:var(--teal)">${sessionsDone > 0 ? sessionsDone : '—'}</div>
-        <div class="metric-delta">${totalPlanned ? `of ${totalPlanned} planned` : 'No active course'}</div>
+    <!-- Secure Messages -->
+    <div class="card" style="margin-bottom:24px">
+      <div class="card-header" style="display:flex;justify-content:space-between;align-items:center">
+        <h3>Secure Messages</h3>
+        <button class="btn btn-ghost btn-sm" onclick="window._navPatient('patient-messages')">Open messages →</button>
       </div>
-      <div class="metric-card" style="border-color:var(--border-teal)">
-        <div class="metric-label">Active Course</div>
-        <div class="metric-value">${progressPct !== null ? progressPct + '%' : '—'}</div>
-        <div class="metric-delta">${activeCourse ? (activeCourse.status === 'active' ? 'Active' : activeCourse.status || 'Assigned') : 'No active course'}</div>
-      </div>
-      <div class="metric-card">
-        <div class="metric-label">Unread Messages</div>
-        <div class="metric-value" style="font-size:24px;color:${unreadCount > 0 ? 'var(--blue)' : 'var(--text-tertiary)'}">${unreadCount || '0'}</div>
-        <div class="metric-delta">${unreadCount > 0 ? 'New messages from clinic' : 'All caught up'}</div>
-      </div>
-    </div>
-
-    <div class="g2">
-      <div>
-        <div class="card">
-          <div class="card-header"><h3>Recent Sessions</h3></div>
-          <div class="card-body" style="padding:0">
-            ${sessions.length === 0
-              ? `<div style="text-align:center;padding:28px;color:var(--text-tertiary)">
-                  <div style="font-size:18px;margin-bottom:8px;opacity:.4">◧</div>
-                  No sessions recorded yet
-                </div>`
-              : sessions.slice(0, 3).map((s, i) => {
-                  const date = fmtDate(s.delivered_at);
-                  const tol  = s.tolerance_rating ? ` · ${s.tolerance_rating}` : '';
-                  return `
-                    <div class="pt-session-card" style="border-radius:0;border:none;border-bottom:1px solid var(--border);margin:0">
-                      <div class="pt-session-icon done">✓</div>
-                      <div style="flex:1">
-                        <div style="font-size:12.5px;font-weight:500;color:var(--text-primary)">Session ${i + 1}</div>
-                        <div style="font-size:11px;color:var(--text-tertiary);margin-top:2px">${date}${tol}</div>
-                      </div>
-                      <span class="pill pill-active" style="font-size:10px">Done</span>
-                    </div>`;
-                }).join('')}
-          </div>
+      <div class="card-body" style="padding:14px 16px">
+        <div style="text-align:center;padding:16px 8px;color:var(--text-tertiary)">
+          <div style="font-size:18px;margin-bottom:8px;opacity:.4">▫</div>
+          <div style="font-size:12.5px;margin-bottom:12px">No new messages from your clinic.</div>
+          <button class="btn btn-ghost btn-sm" onclick="window._navPatient('patient-messages')">Send a message →</button>
         </div>
-
-        <div class="card">
-          <div class="card-header"><h3>Messages</h3></div>
-          <div class="card-body" style="padding:18px">
-            <div class="notice notice-info" style="font-size:12px;margin-bottom:12px">
-              ◫ &nbsp;Clinical messaging is delivered via Telegram for instant reach.
-            </div>
-            <button class="btn btn-ghost btn-sm" onclick="window._navPatient('patient-messages')">Open Messages →</button>
-          </div>
-        </div>
-
-        <div class="card">
-          <div class="card-header"><h3>Quick Actions</h3></div>
-          <div class="card-body" style="display:flex;gap:10px;flex-wrap:wrap">
-            <button class="btn btn-primary btn-sm" onclick="window._navPatient('patient-course')">View Course →</button>
-            <button class="btn btn-ghost btn-sm" onclick="window._navPatient('patient-messages')">Messages →</button>
-            <button class="btn btn-ghost btn-sm" onclick="window._navPatient('patient-assessments')">Assessments →</button>
-          </div>
-        </div>
-      </div>
-
-      <div>
-        <div class="card" style="margin-bottom:20px">
-          <div class="card-header"><h3>Course Progress</h3></div>
-          <div class="card-body">
-            ${activeCourse
-              ? `<div style="margin-bottom:12px">
-                  <div style="display:flex;justify-content:space-between;margin-bottom:6px">
-                    <span style="font-size:12px;color:var(--text-secondary)">${activeCourse.condition_slug || 'Treatment'}</span>
-                    <span style="font-size:12px;font-weight:600;color:var(--teal)">${progressPct ?? 0}%</span>
-                  </div>
-                  <div class="progress-bar" style="height:8px">
-                    <div class="progress-fill" style="width:${progressPct ?? 0}%"></div>
-                  </div>
-                  <div style="font-size:11px;color:var(--text-tertiary);margin-top:6px">${sessDelivered} of ${totalPlanned ?? '?'} sessions</div>
-                </div>`
-              : `<div style="text-align:center;padding:16px;color:var(--text-tertiary);font-size:12px">No active course</div>`}
-          </div>
-        </div>
-
-        <div class="card">
-          <div class="card-header"><h3>Treatment Progress</h3></div>
-          <div class="card-body">
-            <div style="margin-bottom:18px">
-              <div style="display:flex;justify-content:space-between;margin-bottom:6px">
-                <span style="font-size:12px;color:var(--text-secondary)">Course Completion</span>
-                <span style="font-size:12px;font-weight:600;color:var(--teal)">${progressPct !== null ? progressPct + '%' : '—'}</span>
-              </div>
-              <div class="progress-bar" style="height:7px">
-                <div class="progress-fill" style="width:${progressPct || 0}%"></div>
-              </div>
-              <div style="font-size:11px;color:var(--text-tertiary);margin-top:6px">
-                ${sessDelivered} of ${totalPlanned || '?'} sessions complete
-              </div>
-            </div>
-            <div class="glow-line"></div>
-            <div style="font-size:10.5px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.8px;margin-bottom:14px">Weekly Wellbeing Tracking</div>
-            ${[
-              { label: 'Depression (PHQ-9)',  data: sparkData.depression, color: 'var(--teal)',   val: 68 },
-              { label: 'Anxiety (GAD-7)',     data: sparkData.anxiety,    color: 'var(--blue)',   val: 55 },
-              { label: 'Sleep Quality',       data: sparkData.sleep,      color: 'var(--green)',  val: 72 },
-              { label: 'Overall Wellbeing',   data: sparkData.wellbeing,  color: 'var(--violet)', val: 65 },
-            ].map(r => `
-              <div class="pt-sparkline-row">
-                <span class="ev-label" style="min-width:140px">${r.label}</span>
-                ${sparklineSVG(r.data, r.color)}
-                <span style="font-size:11px;color:var(--text-secondary);width:34px;text-align:right;flex-shrink:0">${r.val}%</span>
-              </div>
-            `).join('')}
-            <div style="font-size:11px;color:var(--text-tertiary);margin-top:10px">Higher = more improvement vs. baseline</div>
-          </div>
-        </div>
-
-        <div class="card">
-          <div class="card-header"><h3>Actions Needed</h3></div>
-          <div class="card-body" style="padding:0 18px">
-            <div class="pt-action-row" onclick="window._navPatient('patient-assessments')" style="cursor:pointer">
-              <div style="width:32px;height:32px;border-radius:var(--radius-md);background:rgba(255,255,255,0.03);display:flex;align-items:center;justify-content:center;color:var(--amber);flex-shrink:0">◉</div>
-              <div style="flex:1">
-                <div style="font-size:12px;font-weight:500;color:var(--text-primary)">Complete Latest Assessment</div>
-                <div style="font-size:11px;color:var(--text-tertiary)">Track your progress</div>
-              </div>
-              <div style="font-size:11px;color:var(--text-tertiary)">→</div>
-            </div>
-            <div class="pt-action-row" onclick="window._navPatient('patient-reports')" style="cursor:pointer">
-              <div style="width:32px;height:32px;border-radius:var(--radius-md);background:rgba(255,255,255,0.03);display:flex;align-items:center;justify-content:center;color:var(--blue);flex-shrink:0">◱</div>
-              <div style="flex:1">
-                <div style="font-size:12px;font-weight:500;color:var(--text-primary)">View Reports</div>
-                <div style="font-size:11px;color:var(--text-tertiary)">Session summaries &amp; outcomes</div>
-              </div>
-              <div style="font-size:11px;color:var(--text-tertiary)">→</div>
-            </div>
-          </div>
+        <div class="notice notice-info" style="font-size:11.5px;margin-top:4px">
+          If you have a question or concern, message your care team — they aim to respond within 1 business day.
         </div>
       </div>
     </div>
   `;
 
-  // Animate sparklines in after paint
-  requestAnimationFrame(() => {
-    document.querySelectorAll('.pt-sparkline-line').forEach(lineEl => {
-      lineEl.classList.add('pt-sparkline-animate');
-    });
-    // Start countdown if we have a next session
-    if (nextSess?.scheduled_at) {
-      startCountdown(nextSess.scheduled_at);
+  // Inline check-in submission from dashboard
+  window._dashSubmitCheckin = async function() {
+    const moodEl   = document.getElementById('dc-mood');
+    const sleepEl  = document.getElementById('dc-sleep');
+    const energyEl = document.getElementById('dc-energy');
+    const sideEl   = document.getElementById('dc-side-effects');
+    const notesEl  = document.getElementById('dc-notes');
+    if (!moodEl) return;
+
+    const payload = {
+      type:         'wellness_checkin',
+      mood:         parseInt(moodEl.value, 10),
+      sleep:        parseInt(sleepEl.value, 10),
+      energy:       parseInt(energyEl.value, 10),
+      side_effects: sideEl?.value || 'none',
+      notes:        notesEl?.value?.trim() || '',
+      date:         new Date().toISOString(),
+    };
+
+    try {
+      const uid = user?.patient_id || user?.id;
+      if (uid) await api.submitAssessment(uid, payload);
+    } catch (_e) { /* non-fatal */ }
+
+    const todayIso = new Date().toISOString().slice(0, 10);
+    localStorage.setItem('ds_last_checkin', todayIso);
+    try {
+      const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+      const lastDay   = localStorage.getItem('ds_last_checkin_prev');
+      const curStreak = parseInt(localStorage.getItem('ds_wellness_streak') || '0', 10);
+      localStorage.setItem('ds_wellness_streak', String(lastDay === yesterday ? curStreak + 1 : 1));
+      localStorage.setItem('ds_last_checkin_prev', todayIso);
+    } catch (_e) { /* ignore */ }
+
+    const card = document.getElementById('pt-dash-checkin-card');
+    if (card) {
+      card.outerHTML = `<div class="card" style="margin-bottom:20px;border-color:rgba(0,212,188,0.35);background:rgba(0,212,188,0.04)">
+        <div class="card-body" style="display:flex;align-items:center;gap:12px;padding:13px 16px">
+          <span style="font-size:15px;color:var(--teal)">✓</span>
+          <div style="flex:1">
+            <span style="font-size:13px;font-weight:500;color:var(--text-primary)">Daily check-in complete</span>
+            <span style="font-size:11.5px;color:var(--text-tertiary);margin-left:8px">Your care team can see today's update.</span>
+          </div>
+          <button class="btn btn-ghost btn-sm" onclick="window._navPatient('pt-wellness')">View →</button>
+        </div>
+      </div>`;
     }
-  });
+  };
 }
+
 
 // ── Countdown timer ───────────────────────────────────────────────────────────
 function startCountdown(targetDateStr) {
@@ -500,125 +563,367 @@ function getPatientMilestones(sessions, outcomes) {
   ];
 }
 
-// ── Sessions ──────────────────────────────────────────────────────────────────
+// \u2500\u2500 Sessions \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
 export async function pgPatientSessions() {
-  setTopbar('My Sessions');
+  setTopbar('Sessions');
 
   const el = document.getElementById('patient-content');
   el.innerHTML = spinner();
 
-  // Portal sessions are all delivered (no upcoming scheduling data)
-  const sessionsRaw = await api.patientPortalSessions().catch(() => null);
-  const sessions    = Array.isArray(sessionsRaw) ? sessionsRaw : [];
-
-  const upcoming = [];  // upcoming not available via portal endpoint
-  const past     = sessions.slice().sort((a, b) =>
-    new Date(b.delivered_at || 0) - new Date(a.delivered_at || 0)
-  );
-
-  function statusBadge(s) {
-    const st = (s.status || '').toLowerCase();
-    if (['completed', 'done'].includes(st)) return `<span class="pill pill-active" style="font-size:10px">Completed</span>`;
-    if (st === 'cancelled') return `<span class="pill pill-cancelled" style="font-size:10px">Cancelled</span>`;
-    return `<span class="pill pill-pending" style="font-size:10px">Upcoming</span>`;
-  }
-
-  function sessionRowHTML(s, idx) {
-    const date  = fmtDate(s.delivered_at);
-    const label = `Session ${idx + 1}`;
-    const dur   = s.duration_minutes ? `${s.duration_minutes} min` : '';
-    const n     = idx;
-    const detailRows = [
-      ['Device',     s.device_slug || null],
-      ['Duration',   s.duration_minutes ? `${s.duration_minutes} min` : null],
-      ['Tolerance',  s.tolerance_rating || null],
-      ['Notes',      s.post_session_notes || null],
-    ].filter(([, v]) => v);
-    return `
-      <div class="pt-session-card" style="flex-direction:column;padding:0;cursor:pointer" onclick="window._ptToggleSession(${n})">
-        <div style="display:flex;align-items:center;gap:12px;padding:14px 16px">
-          <div class="pt-session-icon done">✓</div>
-          <div style="flex:1">
-            <div style="font-size:13px;font-weight:600;color:var(--text-primary)">${label}</div>
-            <div style="font-size:11px;color:var(--text-tertiary);margin-top:2px">${date}${dur ? ' · ' + dur : ''}</div>
-          </div>
-          <div style="display:flex;align-items:center;gap:8px">
-            ${statusBadge(s)}
-            <span id="pt-chev-${n}" class="pt-sess-chevron" style="font-size:12px;color:var(--text-tertiary);transition:transform 0.2s">▾</span>
-          </div>
-        </div>
-        <div id="pt-sess-detail-${n}" class="pt-sess-detail" style="display:none;padding:0 16px 14px;border-top:1px solid var(--border)">
-          ${detailRows.length > 0
-            ? detailRows.map(([k, v]) => `<div class="field-row" style="font-size:11.5px"><span>${k}</span><span>${v}</span></div>`).join('')
-            : '<div style="font-size:11.5px;color:var(--text-tertiary);padding:8px 0">No additional details available.</div>'}
-        </div>
+  let sessionsRaw, coursesRaw, outcomesRaw;
+  try {
+    [sessionsRaw, coursesRaw, outcomesRaw] = await Promise.all([
+      api.patientPortalSessions().catch(() => null),
+      api.patientPortalCourses().catch(() => null),
+      api.patientPortalOutcomes().catch(() => null),
+    ]);
+  } catch (_e) {
+    el.innerHTML = `
+      <div class="pt-sess-empty" style="margin-top:32px">
+        <div class="pt-sess-empty-icon">\u25a7</div>
+        <div class="pt-sess-empty-title">Could not load sessions</div>
+        <div class="pt-sess-empty-body">Please check your connection and try again.</div>
+        <button class="btn btn-ghost btn-sm" style="margin-top:12px" onclick="window._navPatient('patient-sessions')">Retry \u2192</button>
       </div>`;
+    return;
   }
 
-  function upcomingRowHTML(s, idx) {
-    const date  = s.scheduled_at
-      ? new Date(s.scheduled_at).toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })
-      : '—';
-    const time  = s.scheduled_at
+  const sessions = Array.isArray(sessionsRaw) ? sessionsRaw : [];
+  const outcomes = Array.isArray(outcomesRaw) ? outcomesRaw : [];
+  const coursesArr   = Array.isArray(coursesRaw) ? coursesRaw : [];
+  const activeCourse = coursesArr.find(c => c.status === 'active') || coursesArr[0] || null;
+
+  // Split into upcoming (future scheduled_at) and completed (delivered or done)
+  const now = Date.now();
+  const upcoming = sessions
+    .filter(s => s.scheduled_at && new Date(s.scheduled_at).getTime() > now)
+    .sort((a, b) => new Date(a.scheduled_at) - new Date(b.scheduled_at));
+  const completed = sessions
+    .filter(s => s.delivered_at || ['completed', 'done'].includes((s.status || '').toLowerCase()))
+    .sort((a, b) => new Date(b.delivered_at || 0) - new Date(a.delivered_at || 0));
+
+  // Link outcomes to sessions by date
+  const outcomesByDate = {};
+  outcomes.forEach(o => {
+    const d = (o.administered_at || '').slice(0, 10);
+    if (d) outcomesByDate[d] = o;
+  });
+
+  // Course metrics
+  const totalPlanned  = activeCourse?.total_sessions_planned ?? null;
+  const sessDelivered = activeCourse?.session_count ?? completed.length;
+  const progressPct   = (totalPlanned && sessDelivered)
+    ? Math.round((sessDelivered / totalPlanned) * 100) : null;
+
+  function phaseLabel(pct) {
+    if (!pct)      return 'Starting';
+    if (pct <= 25) return 'Initial Phase';
+    if (pct <= 50) return 'Active Phase';
+    if (pct <= 75) return 'Consolidation';
+    if (pct < 100) return 'Final Phase';
+    return 'Complete';
+  }
+
+  // Friendly modality name
+  function modalityLabel(slug) {
+    if (!slug) return null;
+    const MAP = {
+      tms: 'TMS', tdcs: 'tDCS', neurofeedback: 'Neurofeedback', nfb: 'Neurofeedback',
+      pemf: 'PEMF Therapy', biofeedback: 'Biofeedback', hrvb: 'HRV Biofeedback',
+      pbm: 'Photobiomodulation', lens: 'LENS Neurofeedback',
+    };
+    const key = slug.toLowerCase().replace(/[^a-z0-9]/g, '');
+    return MAP[key] || (slug.charAt(0).toUpperCase() + slug.slice(1).replace(/-/g, ' '));
+  }
+
+  // Tolerance \u2192 patient-friendly
+  function toleranceLabel(val) {
+    if (!val) return null;
+    const v = String(val).toLowerCase().trim();
+    if (['excellent','good','1','2'].includes(v))   return 'Tolerated well';
+    if (['mild','moderate','3','4','5'].includes(v)) return 'Mild sensation';
+    if (['poor','6','7'].includes(v))               return 'Some discomfort noted';
+    if (['high','8','9','10'].includes(v))           return 'Significant discomfort';
+    // If already a readable string, capitalise and pass through
+    return val.charAt(0).toUpperCase() + val.slice(1);
+  }
+
+  // Standard preparation content for neuromodulation
+  const PREP_STEPS = [
+    { icon: '\ud83d\udebf', text: 'Wash your hair the morning of your session. No conditioner, dry shampoo, or hair products.' },
+    { icon: '\ud83c\udf7d\ufe0f', text: 'Eat a light meal 1\u20132 hours before. Avoid arriving very hungry or immediately after a large meal.' },
+    { icon: '\ud83d\udc8a', text: 'Take your regular medications as prescribed unless your clinician has advised otherwise.' },
+    { icon: '\ud83d\ude34', text: 'Aim for a normal night\u2019s sleep before your session. Fatigue can affect how you respond.' },
+    { icon: '\ud83d\udcdd', text: 'Jot down any symptoms, changes, or questions since your last session to share with your clinician.' },
+    { icon: '\ud83d\udcf5', text: 'Switch your phone to silent during the session.' },
+  ];
+  const BRING_LIST = [
+    'Your current medication list',
+    'Comfortable clothing with easy access to your head and neck',
+    'A water bottle',
+    'Any written questions for your clinician',
+    'A light snack for after (some patients feel tired post-session)',
+  ];
+
+  // ── Upcoming session card ──────────────────────────────────────────────────────
+  function upcomingCardHTML(s, idx) {
+    const sessionNum  = s.session_number || (sessDelivered + idx + 1);
+    const dateLong    = s.scheduled_at
+      ? new Date(s.scheduled_at).toLocaleDateString('en-US',
+          { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })
+      : '\u2014';
+    const timeStr     = s.scheduled_at
       ? new Date(s.scheduled_at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
       : '';
-    const label = s.session_number ? `Session #${s.session_number}` : `Session ${idx + 1}`;
-    const mod   = s.modality_slug?.toUpperCase() || s.condition_slug || 'Treatment';
+    const daysAway    = s.scheduled_at
+      ? Math.max(0, Math.ceil((new Date(s.scheduled_at).getTime() - now) / 86400000)) : null;
+    const isToday     = daysAway === 0;
+    const isTomorrow  = daysAway === 1;
+    const urgency     = isToday ? 'Today' : isTomorrow ? 'Tomorrow'
+                      : daysAway !== null ? `In ${daysAway} day${daysAway > 1 ? 's' : ''}` : '';
+    const mod         = modalityLabel(s.modality_slug || s.condition_slug);
+    const location    = s.location || s.site_name || 'Your clinic';
+    const clinician   = s.clinician_name || s.technician_name || null;
+    const duration    = s.duration_minutes ? `${s.duration_minutes} min` : null;
+
     return `
-      <div class="pt-session-card" style="border-radius:0;border:none;border-bottom:1px solid var(--border);margin:0">
-        <div class="pt-session-icon upcoming">◧</div>
-        <div style="flex:1">
-          <div style="font-size:12.5px;font-weight:500;color:var(--text-primary)">${label}</div>
-          <div style="font-size:11px;color:var(--text-tertiary);margin-top:2px">${mod}</div>
+      <div class="pt-upcoming-card ${isToday ? 'today' : isTomorrow ? 'soon' : ''}">
+
+        <div class="pt-uc-header">
+          <div class="pt-uc-primary">
+            <div class="pt-uc-title">Session ${sessionNum}</div>
+            <div class="pt-uc-date">${dateLong}</div>
+            <div class="pt-uc-meta-row">
+              ${timeStr   ? `<span class="pt-uc-meta-chip">\ud83d\udd50 ${timeStr}</span>` : ''}
+              <span class="pt-uc-meta-chip">\ud83d\udccd ${location}</span>
+              ${clinician ? `<span class="pt-uc-meta-chip">\ud83d\udc64 ${clinician}</span>` : ''}
+              ${mod       ? `<span class="pt-uc-meta-chip pt-uc-meta-mod">${mod}</span>` : ''}
+              ${duration  ? `<span class="pt-uc-meta-chip">\ud83d\udd52 ${duration}</span>` : ''}
+            </div>
+          </div>
+          <div class="pt-uc-badges">
+            ${urgency ? `<div class="pt-uc-urgency-badge ${isToday ? 'today' : isTomorrow ? 'soon' : ''}">${urgency}</div>` : ''}
+            <span class="pill pill-pending" style="font-size:10px;margin-top:4px">Scheduled</span>
+          </div>
         </div>
-        <div style="text-align:right">
-          <div style="font-size:12px;color:var(--blue);font-weight:500">${date}</div>
-          <div style="font-size:11px;color:var(--text-tertiary)">${time}</div>
+
+        <div class="pt-uc-prep-toggle"
+             onclick="window._ptTogglePrep(${idx})"
+             onkeydown="if(event.key==='Enter'||event.key===' '){window._ptTogglePrep(${idx});event.preventDefault();}"
+             role="button" tabindex="0" aria-expanded="${idx === 0 ? 'true' : 'false'}" id="pt-prep-btn-${idx}">
+          <span style="font-size:13px;font-weight:500;color:var(--text-primary)">How to prepare for this session</span>
+          <span id="pt-prep-chev-${idx}" style="font-size:11px;color:var(--text-tertiary);transition:transform 0.2s">${idx === 0 ? '\u25b2' : '\u25be'}</span>
         </div>
-      </div>`;
+
+        <div id="pt-prep-panel-${idx}" class="pt-uc-prep-panel" style="display:${idx === 0 ? '' : 'none'}">
+
+          <div class="pt-prep-col-wrap">
+            <div class="pt-prep-col">
+              <div class="pt-prep-col-title">Before your session</div>
+              <ul class="pt-prep-list">
+                ${PREP_STEPS.map(item => `
+                  <li class="pt-prep-item">
+                    <span class="pt-prep-ico">${item.icon}</span>
+                    <span>${item.text}</span>
+                  </li>`).join('')}
+              </ul>
+            </div>
+            <div class="pt-prep-col">
+              <div class="pt-prep-col-title">What to bring</div>
+              <ul class="pt-prep-list">
+                ${BRING_LIST.map(item => `
+                  <li class="pt-prep-item">
+                    <span class="pt-prep-ico" style="font-size:10px;opacity:.5">\u25cf</span>
+                    <span>${item}</span>
+                  </li>`).join('')}
+              </ul>
+
+              <div class="pt-prep-expect-box">
+                <div class="pt-prep-col-title">What to expect</div>
+                <div style="font-size:12px;color:var(--text-secondary);line-height:1.65">
+                  When you arrive, your clinician will briefly review your symptoms since the last visit.
+                  Equipment setup takes 5\u201310 minutes.
+                  The session itself lasts ${s.duration_minutes ? s.duration_minutes + '\u00a0min' : 'approximately 20\u201345\u00a0minutes'}.
+                  You can pause or stop at any time.
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="pt-uc-prep-footer">
+            <button class="btn btn-ghost btn-sm" onclick="window._navPatient('patient-messages');event.stopPropagation()">
+              Contact clinic \u2192
+            </button>
+            <span class="pt-uc-reschedule-note">
+              To reschedule or cancel, contact your clinic at least 24\u00a0hours in advance.
+            </span>
+          </div>
+        </div>
+      </div>
+    `;
   }
 
-  const upcomingHtml = upcoming.length === 0
-    ? `<div class="card"><div class="card-body"><div style="text-align:center;padding:24px;color:var(--text-tertiary)">
-        <div style="font-size:18px;margin-bottom:8px;opacity:.4">◧</div>
-        No upcoming sessions scheduled
-      </div></div></div>`
-    : `<div class="card" style="padding:0;overflow:hidden">${upcoming.map(upcomingRowHTML).join('')}</div>`;
+  // ── Completed session row ──────────────────────────────────────────────────────
+  function completedRowHTML(s, idx) {
+    const sessionNum = s.session_number || (completed.length - idx);
+    const date       = fmtDate(s.delivered_at);
+    const dur        = s.duration_minutes ? `${s.duration_minutes} min` : '';
+    const mod        = modalityLabel(s.modality_slug || s.condition_slug);
+    const tol        = toleranceLabel(s.tolerance_rating);
+    const notes      = s.post_session_notes || null;
+    const relDate    = (s.delivered_at || '').slice(0, 10);
+    const relDoc     = outcomesByDate[relDate] || null;
 
-  const completedHtml = past.length === 0
-    ? `<div style="text-align:center;padding:36px;color:var(--text-tertiary)">
-        <div style="font-size:18px;margin-bottom:8px;opacity:.4">◧</div>
-        No sessions completed yet
-      </div>`
-    : past.map((s, i) => sessionRowHTML(s, i)).join('');
+    const detailItems = [
+      tol         ? { label: 'How it went',              val: tol }   : null,
+      mod         ? { label: 'Session type',             val: mod }   : null,
+      dur         ? { label: 'Duration',                 val: dur }   : null,
+      s.device_slug ? { label: 'Equipment',              val: s.device_slug.toUpperCase() } : null,
+      notes       ? { label: 'Notes from your clinician', val: notes } : null,
+    ].filter(Boolean);
 
+    return `
+      <div class="pt-completed-row" onclick="window._ptToggleCompleted(${idx})" tabindex="0" role="button"
+           onkeydown="if(event.key==='Enter'||event.key===' '){window._ptToggleCompleted(${idx});event.preventDefault();}">
+        <div class="pt-cr-summary">
+          <div class="pt-session-icon done" aria-hidden="true">\u2713</div>
+          <div class="pt-cr-info">
+            <div class="pt-cr-title">Session ${sessionNum}</div>
+            <div class="pt-cr-meta">
+              ${date}${dur ? '\u00a0\u00b7\u00a0' + dur : ''}${mod ? '\u00a0\u00b7\u00a0' + mod : ''}
+            </div>
+          </div>
+          <div class="pt-cr-badges">
+            <span class="pill pill-active" style="font-size:10px">Done</span>
+            ${relDoc ? `<span class="pill" style="font-size:10px;background:rgba(74,158,255,0.1);border-color:rgba(74,158,255,0.3);color:var(--blue)">Report</span>` : ''}
+            <span id="pt-cr-chev-${idx}" style="font-size:11px;color:var(--text-tertiary);transition:transform 0.2s;flex-shrink:0">\u25be</span>
+          </div>
+        </div>
+        <div id="pt-cr-detail-${idx}" class="pt-cr-detail" style="display:none">
+          ${detailItems.length > 0 ? `
+            <div class="pt-cr-detail-grid">
+              ${detailItems.map(r => `
+                <div class="pt-cdr-row">
+                  <span class="pt-cdr-label">${r.label}</span>
+                  <span class="pt-cdr-value">${r.val}</span>
+                </div>`).join('')}
+            </div>` : ''}
+          ${relDoc ? `
+            <div class="pt-cr-report-link"
+                 onclick="event.stopPropagation();window._navPatient('patient-reports')"
+                 role="button" tabindex="0">
+              <span style="color:var(--blue);font-size:14px">\u25f1</span>
+              <span style="font-size:12.5px;font-weight:500;color:var(--blue)">${relDoc.template_title || 'Assessment Report'}</span>
+              <span style="font-size:11.5px;color:var(--text-tertiary);margin-left:auto">View document \u2192</span>
+            </div>` : ''}
+          ${!detailItems.length && !relDoc
+            ? `<div style="font-size:12px;color:var(--text-tertiary);padding:4px 0">No additional details on file for this session.</div>`
+            : ''}
+        </div>
+      </div>
+    `;
+  }
+
+  // ── Page HTML ──────────────────────────────────────────────────────────────────
   el.innerHTML = `
-    <div class="tab-bar">
-      <button class="tab-btn active" id="s-tab-up" onclick="window._ptSessTab('upcoming')">Upcoming (${upcoming.length})</button>
-      <button class="tab-btn" id="s-tab-done" onclick="window._ptSessTab('completed')">Completed (${past.length})</button>
+
+    <!-- Course context bar -->
+    ${activeCourse ? `
+    <div class="pt-course-ctx-bar">
+      <div class="pt-ctx-item">
+        <div class="pt-ctx-label">Treatment course</div>
+        <div class="pt-ctx-value">${activeCourse.condition_slug || 'Active Treatment'}</div>
+      </div>
+      <div class="pt-ctx-divider"></div>
+      <div class="pt-ctx-item">
+        <div class="pt-ctx-label">Sessions done</div>
+        <div class="pt-ctx-value">${sessDelivered}\u00a0of\u00a0${totalPlanned ?? '?'}</div>
+      </div>
+      <div class="pt-ctx-divider"></div>
+      <div class="pt-ctx-item">
+        <div class="pt-ctx-label">Current phase</div>
+        <div class="pt-ctx-value">${phaseLabel(progressPct)}</div>
+      </div>
+      ${progressPct !== null ? `
+      <div class="pt-ctx-bar-wrap">
+        <div class="pt-ctx-bar-fill" style="width:${progressPct}%"></div>
+      </div>` : ''}
+    </div>` : ''}
+
+    <!-- Upcoming sessions -->
+    <div class="pt-sess-section">
+      <div class="pt-sess-section-hd">
+        <span class="pt-sess-section-title">Upcoming Sessions</span>
+        ${upcoming.length > 0 ? `<span class="pt-sess-badge">${upcoming.length}</span>` : ''}
+      </div>
+
+      ${upcoming.length === 0
+        ? `<div class="pt-sess-empty">
+            <div class="pt-sess-empty-icon">\u25a7</div>
+            <div class="pt-sess-empty-title">No upcoming sessions scheduled</div>
+            <div class="pt-sess-empty-body">
+              Your next session will appear here once your clinic has booked it.
+              ${activeCourse ? 'You have an active treatment course \u2014 contact your clinic to schedule your next visit.' : 'Contact your clinic to discuss your treatment plan.'}
+            </div>
+            <button class="btn btn-ghost btn-sm" style="margin-top:14px" onclick="window._navPatient('patient-messages')">
+              Contact your clinic \u2192
+            </button>
+
+            <details class="pt-sess-what-to-expect" style="margin-top:20px">
+              <summary class="pt-sess-expect-toggle">What happens at a session?</summary>
+              <div class="pt-sess-expect-body">
+                <p>When you arrive, your clinician will briefly check in on how you\u2019ve been feeling and review any changes since your last visit.</p>
+                <p>Equipment setup typically takes 5\u201310 minutes. The session itself usually lasts 20\u201345 minutes depending on your treatment protocol.</p>
+                <p>You are always in control \u2014 you can pause or stop at any time by letting your clinician know.</p>
+                <div class="pt-prep-col-title" style="margin-top:14px">What to bring to any session</div>
+                <ul class="pt-prep-list">
+                  ${BRING_LIST.map(item => `<li class="pt-prep-item"><span class="pt-prep-ico" style="font-size:10px;opacity:.5">\u25cf</span><span>${item}</span></li>`).join('')}
+                </ul>
+              </div>
+            </details>
+          </div>`
+        : upcoming.map((s, i) => upcomingCardHTML(s, i)).join('')}
     </div>
-    <div id="pt-sess-upcoming">
-      ${upcomingHtml}
-    </div>
-    <div id="pt-sess-completed" style="display:none">
-      ${completedHtml}
+
+    <!-- Completed sessions -->
+    <div class="pt-sess-section">
+      <div class="pt-sess-section-hd">
+        <span class="pt-sess-section-title">Completed Sessions</span>
+        ${completed.length > 0 ? `<span class="pt-sess-badge">${completed.length}</span>` : ''}
+      </div>
+
+      ${completed.length === 0
+        ? `<div class="pt-sess-empty" style="padding:28px 20px">
+            <div class="pt-sess-empty-icon" style="font-size:22px">\u25a7</div>
+            <div class="pt-sess-empty-title">No completed sessions yet</div>
+            <div class="pt-sess-empty-body">Your session history will appear here after your first visit.</div>
+          </div>`
+        : `<div class="card" style="overflow:hidden;padding:0">
+            ${completed.map((s, i) => completedRowHTML(s, i)).join('')}
+          </div>`}
     </div>
   `;
 
-  window._ptSessTab = function(tab) {
-    document.getElementById('pt-sess-upcoming').style.display  = tab === 'upcoming'  ? '' : 'none';
-    document.getElementById('pt-sess-completed').style.display = tab === 'completed' ? '' : 'none';
-    document.getElementById('s-tab-up').classList.toggle('active',   tab === 'upcoming');
-    document.getElementById('s-tab-done').classList.toggle('active', tab === 'completed');
+  // Preparation accordion
+  window._ptTogglePrep = function(idx) {
+    const panel = document.getElementById(`pt-prep-panel-${idx}`);
+    const chev  = document.getElementById(`pt-prep-chev-${idx}`);
+    const btn   = document.getElementById(`pt-prep-btn-${idx}`);
+    if (!panel) return;
+    const isOpen = panel.style.display !== 'none';
+    panel.style.display = isOpen ? 'none' : '';
+    if (chev) chev.textContent = isOpen ? '\u25be' : '\u25b2';
+    if (btn)  btn.setAttribute('aria-expanded', String(!isOpen));
   };
 
-  window._ptToggleSession = function(n) {
-    const detail = document.getElementById(`pt-sess-detail-${n}`);
-    const chev   = document.getElementById(`pt-chev-${n}`);
+  // Completed session accordion (one open at a time)
+  window._ptToggleCompleted = function(idx) {
+    const detail = document.getElementById(`pt-cr-detail-${idx}`);
+    const chev   = document.getElementById(`pt-cr-chev-${idx}`);
     if (!detail) return;
     const isOpen = detail.style.display !== 'none';
-    document.querySelectorAll('.pt-sess-detail').forEach(d => { d.style.display = 'none'; });
-    document.querySelectorAll('.pt-sess-chevron').forEach(c => { c.style.transform = ''; });
+    document.querySelectorAll('[id^="pt-cr-detail-"]').forEach(d => { d.style.display = 'none'; });
+    document.querySelectorAll('[id^="pt-cr-chev-"]').forEach(c => { c.style.transform = ''; });
     if (!isOpen) {
       detail.style.display = '';
       if (chev) chev.style.transform = 'rotate(180deg)';
@@ -626,9 +931,10 @@ export async function pgPatientSessions() {
   };
 }
 
+
 // ── My Treatment ──────────────────────────────────────────────────────────────
 export async function pgPatientCourse() {
-  setTopbar('My Treatment');
+  setTopbar('Treatment Plan');
   const user = currentUser;
   const uid  = user?.id;
 
@@ -740,6 +1046,13 @@ export async function pgPatientCourse() {
       </div>
     </div>
 
+    <div class="card" id="pt-hw-plan-card" style="margin-bottom:20px">
+      <div class="card-header"><h3>My Homework Plan</h3></div>
+      <div class="card-body" id="pt-hw-plan-body">
+        <div style="color:var(--text-tertiary);font-size:13px;padding:8px 0">Loading homework plan…</div>
+      </div>
+    </div>
+
     <div class="card" id="pt-homework-card">
       <div class="card-header"><h3>Homework &amp; Exercises</h3></div>
       <div class="card-body" style="padding:0 0 4px">
@@ -830,6 +1143,99 @@ export async function pgPatientCourse() {
   };
 
   renderHomework();
+
+  // ── Assigned homework plan section ──────────────────────────────────────
+  (function renderAssignedPlan() {
+    const planBody = document.getElementById('pt-hw-plan-body');
+    if (!planBody) return;
+    const mockPatientId = uid || 'demo-patient';
+    let assignments = [];
+    try { assignments = JSON.parse(localStorage.getItem('ds_hw_assignments') || '[]'); } catch (_e) {}
+    const assignment = assignments.find(function(a) { return a.patientId === mockPatientId; })
+      || assignments[assignments.length - 1] || null;
+
+    if (!assignment) {
+      planBody.innerHTML = '<p style="color:var(--text-tertiary);font-size:13px;padding:4px 0">No homework plan assigned yet. Ask your clinician.</p>';
+      return;
+    }
+
+    const blocks = (assignment.blocks || []);
+    const today = new Date().toISOString().slice(0, 10);
+    const compKey = 'ds_hw_completions_' + assignment.id;
+    let completions = {};
+    try { completions = JSON.parse(localStorage.getItem(compKey) || '{}'); } catch (_e) {}
+
+    // Count completions this week (Mon–Sun)
+    const now = new Date();
+    const dayOfWeek = (now.getDay() + 6) % 7; // Mon=0
+    const weekStart = new Date(now); weekStart.setDate(now.getDate() - dayOfWeek);
+    weekStart.setHours(0, 0, 0, 0);
+    const weekDates = Array.from({ length: 7 }, function(_, i) {
+      const d = new Date(weekStart); d.setDate(weekStart.getDate() + i);
+      return d.toISOString().slice(0, 10);
+    });
+
+    function countCompleted() {
+      let n = 0;
+      blocks.forEach(function(b) {
+        weekDates.forEach(function(d) { if (completions[b.id + '_' + d]) n++; });
+      });
+      return n;
+    }
+    const totalPossible = blocks.length * 7;
+    const completedCount = countCompleted();
+    const pctPlan = totalPossible > 0 ? Math.round((completedCount / totalPossible) * 100) : 0;
+
+    window._hwMarkComplete = function(assignmentId, blockId, date) {
+      const k = 'ds_hw_completions_' + assignmentId;
+      let c = {};
+      try { c = JSON.parse(localStorage.getItem(k) || '{}'); } catch (_e) {}
+      const key = blockId + '_' + date;
+      c[key] = !c[key];
+      try { localStorage.setItem(k, JSON.stringify(c)); } catch (_e) {}
+      completions = c;
+      renderAssignedPlan();
+    };
+
+    const freqLabel = { 'daily': 'Daily', '3x-week': '3×/week', '2x-week': '2×/week', 'weekly': 'Weekly', 'once': 'Once' };
+
+    planBody.innerHTML =
+      '<div style="margin-bottom:14px">' +
+        '<div style="font-size:14px;font-weight:600;color:var(--text-primary);margin-bottom:2px">' + (assignment.planName || 'Assigned Plan') + '</div>' +
+        '<div style="font-size:11.5px;color:var(--text-secondary)">' +
+          'Assigned ' + (assignment.assignedDate ? new Date(assignment.assignedDate).toLocaleDateString() : '') +
+          (assignment.patientName ? ' &nbsp;·&nbsp; ' + assignment.patientName : '') +
+        '</div>' +
+      '</div>' +
+      '<div style="margin-bottom:14px">' +
+        '<div style="display:flex;justify-content:space-between;margin-bottom:5px">' +
+          '<span style="font-size:11.5px;color:var(--text-secondary)">This week\'s progress</span>' +
+          '<span style="font-size:11.5px;font-weight:600;color:var(--teal)">' + completedCount + ' / ' + totalPossible + ' tasks</span>' +
+        '</div>' +
+        '<div class="progress-bar" style="height:6px">' +
+          '<div class="progress-fill" style="width:' + pctPlan + '%"></div>' +
+        '</div>' +
+      '</div>' +
+      blocks.map(function(block) {
+        const doneToday = !!completions[block.id + '_' + today];
+        return '<div class="hw-task-card' + (doneToday ? ' hw-task-complete' : '') + '">' +
+          '<div style="font-size:22px;line-height:1;padding-top:2px">' + (block.icon || '📋') + '</div>' +
+          '<div style="flex:1;min-width:0">' +
+            '<div style="font-size:13px;font-weight:500;color:var(--text-primary)">' + block.label + '</div>' +
+            (block.instructions ? '<div style="font-size:11.5px;color:var(--text-secondary);margin-top:3px;line-height:1.5">' + block.instructions + '</div>' : '') +
+            '<div style="margin-top:6px;display:flex;align-items:center;gap:8px">' +
+              '<span class="hw-freq-badge">' + (freqLabel[block.frequency] || block.frequency || '') + '</span>' +
+              (block.duration > 0 ? '<span style="font-size:11px;color:var(--text-tertiary)">' + block.duration + ' min</span>' : '') +
+            '</div>' +
+          '</div>' +
+          '<div style="display:flex;flex-direction:column;align-items:center;gap:4px;padding-top:2px">' +
+            '<input type="checkbox" ' + (doneToday ? 'checked' : '') + ' style="width:16px;height:16px;accent-color:var(--teal);cursor:pointer"' +
+              ' onchange="window._hwMarkComplete(\'' + assignment.id + '\',\'' + block.id + '\',\'' + today + '\')">' +
+            '<span style="font-size:9.5px;color:var(--text-tertiary)">today</span>' +
+          '</div>' +
+        '</div>';
+      }).join('');
+  })();
 }
 
 // ── PHQ-9 Assessment ──────────────────────────────────────────────────────────
@@ -1034,7 +1440,7 @@ export async function pgPatientAssessments() {
 
 // ── Reports ───────────────────────────────────────────────────────────────────
 export async function pgPatientReports() {
-  setTopbar('Reports & Documents');
+  setTopbar('Documents & Reports');
   const user = currentUser;
   const uid  = user?.id;
 
@@ -1077,7 +1483,7 @@ export async function pgPatientReports() {
 
 // ── Messages ──────────────────────────────────────────────────────────────────
 export async function pgPatientMessages() {
-  setTopbar('Messages');
+  setTopbar('Secure Messages');
   const user = currentUser;
   const uid  = user?.id;
 
@@ -1245,6 +1651,21 @@ export async function pgPatientProfile(user) {
               <button class="btn btn-danger btn-sm" onclick="window.doLogout()">Sign Out ↪</button>
             </div>
           </div>
+
+          <div class="card">
+            <div class="card-header"><h3>Caregiver Access</h3></div>
+            <div class="card-body">
+              <div style="font-size:12.5px;color:var(--text-secondary);line-height:1.65;margin-bottom:12px">
+                Allow a family member or carer to view your treatment progress and sessions on your behalf.
+              </div>
+              <div class="notice notice-info" style="font-size:11.5px;margin-bottom:12px">
+                Caregiver access is set up by your clinic. Contact your care team to grant or update access permissions.
+              </div>
+              <button class="btn btn-ghost btn-sm" onclick="window._navPatient('patient-messages')">
+                Request caregiver access →
+              </button>
+            </div>
+          </div>
         </div>
       </div>
     `;
@@ -1290,7 +1711,7 @@ export async function pgPatientProfile(user) {
 
 // ── Wellness Check-in ─────────────────────────────────────────────────────────
 export async function pgPatientWellness() {
-  setTopbar('Wellness Check-in');
+  setTopbar('Daily Check-in');
   const uid = currentUser?.patient_id || currentUser?.id;
 
   const el = document.getElementById('patient-content');
@@ -1299,13 +1720,15 @@ export async function pgPatientWellness() {
 
   el.innerHTML = `
     <div style="margin-bottom:20px">
-      <div style="font-size:17px;font-weight:600;color:var(--text-primary);margin-bottom:4px">Daily Wellness Check-in</div>
+      <div style="font-size:17px;font-weight:600;color:var(--text-primary);margin-bottom:4px">Daily Check-in</div>
       <div style="font-size:12.5px;color:var(--text-secondary)">${todayFmt}</div>
-      <div style="font-size:12px;color:var(--text-tertiary);margin-top:4px">Track how you're feeling to help your care team monitor your progress.</div>
+      <div style="font-size:12px;color:var(--text-tertiary);margin-top:4px;line-height:1.55">
+        Your care team reviews your check-ins daily to monitor your progress and catch any concerns early.
+      </div>
     </div>
 
     <div class="card" id="pt-wellness-form-card">
-      <div class="card-header"><h3>How are you feeling today?</h3></div>
+      <div class="card-header"><h3>How are you doing today?</h3></div>
       <div class="card-body" style="padding:20px">
 
         <!-- Mood slider -->
@@ -1318,42 +1741,62 @@ export async function pgPatientWellness() {
                  oninput="document.getElementById('mood-val').textContent=this.value;window._updateWellnessEmoji()"
                  style="width:100%;accent-color:var(--teal)">
           <div style="display:flex;justify-content:space-between;font-size:0.7rem;color:var(--text-secondary);margin-top:4px">
-            <span>😞 Poor</span><span>😐 Okay</span><span>😊 Great</span>
+            <span>😞 Low</span><span>😐 Okay</span><span>😊 Good</span>
           </div>
         </div>
 
         <!-- Sleep slider -->
         <div class="wellness-slider-group" style="margin-top:20px">
           <div style="display:flex;justify-content:space-between;margin-bottom:6px">
-            <label style="font-size:13px;font-weight:500;color:var(--text-primary)">Sleep Quality</label>
+            <label style="font-size:13px;font-weight:500;color:var(--text-primary)">Sleep last night</label>
             <span id="sleep-val" style="color:var(--blue);font-weight:600">5</span>
           </div>
           <input type="range" id="sleep-slider" min="1" max="10" value="5"
                  oninput="document.getElementById('sleep-val').textContent=this.value;window._updateWellnessEmoji()"
                  style="width:100%;accent-color:var(--blue)">
           <div style="display:flex;justify-content:space-between;font-size:0.7rem;color:var(--text-secondary);margin-top:4px">
-            <span>😴 Poor</span><span>💤 Okay</span><span>🌟 Excellent</span>
+            <span>😴 Poor</span><span>💤 Okay</span><span>🌟 Good</span>
           </div>
         </div>
 
         <!-- Energy slider -->
         <div class="wellness-slider-group" style="margin-top:20px">
           <div style="display:flex;justify-content:space-between;margin-bottom:6px">
-            <label style="font-size:13px;font-weight:500;color:var(--text-primary)">Energy Level</label>
+            <label style="font-size:13px;font-weight:500;color:var(--text-primary)">Energy level</label>
             <span id="energy-val" style="color:var(--violet);font-weight:600">5</span>
           </div>
           <input type="range" id="energy-slider" min="1" max="10" value="5"
                  oninput="document.getElementById('energy-val').textContent=this.value;window._updateWellnessEmoji()"
                  style="width:100%;accent-color:var(--violet)">
           <div style="display:flex;justify-content:space-between;font-size:0.7rem;color:var(--text-secondary);margin-top:4px">
-            <span>😩 Exhausted</span><span>⚡ Okay</span><span>🔥 Energized</span>
+            <span>😩 Low</span><span>⚡ Okay</span><span>🔥 High</span>
+          </div>
+        </div>
+
+        <!-- Side effects -->
+        <div style="margin-top:20px">
+          <label style="display:block;margin-bottom:6px;font-size:13px;font-weight:500;color:var(--text-primary)">
+            Side effects today
+          </label>
+          <select id="wellness-side-effects" class="form-control" style="font-size:13px">
+            <option value="none">None</option>
+            <option value="headache">Headache</option>
+            <option value="fatigue">Fatigue / tiredness</option>
+            <option value="dizziness">Dizziness or lightheadedness</option>
+            <option value="tingling">Tingling or scalp sensation</option>
+            <option value="mood_change">Mood change</option>
+            <option value="concentration">Difficulty concentrating</option>
+            <option value="other">Other (describe in notes)</option>
+          </select>
+          <div style="font-size:11px;color:var(--text-tertiary);margin-top:5px">
+            Report any unusual symptoms, however minor. Your clinician reviews this.
           </div>
         </div>
 
         <!-- Notes -->
-        <div style="margin-top:20px">
+        <div style="margin-top:16px">
           <label style="display:block;margin-bottom:6px;font-size:13px;font-weight:500;color:var(--text-primary)">Notes (optional)</label>
-          <textarea id="wellness-notes" class="form-control" placeholder="Any symptoms, observations, or notes for your care team…"
+          <textarea id="wellness-notes" class="form-control" placeholder="Any observations, symptoms, or questions for your care team…"
                     style="width:100%;min-height:80px;resize:vertical;font-size:12.5px"></textarea>
         </div>
 
@@ -1388,20 +1831,22 @@ export async function pgPatientWellness() {
     const notesEl  = document.getElementById('wellness-notes');
     if (!moodEl || !sleepEl || !energyEl) return;
 
-    const moodVal   = parseInt(moodEl.value, 10);
-    const sleepVal  = parseInt(sleepEl.value, 10);
-    const energyVal = parseInt(energyEl.value, 10);
-    const notes     = notesEl?.value?.trim() || '';
+    const moodVal        = parseInt(moodEl.value, 10);
+    const sleepVal       = parseInt(sleepEl.value, 10);
+    const energyVal      = parseInt(energyEl.value, 10);
+    const sideEffectsVal = document.getElementById('wellness-side-effects')?.value || 'none';
+    const notes          = notesEl?.value?.trim() || '';
 
     try {
       if (uid) {
         await api.submitAssessment(uid, {
-          type:    'wellness_checkin',
-          mood:    moodVal,
-          sleep:   sleepVal,
-          energy:  energyVal,
+          type:         'wellness_checkin',
+          mood:         moodVal,
+          sleep:        sleepVal,
+          energy:       energyVal,
+          side_effects: sideEffectsVal,
           notes,
-          date:    new Date().toISOString(),
+          date:         new Date().toISOString(),
         });
       }
     } catch (_e) { /* non-fatal */ }
@@ -1933,11 +2378,13 @@ export async function pgPatientWearables() {
 
   window._wearableSend = async function() {
     const input = document.getElementById('wearable-chat-input');
+    const btn   = document.querySelector('#wearable-chat-input ~ button, button[onclick*="_wearableSend"]');
     if (!input) return;
     const text = input.value.trim();
     if (!text) return;
     input.value = '';
     input.disabled = true;
+    if (btn) { btn.disabled = true; btn.textContent = '…'; }
 
     wearableChatMessages.push({ role: 'user', content: text });
     renderChatHistory();
@@ -1959,6 +2406,7 @@ export async function pgPatientWearables() {
 
     renderChatHistory();
     input.disabled = false;
+    if (btn) { btn.disabled = false; btn.textContent = 'Send ◈'; }
     input.focus();
   };
 
@@ -2517,4 +2965,1786 @@ export async function pgIntake(setTopbarFn) {
 
   // Initial render
   fullRender();
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// ── Homework Block Types & Plan Store ────────────────────────────────────────
+// ══════════════════════════════════════════════════════════════════════════════
+
+const HW_BLOCK_TYPES = [
+  { type: 'breathing',          label: 'Breathing Exercise',   icon: '🫁', defaultDuration: 10, defaultFreq: 'daily' },
+  { type: 'mindfulness',        label: 'Mindfulness Practice', icon: '🧘', defaultDuration: 15, defaultFreq: 'daily' },
+  { type: 'journaling',         label: 'Journaling Prompt',    icon: '📓', defaultDuration: 20, defaultFreq: '3x-week' },
+  { type: 'reading',            label: 'Reading Assignment',   icon: '📖', defaultDuration: 30, defaultFreq: 'weekly' },
+  { type: 'exercise',           label: 'Physical Exercise',    icon: '🏃', defaultDuration: 30, defaultFreq: '3x-week' },
+  { type: 'sleep-hygiene',      label: 'Sleep Hygiene',        icon: '😴', defaultDuration:  0, defaultFreq: 'daily' },
+  { type: 'neurofeedback-home', label: 'Home Neurofeedback',   icon: '🧠', defaultDuration: 20, defaultFreq: '3x-week' },
+  { type: 'heart-rate',         label: 'HRV Practice',         icon: '❤️', defaultDuration: 10, defaultFreq: 'daily' },
+  { type: 'cognitive',          label: 'Cognitive Exercise',   icon: '🎯', defaultDuration: 15, defaultFreq: '3x-week' },
+  { type: 'nutrition',          label: 'Nutrition Task',       icon: '🥗', defaultDuration:  0, defaultFreq: 'daily' },
+];
+
+const HW_PLANS_KEY       = 'ds_hw_plans';
+const HW_ASSIGNMENTS_KEY = 'ds_hw_assignments';
+
+function _hwSeedPlans() {
+  return [
+    {
+      id: 'seed-adhd',
+      name: 'ADHD Focus Protocol',
+      condition: 'ADHD',
+      weeks: 6,
+      createdAt: new Date().toISOString(),
+      blocks: [
+        { id: 'b1', type: 'breathing',     label: 'Breathing Exercise',   icon: '🫁', instructions: 'Practice 4-7-8 breathing for 10 minutes each morning before screens.',                   duration: 10, frequency: 'daily',    weekStart: 1, weekEnd: 6, order: 0 },
+        { id: 'b2', type: 'mindfulness',   label: 'Mindfulness Practice', icon: '🧘', instructions: 'Use a guided focus meditation app for 15 min. Body-scan technique preferred.',           duration: 15, frequency: 'daily',    weekStart: 1, weekEnd: 6, order: 1 },
+        { id: 'b3', type: 'cognitive',     label: 'Cognitive Exercise',   icon: '🎯', instructions: 'Complete one working-memory task (e.g., n-back or Lumosity). Track performance.',       duration: 15, frequency: '3x-week', weekStart: 2, weekEnd: 6, order: 2 },
+        { id: 'b4', type: 'exercise',      label: 'Physical Exercise',    icon: '🏃', instructions: '30 min aerobic exercise (jogging, cycling, or swimming). Aim for 60-70% max HR.',       duration: 30, frequency: '3x-week', weekStart: 1, weekEnd: 6, order: 3 },
+        { id: 'b5', type: 'journaling',    label: 'Journaling Prompt',    icon: '📓', instructions: 'Write 3 priorities for the next day each evening. Note what distracted you today.',    duration: 10, frequency: '3x-week', weekStart: 1, weekEnd: 6, order: 4 },
+        { id: 'b6', type: 'sleep-hygiene', label: 'Sleep Hygiene',        icon: '😴', instructions: 'No screens 60 min before bed. Consistent sleep and wake times. Track in sleep diary.', duration:  0, frequency: 'daily',    weekStart: 1, weekEnd: 6, order: 5 },
+      ],
+    },
+    {
+      id: 'seed-anxiety',
+      name: 'Anxiety Management',
+      condition: 'Anxiety',
+      weeks: 8,
+      createdAt: new Date().toISOString(),
+      blocks: [
+        { id: 'c1', type: 'breathing',   label: 'Breathing Exercise',   icon: '🫁', instructions: 'Diaphragmatic breathing: 5-second inhale, hold 2 sec, 7-second exhale. 5 rounds.',          duration: 10, frequency: 'daily',    weekStart: 1, weekEnd: 8, order: 0 },
+        { id: 'c2', type: 'heart-rate',  label: 'HRV Practice',         icon: '❤️', instructions: 'Use HeartMath or a biofeedback app to practice HRV coherence breathing for 10 min.',        duration: 10, frequency: 'daily',    weekStart: 1, weekEnd: 8, order: 1 },
+        { id: 'c3', type: 'mindfulness', label: 'Mindfulness Practice', icon: '🧘', instructions: 'MBSR body scan or loving-kindness meditation. 15 min morning or before anxiety peaks.',     duration: 15, frequency: 'daily',    weekStart: 2, weekEnd: 8, order: 2 },
+        { id: 'c4', type: 'journaling',  label: 'Journaling Prompt',    icon: '📓', instructions: 'Write anxiety triggers and cognitive restructuring notes using CBT worksheets.',             duration: 20, frequency: '3x-week', weekStart: 1, weekEnd: 8, order: 3 },
+        { id: 'c5', type: 'exercise',    label: 'Physical Exercise',    icon: '🏃', instructions: 'Low-intensity walking 30 min daily. Aim for nature exposure where possible.',               duration: 30, frequency: '3x-week', weekStart: 1, weekEnd: 8, order: 4 },
+      ],
+    },
+  ];
+}
+
+function getHWPlans() {
+  let plans = [];
+  try { plans = JSON.parse(localStorage.getItem(HW_PLANS_KEY) || '[]'); } catch (_e) {}
+  if (!plans.length) {
+    plans = _hwSeedPlans();
+    try { localStorage.setItem(HW_PLANS_KEY, JSON.stringify(plans)); } catch (_e) {}
+  }
+  return plans;
+}
+
+function saveHWPlan(plan) {
+  const plans = getHWPlans();
+  const idx = plans.findIndex(function(p) { return p.id === plan.id; });
+  if (idx >= 0) { plans[idx] = plan; } else { plans.push(plan); }
+  try { localStorage.setItem(HW_PLANS_KEY, JSON.stringify(plans)); } catch (_e) {}
+}
+
+function deleteHWPlan(id) {
+  const plans = getHWPlans().filter(function(p) { return p.id !== id; });
+  try { localStorage.setItem(HW_PLANS_KEY, JSON.stringify(plans)); } catch (_e) {}
+}
+
+function getHWAssignments() {
+  let a = [];
+  try { a = JSON.parse(localStorage.getItem(HW_ASSIGNMENTS_KEY) || '[]'); } catch (_e) {}
+  return a;
+}
+
+function getPatientAssignments(patientId) {
+  return getHWAssignments().filter(function(a) { return a.patientId === patientId; });
+}
+
+function assignHWPlan(planId, patientId, patientName) {
+  const plans = getHWPlans();
+  const plan = plans.find(function(p) { return p.id === planId; });
+  if (!plan) return null;
+  const now = new Date();
+  const endDate = new Date(now);
+  endDate.setDate(now.getDate() + (plan.weeks || 4) * 7);
+  const assignment = {
+    id:           'asn-' + Date.now(),
+    planId:       planId,
+    planName:     plan.name,
+    condition:    plan.condition || '',
+    weeks:        plan.weeks || 4,
+    blocks:       (plan.blocks || []).map(function(b) { return Object.assign({}, b); }),
+    patientId:    patientId,
+    patientName:  patientName,
+    assignedDate: now.toISOString(),
+    startDate:    now.toISOString(),
+    endDate:      endDate.toISOString(),
+    completions:  {},
+  };
+  const assignments = getHWAssignments();
+  assignments.push(assignment);
+  try { localStorage.setItem(HW_ASSIGNMENTS_KEY, JSON.stringify(assignments)); } catch (_e) {}
+  return assignment;
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// ── pgHomeworkBuilder — Clinician-side builder ────────────────────────────────
+// ══════════════════════════════════════════════════════════════════════════════
+
+export async function pgHomeworkBuilder(setTopbarFn) {
+  setTopbarFn('Patient Education & Homework Builder',
+    '<button class="btn btn-ghost btn-sm" onclick="window._nav(\'patients\')">&#8592; Back to Patients</button>'
+  );
+
+  const el = document.getElementById('content');
+  if (!el) return;
+
+  // ── in-memory editor state ─────────────────────────────────────────────────
+  let _editorPlan = {
+    id:        'new-' + Date.now(),
+    name:      '',
+    condition: '',
+    weeks:     4,
+    blocks:    [],
+    createdAt: new Date().toISOString(),
+  };
+
+  // ── render helpers ─────────────────────────────────────────────────────────
+  const FREQ_OPTIONS = [
+    { value: 'daily',   label: 'Daily' },
+    { value: '3x-week', label: '3x/week' },
+    { value: '2x-week', label: '2x/week' },
+    { value: 'weekly',  label: 'Weekly' },
+    { value: 'once',    label: 'Once' },
+  ];
+
+  function freqSelect(blockId, current) {
+    return '<select class="form-control form-control-sm" style="font-size:11.5px;padding:3px 6px;height:auto" onchange="window._hwBlockField(\'' + blockId + '\',\'frequency\',this.value)">' +
+      FREQ_OPTIONS.map(function(o) {
+        return '<option value="' + o.value + '"' + (o.value === current ? ' selected' : '') + '>' + o.label + '</option>';
+      }).join('') +
+    '</select>';
+  }
+
+  function renderBlockCard(block, idx) {
+    const totalWeeks = _editorPlan.weeks || 4;
+    return '<div class="hw-block-card" id="hwblock-' + block.id + '">' +
+      '<div class="hw-block-card-header">' +
+        '<span style="font-size:20px">' + block.icon + '</span>' +
+        '<span style="font-size:13px;font-weight:600;flex:1">' + block.label + '</span>' +
+        '<span style="font-size:10.5px;color:var(--text-tertiary);margin-right:6px">Block ' + (idx + 1) + '</span>' +
+        '<button class="btn btn-ghost btn-sm" style="padding:2px 7px;font-size:11px" onclick="window._hwMoveBlock(' + idx + ',-1)" title="Move up">&#8593;</button>' +
+        '<button class="btn btn-ghost btn-sm" style="padding:2px 7px;font-size:11px" onclick="window._hwMoveBlock(' + idx + ',1)" title="Move down">&#8595;</button>' +
+        '<button class="btn btn-ghost btn-sm" style="padding:2px 7px;font-size:11px;color:var(--red)" onclick="window._hwRemoveBlock(' + idx + ')" title="Remove">&#10005;</button>' +
+      '</div>' +
+      '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:8px">' +
+        '<div>' +
+          '<label style="font-size:10.5px;color:var(--text-tertiary);display:block;margin-bottom:3px">Duration (min, 0=unlimited)</label>' +
+          '<input type="number" min="0" max="480" class="form-control form-control-sm" style="font-size:12px;padding:4px 8px;height:auto" value="' + (block.duration || 0) + '" onchange="window._hwBlockField(\'' + block.id + '\',\'duration\',+this.value)">' +
+        '</div>' +
+        '<div>' +
+          '<label style="font-size:10.5px;color:var(--text-tertiary);display:block;margin-bottom:3px">Frequency</label>' +
+          freqSelect(block.id, block.frequency) +
+        '</div>' +
+      '</div>' +
+      '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:8px">' +
+        '<div>' +
+          '<label style="font-size:10.5px;color:var(--text-tertiary);display:block;margin-bottom:3px">Week start</label>' +
+          '<input type="number" min="1" max="' + totalWeeks + '" class="form-control form-control-sm" style="font-size:12px;padding:4px 8px;height:auto" value="' + (block.weekStart || 1) + '" onchange="window._hwBlockField(\'' + block.id + '\',\'weekStart\',+this.value)">' +
+        '</div>' +
+        '<div>' +
+          '<label style="font-size:10.5px;color:var(--text-tertiary);display:block;margin-bottom:3px">Week end</label>' +
+          '<input type="number" min="1" max="' + totalWeeks + '" class="form-control form-control-sm" style="font-size:12px;padding:4px 8px;height:auto" value="' + (block.weekEnd || totalWeeks) + '" onchange="window._hwBlockField(\'' + block.id + '\',\'weekEnd\',+this.value)">' +
+        '</div>' +
+      '</div>' +
+      '<div>' +
+        '<label style="font-size:10.5px;color:var(--text-tertiary);display:block;margin-bottom:3px">Instructions for patient</label>' +
+        '<textarea class="form-control" rows="2" style="font-size:12px;resize:vertical" placeholder="Describe what the patient should do..." onchange="window._hwBlockField(\'' + block.id + '\',\'instructions\',this.value)">' + (block.instructions || '') + '</textarea>' +
+      '</div>' +
+    '</div>';
+  }
+
+  function renderCanvas() {
+    const canvasEl = document.getElementById('hw-canvas-inner');
+    if (!canvasEl) return;
+    canvasEl.innerHTML =
+      '<div style="margin-bottom:16px">' +
+        '<label style="font-size:11px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.8px;display:block;margin-bottom:5px">Plan Name</label>' +
+        '<input id="hw-plan-name" type="text" class="form-control" placeholder="e.g. ADHD Focus Protocol" style="font-size:15px;font-weight:600" value="' + (_editorPlan.name || '') + '" oninput="window._hwPlanField(\'name\',this.value)">' +
+      '</div>' +
+      '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px">' +
+        '<div>' +
+          '<label style="font-size:11px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.8px;display:block;margin-bottom:5px">Condition / Tag</label>' +
+          '<input id="hw-plan-condition" type="text" class="form-control" placeholder="e.g. ADHD, Anxiety..." style="font-size:13px" value="' + (_editorPlan.condition || '') + '" oninput="window._hwPlanField(\'condition\',this.value)">' +
+        '</div>' +
+        '<div>' +
+          '<label style="font-size:11px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.8px;display:block;margin-bottom:5px">Duration (weeks)</label>' +
+          '<select id="hw-plan-weeks" class="form-control" style="font-size:13px" onchange="window._hwPlanField(\'weeks\',+this.value)">' +
+            [2,4,6,8,12].map(function(w) { return '<option value="' + w + '"' + (w === (_editorPlan.weeks || 4) ? ' selected' : '') + '>' + w + ' weeks</option>'; }).join('') +
+          '</select>' +
+        '</div>' +
+      '</div>' +
+      '<div id="hw-blocks-list">' +
+        (_editorPlan.blocks.length === 0
+          ? '<div style="padding:40px;text-align:center;color:var(--text-tertiary);border:2px dashed var(--border);border-radius:8px;font-size:13px">Click a block type from the palette to build your homework plan</div>'
+          : _editorPlan.blocks.map(renderBlockCard).join('')) +
+      '</div>';
+  }
+
+  function renderPalettePanel() {
+    return '<div class="hw-palette-panel">' +
+      '<div style="font-size:10.5px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.8px;margin-bottom:8px">Block Types</div>' +
+      HW_BLOCK_TYPES.map(function(bt) {
+        return '<div class="hw-block-type-item" onclick="window._hwAddBlock(\'' + bt.type + '\')" title="Add ' + bt.label + '">' +
+          '<span>' + bt.icon + '</span><span>' + bt.label + '</span>' +
+        '</div>';
+      }).join('') +
+      '<div style="border-top:1px solid var(--border);margin:12px 0"></div>' +
+      '<div style="font-size:10.5px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.8px;margin-bottom:8px">Saved Plans</div>' +
+      '<div id="hw-saved-plans-list"></div>' +
+      '<button class="btn btn-ghost btn-sm" style="width:100%;margin-top:8px" onclick="window._hwNewPlan()">+ New Plan</button>' +
+    '</div>';
+  }
+
+  function renderSavedPlansList() {
+    const listEl = document.getElementById('hw-saved-plans-list');
+    if (!listEl) return;
+    const plans = getHWPlans();
+    if (!plans.length) {
+      listEl.innerHTML = '<div style="font-size:11.5px;color:var(--text-tertiary);padding:6px 0">No saved plans yet.</div>';
+      return;
+    }
+    listEl.innerHTML = plans.map(function(p) {
+      return '<div style="display:flex;align-items:center;gap:4px;margin-bottom:4px">' +
+        '<div style="flex:1;font-size:11.5px;padding:6px 8px;border-radius:5px;cursor:pointer;background:var(--hover-bg);overflow:hidden;text-overflow:ellipsis;white-space:nowrap" onclick="window._hwLoadPlan(\'' + p.id + '\')" title="' + p.name + '">' +
+          p.name +
+        '</div>' +
+        '<button class="btn btn-ghost btn-sm" style="padding:2px 6px;font-size:10px;color:var(--red);flex-shrink:0" onclick="window._hwDeletePlan(\'' + p.id + '\')" title="Delete">&#10005;</button>' +
+      '</div>';
+    }).join('');
+  }
+
+  function renderSettingsPanel() {
+    return '<div class="hw-settings-panel">' +
+      '<div style="font-size:11px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.8px;margin-bottom:12px">Plan Actions</div>' +
+      '<button class="btn btn-primary" style="width:100%;margin-bottom:10px" onclick="window._hwSavePlan()">Save Plan</button>' +
+      '<button class="btn btn-ghost btn-sm" style="width:100%;margin-bottom:20px" onclick="window._hwPrintPlan()">Preview / Print</button>' +
+      '<div style="border-top:1px solid var(--border);margin-bottom:16px"></div>' +
+      '<div style="font-size:11px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.8px;margin-bottom:10px">Assign to Patient</div>' +
+      '<label style="font-size:11.5px;color:var(--text-secondary);display:block;margin-bottom:4px">Patient Name</label>' +
+      '<input id="hw-assign-patient-name" type="text" class="form-control" placeholder="e.g. Jane Smith" style="margin-bottom:6px;font-size:12.5px">' +
+      '<label style="font-size:11.5px;color:var(--text-secondary);display:block;margin-bottom:4px">Patient ID (optional)</label>' +
+      '<input id="hw-assign-patient-id" type="text" class="form-control" placeholder="e.g. demo-patient" style="margin-bottom:10px;font-size:12.5px">' +
+      '<button class="btn btn-secondary" style="width:100%" onclick="window._hwAssignPlan()">Assign Plan</button>' +
+      '<div id="hw-assign-status" style="margin-top:8px;font-size:11.5px;color:var(--green);display:none"></div>' +
+    '</div>';
+  }
+
+  // ── Initial render ─────────────────────────────────────────────────────────
+  el.innerHTML =
+    '<div class="hw-builder-layout">' +
+      renderPalettePanel() +
+      '<div class="hw-canvas-panel"><div id="hw-canvas-inner"></div></div>' +
+      renderSettingsPanel() +
+    '</div>';
+
+  renderCanvas();
+  renderSavedPlansList();
+
+  // ── Global handlers ────────────────────────────────────────────────────────
+
+  window._hwPlanField = function(field, value) {
+    _editorPlan[field] = (field === 'weeks') ? (+value || 4) : value;
+  };
+
+  window._hwBlockField = function(blockId, field, value) {
+    const block = _editorPlan.blocks.find(function(b) { return b.id === blockId; });
+    if (block) block[field] = value;
+  };
+
+  window._hwAddBlock = function(type) {
+    const bt = HW_BLOCK_TYPES.find(function(b) { return b.type === type; });
+    if (!bt) return;
+    const block = {
+      id:           'blk-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6),
+      type:         bt.type,
+      label:        bt.label,
+      icon:         bt.icon,
+      instructions: '',
+      duration:     bt.defaultDuration,
+      frequency:    bt.defaultFreq,
+      weekStart:    1,
+      weekEnd:      _editorPlan.weeks || 4,
+      order:        _editorPlan.blocks.length,
+    };
+    _editorPlan.blocks.push(block);
+    renderCanvas();
+  };
+
+  window._hwRemoveBlock = function(idx) {
+    _editorPlan.blocks.splice(idx, 1);
+    renderCanvas();
+  };
+
+  window._hwMoveBlock = function(idx, dir) {
+    const blocks = _editorPlan.blocks;
+    const target = idx + dir;
+    if (target < 0 || target >= blocks.length) return;
+    const tmp = blocks[idx];
+    blocks[idx] = blocks[target];
+    blocks[target] = tmp;
+    renderCanvas();
+  };
+
+  window._hwSavePlan = function() {
+    const nameEl  = document.getElementById('hw-plan-name');
+    const condEl  = document.getElementById('hw-plan-condition');
+    const weeksEl = document.getElementById('hw-plan-weeks');
+    if (nameEl)  _editorPlan.name      = nameEl.value.trim();
+    if (condEl)  _editorPlan.condition = condEl.value.trim();
+    if (weeksEl) _editorPlan.weeks     = parseInt(weeksEl.value, 10) || 4;
+    if (!_editorPlan.name) { alert('Please enter a plan name.'); return; }
+    saveHWPlan(_editorPlan);
+    renderSavedPlansList();
+    const statusEl = document.getElementById('hw-assign-status');
+    if (statusEl) {
+      statusEl.textContent = 'Plan saved!';
+      statusEl.style.display = '';
+      setTimeout(function() { if (statusEl) statusEl.style.display = 'none'; }, 2500);
+    }
+  };
+
+  window._hwLoadPlan = function(id) {
+    const plans = getHWPlans();
+    const plan = plans.find(function(p) { return p.id === id; });
+    if (!plan) return;
+    _editorPlan = JSON.parse(JSON.stringify(plan));
+    renderCanvas();
+  };
+
+  window._hwDeletePlan = function(id) {
+    if (!confirm('Delete this plan?')) return;
+    deleteHWPlan(id);
+    renderSavedPlansList();
+  };
+
+  window._hwNewPlan = function() {
+    _editorPlan = { id: 'new-' + Date.now(), name: '', condition: '', weeks: 4, blocks: [], createdAt: new Date().toISOString() };
+    renderCanvas();
+  };
+
+  window._hwAssignPlan = function() {
+    const nameEl      = document.getElementById('hw-assign-patient-name');
+    const idEl        = document.getElementById('hw-assign-patient-id');
+    const patientName = nameEl ? nameEl.value.trim() : '';
+    const patientId   = (idEl && idEl.value.trim()) ? idEl.value.trim() : 'demo-patient';
+    if (!patientName) { alert('Please enter a patient name.'); return; }
+    const nameInputEl = document.getElementById('hw-plan-name');
+    const condEl      = document.getElementById('hw-plan-condition');
+    const weeksEl     = document.getElementById('hw-plan-weeks');
+    if (nameInputEl) _editorPlan.name      = nameInputEl.value.trim();
+    if (condEl)      _editorPlan.condition = condEl.value.trim();
+    if (weeksEl)     _editorPlan.weeks     = parseInt(weeksEl.value, 10) || 4;
+    if (!_editorPlan.name) { alert('Please enter a plan name before assigning.'); return; }
+    saveHWPlan(_editorPlan);
+    const assignment = assignHWPlan(_editorPlan.id, patientId, patientName);
+    if (assignment) {
+      const statusEl = document.getElementById('hw-assign-status');
+      if (statusEl) {
+        statusEl.textContent = 'Assigned to ' + patientName + ' \u2713';
+        statusEl.style.display = '';
+        setTimeout(function() { if (statusEl) statusEl.style.display = 'none'; }, 3000);
+      }
+      if (nameEl) nameEl.value = '';
+      if (idEl)   idEl.value   = '';
+    }
+  };
+
+  window._hwPrintPlan = function() {
+    const nameInputEl = document.getElementById('hw-plan-name');
+    const condEl      = document.getElementById('hw-plan-condition');
+    const weeksEl     = document.getElementById('hw-plan-weeks');
+    if (nameInputEl) _editorPlan.name      = nameInputEl.value.trim();
+    if (condEl)      _editorPlan.condition = condEl.value.trim();
+    if (weeksEl)     _editorPlan.weeks     = parseInt(weeksEl.value, 10) || 4;
+
+    const plan     = _editorPlan;
+    const weeks    = plan.weeks || 4;
+    const weekNums = Array.from({ length: weeks }, function(_, i) { return i + 1; });
+    const freqMap  = { 'daily': 'Daily', '3x-week': '3x/week', '2x-week': '2x/week', 'weekly': 'Weekly', 'once': 'Once' };
+
+    const tableHeader =
+      '<tr><th style="text-align:left">Task</th>' +
+      weekNums.map(function(w) { return '<th>Wk ' + w + '</th>'; }).join('') +
+      '</tr>';
+
+    const tableRows = (plan.blocks || []).map(function(b) {
+      return '<tr>' +
+        '<td style="text-align:left">' + b.icon + ' ' + b.label + '</td>' +
+        weekNums.map(function(w) {
+          const active = w >= (b.weekStart || 1) && w <= (b.weekEnd || weeks);
+          return '<td>' + (active ? '\u2713' : '') + '</td>';
+        }).join('') +
+      '</tr>';
+    }).join('');
+
+    const blocksDetail = (plan.blocks || []).map(function(b) {
+      return '<li style="margin-bottom:12px">' +
+        '<strong>' + b.icon + ' ' + b.label + '</strong>' +
+        ' <em style="color:#555;font-size:.85em">(' +
+          (freqMap[b.frequency] || b.frequency) +
+          (b.duration > 0 ? ', ' + b.duration + ' min' : '') +
+          ', Weeks ' + (b.weekStart || 1) + '\u2013' + (b.weekEnd || weeks) +
+        ')</em>' +
+        (b.instructions ? '<br><span style="font-size:.88em;color:#444">' + b.instructions + '</span>' : '') +
+      '</li>';
+    }).join('');
+
+    const modalHtml =
+      '<div style="position:fixed;top:0;left:0;width:100%;height:100%;background:#fff;z-index:9999;overflow:auto;padding:30px;box-sizing:border-box">' +
+        '<div style="max-width:800px;margin:0 auto">' +
+          '<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:20px">' +
+            '<div>' +
+              '<h1 style="margin:0;font-size:1.5rem;color:#111">' + (plan.name || 'Homework Plan') + '</h1>' +
+              (plan.condition ? '<div style="color:#555;font-size:.9rem;margin-top:4px">Condition: ' + plan.condition + '</div>' : '') +
+              '<div style="color:#888;font-size:.8rem;margin-top:2px">Duration: ' + weeks + ' weeks</div>' +
+            '</div>' +
+            '<div style="display:flex;gap:8px">' +
+              '<button onclick="window.print()" style="padding:8px 18px;background:#0070f3;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:.9rem">Print</button>' +
+              '<button onclick="document.getElementById(\'hw-print-overlay\').remove()" style="padding:8px 14px;background:#f3f4f6;border:1px solid #ddd;border-radius:6px;cursor:pointer;font-size:.9rem">Close</button>' +
+            '</div>' +
+          '</div>' +
+          '<div style="margin-bottom:24px;border:1px solid #eee;border-radius:8px;overflow:auto">' +
+            '<table class="hw-week-table">' + tableHeader + tableRows + '</table>' +
+          '</div>' +
+          '<h3 style="margin-bottom:12px;font-size:1rem;color:#111">Task Instructions</h3>' +
+          '<ol style="padding-left:18px;line-height:1.7">' + blocksDetail + '</ol>' +
+          '<div style="margin-top:30px;padding-top:16px;border-top:1px solid #eee;font-size:.78rem;color:#aaa;text-align:center">' +
+            'DeepSynaps Protocol Studio \u2014 Patient Homework Plan' +
+          '</div>' +
+        '</div>' +
+      '</div>';
+
+    let overlay = document.getElementById('hw-print-overlay');
+    if (overlay) overlay.remove();
+    overlay = document.createElement('div');
+    overlay.id = 'hw-print-overlay';
+    overlay.innerHTML = modalHtml;
+    document.body.appendChild(overlay);
+  };
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// ── Patient Mobile PWA Enhancements ──────────────────────────────────────────
+// ══════════════════════════════════════════════════════════════════════════════
+
+// ── Swipe gesture system ──────────────────────────────────────────────────────
+function initPatientSwipeGestures() {
+  let _touchStartX = 0, _touchStartY = 0, _touchStartTime = 0;
+  const SWIPE_THRESHOLD = 60; // px
+  const SWIPE_TIME_LIMIT = 400; // ms
+  const ANGLE_LIMIT = 30; // degrees from horizontal
+
+  const root = document.getElementById('patient-app-shell') || document.body;
+
+  root.addEventListener('touchstart', e => {
+    _touchStartX = e.touches[0].clientX;
+    _touchStartY = e.touches[0].clientY;
+    _touchStartTime = Date.now();
+  }, { passive: true });
+
+  root.addEventListener('touchend', e => {
+    const dx = e.changedTouches[0].clientX - _touchStartX;
+    const dy = e.changedTouches[0].clientY - _touchStartY;
+    const dt = Date.now() - _touchStartTime;
+    const angle = Math.abs(Math.atan2(Math.abs(dy), Math.abs(dx)) * 180 / Math.PI);
+
+    if (dt > SWIPE_TIME_LIMIT || Math.abs(dx) < SWIPE_THRESHOLD) return;
+    if (angle > ANGLE_LIMIT) return; // too vertical
+
+    if (dx < 0) window._patSwipeLeft?.();   // swipe left → next page
+    if (dx > 0) window._patSwipeRight?.();  // swipe right → prev page / open nav
+  }, { passive: true });
+}
+
+// Define swipe page-cycle functions using PATIENT_BOTTOM_NAV order
+(function setupSwipeNavHandlers() {
+  const _getNavIds = () => PATIENT_BOTTOM_NAV.map(n => n.id);
+
+  window._patSwipeLeft = function() {
+    const ids = _getNavIds();
+    const cur = window._currentPatientPage || 'patient-portal';
+    const idx = ids.indexOf(cur);
+    const next = idx === -1 ? ids[0] : ids[Math.min(idx + 1, ids.length - 1)];
+    if (next !== cur) window._navPatient?.(next);
+  };
+
+  window._patSwipeRight = function() {
+    const ids = _getNavIds();
+    const cur = window._currentPatientPage || 'patient-portal';
+    const idx = ids.indexOf(cur);
+    if (idx > 0) window._navPatient?.(ids[idx - 1]);
+  };
+})();
+
+// ── Pull-to-refresh ───────────────────────────────────────────────────────────
+function initPullToRefresh(refreshFn) {
+  let _ptr_startY = 0, _ptr_active = false;
+  const indicator = document.getElementById('ptr-indicator');
+  const shell = document.getElementById('patient-app-shell') || document.body;
+
+  shell.addEventListener('touchstart', e => {
+    if (shell.scrollTop === 0) {
+      _ptr_startY = e.touches[0].clientY;
+      _ptr_active = true;
+    }
+  }, { passive: true });
+
+  shell.addEventListener('touchmove', e => {
+    if (!_ptr_active) return;
+    const dy = e.touches[0].clientY - _ptr_startY;
+    if (dy > 0 && indicator) {
+      indicator.style.transform = `translateX(-50%) translateY(${Math.min(dy * 0.4, 60)}px)`;
+      indicator.style.opacity = Math.min(dy / 80, 1).toString();
+    }
+  }, { passive: true });
+
+  shell.addEventListener('touchend', e => {
+    if (!_ptr_active) return;
+    _ptr_active = false;
+    const dy = e.changedTouches[0].clientY - _ptr_startY;
+    if (dy > 80) {
+      if (indicator) { indicator.style.transform = 'translateX(-50%) translateY(48px)'; }
+      refreshFn();
+      setTimeout(() => {
+        if (indicator) { indicator.style.transform = 'translateX(-50%)'; indicator.style.opacity = '0'; }
+      }, 1500);
+    } else {
+      if (indicator) { indicator.style.transform = 'translateX(-50%)'; indicator.style.opacity = '0'; }
+    }
+    _ptr_startY = 0;
+  }, { passive: true });
+}
+
+// ── Offline symptom journal ───────────────────────────────────────────────────
+const SYMPTOM_JOURNAL_KEY = 'ds_symptom_journal';
+
+function getJournalEntries() {
+  try {
+    return JSON.parse(localStorage.getItem(SYMPTOM_JOURNAL_KEY) || '[]');
+  } catch (_) { return []; }
+}
+
+function saveJournalEntry(entry) {
+  const entries = getJournalEntries();
+  const existing = entries.findIndex(e => e.id === entry.id);
+  if (existing >= 0) { entries[existing] = entry; }
+  else { entries.unshift(entry); }
+  localStorage.setItem(SYMPTOM_JOURNAL_KEY, JSON.stringify(entries));
+}
+
+function deleteJournalEntry(id) {
+  const entries = getJournalEntries().filter(e => e.id !== id);
+  localStorage.setItem(SYMPTOM_JOURNAL_KEY, JSON.stringify(entries));
+}
+
+// Mini SVG mood trend chart (7 days)
+function _journalTrendChart(entries) {
+  const last7 = entries.slice(0, 7).reverse();
+  if (last7.length < 2) return '<div style="color:var(--text-tertiary);font-size:12px;text-align:center;padding:16px">Not enough data for trend yet — log at least 2 days.</div>';
+
+  const W = 280, H = 60, pad = 8;
+  const iw = W - pad * 2, ih = H - pad * 2;
+  const pts = last7.map((e, i) => {
+    const x = pad + (i / (last7.length - 1)) * iw;
+    const y = pad + ih - ((e.mood - 1) / 4) * ih;
+    return { x, y, mood: e.mood, date: e.date };
+  });
+  const polyline = pts.map(p => `${p.x},${p.y}`).join(' ');
+  const area = `M${pts[0].x},${H} ` + pts.map(p => `L${p.x},${p.y}`).join(' ') + ` L${pts[pts.length-1].x},${H} Z`;
+  const gradId = `jt-${Math.random().toString(36).slice(2)}`;
+  const dots = pts.map(p => `<circle cx="${p.x}" cy="${p.y}" r="3.5" fill="var(--teal,#0d9488)" stroke="white" stroke-width="1.5"/>`).join('');
+  return `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" style="overflow:visible">
+    <defs>
+      <linearGradient id="${gradId}" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stop-color="var(--teal,#0d9488)" stop-opacity="0.25"/>
+        <stop offset="100%" stop-color="var(--teal,#0d9488)" stop-opacity="0"/>
+      </linearGradient>
+    </defs>
+    <path d="${area}" fill="url(#${gradId})"/>
+    <polyline points="${polyline}" fill="none" stroke="var(--teal,#0d9488)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+    ${dots}
+  </svg>`;
+}
+
+function _emojiScaleRow(id, label, emojis, min, max) {
+  return `<div style="margin-bottom:16px">
+    <label style="font-size:12px;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:4px">${label}</label>
+    <input type="range" id="${id}" min="${min}" max="${max}" value="${Math.round((min+max)/2)}"
+      style="width:100%;accent-color:var(--teal,#0d9488)">
+    <div class="pt-emoji-scale">${emojis.map(e => `<span>${e}</span>`).join('')}</div>
+  </div>`;
+}
+
+export async function pgSymptomJournal(setTopbarFn) {
+  const _tb = typeof setTopbarFn === 'function' ? setTopbarFn : setTopbar;
+  _tb('Symptom Journal', '');
+  const el = document.getElementById('patient-content');
+  if (!el) return;
+
+  const entries = getJournalEntries();
+  const today = new Date().toISOString().split('T')[0];
+  const todayEntry = entries.find(e => e.date === today);
+
+  const historyHtml = entries.slice(0, 14).map(e => {
+    const unsyncedBadge = !e.synced ? '<span class="pt-unsynced">UNSYNCED</span>' : '';
+    const notesSnippet = e.notes ? `<div style="font-size:11.5px;color:var(--text-secondary);margin-top:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${e.notes}</div>` : '';
+    return `<div class="pt-journal-entry">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+        <span style="font-size:12px;font-weight:600;color:var(--text-secondary)">${new Date(e.date + 'T12:00:00').toLocaleDateString(undefined,{weekday:'short',month:'short',day:'numeric'})}</span>
+        ${unsyncedBadge}
+      </div>
+      <div style="flex-wrap:wrap;display:flex;gap:2px">
+        <span class="pt-metric-badge">😊 Mood: ${e.mood}/5</span>
+        <span class="pt-metric-badge">⚡ Energy: ${e.energy}/5</span>
+        <span class="pt-metric-badge">😰 Anxiety: ${e.anxiety}/5</span>
+        <span class="pt-metric-badge">💤 Sleep: ${e.sleep}h</span>
+      </div>
+      ${notesSnippet}
+    </div>`;
+  }).join('') || '<div style="color:var(--text-tertiary);font-size:13px;text-align:center;padding:24px">No entries yet. Log your first check-in above.</div>';
+
+  const unsyncedCount = entries.filter(e => !e.synced).length;
+
+  el.innerHTML = `
+    <div style="max-width:600px;margin:0 auto;padding:16px">
+      <div class="card" style="margin-bottom:16px">
+        <div class="card-header">
+          <h3 style="margin:0;font-size:1rem">How are you feeling today?</h3>
+          <span style="font-size:11px;color:var(--text-tertiary)">${new Date().toLocaleDateString(undefined,{weekday:'long',year:'numeric',month:'long',day:'numeric'})}</span>
+        </div>
+        <div class="card-body" style="padding:16px">
+          ${todayEntry ? `<div class="notice notice-success" style="margin-bottom:12px">You already logged today. You can update it below.</div>` : ''}
+          ${_emojiScaleRow('j-mood',    '😊 Mood',    ['😫','😟','😐','🙂','😊'], 1, 5)}
+          ${_emojiScaleRow('j-energy',  '⚡ Energy',  ['😴','🥱','😐','🙂','⚡'], 1, 5)}
+          ${_emojiScaleRow('j-anxiety', '😰 Anxiety', ['😰','😟','😐','🙂','😌'], 1, 5)}
+          ${_emojiScaleRow('j-sleep',   '💤 Sleep (hours)', ['0h','3h','6h','9h','12h'], 0, 12)}
+          <div style="margin-bottom:16px">
+            <label style="font-size:12px;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:4px">Notes (optional)</label>
+            <textarea id="j-notes" rows="3" placeholder="How was your day? Any symptoms to note?"
+              style="width:100%;border:1px solid var(--border);border-radius:6px;padding:8px;background:var(--input-bg,rgba(255,255,255,0.04));color:var(--text-primary);font-family:var(--font-body);font-size:13px;resize:vertical;box-sizing:border-box">${todayEntry?.notes || ''}</textarea>
+          </div>
+          <button class="btn btn-primary" style="width:100%" id="j-save-btn">Save Entry</button>
+          <div id="j-save-msg" style="display:none;margin-top:8px;font-size:12px;color:#10b981;text-align:center">Entry saved!</div>
+        </div>
+      </div>
+
+      ${unsyncedCount > 0 ? `<div style="display:flex;justify-content:flex-end;margin-bottom:8px">
+        <button class="btn btn-ghost btn-sm" id="j-sync-btn">Sync All (${unsyncedCount} pending)</button>
+      </div>` : ''}
+
+      <div class="pt-trend-chart" style="margin-bottom:16px">
+        <div style="font-size:12px;font-weight:600;color:var(--text-secondary);margin-bottom:8px">7-Day Mood Trend</div>
+        <div style="overflow:hidden;display:flex;justify-content:center">${_journalTrendChart(entries)}</div>
+      </div>
+
+      <div>
+        <div style="font-size:12px;font-weight:600;color:var(--text-secondary);margin-bottom:8px">Recent Entries</div>
+        ${historyHtml}
+      </div>
+    </div>`;
+
+  // Wire save button
+  document.getElementById('j-save-btn')?.addEventListener('click', () => {
+    const mood    = parseInt(document.getElementById('j-mood')?.value    || '3');
+    const energy  = parseInt(document.getElementById('j-energy')?.value  || '3');
+    const anxiety = parseInt(document.getElementById('j-anxiety')?.value || '3');
+    const sleep   = parseFloat(document.getElementById('j-sleep')?.value || '6');
+    const notes   = document.getElementById('j-notes')?.value?.trim() || '';
+    const entry = {
+      id: todayEntry?.id || `j_${Date.now()}`,
+      date: today,
+      mood, energy, anxiety, sleep, notes,
+      synced: false,
+    };
+    saveJournalEntry(entry);
+    const msg = document.getElementById('j-save-msg');
+    if (msg) { msg.style.display = 'block'; setTimeout(() => { msg.style.display = 'none'; }, 2000); }
+    // Re-render to refresh history
+    setTimeout(() => pgSymptomJournal(setTopbarFn), 300);
+  });
+
+  // Wire sync button
+  document.getElementById('j-sync-btn')?.addEventListener('click', () => {
+    const all = getJournalEntries().map(e => ({ ...e, synced: true }));
+    localStorage.setItem(SYMPTOM_JOURNAL_KEY, JSON.stringify(all));
+    setTimeout(() => pgSymptomJournal(setTopbarFn), 200);
+  });
+}
+
+// ── Notification settings ─────────────────────────────────────────────────────
+const NOTIF_PREFS_KEY = 'ds_notification_prefs';
+
+function getNotifPrefs() {
+  try { return JSON.parse(localStorage.getItem(NOTIF_PREFS_KEY) || '{}'); }
+  catch (_) { return {}; }
+}
+
+function saveNotifPrefs(prefs) {
+  localStorage.setItem(NOTIF_PREFS_KEY, JSON.stringify(prefs));
+}
+
+window._patRequestPush = async function() {
+  const statusEl = document.getElementById('push-status');
+  if (!('Notification' in window)) {
+    if (statusEl) statusEl.innerHTML = '<span style="color:var(--text-tertiary);font-size:12px">Push notifications are not supported in this browser.</span>';
+    return;
+  }
+  const result = await Notification.requestPermission();
+  if (result === 'granted') {
+    if (statusEl) statusEl.innerHTML = '<span class="push-enabled">Notifications enabled ✓</span>';
+    const prefs = getNotifPrefs();
+    prefs.pushGranted = true;
+    saveNotifPrefs(prefs);
+  } else {
+    if (statusEl) statusEl.innerHTML = '<span class="push-denied">Permission denied</span>';
+  }
+};
+
+window._patShareProgress = async function() {
+  const title = 'My Treatment Progress — DeepSynaps';
+  const text = 'Tracking my neuromodulation treatment progress with DeepSynaps Protocol Studio.';
+  const url = window.location.href;
+  if (navigator.share) {
+    try { await navigator.share({ title, text, url }); }
+    catch (err) { if (err.name !== 'AbortError') console.warn('Share failed:', err); }
+  } else {
+    try {
+      await navigator.clipboard.writeText(`${title}\n${text}\n${url}`);
+      const btn = document.getElementById('share-btn');
+      if (btn) { const orig = btn.textContent; btn.textContent = 'Copied to clipboard!'; setTimeout(() => { btn.textContent = orig; }, 2000); }
+    } catch (_) {
+      alert('Share not available. Copy this link: ' + url);
+    }
+  }
+};
+
+export async function pgPatientNotificationSettings(setTopbarFn) {
+  const _tb = typeof setTopbarFn === 'function' ? setTopbarFn : setTopbar;
+  _tb('Notification Settings', '');
+  const el = document.getElementById('patient-content');
+  if (!el) return;
+
+  const prefs = getNotifPrefs();
+  const pushSupported = 'Notification' in window;
+  const currentPerm = pushSupported ? Notification.permission : 'unsupported';
+  const shareSupported = 'share' in navigator;
+
+  function toggleRow(key, label, defaultVal) {
+    const val = prefs[key] !== undefined ? prefs[key] : defaultVal;
+    return `<div class="pt-notif-toggle-row">
+      <span style="font-size:13px">${label}</span>
+      <label style="position:relative;display:inline-block;width:40px;height:22px;cursor:pointer">
+        <input type="checkbox" id="notif-${key}" ${val ? 'checked' : ''}
+          style="opacity:0;width:0;height:0;position:absolute"
+          onchange="(function(){
+            const p = JSON.parse(localStorage.getItem('${NOTIF_PREFS_KEY}')||'{}');
+            p['${key}'] = document.getElementById('notif-${key}').checked;
+            localStorage.setItem('${NOTIF_PREFS_KEY}', JSON.stringify(p));
+          })()">
+        <span style="position:absolute;cursor:pointer;top:0;left:0;right:0;bottom:0;border-radius:22px;background:var(--border);transition:.25s" id="notif-${key}-track">
+          <span style="position:absolute;height:16px;width:16px;left:3px;bottom:3px;border-radius:50%;background:white;transition:.25s;transform:${val?'translateX(18px)':'translateX(0)'}"></span>
+        </span>
+      </label>
+    </div>`;
+  }
+
+  let pushStatusHtml;
+  if (!pushSupported) {
+    pushStatusHtml = '<span style="color:var(--text-tertiary);font-size:12px">Not supported in this browser.</span>';
+  } else if (currentPerm === 'granted') {
+    pushStatusHtml = '<span class="push-enabled">Notifications enabled ✓</span>';
+  } else if (currentPerm === 'denied') {
+    pushStatusHtml = '<span class="push-denied">Permission denied — enable in browser settings</span>';
+  } else {
+    pushStatusHtml = '<button class="btn btn-primary btn-sm" onclick="window._patRequestPush()">Enable Push Notifications</button>';
+  }
+
+  el.innerHTML = `
+    <div style="max-width:560px;margin:0 auto;padding:16px">
+
+      <div class="pt-notif-card">
+        <div style="font-size:14px;font-weight:600;margin-bottom:4px">Push Notifications</div>
+        <div style="font-size:12px;color:var(--text-secondary);margin-bottom:12px">Get reminders for upcoming sessions and check-ins.</div>
+        <div id="push-status">${pushStatusHtml}</div>
+      </div>
+
+      <div class="pt-notif-card">
+        <div style="font-size:14px;font-weight:600;margin-bottom:4px">Share Progress</div>
+        <div style="font-size:12px;color:var(--text-secondary);margin-bottom:12px">Share a link to your treatment journey with your support network.</div>
+        <button class="btn btn-ghost btn-sm" id="share-btn" onclick="window._patShareProgress()">
+          ${shareSupported ? '📤 Share my progress' : '📋 Copy link'}
+        </button>
+      </div>
+
+      <div class="pt-notif-card">
+        <div style="font-size:14px;font-weight:600;margin-bottom:8px">Notification Preferences</div>
+        ${toggleRow('sessionReminders',  '📅 Session reminders', true)}
+        ${toggleRow('homeworkReminders', '📝 Homework reminders', true)}
+        ${toggleRow('weeklySummary',     '📊 Weekly summary',     true)}
+      </div>
+
+      ${pushSupported && currentPerm === 'granted' ? `
+      <div style="margin-top:8px">
+        <button class="btn btn-ghost btn-sm" id="test-notif-btn">Test Notification</button>
+      </div>` : ''}
+    </div>`;
+
+  // Sync toggle visual state on change (pure CSS toggles need a bit of help)
+  el.querySelectorAll('input[type=checkbox]').forEach(cb => {
+    cb.addEventListener('change', () => {
+      const track = document.getElementById(cb.id + '-track');
+      if (track) {
+        const dot = track.querySelector('span');
+        if (dot) dot.style.transform = cb.checked ? 'translateX(18px)' : 'translateX(0)';
+        track.style.background = cb.checked ? 'var(--teal,#0d9488)' : 'var(--border)';
+      }
+    });
+    // Set initial track colour
+    const track = document.getElementById(cb.id + '-track');
+    if (track && cb.checked) track.style.background = 'var(--teal,#0d9488)';
+  });
+
+  // Wire test notification button
+  document.getElementById('test-notif-btn')?.addEventListener('click', () => {
+    if ('Notification' in window && Notification.permission === 'granted') {
+      new Notification('DeepSynaps Reminder', {
+        body: 'This is a test notification from your Patient Portal.',
+        icon: '/manifest-icon-192.png',
+      });
+    }
+  });
+}
+
+// ── Wire gestures after patient-app-shell appears ────────────────────────────
+(function _initPWAWiring() {
+  const shell = document.getElementById('patient-app-shell');
+  if (shell) {
+    initPatientSwipeGestures();
+    initPullToRefresh(() => { window._navPatient?.(window._currentPatientPage || 'patient-portal'); });
+    return;
+  }
+  // patient-app-shell may not be in DOM yet — observe for it
+  const observer = new MutationObserver((_, obs) => {
+    if (document.getElementById('patient-app-shell')) {
+      obs.disconnect();
+      initPatientSwipeGestures();
+      initPullToRefresh(() => { window._navPatient?.(window._currentPatientPage || 'patient-portal'); });
+    }
+  });
+  observer.observe(document.body, { childList: true, subtree: true });
+})();
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// pgDataImport — Data Import & Migration
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// ── Import history store ──────────────────────────────────────────────────────
+function getImportHistory() {
+  try {
+    const raw = localStorage.getItem('ds_import_history');
+    if (raw) return JSON.parse(raw);
+  } catch (_) { /* ignore */ }
+  // Seed 3 sample records if empty
+  const seed = [
+    {
+      id: 'imp_001', type: 'patients', fileName: 'patients_jan_2026.csv',
+      rowCount: 42, successCount: 40, errorCount: 2, date: '2026-01-15T09:30:00Z',
+      errors: [
+        { row: 7, field: 'email', value: 'notanemail', message: 'Invalid email format' },
+        { row: 23, field: 'dob', value: '13/45/1990', message: 'Invalid date format. Use YYYY-MM-DD or MM/DD/YYYY' },
+      ],
+      status: 'partial',
+    },
+    {
+      id: 'imp_002', type: 'sessions', fileName: 'sessions_q1_2026.csv',
+      rowCount: 118, successCount: 118, errorCount: 0, date: '2026-02-01T14:10:00Z',
+      errors: [], status: 'completed',
+    },
+    {
+      id: 'imp_003', type: 'protocols', fileName: 'tms_protocol_bundle.json',
+      rowCount: 5, successCount: 3, errorCount: 2, date: '2026-03-20T11:00:00Z',
+      errors: [
+        { row: 2, field: 'steps', value: '', message: 'steps array is required and must be non-empty' },
+        { row: 4, field: 'modality', value: '', message: 'modality is required' },
+      ],
+      status: 'partial',
+    },
+  ];
+  localStorage.setItem('ds_import_history', JSON.stringify(seed));
+  return seed;
+}
+
+function saveImportRecord(record) {
+  const history = getImportHistory();
+  history.unshift(record);
+  localStorage.setItem('ds_import_history', JSON.stringify(history));
+}
+
+// ── CSV parser utility ────────────────────────────────────────────────────────
+function parseCSV(text) {
+  const rows = [];
+  let cur = '';
+  let inQuote = false;
+  const chars = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+  let row = [];
+
+  for (let i = 0; i < chars.length; i++) {
+    const ch = chars[i];
+    const next = chars[i + 1];
+
+    if (inQuote) {
+      if (ch === '"' && next === '"') { cur += '"'; i++; }
+      else if (ch === '"') { inQuote = false; }
+      else { cur += ch; }
+    } else {
+      if (ch === '"') { inQuote = true; }
+      else if (ch === ',') { row.push(cur.trim()); cur = ''; }
+      else if (ch === '\n') {
+        row.push(cur.trim());
+        if (row.some(c => c !== '')) rows.push(row);
+        row = []; cur = '';
+      } else { cur += ch; }
+    }
+  }
+  // Last cell/row
+  row.push(cur.trim());
+  if (row.some(c => c !== '')) rows.push(row);
+
+  if (rows.length === 0) return { headers: [], rows: [] };
+  const headers = rows[0].map(h => h.trim());
+  const dataRows = rows.slice(1);
+  return { headers, rows: dataRows };
+}
+
+function csvRowToObject(headers, row) {
+  const obj = {};
+  headers.forEach((h, i) => { obj[h] = row[i] ?? ''; });
+  return obj;
+}
+
+// ── Import schemas ────────────────────────────────────────────────────────────
+const PATIENT_IMPORT_SCHEMA = {
+  required: ['name', 'dob', 'condition'],
+  optional: ['email', 'phone', 'clinician', 'notes', 'gender', 'address'],
+  transformations: {
+    name:      v => v.trim(),
+    dob:       v => { const d = new Date(v); return isNaN(d) ? null : d.toISOString().split('T')[0]; },
+    condition: v => v.toLowerCase().trim(),
+  },
+  validations: {
+    name:  v => v.length >= 2 || 'Name must be at least 2 characters',
+    dob:   v => v !== null || 'Invalid date format. Use YYYY-MM-DD or MM/DD/YYYY',
+    email: v => !v || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v) || 'Invalid email format',
+  },
+};
+
+const SESSION_IMPORT_SCHEMA = {
+  required: ['patientName', 'date', 'modality', 'duration'],
+  optional: ['amplitude', 'frequency', 'notes', 'outcome'],
+  transformations: {
+    patientName: v => v.trim(),
+    date:        v => { const d = new Date(v); return isNaN(d) ? null : d.toISOString().split('T')[0]; },
+    modality:    v => v.trim(),
+    duration:    v => parseInt(v, 10) || 0,
+  },
+  validations: {
+    patientName: v => v.length >= 2 || 'Patient name must be at least 2 characters',
+    date:        v => v !== null || 'Invalid date format. Use YYYY-MM-DD or MM/DD/YYYY',
+    modality:    v => v.length > 0 || 'Modality is required',
+    duration:    v => v > 0 || 'Duration must be a positive number',
+  },
+};
+
+// ── Column mapping engine ─────────────────────────────────────────────────────
+function autoMapColumns(csvHeaders, schemaFields) {
+  const mappings = {};
+  const SYNONYMS = {
+    name:        ['patient name', 'full name', 'patient', 'name', 'client name'],
+    dob:         ['date of birth', 'dob', 'birth date', 'birthday'],
+    condition:   ['condition', 'diagnosis', 'primary diagnosis', 'disorder'],
+    email:       ['email', 'email address', 'e-mail'],
+    phone:       ['phone', 'telephone', 'mobile', 'cell', 'phone number'],
+    patientName: ['patient name', 'patient', 'full name', 'client name'],
+    date:        ['date', 'session date', 'appointment date', 'dos'],
+    modality:    ['modality', 'treatment type', 'treatment', 'therapy type'],
+    duration:    ['duration', 'session length', 'minutes', 'length'],
+    amplitude:   ['amplitude', 'intensity', 'ma', 'milliamps'],
+    frequency:   ['frequency', 'hz', 'freq'],
+    notes:       ['notes', 'note', 'comments', 'remarks'],
+    outcome:     ['outcome', 'result', 'response'],
+    clinician:   ['clinician', 'provider', 'doctor', 'therapist', 'practitioner'],
+    gender:      ['gender', 'sex'],
+    address:     ['address', 'street address', 'location'],
+  };
+  csvHeaders.forEach(header => {
+    const h = header.toLowerCase().trim();
+    for (const [field, synonyms] of Object.entries(SYNONYMS)) {
+      if (!schemaFields.includes(field)) continue;
+      if (synonyms.includes(h)) { mappings[field] = header; break; }
+    }
+  });
+  return mappings;
+}
+
+// ── Internal state for wizard ─────────────────────────────────────────────────
+const _importState = {
+  patients: { step: 1, csvData: null, mappings: {}, fileName: '', validRows: [], errorRows: [], skipInvalid: false },
+  sessions: { step: 1, csvData: null, mappings: {}, fileName: '', validRows: [], errorRows: [], skipInvalid: false },
+  protocol: { step: 1, jsonData: null, fileName: '', pasteText: '' },
+};
+
+// ── Sample CSV generators ─────────────────────────────────────────────────────
+window._importDownloadSample = function(type) {
+  let csv = '';
+  if (type === 'patients') {
+    csv = 'name,dob,condition,email,phone,clinician,notes,gender,address\n' +
+      'Alice Johnson,1985-03-12,depression,alice@example.com,555-1234,Dr. Smith,"Initial intake notes",Female,"123 Main St"\n' +
+      'Bob Martinez,1972-07-22,anxiety,bob@example.com,555-5678,Dr. Lee,"Referred by GP",Male,"456 Oak Ave"\n' +
+      'Carol White,1990-11-05,tinnitus,,,Dr. Smith,,Female,';
+  } else if (type === 'sessions') {
+    csv = 'patientName,date,modality,duration,amplitude,frequency,notes,outcome\n' +
+      'Alice Johnson,2026-01-10,TMS,30,120,10,"Standard session","Good response"\n' +
+      'Bob Martinez,2026-01-12,tDCS,20,2,,,""\n' +
+      'Carol White,2026-01-15,Neurofeedback,45,,,,Improved focus';
+  }
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = 'sample_' + type + '.csv'; a.click();
+  URL.revokeObjectURL(url);
+};
+
+// ── Validation helpers ────────────────────────────────────────────────────────
+function _validateAndTransformRow(rowObj, schema) {
+  const errors = [];
+  const transformed = {};
+  const allFields = [...schema.required, ...schema.optional];
+  allFields.forEach(field => {
+    let val = rowObj[field] ?? '';
+    if (schema.transformations && schema.transformations[field]) {
+      val = schema.transformations[field](val);
+    }
+    transformed[field] = val;
+    if (schema.validations && schema.validations[field]) {
+      const result = schema.validations[field](val);
+      if (result !== true) errors.push({ field, value: rowObj[field] ?? '', message: result });
+    } else if (schema.required.includes(field) && !val) {
+      errors.push({ field, value: '', message: field + ' is required' });
+    }
+  });
+  return { transformed, errors };
+}
+
+function _applyMappings(csvRow, headers, mappings, schema) {
+  const allFields = [...schema.required, ...schema.optional];
+  const obj = {};
+  allFields.forEach(field => {
+    const csvCol = mappings[field];
+    if (csvCol) {
+      const idx = headers.indexOf(csvCol);
+      obj[field] = idx >= 0 ? (csvRow[idx] ?? '') : '';
+    } else {
+      obj[field] = '';
+    }
+  });
+  return obj;
+}
+
+// ── Step bar renderer ─────────────────────────────────────────────────────────
+function _renderStepBar(currentStep, steps) {
+  return '<div class="import-step-bar">' + steps.map((s, i) => {
+    const n = i + 1;
+    let cls = 'import-step';
+    if (n < currentStep) cls += ' done';
+    else if (n === currentStep) cls += ' active';
+    const prefix = n === currentStep ? '● ' : n < currentStep ? '✓ ' : '';
+    return '<div class="' + cls + '">' + prefix + s + '</div>';
+  }).join('') + '</div>';
+}
+
+// ── Tab renderer ──────────────────────────────────────────────────────────────
+function _renderImportTabs(activeTab) {
+  const tabs = [
+    { id: 'patients', label: '📄 Patient CSV' },
+    { id: 'sessions', label: '🗓 Session CSV' },
+    { id: 'protocol', label: '📋 Protocol JSON' },
+    { id: 'history',  label: '🕒 Import History' },
+  ];
+  return '<div class="tab-row" style="margin-bottom:20px">' + tabs.map(t =>
+    '<button class="tab-btn' + (activeTab === t.id ? ' active' : '') + '" onclick="window._importSwitchTab(\'' + t.id + '\')">' + t.label + '</button>'
+  ).join('') + '</div>';
+}
+
+// ── Patient CSV import wizard steps ──────────────────────────────────────────
+function _renderPatientStep1() {
+  return `
+    <div class="card" style="max-width:640px;margin:0 auto">
+      ${_renderStepBar(1, ['Upload', 'Map Columns', 'Preview & Validate', 'Results'])}
+      <h3 style="margin-bottom:4px">Upload Patient CSV</h3>
+      <p style="font-size:.85rem;color:var(--text-muted);margin-bottom:16px">Accepted formats: .csv, .txt — max 10,000 rows</p>
+      <div class="import-dropzone" id="patient-dropzone"
+        ondragover="event.preventDefault();this.classList.add('drag-over')"
+        ondragleave="this.classList.remove('drag-over')"
+        ondrop="event.preventDefault();this.classList.remove('drag-over');window._importHandleFile('patients',event.dataTransfer.files[0])">
+        <div class="import-dropzone-icon">📥</div>
+        <div style="font-weight:600;margin-bottom:6px">Drag &amp; drop your CSV here</div>
+        <div style="font-size:.82rem;color:var(--text-muted);margin-bottom:14px">or click to browse</div>
+        <input type="file" id="patient-file-input" accept=".csv,.txt" style="display:none" onchange="window._importHandleFile('patients',this.files[0])">
+        <button class="btn btn-secondary btn-sm" onclick="document.getElementById('patient-file-input').click()">Browse Files</button>
+      </div>
+      <div style="margin-top:16px;display:flex;align-items:center;gap:12px">
+        <span style="font-size:.8rem;color:var(--text-muted)">Need a template?</span>
+        <button class="btn btn-ghost btn-sm" onclick="window._importDownloadSample('patients')">&#8595; Download Sample CSV</button>
+      </div>
+    </div>`;
+}
+
+function _renderPatientStep2(state) {
+  const { csvData, mappings } = state;
+  const schema = PATIENT_IMPORT_SCHEMA;
+  const allFields = [...schema.required, ...schema.optional];
+  const rowsHtml = allFields.map(field => {
+    const isReq = schema.required.includes(field);
+    const cur = mappings[field] || '';
+    const unmapped = isReq && !cur;
+    const sampleVals = cur ? csvData.rows.slice(0, 3).map(r => {
+      const idx = csvData.headers.indexOf(cur);
+      return idx >= 0 ? (r[idx] || '—') : '—';
+    }).join(', ') : '—';
+    const reqStar = isReq ? '<span class="mapping-required">*</span> ' : '';
+    const labelStyle = unmapped ? 'color:#ef4444;font-weight:700' : '';
+    const borderColor = unmapped ? '#ef4444' : 'var(--border)';
+    const opts = csvData.headers.map(h => '<option value="' + h + '"' + (cur === h ? ' selected' : '') + '>' + h + '</option>').join('');
+    return '<tr>' +
+      '<td><span style="' + labelStyle + '">' + reqStar + field + '</span></td>' +
+      '<td><select style="width:100%;padding:5px 8px;border-radius:6px;border:1px solid ' + borderColor + ';background:var(--input-bg);color:var(--text)" onchange="window._importSetMapping(\'patients\',\'' + field + '\',this.value)">' +
+        '<option value="">— not mapped —</option>' + opts +
+      '</select></td>' +
+      '<td style="color:var(--text-muted);font-size:.8rem">' + sampleVals + '</td>' +
+    '</tr>';
+  }).join('');
+  return `
+    <div class="card" style="max-width:860px;margin:0 auto">
+      ${_renderStepBar(2, ['Upload', 'Map Columns', 'Preview & Validate', 'Results'])}
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+        <div>
+          <h3 style="margin-bottom:2px">Map Columns</h3>
+          <p style="font-size:.82rem;color:var(--text-muted)">${csvData.rows.length} rows &middot; ${csvData.headers.length} columns detected</p>
+        </div>
+        <div style="display:flex;gap:8px">
+          <button class="btn btn-ghost btn-sm" onclick="window._importReset('patients')">Reset Mapping</button>
+          <button class="btn btn-primary btn-sm" onclick="window._importValidate('patients')">Validate &rarr;</button>
+        </div>
+      </div>
+      <table class="mapping-table">
+        <thead><tr><th>Schema Field</th><th>CSV Column</th><th>Sample Values</th></tr></thead>
+        <tbody>${rowsHtml}</tbody>
+      </table>
+    </div>`;
+}
+
+function _renderPatientStep3(state) {
+  const { validRows, errorRows, skipInvalid } = state;
+  const schema = PATIENT_IMPORT_SCHEMA;
+  const allFields = [...schema.required, ...schema.optional];
+  const previewRows = [...validRows, ...errorRows].slice(0, 10).sort((a, b) => a._rowIndex - b._rowIndex);
+  const ths = allFields.map(f => '<th>' + f + '</th>').join('');
+  const trs = previewRows.map(r => {
+    const hasErr = r._errors && r._errors.length > 0;
+    const tds = allFields.map(f => '<td>' + (r[f] ?? '') + '</td>').join('');
+    const status = hasErr
+      ? '<span style="color:#ef4444;font-size:.75rem">' + r._errors.map(e => e.message).join('; ') + '</span>'
+      : '<span style="color:#10b981">&#10003;</span>';
+    return '<tr class="' + (hasErr ? 'import-row-error' : '') + '"><td>' + (r._rowIndex + 1) + '</td>' + tds + '<td>' + status + '</td></tr>';
+  }).join('');
+  const errSummary = errorRows.length > 0 ? `
+    <div style="background:#fee2e2;border-radius:8px;padding:12px;margin-top:12px">
+      <strong style="color:#b91c1c">&#9888; ${errorRows.length} row${errorRows.length > 1 ? 's' : ''} have errors</strong>
+      <label style="display:flex;align-items:center;gap:8px;margin-top:8px;cursor:pointer;font-size:.85rem">
+        <input type="checkbox" ${skipInvalid ? 'checked' : ''} onchange="window._importToggleSkip('patients',this.checked)">
+        Skip invalid rows and import ${validRows.length} valid row${validRows.length !== 1 ? 's' : ''}
+      </label>
+      <p style="font-size:.78rem;color:#7f1d1d;margin-top:6px">To fix errors manually, correct your CSV and re-upload.</p>
+    </div>` : '';
+  const canImport = skipInvalid ? validRows.length > 0 : (validRows.length > 0 || errorRows.length === 0);
+  return `
+    <div class="card" style="max-width:900px;margin:0 auto">
+      ${_renderStepBar(3, ['Upload', 'Map Columns', 'Preview & Validate', 'Results'])}
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+        <div>
+          <h3 style="margin-bottom:2px">Preview &amp; Validation</h3>
+          <p style="font-size:.82rem;color:var(--text-muted)">
+            <span style="color:#10b981;font-weight:600">${validRows.length} valid</span>
+            ${errorRows.length > 0 ? ' &middot; <span style="color:#ef4444;font-weight:600">' + errorRows.length + ' errors</span>' : ''}
+            (showing first 10 rows)
+          </p>
+        </div>
+        <div style="display:flex;gap:8px">
+          <button class="btn btn-ghost btn-sm" onclick="window._importGoBack('patients')">&larr; Back</button>
+          <button class="btn btn-primary btn-sm" ${canImport ? '' : 'disabled'} onclick="window._importExecutePatients()">Import Now</button>
+        </div>
+      </div>
+      <div style="overflow-x:auto"><table class="import-preview-table">
+        <thead><tr><th>#</th>${ths}<th>Status</th></tr></thead>
+        <tbody>${trs}</tbody>
+      </table></div>
+      ${errSummary}
+    </div>`;
+}
+
+function _renderPatientStep4(result) {
+  const errTable = result.errors && result.errors.length > 0 ? `
+    <div style="overflow-x:auto;margin-top:12px"><table class="import-preview-table">
+      <thead><tr><th>Row</th><th>Field</th><th>Value</th><th>Error</th></tr></thead>
+      <tbody>${result.errors.map(e => '<tr class="import-row-error"><td>' + e.row + '</td><td>' + e.field + '</td><td>' + e.value + '</td><td>' + e.message + '</td></tr>').join('')}</tbody>
+    </table></div>
+    <button class="btn btn-ghost btn-sm" style="margin-top:8px" onclick="window._importDownloadErrors('${result.importId}')">&#8595; Download Error Report</button>` : '';
+  const icon = result.errors && result.errors.length === 0 ? '✅' : '⚠️';
+  return `
+    <div class="card" style="max-width:640px;margin:0 auto">
+      ${_renderStepBar(4, ['Upload', 'Map Columns', 'Preview & Validate', 'Results'])}
+      <div style="text-align:center;padding:20px 0">
+        <div style="font-size:3rem;margin-bottom:8px">${icon}</div>
+        <h3>Import Complete</h3>
+        <p style="font-size:1rem;margin-top:4px">
+          <strong style="color:#10b981">${result.successCount} patient${result.successCount !== 1 ? 's' : ''} imported successfully.</strong>
+          ${result.errors && result.errors.length > 0 ? '<br><span style="color:#ef4444">' + result.errors.length + ' error' + (result.errors.length !== 1 ? 's' : '') + ' skipped.</span>' : ''}
+        </p>
+      </div>
+      ${errTable}
+      <div style="display:flex;gap:8px;margin-top:20px;justify-content:center">
+        <button class="btn btn-secondary" onclick="window._importReset('patients')">Import More</button>
+        <button class="btn btn-primary" onclick="window._nav('patients')">View Patients</button>
+      </div>
+    </div>`;
+}
+
+// ── Session CSV wizard steps ──────────────────────────────────────────────────
+function _renderSessionStep1() {
+  return `
+    <div class="card" style="max-width:640px;margin:0 auto">
+      ${_renderStepBar(1, ['Upload', 'Map Columns', 'Preview & Validate', 'Results'])}
+      <h3 style="margin-bottom:4px">Upload Session CSV</h3>
+      <p style="font-size:.85rem;color:var(--text-muted);margin-bottom:16px">Required fields: patientName, date, modality, duration</p>
+      <div class="import-dropzone" id="session-dropzone"
+        ondragover="event.preventDefault();this.classList.add('drag-over')"
+        ondragleave="this.classList.remove('drag-over')"
+        ondrop="event.preventDefault();this.classList.remove('drag-over');window._importHandleFile('sessions',event.dataTransfer.files[0])">
+        <div class="import-dropzone-icon">📥</div>
+        <div style="font-weight:600;margin-bottom:6px">Drag &amp; drop your CSV here</div>
+        <div style="font-size:.82rem;color:var(--text-muted);margin-bottom:14px">or click to browse</div>
+        <input type="file" id="session-file-input" accept=".csv,.txt" style="display:none" onchange="window._importHandleFile('sessions',this.files[0])">
+        <button class="btn btn-secondary btn-sm" onclick="document.getElementById('session-file-input').click()">Browse Files</button>
+      </div>
+      <div style="margin-top:16px;display:flex;align-items:center;gap:12px">
+        <span style="font-size:.8rem;color:var(--text-muted)">Need a template?</span>
+        <button class="btn btn-ghost btn-sm" onclick="window._importDownloadSample('sessions')">&#8595; Download Sample CSV</button>
+      </div>
+    </div>`;
+}
+
+function _renderSessionStep2(state) {
+  const { csvData, mappings } = state;
+  const schema = SESSION_IMPORT_SCHEMA;
+  const allFields = [...schema.required, ...schema.optional];
+  const rowsHtml = allFields.map(field => {
+    const isReq = schema.required.includes(field);
+    const cur = mappings[field] || '';
+    const unmapped = isReq && !cur;
+    const sampleVals = cur ? csvData.rows.slice(0, 3).map(r => {
+      const idx = csvData.headers.indexOf(cur);
+      return idx >= 0 ? (r[idx] || '—') : '—';
+    }).join(', ') : '—';
+    const reqStar = isReq ? '<span class="mapping-required">*</span> ' : '';
+    const labelStyle = unmapped ? 'color:#ef4444;font-weight:700' : '';
+    const borderColor = unmapped ? '#ef4444' : 'var(--border)';
+    const opts = csvData.headers.map(h => '<option value="' + h + '"' + (cur === h ? ' selected' : '') + '>' + h + '</option>').join('');
+    return '<tr>' +
+      '<td><span style="' + labelStyle + '">' + reqStar + field + '</span></td>' +
+      '<td><select style="width:100%;padding:5px 8px;border-radius:6px;border:1px solid ' + borderColor + ';background:var(--input-bg);color:var(--text)" onchange="window._importSetMapping(\'sessions\',\'' + field + '\',this.value)">' +
+        '<option value="">— not mapped —</option>' + opts +
+      '</select></td>' +
+      '<td style="color:var(--text-muted);font-size:.8rem">' + sampleVals + '</td>' +
+    '</tr>';
+  }).join('');
+  return `
+    <div class="card" style="max-width:860px;margin:0 auto">
+      ${_renderStepBar(2, ['Upload', 'Map Columns', 'Preview & Validate', 'Results'])}
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+        <div>
+          <h3 style="margin-bottom:2px">Map Columns</h3>
+          <p style="font-size:.82rem;color:var(--text-muted)">${csvData.rows.length} rows &middot; ${csvData.headers.length} columns detected</p>
+        </div>
+        <div style="display:flex;gap:8px">
+          <button class="btn btn-ghost btn-sm" onclick="window._importReset('sessions')">Reset Mapping</button>
+          <button class="btn btn-primary btn-sm" onclick="window._importValidate('sessions')">Validate &rarr;</button>
+        </div>
+      </div>
+      <table class="mapping-table">
+        <thead><tr><th>Schema Field</th><th>CSV Column</th><th>Sample Values</th></tr></thead>
+        <tbody>${rowsHtml}</tbody>
+      </table>
+    </div>`;
+}
+
+function _renderSessionStep3(state) {
+  const { validRows, errorRows, skipInvalid } = state;
+  const schema = SESSION_IMPORT_SCHEMA;
+  const allFields = [...schema.required, ...schema.optional];
+  const previewRows = [...validRows, ...errorRows].slice(0, 10).sort((a, b) => a._rowIndex - b._rowIndex);
+  const ths = allFields.map(f => '<th>' + f + '</th>').join('');
+  const trs = previewRows.map(r => {
+    const hasErr = r._errors && r._errors.length > 0;
+    const tds = allFields.map(f => '<td>' + (r[f] ?? '') + '</td>').join('');
+    const status = hasErr
+      ? '<span style="color:#ef4444;font-size:.75rem">' + r._errors.map(e => e.message).join('; ') + '</span>'
+      : '<span style="color:#10b981">&#10003;</span>';
+    return '<tr class="' + (hasErr ? 'import-row-error' : '') + '"><td>' + (r._rowIndex + 1) + '</td>' + tds + '<td>' + status + '</td></tr>';
+  }).join('');
+  const errSummary = errorRows.length > 0 ? `
+    <div style="background:#fee2e2;border-radius:8px;padding:12px;margin-top:12px">
+      <strong style="color:#b91c1c">&#9888; ${errorRows.length} row${errorRows.length > 1 ? 's' : ''} have errors</strong>
+      <label style="display:flex;align-items:center;gap:8px;margin-top:8px;cursor:pointer;font-size:.85rem">
+        <input type="checkbox" ${skipInvalid ? 'checked' : ''} onchange="window._importToggleSkip('sessions',this.checked)">
+        Skip invalid rows and import ${validRows.length} valid row${validRows.length !== 1 ? 's' : ''}
+      </label>
+    </div>` : '';
+  return `
+    <div class="card" style="max-width:900px;margin:0 auto">
+      ${_renderStepBar(3, ['Upload', 'Map Columns', 'Preview & Validate', 'Results'])}
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+        <div>
+          <h3 style="margin-bottom:2px">Preview &amp; Validation</h3>
+          <p style="font-size:.82rem;color:var(--text-muted)">
+            <span style="color:#10b981;font-weight:600">${validRows.length} valid</span>
+            ${errorRows.length > 0 ? ' &middot; <span style="color:#ef4444;font-weight:600">' + errorRows.length + ' errors</span>' : ''}
+          </p>
+        </div>
+        <div style="display:flex;gap:8px">
+          <button class="btn btn-ghost btn-sm" onclick="window._importGoBack('sessions')">&larr; Back</button>
+          <button class="btn btn-primary btn-sm" onclick="window._importExecuteSessions()">Import Now</button>
+        </div>
+      </div>
+      <div style="overflow-x:auto"><table class="import-preview-table">
+        <thead><tr><th>#</th>${ths}<th>Status</th></tr></thead>
+        <tbody>${trs}</tbody>
+      </table></div>
+      ${errSummary}
+    </div>`;
+}
+
+function _renderSessionStep4(result) {
+  const icon = result.errors && result.errors.length === 0 ? '✅' : '⚠️';
+  return `
+    <div class="card" style="max-width:640px;margin:0 auto">
+      ${_renderStepBar(4, ['Upload', 'Map Columns', 'Preview & Validate', 'Results'])}
+      <div style="text-align:center;padding:20px 0">
+        <div style="font-size:3rem;margin-bottom:8px">${icon}</div>
+        <h3>Import Complete</h3>
+        <p style="font-size:1rem;margin-top:4px">
+          <strong style="color:#10b981">${result.successCount} session${result.successCount !== 1 ? 's' : ''} imported successfully.</strong>
+          ${result.errors && result.errors.length > 0 ? '<br><span style="color:#ef4444">' + result.errors.length + ' error' + (result.errors.length !== 1 ? 's' : '') + ' skipped.</span>' : ''}
+        </p>
+      </div>
+      <div style="display:flex;gap:8px;margin-top:20px;justify-content:center">
+        <button class="btn btn-secondary" onclick="window._importReset('sessions')">Import More</button>
+      </div>
+    </div>`;
+}
+
+// ── Protocol JSON wizard steps ────────────────────────────────────────────────
+function _renderProtocolStep1() {
+  return `
+    <div class="card" style="max-width:640px;margin:0 auto">
+      ${_renderStepBar(1, ['Upload', 'Preview', 'Result'])}
+      <h3 style="margin-bottom:4px">Import Protocol JSON</h3>
+      <p style="font-size:.85rem;color:var(--text-muted);margin-bottom:16px">Required fields: name, modality, steps (array). Accepted: .json</p>
+      <div class="import-dropzone" id="protocol-dropzone"
+        ondragover="event.preventDefault();this.classList.add('drag-over')"
+        ondragleave="this.classList.remove('drag-over')"
+        ondrop="event.preventDefault();this.classList.remove('drag-over');window._importHandleFile('protocol',event.dataTransfer.files[0])">
+        <div class="import-dropzone-icon">📋</div>
+        <div style="font-weight:600;margin-bottom:6px">Drag &amp; drop JSON file here</div>
+        <div style="font-size:.82rem;color:var(--text-muted);margin-bottom:14px">or click to browse</div>
+        <input type="file" id="protocol-file-input" accept=".json" style="display:none" onchange="window._importHandleFile('protocol',this.files[0])">
+        <button class="btn btn-secondary btn-sm" onclick="document.getElementById('protocol-file-input').click()">Browse Files</button>
+      </div>
+      <div style="margin-top:20px">
+        <div style="font-size:.85rem;font-weight:600;margin-bottom:6px;color:var(--text-muted)">— or paste JSON —</div>
+        <textarea id="protocol-paste-area" rows="8" style="width:100%;padding:10px;border-radius:8px;border:1px solid var(--border);background:var(--input-bg);color:var(--text);font-family:monospace;font-size:.8rem;resize:vertical" placeholder='{"name":"TMS Protocol","modality":"TMS","steps":[]}'></textarea>
+        <button class="btn btn-primary btn-sm" style="margin-top:8px" onclick="window._importProtocolFromPaste()">Parse &amp; Preview &rarr;</button>
+      </div>
+    </div>`;
+}
+
+function _renderProtocolStep2(state) {
+  const p = state.jsonData;
+  const stepsHtml = Array.isArray(p.steps) ? p.steps.map((s, i) =>
+    '<div style="padding:8px 12px;border:1px solid var(--border);border-radius:6px;margin-bottom:6px;font-size:.85rem"><strong>Step ' + (i + 1) + ':</strong> ' + (s.label || s.name || JSON.stringify(s)) + '</div>'
+  ).join('') : '<p style="color:#ef4444">No steps array found.</p>';
+  return `
+    <div class="card" style="max-width:700px;margin:0 auto">
+      ${_renderStepBar(2, ['Upload', 'Preview', 'Result'])}
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+        <h3>Protocol Preview</h3>
+        <div style="display:flex;gap:8px">
+          <button class="btn btn-ghost btn-sm" onclick="window._importReset('protocol')">&larr; Back</button>
+          <button class="btn btn-primary btn-sm" onclick="window._importExecuteProtocol()">Import Protocol</button>
+        </div>
+      </div>
+      <div style="background:var(--surface);border-radius:8px;padding:16px;margin-bottom:12px">
+        <div style="font-size:.78rem;text-transform:uppercase;color:var(--text-muted);margin-bottom:4px">Protocol Name</div>
+        <div style="font-weight:700;font-size:1.1rem">${p.name || '—'}</div>
+        <div style="display:flex;gap:20px;margin-top:10px;font-size:.85rem">
+          <div><span style="color:var(--text-muted)">Modality: </span><strong>${p.modality || '—'}</strong></div>
+          <div><span style="color:var(--text-muted)">Steps: </span><strong>${Array.isArray(p.steps) ? p.steps.length : 0}</strong></div>
+          ${p.description ? '<div><span style="color:var(--text-muted)">Description: </span>' + p.description + '</div>' : ''}
+        </div>
+      </div>
+      <div style="font-size:.82rem;font-weight:600;color:var(--text-muted);margin-bottom:8px;text-transform:uppercase">Steps</div>
+      ${stepsHtml}
+    </div>`;
+}
+
+function _renderProtocolStep3(result) {
+  return `
+    <div class="card" style="max-width:640px;margin:0 auto">
+      ${_renderStepBar(3, ['Upload', 'Preview', 'Result'])}
+      <div style="text-align:center;padding:20px 0">
+        <div style="font-size:3rem;margin-bottom:8px">${result.ok ? '✅' : '❌'}</div>
+        <h3>${result.ok ? 'Protocol Imported' : 'Import Failed'}</h3>
+        <p style="font-size:.95rem;margin-top:4px;color:${result.ok ? '#10b981' : '#ef4444'}">${result.message}</p>
+      </div>
+      <div style="display:flex;gap:8px;justify-content:center;margin-top:12px">
+        <button class="btn btn-secondary" onclick="window._importReset('protocol')">Import Another</button>
+      </div>
+    </div>`;
+}
+
+// ── Import History tab ────────────────────────────────────────────────────────
+function _renderImportHistoryTab() {
+  const history = getImportHistory();
+  function statusBadge(s) {
+    if (s === 'completed') return '<span class="badge" style="background:#0d9488;color:#fff">Completed</span>';
+    if (s === 'partial')   return '<span class="badge" style="background:#d97706;color:#fff">Partial</span>';
+    return '<span class="badge" style="background:#dc2626;color:#fff">Failed</span>';
+  }
+  const rows = history.length === 0
+    ? '<tr><td colspan="8" style="text-align:center;padding:24px;color:var(--text-muted)">No import history</td></tr>'
+    : history.map(r => {
+        const detailRows = r.errors.length > 0
+          ? '<table style="width:100%;font-size:.8rem;border-collapse:collapse"><thead><tr style="color:var(--text-muted)"><th style="text-align:left;padding:4px 8px">Row</th><th style="text-align:left;padding:4px 8px">Field</th><th style="text-align:left;padding:4px 8px">Value</th><th style="text-align:left;padding:4px 8px">Error</th></tr></thead><tbody>' +
+            r.errors.map(e => '<tr><td style="padding:4px 8px">' + e.row + '</td><td style="padding:4px 8px">' + e.field + '</td><td style="padding:4px 8px">' + e.value + '</td><td style="padding:4px 8px;color:#ef4444">' + e.message + '</td></tr>').join('') +
+            '</tbody></table>'
+          : '<span style="color:var(--text-muted);font-size:.85rem">No errors in this import.</span>';
+        return '<tr class="import-history-row" style="cursor:pointer" onclick="window._importToggleHistoryDetail(\'' + r.id + '\')">' +
+          '<td><span style="font-size:.75rem;text-transform:uppercase;font-weight:600;color:var(--text-muted)">' + r.type + '</span></td>' +
+          '<td>' + r.fileName + '</td>' +
+          '<td style="font-size:.8rem;color:var(--text-muted)">' + new Date(r.date).toLocaleDateString() + '</td>' +
+          '<td style="text-align:center">' + r.rowCount + '</td>' +
+          '<td style="text-align:center;color:#10b981;font-weight:600">' + r.successCount + '</td>' +
+          '<td style="text-align:center;color:' + (r.errorCount > 0 ? '#ef4444' : 'var(--text-muted)') + '">' + r.errorCount + '</td>' +
+          '<td>' + statusBadge(r.status) + '</td>' +
+          '<td style="font-size:.75rem;color:var(--text-muted)">' + (r.errors.length > 0 ? '&#9660; Details' : '') + '</td>' +
+        '</tr>' +
+        '<tr id="hist-detail-' + r.id + '" style="display:none"><td colspan="8" style="padding:8px 16px;background:var(--surface)">' +
+          detailRows +
+          '<br><button class="btn btn-ghost btn-sm" style="margin-top:8px" onclick="window._importDownloadErrors(\'' + r.id + '\')">&#8595; Download Error Report</button>' +
+        '</td></tr>';
+      }).join('');
+  return `
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+        <h3>Import History</h3>
+        <button class="btn btn-ghost btn-sm" style="color:#ef4444" onclick="window._importClearHistory()">Clear History</button>
+      </div>
+      <div style="overflow-x:auto">
+        <table style="width:100%;border-collapse:collapse">
+          <thead><tr style="font-size:.75rem;text-transform:uppercase;color:var(--text-muted)">
+            <th style="text-align:left;padding:8px 12px;border-bottom:2px solid var(--border)">Type</th>
+            <th style="text-align:left;padding:8px 12px;border-bottom:2px solid var(--border)">File</th>
+            <th style="text-align:left;padding:8px 12px;border-bottom:2px solid var(--border)">Date</th>
+            <th style="text-align:center;padding:8px 12px;border-bottom:2px solid var(--border)">Rows</th>
+            <th style="text-align:center;padding:8px 12px;border-bottom:2px solid var(--border)">Success</th>
+            <th style="text-align:center;padding:8px 12px;border-bottom:2px solid var(--border)">Errors</th>
+            <th style="text-align:left;padding:8px 12px;border-bottom:2px solid var(--border)">Status</th>
+            <th style="padding:8px 12px;border-bottom:2px solid var(--border)"></th>
+          </tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
+    </div>`;
+}
+
+// ── Main page renderer ────────────────────────────────────────────────────────
+function _renderImportPage(activeTab) {
+  const el = document.getElementById('content');
+  if (!el) return;
+  let tabContent = '';
+  if (activeTab === 'patients') {
+    const s = _importState.patients;
+    if (s.step === 1) tabContent = _renderPatientStep1();
+    else if (s.step === 2) tabContent = _renderPatientStep2(s);
+    else if (s.step === 3) tabContent = _renderPatientStep3(s);
+    else tabContent = _renderPatientStep4(s.result || { successCount: 0, errors: [], importId: '' });
+  } else if (activeTab === 'sessions') {
+    const s = _importState.sessions;
+    if (s.step === 1) tabContent = _renderSessionStep1();
+    else if (s.step === 2) tabContent = _renderSessionStep2(s);
+    else if (s.step === 3) tabContent = _renderSessionStep3(s);
+    else tabContent = _renderSessionStep4(s.result || { successCount: 0, errors: [] });
+  } else if (activeTab === 'protocol') {
+    const s = _importState.protocol;
+    if (s.step === 1) tabContent = _renderProtocolStep1();
+    else if (s.step === 2) tabContent = _renderProtocolStep2(s);
+    else tabContent = _renderProtocolStep3(s.result || { ok: false, message: '' });
+  } else if (activeTab === 'history') {
+    tabContent = _renderImportHistoryTab();
+  }
+  el.innerHTML = '<div style="max-width:1000px;margin:0 auto;padding:0 16px 40px">' +
+    _renderImportTabs(activeTab) + tabContent + '</div>';
+  window._currentImportTab = activeTab;
+}
+
+// ── Global handlers ───────────────────────────────────────────────────────────
+window._importSwitchTab = function(tab) { _renderImportPage(tab); };
+
+window._importHandleFile = function(type, file) {
+  if (!file) return;
+  if (type === 'protocol') {
+    const reader = new FileReader();
+    reader.onload = e => {
+      try {
+        const json = JSON.parse(e.target.result);
+        _importState.protocol.jsonData = json;
+        _importState.protocol.fileName = file.name;
+        _importState.protocol.step = 2;
+        _renderImportPage('protocol');
+      } catch (_err) {
+        alert('Invalid JSON file. Please check the file and try again.');
+      }
+    };
+    reader.readAsText(file);
+    return;
+  }
+  const reader = new FileReader();
+  reader.onload = e => {
+    const parsed = parseCSV(e.target.result);
+    const state = _importState[type];
+    const schema = type === 'patients' ? PATIENT_IMPORT_SCHEMA : SESSION_IMPORT_SCHEMA;
+    state.csvData = parsed;
+    state.fileName = file.name;
+    state.step = 2;
+    state.mappings = autoMapColumns(parsed.headers, [...schema.required, ...schema.optional]);
+    _renderImportPage(type === 'patients' ? 'patients' : 'sessions');
+  };
+  reader.readAsText(file);
+};
+
+window._importSetMapping = function(type, field, csvCol) {
+  _importState[type].mappings[field] = csvCol;
+};
+
+window._importReset = function(type) {
+  if (type === 'protocol') {
+    _importState.protocol = { step: 1, jsonData: null, fileName: '', pasteText: '' };
+    _renderImportPage('protocol');
+  } else {
+    _importState[type] = { step: 1, csvData: null, mappings: {}, fileName: '', validRows: [], errorRows: [], skipInvalid: false };
+    _renderImportPage(type === 'patients' ? 'patients' : 'sessions');
+  }
+};
+
+window._importGoBack = function(type) {
+  _importState[type].step = 2;
+  _renderImportPage(type === 'patients' ? 'patients' : 'sessions');
+};
+
+window._importToggleSkip = function(type, val) {
+  _importState[type].skipInvalid = val;
+};
+
+window._importValidate = function(type) {
+  const state = _importState[type];
+  const schema = type === 'patients' ? PATIENT_IMPORT_SCHEMA : SESSION_IMPORT_SCHEMA;
+  const { csvData, mappings } = state;
+  if (!csvData) return;
+  const missingRequired = schema.required.filter(f => !mappings[f]);
+  if (missingRequired.length > 0) {
+    alert('Please map required fields: ' + missingRequired.join(', '));
+    return;
+  }
+  const validRows = [];
+  const errorRows = [];
+  csvData.rows.forEach((row, idx) => {
+    const rawObj = _applyMappings(row, csvData.headers, mappings, schema);
+    const { transformed, errors } = _validateAndTransformRow(rawObj, schema);
+    transformed._rowIndex = idx;
+    transformed._errors = errors;
+    if (errors.length === 0) validRows.push(transformed);
+    else errorRows.push(transformed);
+  });
+  state.validRows = validRows;
+  state.errorRows = errorRows;
+  state.step = 3;
+  _renderImportPage(type === 'patients' ? 'patients' : 'sessions');
+};
+
+window._importExecutePatients = async function() {
+  const state = _importState.patients;
+  const rowsToImport = state.skipInvalid ? state.validRows : state.validRows;
+  const errors = [];
+  let successCount = 0;
+  const content = document.getElementById('content');
+  if (content) {
+    content.innerHTML = '<div style="max-width:500px;margin:60px auto;text-align:center">' +
+      '<h3>Importing patients\u2026</h3>' +
+      '<div class="import-progress" style="margin:16px 0"><div class="import-progress-fill" id="import-prog-fill" style="width:0%"></div></div>' +
+      '<div id="import-prog-label" style="font-size:.85rem;color:var(--text-muted)">0 / ' + rowsToImport.length + '</div>' +
+      '</div>';
+  }
+  const fill = document.getElementById('import-prog-fill');
+  const lbl  = document.getElementById('import-prog-label');
+  for (let i = 0; i < rowsToImport.length; i++) {
+    const row = rowsToImport[i];
+    try {
+      let saved = false;
+      try {
+        await api.createPatient({ name: row.name, dob: row.dob, condition: row.condition, email: row.email, phone: row.phone, clinician: row.clinician, notes: row.notes, gender: row.gender, address: row.address });
+        saved = true;
+      } catch (_apiErr) {
+        const patients = JSON.parse(localStorage.getItem('ds_patients') || '[]');
+        patients.push({ id: 'pat_' + Date.now() + '_' + i, ...row, createdAt: new Date().toISOString() });
+        localStorage.setItem('ds_patients', JSON.stringify(patients));
+        saved = true;
+      }
+      if (saved) successCount++;
+    } catch (err) {
+      errors.push({ row: (row._rowIndex || i) + 1, field: 'general', value: '', message: String(err) });
+    }
+    if (fill) fill.style.width = Math.round(((i + 1) / rowsToImport.length) * 100) + '%';
+    if (lbl)  lbl.textContent = (i + 1) + ' / ' + rowsToImport.length;
+    if (i % 10 === 0) await new Promise(r => setTimeout(r, 0));
+  }
+  const importId = 'imp_' + Date.now();
+  saveImportRecord({
+    id: importId, type: 'patients', fileName: state.fileName,
+    rowCount: rowsToImport.length, successCount, errorCount: errors.length,
+    date: new Date().toISOString(), errors: errors.slice(0, 50),
+    status: errors.length === 0 ? 'completed' : successCount === 0 ? 'failed' : 'partial',
+  });
+  state.result = { successCount, errors, importId };
+  state.step = 4;
+  _renderImportPage('patients');
+};
+
+window._importExecuteSessions = async function() {
+  const state = _importState.sessions;
+  const rowsToImport = state.skipInvalid ? state.validRows : state.validRows;
+  let successCount = 0;
+  const errors = [];
+  for (let i = 0; i < rowsToImport.length; i++) {
+    const row = rowsToImport[i];
+    try {
+      try {
+        await api.logSession({ patientName: row.patientName, date: row.date, modality: row.modality, duration: row.duration, amplitude: row.amplitude, frequency: row.frequency, notes: row.notes, outcome: row.outcome });
+      } catch (_apiErr) {
+        const sessions = JSON.parse(localStorage.getItem('ds_sessions') || '[]');
+        sessions.push({ id: 'sess_' + Date.now() + '_' + i, ...row, createdAt: new Date().toISOString() });
+        localStorage.setItem('ds_sessions', JSON.stringify(sessions));
+      }
+      successCount++;
+    } catch (err) {
+      errors.push({ row: (row._rowIndex || i) + 1, field: 'general', value: '', message: String(err) });
+    }
+    if (i % 10 === 0) await new Promise(r => setTimeout(r, 0));
+  }
+  saveImportRecord({
+    id: 'imp_' + Date.now(), type: 'sessions', fileName: state.fileName,
+    rowCount: rowsToImport.length, successCount, errorCount: errors.length,
+    date: new Date().toISOString(), errors: errors.slice(0, 50),
+    status: errors.length === 0 ? 'completed' : successCount === 0 ? 'failed' : 'partial',
+  });
+  state.result = { successCount, errors };
+  state.step = 4;
+  _renderImportPage('sessions');
+};
+
+window._importProtocolFromPaste = function() {
+  const ta = document.getElementById('protocol-paste-area');
+  if (!ta || !ta.value.trim()) { alert('Please paste valid JSON first.'); return; }
+  try {
+    const json = JSON.parse(ta.value.trim());
+    _importState.protocol.jsonData = json;
+    _importState.protocol.fileName = 'pasted-json';
+    _importState.protocol.step = 2;
+    _renderImportPage('protocol');
+  } catch (_err) {
+    alert('Invalid JSON. Please check the syntax and try again.');
+  }
+};
+
+window._importExecuteProtocol = function() {
+  const state = _importState.protocol;
+  const p = state.jsonData;
+  const errs = [];
+  if (!p || !p.name) errs.push('name is required');
+  if (!p || !p.modality) errs.push('modality is required');
+  if (!p || !Array.isArray(p.steps) || p.steps.length === 0) errs.push('steps array is required and must be non-empty');
+  if (errs.length > 0) {
+    state.result = { ok: false, message: errs.join('; ') };
+    state.step = 3;
+    _renderImportPage('protocol');
+    return;
+  }
+  const protocols = JSON.parse(localStorage.getItem('ds_protocols') || '[]');
+  protocols.push({ id: 'proto_' + Date.now(), ...p, importedAt: new Date().toISOString() });
+  localStorage.setItem('ds_protocols', JSON.stringify(protocols));
+  saveImportRecord({
+    id: 'imp_' + Date.now(), type: 'protocols', fileName: state.fileName,
+    rowCount: 1, successCount: 1, errorCount: 0,
+    date: new Date().toISOString(), errors: [], status: 'completed',
+  });
+  state.result = { ok: true, message: 'Protocol "' + p.name + '" imported successfully with ' + p.steps.length + ' steps.' };
+  state.step = 3;
+  _renderImportPage('protocol');
+};
+
+window._importDownloadErrors = function(importId) {
+  const history = getImportHistory();
+  const record = history.find(r => r.id === importId);
+  if (!record || record.errors.length === 0) { alert('No errors to download.'); return; }
+  const header = 'row,field,value,error\n';
+  const body = record.errors.map(e =>
+    e.row + ',"' + e.field + '","' + String(e.value).replace(/"/g, '""') + '","' + e.message.replace(/"/g, '""') + '"'
+  ).join('\n');
+  const blob = new Blob([header + body], { type: 'text/csv' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = 'errors_' + (record.fileName || importId) + '.csv'; a.click();
+  URL.revokeObjectURL(url);
+};
+
+window._importToggleHistoryDetail = function(id) {
+  const row = document.getElementById('hist-detail-' + id);
+  if (row) row.style.display = row.style.display === 'none' ? 'table-row' : 'none';
+};
+
+window._importClearHistory = function() {
+  if (!confirm('Clear all import history? This cannot be undone.')) return;
+  localStorage.removeItem('ds_import_history');
+  _renderImportPage('history');
+};
+
+// ── Exported page entry point ─────────────────────────────────────────────────
+export async function pgDataImport(setTopbar) {
+  setTopbar('Data Import &amp; Migration', '<button class="btn btn-ghost btn-sm" onclick="window._importSwitchTab(\'history\')">🕒 History</button>');
+  _importState.patients = { step: 1, csvData: null, mappings: {}, fileName: '', validRows: [], errorRows: [], skipInvalid: false };
+  _importState.sessions = { step: 1, csvData: null, mappings: {}, fileName: '', validRows: [], errorRows: [], skipInvalid: false };
+  _importState.protocol = { step: 1, jsonData: null, fileName: '', pasteText: '' };
+  _renderImportPage('patients');
 }

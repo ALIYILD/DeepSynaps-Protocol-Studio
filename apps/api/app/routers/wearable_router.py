@@ -344,6 +344,11 @@ def upsert_daily_summary(
     if run_flags:
         new_flags = run_flag_checks(patient_id, None, db)
 
+    _logger.info(
+        "wearable_daily_summary_upserted patient=%s actor=%s role=%s source=%s date=%s new_flags=%d",
+        patient_id, actor.actor_id, actor.role, body.source, body.date, len(new_flags),
+    )
+
     return {'summary_id': summary_id, 'new_flags': len(new_flags)}
 
 

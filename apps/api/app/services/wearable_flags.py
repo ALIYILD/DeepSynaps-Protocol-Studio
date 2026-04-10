@@ -82,8 +82,21 @@ def run_flag_checks(
     new_flags: list[WearableAlertFlag] = []
 
     def _emit(flag_type: str, severity: str, detail: str, snapshot: dict) -> None:
-        # Suppress within 48h to avoid alert spam on every sync cycle
+        # Fast path: in-memory dedup set catches the common single-caller case
         if flag_type in dedup_48h:
+            return
+        # Pessimistic re-check inside the same DB session to guard against concurrent
+        # run_flag_checks() calls (e.g. simultaneous manual + automated syncs).
+        # The re-query runs within the open transaction, so a concurrent committed
+        # insert will be visible here, collapsing the TOCTOU window to near-zero.
+        already = db.query(WearableAlertFlag).filter(
+            WearableAlertFlag.patient_id == patient_id,
+            WearableAlertFlag.flag_type == flag_type,
+            WearableAlertFlag.triggered_at >= now - timedelta(hours=48),
+            WearableAlertFlag.dismissed == False,
+        ).first()
+        if already:
+            dedup_48h.add(flag_type)  # update in-memory set for subsequent _emit calls
             return
         # Escalate and annotate recurring flags so clinicians see persistence at a glance
         prior = fire_count_7d.get(flag_type, 0)
@@ -104,6 +117,7 @@ def run_flag_checks(
             auto_generated=True,
         )
         db.add(flag)
+        dedup_48h.add(flag_type)  # prevent a second rule from emitting the same type this run
         new_flags.append(flag)
 
     # ── Rule 1: Sleep worsening ───────────────────────────────────────────────
