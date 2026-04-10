@@ -463,8 +463,41 @@ export async function pgProfile(setTopbar, navigate) {
       bindOutcomesActions(pt);
       return;
     }
+    if (t === 'assessments') {
+      document.getElementById('ptab-body').innerHTML = renderProfileTab(pt, sessions, window._currentCourses || []);
+      // Async load patient's recent assessments
+      setTimeout(async () => {
+        const bodyEl = document.getElementById('assessments-tab-body');
+        if (!bodyEl) return;
+        try {
+          const res = await api.listAssessments();
+          const all = res?.items || [];
+          const patAssess = all.filter(a => a.patient_id === pt.id);
+          if (patAssess.length === 0) {
+            bodyEl.innerHTML = `<div style="color:var(--text-tertiary);font-size:12.5px;padding:8px 0">No assessments recorded for this patient yet.</div>`;
+          } else {
+            bodyEl.innerHTML = `<table class="ds-table"><thead><tr><th>Template</th><th>Date</th><th>Score</th><th>Notes</th></tr></thead><tbody>
+              ${patAssess.slice(0, 10).map(a => `<tr>
+                <td style="font-weight:500">${a.template_id}</td>
+                <td style="color:var(--text-tertiary)">${a.created_at?.split('T')[0] || '—'}</td>
+                <td class="mono" style="color:var(--teal)">${a.score ?? '—'}</td>
+                <td style="font-size:11px;color:var(--text-secondary);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${a.clinician_notes || '—'}</td>
+              </tr>`).join('')}
+            </tbody></table>`;
+          }
+        } catch { bodyEl.innerHTML = `<div style="color:var(--text-tertiary);font-size:12px">Could not load assessments.</div>`; }
+      }, 0);
+      return;
+    }
     document.getElementById('ptab-body').innerHTML = renderProfileTab(pt, sessions, window._currentCourses || []);
     if (t === 'protocol') bindAI(pt);
+  };
+
+  window._launchInlineAssess = function(templateId, patientId) {
+    // Navigate to assessments page and trigger inline mode after load
+    window._assessPreFillPatient = patientId;
+    window._assessPreFillTemplate = templateId;
+    navigate('assessments');
   };
 
   window.startNewCourse = function() {
@@ -494,11 +527,6 @@ export async function pgProfile(setTopbar, navigate) {
     } catch (e) {
       alert(e.message || 'Update failed.');
     }
-  };
-
-  window._openCourse = function(id) {
-    window._selectedCourseId = id;
-    navigate('course-detail');
   };
 
   if (ptab === 'protocol') bindAI(pt);
@@ -652,9 +680,18 @@ function renderProfileTab(pt, sessions, courses = []) {
     ${cardWrap('AI Protocol Generator ✦', `<div id="ai-gen-zone">${renderAIZone(pt)}</div>`)}
   </div>`;
 
-  if (ptab === 'assessments') return `
-    <div style="margin-bottom:14px"><button class="btn btn-primary btn-sm" onclick="window._nav('assessments')">Go to Assessment Builder →</button></div>
+  if (ptab === 'assessments') {
+    const patId = pt.id;
+    const patName = `${pt.first_name} ${pt.last_name}`;
+    return `
+    <div style="margin-bottom:14px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <button class="btn btn-primary btn-sm" onclick="window._launchInlineAssess('PHQ-9','${patId}')">Run PHQ-9</button>
+      <button class="btn btn-primary btn-sm" onclick="window._launchInlineAssess('GAD-7','${patId}')">Run GAD-7</button>
+      <button class="btn btn-primary btn-sm" onclick="window._launchInlineAssess('ISI','${patId}')">Run ISI</button>
+      <button class="btn btn-sm" onclick="window._nav('assessments')">All Assessments →</button>
+    </div>
     <div id="assessments-tab-body">${spinner()}</div>`;
+  }
 
   if (ptab === 'notes') return cardWrap('Session Notes', `
     <div class="form-group"><label class="form-label">Session type</label>
@@ -1115,7 +1152,7 @@ function bindAI(pt) {
 
 // ── Protocol Generator page ───────────────────────────────────────────────────
 export function pgProtocols(setTopbar) {
-  setTopbar('Protocol Generator', `<button class="btn btn-ghost btn-sm">My Protocols</button><button class="btn btn-primary btn-sm" onclick="window._nav('handbooks')">Handbooks →</button>`);
+  setTopbar('Protocol Intelligence', `<button class="btn btn-ghost btn-sm">My Protocols</button><button class="btn btn-primary btn-sm" onclick="window._nav('handbooks')">Handbooks →</button>`);
   const steps = ['Patient & Context', 'Modality & Type', 'Configure Parameters', 'Review & Generate'];
   return `
   <div style="display:flex;gap:8px;margin-bottom:22px;flex-wrap:wrap;align-items:center">
@@ -1506,18 +1543,30 @@ export function bindProtoPage() {
           patEl.innerHTML = `<option value="">Select patient…</option>` +
             pts.items.map(p => `<option value="${p.id}" ${p.id === window._wizardPatientId ? 'selected' : ''}>${p.first_name} ${p.last_name}</option>`).join('');
         }
-        // If pre-filled patient, load their latest phenotype assignment for display
-        if (window._wizardPatientId) {
-          try {
-            const assigns = await api.listPhenotypeAssignments({ patient_id: window._wizardPatientId }).then(r => r?.items || []).catch(() => []);
-            if (assigns.length > 0) {
-              const latest = assigns[0];
-              const phNote = document.getElementById('wizard-pheno-note');
-              if (phNote) {
-                phNote.innerHTML = `<div class="notice notice-info" style="margin-top:8px;font-size:12px">Phenotype on file: <strong>${latest.phenotype_id}</strong> (${latest.confidence} confidence${latest.qeeg_supported ? ', qEEG-supported' : ''})</div>`;
+        // Wire patient selector onchange → load phenotype note live
+        const patEl2 = document.getElementById('proto-patient');
+        if (patEl2) {
+          async function loadWizardPhenoNote(patientId) {
+            const phNote = document.getElementById('wizard-pheno-note');
+            if (!phNote || !patientId) { if (phNote) phNote.innerHTML = ''; return; }
+            phNote.innerHTML = `<div style="font-size:11px;color:var(--text-tertiary);margin-top:6px">Loading phenotype…</div>`;
+            try {
+              const assigns = await api.listPhenotypeAssignments({ patient_id: patientId }).then(r => r?.items || []).catch(() => []);
+              if (assigns.length > 0) {
+                const latest = assigns[0];
+                phNote.innerHTML = `<div class="notice notice-info" style="margin-top:8px;font-size:12px">
+                  Phenotype on file: <strong>${latest.phenotype_id}</strong>
+                  (${latest.confidence || '?'} confidence${latest.qeeg_supported ? ', qEEG-supported' : ''})
+                  <button class="btn btn-ghost btn-sm" style="padding:2px 6px;font-size:10px" onclick="window.switchPT && window.switchPT('phenotype')">Edit</button>
+                </div>`;
+              } else {
+                phNote.innerHTML = `<div style="font-size:11px;color:var(--text-tertiary);margin-top:6px">No phenotype assigned for this patient.</div>`;
               }
-            }
-          } catch {}
+            } catch { phNote.innerHTML = ''; }
+          }
+          patEl2.addEventListener('change', (e) => loadWizardPhenoNote(e.target.value));
+          // Load for pre-filled patient
+          if (window._wizardPatientId) loadWizardPhenoNote(window._wizardPatientId);
         }
       } catch {}
     }, 50);
@@ -1554,6 +1603,63 @@ export function bindProtoPage() {
 }
 
 // ── Assessments ───────────────────────────────────────────────────────────────
+const ASSESS_TEMPLATES = [
+  { id: 'PHQ-9', t: 'PHQ-9 Depression Scale', sub: 'Patient health questionnaire, 9-item', tags: ['depression', 'outcome'],
+    max: 27, inline: true,
+    questions: [
+      'Little interest or pleasure in doing things',
+      'Feeling down, depressed, or hopeless',
+      'Trouble falling or staying asleep, or sleeping too much',
+      'Feeling tired or having little energy',
+      'Poor appetite or overeating',
+      'Feeling bad about yourself — or that you are a failure',
+      'Trouble concentrating on things',
+      'Moving or speaking so slowly that other people could notice (or the opposite)',
+      'Thoughts that you would be better off dead, or of hurting yourself',
+    ],
+    options: ['Not at all (0)', 'Several days (1)', 'More than half the days (2)', 'Nearly every day (3)'],
+    interpret: (s) => s <= 4 ? { label: 'Minimal', color: 'var(--teal)' } : s <= 9 ? { label: 'Mild', color: '#60a5fa' } : s <= 14 ? { label: 'Moderate', color: '#f59e0b' } : s <= 19 ? { label: 'Moderately Severe', color: '#f97316' } : { label: 'Severe', color: 'var(--red)' },
+  },
+  { id: 'GAD-7', t: 'GAD-7 Anxiety Scale', sub: 'Generalised anxiety disorder, 7-item', tags: ['anxiety', 'outcome'],
+    max: 21, inline: true,
+    questions: [
+      'Feeling nervous, anxious, or on edge',
+      'Not being able to stop or control worrying',
+      'Worrying too much about different things',
+      'Trouble relaxing',
+      'Being so restless that it is hard to sit still',
+      'Becoming easily annoyed or irritable',
+      'Feeling afraid as if something awful might happen',
+    ],
+    options: ['Not at all (0)', 'Several days (1)', 'More than half the days (2)', 'Nearly every day (3)'],
+    interpret: (s) => s <= 4 ? { label: 'Minimal', color: 'var(--teal)' } : s <= 9 ? { label: 'Mild', color: '#60a5fa' } : s <= 14 ? { label: 'Moderate', color: '#f59e0b' } : { label: 'Severe', color: 'var(--red)' },
+  },
+  { id: 'ISI', t: 'Insomnia Severity Index', sub: 'Sleep quality assessment, 7-item', tags: ['insomnia', 'CES'],
+    max: 28, inline: true,
+    questions: [
+      'Severity of sleep onset problem',
+      'Severity of sleep maintenance problem',
+      'Problem waking up too early',
+      'How SATISFIED/dissatisfied are you with your current sleep pattern?',
+      'How NOTICEABLE to others is your sleep problem?',
+      'How WORRIED/distressed are you about your sleep problem?',
+      'To what extent does your sleep problem INTERFERE with your daily functioning?',
+    ],
+    options: ['None/Very satisfied (0)', 'Mild (1)', 'Moderate (2)', 'Severe (3)', 'Very severe/Dissatisfied (4)'],
+    interpret: (s) => s <= 7 ? { label: 'No clinically significant insomnia', color: 'var(--teal)' } : s <= 14 ? { label: 'Subthreshold insomnia', color: '#60a5fa' } : s <= 21 ? { label: 'Moderate clinical insomnia', color: '#f59e0b' } : { label: 'Severe clinical insomnia', color: 'var(--red)' },
+  },
+  { id: 'NRS-Pain', t: 'Numeric Pain Rating Scale', sub: 'Pain intensity 0–10', tags: ['pain', 'tDCS'],
+    max: 10, inline: false },
+  { id: 'PCL-5', t: 'PTSD Checklist (PCL-5)', sub: 'PTSD symptom scale, 20-item', tags: ['PTSD', 'taVNS'],
+    max: 80, inline: false },
+  { id: 'ADHD-RS-5', t: 'ADHD Rating Scale', sub: 'Executive function and attention assessment', tags: ['ADHD', 'NFB'],
+    max: 54, inline: false },
+  { id: 'DASS-21', t: 'DASS-21', sub: 'Depression, Anxiety and Stress Scales', tags: ['depression', 'anxiety'],
+    max: 63, inline: false },
+  { id: 'UPDRS-III', t: 'UPDRS-III Motor Assessment', sub: "Parkinson's motor function", tags: ['PD', 'TPS'],
+    max: 108, inline: false },
+];
+
 export async function pgAssess(setTopbar) {
   setTopbar('Assessments', `<button class="btn btn-primary btn-sm" onclick="window.showAssessModal()">+ Run Assessment</button>`);
   const el = document.getElementById('content');
@@ -1562,16 +1668,7 @@ export async function pgAssess(setTopbar) {
   let items = [];
   try { const res = await api.listAssessments(); items = res?.items || []; } catch {}
 
-  const templates = [
-    { id: 'PHQ-9', t: 'PHQ-9 Depression Scale', sub: 'Patient health questionnaire, 9-item', tags: ['depression', 'outcome'] },
-    { id: 'GAD-7', t: 'GAD-7 Anxiety Scale', sub: 'Generalised anxiety disorder, 7-item', tags: ['anxiety', 'outcome'] },
-    { id: 'PCL-5', t: 'PTSD Checklist (PCL-5)', sub: 'PTSD symptom scale, 20-item', tags: ['PTSD', 'taVNS'] },
-    { id: 'ADHD-RS-5', t: 'ADHD Rating Scale', sub: 'Executive function and attention assessment', tags: ['ADHD', 'NFB'] },
-    { id: 'ISI', t: 'Insomnia Severity Index', sub: 'Sleep quality assessment', tags: ['insomnia', 'CES'] },
-    { id: 'DASS-21', t: 'DASS-21', sub: 'Depression, Anxiety and Stress Scales', tags: ['depression', 'anxiety'] },
-    { id: 'UPDRS-III', t: 'UPDRS-III Motor Assessment', sub: "Parkinson's motor function", tags: ['PD', 'TPS'] },
-    { id: 'NRS-Pain', t: 'Numeric Pain Rating Scale', sub: 'Pain intensity 0–10', tags: ['pain', 'tDCS'] },
-  ];
+  const templates = ASSESS_TEMPLATES;
 
   el.innerHTML = `
   <div id="assess-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:200;display:none;align-items:center;justify-content:center">
@@ -1606,16 +1703,39 @@ export async function pgAssess(setTopbar) {
 
   <div id="assess-templates-view">
     <div class="g3">
-      ${templates.map(a => `<div class="card" style="margin-bottom:0;cursor:pointer;transition:border-color var(--transition)" onmouseover="this.style.borderColor='var(--border-teal)'" onmouseout="this.style.borderColor='var(--border)'">
+      ${templates.map(a => `<div class="card" style="margin-bottom:0">
         <div class="card-body">
           <div style="font-family:var(--font-display);font-size:13px;font-weight:600;color:var(--text-primary);margin-bottom:5px">${a.t}</div>
-          <div style="font-size:11.5px;color:var(--text-secondary);margin-bottom:12px;line-height:1.55">${a.sub}</div>
+          <div style="font-size:11.5px;color:var(--text-secondary);margin-bottom:12px;line-height:1.55">${a.sub} · max ${a.max}</div>
           <div style="margin-bottom:12px">${a.tags.map(t => tag(t)).join('')}</div>
           <div style="display:flex;gap:6px">
-            <button class="btn btn-sm" onclick="window.runTemplate('${a.id}','${a.t}')">Run Assessment</button>
+            ${a.inline ? `<button class="btn btn-primary btn-sm" onclick="window.runInline('${a.id}')">Run Inline ↗</button>` : ''}
+            <button class="btn btn-sm" onclick="window.runTemplate('${a.id}')">Enter Score</button>
           </div>
         </div>
       </div>`).join('')}
+    </div>
+  </div>
+
+  <div id="assess-inline-view" style="display:none;max-width:680px">
+    <div class="card">
+      <div class="card-body">
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:18px">
+          <button class="btn btn-sm" onclick="window.switchAssessTab('templates')">← Back</button>
+          <div id="inline-title" style="font-family:var(--font-display);font-size:15px;font-weight:600;flex:1"></div>
+          <div id="inline-score-badge" style="font-family:var(--font-mono);font-size:20px;font-weight:700;color:var(--teal);min-width:48px;text-align:right">0</div>
+        </div>
+        <div id="inline-interpret" style="font-size:12px;font-weight:600;margin-bottom:18px;padding:6px 10px;border-radius:var(--radius-sm);background:rgba(var(--teal-rgb,0,200,150),.08);display:inline-block"></div>
+        <div id="inline-questions"></div>
+        <div class="form-group" style="margin-top:16px"><label class="form-label">Patient ID (optional)</label>
+          <input id="inline-patient" class="form-control" placeholder="Patient ID">
+        </div>
+        <div class="form-group"><label class="form-label">Clinician Notes</label>
+          <textarea id="inline-notes" class="form-control" rows="2" placeholder="Optional notes…"></textarea>
+        </div>
+        <div id="inline-error" style="color:var(--red);font-size:12px;display:none;margin-bottom:8px"></div>
+        <button class="btn btn-primary" onclick="window.saveInlineAssess()">Save Assessment →</button>
+      </div>
     </div>
   </div>
 
@@ -1634,16 +1754,105 @@ export async function pgAssess(setTopbar) {
       </table>`)}
   </div>`;
 
+  let _inlineTpl = null;
+  let _inlineAnswers = [];
+
   window.showAssessModal = function() { document.getElementById('assess-modal').style.display = 'flex'; };
-  window.runTemplate = function(id, title) {
+  window.runTemplate = function(id) {
     document.getElementById('assess-modal').style.display = 'flex';
     document.getElementById('assess-template').value = id;
   };
   window.switchAssessTab = function(tab) {
-    document.getElementById('assess-templates-view').style.display = tab === 'templates' ? '' : 'none';
-    document.getElementById('assess-records-view').style.display = tab === 'records' ? '' : 'none';
+    document.getElementById('assess-templates-view').style.display = (tab === 'templates') ? '' : 'none';
+    document.getElementById('assess-inline-view').style.display = (tab === 'inline') ? '' : 'none';
+    document.getElementById('assess-records-view').style.display = (tab === 'records') ? '' : 'none';
     document.getElementById('tab-templates').classList.toggle('active', tab === 'templates');
     document.getElementById('tab-records').classList.toggle('active', tab === 'records');
+  };
+  window.runInline = function(id) {
+    _inlineTpl = templates.find(t => t.id === id);
+    if (!_inlineTpl) return;
+    _inlineAnswers = new Array(_inlineTpl.questions.length).fill(0);
+    document.getElementById('inline-title').textContent = _inlineTpl.t;
+    document.getElementById('inline-error').style.display = 'none';
+    document.getElementById('inline-patient').value = '';
+    document.getElementById('inline-notes').value = '';
+    const qEl = document.getElementById('inline-questions');
+    qEl.innerHTML = _inlineTpl.questions.map((q, qi) => `
+      <div style="margin-bottom:14px;padding:12px;background:rgba(0,0,0,0.2);border-radius:var(--radius-md);border:1px solid var(--border)">
+        <div style="font-size:12.5px;color:var(--text-primary);margin-bottom:8px;line-height:1.5">
+          <span style="color:var(--teal);font-weight:600;font-family:var(--font-mono)">${qi + 1}.</span> ${q}
+        </div>
+        <div style="display:flex;flex-wrap:wrap;gap:6px">
+          ${_inlineTpl.options.map((opt, vi) => `
+            <label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:11.5px;padding:4px 8px;border-radius:var(--radius-sm);border:1px solid var(--border);background:rgba(0,0,0,0.15)">
+              <input type="radio" name="q${qi}" value="${vi}" onchange="window._inlineChange(${qi},${vi})" ${vi === 0 ? 'checked' : ''}>
+              ${opt}
+            </label>`).join('')}
+        </div>
+      </div>`).join('');
+    window._updateInlineScore();
+    // switch views
+    document.getElementById('assess-templates-view').style.display = 'none';
+    document.getElementById('assess-inline-view').style.display = '';
+    document.getElementById('assess-records-view').style.display = 'none';
+    document.getElementById('tab-templates').classList.remove('active');
+    document.getElementById('tab-records').classList.remove('active');
+  };
+  window._inlineChange = function(qi, val) {
+    _inlineAnswers[qi] = val;
+    window._updateInlineScore();
+  };
+  window._updateInlineScore = function() {
+    if (!_inlineTpl) return;
+    const total = _inlineAnswers.reduce((a, b) => a + b, 0);
+    document.getElementById('inline-score-badge').textContent = total;
+    const interp = _inlineTpl.interpret(total);
+    const interpEl = document.getElementById('inline-interpret');
+    interpEl.textContent = interp.label;
+    interpEl.style.color = interp.color;
+    interpEl.style.borderLeft = `3px solid ${interp.color}`;
+    interpEl.style.background = `${interp.color}15`;
+  };
+  window.saveInlineAssess = async function() {
+    const errEl = document.getElementById('inline-error');
+    errEl.style.display = 'none';
+    if (!_inlineTpl) return;
+    const total = _inlineAnswers.reduce((a, b) => a + b, 0);
+    const patientId = document.getElementById('inline-patient').value.trim() || null;
+    const notes = document.getElementById('inline-notes').value.trim() || null;
+    const interp = _inlineTpl.interpret(total);
+    const data = {
+      template_id: _inlineTpl.id,
+      template_title: _inlineTpl.t,
+      patient_id: patientId,
+      data: Object.fromEntries(_inlineAnswers.map((v, i) => [`q${i + 1}`, v])),
+      clinician_notes: notes ? `${interp.label} (${total}/${_inlineTpl.max}). ${notes}` : `${interp.label} (${total}/${_inlineTpl.max})`,
+      score: String(total),
+      status: 'completed',
+    };
+    try {
+      const assessment = await api.createAssessment(data);
+      if (patientId) {
+        try {
+          const coursesRes = await api.listCourses({ patient_id: patientId, status: 'active' });
+          const activeCourses = coursesRes?.items || [];
+          if (activeCourses.length > 0) {
+            await api.recordOutcome({
+              patient_id: patientId,
+              course_id: activeCourses[0].id,
+              template_id: _inlineTpl.id,
+              template_title: _inlineTpl.t,
+              score: String(total),
+              score_numeric: total,
+              measurement_point: 'mid',
+              assessment_id: assessment?.id || null,
+            });
+          }
+        } catch (_) { /* best-effort */ }
+      }
+      window._nav('assessments');
+    } catch (e) { errEl.textContent = e.message; errEl.style.display = ''; }
   };
   window.saveAssessment = async function() {
     const errEl = document.getElementById('assess-error');
@@ -1687,6 +1896,19 @@ export async function pgAssess(setTopbar) {
       window._nav('assessments');
     } catch (e) { errEl.textContent = e.message; errEl.style.display = ''; }
   };
+
+  // Auto-launch inline assessment if navigated from patient profile
+  if (window._assessPreFillTemplate && window._assessPreFillPatient) {
+    const tplId = window._assessPreFillTemplate;
+    const patId = window._assessPreFillPatient;
+    window._assessPreFillTemplate = null;
+    window._assessPreFillPatient = null;
+    setTimeout(() => {
+      window.runInline && window.runInline(tplId);
+      const patientInput = document.getElementById('inline-patient');
+      if (patientInput) patientInput.value = patId;
+    }, 50);
+  }
 }
 
 // ── AI Charting ───────────────────────────────────────────────────────────────
@@ -1849,15 +2071,39 @@ export async function pgBrainData(setTopbar) {
         ? emptyState('◈', 'No qEEG records yet. Click "+ Log qEEG Record" to add the first recording.')
         : `<div style="display:flex;flex-direction:column;gap:8px">
             ${records.map(r => `
-              <div style="padding:12px;border:1px solid var(--border);border-radius:8px">
+              <div id="qrec-${r.id}" style="padding:12px;border:1px solid var(--border);border-radius:8px;transition:border-color var(--transition)">
                 <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
-                  <span style="font-size:13px;font-weight:600;color:var(--text-primary);flex:1">${patMap[r.patient_id] || r.patient_id}</span>
+                  <span style="font-size:13px;font-weight:600;color:var(--text-primary);flex:1;cursor:pointer" onclick="window._toggleQEEGRecord('${r.id}')">${patMap[r.patient_id] || r.patient_id}</span>
                   <span style="font-size:11px;padding:2px 7px;border-radius:4px;background:var(--teal-ghost);color:var(--teal)">${r.recording_type}</span>
                   <span style="font-size:11px;color:var(--text-tertiary)">${r.recording_date || '—'}</span>
+                  <span style="font-size:11px;padding:2px 7px;border-radius:4px;background:rgba(255,255,255,0.05);color:var(--text-tertiary)">${r.eyes_condition?.replace('_',' ') || ''}</span>
                   <button class="btn btn-sm" style="font-size:10px" onclick="window._interpretQEEG('${r.id}','${r.patient_id}')">Interpret ✦</button>
+                  <button class="btn btn-sm" style="font-size:10px" onclick="window._toggleQEEGRecord('${r.id}')">Detail ↓</button>
                 </div>
                 ${r.equipment ? `<div style="margin-top:5px;font-size:11.5px;color:var(--text-secondary)">Equipment: ${r.equipment}</div>` : ''}
                 ${r.summary_notes ? `<div style="margin-top:5px;font-size:11.5px;color:var(--text-secondary);font-style:italic">${r.summary_notes.slice(0,120)}${r.summary_notes.length > 120 ? '…' : ''}</div>` : ''}
+                <div id="qrec-expand-${r.id}" style="display:none;margin-top:12px;padding:12px;background:rgba(0,0,0,0.2);border-radius:6px;border:1px solid var(--border)">
+                  <div style="font-size:9px;text-transform:uppercase;letter-spacing:.8px;color:var(--teal);font-weight:600;margin-bottom:10px">Record Detail</div>
+                  <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;font-size:12px;margin-bottom:12px">
+                    ${[
+                      ['Recording Date', r.recording_date || '—'],
+                      ['Type', r.recording_type || '—'],
+                      ['Eyes', r.eyes_condition?.replace(/_/g,' ') || '—'],
+                      ['Equipment', r.equipment || '—'],
+                      ['Patient ID', r.patient_id || '—'],
+                      ['Record ID', r.id?.slice(0,8) + '…' || '—'],
+                    ].map(([k,v]) => `<div><span style="color:var(--text-tertiary)">${k}:</span> <span style="color:var(--text-primary)">${v}</span></div>`).join('')}
+                  </div>
+                  <div style="margin-bottom:10px">
+                    <label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:4px">Summary / Findings</label>
+                    <textarea id="qrec-notes-${r.id}" class="form-control" rows="3" style="font-size:12px">${r.summary_notes || ''}</textarea>
+                  </div>
+                  <div id="qrec-edit-err-${r.id}" style="display:none;color:var(--red);font-size:12px;margin-bottom:6px"></div>
+                  <div style="display:flex;gap:8px">
+                    <button class="btn btn-primary btn-sm" onclick="window._saveQEEGNotes('${r.id}')">Save Notes</button>
+                    <button class="btn btn-sm" onclick="window._toggleQEEGRecord('${r.id}')">Close</button>
+                  </div>
+                </div>
                 <div id="interp-${r.id}" style="display:none;margin-top:10px;padding:10px;background:rgba(0,212,188,0.04);border-radius:6px;border:1px solid var(--border-teal)"></div>
               </div>`).join('')}
           </div>`
@@ -1930,6 +2176,34 @@ export function bindBrainData() {
         </div>`;
     } catch (e) {
       panel.innerHTML = '<div style="font-size:11px;color:var(--red)">Interpretation failed: ' + (e.message || 'error') + '</div>';
+    }
+  };
+
+  window._toggleQEEGRecord = function(id) {
+    const panel = document.getElementById(`qrec-expand-${id}`);
+    const card  = document.getElementById(`qrec-${id}`);
+    if (!panel) return;
+    const isOpen = panel.style.display !== 'none';
+    panel.style.display = isOpen ? 'none' : '';
+    if (card) card.style.borderColor = isOpen ? 'var(--border)' : 'var(--border-teal)';
+  };
+
+  window._saveQEEGNotes = async function(id) {
+    const errEl = document.getElementById(`qrec-edit-err-${id}`);
+    if (errEl) errEl.style.display = 'none';
+    const notes = document.getElementById(`qrec-notes-${id}`)?.value || null;
+    try {
+      await api.updateQEEGRecord(id, { summary_notes: notes });
+      // Close expand panel and show brief success
+      const panel = document.getElementById(`qrec-expand-${id}`);
+      if (panel) {
+        panel.innerHTML = `<div style="color:var(--teal);font-size:12.5px;padding:8px 0">✓ Notes saved.</div>`;
+        setTimeout(() => { panel.style.display = 'none'; }, 1200);
+      }
+      const card = document.getElementById(`qrec-${id}`);
+      if (card) card.style.borderColor = 'var(--border)';
+    } catch (e) {
+      if (errEl) { errEl.textContent = e.message || 'Save failed.'; errEl.style.display = ''; }
     }
   };
 

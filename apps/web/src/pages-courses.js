@@ -130,10 +130,6 @@ export async function pgCourses(setTopbar, navigate) {
     if (list) list.innerHTML = visible.length ? visible.map(courseCard).join('') : emptyState('◎', 'No courses match filter.');
   };
 
-  window._openCourse = function(id) {
-    window._selectedCourseId = id;
-    navigate('course-detail');
-  };
 }
 
 // ── pgCourseDetail — Full course detail ──────────────────────────────────────
@@ -253,6 +249,15 @@ export async function pgCourseDetail(setTopbar, navigate) {
     } catch (e) { alert(e.message || 'Export failed.'); }
   };
 
+  window._toggleSession = function(id) {
+    const panel = document.getElementById(`sess-expand-${id}`);
+    const chev  = document.getElementById(`sess-chev-${id}`);
+    if (!panel) return;
+    const open = panel.style.display !== 'none';
+    panel.style.display = open ? 'none' : '';
+    if (chev) chev.textContent = open ? '›' : '↓';
+  };
+
   window._activateCourseDetail = async function(courseId) {
     try {
       await api.activateCourse(courseId);
@@ -306,43 +311,63 @@ function renderCourseTab(course, sessions, adverseEvents, protocolDetail, tab, o
   }
 
   if (tab === 'sessions') {
+    function tolColor(t) {
+      return t === 'well-tolerated' ? { bg: 'rgba(74,222,128,0.1)', col: 'var(--green)' }
+           : t === 'poor'           ? { bg: 'rgba(255,107,107,0.1)', col: 'var(--red)' }
+           :                          { bg: 'rgba(255,181,71,0.1)',  col: 'var(--amber)' };
+    }
     return `<div class="card">
       <div class="card-header" style="padding:14px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
-        <span style="font-weight:600">Session Log</span>
+        <span style="font-weight:600">Session Log (${sessions.length})</span>
         <button class="btn btn-primary btn-sm" onclick="window._nav('session-execution')">+ Log Session</button>
       </div>
-      <div style="overflow-x:auto">
-        ${sessions.length === 0
-          ? `<div style="padding:32px">${emptyState('◧', 'No sessions logged yet. Go to Session Execution to log sessions.')}</div>`
-          : `<table class="ds-table">
-              <thead><tr>
-                <th>#</th><th>Date</th><th>Device</th><th>Freq (Hz)</th><th>Intensity %</th><th>Pulses</th><th>Duration</th><th>Tolerance</th><th>Interrupted</th><th>Notes</th>
-              </tr></thead>
-              <tbody>
-                ${sessions.map((s, i) => `<tr>
-                  <td class="mono" style="color:var(--text-secondary)">${sessions.length - i}</td>
-                  <td style="color:var(--text-secondary);font-size:11.5px">${s.created_at ? s.created_at.split('T')[0] : '—'}</td>
-                  <td>${s.device_slug ? `<span class="tag">${s.device_slug}</span>` : '—'}</td>
-                  <td class="mono">${s.frequency_hz || '—'}</td>
-                  <td class="mono">${s.intensity_pct_rmt ? s.intensity_pct_rmt + '%' : '—'}</td>
-                  <td class="mono">${s.pulses_delivered || '—'}</td>
-                  <td class="mono">${s.duration_minutes ? s.duration_minutes + ' min' : '—'}</td>
-                  <td>${s.tolerance_rating
-                    ? `<span style="font-size:11px;padding:2px 7px;border-radius:4px;background:${
-                        s.tolerance_rating === 'well-tolerated' ? 'rgba(74,222,128,0.1)' :
-                        s.tolerance_rating === 'poor' ? 'rgba(255,107,107,0.1)' : 'rgba(255,181,71,0.1)'
-                      };color:${
-                        s.tolerance_rating === 'well-tolerated' ? 'var(--green)' :
-                        s.tolerance_rating === 'poor' ? 'var(--red)' : 'var(--amber)'
-                      }">${s.tolerance_rating}</span>`
-                    : '—'}</td>
-                  <td>${s.interruptions ? '<span style="color:var(--amber);font-size:11px">⚠ Yes</span>' : '<span style="color:var(--text-tertiary);font-size:11px">No</span>'}</td>
-                  <td style="font-size:11px;color:var(--text-secondary);max-width:180px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${s.post_session_notes || '—'}</td>
-                </tr>`).join('')}
-              </tbody>
-            </table>`
-        }
-      </div>
+      ${sessions.length === 0
+        ? `<div style="padding:32px">${emptyState('◧', 'No sessions logged yet. Go to Session Execution to log sessions.')}</div>`
+        : `<div style="display:flex;flex-direction:column;gap:0">
+            ${sessions.map((s, i) => {
+              const tc = s.tolerance_rating ? tolColor(s.tolerance_rating) : null;
+              const sNum = sessions.length - i;
+              return `
+              <div style="border-bottom:1px solid var(--border)">
+                <div style="display:flex;align-items:center;gap:10px;padding:10px 18px;cursor:pointer;flex-wrap:wrap"
+                     onclick="window._toggleSession('${s.id || i}')">
+                  <span class="mono" style="font-size:11px;color:var(--text-tertiary);width:20px;flex-shrink:0">${sNum}</span>
+                  <span style="font-size:12px;color:var(--text-secondary);flex-shrink:0">${s.created_at ? s.created_at.split('T')[0] : '—'}</span>
+                  ${s.device_slug ? `<span class="tag" style="flex-shrink:0">${s.device_slug}</span>` : ''}
+                  <div style="flex:1;display:flex;gap:8px;flex-wrap:wrap;font-size:11.5px;color:var(--text-secondary)">
+                    ${s.frequency_hz ? `<span><span style="color:var(--text-tertiary)">Freq:</span> <span class="mono">${s.frequency_hz} Hz</span></span>` : ''}
+                    ${s.intensity_pct_rmt ? `<span><span style="color:var(--text-tertiary)">Int:</span> <span class="mono">${s.intensity_pct_rmt}%</span></span>` : ''}
+                    ${s.duration_minutes ? `<span><span style="color:var(--text-tertiary)">Dur:</span> <span class="mono">${s.duration_minutes} min</span></span>` : ''}
+                  </div>
+                  ${tc ? `<span style="font-size:10.5px;padding:2px 7px;border-radius:4px;background:${tc.bg};color:${tc.col};flex-shrink:0">${s.tolerance_rating}</span>` : ''}
+                  ${s.interruptions ? `<span style="color:var(--amber);font-size:11px;flex-shrink:0">⚠ Interrupted</span>` : ''}
+                  ${s.protocol_deviation ? `<span style="color:var(--red);font-size:11px;flex-shrink:0">⚡ Deviation</span>` : ''}
+                  <span style="color:var(--text-tertiary);font-size:12px;flex-shrink:0" id="sess-chev-${s.id || i}">›</span>
+                </div>
+                <div id="sess-expand-${s.id || i}" style="display:none;padding:12px 18px 16px;border-top:1px solid var(--border);background:rgba(0,0,0,0.15)">
+                  <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:12px;font-size:12px">
+                    ${[
+                      ['Date',           s.created_at ? s.created_at.replace('T',' ').slice(0,16) : '—'],
+                      ['Device',         s.device_slug || '—'],
+                      ['Montage / Site', s.coil_position || '—'],
+                      ['Frequency',      s.frequency_hz ? s.frequency_hz + ' Hz' : '—'],
+                      ['Intensity',      s.intensity_pct_rmt ? s.intensity_pct_rmt + '% RMT' : '—'],
+                      ['Pulses',         s.pulses_delivered ?? '—'],
+                      ['Duration',       s.duration_minutes ? s.duration_minutes + ' min' : '—'],
+                      ['Outcome',        s.session_outcome?.replace(/_/g,' ') || '—'],
+                      ['Tolerance',      s.tolerance_rating || '—'],
+                    ].map(([k,v]) => `<div><span style="color:var(--text-tertiary);font-size:11px">${k}:</span> <span style="color:var(--text-primary)">${v}</span></div>`).join('')}
+                  </div>
+                  ${s.post_session_notes ? `<div style="font-size:12px;color:var(--text-secondary);line-height:1.6;padding:8px 10px;background:rgba(0,0,0,0.2);border-radius:var(--radius-sm);border-left:2px solid var(--border-teal)">${s.post_session_notes}</div>` : ''}
+                  <div style="display:flex;gap:8px;margin-top:10px">
+                    <button class="btn btn-sm" onclick="window._cdTab='adverse-events';window._selectedCourseId='${course.id}';window._nav('course-detail')">Report AE</button>
+                    <button class="btn btn-sm" onclick="window._cdSwitchTab('outcomes')">Record Outcome</button>
+                  </div>
+                </div>
+              </div>`;
+            }).join('')}
+          </div>`
+      }
     </div>`;
   }
 
@@ -510,19 +535,57 @@ function renderCourseTab(course, sessions, adverseEvents, protocolDetail, tab, o
 
   if (tab === 'governance') {
     const warnings = course.governance_warnings || [];
+    const canPause = ['active', 'approved'].includes(course.status);
+    const canDiscontinue = ['active', 'approved', 'pending_approval', 'paused'].includes(course.status);
+    const canResume = course.status === 'paused';
+    const canApprove = course.status === 'pending_approval';
+
     return `<div class="g2">
       <div>
         ${cardWrap('Governance Summary',
           fr('Status',         approvalBadge(course.status)) +
-          fr('Review Required', course.review_required ? '<span style="color:var(--amber)">Yes</span>' : '<span style="color:var(--green)">No</span>') +
+          fr('Review Required', course.review_required ? '<span style="color:var(--amber)">Yes</span>' : '<span style="color:var(--teal)">No</span>') +
           fr('Label Status',   labelBadge(course.on_label !== false)) +
-          fr('Evidence Grade', evidenceBadge(course.evidence_grade))
+          fr('Evidence Grade', evidenceBadge(course.evidence_grade)) +
+          fr('Created',        course.created_at?.split('T')[0] || '—') +
+          fr('Clinician ID',   `<span class="mono" style="font-size:11px">${course.clinician_id || '—'}</span>`)
+        )}
+        ${cardWrap('Course Actions',
+          `<div id="cd-gov-error" style="color:var(--red);font-size:12px;display:none;margin-bottom:8px"></div>
+          <div style="display:flex;flex-direction:column;gap:10px">
+            ${canApprove ? `
+              <div>
+                <div style="font-size:12px;color:var(--text-secondary);margin-bottom:6px">Approve this course to allow session execution.</div>
+                <button class="btn btn-primary btn-sm" onclick="window._cdGovAction('approve')">✓ Approve Course</button>
+              </div>` : ''}
+            ${canResume ? `
+              <div>
+                <div style="font-size:12px;color:var(--text-secondary);margin-bottom:6px">Resume a paused treatment course.</div>
+                <button class="btn btn-sm" style="border-color:var(--teal);color:var(--teal)" onclick="window._cdGovAction('resume')">▶ Resume Course</button>
+              </div>` : ''}
+            ${canPause ? `
+              <div>
+                <div style="font-size:12px;color:var(--text-secondary);margin-bottom:6px">Temporarily halt sessions. Patient remains enrolled.</div>
+                <button class="btn btn-sm" style="border-color:var(--amber);color:var(--amber)" onclick="window._cdGovAction('pause')">⏸ Pause Course</button>
+              </div>` : ''}
+            ${canDiscontinue ? `
+              <div style="padding-top:${canPause ? '10px' : '0'};border-top:${canPause ? '1px solid var(--border)' : 'none'}">
+                <div style="font-size:12px;color:var(--text-secondary);margin-bottom:6px">Permanently discontinue. This cannot be reversed.</div>
+                <div style="display:flex;gap:8px;align-items:flex-start">
+                  <textarea id="cd-discont-reason" class="form-control" style="flex:1;font-size:12px" rows="2" placeholder="Reason for discontinuation (required)…"></textarea>
+                  <button class="btn btn-sm" style="border-color:var(--red);color:var(--red);white-space:nowrap" onclick="window._cdGovAction('discontinue')">⬛ Discontinue</button>
+                </div>
+              </div>` : ''}
+            ${!canPause && !canDiscontinue && !canResume && !canApprove
+              ? `<div style="color:var(--text-tertiary);font-size:12.5px;padding:8px 0">No actions available for status <strong>${course.status}</strong>.</div>`
+              : ''}
+          </div>`
         )}
       </div>
       <div>
         ${cardWrap('Governance Flags',
           warnings.length === 0
-            ? `<div style="padding:12px 0;color:var(--green);font-size:12.5px">✓ No governance flags on this course</div>`
+            ? `<div style="padding:12px 0;color:var(--teal);font-size:12.5px">✓ No governance flags on this course</div>`
             : warnings.map(w => govFlag(w, 'warn')).join('')
         )}
         ${adverseEvents.filter(ae => ae.severity === 'serious').length > 0
@@ -649,6 +712,35 @@ window._submitAE = async function(courseId, patientId) {
     window._nav('course-detail');
   } catch (e) {
     if (errEl) { errEl.textContent = e.message || 'Report failed.'; errEl.style.display = ''; }
+  }
+};
+
+window._cdGovAction = async function(action) {
+  const errEl = document.getElementById('cd-gov-error');
+  if (errEl) errEl.style.display = 'none';
+  const courseId = window._selectedCourseId;
+  if (!courseId) return;
+
+  try {
+    if (action === 'approve') {
+      await api.activateCourse(courseId);
+    } else if (action === 'pause') {
+      await api.updateCourse(courseId, { status: 'paused' });
+    } else if (action === 'resume') {
+      await api.updateCourse(courseId, { status: 'active' });
+    } else if (action === 'discontinue') {
+      const reason = document.getElementById('cd-discont-reason')?.value?.trim();
+      if (!reason) {
+        if (errEl) { errEl.textContent = 'Reason required to discontinue.'; errEl.style.display = ''; }
+        return;
+      }
+      if (!confirm('Permanently discontinue this treatment course? This cannot be undone.')) return;
+      await api.updateCourse(courseId, { status: 'discontinued', clinician_notes: reason });
+    }
+    window._cdTab = 'governance';
+    window._nav('course-detail');
+  } catch (e) {
+    if (errEl) { errEl.textContent = e.message || 'Action failed.'; errEl.style.display = ''; }
   }
 };
 
@@ -842,25 +934,125 @@ export async function pgSessionExecution(setTopbar, navigate) {
     }
 
     try {
-      await api.logSession(courseId, {
+      const toleranceVal = document.getElementById('se-tolerance')?.value || null;
+      const outcomeVal   = document.getElementById('se-outcome')?.value || 'completed';
+      const session = await api.logSession(courseId, {
         device_slug:        document.getElementById('se-device')?.value || null,
         coil_position:      document.getElementById('se-montage')?.value || null,
         frequency_hz:       parseFloat(document.getElementById('se-freq')?.value) || null,
         intensity_pct_rmt:  parseFloat(document.getElementById('se-intensity')?.value) || null,
         pulses_delivered:   parseInt(document.getElementById('se-pulses')?.value) || null,
         duration_minutes:   parseInt(document.getElementById('se-duration')?.value) || null,
-        tolerance_rating:   document.getElementById('se-tolerance')?.value || null,
-        session_outcome:    document.getElementById('se-outcome')?.value || 'completed',
+        tolerance_rating:   toleranceVal,
+        session_outcome:    outcomeVal,
         interruptions:      document.getElementById('se-interrupt')?.checked || false,
         protocol_deviation: document.getElementById('se-deviation')?.checked || false,
         post_session_notes: document.getElementById('se-notes')?.value || null,
       });
-      okEl.textContent = 'Session logged successfully.';
-      okEl.style.display = '';
-      setTimeout(() => pgSessionExecution(setTopbar, navigate), 1200);
+
+      // Determine course info for post-session panel
+      const course = (window._seActiveCourses || []).find(c => c.id === courseId) || {};
+      const patientId = course.patient_id || null;
+      const needsAE = toleranceVal === 'poor' || outcomeVal === 'stopped_early';
+
+      // Show post-session action panel instead of just reloading
+      const sessionForm = document.querySelector('.card div[style*="padding:20px"]');
+      if (sessionForm) {
+        sessionForm.innerHTML = `
+          <div style="text-align:center;padding:16px 0 20px">
+            <div style="font-size:28px;color:var(--teal);margin-bottom:8px">✓</div>
+            <div style="font-family:var(--font-display);font-size:15px;font-weight:600;color:var(--text-primary);margin-bottom:4px">Session Logged</div>
+            <div style="font-size:12px;color:var(--text-secondary)">
+              ${course.condition_slug?.replace(/-/g,' ') || 'Course'} · Session ${(course.sessions_delivered || 0) + 1} of ${course.planned_sessions_total || '?'}
+            </div>
+          </div>
+
+          ${needsAE ? `
+          <div class="notice notice-warn" style="margin-bottom:16px">
+            <strong>⚠ Attention required:</strong> Tolerance rated "${toleranceVal || outcomeVal}". Consider filing an adverse event report.
+          </div>
+          <div id="se-ae-panel" style="margin-bottom:16px">
+            ${renderAEForm(courseId, patientId)}
+            <div id="ae-error" style="display:none;color:var(--red);font-size:12px;margin-top:6px"></div>
+            <div style="display:flex;gap:8px;margin-top:10px">
+              <button class="btn btn-sm" style="border-color:var(--amber);color:var(--amber)" onclick="window._submitAE('${courseId}','${patientId}')">Submit AE Report</button>
+              <button class="btn btn-sm" onclick="document.getElementById('se-ae-panel').style.display='none'">Skip</button>
+            </div>
+          </div>` : ''}
+
+          <div style="border:1px solid var(--border);border-radius:var(--radius-md);padding:14px;margin-bottom:16px">
+            <div style="font-size:11px;font-weight:600;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.8px;margin-bottom:10px">Quick Outcome Entry (optional)</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
+              <div>
+                <label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:4px">Assessment Template</label>
+                <select id="pse-template" class="form-control" style="font-size:12px">
+                  <option value="">Skip outcome</option>
+                  <option value="PHQ-9">PHQ-9</option>
+                  <option value="GAD-7">GAD-7</option>
+                  <option value="ISI">ISI</option>
+                  <option value="PCL-5">PCL-5</option>
+                  <option value="NRS-Pain">NRS-Pain</option>
+                  <option value="UPDRS-III">UPDRS-III</option>
+                </select>
+              </div>
+              <div>
+                <label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:4px">Score</label>
+                <input id="pse-score" class="form-control" type="number" placeholder="e.g. 12" style="font-size:12px">
+              </div>
+            </div>
+            <div>
+              <label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:4px">Measurement Point</label>
+              <select id="pse-point" class="form-control" style="font-size:12px">
+                <option value="mid">Mid-course</option>
+                <option value="post">Post-course</option>
+                <option value="baseline">Baseline</option>
+                <option value="follow_up">Follow-up</option>
+              </select>
+            </div>
+            <div id="pse-error" style="display:none;color:var(--red);font-size:12px;margin-top:6px"></div>
+            <button class="btn btn-sm" style="margin-top:10px" onclick="window._savePostSessionOutcome('${courseId}','${patientId}')">Save Outcome</button>
+          </div>
+
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <button class="btn btn-primary btn-sm" onclick="window._nav('session-execution')">Log Another Session</button>
+            <button class="btn btn-sm" onclick="window._selectedCourseId='${courseId}';window._cdTab='sessions';window._nav('course-detail')">View Course →</button>
+            <button class="btn btn-sm" onclick="window._nav('courses')">All Courses</button>
+          </div>`;
+      } else {
+        okEl.textContent = 'Session logged successfully.';
+        okEl.style.display = '';
+        setTimeout(() => pgSessionExecution(setTopbar, navigate), 1500);
+      }
     } catch (e) {
       errEl.textContent = e.message || 'Failed to log session.';
       errEl.style.display = '';
+    }
+  };
+
+  window._savePostSessionOutcome = async function(courseId, patientId) {
+    const template = document.getElementById('pse-template')?.value;
+    const score    = parseFloat(document.getElementById('pse-score')?.value);
+    const point    = document.getElementById('pse-point')?.value || 'mid';
+    const errEl    = document.getElementById('pse-error');
+    if (errEl) errEl.style.display = 'none';
+    if (!template) return; // skip
+    if (isNaN(score)) {
+      if (errEl) { errEl.textContent = 'Enter a numeric score.'; errEl.style.display = ''; }
+      return;
+    }
+    try {
+      await api.recordOutcome({
+        course_id: courseId, patient_id: patientId || null,
+        template_id: template, template_title: template,
+        score: String(score), score_numeric: score,
+        measurement_point: point,
+      });
+      // Show confirmation inline
+      const btn = document.querySelector('button[onclick*="savePostSessionOutcome"]');
+      const row = btn?.closest('div[style*="border:1px solid var(--border)"]');
+      if (row) row.innerHTML = `<div style="color:var(--teal);font-size:12.5px;padding:8px 0">✓ Outcome recorded: ${template} = ${score} (${point})</div>`;
+    } catch (e) {
+      if (errEl) { errEl.textContent = e.message || 'Failed.'; errEl.style.display = ''; }
     }
   };
 
@@ -947,8 +1139,10 @@ export async function pgReviewQueue(setTopbar, navigate) {
           ${item.notes ? `<div style="margin-top:8px;font-size:11.5px;color:var(--text-secondary)">${item.notes}</div>` : ''}
         </div>
         <div style="display:flex;flex-direction:column;gap:6px;align-items:flex-end;flex-shrink:0">
-          <button class="btn btn-primary btn-sm" onclick="window._approveItem('${item.target_id}','${item.id}')">Approve &amp; Activate</button>
-          <button class="btn btn-sm" onclick="window._openCourseFromReview('${item.target_id}')">View Course →</button>
+          <button class="btn btn-primary btn-sm" onclick="window._approveItem('${item.target_id}','${item.id}')">✓ Approve &amp; Activate</button>
+          <button class="btn btn-sm" style="border-color:var(--amber);color:var(--amber)" onclick="window._requestChanges('${item.target_id}','${item.id}')">⚑ Request Changes</button>
+          <button class="btn btn-sm" style="border-color:var(--red);color:var(--red)" onclick="window._rejectItem('${item.target_id}','${item.id}')">✕ Reject</button>
+          <button class="btn btn-sm" onclick="window._openCourseFromReview('${item.target_id}')">View →</button>
         </div>
       </div>
     </div>`;
@@ -988,11 +1182,34 @@ export async function pgReviewQueue(setTopbar, navigate) {
       ` : ''}
     </div>`;
 
-  window._approveItem = async function(courseId) {
+  window._approveItem = async function(courseId, itemId) {
     try {
       await api.activateCourse(courseId);
+      // Mark queue item resolved
+      try { await api.submitReview({ target_id: courseId, item_id: itemId, action: 'approved', notes: 'Approved and activated.' }); } catch {}
       await pgReviewQueue(setTopbar, navigate);
     } catch (e) { alert(e.message || 'Activation failed.'); }
+  };
+
+  window._requestChanges = async function(courseId, itemId) {
+    const reason = prompt('Describe what changes are needed:');
+    if (!reason) return;
+    try {
+      await api.submitReview({ target_id: courseId, item_id: itemId, action: 'changes_requested', notes: reason });
+      await api.updateCourse(courseId, { review_required: true });
+      await pgReviewQueue(setTopbar, navigate);
+    } catch (e) { alert(e.message || 'Failed to submit request.'); }
+  };
+
+  window._rejectItem = async function(courseId, itemId) {
+    const reason = prompt('Reason for rejection (required):');
+    if (!reason) return;
+    if (!confirm('Permanently reject this course? It will be marked as discontinued.')) return;
+    try {
+      await api.submitReview({ target_id: courseId, item_id: itemId, action: 'rejected', notes: reason });
+      await api.updateCourse(courseId, { status: 'discontinued', clinician_notes: `Rejected: ${reason}` });
+      await pgReviewQueue(setTopbar, navigate);
+    } catch (e) { alert(e.message || 'Rejection failed.'); }
   };
 
   window._openCourseFromReview = function(courseId) {

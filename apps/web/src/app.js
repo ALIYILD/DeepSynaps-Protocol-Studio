@@ -3,7 +3,7 @@ import { currentUser, setCurrentUser, updateUserBar, showApp, showLogin, doLogou
 import { ROLE_ENTRY_PAGE } from './constants.js';
 import {
   pgDash, pgPatients, pgProfile, pgProtocols, pgAssess, pgChart, pgBrainData,
-  bindProtoPage, bindBrainData, ptab, eegBand, proStep, setProStep,
+  bindProtoPage, bindBrainData, ptab, eegBand, proStep, setProStep, setPtab,
 } from './pages-clinical.js';
 import {
   pgEvidence, pgDevices, pgBrainRegions, pgQEEGMaps, pgHandbooks,
@@ -71,6 +71,7 @@ function setTopbar(title, html = '') {
 async function navigate(id) {
   currentPage = id;
   setProStep(0);
+  if (id !== 'profile') setPtab('courses');
   if (id !== 'protocol-wizard') window._wizardProtocolId = null;
   if (id !== 'course-detail') window._cdTab = 'overview';
   renderNav();
@@ -78,6 +79,12 @@ async function navigate(id) {
 }
 
 window._nav = navigate;
+
+// Global course opener — used from courses list, patient profile, AE table, dashboard
+window._openCourse = function(id) {
+  window._selectedCourseId = id;
+  navigate('course-detail');
+};
 
 // ── Page dispatcher ───────────────────────────────────────────────────────────
 async function renderPage() {
@@ -171,7 +178,7 @@ async function renderPage() {
       el.innerHTML = pgBilling(setTopbar);
       break;
     case 'reports':
-      el.innerHTML = pgReports(setTopbar);
+      await pgReports(setTopbar);
       break;
     case 'pricing':
       await pgPricing(setTopbar);
