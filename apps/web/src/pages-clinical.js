@@ -1508,8 +1508,14 @@ function renderProStep() {
         <div class="form-group"><label class="form-label">Ramp Up/Down (s)</label><input id="param-ramp" class="form-control" type="number" value="30"></div>
         <div class="form-group"><label class="form-label">Electrode Size</label><select id="param-electrode-size" class="form-control"><option>25 cm² (5×5)</option><option>35 cm² standard</option><option>Custom</option></select></div>
       `)}
-      ${cardWrap('Adjunct Notes', `
-        <div class="form-group"><label class="form-label">Concurrent interventions</label><input class="form-control" placeholder="e.g. CBT, physiotherapy"></div>
+      ${cardWrap('Scheduling & Notes', `
+        <div class="form-group"><label class="form-label">Planned Start Date</label>
+          <input id="param-start-date" class="form-control" type="date" value="${new Date().toISOString().slice(0,10)}">
+        </div>
+        <div class="form-group"><label class="form-label">Concurrent interventions</label><input id="param-concurrent" class="form-control" placeholder="e.g. CBT, physiotherapy"></div>
+        <div class="form-group"><label class="form-label">Clinician Notes</label>
+          <textarea id="param-clinician-notes" class="form-control" rows="3" placeholder="Clinical rationale, patient-specific considerations, contraindication context…"></textarea>
+        </div>
         <div class="form-group"><label class="form-label">Evidence threshold</label>
           <select class="form-control"><option value="A">EV-A (Strong RCT)</option><option value="B">EV-B (Moderate)</option><option value="C">EV-C (Emerging)</option></select>
         </div>
@@ -1562,10 +1568,8 @@ async function loadProtocolWizardRegistry() {
           items.map(c => `<option value="${c.id || c.Condition_ID || c.name}">${c.name || c.Condition_Name || c.id}</option>`).join('');
       } else {
         // Fallback static list if API returns empty
-        condEl.innerHTML = `<option value="">Select condition…</option>
-          <option>Major Depressive Disorder</option><option>ADHD</option><option>Anxiety / GAD</option>
-          <option>PTSD</option><option>Chronic Pain</option><option>Parkinson's Disease</option>
-          <option>Post-Stroke Rehabilitation</option><option>Insomnia</option><option>Autism Spectrum</option>`;
+        condEl.innerHTML = `<option value="">Select condition…</option>` +
+          FALLBACK_CONDITIONS.map(c => `<option>${c}</option>`).join('');
       }
     }
 
@@ -1591,10 +1595,8 @@ async function loadProtocolWizardRegistry() {
   } catch {
     const condEl = document.getElementById('proto-condition');
     if (condEl) {
-      condEl.innerHTML = `<option value="">Select condition…</option>
-        <option>Major Depressive Disorder</option><option>ADHD</option><option>Anxiety / GAD</option>
-        <option>PTSD</option><option>Chronic Pain</option><option>Parkinson's Disease</option>
-        <option>Post-Stroke Rehabilitation</option><option>Insomnia</option><option>Autism Spectrum</option>`;
+      condEl.innerHTML = `<option value="">Select condition…</option>` +
+        FALLBACK_CONDITIONS.map(c => `<option>${c}</option>`).join('');
     }
   }
 
@@ -1730,10 +1732,26 @@ export function bindProtoPage() {
     if (btn) btn.disabled = true;
     if (res) res.innerHTML = spinner();
     try {
+      const startDate  = document.getElementById('param-start-date')?.value || '';
+      const concurrent = document.getElementById('param-concurrent')?.value?.trim() || '';
+      const noteText   = document.getElementById('param-clinician-notes')?.value?.trim() || '';
+      const keySymptoms = document.getElementById('proto-key-symptoms')?.value?.trim() || '';
+      const phenoEl    = document.getElementById('proto-phenotype');
+      const phenotypeId = phenoEl?.value || null;
+
+      // Compose clinician_notes: start date + concurrent + symptoms + freetext
+      const noteParts = [];
+      if (startDate)    noteParts.push(`Planned start: ${startDate}`);
+      if (keySymptoms)  noteParts.push(`Key symptoms: ${keySymptoms}`);
+      if (concurrent)   noteParts.push(`Concurrent: ${concurrent}`);
+      if (noteText)     noteParts.push(noteText);
+      const clinicianNotes = noteParts.length ? noteParts.join('\n') : null;
+
       const course = await api.createCourse({
         patient_id: patientId,
         protocol_id: protocolId,
-        clinician_notes: document.getElementById('proto-key-symptoms')?.value || null,
+        phenotype_id: phenotypeId || undefined,
+        clinician_notes: clinicianNotes,
       });
       const govWarn = course.governance_warnings?.length
         ? `<div class="notice notice-warn" style="margin-top:10px">⚠ Governance flags:<br>${course.governance_warnings.join('<br>')}</div>`
@@ -1747,6 +1765,7 @@ export function bindProtoPage() {
             <div>Sessions: ${course.planned_sessions_total} total · ${course.planned_sessions_per_week}×/wk</div>
             ${course.planned_frequency_hz ? `<div>Frequency: ${course.planned_frequency_hz} Hz</div>` : ''}
             ${course.planned_intensity ? `<div>Intensity: ${course.planned_intensity}</div>` : ''}
+            ${startDate ? `<div>Planned start: ${startDate}</div>` : ''}
             ${course.review_required ? `<div style="color:var(--amber);margin-top:4px">Review required before activation.</div>` : ''}
           </div>
           ${govWarn}
