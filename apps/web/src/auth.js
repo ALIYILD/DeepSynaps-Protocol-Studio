@@ -16,22 +16,64 @@ export function updateUserBar() {
 
 export function showApp() {
   document.getElementById('login-overlay').classList.remove('visible');
+  document.getElementById('public-shell')?.classList.remove('visible');
+  document.getElementById('patient-shell')?.classList.remove('visible');
   document.getElementById('sidebar').classList.add('visible');
   document.getElementById('app-shell').classList.add('visible');
+}
+
+export function showPublic() {
+  document.getElementById('login-overlay').classList.remove('visible');
+  document.getElementById('sidebar').classList.remove('visible');
+  document.getElementById('app-shell').classList.remove('visible');
+  document.getElementById('patient-shell')?.classList.remove('visible');
+  document.getElementById('public-shell')?.classList.add('visible');
+}
+
+export function showPatient() {
+  document.getElementById('login-overlay').classList.remove('visible');
+  document.getElementById('public-shell')?.classList.remove('visible');
+  document.getElementById('sidebar').classList.remove('visible');
+  document.getElementById('app-shell').classList.remove('visible');
+  document.getElementById('patient-shell')?.classList.add('visible');
+}
+
+export function updatePatientBar() {
+  if (!currentUser) return;
+  const av = document.getElementById('pt-avatar');
+  const nm = document.getElementById('pt-name');
+  const rl = document.getElementById('pt-role');
+  if (av) av.textContent = (currentUser.display_name || currentUser.email || '?').slice(0, 2).toUpperCase();
+  if (nm) nm.textContent = currentUser.display_name || currentUser.email;
+  if (rl) rl.textContent = 'Patient Portal';
 }
 
 export function showLogin() {
   document.getElementById('sidebar').classList.remove('visible');
   document.getElementById('app-shell').classList.remove('visible');
+  document.getElementById('patient-shell')?.classList.remove('visible');
+  // Leave public-shell as-is — the overlay (z-index 1000) covers it
   const overlay = document.getElementById('login-overlay');
   overlay.classList.add('visible');
   overlay.innerHTML = renderLoginPage();
+  // Auto-show reset form if URL has reset_token param
+  const resetToken = new URLSearchParams(window.location.search).get('reset_token');
+  if (resetToken) {
+    setTimeout(() => window.switchAuthTab('reset'), 0);
+  }
 }
 
 export function doLogout() {
+  api.logout().catch(() => {});
   api.clearToken();
   currentUser = null;
-  showLogin();
+  document.getElementById('sidebar').classList.remove('visible');
+  document.getElementById('app-shell').classList.remove('visible');
+  document.getElementById('patient-shell')?.classList.remove('visible');
+  document.getElementById('login-overlay').classList.remove('visible');
+  const pub = document.getElementById('public-shell');
+  if (pub) { pub.classList.add('visible'); window._navPublic?.('home'); }
+  else { showLogin(); }
 }
 window.doLogout = doLogout;
 
@@ -52,34 +94,75 @@ function renderLoginPage() {
     <div id="login-form">
       <div class="form-group">
         <label class="form-label">Email</label>
-        <input id="login-email" class="form-control" type="email" placeholder="clinician@clinic.com" autocomplete="username">
+        <input id="login-email" class="form-control" type="email" placeholder="clinician@clinic.com" autocomplete="username"
+               onkeydown="if(event.key==='Enter')document.getElementById('login-password').focus()">
       </div>
       <div class="form-group">
         <label class="form-label">Password</label>
-        <input id="login-password" class="form-control" type="password" placeholder="••••••••" autocomplete="current-password">
+        <input id="login-password" class="form-control" type="password" placeholder="••••••••" autocomplete="current-password"
+               onkeydown="if(event.key==='Enter')submitLogin()">
       </div>
       <div id="login-error" style="color:var(--red);font-size:12px;margin-bottom:12px;display:none"></div>
       <button class="btn btn-primary" style="width:100%;padding:10px;font-size:13.5px" onclick="submitLogin()">Sign In →</button>
-      <div style="text-align:center;margin-top:16px;font-size:11.5px;color:var(--text-tertiary)">
-        Demo: <code style="color:var(--teal)">clinician@demo.com</code> / <code style="color:var(--teal)">demo1234</code>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-top:14px">
+        <span style="font-size:11.5px;color:var(--text-tertiary)">Demo: <code style="color:var(--teal)">clinician@demo.com</code> / <code style="color:var(--teal)">demo1234</code></span>
+        <button class="btn btn-ghost btn-sm" style="font-size:11px;padding:3px 6px" onclick="switchAuthTab('forgot')">Forgot password?</button>
       </div>
     </div>
 
     <div id="register-form" style="display:none">
       <div class="form-group">
         <label class="form-label">Display Name</label>
-        <input id="reg-name" class="form-control" placeholder="Dr. Jane Smith">
+        <input id="reg-name" class="form-control" placeholder="Dr. Jane Smith"
+               onkeydown="if(event.key==='Enter')document.getElementById('reg-email').focus()">
       </div>
       <div class="form-group">
         <label class="form-label">Email</label>
-        <input id="reg-email" class="form-control" type="email" placeholder="clinician@clinic.com">
+        <input id="reg-email" class="form-control" type="email" placeholder="clinician@clinic.com"
+               onkeydown="if(event.key==='Enter')document.getElementById('reg-password').focus()">
       </div>
       <div class="form-group">
         <label class="form-label">Password</label>
-        <input id="reg-password" class="form-control" type="password" placeholder="Min 8 characters">
+        <input id="reg-password" class="form-control" type="password" placeholder="Min 8 characters"
+               onkeydown="if(event.key==='Enter')submitRegister()">
       </div>
       <div id="reg-error" style="color:var(--red);font-size:12px;margin-bottom:12px;display:none"></div>
       <button class="btn btn-primary" style="width:100%;padding:10px;font-size:13.5px" onclick="submitRegister()">Create Account →</button>
+    </div>
+
+    <div id="forgot-form" style="display:none">
+      <div style="font-size:12px;color:var(--text-secondary);margin-bottom:16px;line-height:1.65">
+        Enter your registered email address. If an account exists, we'll send a password reset link.
+      </div>
+      <div class="form-group">
+        <label class="form-label">Email</label>
+        <input id="forgot-email" class="form-control" type="email" placeholder="clinician@clinic.com"
+               onkeydown="if(event.key==='Enter')submitForgotPassword()">
+      </div>
+      <div id="forgot-error" style="color:var(--red);font-size:12px;margin-bottom:12px;display:none"></div>
+      <div id="forgot-ok" style="color:var(--teal);font-size:12px;margin-bottom:12px;display:none"></div>
+      <button class="btn btn-primary" style="width:100%;padding:10px;font-size:13.5px" onclick="submitForgotPassword()">Send Reset Link →</button>
+      <div style="text-align:center;margin-top:12px">
+        <button class="btn btn-ghost btn-sm" onclick="switchAuthTab('login')">← Back to Sign In</button>
+      </div>
+    </div>
+
+    <div id="reset-form" style="display:none">
+      <div style="font-size:12px;color:var(--text-secondary);margin-bottom:16px;line-height:1.65">
+        Enter your new password below.
+      </div>
+      <div class="form-group">
+        <label class="form-label">New Password</label>
+        <input id="reset-password" class="form-control" type="password" placeholder="Min 8 characters"
+               onkeydown="if(event.key==='Enter')submitResetPassword()">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Confirm Password</label>
+        <input id="reset-confirm" class="form-control" type="password" placeholder="Repeat password"
+               onkeydown="if(event.key==='Enter')submitResetPassword()">
+      </div>
+      <div id="reset-error" style="color:var(--red);font-size:12px;margin-bottom:12px;display:none"></div>
+      <button class="btn btn-primary" style="width:100%;padding:10px;font-size:13.5px" onclick="submitResetPassword()">Reset Password →</button>
     </div>
 
     <div id="demo-form" style="display:none">
@@ -93,6 +176,7 @@ function renderLoginPage() {
           { token: 'resident-demo-token',     label: 'Resident / Fellow',sub: 'Evidence library · Limited protocols',     color: 'var(--violet)' },
           { token: 'explorer-demo-token',     label: 'Guest / Explorer', sub: 'Read-only · Evidence & devices',           color: 'var(--amber)' },
           { token: 'clinic-admin-demo-token', label: 'Clinic Admin',     sub: 'Team management · All clinical tools',    color: 'var(--rose)' },
+          { token: 'patient-demo-token',      label: 'Patient Portal',   sub: 'Patient view · Sessions & progress',      color: 'var(--blue)' },
         ].map(d => `<button onclick="window.demoLogin('${d.token}')" style="
           display:flex;align-items:center;gap:12px;padding:11px 14px;
           border-radius:var(--radius-md);border:1px solid var(--border);
@@ -118,12 +202,54 @@ function renderLoginPage() {
 }
 
 window.switchAuthTab = function(tab) {
-  document.getElementById('login-form').style.display = tab === 'login' ? '' : 'none';
-  document.getElementById('register-form').style.display = tab === 'register' ? '' : 'none';
-  document.getElementById('demo-form').style.display = tab === 'demo' ? '' : 'none';
-  document.getElementById('tab-login').classList.toggle('active', tab === 'login');
-  document.getElementById('tab-register').classList.toggle('active', tab === 'register');
-  document.getElementById('tab-demo').classList.toggle('active', tab === 'demo');
+  ['login','register','demo','forgot','reset'].forEach(t => {
+    const el = document.getElementById(`${t}-form`);
+    if (el) el.style.display = tab === t ? '' : 'none';
+  });
+  ['login','register','demo'].forEach(t => {
+    const btn = document.getElementById(`tab-${t}`);
+    if (btn) btn.classList.toggle('active', tab === t);
+  });
+};
+
+window.submitForgotPassword = async function() {
+  const errEl = document.getElementById('forgot-error');
+  const okEl  = document.getElementById('forgot-ok');
+  if (errEl) errEl.style.display = 'none';
+  if (okEl)  okEl.style.display  = 'none';
+  const email = document.getElementById('forgot-email')?.value?.trim();
+  if (!email) { if (errEl) { errEl.textContent = 'Enter your email address.'; errEl.style.display = ''; } return; }
+  try {
+    await api.forgotPassword(email);
+    if (okEl) {
+      okEl.textContent = 'If an account with that email exists, a reset link has been sent. Check your inbox.';
+      okEl.style.display = '';
+    }
+    if (errEl) errEl.style.display = 'none';
+  } catch (e) {
+    if (errEl) { errEl.textContent = e.message || 'Could not send reset link.'; errEl.style.display = ''; }
+  }
+};
+
+window.submitResetPassword = async function() {
+  const errEl = document.getElementById('reset-error');
+  if (errEl) errEl.style.display = 'none';
+  const pw  = document.getElementById('reset-password')?.value;
+  const cpw = document.getElementById('reset-confirm')?.value;
+  if (!pw || pw.length < 8) { if (errEl) { errEl.textContent = 'Password must be at least 8 characters.'; errEl.style.display = ''; } return; }
+  if (pw !== cpw) { if (errEl) { errEl.textContent = 'Passwords do not match.'; errEl.style.display = ''; } return; }
+  const token = new URLSearchParams(window.location.search).get('reset_token');
+  if (!token) { if (errEl) { errEl.textContent = 'Invalid or expired reset link.'; errEl.style.display = ''; } return; }
+  try {
+    await api.resetPassword(token, pw);
+    // Clear URL param and switch to login
+    window.history.replaceState({}, '', window.location.pathname);
+    window.switchAuthTab('login');
+    const errLogin = document.getElementById('login-error');
+    if (errLogin) { errLogin.style.color = 'var(--teal)'; errLogin.textContent = 'Password reset successful. Sign in with your new password.'; errLogin.style.display = ''; }
+  } catch (e) {
+    if (errEl) { errEl.textContent = e.message || 'Reset failed — link may have expired.'; errEl.style.display = ''; }
+  }
 };
 
 const DEMO_USERS = {
@@ -132,34 +258,32 @@ const DEMO_USERS = {
   'resident-demo-token':     { id: 3, email: 'resident@demo.com',     display_name: 'Dr. Alex Chen',    role: 'clinician', package_id: 'resident' },
   'explorer-demo-token':     { id: 4, email: 'explorer@demo.com',     display_name: 'Guest User',       role: 'guest',     package_id: 'explorer' },
   'clinic-admin-demo-token': { id: 5, email: 'clinicadmin@demo.com',  display_name: 'Clinic Manager',   role: 'admin',     package_id: 'clinic_team' },
+  'patient-demo-token':      { id: 6, email: 'patient@demo.com',      display_name: 'Jane Patient',     role: 'patient',   package_id: 'patient' },
 };
+
+function bootUser(user) {
+  if (user.role === 'patient') {
+    showPatient();
+    updatePatientBar();
+    window._bootPatient?.();
+  } else {
+    showApp();
+    updateUserBar();
+    window._bootApp?.();
+  }
+}
 
 window.demoLogin = async function(token) {
   const errEl = document.getElementById('demo-error');
   if (errEl) errEl.style.display = 'none';
   api.setToken(token);
-  // Try backend first, fall back to local demo user if CORS/network fails
   try {
     const user = await api.me();
-    if (user) {
-      currentUser = user;
-      showApp();
-      updateUserBar();
-      window._bootApp();
-      return;
-    }
-  } catch (_) { /* fall through to offline demo */ }
-  // Offline demo mode
+    if (user) { currentUser = user; bootUser(user); return; }
+  } catch (_) {}
   const demoUser = DEMO_USERS[token];
-  if (demoUser) {
-    currentUser = demoUser;
-    showApp();
-    updateUserBar();
-    window._bootApp();
-  } else {
-    api.clearToken();
-    if (errEl) { errEl.textContent = 'Unknown demo token.'; errEl.style.display = ''; }
-  }
+  if (demoUser) { currentUser = demoUser; bootUser(demoUser); }
+  else { api.clearToken(); if (errEl) { errEl.textContent = 'Unknown demo token.'; errEl.style.display = ''; } }
 };
 
 const DEMO_CREDENTIALS = {
@@ -177,10 +301,9 @@ window.submitLogin = async function() {
     const res = await api.login(email, password);
     if (!res || !res.access_token) { errEl.textContent = 'Invalid credentials.'; errEl.style.display = ''; return; }
     api.setToken(res.access_token);
+    if (res.refresh_token) api.setRefreshToken(res.refresh_token);
     currentUser = res.user;
-    showApp();
-    updateUserBar();
-    window._bootApp();
+    bootUser(currentUser);
     return;
   } catch (_) { /* fall through to offline demo */ }
   // Offline demo credentials fallback
@@ -189,9 +312,7 @@ window.submitLogin = async function() {
     const demoUser = DEMO_USERS[cred.token];
     api.setToken(cred.token);
     currentUser = demoUser;
-    showApp();
-    updateUserBar();
-    window._bootApp();
+    bootUser(demoUser);
   } else {
     errEl.textContent = 'Invalid credentials. Try clinician@demo.com / demo1234';
     errEl.style.display = '';

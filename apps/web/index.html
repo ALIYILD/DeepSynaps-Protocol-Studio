@@ -4,16 +4,52 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>DeepSynaps Studio — Clinical OS</title>
+<meta name="description" content="DeepSynaps Protocol Studio — Clinical OS for Neuromodulation Clinics">
+<meta name="theme-color" content="#0a1628">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🧠</text></svg>">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;1,9..40,400&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/src/styles.css">
 </head>
 <body>
 
+<!-- Public shell (landing, signup) -->
+<div id="public-shell"></div>
+
+<!-- Patient portal shell -->
+<div id="patient-shell">
+  <div id="patient-sidebar">
+    <div class="logo-wrap">
+      <div class="logo-icon" style="background:linear-gradient(135deg,var(--blue),var(--violet))">◉</div>
+      <div>
+        <div class="logo-name">DeepSynaps</div>
+        <div class="logo-sub">Patient Portal</div>
+      </div>
+    </div>
+    <nav id="patient-nav-list"></nav>
+    <div class="user-bar" id="patient-user-bar">
+      <div class="avatar" id="pt-avatar" style="background:linear-gradient(135deg,var(--blue-dim),var(--violet))">?</div>
+      <div style="flex:1;min-width:0">
+        <div class="user-name" id="pt-name">Loading…</div>
+        <div class="user-role" id="pt-role">Patient</div>
+      </div>
+      <button class="btn btn-ghost btn-sm" onclick="window.doLogout()" title="Sign out" style="padding:4px 8px;flex-shrink:0">↪</button>
+    </div>
+  </div>
+  <div id="patient-app-shell">
+    <div id="patient-topbar">
+      <div id="patient-page-title">My Portal</div>
+      <div id="patient-topbar-actions"></div>
+    </div>
+    <div id="patient-content"></div>
+  </div>
+</div>
+
 <!-- Login overlay -->
 <div id="login-overlay"></div>
 
 <!-- Sidebar -->
+<div id="sidebar-overlay" onclick="window._closeSidebar()"></div>
 <div id="sidebar">
   <div class="logo-wrap">
     <div class="logo-icon">🧠</div>
@@ -33,9 +69,13 @@
   </div>
 </div>
 
+<!-- Page loading bar -->
+<div id="page-loading-bar"></div>
+
 <!-- App shell -->
 <div id="app-shell">
   <div id="topbar">
+    <button id="sidebar-toggle" class="btn btn-ghost btn-sm" onclick="window._toggleSidebar()" style="display:none;padding:6px 8px;font-size:16px;line-height:1" aria-label="Menu">☰</button>
     <div id="page-title">Dashboard</div>
     <div style="display:flex;gap:8px;align-items:center" id="topbar-actions"></div>
   </div>

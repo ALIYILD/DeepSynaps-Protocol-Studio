@@ -1,5 +1,11 @@
 import { api } from './api.js';
-import { currentUser, setCurrentUser, updateUserBar, showApp, showLogin, doLogout } from './auth.js';
+import { currentUser, setCurrentUser, updateUserBar, updatePatientBar, showApp, showPublic, showPatient, showLogin } from './auth.js';
+import { pgHome, pgSignupProfessional, pgSignupPatient } from './pages-public.js';
+import {
+  renderPatientNav,
+  pgPatientDashboard, pgPatientSessions, pgPatientCourse,
+  pgPatientAssessments, pgPatientReports, pgPatientMessages, pgPatientProfile,
+} from './pages-patient.js';
 import { ROLE_ENTRY_PAGE } from './constants.js';
 import {
   pgDash, pgPatients, pgProfile, pgProtocols, pgAssess, pgChart, pgBrainData,
@@ -17,6 +23,39 @@ import {
   pgCourses, pgSessionExecution, pgReviewQueue, pgOutcomes, pgProtocolRegistry,
   pgCourseDetail, pgAdverseEvents,
 } from './pages-courses.js';
+
+// ── Global error handlers ─────────────────────────────────────────────────────
+window.addEventListener('unhandledrejection', (e) => {
+  console.error('[DeepSynaps] Unhandled promise rejection:', e.reason);
+});
+window.addEventListener('error', (e) => {
+  console.error('[DeepSynaps] Uncaught error:', e.message, e.filename, e.lineno);
+});
+
+// ── Global keyboard shortcuts ─────────────────────────────────────────────────
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') {
+    // Close any visible modal/overlay panels
+    const modalIds = ['assess-modal', 'qeeg-form-panel', 'se-ae-panel'];
+    modalIds.forEach(id => {
+      const el = document.getElementById(id);
+      if (el && el.style.display !== 'none' && el.style.display !== '') {
+        el.style.display = 'none';
+      }
+    });
+    // Close any inline-expand panels
+    document.querySelectorAll('[id^="ev-expand-"],[id^="qrec-expand-"],[id^="sess-expand-"],[id^="proto-detail-"]').forEach(el => {
+      if (el.style.display !== 'none') el.style.display = 'none';
+    });
+    // Close mobile sidebar
+    window._closeSidebar();
+  }
+  // Alt+D → Dashboard, Alt+P → Patients, Alt+C → Courses
+  if (e.altKey && !e.ctrlKey && !e.metaKey) {
+    const shortcuts = { d: 'dashboard', p: 'patients', c: 'courses', r: 'review-queue', s: 'session-execution' };
+    if (shortcuts[e.key]) { e.preventDefault(); window._nav(shortcuts[e.key]); }
+  }
+});
 
 // ── Mobile sidebar toggle ─────────────────────────────────────────────────────
 window._toggleSidebar = function() {
@@ -69,7 +108,11 @@ const NAV = [
 function renderNav() {
   document.getElementById('nav-list').innerHTML = NAV.map(n => {
     if (n.section) return `<div class="nav-section">${n.section}</div>`;
-    const badge = n.badge ? `<span class="nav-badge">${n.badge}</span>` : n.ai ? `<span class="nav-badge-ai">AI</span>` : '';
+    const badge = n.badge
+      ? (String(n.badge).startsWith('!')
+          ? `<span class="nav-badge" style="background:rgba(255,107,107,0.2);color:var(--red);border-color:rgba(255,107,107,0.3)">${String(n.badge).slice(1)}</span>`
+          : `<span class="nav-badge">${n.badge}</span>`)
+      : n.ai ? `<span class="nav-badge-ai">AI</span>` : '';
     return `<div class="nav-item ${currentPage === n.id ? 'active' : ''}" onclick="window._nav('${n.id}')">
       <span class="nav-icon">${n.icon}</span>
       <span style="flex:1">${n.label}</span>${badge}
@@ -83,15 +126,38 @@ function setTopbar(title, html = '') {
   document.getElementById('topbar-actions').innerHTML = html;
 }
 
+// ── Loading bar ───────────────────────────────────────────────────────────────
+function loadingStart() {
+  const bar = document.getElementById('page-loading-bar');
+  if (!bar) return;
+  bar.classList.remove('done');
+  // Force reflow so transition restarts from 0
+  void bar.offsetWidth;
+  bar.classList.add('loading');
+}
+function loadingDone() {
+  const bar = document.getElementById('page-loading-bar');
+  if (!bar) return;
+  bar.classList.remove('loading');
+  bar.classList.add('done');
+  setTimeout(() => bar.classList.remove('done'), 300);
+}
+
 // ── Navigate ──────────────────────────────────────────────────────────────────
 async function navigate(id) {
+  window._closeSidebar();
   currentPage = id;
   setProStep(0);
   if (id !== 'profile') setPtab('courses');
   if (id !== 'protocol-wizard') window._wizardProtocolId = null;
   if (id !== 'course-detail') window._cdTab = 'overview';
   renderNav();
-  await renderPage();
+  loadingStart();
+  try {
+    await renderPage();
+  } finally {
+    loadingDone();
+  }
 }
 
 window._nav = navigate;
@@ -100,6 +166,53 @@ window._nav = navigate;
 window._openCourse = function(id) {
   window._selectedCourseId = id;
   navigate('course-detail');
+};
+
+// ── Public page routing ───────────────────────────────────────────────────────
+let currentPublicPage = 'home';
+
+function renderPublicPage() {
+  switch (currentPublicPage) {
+    case 'home':               pgHome(); break;
+    case 'signup-professional': pgSignupProfessional(); break;
+    case 'signup-patient':     pgSignupPatient(); break;
+    default:                   pgHome();
+  }
+}
+
+function navigatePublic(id) {
+  currentPublicPage = id;
+  showPublic();
+  renderPublicPage();
+}
+window._navPublic  = navigatePublic;
+window._showSignIn = function() { showLogin(); };
+
+// ── Patient portal routing ────────────────────────────────────────────────────
+let currentPatientPage = 'patient-portal';
+
+function renderPatientPage() {
+  renderPatientNav(currentPatientPage);
+  switch (currentPatientPage) {
+    case 'patient-portal':      pgPatientDashboard(currentUser);  break;
+    case 'patient-sessions':    pgPatientSessions();              break;
+    case 'patient-course':      pgPatientCourse();                break;
+    case 'patient-assessments': pgPatientAssessments();           break;
+    case 'patient-reports':     pgPatientReports();               break;
+    case 'patient-messages':    pgPatientMessages();              break;
+    case 'patient-profile':     pgPatientProfile(currentUser);    break;
+    default:                    pgPatientDashboard(currentUser);
+  }
+}
+
+function navigatePatient(id) {
+  currentPatientPage = id;
+  renderPatientPage();
+}
+window._navPatient  = navigatePatient;
+window._bootPatient = function() {
+  currentPatientPage = 'patient-portal';
+  renderPatientPage();
 };
 
 // ── Page dispatcher ───────────────────────────────────────────────────────────
@@ -186,10 +299,10 @@ async function renderPage() {
       el.innerHTML = pgMsg(setTopbar);
       break;
     case 'programs':
-      el.innerHTML = pgPrograms(setTopbar);
+      pgPrograms(setTopbar);
       break;
     case 'billing':
-      el.innerHTML = pgBilling(setTopbar);
+      await pgBilling(setTopbar);
       break;
     case 'reports':
       await pgReports(setTopbar);
@@ -212,6 +325,27 @@ async function renderPage() {
   }
 }
 
+// ── Nav badge update ─────────────────────────────────────────────────────────
+async function refreshNavBadges() {
+  try {
+    const [queueData, coursesData, aeData] = await Promise.all([
+      api.listReviewQueue().catch(() => null),
+      api.listCourses().catch(() => null),
+      api.listAdverseEvents().catch(() => null),
+    ]);
+    const pendingReview  = (queueData?.items || []).filter(i => i.status === 'pending').length;
+    const pendingApproval = (coursesData?.items || []).filter(c => c.status === 'pending_approval').length;
+    const seriousAE      = (aeData?.items || []).filter(ae => ae.severity === 'serious').length;
+
+    NAV.forEach(n => {
+      if (n.id === 'review-queue')  n.badge = pendingReview > 0 ? pendingReview : null;
+      if (n.id === 'courses')       n.badge = pendingApproval > 0 ? pendingApproval : null;
+      if (n.id === 'adverse-events') n.badge = seriousAE > 0 ? `!${seriousAE}` : null;
+    });
+    renderNav();
+  } catch (_) { /* badge refresh is best-effort */ }
+}
+
 // ── Boot after login ──────────────────────────────────────────────────────────
 async function bootApp() {
   // Role-based entry: redirect technician → session-execution, reviewer → review-queue, etc.
@@ -222,6 +356,10 @@ async function bootApp() {
   }
   renderNav();
   await renderPage();
+  // Refresh nav badges after page loads (don't block render)
+  refreshNavBadges();
+  // Refresh badges every 3 minutes while app is open
+  setInterval(refreshNavBadges, 3 * 60 * 1000);
 }
 
 window._bootApp = bootApp;
@@ -230,19 +368,25 @@ window._bootApp = bootApp;
 async function init() {
   const token = api.getToken();
   if (!token) {
-    showLogin();
+    navigatePublic('home');
     return;
   }
   try {
     const user = await api.me();
-    if (!user) { api.clearToken(); showLogin(); return; }
+    if (!user) { api.clearToken(); navigatePublic('home'); return; }
     setCurrentUser(user);
-    showApp();
-    updateUserBar();
-    await bootApp();
+    if (user.role === 'patient') {
+      showPatient();
+      updatePatientBar();
+      window._bootPatient();
+    } else {
+      showApp();
+      updateUserBar();
+      await bootApp();
+    }
   } catch {
     api.clearToken();
-    showLogin();
+    navigatePublic('home');
   }
 }
 

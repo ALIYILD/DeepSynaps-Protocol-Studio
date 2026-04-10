@@ -1,16 +1,48 @@
 const API_BASE = (import.meta.env && import.meta.env.VITE_API_BASE_URL) || 'http://127.0.0.1:8000';
 const TOKEN_KEY = 'ds_access_token';
+const REFRESH_KEY = 'ds_refresh_token';
 
 function getToken() { return localStorage.getItem(TOKEN_KEY); }
 function setToken(t) { localStorage.setItem(TOKEN_KEY, t); }
-function clearToken() { localStorage.removeItem(TOKEN_KEY); }
+function clearToken() { localStorage.removeItem(TOKEN_KEY); clearRefreshToken(); }
+
+function getRefreshToken() { return localStorage.getItem(REFRESH_KEY); }
+function setRefreshToken(t) { localStorage.setItem(REFRESH_KEY, t); }
+function clearRefreshToken() { localStorage.removeItem(REFRESH_KEY); }
 
 async function apiFetch(path, opts = {}) {
   const token = getToken();
   const headers = { 'Content-Type': 'application/json', ...(opts.headers || {}) };
   if (token) headers['Authorization'] = `Bearer ${token}`;
   const res = await fetch(`${API_BASE}${path}`, { ...opts, headers });
-  if (res.status === 401) { clearToken(); return null; }
+  if (res.status === 401) {
+    // Avoid infinite loop — never attempt refresh when the refresh call itself 401s
+    if (path === '/api/v1/auth/refresh') { clearToken(); return null; }
+    const storedRefresh = getRefreshToken();
+    if (storedRefresh) {
+      const refreshResult = await apiFetch('/api/v1/auth/refresh', {
+        method: 'POST',
+        body: JSON.stringify({ refresh_token: storedRefresh }),
+      });
+      if (refreshResult && refreshResult.access_token) {
+        setToken(refreshResult.access_token);
+        if (refreshResult.refresh_token) setRefreshToken(refreshResult.refresh_token);
+        // Retry original request once with new token
+        const retryHeaders = { 'Content-Type': 'application/json', ...(opts.headers || {}) };
+        retryHeaders['Authorization'] = `Bearer ${refreshResult.access_token}`;
+        const retryRes = await fetch(`${API_BASE}${path}`, { ...opts, headers: retryHeaders });
+        if (retryRes.status === 204) return null;
+        if (!retryRes.ok) {
+          let msg = `API error ${retryRes.status}`;
+          try { const e = await retryRes.json(); msg = e.detail || msg; } catch {}
+          throw new Error(msg);
+        }
+        return retryRes.json();
+      }
+    }
+    clearToken();
+    return null;
+  }
   if (res.status === 204) return null;
   if (!res.ok) {
     let msg = `API error ${res.status}`;
@@ -33,14 +65,23 @@ async function apiFetchBlob(path, data) {
 
 export const api = {
   getToken, setToken, clearToken,
+  getRefreshToken, setRefreshToken, clearRefreshToken,
 
   // ── Auth ────────────────────────────────────────────────────────────────
-  login: (email, password) =>
-    apiFetch('/api/v1/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) }),
+  login: async (email, password) => {
+    const result = await apiFetch('/api/v1/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) });
+    if (result && result.refresh_token) setRefreshToken(result.refresh_token);
+    return result;
+  },
+  logout: () => apiFetch('/api/v1/auth/logout', { method: 'POST' }),
   register: (email, display_name, password) =>
     apiFetch('/api/v1/auth/register', { method: 'POST', body: JSON.stringify({ email, display_name, password }) }),
   refresh: (refresh_token) =>
     apiFetch('/api/v1/auth/refresh', { method: 'POST', body: JSON.stringify({ refresh_token }) }),
+  forgotPassword: (email) =>
+    apiFetch('/api/v1/auth/forgot-password', { method: 'POST', body: JSON.stringify({ email }) }),
+  resetPassword: (token, new_password) =>
+    apiFetch('/api/v1/auth/reset-password', { method: 'POST', body: JSON.stringify({ token, new_password }) }),
   me: () => apiFetch('/api/v1/auth/me'),
 
   // ── Patients ────────────────────────────────────────────────────────────

@@ -4,21 +4,43 @@ import { api } from './api.js';
 // ── Scheduling ────────────────────────────────────────────────────────────────
 export function pgSchedule(setTopbar) {
   setTopbar('Scheduling', `<button class="btn btn-ghost btn-sm">Sync Calendar</button><button class="btn btn-primary btn-sm" onclick="window._nav('profile')">+ Appointment</button>`);
-  return `<div class="g2">
-    ${cardWrap('April 2026', `
+
+  if (window._calOffset == null) window._calOffset = 0;
+
+  function buildScheduleHTML() {
+    const now = new Date();
+    const displayDate = new Date(now.getFullYear(), now.getMonth() + window._calOffset, 1);
+    const monthLabel = displayDate.toLocaleString('en-US', { month: 'long', year: 'numeric' });
+    const daysInMonth = new Date(displayDate.getFullYear(), displayDate.getMonth() + 1, 0).getDate();
+    // Monday-first offset: Sunday(0)→6, Monday(1)→0, …
+    const rawDow = new Date(displayDate.getFullYear(), displayDate.getMonth(), 1).getDay();
+    const firstDow = (rawDow + 6) % 7;
+    const gridSize = Math.ceil((firstDow + daysInMonth) / 7) * 7;
+
+    const isCurrentMonth = window._calOffset === 0;
+    const today = isCurrentMonth ? now.getDate() : -1;
+
+    const todayLabel = now.toLocaleString('en-US', { weekday: 'long', day: 'numeric', month: 'long' });
+
+    return `<div class="g2">
+    ${cardWrap(monthLabel, `
       <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:2px;margin-bottom:6px">
         ${['M','T','W','T','F','S','S'].map(d => `<div style="text-align:center;font-size:9.5px;color:var(--text-tertiary);padding:5px 0;text-transform:uppercase;letter-spacing:.5px">${d}</div>`).join('')}
       </div>
       <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:2px">
-        ${Array.from({ length: 35 }, (_, i) => {
-          const day = i - 1; const d = day < 1 || day > 30 ? null : day;
-          const isToday = d === 10;
+        ${Array.from({ length: gridSize }, (_, i) => {
+          const day = i - firstDow + 1;
+          const d = day < 1 || day > daysInMonth ? null : day;
+          const isToday = d === today;
           const hasAppt = [2,3,5,9,12,14,16,17,21,22,24,28].includes(d);
           return `<div style="aspect-ratio:1;display:flex;align-items:center;justify-content:center;font-size:12px;border-radius:var(--radius-md);cursor:pointer;transition:all var(--transition);${isToday ? 'background:var(--teal-ghost);color:var(--teal);font-weight:700;border:1px solid var(--border-teal);box-shadow:0 0 10px var(--teal-glow);' : hasAppt ? 'background:var(--bg-surface-2);color:var(--text-primary);border:1px solid var(--border);' : !d ? 'color:var(--text-tertiary)' : 'color:var(--text-secondary);'}">${d || ''}</div>`;
         }).join('')}
       </div>
-    `, '<div style="display:flex;gap:5px"><button class="btn btn-ghost btn-sm">‹</button><button class="btn btn-ghost btn-sm">›</button></div>')}
-    ${cardWrap("Today · 10 April", [
+    `, `<div style="display:flex;gap:5px">
+      <button class="btn btn-ghost btn-sm" onclick="window._calOffset--;window._renderSchedule()">‹</button>
+      <button class="btn btn-ghost btn-sm" onclick="window._calOffset++;window._renderSchedule()">›</button>
+    </div>`)}
+    ${cardWrap(`Today · ${todayLabel}`, [
       { t: '09:00', e: '09:30', n: 'Session 7 — Patient', d: 'tDCS DLPFC', m: 'In-clinic', c: 'var(--blue)' },
       { t: '11:00', e: '12:00', n: 'New Patient Intake', d: 'Assessment + qEEG', m: 'In-clinic', c: 'var(--rose)' },
       { t: '14:00', e: '14:30', n: 'Telehealth Review', d: 'Protocol Review', m: 'Video', c: 'var(--violet)' },
@@ -29,6 +51,14 @@ export function pgSchedule(setTopbar) {
       <div style="text-align:right"><div style="font-size:11.5px;font-weight:600;color:var(--teal);font-family:var(--font-mono)">${s.t}–${s.e}</div><div style="font-size:10px;color:var(--text-tertiary)">${s.m}</div></div>
     </div>`).join(''))}
   </div>`;
+  }
+
+  window._renderSchedule = function() {
+    const el = document.getElementById('content');
+    if (el) el.innerHTML = buildScheduleHTML();
+  };
+
+  return buildScheduleHTML();
 }
 
 // ── Telehealth ────────────────────────────────────────────────────────────────
@@ -109,62 +139,276 @@ export function pgMsg(setTopbar) {
 
 // ── Programs ──────────────────────────────────────────────────────────────────
 export function pgPrograms(setTopbar) {
-  setTopbar('Programs & Courses', `<button class="btn btn-ghost btn-sm">Library</button><button class="btn btn-primary btn-sm">+ Create Program</button>`);
-  return `<div class="g3">${[
-    { t: 'tDCS at Home: Patient Guide', type: 'Self-paced course', m: 5, e: 34, s: 'active', p: 'Free' },
-    { t: 'Neurofeedback Fundamentals', type: 'Fixed-date program', m: 8, e: 12, s: 'active', p: '$149' },
-    { t: 'Understanding Your Brain Map', type: 'Self-paced course', m: 4, e: 58, s: 'active', p: 'Free' },
-    { t: 'Chronic Pain & Neuromodulation', type: '6-week program', m: 12, e: 8, s: 'active', p: '$249' },
-    { t: 'MDD Recovery Protocol', type: 'Self-paced course', m: 6, e: 21, s: 'active', p: 'Free' },
-    { t: "Parkinson's Home Care Module", type: 'Caregiver program', m: 7, e: 5, s: 'pending', p: 'Free' },
-  ].map(p => `<div class="card" style="margin-bottom:0;transition:border-color var(--transition)" onmouseover="this.style.borderColor='var(--border-teal)'" onmouseout="this.style.borderColor='var(--border)'">
-    <div class="card-body">
-      <div style="display:flex;justify-content:space-between;margin-bottom:10px">${pillSt(p.s)}<span style="font-size:12.5px;font-weight:700;color:var(--teal)">${p.p}</span></div>
-      <div style="font-family:var(--font-display);font-size:13px;font-weight:600;color:var(--text-primary);margin-bottom:4px">${p.t}</div>
-      <div style="font-size:11.5px;color:var(--text-secondary);margin-bottom:12px">${p.type} · ${p.m} modules</div>
-      <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px">
-        <span style="font-size:11px;color:var(--text-tertiary)">${p.e} enrolled</span>
-        <div class="progress-bar" style="flex:1"><div class="progress-fill" style="width:${Math.min(100, Math.round((p.e / 60) * 100))}%"></div></div>
+  setTopbar('Patient Education Programs', '');
+  const el = document.getElementById('content');
+  el.innerHTML = `
+    <div style="max-width:680px;margin:0 auto;padding:48px 24px;text-align:center">
+      <div style="width:72px;height:72px;border-radius:20px;background:linear-gradient(135deg,var(--navy-700),var(--navy-600));border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:28px;margin:0 auto 24px">◧</div>
+      <div style="font-family:var(--font-display);font-size:22px;font-weight:700;color:var(--text-primary);margin-bottom:10px">Patient Education Programs</div>
+      <div style="font-size:13.5px;color:var(--text-secondary);line-height:1.65;margin-bottom:32px;max-width:480px;margin-left:auto;margin-right:auto">
+        Structured patient-facing education modules, self-paced home courses, and caregiver onboarding programs are in active development.<br><br>
+        These will integrate directly with treatment courses — patients will receive relevant modules automatically based on their assigned protocol.
       </div>
-      <div style="display:flex;gap:6px"><button class="btn btn-sm">Edit</button><button class="btn btn-sm">Enroll Patient</button></div>
-    </div>
-  </div>`).join('')}</div>`;
+      <div style="display:flex;gap:12px;justify-content:center;flex-wrap:wrap;margin-bottom:40px">
+        <div class="card" style="text-align:left;padding:16px 20px;min-width:180px;flex:1;max-width:220px">
+          <div style="font-size:11px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.08em;margin-bottom:6px">Planned</div>
+          <div style="font-size:13px;font-weight:600;color:var(--text-primary);margin-bottom:4px">Self-paced modules</div>
+          <div style="font-size:11.5px;color:var(--text-secondary)">Condition-specific patient education</div>
+        </div>
+        <div class="card" style="text-align:left;padding:16px 20px;min-width:180px;flex:1;max-width:220px">
+          <div style="font-size:11px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.08em;margin-bottom:6px">Planned</div>
+          <div style="font-size:13px;font-weight:600;color:var(--text-primary);margin-bottom:4px">Auto-enrolment</div>
+          <div style="font-size:11.5px;color:var(--text-secondary)">Based on treatment course protocol</div>
+        </div>
+        <div class="card" style="text-align:left;padding:16px 20px;min-width:180px;flex:1;max-width:220px">
+          <div style="font-size:11px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.08em;margin-bottom:6px">Planned</div>
+          <div style="font-size:13px;font-weight:600;color:var(--text-primary);margin-bottom:4px">Completion tracking</div>
+          <div style="font-size:11.5px;color:var(--text-secondary)">Recorded in patient profile</div>
+        </div>
+      </div>
+      <div style="display:inline-flex;align-items:center;gap:8px;padding:8px 16px;border-radius:var(--radius-md);background:var(--teal-ghost);border:1px solid var(--border-teal);color:var(--teal);font-size:12px;font-weight:500">
+        <span>◈</span> Coming in a future release
+      </div>
+    </div>`;
 }
 
 // ── Billing ───────────────────────────────────────────────────────────────────
-export function pgBilling(setTopbar) {
-  setTopbar('Billing & Payments', `<button class="btn btn-ghost btn-sm">Export</button><button class="btn btn-primary btn-sm">+ New Invoice</button>`);
-  return `<div class="g4" style="margin-bottom:20px">
-    ${[
-      { l: 'Revenue (Month)', v: '—', d: 'From sessions this month' },
-      { l: 'Outstanding', v: '—', d: 'Invoices pending', neg: true },
-      { l: 'Avg. Session Fee', v: '—', d: 'Update per session' },
-      { l: 'Insurance Claims', v: '—', d: 'Awaiting approval' },
-    ].map(m => `<div class="metric-card"><div class="metric-label">${m.l}</div><div class="metric-value">${m.v}</div><div class="metric-delta ${m.neg ? 'neg' : ''}">${m.d}</div></div>`).join('')}
-  </div>
-  <div class="notice notice-info">
-    Billing records are tracked per session. Open a <button class="btn btn-ghost btn-sm" onclick="window._nav('patients')">Patient Profile</button> → Sessions tab to update billing codes and status.
-  </div>`;
+export async function pgBilling(setTopbar) {
+  setTopbar('Billing & Payments', '');
+  const el = document.getElementById('content');
+  el.innerHTML = `<div style="text-align:center;padding:48px;color:var(--text-tertiary)">
+    <div style="font-size:24px;margin-bottom:12px;opacity:.4">◈</div>Loading billing configuration…</div>`;
+
+  // Global handlers
+  window._checkout = async (pkgId) => {
+    const r = await api.createCheckout(pkgId);
+    if (r?.url) window.location.href = r.url;
+  };
+  window._openPortal = async () => {
+    const r = await api.createPortal();
+    if (r?.url) window.open(r.url, '_blank');
+  };
+
+  let config = null;
+  try {
+    config = await api.paymentConfig();
+  } catch {
+    config = null;
+  }
+
+  if (!config) {
+    // Fallback static stub
+    el.innerHTML = `
+      <div class="notice notice-info" style="margin-bottom:20px">
+        Billing configuration is managed via admin settings. Live plan data is unavailable.
+      </div>
+      <div class="g4" style="margin-bottom:20px">
+        ${[
+          { l: 'Revenue (Month)', v: '—', d: 'From sessions this month' },
+          { l: 'Outstanding', v: '—', d: 'Invoices pending', neg: true },
+          { l: 'Avg. Session Fee', v: '—', d: 'Update per session' },
+          { l: 'Insurance Claims', v: '—', d: 'Awaiting approval' },
+        ].map(m => `<div class="metric-card"><div class="metric-label">${m.l}</div><div class="metric-value">${m.v}</div><div class="metric-delta ${m.neg ? 'neg' : ''}">${m.d}</div></div>`).join('')}
+      </div>
+      <div class="notice notice-info">
+        Billing records are tracked per session. Open a <button class="btn btn-ghost btn-sm" onclick="window._nav('patients')">Patient Profile</button> → Sessions tab to update billing codes and status.
+      </div>`;
+    return;
+  }
+
+  const { packages = [], current_package_id } = config;
+  const currentPkg = packages.find(p => p.id === current_package_id);
+
+  const currentCard = currentPkg ? `
+    <div class="card" style="margin-bottom:20px;border-color:var(--border-teal);box-shadow:0 0 18px var(--teal-glow)">
+      <div class="card-body">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px">
+          <div>
+            <div style="font-size:9px;text-transform:uppercase;letter-spacing:.8px;color:var(--teal);margin-bottom:4px">Current Plan</div>
+            <div style="font-family:var(--font-display);font-size:18px;font-weight:700;color:var(--text-primary)">${currentPkg.name}</div>
+          </div>
+          <div style="font-size:22px;font-family:var(--font-display);font-weight:700;color:var(--teal)">${currentPkg.price}</div>
+        </div>
+        ${currentPkg.features?.length ? `<ul style="list-style:none;padding:0;margin:0 0 14px">${currentPkg.features.map(f => `<li style="font-size:12px;color:var(--text-secondary);padding:3px 0">✓ ${f}</li>`).join('')}</ul>` : ''}
+        <button class="btn btn-ghost btn-sm" onclick="window._openPortal()">Manage Billing →</button>
+      </div>
+    </div>` : `
+    <div class="card" style="margin-bottom:20px">
+      <div class="card-body">
+        <div style="font-size:13px;color:var(--text-secondary);margin-bottom:12px">No active plan.</div>
+        <button class="btn btn-ghost btn-sm" onclick="window._openPortal()">Manage Billing →</button>
+      </div>
+    </div>`;
+
+  const upgradeCards = packages.filter(p => p.id !== current_package_id).length > 0 ? `
+    <div style="font-family:var(--font-display);font-size:13px;font-weight:600;color:var(--text-primary);margin-bottom:12px">Available Plans</div>
+    <div class="g3">
+      ${packages.filter(p => p.id !== current_package_id).map(p => `
+        <div class="card" style="margin-bottom:0">
+          <div class="card-body">
+            <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px">
+              <div style="font-family:var(--font-display);font-size:14px;font-weight:600;color:var(--text-primary)">${p.name}</div>
+              <div style="font-size:16px;font-weight:700;color:var(--teal)">${p.price}</div>
+            </div>
+            ${p.features?.length ? `<ul style="list-style:none;padding:0;margin:0 0 14px">${p.features.map(f => `<li style="font-size:11.5px;color:var(--text-secondary);padding:2px 0">✓ ${f}</li>`).join('')}</ul>` : ''}
+            <button class="btn btn-primary btn-sm" onclick="window._checkout('${p.id}')">Subscribe</button>
+          </div>
+        </div>`).join('')}
+    </div>` : '';
+
+  el.innerHTML = currentCard + upgradeCards;
 }
 
 // ── Reports ───────────────────────────────────────────────────────────────────
-export function pgReports(setTopbar) {
-  setTopbar('Reports & Analytics', `<button class="btn btn-ghost btn-sm">Download PDF</button><button class="btn btn-ghost btn-sm">Export CSV</button>`);
-  return `<div class="g3">${[
-    { i: '◈', t: 'Clinical Outcomes Report', d: 'Aggregated assessment scores across all active protocols' },
-    { i: '⬡', t: 'Protocol Efficacy Summary', d: 'Modality-level response rates and session completion rates' },
-    { i: '◉', t: 'Patient Engagement Metrics', d: 'Assessment completion and session attendance rates' },
-    { i: '◇', t: 'Revenue & Billing Report', d: 'Income by modality, practitioner, and referral source' },
-    { i: '◧', t: 'qEEG Biomarker Trends', d: 'Population-level alpha asymmetry and theta/beta ratios over time' },
-    { i: '◫', t: 'Custom Report Builder', d: 'Combine any clinical and operational metrics into a bespoke export' },
-  ].map(r => `<div class="card" style="margin-bottom:0;cursor:pointer;transition:all var(--transition)" onmouseover="this.style.borderColor='var(--border-teal)';this.style.transform='translateY(-2px)'" onmouseout="this.style.borderColor='var(--border)';this.style.transform='none'">
-    <div class="card-body">
-      <div style="font-size:28px;color:var(--teal);margin-bottom:12px;opacity:.7">${r.i}</div>
-      <div style="font-family:var(--font-display);font-size:13.5px;font-weight:600;color:var(--text-primary);margin-bottom:6px">${r.t}</div>
-      <div style="font-size:11.5px;color:var(--text-secondary);margin-bottom:16px;line-height:1.55">${r.d}</div>
-      <button class="btn btn-sm">Generate →</button>
+export async function pgReports(setTopbar) {
+  setTopbar('Reports & Analytics', '');
+  const el = document.getElementById('content');
+  el.innerHTML = `<div style="text-align:center;padding:48px;color:var(--text-tertiary)">
+    <div style="font-size:24px;margin-bottom:12px;opacity:.4">◈</div>Loading report data…</div>`;
+
+  // Parallel fetch
+  const [agg, aeRes, coursesRes, assessRes] = await Promise.all([
+    api.aggregateOutcomes().catch(() => null),
+    api.listAdverseEvents().catch(() => null),
+    api.listCourses().catch(() => null),
+    api.listAssessments().catch(() => null),
+  ]);
+
+  const outcomes = agg || {};
+  const aes = aeRes?.items || [];
+  const courses = coursesRes?.items || [];
+  const assessments = assessRes?.items || [];
+
+  // Course stats
+  const totalCourses = courses.length;
+  const activeCourses = courses.filter(c => c.status === 'active').length;
+  const completedCourses = courses.filter(c => c.status === 'completed').length;
+  const completionRate = totalCourses > 0 ? Math.round((completedCourses / totalCourses) * 100) : 0;
+
+  // AE severity breakdown
+  const aeSev = { mild: 0, moderate: 0, severe: 0, serious: 0 };
+  aes.forEach(ae => { if (aeSev[ae.severity] !== undefined) aeSev[ae.severity]++; });
+  const aeTotal = aes.length;
+
+  // Responder rate from aggregate
+  const responderRate = outcomes.responder_rate != null
+    ? Math.round(outcomes.responder_rate * 100)
+    : (outcomes.total_responders != null && outcomes.total_outcomes != null && outcomes.total_outcomes > 0
+        ? Math.round((outcomes.total_responders / outcomes.total_outcomes) * 100)
+        : null);
+
+  // Assessment template breakdown
+  const tplCount = {};
+  assessments.forEach(a => { tplCount[a.template_id] = (tplCount[a.template_id] || 0) + 1; });
+  const tplRows = Object.entries(tplCount).sort((a, b) => b[1] - a[1]);
+
+  // Modality breakdown from courses
+  const modalCount = {};
+  courses.forEach(c => {
+    const m = c.modality || 'Unknown';
+    modalCount[m] = (modalCount[m] || 0) + 1;
+  });
+  const modalRows = Object.entries(modalCount).sort((a, b) => b[1] - a[1]);
+
+  function miniBar(val, max, color = 'var(--teal)') {
+    const pct = max > 0 ? Math.round((val / max) * 100) : 0;
+    return `<div style="height:6px;background:rgba(255,255,255,0.07);border-radius:3px;overflow:hidden;margin-top:4px">
+      <div style="height:100%;width:${pct}%;background:${color};border-radius:3px;transition:width .4s"></div></div>`;
+  }
+
+  el.innerHTML = `
+    <!-- KPI strip -->
+    <div class="g4" style="margin-bottom:24px">
+      ${[
+        { label: 'Total Courses', val: totalCourses, sub: `${activeCourses} active` },
+        { label: 'Completion Rate', val: completionRate + '%', sub: `${completedCourses} completed` },
+        { label: 'Responder Rate', val: responderRate != null ? responderRate + '%' : '—', sub: outcomes.total_outcomes ? `n=${outcomes.total_outcomes}` : 'No outcomes yet' },
+        { label: 'Total Adverse Events', val: aeTotal, sub: aeSev.serious > 0 ? `${aeSev.serious} serious` : 'None serious' },
+      ].map(m => `<div class="card" style="margin-bottom:0">
+        <div class="card-body" style="padding:16px">
+          <div style="font-size:9px;text-transform:uppercase;letter-spacing:.8px;color:var(--text-tertiary);margin-bottom:6px">${m.label}</div>
+          <div style="font-size:26px;font-family:var(--font-display);font-weight:700;color:var(--teal);margin-bottom:2px">${m.val}</div>
+          <div style="font-size:11px;color:var(--text-tertiary)">${m.sub}</div>
+        </div>
+      </div>`).join('')}
     </div>
-  </div>`).join('')}</div>`;
+
+    <div class="g2">
+      <!-- Modality breakdown -->
+      <div class="card" style="margin-bottom:0">
+        <div class="card-body">
+          <div style="font-family:var(--font-display);font-size:13px;font-weight:600;margin-bottom:16px;color:var(--text-primary)">Treatment Courses by Modality</div>
+          ${modalRows.length === 0
+            ? `<div style="color:var(--text-tertiary);font-size:13px">No courses recorded yet.</div>`
+            : modalRows.map(([mod, cnt]) => `
+              <div style="margin-bottom:10px">
+                <div style="display:flex;justify-content:space-between;font-size:12.5px">
+                  <span style="color:var(--text-primary)">${mod}</span>
+                  <span style="font-family:var(--font-mono);color:var(--teal)">${cnt}</span>
+                </div>
+                ${miniBar(cnt, totalCourses)}
+              </div>`).join('')}
+        </div>
+      </div>
+
+      <!-- Assessment usage -->
+      <div class="card" style="margin-bottom:0">
+        <div class="card-body">
+          <div style="font-family:var(--font-display);font-size:13px;font-weight:600;margin-bottom:16px;color:var(--text-primary)">Assessment Templates Used</div>
+          ${tplRows.length === 0
+            ? `<div style="color:var(--text-tertiary);font-size:13px">No assessments recorded yet.</div>`
+            : tplRows.map(([tpl, cnt]) => `
+              <div style="margin-bottom:10px">
+                <div style="display:flex;justify-content:space-between;font-size:12.5px">
+                  <span style="color:var(--text-primary)">${tpl}</span>
+                  <span style="font-family:var(--font-mono);color:var(--teal)">${cnt}</span>
+                </div>
+                ${miniBar(cnt, assessments.length)}
+              </div>`).join('')}
+        </div>
+      </div>
+    </div>
+
+    <!-- AE severity table -->
+    <div class="card" style="margin-top:20px">
+      <div class="card-body">
+        <div style="font-family:var(--font-display);font-size:13px;font-weight:600;margin-bottom:16px;color:var(--text-primary)">Adverse Event Severity Breakdown</div>
+        <table class="ds-table">
+          <thead><tr><th>Severity</th><th>Count</th><th>% of Total</th></tr></thead>
+          <tbody>
+            ${['mild','moderate','severe','serious'].map(sev => {
+              const cnt = aeSev[sev];
+              const pct = aeTotal > 0 ? ((cnt / aeTotal) * 100).toFixed(1) : '0.0';
+              const color = sev === 'mild' ? 'var(--teal)' : sev === 'moderate' ? '#f59e0b' : sev === 'severe' ? '#f97316' : 'var(--red)';
+              return `<tr>
+                <td><span style="color:${color};font-weight:600;text-transform:capitalize">${sev}</span></td>
+                <td class="mono">${cnt}</td>
+                <td class="mono">${pct}%</td>
+              </tr>`;
+            }).join('')}
+          </tbody>
+        </table>
+        ${aeTotal === 0 ? `<div style="color:var(--teal);font-size:12.5px;margin-top:12px">✓ No adverse events on record.</div>` : ''}
+      </div>
+    </div>
+
+    <!-- Outcomes aggregate detail -->
+    ${outcomes && Object.keys(outcomes).length > 0 ? `
+    <div class="card" style="margin-top:20px">
+      <div class="card-body">
+        <div style="font-family:var(--font-display);font-size:13px;font-weight:600;margin-bottom:16px;color:var(--text-primary)">Aggregate Outcomes Data</div>
+        <table class="ds-table">
+          <thead><tr><th>Metric</th><th>Value</th></tr></thead>
+          <tbody>
+            ${Object.entries(outcomes).map(([k, v]) => `<tr>
+              <td style="color:var(--text-secondary);font-size:12px">${k.replace(/_/g,' ')}</td>
+              <td class="mono">${typeof v === 'number' ? (Number.isInteger(v) ? v : v.toFixed(3)) : String(v)}</td>
+            </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>
+    </div>` : ''}
+  `;
 }
 
 // ── Settings ──────────────────────────────────────────────────────────────────

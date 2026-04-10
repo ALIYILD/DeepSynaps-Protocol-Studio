@@ -16,16 +16,24 @@ export async function pgEvidence(setTopbar) {
     return;
   }
 
+  // Build modality options from data
+  const modalitySet = new Set(items.map(e => e.modality).filter(Boolean));
+
   el.innerHTML = `
   <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap">
-    <input class="form-control" id="ev-search" placeholder="Search conditions, modalities…" style="flex:1;min-width:200px" oninput="window.filterEvidence()">
+    <input class="form-control" id="ev-search" placeholder="Search conditions, modalities, summaries…" style="flex:1;min-width:200px" oninput="window.filterEvidence()">
     <select class="form-control" id="ev-level" style="width:auto" onchange="window.filterEvidence()">
       <option value="">All Evidence Levels</option>
       <option value="A">EV-A (Strong RCT)</option>
       <option value="B">EV-B (Moderate)</option>
       <option value="C">EV-C (Emerging)</option>
     </select>
+    <select class="form-control" id="ev-modality" style="width:auto" onchange="window.filterEvidence()">
+      <option value="">All Modalities</option>
+      ${[...modalitySet].sort().map(m => `<option value="${m}">${m}</option>`).join('')}
+    </select>
   </div>
+  <div id="ev-count" style="font-size:11.5px;color:var(--text-tertiary);margin-bottom:10px">${items.length} evidence records</div>
   <div id="ev-body">
     ${items.length === 0
       ? emptyState('◈', 'No evidence records loaded. Start the backend to load clinical data.')
@@ -35,45 +43,82 @@ export async function pgEvidence(setTopbar) {
   window._evidenceData = items;
 
   window.filterEvidence = function() {
-    const q = document.getElementById('ev-search').value.toLowerCase();
-    const lvl = document.getElementById('ev-level').value;
+    const q   = document.getElementById('ev-search')?.value.toLowerCase() || '';
+    const lvl = document.getElementById('ev-level')?.value || '';
+    const mod = document.getElementById('ev-modality')?.value || '';
     const filtered = (window._evidenceData || []).filter(e => {
       const matchQ = !q || (e.title || '').toLowerCase().includes(q)
         || (e.condition || '').toLowerCase().includes(q)
-        || (e.modality || '').toLowerCase().includes(q);
+        || (e.modality || '').toLowerCase().includes(q)
+        || (e.summary || '').toLowerCase().includes(q)
+        || (e.symptom_cluster || '').toLowerCase().includes(q);
       const matchL = !lvl || (e.evidence_level || '').includes(lvl);
-      return matchQ && matchL;
+      const matchM = !mod || (e.modality || '') === mod;
+      return matchQ && matchL && matchM;
     });
-    const body = document.getElementById('ev-body');
+    const body  = document.getElementById('ev-body');
+    const count = document.getElementById('ev-count');
+    if (count) count.textContent = `${filtered.length} of ${(window._evidenceData||[]).length} evidence records`;
     if (body) body.innerHTML = filtered.length === 0 ? emptyState('◈', 'No records match filter.') : renderEvidenceTable(filtered);
   };
 }
 
 function renderEvidenceTable(items) {
-  return cardWrap(`Evidence Records (${items.length})`, `<div style="overflow-x:auto">
-    <table class="ds-table">
-      <thead><tr>
-        <th>Title / Condition</th><th>Modality</th><th>Evidence Level</th><th>Regulatory</th><th>Summary</th>
-      </tr></thead>
-      <tbody>
-        ${items.map(e => `<tr>
-          <td>
-            <div style="font-weight:500;font-size:12.5px">${e.title || e.condition || '—'}</div>
-            <div style="font-size:10.5px;color:var(--text-tertiary)">${e.symptom_cluster || ''}</div>
-          </td>
-          <td><span class="tag">${e.modality || '—'}</span></td>
-          <td>
-            <span class="pill ${e.evidence_level === 'A' ? 'pill-active' : e.evidence_level === 'B' ? 'pill-review' : 'pill-pending'}">
-              EV-${e.evidence_level || '?'}
-            </span>
-          </td>
-          <td style="font-size:11.5px;color:var(--text-secondary)">${e.regulatory_status || '—'}</td>
-          <td style="font-size:11.5px;color:var(--text-secondary);max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${e.summary || ''}">${(e.summary || '—').slice(0, 120)}${(e.summary || '').length > 120 ? '…' : ''}</td>
-        </tr>`).join('')}
-      </tbody>
-    </table>
-  </div>`);
+  return cardWrap(`Evidence Records (${items.length})`, `
+    <div style="display:flex;flex-direction:column;gap:0">
+      ${items.map((e, idx) => {
+        const evColor = e.evidence_level === 'A' ? 'var(--teal)' : e.evidence_level === 'B' ? '#60a5fa' : 'var(--amber)';
+        return `
+        <div id="ev-row-${idx}" style="border-bottom:1px solid var(--border);transition:background var(--transition)">
+          <div style="display:flex;align-items:center;gap:10px;padding:10px 4px;cursor:pointer;flex-wrap:wrap"
+               onclick="window._toggleEvidence(${idx})"
+               onmouseover="this.closest('#ev-row-${idx}').style.background='rgba(255,255,255,0.02)'"
+               onmouseout="this.closest('#ev-row-${idx}').style.background=''">
+            <span style="font-size:10px;font-weight:700;padding:2px 6px;border-radius:3px;background:${evColor}22;color:${evColor};flex-shrink:0">EV-${e.evidence_level || '?'}</span>
+            <div style="flex:1;min-width:0">
+              <div style="font-weight:600;font-size:12.5px;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${e.title || e.condition || '—'}</div>
+              <div style="font-size:11px;color:var(--text-tertiary)">${e.condition || ''} ${e.symptom_cluster ? '· ' + e.symptom_cluster : ''}</div>
+            </div>
+            <span class="tag" style="flex-shrink:0">${e.modality || '—'}</span>
+            <span style="font-size:11px;color:var(--text-tertiary);flex-shrink:0">${e.regulatory_status || ''}</span>
+            <span style="color:var(--text-tertiary);font-size:13px;flex-shrink:0" id="ev-chevron-${idx}">›</span>
+          </div>
+          <div id="ev-expand-${idx}" style="display:none;padding:12px 4px 16px;border-top:1px solid var(--border)">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px;font-size:12px">
+              ${[
+                ['Condition',     e.condition || '—'],
+                ['Symptom Cluster', e.symptom_cluster || '—'],
+                ['Modality',      e.modality || '—'],
+                ['Evidence Level', `EV-${e.evidence_level || '?'}`],
+                ['Regulatory',    e.regulatory_status || '—'],
+                ['Setting',       e.setting || '—'],
+              ].map(([k, v]) => `<div><span style="color:var(--text-tertiary)">${k}:</span> <span style="color:var(--text-primary)">${v}</span></div>`).join('')}
+            </div>
+            ${e.summary ? `<div style="font-size:12px;color:var(--text-secondary);line-height:1.65;margin-bottom:12px;padding:10px;background:rgba(0,0,0,0.2);border-radius:var(--radius-sm)">${e.summary}</div>` : ''}
+            ${e.reference || e.doi ? `<div style="font-size:11px;color:var(--text-tertiary);margin-bottom:10px">
+              ${e.reference ? `<div>Reference: ${e.reference}</div>` : ''}
+              ${e.doi ? `<div>DOI: <span class="mono">${e.doi}</span></div>` : ''}
+            </div>` : ''}
+            <div style="display:flex;gap:8px;flex-wrap:wrap">
+              <button class="btn btn-sm" onclick="window._nav('protocols-registry')">Find Protocols →</button>
+              ${e.modality ? `<button class="btn btn-sm" onclick="window._nav('devices')">Device Registry →</button>` : ''}
+            </div>
+          </div>
+        </div>`;
+      }).join('')}
+    </div>
+  `);
 }
+
+window._toggleEvidence = function(idx) {
+  const panel = document.getElementById(`ev-expand-${idx}`);
+  const chev  = document.getElementById(`ev-chevron-${idx}`);
+  if (!panel) return;
+  const open = panel.style.display !== 'none';
+  panel.style.display = open ? 'none' : '';
+  if (chev) chev.textContent = open ? '›' : '↓';
+  if (chev) chev.style.transform = open ? '' : 'rotate(0deg)';
+};
 
 // ── Device Registry ───────────────────────────────────────────────────────────
 export async function pgDevices(setTopbar) {

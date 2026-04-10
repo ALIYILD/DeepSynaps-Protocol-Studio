@@ -1,5 +1,6 @@
 import { api, downloadBlob } from './api.js';
 import { spinner, emptyState, evidenceBadge, labelBadge, safetyBadge, approvalBadge, govFlag, fr, cardWrap, tag } from './helpers.js';
+import { FALLBACK_ASSESSMENT_TEMPLATES } from './constants.js';
 
 // ── Shared color maps ─────────────────────────────────────────────────────────
 const STATUS_COLOR = {
@@ -455,7 +456,7 @@ function renderCourseTab(course, sessions, adverseEvents, protocolDetail, tab, o
             <div>
               <label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:4px">Assessment Tool</label>
               <select id="cdo-template" class="form-control" style="font-size:12px">
-                ${['PHQ-9','GAD-7','PCL-5','ISI','DASS-21','NRS-Pain','UPDRS-III','CGI-I','PSQI','MoCA'].map(t => `<option value="${t}">${t}</option>`).join('')}
+                ${FALLBACK_ASSESSMENT_TEMPLATES.map(t => `<option value="${t.id}">${t.label}</option>`).join('')}
               </select>
             </div>
             <div>
@@ -987,12 +988,7 @@ export async function pgSessionExecution(setTopbar, navigate) {
                 <label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:4px">Assessment Template</label>
                 <select id="pse-template" class="form-control" style="font-size:12px">
                   <option value="">Skip outcome</option>
-                  <option value="PHQ-9">PHQ-9</option>
-                  <option value="GAD-7">GAD-7</option>
-                  <option value="ISI">ISI</option>
-                  <option value="PCL-5">PCL-5</option>
-                  <option value="NRS-Pain">NRS-Pain</option>
-                  <option value="UPDRS-III">UPDRS-III</option>
+                  ${FALLBACK_ASSESSMENT_TEMPLATES.map(t => `<option value="${t.id}">${t.id} — ${t.label.split('—')[1]?.trim() || t.label}</option>`).join('')}
                 </select>
               </div>
               <div>
@@ -1112,109 +1108,220 @@ export async function pgReviewQueue(setTopbar, navigate) {
   const patientMap = {};
   patients.forEach(p => { patientMap[p.id] = p; });
 
-  function reviewItemCard(item) {
+  const offLabelPending = courses.filter(c => c.on_label === false && c.status === 'pending_approval').length;
+
+  // ── List item row (left panel) ──────────────────────────────────────────────
+  function rqListRow(item, isSelected) {
     const course  = courseMap[item.target_id] || {};
     const patient = patientMap[course.patient_id] || {};
-    const patName = patient.first_name ? `${patient.first_name} ${patient.last_name}` : null;
-    const priorityColor = item.priority === 'urgent' ? 'var(--red)' : item.priority === 'high' ? 'var(--amber)' : 'var(--text-tertiary)';
-
-    return `<div style="padding:16px 18px;border:1px solid var(--border);border-radius:8px;margin-bottom:8px">
-      <div style="display:flex;align-items:flex-start;gap:12px;flex-wrap:wrap">
-        <div style="flex:1;min-width:200px">
-          <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap">
-            <span style="font-size:11px;font-weight:600;padding:2px 8px;border-radius:4px;background:rgba(255,181,71,0.12);color:var(--amber)">${item.item_type?.replace(/_/g,' ') || 'Review'}</span>
-            ${item.priority ? `<span style="font-size:10.5px;font-weight:600;color:${priorityColor}">${item.priority.toUpperCase()} PRIORITY</span>` : ''}
-          </div>
-          ${patName ? `<div style="font-size:13px;font-weight:600;color:var(--text-primary);margin-bottom:3px">${patName}</div>` : ''}
-          ${course.condition_slug ? `<div style="font-size:12px;color:var(--text-secondary)">
-            ${course.condition_slug.replace(/-/g,' ')} · ${course.modality_slug || '—'}
-            ${course.planned_frequency_hz ? ` · ${course.planned_frequency_hz} Hz` : ''}
-            ${course.target_region ? ` · Target: ${course.target_region}` : ''}
-          </div>` : ''}
-          <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap">
+    const patName = patient.first_name ? `${patient.first_name} ${patient.last_name}` : '—';
+    const priColor = item.priority === 'urgent' ? 'var(--red)' : item.priority === 'high' ? 'var(--amber)' : '';
+    const sel = isSelected;
+    return `<div id="rq-row-${item.id}"
+        style="padding:12px 16px;border-bottom:1px solid var(--border);cursor:pointer;border-left:3px solid ${sel ? 'var(--teal)' : 'transparent'};background:${sel ? 'var(--teal-ghost)' : ''}"
+        onclick="window._rqSelect('${item.id}')"
+        onmouseover="if('${item.id}'!==window._rqSelectedId)this.style.background='var(--bg-surface)'"
+        onmouseout="if('${item.id}'!==window._rqSelectedId)this.style.background=''">
+      <div style="display:flex;align-items:flex-start;gap:8px">
+        <div style="flex:1;min-width:0">
+          <div style="font-size:12.5px;font-weight:600;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${patName}</div>
+          <div style="font-size:11px;color:var(--teal);margin-top:1px">${course.condition_slug?.replace(/-/g,' ') || '—'} · ${course.modality_slug || '—'}</div>
+          <div style="display:flex;gap:4px;margin-top:5px;flex-wrap:wrap">
             ${evidenceBadge(course.evidence_grade)}
             ${course.on_label === false ? labelBadge(false) : ''}
             ${safetyBadge(course.governance_warnings)}
           </div>
-          ${item.notes ? `<div style="margin-top:8px;font-size:11.5px;color:var(--text-secondary)">${item.notes}</div>` : ''}
         </div>
-        <div style="display:flex;flex-direction:column;gap:6px;align-items:flex-end;flex-shrink:0">
-          <button class="btn btn-primary btn-sm" onclick="window._approveItem('${item.target_id}','${item.id}')">✓ Approve &amp; Activate</button>
-          <button class="btn btn-sm" style="border-color:var(--amber);color:var(--amber)" onclick="window._requestChanges('${item.target_id}','${item.id}')">⚑ Request Changes</button>
-          <button class="btn btn-sm" style="border-color:var(--red);color:var(--red)" onclick="window._rejectItem('${item.target_id}','${item.id}')">✕ Reject</button>
-          <button class="btn btn-sm" onclick="window._openCourseFromReview('${item.target_id}')">View →</button>
+        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;flex-shrink:0">
+          <span style="font-size:9.5px;padding:2px 6px;border-radius:3px;background:rgba(255,181,71,0.1);color:var(--amber);font-weight:600">${(item.item_type||'review').replace(/_/g,' ')}</span>
+          ${priColor ? `<span style="font-size:9px;color:${priColor};font-weight:700;letter-spacing:.5px">${(item.priority||'').toUpperCase()}</span>` : ''}
         </div>
       </div>
     </div>`;
   }
 
-  el.innerHTML = `
-    <div class="page-section">
-      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:24px">
-        ${metricCard('Pending Reviews', pending.length, 'var(--amber)', 'Awaiting action')}
-        ${metricCard('Resolved',        resolved.length, 'var(--green)', 'This session')}
-        ${metricCard('Off-label Items',
-          courses.filter(c => c.on_label === false && c.status === 'pending_approval').length,
-          'var(--amber)', 'Require off-label review')}
-      </div>
-      <div class="card">
-        <div class="card-header" style="padding:14px 20px;border-bottom:1px solid var(--border)">
-          <span style="font-weight:600;font-size:14px">Pending Reviews</span>
-        </div>
-        <div style="padding:16px">
-          ${pending.length
-            ? pending.map(reviewItemCard).join('')
-            : emptyState('◱', 'Review queue is clear. Protocol approvals and course reviews will appear here.')}
-        </div>
-      </div>
-      ${resolved.length ? `
-        <div class="card" style="margin-top:16px">
-          <div class="card-header" style="padding:14px 20px;border-bottom:1px solid var(--border)">
-            <span style="font-weight:600;font-size:14px;color:var(--text-secondary)">Recently Resolved</span>
-          </div>
-          <div style="padding:16px;opacity:0.7">
-            ${resolved.slice(0, 5).map(item => `<div style="padding:10px 14px;border:1px solid var(--border);border-radius:6px;margin-bottom:6px;display:flex;align-items:center;gap:10px">
-              <span style="color:var(--green);font-size:14px">✓</span>
-              <span style="font-size:12px;color:var(--text-secondary)">${item.item_type?.replace(/_/g,' ')} — ${item.notes || 'Resolved'}</span>
-            </div>`).join('')}
-          </div>
-        </div>
-      ` : ''}
+  // ── Detail panel (right panel) ─────────────────────────────────────────────
+  function rqDetailPanel(item) {
+    if (!item) return `<div style="padding:60px 32px;text-align:center;color:var(--text-tertiary)">
+      <div style="font-size:28px;margin-bottom:12px;opacity:.3">◱</div>
+      <div style="font-size:13px">Select a review item from the list.</div>
     </div>`;
 
-  window._approveItem = async function(courseId, itemId) {
-    try {
-      await api.activateCourse(courseId);
-      // Mark queue item resolved
-      try { await api.submitReview({ target_id: courseId, item_id: itemId, action: 'approved', notes: 'Approved and activated.' }); } catch {}
-      await pgReviewQueue(setTopbar, navigate);
-    } catch (e) { alert(e.message || 'Activation failed.'); }
+    const course  = courseMap[item.target_id] || {};
+    const patient = patientMap[course.patient_id] || {};
+    const patName = patient.first_name ? `${patient.first_name} ${patient.last_name}` : '—';
+    const warnings = course.governance_warnings || [];
+
+    const params = [
+      ['Condition',   course.condition_slug?.replace(/-/g,' ') || '—'],
+      ['Modality',    course.modality_slug || '—'],
+      ['Target',      course.target_region || '—'],
+      ['Frequency',   course.planned_frequency_hz ? course.planned_frequency_hz + ' Hz' : '—'],
+      ['Intensity',   course.planned_intensity || '—'],
+      ['Sessions/Wk', course.planned_sessions_per_week ? course.planned_sessions_per_week + '×' : '—'],
+      ['Total Sess.', course.planned_sessions_total || '—'],
+      ['Clinician',   course.clinician_id ? `<span class="mono" style="font-size:10.5px">${course.clinician_id.slice(0,12)}…</span>` : '—'],
+    ];
+
+    return `
+    <div style="padding:18px 20px;border-bottom:1px solid var(--border);background:rgba(0,212,188,0.02)">
+      <div style="font-size:16px;font-weight:700;color:var(--text-primary);margin-bottom:3px">${patName}</div>
+      <div style="font-size:12px;color:var(--text-secondary);margin-bottom:10px">${(item.item_type||'Review').replace(/_/g,' ')} · Submitted ${item.created_at ? item.created_at.split('T')[0] : '—'}</div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap">
+        ${approvalBadge(course.status)}
+        ${evidenceBadge(course.evidence_grade)}
+        ${labelBadge(course.on_label !== false)}
+        ${safetyBadge(course.governance_warnings)}
+        ${item.priority === 'urgent' ? '<span style="font-size:10px;padding:2px 7px;border-radius:4px;background:rgba(255,107,107,0.12);color:var(--red);font-weight:700">URGENT</span>' : ''}
+      </div>
+    </div>
+
+    <div style="padding:16px 20px;border-bottom:1px solid var(--border)">
+      <div style="font-size:9.5px;text-transform:uppercase;letter-spacing:.9px;color:var(--text-tertiary);font-weight:600;margin-bottom:10px">Course Parameters</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:0">
+        ${params.map(([k,v]) => `<div style="display:flex;gap:6px;padding:5px 0;border-bottom:1px solid var(--border);font-size:12px">
+          <span style="color:var(--text-tertiary);width:80px;flex-shrink:0">${k}</span>
+          <span style="color:var(--text-primary)">${v}</span>
+        </div>`).join('')}
+      </div>
+    </div>
+
+    ${warnings.length ? `<div style="padding:12px 20px;border-bottom:1px solid var(--border);background:rgba(255,181,71,0.03)">
+      <div style="font-size:9.5px;text-transform:uppercase;letter-spacing:.9px;color:var(--text-tertiary);font-weight:600;margin-bottom:8px">Governance Warnings</div>
+      ${warnings.map(w => govFlag(w, 'warn')).join('')}
+    </div>` : ''}
+
+    ${item.notes ? `<div style="padding:12px 20px;border-bottom:1px solid var(--border)">
+      <div style="font-size:9.5px;text-transform:uppercase;letter-spacing:.9px;color:var(--text-tertiary);font-weight:600;margin-bottom:6px">Submission Notes</div>
+      <div style="font-size:12.5px;color:var(--text-secondary);line-height:1.65">${item.notes}</div>
+    </div>` : ''}
+
+    <div style="padding:18px 20px">
+      <div style="font-size:9.5px;text-transform:uppercase;letter-spacing:.9px;color:var(--text-tertiary);font-weight:600;margin-bottom:8px">Reviewer Comment / Rationale</div>
+      <textarea id="rq-comment" class="form-control" rows="3" style="margin-bottom:12px;font-size:12.5px;resize:vertical"
+        placeholder="Required for Request Changes or Reject. Optional for Approve / Flag."></textarea>
+      <div id="rq-action-error" style="display:none;color:var(--red);font-size:12px;margin-bottom:10px;padding:7px 10px;border-radius:6px;background:rgba(255,107,107,0.07)"></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px">
+        <button class="btn btn-primary" onclick="window._rqAction('${course.id}','${item.id}','approve')">✓ Approve &amp; Activate</button>
+        <button class="btn" style="border-color:var(--amber);color:var(--amber)" onclick="window._rqAction('${course.id}','${item.id}','changes_requested')">⚑ Request Changes</button>
+        <button class="btn" style="border-color:var(--red);color:var(--red)" onclick="window._rqAction('${course.id}','${item.id}','reject')">✕ Reject Course</button>
+        <button class="btn" style="border-color:var(--violet);color:var(--violet)" onclick="window._rqAction('${course.id}','${item.id}','flag')">⚐ Flag for Safety</button>
+      </div>
+      <button class="btn btn-sm" style="width:100%" onclick="window._openCourse('${course.id}')">Open Full Course Detail →</button>
+    </div>`;
+  }
+
+  // ── Render ─────────────────────────────────────────────────────────────────
+  const firstItem = pending[0] || null;
+  const initSelectedId = firstItem?.id || null;
+
+  el.innerHTML = `
+  <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:14px">
+    ${metricCard('Pending Reviews', pending.length,    pending.length > 0 ? 'var(--amber)' : 'var(--green)',  pending.length > 0 ? 'Awaiting action' : 'Queue clear')}
+    ${metricCard('Off-label Items', offLabelPending,   offLabelPending > 0 ? 'var(--amber)' : 'var(--text-secondary)', 'Require off-label review')}
+    ${metricCard('Recently Resolved', resolved.length, 'var(--green)', 'This session')}
+  </div>
+
+  <div class="card" style="overflow:hidden;margin-bottom:14px">
+    <div style="display:grid;grid-template-columns:300px 1fr;min-height:480px">
+      <!-- Left: item list -->
+      <div style="border-right:1px solid var(--border);overflow-y:auto;max-height:600px">
+        <div style="padding:10px 16px 8px;border-bottom:1px solid var(--border);background:rgba(255,255,255,0.02)">
+          <span style="font-size:9.5px;text-transform:uppercase;letter-spacing:.9px;font-weight:600;color:var(--text-tertiary)">
+            Pending (${pending.length})
+          </span>
+        </div>
+        ${pending.length
+          ? pending.map((item, i) => rqListRow(item, i === 0)).join('')
+          : `<div style="padding:36px 16px;text-align:center;color:var(--text-tertiary);font-size:12.5px">Queue is clear.</div>`
+        }
+      </div>
+      <!-- Right: detail panel -->
+      <div id="rq-detail" style="overflow-y:auto">
+        ${rqDetailPanel(firstItem)}
+      </div>
+    </div>
+  </div>
+
+  ${resolved.length ? `
+  <div class="card" style="overflow:hidden">
+    <div style="padding:11px 16px;border-bottom:1px solid var(--border);background:rgba(255,255,255,0.02)">
+      <span style="font-size:9.5px;text-transform:uppercase;letter-spacing:.9px;font-weight:600;color:var(--text-tertiary)">Recently Resolved (${resolved.length})</span>
+    </div>
+    <div style="overflow-x:auto">
+      <table class="ds-table">
+        <thead><tr><th>Type</th><th>Course</th><th>Action</th><th>Notes</th><th>Date</th></tr></thead>
+        <tbody>
+          ${resolved.slice(0, 8).map(item => {
+            const course = courseMap[item.target_id] || {};
+            const actColor = item.resolution === 'approved' ? 'var(--green)' : item.resolution === 'rejected' ? 'var(--red)' : 'var(--amber)';
+            return `<tr>
+              <td style="font-size:11.5px">${(item.item_type||'review').replace(/_/g,' ')}</td>
+              <td style="font-size:12px">${course.condition_slug?.replace(/-/g,' ') || '—'} · ${course.modality_slug || '—'}</td>
+              <td><span style="font-size:10.5px;font-weight:600;padding:2px 7px;border-radius:4px;background:${actColor}18;color:${actColor}">${item.resolution || item.status || '—'}</span></td>
+              <td style="font-size:11.5px;color:var(--text-secondary);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${item.notes || '—'}</td>
+              <td style="font-size:11.5px;color:var(--text-tertiary)">${item.updated_at ? item.updated_at.split('T')[0] : '—'}</td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table>
+    </div>
+  </div>` : ''}`;
+
+  // ── Store data for dynamic updates ─────────────────────────────────────────
+  window._rqItems      = pending;
+  window._rqCourseMap  = courseMap;
+  window._rqPatientMap = patientMap;
+  window._rqSelectedId = initSelectedId;
+
+  window._rqSelect = function(itemId) {
+    window._rqSelectedId = itemId;
+    // Update list row styles
+    pending.forEach(i => {
+      const row = document.getElementById('rq-row-' + i.id);
+      if (!row) return;
+      const sel = i.id === itemId;
+      row.style.background    = sel ? 'var(--teal-ghost)' : '';
+      row.style.borderLeft    = sel ? '3px solid var(--teal)' : '3px solid transparent';
+    });
+    // Update detail panel
+    const item = pending.find(i => i.id === itemId);
+    const detailEl = document.getElementById('rq-detail');
+    if (detailEl && item) detailEl.innerHTML = rqDetailPanel(item);
   };
 
-  window._requestChanges = async function(courseId, itemId) {
-    const reason = prompt('Describe what changes are needed:');
-    if (!reason) return;
-    try {
-      await api.submitReview({ target_id: courseId, item_id: itemId, action: 'changes_requested', notes: reason });
-      await api.updateCourse(courseId, { review_required: true });
-      await pgReviewQueue(setTopbar, navigate);
-    } catch (e) { alert(e.message || 'Failed to submit request.'); }
-  };
+  window._rqAction = async function(courseId, itemId, action) {
+    const comment  = document.getElementById('rq-comment')?.value?.trim() || '';
+    const errEl    = document.getElementById('rq-action-error');
+    if (errEl) errEl.style.display = 'none';
 
-  window._rejectItem = async function(courseId, itemId) {
-    const reason = prompt('Reason for rejection (required):');
-    if (!reason) return;
-    if (!confirm('Permanently reject this course? It will be marked as discontinued.')) return;
-    try {
-      await api.submitReview({ target_id: courseId, item_id: itemId, action: 'rejected', notes: reason });
-      await api.updateCourse(courseId, { status: 'discontinued', clinician_notes: `Rejected: ${reason}` });
-      await pgReviewQueue(setTopbar, navigate);
-    } catch (e) { alert(e.message || 'Rejection failed.'); }
-  };
+    if ((action === 'reject' || action === 'changes_requested') && !comment) {
+      if (errEl) { errEl.textContent = action === 'reject' ? 'Rejection reason required.' : 'Describe what changes are needed.'; errEl.style.display = ''; }
+      return;
+    }
+    if (action === 'reject' && !confirm('Reject this course? It will be marked as discontinued.')) return;
 
-  window._openCourseFromReview = function(courseId) {
-    window._selectedCourseId = courseId;
-    navigate('course-detail');
+    // Disable buttons while acting
+    document.querySelectorAll('#rq-detail button').forEach(b => { b.disabled = true; });
+
+    try {
+      if (action === 'approve') {
+        await api.activateCourse(courseId);
+        try { await api.submitReview({ target_id: courseId, item_id: itemId, action: 'approved', notes: comment || 'Approved and activated.' }); } catch {}
+      } else if (action === 'changes_requested') {
+        await api.submitReview({ target_id: courseId, item_id: itemId, action: 'changes_requested', notes: comment });
+        await api.updateCourse(courseId, { review_required: true });
+      } else if (action === 'reject') {
+        await api.submitReview({ target_id: courseId, item_id: itemId, action: 'rejected', notes: comment });
+        await api.updateCourse(courseId, { status: 'discontinued', clinician_notes: `Rejected: ${comment}` });
+      } else if (action === 'flag') {
+        await api.submitReview({ target_id: courseId, item_id: itemId, action: 'flagged_safety', notes: comment || 'Flagged for safety review.' });
+      }
+      await pgReviewQueue(setTopbar, navigate);
+    } catch (e) {
+      if (errEl) { errEl.textContent = e.message || 'Action failed.'; errEl.style.display = ''; }
+      document.querySelectorAll('#rq-detail button').forEach(b => { b.disabled = false; });
+    }
   };
 }
 
