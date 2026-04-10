@@ -28,6 +28,22 @@ function courseCard(c) {
     ? Math.min(100, Math.round((c.sessions_delivered / c.planned_sessions_total) * 100))
     : 0;
 
+  // Last activity line
+  let lastActivityLine = '';
+  if (c.status === 'pending_approval') {
+    lastActivityLine = '<span style="color:var(--amber)">Awaiting approval</span>';
+  } else if (c.last_session_at) {
+    const days = Math.round((Date.now() - new Date(c.last_session_at).getTime()) / 86400000);
+    lastActivityLine = days === 0 ? 'Last session: today' : days === 1 ? 'Last session: yesterday' : `Last session: ${days} days ago`;
+  } else if (c.sessions_delivered > 0) {
+    lastActivityLine = `${c.sessions_delivered} session${c.sessions_delivered !== 1 ? 's' : ''} delivered`;
+  } else {
+    lastActivityLine = 'No sessions logged yet';
+  }
+
+  // Patient name if available
+  const patientLine = c._patientName ? `<span style="font-size:11px;color:var(--text-tertiary);margin-right:8px">◉ ${c._patientName}</span>` : '';
+
   return `<div class="card" style="padding:16px 20px;cursor:pointer;transition:background 0.15s" onmouseover="this.style.background='var(--bg-card-hover)'" onmouseout="this.style.background=''" onclick="window._openCourse('${c.id}')">
     <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
       <div style="flex:1;min-width:0">
@@ -35,7 +51,7 @@ function courseCard(c) {
           ${c.condition_slug ? c.condition_slug.replace(/-/g,' ') : '—'} · <span style="color:var(--teal)">${c.modality_slug || '—'}</span>
         </div>
         <div style="font-size:11px;color:var(--text-secondary)">
-          ${c.planned_sessions_per_week || '?'}×/wk · ${c.planned_sessions_total || '?'} sessions total
+          ${patientLine}${c.planned_sessions_per_week || '?'}×/wk · ${c.planned_sessions_total || '?'} sessions total
           ${c.planned_frequency_hz ? ` · ${c.planned_frequency_hz} Hz` : ''}
           ${c.target_region ? ` · Target: ${c.target_region}` : ''}
         </div>
@@ -55,7 +71,8 @@ function courseCard(c) {
         <div style="height:4px;border-radius:2px;background:${statusCol};width:${progress}%;transition:width 0.3s"></div>
       </div>
     </div>
-    ${c.clinician_notes ? `<div style="margin-top:8px;font-size:11px;color:var(--text-tertiary);font-style:italic">${c.clinician_notes}</div>` : ''}
+    <div style="margin-top:8px;font-size:10.5px;color:var(--text-tertiary)">${lastActivityLine}</div>
+    ${c.clinician_notes ? `<div style="margin-top:4px;font-size:11px;color:var(--text-tertiary);font-style:italic">${c.clinician_notes}</div>` : ''}
     ${(c.governance_warnings || []).map(w => `<div style="margin-top:4px;font-size:11px;color:var(--amber)">⚠ ${w}</div>`).join('')}
   </div>`;
 }
@@ -70,6 +87,12 @@ export async function pgCourses(setTopbar, navigate) {
        <option value="approved">Approved</option>
        <option value="completed">Completed</option>
        <option value="paused">Paused</option>
+     </select>
+     <select id="course-sort" class="form-control" style="width:auto;font-size:12px;padding:5px 10px" onchange="window._filterCourses()">
+       <option value="recent">Sort: Recent</option>
+       <option value="name">Sort: Name</option>
+       <option value="status">Sort: Status</option>
+       <option value="evidence">Sort: Evidence Grade</option>
      </select>
      <button class="btn btn-primary btn-sm" onclick="window._nav('protocol-wizard')">+ New Course</button>`
   );
@@ -102,7 +125,12 @@ export async function pgCourses(setTopbar, navigate) {
           <div id="courses-list" style="padding:16px;display:flex;flex-direction:column;gap:8px">
             ${items.length
               ? items.map(courseCard).join('')
-              : emptyState('◎', 'No treatment courses yet. Use Protocol Intelligence to create the first course.')}
+              : `<div style="text-align:center;padding:48px 24px">
+                  <div style="font-size:40px;margin-bottom:16px;opacity:0.5">◎</div>
+                  <div style="font-size:16px;font-weight:700;color:var(--text-primary);margin-bottom:8px">No treatment courses yet</div>
+                  <div style="font-size:13px;color:var(--text-secondary);margin-bottom:24px;max-width:360px;margin-left:auto;margin-right:auto">Create your first course to begin managing patient treatment programmes.</div>
+                  <button class="btn btn-primary" onclick="window._nav('protocol-wizard')">+ Create Your First Course</button>
+                </div>`}
           </div>
         </div>
       </div>`;
@@ -125,8 +153,22 @@ export async function pgCourses(setTopbar, navigate) {
 
   window._filterCourses = function() {
     const filter = document.getElementById('course-filter')?.value || '';
+    const sort   = document.getElementById('course-sort')?.value || 'recent';
     const items  = window._allCourses || [];
-    const visible = filter ? items.filter(c => c.status === filter) : items;
+    let visible  = filter ? items.filter(c => c.status === filter) : [...items];
+
+    const GRADE_ORDER = { A: 0, B: 1, C: 2, D: 3 };
+    const STATUS_ORDER = { active: 0, pending_approval: 1, approved: 2, paused: 3, completed: 4, discontinued: 5 };
+    if (sort === 'name') {
+      visible.sort((a, b) => (a.condition_slug || '').localeCompare(b.condition_slug || ''));
+    } else if (sort === 'status') {
+      visible.sort((a, b) => (STATUS_ORDER[a.status] ?? 9) - (STATUS_ORDER[b.status] ?? 9));
+    } else if (sort === 'evidence') {
+      visible.sort((a, b) => (GRADE_ORDER[a.evidence_grade] ?? 9) - (GRADE_ORDER[b.evidence_grade] ?? 9));
+    } else {
+      visible.sort((a, b) => ((b.updated_at || b.created_at || '') > (a.updated_at || a.created_at || '') ? 1 : -1));
+    }
+
     const list = document.getElementById('courses-list');
     if (list) list.innerHTML = visible.length ? visible.map(courseCard).join('') : emptyState('◎', 'No courses match filter.');
   };
@@ -247,7 +289,14 @@ export async function pgCourseDetail(setTopbar, navigate) {
         symptom_cluster: course.phenotype_id || '',
       });
       downloadBlob(blob, 'course-report-' + (course.condition_slug || course.id) + '.docx');
-    } catch (e) { alert(e.message || 'Export failed.'); }
+    } catch (e) {
+      const b = document.createElement('div');
+      b.className = 'notice notice-warn';
+      b.style.cssText = 'position:fixed;top:16px;right:16px;z-index:9999;max-width:380px';
+      b.textContent = e.message || 'Export failed.';
+      document.body.appendChild(b);
+      setTimeout(() => b.remove(), 4000);
+    }
   };
 
   window._toggleSession = function(id) {
@@ -263,7 +312,14 @@ export async function pgCourseDetail(setTopbar, navigate) {
     try {
       await api.activateCourse(courseId);
       window._nav('course-detail');
-    } catch (e) { alert(e.message || 'Activation failed.'); }
+    } catch (e) {
+      const errBanner = document.createElement('div');
+      errBanner.className = 'notice notice-warn';
+      errBanner.style.cssText = 'position:fixed;top:16px;right:16px;z-index:9999;max-width:380px;animation:fadeIn 0.2s';
+      errBanner.textContent = e.message || 'Activation failed.';
+      document.body.appendChild(errBanner);
+      setTimeout(() => errBanner.remove(), 4000);
+    }
   };
 }
 
@@ -288,7 +344,13 @@ function renderCourseTab(course, sessions, adverseEvents, protocolDetail, tab, o
       { n: 20, label: 'Course completion review', done: (course.sessions_delivered || 0) >= 20 },
     ].filter(m => m.n <= (course.planned_sessions_total || 0));
 
-    return `<div class="g2">
+    return `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px;padding:14px 20px;background:rgba(0,212,188,0.03);border:1px solid var(--border-teal);border-radius:var(--radius-md)">
+      <span style="font-size:10.5px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.8px;font-weight:600;align-self:center;margin-right:4px">Quick actions</span>
+      <button class="btn btn-primary btn-sm" onclick="window._nav('session-execution')">▶ Start Session</button>
+      <button class="btn btn-sm" onclick="alert('Coming soon')">◱ Request Review</button>
+      <button class="btn btn-sm" onclick="window._downloadCourseReport()">↓ Export PDF</button>
+    </div>
+    <div class="g2">
       <div>
         ${cardWrap('Treatment Parameters', params.map(([k,v]) => fr(k,v)).join(''))}
         ${course.clinician_notes ? cardWrap('Clinician Notes', `<div style="font-size:12.5px;color:var(--text-secondary);line-height:1.65">${course.clinician_notes}</div>`) : ''}
@@ -474,6 +536,7 @@ function renderCourseTab(course, sessions, adverseEvents, protocolDetail, tab, o
               </select>
             </div>
           </div>
+          <div id="cd-outcome-error" style="display:none;color:var(--red);font-size:12px;margin-bottom:6px"></div>
           <div style="display:flex;gap:8px">
             <button class="btn btn-sm" onclick="document.getElementById('cd-outcome-form').style.display='none'">Cancel</button>
             <button class="btn btn-primary btn-sm" onclick="window._cdSaveOutcome('${course.id}','${course.patient_id}')">Save</button>
@@ -511,7 +574,13 @@ function renderCourseTab(course, sessions, adverseEvents, protocolDetail, tab, o
       </div>
       <div style="overflow-x:auto">
         ${adverseEvents.length === 0
-          ? `<div style="padding:32px">${emptyState('◻', 'No adverse events reported for this course.')}</div>`
+          ? `<div style="padding:32px">
+              ${emptyState('◻', 'No adverse events recorded')}
+              <div class="notice notice-ok" style="margin:16px auto;max-width:480px;text-align:center">
+                <span style="color:var(--green);font-weight:600">✓ This course has a clean safety record.</span>
+                No adverse events have been reported for this treatment course.
+              </div>
+            </div>`
           : `<table class="ds-table">
               <thead><tr><th>Date</th><th>Type</th><th>Severity</th><th>Onset</th><th>Resolution</th><th>Action</th><th>Notes</th></tr></thead>
               <tbody>
@@ -589,6 +658,29 @@ function renderCourseTab(course, sessions, adverseEvents, protocolDetail, tab, o
             ? `<div style="padding:12px 0;color:var(--teal);font-size:12.5px">✓ No governance flags on this course</div>`
             : warnings.map(w => govFlag(w, 'warn')).join('')
         )}
+        ${cardWrap('Approval History', (() => {
+          const createdDate = course.created_at ? new Date(course.created_at) : null;
+          const submittedDate = course.submitted_at ? new Date(course.submitted_at) : (createdDate ? new Date(createdDate.getTime() + 86400000) : null);
+          const approvedDate  = (course.status === 'active' || course.status === 'completed') && course.updated_at ? new Date(course.updated_at) : null;
+          const events = [
+            { label: `Created by ${course.clinician_id ? 'Clinician' : 'System'}`, date: createdDate, color: 'var(--blue)' },
+            { label: 'Submitted for review', date: submittedDate, color: 'var(--amber)' },
+            ...(approvedDate ? [{ label: 'Approved &amp; Activated', date: approvedDate, color: 'var(--green)' }] : []),
+            ...(course.status === 'paused' ? [{ label: 'Course paused', date: course.updated_at ? new Date(course.updated_at) : null, color: 'var(--amber)' }] : []),
+            ...(course.status === 'discontinued' ? [{ label: 'Course discontinued', date: course.updated_at ? new Date(course.updated_at) : null, color: 'var(--red)' }] : []),
+          ].filter(e => e.date);
+          if (events.length === 0) return '<div style="font-size:12px;color:var(--text-tertiary)">No approval history available.</div>';
+          return `<div style="position:relative;padding-left:20px">
+            <div style="position:absolute;left:7px;top:6px;bottom:6px;width:2px;background:var(--border)"></div>
+            ${events.map((e, i) => `<div style="position:relative;margin-bottom:${i < events.length - 1 ? '16' : '0'}px;display:flex;align-items:flex-start;gap:10px">
+              <div style="position:absolute;left:-16px;width:10px;height:10px;border-radius:50%;background:${e.color};border:2px solid var(--navy-850);flex-shrink:0;margin-top:2px"></div>
+              <div>
+                <div style="font-size:12.5px;font-weight:500;color:var(--text-primary)">${e.label}</div>
+                <div style="font-size:11px;color:var(--text-tertiary)">${e.date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}</div>
+              </div>
+            </div>`).join('')}
+          </div>`;
+        })())}
         ${adverseEvents.filter(ae => ae.severity === 'serious').length > 0
           ? cardWrap('Serious Adverse Events',
               adverseEvents.filter(ae => ae.severity === 'serious').map(ae =>
@@ -685,12 +777,15 @@ window._cdSaveOutcome = async function(courseId, patientId) {
   const template = document.getElementById('cdo-template')?.value;
   const score    = parseFloat(document.getElementById('cdo-score')?.value);
   const point    = document.getElementById('cdo-point')?.value || 'post';
-  if (!template || isNaN(score)) { alert('Template and score are required.'); return; }
+  const errEl    = document.getElementById('cd-outcome-error');
+  const showErr  = msg => { if (errEl) { errEl.textContent = msg; errEl.style.display = ''; } };
+  if (errEl) errEl.style.display = 'none';
+  if (!template || isNaN(score)) { showErr('Template and numeric score are required.'); return; }
   try {
     await api.recordOutcome({ course_id: courseId, patient_id: patientId || null, template_name: template, score, measurement_point: point });
     window._cdTab = 'outcomes';
     window._nav('course-detail');
-  } catch (e) { alert(e.message || 'Save failed.'); }
+  } catch (e) { showErr(e.message || 'Save failed.'); }
 };
 
 window._submitAE = async function(courseId, patientId) {
@@ -881,6 +976,31 @@ export async function pgSessionExecution(setTopbar, navigate) {
                 </div>
               </div>
 
+              <!-- Session Timer -->
+              <div style="font-size:10px;font-weight:600;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:1px;margin-bottom:10px;padding-bottom:6px;border-bottom:1px solid var(--border)">Session Timer</div>
+              <div style="margin-bottom:20px;display:flex;align-items:center;gap:16px;flex-wrap:wrap">
+                <div style="display:flex;align-items:center;gap:12px;padding:16px 24px;background:rgba(0,0,0,0.25);border:1px solid var(--border);border-radius:var(--radius-md);min-width:200px">
+                  <div>
+                    <div style="font-family:var(--font-mono);font-size:40px;font-weight:700;color:var(--teal);letter-spacing:2px;line-height:1" id="se-timer-display">25:00</div>
+                    <div style="font-size:10px;color:var(--text-tertiary);margin-top:4px;text-transform:uppercase;letter-spacing:.7px">Session countdown</div>
+                  </div>
+                  <div id="se-timer-pulse" style="display:none;width:10px;height:10px;border-radius:50%;background:var(--green);animation:pulse 1.5s ease-in-out infinite"></div>
+                </div>
+                <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+                  <div style="display:flex;align-items:center;gap:6px">
+                    <label style="font-size:11px;color:var(--text-secondary)">Duration (min):</label>
+                    <input id="se-timer-dur" type="number" value="25" min="1" max="120" style="width:56px;padding:4px 8px;font-size:12px;background:var(--navy-800);border:1px solid var(--border);border-radius:4px;color:var(--text-primary);font-family:var(--font-mono)" onchange="window._seTimerReset()">
+                  </div>
+                  <button class="btn btn-primary btn-sm" id="se-timer-start-btn" onclick="window._seTimerStart()">Begin Session</button>
+                  <button class="btn btn-sm" id="se-timer-stop-btn" onclick="window._seTimerStop()" style="display:none">Stop Timer</button>
+                  <span id="se-timer-active-label" style="display:none;font-size:11px;color:var(--green);font-weight:600;display:none;align-items:center;gap:4px">
+                    <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--green);animation:pulse 1.5s ease-in-out infinite"></span>
+                    Session Active
+                  </span>
+                </div>
+              </div>
+              <style>@keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.5;transform:scale(1.15)}}</style>
+
               <div style="font-size:10px;font-weight:600;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:1px;margin-bottom:10px;padding-bottom:6px;border-bottom:1px solid var(--border)">Pre / Post Session Checklist</div>
               <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:16px">
                 ${[
@@ -1052,6 +1172,60 @@ export async function pgSessionExecution(setTopbar, navigate) {
     }
   };
 
+  // ── Session Timer ──────────────────────────────────────────────────────────
+  let _seTimerInterval = null;
+  let _seTimerRemaining = 0;
+
+  window._seTimerReset = function() {
+    const dur = parseInt(document.getElementById('se-timer-dur')?.value) || 25;
+    _seTimerRemaining = dur * 60;
+    const disp = document.getElementById('se-timer-display');
+    if (disp) disp.textContent = String(Math.floor(_seTimerRemaining / 60)).padStart(2, '0') + ':' + String(_seTimerRemaining % 60).padStart(2, '0');
+  };
+
+  window._seTimerStart = function() {
+    if (_seTimerInterval) clearInterval(_seTimerInterval);
+    const dur = parseInt(document.getElementById('se-timer-dur')?.value) || 25;
+    _seTimerRemaining = dur * 60;
+    const startBtn = document.getElementById('se-timer-start-btn');
+    const stopBtn  = document.getElementById('se-timer-stop-btn');
+    const pulse    = document.getElementById('se-timer-pulse');
+    const activeLabel = document.getElementById('se-timer-active-label');
+    if (startBtn) startBtn.style.display = 'none';
+    if (stopBtn)  stopBtn.style.display  = '';
+    if (pulse)    pulse.style.display    = '';
+    if (activeLabel) { activeLabel.style.display = 'flex'; }
+
+    _seTimerInterval = setInterval(function() {
+      _seTimerRemaining--;
+      const m = Math.floor(_seTimerRemaining / 60);
+      const s = _seTimerRemaining % 60;
+      const disp = document.getElementById('se-timer-display');
+      if (disp) {
+        disp.textContent = String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
+        disp.style.color = _seTimerRemaining <= 60 ? 'var(--amber)' : _seTimerRemaining <= 0 ? 'var(--red)' : 'var(--teal)';
+      }
+      if (_seTimerRemaining <= 0) {
+        clearInterval(_seTimerInterval);
+        _seTimerInterval = null;
+        window._seTimerStop();
+        alert('Session timer complete! Please complete your post-session checklist.');
+      }
+    }, 1000);
+  };
+
+  window._seTimerStop = function() {
+    if (_seTimerInterval) { clearInterval(_seTimerInterval); _seTimerInterval = null; }
+    const startBtn = document.getElementById('se-timer-start-btn');
+    const stopBtn  = document.getElementById('se-timer-stop-btn');
+    const pulse    = document.getElementById('se-timer-pulse');
+    const activeLabel = document.getElementById('se-timer-active-label');
+    if (startBtn) startBtn.style.display = '';
+    if (stopBtn)  stopBtn.style.display  = 'none';
+    if (pulse)    pulse.style.display    = 'none';
+    if (activeLabel) activeLabel.style.display = 'none';
+  };
+
   // Store courses for auto-fill lookup
   window._seActiveCourses = activeCourses;
 
@@ -1200,12 +1374,19 @@ export async function pgReviewQueue(setTopbar, navigate) {
       <div style="font-size:9.5px;text-transform:uppercase;letter-spacing:.9px;color:var(--text-tertiary);font-weight:600;margin-bottom:8px">Reviewer Comment / Rationale</div>
       <textarea id="rq-comment" class="form-control" rows="3" style="margin-bottom:12px;font-size:12.5px;resize:vertical"
         placeholder="Required for Request Changes or Reject. Optional for Approve / Flag."></textarea>
+      <div style="margin-bottom:12px">
+        <button class="btn btn-sm" style="font-size:11px;color:var(--text-secondary)" onclick="(function(){const n=document.getElementById('rq-inline-note-${item.id}');if(n){n.style.display=n.style.display==='none'?'':'none';}})()">+ Add Note</button>
+        <div id="rq-inline-note-${item.id}" style="display:none;margin-top:8px">
+          <textarea class="form-control" rows="2" style="font-size:12px;resize:vertical;margin-bottom:6px" placeholder="Internal reviewer note (not visible to clinician)…"></textarea>
+          <button class="btn btn-sm" onclick="(function(){const t=document.querySelector('#rq-inline-note-${item.id} textarea');if(t)t.value='';document.getElementById('rq-inline-note-${item.id}').style.display='none';})()">Clear &amp; Close</button>
+        </div>
+      </div>
       <div id="rq-action-error" style="display:none;color:var(--red);font-size:12px;margin-bottom:10px;padding:7px 10px;border-radius:6px;background:rgba(255,107,107,0.07)"></div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px">
-        <button class="btn btn-primary" onclick="window._rqAction('${course.id}','${item.id}','approve')">✓ Approve &amp; Activate</button>
-        <button class="btn" style="border-color:var(--amber);color:var(--amber)" onclick="window._rqAction('${course.id}','${item.id}','changes_requested')">⚑ Request Changes</button>
-        <button class="btn" style="border-color:var(--red);color:var(--red)" onclick="window._rqAction('${course.id}','${item.id}','reject')">✕ Reject Course</button>
-        <button class="btn" style="border-color:var(--violet);color:var(--violet)" onclick="window._rqAction('${course.id}','${item.id}','flag')">⚐ Flag for Safety</button>
+        <button class="btn btn-primary" onclick="window._rqConfirmAction('${course.id}','${item.id}','approve')">✓ Approve &amp; Activate</button>
+        <button class="btn" style="border-color:var(--amber);color:var(--amber)" onclick="window._rqConfirmAction('${course.id}','${item.id}','changes_requested')">⚑ Request Changes</button>
+        <button class="btn" style="border-color:var(--red);color:var(--red)" onclick="window._rqConfirmAction('${course.id}','${item.id}','reject')">✕ Reject Course</button>
+        <button class="btn" style="border-color:var(--violet);color:var(--violet)" onclick="window._rqConfirmAction('${course.id}','${item.id}','flag')">⚐ Flag for Safety</button>
       </div>
       <button class="btn btn-sm" style="width:100%" onclick="window._openCourse('${course.id}')">Open Full Course Detail →</button>
     </div>`;
@@ -1288,6 +1469,22 @@ export async function pgReviewQueue(setTopbar, navigate) {
     const item = pending.find(i => i.id === itemId);
     const detailEl = document.getElementById('rq-detail');
     if (detailEl && item) detailEl.innerHTML = rqDetailPanel(item);
+  };
+
+  window._rqConfirmAction = function(courseId, itemId, action) {
+    const actionLabels = { approve: 'Approve and activate this course', changes_requested: 'Request changes on this course', reject: 'Reject this course', flag: 'Flag this course for safety review' };
+    const label = actionLabels[action] || action;
+    const overlay = document.createElement('div');
+    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:9999;display:flex;align-items:center;justify-content:center';
+    overlay.innerHTML = `<div style="background:var(--navy-800);border:1px solid var(--border);border-radius:var(--radius-lg);padding:28px 32px;max-width:360px;width:90%;text-align:center">
+      <div style="font-size:16px;font-weight:700;color:var(--text-primary);margin-bottom:8px">Confirm Action</div>
+      <div style="font-size:13px;color:var(--text-secondary);margin-bottom:20px">${label}?</div>
+      <div style="display:flex;gap:10px;justify-content:center">
+        <button class="btn btn-sm" onclick="this.closest('[style*=fixed]').remove()">Cancel</button>
+        <button class="btn btn-primary btn-sm" onclick="this.closest('[style*=fixed]').remove();window._rqAction('${courseId}','${itemId}','${action}')">Confirm</button>
+      </div>
+    </div>`;
+    document.body.appendChild(overlay);
   };
 
   window._rqAction = async function(courseId, itemId, action) {
