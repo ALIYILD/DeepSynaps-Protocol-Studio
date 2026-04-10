@@ -9,6 +9,7 @@ clinical-grade unless explicitly sourced from a certified medical device.
 from __future__ import annotations
 
 import json
+import logging
 import uuid
 from datetime import datetime, timedelta
 from typing import Optional
@@ -30,6 +31,7 @@ from app.persistence.models import (
 from app.services.wearable_flags import compute_readiness_score, run_flag_checks
 
 router = APIRouter(prefix="/api/v1/wearables", tags=["Wearable Monitoring"])
+_logger = logging.getLogger(__name__)
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
@@ -255,6 +257,13 @@ def ingest_observations(
         created += 1
 
     db.commit()
+
+    _logger.info(
+        "wearable_observations_ingested patient=%s actor=%s role=%s count=%d sources=%s",
+        patient_id, actor.actor_id, actor.role, created,
+        sorted({obs.source for obs in body.observations}),
+    )
+
     return {'created': created}
 
 

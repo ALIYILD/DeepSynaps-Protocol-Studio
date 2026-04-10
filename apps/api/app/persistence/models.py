@@ -431,6 +431,9 @@ class DeviceConnection(Base):
     connected_at: Mapped[Optional[datetime]] = mapped_column(DateTime(), nullable=True)
     last_sync_at: Mapped[Optional[datetime]] = mapped_column(DateTime(), nullable=True)
     external_device_id: Mapped[Optional[str]] = mapped_column(String(256), nullable=True)
+    # Encrypted via app.crypto.encrypt_token() before write; decrypt with decrypt_token() on read.
+    # WEARABLE_TOKEN_ENC_KEY env var must be set before real OAuth flows are enabled.
+    # V1: these fields are empty (OAuth added in V2). Empty = no tokens stored yet.
     access_token_enc: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
     refresh_token_enc: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
     scope: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)

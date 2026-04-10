@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import uuid
+from collections import Counter
 from datetime import datetime, timedelta
 from typing import Optional
 
@@ -62,23 +63,34 @@ def run_flag_checks(
     prior7  = [s for s in summaries_14d if s.date < cutoff_7d.date().isoformat()]
     recent7 = [s for s in summaries_14d if s.date >= cutoff_7d.date().isoformat()]
 
-    # Recent flags to avoid duplicate spam
-    recent_flag_types: set[str] = {
-        f.flag_type
-        for f in db.query(WearableAlertFlag)
+    # Single query covering 7 days — used for both 48h dedup and recurrence escalation.
+    flags_7d = (
+        db.query(WearableAlertFlag)
         .filter(
             WearableAlertFlag.patient_id == patient_id,
-            WearableAlertFlag.triggered_at >= now - timedelta(hours=48),
+            WearableAlertFlag.triggered_at >= now - timedelta(days=7),
             WearableAlertFlag.dismissed == False,
         )
         .all()
+    )
+    dedup_48h: set[str] = {
+        f.flag_type for f in flags_7d
+        if f.triggered_at >= now - timedelta(hours=48)
     }
+    fire_count_7d: Counter[str] = Counter(f.flag_type for f in flags_7d)
 
     new_flags: list[WearableAlertFlag] = []
 
     def _emit(flag_type: str, severity: str, detail: str, snapshot: dict) -> None:
-        if flag_type in recent_flag_types:
+        # Suppress within 48h to avoid alert spam on every sync cycle
+        if flag_type in dedup_48h:
             return
+        # Escalate and annotate recurring flags so clinicians see persistence at a glance
+        prior = fire_count_7d.get(flag_type, 0)
+        if prior >= 2 and severity == 'warning':
+            severity = 'urgent'
+        if prior > 0:
+            detail = f"[{prior + 1}\u00d7 in 7 days] {detail}"
         flag = WearableAlertFlag(
             id=str(uuid.uuid4()),
             patient_id=patient_id,

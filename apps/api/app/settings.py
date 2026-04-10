@@ -74,6 +74,12 @@ class AppSettings(BaseModel):
     # OpenAI (optional — doctors can bring their own key)
     openai_api_key: str = Field(default="")
 
+    # Wearable token encryption (Fernet key — generate with:
+    #   python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+    # Required before enabling real OAuth device connections. If absent, tokens
+    # are stored as plaintext and a warning is logged on every write.)
+    wearable_token_enc_key: str = Field(default="")
+
     # App URL (used for Stripe redirect URLs)
     app_url: str = Field(default="http://localhost:5173")
 
@@ -162,6 +168,8 @@ def load_settings() -> AppSettings:
                 "anthropic_api_key": os.getenv("ANTHROPIC_API_KEY", ""),
                 # OpenAI
                 "openai_api_key": os.getenv("OPENAI_API_KEY", ""),
+                # Wearable token encryption
+                "wearable_token_enc_key": os.getenv("WEARABLE_TOKEN_ENC_KEY", ""),
                 # App URL
                 "app_url": os.getenv("APP_URL", "http://localhost:5173"),
             }

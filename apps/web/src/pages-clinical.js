@@ -2505,14 +2505,16 @@ function renderMonitoringTab(pt, wData, navigate) {
 
   // ── Mini sparkline (inline SVG) ──────────────────────────────────────────
   function miniSpark(vals, color) {
-    if (!vals || vals.length < 2) return `<svg width="80" height="20" viewBox="0 0 80 20"><line x1="0" y1="10" x2="80" y2="10" stroke="${color}" stroke-width="1" stroke-dasharray="2,2" opacity=".3"/></svg>`;
+    // viewBox + fluid width so sparklines scale on narrow/mobile viewports without overflow
+    const svgAttrs = `viewBox="0 0 80 20" style="width:100%;max-width:80px;height:20px;display:block"`;
+    if (!vals || vals.length < 2) return `<svg ${svgAttrs}><line x1="0" y1="10" x2="80" y2="10" stroke="${color}" stroke-width="1" stroke-dasharray="2,2" opacity=".3"/></svg>`;
     const max = Math.max(...vals), min = Math.min(...vals), range = max - min || 1;
     const pts = vals.map((v, i) => {
       const x = 3 + (i / (vals.length - 1)) * 74;
       const y = 3 + 14 - ((v - min) / range) * 14;
       return `${x},${y}`;
     }).join(' ');
-    return `<svg width="80" height="20" viewBox="0 0 80 20"><polyline points="${pts}" fill="none" stroke="${color}" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+    return `<svg ${svgAttrs}><polyline points="${pts}" fill="none" stroke="${color}" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
   }
 
   function trendVals(field) { return summaries.map(s => s[field]).filter(v => v != null); }
@@ -6658,5 +6660,636 @@ export async function pgPatientProfile(setTopbar) {
     p.flags = (p.flags || []).filter(f => f !== flag);
     savePatientProfile(p);
     _ppRerender();
+  };
+}
+
+// ── Advanced Search ──────────────────────────────────────────────────────────
+
+// ── Saved searches store ──────────────────────────────────────────────────────
+const SAVED_SEARCHES_KEY = 'ds_saved_searches';
+
+function getSavedSearches() {
+  try { return JSON.parse(localStorage.getItem(SAVED_SEARCHES_KEY) || '[]'); } catch { return []; }
+}
+
+function saveSearch(query, filters, resultCount) {
+  const list = getSavedSearches();
+  const entry = {
+    id: (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : Math.random().toString(36).slice(2),
+    query,
+    filters: filters || {},
+    resultCount,
+    savedAt: new Date().toISOString(),
+    label: query + (filters?.types?.length ? ' [' + filters.types.join(',') + ']' : ''),
+  };
+  list.unshift(entry);
+  try { localStorage.setItem(SAVED_SEARCHES_KEY, JSON.stringify(list.slice(0, 20))); } catch { /* quota */ }
+  return entry;
+}
+
+function deleteSavedSearch(id) {
+  const list = getSavedSearches().filter(s => s.id !== id);
+  try { localStorage.setItem(SAVED_SEARCHES_KEY, JSON.stringify(list)); } catch { /* quota */ }
+}
+
+// ── Search index builder ──────────────────────────────────────────────────────
+function buildSearchIndex() {
+  const records = [];
+
+  // ── Patients ───────────────────────────────────────────────────────────────
+  try {
+    const raw = JSON.parse(localStorage.getItem('ds_patients') || '[]');
+    raw.forEach(p => {
+      if (!p) return;
+      const name = p.name || [p.first_name, p.last_name].filter(Boolean).join(' ') || ('Patient #' + p.id);
+      records.push({
+        id: String(p.id || Math.random()),
+        type: 'patient',
+        title: name,
+        subtitle: p.condition || p.primary_condition || p.diagnosis || '',
+        tags: [p.condition || p.primary_condition, p.status, p.gender].filter(Boolean),
+        preview: [p.email, p.phone, p.notes].filter(Boolean).join(' · ').slice(0, 200),
+        navTarget: 'patient-profile',
+        navParam: { _profilePatientId: p.id },
+        date: p.created_at || p.dob || '',
+      });
+    });
+  } catch (_e) { /* resilient */ }
+
+  // ── SOAP Notes ─────────────────────────────────────────────────────────────
+  try {
+    const notesObj = JSON.parse(localStorage.getItem('ds_soap_notes') || '{}');
+    Object.entries(notesObj).forEach(([key, note]) => {
+      if (!note) return;
+      const title = note.patientName ? ('SOAP: ' + note.patientName) : ('SOAP Note #' + key);
+      records.push({
+        id: 'soap_' + key,
+        type: 'note',
+        title,
+        subtitle: note.condition || note.session || '',
+        tags: ['soap', note.condition, note.clinician].filter(Boolean),
+        preview: [note.subjective, note.objective, note.assessment, note.plan].filter(Boolean).join(' ').slice(0, 200),
+        navTarget: 'clinical-notes',
+        navParam: {},
+        date: note.updatedAt || note.createdAt || '',
+      });
+    });
+  } catch (_e) { /* resilient */ }
+
+  // ── Protocols ──────────────────────────────────────────────────────────────
+  try {
+    const protos = JSON.parse(localStorage.getItem('ds_protocols') || '[]');
+    protos.forEach(p => {
+      if (!p) return;
+      records.push({
+        id: String(p.id || Math.random()),
+        type: 'protocol',
+        title: p.name || p.title || ('Protocol #' + p.id),
+        subtitle: [p.condition, p.modality].filter(Boolean).join(' · '),
+        tags: [p.condition, p.modality, p.status, p.type].filter(Boolean),
+        preview: p.description || p.notes || '',
+        navTarget: 'protocol-wizard',
+        navParam: { _selectedProtocolId: p.id },
+        date: p.created_at || p.updatedAt || '',
+      });
+    });
+  } catch (_e) { /* resilient */ }
+
+  // ── Completed sessions ─────────────────────────────────────────────────────
+  try {
+    const sessions = JSON.parse(localStorage.getItem('ds_completed_sessions') || '[]');
+    sessions.forEach(s => {
+      if (!s) return;
+      records.push({
+        id: 'sess_' + (s.id || Math.random()),
+        type: 'session',
+        title: s.patientName ? ('Session: ' + s.patientName) : ('Session #' + (s.sessionNumber || s.id)),
+        subtitle: [s.condition, s.modality, s.status].filter(Boolean).join(' · '),
+        tags: [s.condition, s.modality, s.status].filter(Boolean),
+        preview: s.notes || s.clinician || '',
+        navTarget: 'session-execution',
+        navParam: {},
+        date: s.completedAt || s.date || '',
+      });
+    });
+  } catch (_e) { /* resilient */ }
+
+  // ── Appointments ───────────────────────────────────────────────────────────
+  try {
+    const appts = JSON.parse(localStorage.getItem('ds_appointments') || '[]');
+    appts.forEach(a => {
+      if (!a) return;
+      records.push({
+        id: 'appt_' + (a.id || Math.random()),
+        type: 'session',
+        title: a.patientName ? ('Appt: ' + a.patientName) : ('Appointment ' + (a.date || '')),
+        subtitle: [a.type, a.clinician].filter(Boolean).join(' · '),
+        tags: [a.type, a.status].filter(Boolean),
+        preview: a.notes || '',
+        navTarget: 'calendar',
+        navParam: {},
+        date: a.date || a.time || '',
+      });
+    });
+  } catch (_e) { /* resilient */ }
+
+  // ── Invoices ───────────────────────────────────────────────────────────────
+  try {
+    const invoices = JSON.parse(localStorage.getItem('ds_invoices') || '[]');
+    invoices.forEach(inv => {
+      if (!inv) return;
+      records.push({
+        id: 'inv_' + (inv.id || Math.random()),
+        type: 'invoice',
+        title: inv.patientName ? ('Invoice: ' + inv.patientName) : ('Invoice #' + (inv.id || inv.number)),
+        subtitle: [inv.status, inv.amount ? ('$' + inv.amount) : null].filter(Boolean).join(' · '),
+        tags: [inv.status, inv.type].filter(Boolean),
+        preview: inv.description || inv.notes || '',
+        navTarget: 'billing',
+        navParam: {},
+        date: inv.date || inv.createdAt || '',
+      });
+    });
+  } catch (_e) { /* resilient */ }
+
+  // ── QA Reviews ─────────────────────────────────────────────────────────────
+  try {
+    const reviews = JSON.parse(localStorage.getItem('ds_qa_reviews') || '[]');
+    reviews.forEach(r => {
+      if (!r) return;
+      records.push({
+        id: 'qa_' + (r.id || Math.random()),
+        type: 'qa-review',
+        title: r.title || ('QA Review: ' + (r.patientName || r.clinician || r.id)),
+        subtitle: [r.status, r.reviewer].filter(Boolean).join(' · '),
+        tags: [r.status, r.type, r.flagged ? 'flagged' : null].filter(Boolean),
+        preview: r.notes || r.findings || '',
+        navTarget: 'quality-assurance',
+        navParam: {},
+        date: r.date || r.createdAt || '',
+      });
+    });
+  } catch (_e) { /* resilient */ }
+
+  // ── Referrals ──────────────────────────────────────────────────────────────
+  try {
+    const referrals = JSON.parse(localStorage.getItem('ds_referrals') || '[]');
+    referrals.forEach(ref => {
+      if (!ref) return;
+      records.push({
+        id: 'ref_' + (ref.id || Math.random()),
+        type: 'referral',
+        title: ref.patientName ? ('Referral: ' + ref.patientName) : ('Referral #' + ref.id),
+        subtitle: [ref.speciality || ref.specialty, ref.status].filter(Boolean).join(' · '),
+        tags: [ref.status, ref.priority, ref.speciality || ref.specialty].filter(Boolean),
+        preview: ref.reason || ref.notes || '',
+        navTarget: 'referrals',
+        navParam: {},
+        date: ref.date || ref.createdAt || '',
+      });
+    });
+  } catch (_e) { /* resilient */ }
+
+  // ── Intake submissions ─────────────────────────────────────────────────────
+  try {
+    const intakes = JSON.parse(localStorage.getItem('ds_intake_submissions') || '[]');
+    intakes.forEach(sub => {
+      if (!sub) return;
+      records.push({
+        id: 'intake_' + (sub.id || Math.random()),
+        type: 'intake',
+        title: sub.patientName || sub.name || ('Intake #' + sub.id),
+        subtitle: sub.status || 'submitted',
+        tags: ['intake', sub.status].filter(Boolean),
+        preview: sub.chiefComplaint || sub.notes || '',
+        navTarget: 'intake',
+        navParam: {},
+        date: sub.submittedAt || sub.createdAt || '',
+      });
+    });
+  } catch (_e) { /* resilient */ }
+
+  return records;
+}
+
+// ── Search algorithm ──────────────────────────────────────────────────────────
+function searchIndex(query, index, filters) {
+  if (!query || query.length < 2) return [];
+  const q = query.toLowerCase();
+  return index
+    .filter(r => !filters?.types?.length || filters.types.includes(r.type))
+    .filter(r => {
+      if (!filters?.dateFrom && !filters?.dateTo) return true;
+      if (!r.date) return true;
+      const d = r.date.slice(0, 10);
+      if (filters.dateFrom && d < filters.dateFrom) return false;
+      if (filters.dateTo && d > filters.dateTo) return false;
+      return true;
+    })
+    .filter(r => {
+      if (!filters?.tags) return true;
+      const tagQ = filters.tags.toLowerCase();
+      return r.tags?.some(t => t?.toLowerCase().includes(tagQ));
+    })
+    .map(r => {
+      let score = 0;
+      if (r.title.toLowerCase() === q) score += 100;
+      else if (r.title.toLowerCase().includes(q)) score += 70;
+      if (r.subtitle?.toLowerCase().includes(q)) score += 50;
+      if (r.tags?.some(t => t?.toLowerCase().includes(q))) score += 40;
+      if (r.preview?.toLowerCase().includes(q)) score += 20;
+      return { record: r, score };
+    })
+    .filter(x => x.score > 0)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 50);
+}
+
+// ── Highlight helper ──────────────────────────────────────────────────────────
+function _hlMark(text, query) {
+  if (!text || !query) return text || '';
+  const escaped = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return text.replace(new RegExp('(' + escaped + ')', 'gi'), '<mark>$1</mark>');
+}
+
+// ── Type badge colors ─────────────────────────────────────────────────────────
+const _TYPE_COLORS = {
+  patient:           { bg: '#0d9488', text: '#fff' },
+  note:              { bg: '#2563eb', text: '#fff' },
+  protocol:          { bg: '#7c3aed', text: '#fff' },
+  session:           { bg: '#d97706', text: '#fff' },
+  invoice:           { bg: '#e11d48', text: '#fff' },
+  'qa-review':       { bg: '#0891b2', text: '#fff' },
+  referral:          { bg: '#059669', text: '#fff' },
+  'homework-plan':   { bg: '#9333ea', text: '#fff' },
+  intake:            { bg: '#ca8a04', text: '#fff' },
+};
+
+function _asTypeBadge(type) {
+  const c = _TYPE_COLORS[type] || { bg: 'var(--border)', text: 'var(--text)' };
+  const label = type.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+  return '<span style="background:' + c.bg + ';color:' + c.text + ';font-size:.7rem;font-weight:700;padding:2px 8px;border-radius:12px;text-transform:uppercase;flex-shrink:0">' + label + '</span>';
+}
+
+// ── pgAdvancedSearch ──────────────────────────────────────────────────────────
+export async function pgAdvancedSearch(setTopbar) {
+  setTopbar('Advanced Search', '<button class="btn-secondary" style="font-size:.8rem" onclick="window._nav(\'advanced-search\')">&#8635; Reset</button>');
+  const el = document.getElementById('content');
+
+  // ── state ──────────────────────────────────────────────────────────────────
+  let _searchIdx  = [];
+  let _curResults = [];
+  let _filters    = { types: [], dateFrom: '', dateTo: '', tags: '' };
+  let _query      = '';
+  let _grouped    = false;
+  let _sortBy     = 'relevance';
+  let _debTimer   = null;
+
+  _searchIdx = buildSearchIndex();
+
+  // ── HTML skeleton ──────────────────────────────────────────────────────────
+  const typeChips = ['all','patient','note','protocol','session','invoice','qa-review','referral','intake'];
+  el.innerHTML = `
+  <div style="display:flex;gap:20px;max-width:1200px;margin:0 auto;padding:16px">
+    <div style="flex:1;min-width:0">
+      <div style="position:relative;margin-bottom:16px">
+        <input id="tt-search-input" class="search-input-lg" type="text"
+          placeholder="Search patients, notes, protocols, sessions\u2026"
+          oninput="window._ttSearch(this.value)"
+          onkeydown="if(event.key==='Escape')window._ttClear()"
+          autocomplete="off" />
+        <button id="tt-clear-btn" onclick="window._ttClear()" title="Clear"
+          style="position:absolute;right:12px;top:50%;transform:translateY(-50%);background:none;border:none;color:var(--text-muted);font-size:1.2rem;cursor:pointer;display:none">&#xD7;</button>
+      </div>
+      <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:12px">
+        <span style="font-size:.8rem;color:var(--text-muted);flex-shrink:0">Type:</span>
+        ${typeChips.map(t =>
+          '<button class="search-type-chip' + (t==='all'?' active':'') + '" id="tt-chip-' + t + '" onclick="window._ttToggleType(\'' + t + '\')">' +
+          t.replace(/-/g,' ').replace(/\b\w/g,l=>l.toUpperCase()) + '</button>'
+        ).join('')}
+        <div style="margin-left:auto;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <label style="font-size:.8rem;color:var(--text-muted)">From
+            <input type="date" id="tt-date-from" oninput="window._ttApplyFilters()"
+              style="margin-left:4px;padding:4px 6px;border:1px solid var(--border);border-radius:6px;background:var(--card-bg);color:var(--text);font-size:.8rem"/></label>
+          <label style="font-size:.8rem;color:var(--text-muted)">To
+            <input type="date" id="tt-date-to" oninput="window._ttApplyFilters()"
+              style="margin-left:4px;padding:4px 6px;border:1px solid var(--border);border-radius:6px;background:var(--card-bg);color:var(--text);font-size:.8rem"/></label>
+          <input id="tt-tag-filter" type="text" placeholder="Tag filter\u2026" oninput="window._ttApplyFilters()"
+            style="padding:4px 10px;border:1px solid var(--border);border-radius:6px;background:var(--card-bg);color:var(--text);font-size:.8rem;width:110px"/>
+        </div>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:14px;flex-wrap:wrap">
+        <select id="tt-saved-dd" onchange="window._ttLoadSearch(this.value)"
+          style="padding:5px 10px;border:1px solid var(--border);border-radius:6px;background:var(--card-bg);color:var(--text);font-size:.8rem;max-width:220px">
+          <option value="">Saved searches\u2026</option>
+        </select>
+        <button id="tt-save-btn" onclick="window._ttSaveSearch()" class="btn-secondary"
+          style="font-size:.8rem;display:none">&#128190; Save This Search</button>
+      </div>
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;flex-wrap:wrap">
+        <span id="tt-results-count" style="font-size:.85rem;color:var(--text-muted)">Index: ${_searchIdx.length} records ready</span>
+        <div style="margin-left:auto;display:flex;gap:8px;align-items:center">
+          <label style="font-size:.8rem;color:var(--text-muted)">Sort:
+            <select id="tt-sort-sel" onchange="window._ttSort(this.value)"
+              style="margin-left:4px;padding:3px 8px;border:1px solid var(--border);border-radius:6px;background:var(--card-bg);color:var(--text);font-size:.8rem">
+              <option value="relevance">Relevance</option>
+              <option value="date">Date</option>
+              <option value="type">Type</option>
+            </select>
+          </label>
+          <label style="font-size:.8rem;color:var(--text-muted);cursor:pointer">
+            <input type="checkbox" id="tt-group-chk" onchange="window._ttGroupResults(this.checked)" style="margin-right:4px"/>Group by type
+          </label>
+          <button onclick="window._ttExportCSV()" class="btn-secondary" style="font-size:.8rem">&#11015; Export CSV</button>
+        </div>
+      </div>
+      <div id="tt-results-list">
+        <div style="text-align:center;padding:48px 24px;color:var(--text-muted)">
+          <div style="font-size:2rem;margin-bottom:12px">&#128269;</div>
+          <div>Type at least 2 characters to search across all records.</div>
+          <div style="font-size:.8rem;margin-top:8px">${_searchIdx.length} records indexed from local data</div>
+        </div>
+      </div>
+    </div>
+    <div style="width:190px;flex-shrink:0">
+      <div style="font-size:.75rem;font-weight:700;text-transform:uppercase;color:var(--text-muted);margin-bottom:10px;letter-spacing:.06em">Filter Presets</div>
+      <button class="search-preset-btn" onclick="window._ttPreset('recent-patients')">&#128100; Recent Patients</button>
+      <button class="search-preset-btn" onclick="window._ttPreset('open-protocols')">&#129504; Open Protocols</button>
+      <button class="search-preset-btn" onclick="window._ttPreset('flagged-notes')">&#128221; Flagged Notes</button>
+      <button class="search-preset-btn" onclick="window._ttPreset('overdue-invoices')">&#128176; Overdue Invoices</button>
+      <button class="search-preset-btn" onclick="window._ttPreset('pending-reviews')">&#9989; Pending Reviews</button>
+      <div style="margin-top:16px;font-size:.75rem;font-weight:700;text-transform:uppercase;color:var(--text-muted);margin-bottom:10px;letter-spacing:.06em">Saved Searches</div>
+      <div id="tt-saved-list"></div>
+    </div>
+  </div>`;
+
+  setTimeout(() => document.getElementById('tt-search-input')?.focus(), 50);
+  _refreshSavedUI();
+
+  // ── inner helpers ──────────────────────────────────────────────────────────
+  function _esc(str) {
+    if (!str) return '';
+    return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  function _renderCard(x, q) {
+    const r = x.record;
+    const snip = (r.preview || '').slice(0, 120);
+    const tagPills = (r.tags || []).slice(0, 4).filter(Boolean);
+    const navParamJSON = JSON.stringify(r.navParam || {}).replace(/'/g, '\\\'');
+    return '<div class="search-result-card">' +
+      '<div style="display:flex;flex-direction:column;gap:6px;align-items:flex-start;flex-shrink:0">' +
+        _asTypeBadge(r.type) +
+        '<span title="Relevance" style="font-size:.65rem;color:var(--text-muted);opacity:.7">' + x.score + 'pt</span>' +
+      '</div>' +
+      '<div class="search-result-body">' +
+        '<div class="search-result-title">' + _hlMark(_esc(r.title), q) + '</div>' +
+        (r.subtitle ? '<div style="font-size:.8rem;color:var(--text-muted);margin-top:2px">' + _esc(r.subtitle) + '</div>' : '') +
+        (tagPills.length ? '<div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:6px">' +
+          tagPills.map(t => '<span style="background:var(--hover-bg);color:var(--text-muted);font-size:.7rem;padding:1px 7px;border-radius:10px;border:1px solid var(--border)">' + _esc(t) + '</span>').join('') +
+        '</div>' : '') +
+        (snip ? '<div class="search-result-preview">' + _hlMark(_esc(snip), q) + '</div>' : '') +
+      '</div>' +
+      '<div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px;flex-shrink:0">' +
+        (r.date ? '<span style="font-size:.75rem;color:var(--text-muted)">' + r.date.slice(0,10) + '</span>' : '') +
+        '<button class="btn-secondary" style="font-size:.75rem;white-space:nowrap" onclick="window._ttGo(\'' + r.navTarget + '\',' + navParamJSON + ')">Go &#8594;</button>' +
+      '</div>' +
+    '</div>';
+  }
+
+  function _showSkeleton() {
+    const c = document.getElementById('tt-results-list');
+    if (c) c.innerHTML = '<div class="search-skeleton"></div>'.repeat(3);
+  }
+
+  function _refreshSavedUI() {
+    const saved = getSavedSearches();
+    const listEl = document.getElementById('tt-saved-list');
+    const ddEl   = document.getElementById('tt-saved-dd');
+    if (listEl) {
+      if (!saved.length) {
+        listEl.innerHTML = '<div style="font-size:.75rem;color:var(--text-muted)">No saved searches yet.</div>';
+      } else {
+        listEl.innerHTML = saved.map(s => {
+          const lbl = _esc(s.label.slice(0, 22)) + (s.label.length > 22 ? '\u2026' : '');
+          return '<div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0;border-bottom:1px solid var(--border)">' +
+            '<button class="search-preset-btn" style="flex:1;margin:0;border:none;padding:4px 0" onclick="window._ttLoadSearch(\'' + s.id + '\')" title="' + _esc(s.query) + '">' + lbl + '</button>' +
+            '<button onclick="window._ttDeleteSearch(\'' + s.id + '\')" title="Delete" style="background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:.9rem;padding:0 2px">&#x2715;</button>' +
+          '</div>';
+        }).join('');
+      }
+    }
+    if (ddEl) {
+      ddEl.innerHTML = '<option value="">Saved searches\u2026</option>' +
+        saved.map(s => '<option value="' + s.id + '">' + _esc(s.label.slice(0, 36)) + '</option>').join('');
+    }
+  }
+
+  function _renderResults(results, q) {
+    const c = document.getElementById('tt-results-list');
+    if (!c) return;
+    if (!q || q.length < 2) {
+      c.innerHTML = '<div style="text-align:center;padding:48px 24px;color:var(--text-muted)"><div style="font-size:2rem;margin-bottom:12px">&#128269;</div>Type at least 2 characters to search.</div>';
+      return;
+    }
+    if (!results.length) {
+      c.innerHTML = '<div style="text-align:center;padding:48px 24px;color:var(--text-muted)"><div style="font-size:1.5rem;margin-bottom:8px">&#128270;</div>No results for "<strong>' + _esc(q) + '</strong>". Try broader terms.</div>';
+      return;
+    }
+    let sorted = results.slice();
+    if (_sortBy === 'date') {
+      sorted.sort((a, b) => (b.record.date || '').localeCompare(a.record.date || ''));
+    } else if (_sortBy === 'type') {
+      sorted.sort((a, b) => a.record.type.localeCompare(b.record.type) || b.score - a.score);
+    }
+    if (_grouped) {
+      const groups = {};
+      sorted.forEach(x => { const t = x.record.type; if (!groups[t]) groups[t] = []; groups[t].push(x); });
+      c.innerHTML = Object.entries(groups).map(([type, items]) =>
+        '<div class="search-group-header">' + type.replace(/-/g,' ').replace(/\b\w/g,l=>l.toUpperCase()) + ' (' + items.length + ')</div>' +
+        items.map(x => _renderCard(x, q)).join('')
+      ).join('');
+    } else {
+      c.innerHTML = sorted.map(x => _renderCard(x, q)).join('');
+    }
+  }
+
+  function _runSearch() {
+    const countEl  = document.getElementById('tt-results-count');
+    const saveBtn  = document.getElementById('tt-save-btn');
+    if (!_query || _query.length < 2) {
+      const c = document.getElementById('tt-results-list');
+      if (c) c.innerHTML = '<div style="text-align:center;padding:48px 24px;color:var(--text-muted)"><div style="font-size:2rem;margin-bottom:12px">&#128269;</div>Type at least 2 characters to search.</div>';
+      if (countEl) countEl.textContent = 'Index: ' + _searchIdx.length + ' records ready';
+      if (saveBtn) saveBtn.style.display = 'none';
+      return;
+    }
+    _showSkeleton();
+    setTimeout(() => {
+      _searchIdx  = buildSearchIndex();
+      _curResults = searchIndex(_query, _searchIdx, _filters);
+      _renderResults(_curResults, _query);
+      if (countEl) countEl.textContent = _curResults.length + ' result' + (_curResults.length !== 1 ? 's' : '') + ' for "' + _query + '"';
+      if (saveBtn) saveBtn.style.display = _query ? 'inline-flex' : 'none';
+    }, 120);
+  }
+
+  // ── Global handlers ─────────────────────────────────────────────────────────
+  window._ttSearch = function(q) {
+    _query = q;
+    const cb = document.getElementById('tt-clear-btn');
+    if (cb) cb.style.display = q ? 'block' : 'none';
+    clearTimeout(_debTimer);
+    _debTimer = setTimeout(_runSearch, 300);
+  };
+
+  window._ttClear = function() {
+    _query = '';
+    const inp = document.getElementById('tt-search-input');
+    if (inp) { inp.value = ''; inp.focus(); }
+    const cb = document.getElementById('tt-clear-btn');
+    if (cb) cb.style.display = 'none';
+    _curResults = [];
+    _runSearch();
+  };
+
+  window._ttToggleType = function(type) {
+    if (type === 'all') {
+      _filters.types = [];
+      document.querySelectorAll('.search-type-chip').forEach(el => el.classList.remove('active'));
+      document.getElementById('tt-chip-all')?.classList.add('active');
+    } else {
+      document.getElementById('tt-chip-all')?.classList.remove('active');
+      const chip = document.getElementById('tt-chip-' + type);
+      if (_filters.types.includes(type)) {
+        _filters.types = _filters.types.filter(t => t !== type);
+        chip?.classList.remove('active');
+      } else {
+        _filters.types.push(type);
+        chip?.classList.add('active');
+      }
+      if (!_filters.types.length) {
+        document.getElementById('tt-chip-all')?.classList.add('active');
+      }
+    }
+    _runSearch();
+  };
+
+  window._ttApplyFilters = function() {
+    _filters.dateFrom = document.getElementById('tt-date-from')?.value || '';
+    _filters.dateTo   = document.getElementById('tt-date-to')?.value   || '';
+    _filters.tags     = document.getElementById('tt-tag-filter')?.value || '';
+    _runSearch();
+  };
+
+  window._ttSaveSearch = function() {
+    if (!_query || _query.length < 2) return;
+    saveSearch(_query, Object.assign({}, _filters), _curResults.length);
+    _refreshSavedUI();
+    window._showNotifToast?.({ title: 'Search Saved', body: '"' + _query + '" saved for quick access', severity: 'success' });
+  };
+
+  window._ttLoadSearch = function(id) {
+    if (!id) return;
+    const s = getSavedSearches().find(x => x.id === id);
+    if (!s) return;
+    _query   = s.query;
+    _filters = Object.assign({ types: [], dateFrom: '', dateTo: '', tags: '' }, s.filters || {});
+    const inp = document.getElementById('tt-search-input');
+    if (inp) inp.value = _query;
+    const cb = document.getElementById('tt-clear-btn');
+    if (cb) cb.style.display = _query ? 'block' : 'none';
+    // Restore type chips
+    document.querySelectorAll('.search-type-chip').forEach(el => el.classList.remove('active'));
+    if (_filters.types?.length) {
+      _filters.types.forEach(t => document.getElementById('tt-chip-' + t)?.classList.add('active'));
+    } else {
+      document.getElementById('tt-chip-all')?.classList.add('active');
+    }
+    const dfEl = document.getElementById('tt-date-from'); if (dfEl) dfEl.value = _filters.dateFrom || '';
+    const dtEl = document.getElementById('tt-date-to');   if (dtEl) dtEl.value = _filters.dateTo   || '';
+    const tgEl = document.getElementById('tt-tag-filter'); if (tgEl) tgEl.value = _filters.tags    || '';
+    const dd   = document.getElementById('tt-saved-dd');  if (dd)  dd.value = '';
+    _runSearch();
+  };
+
+  window._ttDeleteSearch = function(id) {
+    deleteSavedSearch(id);
+    _refreshSavedUI();
+  };
+
+  window._ttGroupResults = function(grouped) {
+    _grouped = grouped;
+    _renderResults(_curResults, _query);
+  };
+
+  window._ttSort = function(by) {
+    _sortBy = by;
+    _renderResults(_curResults, _query);
+  };
+
+  window._ttExportCSV = function() {
+    if (!_curResults.length) return;
+    const header = ['Type','Title','Subtitle','Date','Tags','Preview'];
+    const rows = _curResults.map(x => {
+      const r = x.record;
+      return [r.type, r.title, r.subtitle||'', r.date||'', (r.tags||[]).join(';'), (r.preview||'').slice(0,200)]
+        .map(v => '"' + String(v).replace(/"/g,'""') + '"');
+    });
+    const csv = [header.join(','), ...rows.map(r => r.join(','))].join('\r\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href = url;
+    a.download = 'search-results-' + new Date().toISOString().slice(0,10) + '.csv';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  };
+
+  window._ttPreset = function(name) {
+    const inp  = document.getElementById('tt-search-input');
+    const tgEl = document.getElementById('tt-tag-filter');
+    const _setChips = types => {
+      document.querySelectorAll('.search-type-chip').forEach(el => el.classList.remove('active'));
+      if (types.length) {
+        types.forEach(t => document.getElementById('tt-chip-' + t)?.classList.add('active'));
+      } else {
+        document.getElementById('tt-chip-all')?.classList.add('active');
+      }
+    };
+    switch (name) {
+      case 'recent-patients':
+        _query = '';
+        _filters = { types: ['patient'], dateFrom: '', dateTo: '', tags: '' };
+        if (inp) inp.value = '';
+        _setChips(['patient']);
+        // Show all patients without keyword
+        _searchIdx  = buildSearchIndex();
+        _curResults = _searchIdx.filter(r => r.type === 'patient').slice(0, 50).map(r => ({ record: r, score: 50 }));
+        _renderResults(_curResults, ' ');
+        { const c = document.getElementById('tt-results-count'); if (c) c.textContent = _curResults.length + ' patient records'; }
+        break;
+      case 'open-protocols':
+        _query = 'protocol'; _filters = { types: ['protocol'], dateFrom: '', dateTo: '', tags: '' };
+        if (inp) inp.value = 'protocol'; _setChips(['protocol']); _runSearch(); break;
+      case 'flagged-notes':
+        _query = 'flagged'; _filters = { types: ['note'], dateFrom: '', dateTo: '', tags: 'flag' };
+        if (inp) inp.value = 'flagged'; if (tgEl) tgEl.value = 'flag'; _setChips(['note']); _runSearch(); break;
+      case 'overdue-invoices':
+        _query = 'overdue'; _filters = { types: ['invoice'], dateFrom: '', dateTo: '', tags: '' };
+        if (inp) inp.value = 'overdue'; _setChips(['invoice']); _runSearch(); break;
+      case 'pending-reviews':
+        _query = 'pending'; _filters = { types: ['qa-review'], dateFrom: '', dateTo: '', tags: 'pending' };
+        if (inp) inp.value = 'pending'; if (tgEl) tgEl.value = 'pending'; _setChips(['qa-review']); _runSearch(); break;
+    }
+  };
+
+  window._ttGo = function(navTarget, navParam) {
+    if (navParam && typeof navParam === 'object') {
+      Object.entries(navParam).forEach(([k, v]) => { window[k] = v; });
+    }
+    window._nav(navTarget);
   };
 }
