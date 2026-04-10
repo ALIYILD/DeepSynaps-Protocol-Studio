@@ -18,6 +18,22 @@ import {
   pgCourseDetail, pgAdverseEvents,
 } from './pages-courses.js';
 
+// ── Mobile sidebar toggle ─────────────────────────────────────────────────────
+window._toggleSidebar = function() {
+  const sb = document.getElementById('sidebar');
+  const ov = document.getElementById('sidebar-overlay');
+  if (!sb) return;
+  const isOpen = sb.classList.contains('mobile-open');
+  if (isOpen) { sb.classList.remove('mobile-open'); if (ov) ov.classList.remove('visible'); }
+  else { sb.classList.add('mobile-open'); if (ov) ov.classList.add('visible'); }
+};
+window._closeSidebar = function() {
+  const sb = document.getElementById('sidebar');
+  const ov = document.getElementById('sidebar-overlay');
+  if (sb) sb.classList.remove('mobile-open');
+  if (ov) ov.classList.remove('visible');
+};
+
 // ── State ─────────────────────────────────────────────────────────────────────
 let currentPage = 'dashboard';
 
@@ -94,11 +110,9 @@ async function renderPage() {
   // currentUser is a live binding from the static import at top
 
   switch (currentPage) {
-    case 'dashboard': {
-      const html = await pgDash(setTopbar, navigate);
-      if (html) el.innerHTML = html;
+    case 'dashboard':
+      await pgDash(setTopbar, navigate);
       break;
-    }
     case 'patients':
       await pgPatients(setTopbar, navigate);
       break;

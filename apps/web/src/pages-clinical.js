@@ -26,163 +26,398 @@ export function setAiLoading(v) { aiLoading = v; }
 export function setSavedProto(v) { savedProto = v; }
 export function setSelectedPatient(v) { selectedPatient = v; }
 
+// ── Dashboard local helpers ──────────────────────────────────────────────────
+
+function _dStatCard(label, value, sub, color, navId, alert = false) {
+  const leftBorder = alert ? `border-left:3px solid ${color};padding-left:13px;` : '';
+  return `<div class="metric-card" style="cursor:pointer;${leftBorder}"
+      onclick="window._nav('${navId}')"
+      onmouseover="this.style.borderColor='${alert ? color : 'var(--border-teal)'}'"
+      onmouseout="this.style.borderColor='${alert ? color : 'var(--border)'}'">
+    <div style="font-size:10px;font-weight:600;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.9px;margin-bottom:8px">${label}</div>
+    <div style="font-size:30px;font-weight:700;color:${color};font-family:var(--font-mono);line-height:1;margin-bottom:6px">${value}</div>
+    <div style="font-size:11px;color:var(--text-secondary)">${sub}</div>
+  </div>`;
+}
+
+function _dQueueSection(title, rows) {
+  if (!rows.length) return '';
+  return `<div>
+    <div style="padding:7px 16px 3px;background:rgba(255,255,255,0.02);border-top:1px solid var(--border);border-bottom:1px solid var(--border)">
+      <span style="font-size:9.5px;text-transform:uppercase;letter-spacing:.9px;font-weight:600;color:var(--text-tertiary)">${title}</span>
+    </div>
+    ${rows.join('')}
+  </div>`;
+}
+
+function _dCourseRow(c, statusKey) {
+  const dotColor = { active:'var(--teal)', pending_approval:'var(--amber)', paused:'var(--amber)', approved:'var(--blue)' }[statusKey] || 'var(--text-tertiary)';
+  const pct = c.planned_sessions_total > 0 ? Math.min(100, Math.round((c.sessions_delivered||0) / c.planned_sessions_total * 100)) : 0;
+  const btn = statusKey === 'active'
+    ? `<button class="btn btn-sm" style="font-size:10.5px;padding:3px 8px;flex-shrink:0" onclick="event.stopPropagation();window._nav('session-execution')">Execute →</button>`
+    : statusKey === 'pending_approval'
+    ? `<button class="btn btn-sm" style="font-size:10.5px;padding:3px 8px;flex-shrink:0;color:var(--amber)" onclick="event.stopPropagation();window._nav('review-queue')">Review →</button>`
+    : statusKey === 'paused'
+    ? `<span style="font-size:10px;color:var(--amber);flex-shrink:0">Paused</span>`
+    : '';
+  return `<div style="display:flex;align-items:center;gap:10px;padding:9px 16px;border-bottom:1px solid var(--border);cursor:pointer"
+      onclick="window._openCourse('${c.id}')"
+      onmouseover="this.style.background='var(--bg-card-hover)'"
+      onmouseout="this.style.background=''">
+    <div style="width:6px;height:6px;border-radius:50%;background:${dotColor};flex-shrink:0;margin-top:1px"></div>
+    <div style="flex:1;min-width:0">
+      <div style="font-size:12.5px;font-weight:500;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">
+        ${c.condition_slug?.replace(/-/g,' ') || '—'} · <span style="color:var(--teal)">${c.modality_slug || '—'}</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px;margin-top:3px">
+        <div style="width:56px;height:3px;border-radius:2px;background:var(--border);flex-shrink:0">
+          <div style="height:3px;border-radius:2px;background:${dotColor};width:${pct}%"></div>
+        </div>
+        <span style="font-size:10.5px;color:var(--text-tertiary)">${c.sessions_delivered||0}/${c.planned_sessions_total||'?'} sessions</span>
+        ${(c.governance_warnings||[]).length ? '<span style="font-size:10px;color:var(--red)">⚠ flagged</span>' : ''}
+        ${c.on_label === false ? '<span style="font-size:10px;color:var(--amber)">off-label</span>' : ''}
+      </div>
+    </div>
+    ${btn}
+  </div>`;
+}
+
+function _dGovSection(title, count, body, accentColor) {
+  const badge = count > 0
+    ? `<span style="font-size:11px;font-weight:700;color:${accentColor};font-family:var(--font-mono);padding:1px 7px;border-radius:4px;background:${accentColor}18">${count}</span>`
+    : `<span style="font-size:10.5px;color:var(--green)">✓</span>`;
+  return `<div style="border-top:1px solid var(--border)">
+    <div style="padding:8px 16px 4px;display:flex;align-items:center;gap:8px;background:rgba(255,255,255,0.015)">
+      <span style="font-size:9.5px;text-transform:uppercase;letter-spacing:.9px;font-weight:600;color:var(--text-tertiary);flex:1">${title}</span>
+      ${badge}
+    </div>
+    ${body}
+  </div>`;
+}
+
+function _dGovRow(primary, secondary, typeKey, onclickExpr) {
+  const tc = {
+    pending:   { c:'var(--amber)', bg:'rgba(255,181,71,0.06)',   label:'Pending' },
+    'off-label':{ c:'var(--amber)', bg:'rgba(255,181,71,0.06)',  label:'Off-label' },
+    moderate:  { c:'var(--amber)', bg:'rgba(255,181,71,0.06)',   label:'Moderate' },
+    serious:   { c:'var(--red)',   bg:'rgba(255,107,107,0.06)',  label:'Serious' },
+    severe:    { c:'var(--red)',   bg:'rgba(255,107,107,0.06)',  label:'Severe' },
+    mild:      { c:'var(--blue)',  bg:'rgba(74,158,255,0.06)',   label:'Mild' },
+    open:      { c:'var(--amber)', bg:'rgba(255,181,71,0.06)',   label:'Open' },
+  }[typeKey] || { c:'var(--text-tertiary)', bg:'', label: typeKey };
+  return `<div style="display:flex;align-items:center;gap:8px;padding:7px 16px;border-bottom:1px solid var(--border);cursor:pointer"
+      onclick="${onclickExpr}"
+      onmouseover="this.style.background='${tc.bg}'"
+      onmouseout="this.style.background=''">
+    <div style="flex:1;min-width:0;overflow:hidden">
+      <span style="font-size:12px;font-weight:500;color:var(--text-primary)">${primary}</span>
+      <span style="font-size:11px;color:var(--text-secondary);margin-left:7px">${secondary}</span>
+    </div>
+    <span style="font-size:9.5px;font-weight:600;padding:2px 6px;border-radius:3px;background:${tc.bg};color:${tc.c};flex-shrink:0;white-space:nowrap">${tc.label}</span>
+  </div>`;
+}
+
+function _dNoItems(msg) {
+  return `<div style="padding:8px 16px 10px;font-size:11.5px;color:var(--text-tertiary);font-style:italic">${msg}</div>`;
+}
+
+function _dOutcomeCell(label, value, color, sub) {
+  return `<div style="padding:12px 14px;border-bottom:1px solid var(--border);border-right:1px solid var(--border)">
+    <div style="font-size:9.5px;text-transform:uppercase;letter-spacing:.9px;color:var(--text-tertiary);font-weight:600;margin-bottom:5px">${label}</div>
+    <div style="font-size:22px;font-weight:700;color:${color};font-family:var(--font-mono);line-height:1;margin-bottom:4px">${value}</div>
+    <div style="font-size:10.5px;color:var(--text-secondary)">${sub}</div>
+  </div>`;
+}
+
+function _dMiniBar(label, value, total, color) {
+  const pct = total > 0 ? Math.round(value / total * 100) : 0;
+  return `<div style="display:flex;align-items:center;gap:8px;margin-bottom:7px">
+    <span style="font-size:11px;color:var(--text-secondary);width:64px;flex-shrink:0">${label}</span>
+    <div style="flex:1;height:4px;border-radius:2px;background:var(--border)">
+      <div style="height:4px;border-radius:2px;background:${color};width:${pct}%;transition:width .3s"></div>
+    </div>
+    <span style="font-size:11px;color:${color};font-weight:600;width:24px;text-align:right;font-family:var(--font-mono)">${value}</span>
+  </div>`;
+}
+
 // ── Dashboard ────────────────────────────────────────────────────────────────
 export async function pgDash(setTopbar, navigate) {
   const role = currentUser?.role || 'clinician';
-  setTopbar('Dashboard', `<button class="btn btn-primary btn-sm" onclick="window._nav('protocol-wizard')">+ New Course</button>`);
 
-  let patCount = '—', activeCoursesCount = '—', pendingReviewCount = '—', deliveredCount = '—';
-  let aeCount = '—', responderRate = '—', activeCourses = [];
+  // Role-aware topbar actions
+  const roleActions = {
+    technician:   [
+      { l: 'Start Session',    icon: '◧', page: 'session-execution', primary: true },
+      { l: 'Active Courses',   icon: '◎', page: 'courses' },
+    ],
+    reviewer: [
+      { l: 'Review Queue',     icon: '◱', page: 'review-queue', primary: true },
+      { l: 'Audit Trail',      icon: '◧', page: 'audittrail' },
+    ],
+    supervisor: [
+      { l: 'Review Queue',     icon: '◱', page: 'review-queue', primary: true },
+      { l: 'Outcomes',         icon: '◫', page: 'outcomes' },
+      { l: 'Audit Trail',      icon: '◧', page: 'audittrail' },
+    ],
+    admin: [
+      { l: 'Review Queue',     icon: '◱', page: 'review-queue', primary: true },
+      { l: 'Audit Trail',      icon: '◧', page: 'audittrail' },
+      { l: 'Settings',         icon: '◎', page: 'settings' },
+    ],
+    'clinic-admin': [
+      { l: 'Add Patient',      icon: '◉', page: 'patients', primary: true },
+      { l: 'Review Queue',     icon: '◱', page: 'review-queue' },
+      { l: 'Settings',         icon: '◎', page: 'settings' },
+    ],
+  };
+  const defaultActions = [
+    { l: 'Start Session',      icon: '◧', page: 'session-execution', primary: true },
+    { l: 'Create Course',      icon: '◎', page: 'protocol-wizard' },
+    { l: 'Review Approvals',   icon: '◱', page: 'review-queue' },
+    { l: 'Add Patient',        icon: '◉', page: 'patients' },
+  ];
+  const actions = roleActions[role] || defaultActions;
+
+  setTopbar('Dashboard',
+    `<div style="display:flex;gap:6px;align-items:center">
+      <span style="font-size:10px;color:var(--text-tertiary);margin-right:4px;text-transform:uppercase;letter-spacing:.7px">${role}</span>
+      ${actions.map(a =>
+        `<button class="btn ${a.primary ? 'btn-primary' : ''} btn-sm" onclick="window._nav('${a.page}')">${a.icon} ${a.l}</button>`
+      ).join('')}
+    </div>`
+  );
+
+  const el = document.getElementById('content');
+  el.innerHTML = spinner();
+
+  // ── Load all data in parallel ──────────────────────────────────────────────
+  let allCourses = [], pendingQueue = [], aes = [], outcomeSummary = null, patCount = 0;
   try {
-    const [pts, courses, queue, aeRes, outcomes] = await Promise.all([
+    const [ptsRes, coursesRes, queueRes, aeRes, outRes] = await Promise.all([
       api.listPatients().catch(() => null),
       api.listCourses().catch(() => null),
       api.listReviewQueue({ status: 'pending' }).catch(() => null),
       api.listAdverseEvents().catch(() => null),
       api.aggregateOutcomes().catch(() => null),
     ]);
-    if (pts) patCount = pts.total ?? pts.items?.length ?? '—';
-    if (courses) {
-      const items = courses.items || [];
-      activeCourses = items.filter(c => c.status === 'active');
-      activeCoursesCount = activeCourses.length;
-      deliveredCount = items.reduce((sum, c) => sum + (c.sessions_delivered || 0), 0);
-    }
-    if (queue) pendingReviewCount = queue.total ?? queue.items?.length ?? '—';
-    if (aeRes) {
-      const aes = aeRes.items || [];
-      const cutoff = new Date(Date.now() - 7 * 86400000);
-      aeCount = aes.filter(a => a.occurred_at && new Date(a.occurred_at) >= cutoff).length;
-    }
-    if (outcomes) {
-      const rate = outcomes.responder_rate_pct ?? outcomes.responder_rate;
-      if (rate !== undefined && rate !== null) responderRate = Math.round(rate) + '%';
-    }
+    if (ptsRes) patCount = ptsRes.total ?? ptsRes.items?.length ?? 0;
+    if (coursesRes) allCourses = coursesRes.items || [];
+    if (queueRes)   pendingQueue = queueRes.items || [];
+    if (aeRes)      aes = aeRes.items || [];
+    if (outRes)     outcomeSummary = outRes;
   } catch {}
 
-  // Role-specific quick actions
-  const quickActions = {
-    technician: [
-      { l: 'Session Execution Queue', icon: '◧', page: 'session-execution' },
-      { l: 'Active Courses', icon: '◎', page: 'courses' },
-      { l: 'Report Adverse Event', icon: '◻', page: 'courses' },
-    ],
-    reviewer: [
-      { l: 'Review Queue', icon: '◱', page: 'review-queue' },
-      { l: 'Audit Trail', icon: '◧', page: 'audittrail' },
-      { l: 'Protocol Registry', icon: '◇', page: 'protocols-registry' },
-    ],
-    supervisor: [
-      { l: 'Review Queue', icon: '◱', page: 'review-queue' },
-      { l: 'Outcomes & Trends', icon: '◫', page: 'outcomes' },
-      { l: 'Audit Trail', icon: '◧', page: 'audittrail' },
-    ],
-    admin: [
-      { l: 'Audit Trail', icon: '◧', page: 'audittrail' },
-      { l: 'Settings', icon: '◎', page: 'settings' },
-      { l: 'Review Queue', icon: '◱', page: 'review-queue' },
-      { l: 'Treatment Courses', icon: '◎', page: 'courses' },
-    ],
-    'clinic-admin': [
-      { l: 'Patients', icon: '◉', page: 'patients' },
-      { l: 'Treatment Courses', icon: '◎', page: 'courses' },
-      { l: 'Review Queue', icon: '◱', page: 'review-queue' },
-      { l: 'Settings', icon: '◎', page: 'settings' },
-    ],
-  };
-  const defaultActions = [
-    { l: '+ New Treatment Course', icon: '◎', page: 'protocol-wizard' },
-    { l: 'Treatment Courses', icon: '◎', page: 'courses' },
-    { l: 'Review Queue', icon: '◱', page: 'review-queue' },
-    { l: 'Session Execution', icon: '◧', page: 'session-execution' },
-    { l: 'Protocol Registry', icon: '◇', page: 'protocols-registry' },
-    { l: 'Outcomes & Trends', icon: '◫', page: 'outcomes' },
+  // ── Derive all metrics ─────────────────────────────────────────────────────
+  const activeCourses    = allCourses.filter(c => c.status === 'active');
+  const pendingCourses   = allCourses.filter(c => c.status === 'pending_approval');
+  const approvedCourses  = allCourses.filter(c => c.status === 'approved');
+  const pausedCourses    = allCourses.filter(c => c.status === 'paused');
+  const completedCourses = allCourses.filter(c => c.status === 'completed');
+  const flaggedCourses   = allCourses.filter(c => (c.governance_warnings || []).length > 0);
+  const offLabelCourses  = allCourses.filter(c => c.on_label === false);
+  const offLabelPending  = offLabelCourses.filter(c => c.status === 'pending_approval' || c.status === 'approved');
+
+  const openAEs    = aes.filter(a => !a.resolved_at);
+  const seriousAEs = aes.filter(a => (a.severity === 'serious' || a.severity === 'severe') && !a.resolved_at);
+  const recentAEs  = aes.filter(a => a.occurred_at && new Date(a.occurred_at) >= new Date(Date.now() - 7 * 86400000));
+
+  const highRiskCount   = flaggedCourses.length + seriousAEs.length;
+  const sessionsPerWeek = activeCourses.reduce((s, c) => s + (c.planned_sessions_per_week || 0), 0);
+  const totalDelivered  = allCourses.reduce((s, c) => s + (c.sessions_delivered || 0), 0);
+
+  const responderRate   = (() => {
+    if (!outcomeSummary) return '—';
+    const r = outcomeSummary.responder_rate_pct ?? outcomeSummary.responder_rate;
+    return r != null ? Math.round(r) + '%' : '—';
+  })();
+  const nonResponderCount     = outcomeSummary?.non_responder_count ?? '—';
+  const assessCompletionPct   = outcomeSummary?.assessment_completion_pct != null
+    ? Math.round(outcomeSummary.assessment_completion_pct) + '%' : '—';
+
+  // Modality distribution across active courses
+  const modalityCount = {};
+  activeCourses.forEach(c => { const m = c.modality_slug || 'Unknown'; modalityCount[m] = (modalityCount[m] || 0) + 1; });
+  const topModalities = Object.entries(modalityCount).sort((a, b) => b[1] - a[1]).slice(0, 5);
+
+  // Recent activity — last 8 by updated_at
+  const recentCourses = [...allCourses]
+    .sort((a, b) => ((b.updated_at || b.created_at || '') > (a.updated_at || a.created_at || '') ? 1 : -1))
+    .slice(0, 8);
+
+  // ── Row 1: 4-column stat bar ───────────────────────────────────────────────
+  const row1 = `<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px">
+    ${_dStatCard('Sessions / Week', sessionsPerWeek || 0, `Planned · ${activeCourses.length} active courses`, 'var(--teal)', 'session-execution')}
+    ${_dStatCard('Pending Reviews', pendingQueue.length || 0, pendingQueue.length > 0 ? `${pendingQueue.length} item${pendingQueue.length !== 1 ? 's' : ''} awaiting approval` : 'Queue clear', pendingQueue.length > 0 ? 'var(--amber)' : 'var(--green)', 'review-queue', pendingQueue.length > 0)}
+    ${_dStatCard('Governance Flags', highRiskCount || 0, highRiskCount > 0 ? `${flaggedCourses.length} courses · ${seriousAEs.length} serious AEs` : 'No active safety flags', highRiskCount > 0 ? 'var(--red)' : 'var(--green)', 'adverse-events', highRiskCount > 0)}
+    ${_dStatCard('Active Courses', activeCourses.length || 0, `${patCount} patients · ${completedCourses.length} completed`, 'var(--blue)', 'courses')}
+  </div>`;
+
+  // ── Row 2: Clinic Queue + Review & Governance ──────────────────────────────
+  const clinicQueueRows = [
+    ...(activeCourses.length ? [_dQueueSection('Active — In Execution', activeCourses.slice(0,5).map(c => _dCourseRow(c,'active')))] : []),
+    ...(pausedCourses.length ? [_dQueueSection('Paused — Needs Attention', pausedCourses.slice(0,3).map(c => _dCourseRow(c,'paused')))] : []),
+    ...(pendingCourses.length ? [_dQueueSection('Pending Approval', pendingCourses.slice(0,3).map(c => _dCourseRow(c,'pending_approval')))] : []),
   ];
-  const actions = quickActions[role] || defaultActions;
 
-  // Role-specific course view — technician sees active courses directly
-  const activeCoursePanel = (role === 'technician' && activeCourses.length > 0) ? `
-    <div class="card" style="margin-bottom:0">
-      <div class="card-header" style="padding:14px 20px;border-bottom:1px solid var(--border)">
-        <span style="font-weight:600;font-size:13px">Active Courses — Ready to Execute</span>
+  const row2 = `<div class="g2" style="margin-bottom:14px;align-items:start">
+    <div class="card" style="overflow:hidden">
+      <div style="padding:13px 16px 11px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--border)">
+        <span style="font-weight:600;font-size:13px">Today's Clinic Queue</span>
+        <button class="btn btn-sm" style="font-size:10.5px" onclick="window._nav('courses')">All Courses →</button>
       </div>
-      <div style="padding:12px;display:flex;flex-direction:column;gap:6px">
-        ${activeCourses.slice(0, 4).map(c => `
-          <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 12px;border:1px solid var(--border);border-radius:7px;cursor:pointer" onclick="window._nav('session-execution')">
-            <div>
-              <div style="font-size:12.5px;font-weight:500">${c.condition_slug?.replace(/-/g,' ')} · <span style="color:var(--teal)">${c.modality_slug}</span></div>
-              <div style="font-size:11px;color:var(--text-secondary)">Session ${(c.sessions_delivered || 0) + 1} of ${c.planned_sessions_total || '?'}</div>
-            </div>
-            <span style="font-size:11px;color:var(--teal)">Execute →</span>
-          </div>`).join('')}
-      </div>
-    </div>` : '';
-
-  const pendingStr = typeof pendingReviewCount === 'number' && pendingReviewCount > 0
-    ? pendingReviewCount : pendingReviewCount;
-
-  return `
-  <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:12px">
-    ${[
-      { l: 'Active Patients',     v: patCount,           d: 'in your panel',          c: 'var(--teal)',   nav: 'patients' },
-      { l: 'Active Courses',      v: activeCoursesCount, d: 'ongoing treatment',       c: 'var(--blue)',   nav: 'courses' },
-      { l: 'Sessions Delivered',  v: deliveredCount,     d: 'across all courses',      c: 'var(--violet)', nav: 'session-execution' },
-    ].map(m => `<div class="metric-card" style="cursor:pointer" onclick="window._nav('${m.nav}')" onmouseover="this.style.borderColor='var(--border-teal)'" onmouseout="this.style.borderColor='var(--border)'"><div class="metric-label">${m.l}</div><div class="metric-value" style="color:${m.c}">${m.v}</div><div class="metric-delta">${m.d}</div></div>`).join('')}
-  </div>
-  <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:20px">
-    ${[
-      { l: 'Pending Reviews',    v: pendingStr,     d: 'awaiting approval',       c: (typeof pendingStr === 'number' && pendingStr > 0) ? 'var(--amber)' : 'var(--text-secondary)', nav: 'review-queue' },
-      { l: 'Adverse Events (7d)',v: aeCount,        d: 'last 7 days',             c: typeof aeCount === 'number' && aeCount > 0 ? 'var(--red)' : 'var(--green)',                   nav: 'adverse-events' },
-      { l: 'Responder Rate',     v: responderRate,  d: 'outcomes ≥50% reduction', c: 'var(--teal)',                                                                                 nav: 'outcomes' },
-    ].map(m => `<div class="metric-card" style="cursor:pointer" onclick="window._nav('${m.nav}')" onmouseover="this.style.borderColor='var(--border-teal)'" onmouseout="this.style.borderColor='var(--border)'"><div class="metric-label">${m.l}</div><div class="metric-value" style="color:${m.c}">${m.v}</div><div class="metric-delta">${m.d}</div></div>`).join('')}
-  </div>
-  <div class="g2">
-    <div style="display:flex;flex-direction:column;gap:16px">
-      ${cardWrap(`Quick Actions — ${role.replace(/-/g,' ')}`,
-        `<div style="display:grid;gap:8px">
-          ${actions.map(a => `<button class="btn" style="text-align:left;display:flex;align-items:center;gap:10px" onclick="window._nav('${a.page}')"><span style="color:var(--teal)">${a.icon}</span>${a.l}</button>`).join('')}
-        </div>`
-      )}
-      ${activeCoursePanel}
+      ${clinicQueueRows.length
+        ? clinicQueueRows.join('')
+        : `<div style="padding:36px;text-align:center;color:var(--text-tertiary);font-size:12.5px">No courses in queue. <button class="btn btn-sm" onclick="window._nav('protocol-wizard')" style="margin-left:6px">Create Course →</button></div>`
+      }
     </div>
-    <div style="display:flex;flex-direction:column;gap:16px">
-      ${cardWrap('Treatment Workflow', `
-        <div style="font-size:12px;color:var(--text-secondary);line-height:1.9">
-          <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px"><span style="color:var(--teal);font-size:14px">①</span> Add patient → <strong>Patients</strong></div>
-          <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px"><span style="color:var(--teal);font-size:14px">②</span> Create course → <strong>Protocol Intelligence</strong></div>
-          <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px"><span style="color:var(--amber);font-size:14px">③</span> Review &amp; approve → <strong>Review Queue</strong></div>
-          <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px"><span style="color:var(--teal);font-size:14px">④</span> Deliver session → <strong>Session Execution</strong></div>
-          <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px"><span style="color:var(--violet);font-size:14px">⑤</span> Track outcomes → <strong>Outcomes &amp; Trends</strong></div>
-          <div style="display:flex;align-items:center;gap:8px"><span style="color:var(--blue);font-size:14px">⑥</span> Course review → <strong>Course Detail</strong></div>
-        </div>
-      `)}
-      ${cardWrap('Session', `
-        <div style="display:flex;align-items:center;gap:8px;padding:6px 0">
-          <span class="status-dot online"></span>
-          <span style="font-size:12.5px;color:var(--text-primary)">${currentUser?.display_name || currentUser?.email || 'Clinician'}</span>
-          <span style="margin-left:auto;font-size:11px;padding:2px 8px;border-radius:4px;background:rgba(0,212,188,0.08);color:var(--teal)">${role}</span>
-        </div>
-        <div style="font-size:11.5px;color:var(--text-secondary);margin-top:4px">Backend API connected</div>
-      `)}
-      ${cardWrap('Recent Courses', (() => {
-        const recent = activeCourses.slice(0, 5);
-        if (!recent.length) return `<div style="font-size:12px;color:var(--text-tertiary);padding:8px 0">No active courses yet.</div>`;
-        return recent.map(c => {
-          const pct = c.planned_sessions_total > 0 ? Math.min(100, Math.round(c.sessions_delivered / c.planned_sessions_total * 100)) : 0;
-          return `<div style="display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid var(--border);cursor:pointer" onclick="window._openCourse('${c.id}')">
+
+    <div class="card" style="overflow:hidden">
+      <div style="padding:13px 16px 11px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--border)">
+        <span style="font-weight:600;font-size:13px">Review &amp; Governance</span>
+        <button class="btn btn-sm" style="font-size:10.5px" onclick="window._nav('review-queue')">Queue →</button>
+      </div>
+      ${_dGovSection('Approvals Pending', pendingQueue.length,
+        pendingQueue.length
+          ? pendingQueue.slice(0,4).map(item =>
+              _dGovRow(
+                item.condition_slug?.replace(/-/g,' ') || `Course #${(item.course_id||item.id||'').slice(0,8)}`,
+                item.modality_slug || item.notes?.slice(0,30) || '—',
+                'pending',
+                `window._nav('review-queue')`
+              )).join('')
+          : _dNoItems('No pending approvals'),
+        'var(--amber)'
+      )}
+      ${_dGovSection('Off-Label Requests', offLabelPending.length,
+        offLabelPending.length
+          ? offLabelPending.slice(0,3).map(c =>
+              _dGovRow(
+                c.condition_slug?.replace(/-/g,' ') || '—',
+                c.modality_slug || '—',
+                'off-label',
+                `window._openCourse('${c.id}')`
+              )).join('')
+          : _dNoItems('None pending'),
+        'var(--amber)'
+      )}
+      ${_dGovSection('Open Adverse Events', openAEs.length,
+        openAEs.length
+          ? openAEs.slice(0,4).map(ae =>
+              _dGovRow(
+                (ae.event_type||'Event').replace(/_/g,' '),
+                ae.severity || '—',
+                ae.severity === 'serious' || ae.severity === 'severe' ? ae.severity : (ae.severity || 'open'),
+                `window._nav('adverse-events')`
+              )).join('')
+          : _dNoItems('No open events'),
+        openAEs.length > 0 ? 'var(--red)' : 'var(--green)'
+      )}
+      ${flaggedCourses.length ? _dGovSection('Safety Escalations', flaggedCourses.length,
+        flaggedCourses.slice(0,3).map(c =>
+          `<div style="display:flex;align-items:flex-start;gap:8px;padding:8px 16px;border-bottom:1px solid var(--border);cursor:pointer"
+              onclick="window._openCourse('${c.id}')"
+              onmouseover="this.style.background='rgba(255,107,107,0.04)'"
+              onmouseout="this.style.background=''">
+            <span style="color:var(--red);font-size:12px;flex-shrink:0;margin-top:1px">⚠</span>
             <div style="flex:1;min-width:0">
-              <div style="font-size:12px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${c.condition_slug?.replace(/-/g,' ') || '—'} · <span style="color:var(--teal)">${c.modality_slug || ''}</span></div>
-              <div style="font-size:10.5px;color:var(--text-secondary)">${c.sessions_delivered}/${c.planned_sessions_total} sessions</div>
+              <div style="font-size:12px;font-weight:500">${c.condition_slug?.replace(/-/g,' ')||'—'} · ${c.modality_slug||'—'}</div>
+              <div style="font-size:10.5px;color:var(--red);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${(c.governance_warnings||[]).join(' · ')}</div>
             </div>
-            <div style="width:50px;flex-shrink:0">
-              <div style="height:3px;border-radius:2px;background:var(--border)"><div style="height:3px;border-radius:2px;background:var(--teal);width:${pct}%"></div></div>
-              <div style="font-size:9.5px;color:var(--text-tertiary);text-align:right;margin-top:2px">${pct}%</div>
-            </div>
-          </div>`;
-        }).join('');
-      })())}
+            <span style="font-size:10px;color:var(--text-tertiary);flex-shrink:0">→</span>
+          </div>`
+        ).join(''),
+        'var(--red)'
+      ) : ''}
     </div>
   </div>`;
+
+  // ── Row 3: Outcomes + Capacity ─────────────────────────────────────────────
+  const row3 = `<div class="g2" style="margin-bottom:14px;align-items:start">
+    <div class="card" style="overflow:hidden">
+      <div style="padding:13px 16px 11px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--border)">
+        <span style="font-weight:600;font-size:13px">Outcomes Snapshot</span>
+        <button class="btn btn-sm" style="font-size:10.5px" onclick="window._nav('outcomes')">Full Outcomes →</button>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;border-bottom:1px solid var(--border)">
+        ${_dOutcomeCell('Responder Rate',     responderRate,        'var(--teal)',  '≥50% symptom reduction')}
+        ${_dOutcomeCell('Non-Responders',     nonResponderCount,    typeof nonResponderCount === 'number' && nonResponderCount > 0 ? 'var(--red)' : 'var(--text-secondary)', 'No meaningful change')}
+        ${_dOutcomeCell('Assess. Completion', assessCompletionPct,  'var(--blue)',  'Assessment fill rate')}
+        ${_dOutcomeCell('Courses Completed',  completedCourses.length, 'var(--green)', 'All time total')}
+      </div>
+      ${allCourses.length ? `<div style="padding:12px 14px">
+        <div style="font-size:9.5px;text-transform:uppercase;letter-spacing:.9px;color:var(--text-tertiary);font-weight:600;margin-bottom:10px">Course Status Mix</div>
+        ${_dMiniBar('Active',    activeCourses.length,    allCourses.length, 'var(--teal)')}
+        ${_dMiniBar('Pending',   pendingCourses.length,   allCourses.length, 'var(--amber)')}
+        ${_dMiniBar('Completed', completedCourses.length, allCourses.length, 'var(--green)')}
+        ${_dMiniBar('Paused',    pausedCourses.length,    allCourses.length, 'var(--blue)')}
+      </div>` : ''}
+    </div>
+
+    <div class="card" style="overflow:hidden">
+      <div style="padding:13px 16px 11px;border-bottom:1px solid var(--border)">
+        <span style="font-weight:600;font-size:13px">Capacity &amp; Utilization</span>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;border-bottom:1px solid var(--border)">
+        ${_dOutcomeCell('Sessions / Week',    sessionsPerWeek || 0, 'var(--teal)',   'Planned across active')}
+        ${_dOutcomeCell('Sessions Delivered', totalDelivered,       'var(--blue)',   'All time total')}
+        ${_dOutcomeCell('Patients',           patCount,             'var(--violet)', 'Active in panel')}
+        ${_dOutcomeCell('Flagged Courses',    flaggedCourses.length, flaggedCourses.length > 0 ? 'var(--red)' : 'var(--green)', 'Governance warnings')}
+      </div>
+      ${topModalities.length ? `<div style="padding:12px 14px">
+        <div style="font-size:9.5px;text-transform:uppercase;letter-spacing:.9px;color:var(--text-tertiary);font-weight:600;margin-bottom:10px">Modality Load (Active Courses)</div>
+        ${topModalities.map(([mod, count]) => _dMiniBar(mod, count, activeCourses.length, 'var(--teal)')).join('')}
+      </div>` : `<div style="padding:14px 16px;font-size:11.5px;color:var(--text-tertiary)">No active courses.</div>`}
+      ${approvedCourses.length > 0 ? `<div style="padding:10px 14px;border-top:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
+        <span style="font-size:11.5px;color:var(--text-secondary)">Approved — not yet started</span>
+        <span style="font-size:13px;font-weight:600;color:var(--blue);font-family:var(--font-mono)">${approvedCourses.length}</span>
+      </div>` : ''}
+    </div>
+  </div>`;
+
+  // ── Row 4: Recent Activity feed ────────────────────────────────────────────
+  const row4 = `<div class="card" style="overflow:hidden">
+    <div style="padding:13px 16px 11px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--border)">
+      <span style="font-weight:600;font-size:13px">Recent Course Activity</span>
+      <button class="btn btn-sm" style="font-size:10.5px" onclick="window._nav('courses')">All Courses →</button>
+    </div>
+    ${recentCourses.length === 0
+      ? `<div style="padding:36px;text-align:center;color:var(--text-tertiary);font-size:12.5px">No courses yet.</div>`
+      : `<div style="overflow-x:auto"><table class="ds-table">
+          <thead><tr>
+            <th>Condition · Modality</th><th>Status</th><th>Evidence</th>
+            <th style="min-width:110px">Progress</th><th>Sessions</th><th>Signals</th><th></th>
+          </tr></thead>
+          <tbody>
+            ${recentCourses.map(c => {
+              const sc = COURSE_STATUS_COLORS[c.status] || 'var(--text-tertiary)';
+              const pct = c.planned_sessions_total > 0 ? Math.min(100, Math.round((c.sessions_delivered||0) / c.planned_sessions_total * 100)) : 0;
+              return `<tr style="cursor:pointer" onclick="window._openCourse('${c.id}')">
+                <td>
+                  <div style="font-size:12.5px;font-weight:500">${c.condition_slug?.replace(/-/g,' ') || '—'}</div>
+                  <div style="font-size:11px;color:var(--teal)">${c.modality_slug || '—'}</div>
+                </td>
+                <td>${approvalBadge(c.status)}</td>
+                <td>${evidenceBadge(c.evidence_grade)}</td>
+                <td>
+                  <div style="height:4px;border-radius:2px;background:var(--border);margin-bottom:3px">
+                    <div style="height:4px;border-radius:2px;background:${sc};width:${pct}%"></div>
+                  </div>
+                  <div style="font-size:10px;color:var(--text-tertiary)">${pct}%</div>
+                </td>
+                <td class="mono" style="font-size:12px">${c.sessions_delivered||0}/${c.planned_sessions_total||'?'}</td>
+                <td style="white-space:nowrap">
+                  ${safetyBadge(c.governance_warnings)}
+                  ${c.on_label === false ? labelBadge(false) : ''}
+                </td>
+                <td style="color:var(--text-tertiary);font-size:12px">→</td>
+              </tr>`;
+            }).join('')}
+          </tbody>
+        </table></div>`
+    }
+  </div>`;
+
+  el.innerHTML = row1 + row2 + row3 + row4;
 }
 
 // ── Patients ─────────────────────────────────────────────────────────────────
