@@ -347,7 +347,7 @@ function renderCourseTab(course, sessions, adverseEvents, protocolDetail, tab, o
     return `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px;padding:14px 20px;background:rgba(0,212,188,0.03);border:1px solid var(--border-teal);border-radius:var(--radius-md)">
       <span style="font-size:10.5px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.8px;font-weight:600;align-self:center;margin-right:4px">Quick actions</span>
       <button class="btn btn-primary btn-sm" onclick="window._nav('session-execution')">▶ Start Session</button>
-      <button class="btn btn-sm" onclick="alert('Coming soon')">◱ Request Review</button>
+      <button class="btn btn-sm" onclick="window._nav('review-queue')">◱ Request Review</button>
       <button class="btn btn-sm" onclick="window._downloadCourseReport()">↓ Export PDF</button>
     </div>
     <div class="g2">

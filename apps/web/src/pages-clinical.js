@@ -649,7 +649,15 @@ export async function pgPatients(setTopbar, navigate) {
 
   window.deletePatient = async function(id) {
     if (!confirm('Delete this patient? This cannot be undone.')) return;
-    try { await api.deletePatient(id); navigate('patients'); } catch (e) { alert(e.message); }
+    try {
+      await api.deletePatient(id); navigate('patients');
+    } catch (e) {
+      const b = document.createElement('div');
+      b.className = 'notice notice-warn';
+      b.style.cssText = 'position:fixed;top:16px;right:16px;z-index:9999;max-width:380px';
+      b.textContent = e.message || 'Delete failed.';
+      document.body.appendChild(b); setTimeout(() => b.remove(), 4000);
+    }
   };
 }
 
@@ -1221,7 +1229,10 @@ function bindPhenotypeActions(pt) {
       ]);
       document.getElementById('ptab-body').innerHTML = renderPhenotypeTab(pt, assigns, phenos);
       bindPhenotypeActions(pt);
-    } catch (e) { alert(e.message); }
+    } catch (e) {
+      const errEl = document.getElementById('pheno-save-error');
+      if (errEl) { errEl.textContent = e.message || 'Delete failed.'; errEl.style.display = ''; }
+    }
   };
 }
 
@@ -1313,7 +1324,10 @@ function bindConsentActions(pt) {
       const consents = await api.listConsents({ patient_id: pt.id }).then(r => r?.items || []).catch(() => []);
       document.getElementById('ptab-body').innerHTML = renderConsentTab(pt, consents);
       bindConsentActions(pt);
-    } catch (e) { alert(e.message); }
+    } catch (e) {
+      const errEl = document.getElementById('consent-error');
+      if (errEl) { errEl.textContent = e.message || 'Sign failed.'; errEl.style.display = ''; }
+    }
   };
 }
 
@@ -1344,8 +1358,13 @@ window.saveSession = async function() {
 };
 
 window.completeSession = async function(id) {
-  const outcome = prompt('Enter session outcome (optional):') || '';
-  try { await api.updateSession(id, { status: 'completed', outcome }); window._nav('profile'); } catch (e) { alert(e.message); }
+  try { await api.updateSession(id, { status: 'completed' }); window._nav('profile'); } catch (e) {
+    const b = document.createElement('div');
+    b.className = 'notice notice-warn';
+    b.style.cssText = 'position:fixed;top:16px;right:16px;z-index:9999;max-width:380px';
+    b.textContent = e.message || 'Update failed.';
+    document.body.appendChild(b); setTimeout(() => b.remove(), 4000);
+  }
 };
 
 window.exportProto = async function() {
@@ -1362,7 +1381,13 @@ window.exportProto = async function() {
       symptom_cluster: '',
     });
     downloadBlob(blob, `protocol-${pt.first_name}-${pt.last_name}.docx`);
-  } catch (e) { alert(e.message); }
+  } catch (e) {
+    const b = document.createElement('div');
+    b.className = 'notice notice-warn';
+    b.style.cssText = 'position:fixed;top:16px;right:16px;z-index:9999;max-width:380px';
+    b.textContent = e.message || 'Export failed.';
+    document.body.appendChild(b); setTimeout(() => b.remove(), 4000);
+  }
 };
 
 // ── AI Zone ──────────────────────────────────────────────────────────────────
@@ -1783,7 +1808,10 @@ export function bindProtoPage() {
     try {
       const blob = await api.exportProtocolDocx({ condition_name: 'Protocol', modality_name: selMods[0] || 'tDCS', device_name: '', setting: 'clinical', evidence_threshold: 'B', off_label: false, symptom_cluster: '' });
       downloadBlob(blob, 'protocol.docx');
-    } catch (e) { alert(e.message); }
+    } catch (e) {
+      const r = document.getElementById('proto-result');
+      if (r) r.innerHTML = `<div class="notice notice-warn">${e.message || 'Export failed.'}</div>`;
+    }
   };
 
   // Create treatment course from registry protocol
@@ -2294,10 +2322,17 @@ function bindChat(chatHistory) {
       msgs.innerHTML += `<div class="bubble bubble-in" style="color:var(--red)">Error: ${e.message}</div>`;
     }
   };
-  window.signNote = function() { alert('Note saved and signed.'); };
+  window.signNote = function() {
+    const btn = document.querySelector('[onclick="window.signNote()"]');
+    if (btn) { btn.textContent = '✓ Signed'; btn.disabled = true; btn.style.opacity = '0.7'; }
+  };
   window.copyNote = function() {
     const note = document.getElementById('chart-note-content')?.textContent;
-    if (note) navigator.clipboard.writeText(note).then(() => alert('Copied!'));
+    if (!note) return;
+    navigator.clipboard.writeText(note).then(() => {
+      const btn = document.querySelector('[onclick="window.copyNote()"]');
+      if (btn) { const orig = btn.textContent; btn.textContent = 'Copied!'; setTimeout(() => btn.textContent = orig, 1500); }
+    });
   };
 }
 
