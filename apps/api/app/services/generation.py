@@ -4,6 +4,7 @@ from deepsynaps_core_schema import (
     ProtocolDraftRequest,
     ProtocolDraftResponse,
 )
+from deepsynaps_safety_engine import apply_governance_rules, check_contraindications
 
 from app.auth import AuthenticatedActor, require_minimum_role
 from app.entitlements import require_any_feature, require_feature
@@ -31,7 +32,63 @@ def generate_protocol_draft(payload: ProtocolDraftRequest, actor: AuthenticatedA
         Feature.PROTOCOL_GENERATE_LIMITED,
         message="Protocol generation requires Resident / Fellow or higher.",
     )
-    return generate_protocol_draft_from_clinical_data(payload, actor)
+
+    # 3. Delegate to the clinical-data–driven generator which already does
+    #    protocol lookup, evidence enrichment, and governance-based badge logic.
+    response = generate_protocol_draft_from_clinical_data(payload, actor)
+
+    # 4. Apply additional safety-engine contraindication and governance checks.
+    #    These augment (not replace) the response already built by clinical_data.
+    extra_warnings: list[str] = []
+
+    # Derive on_label and evidence_grade from the response
+    on_label = response.approval_status_badge == "approved use"
+    evidence_grade_map = {
+        "Guideline": "EV-A",
+        "Systematic Review": "EV-B",
+        "Emerging": "EV-C",
+        "Experimental": "EV-D",
+    }
+    raw_grade = evidence_grade_map.get(response.evidence_grade, response.evidence_grade)
+
+    # Contraindication check — use the condition contraindications already in
+    # the response (already parsed by clinical_data), but run through the engine
+    # to format them consistently and detect any additional flags.
+    if response.contraindications:
+        raw_contra_str = "; ".join(response.contraindications)
+        contra_items = check_contraindications(raw_contra_str, payload.modality)
+        # Only add items not already present in the response to avoid duplication
+        for item in contra_items:
+            if item not in response.contraindications:
+                extra_warnings.append(f"Contraindication flag: {item}")
+
+    # Governance rules
+    governance_warnings = apply_governance_rules(
+        on_label=on_label,
+        evidence_grade=raw_grade,
+        actor_role=actor.role,
+    )
+    extra_warnings.extend(governance_warnings)
+
+    if extra_warnings:
+        # Append to patient_communication_notes so callers can surface them
+        updated_notes = list(response.patient_communication_notes) + extra_warnings
+        return ProtocolDraftResponse(
+            rationale=response.rationale,
+            target_region=response.target_region,
+            session_frequency=response.session_frequency,
+            duration=response.duration,
+            escalation_logic=response.escalation_logic,
+            monitoring_plan=response.monitoring_plan,
+            contraindications=response.contraindications,
+            patient_communication_notes=updated_notes,
+            evidence_grade=response.evidence_grade,
+            approval_status_badge=response.approval_status_badge,
+            off_label_review_required=response.off_label_review_required,
+            disclaimers=response.disclaimers,
+        )
+
+    return response
 
 
 def generate_handbook(payload: HandbookGenerateRequest, actor: AuthenticatedActor) -> HandbookGenerateResponse:

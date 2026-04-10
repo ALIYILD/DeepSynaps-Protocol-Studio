@@ -1,3 +1,13 @@
-from .compatibility import CompatibilityResult, validate_modality_device
+from .compatibility import (
+    CompatibilityResult,
+    apply_governance_rules,
+    check_contraindications,
+    validate_modality_device,
+)
 
-__all__ = ["CompatibilityResult", "validate_modality_device"]
+__all__ = [
+    "CompatibilityResult",
+    "apply_governance_rules",
+    "check_contraindications",
+    "validate_modality_device",
+]
