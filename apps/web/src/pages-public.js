@@ -30,153 +30,485 @@ export function pgHome() {
   el.innerHTML = `
     ${pubTopbar()}
 
-    <!-- Hero -->
+    <!-- ─── Hero ─────────────────────────────────────────────────────────── -->
     <section class="pub-hero">
-      <div class="pub-hero-badge">◈ &nbsp;Precision Neuromodulation Platform</div>
-      <h1 class="pub-hero-title">Clinical Intelligence for<br><span>Neuromodulation Therapy</span></h1>
+      <div class="pub-hero-badge">◈ &nbsp;Clinical OS &nbsp;·&nbsp; Neuromodulation</div>
+
+      <h1 class="pub-hero-title">
+        The intelligent operating system<br>
+        for <span>neuromodulation clinics</span>
+      </h1>
+
       <p class="pub-hero-sub">
-        DeepSynaps Protocol Studio is the operational platform for evidence-based neuromodulation clinics —
-        from protocol design and session execution to outcomes tracking and governance.
+        Manage treatment courses end-to-end &mdash; from evidence-graded protocol design through
+        structured session delivery, clinical governance, patient engagement, and longitudinal
+        outcomes &mdash; in one platform built for neuromodulation practice.
       </p>
+
       <div class="pub-hero-ctas">
-        <button class="btn-hero-primary" onclick="window._navPublic('signup-professional')">Start as Professional &rarr;</button>
-        <button class="btn-hero-secondary" onclick="window._navPublic('signup-patient')">Patient Portal</button>
-        <button class="btn-hero-ghost" onclick="window._showSignIn()">Sign In</button>
+        <button class="btn-hero-primary" onclick="window._navPublic('signup-professional')">
+          Start as Professional &rarr;
+        </button>
+        <button class="btn-hero-secondary" onclick="window._navPublic('signup-patient')">
+          Patient Portal
+        </button>
+        <button class="btn-hero-ghost" onclick="window._showSignIn()">
+          Sign In
+        </button>
       </div>
-      <div class="pub-stats">
+
+      <!-- Stats -->
+      <div style="
+        display:flex; gap:0; border:1px solid var(--border);
+        border-radius:var(--radius-lg); overflow:hidden; background:var(--bg-card);
+        backdrop-filter:blur(8px); flex-wrap:wrap;
+      ">
         ${[
-          { val: '15<span>+</span>', label: 'Conditions Covered' },
-          { val: 'A<span>–D</span>', label: 'Evidence Graded' },
-          { val: '6<span>+</span>', label: 'Modalities Supported' },
-          { val: 'ISO<span>/IEC</span>', label: 'Governance Ready' },
-        ].map(s => `<div class="pub-stat"><div class="pub-stat-value">${s.val}</div><div class="pub-stat-label">${s.label}</div></div>`).join('')}
+          { val: '15+',     label: 'Conditions',       sub: 'covered' },
+          { val: 'A–D',     label: 'Evidence',          sub: 'graded protocols' },
+          { val: '6+',      label: 'Modalities',        sub: 'supported' },
+          { val: '5',       label: 'Role types',        sub: 'with scoped access' },
+        ].map((s, i) => `
+          <div style="
+            flex:1; min-width:120px; padding:18px 22px; text-align:center;
+            ${i > 0 ? 'border-left:1px solid var(--border)' : ''}
+          ">
+            <div style="font-family:var(--font-display);font-size:22px;font-weight:700;color:var(--text-primary);letter-spacing:-0.5px">
+              ${s.val}
+            </div>
+            <div style="font-size:11px;font-weight:600;color:var(--teal);margin-top:3px">${s.label}</div>
+            <div style="font-size:10px;color:var(--text-tertiary);margin-top:1px">${s.sub}</div>
+          </div>
+        `).join('')}
       </div>
     </section>
 
     <div class="pub-divider"></div>
 
-    <!-- Audience split -->
-    <div style="padding:72px 0 0">
-      <div style="text-align:center;margin-bottom:40px;padding:0 48px">
-        <div class="pub-section-title" style="text-align:center">Built for Two Audiences. Kept Separate.</div>
-        <div class="pub-section-sub" style="margin:10px auto 0;text-align:center">
-          A professional-grade clinical OS for practitioners and a calm, clear portal for patients —
-          each designed for their context.
+    <!-- ─── Workflow strip ────────────────────────────────────────────────── -->
+    <div style="padding:52px 48px 0;max-width:1160px;margin:0 auto">
+      <div style="text-align:center;margin-bottom:36px">
+        <div class="pub-eyebrow">Treatment Course Lifecycle</div>
+        <div style="font-size:13px;color:var(--text-secondary)">
+          Every operation follows the same structured path &mdash; from protocol to outcome.
         </div>
       </div>
-      <div class="pub-audience-grid" style="margin-bottom:72px">
+      <div class="pub-process-strip">
+        ${[
+          { icon: '⬡', label: 'Protocol',    sub: 'Evidence-graded design' },
+          { icon: '◱', label: 'Approval',    sub: 'Clinician review' },
+          { icon: '◎', label: 'Course',      sub: 'Lifecycle created' },
+          { icon: '◧', label: 'Session',     sub: 'Structured delivery' },
+          { icon: '◫', label: 'Outcomes',    sub: 'Evidence-matched' },
+          { icon: '◉', label: 'Patient',     sub: 'Portal engagement' },
+        ].map(s => `
+          <div class="pub-process-step">
+            <div class="pub-process-node">${s.icon}</div>
+            <div class="pub-process-label">${s.label}</div>
+            <div class="pub-process-sub">${s.sub}</div>
+          </div>
+        `).join('')}
+      </div>
+    </div>
 
+    <div style="padding:52px 48px 0;max-width:1160px;margin:0 auto">
+      <div class="pub-divider" style="margin:0"></div>
+    </div>
+
+    <!-- ─── Audience split ────────────────────────────────────────────────── -->
+    <div style="padding:72px 0 80px">
+      <div style="text-align:center;margin-bottom:44px;padding:0 48px">
+        <div class="pub-eyebrow">Two separate experiences</div>
+        <div class="pub-section-title" style="text-align:center;margin-bottom:10px">
+          A clinical OS for your team.<br>A clear portal for your patients.
+        </div>
+        <div style="font-size:14px;color:var(--text-secondary);max-width:520px;margin:0 auto;line-height:1.7">
+          Professional and patient interfaces are kept entirely separate &mdash;
+          different layouts, different depth, different language.
+        </div>
+      </div>
+
+      <div class="pub-audience-grid">
+
+        <!-- Clinic card -->
         <div class="pub-audience-card primary">
-          <div class="pub-audience-icon">⚕</div>
-          <div class="pub-audience-title">For Clinicians &amp; Clinics</div>
+          <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px">
+            <div class="pub-audience-icon" style="margin:0;width:44px;height:44px">⚕</div>
+            <div>
+              <div class="pub-eyebrow" style="margin:0 0 2px">For clinics &amp; professionals</div>
+              <div class="pub-audience-title" style="margin:0">Clinical Operations Workspace</div>
+            </div>
+          </div>
           <div class="pub-audience-desc">
-            A full neuromodulation operations workspace — not a generic EHR.
-            Treatment courses, not appointments, are the primary unit of care.
+            Not a generic EHR. DeepSynaps organises clinical work around
+            <strong style="color:var(--text-primary)">treatment courses</strong> &mdash;
+            not appointments. Each course carries a protocol, a session schedule,
+            a governance trail, and patient outcomes in one structured record.
           </div>
           <ul class="pub-audience-features">
-            <li>Evidence-graded protocol design across tDCS, TMS, tACS, PEMF, PBM, and neurofeedback</li>
-            <li>Treatment course lifecycle — from approval to session execution to outcome review</li>
-            <li>qEEG integration and brain region / electrode mapping</li>
-            <li>Adverse event registry and governance audit trail</li>
-            <li>Patient cohort outcomes and evidence-matched analytics</li>
-            <li>Multi-role access: clinician, technician, reviewer, admin</li>
+            <li>Evidence-graded protocol design — tDCS, TMS, tACS, PEMF, PBM, neurofeedback</li>
+            <li>Course lifecycle management: approval &rarr; sessions &rarr; review &rarr; outcomes</li>
+            <li>Structured session execution with device, montage, pulse parameters, deviation flags</li>
+            <li>qEEG integration and per-patient brain region mapping</li>
+            <li>Adverse event registry, protocol approval workflow, and audit trail</li>
+            <li>Role-scoped access for clinician, technician, reviewer, and admin</li>
           </ul>
-          <button class="btn-hero-primary" onclick="window._navPublic('signup-professional')" style="width:100%;font-size:13px;padding:11px">
+          <button class="btn-hero-primary" onclick="window._navPublic('signup-professional')"
+            style="width:100%;font-size:13px;padding:12px;margin-top:auto">
+            Create Clinic Account &rarr;
+          </button>
+        </div>
+
+        <!-- Patient card -->
+        <div class="pub-audience-card secondary">
+          <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px">
+            <div class="pub-audience-icon" style="margin:0;width:44px;height:44px">◉</div>
+            <div>
+              <div class="pub-eyebrow blue" style="margin:0 0 2px">For patients</div>
+              <div class="pub-audience-title" style="margin:0">Patient Portal</div>
+            </div>
+          </div>
+          <div class="pub-audience-desc">
+            A calm, clear view of your treatment &mdash; without clinical complexity.
+            Provided by your clinic, accessed by you. No clinical jargon,
+            no unnecessary detail &mdash; just your journey, clearly presented.
+          </div>
+          <ul class="pub-audience-features">
+            <li>Upcoming and completed session schedule from your clinic</li>
+            <li>Treatment course summary — what you&rsquo;re being treated for and why</li>
+            <li>Assessments and symptom tracking before and after sessions</li>
+            <li>Reports and clinical documents shared by your care team</li>
+            <li>Secure messages and reminders from your clinician</li>
+          </ul>
+          <div class="notice notice-info" style="font-size:11.5px;margin-bottom:20px">
+            Patient access requires an invitation code or direct registration by your clinic.
+          </div>
+          <button class="btn-hero-secondary" onclick="window._navPublic('signup-patient')"
+            style="width:100%;font-size:13px;padding:12px;border-color:var(--border-blue);color:var(--blue)">
+            Activate Patient Portal &rarr;
+          </button>
+        </div>
+
+      </div>
+    </div>
+
+    <div class="pub-divider"></div>
+
+    <!-- ─── Platform capabilities ──────────────────────────────────────────── -->
+    <section class="pub-section">
+      <div style="display:flex;gap:48px;align-items:flex-start">
+
+        <!-- Left: intro -->
+        <div style="width:280px;flex-shrink:0;padding-top:4px">
+          <div class="pub-eyebrow">Platform capabilities</div>
+          <div class="pub-section-title" style="font-size:26px;margin-bottom:14px">
+            Every workflow.<br>One system.
+          </div>
+          <div style="font-size:13px;color:var(--text-secondary);line-height:1.75;margin-bottom:24px">
+            DeepSynaps covers the full operational stack for a neuromodulation clinic &mdash;
+            from first protocol to long-term outcome tracking &mdash;
+            without requiring separate tools for each discipline.
+          </div>
+          <button class="btn btn-primary btn-sm" onclick="window._navPublic('signup-professional')" style="font-size:12px">
+            Explore the platform &rarr;
+          </button>
+        </div>
+
+        <!-- Right: feature cards -->
+        <div style="flex:1;display:grid;grid-template-columns:1fr 1fr;gap:10px">
+          ${[
+            {
+              icon: '◎', accent: '',
+              title: 'Treatment Courses',
+              desc: 'The primary clinical object. Each course holds a patient, a condition, a protocol, a session schedule, and a complete outcome record. Not appointments &mdash; structured care episodes.',
+            },
+            {
+              icon: '⬡', accent: '',
+              title: 'Protocol Intelligence',
+              desc: 'AI-assisted, evidence-graded protocol generation. Filter by condition, modality, and patient profile. Every protocol carries an A&ndash;D evidence grade from the literature.',
+            },
+            {
+              icon: '◧', accent: '',
+              title: 'Session Execution',
+              desc: 'Step-by-step session runner. Device selection, montage verification, pulse parameters, real-time deviation flagging. Every session is documented and traceable.',
+            },
+            {
+              icon: '◈', accent: 'blue',
+              title: 'qEEG &amp; Brain Data',
+              desc: 'Integrated EEG band analysis, per-patient brain region mapping, and electrode placement visualisation. Neurometric data in clinical context, not isolated.',
+            },
+            {
+              icon: '◫', accent: 'blue',
+              title: 'Outcomes &amp; Trends',
+              desc: 'Longitudinal outcome tracking against protocol evidence grades. Cohort analytics. Assessment scoring. Outcomes that connect back to the protocol that produced them.',
+            },
+            {
+              icon: '◉', accent: 'blue',
+              title: 'Patient Portal',
+              desc: 'A separate, calmer interface for patients. Sessions, progress, assessments, reports, and messages from the care team &mdash; without clinical complexity.',
+            },
+          ].map(f => `
+            <div class="pub-feature-card-l ${f.accent}">
+              <div class="fcard-icon">${f.icon}</div>
+              <div>
+                <div class="fcard-title">${f.title}</div>
+                <div class="fcard-desc">${f.desc}</div>
+              </div>
+            </div>
+          `).join('')}
+        </div>
+
+      </div>
+    </section>
+
+    <div class="pub-divider"></div>
+
+    <!-- ─── Trust / governance ─────────────────────────────────────────────── -->
+    <section class="pub-section">
+      <div style="display:flex;gap:56px;align-items:flex-start">
+
+        <!-- Left: intro -->
+        <div style="flex:1;padding-top:4px">
+          <div class="pub-eyebrow">Clinical governance by design</div>
+          <div class="pub-section-title" style="font-size:26px;margin-bottom:14px">
+            Rigour is<br>not optional.
+          </div>
+          <div style="font-size:13px;color:var(--text-secondary);line-height:1.75;margin-bottom:14px">
+            In neuromodulation, a protocol decision is a clinical decision.
+            DeepSynaps builds governance, evidence awareness, and auditability
+            into every workflow &mdash; not as compliance add-ons, but as core architecture.
+          </div>
+          <div style="font-size:12px;color:var(--text-tertiary);line-height:1.7">
+            Protocol approval requires a qualified reviewer. Session deviations are flagged
+            in real time. Every change is timestamped and attributed. Adverse events
+            are logged, categorised, and linked to the session and course that produced them.
+          </div>
+        </div>
+
+        <!-- Right: pillars -->
+        <div style="flex:1.1">
+          <div class="pub-trust-split">
+            ${[
+              {
+                icon: '⬡',
+                title: 'Deterministic Protocol Logic',
+                desc: 'Protocols are structured records, not free-text notes. Device parameters, electrode placement, and session counts are explicit fields — not clinical interpretation.',
+              },
+              {
+                icon: '⚗',
+                title: 'Evidence-Aware Workflows',
+                desc: 'Every protocol carries an A–D evidence grade drawn from the literature. Clinicians see evidence context at every decision point, not just at protocol selection.',
+              },
+              {
+                icon: '◱',
+                title: 'Clinician Review &amp; Approval',
+                desc: 'Treatment courses require approval before sessions begin. Reviewers have a dedicated queue. Changes trigger re-approval. No session starts without a signed-off protocol.',
+              },
+              {
+                icon: '◧',
+                title: 'Full Auditability',
+                desc: 'Complete audit trail per course: who created it, who approved it, which sessions ran, which deviated, what adverse events occurred. Timestamped and role-attributed.',
+              },
+            ].map(t => `
+              <div class="pub-trust-row">
+                <div class="pub-trust-row-icon">${t.icon}</div>
+                <div>
+                  <div class="pub-trust-row-title">${t.title}</div>
+                  <div class="pub-trust-row-desc">${t.desc}</div>
+                </div>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+    <div class="pub-divider"></div>
+
+    <!-- ─── Pricing ─────────────────────────────────────────────────────────── -->
+    <section class="pub-section pub-pricing-section">
+
+      <div style="text-align:center;margin-bottom:52px">
+        <div class="pub-eyebrow">Pricing</div>
+        <div class="pub-section-title" style="text-align:center;font-size:30px;margin-bottom:12px">
+          Pricing built for neuromodulation clinics
+        </div>
+        <div style="font-size:14px;color:var(--text-secondary);line-height:1.7;max-width:520px;margin:0 auto">
+          Start with one clinician or roll out across a full clinic team.
+          Patient portal access is included in every paid plan.
+        </div>
+        <div style="display:flex;gap:20px;justify-content:center;flex-wrap:wrap;margin-top:18px">
+          <span class="pub-pricing-trust-badge">◉ Patient portal included in all paid plans</span>
+          <span class="pub-pricing-trust-badge">◈ Save 15% annually</span>
+          <span class="pub-pricing-trust-badge">◇ Enterprise onboarding available</span>
+        </div>
+      </div>
+
+      <div class="pub-pricing-grid">
+
+        <!-- Resident -->
+        <div class="pub-plan-card">
+          <div class="pub-plan-header">
+            <div class="pub-plan-name">Resident</div>
+            <div class="pub-plan-sub">For solo practitioners getting started</div>
+            <div class="pub-plan-price"><span class="pub-plan-amount">$99</span><span class="pub-plan-period">/mo</span></div>
+          </div>
+          <ul class="pub-plan-features">
+            <li>1 professional seat</li>
+            <li>Deterministic protocol intelligence</li>
+            <li>Treatment courses</li>
+            <li>Assessments</li>
+            <li>Patient portal access</li>
+            <li>Basic reports</li>
+            <li>EV-A / EV-B evidence access</li>
+          </ul>
+          <button class="pub-plan-cta" onclick="window._navPublic('signup-professional')">
+            Start Free Trial &rarr;
+          </button>
+        </div>
+
+        <!-- Clinician Pro — highlighted -->
+        <div class="pub-plan-card pub-plan-card--featured">
+          <div class="pub-plan-popular-badge">Most Popular</div>
+          <div class="pub-plan-header">
+            <div class="pub-plan-name">Clinician Pro</div>
+            <div class="pub-plan-sub">For full clinical workflows and protocol governance</div>
+            <div class="pub-plan-price"><span class="pub-plan-amount">$199</span><span class="pub-plan-period">/mo</span></div>
+          </div>
+          <ul class="pub-plan-features">
+            <li>1 professional seat</li>
+            <li>Unlimited patients</li>
+            <li>Treatment-course workflows</li>
+            <li>Protocol intelligence</li>
+            <li>Patient portal</li>
+            <li>Outcomes tracking</li>
+            <li>qEEG &amp; brain data</li>
+            <li>DOCX / report exports</li>
+            <li>EV-C override &amp; off-label governance</li>
+          </ul>
+          <button class="pub-plan-cta pub-plan-cta--featured" onclick="window._navPublic('signup-professional')">
+            Get Started &rarr;
+          </button>
+        </div>
+
+        <!-- Clinic Team -->
+        <div class="pub-plan-card">
+          <div class="pub-plan-header">
+            <div class="pub-plan-name">Clinic Team</div>
+            <div class="pub-plan-sub">For multi-user clinics running treatment operations together</div>
+            <div class="pub-plan-price"><span class="pub-plan-amount">$699</span><span class="pub-plan-period">/mo</span></div>
+          </div>
+          <ul class="pub-plan-features">
+            <li>Up to 5 professional seats</li>
+            <li>Shared review queue</li>
+            <li>Technician workflows</li>
+            <li>Device-aware session execution</li>
+            <li>Team audit trail</li>
+            <li>Clinic outcomes dashboard</li>
+            <li>Light white-labelling</li>
+          </ul>
+          <button class="pub-plan-cta" onclick="window._navPublic('signup-professional')">
+            Book Demo &rarr;
+          </button>
+        </div>
+
+        <!-- Enterprise -->
+        <div class="pub-plan-card pub-plan-card--enterprise">
+          <div class="pub-plan-header">
+            <div class="pub-plan-name">Enterprise</div>
+            <div class="pub-plan-sub">For multi-site groups and advanced governance</div>
+            <div class="pub-plan-price"><span class="pub-plan-amount pub-plan-amount--custom">Custom</span></div>
+          </div>
+          <ul class="pub-plan-features">
+            <li>Custom seats &amp; roles</li>
+            <li>Multi-site governance</li>
+            <li>API access</li>
+            <li>SSO integration</li>
+            <li>Custom workflows</li>
+            <li>Full white-label</li>
+            <li>Implementation support</li>
+          </ul>
+          <button class="pub-plan-cta pub-plan-cta--ghost" onclick="window._navPublic('signup-professional')">
+            Talk to Sales &rarr;
+          </button>
+        </div>
+
+      </div>
+
+      <!-- FAQ / Trust note -->
+      <div class="pub-pricing-footer-note">
+        <div style="display:flex;gap:32px;justify-content:center;flex-wrap:wrap;align-items:center">
+          <span>◈ &nbsp;No setup fees. Cancel anytime.</span>
+          <span style="width:1px;height:16px;background:var(--border);display:inline-block"></span>
+          <span>◉ &nbsp;HIPAA-compliant infrastructure included in all plans.</span>
+          <span style="width:1px;height:16px;background:var(--border);display:inline-block"></span>
+          <span>◇ &nbsp;Need a custom quote? <button class="pub-pricing-inline-link" onclick="window._navPublic('signup-professional')">Contact us &rarr;</button></span>
+        </div>
+      </div>
+
+    </section>
+
+    <div class="pub-divider"></div>
+
+    <!-- ─── Final CTA ──────────────────────────────────────────────────────── -->
+    <div class="pub-cta-section">
+      <div class="pub-eyebrow" style="display:block;text-align:center;margin-bottom:16px">Get started</div>
+      <div class="pub-cta-title">Choose your entry point.</div>
+      <div class="pub-cta-sub">
+        DeepSynaps has a distinct experience for each role.
+        Select yours to begin.
+      </div>
+
+      <div class="pub-cta-trio">
+
+        <div class="pub-cta-card primary-cta">
+          <div class="pub-cta-card-icon" style="color:var(--teal)">⚕</div>
+          <div class="pub-cta-card-title">Create Clinic Account</div>
+          <div class="pub-cta-card-sub">
+            For clinicians, technicians, researchers, and clinic administrators.
+          </div>
+          <button class="btn-hero-primary" onclick="window._navPublic('signup-professional')"
+            style="width:100%;font-size:12.5px;padding:10px">
             Start as Professional &rarr;
           </button>
         </div>
 
-        <div class="pub-audience-card secondary">
-          <div class="pub-audience-icon">◉</div>
-          <div class="pub-audience-title">For Patients</div>
-          <div class="pub-audience-desc">
-            A calm, clear view of your treatment journey — without clinical complexity.
-            See your sessions, progress, and messages from your care team.
+        <div class="pub-cta-card secondary-cta">
+          <div class="pub-cta-card-icon" style="color:var(--blue)">◉</div>
+          <div class="pub-cta-card-title">Patient Portal</div>
+          <div class="pub-cta-card-sub">
+            For patients registered by a clinic. Requires an invitation code.
           </div>
-          <ul class="pub-audience-features">
-            <li>Upcoming and completed session schedule</li>
-            <li>Treatment course summary and progress overview</li>
-            <li>Assessments and symptom tracking</li>
-            <li>Reports and documents from your clinic</li>
-            <li>Secure messages and reminders from your care team</li>
-            <li>Profile and preference management</li>
-          </ul>
-          <button class="btn-hero-secondary" onclick="window._navPublic('signup-patient')" style="width:100%;font-size:13px;padding:11px">
-            Access Patient Portal &rarr;
+          <button
+            onclick="window._navPublic('signup-patient')"
+            style="width:100%;font-size:12.5px;padding:10px;border-radius:var(--radius-lg);background:rgba(74,158,255,0.1);color:var(--blue);border:1px solid var(--border-blue);font-family:var(--font-body);font-weight:600;cursor:pointer;transition:all 0.15s">
+            Activate Patient Portal &rarr;
+          </button>
+        </div>
+
+        <div class="pub-cta-card">
+          <div class="pub-cta-card-icon" style="color:var(--text-tertiary)">◇</div>
+          <div class="pub-cta-card-title">Sign In</div>
+          <div class="pub-cta-card-sub">
+            Already have an account. Access your existing professional or patient session.
+          </div>
+          <button class="btn-hero-ghost" onclick="window._showSignIn()"
+            style="width:100%;font-size:12.5px;padding:10px">
+            Sign In to Your Account
           </button>
         </div>
 
       </div>
-    </div>
 
-    <div class="pub-divider"></div>
-
-    <!-- Feature overview -->
-    <section class="pub-section">
-      <div class="pub-section-title">Platform Capabilities</div>
-      <div class="pub-section-sub">Every workflow a neuromodulation practice needs — built into one coherent system.</div>
-      <div class="pub-feature-grid">
-        ${[
-          { icon: '◎', title: 'Treatment Course Engine', desc: 'Full lifecycle management from protocol selection to session completion and outcome review. Not appointment scheduling — clinical operations.' },
-          { icon: '⬡', title: 'Protocol Intelligence', desc: 'AI-assisted protocol generation with evidence-grade matching. Filter by modality, condition, and patient profile to generate structured protocols.' },
-          { icon: '◈', title: 'qEEG & Brain Data', desc: 'Integrated EEG band analysis, brain region mapping, and topographic visualisation per patient with longitudinal tracking.' },
-          { icon: '◧', title: 'Session Execution Engine', desc: 'Step-by-step session runner with device configuration, montage verification, pulse parameter entry, and real-time deviation flagging.' },
-          { icon: '◱', title: 'Review & Governance', desc: 'Adverse event registry, protocol approval workflows, audit trail, and regulatory flag tracking — clinical governance built in from day one.' },
-          { icon: '◫', title: 'Outcomes & Evidence', desc: 'Track patient outcomes over time against evidence grades. Evidence library with A–D grading across conditions and modalities.' },
-        ].map(f => `
-          <div class="pub-feature-card">
-            <span class="pub-feature-icon">${f.icon}</span>
-            <div class="pub-feature-title">${f.title}</div>
-            <div class="pub-feature-desc">${f.desc}</div>
-          </div>
-        `).join('')}
-      </div>
-    </section>
-
-    <div class="pub-divider"></div>
-
-    <!-- Trust / Governance / Safety -->
-    <section class="pub-section">
-      <div style="text-align:center;margin-bottom:40px">
-        <div class="pub-section-title" style="text-align:center">Built for Clinical Trust</div>
-        <div class="pub-section-sub" style="margin:10px auto 0;text-align:center">
-          Governance, safety checks, and evidence grading are first-class features — not afterthoughts.
-        </div>
-      </div>
-      <div class="pub-trust-grid">
-        ${[
-          { icon: '🛡', title: 'Clinical Governance', desc: 'Protocol approval workflows, adverse event registry, and complete audit trail per session and course.' },
-          { icon: '⚗', title: 'Evidence Grading', desc: 'All protocols carry an evidence grade (A–D) drawn from peer-reviewed neuromodulation research.' },
-          { icon: '⚠', title: 'Safety Checks', desc: 'Contraindication screening, deviation flagging during sessions, and safety status per protocol.' },
-          { icon: '🔒', title: 'Role Separation', desc: 'Clinician, technician, reviewer, admin, and patient roles — each with scoped access and a purpose-built interface.' },
-        ].map(t => `
-          <div class="pub-trust-item">
-            <div class="pub-trust-icon">${t.icon}</div>
-            <div class="pub-trust-title">${t.title}</div>
-            <div class="pub-trust-desc">${t.desc}</div>
-          </div>
-        `).join('')}
-      </div>
-    </section>
-
-    <!-- CTA -->
-    <div class="pub-cta-section">
-      <div class="pub-cta-title">Ready to operationalize your clinic?</div>
-      <div class="pub-cta-sub">
-        Join the neuromodulation practices already using DeepSynaps to deliver more structured,
-        evidence-based care.
-      </div>
-      <div style="display:flex;gap:14px;justify-content:center;flex-wrap:wrap">
-        <button class="btn-hero-primary" onclick="window._navPublic('signup-professional')" style="font-size:13.5px">
-          Start as Professional &rarr;
-        </button>
-        <button class="btn-hero-ghost" onclick="window._showSignIn()" style="font-size:13.5px">
-          Sign In to Your Account
-        </button>
+      <div style="margin-top:32px;font-size:11.5px;color:var(--text-tertiary);text-align:center;line-height:1.7">
+        ⚕ &nbsp;DeepSynaps is a clinical operations platform for qualified neuromodulation practitioners.<br>
+        All protocols and session parameters are for professional use only.
+        Patient access is clinic-provisioned.
       </div>
     </div>
 
-    <!-- Footer -->
+    <!-- ─── Footer ─────────────────────────────────────────────────────────── -->
     <div class="pub-footer">
       <div class="pub-footer-logo">
         <div class="logo-icon" style="width:24px;height:24px;font-size:11px">🧠</div>
@@ -399,7 +731,7 @@ export function pgSignupProfessional() {
     document.getElementById('pip-3').className = 'step-pip done';
 
     setCurrentUser(user);
-    setTimeout(() => { showApp(); updateUserBar(); window._bootApp(); }, 1200);
+    setTimeout(() => { localStorage.removeItem('ds_onboarding_done'); showApp(); updateUserBar(); window._bootApp(); }, 1200);
   };
 }
 
