@@ -1,4 +1,5 @@
 import json
+import logging
 import uuid
 from datetime import datetime
 from typing import Optional
@@ -21,6 +22,7 @@ from app.services.chat_service import (
 )
 
 router = APIRouter(prefix="/api/v1/chat", tags=["chat"])
+_audit_logger = logging.getLogger(__name__)
 
 
 class ChatMessage(BaseModel):
@@ -161,7 +163,7 @@ def _log_ai_summary(
         actor_id=actor.actor_id,
         actor_role=actor.role,
         summary_type=summary_type,
-        prompt_hash=hashlib.sha256(response[:200].encode()).hexdigest()[:16],
+        prompt_hash=hashlib.sha256(f"{summary_type}:{patient_id}:{actor.actor_id}".encode()).hexdigest()[:16],
         response_preview=response[:500],
         sources_used=json.dumps(sources),
         model_used=model,
@@ -176,18 +178,19 @@ def wearable_patient_chat(
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
     db: Session = Depends(get_db_session),
 ) -> ChatResponse:
-    """Patient asks questions about their own wearable data. Context auto-included."""
-    if actor.role not in ('patient', 'guest'):
-        # Allow clinicians to preview too
-        pass
+    """Patient asks questions about their own wearable data.
 
+    For authenticated patients, wearable context is always fetched from the
+    database — the client-supplied patient_context field is ignored for patients
+    to prevent context spoofing. Clinicians previewing this endpoint receive
+    the client-supplied context (they use /wearable-clinician for real queries).
+    """
     msgs = [{"role": m.role, "content": m.content} for m in body.messages]
-    reply = chat_wearable_patient(msgs, body.patient_context)
+    pt = None
+    wearable_context = body.patient_context  # fallback for clinician preview
 
-    # Audit log if patient
     if actor.role == 'patient':
         try:
-            from app.persistence.models import Patient
             from app.routers.patient_portal_router import _DEMO_PATIENT_ACTOR_ID
             if actor.actor_id == _DEMO_PATIENT_ACTOR_ID:
                 pt = db.query(Patient).filter(Patient.email == "patient@demo.com").first()
@@ -196,9 +199,18 @@ def wearable_patient_chat(
                 user = db.query(User).filter_by(id=actor.actor_id).first()
                 pt = db.query(Patient).filter(Patient.email == user.email).first() if user else None
             if pt:
-                _log_ai_summary(pt.id, actor, 'patient_wearable', reply, ['wearable_summary'], 'claude-haiku-4-5-20251001', db)
+                # Always source context from DB — never trust client-supplied string
+                wearable_context = _build_wearable_context(pt.id, db)
         except Exception:
-            pass
+            _audit_logger.warning("Failed to resolve patient wearable context from DB for actor %s", actor.actor_id)
+
+    reply = chat_wearable_patient(msgs, wearable_context)
+
+    if actor.role == 'patient' and pt:
+        try:
+            _log_ai_summary(pt.id, actor, 'patient_wearable', reply, ['wearable_summary'], 'claude-haiku-4-5-20251001', db)
+        except Exception:
+            _audit_logger.warning("Failed to write AI summary audit for patient %s", pt.id)
 
     return ChatResponse(reply=reply)
 
@@ -235,6 +247,9 @@ def wearable_clinician_chat(
             ['wearable_summary', 'patient_record'], 'claude-opus-4-6', db,
         )
     except Exception:
-        pass
+        _audit_logger.warning(
+            "Failed to write AI summary audit for clinician %s on patient %s",
+            actor.actor_id, body.patient_id,
+        )
 
     return ChatResponse(reply=reply)

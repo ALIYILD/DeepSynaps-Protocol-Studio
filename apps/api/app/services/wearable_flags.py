@@ -153,12 +153,15 @@ def run_flag_checks(
     # ── Rule 4: Sync gap ──────────────────────────────────────────────────────
     if summaries_14d:
         latest_date_str = max(s.date for s in summaries_14d)
-        latest_dt = datetime.strptime(latest_date_str, '%Y-%m-%d')
-        gap_hours = (now - latest_dt).total_seconds() / 3600
+        # Compare date-to-date (whole days) to avoid naive datetime vs UTC offset errors.
+        # Using (now.date() - latest_date).days preserves correct behaviour on all server TZs.
+        from datetime import date as _date
+        gap_days = (now.date() - _date.fromisoformat(latest_date_str)).days
+        gap_hours = gap_days * 24
         if gap_hours >= _SYNC_GAP_HOURS:
             _emit(
                 'sync_gap', 'info',
-                f"No wearable data received for {gap_hours:.0f} hours. Patient may need assistance reconnecting.",
+                f"No wearable data received for {gap_days} day(s). Patient may need assistance reconnecting.",
                 {'last_sync_date': latest_date_str, 'gap_hours': gap_hours},
             )
 
