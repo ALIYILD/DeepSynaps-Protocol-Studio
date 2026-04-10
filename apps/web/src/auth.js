@@ -46,6 +46,7 @@ function renderLoginPage() {
     <div id="auth-tabs" style="display:flex;border-bottom:1px solid var(--border);margin-bottom:24px">
       <button id="tab-login" class="tab-btn active" onclick="switchAuthTab('login')">Sign In</button>
       <button id="tab-register" class="tab-btn" onclick="switchAuthTab('register')">Create Account</button>
+      <button id="tab-demo" class="tab-btn" onclick="switchAuthTab('demo')">Demo Access</button>
     </div>
 
     <div id="login-form">
@@ -81,6 +82,35 @@ function renderLoginPage() {
       <button class="btn btn-primary" style="width:100%;padding:10px;font-size:13.5px" onclick="submitRegister()">Create Account →</button>
     </div>
 
+    <div id="demo-form" style="display:none">
+      <div style="font-size:12px;color:var(--text-secondary);margin-bottom:16px;line-height:1.65">
+        Click a role below to enter with a demo token. No registration required.
+      </div>
+      <div style="display:grid;gap:8px">
+        ${[
+          { token: 'admin-demo-token',        label: 'Admin',            sub: 'Full access · All features',              color: 'var(--teal)' },
+          { token: 'clinician-demo-token',    label: 'Clinician Pro',    sub: 'Patient management · Protocol generation', color: 'var(--blue)' },
+          { token: 'resident-demo-token',     label: 'Resident / Fellow',sub: 'Evidence library · Limited protocols',     color: 'var(--violet)' },
+          { token: 'explorer-demo-token',     label: 'Guest / Explorer', sub: 'Read-only · Evidence & devices',           color: 'var(--amber)' },
+          { token: 'clinic-admin-demo-token', label: 'Clinic Admin',     sub: 'Team management · All clinical tools',    color: 'var(--rose)' },
+        ].map(d => `<button onclick="window.demoLogin('${d.token}')" style="
+          display:flex;align-items:center;gap:12px;padding:11px 14px;
+          border-radius:var(--radius-md);border:1px solid var(--border);
+          background:var(--bg-surface);cursor:pointer;transition:all var(--transition);
+          text-align:left;width:100%;font-family:var(--font-body);"
+          onmouseover="this.style.borderColor='var(--border-teal)';this.style.background='var(--teal-ghost)'"
+          onmouseout="this.style.borderColor='var(--border)';this.style.background='var(--bg-surface)'">
+          <div style="width:8px;height:8px;border-radius:50%;background:${d.color};flex-shrink:0;box-shadow:0 0 8px ${d.color}40"></div>
+          <div>
+            <div style="font-size:12.5px;font-weight:600;color:var(--text-primary)">${d.label}</div>
+            <div style="font-size:11px;color:var(--text-secondary);margin-top:1px">${d.sub}</div>
+          </div>
+          <div style="margin-left:auto;font-size:11px;color:var(--text-tertiary)">→</div>
+        </button>`).join('')}
+      </div>
+      <div id="demo-error" style="color:var(--red);font-size:12px;margin-top:12px;display:none"></div>
+    </div>
+
     <div style="margin-top:24px;padding:14px;background:rgba(0,212,188,0.04);border:1px solid var(--border-teal);border-radius:var(--radius-md);font-size:11.5px;color:var(--text-secondary);line-height:1.6">
       ⚕ Clinical platform for qualified neuromodulation practitioners. All protocols are for professional use only.
     </div>
@@ -90,8 +120,27 @@ function renderLoginPage() {
 window.switchAuthTab = function(tab) {
   document.getElementById('login-form').style.display = tab === 'login' ? '' : 'none';
   document.getElementById('register-form').style.display = tab === 'register' ? '' : 'none';
+  document.getElementById('demo-form').style.display = tab === 'demo' ? '' : 'none';
   document.getElementById('tab-login').classList.toggle('active', tab === 'login');
   document.getElementById('tab-register').classList.toggle('active', tab === 'register');
+  document.getElementById('tab-demo').classList.toggle('active', tab === 'demo');
+};
+
+window.demoLogin = async function(token) {
+  const errEl = document.getElementById('demo-error');
+  if (errEl) errEl.style.display = 'none';
+  api.setToken(token);
+  try {
+    const user = await api.me();
+    if (!user) throw new Error('Backend not reachable. Start the backend first.');
+    currentUser = user;
+    showApp();
+    updateUserBar();
+    window._bootApp();
+  } catch (e) {
+    api.clearToken();
+    if (errEl) { errEl.textContent = e.message; errEl.style.display = ''; }
+  }
 };
 
 window.submitLogin = async function() {
