@@ -26,6 +26,226 @@ export function setAiLoading(v) { aiLoading = v; }
 export function setSavedProto(v) { savedProto = v; }
 export function setSelectedPatient(v) { selectedPatient = v; }
 
+// ── Protocol version history store ──────────────────────────────────────────
+const _protoVersions = {}; // key: "patientId:condition", value: array of version objects
+
+function _saveProtoVersion(patientId, condition, draft, params) {
+  const key = `${patientId}:${condition}`;
+  if (!_protoVersions[key]) _protoVersions[key] = [];
+  _protoVersions[key].unshift({
+    version: _protoVersions[key].length + 1,
+    timestamp: new Date().toISOString(),
+    draft,
+    params: JSON.parse(JSON.stringify(params || {})),
+    id: (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : Math.random().toString(36).slice(2),
+  });
+  if (_protoVersions[key].length > 10) _protoVersions[key].pop();
+}
+
+function _getProtoVersions(patientId, condition) {
+  return _protoVersions[`${patientId}:${condition}`] || [];
+}
+
+function _relativeTime(isoStr) {
+  const diff = Date.now() - new Date(isoStr).getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 2) return 'just now';
+  if (mins < 60) return `${mins} minutes ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours} hour${hours > 1 ? 's' : ''} ago`;
+  const days = Math.floor(hours / 24);
+  if (days === 1) return 'Yesterday';
+  if (days < 7) return `${days} days ago`;
+  return new Date(isoStr).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+}
+
+function _findVersionById(id) {
+  for (const key of Object.keys(_protoVersions)) {
+    const found = _protoVersions[key].find(v => v.id === id);
+    if (found) return { version: found, key };
+  }
+  return null;
+}
+
+// Active diff state
+let _diffState = { versionId: null, diffMode: false };
+
+function _wordDiff(oldText, newText) {
+  const oldTokens = (oldText || '').split(/\s+/).filter(Boolean);
+  const newTokens = (newText || '').split(/\s+/).filter(Boolean);
+  const oldMatched = new Set();
+  const newMatched = new Set();
+  for (let i = 0; i < newTokens.length; i++) {
+    const start = Math.max(0, i - 5);
+    const end = Math.min(oldTokens.length, i + 6);
+    for (let j = start; j < end; j++) {
+      if (!oldMatched.has(j) && oldTokens[j] === newTokens[i]) {
+        newMatched.add(i);
+        oldMatched.add(j);
+        break;
+      }
+    }
+  }
+  const esc = s => s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  let leftHtml = '';
+  let rightHtml = '';
+  oldTokens.forEach((w, i) => {
+    leftHtml += oldMatched.has(i) ? esc(w) + ' ' : `<span class="diff-remove">${esc(w)}</span> `;
+  });
+  newTokens.forEach((w, i) => {
+    rightHtml += newMatched.has(i) ? esc(w) + ' ' : `<span class="diff-add">${esc(w)}</span> `;
+  });
+  return { leftHtml, rightHtml };
+}
+
+function _injectVersionStyles() {
+  if (document.getElementById('proto-version-styles')) return;
+  const style = document.createElement('style');
+  style.id = 'proto-version-styles';
+  style.textContent = `
+    .side-panel{position:fixed;top:0;right:0;width:420px;height:100vh;background:var(--surface-2);border-left:1px solid var(--border);z-index:300;display:flex;flex-direction:column;box-shadow:-8px 0 32px rgba(0,0,0,.4);animation:slideInRight .2s ease;overflow:hidden}
+    .side-panel-header{padding:20px 24px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center}
+    .side-panel-body{flex:1;overflow-y:auto;padding:16px}
+    @keyframes slideInRight{from{transform:translateX(100%)}to{transform:translateX(0)}}
+    .version-item{padding:14px;border:1px solid var(--border);border-radius:10px;margin-bottom:10px;background:var(--surface-1)}
+    .version-item:hover{border-color:var(--teal-400)}
+    .overlay-fullscreen{position:fixed;inset:0;background:var(--navy-900);z-index:400;display:flex;flex-direction:column}
+    .overlay-header{padding:16px 24px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;flex-shrink:0}
+    .diff-container{flex:1;overflow:auto;padding:24px}
+    .diff-side-by-side{display:grid;grid-template-columns:1fr 1fr;gap:16px;min-height:100%}
+    .diff-panel{background:var(--surface-1);border:1px solid var(--border);border-radius:10px;padding:16px;overflow:auto;font-family:'DM Mono',monospace;font-size:.8rem;line-height:1.7;white-space:pre-wrap}
+    .diff-add{background:rgba(0,212,188,.2);border-radius:2px}
+    .diff-remove{background:rgba(255,107,107,.2);text-decoration:line-through;opacity:.7;border-radius:2px}
+    .diff-panel-label{font-size:10.5px;font-weight:600;text-transform:uppercase;letter-spacing:.8px;color:var(--text-tertiary);margin-bottom:8px}
+    @keyframes fadeInUp{from{opacity:0;transform:translateX(-50%) translateY(12px)}to{opacity:1;transform:translateX(-50%) translateY(0)}}
+  `;
+  document.head.appendChild(style);
+}
+
+window._showProtoVersions = function() {
+  _injectVersionStyles();
+  const ws = wizState();
+  const versions = _getProtoVersions(ws.patientId || '', ws.conditionSlug || '');
+  const existing = document.getElementById('proto-version-panel');
+  if (existing) existing.remove();
+  const panel = document.createElement('div');
+  panel.id = 'proto-version-panel';
+  panel.className = 'side-panel';
+  const esc = s => (s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  panel.innerHTML = `
+    <div class="side-panel-header">
+      <h3 style="margin:0;font-size:15px">Version History</h3>
+      <button class="btn btn-ghost btn-sm" onclick="document.getElementById('proto-version-panel').remove()">&#x2715;</button>
+    </div>
+    <div class="side-panel-body">
+      ${versions.length === 0
+        ? '<div style="color:var(--text-tertiary);font-size:13px;padding:12px 0">No previous versions.</div>'
+        : versions.map(v => `
+          <div class="version-item">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+              <span style="font-size:12.5px;font-weight:700;color:var(--teal-400)">v${v.version}</span>
+              <span style="font-size:11px;color:var(--text-tertiary)">${_relativeTime(v.timestamp)}</span>
+            </div>
+            <div style="font-size:11.5px;color:var(--text-secondary);line-height:1.5;margin-bottom:10px;font-family:'DM Mono',monospace;word-break:break-word">${esc((v.draft || '').slice(0,120))}${v.draft && v.draft.length > 120 ? '&hellip;' : ''}</div>
+            <div style="display:flex;gap:8px">
+              <button class="btn btn-sm" onclick="window._viewProtoVersion('${v.id}')">&#x1F441; View</button>
+              <button class="btn btn-sm" style="border-color:var(--teal-400);color:var(--teal-400)" onclick="window._restoreProtoVersion('${v.id}')">&#x21A9; Restore</button>
+            </div>
+          </div>`).join('')}
+      <div style="font-size:10.5px;color:var(--text-tertiary);margin-top:8px;text-align:center">Version history is session-only &mdash; persistence planned.</div>
+    </div>
+  `;
+  document.getElementById('content').appendChild(panel);
+};
+
+window._viewProtoVersion = function(id) {
+  _injectVersionStyles();
+  const found = _findVersionById(id);
+  if (!found) return;
+  const v = found.version;
+  _diffState.versionId = id;
+  _diffState.diffMode = false;
+  const existing = document.getElementById('proto-diff-overlay');
+  if (existing) existing.remove();
+  const esc = s => (s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  const overlay = document.createElement('div');
+  overlay.id = 'proto-diff-overlay';
+  overlay.className = 'overlay-fullscreen';
+  overlay.innerHTML = `
+    <div class="overlay-header">
+      <h3 style="margin:0;font-size:15px">Protocol v${v.version} <span style="font-size:11px;font-weight:400;color:var(--text-tertiary);margin-left:8px">${_relativeTime(v.timestamp)}</span></h3>
+      <div style="display:flex;gap:8px;align-items:center">
+        <button class="btn btn-sm" id="diff-toggle-btn" onclick="window._toggleDiffMode()">&#x21C4; Toggle Diff</button>
+        <button class="btn btn-primary btn-sm" onclick="window._restoreProtoVersion('${v.id}')">&#x21A9; Restore This Version</button>
+        <button class="btn btn-ghost btn-sm" onclick="document.getElementById('proto-diff-overlay').remove()">&#x2715;</button>
+      </div>
+    </div>
+    <div id="diff-content" class="diff-container">
+      <pre style="background:var(--surface-1);border:1px solid var(--border);border-radius:10px;padding:20px;font-family:'DM Mono',monospace;font-size:.8rem;line-height:1.7;white-space:pre-wrap;margin:0">${esc(v.draft) || '(no draft text)'}</pre>
+    </div>
+  `;
+  document.getElementById('content').appendChild(overlay);
+};
+
+window._toggleDiffMode = function() {
+  const id = _diffState.versionId;
+  if (!id) return;
+  const found = _findVersionById(id);
+  if (!found) return;
+  const v = found.version;
+  _diffState.diffMode = !_diffState.diffMode;
+  const btn = document.getElementById('diff-toggle-btn');
+  if (btn) btn.textContent = _diffState.diffMode ? '\u21C4 Single View' : '\u21C4 Toggle Diff';
+  const ws = wizState();
+  const currentDraft = ws.generatedProtocol
+    ? (ws.generatedProtocol.protocol || ws.generatedProtocol.draft || JSON.stringify(ws.generatedProtocol))
+    : '';
+  const oldDraft = v.draft || '';
+  const container = document.getElementById('diff-content');
+  if (!container) return;
+  const esc = s => (s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  if (!_diffState.diffMode) {
+    container.innerHTML = `<pre style="background:var(--surface-1);border:1px solid var(--border);border-radius:10px;padding:20px;font-family:'DM Mono',monospace;font-size:.8rem;line-height:1.7;white-space:pre-wrap;margin:0">${esc(oldDraft) || '(no draft text)'}</pre>`;
+  } else {
+    const { leftHtml, rightHtml } = _wordDiff(oldDraft, currentDraft);
+    container.innerHTML = `
+      <div class="diff-side-by-side">
+        <div>
+          <div class="diff-panel-label">v${v.version} &mdash; this version</div>
+          <div class="diff-panel">${leftHtml || esc(oldDraft)}</div>
+        </div>
+        <div>
+          <div class="diff-panel-label">Current / Latest</div>
+          <div class="diff-panel">${rightHtml || '<span style="color:var(--text-tertiary)">(no current draft)</span>'}</div>
+        </div>
+      </div>`;
+  }
+};
+
+window._restoreProtoVersion = function(id) {
+  const found = _findVersionById(id);
+  if (!found) return;
+  const v = found.version;
+  if (!confirm(`Restore version v${v.version} (${_relativeTime(v.timestamp)})?\nThe current draft will be replaced. You can save it as a new version.`)) return;
+  const overlay = document.getElementById('proto-diff-overlay');
+  if (overlay) overlay.remove();
+  const panel = document.getElementById('proto-version-panel');
+  if (panel) panel.remove();
+  const ws = wizState();
+  if (!ws.generatedProtocol) ws.generatedProtocol = {};
+  ws.generatedProtocol.protocol = v.draft;
+  ws.generatedProtocol.draft = v.draft;
+  ws.step = 3;
+  ws._step4Html = null;
+  renderWizPage();
+  const toast = document.createElement('div');
+  toast.style.cssText = 'position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--teal-500,#0ad4bc);color:#000;padding:10px 22px;border-radius:8px;font-size:13px;font-weight:600;z-index:500;box-shadow:0 4px 16px rgba(0,0,0,.4);animation:fadeInUp .25s ease';
+  toast.textContent = 'Version restored \u2014 review and save as new version';
+  document.body.appendChild(toast);
+  setTimeout(() => toast.remove(), 3500);
+  document.getElementById('wiz-body')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+};
+
 // ── Dashboard local helpers ──────────────────────────────────────────────────
 
 function _dStatCard(label, value, sub, color, navId, alert = false) {
@@ -140,50 +360,107 @@ function _dMiniBar(label, value, total, color) {
   </div>`;
 }
 
+// ── Dashboard widget registry & layout persistence ───────────────────────────
+const DASHBOARD_WIDGETS = [
+  { id: 'stats',         label: 'Key Statistics',          icon: '📊', defaultVisible: true },
+  { id: 'governance',    label: 'Governance Flags',         icon: '🛡️', defaultVisible: true },
+  { id: 'patients',      label: 'Recent Patients',          icon: '👥', defaultVisible: true },
+  { id: 'courses',       label: 'Active Courses',           icon: '📋', defaultVisible: true },
+  { id: 'alerts',        label: 'Clinical Alerts',          icon: '⚠️', defaultVisible: true },
+  { id: 'protocols',     label: 'Protocol Recommendations', icon: '🧠', defaultVisible: true },
+  { id: 'population',    label: 'Population Summary',       icon: '🌍', defaultVisible: false },
+  { id: 'quick-actions', label: 'Quick Actions',            icon: '⚡', defaultVisible: true },
+];
+
+const DASH_LAYOUT_KEY = 'ds_dashboard_layout';
+
+function getDashLayout() {
+  try {
+    const stored = JSON.parse(localStorage.getItem(DASH_LAYOUT_KEY) || 'null');
+    if (stored && Array.isArray(stored.order)) return stored;
+  } catch {}
+  return {
+    order: DASHBOARD_WIDGETS.map(w => w.id),
+    collapsed: [],
+    hidden: DASHBOARD_WIDGETS.filter(w => !w.defaultVisible).map(w => w.id),
+  };
+}
+
+function saveDashLayout(layout) {
+  localStorage.setItem(DASH_LAYOUT_KEY, JSON.stringify(layout));
+}
+
+function initDashDrag() {
+  let dragSrc = null;
+  document.querySelectorAll('.dash-widget').forEach(widget => {
+    widget.addEventListener('dragstart', (e) => {
+      dragSrc = widget;
+      widget.style.opacity = '0.4';
+      e.dataTransfer.effectAllowed = 'move';
+    });
+    widget.addEventListener('dragend', () => {
+      widget.style.opacity = '1';
+      document.querySelectorAll('.dash-widget').forEach(w => w.classList.remove('drag-over'));
+    });
+    widget.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      if (widget !== dragSrc) widget.classList.add('drag-over');
+    });
+    widget.addEventListener('dragleave', () => widget.classList.remove('drag-over'));
+    widget.addEventListener('drop', (e) => {
+      e.preventDefault();
+      widget.classList.remove('drag-over');
+      if (dragSrc && dragSrc !== widget) {
+        const grid = document.getElementById('dash-widget-grid');
+        const allWidgets = [...grid.querySelectorAll('.dash-widget')];
+        const srcIdx = allWidgets.indexOf(dragSrc);
+        const tgtIdx = allWidgets.indexOf(widget);
+        if (srcIdx < tgtIdx) widget.after(dragSrc); else widget.before(dragSrc);
+        const newOrder = [...grid.querySelectorAll('.dash-widget')].map(w => w.dataset.widgetId);
+        const layout = getDashLayout();
+        layout.order = newOrder;
+        saveDashLayout(layout);
+      }
+    });
+  });
+}
+
+function renderUpcomingSessionsWidget(sessions) {
+  const now = new Date();
+  const upcoming = (sessions || [])
+    .filter(s => s.scheduled_at && new Date(s.scheduled_at) > now)
+    .sort((a, b) => new Date(a.scheduled_at) - new Date(b.scheduled_at))
+    .slice(0, 5);
+  if (upcoming.length === 0) {
+    return `<div style="text-align:center;padding:20px;color:var(--text-secondary);font-size:0.85rem">No upcoming sessions scheduled</div>`;
+  }
+  return upcoming.map(s => {
+    const d = new Date(s.scheduled_at);
+    const dateStr = d.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
+    const timeStr = d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+    return `<div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)">
+      <div style="min-width:48px;text-align:center;background:rgba(0,212,188,0.1);border-radius:8px;padding:6px">
+        <div style="font-size:0.65rem;text-transform:uppercase;color:var(--teal)">${dateStr.split(' ')[0]}</div>
+        <div style="font-weight:700;font-size:1rem">${d.getDate()}</div>
+      </div>
+      <div>
+        <div style="font-size:0.85rem;font-weight:500">${s.patient_name || `Session #${(s.id||'').slice(0,6)}`}</div>
+        <div style="font-size:0.75rem;color:var(--text-secondary)">${timeStr} · ${s.modality || 'Session'}</div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
 // ── Dashboard ────────────────────────────────────────────────────────────────
 export async function pgDash(setTopbar, navigate) {
   const role = currentUser?.role || 'clinician';
 
-  // Role-aware topbar actions
-  const roleActions = {
-    technician:   [
-      { l: 'Start Session',    icon: '◧', page: 'session-execution', primary: true },
-      { l: 'Active Courses',   icon: '◎', page: 'courses' },
-    ],
-    reviewer: [
-      { l: 'Review Queue',     icon: '◱', page: 'review-queue', primary: true },
-      { l: 'Audit Trail',      icon: '◧', page: 'audittrail' },
-    ],
-    supervisor: [
-      { l: 'Review Queue',     icon: '◱', page: 'review-queue', primary: true },
-      { l: 'Outcomes',         icon: '◫', page: 'outcomes' },
-      { l: 'Audit Trail',      icon: '◧', page: 'audittrail' },
-    ],
-    admin: [
-      { l: 'Review Queue',     icon: '◱', page: 'review-queue', primary: true },
-      { l: 'Audit Trail',      icon: '◧', page: 'audittrail' },
-      { l: 'Settings',         icon: '◎', page: 'settings' },
-    ],
-    'clinic-admin': [
-      { l: 'Add Patient',      icon: '◉', page: 'patients', primary: true },
-      { l: 'Review Queue',     icon: '◱', page: 'review-queue' },
-      { l: 'Settings',         icon: '◎', page: 'settings' },
-    ],
-  };
-  const defaultActions = [
-    { l: 'Start Session',      icon: '◧', page: 'session-execution', primary: true },
-    { l: 'Create Course',      icon: '◎', page: 'protocol-wizard' },
-    { l: 'Review Approvals',   icon: '◱', page: 'review-queue' },
-    { l: 'Add Patient',        icon: '◉', page: 'patients' },
-  ];
-  const actions = roleActions[role] || defaultActions;
-
   setTopbar('Dashboard',
     `<div style="display:flex;gap:6px;align-items:center">
-      <span style="font-size:10px;color:var(--text-tertiary);margin-right:4px;text-transform:uppercase;letter-spacing:.7px">${role}</span>
-      ${actions.map(a =>
-        `<button class="btn ${a.primary ? 'btn-primary' : ''} btn-sm" onclick="window._nav('${a.page}')">${a.icon} ${a.l}</button>`
-      ).join('')}
+      <button class="btn btn-primary btn-sm" onclick="window._nav('session-execution')">◧ Start Session</button>
+      <button class="btn btn-sm" onclick="window._nav('patients')">◉ Patients</button>
+      <button class="btn btn-sm" onclick="window._nav('protocol-wizard')">◎ New Course</button>
     </div>`
   );
 
@@ -191,236 +468,374 @@ export async function pgDash(setTopbar, navigate) {
   el.innerHTML = spinner();
 
   // ── Load all data in parallel ──────────────────────────────────────────────
-  let allCourses = [], pendingQueue = [], aes = [], outcomeSummary = null, patCount = 0;
+  let allPatients = [], allCourses = [], pendingQueue = [], aes = [], outcomeSummary = null, allProtocols = [], allConsents = [];
   try {
-    const [ptsRes, coursesRes, queueRes, aeRes, outRes] = await Promise.all([
+    const [ptsRes, coursesRes, queueRes, aeRes, outRes, protocolsRes, consentsRes] = await Promise.all([
       api.listPatients().catch(() => null),
       api.listCourses().catch(() => null),
       api.listReviewQueue({ status: 'pending' }).catch(() => null),
       api.listAdverseEvents().catch(() => null),
       api.aggregateOutcomes().catch(() => null),
+      api.protocols({ limit: 20 }).catch(() => null),
+      api.listConsents().catch(() => null),
     ]);
-    if (ptsRes) patCount = ptsRes.total ?? ptsRes.items?.length ?? 0;
-    if (coursesRes) allCourses = coursesRes.items || [];
-    if (queueRes)   pendingQueue = queueRes.items || [];
-    if (aeRes)      aes = aeRes.items || [];
-    if (outRes)     outcomeSummary = outRes;
+    if (ptsRes)       allPatients    = ptsRes.items || [];
+    if (coursesRes)   allCourses     = coursesRes.items || [];
+    if (queueRes)     pendingQueue   = queueRes.items || [];
+    if (aeRes)        aes            = aeRes.items || [];
+    if (outRes)       outcomeSummary = outRes;
+    if (protocolsRes) allProtocols   = protocolsRes.items || [];
+    if (consentsRes)  allConsents    = consentsRes.items || [];
   } catch {}
 
-  // ── Derive all metrics ─────────────────────────────────────────────────────
+  const patCount = allPatients.length;
+
+  // ── Patient lookup map + enrich courses with patient name ─────────────────
+  const patientMap = {};
+  allPatients.forEach(p => { patientMap[p.id] = p; });
+  allCourses.forEach(c => {
+    const pt = patientMap[c.patient_id];
+    if (pt) c._patientName = (`${pt.first_name || ''} ${pt.last_name || ''}`).trim();
+  });
+
+  // ── Derived metrics ────────────────────────────────────────────────────────
   const activeCourses    = allCourses.filter(c => c.status === 'active');
   const pendingCourses   = allCourses.filter(c => c.status === 'pending_approval');
   const approvedCourses  = allCourses.filter(c => c.status === 'approved');
   const pausedCourses    = allCourses.filter(c => c.status === 'paused');
   const completedCourses = allCourses.filter(c => c.status === 'completed');
   const flaggedCourses   = allCourses.filter(c => (c.governance_warnings || []).length > 0);
-  const offLabelCourses  = allCourses.filter(c => c.on_label === false);
-  const offLabelPending  = offLabelCourses.filter(c => c.status === 'pending_approval' || c.status === 'approved');
+  const offLabelPending  = allCourses.filter(c => c.on_label === false && (c.status === 'pending_approval' || c.status === 'approved'));
+
+  const _riskScore = c => (c.on_label === false ? 30 : 0) + (c.governance_warnings || []).length * 15 + ({ A: 0, B: 10, C: 25, D: 40 }[c.evidence_grade] ?? 20);
+  const atRiskCourses   = allCourses.filter(c => _riskScore(c) >= 50);
+  const blindTreatments = activeCourses.filter(c => (c.sessions_delivered || 0) >= 10);
 
   const openAEs    = aes.filter(a => !a.resolved_at);
   const seriousAEs = aes.filter(a => (a.severity === 'serious' || a.severity === 'severe') && !a.resolved_at);
-  const recentAEs  = aes.filter(a => a.occurred_at && new Date(a.occurred_at) >= new Date(Date.now() - 7 * 86400000));
 
-  const highRiskCount   = flaggedCourses.length + seriousAEs.length;
+  const alertFlags      = Math.max(flaggedCourses.length + seriousAEs.length, atRiskCourses.length);
   const sessionsPerWeek = activeCourses.reduce((s, c) => s + (c.planned_sessions_per_week || 0), 0);
   const totalDelivered  = allCourses.reduce((s, c) => s + (c.sessions_delivered || 0), 0);
 
-  const responderRate   = (() => {
+  const _dashConsentToday = new Date(); _dashConsentToday.setHours(0, 0, 0, 0);
+  const consentAlertCount = allConsents.filter(c => {
+    if (c.status === 'withdrawn') return false;
+    const exp = c.expires_at ? new Date(c.expires_at) : null;
+    if (!exp) return false;
+    return exp < _dashConsentToday || (exp - _dashConsentToday) < 30 * 86400000;
+  }).length;
+
+  const responderRate = (() => {
     if (!outcomeSummary) return '—';
     const r = outcomeSummary.responder_rate_pct ?? outcomeSummary.responder_rate;
     return r != null ? Math.round(r) + '%' : '—';
   })();
-  const nonResponderCount     = outcomeSummary?.non_responder_count ?? '—';
-  const assessCompletionPct   = outcomeSummary?.assessment_completion_pct != null
+  const assessCompletionPct = outcomeSummary?.assessment_completion_pct != null
     ? Math.round(outcomeSummary.assessment_completion_pct) + '%' : '—';
 
-  // Modality distribution across active courses
   const modalityCount = {};
   activeCourses.forEach(c => { const m = c.modality_slug || 'Unknown'; modalityCount[m] = (modalityCount[m] || 0) + 1; });
   const topModalities = Object.entries(modalityCount).sort((a, b) => b[1] - a[1]).slice(0, 5);
 
-  // Recent activity — last 8 by updated_at
   const recentCourses = [...allCourses]
     .sort((a, b) => ((b.updated_at || b.created_at || '') > (a.updated_at || a.created_at || '') ? 1 : -1))
-    .slice(0, 8);
+    .slice(0, 10);
 
-  // ── Row 1: 4-column stat bar ───────────────────────────────────────────────
-  const row1 = `<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px">
-    <div style="border-left:3px solid var(--teal);padding-left:1px;border-radius:var(--radius-md)">${_dStatCard('Sessions / Week', sessionsPerWeek || 0, `Planned · ${activeCourses.length} active courses`, 'var(--teal)', 'session-execution')}</div>
-    <div style="border-left:3px solid var(--amber);padding-left:1px;border-radius:var(--radius-md)">${_dStatCard('Pending Reviews', pendingQueue.length || 0, pendingQueue.length > 0 ? `${pendingQueue.length} item${pendingQueue.length !== 1 ? 's' : ''} awaiting approval` : 'Queue clear', pendingQueue.length > 0 ? 'var(--amber)' : 'var(--green)', 'review-queue', pendingQueue.length > 0)}</div>
-    <div style="border-left:3px solid var(--red);padding-left:1px;border-radius:var(--radius-md)">${_dStatCard('Governance Flags', highRiskCount || 0, highRiskCount > 0 ? `${flaggedCourses.length} courses · ${seriousAEs.length} serious AEs` : 'No active safety flags', highRiskCount > 0 ? 'var(--red)' : 'var(--green)', 'adverse-events', highRiskCount > 0)}</div>
-    <div style="border-left:3px solid var(--green);padding-left:1px;border-radius:var(--radius-md)">${_dStatCard('Active Courses', activeCourses.length || 0, `${patCount} patients · ${completedCourses.length} completed`, 'var(--blue)', 'courses')}</div>
+  const uniqueConditions = [...new Set(activeCourses.map(c => c.condition_slug).filter(Boolean))].slice(0, 3);
+  const activePatientIds = [...new Set(activeCourses.map(c => c.patient_id).filter(Boolean))];
+  const activePatients   = activePatientIds.map(id => {
+    const pt = patientMap[id];
+    return pt ? { pt, courses: activeCourses.filter(c => c.patient_id === id) } : null;
+  }).filter(Boolean).slice(0, 8);
+
+  // ── KPI stat bar ──────────────────────────────────────────────────────────
+  const statBar = `<div style="display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:16px">
+    <div style="border-left:3px solid var(--teal)">${_dStatCard('Total Patients', patCount, `${activePatientIds.length} in active treatment`, 'var(--teal)', 'patients')}</div>
+    <div style="border-left:3px solid var(--blue)">${_dStatCard('Active Courses', activeCourses.length, `${sessionsPerWeek} sessions/week planned`, 'var(--blue)', 'courses')}</div>
+    <div style="border-left:3px solid var(--green)">${_dStatCard('Sessions Delivered', totalDelivered, `${completedCourses.length} courses completed`, 'var(--green)', 'courses')}</div>
+    <div style="border-left:3px solid ${pendingQueue.length > 0 ? 'var(--amber)' : 'var(--border)'}">${_dStatCard('Pending Reviews', pendingQueue.length || 0, pendingQueue.length > 0 ? 'Action required' : 'Queue clear', pendingQueue.length > 0 ? 'var(--amber)' : 'var(--green)', 'review-queue', pendingQueue.length > 0)}</div>
+    <div style="border-left:3px solid ${alertFlags > 0 ? 'var(--red)' : 'var(--border)'}">${_dStatCard('Safety Flags', alertFlags || 0, alertFlags > 0 ? `${flaggedCourses.length} gov · ${seriousAEs.length} serious AE` : 'No active flags', alertFlags > 0 ? 'var(--red)' : 'var(--green)', 'adverse-events', alertFlags > 0)}</div>
   </div>`;
 
-  // ── Row 2: Clinic Queue + Review & Governance ──────────────────────────────
-  const clinicQueueRows = [
-    ...(activeCourses.length ? [_dQueueSection('Active — In Execution', activeCourses.slice(0,5).map(c => _dCourseRow(c,'active')))] : []),
-    ...(pausedCourses.length ? [_dQueueSection('Paused — Needs Attention', pausedCourses.slice(0,3).map(c => _dCourseRow(c,'paused')))] : []),
-    ...(pendingCourses.length ? [_dQueueSection('Pending Approval', pendingCourses.slice(0,3).map(c => _dCourseRow(c,'pending_approval')))] : []),
+  // ── Row A: Quick Actions + Clinic Queue ────────────────────────────────────
+  const quickActions = [
+    { icon: '◧', label: 'Start Session',  sub: 'Execute a treatment session',     page: 'session-execution', color: 'var(--teal)' },
+    { icon: '◉', label: 'Add Patient',    sub: 'Register a new patient',           page: 'patients',          color: 'var(--blue)' },
+    { icon: '◎', label: 'New Course',     sub: 'Create a treatment course',        page: 'protocol-wizard',   color: 'var(--violet)' },
+    { icon: '◱', label: 'Review Queue',   sub: `${pendingQueue.length} pending`,   page: 'review-queue',      color: pendingQueue.length > 0 ? 'var(--amber)' : 'var(--text-secondary)' },
+    { icon: '◫', label: 'Outcomes',       sub: `Responder rate: ${responderRate}`, page: 'outcomes',          color: 'var(--green)' },
+    { icon: '⚡', label: 'Adverse Events', sub: `${openAEs.length} open`,          page: 'adverse-events',    color: openAEs.length > 0 ? 'var(--red)' : 'var(--text-secondary)' },
   ];
 
-  const row2 = `<div class="g2" style="margin-bottom:14px;align-items:start">
+  const clinicQueueRows = [
+    ...(activeCourses.length  ? [_dQueueSection('Active — In Treatment',    activeCourses.slice(0, 5).map(c  => _dCourseRowRich(c, 'active')))]           : []),
+    ...(pausedCourses.length  ? [_dQueueSection('Paused — Needs Attention', pausedCourses.slice(0, 3).map(c  => _dCourseRowRich(c, 'paused')))]           : []),
+    ...(pendingCourses.length ? [_dQueueSection('Awaiting Approval',        pendingCourses.slice(0, 3).map(c => _dCourseRowRich(c, 'pending_approval')))] : []),
+  ];
+
+  const rowA = `<div class="g2" style="margin-bottom:14px;align-items:start">
+    <div class="card" style="overflow:hidden">
+      <div style="padding:13px 16px 11px;border-bottom:1px solid var(--border)">
+        <span style="font-weight:600;font-size:13px">Quick Actions</span>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:1px;background:var(--border)">
+        ${quickActions.map(a => `
+          <div onclick="window._nav('${a.page}')" style="padding:14px 16px;background:var(--bg-card);cursor:pointer;transition:background 0.15s"
+               onmouseover="this.style.background='var(--bg-card-hover)'" onmouseout="this.style.background='var(--bg-card)'">
+            <div style="font-size:20px;color:${a.color};margin-bottom:6px">${a.icon}</div>
+            <div style="font-size:12.5px;font-weight:600;color:var(--text-primary);margin-bottom:2px">${a.label}</div>
+            <div style="font-size:10.5px;color:var(--text-tertiary)">${a.sub}</div>
+          </div>`).join('')}
+      </div>
+    </div>
+
     <div class="card" style="overflow:hidden">
       <div style="padding:13px 16px 11px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--border)">
-        <span style="font-weight:600;font-size:13px">Today's Clinic Queue</span>
+        <span style="font-weight:600;font-size:13px">Clinic Queue</span>
         <button class="btn btn-sm" style="font-size:10.5px" onclick="window._nav('courses')">All Courses →</button>
       </div>
       ${clinicQueueRows.length
         ? clinicQueueRows.join('')
-        : `<div style="padding:36px;text-align:center;color:var(--text-tertiary);font-size:12.5px">No courses in queue. <button class="btn btn-sm" onclick="window._nav('protocol-wizard')" style="margin-left:6px">Create Course →</button></div>`
-      }
-    </div>
-
-    <div class="card" style="overflow:hidden">
-      <div style="padding:13px 16px 11px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--border)">
-        <span style="font-weight:600;font-size:13px">Review &amp; Governance</span>
-        <button class="btn btn-sm" style="font-size:10.5px" onclick="window._nav('review-queue')">Queue →</button>
-      </div>
-      ${_dGovSection('Approvals Pending', pendingQueue.length,
-        pendingQueue.length
-          ? pendingQueue.slice(0,4).map(item =>
-              _dGovRow(
-                item.condition_slug?.replace(/-/g,' ') || `Course #${(item.course_id||item.id||'').slice(0,8)}`,
-                item.modality_slug || item.notes?.slice(0,30) || '—',
-                'pending',
-                `window._nav('review-queue')`
-              )).join('')
-          : _dNoItems('No pending approvals'),
-        'var(--amber)'
-      )}
-      ${_dGovSection('Off-Label Requests', offLabelPending.length,
-        offLabelPending.length
-          ? offLabelPending.slice(0,3).map(c =>
-              _dGovRow(
-                c.condition_slug?.replace(/-/g,' ') || '—',
-                c.modality_slug || '—',
-                'off-label',
-                `window._openCourse('${c.id}')`
-              )).join('')
-          : _dNoItems('None pending'),
-        'var(--amber)'
-      )}
-      ${_dGovSection('Open Adverse Events', openAEs.length,
-        openAEs.length
-          ? openAEs.slice(0,4).map(ae =>
-              _dGovRow(
-                (ae.event_type||'Event').replace(/_/g,' '),
-                ae.severity || '—',
-                ae.severity === 'serious' || ae.severity === 'severe' ? ae.severity : (ae.severity || 'open'),
-                `window._nav('adverse-events')`
-              )).join('')
-          : _dNoItems('No open events'),
-        openAEs.length > 0 ? 'var(--red)' : 'var(--green)'
-      )}
-      ${flaggedCourses.length ? _dGovSection('Safety Escalations', flaggedCourses.length,
-        flaggedCourses.slice(0,3).map(c =>
-          `<div style="display:flex;align-items:flex-start;gap:8px;padding:8px 16px;border-bottom:1px solid var(--border);cursor:pointer"
-              onclick="window._openCourse('${c.id}')"
-              onmouseover="this.style.background='rgba(255,107,107,0.04)'"
-              onmouseout="this.style.background=''">
-            <span style="color:var(--red);font-size:12px;flex-shrink:0;margin-top:1px">⚠</span>
-            <div style="flex:1;min-width:0">
-              <div style="font-size:12px;font-weight:500">${c.condition_slug?.replace(/-/g,' ')||'—'} · ${c.modality_slug||'—'}</div>
-              <div style="font-size:10.5px;color:var(--red);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${(c.governance_warnings||[]).join(' · ')}</div>
-            </div>
-            <span style="font-size:10px;color:var(--text-tertiary);flex-shrink:0">→</span>
+        : `<div style="padding:40px 16px;text-align:center">
+            <div style="font-size:28px;margin-bottom:8px;opacity:0.3">◎</div>
+            <div style="font-size:12.5px;color:var(--text-tertiary);margin-bottom:12px">No active courses yet</div>
+            <button class="btn btn-primary btn-sm" onclick="window._nav('protocol-wizard')">Create First Course →</button>
           </div>`
-        ).join(''),
-        'var(--red)'
-      ) : ''}
+      }
     </div>
   </div>`;
 
-  // ── Row 3: Outcomes + Capacity ─────────────────────────────────────────────
-  const row3 = `<div class="g2" style="margin-bottom:14px;align-items:start">
+  // ── Row B: Active Patients + Governance ────────────────────────────────────
+  const activePatientsHTML = activePatients.length === 0
+    ? `<div style="padding:40px 16px;text-align:center">
+        <div style="font-size:28px;margin-bottom:8px;opacity:0.3">◉</div>
+        <div style="font-size:12.5px;color:var(--text-tertiary);margin-bottom:12px">No patients in active treatment</div>
+        <button class="btn btn-sm" onclick="window._nav('patients')">Add Patient →</button>
+      </div>`
+    : activePatients.map(({ pt, courses }) => {
+        const c0 = courses[0];
+        const pct = c0?.planned_sessions_total > 0
+          ? Math.min(100, Math.round((c0.sessions_delivered || 0) / c0.planned_sessions_total * 100)) : 0;
+        const dotColor = { active: 'var(--teal)', paused: 'var(--amber)', pending_approval: 'var(--blue)' }[c0?.status] || 'var(--text-tertiary)';
+        const av = initials(`${pt.first_name || ''} ${pt.last_name || ''}`);
+        return `<div style="display:flex;align-items:center;gap:10px;padding:10px 16px;border-bottom:1px solid var(--border);cursor:pointer"
+                     onclick="window.openPatient('${pt.id}')"
+                     onmouseover="this.style.background='var(--bg-card-hover)'" onmouseout="this.style.background=''">
+          <div class="avatar" style="width:32px;height:32px;font-size:11px;flex-shrink:0">${av}</div>
+          <div style="flex:1;min-width:0">
+            <div style="font-size:12.5px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${pt.first_name || ''} ${pt.last_name || ''}</div>
+            <div style="font-size:10.5px;color:var(--text-tertiary)">
+              ${c0?.condition_slug?.replace(/-/g, ' ') || pt.primary_condition || '—'} · <span style="color:var(--teal)">${c0?.modality_slug || '—'}</span>
+            </div>
+          </div>
+          <div style="flex-shrink:0;min-width:80px">
+            <div style="height:3px;border-radius:2px;background:var(--border);margin-bottom:3px">
+              <div style="height:3px;border-radius:2px;background:${dotColor};width:${pct}%"></div>
+            </div>
+            <div style="font-size:10px;color:var(--text-tertiary);text-align:right">${c0?.sessions_delivered || 0}/${c0?.planned_sessions_total || '?'}</div>
+          </div>
+          ${courses.length > 1 ? `<span style="font-size:10px;color:var(--text-tertiary);flex-shrink:0">+${courses.length - 1}</span>` : ''}
+          <span style="font-size:12px;color:var(--text-tertiary);flex-shrink:0">→</span>
+        </div>`;
+      }).join('');
+
+  const activePatientsPanel = `<div class="card" style="overflow:hidden">
+    <div style="padding:13px 16px 11px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--border)">
+      <div>
+        <span style="font-weight:600;font-size:13px">Active Patients</span>
+        <span style="font-size:11px;color:var(--text-tertiary);margin-left:8px">${activePatients.length} in treatment</span>
+      </div>
+      <button class="btn btn-sm" style="font-size:10.5px" onclick="window._nav('patients')">All Patients →</button>
+    </div>
+    ${activePatientsHTML}
+  </div>`;
+
+  const governancePanel = `<div class="card" style="overflow:hidden">
+    <div style="padding:13px 16px 11px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--border)">
+      <span style="font-weight:600;font-size:13px">Review &amp; Governance</span>
+      <button class="btn btn-sm" style="font-size:10.5px" onclick="window._nav('review-queue')">Queue →</button>
+    </div>
+    ${_dGovSection('Approvals Pending', pendingQueue.length,
+      pendingQueue.length
+        ? pendingQueue.slice(0, 5).map(item =>
+            _dGovRow(
+              item.condition_slug?.replace(/-/g, ' ') || `Course #${(item.course_id || item.id || '').slice(0, 8)}`,
+              item.modality_slug || item.notes?.slice(0, 30) || '—',
+              'pending',
+              `window._nav('review-queue')`
+            )).join('')
+        : _dNoItems('Queue clear — no pending approvals'),
+      'var(--amber)'
+    )}
+    ${_dGovSection('Open Adverse Events', openAEs.length,
+      openAEs.length
+        ? openAEs.slice(0, 4).map(ae =>
+            _dGovRow(
+              (ae.event_type || 'Event').replace(/_/g, ' '),
+              ae.severity || '—',
+              ae.severity === 'serious' || ae.severity === 'severe' ? ae.severity : (ae.severity || 'open'),
+              `window._nav('adverse-events')`
+            )).join('')
+        : _dNoItems('No open adverse events'),
+      openAEs.length > 0 ? 'var(--red)' : 'var(--green)'
+    )}
+    ${offLabelPending.length ? _dGovSection('Off-Label Requests', offLabelPending.length,
+      offLabelPending.slice(0, 3).map(c =>
+        _dGovRow(c.condition_slug?.replace(/-/g, ' ') || '—', c.modality_slug || '—', 'off-label', `window._openCourse('${c.id}')`)
+      ).join(''),
+      'var(--amber)'
+    ) : ''}
+    ${flaggedCourses.length ? _dGovSection('Safety Flags', flaggedCourses.length,
+      flaggedCourses.slice(0, 3).map(c =>
+        `<div style="display:flex;align-items:flex-start;gap:8px;padding:8px 16px;border-bottom:1px solid var(--border);cursor:pointer"
+             onclick="window._openCourse('${c.id}')"
+             onmouseover="this.style.background='rgba(255,107,107,0.04)'" onmouseout="this.style.background=''">
+          <span style="color:var(--red);font-size:12px;flex-shrink:0;margin-top:1px">&#9888;</span>
+          <div style="flex:1;min-width:0">
+            <div style="font-size:12px;font-weight:500">${c._patientName ? `<span style="color:var(--text-secondary)">${c._patientName} · </span>` : ''}${c.condition_slug?.replace(/-/g, ' ') || '—'}</div>
+            <div style="font-size:10.5px;color:var(--red);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${(c.governance_warnings || []).join(' · ')}</div>
+          </div>
+          <span style="font-size:10px;color:var(--text-tertiary)">→</span>
+        </div>`
+      ).join(''),
+      'var(--red)'
+    ) : ''}
+    ${_dGovSection('Consent Alerts', consentAlertCount,
+      consentAlertCount > 0
+        ? `<div style="display:flex;align-items:center;justify-content:space-between;padding:8px 16px">
+            <span style="font-size:12px;color:var(--amber)">${consentAlertCount} consent${consentAlertCount !== 1 ? 's' : ''} expiring or expired</span>
+            <button class="btn btn-sm" style="font-size:10.5px" onclick="window._nav('patients')">Manage →</button>
+          </div>`
+        : _dNoItems('All consents valid'),
+      consentAlertCount > 0 ? 'var(--amber)' : 'var(--green)'
+    )}
+    ${blindTreatments.length ? _dGovSection('Blind Treatment Risk', blindTreatments.length,
+      `<div style="padding:8px 16px;display:flex;align-items:center;justify-content:space-between">
+        <span style="font-size:11.5px;color:var(--amber)">&#9888; ${blindTreatments.length} course${blindTreatments.length !== 1 ? 's' : ''} with 10+ sessions &amp; no outcome data</span>
+        <button class="btn btn-sm" style="font-size:10.5px;margin-left:8px;flex-shrink:0" onclick="window._nav('outcomes')">Record →</button>
+      </div>`,
+      'var(--amber)'
+    ) : ''}
+  </div>`;
+
+  const rowB = `<div class="g2" style="margin-bottom:14px;align-items:start">${activePatientsPanel}${governancePanel}</div>`;
+
+  // ── Row C: Outcomes + Capacity ─────────────────────────────────────────────
+  const rowC = `<div class="g2" style="margin-bottom:14px;align-items:start">
     <div class="card" style="overflow:hidden">
       <div style="padding:13px 16px 11px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--border)">
         <span style="font-weight:600;font-size:13px">Outcomes Snapshot</span>
         <button class="btn btn-sm" style="font-size:10.5px" onclick="window._nav('outcomes')">Full Outcomes →</button>
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;border-bottom:1px solid var(--border)">
-        ${_dOutcomeCell('Responder Rate',     responderRate,        'var(--teal)',  '≥50% symptom reduction')}
-        ${_dOutcomeCell('Non-Responders',     nonResponderCount,    typeof nonResponderCount === 'number' && nonResponderCount > 0 ? 'var(--red)' : 'var(--text-secondary)', 'No meaningful change')}
-        ${_dOutcomeCell('Assess. Completion', assessCompletionPct,  'var(--blue)',  'Assessment fill rate')}
-        ${_dOutcomeCell('Courses Completed',  completedCourses.length, 'var(--green)', 'All time total')}
+        ${_dOutcomeCell('Responder Rate',     responderRate,              'var(--teal)',  '≥50% symptom reduction')}
+        ${_dOutcomeCell('Assess. Completion', assessCompletionPct,        'var(--blue)',  'Assessment fill rate')}
+        ${_dOutcomeCell('Courses Completed',  completedCourses.length,    'var(--green)', 'All time')}
+        ${_dOutcomeCell('Paused / At Risk',   pausedCourses.length + atRiskCourses.length, pausedCourses.length + atRiskCourses.length > 0 ? 'var(--amber)' : 'var(--text-secondary)', 'Paused + high-risk')}
       </div>
       ${allCourses.length ? `<div style="padding:12px 14px">
-        <div style="font-size:9.5px;text-transform:uppercase;letter-spacing:.9px;color:var(--text-tertiary);font-weight:600;margin-bottom:10px">Course Status Mix</div>
+        <div style="font-size:9.5px;text-transform:uppercase;letter-spacing:.9px;color:var(--text-tertiary);font-weight:600;margin-bottom:10px">Course Status Breakdown</div>
         ${_dMiniBar('Active',    activeCourses.length,    allCourses.length, 'var(--teal)')}
-        ${_dMiniBar('Pending',   pendingCourses.length,   allCourses.length, 'var(--amber)')}
         ${_dMiniBar('Completed', completedCourses.length, allCourses.length, 'var(--green)')}
+        ${_dMiniBar('Pending',   pendingCourses.length,   allCourses.length, 'var(--amber)')}
         ${_dMiniBar('Paused',    pausedCourses.length,    allCourses.length, 'var(--blue)')}
       </div>` : ''}
     </div>
 
     <div class="card" style="overflow:hidden">
       <div style="padding:13px 16px 11px;border-bottom:1px solid var(--border)">
-        <span style="font-weight:600;font-size:13px">Capacity &amp; Utilization</span>
+        <span style="font-weight:600;font-size:13px">Capacity &amp; Modality Mix</span>
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;border-bottom:1px solid var(--border)">
-        ${_dOutcomeCell('Sessions / Week',    sessionsPerWeek || 0, 'var(--teal)',   'Planned across active')}
-        ${_dOutcomeCell('Sessions Delivered', totalDelivered,       'var(--blue)',   'All time total')}
-        ${_dOutcomeCell('Patients',           patCount,             'var(--violet)', 'Active in panel')}
-        ${_dOutcomeCell('Flagged Courses',    flaggedCourses.length, flaggedCourses.length > 0 ? 'var(--red)' : 'var(--green)', 'Governance warnings')}
+        ${_dOutcomeCell('Sessions / Week', sessionsPerWeek || 0,    'var(--teal)',   'Planned across active')}
+        ${_dOutcomeCell('Total Delivered', totalDelivered,          'var(--blue)',   'All time')}
+        ${_dOutcomeCell('Panel Size',      patCount,                'var(--violet)', 'Total patients')}
+        ${_dOutcomeCell('In Active Tx',    activePatientIds.length, 'var(--teal)',   'Currently in treatment')}
       </div>
-      ${topModalities.length ? `<div style="padding:12px 14px">
-        <div style="font-size:9.5px;text-transform:uppercase;letter-spacing:.9px;color:var(--text-tertiary);font-weight:600;margin-bottom:10px">Modality Load (Active Courses)</div>
-        ${topModalities.map(([mod, count]) => _dMiniBar(mod, count, activeCourses.length, 'var(--teal)')).join('')}
-      </div>` : `<div style="padding:14px 16px;font-size:11.5px;color:var(--text-tertiary)">No active courses.</div>`}
-      ${approvedCourses.length > 0 ? `<div style="padding:10px 14px;border-top:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
-        <span style="font-size:11.5px;color:var(--text-secondary)">Approved — not yet started</span>
-        <span style="font-size:13px;font-weight:600;color:var(--blue);font-family:var(--font-mono)">${approvedCourses.length}</span>
-      </div>` : ''}
+      ${topModalities.length
+        ? `<div style="padding:12px 14px">
+            <div style="font-size:9.5px;text-transform:uppercase;letter-spacing:.9px;color:var(--text-tertiary);font-weight:600;margin-bottom:10px">Modality Load (Active Courses)</div>
+            ${topModalities.map(([mod, count]) => _dMiniBar(mod, count, activeCourses.length, 'var(--teal)')).join('')}
+          </div>`
+        : `<div style="padding:14px 16px;font-size:11.5px;color:var(--text-tertiary)">No active courses yet.</div>`
+      }
+      ${approvedCourses.length > 0
+        ? `<div style="padding:10px 14px;border-top:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
+            <span style="font-size:11.5px;color:var(--text-secondary)">Approved, not yet started</span>
+            <button class="btn btn-sm" style="font-size:10.5px" onclick="window._nav('courses')">${approvedCourses.length} ready →</button>
+          </div>`
+        : ''
+      }
     </div>
   </div>`;
 
-  // ── Today's sessions widget ────────────────────────────────────────────────
-  const todayStr = new Date().toISOString().split('T')[0];
-  const todaySessions = activeCourses.slice(0, 6); // use active courses as proxy for scheduled today
-  const todayWidget = `<div class="card" style="overflow:hidden;margin-bottom:14px">
+  // ── Protocol Recommendations ───────────────────────────────────────────────
+  const recBlocks = uniqueConditions.map(condSlug => {
+    const condLabel = condSlug.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+    const matchedProtocols = allProtocols.filter(p => {
+      const word = condSlug.toLowerCase().split('-')[0];
+      return (p.condition_id || '').toLowerCase().includes(word) || (p.name || '').toLowerCase().includes(word);
+    }).slice(0, 2);
+    const protoRows = matchedProtocols.length
+      ? matchedProtocols.map(p => {
+          const pid = (p.id || '').replace(/['"]/g, '');
+          return `<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border)">
+            ${evidenceBadge(p.evidence_grade)}
+            <span style="font-size:12px;color:var(--text-primary);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${p.name || p.id}</span>
+            <button class="btn btn-sm" style="font-size:10px;padding:2px 7px;flex-shrink:0" onclick="window._wizardProtocolId='${pid}';window._nav('protocol-wizard')">Use →</button>
+          </div>`;
+        }).join('')
+      : `<div style="font-size:11.5px;color:var(--text-tertiary);padding:6px 0">No protocols matched.</div>`;
+    return `<div style="flex:1;min-width:200px;padding:12px;background:rgba(255,255,255,0.02);border-radius:6px;border:1px solid var(--border)">
+      <div style="font-size:11px;font-weight:700;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.8px;margin-bottom:8px">${condLabel}</div>
+      ${protoRows}
+    </div>`;
+  }).join('');
+
+  const rowRecommend = uniqueConditions.length === 0 ? '' : `<div class="card" style="overflow:hidden;margin-bottom:14px">
     <div style="padding:13px 16px 11px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--border)">
-      <span style="font-weight:600;font-size:13px">Today's Sessions</span>
-      <span style="font-size:10.5px;color:var(--text-tertiary)">${todayStr}</span>
+      <div>
+        <span style="font-weight:600;font-size:13px">Protocol Recommendations</span>
+        <span style="font-size:11px;color:var(--text-tertiary);margin-left:8px">Based on active conditions</span>
+      </div>
+      <button class="btn btn-sm" style="font-size:10.5px" onclick="window._nav('protocols-registry')">Browse Registry →</button>
     </div>
-    ${todaySessions.length === 0
-      ? `<div style="padding:24px 16px;text-align:center;font-size:12.5px;color:var(--text-tertiary)">No sessions scheduled today.</div>`
-      : `<div style="display:flex;flex-direction:column">
-          ${todaySessions.map((c, i) => {
-            const hour = 9 + i;
-            const time = `${String(hour).padStart(2,'0')}:00`;
-            return `<div style="display:flex;align-items:center;gap:10px;padding:9px 16px;border-bottom:1px solid var(--border)">
-              <span style="font-size:11.5px;font-weight:600;color:var(--teal);font-family:var(--font-mono);width:40px;flex-shrink:0">${time}</span>
-              <div style="flex:1;min-width:0">
-                <div style="font-size:12.5px;font-weight:500;color:var(--text-primary)">${c.condition_slug?.replace(/-/g,' ') || '—'} · <span style="color:var(--teal)">${c.modality_slug || '—'}</span></div>
-                <div style="font-size:10.5px;color:var(--text-tertiary)">Session ${(c.sessions_delivered || 0) + 1} of ${c.planned_sessions_total || '?'}</div>
-              </div>
-              <button class="btn btn-sm" style="font-size:10.5px;padding:3px 8px" onclick="window._nav('session-execution')">Execute →</button>
-            </div>`;
-          }).join('')}
-        </div>`
-    }
+    <div style="padding:12px 14px;display:flex;gap:12px;flex-wrap:wrap">${recBlocks}</div>
   </div>`;
 
-  // ── Row 4: Recent Activity feed ────────────────────────────────────────────
-  const row4 = `<div class="card" style="overflow:hidden">
+  // ── Recent Activity Table ──────────────────────────────────────────────────
+  const rowD = `<div class="card" style="overflow:hidden">
     <div style="padding:13px 16px 11px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--border)">
       <span style="font-weight:600;font-size:13px">Recent Course Activity</span>
       <button class="btn btn-sm" style="font-size:10.5px" onclick="window._nav('courses')">All Courses →</button>
     </div>
     ${recentCourses.length === 0
-      ? `<div style="padding:36px;text-align:center;color:var(--text-tertiary);font-size:12.5px">No courses yet.</div>`
+      ? `<div style="padding:36px;text-align:center;color:var(--text-tertiary);font-size:12.5px">
+          No courses yet.
+          <button class="btn btn-sm" onclick="window._nav('protocol-wizard')" style="margin-left:6px">Create First Course →</button>
+        </div>`
       : `<div style="overflow-x:auto"><table class="ds-table">
           <thead><tr>
-            <th>Condition · Modality</th><th>Status</th><th>Evidence</th>
+            <th>Patient</th><th>Condition · Modality</th><th>Status</th><th>Evidence</th>
             <th style="min-width:110px">Progress</th><th>Sessions</th><th>Signals</th><th></th>
           </tr></thead>
           <tbody>
             ${recentCourses.map(c => {
               const sc = COURSE_STATUS_COLORS[c.status] || 'var(--text-tertiary)';
-              const pct = c.planned_sessions_total > 0 ? Math.min(100, Math.round((c.sessions_delivered||0) / c.planned_sessions_total * 100)) : 0;
+              const pct = c.planned_sessions_total > 0 ? Math.min(100, Math.round((c.sessions_delivered || 0) / c.planned_sessions_total * 100)) : 0;
               return `<tr style="cursor:pointer" onclick="window._openCourse('${c.id}')">
+                <td style="white-space:nowrap">
+                  ${c._patientName
+                    ? `<div style="display:flex;align-items:center;gap:7px">
+                        <div class="avatar" style="width:24px;height:24px;font-size:9px;flex-shrink:0">${initials(c._patientName)}</div>
+                        <span style="font-size:12px;font-weight:500">${c._patientName}</span>
+                      </div>`
+                    : `<span style="font-size:11px;color:var(--text-tertiary)">—</span>`
+                  }
+                </td>
                 <td>
-                  <div style="font-size:12.5px;font-weight:500">${c.condition_slug?.replace(/-/g,' ') || '—'}</div>
+                  <div style="font-size:12.5px;font-weight:500">${c.condition_slug?.replace(/-/g, ' ') || '—'}</div>
                   <div style="font-size:11px;color:var(--teal)">${c.modality_slug || '—'}</div>
                 </td>
                 <td>${approvalBadge(c.status)}</td>
@@ -431,7 +846,7 @@ export async function pgDash(setTopbar, navigate) {
                   </div>
                   <div style="font-size:10px;color:var(--text-tertiary)">${pct}%</div>
                 </td>
-                <td class="mono" style="font-size:12px">${c.sessions_delivered||0}/${c.planned_sessions_total||'?'}</td>
+                <td class="mono" style="font-size:12px">${c.sessions_delivered || 0}/${c.planned_sessions_total || '?'}</td>
                 <td style="white-space:nowrap">
                   ${safetyBadge(c.governance_warnings)}
                   ${c.on_label === false ? labelBadge(false) : ''}
@@ -444,13 +859,47 @@ export async function pgDash(setTopbar, navigate) {
     }
   </div>`;
 
-  el.innerHTML = row1 + row2 + row3 + todayWidget + row4;
+  el.innerHTML = statBar + rowA + rowB + rowC + rowRecommend + rowD;
+}
+
+// ── Enriched course row (dashboard clinic queue, includes patient name) ────
+function _dCourseRowRich(c, statusKey) {
+  const dotColor = { active: 'var(--teal)', pending_approval: 'var(--amber)', paused: 'var(--amber)', approved: 'var(--blue)' }[statusKey] || 'var(--text-tertiary)';
+  const pct = c.planned_sessions_total > 0 ? Math.min(100, Math.round((c.sessions_delivered || 0) / c.planned_sessions_total * 100)) : 0;
+  const btn = statusKey === 'active'
+    ? `<button class="btn btn-sm" style="font-size:10.5px;padding:3px 8px;flex-shrink:0" onclick="event.stopPropagation();window._nav('session-execution')">Execute →</button>`
+    : statusKey === 'pending_approval'
+    ? `<button class="btn btn-sm" style="font-size:10.5px;padding:3px 8px;flex-shrink:0;color:var(--amber)" onclick="event.stopPropagation();window._nav('review-queue')">Review →</button>`
+    : statusKey === 'paused'
+    ? `<span style="font-size:10px;color:var(--amber);flex-shrink:0">Paused</span>`
+    : `<span style="font-size:10px;color:var(--blue);flex-shrink:0">${statusKey}</span>`;
+  return `<div style="display:flex;align-items:center;gap:10px;padding:9px 16px;border-bottom:1px solid var(--border);cursor:pointer"
+      onclick="window._openCourse('${c.id}')"
+      onmouseover="this.style.background='var(--bg-card-hover)'" onmouseout="this.style.background=''">
+    <span style="width:6px;height:6px;border-radius:50%;background:${dotColor};flex-shrink:0"></span>
+    <div style="flex:1;min-width:0">
+      <div style="font-size:12.5px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">
+        ${c._patientName ? `<span style="color:var(--text-secondary)">${c._patientName}</span> · ` : ''}${c.condition_slug?.replace(/-/g, ' ') || '—'}
+      </div>
+      <div style="font-size:10.5px;color:var(--text-tertiary);margin-top:1px;display:flex;align-items:center;gap:5px">
+        <span style="color:var(--teal)">${c.modality_slug || '—'}</span>
+        <span>· Session ${c.sessions_delivered || 0}/${c.planned_sessions_total || '?'}</span>
+        ${(c.governance_warnings || []).length ? '<span style="color:var(--red)">⚠</span>' : ''}
+        ${c.on_label === false ? '<span style="color:var(--amber)">off-label</span>' : ''}
+      </div>
+    </div>
+    ${btn}
+  </div>`;
 }
 
 // ── Patients ─────────────────────────────────────────────────────────────────
 export async function pgPatients(setTopbar, navigate) {
+  const canAddPatient = ['clinician', 'admin', 'clinic-admin', 'supervisor'].includes(currentUser?.role);
+  const canTransfer   = ['admin', 'clinic-admin'].includes(currentUser?.role);
   setTopbar('Patients',
-    `<button class="btn btn-primary btn-sm" onclick="window.showAddPatient()">+ New Patient</button>`
+    canAddPatient
+      ? `<button class="btn btn-sm" onclick="window.showImportCSV()" style="margin-right:6px">Import CSV</button><button class="btn btn-sm" onclick="window.showFHIRImport()" style="margin-right:6px">Import FHIR</button><button class="btn btn-primary btn-sm" onclick="window.showAddPatient()">+ New Patient</button>`
+      : ''
   );
 
   const el = document.getElementById('content');
@@ -485,6 +934,78 @@ export async function pgPatients(setTopbar, navigate) {
     : FALLBACK_MODALITIES.map(m => `<option>${m}</option>`).join('');
 
   el.innerHTML = `
+  <!-- CSV Import Panel -->
+  <div id="csv-import-panel" style="display:none;margin-bottom:16px">
+    <div class="card">
+      <div class="card-header">
+        <h3>Import Patients from CSV</h3>
+        <button class="btn btn-sm" onclick="document.getElementById('csv-import-panel').style.display='none'">Close</button>
+      </div>
+      <div class="card-body">
+        <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
+          <button class="btn btn-sm" onclick="window.downloadPatientTemplate()">Download Template</button>
+          <button class="btn btn-sm" id="csv-paste-toggle" onclick="window.toggleCSVPaste()">Paste CSV Text</button>
+        </div>
+        <div id="csv-drop-zone" style="border:2px dashed var(--border);border-radius:8px;padding:28px;text-align:center;cursor:pointer;transition:border-color 0.2s;color:var(--text-tertiary);font-size:13px" onclick="document.getElementById('csv-file-input').click()">
+          <div style="font-size:22px;margin-bottom:8px;opacity:.5">↑</div>
+          Drag &amp; drop a CSV file here or <strong style="color:var(--teal)">click to browse</strong>
+          <div style="font-size:11px;margin-top:4px">Expected columns: first_name, last_name, email, date_of_birth, gender, primary_condition, primary_modality, clinician_notes</div>
+        </div>
+        <input type="file" id="csv-file-input" accept=".csv,.txt" style="display:none">
+        <div id="csv-paste-area" style="display:none;margin-top:10px">
+          <textarea id="csv-paste-text" class="form-control" rows="5" placeholder="Paste CSV text here (with header row)…"></textarea>
+          <button class="btn btn-primary btn-sm" style="margin-top:6px" onclick="window.parseCSVInput(document.getElementById('csv-paste-text').value)">Parse</button>
+        </div>
+        <div id="csv-parse-notice" style="margin-top:10px;display:none"></div>
+        <div id="csv-preview-section" style="display:none;margin-top:12px">
+          <div style="font-size:11px;font-weight:600;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.8px;margin-bottom:8px" id="csv-preview-label">Preview</div>
+          <div style="overflow-x:auto;max-height:260px;overflow-y:auto;border:1px solid var(--border);border-radius:6px">
+            <table class="ds-table" id="csv-preview-table" style="font-size:11.5px"></table>
+          </div>
+          <div style="margin-top:12px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+            <button class="btn btn-primary" id="csv-import-btn" onclick="window.runPatientImport()">Import Patients</button>
+            <span id="csv-import-count" style="font-size:12px;color:var(--text-secondary)"></span>
+          </div>
+          <div style="margin-top:8px;display:none" id="csv-progress-wrap">
+            <div style="height:6px;border-radius:3px;background:var(--border)"><div id="csv-progress-bar" style="height:6px;border-radius:3px;background:var(--teal);width:0%;transition:width 0.3s"></div></div>
+            <div id="csv-progress-label" style="font-size:11px;color:var(--text-tertiary);margin-top:4px"></div>
+          </div>
+          <div id="csv-import-result" style="margin-top:8px;display:none"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- FHIR Import Panel -->
+  <div id="fhir-import-panel" style="display:none;margin-bottom:16px">
+    <div class="card">
+      <div class="card-header" style="display:flex;justify-content:space-between;align-items:center">
+        <span>Import HL7 FHIR Patient</span>
+        <button class="btn btn-sm" onclick="document.getElementById('fhir-import-panel').style.display='none'">Close</button>
+      </div>
+      <div class="card-body">
+        <div style="display:flex;gap:8px;margin-bottom:10px;align-items:center">
+          <label class="form-label" style="margin:0;font-size:12.5px">Paste HL7 FHIR Patient JSON here</label>
+          <button class="btn btn-sm" onclick="window.fhirLoadExample()" style="margin-left:auto">Load Example</button>
+        </div>
+        <textarea id="fhir-json-input" class="form-control" rows="7" style="font-family:var(--font-mono);font-size:12px" placeholder='{ "resourceType": "Patient", "name": [{ "family": "Smith", "given": ["Jane"] }], ... }'></textarea>
+        <div style="margin-top:10px;display:flex;gap:8px">
+          <button class="btn btn-primary btn-sm" onclick="window.parseFHIRInput()">Parse</button>
+          <span id="fhir-parse-error" style="font-size:12px;color:var(--red);display:none"></span>
+        </div>
+        <div id="fhir-preview" style="display:none;margin-top:14px">
+          <div style="font-size:11px;font-weight:600;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.8px;margin-bottom:8px">Extracted Patient Data</div>
+          <div id="fhir-preview-fields" style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px"></div>
+          <div id="fhir-save-error" style="font-size:12px;color:var(--red);margin-bottom:8px;display:none"></div>
+          <div style="display:flex;gap:8px;align-items:center">
+            <button class="btn btn-primary btn-sm" onclick="window.createPatientFromFHIR()">Create Patient</button>
+            <span id="fhir-save-status" style="font-size:12px;color:var(--text-secondary)"></span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <div id="add-patient-panel" style="display:none;margin-bottom:16px">
     ${cardWrap('New Patient', `
       <div class="g2">
@@ -535,12 +1056,7 @@ export async function pgPatients(setTopbar, navigate) {
 
   <div class="card" style="overflow-x:auto">
     ${items.length === 0
-      ? `<div style="text-align:center;padding:56px 24px">
-          <div style="font-size:42px;margin-bottom:16px;opacity:0.4">◉</div>
-          <div style="font-size:16px;font-weight:700;color:var(--text-primary);margin-bottom:8px">No patients yet</div>
-          <div style="font-size:13px;color:var(--text-secondary);margin-bottom:24px;max-width:340px;margin-left:auto;margin-right:auto">Add your first patient to start managing treatment courses and clinical records.</div>
-          <button class="btn btn-primary" onclick="window.showAddPatient()">+ Add Patient</button>
-        </div>`
+      ? emptyState('👥', 'No patients yet', 'Add your first patient to get started with protocol planning and treatment courses.' + (canAddPatient ? '' : ''), canAddPatient ? '+ Add Patient' : null, canAddPatient ? 'window.showAddPatient()' : null)
       : `<table class="ds-table" id="patients-table">
           <thead><tr>
             <th>Patient</th><th>Condition</th><th>Modality</th><th>Status</th><th>Courses</th><th>Consent</th><th></th>
@@ -563,16 +1079,48 @@ export async function pgPatients(setTopbar, navigate) {
                 <td><span class="tag">${p.primary_modality || '—'}</span></td>
                 <td>${pillSt(p.status || 'pending')}</td>
                 <td style="font-size:12px;color:var(--text-tertiary)">${p._activeCourseCount != null ? `<span style="color:var(--teal);font-weight:600">${p._activeCourseCount}</span> active` : '—'}</td>
-                <td>${p.consent_signed ? '<span style="color:var(--green);font-size:12px">✓ Signed</span>' : '<span style="color:var(--amber);font-size:12px">Pending</span>'}</td>
+                <td><span style="color:var(--text-tertiary);font-size:13px" title="Consent status — open patient profile to verify">&#9673;</span> ${p.consent_signed ? '<span style="color:var(--green);font-size:12px">&#10003; Signed</span>' : '<span style="color:var(--amber);font-size:12px">Pending</span>'}</td>
                 <td style="display:flex;gap:4px">
-                  <button class="btn btn-sm" onclick="event.stopPropagation();window.openPatient('${p.id}')">Open →</button>
-                  <button class="btn btn-sm btn-danger" onclick="event.stopPropagation();window.deletePatient('${p.id}')">✕</button>
+                  <button class="btn btn-sm" onclick="event.stopPropagation();window.openPatient('${p.id}')">Open &#8594;</button>
+                  <button class="btn btn-sm" style="color:var(--accent-teal,#00d4bc);border-color:rgba(0,212,188,0.3)" onclick="event.stopPropagation();window._profilePatientId='${p.id}';window._nav('patient-profile')">Profile &#8594;</button>
+                  ${canTransfer ? `<button class="btn btn-sm" style="color:var(--violet);border-color:rgba(155,127,255,0.3)" onclick="event.stopPropagation();window._transferPatient('${p.id}','${((p.first_name || '') + ' ' + (p.last_name || '')).replace(/'/g,"\\'")}')">Transfer</button>` : ''}
+                  <button class="btn btn-sm btn-danger" onclick="event.stopPropagation();window.deletePatient('${p.id}')">&#10005;</button>
                 </td>
               </tr>`;
             }).join('')}
           </tbody>
         </table>`
     }
+  </div>
+
+  <!-- AI Intake Parser -->
+  <div style="margin-top:16px">
+    <div class="card">
+      <div class="card-header" style="cursor:pointer" onclick="window.toggleIntakeParser()">
+        <h3>AI Intake Parser <span style="font-size:10px;font-weight:700;padding:2px 7px;border-radius:4px;background:rgba(74,158,255,0.1);color:var(--blue);margin-left:6px">Beta</span></h3>
+        <span id="intake-parser-arrow" style="font-size:12px;color:var(--text-tertiary)">▶ expand</span>
+      </div>
+      <div id="intake-parser-body" style="display:none">
+        <div class="card-body">
+          <p style="font-size:12px;color:var(--text-secondary);margin-bottom:12px">Upload or paste a referral letter / intake form to extract patient data using AI.</p>
+          <div id="intake-pdf-drop" style="border:2px dashed var(--border);border-radius:8px;padding:24px;text-align:center;cursor:pointer;transition:border-color 0.2s;color:var(--text-tertiary);font-size:13px;margin-bottom:10px" onclick="document.getElementById('intake-file-input').click()">
+            <div style="font-size:20px;margin-bottom:6px;opacity:.5">⬆</div>
+            Drag &amp; drop PDF or TXT file, or <strong style="color:var(--teal)">click to browse</strong>
+            <div style="font-size:11px;margin-top:4px">Note: PDF text layer only. If garbled, use paste below.</div>
+          </div>
+          <input type="file" id="intake-file-input" accept=".pdf,.txt" style="display:none">
+          <div style="font-size:11px;color:var(--text-tertiary);margin-bottom:6px;text-align:center">— or paste text —</div>
+          <textarea id="intake-paste-text" class="form-control" rows="5" placeholder="Paste intake notes, referral letter, or clinical summary here…" style="font-size:12px"></textarea>
+          <div id="intake-parse-notice" style="margin-top:8px;display:none"></div>
+          <button class="btn btn-primary" style="margin-top:10px;width:100%" id="intake-extract-btn" onclick="window.runIntakeParse()">Extract Patient Data →</button>
+          <div id="intake-result-panel" style="display:none;margin-top:14px">
+            <div style="font-size:11px;font-weight:600;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.8px;margin-bottom:8px">Extraction Result</div>
+            <div id="intake-result-content" style="font-size:12px;color:var(--text-secondary);line-height:1.7;background:rgba(255,255,255,0.02);border:1px solid var(--border);border-radius:6px;padding:12px;white-space:pre-wrap"></div>
+            <button class="btn btn-sm" style="margin-top:8px" onclick="window.prefillPatientFromIntake()">Create Patient from Extraction →</button>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>`;
 
   window._patientsData = items;
@@ -608,8 +1156,11 @@ export async function pgPatients(setTopbar, navigate) {
             <td><span class="tag">${p.primary_modality || '—'}</span></td>
             <td>${pillSt(p.status || 'pending')}</td>
             <td style="font-size:12px;color:var(--text-tertiary)">${p._activeCourseCount != null ? `<span style="color:var(--teal);font-weight:600">${p._activeCourseCount}</span> active` : '—'}</td>
-            <td>${p.consent_signed ? '<span style="color:var(--green)">✓</span>' : '<span style="color:var(--amber)">Pending</span>'}</td>
-            <td><button class="btn btn-sm" onclick="event.stopPropagation();window.openPatient('${p.id}')">Open →</button></td>
+            <td><span style="color:var(--text-tertiary);font-size:13px" title="Consent status — open patient profile to verify">&#9673;</span> ${p.consent_signed ? '<span style="color:var(--green)">&#10003;</span>' : '<span style="color:var(--amber)">Pending</span>'}</td>
+            <td style="display:flex;gap:4px">
+              <button class="btn btn-sm" onclick="event.stopPropagation();window.openPatient('${p.id}')">Open &#8594;</button>
+              ${canTransfer ? `<button class="btn btn-sm" style="color:var(--violet);border-color:rgba(155,127,255,0.3)" onclick="event.stopPropagation();window._transferPatient('${p.id}','${((p.first_name || '') + ' ' + (p.last_name || '')).replace(/'/g,"\\'")}')">Transfer</button>` : ''}
+            </td>
           </tr>`;
         }).join('');
   };
@@ -659,6 +1210,488 @@ export async function pgPatients(setTopbar, navigate) {
       document.body.appendChild(b); setTimeout(() => b.remove(), 4000);
     }
   };
+
+  // ── Patient Transfer ──────────────────────────────────────────────────────
+  window._transferPatient = function(patientId, patientName) {
+    const existingModal = document.getElementById('transfer-modal');
+    if (existingModal) existingModal.remove();
+
+    const otherClinics = (window._clinics || []).filter(
+      c => c.id !== (window._currentClinic?.id)
+    );
+
+    if (!otherClinics.length) {
+      const t = document.createElement('div');
+      t.style.cssText = 'position:fixed;bottom:24px;right:24px;max-width:320px;padding:12px 16px;border-radius:10px;background:var(--navy-800);border:1px solid var(--border);z-index:9999;color:var(--text-secondary);font-size:13px';
+      t.textContent = 'No other clinics available for transfer.';
+      document.body.appendChild(t);
+      setTimeout(() => t.remove(), 3000);
+      return;
+    }
+
+    const clinicOptions = otherClinics.map(c =>
+      `<option value="${c.id}">${c.name}</option>`
+    ).join('');
+
+    const modal = document.createElement('div');
+    modal.id = 'transfer-modal';
+    modal.className = 'modal-overlay';
+    modal.innerHTML = `
+      <div class="modal-card" onclick="event.stopPropagation()">
+        <h3>Transfer Patient</h3>
+        <p>Transfer <strong style="color:var(--text-primary)">${patientName}</strong> to another clinic.</p>
+        <label>Destination Clinic</label>
+        <select id="transfer-clinic-select" class="form-control">${clinicOptions}</select>
+        <label>Transfer Note</label>
+        <textarea id="transfer-note" class="form-control" rows="4" placeholder="Reason for transfer, handover notes…" style="resize:vertical"></textarea>
+        <div style="display:flex;gap:8px;margin-top:16px">
+          <button class="btn" onclick="document.getElementById('transfer-modal').remove()">Cancel</button>
+          <button class="btn btn-primary" id="transfer-confirm-btn" onclick="window._confirmTransfer('${patientId}','${patientName.replace(/'/g,"\\'") }')">Confirm Transfer</button>
+        </div>
+      </div>`;
+    modal.onclick = () => modal.remove();
+    document.body.appendChild(modal);
+    // Trap focus inside the modal for keyboard accessibility
+    if (window._trapFocus) window._trapFocus(modal);
+  };
+
+  window._confirmTransfer = async function(patientId, patientName) {
+    const selectEl = document.getElementById('transfer-clinic-select');
+    const confirmBtn = document.getElementById('transfer-confirm-btn');
+    if (!selectEl || !confirmBtn) return;
+
+    const destId = selectEl.value;
+    const destClinic = (window._clinics || []).find(c => c.id === destId);
+    if (!destClinic) return;
+
+    confirmBtn.disabled = true;
+    confirmBtn.textContent = 'Transferring…';
+
+    // Simulate API call
+    await new Promise(r => setTimeout(r, 1200));
+
+    // Remove modal
+    const modal = document.getElementById('transfer-modal');
+    if (modal) modal.remove();
+
+    // Show success toast
+    const t = document.createElement('div');
+    t.style.cssText = 'position:fixed;bottom:24px;right:24px;max-width:340px;padding:12px 16px;border-radius:10px;background:var(--navy-800);border:1px solid var(--teal);z-index:9999;box-shadow:0 4px 20px rgba(0,0,0,0.5);transition:opacity 0.3s';
+    t.innerHTML = `<div style="font-size:12.5px;font-weight:600;color:var(--teal);margin-bottom:3px">Transfer Complete</div>
+      <div style="font-size:11.5px;color:var(--text-secondary)">${patientName} transferred to ${destClinic.name}</div>`;
+    document.body.appendChild(t);
+    setTimeout(() => { t.style.opacity = '0'; setTimeout(() => t.remove(), 300); }, 4000);
+  };
+
+  // ── CSV Import binding ────────────────────────────────────────────────────
+
+  function _parseCSV(text) {
+    const lines = text.trim().split(/\r?\n/);
+    const headers = lines[0].split(',').map(h => h.trim().toLowerCase().replace(/\s+/g, '_'));
+    return lines.slice(1).filter(l => l.trim()).map(line => {
+      const values = [];
+      let cur = '', inQ = false;
+      for (const ch of line) {
+        if (ch === '"') inQ = !inQ;
+        else if (ch === ',' && !inQ) { values.push(cur.trim()); cur = ''; }
+        else cur += ch;
+      }
+      values.push(cur.trim());
+      return Object.fromEntries(headers.map((h, i) => [h, values[i] || '']));
+    });
+  }
+
+  window.downloadPatientTemplate = function() {
+    const csv = 'first_name,last_name,email,date_of_birth,gender,primary_condition,primary_modality,clinician_notes\nJohn,Smith,john@example.com,1985-03-15,male,depression,tDCS,Initial referral';
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'patient-import-template.csv';
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  };
+
+  window.showImportCSV = function() {
+    const panel = document.getElementById('csv-import-panel');
+    if (panel) panel.style.display = panel.style.display === 'none' ? '' : 'none';
+  };
+
+  // ── FHIR Import ──────────────────────────────────────────────────────────────
+  window.showFHIRImport = function() {
+    const panel = document.getElementById('fhir-import-panel');
+    if (!panel) return;
+    panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+    // Close CSV panel if open
+    const csvPanel = document.getElementById('csv-import-panel');
+    if (csvPanel) csvPanel.style.display = 'none';
+  };
+
+  function parseFHIRPatient(json) {
+    try {
+      const r = JSON.parse(json);
+      if (r.resourceType !== 'Patient') throw new Error('Not a FHIR Patient resource');
+      const name = r.name?.[0];
+      const firstName = name?.given?.[0] || name?.text?.split(' ')[0] || '';
+      const lastName = name?.family || name?.text?.split(' ').slice(1).join(' ') || '';
+      const email = r.telecom?.find(t => t.system === 'email')?.value || '';
+      const phone = r.telecom?.find(t => t.system === 'phone')?.value || '';
+      const dob = r.birthDate || '';
+      const gender = r.gender || '';
+      const address = r.address?.[0];
+      const addressStr = address ? [address.line?.[0], address.city, address.state, address.postalCode].filter(Boolean).join(', ') : '';
+      return { first_name: firstName, last_name: lastName, email, phone, date_of_birth: dob, gender, address: addressStr };
+    } catch (e) {
+      throw new Error('Invalid FHIR JSON: ' + e.message);
+    }
+  }
+
+  window._fhirParsed = null;
+
+  window.parseFHIRInput = function() {
+    const input = document.getElementById('fhir-json-input');
+    const errEl = document.getElementById('fhir-parse-error');
+    const preview = document.getElementById('fhir-preview');
+    const fieldsEl = document.getElementById('fhir-preview-fields');
+    if (!input || !errEl || !preview || !fieldsEl) return;
+    errEl.style.display = 'none';
+    preview.style.display = 'none';
+    try {
+      const data = parseFHIRPatient(input.value.trim());
+      window._fhirParsed = data;
+      const fieldMap = [
+        ['First Name', data.first_name],
+        ['Last Name', data.last_name],
+        ['Email', data.email],
+        ['Phone', data.phone],
+        ['Date of Birth', data.date_of_birth],
+        ['Gender', data.gender],
+        ['Address', data.address],
+      ];
+      fieldsEl.innerHTML = fieldMap.map(([k, v]) => `
+        <div style="background:var(--bg-surface-2);border:1px solid var(--border);border-radius:6px;padding:8px 10px">
+          <div style="font-size:10px;text-transform:uppercase;letter-spacing:.6px;color:var(--text-tertiary);margin-bottom:2px">${k}</div>
+          <div style="font-size:13px;color:${v ? 'var(--text-primary)' : 'var(--text-tertiary)'}">${v || '—'}</div>
+        </div>`).join('');
+      preview.style.display = 'block';
+    } catch (e) {
+      errEl.textContent = e.message;
+      errEl.style.display = 'inline';
+    }
+  };
+
+  window.fhirLoadExample = function() {
+    const input = document.getElementById('fhir-json-input');
+    if (!input) return;
+    input.value = JSON.stringify({
+      resourceType: 'Patient',
+      id: 'example-patient-001',
+      name: [{ family: 'Smith', given: ['Jane', 'Marie'] }],
+      gender: 'female',
+      birthDate: '1985-03-22',
+      telecom: [
+        { system: 'email', value: 'jane.smith@example.com' },
+        { system: 'phone', value: '+1-555-234-5678' }
+      ],
+      address: [{
+        line: ['42 Maple Street'],
+        city: 'Springfield',
+        state: 'IL',
+        postalCode: '62701'
+      }]
+    }, null, 2);
+  };
+
+  window.createPatientFromFHIR = async function() {
+    const data = window._fhirParsed;
+    if (!data) return;
+    const statusEl = document.getElementById('fhir-save-status');
+    const errEl = document.getElementById('fhir-save-error');
+    if (statusEl) statusEl.textContent = 'Saving…';
+    if (errEl) errEl.style.display = 'none';
+    try {
+      await api.createPatient(data);
+      if (statusEl) statusEl.textContent = 'Patient created successfully.';
+      const panel = document.getElementById('fhir-import-panel');
+      if (panel) panel.style.display = 'none';
+      window._nav('patients');
+    } catch (e) {
+      if (errEl) { errEl.textContent = e.message || 'Failed to create patient.'; errEl.style.display = 'block'; }
+      if (statusEl) statusEl.textContent = '';
+    }
+  };
+
+  window.toggleCSVPaste = function() {
+    const area = document.getElementById('csv-paste-area');
+    if (!area) return;
+    area.style.display = area.style.display === 'none' ? '' : 'none';
+  };
+
+  window._csvParsedRows = [];
+
+  window.parseCSVInput = function(text) {
+    const notice = document.getElementById('csv-parse-notice');
+    const section = document.getElementById('csv-preview-section');
+    const table = document.getElementById('csv-preview-table');
+    const countEl = document.getElementById('csv-import-count');
+    const btn = document.getElementById('csv-import-btn');
+    if (!notice || !section || !table) return;
+
+    let rows;
+    try {
+      rows = _parseCSV(text);
+    } catch (e) {
+      notice.style.display = '';
+      notice.innerHTML = `<div style="color:var(--red);font-size:12px">Parse error: ${e.message}</div>`;
+      section.style.display = 'none';
+      return;
+    }
+
+    if (!rows.length) {
+      notice.style.display = '';
+      notice.innerHTML = `<div style="color:var(--amber);font-size:12px">No data rows found in CSV.</div>`;
+      section.style.display = 'none';
+      return;
+    }
+
+    window._csvParsedRows = rows;
+    notice.style.display = 'none';
+
+    const requiredCols = ['first_name', 'last_name'];
+    const validRows = rows.filter(r => r.first_name && r.last_name);
+    const invalidCount = rows.length - validRows.length;
+
+    const headers = ['first_name', 'last_name', 'email', 'date_of_birth', 'gender', 'primary_condition', 'primary_modality', 'clinician_notes'];
+    const theadCells = headers.map(h => `<th style="white-space:nowrap">${h.replace(/_/g,' ')}</th>`).join('');
+    const tbodyRows = rows.map(r => {
+      const invalid = !r.first_name || !r.last_name;
+      const bg = invalid ? 'background:rgba(255,107,107,0.06)' : '';
+      const cells = headers.map(h => `<td style="font-size:11px">${r[h] || ''}</td>`).join('');
+      return `<tr style="${bg}">${cells}</tr>`;
+    }).join('');
+
+    table.innerHTML = `<thead><tr>${theadCells}</tr></thead><tbody>${tbodyRows}</tbody>`;
+    if (countEl) countEl.textContent = `${validRows.length} valid / ${rows.length} total${invalidCount > 0 ? ` — ${invalidCount} missing name (amber rows skipped)` : ''}`;
+    if (btn) btn.textContent = `Import ${validRows.length} Patient${validRows.length !== 1 ? 's' : ''}`;
+    section.style.display = '';
+    document.getElementById('csv-preview-label').textContent = `Preview — ${rows.length} rows`;
+  };
+
+  window.runPatientImport = async function() {
+    const rows = (window._csvParsedRows || []).filter(r => r.first_name && r.last_name);
+    if (!rows.length) return;
+    const btn = document.getElementById('csv-import-btn');
+    const progressWrap = document.getElementById('csv-progress-wrap');
+    const progressBar = document.getElementById('csv-progress-bar');
+    const progressLabel = document.getElementById('csv-progress-label');
+    const resultEl = document.getElementById('csv-import-result');
+    if (btn) { btn.disabled = true; btn.textContent = 'Importing…'; }
+    if (progressWrap) progressWrap.style.display = '';
+    if (resultEl) resultEl.style.display = 'none';
+
+    let done = 0, errors = 0, errorDetails = [];
+    for (const row of rows) {
+      const payload = {
+        first_name: row.first_name,
+        last_name: row.last_name,
+        email: row.email || null,
+        dob: row.date_of_birth || null,
+        gender: row.gender || null,
+        primary_condition: row.primary_condition || null,
+        primary_modality: row.primary_modality || null,
+        notes: row.clinician_notes || null,
+        status: 'pending',
+      };
+      try {
+        await api.createPatient(payload);
+        done++;
+      } catch (e) {
+        errors++;
+        errorDetails.push(`${row.first_name} ${row.last_name}: ${e.message || 'failed'}`);
+      }
+      const pct = Math.round(((done + errors) / rows.length) * 100);
+      if (progressBar) progressBar.style.width = pct + '%';
+      if (progressLabel) progressLabel.textContent = `Importing ${done + errors} / ${rows.length} patients…`;
+      await new Promise(r => setTimeout(r, 50));
+    }
+
+    if (progressLabel) progressLabel.textContent = `Done.`;
+    if (btn) { btn.disabled = false; btn.textContent = 'Import Complete'; }
+    if (resultEl) {
+      resultEl.style.display = '';
+      if (errors === 0) {
+        resultEl.innerHTML = `<div class="notice" style="background:rgba(0,212,188,0.07);border:1px solid rgba(0,212,188,0.25);border-radius:6px;padding:10px 12px;font-size:12px;color:var(--teal)">${done} patient${done !== 1 ? 's' : ''} imported successfully.</div>`;
+      } else {
+        resultEl.innerHTML = `<div class="notice notice-warn" style="font-size:12px">${done} imported, ${errors} failed.<br>${errorDetails.map(d => `<div style="margin-top:4px;color:var(--red)">• ${d}</div>`).join('')}</div>`;
+      }
+    }
+    // Refresh patient list in background
+    try {
+      const res = await api.listPatients().catch(() => null);
+      if (res?.items) {
+        window._patientsData = res.items;
+        window.filterPatients();
+      }
+    } catch {}
+  };
+
+  // Bind CSV drop zone
+  setTimeout(() => {
+    const zone = document.getElementById('csv-drop-zone');
+    const fileInput = document.getElementById('csv-file-input');
+    if (zone) {
+      zone.addEventListener('dragover', e => { e.preventDefault(); zone.style.borderColor = 'var(--teal)'; zone.style.borderStyle = 'solid'; });
+      zone.addEventListener('dragleave', () => { zone.style.borderColor = 'var(--border)'; zone.style.borderStyle = 'dashed'; });
+      zone.addEventListener('drop', async (e) => {
+        e.preventDefault();
+        zone.style.borderColor = 'var(--border)'; zone.style.borderStyle = 'dashed';
+        const file = e.dataTransfer.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = ev => window.parseCSVInput(ev.target.result || '');
+        reader.readAsText(file);
+      });
+    }
+    if (fileInput) {
+      fileInput.addEventListener('change', () => {
+        const file = fileInput.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = ev => window.parseCSVInput(ev.target.result || '');
+        reader.readAsText(file);
+        fileInput.value = '';
+      });
+    }
+  }, 50);
+
+  // ── AI Intake Parser binding ──────────────────────────────────────────────
+
+  window.toggleIntakeParser = function() {
+    const body = document.getElementById('intake-parser-body');
+    const arrow = document.getElementById('intake-parser-arrow');
+    if (!body) return;
+    const expanded = body.style.display !== 'none';
+    body.style.display = expanded ? 'none' : '';
+    if (arrow) arrow.textContent = expanded ? '▶ expand' : '▲ collapse';
+  };
+
+  async function _extractPDFText(file) {
+    return new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onload = e => resolve(e.target.result || '');
+      reader.readAsText(file);
+    });
+  }
+
+  window.runIntakeParse = async function() {
+    const btn = document.getElementById('intake-extract-btn');
+    const notice = document.getElementById('intake-parse-notice');
+    const resultPanel = document.getElementById('intake-result-panel');
+    const resultContent = document.getElementById('intake-result-content');
+
+    let text = (document.getElementById('intake-paste-text')?.value || '').trim();
+    if (!text) {
+      if (notice) { notice.style.display = ''; notice.innerHTML = `<div style="color:var(--amber);font-size:12px">Please upload a file or paste intake text first.</div>`; }
+      return;
+    }
+
+    if (btn) { btn.disabled = true; btn.textContent = 'Processing…'; }
+    if (notice) notice.style.display = 'none';
+    if (resultPanel) resultPanel.style.display = 'none';
+
+    try {
+      const result = await api.caseSummary({ patient_notes: text, condition: '', modality: '', session_count: 0 });
+      window._lastIntakeResult = result;
+      if (resultContent) {
+        const lines = [];
+        if (result?.presenting_symptoms?.length) lines.push(`Symptoms: ${result.presenting_symptoms.join(', ')}`);
+        if (result?.possible_targets?.length) lines.push(`Possible Targets: ${result.possible_targets.join(', ')}`);
+        if (result?.suggested_modalities?.length) lines.push(`Suggested Modalities: ${result.suggested_modalities.join(', ')}`);
+        if (result?.red_flags?.length) lines.push(`Red Flags: ${result.red_flags.join(', ')}`);
+        if (result?.summary) lines.push(`\nSummary:\n${result.summary}`);
+        resultContent.textContent = lines.join('\n') || JSON.stringify(result, null, 2);
+      }
+      if (resultPanel) resultPanel.style.display = '';
+    } catch (e) {
+      if (notice) { notice.style.display = ''; notice.innerHTML = `<div style="color:var(--red);font-size:12px">Extraction failed: ${e.message}</div>`; }
+    } finally {
+      if (btn) { btn.disabled = false; btn.textContent = 'Extract Patient Data →'; }
+    }
+  };
+
+  window.prefillPatientFromIntake = function() {
+    const result = window._lastIntakeResult;
+    if (!result) return;
+    // Best-effort: surface the add-patient form and pre-fill what we can
+    window.showAddPatient();
+    // Try to extract condition and modality
+    const condition = result?.possible_targets?.[0] || result?.presenting_symptoms?.[0] || '';
+    const modality = result?.suggested_modalities?.[0] || '';
+    const condEl = document.getElementById('np-condition');
+    const modEl  = document.getElementById('np-modality');
+    const notesEl = document.getElementById('np-notes');
+    if (condEl && condition) {
+      // Try to match against existing options
+      Array.from(condEl.options).forEach(o => {
+        if (o.value.toLowerCase().includes(condition.toLowerCase()) || condition.toLowerCase().includes(o.value.toLowerCase())) {
+          condEl.value = o.value;
+        }
+      });
+    }
+    if (modEl && modality) {
+      Array.from(modEl.options).forEach(o => {
+        if (o.value.toLowerCase().includes(modality.toLowerCase())) modEl.value = o.value;
+      });
+    }
+    if (notesEl && result) {
+      const summary = result?.summary || (result?.presenting_symptoms?.join(', ') || '');
+      notesEl.value = summary ? `[From intake parser] ${summary}` : '';
+    }
+    // Scroll to add-patient form
+    document.getElementById('add-patient-panel')?.scrollIntoView({ behavior: 'smooth' });
+  };
+
+  // Bind intake PDF drop zone
+  setTimeout(() => {
+    const zone = document.getElementById('intake-pdf-drop');
+    const fileInput = document.getElementById('intake-file-input');
+    const pasteText = document.getElementById('intake-paste-text');
+    const notice = document.getElementById('intake-parse-notice');
+
+    if (zone) {
+      zone.addEventListener('dragover', e => { e.preventDefault(); zone.style.borderColor = 'var(--teal)'; zone.style.borderStyle = 'solid'; });
+      zone.addEventListener('dragleave', () => { zone.style.borderColor = 'var(--border)'; zone.style.borderStyle = 'dashed'; });
+      zone.addEventListener('drop', async (e) => {
+        e.preventDefault();
+        zone.style.borderColor = 'var(--border)'; zone.style.borderStyle = 'dashed';
+        const file = e.dataTransfer.files[0];
+        if (file) {
+          if (notice) { notice.style.display = ''; notice.innerHTML = `<div style="font-size:12px;color:var(--text-tertiary)">Reading ${file.name}…</div>`; }
+          const text = await _extractPDFText(file);
+          if (!text || text.length < 20 || /^\0/.test(text)) {
+            if (notice) notice.innerHTML = `<div style="font-size:12px;color:var(--amber)">PDF text extraction failed or binary content detected. Please paste text manually below.</div>`;
+          } else {
+            if (pasteText) pasteText.value = text;
+            if (notice) notice.innerHTML = `<div style="font-size:12px;color:var(--green)">✓ Text extracted from ${file.name} (${text.length} chars). Review and click Extract.</div>`;
+          }
+        }
+      });
+    }
+    if (fileInput) {
+      fileInput.addEventListener('change', async () => {
+        const file = fileInput.files[0];
+        if (!file) return;
+        if (notice) { notice.style.display = ''; notice.innerHTML = `<div style="font-size:12px;color:var(--text-tertiary)">Reading ${file.name}…</div>`; }
+        const text = await _extractPDFText(file);
+        if (!text || text.length < 20 || /^\0/.test(text)) {
+          if (notice) notice.innerHTML = `<div style="font-size:12px;color:var(--amber)">PDF text extraction failed or binary content. Please paste text manually below.</div>`;
+        } else {
+          if (pasteText) pasteText.value = text;
+          if (notice) notice.innerHTML = `<div style="font-size:12px;color:var(--green)">✓ Text extracted from ${file.name}. Review below and click Extract.</div>`;
+        }
+        fileInput.value = '';
+      });
+    }
+  }, 50);
 }
 
 // ── Patient Profile ───────────────────────────────────────────────────────────
@@ -713,9 +1746,11 @@ export async function pgProfile(setTopbar, navigate) {
   </div>
 
   <div class="tab-bar">
-    ${['overview', 'courses', 'sessions', 'outcomes', 'protocol', 'assessments', 'notes', 'phenotype', 'consent'].map(t =>
-      `<button class="tab-btn ${ptab === t ? 'active' : ''}" onclick="window.switchPT('${t}')">${t}${t === 'courses' && courses.length ? ` (${courses.length})` : ''}</button>`
-    ).join('')}
+    ${['overview', 'courses', 'sessions', 'outcomes', 'protocol', 'assessments', 'notes', 'phenotype', 'consent', 'monitoring'].map(t => {
+      const labels = { monitoring: '◌ Monitoring' };
+      const label = labels[t] || t;
+      return `<button class="tab-btn ${ptab === t ? 'active' : ''}" onclick="window.switchPT('${t}')">${label}${t === 'courses' && courses.length ? ` (${courses.length})` : ''}</button>`;
+    }).join('')}
   </div>
   <div id="ptab-body">${renderProfileTab(pt, sessions, courses)}</div>`;
 
@@ -774,6 +1809,18 @@ export async function pgProfile(setTopbar, navigate) {
           }
         } catch { bodyEl.innerHTML = `<div style="color:var(--text-tertiary);font-size:12px">Could not load assessments.</div>`; }
       }, 0);
+      return;
+    }
+    if (t === 'monitoring') {
+      document.getElementById('ptab-body').innerHTML = spinner();
+      try {
+        const wData = await api.getPatientWearableSummary(pt.id, 30).catch(() => null);
+        document.getElementById('ptab-body').innerHTML = renderMonitoringTab(pt, wData, navigate);
+        bindMonitoringActions(pt, wData, navigate);
+      } catch (_e) {
+        document.getElementById('ptab-body').innerHTML = renderMonitoringTab(pt, null, navigate);
+        bindMonitoringActions(pt, null, navigate);
+      }
       return;
     }
     document.getElementById('ptab-body').innerHTML = renderProfileTab(pt, sessions, window._currentCourses || []);
@@ -1135,6 +2182,49 @@ function bindOutcomesActions(pt) {
 // ── Phenotype tab ─────────────────────────────────────────────────────────────
 function renderPhenotypeTab(pt, assigns, phenos) {
   const CONF_COLOR = { high: 'var(--teal)', moderate: 'var(--blue)', low: 'var(--amber)' };
+
+  // Existing assignments table
+  const assignmentsHtml = assigns.length === 0
+    ? emptyState('◎', 'No phenotype assignments yet.')
+    : `<div style="overflow-x:auto"><table class="ds-table">
+        <thead><tr>
+          <th>Phenotype</th><th>Assigned</th><th>Confidence</th><th>qEEG</th><th>Rationale</th><th></th>
+        </tr></thead>
+        <tbody>
+          ${assigns.map(a => {
+            const cc = CONF_COLOR[a.confidence] || 'var(--text-tertiary)';
+            return `<tr>
+              <td style="font-weight:500">${a.phenotype_id}</td>
+              <td style="color:var(--text-tertiary);font-size:11.5px">${a.assigned_at ? a.assigned_at.split('T')[0] : '—'}</td>
+              <td><span style="font-size:11px;padding:2px 7px;border-radius:4px;background:${cc}22;color:${cc}">${a.confidence || '—'}</span></td>
+              <td>${a.qeeg_supported ? '<span style="font-size:10px;color:var(--teal)">✓ qEEG</span>' : '<span style="color:var(--text-tertiary);font-size:11px">—</span>'}</td>
+              <td style="font-size:11.5px;color:var(--text-secondary);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${a.rationale || '—'}</td>
+              <td><button class="btn btn-sm" style="color:var(--red);font-size:10.5px" onclick="window._deletePheno('${a.id}')">Remove</button></td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table></div>`;
+
+  // Phenotype library cards
+  const libraryHtml = phenos.length === 0
+    ? ''
+    : `<div style="margin-top:24px">
+        <div style="font-size:10px;font-weight:600;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:1.1px;padding-bottom:10px;border-bottom:1px solid var(--border);margin-bottom:14px">Phenotype Library</div>
+        <div class="g3">
+          ${phenos.map(ph => {
+            const phid = ph.id || '';
+            const recommendedMods = (ph.recommended_modalities || ph.modalities || []);
+            return `<div class="card" style="margin-bottom:0;padding:14px 16px;transition:border-color var(--transition)" onmouseover="this.style.borderColor='var(--border-teal)'" onmouseout="this.style.borderColor='var(--border)'">
+              <div style="font-size:13px;font-weight:600;color:var(--text-primary);margin-bottom:4px">${ph.name || ph.slug || phid}</div>
+              ${ph.description ? `<div style="font-size:11.5px;color:var(--text-secondary);line-height:1.5;margin-bottom:8px">${ph.description.slice(0, 120)}${ph.description.length > 120 ? '…' : ''}</div>` : ''}
+              ${ph.typical_biomarker_patterns || ph.biomarker_patterns ? `<div style="font-size:11px;color:var(--text-tertiary);margin-bottom:6px">Biomarkers: ${ph.typical_biomarker_patterns || ph.biomarker_patterns}</div>` : ''}
+              ${recommendedMods.length ? `<div style="margin-bottom:8px">${recommendedMods.slice(0, 4).map(m => `<span class="tag" style="font-size:10.5px">${m}</span>`).join('')}</div>` : ''}
+              <button class="btn btn-sm" style="width:100%;font-size:11px;margin-top:4px" onclick="window._quickAssignPheno('${phid}')">Assign to Patient</button>
+            </div>`;
+          }).join('')}
+        </div>
+      </div>`;
+
   return `
     <div style="margin-bottom:14px;display:flex;gap:8px">
       <button class="btn btn-primary btn-sm" onclick="document.getElementById('new-pheno-form').style.display=''">+ Assign Phenotype</button>
@@ -1158,7 +2248,7 @@ function renderPhenotypeTab(pt, assigns, phenos) {
             </div>
           </div>
           <div>
-            <div class="form-group"><label class="form-label">Rationale</label>
+            <div class="form-group"><label class="form-label">Rationale / Notes</label>
               <textarea id="ph-rationale" class="form-control" style="height:76px" placeholder="Clinical basis for this phenotype…"></textarea>
             </div>
             <div class="form-group" style="margin-top:8px">
@@ -1175,24 +2265,8 @@ function renderPhenotypeTab(pt, assigns, phenos) {
         </div>
       `)}
     </div>
-    ${assigns.length === 0
-      ? emptyState('◎', 'No phenotype assignments yet.')
-      : `<div style="display:flex;flex-direction:column;gap:8px">
-          ${assigns.map(a => {
-            const cc = CONF_COLOR[a.confidence] || 'var(--text-tertiary)';
-            return `<div class="card" style="padding:14px 18px">
-              <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-                <span style="font-size:13px;font-weight:600;color:var(--text-primary);flex:1">${a.phenotype_id}</span>
-                <span style="font-size:11px;padding:2px 8px;border-radius:4px;background:${cc}22;color:${cc}">${a.confidence}</span>
-                ${a.qeeg_supported ? '<span style="font-size:10px;color:var(--teal)">qEEG ✓</span>' : ''}
-                <button class="btn btn-sm" style="color:var(--red)" onclick="window._deletePheno('${a.id}')">Remove</button>
-              </div>
-              ${a.rationale ? `<div style="margin-top:6px;font-size:12px;color:var(--text-secondary)">${a.rationale}</div>` : ''}
-              <div style="margin-top:4px;font-size:11px;color:var(--text-tertiary)">${a.assigned_at ? a.assigned_at.split('T')[0] : ''}</div>
-            </div>`;
-          }).join('')}
-        </div>`
-    }`;
+    ${cardWrap(`Existing Assignments (${assigns.length})`, assignmentsHtml)}
+    ${libraryHtml}`;
 }
 
 function bindPhenotypeActions(pt) {
@@ -1234,13 +2308,73 @@ function bindPhenotypeActions(pt) {
       if (errEl) { errEl.textContent = e.message || 'Delete failed.'; errEl.style.display = ''; }
     }
   };
+
+  window._quickAssignPheno = async function(phenoId) {
+    if (!phenoId) return;
+    if (!confirm(`Assign phenotype "${phenoId}" to this patient?`)) return;
+    try {
+      await api.assignPhenotype({ patient_id: pt.id, phenotype_id: phenoId, confidence: 'moderate' });
+      const [assigns, phenos] = await Promise.all([
+        api.listPhenotypeAssignments({ patient_id: pt.id }).then(r => r?.items || []).catch(() => []),
+        api.phenotypes().then(r => r?.items || r || []).catch(() => []),
+      ]);
+      document.getElementById('ptab-body').innerHTML = renderPhenotypeTab(pt, assigns, phenos);
+      bindPhenotypeActions(pt);
+    } catch (e) {
+      const b = document.createElement('div');
+      b.className = 'notice notice-warn';
+      b.style.cssText = 'position:fixed;top:16px;right:16px;z-index:9999;max-width:380px';
+      b.textContent = e.message || 'Assignment failed.';
+      document.body.appendChild(b); setTimeout(() => b.remove(), 4000);
+    }
+  };
 }
 
 // ── Consent tab ───────────────────────────────────────────────────────────────
+function _consentStatusBadge(status, expiryDate) {
+  const today = new Date(); today.setHours(0,0,0,0);
+  const exp = expiryDate ? new Date(expiryDate) : null;
+  const isExpired = exp && exp < today;
+  const expiringSoon = exp && !isExpired && (exp - today) < 30 * 86400000;
+  if (isExpired || status === 'expired') return `<span style="font-size:10.5px;font-weight:600;padding:2px 8px;border-radius:4px;background:rgba(255,107,107,0.1);color:var(--red)">Expired</span>`;
+  if (status === 'withdrawn') return `<span style="font-size:10.5px;font-weight:600;padding:2px 8px;border-radius:4px;background:rgba(255,107,107,0.1);color:var(--red)">Withdrawn</span>`;
+  if (status === 'pending') return `<span style="font-size:10.5px;font-weight:600;padding:2px 8px;border-radius:4px;background:rgba(255,181,71,0.1);color:var(--amber)">Pending</span>`;
+  if (expiringSoon) return `<span style="font-size:10.5px;font-weight:600;padding:2px 8px;border-radius:4px;background:rgba(255,181,71,0.1);color:var(--amber)">Active — Expiring Soon</span>`;
+  return `<span style="font-size:10.5px;font-weight:600;padding:2px 8px;border-radius:4px;background:rgba(0,212,188,0.1);color:var(--teal)">Active</span>`;
+}
+
 function renderConsentTab(pt, consents) {
+  const today = new Date(); today.setHours(0,0,0,0);
+  const todayStr = today.toISOString().split('T')[0];
+  const nextYear = new Date(today); nextYear.setFullYear(nextYear.getFullYear() + 1);
+  const nextYearStr = nextYear.toISOString().split('T')[0];
+
+  // Consent status summary
+  const treatmentConsents = consents.filter(c => c.consent_type === 'treatment' && c.status !== 'withdrawn');
+  const hasValidTreatment = treatmentConsents.some(c => {
+    const exp = c.expires_at ? new Date(c.expires_at) : null;
+    return (!exp || exp >= today) && c.status === 'active';
+  });
+  const hasExpired = consents.some(c => {
+    const exp = c.expires_at ? new Date(c.expires_at) : null;
+    return (exp && exp < today) || c.status === 'expired';
+  });
+  const hasPending = consents.some(c => c.status === 'pending');
+
+  const summaryBanner = hasValidTreatment && !hasExpired
+    ? `<div class="notice notice-ok" style="margin-bottom:14px"><span style="color:var(--green);font-weight:600">&#10003; Consent on file.</span> Valid treatment consent recorded.</div>`
+    : hasExpired
+    ? govFlag('One or more consents have expired. Review and renew before proceeding with treatment.', 'error')
+    : hasPending
+    ? govFlag('Consent records are pending. Obtain signed consent before delivering treatment.', 'warn')
+    : consents.length === 0
+    ? govFlag('No consent records found. Obtain and record consent before starting treatment.', 'warn')
+    : '';
+
   return `
+    ${summaryBanner}
     <div style="margin-bottom:14px;display:flex;gap:8px">
-      <button class="btn btn-primary btn-sm" onclick="document.getElementById('new-consent-form').style.display=''">+ Add Consent Record</button>
+      <button class="btn btn-primary btn-sm" onclick="(function(){var f=document.getElementById('new-consent-form');f.style.display=f.style.display==='none'?'':'none';})()">+ Add Consent</button>
     </div>
     <div id="new-consent-form" style="display:none;margin-bottom:16px">
       ${cardWrap('New Consent Record', `
@@ -1248,28 +2382,33 @@ function renderConsentTab(pt, consents) {
           <div>
             <div class="form-group"><label class="form-label">Consent Type</label>
               <select id="cn-type" class="form-control">
-                <option value="general">General</option>
-                <option value="off_label">Off-Label</option>
+                <option value="treatment">Treatment</option>
+                <option value="data_processing">Data Processing</option>
+                <option value="recording">Recording</option>
+                <option value="telehealth">Telehealth</option>
                 <option value="research">Research</option>
               </select>
             </div>
-            <div class="form-group"><label class="form-label">Modality (optional)</label>
-              <input id="cn-modality" class="form-control" placeholder="e.g. tDCS, TMS">
+            <div class="form-group"><label class="form-label">Signed Date</label>
+              <input id="cn-signed-at" type="date" class="form-control" value="${todayStr}">
+            </div>
+            <div class="form-group"><label class="form-label">Expiry Date</label>
+              <input id="cn-expires-at" type="date" class="form-control" value="${nextYearStr}">
             </div>
           </div>
           <div>
-            <div class="form-group"><label class="form-label">Document Ref (URL/path)</label>
-              <input id="cn-doc" class="form-control" placeholder="https://… or file path">
+            <div class="form-group"><label class="form-label">Method</label>
+              <select id="cn-method" class="form-control">
+                <option value="written">Written</option>
+                <option value="verbal">Verbal</option>
+                <option value="digital">Digital</option>
+                <option value="witnessed">Witnessed</option>
+              </select>
             </div>
             <div class="form-group"><label class="form-label">Notes</label>
-              <textarea id="cn-notes" class="form-control" style="height:60px" placeholder="Optional notes…"></textarea>
+              <textarea id="cn-notes" class="form-control" style="height:80px" placeholder="Optional notes, document references..."></textarea>
             </div>
           </div>
-        </div>
-        <div class="form-group" style="margin-top:4px">
-          <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer">
-            <input type="checkbox" id="cn-signed"> Mark as signed now
-          </label>
         </div>
         <div id="cn-error" style="color:var(--red);font-size:12px;display:none;margin-bottom:8px"></div>
         <div style="display:flex;gap:8px">
@@ -1279,21 +2418,34 @@ function renderConsentTab(pt, consents) {
       `)}
     </div>
     ${consents.length === 0
-      ? emptyState('◇', 'No consent records yet.')
-      : `<div style="display:flex;flex-direction:column;gap:8px">
-          ${consents.map(c => `<div class="card" style="padding:14px 18px">
-            <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-              <span style="font-size:13px;font-weight:600;color:var(--text-primary);flex:1">${c.consent_type.replace(/_/g,' ')}${c.modality_slug ? ' · ' + c.modality_slug : ''}</span>
-              ${c.signed
-                ? '<span style="font-size:11px;padding:2px 8px;border-radius:4px;background:rgba(0,212,188,0.15);color:var(--teal)">Signed ✓</span>'
-                : `<span style="font-size:11px;padding:2px 8px;border-radius:4px;background:rgba(255,171,0,0.15);color:var(--amber)">Unsigned</span>
-                   <button class="btn btn-sm" onclick="window._signConsent('${c.id}')">Mark Signed</button>`}
-            </div>
-            ${c.signed_at ? `<div style="margin-top:4px;font-size:11px;color:var(--text-secondary)">Signed: ${c.signed_at.split('T')[0]}</div>` : ''}
-            ${c.document_ref ? `<div style="margin-top:4px;font-size:11px;color:var(--blue)">${c.document_ref}</div>` : ''}
-            ${c.notes ? `<div style="margin-top:4px;font-size:12px;color:var(--text-secondary)">${c.notes}</div>` : ''}
-            <div style="margin-top:4px;font-size:11px;color:var(--text-tertiary)">${c.created_at ? c.created_at.split('T')[0] : ''}</div>
-          </div>`).join('')}
+      ? emptyState('&#9671;', 'No consent records yet.')
+      : `<div class="card" style="overflow:hidden">
+          <table class="ds-table" style="width:100%">
+            <thead><tr>
+              <th>Type</th><th>Status</th><th>Signed</th><th>Expires</th><th>Method</th><th>Actions</th>
+            </tr></thead>
+            <tbody>
+              ${consents.map(c => {
+                const exp = c.expires_at ? new Date(c.expires_at) : null;
+                const isExpired = exp && exp < today;
+                const expiringSoon = exp && !isExpired && (exp - today) < 30 * 86400000;
+                const expCell = c.expires_at
+                  ? c.expires_at.split('T')[0] + (isExpired ? ' <span style="color:var(--red);font-weight:700">&#9888;</span>' : expiringSoon ? ' <span style="color:var(--amber)">&#9888;</span>' : '')
+                  : '&#8212;';
+                return `<tr>
+                  <td style="font-weight:500">${(c.consent_type||'').replace(/_/g,' ')}</td>
+                  <td>${_consentStatusBadge(c.status, c.expires_at)}</td>
+                  <td style="font-size:12px">${c.signed_at ? c.signed_at.split('T')[0] : '&#8212;'}</td>
+                  <td style="font-size:12px">${expCell}</td>
+                  <td style="font-size:12px;color:var(--text-secondary)">${c.method || c.modality_slug || '&#8212;'}</td>
+                  <td>${c.status !== 'withdrawn' ? `<button class="btn btn-sm" style="font-size:10px;padding:2px 8px;color:var(--red);border-color:rgba(255,107,107,0.3)" onclick="window._revokeConsent('${c.id}')">Revoke</button>` : '<span style="font-size:11px;color:var(--text-tertiary)">Withdrawn</span>'}</td>
+                </tr>`;
+              }).join('')}
+            </tbody>
+          </table>
+          ${consents.some(c => c.notes) ? `<div style="padding:12px 16px;border-top:1px solid var(--border)">
+            ${consents.filter(c => c.notes).map(c => `<div style="font-size:12px;color:var(--text-secondary);margin-bottom:4px"><strong style="color:var(--text-primary)">${(c.consent_type||'').replace(/_/g,' ')}:</strong> ${c.notes}</div>`).join('')}
+          </div>` : ''}
         </div>`
     }`;
 }
@@ -1301,23 +2453,37 @@ function renderConsentTab(pt, consents) {
 function bindConsentActions(pt) {
   window._saveConsent = async function() {
     const errEl = document.getElementById('cn-error');
-    errEl.style.display = 'none';
+    if (errEl) errEl.style.display = 'none';
     const data = {
       patient_id: pt.id,
       consent_type: document.getElementById('cn-type').value,
-      modality_slug: document.getElementById('cn-modality').value.trim() || null,
-      document_ref: document.getElementById('cn-doc').value.trim() || null,
+      signed_at: document.getElementById('cn-signed-at').value || null,
+      expires_at: document.getElementById('cn-expires-at').value || null,
+      method: document.getElementById('cn-method').value || null,
       notes: document.getElementById('cn-notes').value.trim() || null,
-      signed: document.getElementById('cn-signed').checked,
+      status: 'active',
     };
     try {
       await api.createConsent(data);
       const consents = await api.listConsents({ patient_id: pt.id }).then(r => r?.items || []).catch(() => []);
       document.getElementById('ptab-body').innerHTML = renderConsentTab(pt, consents);
       bindConsentActions(pt);
-    } catch (e) { errEl.textContent = e.message || 'Save failed.'; errEl.style.display = ''; }
+    } catch (e) { if (errEl) { errEl.textContent = e.message || 'Save failed.'; errEl.style.display = ''; } }
   };
 
+  window._revokeConsent = async function(id) {
+    if (!confirm('Revoke this consent record?')) return;
+    try {
+      await api.updateConsent(id, { status: 'withdrawn' });
+      const consents = await api.listConsents({ patient_id: pt.id }).then(r => r?.items || []).catch(() => []);
+      document.getElementById('ptab-body').innerHTML = renderConsentTab(pt, consents);
+      bindConsentActions(pt);
+    } catch (e) {
+      const t = document.createElement('div'); t.className = 'notice notice-error'; t.style.cssText = 'position:fixed;top:16px;right:16px;z-index:9999;max-width:360px'; t.textContent = e.message || 'Revoke failed.'; document.body.appendChild(t); setTimeout(() => t.remove(), 4000);
+    }
+  };
+
+  // Keep legacy _signConsent in case it is referenced elsewhere
   window._signConsent = async function(id) {
     try {
       await api.updateConsent(id, { signed: true });
@@ -1325,8 +2491,212 @@ function bindConsentActions(pt) {
       document.getElementById('ptab-body').innerHTML = renderConsentTab(pt, consents);
       bindConsentActions(pt);
     } catch (e) {
-      const errEl = document.getElementById('consent-error');
-      if (errEl) { errEl.textContent = e.message || 'Sign failed.'; errEl.style.display = ''; }
+      const t = document.createElement('div'); t.className = 'notice notice-error'; t.style.cssText = 'position:fixed;top:16px;right:16px;z-index:9999;max-width:360px'; t.textContent = e.message || 'Sign failed.'; document.body.appendChild(t); setTimeout(() => t.remove(), 4000);
+    }
+  };
+}
+
+// ── Monitoring tab ────────────────────────────────────────────────────────────
+function renderMonitoringTab(pt, wData, navigate) {
+  const summaries    = wData?.summaries     || [];
+  const connections  = wData?.connections   || [];
+  const alertFlags   = wData?.recent_alerts || [];
+  const latest       = summaries.length ? summaries[summaries.length - 1] : null;
+
+  // ── Mini sparkline (inline SVG) ──────────────────────────────────────────
+  function miniSpark(vals, color) {
+    if (!vals || vals.length < 2) return `<svg width="80" height="20" viewBox="0 0 80 20"><line x1="0" y1="10" x2="80" y2="10" stroke="${color}" stroke-width="1" stroke-dasharray="2,2" opacity=".3"/></svg>`;
+    const max = Math.max(...vals), min = Math.min(...vals), range = max - min || 1;
+    const pts = vals.map((v, i) => {
+      const x = 3 + (i / (vals.length - 1)) * 74;
+      const y = 3 + 14 - ((v - min) / range) * 14;
+      return `${x},${y}`;
+    }).join(' ');
+    return `<svg width="80" height="20" viewBox="0 0 80 20"><polyline points="${pts}" fill="none" stroke="${color}" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+  }
+
+  function trendVals(field) { return summaries.map(s => s[field]).filter(v => v != null); }
+  function trendArrow(vals) {
+    if (vals.length < 2) return '<span style="color:var(--text-tertiary)">→</span>';
+    const delta = vals[vals.length - 1] - vals[0];
+    if (delta > 0) return '<span style="color:var(--green)">↑</span>';
+    if (delta < 0) return '<span style="color:var(--red)">↓</span>';
+    return '<span style="color:var(--text-tertiary)">→</span>';
+  }
+
+  function metricCard(label, field, unit, color) {
+    const vals = trendVals(field);
+    const cur  = vals.length ? vals[vals.length - 1] : null;
+    return `<div class="card" style="padding:12px 14px;position:relative;overflow:hidden">
+      <div style="position:absolute;top:0;left:0;width:3px;height:100%;background:${color}"></div>
+      <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.7px;color:var(--text-tertiary);margin-bottom:4px">${label}</div>
+      <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px">
+        <span style="font-size:18px;font-weight:700;color:${color};font-family:var(--font-mono)">${cur != null ? cur : '—'}</span>
+        <span style="font-size:10.5px;color:var(--text-tertiary)">${unit}</span>
+        <span style="margin-left:auto">${trendArrow(vals)}</span>
+      </div>
+      ${miniSpark(vals, color)}
+    </div>`;
+  }
+
+  // ── Alert flag colours ────────────────────────────────────────────────────
+  const FLAG_STYLE = {
+    sleep_worsening:   { color: 'var(--amber)', bg: 'rgba(255,181,71,0.08)',  icon: '▲', label: 'Sleep Worsening' },
+    rhr_rising:        { color: 'var(--amber)', bg: 'rgba(255,181,71,0.08)',  icon: '▲', label: 'RHR Rising' },
+    hrv_declining:     { color: 'var(--amber)', bg: 'rgba(255,181,71,0.08)',  icon: '▲', label: 'HRV Declining' },
+    sync_gap:          { color: 'var(--blue)',  bg: 'rgba(74,158,255,0.08)',  icon: '◌', label: 'Sync Gap' },
+    symptom_worsening: { color: 'var(--red)',   bg: 'rgba(255,107,107,0.08)', icon: '◉', label: 'Symptom Worsening' },
+    presession_concern:{ color: 'var(--red)',   bg: 'rgba(255,107,107,0.08)', icon: '◉', label: 'Pre-session Concern' },
+  };
+
+  function flagRow(flag) {
+    const st = FLAG_STYLE[flag.flag_type] || { color: 'var(--text-tertiary)', bg: 'rgba(255,255,255,0.04)', icon: '◎', label: flag.flag_type || 'Unknown' };
+    const timeStr = flag.triggered_at ? new Date(flag.triggered_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '—';
+    return `<div style="display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:var(--radius-md);background:${st.bg};border:1px solid ${st.color}33;margin-bottom:6px">
+      <span style="color:${st.color};font-size:13px;flex-shrink:0">${st.icon}</span>
+      <div style="flex:1;min-width:0">
+        <div style="font-size:12.5px;font-weight:600;color:${st.color}">${st.label}</div>
+        ${flag.detail ? `<div style="font-size:11px;color:var(--text-secondary);margin-top:1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${flag.detail}</div>` : ''}
+      </div>
+      <div style="font-size:10.5px;color:var(--text-tertiary);white-space:nowrap;flex-shrink:0">${timeStr}</div>
+      <button class="btn btn-sm" style="font-size:11px;flex-shrink:0" onclick="window._reviewFlag('${flag.id || ''}')">Review</button>
+    </div>`;
+  }
+
+  // ── Readiness score ───────────────────────────────────────────────────────
+  function computeReadiness() {
+    if (!latest) return null;
+    let score = 100;
+    const factors = [];
+    const hrv   = latest.hrv_ms;
+    const sleep = latest.sleep_duration_h;
+    const rhr   = latest.rhr_bpm;
+
+    if (hrv != null && hrv < 40)    { score -= 20; factors.push({ label: 'Low HRV', delta: -20, color: 'var(--amber)' }); }
+    if (sleep != null && sleep < 6) { score -= 15; factors.push({ label: 'Poor sleep (<6h)', delta: -15, color: 'var(--amber)' }); }
+    if (rhr != null && rhr > 80)    { score -= 10; factors.push({ label: 'Elevated resting HR', delta: -10, color: 'var(--amber)' }); }
+
+    const alertPenalty = Math.min(alertFlags.length * 10, 30);
+    if (alertPenalty > 0) {
+      score -= alertPenalty;
+      factors.push({ label: `${alertFlags.length} recent alert flag${alertFlags.length > 1 ? 's' : ''}`, delta: -alertPenalty, color: 'var(--red)' });
+    }
+    score = Math.max(0, Math.min(100, score));
+    const color = score >= 70 ? 'var(--green)' : score >= 40 ? 'var(--amber)' : 'var(--red)';
+    const label = score >= 70 ? 'Good' : score >= 40 ? 'Moderate' : 'Low';
+    return { score, color, label, factors };
+  }
+
+  const readiness = computeReadiness();
+
+  return `
+  <!-- Section 1: 7-day Health Trends -->
+  <div style="margin-bottom:22px">
+    <div style="font-size:13px;font-weight:600;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.8px;margin-bottom:12px;padding-bottom:8px;border-bottom:1px solid var(--border)">
+      7-day Health Trends
+    </div>
+    ${summaries.length === 0
+      ? `<div style="padding:24px;text-align:center;color:var(--text-tertiary);font-size:12.5px;background:var(--bg-card);border-radius:var(--radius-md);border:1px solid var(--border)">
+          <div style="font-size:22px;margin-bottom:8px;opacity:.35">◌</div>
+          No wearable data available for this patient.
+        </div>`
+      : `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:10px;margin-bottom:12px">
+          ${metricCard('Resting HR', 'rhr_bpm', 'bpm', 'var(--teal)')}
+          ${metricCard('HRV', 'hrv_ms', 'ms', 'var(--blue)')}
+          ${metricCard('Sleep', 'sleep_duration_h', 'hrs', 'var(--violet)')}
+          ${metricCard('Steps', 'steps', '/day', 'var(--green)')}
+          ${metricCard('SpO\u2082', 'spo2_pct', '%', 'var(--blue)')}
+        </div>
+        ${connections.length > 0 ? `<div style="font-size:11px;color:var(--text-tertiary)">
+          Sources: ${connections.map(c => c.display_name || c.source).join(', ')}
+        </div>` : ''}`
+    }
+  </div>
+
+  <!-- Section 2: Alert Flags -->
+  <div style="margin-bottom:22px">
+    <div style="font-size:13px;font-weight:600;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.8px;margin-bottom:12px;padding-bottom:8px;border-bottom:1px solid var(--border)">
+      Alert Flags
+    </div>
+    ${alertFlags.length === 0
+      ? `<div style="font-size:12.5px;color:var(--text-tertiary);padding:12px 0">No alert flags recorded.</div>`
+      : alertFlags.map(f => flagRow(f)).join('')
+    }
+  </div>
+
+  <!-- Section 3: AI Summary -->
+  <div style="margin-bottom:22px">
+    <div style="font-size:13px;font-weight:600;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.8px;margin-bottom:12px;padding-bottom:8px;border-bottom:1px solid var(--border)">
+      AI Clinical Summary
+    </div>
+    <div id="monitoring-ai-wrap">
+      <button class="btn btn-primary btn-sm" id="monitoring-ai-btn" onclick="window._generateMonitoringSummary()">Generate AI Summary</button>
+      <div style="font-size:11px;color:var(--text-tertiary);margin-top:6px">Summarises wearable trends, treatment progress, and outcomes over the last 30 days.</div>
+    </div>
+  </div>
+
+  <!-- Section 4: Session Readiness -->
+  <div>
+    <div style="font-size:13px;font-weight:600;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.8px;margin-bottom:12px;padding-bottom:8px;border-bottom:1px solid var(--border)">
+      Readiness Before Next Session
+    </div>
+    ${!readiness
+      ? `<div style="font-size:12.5px;color:var(--text-tertiary)">No wearable data — readiness score unavailable.</div>`
+      : `<div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap">
+          <div style="width:80px;height:80px;border-radius:50%;border:4px solid ${readiness.color};display:flex;flex-direction:column;align-items:center;justify-content:center;flex-shrink:0;background:rgba(0,0,0,.15)">
+            <span style="font-size:20px;font-weight:800;color:${readiness.color};font-family:var(--font-mono);line-height:1">${readiness.score}</span>
+            <span style="font-size:10px;color:${readiness.color};font-weight:600;margin-top:1px">${readiness.label}</span>
+          </div>
+          <div style="flex:1;min-width:180px">
+            <div style="font-size:12px;font-weight:600;color:var(--text-secondary);margin-bottom:8px">Contributing factors</div>
+            ${readiness.factors.length === 0
+              ? `<div style="font-size:12px;color:var(--green)">No adverse factors detected.</div>`
+              : readiness.factors.map(f => `<div style="display:flex;align-items:center;gap:8px;margin-bottom:5px;font-size:12px">
+                  <span style="color:${f.color};font-weight:600">${f.delta}</span>
+                  <span style="color:var(--text-secondary)">${f.label}</span>
+                </div>`).join('')
+            }
+          </div>
+        </div>`
+    }
+  </div>`;
+}
+
+function bindMonitoringActions(pt, wData, navigate) {
+  window._reviewFlag = function(flagId) {
+    if (navigate) navigate('review-queue');
+  };
+
+  window._generateMonitoringSummary = async function() {
+    const wrap = document.getElementById('monitoring-ai-wrap');
+    if (!wrap) return;
+    wrap.innerHTML = `<div style="display:flex;align-items:center;gap:10px;padding:14px;color:var(--text-tertiary);font-size:12.5px">
+      <span style="display:inline-flex;gap:4px">${[0,1,2].map(i => `<span style="width:5px;height:5px;border-radius:50%;background:var(--teal);display:inline-block;animation:pulseDot 1.2s ${i*0.2}s infinite ease-in-out"></span>`).join('')}</span>
+      Generating clinical summary…
+    </div>`;
+
+    try {
+      const initMsg = 'Summarize this patient\'s wearable trends, treatment progress, and assessment outcomes over the last 30 days. Highlight correlations, concerns, and any missing data.';
+      const result  = await api.wearableCopilotClinician(pt.id, [{ role: 'user', content: initMsg }]);
+      const reply   = result?.message || result?.content || result?.reply || 'No summary generated.';
+      const now     = new Date().toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' });
+
+      wrap.innerHTML = `<div class="card" style="border:1px solid var(--border)">
+        <div class="card-body" style="padding:14px 16px">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;gap:10px">
+            <span style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.8px;color:var(--teal)">AI-generated summary</span>
+            <span style="font-size:11px;color:var(--text-tertiary)">${now}</span>
+          </div>
+          <div style="font-size:12.5px;color:var(--text-primary);line-height:1.6;white-space:pre-wrap;margin-bottom:12px">${reply.replace(/</g,'&lt;').replace(/>/g,'&gt;')}</div>
+          <div style="font-size:10.5px;color:var(--text-tertiary);border-top:1px solid var(--border);padding-top:8px;margin-bottom:10px">
+            For clinical reference only — verify with clinical judgment. This summary does not replace clinical assessment.
+          </div>
+          <button class="btn btn-sm" onclick="window._generateMonitoringSummary()">Regenerate</button>
+        </div>
+      </div>`;
+    } catch (_e) {
+      wrap.innerHTML = `<div class="notice notice-warn" style="font-size:12px">Could not generate summary. Please try again.</div>
+        <button class="btn btn-sm" style="margin-top:8px" onclick="window._generateMonitoringSummary()">Retry</button>`;
     }
   };
 }
@@ -1683,6 +3053,16 @@ function renderWizStep4Result(result) {
   const warnings = result?.governance_warnings || result?.warnings || [];
   const rationale = result?.rationale || result?.notes || result?.description || result?.summary || '';
 
+  // Save this generation as a new version (only if there's meaningful content)
+  const draftText = result?.protocol || result?.draft || rationale || JSON.stringify(result);
+  if (draftText && draftText !== '{}') {
+    _saveProtoVersion(ws.patientId || '', ws.conditionSlug || '', draftText, ws);
+  }
+
+  const prevVersions = _getProtoVersions(ws.patientId || '', ws.conditionSlug || '');
+  // prevVersions[0] is the one we just saved, so previous = length - 1
+  const prevCount = prevVersions.length - 1;
+
   const paramsRows = [
     ['Condition', ws.conditionSlug],
     ['Modality', (ws.modalitySlugs||[]).join(', ')],
@@ -1700,6 +3080,10 @@ function renderWizStep4Result(result) {
     ? warnings.map(w => govFlag(w)).join('')
     : '';
 
+  const versionBtn = prevCount > 0
+    ? `<button class="btn btn-sm" style="border-color:var(--teal-400);color:var(--teal-400)" onclick="window._showProtoVersions()">&#x21BA; ${prevCount} previous version${prevCount > 1 ? 's' : ''}</button>`
+    : '';
+
   return `<div style="max-width:760px;margin:0 auto">
     <div class="card" style="margin-bottom:14px">
       <div class="card-header">
@@ -1715,18 +3099,21 @@ function renderWizStep4Result(result) {
         <div style="background:rgba(0,212,188,0.04);border:1px solid var(--border);border-radius:var(--radius-md);padding:14px;margin-bottom:14px">
           ${paramsRows}
         </div>
-        ${rationale ? `<div style="font-size:12.5px;color:var(--text-secondary);line-height:1.7;margin-bottom:14px;padding:12px;background:rgba(255,255,255,0.02);border-radius:var(--radius-md)">${rationale}</div>` : ''}
+        ${rationale ? `<div id="proto-result-text" style="font-size:12.5px;color:var(--text-secondary);line-height:1.7;margin-bottom:14px;padding:12px;background:rgba(255,255,255,0.02);border-radius:var(--radius-md)">${rationale}</div>` : ''}
         <div class="form-group">
           <label class="form-label">Clinician Notes</label>
-          <textarea id="wiz-clinician-notes" class="form-control" rows="3" placeholder="Add clinical rationale, patient-specific considerations, contraindication context…">${ws.clinicianNotes || ''}</textarea>
+          <textarea id="wiz-clinician-notes" class="form-control" rows="3" placeholder="Add clinical rationale, patient-specific considerations, contraindication context&hellip;">${ws.clinicianNotes || ''}</textarea>
         </div>
       </div>
     </div>
     <div style="display:flex;justify-content:space-between;margin-top:8px;flex-wrap:wrap;gap:8px">
-      <button class="btn" onclick="window._wizBack()">← Back</button>
+      <div style="display:flex;gap:8px;align-items:center">
+        <button class="btn" onclick="window._wizBack()">&#x2190; Back</button>
+        ${versionBtn}
+      </div>
       <div style="display:flex;gap:8px">
-        <button class="btn btn-sm" onclick="window._wizSave('draft')">Save as Draft Course →</button>
-        <button class="btn btn-primary" onclick="window._wizSave('active')">Activate Course →</button>
+        <button class="btn btn-sm" onclick="window._wizSave('draft')">Save as Draft Course &rarr;</button>
+        <button class="btn btn-primary" onclick="window._wizSave('active')">Activate Course &rarr;</button>
       </div>
     </div>
   </div>`;
@@ -2105,7 +3492,10 @@ function _wizBindActions() {
 }
 
 export async function pgProtocols(setTopbar) {
-  setTopbar('Protocol Intelligence', `<button class="btn btn-primary btn-sm" onclick="window._nav('handbooks')">Handbooks →</button>`);
+  setTopbar('Protocol Intelligence', `
+    <button class="btn btn-sm" onclick="window._nav('protocol-builder')" style="border-color:var(--teal,#00d4bc);color:var(--teal,#00d4bc)">⚡ Visual Builder →</button>
+    <button class="btn btn-primary btn-sm" onclick="window._nav('handbooks')">Handbooks →</button>
+  `);
 
   // Init state fresh only if not already on this page (step > 0 means we came via back)
   if (!window._wizState || window._wizState._fresh) {
@@ -2386,203 +3776,8 @@ async function loadMatchingProtocols(conditionId, modalityLabel) {
   }
 }
 
-export function bindProtoPage() {
-  window.nextStep = () => { if (proStep < 3) { proStep++; document.getElementById('pro-step-body').innerHTML = renderProStep(); bindProtoPage(); } };
-  window.prevStep = () => { if (proStep > 0) { proStep--; document.getElementById('pro-step-body').innerHTML = renderProStep(); bindProtoPage(); } };
-  window.toggleMod = m => {
-    if (selMods.includes(m)) selMods = selMods.filter(x => x !== m); else selMods.push(m);
-    document.getElementById('pro-step-body').innerHTML = renderProStep();
-    bindProtoPage();
-    // After re-render, trigger protocol list refresh
-    const condEl = document.getElementById('proto-condition');
-    const condId = condEl ? condEl.value : '';
-    loadMatchingProtocols(condId, selMods[0] || '');
-  };
-  window.selectProType = t => { proType = t; document.getElementById('pro-step-body').innerHTML = renderProStep(); bindProtoPage(); };
-
-  // Handle registry protocol selection from Step 1 list
-  window.selectRegistryProtocol = function(proto) {
-    window._registryProtocol = proto;
-    // Auto-advance to Step 2 (Configure Parameters) with pre-filled data
-    proStep = 2;
-    document.getElementById('pro-step-body').innerHTML = renderProStep();
-    bindProtoPage();
-  };
-  window.generateProtoAPI = async () => {
-    const btn = document.getElementById('gen-btn');
-    if (btn) btn.disabled = true;
-    const res = document.getElementById('proto-result');
-    if (res) res.innerHTML = spinner();
-    try {
-      const result = await api.generateProtocol({
-        condition: 'Major Depressive Disorder',
-        symptom_cluster: '',
-        modality: selMods[0] || 'tDCS',
-        device: '',
-        setting: 'clinical',
-        evidence_threshold: 'B',
-        off_label: proType === 'offlabel',
-      });
-      if (res) res.innerHTML = cardWrap('Generated Protocol', `
-        <div style="font-size:12px;color:var(--text-secondary);line-height:1.7;margin-bottom:14px">${result?.rationale || 'No rationale returned.'}</div>
-        ${fr('Target Region', result?.target_region || '—')}
-        ${fr('Evidence Grade', result?.evidence_grade || '—')}
-        ${fr('Session Frequency', result?.session_frequency || '—')}
-        ${fr('Approval Badge', result?.approval_status_badge || '—')}
-        <div style="display:flex;gap:8px;margin-top:14px">
-          <button class="btn btn-primary btn-sm" onclick="window.exportGeneratedProto()">Download DOCX</button>
-        </div>
-      `);
-      window._lastProtoResult = result;
-    } catch (e) {
-      if (res) res.innerHTML = `<div class="notice notice-warn">${e.message}</div>`;
-    }
-    if (btn) btn.disabled = false;
-  };
-  window.exportGeneratedProto = async () => {
-    try {
-      const blob = await api.exportProtocolDocx({ condition_name: 'Protocol', modality_name: selMods[0] || 'tDCS', device_name: '', setting: 'clinical', evidence_threshold: 'B', off_label: false, symptom_cluster: '' });
-      downloadBlob(blob, 'protocol.docx');
-    } catch (e) {
-      const r = document.getElementById('proto-result');
-      if (r) r.innerHTML = `<div class="notice notice-warn">${e.message || 'Export failed.'}</div>`;
-    }
-  };
-
-  // Create treatment course from registry protocol
-  window.createTreatmentCourse = async function() {
-    const btn = document.getElementById('gen-btn');
-    const res = document.getElementById('proto-result');
-    const rp = window._registryProtocol || {};
-    const protocolId = rp.Protocol_ID || rp.id || '';
-    if (!protocolId) { if (res) res.innerHTML = `<div class="notice notice-warn">No registry protocol selected.</div>`; return; }
-
-    const patientEl = document.getElementById('proto-patient');
-    const patientId = patientEl?.value || window._wizardPatientId || '';
-    if (!patientId) { if (res) res.innerHTML = `<div class="notice notice-warn">Please select a patient first (Step 1).</div>`; return; }
-
-    if (btn) btn.disabled = true;
-    if (res) res.innerHTML = spinner();
-    try {
-      const startDate  = document.getElementById('param-start-date')?.value || '';
-      const concurrent = document.getElementById('param-concurrent')?.value?.trim() || '';
-      const noteText   = document.getElementById('param-clinician-notes')?.value?.trim() || '';
-      const keySymptoms = document.getElementById('proto-key-symptoms')?.value?.trim() || '';
-      const phenoEl    = document.getElementById('proto-phenotype');
-      const phenotypeId = phenoEl?.value || null;
-
-      // Compose clinician_notes: start date + concurrent + symptoms + freetext
-      const noteParts = [];
-      if (startDate)    noteParts.push(`Planned start: ${startDate}`);
-      if (keySymptoms)  noteParts.push(`Key symptoms: ${keySymptoms}`);
-      if (concurrent)   noteParts.push(`Concurrent: ${concurrent}`);
-      if (noteText)     noteParts.push(noteText);
-      const clinicianNotes = noteParts.length ? noteParts.join('\n') : null;
-
-      const course = await api.createCourse({
-        patient_id: patientId,
-        protocol_id: protocolId,
-        phenotype_id: phenotypeId || undefined,
-        clinician_notes: clinicianNotes,
-      });
-      const govWarn = course.governance_warnings?.length
-        ? `<div class="notice notice-warn" style="margin-top:10px">⚠ Governance flags:<br>${course.governance_warnings.join('<br>')}</div>`
-        : '';
-      if (res) res.innerHTML = `
-        <div class="card" style="padding:20px">
-          <div style="color:var(--green);font-size:13px;font-weight:600;margin-bottom:8px">✓ Treatment Course Created</div>
-          <div style="font-size:12px;color:var(--text-secondary);display:flex;flex-direction:column;gap:4px">
-            <div>Status: <strong style="color:var(--amber)">${course.status?.replace(/_/g,' ')}</strong></div>
-            <div>Protocol: ${rp.Protocol_Name || protocolId}</div>
-            <div>Sessions: ${course.planned_sessions_total} total · ${course.planned_sessions_per_week}×/wk</div>
-            ${course.planned_frequency_hz ? `<div>Frequency: ${course.planned_frequency_hz} Hz</div>` : ''}
-            ${course.planned_intensity ? `<div>Intensity: ${course.planned_intensity}</div>` : ''}
-            ${startDate ? `<div>Planned start: ${startDate}</div>` : ''}
-            ${course.review_required ? `<div style="color:var(--amber);margin-top:4px">Review required before activation.</div>` : ''}
-          </div>
-          ${govWarn}
-          <div style="margin-top:14px;display:flex;gap:8px">
-            <button class="btn btn-primary btn-sm" onclick="window._nav('courses')">View Treatment Courses</button>
-            ${course.review_required ? `<button class="btn btn-sm" onclick="window._nav('review-queue')">Go to Review Queue</button>` : ''}
-          </div>
-        </div>`;
-    } catch (e) {
-      if (res) res.innerHTML = `<div class="notice notice-warn">${e.message || 'Failed to create course.'}</div>`;
-    }
-    if (btn) btn.disabled = false;
-  };
-
-  // Load registry data for Step 0 (conditions) and Step 1 (modalities + protocols)
-  if (proStep === 0) {
-    // Defer slightly so DOM is ready
-    setTimeout(async () => {
-      await loadProtocolWizardRegistry();
-      // Also load patients for patient selector
-      try {
-        const pts = await api.listPatients();
-        const patEl = document.getElementById('proto-patient');
-        if (patEl && pts?.items?.length) {
-          patEl.innerHTML = `<option value="">Select patient…</option>` +
-            pts.items.map(p => `<option value="${p.id}" ${p.id === window._wizardPatientId ? 'selected' : ''}>${p.first_name} ${p.last_name}</option>`).join('');
-        }
-        // Wire patient selector onchange → load phenotype note live
-        const patEl2 = document.getElementById('proto-patient');
-        if (patEl2) {
-          async function loadWizardPhenoNote(patientId) {
-            const phNote = document.getElementById('wizard-pheno-note');
-            if (!phNote || !patientId) { if (phNote) phNote.innerHTML = ''; return; }
-            phNote.innerHTML = `<div style="font-size:11px;color:var(--text-tertiary);margin-top:6px">Loading phenotype…</div>`;
-            try {
-              const assigns = await api.listPhenotypeAssignments({ patient_id: patientId }).then(r => r?.items || []).catch(() => []);
-              if (assigns.length > 0) {
-                const latest = assigns[0];
-                phNote.innerHTML = `<div class="notice notice-info" style="margin-top:8px;font-size:12px">
-                  Phenotype on file: <strong>${latest.phenotype_id}</strong>
-                  (${latest.confidence || '?'} confidence${latest.qeeg_supported ? ', qEEG-supported' : ''})
-                  <button class="btn btn-ghost btn-sm" style="padding:2px 6px;font-size:10px" onclick="window.switchPT && window.switchPT('phenotype')">Edit</button>
-                </div>`;
-              } else {
-                phNote.innerHTML = `<div style="font-size:11px;color:var(--text-tertiary);margin-top:6px">No phenotype assigned for this patient.</div>`;
-              }
-            } catch { phNote.innerHTML = ''; }
-          }
-          patEl2.addEventListener('change', (e) => loadWizardPhenoNote(e.target.value));
-          // Load for pre-filled patient
-          if (window._wizardPatientId) loadWizardPhenoNote(window._wizardPatientId);
-        }
-      } catch {}
-    }, 50);
-  }
-  if (proStep === 1) {
-    // Load modalities from registry and wire condition→protocol refresh
-    setTimeout(async () => {
-      await loadProtocolWizardRegistry();
-      // If launched from Protocol Registry with a pre-selected protocol, auto-load it
-      if (window._wizardProtocolId) {
-        const listEl = document.getElementById('registry-protocols-list');
-        if (listEl) listEl.innerHTML = `<span style="color:var(--text-tertiary)">Loading protocol ${window._wizardProtocolId}…</span>`;
-        try {
-          const proto = await api.protocolDetail(window._wizardProtocolId);
-          if (proto && listEl) {
-            listEl.innerHTML = `<div style="padding:10px 12px;border:2px solid var(--border-teal);border-radius:var(--radius-md);background:rgba(0,212,188,0.04)">
-              <div style="font-size:12px;font-weight:600;color:var(--teal);margin-bottom:4px">Pre-selected from Registry</div>
-              <div style="font-size:13px;font-weight:600;color:var(--text-primary)">${proto.name || proto.id}</div>
-              <div style="font-size:11px;color:var(--text-secondary);margin-top:4px">${proto.condition_id || ''} · ${proto.modality_id || ''} · ${proto.evidence_grade || ''}</div>
-              <button class="btn btn-primary btn-sm" style="margin-top:10px" onclick="window.selectRegistryProtocol(${JSON.stringify(proto).replace(/"/g,'&quot;')})">Use this Protocol →</button>
-              <button class="btn btn-sm" style="margin-top:10px;margin-left:8px" onclick="window._wizardProtocolId=null;document.getElementById('registry-protocols-list').innerHTML='<span style=\'color:var(--text-tertiary)\'>Select a condition to browse protocols.</span>'">Clear</button>
-            </div>`;
-          }
-        } catch { window._wizardProtocolId = null; }
-      } else {
-        // If a condition was already chosen in step 0, fetch matching protocols now
-        const condEl = document.getElementById('proto-condition');
-        if (condEl && condEl.value) {
-          loadMatchingProtocols(condEl.value, selMods[0] || '');
-        }
-      }
-    }, 50);
-  }
-}
+// bindProtoPage is a no-op — the new wizard manages its own DOM via pgProtocols
+export function bindProtoPage() {}
 
 // ── Assessments ───────────────────────────────────────────────────────────────
 const ASSESS_TEMPLATES = [
@@ -2972,13 +4167,240 @@ function bindChat(chatHistory) {
 }
 
 // ── Brain Data Vault ───────────────────────────────────────────────────────────
+
+// ── EEG Topographic Map ────────────────────────────────────────────────────────
+const ELECTRODE_POSITIONS = [
+  { id: 'Fp1', x: 68,  y: 28  }, { id: 'Fp2', x: 132, y: 28  },
+  { id: 'F7',  x: 32,  y: 68  }, { id: 'F3',  x: 72,  y: 62  }, { id: 'Fz',  x: 100, y: 58  }, { id: 'F4',  x: 128, y: 62  }, { id: 'F8',  x: 168, y: 68  },
+  { id: 'T3',  x: 18,  y: 120 }, { id: 'C3',  x: 60,  y: 112 }, { id: 'Cz',  x: 100, y: 108 }, { id: 'C4',  x: 140, y: 112 }, { id: 'T4',  x: 182, y: 120 },
+  { id: 'T5',  x: 32,  y: 172 }, { id: 'P3',  x: 72,  y: 162 }, { id: 'Pz',  x: 100, y: 166 }, { id: 'P4',  x: 128, y: 162 }, { id: 'T6',  x: 168, y: 172 },
+  { id: 'O1',  x: 72,  y: 208 }, { id: 'O2',  x: 128, y: 208 },
+];
+
+function eegTopoMap(bandValues = {}, selectedBand = 'alpha') {
+  function valueToColor(val) {
+    if (val === undefined) return 'rgba(255,255,255,0.1)';
+    const h = 240 - Math.round(val * 240);
+    return `hsl(${h},80%,50%)`;
+  }
+  const allVals = ELECTRODE_POSITIONS.map(e => bandValues[e.id]?.[selectedBand]).filter(v => v !== undefined);
+  const minV = Math.min(...allVals, 0);
+  const maxV = Math.max(...allVals, 1);
+
+  const electrodes = ELECTRODE_POSITIONS.map(e => {
+    const raw  = bandValues[e.id]?.[selectedBand];
+    const norm = raw !== undefined ? (raw - minV) / (maxV - minV || 1) : undefined;
+    const color   = valueToColor(norm);
+    const hasData = raw !== undefined;
+    return `
+      <g>
+        <circle cx="${e.x}" cy="${e.y}" r="12" fill="${color}" opacity="${hasData ? 0.85 : 0.2}" stroke="rgba(255,255,255,0.3)" stroke-width="1"/>
+        <text x="${e.x}" y="${e.y + 4}" text-anchor="middle" font-size="7" fill="rgba(255,255,255,0.9)" font-family="monospace">${e.id}</text>
+        ${hasData ? `<title>${e.id}: ${raw?.toFixed(2)} \u03bcV\u00b2/Hz</title>` : ''}
+      </g>`;
+  }).join('');
+
+  const bands      = ['delta', 'theta', 'alpha', 'beta', 'gamma'];
+  const bandColors = { delta: '#6366f1', theta: '#8b5cf6', alpha: '#00d4bc', beta: '#3b82f6', gamma: '#f59e0b' };
+  const bandSelector = bands.map(b =>
+    `<button onclick="window._topoSelectBand('${b}')" style="padding:4px 10px;border-radius:6px;border:1px solid ${b === selectedBand ? bandColors[b] : 'var(--border)'};background:${b === selectedBand ? bandColors[b] + '22' : 'transparent'};color:${b === selectedBand ? bandColors[b] : 'var(--text-secondary)'};cursor:pointer;font-size:0.75rem">${b.charAt(0).toUpperCase() + b.slice(1)}</button>`
+  ).join('');
+
+  return `<div style="text-align:center">
+    <div style="display:flex;gap:6px;justify-content:center;flex-wrap:wrap;margin-bottom:12px">${bandSelector}</div>
+    <svg viewBox="0 0 200 240" width="240" height="288" style="display:inline-block">
+      <ellipse cx="100" cy="120" rx="88" ry="100" fill="rgba(255,255,255,0.03)" stroke="rgba(255,255,255,0.2)" stroke-width="1.5"/>
+      <path d="M94,18 Q100,8 106,18" fill="none" stroke="rgba(255,255,255,0.2)" stroke-width="1.5"/>
+      <path d="M12,108 Q6,120 12,132" fill="none" stroke="rgba(255,255,255,0.2)" stroke-width="1.5"/>
+      <path d="M188,108 Q194,120 188,132" fill="none" stroke="rgba(255,255,255,0.2)" stroke-width="1.5"/>
+      <line x1="100" y1="20" x2="100" y2="218" stroke="rgba(255,255,255,0.08)" stroke-width="1" stroke-dasharray="3,4"/>
+      <line x1="12" y1="120" x2="188" y2="120" stroke="rgba(255,255,255,0.08)" stroke-width="1" stroke-dasharray="3,4"/>
+      ${electrodes}
+    </svg>
+    <div style="display:flex;align-items:center;gap:6px;justify-content:center;margin-top:8px">
+      <span style="font-size:0.7rem;color:var(--text-secondary)">Low</span>
+      <div style="width:80px;height:8px;border-radius:4px;background:linear-gradient(90deg,hsl(240,80%,50%),hsl(120,80%,50%),hsl(0,80%,50%))"></div>
+      <span style="font-size:0.7rem;color:var(--text-secondary)">High</span>
+    </div>
+    ${allVals.length === 0 ? '<div style="font-size:0.75rem;color:var(--text-secondary);margin-top:8px">Upload qEEG data to see topographic map</div>' : ''}
+  </div>`;
+}
+
+// ── Live Biofeedback Panel ────────────────────────────────────────────────────
+function renderBiofeedbackPanel() {
+  return `<div class="ds-card" id="biofeedback-panel">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+      <h4>Live Biofeedback Demo</h4>
+      <div style="display:flex;gap:8px;align-items:center">
+        <span id="bfb-status" style="display:flex;align-items:center;gap:6px;font-size:0.78rem;color:var(--text-secondary)">
+          <span style="width:8px;height:8px;border-radius:50%;background:var(--border);display:inline-block"></span> Offline
+        </span>
+        <button id="bfb-toggle" class="btn-secondary" onclick="window._toggleBiofeedback()" style="font-size:0.78rem">\u25b6 Start Simulation</button>
+      </div>
+    </div>
+    <div style="background:var(--navy-900);border-radius:8px;padding:12px;margin-bottom:12px;position:relative;overflow:hidden;height:80px">
+      <svg id="bfb-wave" width="100%" height="56" style="display:block">
+        <path id="bfb-wave-path" d="M0,28" fill="none" stroke="var(--teal-400)" stroke-width="1.5"/>
+      </svg>
+      <div style="position:absolute;top:6px;right:8px;font-family:monospace;font-size:0.7rem;color:var(--teal-400)" id="bfb-hz">-- Hz</div>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:8px" id="bfb-bands">
+      ${['Delta','Theta','Alpha','Beta','Gamma'].map((b, i) => `
+        <div style="text-align:center">
+          <div style="font-size:0.7rem;color:var(--text-secondary);margin-bottom:4px">${b}</div>
+          <div style="height:60px;background:var(--surface-2);border-radius:4px;position:relative;overflow:hidden">
+            <div id="bfb-bar-${b.toLowerCase()}" style="position:absolute;bottom:0;left:0;right:0;background:${'var(--violet-500) var(--blue-500) var(--teal-400) var(--blue-500) var(--amber-500)'.split(' ')[i]};transition:height 0.3s ease;height:40%"></div>
+          </div>
+          <div id="bfb-val-${b.toLowerCase()}" style="font-size:0.7rem;font-family:monospace;margin-top:3px">-</div>
+        </div>`).join('')}
+    </div>
+    <div style="margin-top:12px;padding:10px;border-radius:8px;background:var(--surface-2);display:flex;align-items:center;gap:10px" id="bfb-feedback">
+      <div id="bfb-feedback-dot" style="width:16px;height:16px;border-radius:50%;background:var(--border);flex-shrink:0"></div>
+      <div id="bfb-feedback-text" style="font-size:0.82rem;color:var(--text-secondary)">Start simulation to see feedback</div>
+    </div>
+  </div>`;
+}
+
+let _bfbRunning = false;
+let _bfbFrame   = 0;
+let _bfbInterval = null;
+
+window._toggleBiofeedback = function() {
+  _bfbRunning = !_bfbRunning;
+  const btn    = document.getElementById('bfb-toggle');
+  const status = document.getElementById('bfb-status');
+  if (_bfbRunning) {
+    if (btn)    btn.textContent = '\u23f9 Stop';
+    if (status) status.innerHTML = `<span style="width:8px;height:8px;border-radius:50%;background:#22c55e;display:inline-block;animation:pulse 1s infinite"></span> Live`;
+    _bfbInterval = setInterval(_bfbTick, 100);
+  } else {
+    if (btn)    btn.textContent = '\u25b6 Start Simulation';
+    if (status) status.innerHTML = `<span style="width:8px;height:8px;border-radius:50%;background:var(--border);display:inline-block"></span> Offline`;
+    clearInterval(_bfbInterval);
+    _bfbInterval = null;
+  }
+};
+
+function _bfbTick() {
+  _bfbFrame++;
+  const t = _bfbFrame * 0.1;
+  const bands = {
+    delta: 15 + Math.sin(t * 0.3) * 5 + Math.random() * 3,
+    theta: 12 + Math.sin(t * 0.5) * 4 + Math.random() * 3,
+    alpha: 20 + Math.sin(t * 0.7) * 8 + Math.random() * 4,
+    beta:  10 + Math.sin(t * 1.1) * 3 + Math.random() * 2,
+    gamma:  5 + Math.sin(t * 1.7) * 2 + Math.random() * 1.5,
+  };
+  const total = Object.values(bands).reduce((a, b) => a + b, 0);
+
+  Object.entries(bands).forEach(([band, val]) => {
+    const pct   = Math.round((val / total) * 100);
+    const bar   = document.getElementById(`bfb-bar-${band}`);
+    const valEl = document.getElementById(`bfb-val-${band}`);
+    if (bar)   bar.style.height   = `${Math.max(5, pct * 2)}%`;
+    if (valEl) valEl.textContent  = `${val.toFixed(1)}`;
+  });
+
+  const hz = document.getElementById('bfb-hz');
+  if (hz) hz.textContent = `${(9 + Math.sin(t * 0.3) * 2).toFixed(1)} Hz`;
+
+  const svg  = document.getElementById('bfb-wave');
+  const path = document.getElementById('bfb-wave-path');
+  if (svg && path) {
+    const W  = svg.clientWidth || 400;
+    const pts = [];
+    for (let i = 0; i <= W; i += 3) {
+      const y = 28 + Math.sin((i + _bfbFrame * 3) * 0.05) * 12
+                   + Math.sin((i + _bfbFrame * 5) * 0.02) * 6
+                   + (Math.random() - 0.5) * 3;
+      pts.push(`${i},${y}`);
+    }
+    path.setAttribute('d', 'M' + pts.join(' L'));
+  }
+
+  const alphaRatio = bands.alpha / total;
+  const fbDot  = document.getElementById('bfb-feedback-dot');
+  const fbText = document.getElementById('bfb-feedback-text');
+  if (fbDot && fbText) {
+    if (alphaRatio > 0.32) {
+      fbDot.style.background  = '#22c55e';
+      fbText.textContent      = '\u2713 Alpha in target range \u2014 positive feedback active';
+      fbText.style.color      = '#22c55e';
+    } else if (alphaRatio > 0.25) {
+      fbDot.style.background  = 'var(--amber-500)';
+      fbText.textContent      = '\u26a1 Alpha approaching target \u2014 keep relaxing';
+      fbText.style.color      = 'var(--amber-500)';
+    } else {
+      fbDot.style.background  = 'var(--rose-500)';
+      fbText.textContent      = '\u2193 Alpha below target \u2014 encourage relaxation';
+      fbText.style.color      = 'var(--rose-500)';
+    }
+  }
+
+  if (!document.getElementById('biofeedback-panel')) {
+    clearInterval(_bfbInterval);
+    _bfbRunning = false;
+  }
+}
+
+// Band power bar chart — pure CSS, no external library
+function bandPowerChart(rec) {
+  const bands = [
+    { key: 'delta_power',  label: 'Delta', range: '0.5–4 Hz',  color: '#8b5cf6' },
+    { key: 'theta_power',  label: 'Theta', range: '4–8 Hz',    color: '#3b82f6' },
+    { key: 'alpha_power',  label: 'Alpha', range: '8–13 Hz',   color: '#14b8a6' },
+    { key: 'beta_power',   label: 'Beta',  range: '13–30 Hz',  color: '#f59e0b' },
+    { key: 'gamma_power',  label: 'Gamma', range: '30–100 Hz', color: '#f43f5e' },
+  ];
+  const values = bands.map(b => parseFloat(rec[b.key]) || 0);
+  const maxVal  = Math.max(...values, 1);
+  return `
+    <div style="display:flex;flex-direction:column;gap:10px">
+      ${bands.map((b, i) => {
+        const val = values[i];
+        const pct = Math.round((val / maxVal) * 100);
+        return `<div>
+          <div style="display:flex;justify-content:space-between;margin-bottom:4px">
+            <span style="font-size:11.5px;font-weight:600;color:var(--text-primary)">${b.label} <span style="font-weight:400;color:var(--text-tertiary);font-size:10.5px">${b.range}</span></span>
+            <span style="font-size:11.5px;font-weight:600;color:${b.color};font-family:var(--font-mono)">${val.toFixed(2)} µV²</span>
+          </div>
+          <div style="background:rgba(255,255,255,0.06);border-radius:3px;height:20px;overflow:hidden">
+            <div style="height:20px;border-radius:3px;background:${b.color};width:${pct}%;transition:width 0.4s;opacity:0.85"></div>
+          </div>
+        </div>`;
+      }).join('')}
+    </div>`;
+}
+
+// Compute biomarker flags from band power values
+function qeegFlags(rec) {
+  const alpha = parseFloat(rec.alpha_power) || 0;
+  const theta = parseFloat(rec.theta_power) || 0;
+  const beta  = parseFloat(rec.beta_power)  || 0;
+  const flags = [];
+  if (theta > 0 && alpha / theta > 2)
+    flags.push({ color: '#14b8a6', bg: 'rgba(20,184,166,0.1)',  text: 'Alpha dominance — potential hyper-relaxed state' });
+  if (beta > 0 && theta / beta > 3)
+    flags.push({ color: '#3b82f6', bg: 'rgba(59,130,246,0.1)',  text: 'Theta excess — associated with attention deficits (ADHD pattern)' });
+  if (beta > 20)
+    flags.push({ color: '#f59e0b', bg: 'rgba(245,158,11,0.1)',  text: 'Elevated beta — stress/anxiety pattern' });
+  if (alpha > 0 && alpha < 5)
+    flags.push({ color: '#f43f5e', bg: 'rgba(244,63,94,0.1)',   text: 'Alpha suppression — common in depression/trauma' });
+  return flags;
+}
+
 export async function pgBrainData(setTopbar) {
-  setTopbar('Brain Data Vault', `<button class="btn btn-primary btn-sm" onclick="window._showQEEGForm()">+ Log qEEG Record</button><button class="btn btn-sm" onclick="window._nav('qeegmaps')">Reference Maps →</button>`);
+  setTopbar('qEEG / Brain Data', `
+    <button class="btn btn-primary btn-sm" onclick="window._showQEEGForm()">+ Upload qEEG Record</button>
+    <button class="btn btn-sm" onclick="window._nav('qeegmaps')" style="margin-left:6px">Reference Maps →</button>
+    <select id="qeeg-pat-filter" class="form-control" style="margin-left:8px;width:170px;display:inline-block" onchange="window._filterQEEGRecords(this.value)">
+      <option value="">All Patients</option>
+    </select>
+  `);
   const el = document.getElementById('content');
   el.innerHTML = spinner();
 
-  let records = [];
-  let patients = [];
+  let records = [], patients = [];
   try {
     [records, patients] = await Promise.all([
       api.listQEEGRecords().then(r => r?.items || []).catch(() => []),
@@ -2989,208 +4411,456 @@ export async function pgBrainData(setTopbar) {
   const patMap = {};
   patients.forEach(p => { patMap[p.id] = `${p.first_name} ${p.last_name}`; });
 
-  el.innerHTML = `
-  <div class="g4" style="margin-bottom:20px">
-    ${[
-      { l: 'qEEG Records', v: records.length || '—', d: 'logged recordings' },
-      { l: 'Patients with qEEG', v: new Set(records.map(r => r.patient_id)).size || '—', d: 'unique patients' },
-      { l: 'Resting State', v: records.filter(r => r.recording_type === 'resting').length || '—', d: 'resting recordings' },
-      { l: 'Latest Recording', v: records[0]?.recording_date || '—', d: 'most recent date' },
-    ].map(m => `<div class="metric-card"><div class="metric-label">${m.l}</div><div class="metric-value">${m.v}</div><div class="metric-delta">${m.d}</div></div>`).join('')}
-  </div>
+  // Populate patient filter in topbar (rendered asynchronously)
+  setTimeout(() => {
+    const pf = document.getElementById('qeeg-pat-filter');
+    if (pf && patients.length) {
+      patients.forEach(p => {
+        const o = document.createElement('option');
+        o.value = p.id; o.textContent = `${p.first_name} ${p.last_name}`;
+        pf.appendChild(o);
+      });
+    }
+  }, 0);
 
-  <div id="qeeg-form-panel" style="display:none;margin-bottom:16px">
-    ${cardWrap('Log qEEG Recording', `
-      <div class="g2" style="margin-bottom:12px">
-        <div>
+  function renderRecordList(recs) {
+    if (!recs.length) return emptyState('◈', 'No qEEG records yet. Click "+ Upload qEEG Record" to add the first recording.');
+    return `<div style="display:flex;flex-direction:column;gap:6px" id="qeeg-record-list">
+      ${recs.map(r => {
+        const alpha = parseFloat(r.alpha_power) || 0;
+        const theta = parseFloat(r.theta_power) || 0;
+        const dots = [
+          { label: 'α', val: alpha, color: '#14b8a6' },
+          { label: 'θ', val: theta, color: '#3b82f6' },
+          { label: 'β', val: parseFloat(r.beta_power) || 0, color: '#f59e0b' },
+        ].map(d => `<span title="${d.label}: ${d.val.toFixed(1)} µV²" style="display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:50%;background:${d.color}22;color:${d.color};font-size:10px;font-weight:700;cursor:default">${d.label}</span>`).join('');
+        return `<div id="qrec-row-${r.id}" class="qeeg-row" style="padding:10px 12px;border:1px solid var(--border);border-radius:8px;cursor:pointer;transition:border-color var(--transition)" onclick="window._selectQEEGRecord('${r.id}')">
+          <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+            <span style="font-size:13px;font-weight:600;color:var(--text-primary);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${patMap[r.patient_id] || 'Unknown Patient'}</span>
+            <span style="font-size:11px;color:var(--text-tertiary)">${r.recorded_at ? r.recorded_at.slice(0,10) : (r.recording_date || '—')}</span>
+            <span style="font-size:11px;padding:2px 7px;border-radius:4px;background:var(--teal-ghost);color:var(--teal)">${r.eyes_condition?.replace(/_/g,' ') || '—'}</span>
+            <div style="display:flex;gap:4px">${dots}</div>
+          </div>
+          ${r.eeg_device || r.equipment ? `<div style="margin-top:4px;font-size:11px;color:var(--text-tertiary)">${r.eeg_device || r.equipment}</div>` : ''}
+        </div>`;
+      }).join('')}
+    </div>`;
+  }
+
+  el.innerHTML = `
+  <div style="display:grid;grid-template-columns:340px 1fr;gap:16px;align-items:start">
+    <!-- Left panel -->
+    <div>
+      <div id="qeeg-form-panel" style="display:none;margin-bottom:14px">
+        ${cardWrap('Upload qEEG Record', `
           <div class="form-group"><label class="form-label">Patient</label>
             <select id="qr-patient" class="form-control">
               <option value="">Select patient…</option>
               ${patients.map(p => `<option value="${p.id}">${p.first_name} ${p.last_name}</option>`).join('')}
             </select>
           </div>
-          <div class="form-group"><label class="form-label">Recording Type</label>
-            <select id="qr-type" class="form-control">
-              <option value="resting">Resting State</option>
-              <option value="task">Task-based</option>
-              <option value="sleep">Sleep</option>
-              <option value="ictal">Ictal / Event</option>
-            </select>
-          </div>
           <div class="form-group"><label class="form-label">Recording Date</label>
             <input id="qr-date" class="form-control" type="date">
           </div>
-        </div>
-        <div>
-          <div class="form-group"><label class="form-label">Equipment</label>
-            <input id="qr-equip" class="form-control" placeholder="e.g. NeuroGuide 19ch, Emotiv EPOC">
+          <div class="form-group"><label class="form-label">EEG Device / System</label>
+            <input id="qr-device" class="form-control" placeholder="e.g. NeuroGuide, Emotiv EPOC, Mitsar">
           </div>
-          <div class="form-group"><label class="form-label">Eyes Condition</label>
+          <div class="g2">
+            <div class="form-group"><label class="form-label">Channels</label>
+              <input id="qr-channels" class="form-control" type="number" min="1" placeholder="19">
+            </div>
+            <div class="form-group"><label class="form-label">Duration (min)</label>
+              <input id="qr-duration" class="form-control" type="number" min="1" placeholder="5">
+            </div>
+          </div>
+
+          <!-- Band power tab switcher -->
+          <div style="display:flex;gap:0;border:1px solid var(--border);border-radius:6px;overflow:hidden;margin:12px 0 10px;width:fit-content">
+            <button id="qr-tab-manual" onclick="window._switchQEEGTab('manual')" style="padding:5px 14px;font-size:11.5px;font-weight:600;border:none;background:var(--teal);color:#fff;cursor:pointer;transition:background 0.15s">Manual Entry</button>
+            <button id="qr-tab-upload" onclick="window._switchQEEGTab('upload')" style="padding:5px 14px;font-size:11.5px;font-weight:600;border:none;background:transparent;color:var(--text-secondary);cursor:pointer;transition:background 0.15s">Upload File</button>
+          </div>
+
+          <!-- Upload File tab -->
+          <div id="qr-upload-tab" style="display:none;margin-bottom:10px">
+            <div id="qr-drop-zone" style="border:2px dashed var(--border);border-radius:8px;padding:32px;text-align:center;cursor:pointer;transition:border-color 0.2s;color:var(--text-tertiary);font-size:13px" onclick="document.getElementById('qr-file-input').click()">
+              <div style="font-size:22px;margin-bottom:8px;opacity:.5">◈</div>
+              Drag &amp; drop CSV / TXT / EDF file here or <strong style="color:var(--teal)">click to browse</strong>
+              <div style="font-size:11px;margin-top:6px;color:var(--text-tertiary)">Supported: .csv, .txt (band values), .edf (server-parsed)</div>
+            </div>
+            <input type="file" id="qr-file-input" accept=".csv,.txt,.edf" style="display:none">
+            ${!!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia)
+              ? `<button class="btn-secondary" onclick="window._startQEEGCamera()" style="margin-top:8px;width:100%">
+                  📷 Capture from Camera
+                </button>`
+              : ''}
+            <div id="qr-file-notice" style="display:none;margin-top:10px"></div>
+            <div id="qr-file-preview" style="display:none;margin-top:10px">
+              <div style="font-size:11px;font-weight:600;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.8px;margin-bottom:8px">Parsed Values</div>
+              <table style="width:100%;border-collapse:collapse;font-size:12px" id="qr-preview-table"></table>
+              <button class="btn btn-primary btn-sm" style="margin-top:10px;width:100%" onclick="window._useQEEGParsed()">Use These Values →</button>
+            </div>
+            <div id="qeeg-file-preview"></div>
+          </div>
+
+          <!-- Manual Entry tab -->
+          <div id="qr-manual-tab">
+            <div style="font-size:11px;font-weight:600;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.8px;margin-bottom:8px">Band Power (µV²)</div>
+            <div class="g2" style="gap:8px">
+              <div class="form-group" style="margin-bottom:8px"><label class="form-label" style="font-size:11px">Delta (0.5–4 Hz)</label>
+                <input id="qr-delta" class="form-control" type="number" step="0.01" placeholder="0.00">
+              </div>
+              <div class="form-group" style="margin-bottom:8px"><label class="form-label" style="font-size:11px">Theta (4–8 Hz)</label>
+                <input id="qr-theta" class="form-control" type="number" step="0.01" placeholder="0.00">
+              </div>
+              <div class="form-group" style="margin-bottom:8px"><label class="form-label" style="font-size:11px">Alpha (8–13 Hz)</label>
+                <input id="qr-alpha" class="form-control" type="number" step="0.01" placeholder="0.00">
+              </div>
+              <div class="form-group" style="margin-bottom:8px"><label class="form-label" style="font-size:11px">Beta (13–30 Hz)</label>
+                <input id="qr-beta" class="form-control" type="number" step="0.01" placeholder="0.00">
+              </div>
+              <div class="form-group" style="margin-bottom:8px"><label class="form-label" style="font-size:11px">Gamma (30–100 Hz)</label>
+                <input id="qr-gamma" class="form-control" type="number" step="0.01" placeholder="0.00">
+              </div>
+              <div class="form-group" style="margin-bottom:8px"><label class="form-label" style="font-size:11px">Artifact Rejection (%)</label>
+                <input id="qr-artifact" class="form-control" type="number" min="0" max="100" placeholder="0">
+              </div>
+            </div>
+          </div>
+
+          <div class="form-group"><label class="form-label">Eyes Open/Closed</label>
             <select id="qr-eyes" class="form-control">
               <option value="eyes_closed">Eyes closed</option>
               <option value="eyes_open">Eyes open</option>
               <option value="mixed">Mixed</option>
             </select>
           </div>
-          <div class="form-group"><label class="form-label">Summary / Findings</label>
-            <textarea id="qr-notes" class="form-control" placeholder="Key EEG findings, abnormalities, LORETA summary…" rows="3"></textarea>
+          <div class="form-group"><label class="form-label">Notes</label>
+            <textarea id="qr-notes" class="form-control" rows="2" placeholder="Key findings, LORETA summary…"></textarea>
           </div>
-        </div>
+          <div id="qr-error" style="display:none;color:var(--red);font-size:12px;margin-bottom:8px"></div>
+          <div style="display:flex;gap:8px">
+            <button class="btn" onclick="document.getElementById('qeeg-form-panel').style.display='none'">Cancel</button>
+            <button class="btn btn-primary" onclick="window._saveQEEGRecord()">Save Record</button>
+          </div>
+        `)}
       </div>
-      <div id="qr-error" style="display:none;color:var(--red);font-size:12px;margin-bottom:8px"></div>
-      <div style="display:flex;gap:8px">
-        <button class="btn" onclick="document.getElementById('qeeg-form-panel').style.display='none'">Cancel</button>
-        <button class="btn btn-primary" onclick="window._saveQEEGRecord()">Save Record</button>
-      </div>
-    `)}
-  </div>
+      ${cardWrap('qEEG Records', `
+        <div id="qeeg-list-container">${renderRecordList(records)}</div>
+      `, `<span style="font-size:11px;color:var(--text-tertiary)">${records.length} total</span>`)}
+    </div>
 
-  <div class="g2">
-    ${cardWrap('qEEG Band Preview', `
-      <div style="display:flex;gap:6px;margin-bottom:14px">
-        ${['alpha', 'theta', 'beta'].map(b => `<button class="btn btn-sm ${eegBand === b ? 'btn-primary' : ''}" onclick="window.switchBand('${b}')">${b.charAt(0).toUpperCase() + b.slice(1)}</button>`).join('')}
+    <!-- Right panel -->
+    <div id="qeeg-detail-panel">
+      <div style="display:flex;align-items:center;justify-content:center;min-height:300px;color:var(--text-tertiary);font-size:13px;flex-direction:column;gap:12px">
+        <div style="font-size:32px;opacity:.3">◈</div>
+        <div>Select a record to view band power analysis</div>
       </div>
-      <div style="background:rgba(0,0,0,0.3);border-radius:var(--radius-md);padding:12px" id="eeg-svg">${brainMapSVG(eegBand)}</div>
-      <div style="display:flex;gap:14px;justify-content:center;margin-top:12px">
-        ${['Low', 'Mid', 'High'].map(l => `<div style="display:flex;align-items:center;gap:6px"><div style="width:10px;height:10px;border-radius:50%;background:${l === 'Low' ? '#1a3d6e' : l === 'Mid' ? '#2d7fe0' : '#4a9eff'}"></div><span style="font-size:10.5px;color:var(--text-secondary)">${l}</span></div>`).join('')}
-      </div>
-    `)}
-    ${cardWrap('Recorded qEEG Files', `
-      ${records.length === 0
-        ? emptyState('◈', 'No qEEG records yet. Click "+ Log qEEG Record" to add the first recording.')
-        : `<div style="display:flex;flex-direction:column;gap:8px">
-            ${records.map(r => `
-              <div id="qrec-${r.id}" style="padding:12px;border:1px solid var(--border);border-radius:8px;transition:border-color var(--transition)">
-                <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
-                  <span style="font-size:13px;font-weight:600;color:var(--text-primary);flex:1;cursor:pointer" onclick="window._toggleQEEGRecord('${r.id}')">${patMap[r.patient_id] || r.patient_id}</span>
-                  <span style="font-size:11px;padding:2px 7px;border-radius:4px;background:var(--teal-ghost);color:var(--teal)">${r.recording_type}</span>
-                  <span style="font-size:11px;color:var(--text-tertiary)">${r.recording_date || '—'}</span>
-                  <span style="font-size:11px;padding:2px 7px;border-radius:4px;background:rgba(255,255,255,0.05);color:var(--text-tertiary)">${r.eyes_condition?.replace('_',' ') || ''}</span>
-                  <button class="btn btn-sm" style="font-size:10px" onclick="window._interpretQEEG('${r.id}','${r.patient_id}')">Interpret ✦</button>
-                  <button class="btn btn-sm" style="font-size:10px" onclick="window._toggleQEEGRecord('${r.id}')">Detail ↓</button>
-                </div>
-                ${r.equipment ? `<div style="margin-top:5px;font-size:11.5px;color:var(--text-secondary)">Equipment: ${r.equipment}</div>` : ''}
-                ${r.summary_notes ? `<div style="margin-top:5px;font-size:11.5px;color:var(--text-secondary);font-style:italic">${r.summary_notes.slice(0,120)}${r.summary_notes.length > 120 ? '…' : ''}</div>` : ''}
-                <div id="qrec-expand-${r.id}" style="display:none;margin-top:12px;padding:12px;background:rgba(0,0,0,0.2);border-radius:6px;border:1px solid var(--border)">
-                  <div style="font-size:9px;text-transform:uppercase;letter-spacing:.8px;color:var(--teal);font-weight:600;margin-bottom:10px">Record Detail</div>
-                  <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;font-size:12px;margin-bottom:12px">
-                    ${[
-                      ['Recording Date', r.recording_date || '—'],
-                      ['Type', r.recording_type || '—'],
-                      ['Eyes', r.eyes_condition?.replace(/_/g,' ') || '—'],
-                      ['Equipment', r.equipment || '—'],
-                      ['Patient ID', r.patient_id || '—'],
-                      ['Record ID', r.id?.slice(0,8) + '…' || '—'],
-                    ].map(([k,v]) => `<div><span style="color:var(--text-tertiary)">${k}:</span> <span style="color:var(--text-primary)">${v}</span></div>`).join('')}
-                  </div>
-                  <div style="margin-bottom:10px">
-                    <label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:4px">Summary / Findings</label>
-                    <textarea id="qrec-notes-${r.id}" class="form-control" rows="3" style="font-size:12px">${r.summary_notes || ''}</textarea>
-                  </div>
-                  <div id="qrec-edit-err-${r.id}" style="display:none;color:var(--red);font-size:12px;margin-bottom:6px"></div>
-                  <div style="display:flex;gap:8px">
-                    <button class="btn btn-primary btn-sm" onclick="window._saveQEEGNotes('${r.id}')">Save Notes</button>
-                    <button class="btn btn-sm" onclick="window._toggleQEEGRecord('${r.id}')">Close</button>
-                  </div>
-                </div>
-                <div id="interp-${r.id}" style="display:none;margin-top:10px;padding:10px;background:rgba(0,212,188,0.04);border-radius:6px;border:1px solid var(--border-teal)"></div>
-              </div>`).join('')}
-          </div>`
-      }
-    `)}
+    </div>
+  </div>
+  <!-- Topo map + biofeedback (always visible below the grid) -->
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:16px">
+    <div class="ds-card">
+      <h4 style="margin-bottom:14px">Topographic Map</h4>
+      <div id="topo-map-container">${eegTopoMap({}, 'alpha')}</div>
+    </div>
+    ${renderBiofeedbackPanel()}
   </div>`;
 
-  bindBrainData();
+  window._topoSelectedBand = 'alpha';
+  window._topoData = {};
+  window._topoSelectBand = function(band) {
+    window._topoSelectedBand = band;
+    const container = document.getElementById('topo-map-container');
+    if (container) container.innerHTML = eegTopoMap(window._topoData || {}, band);
+  };
+  window._updateTopoFromRecord = function(rec) {
+    // Distribute single-channel band values across all electrodes with small noise for visual demo
+    const bandKeys = ['delta', 'theta', 'alpha', 'beta', 'gamma'];
+    const base = {
+      delta: parseFloat(rec.delta_power) || 0,
+      theta: parseFloat(rec.theta_power) || 0,
+      alpha: parseFloat(rec.alpha_power) || 0,
+      beta:  parseFloat(rec.beta_power)  || 0,
+      gamma: parseFloat(rec.gamma_power) || 0,
+    };
+    window._topoData = {};
+    ELECTRODE_POSITIONS.forEach(e => {
+      window._topoData[e.id] = {};
+      bandKeys.forEach(b => {
+        window._topoData[e.id][b] = Math.max(0, base[b] * (0.7 + Math.random() * 0.6));
+      });
+    });
+    const container = document.getElementById('topo-map-container');
+    if (container) container.innerHTML = eegTopoMap(window._topoData, window._topoSelectedBand || 'alpha');
+  };
+
+  bindBrainData(records, patMap, patients, setTopbar);
 }
 
-export function bindBrainData() {
-  window.switchBand = function(b) {
-    eegBand = b;
-    const el = document.getElementById('eeg-svg');
-    if (el) el.innerHTML = brainMapSVG(b);
-    document.querySelectorAll('#content .btn-sm').forEach(btn => {
-      if (['Alpha', 'Theta', 'Beta'].includes(btn.textContent)) {
-        btn.className = 'btn btn-sm' + (btn.textContent.toLowerCase() === b ? ' btn-primary' : '');
+// ── qEEG file parsing helpers ──────────────────────────────────────────────
+
+function parseQEEGFile(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const text = e.target.result;
+      const lines = text.trim().split(/\r?\n/).filter(l => l.trim());
+      const result = { delta: null, theta: null, alpha: null, beta: null, gamma: null };
+
+      const hasBandCol = lines[0] && lines[0].toLowerCase().includes('band');
+      if (hasBandCol) {
+        lines.slice(1).forEach(line => {
+          const [band, power] = line.split(/[,\t ]+/);
+          const key = band?.trim().toLowerCase();
+          const val = parseFloat(power);
+          if (key && !isNaN(val)) result[key] = val;
+        });
+      } else {
+        const headers = lines[0].split(/[,\t ]+/).map(h => h.trim().toLowerCase());
+        if (lines[1]) {
+          const values = lines[1].split(/[,\t ]+/).map(v => parseFloat(v.trim()));
+          headers.forEach((h, i) => {
+            if (!isNaN(values[i])) result[h] = values[i];
+          });
+        }
       }
+
+      // Normalize common header variations
+      if (result['delta (0.5-4 hz)'] != null) result.delta = result['delta (0.5-4 hz)'];
+      if (result['theta (4-8 hz)']   != null) result.theta = result['theta (4-8 hz)'];
+      if (result['alpha (8-13 hz)']  != null) result.alpha = result['alpha (8-13 hz)'];
+      if (result['beta (13-30 hz)']  != null) result.beta  = result['beta (13-30 hz)'];
+      if (result['gamma (30-100 hz)']!= null) result.gamma = result['gamma (30-100 hz)'];
+
+      const parsed = Object.values(result).filter(v => v !== null).length;
+      if (parsed === 0) reject(new Error('No band power values found in file. Check CSV format.'));
+      else resolve(result);
+    };
+    reader.onerror = () => reject(new Error('File read failed'));
+    reader.readAsText(file);
+  });
+}
+
+async function handleQEEGFile(file) {
+  const notice = document.getElementById('qr-file-notice');
+  const preview = document.getElementById('qr-file-preview');
+  const table = document.getElementById('qr-preview-table');
+  if (!notice || !preview || !table) return;
+
+  const ext = file.name.split('.').pop().toLowerCase();
+  if (ext === 'edf') {
+    notice.style.display = '';
+    notice.innerHTML = `<div class="notice" style="background:rgba(74,158,255,0.08);border:1px solid rgba(74,158,255,0.25);border-radius:6px;padding:10px 12px;font-size:12px;color:var(--blue)">
+      <strong>EDF binary file detected:</strong> ${file.name}<br>
+      EDF binary parsing requires server processing. Pre-filling band values with 0 — please complete manually after saving.
+    </div>`;
+    preview.style.display = 'none';
+    // Pre-fill zeros
+    ['delta','theta','alpha','beta','gamma'].forEach(b => {
+      const el = document.getElementById(`qr-${b}`);
+      if (el) el.value = '0';
     });
-  };
+    return;
+  }
 
-  window._showQEEGForm = () => {
-    document.getElementById('qeeg-form-panel').style.display = '';
-  };
+  notice.style.display = '';
+  notice.innerHTML = `<div style="font-size:12px;color:var(--text-tertiary)">Parsing ${file.name}…</div>`;
+  preview.style.display = 'none';
 
-  window._interpretQEEG = async function(recordId, patientId) {
-    const panel = document.getElementById('interp-' + recordId);
-    if (!panel) return;
-    // Toggle
-    if (panel.style.display !== 'none' && panel.innerHTML) { panel.style.display = 'none'; return; }
-    panel.style.display = '';
-    panel.innerHTML = '<span style="font-size:11px;color:var(--text-secondary)">Loading biomarker interpretation…</span>';
-    try {
-      const [pt, condMap, biomarkers] = await Promise.all([
-        api.getPatient(patientId).catch(() => null),
-        api.listQEEGConditionMap().then(r => r?.items || r || []).catch(() => []),
-        api.listQEEGBiomarkers().then(r => r?.items || r || []).catch(() => []),
-      ]);
-      const condition = pt?.primary_condition || '';
-      // Find matching condition entries (case-insensitive partial match)
-      const condLower = condition.toLowerCase();
-      const matching = condMap.filter(c => {
-        const cName = (c.condition_name || c.condition || '').toLowerCase();
-        return condLower && (cName.includes(condLower.split(' ')[0]) || condLower.includes(cName.split(' ')[0]));
-      });
-      // Build biomarker lookup
-      const bMap = {};
-      biomarkers.forEach(b => { bMap[b.biomarker_id || b.id] = b; });
+  try {
+    const parsed = await parseQEEGFile(file);
+    window._qeegParsedValues = parsed;
 
-      if (matching.length === 0) {
-        panel.innerHTML = '<div style="font-size:11px;color:var(--text-tertiary)">No condition-specific biomarker map found for: <em>' + (condition || 'unknown condition') + '</em>. Add condition to patient profile for interpretation.</div>';
-        return;
-      }
-      panel.innerHTML = `
-        <div style="font-size:11px;font-weight:600;color:var(--teal);margin-bottom:8px">Biomarker Interpretation · ${condition}</div>
-        <div style="display:flex;flex-direction:column;gap:6px">
-          ${matching.slice(0, 8).map(c => {
-            const b = bMap[c.biomarker_id] || {};
-            const bandColor = { alpha:'var(--blue)', theta:'var(--violet)', beta:'var(--teal)', delta:'var(--amber)', gamma:'var(--red)' };
-            const bc = bandColor[(b.band || '').toLowerCase()] || 'var(--text-tertiary)';
-            return `<div style="display:flex;gap:10px;align-items:flex-start;padding:6px 0;border-bottom:1px solid var(--border)">
-              <span style="font-size:10px;padding:1px 6px;border-radius:3px;background:${bc}22;color:${bc};flex-shrink:0;margin-top:1px">${b.band || c.band || '?'}</span>
-              <div>
-                <div style="font-size:11.5px;font-weight:500;color:var(--text-primary)">${b.biomarker_name || c.biomarker_id || '—'}</div>
-                <div style="font-size:10.5px;color:var(--text-secondary);margin-top:1px">${c.clinical_relevance || b.description || '—'}</div>
-              </div>
-            </div>`;
-          }).join('')}
-        </div>`;
-    } catch (e) {
-      panel.innerHTML = '<div style="font-size:11px;color:var(--red)">Interpretation failed: ' + (e.message || 'error') + '</div>';
+    const bands = ['delta','theta','alpha','beta','gamma'];
+    const rows = bands.map(b => {
+      const val = parsed[b];
+      const present = val !== null && val !== undefined;
+      return `<tr style="border-bottom:1px solid var(--border)">
+        <td style="padding:5px 8px;font-size:12px;font-weight:600;color:var(--text-secondary);text-transform:capitalize">${b}</td>
+        <td style="padding:5px 8px;font-size:12px;font-family:var(--font-mono);color:${present ? 'var(--teal)' : 'var(--text-tertiary)'}">${present ? val.toFixed(2) : '—'}</td>
+        <td style="padding:5px 8px;font-size:11px;color:${present ? 'var(--green)' : 'var(--amber)'}">${present ? '✓' : 'Not found'}</td>
+      </tr>`;
+    }).join('');
+    table.innerHTML = `<thead><tr style="border-bottom:1px solid var(--border)">
+      <th style="padding:4px 8px;font-size:10px;font-weight:600;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.8px;text-align:left">Band</th>
+      <th style="padding:4px 8px;font-size:10px;font-weight:600;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.8px;text-align:left">µV²</th>
+      <th style="padding:4px 8px;font-size:10px;font-weight:600;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.8px;text-align:left">Status</th>
+    </tr></thead><tbody>${rows}</tbody>`;
+
+    notice.innerHTML = `<div style="font-size:12px;color:var(--green)">✓ Parsed ${file.name}</div>`;
+    preview.style.display = '';
+  } catch (err) {
+    notice.innerHTML = `<div style="font-size:12px;color:var(--red)">Error: ${err.message}</div>`;
+    preview.style.display = 'none';
+  }
+}
+
+export function bindBrainData(records, patMap, patients, setTopbar) {
+  let allRecords = records || [];
+
+  window._switchQEEGTab = function(tab) {
+    const manualTab = document.getElementById('qr-manual-tab');
+    const uploadTab = document.getElementById('qr-upload-tab');
+    const btnManual = document.getElementById('qr-tab-manual');
+    const btnUpload = document.getElementById('qr-tab-upload');
+    if (!manualTab || !uploadTab) return;
+    if (tab === 'manual') {
+      manualTab.style.display = '';
+      uploadTab.style.display = 'none';
+      if (btnManual) { btnManual.style.background = 'var(--teal)'; btnManual.style.color = '#fff'; }
+      if (btnUpload) { btnUpload.style.background = 'transparent'; btnUpload.style.color = 'var(--text-secondary)'; }
+    } else {
+      manualTab.style.display = 'none';
+      uploadTab.style.display = '';
+      if (btnUpload) { btnUpload.style.background = 'var(--teal)'; btnUpload.style.color = '#fff'; }
+      if (btnManual) { btnManual.style.background = 'transparent'; btnManual.style.color = 'var(--text-secondary)'; }
     }
   };
 
-  window._toggleQEEGRecord = function(id) {
-    const panel = document.getElementById(`qrec-expand-${id}`);
-    const card  = document.getElementById(`qrec-${id}`);
-    if (!panel) return;
-    const isOpen = panel.style.display !== 'none';
-    panel.style.display = isOpen ? 'none' : '';
-    if (card) card.style.borderColor = isOpen ? 'var(--border)' : 'var(--border-teal)';
+  window._useQEEGParsed = function() {
+    const p = window._qeegParsedValues;
+    if (!p) return;
+    ['delta','theta','alpha','beta','gamma'].forEach(b => {
+      const el = document.getElementById(`qr-${b}`);
+      if (el && p[b] != null) el.value = p[b].toFixed(2);
+    });
+    window._switchQEEGTab('manual');
+  };
+
+  // Bind drop zone after a tick (DOM may not be ready yet)
+  setTimeout(() => {
+    const zone = document.getElementById('qr-drop-zone');
+    const fileInput = document.getElementById('qr-file-input');
+    if (zone) {
+      zone.addEventListener('dragover', e => { e.preventDefault(); zone.style.borderColor = 'var(--teal)'; zone.style.borderStyle = 'solid'; });
+      zone.addEventListener('dragleave', () => { zone.style.borderColor = 'var(--border)'; zone.style.borderStyle = 'dashed'; });
+      zone.addEventListener('drop', async (e) => {
+        e.preventDefault();
+        zone.style.borderColor = 'var(--border)'; zone.style.borderStyle = 'dashed';
+        const file = e.dataTransfer.files[0];
+        if (file) await handleQEEGFile(file);
+      });
+    }
+    if (fileInput) {
+      fileInput.addEventListener('change', async () => {
+        const file = fileInput.files[0];
+        if (file) await handleQEEGFile(file);
+        fileInput.value = '';
+      });
+    }
+  }, 50);
+
+  window._showQEEGForm = () => {
+    document.getElementById('qeeg-form-panel').style.display = '';
+    // Reset to manual tab each time form is opened
+    window._switchQEEGTab('manual');
+  };
+
+  window._filterQEEGRecords = async function(patientId) {
+    const container = document.getElementById('qeeg-list-container');
+    if (!container) return;
+    container.innerHTML = spinner();
+    try {
+      const params = patientId ? { patient_id: patientId } : {};
+      const res = await api.listQEEGRecords(params);
+      allRecords = res?.items || [];
+      container.innerHTML = _renderRecordRows(allRecords, patMap || {});
+    } catch (e) {
+      container.innerHTML = `<div style="color:var(--red);font-size:12px">Load failed: ${e.message}</div>`;
+    }
+  };
+
+  function _renderRecordRows(recs, pm) {
+    if (!recs.length) return emptyState('◈', 'No records found.');
+    return `<div style="display:flex;flex-direction:column;gap:6px" id="qeeg-record-list">
+      ${recs.map(r => {
+        const dots = [
+          { label: 'α', val: parseFloat(r.alpha_power) || 0, color: '#14b8a6' },
+          { label: 'θ', val: parseFloat(r.theta_power) || 0, color: '#3b82f6' },
+          { label: 'β', val: parseFloat(r.beta_power)  || 0, color: '#f59e0b' },
+        ].map(d => `<span title="${d.label}: ${d.val.toFixed(1)} µV²" style="display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:50%;background:${d.color}22;color:${d.color};font-size:10px;font-weight:700;cursor:default">${d.label}</span>`).join('');
+        return `<div id="qrec-row-${r.id}" class="qeeg-row" style="padding:10px 12px;border:1px solid var(--border);border-radius:8px;cursor:pointer;transition:border-color var(--transition)" onclick="window._selectQEEGRecord('${r.id}')">
+          <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+            <span style="font-size:13px;font-weight:600;color:var(--text-primary);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${pm[r.patient_id] || 'Unknown Patient'}</span>
+            <span style="font-size:11px;color:var(--text-tertiary)">${r.recorded_at ? r.recorded_at.slice(0,10) : (r.recording_date || '—')}</span>
+            <span style="font-size:11px;padding:2px 7px;border-radius:4px;background:var(--teal-ghost);color:var(--teal)">${r.eyes_condition?.replace(/_/g,' ') || '—'}</span>
+            <div style="display:flex;gap:4px">${dots}</div>
+          </div>
+          ${r.eeg_device || r.equipment ? `<div style="margin-top:4px;font-size:11px;color:var(--text-tertiary)">${r.eeg_device || r.equipment}</div>` : ''}
+        </div>`;
+      }).join('')}
+    </div>`;
+  }
+
+  window._selectQEEGRecord = function(id) {
+    document.querySelectorAll('.qeeg-row').forEach(row => {
+      row.style.borderColor = 'var(--border)';
+      row.style.background = '';
+    });
+    const selRow = document.getElementById(`qrec-row-${id}`);
+    if (selRow) { selRow.style.borderColor = 'var(--border-teal)'; selRow.style.background = 'rgba(0,212,188,0.03)'; }
+
+    const rec = allRecords.find(r => r.id === id);
+    if (!rec) return;
+
+    // Update topographic map with record band data
+    if (window._updateTopoFromRecord) window._updateTopoFromRecord(rec);
+
+    const flags = qeegFlags(rec);
+    const pm2 = patMap || {};
+    const recPatName = pm2[rec.patient_id] || 'Unknown Patient';
+    const recordDate = rec.recorded_at ? rec.recorded_at.slice(0,10) : (rec.recording_date || '—');
+
+    const detail = document.getElementById('qeeg-detail-panel');
+    if (!detail) return;
+    detail.innerHTML = `
+      <div class="card" style="margin-bottom:14px">
+        <div class="card-header">
+          <h3>Band Power Analysis</h3>
+          <span style="font-size:11px;color:var(--text-tertiary)">${recPatName} · ${recordDate}</span>
+        </div>
+        <div class="card-body">
+          ${bandPowerChart(rec)}
+        </div>
+      </div>
+      ${flags.length ? `<div class="card" style="margin-bottom:14px">
+        <div class="card-header"><h3>Biomarker Flags</h3></div>
+        <div class="card-body" style="display:flex;flex-direction:column;gap:8px">
+          ${flags.map(f => `<div style="display:flex;align-items:flex-start;gap:8px;padding:8px 10px;border-radius:6px;background:${f.bg};border:1px solid ${f.color}33">
+            <span style="color:${f.color};font-size:13px;flex-shrink:0">◉</span>
+            <span style="font-size:12px;color:${f.color};line-height:1.5">${f.text}</span>
+          </div>`).join('')}
+        </div>
+      </div>` : ''}
+      <div class="card">
+        <div class="card-header"><h3>Record Metadata</h3></div>
+        <div class="card-body">
+          ${fr('Patient', recPatName)}
+          ${fr('Recording Date', recordDate)}
+          ${fr('EEG Device', rec.eeg_device || rec.equipment || '—')}
+          ${fr('Channels', rec.channels != null ? String(rec.channels) : '—')}
+          ${fr('Duration', rec.duration_minutes != null ? rec.duration_minutes + ' min' : '—')}
+          ${fr('Eyes Condition', rec.eyes_condition?.replace(/_/g,' ') || '—')}
+          ${fr('Artifact Rejection', rec.artifact_rejection_pct != null ? rec.artifact_rejection_pct + '%' : '—')}
+          ${fr('Record ID', (rec.id?.slice(0,8) || '') + '…')}
+          <div style="margin-top:14px">
+            <label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:4px;font-weight:600">Notes</label>
+            <textarea id="qrec-detail-notes-${id}" class="form-control" rows="3" style="font-size:12px">${rec.notes || rec.summary_notes || ''}</textarea>
+          </div>
+          <div id="qrec-detail-err-${id}" style="display:none;color:var(--red);font-size:12px;margin:6px 0"></div>
+          <button class="btn btn-primary btn-sm" style="margin-top:8px" onclick="window._saveQEEGNotes('${id}')">Save Notes</button>
+        </div>
+      </div>`;
   };
 
   window._saveQEEGNotes = async function(id) {
-    const errEl = document.getElementById(`qrec-edit-err-${id}`);
+    const errEl = document.getElementById(`qrec-detail-err-${id}`);
     if (errEl) errEl.style.display = 'none';
-    const notes = document.getElementById(`qrec-notes-${id}`)?.value || null;
+    const notes = document.getElementById(`qrec-detail-notes-${id}`)?.value || null;
     try {
-      await api.updateQEEGRecord(id, { summary_notes: notes });
-      // Close expand panel and show brief success
-      const panel = document.getElementById(`qrec-expand-${id}`);
-      if (panel) {
-        panel.innerHTML = `<div style="color:var(--teal);font-size:12.5px;padding:8px 0">✓ Notes saved.</div>`;
-        setTimeout(() => { panel.style.display = 'none'; }, 1200);
-      }
-      const card = document.getElementById(`qrec-${id}`);
-      if (card) card.style.borderColor = 'var(--border)';
+      await api.updateQEEGRecord(id, { notes, summary_notes: notes });
+      const btn = document.querySelector(`[onclick="window._saveQEEGNotes('${id}')"]`);
+      if (btn) { const orig = btn.textContent; btn.textContent = '✓ Saved'; btn.disabled = true; setTimeout(() => { btn.textContent = orig; btn.disabled = false; }, 1800); }
     } catch (e) {
       if (errEl) { errEl.textContent = e.message || 'Save failed.'; errEl.style.display = ''; }
     }
@@ -3198,23 +4868,77 @@ export function bindBrainData() {
 
   window._saveQEEGRecord = async function() {
     const errEl = document.getElementById('qr-error');
-    errEl.style.display = 'none';
+    if (errEl) errEl.style.display = 'none';
     const patientId = document.getElementById('qr-patient')?.value;
-    if (!patientId) { errEl.textContent = 'Select a patient.'; errEl.style.display = 'block'; return; }
+    if (!patientId) { if (errEl) { errEl.textContent = 'Select a patient.'; errEl.style.display = 'block'; } return; }
+    const payload = {
+      patient_id:             patientId,
+      recorded_at:            document.getElementById('qr-date')?.value || null,
+      eeg_device:             document.getElementById('qr-device')?.value || null,
+      channels:               parseInt(document.getElementById('qr-channels')?.value) || null,
+      duration_minutes:       parseFloat(document.getElementById('qr-duration')?.value) || null,
+      delta_power:            parseFloat(document.getElementById('qr-delta')?.value) || null,
+      theta_power:            parseFloat(document.getElementById('qr-theta')?.value) || null,
+      alpha_power:            parseFloat(document.getElementById('qr-alpha')?.value) || null,
+      beta_power:             parseFloat(document.getElementById('qr-beta')?.value) || null,
+      gamma_power:            parseFloat(document.getElementById('qr-gamma')?.value) || null,
+      artifact_rejection_pct: parseFloat(document.getElementById('qr-artifact')?.value) || null,
+      eyes_condition:         document.getElementById('qr-eyes')?.value || null,
+      notes:                  document.getElementById('qr-notes')?.value || null,
+    };
     try {
-      await api.createQEEGRecord({
-        patient_id: patientId,
-        recording_type: document.getElementById('qr-type')?.value || 'resting',
-        recording_date: document.getElementById('qr-date')?.value || null,
-        equipment: document.getElementById('qr-equip')?.value || null,
-        eyes_condition: document.getElementById('qr-eyes')?.value || null,
-        summary_notes: document.getElementById('qr-notes')?.value || null,
-      });
+      await api.createQEEGRecord(payload);
       await pgBrainData(setTopbar);
     } catch (e) {
-      errEl.textContent = e.message || 'Save failed.';
-      errEl.style.display = 'block';
+      if (errEl) { errEl.textContent = e.message || 'Save failed.'; errEl.style.display = 'block'; }
     }
+  };
+
+  // ── Camera capture for qEEG upload ────────────────────────────────────────
+  window._startQEEGCamera = async function() {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+      const overlay = document.createElement('div');
+      overlay.id = 'camera-overlay';
+      overlay.style.cssText = 'position:fixed;inset:0;background:#000;z-index:600;display:flex;flex-direction:column;align-items:center;justify-content:center';
+      overlay.innerHTML = `
+        <video id="camera-preview" autoplay playsinline style="max-width:100%;max-height:70vh;border-radius:8px"></video>
+        <div style="display:flex;gap:12px;margin-top:16px">
+          <button onclick="window._captureQEEGPhoto()" style="background:white;border:none;border-radius:50%;width:64px;height:64px;font-size:1.8rem;cursor:pointer">📸</button>
+          <button onclick="window._stopCamera()" style="background:rgba(255,255,255,0.2);border:1px solid rgba(255,255,255,0.4);border-radius:8px;color:white;padding:12px 20px;cursor:pointer">Cancel</button>
+        </div>
+        <p style="color:rgba(255,255,255,0.6);font-size:0.8rem;margin-top:12px">Point camera at EEG printout or report</p>`;
+      document.body.appendChild(overlay);
+      const video = document.getElementById('camera-preview');
+      video.srcObject = stream;
+      window._cameraStream = stream;
+    } catch (err) {
+      alert('Camera access denied. Please allow camera permissions in your browser settings.');
+    }
+  };
+
+  window._captureQEEGPhoto = function() {
+    const video = document.getElementById('camera-preview');
+    if (!video) return;
+    const canvas = document.createElement('canvas');
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    canvas.getContext('2d').drawImage(video, 0, 0);
+    canvas.toBlob(blob => {
+      window._stopCamera();
+      const imgUrl = URL.createObjectURL(blob);
+      const preview = document.getElementById('qeeg-file-preview');
+      if (preview) {
+        preview.innerHTML = `<img src="${imgUrl}" style="max-width:100%;border-radius:8px;margin-top:8px">
+          <p style="color:var(--text-secondary);font-size:0.8rem;margin-top:8px">📸 Photo captured — manual entry recommended for accuracy</p>`;
+      }
+      window._announce?.('Photo captured. Please verify values manually.');
+    }, 'image/jpeg', 0.8);
+  };
+
+  window._stopCamera = function() {
+    window._cameraStream?.getTracks().forEach(t => t.stop());
+    document.getElementById('camera-overlay')?.remove();
   };
 
   window.runCaseSummary = async function() {
@@ -3233,5 +4957,1706 @@ export function bindBrainData() {
     } catch (e) {
       if (res) res.innerHTML = `<div class="notice notice-warn">${e.message}</div>`;
     }
+  };
+
+  // legacy band-switch stub for external callers
+  window.switchBand = function(b2) {
+    eegBand = b2;
+    const svgEl = document.getElementById('eeg-svg');
+    if (svgEl) svgEl.innerHTML = brainMapSVG(b2);
+    document.querySelectorAll('#content .btn-sm').forEach(btn => {
+      if (['Alpha', 'Theta', 'Beta'].includes(btn.textContent)) {
+        btn.className = 'btn btn-sm' + (btn.textContent.toLowerCase() === b2 ? ' btn-primary' : '');
+      }
+    });
+  };
+
+}
+
+// ── Messaging Hub ────────────────────────────────────────────────────────────
+
+const MESSAGE_TEMPLATES = [
+  {
+    id: 'session-reminder',
+    name: 'Session Reminder',
+    icon: '📅',
+    subject: 'Session Reminder',
+    body: `Hi {{patient_name}},\n\nThis is a reminder that your next session is scheduled for {{date}} at {{time}}.\n\nPlease arrive 5 minutes early and ensure you've had adequate sleep.\n\nSee you soon!\n{{clinician_name}}`,
+  },
+  {
+    id: 'homework-nudge',
+    name: 'Homework Nudge',
+    icon: '📝',
+    subject: 'Your Homework Exercises',
+    body: `Hi {{patient_name}},\n\nJust checking in — have you had a chance to complete your daily exercises this week?\n\nRemember: consistent practice between sessions significantly improves outcomes.\n\nLet me know if you have any questions!\n{{clinician_name}}`,
+  },
+  {
+    id: 'progress-update',
+    name: 'Progress Update',
+    icon: '📊',
+    subject: 'Your Treatment Progress',
+    body: `Hi {{patient_name}},\n\nI wanted to share a progress update. You've completed {{session_count}} sessions and we're seeing positive indicators.\n\nKeep up the great work!\n{{clinician_name}}`,
+  },
+  {
+    id: 'appointment-confirm',
+    name: 'Appointment Confirmation',
+    icon: '✅',
+    subject: 'Appointment Confirmed',
+    body: `Hi {{patient_name}},\n\nYour appointment on {{date}} at {{time}} has been confirmed.\n\nLocation: {{clinic_name}}\n\nPlease contact us if you need to reschedule.\n\n{{clinician_name}}`,
+  },
+  {
+    id: 'safety-checkin',
+    name: 'Safety Check-in',
+    icon: '🛡️',
+    subject: 'How are you feeling?',
+    body: `Hi {{patient_name}},\n\nWe noticed you missed your last session. We just wanted to check in and make sure you're doing well.\n\nPlease reply to this message or call us if you have any concerns.\n\n{{clinician_name}}`,
+  },
+  {
+    id: 'course-complete',
+    name: 'Course Completion',
+    icon: '🎉',
+    subject: 'Congratulations on Completing Your Treatment!',
+    body: `Hi {{patient_name}},\n\nCongratulations on completing your treatment course! You've achieved a significant milestone.\n\nWe'll be scheduling a follow-up assessment in 4 weeks to track your continued progress.\n\nThank you for your commitment to your health.\n{{clinician_name}}`,
+  },
+];
+
+export async function pgMessaging(setTopbar) {
+  setTopbar('Messaging', 'Patient communications');
+  const el = document.getElementById('content');
+  if (!el) return;
+
+  el.innerHTML = '<div class="page-loading"></div>';
+
+  let patients = [];
+  try { patients = await api.listPatients() || []; } catch {}
+
+  window._msgSelectedPatientId = window._msgSelectedPatientId || (patients[0]?.id || null);
+
+  await _renderMessaging(patients);
+}
+
+async function _renderMessaging(patients) {
+  const el = document.getElementById('content');
+  if (!el) return;
+
+  let messages = [];
+  if (window._msgSelectedPatientId) {
+    try { messages = await api.getPatientMessages(window._msgSelectedPatientId) || []; } catch {}
+  }
+
+  const selectedPatient = patients.find(p => p.id === window._msgSelectedPatientId);
+
+  el.innerHTML = `
+    <div style="display:flex;flex-direction:column;height:calc(100vh - 120px);gap:0">
+      <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
+        <input id="msg-patient-search" type="text" placeholder="Search patients..."
+          style="flex:1;min-width:160px" oninput="window._filterMsgPatients(this.value)">
+        <button class="btn-secondary" onclick="window._showTemplates()" style="font-size:0.82rem">📋 Templates</button>
+        <button class="btn-primary" onclick="window._showBulkMessage()" style="font-size:0.82rem">📢 Bulk Message</button>
+      </div>
+      <div style="display:grid;grid-template-columns:240px 1fr 240px;gap:12px;flex:1;overflow:hidden">
+        <div style="background:var(--surface-1);border:1px solid var(--border);border-radius:12px;overflow-y:auto" id="msg-patient-list">
+          ${patients.map(p => {
+            const isSelected = p.id === window._msgSelectedPatientId;
+            const name = `${p.first_name || ''} ${p.last_name || ''}`.trim();
+            return `<div class="msg-patient-item ${isSelected ? 'active' : ''}" onclick="window._msgSelectPatient('${p.id}')">
+              <div style="width:36px;height:36px;border-radius:50%;background:rgba(0,212,188,0.15);display:flex;align-items:center;justify-content:center;font-size:0.9rem;flex-shrink:0">
+                ${name.split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase()}
+              </div>
+              <div style="flex:1;min-width:0">
+                <div style="font-size:0.85rem;font-weight:${isSelected?'600':'400'};white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${name}</div>
+                <div style="font-size:0.72rem;color:var(--text-secondary)">${p.primary_condition || 'Patient'}</div>
+              </div>
+              ${isSelected ? '<span style="width:8px;height:8px;border-radius:50%;background:var(--teal-400);flex-shrink:0"></span>' : ''}
+            </div>`;
+          }).join('') || '<div style="padding:20px;text-align:center;color:var(--text-secondary);font-size:0.85rem">No patients</div>'}
+        </div>
+        <div style="background:var(--surface-1);border:1px solid var(--border);border-radius:12px;display:flex;flex-direction:column;overflow:hidden">
+          ${selectedPatient ? `
+            <div style="padding:14px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px">
+              <div style="font-weight:600">${selectedPatient.first_name} ${selectedPatient.last_name}</div>
+              <div class="badge" style="font-size:0.72rem">${selectedPatient.primary_condition || ''}</div>
+            </div>
+            <div id="msg-thread" style="flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:10px">
+              ${messages.length === 0
+                ? `<div style="text-align:center;color:var(--text-secondary);font-size:0.85rem;margin:auto">No messages yet. Send the first message below.</div>`
+                : messages.map(m => {
+                    const isClinicianMsg = m.sender_role !== 'patient';
+                    return `<div style="display:flex;flex-direction:column;align-items:${isClinicianMsg?'flex-end':'flex-start'}">
+                      <div style="max-width:70%;background:${isClinicianMsg?'var(--teal-500)':'var(--surface-2)'};color:${isClinicianMsg?'#000':'var(--text-primary)'};padding:10px 14px;border-radius:${isClinicianMsg?'14px 14px 4px 14px':'14px 14px 14px 4px'};font-size:0.875rem;line-height:1.5">
+                        ${m.body || m.message || m.content || ''}
+                      </div>
+                      <div style="font-size:0.7rem;color:var(--text-secondary);margin-top:3px">
+                        ${m.created_at ? new Date(m.created_at).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'}) : ''}
+                        ${isClinicianMsg ? '· Sent \u2713' : ''}
+                      </div>
+                    </div>`;
+                  }).join('')
+              }
+            </div>
+            <div style="padding:12px;border-top:1px solid var(--border);display:flex;gap:8px">
+              <textarea id="msg-input" placeholder="Type your message..." rows="2"
+                style="flex:1;resize:none;padding:8px 12px;border-radius:8px"
+                onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();window._msgSend()}"></textarea>
+              <div style="display:flex;flex-direction:column;gap:6px">
+                <button class="btn-primary" onclick="window._msgSend()" style="padding:8px 14px">&#9658;</button>
+                <button class="btn-secondary" onclick="window._msgInsertTemplate()" title="Use template" style="padding:6px;font-size:0.8rem">📋</button>
+              </div>
+            </div>`
+          : `<div style="display:flex;align-items:center;justify-content:center;flex:1;color:var(--text-secondary);font-size:0.85rem">Select a patient to view messages</div>`}
+        </div>
+        <div style="background:var(--surface-1);border:1px solid var(--border);border-radius:12px;overflow-y:auto;padding:12px" id="msg-templates-sidebar">
+          <div style="font-size:0.78rem;text-transform:uppercase;letter-spacing:.05em;color:var(--text-secondary);margin-bottom:10px">Message Templates</div>
+          ${MESSAGE_TEMPLATES.map(t => `
+            <div class="template-item" onclick="window._applyTemplate('${t.id}')" title="${t.name}">
+              <span style="font-size:1rem">${t.icon}</span>
+              <span style="font-size:0.82rem">${t.name}</span>
+            </div>`).join('')}
+          <button onclick="window._newTemplate()" style="width:100%;margin-top:10px;background:none;border:1px dashed var(--border);border-radius:8px;padding:8px;color:var(--text-secondary);cursor:pointer;font-size:0.8rem">+ New Template</button>
+        </div>
+      </div>
+    </div>`;
+
+  setTimeout(() => {
+    const thread = document.getElementById('msg-thread');
+    if (thread) thread.scrollTop = thread.scrollHeight;
+  }, 100);
+}
+
+window._msgSelectPatient = async function(patientId) {
+  window._msgSelectedPatientId = patientId;
+  let patients = [];
+  try { patients = await api.listPatients() || []; } catch {}
+  await _renderMessaging(patients);
+};
+
+window._msgSend = async function() {
+  const input = document.getElementById('msg-input');
+  const msg = input?.value?.trim();
+  if (!msg || !window._msgSelectedPatientId) return;
+  input.value = '';
+  input.disabled = true;
+  try {
+    await api.sendPatientMessage(window._msgSelectedPatientId, msg);
+    const thread = document.getElementById('msg-thread');
+    if (thread) {
+      const div = document.createElement('div');
+      div.style.cssText = 'display:flex;flex-direction:column;align-items:flex-end';
+      div.innerHTML = `<div style="max-width:70%;background:var(--teal-500);color:#000;padding:10px 14px;border-radius:14px 14px 4px 14px;font-size:0.875rem;line-height:1.5">${msg}</div>
+        <div style="font-size:0.7rem;color:var(--text-secondary);margin-top:3px">${new Date().toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})} \u00b7 Sending...</div>`;
+      thread.appendChild(div);
+      thread.scrollTop = thread.scrollHeight;
+    }
+  } catch (e) {
+    input.value = msg;
+    alert('Failed to send message: ' + e.message);
+  } finally {
+    input.disabled = false;
+    input.focus();
+  }
+};
+
+window._applyTemplate = function(templateId) {
+  const t = MESSAGE_TEMPLATES.find(t => t.id === templateId);
+  if (!t) return;
+  const input = document.getElementById('msg-input');
+  if (input) {
+    let body = t.body
+      .replace(/\{\{patient_name\}\}/g, '[Patient Name]')
+      .replace(/\{\{clinician_name\}\}/g, '[Your Name]')
+      .replace(/\{\{date\}\}/g, '[Date]')
+      .replace(/\{\{time\}\}/g, '[Time]')
+      .replace(/\{\{session_count\}\}/g, '[#]')
+      .replace(/\{\{clinic_name\}\}/g, '[Clinic Name]');
+    input.value = body;
+    input.focus();
+  }
+};
+
+window._showBulkMessage = async function() {
+  let patients = [];
+  try { patients = await api.listPatients() || []; } catch {}
+  const modal = document.createElement('div');
+  modal.className = 'modal-overlay';
+  modal.innerHTML = `<div class="modal-card" style="max-width:520px;width:100%">
+    <h3 style="margin-bottom:16px">📢 Bulk Message</h3>
+    <p style="color:var(--text-secondary);font-size:0.85rem;margin-bottom:16px">Send a message to multiple patients at once.</p>
+    <div style="max-height:200px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;padding:8px;margin-bottom:12px">
+      ${patients.map(p => `<label style="display:flex;align-items:center;gap:8px;padding:6px;cursor:pointer">
+        <input type="checkbox" class="bulk-patient-check" value="${p.id}">
+        <span style="font-size:0.85rem">${p.first_name} ${p.last_name} \u00b7 ${p.primary_condition || ''}</span>
+      </label>`).join('')}
+    </div>
+    <div style="margin-bottom:12px">
+      <button onclick="document.querySelectorAll('.bulk-patient-check').forEach(c=>c.checked=true)" class="btn-secondary" style="font-size:0.78rem;margin-right:6px">Select All</button>
+      <button onclick="document.querySelectorAll('.bulk-patient-check').forEach(c=>c.checked=false)" class="btn-secondary" style="font-size:0.78rem">Clear</button>
+    </div>
+    <textarea id="bulk-msg-text" placeholder="Type your message..." rows="4" style="width:100%;resize:none;margin-bottom:12px"></textarea>
+    <div style="display:flex;gap:8px;justify-content:flex-end">
+      <button class="btn-secondary" onclick="this.closest('.modal-overlay').remove()">Cancel</button>
+      <button class="btn-primary" onclick="window._sendBulkMessage()">Send to Selected \u2192</button>
+    </div>
+  </div>`;
+  document.body.appendChild(modal);
+};
+
+window._sendBulkMessage = async function() {
+  const selected = [...document.querySelectorAll('.bulk-patient-check:checked')].map(c => c.value);
+  const msg = document.getElementById('bulk-msg-text')?.value?.trim();
+  if (selected.length === 0 || !msg) { alert('Select patients and type a message'); return; }
+  document.querySelector('.modal-overlay')?.remove();
+  let sent = 0;
+  for (const pid of selected) {
+    try { await api.sendPatientMessage(pid, msg); sent++; } catch {}
+  }
+  window._showNotifToast?.({ title: 'Bulk Message Sent', body: `Sent to ${sent}/${selected.length} patients`, severity: 'success' });
+};
+
+window._filterMsgPatients = function(query) {
+  document.querySelectorAll('.msg-patient-item').forEach(item => {
+    const text = item.textContent.toLowerCase();
+    item.style.display = text.includes(query.toLowerCase()) ? '' : 'none';
+  });
+};
+
+window._msgInsertTemplate = function() {
+  const sidebar = document.getElementById('msg-templates-sidebar');
+  if (sidebar) sidebar.scrollIntoView({ behavior: 'smooth' });
+};
+
+window._newTemplate = function() {
+  const modal = document.createElement('div');
+  modal.className = 'modal-overlay';
+  modal.innerHTML = `<div class="modal-card">
+    <h3 style="margin-bottom:16px">New Message Template</h3>
+    <label style="display:block;margin-bottom:4px;font-size:0.85rem">Template Name</label>
+    <input id="tpl-name" type="text" placeholder="e.g. Follow-up Check-in" style="width:100%;margin-bottom:12px">
+    <label style="display:block;margin-bottom:4px;font-size:0.85rem">Message Body</label>
+    <textarea id="tpl-body" rows="6" placeholder="Use {{patient_name}}, {{clinician_name}}, {{date}} as placeholders" style="width:100%;resize:vertical;margin-bottom:12px"></textarea>
+    <div style="display:flex;gap:8px;justify-content:flex-end">
+      <button class="btn-secondary" onclick="this.closest('.modal-overlay').remove()">Cancel</button>
+      <button class="btn-primary" onclick="window._saveNewTemplate()">Save Template</button>
+    </div>
+  </div>`;
+  document.body.appendChild(modal);
+};
+
+window._saveNewTemplate = function() {
+  const name = document.getElementById('tpl-name')?.value?.trim();
+  const body = document.getElementById('tpl-body')?.value?.trim();
+  if (!name || !body) { alert('Please fill in all fields'); return; }
+  MESSAGE_TEMPLATES.push({ id: `custom-${Date.now()}`, name, icon: '💬', subject: name, body });
+  document.querySelector('.modal-overlay')?.remove();
+  window._announce?.(`Template "${name}" saved`);
+  const sidebar = document.getElementById('msg-templates-sidebar');
+  if (sidebar) {
+    sidebar.innerHTML = `<div style="font-size:0.78rem;text-transform:uppercase;letter-spacing:.05em;color:var(--text-secondary);margin-bottom:10px">Message Templates</div>
+      ${MESSAGE_TEMPLATES.map(t => `<div class="template-item" onclick="window._applyTemplate('${t.id}')"><span>${t.icon}</span><span style="font-size:0.82rem">${t.name}</span></div>`).join('')}
+      <button onclick="window._newTemplate()" style="width:100%;margin-top:10px;background:none;border:1px dashed var(--border);border-radius:8px;padding:8px;color:var(--text-secondary);cursor:pointer;font-size:0.8rem">+ New Template</button>`;
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Protocol Builder
+// ─────────────────────────────────────────────────────────────────────────────
+
+const BLOCK_PALETTE = {
+  modality: [
+    { type: 'neurofeedback', label: 'Neurofeedback', icon: '🧠', color: '#00d4bc',
+      params: { protocol: 'Alpha/Theta', frequency_band: 'Alpha (8-12Hz)', sites: 'Cz', session_duration: 30 } },
+    { type: 'tms', label: 'rTMS', icon: '⚡', color: '#3b82f6',
+      params: { frequency_hz: 10, intensity_pct_mt: 110, pulses: 3000, coil_position: 'DLPFC Left' } },
+    { type: 'tdcs', label: 'tDCS', icon: '🔋', color: '#8b5cf6',
+      params: { current_ma: 2.0, duration_min: 20, anode: 'F3', cathode: 'Fp2' } },
+    { type: 'tavns', label: 'taVNS', icon: '🌊', color: '#f59e0b',
+      params: { frequency_hz: 25, pulse_width_us: 250, current_ma: 0.5, duration_min: 30 } },
+    { type: 'ces', label: 'CES', icon: '💫', color: '#ec4899',
+      params: { frequency_hz: 0.5, current_ma: 1.0, duration_min: 20 } },
+  ],
+  parameter: [
+    { type: 'frequency', label: 'Frequency',    icon: '〰️', color: '#64748b', params: { value_hz: 10, waveform: 'sine' } },
+    { type: 'amplitude', label: 'Amplitude',    icon: '📶', color: '#64748b', params: { value: 1.0, unit: 'mA' } },
+    { type: 'duration',  label: 'Duration',     icon: '⏱️', color: '#64748b', params: { value_min: 20 } },
+    { type: 'rest',      label: 'Rest Period',  icon: '⏸️', color: '#64748b', params: { duration_min: 5 } },
+    { type: 'repeat',    label: 'Repeat Block', icon: '🔄', color: '#64748b', params: { times: 3, interval_days: 2 } },
+  ],
+};
+
+// Module-level builder state (reset on each pgProtocolBuilder call)
+let _builderNodes = [];
+let _builderEdges = [];
+let _selectedNode = null;
+let _draggingNode = null;
+let _dragOffset = { x: 0, y: 0 };
+
+function _rerenderSVG() {
+  const svg = document.getElementById('builder-svg');
+  if (!svg) return;
+  const paths = _builderEdges.map(edge => {
+    const fn = _builderNodes.find(n => n.id === edge.from);
+    const tn = _builderNodes.find(n => n.id === edge.to);
+    if (!fn || !tn) return '';
+    const x1 = fn.x + 160, y1 = fn.y + 40, x2 = tn.x, y2 = tn.y + 40, mx = (x1 + x2) / 2;
+    return `<path d="M${x1},${y1} C${mx},${y1} ${mx},${y2} ${x2},${y2}" stroke="var(--teal,#00d4bc)" stroke-width="2" fill="none" marker-end="url(#arrowhead)"/>`;
+  }).join('');
+  svg.innerHTML = `<defs><marker id="arrowhead" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="var(--teal,#00d4bc)"/></marker></defs>${paths}`;
+}
+
+function _renderBuilderCanvas() {
+  const svgPaths = _builderEdges.map(edge => {
+    const fn = _builderNodes.find(n => n.id === edge.from);
+    const tn = _builderNodes.find(n => n.id === edge.to);
+    if (!fn || !tn) return '';
+    const x1 = fn.x + 160, y1 = fn.y + 40, x2 = tn.x, y2 = tn.y + 40, mx = (x1 + x2) / 2;
+    return `<path d="M${x1},${y1} C${mx},${y1} ${mx},${y2} ${x2},${y2}" stroke="var(--teal,#00d4bc)" stroke-width="2" fill="none" marker-end="url(#arrowhead)"/>`;
+  }).join('');
+  const nodesHtml = _builderNodes.map(node => {
+    const isSel = _selectedNode?.id === node.id;
+    const pe = Object.entries(node.params).slice(0, 3)
+      .map(([k, v]) => `<div style="font-size:0.7rem;color:var(--text-secondary)">${k.replace(/_/g, ' ')}: <strong>${v}</strong></div>`)
+      .join('');
+    return `<div class="builder-node${isSel ? ' selected' : ''}" data-node-id="${node.id}"
+        style="left:${node.x}px;top:${node.y}px;border-color:${node.color}"
+        onclick="window._builderSelectNode('${node.id}')"
+        onmousedown="window._builderStartDrag(event,'${node.id}')">
+      <div class="builder-node-header" style="background:${node.color}20;border-bottom:1px solid ${node.color}40">
+        <span>${node.icon}</span>
+        <span style="font-size:0.8rem;font-weight:600">${node.label}</span>
+        <button onclick="event.stopPropagation();window._builderDeleteNode('${node.id}')"
+          style="margin-left:auto;background:none;border:none;color:rgba(255,255,255,0.5);cursor:pointer;font-size:0.7rem">✕</button>
+      </div>
+      <div class="builder-node-params">${pe}</div>
+      <div class="builder-node-connectors">
+        <div class="connector-in" onclick="event.stopPropagation();window._builderConnectTo('${node.id}')" title="Connect here (in)"></div>
+        <div class="connector-out" onclick="event.stopPropagation();window._builderStartConnect('${node.id}')" title="Start connection (out)"></div>
+      </div>
+    </div>`;
+  }).join('');
+  const empty = _builderNodes.length === 0
+    ? `<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--text-secondary);font-size:0.9rem;pointer-events:none">Drag blocks from the palette to start building your protocol</div>`
+    : '';
+  return `<div id="builder-canvas"
+      style="position:relative;width:100%;height:520px;background:var(--navy-900,#080d1a);border:1px solid var(--border);border-radius:12px;overflow:hidden"
+      ondragover="event.preventDefault()" ondrop="window._builderDropOnCanvas(event)"
+      onmousemove="window._builderOnMouseMove(event)" onmouseup="window._builderEndDrag()">
+    <svg style="position:absolute;inset:0;width:100%;height:100%;pointer-events:none" id="builder-svg">
+      <defs><marker id="arrowhead" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+        <polygon points="0 0, 8 3, 0 6" fill="var(--teal,#00d4bc)"/></marker></defs>
+      ${svgPaths}
+    </svg>
+    ${nodesHtml}${empty}
+  </div>`;
+}
+
+function _renderBuilderProps() {
+  if (!_selectedNode) {
+    return `<div class="ds-card" style="margin-top:12px">
+      <p style="color:var(--text-secondary);text-align:center;padding:12px">Click a block to edit its properties</p>
+    </div>`;
+  }
+  const node = _builderNodes.find(n => n.id === _selectedNode.id);
+  if (!node) return `<div class="ds-card" style="margin-top:12px">
+    <p style="color:var(--text-secondary);text-align:center;padding:12px">Click a block to edit its properties</p>
+  </div>`;
+  const inputs = Object.entries(node.params).map(([key, val]) => `
+    <div>
+      <label style="font-size:0.78rem;color:var(--text-secondary);display:block;margin-bottom:4px">${key.replace(/_/g, ' ')}</label>
+      <input type="${typeof val === 'number' ? 'number' : 'text'}" value="${val}"
+        onchange="window._builderUpdateParam('${node.id}','${key}',this.value)"
+        style="width:100%;padding:6px 10px;border:1px solid var(--border);border-radius:6px;background:var(--bg-input,rgba(255,255,255,0.04));color:var(--text-primary);font-size:0.85rem">
+    </div>`).join('');
+  return `<div class="ds-card" style="margin-top:12px">
+    <h4 style="margin-bottom:14px">${node.icon} ${node.label} Properties</h4>
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px">${inputs}</div>
+  </div>`;
+}
+
+function _renderBuilder() {
+  const el = document.getElementById('builder-main');
+  if (!el) return;
+  el.innerHTML = _renderBuilderCanvas() + _renderBuilderProps();
+}
+
+function _renderBuilderPalette() {
+  return Object.entries(BLOCK_PALETTE).map(([cat, items]) => {
+    const title = cat === 'modality' ? 'Modality Blocks' : 'Parameter Blocks';
+    const itemsHtml = items.map(b =>
+      `<div class="builder-palette-item" draggable="true" style="border-color:${b.color}40"
+          ondragstart="window._builderPaletteDragStart(event,'${b.type}','${cat}')">
+        <span>${b.icon}</span><span>${b.label}</span>
+      </div>`).join('');
+    return `<div style="margin-bottom:16px">
+      <div style="font-size:0.7rem;font-weight:700;text-transform:uppercase;letter-spacing:0.8px;color:var(--text-secondary);margin-bottom:8px">${title}</div>
+      <div style="display:flex;flex-wrap:wrap;gap:4px">${itemsHtml}</div>
+    </div>`;
+  }).join('');
+}
+
+function _builderGetJSON() {
+  return {
+    version: '1.0',
+    created_at: new Date().toISOString(),
+    stages: _builderNodes.map(node => ({
+      id: node.id, type: node.type, label: node.label, category: node.category,
+      icon: node.icon, color: node.color, params: node.params, x: node.x, y: node.y,
+      next: _builderEdges.find(e => e.from === node.id)?.to || null,
+    })),
+  };
+}
+
+export async function pgProtocolBuilder(setTopbar) {
+  // Reset module-level state on each page entry
+  _builderNodes = [];
+  _builderEdges = [];
+  _selectedNode = null;
+  _draggingNode = null;
+  _dragOffset = { x: 0, y: 0 };
+  window._connectingFrom = null;
+
+  setTopbar('Visual Protocol Builder',
+    `<button class="btn btn-sm" onclick="window._nav('protocols')" style="border-color:var(--teal,#00d4bc);color:var(--teal,#00d4bc)">← Protocol Generator</button>`
+  );
+
+  const el = document.getElementById('content');
+  el.innerHTML = `
+    <div style="padding:20px 24px;max-width:1400px;margin:0 auto">
+      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px;align-items:center">
+        <button class="btn btn-primary btn-sm" onclick="window._builderSave()">💾 Save</button>
+        <button class="btn btn-sm" onclick="window._builderExportJSON()">⬇ Export JSON</button>
+        <button class="btn btn-sm" onclick="window._builderImportJSON()">⬆ Import JSON</button>
+        <button class="btn btn-sm" style="border-color:var(--teal,#00d4bc);color:var(--teal,#00d4bc)"
+          onclick="window._builderUseInWizard()">⚡ Use in Wizard</button>
+        <button class="btn btn-ghost btn-sm" onclick="window._builderClear()">✕ Clear</button>
+        <span style="font-size:0.78rem;color:var(--text-secondary);margin-left:8px" id="builder-status"></span>
+      </div>
+      <div style="display:grid;grid-template-columns:220px 1fr;gap:16px">
+        <div style="background:var(--bg-card,#0e1628);border:1px solid var(--border);border-radius:12px;padding:16px;overflow-y:auto;max-height:540px">
+          ${_renderBuilderPalette()}
+        </div>
+        <div id="builder-main">
+          ${_renderBuilderCanvas()}
+          ${_renderBuilderProps()}
+        </div>
+      </div>
+    </div>`;
+
+  // ── Drag from palette ──────────────────────────────────────────────────────
+  window._builderPaletteDragStart = function(e, blockType, category) {
+    e.dataTransfer.setData('block-type', blockType);
+    e.dataTransfer.setData('block-category', category);
+    e.dataTransfer.effectAllowed = 'copy';
+  };
+
+  window._builderDropOnCanvas = function(e) {
+    e.preventDefault();
+    const type = e.dataTransfer.getData('block-type');
+    const category = e.dataTransfer.getData('block-category');
+    if (!type) return;
+    const canvas = document.getElementById('builder-canvas');
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    const x = Math.max(0, e.clientX - rect.left - 90);
+    const y = Math.max(0, e.clientY - rect.top - 40);
+    const tpl = Object.values(BLOCK_PALETTE).flat().find(b => b.type === type);
+    if (!tpl) return;
+    _builderNodes.push({
+      id: `node-${Date.now()}`, type: tpl.type, category,
+      label: tpl.label, icon: tpl.icon, color: tpl.color,
+      params: { ...tpl.params }, x, y,
+    });
+    _renderBuilder();
+  };
+
+  // ── Node drag on canvas ────────────────────────────────────────────────────
+  window._builderStartDrag = function(e, nodeId) {
+    if (e.target.classList.contains('connector-in') || e.target.classList.contains('connector-out')) return;
+    e.preventDefault();
+    _draggingNode = nodeId;
+    const node = _builderNodes.find(n => n.id === nodeId);
+    if (node) _dragOffset = { x: e.clientX - node.x, y: e.clientY - node.y };
+  };
+
+  window._builderOnMouseMove = function(e) {
+    if (!_draggingNode) return;
+    const canvas = document.getElementById('builder-canvas');
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    const node = _builderNodes.find(n => n.id === _draggingNode);
+    if (node) {
+      node.x = Math.max(0, Math.min(e.clientX - rect.left - _dragOffset.x, rect.width - 190));
+      node.y = Math.max(0, Math.min(e.clientY - rect.top - _dragOffset.y, rect.height - 100));
+      const nodeEl = document.querySelector(`[data-node-id="${_draggingNode}"]`);
+      if (nodeEl) { nodeEl.style.left = node.x + 'px'; nodeEl.style.top = node.y + 'px'; }
+      _rerenderSVG();
+    }
+  };
+
+  window._builderEndDrag = function() { _draggingNode = null; };
+
+  // ── Node selection / deletion ──────────────────────────────────────────────
+  window._builderSelectNode = function(nodeId) {
+    _selectedNode = _builderNodes.find(n => n.id === nodeId) || null;
+    const mainEl = document.getElementById('builder-main');
+    if (mainEl) mainEl.innerHTML = _renderBuilderCanvas() + _renderBuilderProps();
+  };
+
+  window._builderDeleteNode = function(nodeId) {
+    _builderNodes = _builderNodes.filter(n => n.id !== nodeId);
+    _builderEdges = _builderEdges.filter(e => e.from !== nodeId && e.to !== nodeId);
+    if (_selectedNode?.id === nodeId) _selectedNode = null;
+    _renderBuilder();
+  };
+
+  // ── Connections ────────────────────────────────────────────────────────────
+  window._builderStartConnect = function(nodeId) {
+    window._connectingFrom = nodeId;
+    const canvas = document.getElementById('builder-canvas');
+    if (canvas) canvas.style.cursor = 'crosshair';
+    const status = document.getElementById('builder-status');
+    if (status) status.textContent = 'Now click the left connector of another block to connect';
+  };
+
+  window._builderConnectTo = function(nodeId) {
+    if (!window._connectingFrom || window._connectingFrom === nodeId) return;
+    _builderEdges = _builderEdges.filter(e => e.from !== window._connectingFrom);
+    _builderEdges.push({ from: window._connectingFrom, to: nodeId });
+    window._connectingFrom = null;
+    const canvas = document.getElementById('builder-canvas');
+    if (canvas) canvas.style.cursor = 'default';
+    const status = document.getElementById('builder-status');
+    if (status) status.textContent = '';
+    _renderBuilder();
+  };
+
+  // ── Param editing ──────────────────────────────────────────────────────────
+  window._builderUpdateParam = function(nodeId, key, val) {
+    const node = _builderNodes.find(n => n.id === nodeId);
+    if (!node) return;
+    node.params[key] = typeof node.params[key] === 'number' ? parseFloat(val) : val;
+    const nodeEl = document.querySelector(`[data-node-id="${nodeId}"] .builder-node-params`);
+    if (nodeEl) {
+      nodeEl.innerHTML = Object.entries(node.params).slice(0, 3)
+        .map(([k, v]) => `<div style="font-size:0.7rem;color:var(--text-secondary)">${k.replace(/_/g, ' ')}: <strong>${v}</strong></div>`)
+        .join('');
+    }
+  };
+
+  // ── Toolbar actions ────────────────────────────────────────────────────────
+  window._builderSave = function() {
+    try {
+      localStorage.setItem('ds_builder_protocol', JSON.stringify(_builderGetJSON()));
+      const status = document.getElementById('builder-status');
+      if (status) { status.textContent = '✓ Saved'; setTimeout(() => { if (status) status.textContent = ''; }, 2500); }
+      window._announce?.('Protocol saved');
+    } catch { window._announce?.('Save failed', true); }
+  };
+
+  window._builderExportJSON = function() {
+    const json = JSON.stringify(_builderGetJSON(), null, 2);
+    const blob = new Blob([json], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = 'protocol.json'; a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
+
+  window._builderImportJSON = function() {
+    const input = document.createElement('input');
+    input.type = 'file'; input.accept = '.json,application/json';
+    input.onchange = function(e) {
+      const file = e.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = function(ev) {
+        try {
+          const data = JSON.parse(ev.target.result);
+          if (!data.stages) { alert('Invalid protocol JSON: missing stages array.'); return; }
+          _builderNodes = data.stages.map(s => {
+            const tpl = Object.values(BLOCK_PALETTE).flat().find(b => b.type === s.type);
+            return {
+              id: s.id || `node-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+              type: s.type, category: s.category || 'modality', label: s.label,
+              icon: tpl?.icon || '◈', color: tpl?.color || '#64748b',
+              params: s.params || {}, x: s.x || 40, y: s.y || 40,
+            };
+          });
+          _builderEdges = data.stages.filter(s => s.next).map(s => ({ from: s.id, to: s.next }));
+          _selectedNode = null;
+          _renderBuilder();
+          window._announce?.('Protocol imported');
+        } catch { alert('Failed to parse JSON file.'); }
+      };
+      reader.readAsText(file);
+    };
+    input.click();
+  };
+
+  window._builderUseInWizard = function() {
+    window._wizState = window._wizState || {};
+    window._wizState.visualProtocol = JSON.stringify({
+      stages: _builderNodes.map(n => ({ type: n.type, params: n.params })),
+    });
+    window._nav('protocols');
+    window._announce?.('Visual protocol loaded into wizard');
+  };
+
+  window._builderClear = function() {
+    if (_builderNodes.length > 0 && !confirm('Clear all blocks and connections?')) return;
+    _builderNodes = []; _builderEdges = []; _selectedNode = null;
+    _renderBuilder();
+  };
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// ── AI Clinical Decision Support ─────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// ── Knowledge Base ────────────────────────────────────────────────────────────
+const MODALITY_INDICATIONS = {
+  neurofeedback: {
+    conditions: ['adhd', 'anxiety', 'ptsd', 'depression', 'insomnia', 'tbi'],
+    contraindications: ['active psychosis', 'uncontrolled seizures'],
+  },
+  tms: {
+    conditions: ['depression', 'ocd', 'ptsd', 'anxiety', 'chronic pain'],
+    contraindications: ['cochlear implants', 'metal in skull', 'pacemaker', 'pregnancy'],
+  },
+  tdcs: {
+    conditions: ['depression', 'stroke rehab', 'chronic pain', 'cognitive enhancement'],
+    contraindications: ['implanted devices', 'skull defects', 'pregnancy'],
+  },
+  tavns: {
+    conditions: ['epilepsy', 'depression', 'anxiety', 'inflammation'],
+    contraindications: ['bilateral vagotomy', 'active infection'],
+  },
+  ces: {
+    conditions: ['anxiety', 'insomnia', 'depression', 'ptsd'],
+    contraindications: ['pregnancy', 'implanted devices'],
+  },
+};
+
+const EVIDENCE_LEVELS = {
+  neurofeedback_adhd:       { level: 'A', label: 'Strong',   refs: 42,  interpretation: 'Multiple RCTs support efficacy for attention and hyperactivity.' },
+  neurofeedback_anxiety:    { level: 'B', label: 'Moderate', refs: 28,  interpretation: 'Promising controlled studies; replication needed.' },
+  neurofeedback_ptsd:       { level: 'B', label: 'Moderate', refs: 19,  interpretation: 'Emerging evidence; alpha-theta protocols show benefit.' },
+  neurofeedback_depression: { level: 'B', label: 'Moderate', refs: 23,  interpretation: 'QEEG-guided protocols demonstrate symptom reduction.' },
+  neurofeedback_tbi:        { level: 'C', label: 'Limited',  refs: 11,  interpretation: 'Small studies; further research warranted.' },
+  tms_depression:           { level: 'A', label: 'Strong',   refs: 156, interpretation: 'FDA-cleared; robust multi-site RCT evidence base.' },
+  tms_ocd:                  { level: 'A', label: 'Strong',   refs: 67,  interpretation: 'FDA-cleared deep TMS; dACC target well-validated.' },
+  tms_ptsd:                 { level: 'B', label: 'Moderate', refs: 38,  interpretation: 'Right DLPFC inhibition shows clinically meaningful response.' },
+  tms_anxiety:              { level: 'B', label: 'Moderate', refs: 31,  interpretation: 'Bilateral protocols demonstrate anxiolytic effects.' },
+  tms_chronic_pain:         { level: 'B', label: 'Moderate', refs: 44,  interpretation: 'M1 targeting provides analgesic benefit in several pain types.' },
+  tdcs_depression:          { level: 'B', label: 'Moderate', refs: 52,  interpretation: 'F3 anode protocol comparable to escitalopram in one large RCT.' },
+  tdcs_stroke:              { level: 'B', label: 'Moderate', refs: 89,  interpretation: 'Paired with rehab; ipsilesional M1 anode is standard approach.' },
+  tdcs_chronic_pain:        { level: 'B', label: 'Moderate', refs: 37,  interpretation: 'M1 and DLPFC targets reduce chronic pain intensity.' },
+  tdcs_cognitive:           { level: 'C', label: 'Limited',  refs: 22,  interpretation: 'Cognitive enhancement evidence is mixed; individual variability high.' },
+  tavns_epilepsy:           { level: 'B', label: 'Moderate', refs: 29,  interpretation: 'CE-marked in Europe; reduces seizure frequency in drug-resistant cases.' },
+  tavns_depression:         { level: 'C', label: 'Limited',  refs: 14,  interpretation: 'Preliminary data promising; larger RCTs ongoing.' },
+  ces_anxiety:              { level: 'B', label: 'Moderate', refs: 34,  interpretation: 'Meta-analysis supports anxiolytic effect; FDA-registered devices available.' },
+  ces_insomnia:             { level: 'B', label: 'Moderate', refs: 21,  interpretation: 'Improved sleep onset and quality in controlled trials.' },
+  ces_depression:           { level: 'C', label: 'Limited',  refs: 17,  interpretation: 'Adjunctive benefit reported; standalone evidence limited.' },
+};
+
+// ── Recommendation Engine ─────────────────────────────────────────────────────
+function getModalityRecommendations(symptoms, contraindications) {
+  const symLow = symptoms.map(s => s.toLowerCase().trim());
+  const contraLow = contraindications.map(c => c.toLowerCase().trim());
+  const results = [];
+
+  for (const [modality, info] of Object.entries(MODALITY_INDICATIONS)) {
+    const matched = info.conditions.filter(c =>
+      symLow.some(s => s.includes(c) || c.includes(s))
+    );
+    const rawScore = symLow.length > 0 ? (matched.length / symLow.length) * 100 : 0;
+    const warnings = getContraindicationWarnings(modality, contraLow);
+    const penalty = warnings.length * 20;
+    const matchScore = Math.max(0, Math.round(rawScore - penalty));
+
+    // Best evidence for matched conditions in this modality
+    let bestEvidence = null;
+    for (const cond of matched) {
+      const key = `${modality}_${cond.replace(/\s+/g, '_')}`;
+      const ev = EVIDENCE_LEVELS[key];
+      if (ev) {
+        if (!bestEvidence || ['A', 'B', 'C', 'D'].indexOf(ev.level) < ['A', 'B', 'C', 'D'].indexOf(bestEvidence.level)) {
+          bestEvidence = ev;
+        }
+      }
+    }
+    results.push({ modality, matchScore, evidenceLevel: bestEvidence, conditions: matched, warnings });
+  }
+
+  results.sort((a, b) => b.matchScore - a.matchScore);
+  return results;
+}
+
+function getContraindicationWarnings(modality, patientFlags) {
+  const info = MODALITY_INDICATIONS[modality];
+  if (!info) return [];
+  return info.contraindications
+    .filter(c => patientFlags.some(f => f.includes(c) || c.includes(f)))
+    .map(c => `⚠ ${modality.toUpperCase()} contraindicated: ${c}`);
+}
+
+function getEvidenceBadge(modality, condition) {
+  const key = `${modality}_${condition.replace(/\s+/g, '_').toLowerCase()}`;
+  return EVIDENCE_LEVELS[key] || null;
+}
+
+// ── Symptom / Contraindication Config ────────────────────────────────────────
+const DS_SYMPTOM_LIST = [
+  { id: 'adhd',                  label: 'ADHD' },
+  { id: 'anxiety',               label: 'Anxiety' },
+  { id: 'depression',            label: 'Depression' },
+  { id: 'ptsd',                  label: 'PTSD' },
+  { id: 'insomnia',              label: 'Insomnia' },
+  { id: 'chronic pain',          label: 'Chronic Pain' },
+  { id: 'tbi',                   label: 'TBI' },
+  { id: 'ocd',                   label: 'OCD' },
+  { id: 'stroke rehab',          label: 'Stroke Rehab' },
+  { id: 'cognitive enhancement', label: 'Cognitive Decline' },
+  { id: 'epilepsy',              label: 'Epilepsy' },
+  { id: 'inflammation',          label: 'Inflammation' },
+  { id: 'tinnitus',              label: 'Tinnitus' },
+  { id: 'migraine',              label: 'Migraine' },
+  { id: 'autism',                label: 'Autism' },
+  { id: 'bipolar',               label: 'Bipolar' },
+];
+
+const DS_CONTRA_LIST = [
+  { id: 'pacemaker',             label: 'Pacemaker' },
+  { id: 'cochlear implants',     label: 'Cochlear Implants' },
+  { id: 'metal in skull',        label: 'Metal in Skull' },
+  { id: 'pregnancy',             label: 'Pregnancy' },
+  { id: 'active psychosis',      label: 'Active Psychosis' },
+  { id: 'uncontrolled seizures', label: 'Uncontrolled Seizures' },
+  { id: 'implanted devices',     label: 'Implanted Devices' },
+  { id: 'skull defects',         label: 'Skull Defects' },
+  { id: 'bilateral vagotomy',    label: 'Vagotomy (bilateral)' },
+  { id: 'active infection',      label: 'Active Infection' },
+];
+
+const DS_MODALITY_ICONS = {
+  neurofeedback: '🧠',
+  tms:           '⚡',
+  tdcs:          '🔋',
+  tavns:         '👂',
+  ces:           '〰️',
+};
+
+// ── Render Helpers ────────────────────────────────────────────────────────────
+function _dsCheckboxGroup(items, name) {
+  let html = '<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:4px 12px">';
+  for (const item of items) {
+    html += `<label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text-secondary);cursor:pointer;padding:3px 0">
+      <input type="checkbox" value="${item.id}" data-ds="${name}" style="accent-color:var(--accent-teal,#00d4bc);width:14px;height:14px">
+      ${item.label}
+    </label>`;
+  }
+  html += '</div>';
+  return html;
+}
+
+function _dsRecCard(rec) {
+  const icon = DS_MODALITY_ICONS[rec.modality] || '◈';
+  const name = rec.modality.charAt(0).toUpperCase() + rec.modality.slice(1);
+  const hasWarnings = rec.warnings.length > 0;
+
+  const condPills = rec.conditions.map(c =>
+    `<span style="background:rgba(0,212,188,0.12);color:var(--accent-teal,#00d4bc);padding:2px 8px;border-radius:10px;font-size:11px;font-weight:500">${c}</span>`
+  ).join('');
+
+  const warnPills = rec.warnings.map(w =>
+    `<span style="background:rgba(239,68,68,0.1);color:#ef4444;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:500">${w}</span>`
+  ).join('');
+
+  const ev = rec.evidenceLevel;
+  const evBadge = ev
+    ? `<span class="evidence-badge-${ev.level}" style="margin-left:auto;white-space:nowrap">Level ${ev.level} — ${ev.label} (${ev.refs} studies)</span>`
+    : '';
+
+  return `<div class="rec-card" style="${hasWarnings ? 'border-color:rgba(239,68,68,0.4)' : ''}">
+    <div class="rec-card-header">
+      <span style="font-size:1.5rem">${icon}</span>
+      <div style="flex:1">
+        <div style="font-weight:700;font-size:14px;color:var(--text-primary)">${name}</div>
+        <div style="font-size:11px;color:var(--text-tertiary)">${rec.conditions.length} condition${rec.conditions.length !== 1 ? 's' : ''} matched</div>
+      </div>
+      ${evBadge}
+    </div>
+    <div style="margin-bottom:8px">
+      <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text-tertiary);margin-bottom:3px">
+        <span>Match Score</span>
+        <span style="font-weight:600;color:var(--accent-teal,#00d4bc)">${rec.matchScore}%</span>
+      </div>
+      <div class="rec-match-bar"><div class="rec-match-fill" style="width:${rec.matchScore}%"></div></div>
+    </div>
+    ${rec.conditions.length > 0 ? `<div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:8px">${condPills}</div>` : ''}
+    ${warnPills ? `<div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:8px">${warnPills}</div>` : ''}
+    ${ev ? `<div style="font-size:11px;color:var(--text-secondary);margin-bottom:10px;font-style:italic">${ev.interpretation || ''}</div>` : ''}
+    <button class="btn btn-primary btn-sm" onclick="window._applyModalityRecommendation('${rec.modality}')"${rec.matchScore === 0 ? ' disabled' : ''}>
+      Use This Modality &rarr;
+    </button>
+  </div>`;
+}
+
+function _dsEvidenceTable(filterModality, filterLevel) {
+  const rows = Object.entries(EVIDENCE_LEVELS)
+    .filter(([key, ev]) => {
+      const mod = key.split('_')[0];
+      if (filterModality && mod !== filterModality) return false;
+      if (filterLevel && ev.level !== filterLevel) return false;
+      return true;
+    })
+    .map(([key, ev]) => {
+      const parts = key.split('_');
+      const mod = parts[0];
+      const cond = parts.slice(1).join(' ');
+      return `<tr>
+        <td style="font-weight:500;text-transform:capitalize">${DS_MODALITY_ICONS[mod] || ''} ${mod}</td>
+        <td style="text-transform:capitalize">${cond}</td>
+        <td><span class="evidence-badge-${ev.level}">Level ${ev.level} &mdash; ${ev.label}</span></td>
+        <td class="mono">${ev.refs}</td>
+        <td style="font-size:11px;color:var(--text-secondary)">${ev.interpretation || ''}</td>
+      </tr>`;
+    }).join('');
+
+  if (!rows) {
+    return '<div style="padding:16px;color:var(--text-secondary);font-size:13px">No entries match the selected filters.</div>';
+  }
+  return `<table class="ds-table" style="font-size:12px">
+    <thead><tr><th>Modality</th><th>Condition</th><th>Evidence Level</th><th>Studies</th><th>Interpretation</th></tr></thead>
+    <tbody>${rows}</tbody>
+  </table>`;
+}
+
+// ── Main Page ─────────────────────────────────────────────────────────────────
+export async function pgDecisionSupport(setTopbar) {
+  setTopbar('AI Clinical Decision Support',
+    '<button class="btn btn-primary btn-sm" onclick="window._generateRecommendations()">Generate Recommendations</button>'
+  );
+
+  const content = document.getElementById('content');
+  if (!content) return;
+
+  const modOptions = Object.keys(MODALITY_INDICATIONS)
+    .map(m => `<option value="${m}">${DS_MODALITY_ICONS[m] || ''} ${m.charAt(0).toUpperCase() + m.slice(1)}</option>`)
+    .join('');
+
+  content.innerHTML = `
+<div style="max-width:1400px;margin:0 auto;padding:0 4px">
+
+  <div style="margin-bottom:20px">
+    <h2 style="font-size:1.1rem;font-weight:700;margin-bottom:4px">Clinical Decision Support</h2>
+    <p style="font-size:12.5px;color:var(--text-secondary)">Rule-based protocol recommendations derived from modality-indication evidence mapping. All logic is deterministic &mdash; no external API calls.</p>
+  </div>
+
+  <div style="display:grid;grid-template-columns:40% 60%;gap:20px;align-items:start">
+
+    <div>
+      <div class="ds-card" style="padding:20px;margin-bottom:16px">
+        <h3 style="font-size:13px;font-weight:700;margin-bottom:14px;color:var(--text-primary)">Patient Profile</h3>
+        <div style="margin-bottom:16px">
+          <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.7px;color:var(--text-tertiary);margin-bottom:8px">Symptoms / Conditions</div>
+          ${_dsCheckboxGroup(DS_SYMPTOM_LIST, 'symptom')}
+        </div>
+        <div style="margin-bottom:16px">
+          <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.7px;color:var(--text-tertiary);margin-bottom:8px">Contraindication Flags</div>
+          ${_dsCheckboxGroup(DS_CONTRA_LIST, 'contra')}
+        </div>
+        <button class="btn btn-primary" style="width:100%" onclick="window._generateRecommendations()">
+          🧬 Generate Recommendations
+        </button>
+      </div>
+    </div>
+
+    <div>
+      <div id="ds-rec-panel">
+        <div class="ds-card" style="padding:32px;text-align:center">
+          <div style="font-size:2rem;margin-bottom:10px">🧬</div>
+          <div style="font-size:14px;font-weight:600;color:var(--text-secondary)">Select symptoms above to see protocol recommendations</div>
+          <div style="font-size:12px;color:var(--text-tertiary);margin-top:6px">Check one or more conditions and click Generate Recommendations</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="ds-card" style="padding:20px;margin-top:20px">
+    <h3 style="font-size:13px;font-weight:700;margin-bottom:14px">Contraindication Checker</h3>
+    <div style="display:grid;grid-template-columns:1fr 1fr auto;gap:12px;align-items:end">
+      <div>
+        <label style="font-size:11.5px;color:var(--text-secondary);display:block;margin-bottom:5px">Modality</label>
+        <select id="ds-contra-modality" class="form-control">
+          <option value="">Select modality&hellip;</option>
+          ${modOptions}
+        </select>
+      </div>
+      <div>
+        <label style="font-size:11.5px;color:var(--text-secondary);display:block;margin-bottom:5px">Patient flags (free-text, comma-separated)</label>
+        <input id="ds-contra-flags" class="form-control" placeholder="e.g. pacemaker, pregnancy" style="font-size:12.5px">
+      </div>
+      <button class="btn btn-primary btn-sm" onclick="window._checkContraindications()" style="white-space:nowrap">Check Now</button>
+    </div>
+    <div id="ds-contra-results" style="margin-top:12px"></div>
+  </div>
+
+  <div class="ds-card" style="padding:20px;margin-top:20px;margin-bottom:24px">
+    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:14px">
+      <h3 style="font-size:13px;font-weight:700;margin:0">Evidence Library</h3>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <select id="ds-ev-mod" class="form-control" style="font-size:12px;padding:5px 8px;min-width:140px"
+          onchange="window._filterEvidenceLibrary(this.value, document.getElementById('ds-ev-level').value)">
+          <option value="">All Modalities</option>
+          ${Object.keys(MODALITY_INDICATIONS).map(m => `<option value="${m}">${m.charAt(0).toUpperCase() + m.slice(1)}</option>`).join('')}
+        </select>
+        <select id="ds-ev-level" class="form-control" style="font-size:12px;padding:5px 8px;min-width:120px"
+          onchange="window._filterEvidenceLibrary(document.getElementById('ds-ev-mod').value, this.value)">
+          <option value="">All Levels</option>
+          <option value="A">Level A &mdash; Strong</option>
+          <option value="B">Level B &mdash; Moderate</option>
+          <option value="C">Level C &mdash; Limited</option>
+          <option value="D">Level D &mdash; Insufficient</option>
+        </select>
+      </div>
+    </div>
+    <div id="ds-ev-table">${_dsEvidenceTable('', '')}</div>
+  </div>
+
+</div>`;
+
+  window._generateRecommendations = function() {
+    const symptoms = Array.from(document.querySelectorAll('[data-ds="symptom"]:checked')).map(el => el.value);
+    const contras  = Array.from(document.querySelectorAll('[data-ds="contra"]:checked')).map(el => el.value);
+    const panel = document.getElementById('ds-rec-panel');
+    if (!panel) return;
+
+    if (symptoms.length === 0) {
+      panel.innerHTML = `<div class="ds-card" style="padding:20px;text-align:center;color:var(--amber)">
+        <div style="font-size:1.3rem;margin-bottom:8px">&#9888;</div>
+        <div style="font-size:13px;font-weight:600">Please select at least one symptom or condition.</div>
+      </div>`;
+      return;
+    }
+
+    const recs = getModalityRecommendations(symptoms, contras);
+    const scored    = recs.filter(r => r.matchScore > 0);
+    const unmatched = recs.filter(r => r.matchScore === 0);
+
+    let html = `<div style="margin-bottom:10px;font-size:12px;color:var(--text-tertiary)">
+      Showing ${scored.length} recommendation${scored.length !== 1 ? 's' : ''} for:
+      <strong style="color:var(--text-secondary)">${symptoms.join(', ')}</strong>
+      ${contras.length > 0 ? `<br>Contraindication flags: <span style="color:#ef4444">${contras.join(', ')}</span>` : ''}
+    </div>`;
+
+    if (scored.length === 0) {
+      html += `<div class="ds-card" style="padding:20px;text-align:center;color:var(--text-secondary);font-size:13px">
+        No modalities match the selected symptoms &mdash; consider broadening your symptom selection.
+      </div>`;
+    } else {
+      html += scored.map(_dsRecCard).join('');
+    }
+
+    if (unmatched.length > 0 && scored.length > 0) {
+      html += `<details style="margin-top:4px">
+        <summary style="font-size:11.5px;color:var(--text-tertiary);cursor:pointer;padding:4px 0">
+          Show ${unmatched.length} modalities with no symptom match
+        </summary>
+        <div style="margin-top:8px">${unmatched.map(_dsRecCard).join('')}</div>
+      </details>`;
+    }
+
+    panel.innerHTML = html;
+
+    requestAnimationFrame(() => {
+      document.querySelectorAll('.rec-match-fill').forEach(el => {
+        const w = el.style.width;
+        el.style.width = '0%';
+        requestAnimationFrame(() => { el.style.width = w; });
+      });
+    });
+  };
+
+  window._applyModalityRecommendation = function(modality) {
+    const info = MODALITY_INDICATIONS[modality];
+    const icon = DS_MODALITY_ICONS[modality] || '&#9670;';
+    const name = modality.charAt(0).toUpperCase() + modality.slice(1);
+    alert(`${icon} ${name} selected.\n\nIndicated conditions: ${info.conditions.join(', ')}\n\nNavigate to Protocol Intelligence to build a full protocol using this modality.`);
+    window._nav?.('protocol-wizard');
+  };
+
+  window._checkContraindications = function() {
+    const modality   = document.getElementById('ds-contra-modality')?.value || '';
+    const freeText   = document.getElementById('ds-contra-flags')?.value || '';
+    const checked    = Array.from(document.querySelectorAll('[data-ds="contra"]:checked')).map(el => el.value);
+    const freeFlags  = freeText.split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
+    const allFlags   = [...checked, ...freeFlags];
+    const resultsEl  = document.getElementById('ds-contra-results');
+    if (!resultsEl) return;
+
+    if (!modality) {
+      resultsEl.innerHTML = '<div style="color:var(--amber);font-size:12.5px">Please select a modality first.</div>';
+      return;
+    }
+    if (allFlags.length === 0) {
+      resultsEl.innerHTML = '<div style="color:var(--amber);font-size:12.5px">Please enter or check at least one patient flag.</div>';
+      return;
+    }
+
+    const warnings = getContraindicationWarnings(modality, allFlags);
+    if (warnings.length === 0) {
+      resultsEl.innerHTML = `<div style="background:rgba(34,197,94,0.08);border:1px solid rgba(34,197,94,0.3);border-radius:6px;padding:10px 14px;font-size:13px;color:#22c55e">
+        &#10003; No contraindications detected for ${modality.toUpperCase()} with the provided patient flags.
+      </div>`;
+    } else {
+      resultsEl.innerHTML = warnings.map(w => `<div class="contraindication-warning">${w}</div>`).join('');
+    }
+  };
+
+  window._filterEvidenceLibrary = function(modality, level) {
+    const el = document.getElementById('ds-ev-table');
+    if (el) el.innerHTML = _dsEvidenceTable(modality || '', level || '');
+  };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PATIENT PROFILE PAGE
+// ─────────────────────────────────────────────────────────────────────────────
+
+const _PP_STORE_KEY = 'ds_patient_profiles';
+
+function getPatientProfiles() {
+  try { return JSON.parse(localStorage.getItem(_PP_STORE_KEY) || '[]'); } catch { return []; }
+}
+
+function savePatientProfile(profile) {
+  const profiles = getPatientProfiles();
+  const idx = profiles.findIndex(p => p.id === profile.id);
+  if (idx >= 0) profiles[idx] = profile;
+  else profiles.push(profile);
+  localStorage.setItem(_PP_STORE_KEY, JSON.stringify(profiles));
+}
+
+function getPatientProfile(id) {
+  return getPatientProfiles().find(p => p.id === id) || null;
+}
+
+function _ppSeedProfiles() {
+  const existing = getPatientProfiles();
+  if (existing.length > 0) return;
+  const seeds = [
+    {
+      id: 'pp-001', name: 'Sarah Mitchell', dob: '1985-03-14', gender: 'Female',
+      phone: '+1 (555) 210-3847', email: 'sarah.mitchell@email.com',
+      address: '42 Westbrook Lane\nPortland, OR 97201',
+      emergencyContact: { name: 'James Mitchell', phone: '+1 (555) 210-9900', relationship: 'Spouse' },
+      insurance: { payer: 'BlueCross BlueShield', memberId: 'BCB-884521', groupId: 'GRP-10042', copay: '25', scanDataUrl: null },
+      medications: [
+        { name: 'Sertraline', dose: '100mg', frequency: 'Once daily', startDate: '2023-01-15', notes: 'Well tolerated' },
+        { name: 'Lorazepam', dose: '0.5mg', frequency: 'As needed', startDate: '2023-06-01', notes: 'PRN anxiety' },
+      ],
+      allergies: [
+        { substance: 'Penicillin', reaction: 'Rash, hives', severity: 'Moderate' },
+        { substance: 'Latex', reaction: 'Contact dermatitis', severity: 'Mild' },
+      ],
+      treatmentHistory: [
+        { date: '2024-09-10', type: 'neurofeedback', provider: 'Dr. Reyes', notes: 'Initial 20-session protocol for anxiety.', outcome: 72 },
+        { date: '2024-11-05', type: 'consultation', provider: 'Dr. Patel', notes: 'Medication review and protocol adjustment.', outcome: 65 },
+        { date: '2025-02-18', type: 'tDCS', provider: 'Dr. Reyes', notes: 'Adjunct tDCS targeting dorsolateral PFC.', outcome: 81 },
+      ],
+      photoDataUrl: null,
+      flags: ['vip'],
+      notes: 'Patient shows strong motivation. Prefers morning appointments. History of treatment-resistant depression — monitor closely.',
+    },
+    {
+      id: 'pp-002', name: 'Ethan Caldwell', dob: '1978-11-27', gender: 'Male',
+      phone: '+1 (555) 334-7711', email: 'ethan.c@healthmail.net',
+      address: '8 Ridgemont Ave\nBoston, MA 02101',
+      emergencyContact: { name: 'Cora Caldwell', phone: '+1 (555) 334-5599', relationship: 'Partner' },
+      insurance: { payer: 'Aetna', memberId: 'AET-332100', groupId: 'GRP-55081', copay: '40', scanDataUrl: null },
+      medications: [
+        { name: 'Methylphenidate', dose: '20mg', frequency: 'Twice daily', startDate: '2022-08-20', notes: 'ADHD management' },
+      ],
+      allergies: [
+        { substance: 'Sulfa drugs', reaction: 'Anaphylaxis', severity: 'Life-threatening' },
+      ],
+      treatmentHistory: [
+        { date: '2024-05-22', type: 'TMS', provider: 'Dr. Okafor', notes: 'rTMS for depression — 30 sessions completed.', outcome: 68 },
+        { date: '2025-01-14', type: 'neurofeedback', provider: 'Dr. Okafor', notes: 'Theta-beta training for ADHD comorbidity.', outcome: 77 },
+      ],
+      photoDataUrl: null,
+      flags: ['high-risk', 'research-participant'],
+      notes: 'Enrolled in Theta-Beta NFB study. Informed consent on file. Requires supervision during TMS sessions.',
+    },
+    {
+      id: 'pp-003', name: 'Priya Nair', dob: '1993-07-04', gender: 'Female',
+      phone: '+1 (555) 678-2200', email: 'priya.nair@clinic.org',
+      address: '17 Elmwood Court\nAustin, TX 78701',
+      emergencyContact: { name: 'Rajan Nair', phone: '+1 (555) 678-4411', relationship: 'Father' },
+      insurance: { payer: 'UnitedHealthcare', memberId: 'UHC-770093', groupId: 'GRP-22399', copay: '30', scanDataUrl: null },
+      medications: [],
+      allergies: [
+        { substance: 'NSAIDs', reaction: 'GI distress', severity: 'Mild' },
+      ],
+      treatmentHistory: [
+        { date: '2025-03-01', type: 'consultation', provider: 'Dr. Walsh', notes: 'Initial intake — chronic migraine & insomnia.', outcome: 55 },
+        { date: '2025-03-28', type: 'neurofeedback', provider: 'Dr. Walsh', notes: 'SMR/alpha protocol for sleep quality.', outcome: 63 },
+      ],
+      photoDataUrl: null,
+      flags: [],
+      notes: 'New patient. Referred by Dr. Vasquez. Primary goals: reduce migraine frequency and improve sleep latency.',
+    },
+  ];
+  seeds.forEach(s => savePatientProfile(s));
+}
+
+function _ppComputeAge(dob) {
+  if (!dob) return '?';
+  const born = new Date(dob);
+  const now = new Date();
+  let age = now.getFullYear() - born.getFullYear();
+  const m = now.getMonth() - born.getMonth();
+  if (m < 0 || (m === 0 && now.getDate() < born.getDate())) age--;
+  return age;
+}
+
+function _ppFlagBadge(flag) {
+  if (flag === 'high-risk')           return `<span class="profile-flag profile-flag-high-risk">High Risk</span>`;
+  if (flag === 'vip')                 return `<span class="profile-flag profile-flag-vip">VIP</span>`;
+  if (flag === 'research-participant') return `<span class="profile-flag profile-flag-research">Research</span>`;
+  return `<span class="profile-flag" style="background:var(--hover-bg);color:var(--text-secondary)">${flag}</span>`;
+}
+
+function _ppSeverityBadge(severity) {
+  const map = {
+    'Mild': 'severity-mild',
+    'Moderate': 'severity-moderate',
+    'Severe': 'severity-severe',
+    'Life-threatening': 'severity-lifethreatening',
+  };
+  return `<span class="${map[severity] || 'severity-mild'}">${severity}</span>`;
+}
+
+function _ppTypeBadge(type) {
+  const colors = {
+    neurofeedback: 'background:#dbeafe;color:#1e40af',
+    TMS:           'background:#ede9fe;color:#5b21b6',
+    tDCS:          'background:#d1fae5;color:#065f46',
+    consultation:  'background:#fef3c7;color:#92400e',
+  };
+  const style = colors[type] || 'background:var(--hover-bg);color:var(--text-secondary)';
+  return `<span style="${style};padding:2px 8px;border-radius:4px;font-size:.72rem;font-weight:600;text-transform:uppercase">${type}</span>`;
+}
+
+function _ppAvatarHTML(profile) {
+  if (profile.photoDataUrl) {
+    return `<img class="profile-avatar" src="${profile.photoDataUrl}" alt="${profile.name}" style="width:80px;height:80px;border-radius:50%;object-fit:cover">`;
+  }
+  const parts = (profile.name || '??').trim().split(/\s+/);
+  const ini = (parts[0][0] + (parts[1] ? parts[1][0] : '')).toUpperCase();
+  return `<div class="profile-avatar">${ini}</div>`;
+}
+
+function _ppRenderHeader(profile, editMode) {
+  const age = _ppComputeAge(profile.dob);
+  const flagsHTML = (profile.flags || []).map(_ppFlagBadge).join(' ');
+  return `
+    <div class="profile-header">
+      <div style="position:relative;flex-shrink:0">
+        <div id="pp-avatar-wrap">${_ppAvatarHTML(profile)}</div>
+        <button class="btn btn-sm" style="position:absolute;bottom:-4px;right:-4px;padding:2px 6px;font-size:10px;border-radius:6px" onclick="window._profileUploadPhoto()" title="Upload photo">&#128247;</button>
+        <input type="file" id="pp-photo-input" accept="image/*" style="display:none" onchange="window._profileHandlePhoto(this)">
+      </div>
+      <div style="flex:1;min-width:0">
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+          <h2 style="margin:0;font-size:1.35rem;font-weight:700" id="pp-name-display">${profile.name}</h2>
+          <div style="display:flex;gap:6px;flex-wrap:wrap" id="pp-flags-display">${flagsHTML}</div>
+        </div>
+        <div style="color:var(--text-secondary);font-size:.88rem;margin-top:4px">
+          ${age} yrs &nbsp;&bull;&nbsp; ${profile.gender || '—'} &nbsp;&bull;&nbsp;
+          <span style="color:var(--text-tertiary)">${profile.dob || '—'}</span>
+        </div>
+        <div style="margin-top:8px;display:flex;gap:12px;flex-wrap:wrap;font-size:.8rem;color:var(--text-secondary)">
+          ${profile.phone ? `<span>&#128222; ${profile.phone}</span>` : ''}
+          ${profile.email ? `<span>&#9993; ${profile.email}</span>` : ''}
+        </div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:8px;align-items:flex-end;flex-shrink:0">
+        <button class="btn btn-sm ${editMode ? 'btn-primary' : ''}" id="pp-edit-btn" onclick="window._profileToggleEdit()">
+          ${editMode ? '&#10003; Editing' : '&#9998; Edit Profile'}
+        </button>
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          <button class="btn btn-sm" style="font-size:.75rem" onclick="window._profileAddFlag('high-risk')">+HR</button>
+          <button class="btn btn-sm" style="font-size:.75rem" onclick="window._profileAddFlag('vip')">+VIP</button>
+          <button class="btn btn-sm" style="font-size:.75rem" onclick="window._profileAddFlag('research-participant')">+Research</button>
+        </div>
+        ${(profile.flags || []).length > 0 ? `<div style="display:flex;gap:6px;flex-wrap:wrap">${(profile.flags || []).map(f => `<button class="btn btn-sm btn-danger" style="font-size:.7rem;padding:1px 6px" onclick="window._profileRemoveFlag('${f}')">&#10005; ${f}</button>`).join('')}</div>` : ''}
+      </div>
+    </div>`;
+}
+
+function _ppRenderTabs(activeTab) {
+  const tabs = ['demographics', 'insurance', 'medications', 'allergies', 'history', 'notes'];
+  const labels = { demographics: 'Demographics', insurance: 'Insurance', medications: 'Medications', allergies: 'Allergies', history: 'Treatment History', notes: 'Notes' };
+  return `<div style="display:flex;gap:0;border-bottom:2px solid var(--border);margin-bottom:20px;overflow-x:auto" role="tablist">
+    ${tabs.map(t => `<button role="tab" aria-selected="${t === activeTab}" class="btn" style="border-radius:0;border:none;border-bottom:${t === activeTab ? '2px solid var(--accent-teal)' : '2px solid transparent'};margin-bottom:-2px;padding:10px 18px;font-size:.875rem;font-weight:${t === activeTab ? '600' : '400'};color:${t === activeTab ? 'var(--accent-teal)' : 'var(--text-secondary)'};white-space:nowrap;background:none" onclick="window._profileTab('${t}')">${labels[t]}</button>`).join('')}
+  </div>`;
+}
+
+function _ppRenderDemographics(profile, editMode) {
+  const ro = !editMode ? 'readonly' : '';
+  const dis = !editMode ? 'disabled' : '';
+  return `
+    <div style="max-width:700px">
+      <h3 style="font-size:1rem;font-weight:600;margin-bottom:14px;color:var(--text-secondary)">Personal Information</h3>
+      <div class="g2" style="gap:12px">
+        <div class="form-group"><label class="form-label">Full Name</label><input id="pp-d-name" class="form-control" value="${profile.name || ''}" ${ro}></div>
+        <div class="form-group"><label class="form-label">Date of Birth</label><input id="pp-d-dob" class="form-control" type="date" value="${profile.dob || ''}" ${ro}></div>
+        <div class="form-group"><label class="form-label">Gender</label>
+          <select id="pp-d-gender" class="form-control" ${dis}>
+            <option value="">Select…</option>
+            ${['Male','Female','Other','Prefer not to say'].map(g => `<option ${profile.gender === g ? 'selected' : ''}>${g}</option>`).join('')}
+          </select>
+        </div>
+        <div class="form-group"><label class="form-label">Phone</label><input id="pp-d-phone" class="form-control" value="${profile.phone || ''}" ${ro}></div>
+        <div class="form-group"><label class="form-label">Email</label><input id="pp-d-email" class="form-control" type="email" value="${profile.email || ''}" ${ro}></div>
+      </div>
+      <div class="form-group" style="margin-top:4px"><label class="form-label">Address</label><textarea id="pp-d-address" class="form-control" rows="3" ${ro}>${profile.address || ''}</textarea></div>
+      <h3 style="font-size:1rem;font-weight:600;margin:20px 0 14px;color:var(--text-secondary)">Emergency Contact</h3>
+      <div class="g2" style="gap:12px">
+        <div class="form-group"><label class="form-label">Name</label><input id="pp-d-ec-name" class="form-control" value="${(profile.emergencyContact || {}).name || ''}" ${ro}></div>
+        <div class="form-group"><label class="form-label">Phone</label><input id="pp-d-ec-phone" class="form-control" value="${(profile.emergencyContact || {}).phone || ''}" ${ro}></div>
+        <div class="form-group"><label class="form-label">Relationship</label><input id="pp-d-ec-rel" class="form-control" value="${(profile.emergencyContact || {}).relationship || ''}" ${ro}></div>
+      </div>
+      ${editMode ? `<div style="margin-top:16px"><button class="btn btn-primary" onclick="window._profileSaveDemographics()">Save Demographics</button></div>` : ''}
+    </div>`;
+}
+
+function _ppRenderInsurance(profile, editMode) {
+  const ins = profile.insurance || {};
+  const ro = !editMode ? 'readonly' : '';
+  const dis = !editMode ? 'disabled' : '';
+  return `
+    <div style="max-width:700px">
+      <div class="g2" style="gap:12px">
+        <div class="form-group"><label class="form-label">Payer / Insurer</label><input id="pp-i-payer" class="form-control" value="${ins.payer || ''}" ${ro} placeholder="e.g. BlueCross BlueShield"></div>
+        <div class="form-group"><label class="form-label">Member ID</label><input id="pp-i-member" class="form-control" value="${ins.memberId || ''}" ${ro}></div>
+        <div class="form-group"><label class="form-label">Group ID</label><input id="pp-i-group" class="form-control" value="${ins.groupId || ''}" ${ro}></div>
+        <div class="form-group"><label class="form-label">Copay ($)</label><input id="pp-i-copay" class="form-control" type="number" min="0" value="${ins.copay || ''}" ${ro}></div>
+      </div>
+      <div style="margin-top:16px">
+        <label class="form-label">Insurance Card Scan</label>
+        <div style="display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap">
+          <div class="insurance-card-preview" id="pp-card-preview">
+            ${ins.scanDataUrl
+              ? `<img src="${ins.scanDataUrl}" alt="Insurance card">`
+              : `<div style="text-align:center;color:var(--text-tertiary);font-size:.8rem"><div style="font-size:1.5rem;margin-bottom:6px;opacity:.4">&#128184;</div>No scan uploaded</div>`}
+          </div>
+          ${editMode ? `<div>
+            <input type="file" id="pp-card-input" accept="image/*" style="display:none" onchange="window._profileHandleCardScan(this)">
+            <button class="btn btn-sm" onclick="document.getElementById('pp-card-input').click()">&#128247; Upload Scan</button>
+          </div>` : ''}
+        </div>
+      </div>
+      ${editMode ? `<div style="margin-top:16px"><button class="btn btn-primary" onclick="window._profileSaveInsurance()">Save Insurance</button></div>` : ''}
+    </div>`;
+}
+
+function _ppRenderMedications(profile, editMode) {
+  const meds = profile.medications || [];
+  return `
+    <div>
+      ${editMode ? `<div style="margin-bottom:14px"><button class="btn btn-sm btn-primary" onclick="window._profileAddMedication()">+ Add Medication</button></div>` : ''}
+      <div id="pp-med-add-form" style="display:none;background:var(--hover-bg);border:1px solid var(--border);border-radius:8px;padding:14px;margin-bottom:14px">
+        <div class="g2" style="gap:10px">
+          <div class="form-group"><label class="form-label">Medication Name</label><input id="pp-m-name" class="form-control" placeholder="e.g. Sertraline"></div>
+          <div class="form-group"><label class="form-label">Dose</label><input id="pp-m-dose" class="form-control" placeholder="e.g. 100mg"></div>
+          <div class="form-group"><label class="form-label">Frequency</label><input id="pp-m-freq" class="form-control" placeholder="e.g. Once daily"></div>
+          <div class="form-group"><label class="form-label">Start Date</label><input id="pp-m-start" class="form-control" type="date"></div>
+        </div>
+        <div class="form-group"><label class="form-label">Notes</label><input id="pp-m-notes" class="form-control" placeholder="Optional notes"></div>
+        <div style="display:flex;gap:8px;margin-top:8px">
+          <button class="btn btn-primary btn-sm" onclick="window._profileSaveMedication()">Save</button>
+          <button class="btn btn-sm" onclick="document.getElementById('pp-med-add-form').style.display='none'">Cancel</button>
+        </div>
+      </div>
+      ${meds.length === 0
+        ? `<div style="text-align:center;padding:32px;color:var(--text-tertiary);font-size:.875rem">No medications on record.</div>`
+        : `<div style="overflow-x:auto"><table class="ds-table med-table" style="width:100%">
+            <thead><tr><th>Medication</th><th>Dose</th><th>Frequency</th><th>Start Date</th><th>Notes</th>${editMode ? '<th></th>' : ''}</tr></thead>
+            <tbody>
+              ${meds.map((m, i) => `<tr>
+                <td style="font-weight:500">${m.name}</td>
+                <td>${m.dose || '—'}</td>
+                <td>${m.frequency || '—'}</td>
+                <td style="color:var(--text-secondary)">${m.startDate || '—'}</td>
+                <td style="color:var(--text-tertiary);font-size:.8rem">${m.notes || '—'}</td>
+                ${editMode ? `<td><button class="btn btn-sm btn-danger" onclick="window._profileDeleteMedication(${i})">&#10005;</button></td>` : ''}
+              </tr>`).join('')}
+            </tbody>
+          </table></div>`}
+    </div>`;
+}
+
+function _ppRenderAllergies(profile, editMode) {
+  const allergies = profile.allergies || [];
+  return `
+    <div>
+      ${editMode ? `<div style="margin-bottom:14px"><button class="btn btn-sm btn-primary" onclick="window._profileAddAllergy()">+ Add Allergy</button></div>` : ''}
+      <div id="pp-allergy-add-form" style="display:none;background:var(--hover-bg);border:1px solid var(--border);border-radius:8px;padding:14px;margin-bottom:14px">
+        <div class="g2" style="gap:10px">
+          <div class="form-group"><label class="form-label">Substance</label><input id="pp-a-substance" class="form-control" placeholder="e.g. Penicillin"></div>
+          <div class="form-group"><label class="form-label">Reaction</label><input id="pp-a-reaction" class="form-control" placeholder="e.g. Rash, hives"></div>
+          <div class="form-group"><label class="form-label">Severity</label>
+            <select id="pp-a-severity" class="form-control">
+              <option>Mild</option><option>Moderate</option><option>Severe</option><option>Life-threatening</option>
+            </select>
+          </div>
+        </div>
+        <div style="display:flex;gap:8px;margin-top:8px">
+          <button class="btn btn-primary btn-sm" onclick="window._profileSaveAllergy()">Save</button>
+          <button class="btn btn-sm" onclick="document.getElementById('pp-allergy-add-form').style.display='none'">Cancel</button>
+        </div>
+      </div>
+      ${allergies.length === 0
+        ? `<div style="text-align:center;padding:32px;color:var(--text-tertiary);font-size:.875rem">No known allergies on record.</div>`
+        : `<div style="overflow-x:auto"><table class="ds-table allergy-table" style="width:100%">
+            <thead><tr><th>Substance</th><th>Reaction</th><th>Severity</th>${editMode ? '<th></th>' : ''}</tr></thead>
+            <tbody>
+              ${allergies.map((a, i) => `<tr>
+                <td style="font-weight:500">${a.substance}</td>
+                <td>${a.reaction || '—'}</td>
+                <td>${_ppSeverityBadge(a.severity)}</td>
+                ${editMode ? `<td><button class="btn btn-sm btn-danger" onclick="window._profileDeleteAllergy(${i})">&#10005;</button></td>` : ''}
+              </tr>`).join('')}
+            </tbody>
+          </table></div>`}
+    </div>`;
+}
+
+function _ppRenderHistory(profile, editMode) {
+  const history = (profile.treatmentHistory || []).slice().sort((a, b) => new Date(b.date) - new Date(a.date));
+  return `
+    <div>
+      ${editMode ? `<div style="margin-bottom:14px"><button class="btn btn-sm btn-primary" onclick="window._profileAddHistory()">+ Add Entry</button></div>` : ''}
+      <div id="pp-history-add-form" style="display:none;background:var(--hover-bg);border:1px solid var(--border);border-radius:8px;padding:14px;margin-bottom:20px">
+        <div class="g2" style="gap:10px">
+          <div class="form-group"><label class="form-label">Date</label><input id="pp-h-date" class="form-control" type="date"></div>
+          <div class="form-group"><label class="form-label">Type</label>
+            <select id="pp-h-type" class="form-control">
+              <option value="neurofeedback">Neurofeedback</option>
+              <option value="TMS">TMS</option>
+              <option value="tDCS">tDCS</option>
+              <option value="consultation">Consultation</option>
+            </select>
+          </div>
+          <div class="form-group"><label class="form-label">Provider</label><input id="pp-h-provider" class="form-control" placeholder="e.g. Dr. Smith"></div>
+          <div class="form-group"><label class="form-label">Outcome Score (0-100)</label><input id="pp-h-outcome" class="form-control" type="number" min="0" max="100" value="70"></div>
+        </div>
+        <div class="form-group"><label class="form-label">Notes</label><textarea id="pp-h-notes" class="form-control" rows="2" placeholder="Session notes…"></textarea></div>
+        <div style="display:flex;gap:8px;margin-top:8px">
+          <button class="btn btn-primary btn-sm" onclick="window._profileSaveHistory()">Save Entry</button>
+          <button class="btn btn-sm" onclick="document.getElementById('pp-history-add-form').style.display='none'">Cancel</button>
+        </div>
+      </div>
+      ${history.length === 0
+        ? `<div style="text-align:center;padding:32px;color:var(--text-tertiary);font-size:.875rem">No treatment history recorded.</div>`
+        : `<div class="timeline">
+            ${history.map(h => `
+              <div class="timeline-entry">
+                <div class="timeline-entry-card">
+                  <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:6px">
+                    <span style="font-size:.8rem;color:var(--text-tertiary)">${h.date}</span>
+                    ${_ppTypeBadge(h.type)}
+                    <span style="font-size:.8rem;color:var(--text-secondary)">&#x2014; ${h.provider || '—'}</span>
+                  </div>
+                  ${h.notes ? `<div style="font-size:.875rem;margin-bottom:8px">${h.notes}</div>` : ''}
+                  ${h.outcome != null ? `<div style="display:flex;align-items:center;gap:8px">
+                    <span style="font-size:.75rem;color:var(--text-tertiary)">Outcome</span>
+                    <div style="flex:1;max-width:160px;height:6px;background:var(--border);border-radius:3px;overflow:hidden">
+                      <div style="height:6px;border-radius:3px;background:var(--accent-teal);width:${h.outcome}%;transition:width .4s"></div>
+                    </div>
+                    <span style="font-size:.75rem;font-weight:600;color:var(--accent-teal)">${h.outcome}%</span>
+                  </div>` : ''}
+                </div>
+              </div>`).join('')}
+          </div>`}
+    </div>`;
+}
+
+function _ppRenderNotes(profile, editMode) {
+  const notes = profile.notes || '';
+  return `
+    <div style="max-width:700px">
+      <label class="form-label">Clinical Notes</label>
+      <textarea id="pp-notes-area" class="form-control" rows="12" ${!editMode ? 'readonly' : ''} oninput="document.getElementById('pp-notes-count').textContent=this.value.length+' characters'">${notes}</textarea>
+      <div style="font-size:.75rem;color:var(--text-tertiary);margin-top:4px" id="pp-notes-count">${notes.length} characters</div>
+      ${editMode ? `<div style="margin-top:12px"><button class="btn btn-primary" onclick="window._profileSaveNotes()">Save Notes</button></div>` : ''}
+    </div>`;
+}
+
+function _ppRenderTab(profile, tab, editMode) {
+  switch (tab) {
+    case 'demographics': return _ppRenderDemographics(profile, editMode);
+    case 'insurance':    return _ppRenderInsurance(profile, editMode);
+    case 'medications':  return _ppRenderMedications(profile, editMode);
+    case 'allergies':    return _ppRenderAllergies(profile, editMode);
+    case 'history':      return _ppRenderHistory(profile, editMode);
+    case 'notes':        return _ppRenderNotes(profile, editMode);
+    default:             return _ppRenderDemographics(profile, editMode);
+  }
+}
+
+let _ppCurrentId   = null;
+let _ppCurrentTab  = 'demographics';
+let _ppEditMode    = false;
+
+function _ppRerender() {
+  const profile = getPatientProfile(_ppCurrentId);
+  if (!profile) return;
+  const el = document.getElementById('content');
+  if (!el) return;
+  el.innerHTML = _ppBuildPage(profile, _ppCurrentTab, _ppEditMode);
+}
+
+function _ppBuildPage(profile, tab, editMode) {
+  return `
+    <div style="max-width:960px;margin:0 auto;padding-bottom:40px">
+      ${_ppRenderHeader(profile, editMode)}
+      ${_ppRenderTabs(tab)}
+      <div id="pp-tab-content">
+        ${_ppRenderTab(profile, tab, editMode)}
+      </div>
+    </div>`;
+}
+
+export async function pgPatientProfile(setTopbar) {
+  _ppSeedProfiles();
+
+  const requestedId = window._profilePatientId || null;
+  const profiles    = getPatientProfiles();
+  const profile     = (requestedId ? getPatientProfile(requestedId) : null) || profiles[0];
+
+  if (!profile) {
+    document.getElementById('content').innerHTML = `<div style="padding:48px;text-align:center;color:var(--text-tertiary)">No patient profile found.</div>`;
+    return;
+  }
+
+  _ppCurrentId  = profile.id;
+  _ppCurrentTab = 'demographics';
+  _ppEditMode   = false;
+
+  setTopbar('Patient Profile', `<button class="btn btn-sm" onclick="window._nav('patients')">&#8592; All Patients</button>`);
+
+  const el = document.getElementById('content');
+  el.innerHTML = _ppBuildPage(profile, _ppCurrentTab, _ppEditMode);
+
+  // ── Global handlers ──────────────────────────────────────────────────────
+
+  window._profileTab = function(name) {
+    _ppCurrentTab = name;
+    const p = getPatientProfile(_ppCurrentId);
+    if (!p) return;
+    document.getElementById('pp-tab-content').innerHTML = _ppRenderTab(p, name, _ppEditMode);
+    // Re-sync tab button active states
+    document.querySelectorAll('[role="tab"]').forEach(btn => {
+      const active = btn.textContent.toLowerCase().includes(name) ||
+        (name === 'history' && btn.textContent.includes('History')) ||
+        (name === 'demographics' && btn.textContent === 'Demographics') ||
+        (name === 'insurance' && btn.textContent === 'Insurance') ||
+        (name === 'medications' && btn.textContent === 'Medications') ||
+        (name === 'allergies' && btn.textContent === 'Allergies') ||
+        (name === 'notes' && btn.textContent === 'Notes');
+      btn.style.borderBottomColor = active ? 'var(--accent-teal)' : 'transparent';
+      btn.style.fontWeight        = active ? '600' : '400';
+      btn.style.color             = active ? 'var(--accent-teal)' : 'var(--text-secondary)';
+    });
+  };
+
+  window._profileToggleEdit = function() {
+    _ppEditMode = !_ppEditMode;
+    _ppRerender();
+  };
+
+  window._profileUploadPhoto = function() {
+    document.getElementById('pp-photo-input')?.click();
+  };
+
+  window._profileHandlePhoto = function(input) {
+    const file = input.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const p = getPatientProfile(_ppCurrentId);
+      if (!p) return;
+      p.photoDataUrl = e.target.result;
+      savePatientProfile(p);
+      const wrap = document.getElementById('pp-avatar-wrap');
+      if (wrap) wrap.innerHTML = _ppAvatarHTML(p);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  window._profileHandleCardScan = function(input) {
+    const file = input.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const p = getPatientProfile(_ppCurrentId);
+      if (!p) return;
+      p.insurance = p.insurance || {};
+      p.insurance.scanDataUrl = e.target.result;
+      savePatientProfile(p);
+      const preview = document.getElementById('pp-card-preview');
+      if (preview) preview.innerHTML = `<img src="${e.target.result}" alt="Insurance card" style="width:100%;height:100%;object-fit:contain">`;
+    };
+    reader.readAsDataURL(file);
+  };
+
+  window._profileSaveDemographics = function() {
+    const p = getPatientProfile(_ppCurrentId);
+    if (!p) return;
+    p.name    = document.getElementById('pp-d-name')?.value  || p.name;
+    p.dob     = document.getElementById('pp-d-dob')?.value   || p.dob;
+    p.gender  = document.getElementById('pp-d-gender')?.value || p.gender;
+    p.phone   = document.getElementById('pp-d-phone')?.value || p.phone;
+    p.email   = document.getElementById('pp-d-email')?.value || p.email;
+    p.address = document.getElementById('pp-d-address')?.value || '';
+    p.emergencyContact = {
+      name:         document.getElementById('pp-d-ec-name')?.value  || '',
+      phone:        document.getElementById('pp-d-ec-phone')?.value || '',
+      relationship: document.getElementById('pp-d-ec-rel')?.value   || '',
+    };
+    savePatientProfile(p);
+    _ppEditMode = false;
+    _ppRerender();
+    window._announce?.('Demographics saved');
+  };
+
+  window._profileSaveInsurance = function() {
+    const p = getPatientProfile(_ppCurrentId);
+    if (!p) return;
+    p.insurance = {
+      ...(p.insurance || {}),
+      payer:    document.getElementById('pp-i-payer')?.value  || '',
+      memberId: document.getElementById('pp-i-member')?.value || '',
+      groupId:  document.getElementById('pp-i-group')?.value  || '',
+      copay:    document.getElementById('pp-i-copay')?.value  || '',
+    };
+    savePatientProfile(p);
+    _ppEditMode = false;
+    _ppRerender();
+    window._announce?.('Insurance saved');
+  };
+
+  window._profileAddMedication = function() {
+    const form = document.getElementById('pp-med-add-form');
+    if (form) form.style.display = form.style.display === 'none' ? 'block' : 'none';
+  };
+
+  window._profileSaveMedication = function() {
+    const name = document.getElementById('pp-m-name')?.value?.trim();
+    if (!name) return;
+    const p = getPatientProfile(_ppCurrentId);
+    if (!p) return;
+    p.medications = p.medications || [];
+    p.medications.push({
+      name,
+      dose:      document.getElementById('pp-m-dose')?.value  || '',
+      frequency: document.getElementById('pp-m-freq')?.value  || '',
+      startDate: document.getElementById('pp-m-start')?.value || '',
+      notes:     document.getElementById('pp-m-notes')?.value || '',
+    });
+    savePatientProfile(p);
+    document.getElementById('pp-tab-content').innerHTML = _ppRenderMedications(p, _ppEditMode);
+    window._announce?.('Medication added');
+  };
+
+  window._profileDeleteMedication = function(idx) {
+    const p = getPatientProfile(_ppCurrentId);
+    if (!p) return;
+    p.medications = (p.medications || []).filter((_, i) => i !== idx);
+    savePatientProfile(p);
+    document.getElementById('pp-tab-content').innerHTML = _ppRenderMedications(p, _ppEditMode);
+  };
+
+  window._profileAddAllergy = function() {
+    const form = document.getElementById('pp-allergy-add-form');
+    if (form) form.style.display = form.style.display === 'none' ? 'block' : 'none';
+  };
+
+  window._profileSaveAllergy = function() {
+    const substance = document.getElementById('pp-a-substance')?.value?.trim();
+    if (!substance) return;
+    const p = getPatientProfile(_ppCurrentId);
+    if (!p) return;
+    p.allergies = p.allergies || [];
+    p.allergies.push({
+      substance,
+      reaction: document.getElementById('pp-a-reaction')?.value  || '',
+      severity: document.getElementById('pp-a-severity')?.value  || 'Mild',
+    });
+    savePatientProfile(p);
+    document.getElementById('pp-tab-content').innerHTML = _ppRenderAllergies(p, _ppEditMode);
+    window._announce?.('Allergy added');
+  };
+
+  window._profileDeleteAllergy = function(idx) {
+    const p = getPatientProfile(_ppCurrentId);
+    if (!p) return;
+    p.allergies = (p.allergies || []).filter((_, i) => i !== idx);
+    savePatientProfile(p);
+    document.getElementById('pp-tab-content').innerHTML = _ppRenderAllergies(p, _ppEditMode);
+  };
+
+  window._profileAddHistory = function() {
+    const form = document.getElementById('pp-history-add-form');
+    if (form) form.style.display = form.style.display === 'none' ? 'block' : 'none';
+  };
+
+  window._profileSaveHistory = function() {
+    const date = document.getElementById('pp-h-date')?.value;
+    if (!date) return;
+    const p = getPatientProfile(_ppCurrentId);
+    if (!p) return;
+    p.treatmentHistory = p.treatmentHistory || [];
+    p.treatmentHistory.push({
+      date,
+      type:     document.getElementById('pp-h-type')?.value     || 'consultation',
+      provider: document.getElementById('pp-h-provider')?.value || '',
+      notes:    document.getElementById('pp-h-notes')?.value    || '',
+      outcome:  parseInt(document.getElementById('pp-h-outcome')?.value || '70', 10),
+    });
+    savePatientProfile(p);
+    document.getElementById('pp-tab-content').innerHTML = _ppRenderHistory(p, _ppEditMode);
+    window._announce?.('Treatment entry added');
+  };
+
+  window._profileSaveNotes = function() {
+    const p = getPatientProfile(_ppCurrentId);
+    if (!p) return;
+    p.notes = document.getElementById('pp-notes-area')?.value || '';
+    savePatientProfile(p);
+    _ppEditMode = false;
+    _ppRerender();
+    window._announce?.('Notes saved');
+  };
+
+  window._profileAddFlag = function(flag) {
+    const p = getPatientProfile(_ppCurrentId);
+    if (!p) return;
+    p.flags = p.flags || [];
+    if (!p.flags.includes(flag)) {
+      p.flags.push(flag);
+      savePatientProfile(p);
+      _ppRerender();
+    }
+  };
+
+  window._profileRemoveFlag = function(flag) {
+    const p = getPatientProfile(_ppCurrentId);
+    if (!p) return;
+    p.flags = (p.flags || []).filter(f => f !== flag);
+    savePatientProfile(p);
+    _ppRerender();
   };
 }

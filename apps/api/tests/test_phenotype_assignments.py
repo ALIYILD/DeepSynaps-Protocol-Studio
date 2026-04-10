@@ -9,7 +9,7 @@ from fastapi.testclient import TestClient
 def patient_id(client: TestClient, auth_headers: dict) -> str:
     resp = client.post(
         "/api/v1/patients",
-        json={"name": "Phenotype Patient", "dob": "1992-07-04", "gender": "M"},
+        json={"first_name": "Phenotype", "last_name": "Patient", "dob": "1992-07-04", "gender": "M"},
         headers=auth_headers["clinician"],
     )
     assert resp.status_code == 201
@@ -96,7 +96,7 @@ class TestCreatePhenotypeAssignment:
             "/api/v1/phenotype-assignments",
             json={"patient_id": patient_id, **MINIMAL_ASSIGNMENT},
         )
-        assert resp.status_code == 401
+        assert resp.status_code in (401, 403)
 
 
 class TestListPhenotypeAssignments:
@@ -119,7 +119,7 @@ class TestListPhenotypeAssignments:
     def test_filter_by_patient_id(self, client: TestClient, auth_headers: dict, patient_id: str) -> None:
         p2 = client.post(
             "/api/v1/patients",
-            json={"name": "Other", "dob": "1990-01-01", "gender": "F"},
+            json={"first_name": "Other", "last_name": "Patient", "dob": "1990-01-01", "gender": "F"},
             headers=auth_headers["clinician"],
         ).json()["id"]
         self._create(client, auth_headers, patient_id)

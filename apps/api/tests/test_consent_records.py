@@ -9,7 +9,7 @@ from fastapi.testclient import TestClient
 def patient_id(client: TestClient, auth_headers: dict) -> str:
     resp = client.post(
         "/api/v1/patients",
-        json={"name": "Consent Patient", "dob": "1988-03-12", "gender": "F"},
+        json={"first_name": "Consent", "last_name": "Patient", "dob": "1988-03-12", "gender": "F"},
         headers=auth_headers["clinician"],
     )
     assert resp.status_code == 201
@@ -86,7 +86,7 @@ class TestListConsentRecords:
     def test_filter_by_patient(self, client: TestClient, auth_headers: dict, patient_id: str) -> None:
         p2 = client.post(
             "/api/v1/patients",
-            json={"name": "Other", "dob": "1990-01-01", "gender": "M"},
+            json={"first_name": "Other", "last_name": "Patient", "dob": "1990-01-01", "gender": "M"},
             headers=auth_headers["clinician"],
         ).json()["id"]
         self._create(client, auth_headers, patient_id)

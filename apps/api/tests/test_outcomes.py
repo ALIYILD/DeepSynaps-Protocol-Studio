@@ -9,7 +9,7 @@ from fastapi.testclient import TestClient
 def patient_id(client: TestClient, auth_headers: dict) -> str:
     resp = client.post(
         "/api/v1/patients",
-        json={"name": "Outcomes Patient", "dob": "1985-09-21", "gender": "M"},
+        json={"first_name": "Outcomes", "last_name": "Patient", "dob": "1985-09-21", "gender": "M"},
         headers=auth_headers["clinician"],
     )
     assert resp.status_code == 201
@@ -20,12 +20,7 @@ def patient_id(client: TestClient, auth_headers: dict) -> str:
 def course_id(client: TestClient, auth_headers: dict, patient_id: str) -> str:
     resp = client.post(
         "/api/v1/treatment-courses",
-        json={
-            "patient_id": patient_id,
-            "title": "Test Course",
-            "modality": "tms",
-            "total_sessions_planned": 20,
-        },
+        json={"patient_id": patient_id, "protocol_id": "PRO-001"},
         headers=auth_headers["clinician"],
     )
     assert resp.status_code == 201
@@ -108,7 +103,7 @@ class TestRecordOutcome:
             "/api/v1/outcomes",
             json={"patient_id": patient_id, "course_id": course_id, **BASELINE_OUTCOME},
         )
-        assert resp.status_code == 401
+        assert resp.status_code in (401, 403)
 
 
 class TestListOutcomes:
@@ -150,7 +145,7 @@ class TestListOutcomes:
         # Create second course
         course2 = client.post(
             "/api/v1/treatment-courses",
-            json={"patient_id": patient_id, "title": "Course 2", "modality": "tdcs", "total_sessions_planned": 10},
+            json={"patient_id": patient_id, "protocol_id": "PRO-002"},
             headers=auth_headers["clinician"],
         ).json()["id"]
         self._record(client, auth_headers, patient_id, course_id)

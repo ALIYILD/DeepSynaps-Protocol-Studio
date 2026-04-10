@@ -6,6 +6,7 @@ from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, Header
 from pydantic import BaseModel
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..database import get_db_session
@@ -18,7 +19,7 @@ from ..repositories.users import (
     get_user_by_id,
 )
 from ..services import auth_service
-from ..persistence.models import PasswordResetToken
+from ..persistence.models import PasswordResetToken, PatientInvite
 
 logger = logging.getLogger(__name__)
 
@@ -26,10 +27,14 @@ router = APIRouter(prefix="", tags=["auth"])
 
 # ── Pydantic models ────────────────────────────────────────────────────────────
 
+_ALLOWED_SELF_REGISTER_ROLES = {"guest", "clinician", "technician", "reviewer"}
+
+
 class RegisterRequest(BaseModel):
     email: str
     display_name: str
     password: str  # min 8 chars
+    role: str = "clinician"  # default role for professional self-signup
 
 
 class LoginRequest(BaseModel):
@@ -119,6 +124,9 @@ def register(
     _validate_email(body.email)
     _validate_password(body.password)
 
+    # Restrict self-registration to safe roles only; ignore unknown roles.
+    assigned_role = body.role if body.role in _ALLOWED_SELF_REGISTER_ROLES else "clinician"
+
     existing = get_user_by_email(db, body.email)
     if existing is not None:
         raise ApiServiceError(
@@ -134,7 +142,7 @@ def register(
         email=body.email,
         display_name=body.display_name,
         hashed_password=hashed_pw,
-        role="guest",
+        role=assigned_role,
         package_id="explorer",
     )
     create_subscription(db, user_id=user.id, package_id="explorer")
@@ -365,8 +373,6 @@ def reset_password(
 
     token_hash = auth_service.hash_reset_token(body.token)
 
-    from sqlalchemy import select
-
     reset_record = db.scalar(
         select(PasswordResetToken).where(PasswordResetToken.token_hash == token_hash)
     )
@@ -409,3 +415,96 @@ def reset_password(
     db.commit()
 
     return MessageResponse(message="Password has been reset successfully.")
+
+
+# ── Patient Activation ─────────────────────────────────────────────────────────
+
+
+class ActivatePatientRequest(BaseModel):
+    invite_code: str
+    email: str
+    display_name: str
+    password: str
+
+
+@router.post("/api/v1/auth/activate-patient", response_model=TokenResponse, status_code=201)
+def activate_patient(
+    body: ActivatePatientRequest,
+    db: Session = Depends(get_db_session),
+) -> TokenResponse:
+    """Validate a patient invite code and create a patient user account."""
+    _validate_email(body.email)
+    _validate_password(body.password)
+
+    invite = db.scalar(
+        select(PatientInvite).where(PatientInvite.invite_code == body.invite_code)
+    )
+    if invite is None:
+        raise ApiServiceError(
+            code="invalid_invite_code",
+            message="The invitation code is not valid.",
+            warnings=["Check your invitation code and try again."],
+            status_code=400,
+        )
+
+    if invite.used_at is not None:
+        raise ApiServiceError(
+            code="invite_already_used",
+            message="This invitation code has already been used.",
+            warnings=["Contact your clinic for a new invitation."],
+            status_code=400,
+        )
+
+    if invite.expires_at < datetime.utcnow():
+        raise ApiServiceError(
+            code="invite_expired",
+            message="This invitation code has expired.",
+            warnings=["Contact your clinic for a new invitation."],
+            status_code=400,
+        )
+
+    existing = get_user_by_email(db, body.email)
+    if existing is not None:
+        raise ApiServiceError(
+            code="email_already_registered",
+            message="An account with this email address already exists.",
+            warnings=["Try logging in, or contact your clinic."],
+            status_code=409,
+        )
+
+    hashed_pw = auth_service.hash_password(body.password)
+    user = create_user(
+        db,
+        email=body.email,
+        display_name=body.display_name,
+        hashed_password=hashed_pw,
+        role="patient",
+        package_id="explorer",
+    )
+    create_subscription(db, user_id=user.id, package_id="explorer")
+
+    # Mark invite as used and link to the newly created user
+    invite.used_at = datetime.utcnow()
+    invite.activated_user_id = user.id
+    db.commit()
+
+    access_token = auth_service.create_access_token(
+        user_id=user.id,
+        email=user.email,
+        role=user.role,
+        package_id=user.package_id,
+    )
+    refresh_token = auth_service.create_refresh_token(user_id=user.id)
+
+    return TokenResponse(
+        access_token=access_token,
+        refresh_token=refresh_token,
+        user=UserProfile(
+            id=user.id,
+            email=user.email,
+            display_name=user.display_name,
+            role=user.role,
+            package_id=user.package_id,
+            is_verified=user.is_verified,
+        ),
+    )

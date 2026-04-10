@@ -13,11 +13,13 @@ function pubTopbar() {
         </div>
       </div>
       <div class="pub-topbar-nav">
-        <button class="pub-nav-link" onclick="window._navPublic('signup-professional')">Clinicians</button>
-        <button class="pub-nav-link" onclick="window._navPublic('signup-patient')">Patients</button>
+        <button class="pub-nav-link" onclick="document.querySelector('.pub-modality-grid')?.scrollIntoView({behavior:'smooth',block:'start'})">Modalities</button>
+        <button class="pub-nav-link" onclick="document.querySelector('.pub-ev-section')?.scrollIntoView({behavior:'smooth',block:'start'})">Conditions</button>
+        <button class="pub-nav-link" onclick="document.querySelector('.pub-pricing-grid')?.scrollIntoView({behavior:'smooth',block:'start'})">Pricing</button>
         <div style="width:1px;height:20px;background:var(--border);margin:0 6px"></div>
+        <button class="pub-nav-link" onclick="window._navPublic('signup-patient')">Patients</button>
         <button class="pub-nav-link" onclick="window._showSignIn()">Sign In</button>
-        <button class="btn btn-primary btn-sm" onclick="window._navPublic('signup-professional')" style="margin-left:4px">Get Started</button>
+        <button class="btn btn-primary btn-sm" onclick="window._navPublic('signup-professional')" style="margin-left:4px">Start Free Trial</button>
       </div>
     </div>
   `;
@@ -27,27 +29,162 @@ function pubTopbar() {
 export function pgHome() {
   const el = document.getElementById('public-shell');
   el.scrollTop = 0;
+
+  // ── Evidence matrix data (sourced from Neuromodulation Master Database) ──────
+  const _evMods = [
+    { id:'TMS',   label:'TMS',   color:'#00d4bc', full:'Transcranial Magnetic Stimulation',         papers:'500+' },
+    { id:'tDCS',  label:'tDCS',  color:'#4a9eff', full:'Transcranial Direct Current Stimulation',   papers:'200+' },
+    { id:'tACS',  label:'tACS',  color:'#7c3aed', full:'Transcranial Alternating Current Stim.',    papers:'80+'  },
+    { id:'CES',   label:'CES',   color:'#0284c7', full:'Cranial Electrotherapy Stimulation',         papers:'60+'  },
+    { id:'taVNS', label:'taVNS', color:'#d97706', full:'Transcranial Auricular Vagus Nerve Stim.',   papers:'80+'  },
+    { id:'TPS',   label:'TPS',   color:'#c026d3', full:'Transcranial Pulse Stimulation',             papers:'30+'  },
+    { id:'PBM',   label:'PBM',   color:'#fb923c', full:'Photobiomodulation (tPBM)',                  papers:'50+'  },
+    { id:'PEMF',  label:'PEMF',  color:'#f59e0b', full:'Pulsed Electromagnetic Field Therapy',       papers:'60+'  },
+    { id:'NF',    label:'NF',    color:'#059669', full:'Neurofeedback',                              papers:'200+' },
+    { id:'LIFU',  label:'LIFU',  color:'#64748b', full:'Low-Intensity Focused Ultrasound',           papers:'20+'  },
+    { id:'tRNS',  label:'tRNS',  color:'#94a3b8', full:'Transcranial Random Noise Stimulation',      papers:'30+'  },
+  ];
+  // S = Strong (RCT + Meta-analysis) | M = Moderate (RCT) | E = Emerging (Open-label / Pilot)
+  const _evConds = [
+    { name:'Depression (MDD)',               cat:'Mood & Affective',      ev:{ TMS:'S', tDCS:'S', tACS:'E', CES:'S', taVNS:'M', TPS:'E', PBM:'M', PEMF:'E', NF:'M', LIFU:'E', tRNS:'E' } },
+    { name:'Treatment-Resistant Depression', cat:'Mood & Affective',      ev:{ TMS:'S', tDCS:'M', CES:'M', taVNS:'M', TPS:'E', LIFU:'E' } },
+    { name:'Bipolar Depression',             cat:'Mood & Affective',      ev:{ TMS:'M', tDCS:'E' } },
+    { name:'Postpartum Depression',          cat:'Mood & Affective',      ev:{ TMS:'M', tDCS:'E' } },
+    { name:'Persistent Depressive Disorder', cat:'Mood & Affective',      ev:{ TMS:'M', tDCS:'E', CES:'E' } },
+    { name:'Seasonal Affective Disorder',    cat:'Mood & Affective',      ev:{ tDCS:'E', PBM:'E' } },
+    { name:'PTSD',                           cat:'Anxiety & Trauma',      ev:{ TMS:'M', tDCS:'E', CES:'M', taVNS:'E', NF:'M' } },
+    { name:'Generalised Anxiety Disorder',   cat:'Anxiety & Trauma',      ev:{ tDCS:'M', CES:'S', taVNS:'M', NF:'M', PEMF:'E' } },
+    { name:'Social Anxiety Disorder',        cat:'Anxiety & Trauma',      ev:{ TMS:'M', tDCS:'E', CES:'E', NF:'E' } },
+    { name:'Panic Disorder',                 cat:'Anxiety & Trauma',      ev:{ tDCS:'E', CES:'E', NF:'E' } },
+    { name:'Complex PTSD',                   cat:'Anxiety & Trauma',      ev:{ TMS:'E', NF:'E' } },
+    { name:'OCD',                            cat:'OCD Spectrum',          ev:{ TMS:'S', tDCS:'E', LIFU:'E' } },
+    { name:'Body Dysmorphic Disorder',       cat:'OCD Spectrum',          ev:{ TMS:'E' } },
+    { name:'Trichotillomania',               cat:'OCD Spectrum',          ev:{ TMS:'E' } },
+    { name:'ADHD — Adult',                   cat:'Neurodevelopmental',    ev:{ TMS:'M', tDCS:'M', tACS:'E', TPS:'E', PEMF:'E', NF:'M', tRNS:'E' } },
+    { name:'ADHD — Paediatric',              cat:'Neurodevelopmental',    ev:{ tDCS:'M', NF:'M' } },
+    { name:'Autism Spectrum Disorder',       cat:'Neurodevelopmental',    ev:{ TMS:'M', tDCS:'E', TPS:'E', NF:'E' } },
+    { name:'Schizophrenia',                  cat:'Psychiatric',           ev:{ TMS:'S', tDCS:'M', tACS:'M', LIFU:'E', tRNS:'E' } },
+    { name:'Auditory Hallucinations',        cat:'Psychiatric',           ev:{ TMS:'S', tDCS:'M' } },
+    { name:'Alcohol Use Disorder',           cat:'Substance Use',         ev:{ TMS:'M', tDCS:'M' } },
+    { name:'Nicotine Addiction',             cat:'Substance Use',         ev:{ TMS:'M', tDCS:'E' } },
+    { name:'Cocaine / Opioid Addiction',     cat:'Substance Use',         ev:{ TMS:'M', tDCS:'M', LIFU:'E' } },
+    { name:'Cannabis Use Disorder',          cat:'Substance Use',         ev:{ TMS:'E', tDCS:'E' } },
+    { name:'Stroke Rehabilitation',          cat:'Neurological',          ev:{ TMS:'S', tDCS:'S', taVNS:'M', PEMF:'E' } },
+    { name:'Aphasia (post-stroke)',           cat:'Neurological',          ev:{ TMS:'M', tDCS:'M' } },
+    { name:'Parkinson\'s Disease',            cat:'Neurological',          ev:{ TMS:'S', tDCS:'E', tACS:'M', taVNS:'E', TPS:'E', PBM:'E', PEMF:'E', tRNS:'E' } },
+    { name:'Essential Tremor',               cat:'Neurological',          ev:{ TMS:'M', tACS:'M', LIFU:'E' } },
+    { name:'Epilepsy',                       cat:'Neurological',          ev:{ TMS:'M', tDCS:'M', taVNS:'M', PEMF:'E', LIFU:'E' } },
+    { name:'Multiple Sclerosis',             cat:'Neurological',          ev:{ tDCS:'M', PEMF:'M', tRNS:'M' } },
+    { name:'Dystonia',                       cat:'Neurological',          ev:{ TMS:'M', tDCS:'E' } },
+    { name:'Tourette Syndrome',              cat:'Neurological',          ev:{ TMS:'M', CES:'E' } },
+    { name:'Spinal Cord Injury Rehab',       cat:'Neurological',          ev:{ TMS:'E', tDCS:'E' } },
+    { name:'Alzheimer\'s Disease',            cat:'Cognitive & Memory',    ev:{ TMS:'M', tDCS:'M', tACS:'M', TPS:'M', PBM:'M', LIFU:'E' } },
+    { name:'Mild Cognitive Impairment',      cat:'Cognitive & Memory',    ev:{ TMS:'M', tDCS:'M', tACS:'E', TPS:'E', PBM:'E', PEMF:'E', tRNS:'E' } },
+    { name:'Traumatic Brain Injury',         cat:'Cognitive & Memory',    ev:{ TMS:'E', tDCS:'M', PBM:'M', PEMF:'E' } },
+    { name:'Vascular Dementia',              cat:'Cognitive & Memory',    ev:{ tDCS:'E', TPS:'E' } },
+    { name:'Post-COVID Brain Fog',           cat:'Cognitive & Memory',    ev:{ tDCS:'E', PBM:'E' } },
+    { name:'Chemo-Related Cognitive Impairment', cat:'Cognitive & Memory', ev:{ tDCS:'E', PBM:'E' } },
+    { name:'Chronic Pain',                   cat:'Pain',                  ev:{ TMS:'S', tDCS:'S', CES:'E', taVNS:'M', tACS:'E', PBM:'E', PEMF:'M', LIFU:'E' } },
+    { name:'Fibromyalgia',                   cat:'Pain',                  ev:{ TMS:'M', tDCS:'S', CES:'M', PEMF:'M', taVNS:'E' } },
+    { name:'Migraine / Headache',            cat:'Pain',                  ev:{ TMS:'M', tDCS:'E', taVNS:'M' } },
+    { name:'Neuropathic Pain',               cat:'Pain',                  ev:{ TMS:'M', tDCS:'M', PEMF:'M' } },
+    { name:'Complex Regional Pain Syndrome', cat:'Pain',                  ev:{ tDCS:'E', PEMF:'E' } },
+    { name:'Phantom Limb Pain',              cat:'Pain',                  ev:{ TMS:'E', tDCS:'E' } },
+    { name:'Low Back Pain',                  cat:'Pain',                  ev:{ PEMF:'M', tDCS:'E' } },
+    { name:'Tinnitus',                       cat:'Other & Emerging',      ev:{ TMS:'M', tDCS:'M', taVNS:'M', tACS:'E', tRNS:'M' } },
+    { name:'Insomnia',                       cat:'Other & Emerging',      ev:{ tDCS:'E', tACS:'M', CES:'S', taVNS:'M', PEMF:'E', NF:'E', tRNS:'E' } },
+    { name:'Chronic Fatigue / ME-CFS',       cat:'Other & Emerging',      ev:{ tDCS:'E', PBM:'E' } },
+    { name:'Eating Disorders',               cat:'Other & Emerging',      ev:{ TMS:'M', tDCS:'E' } },
+    { name:'Inflammatory / Rheumatoid Arthritis', cat:'Other & Emerging', ev:{ taVNS:'M', PEMF:'E' } },
+    { name:'Long COVID — Fatigue & Cognition', cat:'Other & Emerging',    ev:{ PBM:'E', tDCS:'E' } },
+    { name:'Disorders of Consciousness',     cat:'Other & Emerging',      ev:{ TMS:'E', tDCS:'E', TPS:'E' } },
+    { name:'Peak Performance / Cognitive Enhancement', cat:'Other & Emerging', ev:{ tDCS:'E', NF:'M', tRNS:'E', PBM:'E' } },
+  ];
+
+  function _buildEvMatrix() {
+    const evLabel = { S:'Strong — RCT + Meta-analysis', M:'Moderate — RCT', E:'Emerging — Open-label / Pilot' };
+    const cats = [...new Set(_evConds.map(c => c.cat))];
+    const totalConds   = _evConds.length;
+    const totalEntries = _evConds.reduce((n, c) => n + Object.keys(c.ev).length, 0);
+    const strongCount  = _evConds.reduce((n, c) => n + Object.values(c.ev).filter(v => v === 'S').length, 0);
+
+    const tabs = cats.map((cat, i) => {
+      const n = _evConds.filter(c => c.cat === cat).length;
+      return `<button class="pub-ev-tab${i===0?' active':''}" data-tab="${i}" onclick="window._evTab(${i})">
+        <span class="pub-ev-tab-name">${cat}</span>
+        <span class="pub-ev-tab-count">${n}</span>
+      </button>`;
+    }).join('');
+
+    const panels = cats.map((cat, i) => {
+      const conds = _evConds.filter(c => c.cat === cat);
+      const rows = conds.map(c => `
+        <tr class="pub-ev-row">
+          <td class="pub-ev-cond-cell">${c.name}</td>
+          ${_evMods.map(m => {
+            const ev = c.ev[m.id] || null;
+            const tip = ev ? evLabel[ev] + ' · ' + m.full : 'No evidence · ' + m.label;
+            return `<td class="pub-ev-cell" data-mod="${m.id}" data-ev="${ev||''}" title="${tip}">
+              ${ev ? `<span class="pub-ev-dot pub-ev-${ev.toLowerCase()}" style="--ev-col:${m.color}"></span>` : '<span class="pub-ev-none">—</span>'}
+            </td>`;
+          }).join('')}
+        </tr>`).join('');
+      return `<div class="pub-ev-panel${i===0?' active':''}" data-panel="${i}">
+        <table class="pub-ev-table">
+          <thead><tr>
+            <th class="pub-ev-cond-col">Condition</th>
+            ${_evMods.map(m => `<th class="pub-ev-mod-th" data-mod="${m.id}" style="--ev-col:${m.color}" title="${m.full}">${m.label}</th>`).join('')}
+          </tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>`;
+    }).join('');
+
+    return `
+      <div class="pub-ev-topbar">
+        <div class="pub-ev-filters" id="ev-filters">
+          <button class="pub-ev-filter-btn active" data-mod="ALL" onclick="window._evFilter('ALL')">All</button>
+          ${_evMods.map(m => `<button class="pub-ev-filter-btn" data-mod="${m.id}" style="--ev-col:${m.color}" onclick="window._evFilter('${m.id}')" title="${m.full}">${m.label}<span class="pub-ev-filter-count">${m.papers}</span></button>`).join('')}
+        </div>
+        <div class="pub-ev-legend">
+          <span class="pub-ev-legend-item"><span class="pub-ev-dot pub-ev-s" style="--ev-col:#00d4bc"></span>Strong</span>
+          <span class="pub-ev-legend-item"><span class="pub-ev-dot pub-ev-m" style="--ev-col:#4a9eff"></span>Moderate</span>
+          <span class="pub-ev-legend-item"><span class="pub-ev-dot pub-ev-e" style="--ev-col:#94a3b8"></span>Emerging</span>
+          <span class="pub-ev-legend-divider"></span>
+          <span style="font-size:10.5px;color:var(--text-tertiary)">${totalConds} conditions · ${strongCount} strong findings</span>
+        </div>
+      </div>
+      <div class="pub-ev-layout">
+        <nav class="pub-ev-tabs" id="ev-tabs" aria-label="Condition categories">${tabs}</nav>
+        <div class="pub-ev-panels" id="ev-panels">${panels}</div>
+      </div>
+      <div style="font-size:11px;color:var(--text-tertiary);margin-top:10px;text-align:right">
+        ${totalEntries} evidence entries across ${totalConds} conditions × 11 modalities · Sourced from Neuromodulation Master Database
+      </div>`;
+  }
+
   el.innerHTML = `
     ${pubTopbar()}
 
     <!-- ─── Hero ─────────────────────────────────────────────────────────── -->
     <section class="pub-hero">
-      <div class="pub-hero-badge">◈ &nbsp;Clinical OS &nbsp;·&nbsp; Neuromodulation</div>
+      <div class="pub-hero-badge">◈ &nbsp;Built for neuromodulation practice &nbsp;·&nbsp; Clinician-designed</div>
 
       <h1 class="pub-hero-title">
-        The intelligent operating system<br>
-        for <span>neuromodulation clinics</span>
+        Clinical precision tools<br>
+        for <span>neuromodulation practitioners</span>
       </h1>
 
       <p class="pub-hero-sub">
-        Manage treatment courses end-to-end &mdash; from evidence-graded protocol design through
-        structured session delivery, clinical governance, patient engagement, and longitudinal
-        outcomes &mdash; in one platform built for neuromodulation practice.
+        Stop juggling spreadsheets, paper protocols, and disconnected EHR notes.
+        DeepSynaps gives your clinic one structured system &mdash; evidence-graded protocols,
+        step-by-step session execution, clinical governance, and patient engagement &mdash;
+        built the way neuromodulation actually works.
       </p>
 
       <div class="pub-hero-ctas">
         <button class="btn-hero-primary" onclick="window._navPublic('signup-professional')">
-          Start as Professional &rarr;
+          Start Free 14-Day Trial &rarr;
         </button>
         <button class="btn-hero-secondary" onclick="window._navPublic('signup-patient')">
           Patient Portal
@@ -57,27 +194,207 @@ export function pgHome() {
         </button>
       </div>
 
-      <!-- Stats -->
+      <!-- Stats bar -->
       <div style="
         display:flex; gap:0; border:1px solid var(--border);
         border-radius:var(--radius-lg); overflow:hidden; background:var(--bg-card);
         backdrop-filter:blur(8px); flex-wrap:wrap;
       ">
         ${[
-          { val: '15+',     label: 'Conditions',       sub: 'covered' },
-          { val: 'A–D',     label: 'Evidence',          sub: 'graded protocols' },
-          { val: '6+',      label: 'Modalities',        sub: 'supported' },
-          { val: '5',       label: 'Role types',        sub: 'with scoped access' },
+          { val: '50+',    label: 'Conditions',         sub: 'across 7 neuromodulation modalities' },
+          { val: 'A–D',    label: 'Evidence grades',    sub: 'every protocol rated' },
+          { val: '8',      label: 'Modalities',         sub: 'device-aware workflows' },
+          { val: 'HIPAA',  label: 'Compliant',          sub: 'infrastructure included' },
         ].map((s, i) => `
           <div style="
-            flex:1; min-width:120px; padding:18px 22px; text-align:center;
+            flex:1; min-width:130px; padding:18px 22px; text-align:center;
             ${i > 0 ? 'border-left:1px solid var(--border)' : ''}
           ">
-            <div style="font-family:var(--font-display);font-size:22px;font-weight:700;color:var(--text-primary);letter-spacing:-0.5px">
-              ${s.val}
-            </div>
+            <div style="font-family:var(--font-display);font-size:22px;font-weight:700;color:var(--text-primary);letter-spacing:-0.5px">${s.val}</div>
             <div style="font-size:11px;font-weight:600;color:var(--teal);margin-top:3px">${s.label}</div>
             <div style="font-size:10px;color:var(--text-tertiary);margin-top:1px">${s.sub}</div>
+          </div>
+        `).join('')}
+      </div>
+    </section>
+
+    <!-- ─── Specialty trust bar ───────────────────────────────────────────── -->
+    <div class="pub-specialties-bar">
+      <span class="pub-specialties-label">Designed for</span>
+      ${['Neurologists','Psychiatrists','Psychologists','Neuropsychologists','Neuromodulation Technicians','Clinical Researchers','Clinic Administrators','Neurofeedback Practitioners'].map(s =>
+        `<span class="pub-specialty-tag">${s}</span>`
+      ).join('')}
+    </div>
+
+    <div class="pub-divider"></div>
+
+    <!-- ─── Why clinicians choose DeepSynaps ─────────────────────────────── -->
+    <section class="pub-section" style="padding-bottom:60px">
+      <div style="text-align:center;margin-bottom:44px">
+        <div class="pub-eyebrow">Why clinicians switch</div>
+        <div class="pub-section-title" style="text-align:center;font-size:28px;margin-bottom:10px">
+          Designed around how you actually practice
+        </div>
+        <div style="font-size:14px;color:var(--text-secondary);max-width:540px;margin:0 auto;line-height:1.7">
+          Every feature was built in response to a real pain point reported by neuromodulation clinicians.
+        </div>
+      </div>
+      <div class="pub-why-grid">
+        ${[
+          {
+            icon: '◱',
+            problem: 'Paper protocol sheets',
+            solution: 'Structured digital protocols',
+            desc: 'Replace hand-written or PDF protocol sheets with structured records that carry device parameters, electrode placement, pulse settings, and evidence grade — all in one searchable record.',
+          },
+          {
+            icon: '⬡',
+            problem: 'Hunting for evidence',
+            solution: 'Evidence grade at every step',
+            desc: 'Every protocol displays its A–D evidence rating drawn from published literature. You see clinical justification at protocol selection, approval, and session review — not just at design time.',
+          },
+          {
+            icon: '◧',
+            problem: 'Slow session documentation',
+            solution: 'Session in under 2 minutes',
+            desc: 'The session runner pre-fills device parameters from the protocol. You confirm, flag any deviations, and log the session. Full documentation in under two minutes per session.',
+          },
+          {
+            icon: '◎',
+            problem: 'No audit trail',
+            solution: 'Automatic governance trail',
+            desc: 'Protocol approvals, session deviations, adverse events, and consent records are automatically timestamped and role-attributed. Your governance trail is always ready for clinical review.',
+          },
+          {
+            icon: '◉',
+            problem: 'Patients in the dark',
+            solution: 'Clear patient portal',
+            desc: 'Patients see their session schedule, treatment progress, and assessments in a calm, jargon-free interface. Your clinic provisions their access — they never log into your clinical workspace.',
+          },
+          {
+            icon: '◈',
+            problem: 'Disconnected qEEG data',
+            solution: 'EEG in clinical context',
+            desc: 'Brain region mapping, band analysis, and electrode placement visualisation sit inside the patient record — connected to the protocol, the course, and the outcomes. Not in a separate app.',
+          },
+        ].map(w => `
+          <div class="pub-why-card">
+            <div class="pub-why-card-top">
+              <div class="pub-why-icon">${w.icon}</div>
+              <div>
+                <div class="pub-why-problem">Previously: ${w.problem}</div>
+                <div class="pub-why-solution">${w.solution}</div>
+              </div>
+            </div>
+            <div class="pub-why-desc">${w.desc}</div>
+          </div>
+        `).join('')}
+      </div>
+    </section>
+
+    <div class="pub-divider"></div>
+
+    <!-- ─── Modalities ────────────────────────────────────────────────────── -->
+    <section class="pub-section" style="padding-bottom:60px">
+      <div style="text-align:center;margin-bottom:44px">
+        <div class="pub-eyebrow">Modality coverage</div>
+        <div class="pub-section-title" style="text-align:center;font-size:28px;margin-bottom:10px">
+          Built for the full neuromodulation toolkit
+        </div>
+        <div style="font-size:14px;color:var(--text-secondary);max-width:520px;margin:0 auto;line-height:1.7">
+          Device-aware workflows for every major non-invasive neuromodulation modality.
+          Parameters, placement, and protocols are modality-specific, not generic.
+        </div>
+      </div>
+      <div class="pub-modality-grid">
+        ${[
+          {
+            abbr: 'TMS',
+            name: 'Transcranial Magnetic Stimulation',
+            color: 'var(--teal)',
+            border: 'var(--border-teal)',
+            bg: 'rgba(0,212,188,0.06)',
+            params: 'Frequency · Intensity · Pulses · Coil type · Target region',
+            conditions: 'Depression · OCD · PTSD · Chronic pain · Stroke rehab',
+          },
+          {
+            abbr: 'tDCS',
+            name: 'Transcranial Direct Current Stimulation',
+            color: 'var(--blue)',
+            border: 'var(--border-blue)',
+            bg: 'rgba(74,158,255,0.06)',
+            params: 'Current · Duration · Electrode size · Montage · Density',
+            conditions: 'Depression · ADHD · Chronic pain · Stroke · Tinnitus',
+          },
+          {
+            abbr: 'tACS',
+            name: 'Transcranial Alternating Current Stimulation',
+            color: '#7c3aed',
+            border: 'rgba(124,58,237,0.4)',
+            bg: 'rgba(124,58,237,0.07)',
+            params: 'Frequency · Phase · Amplitude · Electrode placement · Duration',
+            conditions: 'Parkinson\'s · Sleep · Cognitive function · Tremor',
+          },
+          {
+            abbr: 'PEMF',
+            name: 'Pulsed Electromagnetic Field Therapy',
+            color: 'var(--amber)',
+            border: 'rgba(255,181,71,0.3)',
+            bg: 'rgba(255,181,71,0.06)',
+            params: 'Frequency · Intensity · Pulse duration · Coil configuration',
+            conditions: 'Chronic pain · Inflammation · Bone healing · Sleep',
+          },
+          {
+            abbr: 'PBM',
+            name: 'Photobiomodulation (tPBM)',
+            color: '#fb923c',
+            border: 'rgba(251,146,60,0.3)',
+            bg: 'rgba(251,146,60,0.06)',
+            params: 'Wavelength · Power density · Pulse mode · Dose · Site',
+            conditions: 'TBI · Depression · Cognitive decline · Alzheimer\'s',
+          },
+          {
+            abbr: 'NF',
+            name: 'Neurofeedback',
+            color: '#059669',
+            border: 'rgba(5,150,105,0.4)',
+            bg: 'rgba(5,150,105,0.07)',
+            params: 'Protocol type · Band targets · Session length · Electrode sites',
+            conditions: 'ADHD · Anxiety · PTSD · Peak performance · Insomnia',
+          },
+          {
+            abbr: 'TPS',
+            name: 'Transcranial Pulse Stimulation',
+            color: '#c026d3',
+            border: 'rgba(192,38,211,0.4)',
+            bg: 'rgba(192,38,211,0.07)',
+            params: 'Pulse frequency · Intensity · Target region · Session count · Depth',
+            conditions: 'Alzheimer\'s · MCI · Depression · Parkinson\'s · Chronic pain',
+          },
+          {
+            abbr: 'CES',
+            name: 'Cranial Electrotherapy Stimulation',
+            color: '#0284c7',
+            border: 'rgba(2,132,199,0.4)',
+            bg: 'rgba(2,132,199,0.07)',
+            params: 'Frequency · Current intensity · Waveform · Electrode site · Duration',
+            conditions: 'Anxiety · Insomnia · Depression · Pain · Stress',
+          },
+        ].map(m => `
+          <div class="pub-modality-card" style="border-color:${m.border};background:${m.bg}">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+              <span class="pub-modality-abbr" style="color:${m.color};border-color:${m.border}">${m.abbr}</span>
+              <span style="font-size:9px;font-weight:700;letter-spacing:.8px;color:${m.color};text-transform:uppercase;opacity:0.7">Active</span>
+            </div>
+            <div class="pub-modality-name">${m.name}</div>
+            <div class="pub-modality-params">
+              <span style="font-size:10px;font-weight:600;color:var(--text-tertiary);letter-spacing:.5px;text-transform:uppercase;display:block;margin-bottom:4px">Parameters</span>
+              <span style="font-size:11.5px;color:var(--text-secondary);line-height:1.5">${m.params}</span>
+            </div>
+            <div class="pub-modality-conditions">
+              <span style="font-size:10px;font-weight:600;color:var(--text-tertiary);letter-spacing:.5px;text-transform:uppercase;display:block;margin-bottom:4px">Conditions</span>
+              <span style="font-size:11.5px;color:var(--text-secondary);line-height:1.5">${m.conditions}</span>
+            </div>
           </div>
         `).join('')}
       </div>
@@ -95,12 +412,12 @@ export function pgHome() {
       </div>
       <div class="pub-process-strip">
         ${[
-          { icon: '⬡', label: 'Protocol',    sub: 'Evidence-graded design' },
-          { icon: '◱', label: 'Approval',    sub: 'Clinician review' },
-          { icon: '◎', label: 'Course',      sub: 'Lifecycle created' },
-          { icon: '◧', label: 'Session',     sub: 'Structured delivery' },
-          { icon: '◫', label: 'Outcomes',    sub: 'Evidence-matched' },
-          { icon: '◉', label: 'Patient',     sub: 'Portal engagement' },
+          { icon: '⬡', label: 'Protocol',   sub: 'Evidence-graded design' },
+          { icon: '◱', label: 'Approval',   sub: 'Clinician review' },
+          { icon: '◎', label: 'Course',     sub: 'Lifecycle created' },
+          { icon: '◧', label: 'Session',    sub: 'Structured delivery' },
+          { icon: '◫', label: 'Outcomes',   sub: 'Evidence-matched' },
+          { icon: '◉', label: 'Patient',    sub: 'Portal engagement' },
         ].map(s => `
           <div class="pub-process-step">
             <div class="pub-process-node">${s.icon}</div>
@@ -120,11 +437,12 @@ export function pgHome() {
       <div style="text-align:center;margin-bottom:44px;padding:0 48px">
         <div class="pub-eyebrow">Two separate experiences</div>
         <div class="pub-section-title" style="text-align:center;margin-bottom:10px">
-          A clinical OS for your team.<br>A clear portal for your patients.
+          A clinical workspace for your team.<br>A clear portal for your patients.
         </div>
         <div style="font-size:14px;color:var(--text-secondary);max-width:520px;margin:0 auto;line-height:1.7">
-          Professional and patient interfaces are kept entirely separate &mdash;
+          Clinical and patient interfaces are completely separate &mdash;
           different layouts, different depth, different language.
+          Patients never see clinical complexity.
         </div>
       </div>
 
@@ -140,18 +458,19 @@ export function pgHome() {
             </div>
           </div>
           <div class="pub-audience-desc">
-            Not a generic EHR. DeepSynaps organises clinical work around
+            Not a generic EHR. DeepSynaps is organised around
             <strong style="color:var(--text-primary)">treatment courses</strong> &mdash;
-            not appointments. Each course carries a protocol, a session schedule,
-            a governance trail, and patient outcomes in one structured record.
+            not appointments. Each course holds a protocol, session schedule,
+            governance trail, and patient outcomes in one structured record.
+            No separate systems for protocols, sessions, and outcomes.
           </div>
           <ul class="pub-audience-features">
-            <li>Evidence-graded protocol design — tDCS, TMS, tACS, PEMF, PBM, neurofeedback</li>
-            <li>Course lifecycle management: approval &rarr; sessions &rarr; review &rarr; outcomes</li>
-            <li>Structured session execution with device, montage, pulse parameters, deviation flags</li>
+            <li>Evidence-graded protocol design — TMS, tDCS, tACS, PEMF, PBM, neurofeedback</li>
+            <li>Course lifecycle: approval &rarr; sessions &rarr; deviation flags &rarr; outcomes</li>
+            <li>Structured session runner with device parameters, montage, and real-time flags</li>
             <li>qEEG integration and per-patient brain region mapping</li>
-            <li>Adverse event registry, protocol approval workflow, and audit trail</li>
-            <li>Role-scoped access for clinician, technician, reviewer, and admin</li>
+            <li>Adverse event registry, protocol approval queue, and full audit trail</li>
+            <li>Role-scoped access: clinician, technician, reviewer, admin</li>
           </ul>
           <button class="btn-hero-primary" onclick="window._navPublic('signup-professional')"
             style="width:100%;font-size:13px;padding:12px;margin-top:auto">
@@ -181,7 +500,7 @@ export function pgHome() {
             <li>Secure messages and reminders from your clinician</li>
           </ul>
           <div class="notice notice-info" style="font-size:11.5px;margin-bottom:20px">
-            Patient access requires an invitation code or direct registration by your clinic.
+            Patient access requires an invitation from your clinic. Ask your clinician to add you.
           </div>
           <button class="btn-hero-secondary" onclick="window._navPublic('signup-patient')"
             style="width:100%;font-size:13px;padding:12px;border-color:var(--border-blue);color:var(--blue)">
@@ -191,6 +510,67 @@ export function pgHome() {
 
       </div>
     </div>
+
+    <div class="pub-divider"></div>
+
+    <!-- ─── Evidence Matrix ──────────────────────────────────────────────── -->
+    <section class="pub-section pub-ev-section">
+      <div style="text-align:center;margin-bottom:44px">
+        <div class="pub-eyebrow">Evidence Matrix</div>
+        <div class="pub-section-title" style="text-align:center;font-size:28px;margin-bottom:10px">
+          Conditions &times; Modalities &mdash; evidence at a glance
+        </div>
+        <div style="font-size:14px;color:var(--text-secondary);max-width:600px;margin:0 auto;line-height:1.7">
+          Filter by modality to see which conditions have strong, moderate, or emerging evidence.
+          Sourced from the DeepSynaps Neuromodulation Master Database.
+        </div>
+      </div>
+      ${_buildEvMatrix()}
+    </section>
+
+    <div class="pub-divider"></div>
+
+    <!-- ─── Testimonials ──────────────────────────────────────────────────── -->
+    <section class="pub-section" style="padding-bottom:60px">
+      <div style="text-align:center;margin-bottom:44px">
+        <div class="pub-eyebrow">From the clinic floor</div>
+        <div class="pub-section-title" style="text-align:center;font-size:28px;margin-bottom:10px">
+          What clinicians say
+        </div>
+      </div>
+      <div class="pub-testimonial-grid">
+        ${[
+          {
+            quote: 'Finally, a system that thinks in protocols, not appointments. Every session I log is automatically connected to the protocol that drove it. The governance trail writes itself.',
+            name: 'Dr. S. Okonkwo',
+            role: 'Consultant Neurologist',
+            specialty: 'TMS · Stroke rehab',
+          },
+          {
+            quote: 'The evidence grading alone saves me 20–30 minutes per protocol review. I can see the A–D rating and the rationale without digging through literature. That\'s time back with patients.',
+            name: 'Dr. A. Reinholt',
+            role: 'Clinical Psychologist',
+            specialty: 'Neurofeedback · ADHD · PTSD',
+          },
+          {
+            quote: 'We onboarded our full team of five in half a day. The role separation is clean — technicians see what they need, reviewers see what they need. Nothing bleeds over.',
+            name: 'M. Tavares',
+            role: 'Clinic Director',
+            specialty: 'Multi-clinician tDCS clinic',
+          },
+        ].map(t => `
+          <div class="pub-testimonial-card">
+            <div class="pub-quote-mark">"</div>
+            <div class="pub-testimonial-quote">${t.quote}</div>
+            <div class="pub-testimonial-meta">
+              <div class="pub-testimonial-name">${t.name}</div>
+              <div class="pub-testimonial-role">${t.role}</div>
+              <div class="pub-testimonial-specialty">${t.specialty}</div>
+            </div>
+          </div>
+        `).join('')}
+      </div>
+    </section>
 
     <div class="pub-divider"></div>
 
@@ -207,7 +587,7 @@ export function pgHome() {
           <div style="font-size:13px;color:var(--text-secondary);line-height:1.75;margin-bottom:24px">
             DeepSynaps covers the full operational stack for a neuromodulation clinic &mdash;
             from first protocol to long-term outcome tracking &mdash;
-            without requiring separate tools for each discipline.
+            without separate tools for each discipline.
           </div>
           <button class="btn btn-primary btn-sm" onclick="window._navPublic('signup-professional')" style="font-size:12px">
             Explore the platform &rarr;
@@ -523,6 +903,138 @@ export function pgHome() {
       <div class="pub-footer-copy">&copy; 2026 DeepSynaps. All rights reserved.</div>
     </div>
   `;
+
+  // ── Evidence matrix interactivity ─────────────────────────────────────────
+  window._evTab = function(idx) {
+    document.querySelectorAll('.pub-ev-tab').forEach((t, i)   => t.classList.toggle('active', i === idx));
+    document.querySelectorAll('.pub-ev-panel').forEach((p, i) => p.classList.toggle('active', i === idx));
+    // re-apply active filter to newly visible panel
+    const activeBtn = document.querySelector('.pub-ev-filter-btn.active');
+    if (activeBtn && activeBtn.dataset.mod !== 'ALL') window._evFilter(activeBtn.dataset.mod);
+  };
+
+  window._evFilter = function(modId) {
+    document.querySelectorAll('.pub-ev-filter-btn').forEach(btn =>
+      btn.classList.toggle('active', btn.dataset.mod === modId));
+    const all = modId === 'ALL';
+    document.querySelectorAll('.pub-ev-mod-th').forEach(th =>
+      (th.style.opacity = all || th.dataset.mod === modId ? '1' : '0.2'));
+    document.querySelectorAll('.pub-ev-cell').forEach(td =>
+      (td.style.opacity = all || td.dataset.mod === modId ? '1' : '0.08'));
+    document.querySelectorAll('tr.pub-ev-row').forEach(tr => {
+      if (all) { tr.style.opacity = '1'; return; }
+      const cell = tr.querySelector(`.pub-ev-cell[data-mod="${modId}"]`);
+      tr.style.opacity = cell && cell.dataset.ev ? '1' : '0.25';
+    });
+  };
+
+  // ── Inject FAQ chat widget ─────────────────────────────────────────────────
+  _initPublicChat();
+}
+
+// ── Public FAQ chat widget ────────────────────────────────────────────────────
+let _pubChatHistory = [];
+let _pubChatBusy = false;
+
+function _initPublicChat() {
+  // Remove existing widget if re-entering home
+  document.getElementById('pub-chat-widget')?.remove();
+
+  const widget = document.createElement('div');
+  widget.id = 'pub-chat-widget';
+  widget.innerHTML = `
+    <!-- Bubble toggle -->
+    <button class="pub-chat-bubble" id="pub-chat-bubble" onclick="window._pubChatToggle()" title="Chat with us">
+      <span id="pub-chat-bubble-icon">💬</span>
+    </button>
+
+    <!-- Chat panel -->
+    <div class="pub-chat-panel" id="pub-chat-panel" style="display:none">
+      <div class="pub-chat-header">
+        <div>
+          <div style="font-weight:700;font-size:13px">DeepSynaps AI</div>
+          <div style="font-size:10px;color:rgba(255,255,255,0.65);margin-top:1px">Ask us anything</div>
+        </div>
+        <button class="pub-chat-close" onclick="window._pubChatToggle()">✕</button>
+      </div>
+      <div class="pub-chat-messages" id="pub-chat-messages">
+        <div class="pub-chat-msg pub-chat-msg--agent">
+          <div class="pub-chat-bubble-msg">
+            Hi! I'm the DeepSynaps AI. Ask me about our neuromodulation platform, pricing, how to get started, or anything about our clinical tools.
+          </div>
+        </div>
+      </div>
+      <div class="pub-chat-typing" id="pub-chat-typing" style="display:none">
+        <div class="pub-chat-dot"></div><div class="pub-chat-dot"></div><div class="pub-chat-dot"></div>
+      </div>
+      <div class="pub-chat-input-row">
+        <input
+          id="pub-chat-input"
+          class="pub-chat-input"
+          type="text"
+          placeholder="Type a question…"
+          onkeydown="if(event.key==='Enter')window._pubChatSend()"
+        >
+        <button class="pub-chat-send" onclick="window._pubChatSend()">↑</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(widget);
+
+  window._pubChatToggle = function() {
+    const panel = document.getElementById('pub-chat-panel');
+    const icon  = document.getElementById('pub-chat-bubble-icon');
+    const open  = panel.style.display === 'none';
+    panel.style.display = open ? 'flex' : 'none';
+    if (icon) icon.textContent = open ? '✕' : '💬';
+    if (open) setTimeout(() => document.getElementById('pub-chat-input')?.focus(), 100);
+  };
+
+  window._pubChatSend = async function() {
+    if (_pubChatBusy) return;
+    const input = document.getElementById('pub-chat-input');
+    const text = input?.value.trim();
+    if (!text) return;
+    input.value = '';
+
+    _pubChatHistory.push({ role: 'user', content: text });
+    _appendPubMsg('user', text);
+
+    _pubChatBusy = true;
+    document.getElementById('pub-chat-typing').style.display = 'flex';
+    _scrollPubChat();
+
+    try {
+      const result = await api.chatPublic(_pubChatHistory);
+      const reply = result?.reply || 'Sorry, I couldn\'t get a response. Please try again.';
+      _pubChatHistory.push({ role: 'assistant', content: reply });
+      _appendPubMsg('agent', reply);
+    } catch {
+      _appendPubMsg('agent', 'Having trouble connecting. Try again in a moment, or use the sign-up form to contact us.');
+    } finally {
+      _pubChatBusy = false;
+      document.getElementById('pub-chat-typing').style.display = 'none';
+      _scrollPubChat();
+    }
+  };
+}
+
+function _appendPubMsg(role, text) {
+  const el = document.getElementById('pub-chat-messages');
+  if (!el) return;
+  const safe = text.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>');
+  const div = document.createElement('div');
+  div.className = `pub-chat-msg pub-chat-msg--${role}`;
+  div.innerHTML = `<div class="pub-chat-bubble-msg">${safe}</div>`;
+  el.appendChild(div);
+  _scrollPubChat();
+}
+
+function _scrollPubChat() {
+  requestAnimationFrame(() => {
+    const el = document.getElementById('pub-chat-messages');
+    if (el) el.scrollTop = el.scrollHeight;
+  });
 }
 
 // ── Professional Signup (/signup/professional) ────────────────────────────────

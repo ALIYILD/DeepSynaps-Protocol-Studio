@@ -1,7 +1,24 @@
+import json
+import uuid
+from datetime import datetime
+from typing import Optional
+
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
+from sqlalchemy.orm import Session
+
 from app.auth import AuthenticatedActor, get_authenticated_actor
-from app.services.chat_service import chat_clinician, chat_patient
+from app.database import get_db_session
+from app.errors import ApiServiceError
+from app.persistence.models import AiSummaryAudit, Patient, WearableDailySummary, WearableAlertFlag
+from app.services.chat_service import (
+    chat_clinician,
+    chat_patient,
+    chat_public_faq,
+    chat_agent,
+    chat_wearable_patient,
+    chat_wearable_clinician,
+)
 
 router = APIRouter(prefix="/api/v1/chat", tags=["chat"])
 
@@ -16,9 +33,37 @@ class ChatRequest(BaseModel):
     patient_context: str | None = None  # optional patient info for clinician context
 
 
+class AgentChatRequest(BaseModel):
+    messages: list[ChatMessage]
+    provider: str = "anthropic"          # "anthropic" | "openai"
+    openai_key: str | None = None        # doctor's own OpenAI key (never stored)
+    context: str | None = None           # dashboard context snippet injected by frontend
+
+
 class ChatResponse(BaseModel):
     reply: str
     role: str = "assistant"
+
+
+@router.post("/public", response_model=ChatResponse)
+def public_faq_chat(body: ChatRequest) -> ChatResponse:
+    """No auth required — public FAQ bot for the landing page."""
+    msgs = [{"role": m.role, "content": m.content} for m in body.messages]
+    reply = chat_public_faq(msgs)
+    return ChatResponse(reply=reply)
+
+
+@router.post("/agent", response_model=ChatResponse)
+def agent_chat(
+    body: AgentChatRequest,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> ChatResponse:
+    """Authenticated doctor practice management agent."""
+    from app.auth import require_minimum_role
+    require_minimum_role(actor, "clinician")
+    msgs = [{"role": m.role, "content": m.content} for m in body.messages]
+    reply = chat_agent(msgs, body.provider, body.openai_key, body.context)
+    return ChatResponse(reply=reply)
 
 
 @router.post("/clinician", response_model=ChatResponse)
@@ -40,4 +85,156 @@ def patient_chat(
 ) -> ChatResponse:
     msgs = [{"role": m.role, "content": m.content} for m in body.messages]
     reply = chat_patient(msgs)
+    return ChatResponse(reply=reply)
+
+
+# ── Wearable copilot endpoints ─────────────────────────────────────────────────
+
+class WearablePatientChatRequest(BaseModel):
+    messages: list[ChatMessage]
+    patient_context: Optional[str] = None   # wearable summary string, built by frontend
+
+
+class WearableClinicianChatRequest(BaseModel):
+    messages: list[ChatMessage]
+    patient_id: str
+
+
+def _build_wearable_context(patient_id: str, db: Session) -> str:
+    """Build a plain-text wearable context string for the AI from the last 7 days of summaries."""
+    from datetime import timedelta
+    cutoff = (datetime.utcnow() - timedelta(days=7)).date().isoformat()
+    summaries = (
+        db.query(WearableDailySummary)
+        .filter(
+            WearableDailySummary.patient_id == patient_id,
+            WearableDailySummary.date >= cutoff,
+        )
+        .order_by(WearableDailySummary.date.asc())
+        .all()
+    )
+    alerts = (
+        db.query(WearableAlertFlag)
+        .filter_by(patient_id=patient_id, dismissed=False)
+        .order_by(WearableAlertFlag.triggered_at.desc())
+        .limit(5)
+        .all()
+    )
+
+    lines = ["=== Wearable Data (last 7 days, consumer-grade) ==="]
+    if not summaries:
+        lines.append("No wearable data available for this period.")
+    else:
+        for s in summaries:
+            parts = [f"Date: {s.date}", f"Source: {s.source}"]
+            if s.rhr_bpm:   parts.append(f"RHR: {s.rhr_bpm:.0f}bpm")
+            if s.hrv_ms:    parts.append(f"HRV: {s.hrv_ms:.0f}ms")
+            if s.sleep_duration_h: parts.append(f"Sleep: {s.sleep_duration_h:.1f}h")
+            if s.steps:     parts.append(f"Steps: {s.steps}")
+            if s.spo2_pct:  parts.append(f"SpO2: {s.spo2_pct:.1f}%")
+            if s.mood_score:  parts.append(f"Mood: {s.mood_score:.0f}/5")
+            if s.pain_score:  parts.append(f"Pain: {s.pain_score:.0f}/10")
+            if s.anxiety_score: parts.append(f"Anxiety: {s.anxiety_score:.0f}/10")
+            lines.append(" | ".join(parts))
+
+    if alerts:
+        lines.append("\n=== Active Alert Flags ===")
+        for a in alerts:
+            lines.append(f"[{a.severity.upper()}] {a.flag_type}: {a.detail}")
+
+    return "\n".join(lines)
+
+
+def _log_ai_summary(
+    patient_id: str,
+    actor: AuthenticatedActor,
+    summary_type: str,
+    response: str,
+    sources: list[str],
+    model: str,
+    db: Session,
+) -> None:
+    import hashlib
+    audit = AiSummaryAudit(
+        id=str(uuid.uuid4()),
+        patient_id=patient_id,
+        actor_id=actor.actor_id,
+        actor_role=actor.role,
+        summary_type=summary_type,
+        prompt_hash=hashlib.sha256(response[:200].encode()).hexdigest()[:16],
+        response_preview=response[:500],
+        sources_used=json.dumps(sources),
+        model_used=model,
+    )
+    db.add(audit)
+    db.commit()
+
+
+@router.post("/wearable-patient", response_model=ChatResponse)
+def wearable_patient_chat(
+    body: WearablePatientChatRequest,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> ChatResponse:
+    """Patient asks questions about their own wearable data. Context auto-included."""
+    if actor.role not in ('patient', 'guest'):
+        # Allow clinicians to preview too
+        pass
+
+    msgs = [{"role": m.role, "content": m.content} for m in body.messages]
+    reply = chat_wearable_patient(msgs, body.patient_context)
+
+    # Audit log if patient
+    if actor.role == 'patient':
+        try:
+            from app.persistence.models import Patient
+            from app.routers.patient_portal_router import _DEMO_PATIENT_ACTOR_ID
+            if actor.actor_id == _DEMO_PATIENT_ACTOR_ID:
+                pt = db.query(Patient).filter(Patient.email == "patient@demo.com").first()
+            else:
+                from app.persistence.models import User
+                user = db.query(User).filter_by(id=actor.actor_id).first()
+                pt = db.query(Patient).filter(Patient.email == user.email).first() if user else None
+            if pt:
+                _log_ai_summary(pt.id, actor, 'patient_wearable', reply, ['wearable_summary'], 'claude-haiku-4-5-20251001', db)
+        except Exception:
+            pass
+
+    return ChatResponse(reply=reply)
+
+
+@router.post("/wearable-clinician", response_model=ChatResponse)
+def wearable_clinician_chat(
+    body: WearableClinicianChatRequest,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> ChatResponse:
+    """Clinician requests AI summary of a patient's wearable + clinical data."""
+    from app.auth import require_minimum_role
+    require_minimum_role(actor, "clinician")
+
+    patient = db.query(Patient).filter_by(id=body.patient_id).first()
+    if patient is None:
+        raise ApiServiceError(code="not_found", message="Patient not found.", status_code=404)
+
+    # Build rich context from DB
+    wearable_ctx = _build_wearable_context(body.patient_id, db)
+    patient_summary = (
+        f"Patient: {patient.first_name} {patient.last_name}\n"
+        f"Condition: {patient.primary_condition or 'unknown'}\n"
+        f"Status: {patient.status}\n\n"
+        f"{wearable_ctx}"
+    )
+
+    msgs = [{"role": m.role, "content": m.content} for m in body.messages]
+    reply = chat_wearable_clinician(msgs, patient_summary)
+
+    try:
+        _log_ai_summary(
+            body.patient_id, actor, 'clinician_monitoring', reply,
+            ['wearable_summary', 'patient_record'], 'claude-opus-4-6', db,
+        )
+    except Exception:
+        pass
+
     return ChatResponse(reply=reply)

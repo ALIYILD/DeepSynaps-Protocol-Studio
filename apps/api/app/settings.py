@@ -71,6 +71,9 @@ class AppSettings(BaseModel):
     # Anthropic
     anthropic_api_key: str = Field(default="")
 
+    # OpenAI (optional — doctors can bring their own key)
+    openai_api_key: str = Field(default="")
+
     # App URL (used for Stripe redirect URLs)
     app_url: str = Field(default="http://localhost:5173")
 
@@ -157,6 +160,8 @@ def load_settings() -> AppSettings:
                 "sentry_dsn": os.getenv("SENTRY_DSN", ""),
                 # Anthropic
                 "anthropic_api_key": os.getenv("ANTHROPIC_API_KEY", ""),
+                # OpenAI
+                "openai_api_key": os.getenv("OPENAI_API_KEY", ""),
                 # App URL
                 "app_url": os.getenv("APP_URL", "http://localhost:5173"),
             }

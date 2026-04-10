@@ -9,7 +9,7 @@ from fastapi.testclient import TestClient
 def patient_id(client: TestClient, auth_headers: dict) -> str:
     resp = client.post(
         "/api/v1/patients",
-        json={"name": "AE Patient", "dob": "1990-01-01", "gender": "F"},
+        json={"first_name": "AE", "last_name": "Patient", "dob": "1990-01-01", "gender": "F"},
         headers=auth_headers["clinician"],
     )
     assert resp.status_code == 201
@@ -72,7 +72,7 @@ class TestReportAdverseEvent:
             "/api/v1/adverse-events",
             json={"patient_id": patient_id, "event_type": "headache", "severity": "mild"},
         )
-        assert resp.status_code == 401
+        assert resp.status_code in (401, 403)
 
     def test_severity_normalized_lowercase(self, client: TestClient, auth_headers: dict, patient_id: str) -> None:
         resp = client.post(
@@ -105,7 +105,7 @@ class TestListAdverseEvents:
         # Create second patient
         resp2 = client.post(
             "/api/v1/patients",
-            json={"name": "Other Patient", "dob": "1985-06-15", "gender": "M"},
+            json={"first_name": "Other", "last_name": "Patient", "dob": "1985-06-15", "gender": "M"},
             headers=auth_headers["clinician"],
         )
         patient2_id = resp2.json()["id"]

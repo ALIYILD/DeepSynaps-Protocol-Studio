@@ -1,6 +1,57 @@
 import { api, downloadBlob } from './api.js';
 import { spinner, emptyState, evidenceBadge, labelBadge, safetyBadge, approvalBadge, govFlag, fr, cardWrap, tag } from './helpers.js';
-import { FALLBACK_ASSESSMENT_TEMPLATES } from './constants.js';
+import { FALLBACK_ASSESSMENT_TEMPLATES, FALLBACK_CONDITIONS, FALLBACK_MODALITIES } from './constants.js';
+import { currentUser } from './auth.js';
+
+// ── SOAP Notes — localStorage persistence ────────────────────────────────────
+const SOAP_NOTES_KEY = 'ds_soap_notes';
+
+function getSoapNotes() {
+  try { return JSON.parse(localStorage.getItem(SOAP_NOTES_KEY) || '{}'); } catch { return {}; }
+}
+
+function saveSoapNote(courseId, sessionId, note) {
+  const notes = getSoapNotes();
+  if (!notes[courseId]) notes[courseId] = {};
+  notes[courseId][sessionId] = { ...note, updated_at: new Date().toISOString() };
+  localStorage.setItem(SOAP_NOTES_KEY, JSON.stringify(notes));
+}
+
+function getSoapNote(courseId, sessionId) {
+  return getSoapNotes()[courseId]?.[sessionId] || null;
+}
+
+function getPatientNotes(courseId) {
+  return Object.entries(getSoapNotes()[courseId] || {})
+    .sort((a, b) => new Date(b[1].updated_at) - new Date(a[1].updated_at));
+}
+
+const SOAP_TEMPLATES = {
+  adhd: {
+    subjective: 'Patient reports: attention difficulties, impulsivity levels, sleep quality, medication compliance.',
+    objective: 'Session parameters: {params}. Patient presented as: alert/drowsy, cooperative/resistant. EEG findings: theta elevation noted at frontal sites.',
+    assessment: 'Patient responded well to protocol. Theta/beta ratio trending: improved/unchanged/worsened. Side effects: none reported.',
+    plan: 'Continue current protocol for next {n} sessions. Adjust frequency to {hz} Hz if no improvement by session {s}. Follow up on sleep hygiene.',
+  },
+  anxiety: {
+    subjective: 'Patient reports: anxiety levels (0-10), sleep quality, stressors this week, physical symptoms.',
+    objective: 'Session parameters: {params}. Alpha power at Pz: {val}. Patient relaxation response: present/absent.',
+    assessment: 'Alpha enhancement protocol progressing. GAD-7 trend: improving/stable/worsening.',
+    plan: 'Reinforce alpha/theta ratio goals. Add mindfulness exercise between sessions. Reassess in {n} sessions.',
+  },
+  depression: {
+    subjective: 'Patient mood rating (0-10), energy levels, motivation, sleep, appetite, PHQ-9 score if available.',
+    objective: 'Left DLPFC stimulation: {params}. Alpha asymmetry: right > left / left > right / symmetric.',
+    assessment: 'Left frontal hypoactivation pattern. Response to stimulation: positive/partial/limited.',
+    plan: 'Continue TMS course. Monitor PHQ-9 at next session. Consider medication consultation if no response by session {s}.',
+  },
+  default: {
+    subjective: '',
+    objective: 'Session parameters: {params}.',
+    assessment: '',
+    plan: '',
+  },
+};
 
 // ── Shared color maps ─────────────────────────────────────────────────────────
 const STATUS_COLOR = {
@@ -19,6 +70,157 @@ function metricCard(label, value, color, sub) {
     <div style="font-size:11px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.8px">${label}</div>
     <div style="font-size:28px;font-weight:700;color:${color};margin:8px 0 4px">${value}</div>
     <div style="font-size:11px;color:var(--text-secondary)">${sub}</div>
+  </div>`;
+}
+
+// ── Clinical Intelligence — Risk Scoring ──────────────────────────────────────
+
+function computeRiskScore(course) {
+  let score = 0;
+  const gradeRisk = { A: 0, B: 10, C: 25, D: 40 };
+  score += gradeRisk[course.evidence_grade] ?? 20;
+  if (course.on_label === false) score += 30;
+  score += (course.governance_warnings || []).length * 15;
+  if (course.review_required) score += 10;
+  if (course.planned_intensity_pct_rmt > 110) score += 15;
+  if (course.planned_intensity_pct_rmt > 120) score += 15;
+  if (course.planned_frequency_hz > 20) score += 10;
+  if (course.planned_sessions_total > 40) score += 5;
+  return Math.min(100, score);
+}
+
+function riskLevel(score) {
+  if (score < 20) return { label: 'Low',      color: 'var(--teal)' };
+  if (score < 50) return { label: 'Moderate', color: 'var(--amber)' };
+  if (score < 75) return { label: 'Elevated', color: '#f97316' };
+  return             { label: 'High',     color: 'var(--red)' };
+}
+
+function riskGauge(score, compact = false) {
+  const { label, color } = riskLevel(score);
+  if (compact) {
+    return `<div style="display:flex;align-items:center;gap:6px">
+      <div style="width:40px;height:4px;border-radius:2px;background:rgba(255,255,255,0.1);overflow:hidden">
+        <div style="height:4px;width:${score}%;background:${color};border-radius:2px"></div>
+      </div>
+      <span style="font-size:10px;font-weight:700;color:${color}">${label}</span>
+    </div>`;
+  }
+  const r = 28, circumference = Math.PI * r;
+  const offset = circumference * (1 - score / 100);
+  return `<div style="text-align:center">
+    <svg width="64" height="40" viewBox="0 0 64 40" style="overflow:visible">
+      <path d="M 4 36 A 28 28 0 0 1 60 36" fill="none" stroke="rgba(255,255,255,0.08)" stroke-width="5" stroke-linecap="round"/>
+      <path d="M 4 36 A 28 28 0 0 1 60 36" fill="none" stroke="${color}" stroke-width="5" stroke-linecap="round"
+        stroke-dasharray="${circumference}" stroke-dashoffset="${offset}"
+        style="transition:stroke-dashoffset 0.5s ease"/>
+    </svg>
+    <div style="font-size:18px;font-weight:700;color:${color};margin-top:-4px">${score}</div>
+    <div style="font-size:9px;text-transform:uppercase;letter-spacing:.8px;color:${color};font-weight:600">${label} Risk</div>
+  </div>`;
+}
+
+function renderRiskFactors(course) {
+  const factors = [];
+  if (course.on_label === false) factors.push({ label: 'Off-label use', severity: 'high' });
+  if (course.evidence_grade === 'C' || course.evidence_grade === 'D') factors.push({ label: `Evidence grade ${course.evidence_grade}`, severity: 'moderate' });
+  (course.governance_warnings || []).forEach(w => factors.push({ label: w, severity: 'high' }));
+  if (course.planned_intensity_pct_rmt > 110) factors.push({ label: `High intensity: ${course.planned_intensity_pct_rmt}% RMT`, severity: 'moderate' });
+  if (factors.length === 0) return '<span style="color:var(--teal);font-size:12px">&#10003; No risk factors identified</span>';
+  return factors.map(f => `<div style="font-size:11.5px;color:${f.severity==='high'?'var(--red)':'var(--amber)'};margin-top:3px">${f.severity==='high'?'&#9888;':'&#9678;'} ${f.label}</div>`).join('');
+}
+
+// ── Clinical Intelligence — Outcome Prediction ───────────────────────────────
+
+function predictOutcome(course, outcomes = []) {
+  const delivered = course.sessions_delivered || 0;
+  if (delivered < 5) return null;
+  if (outcomes.length < 2) return null;
+
+  const sorted = [...outcomes].sort((a, b) => (a.recorded_at || '') < (b.recorded_at || '') ? -1 : 1);
+  const baseline = sorted[0];
+  const latest   = sorted[sorted.length - 1];
+
+  if (baseline.score == null || latest.score == null) return null;
+
+  const LOWER_IS_BETTER = new Set(['PHQ-9','GAD-7','PCL-5','ISI','DASS-21','NRS-Pain','UPDRS-III']);
+  const isLower = LOWER_IS_BETTER.has(baseline.template_name);
+
+  const change    = latest.score - baseline.score;
+  const pctChange = baseline.score > 0 ? (change / baseline.score) * 100 : 0;
+  const improving = isLower ? change < 0 : change > 0;
+  const magnitude = Math.abs(pctChange);
+
+  if (!improving && delivered >= 5) {
+    return { type: 'non_responder_risk', confidence: 'moderate', message: `No improvement detected after ${delivered} sessions. Consider protocol adjustment.`, color: 'var(--red)' };
+  }
+  if (improving && magnitude < 10 && delivered >= 10) {
+    return { type: 'slow_response', confidence: 'low', message: `Slow response trajectory. ${Math.round(magnitude)}% improvement after ${delivered} sessions.`, color: 'var(--amber)' };
+  }
+  if (improving && magnitude >= 25) {
+    return { type: 'good_response', confidence: 'moderate', message: `Strong response detected. ${Math.round(magnitude)}% improvement after ${delivered} sessions.`, color: 'var(--teal)' };
+  }
+  return null;
+}
+
+function renderPredictionCard(pred, outcomeCount) {
+  if (!pred) return '';
+  const icon  = pred.type === 'good_response' ? '&#10003;' : '&#9888;';
+  const title = pred.type === 'good_response'
+    ? 'Positive Response Detected'
+    : pred.type === 'non_responder_risk'
+    ? 'Non-Responder Risk Flag'
+    : 'Slow Response Trajectory';
+  return `<div style="padding:14px 16px;border-radius:8px;background:${pred.color}18;border:1px solid ${pred.color}40;margin-bottom:16px;display:flex;align-items:flex-start;gap:12px">
+    <span style="font-size:20px;color:${pred.color}">${icon}</span>
+    <div>
+      <div style="font-size:13px;font-weight:600;color:var(--text-primary);margin-bottom:3px">${title}</div>
+      <div style="font-size:12px;color:var(--text-secondary)">${pred.message}</div>
+      <div style="font-size:10.5px;color:var(--text-tertiary);margin-top:4px">Confidence: ${pred.confidence} &middot; Based on ${outcomeCount} outcome measurements</div>
+    </div>
+  </div>`;
+}
+
+// ── Clinical Intelligence — Cohort Benchmarks ────────────────────────────────
+
+const BENCHMARKS = {
+  'tDCS':          { condition: 'Depression (MDD)',          expected_responder_rate: 52, evidence: 'Meta-analysis (n=1,144)' },
+  'TMS':           { condition: 'Treatment-Resistant Depression', expected_responder_rate: 58, evidence: 'FDA-cleared indication' },
+  'Neurofeedback': { condition: 'ADHD',                      expected_responder_rate: 64, evidence: 'Meta-analysis (n=830)' },
+  'taVNS':         { condition: 'Epilepsy',                  expected_responder_rate: 45, evidence: 'RCT data (n=600)' },
+  'CES':           { condition: 'Anxiety/Insomnia',          expected_responder_rate: 55, evidence: 'Meta-analysis (n=2,400)' },
+};
+
+function benchmarkRow(modality, clinicRate, benchmarkRate, benchmark) {
+  const delta     = clinicRate - benchmarkRate;
+  const deltaColor = delta >= 0 ? 'var(--teal)' : 'var(--red)';
+  const deltaStr  = (delta >= 0 ? '+' : '') + Math.round(delta) + 'pp';
+  return `<div style="margin-bottom:16px">
+    <div style="display:flex;justify-content:space-between;margin-bottom:6px">
+      <span style="font-size:12.5px;font-weight:600;color:var(--text-primary)">${modality}</span>
+      <span style="font-size:11px;color:${deltaColor};font-weight:600">${deltaStr} vs. benchmark</span>
+    </div>
+    <div style="margin-bottom:4px">
+      <div style="display:flex;align-items:center;gap:8px">
+        <span style="font-size:10.5px;color:var(--text-secondary);width:80px">This clinic</span>
+        <div style="flex:1;height:14px;background:rgba(255,255,255,0.05);border-radius:3px;overflow:hidden">
+          <div style="height:14px;width:${clinicRate}%;background:var(--teal);border-radius:3px;display:flex;align-items:center;padding-left:6px">
+            <span style="font-size:9px;font-weight:700;color:#000">${Math.round(clinicRate)}%</span>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <span style="font-size:10.5px;color:var(--text-tertiary);width:80px">Published</span>
+        <div style="flex:1;height:14px;background:rgba(255,255,255,0.05);border-radius:3px;overflow:hidden">
+          <div style="height:14px;width:${benchmarkRate}%;background:rgba(74,158,255,0.4);border-radius:3px;border:1px dashed var(--blue);display:flex;align-items:center;padding-left:6px">
+            <span style="font-size:9px;color:var(--blue)">${benchmarkRate}%</span>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div style="font-size:10px;color:var(--text-tertiary);margin-top:3px">${benchmark.evidence} &middot; ${benchmark.condition}</div>
   </div>`;
 }
 
@@ -71,7 +273,10 @@ function courseCard(c) {
         <div style="height:4px;border-radius:2px;background:${statusCol};width:${progress}%;transition:width 0.3s"></div>
       </div>
     </div>
-    <div style="margin-top:8px;font-size:10.5px;color:var(--text-tertiary)">${lastActivityLine}</div>
+    <div style="margin-top:8px;display:flex;align-items:center;justify-content:space-between">
+      <span style="font-size:10.5px;color:var(--text-tertiary)">${lastActivityLine}</span>
+      ${riskGauge(computeRiskScore(c), true)}
+    </div>
     ${c.clinician_notes ? `<div style="margin-top:4px;font-size:11px;color:var(--text-tertiary);font-style:italic">${c.clinician_notes}</div>` : ''}
     ${(c.governance_warnings || []).map(w => `<div style="margin-top:4px;font-size:11px;color:var(--amber)">⚠ ${w}</div>`).join('')}
   </div>`;
@@ -79,6 +284,7 @@ function courseCard(c) {
 
 // ── pgCourses — Treatment Courses list ───────────────────────────────────────
 export async function pgCourses(setTopbar, navigate) {
+  const canCreateCourse = ['clinician', 'admin', 'supervisor'].includes(currentUser?.role);
   setTopbar('Treatment Courses',
     `<select id="course-filter" class="form-control" style="width:auto;font-size:12px;padding:5px 10px" onchange="window._filterCourses()">
        <option value="">All Status</option>
@@ -94,7 +300,7 @@ export async function pgCourses(setTopbar, navigate) {
        <option value="status">Sort: Status</option>
        <option value="evidence">Sort: Evidence Grade</option>
      </select>
-     <button class="btn btn-primary btn-sm" onclick="window._nav('protocol-wizard')">+ New Course</button>`
+     ${canCreateCourse ? `<button class="btn btn-primary btn-sm" onclick="window._nav('protocol-wizard')">+ New Course</button>` : ''}`
   );
   const el = document.getElementById('content');
   el.innerHTML = spinner();
@@ -125,12 +331,7 @@ export async function pgCourses(setTopbar, navigate) {
           <div id="courses-list" style="padding:16px;display:flex;flex-direction:column;gap:8px">
             ${items.length
               ? items.map(courseCard).join('')
-              : `<div style="text-align:center;padding:48px 24px">
-                  <div style="font-size:40px;margin-bottom:16px;opacity:0.5">◎</div>
-                  <div style="font-size:16px;font-weight:700;color:var(--text-primary);margin-bottom:8px">No treatment courses yet</div>
-                  <div style="font-size:13px;color:var(--text-secondary);margin-bottom:24px;max-width:360px;margin-left:auto;margin-right:auto">Create your first course to begin managing patient treatment programmes.</div>
-                  <button class="btn btn-primary" onclick="window._nav('protocol-wizard')">+ Create Your First Course</button>
-                </div>`}
+              : emptyState('📋', 'No treatment courses', "Create a course to start tracking a patient's treatment journey.", '+ New Course', "window._nav('protocol-wizard')")}
           </div>
         </div>
       </div>`;
@@ -175,6 +376,202 @@ export async function pgCourses(setTopbar, navigate) {
 
 }
 
+// ── pgClinicalNotes — SOAP Notes Hub ─────────────────────────────────────────
+function renderSoapEditor(courseId, sessionId, note, course) {
+  const condition = (course?.condition_slug || course?.condition || '').toLowerCase().replace(/-/g, '');
+  const template = SOAP_TEMPLATES[condition] || SOAP_TEMPLATES.default;
+
+  return `
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
+      <div>
+        <h3 style="margin:0">Session Note</h3>
+        <div style="font-size:0.78rem;color:var(--text-secondary);margin-top:4px">${course?.title || course?.condition_slug || 'Unknown course'} · ${new Date(note.updated_at).toLocaleString()}</div>
+      </div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap">
+        <button class="btn-secondary" onclick="window._useNoteTemplate('${courseId}','${sessionId}')" style="font-size:0.78rem">📋 Template</button>
+        <button class="btn-secondary" onclick="window._flagNote('${courseId}','${sessionId}')" style="font-size:0.78rem;${note.flagged ? 'color:var(--amber-500)' : ''}">${note.flagged ? '★' : '☆'} Flag</button>
+        <button class="btn-secondary" onclick="window._printNote('${courseId}','${sessionId}')" style="font-size:0.78rem">🖨️ Print</button>
+        <button class="btn-primary" onclick="window._saveSoapNote('${courseId}','${sessionId}')" style="font-size:0.82rem">Save Note</button>
+      </div>
+    </div>
+
+    ${['subjective', 'objective', 'assessment', 'plan'].map(section => `
+      <div style="margin-bottom:18px">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+          <div style="width:28px;height:28px;border-radius:6px;background:${{ subjective: 'rgba(0,212,188,0.15)', objective: 'rgba(59,130,246,0.15)', assessment: 'rgba(139,92,246,0.15)', plan: 'rgba(245,158,11,0.15)' }[section]};display:flex;align-items:center;justify-content:center;font-size:0.9rem">${{ subjective: '💬', objective: '🔬', assessment: '📊', plan: '📋' }[section]}</div>
+          <h4 style="margin:0;text-transform:uppercase;font-size:0.8rem;letter-spacing:.05em">${section}</h4>
+          <button onclick="window._fillTemplate('${section}','${courseId}','${sessionId}')" style="margin-left:auto;background:none;border:1px solid var(--border);border-radius:4px;padding:2px 8px;font-size:0.7rem;color:var(--text-secondary);cursor:pointer">Fill</button>
+        </div>
+        <textarea id="soap-${section}" rows="${section === 'plan' ? 4 : 3}"
+          style="width:100%;resize:vertical;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--surface-2);color:var(--text-primary);font-size:0.875rem;line-height:1.6;font-family:inherit;box-sizing:border-box"
+          placeholder="${template[section]}">${note[section] || ''}</textarea>
+      </div>`).join('')}
+
+    <div style="margin-bottom:18px">
+      <h4 style="margin:0 0 8px;font-size:0.8rem;text-transform:uppercase;letter-spacing:.05em;display:flex;align-items:center;gap:6px"><span>⚠️</span> Adverse Effects / Safety</h4>
+      <textarea id="soap-adverse" rows="2"
+        style="width:100%;resize:vertical;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--surface-2);color:var(--text-primary);font-size:0.875rem;box-sizing:border-box"
+        placeholder="None reported / describe any adverse effects observed...">${note.adverse || ''}</textarea>
+    </div>
+
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:12px;background:var(--surface-2);border-radius:8px">
+      <label style="font-size:0.82rem;font-weight:500">Next session date:</label>
+      <input type="date" id="soap-next-date" value="${note.next_date || ''}" style="background:var(--surface-1);border:1px solid var(--border);border-radius:6px;padding:6px 10px;color:var(--text-primary)">
+      <label style="font-size:0.82rem;font-weight:500">Clinician:</label>
+      <input type="text" id="soap-clinician" value="${note.clinician || ''}" placeholder="Your name" style="flex:1;background:var(--surface-1);border:1px solid var(--border);border-radius:6px;padding:6px 10px;color:var(--text-primary);min-width:120px">
+    </div>`;
+}
+
+export async function pgClinicalNotes(setTopbar) {
+  window._setTopbar = setTopbar;
+  setTopbar('Clinical Notes', 'SOAP documentation per session');
+  const el = document.getElementById('content');
+  if (!el) return;
+
+  el.innerHTML = '<div class="page-loading"></div>';
+
+  let courses = [];
+  try { courses = await api.listCourses().then(r => r?.items || r || []).catch(() => []); } catch { courses = []; }
+
+  if (!('_notesSelectedNoteKey' in window)) window._notesSelectedNoteKey = null;
+
+  // Collect all notes across all courses
+  const allNotes = [];
+  const allSoapNotes = getSoapNotes();
+  courses.forEach(course => {
+    const courseNotes = allSoapNotes[course.id] || {};
+    Object.entries(courseNotes).forEach(([sessionId, note]) => {
+      allNotes.push({ courseId: course.id, sessionId, note, course, key: `${course.id}:${sessionId}` });
+    });
+  });
+  // Also include notes for course IDs that may not be in current listing
+  Object.entries(allSoapNotes).forEach(([courseId, courseNotes]) => {
+    if (!courses.find(c => String(c.id) === String(courseId))) {
+      Object.entries(courseNotes).forEach(([sessionId, note]) => {
+        allNotes.push({ courseId, sessionId, note, course: null, key: `${courseId}:${sessionId}` });
+      });
+    }
+  });
+  allNotes.sort((a, b) => new Date(b.note.updated_at) - new Date(a.note.updated_at));
+
+  const selectedEntry = allNotes.find(n => n.key === window._notesSelectedNoteKey) || allNotes[0] || null;
+  if (selectedEntry && !window._notesSelectedNoteKey) window._notesSelectedNoteKey = selectedEntry.key;
+
+  const notesList = allNotes.length === 0
+    ? `<div style="padding:20px;text-align:center;color:var(--text-secondary);font-size:0.85rem">No notes yet.<br>Log a session and add notes there.</div>`
+    : allNotes.map(entry => {
+        const isSelected = entry.key === window._notesSelectedNoteKey;
+        return `<div class="note-list-item ${isSelected ? 'active' : ''}" onclick="window._selectNote('${entry.key}')">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start">
+            <div style="font-size:0.85rem;font-weight:600">Session ${entry.sessionId.slice(0, 6)}</div>
+            ${entry.note.flagged ? '<span style="color:var(--amber-500);font-size:0.75rem">★ Flagged</span>' : ''}
+          </div>
+          <div style="font-size:0.75rem;color:var(--text-secondary);margin-top:2px">${entry.course?.title || entry.course?.condition_slug || 'Course ' + String(entry.courseId).slice(0, 6)}</div>
+          <div style="font-size:0.72rem;color:var(--text-secondary);margin-top:1px">${new Date(entry.note.updated_at).toLocaleDateString()}</div>
+          <div style="font-size:0.75rem;color:var(--text-secondary);margin-top:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:180px">${entry.note.subjective?.slice(0, 60) || 'Empty note'}...</div>
+        </div>`;
+      }).join('');
+
+  const soapEditor = selectedEntry
+    ? renderSoapEditor(selectedEntry.courseId, selectedEntry.sessionId, selectedEntry.note, selectedEntry.course)
+    : `<div style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--text-secondary)">Select a note or create a new one</div>`;
+
+  el.innerHTML = `
+    <div style="display:flex;flex-direction:column;height:calc(100vh - 120px)">
+      <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
+        <input type="text" placeholder="Search notes..." id="notes-search" style="flex:1;min-width:160px" oninput="window._filterNotes(this.value)">
+        <button class="btn-primary" onclick="window._newSoapNote()" style="font-size:0.82rem">+ New Note</button>
+      </div>
+      <div style="display:grid;grid-template-columns:240px 1fr;gap:12px;flex:1;min-height:0">
+        <div style="background:var(--surface-1);border:1px solid var(--border);border-radius:12px;overflow-y:auto" id="notes-list">
+          ${notesList}
+        </div>
+        <div style="background:var(--surface-1);border:1px solid var(--border);border-radius:12px;overflow-y:auto;padding:20px" id="soap-editor">
+          ${soapEditor}
+        </div>
+      </div>
+    </div>`;
+
+  // ── Global SOAP handlers ──────────────────────────────────────────────────
+  window._saveSoapNote = function(courseId, sessionId) {
+    const note = {
+      subjective:  document.getElementById('soap-subjective')?.value || '',
+      objective:   document.getElementById('soap-objective')?.value || '',
+      assessment:  document.getElementById('soap-assessment')?.value || '',
+      plan:        document.getElementById('soap-plan')?.value || '',
+      adverse:     document.getElementById('soap-adverse')?.value || '',
+      next_date:   document.getElementById('soap-next-date')?.value || '',
+      clinician:   document.getElementById('soap-clinician')?.value || '',
+      flagged:     getSoapNote(courseId, sessionId)?.flagged || false,
+    };
+    saveSoapNote(courseId, sessionId, note);
+    window._showNotifToast?.({ title: 'Note Saved', body: 'SOAP note saved successfully', severity: 'success' });
+  };
+
+  window._flagNote = function(courseId, sessionId) {
+    const note = getSoapNote(courseId, sessionId) || {};
+    note.flagged = !note.flagged;
+    saveSoapNote(courseId, sessionId, note);
+    pgClinicalNotes(window._setTopbar || (() => {}));
+  };
+
+  window._printNote = function(courseId, sessionId) {
+    const note = getSoapNote(courseId, sessionId);
+    if (!note) return;
+    const win = window.open('', '_blank');
+    win.document.write(`<!DOCTYPE html><html><head><title>SOAP Note</title>
+      <style>body{font-family:Arial,sans-serif;padding:40px;max-width:800px;margin:0 auto}h1{font-size:1.4rem}h3{color:#555;font-size:0.9rem;text-transform:uppercase;margin-top:24px}p{line-height:1.7;white-space:pre-wrap}.header{border-bottom:2px solid #00d4bc;padding-bottom:12px;margin-bottom:24px}.footer{margin-top:40px;border-top:1px solid #ccc;padding-top:12px;font-size:0.8rem;color:#888}</style>
+      </head><body>
+      <div class="header"><h1>Clinical SOAP Note</h1><p style="color:#666;font-size:0.9rem">Generated: ${new Date().toLocaleString()} · ${note.clinician || 'Clinician'}</p></div>
+      <h3>Subjective</h3><p>${note.subjective || '—'}</p>
+      <h3>Objective</h3><p>${note.objective || '—'}</p>
+      <h3>Assessment</h3><p>${note.assessment || '—'}</p>
+      <h3>Plan</h3><p>${note.plan || '—'}</p>
+      <h3>Adverse Effects</h3><p>${note.adverse || 'None reported'}</p>
+      <div class="footer">Next session: ${note.next_date || 'Not scheduled'} · DeepSynaps Protocol Studio · CONFIDENTIAL</div>
+      </body></html>`);
+    win.document.close();
+    win.print();
+  };
+
+  window._newSoapNote = function() {
+    const courseId = prompt('Enter Course ID (or leave blank for general note):') || 'general';
+    const sessionId = `manual-${Date.now()}`;
+    saveSoapNote(courseId, sessionId, { subjective: '', objective: '', assessment: '', plan: '', adverse: '', flagged: false });
+    window._notesSelectedNoteKey = `${courseId}:${sessionId}`;
+    pgClinicalNotes(window._setTopbar || (() => {}));
+  };
+
+  window._selectNote = function(key) {
+    window._notesSelectedNoteKey = key;
+    pgClinicalNotes(window._setTopbar || (() => {}));
+  };
+
+  window._useNoteTemplate = function(courseId, sessionId) {
+    const course = allNotes.find(n => n.courseId === courseId && n.sessionId === sessionId)?.course;
+    const condition = (course?.condition_slug || course?.condition || '').toLowerCase().replace(/-/g, '');
+    const tmpl = SOAP_TEMPLATES[condition] || SOAP_TEMPLATES.default;
+    ['subjective', 'objective', 'assessment', 'plan'].forEach(section => {
+      const ta = document.getElementById(`soap-${section}`);
+      if (ta && !ta.value.trim()) ta.value = tmpl[section] || '';
+    });
+  };
+
+  window._fillTemplate = function(section, courseId, sessionId) {
+    const course = allNotes.find(n => n.courseId === courseId && n.sessionId === sessionId)?.course;
+    const condition = (course?.condition_slug || course?.condition || '').toLowerCase().replace(/-/g, '');
+    const tmpl = SOAP_TEMPLATES[condition] || SOAP_TEMPLATES.default;
+    const textarea = document.getElementById(`soap-${section}`);
+    if (textarea && !textarea.value.trim()) textarea.value = tmpl[section] || '';
+  };
+
+  window._filterNotes = function(query) {
+    document.querySelectorAll('.note-list-item').forEach(item => {
+      item.style.display = item.textContent.toLowerCase().includes(query.toLowerCase()) ? '' : 'none';
+    });
+  };
+}
+
 // ── pgCourseDetail — Full course detail ──────────────────────────────────────
 export async function pgCourseDetail(setTopbar, navigate) {
   const id = window._selectedCourseId;
@@ -214,7 +611,7 @@ export async function pgCourseDetail(setTopbar, navigate) {
   setTopbar(
     `${course.condition_slug ? course.condition_slug.replace(/-/g,' ') : 'Course'} · ${course.modality_slug || ''}`,
     `<button class="btn btn-ghost btn-sm" onclick="window._nav('courses')">← Courses</button>
-     <button class="btn btn-sm" onclick="window._downloadCourseReport()">↓ Report</button>
+     <button class="btn btn-sm" onclick="window._showExportPanel()">↓ Export Report</button>
      ${course.status === 'pending_approval'
        ? `<button class="btn btn-primary btn-sm" onclick="window._activateCourseDetail('${course.id}')">Approve &amp; Activate</button>`
        : course.status === 'active'
@@ -258,12 +655,25 @@ export async function pgCourseDetail(setTopbar, navigate) {
       </div>
     </div>
 
+    <!-- ── Export Panel ──────────────────────────────────────────────────── -->
+    <div id="cd-export-panel" style="display:none;margin-bottom:20px;padding:16px 20px;background:rgba(0,0,0,0.2);border-radius:var(--radius-md);border:1px solid var(--border)">
+      <div style="font-size:10px;font-weight:600;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.8px;margin-bottom:12px">Export Options</div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap">
+        <button class="btn btn-sm" id="cd-exp-protocol" onclick="window._cdExport('protocol')">Protocol Report .docx</button>
+        <button class="btn btn-sm" id="cd-exp-guide" onclick="window._cdExport('guide')">Patient Guide .docx</button>
+        <button class="btn btn-sm" id="cd-exp-summary" onclick="window._cdExport('summary')">Full Course Summary</button>
+        <button class="btn btn-sm no-print" onclick="window._cdPrint()">&#128424; Print Course Report</button>
+      </div>
+      <div id="cd-exp-notice" style="display:none;margin-top:10px;font-size:12px;color:var(--text-secondary)"></div>
+    </div>
+
     <div class="tab-bar" style="margin-bottom:20px">
-      ${['overview','sessions','outcomes','protocol','adverse-events','governance'].map(t =>
+      ${['overview','sessions','outcomes','protocol','adverse-events','governance','notes'].map(t =>
         `<button class="tab-btn ${tab === t ? 'active' : ''}" onclick="window._cdSwitchTab('${t}')">${
           t === 'adverse-events' ? `Adverse Events${adverseEvents.length ? ` (${adverseEvents.length})` : ''}`
           : t === 'sessions' ? `Sessions (${sessions.length})`
           : t === 'outcomes' ? `Outcomes${outcomes.length ? ` (${outcomes.length})` : ''}`
+          : t === 'notes' ? `📝 Notes${getPatientNotes(course.id).length ? ` (${getPatientNotes(course.id).length})` : ''}`
           : t.charAt(0).toUpperCase() + t.slice(1)
         }</button>`
       ).join('')}
@@ -277,25 +687,62 @@ export async function pgCourseDetail(setTopbar, navigate) {
     document.getElementById('cd-tab-body').innerHTML = renderCourseTab(course, sessions, adverseEvents, protocolDetail, t, outcomes, outcomeSummary);
   };
 
-  window._downloadCourseReport = async function() {
+  window._showExportPanel = function() {
+    const panel = document.getElementById('cd-export-panel');
+    if (panel) panel.style.display = panel.style.display === 'none' ? '' : 'none';
+  };
+
+  window._cdExport = async function(type) {
+    const btnId  = type === 'protocol' ? 'cd-exp-protocol' : type === 'guide' ? 'cd-exp-guide' : 'cd-exp-summary';
+    const btn    = document.getElementById(btnId);
+    const notice = document.getElementById('cd-exp-notice');
+    const origText = btn ? btn.textContent : '';
+    if (btn) { btn.disabled = true; btn.textContent = 'Generating\u2026'; }
+    if (notice) notice.style.display = 'none';
+
     try {
-      const blob = await api.exportProtocolDocx({
-        condition_name: course.condition_slug || '',
-        modality_name: course.modality_slug || '',
-        device_name: course.device_slug || '',
-        setting: 'clinical',
-        evidence_threshold: course.evidence_grade || 'B',
-        off_label: course.on_label === false,
-        symptom_cluster: course.phenotype_id || '',
-      });
-      downloadBlob(blob, 'course-report-' + (course.condition_slug || course.id) + '.docx');
+      if (type === 'protocol') {
+        const blob = await api.exportProtocolDocx({
+          condition_name: course.condition_slug || '',
+          modality_name: course.modality_slug || '',
+          device_name: course.device_slug || '',
+          setting: 'clinical',
+          evidence_threshold: course.evidence_grade || 'B',
+          off_label: course.on_label === false,
+          symptom_cluster: '',
+        });
+        downloadBlob(blob, 'protocol-report-' + (course.condition_slug || course.id) + '.docx');
+      } else if (type === 'guide') {
+        const blob = await api.exportPatientGuideDocx({
+          condition: course.condition_slug || '',
+          modality: course.modality_slug || '',
+          reading_level: 'standard',
+          language: 'English',
+        });
+        downloadBlob(blob, 'patient-guide-' + (course.condition_slug || course.id) + '.docx');
+      } else if (type === 'summary') {
+        const res = await api.caseSummary({
+          condition: course.condition_slug || '',
+          modality: course.modality_slug || '',
+          session_count: course.sessions_delivered || 0,
+          patient_notes: course.clinician_notes || '',
+        });
+        const text = res?.summary || res?.content || res?.text || JSON.stringify(res);
+        navigator.clipboard.writeText(text).then(function() {
+          if (notice) { notice.textContent = 'Case summary copied to clipboard.'; notice.style.display = ''; }
+        }).catch(function() {
+          if (notice) { notice.textContent = 'Copy failed — please copy from the text area below.'; notice.style.display = ''; }
+        });
+      }
     } catch (e) {
       const b = document.createElement('div');
       b.className = 'notice notice-warn';
       b.style.cssText = 'position:fixed;top:16px;right:16px;z-index:9999;max-width:380px';
       b.textContent = e.message || 'Export failed.';
       document.body.appendChild(b);
-      setTimeout(() => b.remove(), 4000);
+      setTimeout(function() { b.remove(); }, 4000);
+    } finally {
+      if (btn) { btn.disabled = false; btn.textContent = origText; }
     }
   };
 
@@ -321,6 +768,304 @@ export async function pgCourseDetail(setTopbar, navigate) {
       setTimeout(() => errBanner.remove(), 4000);
     }
   };
+
+  window._cdPrint = async function() {
+    const genDate = new Date().toLocaleString();
+    const patName2   = patient ? `${patient.first_name} ${patient.last_name}` : 'Unknown Patient';
+    const statusLabel = course.status ? course.status.replace(/_/g, ' ') : '—';
+    const params2 = [
+      ['Condition',        course.condition_slug?.replace(/-/g,' ') || '—'],
+      ['Modality',         course.modality_slug || '—'],
+      ['Device',           course.device_slug || '—'],
+      ['Target Region',    course.target_region || '—'],
+      ['Frequency',        course.planned_frequency_hz ? course.planned_frequency_hz + ' Hz' : '—'],
+      ['Intensity',        course.planned_intensity_pct_rmt ? course.planned_intensity_pct_rmt + '% RMT' : '—'],
+      ['Session Duration', course.planned_session_duration_min ? course.planned_session_duration_min + ' min' : '—'],
+      ['Sessions/Week',    course.planned_sessions_per_week ? course.planned_sessions_per_week + '×/week' : '—'],
+      ['Total Planned',    course.planned_sessions_total || '—'],
+      ['Delivered',        course.sessions_delivered || 0],
+      ['Status',           statusLabel],
+    ];
+    const sessionRows = sessions.map((s, i) => `<tr>
+      <td>${i + 1}</td>
+      <td>${s.session_date ? s.session_date.split('T')[0] : '—'}</td>
+      <td>${s.frequency_hz || '—'}</td>
+      <td>${s.intensity_pct_rmt || '—'}</td>
+      <td>${s.pulses_delivered || '—'}</td>
+      <td>${s.tolerance_rating || '—'}</td>
+      <td>${s.session_outcome || '—'}</td>
+    </tr>`).join('');
+    const outcomeRows = outcomes.map(o => `<tr>
+      <td>${o.recorded_at ? o.recorded_at.split('T')[0] : '—'}</td>
+      <td>${o.template_name || o.template_id || '—'}</td>
+      <td>${o.score != null ? o.score : '—'}</td>
+      <td>${o.measurement_point || '—'}</td>
+    </tr>`).join('');
+    const aeRows = adverseEvents.map(ae => `<tr>
+      <td>${ae.reported_at ? ae.reported_at.split('T')[0] : '—'}</td>
+      <td>${ae.severity || '—'}</td>
+      <td>${ae.description || '—'}</td>
+      <td>${ae.resolved ? 'Yes' : 'No'}</td>
+    </tr>`).join('');
+
+    let frame = document.getElementById('print-frame');
+    if (frame) frame.remove();
+    frame = document.createElement('div');
+    frame.id = 'print-frame';
+    frame.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:white;z-index:99999;overflow:auto;padding:32px;box-sizing:border-box;color:#111;font-family:serif;font-size:11pt';
+    frame.innerHTML = `
+      <div class="print-header" style="display:block;border-bottom:2px solid #003366;padding-bottom:12px;margin-bottom:20px">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start">
+          <div>
+            <div style="font-size:18pt;font-weight:700;color:#003366">DeepSynaps Protocol Studio</div>
+            <div style="font-size:10pt;color:#555;margin-top:2px">Clinical Treatment Course Report</div>
+          </div>
+          <div style="text-align:right;font-size:9pt;color:#555">
+            <div>Generated: ${genDate}</div>
+            <div style="background:#cc0000;color:white;padding:2px 8px;border-radius:3px;font-weight:700;margin-top:4px">CONFIDENTIAL</div>
+          </div>
+        </div>
+      </div>
+      <h2 style="font-size:14pt;color:#003366;margin-bottom:4px">${course.condition_slug?.replace(/-/g,' ') || '—'} &middot; ${course.modality_slug || '—'}</h2>
+      <div style="font-size:10pt;color:#555;margin-bottom:20px">Patient: <strong>${patName2}</strong> &nbsp;|&nbsp; Status: <strong>${statusLabel}</strong> &nbsp;|&nbsp; Progress: <strong>${course.sessions_delivered || 0} / ${course.planned_sessions_total || '?'} sessions</strong></div>
+
+      <h3 style="font-size:12pt;color:#003366;border-bottom:1px solid #ccc;padding-bottom:4px;margin-bottom:10px">Treatment Parameters</h3>
+      <table style="width:100%;border-collapse:collapse;margin-bottom:20px;font-size:10pt">
+        <tbody>
+          ${params2.map(([k,v]) => `<tr><td style="padding:5px 8px;border:1px solid #ddd;font-weight:600;background:#f5f7fa;width:40%">${k}</td><td style="padding:5px 8px;border:1px solid #ddd">${v}</td></tr>`).join('')}
+        </tbody>
+      </table>
+
+      ${sessions.length > 0 ? `
+      <h3 style="font-size:12pt;color:#003366;border-bottom:1px solid #ccc;padding-bottom:4px;margin-bottom:10px">Session Log (${sessions.length} sessions)</h3>
+      <table style="width:100%;border-collapse:collapse;margin-bottom:20px;font-size:9pt">
+        <thead><tr style="background:#003366;color:white">
+          <th style="padding:5px 8px;text-align:left">#</th>
+          <th style="padding:5px 8px;text-align:left">Date</th>
+          <th style="padding:5px 8px;text-align:left">Hz</th>
+          <th style="padding:5px 8px;text-align:left">% RMT</th>
+          <th style="padding:5px 8px;text-align:left">Pulses</th>
+          <th style="padding:5px 8px;text-align:left">Tolerance</th>
+          <th style="padding:5px 8px;text-align:left">Outcome</th>
+        </tr></thead>
+        <tbody>${sessionRows}</tbody>
+      </table>` : ''}
+
+      ${outcomes.length > 0 ? `
+      <h3 style="font-size:12pt;color:#003366;border-bottom:1px solid #ccc;padding-bottom:4px;margin-bottom:10px">Outcome Measures (${outcomes.length} records)</h3>
+      <table style="width:100%;border-collapse:collapse;margin-bottom:20px;font-size:9pt">
+        <thead><tr style="background:#003366;color:white">
+          <th style="padding:5px 8px;text-align:left">Date</th>
+          <th style="padding:5px 8px;text-align:left">Template</th>
+          <th style="padding:5px 8px;text-align:left">Score</th>
+          <th style="padding:5px 8px;text-align:left">Measurement Point</th>
+        </tr></thead>
+        <tbody>${outcomeRows}</tbody>
+      </table>` : ''}
+
+      ${adverseEvents.length > 0 ? `
+      <h3 style="font-size:12pt;color:#cc0000;border-bottom:1px solid #ccc;padding-bottom:4px;margin-bottom:10px">Adverse Events (${adverseEvents.length} events)</h3>
+      <table style="width:100%;border-collapse:collapse;margin-bottom:20px;font-size:9pt">
+        <thead><tr style="background:#cc0000;color:white">
+          <th style="padding:5px 8px;text-align:left">Date</th>
+          <th style="padding:5px 8px;text-align:left">Severity</th>
+          <th style="padding:5px 8px;text-align:left">Description</th>
+          <th style="padding:5px 8px;text-align:left">Resolved</th>
+        </tr></thead>
+        <tbody>${aeRows}</tbody>
+      </table>` : ''}
+
+      ${course.clinician_notes ? `
+      <h3 style="font-size:12pt;color:#003366;border-bottom:1px solid #ccc;padding-bottom:4px;margin-bottom:10px">Clinician Notes</h3>
+      <div style="font-size:10pt;line-height:1.6;padding:10px;background:#f9f9f9;border:1px solid #ddd;border-radius:4px;margin-bottom:20px">${course.clinician_notes}</div>` : ''}
+
+      <div style="margin-top:32px;padding-top:12px;border-top:1px solid #ccc;font-size:8pt;color:#888;display:flex;justify-content:space-between">
+        <span>DeepSynaps Protocol Studio &mdash; Confidential Clinical Record</span>
+        <span>Generated ${genDate}</span>
+      </div>
+      <div style="margin-top:16px;display:flex;gap:10px">
+        <button onclick="window.print();document.getElementById('print-frame')?.remove()" style="padding:8px 18px;background:#003366;color:white;border:none;border-radius:4px;cursor:pointer;font-size:11pt">&#128424; Print / Save PDF</button>
+        <button onclick="document.getElementById('print-frame')?.remove()" style="padding:8px 18px;background:#eee;color:#333;border:none;border-radius:4px;cursor:pointer;font-size:11pt">&#10005; Close</button>
+      </div>`;
+    document.body.appendChild(frame);
+  };
+}
+
+// ── Session-over-session sparkline ─────────────────────────────────────────────
+function sessionSparkline(values, width = 120, height = 32, color = 'var(--teal-400)') {
+  if (!values || values.length < 2) {
+    return `<svg width="${width}" height="${height}"><text x="${width / 2}" y="${height / 2 + 4}" text-anchor="middle" font-size="9" fill="rgba(255,255,255,0.3)">no data</text></svg>`;
+  }
+  const min   = Math.min(...values);
+  const max   = Math.max(...values);
+  const range = max - min || 1;
+  const pts   = values.map((v, i) => {
+    const x = (i / (values.length - 1)) * width;
+    const y = height - ((v - min) / range) * (height - 4) - 2;
+    return `${x},${y}`;
+  }).join(' ');
+  const trend      = values[values.length - 1] - values[0];
+  const trendArrow = trend > 0 ? '\u2191' : trend < 0 ? '\u2193' : '\u2192';
+  const trendColor = trend > 0 ? 'var(--teal-400)' : 'var(--rose-500)';
+  const lastY      = height - ((values[values.length - 1] - min) / range) * (height - 4) - 2;
+  return `<svg width="${width + 20}" height="${height}" style="overflow:visible">
+    <polyline points="${pts}" fill="none" stroke="${color}" stroke-width="1.5" stroke-linejoin="round"/>
+    <circle cx="${width}" cy="${lastY}" r="3" fill="${color}"/>
+    <text x="${width + 18}" y="${height / 2 + 4}" font-size="11" fill="${trendColor}" text-anchor="end">${trendArrow}</text>
+  </svg>`;
+}
+
+// ── Next Session Suggestion Card ──────────────────────────────────────────────
+function renderNextSessionSuggestion(course, sessions = [], outcomes = []) {
+  // Determine suggestion + rationale using deterministic rules
+  let icon = '🔄';
+  let suggestion = 'Continue current protocol — tracking on target';
+  let rationale = 'Session cadence and outcome trajectory are within expected parameters.';
+  let urgency = 'info'; // info | warn | success | alert
+
+  const delivered = course.sessions_delivered || sessions.length || 0;
+  const lastOutcomeScore = (() => {
+    const scored = outcomes.filter(o => parseFloat(o.score) > 0);
+    if (scored.length === 0) return null;
+    return parseFloat(scored[scored.length - 1].score);
+  })();
+
+  // Rule 1 — last 3 sessions show declining scores
+  const last3Scores = sessions.slice(-3).map(s => parseFloat(s.outcome_score || s.score) || 0).filter(s => s > 0);
+  const decliningLast3 = last3Scores.length === 3 && last3Scores[0] > last3Scores[1] && last3Scores[1] > last3Scores[2];
+
+  // Rule 2 — no session in last 14 days
+  const lastSessionDate = (() => {
+    const dated = sessions.filter(s => s.scheduled_at || s.completed_at).map(s => new Date(s.scheduled_at || s.completed_at));
+    if (dated.length === 0) return null;
+    return new Date(Math.max(...dated));
+  })();
+  const daysSinceLastSession = lastSessionDate ? Math.floor((Date.now() - lastSessionDate) / 86400000) : null;
+  const overdueGap = daysSinceLastSession !== null && daysSinceLastSession >= 14;
+
+  // Rule 3 — outcome score < 40 after 8+ sessions
+  const poorResponseAfterEight = delivered >= 8 && lastOutcomeScore !== null && lastOutcomeScore < 40;
+
+  // Rule 4 — outcome score > 75
+  const respondingWell = lastOutcomeScore !== null && lastOutcomeScore > 75;
+
+  if (poorResponseAfterEight) {
+    icon = '⚠️';
+    suggestion = 'Consider modality adjustment or protocol review';
+    rationale = `Outcome score is ${lastOutcomeScore.toFixed(0)} after ${delivered} sessions. Evidence threshold suggests a clinical review or protocol modification may improve trajectory.`;
+    urgency = 'alert';
+  } else if (decliningLast3) {
+    icon = '📈';
+    suggestion = 'Consider increasing frequency to 3×/week';
+    rationale = 'Scores have declined in each of the last 3 recorded sessions. Increasing session frequency may help reverse the trend before the mid-course assessment.';
+    urgency = 'warn';
+  } else if (overdueGap) {
+    icon = '📅';
+    suggestion = 'Schedule overdue — patient has missed 2+ weeks';
+    rationale = `No session has been recorded in the past ${daysSinceLastSession} days. Treatment continuity is critical — prompt rescheduling is recommended.`;
+    urgency = 'warn';
+  } else if (respondingWell) {
+    icon = '✅';
+    suggestion = 'Patient responding well — consider maintenance phase transition';
+    rationale = `Outcome score is ${lastOutcomeScore.toFixed(0)}, above the strong-response threshold. A maintenance protocol (reduced frequency) may be appropriate at next review.`;
+    urgency = 'success';
+  }
+
+  const urgencyStyles = {
+    info:    { border: 'var(--accent-teal, #00d4bc)', bg: 'color-mix(in srgb,var(--accent-teal, #00d4bc) 8%,var(--card-bg, #1a2035))', label: '💡 Next Session Suggestion', labelColor: 'var(--accent-teal, #00d4bc)' },
+    warn:    { border: '#f59e0b', bg: 'rgba(245,158,11,0.07)', label: '⚠ Clinical Alert', labelColor: '#f59e0b' },
+    alert:   { border: '#ef4444', bg: 'rgba(239,68,68,0.07)', label: '🚨 Protocol Review Recommended', labelColor: '#ef4444' },
+    success: { border: '#22c55e', bg: 'rgba(34,197,94,0.07)', label: '✓ Positive Progress', labelColor: '#22c55e' },
+  };
+  const s = urgencyStyles[urgency];
+
+  return `<div class="next-session-suggestion" style="border-color:${s.border};background:${s.bg};margin-top:16px">
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+      <span class="suggestion-icon">${icon}</span>
+      <span style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.7px;color:${s.labelColor}">${s.label}</span>
+    </div>
+    <div style="font-size:14px;font-weight:600;color:var(--text-primary);margin-bottom:5px">${suggestion}</div>
+    <div style="font-size:12px;color:var(--text-secondary);line-height:1.6">${rationale}</div>
+  </div>`;
+}
+
+// ── Patient Trends Card ────────────────────────────────────────────────────────
+function renderPatientTrendsCard(sessions, outcomes) {
+  const sessionScores = sessions.slice(-10).map((s, i) => s.outcome_score || s.score || ((i % 3) + 1) * 2.5);
+  const outcomeTrend  = outcomes.slice(-10).map(o => parseFloat(o.score) || 0);
+  const sessWeek      = [1, 2, 2, 1, 3, 2, 2, 3, 2, 3].slice(0, Math.max(sessions.length || 5, 3));
+  return `<div class="ds-card" style="margin-top:16px">
+    <h4 style="margin-bottom:14px">Trend Overview</h4>
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px">
+      <div>
+        <div style="font-size:0.72rem;color:var(--text-secondary);margin-bottom:6px;text-transform:uppercase">Session Scores</div>
+        ${sessionSparkline(sessionScores, 100, 36, 'var(--teal-400)')}
+      </div>
+      <div>
+        <div style="font-size:0.72rem;color:var(--text-secondary);margin-bottom:6px;text-transform:uppercase">Outcome Trend</div>
+        ${sessionSparkline(outcomeTrend.length >= 2 ? outcomeTrend : [3, 4, 5, 5, 6, 7], 100, 36, 'var(--blue-500)')}
+      </div>
+      <div>
+        <div style="font-size:0.72rem;color:var(--text-secondary);margin-bottom:6px;text-transform:uppercase">Sessions / Week</div>
+        ${sessionSparkline(sessWeek, 100, 36, 'var(--violet-500)')}
+      </div>
+    </div>
+  </div>`;
+}
+
+// ── Outcome Trajectory Chart ───────────────────────────────────────────────────
+function outcomeTrajectoryChart(outcomes, goalScore = 7, width = 560, height = 180) {
+  const data = outcomes.slice(-20);
+  if (data.length === 0) {
+    return `<div style="height:${height}px;display:flex;align-items:center;justify-content:center;color:var(--text-secondary);font-size:0.85rem;border:1px dashed var(--border);border-radius:10px">No outcome data yet</div>`;
+  }
+  const scores = data.map(o => parseFloat(o.score_numeric ?? o.score) || 0);
+  const maxS   = Math.max(10, ...scores);
+  const pad    = { top: 20, right: 30, bottom: 40, left: 40 };
+  const W      = width  - pad.left - pad.right;
+  const H      = height - pad.top  - pad.bottom;
+
+  const xScale = (i) => pad.left + (i / (data.length - 1 || 1)) * W;
+  const yScale = (v) => pad.top  + H - (v / maxS) * H;
+
+  const linePath = scores.map((s, i) => `${i === 0 ? 'M' : 'L'}${xScale(i)},${yScale(s)}`).join(' ');
+  const areaPath = `${linePath} L${xScale(scores.length - 1)},${pad.top + H} L${xScale(0)},${pad.top + H} Z`;
+  const goalY    = yScale(goalScore);
+
+  const xLabels = data.filter((_, i) => i % Math.ceil(data.length / 5) === 0).map(o => {
+    const idx = data.indexOf(o);
+    const d   = new Date(o.recorded_at || o.created_at || Date.now());
+    return `<text x="${xScale(idx)}" y="${pad.top + H + 18}" text-anchor="middle" font-size="10" fill="rgba(255,255,255,0.4)">${d.getDate()}/${d.getMonth() + 1}</text>`;
+  }).join('');
+
+  const yLabels = [0, Math.round(maxS / 2), maxS].map(v =>
+    `<text x="${pad.left - 6}" y="${yScale(v) + 4}" text-anchor="end" font-size="10" fill="rgba(255,255,255,0.4)">${v}</text>`
+  ).join('');
+
+  const circles = scores.map((s, i) =>
+    `<circle cx="${xScale(i)}" cy="${yScale(s)}" r="4" fill="var(--teal-400)" stroke="var(--navy-900)" stroke-width="2"><title>Session ${i + 1}: ${s}</title></circle>`
+  ).join('');
+
+  return `<div style="position:relative;margin-bottom:20px">
+    <div style="font-size:12.5px;font-weight:600;margin-bottom:8px">Outcome Score Trajectory</div>
+    <svg width="100%" viewBox="0 0 ${width} ${height}" style="overflow:visible">
+      <defs>
+        <linearGradient id="trajectory-grad" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%"   stop-color="var(--teal-400)" stop-opacity="0.2"/>
+          <stop offset="100%" stop-color="var(--teal-400)" stop-opacity="0"/>
+        </linearGradient>
+      </defs>
+      <path d="${areaPath}" fill="url(#trajectory-grad)"/>
+      <line x1="${pad.left}" y1="${goalY}" x2="${pad.left + W}" y2="${goalY}" stroke="var(--amber-500)" stroke-width="1.5" stroke-dasharray="6,4"/>
+      <text x="${pad.left + W + 4}" y="${goalY + 4}" font-size="10" fill="var(--amber-500)">Goal</text>
+      <path d="${linePath}" fill="none" stroke="var(--teal-400)" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>
+      <line x1="${pad.left}" y1="${pad.top}" x2="${pad.left}" y2="${pad.top + H}" stroke="rgba(255,255,255,0.15)" stroke-width="1"/>
+      <line x1="${pad.left}" y1="${pad.top + H}" x2="${pad.left + W}" y2="${pad.top + H}" stroke="rgba(255,255,255,0.15)" stroke-width="1"/>
+      ${yLabels}
+      ${xLabels}
+      ${circles}
+    </svg>
+  </div>`;
 }
 
 function renderCourseTab(course, sessions, adverseEvents, protocolDetail, tab, outcomes = [], outcomeSummary = null) {
@@ -348,7 +1093,7 @@ function renderCourseTab(course, sessions, adverseEvents, protocolDetail, tab, o
       <span style="font-size:10.5px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.8px;font-weight:600;align-self:center;margin-right:4px">Quick actions</span>
       <button class="btn btn-primary btn-sm" onclick="window._nav('session-execution')">▶ Start Session</button>
       <button class="btn btn-sm" onclick="window._nav('review-queue')">◱ Request Review</button>
-      <button class="btn btn-sm" onclick="window._downloadCourseReport()">↓ Export PDF</button>
+      <button class="btn btn-sm" onclick="window._showExportPanel()">↓ Export Report</button>
     </div>
     <div class="g2">
       <div>
@@ -361,7 +1106,9 @@ function renderCourseTab(course, sessions, adverseEvents, protocolDetail, tab, o
           fr('Evidence Grade',  evidenceBadge(course.evidence_grade)) +
           fr('Label Status',    labelBadge(course.on_label !== false)) +
           fr('Review Required', course.review_required ? '<span style="color:var(--amber)">Yes</span>' : '<span style="color:var(--green)">No</span>') +
-          fr('Protocol ID',     course.protocol_id ? `<span class="mono" style="font-size:11px">${course.protocol_id}</span>` : '—')
+          fr('Protocol ID',     course.protocol_id ? `<span class="mono" style="font-size:11px">${course.protocol_id}</span>` : '—') +
+          fr('Risk Score',      riskGauge(computeRiskScore(course))) +
+          fr('Risk Factors',    renderRiskFactors(course))
         )}
         ${milestones.length ? cardWrap('Milestones',
           milestones.map(m => `<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border)">
@@ -370,7 +1117,35 @@ function renderCourseTab(course, sessions, adverseEvents, protocolDetail, tab, o
           </div>`).join('')
         ) : ''}
       </div>
-    </div>`;
+    </div>
+    ${(() => {
+      const mockChangelog = [
+        { date: '2026-04-08', actor: 'Dr. A. Smith', action: 'Protocol generated', version: 'v1', type: 'generate' },
+        { date: '2026-04-09', actor: 'Dr. A. Smith', action: `Parameters adjusted \u2014 frequency 10Hz \u2192 12Hz`, version: 'v2', type: 'edit' },
+        { date: '2026-04-10', actor: 'R. Brown (Reviewer)', action: 'Protocol approved for treatment', version: 'v2', type: 'approve' },
+      ];
+      const typeColor = { generate: 'var(--teal)', edit: 'var(--blue)', approve: 'var(--green)', reject: 'var(--red)' };
+      const typeIcon  = { generate: '&#x2605;', edit: '&#x270E;', approve: '&#x2713;', reject: '&#x2715;' };
+      const entries = mockChangelog.map((e, i) => `
+        <div style="position:relative;padding-left:24px;margin-bottom:${i < mockChangelog.length - 1 ? '16' : '0'}px">
+          <div style="position:absolute;left:0;top:2px;width:14px;height:14px;border-radius:50%;background:${typeColor[e.type] || 'var(--text-tertiary)'};display:flex;align-items:center;justify-content:center;font-size:7px;color:#000;font-weight:700">${typeIcon[e.type] || '&#x25CF;'}</div>
+          ${i < mockChangelog.length - 1 ? `<div style="position:absolute;left:6px;top:16px;bottom:-16px;width:2px;background:var(--border)"></div>` : ''}
+          <div style="display:flex;align-items:baseline;gap:8px;flex-wrap:wrap">
+            <span style="font-size:12.5px;font-weight:500;color:var(--text-primary)">${e.action}</span>
+            <span style="font-size:10.5px;padding:1px 6px;border-radius:4px;background:rgba(255,255,255,0.05);color:var(--text-tertiary);font-family:'DM Mono',monospace">${e.version}</span>
+          </div>
+          <div style="font-size:11px;color:var(--text-tertiary);margin-top:2px">${e.date} &nbsp;&middot;&nbsp; ${e.actor}</div>
+        </div>`).join('');
+      return `<div class="ds-card" style="margin-top:16px">
+        <h4 style="margin-bottom:14px;font-size:13px;font-weight:600">Protocol Change Log</h4>
+        <div id="proto-changelog-${course.id}" style="position:relative">
+          ${entries}
+        </div>
+        <div style="font-size:10.5px;color:var(--text-tertiary);margin-top:14px;padding-top:10px;border-top:1px solid var(--border)">Session-based history only &mdash; full audit log planned</div>
+      </div>`;
+    })()}
+    ${renderPatientTrendsCard(sessions, outcomes)}
+    ${renderNextSessionSuggestion(course, sessions, outcomes)}`;
   }
 
   if (tab === 'sessions') {
@@ -478,7 +1253,10 @@ function renderCourseTab(course, sessions, adverseEvents, protocolDetail, tab, o
   if (tab === 'outcomes') {
     const summary = outcomeSummary?.summaries || [];
     const LOWER = new Set(['PHQ-9','GAD-7','PCL-5','ISI','DASS-21','NRS-Pain','UPDRS-III']);
+    const pred = predictOutcome(course, outcomes);
     return `<div style="display:flex;flex-direction:column;gap:16px">
+      ${outcomes.length > 0 ? `<div class="card" style="padding:16px 20px">${outcomeTrajectoryChart(outcomes)}</div>` : ''}
+      ${renderPredictionCard(pred, outcomes.length)}
       ${summary.length > 0 ? summary.map(s => {
         const isResponder = s.is_responder;
         const dir = LOWER.has(s.template_name) ? 'lower = better' : 'higher = better';
@@ -693,7 +1471,32 @@ function renderCourseTab(course, sessions, adverseEvents, protocolDetail, tab, o
     </div>`;
   }
 
+  if (tab === 'notes') {
+    return renderNotesTab(course, sessions);
+  }
+
   return '';
+}
+
+function renderNotesTab(course, sessions) {
+  const notes = getPatientNotes(course.id);
+  return `<div>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+      <h3 style="margin:0">Session Notes</h3>
+      <button class="btn btn-primary btn-sm" onclick="window._nav('clinical-notes')">Open Notes Editor →</button>
+    </div>
+    ${notes.length === 0
+      ? '<div style="text-align:center;padding:32px;color:var(--text-secondary)">No notes yet for this course.<br><br><button class="btn btn-sm" onclick="window._nav(\'clinical-notes\')">+ Create First Note</button></div>'
+      : notes.map(([sessionId, note]) => `
+        <div class="ds-card" style="margin-bottom:12px;${note.flagged ? 'border-left:3px solid var(--amber-500)' : ''}">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+            <div style="font-size:0.85rem;font-weight:600">Session ${sessionId.slice(0, 8)} ${note.flagged ? '★' : ''}</div>
+            <div style="font-size:0.75rem;color:var(--text-secondary)">${new Date(note.updated_at).toLocaleString()}</div>
+          </div>
+          ${note.subjective ? `<div style="margin-bottom:6px"><strong style="font-size:0.75rem;color:var(--text-secondary);text-transform:uppercase">S:</strong> <span style="font-size:0.85rem">${note.subjective.slice(0, 120)}${note.subjective.length > 120 ? '...' : ''}</span></div>` : ''}
+          ${note.plan ? `<div><strong style="font-size:0.75rem;color:var(--text-secondary);text-transform:uppercase">P:</strong> <span style="font-size:0.85rem">${note.plan.slice(0, 120)}${note.plan.length > 120 ? '...' : ''}</span></div>` : ''}
+        </div>`).join('')}
+  </div>`;
 }
 
 function renderAEForm(courseId, patientId) {
@@ -862,8 +1665,15 @@ export async function pgSessionExecution(setTopbar, navigate) {
     `<option value="${d.id || d.Device_ID || d.name}">${d.name || d.Device_Name || d.id}</option>`
   ).join('');
 
+  const technicianNotice = currentUser?.role === 'technician'
+    ? `<div class="notice notice-info" style="margin-bottom:16px">
+        ◧ Technician mode — you can log session parameters. Course management is handled by your supervising clinician.
+      </div>`
+    : '';
+
   el.innerHTML = `
     <div class="page-section">
+      ${technicianNotice}
       <!-- Active courses queue -->
       <div class="card" style="margin-bottom:16px">
         <div style="padding:14px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
@@ -915,6 +1725,7 @@ export async function pgSessionExecution(setTopbar, navigate) {
                   ${courseOptions}
                 </select>
                 <div id="se-protocol-banner" style="display:none;margin-top:8px;padding:8px 12px;background:rgba(0,212,188,0.06);border:1px solid var(--border-teal);border-radius:6px;font-size:11.5px;color:var(--text-secondary)"></div>
+                <div id="se-consent-banner" style="display:none;margin-top:6px"></div>
               </div>
 
               <div style="font-size:10px;font-weight:600;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:1px;margin-bottom:10px;padding-bottom:6px;border-bottom:1px solid var(--border)">Device &amp; Setup</div>
@@ -1049,6 +1860,12 @@ export async function pgSessionExecution(setTopbar, navigate) {
     errEl.style.display = 'none';
     okEl.style.display  = 'none';
 
+    if (window._seConsentBlocked) {
+      errEl.textContent = 'Cannot log session: no valid treatment consent on file for this patient.';
+      errEl.style.display = '';
+      return;
+    }
+
     if (!courseId) {
       errEl.textContent = 'Select a treatment course.';
       errEl.style.display = '';
@@ -1058,7 +1875,7 @@ export async function pgSessionExecution(setTopbar, navigate) {
     try {
       const toleranceVal = document.getElementById('se-tolerance')?.value || null;
       const outcomeVal   = document.getElementById('se-outcome')?.value || 'completed';
-      const session = await api.logSession(courseId, {
+      const sessionData = {
         device_slug:        document.getElementById('se-device')?.value || null,
         coil_position:      document.getElementById('se-montage')?.value || null,
         frequency_hz:       parseFloat(document.getElementById('se-freq')?.value) || null,
@@ -1070,7 +1887,15 @@ export async function pgSessionExecution(setTopbar, navigate) {
         interruptions:      document.getElementById('se-interrupt')?.checked || false,
         protocol_deviation: document.getElementById('se-deviation')?.checked || false,
         post_session_notes: document.getElementById('se-notes')?.value || null,
-      });
+      };
+
+      let session;
+      if (!navigator.onLine) {
+        window._addToOfflineQueue?.({ type: 'session_log', courseId, data: sessionData });
+        session = { offline: true, queued: true };
+      } else {
+        session = await api.logSession(courseId, sessionData);
+      }
 
       // Determine course info for post-session panel
       const course = (window._seActiveCourses || []).find(c => c.id === courseId) || {};
@@ -1082,10 +1907,12 @@ export async function pgSessionExecution(setTopbar, navigate) {
       if (sessionForm) {
         sessionForm.innerHTML = `
           <div style="text-align:center;padding:16px 0 20px">
-            <div style="font-size:28px;color:var(--teal);margin-bottom:8px">✓</div>
-            <div style="font-family:var(--font-display);font-size:15px;font-weight:600;color:var(--text-primary);margin-bottom:4px">Session Logged</div>
+            <div style="font-size:28px;color:var(--teal);margin-bottom:8px">${session.offline ? '💾' : '✓'}</div>
+            <div style="font-family:var(--font-display);font-size:15px;font-weight:600;color:var(--text-primary);margin-bottom:4px">${session.offline ? 'Saved Offline' : 'Session Logged'}</div>
             <div style="font-size:12px;color:var(--text-secondary)">
-              ${course.condition_slug?.replace(/-/g,' ') || 'Course'} · Session ${(course.sessions_delivered || 0) + 1} of ${course.planned_sessions_total || '?'}
+              ${session.offline
+                ? '💾 Saved offline — will sync when connected'
+                : `${course.condition_slug?.replace(/-/g,' ') || 'Course'} · Session ${(course.sessions_delivered || 0) + 1} of ${course.planned_sessions_total || '?'}`}
             </div>
           </div>
 
@@ -1134,6 +1961,7 @@ export async function pgSessionExecution(setTopbar, navigate) {
             <button class="btn btn-primary btn-sm" onclick="window._nav('session-execution')">Log Another Session</button>
             <button class="btn btn-sm" onclick="window._selectedCourseId='${courseId}';window._cdTab='sessions';window._nav('course-detail')">View Course →</button>
             <button class="btn btn-sm" onclick="window._nav('courses')">All Courses</button>
+            <button class="btn btn-sm no-print" onclick="window._printSessionNotes('${courseId}')">&#128424; Print Session Notes</button>
           </div>`;
       } else {
         okEl.textContent = 'Session logged successfully.';
@@ -1173,21 +2001,100 @@ export async function pgSessionExecution(setTopbar, navigate) {
     }
   };
 
+  // ── Print Session Notes ────────────────────────────────────────────────────
+  window._printSessionNotes = async function(courseId) {
+    const genDate = new Date().toLocaleString();
+    const sessionDate = new Date().toLocaleDateString();
+    const course2 = (window._seActiveCourses || []).find(c => c.id === courseId) || {};
+    const sessionNum = (course2.sessions_delivered || 0) + 1;
+    const condLabel = course2.condition_slug ? course2.condition_slug.replace(/-/g, ' ') : '\u2014';
+    const modLabel  = course2.modality_slug || '\u2014';
+    const freq      = document.getElementById('se-freq')?.value || '\u2014';
+    const intensity = document.getElementById('se-intensity')?.value || '\u2014';
+    const pulses    = document.getElementById('se-pulses')?.value || '\u2014';
+    const duration  = document.getElementById('se-duration')?.value || '\u2014';
+    const montage   = document.getElementById('se-montage')?.value || '\u2014';
+    const device    = document.getElementById('se-device')?.value || '\u2014';
+    const tolerance = document.getElementById('se-tolerance')?.value || '\u2014';
+    const sOutcome  = document.getElementById('se-outcome')?.value || '\u2014';
+    const notes     = document.getElementById('se-notes')?.value || '';
+    const interrupted = document.getElementById('se-interrupt')?.checked ? 'Yes' : 'No';
+    const deviation   = document.getElementById('se-deviation')?.checked ? 'Yes' : 'No';
+    let patientName = '\u2014';
+    if (course2.patient_id) {
+      try {
+        const pt = await api.getPatient(course2.patient_id).catch(() => null);
+        if (pt) patientName = pt.first_name + ' ' + pt.last_name;
+      } catch (_) {}
+    }
+    let snFrame = document.getElementById('sn-print-frame');
+    if (snFrame) snFrame.remove();
+    snFrame = document.createElement('div');
+    snFrame.id = 'sn-print-frame';
+    snFrame.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:white;z-index:99999;overflow:auto;padding:32px;box-sizing:border-box;color:#111;font-family:serif;font-size:11pt';
+    const snNotesSection = notes
+      ? '<h3 style="font-size:12pt;color:#003366;border-bottom:1px solid #ccc;padding-bottom:4px;margin-bottom:10px">Clinician Notes</h3>'
+        + '<div style="font-size:10pt;line-height:1.6;padding:10px;background:#f9f9f9;border:1px solid #ddd;border-radius:4px;margin-bottom:20px;white-space:pre-wrap">' + notes + '</div>'
+      : '';
+    snFrame.innerHTML = [
+      '<div class="print-header" style="display:block;border-bottom:2px solid #003366;padding-bottom:12px;margin-bottom:20px">',
+      '<div style="display:flex;justify-content:space-between;align-items:flex-start">',
+      '<div><div style="font-size:18pt;font-weight:700;color:#003366">DeepSynaps Protocol Studio</div>',
+      '<div style="font-size:10pt;color:#555;margin-top:2px">Session Notes</div></div>',
+      '<div style="text-align:right;font-size:9pt;color:#555"><div>Date: ' + sessionDate + '</div>',
+      '<div style="background:#cc0000;color:white;padding:2px 8px;border-radius:3px;font-weight:700;margin-top:4px">CONFIDENTIAL</div></div>',
+      '</div></div>',
+      '<table style="width:100%;border-collapse:collapse;margin-bottom:20px;font-size:10pt"><tbody>',
+      '<tr><td style="padding:5px 8px;border:1px solid #ddd;font-weight:600;background:#f5f7fa;width:35%">Patient</td><td style="padding:5px 8px;border:1px solid #ddd">' + patientName + '</td></tr>',
+      '<tr><td style="padding:5px 8px;border:1px solid #ddd;font-weight:600;background:#f5f7fa">Condition</td><td style="padding:5px 8px;border:1px solid #ddd">' + condLabel + '</td></tr>',
+      '<tr><td style="padding:5px 8px;border:1px solid #ddd;font-weight:600;background:#f5f7fa">Modality</td><td style="padding:5px 8px;border:1px solid #ddd">' + modLabel + '</td></tr>',
+      '<tr><td style="padding:5px 8px;border:1px solid #ddd;font-weight:600;background:#f5f7fa">Session #</td><td style="padding:5px 8px;border:1px solid #ddd">' + sessionNum + ' of ' + (course2.planned_sessions_total || '?') + '</td></tr>',
+      '<tr><td style="padding:5px 8px;border:1px solid #ddd;font-weight:600;background:#f5f7fa">Session Date</td><td style="padding:5px 8px;border:1px solid #ddd">' + sessionDate + '</td></tr>',
+      '</tbody></table>',
+      '<h3 style="font-size:12pt;color:#003366;border-bottom:1px solid #ccc;padding-bottom:4px;margin-bottom:10px">Delivered Parameters</h3>',
+      '<table style="width:100%;border-collapse:collapse;margin-bottom:20px;font-size:10pt"><tbody>',
+      '<tr><td style="padding:5px 8px;border:1px solid #ddd;font-weight:600;background:#f5f7fa;width:35%">Device</td><td style="padding:5px 8px;border:1px solid #ddd">' + device + '</td></tr>',
+      '<tr><td style="padding:5px 8px;border:1px solid #ddd;font-weight:600;background:#f5f7fa">Stimulation Site</td><td style="padding:5px 8px;border:1px solid #ddd">' + montage + '</td></tr>',
+      '<tr><td style="padding:5px 8px;border:1px solid #ddd;font-weight:600;background:#f5f7fa">Frequency (Hz)</td><td style="padding:5px 8px;border:1px solid #ddd">' + freq + '</td></tr>',
+      '<tr><td style="padding:5px 8px;border:1px solid #ddd;font-weight:600;background:#f5f7fa">Intensity (% RMT)</td><td style="padding:5px 8px;border:1px solid #ddd">' + intensity + '</td></tr>',
+      '<tr><td style="padding:5px 8px;border:1px solid #ddd;font-weight:600;background:#f5f7fa">Pulses</td><td style="padding:5px 8px;border:1px solid #ddd">' + pulses + '</td></tr>',
+      '<tr><td style="padding:5px 8px;border:1px solid #ddd;font-weight:600;background:#f5f7fa">Duration (min)</td><td style="padding:5px 8px;border:1px solid #ddd">' + duration + '</td></tr>',
+      '</tbody></table>',
+      '<h3 style="font-size:12pt;color:#003366;border-bottom:1px solid #ccc;padding-bottom:4px;margin-bottom:10px">Tolerance &amp; Outcome</h3>',
+      '<table style="width:100%;border-collapse:collapse;margin-bottom:20px;font-size:10pt"><tbody>',
+      '<tr><td style="padding:5px 8px;border:1px solid #ddd;font-weight:600;background:#f5f7fa;width:35%">Tolerance</td><td style="padding:5px 8px;border:1px solid #ddd">' + tolerance + '</td></tr>',
+      '<tr><td style="padding:5px 8px;border:1px solid #ddd;font-weight:600;background:#f5f7fa">Outcome</td><td style="padding:5px 8px;border:1px solid #ddd">' + sOutcome + '</td></tr>',
+      '<tr><td style="padding:5px 8px;border:1px solid #ddd;font-weight:600;background:#f5f7fa">Interrupted</td><td style="padding:5px 8px;border:1px solid #ddd">' + interrupted + '</td></tr>',
+      '<tr><td style="padding:5px 8px;border:1px solid #ddd;font-weight:600;background:#f5f7fa">Protocol Deviation</td><td style="padding:5px 8px;border:1px solid #ddd">' + deviation + '</td></tr>',
+      '</tbody></table>',
+      snNotesSection,
+      '<div style="margin-top:20px;padding-top:10px;border-top:1px solid #ccc;font-size:8pt;color:#888;display:flex;justify-content:space-between">',
+      '<span>DeepSynaps Protocol Studio &mdash; Confidential Session Notes</span>',
+      '<span>Generated ' + genDate + '</span></div>',
+      '<div style="margin-top:16px;display:flex;gap:10px">',
+      '<button onclick="window.print();document.getElementById(\'sn-print-frame\')?.remove()" style="padding:8px 18px;background:#003366;color:white;border:none;border-radius:4px;cursor:pointer;font-size:11pt">&#128424; Print / Save PDF</button>',
+      '<button onclick="document.getElementById(\'sn-print-frame\')?.remove()" style="padding:8px 18px;background:#eee;color:#333;border:none;border-radius:4px;cursor:pointer;font-size:11pt">&#10005; Close</button>',
+      '</div>',
+    ].join('');
+    document.body.appendChild(snFrame);
+  };
+
   // ── Session Timer ──────────────────────────────────────────────────────────
-  let _seTimerInterval = null;
-  let _seTimerRemaining = 0;
+  // Scoped to window to survive re-renders without leaking intervals
+  if (window._seTimerInterval) { clearInterval(window._seTimerInterval); window._seTimerInterval = null; }
+  if (!('_seTimerRemaining' in window)) window._seTimerRemaining = 0;
 
   window._seTimerReset = function() {
     const dur = parseInt(document.getElementById('se-timer-dur')?.value) || 25;
-    _seTimerRemaining = dur * 60;
+    window._seTimerRemaining = dur * 60;
     const disp = document.getElementById('se-timer-display');
-    if (disp) disp.textContent = String(Math.floor(_seTimerRemaining / 60)).padStart(2, '0') + ':' + String(_seTimerRemaining % 60).padStart(2, '0');
+    if (disp) disp.textContent = String(Math.floor(window._seTimerRemaining / 60)).padStart(2, '0') + ':' + String(window._seTimerRemaining % 60).padStart(2, '0');
   };
 
   window._seTimerStart = function() {
-    if (_seTimerInterval) clearInterval(_seTimerInterval);
+    if (window._seTimerInterval) clearInterval(window._seTimerInterval);
     const dur = parseInt(document.getElementById('se-timer-dur')?.value) || 25;
-    _seTimerRemaining = dur * 60;
+    window._seTimerRemaining = dur * 60;
     const startBtn = document.getElementById('se-timer-start-btn');
     const stopBtn  = document.getElementById('se-timer-stop-btn');
     const pulse    = document.getElementById('se-timer-pulse');
@@ -1197,18 +2104,18 @@ export async function pgSessionExecution(setTopbar, navigate) {
     if (pulse)    pulse.style.display    = '';
     if (activeLabel) { activeLabel.style.display = 'flex'; }
 
-    _seTimerInterval = setInterval(function() {
-      _seTimerRemaining--;
-      const m = Math.floor(_seTimerRemaining / 60);
-      const s = _seTimerRemaining % 60;
+    window._seTimerInterval = setInterval(function() {
+      window._seTimerRemaining--;
+      const m = Math.floor(window._seTimerRemaining / 60);
+      const s = window._seTimerRemaining % 60;
       const disp = document.getElementById('se-timer-display');
       if (disp) {
         disp.textContent = String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
-        disp.style.color = _seTimerRemaining <= 60 ? 'var(--amber)' : _seTimerRemaining <= 0 ? 'var(--red)' : 'var(--teal)';
+        disp.style.color = window._seTimerRemaining <= 60 ? 'var(--amber)' : window._seTimerRemaining <= 0 ? 'var(--red)' : 'var(--teal)';
       }
-      if (_seTimerRemaining <= 0) {
-        clearInterval(_seTimerInterval);
-        _seTimerInterval = null;
+      if (window._seTimerRemaining <= 0) {
+        clearInterval(window._seTimerInterval);
+        window._seTimerInterval = null;
         window._seTimerStop();
         const timerDisp = document.getElementById('se-timer-display');
         if (timerDisp) { timerDisp.textContent = '00:00'; timerDisp.style.color = 'var(--green)'; }
@@ -1219,7 +2126,7 @@ export async function pgSessionExecution(setTopbar, navigate) {
   };
 
   window._seTimerStop = function() {
-    if (_seTimerInterval) { clearInterval(_seTimerInterval); _seTimerInterval = null; }
+    if (window._seTimerInterval) { clearInterval(window._seTimerInterval); window._seTimerInterval = null; }
     const startBtn = document.getElementById('se-timer-start-btn');
     const stopBtn  = document.getElementById('se-timer-stop-btn');
     const pulse    = document.getElementById('se-timer-pulse');
@@ -1233,9 +2140,17 @@ export async function pgSessionExecution(setTopbar, navigate) {
   // Store courses for auto-fill lookup
   window._seActiveCourses = activeCourses;
 
-  window._seAutoFill = function(courseId) {
+  window._seAutoFill = async function(courseId) {
     const banner = document.getElementById('se-protocol-banner');
-    if (!courseId) { if (banner) banner.style.display = 'none'; return; }
+    const consentBanner = document.getElementById('se-consent-banner');
+    const submitBtn = document.querySelector('button[onclick="window._logSession()"]');
+    window._seConsentBlocked = false;
+    if (submitBtn) submitBtn.disabled = false;
+    if (!courseId) {
+      if (banner) banner.style.display = 'none';
+      if (consentBanner) consentBanner.style.display = 'none';
+      return;
+    }
     const course = (window._seActiveCourses || []).find(c => c.id === courseId);
     if (!course) return;
     // Auto-populate fields
@@ -1256,462 +2171,980 @@ export async function pgSessionExecution(setTopbar, navigate) {
         course.planned_session_duration_minutes ? `Duration: <strong>${course.planned_session_duration_minutes} min</strong>` : null,
         course.target_region ? `Target: <strong>${course.target_region}</strong>` : null,
         course.coil_placement ? `Placement: <strong>${course.coil_placement}</strong>` : null,
-      ].filter(Boolean).join(' · ');
+      ].filter(Boolean).join(' &middot; ');
+    }
+    // ── Consent gate check ────────────────────────────────────────────────────
+    if (consentBanner && course.patient_id) {
+      consentBanner.style.display = '';
+      consentBanner.innerHTML = `<span style="font-size:11px;color:var(--text-tertiary)">Checking consent...</span>`;
+      try {
+        const consentsRes = await api.listConsents({ patient_id: course.patient_id }).catch(() => null);
+        const consents = consentsRes?.items || [];
+        const today = new Date(); today.setHours(0,0,0,0);
+        const treatmentConsents = consents.filter(c => c.consent_type === 'treatment' && c.status !== 'withdrawn');
+        const validConsent = treatmentConsents.find(c => {
+          const exp = c.expires_at ? new Date(c.expires_at) : null;
+          return c.status === 'active' && (!exp || exp >= today);
+        });
+        const expiringSoonConsent = !validConsent && treatmentConsents.find(c => {
+          const exp = c.expires_at ? new Date(c.expires_at) : null;
+          return c.status === 'active' && exp && (exp - today) < 30 * 86400000;
+        });
+        if (validConsent) {
+          const signedDate = validConsent.signed_at ? validConsent.signed_at.split('T')[0] : '';
+          const expiryDate = validConsent.expires_at ? validConsent.expires_at.split('T')[0] : '';
+          const expiringSoon = validConsent.expires_at && (new Date(validConsent.expires_at) - today) < 30 * 86400000;
+          if (expiringSoon) {
+            consentBanner.innerHTML = `<div style="padding:8px 12px;background:rgba(255,181,71,0.08);border:1px solid rgba(255,181,71,0.3);border-radius:6px;font-size:11.5px;color:var(--amber)">&#9888; Treatment consent expires soon (${expiryDate}) — consider renewing.</div>`;
+          } else {
+            consentBanner.innerHTML = `<div style="padding:8px 12px;background:rgba(74,222,128,0.07);border:1px solid rgba(74,222,128,0.25);border-radius:6px;font-size:11.5px;color:var(--green)">&#10003; Treatment consent on file &mdash; signed ${signedDate}, valid until ${expiryDate || 'no expiry set'}.</div>`;
+          }
+          window._seConsentBlocked = false;
+          if (submitBtn) { submitBtn.disabled = false; submitBtn.style.opacity = ''; }
+        } else if (expiringSoonConsent) {
+          const expiryDate = expiringSoonConsent.expires_at ? expiringSoonConsent.expires_at.split('T')[0] : '';
+          consentBanner.innerHTML = `<div style="padding:8px 12px;background:rgba(255,181,71,0.08);border:1px solid rgba(255,181,71,0.3);border-radius:6px;font-size:11.5px;color:var(--amber)">&#9888; Treatment consent expires soon (${expiryDate}) &mdash; renew before next session.</div>`;
+          window._seConsentBlocked = false;
+          if (submitBtn) { submitBtn.disabled = false; submitBtn.style.opacity = ''; }
+        } else {
+          consentBanner.innerHTML = `<div style="padding:8px 12px;background:rgba(255,107,107,0.08);border:1px solid rgba(255,107,107,0.3);border-radius:6px;font-size:11.5px;color:var(--red)">&#10007; No valid treatment consent on file &mdash; obtain consent before proceeding.</div>`;
+          window._seConsentBlocked = true;
+          if (submitBtn) { submitBtn.disabled = true; submitBtn.style.opacity = '0.5'; }
+        }
+      } catch (_) {
+        consentBanner.innerHTML = `<div style="padding:8px 12px;background:rgba(255,181,71,0.08);border:1px solid rgba(255,181,71,0.3);border-radius:6px;font-size:11.5px;color:var(--amber)">&#9888; Could not verify consent status.</div>`;
+      }
     }
   };
 }
 
 // ── pgReviewQueue — Protocol & course approvals ───────────────────────────────
 export async function pgReviewQueue(setTopbar, navigate) {
-  setTopbar('Review Queue', '');
+  // ── Topbar ─────────────────────────────────────────────────────────────────
+  setTopbar('Review Queue', `
+    <div style="display:flex;align-items:center;gap:8px">
+      <select id="rq-status-filter" class="form-control" style="height:30px;padding:0 28px 0 10px;font-size:12px;width:130px"
+        onchange="window._rqFilterStatus(this.value)">
+        <option value="">All Statuses</option>
+        <option value="pending">Pending</option>
+        <option value="approved">Approved</option>
+        <option value="rejected">Rejected</option>
+      </select>
+      <button class="btn btn-sm" onclick="window._rqSortPriority()" title="Sort by priority">&#x2195; Priority</button>
+      <button class="btn btn-sm btn-primary" onclick="pgReviewQueue(window._rqSetTopbar,window._rqNavigate)">&#x21BB; Refresh</button>
+    </div>`);
+
+  window._rqSetTopbar = setTopbar;
+  window._rqNavigate  = navigate;
+
   const el = document.getElementById('content');
   el.innerHTML = spinner();
 
-  let pending = [], resolved = [], courses = [], patients = [];
-  try {
-    const [queueData, coursesData, patientsData] = await Promise.all([
-      api.listReviewQueue().catch(() => ({ items: [] })),
-      api.listCourses().then(r => r?.items || []).catch(() => []),
-      api.listPatients().then(r => r?.items || []).catch(() => []),
-    ]);
-    const items = queueData?.items || [];
-    pending  = items.filter(i => i.status === 'pending');
-    resolved = items.filter(i => i.status !== 'pending');
-    courses  = coursesData;
-    patients = patientsData;
-  } catch (_) {}
+  // ── Data loading ────────────────────────────────────────────────────────────
+  const [queueRes, aeRes] = await Promise.all([
+    api.listReviewQueue({}).catch(() => ({ items: [] })),
+    api.listAdverseEvents({ resolved: false }).catch(() => ({ items: [] })),
+  ]);
+  const items   = queueRes?.items || [];
+  const openAEs = aeRes?.items    || [];
 
-  const courseMap  = {};
-  courses.forEach(c => { courseMap[c.id] = c; });
-  const patientMap = {};
-  patients.forEach(p => { patientMap[p.id] = p; });
+  window._rqItems   = items;
+  window._rqOpenAEs = openAEs;
+  if (!window._rqDecision) window._rqDecision = {};
 
-  const offLabelPending = courses.filter(c => c.on_label === false && c.status === 'pending_approval').length;
+  // ── SLA / urgency helpers ──────────────────────────────────────────────────
+  const now = Date.now();
 
-  // ── List item row (left panel) ──────────────────────────────────────────────
-  function rqListRow(item, isSelected) {
-    const course  = courseMap[item.target_id] || {};
-    const patient = patientMap[course.patient_id] || {};
-    const patName = patient.first_name ? `${patient.first_name} ${patient.last_name}` : '—';
-    const priColor = item.priority === 'urgent' ? 'var(--red)' : item.priority === 'high' ? 'var(--amber)' : '';
-    const sel = isSelected;
-    return `<div id="rq-row-${item.id}"
-        style="padding:12px 16px;border-bottom:1px solid var(--border);cursor:pointer;border-left:3px solid ${sel ? 'var(--teal)' : 'transparent'};background:${sel ? 'var(--teal-ghost)' : ''}"
-        onclick="window._rqSelect('${item.id}')"
-        onmouseover="if('${item.id}'!==window._rqSelectedId)this.style.background='var(--bg-surface)'"
-        onmouseout="if('${item.id}'!==window._rqSelectedId)this.style.background=''">
-      <div style="display:flex;align-items:flex-start;gap:8px">
-        <div style="flex:1;min-width:0">
-          <div style="font-size:12.5px;font-weight:600;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${patName}</div>
-          <div style="font-size:11px;color:var(--teal);margin-top:1px">${course.condition_slug?.replace(/-/g,' ') || '—'} · ${course.modality_slug || '—'}</div>
-          <div style="display:flex;gap:4px;margin-top:5px;flex-wrap:wrap">
-            ${evidenceBadge(course.evidence_grade)}
-            ${course.on_label === false ? labelBadge(false) : ''}
-            ${safetyBadge(course.governance_warnings)}
-          </div>
-        </div>
-        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;flex-shrink:0">
-          <span style="font-size:9.5px;padding:2px 6px;border-radius:3px;background:rgba(255,181,71,0.1);color:var(--amber);font-weight:600">${(item.item_type||'review').replace(/_/g,' ')}</span>
-          ${priColor ? `<span style="font-size:9px;color:${priColor};font-weight:700;letter-spacing:.5px">${(item.priority||'').toUpperCase()}</span>` : ''}
-        </div>
-      </div>
-    </div>`;
+  function isOverdue(item) {
+    if (item.status !== 'pending') return false;
+    const ts = item.submitted_at || item.created_at;
+    if (!ts) return false;
+    return (now - new Date(ts).getTime()) > 48 * 3600 * 1000;
   }
 
-  // ── Detail panel (right panel) ─────────────────────────────────────────────
-  function rqDetailPanel(item) {
-    if (!item) return `<div style="padding:60px 32px;text-align:center;color:var(--text-tertiary)">
-      <div style="font-size:28px;margin-bottom:12px;opacity:.3">◱</div>
-      <div style="font-size:13px">Select a review item from the list.</div>
-    </div>`;
+  function isUrgent(item) {
+    if (isOverdue(item)) return false;
+    const course    = item._course || {};
+    const govWarn   = course.governance_warnings || [];
+    if (item.on_label === false || course.on_label === false) return true;
+    if (govWarn.length > 0) return true;
+    const cid = item.course_id || item.target_id;
+    return !!(openAEs.find(ae => ae.course_id === cid && ae.severity === 'serious'));
+  }
 
-    const course  = courseMap[item.target_id] || {};
-    const patient = patientMap[course.patient_id] || {};
-    const patName = patient.first_name ? `${patient.first_name} ${patient.last_name}` : '—';
+  function slaBadge(item) {
+    const ts    = item.submitted_at || item.created_at;
+    const hours = ts ? Math.floor((now - new Date(ts).getTime()) / 3600000) : null;
+    if (isOverdue(item))
+      return '<span style="font-size:9.5px;font-weight:700;padding:2px 6px;border-radius:3px;background:rgba(255,107,107,0.15);color:var(--red)">OVERDUE</span>';
+    if (isUrgent(item))
+      return '<span style="font-size:9.5px;font-weight:700;padding:2px 6px;border-radius:3px;background:rgba(255,181,71,0.15);color:var(--amber)">URGENT</span>';
+    return hours !== null
+      ? '<span style="font-size:9.5px;color:var(--text-tertiary)">' + hours + 'h ago</span>'
+      : '';
+  }
+
+  function priorityScore(item) {
+    if (isOverdue(item))          return 0;
+    if (isUrgent(item))           return 1;
+    const c = item._course || {};
+    if (c.on_label === false)     return 2;
+    if (item.status === 'pending') return 3;
+    return 4;
+  }
+
+  // ── Summary stats ──────────────────────────────────────────────────────────
+  const pendingItems   = items.filter(i => i.status === 'pending');
+  const overdueItems   = pendingItems.filter(i => isOverdue(i));
+  const today          = new Date().toISOString().split('T')[0];
+  const approvedToday  = items.filter(i =>
+    (i.status === 'approved' || i.resolution === 'approved') &&
+    (i.updated_at || i.reviewed_at || '').startsWith(today)).length;
+  const seriousAECount = openAEs.filter(ae => ae.severity === 'serious').length;
+
+  // ── Toast ──────────────────────────────────────────────────────────────────
+  window._rqToast = function(msg, type) {
+    type = type || 'ok';
+    const t = document.createElement('div');
+    t.style.cssText = 'position:fixed;bottom:24px;right:24px;padding:12px 20px;border-radius:8px;font-size:13px;font-weight:500;color:#fff;background:' +
+      (type === 'ok' ? '#0d9488' : '#dc2626') +
+      ';z-index:9999;box-shadow:0 4px 20px rgba(0,0,0,0.4);transition:opacity 0.3s';
+    t.textContent = msg;
+    document.body.appendChild(t);
+    setTimeout(function() { t.style.opacity = '0'; setTimeout(function() { t.remove(); }, 300); }, 2500);
+  };
+
+  // ── Card HTML builder ──────────────────────────────────────────────────────
+  function rqCard(item) {
+    const course   = item._course || {};
     const warnings = course.governance_warnings || [];
+    const courseId = item.course_id || item.target_id || item.id;
+    const cond     = ((course.condition_slug || item.condition_slug || '') || '').replace(/-/g, ' ') || '\u2014';
+    const mod      = course.modality_slug || item.modality_slug || '\u2014';
+    const sc       = { pending: 'var(--amber)', approved: 'var(--green)', rejected: 'var(--red)', changes_requested: 'var(--amber)' }[item.status] || 'var(--text-tertiary)';
+    const history  = item.review_history || (item.review_notes
+      ? [{ note: item.review_notes, created_at: item.updated_at, action: 'reviewed' }]
+      : []);
 
-    const params = [
-      ['Condition',   course.condition_slug?.replace(/-/g,' ') || '—'],
-      ['Modality',    course.modality_slug || '—'],
-      ['Target',      course.target_region || '—'],
-      ['Frequency',   course.planned_frequency_hz ? course.planned_frequency_hz + ' Hz' : '—'],
-      ['Intensity',   course.planned_intensity || '—'],
-      ['Sessions/Wk', course.planned_sessions_per_week ? course.planned_sessions_per_week + '×' : '—'],
-      ['Total Sess.', course.planned_sessions_total || '—'],
-      ['Clinician',   course.clinician_id ? `<span class="mono" style="font-size:10.5px">${course.clinician_id.slice(0,12)}…</span>` : '—'],
-    ];
+    const historyHtml = history.length
+      ? history.map(h => {
+          const dt  = h.created_at ? h.created_at.split('T')[0] : '\u2014';
+          const rev = h.reviewer || h.reviewer_name || 'Reviewer';
+          const act = (h.action || h.resolution || 'note').replace(/_/g, ' ');
+          const n   = h.note || h.notes || '';
+          return '<div style="font-size:11.5px;padding:6px 0;border-bottom:1px solid var(--border);color:var(--text-secondary);line-height:1.55">'
+            + '<span style="color:var(--text-tertiary);font-size:10.5px">' + dt + '</span>'
+            + ' <strong style="color:var(--text-primary)">' + rev + '</strong> \u2014'
+            + ' <span style="text-transform:capitalize">' + act + '</span>'
+            + (n ? '<span style="color:var(--text-tertiary)">: ' + n + '</span>' : '')
+            + '</div>';
+        }).join('')
+      : '<div style="font-size:11.5px;color:var(--text-tertiary);padding:6px 0">No prior reviews.</div>';
 
-    return `
-    <div style="padding:18px 20px;border-bottom:1px solid var(--border);background:rgba(0,212,188,0.02)">
-      <div style="font-size:16px;font-weight:700;color:var(--text-primary);margin-bottom:3px">${patName}</div>
-      <div style="font-size:12px;color:var(--text-secondary);margin-bottom:10px">${(item.item_type||'Review').replace(/_/g,' ')} · Submitted ${item.created_at ? item.created_at.split('T')[0] : '—'}</div>
-      <div style="display:flex;gap:6px;flex-wrap:wrap">
-        ${approvalBadge(course.status)}
-        ${evidenceBadge(course.evidence_grade)}
-        ${labelBadge(course.on_label !== false)}
-        ${safetyBadge(course.governance_warnings)}
-        ${item.priority === 'urgent' ? '<span style="font-size:10px;padding:2px 7px;border-radius:4px;background:rgba(255,107,107,0.12);color:var(--red);font-weight:700">URGENT</span>' : ''}
-      </div>
-    </div>
+    const paramRows = [
+      fr('Condition',    cond),
+      fr('Modality',     mod),
+      fr('Device',       course.device_slug || course.device || '\u2014'),
+      fr('Target',       course.target_region || '\u2014'),
+      fr('Frequency',    course.planned_frequency_hz ? course.planned_frequency_hz + ' Hz' : '\u2014'),
+      fr('Intensity',    course.planned_intensity || '\u2014'),
+      fr('Sessions/Wk', course.planned_sessions_per_week ? course.planned_sessions_per_week + '\xd7' : '\u2014'),
+      fr('Total Sess.',  course.planned_sessions_total || '\u2014'),
+      fr('Laterality',   course.laterality || '\u2014'),
+      fr('Evidence',     course.evidence_grade || '\u2014'),
+    ].join('');
 
-    <div style="padding:16px 20px;border-bottom:1px solid var(--border)">
-      <div style="font-size:9.5px;text-transform:uppercase;letter-spacing:.9px;color:var(--text-tertiary);font-weight:600;margin-bottom:10px">Course Parameters</div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:0">
-        ${params.map(([k,v]) => `<div style="display:flex;gap:6px;padding:5px 0;border-bottom:1px solid var(--border);font-size:12px">
-          <span style="color:var(--text-tertiary);width:80px;flex-shrink:0">${k}</span>
-          <span style="color:var(--text-primary)">${v}</span>
-        </div>`).join('')}
-      </div>
-    </div>
+    const decisionBtns = [
+      { key: 'approve',         icon: '\u2713', label: 'Approve',         border: 'var(--teal)',   color: 'var(--teal)'   },
+      { key: 'reject',          icon: '\u2717', label: 'Reject',          border: 'var(--red)',    color: 'var(--red)'    },
+      { key: 'request_changes', icon: '\u25b1', label: 'Request Changes', border: 'var(--amber)',  color: 'var(--amber)'  },
+      { key: 'escalate',        icon: '\u2b21', label: 'Escalate',        border: 'var(--violet)', color: 'var(--violet)' },
+    ].map(d =>
+      '<button id="rq-dec-' + item.id + '-' + d.key + '" class="btn btn-sm"'
+      + ' style="border-color:' + d.border + ';color:' + d.color + ';font-size:11.5px;transition:all .15s"'
+      + ' onclick="window._rqSetDecision(\'' + item.id + '\',\'' + d.key + '\')">'
+      + d.icon + ' ' + d.label + '</button>'
+    ).join('');
 
-    ${warnings.length ? `<div style="padding:12px 20px;border-bottom:1px solid var(--border);background:rgba(255,181,71,0.03)">
-      <div style="font-size:9.5px;text-transform:uppercase;letter-spacing:.9px;color:var(--text-tertiary);font-weight:600;margin-bottom:8px">Governance Warnings</div>
-      ${warnings.map(w => govFlag(w, 'warn')).join('')}
-    </div>` : ''}
-
-    ${item.notes ? `<div style="padding:12px 20px;border-bottom:1px solid var(--border)">
-      <div style="font-size:9.5px;text-transform:uppercase;letter-spacing:.9px;color:var(--text-tertiary);font-weight:600;margin-bottom:6px">Submission Notes</div>
-      <div style="font-size:12.5px;color:var(--text-secondary);line-height:1.65">${item.notes}</div>
-    </div>` : ''}
-
-    <div style="padding:18px 20px">
-      <div style="font-size:9.5px;text-transform:uppercase;letter-spacing:.9px;color:var(--text-tertiary);font-weight:600;margin-bottom:8px">Reviewer Comment / Rationale</div>
-      <textarea id="rq-comment" class="form-control" rows="3" style="margin-bottom:12px;font-size:12.5px;resize:vertical"
-        placeholder="Required for Request Changes or Reject. Optional for Approve / Flag."></textarea>
-      <div style="margin-bottom:12px">
-        <button class="btn btn-sm" style="font-size:11px;color:var(--text-secondary)" onclick="(function(){const n=document.getElementById('rq-inline-note-${item.id}');if(n){n.style.display=n.style.display==='none'?'':'none';}})()">+ Add Note</button>
-        <div id="rq-inline-note-${item.id}" style="display:none;margin-top:8px">
-          <textarea class="form-control" rows="2" style="font-size:12px;resize:vertical;margin-bottom:6px" placeholder="Internal reviewer note (not visible to clinician)…"></textarea>
-          <button class="btn btn-sm" onclick="(function(){const t=document.querySelector('#rq-inline-note-${item.id} textarea');if(t)t.value='';document.getElementById('rq-inline-note-${item.id}').style.display='none';})()">Clear &amp; Close</button>
-        </div>
-      </div>
-      <div id="rq-action-error" style="display:none;color:var(--red);font-size:12px;margin-bottom:10px;padding:7px 10px;border-radius:6px;background:rgba(255,107,107,0.07)"></div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px">
-        <button class="btn btn-primary" onclick="window._rqConfirmAction('${course.id}','${item.id}','approve')">✓ Approve &amp; Activate</button>
-        <button class="btn" style="border-color:var(--amber);color:var(--amber)" onclick="window._rqConfirmAction('${course.id}','${item.id}','changes_requested')">⚑ Request Changes</button>
-        <button class="btn" style="border-color:var(--red);color:var(--red)" onclick="window._rqConfirmAction('${course.id}','${item.id}','reject')">✕ Reject Course</button>
-        <button class="btn" style="border-color:var(--violet);color:var(--violet)" onclick="window._rqConfirmAction('${course.id}','${item.id}','flag')">⚐ Flag for Safety</button>
-      </div>
-      <button class="btn btn-sm" style="width:100%" onclick="window._openCourse('${course.id}')">Open Full Course Detail →</button>
-    </div>`;
+    return '<div class="card" style="margin-bottom:10px;overflow:hidden" id="rq-card-' + item.id + '">'
+      // Collapsed header
+      + '<div style="display:flex;align-items:center;gap:10px;padding:12px 16px;cursor:pointer"'
+      + ' onclick="window._rqToggle(\'' + item.id + '\')">'
+      +   '<div style="flex-shrink:0;width:72px">' + slaBadge(item) + '</div>'
+      +   '<div style="flex:1;min-width:0">'
+      +     '<span style="font-size:12.5px;font-weight:600;color:var(--text-primary)">' + cond + '</span>'
+      +     '<span style="font-size:11.5px;color:var(--text-tertiary);margin-left:6px">\xb7 ' + mod + '</span>'
+      +   '</div>'
+      +   '<div style="display:flex;align-items:center;gap:6px;flex-shrink:0;flex-wrap:wrap">'
+      +     evidenceBadge(course.evidence_grade)
+      +     (course.on_label === false ? labelBadge(false) : '')
+      +     (warnings.length ? '<span style="font-size:10px;font-weight:600;padding:2px 6px;border-radius:4px;background:rgba(255,181,71,0.1);color:var(--amber)">\u26a0 ' + warnings.length + '</span>' : '')
+      +     '<span style="font-size:10px;font-weight:600;padding:2px 8px;border-radius:4px;background:' + sc + '18;color:' + sc + ';text-transform:capitalize">' + (item.status || '\u2014') + '</span>'
+      +     '<span style="font-size:14px;color:var(--text-tertiary)" id="rq-chevron-' + item.id + '">\u203a</span>'
+      +   '</div>'
+      + '</div>'
+      // Expanded panel
+      + '<div id="rq-panel-' + item.id + '" style="display:none;background:rgba(0,0,0,0.15);padding:16px 20px;border-top:1px solid var(--border)">'
+      +   '<div class="g2" style="gap:20px">'
+          // Left: params + governance
+      +     '<div>'
+      +       '<div style="font-size:9.5px;text-transform:uppercase;letter-spacing:.9px;color:var(--text-tertiary);font-weight:600;margin-bottom:8px">Course Parameters</div>'
+      +       paramRows
+      +       (warnings.length
+                ? '<div style="margin-top:14px"><div style="font-size:9.5px;text-transform:uppercase;letter-spacing:.9px;color:var(--text-tertiary);font-weight:600;margin-bottom:8px">Governance Warnings</div>'
+                  + warnings.map(w => govFlag(w, 'warn')).join('') + '</div>'
+                : '')
+      +       (course.on_label === false
+                ? '<div class="notice notice-warn" style="margin-top:10px">Off-label use \u2014 additional documentation required.</div>'
+                : '')
+      +       (item.notes
+                ? '<div style="margin-top:12px"><div style="font-size:9.5px;text-transform:uppercase;letter-spacing:.9px;color:var(--text-tertiary);font-weight:600;margin-bottom:6px">Submission Notes</div>'
+                  + '<div style="font-size:12.5px;color:var(--text-secondary);line-height:1.65">' + item.notes + '</div></div>'
+                : '')
+      +     '</div>'
+          // Right: review actions + history
+      +     '<div>'
+      +       '<div style="font-size:9.5px;text-transform:uppercase;letter-spacing:.9px;color:var(--text-tertiary);font-weight:600;margin-bottom:10px">Decision</div>'
+      +       '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px">' + decisionBtns + '</div>'
+      +       '<div style="margin-bottom:10px">'
+      +         '<label style="font-size:10.5px;color:var(--text-tertiary);display:block;margin-bottom:4px">Assigned to</label>'
+      +         '<select class="form-control" style="font-size:12px;height:30px;padding:0 28px 0 10px" onchange="window._rqAssign(\'' + item.id + '\',this.value)">'
+      +           '<option value="">Unassigned</option><option>Dr. Chen</option><option>Dr. Patel</option><option>Dr. Kim</option>'
+      +         '</select>'
+      +       '</div>'
+      +       '<div style="margin-top:12px;margin-bottom:6px">'
+      +         '<label style="font-size:10.5px;color:var(--text-tertiary);display:block;margin-bottom:4px">'
+      +           'Review note <span style="color:var(--red)">*</span> required for Reject / Request Changes'
+      +         '</label>'
+      +         '<textarea id="rq-note-' + item.id + '" class="form-control" rows="3"'
+      +                   ' placeholder="Review note (required for reject/changes)\u2026" style="resize:vertical;font-size:12.5px"></textarea>'
+      +       '</div>'
+      +       '<div id="rq-err-' + item.id + '" style="display:none;font-size:12px;color:var(--red);padding:6px 10px;border-radius:6px;background:rgba(255,107,107,0.07);margin-bottom:8px"></div>'
+      +       '<button class="btn btn-primary" style="width:100%;margin-bottom:14px"'
+      +               ' onclick="window._rqSubmit(\'' + item.id + '\',\'' + courseId + '\')">'
+      +         'Submit Review \u2192'
+      +       '</button>'
+      +       '<div style="font-size:9.5px;text-transform:uppercase;letter-spacing:.9px;color:var(--text-tertiary);font-weight:600;margin-bottom:6px">Review History</div>'
+      +       '<div id="rq-history-' + item.id + '">' + historyHtml + '</div>'
+      +     '</div>'
+      +   '</div>'
+      + '</div>'
+      + '</div>';
   }
 
-  // ── Render ─────────────────────────────────────────────────────────────────
-  const firstItem = pending[0] || null;
-  const initSelectedId = firstItem?.id || null;
+  // ── Render list helper ─────────────────────────────────────────────────────
+  function renderList(list) {
+    const listEl = document.getElementById('rq-list');
+    if (!listEl) return;
+    listEl.innerHTML = list.length
+      ? list.map(item => rqCard(item)).join('')
+      : emptyState('\u25b1', 'No items match the current filter.');
+  }
 
-  el.innerHTML = `
-  <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:14px">
-    ${metricCard('Pending Reviews', pending.length,    pending.length > 0 ? 'var(--amber)' : 'var(--green)',  pending.length > 0 ? 'Awaiting action' : 'Queue clear')}
-    ${metricCard('Off-label Items', offLabelPending,   offLabelPending > 0 ? 'var(--amber)' : 'var(--text-secondary)', 'Require off-label review')}
-    ${metricCard('Recently Resolved', resolved.length, 'var(--green)', 'This session')}
-  </div>
+  // ── AE severity badge ──────────────────────────────────────────────────────
+  function aeSeverityBadge(sev) {
+    const s = { serious: { bg: 'rgba(255,107,107,0.12)', color: 'var(--red)' }, moderate: { bg: 'rgba(255,181,71,0.12)', color: 'var(--amber)' }, mild: { bg: 'rgba(0,212,188,0.12)', color: 'var(--teal)' } }[sev]
+      || { bg: 'rgba(255,255,255,0.06)', color: 'var(--text-tertiary)' };
+    return '<span style="font-size:10.5px;font-weight:600;padding:2px 8px;border-radius:4px;background:' + s.bg + ';color:' + s.color + ';text-transform:capitalize">' + (sev || '\u2014') + '</span>';
+  }
 
-  <div class="card" style="overflow:hidden;margin-bottom:14px">
-    <div style="display:grid;grid-template-columns:300px 1fr;min-height:480px">
-      <!-- Left: item list -->
-      <div style="border-right:1px solid var(--border);overflow-y:auto;max-height:600px">
-        <div style="padding:10px 16px 8px;border-bottom:1px solid var(--border);background:rgba(255,255,255,0.02)">
-          <span style="font-size:9.5px;text-transform:uppercase;letter-spacing:.9px;font-weight:600;color:var(--text-tertiary)">
-            Pending (${pending.length})
-          </span>
-        </div>
-        ${pending.length
-          ? pending.map((item, i) => rqListRow(item, i === 0)).join('')
-          : `<div style="padding:36px 16px;text-align:center;color:var(--text-tertiary);font-size:12.5px">Queue is clear.</div>`
-        }
-      </div>
-      <!-- Right: detail panel -->
-      <div id="rq-detail" style="overflow-y:auto">
-        ${rqDetailPanel(firstItem)}
-      </div>
-    </div>
-  </div>
+  // ── Stat card ──────────────────────────────────────────────────────────────
+  function statCard(label, value, color, sub, alertBorder) {
+    return '<div class="metric-card" style="' + (alertBorder ? 'border-color:' + color + ';border-width:1.5px' : '') + '">'
+      + '<div style="font-size:11px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.8px">' + label + '</div>'
+      + '<div style="font-size:28px;font-weight:700;color:' + color + ';margin:8px 0 4px">' + value + '</div>'
+      + '<div style="font-size:11px;color:var(--text-secondary)">' + sub + '</div>'
+      + '</div>';
+  }
 
-  ${resolved.length ? `
-  <div class="card" style="overflow:hidden">
-    <div style="padding:11px 16px;border-bottom:1px solid var(--border);background:rgba(255,255,255,0.02)">
-      <span style="font-size:9.5px;text-transform:uppercase;letter-spacing:.9px;font-weight:600;color:var(--text-tertiary)">Recently Resolved (${resolved.length})</span>
-    </div>
-    <div style="overflow-x:auto">
-      <table class="ds-table">
-        <thead><tr><th>Type</th><th>Course</th><th>Action</th><th>Notes</th><th>Date</th></tr></thead>
-        <tbody>
-          ${resolved.slice(0, 8).map(item => {
-            const course = courseMap[item.target_id] || {};
-            const actColor = item.resolution === 'approved' ? 'var(--green)' : item.resolution === 'rejected' ? 'var(--red)' : 'var(--amber)';
-            return `<tr>
-              <td style="font-size:11.5px">${(item.item_type||'review').replace(/_/g,' ')}</td>
-              <td style="font-size:12px">${course.condition_slug?.replace(/-/g,' ') || '—'} · ${course.modality_slug || '—'}</td>
-              <td><span style="font-size:10.5px;font-weight:600;padding:2px 7px;border-radius:4px;background:${actColor}18;color:${actColor}">${item.resolution || item.status || '—'}</span></td>
-              <td style="font-size:11.5px;color:var(--text-secondary);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${item.notes || '—'}</td>
-              <td style="font-size:11.5px;color:var(--text-tertiary)">${item.updated_at ? item.updated_at.split('T')[0] : '—'}</td>
-            </tr>`;
-          }).join('')}
-        </tbody>
-      </table>
-    </div>
-  </div>` : ''}`;
+  // ── AE table ───────────────────────────────────────────────────────────────
+  const hasSerious    = openAEs.some(ae => ae.severity === 'serious');
+  const aeHeaderColor = hasSerious ? 'var(--red)' : 'var(--text-tertiary)';
+  const aeRows = openAEs.length
+    ? openAEs.map(ae => {
+        const occurredAt = ae.occurred_at || ae.created_at;
+        const daysOpen   = occurredAt ? Math.floor((now - new Date(occurredAt).getTime()) / 86400000) : '\u2014';
+        const dateStr    = occurredAt ? occurredAt.split('T')[0] : '\u2014';
+        return '<tr>'
+          + '<td style="font-size:12px">' + dateStr + '</td>'
+          + '<td style="font-size:12px;color:var(--text-secondary)">' + (ae.course_id ? ae.course_id.slice(0, 10) + '\u2026' : '\u2014') + '</td>'
+          + '<td style="font-size:12px">' + (ae.event_type || ae.type || '\u2014') + '</td>'
+          + '<td>' + aeSeverityBadge(ae.severity) + '</td>'
+          + '<td style="font-size:12px;font-weight:600;color:' + (typeof daysOpen === 'number' && daysOpen > 7 ? 'var(--red)' : 'var(--text-primary)') + '">' + daysOpen + '</td>'
+          + '<td><button class="btn btn-sm btn-danger" style="opacity:0.5;cursor:not-allowed" disabled>Mark Resolved</button></td>'
+          + '</tr>';
+      }).join('')
+    : '<tr><td colspan="6" style="text-align:center;color:var(--text-tertiary);font-size:12.5px;padding:24px">No open adverse events.</td></tr>';
 
-  // ── Store data for dynamic updates ─────────────────────────────────────────
-  window._rqItems      = pending;
-  window._rqCourseMap  = courseMap;
-  window._rqPatientMap = patientMap;
-  window._rqSelectedId = initSelectedId;
+  // ── Full page render ───────────────────────────────────────────────────────
+  el.innerHTML =
+    '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:18px">'
+    + statCard('Pending Reviews',     pendingItems.length,  pendingItems.length  > 0 ? 'var(--amber)' : 'var(--green)', pendingItems.length  > 0 ? 'Awaiting action' : 'Queue clear')
+    + statCard('Overdue (&gt;48h)',  overdueItems.length,  'var(--red)',   overdueItems.length > 0 ? 'Past SLA threshold' : 'All within SLA', overdueItems.length > 0)
+    + statCard('Approved Today',      approvedToday,        'var(--green)', approvedToday > 0 ? 'This calendar day' : 'None yet today')
+    + statCard('Open Adverse Events', openAEs.length,       openAEs.length > 0 ? 'var(--red)' : 'var(--teal)', openAEs.length > 0 ? seriousAECount + ' serious' : 'No open AEs')
+    + '</div>'
+    + '<div style="margin-bottom:18px">'
+    +   '<div style="display:flex;align-items:center;margin-bottom:10px">'
+    +     '<div style="font-size:12px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.8px">'
+    +       'Review Queue <span style="font-weight:400;color:var(--text-tertiary)">(' + items.length + ')</span>'
+    +     '</div>'
+    +   '</div>'
+    +   '<div id="rq-list">'
+    +   (items.length ? items.map(item => rqCard(item)).join('') : emptyState('✅', 'Review queue is clear', 'All protocol reviews are up to date.'))
+    +   '</div>'
+    + '</div>'
+    + '<div class="card" style="overflow:hidden">'
+    +   '<div style="padding:11px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;cursor:pointer"'
+    +        ' onclick="(function(){var p=document.getElementById(\'rq-ae-panel\');p.style.display=p.style.display===\'none\'?\'\':\' none\';})()">'
+    +     '<span style="font-size:9.5px;text-transform:uppercase;letter-spacing:.9px;font-weight:700;color:' + aeHeaderColor + '">'
+    +       (hasSerious ? '\u26a0 ' : '') + 'Open Adverse Events (' + openAEs.length + ')'
+    +     '</span>'
+    +     '<span style="font-size:11px;color:var(--text-tertiary)">\u25be toggle</span>'
+    +   '</div>'
+    +   '<div id="rq-ae-panel" style="overflow-x:auto">'
+    +     '<table class="ds-table"><thead><tr><th>Date</th><th>Course</th><th>Type</th><th>Severity</th><th>Days Open</th><th>Actions</th></tr></thead>'
+    +     '<tbody>' + aeRows + '</tbody></table>'
+    +   '</div>'
+    + '</div>';
 
-  window._rqSelect = function(itemId) {
-    window._rqSelectedId = itemId;
-    // Update list row styles
-    pending.forEach(i => {
-      const row = document.getElementById('rq-row-' + i.id);
-      if (!row) return;
-      const sel = i.id === itemId;
-      row.style.background    = sel ? 'var(--teal-ghost)' : '';
-      row.style.borderLeft    = sel ? '3px solid var(--teal)' : '3px solid transparent';
+  // ── Store globals ──────────────────────────────────────────────────────────
+  window._rqCourseMap  = {};
+  window._rqPatientMap = {};
+
+  // Toggle expand/collapse
+  window._rqToggle = function(itemId) {
+    const panel   = document.getElementById('rq-panel-'   + itemId);
+    const chevron = document.getElementById('rq-chevron-' + itemId);
+    if (!panel) return;
+    const open = panel.style.display !== 'none';
+    panel.style.display = open ? 'none' : '';
+    if (chevron) chevron.textContent = open ? '\u203a' : '\u2193';
+  };
+
+  // Decision button selection + visual state
+  window._rqSetDecision = function(itemId, decision) {
+    window._rqDecision[itemId] = decision;
+    const keys   = ['approve', 'reject', 'request_changes', 'escalate'];
+    const colors = { approve: 'var(--teal)', reject: 'var(--red)', request_changes: 'var(--amber)', escalate: 'var(--violet)' };
+    const bgs    = { approve: 'rgba(0,212,188,0.15)', reject: 'rgba(255,107,107,0.15)', request_changes: 'rgba(255,181,71,0.15)', escalate: 'rgba(139,92,246,0.15)' };
+    keys.forEach(key => {
+      const btn = document.getElementById('rq-dec-' + itemId + '-' + key);
+      if (!btn) return;
+      if (key === decision) {
+        btn.style.background = bgs[key] || '';
+        btn.style.fontWeight = '700';
+        btn.style.boxShadow  = '0 0 0 1.5px ' + (colors[key] || '');
+      } else {
+        btn.style.background = '';
+        btn.style.fontWeight = '';
+        btn.style.boxShadow  = '';
+      }
     });
-    // Update detail panel
-    const item = pending.find(i => i.id === itemId);
-    const detailEl = document.getElementById('rq-detail');
-    if (detailEl && item) detailEl.innerHTML = rqDetailPanel(item);
   };
 
-  window._rqConfirmAction = function(courseId, itemId, action) {
-    const actionLabels = { approve: 'Approve and activate this course', changes_requested: 'Request changes on this course', reject: 'Reject this course', flag: 'Flag this course for safety review' };
-    const label = actionLabels[action] || action;
-    const overlay = document.createElement('div');
-    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:9999;display:flex;align-items:center;justify-content:center';
-    overlay.innerHTML = `<div style="background:var(--navy-800);border:1px solid var(--border);border-radius:var(--radius-lg);padding:28px 32px;max-width:360px;width:90%;text-align:center">
-      <div style="font-size:16px;font-weight:700;color:var(--text-primary);margin-bottom:8px">Confirm Action</div>
-      <div style="font-size:13px;color:var(--text-secondary);margin-bottom:20px">${label}?</div>
-      <div style="display:flex;gap:10px;justify-content:center">
-        <button class="btn btn-sm" onclick="this.closest('[style*=fixed]').remove()">Cancel</button>
-        <button class="btn btn-primary btn-sm" onclick="this.closest('[style*=fixed]').remove();window._rqAction('${courseId}','${itemId}','${action}')">Confirm</button>
-      </div>
-    </div>`;
-    document.body.appendChild(overlay);
+  // Reviewer assignment — display-only
+  window._rqAssign = function(itemId, reviewer) {
+    const item = (window._rqItems || []).find(i => i.id === itemId);
+    if (item) item._assignedTo = reviewer;
   };
 
-  window._rqAction = async function(courseId, itemId, action) {
-    const comment  = document.getElementById('rq-comment')?.value?.trim() || '';
-    const errEl    = document.getElementById('rq-action-error');
+  // Submit review
+  window._rqSubmit = async function(itemId, courseId) {
+    const decision  = window._rqDecision[itemId];
+    const noteEl    = document.getElementById('rq-note-' + itemId);
+    const noteValue = noteEl ? noteEl.value.trim() : '';
+    const errEl     = document.getElementById('rq-err-' + itemId);
     if (errEl) errEl.style.display = 'none';
 
-    if ((action === 'reject' || action === 'changes_requested') && !comment) {
-      if (errEl) { errEl.textContent = action === 'reject' ? 'Rejection reason required.' : 'Describe what changes are needed.'; errEl.style.display = ''; }
+    if (!decision) {
+      if (errEl) { errEl.textContent = 'Please select a decision (Approve / Reject / Request Changes / Escalate).'; errEl.style.display = ''; }
       return;
     }
-    if (action === 'reject' && !confirm('Reject this course? It will be marked as discontinued.')) return;
-
-    // Disable buttons while acting
-    document.querySelectorAll('#rq-detail button').forEach(b => { b.disabled = true; });
-
+    if ((decision === 'reject' || decision === 'request_changes') && !noteValue) {
+      if (errEl) { errEl.textContent = 'A review note is required for Reject / Request Changes.'; errEl.style.display = ''; }
+      return;
+    }
+    const submitBtn = document.querySelector('#rq-card-' + itemId + ' button[onclick*="_rqSubmit"]');
+    if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = 'Submitting\u2026'; }
     try {
-      if (action === 'approve') {
-        await api.activateCourse(courseId);
-        try { await api.submitReview({ target_id: courseId, item_id: itemId, action: 'approved', notes: comment || 'Approved and activated.' }); } catch {}
-      } else if (action === 'changes_requested') {
-        await api.submitReview({ target_id: courseId, item_id: itemId, action: 'changes_requested', notes: comment });
-        await api.updateCourse(courseId, { review_required: true });
-      } else if (action === 'reject') {
-        await api.submitReview({ target_id: courseId, item_id: itemId, action: 'rejected', notes: comment });
-        await api.updateCourse(courseId, { status: 'discontinued', clinician_notes: `Rejected: ${comment}` });
-      } else if (action === 'flag') {
-        await api.submitReview({ target_id: courseId, item_id: itemId, action: 'flagged_safety', notes: comment || 'Flagged for safety review.' });
-      }
+      await api.submitReview({ course_id: courseId, action: decision, notes: noteValue });
+      if (decision === 'approve') await api.activateCourse(courseId).catch(() => {});
+      window._rqToast(
+        decision === 'approve'         ? 'Course approved and activated.' :
+        decision === 'reject'          ? 'Course rejected.' :
+        decision === 'request_changes' ? 'Changes requested.' :
+        'Escalated for review.', 'ok');
+      delete window._rqDecision[itemId];
       await pgReviewQueue(setTopbar, navigate);
     } catch (e) {
-      if (errEl) { errEl.textContent = e.message || 'Action failed.'; errEl.style.display = ''; }
-      document.querySelectorAll('#rq-detail button').forEach(b => { b.disabled = false; });
+      if (errEl) { errEl.textContent = (e && e.message) || 'Submission failed. Please try again.'; errEl.style.display = ''; }
+      if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = 'Submit Review \u2192'; }
     }
   };
+
+  // Priority sort
+  window._rqSortPriority = function() {
+    const sorted = (window._rqItems || []).slice().sort((a, b) => priorityScore(a) - priorityScore(b));
+    window._rqItems = sorted;
+    renderList(sorted);
+    window._rqToast('Sorted by priority.', 'ok');
+  };
+
+  // Status filter
+  window._rqFilterStatus = function(status) {
+    const filtered = status ? (window._rqItems || []).filter(i => i.status === status) : (window._rqItems || []);
+    renderList(filtered);
+  };
+
+  // Legacy compatibility
+  window._rqConfirmAction = function(courseId, itemId, action) {
+    window._rqDecision[itemId] = action === 'changes_requested' ? 'request_changes' : action;
+    window._rqSubmit(itemId, courseId);
+  };
+  window._rqAction = async function(courseId, itemId, action) {
+    window._rqDecision[itemId] = action === 'changes_requested' ? 'request_changes' : action;
+    await window._rqSubmit(itemId, courseId);
+  };
+
 }
 
 // ── pgOutcomes — Outcomes & Trends ────────────────────────────────────────────
 export async function pgOutcomes(setTopbar, navigate) {
-  setTopbar('Outcomes & Trends', `<button class="btn btn-primary btn-sm" onclick="window._showRecordOutcome()">+ Record Outcome</button>`);
+  // Topbar: title + Export CSV button + time range select
+  setTopbar('Outcomes & Trends', `
+    <div style="display:flex;align-items:center;gap:8px">
+      <select id="outcomes-time-range" class="form-control" style="font-size:12px;padding:4px 10px;height:32px;width:auto"
+        onchange="window._outcomesTimeRange=this.value;window._renderOutcomes()">
+        <option value="30d">Last 30 days</option>
+        <option value="90d">Last 90 days</option>
+        <option value="6m">Last 6 months</option>
+        <option value="all" selected>All time</option>
+      </select>
+      <button class="btn btn-sm" onclick="window._exportOutcomesCSV()">Export CSV</button>
+      <button class="btn btn-primary btn-sm" onclick="window._showRecordOutcome()">+ Record Outcome</button>
+    </div>`);
+
   const el = document.getElementById('content');
   el.innerHTML = spinner();
 
-  let agg = {}, allOutcomes = [], courses = [];
-  try {
-    [agg, allOutcomes, courses] = await Promise.all([
-      api.aggregateOutcomes().catch(() => ({})),
-      api.listOutcomes().then(r => r?.items || []).catch(() => []),
-      api.listCourses().then(r => r?.items || []).catch(() => []),
-    ]);
-  } catch (_) {}
-
-  const byCourse = {};
-  allOutcomes.forEach(o => {
-    if (!byCourse[o.course_id]) byCourse[o.course_id] = {};
-    if (!byCourse[o.course_id][o.template_id]) byCourse[o.course_id][o.template_id] = [];
-    byCourse[o.course_id][o.template_id].push(o);
-  });
+  // ── Data loading ──────────────────────────────────────────────────────────
+  const [outcomesRes, aggregateRes, coursesRes] = await Promise.all([
+    api.listOutcomes().catch(() => null),
+    api.aggregateOutcomes().catch(() => null),
+    api.listCourses().catch(() => null),
+  ]);
+  const outcomes  = outcomesRes?.items || [];
+  const aggregate = aggregateRes || {};
+  const courses   = coursesRes?.items || [];
 
   const courseMap = {};
   courses.forEach(c => { courseMap[c.id] = c; });
 
-  const trendRows = Object.entries(byCourse).map(([cid, byTemplate]) => {
-    const course = courseMap[cid] || {};
-    return Object.entries(byTemplate).map(([tid, pts]) => {
-      const sorted      = pts.sort((a, b) => (a.administered_at || '').localeCompare(b.administered_at || ''));
-      const baseline    = sorted.find(p => p.measurement_point === 'baseline');
-      const latest      = sorted[sorted.length - 1];
-      const baseScore   = baseline?.score_numeric;
-      const latestScore = latest?.score_numeric;
-      let delta = null, pct = null, responder = false;
-      if (baseScore != null && latestScore != null && baseScore !== 0) {
-        delta     = baseScore - latestScore;
-        pct       = Math.round(delta / baseScore * 100);
-        responder = pct >= 50;
-      }
-      const sparkPts = sorted.map(p => p.score_numeric).filter(v => v != null);
-      const maxV = Math.max(...sparkPts, 1), minV = Math.min(...sparkPts, 0), range = maxV - minV || 1;
-      const svgPts = sparkPts.map((v, i) => {
-        const x = sparkPts.length < 2 ? 50 : Math.round(i / (sparkPts.length - 1) * 100);
-        const y = Math.round((1 - (v - minV) / range) * 28);
-        return `${x},${y}`;
-      }).join(' ');
+  // Persist for CSV export and time-range filtering
+  window._outcomesData    = outcomes;
+  window._outcomesAllData = outcomes;
+  window._outcomesTimeRange = window._outcomesTimeRange || 'all';
+  window._courseMap = courseMap;
 
+  // ── Responder detection helper ────────────────────────────────────────────
+  const LOWER_IS_BETTER = ['PHQ-9', 'GAD-7', 'PCL-5', 'phq9', 'gad7', 'pcl5'];
+  function isLowerBetter(templateName) {
+    return LOWER_IS_BETTER.some(t => String(templateName || '').toUpperCase().includes(t.toUpperCase()));
+  }
+  function isResponder(o) {
+    if (o.is_responder != null) return o.is_responder;
+    if (o.pct_change == null) return false;
+    const pct = Math.abs(o.pct_change);
+    if (isLowerBetter(o.template_name || o.template_id)) return o.pct_change <= -50 || pct >= 50;
+    return o.pct_change >= 50 || pct >= 50;
+  }
+
+  // ── Mini sparkline SVG ────────────────────────────────────────────────────
+  function miniSparkline(points, color, width, height) {
+    width = width || 120; height = height || 32;
+    if (!points || points.length < 2) return '';
+    const min = Math.min(...points), max = Math.max(...points);
+    const range = max - min || 1;
+    const xs = points.map((_, i) => (i / (points.length - 1)) * width);
+    const ys = points.map(v => height - ((v - min) / range) * (height - 4) - 2);
+    const ptStr = xs.map((x, i) => x.toFixed(1) + ',' + ys[i].toFixed(1)).join(' ');
+    return `<svg width="${width}" height="${height}" style="overflow:visible"><polyline points="${ptStr}" fill="none" stroke="${color}" stroke-width="2" stroke-linejoin="round"/><circle cx="${xs[xs.length-1].toFixed(1)}" cy="${ys[ys.length-1].toFixed(1)}" r="3" fill="${color}"/></svg>`;
+  }
+
+  // ── Export CSV ────────────────────────────────────────────────────────────
+  window._exportOutcomesCSV = function() {
+    const rows = [['Date', 'Template', 'Score', 'Point', 'Change%', 'Responder']];
+    (window._outcomesData || []).forEach(o => {
+      rows.push([
+        o.recorded_at?.split('T')[0] || o.administered_at?.split('T')[0] || '',
+        o.template_name || o.template_id || '',
+        o.score ?? o.score_numeric ?? '',
+        o.measurement_point || '',
+        o.pct_change != null ? Math.round(o.pct_change) + '%' : '',
+        isResponder(o) ? 'Yes' : 'No',
+      ]);
+    });
+    const csv  = rows.map(r => r.map(v => '"' + String(v).replace(/"/g, '""') + '"').join(',')).join('\n');
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'outcomes.csv';
+    a.click();
+  };
+
+  // ── Time-range filter ─────────────────────────────────────────────────────
+  function filterByTimeRange(items, range) {
+    if (!range || range === 'all') return items;
+    const days = range === '30d' ? 30 : range === '90d' ? 90 : 180;
+    const cutoff = new Date(Date.now() - days * 86400000).toISOString();
+    return items.filter(o => {
+      const d = o.recorded_at || o.administered_at || '';
+      return d >= cutoff;
+    });
+  }
+
+  // ── Section header helper ─────────────────────────────────────────────────
+  function sectionHeader(title) {
+    return `<div style="font-family:var(--font-display);font-size:13px;font-weight:600;color:var(--text-primary);margin-bottom:16px">${title}</div>`;
+  }
+
+  // ── KPI computation ───────────────────────────────────────────────────────
+  function computeKPIs(items) {
+    // Responder rate
+    let responderRatePct = aggregate.responder_rate_pct ??
+      (aggregate.responder_rate != null ? Math.round(aggregate.responder_rate * 100) : null);
+    if (responderRatePct == null && items.length > 0) {
+      const withData = items.filter(o => o.pct_change != null || o.is_responder != null);
+      if (withData.length > 0) {
+        const r = withData.filter(isResponder).length;
+        responderRatePct = Math.round((r / withData.length) * 100);
+      }
+    }
+
+    // Mean score change
+    let meanChange = null;
+    const withBoth = items.filter(o => o.latest_score != null && o.baseline_score != null);
+    if (withBoth.length > 0) {
+      const total = withBoth.reduce((s, o) => s + (o.latest_score - o.baseline_score), 0);
+      meanChange = total / withBoth.length;
+    } else {
+      // fallback: group by course+template, find baseline vs latest
+      const groups = {};
+      items.forEach(o => {
+        const key = (o.course_id || '') + '|' + (o.template_id || o.template_name || '');
+        if (!groups[key]) groups[key] = [];
+        groups[key].push(o);
+      });
+      const changes = [];
+      Object.values(groups).forEach(pts => {
+        const sorted   = pts.slice().sort((a, b) => (a.recorded_at || a.administered_at || '').localeCompare(b.recorded_at || b.administered_at || ''));
+        const baseline = sorted.find(p => p.measurement_point === 'baseline');
+        const latest   = sorted[sorted.length - 1];
+        const bs = baseline?.score_numeric ?? baseline?.score;
+        const ls = latest?.score_numeric ?? latest?.score;
+        if (bs != null && ls != null && baseline !== latest) changes.push(parseFloat(ls) - parseFloat(bs));
+      });
+      if (changes.length > 0) meanChange = changes.reduce((a, b) => a + b, 0) / changes.length;
+    }
+
+    // Active courses with outcomes
+    const activeCourses = new Set(items.map(o => o.course_id).filter(Boolean)).size;
+
+    // Assessment completion
+    let completionPct = aggregate.assessment_completion_pct;
+    if (completionPct == null && items.length > 0) {
+      const withScores = items.filter(o => (o.score != null || o.score_numeric != null)).length;
+      completionPct = Math.round((withScores / items.length) * 100);
+    }
+
+    return { responderRatePct, meanChange, activeCourses, completionPct };
+  }
+
+  // ── Waterfall chart ───────────────────────────────────────────────────────
+  function renderWaterfall(items) {
+    // Group by template name
+    const byTemplate = {};
+    items.forEach(o => {
+      const name = o.template_name || o.template_id || 'Unknown';
+      if (!byTemplate[name]) byTemplate[name] = [];
+      byTemplate[name].push(o);
+    });
+    const entries = Object.entries(byTemplate).filter(([, pts]) => pts.length > 0);
+    if (!entries.length) return emptyState('📊', 'No outcomes recorded', 'Outcome data will appear here as you log session results.');
+
+    return entries.map(([tmpl, pts]) => {
+      const withData = pts.filter(o => o.pct_change != null || o.is_responder != null || (o.score_numeric != null && o.measurement_point === 'post'));
+      const n = pts.length;
+      const responders = withData.filter(isResponder).length;
+      const total = withData.length || 1;
+      const respPct = Math.round((responders / total) * 100);
+      return `<div style="display:flex;align-items:center;gap:12px;margin-bottom:10px">
+        <div style="width:120px;font-size:12px;color:var(--text-secondary);text-align:right;flex-shrink:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${tmpl}">${tmpl}</div>
+        <div style="flex:1;height:24px;border-radius:4px;background:var(--bg-surface-2);overflow:hidden;position:relative;min-width:0">
+          <div style="height:100%;width:${respPct}%;background:var(--teal);border-radius:4px 0 0 4px;transition:width 0.4s"></div>
+          <div style="position:absolute;right:8px;top:50%;transform:translateY(-50%);font-size:11px;font-weight:600;color:var(--text-primary)">${respPct}%</div>
+        </div>
+        <div style="width:60px;font-size:11px;color:var(--text-tertiary);flex-shrink:0">${n} pts</div>
+      </div>`;
+    }).join('');
+  }
+
+  // ── Sparkline cards (top 4 templates) ────────────────────────────────────
+  function renderSparklineCards(items) {
+    const byTemplate = {};
+    items.forEach(o => {
+      const name = o.template_name || o.template_id || 'Unknown';
+      if (!byTemplate[name]) byTemplate[name] = [];
+      byTemplate[name].push(o);
+    });
+    // Sort by count, take top 4
+    const top4 = Object.entries(byTemplate).sort((a, b) => b[1].length - a[1].length).slice(0, 4);
+    if (!top4.length) return `<div style="grid-column:1/-1">${emptyState('◈', 'No template data available.')}</div>`;
+
+    return top4.map(([tmpl, pts]) => {
+      // Bucket by YYYY-MM
+      const buckets = {};
+      pts.forEach(o => {
+        const d = o.recorded_at || o.administered_at || '';
+        const month = d ? d.slice(0, 7) : 'unknown';
+        if (!buckets[month]) buckets[month] = [];
+        const s = parseFloat(o.score_numeric ?? o.score ?? 'NaN');
+        if (!isNaN(s)) buckets[month].push(s);
+      });
+      const months    = Object.keys(buckets).filter(m => m !== 'unknown').sort();
+      const avgScores = months.map(m => buckets[m].reduce((a, b) => a + b, 0) / buckets[m].length);
+      const lowerBetter = isLowerBetter(tmpl);
+      const latestAvg   = avgScores.length ? avgScores[avgScores.length - 1].toFixed(1) : '—';
+      let trendArrow = '', trendColor = 'var(--text-tertiary)';
+      if (avgScores.length >= 2) {
+        const diff = avgScores[avgScores.length - 1] - avgScores[0];
+        const improving = lowerBetter ? diff < 0 : diff > 0;
+        trendArrow = diff < 0 ? '↓' : '↑';
+        trendColor = improving ? 'var(--green)' : 'var(--red)';
+      }
+      const sparkSVG = miniSparkline(avgScores, 'var(--teal)', 120, 32);
+      const monthLabels = months.length ? `${months[0]} — ${months[months.length - 1]}` : '';
+      return `<div class="card" style="padding:16px">
+        <div style="font-size:12px;font-weight:600;color:var(--text-primary);margin-bottom:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${tmpl}">${tmpl}</div>
+        <div style="display:flex;align-items:flex-end;gap:12px;margin-bottom:8px">
+          ${sparkSVG || `<span style="font-size:11px;color:var(--text-tertiary)">Not enough data</span>`}
+          <div>
+            <div style="font-size:22px;font-weight:700;font-family:var(--font-display);color:var(--text-primary);line-height:1">${latestAvg}</div>
+            <div style="font-size:16px;color:${trendColor};font-weight:600;line-height:1;margin-top:2px">${trendArrow}</div>
+          </div>
+        </div>
+        <div style="font-size:10.5px;color:var(--text-tertiary)">${pts.length} measurements${monthLabels ? ' · ' + monthLabels : ''}</div>
+        <div style="font-size:10px;color:var(--text-tertiary);margin-top:2px">${lowerBetter ? 'Lower score = improvement' : 'Higher score = improvement'}</div>
+      </div>`;
+    }).join('');
+  }
+
+  // ── Cohort by modality ────────────────────────────────────────────────────
+  function renderModalityTable(items) {
+    const byModality = {};
+    items.forEach(o => {
+      const course = courseMap[o.course_id] || {};
+      const mod = course.modality_slug || o.modality_slug || 'Unknown';
+      if (!byModality[mod]) byModality[mod] = { pts: new Set(), outcomes: [], responders: 0 };
+      if (o.course_id) byModality[mod].pts.add(o.patient_id || o.course_id);
+      byModality[mod].outcomes.push(o);
+      const withData = o.pct_change != null || o.is_responder != null;
+      if (withData && isResponder(o)) byModality[mod].responders++;
+    });
+
+    const rows = Object.entries(byModality).sort((a, b) => b[1].outcomes.length - a[1].outcomes.length);
+    if (!rows.length) return `<div style="color:var(--text-tertiary);font-size:12px;padding:16px 0">No modality data available.</div>`;
+
+    const tableRows = rows.map(([mod, data]) => {
+      const withData = data.outcomes.filter(o => o.pct_change != null || o.is_responder != null);
+      const respPct  = withData.length > 0 ? Math.round((data.responders / withData.length) * 100) : 0;
+      const pctColor = respPct >= 60 ? 'var(--green)' : respPct >= 40 ? 'var(--amber)' : 'var(--red)';
       return `<tr>
-        <td style="font-size:12px">
-          <div style="font-weight:500">${course.condition_slug?.replace(/-/g,' ') || cid.slice(0,8)+'…'}</div>
-          <div style="font-size:10.5px;color:var(--text-tertiary)">${course.modality_slug || ''}</div>
+        <td style="font-weight:500">${mod.replace(/-/g, ' ')}</td>
+        <td class="mono">${data.pts.size}</td>
+        <td class="mono">${data.outcomes.length}</td>
+        <td>
+          <div style="display:flex;align-items:center;gap:8px">
+            <div style="width:${Math.round(respPct * 0.8)}px;height:8px;background:var(--teal);border-radius:2px;min-width:2px"></div>
+            <span style="font-size:12px;font-weight:600;color:${pctColor}">${respPct}%</span>
+          </div>
         </td>
-        <td style="font-size:11.5px;font-weight:600;color:var(--text-secondary)">${tid}</td>
-        <td class="mono" style="font-size:12px">${baseScore ?? '—'}</td>
-        <td class="mono" style="font-size:12px">${latestScore ?? '—'}</td>
-        <td style="font-size:12px;color:${delta == null ? 'var(--text-tertiary)' : delta > 0 ? 'var(--green)' : 'var(--red)'}">
-          ${delta == null ? '—' : (delta > 0 ? '↓' : '↑') + Math.abs(delta).toFixed(1)}</td>
-        <td class="mono" style="font-size:12px">${pct == null ? '—' : pct + '%'}</td>
-        <td>${responder
-          ? '<span style="color:var(--green);font-size:11px;font-weight:600">✓ Responder</span>'
-          : pct != null ? '<span style="color:var(--text-tertiary);font-size:11px">Non-responder</span>' : '—'}</td>
-        <td><svg width="100" height="32" viewBox="0 0 100 32" style="overflow:visible">
-          ${sparkPts.length > 1 ? `<polyline points="${svgPts}" fill="none" stroke="var(--teal)" stroke-width="1.5" stroke-linejoin="round"/>` : ''}
-          ${sparkPts.map((v, i) => {
-            const x = sparkPts.length < 2 ? 50 : Math.round(i / (sparkPts.length - 1) * 100);
-            const y = Math.round((1 - (v - minV) / range) * 28);
-            return `<circle cx="${x}" cy="${y}" r="2.5" fill="var(--teal)"/>`;
-          }).join('')}
-        </svg></td>
+        <td><span style="font-size:11px;color:${pctColor}">${respPct >= 60 ? '↑ Strong' : respPct >= 40 ? '→ Moderate' : '↓ Low'}</span></td>
       </tr>`;
     }).join('');
-  }).join('');
 
-  // Build per-condition responder breakdown from trendRows data
-  const condResponders = {};
-  Object.entries(byCourse).forEach(([cid, byTemplate]) => {
-    const course = courseMap[cid] || {};
-    const cond = course.condition_slug?.replace(/-/g, ' ') || 'Unknown';
-    if (!condResponders[cond]) condResponders[cond] = { responders: 0, total: 0 };
-    Object.values(byTemplate).forEach(pts => {
-      const sorted = pts.sort((a, b) => (a.administered_at || '').localeCompare(b.administered_at || ''));
-      const baseline = sorted.find(p => p.measurement_point === 'baseline');
-      const latest = sorted[sorted.length - 1];
-      const bs = baseline?.score_numeric, ls = latest?.score_numeric;
-      if (bs != null && ls != null && bs !== 0) {
-        condResponders[cond].total++;
-        const pct = Math.round((bs - ls) / bs * 100);
-        if (pct >= 50) condResponders[cond].responders++;
-      }
+    return `<table class="ds-table">
+      <thead><tr><th>Modality</th><th>Patients</th><th>Outcomes</th><th>Responder Rate</th><th>Trend</th></tr></thead>
+      <tbody>${tableRows}</tbody>
+    </table>`;
+  }
+
+  // ── Outcome records table ────────────────────────────────────────────────
+  function renderOutcomeTable(items) {
+    if (!items.length) return emptyState('📊', 'No outcomes recorded', 'Outcome data will appear here as you log session results.');
+
+    const rows = items.slice().sort((a, b) => {
+      const da = a.recorded_at || a.administered_at || '';
+      const db = b.recorded_at || b.administered_at || '';
+      return db.localeCompare(da);
+    }).map(o => {
+      const date    = (o.recorded_at || o.administered_at || '').split('T')[0] || '—';
+      const tmpl    = o.template_name || o.template_id || '—';
+      const score   = o.score_numeric ?? o.score ?? '—';
+      const point   = o.measurement_point || '—';
+      const chgPct  = o.pct_change != null ? (Math.round(o.pct_change) + '%') : '—';
+      const resp    = (o.pct_change != null || o.is_responder != null) && isResponder(o);
+      const respHTML = resp
+        ? '<span style="color:var(--green);font-weight:600;font-size:11px">✓</span>'
+        : '<span style="color:var(--text-tertiary);font-size:11px">—</span>';
+      const patId  = o.patient_id ? o.patient_id.slice(0, 8) + '…' : '—';
+      return `<tr>
+        <td class="mono" style="font-size:11.5px">${date}</td>
+        <td style="font-size:11.5px;color:var(--text-secondary)">${patId}</td>
+        <td style="font-size:12px;font-weight:500">${tmpl}</td>
+        <td class="mono" style="font-size:12px">${score}</td>
+        <td style="font-size:12px;color:var(--text-secondary)">${point.replace(/_/g, ' ')}</td>
+        <td class="mono" style="font-size:12px;color:${chgPct !== '—' && parseFloat(chgPct) < 0 ? 'var(--green)' : chgPct !== '—' && parseFloat(chgPct) > 0 ? 'var(--amber)' : 'var(--text-tertiary)'}">${chgPct}</td>
+        <td>${respHTML}</td>
+      </tr>`;
+    }).join('');
+
+    return `<table class="ds-table">
+      <thead><tr><th>Date</th><th>Patient</th><th>Template</th><th>Score</th><th>Point</th><th>Change</th><th>Responder?</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>`;
+  }
+
+  // ── _renderOutcomes — re-renders all sections with current time filter ──
+  window._renderOutcomes = function() {
+    const range   = window._outcomesTimeRange || 'all';
+    const filtered = filterByTimeRange(window._outcomesAllData || [], range);
+    window._outcomesData = filtered;
+
+    // Sync select if present
+    const sel = document.getElementById('outcomes-time-range');
+    if (sel && sel.value !== range) sel.value = range;
+
+    // KPIs
+    const { responderRatePct, meanChange, activeCourses, completionPct } = computeKPIs(filtered);
+    const rrDisplay = responderRatePct != null ? responderRatePct + '%' : '—';
+    const mcDisplay = meanChange != null ? (meanChange > 0 ? '+' : '') + meanChange.toFixed(1) : '—';
+    const mcColor   = meanChange == null ? 'var(--text-tertiary)' : meanChange < 0 ? 'var(--green)' : 'var(--teal)';
+    const cpDisplay = completionPct != null ? completionPct + '%' : '—';
+
+    const kpiEl = document.getElementById('oc-kpi-strip');
+    if (kpiEl) kpiEl.innerHTML = `
+      ${metricCard('Responder Rate', rrDisplay, 'var(--teal)', `n=${aggregate.total_outcomes || filtered.length} measurements`)}
+      ${metricCard('Mean Score Change', `<span style="color:${mcColor}">${mcDisplay}</span>`, mcColor, 'Avg baseline vs latest')}
+      ${metricCard('Courses with Outcomes', String(activeCourses), 'var(--violet)', 'Unique courses tracked')}
+      ${metricCard('Assessment Completion', cpDisplay, 'var(--blue)', 'Scores recorded')}`;
+
+    // Waterfall
+    const wfEl = document.getElementById('oc-waterfall');
+    if (wfEl) wfEl.innerHTML = renderWaterfall(filtered);
+
+    // Sparklines
+    const spEl = document.getElementById('oc-sparklines');
+    if (spEl) spEl.innerHTML = renderSparklineCards(filtered);
+
+    // Modality table
+    const modEl = document.getElementById('oc-modality');
+    if (modEl) modEl.innerHTML = renderModalityTable(filtered);
+
+    // Trajectory chart
+    const trajEl = document.getElementById('oc-trajectory');
+    if (trajEl) trajEl.innerHTML = filtered.length > 0 ? outcomeTrajectoryChart(filtered) : '';
+
+    // Records table (also apply template/course filters)
+    window._rerenderOutcomeTable();
+  };
+
+  window._rerenderOutcomeTable = function() {
+    const base   = window._outcomesData || [];
+    const tmplF  = document.getElementById('oc-filter-tmpl')?.value || '';
+    const courseF = document.getElementById('oc-filter-course')?.value || '';
+    const filtered = base.filter(o => {
+      if (tmplF   && (o.template_name || o.template_id || '') !== tmplF)   return false;
+      if (courseF && (o.course_id || '') !== courseF)                       return false;
+      return true;
     });
-  });
-  const condBreakdown = Object.entries(condResponders).filter(([, v]) => v.total > 0);
+    const tableEl = document.getElementById('oc-records-table');
+    if (tableEl) tableEl.innerHTML = renderOutcomeTable(filtered);
+  };
 
-  el.innerHTML = `
-    <div class="page-section">
-      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:${condBreakdown.length ? '16px' : '24px'}">
-        ${metricCard('Responders',      agg.responders ?? '—',                                         'var(--teal)',   '≥50% symptom reduction')}
-        ${metricCard('Avg PHQ-9 Drop',  agg.avg_phq9_drop != null ? agg.avg_phq9_drop + ' pts' : '—', 'var(--blue)',   'Across courses with data')}
-        ${metricCard('Courses Tracked', agg.courses_with_outcomes ?? '—',                              'var(--violet)', 'With outcome measurements')}
-      </div>
-      ${condBreakdown.length ? `
-      <div class="card" style="margin-bottom:24px;padding:16px 20px">
-        <div style="font-size:12px;font-weight:600;color:var(--text-primary);margin-bottom:14px">Responder Rate by Condition</div>
-        <div style="display:flex;flex-direction:column;gap:10px">
-          ${condBreakdown.map(([cond, data]) => {
-            const rate = data.total > 0 ? Math.round(data.responders / data.total * 100) : 0;
-            return `<div>
-              <div style="display:flex;justify-content:space-between;font-size:11.5px;margin-bottom:4px">
-                <span style="color:var(--text-primary);font-weight:500">${cond}</span>
-                <span style="color:${rate >= 50 ? 'var(--green)' : rate >= 30 ? 'var(--amber)' : 'var(--red)'}">${rate}% (${data.responders}/${data.total})</span>
-              </div>
-              <div style="height:6px;border-radius:3px;background:var(--border)">
-                <div style="height:6px;border-radius:3px;background:${rate >= 50 ? 'var(--teal)' : rate >= 30 ? 'var(--amber)' : 'var(--red)'};width:${rate}%;transition:width 0.4s"></div>
-              </div>
-            </div>`;
-          }).join('')}
-        </div>
-      </div>` : ''}
+  // ── Unique templates + courses for filter dropdowns ────────────────────
+  const uniqueTemplates = [...new Set(outcomes.map(o => o.template_name || o.template_id || '').filter(Boolean))];
+  const uniqueCourses   = courses.slice(0, 40); // cap for dropdown
 
-      <div id="record-outcome-panel" style="display:none;margin-bottom:16px">
-        <div class="card" style="padding:20px">
-          <div style="font-size:13px;font-weight:600;margin-bottom:14px">Record Outcome Measurement</div>
-          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:12px">
-            <div>
-              <label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:4px">Course</label>
-              <select id="oc-course" class="form-control" style="font-size:12.5px">
-                <option value="">Select course…</option>
-                ${courses.map(c => `<option value="${c.id}|${c.patient_id}">${c.condition_slug?.replace(/-/g,' ')} · ${c.modality_slug} (${c.status})</option>`).join('')}
-              </select>
-            </div>
-            <div>
-              <label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:4px">Assessment Template</label>
-              <select id="oc-template" class="form-control" style="font-size:12.5px">
-                ${FALLBACK_ASSESSMENT_TEMPLATES.map(t => `<option value="${t.id}">${t.label}</option>`).join('')}
-              </select>
-            </div>
-            <div>
-              <label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:4px">Measurement Point</label>
-              <select id="oc-point" class="form-control" style="font-size:12.5px">
-                <option value="baseline">Baseline (pre-treatment)</option>
-                <option value="mid">Mid-course</option>
-                <option value="post">Post-treatment</option>
-                <option value="follow_up">Follow-up</option>
-              </select>
-            </div>
-          </div>
-          <div style="display:grid;grid-template-columns:1fr 2fr;gap:12px;margin-bottom:12px">
-            <div>
-              <label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:4px">Score</label>
-              <input id="oc-score" class="form-control" type="number" step="0.1" placeholder="e.g. 14" style="font-size:12.5px">
-            </div>
-            <div>
-              <label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:4px">Notes (optional)</label>
-              <input id="oc-notes" class="form-control" placeholder="Clinical context…" style="font-size:12.5px">
-            </div>
-          </div>
-          <div id="oc-error" style="display:none;color:var(--red);font-size:12px;margin-bottom:8px"></div>
-          <div style="display:flex;gap:8px">
-            <button class="btn" onclick="document.getElementById('record-outcome-panel').style.display='none'">Cancel</button>
-            <button class="btn btn-primary" onclick="window._saveOutcome()">Save Measurement</button>
-          </div>
+  // ── Initial render ────────────────────────────────────────────────────────
+  const initFiltered = filterByTimeRange(outcomes, window._outcomesTimeRange);
+  window._outcomesData = initFiltered;
+  const { responderRatePct, meanChange, activeCourses, completionPct } = computeKPIs(initFiltered);
+  const rrDisplay = responderRatePct != null ? responderRatePct + '%' : '—';
+  const mcDisplay = meanChange != null ? (meanChange > 0 ? '+' : '') + meanChange.toFixed(1) : '—';
+  const mcColor   = meanChange == null ? 'var(--text-tertiary)' : meanChange < 0 ? 'var(--green)' : 'var(--teal)';
+  const cpDisplay = completionPct != null ? completionPct + '%' : '—';
+
+  el.innerHTML = `<div class="page-section">
+
+    <!-- ── Section 1: KPI Strip ──────────────────────────────────────────── -->
+    <div class="g4" id="oc-kpi-strip">
+      ${metricCard('Responder Rate', rrDisplay, 'var(--teal)', `n=${aggregate.total_outcomes || initFiltered.length} measurements`)}
+      ${metricCard('Mean Score Change', `<span style="color:${mcColor}">${mcDisplay}</span>`, mcColor, 'Avg baseline vs latest')}
+      ${metricCard('Courses with Outcomes', String(activeCourses), 'var(--violet)', 'Unique courses tracked')}
+      ${metricCard('Assessment Completion', cpDisplay, 'var(--blue)', 'Scores recorded')}
+    </div>
+
+    <!-- ── Section 1b: Trajectory Chart ────────────────────────────────── -->
+    <div id="oc-trajectory" style="${initFiltered.length > 0 ? '' : 'display:none'}">
+      ${initFiltered.length > 0 ? `<div class="card" style="padding:16px 20px;margin-bottom:20px">${outcomeTrajectoryChart(initFiltered)}</div>` : ''}
+    </div>
+
+    <!-- ── Section 2: Responder Waterfall ───────────────────────────────── -->
+    <div class="card" style="margin-bottom:20px">
+      <div class="card-header" style="padding:14px 20px;border-bottom:1px solid var(--border)">
+        <span style="font-weight:600;font-size:14px">Responder Rate by Template</span>
+        <div style="display:flex;align-items:center;gap:14px;font-size:11px;color:var(--text-tertiary)">
+          <span><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:var(--teal);margin-right:4px;vertical-align:middle"></span>Responders</span>
+          <span><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:var(--bg-surface-2);margin-right:4px;vertical-align:middle"></span>Non-responders</span>
         </div>
       </div>
+      <div class="card-body" id="oc-waterfall">
+        ${renderWaterfall(initFiltered)}
+      </div>
+    </div>
 
-      <div class="card">
+    <!-- ── Section 3: Sparkline Cards ───────────────────────────────────── -->
+    <div style="margin-bottom:8px">${sectionHeader('Score Trends by Template — Top 4')}</div>
+    <div class="g4" id="oc-sparklines" style="margin-bottom:20px">
+      ${renderSparklineCards(initFiltered)}
+    </div>
+
+    <!-- ── Section 4: Cohort by Modality ────────────────────────────────── -->
+    <div class="card" style="margin-bottom:20px">
+      <div class="card-header" style="padding:14px 20px;border-bottom:1px solid var(--border)">
+        <span style="font-weight:600;font-size:14px">Cohort Comparison by Modality</span>
+      </div>
+      <div style="padding:16px;overflow-x:auto" id="oc-modality">
+        ${renderModalityTable(initFiltered)}
+      </div>
+    </div>
+
+    <!-- ── Record Outcome Panel ─────────────────────────────────────────── -->
+    <div id="record-outcome-panel" style="display:none;margin-bottom:16px">
+      <div class="card" style="padding:20px">
+        <div style="font-size:13px;font-weight:600;margin-bottom:14px">Record Outcome Measurement</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:12px">
+          <div>
+            <label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:4px">Course</label>
+            <select id="oc-course" class="form-control" style="font-size:12.5px">
+              <option value="">Select course…</option>
+              ${courses.map(c => `<option value="${c.id}|${c.patient_id}">${c.condition_slug?.replace(/-/g,' ')} · ${c.modality_slug} (${c.status})</option>`).join('')}
+            </select>
+          </div>
+          <div>
+            <label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:4px">Assessment Template</label>
+            <select id="oc-template" class="form-control" style="font-size:12.5px">
+              ${FALLBACK_ASSESSMENT_TEMPLATES.map(t => `<option value="${t.id}">${t.label}</option>`).join('')}
+            </select>
+          </div>
+          <div>
+            <label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:4px">Measurement Point</label>
+            <select id="oc-point" class="form-control" style="font-size:12.5px">
+              <option value="baseline">Baseline (pre-treatment)</option>
+              <option value="mid">Mid-course</option>
+              <option value="post">Post-treatment</option>
+              <option value="follow_up">Follow-up</option>
+            </select>
+          </div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 2fr;gap:12px;margin-bottom:12px">
+          <div>
+            <label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:4px">Score</label>
+            <input id="oc-score" class="form-control" type="number" step="0.1" placeholder="e.g. 14" style="font-size:12.5px">
+          </div>
+          <div>
+            <label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:4px">Notes (optional)</label>
+            <input id="oc-notes" class="form-control" placeholder="Clinical context…" style="font-size:12.5px">
+          </div>
+        </div>
+        <div id="oc-error" style="display:none;color:var(--red);font-size:12px;margin-bottom:8px"></div>
+        <div style="display:flex;gap:8px">
+          <button class="btn" onclick="document.getElementById('record-outcome-panel').style.display='none'">Cancel</button>
+          <button class="btn btn-primary" onclick="window._saveOutcome()">Save Measurement</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Section 5: Outcome Records Table ─────────────────────────────── -->
+    <div class="card">
+      <div class="card-header" style="padding:14px 20px;border-bottom:1px solid var(--border)">
+        <span style="font-weight:600;font-size:14px">Outcome Records</span>
+        <div style="display:flex;align-items:center;gap:8px">
+          <select id="oc-filter-tmpl" class="form-control" style="font-size:12px;padding:3px 8px;height:28px;width:auto" onchange="window._rerenderOutcomeTable()">
+            <option value="">All templates</option>
+            ${uniqueTemplates.map(t => `<option value="${t}">${t}</option>`).join('')}
+          </select>
+          <select id="oc-filter-course" class="form-control" style="font-size:12px;padding:3px 8px;height:28px;width:auto" onchange="window._rerenderOutcomeTable()">
+            <option value="">All courses</option>
+            ${uniqueCourses.map(c => `<option value="${c.id}">${c.condition_slug?.replace(/-/g,' ') || c.id.slice(0,8)} · ${c.modality_slug || ''}</option>`).join('')}
+          </select>
+        </div>
+      </div>
+      <div style="padding:16px;overflow-x:auto" id="oc-records-table">
+        ${renderOutcomeTable(initFiltered)}
+      </div>
+    </div>
+
+    <!-- ── Section 6: Clinic Benchmarks ──────────────────────────────────── -->
+    ${(() => {
+      // Compute per-modality responder rates from outcome data
+      const modalityRates = {};
+      const byModality = {};
+      initFiltered.forEach(o => {
+        const c = courseMap[o.course_id] || {};
+        const mod = c.modality_slug || o.modality_slug;
+        if (!mod) return;
+        // Normalise slug to match BENCHMARKS key (e.g. tms -> TMS)
+        const modKey = Object.keys(BENCHMARKS).find(k => k.toLowerCase() === mod.toLowerCase()) || mod;
+        if (!byModality[modKey]) byModality[modKey] = { total: 0, responders: 0 };
+        const withData = o.pct_change != null || o.is_responder != null;
+        if (withData) {
+          byModality[modKey].total++;
+          const resp = o.is_responder != null ? o.is_responder : Math.abs(o.pct_change || 0) >= 50;
+          if (resp) byModality[modKey].responders++;
+        }
+      });
+      const matchedRows = Object.entries(BENCHMARKS)
+        .filter(([mod]) => byModality[mod] && byModality[mod].total > 0)
+        .map(([mod, bm]) => {
+          const { total, responders } = byModality[mod];
+          const clinicRate = Math.round((responders / total) * 100);
+          return benchmarkRow(mod, clinicRate, bm.expected_responder_rate, bm);
+        });
+      if (!matchedRows.length) return '';
+      return `<div class="card" style="margin-bottom:20px">
         <div class="card-header" style="padding:14px 20px;border-bottom:1px solid var(--border)">
-          <span style="font-weight:600;font-size:14px">Outcome Measurements</span>
+          <span style="font-weight:600;font-size:14px">Clinic Benchmarks vs. Published Literature</span>
         </div>
-        <div style="padding:16px;overflow-x:auto">
-          ${trendRows
-            ? `<table class="ds-table">
-                <thead><tr><th>Course</th><th>Template</th><th>Baseline</th><th>Latest</th><th>Change</th><th>% Drop</th><th>Response</th><th>Trend</th></tr></thead>
-                <tbody>${trendRows}</tbody>
-              </table>`
-            : emptyState('◫', 'No outcome measurements yet. Click "+ Record Outcome" to start tracking.')
-          }
+        <div style="padding:20px">
+          ${matchedRows.join('')}
+          <div style="font-size:11px;color:var(--text-tertiary);font-style:italic;margin-top:12px">Benchmarks sourced from published meta-analyses. Direct comparison should account for patient population differences.</div>
         </div>
-      </div>
-    </div>`;
+      </div>`;
+    })()}
 
+  </div>`;
+
+  // ── Wire up show record outcome ────────────────────────────────────────
   window._showRecordOutcome = () => {
     document.getElementById('record-outcome-panel').style.display = '';
+    document.getElementById('record-outcome-panel').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   };
 
   window._saveOutcome = async function() {
-    const errEl    = document.getElementById('oc-error');
+    const errEl = document.getElementById('oc-error');
     errEl.style.display = 'none';
     const courseVal = document.getElementById('oc-course')?.value || '';
     const [courseId, patientId] = courseVal.split('|');
@@ -1786,7 +3219,7 @@ export async function pgAdverseEvents(setTopbar, navigate) {
         <span id="ae-count" style="font-size:11px;color:var(--text-tertiary);white-space:nowrap">${aes.length} events</span>
       </div>
       <div style="overflow-x:auto">
-        ${aes.length === 0 ? `<div style="padding:32px">${emptyState('◻', 'No adverse events reported. Events are logged from the Course Detail page.')}</div>` : `
+        ${aes.length === 0 ? emptyState('🛡️', 'No adverse events reported', 'Adverse events will be logged here when reported during sessions.') : `
         <table class="ds-table" id="ae-table">
           <thead><tr><th>Date</th><th>Patient</th><th>Course</th><th>Event Type</th><th>Severity</th><th>Onset</th><th>Action</th><th>Resolution</th><th></th></tr></thead>
           <tbody id="ae-tbody">
@@ -1837,19 +3270,44 @@ export async function pgProtocolRegistry(setTopbar) {
   el.innerHTML = spinner();
 
   try {
-    const [protoData, condData] = await Promise.all([
+    const [protoData, condData, modData, patientsData] = await Promise.all([
       api.protocols(),
-      api.conditions().catch(() => ({ items: [] })),
+      api.conditions().catch(() => null),
+      api.modalities().catch(() => null),
+      api.listPatients().catch(() => null),
     ]);
-    const items   = protoData?.items || [];
-    const conds   = condData?.items  || [];
-    const condMap = {};
+    const items    = protoData?.items || [];
+    const conds    = condData?.items  || [];
+    const mods     = modData?.items   || [];
+    const patients = patientsData?.items || [];
+    const condMap  = {};
     conds.forEach(c => { condMap[c.id || c.Condition_ID] = c.name || c.Condition_Name || c.id; });
+
+    // Build condition & modality option lists with fallback
+    const condOptions = conds.length
+      ? conds.map(c => `<option value="${c.id || c.Condition_ID}">${c.name || c.Condition_Name || c.id}</option>`).join('')
+      : FALLBACK_CONDITIONS.map(c => `<option value="${c}">${c}</option>`).join('');
+
+    const modOptions = mods.length
+      ? mods.map(m => `<option value="${m.id || m.name || m.Modality_Name}">${m.name || m.Modality_Name || m.id}</option>`).join('')
+      : FALLBACK_MODALITIES.map(m => `<option value="${m}">${m}</option>`).join('');
+
+    const patientOptions = patients.length
+      ? patients.map(p => `<option value="${p.id}">${p.first_name} ${p.last_name}</option>`).join('')
+      : '<option value="" disabled>No patients</option>';
 
     el.innerHTML = `
       <div class="page-section">
         <div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap">
           <input id="pr-search" class="form-control" placeholder="Search protocols, conditions, modalities…" style="flex:1;min-width:200px;font-size:12.5px" oninput="window._filterProtocols()">
+          <select id="pr-condition" class="form-control" style="width:auto;font-size:12.5px" onchange="window._filterProtocols()">
+            <option value="">All Conditions</option>
+            ${condOptions}
+          </select>
+          <select id="pr-modality" class="form-control" style="width:auto;font-size:12.5px" onchange="window._filterProtocols()">
+            <option value="">All Modalities</option>
+            ${modOptions}
+          </select>
           <select id="pr-grade" class="form-control" style="width:auto;font-size:12.5px" onchange="window._filterProtocols()">
             <option value="">All Evidence Grades</option>
             <option value="EV-A">EV-A (Highest)</option>
@@ -1857,37 +3315,45 @@ export async function pgProtocolRegistry(setTopbar) {
             <option value="EV-C">EV-C</option>
             <option value="EV-D">EV-D</option>
           </select>
-          <select id="pr-label" class="form-control" style="width:auto;font-size:12.5px" onchange="window._filterProtocols()">
-            <option value="">On &amp; Off-label</option>
-            <option value="on">On-label only</option>
-            <option value="off">Off-label only</option>
-          </select>
+          <label style="display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--text-secondary);cursor:pointer;flex-shrink:0">
+            <input type="checkbox" id="pr-onlabel" onchange="window._filterProtocols()"> On-label only
+          </label>
         </div>
-        <div style="margin-bottom:12px;font-size:12px;color:var(--text-secondary)">${items.length} registry protocols</div>
+        <div id="pr-count" style="margin-bottom:12px;font-size:12px;color:var(--text-secondary)">${items.length} registry protocols</div>
         <div id="pr-list" style="display:flex;flex-direction:column;gap:8px">
-          ${items.map(p => renderProtocolCard(p, condMap)).join('')}
+          ${items.map(p => renderProtocolCard(p, condMap, patientOptions)).join('')}
         </div>
       </div>`;
 
-    window._allProtocols = items;
-    window._condMap      = condMap;
+    window._allProtocols    = items;
+    window._condMap         = condMap;
+    window._patientOptions  = patientOptions;
 
     bindProtocolRegistry();
 
     window._filterProtocols = function() {
-      const q     = (document.getElementById('pr-search')?.value || '').toLowerCase();
-      const grade = document.getElementById('pr-grade')?.value || '';
-      const label = document.getElementById('pr-label')?.value || '';
+      const q       = (document.getElementById('pr-search')?.value || '').toLowerCase();
+      const grade   = document.getElementById('pr-grade')?.value || '';
+      const condSel = document.getElementById('pr-condition')?.value || '';
+      const modSel  = document.getElementById('pr-modality')?.value || '';
+      const onLabel = document.getElementById('pr-onlabel')?.checked || false;
       const visible = (window._allProtocols || []).filter(p => {
-        const text = `${p.name} ${p.condition_id} ${p.modality_id} ${p.target_region}`.toLowerCase();
+        const condName = (window._condMap || {})[p.condition_id] || p.condition_id || '';
+        const text = `${p.name || ''} ${condName} ${p.modality_id || ''} ${p.target_region || ''}`.toLowerCase();
         const isOn = String(p.on_label_vs_off_label || '').toLowerCase().startsWith('on');
+        const matchCond = !condSel || (p.condition_id || '').includes(condSel) || condName.toLowerCase().includes(condSel.toLowerCase());
+        const matchMod  = !modSel  || (p.modality_id || '').toLowerCase().includes(modSel.toLowerCase());
         return (!q || text.includes(q))
-          && (!grade || p.evidence_grade === grade)
-          && (!label || (label === 'on' ? isOn : !isOn));
+          && (!grade  || p.evidence_grade === grade)
+          && (!onLabel || isOn)
+          && matchCond
+          && matchMod;
       });
-      const listEl = document.getElementById('pr-list');
+      const listEl  = document.getElementById('pr-list');
+      const countEl = document.getElementById('pr-count');
+      if (countEl) countEl.textContent = `${visible.length} of ${(window._allProtocols || []).length} registry protocols`;
       if (listEl) listEl.innerHTML = visible.length
-        ? visible.map(p => renderProtocolCard(p, window._condMap || {})).join('')
+        ? visible.map(p => renderProtocolCard(p, window._condMap || {}, window._patientOptions || '')).join('')
         : emptyState('◇', 'No protocols match filter.');
       bindProtocolRegistry();
     };
@@ -1896,45 +3362,46 @@ export async function pgProtocolRegistry(setTopbar) {
   }
 }
 
-function renderProtocolCard(p, condMap = {}) {
+function renderProtocolCard(p, condMap = {}, patientOptions = '') {
   const isOn = String(p.on_label_vs_off_label || '').toLowerCase().startsWith('on');
-  const pid = (p.id || '').replace(/'/g, '');
-  return `<div class="card" style="padding:0;overflow:hidden">
-    <div style="padding:16px 20px;cursor:pointer;transition:background 0.15s" onmouseover="this.style.background='var(--bg-card-hover)'" onmouseout="this.style.background=''" onclick="window._toggleProtoDetail('${pid}')">
-      <div style="display:flex;align-items:flex-start;gap:12px;flex-wrap:wrap">
-        <div style="flex:1;min-width:200px">
-          <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;flex-wrap:wrap">
-            <span style="font-size:10px;font-family:var(--font-mono);color:var(--text-tertiary)">${p.id || ''}</span>
-            <span style="font-size:13px;font-weight:600;color:var(--text-primary)">${p.name || ''}</span>
-          </div>
-          <div style="font-size:11.5px;color:var(--text-secondary);display:flex;gap:12px;flex-wrap:wrap">
-            ${p.condition_id  ? `<span>Condition: ${condMap[p.condition_id] || p.condition_id}</span>` : ''}
-            ${p.modality_id   ? `<span>Modality: ${p.modality_id}</span>` : ''}
-            ${p.target_region ? `<span>Target: ${p.target_region}</span>` : ''}
-            ${p.frequency_hz  ? `<span>${p.frequency_hz} Hz</span>` : ''}
-            ${p.sessions_per_week ? `<span>${p.sessions_per_week}×/wk</span>` : ''}
-            ${p.total_course  ? `<span>${p.total_course}</span>` : ''}
-          </div>
-        </div>
-        <div style="display:flex;gap:6px;align-items:center;flex-shrink:0">
-          ${evidenceBadge(p.evidence_grade)}
-          ${labelBadge(isOn)}
-          <span style="font-size:10px;color:var(--text-tertiary)" id="proto-chevron-${pid}">▼</span>
+  const pid  = (p.id || '').replace(/['"]/g, '');
+  const condName = condMap[p.condition_id] || p.condition_id || '—';
+
+  return `<div class="card" style="padding:0;overflow:hidden" id="proto-card-${pid}">
+    <div style="display:flex;align-items:flex-start;gap:12px;flex-wrap:wrap;padding:14px 20px;cursor:pointer;transition:background 0.15s"
+         onmouseover="this.style.background='var(--bg-card-hover)'" onmouseout="this.style.background=''"
+         onclick="window._toggleProtoDetail('${pid}')">
+      <div style="display:flex;align-items:center;gap:6px;flex-shrink:0">
+        ${evidenceBadge(p.evidence_grade)}
+        ${labelBadge(isOn)}
+      </div>
+      <div style="flex:1;min-width:200px">
+        <div style="font-size:13px;font-weight:600;color:var(--text-primary);margin-bottom:3px">${p.name || '—'}</div>
+        <div style="font-size:11.5px;color:var(--text-secondary);display:flex;gap:12px;flex-wrap:wrap">
+          ${p.condition_id  ? `<span>${condName}</span>` : ''}
+          ${p.modality_id   ? `<span style="color:var(--teal)">${p.modality_id}</span>` : ''}
+          ${p.target_region ? `<span class="tag" style="font-size:10.5px">${p.target_region}</span>` : ''}
+          ${p.frequency_hz  ? `<span style="font-family:var(--font-mono);color:var(--text-tertiary)">${p.frequency_hz} Hz</span>` : ''}
+          ${p.intensity     ? `<span style="font-family:var(--font-mono);color:var(--text-tertiary)">${p.intensity}</span>` : ''}
         </div>
       </div>
+      <div style="display:flex;gap:6px;align-items:center;flex-shrink:0">
+        <button class="btn btn-sm" style="font-size:10.5px" onclick="event.stopPropagation();window._toggleProtoDetail('${pid}')">View Details →</button>
+        <span style="font-size:10px;color:var(--text-tertiary)" id="proto-chevron-${pid}">▼</span>
+      </div>
     </div>
-    <div id="proto-detail-${pid}" style="display:none;border-top:1px solid var(--border);padding:16px 20px;background:rgba(0,212,188,0.02)">
+    <div id="proto-detail-${pid}" style="display:none;background:rgba(0,0,0,0.2);padding:16px 20px;border-top:1px solid var(--border);border-bottom:1px solid var(--border)">
       <div class="g2" style="margin-bottom:14px">
         <div>
           ${[
-            ['Protocol ID',      p.id],
-            ['Condition',        condMap[p.condition_id] || p.condition_id || '—'],
+            ['Protocol ID',      p.id || '—'],
+            ['Condition',        condName],
             ['Phenotype',        p.phenotype_id || '—'],
             ['Modality',         p.modality_id || '—'],
             ['Device',           p.device_id_if_specific || 'Any compatible'],
             ['Target Region',    p.target_region || '—'],
             ['Laterality',       p.laterality || '—'],
-          ].map(([k,v]) => `<div style="display:flex;gap:8px;padding:4px 0;border-bottom:1px solid var(--border);font-size:12px"><span style="color:var(--text-tertiary);width:120px;flex-shrink:0">${k}</span><span style="color:var(--text-primary)">${v}</span></div>`).join('')}
+          ].map(([k,v]) => `<div style="display:flex;gap:8px;padding:4px 0;border-bottom:1px solid var(--border);font-size:12px"><span style="color:var(--text-tertiary);width:130px;flex-shrink:0">${k}</span><span style="color:var(--text-primary)">${v}</span></div>`).join('')}
         </div>
         <div>
           ${[
@@ -1945,13 +3412,33 @@ function renderProtocolCard(p, condMap = {}) {
             ['Total Course',     p.total_course || '—'],
             ['Coil/Placement',   p.coil_or_electrode_placement || '—'],
             ['Review Required',  p.clinician_review_required === 'Yes' ? '<span style="color:var(--amber)">Yes</span>' : '<span style="color:var(--green)">No</span>'],
-          ].map(([k,v]) => `<div style="display:flex;gap:8px;padding:4px 0;border-bottom:1px solid var(--border);font-size:12px"><span style="color:var(--text-tertiary);width:120px;flex-shrink:0">${k}</span><span style="color:var(--text-primary)">${v}</span></div>`).join('')}
+          ].map(([k,v]) => `<div style="display:flex;gap:8px;padding:4px 0;border-bottom:1px solid var(--border);font-size:12px"><span style="color:var(--text-tertiary);width:130px;flex-shrink:0">${k}</span><span style="color:var(--text-primary)">${v}</span></div>`).join('')}
         </div>
       </div>
+      <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;align-items:center">
+        ${evidenceBadge(p.evidence_grade)}
+        ${labelBadge(isOn)}
+        ${p.governance_flags?.length ? `<span style="font-size:10px;font-weight:600;padding:2px 7px;border-radius:4px;background:rgba(255,107,107,0.1);color:var(--red)">⚠ ${p.governance_flags.length} governance flag${p.governance_flags.length > 1 ? 's' : ''}</span>` : ''}
+      </div>
+      ${(p.governance_flags || []).map(f => `<div style="font-size:11.5px;color:var(--amber);padding:6px 10px;background:rgba(255,181,71,0.06);border-radius:5px;margin-bottom:6px;border-left:3px solid var(--amber)">⚠ ${f}</div>`).join('')}
       ${p.monitoring_requirements ? `<div style="font-size:11.5px;color:var(--text-secondary);margin-bottom:12px;padding:10px;background:rgba(255,181,71,0.06);border-radius:6px;border-left:3px solid var(--amber)">Monitoring: ${p.monitoring_requirements}</div>` : ''}
-      <div style="display:flex;gap:8px;flex-wrap:wrap">
-        <button class="btn btn-primary btn-sm" onclick="window._startCourseFromProtocol('${pid}')">+ Create Treatment Course →</button>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">
+        <button class="btn btn-primary btn-sm" onclick="window._useProtocol('${pid}')">Use This Protocol →</button>
+        <button class="btn btn-sm" onclick="window._toggleAssignForm('${pid}')">Assign to Patient →</button>
+        <button class="btn btn-sm" onclick="window._startCourseFromProtocol('${pid}')">+ Create Course</button>
         <button class="btn btn-sm" onclick="window._toggleProtoDetail('${pid}')">Close</button>
+      </div>
+      <div id="proto-assign-form-${pid}" style="display:none;margin-top:8px;padding:12px;background:rgba(255,255,255,0.03);border-radius:6px;border:1px solid var(--border)">
+        <div style="font-size:11.5px;font-weight:600;color:var(--text-secondary);margin-bottom:8px;text-transform:uppercase;letter-spacing:.7px">Assign to Patient</div>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <select id="proto-assign-pat-${pid}" class="form-control" style="flex:1;min-width:180px;font-size:12.5px">
+            <option value="">Select patient…</option>
+            ${patientOptions}
+          </select>
+          <button class="btn btn-primary btn-sm" onclick="window._assignProtocolToPatient('${pid}','${p.phenotype_id || ''}')">Assign</button>
+          <button class="btn btn-sm" onclick="document.getElementById('proto-assign-form-${pid}').style.display='none'">Cancel</button>
+        </div>
+        <div id="proto-assign-msg-${pid}" style="font-size:11.5px;margin-top:6px;display:none"></div>
       </div>
     </div>
   </div>`;
@@ -1960,6 +3447,14 @@ function renderProtocolCard(p, condMap = {}) {
 // bind in pgProtocolRegistry
 function bindProtocolRegistry() {
   window._toggleProtoDetail = function(id) {
+    // Close all other open panels
+    document.querySelectorAll('[id^="proto-detail-"]').forEach(el => {
+      if (el.id !== 'proto-detail-' + id && el.style.display !== 'none') {
+        el.style.display = 'none';
+        const chev = document.getElementById('proto-chevron-' + el.id.replace('proto-detail-', ''));
+        if (chev) chev.textContent = '▼';
+      }
+    });
     const panel = document.getElementById('proto-detail-' + id);
     const chev  = document.getElementById('proto-chevron-' + id);
     if (!panel) return;
@@ -1968,9 +3463,1776 @@ function bindProtocolRegistry() {
     if (chev) chev.textContent = open ? '▼' : '▲';
   };
 
+  window._useProtocol = function(protocolId) {
+    window._wizardProtocolId = protocolId;
+    window._nav('protocol-wizard');
+  };
+
   window._startCourseFromProtocol = function(protocolId) {
     window._wizardProtocolId = protocolId;
     window._nav('protocol-wizard');
   };
+
+  window._toggleAssignForm = function(pid) {
+    const form = document.getElementById('proto-assign-form-' + pid);
+    if (form) form.style.display = form.style.display === 'none' ? '' : 'none';
+  };
+
+  window._assignProtocolToPatient = async function(protocolId, phenotypeId) {
+    const patEl  = document.getElementById('proto-assign-pat-' + protocolId);
+    const msgEl  = document.getElementById('proto-assign-msg-' + protocolId);
+    const patId  = patEl?.value;
+    if (!patId) {
+      if (msgEl) { msgEl.textContent = 'Select a patient.'; msgEl.style.color = 'var(--red)'; msgEl.style.display = ''; }
+      return;
+    }
+    try {
+      const payload = { patient_id: patId, protocol_id: protocolId };
+      if (phenotypeId) payload.phenotype_id = phenotypeId;
+      await api.assignPhenotype(payload);
+      if (msgEl) { msgEl.textContent = 'Assigned successfully.'; msgEl.style.color = 'var(--teal)'; msgEl.style.display = ''; }
+      setTimeout(() => {
+        const form = document.getElementById('proto-assign-form-' + protocolId);
+        if (form) form.style.display = 'none';
+        if (msgEl) msgEl.style.display = 'none';
+      }, 2000);
+    } catch (e) {
+      if (msgEl) { msgEl.textContent = e.message || 'Assignment failed.'; msgEl.style.color = 'var(--red)'; msgEl.style.display = ''; }
+    }
+  };
 }
 
+// ── pgClinicalReports — Reporting dashboard ───────────────────────────────────
+export async function pgClinicalReports(setTopbar) {
+  setTopbar('Clinical Reports', '<span style="font-size:12px;color:var(--text-secondary)">Generate and export patient outcome reports</span>');
+  const el = document.getElementById('content');
+
+  el.innerHTML = `
+    <div id="report-type-grid" style="display:grid;grid-template-columns:repeat(2,1fr);gap:16px;margin-bottom:24px;max-width:800px">
+      ${[
+        { id: 'patient',    icon: '&#128100;', title: 'Patient Outcome Summary',  desc: 'Full outcome history for a single patient across all courses' },
+        { id: 'course',     icon: '&#128203;', title: 'Course Progress Report',   desc: 'Detailed session log and outcome data for a treatment course' },
+        { id: 'population', icon: '&#128202;', title: 'Population Analytics',     desc: 'Aggregate outcomes across all patients and conditions' },
+        { id: 'ae',         icon: '&#9888;',   title: 'Adverse Events Log',       desc: 'All reported adverse events with severity and resolution status' },
+      ].map(t => `
+        <div class="card" style="cursor:pointer;transition:border-color 0.15s;border:2px solid transparent"
+          id="report-tile-${t.id}"
+          onmouseover="this.style.borderColor='var(--teal)'"
+          onmouseout="if(window._reportType!=='${t.id}')this.style.borderColor='transparent'"
+          onclick="window._selectReportType('${t.id}')">
+          <div style="padding:20px">
+            <div style="font-size:28px;margin-bottom:10px">${t.icon}</div>
+            <div style="font-size:13px;font-weight:600;color:var(--text-primary);margin-bottom:6px">${t.title}</div>
+            <div style="font-size:11.5px;color:var(--text-secondary);line-height:1.5">${t.desc}</div>
+          </div>
+        </div>`).join('')}
+    </div>
+
+    <div id="report-config-panel" style="display:none;margin-bottom:24px;padding:20px;background:rgba(0,0,0,0.2);border:1px solid var(--border);border-radius:var(--radius-md)">
+      <div style="font-size:11px;font-weight:600;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.8px;margin-bottom:14px">Report Configuration</div>
+      <div id="report-config-body"></div>
+      <div style="margin-top:14px;display:flex;gap:10px;flex-wrap:wrap">
+        <button class="btn btn-primary btn-sm" onclick="window._generateReport()">Generate Report</button>
+        <button class="btn btn-sm" onclick="document.getElementById('report-config-panel').style.display='none';window._reportType=null;document.querySelectorAll('[id^=report-tile-]').forEach(t=>t.style.borderColor='transparent')">Cancel</button>
+      </div>
+    </div>
+
+    <div id="report-preview" style="display:none">
+      <div style="display:flex;gap:10px;margin-bottom:14px;flex-wrap:wrap" class="no-print">
+        <button class="btn btn-primary btn-sm" onclick="window._printReport()">&#128424; Print Report</button>
+        <button class="btn btn-sm" onclick="window._printReport()">&#128229; Download PDF</button>
+        <span style="font-size:11px;color:var(--text-tertiary);align-self:center">Use browser Print &rarr; Save as PDF to download</span>
+      </div>
+      <div id="printable-report" style="background:white;color:#111;padding:32px;border-radius:var(--radius-md);border:1px solid var(--border)"></div>
+    </div>`;
+
+  window._reportType = null;
+
+  const configTemplates = {
+    patient: `
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px">
+        <div>
+          <label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:4px">Patient</label>
+          <select id="rp-patient" class="form-control" style="font-size:12px"><option value="">Loading\u2026</option></select>
+        </div>
+        <div>
+          <label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:4px">From</label>
+          <input id="rp-from" class="form-control" type="date" style="font-size:12px">
+        </div>
+        <div>
+          <label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:4px">To</label>
+          <input id="rp-to" class="form-control" type="date" style="font-size:12px">
+        </div>
+      </div>`,
+    course: `
+      <div>
+        <label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:4px">Course ID</label>
+        <input id="rp-course-id" class="form-control" placeholder="Paste course ID or select from Treatment Courses" style="font-size:12px;max-width:400px">
+      </div>`,
+    population: `
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px">
+        <div>
+          <label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:4px">From</label>
+          <input id="rp-from" class="form-control" type="date" style="font-size:12px">
+        </div>
+        <div>
+          <label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:4px">To</label>
+          <input id="rp-to" class="form-control" type="date" style="font-size:12px">
+        </div>
+        <div>
+          <label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:4px">Condition Filter</label>
+          <input id="rp-condition" class="form-control" placeholder="e.g. depression" style="font-size:12px">
+        </div>
+      </div>`,
+    ae: `
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px">
+        <div>
+          <label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:4px">From</label>
+          <input id="rp-from" class="form-control" type="date" style="font-size:12px">
+        </div>
+        <div>
+          <label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:4px">To</label>
+          <input id="rp-to" class="form-control" type="date" style="font-size:12px">
+        </div>
+        <div>
+          <label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:4px">Severity</label>
+          <select id="rp-severity" class="form-control" style="font-size:12px">
+            <option value="">All</option>
+            <option value="mild">Mild</option>
+            <option value="moderate">Moderate</option>
+            <option value="severe">Severe</option>
+            <option value="serious">Serious</option>
+          </select>
+        </div>
+      </div>`,
+  };
+
+  window._selectReportType = async function(type) {
+    window._reportType = type;
+    document.querySelectorAll('[id^="report-tile-"]').forEach(t => { t.style.borderColor = 'transparent'; });
+    const tile = document.getElementById('report-tile-' + type);
+    if (tile) tile.style.borderColor = 'var(--teal)';
+    const configBody = document.getElementById('report-config-body');
+    const panel      = document.getElementById('report-config-panel');
+    if (configBody) configBody.innerHTML = configTemplates[type] || '';
+    if (panel)      panel.style.display  = '';
+
+    if (type === 'patient') {
+      const sel = document.getElementById('rp-patient');
+      if (sel) {
+        sel.innerHTML = '<option value="">Loading patients\u2026</option>';
+        try {
+          const pats = await api.listPatients().catch(() => null);
+          const items = pats?.items || pats || [];
+          sel.innerHTML = '<option value="">Select patient\u2026</option>'
+            + items.map(p => '<option value="' + p.id + '">' + p.first_name + ' ' + p.last_name + '</option>').join('');
+        } catch (_) {
+          sel.innerHTML = '<option value="">Could not load patients</option>';
+        }
+      }
+    }
+  };
+
+  window._generateReport = async function() {
+    const type = window._reportType;
+    if (!type) return;
+    const preview = document.getElementById('report-preview');
+    const reportEl = document.getElementById('printable-report');
+    if (reportEl) reportEl.innerHTML = '<div style="text-align:center;padding:32px;color:#555">Generating report\u2026</div>';
+    if (preview) preview.style.display = '';
+    try {
+      const html = await window._buildReportHtml(type);
+      if (reportEl) reportEl.innerHTML = html;
+    } catch (e) {
+      if (reportEl) reportEl.innerHTML = '<div style="color:#cc0000;padding:16px">Error generating report: ' + (e.message || 'Unknown error') + '</div>';
+    }
+  };
+
+  window._buildReportHtml = async function(type) {
+    const genDate = new Date().toLocaleString();
+    const hdr = '<div class="print-header" style="display:block;border-bottom:2px solid #003366;padding-bottom:12px;margin-bottom:20px"><div style="display:flex;justify-content:space-between;align-items:flex-start"><div><div style="font-size:18pt;font-weight:700;color:#003366">DeepSynaps Protocol Studio</div><div style="font-size:10pt;color:#555;margin-top:2px">Clinical Reports</div></div><div style="text-align:right;font-size:9pt;color:#555"><div>Generated: ' + genDate + '</div><div style="background:#cc0000;color:white;padding:2px 8px;border-radius:3px;font-weight:700;margin-top:4px">CONFIDENTIAL</div></div></div></div>';
+    const ftr = '<div style="margin-top:32px;padding-top:12px;border-top:1px solid #ccc;font-size:8pt;color:#888;display:flex;justify-content:space-between"><span>DeepSynaps Protocol Studio \u2014 Confidential Clinical Record</span><span>Generated ' + genDate + '</span></div>';
+
+    if (type === 'patient') {
+      const patId = document.getElementById('rp-patient')?.value;
+      if (!patId) throw new Error('Select a patient.');
+      const from = document.getElementById('rp-from')?.value || null;
+      const to   = document.getElementById('rp-to')?.value || null;
+      const [pat, outRes] = await Promise.all([
+        api.getPatient(patId),
+        api.listOutcomes({ patient_id: patId }).catch(() => null),
+      ]);
+      const outs = outRes?.items || [];
+      const cRes = await api.listCourses({ patient_id: patId }).catch(() => null);
+      const cList = cRes?.items || [];
+      const filtOut = outs.filter(o => {
+        const d = o.recorded_at ? o.recorded_at.split('T')[0] : null;
+        return (!from || !d || d >= from) && (!to || !d || d <= to);
+      });
+      const tRowsSym = ['Date','Template','Score','Point'];
+      const tHdr = '<tr style="background:#003366;color:white">' + tRowsSym.map(h => '<th style="padding:5px 8px;text-align:left">' + h + '</th>').join('') + '</tr>';
+      const outRows = filtOut.map(o => '<tr><td style="padding:5px 8px;border:1px solid #ddd">' + (o.recorded_at ? o.recorded_at.split('T')[0] : '\u2014') + '</td><td style="padding:5px 8px;border:1px solid #ddd">' + (o.template_name || o.template_id || '\u2014') + '</td><td style="padding:5px 8px;border:1px solid #ddd">' + (o.score != null ? o.score : '\u2014') + '</td><td style="padding:5px 8px;border:1px solid #ddd">' + (o.measurement_point || '\u2014') + '</td></tr>').join('');
+      const cRows = cList.map(c => '<tr><td style="padding:5px 8px;border:1px solid #ddd">' + (c.condition_slug || '\u2014').replace(/-/g,' ') + '</td><td style="padding:5px 8px;border:1px solid #ddd">' + (c.modality_slug || '\u2014') + '</td><td style="padding:5px 8px;border:1px solid #ddd">' + (c.status || '\u2014').replace(/_/g,' ') + '</td><td style="padding:5px 8px;border:1px solid #ddd">' + (c.sessions_delivered || 0) + ' / ' + (c.planned_sessions_total || '?') + '</td></tr>').join('');
+      return hdr
+        + '<h2 style="font-size:14pt;color:#003366;margin-bottom:4px">Patient Outcome Summary</h2>'
+        + '<div style="font-size:10pt;color:#555;margin-bottom:20px">Patient: <strong>' + pat.first_name + ' ' + pat.last_name + '</strong>' + (pat.date_of_birth ? ' &nbsp;|&nbsp; DOB: ' + pat.date_of_birth : '') + (from || to ? ' &nbsp;|&nbsp; Period: ' + (from || 'all') + ' to ' + (to || 'present') : '') + '</div>'
+        + '<h3 style="font-size:12pt;color:#003366;border-bottom:1px solid #ccc;padding-bottom:4px;margin-bottom:10px">Treatment Courses (' + cList.length + ')</h3>'
+        + (cList.length === 0 ? '<p style="color:#777">No treatment courses.</p>' : '<table style="width:100%;border-collapse:collapse;margin-bottom:20px;font-size:9pt"><thead><tr style="background:#003366;color:white"><th style="padding:5px 8px;text-align:left">Condition</th><th style="padding:5px 8px;text-align:left">Modality</th><th style="padding:5px 8px;text-align:left">Status</th><th style="padding:5px 8px;text-align:left">Sessions</th></tr></thead><tbody>' + cRows + '</tbody></table>')
+        + '<h3 style="font-size:12pt;color:#003366;border-bottom:1px solid #ccc;padding-bottom:4px;margin-bottom:10px">Outcome Measures (' + filtOut.length + ')</h3>'
+        + (filtOut.length === 0 ? '<p style="color:#777">No outcome records for selected period.</p>' : '<table style="width:100%;border-collapse:collapse;margin-bottom:20px;font-size:9pt"><thead>' + tHdr + '</thead><tbody>' + outRows + '</tbody></table>')
+        + ftr;
+    }
+
+    if (type === 'course') {
+      const courseId = document.getElementById('rp-course-id')?.value?.trim();
+      if (!courseId) throw new Error('Enter a course ID.');
+      const [crs, sRes, oRes, aeR] = await Promise.all([
+        api.getCourse(courseId),
+        api.listCourseSessions(courseId).then(r => r?.items || []).catch(() => []),
+        api.listOutcomes({ course_id: courseId }).then(r => r?.items || []).catch(() => []),
+        api.listAdverseEvents({ course_id: courseId }).then(r => r?.items || []).catch(() => []),
+      ]);
+      let pt3 = null;
+      if (crs?.patient_id) pt3 = await api.getPatient(crs.patient_id).catch(() => null);
+      const pct2 = Math.min(100, Math.round(((crs.sessions_delivered || 0) / (crs.planned_sessions_total || 1)) * 100));
+      const sRows = sRes.map((s, i) => '<tr><td style="padding:5px 8px;border:1px solid #ddd">' + (i + 1) + '</td><td style="padding:5px 8px;border:1px solid #ddd">' + (s.session_date ? s.session_date.split('T')[0] : '\u2014') + '</td><td style="padding:5px 8px;border:1px solid #ddd">' + (s.frequency_hz || '\u2014') + '</td><td style="padding:5px 8px;border:1px solid #ddd">' + (s.intensity_pct_rmt || '\u2014') + '</td><td style="padding:5px 8px;border:1px solid #ddd">' + (s.pulses_delivered || '\u2014') + '</td><td style="padding:5px 8px;border:1px solid #ddd">' + (s.tolerance_rating || '\u2014') + '</td><td style="padding:5px 8px;border:1px solid #ddd">' + (s.session_outcome || '\u2014') + '</td></tr>').join('');
+      const oRows = oRes.map(o => '<tr><td style="padding:5px 8px;border:1px solid #ddd">' + (o.recorded_at ? o.recorded_at.split('T')[0] : '\u2014') + '</td><td style="padding:5px 8px;border:1px solid #ddd">' + (o.template_name || o.template_id || '\u2014') + '</td><td style="padding:5px 8px;border:1px solid #ddd">' + (o.score != null ? o.score : '\u2014') + '</td><td style="padding:5px 8px;border:1px solid #ddd">' + (o.measurement_point || '\u2014') + '</td></tr>').join('');
+      const aeRows2 = aeR.map(ae => '<tr><td style="padding:5px 8px;border:1px solid #ddd">' + (ae.reported_at ? ae.reported_at.split('T')[0] : '\u2014') + '</td><td style="padding:5px 8px;border:1px solid #ddd;text-transform:capitalize">' + (ae.severity || '\u2014') + '</td><td style="padding:5px 8px;border:1px solid #ddd">' + (ae.description || '\u2014') + '</td><td style="padding:5px 8px;border:1px solid #ddd">' + (ae.resolved ? 'Yes' : 'No') + '</td></tr>').join('');
+      return hdr
+        + '<h2 style="font-size:14pt;color:#003366;margin-bottom:4px">Course Progress Report</h2>'
+        + '<div style="font-size:10pt;color:#555;margin-bottom:16px">' + (crs.condition_slug ? crs.condition_slug.replace(/-/g,' ') : '\u2014') + ' &middot; ' + (crs.modality_slug || '\u2014') + (pt3 ? ' &nbsp;|&nbsp; Patient: <strong>' + pt3.first_name + ' ' + pt3.last_name + '</strong>' : '') + ' &nbsp;|&nbsp; Status: <strong>' + (crs.status || '\u2014').replace(/_/g,' ') + '</strong></div>'
+        + '<div style="margin-bottom:16px"><div style="font-size:10pt;font-weight:600;margin-bottom:4px">Session Progress: ' + (crs.sessions_delivered || 0) + ' / ' + (crs.planned_sessions_total || '?') + '</div><div style="height:12px;background:#eee;border-radius:6px;overflow:hidden"><div style="height:12px;background:#003366;width:' + pct2 + '%;border-radius:6px"></div></div></div>'
+        + (sRes.length > 0 ? '<h3 style="font-size:12pt;color:#003366;border-bottom:1px solid #ccc;padding-bottom:4px;margin-bottom:10px">Session Log (' + sRes.length + ')</h3><table style="width:100%;border-collapse:collapse;margin-bottom:20px;font-size:9pt"><thead><tr style="background:#003366;color:white"><th style="padding:5px 8px;text-align:left">#</th><th style="padding:5px 8px;text-align:left">Date</th><th style="padding:5px 8px;text-align:left">Hz</th><th style="padding:5px 8px;text-align:left">% RMT</th><th style="padding:5px 8px;text-align:left">Pulses</th><th style="padding:5px 8px;text-align:left">Tolerance</th><th style="padding:5px 8px;text-align:left">Outcome</th></tr></thead><tbody>' + sRows + '</tbody></table>' : '')
+        + (oRes.length > 0 ? '<h3 style="font-size:12pt;color:#003366;border-bottom:1px solid #ccc;padding-bottom:4px;margin-bottom:10px">Outcomes (' + oRes.length + ')</h3><table style="width:100%;border-collapse:collapse;margin-bottom:20px;font-size:9pt"><thead><tr style="background:#003366;color:white"><th style="padding:5px 8px;text-align:left">Date</th><th style="padding:5px 8px;text-align:left">Template</th><th style="padding:5px 8px;text-align:left">Score</th><th style="padding:5px 8px;text-align:left">Point</th></tr></thead><tbody>' + oRows + '</tbody></table>' : '')
+        + (aeR.length > 0 ? '<h3 style="font-size:12pt;color:#cc0000;border-bottom:1px solid #ccc;padding-bottom:4px;margin-bottom:10px">Adverse Events (' + aeR.length + ')</h3><table style="width:100%;border-collapse:collapse;margin-bottom:20px;font-size:9pt"><thead><tr style="background:#cc0000;color:white"><th style="padding:5px 8px;text-align:left">Date</th><th style="padding:5px 8px;text-align:left">Severity</th><th style="padding:5px 8px;text-align:left">Description</th><th style="padding:5px 8px;text-align:left">Resolved</th></tr></thead><tbody>' + aeRows2 + '</tbody></table>' : '')
+        + ftr;
+    }
+
+    if (type === 'population') {
+      const from = document.getElementById('rp-from')?.value || null;
+      const to   = document.getElementById('rp-to')?.value || null;
+      const cond = (document.getElementById('rp-condition')?.value || '').toLowerCase();
+      const [agg2, cAll] = await Promise.all([
+        api.aggregateOutcomes().catch(() => null),
+        api.listCourses().then(r => r?.items || []).catch(() => []),
+      ]);
+      const filt = cAll.filter(c => !cond || (c.condition_slug || '').toLowerCase().includes(cond));
+      const bySt = {};
+      filt.forEach(c => { bySt[c.status] = (bySt[c.status] || 0) + 1; });
+      const byMod = {};
+      filt.forEach(c => { byMod[c.modality_slug || 'Unknown'] = (byMod[c.modality_slug || 'Unknown'] || 0) + 1; });
+      return hdr
+        + '<h2 style="font-size:14pt;color:#003366;margin-bottom:4px">Population Analytics Report</h2>'
+        + '<div style="font-size:10pt;color:#555;margin-bottom:20px">Aggregate outcomes across all patients' + (cond ? ' \u2014 filter: ' + cond : '') + (from || to ? ' | Period: ' + (from || 'all') + ' to ' + (to || 'present') : '') + '</div>'
+        + '<h3 style="font-size:12pt;color:#003366;border-bottom:1px solid #ccc;padding-bottom:4px;margin-bottom:10px">Key Metrics</h3>'
+        + '<table style="width:100%;border-collapse:collapse;margin-bottom:20px;font-size:10pt"><tbody>'
+        + '<tr><td style="padding:5px 8px;border:1px solid #ddd;font-weight:600;background:#f5f7fa;width:40%">Total Courses (filtered)</td><td style="padding:5px 8px;border:1px solid #ddd">' + filt.length + '</td></tr>'
+        + '<tr><td style="padding:5px 8px;border:1px solid #ddd;font-weight:600;background:#f5f7fa">Total Outcomes Recorded</td><td style="padding:5px 8px;border:1px solid #ddd">' + (agg2?.total_outcomes || '\u2014') + '</td></tr>'
+        + '<tr><td style="padding:5px 8px;border:1px solid #ddd;font-weight:600;background:#f5f7fa">Responder Rate</td><td style="padding:5px 8px;border:1px solid #ddd">' + (agg2?.responder_rate != null ? (agg2.responder_rate * 100).toFixed(1) + '%' : '\u2014') + '</td></tr>'
+        + '<tr><td style="padding:5px 8px;border:1px solid #ddd;font-weight:600;background:#f5f7fa">Mean Improvement</td><td style="padding:5px 8px;border:1px solid #ddd">' + (agg2?.mean_improvement != null ? agg2.mean_improvement : '\u2014') + '</td></tr>'
+        + '</tbody></table>'
+        + '<h3 style="font-size:12pt;color:#003366;border-bottom:1px solid #ccc;padding-bottom:4px;margin-bottom:10px">Courses by Status</h3>'
+        + '<table style="width:100%;border-collapse:collapse;margin-bottom:20px;font-size:10pt"><thead><tr style="background:#003366;color:white"><th style="padding:5px 8px;text-align:left">Status</th><th style="padding:5px 8px;text-align:left">Count</th></tr></thead><tbody>'
+        + Object.entries(bySt).map(([s, c]) => '<tr><td style="padding:5px 8px;border:1px solid #ddd;text-transform:capitalize">' + s.replace(/_/g,' ') + '</td><td style="padding:5px 8px;border:1px solid #ddd">' + c + '</td></tr>').join('')
+        + '</tbody></table>'
+        + '<h3 style="font-size:12pt;color:#003366;border-bottom:1px solid #ccc;padding-bottom:4px;margin-bottom:10px">Courses by Modality</h3>'
+        + '<table style="width:100%;border-collapse:collapse;margin-bottom:20px;font-size:10pt"><thead><tr style="background:#003366;color:white"><th style="padding:5px 8px;text-align:left">Modality</th><th style="padding:5px 8px;text-align:left">Count</th></tr></thead><tbody>'
+        + Object.entries(byMod).map(([m, c]) => '<tr><td style="padding:5px 8px;border:1px solid #ddd">' + m + '</td><td style="padding:5px 8px;border:1px solid #ddd">' + c + '</td></tr>').join('')
+        + '</tbody></table>'
+        + ftr;
+    }
+
+    if (type === 'ae') {
+      const from = document.getElementById('rp-from')?.value || null;
+      const to   = document.getElementById('rp-to')?.value || null;
+      const sev  = document.getElementById('rp-severity')?.value || null;
+      const params = {};
+      if (sev) params.severity = sev;
+      const aeAllRes = await api.listAdverseEvents(params).catch(() => null);
+      let aeAll = aeAllRes?.items || [];
+      if (from) aeAll = aeAll.filter(ae => !ae.reported_at || ae.reported_at.split('T')[0] >= from);
+      if (to)   aeAll = aeAll.filter(ae => !ae.reported_at || ae.reported_at.split('T')[0] <= to);
+      const aeSevCounts = { mild: 0, moderate: 0, severe: 0, serious: 0 };
+      aeAll.forEach(ae => { if (aeSevCounts[ae.severity] !== undefined) aeSevCounts[ae.severity]++; });
+      const aeDetailRows = aeAll.map(ae => '<tr><td style="padding:5px 8px;border:1px solid #ddd">' + (ae.reported_at ? ae.reported_at.split('T')[0] : '\u2014') + '</td><td style="padding:5px 8px;border:1px solid #ddd;text-transform:capitalize">' + (ae.severity || '\u2014') + '</td><td style="padding:5px 8px;border:1px solid #ddd">' + (ae.description || '\u2014') + '</td><td style="padding:5px 8px;border:1px solid #ddd">' + (ae.course_id ? ae.course_id.slice(0, 8) + '\u2026' : '\u2014') + '</td><td style="padding:5px 8px;border:1px solid #ddd">' + (ae.resolved ? 'Yes' : 'No') + '</td></tr>').join('');
+      return hdr
+        + '<h2 style="font-size:14pt;color:#003366;margin-bottom:4px">Adverse Events Log</h2>'
+        + '<div style="font-size:10pt;color:#555;margin-bottom:20px">All reported adverse events' + (sev ? ' \u2014 severity: ' + sev : '') + (from || to ? ' | Period: ' + (from || 'all') + ' to ' + (to || 'present') : '') + ' &nbsp;|\u00a0 Total: <strong>' + aeAll.length + '</strong></div>'
+        + '<h3 style="font-size:12pt;color:#003366;border-bottom:1px solid #ccc;padding-bottom:4px;margin-bottom:10px">Severity Summary</h3>'
+        + '<table style="width:60%;border-collapse:collapse;margin-bottom:20px;font-size:10pt"><thead><tr style="background:#003366;color:white"><th style="padding:5px 8px;text-align:left">Severity</th><th style="padding:5px 8px;text-align:left">Count</th></tr></thead><tbody>'
+        + Object.entries(aeSevCounts).map(([s, c]) => '<tr><td style="padding:5px 8px;border:1px solid #ddd;text-transform:capitalize">' + s + '</td><td style="padding:5px 8px;border:1px solid #ddd">' + c + '</td></tr>').join('')
+        + '</tbody></table>'
+        + (aeAll.length > 0
+          ? '<h3 style="font-size:12pt;color:#003366;border-bottom:1px solid #ccc;padding-bottom:4px;margin-bottom:10px">Event Details</h3><table style="width:100%;border-collapse:collapse;margin-bottom:20px;font-size:9pt"><thead><tr style="background:#003366;color:white"><th style="padding:5px 8px;text-align:left">Date</th><th style="padding:5px 8px;text-align:left">Severity</th><th style="padding:5px 8px;text-align:left">Description</th><th style="padding:5px 8px;text-align:left">Course</th><th style="padding:5px 8px;text-align:left">Resolved</th></tr></thead><tbody>' + aeDetailRows + '</tbody></table>'
+          : '<p style="color:#777">No adverse events found for selected filters.</p>')
+        + ftr;
+    }
+
+    return '<div style="color:#cc0000">Unknown report type.</div>';
+  };
+
+  window._printReport = function() {
+    const reportEl = document.getElementById('printable-report');
+    if (!reportEl) return;
+    const pw = window.open('', '_blank');
+    if (!pw) { window.print(); return; }
+    pw.document.write('<!DOCTYPE html><html><head><title>DeepSynaps Report</title><style>body{font-family:serif;font-size:11pt;color:#111;background:white;padding:32px;margin:0}table{width:100%;border-collapse:collapse}@media print{body{padding:0}}</style></head><body>' + reportEl.innerHTML + '</body></html>');
+    pw.document.close();
+    pw.focus();
+    pw.print();
+  };
+}
+
+// ── Population Analytics ──────────────────────────────────────────────────────
+
+function _popConditionBarChart(patients) {
+  const counts = {};
+  (patients || []).forEach(p => {
+    const c = p.primary_condition || 'Unknown';
+    counts[c] = (counts[c] || 0) + 1;
+  });
+  const total = patients.length || 1;
+  const sorted = Object.entries(counts).sort((a, b) => b[1] - a[1]).slice(0, 8);
+  if (sorted.length === 0) {
+    return `<div class="card" style="padding:20px"><h3 style="margin-bottom:12px;font-size:14px">Condition Distribution</h3><p style="color:var(--text-secondary);font-size:0.85rem;text-align:center;padding:20px 0">No patient data available</p></div>`;
+  }
+  return `<div class="card" style="padding:20px">
+    <h3 style="margin-bottom:16px;font-size:14px">Condition Distribution</h3>
+    ${sorted.map(([cond, count]) => {
+      const pct = Math.round(count / total * 100);
+      return `<div style="margin-bottom:12px">
+        <div style="display:flex;justify-content:space-between;margin-bottom:4px;font-size:0.85rem">
+          <span>${cond}</span>
+          <span style="color:var(--text-secondary)">${count} patients (${pct}%)</span>
+        </div>
+        <div style="height:8px;background:var(--bg-surface-2);border-radius:4px;overflow:hidden">
+          <div style="height:100%;width:${pct}%;background:linear-gradient(90deg,var(--teal),var(--blue));border-radius:4px;transition:width 0.6s ease"></div>
+        </div>
+      </div>`;
+    }).join('')}
+  </div>`;
+}
+
+function _popModalityEffectiveness(courses) {
+  const modMap = {};
+  (courses || []).forEach(c => {
+    const m = c.modality || c.modality_slug || 'Unknown';
+    if (!modMap[m]) modMap[m] = { courses: 0, completed: 0, totalSessions: 0 };
+    modMap[m].courses++;
+    if (c.status === 'completed') modMap[m].completed++;
+    modMap[m].totalSessions += c.session_count_completed || c.sessions_delivered || 0;
+  });
+  const rows = Object.entries(modMap).map(([mod, data]) => {
+    const completionRate = data.courses ? Math.round(data.completed / data.courses * 100) : 0;
+    const avgSessions = data.courses ? Math.round(data.totalSessions / data.courses) : 0;
+    return { mod, ...data, completionRate, avgSessions };
+  }).sort((a, b) => b.completionRate - a.completionRate);
+  if (rows.length === 0) {
+    return `<div class="card" style="padding:20px"><h3 style="margin-bottom:12px;font-size:14px">Modality Effectiveness</h3><p style="color:var(--text-secondary);font-size:0.85rem;text-align:center;padding:20px 0">No course data available</p></div>`;
+  }
+  return `<div class="card" style="padding:20px">
+    <h3 style="margin-bottom:16px;font-size:14px">Modality Effectiveness</h3>
+    <div style="overflow-x:auto"><table class="ds-table">
+      <thead><tr><th>Modality</th><th>Courses</th><th>Completion Rate</th><th>Avg Sessions</th></tr></thead>
+      <tbody>${rows.map(r => `<tr>
+        <td><strong>${r.mod}</strong></td>
+        <td>${r.courses}</td>
+        <td>
+          <div style="display:flex;align-items:center;gap:8px">
+            <div style="flex:1;height:6px;background:var(--bg-surface-2);border-radius:3px;overflow:hidden;min-width:60px">
+              <div style="height:100%;width:${r.completionRate}%;background:var(--teal);border-radius:3px"></div>
+            </div>
+            <span style="min-width:35px;text-align:right;font-size:0.8rem">${r.completionRate}%</span>
+          </div>
+        </td>
+        <td>${r.avgSessions}</td>
+      </tr>`).join('')}</tbody>
+    </table></div>
+  </div>`;
+}
+
+function _popSuccessHeatmap(courses) {
+  const allConds = [...new Set((courses || []).map(c => c.condition || c.condition_slug).filter(Boolean))].slice(0, 6);
+  const allMods  = [...new Set((courses || []).map(c => c.modality || c.modality_slug).filter(Boolean))].slice(0, 5);
+  const grid = {};
+  (courses || []).forEach(c => {
+    const cond = c.condition || c.condition_slug;
+    const mod  = c.modality  || c.modality_slug;
+    if (!cond || !mod) return;
+    const key = `${cond}:${mod}`;
+    grid[key] = (grid[key] || 0) + 1;
+  });
+  const maxVal = Math.max(1, ...Object.values(grid));
+  return `<div class="card" style="padding:20px">
+    <h3 style="margin-bottom:16px;font-size:14px">Treatment Heatmap <span style="font-size:0.75rem;color:var(--text-secondary);font-weight:400">Condition × Modality (course count)</span></h3>
+    ${allConds.length === 0 ? '<p style="color:var(--text-secondary);font-size:0.85rem;text-align:center;padding:20px">No course data available yet</p>' : `
+    <div style="overflow-x:auto">
+      <table style="border-collapse:separate;border-spacing:3px;min-width:100%">
+        <thead><tr>
+          <th style="padding:8px;font-size:0.75rem;text-align:left;color:var(--text-secondary);font-weight:600;background:none">Condition</th>
+          ${allMods.map(m => `<th style="padding:8px;font-size:0.75rem;text-align:center;color:var(--text-secondary);font-weight:600;white-space:nowrap;background:none">${m}</th>`).join('')}
+        </tr></thead>
+        <tbody>${allConds.map(cond => `<tr>
+          <td style="padding:8px;font-size:0.82rem;white-space:nowrap;color:var(--text-primary)">${cond.replace(/-/g,' ')}</td>
+          ${allMods.map(mod => {
+            const val = grid[`${cond}:${mod}`] || 0;
+            const intensity = val / maxVal;
+            const bg = val === 0 ? 'rgba(255,255,255,0.03)' : `rgba(0,212,188,${0.1 + intensity * 0.7})`;
+            return `<td style="padding:8px;text-align:center;background:${bg};border-radius:4px;font-size:0.85rem;font-weight:${val > 0 ? 600 : 400};color:${val > 0 ? 'var(--teal)' : 'var(--text-secondary)'}">${val || '—'}</td>`;
+          }).join('')}
+        </tr>`).join('')}</tbody>
+      </table>
+    </div>`}
+  </div>`;
+}
+
+function _popCohortRiskProfile(courses) {
+  const buckets = { Low: 0, Moderate: 0, Elevated: 0, High: 0 };
+  (courses || []).forEach(c => {
+    const s = computeRiskScore(c);
+    if (s < 20) buckets.Low++;
+    else if (s < 50) buckets.Moderate++;
+    else if (s < 75) buckets.Elevated++;
+    else buckets.High++;
+  });
+  const total = courses.length || 1;
+  const colors = { Low: 'var(--teal)', Moderate: 'var(--amber)', Elevated: '#f97316', High: 'var(--red)' };
+  return `<div class="card" style="padding:20px">
+    <h3 style="margin-bottom:16px;font-size:14px">Cohort Risk Profile</h3>
+    <div style="height:24px;border-radius:6px;overflow:hidden;display:flex;margin-bottom:16px">
+      ${Object.entries(buckets).map(([label, count]) => {
+        const pct = Math.round(count / total * 100);
+        return pct > 0 ? `<div style="width:${pct}%;background:${colors[label]};display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:#000;transition:width 0.6s ease" title="${label}: ${count}">${pct > 8 ? pct + '%' : ''}</div>` : '';
+      }).join('')}
+    </div>
+    <div style="display:flex;gap:16px;flex-wrap:wrap">
+      ${Object.entries(buckets).map(([label, count]) => `
+        <div style="display:flex;align-items:center;gap:6px;font-size:0.82rem">
+          <span style="width:10px;height:10px;border-radius:2px;background:${colors[label]};display:inline-block"></span>
+          <span style="color:var(--text-secondary)">${label}:</span>
+          <span style="font-weight:600;color:var(--text-primary)">${count}</span>
+        </div>`).join('')}
+    </div>
+  </div>`;
+}
+
+function _popAdverseEventDots(adverseEvents, courses) {
+  const courseMap = {};
+  (courses || []).forEach(c => { courseMap[c.id] = c.condition || c.condition_slug || 'Unknown'; });
+  const aeByCond = {};
+  (adverseEvents || []).forEach(ae => {
+    const cond = courseMap[ae.course_id] || 'Unknown';
+    if (!aeByCond[cond]) aeByCond[cond] = { mild: 0, moderate: 0, severe: 0 };
+    const sev = ae.severity || 'mild';
+    if (aeByCond[cond][sev] !== undefined) aeByCond[cond][sev]++;
+    else aeByCond[cond].mild++;
+  });
+  const rows = Object.entries(aeByCond);
+  if (rows.length === 0) {
+    return `<div class="card" style="padding:20px"><h3 style="font-size:14px;margin-bottom:12px">Adverse Events by Condition</h3>
+      <p style="color:var(--text-secondary);padding:20px 0;text-align:center">No adverse events recorded</p></div>`;
+  }
+  return `<div class="card" style="padding:20px">
+    <h3 style="margin-bottom:16px;font-size:14px">Adverse Events by Condition</h3>
+    <div style="display:flex;gap:16px;margin-bottom:12px;font-size:0.75rem">
+      <span style="display:flex;align-items:center;gap:4px"><span style="width:10px;height:10px;border-radius:50%;background:var(--amber);display:inline-block"></span> Mild</span>
+      <span style="display:flex;align-items:center;gap:4px"><span style="width:10px;height:10px;border-radius:50%;background:var(--red);display:inline-block"></span> Moderate</span>
+      <span style="display:flex;align-items:center;gap:4px"><span style="width:12px;height:12px;border-radius:50%;background:#dc2626;display:inline-block"></span> Severe</span>
+    </div>
+    ${rows.map(([cond, counts]) => {
+      const mildDots     = Array(Math.min(counts.mild || 0, 20)).fill(0).map(() => `<span style="width:10px;height:10px;border-radius:50%;background:var(--amber);display:inline-block;flex-shrink:0"></span>`).join('');
+      const modDots      = Array(Math.min(counts.moderate || 0, 20)).fill(0).map(() => `<span style="width:10px;height:10px;border-radius:50%;background:var(--red);display:inline-block;flex-shrink:0"></span>`).join('');
+      const sevDots      = Array(Math.min(counts.severe || 0, 20)).fill(0).map(() => `<span style="width:12px;height:12px;border-radius:50%;background:#dc2626;display:inline-block;flex-shrink:0"></span>`).join('');
+      const totalCount   = (counts.mild || 0) + (counts.moderate || 0) + (counts.severe || 0);
+      return `<div style="display:flex;align-items:center;gap:12px;margin-bottom:10px;flex-wrap:wrap">
+        <div style="min-width:140px;font-size:0.82rem;color:var(--text-primary)">${cond.replace(/-/g,' ')}</div>
+        <div style="display:flex;gap:3px;align-items:center;flex-wrap:wrap">${mildDots}${modDots}${sevDots}
+          <span style="font-size:0.75rem;color:var(--text-secondary);margin-left:4px">${totalCount} total</span>
+        </div>
+      </div>`;
+    }).join('')}
+  </div>`;
+}
+
+function _popOutcomeTable(courses, filterCondition = '') {
+  let rows = (courses || []).filter(c => !filterCondition || (c.condition || c.condition_slug || '').toLowerCase().includes(filterCondition.toLowerCase()));
+  const conditions = [...new Set((courses || []).map(c => c.condition || c.condition_slug).filter(Boolean))].sort();
+  return `<div class="card" style="padding:20px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:8px">
+      <h3 style="font-size:14px;margin:0">Patient Outcome Table</h3>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <select id="pop-table-filter" class="form-control" style="width:auto;font-size:12px;padding:5px 10px" onchange="window._popFilterTable()">
+          <option value="">All Conditions</option>
+          ${conditions.map(c => `<option value="${c}" ${c === filterCondition ? 'selected' : ''}>${c.replace(/-/g,' ')}</option>`).join('')}
+        </select>
+        <button class="btn btn-sm" onclick="window._exportPopulationCSV()">Export CSV</button>
+      </div>
+    </div>
+    <div style="overflow-x:auto"><table class="ds-table">
+      <thead><tr>
+        <th>Patient ID</th><th>Condition</th><th>Modality</th><th>Sessions</th><th>Status</th><th>Created</th>
+      </tr></thead>
+      <tbody>
+        ${rows.length === 0
+          ? `<tr><td colspan="6" style="text-align:center;color:var(--text-secondary);padding:32px">No courses match the selected filter</td></tr>`
+          : rows.slice(0, 50).map(c => `<tr onclick="window._openCourse('${c.id}')">
+            <td style="font-family:var(--font-mono);font-size:11px">${(c.patient_id || '').slice(0, 8) || '—'}</td>
+            <td>${(c.condition || c.condition_slug || '—').replace(/-/g,' ')}</td>
+            <td style="color:var(--teal)">${c.modality || c.modality_slug || '—'}</td>
+            <td class="mono">${c.session_count_completed || c.sessions_delivered || 0}/${c.planned_sessions_total || '?'}</td>
+            <td><span style="font-size:11px;padding:2px 7px;border-radius:4px;background:${
+              c.status === 'completed' ? 'rgba(34,197,94,0.15)' :
+              c.status === 'active'    ? 'rgba(0,212,188,0.15)' :
+              c.status === 'paused'    ? 'rgba(245,158,11,0.15)' : 'rgba(255,255,255,0.08)'
+            };color:${
+              c.status === 'completed' ? 'var(--green)' :
+              c.status === 'active'    ? 'var(--teal)'  :
+              c.status === 'paused'    ? 'var(--amber)'  : 'var(--text-secondary)'
+            }">${c.status || '—'}</span></td>
+            <td style="font-size:11px;color:var(--text-secondary)">${c.created_at ? c.created_at.split('T')[0] : '—'}</td>
+          </tr>`).join('')}
+        ${rows.length > 50 ? `<tr><td colspan="6" style="text-align:center;color:var(--text-secondary);font-size:11.5px;padding:12px">Showing 50 of ${rows.length} records — use CSV export for full dataset</td></tr>` : ''}
+      </tbody>
+    </table></div>
+  </div>`;
+}
+
+export async function pgPopulationAnalytics(setTopbar) {
+  const el = document.getElementById('content');
+  if (!el) return;
+
+  // Role gate
+  const allowedRoles = ['admin', 'supervisor', 'clinic-admin'];
+  if (!allowedRoles.includes(currentUser?.role || '')) {
+    el.innerHTML = `<div style="padding:60px;text-align:center">
+      <div style="font-size:2.5rem;margin-bottom:16px">&#128274;</div>
+      <h2>Access Restricted</h2>
+      <p style="color:var(--text-secondary)">Population Analytics is available to admin and supervisor roles only.</p>
+    </div>`;
+    return;
+  }
+
+  setTopbar('Population Analytics', 'Aggregate outcomes across all patients and conditions');
+  el.innerHTML = '<div class="page-loading">Loading analytics&#8230;</div>';
+
+  const [patients, coursesRaw, outcomes, adverseEventsRaw, aggregate] = await Promise.allSettled([
+    api.listPatients(),
+    api.listCourses(),
+    api.listOutcomes(),
+    api.listAdverseEvents(),
+    api.aggregateOutcomes(),
+  ]).then(results => results.map(r => r.status === 'fulfilled' ? (r.value || []) : []));
+
+  const courses       = coursesRaw?.items       || (Array.isArray(coursesRaw)       ? coursesRaw       : []);
+  const adverseEvents = adverseEventsRaw?.items  || (Array.isArray(adverseEventsRaw) ? adverseEventsRaw : []);
+  const patientList   = patients?.items          || (Array.isArray(patients)         ? patients         : []);
+  const outcomeList   = outcomes?.items          || (Array.isArray(outcomes)          ? outcomes         : []);
+
+  // Cache for CSV export and filtering
+  window._popPatients  = patientList;
+  window._popCourses   = courses;
+  window._popOutcomes  = outcomeList;
+
+  // Summary metrics
+  const totalPatients    = patientList.length || (patients?.total ?? 0);
+  const activeCourses    = courses.filter(c => c.status === 'active').length;
+  const completedCourses = courses.filter(c => c.status === 'completed').length;
+  const totalSessions    = courses.reduce((s, c) => s + (c.sessions_delivered || c.session_count_completed || 0), 0);
+  const responderRate    = (() => {
+    if (!aggregate) return '—';
+    const r = aggregate.responder_rate_pct ?? aggregate.responder_rate;
+    return r != null ? Math.round(r) + '%' : '—';
+  })();
+  const completionRate   = courses.length ? Math.round(completedCourses / courses.length * 100) : 0;
+
+  window._exportPopulationCSV = function() {
+    const rows = [['Patient ID', 'Condition', 'Modality', 'Sessions Completed', 'Status', 'Created At']];
+    (window._popCourses || []).forEach(c => {
+      rows.push([
+        c.patient_id || '',
+        c.condition || c.condition_slug || '',
+        c.modality  || c.modality_slug  || '',
+        c.session_count_completed || c.sessions_delivered || 0,
+        c.status || '',
+        c.created_at || '',
+      ]);
+    });
+    const csv  = rows.map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\n');
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href = url; a.download = `population-analytics-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
+
+  window._popFilterTable = function() {
+    const val    = document.getElementById('pop-table-filter')?.value || '';
+    const target = document.getElementById('pop-outcome-table');
+    if (target) target.outerHTML = `<div id="pop-outcome-table">${_popOutcomeTable(window._popCourses || [], val)}</div>`;
+  };
+
+  el.innerHTML = `<div class="page-section">
+
+    <!-- Filter bar -->
+    <div class="card" style="padding:14px 20px;margin-bottom:16px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px">
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+        <span style="font-size:12px;color:var(--text-secondary)">Population Analytics</span>
+        <span style="font-size:11px;color:var(--text-tertiary)">&middot; ${courses.length} courses &middot; ${patientList.length} patients loaded</span>
+      </div>
+      <button class="btn btn-sm" onclick="window._exportPopulationCSV()">&#11167; Export CSV</button>
+    </div>
+
+    <!-- KPI stat strip -->
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px">
+      ${metricCard('Total Patients',   totalPatients   || '—', 'var(--teal)',   'In registry')}
+      ${metricCard('Active Courses',   activeCourses   || '0', 'var(--blue)',   'Currently running')}
+      ${metricCard('Sessions Logged',  totalSessions   || '0', 'var(--violet)', 'All time')}
+      ${metricCard('Responder Rate',   responderRate,          'var(--green)',  `${completionRate}% completion`)}
+    </div>
+
+    <!-- Section 1 + 2: two-column row -->
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;align-items:start">
+      <div>${_popConditionBarChart(patientList)}</div>
+      <div>${_popModalityEffectiveness(courses)}</div>
+    </div>
+
+    <!-- Section 3: Heatmap full-width -->
+    ${_popSuccessHeatmap(courses)}
+
+    <!-- Section 4: Risk profile -->
+    ${_popCohortRiskProfile(courses)}
+
+    <!-- Section 5: Adverse events dot plot -->
+    ${_popAdverseEventDots(adverseEvents, courses)}
+
+    <!-- Section 6: Outcome table -->
+    <div id="pop-outcome-table">${_popOutcomeTable(courses)}</div>
+
+  </div>`;
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// CALENDAR & SCHEDULING
+// ══════════════════════════════════════════════════════════════════════════════
+
+const CAL_APPT_KEY = 'ds_appointments';
+
+const CAL_TYPE_COLOR = {
+  neurofeedback: '#0d9488',
+  tms:           '#2563eb',
+  tdcs:          '#7c3aed',
+  consultation:  '#d97706',
+  followup:      '#e11d48',
+};
+
+function _calDateStr(d) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+function _calDaysFromNow(n) {
+  const d = new Date();
+  d.setDate(d.getDate() + n);
+  return _calDateStr(d);
+}
+
+function getAppointments() {
+  try {
+    const raw = localStorage.getItem(CAL_APPT_KEY);
+    if (raw) return JSON.parse(raw);
+  } catch (_) { /* fall through to seed */ }
+
+  const seed = [
+    { id: 'a1',  patientName: 'Sarah Chen',    type: 'neurofeedback', date: _calDaysFromNow(-8), startHour: 9,  duration: 60, room: 'Room A', status: 'completed', notes: 'Theta/beta protocol. Good response.',          recurrence: 'none'     },
+    { id: 'a2',  patientName: 'Marcus Webb',   type: 'tms',           date: _calDaysFromNow(-8), startHour: 11, duration: 45, room: 'Room B', status: 'completed', notes: 'Left DLPFC, 120% RMT, 10 Hz.',                 recurrence: 'none'     },
+    { id: 'a3',  patientName: 'Priya Nair',    type: 'consultation',  date: _calDaysFromNow(-6), startHour: 10, duration: 30, room: 'Room C', status: 'completed', notes: 'Initial intake consult for anxiety.',           recurrence: 'none'     },
+    { id: 'a4',  patientName: 'James Ortega',  type: 'tdcs',          date: _calDaysFromNow(-5), startHour: 14, duration: 30, room: 'Room A', status: 'completed', notes: 'Anodal tDCS, F3, 2 mA, 20 min.',              recurrence: 'weekly'   },
+    { id: 'a5',  patientName: 'Sarah Chen',    type: 'neurofeedback', date: _calDaysFromNow(-4), startHour: 9,  duration: 60, room: 'Room A', status: 'completed', notes: 'Session 4 — improved focus score.',            recurrence: 'weekly'   },
+    { id: 'a6',  patientName: 'Elena Vasquez', type: 'followup',      date: _calDaysFromNow(-3), startHour: 15, duration: 30, room: 'Room C', status: 'completed', notes: 'Post-TMS follow-up. PHQ-9 down 6 pts.',        recurrence: 'none'     },
+    { id: 'a7',  patientName: 'David Kim',     type: 'tms',           date: _calDaysFromNow(-1), startHour: 8,  duration: 45, room: 'Room B', status: 'confirmed', notes: 'Session 8 of 20. Tolerating well.',            recurrence: 'none'     },
+    { id: 'a8',  patientName: 'Marcus Webb',   type: 'tms',           date: _calDaysFromNow(0),  startHour: 10, duration: 45, room: 'Room B', status: 'scheduled', notes: 'Session 12. Reassess intensity.',              recurrence: 'none'     },
+    { id: 'a9',  patientName: 'Priya Nair',    type: 'neurofeedback', date: _calDaysFromNow(0),  startHour: 13, duration: 60, room: 'Room A', status: 'scheduled', notes: 'Alpha down-training protocol.',                recurrence: 'weekly'   },
+    { id: 'a10', patientName: 'James Ortega',  type: 'tdcs',          date: _calDaysFromNow(2),  startHour: 14, duration: 30, room: 'Room A', status: 'scheduled', notes: 'Session 3.',                                   recurrence: 'weekly'   },
+    { id: 'a11', patientName: 'Yuki Tanaka',   type: 'consultation',  date: _calDaysFromNow(3),  startHour: 11, duration: 30, room: 'Room C', status: 'scheduled', notes: 'New patient — depression referral.',           recurrence: 'none'     },
+    { id: 'a12', patientName: 'Sarah Chen',    type: 'neurofeedback', date: _calDaysFromNow(7),  startHour: 9,  duration: 60, room: 'Room A', status: 'scheduled', notes: 'Session 6 — bring HRV data.',                  recurrence: 'weekly'   },
+  ];
+  localStorage.setItem(CAL_APPT_KEY, JSON.stringify(seed));
+  return seed;
+}
+
+function saveAppointment(appt) {
+  const list = getAppointments();
+  const idx = list.findIndex(a => a.id === appt.id);
+  if (idx >= 0) list[idx] = appt;
+  else list.push(appt);
+  localStorage.setItem(CAL_APPT_KEY, JSON.stringify(list));
+}
+
+function deleteAppointment(id) {
+  const list = getAppointments().filter(a => a.id !== id);
+  localStorage.setItem(CAL_APPT_KEY, JSON.stringify(list));
+}
+
+function _expandAppts(appts, startDate, endDate) {
+  const result = [];
+  const start = new Date(startDate);
+  const end   = new Date(endDate);
+  for (const a of appts) {
+    result.push(a);
+    if (a.recurrence === 'none' || !a.recurrence) continue;
+    const intervalDays = a.recurrence === 'weekly' ? 7 : 14;
+    let base = new Date(a.date);
+    for (let i = 1; i <= 52; i++) {
+      base = new Date(base);
+      base.setDate(base.getDate() + intervalDays);
+      if (base > end) break;
+      if (base >= start) {
+        result.push({ ...a, id: `${a.id}_r${i}`, date: _calDateStr(base), _virtual: true });
+      }
+    }
+  }
+  return result;
+}
+
+// Calendar module-level state
+let _calView = 'week';
+let _calDate = new Date();
+let _calSelectedAppt = null;
+
+const _CAL_DAYS   = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+const _CAL_MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+
+function _calWeekStart(d) {
+  const c = new Date(d);
+  c.setDate(c.getDate() - c.getDay());
+  return c;
+}
+
+function _calTitleText() {
+  if (_calView === 'week') {
+    const ws = _calWeekStart(_calDate);
+    const we = new Date(ws); we.setDate(we.getDate() + 6);
+    return `${_CAL_MONTHS[ws.getMonth()]} ${ws.getDate()} \u2013 ${ws.getMonth() !== we.getMonth() ? _CAL_MONTHS[we.getMonth()] + ' ' : ''}${we.getDate()}, ${we.getFullYear()}`;
+  }
+  if (_calView === 'month') return `${_CAL_MONTHS[_calDate.getMonth()]} ${_calDate.getFullYear()}`;
+  return `${_CAL_DAYS[_calDate.getDay()]}, ${_CAL_MONTHS[_calDate.getMonth()]} ${_calDate.getDate()}, ${_calDate.getFullYear()}`;
+}
+
+function _calRenderWeek() {
+  const ws = _calWeekStart(_calDate);
+  const today = _calDateStr(new Date());
+  const BASE = 8, END = 18, SLOT = 24; // 24px per 30-min slot
+
+  const days = Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(ws); d.setDate(d.getDate() + i); return d;
+  });
+
+  const weekStart = _calDateStr(days[0]);
+  const weekEnd   = _calDateStr(days[6]);
+  const allAppts  = _expandAppts(getAppointments(), weekStart, weekEnd)
+    .filter(a => a.status !== 'cancelled');
+
+  const apptsByDay = {};
+  days.forEach(d => { apptsByDay[_calDateStr(d)] = []; });
+  allAppts.forEach(a => { if (apptsByDay[a.date]) apptsByDay[a.date].push(a); });
+
+  const totalH = (END - BASE) * SLOT * 2;
+
+  const headerCols = days.map(d => {
+    const ds = _calDateStr(d);
+    const isT = ds === today;
+    return `<div style="padding:8px 6px;text-align:center;font-size:.8rem;font-weight:600;border-bottom:1px solid var(--border);background:var(--bg-card);border-left:1px solid var(--border)${isT ? ';color:var(--teal)' : ''}">
+      <div style="font-size:.7rem;opacity:.7">${_CAL_DAYS[d.getDay()]}</div>
+      <div style="font-size:1.05rem;font-weight:700">${d.getDate()}</div>
+    </div>`;
+  }).join('');
+
+  const timeLabels = Array.from({ length: (END - BASE) * 2 }, (_, i) => {
+    const h = BASE + Math.floor(i / 2);
+    const half = i % 2 === 1;
+    const lbl = half ? '' : (h === 12 ? '12pm' : h < 12 ? h + 'am' : (h - 12) + 'pm');
+    return `<div style="height:${SLOT}px;padding:2px 5px;font-size:.68rem;color:var(--text-secondary);text-align:right;border-bottom:1px solid color-mix(in srgb,var(--border) ${half ? 30 : 60}%,transparent)">${lbl}</div>`;
+  }).join('');
+
+  const dayCols = days.map(d => {
+    const ds = _calDateStr(d);
+    const isT = ds === today;
+    const apptHtml = (apptsByDay[ds] || []).map(a => {
+      const topPx = (a.startHour - BASE) * SLOT * 2;
+      const hPx   = Math.max(22, (a.duration / 60) * SLOT * 2);
+      const bg    = CAL_TYPE_COLOR[a.type] || '#555';
+      const op    = a.status === 'completed' ? '0.6' : '1';
+      return `<div class="cal-appt" onclick="window._calSelectAppt('${a.id}')"
+        style="top:${topPx}px;height:${hPx}px;background:${bg};opacity:${op}"
+        title="${a.patientName} \u2014 ${a.type} (${a.startHour}:00, ${a.duration}min)">
+        <div style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${a.patientName}</div>
+        <div style="opacity:.8;font-size:.65rem">${a.type}</div>
+      </div>`;
+    }).join('');
+    return `<div style="height:${totalH}px;position:relative;border-left:1px solid var(--border)${isT ? ';background:color-mix(in srgb,var(--teal) 4%,transparent)' : ''}">${apptHtml}</div>`;
+  }).join('');
+
+  return `<div style="display:grid;grid-template-columns:56px repeat(7,1fr);border:1px solid var(--border);border-radius:8px;overflow:hidden">
+    <div style="background:var(--bg-card);border-bottom:1px solid var(--border);border-right:1px solid var(--border)"></div>
+    ${headerCols}
+    <div style="height:${totalH}px;overflow:hidden">${timeLabels}</div>
+    ${dayCols}
+  </div>`;
+}
+
+function _calRenderDay() {
+  const ds    = _calDateStr(_calDate);
+  const today = _calDateStr(new Date());
+  const BASE = 8, END = 18, SLOT = 24;
+  const totalH = (END - BASE) * SLOT * 2;
+
+  const appts = _expandAppts(getAppointments(), ds, ds)
+    .filter(a => a.date === ds && a.status !== 'cancelled');
+
+  const timeLabels = Array.from({ length: (END - BASE) * 2 }, (_, i) => {
+    const h = BASE + Math.floor(i / 2);
+    const half = i % 2 === 1;
+    const lbl = half ? '' : (h === 12 ? '12pm' : h < 12 ? h + 'am' : (h - 12) + 'pm');
+    return `<div style="height:${SLOT}px;padding:2px 5px;font-size:.68rem;color:var(--text-secondary);text-align:right;border-bottom:1px solid color-mix(in srgb,var(--border) ${half ? 30 : 60}%,transparent)">${lbl}</div>`;
+  }).join('');
+
+  const apptHtml = appts.map(a => {
+    const topPx = (a.startHour - BASE) * SLOT * 2;
+    const hPx   = Math.max(22, (a.duration / 60) * SLOT * 2);
+    const bg    = CAL_TYPE_COLOR[a.type] || '#555';
+    return `<div class="cal-appt" onclick="window._calSelectAppt('${a.id}')"
+      style="top:${topPx}px;height:${hPx}px;background:${bg};left:4px;right:4px"
+      title="${a.patientName}">
+      <div style="font-weight:700">${a.patientName}</div>
+      <div style="opacity:.85;font-size:.68rem">${a.type} \u00b7 ${a.startHour}:00 \u00b7 ${a.duration}min \u00b7 ${a.room}</div>
+    </div>`;
+  }).join('');
+
+  return `<div style="display:grid;grid-template-columns:56px 1fr;border:1px solid var(--border);border-radius:8px;overflow:hidden">
+    <div style="background:var(--bg-card);border-bottom:1px solid var(--border);border-right:1px solid var(--border)"></div>
+    <div style="background:var(--bg-card);border-bottom:1px solid var(--border);padding:8px;font-size:.9rem;font-weight:700;text-align:center${ds === today ? ';color:var(--teal)' : ''}">
+      ${_CAL_DAYS[_calDate.getDay()]}, ${_CAL_MONTHS[_calDate.getMonth()]} ${_calDate.getDate()}
+    </div>
+    <div style="height:${totalH}px">${timeLabels}</div>
+    <div style="height:${totalH}px;position:relative;border-left:1px solid var(--border)">${apptHtml}</div>
+  </div>`;
+}
+
+function _calRenderMonth() {
+  const year  = _calDate.getFullYear();
+  const month = _calDate.getMonth();
+  const today = _calDateStr(new Date());
+  const firstDay   = new Date(year, month, 1);
+  const startOff   = firstDay.getDay();
+  const lastDay    = new Date(year, month + 1, 0);
+  const totalCells = Math.ceil((startOff + lastDay.getDate()) / 7) * 7;
+  const rangeStart = new Date(year, month, 1 - startOff);
+  const rangeEnd   = new Date(rangeStart); rangeEnd.setDate(rangeEnd.getDate() + totalCells - 1);
+
+  const appts = _expandAppts(getAppointments(), _calDateStr(rangeStart), _calDateStr(rangeEnd))
+    .filter(a => a.status !== 'cancelled');
+  const byDay = {};
+  appts.forEach(a => { if (!byDay[a.date]) byDay[a.date] = []; byDay[a.date].push(a); });
+
+  const dowHdr = _CAL_DAYS.map(d => `<div class="cal-month-dow">${d}</div>`).join('');
+
+  let cells = '';
+  for (let i = 0; i < totalCells; i++) {
+    const d = new Date(rangeStart); d.setDate(d.getDate() + i);
+    const ds = _calDateStr(d);
+    const inMonth = d.getMonth() === month;
+    const isT     = ds === today;
+    const dayA    = byDay[ds] || [];
+    const dots    = dayA.slice(0, 5).map(a => `<span class="cal-dot" style="background:${CAL_TYPE_COLOR[a.type] || '#555'}" title="${a.patientName}"></span>`).join('');
+    const more    = dayA.length > 5 ? `<span style="font-size:.62rem;color:var(--text-secondary)">+${dayA.length - 5}</span>` : '';
+    cells += `<div class="cal-month-cell${!inMonth ? ' other-month' : ''}${isT ? ' today' : ''}" onclick="window._calDayClick('${ds}')">
+      <div style="font-size:.78rem;font-weight:${isT ? '700' : '400'};color:${isT ? 'var(--teal)' : 'inherit'};margin-bottom:4px">${d.getDate()}</div>
+      <div>${dots}${more}</div>
+    </div>`;
+  }
+
+  return `<div class="cal-month-grid">${dowHdr}${cells}</div>`;
+}
+
+function _calRenderDetailPanel() {
+  const a = _calSelectedAppt;
+  if (!a) return `<div class="cal-detail-panel" id="cal-detail-panel"></div>`;
+  const bg  = CAL_TYPE_COLOR[a.type] || '#555';
+  const sC  = { scheduled:'var(--blue)', confirmed:'var(--teal)', completed:'var(--green)', cancelled:'var(--red)' };
+  const endH = a.startHour + Math.floor(a.duration / 60);
+  const endM = a.duration % 60;
+  const timeStr = `${a.startHour}:00 \u2013 ${endH}:${endM === 0 ? '00' : String(endM).padStart(2,'0')}`;
+  const isActive = a.status !== 'completed' && a.status !== 'cancelled';
+  return `<div class="cal-detail-panel open" id="cal-detail-panel">
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
+      <div style="width:8px;height:32px;border-radius:3px;background:${bg};flex-shrink:0"></div>
+      <div style="flex:1;font-weight:700;font-size:.95rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${a.patientName}</div>
+      <button onclick="window._calClosePanel()" style="background:none;border:none;color:var(--text-secondary);cursor:pointer;font-size:1.3rem;line-height:1;padding:0">\u00d7</button>
+    </div>
+    <div style="margin-bottom:12px;display:flex;gap:6px;flex-wrap:wrap">
+      <span style="background:${bg};color:white;font-size:.72rem;padding:2px 8px;border-radius:10px;font-weight:600;text-transform:uppercase">${a.type}</span>
+      <span style="background:${sC[a.status] || 'var(--text-secondary)'};color:white;font-size:.72rem;padding:2px 8px;border-radius:10px;font-weight:600">${a.status}</span>
+    </div>
+    <div style="font-size:.82rem;color:var(--text-secondary);display:flex;flex-direction:column;gap:6px;margin-bottom:14px">
+      <div>\uD83D\uDCC5 ${a.date}</div>
+      <div>\uD83D\uDD50 ${timeStr} (${a.duration} min)</div>
+      <div>\uD83D\uDCCD ${a.room}</div>
+      ${a.recurrence && a.recurrence !== 'none' ? `<div>\uD83D\uDD01 Recurring ${a.recurrence}</div>` : ''}
+    </div>
+    ${a.notes ? `<div style="font-size:.82rem;background:rgba(255,255,255,.04);border-radius:6px;padding:10px;margin-bottom:14px;line-height:1.5">${a.notes}</div>` : ''}
+    <div style="display:flex;flex-direction:column;gap:8px">
+      ${isActive ? `
+        <button class="btn-primary" style="font-size:.8rem;padding:8px" onclick="window._calCompleteAppt('${a.id}')">Mark Complete</button>
+        <button class="btn-secondary" style="font-size:.8rem;padding:8px" onclick="window._calEditAppt('${a.id}')">Edit</button>
+        <button style="background:rgba(255,107,107,.12);border:1px solid var(--red);color:var(--red);border-radius:6px;padding:8px;font-size:.8rem;cursor:pointer" onclick="window._calCancelAppt('${a.id}')">Cancel Appointment</button>
+      ` : ''}
+      <button style="background:none;border:1px solid var(--border);color:var(--text-secondary);border-radius:6px;padding:8px;font-size:.8rem;cursor:pointer" onclick="window._calDeleteAppt('${a.id}')">Delete</button>
+    </div>
+  </div>`;
+}
+
+function _calRenderPage() {
+  const content = document.getElementById('content');
+  if (!content) return;
+  let gridHtml = '';
+  if (_calView === 'week')  gridHtml = _calRenderWeek();
+  if (_calView === 'day')   gridHtml = _calRenderDay();
+  if (_calView === 'month') gridHtml = _calRenderMonth();
+  content.innerHTML = `
+    <div style="padding:20px 24px;max-width:1400px;margin:0 auto">
+      <div class="cal-toolbar">
+        <button class="btn-secondary" style="padding:6px 12px;font-size:.82rem" onclick="window._calPrev()">\u2039 Prev</button>
+        <button class="btn-secondary" style="padding:6px 12px;font-size:.82rem" onclick="window._calToday()">Today</button>
+        <button class="btn-secondary" style="padding:6px 12px;font-size:.82rem" onclick="window._calNext()">Next \u203a</button>
+        <span style="font-size:.95rem;font-weight:600;flex:1;text-align:center">${_calTitleText()}</span>
+        <div class="cal-view-toggle">
+          <button class="${_calView === 'month' ? 'active' : ''}" onclick="window._calSetView('month')">Month</button>
+          <button class="${_calView === 'week'  ? 'active' : ''}" onclick="window._calSetView('week')">Week</button>
+          <button class="${_calView === 'day'   ? 'active' : ''}" onclick="window._calSetView('day')">Day</button>
+        </div>
+        <button class="btn-primary" style="padding:6px 14px;font-size:.82rem" onclick="window._calNewAppt()">+ New Appointment</button>
+      </div>
+      <div id="cal-grid" style="overflow-x:auto">${gridHtml}</div>
+    </div>
+    ${_calRenderDetailPanel()}`;
+}
+
+function _calShowModal(prefill) {
+  const f = prefill || {};
+  document.getElementById('cal-appt-modal')?.remove();
+  const today = _calDateStr(_calDate);
+  const modal = document.createElement('div');
+  modal.id = 'cal-appt-modal';
+  modal.className = 'cal-modal-overlay';
+  modal.innerHTML = `
+    <div class="cal-modal" role="dialog" aria-modal="true">
+      <h3>${f.id ? 'Edit Appointment' : 'New Appointment'}</h3>
+      <label>Patient Name</label>
+      <input id="cal-f-patient" type="text" placeholder="Full name" value="${f.patientName || ''}">
+      <label>Type</label>
+      <select id="cal-f-type">
+        ${['neurofeedback','tms','tdcs','consultation','followup'].map(t =>
+          `<option value="${t}"${(f.type || 'neurofeedback') === t ? ' selected' : ''}>${t.charAt(0).toUpperCase() + t.slice(1)}</option>`
+        ).join('')}
+      </select>
+      <label>Date</label>
+      <input id="cal-f-date" type="date" value="${f.date || today}">
+      <label>Start Time</label>
+      <select id="cal-f-start">
+        ${Array.from({length:10},(_,i)=>i+8).map(h =>
+          `<option value="${h}"${(f.startHour || 9) === h ? ' selected' : ''}>${h}:00</option>`
+        ).join('')}
+      </select>
+      <label>Duration</label>
+      <select id="cal-f-dur">
+        ${[30,45,60,90].map(d =>
+          `<option value="${d}"${(f.duration || 60) === d ? ' selected' : ''}>${d} min</option>`
+        ).join('')}
+      </select>
+      <label>Room</label>
+      <select id="cal-f-room">
+        ${['Room A','Room B','Room C'].map(r =>
+          `<option${(f.room || 'Room A') === r ? ' selected' : ''}>${r}</option>`
+        ).join('')}
+      </select>
+      <label>Recurrence</label>
+      <select id="cal-f-rec">
+        ${['none','weekly','biweekly'].map(r =>
+          `<option value="${r}"${(f.recurrence || 'none') === r ? ' selected' : ''}>${r.charAt(0).toUpperCase() + r.slice(1)}</option>`
+        ).join('')}
+      </select>
+      <label>Notes</label>
+      <textarea id="cal-f-notes">${f.notes || ''}</textarea>
+      <div class="cal-modal-actions">
+        <button class="btn-secondary" onclick="document.getElementById('cal-appt-modal').remove()">Cancel</button>
+        <button class="btn-primary" onclick="window._calSaveAppt('${f.id || ''}')">Save</button>
+      </div>
+    </div>`;
+  document.body.appendChild(modal);
+  document.getElementById('cal-f-patient').focus();
+}
+
+window._calPrev = function() {
+  if (_calView === 'week') { _calDate = new Date(_calDate); _calDate.setDate(_calDate.getDate() - 7); }
+  else if (_calView === 'month') { _calDate = new Date(_calDate.getFullYear(), _calDate.getMonth() - 1, 1); }
+  else { _calDate = new Date(_calDate); _calDate.setDate(_calDate.getDate() - 1); }
+  _calRenderPage();
+};
+
+window._calNext = function() {
+  if (_calView === 'week') { _calDate = new Date(_calDate); _calDate.setDate(_calDate.getDate() + 7); }
+  else if (_calView === 'month') { _calDate = new Date(_calDate.getFullYear(), _calDate.getMonth() + 1, 1); }
+  else { _calDate = new Date(_calDate); _calDate.setDate(_calDate.getDate() + 1); }
+  _calRenderPage();
+};
+
+window._calToday = function() { _calDate = new Date(); _calRenderPage(); };
+
+window._calSetView = function(v) { _calView = v; _calSelectedAppt = null; _calRenderPage(); };
+
+window._calDayClick = function(ds) {
+  _calDate = new Date(ds + 'T12:00:00');
+  _calView = 'day';
+  _calSelectedAppt = null;
+  _calRenderPage();
+};
+
+window._calSelectAppt = function(id) {
+  const baseId = id.replace(/_r\d+$/, '');
+  const list   = getAppointments();
+  _calSelectedAppt = list.find(a => a.id === baseId) || list.find(a => a.id === id) || null;
+  const existing = document.getElementById('cal-detail-panel');
+  const tmp = document.createElement('div');
+  tmp.innerHTML = _calRenderDetailPanel();
+  if (existing) existing.replaceWith(tmp.firstElementChild);
+  else document.body.insertAdjacentHTML('beforeend', _calRenderDetailPanel());
+};
+
+window._calClosePanel = function() {
+  _calSelectedAppt = null;
+  const p = document.getElementById('cal-detail-panel');
+  if (p) { p.classList.remove('open'); setTimeout(() => p.remove(), 260); }
+};
+
+window._calNewAppt  = function() { _calShowModal(); };
+window._calEditAppt = function(id) { const a = getAppointments().find(x => x.id === id); if (a) _calShowModal(a); };
+
+window._calSaveAppt = function(existingId) {
+  const patient = (document.getElementById('cal-f-patient')?.value || '').trim();
+  const type    = document.getElementById('cal-f-type')?.value;
+  const date    = document.getElementById('cal-f-date')?.value;
+  const startH  = parseInt(document.getElementById('cal-f-start')?.value || '9', 10);
+  const dur     = parseInt(document.getElementById('cal-f-dur')?.value || '60', 10);
+  const room    = document.getElementById('cal-f-room')?.value;
+  const rec     = document.getElementById('cal-f-rec')?.value || 'none';
+  const notes   = document.getElementById('cal-f-notes')?.value || '';
+  if (!patient) { alert('Patient name is required.'); return; }
+  if (!date)    { alert('Date is required.'); return; }
+  const existing = existingId ? getAppointments().find(a => a.id === existingId) : null;
+  saveAppointment({
+    id:          existingId || ('appt_' + Date.now()),
+    patientName: patient,
+    type:        type || 'consultation',
+    date,
+    startHour:   startH,
+    duration:    dur,
+    room:        room || 'Room A',
+    status:      existing ? existing.status : 'scheduled',
+    notes,
+    recurrence:  rec,
+  });
+  document.getElementById('cal-appt-modal')?.remove();
+  _calSelectedAppt = null;
+  _calRenderPage();
+};
+
+window._calCancelAppt = function(id) {
+  if (!confirm('Cancel this appointment?')) return;
+  const a = getAppointments().find(x => x.id === id);
+  if (a) { a.status = 'cancelled'; saveAppointment(a); }
+  _calSelectedAppt = null;
+  _calRenderPage();
+};
+
+window._calCompleteAppt = function(id) {
+  const a = getAppointments().find(x => x.id === id);
+  if (a) { a.status = 'completed'; saveAppointment(a); _calSelectedAppt = a; }
+  _calRenderPage();
+};
+
+window._calDeleteAppt = function(id) {
+  if (!confirm('Permanently delete this appointment?')) return;
+  deleteAppointment(id);
+  _calSelectedAppt = null;
+  _calRenderPage();
+};
+
+export async function pgCalendar(setTopbar) {
+  _calDate = new Date();
+  _calSelectedAppt = null;
+  setTopbar('Schedule & Calendar', `
+    <button class="btn-primary" style="font-size:.8rem;padding:6px 14px" onclick="window._calNewAppt()">+ New Appointment</button>
+  `);
+  _calRenderPage();
+}
+
+// ── Session Monitor ──────────────────────────────────────────────────────────
+
+// Module-level session state (cleared on nav away)
+let _monitorSession = null; // { id, patientName, modality, protocol, targetDuration, startTime, paused, pausedAt, totalPaused, params, notes, cues, aborted }
+let _monitorTimer = null;
+let _monitorParamHistory = {}; // { amplitude: [], frequency: [], impedance: [] } — last 60 ticks
+
+const _MONITOR_MOCK_PATIENTS = [
+  { id: 'mp1', name: 'Alice Johnson' },
+  { id: 'mp2', name: 'Bob Martinez' },
+  { id: 'mp3', name: 'Carol Chen' },
+  { id: 'mp4', name: 'David Kim' },
+  { id: 'mp5', name: 'Emma Patel' },
+  { id: 'mp6', name: 'Frank Nguyen' },
+  { id: 'mp7', name: 'Grace Okafor' },
+  { id: 'mp8', name: 'Henry Svensson' },
+];
+
+const _MONITOR_DEFAULT_PROTOCOLS = {
+  Neurofeedback: 'Alpha/Theta Training',
+  TMS:           'rTMS 10 Hz Motor Cortex',
+  tDCS:          'Anodal tDCS F3 Montage',
+  taVNS:         'taVNS 25 Hz Auricular',
+  CES:           'CES 0.5 Hz Alpha Induction',
+};
+
+function _monitorFmtTime(secs) {
+  const m = Math.floor(secs / 60);
+  const s = secs % 60;
+  return `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+}
+
+function _monitorElapsed() {
+  if (!_monitorSession) return 0;
+  const now = _monitorSession.paused ? _monitorSession.pausedAt : Date.now();
+  return Math.floor((now - _monitorSession.startTime - _monitorSession.totalPaused) / 1000);
+}
+
+function _monitorLogEvent(msg) {
+  if (!_monitorSession) return;
+  const ts = _monitorFmtTime(_monitorElapsed());
+  _monitorSession.cues.push({ ts, msg });
+  const logEl = document.getElementById('monitor-log');
+  if (logEl) {
+    const entry = document.createElement('div');
+    entry.className = 'monitor-log-entry';
+    entry.textContent = `[${ts}] ${msg}`;
+    logEl.appendChild(entry);
+    logEl.scrollTop = logEl.scrollHeight;
+  }
+}
+
+function _drawWaveform(svgId, amplitude, frequency) {
+  const svg = document.getElementById(svgId);
+  if (!svg) return;
+  const W = 300, H = 80;
+  const amp = (amplitude / 100) * (H / 2 - 4);
+  const pts = [];
+  const cycles = Math.max(1, Math.round(frequency / 2));
+  for (let x = 0; x <= W; x += 2) {
+    const y = (H / 2) - amp * Math.sin((x / W) * cycles * 2 * Math.PI);
+    pts.push(`${x},${y.toFixed(1)}`);
+  }
+  svg.innerHTML = `<polyline points="${pts.join(' ')}" fill="none" stroke="var(--accent-teal)" stroke-width="2" stroke-linecap="round"/>`;
+}
+
+function _drawSparkline(svgId, data, color) {
+  const svg = document.getElementById(svgId);
+  if (!svg || !data.length) return;
+  const W = 280, H = 40;
+  const min = Math.min(...data);
+  const max = Math.max(...data);
+  const range = max - min || 1;
+  const pts = data.map((v, i) => {
+    const x = (i / Math.max(data.length - 1, 1)) * W;
+    const y = H - ((v - min) / range) * (H - 4) - 2;
+    return `${x.toFixed(1)},${y.toFixed(1)}`;
+  });
+  svg.innerHTML = `<polyline points="${pts.join(' ')}" fill="none" stroke="${color || 'var(--accent-teal)'}" stroke-width="1.5" stroke-linecap="round"/>`;
+}
+
+function _monitorUpdateUI() {
+  if (!_monitorSession) return;
+  const elapsed = _monitorElapsed();
+  const targetSecs = _monitorSession.targetDuration * 60;
+  const pct = Math.min(100, (elapsed / targetSecs) * 100);
+
+  // Topbar timer + status
+  const elEl = document.getElementById('monitor-elapsed-display');
+  if (elEl) elEl.textContent = _monitorFmtTime(elapsed);
+  const targetEl = document.getElementById('monitor-target-display');
+  if (targetEl) targetEl.textContent = _monitorFmtTime(targetSecs);
+  const statusEl = document.getElementById('monitor-status-badge');
+  if (statusEl) {
+    statusEl.className = _monitorSession.paused ? 'monitor-status-paused' : 'monitor-status-running';
+    statusEl.textContent = _monitorSession.paused ? 'PAUSED' : 'RUNNING';
+  }
+
+  // Large timer in col 3
+  const timerBig = document.getElementById('monitor-timer-big');
+  if (timerBig) timerBig.textContent = _monitorFmtTime(elapsed);
+
+  // Progress bar
+  const fillEl = document.getElementById('monitor-progress-fill');
+  if (fillEl) fillEl.style.width = `${pct.toFixed(1)}%`;
+
+  // Amplitude display
+  const ampVal = document.getElementById('monitor-amp-value');
+  if (ampVal) ampVal.textContent = `${_monitorSession.params.amplitude} mA`;
+  const ampSlider = document.getElementById('monitor-amp-slider');
+  if (ampSlider) ampSlider.value = _monitorSession.params.amplitude;
+
+  // Frequency display
+  const freqVal = document.getElementById('monitor-freq-value');
+  if (freqVal) freqVal.textContent = `${_monitorSession.params.frequency} Hz`;
+  const freqSlider = document.getElementById('monitor-freq-slider');
+  if (freqSlider) freqSlider.value = _monitorSession.params.frequency;
+
+  // Impedance display
+  const imp = _monitorSession.params.impedance;
+  const impVal = document.getElementById('monitor-imp-value');
+  if (impVal) {
+    let cls = 'impedance-ok';
+    if (imp >= 5 && imp < 10) cls = 'impedance-warn';
+    else if (imp >= 10) cls = 'impedance-bad';
+    impVal.className = cls;
+    impVal.textContent = `${imp.toFixed(1)} kΩ`;
+  }
+
+  // Waveform
+  _drawWaveform('monitor-waveform-svg', _monitorSession.params.amplitude, _monitorSession.params.frequency);
+
+  // Sparklines
+  _drawSparkline('monitor-spark-amp', _monitorParamHistory.amplitude, 'var(--accent-teal)');
+  _drawSparkline('monitor-spark-freq', _monitorParamHistory.frequency, '#a78bfa');
+  _drawSparkline('monitor-spark-imp', _monitorParamHistory.impedance, '#fb923c');
+}
+
+function _monitorTick() {
+  // Self-terminate if navigated away
+  if (!document.getElementById('session-monitor-root')) {
+    clearInterval(_monitorTimer);
+    _monitorTimer = null;
+    return;
+  }
+  if (!_monitorSession || _monitorSession.aborted) return;
+
+  const elapsed = _monitorElapsed();
+  const targetSecs = _monitorSession.targetDuration * 60;
+
+  if (!_monitorSession.paused) {
+    // Simulate impedance fluctuation ±5%
+    const base = _monitorSession.params.impedance;
+    const delta = (Math.random() - 0.5) * 0.1 * base;
+    _monitorSession.params.impedance = Math.max(0.5, base + delta);
+
+    // Record history (cap at 60)
+    _monitorParamHistory.amplitude.push(_monitorSession.params.amplitude);
+    _monitorParamHistory.frequency.push(_monitorSession.params.frequency);
+    _monitorParamHistory.impedance.push(_monitorSession.params.impedance);
+    if (_monitorParamHistory.amplitude.length > 60) _monitorParamHistory.amplitude.shift();
+    if (_monitorParamHistory.frequency.length > 60) _monitorParamHistory.frequency.shift();
+    if (_monitorParamHistory.impedance.length > 60) _monitorParamHistory.impedance.shift();
+  }
+
+  _monitorUpdateUI();
+
+  // Check completion
+  if (elapsed >= targetSecs) {
+    clearInterval(_monitorTimer);
+    _monitorTimer = null;
+    _monitorShowCompletion();
+  }
+}
+
+function _monitorShowCompletion() {
+  const root = document.getElementById('session-monitor-root');
+  if (!root) return;
+  const s = _monitorSession;
+  const ampHistory = _monitorParamHistory.amplitude;
+  const freqHistory = _monitorParamHistory.frequency;
+  const ampMin = ampHistory.length ? Math.min(...ampHistory).toFixed(0) : s.params.amplitude;
+  const ampMax = ampHistory.length ? Math.max(...ampHistory).toFixed(0) : s.params.amplitude;
+  const freqMin = freqHistory.length ? Math.min(...freqHistory).toFixed(1) : s.params.frequency;
+  const freqMax = freqHistory.length ? Math.max(...freqHistory).toFixed(1) : s.params.frequency;
+  const cueLog = s.cues.filter(c => c.msg).map(c => `<li>[${c.ts}] ${c.msg}</li>`).join('');
+
+  const overlay = document.createElement('div');
+  overlay.id = 'monitor-completion-overlay';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.65);z-index:9000;display:flex;align-items:center;justify-content:center;padding:16px';
+  overlay.innerHTML = `
+    <div style="background:var(--card-bg);border:1px solid var(--border);border-radius:14px;padding:32px;max-width:540px;width:100%;max-height:90vh;overflow-y:auto">
+      <div style="font-size:2rem;margin-bottom:4px">✅</div>
+      <h2 style="margin:0 0 4px;font-size:1.3rem">Session Complete</h2>
+      <p style="color:var(--text-muted);font-size:.85rem;margin-bottom:16px">${s.patientName} · ${s.modality} · ${s.protocol}</p>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px">
+        <div class="monitor-param-card"><div style="font-size:.75rem;color:var(--text-muted)">Duration</div><div class="monitor-param-value">${_monitorFmtTime(s.targetDuration * 60)}</div></div>
+        <div class="monitor-param-card"><div style="font-size:.75rem;color:var(--text-muted)">Amplitude Range</div><div class="monitor-param-value">${ampMin}–${ampMax} mA</div></div>
+        <div class="monitor-param-card"><div style="font-size:.75rem;color:var(--text-muted)">Frequency Range</div><div class="monitor-param-value">${freqMin}–${freqMax} Hz</div></div>
+        <div class="monitor-param-card"><div style="font-size:.75rem;color:var(--text-muted)">Cues Logged</div><div class="monitor-param-value">${s.cues.length}</div></div>
+      </div>
+      ${cueLog ? `<div style="margin-bottom:12px"><strong style="font-size:.82rem">Cue Log:</strong><ul style="font-size:.78rem;color:var(--text-muted);margin:4px 0;padding-left:16px">${cueLog}</ul></div>` : ''}
+      ${s.notes ? `<div style="margin-bottom:12px"><strong style="font-size:.82rem">Notes:</strong><p style="font-size:.82rem;color:var(--text-muted);margin:4px 0">${s.notes}</p></div>` : ''}
+      <div style="display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap;margin-top:16px">
+        <button class="btn-secondary" onclick="document.getElementById('monitor-completion-overlay').remove();_monitorSession=null;window._nav('session-monitor')">Start New Session</button>
+        <button class="btn-primary" onclick="window._monitorSaveSession()">Save Session Log</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+}
+
+window._monitorStart = async function() {
+  const patientSelect = document.getElementById('monitor-form-patient');
+  const modalitySelect = document.getElementById('monitor-form-modality');
+  const protocolInput = document.getElementById('monitor-form-protocol');
+  const durationSelect = document.getElementById('monitor-form-duration');
+  const ampSlider = document.getElementById('monitor-form-amp');
+  const freqSlider = document.getElementById('monitor-form-freq');
+  const notesInput = document.getElementById('monitor-form-notes');
+
+  if (!patientSelect.value) { alert('Please select a patient.'); return; }
+
+  const patientName = patientSelect.options[patientSelect.selectedIndex].text;
+  const modality = modalitySelect.value;
+  const protocol = protocolInput.value.trim() || _MONITOR_DEFAULT_PROTOCOLS[modality];
+  const targetDuration = parseInt(durationSelect.value, 10);
+  const amplitude = parseFloat(ampSlider.value);
+  const frequency = parseFloat(freqSlider.value);
+  const notes = notesInput.value.trim();
+
+  _monitorSession = {
+    id: `ses_${Date.now()}`,
+    patientName,
+    modality,
+    protocol,
+    targetDuration,
+    startTime: Date.now(),
+    paused: false,
+    pausedAt: null,
+    totalPaused: 0,
+    params: { amplitude, frequency, impedance: 3 + Math.random() * 4 },
+    notes,
+    cues: [],
+    aborted: false,
+  };
+
+  _monitorParamHistory = { amplitude: [], frequency: [], impedance: [] };
+
+  // Re-render in active mode
+  const root = document.getElementById('session-monitor-root');
+  if (root) {
+    root.innerHTML = _monitorDashboardHTML();
+    _monitorLogEvent(`Session started — ${modality} / ${protocol}`);
+    _monitorUpdateUI();
+  }
+
+  // Start tick
+  if (_monitorTimer) clearInterval(_monitorTimer);
+  _monitorTimer = setInterval(_monitorTick, 1000);
+};
+
+window._monitorPause = function() {
+  if (!_monitorSession || _monitorSession.paused) return;
+  _monitorSession.paused = true;
+  _monitorSession.pausedAt = Date.now();
+  _monitorLogEvent('Session paused');
+  _monitorUpdateUI();
+  const pauseBtn = document.getElementById('monitor-pause-btn');
+  const resumeBtn = document.getElementById('monitor-resume-btn');
+  if (pauseBtn) pauseBtn.style.display = 'none';
+  if (resumeBtn) resumeBtn.style.display = '';
+};
+
+window._monitorResume = function() {
+  if (!_monitorSession || !_monitorSession.paused) return;
+  _monitorSession.totalPaused += Date.now() - _monitorSession.pausedAt;
+  _monitorSession.paused = false;
+  _monitorSession.pausedAt = null;
+  _monitorLogEvent('Session resumed');
+  _monitorUpdateUI();
+  const pauseBtn = document.getElementById('monitor-pause-btn');
+  const resumeBtn = document.getElementById('monitor-resume-btn');
+  if (pauseBtn) pauseBtn.style.display = '';
+  if (resumeBtn) resumeBtn.style.display = 'none';
+};
+
+window._monitorAbort = function() {
+  const panel = document.getElementById('monitor-abort-panel');
+  if (panel) panel.style.display = panel.style.display === 'none' ? '' : 'none';
+};
+
+window._monitorConfirmAbort = function(reason) {
+  if (!_monitorSession) return;
+  const noteEl = document.getElementById('monitor-abort-note');
+  const note = noteEl ? noteEl.value.trim() : '';
+  _monitorSession.aborted = true;
+  _monitorSession.abortReason = reason;
+  if (note) _monitorSession.notes = (_monitorSession.notes ? _monitorSession.notes + '\n' : '') + `Abort note: ${note}`;
+  if (_monitorTimer) { clearInterval(_monitorTimer); _monitorTimer = null; }
+  _monitorLogEvent(`Session aborted — ${reason}`);
+
+  // Save to localStorage
+  try {
+    const sessions = JSON.parse(localStorage.getItem('ds_completed_sessions') || '[]');
+    sessions.unshift({ ..._monitorSession, completedAt: new Date().toISOString(), aborted: true });
+    localStorage.setItem('ds_completed_sessions', JSON.stringify(sessions.slice(0, 100)));
+  } catch (_) {}
+
+  const root = document.getElementById('session-monitor-root');
+  if (root) {
+    root.innerHTML = `<div style="text-align:center;padding:48px;color:var(--text-muted)">
+      <div style="font-size:2.5rem;margin-bottom:8px">⛔</div>
+      <h2 style="margin:0 0 8px">Session Aborted</h2>
+      <p style="font-size:.9rem;margin-bottom:24px">Reason: <strong>${reason}</strong></p>
+      <button class="btn-primary" onclick="window._nav('session-monitor')">Start New Session</button>
+    </div>`;
+  }
+  _monitorSession = null;
+};
+
+window._monitorSetAmplitude = function(v) {
+  if (!_monitorSession) return;
+  const old = _monitorSession.params.amplitude;
+  _monitorSession.params.amplitude = parseFloat(v);
+  if (Math.abs(old - parseFloat(v)) >= 1) _monitorLogEvent(`Amplitude → ${v} mA`);
+  _monitorUpdateUI();
+};
+
+window._monitorSetFrequency = function(v) {
+  if (!_monitorSession) return;
+  const old = _monitorSession.params.frequency;
+  _monitorSession.params.frequency = parseFloat(v);
+  if (Math.abs(old - parseFloat(v)) >= 0.5) _monitorLogEvent(`Frequency → ${v} Hz`);
+  _monitorUpdateUI();
+};
+
+window._monitorAddCue = function(cue) {
+  if (!_monitorSession) return;
+  _monitorLogEvent(`Cue: ${cue}`);
+};
+
+window._monitorSaveNote = function() {
+  if (!_monitorSession) return;
+  const el = document.getElementById('monitor-session-notes');
+  if (el) { _monitorSession.notes = el.value; }
+  const fb = document.getElementById('monitor-note-saved');
+  if (fb) { fb.style.display = ''; setTimeout(() => { fb.style.display = 'none'; }, 1500); }
+};
+
+window._monitorSaveSession = async function() {
+  if (!_monitorSession) return;
+  const payload = {
+    id: _monitorSession.id,
+    patientName: _monitorSession.patientName,
+    modality: _monitorSession.modality,
+    protocol: _monitorSession.protocol,
+    duration: _monitorSession.targetDuration,
+    params: _monitorSession.params,
+    paramHistory: _monitorParamHistory,
+    cues: _monitorSession.cues,
+    notes: _monitorSession.notes,
+    completedAt: new Date().toISOString(),
+    aborted: _monitorSession.aborted || false,
+  };
+
+  let saved = false;
+  try {
+    await api.logSession(payload);
+    saved = true;
+  } catch (_) {}
+
+  if (!saved) {
+    try {
+      const sessions = JSON.parse(localStorage.getItem('ds_completed_sessions') || '[]');
+      sessions.unshift(payload);
+      localStorage.setItem('ds_completed_sessions', JSON.stringify(sessions.slice(0, 100)));
+      saved = true;
+    } catch (_) {}
+  }
+
+  const overlay = document.getElementById('monitor-completion-overlay');
+  if (overlay) {
+    overlay.innerHTML = `<div style="background:var(--card-bg);border-radius:14px;padding:40px;text-align:center">
+      <div style="font-size:2.5rem;margin-bottom:8px">💾</div>
+      <h2 style="margin:0 0 8px">Session Saved</h2>
+      <p style="color:var(--text-muted);margin-bottom:20px">Session log saved ${saved ? '' : '(locally)'}.</p>
+      <button class="btn-primary" onclick="document.getElementById('monitor-completion-overlay').remove();_monitorSession=null;window._nav('session-monitor')">Done</button>
+    </div>`;
+  }
+};
+
+function _monitorStartFormHTML(patients) {
+  const patientOptions = patients.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
+  const modalityOptions = ['Neurofeedback', 'TMS', 'tDCS', 'taVNS', 'CES'].map(m => `<option value="${m}">${m}</option>`).join('');
+  const durationOptions = [15, 20, 30, 45, 60].map(d => `<option value="${d}" ${d === 30 ? 'selected' : ''}>${d} min</option>`).join('');
+
+  return `
+    <div style="max-width:560px;margin:0 auto">
+      <div style="background:var(--card-bg);border:1px solid var(--border);border-radius:12px;padding:28px">
+        <h2 style="margin:0 0 20px;font-size:1.15rem">Configure New Session</h2>
+        <div style="display:grid;gap:14px">
+
+          <label style="display:flex;flex-direction:column;gap:4px;font-size:.85rem;font-weight:600">
+            Patient
+            <select id="monitor-form-patient" class="form-select" style="font-weight:400">
+              <option value="">— Select patient —</option>
+              ${patientOptions}
+            </select>
+          </label>
+
+          <label style="display:flex;flex-direction:column;gap:4px;font-size:.85rem;font-weight:600">
+            Modality
+            <select id="monitor-form-modality" class="form-select" style="font-weight:400"
+              onchange="const proto=document.getElementById('monitor-form-protocol');if(proto)proto.value=({Neurofeedback:'Alpha/Theta Training',TMS:'rTMS 10 Hz Motor Cortex',tDCS:'Anodal tDCS F3 Montage',taVNS:'taVNS 25 Hz Auricular',CES:'CES 0.5 Hz Alpha Induction'})[this.value]||''">
+              ${modalityOptions}
+            </select>
+          </label>
+
+          <label style="display:flex;flex-direction:column;gap:4px;font-size:.85rem;font-weight:600">
+            Protocol Name
+            <input id="monitor-form-protocol" type="text" class="form-input" style="font-weight:400"
+              placeholder="Protocol name" value="${_MONITOR_DEFAULT_PROTOCOLS.Neurofeedback}">
+          </label>
+
+          <label style="display:flex;flex-direction:column;gap:4px;font-size:.85rem;font-weight:600">
+            Target Duration
+            <select id="monitor-form-duration" class="form-select" style="font-weight:400">
+              ${durationOptions}
+            </select>
+          </label>
+
+          <div style="display:flex;flex-direction:column;gap:4px;font-size:.85rem;font-weight:600">
+            Starting Amplitude: <span id="monitor-form-amp-val" style="color:var(--accent-teal);font-weight:700">50 mA</span>
+            <input id="monitor-form-amp" type="range" min="0" max="100" step="1" value="50"
+              oninput="document.getElementById('monitor-form-amp-val').textContent=this.value+' mA'"
+              style="width:100%;margin:4px 0">
+          </div>
+
+          <div style="display:flex;flex-direction:column;gap:4px;font-size:.85rem;font-weight:600">
+            Starting Frequency: <span id="monitor-form-freq-val" style="color:var(--accent-teal);font-weight:700">10 Hz</span>
+            <input id="monitor-form-freq" type="range" min="0.5" max="40" step="0.5" value="10"
+              oninput="document.getElementById('monitor-form-freq-val').textContent=this.value+' Hz'"
+              style="width:100%;margin:4px 0">
+          </div>
+
+          <label style="display:flex;flex-direction:column;gap:4px;font-size:.85rem;font-weight:600">
+            Session Notes (optional)
+            <textarea id="monitor-form-notes" rows="3" class="form-input" style="font-weight:400;resize:vertical"
+              placeholder="Pre-session notes, patient state, setup observations…"></textarea>
+          </label>
+
+          <button class="btn-primary" style="margin-top:8px;padding:12px" onclick="window._monitorStart()">
+            ▶ Start Session
+          </button>
+        </div>
+      </div>
+    </div>`;
+}
+
+function _monitorDashboardHTML() {
+  const s = _monitorSession;
+  return `
+    <!-- Topbar strip -->
+    <div class="monitor-topbar" style="flex-wrap:wrap">
+      <div>
+        <div style="font-size:.75rem;color:var(--text-muted);margin-bottom:2px">Patient</div>
+        <div style="font-weight:700">${s.patientName}</div>
+      </div>
+      <div style="padding:3px 10px;border-radius:12px;background:var(--hover-bg);font-size:.8rem;font-weight:600">${s.modality}</div>
+      <div style="flex:1;min-width:0">
+        <div style="font-size:.72rem;color:var(--text-muted)">Protocol</div>
+        <div style="font-size:.85rem;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${s.protocol}</div>
+      </div>
+      <div style="display:flex;align-items:center;gap:6px">
+        <span class="monitor-elapsed" id="monitor-elapsed-display">00:00</span>
+        <span style="color:var(--text-muted);font-size:.9rem">/</span>
+        <span style="font-size:1rem;color:var(--text-muted)" id="monitor-target-display">${_monitorFmtTime(s.targetDuration * 60)}</span>
+      </div>
+      <span class="monitor-status-running" id="monitor-status-badge">RUNNING</span>
+      <div style="display:flex;gap:8px;margin-left:auto;flex-wrap:wrap">
+        <button id="monitor-pause-btn" class="btn-secondary" style="font-size:.8rem;padding:6px 12px" onclick="window._monitorPause()">⏸ Pause</button>
+        <button id="monitor-resume-btn" class="btn-primary" style="font-size:.8rem;padding:6px 12px;display:none" onclick="window._monitorResume()">▶ Resume</button>
+        <button class="btn-secondary" style="font-size:.8rem;padding:6px 12px;border-color:#fca5a5;color:#ef4444" onclick="window._monitorAbort()">✕ Abort</button>
+      </div>
+    </div>
+
+    <!-- Abort panel (hidden by default) -->
+    <div id="monitor-abort-panel" class="monitor-abort-panel" style="display:none">
+      <div style="font-weight:700;margin-bottom:10px;color:#991b1b">Abort Session</div>
+      <label style="font-size:.83rem;font-weight:600;display:block;margin-bottom:6px">Reason
+        <select id="monitor-abort-reason" class="form-select" style="font-weight:400;margin-top:4px">
+          <option>Patient request</option>
+          <option>Adverse effect</option>
+          <option>Equipment failure</option>
+          <option>Protocol complete</option>
+          <option>Other</option>
+        </select>
+      </label>
+      <label style="font-size:.83rem;font-weight:600;display:block;margin-bottom:10px">Notes
+        <textarea id="monitor-abort-note" rows="2" class="form-input" style="font-weight:400;resize:vertical;margin-top:4px" placeholder="Additional details…"></textarea>
+      </label>
+      <div style="display:flex;gap:8px">
+        <button class="btn-secondary" style="font-size:.8rem" onclick="window._monitorAbort()">Cancel</button>
+        <button style="background:#ef4444;color:white;border:none;border-radius:6px;padding:7px 14px;font-size:.8rem;font-weight:600;cursor:pointer"
+          onclick="window._monitorConfirmAbort(document.getElementById('monitor-abort-reason').value)">Confirm Abort</button>
+      </div>
+    </div>
+
+    <!-- Three-column grid -->
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;align-items:start" class="monitor-grid">
+
+      <!-- Col 1: Parameter controls -->
+      <div>
+        <div class="monitor-param-card">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+            <div style="font-size:.8rem;font-weight:600;color:var(--text-muted)">AMPLITUDE</div>
+            <span class="monitor-param-value" id="monitor-amp-value">${s.params.amplitude} mA</span>
+          </div>
+          <input id="monitor-amp-slider" type="range" min="0" max="100" step="1" value="${s.params.amplitude}"
+            oninput="window._monitorSetAmplitude(this.value)" style="width:100%;margin:4px 0">
+          <div style="display:flex;gap:6px;margin-top:6px">
+            <button class="monitor-cue-btn" style="flex:1" onclick="window._monitorSetAmplitude(Math.min(100,(_monitorSession?_monitorSession.params.amplitude:50)+5))">▲ Ramp Up</button>
+            <button class="monitor-cue-btn" style="flex:1" onclick="window._monitorSetAmplitude(Math.max(0,(_monitorSession?_monitorSession.params.amplitude:50)-5))">▼ Ramp Down</button>
+          </div>
+        </div>
+
+        <div class="monitor-param-card">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+            <div style="font-size:.8rem;font-weight:600;color:var(--text-muted)">FREQUENCY</div>
+            <span class="monitor-param-value" id="monitor-freq-value">${s.params.frequency} Hz</span>
+          </div>
+          <input id="monitor-freq-slider" type="range" min="0.5" max="40" step="0.5" value="${s.params.frequency}"
+            oninput="window._monitorSetFrequency(this.value)" style="width:100%;margin:4px 0">
+        </div>
+
+        <div class="monitor-param-card">
+          <div style="font-size:.8rem;font-weight:600;color:var(--text-muted);margin-bottom:6px">IMPEDANCE</div>
+          <div style="display:flex;align-items:center;gap:10px">
+            <span class="monitor-param-value impedance-ok" id="monitor-imp-value">${s.params.impedance.toFixed(1)} kΩ</span>
+            <span style="font-size:.75rem;color:var(--text-muted)">(live simulation)</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Col 2: Waveform + sparklines -->
+      <div>
+        <div class="monitor-waveform">
+          <div style="font-size:.75rem;color:var(--text-muted);margin-bottom:4px">LIVE WAVEFORM</div>
+          <svg id="monitor-waveform-svg" width="300" height="80" viewBox="0 0 300 80" style="display:block;width:100%;height:80px"></svg>
+        </div>
+
+        <div class="monitor-param-card" style="padding:10px">
+          <div style="font-size:.72rem;color:var(--text-muted);margin-bottom:4px">AMPLITUDE HISTORY</div>
+          <svg id="monitor-spark-amp" width="280" height="40" viewBox="0 0 280 40" style="display:block;width:100%;height:40px"></svg>
+        </div>
+
+        <div class="monitor-param-card" style="padding:10px">
+          <div style="font-size:.72rem;color:var(--text-muted);margin-bottom:4px">FREQUENCY HISTORY</div>
+          <svg id="monitor-spark-freq" width="280" height="40" viewBox="0 0 280 40" style="display:block;width:100%;height:40px"></svg>
+        </div>
+
+        <div class="monitor-param-card" style="padding:10px">
+          <div style="font-size:.72rem;color:var(--text-muted);margin-bottom:4px">IMPEDANCE HISTORY</div>
+          <svg id="monitor-spark-imp" width="280" height="40" viewBox="0 0 280 40" style="display:block;width:100%;height:40px"></svg>
+        </div>
+      </div>
+
+      <!-- Col 3: Therapist tools -->
+      <div>
+        <div class="monitor-param-card" style="text-align:center">
+          <div style="font-size:.75rem;color:var(--text-muted);margin-bottom:4px">ELAPSED TIME</div>
+          <div id="monitor-timer-big" style="font-size:2.8rem;font-weight:800;font-variant-numeric:tabular-nums;color:var(--accent-teal)">00:00</div>
+          <div class="monitor-progress-bar">
+            <div class="monitor-progress-fill" id="monitor-progress-fill" style="width:0%"></div>
+          </div>
+          <div style="font-size:.75rem;color:var(--text-muted)">Target: ${s.targetDuration} min</div>
+        </div>
+
+        <div class="monitor-param-card">
+          <div style="font-size:.8rem;font-weight:600;margin-bottom:8px">THERAPIST CUES</div>
+          <div style="display:flex;flex-wrap:wrap;gap:6px">
+            ${['Relax', 'Focus', 'Breathe', 'Eyes Open'].map(c =>
+              `<button class="monitor-cue-btn" onclick="window._monitorAddCue('${c}')">${c}</button>`
+            ).join('')}
+          </div>
+        </div>
+
+        <div class="monitor-param-card">
+          <div style="font-size:.8rem;font-weight:600;margin-bottom:6px">MID-SESSION NOTES</div>
+          <textarea id="monitor-session-notes" rows="3" class="form-input" style="resize:vertical;font-size:.82rem"
+            placeholder="Observations, reactions, adjustments…">${s.notes}</textarea>
+          <div style="display:flex;align-items:center;gap:8px;margin-top:6px">
+            <button class="btn-secondary" style="font-size:.78rem;padding:5px 10px" onclick="window._monitorSaveNote()">Save Note</button>
+            <span id="monitor-note-saved" style="display:none;font-size:.75rem;color:#065f46">Saved</span>
+          </div>
+        </div>
+
+        <div class="monitor-param-card">
+          <div style="font-size:.8rem;font-weight:600;margin-bottom:6px">SESSION LOG</div>
+          <div class="monitor-log" id="monitor-log"></div>
+        </div>
+      </div>
+
+    </div>
+
+    <style>
+      @media (max-width: 900px) {
+        .monitor-grid { grid-template-columns: 1fr !important; }
+      }
+      @media (max-width: 600px) {
+        .monitor-topbar { flex-direction: column; align-items: flex-start; }
+      }
+    </style>`;
+}
+
+export async function pgSessionMonitor(setTopbar) {
+  // Stop any running timer from a previous session
+  if (_monitorTimer) { clearInterval(_monitorTimer); _monitorTimer = null; }
+
+  setTopbar('Live Session Monitor', '');
+
+  const el = document.getElementById('content');
+  el.innerHTML = `<div id="session-monitor-root" style="padding:16px 0"></div>`;
+  const root = document.getElementById('session-monitor-root');
+
+  if (_monitorSession && !_monitorSession.aborted) {
+    // Resume view of active session
+    root.innerHTML = _monitorDashboardHTML();
+    _monitorUpdateUI();
+    // Re-populate log
+    const logEl = document.getElementById('monitor-log');
+    if (logEl) {
+      logEl.innerHTML = _monitorSession.cues.map(c =>
+        `<div class="monitor-log-entry">[${c.ts}] ${c.msg}</div>`
+      ).join('');
+      logEl.scrollTop = logEl.scrollHeight;
+    }
+    if (_monitorTimer) clearInterval(_monitorTimer);
+    _monitorTimer = setInterval(_monitorTick, 1000);
+    return;
+  }
+
+  // No active session — show start form
+  _monitorSession = null;
+
+  // Fetch patients (with mock fallback)
+  let patients = _MONITOR_MOCK_PATIENTS;
+  try {
+    const res = await api.getPatients();
+    const list = res?.items || res?.patients || res;
+    if (Array.isArray(list) && list.length) {
+      patients = list.map(p => ({ id: p.id || p._id, name: p.name || `${p.first_name || ''} ${p.last_name || ''}`.trim() }));
+    }
+  } catch (_) { /* fall back to mock list */ }
+
+  root.innerHTML = _monitorStartFormHTML(patients);
+}

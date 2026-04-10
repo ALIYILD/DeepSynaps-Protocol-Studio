@@ -58,6 +58,9 @@ from app.routers.outcomes_router import router as outcomes_router
 from app.routers.qeeg_records_router import router as qeeg_records_router
 from app.routers.phenotype_router import router as phenotype_router
 from app.routers.consent_router import router as consent_router
+from app.routers.patient_portal_router import router as patient_portal_router
+from app.routers.notifications_router import router as notifications_router
+from app.routers.wearable_router import router as wearable_router
 from app.sentry_setup import init_sentry
 from app.settings import get_settings
 from app.services.audit import get_audit_trail
@@ -112,6 +115,9 @@ app.include_router(outcomes_router)
 app.include_router(qeeg_records_router)
 app.include_router(phenotype_router)
 app.include_router(consent_router)
+app.include_router(patient_portal_router)
+app.include_router(notifications_router)
+app.include_router(wearable_router)
 
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)

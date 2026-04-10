@@ -10,7 +10,7 @@ export function updateUserBar() {
   const nm = document.getElementById('user-name');
   const rl = document.getElementById('user-role');
   if (av) av.textContent = (currentUser.display_name || currentUser.email || '?').slice(0, 2).toUpperCase();
-  if (nm) nm.textContent = currentUser.display_name || currentUser.email;
+  if (nm) nm.innerHTML = `${currentUser.display_name || currentUser.email}&nbsp;<span style="font-size:9px;text-transform:uppercase;letter-spacing:.8px;padding:2px 6px;border-radius:3px;background:rgba(0,212,188,0.1);color:var(--teal);font-weight:600;vertical-align:middle">${currentUser.role || 'guest'}</span>`;
   if (rl) rl.textContent = `${currentUser.role || 'guest'} · ${currentUser.package_id || 'explorer'}`;
 }
 
@@ -66,6 +66,8 @@ export function showLogin() {
 export function doLogout() {
   api.logout().catch(() => {});
   api.clearToken();
+  window._sseSource?.close();
+  window._clearPaletteCache?.();
   currentUser = null;
   document.getElementById('sidebar').classList.remove('visible');
   document.getElementById('app-shell').classList.remove('visible');
@@ -107,6 +109,14 @@ function renderLoginPage() {
       <div style="display:flex;justify-content:space-between;align-items:center;margin-top:14px">
         <span style="font-size:11.5px;color:var(--text-tertiary)">Demo: <code style="color:var(--teal)">clinician@demo.com</code> / <code style="color:var(--teal)">demo1234</code></span>
         <button class="btn btn-ghost btn-sm" style="font-size:11px;padding:3px 6px" onclick="switchAuthTab('forgot')">Forgot password?</button>
+      </div>
+      <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border);display:flex;gap:8px">
+        <button onclick="window.demoLogin('clinician-demo-token')" style="flex:1;padding:8px;border-radius:var(--radius-md);border:1px solid var(--border-teal);background:rgba(0,212,188,0.05);color:var(--teal);font-size:11.5px;font-weight:600;cursor:pointer;font-family:var(--font-body)">
+          ◈ Clinician Demo
+        </button>
+        <button onclick="window.demoLogin('patient-demo-token')" style="flex:1;padding:8px;border-radius:var(--radius-md);border:1px solid var(--border-blue);background:rgba(74,158,255,0.05);color:var(--blue);font-size:11.5px;font-weight:600;cursor:pointer;font-family:var(--font-body)">
+          ◉ Patient Portal Demo
+        </button>
       </div>
     </div>
 

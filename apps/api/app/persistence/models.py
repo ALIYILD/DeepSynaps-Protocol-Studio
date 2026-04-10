@@ -59,6 +59,7 @@ class User(Base):
     hashed_password: Mapped[str] = mapped_column(String(255), nullable=False)
     role: Mapped[str] = mapped_column(String(50), default="guest")
     package_id: Mapped[str] = mapped_column(String(50), default="explorer")
+    clinic_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, index=True)
     is_verified: Mapped[bool] = mapped_column(Boolean(), default=False)
     is_active: Mapped[bool] = mapped_column(Boolean(), default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(), default=datetime.utcnow)
@@ -380,3 +381,129 @@ class IntakePacket(Base):
     completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(), default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(), default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+# ── Patient Provisioning Models ──────────────────────────────────────────────
+
+
+class PatientInvite(Base):
+    __tablename__ = "patient_invites"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    invite_code: Mapped[str] = mapped_column(String(32), unique=True, nullable=False, index=True)
+    patient_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    patient_email: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    clinic_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, index=True)
+    clinician_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    condition: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=datetime.utcnow)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(), nullable=False)
+    used_at: Mapped[Optional[datetime]] = mapped_column(DateTime(), nullable=True)
+    activated_user_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
+
+
+# ── Messaging Model ──────────────────────────────────────────────────────────
+
+
+class Message(Base):
+    __tablename__ = "messages"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    sender_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    recipient_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    patient_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True, index=True)
+    body: Mapped[str] = mapped_column(Text(), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=datetime.utcnow)
+    read_at: Mapped[Optional[datetime]] = mapped_column(DateTime(), nullable=True)
+
+
+# ── Wearable Monitoring Models ────────────────────────────────────────────────
+
+
+class DeviceConnection(Base):
+    __tablename__ = "device_connections"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    patient_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    source: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    source_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    display_name: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default='disconnected')
+    consent_given: Mapped[bool] = mapped_column(Boolean(), nullable=False, default=False)
+    consent_given_at: Mapped[Optional[datetime]] = mapped_column(DateTime(), nullable=True)
+    connected_at: Mapped[Optional[datetime]] = mapped_column(DateTime(), nullable=True)
+    last_sync_at: Mapped[Optional[datetime]] = mapped_column(DateTime(), nullable=True)
+    external_device_id: Mapped[Optional[str]] = mapped_column(String(256), nullable=True)
+    access_token_enc: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    refresh_token_enc: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    scope: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=datetime.utcnow)
+    updated_at: Mapped[Optional[datetime]] = mapped_column(DateTime(), nullable=True)
+
+
+class WearableObservation(Base):
+    __tablename__ = "wearable_observations"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    patient_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    connection_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
+    source: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    source_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    metric_type: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    value: Mapped[Optional[float]] = mapped_column(Float(), nullable=True)
+    value_text: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    unit: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    observed_at: Mapped[datetime] = mapped_column(DateTime(), nullable=False, index=True)
+    aggregation_window: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    quality_flag: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    synced_at: Mapped[datetime] = mapped_column(DateTime(), default=datetime.utcnow)
+
+
+class WearableDailySummary(Base):
+    __tablename__ = "wearable_daily_summaries"
+    __table_args__ = (
+        UniqueConstraint("patient_id", "source", "date", name="uq_wearable_daily_patient_source_date"),
+    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    patient_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    source: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    date: Mapped[str] = mapped_column(String(10), nullable=False, index=True)  # YYYY-MM-DD
+    rhr_bpm: Mapped[Optional[float]] = mapped_column(Float(), nullable=True)
+    hrv_ms: Mapped[Optional[float]] = mapped_column(Float(), nullable=True)
+    sleep_duration_h: Mapped[Optional[float]] = mapped_column(Float(), nullable=True)
+    sleep_consistency_score: Mapped[Optional[float]] = mapped_column(Float(), nullable=True)
+    steps: Mapped[Optional[int]] = mapped_column(Integer(), nullable=True)
+    spo2_pct: Mapped[Optional[float]] = mapped_column(Float(), nullable=True)
+    skin_temp_delta: Mapped[Optional[float]] = mapped_column(Float(), nullable=True)
+    readiness_score: Mapped[Optional[float]] = mapped_column(Float(), nullable=True)
+    mood_score: Mapped[Optional[float]] = mapped_column(Float(), nullable=True)
+    pain_score: Mapped[Optional[float]] = mapped_column(Float(), nullable=True)
+    anxiety_score: Mapped[Optional[float]] = mapped_column(Float(), nullable=True)
+    data_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    synced_at: Mapped[datetime] = mapped_column(DateTime(), default=datetime.utcnow)
+
+
+class WearableAlertFlag(Base):
+    __tablename__ = "wearable_alert_flags"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    patient_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    course_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
+    flag_type: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    severity: Mapped[str] = mapped_column(String(16), nullable=False)  # info, warning, urgent
+    detail: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    metric_snapshot: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    triggered_at: Mapped[datetime] = mapped_column(DateTime(), nullable=False, index=True)
+    reviewed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(), nullable=True)
+    reviewed_by: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    dismissed: Mapped[bool] = mapped_column(Boolean(), nullable=False, default=False, index=True)
+    auto_generated: Mapped[bool] = mapped_column(Boolean(), nullable=False, default=True)
+
+
+class AiSummaryAudit(Base):
+    __tablename__ = "ai_summary_audit"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    patient_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    actor_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    actor_role: Mapped[str] = mapped_column(String(32), nullable=False)
+    summary_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    prompt_hash: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    response_preview: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    sources_used: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    model_used: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=datetime.utcnow, index=True)

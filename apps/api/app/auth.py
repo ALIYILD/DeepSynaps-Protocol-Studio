@@ -20,6 +20,9 @@ class AuthenticatedActor:
 
 ROLE_ORDER: dict[UserRole, int] = {
     "guest": 0,
+    "patient": 0,
+    "technician": 1,
+    "reviewer": 1,
     "clinician": 1,
     "admin": 2,
 }

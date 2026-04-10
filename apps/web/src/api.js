@@ -52,6 +52,23 @@ async function apiFetch(path, opts = {}) {
   return res.json();
 }
 
+async function apiFetchWithRetry(path, opts = {}, maxRetries = 2) {
+  let lastError;
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      return await apiFetch(path, opts);
+    } catch (err) {
+      lastError = err;
+      // Don't retry on auth errors or client errors (4xx)
+      if (err.message && /API error 4\d\d/.test(err.message)) throw err;
+      if (attempt < maxRetries) {
+        await new Promise(r => setTimeout(r, Math.pow(2, attempt) * 500)); // 500ms, 1s
+      }
+    }
+  }
+  throw lastError;
+}
+
 async function apiFetchBlob(path, data) {
   const token = getToken();
   const res = await fetch(`${API_BASE}${path}`, {
@@ -74,8 +91,10 @@ export const api = {
     return result;
   },
   logout: () => apiFetch('/api/v1/auth/logout', { method: 'POST' }),
-  register: (email, display_name, password) =>
-    apiFetch('/api/v1/auth/register', { method: 'POST', body: JSON.stringify({ email, display_name, password }) }),
+  register: (email, display_name, password, role = 'clinician') =>
+    apiFetch('/api/v1/auth/register', { method: 'POST', body: JSON.stringify({ email, display_name, password, role }) }),
+  activatePatient: (invite_code, email, display_name, password) =>
+    apiFetch('/api/v1/auth/activate-patient', { method: 'POST', body: JSON.stringify({ invite_code, email, display_name, password }) }),
   refresh: (refresh_token) =>
     apiFetch('/api/v1/auth/refresh', { method: 'POST', body: JSON.stringify({ refresh_token }) }),
   forgotPassword: (email) =>
@@ -85,29 +104,40 @@ export const api = {
   me: () => apiFetch('/api/v1/auth/me'),
 
   // ── Patients ────────────────────────────────────────────────────────────
-  listPatients: () => apiFetch('/api/v1/patients'),
+  listPatients: () => apiFetchWithRetry('/api/v1/patients'),
   getPatient: (id) => apiFetch(`/api/v1/patients/${id}`),
   createPatient: (data) => apiFetch('/api/v1/patients', { method: 'POST', body: JSON.stringify(data) }),
   updatePatient: (id, data) => apiFetch(`/api/v1/patients/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   deletePatient: (id) => apiFetch(`/api/v1/patients/${id}`, { method: 'DELETE' }),
+  generateInviteCode: (patientData) =>
+    apiFetch('/api/v1/patients/invite', { method: 'POST', body: JSON.stringify(patientData) }),
+  getPatientSessions: (patientId) => apiFetch(`/api/v1/patients/${patientId}/sessions`),
+  getPatientCourse: (patientId) => apiFetch(`/api/v1/patients/${patientId}/courses`),
+  getPatientAssessments: (patientId) => apiFetch(`/api/v1/patients/${patientId}/assessments`),
+  getPatientReports: (patientId) => apiFetch(`/api/v1/patients/${patientId}/reports`),
+  getPatientMessages: (patientId) => apiFetch(`/api/v1/patients/${patientId}/messages`),
+  sendPatientMessage: (patientId, message) =>
+    apiFetch(`/api/v1/patients/${patientId}/messages`, { method: 'POST', body: JSON.stringify({ body: message }) }),
+  submitAssessment: (patientId, assessmentData) =>
+    apiFetch('/api/v1/assessments', { method: 'POST', body: JSON.stringify({ ...assessmentData, patient_id: patientId }) }),
 
   // ── Sessions ────────────────────────────────────────────────────────────
   listSessions: (patient_id) =>
-    apiFetch(`/api/v1/sessions${patient_id ? `?patient_id=${patient_id}` : ''}`),
+    apiFetchWithRetry(`/api/v1/sessions${patient_id ? `?patient_id=${patient_id}` : ''}`),
   createSession: (data) => apiFetch('/api/v1/sessions', { method: 'POST', body: JSON.stringify(data) }),
   updateSession: (id, data) => apiFetch(`/api/v1/sessions/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   deleteSession: (id) => apiFetch(`/api/v1/sessions/${id}`, { method: 'DELETE' }),
 
   // ── Assessments ─────────────────────────────────────────────────────────
-  listAssessments: () => apiFetch('/api/v1/assessments'),
+  listAssessments: () => apiFetchWithRetry('/api/v1/assessments'),
   createAssessment: (data) => apiFetch('/api/v1/assessments', { method: 'POST', body: JSON.stringify(data) }),
   updateAssessment: (id, data) => apiFetch(`/api/v1/assessments/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   deleteAssessment: (id) => apiFetch(`/api/v1/assessments/${id}`, { method: 'DELETE' }),
 
   // ── Clinical Knowledge ──────────────────────────────────────────────────
-  listEvidence: () => apiFetch('/api/v1/evidence'),
-  listDevices: () => apiFetch('/api/v1/devices'),
-  listBrainRegions: () => apiFetch('/api/v1/brain-regions'),
+  listEvidence: () => apiFetchWithRetry('/api/v1/evidence'),
+  listDevices: () => apiFetchWithRetry('/api/v1/devices'),
+  listBrainRegions: () => apiFetchWithRetry('/api/v1/brain-regions'),
   listQEEGBiomarkers: () => apiFetch('/api/v1/qeeg/biomarkers'),
   listQEEGConditionMap: () => apiFetch('/api/v1/qeeg/condition-map'),
 
@@ -139,18 +169,22 @@ export const api = {
     apiFetch('/api/v1/payments/create-portal', { method: 'POST' }),
 
   // ── Chat ────────────────────────────────────────────────────────────────
+  chatPublic: (messages) =>
+    fetch(`${API_BASE}/api/v1/chat/public`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ messages }) }).then(r => r.json()),
+  chatAgent: (messages, provider = 'anthropic', openai_key = null, context = null) =>
+    apiFetch('/api/v1/chat/agent', { method: 'POST', body: JSON.stringify({ messages, provider, openai_key, context }) }),
   chatClinician: (messages, patient_context) =>
     apiFetch('/api/v1/chat/clinician', { method: 'POST', body: JSON.stringify({ messages, patient_context }) }),
   chatPatient: (messages, patient_context) =>
     apiFetch('/api/v1/chat/patient', { method: 'POST', body: JSON.stringify({ messages, patient_context }) }),
 
   // ── Registry endpoints (public — no auth needed but token attached if present) ──
-  conditions: () => apiFetch('/api/v1/registry/conditions'),
-  modalities: () => apiFetch('/api/v1/registry/modalities'),
+  conditions: () => apiFetchWithRetry('/api/v1/registry/conditions'),
+  modalities: () => apiFetchWithRetry('/api/v1/registry/modalities'),
   devices_registry: () => apiFetch('/api/v1/registry/devices'),
   protocols: (params = {}) => {
     const q = new URLSearchParams(params).toString();
-    return apiFetch(`/api/v1/registry/protocols${q ? '?' + q : ''}`);
+    return apiFetchWithRetry(`/api/v1/registry/protocols${q ? '?' + q : ''}`);
   },
   protocolDetail: (id) => apiFetch(`/api/v1/registry/protocols/${id}`),
   phenotypes: (params = {}) => {
@@ -161,7 +195,7 @@ export const api = {
   // ── Treatment courses ────────────────────────────────────────────────────
   listCourses: (params = {}) => {
     const q = new URLSearchParams(params).toString();
-    return apiFetch(`/api/v1/treatment-courses${q ? '?' + q : ''}`);
+    return apiFetchWithRetry(`/api/v1/treatment-courses${q ? '?' + q : ''}`);
   },
   createCourse: (data) => apiFetch('/api/v1/treatment-courses', { method: 'POST', body: JSON.stringify(data) }),
   getCourse: (id) => apiFetch(`/api/v1/treatment-courses/${id}`),
@@ -177,13 +211,13 @@ export const api = {
     apiFetch('/api/v1/adverse-events', { method: 'POST', body: JSON.stringify(data) }),
   listAdverseEvents: (params = {}) => {
     const q = new URLSearchParams(params).toString();
-    return apiFetch(`/api/v1/adverse-events${q ? '?' + q : ''}`);
+    return apiFetchWithRetry(`/api/v1/adverse-events${q ? '?' + q : ''}`);
   },
 
   // ── Review queue ─────────────────────────────────────────────────────────
   listReviewQueue: (params = {}) => {
     const q = new URLSearchParams(params).toString();
-    return apiFetch(`/api/v1/review-queue${q ? '?' + q : ''}`);
+    return apiFetchWithRetry(`/api/v1/review-queue${q ? '?' + q : ''}`);
   },
 
   // ── Phenotype assignments ─────────────────────────────────────────────────
@@ -212,10 +246,10 @@ export const api = {
     apiFetch('/api/v1/outcomes', { method: 'POST', body: JSON.stringify(data) }),
   listOutcomes: (params = {}) => {
     const q = new URLSearchParams(params).toString();
-    return apiFetch(`/api/v1/outcomes${q ? '?' + q : ''}`);
+    return apiFetchWithRetry(`/api/v1/outcomes${q ? '?' + q : ''}`);
   },
   courseOutcomeSummary: (courseId) => apiFetch(`/api/v1/outcomes/summary/${courseId}`),
-  aggregateOutcomes: () => apiFetch('/api/v1/outcomes/aggregate'),
+  aggregateOutcomes: () => apiFetchWithRetry('/api/v1/outcomes/aggregate'),
 
   // ── qEEG Records ─────────────────────────────────────────────────────────
   createQEEGRecord: (data) =>
@@ -228,11 +262,36 @@ export const api = {
   updateQEEGRecord: (id, data) =>
     apiFetch(`/api/v1/qeeg-records/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
 
+  // ── Patient Portal (self-service for patient-role users) ─────────────────
+  patientPortalMe: () => apiFetch('/api/v1/patient-portal/me'),
+  patientPortalCourses: () => apiFetch('/api/v1/patient-portal/courses'),
+  patientPortalSessions: () => apiFetch('/api/v1/patient-portal/sessions'),
+  patientPortalAssessments: () => apiFetch('/api/v1/patient-portal/assessments'),
+  patientPortalOutcomes: () => apiFetch('/api/v1/patient-portal/outcomes'),
+
+  // ── Wearable monitoring ───────────────────────────────────────────────────
+  patientPortalWearables: () => apiFetch('/api/v1/patient-portal/wearables'),
+  patientPortalWearableSummary: (days = 7) => apiFetch(`/api/v1/patient-portal/wearable-summary?days=${days}`),
+  connectWearableSource: (data) => apiFetch('/api/v1/patient-portal/wearable-connect', { method: 'POST', body: JSON.stringify(data) }),
+  disconnectWearableSource: (connectionId) => apiFetch(`/api/v1/patient-portal/wearable-connect/${connectionId}`, { method: 'DELETE' }),
+  submitWearableObservations: (data) => apiFetch('/api/v1/patient-portal/wearable-sync', { method: 'POST', body: JSON.stringify(data) }),
+  getPatientWearableSummary: (patientId, days = 30) => apiFetchWithRetry(`/api/v1/wearables/patients/${patientId}/summary?days=${days}`),
+  getPatientAlertFlags: (patientId) => apiFetchWithRetry(`/api/v1/wearables/patients/${patientId}/alerts`),
+  dismissAlertFlag: (flagId) => apiFetch(`/api/v1/wearables/alerts/${flagId}/dismiss`, { method: 'POST' }),
+  wearableCopilotPatient: (messages, wearable_context) => apiFetch('/api/v1/chat/wearable-patient', { method: 'POST', body: JSON.stringify({ messages, patient_context: wearable_context }) }),
+  wearableCopilotClinician: (patientId, messages) => apiFetch('/api/v1/chat/wearable-clinician', { method: 'POST', body: JSON.stringify({ patient_id: patientId, messages }) }),
+
   // ── Telegram ────────────────────────────────────────────────────────────
   telegramLinkCode: () => apiFetch('/api/v1/telegram/link-code'),
 
   // ── Health ──────────────────────────────────────────────────────────────
   health: () => apiFetch('/health'),
+
+  // ── Presence (real-time collaboration) ──────────────────────────────────
+  pingPresence: (page_id) =>
+    apiFetch('/api/v1/notifications/presence', { method: 'POST', body: JSON.stringify({ page_id }) }),
+  getPresence: (page_id) =>
+    apiFetch(`/api/v1/notifications/presence/${encodeURIComponent(page_id)}`),
 };
 
 // Helper: download a blob

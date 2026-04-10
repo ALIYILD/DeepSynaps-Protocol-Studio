@@ -63,24 +63,26 @@ export const EVIDENCE_GRADE_COLORS = {
 
 // Role display labels
 export const ROLE_LABELS = {
-  admin:         'Admin',
-  clinician:     'Clinician',
-  resident:      'Resident',
-  'clinic-admin':'Clinic Admin',
-  reviewer:      'Reviewer',
-  supervisor:    'Supervisor',
-  technician:    'Technician',
-  guest:         'Guest',
+  admin:          'Administrator',
+  clinician:      'Clinician',
+  resident:       'Resident',
+  'clinic-admin': 'Clinic Admin',
+  reviewer:       'Reviewer',
+  supervisor:     'Supervisor',
+  technician:     'Technician',
+  guest:          'Guest',
+  patient:        'Patient',
 };
 
 // Role-based nav entry points (first page shown after login)
 export const ROLE_ENTRY_PAGE = {
-  admin:         'dashboard',
-  clinician:     'dashboard',
-  resident:      'courses',
-  'clinic-admin':'dashboard',
-  reviewer:      'review-queue',
-  supervisor:    'review-queue',
-  technician:    'session-execution',
-  guest:         'protocols-registry',
+  admin:          'dashboard',
+  clinician:      'dashboard',
+  resident:       'courses',
+  'clinic-admin': 'patients',
+  reviewer:       'review-queue',
+  supervisor:     'review-queue',
+  technician:     'session-execution',
+  guest:          'evidence',
+  patient:        'patient-portal',
 };

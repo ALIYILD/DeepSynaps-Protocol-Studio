@@ -3,22 +3,37 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<script>
+  try {
+    const t = localStorage.getItem('ds_theme') || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+    if (t === 'light') document.documentElement.classList.add('light-theme-pending');
+  } catch(e) {}
+</script>
 <title>DeepSynaps Studio — Clinical OS</title>
 <meta name="description" content="DeepSynaps Protocol Studio — Clinical OS for Neuromodulation Clinics">
-<meta name="theme-color" content="#0a1628">
+<meta name="theme-color" content="#00d4bc">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🧠</text></svg>">
+<link rel="manifest" href="/manifest.json">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="DeepSynaps">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;1,9..40,400&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/src/styles.css">
 </head>
 <body>
+<div id="offline-banner" class="offline-banner" style="display:none" role="alert" aria-live="assertive">
+  <span>⚡ You appear to be offline. Some features may be unavailable.</span>
+  <button onclick="document.getElementById('offline-banner').style.display='none'" aria-label="Dismiss">✕</button>
+</div>
+<a href="#content" class="skip-link">Skip to main content</a>
 
 <!-- Public shell (landing, signup) -->
 <div id="public-shell"></div>
 
 <!-- Patient portal shell -->
 <div id="patient-shell">
-  <div id="patient-sidebar">
+  <div id="patient-sidebar" role="navigation" aria-label="Patient navigation">
     <div class="logo-wrap">
       <div class="logo-icon" style="background:linear-gradient(135deg,var(--blue),var(--violet))">◉</div>
       <div>
@@ -27,6 +42,11 @@
       </div>
     </div>
     <nav id="patient-nav-list"></nav>
+    <div style="padding:8px 12px;border-top:1px solid var(--border)">
+      <button onclick="window._backToClinic()" style="width:100%;padding:7px;border-radius:var(--radius-md);border:1px solid var(--border);background:rgba(255,255,255,0.03);color:var(--text-secondary);font-size:11px;cursor:pointer;font-family:var(--font-body);display:flex;align-items:center;gap:6px;justify-content:center" onmouseover="this.style.borderColor='var(--border-teal)'" onmouseout="this.style.borderColor='var(--border)'">
+        ← Back to Clinic App
+      </button>
+    </div>
     <div class="user-bar" id="patient-user-bar">
       <div class="avatar" id="pt-avatar" style="background:linear-gradient(135deg,var(--blue-dim),var(--violet))">?</div>
       <div style="flex:1;min-width:0">
@@ -36,13 +56,16 @@
       <button class="btn btn-ghost btn-sm" onclick="window.doLogout()" title="Sign out" style="padding:4px 8px;flex-shrink:0">↪</button>
     </div>
   </div>
-  <div id="patient-app-shell">
+  <div id="patient-app-shell" role="main">
     <div id="patient-topbar">
       <div id="patient-page-title">My Portal</div>
       <div id="patient-topbar-actions"></div>
     </div>
     <div id="patient-content"></div>
   </div>
+  <nav id="pt-bottom-nav" style="display:none;position:fixed;bottom:0;left:0;right:0;height:56px;background:var(--navy-850);border-top:1px solid var(--border);z-index:400;align-items:stretch">
+    <!-- items injected by renderPatientNav -->
+  </nav>
 </div>
 
 <!-- Login overlay -->
@@ -50,7 +73,7 @@
 
 <!-- Sidebar -->
 <div id="sidebar-overlay" onclick="window._closeSidebar()"></div>
-<div id="sidebar">
+<div id="sidebar" role="navigation" aria-label="Main navigation">
   <div class="logo-wrap">
     <div class="logo-icon">🧠</div>
     <div>
@@ -73,15 +96,64 @@
 <div id="page-loading-bar"></div>
 
 <!-- App shell -->
-<div id="app-shell">
-  <div id="topbar">
+<div id="app-shell" role="main">
+  <div id="topbar" role="banner">
     <button id="sidebar-toggle" class="btn btn-ghost btn-sm" onclick="window._toggleSidebar()" style="display:none;padding:6px 8px;font-size:16px;line-height:1" aria-label="Menu">☰</button>
     <div id="page-title">Dashboard</div>
-    <div style="display:flex;gap:8px;align-items:center" id="topbar-actions"></div>
+    <div id="clinic-switcher" style="display:none">
+      <button id="clinic-btn" onclick="window._toggleClinicMenu()" class="clinic-switcher-btn" aria-label="Switch clinic" aria-haspopup="true">
+        <span id="clinic-name-display">My Clinic</span>
+        <span style="margin-left:6px;opacity:0.6">&#9660;</span>
+      </button>
+      <div id="clinic-menu" class="clinic-menu" style="display:none"></div>
+    </div>
+    <div style="display:flex;gap:4px;align-items:center;margin-left:auto">
+      <button id="theme-toggle-btn" onclick="window._toggleTheme()" title="Toggle theme" aria-label="Toggle dark/light theme" style="background:rgba(255,255,255,0.06);border:1px solid var(--border,rgba(255,255,255,0.1));border-radius:8px;width:36px;height:36px;cursor:pointer;font-size:1rem;display:flex;align-items:center;justify-content:center;color:var(--text-secondary)">🌙</button>
+      <button id="search-btn" onclick="window._openPalette()" title="Search (⌘K)" aria-label="Open search (Ctrl+K)" style="background:rgba(255,255,255,0.06);border:1px solid var(--border);border-radius:8px;padding:6px 14px;color:var(--text-secondary);cursor:pointer;display:flex;align-items:center;gap:8px;font-size:0.8rem;">
+        <span>🔍</span>
+        <span>Search</span>
+        <kbd style="background:rgba(255,255,255,0.08);border:1px solid var(--border);border-radius:3px;padding:1px 5px;font-size:0.7rem;font-family:inherit">⌘K</kbd>
+      </button>
+      <button id="notif-bell" onclick="window._toggleNotifPanel()" aria-label="Notifications" aria-haspopup="true" aria-expanded="false" style="position:relative;background:none;border:none;cursor:pointer;color:var(--text-secondary);font-size:18px;padding:8px;min-height:44px;min-width:44px;display:flex;align-items:center;justify-content:center;border-radius:8px;transition:background 0.15s" onmouseover="this.style.background='rgba(255,255,255,0.05)'" onmouseout="this.style.background='none'">
+        ◈
+        <span id="notif-badge" style="display:none;position:absolute;top:4px;right:4px;width:16px;height:16px;border-radius:50%;background:var(--red);color:#fff;font-size:9px;font-weight:700;align-items:center;justify-content:center">0</span>
+      </button>
+      <div style="display:flex;gap:8px;align-items:center" id="topbar-actions"></div>
+    </div>
   </div>
   <div id="content"></div>
 </div>
 
 <script type="module" src="/src/main.js"></script>
+<script>
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('/sw.js').catch(err => console.warn('SW registration failed:', err));
+    });
+  }
+</script>
+
+<!-- Command Palette -->
+<div id="cmd-palette" class="cmd-palette-overlay" style="display:none" onclick="window._closePalette(event)">
+  <div class="cmd-palette-modal" role="dialog" aria-modal="true" aria-label="Command palette">
+    <div class="cmd-palette-input-row">
+      <span class="cmd-palette-icon">⌘</span>
+      <input id="cmd-palette-input" type="text" placeholder="Search patients, protocols, pages..." autocomplete="off" spellcheck="false"
+             oninput="window._paletteSearch(this.value)"
+             onkeydown="window._paletteKeydown(event)">
+      <kbd class="cmd-palette-esc">ESC</kbd>
+    </div>
+    <div id="cmd-palette-results" class="cmd-palette-results"></div>
+    <div class="cmd-palette-footer">
+      <span><kbd>↑↓</kbd> navigate</span>
+      <span><kbd>↵</kbd> select</span>
+      <span><kbd>ESC</kbd> close</span>
+    </div>
+  </div>
+</div>
+
+<!-- Accessibility: screen-reader live regions -->
+<div id="a11y-announce" role="status" aria-live="polite" aria-atomic="true" class="sr-only"></div>
+<div id="a11y-alert" role="alert" aria-live="assertive" aria-atomic="true" class="sr-only"></div>
 </body>
 </html>

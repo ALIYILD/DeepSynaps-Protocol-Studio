@@ -60,6 +60,12 @@ DEMO_ACTOR_TOKENS: dict[str, DemoActor] = {
         role="admin",
         package_id="enterprise",
     ),
+    "patient-demo-token": DemoActor(
+        actor_id="actor-patient-demo",
+        display_name="Jane Patient",
+        role="patient",
+        package_id="explorer",
+    ),
 }
 
 ANONYMOUS_ACTOR = DemoActor(

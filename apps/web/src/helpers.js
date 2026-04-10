@@ -1,5 +1,11 @@
 // ── Render helpers ─────────────────────────────────────────────────────────
 
+// Role-based feature gating — returns content if role is allowed, fallback otherwise
+export function roleGate(allowedRoles, currentRole, content, fallback = '') {
+  if (!allowedRoles.includes(currentRole)) return fallback;
+  return content;
+}
+
 // Clinical-domain badges — explicit, scannable at a glance
 export function evidenceBadge(grade) {
   const map = {
@@ -105,10 +111,23 @@ export function spinner() {
     `<div class="ai-dot" style="animation-delay:${i * 0.12}s"></div>`).join('')}</div>`;
 }
 
-export function emptyState(icon, msg) {
-  return `<div style="text-align:center;padding:48px 0;color:var(--text-tertiary)">
+export function emptyState(icon, titleOrMsg, subtitle, actionLabel, actionFn) {
+  // 2-arg form (legacy): emptyState(icon, msg) — inline simple version
+  if (!subtitle) {
+    return `<div style="text-align:center;padding:48px 0;color:var(--text-tertiary)">
     <div style="font-size:32px;margin-bottom:12px;opacity:.4">${icon}</div>
-    <div style="font-size:13px">${msg}</div>
+    <div style="font-size:13px">${titleOrMsg}</div>
+  </div>`;
+  }
+  // 3-5 arg form: full card with title, subtitle, optional action button
+  const btn = actionLabel && actionFn
+    ? `<button class="btn btn-primary" onclick="${actionFn}">${actionLabel}</button>`
+    : '';
+  return `<div class="empty-state">
+    <div class="empty-state-icon">${icon}</div>
+    <h3>${titleOrMsg}</h3>
+    <p>${subtitle}</p>
+    ${btn}
   </div>`;
 }
 

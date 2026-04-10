@@ -518,6 +518,32 @@ def log_session(
     course.updated_at = datetime.utcnow()
     db.commit()
     db.refresh(record)
+
+    # Broadcast session_logged notification to the course's clinician (if different from actor)
+    if course.clinician_id and course.clinician_id != actor.actor_id:
+        import asyncio as _asyncio
+        from app.routers.notifications_router import broadcast_to_user as _broadcast
+
+        # Fetch patient name for the notification
+        from app.persistence.models import Patient as _Patient
+        _patient = db.query(_Patient).filter_by(id=course.patient_id).first()
+        _patient_name = (
+            f"{_patient.first_name} {_patient.last_name}" if _patient else course.patient_id
+        )
+
+        _asyncio.ensure_future(
+            _broadcast(
+                str(course.clinician_id),
+                "session_logged",
+                {
+                    "course_id": str(course_id),
+                    "session_number": course.sessions_delivered,
+                    "patient_name": _patient_name,
+                    "logged_by": actor.display_name,
+                },
+            )
+        )
+
     return SessionLogOut.from_record(record)
 
 
@@ -545,6 +571,7 @@ def list_sessions(
 @review_router.get("", response_model=ReviewQueueListResponse)
 def list_review_queue(
     status: Optional[str] = Query(default=None, description="pending | completed"),
+    reviewer_id: Optional[str] = Query(default=None, description="Filter by assigned reviewer (assigned_to)"),
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
     db: Session = Depends(get_db_session),
 ) -> ReviewQueueListResponse:
@@ -555,7 +582,97 @@ def list_review_queue(
         q = q.filter(ReviewQueueItem.created_by == actor.actor_id)
     if status:
         q = q.filter(ReviewQueueItem.status == status)
+    if reviewer_id:
+        q = q.filter(ReviewQueueItem.assigned_to == reviewer_id)
 
     records = q.order_by(ReviewQueueItem.created_at.desc()).all()
     items = [ReviewQueueOut.from_record(r) for r in records]
     return ReviewQueueListResponse(items=items, total=len(items))
+
+
+# ── Review actions endpoint ────────────────────────────────────────────────────
+
+class ReviewActionCreate(BaseModel):
+    review_item_id: str
+    action: str                     # "approve" | "reject" | "escalate" | "comment"
+    notes: Optional[str] = None
+
+
+class ReviewActionOut(BaseModel):
+    review_item_id: str
+    actor_id: str
+    action: str
+    notes: Optional[str]
+    created_at: str
+    item_status: str                # updated status of the queue item after the action
+
+
+@review_router.post("/actions", response_model=ReviewActionOut, status_code=201)
+def post_review_action(
+    body: ReviewActionCreate,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> ReviewActionOut:
+    """Record an approve / reject / escalate / comment action on a review queue item."""
+    require_minimum_role(actor, "clinician")
+
+    _valid_actions = {"approve", "reject", "escalate", "comment"}
+    action = body.action.strip().lower()
+    if action not in _valid_actions:
+        raise ApiServiceError(
+            code="invalid_action",
+            message=f"Action must be one of: {', '.join(sorted(_valid_actions))}.",
+            status_code=422,
+        )
+
+    item = db.query(ReviewQueueItem).filter_by(id=body.review_item_id).first()
+    if item is None:
+        raise ApiServiceError(code="not_found", message="Review queue item not found.", status_code=404)
+
+    # Apply state transition
+    now = datetime.utcnow()
+    if action == "approve":
+        item.status = "completed"
+        item.completed_at = now
+    elif action == "reject":
+        item.status = "rejected"
+        item.completed_at = now
+    elif action == "escalate":
+        item.status = "escalated"
+        item.priority = "urgent"
+    # "comment" leaves status unchanged
+
+    if body.notes:
+        item.notes = body.notes
+
+    db.commit()
+    db.refresh(item)
+
+    # Broadcast review_decision to the course's clinician (if item targets a treatment course)
+    if item.target_type == "treatment_course" and item.target_id:
+        _course = db.query(TreatmentCourse).filter_by(id=item.target_id).first()
+        if _course and _course.clinician_id and _course.clinician_id != actor.actor_id:
+            import asyncio as _asyncio
+            from app.routers.notifications_router import broadcast_to_user as _broadcast
+
+            _asyncio.ensure_future(
+                _broadcast(
+                    str(_course.clinician_id),
+                    "review_decision",
+                    {
+                        "course_id": str(_course.id),
+                        "action": action,
+                        "reviewer_name": actor.display_name,
+                        "notes": body.notes or "",
+                    },
+                )
+            )
+
+    return ReviewActionOut(
+        review_item_id=item.id,
+        actor_id=actor.actor_id,
+        action=action,
+        notes=body.notes,
+        created_at=now.isoformat(),
+        item_status=item.status,
+    )
