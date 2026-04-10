@@ -1145,17 +1145,39 @@ export async function pgAssess(setTopbar) {
     errEl.style.display = 'none';
     const tid = document.getElementById('assess-template').value;
     const ttemplate = templates.find(t => t.id === tid);
+    const patientId = document.getElementById('assess-patient').value || null;
+    const scoreRaw = document.getElementById('assess-score').value;
+    const scoreNum = parseFloat(scoreRaw) || null;
     const data = {
       template_id: tid,
       template_title: ttemplate?.t || tid,
-      patient_id: document.getElementById('assess-patient').value || null,
+      patient_id: patientId,
       data: {},
       clinician_notes: document.getElementById('assess-notes').value || null,
-      score: parseFloat(document.getElementById('assess-score').value) || null,
+      score: scoreNum !== null ? String(scoreNum) : null,
       status: 'completed',
     };
     try {
-      await api.createAssessment(data);
+      const assessment = await api.createAssessment(data);
+      // Auto-link to active course if patient has one
+      if (patientId && scoreNum !== null) {
+        try {
+          const coursesRes = await api.listCourses({ patient_id: patientId, status: 'active' });
+          const activeCourses = coursesRes?.items || [];
+          if (activeCourses.length > 0) {
+            await api.recordOutcome({
+              patient_id: patientId,
+              course_id: activeCourses[0].id,
+              template_id: tid,
+              template_title: ttemplate?.t || tid,
+              score: String(scoreNum),
+              score_numeric: scoreNum,
+              measurement_point: 'mid',
+              assessment_id: assessment?.id || null,
+            });
+          }
+        } catch (_) { /* outcome linkage is best-effort */ }
+      }
       document.getElementById('assess-modal').style.display = 'none';
       window._nav('assessments');
     } catch (e) { errEl.textContent = e.message; errEl.style.display = ''; }
@@ -1234,18 +1256,81 @@ function bindChat(chatHistory) {
 }
 
 // ── Brain Data Vault ───────────────────────────────────────────────────────────
-export function pgBrainData(setTopbar) {
-  setTopbar('Brain Data Vault', `<button class="btn btn-primary btn-sm">+ Upload qEEG</button><button class="btn btn-sm" onclick="window._nav('qeegmaps')">qEEG Reference Maps →</button>`);
-  return `<div class="g4" style="margin-bottom:20px">
+export async function pgBrainData(setTopbar) {
+  setTopbar('Brain Data Vault', `<button class="btn btn-primary btn-sm" onclick="window._showQEEGForm()">+ Log qEEG Record</button><button class="btn btn-sm" onclick="window._nav('qeegmaps')">Reference Maps →</button>`);
+  const el = document.getElementById('content');
+  el.innerHTML = spinner();
+
+  let records = [];
+  let patients = [];
+  try {
+    [records, patients] = await Promise.all([
+      api.listQEEGRecords().then(r => r?.items || []).catch(() => []),
+      api.listPatients().then(r => r?.items || []).catch(() => []),
+    ]);
+  } catch {}
+
+  const patMap = {};
+  patients.forEach(p => { patMap[p.id] = `${p.first_name} ${p.last_name}`; });
+
+  el.innerHTML = `
+  <div class="g4" style="margin-bottom:20px">
     ${[
-      { l: 'qEEG Reports', v: '—', d: 'uploaded files' },
-      { l: 'Brain Maps', v: '—', d: 'mapped datasets' },
-      { l: 'LORETA Files', v: '—', d: 'source localisation' },
-      { l: 'Storage Used', v: '—', d: 'of available quota' },
+      { l: 'qEEG Records', v: records.length || '—', d: 'logged recordings' },
+      { l: 'Patients with qEEG', v: new Set(records.map(r => r.patient_id)).size || '—', d: 'unique patients' },
+      { l: 'Resting State', v: records.filter(r => r.recording_type === 'resting').length || '—', d: 'resting recordings' },
+      { l: 'Latest Recording', v: records[0]?.recording_date || '—', d: 'most recent date' },
     ].map(m => `<div class="metric-card"><div class="metric-label">${m.l}</div><div class="metric-value">${m.v}</div><div class="metric-delta">${m.d}</div></div>`).join('')}
   </div>
+
+  <div id="qeeg-form-panel" style="display:none;margin-bottom:16px">
+    ${cardWrap('Log qEEG Recording', `
+      <div class="g2" style="margin-bottom:12px">
+        <div>
+          <div class="form-group"><label class="form-label">Patient</label>
+            <select id="qr-patient" class="form-control">
+              <option value="">Select patient…</option>
+              ${patients.map(p => `<option value="${p.id}">${p.first_name} ${p.last_name}</option>`).join('')}
+            </select>
+          </div>
+          <div class="form-group"><label class="form-label">Recording Type</label>
+            <select id="qr-type" class="form-control">
+              <option value="resting">Resting State</option>
+              <option value="task">Task-based</option>
+              <option value="sleep">Sleep</option>
+              <option value="ictal">Ictal / Event</option>
+            </select>
+          </div>
+          <div class="form-group"><label class="form-label">Recording Date</label>
+            <input id="qr-date" class="form-control" type="date">
+          </div>
+        </div>
+        <div>
+          <div class="form-group"><label class="form-label">Equipment</label>
+            <input id="qr-equip" class="form-control" placeholder="e.g. NeuroGuide 19ch, Emotiv EPOC">
+          </div>
+          <div class="form-group"><label class="form-label">Eyes Condition</label>
+            <select id="qr-eyes" class="form-control">
+              <option value="eyes_closed">Eyes closed</option>
+              <option value="eyes_open">Eyes open</option>
+              <option value="mixed">Mixed</option>
+            </select>
+          </div>
+          <div class="form-group"><label class="form-label">Summary / Findings</label>
+            <textarea id="qr-notes" class="form-control" placeholder="Key EEG findings, abnormalities, LORETA summary…" rows="3"></textarea>
+          </div>
+        </div>
+      </div>
+      <div id="qr-error" style="display:none;color:var(--red);font-size:12px;margin-bottom:8px"></div>
+      <div style="display:flex;gap:8px">
+        <button class="btn" onclick="document.getElementById('qeeg-form-panel').style.display='none'">Cancel</button>
+        <button class="btn btn-primary" onclick="window._saveQEEGRecord()">Save Record</button>
+      </div>
+    `)}
+  </div>
+
   <div class="g2">
-    ${cardWrap('qEEG Brain Map Preview', `
+    ${cardWrap('qEEG Band Preview', `
       <div style="display:flex;gap:6px;margin-bottom:14px">
         ${['alpha', 'theta', 'beta'].map(b => `<button class="btn btn-sm ${eegBand === b ? 'btn-primary' : ''}" onclick="window.switchBand('${b}')">${b.charAt(0).toUpperCase() + b.slice(1)}</button>`).join('')}
       </div>
@@ -1254,18 +1339,26 @@ export function pgBrainData(setTopbar) {
         ${['Low', 'Mid', 'High'].map(l => `<div style="display:flex;align-items:center;gap:6px"><div style="width:10px;height:10px;border-radius:50%;background:${l === 'Low' ? '#1a3d6e' : l === 'Mid' ? '#2d7fe0' : '#4a9eff'}"></div><span style="font-size:10.5px;color:var(--text-secondary)">${l}</span></div>`).join('')}
       </div>
     `)}
-    ${cardWrap('Case Summary from Upload', `
-      <div style="font-size:12px;color:var(--text-secondary);margin-bottom:14px;line-height:1.65">
-        Upload clinical documents (qEEG report, intake form, clinician notes) to generate an AI case summary with target recommendations.
-      </div>
-      <div id="upload-dropzone" style="border:2px dashed var(--border);border-radius:var(--radius-md);padding:24px;text-align:center;margin-bottom:14px;cursor:pointer;transition:border-color var(--transition)" onmouseover="this.style.borderColor='var(--border-teal)'" onmouseout="this.style.borderColor='var(--border)'">
-        <div style="font-size:24px;margin-bottom:8px;opacity:.4">📄</div>
-        <div style="font-size:12px;color:var(--text-tertiary)">Drop files here or click to upload<br><span style="font-size:11px">PDF, PNG, TXT supported</span></div>
-      </div>
-      <button class="btn btn-primary btn-sm" onclick="window.runCaseSummary()">Generate Case Summary ✦</button>
-      <div id="case-summary-result" style="margin-top:14px"></div>
+    ${cardWrap('Recorded qEEG Files', `
+      ${records.length === 0
+        ? emptyState('◈', 'No qEEG records yet. Click "+ Log qEEG Record" to add the first recording.')
+        : `<div style="display:flex;flex-direction:column;gap:8px">
+            ${records.map(r => `
+              <div style="padding:12px;border:1px solid var(--border);border-radius:8px">
+                <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+                  <span style="font-size:13px;font-weight:600;color:var(--text-primary);flex:1">${patMap[r.patient_id] || r.patient_id}</span>
+                  <span style="font-size:11px;padding:2px 7px;border-radius:4px;background:var(--teal-ghost);color:var(--teal)">${r.recording_type}</span>
+                  <span style="font-size:11px;color:var(--text-tertiary)">${r.recording_date || '—'}</span>
+                </div>
+                ${r.equipment ? `<div style="margin-top:5px;font-size:11.5px;color:var(--text-secondary)">Equipment: ${r.equipment}</div>` : ''}
+                ${r.summary_notes ? `<div style="margin-top:5px;font-size:11.5px;color:var(--text-secondary);font-style:italic">${r.summary_notes.slice(0,120)}${r.summary_notes.length > 120 ? '…' : ''}</div>` : ''}
+              </div>`).join('')}
+          </div>`
+      }
     `)}
   </div>`;
+
+  bindBrainData();
 }
 
 export function bindBrainData() {
@@ -1279,6 +1372,32 @@ export function bindBrainData() {
       }
     });
   };
+
+  window._showQEEGForm = () => {
+    document.getElementById('qeeg-form-panel').style.display = '';
+  };
+
+  window._saveQEEGRecord = async function() {
+    const errEl = document.getElementById('qr-error');
+    errEl.style.display = 'none';
+    const patientId = document.getElementById('qr-patient')?.value;
+    if (!patientId) { errEl.textContent = 'Select a patient.'; errEl.style.display = 'block'; return; }
+    try {
+      await api.createQEEGRecord({
+        patient_id: patientId,
+        recording_type: document.getElementById('qr-type')?.value || 'resting',
+        recording_date: document.getElementById('qr-date')?.value || null,
+        equipment: document.getElementById('qr-equip')?.value || null,
+        eyes_condition: document.getElementById('qr-eyes')?.value || null,
+        summary_notes: document.getElementById('qr-notes')?.value || null,
+      });
+      await pgBrainData(setTopbar);
+    } catch (e) {
+      errEl.textContent = e.message || 'Save failed.';
+      errEl.style.display = 'block';
+    }
+  };
+
   window.runCaseSummary = async function() {
     const res = document.getElementById('case-summary-result');
     if (res) res.innerHTML = spinner();

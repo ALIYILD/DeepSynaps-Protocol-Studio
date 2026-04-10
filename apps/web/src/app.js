@@ -111,8 +111,7 @@ async function renderPage() {
       await pgOutcomes(setTopbar, navigate);
       break;
     case 'braindata':
-      el.innerHTML = pgBrainData(setTopbar);
-      bindBrainData();
+      await pgBrainData(setTopbar);
       break;
     // ── Knowledge Registries ─────────────────────────────────────────────
     case 'evidence':

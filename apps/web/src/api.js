@@ -145,6 +145,27 @@ export const api = {
     return apiFetch(`/api/v1/review-queue${q ? '?' + q : ''}`);
   },
 
+  // ── Outcomes ─────────────────────────────────────────────────────────────
+  recordOutcome: (data) =>
+    apiFetch('/api/v1/outcomes', { method: 'POST', body: JSON.stringify(data) }),
+  listOutcomes: (params = {}) => {
+    const q = new URLSearchParams(params).toString();
+    return apiFetch(`/api/v1/outcomes${q ? '?' + q : ''}`);
+  },
+  courseOutcomeSummary: (courseId) => apiFetch(`/api/v1/outcomes/summary/${courseId}`),
+  aggregateOutcomes: () => apiFetch('/api/v1/outcomes/aggregate'),
+
+  // ── qEEG Records ─────────────────────────────────────────────────────────
+  createQEEGRecord: (data) =>
+    apiFetch('/api/v1/qeeg-records', { method: 'POST', body: JSON.stringify(data) }),
+  listQEEGRecords: (params = {}) => {
+    const q = new URLSearchParams(params).toString();
+    return apiFetch(`/api/v1/qeeg-records${q ? '?' + q : ''}`);
+  },
+  getQEEGRecord: (id) => apiFetch(`/api/v1/qeeg-records/${id}`),
+  updateQEEGRecord: (id, data) =>
+    apiFetch(`/api/v1/qeeg-records/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+
   // ── Health ──────────────────────────────────────────────────────────────
   health: () => apiFetch('/health'),
 };

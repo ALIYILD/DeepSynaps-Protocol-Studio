@@ -285,37 +285,187 @@ export async function pgReviewQueue(setTopbar, navigate) {
 
 // ── pgOutcomes — Outcomes & Trends ───────────────────────────────────────────
 export async function pgOutcomes(setTopbar, navigate) {
-  setTopbar('Outcomes & Trends', '');
+  setTopbar('Outcomes & Trends', `<button class="btn btn-primary btn-sm" onclick="window._showRecordOutcome()">+ Record Outcome</button>`);
   const el = document.getElementById('content');
   el.innerHTML = spinner();
 
-  // Try to pull stats from courses
-  let responders = '—';
-  let coursesReviewed = '—';
+  let agg = { responders: '—', avg_phq9_drop: '—', courses_with_outcomes: '—' };
+  let allOutcomes = [];
+  let courses = [];
 
   try {
-    const data = await api.listCourses();
-    const items = data?.items || [];
-    const completed = items.filter(c => c.status === 'completed');
-    coursesReviewed = completed.length;
-    // A responder is any completed course — more granular once assessments linked
-    responders = completed.length;
+    [agg, allOutcomes, courses] = await Promise.all([
+      api.aggregateOutcomes().catch(() => ({})),
+      api.listOutcomes().then(r => r?.items || []).catch(() => []),
+      api.listCourses().then(r => r?.items || []).catch(() => []),
+    ]);
   } catch (_) {}
+
+  // Group outcomes by course_id + template_id for sparkline display
+  const byCourse = {};
+  allOutcomes.forEach(o => {
+    const key = o.course_id;
+    if (!byCourse[key]) byCourse[key] = {};
+    if (!byCourse[key][o.template_id]) byCourse[key][o.template_id] = [];
+    byCourse[key][o.template_id].push(o);
+  });
+
+  const courseMap = {};
+  courses.forEach(c => { courseMap[c.id] = c; });
+
+  const trendRows = Object.entries(byCourse).map(([cid, byTemplate]) => {
+    const course = courseMap[cid] || {};
+    return Object.entries(byTemplate).map(([tid, pts]) => {
+      const sorted = pts.sort((a, b) => a.administered_at.localeCompare(b.administered_at));
+      const baseline = sorted.find(p => p.measurement_point === 'baseline');
+      const latest = sorted[sorted.length - 1];
+      const baseScore = baseline?.score_numeric;
+      const latestScore = latest?.score_numeric;
+      let delta = null, pct = null, responder = false;
+      if (baseScore != null && latestScore != null && baseScore !== 0) {
+        delta = baseScore - latestScore;
+        pct = Math.round(delta / baseScore * 100);
+        responder = pct >= 50;
+      }
+      const sparkPoints = sorted.map(p => p.score_numeric).filter(v => v != null);
+      const maxV = Math.max(...sparkPoints, 1);
+      const minV = Math.min(...sparkPoints, 0);
+      const range = maxV - minV || 1;
+      const svgPts = sparkPoints.map((v, i) => {
+        const x = sparkPoints.length < 2 ? 50 : Math.round(i / (sparkPoints.length - 1) * 100);
+        const y = Math.round((1 - (v - minV) / range) * 30);
+        return `${x},${y}`;
+      }).join(' ');
+
+      return `<tr>
+        <td style="font-size:12px;color:var(--text-secondary)">${course.condition_slug || cid.slice(0,8)+'…'} · ${course.modality_slug || ''}</td>
+        <td style="font-weight:600;font-size:12px">${tid}</td>
+        <td style="font-size:12px">${baseScore ?? '—'}</td>
+        <td style="font-size:12px">${latestScore ?? '—'}</td>
+        <td style="font-size:12px;color:${delta == null ? 'var(--text-tertiary)' : delta > 0 ? 'var(--green)' : 'var(--red)'}">
+          ${delta == null ? '—' : (delta > 0 ? '↓' : '↑') + Math.abs(delta).toFixed(1)}
+        </td>
+        <td style="font-size:12px">${pct == null ? '—' : pct + '%'}</td>
+        <td>${responder ? '<span style="color:var(--green);font-size:11px;font-weight:600">✓ Responder</span>' : pct != null ? '<span style="color:var(--text-tertiary);font-size:11px">Non-responder</span>' : '—'}</td>
+        <td>
+          <svg width="100" height="32" viewBox="0 0 100 32" style="overflow:visible">
+            ${sparkPoints.length > 1 ? `<polyline points="${svgPts}" fill="none" stroke="var(--teal)" stroke-width="1.5" stroke-linejoin="round"/>` : ''}
+            ${sparkPoints.map((v, i) => {
+              const x = sparkPoints.length < 2 ? 50 : Math.round(i / (sparkPoints.length - 1) * 100);
+              const y = Math.round((1 - (v - minV) / range) * 30);
+              return `<circle cx="${x}" cy="${y}" r="2.5" fill="var(--teal)"/>`;
+            }).join('')}
+          </svg>
+        </td>
+      </tr>`;
+    }).join('');
+  }).join('');
 
   el.innerHTML = `
     <div class="page-section">
       <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:24px">
-        ${metricCard('Responders', responders, 'var(--teal)', '≥50% symptom reduction')}
-        ${metricCard('Avg PHQ-9 Drop', '—', 'var(--blue)', 'Across active courses')}
-        ${metricCard('Courses Reviewed', coursesReviewed, 'var(--violet)', 'This month')}
+        ${metricCard('Responders', agg.responders ?? '—', 'var(--teal)', '≥50% symptom reduction')}
+        ${metricCard('Avg PHQ-9 Drop', agg.avg_phq9_drop != null ? agg.avg_phq9_drop + ' pts' : '—', 'var(--blue)', 'Across courses with data')}
+        ${metricCard('Courses Tracked', agg.courses_with_outcomes ?? '—', 'var(--violet)', 'With outcome measurements')}
       </div>
+
+      <div id="record-outcome-panel" style="display:none;margin-bottom:16px">
+        <div class="card" style="padding:20px">
+          <div style="font-size:13px;font-weight:600;margin-bottom:14px">Record Outcome Measurement</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:12px">
+            <div>
+              <label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:4px">Course</label>
+              <select id="oc-course" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;background:var(--bg-secondary);color:var(--text-primary);font-size:13px">
+                <option value="">Select course…</option>
+                ${courses.map(c => `<option value="${c.id}|${c.patient_id}">${c.condition_slug} · ${c.modality_slug} (${c.status})</option>`).join('')}
+              </select>
+            </div>
+            <div>
+              <label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:4px">Assessment Template</label>
+              <select id="oc-template" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;background:var(--bg-secondary);color:var(--text-primary);font-size:13px">
+                <option value="PHQ-9">PHQ-9</option>
+                <option value="GAD-7">GAD-7</option>
+                <option value="PCL-5">PCL-5</option>
+                <option value="ISI">ISI</option>
+                <option value="DASS-21">DASS-21</option>
+                <option value="NRS-Pain">NRS-Pain</option>
+                <option value="ADHD-RS-5">ADHD-RS-5</option>
+                <option value="UPDRS-III">UPDRS-III</option>
+              </select>
+            </div>
+            <div>
+              <label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:4px">Measurement Point</label>
+              <select id="oc-point" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;background:var(--bg-secondary);color:var(--text-primary);font-size:13px">
+                <option value="baseline">Baseline (pre-treatment)</option>
+                <option value="mid">Mid-course</option>
+                <option value="post">Post-treatment</option>
+                <option value="follow_up">Follow-up</option>
+              </select>
+            </div>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 2fr;gap:12px;margin-bottom:12px">
+            <div>
+              <label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:4px">Score</label>
+              <input id="oc-score" type="number" step="0.1" placeholder="e.g. 14" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;background:var(--bg-secondary);color:var(--text-primary);font-size:13px">
+            </div>
+            <div>
+              <label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:4px">Notes (optional)</label>
+              <input id="oc-notes" placeholder="Clinical context…" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;background:var(--bg-secondary);color:var(--text-primary);font-size:13px">
+            </div>
+          </div>
+          <div id="oc-error" style="display:none;color:var(--red);font-size:12px;margin-bottom:8px"></div>
+          <div style="display:flex;gap:8px">
+            <button class="btn" onclick="document.getElementById('record-outcome-panel').style.display='none'">Cancel</button>
+            <button class="btn btn-primary" onclick="window._saveOutcome()">Save Measurement</button>
+          </div>
+        </div>
+      </div>
+
       <div class="card">
-        <div style="padding:20px">
-          <div style="font-size:13px;font-weight:600;color:var(--text-primary);margin-bottom:12px">Outcome Trends</div>
-          ${emptyState('◫', 'Outcomes will populate as assessments are completed across treatment courses.')}
+        <div class="card-header" style="padding:16px 20px;border-bottom:1px solid var(--border)">
+          <span style="font-weight:600;font-size:14px">Outcome Measurements</span>
+        </div>
+        <div style="padding:16px;overflow-x:auto">
+          ${trendRows
+            ? `<table class="ds-table">
+                <thead><tr><th>Course</th><th>Template</th><th>Baseline</th><th>Latest</th><th>Change</th><th>% Drop</th><th>Response</th><th>Trend</th></tr></thead>
+                <tbody>${trendRows}</tbody>
+              </table>`
+            : `<div style="padding:32px;text-align:center;color:var(--text-tertiary)">${emptyState('◫', 'No outcome measurements yet. Click "+ Record Outcome" to add the first measurement for a treatment course.')}</div>`
+          }
         </div>
       </div>
     </div>`;
+
+  window._showRecordOutcome = () => {
+    document.getElementById('record-outcome-panel').style.display = '';
+  };
+
+  window._saveOutcome = async function() {
+    const errEl = document.getElementById('oc-error');
+    errEl.style.display = 'none';
+    const courseVal = document.getElementById('oc-course')?.value || '';
+    const [courseId, patientId] = courseVal.split('|');
+    const score = document.getElementById('oc-score')?.value;
+    if (!courseId || !patientId) { errEl.textContent = 'Select a course.'; errEl.style.display = 'block'; return; }
+    if (!score) { errEl.textContent = 'Enter a score.'; errEl.style.display = 'block'; return; }
+    const tid = document.getElementById('oc-template')?.value || 'PHQ-9';
+    try {
+      await api.recordOutcome({
+        patient_id: patientId,
+        course_id: courseId,
+        template_id: tid,
+        template_title: tid,
+        score: score,
+        score_numeric: parseFloat(score),
+        measurement_point: document.getElementById('oc-point')?.value || 'mid',
+      });
+      await pgOutcomes(setTopbar, navigate);
+    } catch (e) {
+      errEl.textContent = e.message || 'Save failed.';
+      errEl.style.display = 'block';
+    }
+  };
 }
 
 // ── pgProtocolRegistry — Browse all protocols from registry ──────────────────
