@@ -126,21 +126,45 @@ window.switchAuthTab = function(tab) {
   document.getElementById('tab-demo').classList.toggle('active', tab === 'demo');
 };
 
+const DEMO_USERS = {
+  'admin-demo-token':        { id: 1, email: 'admin@demo.com',        display_name: 'Admin User',       role: 'admin',     package_id: 'enterprise' },
+  'clinician-demo-token':    { id: 2, email: 'clinician@demo.com',    display_name: 'Dr. Jane Smith',   role: 'clinician', package_id: 'clinician_pro' },
+  'resident-demo-token':     { id: 3, email: 'resident@demo.com',     display_name: 'Dr. Alex Chen',    role: 'clinician', package_id: 'resident' },
+  'explorer-demo-token':     { id: 4, email: 'explorer@demo.com',     display_name: 'Guest User',       role: 'guest',     package_id: 'explorer' },
+  'clinic-admin-demo-token': { id: 5, email: 'clinicadmin@demo.com',  display_name: 'Clinic Manager',   role: 'admin',     package_id: 'clinic_team' },
+};
+
 window.demoLogin = async function(token) {
   const errEl = document.getElementById('demo-error');
   if (errEl) errEl.style.display = 'none';
   api.setToken(token);
+  // Try backend first, fall back to local demo user if CORS/network fails
   try {
     const user = await api.me();
-    if (!user) throw new Error('Backend not reachable. Start the backend first.');
-    currentUser = user;
+    if (user) {
+      currentUser = user;
+      showApp();
+      updateUserBar();
+      window._bootApp();
+      return;
+    }
+  } catch (_) { /* fall through to offline demo */ }
+  // Offline demo mode
+  const demoUser = DEMO_USERS[token];
+  if (demoUser) {
+    currentUser = demoUser;
     showApp();
     updateUserBar();
     window._bootApp();
-  } catch (e) {
+  } else {
     api.clearToken();
-    if (errEl) { errEl.textContent = e.message; errEl.style.display = ''; }
+    if (errEl) { errEl.textContent = 'Unknown demo token.'; errEl.style.display = ''; }
   }
+};
+
+const DEMO_CREDENTIALS = {
+  'clinician@demo.com': { password: 'demo1234', token: 'clinician-demo-token' },
+  'admin@demo.com':     { password: 'demo1234', token: 'admin-demo-token' },
 };
 
 window.submitLogin = async function() {
@@ -157,8 +181,19 @@ window.submitLogin = async function() {
     showApp();
     updateUserBar();
     window._bootApp();
-  } catch (e) {
-    errEl.textContent = e.message || 'Login failed.';
+    return;
+  } catch (_) { /* fall through to offline demo */ }
+  // Offline demo credentials fallback
+  const cred = DEMO_CREDENTIALS[email];
+  if (cred && cred.password === password) {
+    const demoUser = DEMO_USERS[cred.token];
+    api.setToken(cred.token);
+    currentUser = demoUser;
+    showApp();
+    updateUserBar();
+    window._bootApp();
+  } else {
+    errEl.textContent = 'Invalid credentials. Try clinician@demo.com / demo1234';
     errEl.style.display = '';
   }
 };
