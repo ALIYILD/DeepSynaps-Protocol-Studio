@@ -3028,7 +3028,7 @@ export async function pgPatientProfile(user) {
         <div>
           <div class="card">
             <div class="card-header">
-              <h3>My Profile</h3>
+              <h3>${t('patient.profile.title')}</h3>
               <button class="btn btn-ghost btn-sm" id="pt-profile-refresh-btn" onclick="window._ptRefreshProfile()">↻ Refresh</button>
             </div>
             <div class="card-body">
@@ -3040,29 +3040,29 @@ export async function pgPatientProfile(user) {
                 </div>
               </div>
               <div class="form-group">
-                <label class="form-label">Full Name</label>
+                <label class="form-label">${t('patient.profile.full_name')}</label>
                 <input class="form-control" id="pt-profile-name-input" value="${esc(u?.display_name)}" readonly style="opacity:0.7">
               </div>
               <div class="form-group">
-                <label class="form-label">Email</label>
+                <label class="form-label">${t('patient.profile.email')}</label>
                 <input class="form-control" id="pt-profile-email-input" value="${esc(u?.email)}" readonly style="opacity:0.7">
               </div>
               <div id="pt-profile-refresh-notice" style="display:none;margin-top:8px"></div>
               <div class="notice notice-info" style="font-size:11.5px;margin-top:4px">
-                To update your name or email, contact your clinic directly.
+                ${t('patient.profile.edit_notice')}
               </div>
             </div>
           </div>
         </div>
         <div>
           <div class="card">
-            <div class="card-header"><h3>Notification Preferences</h3></div>
+            <div class="card-header"><h3>${t('patient.profile.notif_prefs')}</h3></div>
             <div class="card-body">
               ${[
-                ['Session Reminders',    'Email + SMS'],
-                ['Assessment Reminders', 'Email'],
-                ['Report Notifications', 'Email'],
-                ['Language',             'English'],
+                [t('patient.profile.notif.session_rem'),  t('patient.profile.notif.val_email_sms')],
+                [t('patient.profile.notif.assess_rem'),   t('patient.profile.notif.val_email')],
+                [t('patient.profile.notif.report_notif'), t('patient.profile.notif.val_email')],
+                [t('patient.profile.notif.language'),     getLocale() === 'tr' ? 'Türkçe' : 'English'],
               ].map(([k, v]) => `
                 <div class="field-row">
                   <span>${k}</span>
@@ -3070,29 +3070,29 @@ export async function pgPatientProfile(user) {
                 </div>
               `).join('')}
               <button class="btn btn-ghost btn-sm" style="margin-top:12px;opacity:0.5;cursor:not-allowed" disabled>
-                Update Preferences
+                ${t('patient.profile.update_prefs')}
               </button>
             </div>
           </div>
           <div class="card">
-            <div class="card-header"><h3>Account</h3></div>
+            <div class="card-header"><h3>${t('patient.profile.account')}</h3></div>
             <div class="card-body" style="display:flex;flex-direction:column;gap:8px">
-              <button class="btn btn-ghost btn-sm" style="opacity:0.5;cursor:not-allowed" disabled>Change Password</button>
-              <button class="btn btn-danger btn-sm" onclick="window.doLogout()">Sign Out ↪</button>
+              <button class="btn btn-ghost btn-sm" style="opacity:0.5;cursor:not-allowed" disabled>${t('patient.profile.change_pw')}</button>
+              <button class="btn btn-danger btn-sm" onclick="window.doLogout()">${t('patient.profile.sign_out')}</button>
             </div>
           </div>
 
           <div class="card">
-            <div class="card-header"><h3>Caregiver Access</h3></div>
+            <div class="card-header"><h3>${t('patient.profile.caregiver_access')}</h3></div>
             <div class="card-body">
               <div style="font-size:12.5px;color:var(--text-secondary);line-height:1.65;margin-bottom:12px">
-                Allow a family member or carer to view your treatment progress and sessions on your behalf.
+                ${t('patient.profile.caregiver_desc')}
               </div>
               <div class="notice notice-info" style="font-size:11.5px;margin-bottom:12px">
-                Caregiver access is set up by your clinic. Contact your care team to grant or update access permissions.
+                ${t('patient.profile.caregiver_notice')}
               </div>
               <button class="btn btn-ghost btn-sm" onclick="window._navPatient('patient-messages')">
-                Request caregiver access →
+                ${t('patient.profile.caregiver_request')}
               </button>
             </div>
           </div>
@@ -7532,6 +7532,23 @@ window._gpToggleCrisis = () => { const det = document.getElementById('gp-crisis-
 window._gpToggleEdit = () => { const form = document.getElementById('gp-edit-contacts-form'), list = document.getElementById('gp-contacts-list'); if (!form) return; const s = form.style.display !== 'none'; form.style.display = s ? 'none' : 'block'; if (list) list.style.display = s ? 'flex' : 'none'; };
 window._gpCancelEdit = () => { const form = document.getElementById('gp-edit-contacts-form'), list = document.getElementById('gp-contacts-list'); if (form) form.style.display = 'none'; if (list) list.style.display = 'flex'; };
 window._gpSaveContacts = () => { try { const prof = JSON.parse(localStorage.getItem('ds_guardian_profiles') || '{}'); (prof.emergencyContacts || []).forEach(ec => { const n = document.getElementById('gp-ec-name-' + ec.id), r = document.getElementById('gp-ec-rel-' + ec.id), p = document.getElementById('gp-ec-phone-' + ec.id); if (n) ec.name = n.value; if (r) ec.relation = r.value; if (p) ec.phone = p.value; }); localStorage.setItem('ds_guardian_profiles', JSON.stringify(prof)); } catch (_e) { /* safe */ } _gpRender(); };
+
+// ── Coming-soon stubs (routes defined in app.js; features pending) ─────────────
+function _renderComingSoon(titleKey) {
+  setTopbar(t(titleKey));
+  const el = document.getElementById('patient-content');
+  if (!el) return;
+  el.innerHTML = `
+    <div class="pt-portal-empty" style="padding:60px 24px">
+      <div class="pt-portal-empty-ico" aria-hidden="true" style="font-size:32px">🔧</div>
+      <div class="pt-portal-empty-title">${t('patient.coming_soon.title')}</div>
+      <div class="pt-portal-empty-body">${t('patient.coming_soon.body')}</div>
+    </div>`;
+}
+export async function pgPatientHomeDevice()      { _renderComingSoon('patient.nav.home_device'); }
+export async function pgPatientHomeSessionLog()  { _renderComingSoon('patient.nav.home_device'); }
+export async function pgPatientAdherenceEvents() { _renderComingSoon('patient.nav.adherence'); }
+export async function pgPatientAdherenceHistory(){ _renderComingSoon('patient.nav.adherence'); }
 
 export async function pgGuardianPortal(setTopbarFn) {
   const _tb = typeof setTopbarFn === 'function' ? setTopbarFn : setTopbar;
