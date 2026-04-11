@@ -220,6 +220,14 @@ export const api = {
     return apiFetchWithRetry(`/api/v1/review-queue${q ? '?' + q : ''}`);
   },
 
+  // ── Media queue ───────────────────────────────────────────────────────────
+  listMediaQueue: () => apiFetchWithRetry('/api/v1/media/review-queue'),
+
+  // ── Clinician notes ───────────────────────────────────────────────────────
+  createClinicianNote: (data) =>
+    apiFetch('/api/v1/media/clinician/note/text', { method: 'POST', body: JSON.stringify(data) }),
+  listClinicianNotes: (patientId) => apiFetch(`/api/v1/media/clinician/notes/${patientId}`),
+
   // ── Phenotype assignments ─────────────────────────────────────────────────
   assignPhenotype: (data) =>
     apiFetch('/api/v1/phenotype-assignments', { method: 'POST', body: JSON.stringify(data) }),
