@@ -156,7 +156,7 @@ window._showProtoVersions = function() {
       <div style="font-size:10.5px;color:var(--text-tertiary);margin-top:8px;text-align:center">Version history is session-only &mdash; persistence planned.</div>
     </div>
   `;
-  document.getElementById('content').appendChild(panel);
+  (document.getElementById('proto-version-panel-mount') || document.getElementById('content') || document.body).appendChild(panel);
 };
 
 window._viewProtoVersion = function(id) {
@@ -185,7 +185,7 @@ window._viewProtoVersion = function(id) {
       <pre style="background:var(--surface-1);border:1px solid var(--border);border-radius:10px;padding:20px;font-family:'DM Mono',monospace;font-size:.8rem;line-height:1.7;white-space:pre-wrap;margin:0">${esc(v.draft) || '(no draft text)'}</pre>
     </div>
   `;
-  document.getElementById('content').appendChild(overlay);
+  (document.getElementById('content') || document.body).appendChild(overlay);
 };
 
 window._toggleDiffMode = function() {
@@ -457,6 +457,15 @@ function renderUpcomingSessionsWidget(sessions) {
 export async function pgDash(setTopbar, navigate) {
   const role = currentUser?.role || 'clinician';
 
+  // Ensure openPatient is always callable, even if pgPatients hasn't been visited yet
+  if (!window.openPatient) {
+    window.openPatient = function(id) {
+      window._selectedPatientId = id;
+      window._profilePatientId  = id;
+      navigate('patient-profile');
+    };
+  }
+
   setTopbar('Dashboard',
     `<div style="display:flex;gap:6px;align-items:center">
       <button class="btn btn-primary btn-sm" onclick="window._nav('session-execution')">◧ Start Session</button>
@@ -471,8 +480,9 @@ export async function pgDash(setTopbar, navigate) {
   // ── Load all data in parallel ──────────────────────────────────────────────
   let allPatients = [], allCourses = [], pendingQueue = [], aes = [], outcomeSummary = null, allProtocols = [], allConsents = [];
   let allMediaItems = [];
+  let wearableAlertSummary = null;
   try {
-    const [ptsRes, coursesRes, queueRes, aeRes, outRes, protocolsRes, consentsRes, mediaQueueRes] = await Promise.all([
+    const [ptsRes, coursesRes, queueRes, aeRes, outRes, protocolsRes, consentsRes, mediaQueueRes, wearableAlertsRes] = await Promise.all([
       api.listPatients().catch(() => null),
       api.listCourses().catch(() => null),
       api.listReviewQueue({ status: 'pending' }).catch(() => null),
@@ -481,6 +491,7 @@ export async function pgDash(setTopbar, navigate) {
       api.protocols({ limit: 20 }).catch(() => null),
       api.listConsents().catch(() => null),
       api.listMediaQueue().catch(() => null),
+      api.getClinicAlertSummary().catch(() => null),
     ]);
     if (ptsRes)       allPatients    = ptsRes.items || [];
     if (coursesRes)   allCourses     = coursesRes.items || [];
@@ -490,6 +501,7 @@ export async function pgDash(setTopbar, navigate) {
     if (protocolsRes) allProtocols   = protocolsRes.items || [];
     if (consentsRes)  allConsents    = consentsRes.items || [];
     if (mediaQueueRes) allMediaItems = Array.isArray(mediaQueueRes) ? mediaQueueRes : (mediaQueueRes.items || []);
+    if (wearableAlertsRes) wearableAlertSummary = wearableAlertsRes;
   } catch {}
 
   const patCount = allPatients.length;
@@ -518,6 +530,8 @@ export async function pgDash(setTopbar, navigate) {
   const openAEs    = aes.filter(a => !a.resolved_at);
   const seriousAEs = aes.filter(a => (a.severity === 'serious' || a.severity === 'severe') && !a.resolved_at);
 
+  const wearableAlertCount  = wearableAlertSummary?.total_active || 0;
+  const wearableUrgentCount = wearableAlertSummary?.urgent_count || 0;
   const alertFlags      = Math.max(flaggedCourses.length + seriousAEs.length, atRiskCourses.length);
   const sessionsPerWeek = activeCourses.reduce((s, c) => s + (c.planned_sessions_per_week || 0), 0);
   const totalDelivered  = allCourses.reduce((s, c) => s + (c.sessions_delivered || 0), 0);
@@ -572,7 +586,7 @@ export async function pgDash(setTopbar, navigate) {
     <div style="border-left:3px solid var(--blue)">${_dStatCard('Active Courses', activeCourses.length, `${sessionsPerWeek} sessions/week planned`, 'var(--blue)', 'courses')}</div>
     <div style="border-left:3px solid var(--green)">${_dStatCard('Sessions Delivered', totalDelivered, `${completedCourses.length} courses completed`, 'var(--green)', 'courses')}</div>
     <div style="border-left:3px solid ${pendingQueue.length > 0 ? 'var(--amber)' : 'var(--border)'}">${_dStatCard('Pending Reviews', pendingQueue.length || 0, pendingQueue.length > 0 ? 'Action required' : 'Queue clear', pendingQueue.length > 0 ? 'var(--amber)' : 'var(--green)', 'review-queue', pendingQueue.length > 0)}</div>
-    <div style="border-left:3px solid ${alertFlags > 0 ? 'var(--red)' : 'var(--border)'}">${_dStatCard('Safety Flags', alertFlags || 0, alertFlags > 0 ? `${flaggedCourses.length} gov · ${seriousAEs.length} serious AE` : 'No active flags', alertFlags > 0 ? 'var(--red)' : 'var(--green)', 'adverse-events', alertFlags > 0)}</div>
+    <div style="border-left:3px solid ${(alertFlags > 0 || wearableUrgentCount > 0) ? 'var(--red)' : 'var(--border)'}">${_dStatCard('Safety Flags', (alertFlags || 0) + (wearableUrgentCount || 0), (() => { const parts = []; if (flaggedCourses.length) parts.push(flaggedCourses.length + ' gov'); if (seriousAEs.length) parts.push(seriousAEs.length + ' AE'); if (wearableUrgentCount) parts.push(wearableUrgentCount + ' wearable'); return parts.length ? parts.join(' · ') : 'No active flags'; })(), (alertFlags > 0 || wearableUrgentCount > 0) ? 'var(--red)' : 'var(--green)', 'adverse-events', alertFlags > 0 || wearableUrgentCount > 0)}</div>
     <div style="border-left:3px solid ${mediaQueueBorderColor}">${_dStatCard('Media Queue', mediaNeedsAttention.length, mediaQueueSub, mediaQueueColor, 'media-queue', mediaNeedsAttention.length > 0)}</div>
   </div>`;
 
@@ -584,6 +598,7 @@ export async function pgDash(setTopbar, navigate) {
     { icon: '◱', label: 'Review Queue',   sub: `${pendingQueue.length} pending`,   page: 'review-queue',      color: pendingQueue.length > 0 ? 'var(--amber)' : 'var(--text-secondary)' },
     { icon: '◫', label: 'Outcomes',       sub: `Responder rate: ${responderRate}`, page: 'outcomes',          color: 'var(--green)' },
     { icon: '⚡', label: 'Adverse Events', sub: `${openAEs.length} open`,          page: 'adverse-events',    color: openAEs.length > 0 ? 'var(--red)' : 'var(--text-secondary)' },
+    { icon: '◌', label: 'Wearable Alerts', sub: wearableAlertCount > 0 ? `${wearableAlertCount} active · ${wearableUrgentCount} urgent` : 'All clear', page: 'wearables', color: wearableUrgentCount > 0 ? 'var(--red)' : wearableAlertCount > 0 ? 'var(--amber)' : 'var(--text-secondary)' },
   ];
 
   const clinicQueueRows = [
@@ -5316,7 +5331,7 @@ async function _renderMessaging(patients) {
 window._msgSelectPatient = async function(patientId) {
   window._msgSelectedPatientId = patientId;
   let patients = [];
-  try { patients = await api.listPatients() || []; } catch {}
+  try { const _r = await api.listPatients(); patients = _r?.items || (Array.isArray(_r) ? _r : []); } catch {}
   await _renderMessaging(patients);
 };
 
@@ -5365,7 +5380,7 @@ window._applyTemplate = function(templateId) {
 
 window._showBulkMessage = async function() {
   let patients = [];
-  try { patients = await api.listPatients() || []; } catch {}
+  try { const _r = await api.listPatients(); patients = _r?.items || (Array.isArray(_r) ? _r : []); } catch {}
   const modal = document.createElement('div');
   modal.className = 'modal-overlay';
   modal.innerHTML = `<div class="modal-card" style="max-width:520px;width:100%">
@@ -5400,6 +5415,13 @@ window._sendBulkMessage = async function() {
     try { await api.sendPatientMessage(pid, msg); sent++; } catch {}
   }
   window._showNotifToast?.({ title: 'Bulk Message Sent', body: `Sent to ${sent}/${selected.length} patients`, severity: 'success' });
+};
+
+window._showTemplates = function() {
+  const sidebar = document.getElementById('msg-templates-sidebar');
+  if (sidebar) {
+    sidebar.style.display = sidebar.style.display === 'none' ? '' : 'none';
+  }
 };
 
 window._filterMsgPatients = function(query) {
@@ -6371,6 +6393,12 @@ function _ppRenderHeader(profile, editMode) {
         </div>
       </div>
       <div style="display:flex;flex-direction:column;gap:8px;align-items:flex-end;flex-shrink:0">
+        <!-- Primary clinical quick-actions — 1 click from patient profile -->
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          <button class="btn btn-primary btn-sm" onclick="window._nav('session-execution')" title="Log a treatment session for this patient">&#9711; Start Session</button>
+          <button class="btn btn-sm" onclick="window._ppAddNoteQuick('${profile.id}')" title="Add a quick clinical note">&#9998; Add Note</button>
+          <button class="btn btn-sm" onclick="window._nav('report-builder')" title="Generate a clinical report">&#128440; Report</button>
+        </div>
         <button class="btn btn-sm ${editMode ? 'btn-primary' : ''}" id="pp-edit-btn" onclick="window._profileToggleEdit()">
           ${editMode ? '&#10003; Editing' : '&#9998; Edit Profile'}
         </button>
@@ -6622,12 +6650,13 @@ function _ppBuildPage(profile, tab, editMode) {
 export async function pgPatientProfile(setTopbar) {
   _ppSeedProfiles();
 
-  const requestedId = window._profilePatientId || null;
+  const requestedId = window._profilePatientId || window._selectedPatientId || null;
   const profiles    = getPatientProfiles();
   const profile     = (requestedId ? getPatientProfile(requestedId) : null) || profiles[0];
 
   if (!profile) {
-    document.getElementById('content').innerHTML = `<div style="padding:48px;text-align:center;color:var(--text-tertiary)">No patient profile found.</div>`;
+    const _el = document.getElementById('content');
+    if (_el) _el.innerHTML = `<div style="padding:48px;text-align:center;color:var(--text-tertiary)">No patient profile found.</div>`;
     return;
   }
 
@@ -6848,6 +6877,23 @@ export async function pgPatientProfile(setTopbar) {
     p.flags = (p.flags || []).filter(f => f !== flag);
     savePatientProfile(p);
     _ppRerender();
+  };
+
+  // ── Quick "Add Note" action from profile header ──────────────────────────
+  window._ppAddNoteQuick = function(patientId) {
+    _ppCurrentTab = 'notes';
+    _ppEditMode   = true;
+    const p = getPatientProfile(patientId || _ppCurrentId);
+    if (!p) return;
+    document.getElementById('pp-tab-content').innerHTML = _ppRenderTab(p, 'notes', true);
+    document.querySelectorAll('[role="tab"]').forEach(btn => {
+      const isNotes = btn.textContent.trim() === 'Notes';
+      btn.style.borderBottomColor = isNotes ? 'var(--accent-teal)' : 'transparent';
+      btn.style.fontWeight        = isNotes ? '600' : '400';
+      btn.style.color             = isNotes ? 'var(--accent-teal)' : 'var(--text-secondary)';
+    });
+    document.getElementById('pp-notes-area')?.focus();
+    window._announce?.('Notes tab open — begin typing');
   };
 }
 
