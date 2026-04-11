@@ -3003,7 +3003,13 @@ function _recSimulateLine() {
 function _recUpdateTimer() {
   if (!_recStartTime) return;
   const el = document.getElementById('rec-elapsed');
-  if (el) el.textContent = _recFormatTime(Date.now() - _recStartTime);
+  if (!el) {
+    // Page has been navigated away — stop the interval to prevent leaks.
+    clearInterval(_recTimerInterval); _recTimerInterval = null;
+    clearInterval(window._recSimInterval); window._recSimInterval = null;
+    return;
+  }
+  el.textContent = _recFormatTime(Date.now() - _recStartTime);
 }
 
 function _recSetStatus(status) {
@@ -4189,28 +4195,38 @@ export async function pgInsuranceVerification(setTopbar) {
 
   // ── Eligibility handlers ───────────────────────────────────────────────────
   window._insCheckEligibility = async function() {
+    const btn = document.querySelector('[onclick="window._insCheckEligibility()"]');
+    if (btn && btn.disabled) return; // double-submit guard
+    if (btn) { btn.disabled = true; btn.textContent = 'Checking…'; }
     const name = document.getElementById('ins-chk-name')?.value.trim();
     const payer = document.getElementById('ins-chk-payer')?.value;
     const memberId = document.getElementById('ins-chk-memberid')?.value.trim();
     const groupId = document.getElementById('ins-chk-groupid')?.value.trim();
     const dob = document.getElementById('ins-chk-dob')?.value;
-    if (!name || !memberId) { alert('Patient name and Member ID are required.'); return; }
+    if (!name || !memberId) {
+      if (btn) { btn.disabled = false; btn.textContent = 'Check Eligibility'; }
+      alert('Patient name and Member ID are required.'); return;
+    }
     const resultEl = document.getElementById('ins-chk-result');
     if (resultEl) resultEl.innerHTML = `<div style="margin-top:12px;display:flex;align-items:center;gap:8px;color:var(--text-secondary)">
       <div style="width:18px;height:18px;border:2px solid var(--accent-teal);border-top-color:transparent;border-radius:50%;animation:spin .7s linear infinite;flex-shrink:0"></div>
       Checking eligibility with ${payer}…
     </div>`;
-    const r = await runEligibilityCheck(name, payer, memberId);
-    const check = {
-      id: 'elig-' + Date.now(), patientName: name, payer, memberId,
-      groupId: groupId || '', dob: dob || '',
-      checkedDate: new Date().toISOString().slice(0, 10), checkedBy: 'Current User',
-      status: r.status, deductible: r.deductible, deductibleMet: r.deductibleMet,
-      outOfPocketMax: r.outOfPocketMax, outOfPocketMet: r.outOfPocketMet,
-      copay: r.copay, coinsurance: r.coinsurance, coveredServices: r.coveredServices, notes: '',
-    };
-    saveEligibilityCheck(check);
-    if (resultEl) resultEl.innerHTML = _insEligResultHTML(r, name, payer, memberId);
+    try {
+      const r = await runEligibilityCheck(name, payer, memberId);
+      const check = {
+        id: 'elig-' + Date.now(), patientName: name, payer, memberId,
+        groupId: groupId || '', dob: dob || '',
+        checkedDate: new Date().toISOString().slice(0, 10), checkedBy: 'Current User',
+        status: r.status, deductible: r.deductible, deductibleMet: r.deductibleMet,
+        outOfPocketMax: r.outOfPocketMax, outOfPocketMet: r.outOfPocketMet,
+        copay: r.copay, coinsurance: r.coinsurance, coveredServices: r.coveredServices, notes: '',
+      };
+      saveEligibilityCheck(check);
+      if (resultEl) resultEl.innerHTML = _insEligResultHTML(r, name, payer, memberId);
+    } finally {
+      if (btn) { btn.disabled = false; btn.textContent = 'Check Eligibility'; }
+    }
   };
 
   window._insRerunCheck = function(id) {

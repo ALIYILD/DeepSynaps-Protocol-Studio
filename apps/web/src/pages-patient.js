@@ -3985,10 +3985,12 @@ export async function pgPatientMediaUpload() {
       if (ready) ready.style.display = 'none';
 
       _recordingTimer = setInterval(() => {
+        const timerLive = document.getElementById('pt-record-timer');
+        if (!timerLive) { clearInterval(_recordingTimer); _recordingTimer = null; return; }
         _recordingSeconds++;
         const m = Math.floor(_recordingSeconds / 60);
         const s = _recordingSeconds % 60;
-        if (timer) timer.textContent = `${m}:${String(s).padStart(2, '0')}`;
+        timerLive.textContent = `${m}:${String(s).padStart(2, '0')}`;
       }, 1000);
     } catch (_e) {
       const warnEl = document.getElementById('pt-upload-consent-warn');

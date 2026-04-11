@@ -2112,6 +2112,9 @@ export async function pgSessionExecution(setTopbar, navigate) {
     if (activeLabel) { activeLabel.style.display = 'flex'; }
 
     window._seTimerInterval = setInterval(function() {
+      if (!document.getElementById('se-timer-display')) {
+        clearInterval(window._seTimerInterval); window._seTimerInterval = null; return;
+      }
       window._seTimerRemaining--;
       const m = Math.floor(window._seTimerRemaining / 60);
       const s = window._seTimerRemaining % 60;

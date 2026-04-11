@@ -31,9 +31,12 @@ function pubTopbar() {
         </div>
       </div>
       <div class="pub-topbar-nav">
-        <button class="pub-nav-link" onclick="document.querySelector('.pub-modality-grid')?.scrollIntoView({behavior:'smooth',block:'start'})">${t('pub.nav.modalities')}</button>
-        <button class="pub-nav-link" onclick="document.querySelector('.pub-ev-section')?.scrollIntoView({behavior:'smooth',block:'start'})">${t('pub.nav.conditions')}</button>
-        <button class="pub-nav-link" onclick="document.querySelector('.pub-pricing-grid')?.scrollIntoView({behavior:'smooth',block:'start'})">${t('pub.nav.pricing')}</button>
+        <button class="pub-nav-link" onclick="(function(){const s=document.getElementById('public-shell');const e=s&&s.querySelector('.pub-modality-grid');if(s&&e)s.scrollTo({top:Math.max(0,e.getBoundingClientRect().top+s.scrollTop-80),behavior:'smooth'});})()">
+          ${t('pub.nav.modalities')}</button>
+        <button class="pub-nav-link" onclick="(function(){const s=document.getElementById('public-shell');const e=s&&s.querySelector('.pub-ev-section');if(s&&e)s.scrollTo({top:Math.max(0,e.getBoundingClientRect().top+s.scrollTop-80),behavior:'smooth'});})()">
+          ${t('pub.nav.conditions')}</button>
+        <button class="pub-nav-link" onclick="(function(){const s=document.getElementById('public-shell');const e=s&&s.querySelector('.pub-pricing-grid');if(s&&e)s.scrollTo({top:Math.max(0,e.getBoundingClientRect().top+s.scrollTop-80),behavior:'smooth'});})()">
+          ${t('pub.nav.pricing')}</button>
         <div style="width:1px;height:20px;background:var(--border);margin:0 6px"></div>
         <button class="pub-nav-link" onclick="window._navPublic('signup-patient')" title="Patient portal access">${t('pub.nav.patients')}</button>
         ${_pubLangMenu()}
@@ -618,7 +621,7 @@ export function pgHome() {
     <div class="pub-divider"></div>
 
     <!-- ─── Evidence Matrix ──────────────────────────────────────────────── -->
-    <section class="pub-section pub-ev-section">
+    <section id="evidence-matrix" class="pub-section pub-ev-section">
       <div style="text-align:center;margin-bottom:44px">
         <div class="pub-eyebrow">Evidence reference</div>
         <div class="pub-section-title" style="text-align:center;font-size:28px;margin-bottom:10px">
