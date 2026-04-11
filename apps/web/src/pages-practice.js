@@ -6912,32 +6912,84 @@ export async function pgHomeTaskManager(setTopbar) {
   function lsGet(k, def) { try { return JSON.parse(localStorage.getItem(k) || 'null') ?? def; } catch { return def; } }
   function lsSet(k, v)   { localStorage.setItem(k, JSON.stringify(v)); }
 
+  // ── Namespaced storage helpers ────────────────────────────────────────────
+  function _htmTaskKey(pid) {
+    return pid ? 'ds_clinician_tasks_' + pid : 'ds_clinician_tasks_all';
+  }
+
+  function _htmKnownPatients() {
+    return lsGet('ds_clinician_tasks_all_patients', ['pt-001', 'pt-002', 'pt-003']);
+  }
+
+  function _htmRegisterPatient(pid) {
+    const known = _htmKnownPatients();
+    if (!known.includes(pid)) {
+      known.push(pid);
+      lsSet('ds_clinician_tasks_all_patients', known);
+    }
+  }
+
+  function getAllPatientTasks() {
+    const knownPatients = _htmKnownPatients();
+    const allTasks = [];
+    knownPatients.forEach(pid => {
+      const tasks = lsGet(_htmTaskKey(pid), []);
+      allTasks.push(...tasks);
+    });
+    return allTasks;
+  }
+
   // ── Seed data ────────────────────────────────────────────────────────────
   function seedTasks() {
-    if (localStorage.getItem('ds_clinician_tasks')) return;
+    // Migration: if legacy global key exists and pt-001 namespaced key does not, migrate by patientId
+    if (!localStorage.getItem(_htmTaskKey('pt-001'))) {
+      const legacy = lsGet('ds_clinician_tasks', []);
+      if (legacy.length > 0) {
+        const byPatient = {};
+        legacy.forEach(t => {
+          const pid = t.patientId || 'pt-001';
+          byPatient[pid] = byPatient[pid] || [];
+          byPatient[pid].push(t);
+        });
+        Object.entries(byPatient).forEach(([pid, tasks]) => {
+          lsSet(_htmTaskKey(pid), tasks);
+          _htmRegisterPatient(pid);
+        });
+        return;
+      }
+    }
+    // Already seeded — skip if all three patient keys exist
+    if (localStorage.getItem(_htmTaskKey('pt-001')) &&
+        localStorage.getItem(_htmTaskKey('pt-002')) &&
+        localStorage.getItem(_htmTaskKey('pt-003'))) return;
+
     const today = new Date();
     function dStr(offset) {
       const d = new Date(today); d.setDate(d.getDate() + offset);
       return d.toISOString().slice(0, 10);
     }
-    const seed = [
-      // Alex — high compliance
+    const seedPt001 = [
       { id:'ht-001', patientId:'pt-001', patientName:'Alex Johnson',  title:'4-7-8 Breathing Exercise', category:'Breathing',  dueDate:dStr(0),  status:'complete',  recurrence:'Daily',   priority:'High',   instructions:'Inhale 4s, hold 7s, exhale 8s. Perform 3 rounds before sleep.' },
       { id:'ht-002', patientId:'pt-001', patientName:'Alex Johnson',  title:'Mood & Energy Journal',    category:'Journal',    dueDate:dStr(1),  status:'pending',   recurrence:'Daily',   priority:'Medium', instructions:'Log mood (1-10), energy (1-10), and one notable event each evening.' },
       { id:'ht-003', patientId:'pt-001', patientName:'Alex Johnson',  title:'30-min Outdoor Walk',      category:'Activity',   dueDate:dStr(-1), status:'complete',  recurrence:'3x/week', priority:'Medium', instructions:'Walk outdoors during daylight hours for 30 minutes at a comfortable pace.' },
       { id:'ht-004', patientId:'pt-001', patientName:'Alex Johnson',  title:'Sleep Hygiene Protocol',   category:'Sleep',      dueDate:dStr(2),  status:'pending',   recurrence:'Daily',   priority:'High',   instructions:'No screens 1 hour before bed. Consistent sleep/wake time within 30 minutes.' },
       { id:'ht-005', patientId:'pt-001', patientName:'Alex Johnson',  title:'Social Check-in',          category:'Social',     dueDate:dStr(-3), status:'complete',  recurrence:'Weekly',  priority:'Low',    instructions:'Reach out to one friend or family member for a meaningful conversation.' },
-      // Morgan — medium compliance
+    ];
+    const seedPt002 = [
       { id:'ht-006', patientId:'pt-002', patientName:'Morgan Lee',    title:'Progressive Muscle Relax', category:'Breathing',  dueDate:dStr(0),  status:'overdue',   recurrence:'Daily',   priority:'High',   instructions:'Tense and release each muscle group from feet to face over 15 minutes.' },
       { id:'ht-007', patientId:'pt-002', patientName:'Morgan Lee',    title:'Gratitude Journal',        category:'Journal',    dueDate:dStr(1),  status:'pending',   recurrence:'Daily',   priority:'Low',    instructions:'Write 3 things you are grateful for before sleeping.' },
       { id:'ht-008', patientId:'pt-002', patientName:'Morgan Lee',    title:'Outdoor Activity 20min',   category:'Activity',   dueDate:dStr(-2), status:'complete',  recurrence:'2x/week', priority:'Medium', instructions:'Any outdoor physical activity for at least 20 minutes.' },
       { id:'ht-009', patientId:'pt-002', patientName:'Morgan Lee',    title:'Screen-free Evening Hour', category:'Screen',     dueDate:dStr(-1), status:'overdue',   recurrence:'Daily',   priority:'Medium', instructions:'Avoid all screens (phone, TV, computer) for 1 hour before bedtime.' },
-      // Jordan — low compliance
+    ];
+    const seedPt003 = [
       { id:'ht-010', patientId:'pt-003', patientName:'Jordan Smith',  title:'Box Breathing',            category:'Breathing',  dueDate:dStr(-4), status:'overdue',   recurrence:'Daily',   priority:'High',   instructions:'Inhale 4s, hold 4s, exhale 4s, hold 4s. Repeat 5 times, 2x/day.' },
       { id:'ht-011', patientId:'pt-003', patientName:'Jordan Smith',  title:'Daily Step Goal 3k',       category:'Activity',   dueDate:dStr(-3), status:'overdue',   recurrence:'Daily',   priority:'Medium', instructions:'Aim for at least 3,000 steps per day. Use a phone pedometer.' },
       { id:'ht-012', patientId:'pt-003', patientName:'Jordan Smith',  title:'Sleep Diary',              category:'Sleep',      dueDate:dStr(0),  status:'pending',   recurrence:'Daily',   priority:'Medium', instructions:'Record bedtime, wake time, perceived sleep quality (1-5) each morning.' },
     ];
-    lsSet('ds_clinician_tasks', seed);
+    lsSet(_htmTaskKey('pt-001'), seedPt001);
+    lsSet(_htmTaskKey('pt-002'), seedPt002);
+    lsSet(_htmTaskKey('pt-003'), seedPt003);
+    lsSet('ds_clinician_tasks_all_patients', ['pt-001', 'pt-002', 'pt-003']);
   }
 
   seedTasks();
@@ -6950,8 +7002,13 @@ export async function pgHomeTaskManager(setTopbar) {
   let _modalPatient    = '';
 
   // ── Helpers ───────────────────────────────────────────────────────────────
-  function getTasks()   { return lsGet('ds_clinician_tasks', []); }
-  function saveTasks(t) { lsSet('ds_clinician_tasks', t); }
+  // getTasks() returns ALL tasks across all patients (for overview/compliance)
+  function getTasks() { return getAllPatientTasks(); }
+  // saveTasksForPatient() saves the full task list for a specific patient
+  function saveTasksForPatient(pid, tasks) {
+    lsSet(_htmTaskKey(pid), tasks);
+    _htmRegisterPatient(pid);
+  }
 
   const PATIENTS = [
     { id:'pt-001', name:'Alex Johnson'  },
@@ -7245,7 +7302,6 @@ export async function pgHomeTaskManager(setTopbar) {
     }
     const patient = PATIENTS.find(p => p.id === pid);
     const tmpl    = TASK_TEMPLATES.find(t => t.title === tmplName);
-    const tasks   = getTasks();
     const newTask = {
       id:          'ht-' + Date.now(),
       patientId:   pid,
@@ -7258,8 +7314,9 @@ export async function pgHomeTaskManager(setTopbar) {
       priority,
       instructions,
     };
-    tasks.push(newTask);
-    saveTasks(tasks);
+    const patientTasks = lsGet(_htmTaskKey(pid), []);
+    patientTasks.push(newTask);
+    saveTasksForPatient(pid, patientTasks);
     _modalOpen = false;
     render();
     window._showNotifToast?.({ title:'Task Assigned', body:`${tmplName} assigned to ${patient?.name}.`, severity:'success' });
@@ -7276,9 +7333,15 @@ export async function pgHomeTaskManager(setTopbar) {
   };
 
   window._htmRemoveTask = function(taskId) {
-    const tasks = getTasks();
-    const idx   = tasks.findIndex(t => t.id === taskId);
-    if (idx !== -1) { tasks[idx].status = 'removed'; saveTasks(tasks); }
+    // Find which patient owns this task, then update only that patient's key
+    const allTasks = getTasks();
+    const task = allTasks.find(t => t.id === taskId);
+    if (task) {
+      const pid = task.patientId;
+      const patientTasks = lsGet(_htmTaskKey(pid), []);
+      const idx = patientTasks.findIndex(t => t.id === taskId);
+      if (idx !== -1) { patientTasks[idx].status = 'removed'; saveTasksForPatient(pid, patientTasks); }
+    }
     render();
   };
 

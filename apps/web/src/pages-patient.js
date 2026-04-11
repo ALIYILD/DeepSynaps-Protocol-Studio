@@ -5384,8 +5384,16 @@ function assignHWPlan(planId, patientId, patientName) {
 // ── Patient Task Tracker (used inside pgHomeworkBuilder) ──────────────────────
 // ══════════════════════════════════════════════════════════════════════════════
 
-const _PTT_TASKS_KEY       = 'ds_homework_tasks';
-const _PTT_COMPLETIONS_KEY = 'ds_task_completions';
+const _PTT_TASKS_KEY_BASE       = 'ds_homework_tasks';
+const _PTT_COMPLETIONS_KEY_BASE = 'ds_task_completions';
+
+function _pttPatientKey() {
+  const u = typeof currentUser !== 'undefined' ? currentUser : null;
+  return u && (u.id || u.patient_id) ? (u.id || u.patient_id) : 'default';
+}
+
+function _pttTasksKey()       { return _PTT_TASKS_KEY_BASE + '_' + _pttPatientKey(); }
+function _pttCompletionsKey() { return _PTT_COMPLETIONS_KEY_BASE + '_' + _pttPatientKey(); }
 
 const _PTT_CAT_COLORS = {
   breathing: 'breathing', movement: 'movement', journaling: 'journaling',
@@ -5393,7 +5401,12 @@ const _PTT_CAT_COLORS = {
 };
 
 function _pttSeedTasks() {
-  const existing = localStorage.getItem(_PTT_TASKS_KEY);
+  const key = _pttTasksKey();
+  // Migration: if namespaced key is missing but legacy key exists, migrate once
+  if (!localStorage.getItem(key) && localStorage.getItem(_PTT_TASKS_KEY_BASE)) {
+    try { localStorage.setItem(key, localStorage.getItem(_PTT_TASKS_KEY_BASE)); } catch (_e) {}
+  }
+  const existing = localStorage.getItem(key);
   if (existing) { try { const a = JSON.parse(existing); if (a.length) return a; } catch (_e) {} }
   const today = new Date().toISOString().slice(0, 10);
   const tasks = [
@@ -5402,20 +5415,25 @@ function _pttSeedTasks() {
     { id: 'ptask3', title: '30-min outdoor activity', category: 'movement',    recurrence: 'weekly', dueDate: today, notes: 'Walk, jog, or any outdoor exercise' },
     { id: 'ptask4', title: 'Screen-free hour before bed', category: 'screen-free', recurrence: 'daily',  dueDate: today, notes: 'No phones, tablets, or TV for 1 hour before sleep' },
   ];
-  try { localStorage.setItem(_PTT_TASKS_KEY, JSON.stringify(tasks)); } catch (_e) {}
+  try { localStorage.setItem(key, JSON.stringify(tasks)); } catch (_e) {}
   return tasks;
 }
 
 function _pttGetTasks() { return _pttSeedTasks(); }
 
 function _pttGetCompletions() {
-  try { return JSON.parse(localStorage.getItem(_PTT_COMPLETIONS_KEY) || '{}'); } catch (_e) { return {}; }
+  const key = _pttCompletionsKey();
+  // Migration: if namespaced key is missing but legacy key exists, migrate once
+  if (!localStorage.getItem(key) && localStorage.getItem(_PTT_COMPLETIONS_KEY_BASE)) {
+    try { localStorage.setItem(key, localStorage.getItem(_PTT_COMPLETIONS_KEY_BASE)); } catch (_e) {}
+  }
+  try { return JSON.parse(localStorage.getItem(key) || '{}'); } catch (_e) { return {}; }
 }
 
 function _pttMarkComplete(taskId, date) {
   const c = _pttGetCompletions();
   c[taskId + '_' + date] = true;
-  try { localStorage.setItem(_PTT_COMPLETIONS_KEY, JSON.stringify(c)); } catch (_e) {}
+  try { localStorage.setItem(_pttCompletionsKey(), JSON.stringify(c)); } catch (_e) {}
 }
 
 function _pttIsComplete(taskId, date) {
@@ -5781,7 +5799,7 @@ export async function pgHomeworkBuilder(setTopbarFn) {
       notes: notesIn ? notesIn.value.trim() : '',
     };
     tasks.push(newTask);
-    try { localStorage.setItem(_PTT_TASKS_KEY, JSON.stringify(tasks)); } catch (_e) {}
+    try { localStorage.setItem(_pttTasksKey(), JSON.stringify(tasks)); } catch (_e) {}
     window._showNotifToast && window._showNotifToast({ title: 'Task added', body: newTask.title, severity: 'success' });
     // Re-render task sections
     const taskWrap = document.querySelector('.pthtask-page');
@@ -7569,6 +7587,69 @@ function _ptoSeed() {
 }
 function _ptoLoad() { return _ptoSeed(); }
 
+// ── Live API loader: tries backend first, falls back to seed ──────────────────
+async function _ptoLoadLive() {
+  try {
+    const resp = await api.patientPortalOutcomes().catch(() => null);
+    const items = Array.isArray(resp) ? resp : (resp && Array.isArray(resp.items) ? resp.items : null);
+    if (!items || !items.length) return _ptoSeed();
+
+    // Group by template_name
+    const groups = {};
+    items.forEach(function(item) {
+      const raw = (item.template_name || '').trim();
+      if (!raw) return;
+      if (!groups[raw]) groups[raw] = [];
+      groups[raw].push(item);
+    });
+
+    // Map template name to measure id/label/max/color
+    function _ptoTemplateMeta(name) {
+      const n = name.toLowerCase().replace(/[\s\-]/g, '');
+      if (n === 'phq9' || n === 'phq-9') return { id: 'phq9', label: 'PHQ-9', max: 27, color: 'teal' };
+      if (n === 'gad7' || n === 'gad-7') return { id: 'gad7', label: 'GAD-7', max: 21, color: 'blue' };
+      if (n === 'pcl5' || n === 'pcl-5') return { id: 'pcl5', label: 'PCL-5', max: 80, color: 'violet' };
+      // fallback: slugify
+      const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+      return { id: slug, label: name, max: 100, color: 'teal' };
+    }
+
+    const measures = Object.keys(groups).map(function(name) {
+      const meta = _ptoTemplateMeta(name);
+      const pts = groups[name]
+        .filter(function(it) { return it.score_numeric != null && !isNaN(Number(it.score_numeric)); })
+        .map(function(it) {
+          return {
+            date: (it.administered_at || it.recorded_at || new Date().toISOString()).slice(0, 10),
+            score: Number(it.score_numeric),
+            point: it.measurement_point || '',
+          };
+        });
+      pts.sort(function(a, b) { return a.date < b.date ? -1 : a.date > b.date ? 1 : 0; });
+      return { id: meta.id, label: meta.label, max: meta.max, color: meta.color, points: pts };
+    }).filter(function(m) { return m.points.length > 0; });
+
+    if (!measures.length) return _ptoSeed();
+
+    // Build patient info — prefer data from seed if available, overlay with API info
+    const seed = _ptoSeed();
+    const patientInfo = Object.assign({}, seed.patient);
+    if (items[0] && items[0].course_id) patientInfo.courseId = items[0].course_id;
+
+    const liveData = {
+      patient: patientInfo,
+      nextAssessmentDate: seed.nextAssessmentDate,
+      measures: measures,
+    };
+
+    // Cache to localStorage so _ptoLoad() picks it up too
+    try { localStorage.setItem(_PTO_SEED_KEY, JSON.stringify(liveData)); } catch (_e) {}
+    return liveData;
+  } catch (_e) {
+    return _ptoSeed();
+  }
+}
+
 // ── Main render ───────────────────────────────────────────────────────────────
 function _renderOutcomePortal() {
   const data = _outcomeGetData();
@@ -8017,6 +8098,11 @@ window._ptoSubmitAssessment = function () {
   addScore('pcl5', pcl5v);
   d.nextAssessmentDate = new Date(Date.now() + 14 * 86400000).toISOString().slice(0, 10);
   localStorage.setItem(_PTO_SEED_KEY, JSON.stringify(d));
+  // Also persist to API for cross-device and clinician visibility
+  const _apiNow = new Date().toISOString();
+  if (!isNaN(phq9v)) api.recordOutcome({ template_name: 'PHQ-9', score_numeric: phq9v, measurement_point: 'Self-report', administered_at: _apiNow }).catch(() => {});
+  if (!isNaN(gad7v)) api.recordOutcome({ template_name: 'GAD-7', score_numeric: gad7v, measurement_point: 'Self-report', administered_at: _apiNow }).catch(() => {});
+  if (!isNaN(pcl5v)) api.recordOutcome({ template_name: 'PCL-5', score_numeric: pcl5v, measurement_point: 'Self-report', administered_at: _apiNow }).catch(() => {});
   window._showNotifToast && window._showNotifToast({ title: 'Saved', body: 'Assessment scores recorded.', severity: 'success' });
   _renderOutcomePortal();
 };
@@ -8025,6 +8111,8 @@ window._ptoSubmitAssessment = function () {
 export async function pgPatientOutcomePortal(setTopbarFn) {
   const _tb = typeof setTopbarFn === 'function' ? setTopbarFn : setTopbar;
   _tb('My Outcomes', '<button style="display:inline-flex;align-items:center;gap:6px;background:rgba(96,165,250,0.12);color:var(--accent-blue,#60a5fa);border:1px solid rgba(96,165,250,0.25);border-radius:8px;padding:6px 14px;font-size:0.8rem;font-weight:600;cursor:pointer" onclick="window._outcomeDownloadReport()">&#8595; Download Report</button>');
+  // Fetch live API data first (updates localStorage cache), then render
+  await _ptoLoadLive().catch(() => null);
   _renderOutcomePortal();
 }
 

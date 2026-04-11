@@ -284,9 +284,177 @@ export function pgHome() {
   el.innerHTML = `
     ${pubTopbar()}
 
-    <!-- ─── Hero ─────────────────────────────────────────────────────────── -->
-    <section class="pub-hero">
-      <div class="pub-hero-badge">◈ &nbsp;Purpose-built for neuromodulation practice &nbsp;·&nbsp; Clinician-designed</div>
+    <!-- ─── COMMERCIAL HERO ───────────────────────────────────────────────── -->
+    <section class="phome-hero">
+      <div class="phome-hero-overline">Neuromodulation Clinic Software</div>
+      <h1 class="phome-hero-headline">Run your TMS &amp; neurofeedback clinic &mdash;<br>from first session to proven outcome</h1>
+      <p class="phome-hero-sub">Today&rsquo;s Queue. Quick Outcome Capture. Course Completion Reports. Built for TMS, Neurofeedback, and multi-modal practices.</p>
+      <div class="phome-hero-ctas">
+        <button class="phome-cta-primary" onclick="window._startDemoTour()">Start Demo Tour &rarr;</button>
+        <button class="phome-cta-secondary" onclick="window._nav('pricing')">View Pricing &rarr;</button>
+      </div>
+      <div class="phome-trust-strip">Used by neuromodulation clinics &nbsp;&middot;&nbsp; HIPAA-aligned &nbsp;&middot;&nbsp; Evidence-mapped protocols</div>
+    </section>
+
+    <!-- ─── 3 FEATURE CARDS ───────────────────────────────────────────────── -->
+    <section class="phome-features-section">
+      <div class="phome-features-eyebrow">Why clinics choose DeepSynaps</div>
+      <div class="phome-features-grid">
+
+        <div class="phome-feature-card">
+          <div class="phome-feature-icon">&#9335;</div>
+          <div class="phome-feature-title">Today&rsquo;s Queue</div>
+          <div class="phome-feature-desc">See every patient, session status, overdue assessment, and missed homework in one screen. Start sessions in one click.</div>
+          <ul class="phome-feature-bullets">
+            <li>Waiting &middot; In Session &middot; Done status at a glance</li>
+            <li>Protocol adherence alerts surfaced automatically</li>
+            <li>Walk-in patients added in seconds</li>
+          </ul>
+          <button class="phome-feature-link" onclick="window._nav('patient-queue')">Open Queue &rarr;</button>
+        </div>
+
+        <div class="phome-feature-card">
+          <div class="phome-feature-icon">&#9649;</div>
+          <div class="phome-feature-title">Outcome Proof. In 30 Seconds.</div>
+          <div class="phome-feature-desc">Record PHQ-9, GAD-7, MADRS, and 6 other validated scales during or after sessions. Auto-generate a printable treatment summary with trend charts, responder status, and SOAP notes.</div>
+          <ul class="phome-feature-bullets">
+            <li>9 validated outcome measures built in</li>
+            <li>Responder / Partial Responder / Non-Responder classification</li>
+            <li>Export PDF for insurance and EMR documentation</li>
+          </ul>
+          <button class="phome-feature-link" onclick="window._nav('outcomes')">View Outcome Reports &rarr;</button>
+        </div>
+
+        <div class="phome-feature-card">
+          <div class="phome-feature-icon">&#9671;</div>
+          <div class="phome-feature-title">Clinical Scoring Calculator</div>
+          <div class="phome-feature-desc">Compute PHQ-9, GAD-7, PCL-5, HAM-D, MADRS, MoCA, and more with live scoring, severity interpretation, and crisis flagging.</div>
+          <ul class="phome-feature-bullets">
+            <li>All 12 validated scales &mdash; full item entry</li>
+            <li>PHQ-9 item 9 crisis flag with 988 Lifeline prompt</li>
+            <li>Decision support &mdash; not autonomous diagnosis</li>
+          </ul>
+          <button class="phome-feature-link" onclick="window._nav('scoring-calc')">Open Calculator &rarr;</button>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- ─── POSITIONING STRIP ──────────────────────────────────────────────── -->
+    <div class="phome-proof-strip">
+      <div class="phome-proof-headline">Purpose-built for neuromodulation &mdash; not adapted from generic EHR software.</div>
+      <div class="phome-proof-points">
+        <div class="phome-proof-point">TMS + Neurofeedback + tDCS + 8 more modalities</div>
+        <div class="phome-proof-sep">|</div>
+        <div class="phome-proof-point">PHQ-9, GAD-7, PCL-5, HAM-D, MADRS &mdash; validated and scored</div>
+        <div class="phome-proof-sep">|</div>
+        <div class="phome-proof-point">Treatment courses, sessions, outcomes &mdash; all connected</div>
+      </div>
+    </div>
+
+    <!-- ─── EVIDENCE MATRIX (Section 4) ───────────────────────────────────── -->
+    <section id="evidence-matrix" class="pub-section pub-ev-section phome-ev-section">
+      <div class="phome-ev-header">
+        <div class="phome-ev-title">Evidence Base: What the research shows by modality</div>
+        <div class="phome-ev-subtitle">Sourced from peer-reviewed RCTs and meta-analyses. For reference &mdash; not a clinical recommendation.</div>
+      </div>
+      ${_buildEvMatrix()}
+    </section>
+
+    <!-- ─── PAGE FOOTER STRIP ─────────────────────────────────────────────── -->
+    <div class="phome-footer-strip">
+      <span class="phome-footer-copy">DeepSynaps Protocol Studio &nbsp;&middot;&nbsp; Questions? <a href="mailto:team@deepsynaps.com" class="phome-footer-link">team@deepsynaps.com</a></span>
+      <div class="phome-footer-actions">
+        <button class="phome-footer-btn" onclick="window._nav('login')">Sign In &rarr;</button>
+        <button class="phome-footer-btn" onclick="window._nav('pricing')">Pricing &rarr;</button>
+      </div>
+    </div>
+  `;
+
+  // ── FAQ accordion ──────────────────────────────────────────────────────────
+  window._faqToggle = function(i) {
+    const a    = document.getElementById(`faq-a-${i}`);
+    const chev = document.getElementById(`faq-chev-${i}`);
+    if (!a) return;
+    const open = a.style.display !== 'none';
+    a.style.display    = open ? 'none' : 'block';
+    chev.style.transform = open ? '' : 'rotate(180deg)';
+    chev.style.color     = open ? '' : 'var(--teal)';
+  };
+
+  // ── Demo Tour ─────────────────────────────────────────────────────────────
+  window._startDemoTour = function() {
+    window._seedDemoData?.();
+    window._demoTour = {
+      step: 0,
+      steps: [
+        { route: 'patient-queue',            label: 'Step 1 of 5', title: "Today\u2019s Queue",              desc: "See your clinic day at a glance. All patients, statuses, and alerts." },
+        { route: 'outcomes',                 label: 'Step 2 of 5', title: "Outcome Tracking",               desc: "Record PHQ-9/GAD-7/MADRS and review trends. Start from \u2018Record Outcome\u2019 in the top right." },
+        { route: 'course-completion-report', label: 'Step 3 of 5', title: "Course Completion Report",       desc: "Auto-generated treatment summary. Try \u2018Print Report\u2019 or \u2018Record Outcome\u2019 buttons." },
+        { route: 'scoring-calc',             label: 'Step 4 of 5', title: "Clinical Scoring Calculator",    desc: "Select PHQ-9 or GAD-7. Enter scores item-by-item. Watch severity update live." },
+        { route: 'homework-builder',         label: 'Step 5 of 5', title: "Patient Homework & Progress",    desc: "Tasks assigned here appear in the patient portal. Track compliance and streaks." },
+      ]
+    };
+    window._demoNextStep();
+  };
+
+  window._demoNextStep = function() {
+    const tour = window._demoTour;
+    if (!tour) return;
+    const step = tour.steps[tour.step];
+    if (!step) return;
+
+    // Set selectedCourseId before navigating to course-completion-report
+    if (step.route === 'course-completion-report') {
+      window._selectedCourseId = 'crs001';
+    }
+
+    window._nav(step.route);
+
+    const isLast = tour.step === tour.steps.length - 1;
+    const nextLabel = isLast ? 'Finish Tour' : 'Next &rarr;';
+    const nextAction = isLast ? 'window._demoEndTour()' : 'window._demoTour.step++;window._demoNextStep()';
+
+    const bannerHTML = `
+      <div class="demo-tour-inner">
+        <div class="demo-tour-meta">
+          <span class="demo-tour-label">${step.label}</span>
+          <span class="demo-tour-title">${step.title}</span>
+          <span class="demo-tour-desc">${step.desc}</span>
+        </div>
+        <div class="demo-tour-actions">
+          <button class="demo-tour-next" onclick="${nextAction}">${nextLabel}</button>
+          <button class="demo-tour-end" onclick="window._demoEndTour()">End Tour &#10005;</button>
+        </div>
+      </div>`;
+
+    let banner = document.getElementById('demo-tour-banner');
+    if (banner) {
+      banner.innerHTML = bannerHTML;
+    } else {
+      banner = document.createElement('div');
+      banner.id = 'demo-tour-banner';
+      banner.className = 'demo-tour-banner';
+      banner.innerHTML = bannerHTML;
+      document.body.appendChild(banner);
+    }
+  };
+
+  window._demoEndTour = function() {
+    const banner = document.getElementById('demo-tour-banner');
+    if (banner) banner.remove();
+    window._demoTour = null;
+    window._nav('dashboard');
+    if (typeof window._showNotifToast === 'function') {
+      window._showNotifToast({ title: 'Demo complete', body: 'Ready to explore on your own. Visit Pricing for plan options.', severity: 'success' });
+    }
+  };
+
+  // (old page content removed — replaced by phome-* commercial sections above)
+  void `REMOVED_OLD_HERO_START`; // placeholder to avoid parse issues
+  void `
+    <section class="pub-hero-REMOVED">
+      <div class="pub-hero-badge-REMOVED">REMOVED</div>
 
       <h1 class="pub-hero-title">
         One structured system<br>
@@ -1878,13 +2046,22 @@ export function pgSignupPatient() {
     if (!code || !name || !email || !pw) { err.textContent = 'All fields required.'; err.style.display = ''; return; }
     if (pw.length < 8) { err.textContent = 'Password must be at least 8 characters.'; err.style.display = ''; return; }
 
-    // Demo: accept any non-empty code
-    document.getElementById('pt-invite-form').style.display = 'none';
-    document.getElementById('pt-done').style.display = '';
-
-    api.setToken('patient-demo-token');
-    setCurrentUser({ email, display_name: name, role: 'patient', package_id: 'patient' });
-    setTimeout(() => { showPatient(); updatePatientBar(); window._bootPatient?.(); }, 1200);
+    try {
+      const res = await api.activatePatient(code, email, name, pw);
+      if (!res || !res.access_token) {
+        err.textContent = 'Activation failed. Please check your invite code and try again.';
+        err.style.display = '';
+        return;
+      }
+      api.setToken(res.access_token);
+      setCurrentUser(res.user || { email, display_name: name, role: 'patient', package_id: 'patient' });
+      document.getElementById('pt-invite-form').style.display = 'none';
+      document.getElementById('pt-done').style.display = '';
+      setTimeout(() => { showPatient(); updatePatientBar(); window._bootPatient?.(); }, 1200);
+    } catch (e) {
+      err.textContent = e.message || 'Activation failed. Please check your invite code and try again.';
+      err.style.display = '';
+    }
   };
 
   window._ptEmailSend = function() {
@@ -1894,7 +2071,8 @@ export function pgSignupPatient() {
     if (!email) { err.textContent = 'Email required.'; err.style.display = ''; return; }
     document.getElementById('pt-direct-form').innerHTML = `
       <div class="notice notice-ok">
-        If <strong>${email}</strong> is registered with a clinic, an activation link has been sent. Check your inbox.
+        To receive an activation link for <strong>${email}</strong>, please contact your clinic directly.
+        Your clinic administrator will send you an activation email.
       </div>
     `;
   };

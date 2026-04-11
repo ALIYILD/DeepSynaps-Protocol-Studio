@@ -9440,3 +9440,356 @@ body.light-theme .topbar--scrolled { box-shadow: 0 1px 8px rgba(0,0,0,0.1); }
   .scal-radio-row { flex-direction: column; }
   .scal-radio-opt { width: 100%; }
 }
+
+/* ── GAMMA Landing + Demo Tour ── */
+
+/* ── Hero ── */
+.phome-hero {
+  padding: 80px 48px 72px;
+  text-align: center;
+  background: linear-gradient(135deg, rgba(0,212,188,0.06) 0%, rgba(74,158,255,0.04) 100%);
+  border-bottom: 1px solid var(--border);
+}
+.phome-hero-overline {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  color: var(--teal);
+  background: rgba(0,212,188,0.08);
+  border: 1px solid rgba(0,212,188,0.2);
+  border-radius: 20px;
+  padding: 5px 14px;
+  margin-bottom: 24px;
+}
+.phome-hero-headline {
+  font-family: var(--font-display);
+  font-size: clamp(26px, 4vw, 42px);
+  font-weight: 800;
+  color: var(--text-primary);
+  line-height: 1.2;
+  letter-spacing: -0.5px;
+  margin-bottom: 18px;
+}
+.phome-hero-sub {
+  font-size: 16px;
+  color: var(--text-secondary);
+  max-width: 580px;
+  margin: 0 auto 32px;
+  line-height: 1.7;
+}
+.phome-hero-ctas {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  flex-wrap: wrap;
+  margin-bottom: 20px;
+}
+.phome-cta-primary {
+  background: var(--teal);
+  color: #050810;
+  font-family: var(--font-body);
+  font-size: 14px;
+  font-weight: 700;
+  padding: 13px 28px;
+  border: none;
+  border-radius: var(--radius-lg);
+  cursor: pointer;
+  transition: opacity 0.15s, transform 0.1s;
+}
+.phome-cta-primary:hover { opacity: 0.88; transform: translateY(-1px); }
+.phome-cta-secondary {
+  background: transparent;
+  color: var(--blue);
+  font-family: var(--font-body);
+  font-size: 14px;
+  font-weight: 600;
+  padding: 12px 26px;
+  border: 1px solid var(--border-blue);
+  border-radius: var(--radius-lg);
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.phome-cta-secondary:hover { background: rgba(74,158,255,0.06); }
+.phome-trust-strip {
+  font-size: 11.5px;
+  color: var(--text-tertiary);
+  margin-top: 4px;
+  letter-spacing: 0.2px;
+}
+
+/* ── Feature cards ── */
+.phome-features-section {
+  padding: 64px 48px;
+}
+.phome-features-eyebrow {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--teal);
+  text-align: center;
+  margin-bottom: 36px;
+}
+.phome-features-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 20px;
+  max-width: 1100px;
+  margin: 0 auto;
+}
+.phome-feature-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl, 16px);
+  padding: 28px 24px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  transition: border-color 0.15s, background 0.15s;
+}
+.phome-feature-card:hover {
+  border-color: var(--border-teal);
+  background: var(--bg-card-hover);
+}
+.phome-feature-icon {
+  font-size: 26px;
+  color: var(--teal);
+  line-height: 1;
+}
+.phome-feature-title {
+  font-family: var(--font-display);
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--text-primary);
+  line-height: 1.3;
+}
+.phome-feature-desc {
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.65;
+}
+.phome-feature-bullets {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.phome-feature-bullets li {
+  font-size: 12px;
+  color: var(--text-secondary);
+  padding-left: 14px;
+  position: relative;
+}
+.phome-feature-bullets li::before {
+  content: '›';
+  position: absolute;
+  left: 0;
+  color: var(--teal);
+  font-weight: 700;
+}
+.phome-feature-link {
+  background: none;
+  border: none;
+  color: var(--teal);
+  font-family: var(--font-body);
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0;
+  margin-top: auto;
+  text-align: left;
+  transition: opacity 0.15s;
+}
+.phome-feature-link:hover { opacity: 0.75; }
+
+/* ── Positioning / proof strip ── */
+.phome-proof-strip {
+  background: var(--navy-950);
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  padding: 28px 48px;
+  text-align: center;
+}
+.phome-proof-headline {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 14px;
+  line-height: 1.5;
+}
+.phome-proof-points {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.phome-proof-point {
+  font-size: 12.5px;
+  color: var(--text-secondary);
+}
+.phome-proof-sep {
+  color: var(--border-hover);
+  font-size: 14px;
+  user-select: none;
+}
+
+/* ── Evidence matrix section header ── */
+.phome-ev-section {
+  padding-top: 64px !important;
+}
+.phome-ev-header {
+  text-align: center;
+  margin-bottom: 44px;
+}
+.phome-ev-title {
+  font-family: var(--font-display);
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-bottom: 10px;
+}
+.phome-ev-subtitle {
+  font-size: 13px;
+  color: var(--text-secondary);
+  max-width: 540px;
+  margin: 0 auto;
+  line-height: 1.65;
+}
+
+/* ── Page footer strip ── */
+.phome-footer-strip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 20px 48px;
+  border-top: 1px solid var(--border);
+  background: var(--navy-950);
+}
+.phome-footer-copy {
+  font-size: 12.5px;
+  color: var(--text-tertiary);
+}
+.phome-footer-link {
+  color: var(--teal);
+  text-decoration: none;
+}
+.phome-footer-link:hover { text-decoration: underline; }
+.phome-footer-actions {
+  display: flex;
+  gap: 10px;
+}
+.phome-footer-btn {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  font-family: var(--font-body);
+  font-size: 12px;
+  font-weight: 600;
+  padding: 7px 16px;
+  border-radius: var(--radius-md, 10px);
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s;
+}
+.phome-footer-btn:hover {
+  border-color: var(--border-hover);
+  color: var(--text-primary);
+}
+
+/* ── Demo Tour Banner ── */
+.demo-tour-banner {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 9800;
+  background: var(--navy-950);
+  border-top: 3px solid var(--teal);
+  box-shadow: 0 -4px 24px rgba(0,0,0,0.4);
+}
+.demo-tour-inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 14px 32px;
+  flex-wrap: wrap;
+}
+.demo-tour-meta {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  flex: 1;
+  min-width: 0;
+}
+.demo-tour-label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  color: var(--teal);
+  white-space: nowrap;
+}
+.demo-tour-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-primary);
+  white-space: nowrap;
+}
+.demo-tour-desc {
+  font-size: 12.5px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+.demo-tour-actions {
+  display: flex;
+  gap: 10px;
+  flex-shrink: 0;
+}
+.demo-tour-next {
+  background: var(--teal);
+  color: #050810;
+  font-family: var(--font-body);
+  font-size: 13px;
+  font-weight: 700;
+  padding: 9px 20px;
+  border: none;
+  border-radius: var(--radius-md, 10px);
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+.demo-tour-next:hover { opacity: 0.85; }
+.demo-tour-end {
+  background: transparent;
+  color: var(--text-tertiary);
+  font-family: var(--font-body);
+  font-size: 12px;
+  font-weight: 600;
+  padding: 8px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md, 10px);
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
+}
+.demo-tour-end:hover { color: var(--text-primary); border-color: var(--border-hover); }
+
+/* ── Responsive: landing page ── */
+@media (max-width: 900px) {
+  .phome-features-grid { grid-template-columns: 1fr; }
+  .phome-hero { padding: 56px 24px 52px; }
+  .phome-features-section { padding: 48px 20px; }
+  .phome-proof-strip { padding: 24px 20px; }
+  .phome-proof-points { flex-direction: column; gap: 8px; }
+  .phome-proof-sep { display: none; }
+  .phome-footer-strip { padding: 16px 20px; flex-direction: column; align-items: flex-start; }
+  .demo-tour-inner { padding: 12px 16px; }
+  .demo-tour-meta { gap: 8px; }
+  .demo-tour-title { white-space: normal; }
+}

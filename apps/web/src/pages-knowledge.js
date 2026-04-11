@@ -1311,43 +1311,152 @@ export async function pgPricing(setTopbar) {
     { id: 'enterprise', name: 'Enterprise', price: 'Custom', description: 'Unlimited seats, API access, full white-label', features: ['All Clinic Team features', 'Unlimited seats', 'API access', 'Full white-label', 'Dedicated support'] },
   ];
 
-  el.innerHTML = `
-  <div style="text-align:center;margin-bottom:32px">
-    <div style="font-family:var(--font-display);font-size:22px;font-weight:700;color:var(--text-primary);margin-bottom:8px">Plans & Pricing</div>
-    <div style="font-size:13px;color:var(--text-secondary)">Choose the plan that fits your practice.</div>
-  </div>
-  <div class="g3" style="margin-bottom:24px">
-    ${fallbackPackages.slice(0, 3).map((p, i) => `<div class="card" style="margin-bottom:0;${i === 2 ? 'border-color:var(--border-teal);background:linear-gradient(135deg,rgba(0,212,188,0.04),rgba(74,158,255,0.04))' : ''}">
-      <div class="card-body">
-        <div style="font-family:var(--font-display);font-size:15px;font-weight:700;color:var(--text-primary);margin-bottom:4px">${p.name || p.id}</div>
-        <div style="font-family:var(--font-display);font-size:24px;font-weight:700;color:var(--teal);margin-bottom:8px">${p.price || p.amount || '—'}</div>
-        <div style="font-size:12px;color:var(--text-secondary);margin-bottom:16px;line-height:1.55">${p.description || ''}</div>
-        <div style="margin-bottom:16px">
-          ${(p.features || []).map(f => `<div style="font-size:12px;color:var(--text-secondary);padding:4px 0;display:flex;gap:8px;align-items:center"><span style="color:var(--green)">✓</span>${f}</div>`).join('')}
+  let _pricingAnnual = false;
+
+  function _pricingHTML() {
+    const starterMo = _pricingAnnual ? '$249' : '$299';
+    const proMo     = _pricingAnnual ? '$499' : '$599';
+    const billingNote = _pricingAnnual
+      ? '<span style="font-size:11px;color:var(--teal);margin-left:6px">Annual — 20% off</span>'
+      : '<span style="font-size:11px;color:var(--text-secondary);margin-left:6px">Monthly</span>';
+
+    const plans = [
+      {
+        id: 'clinic-starter',
+        name: 'Clinic Starter',
+        price: starterMo + '/mo',
+        forLine: 'Single-clinician practices',
+        recommended: false,
+        features: [
+          'Today\'s Queue — manage the full patient day',
+          'Quick Outcome Capture — PHQ-9, GAD-7, MADRS, 9 validated scales',
+          'Course Completion Reports — printable, PDF-ready',
+          'Patient Portal — homework, progress, session log',
+          'Clinical Scoring Calculator — with crisis flagging',
+          '50 active courses',
+          'Email support',
+        ],
+        cta: 'Start Free Trial \u2192',
+        ctaPrimary: false,
+      },
+      {
+        id: 'clinic-pro',
+        name: 'Clinic Pro',
+        price: proMo + '/mo',
+        forLine: 'Multi-clinician practices (up to 5 seats)',
+        recommended: true,
+        features: [
+          'Everything in Clinic Starter',
+          'Wearable Biosensor Dashboard',
+          'Home Task Manager — assign and track between sessions',
+          'Protocol Adherence Alerts',
+          'Longitudinal Population Reports',
+          'Guardian & Caregiver Portal',
+          'Validated Forms Builder',
+          'Unlimited active courses',
+          'Priority support',
+        ],
+        cta: 'Start Free Trial \u2192',
+        ctaPrimary: true,
+      },
+      {
+        id: 'enterprise',
+        name: 'Enterprise',
+        price: 'Custom pricing',
+        forLine: 'Multi-site networks and research institutions',
+        recommended: false,
+        features: [
+          'Everything in Clinic Pro',
+          'Multi-site dashboard',
+          'API access for EHR integration',
+          'Research & IRB module',
+          'White-label options',
+          'Dedicated onboarding and training',
+          'SLA and compliance support',
+        ],
+        cta: 'Book a Demo \u2192',
+        ctaPrimary: false,
+      },
+    ];
+
+    const planCards = plans.map(p => {
+      const border = p.recommended ? 'border-color:var(--border-teal);' : '';
+      const bg     = p.recommended ? 'background:linear-gradient(135deg,rgba(0,212,188,0.05),rgba(74,158,255,0.05));' : '';
+      const badge  = p.recommended ? '<div style="display:inline-block;background:var(--teal);color:#0a1628;font-size:10px;font-weight:700;padding:2px 8px;border-radius:10px;margin-bottom:10px;letter-spacing:.04em">RECOMMENDED</div>' : '';
+      const feats  = p.features.map(f => `<div style="font-size:12px;color:var(--text-secondary);padding:4px 0;display:flex;gap:8px;align-items:flex-start"><span style="color:var(--green);flex-shrink:0;margin-top:1px">&#10003;</span><span>${f}</span></div>`).join('');
+      return `<div class="card pricing-card" style="margin-bottom:0;${border}${bg}">
+        <div class="card-body" style="display:flex;flex-direction:column;height:100%">
+          ${badge}
+          <div style="font-family:var(--font-display);font-size:15px;font-weight:700;color:var(--text-primary);margin-bottom:4px">${p.name}</div>
+          <div style="font-family:var(--font-display);font-size:26px;font-weight:700;color:var(--teal);margin-bottom:4px">${p.price}</div>
+          <div style="font-size:11.5px;color:var(--text-secondary);margin-bottom:14px;line-height:1.5">For: ${p.forLine}</div>
+          <div style="margin-bottom:20px;flex:1">${feats}</div>
+          <button class="btn${p.ctaPrimary ? ' btn-primary' : ''}" style="width:100%;font-weight:${p.ctaPrimary ? '700' : '400'}" onclick="window.subscribe('${p.id}')">${p.cta}</button>
         </div>
-        <button class="btn ${i === 2 ? 'btn-primary' : ''}" style="width:100%" onclick="window.subscribe('${p.id}')">
-          ${p.price === 'Free' ? 'Current Plan' : 'Subscribe →'}
-        </button>
+      </div>`;
+    }).join('');
+
+    const stats = [
+      { value: '30s', label: 'average outcome capture time' },
+      { value: '1 screen', label: 'to run the clinic day' },
+      { value: '9 validated scales', label: 'built in' },
+      { value: 'PHQ-9 crisis flagging', label: 'active' },
+    ];
+    const statBadges = stats.map(s => `<div style="text-align:center;padding:16px 12px">
+      <div style="font-family:var(--font-display);font-size:15px;font-weight:700;color:var(--teal)">${s.value}</div>
+      <div style="font-size:11.5px;color:var(--text-secondary);margin-top:3px">${s.label}</div>
+    </div>`).join('');
+
+    const faqs = [
+      { q: 'Can I try it before subscribing?', a: 'Yes \u2014 14-day free trial, no credit card required.' },
+      { q: 'Does it replace our EHR?', a: 'No \u2014 DeepSynaps is purpose-built for neuromodulation workflows. It complements your EHR rather than replacing it.' },
+      { q: 'Is outcome data secure?', a: 'Yes \u2014 all data is encrypted at rest and in transit. We support HIPAA-aligned deployment for US clinics.' },
+    ];
+    const faqItems = faqs.map((f, i) => `<div class="pricing-faq-item" style="border-bottom:1px solid var(--border);padding:12px 0">
+      <button style="width:100%;text-align:left;background:none;border:none;cursor:pointer;display:flex;justify-content:space-between;align-items:center;padding:0;color:var(--text-primary);font-size:13px;font-weight:600" onclick="window._pricingFaq(${i})">
+        <span>${f.q}</span><span id="pricing-faq-ico-${i}" style="color:var(--text-secondary);font-size:16px">+</span>
+      </button>
+      <div id="pricing-faq-ans-${i}" style="display:none;font-size:12.5px;color:var(--text-secondary);padding-top:8px;line-height:1.6">${f.a}</div>
+    </div>`).join('');
+
+    return `
+    <div style="text-align:center;margin-bottom:28px">
+      <div style="font-family:var(--font-display);font-size:23px;font-weight:700;color:var(--text-primary);margin-bottom:8px">The operating system for neuromodulation clinics</div>
+      <div style="font-size:13px;color:var(--text-secondary);margin-bottom:20px">Built for TMS, Neurofeedback, and multi-modal treatment programs.</div>
+      <div style="display:inline-flex;align-items:center;gap:8px;background:var(--surface-2,rgba(255,255,255,0.04));border:1px solid var(--border);border-radius:20px;padding:4px 6px">
+        <button id="pricing-toggle-mo" style="border:none;cursor:pointer;padding:5px 14px;border-radius:16px;font-size:12px;font-weight:600;background:${!_pricingAnnual ? 'var(--teal)' : 'transparent'};color:${!_pricingAnnual ? '#0a1628' : 'var(--text-secondary)'}" onclick="window._pricingToggleBilling(false)">Monthly</button>
+        <button id="pricing-toggle-yr" style="border:none;cursor:pointer;padding:5px 14px;border-radius:16px;font-size:12px;font-weight:600;background:${_pricingAnnual ? 'var(--teal)' : 'transparent'};color:${_pricingAnnual ? '#0a1628' : 'var(--text-secondary)'}" onclick="window._pricingToggleBilling(true)">Annual ${billingNote}</button>
       </div>
-    </div>`).join('')}
-  </div>
-  ${fallbackPackages.length > 3 ? `<div class="g2">
-    ${fallbackPackages.slice(3).map(p => `<div class="card" style="margin-bottom:0">
-      <div class="card-body" style="display:flex;align-items:center;gap:16px">
-        <div style="flex:1">
-          <div style="font-family:var(--font-display);font-size:14px;font-weight:600;color:var(--text-primary)">${p.name}</div>
-          <div style="font-size:11.5px;color:var(--text-secondary);margin-top:3px">${p.description}</div>
-        </div>
-        <div style="text-align:right">
-          <div style="font-family:var(--font-display);font-size:18px;font-weight:700;color:var(--teal)">${p.price}</div>
-          <button class="btn btn-sm btn-primary" style="margin-top:8px" onclick="window.subscribe('${p.id}')">Subscribe →</button>
-        </div>
+    </div>
+    <div class="g3" style="margin-bottom:28px">${planCards}</div>
+    <div class="card" style="margin-bottom:24px;padding:0">
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);border-top:none">${statBadges}</div>
+    </div>
+    <div class="card" style="margin-bottom:0">
+      <div class="card-body" style="padding-bottom:4px">
+        <div style="font-family:var(--font-display);font-size:13px;font-weight:700;color:var(--text-primary);margin-bottom:4px">Frequently Asked Questions</div>
+        ${faqItems}
       </div>
-    </div>`).join('')}
-  </div>` : ''}`;
+    </div>`;
+  }
+
+  el.innerHTML = _pricingHTML();
+
+  window._pricingToggleBilling = function(annual) {
+    _pricingAnnual = !!annual;
+    el.innerHTML = _pricingHTML();
+  };
+
+  window._pricingFaq = function(i) {
+    const ans = document.getElementById('pricing-faq-ans-' + i);
+    const ico = document.getElementById('pricing-faq-ico-' + i);
+    if (!ans) return;
+    const open = ans.style.display !== 'none';
+    ans.style.display = open ? 'none' : '';
+    if (ico) ico.textContent = open ? '+' : '\u2212';
+  };
 
   window.subscribe = async function(pkg) {
-    if (pkg === 'explorer') return;
     try {
       const res = await api.createCheckout(pkg);
       if (res?.checkout_url) window.location.href = res.checkout_url;
@@ -9971,12 +10080,12 @@ export async function pgClinicalScoringCalc(setTopbar) {
       severity: [
         { min:0,  max:4,  label:'Minimal Depression',         color:'#22c55e', interp:'Score suggests minimal depression. Monitor and repeat screening in 3\u20136 months. Watchful waiting is appropriate.' },
         { min:5,  max:9,  label:'Mild Depression',            color:'#84cc16', interp:'Score suggests mild depression. Watchful waiting, guided self-help, and psychoeducation are recommended.' },
-        { min:10, max:14, label:'Moderate Depression',        color:'var(--accent-amber)', interp:'Score suggests moderate depression. Consider initiating treatment with antidepressant and/or structured psychotherapy. TMS may be indicated if medication trials are inadequate.' },
-        { min:15, max:19, label:'Moderately Severe Depression',color:'#f97316', interp:'Score indicates moderately severe depression. Active treatment strongly recommended. TMS is evidence-based at this severity.' },
-        { min:20, max:27, label:'Severe Depression',          color:'#ef4444', interp:'Score indicates severe depression. Urgent active treatment required. Refer to psychiatry.' }
+        { min:10, max:14, label:'Moderate Depression',        color:'var(--accent-amber)', interp:'Scores in this range suggest moderate depression. Consider initiating treatment with antidepressant and/or structured psychotherapy. TMS may be considered when PHQ-9 \u226510 with inadequate medication response (clinician judgment required).' },
+        { min:15, max:19, label:'Moderately Severe Depression',color:'#f97316', interp:'Scores in this range indicate moderately severe depression. Active treatment is commonly indicated at this severity; clinician review recommended.' },
+        { min:20, max:27, label:'Severe Depression',          color:'#ef4444', interp:'Scores in this range indicate severe depression. Scores at this level indicate the need for urgent clinical assessment. Clinician judgment required regarding referral and treatment pathway.' }
       ],
       cutoffs:[{range:'0\u20134',label:'Minimal',action:'Watchful waiting'},{range:'5\u20139',label:'Mild',action:'Guided self-help'},{range:'10\u201314',label:'Moderate',action:'Treatment initiation'},{range:'15\u201319',label:'Moderately Severe',action:'Active treatment'},{range:'20\u201327',label:'Severe',action:'Urgent referral'}],
-      txRecs:{'TMS':'Indicated for PHQ-9 \u226510 with inadequate med response. Left DLPFC, 10 Hz.','Medication':'SSRIs first-line. SNRI or augmentation for partial response.','Psychotherapy':'CBT and IPT have strong RCT evidence.'}
+      txRecs:{'TMS':'TMS may be considered for PHQ-9 \u226510 with inadequate medication response. Left DLPFC, 10 Hz (clinician judgment required).','Medication':'SSRIs first-line. SNRI or augmentation for partial response.','Psychotherapy':'CBT and IPT have strong RCT evidence.'}
     },
     'GAD-7': {
       fullName: 'Generalized Anxiety Disorder-7',
@@ -10012,8 +10121,8 @@ export async function pgClinicalScoringCalc(setTopbar) {
       ],
       severity: [
         { min:0,  max:31, label:'Below PTSD Threshold', color:'#22c55e', interp:'Score below clinical threshold of 31\u201333. Monitor; consider further evaluation if clinical concern.' },
-        { min:32, max:49, label:'Probable PTSD',        color:'var(--accent-amber)', interp:'Score in probable PTSD range. CAPS-5 interview recommended to confirm diagnosis.' },
-        { min:50, max:80, label:'Severe PTSD',          color:'#ef4444', interp:'Score indicates severe PTSD. Trauma-focused CBT (CPT, PE) and TMS have evidence.' }
+        { min:32, max:49, label:'Probable PTSD',        color:'var(--accent-amber)', interp:'Scores in this range fall in the probable PTSD range (screening result only). CAPS-5 structured interview recommended for full clinical assessment.' },
+        { min:50, max:80, label:'Severe PTSD',          color:'#ef4444', interp:'Scores in this range indicate severe PTSD. Trauma-focused CBT (CPT, PE) and neuromodulation have published evidence; clinician assessment required to determine treatment pathway.' }
       ],
       cutoffs:[{range:'0\u201331',label:'Subclinical',action:'Monitor'},{range:'32\u201349',label:'Probable PTSD',action:'Full assessment'},{range:'50\u201380',label:'Severe PTSD',action:'Active trauma treatment'}],
       txRecs:{'TMS':'Right DLPFC inhibition or bilateral. 20\u201330 sessions.','Psychotherapy':'CPT and Prolonged Exposure first-line.','EMDR':'WHO-endorsed trauma processing.'}
@@ -10032,12 +10141,12 @@ export async function pgClinicalScoringCalc(setTopbar) {
       severity:[
         {min:0,max:7,label:'Normal / Remission',color:'#22c55e',interp:'Normal range or remission.'},
         {min:8,max:13,label:'Mild Depression',color:'#84cc16',interp:'Mild depressive symptoms. Monitor; consider initiating treatment.'},
-        {min:14,max:18,label:'Moderate Depression',color:'var(--accent-amber)',interp:'Moderate depression. Treatment indicated. TMS or pharmacotherapy.'},
-        {min:19,max:22,label:'Severe Depression',color:'#f97316',interp:'Severe depression. Intensify treatment.'},
-        {min:23,max:52,label:'Very Severe',color:'#ef4444',interp:'Very severe depression. Urgent psychiatric care.'}
+        {min:14,max:18,label:'Moderate Depression',color:'var(--accent-amber)',interp:'Scores in this range suggest moderate depression. Treatment initiation commonly considered; clinician assessment required.'},
+        {min:19,max:22,label:'Severe Depression',color:'#f97316',interp:'Scores in this range indicate severe depression. Clinician review of treatment intensity is warranted.'},
+        {min:23,max:52,label:'Very Severe',color:'#ef4444',interp:'Scores in this range indicate very severe depression. Scores at this level indicate the need for urgent clinical assessment.'}
       ],
       cutoffs:[{range:'0\u20137',label:'Normal',action:'Maintenance'},{range:'8\u201313',label:'Mild',action:'Monitor'},{range:'14\u201318',label:'Moderate',action:'Treatment'},{range:'19\u201322',label:'Severe',action:'Intensify'},{range:'23+',label:'Very Severe',action:'Urgent'}],
-      txRecs:{'TMS':'Left DLPFC, 10 Hz. Response: \u226550% HAM-D reduction.','ECT':'Consider for HAM-D \u226523 with insufficient prior treatment responses.'}
+      txRecs:{'TMS':'Left DLPFC, 10 Hz. Response criterion: \u226550% HAM-D reduction (reference values \u2014 clinician judgment required).','ECT':'HAM-D \u226523 with insufficient prior treatment responses is a commonly cited ECT consideration threshold (clinician judgment required).'}
     },
     'MADRS': {
       fullName: 'Montgomery\u2013\u00c5sberg Depression Rating Scale',
@@ -10052,10 +10161,10 @@ export async function pgClinicalScoringCalc(setTopbar) {
         {min:0,max:6,label:'Normal',color:'#22c55e',interp:'Normal range. No treatment indicated.'},
         {min:7,max:19,label:'Mild Depression',color:'#84cc16',interp:'Mild depression. Watchful waiting or self-management.'},
         {min:20,max:34,label:'Moderate Depression',color:'var(--accent-amber)',interp:'Moderate depression. Active treatment recommended. TMS or pharmacotherapy.'},
-        {min:35,max:60,label:'Severe Depression',color:'#ef4444',interp:'Severe depression. Urgent treatment. MADRS \u226530 typical TMS trial inclusion criterion.'}
+        {min:35,max:60,label:'Severe Depression',color:'#ef4444',interp:'Scores in this range indicate severe depression. Scores at this level indicate the need for urgent clinical assessment. Note: MADRS \u226530 is a commonly cited TMS trial inclusion threshold (clinician judgment required).'}
       ],
       cutoffs:[{range:'0\u20136',label:'Normal',action:'None'},{range:'7\u201319',label:'Mild',action:'Self-management'},{range:'20\u201334',label:'Moderate',action:'Active treatment'},{range:'35\u201360',label:'Severe',action:'Urgent referral'}],
-      txRecs:{'TMS':'Standard inclusion: MADRS \u226520. Response: \u226550% reduction. Remission: MADRS \u226410.'}
+      txRecs:{'TMS':'Standard TMS trial inclusion threshold: MADRS \u226520. Response criterion: \u226550% reduction. Remission criterion: MADRS \u226410. (Reference values \u2014 confirm with clinical assessment.)'}
     },
     'BDI-II': {
       fullName: 'Beck Depression Inventory-II',
@@ -10073,7 +10182,7 @@ export async function pgClinicalScoringCalc(setTopbar) {
         {min:0,max:13,label:'Minimal Depression',color:'#22c55e',interp:'Minimal depressive symptoms.'},
         {min:14,max:19,label:'Mild Depression',color:'#84cc16',interp:'Mild depression. Monitoring and self-help.'},
         {min:20,max:28,label:'Moderate Depression',color:'var(--accent-amber)',interp:'Moderate depression. Treatment initiation recommended.'},
-        {min:29,max:63,label:'Severe Depression',color:'#ef4444',interp:'Severe depression. Active treatment urgently recommended.'}
+        {min:29,max:63,label:'Severe Depression',color:'#ef4444',interp:'Scores in this range indicate severe depression. Scores at this level indicate the need for urgent clinical assessment.'}
       ],
       cutoffs:[{range:'0\u201313',label:'Minimal',action:'Monitor'},{range:'14\u201319',label:'Mild',action:'Self-help'},{range:'20\u201328',label:'Moderate',action:'Treatment'},{range:'29\u201363',label:'Severe',action:'Urgent'}],
       txRecs:{'TMS':'BDI-II \u226520 typical TMS trial eligibility. Response: \u226550% reduction.','CBT':'First-line with or without pharmacotherapy.'}
@@ -10095,7 +10204,7 @@ export async function pgClinicalScoringCalc(setTopbar) {
         {min:32,max:40,label:'Extreme OCD',color:'#ef4444',interp:'Extreme OCD. Intensive/residential treatment. Neuromodulation (TMS, DBS) for refractory.'}
       ],
       cutoffs:[{range:'0\u20137',label:'Subclinical',action:'Monitor'},{range:'8\u201315',label:'Mild',action:'ERP self-guided'},{range:'16\u201323',label:'Moderate',action:'ERP + SRI'},{range:'24\u201331',label:'Severe',action:'Intensive ERP'},{range:'32\u201340',label:'Extreme',action:'Residential/TMS'}],
-      txRecs:{'TMS':'Deep TMS (H7 coil) FDA-cleared for OCD.','ERP':'Gold standard first-line. Response: \u226535% Y-BOCS reduction.'}
+      txRecs:{'TMS':'Deep TMS (H7 coil) FDA-cleared for OCD (reference \u2014 clinician assessment required).','ERP':'ERP is widely considered a primary evidence-based approach. Response criterion: \u226535% Y-BOCS reduction.'}
     },
     'BPRS': {
       fullName: 'Brief Psychiatric Rating Scale',
@@ -10114,7 +10223,7 @@ export async function pgClinicalScoringCalc(setTopbar) {
         {min:24,max:40,label:'Normal',color:'#22c55e',interp:'Within normal limits.'},
         {min:41,max:70,label:'Borderline\u2013Mild',color:'#84cc16',interp:'Some symptoms present. Monitor closely.'},
         {min:71,max:108,label:'Moderate',color:'var(--accent-amber)',interp:'Moderate symptom burden. Active management.'},
-        {min:109,max:168,label:'Severe',color:'#ef4444',interp:'Severe psychiatric symptoms. Urgent care required.'}
+        {min:109,max:168,label:'Severe',color:'#ef4444',interp:'Scores in this range indicate severe psychiatric symptom burden. Scores at this level indicate the need for urgent clinical assessment.'}
       ],
       cutoffs:[{range:'24\u201340',label:'Normal',action:'Monitor'},{range:'41\u201370',label:'Mild',action:'Outpatient'},{range:'71\u2013108',label:'Moderate',action:'Active treatment'},{range:'109+',label:'Severe',action:'Urgent care'}],
       txRecs:{'Antipsychotics':'First-line for positive symptoms.','TMS':'Left DLPFC for negative symptoms in schizophrenia (research).'}
@@ -10129,7 +10238,7 @@ export async function pgClinicalScoringCalc(setTopbar) {
         {label:'Abstraction (0\u20132)',max:2},{label:'Delayed Recall (0\u20135)',max:5},{label:'Orientation (0\u20136)',max:6}
       ],
       severity:[
-        {min:0,max:17,label:'Moderate-Severe Impairment',color:'#ef4444',interp:'Significant cognitive impairment. Neuropsychological evaluation and neurology referral.'},
+        {min:0,max:17,label:'Moderate-Severe Impairment',color:'#ef4444',interp:'Scores in this range indicate significant cognitive impairment (score interpretation only \u2014 clinical assessment required). Neuropsychological evaluation and neurology referral may be warranted.'},
         {min:18,max:22,label:'Mild Impairment',color:'var(--accent-amber)',interp:'Mild cognitive impairment (MCI) range. Longitudinal monitoring and lifestyle interventions.'},
         {min:23,max:25,label:'Low Normal',color:'#84cc16',interp:'Low normal. Consider education adjustment (+1 if \u226412 years education). Retest in 12 months.'},
         {min:26,max:30,label:'Normal',color:'#22c55e',interp:'Within normal limits (\u226526). No significant cognitive impairment detected.'}
@@ -10168,7 +10277,7 @@ export async function pgClinicalScoringCalc(setTopbar) {
       severity:[
         {min:0,max:1,label:'Low Risk',color:'#22c55e',interp:'Low risk. Provide brief alcohol education.'},
         {min:2,max:2,label:'Possible AUD',color:'var(--accent-amber)',interp:'Score of 2 suggests possible alcohol use disorder. Brief intervention and further assessment.'},
-        {min:3,max:4,label:'Probable AUD / Dependence',color:'#ef4444',interp:'Score \u22653 highly suggestive of alcohol dependence. Formal assessment and specialist referral.'}
+        {min:3,max:4,label:'Probable AUD / Dependence',color:'#ef4444',interp:'Scores in this range are associated with probable alcohol dependence in validated research (screening result only). Formal clinical assessment and specialist referral recommended.'}
       ],
       cutoffs:[{range:'0\u20131',label:'Low risk',action:'Brief education'},{range:'2',label:'Possible AUD',action:'Brief intervention'},{range:'3\u20134',label:'Probable dependence',action:'Specialist referral'}],
       txRecs:{'Psychotherapy':'Motivational interviewing and CBT for AUD.','Medication':'Naltrexone, acamprosate, or disulfiram per guidelines.'}
@@ -10184,7 +10293,7 @@ export async function pgClinicalScoringCalc(setTopbar) {
       severity:[
         {min:0,max:2,label:'Low Risk',color:'#22c55e',interp:'Low-risk drinking. Provide education on safe limits.'},
         {min:3,max:4,label:'Hazardous / Harmful',color:'var(--accent-amber)',interp:'Hazardous/harmful drinking. Brief counselling recommended.'},
-        {min:5,max:12,label:'Probable AUD',color:'#ef4444',interp:'Probable alcohol use disorder. Full AUDIT and clinical assessment needed.'}
+        {min:5,max:12,label:'Probable AUD',color:'#ef4444',interp:'Scores in this range are associated with probable alcohol use disorder (screening result only). Full AUDIT and clinical assessment needed.'}
       ],
       cutoffs:[{range:'0\u20132',label:'Low risk',action:'Education'},{range:'3\u20134',label:'Hazardous',action:'Brief counselling'},{range:'5\u201312',label:'Probable AUD',action:'Full assessment'}],
       txRecs:{'Brief Intervention':'FRAMES model for hazardous drinkers.','Specialist':'Formal AUD treatment for AUDIT-C \u22655.'}
@@ -10352,11 +10461,11 @@ export async function pgClinicalScoringCalc(setTopbar) {
       return '<div class="scal-ref-tx"><strong>' + k + ':</strong> ' + scale.txRecs[k] + '</div>';
     }).join('');
     return '<div class="scal-ref-inner">'
-      + '<div class="scal-ref-section"><strong>ICD-10:</strong> ' + icd + '</div>'
+      + '<div class="scal-ref-section"><strong>Reference ICD-10 codes</strong> <span style="font-size:11px;color:var(--text-secondary)">(confirm with clinical assessment)</span>: ' + icd + '</div>'
       + '<div class="scal-ref-section"><strong>Scoring Cutoffs</strong>'
       + '<table class="scal-ref-table"><thead><tr><th>Range</th><th>Severity</th><th>Action</th></tr></thead><tbody>' + cutRows + '</tbody></table>'
       + '</div>'
-      + '<div class="scal-ref-section"><strong>Treatment Recommendations</strong>' + txRows + '</div>'
+      + '<div class="scal-ref-section"><strong>Clinical Reference &amp; Guidance</strong><div style="font-size:11px;color:var(--text-secondary);margin-bottom:8px">Reference information to support clinician judgment \u2014 not treatment prescriptions.</div>' + txRows + '</div>'
       + '</div>';
   }
 
@@ -10367,6 +10476,7 @@ export async function pgClinicalScoringCalc(setTopbar) {
 
     el.innerHTML = '<div class="scal-page">'
       + '<div class="scal-tab-row">' + tabs + '</div>'
+      + '<div style="border-left:3px solid #4a9eff;background:rgba(74,158,255,0.07);padding:7px 12px;margin:8px 0 12px;border-radius:0 4px 4px 0;font-size:11.5px;color:var(--text-secondary);line-height:1.5">Clinical decision support tool \u2014 scores assist clinician judgment and do not constitute diagnosis or treatment recommendations.</div>'
       + '<div class="scal-scale-name">' + (SCALES[_scalActive] ? SCALES[_scalActive].fullName : '') + '</div>'
       + '<div class="scal-body">'
       + '<div class="scal-main-col">'
