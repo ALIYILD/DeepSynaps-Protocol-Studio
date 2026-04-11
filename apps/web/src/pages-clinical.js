@@ -467,11 +467,7 @@ export async function pgDash(setTopbar, navigate) {
   }
 
   setTopbar('Dashboard',
-    `<div style="display:flex;gap:6px;align-items:center">
-      <button class="btn btn-primary btn-sm" onclick="window._nav('session-execution')">◧ Start Session</button>
-      <button class="btn btn-sm" onclick="window._nav('patients')">◉ Patients</button>
-      <button class="btn btn-sm" onclick="window._nav('protocol-wizard')">◎ New Course</button>
-    </div>`
+    `<button class="btn btn-primary btn-sm" onclick="window._nav('session-execution')" style="white-space:nowrap">◧ Start Session</button>`
   );
 
   const el = document.getElementById('content');
@@ -1063,7 +1059,33 @@ export async function pgDash(setTopbar, navigate) {
     </div>
   </div>`;
 
-  el.innerHTML = statBar + rowToday + rowA + rowB + rowC + rowEnrollment + rowMedia + rowRecommend + rowD;
+  // ── Get Started card (fresh install only) ──────────────────────────────────
+  const _isFirstRun = patCount === 0 && allCourses.length === 0 && !localStorage.getItem('ds_setup_dismissed');
+  const getStartedCard = _isFirstRun ? `
+<div data-setup-card style="background:linear-gradient(135deg,rgba(0,212,188,0.07),rgba(59,130,246,0.07));border:1px solid rgba(0,212,188,0.18);border-radius:12px;padding:20px 24px;margin-bottom:16px">
+  <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:16px">
+    <div>
+      <div style="font-size:14px;font-weight:700;color:var(--text-primary);margin-bottom:3px">Get started with DeepSynaps Studio</div>
+      <div style="font-size:12px;color:var(--text-secondary)">Complete these steps to set up your clinic workflow</div>
+    </div>
+    <button onclick="localStorage.setItem('ds_setup_dismissed','1');document.querySelector('[data-setup-card]')?.remove()"
+            style="background:none;border:none;cursor:pointer;color:var(--text-tertiary);font-size:18px;padding:0;line-height:1;margin-left:16px" aria-label="Dismiss">✕</button>
+  </div>
+  <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px">
+    ${[
+      { icon: '◉', title: 'Add First Patient', sub: 'Register a patient to get started', nav: 'patients', color: 'var(--blue)' },
+      { icon: '◎', title: 'Create Treatment Course', sub: 'Set up an evidence-based treatment plan', nav: 'protocol-wizard', color: 'var(--teal)' },
+      { icon: '◇', title: 'Browse Protocols', sub: 'Explore the evidence registry', nav: 'protocols-registry', color: 'var(--violet)' },
+      { icon: '⚙', title: 'Configure Clinic', sub: 'Settings, branding, team members', nav: 'settings', color: 'var(--text-secondary)' },
+    ].map(s => `<div onclick="window._nav('${s.nav}')" style="padding:14px;border:1px solid var(--border);border-radius:8px;background:var(--bg-card);cursor:pointer;transition:border-color 0.15s" onmouseover="this.style.borderColor='var(--teal)'" onmouseout="this.style.borderColor='var(--border)'">
+      <div style="font-size:20px;color:${s.color};margin-bottom:8px">${s.icon}</div>
+      <div style="font-size:12.5px;font-weight:600;color:var(--text-primary);margin-bottom:3px">${s.title}</div>
+      <div style="font-size:11px;color:var(--text-tertiary)">${s.sub}</div>
+    </div>`).join('')}
+  </div>
+</div>` : '';
+
+  el.innerHTML = getStartedCard + statBar + rowToday + rowA + rowB + rowC + rowEnrollment + rowMedia + rowRecommend + rowD;
 }
 
 // ── Enriched course row (dashboard clinic queue, includes patient name) ────
@@ -2764,12 +2786,16 @@ function bindConsentActions(pt) {
 
   // Keep legacy _signConsent in case it is referenced elsewhere
   window._signConsent = async function(id) {
+    const btn = document.querySelector(`[onclick="window._signConsent('${id}')"]`);
+    if (btn && btn.disabled) return;
+    if (btn) { btn.disabled = true; btn.textContent = 'Signing…'; }
     try {
       await api.updateConsent(id, { signed: true });
       const consents = await api.listConsents({ patient_id: pt.id }).then(r => r?.items || []).catch(() => []);
       document.getElementById('ptab-body').innerHTML = renderConsentTab(pt, consents);
       bindConsentActions(pt);
     } catch (e) {
+      if (btn) { btn.disabled = false; btn.textContent = 'Sign'; }
       const t = document.createElement('div'); t.className = 'notice notice-error'; t.style.cssText = 'position:fixed;top:16px;right:16px;z-index:9999;max-width:360px'; t.textContent = e.message || 'Sign failed.'; document.body.appendChild(t); setTimeout(() => t.remove(), 4000);
     }
   };
@@ -7888,7 +7914,7 @@ function _bmBellCurveSVG(patientZ) {
   const clampedZ = Math.max(-3, Math.min(3, patientZ));
   const mx = xScale(clampedZ).toFixed(1);
   const zSign = patientZ >= 0 ? '+' : '';
-  return `<svg width="${W}" height="${H}" style="overflow:visible">
+  return `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" style="overflow:visible;width:100%;max-width:${W}px;height:auto">
     <polyline points="${pts.join(' ')}" fill="none" stroke="var(--accent-teal)" stroke-width="2.5" stroke-linejoin="round"/>
     <line x1="${mx}" y1="${(pad - 6)}" x2="${mx}" y2="${(H - pad + 4)}" stroke="#ef4444" stroke-width="2" stroke-dasharray="4 2"/>
     <circle cx="${mx}" cy="${yScale(gauss(clampedZ) / maxG).toFixed(1)}" r="4" fill="#ef4444"/>
@@ -9701,7 +9727,8 @@ export async function pgClinicianDictation(setTopbar) {
         _startTime = Date.now();
         _timerInterval = setInterval(() => {
           const t = document.getElementById('dict-timer');
-          if (t) t.textContent = _fmtTime(Date.now() - _startTime);
+          if (!t) { clearInterval(_timerInterval); _timerInterval = null; return; }
+          t.textContent = _fmtTime(Date.now() - _startTime);
         }, 500);
         const btn = document.getElementById('dict-record-btn');
         if (btn) { btn.style.color = '#fff'; btn.style.borderColor = 'var(--red)'; btn.style.background = 'var(--red)'; btn.innerHTML = '&#x25A0;'; }

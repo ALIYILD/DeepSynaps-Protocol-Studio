@@ -154,6 +154,9 @@ function _setPtab(v)    { _modClinical?.setPtab(v); }
 // ── Notification store ────────────────────────────────────────────────────────
 const _notifs = [];  // { id, type, title, body, link, ts, read }
 let _notifCount = 0;
+// Deduplication set — stores SSE event IDs seen in this session to prevent
+// duplicate toasts/badge increments after reconnects that replay events.
+const _seenNotifIds = new Set();
 
 const _API_BASE = (import.meta.env && import.meta.env.VITE_API_BASE_URL) || 'http://127.0.0.1:8000';
 
@@ -491,7 +494,7 @@ function renderNav() {
 
     html.push(`<div class="nav-item ${currentPage === n.id ? 'active' : ''}" onclick="window._nav('${n.id}')" role="menuitem" tabindex="0" aria-current="${currentPage === n.id ? 'page' : 'false'}">
       <span class="nav-icon" aria-hidden="true">${n.icon}</span>
-      <span style="flex:1">${t('nav.' + n.id) || n.label}</span>${badge}
+      <span style="flex:1">${(()=>{ const _k='nav.'+n.id,_v=t(_k); return (_v&&_v!==_k)?_v:n.label; })()}</span>${badge}
     </div>`);
   });
 
@@ -1136,6 +1139,18 @@ function startPresenceHeartbeat() {
 function _handleNotification(event) {
   const { type, data = {}, ts } = event;
 
+  // Deduplicate: if the backend attaches a stable event_id, skip replayed events.
+  const evtId = event.event_id || event.id;
+  if (evtId) {
+    if (_seenNotifIds.has(evtId)) return;
+    _seenNotifIds.add(evtId);
+    // Keep the set bounded to the last 500 IDs so it doesn't grow unbounded.
+    if (_seenNotifIds.size > 500) {
+      const first = _seenNotifIds.values().next().value;
+      _seenNotifIds.delete(first);
+    }
+  }
+
   // ── Presence update (no toast — just update UI) ───────────────────────────
   if (type === 'presence_update') {
     renderPresence(data.users || []);
@@ -1544,10 +1559,7 @@ const _origNavigate = window._nav;
 
 // ── Boot after login ──────────────────────────────────────────────────────────
 async function bootApp() {
-  // First-time onboarding: route non-patient users who haven't completed onboarding
-  if (!localStorage.getItem('ds_onboarding_done') && currentUser && currentUser.role !== 'patient') {
-    currentPage = 'onboarding';
-  } else if (currentPage === 'dashboard') {
+  if (currentPage === 'dashboard') {
     // Role-based entry: redirect technician → session-execution, reviewer → review-queue, etc.
     const role  = currentUser?.role || 'clinician';
     const entry = ROLE_ENTRY_PAGE[role];
@@ -1562,15 +1574,6 @@ async function bootApp() {
   _injectDemoBanner();
 
   await renderPage();
-
-  // ── First-run onboarding overlay check ────────────────────────────────────
-  if (!localStorage.getItem('ds_onboarding_complete') && !localStorage.getItem('ds_onboarding_skip')) {
-    loadOnboarding().then(() => {
-      if (typeof window._startOnboarding === 'function') {
-        window._startOnboarding();
-      }
-    }).catch(() => {});
-  }
 
   // ── Feature tooltips (initialise after page renders) ──────────────────────
   _initFeatureTooltips();
