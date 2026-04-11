@@ -8608,3 +8608,505 @@ export async function pgTrialEnrollment(setTopbar) {
   // ── Initial render ────────────────────────────────────────────────────────
   render();
 }
+
+// ── IRB Protocol Manager ──────────────────────────────────────────────────────
+export async function pgIRBManager(setTopbar) {
+  setTopbar('IRB Manager', '');
+  const el = document.getElementById('content');
+
+  const IRB_STUDIES_SEED = [
+    { id:'irb1', studyId:'DS-2024-001', title:'Theta Burst TMS for Treatment-Resistant Depression: A Pilot RCT', board:'Western IRB', pi:'Dr. Sarah Kim', approved:'2024-03-15', expiry:'2026-03-15', status:'active', enrolled:18, target:24, phase:'Phase II', description:'This pilot RCT evaluates the efficacy and safety of theta burst stimulation as an accelerated TMS protocol for patients with treatment-resistant MDD who have failed at least two antidepressant trials. Uses iTBS active arm versus sham control, HDRS-17 as primary outcome.', inclusion:['Age 22-65','DSM-5 MDD diagnosis','PHQ-9 >= 15','Failed >= 2 antidepressant trials','Stable medications >= 4 weeks'], exclusion:['Active suicidal ideation with plan','Seizure history','Implanted metal/devices','Current ECT','Pregnancy'], procedures:['iTBS protocol (600 pulses/session, 10 sessions over 5 days)','Sham TMS control arm','HDRS-17 at baseline/week2/week4','PHQ-9 weekly','Neuropsychological battery at baseline and week 4'], amendments:[{date:'2024-06-10',type:'Protocol Change',description:'Added MRI sub-study at week 4',status:'Approved'},{date:'2025-01-20',type:'Consent Update',description:'Updated consent for MRI sub-study',status:'Approved'}], contact:'sarah.kim@deepsynaps.clinic | 555-0101' },
+    { id:'irb2', studyId:'DS-2024-003', title:'Neurofeedback vs Stimulant Medication for Adult ADHD: Comparative Effectiveness', board:'University Hospital IRB', pi:'Dr. James Osei', approved:'2024-08-01', expiry:'2026-04-30', status:'pending_renewal', enrolled:31, target:40, phase:'Phase III', description:'A comparative effectiveness study examining 20-session theta/beta neurofeedback training versus optimized stimulant medication management in adults with ADHD-combined presentation. Primary outcomes include CAARS scores and QbTest at 12 weeks.', inclusion:['Age 18-55','DSM-5 ADHD-combined presentation','CAARS-S:SV T-score >= 65','No current medication or willing to washout 2 weeks'], exclusion:['Comorbid bipolar I or psychosis','Active substance use disorder','Prior neurofeedback (>5 sessions)','Unstable medical conditions'], procedures:['QbTest at baseline/6wk/12wk','CAARS-S:SV weekly','20 sessions neurofeedback or stimulant titration','BRIEF-A cognitive battery'], amendments:[{date:'2024-11-05',type:'Personnel Change',description:'Added co-investigator Dr. Lin Chen',status:'Approved'},{date:'2025-03-12',type:'Protocol Change',description:'Extended follow-up from 12 to 24 weeks for responders',status:'Pending'}], contact:'james.osei@deepsynaps.clinic | 555-0202' },
+    { id:'irb3', studyId:'DS-2025-002', title:'tDCS Cognitive Enhancement in Post-COVID Brain Fog: Observational Study', board:'Western IRB', pi:'Dr. Ana Rivera', approved:'2025-01-10', expiry:'2027-01-10', status:'active', enrolled:9, target:30, phase:'Pilot', description:'An observational pilot study assessing feasibility and preliminary efficacy of tDCS targeting the left DLPFC in patients reporting cognitive symptoms persisting >= 3 months post-COVID-19 infection.', inclusion:['Age 21-60','PCR-confirmed COVID-19 >= 3 months prior','Self-reported cognitive symptoms','MoCA < 26','No other neurological diagnosis'], exclusion:['Active COVID infection','Skin conditions at electrode sites','History of epilepsy','TBI','Currently enrolled in other cognitive intervention study'], procedures:['10 sessions tDCS (2mA, 20min/session)','MoCA at baseline/5/10 sessions','CFQ fatigue questionnaire','PROMIS cognitive function scale','Optional EEG pre/post'], amendments:[{date:'2025-04-22',type:'Protocol Change',description:'Added optional EEG recording sub-study',status:'Approved'},{date:'2025-08-30',type:'Consent Update',description:'Revised compensation language per IRB guidance',status:'Approved'}], contact:'ana.rivera@deepsynaps.clinic | 555-0303' },
+  ];
+
+  const AE_SEED = [
+    { id:'ae1', studyId:'irb1', patientId:'PT-001', eventType:'Scalp Discomfort', severity:'mild', onsetDate:'2024-09-12', description:'Patient reported mild scalp tingling and warmth at electrode site during session 7. Resolved within 30 minutes.', causality:'probably', actionsTaken:'Session continued at reduced intensity. Patient monitored for 1 hour post-session.', status:'resolved', reportedToIRB:false },
+    { id:'ae2', studyId:'irb1', patientId:'PT-003', eventType:'Transient Headache', severity:'moderate', onsetDate:'2024-10-05', description:'Patient reported moderate headache (6/10 NRS) after session 10, lasting ~4 hours. Managed with OTC analgesics.', causality:'possibly', actionsTaken:'OTC analgesia provided. PI notified. Patient contacted next day, fully resolved.', status:'resolved', reportedToIRB:false },
+    { id:'ae3', studyId:'irb2', patientId:'PT-007', eventType:'Anxiety Exacerbation', severity:'moderate', onsetDate:'2025-01-18', description:'Patient reported increased anxiety and sleep disruption following week 3 of neurofeedback. GAD-7 score increased from 8 to 14.', causality:'possibly', actionsTaken:'Neurofeedback sessions temporarily suspended. Psychiatric consultation obtained.', status:'under_review', reportedToIRB:false },
+    { id:'ae4', studyId:'irb2', patientId:'PT-012', eventType:'Syncopal Episode', severity:'severe', onsetDate:'2025-02-10', description:'Patient experienced a brief syncopal episode (loss of consciousness ~30s) during session 12. EMS called, patient transported to ED. Cardiac workup negative.', causality:'unrelated', actionsTaken:'Emergency protocol activated. EMS called. IRB notified within 24 hours. Patient withdrawn per protocol.', status:'reported_to_irb', reportedToIRB:true },
+    { id:'ae5', studyId:'irb3', patientId:'PT-002', eventType:'Skin Irritation', severity:'mild', onsetDate:'2025-03-05', description:'Mild erythema at cathode electrode site. Resolved within 24 hours without intervention.', causality:'definitely', actionsTaken:'Electrode position adjusted for subsequent sessions. Skin barrier cream applied.', status:'resolved', reportedToIRB:false },
+    { id:'ae6', studyId:'irb3', patientId:'PT-005', eventType:'Unexpected Mood Elevation', severity:'unexpected', onsetDate:'2025-04-01', description:'Patient reported unexpected significant mood elevation and reduced sleep (3-4 hours) lasting 5 days following tDCS session 8. No prior bipolar history.', causality:'probably', actionsTaken:'Sessions suspended. Psychiatric evaluation obtained. PI notified. IRB notification in process.', status:'open', reportedToIRB:false },
+  ];
+
+  const CONSENT_SEED = [
+    { id:'rc1', patientId:'PT-001', studyId:'irb1', consentVersion:'v1.0', signedDate:'2024-09-01', capacityAssessment:'full', lar:'N/A', reconsentDue:'N/A', reconsentReason:'' },
+    { id:'rc2', patientId:'PT-007', studyId:'irb2', consentVersion:'v1.0', signedDate:'2024-10-15', capacityAssessment:'full', lar:'N/A', reconsentDue:'2025-05-01', reconsentReason:'Protocol amendment (24-week follow-up extension)' },
+    { id:'rc3', patientId:'PT-002', studyId:'irb3', consentVersion:'v1.1', signedDate:'2025-03-01', capacityAssessment:'assisted', lar:'James Wu (Spouse)', reconsentDue:'N/A', reconsentReason:'' },
+  ];
+
+  const DOCS_SEED = [
+    { id:'doc1',  studyId:'irb1', name:'IRB Approval Letter - DS-2024-001', version:'1.0', date:'2024-03-15', status:'current',    type:'irb_approval', preview:'WESTERN IRB\nApproval Notice\n\nStudy: DS-2024-001\nTitle: Theta Burst TMS for Treatment-Resistant Depression\nPI: Dr. Sarah Kim\nApproval Date: March 15, 2024\nExpiry: March 15, 2026\nRisk Category: Greater Than Minimal Risk\nApproval Conditions: Annual renewal required. All amendments must be submitted for review prior to implementation.' },
+    { id:'doc2',  studyId:'irb1', name:'Study Protocol v1.0 - DS-2024-001', version:'1.0', date:'2024-03-01', status:'superseded', type:'protocol',     preview:'PROTOCOL DOCUMENT\nDS-2024-001 v1.0\n\nTheta Burst TMS for Treatment-Resistant Depression: A Pilot RCT\n\n[Full protocol - 42 pages]' },
+    { id:'doc3',  studyId:'irb1', name:'Study Protocol v1.1 - DS-2024-001 (MRI sub-study)', version:'1.1', date:'2024-06-20', status:'current',    type:'protocol',     preview:'PROTOCOL DOCUMENT\nDS-2024-001 v1.1\n\nAmended to include optional MRI sub-study at week 4 endpoint.\n\n[Full protocol - 47 pages]' },
+    { id:'doc4',  studyId:'irb1', name:'Informed Consent Form v1.0', version:'1.0', date:'2024-03-01', status:'superseded', type:'consent_form', preview:'INFORMED CONSENT DOCUMENT\nDS-2024-001 Participant Consent v1.0\n\nYou are being asked to participate in a research study...\n\n[ICF - 8 pages]' },
+    { id:'doc5',  studyId:'irb1', name:'Informed Consent Form v1.1 (MRI addendum)', version:'1.1', date:'2024-07-01', status:'current',    type:'consent_form', preview:'INFORMED CONSENT DOCUMENT\nDS-2024-001 Participant Consent v1.1\n\nThis version includes the optional MRI sub-study addendum approved June 2024.\n\n[ICF - 10 pages]' },
+    { id:'doc6',  studyId:'irb1', name:'HIPAA Authorization Form', version:'1.0', date:'2024-03-01', status:'current',    type:'hipaa',        preview:'HIPAA AUTHORIZATION\nDS-2024-001\n\nAuthorization to Use and Disclose Protected Health Information for Research Purposes.' },
+    { id:'doc7',  studyId:'irb2', name:'IRB Approval Letter - DS-2024-003', version:'1.0', date:'2024-08-01', status:'current',    type:'irb_approval', preview:'UNIVERSITY HOSPITAL IRB\nApproval Notice\n\nStudy: DS-2024-003\nTitle: Neurofeedback vs Stimulant Medication for Adult ADHD\nPI: Dr. James Osei\nApproval Date: August 1, 2024\nExpiry: April 30, 2026 (RENEWAL REQUIRED)\nRisk Category: Greater Than Minimal Risk' },
+    { id:'doc8',  studyId:'irb2', name:'Amendment Approval - Personnel Change (Dr. Lin Chen)', version:'1.0', date:'2024-11-20', status:'current',    type:'amendment',    preview:'AMENDMENT APPROVAL\nDS-2024-003 Amendment 1\n\nPersonnel Change: Addition of Dr. Lin Chen as Co-Investigator\nApproved November 20, 2024\n\nNo changes to study procedures or risk level.' },
+    { id:'doc9',  studyId:'irb3', name:'IRB Approval Letter - DS-2025-002', version:'1.0', date:'2025-01-10', status:'current',    type:'irb_approval', preview:'WESTERN IRB\nApproval Notice\n\nStudy: DS-2025-002\nTitle: tDCS Cognitive Enhancement in Post-COVID Brain Fog\nPI: Dr. Ana Rivera\nApproval Date: January 10, 2025\nExpiry: January 10, 2027\nRisk Category: Greater Than Minimal Risk' },
+    { id:'doc10', studyId:'irb3', name:'Study Protocol v1.0 - DS-2025-002', version:'1.0', date:'2025-01-05', status:'superseded', type:'protocol',     preview:'PROTOCOL DOCUMENT\nDS-2025-002 v1.0\n\ntDCS Cognitive Enhancement in Post-COVID Brain Fog: Observational Study\n\n[Full protocol - 28 pages]' },
+    { id:'doc11', studyId:'irb3', name:'Study Protocol v1.1 - DS-2025-002 (EEG sub-study)', version:'1.1', date:'2025-05-01', status:'current',    type:'protocol',     preview:'PROTOCOL DOCUMENT\nDS-2025-002 v1.1\n\nAmended to include optional EEG recording sub-study.\n\n[Full protocol - 32 pages]' },
+    { id:'doc12', studyId:'irb3', name:'Informed Consent Form v1.2 (revised compensation)', version:'1.2', date:'2025-09-10', status:'current',    type:'consent_form', preview:'INFORMED CONSENT DOCUMENT\nDS-2025-002 Participant Consent v1.2\n\nRevised compensation language per Western IRB guidance (September 2025).\n\n[ICF - 9 pages]' },
+  ];
+
+  function lsGet(k, def) { try { return JSON.parse(localStorage.getItem(k)) ?? def; } catch { return def; } }
+  function lsSet(k, v) { localStorage.setItem(k, JSON.stringify(v)); }
+  function initData() {
+    if (!localStorage.getItem('ds_irb_studies'))           lsSet('ds_irb_studies',           IRB_STUDIES_SEED);
+    if (!localStorage.getItem('ds_irb_adverse_events'))    lsSet('ds_irb_adverse_events',    AE_SEED);
+    if (!localStorage.getItem('ds_irb_research_consents')) lsSet('ds_irb_research_consents', CONSENT_SEED);
+    if (!localStorage.getItem('ds_irb_documents'))         lsSet('ds_irb_documents',         DOCS_SEED);
+    if (!localStorage.getItem('ds_irb_drafts'))            lsSet('ds_irb_drafts',            []);
+  }
+  initData();
+  function getStudies()  { return lsGet('ds_irb_studies', IRB_STUDIES_SEED); }
+  function getAEs()      { return lsGet('ds_irb_adverse_events', AE_SEED); }
+  function getConsents() { return lsGet('ds_irb_research_consents', CONSENT_SEED); }
+  function getDocs()     { return lsGet('ds_irb_documents', DOCS_SEED); }
+  function getDrafts()   { return lsGet('ds_irb_drafts', []); }
+  function studyLabel(id) { const s = getStudies().find(x => x.id === id); return s ? s.studyId : id; }
+
+  let _activeTab     = 'active-studies';
+  let _expandedStudy = null;
+  let _wizardStep    = 1;
+  let _wizardDraft   = { info:{}, population:{}, arms:[{name:'',intervention:'',sessions:'',duration:'',frequency:''}], regulatory:{} };
+  let _docFilterStudy = '';
+  let _docFilterType  = '';
+
+  function toast(msg, ok) {
+    if (ok === undefined) ok = true;
+    const d = document.createElement('div');
+    d.style.cssText = 'position:fixed;bottom:24px;right:24px;z-index:9999;background:' + (ok ? 'var(--accent-teal)' : 'var(--accent-rose)') + ';color:#fff;padding:10px 18px;border-radius:8px;font-size:13px;font-weight:600;box-shadow:0 4px 16px rgba(0,0,0,.35);pointer-events:none;opacity:0;transition:opacity .2s';
+    d.textContent = msg;
+    document.body.appendChild(d);
+    requestAnimationFrame(function() { d.style.opacity = '1'; });
+    setTimeout(function() { d.style.opacity = '0'; setTimeout(function() { d.remove(); }, 250); }, 2800);
+  }
+
+  function statusBadge(status) {
+    var map = { active:{label:'Active',color:'var(--accent-teal)'}, pending_renewal:{label:'Pending Renewal',color:'var(--accent-amber)'}, closed:{label:'Closed',color:'var(--text-muted)'} };
+    var s = map[status] || {label:status,color:'var(--text-muted)'};
+    return '<span style="display:inline-block;padding:2px 10px;border-radius:12px;font-size:11px;font-weight:700;background:' + s.color + '22;color:' + s.color + ';border:1px solid ' + s.color + '55">' + s.label + '</span>';
+  }
+  function aeSeverityBadge(sev) {
+    var cls = {mild:'nnna-ae-mild',moderate:'nnna-ae-moderate',severe:'nnna-ae-severe',unexpected:'nnna-ae-unexpected'};
+    var lbl = {mild:'Mild',moderate:'Moderate',severe:'Severe',unexpected:'Unexpected'};
+    return '<span class="nnna-ae-severity ' + (cls[sev]||'') + '">' + (lbl[sev]||sev) + '</span>';
+  }
+  function aeStatusBadge(st) {
+    var map = {open:{label:'Open',color:'var(--accent-amber)'},under_review:{label:'Under Review',color:'var(--accent-blue)'},resolved:{label:'Resolved',color:'var(--accent-teal)'},reported_to_irb:{label:'Reported to IRB',color:'var(--accent-violet)'}};
+    var s = map[st] || {label:st,color:'var(--text-muted)'};
+    return '<span style="display:inline-block;padding:2px 9px;border-radius:10px;font-size:11px;font-weight:700;background:' + s.color + '22;color:' + s.color + ';border:1px solid ' + s.color + '44">' + s.label + '</span>';
+  }
+  function amendStatusBadge(st) {
+    var map = {Approved:'var(--accent-teal)',Pending:'var(--accent-amber)',Rejected:'var(--accent-rose)',Renewal:'var(--accent-blue)'};
+    var c = map[st] || 'var(--text-muted)';
+    return '<span style="display:inline-block;padding:2px 8px;border-radius:8px;font-size:11px;font-weight:600;background:' + c + '22;color:' + c + '">' + st + '</span>';
+  }
+  function docTypeBadge(type) {
+    var map = {irb_approval:{label:'IRB Approval',color:'var(--accent-teal)'},protocol:{label:'Protocol',color:'var(--accent-blue)'},consent_form:{label:'Consent',color:'var(--accent-violet)'},hipaa:{label:'HIPAA',color:'var(--accent-amber)'},amendment:{label:'Amendment',color:'var(--accent-rose)'}};
+    var s = map[type] || {label:type,color:'var(--text-muted)'};
+    return '<span style="display:inline-block;padding:2px 9px;border-radius:10px;font-size:11px;font-weight:700;background:' + s.color + '22;color:' + s.color + ';border:1px solid ' + s.color + '44">' + s.label + '</span>';
+  }
+  function docStatusBadge(st) {
+    var map = {current:'var(--accent-teal)',superseded:'var(--text-muted)',pending:'var(--accent-amber)'};
+    var c = map[st] || 'var(--text-muted)';
+    return '<span style="display:inline-block;padding:2px 9px;border-radius:10px;font-size:11px;font-weight:600;background:' + c + '22;color:' + c + ';border:1px solid ' + c + '44;text-transform:capitalize">' + st + '</span>';
+  }
+  function enrollBar(enrolled, target) {
+    var pct = Math.min(100, Math.round((enrolled / target) * 100));
+    var color = pct >= 90 ? 'var(--accent-teal)' : pct >= 60 ? 'var(--accent-blue)' : 'var(--accent-amber)';
+    return '<div class="nnna-enrollment-bar"><div class="nnna-enrollment-fill" style="width:' + pct + '%;background:' + color + '"></div><span class="nnna-enrollment-label">' + enrolled + '/' + target + ' (' + pct + '%)</span></div>';
+  }
+
+  function tabBar() {
+    var tabs = [{id:'active-studies',label:'Active Studies'},{id:'study-design',label:'Study Design Builder'},{id:'adverse-events',label:'Adverse Event Reporting'},{id:'consent-tracking',label:'Consent Tracking'},{id:'reg-documents',label:'Regulatory Documents'}];
+    return '<div style="display:flex;gap:0;border-bottom:2px solid var(--border);margin-bottom:22px;overflow-x:auto">' +
+      tabs.map(function(t) {
+        var active = _activeTab === t.id;
+        return '<button onclick="window._irbTab(\'' + t.id + '\')" style="padding:10px 18px;background:none;border:none;border-bottom:' + (active?'2px solid var(--accent-teal)':'2px solid transparent') + ';color:' + (active?'var(--accent-teal)':'var(--text-muted)') + ';font-size:13px;font-weight:' + (active?'700':'500') + ';cursor:pointer;white-space:nowrap;transition:color .15s;margin-bottom:-2px">' + t.label + '</button>';
+      }).join('') + '</div>';
+  }
+
+  function renderActiveStudies() {
+    var studies = getStudies();
+    return '<div><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:8px"><div><h2 style="margin:0;font-size:1.1rem;font-weight:800;color:var(--text)">IRB-Approved Studies</h2><div style="font-size:12px;color:var(--text-muted);margin-top:3px">' + studies.length + ' registered studies</div></div></div>' +
+      studies.map(renderStudyCard).join('') + '</div>';
+  }
+
+  function renderStudyCard(s) {
+    var expanded = _expandedStudy === s.id;
+    var accentColor = s.status === 'active' ? 'var(--accent-teal)' : s.status === 'pending_renewal' ? 'var(--accent-amber)' : 'var(--text-muted)';
+    var expiryColor = s.status === 'pending_renewal' ? 'var(--accent-amber)' : 'var(--text)';
+    var renewBtn = s.status === 'pending_renewal' ? '<button class="nnna-btn-sm nnna-btn-teal" onclick="window._irbRenewModal(\'' + s.id + '\')">Renew Approval</button>' : '';
+    var detailHtml = '';
+    if (expanded) {
+      var incLi = s.inclusion.map(function(c) { return '<li style="margin-bottom:3px">' + c + '</li>'; }).join('');
+      var excLi = s.exclusion.map(function(c) { return '<li style="margin-bottom:3px">' + c + '</li>'; }).join('');
+      var procLi = s.procedures.map(function(p) { return '<li style="margin-bottom:3px">' + p + '</li>'; }).join('');
+      var amendRows = s.amendments.map(function(a) {
+        return '<tr style="border-bottom:1px solid var(--border)"><td style="padding:7px 10px;font-size:12px;color:var(--text-muted)">' + a.date + '</td><td style="padding:7px 10px;font-size:12px">' + a.type + '</td><td style="padding:7px 10px;font-size:12px">' + a.description + '</td><td style="padding:7px 10px">' + amendStatusBadge(a.status) + '</td></tr>';
+      }).join('');
+      detailHtml = '<div style="margin-top:16px;padding-top:16px;border-top:1px solid var(--border)">' +
+        '<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:14px">' +
+        '<div><div style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.6px;margin-bottom:6px">Study Description</div><div style="font-size:12.5px;color:var(--text);line-height:1.6">' + s.description + '</div></div>' +
+        '<div><div style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.6px;margin-bottom:6px">Contact</div><div style="font-size:12.5px;color:var(--text);margin-bottom:12px">' + s.contact + '</div>' +
+        '<div style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.6px;margin-bottom:6px">Approved Procedures</div><ul style="margin:0;padding-left:16px;font-size:12px;color:var(--text)">' + procLi + '</ul></div></div>' +
+        '<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:14px">' +
+        '<div><div style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.6px;margin-bottom:6px">Inclusion Criteria</div><ul style="margin:0;padding-left:16px;font-size:12px;color:var(--text)">' + incLi + '</ul></div>' +
+        '<div><div style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.6px;margin-bottom:6px">Exclusion Criteria</div><ul style="margin:0;padding-left:16px;font-size:12px;color:var(--text)">' + excLi + '</ul></div></div>' +
+        '<div><div style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.6px;margin-bottom:8px">Amendment History</div>' +
+        '<table style="width:100%;border-collapse:collapse;font-size:12px"><thead><tr style="border-bottom:1px solid var(--border)"><th style="padding:6px 10px;text-align:left;font-size:11px;color:var(--text-muted)">Date</th><th style="padding:6px 10px;text-align:left;font-size:11px;color:var(--text-muted)">Type</th><th style="padding:6px 10px;text-align:left;font-size:11px;color:var(--text-muted)">Description</th><th style="padding:6px 10px;text-align:left;font-size:11px;color:var(--text-muted)">Status</th></tr></thead><tbody>' + amendRows + '</tbody></table></div></div>';
+    }
+    return '<div class="nnna-study-card" style="border-left:4px solid ' + accentColor + '">' +
+      '<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap">' +
+      '<div style="flex:1;min-width:250px"><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:4px"><span style="font-size:11px;font-weight:700;color:var(--accent-teal);letter-spacing:.5px">' + s.studyId + '</span><span style="font-size:10px;background:var(--hover-bg);color:var(--text-muted);padding:1px 7px;border-radius:8px">' + s.phase + '</span>' + statusBadge(s.status) + '</div><h3 style="margin:0 0 6px;font-size:14px;font-weight:700;color:var(--text);line-height:1.4">' + s.title + '</h3><div style="font-size:12px;color:var(--text-muted);display:flex;flex-wrap:wrap;gap:12px"><span>PI: <strong style="color:var(--text)">' + s.pi + '</strong></span><span>Board: <strong style="color:var(--text)">' + s.board + '</strong></span><span>Approved: <strong style="color:var(--text)">' + s.approved + '</strong></span><span>Expires: <strong style="color:' + expiryColor + '">' + s.expiry + '</strong></span></div></div>' +
+      '<div style="display:flex;flex-direction:column;align-items:flex-end;gap:8px;min-width:190px"><div style="width:100%"><div style="font-size:11px;color:var(--text-muted);margin-bottom:4px">Enrollment Progress</div>' + enrollBar(s.enrolled, s.target) + '</div><div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end"><button class="nnna-btn-sm" onclick="window._irbToggleStudy(\'' + s.id + '\')">' + (expanded ? 'Hide Details' : 'View Details') + '</button><button class="nnna-btn-sm nnna-btn-amber" onclick="window._irbAmendModal(\'' + s.id + '\')">Request Amendment</button>' + renewBtn + '</div></div></div>' +
+      detailHtml + '</div>';
+  }
+
+  function renderStudyDesign() {
+    var labels = ['Study Info','Population','Protocol Arms','Regulatory'];
+    var stepNodes = [1,2,3,4].map(function(i) {
+      var active = _wizardStep === i, done = _wizardStep > i;
+      return '<div class="nnna-step-node' + (active?' active':'') + (done?' done':'') + '" onclick="window._irbWizardStep(' + i + ')" style="cursor:pointer"><div class="nnna-step-circle">' + (done ? '&#10003;' : i) + '</div><div class="nnna-step-label">' + labels[i-1] + '</div></div>';
+    }).join('<div class="nnna-step-connector"></div>');
+    return '<div><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:18px;flex-wrap:wrap;gap:8px"><div><h2 style="margin:0;font-size:1.1rem;font-weight:800;color:var(--text)">Study Design Builder</h2><div style="font-size:12px;color:var(--text-muted);margin-top:3px">Draft a new IRB submission in 4 steps</div></div><button class="nnna-btn-sm" onclick="window._irbLoadDraft()">Load Saved Draft</button></div><div class="nnna-step-wizard">' + stepNodes + '</div>' + renderWizardStep() + '</div>';
+  }
+
+  function renderWizardStep() {
+    if (_wizardStep === 1) return renderWizardStep1();
+    if (_wizardStep === 2) return renderWizardStep2();
+    if (_wizardStep === 3) return renderWizardStep3();
+    return renderWizardStep4();
+  }
+
+  function renderWizardStep1() {
+    var d = _wizardDraft.info;
+    var typeOpts = ['RCT','Observational','Case Series','Pilot'].map(function(v) { return '<option' + (d.studyType===v?' selected':'') + '>' + v + '</option>'; }).join('');
+    var blindOpts = ['Open Label','Single Blind','Double Blind'].map(function(v) { return '<option' + (d.blinding===v?' selected':'') + '>' + v + '</option>'; }).join('');
+    return '<div class="nnna-wizard-panel"><h3 style="margin:0 0 16px;font-size:15px;font-weight:700;color:var(--text)">Step 1 - Study Information</h3><div class="nnna-form-grid"><div class="nnna-form-group" style="grid-column:1/-1"><label>Study Title *</label><input class="form-control" id="wiz-title" placeholder="Full study title" value="' + (d.title||'').replace(/"/g,'&quot;') + '" oninput="window._irbWizSave()"></div><div class="nnna-form-group" style="grid-column:1/-1"><label>Hypothesis / Research Question *</label><textarea class="form-control" id="wiz-hypothesis" rows="3" placeholder="State the primary hypothesis..." oninput="window._irbWizSave()">' + (d.hypothesis||'') + '</textarea></div><div class="nnna-form-group" style="grid-column:1/-1"><label>Primary Endpoint *</label><input class="form-control" id="wiz-primary-ep" placeholder="e.g., HDRS-17 change from baseline at week 4" value="' + (d.primaryEp||'').replace(/"/g,'&quot;') + '" oninput="window._irbWizSave()"></div><div class="nnna-form-group" style="grid-column:1/-1"><label>Secondary Endpoints</label><textarea class="form-control" id="wiz-secondary-ep" rows="2" placeholder="List secondary endpoints, one per line..." oninput="window._irbWizSave()">' + (d.secondaryEp||'') + '</textarea></div><div class="nnna-form-group"><label>Study Type *</label><select class="form-control" id="wiz-type" onchange="window._irbWizSave()"><option value="">Select...</option>' + typeOpts + '</select></div><div class="nnna-form-group"><label>Blinding</label><select class="form-control" id="wiz-blinding" onchange="window._irbWizSave()"><option value="">Select...</option>' + blindOpts + '</select></div></div><div style="display:flex;justify-content:flex-end;margin-top:20px"><button class="nnna-btn-primary" onclick="window._irbWizardStep(2)">Next: Population</button></div></div>';
+  }
+
+  function renderWizardStep2() {
+    var d = _wizardDraft.population;
+    var incRows = (d.inclusion||['']);
+    var excRows = (d.exclusion||['']);
+    var incHtml = incRows.map(function(r,i) { return '<div style="display:flex;gap:6px;margin-bottom:6px"><input class="form-control" style="flex:1" placeholder="Inclusion criterion ' + (i+1) + '" value="' + r.replace(/"/g,'&quot;') + '" oninput="window._irbIncChange(' + i + ',this.value)"><button class="nnna-btn-sm nnna-btn-rose" onclick="window._irbRemoveInc(' + i + ')" style="padding:4px 10px">x</button></div>'; }).join('');
+    var excHtml = excRows.map(function(r,i) { return '<div style="display:flex;gap:6px;margin-bottom:6px"><input class="form-control" style="flex:1" placeholder="Exclusion criterion ' + (i+1) + '" value="' + r.replace(/"/g,'&quot;') + '" oninput="window._irbExcChange(' + i + ',this.value)"><button class="nnna-btn-sm nnna-btn-rose" onclick="window._irbRemoveExc(' + i + ')" style="padding:4px 10px">x</button></div>'; }).join('');
+    return '<div class="nnna-wizard-panel"><h3 style="margin:0 0 16px;font-size:15px;font-weight:700;color:var(--text)">Step 2 - Study Population</h3><div class="nnna-form-grid"><div class="nnna-form-group"><label>Target Sample Size (N) *</label><input class="form-control" id="wiz-target-n" type="number" min="1" placeholder="e.g., 40" value="' + (d.targetN||'') + '" oninput="window._irbWizSave2()"></div><div class="nnna-form-group"><label>Age Range</label><div style="display:flex;gap:8px;align-items:center"><input class="form-control" id="wiz-age-min" type="number" placeholder="Min" style="width:90px" value="' + (d.ageMin||'') + '" oninput="window._irbWizSave2()"><span style="color:var(--text-muted)">-</span><input class="form-control" id="wiz-age-max" type="number" placeholder="Max" style="width:90px" value="' + (d.ageMax||'') + '" oninput="window._irbWizSave2()"></div></div><div class="nnna-form-group" style="grid-column:1/-1"><label>Diagnosis / Condition Filter</label><input class="form-control" id="wiz-diagnosis" placeholder="e.g., DSM-5 MDD, ADHD-combined" value="' + (d.diagnosis||'').replace(/"/g,'&quot;') + '" oninput="window._irbWizSave2()"></div></div><div style="margin-top:14px"><div style="font-size:12px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Inclusion Criteria</div><div id="wiz-inc-rows">' + incHtml + '</div><button class="nnna-btn-sm" onclick="window._irbAddInc()" style="margin-top:4px">+ Add Criterion</button></div><div style="margin-top:14px"><div style="font-size:12px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Exclusion Criteria</div><div id="wiz-exc-rows">' + excHtml + '</div><button class="nnna-btn-sm" onclick="window._irbAddExc()" style="margin-top:4px">+ Add Criterion</button></div><div style="display:flex;justify-content:space-between;margin-top:20px"><button class="nnna-btn-sm" onclick="window._irbWizardStep(1)">Back</button><button class="nnna-btn-primary" onclick="window._irbWizardStep(3)">Next: Protocol Arms</button></div></div>';
+  }
+
+  function renderWizardStep3() {
+    var arms = _wizardDraft.arms;
+    var armsHtml = arms.map(function(arm, i) {
+      return '<div style="background:var(--hover-bg);border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:12px"><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px"><span style="font-size:12px;font-weight:700;color:var(--text-muted)">ARM ' + (i+1) + '</span>' + (arms.length > 1 ? '<button class="nnna-btn-sm nnna-btn-rose" onclick="window._irbRemoveArm(' + i + ')">Remove</button>' : '') + '</div><div class="nnna-form-grid"><div class="nnna-form-group"><label>Arm Name *</label><input class="form-control" placeholder="e.g., Active TMS" value="' + (arm.name||'').replace(/"/g,'&quot;') + '" oninput="window._irbArmChange(' + i + ',\'name\',this.value)"></div><div class="nnna-form-group"><label>Intervention *</label><input class="form-control" placeholder="e.g., iTBS 600 pulses" value="' + (arm.intervention||'').replace(/"/g,'&quot;') + '" oninput="window._irbArmChange(' + i + ',\'intervention\',this.value)"></div><div class="nnna-form-group"><label>Sessions</label><input class="form-control" type="number" min="1" placeholder="20" value="' + (arm.sessions||'') + '" oninput="window._irbArmChange(' + i + ',\'sessions\',this.value)"></div><div class="nnna-form-group"><label>Duration (min)</label><input class="form-control" type="number" min="1" placeholder="30" value="' + (arm.duration||'') + '" oninput="window._irbArmChange(' + i + ',\'duration\',this.value)"></div><div class="nnna-form-group" style="grid-column:1/-1"><label>Frequency</label><input class="form-control" placeholder="e.g., 2x/week for 10 weeks" value="' + (arm.frequency||'').replace(/"/g,'&quot;') + '" oninput="window._irbArmChange(' + i + ',\'frequency\',this.value)"></div></div></div>';
+    }).join('');
+    return '<div class="nnna-wizard-panel"><h3 style="margin:0 0 16px;font-size:15px;font-weight:700;color:var(--text)">Step 3 - Protocol Arms</h3><div id="wiz-arms-container">' + armsHtml + '</div>' + (arms.length < 4 ? '<button class="nnna-btn-sm" onclick="window._irbAddArm()">+ Add Arm</button>' : '') + '<div style="margin-top:14px"><label style="font-size:12px;font-weight:600;color:var(--text)">Randomization Ratio</label><input class="form-control" id="wiz-rand-ratio" placeholder="e.g., 1:1 active:control" value="' + (_wizardDraft.randRatio||'').replace(/"/g,'&quot;') + '" oninput="_wizardDraft.randRatio=this.value" style="margin-top:6px;max-width:260px"></div><div style="display:flex;justify-content:space-between;margin-top:20px"><button class="nnna-btn-sm" onclick="window._irbWizardStep(2)">Back</button><button class="nnna-btn-primary" onclick="window._irbWizardStep(4)">Next: Regulatory</button></div></div>';
+  }
+
+  function renderWizardStep4() {
+    var d = _wizardDraft.regulatory;
+    return '<div class="nnna-wizard-panel"><h3 style="margin:0 0 16px;font-size:15px;font-weight:700;color:var(--text)">Step 4 - Regulatory Information</h3><div class="nnna-form-grid"><div class="nnna-form-group"><label>IRB Board Name *</label><input class="form-control" id="wiz-board" placeholder="e.g., Western IRB" value="' + (d.board||'').replace(/"/g,'&quot;') + '" oninput="window._irbRegSave()"></div><div class="nnna-form-group"><label>Planned Submission Date</label><input class="form-control" id="wiz-sub-date" type="date" value="' + (d.submissionDate||'') + '" oninput="window._irbRegSave()"></div><div class="nnna-form-group"><label>Risk Level *</label><select class="form-control" id="wiz-risk" onchange="window._irbRegSave()"><option value="">Select...</option><option value="minimal"' + (d.risk==='minimal'?' selected':'') + '>Minimal Risk</option><option value="greater"' + (d.risk==='greater'?' selected':'') + '>Greater Than Minimal Risk</option></select></div><div class="nnna-form-group"><label>HIPAA Authorization Type</label><select class="form-control" id="wiz-hipaa" onchange="window._irbRegSave()"><option value="">Select...</option><option value="full"' + (d.hipaa==='full'?' selected':'') + '>Full Authorization</option><option value="limited"' + (d.hipaa==='limited'?' selected':'') + '>Limited Dataset</option><option value="waiver"' + (d.hipaa==='waiver'?' selected':'') + '>Waiver of Authorization</option></select></div><div class="nnna-form-group" style="grid-column:1/-1"><label>Data Retention Period</label><input class="form-control" id="wiz-retention" placeholder="e.g., 7 years post-study completion" value="' + (d.retention||'').replace(/"/g,'&quot;') + '" oninput="window._irbRegSave()"></div></div><div style="display:flex;justify-content:space-between;margin-top:20px;flex-wrap:wrap;gap:8px"><button class="nnna-btn-sm" onclick="window._irbWizardStep(3)">Back</button><div style="display:flex;gap:8px"><button class="nnna-btn-sm nnna-btn-amber" onclick="window._irbSaveDraft()">Save as Draft</button><button class="nnna-btn-primary" onclick="window._irbSubmitToIRB()">Submit to IRB</button></div></div></div>';
+  }
+
+  function renderAEReporting() {
+    var aes = getAEs();
+    var needsIRB = aes.filter(function(ae) { return (ae.severity === 'severe' || ae.severity === 'unexpected') && !ae.reportedToIRB; });
+    var now = new Date();
+    var months = [];
+    for (var i = 5; i >= 0; i--) {
+      var d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      months.push({ key: d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0'), label: d.toLocaleString('default',{month:'short'}) });
+    }
+    var sevCats = ['mild','moderate','severe','unexpected'];
+    var sevColors = {mild:'var(--accent-teal)',moderate:'var(--accent-amber)',severe:'var(--accent-rose)',unexpected:'var(--accent-violet)'};
+    var chartData = months.map(function(m) {
+      var b = {mild:0,moderate:0,severe:0,unexpected:0};
+      aes.forEach(function(ae) { if (ae.onsetDate && ae.onsetDate.slice(0,7) === m.key && b[ae.severity] !== undefined) b[ae.severity]++; });
+      return Object.assign({}, m, b, {total:b.mild+b.moderate+b.severe+b.unexpected});
+    });
+    var maxTotal = Math.max.apply(null, chartData.map(function(d) { return d.total; }).concat([1]));
+    var svgW = 480, svgH = 140, padL = 28, padB = 24, padT = 12, barW = 38;
+    var gap = (svgW - padL - 12 - months.length * barW) / Math.max(months.length - 1, 1);
+    var bars = '';
+    chartData.forEach(function(d, i) {
+      var x = padL + i * (barW + gap);
+      var yOff = svgH - padB;
+      sevCats.forEach(function(sev) {
+        if (!d[sev]) return;
+        var bh = (d[sev] / maxTotal) * (svgH - padB - padT);
+        yOff -= bh;
+        bars += '<rect x="' + x + '" y="' + yOff.toFixed(1) + '" width="' + barW + '" height="' + bh.toFixed(1) + '" fill="' + sevColors[sev] + '" opacity="0.85" rx="2"/>';
+      });
+      bars += '<text x="' + (x + barW/2).toFixed(1) + '" y="' + (svgH - padB + 14) + '" text-anchor="middle" font-size="10" fill="var(--text-muted)">' + d.label + '</text>';
+      if (d.total > 0) bars += '<text x="' + (x + barW/2).toFixed(1) + '" y="' + (yOff - 3).toFixed(1) + '" text-anchor="middle" font-size="9" fill="var(--text)">' + d.total + '</text>';
+    });
+    var legendHtml = sevCats.map(function(s) { return '<span style="display:inline-flex;align-items:center;gap:4px"><span style="width:10px;height:10px;background:' + sevColors[s] + ';border-radius:2px;display:inline-block"></span>' + s.charAt(0).toUpperCase()+s.slice(1) + '</span>'; }).join('');
+    var irbWarnHtml = needsIRB.length > 0 ? '<div style="background:var(--accent-rose)18;border:1px solid var(--accent-rose)55;border-radius:8px;padding:12px 16px;margin-bottom:16px;display:flex;align-items:flex-start;gap:10px"><span style="font-size:18px;flex-shrink:0">&#9888;</span><div><div style="font-size:13px;font-weight:700;color:var(--accent-rose);margin-bottom:3px">IRB Notification Required</div><div style="font-size:12px;color:var(--text)">' + needsIRB.length + ' adverse event' + (needsIRB.length>1?'s':'') + ' (Severe or Unexpected) require IRB notification: ' + needsIRB.map(function(ae) { return '<strong>' + ae.patientId + '</strong> - ' + ae.eventType; }).join('; ') + '</div></div></div>' : '';
+    var aeRows = aes.map(function(ae) {
+      return '<tr style="border-bottom:1px solid var(--border)" onmouseover="this.style.background=\'var(--hover-bg)\'" onmouseout="this.style.background=\'\'"><td style="padding:9px 10px"><span style="font-size:11px;font-weight:700;color:var(--accent-teal)">' + studyLabel(ae.studyId) + '</span></td><td style="padding:9px 10px;color:var(--text)">' + ae.patientId + '</td><td style="padding:9px 10px;color:var(--text)">' + ae.eventType + '</td><td style="padding:9px 10px">' + aeSeverityBadge(ae.severity) + '</td><td style="padding:9px 10px;color:var(--text-muted)">' + ae.onsetDate + '</td><td style="padding:9px 10px">' + aeStatusBadge(ae.status) + '</td><td style="padding:9px 10px"><button class="nnna-btn-sm" onclick="window._irbViewAE(\'' + ae.id + '\')">View</button></td></tr>';
+    }).join('');
+    return '<div><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:8px"><div><h2 style="margin:0;font-size:1.1rem;font-weight:800;color:var(--text)">Adverse Event Reporting</h2><div style="font-size:12px;color:var(--text-muted);margin-top:3px">' + aes.length + ' events logged</div></div><div style="display:flex;gap:8px"><button class="nnna-btn-sm" onclick="window._irbExportAE()">Export AE Report</button><button class="nnna-btn-primary" onclick="window._irbNewAEModal()">Report New AE</button></div></div>' + irbWarnHtml + '<div style="background:var(--card-bg);border:1px solid var(--border);border-radius:10px;padding:16px;margin-bottom:18px"><div style="font-size:12px;font-weight:700;color:var(--text-muted);margin-bottom:10px;display:flex;align-items:center;gap:16px;flex-wrap:wrap"><span style="text-transform:uppercase;letter-spacing:.5px">AE Trend - Last 6 Months</span><span style="font-size:11px;display:flex;gap:10px;flex-wrap:wrap">' + legendHtml + '</span></div><svg viewBox="0 0 ' + svgW + ' ' + svgH + '" style="width:100%;max-width:' + svgW + 'px;display:block;overflow:visible"><line x1="' + padL + '" y1="' + padT + '" x2="' + padL + '" y2="' + (svgH-padB) + '" stroke="var(--border)" stroke-width="1"/><line x1="' + padL + '" y1="' + (svgH-padB) + '" x2="' + (svgW-10) + '" y2="' + (svgH-padB) + '" stroke="var(--border)" stroke-width="1"/>' + bars + '</svg></div><div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12.5px"><thead><tr style="border-bottom:2px solid var(--border)"><th style="padding:9px 10px;text-align:left;font-size:11px;color:var(--text-muted);font-weight:700;text-transform:uppercase">Study</th><th style="padding:9px 10px;text-align:left;font-size:11px;color:var(--text-muted);font-weight:700;text-transform:uppercase">Patient ID</th><th style="padding:9px 10px;text-align:left;font-size:11px;color:var(--text-muted);font-weight:700;text-transform:uppercase">Event Type</th><th style="padding:9px 10px;text-align:left;font-size:11px;color:var(--text-muted);font-weight:700;text-transform:uppercase">Severity</th><th style="padding:9px 10px;text-align:left;font-size:11px;color:var(--text-muted);font-weight:700;text-transform:uppercase">Date</th><th style="padding:9px 10px;text-align:left;font-size:11px;color:var(--text-muted);font-weight:700;text-transform:uppercase">Status</th><th style="padding:9px 10px;text-align:left;font-size:11px;color:var(--text-muted);font-weight:700;text-transform:uppercase">Action</th></tr></thead><tbody>' + aeRows + '</tbody></table></div></div>';
+  }
+
+  function renderConsentTracking() {
+    var consents = getConsents();
+    function capBadge(c) {
+      var map = {full:{label:'Full',color:'var(--accent-teal)'},assisted:{label:'Assisted',color:'var(--accent-amber)'},lar:{label:'LAR Required',color:'var(--accent-rose)'}};
+      var s = map[c] || {label:c, color:'var(--text-muted)'};
+      return '<span style="display:inline-block;padding:2px 9px;border-radius:10px;font-size:11px;font-weight:700;background:' + s.color + '22;color:' + s.color + ';border:1px solid ' + s.color + '44">' + s.label + '</span>';
+    }
+    var reconsentCount = consents.filter(function(c) { return c.reconsentDue && c.reconsentDue !== 'N/A'; }).length;
+    var consentRows = consents.map(function(c) {
+      var nr = c.reconsentDue && c.reconsentDue !== 'N/A';
+      return '<tr style="border-bottom:1px solid var(--border);' + (nr?'background:var(--accent-amber)09;':'') + '" onmouseover="this.style.background=\'var(--hover-bg)\'" onmouseout="this.style.background=\'' + (nr?'var(--accent-amber)09':'') + '\'"><td style="padding:9px 10px;color:var(--text);font-weight:600">' + c.patientId + '</td><td style="padding:9px 10px"><span style="font-size:11px;font-weight:700;color:var(--accent-teal)">' + studyLabel(c.studyId) + '</span></td><td style="padding:9px 10px;color:var(--text)">' + c.consentVersion + '</td><td style="padding:9px 10px;color:var(--text-muted)">' + c.signedDate + '</td><td style="padding:9px 10px">' + capBadge(c.capacityAssessment) + '</td><td style="padding:9px 10px;color:var(--text-muted);font-size:12px">' + c.lar + '</td><td style="padding:9px 10px">' + (nr ? '<span style="color:var(--accent-amber);font-weight:700;font-size:12px">&#9888; ' + c.reconsentDue + '<br><span style="font-size:10px;font-weight:400;color:var(--text-muted)">' + c.reconsentReason + '</span></span>' : '<span style="color:var(--text-muted);font-size:12px">N/A</span>') + '</td></tr>';
+    }).join('');
+    return '<div><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:8px"><div><h2 style="margin:0;font-size:1.1rem;font-weight:800;color:var(--text)">Research Consent Tracking</h2><div style="font-size:12px;color:var(--text-muted);margin-top:3px">Research-specific consent - separate from clinical consent</div></div><button class="nnna-btn-primary" onclick="window._irbNewConsentModal()">Record New Consent</button></div><div style="background:var(--accent-blue)12;border:1px solid var(--accent-blue)44;border-radius:8px;padding:11px 14px;margin-bottom:16px;font-size:12px;color:var(--text)"><strong style="color:var(--accent-blue)">Re-consent Policy:</strong> Any approved protocol amendment triggers mandatory re-consent for all currently enrolled participants.' + (reconsentCount > 0 ? ' <strong style="color:var(--accent-amber)">' + reconsentCount + ' participant(s) require re-consent.</strong>' : '') + '</div><div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12.5px"><thead><tr style="border-bottom:2px solid var(--border)"><th style="padding:9px 10px;text-align:left;font-size:11px;color:var(--text-muted);font-weight:700;text-transform:uppercase">Patient ID</th><th style="padding:9px 10px;text-align:left;font-size:11px;color:var(--text-muted);font-weight:700;text-transform:uppercase">Study</th><th style="padding:9px 10px;text-align:left;font-size:11px;color:var(--text-muted);font-weight:700;text-transform:uppercase">Consent Version</th><th style="padding:9px 10px;text-align:left;font-size:11px;color:var(--text-muted);font-weight:700;text-transform:uppercase">Signed Date</th><th style="padding:9px 10px;text-align:left;font-size:11px;color:var(--text-muted);font-weight:700;text-transform:uppercase">Capacity</th><th style="padding:9px 10px;text-align:left;font-size:11px;color:var(--text-muted);font-weight:700;text-transform:uppercase">LAR</th><th style="padding:9px 10px;text-align:left;font-size:11px;color:var(--text-muted);font-weight:700;text-transform:uppercase">Re-consent Due</th></tr></thead><tbody>' + consentRows + '</tbody></table></div></div>';
+  }
+
+  function renderRegDocuments() {
+    var docs = getDocs();
+    var studies = getStudies();
+    var filtered = docs.filter(function(d) { return (_docFilterStudy === '' || d.studyId === _docFilterStudy) && (_docFilterType === '' || d.type === _docFilterType); });
+    var studyOpts = studies.map(function(s) { return '<option value="' + s.id + '"' + (_docFilterStudy===s.id?' selected':'') + '>' + s.studyId + '</option>'; }).join('');
+    var typeOpts = ['irb_approval','protocol','consent_form','hipaa','amendment'].map(function(t) { return '<option value="' + t + '"' + (_docFilterType===t?' selected':'') + '>' + t.replace(/_/g,' ').replace(/\b\w/g, function(c) { return c.toUpperCase(); }) + '</option>'; }).join('');
+    var docRows = filtered.length === 0
+      ? '<div style="text-align:center;padding:32px;color:var(--text-muted)">No documents match the current filter.</div>'
+      : filtered.map(function(doc) {
+          return '<div class="nnna-doc-row"><div style="display:flex;align-items:center;gap:10px;flex:1;flex-wrap:wrap">' + docTypeBadge(doc.type) + '<div style="flex:1;min-width:180px"><div style="font-size:13px;font-weight:600;color:var(--text)">' + doc.name + '</div><div style="font-size:11px;color:var(--text-muted);margin-top:2px"><span style="font-size:11px;font-weight:700;color:var(--accent-teal)">' + studyLabel(doc.studyId) + '</span> &middot; v' + doc.version + ' &middot; ' + doc.date + '</div></div>' + docStatusBadge(doc.status) + '</div><div style="display:flex;gap:6px;flex-shrink:0"><button class="nnna-btn-sm" onclick="window._irbViewDoc(\'' + doc.id + '\')">View</button><button class="nnna-btn-sm nnna-btn-amber" onclick="window._irbUploadDocModal(\'' + doc.id + '\')">New Version</button></div></div>';
+        }).join('');
+    return '<div><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:8px"><div><h2 style="margin:0;font-size:1.1rem;font-weight:800;color:var(--text)">Regulatory Document Registry</h2><div style="font-size:12px;color:var(--text-muted);margin-top:3px">' + docs.length + ' documents across ' + studies.length + ' studies</div></div><button class="nnna-btn-primary" onclick="window._irbUploadDocModal()">Upload New Version</button></div><div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap"><select class="form-control" style="width:auto;font-size:12px" onchange="window._irbDocFilter(\'study\',this.value)"><option value="">All Studies</option>' + studyOpts + '</select><select class="form-control" style="width:auto;font-size:12px" onchange="window._irbDocFilter(\'type\',this.value)"><option value="">All Types</option>' + typeOpts + '</select></div><div id="irb-doc-preview" style="display:none;background:var(--hover-bg);border:1px solid var(--border);border-radius:10px;padding:16px;margin-bottom:16px"><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px"><span id="irb-doc-preview-title" style="font-size:13px;font-weight:700;color:var(--text)"></span><button class="nnna-btn-sm nnna-btn-rose" onclick="document.getElementById(\'irb-doc-preview\').style.display=\'none\'">Close</button></div><pre id="irb-doc-preview-body" style="font-size:12px;color:var(--text);white-space:pre-wrap;line-height:1.6;margin:0;font-family:monospace"></pre></div><div>' + docRows + '</div></div>';
+  }
+
+  function render() {
+    var body = '';
+    if (_activeTab === 'active-studies')   body = renderActiveStudies();
+    if (_activeTab === 'study-design')     body = renderStudyDesign();
+    if (_activeTab === 'adverse-events')   body = renderAEReporting();
+    if (_activeTab === 'consent-tracking') body = renderConsentTracking();
+    if (_activeTab === 'reg-documents')    body = renderRegDocuments();
+    el.innerHTML = '<div style="padding:20px;max-width:1300px;margin:0 auto">' + tabBar() + body + '</div>';
+  }
+
+  render();
+
+  window._irbTab = function(tab) { _activeTab = tab; render(); };
+  window._irbToggleStudy = function(id) { _expandedStudy = (_expandedStudy === id) ? null : id; _activeTab = 'active-studies'; render(); };
+
+  window._irbAmendModal = function(studyId) {
+    var study = getStudies().find(function(s) { return s.id === studyId; });
+    if (!study) return;
+    document.getElementById('irb-amend-modal') && document.getElementById('irb-amend-modal').remove();
+    document.body.insertAdjacentHTML('beforeend', '<div id="irb-amend-modal" onclick="if(event.target.id===\'irb-amend-modal\')window._irbCloseModal(\'irb-amend-modal\')" style="position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:9000;display:flex;align-items:center;justify-content:center;padding:20px"><div style="background:var(--card-bg);border:1px solid var(--border);border-radius:14px;padding:24px;width:100%;max-width:520px;max-height:90vh;overflow-y:auto"><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px"><h3 style="margin:0;font-size:15px;font-weight:800;color:var(--text)">Request Amendment</h3><button onclick="window._irbCloseModal(\'irb-amend-modal\')" style="background:none;border:none;cursor:pointer;color:var(--text-muted);font-size:20px;line-height:1">x</button></div><div style="font-size:12px;color:var(--text-muted);margin-bottom:16px">Study: <strong style="color:var(--text)">' + study.studyId + '</strong></div><div class="nnna-form-group" style="margin-bottom:12px"><label>Amendment Type *</label><select class="form-control" id="amend-type"><option value="">Select type...</option><option>Protocol Change</option><option>Consent Update</option><option>Personnel Change</option><option>Other</option></select></div><div class="nnna-form-group" style="margin-bottom:12px"><label>Description *</label><textarea class="form-control" id="amend-desc" rows="3" placeholder="Describe the proposed amendment..."></textarea></div><div class="nnna-form-group" style="margin-bottom:20px"><label>Supporting Rationale *</label><textarea class="form-control" id="amend-rationale" rows="3" placeholder="Provide scientific or regulatory justification..."></textarea></div><div style="display:flex;justify-content:flex-end;gap:8px"><button class="nnna-btn-sm" onclick="window._irbCloseModal(\'irb-amend-modal\')">Cancel</button><button class="nnna-btn-primary" onclick="window._irbSubmitAmendment(\'' + studyId + '\')">Submit Amendment Request</button></div></div></div>');
+  };
+  window._irbSubmitAmendment = function(studyId) {
+    var type = document.getElementById('amend-type') && document.getElementById('amend-type').value;
+    var desc = document.getElementById('amend-desc') && document.getElementById('amend-desc').value && document.getElementById('amend-desc').value.trim();
+    var rationale = document.getElementById('amend-rationale') && document.getElementById('amend-rationale').value && document.getElementById('amend-rationale').value.trim();
+    if (!type || !desc || !rationale) { toast('Please fill in all required fields', false); return; }
+    lsSet('ds_irb_studies', getStudies().map(function(s) { return s.id !== studyId ? s : Object.assign({}, s, {amendments: s.amendments.concat([{date:new Date().toISOString().slice(0,10),type:type,description:desc+' - Rationale: '+rationale,status:'Pending'}])}); }));
+    window._irbCloseModal('irb-amend-modal');
+    toast('Amendment request submitted');
+    render();
+  };
+
+  window._irbRenewModal = function(studyId) {
+    var study = getStudies().find(function(s) { return s.id === studyId; });
+    if (!study) return;
+    document.getElementById('irb-renew-modal') && document.getElementById('irb-renew-modal').remove();
+    document.body.insertAdjacentHTML('beforeend', '<div id="irb-renew-modal" onclick="if(event.target.id===\'irb-renew-modal\')window._irbCloseModal(\'irb-renew-modal\')" style="position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:9000;display:flex;align-items:center;justify-content:center;padding:20px"><div style="background:var(--card-bg);border:1px solid var(--border);border-radius:14px;padding:24px;width:100%;max-width:540px;max-height:90vh;overflow-y:auto"><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px"><h3 style="margin:0;font-size:15px;font-weight:800;color:var(--text)">Renewal Application - ' + study.studyId + '</h3><button onclick="window._irbCloseModal(\'irb-renew-modal\')" style="background:none;border:none;cursor:pointer;color:var(--text-muted);font-size:20px;line-height:1">x</button></div><div style="font-size:12px;color:var(--text-muted);margin-bottom:14px">Current expiry: <strong style="color:var(--accent-amber)">' + study.expiry + '</strong></div><div class="nnna-form-group" style="margin-bottom:12px"><label>Principal Investigator</label><input class="form-control" id="renew-pi" value="' + study.pi + '"></div><div class="nnna-form-group" style="margin-bottom:12px"><label>Enrollment to Date</label><input class="form-control" id="renew-enrolled" type="number" value="' + study.enrolled + '"></div><div class="nnna-form-group" style="margin-bottom:12px"><label>Requested Renewal Period</label><select class="form-control" id="renew-period"><option value="12">12 months</option><option value="24">24 months</option></select></div><div class="nnna-form-group" style="margin-bottom:12px"><label>Progress Summary *</label><textarea class="form-control" id="renew-summary" rows="4" placeholder="Summarize study progress, protocol deviations, and justification for continuation..."></textarea></div><div class="nnna-form-group" style="margin-bottom:20px"><label>Adverse Events Since Last Approval</label><textarea class="form-control" id="renew-aes" rows="2" placeholder="List reportable AEs or note None..."></textarea></div><div style="display:flex;justify-content:flex-end;gap:8px"><button class="nnna-btn-sm" onclick="window._irbCloseModal(\'irb-renew-modal\')">Cancel</button><button class="nnna-btn-primary" onclick="window._irbSubmitRenewal(\'' + studyId + '\')">Submit Renewal</button></div></div></div>');
+  };
+  window._irbSubmitRenewal = function(studyId) {
+    var pi = document.getElementById('renew-pi') && document.getElementById('renew-pi').value && document.getElementById('renew-pi').value.trim();
+    var enrolled = parseInt(document.getElementById('renew-enrolled') && document.getElementById('renew-enrolled').value, 10);
+    var months = parseInt(document.getElementById('renew-period') && document.getElementById('renew-period').value, 10);
+    var summary = document.getElementById('renew-summary') && document.getElementById('renew-summary').value && document.getElementById('renew-summary').value.trim();
+    if (!summary) { toast('Please provide a progress summary', false); return; }
+    lsSet('ds_irb_studies', getStudies().map(function(s) {
+      if (s.id !== studyId) return s;
+      var nd = new Date(s.expiry); nd.setMonth(nd.getMonth() + months);
+      return Object.assign({}, s, {pi:pi||s.pi, enrolled:isNaN(enrolled)?s.enrolled:enrolled, status:'active', expiry:nd.toISOString().slice(0,10), amendments:s.amendments.concat([{date:new Date().toISOString().slice(0,10),type:'Renewal',description:months+'-month renewal submitted. '+summary.slice(0,80),status:'Pending'}])});
+    }));
+    window._irbCloseModal('irb-renew-modal');
+    toast('Renewal application submitted');
+    render();
+  };
+
+  window._irbWizardStep = function(step) { _wizardStep = step; _activeTab = 'study-design'; render(); };
+  window._irbWizSave = function() {
+    _wizardDraft.info = {
+      title: (document.getElementById('wiz-title') && document.getElementById('wiz-title').value) || '',
+      hypothesis: (document.getElementById('wiz-hypothesis') && document.getElementById('wiz-hypothesis').value) || '',
+      primaryEp: (document.getElementById('wiz-primary-ep') && document.getElementById('wiz-primary-ep').value) || '',
+      secondaryEp: (document.getElementById('wiz-secondary-ep') && document.getElementById('wiz-secondary-ep').value) || '',
+      studyType: (document.getElementById('wiz-type') && document.getElementById('wiz-type').value) || '',
+      blinding: (document.getElementById('wiz-blinding') && document.getElementById('wiz-blinding').value) || '',
+    };
+  };
+  window._irbWizSave2 = function() {
+    _wizardDraft.population = Object.assign({}, _wizardDraft.population, {
+      targetN: (document.getElementById('wiz-target-n') && document.getElementById('wiz-target-n').value) || '',
+      ageMin: (document.getElementById('wiz-age-min') && document.getElementById('wiz-age-min').value) || '',
+      ageMax: (document.getElementById('wiz-age-max') && document.getElementById('wiz-age-max').value) || '',
+      diagnosis: (document.getElementById('wiz-diagnosis') && document.getElementById('wiz-diagnosis').value) || '',
+    });
+  };
+  window._irbRegSave = function() {
+    _wizardDraft.regulatory = {
+      board: (document.getElementById('wiz-board') && document.getElementById('wiz-board').value) || '',
+      submissionDate: (document.getElementById('wiz-sub-date') && document.getElementById('wiz-sub-date').value) || '',
+      risk: (document.getElementById('wiz-risk') && document.getElementById('wiz-risk').value) || '',
+      hipaa: (document.getElementById('wiz-hipaa') && document.getElementById('wiz-hipaa').value) || '',
+      retention: (document.getElementById('wiz-retention') && document.getElementById('wiz-retention').value) || '',
+    };
+  };
+  window._irbIncChange = function(i, val) { if (!_wizardDraft.population.inclusion) _wizardDraft.population.inclusion = []; _wizardDraft.population.inclusion[i] = val; };
+  window._irbExcChange = function(i, val) { if (!_wizardDraft.population.exclusion) _wizardDraft.population.exclusion = []; _wizardDraft.population.exclusion[i] = val; };
+  window._irbAddInc    = function() { if (!_wizardDraft.population.inclusion) _wizardDraft.population.inclusion = []; _wizardDraft.population.inclusion.push(''); _activeTab='study-design'; render(); };
+  window._irbRemoveInc = function(i) { (_wizardDraft.population.inclusion||[]).splice(i,1); _activeTab='study-design'; render(); };
+  window._irbAddExc    = function() { if (!_wizardDraft.population.exclusion) _wizardDraft.population.exclusion = []; _wizardDraft.population.exclusion.push(''); _activeTab='study-design'; render(); };
+  window._irbRemoveExc = function(i) { (_wizardDraft.population.exclusion||[]).splice(i,1); _activeTab='study-design'; render(); };
+  window._irbArmChange = function(i, field, val) { _wizardDraft.arms[i][field] = val; };
+  window._irbAddArm    = function() { if (_wizardDraft.arms.length < 4) { _wizardDraft.arms.push({name:'',intervention:'',sessions:'',duration:'',frequency:''}); _activeTab='study-design'; render(); } };
+  window._irbRemoveArm = function(i) { _wizardDraft.arms.splice(i,1); _activeTab='study-design'; render(); };
+
+  window._irbSaveDraft = function() {
+    var drafts = getDrafts();
+    drafts.push(Object.assign({id:'draft_'+Date.now(),savedAt:new Date().toISOString()}, JSON.parse(JSON.stringify(_wizardDraft))));
+    lsSet('ds_irb_drafts', drafts);
+    toast('Draft saved');
+  };
+  window._irbLoadDraft = function() {
+    var drafts = getDrafts();
+    if (!drafts.length) { toast('No saved drafts found', false); return; }
+    _wizardDraft = JSON.parse(JSON.stringify(drafts[drafts.length - 1]));
+    _wizardStep = 1; _activeTab = 'study-design'; render(); toast('Draft loaded');
+  };
+  window._irbSubmitToIRB = function() {
+    window._irbRegSave();
+    var d = _wizardDraft;
+    if (!d.info.title || !d.info.hypothesis || !d.regulatory.board) { toast('Please complete all required fields', false); return; }
+    var studies = getStudies();
+    studies.push({id:'irb_'+Date.now(),studyId:'DS-'+new Date().getFullYear()+'-'+String(studies.length+4).padStart(3,'0'),title:d.info.title,board:d.regulatory.board,pi:'Pending Assignment',approved:'',expiry:'',status:'pending_renewal',enrolled:0,target:parseInt(d.population.targetN,10)||0,phase:'Pending',description:d.info.hypothesis,inclusion:d.population.inclusion||[],exclusion:d.population.exclusion||[],procedures:d.arms.map(function(a){return a.name+': '+a.intervention+' ('+a.sessions+' sessions, '+a.duration+'min, '+a.frequency+')';}).filter(Boolean),amendments:[],contact:'Pending'});
+    lsSet('ds_irb_studies', studies);
+    _wizardDraft = {info:{},population:{},arms:[{name:'',intervention:'',sessions:'',duration:'',frequency:''}],regulatory:{}};
+    _wizardStep = 1; _activeTab = 'active-studies';
+    toast('Study submitted to IRB - pending approval');
+    render();
+  };
+
+  window._irbNewAEModal = function() {
+    var studies = getStudies();
+    document.getElementById('irb-ae-modal') && document.getElementById('irb-ae-modal').remove();
+    document.body.insertAdjacentHTML('beforeend', '<div id="irb-ae-modal" onclick="if(event.target.id===\'irb-ae-modal\')window._irbCloseModal(\'irb-ae-modal\')" style="position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:9000;display:flex;align-items:center;justify-content:center;padding:20px"><div style="background:var(--card-bg);border:1px solid var(--border);border-radius:14px;padding:24px;width:100%;max-width:560px;max-height:90vh;overflow-y:auto"><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px"><h3 style="margin:0;font-size:15px;font-weight:800;color:var(--text)">Report Adverse Event</h3><button onclick="window._irbCloseModal(\'irb-ae-modal\')" style="background:none;border:none;cursor:pointer;color:var(--text-muted);font-size:20px;line-height:1">x</button></div><div class="nnna-form-grid"><div class="nnna-form-group"><label>Study *</label><select class="form-control" id="ae-study"><option value="">Select study...</option>' + studies.map(function(s){return '<option value="'+s.id+'">'+s.studyId+'</option>';}).join('') + '</select></div><div class="nnna-form-group"><label>De-identified Patient ID *</label><input class="form-control" id="ae-patient" placeholder="e.g., PT-009"></div><div class="nnna-form-group" style="grid-column:1/-1"><label>Event Description *</label><textarea class="form-control" id="ae-desc" rows="3" placeholder="Describe the adverse event..."></textarea></div><div class="nnna-form-group"><label>Onset Date *</label><input class="form-control" id="ae-date" type="date" value="' + new Date().toISOString().slice(0,10) + '"></div><div class="nnna-form-group"><label>Severity *</label><select class="form-control" id="ae-severity" onchange="window._irbAESevChange()"><option value="">Select...</option><option value="mild">Mild</option><option value="moderate">Moderate</option><option value="severe">Severe</option><option value="unexpected">Unexpected</option></select></div><div class="nnna-form-group"><label>Causality Assessment *</label><select class="form-control" id="ae-causality"><option value="">Select...</option><option value="unrelated">Unrelated</option><option value="possibly">Possibly Related</option><option value="probably">Probably Related</option><option value="definitely">Definitely Related</option></select></div><div class="nnna-form-group" style="grid-column:1/-1"><label>Actions Taken *</label><textarea class="form-control" id="ae-actions" rows="2" placeholder="Describe actions taken..."></textarea></div></div><div id="ae-irb-warn" style="display:none;background:var(--accent-rose)18;border:1px solid var(--accent-rose)55;border-radius:8px;padding:10px 14px;margin-top:10px;font-size:12px;color:var(--accent-rose);font-weight:600">IRB Notification Required - Severe or Unexpected events must be reported to the IRB within 24-72 hours.</div><div style="display:flex;justify-content:flex-end;gap:8px;margin-top:20px"><button class="nnna-btn-sm" onclick="window._irbCloseModal(\'irb-ae-modal\')">Cancel</button><button class="nnna-btn-primary" onclick="window._irbSubmitAE()">Submit AE Report</button></div></div></div>');
+  };
+  window._irbAESevChange = function() {
+    var sev = document.getElementById('ae-severity') && document.getElementById('ae-severity').value;
+    var warn = document.getElementById('ae-irb-warn');
+    if (warn) warn.style.display = (sev === 'severe' || sev === 'unexpected') ? 'block' : 'none';
+  };
+  window._irbSubmitAE = function() {
+    var studyId  = document.getElementById('ae-study')    && document.getElementById('ae-study').value;
+    var patientId= document.getElementById('ae-patient')  && document.getElementById('ae-patient').value  && document.getElementById('ae-patient').value.trim();
+    var desc     = document.getElementById('ae-desc')     && document.getElementById('ae-desc').value     && document.getElementById('ae-desc').value.trim();
+    var date     = document.getElementById('ae-date')     && document.getElementById('ae-date').value;
+    var severity = document.getElementById('ae-severity') && document.getElementById('ae-severity').value;
+    var causality= document.getElementById('ae-causality')&& document.getElementById('ae-causality').value;
+    var actions  = document.getElementById('ae-actions')  && document.getElementById('ae-actions').value  && document.getElementById('ae-actions').value.trim();
+    if (!studyId||!patientId||!desc||!date||!severity||!causality||!actions) { toast('Please complete all required fields', false); return; }
+    var typeMap = {mild:'Mild Reaction',moderate:'Moderate Adverse Effect',severe:'Serious Adverse Event',unexpected:'Unexpected Adverse Event'};
+    var aes = getAEs();
+    aes.push({id:'ae_'+Date.now(),studyId:studyId,patientId:patientId,eventType:typeMap[severity]||'Adverse Event',severity:severity,onsetDate:date,description:desc,causality:causality,actionsTaken:actions,status:'open',reportedToIRB:false});
+    lsSet('ds_irb_adverse_events', aes);
+    window._irbCloseModal('irb-ae-modal');
+    toast(severity==='severe'||severity==='unexpected' ? 'AE reported - IRB notification required' : 'Adverse event reported', !(severity==='severe'||severity==='unexpected'));
+    render();
+  };
+  window._irbViewAE = function(id) {
+    var ae = getAEs().find(function(x) { return x.id === id; });
+    if (!ae) return;
+    document.getElementById('irb-ae-view-modal') && document.getElementById('irb-ae-view-modal').remove();
+    var rows = [['Study',studyLabel(ae.studyId)],['Event Type',ae.eventType],['Onset Date',ae.onsetDate],['Causality',ae.causality],['Description',ae.description],['Actions Taken',ae.actionsTaken],['IRB Notified',ae.reportedToIRB?'Yes':'No']].map(function(pair){return '<div style="margin-bottom:10px"><div style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px">'+pair[0]+'</div><div style="font-size:13px;color:var(--text);line-height:1.5">'+pair[1]+'</div></div>';}).join('');
+    var actionBtns = (!ae.reportedToIRB&&(ae.severity==='severe'||ae.severity==='unexpected')?'<button class="nnna-btn-sm nnna-btn-rose" onclick="window._irbMarkIRBReported(\''+ae.id+'\')">Mark IRB Notified</button>':'') + (ae.status!=='resolved'?'<button class="nnna-btn-sm nnna-btn-teal" onclick="window._irbResolveAE(\''+ae.id+'\')">Mark Resolved</button>':'');
+    document.body.insertAdjacentHTML('beforeend', '<div id="irb-ae-view-modal" onclick="if(event.target.id===\'irb-ae-view-modal\')window._irbCloseModal(\'irb-ae-view-modal\')" style="position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:9000;display:flex;align-items:center;justify-content:center;padding:20px"><div style="background:var(--card-bg);border:1px solid var(--border);border-radius:14px;padding:24px;width:100%;max-width:520px;max-height:90vh;overflow-y:auto"><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px"><h3 style="margin:0;font-size:15px;font-weight:800;color:var(--text)">AE Detail - '+ae.patientId+'</h3><button onclick="window._irbCloseModal(\'irb-ae-view-modal\')" style="background:none;border:none;cursor:pointer;color:var(--text-muted);font-size:20px;line-height:1">x</button></div><div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px">'+aeSeverityBadge(ae.severity)+' '+aeStatusBadge(ae.status)+'</div>'+rows+'<div style="display:flex;justify-content:flex-end;gap:8px;margin-top:16px;flex-wrap:wrap">'+actionBtns+'<button class="nnna-btn-sm" onclick="window._irbCloseModal(\'irb-ae-view-modal\')">Close</button></div></div></div>');
+  };
+  window._irbMarkIRBReported = function(id) {
+    lsSet('ds_irb_adverse_events', getAEs().map(function(ae) { return ae.id===id ? Object.assign({},ae,{reportedToIRB:true,status:'reported_to_irb'}) : ae; }));
+    window._irbCloseModal('irb-ae-view-modal'); toast('Marked as reported to IRB'); render();
+  };
+  window._irbResolveAE = function(id) {
+    lsSet('ds_irb_adverse_events', getAEs().map(function(ae) { return ae.id===id ? Object.assign({},ae,{status:'resolved'}) : ae; }));
+    window._irbCloseModal('irb-ae-view-modal'); toast('AE marked as resolved'); render();
+  };
+  window._irbExportAE = function() {
+    var aes = getAEs();
+    var studyMap = {};
+    getStudies().forEach(function(s) { studyMap[s.id] = s.studyId; });
+    var lines = ['DEEPSYNAPS PROTOCOL STUDIO - ADVERSE EVENT REPORT','Generated: '+new Date().toLocaleString(),'='.repeat(60),''];
+    aes.forEach(function(ae, i) {
+      lines.push('EVENT #'+(i+1),'Study: '+(studyMap[ae.studyId]||ae.studyId),'Patient ID: '+ae.patientId,'Event Type: '+ae.eventType,'Severity: '+ae.severity.toUpperCase(),'Onset Date: '+ae.onsetDate,'Causality: '+ae.causality,'Status: '+ae.status,'IRB Notified: '+(ae.reportedToIRB?'Yes':'No'),'Description: '+ae.description,'Actions Taken: '+ae.actionsTaken,'-'.repeat(40),'');
+    });
+    var blob = new Blob([lines.join('\n')], {type:'text/plain'});
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a'); a.href = url; a.download = 'AE_Report_'+new Date().toISOString().slice(0,10)+'.txt';
+    document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+    toast('AE report exported');
+  };
+
+  window._irbNewConsentModal = function() {
+    var studies = getStudies();
+    document.getElementById('irb-consent-modal') && document.getElementById('irb-consent-modal').remove();
+    document.body.insertAdjacentHTML('beforeend', '<div id="irb-consent-modal" onclick="if(event.target.id===\'irb-consent-modal\')window._irbCloseModal(\'irb-consent-modal\')" style="position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:9000;display:flex;align-items:center;justify-content:center;padding:20px"><div style="background:var(--card-bg);border:1px solid var(--border);border-radius:14px;padding:24px;width:100%;max-width:520px;max-height:90vh;overflow-y:auto"><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px"><h3 style="margin:0;font-size:15px;font-weight:800;color:var(--text)">Record Research Consent</h3><button onclick="window._irbCloseModal(\'irb-consent-modal\')" style="background:none;border:none;cursor:pointer;color:var(--text-muted);font-size:20px;line-height:1">x</button></div><div class="nnna-form-grid"><div class="nnna-form-group"><label>De-identified Patient ID *</label><input class="form-control" id="rc-patient" placeholder="e.g., PT-010"></div><div class="nnna-form-group"><label>Study *</label><select class="form-control" id="rc-study"><option value="">Select...</option>' + studies.map(function(s){return '<option value="'+s.id+'">'+s.studyId+'</option>';}).join('') + '</select></div><div class="nnna-form-group"><label>Consent Form Version *</label><input class="form-control" id="rc-version" placeholder="e.g., v1.1"></div><div class="nnna-form-group"><label>Signed Date *</label><input class="form-control" id="rc-date" type="date" value="' + new Date().toISOString().slice(0,10) + '"></div><div class="nnna-form-group"><label>Capacity Assessment</label><select class="form-control" id="rc-capacity"><option value="full">Full</option><option value="assisted">Assisted</option><option value="lar">LAR Required</option></select></div><div class="nnna-form-group"><label>Legally Authorized Representative</label><input class="form-control" id="rc-lar" placeholder="Name and relationship (if applicable)"></div></div><div style="display:flex;justify-content:flex-end;gap:8px;margin-top:20px"><button class="nnna-btn-sm" onclick="window._irbCloseModal(\'irb-consent-modal\')">Cancel</button><button class="nnna-btn-primary" onclick="window._irbSubmitConsent()">Record Consent</button></div></div></div>');
+  };
+  window._irbSubmitConsent = function() {
+    var patientId= document.getElementById('rc-patient') && document.getElementById('rc-patient').value && document.getElementById('rc-patient').value.trim();
+    var studyId  = document.getElementById('rc-study')   && document.getElementById('rc-study').value;
+    var version  = document.getElementById('rc-version') && document.getElementById('rc-version').value && document.getElementById('rc-version').value.trim();
+    var date     = document.getElementById('rc-date')    && document.getElementById('rc-date').value;
+    var capacity = (document.getElementById('rc-capacity') && document.getElementById('rc-capacity').value) || 'full';
+    var lar      = (document.getElementById('rc-lar')    && document.getElementById('rc-lar').value    && document.getElementById('rc-lar').value.trim()) || 'N/A';
+    if (!patientId||!studyId||!version||!date) { toast('Please fill in all required fields', false); return; }
+    var consents = getConsents();
+    consents.push({id:'rc_'+Date.now(),patientId:patientId,studyId:studyId,consentVersion:version,signedDate:date,capacityAssessment:capacity,lar:lar,reconsentDue:'N/A',reconsentReason:''});
+    lsSet('ds_irb_research_consents', consents);
+    window._irbCloseModal('irb-consent-modal'); toast('Research consent recorded'); render();
+  };
+
+  window._irbDocFilter = function(field, val) {
+    if (field === 'study') _docFilterStudy = val;
+    if (field === 'type')  _docFilterType  = val;
+    _activeTab = 'reg-documents'; render();
+  };
+  window._irbViewDoc = function(id) {
+    var doc = getDocs().find(function(d) { return d.id === id; });
+    if (!doc) return;
+    var pv = document.getElementById('irb-doc-preview');
+    var tt = document.getElementById('irb-doc-preview-title');
+    var bd = document.getElementById('irb-doc-preview-body');
+    if (!pv||!tt||!bd) return;
+    tt.textContent = doc.name; bd.textContent = doc.preview || '(No preview available)';
+    pv.style.display = 'block'; pv.scrollIntoView({behavior:'smooth',block:'nearest'});
+  };
+  window._irbUploadDocModal = function(existingDocId) {
+    var studies = getStudies();
+    var prefill = {};
+    if (existingDocId) { var xd = getDocs().find(function(x){return x.id===existingDocId;}); if (xd) prefill = {studyId:xd.studyId,type:xd.type,name:xd.name}; }
+    document.getElementById('irb-upload-modal') && document.getElementById('irb-upload-modal').remove();
+    document.body.insertAdjacentHTML('beforeend', '<div id="irb-upload-modal" onclick="if(event.target.id===\'irb-upload-modal\')window._irbCloseModal(\'irb-upload-modal\')" style="position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:9000;display:flex;align-items:center;justify-content:center;padding:20px"><div style="background:var(--card-bg);border:1px solid var(--border);border-radius:14px;padding:24px;width:100%;max-width:500px"><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px"><h3 style="margin:0;font-size:15px;font-weight:800;color:var(--text)">Upload New Document Version</h3><button onclick="window._irbCloseModal(\'irb-upload-modal\')" style="background:none;border:none;cursor:pointer;color:var(--text-muted);font-size:20px;line-height:1">x</button></div><div class="nnna-form-grid"><div class="nnna-form-group"><label>Study *</label><select class="form-control" id="up-study"><option value="">Select study...</option>' + studies.map(function(s){return '<option value="'+s.id+'"'+(prefill.studyId===s.id?' selected':'')+'>'+s.studyId+'</option>';}).join('') + '</select></div><div class="nnna-form-group"><label>Document Type *</label><select class="form-control" id="up-type"><option value="">Select...</option>' + ['irb_approval','protocol','consent_form','hipaa','amendment'].map(function(t){return '<option value="'+t+'"'+(prefill.type===t?' selected':'')+'>'+t.replace(/_/g,' ').replace(/\b\w/g,function(c){return c.toUpperCase();})+'</option>';}).join('') + '</select></div><div class="nnna-form-group" style="grid-column:1/-1"><label>Document Name *</label><input class="form-control" id="up-name" placeholder="e.g., IRB Approval Letter v2.0" value="' + (prefill.name||'').replace(/"/g,'&quot;') + '"></div><div class="nnna-form-group"><label>Version *</label><input class="form-control" id="up-version" placeholder="e.g., 2.0"></div><div class="nnna-form-group"><label>Document Date</label><input class="form-control" id="up-date" type="date" value="' + new Date().toISOString().slice(0,10) + '"></div></div><div style="background:var(--hover-bg);border:1px dashed var(--border);border-radius:8px;padding:20px;text-align:center;margin:12px 0;color:var(--text-muted);font-size:12px">Document metadata recorded - actual file storage via DMS integration</div><div style="display:flex;justify-content:flex-end;gap:8px;margin-top:12px"><button class="nnna-btn-sm" onclick="window._irbCloseModal(\'irb-upload-modal\')">Cancel</button><button class="nnna-btn-primary" onclick="window._irbSubmitUpload()">Record Document</button></div></div></div>');
+  };
+  window._irbSubmitUpload = function() {
+    var studyId = document.getElementById('up-study')   && document.getElementById('up-study').value;
+    var type    = document.getElementById('up-type')    && document.getElementById('up-type').value;
+    var name    = document.getElementById('up-name')    && document.getElementById('up-name').value    && document.getElementById('up-name').value.trim();
+    var version = document.getElementById('up-version') && document.getElementById('up-version').value && document.getElementById('up-version').value.trim();
+    var date    = document.getElementById('up-date')    && document.getElementById('up-date').value;
+    if (!studyId||!type||!name||!version) { toast('Please fill in all required fields', false); return; }
+    var docs = getDocs().map(function(d) { return d.studyId===studyId && d.type===type ? Object.assign({},d,{status:'superseded'}) : d; });
+    docs.push({id:'doc_'+Date.now(),studyId:studyId,name:name,version:version,date:date,status:'current',type:type,preview:'[Document recorded: '+name+' v'+version+' - '+date+']'});
+    lsSet('ds_irb_documents', docs);
+    window._irbCloseModal('irb-upload-modal'); toast('Document recorded'); render();
+  };
+  window._irbCloseModal = function(id) { var m = document.getElementById(id); if (m) m.remove(); document.body.style.overflow = ''; };
+}

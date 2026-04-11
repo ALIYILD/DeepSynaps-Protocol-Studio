@@ -7111,3 +7111,208 @@ body.light-theme .nnnd-findings-list li { color: #1e293b; }
 body.light-theme .nnnd-rl-notes      { background: #f8fafc; color: #1e293b; }
 /* ── End NNN-D Literature Reference Library ────────────────────────────────── */
 /* ── End NNN-C Evidence Builder ───────────────────────────────────────────── */
+
+/* ── NNN-A IRB Protocol Manager ─────────────────────────────────────────────── */
+.nnna-study-card {
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 18px 20px;
+  margin-bottom: 14px;
+  transition: box-shadow 0.15s;
+}
+.nnna-study-card:hover {
+  box-shadow: 0 4px 24px rgba(0,0,0,0.18);
+}
+
+/* Wizard step indicator */
+.nnna-step-wizard {
+  display: flex;
+  align-items: center;
+  margin-bottom: 24px;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.nnna-step-node {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  min-width: 70px;
+}
+.nnna-step-circle {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  font-weight: 700;
+  background: var(--hover-bg);
+  color: var(--text-muted);
+  border: 2px solid var(--border);
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+.nnna-step-node.active .nnna-step-circle {
+  background: var(--accent-teal);
+  color: #fff;
+  border-color: var(--accent-teal);
+}
+.nnna-step-node.done .nnna-step-circle {
+  background: var(--accent-teal);
+  color: #fff;
+  border-color: var(--accent-teal);
+  opacity: 0.7;
+}
+.nnna-step-label {
+  font-size: 11px;
+  color: var(--text-muted);
+  text-align: center;
+  white-space: nowrap;
+}
+.nnna-step-node.active .nnna-step-label {
+  color: var(--accent-teal);
+  font-weight: 700;
+}
+.nnna-step-connector {
+  flex: 1;
+  height: 2px;
+  background: var(--border);
+  min-width: 16px;
+  margin-bottom: 18px;
+}
+
+/* Wizard panel */
+.nnna-wizard-panel {
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 22px 24px;
+}
+
+/* Form grid inside wizard */
+.nnna-form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+@media (max-width: 600px) {
+  .nnna-form-grid { grid-template-columns: 1fr; }
+}
+.nnna-form-group label {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  margin-bottom: 5px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+
+/* AE severity badges */
+.nnna-ae-severity {
+  display: inline-block;
+  padding: 2px 9px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 700;
+  border: 1px solid transparent;
+}
+.nnna-ae-mild {
+  background: var(--accent-teal, #00d4bc)22;
+  color: var(--accent-teal, #00d4bc);
+  border-color: var(--accent-teal, #00d4bc)44;
+}
+.nnna-ae-moderate {
+  background: var(--accent-amber, #f59e0b)22;
+  color: var(--accent-amber, #f59e0b);
+  border-color: var(--accent-amber, #f59e0b)44;
+}
+.nnna-ae-severe {
+  background: var(--accent-rose, #f43f5e)22;
+  color: var(--accent-rose, #f43f5e);
+  border-color: var(--accent-rose, #f43f5e)44;
+}
+.nnna-ae-unexpected {
+  background: var(--accent-violet, #8b5cf6)22;
+  color: var(--accent-violet, #8b5cf6);
+  border-color: var(--accent-violet, #8b5cf6)44;
+}
+
+/* Document list row */
+.nnna-doc-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+  transition: background 0.1s;
+  flex-wrap: wrap;
+}
+.nnna-doc-row:last-child { border-bottom: none; }
+.nnna-doc-row:hover { background: var(--hover-bg); }
+
+/* Enrollment progress bar */
+.nnna-enrollment-bar {
+  position: relative;
+  height: 8px;
+  background: var(--hover-bg);
+  border-radius: 4px;
+  overflow: hidden;
+  margin-bottom: 4px;
+}
+.nnna-enrollment-fill {
+  height: 100%;
+  border-radius: 4px;
+  transition: width 0.3s;
+}
+.nnna-enrollment-label {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+/* Small action buttons */
+.nnna-btn-sm {
+  padding: 5px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: 7px;
+  border: 1px solid var(--border);
+  background: var(--hover-bg);
+  color: var(--text);
+  cursor: pointer;
+  transition: background 0.13s, border-color 0.13s;
+  white-space: nowrap;
+}
+.nnna-btn-sm:hover { background: var(--card-bg); border-color: var(--accent-teal); color: var(--accent-teal); }
+.nnna-btn-sm.nnna-btn-teal { background: var(--accent-teal)22; color: var(--accent-teal); border-color: var(--accent-teal)55; }
+.nnna-btn-sm.nnna-btn-teal:hover { background: var(--accent-teal)33; }
+.nnna-btn-sm.nnna-btn-amber { background: var(--accent-amber)22; color: var(--accent-amber); border-color: var(--accent-amber)55; }
+.nnna-btn-sm.nnna-btn-amber:hover { background: var(--accent-amber)33; }
+.nnna-btn-sm.nnna-btn-rose { background: var(--accent-rose)22; color: var(--accent-rose); border-color: var(--accent-rose)55; }
+.nnna-btn-sm.nnna-btn-rose:hover { background: var(--accent-rose)33; }
+.nnna-btn-primary {
+  padding: 7px 16px;
+  font-size: 13px;
+  font-weight: 700;
+  border-radius: 8px;
+  border: none;
+  background: var(--accent-teal);
+  color: #fff;
+  cursor: pointer;
+  transition: opacity 0.13s;
+}
+.nnna-btn-primary:hover { opacity: 0.88; }
+
+/* Light theme overrides */
+body.light-theme .nnna-study-card,
+body.light-theme .nnna-wizard-panel { background: #fff; border-color: rgba(0,0,0,.1); }
+body.light-theme .nnna-step-circle  { background: rgba(0,0,0,.05); border-color: rgba(0,0,0,.15); }
+body.light-theme .nnna-step-connector { background: rgba(0,0,0,.12); }
+body.light-theme .nnna-doc-row:hover { background: rgba(0,0,0,.03); }
+body.light-theme .nnna-enrollment-bar { background: rgba(0,0,0,.07); }
+body.light-theme .nnna-btn-sm { background: rgba(0,0,0,.04); border-color: rgba(0,0,0,.12); color: #334155; }
+/* ── End NNN-A IRB Protocol Manager ──────────────────────────────────────────── */

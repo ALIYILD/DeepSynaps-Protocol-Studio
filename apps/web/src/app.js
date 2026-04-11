@@ -447,6 +447,7 @@ const NAV = [
   { id: 'quality-assurance', label: 'Quality Assurance', icon: '✅' },
   { id: 'device-management', label: 'Devices', icon: '🔬' },
   { id: 'clinical-trials', label: 'Clinical Trials', icon: '🧪' },
+  { id: 'irb-manager',     label: 'IRB Manager',      icon: '🔬', section: 'knowledge' },
   { id: 'trial-enrollment', label: 'Trial Enrollment', icon: '🧪', section: 'knowledge' },
   { id: 'staff-scheduling', label: 'Staff Scheduling', icon: '👥' },
   { id: 'clinic-analytics', label: 'Clinic Analytics', icon: '📊', section: 'knowledge' },
@@ -598,6 +599,7 @@ const PAGE_TITLES = {
   'data-export': 'Research Data Export',
   'evidence-builder': 'Evidence Builder',
   'literature': 'Evidence Library',
+  'irb-manager': 'IRB Manager',
 };
 
 // ── Navigate ──────────────────────────────────────────────────────────────────
@@ -910,6 +912,7 @@ async function renderPage() {
     case 'protocol-marketplace': { const { pgProtocolMarketplace } = await loadKnowledge(); await pgProtocolMarketplace(setTopbar); break; }
     case 'data-export': { const { pgDataExport } = await loadKnowledge(); await pgDataExport(setTopbar); break; }
     case 'literature': { const { pgLiteratureLibrary } = await loadKnowledge(); await pgLiteratureLibrary(setTopbar); break; }
+    case 'irb-manager': { const { pgIRBManager } = await loadKnowledge(); await pgIRBManager(setTopbar); break; }
     // ── Legacy pages (kept functional) ───────────────────────────────────
     case 'assessments': {
       const m = await loadClinical();
