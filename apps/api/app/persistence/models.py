@@ -510,3 +510,305 @@ class AiSummaryAudit(Base):
     sources_used: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
     model_used: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(), default=datetime.utcnow, index=True)
+
+
+# ── Media Upload & AI Analysis Models ────────────────────────────────────────
+
+
+class MediaConsent(Base):
+    __tablename__ = "media_consents"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    patient_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    consent_type: Mapped[str] = mapped_column(String(40), nullable=False)  # "upload_voice"|"upload_video"|"upload_text"|"ai_analysis"
+    granted: Mapped[bool] = mapped_column(Boolean(), default=False)
+    granted_at: Mapped[Optional[datetime]] = mapped_column(DateTime(), nullable=True)
+    revoked_at: Mapped[Optional[datetime]] = mapped_column(DateTime(), nullable=True)
+    retention_days: Mapped[int] = mapped_column(Integer(), default=365)
+    ip_address: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=datetime.utcnow)
+
+
+class PatientMediaUpload(Base):
+    __tablename__ = "patient_media_uploads"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    patient_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    course_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True, index=True)
+    session_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
+    uploaded_by: Mapped[str] = mapped_column(String(36), nullable=False)
+    media_type: Mapped[str] = mapped_column(String(20), nullable=False)  # "voice"|"video"|"text"
+    file_ref: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
+    file_size_bytes: Mapped[Optional[int]] = mapped_column(Integer(), nullable=True)
+    duration_seconds: Mapped[Optional[int]] = mapped_column(Integer(), nullable=True)
+    text_content: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    patient_note: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
+    status: Mapped[str] = mapped_column(String(40), default="uploaded")  # uploaded|pending_review|approved_for_analysis|analyzing|analyzed|clinician_reviewed|rejected|reupload_requested
+    consent_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
+    expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime(), nullable=True)
+    deleted_at: Mapped[Optional[datetime]] = mapped_column(DateTime(), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(), default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class PatientMediaTranscript(Base):
+    __tablename__ = "patient_media_transcripts"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    upload_id: Mapped[str] = mapped_column(String(36), nullable=False, unique=True)
+    transcript_text: Mapped[str] = mapped_column(Text(), nullable=False)
+    provider: Mapped[str] = mapped_column(String(64), nullable=False)  # "whisper-1"|"whisper-local"
+    language: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    confidence: Mapped[Optional[float]] = mapped_column(Float(), nullable=True)
+    word_count: Mapped[int] = mapped_column(Integer(), default=0)
+    processing_seconds: Mapped[Optional[float]] = mapped_column(Float(), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=datetime.utcnow)
+
+
+class PatientMediaAnalysis(Base):
+    __tablename__ = "patient_media_analysis"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    upload_id: Mapped[str] = mapped_column(String(36), nullable=False, unique=True)
+    transcript_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
+    triggered_by: Mapped[str] = mapped_column(String(36), nullable=False)
+    model_used: Mapped[str] = mapped_column(String(128), nullable=False)
+    prompt_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    structured_summary: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    symptoms_mentioned: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)       # JSON array
+    side_effects_mentioned: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)   # JSON array
+    functional_impact: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)        # JSON
+    adherence_mentions: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)       # JSON
+    follow_up_questions: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)      # JSON array
+    chart_note_draft: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    comparison_notes: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)         # JSON trend notes
+    approved_for_clinical_use: Mapped[bool] = mapped_column(Boolean(), default=False)
+    clinician_reviewed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(), nullable=True)
+    clinician_reviewer_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
+    clinician_amendments: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=datetime.utcnow)
+
+
+class PatientMediaReviewAction(Base):
+    __tablename__ = "patient_media_review_actions"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    upload_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    actor_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    action: Mapped[str] = mapped_column(String(40), nullable=False)  # "approve"|"reject"|"request_reupload"|"flag_urgent"|"mark_reviewed"
+    reason: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=datetime.utcnow)
+
+
+class ClinicianMediaNote(Base):
+    __tablename__ = "clinician_media_notes"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    patient_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    course_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
+    session_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
+    clinician_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    note_type: Mapped[str] = mapped_column(String(40), nullable=False)  # "post_session"|"clinical_update"|"adverse_event"|"progress"
+    media_type: Mapped[str] = mapped_column(String(20), nullable=False)  # "voice"|"text"|"video"
+    file_ref: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
+    file_size_bytes: Mapped[Optional[int]] = mapped_column(Integer(), nullable=True)
+    duration_seconds: Mapped[Optional[int]] = mapped_column(Integer(), nullable=True)
+    text_content: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    status: Mapped[str] = mapped_column(String(40), default="recorded")  # "recorded"|"transcribed"|"draft_generated"|"draft_approved"|"finalized"
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(), default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class MediaRedFlag(Base):
+    __tablename__ = "media_red_flags"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    upload_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
+    clinician_note_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
+    patient_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    flag_type: Mapped[str] = mapped_column(String(60), nullable=False)  # "safety_concern"|"adverse_event_signal"|"urgent_symptom"|"medication_issue"
+    extracted_text: Mapped[str] = mapped_column(Text(), nullable=False)
+    severity: Mapped[str] = mapped_column(String(20), default="medium")  # "low"|"medium"|"high"|"critical"
+    ai_generated: Mapped[bool] = mapped_column(Boolean(), default=True)
+    reviewed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(), nullable=True)
+    reviewed_by: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
+    dismissed: Mapped[bool] = mapped_column(Boolean(), default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=datetime.utcnow)
+
+
+class ClinicianMediaTranscript(Base):
+    __tablename__ = "clinician_media_transcripts"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    note_id: Mapped[str] = mapped_column(String(36), nullable=False, unique=True)
+    transcript_text: Mapped[str] = mapped_column(Text(), nullable=False)
+    provider: Mapped[str] = mapped_column(String(64), nullable=False)
+    language: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    word_count: Mapped[int] = mapped_column(Integer(), default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=datetime.utcnow)
+
+
+class ClinicianNoteDraft(Base):
+    __tablename__ = "clinician_note_drafts"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    note_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    generated_by: Mapped[str] = mapped_column(String(128), nullable=False)
+    prompt_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    session_note: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    treatment_update_draft: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    adverse_event_draft: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    patient_friendly_summary: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    task_suggestions: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)   # JSON array
+    status: Mapped[str] = mapped_column(String(20), default="generated")             # "generated"|"edited"|"approved"|"rejected"
+    approved_by: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
+    approved_at: Mapped[Optional[datetime]] = mapped_column(DateTime(), nullable=True)
+    clinician_edits: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=datetime.utcnow)
+
+
+# ── Home Device Workflow Models (Phase 1) ───────────────────────────────────────
+
+class DeviceSourceRegistry(Base):
+    """Registry of device source types. V1 seeds one 'manual' entry.
+    Phase 3: add vendor rows with adapter_class paths for direct integration."""
+    __tablename__ = "device_source_registry"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    source_slug: Mapped[str] = mapped_column(String(80), unique=True, nullable=False, index=True)
+    display_name: Mapped[str] = mapped_column(String(200), nullable=False)
+    # tDCS | tACS | TMS | CES | tPBM | PEMF | other
+    device_category: Mapped[str] = mapped_column(String(80), nullable=False)
+    manufacturer: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    # not_integrated | csv_import | health_kit_bridge | vendor_api_v1 | vendor_api_v2
+    integration_status: Mapped[str] = mapped_column(String(50), default="not_integrated")
+    # Phase 3: fully-qualified Python class path e.g. "app.adapters.halo.HaloAdapter"
+    adapter_class: Mapped[Optional[str]] = mapped_column(String(300), nullable=True)
+    # JSON: {"session_duration": true, "intensity": false, "montage": false, ...}
+    capabilities_json: Mapped[str] = mapped_column(Text(), default="{}")
+    oauth_required: Mapped[bool] = mapped_column(Boolean(), default=False)
+    webhook_supported: Mapped[bool] = mapped_column(Boolean(), default=False)
+    documentation_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean(), default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(), default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class HomeDeviceAssignment(Base):
+    """Clinician assigns a home neuromodulation device to a patient within a course.
+    Carries prescribed parameters and patient-facing instructions."""
+    __tablename__ = "home_device_assignments"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    patient_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    course_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True, index=True)
+    assigned_by: Mapped[str] = mapped_column(String(36), nullable=False)  # clinician user id
+    # FK to DeviceSourceRegistry — NULL in V1 (manual; no registry entry required)
+    source_registry_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
+    device_name: Mapped[str] = mapped_column(String(200), nullable=False)
+    device_model: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    device_serial: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    device_category: Mapped[str] = mapped_column(String(80), nullable=False, default="other")
+    # JSON: {intensity_ma, duration_min, montage, electrode_placement, frequency_hz, ...}
+    parameters_json: Mapped[str] = mapped_column(Text(), default="{}")
+    instructions_text: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    session_frequency_per_week: Mapped[Optional[int]] = mapped_column(Integer(), nullable=True)
+    planned_total_sessions: Mapped[Optional[int]] = mapped_column(Integer(), nullable=True)
+    # active | paused | completed | revoked
+    status: Mapped[str] = mapped_column(String(30), default="active", index=True)
+    revoked_at: Mapped[Optional[datetime]] = mapped_column(DateTime(), nullable=True)
+    revoke_reason: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(), default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class DeviceSessionLog(Base):
+    """Patient-reported home neuromodulation session.
+    Clinician must review before any clinical interpretation."""
+    __tablename__ = "device_session_logs"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    assignment_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    patient_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    course_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
+    session_date: Mapped[str] = mapped_column(String(10), nullable=False)     # YYYY-MM-DD
+    logged_at: Mapped[datetime] = mapped_column(DateTime(), default=datetime.utcnow)
+    duration_minutes: Mapped[Optional[int]] = mapped_column(Integer(), nullable=True)
+    completed: Mapped[bool] = mapped_column(Boolean(), default=True)
+    actual_intensity: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)   # e.g. "1.5mA"
+    electrode_placement: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    side_effects_during: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    tolerance_rating: Mapped[Optional[int]] = mapped_column(Integer(), nullable=True)     # 1–5
+    mood_before: Mapped[Optional[int]] = mapped_column(Integer(), nullable=True)          # 1–5
+    mood_after: Mapped[Optional[int]] = mapped_column(Integer(), nullable=True)           # 1–5
+    notes: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    media_upload_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
+    # pending_review | reviewed | flagged
+    status: Mapped[str] = mapped_column(String(30), default="pending_review", index=True)
+    reviewed_by: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
+    reviewed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(), nullable=True)
+    review_note: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=datetime.utcnow)
+
+
+class PatientAdherenceEvent(Base):
+    """Structured adherence, side-effect, tolerance, and concern reports from patient."""
+    __tablename__ = "patient_adherence_events"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    patient_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    assignment_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True, index=True)
+    course_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
+    # adherence_report | side_effect | tolerance_change | break_request | concern | positive_feedback
+    event_type: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
+    # low | moderate | high | urgent  (nullable for non-symptom events)
+    severity: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    report_date: Mapped[str] = mapped_column(String(10), nullable=False)    # YYYY-MM-DD
+    body: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    # JSON: {side_effect_type, frequency, duration, impact_on_function, timing_relative_to_session}
+    structured_json: Mapped[str] = mapped_column(Text(), default="{}")
+    media_upload_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
+    # open | acknowledged | resolved | escalated
+    status: Mapped[str] = mapped_column(String(30), default="open", index=True)
+    acknowledged_by: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
+    acknowledged_at: Mapped[Optional[datetime]] = mapped_column(DateTime(), nullable=True)
+    resolution_note: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=datetime.utcnow)
+
+
+class DeviceSyncEvent(Base):
+    """Phase 3 hook: raw events from vendor adapters or HealthKit bridge, pre-reconciliation.
+    V1: table exists but is unused — ready for Phase 2/3 adapter polling."""
+    __tablename__ = "device_sync_events"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    assignment_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True, index=True)
+    patient_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    source_registry_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
+    # session_auto_detected | firmware_update | connection_lost | sync_completed | error
+    event_type: Mapped[str] = mapped_column(String(50), nullable=False)
+    event_data: Mapped[str] = mapped_column(Text(), default="{}")   # raw vendor payload / inferred
+    # vendor_api | health_kit | android_health | manual | csv_import
+    source: Mapped[str] = mapped_column(String(80), nullable=False, default="manual")
+    occurred_at: Mapped[datetime] = mapped_column(DateTime(), nullable=False)
+    synced_at: Mapped[datetime] = mapped_column(DateTime(), default=datetime.utcnow)
+    reconciled: Mapped[bool] = mapped_column(Boolean(), default=False)
+    reconciled_session_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=datetime.utcnow)
+
+
+class HomeDeviceReviewFlag(Base):
+    """Auto-generated flags for clinician attention — missed sessions, tolerance drops, etc.
+    Must be reviewed/dismissed by clinician before closure."""
+    __tablename__ = "home_device_review_flags"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    patient_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    assignment_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
+    session_log_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
+    adherence_event_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
+    course_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
+    # missed_sessions | tolerance_drop | side_effect_escalation | unusual_report
+    # adherence_concern | parameter_deviation | urgent_symptom | sync_anomaly
+    flag_type: Mapped[str] = mapped_column(String(60), nullable=False, index=True)
+    # info | warning | urgent
+    severity: Mapped[str] = mapped_column(String(20), nullable=False, default="warning")
+    detail: Mapped[str] = mapped_column(Text(), nullable=False)
+    auto_generated: Mapped[bool] = mapped_column(Boolean(), default=True)
+    triggered_at: Mapped[datetime] = mapped_column(DateTime(), default=datetime.utcnow, index=True)
+    reviewed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(), nullable=True)
+    reviewed_by: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
+    dismissed: Mapped[bool] = mapped_column(Boolean(), default=False, index=True)
+    resolution: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=datetime.utcnow)

@@ -16,8 +16,11 @@ function _patientNav() {
     { id: 'patient-wearables',    label: t('patient.nav.wearables'),   icon: '◌' },
     { id: 'pt-wellness',          label: t('patient.nav.checkin'),     icon: '💚' },
     { id: 'pt-learn',             label: t('patient.nav.learn'),       icon: '📚' },
+    { id: 'pt-outcomes',           label: 'My Outcomes',               icon: '📈' },
     { id: 'pt-media-history',     label: 'My Updates',                 icon: '📋' },
     { id: 'pt-media-upload',      label: 'Send Update',                icon: '📤' },
+    { id: 'pt-home-device',       label: 'My Home Device',             icon: '⚡' },
+    { id: 'pt-adherence-history', label: 'Adherence History',          icon: '📊' },
     { id: 'patient-profile',      label: t('patient.nav.profile'),     icon: '◇' },
   ];
 }
@@ -131,7 +134,8 @@ function countdownRingSVG(daysLeft, hoursLeft, nextLabel) {
 function fmtDate(d) {
   if (!d) return '—';
   try {
-    return new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    const loc = getLocale() === 'tr' ? 'tr-TR' : 'en-US';
+    return new Date(d).toLocaleDateString(loc, { month: 'short', day: 'numeric', year: 'numeric' });
   } catch (_e) { return String(d); }
 }
 
@@ -398,29 +402,29 @@ export async function pgPatientDashboard(user) {
     <!-- Latest Document -->
     <div class="card" style="margin-bottom:20px">
       <div class="card-header" style="display:flex;justify-content:space-between;align-items:center">
-        <h3>Latest Document</h3>
-        <button class="btn btn-ghost btn-sm" onclick="window._navPatient('patient-reports')">All documents →</button>
+        <h3>${t('patient.dash.doc.title')}</h3>
+        <button class="btn btn-ghost btn-sm" onclick="window._navPatient('patient-reports')">${t('patient.dash.doc.all')}</button>
       </div>
       <div class="card-body" style="padding:14px 16px">
         ${latestDoc
           ? `<div style="display:flex;align-items:flex-start;gap:14px">
               <div style="width:40px;height:40px;border-radius:var(--radius-md);background:rgba(74,158,255,0.1);display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0;color:var(--blue)">◱</div>
               <div style="flex:1">
-                <div style="font-size:13px;font-weight:500;color:var(--text-primary)">${latestDoc.template_title || latestDoc.template_id || 'Outcome Report'}</div>
+                <div style="font-size:13px;font-weight:500;color:var(--text-primary)">${latestDoc.template_title || latestDoc.template_id || t('patient.reports.cat.outcome')}</div>
                 <div style="font-size:11.5px;color:var(--text-tertiary);margin-top:3px">${fmtDate(latestDoc.administered_at)}${latestDoc.score != null ? ' · Score: ' + latestDoc.score : ''}${latestDoc.measurement_point ? ' · ' + latestDoc.measurement_point : ''}</div>
                 <div class="pt-plain-language" style="margin-top:10px">
-                  <div class="pt-pl-title">About this report</div>
-                  <div class="pt-pl-body">This assessment was completed as part of your routine monitoring. Your clinician uses these scores to track your progress over time.</div>
+                  <div class="pt-pl-title">${t('patient.dash.doc.about')}</div>
+                  <div class="pt-pl-body">${t('patient.dash.doc.body')}</div>
                   <div class="pt-pl-footer">
-                    <span style="font-size:11.5px;color:var(--text-tertiary)">Questions about your results? Bring them up at your next session.</span>
+                    <span style="font-size:11.5px;color:var(--text-tertiary)">${t('patient.dash.doc.questions')}</span>
                   </div>
                 </div>
               </div>
             </div>`
           : `<div style="text-align:center;padding:24px;color:var(--text-tertiary)">
               <div style="font-size:18px;margin-bottom:8px;opacity:.4">◱</div>
-              No reports available yet.<br>
-              <span style="font-size:12px">Your care team will add reports after each assessment.</span>
+              ${t('patient.dash.doc.none')}<br>
+              <span style="font-size:12px">${t('patient.dash.doc.care_team')}</span>
             </div>`}
       </div>
     </div>
@@ -428,17 +432,17 @@ export async function pgPatientDashboard(user) {
     <!-- Secure Messages -->
     <div class="card" style="margin-bottom:24px">
       <div class="card-header" style="display:flex;justify-content:space-between;align-items:center">
-        <h3>Secure Messages</h3>
-        <button class="btn btn-ghost btn-sm" onclick="window._navPatient('patient-messages')">Open messages →</button>
+        <h3>${t('patient.dash.msg.title')}</h3>
+        <button class="btn btn-ghost btn-sm" onclick="window._navPatient('patient-messages')">${t('patient.dash.msg.open')}</button>
       </div>
       <div class="card-body" style="padding:14px 16px">
         <div style="text-align:center;padding:16px 8px;color:var(--text-tertiary)">
           <div style="font-size:18px;margin-bottom:8px;opacity:.4">▫</div>
-          <div style="font-size:12.5px;margin-bottom:12px">No new messages from your clinic.</div>
-          <button class="btn btn-ghost btn-sm" onclick="window._navPatient('patient-messages')">Send a message →</button>
+          <div style="font-size:12.5px;margin-bottom:12px">${t('patient.dash.msg.none')}</div>
+          <button class="btn btn-ghost btn-sm" onclick="window._navPatient('patient-messages')">${t('patient.dash.msg.send')}</button>
         </div>
         <div class="notice notice-info" style="font-size:11.5px;margin-top:4px">
-          If you have a question or concern, message your care team — they aim to respond within 1 business day.
+          ${t('patient.dash.msg.notice')}
         </div>
       </div>
     </div>
@@ -484,10 +488,10 @@ export async function pgPatientDashboard(user) {
         <div class="card-body" style="display:flex;align-items:center;gap:12px;padding:13px 16px">
           <span style="font-size:15px;color:var(--teal)">✓</span>
           <div style="flex:1">
-            <span style="font-size:13px;font-weight:500;color:var(--text-primary)">Daily check-in complete</span>
-            <span style="font-size:11.5px;color:var(--text-tertiary);margin-left:8px">Your care team can see today's update.</span>
+            <span style="font-size:13px;font-weight:500;color:var(--text-primary)">${t('patient.dash.checkin_done')}</span>
+            <span style="font-size:11.5px;color:var(--text-tertiary);margin-left:8px">${t('patient.dash.team_update')}</span>
           </div>
-          <button class="btn btn-ghost btn-sm" onclick="window._navPatient('pt-wellness')">View →</button>
+          <button class="btn btn-ghost btn-sm" onclick="window._navPatient('pt-wellness')">${t('common.view')} \u2192</button>
         </div>
       </div>`;
     }
@@ -553,20 +557,20 @@ function getPatientMilestones(sessions, outcomes) {
   } catch (_e) { /* ignore */ }
 
   return [
-    { id: 'first_session',  icon: '🌱', title: 'First Session',    desc: 'Completed your first session',              earned: count >= 1 },
-    { id: 'week_one',       icon: '📅', title: 'One Week In',      desc: '7 days since starting treatment',            earned: weekOneEarned },
-    { id: 'five_sessions',  icon: '⭐', title: 'Five Sessions',    desc: 'Completed 5 sessions',                       earned: count >= 5 },
-    { id: 'ten_sessions',   icon: '🏆', title: 'Ten Sessions',     desc: 'Completed 10 sessions',                      earned: count >= 10 },
-    { id: 'first_outcome',  icon: '📊', title: 'Progress Tracked', desc: 'First outcome assessment recorded',          earned: outcomes.length >= 1 },
-    { id: 'consistent',     icon: '🔥', title: 'Consistent',       desc: '3 sessions in one week',                     earned: consistentEarned },
-    { id: 'halfway',        icon: '🎯', title: 'Halfway There',    desc: 'Completed 50% of planned sessions',          earned: false },
-    { id: 'wellness_streak',icon: '💚', title: 'Wellness Warrior', desc: '7 daily check-ins in a row',                 earned: wellnessStreak },
+    { id: 'first_session',  icon: '🌱', title: t('patient.milestone.first_session.title'),    desc: t('patient.milestone.first_session.desc'),    earned: count >= 1 },
+    { id: 'week_one',       icon: '📅', title: t('patient.milestone.week_one.title'),          desc: t('patient.milestone.week_one.desc'),          earned: weekOneEarned },
+    { id: 'five_sessions',  icon: '⭐', title: t('patient.milestone.five_sessions.title'),    desc: t('patient.milestone.five_sessions.desc'),    earned: count >= 5 },
+    { id: 'ten_sessions',   icon: '🏆', title: t('patient.milestone.ten_sessions.title'),     desc: t('patient.milestone.ten_sessions.desc'),     earned: count >= 10 },
+    { id: 'first_outcome',  icon: '📊', title: t('patient.milestone.progress_tracked.title'), desc: t('patient.milestone.progress_tracked.desc'), earned: outcomes.length >= 1 },
+    { id: 'consistent',     icon: '🔥', title: t('patient.milestone.consistent.title'),       desc: t('patient.milestone.consistent.desc'),       earned: consistentEarned },
+    { id: 'halfway',        icon: '🎯', title: t('patient.milestone.halfway.title'),          desc: t('patient.milestone.halfway.desc'),          earned: false },
+    { id: 'wellness_streak',icon: '💚', title: t('patient.milestone.wellness_warrior.title'), desc: t('patient.milestone.wellness_warrior.desc'), earned: wellnessStreak },
   ];
 }
 
 // \u2500\u2500 Sessions \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
 export async function pgPatientSessions() {
-  setTopbar('Sessions');
+  setTopbar(t('patient.nav.sessions'));
 
   const el = document.getElementById('patient-content');
   el.innerHTML = spinner();
@@ -582,10 +586,10 @@ export async function pgPatientSessions() {
     el.innerHTML = `
       <div class="pt-sess-empty" style="margin-top:32px">
         <div class="pt-sess-empty-icon">\u25a7</div>
-        <div class="pt-sess-empty-title">Could not load sessions</div>
-        <div class="pt-sess-empty-body">Please check your connection and try again.</div>
+        <div class="pt-sess-empty-title">${t('patient.sess.err.title')}</div>
+        <div class="pt-sess-empty-body">${t('patient.sess.err.body')}</div>
         <button class="btn btn-ghost btn-sm" style="margin-top:12px"
-                onclick="window._navPatient('patient-sessions')">Retry \u2192</button>
+                onclick="window._navPatient('patient-sessions')">${t('patient.sess.err.retry')}</button>
       </div>`;
     return;
   }
@@ -612,15 +616,15 @@ export async function pgPatientSessions() {
   function statusInfo(rawStatus) {
     const s = (rawStatus || '').toLowerCase().trim();
     switch (s) {
-      case 'cancelled':             return { label: 'Cancelled',    pillClass: 'pt-pill-cancelled',   iconChar: '\u2715', iconClass: 'cancelled'    };
+      case 'cancelled':             return { label: t('patient.sess.status.cancelled'),    pillClass: 'pt-pill-cancelled',   iconChar: '\u2715', iconClass: 'cancelled'    };
       case 'missed':
       case 'no-show':
-      case 'no_show':               return { label: 'Missed',       pillClass: 'pt-pill-missed',      iconChar: '\u25a1', iconClass: 'missed'       };
-      case 'rescheduled':           return { label: 'Rescheduled',  pillClass: 'pt-pill-rescheduled', iconChar: '\u21bb', iconClass: 'rescheduled'  };
-      case 'interrupted':           return { label: 'Interrupted',  pillClass: 'pt-pill-interrupted', iconChar: '\u25d0', iconClass: 'interrupted'  };
+      case 'no_show':               return { label: t('patient.sess.status.missed'),       pillClass: 'pt-pill-missed',      iconChar: '\u25a1', iconClass: 'missed'       };
+      case 'rescheduled':           return { label: t('patient.sess.status.rescheduled'),  pillClass: 'pt-pill-rescheduled', iconChar: '\u21bb', iconClass: 'rescheduled'  };
+      case 'interrupted':           return { label: t('patient.sess.status.interrupted'),  pillClass: 'pt-pill-interrupted', iconChar: '\u25d0', iconClass: 'interrupted'  };
       case 'completed':
       case 'done':
-      default:                      return { label: 'Done',         pillClass: 'pill-active',         iconChar: '\u2713', iconClass: 'done'         };
+      default:                      return { label: t('patient.sess.status.done'),         pillClass: 'pill-active',         iconChar: '\u2713', iconClass: 'done'         };
     }
   }
 
@@ -663,10 +667,10 @@ export async function pgPatientSessions() {
     if (val == null || val === '') return null;
     const v = String(val).toLowerCase().trim();
     if (!v) return null;
-    if (['excellent', 'good', '1', '2'].includes(v))     return 'Tolerated well';
-    if (['mild', 'moderate', '3', '4', '5'].includes(v)) return 'Mild sensation';
-    if (['poor', '6', '7'].includes(v))                   return 'Some discomfort noted';
-    if (['high', 'very high', '8', '9', '10'].includes(v)) return 'Significant discomfort';
+    if (['excellent', 'good', '1', '2'].includes(v))     return t('patient.sess.tol.well');
+    if (['mild', 'moderate', '3', '4', '5'].includes(v)) return t('patient.sess.tol.mild');
+    if (['poor', '6', '7'].includes(v))                   return t('patient.sess.tol.discomfort');
+    if (['high', 'very high', '8', '9', '10'].includes(v)) return t('patient.sess.tol.significant');
     // Already a readable string \u2014 capitalise and pass through
     return v.charAt(0).toUpperCase() + v.slice(1);
   }
@@ -742,38 +746,42 @@ export async function pgPatientSessions() {
     ? Math.round((sessDelivered / totalPlanned) * 100) : null;
 
   function phaseLabel(pct) {
-    if (!pct)      return 'Starting';
-    if (pct <= 25) return 'Initial Phase';
-    if (pct <= 50) return 'Active Phase';
-    if (pct <= 75) return 'Consolidation';
-    if (pct < 100) return 'Final Phase';
-    return 'Complete';
+    if (!pct)      return t('patient.phase.starting');
+    if (pct <= 25) return t('patient.phase.initial');
+    if (pct <= 50) return t('patient.phase.active');
+    if (pct <= 75) return t('patient.phase.consolidation');
+    if (pct < 100) return t('patient.phase.final');
+    return t('patient.phase.complete');
   }
 
   // ── Prep content (V1: static, modality-aware stubs for future extension) ─────
   // Extension point: replace getSessionPrep(session) with an API call or
   // per-modality/per-protocol lookup when clinic-specific instructions are added.
-  const DEFAULT_PREP_STEPS = [
-    { icon: '\ud83d\udebf', text: 'Wash your hair the morning of your session. No conditioner, dry shampoo, or hair products.' },
-    { icon: '\ud83c\udf7d\ufe0f', text: 'Eat a light meal 1\u20132 hours before. Avoid arriving very hungry or immediately after a large meal.' },
-    { icon: '\ud83d\udc8a', text: 'Take your regular medications as prescribed unless your clinician has advised otherwise.' },
-    { icon: '\ud83d\ude34', text: 'Aim for a normal night\u2019s sleep before your session. Fatigue can affect how you respond.' },
-    { icon: '\ud83d\udcdd', text: 'Note any symptoms or changes since your last session to share with your clinician.' },
-    { icon: '\ud83d\udcf5', text: 'Switch your phone to silent during the session.' },
-  ];
-  const DEFAULT_BRING_LIST = [
-    'Your current medication list',
-    'Comfortable clothing with easy access to your head and neck',
-    'A water bottle',
-    'Any written questions for your clinician',
-    'A light snack for after (some patients feel tired post-session)',
-  ];
+  function getDefaultPrepSteps() {
+    return [
+      { icon: '\ud83d\udebf', text: t('patient.sess.prep.wash') },
+      { icon: '\ud83c\udf7d\ufe0f', text: t('patient.sess.prep.eat') },
+      { icon: '\ud83d\udc8a', text: t('patient.sess.prep.meds') },
+      { icon: '\ud83d\ude34', text: t('patient.sess.prep.sleep') },
+      { icon: '\ud83d\udcdd', text: t('patient.sess.prep.note_symptoms') },
+      { icon: '\ud83d\udcf5', text: t('patient.sess.prep.phone') },
+    ];
+  }
+  function getDefaultBringList() {
+    return [
+      t('patient.sess.bring.meds'),
+      t('patient.sess.bring.clothing'),
+      t('patient.sess.bring.water'),
+      t('patient.sess.bring.questions'),
+      t('patient.sess.bring.snack'),
+    ];
+  }
   // getSessionPrep returns { steps, bringList, expectDuration }
   // V1: returns defaults; V2: can branch on s.modality_slug / s.clinic_notes
   function getSessionPrep(s) {
     return {
-      steps:          DEFAULT_PREP_STEPS,
-      bringList:      DEFAULT_BRING_LIST,
+      steps:          getDefaultPrepSteps(),
+      bringList:      getDefaultBringList(),
       expectDuration: s.duration_minutes
         ? `${s.duration_minutes}\u00a0minutes`
         : 'approximately 20\u201345\u00a0minutes',
@@ -786,21 +794,24 @@ export async function pgPatientSessions() {
     const sessionNum  = Number.isFinite(s.session_number)
       ? s.session_number
       : (sessDelivered + idx + 1);
+    const _loc        = getLocale() === 'tr' ? 'tr-TR' : 'en-US';
     const dateLong    = s.scheduled_at
-      ? new Date(s.scheduled_at).toLocaleDateString('en-US',
+      ? new Date(s.scheduled_at).toLocaleDateString(_loc,
           { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })
       : '\u2014';
     const timeStr     = s.scheduled_at
-      ? new Date(s.scheduled_at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+      ? new Date(s.scheduled_at).toLocaleTimeString(_loc, { hour: 'numeric', minute: '2-digit' })
       : '';
     const daysAway    = s.scheduled_at
       ? Math.max(0, Math.ceil((new Date(s.scheduled_at).getTime() - now) / 86400000))
       : null;
     const isToday     = daysAway === 0;
     const isTomorrow  = daysAway === 1;
-    const urgency     = isToday    ? 'Today'
-                      : isTomorrow ? 'Tomorrow'
-                      : daysAway !== null ? `In ${daysAway} day${daysAway > 1 ? 's' : ''}` : '';
+    const urgency     = isToday    ? t('patient.sess.urgency.today')
+                      : isTomorrow ? t('patient.sess.urgency.tomorrow')
+                      : daysAway !== null
+                        ? t(daysAway === 1 ? 'patient.sess.urgency.in_day' : 'patient.sess.urgency.in_days', { n: daysAway })
+                        : '';
 
     // Escape all user/backend-supplied strings (fix #5)
     const mod         = modalityLabel(s.modality_slug || s.condition_slug);
@@ -817,7 +828,7 @@ export async function pgPatientSessions() {
 
         <div class="pt-uc-header">
           <div class="pt-uc-primary">
-            <div class="pt-uc-title">Session ${sessionNum}</div>
+            <div class="pt-uc-title">${t('patient.sess.session_n', { n: sessionNum })}</div>
             <div class="pt-uc-date">${esc(dateLong)}</div>
             <div class="pt-uc-meta-row">
               ${timeStr   ? `<span class="pt-uc-meta-chip">\ud83d\udd50 ${esc(timeStr)}</span>` : ''}
@@ -829,28 +840,28 @@ export async function pgPatientSessions() {
           </div>
           <div class="pt-uc-badges">
             ${urgency ? `<div class="pt-uc-urgency-badge ${isToday ? 'today' : isTomorrow ? 'soon' : ''}">${urgency}</div>` : ''}
-            <span class="pill pill-pending" style="font-size:10px;margin-top:4px">Scheduled</span>
+            <span class="pill pill-pending" style="font-size:10px;margin-top:4px">${t('patient.sess.scheduled')}</span>
           </div>
         </div>
 
         ${clinicNotes ? `
         <div class="pt-uc-clinic-note">
-          <span class="pt-uc-clinic-note-label">Note from your clinic:</span>
+          <span class="pt-uc-clinic-note-label">${t('patient.sess.clinic_note')}</span>
           ${clinicNotes}
         </div>` : ''}
 
         <div class="pt-uc-actions">
           <button class="btn btn-primary btn-sm"
                   onclick="window._ptTogglePrep(${idx});this.closest('.pt-upcoming-card').querySelector('#pt-prep-panel-${idx}')?.scrollIntoView({behavior:'smooth',block:'nearest'})">
-            View details
+            ${t('patient.sess.view_details')}
           </button>
           <button class="btn btn-ghost btn-sm"
                   onclick="window._navPatient('patient-messages')">
-            Contact clinic
+            ${t('patient.sess.contact_clinic')}
           </button>
           <button class="btn btn-ghost btn-sm"
                   onclick="window._ptRequestReschedule(${idx})">
-            Reschedule
+            ${t('patient.sess.reschedule')}
           </button>
         </div>
 
@@ -859,14 +870,14 @@ export async function pgPatientSessions() {
              onkeydown="if(event.key==='Enter'||event.key===' '){window._ptTogglePrep(${idx});event.preventDefault();}"
              role="button" tabindex="0"
              aria-expanded="${autoOpen}" id="pt-prep-btn-${idx}">
-          <span style="font-size:13px;font-weight:500;color:var(--text-primary)">How to prepare</span>
+          <span style="font-size:13px;font-weight:500;color:var(--text-primary)">${t('patient.sess.how_prepare')}</span>
           <span id="pt-prep-chev-${idx}" style="font-size:11px;color:var(--text-tertiary);transition:transform 0.2s">${autoOpen ? '\u25b2' : '\u25be'}</span>
         </div>
 
         <div id="pt-prep-panel-${idx}" class="pt-uc-prep-panel" style="display:${autoOpen ? '' : 'none'}">
           <div class="pt-prep-col-wrap">
             <div class="pt-prep-col">
-              <div class="pt-prep-col-title">Before your session</div>
+              <div class="pt-prep-col-title">${t('patient.sess.before_session')}</div>
               <ul class="pt-prep-list">
                 ${prep.steps.map(item => `
                   <li class="pt-prep-item">
@@ -876,7 +887,7 @@ export async function pgPatientSessions() {
               </ul>
             </div>
             <div class="pt-prep-col">
-              <div class="pt-prep-col-title">What to bring</div>
+              <div class="pt-prep-col-title">${t('patient.sess.what_bring')}</div>
               <ul class="pt-prep-list">
                 ${prep.bringList.map(item => `
                   <li class="pt-prep-item">
@@ -885,22 +896,19 @@ export async function pgPatientSessions() {
                   </li>`).join('')}
               </ul>
               <div class="pt-prep-expect-box">
-                <div class="pt-prep-col-title">What to expect</div>
+                <div class="pt-prep-col-title">${t('patient.sess.what_expect')}</div>
                 <div style="font-size:12px;color:var(--text-secondary);line-height:1.65">
-                  When you arrive, your clinician will briefly review how you\u2019ve been since your last visit.
-                  Equipment setup takes 5\u201310 minutes.
-                  The session itself lasts ${prep.expectDuration}.
-                  You can pause or stop at any time \u2014 just let your clinician know.
+                  ${t('patient.sess.expect_intro', { duration: prep.expectDuration })}
                 </div>
               </div>
             </div>
           </div>
           <div class="pt-uc-prep-footer">
             <div class="pt-uc-reschedule-note">
-              To cancel or reschedule, please contact your clinic at least 24\u00a0hours in advance.
+              ${t('patient.sess.cancel_note')}
             </div>
             <button class="btn btn-ghost btn-sm" onclick="window._navPatient('patient-messages');event.stopPropagation()">
-              Message clinic \u2192
+              ${t('patient.sess.msg_clinic')}
             </button>
           </div>
         </div>
@@ -926,17 +934,17 @@ export async function pgPatientSessions() {
 
     // Build detail rows — only for delivered sessions (fix #3: non-delivered show status info)
     const detailItems = isNonDelivered ? [] : [
-      tol           ? { label: 'How it went',              val: esc(tol) }                    : null,
-      mod           ? { label: 'Session type',             val: esc(mod) }                    : null,
-      dur           ? { label: 'Duration',                 val: esc(dur) }                    : null,
-      s.device_slug ? { label: 'Equipment',                val: esc(String(s.device_slug).toUpperCase()) } : null,
+      tol           ? { label: t('patient.sess.row.how_went'),  val: esc(tol) }                    : null,
+      mod           ? { label: t('patient.sess.row.type'),      val: esc(mod) }                    : null,
+      dur           ? { label: t('patient.sess.row.duration'),  val: esc(dur) }                    : null,
+      s.device_slug ? { label: t('patient.sess.row.equipment'), val: esc(String(s.device_slug).toUpperCase()) } : null,
     ].filter(Boolean);
 
     // Notes separately (can be long) (fix #5: escaped)
     const escapedNotes = esc(notes);
 
     // Title: numbered if delivered, status-labelled if not
-    const rowTitle = num != null ? `Session ${num}` : status.label;
+    const rowTitle = num != null ? t('patient.sess.session_n', { n: num }) : status.label;
 
     return `
       <div class="pt-completed-row${isNonDelivered ? ' pt-cr-nondel' : ''}"
@@ -954,7 +962,7 @@ export async function pgPatientSessions() {
           </div>
           <div class="pt-cr-badges">
             <span class="${status.pillClass} pt-status-pill">${status.label}</span>
-            ${relDocs.length > 0 ? `<span class="pt-report-badge">Report</span>` : ''}
+            ${relDocs.length > 0 ? `<span class="pt-report-badge">${t('patient.sess.row.report')}</span>` : ''}
             <span id="pt-cr-chev-${rowIdx}" class="pt-cr-chevron" aria-hidden="true">\u25be</span>
           </div>
         </div>
@@ -962,15 +970,14 @@ export async function pgPatientSessions() {
         <div id="pt-cr-detail-${rowIdx}" class="pt-cr-detail" style="display:none">
           ${isNonDelivered ? `
             <div class="pt-cr-nondel-notice">
-              ${status.label === 'Cancelled'
-                ? 'This session was cancelled. If you have questions, please contact your clinic.'
-                : status.label === 'Missed'
-                ? 'This session was missed. Please contact your clinic to rebook or discuss your plan.'
-                : status.label === 'Rescheduled'
-                ? 'This session was rescheduled. Your new appointment should appear in Upcoming Sessions.'
-                : status.label === 'Interrupted'
-                ? 'This session was stopped early. Your clinician\u2019s notes may be available below.'
-                : 'Contact your clinic if you have questions about this session.'}
+              ${(() => {
+                const raw = (s.status || '').toLowerCase().trim();
+                if (raw === 'cancelled')                        return t('patient.sess.nondel.cancelled');
+                if (['missed','no-show','no_show'].includes(raw)) return t('patient.sess.nondel.missed');
+                if (raw === 'rescheduled')                      return t('patient.sess.nondel.rescheduled');
+                if (raw === 'interrupted')                      return t('patient.sess.nondel.interrupted');
+                return t('patient.sess.nondel.default');
+              })()}
             </div>` : ''}
 
           ${detailItems.length > 0 ? `
@@ -984,7 +991,7 @@ export async function pgPatientSessions() {
 
           ${escapedNotes ? `
             <div class="pt-cr-notes">
-              <div class="pt-cr-notes-label">Notes from your clinician</div>
+              <div class="pt-cr-notes-label">${t('patient.sess.row.notes')}</div>
               <div class="pt-cr-notes-body">${escapedNotes}</div>
             </div>` : ''}
 
@@ -995,11 +1002,11 @@ export async function pgPatientSessions() {
                  role="button" tabindex="0">
               <span style="color:var(--blue);font-size:14px">\u25f1</span>
               <span class="pt-cr-report-title">${esc(doc.template_title || 'Assessment Report')}</span>
-              <span class="pt-cr-report-action">View document \u2192</span>
+              <span class="pt-cr-report-action">${t('patient.sess.row.view_doc')}</span>
             </div>`).join('') : ''}
 
           ${!detailItems.length && !escapedNotes && !relDocs.length && !isNonDelivered
-            ? `<div style="font-size:12px;color:var(--text-tertiary);padding:4px 0">No additional details on file for this session.</div>`
+            ? `<div style="font-size:12px;color:var(--text-tertiary);padding:4px 0">${t('patient.sess.row.no_details')}</div>`
             : ''}
         </div>
       </div>
@@ -1013,17 +1020,17 @@ export async function pgPatientSessions() {
     ${activeCourse ? `
     <div class="pt-course-ctx-bar">
       <div class="pt-ctx-item">
-        <div class="pt-ctx-label">Treatment course</div>
+        <div class="pt-ctx-label">${t('patient.sess.course.label')}</div>
         <div class="pt-ctx-value">${esc(activeCourse.condition_slug || 'Active Treatment')}</div>
       </div>
       <div class="pt-ctx-divider"></div>
       <div class="pt-ctx-item">
-        <div class="pt-ctx-label">Sessions done</div>
+        <div class="pt-ctx-label">${t('patient.sess.course.done')}</div>
         <div class="pt-ctx-value">${sessDelivered}\u00a0of\u00a0${totalPlanned ?? '?'}</div>
       </div>
       <div class="pt-ctx-divider"></div>
       <div class="pt-ctx-item">
-        <div class="pt-ctx-label">Current phase</div>
+        <div class="pt-ctx-label">${t('patient.sess.course.phase')}</div>
         <div class="pt-ctx-value">${phaseLabel(progressPct)}</div>
       </div>
       ${progressPct !== null ? `
@@ -1035,33 +1042,32 @@ export async function pgPatientSessions() {
     <!-- Upcoming sessions -->
     <div class="pt-sess-section">
       <div class="pt-sess-section-hd">
-        <span class="pt-sess-section-title">Upcoming Sessions</span>
+        <span class="pt-sess-section-title">${t('patient.sess.upcoming')}</span>
         ${upcoming.length > 0 ? `<span class="pt-sess-badge">${upcoming.length}</span>` : ''}
       </div>
 
       ${upcoming.length === 0
         ? `<div class="pt-sess-empty">
             <div class="pt-sess-empty-icon">\u25a7</div>
-            <div class="pt-sess-empty-title">No upcoming sessions scheduled</div>
+            <div class="pt-sess-empty-title">${t('patient.sess.no_upcoming.title')}</div>
             <div class="pt-sess-empty-body">
-              Your next session will appear here once your clinic has booked it.
               ${activeCourse
-                ? 'You have an active treatment course \u2014 contact your clinic to schedule your next visit.'
-                : 'Contact your clinic to discuss your treatment plan.'}
+                ? t('patient.sess.no_upcoming.body_active')
+                : t('patient.sess.no_upcoming.body')}
             </div>
             <button class="btn btn-ghost btn-sm" style="margin-top:14px"
                     onclick="window._navPatient('patient-messages')">
-              Contact your clinic \u2192
+              ${t('patient.sess.no_upcoming.cta')}
             </button>
             <details class="pt-sess-what-to-expect" style="margin-top:20px">
-              <summary class="pt-sess-expect-toggle">What happens at a session?</summary>
+              <summary class="pt-sess-expect-toggle">${t('patient.sess.what_happens')}</summary>
               <div class="pt-sess-expect-body">
-                <p>When you arrive, your clinician will briefly check in on how you\u2019ve been feeling and review any changes since your last visit.</p>
-                <p>Equipment setup typically takes 5\u201310 minutes. The session itself usually lasts 20\u201345 minutes depending on your treatment protocol.</p>
-                <p>You are always in control \u2014 you can pause or stop at any time by letting your clinician know.</p>
-                <div class="pt-prep-col-title" style="margin-top:14px">What to bring to any session</div>
+                <p>${t('patient.sess.what_happens.p1')}</p>
+                <p>${t('patient.sess.what_happens.p2')}</p>
+                <p>${t('patient.sess.what_happens.p3')}</p>
+                <div class="pt-prep-col-title" style="margin-top:14px">${t('patient.sess.what_bring.any')}</div>
                 <ul class="pt-prep-list">
-                  ${DEFAULT_BRING_LIST.map(item => `
+                  ${getDefaultBringList().map(item => `
                     <li class="pt-prep-item">
                       <span class="pt-prep-ico" style="font-size:10px;opacity:.5">\u25cf</span>
                       <span>${item}</span>
@@ -1076,15 +1082,15 @@ export async function pgPatientSessions() {
     <!-- Past / completed sessions -->
     <div class="pt-sess-section">
       <div class="pt-sess-section-hd">
-        <span class="pt-sess-section-title">Session History</span>
+        <span class="pt-sess-section-title">${t('patient.sess.history')}</span>
         ${pastSessions.length > 0 ? `<span class="pt-sess-badge">${pastSessions.length}</span>` : ''}
       </div>
 
       ${pastSessions.length === 0
         ? `<div class="pt-sess-empty" style="padding:28px 20px">
             <div class="pt-sess-empty-icon" style="font-size:22px">\u25a7</div>
-            <div class="pt-sess-empty-title">No session history yet</div>
-            <div class="pt-sess-empty-body">Your session history will appear here after your first visit.</div>
+            <div class="pt-sess-empty-title">${t('patient.sess.no_history.title')}</div>
+            <div class="pt-sess-empty-body">${t('patient.sess.no_history.body')}</div>
           </div>`
         : `<div class="card" style="overflow:hidden;padding:0">
             ${pastSessions.map((s, i) => pastSessionRowHTML(s, i)).join('')}
@@ -1142,18 +1148,43 @@ export async function pgPatientCourse() {
   const el = document.getElementById('patient-content');
   el.innerHTML = spinner();
 
+  // ── Helpers ──────────────────────────────────────────────────────────────
+  function esc(v) {
+    if (v == null) return '';
+    return String(v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#x27;');
+  }
+  // Converts backend slugs like "major-depressive-disorder" → "Major Depressive Disorder"
+  function conditionLabel(slug) {
+    if (!slug) return null;
+    return slug.replace(/[-_]/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+  }
+  const _MODALITY_MAP = { tms:'TMS', rtms:'rTMS', dtms:'Deep TMS', tdcs:'tDCS', tacs:'tACS', trns:'tRNS', neurofeedback:'Neurofeedback', nfb:'Neurofeedback', heg:'HEG Neurofeedback', lens:'LENS Neurofeedback', lensnfb:'LENS Neurofeedback' };
+  function modalityLabel(slug) {
+    if (!slug) return null;
+    const key = slug.toLowerCase().replace(/[-_\s]/g, '');
+    return _MODALITY_MAP[key] || slug.replace(/[-_]/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+  }
+  function courseStatusLabel(status) {
+    const s = (status || '').toLowerCase().trim();
+    if (['active','in_progress','in-progress','ongoing'].includes(s)) return 'In progress';
+    if (['completed','done','finished'].includes(s))                    return 'Completed';
+    if (['paused','on_hold','on-hold'].includes(s))                     return 'On hold';
+    if (['pending','scheduled','starting'].includes(s))                 return 'Starting soon';
+    return 'Active';
+  }
+
   const coursesRaw = await api.patientPortalCourses().catch(() => null);
   const coursesArr = Array.isArray(coursesRaw) ? coursesRaw : [];
   const course = coursesArr.find(c => c.status === 'active') || coursesArr[0] || null;
 
   if (!course) {
     el.innerHTML = `
-      <div class="card">
-        <div class="card-body" style="text-align:center;padding:48px;color:var(--text-tertiary)">
-          <div style="font-size:24px;margin-bottom:12px;opacity:.4">◎</div>
-          No active treatment course assigned.<br>
-          <span style="font-size:12px">Contact your clinic to get started.</span>
-        </div>
+      <div class="pt-portal-empty">
+        <div class="pt-portal-empty-ico" aria-hidden="true">&#9678;</div>
+        <div class="pt-portal-empty-title">No treatment plan yet</div>
+        <div class="pt-portal-empty-body">Your care team will set up your treatment plan here once your course begins. Contact your clinic if you have questions.</div>
+        <button class="btn btn-ghost btn-sm" style="margin-top:14px"
+                onclick="window._navPatient('patient-messages')">Contact your clinic \u2192</button>
       </div>`;
     return;
   }
@@ -1164,23 +1195,22 @@ export async function pgPatientCourse() {
   const pct        = total > 0 ? Math.round((delivered / total) * 100) : 0;
   const nextSessN  = delivered + 1;
   const startedStr = fmtDate(course.started_at || course.created_at);
-  const condition  = course.condition_slug || '—';
-  const modality   = course.modality_slug?.toUpperCase() || '—';
-  const protocol   = course.protocol_id || '—';
+  const condition  = conditionLabel(course.condition_slug);
+  const modality   = modalityLabel(course.modality_slug);
+  // protocol_id is an internal identifier — not shown to patients
 
   const courseFields = [
-    ['Condition',  condition],
-    ['Modality',   modality],
-    ['Protocol',   protocol],
-    ['Sessions',   `${delivered} completed`],
-    ['Started',    startedStr],
-  ].filter(([, v]) => v && v !== '—');
+    condition ? [t('patient.course.condition'), esc(condition)] : null,
+    modality  ? [t('patient.course.modality'),  esc(modality)]  : null,
+    [`${t('patient.course.sessions_label')}`,   `${delivered} ${t('patient.course.completed_suffix')}`],
+    [t('patient.course.started'),               startedStr],
+  ].filter(Boolean).filter(([, v]) => v && v !== '—');
 
   el.innerHTML = `
     <div class="card" style="margin-bottom:20px;border-color:var(--border-teal)">
       <div class="card-header">
-        <h3>Current Treatment Course</h3>
-        <span class="pill pill-active">${course.status || 'Active'}</span>
+        <h3>${t('patient.course.current')}</h3>
+        <span class="pt-assess-pill pt-assess-pill-due">${courseStatusLabel(course.status)}</span>
       </div>
       <div class="card-body">
         <div class="g2">
@@ -1190,16 +1220,16 @@ export async function pgPatientCourse() {
           <div>
             <div style="margin-bottom:16px">
               <div style="display:flex;justify-content:space-between;margin-bottom:6px">
-                <span style="font-size:12px;color:var(--text-secondary)">Overall Progress</span>
+                <span style="font-size:12px;color:var(--text-secondary)">${t('patient.course.progress')}</span>
                 <span style="font-size:12px;font-weight:600;color:var(--teal)">${pct}%</span>
               </div>
               <div class="progress-bar" style="height:8px">
                 <div class="progress-fill" style="width:${pct}%"></div>
               </div>
-              <div style="font-size:11px;color:var(--text-tertiary);margin-top:6px">${delivered} of ${total} sessions complete</div>
+              <div style="font-size:11px;color:var(--text-tertiary);margin-top:6px">${t('patient.course.of_sessions', { delivered, total })}</div>
             </div>
             <div class="notice notice-info" style="font-size:12px">
-              Your care team will review outcomes at session ${Math.round(total * 0.75)} and may adjust parameters.
+              ${t('patient.course.review_note', { n: Math.round(total * 0.75) })}
             </div>
           </div>
         </div>
@@ -1207,7 +1237,7 @@ export async function pgPatientCourse() {
     </div>
 
     <div class="card" style="margin-bottom:20px">
-      <div class="card-header"><h3>Session Timeline</h3></div>
+      <div class="card-header"><h3>${t('patient.course.timeline')}</h3></div>
       <div class="card-body">
         <div class="pt-timeline">
           ${Array.from({ length: total }, (_, i) => {
@@ -1215,10 +1245,10 @@ export async function pgPatientCourse() {
             const state  = n <= delivered ? 'done' : n === nextSessN ? 'active' : 'upcoming';
             const dotCls = `pt-tl-dot pt-tl-dot-${state}`;
             const label  = state === 'done'
-              ? `<span style="color:var(--green);font-size:11px;font-weight:500">Session ${n}</span>`
+              ? `<span style="color:var(--green);font-size:11px;font-weight:500">${t('patient.sess.session_n', { n })}</span>`
               : state === 'active'
-              ? `<span style="color:var(--teal);font-size:11px;font-weight:600">Session ${n} — Next</span>`
-              : `<span style="color:var(--text-tertiary);font-size:11px">Session ${n}</span>`;
+              ? `<span style="color:var(--teal);font-size:11px;font-weight:600">${t('patient.course.session_next', { n })}</span>`
+              : `<span style="color:var(--text-tertiary);font-size:11px">${t('patient.sess.session_n', { n })}</span>`;
             return `
               <div class="pt-tl-row ${n === total ? 'pt-tl-last' : ''}">
                 <div class="pt-tl-spine">
@@ -1233,40 +1263,38 @@ export async function pgPatientCourse() {
     </div>
 
     <div class="card" style="margin-bottom:20px">
-      <div class="card-header"><h3>About This Treatment</h3></div>
+      <div class="card-header"><h3>${t('patient.course.about')}</h3></div>
       <div class="card-body">
         <p style="font-size:12.5px;color:var(--text-secondary);line-height:1.8;margin-bottom:12px">
-          <strong style="color:var(--text-primary)">${modality}</strong> is a non-invasive brain stimulation technique
-          targeting <strong style="color:var(--text-primary)">${condition}</strong>.
-          Your care team has designed this course based on your clinical assessment.
+          <strong style="color:var(--text-primary)">${esc(modality || '')}</strong> ${t('patient.course.about.technique')}
+          <strong style="color:var(--text-primary)">${esc(condition || '')}</strong>${t('patient.course.about.design')}
         </p>
         <p style="font-size:12.5px;color:var(--text-secondary);line-height:1.8">
-          Sessions are typically painless. You may feel mild sensations under the electrodes — this is normal.
-          Contact your clinician if you experience unexpected discomfort.
+          ${t('patient.course.about.p2')}
         </p>
       </div>
     </div>
 
     <div class="card" id="pt-hw-plan-card" style="margin-bottom:20px">
-      <div class="card-header"><h3>My Homework Plan</h3></div>
+      <div class="card-header"><h3>${t('patient.course.homework')}</h3></div>
       <div class="card-body" id="pt-hw-plan-body">
-        <div style="color:var(--text-tertiary);font-size:13px;padding:8px 0">Loading homework plan…</div>
+        <div style="color:var(--text-tertiary);font-size:13px;padding:8px 0">${t('patient.course.homework_loading')}</div>
       </div>
     </div>
 
     <div class="card" id="pt-homework-card">
-      <div class="card-header"><h3>Homework &amp; Exercises</h3></div>
+      <div class="card-header"><h3>${t('patient.course.exercises')}</h3></div>
       <div class="card-body" style="padding:0 0 4px">
         <div id="homework-list"></div>
         <div style="padding:12px 18px">
           <div id="homework-add-form" style="display:none;margin-bottom:10px">
             <div style="display:flex;gap:8px;align-items:center">
-              <input type="text" id="homework-note-input" class="form-control" placeholder="Personal note title…" style="flex:1;font-size:12.5px">
-              <button class="btn btn-primary btn-sm" onclick="window._saveHomeworkNote()">Add</button>
-              <button class="btn btn-ghost btn-sm" onclick="document.getElementById('homework-add-form').style.display='none'">Cancel</button>
+              <input type="text" id="homework-note-input" class="form-control" placeholder="${t('patient.course.note_placeholder')}" style="flex:1;font-size:12.5px">
+              <button class="btn btn-primary btn-sm" onclick="window._saveHomeworkNote()">${t('common.new')}</button>
+              <button class="btn btn-ghost btn-sm" onclick="document.getElementById('homework-add-form').style.display='none'">${t('common.cancel')}</button>
             </div>
           </div>
-          <button class="btn btn-ghost btn-sm" style="width:100%" onclick="window._addHomeworkNote()">+ Add personal note</button>
+          <button class="btn btn-ghost btn-sm" style="width:100%" onclick="window._addHomeworkNote()">${t('patient.course.add_note')}</button>
         </div>
       </div>
     </div>
@@ -1302,7 +1330,7 @@ export async function pgPatientCourse() {
     const listEl = document.getElementById('homework-list');
     if (!listEl) return;
     if (items.length === 0) {
-      listEl.innerHTML = '<div style="padding:16px 18px;font-size:12.5px;color:var(--text-tertiary)">No homework assigned yet.</div>';
+      listEl.innerHTML = `<div style="padding:16px 18px;font-size:12.5px;color:var(--text-tertiary)">${t('patient.course.homework_empty')}</div>`;
       return;
     }
     listEl.innerHTML = items.map(item => `
@@ -1310,10 +1338,10 @@ export async function pgPatientCourse() {
         <input type="checkbox" ${item.completed ? 'checked' : ''} style="margin-top:2px;accent-color:var(--teal);width:15px;height:15px;cursor:pointer;flex-shrink:0"
           onchange="window._toggleHomework('${item.id}')">
         <div style="flex:1;min-width:0">
-          <div style="font-size:13px;font-weight:500;color:var(--text-primary);${item.completed ? 'text-decoration:line-through;opacity:0.55' : ''}">${item.title}</div>
-          <div style="font-size:11.5px;color:var(--text-secondary);margin-top:2px">${item.description}</div>
+          <div style="font-size:13px;font-weight:500;color:var(--text-primary);${item.completed ? 'text-decoration:line-through;opacity:0.55' : ''}">${esc(item.title)}</div>
+          <div style="font-size:11.5px;color:var(--text-secondary);margin-top:2px">${esc(item.description)}</div>
         </div>
-        <span style="font-size:10px;padding:2px 7px;border-radius:10px;background:rgba(0,212,188,0.1);color:var(--teal);flex-shrink:0;align-self:center">${item.frequency}</span>
+        <span style="font-size:10px;padding:2px 7px;border-radius:10px;background:rgba(0,212,188,0.1);color:var(--teal);flex-shrink:0;align-self:center">${esc(item.frequency)}</span>
       </div>
     `).join('');
   }
@@ -1356,7 +1384,7 @@ export async function pgPatientCourse() {
       || assignments[assignments.length - 1] || null;
 
     if (!assignment) {
-      planBody.innerHTML = '<p style="color:var(--text-tertiary);font-size:13px;padding:4px 0">No homework plan assigned yet. Ask your clinician.</p>';
+      planBody.innerHTML = `<p style="color:var(--text-tertiary);font-size:13px;padding:4px 0">${t('patient.course.homework_none')}</p>`;
       return;
     }
 
@@ -1402,10 +1430,10 @@ export async function pgPatientCourse() {
 
     planBody.innerHTML =
       '<div style="margin-bottom:14px">' +
-        '<div style="font-size:14px;font-weight:600;color:var(--text-primary);margin-bottom:2px">' + (assignment.planName || 'Assigned Plan') + '</div>' +
+        '<div style="font-size:14px;font-weight:600;color:var(--text-primary);margin-bottom:2px">' + esc(assignment.planName || 'Assigned Plan') + '</div>' +
         '<div style="font-size:11.5px;color:var(--text-secondary)">' +
           'Assigned ' + (assignment.assignedDate ? new Date(assignment.assignedDate).toLocaleDateString() : '') +
-          (assignment.patientName ? ' &nbsp;·&nbsp; ' + assignment.patientName : '') +
+          (assignment.patientName ? ' &nbsp;&middot;&nbsp; ' + esc(assignment.patientName) : '') +
         '</div>' +
       '</div>' +
       '<div style="margin-bottom:14px">' +
@@ -1420,13 +1448,13 @@ export async function pgPatientCourse() {
       blocks.map(function(block) {
         const doneToday = !!completions[block.id + '_' + today];
         return '<div class="hw-task-card' + (doneToday ? ' hw-task-complete' : '') + '">' +
-          '<div style="font-size:22px;line-height:1;padding-top:2px">' + (block.icon || '📋') + '</div>' +
+          '<div style="font-size:22px;line-height:1;padding-top:2px">' + esc(block.icon || '📋') + '</div>' +
           '<div style="flex:1;min-width:0">' +
-            '<div style="font-size:13px;font-weight:500;color:var(--text-primary)">' + block.label + '</div>' +
-            (block.instructions ? '<div style="font-size:11.5px;color:var(--text-secondary);margin-top:3px;line-height:1.5">' + block.instructions + '</div>' : '') +
+            '<div style="font-size:13px;font-weight:500;color:var(--text-primary)">' + esc(block.label || '') + '</div>' +
+            (block.instructions ? '<div style="font-size:11.5px;color:var(--text-secondary);margin-top:3px;line-height:1.5">' + esc(block.instructions) + '</div>' : '') +
             '<div style="margin-top:6px;display:flex;align-items:center;gap:8px">' +
-              '<span class="hw-freq-badge">' + (freqLabel[block.frequency] || block.frequency || '') + '</span>' +
-              (block.duration > 0 ? '<span style="font-size:11px;color:var(--text-tertiary)">' + block.duration + ' min</span>' : '') +
+              '<span class="hw-freq-badge">' + esc(freqLabel[block.frequency] || block.frequency || '') + '</span>' +
+              (block.duration > 0 ? '<span style="font-size:11px;color:var(--text-tertiary)">' + Number(block.duration) + ' min</span>' : '') +
             '</div>' +
           '</div>' +
           '<div style="display:flex;flex-direction:column;align-items:center;gap:4px;padding-top:2px">' +
@@ -1440,42 +1468,53 @@ export async function pgPatientCourse() {
 }
 
 // ── PHQ-9 Assessment ──────────────────────────────────────────────────────────
-const PHQ9_QUESTIONS = [
-  'Little interest or pleasure in doing things',
-  'Feeling down, depressed, or hopeless',
-  'Trouble falling or staying asleep, or sleeping too much',
-  'Feeling tired or having little energy',
-  'Poor appetite or overeating',
-  'Feeling bad about yourself — or that you are a failure or have let yourself or your family down',
-  'Trouble concentrating on things, such as reading the newspaper or watching television',
-  'Moving or speaking so slowly that other people could have noticed? Or being so fidgety or restless that you have been moving more than usual',
-  'Thoughts that you would be better off dead, or thoughts of hurting yourself in some way',
-];
-const PHQ9_OPTIONS = ['Not at all', 'Several days', 'More than half the days', 'Nearly every day'];
+function getPHQ9Questions() {
+  return [
+    t('patient.phq9.q0'),
+    t('patient.phq9.q1'),
+    t('patient.phq9.q2'),
+    t('patient.phq9.q3'),
+    t('patient.phq9.q4'),
+    t('patient.phq9.q5'),
+    t('patient.phq9.q6'),
+    t('patient.phq9.q7'),
+    t('patient.phq9.q8'),
+  ];
+}
+function getPHQ9Options() {
+  return [
+    t('patient.phq9.opt0'),
+    t('patient.phq9.opt1'),
+    t('patient.phq9.opt2'),
+    t('patient.phq9.opt3'),
+  ];
+}
 
 function phq9Severity(score) {
-  if (score <= 4)  return { label: 'Minimal',          color: 'var(--green)' };
-  if (score <= 9)  return { label: 'Mild',              color: 'var(--teal)'  };
-  if (score <= 14) return { label: 'Moderate',          color: 'var(--blue)'  };
-  if (score <= 19) return { label: 'Moderately Severe', color: 'var(--amber)' };
-  return               { label: 'Severe',              color: '#ff6b6b'      };
+  if (score <= 4)  return { label: t('patient.phq9.sev.minimal'),    color: 'var(--green)' };
+  if (score <= 9)  return { label: t('patient.phq9.sev.mild'),       color: 'var(--teal)'  };
+  if (score <= 14) return { label: t('patient.phq9.sev.moderate'),   color: 'var(--blue)'  };
+  if (score <= 19) return { label: t('patient.phq9.sev.mod_severe'), color: 'var(--amber)' };
+  return               { label: t('patient.phq9.sev.severe'),       color: '#ff6b6b'      };
 }
 
 function renderPHQ9Form(containerId, patientId) {
   const formEl = document.getElementById(containerId);
   if (!formEl) return;
+  const _phq9Questions = getPHQ9Questions();
+  const _phq9Options   = getPHQ9Options();
   formEl.innerHTML = `
     <div class="pt-assessment-form" id="phq9-form-wrap">
       <div style="font-size:10.5px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.8px;margin-bottom:14px">
-        PHQ-9 — Over the last 2 weeks, how often have you been bothered by any of the following problems?
+        ${t('patient.phq9.header')}
       </div>
-      ${PHQ9_QUESTIONS.map((q, i) => `
+      ${_phq9Questions.map((q, i) => `
         <div class="pt-phq9-question" id="phq9-q${i}">
           <div style="font-size:12.5px;color:var(--text-primary);margin-bottom:8px;line-height:1.5">
             <span style="color:var(--text-tertiary);margin-right:6px">${i + 1}.</span>${q}
           </div>
           <div class="pt-phq9-options">
-            ${PHQ9_OPTIONS.map((opt, v) => `
+            ${_phq9Options.map((opt, v) => `
               <label class="pt-phq9-option" onclick="window._ptPHQ9Pick(${i}, ${v})">
                 <input type="radio" name="phq9_q${i}" value="${v}" style="display:none">
                 <span class="pt-phq9-radio" id="phq9-r${i}-${v}"></span>
@@ -1487,10 +1526,10 @@ function renderPHQ9Form(containerId, patientId) {
       `).join('')}
       <div style="display:flex;align-items:center;gap:16px;margin-top:20px;padding-top:16px;border-top:1px solid var(--border)">
         <div style="flex:1">
-          <div style="font-size:11px;color:var(--text-tertiary)">Real-time score</div>
+          <div style="font-size:11px;color:var(--text-tertiary)">${t('patient.phq9.live_score')}</div>
           <div style="font-size:20px;font-weight:700;font-family:var(--font-display);color:var(--teal)" id="phq9-live-score">0 / 27</div>
         </div>
-        <button class="btn btn-primary" onclick="window._ptPHQ9Submit()">Submit Assessment →</button>
+        <button class="btn btn-primary" onclick="window._ptPHQ9Submit()">${t('patient.phq9.submit')}</button>
       </div>
       <div id="phq9-result" style="display:none"></div>
     </div>
@@ -1539,18 +1578,17 @@ function renderPHQ9Form(containerId, patientId) {
     resultEl.style.display = '';
     resultEl.innerHTML = `
       <div style="margin-top:20px;padding:20px;border-radius:var(--radius-lg);border:1px solid var(--border-teal);background:rgba(0,212,188,0.04)">
-        <div style="font-size:10.5px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.8px;margin-bottom:10px">Assessment Result</div>
+        <div style="font-size:10.5px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.8px;margin-bottom:10px">${t('patient.assess.result.title')}</div>
         <div style="display:flex;align-items:baseline;gap:10px;margin-bottom:12px">
           <div style="font-size:32px;font-weight:700;font-family:var(--font-display);color:${severity.color}">${score}</div>
-          <div style="font-size:13px;color:var(--text-secondary)">out of 27</div>
+          <div style="font-size:13px;color:var(--text-secondary)">${t('patient.assess.result.out_of')}</div>
           <div style="margin-left:auto;font-size:14px;font-weight:600;color:${severity.color}">${severity.label}</div>
         </div>
         <div class="progress-bar" style="height:8px;margin-bottom:8px">
           <div style="height:100%;width:${pct}%;background:${severity.color};border-radius:4px;transition:width 0.8s ease"></div>
         </div>
         <div style="font-size:11.5px;color:var(--text-secondary);line-height:1.6;margin-top:12px">
-          Your score has been recorded. Your care team will review these results before your next session.
-          If you are experiencing thoughts of self-harm, please contact your clinician immediately or call a crisis line.
+          ${t('patient.assess.result.body')}
         </div>
       </div>
     `;
@@ -1558,90 +1596,464 @@ function renderPHQ9Form(containerId, patientId) {
   };
 }
 
-// ── Assessments ───────────────────────────────────────────────────────────────
+// ── Assessments ────────────────────────────────────────────────────────────────
 export async function pgPatientAssessments() {
-  setTopbar('Assessments');
-  const user = currentUser;
-  const uid  = user?.id;
+  setTopbar(t('patient.nav.assessments'));
 
   const el = document.getElementById('patient-content');
   el.innerHTML = spinner();
 
-  const assessmentsRaw = await api.patientPortalAssessments().catch(() => null);
-  const assessments    = Array.isArray(assessmentsRaw) ? assessmentsRaw : [];
-
-  function mpColor(pt) {
-    if (!pt) return 'var(--text-tertiary)';
-    const p = pt.toLowerCase();
-    if (p === 'baseline') return 'var(--blue)';
-    if (p === 'post')     return 'var(--green)';
-    if (p === 'mid')      return 'var(--amber)';
-    return 'var(--teal)';
+  // ── Safe HTML escaper ────────────────────────────────────────────────────
+  function esc(v) {
+    if (v == null) return '';
+    return String(v)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+      .replace(/'/g, '&#x27;');
   }
 
-  const completedHtml = assessments.length === 0 ? '' : `
-    <div class="card" style="margin-bottom:20px">
-      <div class="card-header"><h3>Completed Assessments</h3></div>
-      <div class="card-body" style="padding:0">
-        ${assessments.map(a => {
-          const name  = a.template_title || a.template_id || 'Assessment';
-          const score = a.score != null ? a.score : '—';
-          const date  = fmtDate(a.created_at);
-          return `
-            <div style="display:flex;align-items:center;gap:14px;padding:12px 18px;border-bottom:1px solid var(--border)">
-              <div style="flex:1">
-                <div style="font-size:12.5px;font-weight:500;color:var(--text-primary)">${name}</div>
-                <div style="font-size:11px;color:var(--text-tertiary);margin-top:2px">${date}</div>
-              </div>
-              <div style="font-size:16px;font-weight:700;color:var(--teal)">${score}</div>
-            </div>`;
-        }).join('')}
-      </div>
+  // ── Fetch in parallel ────────────────────────────────────────────────────
+  let assessmentsRaw, coursesRaw, sessionsRaw;
+  try {
+    [assessmentsRaw, coursesRaw, sessionsRaw] = await Promise.all([
+      api.patientPortalAssessments().catch(() => null),
+      api.patientPortalCourses().catch(() => null),
+      api.patientPortalSessions().catch(() => null),
+    ]);
+  } catch (_e) {
+    assessmentsRaw = null;
+  }
+
+  if (assessmentsRaw === null) {
+    el.innerHTML = `
+      <div class="pt-assess-empty">
+        <div class="pt-assess-empty-ico" aria-hidden="true">&#9673;</div>
+        <div class="pt-assess-empty-title">Could not load your assessments</div>
+        <div class="pt-assess-empty-body">Please check your connection and try again.</div>
+        <button class="btn btn-ghost btn-sm" style="margin-top:14px"
+                onclick="window._navPatient('patient-assessments')">Try again \u2192</button>
+      </div>`;
+    return;
+  }
+
+  const rawItems  = Array.isArray(assessmentsRaw) ? assessmentsRaw : [];
+  const courses   = Array.isArray(coursesRaw)     ? coursesRaw     : [];
+  const sessions  = Array.isArray(sessionsRaw)    ? sessionsRaw    : [];
+
+  const courseById  = {};
+  courses.forEach(c => { if (c.id) courseById[c.id] = c; });
+  const sessionById = {};
+  sessions.forEach(s => { if (s.id) sessionById[s.id] = s; });
+
+  // ── Assessment knowledge base ────────────────────────────────────────────
+  // Extension point: add new assessments here as your clinic introduces them.
+  // Backend can override any field via a `meta` object on the assessment item.
+  // Translate via i18n keys in a future pass.
+  const ASSESS_META = {
+    phq9: {
+      name: 'Mood Check-In (PHQ-9)',
+      purpose: 'Nine questions about mood and daily life',
+      timeMin: 5,
+      whyItMatters: 'Helps your care team see how your mood has been changing. Scores guide decisions about your treatment, so completing it on time gives the most useful picture.',
+      scoreRanges: [{max:4,label:'Minimal',note:'Little to no depression symptoms'},{max:9,label:'Mild',note:'Mild mood changes \u2014 your team is monitoring'},{max:14,label:'Moderate',note:'Noticeable depression \u2014 treatment is focused here'},{max:19,label:'Moderately severe',note:'Significant symptoms \u2014 your team is closely monitoring'},{max:99,label:'Severe',note:'High symptom burden \u2014 your team has this as a priority'}],
+      formKey: 'phq9',
+    },
+    phq2: {
+      name: 'Quick Mood Check (PHQ-2)',
+      purpose: 'Two questions about mood and enjoyment',
+      timeMin: 2,
+      whyItMatters: 'A fast check to catch any mood concerns between fuller assessments.',
+      scoreRanges: [],
+      formKey: null,
+    },
+    gad7: {
+      name: 'Anxiety Check-In (GAD-7)',
+      purpose: 'Seven questions about anxiety and worry',
+      timeMin: 5,
+      whyItMatters: 'Helps your care team understand how anxiety is affecting you and whether your treatment is helping.',
+      scoreRanges: [{max:4,label:'Minimal',note:'Low anxiety levels'},{max:9,label:'Mild',note:'Mild anxiety \u2014 your team is tracking this'},{max:14,label:'Moderate',note:'Moderate anxiety \u2014 your clinician is monitoring closely'},{max:99,label:'Severe',note:'Significant anxiety \u2014 your team is focused on this'}],
+      formKey: null,
+    },
+    gad2: {
+      name: 'Quick Anxiety Check (GAD-2)',
+      purpose: 'Two questions about anxiety',
+      timeMin: 2,
+      whyItMatters: 'A fast check on anxiety levels.',
+      scoreRanges: [],
+      formKey: null,
+    },
+    pcl5: {
+      name: 'Stress & Trauma Check-In (PCL-5)',
+      purpose: 'Questions about trauma-related symptoms',
+      timeMin: 10,
+      whyItMatters: 'Tracks how past experiences may be affecting your sleep, mood, and daily life so your team can tailor your treatment.',
+      scoreRanges: [],
+      formKey: null,
+    },
+    hdrs: {
+      name: 'Depression Assessment (HDRS)',
+      purpose: 'A structured depression assessment completed with your clinician',
+      timeMin: 15,
+      whyItMatters: 'Gives your clinician a detailed view of how depression is affecting different areas of your life.',
+      scoreRanges: [{max:7,label:'Normal',note:'Minimal symptoms'},{max:13,label:'Mild',note:'Mild depression'},{max:17,label:'Moderate',note:'Moderate depression'},{max:23,label:'Severe',note:'Significant depression'},{max:99,label:'Very severe',note:'High symptom burden \u2014 your team is actively supporting you'}],
+      formKey: null,
+    },
+    madrs: {
+      name: 'Depression Rating (MADRS)',
+      purpose: 'A clinician-rated depression scale',
+      timeMin: 15,
+      whyItMatters: 'Tracks how your mood and energy are responding to treatment over time.',
+      scoreRanges: [{max:6,label:'Normal',note:'No significant depression'},{max:19,label:'Mild',note:'Mild symptoms'},{max:34,label:'Moderate',note:'Moderate symptoms'},{max:99,label:'Severe',note:'Significant burden \u2014 your team is closely monitoring'}],
+      formKey: null,
+    },
+    bprs: {
+      name: 'Symptom Check (BPRS)',
+      purpose: 'A broad check on symptoms completed with your clinician',
+      timeMin: 20,
+      whyItMatters: 'Gives your care team a full picture of any symptoms you may be experiencing.',
+      scoreRanges: [],
+      formKey: null,
+    },
+    moca: {
+      name: 'Memory & Thinking Check (MoCA)',
+      purpose: 'A brief assessment of memory, attention, and thinking',
+      timeMin: 10,
+      whyItMatters: 'Helps your care team check that treatment is not affecting your cognitive function, and tracks any changes over time.',
+      scoreRanges: [],
+      formKey: null,
+    },
+    psqi: {
+      name: 'Sleep Quality Check (PSQI)',
+      purpose: 'Questions about your sleep over the past month',
+      timeMin: 7,
+      whyItMatters: 'Sleep quality is closely linked to treatment progress. This helps your team see how your sleep is responding.',
+      scoreRanges: [],
+      formKey: null,
+    },
+    dass21: {
+      name: 'Wellbeing Check (DASS-21)',
+      purpose: 'Questions about depression, anxiety, and stress',
+      timeMin: 10,
+      whyItMatters: 'Gives your care team a broad view of how you have been feeling across three areas.',
+      scoreRanges: [],
+      formKey: null,
+    },
+    isi: {
+      name: 'Sleep Check (ISI)',
+      purpose: 'Questions about insomnia and sleep difficulty',
+      timeMin: 5,
+      whyItMatters: 'Tracks how much sleep problems are affecting your daily life.',
+      scoreRanges: [],
+      formKey: null,
+    },
+    qids: {
+      name: 'Depression Check (QIDS)',
+      purpose: 'A quick depression check to track weekly changes',
+      timeMin: 5,
+      whyItMatters: 'Provides a fast measure of how your depression is changing week to week.',
+      scoreRanges: [],
+      formKey: null,
+    },
+  };
+
+  function assessMeta(item) {
+    // Extension point: backend `meta` object overrides defaults.
+    if (item.meta && (item.meta.name || item.meta.purpose)) return { ...ASSESS_META['phq9'], ...item.meta };
+    const key = (item.template_id || item.assessment_type || item.name || '')
+      .toLowerCase().replace(/[-_\s]/g, '');
+    return ASSESS_META[key] || null;
+  }
+
+  function scoreContext(meta, score) {
+    if (score == null || score === '' || !meta || !meta.scoreRanges || !meta.scoreRanges.length) return null;
+    const n = Number(score);
+    if (!Number.isFinite(n)) return null;
+    for (const band of meta.scoreRanges) {
+      if (n <= band.max) return { label: band.label, note: band.note };
+    }
+    return null;
+  }
+
+  // ── Status classification ────────────────────────────────────────────────
+  // Extension point: backend can supply status field directly.
+  // Falls back to date-based inference.
+  const now = Date.now();
+  function statusClassify(a) {
+    const st = (a.status || '').toLowerCase().replace(/[^a-z_]/g, '');
+    if (['completed','done','submitted'].includes(st))          return 'completed';
+    if (['in_progress','inprogress','started','partial'].includes(st)) return 'in-progress';
+    if (a.completed_at || a.administered_at)                    return 'completed';
+    if (['scheduled','upcoming'].includes(st))                  return 'upcoming';
+    if (a.due_date) {
+      return new Date(a.due_date).getTime() <= now ? 'due' : 'upcoming';
+    }
+    // No due date and no status → treat as due
+    return 'due';
+  }
+
+  // ── Normalise assessments ────────────────────────────────────────────────
+  const items = rawItems.map(a => {
+    const meta    = assessMeta(a);
+    const status  = statusClassify(a);
+    const course  = a.course_id ? courseById[a.course_id] : null;
+    const session = a.session_id ? sessionById[a.session_id] : null;
+    return {
+      id:          a.id || `assess-${Math.random().toString(36).slice(2)}`,
+      raw:         a,
+      meta,
+      status,
+      // Display name: prefer backend title → meta friendly name → template_id (not exposed raw)
+      name:        a.template_title || (meta ? meta.name : null) || 'Assessment',
+      purpose:     meta ? meta.purpose : null,
+      timeMin:     meta ? meta.timeMin : null,
+      whyItMatters: meta ? meta.whyItMatters : null,
+      formKey:     meta ? meta.formKey : null,
+      dueDate:     a.due_date,
+      completedAt: a.completed_at || a.administered_at,
+      measurePoint: a.measurement_point || null,
+      score:       a.score != null ? a.score : null,
+      scoreCtx:    scoreContext(meta, a.score),
+      progress:    typeof a.progress_pct === 'number' ? a.progress_pct : null,
+      courseRef:   course ? { title: course.condition_name || course.protocol_name || 'Your treatment' } : null,
+      sessionRef:  session ? { number: session.session_number || null, date: fmtDate(session.delivered_at || session.scheduled_at) } : null,
+      formUrl:     a.form_url || null,
+    };
+  });
+
+  // ── Section buckets ──────────────────────────────────────────────────────
+  const due       = items.filter(i => i.status === 'due' || i.status === 'in-progress')
+                         .sort((a, b) => new Date(a.dueDate || 0) - new Date(b.dueDate || 0));
+  const upcoming  = items.filter(i => i.status === 'upcoming')
+                         .sort((a, b) => new Date(a.dueDate || 0) - new Date(b.dueDate || 0));
+  const completed = items.filter(i => i.status === 'completed')
+                         .sort((a, b) => new Date(b.completedAt || 0) - new Date(a.completedAt || 0));
+
+  // ── Assessment card HTML ─────────────────────────────────────────────────
+  function assessCardHTML(item) {
+    const isDue       = item.status === 'due';
+    const isInProgress = item.status === 'in-progress';
+    const isUpcoming  = item.status === 'upcoming';
+    const isCompleted = item.status === 'completed';
+
+    // Status pill
+    let pillHtml = '';
+    if (isDue)        pillHtml = `<span class="pt-assess-pill pt-assess-pill-due">Due now</span>`;
+    else if (isInProgress) pillHtml = `<span class="pt-assess-pill pt-assess-pill-progress">In progress</span>`;
+    else if (isUpcoming)   pillHtml = `<span class="pt-assess-pill pt-assess-pill-upcoming">Upcoming</span>`;
+    else if (isCompleted)  pillHtml = `<span class="pt-assess-pill pt-assess-pill-done">Completed</span>`;
+
+    // Time estimate
+    const timeHtml = item.timeMin
+      ? `<span class="pt-assess-chip">~${item.timeMin} min</span>`
+      : '';
+
+    // Due date
+    const dueDateHtml = item.dueDate && !isCompleted
+      ? `<span class="pt-assess-chip">Due ${esc(fmtDate(item.dueDate))}</span>`
+      : '';
+
+    // Completed date
+    const completedHtml = isCompleted && item.completedAt
+      ? `<span class="pt-assess-chip">Done ${esc(fmtDate(item.completedAt))}</span>`
+      : '';
+
+    // Measurement point
+    const mpHtml = item.measurePoint
+      ? `<span class="pt-assess-chip">${esc(item.measurePoint)}</span>`
+      : '';
+
+    // Course / session context
+    const courseChip = item.courseRef
+      ? `<span class="pt-assess-chip">${esc(item.courseRef.title)}</span>`
+      : '';
+    const sessionChip = item.sessionRef
+      ? `<span class="pt-assess-chip">Session${item.sessionRef.number ? ' #' + item.sessionRef.number : ''} \u00b7 ${esc(item.sessionRef.date)}</span>`
+      : '';
+
+    const chips = [timeHtml, dueDateHtml, completedHtml, mpHtml, courseChip, sessionChip].filter(Boolean).join('');
+
+    // Progress bar for in-progress
+    const progressHtml = isInProgress && item.progress != null
+      ? `<div class="pt-assess-progress-bar" role="progressbar" aria-valuenow="${item.progress}" aria-valuemin="0" aria-valuemax="100" aria-label="Assessment ${item.progress}% complete">
+           <div class="pt-assess-progress-fill" style="width:${Math.min(100, item.progress)}%"></div>
+         </div>`
+      : '';
+
+    // Score for completed (patient-friendly, not alarming)
+    let scoreHtml = '';
+    if (isCompleted && item.score != null) {
+      const ctx = item.scoreCtx;
+      scoreHtml = `
+        <div class="pt-assess-score-row">
+          <span class="pt-assess-score-label">Your result</span>
+          ${ctx
+            ? `<span class="pt-assess-score-band ${esc(ctx.label.toLowerCase().replace(/\s+/g,'-'))}">${esc(ctx.label)}</span>`
+            : `<span class="pt-assess-score-num">${esc(String(item.score))}</span>`}
+        </div>
+        ${ctx ? `<div class="pt-assess-score-note">${esc(ctx.note)}</div>` : ''}`;
+    }
+
+    // CTA
+    let ctaHtml = '';
+    if (isDue) {
+      if (item.formKey === 'phq9') {
+        ctaHtml = `<button class="btn btn-primary btn-sm pt-assess-cta"
+                           id="pt-assess-cta-${esc(item.id)}"
+                           onclick="window._ptToggleAssessForm('${esc(item.id)}')"
+                           aria-expanded="false"
+                           aria-controls="pt-assess-form-${esc(item.id)}">Start \u2192</button>`;
+      } else if (item.formUrl) {
+        ctaHtml = `<a class="btn btn-primary btn-sm pt-assess-cta"
+                      href="${esc(item.formUrl)}" target="_blank" rel="noopener noreferrer"
+                      aria-label="Open ${esc(item.name)} form">Start \u2192</a>`;
+      } else {
+        ctaHtml = `<button class="btn btn-ghost btn-sm pt-assess-cta"
+                           onclick="window._ptAssessContactClinic('${esc(item.id)}')"
+                           aria-label="Ask about ${esc(item.name)}">Ask your clinic \u2192</button>`;
+      }
+    } else if (isInProgress) {
+      if (item.formKey === 'phq9') {
+        ctaHtml = `<button class="btn btn-primary btn-sm pt-assess-cta"
+                           id="pt-assess-cta-${esc(item.id)}"
+                           onclick="window._ptToggleAssessForm('${esc(item.id)}')"
+                           aria-expanded="false"
+                           aria-controls="pt-assess-form-${esc(item.id)}">Continue \u2192</button>`;
+      } else if (item.formUrl) {
+        ctaHtml = `<a class="btn btn-primary btn-sm pt-assess-cta"
+                      href="${esc(item.formUrl)}" target="_blank" rel="noopener noreferrer">Continue \u2192</a>`;
+      }
+    } else if (isCompleted) {
+      ctaHtml = `<button class="btn btn-ghost btn-sm pt-assess-cta"
+                         onclick="window._ptAssessReview('${esc(item.id)}')"
+                         aria-label="Review ${esc(item.name)}">Review</button>`;
+    }
+
+    return `
+      <div class="pt-assess-card${isDue || isInProgress ? ' pt-assess-card-due' : isCompleted ? ' pt-assess-card-done' : ''}"
+           data-id="${esc(item.id)}" data-status="${esc(item.status)}">
+        <div class="pt-assess-card-top">
+          <div class="pt-assess-main">
+            <div class="pt-assess-name-row">
+              <span class="pt-assess-name">${esc(item.name)}</span>
+              ${pillHtml}
+            </div>
+            ${item.purpose ? `<div class="pt-assess-purpose">${esc(item.purpose)}</div>` : ''}
+            ${chips ? `<div class="pt-assess-chips">${chips}</div>` : ''}
+            ${progressHtml}
+            ${scoreHtml}
+          </div>
+          ${ctaHtml ? `<div class="pt-assess-cta-col">${ctaHtml}</div>` : ''}
+        </div>
+        <div class="pt-assess-inline-form" id="pt-assess-form-${esc(item.id)}" hidden></div>
+      </div>`;
+  }
+
+  // ── Why these assessments matter callout ─────────────────────────────────
+  // Extension point: populate from meta.whyItMatters per assessment type.
+  function whyCalloutHTML() {
+    const unique = [...new Map(
+      items.filter(i => i.whyItMatters)
+           .map(i => [i.name, i])
+    ).values()].slice(0, 4);
+    if (unique.length === 0) return '';
+    return `
+      <div class="pt-assess-why-section">
+        <div class="pt-docs-section-hd" style="margin-bottom:10px">
+          <span class="pt-docs-section-title">Why these assessments matter</span>
+        </div>
+        <div class="pt-assess-why-wrap">
+          ${unique.map(i => `
+            <div class="pt-assess-why-card">
+              <div class="pt-assess-why-name">${esc(i.name)}</div>
+              <div class="pt-assess-why-text">${esc(i.whyItMatters)}</div>
+            </div>`).join('')}
+          <div class="pt-assess-why-card pt-assess-why-note">
+            <div class="pt-assess-why-name">Your results are private</div>
+            <div class="pt-assess-why-text">Your assessment scores are only seen by your care team. They are used to guide your treatment, not to judge you.</div>
+          </div>
+        </div>
+      </div>`;
+  }
+
+  // ── Section HTML helper ──────────────────────────────────────────────────
+  function sectionHTML(title, assessList, emptyMsg) {
+    if (assessList.length === 0) {
+      if (!emptyMsg) return '';
+      return `
+        <div class="pt-assess-section">
+          <div class="pt-docs-section-hd"><span class="pt-docs-section-title">${esc(title)}</span></div>
+          <div class="pt-assess-section-empty">${esc(emptyMsg)}</div>
+        </div>`;
+    }
+    return `
+      <div class="pt-assess-section">
+        <div class="pt-docs-section-hd">
+          <span class="pt-docs-section-title">${esc(title)}</span>
+          <span class="pt-docs-section-count">${assessList.length}</span>
+        </div>
+        ${assessList.map(i => assessCardHTML(i)).join('')}
+      </div>`;
+  }
+
+  // ── Empty page state ─────────────────────────────────────────────────────
+  if (items.length === 0) {
+    el.innerHTML = `
+      <div class="pt-assess-empty">
+        <div class="pt-assess-empty-ico" aria-hidden="true">&#9673;</div>
+        <div class="pt-assess-empty-title">No assessments right now</div>
+        <div class="pt-assess-empty-body">Your care team will assign assessments here as your treatment progresses. They will let you know when one is due.</div>
+      </div>`;
+    return;
+  }
+
+  // ── Render page ──────────────────────────────────────────────────────────
+  el.innerHTML = `
+    <div class="pt-assess-wrap">
+      ${sectionHTML('Due Now', due, null)}
+      ${sectionHTML('Upcoming', upcoming, null)}
+      ${sectionHTML('Completed', completed, null)}
+      ${whyCalloutHTML()}
     </div>`;
 
-  el.innerHTML = `
-    <div class="notice notice-info" style="margin-bottom:20px">
-      ◉ &nbsp;Complete your PHQ-9 assessment below to track your progress.
-    </div>
+  // ── Handlers ─────────────────────────────────────────────────────────────
 
-    ${completedHtml}
-
-    <div class="card" id="pt-assess-pending-card">
-      <div class="card-header">
-        <h3>Weekly Mood Check-in</h3>
-        <span class="pill pill-pending">Due</span>
-      </div>
-      <div class="card-body" style="display:flex;align-items:center;gap:16px">
-        <div style="flex:1">
-          <div style="font-size:12px;color:var(--text-tertiary)">PHQ-9</div>
-          <div style="font-size:12px;color:var(--text-secondary);margin-top:4px">Patient Health Questionnaire</div>
-        </div>
-        <button class="btn btn-primary btn-sm" id="pt-assess-start-btn" onclick="window._ptToggleAssessment()">Start &rarr;</button>
-      </div>
-      <div id="pt-assess-form-container" style="display:none;padding:0 18px 18px"></div>
-    </div>
-  `;
-
-  window._ptToggleAssessment = function() {
-    const container = document.getElementById('pt-assess-form-container');
-    const btn       = document.getElementById('pt-assess-start-btn');
-    if (!container) return;
-    const isOpen = container.style.display !== 'none';
-    if (isOpen) {
-      container.style.display = 'none';
-      btn.textContent = 'Start →';
+  // Toggle inline form (PHQ-9 or other embeddable forms)
+  window._ptToggleAssessForm = function(itemId) {
+    const item   = items.find(i => i.id === itemId);
+    if (!item) return;
+    const formEl = el.querySelector(`#pt-assess-form-${CSS.escape(itemId)}`);
+    const btn    = el.querySelector(`#pt-assess-cta-${CSS.escape(itemId)}`);
+    if (!formEl) return;
+    const opening = formEl.hasAttribute('hidden');
+    if (opening) {
+      formEl.removeAttribute('hidden');
+      if (btn) { btn.textContent = 'Close \u2715'; btn.setAttribute('aria-expanded', 'true'); }
+      // Render the appropriate form
+      if (item.formKey === 'phq9') {
+        renderPHQ9Form(`pt-assess-form-${CSS.escape(itemId)}`, currentUser?.id);
+      }
+      setTimeout(() => formEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' }), 50);
     } else {
-      container.style.display = '';
-      btn.textContent = 'Close ✕';
-      renderPHQ9Form('pt-assess-form-container', uid);
-      setTimeout(() => container.scrollIntoView({ behavior: 'smooth', block: 'nearest' }), 50);
+      formEl.setAttribute('hidden', '');
+      if (btn) { btn.textContent = (item.status === 'in-progress' ? 'Continue' : 'Start') + ' \u2192'; btn.setAttribute('aria-expanded', 'false'); }
     }
+  };
+
+  // Review a completed assessment
+  // Extension point: open a detail modal or navigate to Documents & Reports.
+  window._ptAssessReview = function(itemId) {
+    window._navPatient('patient-reports');
+  };
+
+  // Contact clinic for clinic-administered assessments
+  window._ptAssessContactClinic = function(_itemId) {
+    window._navPatient('patient-messages');
   };
 }
 
 // \u2500\u2500 Reports \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
 export async function pgPatientReports() {
-  setTopbar('Documents & Reports');
+  setTopbar(t('patient.nav.reports'));
 
   const el = document.getElementById('patient-content');
   el.innerHTML = spinner();
@@ -1677,10 +2089,10 @@ export async function pgPatientReports() {
     return `
       <div class="pt-docs-empty">
         <div class="pt-docs-empty-icon">&#9649;</div>
-        <div class="pt-docs-empty-title">Could not load your documents</div>
-        <div class="pt-docs-empty-body">Please check your connection and try again. Your documents are safe \u2014 this is just a temporary issue.</div>
+        <div class="pt-docs-empty-title">${t('patient.reports.err.title')}</div>
+        <div class="pt-docs-empty-body">${t('patient.reports.err.body')}</div>
         <button class="btn btn-ghost btn-sm" style="margin-top:14px"
-                onclick="window._navPatient('patient-reports')">Try again \u2192</button>
+                onclick="window._navPatient('patient-reports')">${t('patient.reports.err.retry')}</button>
       </div>`;
   }
 
@@ -1769,14 +2181,14 @@ export async function pgPatientReports() {
   }
 
   const CAT_META = {
-    outcome:           { label: 'Outcome Report',    icon: '&#9649;', color: 'var(--blue)',    bg: 'rgba(74,158,255,.1)'    },
-    assessment:        { label: 'Assessment',         icon: '&#9673;', color: 'var(--teal)',    bg: 'rgba(0,212,188,.08)'   },
-    'session-summary': { label: 'Session Summary',   icon: '&#9671;', color: '#a78bfa',        bg: 'rgba(167,139,250,.1)'  },
-    adverse:           { label: 'Safety Record',      icon: '&#9680;', color: '#fb923c',        bg: 'rgba(251,146,60,.1)'   },
-    consent:           { label: 'Consent / Form',     icon: '&#9643;', color: '#94a3b8',        bg: 'rgba(148,163,184,.1)'  },
-    care:              { label: 'Care Instructions',  icon: '&#9678;', color: '#34d399',        bg: 'rgba(52,211,153,.1)'   },
-    guide:             { label: 'Patient Guide',      icon: '&#128218;', color: '#f59e0b',      bg: 'rgba(245,158,11,.08)'  },
-    letter:            { label: 'Letter / Referral',  icon: '&#9672;', color: '#e2e8f0',        bg: 'rgba(226,232,240,.06)' },
+    outcome:           { label: t('patient.reports.cat.outcome'),          icon: '&#9649;', color: 'var(--blue)',    bg: 'rgba(74,158,255,.1)'    },
+    assessment:        { label: t('patient.reports.cat.assessment'),        icon: '&#9673;', color: 'var(--teal)',    bg: 'rgba(0,212,188,.08)'   },
+    'session-summary': { label: t('patient.reports.cat.session_summary'),  icon: '&#9671;', color: '#a78bfa',        bg: 'rgba(167,139,250,.1)'  },
+    adverse:           { label: t('patient.reports.cat.adverse'),           icon: '&#9680;', color: '#fb923c',        bg: 'rgba(251,146,60,.1)'   },
+    consent:           { label: t('patient.reports.cat.consent'),           icon: '&#9643;', color: '#94a3b8',        bg: 'rgba(148,163,184,.1)'  },
+    care:              { label: t('patient.reports.cat.care'),              icon: '&#9678;', color: '#34d399',        bg: 'rgba(52,211,153,.1)'   },
+    guide:             { label: t('patient.reports.cat.guide'),             icon: '&#128218;', color: '#f59e0b',      bg: 'rgba(245,158,11,.08)'  },
+    letter:            { label: t('patient.reports.cat.letter'),            icon: '&#9672;', color: '#e2e8f0',        bg: 'rgba(226,232,240,.06)' },
   };
 
   // ── Build session/course lookup maps ─────────────────────────────────────
@@ -1853,17 +2265,17 @@ export async function pgPatientReports() {
     el.innerHTML = `
       <div class="pt-docs-empty">
         <div class="pt-docs-empty-icon">&#9649;</div>
-        <div class="pt-docs-empty-title">No documents yet</div>
-        <div class="pt-docs-empty-body">Your care team will add outcome reports, assessment results, and other documents here as your treatment progresses.</div>
+        <div class="pt-docs-empty-title">${t('patient.reports.empty.title')}</div>
+        <div class="pt-docs-empty-body">${t('patient.reports.empty.body')}</div>
         <div class="pt-docs-empty-details">
           <details>
-            <summary class="pt-docs-empty-toggle">What types of documents will appear here?</summary>
+            <summary class="pt-docs-empty-toggle">${t('patient.reports.empty.toggle')}</summary>
             <ul class="pt-docs-empty-list">
-              <li>Outcome reports and assessment results</li>
-              <li>Session summaries from your care team</li>
-              <li>Care instructions and treatment guides</li>
-              <li>Consent forms you have completed</li>
-              <li>Letters and referrals</li>
+              <li>${t('patient.reports.cat.outcome')} &amp; ${t('patient.reports.cat.assessment').toLowerCase()}</li>
+              <li>${t('patient.reports.cat.session_summary')}</li>
+              <li>${t('patient.reports.cat.care')}</li>
+              <li>${t('patient.reports.cat.consent')}</li>
+              <li>${t('patient.reports.cat.letter')}</li>
             </ul>
           </details>
         </div>
@@ -1873,14 +2285,14 @@ export async function pgPatientReports() {
 
   // ── Filter chip bar ──────────────────────────────────────────────────────
   const FILTERS = [
-    { key: 'all',             label: 'All' },
-    { key: 'outcome',         label: 'Reports' },
-    { key: 'assessment',      label: 'Assessments' },
-    { key: 'care',            label: 'Care Instructions' },
-    { key: 'consent',         label: 'Consent / Forms' },
-    { key: 'session-summary', label: 'Session Summaries' },
-    { key: 'guide',           label: 'Patient Guides' },
-    { key: 'letter',          label: 'Letters' },
+    { key: 'all',             label: t('patient.reports.filter.all') },
+    { key: 'outcome',         label: t('patient.reports.filter.reports') },
+    { key: 'assessment',      label: t('patient.reports.filter.assessments') },
+    { key: 'care',            label: t('patient.reports.filter.care') },
+    { key: 'consent',         label: t('patient.reports.filter.consent') },
+    { key: 'session-summary', label: t('patient.reports.filter.sessions') },
+    { key: 'guide',           label: t('patient.reports.filter.guides') },
+    { key: 'letter',          label: t('patient.reports.filter.letters') },
   ];
   const presentCats = new Set(docs.map(d => d.category));
   const visibleFilters = FILTERS.filter(f => f.key === 'all' || presentCats.has(f.key));
@@ -1927,24 +2339,24 @@ export async function pgPatientReports() {
                 aria-controls="${plId}"
                 onclick="window._ptToggleDocPl('${esc(doc.id)}')">
            <span class="pt-doc-pl-toggle-ico">&#9678;</span>
-           What this is
+           ${t('patient.reports.doc.what_this')}
            <span class="pt-doc-pl-chev" id="chev-${esc(doc.id)}" aria-hidden="true">${expandPl ? '\u25b4' : '\u25be'}</span>
          </button>
          <div class="pt-doc-pl-body" id="${plId}" ${expandPl ? '' : 'hidden'}>
-           ${doc.plainLang.what ? `<div class="pt-doc-pl-row"><span class="pt-doc-pl-label">What this is</span>${esc(doc.plainLang.what)}</div>` : ''}
-           ${doc.plainLang.why  ? `<div class="pt-doc-pl-row"><span class="pt-doc-pl-label">Why it matters</span>${esc(doc.plainLang.why)}</div>` : ''}
-           ${interpBand         ? `<div class="pt-doc-pl-row pt-doc-pl-row-hl"><span class="pt-doc-pl-label">What this means</span>${esc(interpBand.note)}</div>` : ''}
+           ${doc.plainLang.what ? `<div class="pt-doc-pl-row"><span class="pt-doc-pl-label">${t('patient.reports.doc.what_this')}</span>${esc(doc.plainLang.what)}</div>` : ''}
+           ${doc.plainLang.why  ? `<div class="pt-doc-pl-row"><span class="pt-doc-pl-label">${t('patient.reports.doc.why')}</span>${esc(doc.plainLang.why)}</div>` : ''}
+           ${interpBand         ? `<div class="pt-doc-pl-row pt-doc-pl-row-hl"><span class="pt-doc-pl-label">${t('patient.reports.doc.what_means')}</span>${esc(interpBand.note)}</div>` : ''}
          </div>`
       : '';
 
     // CTA
     const ctaHtml = doc.url
       ? `<a class="pt-doc-cta" href="${esc(doc.url)}" target="_blank" rel="noopener noreferrer"
-              aria-label="View ${esc(doc.title)}"
-              tabindex="0">View \u2192</a>`
+              aria-label="${t('patient.reports.doc.view')} ${esc(doc.title)}"
+              tabindex="0">${t('patient.reports.doc.view')}</a>`
       : `<button class="pt-doc-cta pt-doc-cta-stub"
                onclick="window._ptViewDoc('${esc(doc.id)}')"
-               aria-label="View ${esc(doc.title)}">View \u2192</button>`;
+               aria-label="${t('patient.reports.doc.view')} ${esc(doc.title)}">${t('patient.reports.doc.view')}</button>`;
 
     return `
       <div class="pt-doc-card" data-cat="${esc(doc.category)}" data-id="${esc(doc.id)}">
@@ -1997,7 +2409,7 @@ export async function pgPatientReports() {
   const latestSection = latest
     ? `<div class="pt-docs-section">
          <div class="pt-docs-section-hd">
-           <span class="pt-docs-section-title">Latest Report</span>
+           <span class="pt-docs-section-title">${t('patient.reports.section.latest')}</span>
          </div>
          ${docCardHTML(latest, { expandPl: true })}
        </div>`
@@ -2008,15 +2420,15 @@ export async function pgPatientReports() {
   const recentSection = docs.length >= 1
     ? `<div class="pt-docs-section" id="pt-docs-main-list">
          <div class="pt-docs-section-hd">
-           <span class="pt-docs-section-title">Recent Documents</span>
-           <span class="pt-docs-section-count" id="pt-docs-count">${docs.length} total</span>
+           <span class="pt-docs-section-title">${t('patient.reports.section.recent')}</span>
+           <span class="pt-docs-section-count" id="pt-docs-count">${t('patient.reports.total', { n: docs.length })}</span>
          </div>
          <div id="pt-docs-card-list">
            ${recentItems.map(d => docCardHTML(d)).join('')}
          </div>
          ${docs.length > RECENT_LIMIT
            ? `<button class="pt-docs-show-all" id="pt-docs-show-all"
-                     onclick="window._ptShowAllDocs()">Show all ${docs.length} documents \u2192</button>`
+                     onclick="window._ptShowAllDocs()">${t('patient.reports.show_all', { n: docs.length })}</button>`
            : ''}
        </div>`
     : '';
@@ -2024,7 +2436,7 @@ export async function pgPatientReports() {
   const byCourseSection = courseEntries.length > 0
     ? `<div class="pt-docs-section">
          <div class="pt-docs-section-hd">
-           <span class="pt-docs-section-title">By Treatment Course</span>
+           <span class="pt-docs-section-title">${t('patient.reports.section.bycourse')}</span>
          </div>
          ${courseEntries.map(([, entry]) =>
            `<div class="pt-docs-course-group">
@@ -2111,115 +2523,487 @@ export async function pgPatientReports() {
   };
 }
 
-// ── Messages ──────────────────────────────────────────────────────────────────
+// \u2500\u2500 Messages \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
 export async function pgPatientMessages() {
-  setTopbar(t('patient.nav.messages'));
-  const user = currentUser;
-  const uid  = user?.id;
+  setTopbar(t('patient.messages.title'));
 
   const el = document.getElementById('patient-content');
   el.innerHTML = spinner();
 
-  // Messages go through clinic-side API — patients communicate via Telegram
-  // For now show an empty thread with a Telegram connection notice
-  const messagesRaw = null;
-  let messages      = [];
+  // ── Safe HTML escaper ────────────────────────────────────────────────────
+  function esc(v) {
+    if (v == null) return '';
+    return String(v)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+      .replace(/'/g, '&#x27;');
+  }
 
-  // Sort oldest → newest for chat display
-  messages = messages.slice().sort((a, b) =>
-    new Date(a.created_at || a.sent_at || 0) - new Date(b.created_at || b.sent_at || 0)
-  );
+  // ── Fetch messages and course context ────────────────────────────────────
+  let messagesRaw, coursesRaw;
+  try {
+    [messagesRaw, coursesRaw] = await Promise.all([
+      api.patientPortalMessages().catch(() => null),
+      api.patientPortalCourses().catch(() => null),
+    ]);
+  } catch (_e) {
+    messagesRaw = null;
+    coursesRaw  = null;
+  }
 
-  function msgBubbleHTML(m) {
-    const isOutgoing = m.sender_id === uid || m.outgoing === true;
-    const body       = m.body || m.message || m.text || '';
+  const rawMessages = Array.isArray(messagesRaw) ? messagesRaw : [];
+  const courses     = Array.isArray(coursesRaw)  ? coursesRaw  : [];
+  const activeCourse = courses.find(c => c.status === 'active') || courses[0] || null;
+
+  // ── Message category metadata ────────────────────────────────────────────
+  // Extension point: add categories here as the backend supports them.
+  // category_key maps to compose form <select> values and thread labels.
+  const MSG_CATEGORIES = [
+    { key: 'treatment-plan', label: t('patient.msg.cat.treatment_plan'), icon: '&#9678;' },
+    { key: 'session',        label: t('patient.msg.cat.session'),        icon: '&#9671;' },
+    { key: 'side-effects',   label: t('patient.msg.cat.side_effects'),   icon: '&#9680;' },
+    { key: 'documents',      label: t('patient.msg.cat.documents'),      icon: '&#9649;' },
+    { key: 'billing',        label: t('patient.msg.cat.billing'),        icon: '&#9643;' },
+    { key: 'other',          label: t('patient.msg.cat.other'),          icon: '&#9672;' },
+  ];
+  const catByKey = {};
+  MSG_CATEGORIES.forEach(c => { catByKey[c.key] = c; });
+
+  function catMeta(key) {
+    return catByKey[(key || '').toLowerCase()] || catByKey['other'];
+  }
+
+  // ── Priority helpers ─────────────────────────────────────────────────────
+  function isUrgent(m) {
+    return (m.priority || '').toLowerCase() === 'urgent';
+  }
+
+  // ── Thread grouping ──────────────────────────────────────────────────────
+  // Group flat messages by thread_id if present, otherwise by subject,
+  // otherwise each message is its own thread.
+  // Extension point: backend can supply thread_id to properly group replies.
+  const threadMap = new Map();
+  rawMessages
+    .slice()
+    .sort((a, b) => new Date(a.created_at || 0) - new Date(b.created_at || 0))
+    .forEach(m => {
+      const key = m.thread_id || m.subject || m.id || String(Math.random());
+      if (!threadMap.has(key)) {
+        threadMap.set(key, { key, messages: [], unreadCount: 0 });
+      }
+      const thread = threadMap.get(key);
+      thread.messages.push(m);
+      if (m.is_read === false || m.read === false || m.unread === true) {
+        thread.unreadCount++;
+      }
+    });
+
+  // Derive thread-level metadata from most-recent message
+  const threads = [...threadMap.values()].map(t => {
+    const latest  = t.messages[t.messages.length - 1];
+    const first   = t.messages[0];
+    const fromClinician = t.messages.filter(m => (m.sender_type || '').toLowerCase() !== 'patient');
+    const lastIncoming  = fromClinician[fromClinician.length - 1] || null;
+    return {
+      key:          t.key,
+      messages:     t.messages,
+      unreadCount:  t.unreadCount,
+      subject:      esc(first.subject || first.category_label || 'Message from your clinic'),
+      latestBody:   latest.body || latest.message || latest.text || '',
+      latestDate:   latest.created_at || latest.sent_at,
+      latestSender: lastIncoming
+        ? (lastIncoming.sender_name || lastIncoming.sender?.display_name || 'Care Team')
+        : (first.sender_name || 'Care Team'),
+      category:     first.category || null,
+      priority:     latest.priority || first.priority || null,
+      courseRef:    activeCourse ? { title: activeCourse.condition_name || activeCourse.protocol_name || 'Your treatment' } : null,
+    };
+  }).sort((a, b) => new Date(b.latestDate || 0) - new Date(a.latestDate || 0));
+
+  // ── Message bubble HTML ──────────────────────────────────────────────────
+  // Extension point: pass { showAttachments: true } when attachment support is added.
+  function bubbleHTML(m, uid) {
+    const isOutgoing = m.sender_id === uid || (m.sender_type || '').toLowerCase() === 'patient';
+    const body       = esc(m.body || m.message || m.text || '');
     const rel        = fmtRelative(m.created_at || m.sent_at);
-    const senderName = m.sender_name || m.sender?.display_name || (isOutgoing ? 'You' : 'Clinic');
+    const fullDate   = fmtDate(m.created_at || m.sent_at);
+    const senderName = esc(m.sender_name || m.sender?.display_name || (isOutgoing ? 'You' : 'Care Team'));
+    const urgent     = isUrgent(m);
 
     if (isOutgoing) {
-      return `<div class="pt-msg-outgoing">
-        <div class="pt-msg-bubble-out">
-          <div style="font-size:12px;color:var(--text-secondary);line-height:1.55">${body}</div>
-          <div style="font-size:10px;color:rgba(0,212,188,0.6);margin-top:5px;text-align:right">${rel}</div>
-        </div>
-        <div class="avatar" style="background:linear-gradient(135deg,var(--teal-dim),var(--blue-dim));flex-shrink:0;font-size:10px">You</div>
-      </div>`;
+      return `
+        <div class="pt-msg-bubble-row pt-msg-row-out">
+          <div class="pt-msg-bubble pt-msg-bubble-out">
+            <div class="pt-msg-bubble-body">${body}</div>
+            <div class="pt-msg-bubble-meta pt-msg-meta-out" title="${esc(fullDate)}">${esc(rel)}</div>
+          </div>
+          <div class="pt-msg-avatar pt-msg-avatar-you" aria-hidden="true">You</div>
+        </div>`;
     }
 
-    const initials = senderName.split(' ').map(w => w[0] || '').join('').slice(0, 2).toUpperCase() || 'CL';
-    const isUnread  = m.is_read === false || m.read === false || m.unread === true;
-    return `<div style="display:flex;gap:12px;padding:16px 18px;border-bottom:1px solid var(--border);background:${isUnread ? 'rgba(74,158,255,0.03)' : 'var(--bg-card)'}">
-      <div class="avatar" style="background:linear-gradient(135deg,var(--teal-dim),var(--blue-dim));flex-shrink:0">${initials}</div>
-      <div style="flex:1;min-width:0">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px">
-          <div style="font-size:12.5px;font-weight:${isUnread ? 600 : 400};color:var(--text-primary)">${senderName}</div>
-          <div style="font-size:10.5px;color:var(--text-tertiary);flex-shrink:0">${rel}</div>
+    const initials = senderName.replace(/&[^;]+;/g, '').split(' ').map(w => w[0] || '').join('').slice(0, 2).toUpperCase() || 'CT';
+    return `
+      <div class="pt-msg-bubble-row pt-msg-row-in${urgent ? ' pt-msg-row-urgent' : ''}">
+        <div class="pt-msg-avatar pt-msg-avatar-clinic" aria-hidden="true">${initials}</div>
+        <div class="pt-msg-bubble pt-msg-bubble-in${urgent ? ' pt-msg-bubble-urgent' : ''}">
+          <div class="pt-msg-sender-name">${senderName}</div>
+          <div class="pt-msg-bubble-body">${body}</div>
+          <div class="pt-msg-bubble-meta" title="${esc(fullDate)}">${esc(rel)}</div>
         </div>
-        <div style="font-size:12px;color:var(--text-secondary);line-height:1.55">${body}</div>
-      </div>
-      ${isUnread ? `<div style="width:7px;height:7px;border-radius:50%;background:var(--blue);flex-shrink:0;margin-top:5px;box-shadow:0 0 6px rgba(74,158,255,0.5)"></div>` : ''}
-    </div>`;
+      </div>`;
   }
 
-  function renderMessageList() {
-    const listEl = document.getElementById('pt-msg-list');
-    if (!listEl) return;
-    if (messages.length === 0) {
-      listEl.innerHTML = `<div style="padding:36px;text-align:center;color:var(--text-tertiary);font-size:12px">
-        No messages yet. Your clinician will reach out soon.
+  // ── Thread card HTML (list view) ─────────────────────────────────────────
+  function threadCardHTML(th, idx) {
+    const preview  = esc((th.latestBody || '').slice(0, 100).trim());
+    const date     = fmtRelative(th.latestDate);
+    const cm       = catMeta(th.category);
+    const hasUnread = th.unreadCount > 0;
+    const urgentBadge = (th.priority || '').toLowerCase() === 'urgent'
+      ? `<span class="pt-msg-urgent-badge">Urgent</span>`
+      : '';
+    const unreadDot = hasUnread
+      ? `<span class="pt-msg-unread-dot" aria-label="${th.unreadCount} unread"></span>`
+      : '';
+    const catBadge = th.category
+      ? `<span class="pt-msg-cat-badge">${esc(cm.label)}</span>`
+      : '';
+    const courseChip = th.courseRef
+      ? `<span class="pt-msg-ctx-chip">${esc(th.courseRef.title)}</span>`
+      : '';
+
+    return `
+      <div class="pt-msg-thread-card${hasUnread ? ' pt-msg-thread-unread' : ''}"
+           role="button" tabindex="0"
+           aria-label="Message thread: ${th.subject}${hasUnread ? ', ' + th.unreadCount + ' unread' : ''}"
+           data-thread-idx="${idx}"
+           onclick="window._ptOpenThread(${idx})"
+           onkeydown="if(event.key==='Enter'||event.key===' ')window._ptOpenThread(${idx})">
+        <div class="pt-msg-thread-top">
+          <div class="pt-msg-thread-who">
+            <span class="pt-msg-thread-sender">${esc(th.latestSender)}</span>
+            ${urgentBadge}
+            ${unreadDot}
+          </div>
+          <span class="pt-msg-thread-date">${esc(date)}</span>
+        </div>
+        <div class="pt-msg-thread-subject">${th.subject}</div>
+        <div class="pt-msg-thread-preview">${preview || '<em>No content</em>'}${th.messages.length > 1 ? ` <span class="pt-msg-reply-count">${th.messages.length} messages</span>` : ''}</div>
+        <div class="pt-msg-thread-chips">${catBadge}${courseChip}</div>
       </div>`;
-    } else {
-      listEl.innerHTML = messages.map(m => msgBubbleHTML(m)).join('');
-    }
   }
+
+  // ── Thread detail HTML ───────────────────────────────────────────────────
+  function threadDetailHTML(th, uid) {
+    const cm     = catMeta(th.category);
+    const urgent = (th.priority || '').toLowerCase() === 'urgent';
+    const contextBanner = th.courseRef
+      ? `<div class="pt-msg-ctx-banner">
+           <span class="pt-msg-ctx-banner-ico" aria-hidden="true">&#9678;</span>
+           Re: ${esc(th.courseRef.title)}
+         </div>`
+      : '';
+    const urgentBanner = urgent
+      ? `<div class="pt-msg-urgent-banner">
+           <strong>Urgent message</strong> \u2014 your care team has marked this as urgent.
+           If you are in immediate distress please call your clinic or emergency services.
+         </div>`
+      : '';
+    const bubbles = th.messages.length > 0
+      ? th.messages.map(m => bubbleHTML(m, uid)).join('')
+      : `<div class="pt-msg-thread-empty">No messages in this thread yet.</div>`;
+
+    return `
+      <div class="pt-msg-detail-wrap">
+        <button class="pt-msg-back-btn"
+                onclick="window._ptCloseThread()"
+                aria-label="Back to message list">
+          \u2190 Back to messages
+        </button>
+        <div class="pt-msg-detail-header">
+          <div class="pt-msg-detail-subject">${th.subject}</div>
+          ${th.category ? `<span class="pt-msg-cat-badge pt-msg-cat-badge-lg">${esc(cm.icon)} ${esc(cm.label)}</span>` : ''}
+        </div>
+        ${urgentBanner}
+        ${contextBanner}
+        <div class="pt-msg-thread-body" id="pt-msg-thread-body">
+          ${bubbles}
+        </div>
+        <div class="pt-msg-reply-wrap">
+          <div class="pt-msg-reply-label">Reply</div>
+          <textarea id="pt-msg-reply-input" class="form-control pt-msg-reply-input"
+                    rows="3" placeholder="Type your reply\u2026"
+                    aria-label="Reply to this message thread"></textarea>
+          <div class="pt-msg-reply-footer">
+            <span class="pt-msg-reply-hint">Your care team will respond within 1\u20132 business days.</span>
+            <button class="btn btn-primary btn-sm"
+                    id="pt-msg-reply-btn"
+                    onclick="window._ptSendReply('${esc(th.key)}')">Send Reply \u2192</button>
+          </div>
+          <div id="pt-msg-reply-status" class="pt-msg-send-status" hidden></div>
+        </div>
+      </div>`;
+  }
+
+  // ── New message form HTML ────────────────────────────────────────────────
+  function newMsgFormHTML() {
+    const categoryOptions = MSG_CATEGORIES.map(c =>
+      `<option value="${esc(c.key)}">${esc(c.label)}</option>`
+    ).join('');
+    const courseOption = activeCourse
+      ? `<option value="${esc(activeCourse.id)}">${esc(activeCourse.condition_name || activeCourse.protocol_name || 'Your treatment')}</option>`
+      : '';
+
+    return `
+      <div class="pt-msg-compose" id="pt-msg-compose">
+        <div class="pt-docs-section-hd" style="margin-bottom:12px">
+          <span class="pt-docs-section-title">New Message</span>
+        </div>
+        <div class="pt-msg-compose-body">
+          <div class="form-group">
+            <label class="form-label" for="pt-msg-category">What is this about?</label>
+            <select id="pt-msg-category" class="form-control" aria-required="true">
+              <option value="">Select a reason\u2026</option>
+              ${categoryOptions}
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="pt-msg-subject">Subject</label>
+            <input id="pt-msg-subject" class="form-control"
+                   type="text" maxlength="120"
+                   placeholder="e.g. Question about my next session"
+                   aria-required="true">
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="pt-msg-body">Message</label>
+            <textarea id="pt-msg-body" class="form-control"
+                      rows="4" maxlength="2000"
+                      placeholder="Describe your question or concern\u2026"
+                      aria-required="true"></textarea>
+          </div>
+          <div class="pt-msg-compose-footer">
+            <span class="pt-msg-compose-hint">Non-urgent messages only. For medical emergencies call 000 or your local emergency number.</span>
+            <button class="btn btn-primary btn-sm" id="pt-msg-send-btn"
+                    onclick="window._ptSendNewMessage()">Send Message \u2192</button>
+          </div>
+          <div id="pt-msg-send-status" class="pt-msg-send-status" hidden></div>
+        </div>
+      </div>`;
+  }
+
+  // ── Care team contacts HTML ──────────────────────────────────────────────
+  // Extension point: populate from api.patientPortalMe() or a dedicated
+  // /patient-portal/care-team endpoint when that becomes available.
+  function careTeamHTML() {
+    const teamMembers = [];
+    if (activeCourse?.primary_clinician_name) {
+      teamMembers.push({
+        name: activeCourse.primary_clinician_name,
+        role: activeCourse.primary_clinician_role || 'Clinician',
+      });
+    }
+
+    const memberCards = teamMembers.length > 0
+      ? teamMembers.map(m => `
+          <div class="pt-msg-contact-card">
+            <div class="pt-msg-contact-avatar" aria-hidden="true">
+              ${esc(m.name.split(' ').map(w => w[0] || '').join('').slice(0, 2).toUpperCase())}
+            </div>
+            <div class="pt-msg-contact-info">
+              <div class="pt-msg-contact-name">${esc(m.name)}</div>
+              <div class="pt-msg-contact-role">${esc(m.role)}</div>
+            </div>
+          </div>`).join('')
+      : `<div class="pt-msg-contact-placeholder">
+           Your care team information will appear here once your treatment is underway.
+         </div>`;
+
+    return `
+      <div class="pt-msg-care-team">
+        <div class="pt-docs-section-hd" style="margin-bottom:12px">
+          <span class="pt-docs-section-title">Your Care Team</span>
+        </div>
+        ${memberCards}
+      </div>`;
+  }
+
+  // ── Guidance box HTML ────────────────────────────────────────────────────
+  function guidanceHTML() {
+    return `
+      <div class="pt-msg-guidance">
+        <div class="pt-msg-guidance-row">
+          <span class="pt-msg-guidance-ico" aria-hidden="true">&#9678;</span>
+          <span><strong>Response time:</strong> Your care team aims to reply within 1\u20132 business days. Messages sent after hours or on weekends will be seen on the next working day.</span>
+        </div>
+        <div class="pt-msg-guidance-row">
+          <span class="pt-msg-guidance-ico pt-msg-guidance-ico-warn" aria-hidden="true">&#9650;</span>
+          <span><strong>Not for emergencies.</strong> This messaging system is for non-urgent questions only. If you are experiencing a medical emergency, call 000 or go to your nearest emergency department.</span>
+        </div>
+        <div class="pt-msg-guidance-row">
+          <span class="pt-msg-guidance-ico" aria-hidden="true">&#128222;</span>
+          <span><strong>Need to speak to someone sooner?</strong> Call your clinic directly during business hours.</span>
+        </div>
+      </div>`;
+  }
+
+  // ── Page state: load error with messages unavailable ────────────────────
+  // Still shows compose + guidance even when messages fail to load.
+  const loadFailed = messagesRaw === null;
+
+  // ── Render full page ─────────────────────────────────────────────────────
+  const uid = currentUser?.id;
+
+  const threadListHTML = !loadFailed
+    ? (threads.length > 0
+        ? threads.map((th, i) => threadCardHTML(th, i)).join('')
+        : `<div class="pt-msg-empty">
+             <div class="pt-msg-empty-ico" aria-hidden="true">&#9643;</div>
+             <div class="pt-msg-empty-title">No messages yet</div>
+             <div class="pt-msg-empty-body">When your care team sends you a message, or you send one below, it will appear here.</div>
+           </div>`)
+    : `<div class="pt-msg-load-error">
+         <span class="pt-msg-load-error-ico" aria-hidden="true">&#9680;</span>
+         Could not load your messages. Please try again later.
+         <button class="btn btn-ghost btn-sm" style="margin-left:10px;margin-top:6px"
+                 onclick="window._navPatient('patient-messages')">Retry \u2192</button>
+       </div>`;
 
   el.innerHTML = `
-    <div style="border:1px solid var(--border);border-radius:var(--radius-lg);overflow:hidden;margin-bottom:16px" id="pt-msg-list"></div>
-    <div class="card" style="border-color:var(--border)">
-      <div class="card-body" style="padding:14px 16px">
-        <div style="font-size:10.5px;color:var(--text-tertiary);margin-bottom:8px;text-transform:uppercase;letter-spacing:0.7px">Reply to your care team</div>
-        <textarea
-          id="pt-msg-input"
-          class="form-control"
-          rows="3"
-          placeholder="Type your message here…"
-          style="resize:vertical;min-height:72px;margin-bottom:10px"
-        ></textarea>
-        <div style="display:flex;justify-content:flex-end">
-          <button class="btn btn-primary btn-sm" onclick="window._ptSendMessage()">Send Message →</button>
+    <div class="pt-msg-wrap" id="pt-msg-wrap">
+      ${guidanceHTML()}
+
+      <div class="pt-msg-section" id="pt-msg-list-section">
+        <div class="pt-docs-section-hd" style="margin-bottom:10px">
+          <span class="pt-docs-section-title">Messages</span>
+          ${threads.length > 0 ? `<span class="pt-docs-section-count">${threads.length} thread${threads.length !== 1 ? 's' : ''}</span>` : ''}
         </div>
+        <div id="pt-msg-thread-list">${threadListHTML}</div>
       </div>
-    </div>
-  `;
 
-  renderMessageList();
+      <div id="pt-msg-thread-detail" hidden></div>
 
-  window._ptSendMessage = async function() {
-    const input = document.getElementById('pt-msg-input');
+      ${newMsgFormHTML()}
+
+      ${careTeamHTML()}
+    </div>`;
+
+  // ── Handlers ─────────────────────────────────────────────────────────────
+
+  // Open a thread and show detail view
+  window._ptOpenThread = function(idx) {
+    const th  = threads[idx];
+    if (!th) return;
+    const listSection   = el.querySelector('#pt-msg-list-section');
+    const detailSection = el.querySelector('#pt-msg-thread-detail');
+    if (!listSection || !detailSection) return;
+    detailSection.innerHTML = threadDetailHTML(th, uid);
+    detailSection.removeAttribute('hidden');
+    listSection.setAttribute('hidden', '');
+    // Scroll to top of detail
+    detailSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+
+  // Close thread detail and return to list
+  window._ptCloseThread = function() {
+    const listSection   = el.querySelector('#pt-msg-list-section');
+    const detailSection = el.querySelector('#pt-msg-thread-detail');
+    if (!listSection || !detailSection) return;
+    detailSection.setAttribute('hidden', '');
+    detailSection.innerHTML = '';
+    listSection.removeAttribute('hidden');
+  };
+
+  // Send a reply to an existing thread
+  window._ptSendReply = async function(threadKey) {
+    const input  = el.querySelector('#pt-msg-reply-input');
+    const btn    = el.querySelector('#pt-msg-reply-btn');
+    const status = el.querySelector('#pt-msg-reply-status');
     if (!input) return;
     const text = input.value.trim();
-    if (!text) return;
+    if (!text) { input.focus(); return; }
 
-    // Optimistic: append to local array and re-render immediately
-    const optimistic = {
-      sender_id:  uid,
-      body:       text,
-      created_at: new Date().toISOString(),
-      outgoing:   true,
-    };
-    messages.push(optimistic);
-    renderMessageList();
-    input.value = '';
-    input.focus();
+    if (btn) { btn.disabled = true; btn.textContent = 'Sending\u2026'; }
 
-    // Message sending via Telegram — real-time delivery not yet wired
-    /* keep optimistic entry only */
+    try {
+      // Extension point: include thread_id when backend supports threaded replies.
+      await api.patientPortalSendMessage({
+        thread_id: threadKey,
+        body:      text,
+        category:  threads.find(t => t.key === threadKey)?.category || null,
+      });
+      input.value = '';
+      if (status) {
+        status.removeAttribute('hidden');
+        status.className = 'pt-msg-send-status pt-msg-send-ok';
+        status.textContent = 'Your reply has been sent. Your care team will respond within 1\u20132 business days.';
+      }
+      if (btn) { btn.disabled = false; btn.textContent = 'Send Reply \u2192'; }
+    } catch (_e) {
+      if (status) {
+        status.removeAttribute('hidden');
+        status.className = 'pt-msg-send-status pt-msg-send-fail';
+        status.textContent = 'Could not send your reply. Please check your connection and try again.';
+      }
+      if (btn) { btn.disabled = false; btn.textContent = 'Send Reply \u2192'; }
+    }
+  };
+
+  // Send a new message (new thread)
+  window._ptSendNewMessage = async function() {
+    const catEl  = el.querySelector('#pt-msg-category');
+    const subjEl = el.querySelector('#pt-msg-subject');
+    const bodyEl = el.querySelector('#pt-msg-body');
+    const btn    = el.querySelector('#pt-msg-send-btn');
+    const status = el.querySelector('#pt-msg-send-status');
+
+    const category = catEl?.value || '';
+    const subject  = subjEl?.value.trim() || '';
+    const body     = bodyEl?.value.trim() || '';
+
+    // Validate
+    if (!category) { catEl?.focus(); return; }
+    if (!subject)  { subjEl?.focus(); return; }
+    if (!body)     { bodyEl?.focus(); return; }
+
+    if (btn) { btn.disabled = true; btn.textContent = 'Sending\u2026'; }
+
+    try {
+      // Extension point: add attachment_ids[], course_id, session_id as backend supports them.
+      await api.patientPortalSendMessage({
+        category,
+        subject,
+        body,
+        course_id: activeCourse?.id || null,
+      });
+      // Confirmation state: replace compose form body with success notice
+      const compose = el.querySelector('#pt-msg-compose');
+      if (compose) {
+        compose.innerHTML = `
+          <div class="pt-docs-section-hd" style="margin-bottom:12px">
+            <span class="pt-docs-section-title">New Message</span>
+          </div>
+          <div class="pt-msg-sent-confirm">
+            <div class="pt-msg-sent-ico" aria-hidden="true">&#10003;</div>
+            <div class="pt-msg-sent-title">Message sent</div>
+            <div class="pt-msg-sent-body">Your care team will respond within 1\u20132 business days.<br>You\u2019ll find the reply here in Secure Messages.</div>
+            <button class="btn btn-ghost btn-sm" style="margin-top:14px"
+                    onclick="window._navPatient('patient-messages')">Send another message \u2192</button>
+          </div>`;
+      }
+    } catch (_e) {
+      if (status) {
+        status.removeAttribute('hidden');
+        status.className = 'pt-msg-send-status pt-msg-send-fail';
+        status.textContent = 'Could not send your message. Please check your connection and try again.';
+      }
+      if (btn) { btn.disabled = false; btn.textContent = 'Send Message \u2192'; }
+    }
   };
 }
 
 // ── Profile & Settings ────────────────────────────────────────────────────────
 export async function pgPatientProfile(user) {
-  setTopbar('Profile & Settings');
+  setTopbar(t('patient.nav.profile'));
 
   function renderProfile(u) {
     const initials = (u?.display_name || '?').slice(0, 2).toUpperCase();
@@ -2548,7 +3332,7 @@ const LEARN_ARTICLES = [
 ];
 
 export async function pgPatientLearn() {
-  setTopbar('Learn & Resources');
+  setTopbar(t('patient.nav.learn'));
   const el = document.getElementById('patient-content');
 
   // Track read articles
@@ -2733,7 +3517,7 @@ async function _mediaFetch(path, opts = {}) {
 
 // ── Media & AI Analysis Consent ───────────────────────────────────────────────
 export async function pgPatientMediaConsent() {
-  setTopbar('Media & AI Consent');
+  setTopbar(t('patient.nav.consent'));
   const user = currentUser;
   const patientId = user?.patient_id || user?.id;
 
@@ -2892,7 +3676,7 @@ export async function pgPatientMediaConsent() {
 
 // ── Media Upload ──────────────────────────────────────────────────────────────
 export async function pgPatientMediaUpload() {
-  setTopbar('Send an Update');
+  setTopbar(t('patient.nav.updates'));
   const user = currentUser;
   const patientId = user?.patient_id || user?.id;
 
@@ -2936,6 +3720,14 @@ export async function pgPatientMediaUpload() {
     <div style="margin-bottom:20px">
       <div style="font-size:17px;font-weight:600;color:var(--text-primary);margin-bottom:4px">Send an Update to Your Care Team</div>
       <div style="font-size:12.5px;color:var(--text-secondary)">Your care team will review your update before it is used in your clinical record.</div>
+    </div>
+
+    <div style="background:rgba(239,68,68,0.06);border:1px solid rgba(239,68,68,0.2);border-radius:8px;padding:10px 14px;margin-bottom:16px;display:flex;align-items:flex-start;gap:10px">
+      <span style="font-size:15px;flex-shrink:0">🚨</span>
+      <div style="font-size:11.5px;color:var(--text-secondary);line-height:1.6">
+        <strong style="color:var(--text-primary)">Not for emergencies.</strong>
+        If you are in immediate danger or experiencing a medical emergency, call <strong>000 / 911 / 999</strong> or go to your nearest emergency department. This portal is not monitored in real time.
+      </div>
     </div>
 
     ${!hasAnyConsent ? `
@@ -3055,6 +3847,7 @@ export async function pgPatientMediaUpload() {
     const voiceCard = document.getElementById('upload-type-voice');
     const textForm  = document.getElementById('upload-form-text');
     const voiceForm = document.getElementById('upload-form-voice');
+    const warnEl    = document.getElementById('pt-upload-consent-warn');
 
     const activeBorder  = 'border-color:var(--teal);background:rgba(0,212,188,0.04)';
     const inactiveBorder = '';
@@ -3063,6 +3856,18 @@ export async function pgPatientMediaUpload() {
     if (voiceCard) voiceCard.style.cssText = `cursor:pointer;${type === 'voice' ? activeBorder : inactiveBorder}`;
     if (textForm)  textForm.style.display  = type === 'text'  ? '' : 'none';
     if (voiceForm) voiceForm.style.display = type === 'voice' ? '' : 'none';
+
+    // Immediate consent check — surface the issue before submit, not on submit
+    const consentNeeded = type === 'text' ? 'text_updates' : 'voice_notes';
+    if (warnEl) {
+      if (!isConsentGranted(consentNeeded)) {
+        warnEl.className = 'notice notice-warn';
+        warnEl.style.display = '';
+        warnEl.innerHTML = `You haven\u2019t enabled consent for ${type === 'text' ? 'text updates' : 'voice notes'} yet. <a href="#" onclick="window._navPatient('pt-media-consent');return false" style="color:var(--teal)">Enable consent \u2192</a>`;
+      } else {
+        warnEl.style.display = 'none';
+      }
+    }
   };
 
   window._ptToggleRecording = async function() {
@@ -3116,11 +3921,20 @@ export async function pgPatientMediaUpload() {
   };
 
   window._ptVoiceFileSelected = function(input) {
-    const ready = document.getElementById('pt-record-ready');
-    if (input.files && input.files[0]) {
-      _recordedBlob = input.files[0];
-      if (ready) { ready.style.display = ''; ready.textContent = `File selected: ${input.files[0].name}`; }
+    const ready  = document.getElementById('pt-record-ready');
+    const warnEl = document.getElementById('pt-upload-consent-warn');
+    if (!input.files || !input.files[0]) return;
+    const MAX_BYTES = 52428800; // 50 MB — mirrors backend limit
+    if (input.files[0].size > MAX_BYTES) {
+      input.value = '';
+      _recordedBlob = null;
+      if (warnEl) { warnEl.className = 'notice notice-error'; warnEl.style.display = ''; warnEl.textContent = 'File is too large (max 50 MB). Please record a shorter clip or compress the file.'; }
+      if (ready) ready.style.display = 'none';
+      return;
     }
+    _recordedBlob = input.files[0];
+    if (warnEl) warnEl.style.display = 'none';
+    if (ready) { ready.style.display = ''; ready.textContent = `File selected: ${input.files[0].name} (${(input.files[0].size / 1048576).toFixed(1)} MB)`; }
   };
 
   window._ptSubmitUpload = async function() {
@@ -3189,8 +4003,15 @@ export async function pgPatientMediaUpload() {
       if (resultEl) {
         resultEl.className = 'notice notice-success';
         resultEl.style.display = '';
-        resultEl.innerHTML = 'Your update has been sent. Your care team will review it. '
-          + '<a href="#" onclick="window._navPatient(\'pt-media-history\');return false" style="color:var(--teal)">View Media History →</a>';
+        resultEl.innerHTML = `
+          <div style="font-weight:600;margin-bottom:8px">&#x2713; Update sent successfully.</div>
+          <div style="font-size:11.5px;line-height:1.7;margin-bottom:10px">
+            <strong>What happens next:</strong><br>
+            1. Your care team will review your update — usually within 1&ndash;2 business days.<br>
+            2. If approved, it may be analyzed to help prepare your next appointment.<br>
+            3. Any feedback from your clinician will appear in your <a href="#" onclick="window._navPatient('pt-media-history');return false" style="color:var(--teal)">Media History</a>.
+          </div>
+          <a href="#" onclick="window._navPatient('pt-media-history');return false" style="color:var(--teal);font-size:12px">View Media History →</a>`;
       }
       if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = 'Sent ✓'; }
     } catch (err) {
@@ -3206,7 +4027,7 @@ export async function pgPatientMediaUpload() {
 
 // ── Media History ─────────────────────────────────────────────────────────────
 export async function pgPatientMediaHistory() {
-  setTopbar('My Updates & Feedback');
+  setTopbar(t('patient.nav.feedback'));
 
   const el = document.getElementById('patient-content');
   el.innerHTML = spinner();
@@ -3246,13 +4067,13 @@ export async function pgPatientMediaHistory() {
 
   const STATUS_META = {
     uploaded:               { label: 'Uploaded',            color: 'var(--text-tertiary)', bg: 'rgba(255,255,255,0.06)' },
-    pending_review:         { label: 'Pending Review',       color: '#f59e0b',              bg: 'rgba(245,158,11,0.1)'  },
-    approved_for_analysis:  { label: 'Being Reviewed',       color: 'var(--blue)',          bg: 'rgba(74,158,255,0.1)' },
-    analyzing:              { label: 'Being Analyzed',       color: 'var(--blue)',          bg: 'rgba(74,158,255,0.1)' },
+    pending_review:         { label: 'Waiting for Review',   color: '#f59e0b',              bg: 'rgba(245,158,11,0.1)'  },
+    approved_for_analysis:  { label: 'Approved — In Queue',  color: 'var(--blue)',          bg: 'rgba(74,158,255,0.1)' },
+    analyzing:              { label: 'AI Analysis Running',  color: 'var(--blue)',          bg: 'rgba(74,158,255,0.1)' },
     analyzed:               { label: 'Analyzed',             color: 'var(--teal)',          bg: 'rgba(0,212,188,0.08)' },
-    clinician_reviewed:     { label: 'Care Team Reviewed',   color: 'var(--green,#22c55e)', bg: 'rgba(34,197,94,0.08)' },
-    rejected:               { label: 'Not Used',             color: '#ef4444',              bg: 'rgba(239,68,68,0.08)' },
-    reupload_requested:     { label: 'Re-upload Requested',  color: '#f97316',              bg: 'rgba(249,115,22,0.08)' },
+    clinician_reviewed:     { label: 'Reviewed by Care Team', color: 'var(--green,#22c55e)', bg: 'rgba(34,197,94,0.08)' },
+    rejected:               { label: 'Not Progressed',       color: '#94a3b8',              bg: 'rgba(148,163,184,0.08)' },
+    reupload_requested:     { label: 'New Upload Requested',  color: '#f97316',              bg: 'rgba(249,115,22,0.08)' },
   };
 
   const NON_DELETABLE = new Set(['clinician_reviewed', 'analyzing']);
@@ -3294,8 +4115,8 @@ export async function pgPatientMediaHistory() {
                 <strong>Feedback from your care team:</strong> ${feedbackReason}
               </div>` : ''}
               <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-                ${canDelete ? `<button class="btn btn-ghost btn-sm" style="color:var(--red,#ef4444);border-color:rgba(239,68,68,0.25);font-size:11px"
-                        onclick="window._ptDeleteUpload(${idx}, '${u.id || ''}')">Delete</button>` : ''}
+                ${canDelete ? `<button class="btn btn-ghost btn-sm" id="delete-btn-${idx}" style="color:var(--red,#ef4444);border-color:rgba(239,68,68,0.25);font-size:11px"
+                        onclick="window._ptDeleteUpload(${idx}, '${u.id || ''}', this)">Delete</button>` : ''}
               </div>
             </div>
           </div>
@@ -3332,12 +4153,20 @@ export async function pgPatientMediaHistory() {
   }
 
   el.innerHTML = `
+    <div style="background:rgba(239,68,68,0.06);border:1px solid rgba(239,68,68,0.2);border-radius:8px;padding:9px 14px;margin-bottom:14px;display:flex;align-items:flex-start;gap:10px">
+      <span style="font-size:13px;flex-shrink:0">🚨</span>
+      <div style="font-size:11.5px;color:var(--text-secondary);line-height:1.5">
+        <strong style="color:var(--text-primary)">Not for emergencies.</strong>
+        Call <strong>000 / 911 / 999</strong> or go to emergency if you need urgent medical help.
+      </div>
+    </div>
+
     ${hasRedFlag ? `
     <div style="background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.35);border-radius:var(--radius-md);padding:12px 16px;margin-bottom:16px;display:flex;align-items:center;gap:12px">
       <span style="font-size:18px">⚠</span>
       <div style="font-size:12.5px;color:var(--text-primary);line-height:1.55">
         <strong>Your care team has flagged an item for follow-up.</strong>
-        Please contact your clinic.
+        Please contact your clinic — this is not urgent unless your clinician has called you.
       </div>
       <button class="btn btn-ghost btn-sm" style="flex-shrink:0" onclick="window._navPatient('patient-messages')">Message clinic →</button>
     </div>` : ''}
@@ -3384,24 +4213,26 @@ export async function pgPatientMediaHistory() {
     renderList();
   };
 
-  window._ptDeleteUpload = async function(idx, uploadId) {
+  window._ptDeleteUpload = async function(idx, uploadId, btnEl) {
     if (!confirm('Delete this upload? This cannot be undone.')) return;
     const id = uploadId || uploads[idx]?.id;
     if (!id) return;
     const card = document.getElementById(`media-card-${idx}`);
+    const btn  = btnEl || document.getElementById(`delete-btn-${idx}`);
+    if (btn) { btn.disabled = true; btn.textContent = 'Deleting…'; }
     try {
       await _mediaFetch(`/api/v1/media/patient/upload/${id}`, { method: 'DELETE' });
-      // Remove from local array and re-render
       uploads = uploads.filter(u => u.id !== id);
       renderList();
     } catch (err) {
+      if (btn) { btn.disabled = false; btn.textContent = 'Delete'; }
       if (card) {
         const errMsg = document.createElement('div');
         errMsg.className = 'notice notice-error';
         errMsg.style.cssText = 'font-size:11.5px;margin-top:8px';
         errMsg.textContent = `Could not delete: ${err.message || 'Unknown error'}`;
         card.querySelector('.card-body')?.appendChild(errMsg);
-        setTimeout(() => errMsg.remove(), 3000);
+        setTimeout(() => errMsg.remove(), 4000);
       }
     }
   };
@@ -3412,7 +4243,7 @@ const _wearableChat = { msgs: [] };
 
 // ── Wearables ─────────────────────────────────────────────────────────────────
 export async function pgPatientWearables() {
-  setTopbar('Wearables');
+  setTopbar(t('patient.nav.wearables'));
   const el = document.getElementById('patient-content');
   el.innerHTML = spinner();
 
@@ -6074,4 +6905,433 @@ export async function pgDataImport(setTopbar) {
   _importState.sessions = { step: 1, csvData: null, mappings: {}, fileName: '', validRows: [], errorRows: [], skipInvalid: false };
   _importState.protocol = { step: 1, jsonData: null, fileName: '', pasteText: '' };
   _renderImportPage('patients');
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// ── pgPatientOutcomePortal — Patient-facing outcome & progress page ───────────
+// ══════════════════════════════════════════════════════════════════════════════
+
+const _OUTCOME_SEED = {
+  patient: { name: 'Alex P.', startDate: '2025-07-15', totalSessions: 24, goals: 3 },
+  symptoms: {
+    anxiety: [8, 7, 7, 6, 6, 5, 5, 4, 4, 3, 3, 3],
+    sleep: [4, 4, 5, 5, 6, 6, 7, 7, 7, 8, 8, 8],
+    focus: [5, 5, 5, 6, 6, 7, 7, 7, 8, 8, 9, 9],
+  },
+  sessionScores: [72, 68, 75, 80, 77, 82, 85, 79, 88, 84, 90, 87, 91, 86, 93, 89, 95, 92, 94, 96],
+  goals: [
+    { id: 'g1', name: 'Reduce Anxiety to \u22643', target: 3, current: 3, status: 'achieved' },
+    { id: 'g2', name: 'Sleep 7+ hrs/night', target: 7, current: 8, status: 'achieved' },
+    { id: 'g3', name: 'Focus Score \u22659', target: 9, current: 9, status: 'on-track' },
+  ],
+  sessions: [
+    { id: 's1', date: '2025-10-25', type: 'Neurofeedback', clinician: 'Dr. Reyes', rating: 5, note: 'Felt very calm afterwards. Great focus boost.', clinicianRead: true },
+    { id: 's2', date: '2025-11-01', type: 'tDCS', clinician: 'Dr. Reyes', rating: 4, note: 'Mild tingling, slept well that night.', clinicianRead: true },
+    { id: 's3', date: '2025-11-08', type: 'Neurofeedback', clinician: 'Dr. Chen', rating: 5, note: 'Best session yet \u2014 hit my focus target.', clinicianRead: true },
+    { id: 's4', date: '2025-11-15', type: 'HRV Training', clinician: 'Dr. Reyes', rating: 4, note: 'Learned paced breathing. Anxiety much lower.', clinicianRead: false },
+    { id: 's5', date: '2025-11-22', type: 'Neurofeedback', clinician: 'Dr. Chen', rating: null, note: '', clinicianRead: false },
+  ],
+};
+
+function _outcomeGetData() {
+  try {
+    const raw = localStorage.getItem('ds_patient_outcomes');
+    if (raw) return JSON.parse(raw);
+  } catch (_e) {
+    /* seed below */
+  }
+  localStorage.setItem('ds_patient_outcomes', JSON.stringify(_OUTCOME_SEED));
+  return _OUTCOME_SEED;
+}
+
+function _outcomeGetRatings() {
+  try {
+    return JSON.parse(localStorage.getItem('ds_session_ratings') || '{}');
+  } catch (_e) {
+    return {};
+  }
+}
+
+function _outcomeGetGoalNotes() {
+  try {
+    return JSON.parse(localStorage.getItem('ds_patient_goal_notes') || '{}');
+  } catch (_e) {
+    return {};
+  }
+}
+
+// ── Progress ring SVG ──────────────────────────────────────────────────────────
+function _progressRingSVG(value, max, color, size) {
+  const sz = size || 72;
+  const pct = Math.min(1, Math.max(0, value / max));
+  const r = sz / 2 - 7;
+  const circ = 2 * Math.PI * r;
+  const dash = pct * circ;
+  const cx = sz / 2;
+  const uid = 'pr-' + Math.random().toString(36).slice(2);
+  return (
+    '<svg width="' + sz + '" height="' + sz + '" viewBox="0 0 ' + sz + ' ' + sz + '" class="iii-progress-ring" role="img" aria-label="' + Math.round(pct * 100) + '%">' +
+    '<defs><linearGradient id="' + uid + '" x1="0%" y1="0%" x2="100%" y2="100%">' +
+    '<stop offset="0%" stop-color="' + color + '" stop-opacity="0.6"/>' +
+    '<stop offset="100%" stop-color="' + color + '" stop-opacity="1"/>' +
+    '</linearGradient></defs>' +
+    '<circle cx="' + cx + '" cy="' + cx + '" r="' + r + '" fill="none" stroke="rgba(255,255,255,0.07)" stroke-width="6"/>' +
+    '<circle cx="' + cx + '" cy="' + cx + '" r="' + r + '" fill="none" stroke="url(#' + uid + ')" stroke-width="6"' +
+    ' stroke-dasharray="' + dash.toFixed(2) + ' ' + (circ - dash).toFixed(2) + '"' +
+    ' stroke-dashoffset="' + (circ / 4).toFixed(2) + '" stroke-linecap="round"' +
+    ' style="transition:stroke-dasharray 1.2s cubic-bezier(.4,0,.2,1);filter:drop-shadow(0 0 3px ' + color + ')"/>' +
+    '<text x="' + cx + '" y="' + (cx + 5) + '" text-anchor="middle" font-size="' + (sz < 64 ? 10 : 13) + '" font-weight="700" fill="' + color + '">' + Math.round(pct * 100) + '%</text>' +
+    '</svg>'
+  );
+}
+
+// ── Symptom multi-line chart ───────────────────────────────────────────────────
+function _symptomLineChart(symptoms) {
+  const W = 380, H = 200, padL = 30, padT = 16, padR = 12, padB = 28;
+  const cW = W - padL - padR, cH = H - padT - padB;
+  const weeks = 12, maxY = 10;
+  const colors = { anxiety: 'var(--accent-rose,#f43f5e)', sleep: 'var(--accent-teal,#2dd4bf)', focus: 'var(--accent-blue,#60a5fa)' };
+  const lbls = { anxiety: 'Anxiety', sleep: 'Sleep Quality', focus: 'Focus' };
+  let gl = '', xl = '', lines = '', dots = '', legend = '';
+  for (let y = 0; y <= 10; y += 2) {
+    const cy = padT + cH - (y / maxY) * cH;
+    gl += '<line x1="' + padL + '" y1="' + cy + '" x2="' + (W - padR) + '" y2="' + cy + '" stroke="rgba(255,255,255,0.05)" stroke-width="1"/>';
+    gl += '<text x="' + (padL - 4) + '" y="' + (cy + 4) + '" text-anchor="end" font-size="9" fill="rgba(255,255,255,0.35)">' + y + '</text>';
+  }
+  for (let i = 0; i < weeks; i++) {
+    const cx = padL + (i / (weeks - 1)) * cW;
+    xl += '<text x="' + cx + '" y="' + (H - 6) + '" text-anchor="middle" font-size="9" fill="rgba(255,255,255,0.35)">W' + (i + 1) + '</text>';
+  }
+  Object.keys(symptoms).forEach(function (key) {
+    const d = symptoms[key], c = colors[key];
+    const pts = d.map(function (v, i) {
+      return (padL + (i / (d.length - 1)) * cW).toFixed(1) + ',' + (padT + cH - (v / maxY) * cH).toFixed(1);
+    });
+    lines += '<polyline points="' + pts.join(' ') + '" fill="none" stroke="' + c + '" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" opacity="0.9"/>';
+    pts.forEach(function (pt, i) {
+      const p = pt.split(','), last = i === pts.length - 1;
+      dots += '<circle cx="' + p[0] + '" cy="' + p[1] + '" r="' + (last ? 4 : 2.5) + '" fill="' + c + '" opacity="' + (last ? 1 : 0.6) + '" class="iii-chart-dot"/>';
+    });
+    legend += '<span style="display:inline-flex;align-items:center;gap:5px;font-size:11px;color:rgba(255,255,255,0.7)"><span style="width:14px;height:2.5px;background:' + c + ';display:inline-block;border-radius:2px"></span>' + lbls[key] + '</span>';
+  });
+  return (
+    '<div class="iii-chart-panel"><div class="iii-chart-title">Symptom Severity Over Time</div>' +
+    '<svg width="100%" viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="xMidYMid meet" style="display:block;overflow:visible">' +
+    gl +
+    '<line x1="' + padL + '" y1="' + padT + '" x2="' + padL + '" y2="' + (padT + cH) + '" stroke="rgba(255,255,255,0.12)" stroke-width="1"/>' +
+    '<line x1="' + padL + '" y1="' + (padT + cH) + '" x2="' + (W - padR) + '" y2="' + (padT + cH) + '" stroke="rgba(255,255,255,0.12)" stroke-width="1"/>' +
+    lines + dots + xl + '</svg>' +
+    '<div style="display:flex;flex-wrap:wrap;gap:10px;margin-top:8px">' + legend + '</div></div>'
+  );
+}
+
+// ── Session score bar chart ────────────────────────────────────────────────────
+function _sessionBarChart(scores) {
+  const W = 380, H = 160, padL = 30, padT = 12, padR = 8;
+  const cW = W - padL - padR, cH = H - padT - 24;
+  const n = scores.length, maxY = 100;
+  const barW = Math.floor(cW / n) - 2;
+  let bars = '', gl = '', xl = '';
+  [0, 25, 50, 75, 100].forEach(function (y) {
+    const cy = padT + cH - (y / maxY) * cH;
+    gl += '<line x1="' + padL + '" y1="' + cy + '" x2="' + (W - padR) + '" y2="' + cy + '" stroke="rgba(255,255,255,0.05)" stroke-width="1"/>';
+    gl += '<text x="' + (padL - 4) + '" y="' + (cy + 4) + '" text-anchor="end" font-size="8" fill="rgba(255,255,255,0.3)">' + y + '</text>';
+  });
+  scores.forEach(function (v, i) {
+    const bH = Math.max(2, (v / maxY) * cH);
+    const x = padL + i * (cW / n) + 1, y = padT + cH - bH;
+    const c = v >= 88 ? 'var(--accent-teal,#2dd4bf)' : v >= 75 ? 'var(--accent-amber,#fbbf24)' : 'var(--accent-rose,#f43f5e)';
+    bars += '<rect x="' + x.toFixed(1) + '" y="' + y.toFixed(1) + '" width="' + barW + '" height="' + bH.toFixed(1) + '" rx="2" fill="' + c + '" opacity="0.85"/>';
+    if (i % 5 === 0) xl += '<text x="' + (padL + i * (cW / n) + barW / 2).toFixed(1) + '" y="' + (H - 4) + '" text-anchor="middle" font-size="8" fill="rgba(255,255,255,0.3)">S' + (i + 1) + '</text>';
+  });
+  return (
+    '<div class="iii-chart-panel"><div class="iii-chart-title">Session Performance Scores</div>' +
+    '<svg width="100%" viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="xMidYMid meet" style="display:block;overflow:visible">' +
+    gl +
+    '<line x1="' + padL + '" y1="' + padT + '" x2="' + padL + '" y2="' + (padT + cH) + '" stroke="rgba(255,255,255,0.12)" stroke-width="1"/>' +
+    '<line x1="' + padL + '" y1="' + (padT + cH) + '" x2="' + (W - padR) + '" y2="' + (padT + cH) + '" stroke="rgba(255,255,255,0.12)" stroke-width="1"/>' +
+    bars + xl + '</svg>' +
+    '<div style="display:flex;gap:14px;margin-top:8px;flex-wrap:wrap">' +
+    '<span style="display:inline-flex;align-items:center;gap:5px;font-size:11px;color:rgba(255,255,255,0.6)"><span style="width:10px;height:10px;border-radius:2px;background:var(--accent-teal,#2dd4bf);display:inline-block"></span>Excellent (\u226588)</span>' +
+    '<span style="display:inline-flex;align-items:center;gap:5px;font-size:11px;color:rgba(255,255,255,0.6)"><span style="width:10px;height:10px;border-radius:2px;background:var(--accent-amber,#fbbf24);display:inline-block"></span>Good (75\u201387)</span>' +
+    '<span style="display:inline-flex;align-items:center;gap:5px;font-size:11px;color:rgba(255,255,255,0.6)"><span style="width:10px;height:10px;border-radius:2px;background:var(--accent-rose,#f43f5e);display:inline-block"></span>Needs Work (&lt;75)</span>' +
+    '</div></div>'
+  );
+}
+
+// ── Goal sparkline ────────────────────────────────────────────────────────────
+function _goalSparkline(goalId) {
+  const samples = { g1: [8, 6, 5, 4, 4, 3, 3, 3], g2: [4, 5, 6, 6, 7, 7, 8, 8], g3: [5, 6, 6, 7, 7, 8, 9, 9] };
+  const d = samples[goalId] || [5, 5, 5, 6, 7, 7, 8, 8];
+  const W = 80, H = 28, pad = 3;
+  const mx = Math.max.apply(null, d), mn = Math.min.apply(null, d), rng = mx - mn || 1;
+  const pts = d.map(function (v, i) {
+    return (pad + (i / (d.length - 1)) * (W - pad * 2)).toFixed(1) + ',' + (pad + (H - pad * 2) - ((v - mn) / rng) * (H - pad * 2)).toFixed(1);
+  });
+  const lp = pts[pts.length - 1].split(',');
+  return (
+    '<svg width="' + W + '" height="' + H + '" viewBox="0 0 ' + W + ' ' + H + '" style="display:block">' +
+    '<polyline points="' + pts.join(' ') + '" fill="none" stroke="var(--accent-teal,#2dd4bf)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>' +
+    '<circle cx="' + lp[0] + '" cy="' + lp[1] + '" r="2.5" fill="var(--accent-teal,#2dd4bf)"/>' +
+    '</svg>'
+  );
+}
+
+// ── Calendar dots (30-day intensity heatmap) ──────────────────────────────────
+function _calendarDots30() {
+  const today = new Date();
+  const cm = { low: 'var(--accent-teal,#2dd4bf)', mid: 'var(--accent-amber,#fbbf24)', high: 'var(--accent-rose,#f43f5e)' };
+  let html = '';
+  for (let i = 29; i >= 0; i--) {
+    const d = new Date(today);
+    d.setDate(today.getDate() - i);
+    const key = d.toISOString().slice(0, 10);
+    const seed = (i * 7 + 3) % 11;
+    const intensity = seed <= 3 ? 'low' : seed <= 7 ? 'mid' : 'high';
+    html += '<button class="iii-cal-dot" data-date="' + key + '" style="background:' + cm[intensity] + '" title="' + key + '" onclick="window._outcomeShowDay(\'' + key + '\')" aria-label="Day ' + d.getDate() + '"><span>' + d.getDate() + '</span></button>';
+  }
+  return html;
+}
+
+// ── Progress report HTML builder ──────────────────────────────────────────────
+function _buildReportHTML(data) {
+  const p = data.patient;
+  const today = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+  const startFmt = new Date(p.startDate).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+  const avgScore = (data.sessionScores.reduce(function (a, b) { return a + b; }, 0) / data.sessionScores.length).toFixed(1);
+  const anxArr = data.symptoms.anxiety, slpArr = data.symptoms.sleep;
+  const anxImp = anxArr[0] - anxArr[anxArr.length - 1];
+  const slpImp = slpArr[slpArr.length - 1] - slpArr[0];
+  const goalRows = data.goals.map(function (g) {
+    const lbl = g.status === 'achieved' ? 'Achieved' : g.status === 'on-track' ? 'On Track' : 'Needs Attention';
+    const sc = g.status === 'achieved' ? '#2dd4bf' : g.status === 'on-track' ? '#60a5fa' : '#f43f5e';
+    return '<tr><td style="padding:10px 14px;border-bottom:1px solid #2d3748;color:#e2e8f0">' + g.name + '</td>' +
+      '<td style="padding:10px 14px;border-bottom:1px solid #2d3748;color:#e2e8f0;text-align:center">' + g.target + '</td>' +
+      '<td style="padding:10px 14px;border-bottom:1px solid #2d3748;color:#e2e8f0;text-align:center">' + g.current + '</td>' +
+      '<td style="padding:10px 14px;border-bottom:1px solid #2d3748;text-align:center"><span style="background:' + sc + '22;color:' + sc + ';border:1px solid ' + sc + '44;border-radius:12px;padding:3px 10px;font-size:12px;font-weight:600">' + lbl + '</span></td></tr>';
+  }).join('');
+  return '<!DOCTYPE html>\n<html lang="en">\n<head>\n<meta charset="UTF-8">\n<title>Progress Report</title>\n<style>\n' +
+    '*{box-sizing:border-box;margin:0;padding:0}\n' +
+    'body{background:#0f172a;color:#e2e8f0;font-family:-apple-system,BlinkMacSystemFont,sans-serif;padding:40px 32px;max-width:800px;margin:0 auto}\n' +
+    'h1{font-size:2rem;font-weight:700;color:#2dd4bf;margin-bottom:4px}\n' +
+    'h2{font-size:1.1rem;font-weight:700;color:#60a5fa;margin:32px 0 12px;text-transform:uppercase;letter-spacing:.08em}\n' +
+    '.meta{color:#94a3b8;font-size:14px;margin-bottom:32px}\n' +
+    '.stat-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:16px;margin-bottom:8px}\n' +
+    '.stat-card{background:#1e293b;border:1px solid #334155;border-radius:12px;padding:16px 20px}\n' +
+    '.stat-val{font-size:1.8rem;font-weight:800;color:#2dd4bf}\n' +
+    '.stat-label{font-size:12px;color:#64748b;margin-top:4px;text-transform:uppercase;letter-spacing:.06em}\n' +
+    'table{width:100%;border-collapse:collapse;background:#1e293b;border-radius:12px;overflow:hidden}\n' +
+    'th{padding:10px 14px;text-align:left;font-size:12px;font-weight:700;text-transform:uppercase;color:#64748b;background:#162032;border-bottom:1px solid #334155}\n' +
+    'p.insight{background:#1e293b;border-left:4px solid #2dd4bf;padding:16px 18px;border-radius:0 10px 10px 0;line-height:1.7;font-size:14px;color:#cbd5e1;margin:8px 0}\n' +
+    '.footer{margin-top:40px;padding-top:20px;border-top:1px solid #1e293b;font-size:12px;color:#475569;text-align:center}\n' +
+    '</style>\n</head>\n<body>\n' +
+    '<h1>Progress Report</h1>\n' +
+    '<div class="meta">Patient: <strong style="color:#e2e8f0">' + p.name + '</strong> &nbsp;&bull;&nbsp; Treatment start: ' + startFmt + ' &nbsp;&bull;&nbsp; Generated: ' + today + '</div>\n' +
+    '<h2>Outcome Summary</h2>\n<div class="stat-row">' +
+    '<div class="stat-card"><div class="stat-val">' + p.totalSessions + '</div><div class="stat-label">Sessions Completed</div></div>' +
+    '<div class="stat-card"><div class="stat-val">' + avgScore + '</div><div class="stat-label">Avg Session Score</div></div>' +
+    '<div class="stat-card"><div class="stat-val">&#8722;' + anxImp + '</div><div class="stat-label">Anxiety Reduction</div></div>' +
+    '<div class="stat-card"><div class="stat-val">+' + slpImp + '</div><div class="stat-label">Sleep Improvement</div></div>' +
+    '</div>\n<h2>Treatment Goals</h2>\n' +
+    '<table><thead><tr><th>Goal</th><th>Target</th><th>Current</th><th>Status</th></tr></thead><tbody>' + goalRows + '</tbody></table>\n' +
+    '<h2>Key Insights</h2>\n' +
+    '<p class="insight">Over the course of ' + p.totalSessions + ' sessions beginning ' + startFmt + ', ' + p.name + ' has demonstrated consistent and meaningful clinical progress. Anxiety severity decreased by ' + anxImp + ' points (from ' + anxArr[0] + ' to ' + anxArr[anxArr.length - 1] + ' on a 10-point scale), sleep quality improved by ' + slpImp + ' points, and focus scores reached the target threshold. All ' + p.goals + ' treatment goals are at or above target, reflecting strong adherence and positive response to the current protocol. Average session quality score of ' + avgScore + '/100 is within the excellent range. Continued maintenance sessions are recommended to consolidate these gains.</p>\n' +
+    '<div class="footer">Generated by DeepSynaps Protocol Studio &nbsp;&bull;&nbsp; ' + today + ' &nbsp;&bull;&nbsp; Confidential &#8212; for personal use only</div>\n</body>\n</html>';
+}
+
+// ── Main render ───────────────────────────────────────────────────────────────
+function _renderOutcomePortal() {
+  const data = _outcomeGetData();
+  const ratings = _outcomeGetRatings();
+  const notes = _outcomeGetGoalNotes();
+  const p = data.patient;
+  const el = document.getElementById('patient-content');
+  if (!el) return;
+
+  const daysSince = Math.floor((Date.now() - new Date(p.startDate).getTime()) / 86400000);
+  const goalsDone = data.goals.filter(function (g) { return g.status === 'achieved'; }).length;
+  const goalRate = Math.round((goalsDone / data.goals.length) * 100);
+  const anxNow = data.symptoms.anxiety[data.symptoms.anxiety.length - 1];
+  const improvePct = Math.round(((data.symptoms.anxiety[0] - anxNow) / data.symptoms.anxiety[0]) * 100);
+
+  const statCards = [
+    { label: 'Sessions Completed', nv: p.totalSessions, max: 30, color: 'var(--accent-teal,#2dd4bf)', dv: null },
+    { label: 'Overall Improvement', nv: improvePct, max: 100, color: 'var(--accent-blue,#60a5fa)', dv: improvePct + '%' },
+    { label: 'Goal Achievement', nv: goalRate, max: 100, color: 'var(--accent-violet,#a78bfa)', dv: goalRate + '%' },
+    { label: 'Days in Treatment', nv: daysSince, max: 365, color: 'var(--accent-amber,#fbbf24)', dv: null },
+  ];
+
+  const goalCardsHTML = data.goals.map(function (g) {
+    const pct = Math.min(100, Math.round((g.current / g.target) * 100));
+    const st = g.status === 'achieved' ? { label: 'Achieved', color: 'var(--accent-teal,#2dd4bf)' } : g.status === 'on-track' ? { label: 'On Track', color: 'var(--accent-blue,#60a5fa)' } : { label: 'Needs Attention', color: 'var(--accent-rose,#f43f5e)' };
+    const sn = notes[g.id] || '';
+    return '<div class="iii-goal-card" id="goal-card-' + g.id + '">' +
+      '<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">' +
+      '<div style="flex:1;min-width:0"><div style="font-weight:700;font-size:1rem;color:var(--text,#f1f5f9);margin-bottom:3px">' + g.name + '</div>' +
+      '<div style="font-size:0.78rem;color:var(--text-muted,#94a3b8)">Target: ' + g.target + ' &nbsp;&bull;&nbsp; Current: ' + g.current + '</div></div>' +
+      '<div style="display:flex;align-items:center;gap:10px;flex-shrink:0">' + _goalSparkline(g.id) +
+      '<span style="font-size:0.75rem;font-weight:700;padding:3px 10px;border-radius:12px;background:' + st.color + '22;color:' + st.color + ';border:1px solid ' + st.color + '44">' + st.label + '</span></div></div>' +
+      '<div style="margin:12px 0 6px"><div style="display:flex;justify-content:space-between;font-size:0.75rem;color:var(--text-muted,#94a3b8);margin-bottom:5px"><span>Progress</span><span>' + pct + '%</span></div>' +
+      '<div style="height:8px;background:rgba(255,255,255,0.07);border-radius:6px;overflow:hidden"><div style="height:100%;width:' + pct + '%;background:' + st.color + ';border-radius:6px;transition:width 1s ease"></div></div></div>' +
+      '<div class="iii-goal-note-area" id="note-area-' + g.id + '" style="' + (sn ? '' : 'display:none') + '">' +
+      '<textarea id="note-ta-' + g.id + '" rows="3" placeholder="Write a personal note about this goal..." style="width:100%;background:rgba(255,255,255,0.04);border:1px solid var(--border,rgba(255,255,255,0.1));border-radius:8px;padding:10px;font-size:0.82rem;color:var(--text,#f1f5f9);resize:vertical;margin-top:8px;font-family:inherit" onchange="window._outcomeSaveNote(\'' + g.id + '\',this.value)">' + sn + '</textarea></div>' +
+      '<button style="font-size:0.78rem;margin-top:8px;padding:4px 10px;border-radius:8px;cursor:pointer;background:none;border:1px solid rgba(255,255,255,0.1);color:var(--text-muted,#94a3b8)" onclick="window._outcomeToggleNote(\'' + g.id + '\')">' + (sn ? 'Edit Note' : '+ Add Personal Note') + '</button></div>';
+  }).join('');
+
+  function _starHTML(sid, cr) {
+    const sv = ratings[sid] != null ? ratings[sid] : cr;
+    if (sv != null) return '<div class="iii-star-rating" aria-label="' + sv + ' stars">' + [1, 2, 3, 4, 5].map(function (s) { return '<span style="color:' + (s <= sv ? '#fbbf24' : 'rgba(255,255,255,0.15)') + '">&#9733;</span>'; }).join('') + '</div>';
+    return '<div class="iii-star-rating" id="stars-' + sid + '">' + [1, 2, 3, 4, 5].map(function (s) { return '<span style="cursor:pointer;color:rgba(255,255,255,0.2);font-size:1.3rem" onmouseenter="window._outcomeStarHover(\'' + sid + '\',' + s + ')" onmouseleave="window._outcomeStarReset(\'' + sid + '\')" onclick="window._outcomeRateSession(\'' + sid + '\',' + s + ')">&#9733;</span>'; }).join('') + '</div>';
+  }
+
+  const sessionHTML = data.sessions.map(function (s) {
+    const read = s.clinicianRead ? '<span style="color:var(--accent-teal,#2dd4bf);font-size:0.72rem" title="Clinician has read">&#10003;&#10003; Read</span>' : '<span style="color:var(--text-muted,#94a3b8);font-size:0.72rem">&#10003; Sent</span>';
+    const dl = new Date(s.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    return '<div style="display:flex;flex-direction:column;gap:8px;padding:14px 16px;background:var(--card-bg,rgba(255,255,255,0.03));border:1px solid var(--border,rgba(255,255,255,0.07));border-radius:12px">' +
+      '<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">' +
+      '<div><div style="font-weight:600;font-size:0.9rem;color:var(--text,#f1f5f9)">' + s.type + '</div><div style="font-size:0.75rem;color:var(--text-muted,#94a3b8);margin-top:2px">' + dl + ' &nbsp;&bull;&nbsp; ' + s.clinician + '</div></div>' +
+      '<div style="display:flex;align-items:center;gap:10px">' + _starHTML(s.id, s.rating) + read + '</div></div>' +
+      (s.note ? '<div style="font-size:0.8rem;color:var(--text-muted,#94a3b8);font-style:italic;padding-left:2px">&#8220;' + s.note + '&#8221;</div>' : '') +
+      '</div>';
+  }).join('');
+
+  const sdates = data.sessions.map(function (s) { return new Date(s.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }); }).join(', ');
+
+  el.innerHTML =
+    '<div class="iii-outcome-banner">' +
+    '<div class="iii-banner-greeting">' +
+    '<div style="font-size:1.6rem;font-weight:800;color:var(--text,#f1f5f9);line-height:1.2">Your Progress, <span style="color:var(--accent-teal,#2dd4bf)">' + p.name + '</span></div>' +
+    '<div style="font-size:0.85rem;color:var(--text-muted,#94a3b8);margin-top:4px">Treatment started ' + new Date(p.startDate).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) + '</div>' +
+    '</div>' +
+    '<div class="iii-stat-cards">' +
+    statCards.map(function (sc) {
+      return '<div class="iii-stat-card">' + _progressRingSVG(sc.nv, sc.max, sc.color) +
+        '<div style="margin-top:8px;text-align:center"><div style="font-size:1.2rem;font-weight:800;color:' + sc.color + '">' + (sc.dv != null ? sc.dv : sc.nv) + '</div>' +
+        '<div style="font-size:0.72rem;color:var(--text-muted,#94a3b8);margin-top:2px;max-width:90px;text-align:center">' + sc.label + '</div></div></div>';
+    }).join('') +
+    '</div></div>' +
+
+    '<div style="max-width:900px;margin:0 auto;padding:0 16px 60px">' +
+
+    '<div style="margin-bottom:28px">' +
+    '<h2 style="font-size:1rem;font-weight:700;color:var(--text,#f1f5f9);margin-bottom:14px;display:flex;align-items:center;gap:8px"><span style="color:var(--accent-teal,#2dd4bf)">&#9647;</span> Outcome History</h2>' +
+    '<div class="iii-chart-row">' + _symptomLineChart(data.symptoms) + _sessionBarChart(data.sessionScores) + '</div>' +
+    '</div>' +
+
+    '<div style="margin-bottom:32px">' +
+    '<h2 style="font-size:1rem;font-weight:700;color:var(--text,#f1f5f9);margin-bottom:14px;display:flex;align-items:center;gap:8px"><span style="color:var(--accent-violet,#a78bfa)">&#9678;</span> Treatment Goals</h2>' +
+    '<div style="display:flex;flex-direction:column;gap:12px">' + goalCardsHTML + '</div>' +
+    '</div>' +
+
+    '<div style="margin-bottom:32px">' +
+    '<h2 style="font-size:1rem;font-weight:700;color:var(--text,#f1f5f9);margin-bottom:14px;display:flex;align-items:center;gap:8px"><span style="color:var(--accent-amber,#fbbf24)">&#9733;</span> Recent Sessions</h2>' +
+    '<div style="display:flex;flex-direction:column;gap:10px">' + sessionHTML + '</div>' +
+    '<button style="margin-top:16px;display:inline-flex;align-items:center;gap:7px;background:rgba(45,212,191,0.1);color:var(--accent-teal,#2dd4bf);border:1px solid rgba(45,212,191,0.25);border-radius:10px;padding:9px 18px;font-size:0.85rem;font-weight:600;cursor:pointer" onclick="window._navPatient(\'patient-messages\')">&#9647; Message My Care Team</button>' +
+    '</div>' +
+
+    '<div style="margin-bottom:32px;padding:20px 22px;background:var(--card-bg,rgba(255,255,255,0.03));border:1px solid var(--border,rgba(255,255,255,0.07));border-radius:14px">' +
+    '<h2 style="font-size:1rem;font-weight:700;color:var(--text,#f1f5f9);margin-bottom:8px;display:flex;align-items:center;gap:8px"><span style="color:var(--accent-blue,#60a5fa)">&#8595;</span> Progress Report</h2>' +
+    '<p style="font-size:0.82rem;color:var(--text-muted,#94a3b8);margin-bottom:14px;line-height:1.5">Download a comprehensive summary of your treatment journey to share with your care team or keep for your records.</p>' +
+    '<button style="display:inline-flex;align-items:center;gap:8px;background:var(--accent-blue,#60a5fa);color:#0f172a;border:none;border-radius:10px;padding:10px 20px;font-size:0.88rem;font-weight:700;cursor:pointer" onclick="window._outcomeDownloadReport()">&#8595; Download My Progress Report</button>' +
+    '</div>' +
+
+    '<div style="margin-bottom:32px">' +
+    '<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:14px">' +
+    '<h2 style="font-size:1rem;font-weight:700;color:var(--text,#f1f5f9);display:flex;align-items:center;gap:8px"><span style="color:var(--accent-rose,#f43f5e)">&#9672;</span> 30-Day Symptom Heatmap</h2>' +
+    '<button id="overlay-toggle-btn" style="font-size:0.78rem;padding:6px 14px;border-radius:10px;border:1px solid rgba(255,255,255,0.1);background:transparent;color:var(--text-muted,#94a3b8);cursor:pointer" onclick="window._outcomeToggleOverlay()">Show Session Dates</button>' +
+    '</div>' +
+    '<div id="overlay-session-dates" style="display:none;margin-bottom:12px;font-size:0.78rem;color:var(--accent-teal,#2dd4bf);padding:8px 12px;background:rgba(45,212,191,0.07);border-radius:8px;border:1px solid rgba(45,212,191,0.2)">Session dates: ' + sdates + '</div>' +
+    '<div class="iii-calendar-dots">' + _calendarDots30() + '</div>' +
+    '<div style="display:flex;gap:14px;margin-top:10px;flex-wrap:wrap">' +
+    '<span style="font-size:0.72rem;color:var(--text-muted,#94a3b8);display:inline-flex;align-items:center;gap:5px"><span style="width:10px;height:10px;border-radius:3px;background:var(--accent-teal,#2dd4bf);display:inline-block;opacity:0.7"></span>Low</span>' +
+    '<span style="font-size:0.72rem;color:var(--text-muted,#94a3b8);display:inline-flex;align-items:center;gap:5px"><span style="width:10px;height:10px;border-radius:3px;background:var(--accent-amber,#fbbf24);display:inline-block;opacity:0.7"></span>Moderate</span>' +
+    '<span style="font-size:0.72rem;color:var(--text-muted,#94a3b8);display:inline-flex;align-items:center;gap:5px"><span style="width:10px;height:10px;border-radius:3px;background:var(--accent-rose,#f43f5e);display:inline-block;opacity:0.7"></span>High</span>' +
+    '</div>' +
+    '<div id="day-detail-popup" style="display:none;margin-top:12px;padding:14px 16px;background:var(--card-bg,rgba(255,255,255,0.05));border:1px solid var(--border,rgba(255,255,255,0.1));border-radius:12px;font-size:0.83rem;color:var(--text-muted,#94a3b8)"></div>' +
+    '</div>' +
+    '</div>';
+}
+
+// ── Window handlers ───────────────────────────────────────────────────────────
+window._outcomeSaveNote = function (goalId, text) {
+  const n = _outcomeGetGoalNotes();
+  n[goalId] = text;
+  localStorage.setItem('ds_patient_goal_notes', JSON.stringify(n));
+};
+
+window._outcomeToggleNote = function (goalId) {
+  const area = document.getElementById('note-area-' + goalId);
+  if (!area) return;
+  const hidden = area.style.display === 'none';
+  area.style.display = hidden ? 'block' : 'none';
+  if (hidden) { const ta = document.getElementById('note-ta-' + goalId); if (ta) ta.focus(); }
+  const btn = area.nextElementSibling;
+  if (btn) btn.textContent = hidden ? 'Edit Note' : '+ Add Personal Note';
+};
+
+window._outcomeStarHover = function (sid, count) {
+  const c = document.getElementById('stars-' + sid);
+  if (!c) return;
+  c.querySelectorAll('span').forEach(function (s, i) { s.style.color = i < count ? '#fbbf24' : 'rgba(255,255,255,0.2)'; });
+};
+
+window._outcomeStarReset = function (sid) {
+  const c = document.getElementById('stars-' + sid);
+  if (!c) return;
+  c.querySelectorAll('span').forEach(function (s) { s.style.color = 'rgba(255,255,255,0.2)'; });
+};
+
+window._outcomeRateSession = function (sid, rating) {
+  const r = _outcomeGetRatings();
+  r[sid] = rating;
+  localStorage.setItem('ds_session_ratings', JSON.stringify(r));
+  const c = document.getElementById('stars-' + sid);
+  if (c) {
+    c.innerHTML = [1, 2, 3, 4, 5].map(function (s) { return '<span style="color:' + (s <= rating ? '#fbbf24' : 'rgba(255,255,255,0.15)') + '">&#9733;</span>'; }).join('');
+    c.removeAttribute('id');
+  }
+};
+
+window._outcomeDownloadReport = function () {
+  const blob = new Blob([_buildReportHTML(_outcomeGetData())], { type: 'text/html' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'patient-report-' + new Date().toISOString().slice(0, 10) + '.html';
+  a.click();
+  URL.revokeObjectURL(url);
+};
+
+window._outcomeToggleOverlay = function () {
+  const div = document.getElementById('overlay-session-dates');
+  const btn = document.getElementById('overlay-toggle-btn');
+  if (!div) return;
+  const vis = div.style.display !== 'none';
+  div.style.display = vis ? 'none' : 'block';
+  if (btn) btn.textContent = vis ? 'Show Session Dates' : 'Hide Session Dates';
+};
+
+window._outcomeShowDay = function (dateStr) {
+  const popup = document.getElementById('day-detail-popup');
+  if (!popup) return;
+  let entry = null;
+  try {
+    const j = JSON.parse(localStorage.getItem('ds_symptom_journal') || '[]');
+    entry = j.find(function (e) { return e.date === dateStr || (e.created_at || '').slice(0, 10) === dateStr; });
+  } catch (_e) { /* no journal */ }
+  popup.style.display = 'block';
+  const df = new Date(dateStr).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
+  if (entry) {
+    const mood = entry.mood || entry.mood_score || '\u2014', nt = entry.notes || entry.free_text || '';
+    popup.innerHTML = '<strong style="color:var(--text,#f1f5f9)">' + df + '</strong><div style="margin-top:6px">Mood: <strong style="color:var(--accent-teal,#2dd4bf)">' + mood + '</strong></div>' + (nt ? '<div style="margin-top:6px;line-height:1.5">&#8220;' + nt + '&#8221;</div>' : '');
+  } else {
+    popup.innerHTML = '<strong style="color:var(--text,#f1f5f9)">' + df + '</strong><div style="margin-top:6px">No journal entry for this day. Visit <a href="#" onclick="window._navPatient(\'pt-journal\');return false" style="color:var(--accent-teal,#2dd4bf)">Symptom Journal</a> to add one.</div>';
+  }
+};
+
+// ── Exported page entry point ─────────────────────────────────────────────────
+export async function pgPatientOutcomePortal(setTopbarFn) {
+  const _tb = typeof setTopbarFn === 'function' ? setTopbarFn : setTopbar;
+  _tb('My Outcomes', '<button style="display:inline-flex;align-items:center;gap:6px;background:rgba(96,165,250,0.12);color:var(--accent-blue,#60a5fa);border:1px solid rgba(96,165,250,0.25);border-radius:8px;padding:6px 14px;font-size:0.8rem;font-weight:600;cursor:pointer" onclick="window._outcomeDownloadReport()">&#8595; Download Report</button>');
+  _renderOutcomePortal();
 }

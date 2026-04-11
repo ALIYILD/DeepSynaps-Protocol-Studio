@@ -62,6 +62,9 @@ from app.routers.consent_router import router as consent_router
 from app.routers.patient_portal_router import router as patient_portal_router
 from app.routers.notifications_router import router as notifications_router
 from app.routers.wearable_router import router as wearable_router
+from app.routers.media_router import router as media_router
+from app.routers.home_devices_router import router as home_devices_router
+from app.routers.home_device_portal_router import router as home_device_portal_router
 from app.sentry_setup import init_sentry
 from app.settings import get_settings
 from app.services.audit import get_audit_trail
@@ -118,6 +121,9 @@ app.include_router(consent_router)
 app.include_router(patient_portal_router)
 app.include_router(notifications_router)
 app.include_router(wearable_router)
+app.include_router(media_router)
+app.include_router(home_devices_router)
+app.include_router(home_device_portal_router)
 
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)

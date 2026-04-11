@@ -175,8 +175,8 @@ export const api = {
     apiFetch('/api/v1/chat/agent', { method: 'POST', body: JSON.stringify({ messages, provider, openai_key, context }) }),
   chatClinician: (messages, patient_context) =>
     apiFetch('/api/v1/chat/clinician', { method: 'POST', body: JSON.stringify({ messages, patient_context }) }),
-  chatPatient: (messages, patient_context) =>
-    apiFetch('/api/v1/chat/patient', { method: 'POST', body: JSON.stringify({ messages, patient_context }) }),
+  chatPatient: (messages, patient_context, language = 'en') =>
+    apiFetch('/api/v1/chat/patient', { method: 'POST', body: JSON.stringify({ messages, patient_context, language }) }),
 
   // ── Registry endpoints (public — no auth needed but token attached if present) ──
   conditions: () => apiFetchWithRetry('/api/v1/registry/conditions'),
@@ -268,6 +268,8 @@ export const api = {
   patientPortalSessions: () => apiFetch('/api/v1/patient-portal/sessions'),
   patientPortalAssessments: () => apiFetch('/api/v1/patient-portal/assessments'),
   patientPortalOutcomes: () => apiFetch('/api/v1/patient-portal/outcomes'),
+  patientPortalMessages: () => apiFetch('/api/v1/patient-portal/messages'),
+  patientPortalSendMessage: (data) => apiFetch('/api/v1/patient-portal/messages', { method: 'POST', body: JSON.stringify(data) }),
 
   // ── Wearable monitoring ───────────────────────────────────────────────────
   patientPortalWearables: () => apiFetch('/api/v1/patient-portal/wearables'),
@@ -280,6 +282,48 @@ export const api = {
   dismissAlertFlag: (flagId) => apiFetch(`/api/v1/wearables/alerts/${flagId}/dismiss`, { method: 'POST' }),
   wearableCopilotPatient: (messages, wearable_context) => apiFetch('/api/v1/chat/wearable-patient', { method: 'POST', body: JSON.stringify({ messages, patient_context: wearable_context }) }),
   wearableCopilotClinician: (patientId, messages) => apiFetch('/api/v1/chat/wearable-clinician', { method: 'POST', body: JSON.stringify({ patient_id: patientId, messages }) }),
+
+  // ── Home Device (clinician-facing) ───────────────────────────────────────
+  listHomeDeviceSources: () => apiFetch('/api/v1/home-devices/source-registry'),
+  assignHomeDevice: (data) =>
+    apiFetch('/api/v1/home-devices/assign', { method: 'POST', body: JSON.stringify(data) }),
+  listHomeAssignments: (params = {}) => {
+    const q = new URLSearchParams(params).toString();
+    return apiFetch(`/api/v1/home-devices/assignments${q ? '?' + q : ''}`);
+  },
+  getHomeAssignment: (id) => apiFetch(`/api/v1/home-devices/assignments/${id}`),
+  updateHomeAssignment: (id, data) =>
+    apiFetch(`/api/v1/home-devices/assignments/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  listHomeSessionLogs: (params = {}) => {
+    const q = new URLSearchParams(params).toString();
+    return apiFetch(`/api/v1/home-devices/session-logs${q ? '?' + q : ''}`);
+  },
+  reviewHomeSessionLog: (id, data) =>
+    apiFetch(`/api/v1/home-devices/session-logs/${id}/review`, { method: 'PATCH', body: JSON.stringify(data) }),
+  listHomeAdherenceEvents: (params = {}) => {
+    const q = new URLSearchParams(params).toString();
+    return apiFetch(`/api/v1/home-devices/adherence-events${q ? '?' + q : ''}`);
+  },
+  acknowledgeAdherenceEvent: (id, data) =>
+    apiFetch(`/api/v1/home-devices/adherence-events/${id}/acknowledge`, { method: 'PATCH', body: JSON.stringify(data) }),
+  listHomeReviewFlags: (params = {}) => {
+    const q = new URLSearchParams(params).toString();
+    return apiFetch(`/api/v1/home-devices/review-flags${q ? '?' + q : ''}`);
+  },
+  dismissHomeReviewFlag: (id, data = {}) =>
+    apiFetch(`/api/v1/home-devices/review-flags/${id}/dismiss`, { method: 'PATCH', body: JSON.stringify(data) }),
+  generateHomeTherapySummary: (assignmentId) =>
+    apiFetch(`/api/v1/home-devices/ai-summary/${assignmentId}`, { method: 'POST' }),
+
+  // ── Home Device (patient portal) ──────────────────────────────────────────
+  portalGetHomeDevice: () => apiFetch('/api/v1/patient-portal/home-device'),
+  portalListHomeSessions: () => apiFetch('/api/v1/patient-portal/home-sessions'),
+  portalLogHomeSession: (data) =>
+    apiFetch('/api/v1/patient-portal/home-sessions', { method: 'POST', body: JSON.stringify(data) }),
+  portalListAdherenceEvents: () => apiFetch('/api/v1/patient-portal/adherence-events'),
+  portalSubmitAdherenceEvent: (data) =>
+    apiFetch('/api/v1/patient-portal/adherence-events', { method: 'POST', body: JSON.stringify(data) }),
+  portalHomeAdherenceSummary: () => apiFetch('/api/v1/patient-portal/home-adherence-summary'),
 
   // ── Telegram ────────────────────────────────────────────────────────────
   telegramLinkCode: () => apiFetch('/api/v1/telegram/link-code'),

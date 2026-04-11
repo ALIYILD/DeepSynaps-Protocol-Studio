@@ -2,6 +2,7 @@ import { api, downloadBlob } from './api.js';
 import { cardWrap, fr, evBar, pillSt, initials, tag, spinner, emptyState, spark, brainMapSVG, evidenceBadge, labelBadge, approvalBadge, safetyBadge, govFlag } from './helpers.js';
 import { currentUser } from './auth.js';
 import { FALLBACK_CONDITIONS, FALLBACK_MODALITIES, FALLBACK_ASSESSMENT_TEMPLATES, COURSE_STATUS_COLORS } from './constants.js';
+import { renderHomeTherapyTab, bindHomeTherapyActions } from './pages-home-therapy.js';
 
 // ── Shared state for patient profile ────────────────────────────────────────
 export let ptab = 'courses';
@@ -1746,8 +1747,8 @@ export async function pgProfile(setTopbar, navigate) {
   </div>
 
   <div class="tab-bar">
-    ${['overview', 'courses', 'sessions', 'outcomes', 'protocol', 'assessments', 'notes', 'phenotype', 'consent', 'monitoring'].map(t => {
-      const labels = { monitoring: '◌ Monitoring' };
+    ${['overview', 'courses', 'sessions', 'outcomes', 'protocol', 'assessments', 'notes', 'phenotype', 'consent', 'monitoring', 'home-therapy'].map(t => {
+      const labels = { monitoring: '◌ Monitoring', 'home-therapy': '⚡ Home Therapy' };
       const label = labels[t] || t;
       return `<button class="tab-btn ${ptab === t ? 'active' : ''}" onclick="window.switchPT('${t}')">${label}${t === 'courses' && courses.length ? ` (${courses.length})` : ''}</button>`;
     }).join('')}
@@ -1820,6 +1821,17 @@ export async function pgProfile(setTopbar, navigate) {
       } catch (_e) {
         document.getElementById('ptab-body').innerHTML = renderMonitoringTab(pt, null, navigate);
         bindMonitoringActions(pt, null, navigate);
+      }
+      return;
+    }
+    if (t === 'home-therapy') {
+      document.getElementById('ptab-body').innerHTML = spinner();
+      try {
+        const htData = await renderHomeTherapyTab(pt.id, api);
+        document.getElementById('ptab-body').innerHTML = htData;
+        bindHomeTherapyActions(pt.id, api);
+      } catch (_e) {
+        document.getElementById('ptab-body').innerHTML = `<div style="padding:32px;text-align:center;color:var(--text-tertiary)">Could not load home therapy data.</div>`;
       }
       return;
     }
@@ -8455,4 +8467,1698 @@ export async function pgConsentAutomation(setTopbar) {
     a.remove();
     URL.revokeObjectURL(url);
   };
+}
+
+// ── Media Review Queue ────────────────────────────────────────────────────────
+
+export async function pgMediaReviewQueue(setTopbar) {
+  setTopbar('Media Review Queue',
+    `<button class="btn btn-primary btn-sm" onclick="window._mediaQueueRefresh()">&#x21BA; Refresh</button>`
+  );
+
+  const el = document.getElementById('content');
+  if (!el) return;
+
+  const BASE  = (import.meta.env && import.meta.env.VITE_API_BASE_URL) || 'http://127.0.0.1:8000';
+  let _activeFilter = 'all';
+  let _cachedItems  = [];
+
+  async function _load() {
+    el.innerHTML = spinner();
+    let items = [];
+    let loadErr = null;
+    try {
+      const token = api.getToken();
+      const r = await fetch(`${BASE}/api/v1/media/review-queue`, {
+        headers: { Authorization: 'Bearer ' + token },
+      });
+      if (r.ok) {
+        const data = await r.json();
+        items = Array.isArray(data) ? data : (data.items || []);
+      } else {
+        loadErr = `Could not load queue (${r.status}). `;
+      }
+    } catch (e) { loadErr = 'Network error loading queue. '; }
+    _cachedItems = items;
+    _render(items, loadErr);
+  }
+
+  function _render(items, loadErr) {
+    const pending  = items.filter(i => i.status === 'pending_review').length;
+    const urgent   = items.filter(i => i.flagged_urgent).length;
+    const awaiting = items.filter(i => i.status === 'approved_for_analysis').length;
+
+    const filtered = _activeFilter === 'all'    ? items
+      : _activeFilter === 'text'    ? items.filter(i => i.upload_type === 'text' || i.media_type === 'text')
+      : _activeFilter === 'voice'   ? items.filter(i => i.upload_type === 'voice' || i.media_type === 'voice')
+      : items.filter(i => i.flagged_urgent);
+
+    // Tab counts show scoped totals so clinicians see where work is waiting
+    const tabCounts = {
+      all:    items.length,
+      text:   items.filter(i => (i.upload_type || i.media_type) === 'text').length,
+      voice:  items.filter(i => (i.upload_type || i.media_type) === 'voice').length,
+      flagged: urgent,
+    };
+    const tabs = ['all', 'text', 'voice', 'flagged'].map(t => {
+      const label = t === 'all' ? 'All' : t === 'text' ? 'Text' : t === 'voice' ? 'Voice' : 'Flagged';
+      const count = tabCounts[t];
+      const badge = count > 0 ? ` <span style="display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:99px;font-size:10px;font-weight:700;background:${_activeFilter===t?'rgba(0,0,0,0.15)':'var(--bg-surface)'};margin-left:4px">${count}</span>` : '';
+      return `<button class="tab-btn ${_activeFilter === t ? 'active' : ''}" onclick="window._mediaQueueFilter('${t}')">${label}${badge}</button>`;
+    }
+    ).join('');
+
+    const esc = s => (s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+    const cards = filtered.length === 0
+      ? `<div style="padding:48px;text-align:center;color:var(--text-tertiary);font-size:13.5px">No pending uploads to review.</div>`
+      : filtered.map(u => {
+          const typeIcon = u.upload_type === 'voice' ? '&#x1F399;' : '&#x1F4DD;';
+          const dateStr  = u.created_at
+            ? new Date(u.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
+            : '&mdash;';
+          const statusMap = {
+            pending_review:        { label: 'Awaiting Review',       color: 'var(--amber)', bg: 'rgba(255,181,71,0.08)', border: 'rgba(255,181,71,0.3)' },
+            approved_for_analysis: { label: 'Approved for Analysis',  color: 'var(--teal)',  bg: 'rgba(0,212,188,0.06)',  border: 'rgba(0,212,188,0.25)' },
+            analyzing:             { label: 'AI Analysis Running',    color: 'var(--blue)',  bg: 'rgba(74,158,255,0.06)', border: 'rgba(74,158,255,0.25)' },
+            analyzed:              { label: 'Analyzed',               color: 'var(--teal)',  bg: 'rgba(0,212,188,0.06)',  border: 'rgba(0,212,188,0.25)' },
+            clinician_reviewed:    { label: 'Reviewed by Care Team',  color: 'var(--green,#22c55e)', bg: 'rgba(34,197,94,0.06)', border: 'rgba(34,197,94,0.25)' },
+            reupload_requested:    { label: 'Re-upload Requested',    color: '#f97316',      bg: 'rgba(249,115,22,0.06)', border: 'rgba(249,115,22,0.25)' },
+            rejected:              { label: 'Rejected',               color: 'var(--red)',   bg: 'rgba(255,107,107,0.06)',border: 'rgba(255,107,107,0.2)' },
+          };
+          const st = statusMap[u.status] || { label: u.status || '&mdash;', color: 'var(--text-tertiary)', bg: 'rgba(255,255,255,0.02)', border: 'var(--border)' };
+
+          const actionBtns = [
+            u.status === 'pending_review'
+              ? `<button class="btn btn-sm" style="background:rgba(0,212,188,0.15);color:var(--teal);border-color:rgba(0,212,188,0.3)" onclick="window._mediaAction('${u.id}','approve')">&#x2713; Approve for Analysis</button>`
+              : '',
+            `<button class="btn btn-sm" style="color:var(--red);border-color:rgba(255,107,107,0.3)" onclick="window._mediaAction('${u.id}','reject')">&#x2715; Reject</button>`,
+            `<button class="btn btn-sm" style="color:var(--amber);border-color:rgba(255,181,71,0.3)" onclick="window._mediaAction('${u.id}','request_reupload')">&#x21BA; Request Re-upload</button>`,
+            !u.flagged_urgent
+              ? `<button class="btn btn-sm" style="color:var(--amber);border-color:rgba(255,181,71,0.3)" onclick="window._mediaAction('${u.id}','flag_urgent')">&#x2691; Flag Urgent</button>`
+              : '',
+          ].filter(Boolean).join('');
+
+          const analyzeBtn = u.status === 'approved_for_analysis'
+            ? `<button class="btn btn-sm" style="background:rgba(0,212,188,0.15);color:var(--teal);border-color:rgba(0,212,188,0.3);margin-top:8px" onclick="window._mediaRunAnalysis('${u.id}')">&#x25B6; Run AI Analysis</button>`
+            : '';
+          const viewBtn = u.status === 'analyzed'
+            ? `<button class="btn btn-sm" style="margin-top:8px" onclick="window._mediaViewDetail('${u.id}')">View Analysis &#x2192;</button>`
+            : '';
+
+          const preview = u.patient_note
+            ? `<div style="font-size:12px;color:var(--text-secondary);background:var(--surface-1);border:1px solid var(--border);border-radius:6px;padding:8px 10px;max-height:58px;overflow:hidden;text-overflow:ellipsis;margin-top:6px">${esc((u.patient_note || '').slice(0, 200))}${(u.patient_note || '').length > 200 ? '&hellip;' : ''}</div>`
+            : '';
+
+          return `
+          <div style="border:1px solid ${st.border};border-radius:12px;padding:16px 18px;margin-bottom:12px;background:${st.bg};transition:border-color 0.15s"
+              onmouseover="this.style.borderColor='var(--border-teal,rgba(0,212,188,.35))'"
+              onmouseout="this.style.borderColor='${st.border}'">
+            <div style="display:flex;align-items:flex-start;gap:12px;flex-wrap:wrap">
+              <div style="flex:1;min-width:200px">
+                <div style="font-size:13.5px;font-weight:600;color:var(--text-primary);margin-bottom:3px">
+                  ${esc(u.patient_name || '&mdash;')}
+                  ${u.flagged_urgent ? '<span style="font-size:10px;font-weight:700;background:rgba(255,107,107,0.15);color:var(--red);border-radius:4px;padding:1px 6px;margin-left:6px">&#x2691; URGENT</span>' : ''}
+                </div>
+                <div style="font-size:11.5px;color:var(--text-secondary);margin-bottom:5px">
+                  ${esc(u.primary_condition || '&mdash;')} &middot; ${esc(u.course_name || '&mdash;')}
+                </div>
+                <div style="font-size:11px;color:var(--text-tertiary)">
+                  ${typeIcon} ${u.upload_type === 'voice' ? 'Voice note' : 'Text update'}
+                  &middot; ${dateStr}
+                  ${u.duration_seconds ? '&middot; ' + Math.round(u.duration_seconds) + 's' : ''}
+                </div>
+                ${preview}
+              </div>
+              <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px;flex-shrink:0">
+                <span style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.7px;padding:3px 8px;border-radius:4px;border:1px solid ${st.border};color:${st.color}">${st.label}</span>
+                <div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end;margin-top:2px">${actionBtns}</div>
+                ${analyzeBtn}
+                ${viewBtn}
+              </div>
+            </div>
+          </div>`;
+        }).join('');
+
+    el.innerHTML = `
+    <div style="max-width:960px;margin:0 auto;padding:0 4px">
+      <div style="margin-bottom:20px">
+        <h2 style="font-size:1.1rem;font-weight:700;margin-bottom:4px">Patient Media Review Queue</h2>
+        <p style="font-size:12.5px;color:var(--text-secondary)">Review patient-submitted voice notes and text updates before AI analysis.</p>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:20px">
+        <div class="metric-card">
+          <div style="font-size:10px;font-weight:600;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.9px;margin-bottom:6px">Pending Review</div>
+          <div style="font-size:28px;font-weight:700;color:var(--amber);font-family:var(--font-mono)">${pending}</div>
+        </div>
+        <div class="metric-card">
+          <div style="font-size:10px;font-weight:600;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.9px;margin-bottom:6px">Flagged Urgent</div>
+          <div style="font-size:28px;font-weight:700;color:var(--red);font-family:var(--font-mono)">${urgent}</div>
+        </div>
+        <div class="metric-card">
+          <div style="font-size:10px;font-weight:600;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.9px;margin-bottom:6px">Awaiting Analysis</div>
+          <div style="font-size:28px;font-weight:700;color:var(--teal);font-family:var(--font-mono)">${awaiting}</div>
+        </div>
+      </div>
+      ${loadErr ? `<div style="background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.25);border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:12.5px;color:#ef4444;display:flex;align-items:center;gap:10px">
+        <span>&#x26A0;</span><span>${loadErr}<button class="btn btn-ghost btn-sm" style="font-size:11px;margin-left:6px" onclick="window._mediaQueueRefresh()">Retry</button></span>
+      </div>` : ''}
+      <div id="media-queue-action-error" style="display:none;background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.25);border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:12.5px;color:#ef4444"></div>
+      <div class="tab-nav" style="margin-bottom:16px">${tabs}</div>
+      <div id="media-queue-list">${cards}</div>
+    </div>`;
+  }
+
+  window._mediaQueueRefresh = function() { _load(); };
+
+  window._mediaQueueFilter = function(f) {
+    _activeFilter = f;
+    _render(_cachedItems);
+  };
+
+  function _queueErr(msg) {
+    const el2 = document.getElementById('media-queue-action-error');
+    if (!el2) return;
+    el2.textContent = msg;
+    el2.style.display = 'block';
+    clearTimeout(el2._t);
+    el2._t = setTimeout(() => { el2.style.display = 'none'; }, 5000);
+  }
+
+  window._mediaAction = async function(uploadId, action) {
+    let reason = null;
+    if (action === 'reject' || action === 'request_reupload') {
+      reason = prompt(action === 'reject' ? 'Reason for rejection (optional):' : 'Reason for requesting re-upload (optional):');
+      if (reason === null) return; // cancelled
+    }
+    // Find and disable the clicked button immediately for loading feedback
+    const clickedBtn = window.event ? window.event.currentTarget || window.event.target : null;
+    const origText = clickedBtn ? clickedBtn.textContent : '';
+    if (clickedBtn) { clickedBtn.disabled = true; clickedBtn.textContent = '\u2026'; }
+    try {
+      const body = { action };
+      if (reason) body.reason = reason;
+      const r = await fetch(`${BASE}/api/v1/media/review/${uploadId}/action`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + api.getToken() },
+        body: JSON.stringify(body),
+      });
+      if (!r.ok) throw new Error(`Server error ${r.status}`);
+    } catch (e) {
+      if (clickedBtn) { clickedBtn.disabled = false; clickedBtn.textContent = origText; }
+      _queueErr(`Action failed: ${e.message}. Please try again.`);
+      return;
+    }
+    _load();
+  };
+
+  window._mediaRunAnalysis = async function(uploadId) {
+    const src = window.event ? window.event.currentTarget || window.event.target : null;
+    if (src) { src.disabled = true; src.textContent = 'Running\u2026'; }
+    try {
+      const r = await fetch(`${BASE}/api/v1/media/review/${uploadId}/analyze`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + api.getToken() },
+      });
+      if (!r.ok) {
+        const body = await r.json().catch(() => ({}));
+        throw new Error(body.detail || `Server error ${r.status}`);
+      }
+      window._mediaDetailUploadId = uploadId;
+      window._nav('media-detail');
+    } catch (e) {
+      if (src) { src.disabled = false; src.textContent = '\u25B6 Run AI Analysis'; }
+      _queueErr(`Analysis failed: ${e.message}. Check API key configuration or retry.`);
+    }
+  };
+
+  window._mediaViewDetail = function(uploadId) {
+    window._mediaDetailUploadId = uploadId;
+    window._nav('media-detail');
+  };
+
+  await _load();
+}
+
+// ── Media Detail ──────────────────────────────────────────────────────────────
+
+export async function pgMediaDetail(setTopbar) {
+  const uploadId = window._mediaDetailUploadId;
+  if (!uploadId) { window._nav('media-queue'); return; }
+
+  setTopbar('Upload Detail',
+    `<button class="btn btn-ghost btn-sm" onclick="window._nav('media-queue')">&#8592; Review Queue</button>`
+  );
+
+  const el = document.getElementById('content');
+  if (!el) return;
+  el.innerHTML = spinner();
+
+  const BASE  = (import.meta.env && import.meta.env.VITE_API_BASE_URL) || 'http://127.0.0.1:8000';
+  const token = api.getToken();
+  const esc   = s => (s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+  let upload   = null;
+  let analysis = null;
+
+  try {
+    const [ur, ar] = await Promise.all([
+      fetch(`${BASE}/api/v1/media/patient/uploads/${uploadId}`, { headers: { Authorization: 'Bearer ' + token } }),
+      fetch(`${BASE}/api/v1/media/analysis/${uploadId}`,        { headers: { Authorization: 'Bearer ' + token } }),
+    ]);
+    if (ur.ok) upload = await ur.json();
+    if (ar.ok) analysis = await ar.json(); // 404 handled gracefully
+  } catch (_) { /* best-effort */ }
+
+  if (!upload) {
+    el.innerHTML = `<div class="notice notice-warn">Could not load upload details.</div>`;
+    return;
+  }
+
+  const dateStr = upload.created_at
+    ? new Date(upload.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
+    : '&mdash;';
+
+  const statusMap = {
+    pending_review:        { label: 'Awaiting Review',       color: 'var(--amber)'          },
+    approved_for_analysis: { label: 'Approved for Analysis', color: 'var(--teal)'           },
+    analyzing:             { label: 'AI Analysis Running',   color: 'var(--blue)'           },
+    analyzed:              { label: 'Analyzed',              color: 'var(--teal)'           },
+    clinician_reviewed:    { label: 'Reviewed by Care Team', color: 'var(--green,#22c55e)'  },
+    reupload_requested:    { label: 'Re-upload Requested',   color: '#f97316'               },
+    rejected:              { label: 'Rejected',              color: 'var(--red)'            },
+  };
+  const st = statusMap[upload.status] || { label: upload.status || '&mdash;', color: 'var(--text-tertiary)' };
+
+  const reviewBtns = upload.status === 'pending_review' ? `
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:16px;padding-top:14px;border-top:1px solid var(--border)">
+      <button class="btn btn-sm" style="background:rgba(0,212,188,0.15);color:var(--teal);border-color:rgba(0,212,188,0.3)" onclick="window._mdAction('approve')">&#x2713; Approve for Analysis</button>
+      <button class="btn btn-sm" style="color:var(--red);border-color:rgba(255,107,107,0.3)" onclick="window._mdAction('reject')">&#x2715; Reject</button>
+      <button class="btn btn-sm" style="color:var(--amber);border-color:rgba(255,181,71,0.3)" onclick="window._mdAction('request_reupload')">&#x21BA; Request Re-upload</button>
+      ${!upload.flagged_urgent ? `<button class="btn btn-sm" style="color:var(--amber);border-color:rgba(255,181,71,0.3)" onclick="window._mdAction('flag_urgent')">&#x2691; Flag Urgent</button>` : ''}
+    </div>` : '';
+
+  const contentSection = upload.upload_type === 'voice' && upload.transcript ? `
+    <div style="margin-top:16px">
+      <div style="font-size:10.5px;font-weight:600;text-transform:uppercase;letter-spacing:.8px;color:var(--text-tertiary);margin-bottom:7px">Transcript</div>
+      <div style="background:var(--surface-2,var(--navy-900));border:1px solid var(--border);border-radius:8px;padding:12px 14px;font-size:12.5px;line-height:1.7;color:var(--text-secondary);white-space:pre-wrap;max-height:260px;overflow-y:auto">${esc(upload.transcript)}</div>
+      <div style="font-size:10px;color:var(--text-tertiary);margin-top:4px">Transcribed by Whisper</div>
+    </div>` : (upload.text_content ? `
+    <div style="margin-top:16px">
+      <div style="font-size:10.5px;font-weight:600;text-transform:uppercase;letter-spacing:.8px;color:var(--text-tertiary);margin-bottom:7px">Text Content</div>
+      <div style="background:var(--surface-2,var(--navy-900));border:1px solid var(--border);border-radius:8px;padding:12px 14px;font-size:12.5px;line-height:1.7;color:var(--text-secondary);white-space:pre-wrap;max-height:260px;overflow-y:auto">${esc(upload.text_content)}</div>
+    </div>` : '');
+
+  function _buildAnalysisPanel() {
+    if (!analysis && upload.status === 'approved_for_analysis') {
+      return `<div style="text-align:center;padding:32px 16px">
+        <button class="btn btn-primary" id="md-run-btn" onclick="window._mdRunAnalysis()">&#x25B6; Run AI Analysis</button>
+        <p style="font-size:11.5px;color:var(--text-secondary);margin-top:12px;line-height:1.6">Analysis will generate a draft note. Clinician approval required before clinical use.</p>
+      </div>`;
+    }
+    if (upload.status === 'analyzing') {
+      return `<div style="text-align:center;padding:32px 16px;color:var(--text-secondary)">
+        ${spinner()} <div style="margin-top:12px;font-size:13px">Analyzing&hellip;</div>
+      </div>`;
+    }
+    if (!analysis) {
+      return `<div style="padding:24px;color:var(--text-tertiary);font-size:13px">No analysis available yet.</div>`;
+    }
+
+    const symptomChips = (analysis.symptoms_mentioned || []).map(s => {
+      const label = typeof s === 'string' ? s : (s.symptom || s.label || '');
+      const sev   = typeof s === 'object' ? (s.severity || '') : '';
+      const quote = typeof s === 'object' ? (s.verbatim_quote || '') : '';
+      return `<span title="${esc(quote)}" style="display:inline-block;padding:3px 9px;border-radius:12px;font-size:11px;font-weight:500;background:rgba(74,158,255,0.1);color:var(--blue);border:1px solid rgba(74,158,255,0.2);margin:2px;cursor:default">${esc(label)}${sev ? ' &middot; ' + sev : ''}</span>`;
+    }).join('');
+
+    const seChips = (analysis.side_effects || []).map(s => {
+      const label = typeof s === 'string' ? s : (s.effect || s.label || '');
+      const sev   = typeof s === 'object' ? (s.severity || '') : '';
+      const quote = typeof s === 'object' ? (s.verbatim_quote || '') : '';
+      return `<span title="${esc(quote)}" style="display:inline-block;padding:3px 9px;border-radius:12px;font-size:11px;font-weight:500;background:rgba(255,181,71,0.1);color:var(--amber);border:1px solid rgba(255,181,71,0.2);margin:2px;cursor:default">${esc(label)}${sev ? ' &middot; ' + sev : ''}</span>`;
+    }).join('');
+
+    const fi = analysis.functional_impact || {};
+    const fiGrid = ['sleep', 'mood', 'cognition', 'work', 'social'].map(d =>
+      `<div style="text-align:center;background:var(--surface-1);border:1px solid var(--border);border-radius:6px;padding:6px 4px">
+        <div style="font-size:9.5px;text-transform:uppercase;letter-spacing:.6px;color:var(--text-tertiary);margin-bottom:3px">${d}</div>
+        <div style="font-size:12px;font-weight:600;color:var(--text-primary)">${esc(String(fi[d] !== undefined ? fi[d] : '&mdash;'))}</div>
+      </div>`
+    ).join('');
+
+    const redFlags = (analysis.red_flags || []).map(f => {
+      const fc = f.severity === 'critical' ? 'var(--red)' : 'var(--amber)';
+      const fb = f.severity === 'critical' ? 'rgba(255,107,107,0.08)' : 'rgba(255,181,71,0.08)';
+      return `<div style="border-left:3px solid ${fc};padding:8px 12px;border-radius:0 6px 6px 0;background:${fb};margin-bottom:6px">
+        <div style="font-size:12px;font-weight:600;color:${fc}">${esc(f.flag_type || 'Flag')}</div>
+        <div style="font-size:11.5px;color:var(--text-secondary);margin-top:2px">${esc(f.extracted_text || '')}</div>
+        ${f.severity ? `<div style="font-size:10.5px;color:var(--text-tertiary);margin-top:2px">Severity: ${f.severity}</div>` : ''}
+      </div>`;
+    }).join('');
+
+    const fuqs = (analysis.follow_up_questions || []).map(q =>
+      `<li style="font-size:12.5px;color:var(--text-secondary);margin-bottom:4px">${esc(q)}</li>`
+    ).join('');
+
+    return `
+      ${analysis.structured_summary ? `
+        <div style="margin-bottom:14px">
+          <div style="font-size:10.5px;font-weight:600;text-transform:uppercase;letter-spacing:.8px;color:var(--text-tertiary);margin-bottom:6px">Structured Summary</div>
+          <div style="font-size:12.5px;color:var(--text-secondary);line-height:1.7">${esc(analysis.structured_summary)}</div>
+        </div>` : ''}
+
+      ${symptomChips ? `
+        <div style="margin-bottom:14px">
+          <div style="font-size:10.5px;font-weight:600;text-transform:uppercase;letter-spacing:.8px;color:var(--text-tertiary);margin-bottom:6px">Symptoms Mentioned</div>
+          ${symptomChips}
+        </div>` : ''}
+
+      ${seChips ? `
+        <div style="margin-bottom:14px">
+          <div style="font-size:10.5px;font-weight:600;text-transform:uppercase;letter-spacing:.8px;color:var(--text-tertiary);margin-bottom:6px">Side Effects</div>
+          ${seChips}
+        </div>` : ''}
+
+      <div style="margin-bottom:14px">
+        <div style="font-size:10.5px;font-weight:600;text-transform:uppercase;letter-spacing:.8px;color:var(--text-tertiary);margin-bottom:6px">Functional Impact</div>
+        <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin-top:4px">${fiGrid}</div>
+      </div>
+
+      ${redFlags ? `
+        <div style="margin-bottom:14px">
+          <div style="font-size:10.5px;font-weight:600;text-transform:uppercase;letter-spacing:.8px;color:var(--red);margin-bottom:6px">&#x26A0; Red Flags</div>
+          ${redFlags}
+        </div>` : ''}
+
+      ${fuqs ? `
+        <div style="margin-bottom:14px">
+          <div style="font-size:10.5px;font-weight:600;text-transform:uppercase;letter-spacing:.8px;color:var(--text-tertiary);margin-bottom:6px">Follow-up Questions</div>
+          <ol style="margin:0;padding-left:18px">${fuqs}</ol>
+        </div>` : ''}
+
+      <div style="margin-bottom:14px">
+        <div style="font-size:10.5px;font-weight:600;text-transform:uppercase;letter-spacing:.8px;color:var(--amber);margin-bottom:6px">Chart Note Draft (SOAP)</div>
+        <div style="font-size:9.5px;color:var(--amber);font-weight:600;margin-bottom:4px">DRAFT &mdash; requires clinician approval</div>
+        <textarea id="md-soap-draft" class="form-control" rows="7" style="font-family:var(--font-mono);font-size:12px;resize:vertical">${esc(analysis.chart_note_draft || analysis.soap_note || '')}</textarea>
+        <div style="font-size:11px;color:var(--text-tertiary);margin-top:4px">Edit as needed before approving.</div>
+      </div>
+
+      <div style="margin-bottom:14px">
+        <div style="font-size:10.5px;font-weight:600;text-transform:uppercase;letter-spacing:.8px;color:var(--text-tertiary);margin-bottom:6px">Clinician Amendments</div>
+        <textarea id="md-amendments" class="form-control" rows="4" style="font-size:12px;resize:vertical" placeholder="Add your notes or corrections&hellip;">${esc(analysis.clinician_amendments || '')}</textarea>
+      </div>
+
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn btn-sm" style="background:rgba(0,212,188,0.15);color:var(--teal);border-color:rgba(0,212,188,0.3)" onclick="window._mdApproveDraft()">&#x2713; Approve for Clinical Record</button>
+        <button class="btn btn-sm" style="color:var(--red);border-color:rgba(255,107,107,0.3)" onclick="window._mdRejectDraft()">&#x2715; Reject Draft</button>
+        <button class="btn btn-sm" id="md-save-amend-btn" onclick="window._mdSaveAmendments()">Save Amendments</button>
+      </div>`;
+  }
+
+  const auditSteps = (upload.audit_trail || [])
+    .map(e => `<span style="font-size:11px;color:var(--text-tertiary)">${esc(e)}</span>`)
+    .join(' &middot; ');
+
+  el.innerHTML = `
+  <div style="max-width:1100px;margin:0 auto;padding:0 4px">
+    <div style="margin-bottom:14px">
+      <button class="btn btn-ghost btn-sm" onclick="window._nav('media-queue')">&#8592; Review Queue</button>
+    </div>
+    <div id="md-page-error" style="display:none;background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.25);border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:12.5px;color:#ef4444"></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;align-items:start">
+
+      <!-- Left panel: Upload info -->
+      <div style="background:var(--surface-1);border:1px solid var(--border);border-radius:12px;padding:20px">
+        <div style="margin-bottom:12px">
+          <div style="font-size:15px;font-weight:700;color:var(--text-primary);margin-bottom:4px">${esc(upload.patient_name || '&mdash;')}</div>
+          <div style="font-size:12px;color:var(--text-secondary)">
+            Condition: ${esc(upload.primary_condition || '&mdash;')} &nbsp;&middot;&nbsp; Course: ${esc(upload.course_name || '&mdash;')}
+          </div>
+          <div style="font-size:11.5px;color:var(--text-secondary);margin-top:4px">
+            Type: ${upload.upload_type === 'voice' ? '&#x1F399; Voice' : '&#x1F4DD; Text'}
+            &nbsp;&middot;&nbsp; Date: ${dateStr}
+            ${upload.duration_seconds ? '&nbsp;&middot;&nbsp; Duration: ' + Math.round(upload.duration_seconds) + 's' : ''}
+          </div>
+          <div style="margin-top:8px">
+            <span style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.7px;padding:3px 8px;border-radius:4px;color:${st.color};border:1px solid ${st.color}22;background:${st.color}11">${st.label}</span>
+          </div>
+        </div>
+
+        ${upload.patient_note ? `
+          <div style="margin-bottom:12px">
+            <div style="font-size:10.5px;font-weight:600;text-transform:uppercase;letter-spacing:.8px;color:var(--text-tertiary);margin-bottom:6px">Patient Note</div>
+            <div style="font-size:12.5px;color:var(--text-secondary);line-height:1.7">${esc(upload.patient_note)}</div>
+          </div>` : ''}
+
+        ${contentSection}
+        ${reviewBtns}
+      </div>
+
+      <!-- Right panel: AI Analysis -->
+      <div style="background:var(--surface-1);border:1px solid var(--border);border-radius:12px;padding:20px">
+        <div style="font-size:13px;font-weight:700;color:var(--text-primary);margin-bottom:14px">AI Analysis</div>
+        <div id="md-analysis-panel">${_buildAnalysisPanel()}</div>
+      </div>
+
+    </div>
+
+    ${auditSteps ? `
+    <div style="margin-top:20px;padding:12px 16px;border:1px solid var(--border);border-radius:8px;background:var(--surface-1)">
+      <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.8px;color:var(--text-tertiary);margin-bottom:6px">Audit Trail</div>
+      <div style="display:flex;flex-wrap:wrap;gap:4px">${auditSteps}</div>
+    </div>` : ''}
+  </div>`;
+
+  // ── Window handlers ───────────────────────────────────────────────────────────
+
+  function _mdErr(msg) {
+    const errEl = document.getElementById('md-page-error');
+    if (!errEl) return;
+    errEl.textContent = msg;
+    errEl.style.display = 'block';
+    clearTimeout(errEl._t);
+    errEl._t = setTimeout(() => { errEl.style.display = 'none'; }, 6000);
+  }
+
+  window._mdAction = async function(action) {
+    let reason = null;
+    if (action === 'reject' || action === 'request_reupload') {
+      reason = prompt(action === 'reject' ? 'Reason for rejection (optional):' : 'Reason for requesting re-upload (optional):');
+      if (reason === null) return;
+    }
+    const btn = window.event ? window.event.currentTarget || window.event.target : null;
+    const origText = btn ? btn.textContent : '';
+    if (btn) { btn.disabled = true; btn.textContent = '\u2026'; }
+    try {
+      const body = { action };
+      if (reason) body.reason = reason;
+      const r = await fetch(`${BASE}/api/v1/media/review/${uploadId}/action`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+        body: JSON.stringify(body),
+      });
+      if (!r.ok) throw new Error(`Server error ${r.status}`);
+      window._nav('media-detail'); // refresh page
+    } catch (e) {
+      if (btn) { btn.disabled = false; btn.textContent = origText; }
+      _mdErr('Action failed: ' + e.message);
+    }
+  };
+
+  window._mdRunAnalysis = async function() {
+    const btn = document.getElementById('md-run-btn');
+    if (btn) { btn.disabled = true; btn.textContent = 'Running\u2026'; }
+    try {
+      const r = await fetch(`${BASE}/api/v1/media/review/${uploadId}/analyze`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+      });
+      if (!r.ok) {
+        const body = await r.json().catch(() => ({}));
+        throw new Error(body.detail || `Server error ${r.status}`);
+      }
+      window._nav('media-detail'); // refresh
+    } catch (e) {
+      if (btn) { btn.disabled = false; btn.textContent = '\u25B6 Run AI Analysis'; }
+      _mdErr('Analysis failed: ' + e.message + ' — Check ANTHROPIC_API_KEY or retry.');
+    }
+  };
+
+  window._mdApproveDraft = async function() {
+    const soapDraft  = document.getElementById('md-soap-draft')?.value  || '';
+    const amendments = document.getElementById('md-amendments')?.value  || '';
+    const approveBtn = document.querySelector('#md-analysis-panel button[onclick="_mdApproveDraft()"], #md-analysis-panel button[onclick="window._mdApproveDraft()"]');
+    if (approveBtn) { approveBtn.disabled = true; approveBtn.textContent = 'Saving\u2026'; }
+    try {
+      const r = await fetch(`${BASE}/api/v1/media/analysis/${uploadId}/approve`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+        body: JSON.stringify({ chart_note_draft: soapDraft, clinician_amendments: amendments }),
+      });
+      if (!r.ok) throw new Error(`Server error ${r.status}`);
+      const panel = document.getElementById('md-analysis-panel');
+      if (panel) panel.innerHTML = `<div style="padding:24px;text-align:center;color:var(--teal);font-size:13.5px;font-weight:600;border:1px solid rgba(0,212,188,0.25);border-radius:12px;background:rgba(0,212,188,0.05)">&#x2713; Analysis approved and saved to clinical record.</div>`;
+    } catch (e) {
+      if (approveBtn) { approveBtn.disabled = false; approveBtn.textContent = '\u2713 Approve for Clinical Record'; }
+      _mdErr('Could not approve: ' + e.message);
+    }
+  };
+
+  window._mdRejectDraft = function() {
+    if (!confirm('Reject this draft? The transcript will be kept and the upload can be re-analysed.')) return;
+    window._nav('media-queue');
+  };
+
+  window._mdSaveAmendments = async function() {
+    const amendments = document.getElementById('md-amendments')?.value || '';
+    const soapDraft  = document.getElementById('md-soap-draft')?.value  || '';
+    const saveBtn = document.getElementById('md-save-amend-btn');
+    if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'Saving\u2026'; }
+    try {
+      const r = await fetch(`${BASE}/api/v1/media/analysis/${uploadId}/amend`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+        body: JSON.stringify({ clinician_amendments: amendments, chart_note_draft: soapDraft }),
+      });
+      if (!r.ok) throw new Error(`Server error ${r.status}`);
+      if (saveBtn) { saveBtn.textContent = '\u2713 Saved'; setTimeout(() => { saveBtn.disabled = false; saveBtn.textContent = 'Save Amendments'; }, 1800); }
+    } catch (e) {
+      if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = 'Save Amendments'; }
+      _mdErr('Could not save: ' + e.message);
+    }
+  };
+}
+
+// ── Clinician Dictation ───────────────────────────────────────────────────────
+
+export async function pgClinicianDictation(setTopbar) {
+  setTopbar('Clinical Note \u2014 Voice or Text', '');
+
+  const el = document.getElementById('content');
+  if (!el) return;
+
+  const BASE  = (import.meta.env && import.meta.env.VITE_API_BASE_URL) || 'http://127.0.0.1:8000';
+  const token = api.getToken();
+
+  let _captureMode   = 'voice';
+  let _patients      = [];
+  let _courses       = [];
+  let _sessions      = [];
+  let _mediaRecorder = null;
+  let _audioChunks   = [];
+  let _timerInterval = null;
+  let _startTime     = null;
+  let _audioBlob     = null;
+
+  try {
+    const res = await api.listPatients().catch(() => null);
+    _patients = res?.items || [];
+  } catch (_) {}
+
+  function _fmtTime(ms) {
+    const s = Math.floor(ms / 1000);
+    const m = Math.floor(s / 60);
+    return String(m).padStart(2, '0') + ':' + String(s % 60).padStart(2, '0');
+  }
+
+  function _renderPage() {
+    const patientOpts = _patients.map(p =>
+      `<option value="${p.id}">${p.first_name || ''} ${p.last_name || ''}</option>`
+    ).join('');
+
+    const courseOpts = _courses.map(c =>
+      `<option value="${c.id}">${c.condition_slug || '&mdash;'} &middot; ${c.modality_slug || '&mdash;'}</option>`
+    ).join('');
+
+    const sessionOpts = _sessions.map(s =>
+      `<option value="${s.id}">Session #${(s.id || '').slice(0, 6)} &middot; ${s.scheduled_at ? new Date(s.scheduled_at).toLocaleDateString('en-GB') : '&mdash;'}</option>`
+    ).join('');
+
+    el.innerHTML = `
+    <div style="max-width:720px;margin:0 auto;padding:0 4px">
+      <div style="margin-bottom:20px">
+        <h2 style="font-size:1.1rem;font-weight:700;margin-bottom:4px">Clinical Note &mdash; Voice or Text</h2>
+      </div>
+
+      <div style="background:var(--surface-1);border:1px solid var(--border);border-radius:12px;padding:20px;margin-bottom:16px">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
+          <div class="form-group" style="margin:0">
+            <label class="form-label">Patient <span style="color:var(--red)">*</span></label>
+            <select id="dict-patient" class="form-control" onchange="window._dictPatientChanged(this.value)">
+              <option value="">Select patient&hellip;</option>
+              ${patientOpts}
+            </select>
+          </div>
+          <div class="form-group" style="margin:0">
+            <label class="form-label">Note Type</label>
+            <select id="dict-note-type" class="form-control">
+              <option value="post_session_note">Post-session note</option>
+              <option value="clinical_update">Clinical update</option>
+              <option value="adverse_event">Adverse event</option>
+              <option value="progress_note">Progress note</option>
+            </select>
+          </div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+          <div class="form-group" style="margin:0">
+            <label class="form-label">Course <span style="font-weight:400;color:var(--text-tertiary)">(optional)</span></label>
+            <select id="dict-course" class="form-control" onchange="window._dictCourseChanged(this.value)">
+              <option value="">&mdash; none &mdash;</option>
+              ${courseOpts}
+            </select>
+          </div>
+          <div class="form-group" style="margin:0">
+            <label class="form-label">Session <span style="font-weight:400;color:var(--text-tertiary)">(optional)</span></label>
+            <select id="dict-session" class="form-control">
+              <option value="">&mdash; none &mdash;</option>
+              ${sessionOpts}
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <div style="background:var(--surface-1);border:1px solid var(--border);border-radius:12px;padding:20px">
+        <div class="tab-nav" style="margin-bottom:20px">
+          <button class="tab-btn ${_captureMode === 'voice' ? 'active' : ''}" onclick="window._dictMode('voice')">&#x1F399; Record Voice</button>
+          <button class="tab-btn ${_captureMode === 'text'  ? 'active' : ''}" onclick="window._dictMode('text')">&#x1F4DD; Type Note</button>
+        </div>
+
+        <div id="dict-voice-panel" style="${_captureMode === 'voice' ? '' : 'display:none'}">
+          <div style="text-align:center;padding:20px 0">
+            <button id="dict-record-btn" class="btn" style="width:80px;height:80px;border-radius:50%;font-size:26px;border-width:2px;transition:all 0.2s" onclick="window._dictToggleRecord()">&#x25CF;</button>
+            <div id="dict-timer" style="font-size:22px;font-family:var(--font-mono);color:var(--text-primary);margin-top:12px;letter-spacing:2px">00:00</div>
+            <div id="dict-rec-status" style="font-size:12px;color:var(--text-tertiary);margin-top:4px">Press to start recording</div>
+          </div>
+          <div style="text-align:center;margin-bottom:12px">
+            <span style="font-size:11.5px;color:var(--text-tertiary)">&mdash; or &mdash;</span><br>
+            <label class="btn btn-sm" style="margin-top:8px;cursor:pointer">
+              Upload audio file
+              <input type="file" accept="audio/*" id="dict-file-input" style="display:none" onchange="window._dictHandleFile(this)">
+            </label>
+          </div>
+          <div id="dict-ready-state" style="display:none;background:rgba(0,212,188,0.06);border:1px solid rgba(0,212,188,0.25);border-radius:8px;padding:12px;text-align:center;margin-bottom:12px">
+            <span style="font-size:12.5px;color:var(--teal);font-weight:600">&#x2713; Ready to submit</span>
+            <span id="dict-ready-duration" style="font-size:12px;color:var(--text-secondary);margin-left:8px"></span>
+          </div>
+        </div>
+
+        <div id="dict-text-panel" style="${_captureMode === 'text' ? '' : 'display:none'}">
+          <div class="form-group">
+            <textarea id="dict-text-content" class="form-control" rows="10" style="font-size:13.5px;line-height:1.7;resize:vertical" placeholder="Write your clinical note. AI will generate a structured draft."></textarea>
+          </div>
+        </div>
+
+        <div id="dict-error" style="color:var(--red);font-size:12px;margin-bottom:10px;display:none"></div>
+        <button class="btn btn-primary" id="dict-submit-btn" onclick="window._dictSubmit()">Generate Draft Note</button>
+      </div>
+    </div>`;
+  }
+
+  _renderPage();
+
+  window._dictMode = function(mode) {
+    _captureMode = mode;
+    _audioBlob   = null;
+    _renderPage();
+  };
+
+  window._dictPatientChanged = async function(patientId) {
+    _courses  = [];
+    _sessions = [];
+    if (!patientId) { _renderPage(); return; }
+    try {
+      const res = await api.listCourses({ patient_id: patientId }).catch(() => null);
+      _courses = res?.items || [];
+    } catch (_) {}
+    _renderPage();
+    const sel = document.getElementById('dict-patient');
+    if (sel) sel.value = patientId;
+  };
+
+  window._dictCourseChanged = async function(courseId) {
+    _sessions = [];
+    if (!courseId) { _renderPage(); return; }
+    try {
+      const res = await api.listCourseSessions(courseId).catch(() => null);
+      _sessions = Array.isArray(res) ? res : (res?.items || []);
+    } catch (_) {}
+    _renderPage();
+    const sel = document.getElementById('dict-course');
+    if (sel) sel.value = courseId;
+  };
+
+  window._dictToggleRecord = async function() {
+    if (_mediaRecorder && _mediaRecorder.state === 'recording') {
+      clearInterval(_timerInterval);
+      _mediaRecorder.stop();
+    } else {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        _audioChunks = [];
+        const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+          ? 'audio/webm;codecs=opus'
+          : MediaRecorder.isTypeSupported('audio/webm')
+          ? 'audio/webm'
+          : '';
+        _mediaRecorder = new MediaRecorder(stream, mimeType ? { mimeType } : {});
+        _mediaRecorder.ondataavailable = e => { if (e.data && e.data.size > 0) _audioChunks.push(e.data); };
+        _mediaRecorder.onstop = () => {
+          const blob = new Blob(_audioChunks, { type: _audioChunks[0]?.type || 'audio/webm' });
+          _audioBlob = blob;
+          stream.getTracks().forEach(t => t.stop());
+          const btn = document.getElementById('dict-record-btn');
+          if (btn) { btn.style.color = ''; btn.style.borderColor = ''; btn.style.background = ''; btn.innerHTML = '&#x25CF;'; }
+          const status = document.getElementById('dict-rec-status');
+          if (status) status.textContent = 'Press to start recording';
+          const ready = document.getElementById('dict-ready-state');
+          if (ready) {
+            ready.style.display = 'block';
+            const dur = document.getElementById('dict-ready-duration');
+            if (dur) dur.textContent = '(' + _fmtTime(_startTime ? Date.now() - _startTime : 0) + ')';
+          }
+          const timer = document.getElementById('dict-timer');
+          if (timer) timer.textContent = '00:00';
+        };
+        _mediaRecorder.start(500);
+        _startTime = Date.now();
+        _timerInterval = setInterval(() => {
+          const t = document.getElementById('dict-timer');
+          if (t) t.textContent = _fmtTime(Date.now() - _startTime);
+        }, 500);
+        const btn = document.getElementById('dict-record-btn');
+        if (btn) { btn.style.color = '#fff'; btn.style.borderColor = 'var(--red)'; btn.style.background = 'var(--red)'; btn.innerHTML = '&#x25A0;'; }
+        const status = document.getElementById('dict-rec-status');
+        if (status) status.textContent = 'Recording\u2026 press to stop';
+      } catch (err) {
+        alert('Could not access microphone: ' + (err.message || err.name));
+      }
+    }
+  };
+
+  window._dictHandleFile = function(input) {
+    const file = input.files[0];
+    if (!file) return;
+    _audioBlob = file;
+    const ready = document.getElementById('dict-ready-state');
+    if (ready) {
+      ready.style.display = 'block';
+      const dur = document.getElementById('dict-ready-duration');
+      if (dur) dur.textContent = '(' + file.name + ')';
+    }
+  };
+
+  window._dictSubmit = async function() {
+    const patientId = document.getElementById('dict-patient')?.value;
+    const courseId  = document.getElementById('dict-course')?.value  || null;
+    const sessionId = document.getElementById('dict-session')?.value || null;
+    const noteType  = document.getElementById('dict-note-type')?.value || 'post_session_note';
+    const errorEl   = document.getElementById('dict-error');
+
+    if (!patientId) {
+      if (errorEl) { errorEl.textContent = 'Please select a patient.'; errorEl.style.display = 'block'; }
+      return;
+    }
+    if (errorEl) errorEl.style.display = 'none';
+
+    const submitBtn = document.getElementById('dict-submit-btn');
+    if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = 'Generating\u2026'; }
+
+    try {
+      let result = null;
+
+      if (_captureMode === 'text') {
+        const textContent = document.getElementById('dict-text-content')?.value?.trim();
+        if (!textContent) throw new Error('Please enter a note.');
+        const r = await fetch(`${BASE}/api/v1/media/clinician/note/text`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+          body: JSON.stringify({ patient_id: patientId, course_id: courseId, session_id: sessionId, note_type: noteType, text_content: textContent }),
+        });
+        if (!r.ok) throw new Error(`API error ${r.status}`);
+        result = await r.json();
+
+      } else {
+        if (!_audioBlob) throw new Error('Please record or upload an audio file first.');
+        const formData = new FormData();
+        formData.append('file',       _audioBlob, 'dictation.webm');
+        formData.append('patient_id', patientId);
+        if (courseId)  formData.append('course_id',  courseId);
+        if (sessionId) formData.append('session_id', sessionId);
+        formData.append('note_type', noteType);
+        const r = await fetch(`${BASE}/api/v1/media/clinician/note/audio`, {
+          method: 'POST',
+          headers: { Authorization: 'Bearer ' + token },
+          body: formData,
+        });
+        if (!r.ok) throw new Error(`API error ${r.status}`);
+        result = await r.json();
+      }
+
+      if (result && result.note_id) {
+        window._clinicianNoteId    = result.note_id;
+        window._clinicianDraftId   = result.draft_id;
+        window._clinicianDraftData = result.draft || {};
+        window._nav('clinician-draft-review');
+      } else {
+        throw new Error('Unexpected response \u2014 no note_id returned.');
+      }
+    } catch (e) {
+      if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = 'Generate Draft Note'; }
+      if (errorEl) { errorEl.textContent = e.message; errorEl.style.display = 'block'; }
+    }
+  };
+}
+
+// ── Clinician Draft Review ────────────────────────────────────────────────────
+
+export async function pgClinicianDraftReview(setTopbar) {
+  const noteId    = window._clinicianNoteId;
+  const draftId   = window._clinicianDraftId;
+  const draftData = window._clinicianDraftData || {};
+
+  if (!noteId && !draftId) { window._nav('clinician-dictation'); return; }
+
+  setTopbar('Review AI-Generated Draft',
+    `<button class="btn btn-ghost btn-sm" onclick="window._nav('clinician-dictation')">&#8592; Back to Dictation</button>`
+  );
+
+  const el = document.getElementById('content');
+  if (!el) return;
+
+  const BASE  = (import.meta.env && import.meta.env.VITE_API_BASE_URL) || 'http://127.0.0.1:8000';
+  const token = api.getToken();
+  const esc   = s => (s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+  const taskSuggestions = draftData.task_suggestions || [];
+  const taskRows = taskSuggestions.map((t, i) => {
+    const text     = typeof t === 'string' ? t : (t.text || '');
+    const priority = typeof t === 'object' ? (t.priority || '') : '';
+    const pc = priority === 'high' ? 'var(--red)' : priority === 'medium' ? 'var(--amber)' : 'var(--teal)';
+    return `<label style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border);cursor:pointer">
+      <input type="checkbox" id="task-check-${i}" style="width:14px;height:14px;flex-shrink:0">
+      <span style="flex:1;font-size:12.5px;color:var(--text-secondary)">${esc(text)}</span>
+      ${priority ? `<span style="font-size:9.5px;font-weight:600;text-transform:uppercase;letter-spacing:.6px;padding:2px 6px;border-radius:4px;background:${pc}18;color:${pc}">${priority}</span>` : ''}
+    </label>`;
+  }).join('');
+
+  const treatmentSection = draftData.treatment_update ? `
+    <div class="form-group">
+      <label class="form-label">Treatment Update</label>
+      <textarea id="draft-treatment-update" class="form-control" rows="4" style="font-size:12.5px;resize:vertical">${esc(draftData.treatment_update)}</textarea>
+    </div>` : '';
+
+  const adverseSection = draftData.adverse_event_note ? `
+    <div class="form-group" style="border-left:3px solid var(--amber);padding-left:12px">
+      <label class="form-label" style="color:var(--amber)">&#x26A0; Adverse Event Note</label>
+      <textarea id="draft-ae-note" class="form-control" rows="4" style="font-size:12.5px;resize:vertical">${esc(draftData.adverse_event_note)}</textarea>
+    </div>` : '';
+
+  el.innerHTML = `
+  <div style="max-width:1060px;margin:0 auto;padding:0 4px">
+    <div style="margin-bottom:16px">
+      <h2 style="font-size:1.1rem;font-weight:700;margin-bottom:4px">Review AI-Generated Draft</h2>
+      <p style="font-size:12.5px;color:var(--text-secondary)">Review and edit the draft below. Approve to save to the patient record.</p>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;align-items:start">
+
+      <!-- Left: Original dictation -->
+      <div style="background:var(--surface-1);border:1px solid var(--border);border-radius:12px;padding:20px">
+        <div style="font-size:10.5px;font-weight:600;text-transform:uppercase;letter-spacing:.8px;color:var(--text-tertiary);margin-bottom:10px">Original dictation</div>
+        <div style="background:var(--surface-2,var(--navy-900));border:1px solid var(--border);border-radius:8px;padding:14px;max-height:500px;overflow-y:auto;font-size:12.5px;color:var(--text-secondary);line-height:1.7;white-space:pre-wrap;font-family:var(--font-mono)">${esc(draftData.original_text || draftData.transcript || '(No original text available)')}</div>
+      </div>
+
+      <!-- Right: AI Draft -->
+      <div style="background:var(--surface-1);border:1px solid var(--border);border-radius:12px;padding:20px">
+        <div style="font-size:10.5px;font-weight:600;text-transform:uppercase;letter-spacing:.8px;color:var(--text-tertiary);margin-bottom:14px">AI Draft</div>
+
+        <div class="form-group">
+          <label class="form-label">Session Note (SOAP)</label>
+          <div style="font-size:9.5px;color:var(--amber);font-weight:600;margin-bottom:4px">DRAFT</div>
+          <textarea id="draft-soap" class="form-control" rows="8" style="font-size:12.5px;line-height:1.7;resize:vertical;border-style:dashed">${esc(draftData.soap_note || draftData.session_note || '')}</textarea>
+        </div>
+
+        ${treatmentSection}
+        ${adverseSection}
+
+        <div class="form-group">
+          <label class="form-label">Patient-Friendly Summary <span style="font-size:10.5px;font-weight:400;color:var(--text-tertiary)">&mdash; Shown to patient in portal</span></label>
+          <textarea id="draft-patient-summary" class="form-control" rows="4" style="font-size:12.5px;resize:vertical">${esc(draftData.patient_summary || '')}</textarea>
+        </div>
+
+        ${taskRows ? `
+        <div class="form-group">
+          <label class="form-label">Task Suggestions <span style="font-size:10.5px;font-weight:400;color:var(--text-tertiary)">&mdash; Check to include in final note</span></label>
+          <div style="border:1px solid var(--border);border-radius:8px;padding:8px 12px">${taskRows}</div>
+        </div>` : ''}
+
+        <div class="form-group">
+          <label class="form-label">Clinician Review Notes <span style="font-size:10.5px;font-weight:400;color:var(--text-tertiary)">— corrections or context to attach to this record (optional)</span></label>
+          <textarea id="draft-clinician-edits" class="form-control" rows="3" style="font-size:12.5px;resize:vertical" placeholder="e.g. Patient reported differently during session. Adjusted dose per protocol."></textarea>
+        </div>
+      </div>
+    </div>
+
+    <div id="draft-success" style="display:none;margin-top:16px;padding:14px 18px;background:rgba(0,212,188,0.08);border:1px solid rgba(0,212,188,0.3);border-radius:8px;font-size:13px;color:var(--teal);font-weight:600"></div>
+    <div id="draft-error" style="display:none;margin-top:16px;padding:10px 14px;background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.25);border-radius:8px;font-size:12.5px;color:#ef4444"></div>
+
+    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:20px;padding-top:16px;border-top:1px solid var(--border);align-items:center">
+      <button class="btn btn-primary" id="draft-approve-btn" onclick="window._draftApprove()">&#x2713; Approve &amp; Save to Record</button>
+      <button class="btn btn-sm" style="color:var(--red);border-color:rgba(255,107,107,0.3)" onclick="window._draftDiscard()">&#x2715; Discard Draft</button>
+      <button class="btn btn-ghost btn-sm" onclick="window._nav('clinician-dictation')">&#8592; Back to Dictation</button>
+      <span style="margin-left:auto;font-size:11px;color:var(--text-tertiary)">AI-generated draft. Review all sections before approving.</span>
+    </div>
+  </div>`;
+
+  window._draftApprove = async function() {
+    const soapNote       = document.getElementById('draft-soap')?.value            || '';
+    const patientSummary = document.getElementById('draft-patient-summary')?.value  || '';
+    const clinicianEdits = document.getElementById('draft-clinician-edits')?.value  || '';
+    const treatmentUpd   = document.getElementById('draft-treatment-update')?.value || '';
+    const aeNote         = document.getElementById('draft-ae-note')?.value           || '';
+
+    const includedTasks = taskSuggestions
+      .filter((_, i) => document.getElementById(`task-check-${i}`)?.checked)
+      .map(t => (typeof t === 'string' ? t : (t.text || '')));
+
+    const btn = document.getElementById('draft-approve-btn');
+    if (btn) { btn.disabled = true; btn.textContent = 'Saving\u2026'; }
+
+    try {
+      const r = await fetch(`${BASE}/api/v1/media/clinician/draft/${draftId}/approve`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+        body: JSON.stringify({
+          clinician_edits:    clinicianEdits,
+          soap_note:          soapNote,
+          patient_summary:    patientSummary,
+          treatment_update:   treatmentUpd,
+          adverse_event_note: aeNote,
+          included_tasks:     includedTasks,
+        }),
+      });
+      if (!r.ok) throw new Error(`API error ${r.status}`);
+      const successEl = document.getElementById('draft-success');
+      if (successEl) {
+        successEl.style.display = 'block';
+        successEl.innerHTML = `&#x2713; Draft saved to clinical record. <a style="color:var(--teal);text-decoration:underline;cursor:pointer" onclick="window._nav('patients')">View patient record &#x2192;</a>`;
+      }
+      if (btn) { btn.disabled = true; btn.textContent = '\u2713 Approved'; }
+    } catch (e) {
+      if (btn) { btn.disabled = false; btn.textContent = '\u2713 Approve & Save to Record'; }
+      const errEl = document.getElementById('draft-error');
+      if (errEl) { errEl.textContent = 'Could not save: ' + e.message; errEl.style.display = 'block'; }
+    }
+  };
+
+  window._draftDiscard = function() {
+    if (!confirm('Discard this draft? The transcript will be kept — you can generate a new draft later from the Media Review Queue.')) return;
+    window._nav('media-queue');
+  };
+}
+
+// ── Medication Interaction Checker ────────────────────────────────────────────
+export async function pgMedInteractionChecker(setTopbar) {
+  setTopbar('Medication Safety', `
+    <button class="btn-secondary" onclick="window._micPrintSafety()" style="font-size:12px;padding:5px 12px">🖨 Print Safety Screen</button>
+    <button class="btn-secondary" onclick="window._micExportCSV()" style="font-size:12px;padding:5px 12px">⬇ Export Log CSV</button>
+  `);
+
+  // ── Drug class mapping ──────────────────────────────────────────────────────
+  const DRUG_CLASS_MAP = {
+    ssri:            ['sertraline','fluoxetine','escitalopram','paroxetine','fluvoxamine','citalopram','zoloft','prozac','lexapro','paxil','luvox','celexa'],
+    snri:            ['venlafaxine','duloxetine','desvenlafaxine','levomilnacipran','milnacipran','effexor','cymbalta','pristiq'],
+    maoi:            ['phenelzine','tranylcypromine','isocarboxazid','selegiline','nardil','parnate','marplan'],
+    stimulant:       ['methylphenidate','amphetamine','lisdexamfetamine','dextroamphetamine','ritalin','adderall','vyvanse','concerta','focalin','dexedrine'],
+    benzodiazepine:  ['lorazepam','clonazepam','diazepam','alprazolam','temazepam','oxazepam','ativan','klonopin','valium','xanax','restoril'],
+    opioid:          ['oxycodone','hydrocodone','morphine','codeine','tramadol','fentanyl','buprenorphine','methadone','percocet','vicodin'],
+    antipsychotic:   ['clozapine','quetiapine','aripiprazole','risperidone','olanzapine','haloperidol','ziprasidone','lurasidone','clozaril','seroquel','abilify','risperdal','zyprexa','geodon'],
+    'mood stabilizer': ['lithium','valproate','lamotrigine','carbamazepine','oxcarbazepine','lithobid','depakote','lamictal','tegretol'],
+    lithium:         ['lithium','lithobid'],
+    clozapine:       ['clozapine','clozaril'],
+    bupropion:       ['bupropion','wellbutrin','zyban'],
+    tramadol:        ['tramadol'],
+    warfarin:        ['warfarin','coumadin'],
+    ibuprofen:       ['ibuprofen','advil','motrin','naproxen','aleve','nsaid','celecoxib','indomethacin'],
+  };
+
+  // ── Interaction rules ───────────────────────────────────────────────────────
+  const INTERACTION_RULES = [
+    // Drug-Drug
+    { drugs:['lithium','ibuprofen'],       severity:'major',           mechanism:'NSAIDs increase lithium levels → toxicity risk',                                     recommendation:'Monitor lithium levels; consider acetaminophen alternative' },
+    { drugs:['tramadol','ssri'],           severity:'major',           mechanism:'Serotonin syndrome risk',                                                            recommendation:'Avoid combination; monitor for hyperthermia, agitation, clonus' },
+    { drugs:['maoi','ssri'],              severity:'contraindicated', mechanism:'Serotonin syndrome — potentially fatal',                                              recommendation:'Do not combine; washout period required (2 weeks SSRI, 5 weeks fluoxetine)' },
+    { drugs:['clozapine','ssri'],          severity:'moderate',        mechanism:'CYP1A2 inhibition raises clozapine levels',                                          recommendation:'Monitor clozapine levels; consider dose adjustment' },
+    { drugs:['warfarin','ssri'],           severity:'moderate',        mechanism:'Increased bleeding risk via platelet inhibition',                                     recommendation:'Monitor INR; watch for bruising/bleeding' },
+    { drugs:['stimulant','maoi'],          severity:'contraindicated', mechanism:'Hypertensive crisis risk',                                                           recommendation:'Absolute contraindication' },
+    { drugs:['benzodiazepine','opioid'],   severity:'major',           mechanism:'Additive CNS/respiratory depression',                                                recommendation:'Use lowest effective doses; monitor closely' },
+    { drugs:['lithium','ssri'],            severity:'moderate',        mechanism:'Increased risk of serotonin syndrome; lithium may potentiate SSRI effects',          recommendation:'Monitor for signs of serotonin toxicity; check lithium levels regularly' },
+    { drugs:['stimulant','snri'],          severity:'moderate',        mechanism:'Additive cardiovascular effects — increased BP and heart rate',                      recommendation:'Monitor blood pressure and heart rate; dose carefully' },
+    { drugs:['bupropion','maoi'],          severity:'contraindicated', mechanism:'Risk of hypertensive crisis and seizures',                                           recommendation:'Absolute contraindication; at least 14-day washout required' },
+    { drugs:['bupropion','stimulant'],     severity:'moderate',        mechanism:'Additive CNS stimulation; increased seizure risk',                                   recommendation:'Use with caution; monitor for agitation and seizure threshold lowering' },
+    { drugs:['antipsychotic','benzodiazepine'], severity:'moderate',   mechanism:'Additive CNS depression and respiratory depression risk',                            recommendation:'Monitor closely especially in elderly; use minimum effective doses' },
+    // Drug-Modality
+    { drug:'lithium',         modality:'TMS',           severity:'caution', mechanism:'Lithium lowers seizure threshold; may increase TMS seizure risk at therapeutic levels', recommendation:'Use conservative TMS parameters; monitor lithium levels; ensure level <0.8 mEq/L before TMS' },
+    { drug:'clozapine',       modality:'TMS',           severity:'hold',    mechanism:'Clozapine significantly lowers seizure threshold — high seizure risk with TMS',          recommendation:'Consult psychiatrist before TMS; consider alternative protocols' },
+    { drug:'bupropion',       modality:'TMS',           severity:'caution', mechanism:'Bupropion lowers seizure threshold in a dose-dependent manner',                          recommendation:'Use conservative TMS parameters; doses >300mg/day warrant additional caution' },
+    { drug:'stimulant',       modality:'neurofeedback', severity:'note',    mechanism:'Stimulant use may affect baseline EEG and neurofeedback training targets',               recommendation:'Document stimulant timing relative to sessions; consider consistent med schedule' },
+    { drug:'benzodiazepine',  modality:'neurofeedback', severity:'caution', mechanism:'Benzodiazepines suppress theta/beta ratios and alter EEG significantly',                 recommendation:'Note benzo use in session records; may reduce neurofeedback efficacy' },
+    { drug:'ssri',            modality:'tDCS',          severity:'note',    mechanism:'SSRIs may modulate cortical excitability effects of tDCS',                               recommendation:'Potential enhancement of tDCS effects; monitor response carefully' },
+    { drug:'benzodiazepine',  modality:'tDCS',          severity:'caution', mechanism:'Benzodiazepines may attenuate anodal tDCS-induced neuroplasticity via GABA-A channels', recommendation:'Consider scheduling tDCS sessions when benzo effect is minimal; note timing' },
+    { drug:'maoi',            modality:'TMS',           severity:'caution', mechanism:'MAOIs may lower seizure threshold; cardiovascular reactivity concern during TMS',        recommendation:'Review MAOI type and dose; use conservative TMS parameters; have crash cart available' },
+    { drug:'stimulant',       modality:'tDCS',          severity:'note',    mechanism:'Stimulants may enhance tDCS-induced cortical excitability additively',                   recommendation:'May potentiate tDCS effects; monitor carefully; document timing' },
+    { drug:'antipsychotic',   modality:'neurofeedback', severity:'note',    mechanism:'Antipsychotics alter baseline EEG patterns; may affect neurofeedback targets',          recommendation:'Establish medication-stable EEG baseline; document medication status per session' },
+    { drug:'lithium',         modality:'tDCS',          severity:'note',    mechanism:'Lithium affects intracellular signalling that tDCS modulates; uncertain interaction',    recommendation:'Monitor closely; document response; ensure lithium levels are stable' },
+  ];
+
+  // ── Drug database seed ──────────────────────────────────────────────────────
+  const DRUG_DB = [
+    { name:'Sertraline (Zoloft)',             class:'SSRI',                    uses:'Depression, anxiety, OCD, PTSD',                        neuroConsiderations:'May enhance tDCS cortical effects; monitor closely',                                  seizureRisk:'low',          cnsStimRisk:'low' },
+    { name:'Fluoxetine (Prozac)',             class:'SSRI',                    uses:'Depression, bulimia, OCD',                              neuroConsiderations:'Long half-life; washout >5 weeks if switching to MAOI',                               seizureRisk:'low',          cnsStimRisk:'low' },
+    { name:'Escitalopram (Lexapro)',          class:'SSRI',                    uses:'Depression, GAD',                                       neuroConsiderations:'Well-tolerated with most neuromodulation',                                             seizureRisk:'low',          cnsStimRisk:'low' },
+    { name:'Paroxetine (Paxil)',              class:'SSRI',                    uses:'Depression, anxiety, PTSD, OCD',                        neuroConsiderations:'Short half-life; consider timing with sessions',                                       seizureRisk:'low',          cnsStimRisk:'low' },
+    { name:'Citalopram (Celexa)',             class:'SSRI',                    uses:'Depression, anxiety',                                   neuroConsiderations:'Generally compatible with neuromodulation',                                            seizureRisk:'low',          cnsStimRisk:'low' },
+    { name:'Venlafaxine (Effexor)',           class:'SNRI',                    uses:'Depression, anxiety, fibromyalgia',                     neuroConsiderations:'Dual mechanism; monitor BP with tDCS',                                                 seizureRisk:'low-moderate',  cnsStimRisk:'low' },
+    { name:'Duloxetine (Cymbalta)',           class:'SNRI',                    uses:'Depression, pain, anxiety',                             neuroConsiderations:'Generally compatible with neuromodulation',                                            seizureRisk:'low',          cnsStimRisk:'low' },
+    { name:'Lithium (Lithobid)',              class:'Mood Stabilizer',         uses:'Bipolar disorder, mania prevention',                    neuroConsiderations:'CAUTION with TMS — lowers seizure threshold; check levels',                           seizureRisk:'moderate',      cnsStimRisk:'low' },
+    { name:'Valproate (Depakote)',            class:'Mood Stabilizer',         uses:'Bipolar, epilepsy, migraine',                           neuroConsiderations:'AED — actually raises seizure threshold; compatible with TMS',                        seizureRisk:'low',          cnsStimRisk:'low' },
+    { name:'Lamotrigine (Lamictal)',          class:'Mood Stabilizer',         uses:'Bipolar, epilepsy, depression',                         neuroConsiderations:'AED — generally compatible; may enhance cortical stability',                          seizureRisk:'low',          cnsStimRisk:'low' },
+    { name:'Carbamazepine (Tegretol)',        class:'Mood Stabilizer',         uses:'Bipolar, epilepsy, neuropathic pain',                   neuroConsiderations:'Strong CYP inducer; AED — compatible with TMS',                                       seizureRisk:'low',          cnsStimRisk:'low' },
+    { name:'Clozapine (Clozaril)',            class:'Atypical Antipsychotic',  uses:'Treatment-resistant schizophrenia',                     neuroConsiderations:'HIGH seizure risk — TMS CONTRAINDICATED at standard doses',                           seizureRisk:'high',         cnsStimRisk:'low' },
+    { name:'Quetiapine (Seroquel)',           class:'Atypical Antipsychotic',  uses:'Schizophrenia, bipolar, depression augmentation',       neuroConsiderations:'Moderate seizure risk consideration with TMS',                                        seizureRisk:'low-moderate',  cnsStimRisk:'low' },
+    { name:'Aripiprazole (Abilify)',          class:'Atypical Antipsychotic',  uses:'Schizophrenia, bipolar, depression augmentation',       neuroConsiderations:'Generally well-tolerated with neuromodulation',                                       seizureRisk:'low',          cnsStimRisk:'moderate' },
+    { name:'Risperidone (Risperdal)',         class:'Atypical Antipsychotic',  uses:'Schizophrenia, bipolar',                                neuroConsiderations:'Monitor for EPS; EEG baseline recommended',                                           seizureRisk:'low',          cnsStimRisk:'low' },
+    { name:'Olanzapine (Zyprexa)',            class:'Atypical Antipsychotic',  uses:'Schizophrenia, bipolar, agitation',                     neuroConsiderations:'Sedating; note timing before sessions; EEG changes possible',                         seizureRisk:'low',          cnsStimRisk:'low' },
+    { name:'Ziprasidone (Geodon)',            class:'Atypical Antipsychotic',  uses:'Schizophrenia, bipolar',                                neuroConsiderations:'QTc prolongation risk; EEG monitoring recommended',                                    seizureRisk:'low',          cnsStimRisk:'low' },
+    { name:'Methylphenidate (Ritalin)',       class:'Stimulant',               uses:'ADHD, narcolepsy',                                      neuroConsiderations:'Document timing relative to neurofeedback sessions; may affect EEG targets',           seizureRisk:'low',          cnsStimRisk:'high' },
+    { name:'Amphetamine salts (Adderall)',    class:'Stimulant',               uses:'ADHD, narcolepsy',                                      neuroConsiderations:'Same as methylphenidate; consistent timing recommended',                               seizureRisk:'low',          cnsStimRisk:'high' },
+    { name:'Lisdexamfetamine (Vyvanse)',      class:'Stimulant',               uses:'ADHD, BED',                                             neuroConsiderations:'Longer-acting; more consistent EEG baseline vs IR stimulants',                         seizureRisk:'low',          cnsStimRisk:'high' },
+    { name:'Bupropion (Wellbutrin)',          class:'NDRI',                    uses:'Depression, smoking cessation, ADHD',                   neuroConsiderations:'CAUTION with TMS — dose-dependent seizure threshold lowering',                         seizureRisk:'moderate',      cnsStimRisk:'high' },
+    { name:'Mirtazapine (Remeron)',           class:'NaSSA',                   uses:'Depression, anxiety, insomnia',                         neuroConsiderations:'Sedating; may affect neurofeedback alertness',                                        seizureRisk:'low',          cnsStimRisk:'low' },
+    { name:'Trazodone (Desyrel)',             class:'SARI',                    uses:'Depression, insomnia',                                  neuroConsiderations:'Sedating at low doses; generally compatible',                                          seizureRisk:'low',          cnsStimRisk:'low' },
+    { name:'Lorazepam (Ativan)',              class:'Benzodiazepine',          uses:'Anxiety, panic, acute agitation',                       neuroConsiderations:'Significantly alters EEG — document use; may impair neurofeedback',                    seizureRisk:'low',          cnsStimRisk:'low' },
+    { name:'Clonazepam (Klonopin)',           class:'Benzodiazepine',          uses:'Anxiety, panic disorder, seizures',                     neuroConsiderations:'AED — may reduce tDCS excitatory effects',                                            seizureRisk:'low',          cnsStimRisk:'low' },
+    { name:'Diazepam (Valium)',               class:'Benzodiazepine',          uses:'Anxiety, muscle spasm, seizures',                       neuroConsiderations:'Long-acting; persistent EEG alteration',                                              seizureRisk:'low',          cnsStimRisk:'low' },
+    { name:'Alprazolam (Xanax)',              class:'Benzodiazepine',          uses:'Anxiety, panic disorder',                               neuroConsiderations:'Short-acting; rapid onset EEG effect; document session timing',                        seizureRisk:'low',          cnsStimRisk:'low' },
+    { name:'Phenelzine (Nardil)',             class:'MAOI',                    uses:'Depression, panic, social anxiety',                     neuroConsiderations:'Numerous interactions — comprehensive review required before any neuromodulation',     seizureRisk:'moderate',      cnsStimRisk:'high' },
+    { name:'Tranylcypromine (Parnate)',       class:'MAOI',                    uses:'Depression',                                            neuroConsiderations:'High interaction risk; strict dietary + drug restrictions',                            seizureRisk:'moderate',      cnsStimRisk:'high' },
+    { name:'Buspirone (Buspar)',              class:'Anxiolytic',              uses:'GAD',                                                   neuroConsiderations:'Generally compatible; non-benzodiazepine mechanism',                                   seizureRisk:'low',          cnsStimRisk:'low' },
+    { name:'Hydroxyzine (Vistaril)',          class:'Antihistamine/Anxiolytic',uses:'Anxiety, itching, sedation',                            neuroConsiderations:'Sedating; note timing before sessions',                                               seizureRisk:'low',          cnsStimRisk:'low' },
+    { name:'Naltrexone (Vivitrol)',           class:'Opioid Antagonist',       uses:'Alcohol/opioid use disorder',                           neuroConsiderations:'Generally compatible; may affect reward circuitry response to neurofeedback',          seizureRisk:'low',          cnsStimRisk:'low' },
+    { name:'Prazosin',                        class:'Alpha-1 Blocker',         uses:'PTSD nightmares, hypertension',                         neuroConsiderations:'May cause orthostatic hypotension; note before tDCS',                                 seizureRisk:'low',          cnsStimRisk:'low' },
+    { name:'Propranolol',                     class:'Beta Blocker',            uses:'Performance anxiety, PTSD, tremor',                     neuroConsiderations:'May blunt HR response; EEG alpha changes possible',                                   seizureRisk:'low',          cnsStimRisk:'low' },
+    { name:'Clonidine',                       class:'Alpha-2 Agonist',         uses:'ADHD, PTSD, anxiety',                                   neuroConsiderations:'Sedating; may affect neurofeedback alertness; EEG theta increase possible',           seizureRisk:'low',          cnsStimRisk:'low' },
+    { name:'Topiramate (Topamax)',            class:'Anticonvulsant',          uses:'Epilepsy, migraine, weight management',                  neuroConsiderations:'AED — raises seizure threshold; cognitive side effects may affect assessments',        seizureRisk:'low',          cnsStimRisk:'low' },
+    { name:'Gabapentin (Neurontin)',          class:'Anticonvulsant/Analgesic',uses:'Neuropathic pain, anxiety, epilepsy',                   neuroConsiderations:'May increase delta/theta on EEG; generally compatible with TMS',                      seizureRisk:'low',          cnsStimRisk:'low' },
+    { name:'Pregabalin (Lyrica)',             class:'Anticonvulsant/Analgesic',uses:'Neuropathic pain, GAD, fibromyalgia',                   neuroConsiderations:'Similar to gabapentin; anxiolytic properties; compatible with neuromodulation',       seizureRisk:'low',          cnsStimRisk:'low' },
+    { name:'Memantine (Namenda)',             class:'NMDA Antagonist',         uses:'Alzheimer disease, treatment-augmentation',              neuroConsiderations:'NMDA antagonism may interact with tDCS glutamatergic mechanisms',                     seizureRisk:'low',          cnsStimRisk:'low' },
+    { name:'Modafinil (Provigil)',            class:'Wakefulness Agent',       uses:'Narcolepsy, shift work, cognitive enhancement',         neuroConsiderations:'May enhance alertness for neurofeedback; document timing',                            seizureRisk:'low',          cnsStimRisk:'moderate' },
+    { name:'N-Acetylcysteine (NAC)',          class:'Supplement/Glutamate Mod',uses:'OCD, addiction, depression augmentation',               neuroConsiderations:'Glutamate modulation may interact with tDCS effects; generally benign',               seizureRisk:'low',          cnsStimRisk:'low' },
+  ];
+
+  const MODALITIES = ['TMS', 'tDCS', 'Neurofeedback', 'EEG Biofeedback', 'PEMF', 'HEG'];
+
+  // ── LocalStorage helpers ────────────────────────────────────────────────────
+  function _lsGet(key, def = null) {
+    try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : def; } catch { return def; }
+  }
+  function _lsSet(key, val) {
+    try { localStorage.setItem(key, JSON.stringify(val)); } catch {}
+  }
+
+  // Seed patients if none
+  if (!localStorage.getItem('ds_patients')) {
+    _lsSet('ds_patients', [
+      { id:'pt-001', name:'Alex Johnson', dob:'1985-03-12', condition:'MDD' },
+      { id:'pt-002', name:'Morgan Lee',   dob:'1992-07-24', condition:'PTSD + ADHD' },
+      { id:'pt-003', name:'Jordan Smith', dob:'1978-11-05', condition:'Bipolar I' },
+    ]);
+  }
+
+  // Seed patient medications if none
+  if (!localStorage.getItem('ds_patient_medications')) {
+    _lsSet('ds_patient_medications', [
+      { patientId:'pt-001', meds:[
+        { id:'m1', name:'Sertraline', dose:'100mg', frequency:'Daily', prescriber:'Dr. Patel', startDate:'2024-01-15' },
+        { id:'m2', name:'Bupropion',  dose:'300mg', frequency:'Daily', prescriber:'Dr. Patel', startDate:'2024-03-01' },
+      ]},
+      { patientId:'pt-002', meds:[
+        { id:'m3', name:'Methylphenidate', dose:'20mg', frequency:'BID', prescriber:'Dr. Kim', startDate:'2023-09-10' },
+        { id:'m4', name:'Lorazepam',       dose:'0.5mg', frequency:'PRN', prescriber:'Dr. Kim', startDate:'2024-02-20' },
+      ]},
+      { patientId:'pt-003', meds:[
+        { id:'m5', name:'Lithium',     dose:'600mg', frequency:'BID', prescriber:'Dr. Nguyen', startDate:'2022-05-01' },
+        { id:'m6', name:'Quetiapine',  dose:'200mg', frequency:'QHS', prescriber:'Dr. Nguyen', startDate:'2023-01-18' },
+        { id:'m7', name:'Lorazepam',   dose:'1mg',   frequency:'PRN', prescriber:'Dr. Nguyen', startDate:'2024-06-10' },
+      ]},
+    ]);
+  }
+
+  if (!localStorage.getItem('ds_interaction_alerts')) _lsSet('ds_interaction_alerts', []);
+  if (!localStorage.getItem('ds_interaction_checks')) _lsSet('ds_interaction_checks', []);
+
+  // ── Interaction engine ──────────────────────────────────────────────────────
+  function _resolveClasses(drugName) {
+    const lower = drugName.toLowerCase().trim();
+    const classes = new Set();
+    classes.add(lower);
+    for (const [cls, names] of Object.entries(DRUG_CLASS_MAP)) {
+      if (names.some(n => lower.includes(n) || n.includes(lower))) classes.add(cls);
+    }
+    return classes;
+  }
+
+  function _runInteractionCheck(meds) {
+    const results = [];
+    const medList = meds.filter(m => m.name && m.name.trim());
+
+    // Drug-Drug
+    for (let i = 0; i < medList.length; i++) {
+      for (let j = i + 1; j < medList.length; j++) {
+        const classesA = _resolveClasses(medList[i].name);
+        const classesB = _resolveClasses(medList[j].name);
+        for (const rule of INTERACTION_RULES) {
+          if (!rule.drugs) continue;
+          const [r1, r2] = rule.drugs;
+          const matchFwd = classesA.has(r1) && classesB.has(r2);
+          const matchRev = classesA.has(r2) && classesB.has(r1);
+          if (matchFwd || matchRev) {
+            // Avoid duplicates
+            const key = [medList[i].name, medList[j].name, rule.mechanism].join('|');
+            if (!results.some(r => r._key === key)) {
+              results.push({ _key: key, type:'drug-drug', drugA: medList[i].name, drugB: medList[j].name, severity: rule.severity, mechanism: rule.mechanism, recommendation: rule.recommendation, id: 'int-' + Math.random().toString(36).slice(2), acknowledged: false, flagged: false });
+            }
+          }
+        }
+      }
+    }
+
+    // Drug-Modality
+    for (const med of medList) {
+      const classes = _resolveClasses(med.name);
+      for (const rule of INTERACTION_RULES) {
+        if (!rule.modality) continue;
+        if (classes.has(rule.drug)) {
+          const key = [med.name, rule.modality, rule.mechanism].join('|');
+          if (!results.some(r => r._key === key)) {
+            results.push({ _key: key, type:'drug-modality', drugA: med.name, drugB: rule.modality, severity: rule.severity, mechanism: rule.mechanism, recommendation: rule.recommendation, id: 'int-' + Math.random().toString(36).slice(2), acknowledged: false, flagged: false });
+          }
+        }
+      }
+    }
+
+    // Sort by severity weight
+    const sevWeight = { contraindicated:0, hold:1, major:2, moderate:3, caution:4, note:5 };
+    results.sort((a,b) => (sevWeight[a.severity]??9) - (sevWeight[b.severity]??9));
+    return results;
+  }
+
+  function _modalitySafetyCheck(meds) {
+    const modResults = {};
+    for (const mod of MODALITIES) {
+      modResults[mod] = { status:'go', items:[] };
+    }
+    for (const med of meds.filter(m => m.name && m.name.trim())) {
+      const classes = _resolveClasses(med.name);
+      for (const rule of INTERACTION_RULES) {
+        if (!rule.modality) continue;
+        if (classes.has(rule.drug)) {
+          const modKey = MODALITIES.find(m => m.toLowerCase() === rule.modality.toLowerCase()) || rule.modality;
+          if (!modResults[modKey]) modResults[modKey] = { status:'go', items:[] };
+          modResults[modKey].items.push({ drug: med.name, severity: rule.severity, mechanism: rule.mechanism, recommendation: rule.recommendation });
+          const cur = modResults[modKey].status;
+          const sev = rule.severity;
+          if (sev === 'hold' || sev === 'contraindicated') modResults[modKey].status = 'hold';
+          else if ((sev === 'caution' || sev === 'major' || sev === 'moderate') && cur !== 'hold') modResults[modKey].status = 'caution';
+          else if (sev === 'note' && cur === 'go') modResults[modKey].status = 'go';
+        }
+      }
+    }
+    return modResults;
+  }
+
+  // ── Render helpers ──────────────────────────────────────────────────────────
+  function _severityBadge(sev) {
+    return `<span class="qqq-badge qqq-badge-${sev}">${sev}</span>`;
+  }
+
+  function _renderInteractionResults(interactions, containerId) {
+    const el = document.getElementById(containerId);
+    if (!el) return;
+    if (!interactions || interactions.length === 0) {
+      el.innerHTML = `<div class="qqq-empty"><div class="qqq-empty-icon">✓</div><p>No interactions found for current medication list.</p></div>`;
+      return;
+    }
+    const counts = { contraindicated:0, hold:0, major:0, moderate:0, caution:0, note:0 };
+    interactions.forEach(i => { if (counts[i.severity] !== undefined) counts[i.severity]++; });
+    const summaryItems = [
+      { label:'Contraindicated', key:'contraindicated', color:'#f87171' },
+      { label:'Hold',            key:'hold',            color:'#f87171' },
+      { label:'Major',           key:'major',           color:'#fb923c' },
+      { label:'Moderate',        key:'moderate',        color:'#fbbf24' },
+      { label:'Caution',         key:'caution',         color:'#fde047' },
+      { label:'Note',            key:'note',            color:'#60a5fa' },
+    ].filter(s => counts[s.key] > 0);
+
+    const summaryHtml = `<div class="qqq-severity-summary">${summaryItems.map(s =>
+      `<div class="qqq-summary-item"><span class="qqq-summary-count" style="color:${s.color}">${counts[s.key]}</span><span style="color:var(--text-muted);font-size:12px">${s.label}</span></div>`
+    ).join('<span style="color:var(--border);align-self:center">·</span>')}</div>`;
+
+    const cardsHtml = interactions.map(int => `
+      <div class="qqq-interaction-card qqq-severity-${int.severity}${int.acknowledged ? ' acknowledged' : ''}" id="intcard-${int.id}">
+        <div class="qqq-card-header">
+          <span class="qqq-drug-pair">${int.drugA} ↔ ${int.drugB}</span>
+          ${_severityBadge(int.severity)}
+          ${int.type === 'drug-modality' ? '<span style="font-size:11px;color:var(--text-muted);background:var(--hover-bg);padding:2px 7px;border-radius:10px">Drug-Modality</span>' : ''}
+          ${int.flagged ? '<span style="font-size:11px;color:#fbbf24">⚑ Flagged</span>' : ''}
+          ${int.acknowledged ? '<span style="font-size:11px;color:var(--text-muted)">✓ Acknowledged</span>' : ''}
+        </div>
+        <div class="qqq-mechanism"><strong>Mechanism:</strong> ${int.mechanism}</div>
+        <div class="qqq-recommendation">💡 ${int.recommendation}</div>
+        <div class="qqq-card-actions">
+          ${!int.flagged ? `<button class="qqq-btn-sm flag" onclick="window._micFlagInteraction('${int.id}')">⚑ Flag for Prescriber</button>` : ''}
+          ${!int.acknowledged ? `<button class="qqq-btn-sm" onclick="window._micAcknowledge('${int.id}')">✓ Acknowledge</button>` : ''}
+        </div>
+      </div>`).join('');
+
+    el.innerHTML = summaryHtml + cardsHtml;
+  }
+
+  function _renderModalitySafety(modResults, containerId) {
+    const el = document.getElementById(containerId);
+    if (!el) return;
+    const icons = { TMS:'⚡', tDCS:'🔋', Neurofeedback:'🧠', 'EEG Biofeedback':'📡', PEMF:'🌀', HEG:'💡' };
+    el.innerHTML = MODALITIES.map(mod => {
+      const r = modResults[mod] || { status:'go', items:[] };
+      const statusClass = `qqq-status-${r.status}`;
+      const pillClass = `qqq-status-pill-${r.status}`;
+      const pillLabel = r.status === 'go' ? '✓ Go' : r.status === 'caution' ? '⚠ Caution' : '✕ Hold';
+      const reasoning = r.items.length
+        ? r.items.map(it => `<div style="margin-top:5px;padding:5px 8px;background:var(--hover-bg);border-radius:6px;font-size:12px"><strong>${it.drug}:</strong> ${it.mechanism} — <em>${it.recommendation}</em></div>`).join('')
+        : '<span style="font-size:12px;color:var(--text-muted)">No relevant drug interactions found for this modality.</span>';
+      return `
+        <div class="qqq-modality-status ${statusClass}">
+          <div class="qqq-modality-icon">${icons[mod] || '◉'}</div>
+          <div class="qqq-modality-body">
+            <div class="qqq-modality-name">${mod} <span class="qqq-status-pill ${pillClass}">${pillLabel}</span></div>
+            <div class="qqq-modality-reasoning">${reasoning}</div>
+          </div>
+        </div>`;
+    }).join('');
+  }
+
+  // ── Patients list ───────────────────────────────────────────────────────────
+  const patients = _lsGet('ds_patients', []);
+  const firstPt = patients[0]?.id || '';
+
+  // ── Build page HTML ─────────────────────────────────────────────────────────
+  document.getElementById('app-content').innerHTML = `
+    <div style="max-width:1100px;margin:0 auto;padding:0 4px">
+      <div class="qqq-tabs" role="tablist" aria-label="Medication Interaction Checker tabs">
+        <button class="qqq-tab-btn active" role="tab" aria-selected="true"  aria-controls="qqq-panel-0" id="qqq-tab-0" onclick="window._micTab(0)">Patient Review</button>
+        <button class="qqq-tab-btn"        role="tab" aria-selected="false" aria-controls="qqq-panel-1" id="qqq-tab-1" onclick="window._micTab(1)">Protocol Safety</button>
+        <button class="qqq-tab-btn"        role="tab" aria-selected="false" aria-controls="qqq-panel-2" id="qqq-tab-2" onclick="window._micTab(2)">Drug Database</button>
+        <button class="qqq-tab-btn"        role="tab" aria-selected="false" aria-controls="qqq-panel-3" id="qqq-tab-3" onclick="window._micTab(3)">Interaction Log</button>
+      </div>
+
+      <!-- Tab 1: Patient Medication Review -->
+      <div class="qqq-tab-panel active" id="qqq-panel-0" role="tabpanel" aria-labelledby="qqq-tab-0">
+        <div style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;margin-bottom:20px">
+          <div>
+            <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Patient</label>
+            <select id="mic-patient-sel" onchange="window._micSelectPatient(this.value)"
+              style="padding:7px 12px;border-radius:8px;border:1px solid var(--border);background:var(--bg-secondary);color:var(--text);font-size:13px;min-width:200px">
+              ${patients.map(p => `<option value="${p.id}">${p.name}${p.condition ? ' — ' + p.condition : ''}</option>`).join('')}
+            </select>
+          </div>
+          <button class="btn-primary" style="font-size:12.5px;padding:7px 16px" onclick="window._micRunCheck()">▶ Run Interaction Check</button>
+          <button class="btn-secondary" style="font-size:12.5px;padding:7px 16px" onclick="window._micAddMedRow()">+ Add Medication</button>
+        </div>
+        <div id="mic-med-section">
+          <!-- medication list rendered here -->
+        </div>
+        <div id="mic-results-section" style="margin-top:20px"></div>
+      </div>
+
+      <!-- Tab 2: Protocol Safety Screen -->
+      <div class="qqq-tab-panel" id="qqq-panel-1" role="tabpanel" aria-labelledby="qqq-tab-1">
+        <div style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;margin-bottom:20px">
+          <div>
+            <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Patient</label>
+            <select id="mic-safety-patient" onchange="window._micRenderSafety(this.value)"
+              style="padding:7px 12px;border-radius:8px;border:1px solid var(--border);background:var(--bg-secondary);color:var(--text);font-size:13px;min-width:200px">
+              ${patients.map(p => `<option value="${p.id}">${p.name}${p.condition ? ' — ' + p.condition : ''}</option>`).join('')}
+            </select>
+          </div>
+        </div>
+        <div id="mic-safety-results"></div>
+      </div>
+
+      <!-- Tab 3: Drug Database -->
+      <div class="qqq-tab-panel" id="qqq-panel-2" role="tabpanel" aria-labelledby="qqq-tab-2">
+        <div class="qqq-filter-row">
+          <input id="mic-drug-search" type="search" placeholder="Search drug name or class…" oninput="window._micFilterDrugs()" />
+          <select id="mic-drug-class-filter" onchange="window._micFilterDrugs()"
+            style="padding:6px 10px;border-radius:8px;border:1px solid var(--border);background:var(--bg-secondary);color:var(--text);font-size:13px">
+            <option value="">All Classes</option>
+            ${[...new Set(DRUG_DB.map(d => d.class))].sort().map(c => `<option value="${c}">${c}</option>`).join('')}
+          </select>
+        </div>
+        <div style="overflow-x:auto">
+          <table class="qqq-drug-table" id="mic-drug-table">
+            <thead>
+              <tr>
+                <th>Drug Name</th><th>Class</th><th>Common Uses</th>
+                <th>Neuromodulation Considerations</th><th>Seizure Risk</th><th>CNS Stim Risk</th>
+              </tr>
+            </thead>
+            <tbody id="mic-drug-tbody"></tbody>
+          </table>
+        </div>
+        <div id="mic-drug-detail"></div>
+      </div>
+
+      <!-- Tab 4: Interaction Log -->
+      <div class="qqq-tab-panel" id="qqq-panel-3" role="tabpanel" aria-labelledby="qqq-tab-3">
+        <div class="qqq-filter-row">
+          <select id="mic-log-sev" onchange="window._micRenderLog()"
+            style="padding:6px 10px;border-radius:8px;border:1px solid var(--border);background:var(--bg-secondary);color:var(--text);font-size:13px">
+            <option value="">All Severities</option>
+            <option value="contraindicated">Contraindicated</option>
+            <option value="hold">Hold</option>
+            <option value="major">Major</option>
+            <option value="moderate">Moderate</option>
+            <option value="caution">Caution</option>
+            <option value="note">Note</option>
+          </select>
+          <select id="mic-log-patient" onchange="window._micRenderLog()"
+            style="padding:6px 10px;border-radius:8px;border:1px solid var(--border);background:var(--bg-secondary);color:var(--text);font-size:13px">
+            <option value="">All Patients</option>
+            ${patients.map(p => `<option value="${p.id}">${p.name}</option>`).join('')}
+          </select>
+          <button class="qqq-btn-sm primary" onclick="window._micExportCSV()">⬇ Export CSV</button>
+        </div>
+        <div id="mic-log-content"></div>
+      </div>
+    </div>`;
+
+  // ── State ───────────────────────────────────────────────────────────────────
+  let _currentPatientId = firstPt;
+  let _currentInteractions = [];
+  let _drugDbFiltered = [...DRUG_DB];
+
+  // ── Tab switching ───────────────────────────────────────────────────────────
+  window._micTab = function(idx) {
+    document.querySelectorAll('.qqq-tab-btn').forEach((b, i) => {
+      b.classList.toggle('active', i === idx);
+      b.setAttribute('aria-selected', i === idx ? 'true' : 'false');
+    });
+    document.querySelectorAll('.qqq-tab-panel').forEach((p, i) => p.classList.toggle('active', i === idx));
+    if (idx === 1) window._micRenderSafety(document.getElementById('mic-safety-patient')?.value || firstPt);
+    if (idx === 2) window._micFilterDrugs();
+    if (idx === 3) window._micRenderLog();
+  };
+
+  // ── Render medication list ──────────────────────────────────────────────────
+  function _renderMedList(patientId) {
+    const allMeds = _lsGet('ds_patient_medications', []);
+    const entry = allMeds.find(e => e.patientId === patientId) || { patientId, meds:[] };
+    const sec = document.getElementById('mic-med-section');
+    if (!sec) return;
+    if (entry.meds.length === 0) {
+      sec.innerHTML = `<div style="color:var(--text-muted);font-size:13px;padding:12px 0">No medications on file. Click <strong>+ Add Medication</strong> to begin.</div>`;
+      return;
+    }
+    sec.innerHTML = `
+      <div class="qqq-med-row-header">
+        <span>Drug Name</span><span>Dose</span><span>Frequency</span><span>Prescriber</span><span>Start Date</span><span></span>
+      </div>
+      ${entry.meds.map(m => `
+        <div class="qqq-med-row" id="medrow-${m.id}">
+          <input type="text"  value="${m.name}"      onchange="window._micUpdateMed('${patientId}','${m.id}','name',this.value)"      placeholder="Drug name" />
+          <input type="text"  value="${m.dose}"      onchange="window._micUpdateMed('${patientId}','${m.id}','dose',this.value)"      placeholder="e.g. 100mg" />
+          <input type="text"  value="${m.frequency}" onchange="window._micUpdateMed('${patientId}','${m.id}','frequency',this.value)" placeholder="e.g. Daily" />
+          <input type="text"  value="${m.prescriber}"onchange="window._micUpdateMed('${patientId}','${m.id}','prescriber',this.value)"placeholder="Prescriber" />
+          <input type="date"  value="${m.startDate}" onchange="window._micUpdateMed('${patientId}','${m.id}','startDate',this.value)" />
+          <button class="qqq-btn-sm danger" onclick="window._micDeleteMed('${patientId}','${m.id}')">✕</button>
+        </div>`).join('')}`;
+  }
+
+  // ── Select patient ──────────────────────────────────────────────────────────
+  window._micSelectPatient = function(pid) {
+    _currentPatientId = pid;
+    _currentInteractions = [];
+    document.getElementById('mic-results-section').innerHTML = '';
+    _renderMedList(pid);
+  };
+
+  // ── Add medication row ──────────────────────────────────────────────────────
+  window._micAddMedRow = function() {
+    const allMeds = _lsGet('ds_patient_medications', []);
+    let entry = allMeds.find(e => e.patientId === _currentPatientId);
+    if (!entry) { entry = { patientId: _currentPatientId, meds:[] }; allMeds.push(entry); }
+    const newMed = { id: 'm' + Date.now(), name:'', dose:'', frequency:'', prescriber:'', startDate: new Date().toISOString().slice(0,10) };
+    entry.meds.push(newMed);
+    _lsSet('ds_patient_medications', allMeds);
+    _renderMedList(_currentPatientId);
+    // Focus first input of new row
+    const row = document.getElementById(`medrow-${newMed.id}`);
+    if (row) row.querySelector('input')?.focus();
+  };
+
+  // ── Update med field ────────────────────────────────────────────────────────
+  window._micUpdateMed = function(pid, medId, field, value) {
+    const allMeds = _lsGet('ds_patient_medications', []);
+    const entry = allMeds.find(e => e.patientId === pid);
+    if (!entry) return;
+    const med = entry.meds.find(m => m.id === medId);
+    if (!med) return;
+    med[field] = value;
+    _lsSet('ds_patient_medications', allMeds);
+  };
+
+  // ── Delete medication ───────────────────────────────────────────────────────
+  window._micDeleteMed = function(pid, medId) {
+    if (!confirm('Remove this medication?')) return;
+    const allMeds = _lsGet('ds_patient_medications', []);
+    const entry = allMeds.find(e => e.patientId === pid);
+    if (!entry) return;
+    entry.meds = entry.meds.filter(m => m.id !== medId);
+    _lsSet('ds_patient_medications', allMeds);
+    _renderMedList(pid);
+  };
+
+  // ── Run interaction check ───────────────────────────────────────────────────
+  window._micRunCheck = function() {
+    const allMeds = _lsGet('ds_patient_medications', []);
+    const entry = allMeds.find(e => e.patientId === _currentPatientId) || { meds:[] };
+    const meds = entry.meds.filter(m => m.name && m.name.trim());
+    if (meds.length === 0) {
+      document.getElementById('mic-results-section').innerHTML =
+        `<div class="qqq-empty"><div class="qqq-empty-icon">ℹ</div><p>Add medications above, then run the check.</p></div>`;
+      return;
+    }
+    _currentInteractions = _runInteractionCheck(meds);
+
+    // Save to log
+    const pt = patients.find(p => p.id === _currentPatientId);
+    const checks = _lsGet('ds_interaction_checks', []);
+    checks.unshift({ id:'chk-'+Date.now(), patientId: _currentPatientId, patientName: pt?.name || _currentPatientId, date: new Date().toISOString(), medications: meds.map(m => m.name), interactionCount: _currentInteractions.length, severities: [...new Set(_currentInteractions.map(i => i.severity))] });
+    if (checks.length > 200) checks.splice(200);
+    _lsSet('ds_interaction_checks', checks);
+
+    const sec = document.getElementById('mic-results-section');
+    sec.innerHTML = `<h3 style="font-size:14px;font-weight:600;color:var(--text);margin-bottom:12px">Interaction Results — ${pt?.name || ''}</h3><div id="mic-int-cards"></div>`;
+    _renderInteractionResults(_currentInteractions, 'mic-int-cards');
+  };
+
+  // ── Flag interaction ────────────────────────────────────────────────────────
+  window._micFlagInteraction = function(intId) {
+    const int = _currentInteractions.find(i => i.id === intId);
+    if (!int) return;
+    int.flagged = true;
+    const alerts = _lsGet('ds_interaction_alerts', []);
+    const pt = patients.find(p => p.id === _currentPatientId);
+    alerts.push({ id: 'alrt-'+Date.now(), interactionId: intId, patientId: _currentPatientId, patientName: pt?.name || '', drugA: int.drugA, drugB: int.drugB, severity: int.severity, mechanism: int.mechanism, recommendation: int.recommendation, date: new Date().toISOString() });
+    _lsSet('ds_interaction_alerts', alerts);
+    _renderInteractionResults(_currentInteractions, 'mic-int-cards');
+  };
+
+  // ── Acknowledge interaction ─────────────────────────────────────────────────
+  window._micAcknowledge = function(intId) {
+    const int = _currentInteractions.find(i => i.id === intId);
+    if (!int) return;
+    int.acknowledged = true;
+    _renderInteractionResults(_currentInteractions, 'mic-int-cards');
+  };
+
+  // ── Protocol safety render ──────────────────────────────────────────────────
+  window._micRenderSafety = function(pid) {
+    const allMeds = _lsGet('ds_patient_medications', []);
+    const entry = allMeds.find(e => e.patientId === pid) || { meds:[] };
+    const meds = entry.meds.filter(m => m.name && m.name.trim());
+    const pt = patients.find(p => p.id === pid);
+    const modResults = _modalitySafetyCheck(meds);
+    const container = document.getElementById('mic-safety-results');
+    if (!container) return;
+    const medSummary = meds.length
+      ? meds.map(m => `<span style="display:inline-block;padding:2px 8px;border-radius:10px;background:var(--hover-bg);font-size:12px;margin:2px">${m.name}${m.dose ? ' '+m.dose : ''}</span>`).join(' ')
+      : '<span style="color:var(--text-muted);font-size:13px">No medications recorded</span>';
+    container.innerHTML = `
+      <div style="margin-bottom:16px;padding:12px 16px;background:var(--card-bg);border:1px solid var(--border);border-radius:10px">
+        <div style="font-size:12px;color:var(--text-muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:.5px;font-weight:600">Current Medications — ${pt?.name || pid}</div>
+        <div>${medSummary}</div>
+      </div>
+      <div id="mic-safety-modalities"></div>`;
+    _renderModalitySafety(modResults, 'mic-safety-modalities');
+  };
+
+  // ── Drug DB filter + render ─────────────────────────────────────────────────
+  window._micFilterDrugs = function() {
+    const q = (document.getElementById('mic-drug-search')?.value || '').toLowerCase();
+    const cls = document.getElementById('mic-drug-class-filter')?.value || '';
+    _drugDbFiltered = DRUG_DB.filter(d =>
+      (!q || d.name.toLowerCase().includes(q) || d.class.toLowerCase().includes(q) || d.uses.toLowerCase().includes(q)) &&
+      (!cls || d.class === cls)
+    );
+    const tbody = document.getElementById('mic-drug-tbody');
+    if (!tbody) return;
+    if (_drugDbFiltered.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;padding:24px;color:var(--text-muted)">No drugs match your search.</td></tr>`;
+      return;
+    }
+    const riskClass = r => {
+      if (r === 'high') return 'qqq-risk-high';
+      if (r === 'moderate') return 'qqq-risk-moderate';
+      if (r === 'low-moderate') return 'qqq-risk-low-moderate';
+      return 'qqq-risk-low';
+    };
+    tbody.innerHTML = _drugDbFiltered.map((d, i) => `
+      <tr onclick="window._micShowDrugDetail(${i})" data-idx="${i}">
+        <td><strong>${d.name}</strong></td>
+        <td>${d.class}</td>
+        <td style="max-width:200px">${d.uses}</td>
+        <td style="max-width:260px">${d.neuroConsiderations}</td>
+        <td class="${riskClass(d.seizureRisk)}">${d.seizureRisk}</td>
+        <td class="${riskClass(d.cnsStimRisk)}">${d.cnsStimRisk}</td>
+      </tr>`).join('');
+    document.getElementById('mic-drug-detail').innerHTML = '';
+  };
+
+  window._micShowDrugDetail = function(filteredIdx) {
+    const d = _drugDbFiltered[filteredIdx];
+    if (!d) return;
+    // Highlight row
+    document.querySelectorAll('#mic-drug-tbody tr').forEach((tr, i) => tr.classList.toggle('selected', i === filteredIdx));
+    const riskLabel = r => ({ high:'High', moderate:'Moderate', 'low-moderate':'Low-Moderate', low:'Low' }[r] || r);
+    const riskColor = r => ({ high:'#f87171', moderate:'#fb923c', 'low-moderate':'#fbbf24', low:'#2dd4bf' }[r] || 'var(--text)');
+    document.getElementById('mic-drug-detail').innerHTML = `
+      <div class="qqq-drug-detail">
+        <h3>${d.name}</h3>
+        <div class="qqq-detail-class">${d.class}</div>
+        <div class="qqq-detail-grid">
+          <div class="qqq-detail-field"><label>Common Uses</label><p>${d.uses}</p></div>
+          <div class="qqq-detail-field"><label>Neuromodulation Considerations</label><p>${d.neuroConsiderations}</p></div>
+          <div class="qqq-detail-field"><label>Seizure Risk</label><p style="color:${riskColor(d.seizureRisk)};font-weight:600">${riskLabel(d.seizureRisk)}</p></div>
+          <div class="qqq-detail-field"><label>CNS Stimulation Risk</label><p style="color:${riskColor(d.cnsStimRisk)};font-weight:600">${riskLabel(d.cnsStimRisk)}</p></div>
+        </div>
+        <div style="margin-top:14px">
+          <label style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;font-weight:600;display:block;margin-bottom:8px">Related Interactions</label>
+          ${(() => {
+            const related = INTERACTION_RULES.filter(r => {
+              const classes = _resolveClasses(d.name);
+              if (r.drugs) return r.drugs.some(dr => classes.has(dr));
+              if (r.drug)  return classes.has(r.drug);
+              return false;
+            });
+            return related.length
+              ? related.map(r => `<div style="margin-bottom:8px;padding:8px 10px;background:var(--hover-bg);border-radius:8px;font-size:12.5px">
+                  <span class="qqq-badge qqq-badge-${r.severity}" style="margin-right:6px">${r.severity}</span>
+                  <strong>${r.drugs ? r.drugs.join(' + ') : r.drug + ' ↔ ' + r.modality}:</strong> ${r.mechanism}
+                </div>`).join('')
+              : '<p style="font-size:13px;color:var(--text-muted)">No specific rules in current database.</p>';
+          })()}
+        </div>
+      </div>`;
+  };
+
+  // ── Interaction log render ──────────────────────────────────────────────────
+  window._micRenderLog = function() {
+    const sev = document.getElementById('mic-log-sev')?.value || '';
+    const ptFilter = document.getElementById('mic-log-patient')?.value || '';
+    let checks = _lsGet('ds_interaction_checks', []);
+    if (sev) checks = checks.filter(c => c.severities && c.severities.includes(sev));
+    if (ptFilter) checks = checks.filter(c => c.patientId === ptFilter);
+    const container = document.getElementById('mic-log-content');
+    if (!container) return;
+    if (checks.length === 0) {
+      container.innerHTML = `<div class="qqq-empty"><div class="qqq-empty-icon">📋</div><p>No interaction checks recorded yet.</p></div>`;
+      return;
+    }
+    const sevWeight = { contraindicated:0, hold:1, major:2, moderate:3, caution:4, note:5 };
+    const sevColor = { contraindicated:'#f87171', hold:'#f87171', major:'#fb923c', moderate:'#fbbf24', caution:'#fde047', note:'#60a5fa' };
+    container.innerHTML = `
+      <div style="overflow-x:auto">
+        <table class="qqq-log-table">
+          <thead><tr><th>Date</th><th>Patient</th><th>Medications Checked</th><th>Interactions</th><th>Severities</th></tr></thead>
+          <tbody>
+            ${checks.map(c => {
+              const worstSev = (c.severities || []).sort((a,b) => (sevWeight[a]??9)-(sevWeight[b]??9))[0] || '';
+              const dateStr = new Date(c.date).toLocaleString('en-GB', { day:'2-digit', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit' });
+              return `<tr>
+                <td style="white-space:nowrap;font-size:12px">${dateStr}</td>
+                <td><strong>${c.patientName || c.patientId}</strong></td>
+                <td style="font-size:12px;max-width:240px">${(c.medications||[]).join(', ')}</td>
+                <td style="text-align:center"><strong style="color:${c.interactionCount > 0 ? '#fb923c' : '#2dd4bf'}">${c.interactionCount}</strong></td>
+                <td>${(c.severities||[]).sort((a,b)=>(sevWeight[a]??9)-(sevWeight[b]??9)).map(s => `<span class="qqq-badge qqq-badge-${s}" style="margin-right:3px">${s}</span>`).join('')}</td>
+              </tr>`;
+            }).join('')}
+          </tbody>
+        </table>
+      </div>`;
+  };
+
+  // ── Export CSV ──────────────────────────────────────────────────────────────
+  window._micExportCSV = function() {
+    const checks = _lsGet('ds_interaction_checks', []);
+    if (checks.length === 0) { alert('No interaction log data to export.'); return; }
+    const rows = [['Date','Patient','Medications','Interaction Count','Severities'].join(',')];
+    checks.forEach(c => {
+      rows.push([
+        new Date(c.date).toISOString(),
+        `"${(c.patientName || c.patientId).replace(/"/g,'""')}"`,
+        `"${(c.medications||[]).join('; ').replace(/"/g,'""')}"`,
+        c.interactionCount,
+        `"${(c.severities||[]).join('; ')}"`,
+      ].join(','));
+    });
+    const blob = new Blob([rows.join('\n')], { type:'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = `interaction-log-${new Date().toISOString().slice(0,10)}.csv`; a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  // ── Print safety screen ─────────────────────────────────────────────────────
+  window._micPrintSafety = function() {
+    const pid = document.getElementById('mic-safety-patient')?.value || _currentPatientId;
+    const allMeds = _lsGet('ds_patient_medications', []);
+    const entry = allMeds.find(e => e.patientId === pid) || { meds:[] };
+    const meds = entry.meds.filter(m => m.name && m.name.trim());
+    const pt = patients.find(p => p.id === pid);
+    const modResults = _modalitySafetyCheck(meds);
+    const icons = { TMS:'⚡', tDCS:'🔋', Neurofeedback:'🧠', 'EEG Biofeedback':'📡', PEMF:'🌀', HEG:'💡' };
+    const rows = MODALITIES.map(mod => {
+      const r = modResults[mod] || { status:'go', items:[] };
+      const statusLabel = r.status === 'go' ? '✓ Go' : r.status === 'caution' ? '⚠ Caution' : '✕ Hold';
+      const notes = r.items.map(it => `${it.drug}: ${it.mechanism}`).join('; ') || 'No interactions found';
+      return `<tr><td>${icons[mod]||''} ${mod}</td><td><strong>${statusLabel}</strong></td><td style="font-size:11px">${notes}</td></tr>`;
+    }).join('');
+    const w = window.open('', '_blank', 'width=800,height=600');
+    w.document.write(`<!DOCTYPE html><html><head><title>Protocol Safety Screen</title><style>
+      body{font-family:system-ui,sans-serif;padding:24px;color:#111}
+      h2{margin-bottom:4px}p.sub{color:#555;font-size:13px;margin-bottom:16px}
+      table{width:100%;border-collapse:collapse;font-size:13px}
+      th,td{border:1px solid #ccc;padding:8px 10px;text-align:left}
+      th{background:#f4f4f4;font-size:12px;text-transform:uppercase;letter-spacing:.4px}
+      @media print{button{display:none}}
+    </style></head><body>
+      <h2>Protocol Safety Screen</h2>
+      <p class="sub">Patient: <strong>${pt?.name || pid}</strong> &nbsp;|&nbsp; Date: ${new Date().toLocaleDateString('en-GB', {day:'2-digit',month:'short',year:'numeric'})}</p>
+      <p class="sub">Medications: ${meds.map(m => m.name + (m.dose?' '+m.dose:'')).join(', ') || '(none recorded)'}</p>
+      <table><thead><tr><th>Modality</th><th>Status</th><th>Notes</th></tr></thead><tbody>${rows}</tbody></table>
+      <p style="font-size:11px;color:#888;margin-top:16px">Generated by DeepSynaps Protocol Studio — for clinical review only, not a substitute for professional judgement.</p>
+      <button onclick="window.print()" style="margin-top:12px;padding:8px 18px;font-size:13px">🖨 Print</button>
+    </body></html>`);
+    w.document.close();
+  };
+
+  // ── Initial render ──────────────────────────────────────────────────────────
+  if (firstPt) {
+    _renderMedList(firstPt);
+    window._micRenderSafety(firstPt);
+  }
+  window._micFilterDrugs();
+  window._micRenderLog();
 }

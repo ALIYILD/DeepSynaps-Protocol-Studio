@@ -376,7 +376,10 @@ const NAV = [
   { id: 'patient-profile',   label: 'Patient Profile',      icon: '👤' },
   { id: 'homework-builder',  label: 'Homework Builder',     icon: '📚' },
   { id: 'intake',            label: 'Intake & Consent',     icon: '📋' },
+  { id: 'data-import',      label: 'Data Import',          icon: '📥' },
+  { id: 'pt-outcomes',      label: 'My Outcomes',          icon: '📈' },
   { id: 'messaging',         label: 'Messaging',            icon: '💬' },
+  { id: 'advanced-search',   label: 'Advanced Search',      icon: '🔍' },
   { id: 'courses',           label: 'Treatment Courses',    icon: '◎', badge: null },
   { id: 'session-execution', label: 'Session Execution',    icon: '◧' },
   { id: 'session-monitor',   label: 'Live Monitor',         icon: '📡' },
@@ -386,6 +389,7 @@ const NAV = [
   { id: 'protocol-wizard',   label: 'Protocol Intelligence',icon: '⬡' },
   { id: 'protocol-builder',  label: 'Visual Builder',       icon: '⚡' },
   { id: 'decision-support', label: 'Decision Support',      icon: '🧬' },
+  { id: 'benchmark-library', label: 'Benchmarks', icon: '📐' },
   { id: 'protocols-registry',label: 'Protocol Registry',   icon: '◇' },
   { id: 'outcomes',          label: 'Outcomes & Trends',    icon: '◫' },
   { id: 'outcome-prediction', label: 'Outcome Prediction', icon: '🔮' },
@@ -395,6 +399,7 @@ const NAV = [
   { id: 'braindata',         label: 'qEEG / Brain Data',    icon: '◈' },
   { id: 'qeegmaps',          label: 'qEEG Maps',            icon: '◫' },
   { id: 'assessments',       label: 'Assessments',          icon: '◉' },
+  { id: 'forms-builder',     label: 'Forms & Assessments',  icon: '📝', section: 'clinical' },
   { section: 'Registries & Knowledge' },
   { id: 'evidence',          label: 'Evidence Library',     icon: '◉' },
   { id: 'devices',           label: 'Device Registry',      icon: '◇' },
@@ -403,17 +408,31 @@ const NAV = [
   { id: 'report-builder',    label: 'Report Builder',       icon: '📊' },
   { id: 'quality-assurance', label: 'Quality Assurance', icon: '✅' },
   { id: 'device-management', label: 'Devices', icon: '🔬' },
+  { id: 'clinical-trials', label: 'Clinical Trials', icon: '🧪' },
+  { id: 'staff-scheduling', label: 'Staff Scheduling', icon: '👥' },
+  { id: 'clinic-analytics', label: 'Clinic Analytics', icon: '📊', section: 'knowledge' },
+  { id: 'med-interactions',   label: 'Medication Safety',    icon: '💊', section: 'clinical' },
   { section: 'Governance' },
   { id: 'adverse-events',    label: 'Adverse Events',       icon: '⚠' },
   { id: 'audittrail',        label: 'Audit Trail',          icon: '◧' },
+  { id: 'consent-automation', label: 'Consent & Compliance', icon: '📋', section: 'clinical' },
   { section: 'Practice' },
+  { id: 'media-queue',       label: 'Media Queue',          icon: '📥' },
+  { id: 'clinician-dictation', label: 'Dictate Note',       icon: '🎙' },
   { id: 'clinical-notes',    label: 'Clinical Notes',       icon: '📝' },
+  { id: 'ai-note-assistant', label: 'AI Note Assistant',   icon: '✍️' },
   { id: 'population-analytics', label: 'Population Analytics', icon: '🌍' },
+  { id: 'rules-engine', label: 'Rules & Alerts', icon: '⚙️' },
   { id: 'reports',           label: 'Reports',              icon: '📄' },
   { id: 'admin',             label: 'Admin Panel',          icon: '◈' },
+  { id: 'multi-site',        label: 'Multi-Site Network',   icon: '🌐' },
+  { id: 'permissions',       label: 'Permissions',          icon: '🔐' },
   { id: 'billing',           label: 'Billing',              icon: '💰' },
+  { id: 'insurance',         label: 'Insurance',            icon: '🏥' },
   { id: 'referrals',         label: 'Referrals',            icon: '🔗' },
+  { id: 'clinic-settings',   label: 'Clinic Settings',      icon: '🏥' },
   { id: 'settings',          label: 'Settings',             icon: '◎' },
+  { id: 'wearables',         label: 'Wearables',            icon: '⌚' },
 ];
 
 // ── Nav render ────────────────────────────────────────────────────────────────
@@ -490,19 +509,41 @@ const PAGE_TITLES = {
   handbooks: 'Handbooks', 'report-builder': 'Report Builder & Exports', 'adverse-events': 'Adverse Events', audittrail: 'Audit Trail',
   'quality-assurance': 'Quality Assurance & Peer Review',
   'device-management': 'Device & Equipment Management',
-  reports: 'Reports', admin: 'Admin Panel', settings: 'Settings',
+  'clinical-trials': 'Clinical Trial Management',
+  'staff-scheduling': 'Staff Scheduling & Shifts',
+  reports: 'Reports', admin: 'Admin Panel', 'clinic-settings': 'Clinic Settings & Branding', settings: 'Settings',
+  permissions: 'Permissions & Security Admin',
   calendar: 'Schedule & Calendar',
-  scheduling: 'Scheduling', telehealth: 'Telehealth', messaging: 'Messaging',
+  scheduling: 'Scheduling', telehealth: 'Telehealth', 'telehealth-recorder': 'Telehealth Session Recorder', messaging: 'Messaging',
   billing: 'Billing & Superbills', pricing: 'Pricing', onboarding: 'Onboarding',
+  insurance: 'Insurance Verification & Eligibility',
   referrals: 'Referrals & Care Coordination',
   'population-analytics': 'Population Analytics',
+  'media-queue': 'Patient Media Review Queue',
+  'media-detail': 'Upload Detail',
+  'clinician-dictation': 'Clinical Note — Voice or Text',
+  'clinician-draft-review': 'Review AI-Generated Draft',
   'clinical-notes': 'Clinical Notes',
+  'ai-note-assistant': 'AI Note Assistant',
   'intake': 'Patient Intake & Consent',
   'patient-profile': 'Patient Profile',
+  'pt-journal': 'Symptom Journal',
+  'pt-notifications': 'Notification Settings',
+  'pt-outcomes': 'My Outcomes',
   'homework-builder': 'Patient Education & Homework Builder',
   'decision-support': 'AI Clinical Decision Support',
+  'benchmark-library': 'Outcome Benchmark Library',
   'session-monitor': 'Live Session Monitor',
   'outcome-prediction': 'Outcome Prediction & ML Scoring',
+  'advanced-search': 'Advanced Search',
+  'rules-engine': 'Automated Alerts & Rules Engine',
+  'data-import': 'Data Import & Migration',
+  'wearables': 'Wearable & Biosensor Integration',
+  'clinic-analytics': 'Clinic Analytics',
+  'consent-automation': 'Consent & Compliance',
+  'multi-site': 'Multi-Site Network',
+  'forms-builder': 'Forms & Assessments',
+  'med-interactions': 'Medication Safety',
 };
 
 // ── Navigate ──────────────────────────────────────────────────────────────────
@@ -596,19 +637,84 @@ async function renderPatientPage() {
     case 'patient-profile':     m.pgPatientProfile(currentUser);          break;
     case 'pt-wellness':         await m.pgPatientWellness();              break;
     case 'pt-learn':            await m.pgPatientLearn();                 break;
-    default:                    await m.pgPatientDashboard(currentUser);
+    case 'pt-journal':          await m.pgSymptomJournal(m.setTopbar);   break;
+    case 'pt-notifications':    await m.pgPatientNotificationSettings(m.setTopbar); break;
+    case 'pt-media-consent':    await m.pgPatientMediaConsent();         break;
+    case 'pt-media-upload':     await m.pgPatientMediaUpload();          break;
+    case 'pt-media-history':     await m.pgPatientMediaHistory();                break;
+    case 'pt-outcomes':          await m.pgPatientOutcomePortal(m.setTopbar);   break;
+    case 'pt-home-device':       await m.pgPatientHomeDevice();                 break;
+    case 'pt-home-session-log':  await m.pgPatientHomeSessionLog();             break;
+    case 'pt-adherence-events':  await m.pgPatientAdherenceEvents();            break;
+    case 'pt-adherence-history': await m.pgPatientAdherenceHistory();           break;
+    default:                     await m.pgPatientDashboard(currentUser);
   }
 }
 
 function navigatePatient(id) {
   currentPatientPage = id;
+  window._currentPatientPage = id; // expose for swipe gesture handlers
   renderPatientPage();
 }
 window._navPatient  = navigatePatient;
 window._bootPatient = function() {
   currentPatientPage = 'patient-portal';
+  window._currentPatientPage = 'patient-portal';
+  _injectPatientLangPicker();
   renderPatientPage();
+  // Re-render nav + current page on locale change
+  window.removeEventListener('ds:locale-changed', window._ptLocaleHandler);
+  window._ptLocaleHandler = () => renderPatientPage();
+  window.addEventListener('ds:locale-changed', window._ptLocaleHandler);
 };
+
+function _injectPatientLangPicker() {
+  const topbar = document.getElementById('patient-topbar');
+  if (!topbar || topbar.querySelector('#pt-lang-picker')) return;
+  const cur = getLocale();
+  const opts = Object.entries(LOCALES).map(([code, label]) =>
+    `<button class="pub-lang-opt${code === cur ? ' active' : ''}" onclick="window._ptSetLocale('${code}')">${label}</button>`
+  ).join('');
+  const picker = document.createElement('div');
+  picker.id = 'pt-lang-picker';
+  picker.className = 'pub-lang-picker';
+  picker.innerHTML = `
+    <button class="pub-lang-btn" id="pt-lang-toggle-btn" onclick="window._ptLangToggle()"
+            aria-label="${t('pub.lang')}" aria-haspopup="listbox" aria-expanded="false">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15.3 15.3 0 010 20M12 2a15.3 15.3 0 000 20"/></svg>
+      <span id="pt-lang-cur">${LOCALES[cur] || cur.toUpperCase()}</span>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="10" height="10"><path d="M6 9l6 6 6-6"/></svg>
+    </button>
+    <div class="pub-lang-menu" id="pt-lang-menu" role="listbox" aria-label="${t('pub.lang')}">${opts}</div>`;
+  // Insert before patient-topbar-actions
+  const actions = document.getElementById('patient-topbar-actions');
+  topbar.insertBefore(picker, actions);
+
+  window._ptSetLocale = function(code) {
+    setLocale(code);
+    const menu = document.getElementById('pt-lang-menu');
+    menu?.classList.remove('open');
+    document.getElementById('pt-lang-toggle-btn')?.setAttribute('aria-expanded', 'false');
+    document.getElementById('pt-lang-cur').textContent = LOCALES[code] || code.toUpperCase();
+    // Update active option
+    menu?.querySelectorAll('.pub-lang-opt').forEach(b => b.classList.toggle('active', b.textContent === LOCALES[code]));
+  };
+  window._ptLangToggle = function() {
+    const menu = document.getElementById('pt-lang-menu');
+    const btn  = document.getElementById('pt-lang-toggle-btn');
+    if (!menu) return;
+    const opening = !menu.classList.contains('open');
+    menu.classList.toggle('open', opening);
+    btn?.setAttribute('aria-expanded', String(opening));
+  };
+  // Close on outside click
+  document.addEventListener('click', function(e) {
+    if (!e.target.closest('#pt-lang-picker')) {
+      document.getElementById('pt-lang-menu')?.classList.remove('open');
+      document.getElementById('pt-lang-toggle-btn')?.setAttribute('aria-expanded', 'false');
+    }
+  });
+}
 
 // ── Page dispatcher ───────────────────────────────────────────────────────────
 async function renderPage() {
@@ -630,6 +736,8 @@ async function renderPage() {
     case 'patient-profile': { const m = await loadClinical(); await m.pgPatientProfile(setTopbar); break; }
     case 'homework-builder': { const m = await loadPatient(); await m.pgHomeworkBuilder(setTopbar); break; }
     case 'intake': { const m = await loadPatient(); await m.pgIntake(setTopbar); break; }
+    case 'data-import': { const m = await loadPatient(); await m.pgDataImport(setTopbar); break; }
+    case 'pt-outcomes': { const { pgPatientOutcomePortal } = await loadPatient(); await pgPatientOutcomePortal(setTopbar); break; }
     case 'profile': {
       const m = await loadClinical();
       await m.pgProfile(setTopbar, navigate);
@@ -677,12 +785,14 @@ async function renderPage() {
       await m.pgDecisionSupport(setTopbar);
       break;
     }
+    case 'benchmark-library': { const m = await loadClinical(); await m.pgBenchmarkLibrary(setTopbar); break; }
     case 'outcomes': {
       const m = await loadCourses();
       await m.pgOutcomes(setTopbar, navigate);
       break;
     }
     case 'outcome-prediction': { const m = await loadCourses(); await m.pgOutcomePrediction(setTopbar); break; }
+    case 'rules-engine': { const m = await loadCourses(); await m.pgRulesEngine(setTopbar); break; }
     case 'braindata': {
       const m = await loadClinical();
       await m.pgBrainData(setTopbar);
@@ -727,6 +837,9 @@ async function renderPage() {
     }
     case 'quality-assurance': { const m = await loadKnowledge(); await m.pgQualityAssurance(setTopbar); break; }
     case 'device-management': { const m = await loadKnowledge(); await m.pgDeviceManagement(setTopbar); break; }
+    case 'clinical-trials': { const m = await loadKnowledge(); await m.pgClinicalTrials(setTopbar); break; }
+    case 'staff-scheduling': { const m = await loadKnowledge(); await m.pgStaffScheduling(setTopbar); break; }
+    case 'clinic-analytics': { const m = await loadKnowledge(); await m.pgClinicAnalytics(setTopbar); break; }
     // ── Legacy pages (kept functional) ───────────────────────────────────
     case 'assessments': {
       const m = await loadClinical();
@@ -759,11 +872,14 @@ async function renderPage() {
       m.pgTelehealth(setTopbar);
       break;
     }
+    case 'telehealth-recorder': { const m = await loadPractice(); await m.pgTelehealthRecorder(setTopbar); break; }
+    case 'wearables': { const m = await loadPractice(); await m.pgWearableIntegration(setTopbar); break; }
     case 'messaging': {
       const m = await loadClinical();
       await m.pgMessaging(setTopbar);
       break;
     }
+    case 'advanced-search': { const m = await loadClinical(); await m.pgAdvancedSearch(setTopbar); break; }
     case 'programs': {
       const m = await loadPractice();
       m.pgPrograms(setTopbar);
@@ -774,17 +890,23 @@ async function renderPage() {
       await m.pgBilling(setTopbar);
       break;
     }
+    case 'insurance': { const m = await loadPractice(); await m.pgInsuranceVerification(setTopbar); break; }
     case 'referrals': { const m = await loadPractice(); await m.pgReferrals(setTopbar); break; }
     case 'reports': {
       const m = await loadCourses();
       await m.pgClinicalReports(setTopbar);
       break;
     }
+    case 'media-queue': { const m = await loadClinical(); await m.pgMediaReviewQueue(setTopbar); break; }
+    case 'media-detail': { const m = await loadClinical(); await m.pgMediaDetail(setTopbar); break; }
+    case 'clinician-dictation': { const m = await loadClinical(); await m.pgClinicianDictation(setTopbar); break; }
+    case 'clinician-draft-review': { const m = await loadClinical(); await m.pgClinicianDraftReview(setTopbar); break; }
     case 'clinical-notes': {
       const m = await loadCourses();
       await m.pgClinicalNotes(setTopbar);
       break;
     }
+    case 'ai-note-assistant': { const m = await loadCourses(); await m.pgAINoteAssistant(setTopbar); break; }
     case 'population-analytics': {
       const m = await loadCourses();
       await m.pgPopulationAnalytics(setTopbar);
@@ -811,11 +933,17 @@ async function renderPage() {
       await m.pgAuditTrail(setTopbar);
       break;
     }
+    case 'consent-automation': { const { pgConsentAutomation } = await loadClinical(); await pgConsentAutomation(setTopbar); break; }
+    case 'forms-builder': { const { pgFormsBuilder } = await loadClinical(); await pgFormsBuilder(setTopbar); break; }
+    case 'med-interactions': { const { pgMedInteractionChecker } = await loadClinical(); await pgMedInteractionChecker(setTopbar); break; }
     case 'admin': {
       const m = await loadPractice();
       await m.pgAdmin(setTopbar, currentUser);
       break;
     }
+    case 'permissions': { const m = await loadPublic(); await m.pgPermissionsAdmin(setTopbar); break; }
+    case 'multi-site': { const { pgMultiSiteDashboard } = await loadPublic(); await pgMultiSiteDashboard(setTopbar); break; }
+    case 'clinic-settings': { const m = await loadPractice(); await m.pgClinicSettings(setTopbar); break; }
     case 'settings': {
       const m = await loadPractice();
       await m.pgSettings(setTopbar, currentUser);
@@ -1273,6 +1401,7 @@ init();
     { type: 'nav', icon: '🤖', title: 'AI Clinical Assistant', page: 'ai-assistant' },
     { type: 'nav', icon: '📄', title: 'Reports',             page: 'reports' },
     { type: 'nav', icon: '📹', title: 'Telehealth',          page: 'telehealth' },
+    { type: 'nav', icon: '🎥', title: 'Session Recorder',    page: 'telehealth-recorder' },
     { type: 'nav', icon: '🛡️', title: 'Adverse Events',      page: 'adverse-events' },
     { type: 'nav', icon: '◧',  title: 'Audit Trail',         page: 'audittrail' },
     { type: 'nav', icon: '⚙️', title: 'Settings',            page: 'settings' },
@@ -1405,6 +1534,16 @@ init();
       if (score > 0) scored.push({ type: 'protocol', icon: '🧠', title: p.name || p.title || `Protocol #${p.id}`, subtitle: p.condition || p.modality || '', id: p.id, _score: score });
     });
 
+    // Deep search results from localStorage (patients, notes)
+    try {
+      const patients = JSON.parse(localStorage.getItem('ds_patients') || '[]');
+      patients.slice(0, 20).forEach(p => {
+        if (p.name?.toLowerCase().includes(q)) {
+          scored.push({ type: 'patient', icon: '👤', title: p.name, subtitle: 'Patient · ' + (p.condition || ''), id: p.id, _score: 60, action: () => { window._profilePatientId = p.id; window._nav('patient-profile'); } });
+        }
+      });
+    } catch(e) {}
+
     scored.sort((a, b) => b._score - a._score);
     _renderResults(q, scored.slice(0, 12));
   };
@@ -1448,7 +1587,9 @@ init();
     const item = _results[idx];
     if (!item) return;
     window._closePaletteForce();
-    if (item.type === 'nav' || item.type === 'recent' || !item.type) {
+    if (item.action) {
+      item.action();
+    } else if (item.type === 'nav' || item.type === 'recent' || !item.type) {
       window._nav(item.page);
     } else if (item.type === 'patient') {
       window._nav('patients');
