@@ -5747,3 +5747,1135 @@ export async function pgClinicAnalytics(setTopbar) {
     // no-op; interval just checks if page is alive
   }, 10000);
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// pgProtocolMarketplace — Protocol Marketplace & Template Sharing
+// ─────────────────────────────────────────────────────────────────────────────
+export async function pgProtocolMarketplace(setTopbar) {
+  setTopbar('Protocol Marketplace', `
+    <button class="btn-secondary" style="font-size:.8rem;padding:5px 12px" onclick="window._mpTab('browse')">Browse</button>
+    <button class="btn-secondary" style="font-size:.8rem;padding:5px 12px;margin-left:6px" onclick="window._mpTab('published')">My Published</button>
+    <button class="btn-primary"   style="font-size:.8rem;padding:5px 12px;margin-left:6px" onclick="window._mpTab('publish')">+ Publish Protocol</button>
+  `);
+
+  // ── Seed data ────────────────────────────────────────────────────────────
+  const MARKETPLACE_PROTOCOLS = [
+    {
+      id: 'mp1', name: 'Standard 10Hz rTMS — Left DLPFC Depression', modality: 'TMS',
+      conditions: ['Depression'], evidence: 'Level I', rating: 4.8, downloads: 1247, sessions: 30,
+      author: 'Dr. M. Hallett', institution: 'NIH', publishDate: '2022-03-15',
+      tags: ['depression', 'dlpfc', 'standard', 'evidence-based', 'rTMS'],
+      desc: 'Standard 10Hz repetitive TMS applied to the left dorsolateral prefrontal cortex for major depressive disorder. This protocol follows the established FDA-cleared parameters used across landmark RCT studies with robust response rates in treatment-naive and medication-augmentation populations.',
+      params: { frequency: '10 Hz', intensity: '120% MT', coilPosition: 'Left DLPFC (F3)', pulsesPerSession: '3000', sessionsPerWeek: '5', totalSessions: '30' },
+      refs: [
+        'O\'Reardon JP et al. (2007). Efficacy and safety of TMS in acute major depression. Biol Psychiatry 62:1208–1216. (n=301, d=0.55)',
+        'George MS et al. (2010). Daily left prefrontal TMS therapy for major depressive disorder. Arch Gen Psychiatry 67:507–516. (n=190, response 14.1% vs 5.1%)',
+        'Carpenter LL et al. (2012). Transcranial magnetic stimulation for major depressive disorder. J Clin Psychiatry 73:805–816. (n=307, remission 30.7%)',
+      ],
+      sessionBreakdown: [
+        { n: 1, label: 'Baseline motor threshold determination, coil placement calibration, patient orientation to sensation and safety procedures.' },
+        { n: 2, label: 'First therapeutic session at 120% MT, monitor for adverse effects (headache, scalp discomfort). Assess tolerability.' },
+        { n: 3, label: 'Continue 3000 pulses at 10 Hz. Patient questionnaire (PHQ-9) administered. Review side effect log.' },
+        { n: 4, label: 'Routine treatment. Check coil positioning consistency. Observe any emerging adverse events.' },
+        { n: 5, label: 'End of week 1. Re-assess PHQ-9. Discuss early response indicators. Adjust coil placement if needed.' },
+        { n: 6, label: 'Week 2 begins. Maintain parameters. Clinical check-in — mood, sleep, energy reviewed.' },
+        { n: 10, label: 'Mid-treatment assessment (PHQ-9, GAF). Document any partial response and communicate to prescriber.' },
+        { n: 20, label: 'Three-week assessment. Evaluate for early remission vs non-response. Taper planning if remission achieved.' },
+        { n: 30, label: 'Final treatment session. Post-treatment PHQ-9, GAF, MADRS. Schedule 1-month follow-up. Discuss maintenance.' },
+      ],
+      contraindications: ['Ferromagnetic intracranial implants or clips', 'Cochlear implants or implanted electrodes near coil site', 'History of epilepsy or unprovoked seizures', 'Active substance use disorder (alcohol or benzodiazepine withdrawal risk)', 'Pregnancy (relative contraindication)', 'Skull defects at targeted area'],
+      outcomes: ['50% response rate (≥50% PHQ-9 reduction) by Week 4–6', 'Remission in 30–33% by end of course', 'Durable response maintained at 6-month follow-up in ~60% of responders', 'Tolerable side-effect profile: mild headache and scalp discomfort in 20% of patients'],
+      inclusion: 'Adults 18–70 with MDD (DSM-5), PHQ-9 ≥ 10, ≥ 1 failed antidepressant trial.',
+      exclusion: 'Active psychosis, bipolar I, severe personality disorder, or implanted metallic devices.',
+      comments: [
+        { author: 'Dr. L. Nguyen', institution: 'UCSF', date: '2025-11-03', stars: 5, text: 'Implemented this protocol in our clinic for 2 years. Excellent response rates consistent with published data. Motor threshold calibration step is well-specified.' },
+        { author: 'Dr. P. Kaur', institution: 'Mayo Clinic', date: '2025-09-18', stars: 5, text: 'Our team imported this and modified to 3× per week for patients with schedule constraints. Still strong outcomes. The evidence base here is unmatched.' },
+        { author: 'NP J. Torres', institution: 'VA Medical Center', date: '2025-07-25', stars: 4, text: 'Works well for veterans with treatment-resistant MDD. I appreciated the detailed contraindication list — saved us catching a cochlear implant case pre-screening.' },
+      ],
+      ratingDist: [55, 35, 7, 2, 1],
+    },
+    {
+      id: 'mp2', name: 'Deep TMS H1 Coil — OCD Protocol', modality: 'TMS',
+      conditions: ['OCD'], evidence: 'Level I', rating: 4.6, downloads: 834, sessions: 29,
+      author: 'Dr. A. Zangen', institution: 'Brainsway Research', publishDate: '2021-08-20',
+      tags: ['OCD', 'deep-TMS', 'H-coil', 'FDA-cleared'],
+      desc: 'FDA-cleared deep TMS protocol using the H1 coil targeting the medial prefrontal cortex and anterior cingulate for OCD. This 29-session accelerated course pairs deep penetrating stimulation with brief symptom provocation before each session to activate OCD neural circuits.',
+      params: { frequency: '20 Hz', intensity: '100% MT (H1 coil)', coilPosition: 'mPFC / ACC', pulsesPerSession: '2000 (+ provocation)', sessionsPerWeek: '5 (weeks 1–4) then 3×', totalSessions: '29' },
+      refs: [
+        'Carmi L et al. (2019). Efficacy and safety of deep TMS for OCD: a prospective multicenter RCT. Am J Psychiatry 176:931–938. (n=94, Y-BOCS –6.0 vs –3.3, p=0.01)',
+        'Zangen A et al. (2021). Repetitive deep TMS at two targets reduces OCD severity. Neuropsychopharmacology 46:1900–1907.',
+        'Tendler A et al. (2023). Deep TMS with provocation in OCD: long-term outcomes at 1 year post-treatment. Brain Stimul 16:1100–1108.',
+      ],
+      sessionBreakdown: [
+        { n: 1, label: 'Baseline Y-BOCS, H1 coil positioning, motor threshold with H1 coil (higher threshold expected).' },
+        { n: 2, label: 'First provocation session: patient engages with individualized OCD symptom provocation script for 30s, then immediate stimulation.' },
+        { n: 3, label: 'Continue provocation + stimulation pairs. Monitor anxiety levels pre/post. Adjust provocation intensity if distress excessive.' },
+        { n: 5, label: 'End of week 1. Y-BOCS reassessment. Refine provocation stimuli based on patient report.' },
+        { n: 15, label: 'Midpoint assessment. Y-BOCS, CGI. Check for partial response and motivate adherence.' },
+        { n: 29, label: 'Final session. Y-BOCS, CGI-I, MADRS (comorbid depression). Schedule 4-week follow-up. Consider maintenance schedule.' },
+      ],
+      contraindications: ['Ferromagnetic cranial implants', 'Prior seizure or epilepsy diagnosis', 'Active suicidal ideation with plan', 'Claustrophobia preventing coil placement tolerance', 'Cardiac pacemakers or implanted defibrillators'],
+      outcomes: ['38% responders (≥35% Y-BOCS reduction) vs 11% sham', 'Y-BOCS mean reduction: −6.0 points active vs −3.3 sham', 'Effect maintained at 1-year follow-up in 70% of responders', 'Well tolerated: headache most common adverse event (18%)'],
+      inclusion: 'Adults 22+ with OCD (DSM-5), Y-BOCS ≥ 20, ≥ 2 SSRI failures, stable medication ≥ 4 weeks.',
+      exclusion: 'Psychotic disorder, bipolar I with active mania, substance dependence, prior brain surgery.',
+      comments: [
+        { author: 'Dr. R. Bhatt', institution: 'Columbia University', date: '2026-01-10', stars: 5, text: 'The provocation-before-stimulation design is critical and often overlooked by clinicians new to this protocol. Well-documented here.' },
+        { author: 'Dr. S. Metzger', institution: 'McLean Hospital', date: '2025-10-22', stars: 4, text: 'Solid protocol. We adapted provocation timing from 30s to 45s for severe cases and saw slightly better engagement.' },
+        { author: 'NP K. Walsh', institution: 'Cleveland Clinic', date: '2025-08-05', stars: 5, text: 'Our OCD patients really benefit. The inclusion/exclusion criteria are thorough — reduces screening errors considerably.' },
+      ],
+      ratingDist: [42, 38, 12, 5, 3],
+    },
+    {
+      id: 'mp3', name: 'Theta Burst Stimulation — Accelerated Depression', modality: 'TMS',
+      conditions: ['Depression'], evidence: 'Level I', rating: 4.7, downloads: 921, sessions: 10,
+      author: 'Dr. N. Williams', institution: 'Stanford Brain Stimulation Lab', publishDate: '2023-01-12',
+      tags: ['TBS', 'accelerated', 'depression', 'iTBS', 'stanford'],
+      desc: 'Stanford Accelerated Intelligent Neuromodulation Therapy (SAINT) — an accelerated iTBS protocol delivering 10 sessions per day over 5 days (50 total) for treatment-resistant depression. Targets individualized left DLPFC coordinates via fMRI-guided neuronavigation, achieving remarkable remission rates in days rather than weeks.',
+      params: { frequency: 'iTBS (50 Hz bursts at 5 Hz, 600 pulses)', intensity: '90% resting MT', coilPosition: 'Left DLPFC (fMRI-guided subgenual ACC anticorrelated node)', pulsesPerSession: '600 per session × 10/day', sessionsPerWeek: '10 sessions/day × 5 days', totalSessions: '50 sessions / 5 days' },
+      refs: [
+        'Cole EJ et al. (2022). Stanford neuromodulation therapy (SNT): a double-blind randomized controlled trial. Am J Psychiatry 179:132–141. (n=29, remission 78.6% SNT vs 13.3% sham)',
+        'Cole EJ et al. (2020). Stanford accelerated intelligent neuromodulation therapy for treatment-resistant depression. Am J Psychiatry 177:716–726.',
+        'Dresler T et al. (2023). Replication of Stanford accelerated iTBS for TRD in European sample. Brain Stimul 16:810–816.',
+      ],
+      sessionBreakdown: [
+        { n: 1, label: 'Day 1: fMRI or EEG-guided coil positioning. Motor threshold. Session 1 of 10 (600 pulses iTBS). Inter-session rest 50 min minimum.' },
+        { n: 2, label: 'Day 1 continued: Sessions 2–10. Monitor cumulative fatigue, transient headache. Provide comfort breaks.' },
+        { n: 3, label: 'Day 2 (sessions 11–20): PHQ-9 morning assessment. Continue protocol. Mood lift typically first noted Day 2–3.' },
+        { n: 4, label: 'Day 3 (sessions 21–30): QIDS assessment. Clinical observation of emerging response or non-response for case discussion.' },
+        { n: 5, label: 'Day 4–5 (sessions 31–50): Continue per protocol. Post-treatment MADRS, PHQ-9, BDI at Day 5 completion. Schedule Day 30 follow-up.' },
+      ],
+      contraindications: ['Standard TMS contraindications apply', 'Prior seizures', 'Active mania or hypomania', 'Inability to tolerate 10-session/day schedule', 'Significant cognitive impairment preventing informed assent throughout'],
+      outcomes: ['78.6% remission at 4-week follow-up (vs 13.3% sham in pivotal RCT)', 'Onset of improvement as early as Day 3–4 in many patients', 'Response durable at 1-month follow-up in 90%+ of remitters', 'Accelerated timeline enables treatment of patients in acute depressive crisis'],
+      inclusion: 'Adults 22–65 with TRD (≥2 antidepressant failures), MADRS ≥ 28, stable outpatient status.',
+      exclusion: 'Active suicidality requiring inpatient level, bipolar I, metallic implants, pregnancy.',
+      comments: [
+        { author: 'Dr. T. Insel', institution: 'Mindstrong', date: '2026-02-01', stars: 5, text: 'The remission data is extraordinary. We replicated in our private practice with 72% remission in 14 consecutive TRD patients.' },
+        { author: 'Dr. O. Castillo', institution: 'UT Southwestern', date: '2025-12-14', stars: 5, text: 'Logistics are the main challenge — 10 sessions in one day requires dedicated space and staff. But outcomes justify the operational investment.' },
+        { author: 'Dr. A. Fettes', institution: "Toronto Western", date: '2025-10-03', stars: 4, text: 'We have been running SAINT since 2023. Results are strong. Wish the fMRI guidance requirement were more accessible for smaller clinics.' },
+      ],
+      ratingDist: [48, 40, 8, 3, 1],
+    },
+    {
+      id: 'mp4', name: 'Alpha/Theta Neurofeedback — PTSD & Trauma', modality: 'Neurofeedback',
+      conditions: ['PTSD'], evidence: 'Level II', rating: 4.5, downloads: 612, sessions: 20,
+      author: 'Dr. S. Othmer', institution: 'EEG Institute', publishDate: '2020-06-30',
+      tags: ['alpha-theta', 'PTSD', 'trauma', 'Peniston', 'neurofeedback'],
+      desc: 'The Peniston-Kulkosky alpha/theta protocol for PTSD and trauma-related disorders. Patients train increased alpha (8–12 Hz) and theta (4–8 Hz) amplitude while imagining peaceful states, promoting deep trance-like states associated with uncoupling of traumatic emotional memories. Well-validated for combat veterans and childhood trauma survivors.',
+      params: { targetFrequencies: 'Alpha 8–12 Hz reward; Theta 4–8 Hz reward', electrodePlacement: 'Oz (occipital, eyes-closed)', rewardBands: 'Alpha amplitude increase; Theta amplitude increase', inhibitBands: 'Beta > 20 Hz inhibit; EMG inhibit', sessionDuration: '30–40 min', protocolVariant: 'Peniston-Kulkosky (1989/1991)' },
+      refs: [
+        'Peniston EG & Kulkosky PJ (1991). Alpha/theta brainwave neurofeedback therapy for Vietnam veterans with combat-related PTSD. Med Psychother 4:47–60. (n=29)',
+        'Othmer SF & Othmer S (2009). Post traumatic stress disorder — the neurofeedback remedy. Biofeedback 37(1):24–31.',
+        'van der Kolk BA et al. (2016). Yoga as an adjunctive treatment for PTSD. J Clin Psychiatry 75:e559–e565.',
+      ],
+      sessionBreakdown: [
+        { n: 1, label: 'History, trauma timeline. CAPS-5 baseline, PCL-5. EEG baseline recording (eyes open/closed). Orient to neurofeedback concept.' },
+        { n: 2, label: 'First training session. Establish threshold. Guided relaxation pre-training. Initial alpha/theta training 20 min.' },
+        { n: 3, label: 'Deepen protocol, extend to 30 min. Process any post-session experiences (visual imagery, emotional surfacing).' },
+        { n: 5, label: 'Mid-early assessment — PCL-5, sleep diary. Many patients report improved sleep by session 5.' },
+        { n: 10, label: 'Midpoint PCL-5, nightmare frequency log. Adjust thresholds for increasing alpha amplitude. Introduce trauma-positive scripts.' },
+        { n: 20, label: 'Final session. PCL-5, CAPS-5, BDI-II, sleep assessment. Create maintenance plan. Monthly booster sessions recommended.' },
+      ],
+      contraindications: ['Active psychosis or dissociative disorder (adjust protocol first)', 'Active self-harm or suicidal crisis', 'Substance intoxication during session', 'Severe TBI affecting EEG reliability'],
+      outcomes: ['PCL-5 reduction of 15–20 points by session 10', 'Nightmare frequency reduction 60–70% by session 15', 'Improved sleep quality (PSQI) in majority by session 8', 'Sustained improvement at 12-month follow-up in prior studies'],
+      inclusion: 'Adults 18+ with PTSD (DSM-5), PCL-5 ≥ 33, cleared for outpatient trauma work.',
+      exclusion: 'Active psychosis, severe dissociation without stabilisation, current substance abuse.',
+      comments: [
+        { author: 'Dr. M. Fisher', institution: 'Trauma Recovery Center', date: '2025-11-20', stars: 5, text: 'We have run this protocol for over 5 years with veterans. The dream imagery reports in sessions 8–12 are remarkable. Strongly recommend experienced facilitation.' },
+        { author: 'Dr. Y. Cohen', institution: 'Tel Aviv University', date: '2025-08-12', stars: 4, text: 'Excellent for chronic PTSD. Patients who failed EMDR or CBT often respond well here. Requires significant clinical skill to manage abreactions.' },
+        { author: 'NP C. Reyes', institution: 'VA San Diego', date: '2025-06-02', stars: 5, text: 'Changed how I work with combat veterans. The protocol is well-laid-out and the outcome tracking section is thorough.' },
+      ],
+      ratingDist: [38, 40, 14, 5, 3],
+    },
+    {
+      id: 'mp5', name: 'SMR/Beta Training — ADHD Pediatric Protocol', modality: 'Neurofeedback',
+      conditions: ['ADHD'], evidence: 'Level II', rating: 4.4, downloads: 743, sessions: 40,
+      author: 'Dr. J. Lubar', institution: 'Univ. of Tennessee', publishDate: '2019-04-10',
+      tags: ['SMR', 'beta', 'ADHD', 'pediatric', 'attention'],
+      desc: 'The classic Lubar SMR/beta neurofeedback protocol for pediatric ADHD. Rewards sensorimotor rhythm (SMR, 12–15 Hz) at Cz to increase focused attention and reduce hyperactivity, while inhibiting theta (4–8 Hz) associated with inattentiveness. One of the most extensively replicated neurofeedback protocols in clinical literature.',
+      params: { targetFrequencies: 'SMR 12–15 Hz reward; Beta 15–18 Hz reward (alternating)', electrodePlacement: 'Cz (central vertex)', rewardBands: 'SMR 12–15 Hz amplitude up; Beta 15–18 Hz amplitude up', inhibitBands: 'Theta 4–8 Hz inhibit; Delta 1–4 Hz inhibit', sessionDuration: '30–45 min', protocolVariant: 'Lubar SMR/theta protocol (standard)' },
+      refs: [
+        'Lubar JF & Shouse MN (1976). EEG and behavioral changes in a hyperkinetic child concurrent with training of the sensorimotor rhythm. Biofeedback Self Regul 1:293–306.',
+        'Arns M et al. (2009). Efficacy of neurofeedback treatment in ADHD: the effects on inattention, impulsivity and hyperactivity. Clin EEG Neurosci 40:180–189. (meta-analysis, ES=0.81)',
+        'Gevensleben H et al. (2009). Is neurofeedback an efficacious treatment for ADHD? A randomised controlled clinical trial. J Child Psychol Psychiatry 50:780–789.',
+      ],
+      sessionBreakdown: [
+        { n: 1, label: 'QEEG baseline (eyes open/closed 2 min each). Conners Parent/Teacher scale baseline. Introduce game-based feedback interface.' },
+        { n: 2, label: 'First SMR training block (15 min). Child orients to feedback display. Explain reward/inhibit concept in age-appropriate terms.' },
+        { n: 5, label: 'Increase session length to 40 min. Parent check-in on home behavior. Introduce cognitive task during second half of session.' },
+        { n: 10, label: 'Conners reassessment. Show EEG trend data to parent. Theta/beta ratio comparison to baseline.' },
+        { n: 20, label: 'Midpoint comprehensive assessment. Conners, CPRS, VADRS. School report if consented. Adjust protocol if minimal theta reduction observed.' },
+        { n: 40, label: 'Final session. QEEG re-record. Conners, VADRS final. Transition to monthly booster plan. Review academic/behavioral outcomes with family.' },
+      ],
+      contraindications: ['Active seizure disorder (modify thresholds)', 'Very young children (< 6 years) — adapt feedback interface', 'Significant oppositional behavior preventing session engagement', 'Concurrent medication changes within 2 weeks (confounds response assessment)'],
+      outcomes: ['Mean Conners ADHD Index reduction of 15–20 points by session 40', 'Theta/beta ratio normalization in 60–70% of completers', 'Durable results at 6-month follow-up without continued sessions', 'Parent-rated attention improvement reported from session 10–15 onward'],
+      inclusion: 'Children 6–16, DSM-5 ADHD (any subtype), QEEG showing theta excess or SMR deficit.',
+      exclusion: 'Active epilepsy (without neurologist clearance), IQ < 70, ASD with severe behavioral dysregulation.',
+      comments: [
+        { author: 'Dr. L. Steinberg', institution: "Children's Hospital Philadelphia", date: '2026-01-25', stars: 4, text: 'We have used this as our standard pediatric ADHD protocol for 8 years. The 40-session commitment is long but outcomes are meaningful and durable.' },
+        { author: 'Dr. R. Monastra', institution: 'FNS of NY', date: '2025-09-08', stars: 5, text: 'Lubar protocol remains the gold standard for good reason. Our theta/beta normalization rates match published data closely.' },
+        { author: 'NP T. Brennan', institution: 'Boston Brain Institute', date: '2025-05-14', stars: 4, text: 'Game-based interfaces improve engagement significantly in 8–12 year olds. I recommend supplementing with a structured reward system to maintain attendance.' },
+      ],
+      ratingDist: [35, 42, 16, 5, 2],
+    },
+    {
+      id: 'mp6', name: 'Anodal tDCS M1 — Chronic Pain Management', modality: 'tDCS',
+      conditions: ['Chronic Pain'], evidence: 'Level II', rating: 4.2, downloads: 418, sessions: 10,
+      author: 'Dr. F. Fregni', institution: 'Harvard Medical School', publishDate: '2021-02-18',
+      tags: ['tDCS', 'pain', 'M1', 'anodal', 'chronic-pain'],
+      desc: 'Anodal tDCS applied to primary motor cortex (M1) contralateral to pain for chronic pain management. Exploits M1 stimulation effects on descending pain modulation pathways and thalamic gating mechanisms. Evidence supports efficacy in fibromyalgia, central sensitization, and musculoskeletal chronic pain syndromes.',
+      params: { electrodeMontage: 'Anode C3/C4 (M1 contralateral) / Cathode supraorbital contralateral', currentMa: '2 mA', duration: '20 min', rampTime: '30s on / 30s off', sessions: '10 sessions (5/week × 2 weeks)' },
+      refs: [
+        'Fregni F et al. (2006). A randomized clinical trial of repetitive TMS and tDCS in fibromyalgia. J Pain 7:400–408.',
+        'Riberto M et al. (2011). Efficacy of transcranial direct current stimulation coupled with a multidisciplinary rehabilitation program for the treatment of fibromyalgia. Open Rheumatol J 5:45–50.',
+        'Mariano TY et al. (2016). Transcranial direct current stimulation for affective symptoms and functioning in chronic low back pain: a randomized, sham-controlled clinical trial. Pain Med 17:1–10.',
+      ],
+      sessionBreakdown: [
+        { n: 1, label: 'NRS pain baseline (11-point), BPI, PCS. Electrode placement check. Patient education on tingling/itching during ramp.' },
+        { n: 2, label: 'First full therapeutic session. NRS pre/post. Monitor skin integrity under electrodes.' },
+        { n: 5, label: 'End of week 1. NRS trend review. Any change in medication use noted. Side effects log reviewed.' },
+        { n: 10, label: 'Final session. BPI, PCS, PGIC reassessment. Photograph electrode sites. Discuss maintenance interval (monthly booster).' },
+      ],
+      contraindications: ['Scalp wounds or eczema at electrode sites', 'Metallic intracranial implants', 'Active pregnancy', 'Severe cardiac arrhythmia (implanted device within field)', 'Recent head injury with skull fracture'],
+      outcomes: ['NRS pain reduction of 2–3 points by session 10 in fibromyalgia', 'PGIC "much improved" or "very much improved" in ~40% of responders', 'Improved pain catastrophizing (PCS) scores at 4-week follow-up', 'Best outcomes in central sensitisation phenotype'],
+      inclusion: 'Adults 18+ with chronic pain ≥ 3 months, NRS ≥ 4, stable medication regimen ≥ 4 weeks.',
+      exclusion: 'Pacemaker, implanted brain stimulator, active malignancy at target site.',
+      comments: [
+        { author: 'Dr. S. Lefaucheur', institution: 'Henri Mondor Hospital', date: '2025-10-15', stars: 4, text: 'Reliable analgesia for central sensitization patients. We add a 30-min physical therapy session immediately post-stimulation which seems to potentiate effects.' },
+        { author: 'Dr. A. Vaseghi', institution: 'UCLA Pain Center', date: '2025-07-20', stars: 4, text: 'Good protocol documentation. The NRS pre/post tracking is a useful clinical habit builder. We see 40–50% of patients reporting meaningful relief.' },
+        { author: 'PT R. Nakamura', institution: 'Rehabilitation Sciences Institute', date: '2025-04-08', stars: 4, text: 'Works well in combination with manual therapy. Protocol clearly explains electrode placement which prevents errors I often see in community clinics.' },
+      ],
+      ratingDist: [28, 38, 22, 8, 4],
+    },
+    {
+      id: 'mp7', name: 'Bifrontal tDCS — Treatment-Resistant Depression', modality: 'tDCS',
+      conditions: ['Depression'], evidence: 'Level II', rating: 4.3, downloads: 389, sessions: 15,
+      author: 'Dr. C. Brunoni', institution: 'USP Brazil', publishDate: '2022-09-05',
+      tags: ['tDCS', 'depression', 'bifrontal', 'treatment-resistant'],
+      desc: 'Bifrontal tDCS protocol from the SELECT-TDCS and ELECT-TDCS trials for moderate-to-severe depression. Anode over left DLPFC (F3), cathode over right DLPFC (F4). Validated as a standalone antidepressant and as augmentation with sertraline, achieving remission rates comparable to escitalopram in double-blind trials.',
+      params: { electrodeMontage: 'Anode F3 (left DLPFC) / Cathode F4 (right DLPFC)', currentMa: '2 mA', duration: '30 min', rampTime: '30s ramp up/down', sessions: '15 sessions (5/week × 3 weeks)' },
+      refs: [
+        'Brunoni AR et al. (2013). The sertraline vs electrical current therapy for treating depression clinical study (SELECT-TDCS): results of the double-blind, randomized, non-inferiority trial. JAMA Psychiatry 70:383–391.',
+        'Brunoni AR et al. (2017). Trial of electrical direct-current therapy versus escitalopram for depression. N Engl J Med 376:2523–2533. (n=245)',
+        'Nakamura NS et al. (2023). Optimizing tDCS parameters for treatment-resistant depression: a meta-analysis. Brain Stimul 16:220–234.',
+      ],
+      sessionBreakdown: [
+        { n: 1, label: 'PHQ-9, MADRS baseline. Electrode placement tutorial. Written patient education handout provided. Skin impedance check.' },
+        { n: 5, label: 'First week complete. PHQ-9 progress score. Document any sleep changes, energy, or irritability shifts.' },
+        { n: 10, label: 'Midpoint MADRS. Review medication interactions (watch serotonergic augmentation effects).' },
+        { n: 15, label: 'Final session. PHQ-9, MADRS, WHOQOL-Bref. Discuss response: continue with maintenance monthly, or transition to other modality.' },
+      ],
+      contraindications: ['Pacemaker or any active implanted electrical device', 'Scalp dermatitis at electrode sites', 'History of mania triggered by antidepressant therapy (relative)', 'Current ECT course'],
+      outcomes: ['MADRS reduction ≥ 50% in 40% of patients in ELECT-TDCS trial', 'Remission rate 31% vs 23% escitalopram (non-inferior)', 'Combination with sertraline superior to either alone', 'Home tDCS feasibility demonstrated in multiple trials'],
+      inclusion: 'Adults 18–65 with MDD (DSM-5), ≥ 1 failed antidepressant, MADRS ≥ 20.',
+      exclusion: 'Bipolar I, active psychosis, ECT within 3 months, metallic cranial implants.',
+      comments: [
+        { author: 'Dr. E. Moreno', institution: 'Hospital das Clinicas', date: '2026-01-08', stars: 4, text: 'Protocol directly mirrors our ELECT-TDCS trial conditions. Excellent reproducibility in clinic — outcomes match what we published.' },
+        { author: 'Dr. J. Brunelin', institution: 'INSERM Lyon', date: '2025-11-17', stars: 5, text: 'The bifrontal montage is ideal for depression. I use this as first-line neuromodulation before considering TMS for appropriate patients.' },
+        { author: 'Dr. A. Valiengo', institution: 'IPq São Paulo', date: '2025-09-02', stars: 4, text: 'Strong evidence base and accessible cost makes this a compelling option for resource-limited settings. Home protocol adaptation is the next frontier.' },
+      ],
+      ratingDist: [30, 40, 20, 7, 3],
+    },
+    {
+      id: 'mp8', name: 'HEG Coherence Training — Migraine & Headache', modality: 'HEG',
+      conditions: ['Migraine'], evidence: 'Level III', rating: 4.1, downloads: 267, sessions: 20,
+      author: 'Dr. J. Carmen', institution: 'Neurotherapy Center', publishDate: '2018-11-14',
+      tags: ['HEG', 'migraine', 'headache', 'frontal', 'coherence'],
+      desc: 'Hemoencephalography (HEG) biofeedback targeting prefrontal cortex blood oxygenation for migraine prevention. Patients learn to voluntarily increase frontal HEG signal, building vascular self-regulation in cortical regions implicated in migraine initiation. Effective in reducing migraine frequency and severity with no adverse effects.',
+      params: { targetFrequencies: 'HEG ratio increase (prefrontal oxyHb/deoxyHb)', electrodePlacement: 'Fpz (medial prefrontal) primary; Fp1/Fp2 bilateral', rewardBands: 'HEG ratio amplitude uptraining', inhibitBands: 'N/A (HEG not EEG)', sessionDuration: '20–30 min', protocolVariant: 'Near-infrared HEG (nIR-HEG)' },
+      refs: [
+        'Carmen JA (2004). Passive infrared hemoencephalography: four years and 100 migraineurs. J Neurotherapy 8:23–51.',
+        'Hershfield J (2016). HEG neurofeedback for migraine: a retrospective analysis. NeuroRegulation 3:61–70.',
+        'Toomim H & Carmen J (2009). Hemoencephalography: photonic measurement and biofeedback of cerebral activity. Biofeedback 37(3):99–104.',
+      ],
+      sessionBreakdown: [
+        { n: 1, label: 'Migraine diary baseline (frequency, intensity, duration, triggers). Sensor placement calibration. Brief HEG orientation.' },
+        { n: 2, label: 'First training session. Patient practices "warming forehead" or attention/engagement strategies.' },
+        { n: 5, label: 'Review migraine diary. Most patients report first changes in frequency or prodrome awareness by session 5.' },
+        { n: 10, label: 'Midpoint migraine diary review. HEG baseline trend chart. Adjust session duration if plateau observed.' },
+        { n: 20, label: 'Final session. Migraine diary analysis: frequency, duration, medication use compared to baseline. Self-regulation maintenance plan.' },
+      ],
+      contraindications: ['Active migraine at time of session (postpone until post-ictal window resolves)', 'Photosensitive epilepsy (LED feedback displays)', 'Scalp psoriasis at sensor site'],
+      outcomes: ['50% reduction in migraine frequency in 60–70% of consistent trainees', 'Reduction in migraine medication days per month', 'Improved HEG baseline ratio maintained at 6-month follow-up', 'Patient-reported improvement in prodrome self-awareness'],
+      inclusion: 'Adults 16+ with migraine (ICHD-3 criteria), ≥ 4 migraines/month, stable preventive medication.',
+      exclusion: 'Medication overuse headache without concurrent taper, severe photophobia affecting sensor tolerance.',
+      comments: [
+        { author: 'Dr. D. Stauth', institution: 'Portland Neurofeedback', date: '2025-12-20', stars: 4, text: 'HEG for migraine is underutilized. Carmen protocol is well-documented. Patients appreciate the absence of pharmacological side effects.' },
+        { author: 'Dr. L. Walker', institution: 'Behavioral Medicine Clinic', date: '2025-08-15', stars: 4, text: 'Good starting point for clinicians new to HEG. Session structure is practical. Consider adding autonomic biofeedback for vascular cases.' },
+        { author: 'NP K. Hossain', institution: 'Headache Specialists', date: '2025-05-01', stars: 4, text: 'My migraine patients consistently rate this as their most effective non-drug intervention. A 20-session commitment is needed for durable results.' },
+      ],
+      ratingDist: [22, 38, 28, 8, 4],
+    },
+    {
+      id: 'mp9', name: 'PEMF Delta Entrainment — Insomnia Protocol', modality: 'PEMF',
+      conditions: ['Insomnia'], evidence: 'Level III', rating: 3.9, downloads: 198, sessions: 12,
+      author: 'Dr. R. Sandyk', institution: 'NYU Sleep Center', publishDate: '2017-05-22',
+      tags: ['PEMF', 'insomnia', 'sleep', 'delta', 'entrainment'],
+      desc: 'Pulsed Electromagnetic Field therapy targeting delta frequency entrainment for primary insomnia. Low-intensity PEMF applied via cranial coil delivers 0.5–2 Hz pulsed fields to entrain slow-wave sleep oscillations, reduce sleep onset latency, and enhance deep sleep architecture. Best suited as adjunct to sleep hygiene and CBT-I.',
+      params: { frequency: '0.5–2 Hz (delta entrainment)', intensity: '1–5 μT (very low intensity)', coilPosition: 'Bilateral temporal/occipital placement', pulsesPerSession: 'Continuous sinusoidal pulsed field', sessionsPerWeek: '3× per week', totalSessions: '12 sessions over 4 weeks' },
+      refs: [
+        'Sandyk R (1997). Treatment of insomnia with PEMF in patients with multiple sclerosis. Int J Neurosci 90:65–71.',
+        'Pelka RB et al. (2001). Impulse magnetic-field therapy for insomnia: a double-blind, placebo-controlled study. Adv Ther 18:174–180.',
+        'Pasche B et al. (1996). Effects of low-energy emission therapy in chronic psychophysiological insomnia. Sleep 19:327–336.',
+      ],
+      sessionBreakdown: [
+        { n: 1, label: 'ISI, PSQI baseline. Sleep diary start. Device placement tutorial. First 20-min delta entrainment session in clinic.' },
+        { n: 3, label: 'Review first week sleep diary. Typical first changes: easier sleep onset by session 3–4.' },
+        { n: 6, label: 'Mid-protocol ISI reassessment. Actigraphy data review if available. Discuss concurrent sleep hygiene adherence.' },
+        { n: 12, label: 'Final session. ISI, PSQI, ESS post-treatment. Sleep diary 4-week summary analysis. Maintenance: 1× weekly home device if available.' },
+      ],
+      contraindications: ['Implanted electronic medical devices (pacemaker, insulin pump)', 'Pregnancy', 'Active cancer', 'Severe cardiovascular arrhythmia'],
+      outcomes: ['ISI reduction of 6–8 points in responders', 'Sleep onset latency reduction of 20–30 min', 'Improved slow-wave sleep % on PSG in small trials', 'No withdrawal effects or dependency reported'],
+      inclusion: 'Adults 22+ with chronic insomnia disorder (ICSD-3), ISI ≥ 15, not currently undergoing CBT-I (or as adjunct).',
+      exclusion: 'Implanted electronic device, pregnancy, active oncological treatment.',
+      comments: [
+        { author: 'Dr. C. Drake', institution: 'Henry Ford Sleep Center', date: '2025-09-25', stars: 4, text: 'PEMF delta entrainment is niche but genuinely helpful for patients who reject pharmacology. Best combined with CBT-I in my experience.' },
+        { author: 'NP M. Osei', institution: 'Integrative Sleep Medicine', date: '2025-06-10', stars: 4, text: 'Evidence level III is appropriate — this is not yet mainstream. But clinical response in my insomnia group has been encouraging.' },
+        { author: 'Dr. A. Sadeh', institution: 'Tel Aviv University Sleep Lab', date: '2025-03-18', stars: 3, text: 'Moderate protocol. The delta entrainment mechanism is plausible. Needs larger RCT before I would use as primary intervention.' },
+      ],
+      ratingDist: [15, 32, 30, 15, 8],
+    },
+    {
+      id: 'mp10', name: 'Gamma Burst Neurofeedback — Cognitive Enhancement TBI', modality: 'Neurofeedback',
+      conditions: ['TBI'], evidence: 'Level II', rating: 4.5, downloads: 334, sessions: 24,
+      author: 'Dr. K. Sterman', institution: 'UCLA', publishDate: '2020-10-08',
+      tags: ['gamma', 'TBI', 'cognitive', 'neurofeedback', 'rehabilitation'],
+      desc: 'Gamma frequency (36–44 Hz) neurofeedback for cognitive rehabilitation post-TBI. Targets disrupted gamma oscillations involved in working memory, attention integration, and sensory binding. Combines gamma uptraining at Fz/FCz with alpha desynchronization to restore corticothalamic coherence disrupted by traumatic injury.',
+      params: { targetFrequencies: 'Gamma 36–44 Hz reward; Alpha 8–12 Hz inhibit', electrodePlacement: 'Fz (primary); FCz (secondary protocol)', rewardBands: 'Gamma burst amplitude increase', inhibitBands: 'Alpha 8–12 Hz; Theta 4–7 Hz inhibit', sessionDuration: '35–40 min', protocolVariant: 'Gamma uptraining + LORETA source feedback (advanced variant)' },
+      refs: [
+        'Thornton KE & Carmody DP (2009). Efficacy of QEEG-guided neurofeedback interventions for academic achievement: effects on memory, attention, processing speed, and mathematics. Appl Psychophysiol Biofeedback 34:105–120.',
+        'Schoenberger NE et al. (2001). Flexyx neurotherapy system in the treatment of traumatic brain injury. J Head Trauma Rehabil 16:260–274.',
+        'Todder D et al. (2010). Effects of transcranial direct current stimulation and neurofeedback on event-related potentials and memory performance in patients with TBI. J Neurotrauma 27:1827–1835.',
+      ],
+      sessionBreakdown: [
+        { n: 1, label: 'QEEG 19-channel baseline. RBANS cognitive battery, BRIEF-2. Identify primary deficits. Map gamma deficit zones.' },
+        { n: 2, label: 'First gamma uptraining session. Emphasize active engagement — passive monitoring yields minimal gamma recruitment.' },
+        { n: 6, label: 'Cognitive check-in. Patient/family report on real-world functioning changes. Adjust electrode priority site if indicated.' },
+        { n: 12, label: 'Midpoint RBANS. QEEG interim. Typical improvements first seen in working memory and processing speed domains.' },
+        { n: 24, label: 'Final QEEG re-record. RBANS full battery. BRIEF-2 final. Functional ADL rating. Discharge summary and maintenance plan.' },
+      ],
+      contraindications: ['Active psychosis or severe psychiatric comorbidity', 'Seizure disorder without clearance', 'Moderate-severe TBI with <6 months post-injury (allow recovery period)', 'Significant substance abuse confounding cognitive assessment'],
+      outcomes: ['RBANS total score improvement of 10–18 points by session 24', 'Working memory index improvement most consistent (attention and delayed memory next)', 'Family and clinician-rated BRIEF-2 improvements in real-world executive function', 'Durable gains at 3-month follow-up in majority of completers'],
+      inclusion: 'Adults 16–65, mild-moderate TBI (≥ 6 months post-injury), cognitive complaints, QEEG abnormality.',
+      exclusion: 'Acute TBI phase, severe TBI with global cognitive impairment (MMSE < 18), active litigation incentive confound.',
+      comments: [
+        { author: 'Dr. T. Thornton', institution: 'Applied Neuroscience', date: '2026-02-14', stars: 5, text: 'Gamma uptraining continues to exceed expectations in our TBI population. The QEEG-guided site selection is key — generic protocols miss the individual deficit map.' },
+        { author: 'Dr. C. Ayers', institution: 'UCSF Memory Center', date: '2025-10-05', stars: 4, text: 'Cognitive gains are meaningful and functional. The active engagement requirement during sessions is important to communicate to patients upfront.' },
+        { author: 'NP F. Okello', institution: 'NeuroRehab Associates', date: '2025-07-22', stars: 5, text: 'My TBI patients consistently rate this as transformative. Combining with occupational therapy in the same week amplifies functional gains.' },
+      ],
+      ratingDist: [38, 40, 14, 5, 3],
+    },
+    {
+      id: 'mp11', name: 'Multi-modal ADHD — NFB + tDCS Combined', modality: 'Multi-modal',
+      conditions: ['ADHD'], evidence: 'Level II', rating: 4.6, downloads: 556, sessions: 20,
+      author: 'Dr. T. Ros', institution: 'Geneva Neuroscience', publishDate: '2023-07-19',
+      tags: ['multimodal', 'ADHD', 'combined', 'NFB', 'tDCS'],
+      desc: 'Combined neurofeedback and tDCS protocol for ADHD in adolescents and adults. tDCS (2 mA, anode F3) is applied for the first 20 minutes concurrent with the start of each NFB session, priming left prefrontal cortex excitability and enhancing the neural plasticity window for subsequent EEG biofeedback training. Synergistic effects exceed either modality alone.',
+      params: { targetFrequencies: 'Theta 4–8 Hz inhibit; Beta 15–18 Hz reward (NFB component)', electrodePlacement: 'Fz/Cz (NFB); F3 anode / right supraorbital cathode (tDCS)', rewardBands: 'Beta 15–18 Hz uptraining', inhibitBands: 'Theta 4–8 Hz; EMG inhibit', sessionDuration: '45 min total (20 min concurrent tDCS + NFB; 25 min NFB only)', protocolVariant: 'tDCS priming + NFB (sequential concurrent design)' },
+      refs: [
+        'Ros T et al. (2016). Tuning pathological brain oscillations with neurofeedback: a systems neuroscience framework. Front Hum Neurosci 10:1–22.',
+        'Ditye T et al. (2012). Modulating behavioral inhibition by tDCS combined with cognitive training. Neuropsychologia 50:1372–1379.',
+        'Haller S et al. (2019). Multimodal neuromodulation for ADHD: a pilot randomized controlled trial of combined tDCS-NFB. J Atten Disord 25:621–633.',
+      ],
+      sessionBreakdown: [
+        { n: 1, label: 'Baseline QEEG, Conners-3, BRIEF. Setup both tDCS montage and NFB electrodes simultaneously. Explain dual modality rationale to patient.' },
+        { n: 2, label: 'First combined session. tDCS starts 2 min before NFB. Monitor comfort — patients may notice mild tingling from tDCS overlapping with NFB display.' },
+        { n: 5, label: 'Conners check-in. Parent/self-report on behavioral changes. Most patients notice increased session alertness by session 3–5.' },
+        { n: 10, label: 'Mid-protocol Conners-3. EEG theta/beta trend. Discuss with prescriber if medication adjustments are warranted due to improving baseline.' },
+        { n: 20, label: 'Final session. QEEG re-record. Conners-3, BRIEF full. Neuropsychological battery if available. Maintenance: monthly booster tDCS-NFB sessions.' },
+      ],
+      contraindications: ['Cardiac pacemaker (tDCS component)', 'Active seizure disorder', 'Scalp dermatitis at electrode sites', 'Concurrent CNS stimulant medications may require monitoring (additive effect)'],
+      outcomes: ['Conners ADHD Index reduction ~25 points by session 20 (superior to NFB alone)', 'Theta/beta ratio normalization in 70% of completers', 'BRIEF GEC score improvement in executive function domain', 'Effect maintained at 6-month follow-up in 80% of responders'],
+      inclusion: 'Adolescents 14+ and adults with ADHD (DSM-5), Conners T-score ≥ 65, QEEG theta excess confirmed.',
+      exclusion: 'Implanted electrical devices, active seizure, IQ < 75, concurrent moderate-severe depression without treatment.',
+      comments: [
+        { author: 'Dr. T. Ros', institution: 'Geneva Neuroscience', date: '2025-11-30', stars: 5, text: 'The concurrent tDCS priming window is critical — we found 20 min simultaneous onset outperforms sequential (tDCS then NFB) by a significant margin.' },
+        { author: 'Dr. A. Arns', institution: 'Research Institute Brainclinics', date: '2025-09-14', stars: 5, text: 'Multimodal approach is the future of neurofeedback. Combining excitability priming with learning-based feedback makes clinical sense and the data backs it up.' },
+        { author: 'NP S. Burke', institution: 'ADHD Treatment Center', date: '2025-07-04', stars: 4, text: 'Operationally complex to set up both devices simultaneously. We created a setup checklist based on this protocol that has reduced our prep time to 8 minutes.' },
+      ],
+      ratingDist: [44, 38, 12, 4, 2],
+    },
+    {
+      id: 'mp12', name: 'Low-Frequency rTMS Right DLPFC — Anxiety & Panic', modality: 'TMS',
+      conditions: ['Anxiety'], evidence: 'Level II', rating: 4.3, downloads: 445, sessions: 20,
+      author: 'Dr. M. George', institution: 'MUSC', publishDate: '2021-05-25',
+      tags: ['1Hz', 'rTMS', 'anxiety', 'right-DLPFC', 'inhibitory'],
+      desc: 'Inhibitory 1 Hz rTMS applied to the right dorsolateral prefrontal cortex for generalized anxiety disorder and panic disorder. The right DLPFC is hyperactive in anxiety states; low-frequency inhibitory TMS normalizes this excitatory imbalance, reducing anxious arousal, worry, and autonomic hyperreactivity through corticolimbic down-regulation.',
+      params: { frequency: '1 Hz (inhibitory)', intensity: '110% MT', coilPosition: 'Right DLPFC (F4)', pulsesPerSession: '1200', sessionsPerWeek: '5 (weeks 1–2) then 3× (weeks 3–4)', totalSessions: '20' },
+      refs: [
+        'Zwanzger P et al. (2009). Effects of inhibitory repetitive TMS in panic disorder. J Neural Transm 116:59–67.',
+        'Diefenbach GJ et al. (2016). Feasibility and outcomes of a brief TMS intervention for anxiety. J Affect Disord 189:87–92.',
+        'Dilkov D et al. (2017). Repetitive transcranial magnetic stimulation in the treatment of panic disorder. Medicine 96:e7387.',
+      ],
+      sessionBreakdown: [
+        { n: 1, label: 'GAD-7, PDSS, BAI baseline. Right DLPFC F4 motor threshold. Patient education on inhibitory rationale.' },
+        { n: 3, label: 'Continue 1 Hz protocol. GAD-7 weekly check. Patients often report reduced resting heart rate and improved sleep within first week.' },
+        { n: 5, label: 'End of week 1. Panic diary review (frequency, severity, anticipatory anxiety). Side effect monitoring.' },
+        { n: 10, label: 'Midpoint GAD-7, PDSS. Transition to 3× per week. Discuss subjective anxiety changes.' },
+        { n: 20, label: 'Final session. GAD-7, PDSS, BAI, PGIC final. Discuss CBT integration if not already concurrent. Maintenance options.' },
+      ],
+      contraindications: ['Same as all rTMS protocols: metallic cranial implants, prior seizures', 'Active bipolar mania (low-frequency may be less risky but caution advised)', 'Concurrent high-dose benzodiazepine may attenuate response', 'Severe cardiac arrhythmia'],
+      outcomes: ['GAD-7 reduction of 6–9 points by session 20', 'Panic attack frequency reduction 60–70% in completers', 'Sustained response at 3-month follow-up without booster in majority', 'Well tolerated: 1 Hz has lower headache rate than high-frequency protocols'],
+      inclusion: 'Adults 18+ with GAD or Panic Disorder (DSM-5), GAD-7 ≥ 10, ≥ 1 SSRI/SNRI failure or intolerance.',
+      exclusion: 'Active seizure disorder, metallic implants, bipolar I with active mania, severe OCD (consider OCD-specific protocol).',
+      comments: [
+        { author: 'Dr. M. George', institution: 'MUSC Brain Stimulation', date: '2026-01-22', stars: 5, text: 'We have been refining this protocol for 10 years. The 1 Hz right DLPFC approach is elegant — patients feel calmer within days rather than waiting weeks.' },
+        { author: 'Dr. P. Zwanzger', institution: 'kbo-Inn-Salzach-Klinikum', date: '2025-11-05', stars: 4, text: 'Solid anxiety protocol. Particularly useful for patients who cannot tolerate SSRI side effects. Works best alongside concurrent CBT or ACT.' },
+        { author: 'Dr. H. Pallanti', institution: 'Albert Einstein College', date: '2025-08-18', stars: 4, text: 'GAD and panic respond meaningfully. I add HRV biofeedback as a home-based complement between sessions for enhanced autonomic benefit.' },
+      ],
+      ratingDist: [32, 38, 20, 7, 3],
+    },
+  ];
+
+  const PUBLISHED_SEED = [
+    { id: 'pub1', name: 'Custom NFB Protocol — Autism Attention', publishDate: '2025-08-14', downloads: 89, rating: 4.2, status: 'Published', modality: 'Neurofeedback' },
+    { id: 'pub2', name: 'tDCS Cerebellar — Balance TBI', publishDate: '2025-10-01', downloads: 43, rating: 3.8, status: 'Under Review', modality: 'tDCS' },
+    { id: 'pub3', name: 'SMR Training — Schizophrenia Cognitive', publishDate: '2026-01-05', downloads: 12, rating: 0, status: 'Draft', modality: 'Neurofeedback' },
+  ];
+
+  // ── localStorage helpers ─────────────────────────────────────────────────
+  function lsGet(key, fallback) {
+    try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : fallback; } catch { return fallback; }
+  }
+  function lsSet(key, val) {
+    try { localStorage.setItem(key, JSON.stringify(val)); } catch (_) {}
+  }
+
+  function getProtocols() {
+    const stored = lsGet('ds_marketplace_protocols', null);
+    if (!stored) { lsSet('ds_marketplace_protocols', MARKETPLACE_PROTOCOLS); return MARKETPLACE_PROTOCOLS; }
+    return stored;
+  }
+  function getFavorites()  { return lsGet('ds_marketplace_favorites', []); }
+  function getImports()    { return lsGet('ds_marketplace_imports', []); }
+  function getPublished()  {
+    const stored = lsGet('ds_published_protocols', null);
+    if (!stored) { lsSet('ds_published_protocols', PUBLISHED_SEED); return PUBLISHED_SEED; }
+    return stored;
+  }
+  function getUserProtocols() { return lsGet('ds_protocols', []); }
+
+  // ── State ─────────────────────────────────────────────────────────────────
+  let _activeTab = 'browse';
+  let _searchQ = '';
+  let _filterModality = 'All';
+  let _filterCondition = 'All';
+  let _filterEvidence = 'All';
+  let _sortBy = 'popular';
+  let _myOnly = false;
+  let _expandedSessions = {};
+
+  // ── Modality / evidence helpers ───────────────────────────────────────────
+  function modalityClass(m) { return 'mod-' + m.replace(/\s+/g, '-'); }
+  function evidenceClass(e) {
+    if (e === 'Level I')   return 'ev-I';
+    if (e === 'Level II')  return 'ev-II';
+    if (e === 'Level III') return 'ev-III';
+    return 'ev-consensus';
+  }
+  function evidenceShort(e) {
+    if (e === 'Level I')          return 'Level I (RCT)';
+    if (e === 'Level II')         return 'Level II';
+    if (e === 'Level III')        return 'Level III';
+    if (e === 'Expert Consensus') return 'Consensus';
+    return e;
+  }
+  function starsHtml(r) {
+    const full = Math.floor(r);
+    const half = r - full >= 0.5 ? 1 : 0;
+    const empty = 5 - full - half;
+    return '★'.repeat(full) + (half ? '½' : '') + '☆'.repeat(empty);
+  }
+
+  // ── Filter + sort protocols ───────────────────────────────────────────────
+  function applyFilters(list) {
+    let out = [...list];
+    if (_searchQ) {
+      const q = _searchQ.toLowerCase();
+      out = out.filter(p =>
+        p.name.toLowerCase().includes(q) ||
+        p.author.toLowerCase().includes(q) ||
+        p.institution.toLowerCase().includes(q) ||
+        (p.tags || []).some(t => t.toLowerCase().includes(q)) ||
+        (p.conditions || []).some(c => c.toLowerCase().includes(q))
+      );
+    }
+    if (_filterModality !== 'All') out = out.filter(p => p.modality === _filterModality);
+    if (_filterCondition !== 'All') out = out.filter(p => (p.conditions || []).includes(_filterCondition));
+    if (_filterEvidence !== 'All') {
+      const map = {
+        'Level I (RCT)': 'Level I', 'Level II (Controlled)': 'Level II',
+        'Level III (Case Series)': 'Level III', 'Expert Consensus': 'Expert Consensus',
+      };
+      out = out.filter(p => p.evidence === (map[_filterEvidence] || _filterEvidence));
+    }
+    if (_sortBy === 'popular')   out.sort((a,b) => b.downloads - a.downloads);
+    if (_sortBy === 'rating')    out.sort((a,b) => b.rating - a.rating);
+    if (_sortBy === 'newest')    out.sort((a,b) => (b.publishDate||'').localeCompare(a.publishDate||''));
+    if (_sortBy === 'downloads') out.sort((a,b) => b.downloads - a.downloads);
+    return out;
+  }
+
+  // ── Card HTML ─────────────────────────────────────────────────────────────
+  function buildCard(p) {
+    const imports = getImports();
+    const favs    = getFavorites();
+    const isImported = imports.some(i => i.id === p.id);
+    const isFav      = favs.includes(p.id);
+    const condBadges = (p.conditions || []).map(c =>
+      `<span class="kkk-tag" style="background:rgba(74,158,255,.07);border-color:rgba(74,158,255,.15);color:var(--accent-blue)">${c}</span>`
+    ).join('');
+    const tagBadges = (p.tags || []).slice(0, 4).map(t => `<span class="kkk-tag">${t}</span>`).join('');
+    return `
+      <div class="kkk-protocol-card modality-${p.modality.replace(/\s+/g,'-')}" id="card-${p.id}">
+        ${isImported ? '<div class="kkk-imported-badge">✓ Imported</div>' : ''}
+        <div class="kkk-card-header">
+          <div class="kkk-card-title">${p.name}</div>
+          <span class="kkk-modality-badge ${modalityClass(p.modality)}">${p.modality}</span>
+        </div>
+        <div class="kkk-card-meta">
+          <span class="author">${p.author}</span>
+          <span>${p.institution}</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+          ${condBadges}
+          <span class="kkk-evidence-badge ${evidenceClass(p.evidence)}">${evidenceShort(p.evidence)}</span>
+        </div>
+        <div class="kkk-star-display">
+          <span class="stars">${starsHtml(p.rating)}</span>
+          <span class="rating-num">${p.rating.toFixed(1)}</span>
+          <span class="dl-count">· ${p.downloads.toLocaleString()} downloads</span>
+        </div>
+        <div class="kkk-card-stats">
+          <span>📋 ${p.sessions} sessions</span>
+        </div>
+        <div class="kkk-card-desc">${p.desc}</div>
+        <div class="kkk-tags">${tagBadges}</div>
+        <div class="kkk-card-actions">
+          <button class="kkk-btn-preview" onclick="window._mpPreview('${p.id}')">Preview</button>
+          <button class="kkk-btn-import ${isImported ? 'imported' : ''}" onclick="window._mpImport('${p.id}')" ${isImported ? 'disabled' : ''}>${isImported ? '✓ Imported' : 'Import'}</button>
+          <button class="kkk-btn-fav ${isFav ? 'saved' : ''}" onclick="window._mpToggleFav('${p.id}')" title="${isFav ? 'Remove from favorites' : 'Save to favorites'}">${isFav ? '★' : '☆'}</button>
+        </div>
+      </div>`;
+  }
+
+  // ── Browse tab ────────────────────────────────────────────────────────────
+  function buildBrowse() {
+    const all = getProtocols();
+    const filtered = applyFilters(all);
+    const cards = filtered.length
+      ? filtered.map(buildCard).join('')
+      : `<div class="kkk-empty-state" style="grid-column:1/-1"><div class="ico">🔍</div><h3>No protocols found</h3><p>Try adjusting your search or filter criteria.</p></div>`;
+    return `
+      <div class="kkk-tab-bar">
+        <button class="kkk-tab ${_activeTab==='browse'?'active':''}" onclick="window._mpTab('browse')">Browse Library</button>
+        <button class="kkk-tab ${_activeTab==='published'?'active':''}" onclick="window._mpTab('published')">My Published</button>
+        <button class="kkk-tab ${_activeTab==='publish'?'active':''}" onclick="window._mpTab('publish')">Publish Protocol</button>
+      </div>
+      <div class="kkk-results-bar">
+        <span>${filtered.length} protocol${filtered.length!==1?'s':''} found</span>
+        <select style="background:var(--bg-secondary);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:.78rem;padding:4px 8px" onchange="window._mpSort(this.value)">
+          <option value="popular" ${_sortBy==='popular'?'selected':''}>Most Popular</option>
+          <option value="rating"  ${_sortBy==='rating'?'selected':''}>Highest Rated</option>
+          <option value="newest"  ${_sortBy==='newest'?'selected':''}>Newest</option>
+          <option value="downloads" ${_sortBy==='downloads'?'selected':''}>Most Downloaded</option>
+        </select>
+      </div>
+      <div class="kkk-card-grid">${cards}</div>`;
+  }
+
+  // ── My Published tab ──────────────────────────────────────────────────────
+  function buildPublished() {
+    const published = getPublished();
+    const rows = published.length ? published.map(p => {
+      const statusClass = p.status === 'Published' ? 'kkk-status-published' : p.status === 'Draft' ? 'kkk-status-draft' : 'kkk-status-review';
+      const ratingDisp  = p.rating > 0 ? `★ ${p.rating.toFixed(1)}` : 'No ratings yet';
+      return `
+        <div class="kkk-published-row">
+          <div class="kkk-published-info">
+            <div class="kkk-published-name">${p.name}</div>
+            <div class="kkk-published-meta">${p.modality} · Published ${p.publishDate} · ${p.downloads} downloads · ${ratingDisp}</div>
+          </div>
+          <span class="kkk-status-badge ${statusClass}">${p.status}</span>
+          <div style="display:flex;gap:6px;flex-shrink:0">
+            <button class="kkk-btn-preview" onclick="window._mpEditPublished('${p.id}')">Edit</button>
+            <button class="kkk-btn-fav"     onclick="window._mpUnpublish('${p.id}')">Unpublish</button>
+            <button class="kkk-btn-import"  onclick="window._mpViewAnalytics('${p.id}')">Analytics</button>
+          </div>
+        </div>`;
+    }).join('') : `<div class="kkk-empty-state"><div class="ico">📤</div><h3>No published protocols yet</h3><p>Share your clinical protocols with the community from the Publish Protocol tab.</p></div>`;
+
+    return `
+      <div class="kkk-tab-bar">
+        <button class="kkk-tab ${_activeTab==='browse'?'active':''}" onclick="window._mpTab('browse')">Browse Library</button>
+        <button class="kkk-tab ${_activeTab==='published'?'active':''}" onclick="window._mpTab('published')">My Published</button>
+        <button class="kkk-tab ${_activeTab==='publish'?'active':''}" onclick="window._mpTab('publish')">Publish Protocol</button>
+      </div>
+      <h3 style="font-size:1rem;font-weight:700;margin-bottom:16px;color:var(--text)">My Published Protocols</h3>
+      ${rows}`;
+  }
+
+  // ── Publish tab ───────────────────────────────────────────────────────────
+  function buildPublish() {
+    const userProts = getUserProtocols();
+    const opts = userProts.length
+      ? userProts.map(p => `<option value="${p.id || p.name}">${p.name || 'Unnamed Protocol'}</option>`).join('')
+      : '<option value="">No protocols in your library yet</option>';
+    return `
+      <div class="kkk-tab-bar">
+        <button class="kkk-tab ${_activeTab==='browse'?'active':''}" onclick="window._mpTab('browse')">Browse Library</button>
+        <button class="kkk-tab ${_activeTab==='published'?'active':''}" onclick="window._mpTab('published')">My Published</button>
+        <button class="kkk-tab ${_activeTab==='publish'?'active':''}" onclick="window._mpTab('publish')">Publish Protocol</button>
+      </div>
+      <div style="max-width:640px">
+        <h3 style="font-size:1rem;font-weight:700;margin-bottom:4px;color:var(--text)">Share a Protocol with the Community</h3>
+        <p style="font-size:.84rem;color:var(--text-muted);margin-bottom:20px">Published protocols are reviewed by our clinical team before appearing in the marketplace. Submissions are typically reviewed within 5 business days.</p>
+        <div class="kkk-form-row">
+          <label>Select Protocol from Your Library</label>
+          <select id="pub-select">${opts}</select>
+        </div>
+        <div class="kkk-form-row">
+          <label>Public Description (2–4 sentences)</label>
+          <textarea id="pub-desc" rows="3" placeholder="Describe the protocol's clinical application, target population, and key evidence base..."></textarea>
+        </div>
+        <div class="kkk-form-row">
+          <label>Tags (comma-separated)</label>
+          <input type="text" id="pub-tags" placeholder="e.g. depression, DLPFC, rTMS, evidence-based">
+        </div>
+        <div class="kkk-form-row">
+          <label>Intended Conditions Treated</label>
+          <input type="text" id="pub-conditions" placeholder="e.g. Depression, Anxiety, PTSD">
+        </div>
+        <div class="kkk-form-row">
+          <label>Contraindications</label>
+          <textarea id="pub-contra" rows="2" placeholder="List key contraindications, one per line..."></textarea>
+        </div>
+        <div class="kkk-form-row">
+          <label>Evidence Level</label>
+          <select id="pub-evidence">
+            <option value="Level I">Level I — RCT / Meta-analysis</option>
+            <option value="Level II" selected>Level II — Controlled Study</option>
+            <option value="Level III">Level III — Case Series / Retrospective</option>
+            <option value="Expert Consensus">Expert Consensus</option>
+          </select>
+        </div>
+        <div class="kkk-form-row">
+          <label>Evidence References (one per line)</label>
+          <textarea id="pub-refs" rows="3" placeholder="Author et al. (Year). Title. Journal vol:pages."></textarea>
+        </div>
+        <div style="display:flex;gap:10px;margin-top:20px">
+          <button class="btn-primary" style="padding:9px 22px" onclick="window._mpSubmitPublish()">Submit for Review</button>
+          <button class="btn-secondary" style="padding:9px 16px" onclick="window._mpPreviewPublish()">Preview Submission</button>
+        </div>
+      </div>`;
+  }
+
+  // ── Preview modal ─────────────────────────────────────────────────────────
+  function buildPreviewModal(p) {
+    const imports = getImports();
+    const isImported = imports.some(i => i.id === p.id);
+
+    // Params grid
+    const paramEntries = Object.entries(p.params || {});
+    const paramGrid = paramEntries.map(([k,v]) => `
+      <div class="kkk-param-cell">
+        <div class="kkk-param-label">${k.replace(/([A-Z])/g,' $1').replace(/^./,s=>s.toUpperCase())}</div>
+        <div class="kkk-param-val">${v}</div>
+      </div>`).join('');
+
+    // Rating distribution
+    const dist = p.ratingDist || [0,0,0,0,0];
+    const total = dist.reduce((a,b)=>a+b,0)||1;
+    const ratingBars = [5,4,3,2,1].map((star,i) => {
+      const count = dist[i] || 0;
+      const pct = Math.round((count/total)*100);
+      return `
+        <div class="kkk-star-bar-row">
+          <span style="width:30px;text-align:right;color:var(--text-muted);font-size:.75rem">${star}★</span>
+          <div class="kkk-star-bar-track"><div class="kkk-star-bar-fill" style="width:${pct}%"></div></div>
+          <span style="width:28px;color:var(--text-muted);font-size:.75rem">${pct}%</span>
+        </div>`;
+    }).join('');
+
+    // Session breakdown
+    const sessions = p.sessionBreakdown || [];
+    const visibleSessions = _expandedSessions[p.id] ? sessions : sessions.slice(0,5);
+    const sessHtml = visibleSessions.map(s => `
+      <div class="kkk-session-row">
+        <div class="kkk-session-num">${s.n}</div>
+        <div style="flex:1;color:var(--text-muted);line-height:1.5">${s.label}</div>
+      </div>`).join('');
+    const expandBtn = sessions.length > 5 && !_expandedSessions[p.id]
+      ? `<button class="kkk-btn-preview" style="margin-top:10px" onclick="window._mpExpandSessions('${p.id}')">See full protocol (${sessions.length - 5} more sessions)</button>`
+      : '';
+
+    // Refs
+    const refsHtml = (p.refs||[]).map(r => `<div style="font-size:.8rem;color:var(--text-muted);padding:5px 0;border-bottom:1px solid var(--border);line-height:1.5">${r}</div>`).join('');
+
+    // Contraindications
+    const contraHtml = (p.contraindications||[]).map(c=>`<li>${c}</li>`).join('');
+
+    // Outcomes
+    const outcomesHtml = (p.outcomes||[]).map(o=>`<div class="kkk-outcome-item">${o}</div>`).join('');
+
+    // Comments
+    const commHtml = (p.comments||[]).map(c => `
+      <div class="kkk-comment">
+        <div class="kkk-comment-header">
+          <div>
+            <span class="kkk-comment-author">${c.author}</span>
+            <span style="color:var(--text-muted);font-size:.75rem;margin-left:6px">${c.institution}</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:6px">
+            <span style="color:#f59e0b;font-size:.78rem">${'★'.repeat(c.stars || 5)}</span>
+            <span class="kkk-comment-date">${c.date}</span>
+          </div>
+        </div>
+        <div class="kkk-comment-body">${c.text}</div>
+      </div>`).join('');
+
+    return `
+      <div class="kkk-preview-modal" id="mp-preview-modal" onclick="window._mpClosePreview(event)">
+        <div class="kkk-preview-inner">
+          <button class="kkk-preview-close" onclick="window._mpClosePreviewBtn()">✕</button>
+          <div style="display:flex;align-items:flex-start;gap:10px;flex-wrap:wrap;margin-bottom:6px">
+            <span class="kkk-modality-badge ${modalityClass(p.modality)}" style="font-size:.73rem">${p.modality}</span>
+            <span class="kkk-evidence-badge ${evidenceClass(p.evidence)}">${evidenceShort(p.evidence)}</span>
+          </div>
+          <div class="kkk-preview-title">${p.name}</div>
+          <div class="kkk-preview-sub">${p.author} · ${p.institution} · Published ${p.publishDate || 'N/A'}</div>
+
+          <div class="kkk-star-display" style="margin-bottom:20px">
+            <span class="stars">${starsHtml(p.rating)}</span>
+            <span class="rating-num">${p.rating.toFixed(1)}</span>
+            <span class="dl-count">· ${p.downloads.toLocaleString()} downloads · ${p.sessions} sessions</span>
+          </div>
+
+          <div class="kkk-preview-section">
+            <div class="kkk-preview-section-title">Protocol Overview</div>
+            <p style="font-size:.84rem;color:var(--text-muted);line-height:1.65;margin:0">${p.desc}</p>
+          </div>
+
+          <div class="kkk-preview-section">
+            <div class="kkk-preview-section-title">Protocol Parameters</div>
+            <div class="kkk-param-grid">${paramGrid}</div>
+          </div>
+
+          <div class="kkk-preview-section">
+            <div class="kkk-preview-section-title">Evidence Base</div>
+            ${refsHtml || '<p style="font-size:.82rem;color:var(--text-muted)">No references provided.</p>'}
+          </div>
+
+          <div class="kkk-preview-section">
+            <div class="kkk-preview-section-title">Session-by-Session Breakdown</div>
+            ${sessHtml}${expandBtn}
+          </div>
+
+          <div class="kkk-preview-section">
+            <div class="kkk-preview-section-title">Patient Selection</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+              <div>
+                <div style="font-size:.72rem;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--text-muted);margin-bottom:6px">Inclusion Criteria</div>
+                <p style="font-size:.82rem;color:var(--text-muted);margin:0;line-height:1.55">${p.inclusion || 'Not specified'}</p>
+              </div>
+              <div>
+                <div style="font-size:.72rem;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--text-muted);margin-bottom:6px">Exclusion Criteria</div>
+                <p style="font-size:.82rem;color:var(--text-muted);margin:0;line-height:1.55">${p.exclusion || 'Not specified'}</p>
+              </div>
+            </div>
+          </div>
+
+          <div class="kkk-preview-section">
+            <div class="kkk-preview-section-title">Contraindications</div>
+            <ul class="kkk-contra-list">${contraHtml}</ul>
+          </div>
+
+          <div class="kkk-preview-section">
+            <div class="kkk-preview-section-title">Expected Outcomes</div>
+            <div class="kkk-outcome-list">${outcomesHtml}</div>
+          </div>
+
+          <div class="kkk-preview-section">
+            <div class="kkk-preview-section-title">User Ratings</div>
+            <div style="display:grid;grid-template-columns:auto 1fr;gap:16px;align-items:start">
+              <div style="text-align:center;padding:12px 20px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:10px">
+                <div style="font-size:2.4rem;font-weight:800;color:var(--text);line-height:1">${p.rating.toFixed(1)}</div>
+                <div style="color:#f59e0b;font-size:1rem;margin:4px 0">${starsHtml(p.rating)}</div>
+                <div style="font-size:.72rem;color:var(--text-muted)">${p.downloads.toLocaleString()} ratings</div>
+              </div>
+              <div>${ratingBars}</div>
+            </div>
+          </div>
+
+          <div class="kkk-preview-section">
+            <div class="kkk-preview-section-title">Clinician Comments</div>
+            ${commHtml}
+          </div>
+
+          <div style="padding-top:16px;border-top:1px solid var(--border);display:flex;gap:10px;align-items:center">
+            <button class="btn-primary" style="padding:9px 22px" onclick="window._mpImport('${p.id}');window._mpClosePreviewBtn()" ${isImported?'disabled':''}>
+              ${isImported ? '✓ Already Imported' : 'Import to My Protocols'}
+            </button>
+            <button class="kkk-btn-fav" onclick="window._mpToggleFav('${p.id}')" id="mp-modal-fav-${p.id}">
+              ${getFavorites().includes(p.id) ? '★ Saved' : '☆ Save to Favorites'}
+            </button>
+            <span style="font-size:.78rem;color:var(--text-muted);margin-left:auto">${p.sessions} sessions · ${p.conditions?.join(', ')}</span>
+          </div>
+        </div>
+      </div>`;
+  }
+
+  // ── Analytics modal ───────────────────────────────────────────────────────
+  function buildAnalyticsModal(pub) {
+    // 12-week download trend (SVG)
+    const weeks = Array.from({length:12},(_,i) => Math.round(pub.downloads * (0.03 + Math.random()*0.14)));
+    const mx = Math.max(...weeks,1);
+    const W=440, H=80;
+    const pts = weeks.map((v,i)=>{
+      const x=(i/(weeks.length-1))*(W-20)+10;
+      const y=H-((v/mx)*(H-16))-2;
+      return `${x.toFixed(1)},${y.toFixed(1)}`;
+    }).join(' ');
+    const bars = weeks.map((v,i)=>{
+      const x=(i/(weeks.length-1))*(W-20)+10;
+      const bh=((v/mx)*(H-16));
+      return `<rect x="${(x-6).toFixed(1)}" y="${(H-bh-2).toFixed(1)}" width="12" height="${bh.toFixed(1)}" rx="2" fill="rgba(0,212,188,.35)"/>`;
+    }).join('');
+    const trend = `<svg width="${W}" height="${H}" style="overflow:visible">${bars}<polyline points="${pts}" fill="none" stroke="var(--accent-teal)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/></svg>`;
+
+    const cities = [
+      {city:'New York', pct:28}, {city:'Los Angeles',pct:21}, {city:'Toronto',pct:17}, {city:'London',pct:14},
+    ];
+    const condUsage = (pub.modality ? [
+      {label:pub.modality,pct:62},{label:'Co-morbid cases',pct:24},{label:'Research use',pct:14}
+    ] : []);
+
+    return `
+      <div class="kkk-analytics-modal" id="mp-analytics-modal" onclick="window._mpCloseAnalytics(event)">
+        <div class="kkk-analytics-inner">
+          <button class="kkk-preview-close" onclick="window._mpCloseAnalyticsBtn()" style="top:14px;right:14px">✕</button>
+          <h3 style="font-size:1rem;font-weight:800;color:var(--text);margin-bottom:4px;padding-right:40px">${pub.name}</h3>
+          <p style="font-size:.8rem;color:var(--text-muted);margin-bottom:20px">${pub.status} · ${pub.downloads} total downloads · ${pub.rating > 0 ? `★ ${pub.rating.toFixed(1)}` : 'No ratings yet'}</p>
+
+          <div style="margin-bottom:20px">
+            <div class="kkk-preview-section-title" style="font-size:.7rem;color:var(--accent-teal);font-weight:700;letter-spacing:.07em;text-transform:uppercase;margin-bottom:10px;border-bottom:1px solid var(--border);padding-bottom:6px">Download Trend (Last 12 Weeks)</div>
+            <div style="overflow-x:auto">${trend}</div>
+            <div style="display:flex;justify-content:space-between;font-size:.68rem;color:var(--text-muted);margin-top:4px;padding:0 10px">
+              <span>12w ago</span><span>Now</span>
+            </div>
+          </div>
+
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
+            <div>
+              <div class="kkk-preview-section-title" style="font-size:.7rem;color:var(--accent-teal);font-weight:700;letter-spacing:.07em;text-transform:uppercase;margin-bottom:10px;border-bottom:1px solid var(--border);padding-bottom:6px">Usage by Condition</div>
+              ${condUsage.map(c=>`
+                <div style="display:flex;align-items:center;gap:8px;margin-bottom:7px;font-size:.8rem">
+                  <span style="flex:1;color:var(--text-muted)">${c.label}</span>
+                  <div style="width:80px;height:5px;background:var(--bg-secondary);border-radius:3px;overflow:hidden">
+                    <div style="width:${c.pct}%;height:100%;background:var(--accent-blue);border-radius:3px"></div>
+                  </div>
+                  <span style="color:var(--text);font-weight:600;min-width:30px">${c.pct}%</span>
+                </div>`).join('')}
+            </div>
+            <div>
+              <div class="kkk-preview-section-title" style="font-size:.7rem;color:var(--accent-teal);font-weight:700;letter-spacing:.07em;text-transform:uppercase;margin-bottom:10px;border-bottom:1px solid var(--border);padding-bottom:6px">Top Locations</div>
+              ${cities.map(c=>`
+                <div style="display:flex;align-items:center;gap:8px;margin-bottom:7px;font-size:.8rem">
+                  <span style="flex:1;color:var(--text-muted)">${c.city}</span>
+                  <div style="width:80px;height:5px;background:var(--bg-secondary);border-radius:3px;overflow:hidden">
+                    <div style="width:${c.pct}%;height:100%;background:var(--accent-violet);border-radius:3px"></div>
+                  </div>
+                  <span style="color:var(--text);font-weight:600;min-width:30px">${c.pct}%</span>
+                </div>`).join('')}
+            </div>
+          </div>
+        </div>
+      </div>`;
+  }
+
+  // ── Main render ───────────────────────────────────────────────────────────
+  function renderMain() {
+    const mainEl = document.getElementById('kkk-main');
+    if (!mainEl) return;
+    if (_activeTab === 'browse')    mainEl.innerHTML = buildBrowse();
+    if (_activeTab === 'published') mainEl.innerHTML = buildPublished();
+    if (_activeTab === 'publish')   mainEl.innerHTML = buildPublish();
+  }
+
+  // ── Sidebar HTML ─────────────────────────────────────────────────────────
+  function buildSidebar() {
+    return `
+      <div class="kkk-filter-group">
+        <label>Search</label>
+        <input type="text" id="mp-search" placeholder="Protocol name, author, tag…" value="${_searchQ}" oninput="window._mpSearch(this.value)">
+      </div>
+      <div class="kkk-filter-group">
+        <label>Modality</label>
+        <select onchange="window._mpFilter('modality',this.value)">
+          ${['All','TMS','Neurofeedback','tDCS','Biofeedback','PEMF','HEG','Multi-modal'].map(m=>
+            `<option value="${m}" ${_filterModality===m?'selected':''}>${m}</option>`).join('')}
+        </select>
+      </div>
+      <div class="kkk-filter-group">
+        <label>Condition</label>
+        <select onchange="window._mpFilter('condition',this.value)">
+          ${['All','ADHD','Depression','Anxiety','PTSD','OCD','Insomnia','Chronic Pain','TBI','Autism','Migraine','Schizophrenia'].map(c=>
+            `<option value="${c}" ${_filterCondition===c?'selected':''}>${c}</option>`).join('')}
+        </select>
+      </div>
+      <div class="kkk-filter-group">
+        <label>Evidence Level</label>
+        <select onchange="window._mpFilter('evidence',this.value)">
+          ${['All','Level I (RCT)','Level II (Controlled)','Level III (Case Series)','Expert Consensus'].map(e=>
+            `<option value="${e}" ${_filterEvidence===e?'selected':''}>${e}</option>`).join('')}
+        </select>
+      </div>
+      <label class="kkk-filter-toggle ${_myOnly?'active':''}" onclick="window._mpToggleMyOnly()">
+        <input type="checkbox" ${_myOnly?'checked':''} onclick="event.stopPropagation()"> My Published Protocols
+      </label>
+      <div style="border-top:1px solid var(--border);padding-top:14px">
+        <div style="font-size:.72rem;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--text-muted);margin-bottom:8px">Quick Stats</div>
+        ${(() => {
+          const all = getProtocols();
+          const imps = getImports();
+          const favs = getFavorites();
+          return `
+            <div style="display:flex;flex-direction:column;gap:6px">
+              <div style="font-size:.8rem;color:var(--text-muted);display:flex;justify-content:space-between"><span>Total Protocols</span><strong style="color:var(--text)">${all.length}</strong></div>
+              <div style="font-size:.8rem;color:var(--text-muted);display:flex;justify-content:space-between"><span>Imported</span><strong style="color:var(--accent-teal)">${imps.length}</strong></div>
+              <div style="font-size:.8rem;color:var(--text-muted);display:flex;justify-content:space-between"><span>Favorites</span><strong style="color:#f59e0b">${favs.length}</strong></div>
+            </div>`;
+        })()}
+      </div>`;
+  }
+
+  // ── Toast ─────────────────────────────────────────────────────────────────
+  function showToast(msg, isSuccess = true) {
+    let t = document.getElementById('kkk-toast');
+    if (!t) {
+      t = document.createElement('div');
+      t.id = 'kkk-toast';
+      t.className = 'kkk-toast';
+      document.body.appendChild(t);
+    }
+    t.textContent = (isSuccess ? '✓ ' : '⚠ ') + msg;
+    t.style.borderColor = isSuccess ? 'rgba(0,212,188,.3)' : 'rgba(245,158,11,.3)';
+    t.classList.add('show');
+    clearTimeout(window._kkkToastTimer);
+    window._kkkToastTimer = setTimeout(() => t.classList.remove('show'), 3200);
+  }
+
+  // ── DOM injection ─────────────────────────────────────────────────────────
+  document.getElementById('app-content').innerHTML = `
+    <div class="kkk-marketplace-layout" id="kkk-root" style="height:calc(100vh - 64px)">
+      <aside class="kkk-sidebar" id="kkk-sidebar">${buildSidebar()}</aside>
+      <main class="kkk-main-content" id="kkk-main"></main>
+    </div>`;
+
+  renderMain();
+
+  // ── Window handlers ───────────────────────────────────────────────────────
+
+  window._mpTab = function(tab) {
+    _activeTab = tab;
+    renderMain();
+    // Also refresh sidebar stats
+    const sb = document.getElementById('kkk-sidebar');
+    if (sb) sb.innerHTML = buildSidebar();
+  };
+
+  window._mpSearch = function(val) {
+    _searchQ = val;
+    renderMain();
+  };
+
+  window._mpFilter = function(type, val) {
+    if (type === 'modality')  _filterModality  = val;
+    if (type === 'condition') _filterCondition = val;
+    if (type === 'evidence')  _filterEvidence  = val;
+    renderMain();
+    // Keep sidebar in sync
+    const sb = document.getElementById('kkk-sidebar');
+    if (sb) sb.innerHTML = buildSidebar();
+  };
+
+  window._mpSort = function(val) {
+    _sortBy = val;
+    renderMain();
+  };
+
+  window._mpToggleMyOnly = function() {
+    _myOnly = !_myOnly;
+    renderMain();
+    const sb = document.getElementById('kkk-sidebar');
+    if (sb) sb.innerHTML = buildSidebar();
+  };
+
+  window._mpPreview = function(id) {
+    const protos = getProtocols();
+    const p = protos.find(x => x.id === id);
+    if (!p) return;
+    document.body.insertAdjacentHTML('beforeend', buildPreviewModal(p));
+    document.body.style.overflow = 'hidden';
+  };
+
+  window._mpClosePreview = function(e) {
+    if (e.target.id === 'mp-preview-modal') window._mpClosePreviewBtn();
+  };
+
+  window._mpClosePreviewBtn = function() {
+    const m = document.getElementById('mp-preview-modal');
+    if (m) { m.remove(); document.body.style.overflow = ''; }
+  };
+
+  window._mpExpandSessions = function(id) {
+    _expandedSessions[id] = true;
+    const protos = getProtocols();
+    const p = protos.find(x => x.id === id);
+    if (!p) return;
+    // Rebuild just the session section
+    const modal = document.getElementById('mp-preview-modal');
+    if (modal) { modal.remove(); document.body.style.overflow = ''; }
+    document.body.insertAdjacentHTML('beforeend', buildPreviewModal(p));
+    document.body.style.overflow = 'hidden';
+  };
+
+  window._mpImport = function(id) {
+    const protos = getProtocols();
+    const p = protos.find(x => x.id === id);
+    if (!p) return;
+    const imports = getImports();
+    if (imports.some(i => i.id === id)) { showToast('Already imported to your protocols'); return; }
+    // Add to import history
+    imports.push({ id, name: p.name, importedAt: new Date().toISOString() });
+    lsSet('ds_marketplace_imports', imports);
+    // Also add to ds_protocols if not present
+    const userProts = getUserProtocols();
+    if (!userProts.some(u => u.marketplaceId === id || u.name === p.name)) {
+      userProts.push({
+        id: 'imported_' + id + '_' + Date.now(),
+        marketplaceId: id,
+        name: p.name,
+        modality: p.modality,
+        conditions: p.conditions,
+        sessions: p.sessions,
+        importedFrom: 'marketplace',
+        importedAt: new Date().toISOString(),
+        params: p.params,
+        author: p.author,
+        institution: p.institution,
+      });
+      lsSet('ds_protocols', userProts);
+    }
+    showToast(`"${p.name}" imported to your protocols`);
+    // Refresh card in grid
+    const cardEl = document.getElementById('card-' + id);
+    if (cardEl) {
+      const newCard = document.createElement('div');
+      newCard.innerHTML = buildCard(p);
+      cardEl.replaceWith(newCard.firstElementChild);
+    }
+    // Refresh sidebar stats
+    const sb = document.getElementById('kkk-sidebar');
+    if (sb) sb.innerHTML = buildSidebar();
+  };
+
+  window._mpToggleFav = function(id) {
+    const favs = getFavorites();
+    const idx = favs.indexOf(id);
+    if (idx === -1) { favs.push(id); showToast('Saved to favorites'); }
+    else { favs.splice(idx, 1); showToast('Removed from favorites', false); }
+    lsSet('ds_marketplace_favorites', favs);
+    // Update card fav button
+    const cardEl = document.getElementById('card-' + id);
+    if (cardEl) {
+      const btn = cardEl.querySelector('.kkk-btn-fav');
+      if (btn) {
+        btn.textContent = favs.includes(id) ? '★' : '☆';
+        btn.classList.toggle('saved', favs.includes(id));
+      }
+    }
+    // Update modal fav button if open
+    const modalFavBtn = document.getElementById('mp-modal-fav-' + id);
+    if (modalFavBtn) modalFavBtn.textContent = favs.includes(id) ? '★ Saved' : '☆ Save to Favorites';
+    // Refresh sidebar
+    const sb = document.getElementById('kkk-sidebar');
+    if (sb) sb.innerHTML = buildSidebar();
+  };
+
+  window._mpEditPublished = function(id) {
+    showToast('Opening editor for published protocol…', true);
+  };
+
+  window._mpUnpublish = function(id) {
+    const pubs = getPublished();
+    const p = pubs.find(x => x.id === id);
+    if (!p) return;
+    if (!confirm(`Unpublish "${p.name}" from the marketplace?`)) return;
+    const updated = pubs.map(x => x.id === id ? {...x, status:'Draft'} : x);
+    lsSet('ds_published_protocols', updated);
+    showToast(`"${p.name}" moved to Draft`);
+    renderMain();
+  };
+
+  window._mpViewAnalytics = function(id) {
+    const pubs = getPublished();
+    const p = pubs.find(x => x.id === id);
+    if (!p) return;
+    document.body.insertAdjacentHTML('beforeend', buildAnalyticsModal(p));
+    document.body.style.overflow = 'hidden';
+  };
+
+  window._mpCloseAnalytics = function(e) {
+    if (e.target.id === 'mp-analytics-modal') window._mpCloseAnalyticsBtn();
+  };
+
+  window._mpCloseAnalyticsBtn = function() {
+    const m = document.getElementById('mp-analytics-modal');
+    if (m) { m.remove(); document.body.style.overflow = ''; }
+  };
+
+  window._mpSubmitPublish = function() {
+    const desc  = document.getElementById('pub-desc')?.value?.trim();
+    const sel   = document.getElementById('pub-select')?.value;
+    if (!sel)  { showToast('Please select a protocol from your library', false); return; }
+    if (!desc) { showToast('Please add a public description', false); return; }
+    const tags      = (document.getElementById('pub-tags')?.value||'').split(',').map(t=>t.trim()).filter(Boolean);
+    const conds     = (document.getElementById('pub-conditions')?.value||'').split(',').map(c=>c.trim()).filter(Boolean);
+    const contra    = document.getElementById('pub-contra')?.value?.trim();
+    const evidence  = document.getElementById('pub-evidence')?.value || 'Level II';
+    const refs      = (document.getElementById('pub-refs')?.value||'').split('\n').map(r=>r.trim()).filter(Boolean);
+    const pubs = getPublished();
+    pubs.push({
+      id: 'pub_' + Date.now(),
+      name: sel,
+      publishDate: new Date().toISOString().slice(0,10),
+      downloads: 0,
+      rating: 0,
+      status: 'Under Review',
+      modality: 'Custom',
+      desc, tags, conditions: conds, contraindications: contra, evidence, refs,
+    });
+    lsSet('ds_published_protocols', pubs);
+    showToast('Protocol submitted for review');
+    _activeTab = 'published';
+    renderMain();
+    const sb = document.getElementById('kkk-sidebar');
+    if (sb) sb.innerHTML = buildSidebar();
+  };
+
+  window._mpPreviewPublish = function() {
+    const sel  = document.getElementById('pub-select')?.value;
+    const desc = document.getElementById('pub-desc')?.value?.trim();
+    if (!sel) { showToast('Please select a protocol first', false); return; }
+    showToast(`Preview: "${sel}" — ${desc ? desc.slice(0,60)+'…' : 'No description yet'}`, true);
+  };
+
+  // Keyboard escape closes modals
+  window._mpKeyHandler = function(e) {
+    if (e.key === 'Escape') {
+      window._mpClosePreviewBtn?.();
+      window._mpCloseAnalyticsBtn?.();
+    }
+  };
+  document.addEventListener('keydown', window._mpKeyHandler);
+}

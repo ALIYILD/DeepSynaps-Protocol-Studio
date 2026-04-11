@@ -1796,6 +1796,9 @@ export async function pgProfile(setTopbar, navigate) {
   const id = window._selectedPatientId;
   if (!id) { navigate('patients'); return; }
 
+  // Always reset to the overview tab on each patient profile load
+  ptab = 'courses';
+
   const el = document.getElementById('content');
   el.innerHTML = spinner();
 
@@ -1803,7 +1806,7 @@ export async function pgProfile(setTopbar, navigate) {
   try {
     [pt, sessions, courses] = await Promise.all([
       api.getPatient(id),
-      api.listSessions(id).then(r => r?.items || []),
+      api.listSessions(id).then(r => r?.items || []).catch(() => []),
       api.listCourses({ patient_id: id }).then(r => r?.items || []).catch(() => []),
     ]);
   } catch {}
@@ -1857,7 +1860,10 @@ export async function pgProfile(setTopbar, navigate) {
 
   window.switchPT = async function(t) {
     ptab = t;
-    document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.textContent.trim().startsWith(t)));
+    document.querySelectorAll('.tab-btn').forEach(b => {
+      const onclickAttr = b.getAttribute('onclick') || '';
+      b.classList.toggle('active', onclickAttr.includes(`'${t}'`));
+    });
     if (t === 'phenotype') {
       document.getElementById('ptab-body').innerHTML = spinner();
       const [assigns, phenos] = await Promise.all([
@@ -2211,6 +2217,8 @@ function renderProfileTab(pt, sessions, courses = []) {
   if (ptab === 'outcomes') return spinner();
   if (ptab === 'phenotype') return spinner();
   if (ptab === 'consent') return spinner();
+  if (ptab === 'monitoring') return spinner();
+  if (ptab === 'home-therapy') return spinner();
 
   return '';
 }

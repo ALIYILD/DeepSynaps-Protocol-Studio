@@ -204,6 +204,12 @@ class ReviewQueueOut(BaseModel):
     target_id: str
     target_type: str
     patient_id: str
+    patient_name: Optional[str]        # enriched: "{first} {last}" from Patient record
+    course_id: Optional[str]           # alias for target_id when target_type == "treatment_course"
+    course_name: Optional[str]         # "{condition_slug} · {modality_slug}"
+    condition_slug: Optional[str]      # enriched from linked TreatmentCourse
+    modality_slug: Optional[str]       # enriched from linked TreatmentCourse
+    primary_condition: Optional[str]   # enriched from Patient record
     assigned_to: Optional[str]
     priority: str
     status: str
@@ -213,15 +219,36 @@ class ReviewQueueOut(BaseModel):
     created_at: str
 
     @classmethod
-    def from_record(cls, r: ReviewQueueItem) -> "ReviewQueueOut":
+    def from_record(
+        cls,
+        r: ReviewQueueItem,
+        patient_name: Optional[str] = None,
+        condition_slug: Optional[str] = None,
+        modality_slug: Optional[str] = None,
+        primary_condition: Optional[str] = None,
+    ) -> "ReviewQueueOut":
         def _dt(v) -> Optional[str]:
             return v.isoformat() if isinstance(v, datetime) else v
+
+        course_id = r.target_id if r.target_type == "treatment_course" else None
+        course_name: Optional[str] = None
+        if condition_slug and modality_slug:
+            course_name = f"{condition_slug} · {modality_slug}"
+        elif condition_slug:
+            course_name = condition_slug
+
         return cls(
             id=r.id,
             item_type=r.item_type,
             target_id=r.target_id,
             target_type=r.target_type,
             patient_id=r.patient_id,
+            patient_name=patient_name,
+            course_id=course_id,
+            course_name=course_name,
+            condition_slug=condition_slug,
+            modality_slug=modality_slug,
+            primary_condition=primary_condition,
             assigned_to=r.assigned_to,
             priority=r.priority,
             status=r.status,
@@ -586,7 +613,43 @@ def list_review_queue(
         q = q.filter(ReviewQueueItem.assigned_to == reviewer_id)
 
     records = q.order_by(ReviewQueueItem.created_at.desc()).all()
-    items = [ReviewQueueOut.from_record(r) for r in records]
+
+    # Enrich with patient name + course details via lookup
+    from app.persistence.models import Patient as _Patient
+
+    patient_ids = list({r.patient_id for r in records if r.patient_id})
+    course_ids  = list({r.target_id  for r in records if r.target_type == "treatment_course"})
+
+    patients_by_id: dict[str, _Patient] = {}
+    if patient_ids:
+        for p in db.query(_Patient).filter(_Patient.id.in_(patient_ids)).all():
+            patients_by_id[p.id] = p
+
+    courses_by_id: dict[str, TreatmentCourse] = {}
+    if course_ids:
+        for c in db.query(TreatmentCourse).filter(TreatmentCourse.id.in_(course_ids)).all():
+            courses_by_id[c.id] = c
+
+    items: list[ReviewQueueOut] = []
+    for r in records:
+        pt = patients_by_id.get(r.patient_id)
+        patient_name = (
+            f"{pt.first_name} {pt.last_name}".strip() if pt else None
+        )
+        primary_condition = pt.primary_condition if pt else None
+
+        course = courses_by_id.get(r.target_id) if r.target_type == "treatment_course" else None
+        condition_slug = course.condition_slug if course else None
+        modality_slug  = course.modality_slug  if course else None
+
+        items.append(ReviewQueueOut.from_record(
+            r,
+            patient_name=patient_name,
+            condition_slug=condition_slug,
+            modality_slug=modality_slug,
+            primary_condition=primary_condition,
+        ))
+
     return ReviewQueueListResponse(items=items, total=len(items))
 
 

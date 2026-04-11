@@ -270,8 +270,22 @@ def aggregate_outcomes(
 
     avg_phq9_drop = round(sum(phq9_deltas) / len(phq9_deltas), 1) if phq9_deltas else None
 
+    # Responder rate: proportion of courses-with-outcomes where any template shows ≥50% reduction
+    responder_rate_pct: Optional[float] = None
+    if course_count > 0:
+        responder_rate_pct = round(responder_count / course_count * 100, 1)
+
+    # Assessment completion: proportion of outcome records that have a numeric score
+    total_records = len(records)
+    scored_records = sum(1 for r in records if r.score_numeric is not None)
+    assessment_completion_pct: Optional[float] = None
+    if total_records > 0:
+        assessment_completion_pct = round(scored_records / total_records * 100, 1)
+
     return {
         "courses_with_outcomes": course_count,
         "responders": responder_count,
         "avg_phq9_drop": avg_phq9_drop,
+        "responder_rate_pct": responder_rate_pct,
+        "assessment_completion_pct": assessment_completion_pct,
     }
