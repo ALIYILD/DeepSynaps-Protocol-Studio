@@ -249,13 +249,22 @@ window._restoreProtoVersion = function(id) {
 
 // ── Dashboard local helpers ──────────────────────────────────────────────────
 
+function _emptyState(icon, headline, subtext, actionLabel, actionFn) {
+  return `<div class="ds-empty-state">
+    <div class="ds-empty-state-icon">${icon}</div>
+    <div class="ds-empty-state-headline">${headline}</div>
+    <div class="ds-empty-state-subtext">${subtext}</div>
+    ${actionLabel ? `<button class="btn btn-ghost btn-sm" onclick="${actionFn}">${actionLabel}</button>` : ''}
+  </div>`;
+}
+
 function _dStatCard(label, value, sub, color, navId, alert = false) {
   const leftBorder = alert ? `border-left:3px solid ${color};padding-left:13px;` : '';
-  return `<div class="metric-card" style="cursor:pointer;${leftBorder}"
+  return `<div class="metric-card" style="cursor:pointer;min-height:88px;${leftBorder}"
       onclick="window._nav('${navId}')"
       onmouseover="this.style.borderColor='${alert ? color : 'var(--border-teal)'}'"
       onmouseout="this.style.borderColor='${alert ? color : 'var(--border)'}'">
-    <div style="font-size:10px;font-weight:600;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.9px;margin-bottom:8px">${label}</div>
+    <div style="font-size:11px;font-weight:600;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.9px;margin-bottom:8px">${label}</div>
     <div style="font-size:30px;font-weight:700;color:${color};font-family:var(--font-mono);line-height:1;margin-bottom:6px">${value}</div>
     <div style="font-size:11px;color:var(--text-secondary)">${sub}</div>
   </div>`;
@@ -578,12 +587,12 @@ export async function pgDash(setTopbar, navigate) {
 
   // ── KPI stat bar ──────────────────────────────────────────────────────────
   const statBar = `<div style="display:grid;grid-template-columns:repeat(6,1fr);gap:10px;margin-bottom:16px">
-    <div style="border-left:3px solid var(--teal)">${_dStatCard('Total Patients', patCount, `${activePatientIds.length} in active treatment`, 'var(--teal)', 'patients')}</div>
-    <div style="border-left:3px solid var(--blue)">${_dStatCard('Active Courses', activeCourses.length, `${sessionsPerWeek} sessions/week planned`, 'var(--blue)', 'courses')}</div>
-    <div style="border-left:3px solid var(--green)">${_dStatCard('Sessions Delivered', totalDelivered, `${completedCourses.length} courses completed`, 'var(--green)', 'courses')}</div>
-    <div style="border-left:3px solid ${pendingQueue.length > 0 ? 'var(--amber)' : 'var(--border)'}">${_dStatCard('Pending Reviews', pendingQueue.length || 0, pendingQueue.length > 0 ? 'Action required' : 'Queue clear', pendingQueue.length > 0 ? 'var(--amber)' : 'var(--green)', 'review-queue', pendingQueue.length > 0)}</div>
-    <div style="border-left:3px solid ${(alertFlags > 0 || wearableUrgentCount > 0) ? 'var(--red)' : 'var(--border)'}">${_dStatCard('Safety Flags', (alertFlags || 0) + (wearableUrgentCount || 0), (() => { const parts = []; if (flaggedCourses.length) parts.push(flaggedCourses.length + ' gov'); if (seriousAEs.length) parts.push(seriousAEs.length + ' AE'); if (wearableUrgentCount) parts.push(wearableUrgentCount + ' wearable'); return parts.length ? parts.join(' · ') : 'No active flags'; })(), (alertFlags > 0 || wearableUrgentCount > 0) ? 'var(--red)' : 'var(--green)', 'adverse-events', alertFlags > 0 || wearableUrgentCount > 0)}</div>
-    <div style="border-left:3px solid ${mediaQueueBorderColor}">${_dStatCard('Media Queue', mediaNeedsAttention.length, mediaQueueSub, mediaQueueColor, 'media-queue', mediaNeedsAttention.length > 0)}</div>
+    <div class="stat-card--teal">${_dStatCard('Total Patients', patCount, `${activePatientIds.length} in active treatment`, 'var(--teal)', 'patients')}</div>
+    <div class="stat-card--blue">${_dStatCard('Active Courses', activeCourses.length, `${sessionsPerWeek} sessions/week planned`, 'var(--blue)', 'courses')}</div>
+    <div class="stat-card--blue">${_dStatCard('Sessions Delivered', totalDelivered, `${completedCourses.length} courses completed`, 'var(--blue)', 'courses')}</div>
+    <div class="${pendingQueue.length > 0 ? 'stat-card--amber' : ''}">${_dStatCard('Pending Reviews', pendingQueue.length || 0, pendingQueue.length > 0 ? 'Action required' : 'Queue clear', pendingQueue.length > 0 ? 'var(--amber)' : 'var(--green)', 'review-queue', pendingQueue.length > 0)}</div>
+    <div class="${(alertFlags > 0 || wearableUrgentCount > 0) ? 'stat-card--amber' : ''}">${_dStatCard('Safety Flags', (alertFlags || 0) + (wearableUrgentCount || 0), (() => { const parts = []; if (flaggedCourses.length) parts.push(flaggedCourses.length + ' gov'); if (seriousAEs.length) parts.push(seriousAEs.length + ' AE'); if (wearableUrgentCount) parts.push(wearableUrgentCount + ' wearable'); return parts.length ? parts.join(' · ') : 'No active flags'; })(), (alertFlags > 0 || wearableUrgentCount > 0) ? 'var(--red)' : 'var(--green)', 'adverse-events', alertFlags > 0 || wearableUrgentCount > 0)}</div>
+    <div class="${mediaNeedsAttention.length > 0 ? 'stat-card--violet' : ''}">${_dStatCard('Media Queue', mediaNeedsAttention.length, mediaQueueSub, mediaQueueColor, 'media-queue', mediaNeedsAttention.length > 0)}</div>
   </div>`;
 
   // ── Today's Schedule + Action Items ──────────────────────────────────────
@@ -596,17 +605,17 @@ export async function pgDash(setTopbar, navigate) {
   ].filter(i => i.show);
 
   const rowToday = `<div class="g2" style="margin-bottom:14px;align-items:start">
-  <div class="card" style="overflow:hidden">
+  <div class="card card--interactive" style="overflow:hidden">
     <div style="padding:13px 16px 11px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--border)">
-      <span style="font-weight:600;font-size:13px">Today's Schedule</span>
+      <span class="card-section-label">Today's Schedule</span>
       <button class="btn btn-sm" style="font-size:10.5px" onclick="window._nav('session-execution')">Start Session →</button>
     </div>
-    ${renderUpcomingSessionsWidget([])}
+    ${activeCourses.length === 0 ? _emptyState('📅', 'No appointments today', 'Schedule a session to get started', 'Add Appointment', "window._nav('calendar')") : renderUpcomingSessionsWidget([])}
     <div style="padding:8px 16px 10px;font-size:10.5px;color:var(--text-tertiary)">Connect calendar sync to see real-time session schedule</div>
   </div>
-  <div class="card" style="overflow:hidden">
+  <div class="card card--interactive" style="overflow:hidden">
     <div style="padding:13px 16px 11px;border-bottom:1px solid var(--border)">
-      <span style="font-weight:600;font-size:13px">Action Items</span>
+      <span class="card-section-label">Action Items</span>
       ${actionItems.length > 0
         ? `<span style="font-size:11px;font-weight:700;color:var(--red);font-family:var(--font-mono);margin-left:8px">${actionItems.length} urgent</span>`
         : `<span style="font-size:11px;color:var(--green);margin-left:8px">✓ Clear</span>`}
@@ -620,10 +629,7 @@ export async function pgDash(setTopbar, navigate) {
         <span style="font-size:12px;font-weight:700;color:${i.color};font-family:var(--font-mono)">${i.count}</span>
         <span style="color:var(--text-tertiary);font-size:12px">→</span>
       </div>`).join('')
-      : `<div style="padding:32px 16px;text-align:center">
-          <div style="font-size:20px;margin-bottom:6px">✓</div>
-          <div style="font-size:12.5px;color:var(--green)">All clear — no urgent actions</div>
-        </div>`}
+      : _emptyState('✓', 'All clear', 'No pending tasks or alerts', null, null)}
   </div>
 </div>`;
 
@@ -645,9 +651,9 @@ export async function pgDash(setTopbar, navigate) {
   ];
 
   const rowA = `<div class="g2" style="margin-bottom:14px;align-items:start">
-    <div class="card" style="overflow:hidden">
+    <div class="card card--interactive" style="overflow:hidden">
       <div style="padding:13px 16px 11px;border-bottom:1px solid var(--border)">
-        <span style="font-weight:600;font-size:13px">Quick Actions</span>
+        <span class="card-section-label">Quick Actions</span>
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:1px;background:var(--border)">
         ${quickActions.map(a => `
@@ -660,29 +666,21 @@ export async function pgDash(setTopbar, navigate) {
       </div>
     </div>
 
-    <div class="card" style="overflow:hidden">
+    <div class="card card--interactive" style="overflow:hidden">
       <div style="padding:13px 16px 11px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--border)">
-        <span style="font-weight:600;font-size:13px">Clinic Queue</span>
+        <span class="card-section-label">Clinic Queue</span>
         <button class="btn btn-sm" style="font-size:10.5px" onclick="window._nav('courses')">All Courses →</button>
       </div>
       ${clinicQueueRows.length
         ? clinicQueueRows.join('')
-        : `<div style="padding:40px 16px;text-align:center">
-            <div style="font-size:28px;margin-bottom:8px;opacity:0.3">◎</div>
-            <div style="font-size:12.5px;color:var(--text-tertiary);margin-bottom:12px">No active courses yet</div>
-            <button class="btn btn-primary btn-sm" onclick="window._nav('protocol-wizard')">Create First Course →</button>
-          </div>`
+        : _emptyState('📝', 'No recent notes', 'Notes from sessions will appear here', null, null)
       }
     </div>
   </div>`;
 
   // ── Row B: Active Patients + Governance ────────────────────────────────────
   const activePatientsHTML = activePatients.length === 0
-    ? `<div style="padding:40px 16px;text-align:center">
-        <div style="font-size:28px;margin-bottom:8px;opacity:0.3">◉</div>
-        <div style="font-size:12.5px;color:var(--text-tertiary);margin-bottom:12px">No patients in active treatment</div>
-        <button class="btn btn-sm" onclick="window._nav('patients')">Add Patient →</button>
-      </div>`
+    ? _emptyState('👤', 'No patients yet', 'Import records or add your first patient', 'Add Patient', "window._nav('patients')")
     : activePatients.map(({ pt, courses }) => {
         const c0 = courses[0];
         const pct = c0?.planned_sessions_total > 0
@@ -710,10 +708,10 @@ export async function pgDash(setTopbar, navigate) {
         </div>`;
       }).join('');
 
-  const activePatientsPanel = `<div class="card" style="overflow:hidden">
+  const activePatientsPanel = `<div class="card card--interactive" style="overflow:hidden">
     <div style="padding:13px 16px 11px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--border)">
       <div>
-        <span style="font-weight:600;font-size:13px">Active Patients</span>
+        <span class="card-section-label">Active Patients</span>
         <span style="font-size:11px;color:var(--text-tertiary);margin-left:8px">${activePatients.length} in treatment</span>
       </div>
       <button class="btn btn-sm" style="font-size:10.5px" onclick="window._nav('patients')">All Patients →</button>
@@ -721,9 +719,9 @@ export async function pgDash(setTopbar, navigate) {
     ${activePatientsHTML}
   </div>`;
 
-  const governancePanel = `<div class="card" style="overflow:hidden">
+  const governancePanel = `<div class="card card--interactive" style="overflow:hidden">
     <div style="padding:13px 16px 11px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--border)">
-      <span style="font-weight:600;font-size:13px">Review &amp; Governance</span>
+      <span class="card-section-label">Review &amp; Governance</span>
       <button class="btn btn-sm" style="font-size:10.5px" onclick="window._nav('review-queue')">Queue →</button>
     </div>
     ${_dGovSection('Approvals Pending', pendingQueue.length,
@@ -793,9 +791,9 @@ export async function pgDash(setTopbar, navigate) {
 
   // ── Row C: Outcomes + Capacity ─────────────────────────────────────────────
   const rowC = `<div class="g2" style="margin-bottom:14px;align-items:start">
-    <div class="card" style="overflow:hidden">
+    <div class="card card--interactive" style="overflow:hidden">
       <div style="padding:13px 16px 11px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--border)">
-        <span style="font-weight:600;font-size:13px">Outcomes Snapshot</span>
+        <span class="card-section-label">Outcomes Snapshot</span>
         <button class="btn btn-sm" style="font-size:10.5px" onclick="window._nav('outcomes')">Full Outcomes →</button>
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;border-bottom:1px solid var(--border)">
@@ -813,9 +811,9 @@ export async function pgDash(setTopbar, navigate) {
       </div>` : ''}
     </div>
 
-    <div class="card" style="overflow:hidden">
+    <div class="card card--interactive" style="overflow:hidden">
       <div style="padding:13px 16px 11px;border-bottom:1px solid var(--border)">
-        <span style="font-weight:600;font-size:13px">Capacity &amp; Modality Mix</span>
+        <span class="card-section-label">Capacity &amp; Modality Mix</span>
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;border-bottom:1px solid var(--border)">
         ${_dOutcomeCell('Sessions / Week', sessionsPerWeek || 0,    'var(--teal)',   'Planned across active')}
@@ -914,9 +912,9 @@ export async function pgDash(setTopbar, navigate) {
 </div>`;
 
   // ── Recent Activity Table ──────────────────────────────────────────────────
-  const rowD = `<div class="card" style="overflow:hidden">
+  const rowD = `<div class="card card--interactive" style="overflow:hidden">
     <div style="padding:13px 16px 11px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--border)">
-      <span style="font-weight:600;font-size:13px">Recent Course Activity</span>
+      <span class="card-section-label">Recent Course Activity</span>
       <button class="btn btn-sm" style="font-size:10.5px" onclick="window._nav('courses')">All Courses →</button>
     </div>
     ${recentCourses.length === 0

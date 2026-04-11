@@ -31,11 +31,11 @@ function pubTopbar() {
         </div>
       </div>
       <div class="pub-topbar-nav">
-        <button class="pub-nav-link" onclick="(function(){const s=document.getElementById('public-shell');const e=s&&s.querySelector('.pub-modality-grid');if(s&&e)s.scrollTo({top:Math.max(0,e.getBoundingClientRect().top+s.scrollTop-80),behavior:'smooth'});})()">
+        <button class="pub-nav-link" onclick="(function(){const s=document.getElementById('public-shell');const e=s&&s.querySelector('#modalities-section');const off=window.innerWidth<=768?116:80;if(s&&e)s.scrollTo({top:Math.max(0,e.getBoundingClientRect().top+s.scrollTop-off),behavior:'smooth'});})()">
           ${t('pub.nav.modalities')}</button>
-        <button class="pub-nav-link" onclick="(function(){const s=document.getElementById('public-shell');const e=s&&s.querySelector('.pub-ev-section');if(s&&e)s.scrollTo({top:Math.max(0,e.getBoundingClientRect().top+s.scrollTop-80),behavior:'smooth'});})()">
+        <button class="pub-nav-link" onclick="(function(){const s=document.getElementById('public-shell');const e=s&&s.querySelector('.pub-ev-section');const off=window.innerWidth<=768?116:80;if(s&&e)s.scrollTo({top:Math.max(0,e.getBoundingClientRect().top+s.scrollTop-off),behavior:'smooth'});})()">
           ${t('pub.nav.conditions')}</button>
-        <button class="pub-nav-link" onclick="(function(){const s=document.getElementById('public-shell');const e=s&&s.querySelector('.pub-pricing-grid');if(s&&e)s.scrollTo({top:Math.max(0,e.getBoundingClientRect().top+s.scrollTop-80),behavior:'smooth'});})()">
+        <button class="pub-nav-link" onclick="(function(){const s=document.getElementById('public-shell');const e=s&&s.querySelector('.pub-pricing-section');const off=window.innerWidth<=768?116:80;if(s&&e)s.scrollTo({top:Math.max(0,e.getBoundingClientRect().top+s.scrollTop-off),behavior:'smooth'});})()">
           ${t('pub.nav.pricing')}</button>
         <div style="width:1px;height:20px;background:var(--border);margin:0 6px"></div>
         <button class="pub-nav-link" onclick="window._navPublic('signup-patient')" title="Patient portal access">${t('pub.nav.patients')}</button>
@@ -483,7 +483,7 @@ export function pgHome() {
     <div class="pub-divider"></div>
 
     <!-- ─── Modalities ────────────────────────────────────────────────────── -->
-    <section class="pub-section" style="padding-bottom:60px">
+    <section id="modalities-section" class="pub-section" style="padding-bottom:60px">
       <div style="text-align:center;margin-bottom:44px">
         <div class="pub-eyebrow">Modality coverage</div>
         <div class="pub-section-title" style="text-align:center;font-size:28px;margin-bottom:10px">

@@ -432,15 +432,36 @@ const NAV = [
   { id: 'settings',           label: 'Settings',             icon: '◎' },
 ];
 
+// ── Section labels ────────────────────────────────────────────────────────────
+const SECTION_LABELS = {
+  clinical:   'Clinical',
+  courses:    'Sessions & Courses',
+  practice:   'Practice',
+  knowledge:  'Knowledge & Analytics',
+  patient:    'Patient Portal',
+  admin:      'Administration',
+  research:   'Research',
+  more:       'More',
+};
+
 // ── Nav collapse state ────────────────────────────────────────────────────────
+// Primary key: ds_nav_collapsed_sections (new); falls back to legacy ds_nav_collapsed
 const _navCollapsed = (() => {
-  try { return JSON.parse(localStorage.getItem('ds_nav_collapsed') || '{}'); } catch { return {}; }
+  try {
+    const v = localStorage.getItem('ds_nav_collapsed_sections');
+    if (v) return JSON.parse(v);
+    // migrate legacy key
+    const old = localStorage.getItem('ds_nav_collapsed');
+    return old ? JSON.parse(old) : {};
+  } catch { return {}; }
 })();
 function _saveNavCollapsed() {
-  try { localStorage.setItem('ds_nav_collapsed', JSON.stringify(_navCollapsed)); } catch {}
+  try { localStorage.setItem('ds_nav_collapsed_sections', JSON.stringify(_navCollapsed)); } catch {}
 }
+// Seed default-collapsed state: collapse any section whose NAV entry has collapsed:true,
+// but only if not already set (so user overrides persist).
 NAV.forEach(n => {
-  if (n.section && n.collapsed && _navCollapsed[n.sectionId] === undefined)
+  if (n.section && n.collapsed && n.sectionId && _navCollapsed[n.sectionId] === undefined)
     _navCollapsed[n.sectionId] = true;
 });
 
@@ -464,55 +485,127 @@ function renderNav() {
     _navList.parentNode.insertBefore(btn, _navList);
   }
 
-  let currentSectionId = null;
-  let currentSectionCollapsed = false;
-  const html = [];
+  // ── Build sections: group NAV items under their section entry ────────────────
+  // Each section becomes: { sectionEntry, items[] }
+  // Items before the first section entry go into an implicit unnamed group.
+  const sections = [];
+  let currentSection = null;
 
   NAV.forEach(n => {
     if (n.section) {
-      currentSectionId = n.sectionId || null;
-      currentSectionCollapsed = currentSectionId ? !!_navCollapsed[currentSectionId] : false;
-      const chevron = currentSectionId
-        ? `<span class="nav-section-chevron" style="${currentSectionCollapsed ? 'transform:rotate(-90deg)' : ''}">▾</span>`
-        : '';
-      const clickAttr = currentSectionId
-        ? `onclick="window._toggleNavSection('${currentSectionId}')" style="cursor:pointer"`
-        : '';
-      html.push(`<div class="nav-section ${currentSectionId ? 'nav-section-toggle' : ''}" ${clickAttr}><span>${n.section}</span>${chevron}</div>`);
-      return;
+      currentSection = { entry: n, items: [] };
+      sections.push(currentSection);
+    } else {
+      if (!currentSection) {
+        // Items before first section — create implicit root section
+        currentSection = { entry: null, items: [] };
+        sections.push(currentSection);
+      }
+      currentSection.items.push(n);
     }
-
-    if (n.id === 'admin' && currentUser?.role !== 'admin') return;
-    if (hiddenForRole.includes(n.id)) return;
-    if (currentSectionCollapsed) return;
-
-    const badge = n.badge != null
-      ? (String(n.badge).startsWith('!')
-          ? `<span class="nav-badge" style="background:rgba(255,107,107,0.2);color:var(--red);border-color:rgba(255,107,107,0.3)">${String(n.badge).slice(1)}</span>`
-          : `<span class="nav-badge">${n.badge}</span>`)
-      : n.ai ? `<span class="nav-badge-ai">AI</span>` : '';
-
-    html.push(`<div class="nav-item ${currentPage === n.id ? 'active' : ''}" onclick="window._nav('${n.id}')" role="menuitem" tabindex="0" aria-current="${currentPage === n.id ? 'page' : 'false'}">
-      <span class="nav-icon" aria-hidden="true">${n.icon}</span>
-      <span style="flex:1">${(()=>{ const _k='nav.'+n.id,_v=t(_k); return (_v&&_v!==_k)?_v:n.label; })()}</span>${badge}
-    </div>`);
   });
 
-  // Patient View demo button
-  html.push(`<div class="nav-item" onclick="window._previewPatientPortal()" style="margin-top:4px;border:1px solid var(--border-blue);color:var(--blue);opacity:0.85">
+  const html = [];
+
+  sections.forEach(sec => {
+    const entry = sec.entry;
+    const sectionId = entry?.sectionId || null;
+
+    // Determine if active page lives in this section — never auto-collapse active section
+    const hasActivePage = sec.items.some(n => n.id === currentPage);
+
+    // Collapsed state: if section has an id and user hasn't collapsed it explicitly,
+    // respect the NAV-level `collapsed` default but never collapse the active section.
+    let isCollapsed = false;
+    if (sectionId) {
+      if (hasActivePage) {
+        // Force open if active page is inside; persist this so next render stays open
+        if (_navCollapsed[sectionId] === true) {
+          _navCollapsed[sectionId] = false;
+          _saveNavCollapsed();
+        }
+        isCollapsed = false;
+      } else {
+        isCollapsed = !!_navCollapsed[sectionId];
+      }
+    }
+
+    // Render section wrapper open tag
+    const collapsedClass = isCollapsed ? ' nav-section-group--collapsed' : '';
+    if (sectionId) {
+      html.push(`<div class="nav-section-group${collapsedClass}" data-section="${sectionId}">`);
+    } else if (entry) {
+      html.push(`<div class="nav-section-group">`);
+    } else {
+      html.push(`<div class="nav-section-group">`);
+    }
+
+    // Render section header (only if there's a section entry with a label)
+    if (entry) {
+      const label = (entry.sectionId && SECTION_LABELS[entry.sectionId]) || entry.section;
+      if (sectionId) {
+        html.push(`<div class="nav-section-header" onclick="window._toggleNavSection('${sectionId}')" role="button" tabindex="0" aria-expanded="${!isCollapsed}" aria-controls="nav-sec-${sectionId}">
+          <span class="nav-section-label">${label}</span>
+          <span class="nav-section-chevron" aria-hidden="true">&#8250;</span>
+        </div>`);
+      } else {
+        html.push(`<div class="nav-section-header nav-section-header--static">
+          <span class="nav-section-label">${label}</span>
+        </div>`);
+      }
+    }
+
+    // Render items
+    const itemsHtml = [];
+    sec.items.forEach(n => {
+      if (n.id === 'admin' && currentUser?.role !== 'admin') return;
+      if (hiddenForRole.includes(n.id)) return;
+
+      const badge = n.badge != null
+        ? (String(n.badge).startsWith('!')
+            ? `<span class="nav-badge" style="background:rgba(255,107,107,0.2);color:var(--red);border-color:rgba(255,107,107,0.3)">${String(n.badge).slice(1)}</span>`
+            : `<span class="nav-badge">${n.badge}</span>`)
+        : n.ai ? `<span class="nav-badge-ai">AI</span>` : '';
+
+      itemsHtml.push(`<div class="nav-item ${currentPage === n.id ? 'active' : ''}" onclick="window._nav('${n.id}')" role="menuitem" tabindex="0" aria-current="${currentPage === n.id ? 'page' : 'false'}">
+        <span class="nav-icon" aria-hidden="true">${n.icon}</span>
+        <span class="nav-label">${(()=>{ const _k='nav.'+n.id,_v=t(_k); return (_v&&_v!==_k)?_v:n.label; })()}</span>${badge}
+      </div>`);
+    });
+
+    if (sectionId) {
+      html.push(`<div class="nav-section-items" id="nav-sec-${sectionId}">${itemsHtml.join('')}</div>`);
+    } else {
+      html.push(itemsHtml.join(''));
+    }
+
+    html.push(`</div>`); // close nav-section-group
+  });
+
+  // Patient View demo button (outside section groups, always visible)
+  html.push(`<div class="nav-section-group"><div class="nav-item" onclick="window._previewPatientPortal()" style="margin-top:4px;border:1px solid var(--border-blue);color:var(--blue);opacity:0.85">
     <span class="nav-icon">◉</span>
-    <span style="flex:1">Patient View</span>
+    <span class="nav-label">Patient View</span>
     <span style="font-size:10px;opacity:0.6">demo</span>
-  </div>`);
+  </div></div>`);
 
   _navList.innerHTML = html.join('');
 }
 
 window._toggleNavSection = function(sectionId) {
+  if (!sectionId) return;
   _navCollapsed[sectionId] = !_navCollapsed[sectionId];
   _saveNavCollapsed();
   renderNav();
 };
+
+// Re-render clinician nav when locale switches so labels update immediately
+window.addEventListener('ds:locale-changed', () => {
+  renderNav();
+  // Update language button label
+  const lbl = document.getElementById('lang-btn-label');
+  if (lbl) lbl.textContent = (typeof getLocale === 'function' ? getLocale() : 'EN').toUpperCase();
+});
 
 // ── Sidebar keyboard navigation ───────────────────────────────────────────────
 function initSidebarKeyboard() {
@@ -702,6 +795,12 @@ window._showSignIn = function() { showLogin(); };
 let currentPatientPage = 'patient-portal';
 
 async function renderPatientPage() {
+  const content = document.getElementById('patient-content');
+  if (content) {
+    content.style.opacity = '0';
+    content.style.transition = 'opacity 0.15s ease';
+    setTimeout(() => { content.style.opacity = '1'; }, 20);
+  }
   const m = await loadPatient();
   m.renderPatientNav(currentPatientPage);
   switch (currentPatientPage) {
@@ -1594,6 +1693,17 @@ async function bootApp() {
       }
     });
   }
+  // ── Topbar scroll-shadow listener ─────────────────────────────────────────
+  (function initTopbarScrollShadow() {
+    const content = document.getElementById('content');
+    const topbar  = document.getElementById('topbar');
+    if (!content || !topbar) return;
+    const onScroll = () => {
+      topbar.classList.toggle('topbar--scrolled', content.scrollTop > 2);
+    };
+    content.addEventListener('scroll', onScroll, { passive: true });
+  })();
+
   // Check backend health (non-blocking)
   checkBackendHealth();
   // Re-check every 30s if the backend banner is visible
