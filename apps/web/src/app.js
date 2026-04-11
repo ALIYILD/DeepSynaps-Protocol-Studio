@@ -420,38 +420,51 @@ let currentPage = 'dashboard';
 
 // ── Role-based nav visibility ─────────────────────────────────────────────────
 const ROLE_NAV_HIDE = {
-  technician: ['protocol-wizard', 'patients', 'evidence', 'handbooks', 'billing', 'pricing', 'audittrail', 'brainregions', 'qeegmaps', 'protocols-registry', 'outcomes', 'adverse-events', 'population-analytics'],
-  reviewer:   ['session-execution', 'protocol-wizard', 'billing', 'pricing', 'population-analytics'],
-  guest:      ['session-execution', 'protocol-wizard', 'patients', 'courses', 'review-queue', 'braindata', 'assessments', 'outcomes', 'adverse-events', 'audittrail', 'billing', 'population-analytics'],
+  technician: ['protocol-wizard', 'patients', 'evidence', 'handbooks', 'billing', 'pricing', 'audittrail', 'brainregions', 'qeegmaps', 'protocols-registry', 'outcomes', 'adverse-events', 'population-analytics', 'brain-map-planner', 'handbook-generator', 'notes-dictation', 'assessments-hub'],
+  reviewer:   ['session-execution', 'protocol-wizard', 'billing', 'pricing', 'population-analytics', 'brain-map-planner'],
+  guest:      ['session-execution', 'protocol-wizard', 'patients', 'courses', 'review-queue', 'braindata', 'assessments', 'assessments-hub', 'outcomes', 'adverse-events', 'audittrail', 'billing', 'population-analytics', 'brain-map-planner', 'notes-dictation'],
   clinician:  ['population-analytics'],
 };
 
-// ── Nav definition ────────────────────────────────────────────────────────────
+// ── Nav definition — organised around clinician workflow ──────────────────────
 const NAV = [
-  { section: 'Care Delivery' },
-  { id: 'dashboard',          label: 'Dashboard',             icon: '◈' },
-  { id: 'patient-queue',      label: 'Today\'s Queue',        icon: '◉' },
-  { id: 'patients',           label: 'Patients',              icon: '◉' },
-  { id: 'courses',            label: 'Treatment Courses',     icon: '◎', badge: null },
-  { id: 'session-execution',  label: 'Session Execution',     icon: '◧' },
+  // ── TODAY ────────────────────────────────────────────────────────────────────
+  { section: 'TODAY' },
+  { id: 'dashboard',          label: 'Dashboard',          icon: '◈' },
+  { id: 'patient-queue',      label: 'Today\'s Queue',     icon: '◉' },
+  { id: 'session-execution',  label: 'Start Session',      icon: '◧' },
+  { id: 'messaging',          label: 'Messages',           icon: '◎' },
+  { id: 'review-queue',       label: 'Review Queue',       icon: '◱', badge: null },
 
-  { section: 'Review & Communication' },
-  { id: 'review-queue',       label: 'Review Queue',          icon: '◱', badge: null },
-  { id: 'messaging',          label: 'Messages',              icon: '◎' },
-  { id: 'media-queue',        label: 'Media Queue',           icon: '◫', badge: null },
+  // ── PATIENT CARE ─────────────────────────────────────────────────────────────
+  { section: 'PATIENT CARE' },
+  { id: 'patients',           label: 'Patients',           icon: '◉' },
+  { id: 'courses',            label: 'Treatment Courses',  icon: '◎', badge: null },
+  { id: 'assessments-hub',    label: 'Assessments',        icon: '◈' },
+  { id: 'outcomes',           label: 'Outcomes',           icon: '◫' },
+  { id: 'wearables',          label: 'Patient Monitoring', icon: '◌' },
+  { id: 'home-task-manager',  label: 'Home Programs',      icon: '◩' },
 
-  { section: 'Intelligence' },
-  { id: 'wearables',          label: 'Monitoring',            icon: '◌' },
-  { id: 'home-task-manager',  label: 'Home Tasks',            icon: '◩' },
-  { id: 'outcomes',           label: 'Outcomes',              icon: '◫' },
-  { id: 'longitudinal-report',label: 'Population Report',     icon: '◫' },
-  { id: 'scoring-calc',       label: 'Scoring Calculator',    icon: '◇' },
-  { id: 'protocol-wizard',    label: 'Protocol Intelligence', icon: '⬡', ai: true },
+  // ── PROTOCOLS ────────────────────────────────────────────────────────────────
+  { section: 'PROTOCOLS' },
+  { id: 'protocol-wizard',    label: 'Protocol Search',    icon: '⬡', ai: true },
+  { id: 'protocol-builder',   label: 'Protocol Builder',   icon: '◇' },
+  { id: 'brain-map-planner',  label: 'Brain Map Planner',  icon: '◎' },
+  { id: 'handbooks',          label: 'Handbooks',          icon: '◩' },
 
-  { section: 'More', sectionId: 'more', collapsed: true },
-  { id: 'protocols-registry', label: 'Registries',           icon: '◇' },
-  { id: 'adverse-events',     label: 'Governance',           icon: '⚠' },
-  { id: 'settings',           label: 'Settings',             icon: '◎' },
+  // ── CLINICAL TOOLS ───────────────────────────────────────────────────────────
+  { section: 'CLINICAL TOOLS' },
+  { id: 'scoring-calc',       label: 'Scales & Scores',    icon: '◇' },
+  { id: 'protocols-registry', label: 'Protocol Registry',  icon: '◫' },
+  { id: 'adverse-events',     label: 'Adverse Events',     icon: '⚠' },
+  { id: 'notes-dictation',    label: 'Notes & Dictation',  icon: '◧', ai: true },
+
+  // ── CLINIC ───────────────────────────────────────────────────────────────────
+  { section: 'CLINIC', sectionId: 'clinic', collapsed: true },
+  { id: 'scheduling',         label: 'Team & Schedule',    icon: '◎' },
+  { id: 'billing',            label: 'Billing / Plans',    icon: '◩' },
+  { id: 'wearable-integration', label: 'Integrations',     icon: '◌' },
+  { id: 'settings',           label: 'Settings',           icon: '◎' },
 ];
 
 // ── Section labels ────────────────────────────────────────────────────────────
@@ -464,6 +477,7 @@ const SECTION_LABELS = {
   admin:      'Administration',
   research:   'Research',
   more:       'More',
+  clinic:     'Clinic',
 };
 
 // ── Nav collapse state ────────────────────────────────────────────────────────
@@ -499,10 +513,10 @@ function renderNav() {
     btn.id = 'nav-new-course';
     btn.style.cssText = 'padding:10px 12px 6px;';
     btn.innerHTML = `<button
-      onclick="window._nav('protocol-wizard')"
+      onclick="window._nav('session-execution')"
       style="width:100%;padding:9px 0;background:linear-gradient(135deg,var(--teal),var(--blue));color:#000;border:none;border-radius:8px;font-size:12.5px;font-weight:700;cursor:pointer;letter-spacing:0.2px;display:flex;align-items:center;justify-content:center;gap:7px;transition:opacity 0.15s"
       onmouseover="this.style.opacity='0.88'" onmouseout="this.style.opacity='1'">
-      <span style="font-size:15px;line-height:1">＋</span> New Course
+      <span style="font-size:15px;line-height:1">◧</span> Start Session
     </button>`;
     _navList.parentNode.insertBefore(btn, _navList);
   }
@@ -1191,6 +1205,10 @@ async function renderPage() {
     }
     case 'reminders': { const { pgReminderAutomation } = await loadPractice(); await pgReminderAutomation(setTopbar); break; }
     case 'evidence-builder': { const { pgEvidenceBuilder } = await loadClinical(); await pgEvidenceBuilder(setTopbar); break; }
+    case 'assessments-hub': { const { pgAssessmentsHub } = await loadClinical(); await pgAssessmentsHub(setTopbar); break; }
+    case 'brain-map-planner': { const { pgBrainMapPlanner } = await loadClinical(); await pgBrainMapPlanner(setTopbar); break; }
+    case 'notes-dictation': { const { pgNotesDictation } = await loadClinical(); await pgNotesDictation(setTopbar); break; }
+    case 'wearable-integration': { const m = await loadPractice(); await m.pgWearableIntegration(setTopbar); break; }
     default:
       el.innerHTML = `<div style="text-align:center;padding:48px;color:var(--text-tertiary)">Page not found.</div>`;
   }

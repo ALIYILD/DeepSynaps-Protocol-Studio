@@ -125,6 +125,107 @@ function sparklineSVG(data, color, width = 120, height = 32) {
   </svg>`;
 }
 
+// ── Patient-friendly visual components ────────────────────────────────────────
+// Pure HTML/SVG string generators shared across all patient pages. pviz-* CSS namespace.
+
+/** Arc gauge barometer (semicircle). value: 0–100. */
+function _vizGauge(value, opts) {
+  opts = opts || {};
+  var size = opts.size || 130;
+  var label = opts.label || '';
+  var subtitle = opts.subtitle || '';
+  var v = Math.max(0, Math.min(100, value || 0));
+  var color = v >= 60 ? '#2dd4bf' : v >= 35 ? '#fbbf24' : '#fb7185';
+  var gLabel = label || (v >= 60 ? 'Improving' : v >= 35 ? 'Stable' : 'Needs review');
+  var cx = size / 2, cy = size * 0.52, R = size * 0.38, sw = size * 0.065;
+  var sx = (cx - R).toFixed(2), sy = cy.toFixed(2), ex = (cx + R).toFixed(2);
+  var h = Math.round(cy + sw + 24);
+  function arcPt(pct) {
+    var a = (180 - pct * 1.8) * Math.PI / 180;
+    return { x: (cx + R * Math.cos(a)).toFixed(2), y: (cy - R * Math.sin(a)).toFixed(2) };
+  }
+  var p33 = arcPt(33), p67 = arcPt(67), pf = arcPt(v);
+  var swStr = sw.toFixed(1);
+  return '<div class="pviz-gauge">' +
+    '<svg width="' + size + '" height="' + h + '" viewBox="0 0 ' + size + ' ' + h + '" style="display:block;margin:0 auto;overflow:visible">' +
+    '<path d="M' + sx + ',' + sy + ' A' + R + ',' + R + ' 0 0,1 ' + p33.x + ',' + p33.y + '" fill="none" stroke="rgba(251,113,133,0.2)" stroke-width="' + swStr + '" stroke-linecap="round"/>' +
+    '<path d="M' + p33.x + ',' + p33.y + ' A' + R + ',' + R + ' 0 0,1 ' + p67.x + ',' + p67.y + '" fill="none" stroke="rgba(251,191,36,0.15)" stroke-width="' + swStr + '" stroke-linecap="round"/>' +
+    '<path d="M' + p67.x + ',' + p67.y + ' A' + R + ',' + R + ' 0 0,1 ' + ex + ',' + sy + '" fill="none" stroke="rgba(45,212,191,0.2)" stroke-width="' + swStr + '" stroke-linecap="round"/>' +
+    (v > 0 ? '<path d="M' + sx + ',' + sy + ' A' + R + ',' + R + ' 0 0,1 ' + pf.x + ',' + pf.y + '" fill="none" stroke="' + color + '" stroke-width="' + swStr + '" stroke-linecap="round"/>' : '') +
+    (v > 0 ? '<circle cx="' + pf.x + '" cy="' + pf.y + '" r="' + (sw * 0.65).toFixed(1) + '" fill="' + color + '" stroke="#0f172a" stroke-width="1.5"/>' : '') +
+    '<text x="0" y="' + Math.round(cy + sw + 14) + '" text-anchor="start" font-size="7" fill="rgba(251,113,133,0.55)" font-family="sans-serif">Needs review</text>' +
+    '<text x="' + Math.round(cx) + '" y="' + Math.round(cy - R - 10) + '" text-anchor="middle" font-size="7" fill="rgba(251,191,36,0.55)" font-family="sans-serif">Stable</text>' +
+    '<text x="' + size + '" y="' + Math.round(cy + sw + 14) + '" text-anchor="end" font-size="7" fill="rgba(45,212,191,0.55)" font-family="sans-serif">Improving</text>' +
+    '</svg>' +
+    '<div class="pviz-gauge-label" style="color:' + color + '">' + gLabel + '</div>' +
+    (subtitle ? '<div class="pviz-gauge-sub">' + subtitle + '</div>' : '') +
+    '</div>';
+}
+
+/** Traffic-light dot. status: 'green' | 'amber' | 'red' | 'grey' */
+function _vizTrafficLight(status, label) {
+  var cfg = { green: '#22c55e', amber: '#f59e0b', red: '#ef4444', grey: '#64748b' };
+  var color = cfg[status] || cfg.grey;
+  return '<span class="pviz-tl">' +
+    '<span class="pviz-tl-dot' + (status === 'red' ? ' pviz-tl-pulse' : '') + '" style="background:' + color + '"></span>' +
+    (label ? '<span class="pviz-tl-lbl">' + label + '</span>' : '') +
+    '</span>';
+}
+
+/** Trend arrow badge. direction: 'up'|'stable'|'down'. good: 'up'(default)|'down' */
+function _vizTrendArrow(direction, label, good) {
+  good = good || 'up';
+  var isGood = good === 'down' ? direction === 'down' : direction === 'up';
+  var isNeutral = direction === 'stable' || direction === 'neutral';
+  var color = isNeutral ? '#60a5fa' : isGood ? '#2dd4bf' : '#fbbf24';
+  var icon = direction === 'up' ? '↑' : direction === 'down' ? '↓' : '→';
+  return '<span class="pviz-arrow" style="color:' + color + ';background:' + color + '18;border-color:' + color + '33">' +
+    icon + (label ? '\u00a0' + label : '') + '</span>';
+}
+
+/** 7-day pattern strip. days: [{dayName, status, isToday}]. status: 'done'|'partial'|'missed'|'future' */
+function _vizWeekStrip(days, opts) {
+  opts = opts || {};
+  var SC = { done: '#2dd4bf', partial: '#f59e0b', missed: 'rgba(251,113,133,0.35)', future: 'transparent' };
+  var cells = days.map(function(d) {
+    var col = SC[d.status] || 'rgba(255,255,255,0.06)';
+    var border = d.isToday ? '1px solid rgba(255,255,255,0.28)' : '1px solid transparent';
+    return '<div class="pviz-ws-cell">' +
+      '<div class="pviz-ws-sq" style="background:' + col + ';border:' + border + '"></div>' +
+      '<div class="pviz-ws-day">' + (d.dayName || '').slice(0, 1) + '</div>' +
+    '</div>';
+  }).join('');
+  var legend = opts.legend !== false
+    ? '<div class="pviz-ws-legend"><span><span class="pviz-ws-dot" style="background:#2dd4bf"></span>Logged</span><span><span class="pviz-ws-dot" style="background:rgba(251,113,133,0.5)"></span>Missed</span></div>'
+    : '';
+  return '<div class="pviz-week-strip"><div class="pviz-ws-squares">' + cells + '</div>' + legend + '</div>';
+}
+
+/** Horizontal milestone timeline SVG. milestones: [{at, label}] */
+function _vizMilestoneTimeline(current, total, milestones) {
+  if (!total) return '';
+  var pct = Math.min(100, Math.round((current / total) * 100));
+  var W = 600, H = 72, py = 36, pl = 8, pr = 8, iW = W - pl - pr;
+  function xOf(n) { return (pl + (n / total) * iW).toFixed(1); }
+  var parts = [];
+  parts.push('<rect x="' + pl + '" y="' + (py - 3) + '" width="' + iW + '" height="6" rx="3" fill="rgba(255,255,255,0.06)"/>');
+  if (pct > 0) parts.push('<rect x="' + pl + '" y="' + (py - 3) + '" width="' + ((pct / 100) * iW).toFixed(1) + '" height="6" rx="3" fill="#2dd4bf" opacity="0.75"/>');
+  milestones.forEach(function(m, idx) {
+    var x = xOf(m.at);
+    var reached = current >= m.at;
+    var tc = reached ? 'rgba(45,212,191,0.8)' : 'rgba(148,163,184,0.45)';
+    var ly = idx % 2 === 0 ? py - 18 : py + 26;
+    parts.push('<circle cx="' + x + '" cy="' + py + '" r="6" fill="' + (reached ? '#2dd4bf' : 'rgba(255,255,255,0.06)') + '" stroke="' + (reached ? '#2dd4bf' : 'rgba(255,255,255,0.22)') + '" stroke-width="1.5"/>');
+    if (reached) parts.push('<text x="' + x + '" y="' + (py + 4) + '" text-anchor="middle" font-size="7" fill="#0f172a" font-weight="700" font-family="sans-serif">\u2713</text>');
+    parts.push('<text x="' + x + '" y="' + ly + '" text-anchor="middle" font-size="8.5" fill="' + tc + '" font-family="sans-serif">' + (m.label || ('Sess ' + m.at)) + '</text>');
+  });
+  if (pct > 0 && pct < 100) {
+    var cx2 = (pl + (pct / 100) * iW).toFixed(1);
+    parts.push('<circle cx="' + cx2 + '" cy="' + py + '" r="5" fill="#2dd4bf" stroke="#0f172a" stroke-width="2"/>');
+  }
+  return '<div class="pviz-timeline"><svg viewBox="0 0 ' + W + ' ' + H + '" width="100%" height="' + H + '" style="display:block;overflow:visible">' + parts.join('') + '</svg></div>';
+}
+
 // ── Session countdown ring ────────────────────────────────────────────────────
 function countdownRingSVG(daysLeft, hoursLeft, nextLabel) {
   const total    = 7;
@@ -355,6 +456,32 @@ export async function pgPatientDashboard(user) {
     return '';
   }
 
+  // ── Wellness gauge value (0-100 maps to trend) ───────────────────────────────
+  const wellnessGaugeVal = (() => {
+    if (!hasCheckinData) return 0;
+    if (wellnessTrend.label === 'Improving') return 76;
+    if (wellnessTrend.label === 'Needs review') return 22;
+    if (wellnessTrend.label === 'Steady') return 50;
+    return 38; // "Check in to see your trend" — below stable
+  })();
+
+  // ── 7-day check-in strip data ─────────────────────────────────────────────
+  const weekStripDays = (() => {
+    const days = [];
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date(Date.now() - i * 86400000);
+      const ds = d.toISOString().slice(0, 10);
+      const hasCk = !!localStorage.getItem('ds_checkin_' + ds);
+      const isFut = ds > todayStr;
+      days.push({
+        dayName: d.toLocaleDateString('en-US', { weekday: 'short' }).slice(0, 2),
+        status: isFut ? 'future' : hasCk ? 'done' : ds === todayStr ? 'future' : 'missed',
+        isToday: ds === todayStr,
+      });
+    }
+    return days;
+  })();
+
   // ── Wellness interpretation sentence ─────────────────────────────────────────
   function _ptdWellnessInterp() {
     if (!hasCheckinData || recentCheckins.length < 2) return 'Complete more check-ins to build your trend.';
@@ -425,22 +552,18 @@ export async function pgPatientDashboard(user) {
         <!-- Wellness Snapshot -->
         <div class="ptd-card">
           <div class="ptd-eyebrow">Wellness Snapshot</div>
-          <div class="ptd-wellness-headline">
-            <span class="ptd-trend-icon" style="color:${wellnessTrend.color}">${wellnessTrend.icon}</span>
-            <span class="ptd-card-headline" style="color:${wellnessTrend.color}">${wellnessTrend.label}</span>
-          </div>
+          ${_vizGauge(wellnessGaugeVal, { size: 122, label: wellnessTrend.label, subtitle: hasCheckinData ? wellnessInterp : 'Complete a check-in to see your trend.' })}
           ${hasCheckinData
-            ? `<div class="ptd-snapshot-interp">${wellnessInterp}</div>
-               <div class="ptd-driver-grid">
+            ? `<div class="ptd-driver-grid" style="margin-top:10px">
                  ${wellnessDrivers.map(d => `<div class="ptd-driver">
                    <span class="ptd-driver-icon" style="color:${d.color}">${d.icon}</span>
                    <span class="ptd-driver-label">${d.label}</span>
                    <span class="ptd-driver-val">${d.val}${typeof d.val === 'number' ? '/10' : ''}</span>
                  </div>`).join('')}
                </div>
+               ${_vizWeekStrip(weekStripDays, { legend: false })}
                <div class="ptd-snapshot-note">Your care team uses check-ins to monitor progress. Not a medical assessment.</div>`
-            : `<div class="ptd-snapshot-empty">
-                 <div class="ptd-empty-support" style="margin-bottom:10px">Complete a daily check-in to build your wellness picture.</div>
+            : `<div class="ptd-snapshot-empty" style="margin-top:8px">
                  <button class="ptd-inline-btn" onclick="event.stopPropagation();window._navPatient('pt-wellness')">Start check-in \u2192</button>
                  <div class="ptd-empty-hint" style="margin-top:8px">Your care team uses check-ins to help monitor progress.</div>
                </div>`}
@@ -1733,6 +1856,12 @@ export async function pgPatientCourse() {
 
   // ── Session milestones ────────────────────────────────────────────────────
   const MILESTONE_SESSIONS = [total * 0.25, total * 0.5, total * 0.75, total].map(Math.round);
+  const NAMED_MILESTONES = [
+    { at: Math.round(total * 0.25), label: 'First review' },
+    { at: Math.round(total * 0.5),  label: 'Halfway' },
+    { at: Math.round(total * 0.75), label: 'Final phase' },
+    { at: total,                    label: 'Complete' },
+  ];
 
   // ── SVG progress ring ─────────────────────────────────────────────────────
   function progressRing(pctVal, size = 88) {
@@ -1782,33 +1911,21 @@ export async function pgPatientCourse() {
   <div class="ptcp-section">
     <div class="ptcp-section-header">
       <h3 class="ptcp-section-title">Progress through treatment</h3>
+      <span class="ptcp-section-badge">${delivered} of ${total} sessions</span>
     </div>
-    <div class="ptcp-progress-track-wrap">
-      <div class="ptcp-progress-bar-bg">
-        <div class="ptcp-progress-bar-fill" style="width:${pct}%"></div>
-        ${MILESTONE_SESSIONS.map(m => {
-          const mPct = total > 0 ? (m / total) * 100 : 0;
-          const reached = delivered >= m;
-          return `<div class="ptcp-milestone-marker ${reached ? 'ptcp-milestone-reached' : ''}" style="left:${mPct}%">
-            <div class="ptcp-milestone-dot"></div>
-            <div class="ptcp-milestone-lbl">Session ${m}</div>
-          </div>`;
-        }).join('')}
-      </div>
-      <div class="ptcp-progress-legend">
-        <span>${delivered} sessions completed</span>
-        <span>${remaining} remaining</span>
-      </div>
+    ${_vizMilestoneTimeline(delivered, total, NAMED_MILESTONES)}
+    <div class="ptcp-progress-legend" style="margin-top:4px">
+      <span>${delivered} sessions completed</span>
+      <span>${remaining} remaining</span>
     </div>
-    <div class="ptcp-sessions-dots" aria-label="Session timeline">
+    <div class="ptcp-sessions-dots" aria-label="Session timeline" style="margin-top:14px">
       ${Array.from({ length: Math.min(total, 40) }, (_, i) => {
         const n = i + 1;
         const cls = n <= delivered ? 'done' : n === delivered + 1 ? 'next' : 'upcoming';
-        return `<div class="ptcp-sess-dot ptcp-sess-dot--${cls}" title="Session ${n}">${n <= delivered ? '' : n === delivered + 1 ? '→' : ''}</div>`;
+        return `<div class="ptcp-sess-dot ptcp-sess-dot--${cls}" title="Session ${n}">${n <= delivered ? '' : n === delivered + 1 ? '\u2192' : ''}</div>`;
       }).join('')}
       ${total > 40 ? `<span class="ptcp-dots-more">+${total - 40} more</span>` : ''}
     </div>
-    ${total > 40 ? '' : ''}
   </div>
 
   <!-- ③ WHY THIS PLAN -->
@@ -1898,12 +2015,16 @@ export async function pgPatientCourse() {
       Always tell your clinician about any new or worsening effects.
     </p>
     <div class="ptcp-safety-grid">
-      ${reportedEffects.map(item => `
-        <div class="ptcp-safety-item ${item.resolved ? 'ptcp-safety-resolved' : ''}">
-          <div class="ptcp-safety-effect">${esc(typeof item === 'string' ? item : item.effect)}</div>
-          ${typeof item === 'object' && item.sessions ? `<div class="ptcp-safety-when">${esc(item.sessions)}</div>` : ''}
-          ${item.resolved ? '<div class="ptcp-safety-badge">Resolved</div>' : ''}
-        </div>`).join('')}
+      ${reportedEffects.map(item => {
+        const resolved = typeof item === 'object' ? item.resolved : false;
+        const effect   = typeof item === 'string' ? item : item.effect;
+        const sessions = typeof item === 'object' ? item.sessions : null;
+        const tl = _vizTrafficLight(resolved ? 'green' : 'amber', resolved ? 'Resolved' : 'Mild');
+        return `<div class="ptcp-safety-item ${resolved ? 'ptcp-safety-resolved' : ''}">
+          <div class="ptcp-safety-hd">${tl}<span class="ptcp-safety-effect">${esc(effect)}</span></div>
+          ${sessions ? `<div class="ptcp-safety-when">${esc(sessions)}</div>` : ''}
+        </div>`;
+      }).join('')}
     </div>
     <button class="ptcp-link-btn" style="margin-top:12px" onclick="window._navPatient('patient-messages')">Report a new side effect</button>
   </div>
@@ -5508,6 +5629,44 @@ export async function pgPatientWearables() {
   try { bio = JSON.parse(localStorage.getItem('ds_wearable_summary') || 'null'); } catch (_e) {}
   if (!bio) bio = { _isDemoData:true, hrv:'42 ms', sleep:'7h 12m', steps:'6,840', rhr:'64 bpm' };
 
+  // Biometric status classification
+  function _bioStatus(type, valStr) {
+    const n = parseFloat(String(valStr).replace(/[^\d.]/g, ''));
+    if (isNaN(n)) return 'grey';
+    if (type === 'sleep') return n >= 7 ? 'green' : n >= 5.5 ? 'amber' : 'red';
+    if (type === 'hrv')   return n >= 50 ? 'green' : n >= 30  ? 'amber' : 'red';
+    if (type === 'rhr')   return n <= 65 ? 'green' : n <= 80  ? 'amber' : 'red';
+    if (type === 'steps') return n >= 8000 ? 'green' : n >= 4000 ? 'amber' : 'red';
+    return 'grey';
+  }
+  function _bioLabel(type, status) {
+    const ranges = {
+      sleep: { green: '7–9 hrs recommended', amber: 'Slightly low', red: 'Below target' },
+      hrv:   { green: 'Good recovery', amber: 'Moderate', red: 'Low — check in' },
+      rhr:   { green: 'Healthy range', amber: 'Moderate', red: 'Elevated' },
+      steps: { green: 'Active day', amber: 'Moderate activity', red: 'Low activity' },
+    };
+    return (ranges[type] || {})[status] || '';
+  }
+
+  // Build 7-day biometric strip from localStorage check-in history
+  const _bioWeekDays = (() => {
+    const days = [];
+    const todayBio = new Date().toISOString().slice(0, 10);
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date(Date.now() - i * 86400000);
+      const ds = d.toISOString().slice(0, 10);
+      const hasCk = !!localStorage.getItem('ds_checkin_' + ds);
+      const isFut = ds > todayBio;
+      days.push({
+        dayName: d.toLocaleDateString('en-US', { weekday: 'short' }).slice(0, 2),
+        status: isFut ? 'future' : hasCk ? 'done' : 'missed',
+        isToday: ds === todayBio,
+      });
+    }
+    return days;
+  })();
+
   // ── Render ────────────────────────────────────────────────────────────────
   el.innerHTML = `
 <div class="pdw-wrap">
@@ -5688,27 +5847,24 @@ export async function pgPatientWearables() {
         : `<span class="pdw-section-sub">Last sync ${lastSyncMs ? fmtRelative(new Date(lastSyncMs).toISOString()) : '—'}</span>`}
     </div>
     <div class="pdw-bio-tiles">
-      <div class="pdw-bio-tile pdw-bio-tile--sleep">
-        <div class="pdw-bio-icon">◗</div>
-        <div class="pdw-bio-val">${esc(bio.sleep)}</div>
-        <div class="pdw-bio-lbl">Sleep last night</div>
-      </div>
-      <div class="pdw-bio-tile pdw-bio-tile--hrv">
-        <div class="pdw-bio-icon">∿</div>
-        <div class="pdw-bio-val">${esc(bio.hrv)}</div>
-        <div class="pdw-bio-lbl">HRV</div>
-      </div>
-      <div class="pdw-bio-tile pdw-bio-tile--rhr">
-        <div class="pdw-bio-icon">♡</div>
-        <div class="pdw-bio-val">${esc(bio.rhr||'—')}</div>
-        <div class="pdw-bio-lbl">Resting heart rate</div>
-      </div>
-      <div class="pdw-bio-tile pdw-bio-tile--steps">
-        <div class="pdw-bio-icon">◈</div>
-        <div class="pdw-bio-val">${esc(bio.steps)}</div>
-        <div class="pdw-bio-lbl">Steps today</div>
-      </div>
+      ${[
+        { key:'sleep', icon:'◗', val:bio.sleep,      label:'Sleep last night' },
+        { key:'hrv',   icon:'∿', val:bio.hrv,        label:'HRV' },
+        { key:'rhr',   icon:'♡', val:bio.rhr||'—',   label:'Resting heart rate' },
+        { key:'steps', icon:'◈', val:bio.steps,      label:'Steps today' },
+      ].map(t => {
+        const st = _bioStatus(t.key, t.val);
+        const hl = _bioLabel(t.key, st);
+        return `<div class="pdw-bio-tile pdw-bio-tile--${t.key}">
+          <div class="pdw-bio-icon">${t.icon}</div>
+          <div class="pdw-bio-val">${esc(t.val)}</div>
+          <div class="pdw-bio-lbl">${t.label}</div>
+          <div class="pdw-bio-status">${_vizTrafficLight(st, hl)}</div>
+        </div>`;
+      }).join('')}
     </div>
+    ${_vizWeekStrip(_bioWeekDays, { legend: false })}
+    <div style="font-size:11px;color:var(--text-tertiary,#64748b);margin-top:6px">7-day check-in log · connect a device to see biometric history</div>
   </div>
 
   <!-- ⑥ PRIVACY & PERMISSIONS -->
@@ -8772,18 +8928,38 @@ function _pgpGoals(data) {
 
 // ── Devices & biometrics (compact) ────────────────────────────────────────────
 function _pgpBiometrics() {
+  // Pull from localStorage if real data exists
+  var bioRaw = null;
+  try { bioRaw = JSON.parse(localStorage.getItem('ds_wearable_summary') || 'null'); } catch (_e) {}
+  function bioNum(str) { return parseFloat(String(str || '').replace(/[^\d.]/g, '')); }
+  var sleepVal = bioRaw ? bioRaw.sleep : '7.2 hrs';
+  var hrvVal   = bioRaw ? bioRaw.hrv   : '48 ms';
+  var rhrVal   = bioRaw ? bioRaw.rhr   : '64 bpm';
+  var sleepN = bioNum(sleepVal), hrvN = bioNum(hrvVal), rhrN = bioNum(rhrVal);
+  var sleepSt = sleepN >= 7 ? 'green' : sleepN >= 5.5 ? 'amber' : 'red';
+  var hrvSt   = hrvN   >= 50 ? 'green' : hrvN   >= 30  ? 'amber' : 'red';
+  var rhrSt   = rhrN   <= 65 ? 'green' : rhrN   <= 80  ? 'amber' : 'red';
+  // Adherence from check-in frequency
+  var journal = [];
+  try { journal = JSON.parse(localStorage.getItem('ds_symptom_journal') || '[]'); } catch (_e) {}
+  var cut14 = new Date(Date.now() - 14 * 86400000).toISOString().slice(0, 10);
+  var adhRate = Math.min(100, Math.round((journal.filter(function(e) { return (e.date || (e.created_at || '').slice(0, 10)) >= cut14; }).length / 14) * 100));
+  var adhSt   = adhRate >= 70 ? 'green' : adhRate >= 40 ? 'amber' : 'red';
   var tiles = [
-    { label: 'Sleep',      val: '7.2 hrs', sub: 'avg last 7 nights',  icon: '🌙' },
-    { label: 'HRV',        val: '48 ms',   sub: 'avg last 7 days',    icon: '💚' },
-    { label: 'Resting HR', val: '64 bpm',  sub: 'avg last 7 days',    icon: '❤️' },
-    { label: 'Adherence',  val: '87%',     sub: 'homework completion', icon: '📋' },
+    { label: 'Sleep',      val: sleepVal,       sub: 'avg last 7 nights',  icon: '🌙', st: sleepSt },
+    { label: 'HRV',        val: hrvVal,         sub: 'avg last 7 days',    icon: '💚', st: hrvSt   },
+    { label: 'Resting HR', val: rhrVal,         sub: 'avg last 7 days',    icon: '❤️', st: rhrSt   },
+    { label: 'Adherence',  val: adhRate + '%',  sub: 'check-in rate',      icon: '📋', st: adhSt   },
   ];
   return '<div class="pgp-bio-grid">' +
     tiles.map(function(t) {
-      return '<div class="pgp-bio-tile"><div class="pgp-bio-icon">' + t.icon + '</div>' +
+      return '<div class="pgp-bio-tile">' +
+        '<div class="pgp-bio-icon">' + t.icon + '</div>' +
         '<div class="pgp-bio-label">' + t.label + '</div>' +
         '<div class="pgp-bio-val">' + t.val + '</div>' +
-        '<div class="pgp-bio-sub">' + t.sub + '</div></div>';
+        '<div class="pgp-bio-sub">' + t.sub + '</div>' +
+        '<div style="margin-top:5px">' + _vizTrafficLight(t.st, '') + '</div>' +
+      '</div>';
     }).join('') +
     '</div>' +
     '<div class="pgp-bio-sync">Last synced today &nbsp;·&nbsp; <a href="#" style="color:var(--accent-teal,#2dd4bf);text-decoration:none" onclick="window._navPatient(\'patient-wearables\');return false">Manage devices →</a></div>';

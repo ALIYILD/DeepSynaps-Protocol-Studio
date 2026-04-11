@@ -3517,7 +3517,7 @@ function renderWizStep5() {
 function renderWizPage() {
   const ws = wizState();
   const step = ws.step || 0;
-  const el = document.getElementById('content');
+  const el = document.getElementById('pil-wizard-body') || document.getElementById('content');
   if (!el) return;
 
   let body = '';
@@ -3862,12 +3862,372 @@ function _wizBindActions() {
 
 export async function pgProtocols(setTopbar) {
   setTopbar('Protocol Intelligence', `
-    <button class="btn btn-sm" onclick="window._nav('protocol-builder')" style="border-color:var(--teal,#00d4bc);color:var(--teal,#00d4bc)">⚡ Visual Builder →</button>
-    <button class="btn btn-primary btn-sm" onclick="window._nav('handbooks')">Handbooks →</button>
+    <button class="btn btn-sm" onclick="window._nav('protocol-builder')" style="border-color:var(--teal,#00d4bc);color:var(--teal,#00d4bc)">⚡ Builder</button>
+    <button class="btn btn-sm" onclick="window._nav('handbooks')">Handbooks</button>
+    <button class="btn btn-sm" onclick="window._nav('decision-support')">Decision Support</button>
   `);
 
-  // Init state fresh only if not already on this page (step > 0 means we came via back)
-  if (!window._wizState || window._wizState._fresh) {
+  const el = document.getElementById('content');
+  // Start in wizard tab if explicitly navigated to wizard or a protocol was pre-selected
+  const initMode = (window._pilMode === 'wizard' || !!window._wizardProtocolId) ? 'wizard' : 'library';
+  window._pilMode = initMode;
+
+  el.innerHTML = `
+    <div class="pil-hub">
+      <div class="pil-tab-bar">
+        <button id="pil-tab-lib" class="pil-tab${initMode === 'library' ? ' pil-tab--active' : ''}"
+          onclick="window._pilTab('library')">
+          <span class="pil-tab-icon">&#9776;</span> Protocol Library
+        </button>
+        <button id="pil-tab-wiz" class="pil-tab${initMode === 'wizard' ? ' pil-tab--active' : ''}"
+          onclick="window._pilTab('wizard')">
+          <span class="pil-tab-icon">&#10011;</span> Create Course
+        </button>
+      </div>
+      <div id="pil-body"></div>
+    </div>`;
+
+  window._pilTab = async function(m) {
+    window._pilMode = m;
+    document.getElementById('pil-tab-lib')?.classList.toggle('pil-tab--active', m === 'library');
+    document.getElementById('pil-tab-wiz')?.classList.toggle('pil-tab--active', m === 'wizard');
+    if (m === 'library') await _pilRenderLibrary();
+    else _pilRenderWizard();
+  };
+
+  if (initMode === 'library') await _pilRenderLibrary();
+  else _pilRenderWizard();
+}
+
+// ── Protocol Intelligence: 10-20 stimulation brain map ───────────────────────
+
+function _stimMapSVG(targetRegion, laterality, modality) {
+  const W = 148, H = 148, cx = 74, cy = 74, hr = 60;
+
+  // 10-20 electrode positions (top-down view, nasion at top)
+  const SITES = {
+    'Fp1':[60,22],'Fp2':[88,22],
+    'F7':[22,54],'F3':[50,46],'Fz':[74,42],'F4':[98,46],'F8':[126,54],
+    'T3':[16,74],'C3':[40,74],'Cz':[74,74],'C4':[108,74],'T4':[132,74],
+    'T5':[22,94],'P3':[50,102],'Pz':[74,108],'P4':[98,102],'T6':[126,94],
+    'O1':[58,128],'Oz':[74,134],'O2':[90,128],
+    'AF3':[57,33],'AF4':[91,33],'FC3':[47,60],'FCz':[74,57],'FC4':[101,60],
+    'CP3':[47,88],'CPz':[74,90],'CP4':[101,88],
+  };
+
+  // Target region → 10-20 site mappings
+  const REGION_MAP = {
+    'dlpfc':              { left:['F3'],        right:['F4'],        bilateral:['F3','F4'] },
+    'left dlpfc':         { left:['F3'],        right:['F3'],        bilateral:['F3'] },
+    'right dlpfc':        { left:['F4'],        right:['F4'],        bilateral:['F4'] },
+    'm1':                 { left:['C3'],        right:['C4'],        bilateral:['C3','C4'] },
+    'motor':              { left:['C3'],        right:['C4'],        bilateral:['C3','C4'] },
+    'motorcortex':        { left:['C3'],        right:['C4'],        bilateral:['C3','C4'] },
+    'sma':                { left:['FCz','Fz'], right:['FCz','Fz'], bilateral:['FCz','Fz','Cz'] },
+    'vmpfc':              { left:['Fz'],        right:['Fz'],        bilateral:['Fz'] },
+    'pfc':                { left:['F3','Fz'],  right:['F4','Fz'],  bilateral:['Fz'] },
+    'prefrontal':         { left:['F3','Fz'],  right:['F4','Fz'],  bilateral:['Fz'] },
+    'cerebellum':         { left:['Oz'],        right:['Oz'],        bilateral:['Oz'] },
+    'parietal':           { left:['P3','Pz'],  right:['P4','Pz'],  bilateral:['Pz'] },
+    'occipital':          { left:['O1','Oz'],  right:['O2','Oz'],  bilateral:['Oz'] },
+    'temporal':           { left:['T3'],        right:['T4'],        bilateral:['T3','T4'] },
+    'insula':             { left:['T3','C3'],  right:['T4','C4'],  bilateral:['T3','T4'] },
+    'primarysomatosensory':{ left:['C3'],       right:['C4'],        bilateral:['C3','C4'] },
+    'cz':                 { left:['Cz'],        right:['Cz'],        bilateral:['Cz'] },
+    'pz':                 { left:['Pz'],        right:['Pz'],        bilateral:['Pz'] },
+    'fz':                 { left:['Fz'],        right:['Fz'],        bilateral:['Fz'] },
+  };
+
+  // Modality color
+  const modL = (modality || '').toLowerCase();
+  const col = modL.includes('tms') || modL.includes('magnetic') || modL.includes('theta') ? '#818cf8'
+    : modL.includes('tdcs') || modL.includes('tacs') || modL.includes('trns') ? '#00d4bc'
+    : modL.includes('nfb') || modL.includes('neurofeedback') || modL.includes('eeg') || modL.includes('heg') ? '#fbbf24'
+    : '#4a9eff';
+
+  // Resolve active sites
+  const rk = (targetRegion || '').toLowerCase().replace(/[\s\-_]/g, '');
+  const lat = (laterality || 'bilateral').toLowerCase();
+  const match = Object.entries(REGION_MAP).find(([k]) => rk.includes(k))?.[1]
+    || Object.entries(REGION_MAP).find(([k]) => k.includes(rk.slice(0, 4)))?.[1];
+  const active = match ? (match[lat] || match.bilateral || []) : [];
+
+  const parts = [
+    `<circle cx="${cx}" cy="${cy}" r="${hr}" fill="none" stroke="rgba(255,255,255,0.1)" stroke-width="1.5"/>`,
+    // Nose
+    `<path d="M${cx-5},${cy-hr+3} Q${cx},${cy-hr-6} ${cx+5},${cy-hr+3}" fill="none" stroke="rgba(255,255,255,0.12)" stroke-width="1.5"/>`,
+    // Left ear
+    `<path d="M${cx-hr},${cy-5} Q${cx-hr-6},${cy} ${cx-hr},${cy+5}" fill="none" stroke="rgba(255,255,255,0.08)" stroke-width="1.5"/>`,
+    // Right ear
+    `<path d="M${cx+hr},${cy-5} Q${cx+hr+6},${cy} ${cx+hr},${cy+5}" fill="none" stroke="rgba(255,255,255,0.08)" stroke-width="1.5"/>`,
+    // Reference lines (very subtle)
+    `<line x1="${cx}" y1="${cy-hr}" x2="${cx}" y2="${cy+hr}" stroke="rgba(255,255,255,0.04)" stroke-width="0.5"/>`,
+    `<line x1="${cx-hr}" y1="${cy}" x2="${cx+hr}" y2="${cy}" stroke="rgba(255,255,255,0.04)" stroke-width="0.5"/>`,
+  ];
+
+  // All site dots (dimmed)
+  Object.entries(SITES).forEach(([n, [x, y]]) => {
+    if (active.includes(n)) return;
+    parts.push(`<circle cx="${x}" cy="${y}" r="2.5" fill="rgba(148,163,184,0.12)" stroke="rgba(148,163,184,0.18)" stroke-width="0.5"/>`);
+  });
+
+  // Active site dots (highlighted with glow)
+  active.forEach(n => {
+    const pos = SITES[n];
+    if (!pos) return;
+    const [x, y] = pos;
+    parts.push(`<circle cx="${x}" cy="${y}" r="10" fill="${col}" opacity="0.1"/>`);
+    parts.push(`<circle cx="${x}" cy="${y}" r="6" fill="${col}" opacity="0.88"/>`);
+  });
+
+  const siteLabel = active.length ? active.join(' · ') : '';
+  const regionLabel = targetRegion ? targetRegion : '';
+
+  return `<div class="pil-map-wrap">
+    <svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" style="display:block">${parts.join('')}</svg>
+    <div class="pil-map-label">
+      ${regionLabel ? `<span class="pil-map-region">${regionLabel}</span>` : ''}
+      ${siteLabel ? `<span class="pil-map-sites" style="color:${col}">${siteLabel}</span>` : ''}
+    </div>
+  </div>`;
+}
+
+// ── Protocol Intelligence: Library tab ───────────────────────────────────────
+
+function _pilProtoCard(p, condMap) {
+  const isOn  = String(p.on_label_vs_off_label || '').toLowerCase().startsWith('on');
+  const pid   = (p.id || '').replace(/['"<>&]/g, '');
+  const cname = condMap[p.condition_id] || p.condition_id || '—';
+  const mod   = p.modality_id || '';
+  const region = p.target_region || '';
+  const lat   = p.laterality || '';
+
+  const paramRows = [
+    ['Condition',    cname !== '—' ? cname : null],
+    ['Modality',     mod || null],
+    ['Target',       region || null],
+    ['Laterality',   lat || null],
+    ['Frequency',    p.frequency_hz ? p.frequency_hz + ' Hz' : null],
+    ['Intensity',    p.intensity || null],
+    ['Duration',     p.session_duration || null],
+    ['Sessions/wk',  p.sessions_per_week ? p.sessions_per_week + '×/wk' : null],
+    ['Total course', p.total_course || null],
+    ['Placement',    p.coil_or_electrode_placement || null],
+    ['Device',       p.device_id_if_specific || null],
+  ].filter(([, v]) => v);
+
+  const hasMap = !!(region || lat);
+
+  return `<div class="pil-proto-card" id="pil-pc-${pid}">
+    <div class="pil-proto-header" onclick="window._pilToggle('${pid}')">
+      <div class="pil-proto-badges">
+        ${evidenceBadge(p.evidence_grade)}
+        ${labelBadge(isOn)}
+        ${(p.governance_flags || []).length ? `<span class="pil-gov-pill">⚠ ${p.governance_flags.length}</span>` : ''}
+      </div>
+      <div class="pil-proto-meta">
+        <div class="pil-proto-name">${p.name || '—'}</div>
+        <div class="pil-proto-sub">
+          ${cname !== '—' ? `<span>${cname}</span>` : ''}
+          ${mod   ? `<span class="pil-tag-mod">${mod}</span>` : ''}
+          ${region ? `<span class="pil-tag-region">${region}</span>` : ''}
+          ${p.frequency_hz ? `<span class="pil-tag-param">${p.frequency_hz} Hz</span>` : ''}
+          ${p.intensity    ? `<span class="pil-tag-param">${p.intensity}</span>` : ''}
+        </div>
+      </div>
+      <span id="pil-chev-${pid}" class="pil-chevron">▼</span>
+    </div>
+    <div id="pil-detail-${pid}" class="pil-detail-panel" style="display:none">
+      <div class="pil-detail-body">
+        <div class="pil-detail-params">
+          ${paramRows.map(([k, v]) => `
+            <div class="pil-param-row">
+              <span class="pil-param-key">${k}</span>
+              <span class="pil-param-val">${v}</span>
+            </div>`).join('')}
+        </div>
+        ${hasMap ? _stimMapSVG(region, lat, mod) : ''}
+      </div>
+      ${p.monitoring_requirements
+        ? `<div class="pil-monitoring-note">Monitoring: ${p.monitoring_requirements}</div>` : ''}
+      ${(p.governance_flags || []).map(f =>
+        `<div class="pil-gov-flag">⚠ ${f}</div>`).join('')}
+      ${p.clinician_review_required === 'Yes'
+        ? `<div class="pil-review-req">Clinician review required before first use</div>` : ''}
+      <div class="pil-detail-cta">
+        <button class="btn btn-primary btn-sm" onclick="event.stopPropagation();window._pilUseProtocol('${pid}')">Use This Protocol →</button>
+        <button class="btn btn-sm" onclick="event.stopPropagation();window._pilToggle('${pid}')">Close</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+function _pilBindCards() {
+  window._pilToggle = function(pid) {
+    document.querySelectorAll('[id^="pil-detail-"]').forEach(el => {
+      if (el.id !== 'pil-detail-' + pid && el.style.display !== 'none') {
+        el.style.display = 'none';
+        const ch = document.getElementById('pil-chev-' + el.id.replace('pil-detail-', ''));
+        if (ch) ch.textContent = '▼';
+      }
+    });
+    const panel = document.getElementById('pil-detail-' + pid);
+    const chev  = document.getElementById('pil-chev-' + pid);
+    if (!panel) return;
+    const isOpen = panel.style.display !== 'none';
+    panel.style.display = isOpen ? 'none' : '';
+    if (chev) chev.textContent = isOpen ? '▼' : '▲';
+  };
+
+  window._pilUseProtocol = function(pid) {
+    const p = (window._pilAllProtos || []).find(pr => (pr.id || '').replace(/['"<>&]/g, '') === pid);
+    if (p) window._pilSelectedProtocol = p;
+    window._pilMode = 'wizard';
+    document.getElementById('pil-tab-lib')?.classList.remove('pil-tab--active');
+    document.getElementById('pil-tab-wiz')?.classList.add('pil-tab--active');
+    _pilRenderWizard();
+    // Scroll to top of wizard
+    const body = document.getElementById('pil-body');
+    if (body) body.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+}
+
+async function _pilRenderLibrary() {
+  const body = document.getElementById('pil-body');
+  if (!body) return;
+  body.innerHTML = `<div class="pil-loading">${spinner()} Loading protocol library…</div>`;
+
+  try {
+    const [protoData, condData, modData] = await Promise.all([
+      api.protocols(),
+      api.conditions().catch(() => null),
+      api.modalities().catch(() => null),
+    ]);
+    const items = protoData?.items || [];
+    const conds = condData?.items  || [];
+    const mods  = modData?.items   || [];
+
+    const condMap = {};
+    conds.forEach(c => { condMap[c.id || c.Condition_ID] = c.name || c.Condition_Name || c.id; });
+
+    window._pilAllProtos = items;
+    window._pilCondMap   = condMap;
+
+    const condOptions = conds.map(c =>
+      `<option value="${c.id || c.Condition_ID}">${c.name || c.Condition_Name || c.id}</option>`
+    ).join('');
+    const modOptions = mods.map(m =>
+      `<option value="${m.id || m.name || m.Modality_Name}">${m.name || m.Modality_Name || m.id}</option>`
+    ).join('');
+
+    body.innerHTML = `
+      <div class="pil-library">
+        <div class="pil-filter-bar">
+          <input id="pil-search" class="form-control" placeholder="Search by name, condition, modality…"
+            oninput="window._pilFilter()" style="flex:1;min-width:160px;font-size:12.5px">
+          <select id="pil-cond" class="form-control" onchange="window._pilFilter()" style="font-size:12.5px">
+            <option value="">All Conditions</option>${condOptions}
+          </select>
+          <select id="pil-mod" class="form-control" onchange="window._pilFilter()" style="font-size:12.5px">
+            <option value="">All Modalities</option>${modOptions}
+          </select>
+          <select id="pil-grade" class="form-control" onchange="window._pilFilter()" style="font-size:12.5px">
+            <option value="">Any Evidence</option>
+            <option value="EV-A">EV-A — Strongest</option>
+            <option value="EV-B">EV-B — Moderate</option>
+            <option value="EV-C">EV-C — Emerging</option>
+            <option value="EV-D">EV-D — Experimental</option>
+          </select>
+          <label class="pil-onlabel-row">
+            <input type="checkbox" id="pil-onlabel" onchange="window._pilFilter()"> On-label only
+          </label>
+        </div>
+        <div id="pil-count" class="pil-count">${items.length} protocols</div>
+        <div id="pil-cards">
+          ${items.length
+            ? items.map(p => _pilProtoCard(p, condMap)).join('')
+            : emptyState('◇', 'No protocols in registry.', 'Ensure backend data is seeded.')}
+        </div>
+      </div>`;
+
+    window._pilFilter = function() {
+      const q    = (document.getElementById('pil-search')?.value || '').toLowerCase();
+      const cond = document.getElementById('pil-cond')?.value  || '';
+      const mod  = document.getElementById('pil-mod')?.value   || '';
+      const grade= document.getElementById('pil-grade')?.value || '';
+      const onl  = document.getElementById('pil-onlabel')?.checked || false;
+      const all  = window._pilAllProtos || [];
+      const cm   = window._pilCondMap  || {};
+
+      const vis = all.filter(p => {
+        const cn  = cm[p.condition_id] || p.condition_id || '';
+        const txt = `${p.name||''} ${cn} ${p.modality_id||''} ${p.target_region||''}`.toLowerCase();
+        const isOn = String(p.on_label_vs_off_label || '').toLowerCase().startsWith('on');
+        return (!q    || txt.includes(q))
+          && (!grade || p.evidence_grade === grade)
+          && (!onl   || isOn)
+          && (!cond  || (p.condition_id||'').includes(cond) || cn.toLowerCase().includes(cond.toLowerCase()))
+          && (!mod   || (p.modality_id||'').toLowerCase().includes(mod.toLowerCase()));
+      });
+
+      const countEl = document.getElementById('pil-count');
+      const cardsEl = document.getElementById('pil-cards');
+      if (countEl) countEl.textContent = `${vis.length} of ${all.length} protocols`;
+      if (cardsEl) cardsEl.innerHTML = vis.length
+        ? vis.map(p => _pilProtoCard(p, window._pilCondMap || {})).join('')
+        : emptyState('◇', 'No protocols match your filters.', 'Try removing a filter.');
+      _pilBindCards();
+    };
+
+    _pilBindCards();
+
+  } catch (e) {
+    body.innerHTML = `<div style="padding:32px">${emptyState('◇', 'Protocol library unavailable.', 'Check backend connection.')}</div>`;
+  }
+}
+
+function _pilRenderWizard() {
+  const body = document.getElementById('pil-body');
+  if (!body) return;
+
+  // Show pre-fill banner if arriving from a protocol card
+  const sel = window._pilSelectedProtocol;
+  const bannerHtml = sel ? `
+    <div class="pil-prefill-banner">
+      <span>Pre-filled from: <strong>${sel.name || sel.id}</strong></span>
+      <button class="btn btn-ghost btn-sm" onclick="window._pilSelectedProtocol=null;window._wizState._fresh=true;_pilRenderWizard()">Clear ×</button>
+    </div>` : '';
+
+  body.innerHTML = `${bannerHtml}<div id="pil-wizard-body" style="padding:16px 0"></div>`;
+
+  // Pre-fill wizard state from selected protocol
+  if (sel) {
+    const spw = sel.sessions_per_week ? parseInt(String(sel.sessions_per_week)) : 5;
+    const dur = sel.session_duration  ? parseInt(String(sel.session_duration))  : 30;
+    window._wizState = {
+      step: 0,
+      patientId:         window._wizardPatientId || '',
+      conditionSlug:     sel.condition_id || '',
+      conditionLabel:    window._pilCondMap?.[sel.condition_id] || sel.condition_id || '',
+      symptomCluster:    '',
+      phenotypeId:       sel.phenotype_id || '',
+      modalitySlugs:     sel.modality_id ? [sel.modality_id] : [],
+      deviceSlug:        sel.device_id_if_specific || '',
+      targetRegion:      sel.target_region || '',
+      frequencyHz:       sel.frequency_hz || '',
+      intensityPct:      '',
+      sessionsPerWeek:   isNaN(spw) ? 5 : spw,
+      totalSessions:     20,
+      sessionDurationMin:isNaN(dur) ? 30 : dur,
+      laterality:        sel.laterality || 'bilateral',
+      generatedProtocol: null,
+      clinicianNotes:    '',
+      savedCourse:       null,
+      _step4Html:        null,
+      _fresh:            false,
+      _fromProtocolId:   sel.id,
+    };
+  } else if (!window._wizState || window._wizState._fresh) {
     window._wizState = {
       step: 0, patientId: window._wizardPatientId || '', conditionSlug: '',
       conditionLabel: '', symptomCluster: '', phenotypeId: '',
@@ -4148,63 +4508,133 @@ async function loadMatchingProtocols(conditionId, modalityLabel) {
 // bindProtoPage is a no-op — the new wizard manages its own DOM via pgProtocols
 export function bindProtoPage() {}
 
-// ── Assessments ───────────────────────────────────────────────────────────────
-const ASSESS_TEMPLATES = [
-  { id: 'PHQ-9', t: 'PHQ-9 Depression Scale', sub: 'Patient health questionnaire, 9-item', tags: ['depression', 'outcome'],
-    max: 27, inline: true,
-    questions: [
-      'Little interest or pleasure in doing things',
-      'Feeling down, depressed, or hopeless',
-      'Trouble falling or staying asleep, or sleeping too much',
-      'Feeling tired or having little energy',
-      'Poor appetite or overeating',
-      'Feeling bad about yourself — or that you are a failure',
-      'Trouble concentrating on things',
-      'Moving or speaking so slowly that other people could notice (or the opposite)',
-      'Thoughts that you would be better off dead, or of hurting yourself',
-    ],
-    options: ['Not at all (0)', 'Several days (1)', 'More than half the days (2)', 'Nearly every day (3)'],
-    interpret: (s) => s <= 4 ? { label: 'Minimal', color: 'var(--teal)' } : s <= 9 ? { label: 'Mild', color: '#60a5fa' } : s <= 14 ? { label: 'Moderate', color: '#f59e0b' } : s <= 19 ? { label: 'Moderately Severe', color: '#f97316' } : { label: 'Severe', color: 'var(--red)' },
+// ── Assessments Hub ────────────────────────────────────────────────────────────
+const ASSESS_REGISTRY = [
+  // Inline questionnaires
+  { id: 'PHQ-9', t: 'PHQ-9 Depression Scale', abbr: 'PHQ-9', sub: 'Patient health questionnaire, 9-item', cat: 'Depression', tags: ['depression', 'outcome'], max: 27, inline: true,
+    questions: ['Little interest or pleasure in doing things','Feeling down, depressed, or hopeless','Trouble falling or staying asleep, or sleeping too much','Feeling tired or having little energy','Poor appetite or overeating','Feeling bad about yourself — or that you are a failure','Trouble concentrating on things','Moving or speaking so slowly that other people could notice (or the opposite)','Thoughts that you would be better off dead, or of hurting yourself'],
+    options: ['Not at all (0)','Several days (1)','More than half the days (2)','Nearly every day (3)'],
+    interpret: (s) => s<=4?{label:'Minimal',color:'var(--teal)'}:s<=9?{label:'Mild',color:'#60a5fa'}:s<=14?{label:'Moderate',color:'#f59e0b'}:s<=19?{label:'Moderately Severe',color:'#f97316'}:{label:'Severe',color:'var(--red)'},
   },
-  { id: 'GAD-7', t: 'GAD-7 Anxiety Scale', sub: 'Generalised anxiety disorder, 7-item', tags: ['anxiety', 'outcome'],
-    max: 21, inline: true,
-    questions: [
-      'Feeling nervous, anxious, or on edge',
-      'Not being able to stop or control worrying',
-      'Worrying too much about different things',
-      'Trouble relaxing',
-      'Being so restless that it is hard to sit still',
-      'Becoming easily annoyed or irritable',
-      'Feeling afraid as if something awful might happen',
-    ],
-    options: ['Not at all (0)', 'Several days (1)', 'More than half the days (2)', 'Nearly every day (3)'],
-    interpret: (s) => s <= 4 ? { label: 'Minimal', color: 'var(--teal)' } : s <= 9 ? { label: 'Mild', color: '#60a5fa' } : s <= 14 ? { label: 'Moderate', color: '#f59e0b' } : { label: 'Severe', color: 'var(--red)' },
+  { id: 'GAD-7', t: 'GAD-7 Anxiety Scale', abbr: 'GAD-7', sub: 'Generalised anxiety disorder, 7-item', cat: 'Anxiety', tags: ['anxiety', 'outcome'], max: 21, inline: true,
+    questions: ['Feeling nervous, anxious, or on edge','Not being able to stop or control worrying','Worrying too much about different things','Trouble relaxing','Being so restless that it is hard to sit still','Becoming easily annoyed or irritable','Feeling afraid as if something awful might happen'],
+    options: ['Not at all (0)','Several days (1)','More than half the days (2)','Nearly every day (3)'],
+    interpret: (s) => s<=4?{label:'Minimal',color:'var(--teal)'}:s<=9?{label:'Mild',color:'#60a5fa'}:s<=14?{label:'Moderate',color:'#f59e0b'}:{label:'Severe',color:'var(--red)'},
   },
-  { id: 'ISI', t: 'Insomnia Severity Index', sub: 'Sleep quality assessment, 7-item', tags: ['insomnia', 'CES'],
-    max: 28, inline: true,
-    questions: [
-      'Severity of sleep onset problem',
-      'Severity of sleep maintenance problem',
-      'Problem waking up too early',
-      'How SATISFIED/dissatisfied are you with your current sleep pattern?',
-      'How NOTICEABLE to others is your sleep problem?',
-      'How WORRIED/distressed are you about your sleep problem?',
-      'To what extent does your sleep problem INTERFERE with your daily functioning?',
-    ],
-    options: ['None/Very satisfied (0)', 'Mild (1)', 'Moderate (2)', 'Severe (3)', 'Very severe/Dissatisfied (4)'],
-    interpret: (s) => s <= 7 ? { label: 'No clinically significant insomnia', color: 'var(--teal)' } : s <= 14 ? { label: 'Subthreshold insomnia', color: '#60a5fa' } : s <= 21 ? { label: 'Moderate clinical insomnia', color: '#f59e0b' } : { label: 'Severe clinical insomnia', color: 'var(--red)' },
+  { id: 'ISI', t: 'Insomnia Severity Index', abbr: 'ISI', sub: 'Sleep quality assessment, 7-item', cat: 'Sleep', tags: ['insomnia', 'CES'], max: 28, inline: true,
+    questions: ['Severity of sleep onset problem','Severity of sleep maintenance problem','Problem waking up too early','How SATISFIED/dissatisfied are you with your current sleep pattern?','How NOTICEABLE to others is your sleep problem?','How WORRIED/distressed are you about your sleep problem?','To what extent does your sleep problem INTERFERE with your daily functioning?'],
+    options: ['None/Very satisfied (0)','Mild (1)','Moderate (2)','Severe (3)','Very severe/Dissatisfied (4)'],
+    interpret: (s) => s<=7?{label:'No clinically significant insomnia',color:'var(--teal)'}:s<=14?{label:'Subthreshold insomnia',color:'#60a5fa'}:s<=21?{label:'Moderate clinical insomnia',color:'#f59e0b'}:{label:'Severe clinical insomnia',color:'var(--red)'},
   },
-  { id: 'NRS-Pain', t: 'Numeric Pain Rating Scale', sub: 'Pain intensity 0–10', tags: ['pain', 'tDCS'],
-    max: 10, inline: false },
-  { id: 'PCL-5', t: 'PTSD Checklist (PCL-5)', sub: 'PTSD symptom scale, 20-item', tags: ['PTSD', 'taVNS'],
-    max: 80, inline: false },
-  { id: 'ADHD-RS-5', t: 'ADHD Rating Scale', sub: 'Executive function and attention assessment', tags: ['ADHD', 'NFB'],
-    max: 54, inline: false },
-  { id: 'DASS-21', t: 'DASS-21', sub: 'Depression, Anxiety and Stress Scales', tags: ['depression', 'anxiety'],
-    max: 63, inline: false },
-  { id: 'UPDRS-III', t: 'UPDRS-III Motor Assessment', sub: "Parkinson's motor function", tags: ['PD', 'TPS'],
-    max: 108, inline: false },
+  // Score-entry scales
+  { id: 'HAM-D17', t: 'Hamilton Depression Rating Scale', abbr: 'HAM-D', sub: 'Clinician-rated depression, 17-item', cat: 'Depression', tags: ['depression', 'clinician-rated'], max: 52, inline: false,
+    interpret: (s) => s<=7?{label:'Normal',color:'var(--teal)'}:s<=13?{label:'Mild',color:'#60a5fa'}:s<=18?{label:'Moderate',color:'#f59e0b'}:s<=22?{label:'Severe',color:'#f97316'}:{label:'Very Severe',color:'var(--red)'} },
+  { id: 'MADRS', t: 'Montgomery-Åsberg Depression Rating Scale', abbr: 'MADRS', sub: 'Clinician-rated depression, 10-item', cat: 'Depression', tags: ['depression', 'clinician-rated'], max: 60, inline: false,
+    interpret: (s) => s<=6?{label:'Normal',color:'var(--teal)'}:s<=19?{label:'Mild',color:'#60a5fa'}:s<=34?{label:'Moderate',color:'#f59e0b'}:{label:'Severe',color:'var(--red)'} },
+  { id: 'YMRS', t: 'Young Mania Rating Scale', abbr: 'YMRS', sub: 'Mania symptom severity, 11-item', cat: 'Mood', tags: ['bipolar', 'mania', 'clinician-rated'], max: 60, inline: false,
+    interpret: (s) => s<=12?{label:'Normal/Remission',color:'var(--teal)'}:s<=20?{label:'Mild',color:'#60a5fa'}:s<=30?{label:'Moderate',color:'#f59e0b'}:{label:'Severe',color:'var(--red)'} },
+  { id: 'PCL-5', t: 'PTSD Checklist (PCL-5)', abbr: 'PCL-5', sub: 'PTSD symptom scale, 20-item', cat: 'Trauma', tags: ['PTSD', 'taVNS'], max: 80, inline: false,
+    interpret: (s) => s<33?{label:'No probable PTSD',color:'var(--teal)'}:{label:'Probable PTSD',color:'var(--red)'} },
+  { id: 'Y-BOCS', t: 'Yale-Brown OC Scale', abbr: 'Y-BOCS', sub: 'OCD severity, 10-item', cat: 'OCD', tags: ['OCD', 'anxiety'], max: 40, inline: false,
+    interpret: (s) => s<=7?{label:'Subclinical',color:'var(--teal)'}:s<=15?{label:'Mild',color:'#60a5fa'}:s<=23?{label:'Moderate',color:'#f59e0b'}:s<=31?{label:'Severe',color:'#f97316'}:{label:'Extreme',color:'var(--red)'} },
+  { id: 'OCI-R', t: 'OCD Inventory-Revised', abbr: 'OCI-R', sub: 'OCD self-report, 18-item', cat: 'OCD', tags: ['OCD', 'anxiety'], max: 72, inline: false,
+    interpret: (s) => s<18?{label:'Below threshold',color:'var(--teal)'}:{label:'OCD likely',color:'var(--red)'} },
+  { id: 'PDSS', t: 'Panic Disorder Severity Scale', abbr: 'PDSS', sub: 'Panic disorder, 7-item clinician-rated', cat: 'Anxiety', tags: ['panic', 'anxiety'], max: 28, inline: false,
+    interpret: (s) => s<=5?{label:'Minimal',color:'var(--teal)'}:s<=10?{label:'Mild',color:'#60a5fa'}:s<=15?{label:'Moderate',color:'#f59e0b'}:{label:'Severe',color:'var(--red)'} },
+  { id: 'LSAS', t: 'Liebowitz Social Anxiety Scale', abbr: 'LSAS', sub: 'Social anxiety, 24-item', cat: 'Anxiety', tags: ['social-anxiety'], max: 144, inline: false,
+    interpret: (s) => s<30?{label:'None/Minimal',color:'var(--teal)'}:s<60?{label:'Moderate',color:'#f59e0b'}:{label:'Severe',color:'var(--red)'} },
+  { id: 'ADHD-RS-5', t: 'ADHD Rating Scale', abbr: 'ADHD-RS', sub: 'Executive function & attention, 18-item', cat: 'ADHD', tags: ['ADHD', 'NFB'], max: 54, inline: false,
+    interpret: (s) => s<=16?{label:'Normal',color:'var(--teal)'}:s<=32?{label:'Moderate',color:'#f59e0b'}:{label:'Severe',color:'var(--red)'} },
+  { id: 'DASS-21', t: 'DASS-21', abbr: 'DASS-21', sub: 'Depression, Anxiety & Stress Scales, 21-item', cat: 'Mood', tags: ['depression', 'anxiety', 'stress'], max: 63, inline: false,
+    interpret: (s) => s<=14?{label:'Normal',color:'var(--teal)'}:s<=28?{label:'Moderate',color:'#f59e0b'}:{label:'Severe',color:'var(--red)'} },
+  { id: 'UPDRS-III', t: 'UPDRS-III Motor Assessment', abbr: 'UPDRS-III', sub: "Parkinson's motor function, 27-item", cat: "Parkinson's", tags: ['PD', 'TPS', 'motor'], max: 108, inline: false,
+    interpret: (s) => s<=19?{label:'Mild',color:'#60a5fa'}:s<=39?{label:'Moderate',color:'#f59e0b'}:{label:'Severe',color:'var(--red)'} },
+  { id: 'NRS-Pain', t: 'Numeric Pain Rating Scale', abbr: 'NRS', sub: 'Pain intensity 0–10', cat: 'Pain', tags: ['pain', 'tDCS'], max: 10, inline: false,
+    interpret: (s) => s<=3?{label:'Mild pain',color:'#60a5fa'}:s<=6?{label:'Moderate pain',color:'#f59e0b'}:{label:'Severe pain',color:'var(--red)'} },
+  { id: 'NRS-SE', t: 'Side Effect Severity Rating', abbr: 'NRS-SE', sub: 'Neuromodulation side effects 0–10', cat: 'Safety', tags: ['side-effects', 'safety'], max: 10, inline: false,
+    interpret: (s) => s<=2?{label:'Minimal',color:'var(--teal)'}:s<=5?{label:'Moderate — monitor',color:'#f59e0b'}:{label:'Significant — review',color:'var(--red)'} },
+  { id: 'PSQI', t: 'Pittsburgh Sleep Quality Index', abbr: 'PSQI', sub: 'Sleep quality & disturbances, 7-component', cat: 'Sleep', tags: ['sleep', 'insomnia'], max: 21, inline: false,
+    interpret: (s) => s<=5?{label:'Good sleep',color:'var(--teal)'}:{label:'Poor sleep',color:'var(--red)'} },
+  { id: 'ESS', t: 'Epworth Sleepiness Scale', abbr: 'ESS', sub: 'Daytime sleepiness, 8-item', cat: 'Sleep', tags: ['sleep', 'fatigue'], max: 24, inline: false,
+    interpret: (s) => s<=10?{label:'Normal',color:'var(--teal)'}:s<=15?{label:'Excessive sleepiness',color:'#f59e0b'}:{label:'Severe — refer',color:'var(--red)'} },
+  { id: 'SF-12', t: 'Short Form Health Survey (SF-12)', abbr: 'SF-12', sub: 'Health-related quality of life, 12-item', cat: 'QoL', tags: ['quality-of-life', 'function'], max: 100, inline: false,
+    interpret: (s) => s>=50?{label:'Above average QoL',color:'var(--teal)'}:{label:'Below average QoL',color:'#f59e0b'} },
+  { id: 'THI', t: 'Tinnitus Handicap Inventory', abbr: 'THI', sub: 'Tinnitus severity & impact, 25-item', cat: 'Sensory', tags: ['tinnitus', 'TMS'], max: 100, inline: false,
+    interpret: (s) => s<=16?{label:'Slight',color:'var(--teal)'}:s<=36?{label:'Mild',color:'#60a5fa'}:s<=56?{label:'Moderate',color:'#f59e0b'}:{label:'Severe',color:'var(--red)'} },
+  { id: 'FSS', t: 'Fatigue Severity Scale', abbr: 'FSS', sub: 'Fatigue impact, 9-item', cat: 'Function', tags: ['fatigue', 'MS', 'TBI'], max: 63, inline: false,
+    interpret: (s) => s<36?{label:'Normal',color:'var(--teal)'}:{label:'Clinically significant fatigue',color:'#f59e0b'} },
+  { id: 'CGI-S', t: 'Clinical Global Impression — Severity', abbr: 'CGI-S', sub: 'Global severity rating 1–7', cat: 'Global', tags: ['global', 'clinician-rated'], max: 7, inline: false,
+    interpret: (s) => s<=2?{label:'Normal/Borderline',color:'var(--teal)'}:s<=4?{label:'Mild–Moderate',color:'#f59e0b'}:{label:'Severe',color:'var(--red)'} },
+  { id: 'AUDIT', t: 'Alcohol Use Disorders Identification Test', abbr: 'AUDIT', sub: 'Alcohol misuse screening, 10-item', cat: 'Substance', tags: ['alcohol', 'substance'], max: 40, inline: false,
+    interpret: (s) => s<=7?{label:'Low risk',color:'var(--teal)'}:s<=15?{label:'Medium risk',color:'#f59e0b'}:{label:'High risk',color:'var(--red)'} },
 ];
+
+// Backward-compat alias (patient profile tab still references ASSESS_TEMPLATES)
+const ASSESS_TEMPLATES = ASSESS_REGISTRY;
+
+// Condition → phase → scale bundle map  (20 conditions × 5 phases)
+const CONDITION_BUNDLES = {
+  'CON-001': { name: 'Major Depressive Disorder',     cat: 'Mood',
+    baseline:['PHQ-9','HAM-D17','MADRS','GAD-7','ISI','DASS-21','SF-12'], pre_session:['PHQ-9'],
+    post_session:['PHQ-9','NRS-SE'], weekly:['PHQ-9','GAD-7','ISI'], discharge:['PHQ-9','HAM-D17','GAD-7','ISI','DASS-21','SF-12'] },
+  'CON-002': { name: 'Bipolar Disorder',               cat: 'Mood',
+    baseline:['PHQ-9','MADRS','YMRS','GAD-7','ISI','SF-12'], pre_session:['PHQ-9','YMRS'],
+    post_session:['NRS-SE'], weekly:['PHQ-9','YMRS','ISI'], discharge:['PHQ-9','MADRS','YMRS','GAD-7','SF-12'] },
+  'CON-003': { name: 'Generalised Anxiety Disorder',   cat: 'Anxiety',
+    baseline:['GAD-7','PHQ-9','DASS-21','ISI','SF-12'], pre_session:['GAD-7'],
+    post_session:['GAD-7','NRS-SE'], weekly:['GAD-7','PHQ-9','ISI'], discharge:['GAD-7','PHQ-9','DASS-21','SF-12'] },
+  'CON-004': { name: 'Panic Disorder',                 cat: 'Anxiety',
+    baseline:['PDSS','GAD-7','PHQ-9','ISI'], pre_session:['PDSS'],
+    post_session:['NRS-SE'], weekly:['PDSS','GAD-7'], discharge:['PDSS','GAD-7','PHQ-9'] },
+  'CON-005': { name: 'Social Anxiety Disorder',        cat: 'Anxiety',
+    baseline:['LSAS','GAD-7','PHQ-9','DASS-21'], pre_session:['LSAS'],
+    post_session:['NRS-SE'], weekly:['LSAS','GAD-7'], discharge:['LSAS','GAD-7','PHQ-9'] },
+  'CON-006': { name: 'OCD',                            cat: 'Anxiety',
+    baseline:['Y-BOCS','OCI-R','GAD-7','PHQ-9'], pre_session:['Y-BOCS'],
+    post_session:['NRS-SE'], weekly:['Y-BOCS','OCI-R'], discharge:['Y-BOCS','OCI-R','GAD-7','PHQ-9'] },
+  'CON-007': { name: 'PTSD',                           cat: 'Trauma',
+    baseline:['PCL-5','PHQ-9','GAD-7','ISI'], pre_session:['PCL-5'],
+    post_session:['NRS-SE'], weekly:['PCL-5','PHQ-9','ISI'], discharge:['PCL-5','PHQ-9','GAD-7','ISI'] },
+  'CON-008': { name: 'ADHD',                           cat: 'Neurodevelopmental',
+    baseline:['ADHD-RS-5','PHQ-9','GAD-7'], pre_session:['ADHD-RS-5'],
+    post_session:['NRS-SE'], weekly:['ADHD-RS-5'], discharge:['ADHD-RS-5','PHQ-9'] },
+  'CON-009': { name: 'Chronic Insomnia',               cat: 'Sleep',
+    baseline:['ISI','PSQI','ESS','PHQ-9'], pre_session:['ISI'],
+    post_session:['NRS-SE'], weekly:['ISI','ESS'], discharge:['ISI','PSQI','PHQ-9'] },
+  'CON-010': { name: 'Chronic Pain',                   cat: 'Pain',
+    baseline:['NRS-Pain','PHQ-9','GAD-7','SF-12'], pre_session:['NRS-Pain'],
+    post_session:['NRS-Pain','NRS-SE'], weekly:['NRS-Pain','PHQ-9'], discharge:['NRS-Pain','PHQ-9','SF-12'] },
+  'CON-011': { name: 'Fibromyalgia',                   cat: 'Pain',
+    baseline:['NRS-Pain','PHQ-9','GAD-7','FSS','SF-12'], pre_session:['NRS-Pain'],
+    post_session:['NRS-Pain','NRS-SE'], weekly:['NRS-Pain','FSS','PHQ-9'], discharge:['NRS-Pain','PHQ-9','FSS','SF-12'] },
+  'CON-012': { name: "Parkinson's Disease",            cat: 'Neurology',
+    baseline:['UPDRS-III','PHQ-9','SF-12'], pre_session:['UPDRS-III'],
+    post_session:['UPDRS-III','NRS-SE'], weekly:['UPDRS-III','PHQ-9'], discharge:['UPDRS-III','PHQ-9','SF-12'] },
+  'CON-013': { name: 'Post-Stroke Rehabilitation',     cat: 'Neurology',
+    baseline:['PHQ-9','FSS','SF-12'], pre_session:['NRS-SE'],
+    post_session:['NRS-SE'], weekly:['PHQ-9','FSS'], discharge:['PHQ-9','FSS','SF-12'] },
+  'CON-014': { name: 'Traumatic Brain Injury',         cat: 'Neurology',
+    baseline:['PHQ-9','GAD-7','FSS','SF-12'], pre_session:['PHQ-9'],
+    post_session:['NRS-SE'], weekly:['PHQ-9','FSS'], discharge:['PHQ-9','GAD-7','FSS','SF-12'] },
+  'CON-015': { name: 'Multiple Sclerosis',             cat: 'Neurology',
+    baseline:['PHQ-9','FSS','SF-12'], pre_session:['NRS-SE'],
+    post_session:['NRS-SE'], weekly:['PHQ-9','FSS'], discharge:['PHQ-9','FSS','SF-12'] },
+  'CON-016': { name: 'Tinnitus',                       cat: 'Sensory',
+    baseline:['THI','PHQ-9','GAD-7','ISI'], pre_session:['THI'],
+    post_session:['NRS-SE'], weekly:['THI','ISI'], discharge:['THI','PHQ-9','ISI'] },
+  'CON-017': { name: 'CRPS',                           cat: 'Pain',
+    baseline:['NRS-Pain','PHQ-9','GAD-7'], pre_session:['NRS-Pain'],
+    post_session:['NRS-Pain','NRS-SE'], weekly:['NRS-Pain','PHQ-9'], discharge:['NRS-Pain','PHQ-9'] },
+  'CON-018': { name: 'Neuropathic Pain',               cat: 'Pain',
+    baseline:['NRS-Pain','PHQ-9','GAD-7','SF-12'], pre_session:['NRS-Pain'],
+    post_session:['NRS-Pain','NRS-SE'], weekly:['NRS-Pain','PHQ-9'], discharge:['NRS-Pain','PHQ-9','SF-12'] },
+  'CON-019': { name: 'Eating Disorders',               cat: 'Eating',
+    baseline:['PHQ-9','GAD-7','ISI','SF-12'], pre_session:['PHQ-9'],
+    post_session:['NRS-SE'], weekly:['PHQ-9','GAD-7'], discharge:['PHQ-9','GAD-7','SF-12'] },
+  'CON-020': { name: 'Substance Use Disorder',         cat: 'Substance',
+    baseline:['AUDIT','PHQ-9','GAD-7','SF-12'], pre_session:['AUDIT'],
+    post_session:['NRS-SE'], weekly:['PHQ-9','GAD-7'], discharge:['AUDIT','PHQ-9','GAD-7','SF-12'] },
+};
 
 export async function pgAssess(setTopbar) {
   setTopbar('Assessments', `<button class="btn btn-primary btn-sm" onclick="window.showAssessModal()">+ Run Assessment</button>`);
@@ -11996,3 +12426,557 @@ export async function pgPatientQueue(setTopbar) {
     window._showNotifToast?.({ title:'Alert Dismissed', body:'Protocol alert has been dismissed', severity:'info' });
   };
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Assessments Hub
+// ─────────────────────────────────────────────────────────────────────────────
+export async function pgAssessmentsHub(setTopbar) {
+  setTopbar('Assessments', '');
+  const el = document.getElementById('content');
+  if (!el) return;
+
+  const _AH_CATS = ['All','Mood','Anxiety','Cognition','Sleep','PTSD','Substance','QoL','Side Effects'];
+  const _AH_TIMING = [
+    { id:'pre',    label:'Pre-treatment',   color:'var(--blue)' },
+    { id:'weekly', label:'Weekly check-in', color:'var(--teal)' },
+    { id:'post',   label:'Post-treatment',  color:'var(--green,#22c55e)' },
+    { id:'prn',    label:'PRN / as needed', color:'var(--amber,#f59e0b)' },
+    { id:'annual', label:'Annual review',   color:'var(--text-secondary)' },
+    { id:'custom', label:'Custom schedule', color:'var(--purple,#a855f7)' },
+  ];
+  const _AH_BUNDLES = [
+    { id:'phq9',   name:'PHQ-9',           cat:'Mood',      items:9,  mins:3,  timing:['pre','weekly','post'], desc:'Depression severity screening' },
+    { id:'gad7',   name:'GAD-7',           cat:'Anxiety',   items:7,  mins:2,  timing:['pre','weekly','post'], desc:'Generalised anxiety disorder' },
+    { id:'pcl5',   name:'PCL-5',           cat:'PTSD',      items:20, mins:7,  timing:['pre','weekly'],        desc:'PTSD checklist — DSM-5' },
+    { id:'madrs',  name:'MADRS',           cat:'Mood',      items:10, mins:15, timing:['pre','weekly','post'], desc:'Montgomery–Åsberg Depression Rating' },
+    { id:'ham-a',  name:'HAM-A',           cat:'Anxiety',   items:14, mins:15, timing:['pre','post'],          desc:'Hamilton Anxiety Rating Scale' },
+    { id:'bdi2',   name:'BDI-II',          cat:'Mood',      items:21, mins:10, timing:['pre','weekly','post'], desc:'Beck Depression Inventory' },
+    { id:'moca',   name:'MoCA',            cat:'Cognition', items:30, mins:12, timing:['pre','post','annual'], desc:'Montreal Cognitive Assessment' },
+    { id:'moca-b', name:'MoCA-BLIND',      cat:'Cognition', items:22, mins:10, timing:['pre','post'],          desc:'MoCA adapted for visual impairment' },
+    { id:'cogstate',name:'CogState Brief', cat:'Cognition', items:4,  mins:15, timing:['pre','weekly','post'], desc:'Digital cognitive battery' },
+    { id:'psqi',   name:'PSQI',            cat:'Sleep',     items:19, mins:5,  timing:['pre','weekly','post'], desc:'Pittsburgh Sleep Quality Index' },
+    { id:'isi',    name:'ISI',             cat:'Sleep',     items:7,  mins:2,  timing:['pre','weekly'],        desc:'Insomnia Severity Index' },
+    { id:'audit',  name:'AUDIT',           cat:'Substance', items:10, mins:3,  timing:['pre','annual'],        desc:'Alcohol Use Disorders Identification' },
+    { id:'dast10', name:'DAST-10',         cat:'Substance', items:10, mins:3,  timing:['pre','annual'],        desc:'Drug Abuse Screening Test' },
+    { id:'qlesq',  name:'Q-LES-Q-SF',      cat:'QoL',       items:16, mins:5,  timing:['pre','post'],          desc:'Quality of Life Enjoyment & Satisfaction' },
+    { id:'sf36',   name:'SF-36',           cat:'QoL',       items:36, mins:10, timing:['pre','post','annual'], desc:'Short Form Health Survey' },
+    { id:'whoqol', name:'WHOQOL-BREF',     cat:'QoL',       items:26, mins:8,  timing:['pre','post'],          desc:'WHO Quality of Life Brief' },
+    { id:'tses',   name:'TMS Side Effects',cat:'Side Effects',items:8,mins:3,  timing:['weekly','prn'],        desc:'TMS tolerability & adverse events' },
+    { id:'tdcs-ae',name:'tDCS Adverse Events',cat:'Side Effects',items:6,mins:2,timing:['prn'],              desc:'tDCS tolerability checklist' },
+    { id:'ybocs',  name:'Y-BOCS',          cat:'Anxiety',   items:10, mins:20, timing:['pre','weekly','post'], desc:'Yale–Brown OCD Scale' },
+    { id:'lsas',   name:'LSAS',            cat:'Anxiety',   items:24, mins:10, timing:['pre','post'],          desc:'Liebowitz Social Anxiety Scale' },
+    { id:'panss',  name:'PANSS',           cat:'Mood',      items:30, mins:40, timing:['pre','post'],          desc:'Positive and Negative Syndrome Scale' },
+    { id:'cdrs',   name:'CDRS-R',          cat:'Mood',      items:17, mins:20, timing:['pre','weekly'],        desc:'Children\'s Depression Rating Scale' },
+    { id:'bprs',   name:'BPRS',            cat:'Mood',      items:24, mins:25, timing:['pre','weekly'],        desc:'Brief Psychiatric Rating Scale' },
+    { id:'ymrs',   name:'YMRS',            cat:'Mood',      items:11, mins:15, timing:['pre','weekly'],        desc:'Young Mania Rating Scale' },
+    { id:'snap4',  name:'SNAP-IV',         cat:'Cognition', items:26, mins:10, timing:['pre','post'],          desc:'ADHD rating (parent/teacher form)' },
+    { id:'caps5',  name:'CAPS-5',          cat:'PTSD',      items:30, mins:45, timing:['pre','post'],          desc:'Clinician-Administered PTSD Scale' },
+    { id:'ders',   name:'DERS-16',         cat:'Mood',      items:16, mins:5,  timing:['pre','post'],          desc:'Difficulties in Emotion Regulation' },
+    { id:'bam',    name:'BAM-R',           cat:'Substance', items:17, mins:5,  timing:['pre','weekly'],        desc:'Brief Addiction Monitor' },
+    { id:'tanner', name:'Tanner Scale',    cat:'QoL',       items:5,  mins:3,  timing:['pre','annual'],        desc:'Pubertal staging (paediatric)' },
+    { id:'cogflex',name:'Cognitive Flexibility Inv.',cat:'Cognition',items:20,mins:7,timing:['pre','post'],   desc:'CFI — cognitive rigidity assessment' },
+    { id:'cfq',    name:'CFQ',             cat:'Cognition', items:25, mins:8,  timing:['pre','post'],          desc:'Cognitive Failures Questionnaire' },
+    { id:'phq15',  name:'PHQ-15',          cat:'Mood',      items:15, mins:4,  timing:['pre','weekly'],        desc:'Somatic symptom severity' },
+  ];
+
+  let _activeCat = 'All';
+  let _activeSearch = '';
+
+  function _catColor(cat) {
+    const m = { Mood:'var(--blue)', Anxiety:'var(--teal)', Cognition:'var(--purple,#a855f7)',
+      Sleep:'var(--amber,#f59e0b)', PTSD:'var(--red,#ef4444)', Substance:'var(--orange,#f97316)',
+      'QoL':'var(--green,#22c55e)', 'Side Effects':'var(--text-secondary)' };
+    return m[cat] || 'var(--teal)';
+  }
+
+  function _timingBadge(t) {
+    const tm = _AH_TIMING.find(x => x.id === t);
+    return tm ? `<span class="ah-timing-badge" style="background:${tm.color}20;color:${tm.color};border-color:${tm.color}40">${tm.label}</span>` : '';
+  }
+
+  function _renderGrid() {
+    const filtered = _AH_BUNDLES.filter(b => {
+      const catOk = _activeCat === 'All' || b.cat === _activeCat;
+      const q = _activeSearch.toLowerCase();
+      const searchOk = !q || b.name.toLowerCase().includes(q) || b.desc.toLowerCase().includes(q) || b.cat.toLowerCase().includes(q);
+      return catOk && searchOk;
+    });
+    const grid = document.getElementById('ah-grid');
+    if (!grid) return;
+    if (!filtered.length) { grid.innerHTML = `<div class="ah-empty">No assessments match your filter.</div>`; return; }
+    grid.innerHTML = filtered.map(b => `
+      <div class="ah-card">
+        <div class="ah-card-top">
+          <span class="ah-card-name">${b.name}</span>
+          <span class="ah-cat-badge" style="background:${_catColor(b.cat)}20;color:${_catColor(b.cat)}">${b.cat}</span>
+        </div>
+        <div class="ah-card-desc">${b.desc}</div>
+        <div class="ah-card-meta">${b.items} items &nbsp;·&nbsp; ~${b.mins} min</div>
+        <div class="ah-timing-row">${b.timing.map(_timingBadge).join('')}</div>
+        <div class="ah-card-actions">
+          <button class="ah-btn-assign" onclick="window._ahAssign('${b.id}')">Assign to Patient</button>
+          <button class="ah-btn-preview" onclick="window._ahPreview('${b.id}')">Preview</button>
+        </div>
+      </div>`).join('');
+  }
+
+  el.innerHTML = `
+    <div class="ah-wrap">
+      <div class="ah-header-row">
+        <div class="ah-title-block">
+          <h2 class="ah-title">Assessment Library</h2>
+          <p class="ah-subtitle">${_AH_BUNDLES.length} validated instruments &mdash; filter, assign, and schedule for any patient</p>
+        </div>
+        <button class="ah-btn-schedule" onclick="window._ahOpenScheduler()">Manage Schedules</button>
+      </div>
+      <div class="ah-toolbar">
+        <div class="ah-cats">
+          ${_AH_CATS.map(c => `<button class="ah-cat-btn${c===_activeCat?' ah-cat-active':''}" onclick="window._ahSetCat('${c}')">${c}</button>`).join('')}
+        </div>
+        <input id="ah-search" class="ah-search-input" type="text" placeholder="Search instruments…" oninput="window._ahSearch(this.value)" value="${_activeSearch}">
+      </div>
+      <div id="ah-grid" class="ah-grid"></div>
+    </div>
+    <div id="ah-modal" class="ah-modal-overlay" style="display:none" onclick="if(event.target===this)this.style.display='none'">
+      <div class="ah-modal-box" id="ah-modal-box"></div>
+    </div>`;
+
+  _renderGrid();
+
+  window._ahSetCat = function(cat) {
+    _activeCat = cat;
+    document.querySelectorAll('.ah-cat-btn').forEach(b => b.classList.toggle('ah-cat-active', b.textContent === cat));
+    _renderGrid();
+  };
+  window._ahSearch = function(val) { _activeSearch = val; _renderGrid(); };
+  window._ahPreview = function(id) {
+    const b = _AH_BUNDLES.find(x => x.id === id); if (!b) return;
+    const modal = document.getElementById('ah-modal');
+    document.getElementById('ah-modal-box').innerHTML = `
+      <div class="ah-modal-header"><span class="ah-modal-title">${b.name}</span><button class="ah-modal-close" onclick="document.getElementById('ah-modal').style.display='none'">✕</button></div>
+      <p class="ah-modal-desc">${b.desc}</p>
+      <div class="ah-modal-meta"><b>${b.items}</b> items &nbsp;·&nbsp; <b>~${b.mins} min</b> &nbsp;·&nbsp; Category: <b>${b.cat}</b></div>
+      <div class="ah-modal-timing"><b>Recommended timing:</b><br>${b.timing.map(_timingBadge).join(' ')}</div>
+      <div class="ah-modal-footer"><button class="ah-btn-assign" onclick="window._ahAssign('${b.id}')">Assign to Patient</button></div>`;
+    modal.style.display = 'flex';
+  };
+  window._ahAssign = function(id) {
+    const b = _AH_BUNDLES.find(x => x.id === id); if (!b) return;
+    const modal = document.getElementById('ah-modal');
+    document.getElementById('ah-modal-box').innerHTML = `
+      <div class="ah-modal-header"><span class="ah-modal-title">Assign ${b.name}</span><button class="ah-modal-close" onclick="document.getElementById('ah-modal').style.display='none'">✕</button></div>
+      <div class="ah-assign-form">
+        <label class="ah-form-label">Patient</label>
+        <input class="ah-form-input" id="ah-pat-input" placeholder="Search patient name or ID…" type="text">
+        <label class="ah-form-label">Schedule</label>
+        <select class="ah-form-select" id="ah-sched-select">
+          ${_AH_TIMING.map(t => `<option value="${t.id}"${b.timing.includes(t.id)?' selected':''}>${t.label}</option>`).join('')}
+        </select>
+        <label class="ah-form-label">Due date (optional)</label>
+        <input class="ah-form-input" id="ah-due-input" type="date">
+        <button class="ah-btn-assign" style="margin-top:14px;width:100%" onclick="window._ahConfirmAssign('${b.id}')">Confirm Assignment</button>
+      </div>`;
+    modal.style.display = 'flex';
+  };
+  window._ahConfirmAssign = function(id) {
+    const b = _AH_BUNDLES.find(x => x.id === id); if (!b) return;
+    document.getElementById('ah-modal').style.display = 'none';
+    window._showNotifToast?.({ title:'Assessment Assigned', body:`${b.name} assigned successfully`, severity:'success' });
+  };
+  window._ahOpenScheduler = function() {
+    window._showNotifToast?.({ title:'Schedules', body:'Assessment schedule manager coming soon', severity:'info' });
+  };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Brain Map Planner
+// ─────────────────────────────────────────────────────────────────────────────
+export async function pgBrainMapPlanner(setTopbar) {
+  setTopbar('Brain Map Planner', '');
+  const el = document.getElementById('content');
+  if (!el) return;
+
+  // 10-20 EEG site positions (percent top/left of scalp map container 340×340px)
+  const _BMP_SITES = [
+    { id:'Fpz', label:'Fpz', top:4,  left:50 },
+    { id:'Fp1', label:'Fp1', top:8,  left:34 },
+    { id:'Fp2', label:'Fp2', top:8,  left:66 },
+    { id:'F7',  label:'F7',  top:26, left:16 },
+    { id:'F3',  label:'F3',  top:26, left:34 },
+    { id:'Fz',  label:'Fz',  top:26, left:50 },
+    { id:'F4',  label:'F4',  top:26, left:66 },
+    { id:'F8',  label:'F8',  top:26, left:84 },
+    { id:'T3',  label:'T3',  top:50, left:8  },
+    { id:'C3',  label:'C3',  top:50, left:34 },
+    { id:'Cz',  label:'Cz',  top:50, left:50 },
+    { id:'C4',  label:'C4',  top:50, left:66 },
+    { id:'T4',  label:'T4',  top:50, left:92 },
+    { id:'T5',  label:'T5',  top:74, left:16 },
+    { id:'P3',  label:'P3',  top:74, left:34 },
+    { id:'Pz',  label:'Pz',  top:74, left:50 },
+    { id:'P4',  label:'P4',  top:74, left:66 },
+    { id:'T6',  label:'T6',  top:74, left:84 },
+    { id:'O1',  label:'O1',  top:90, left:38 },
+    { id:'Oz',  label:'Oz',  top:93, left:50 },
+    { id:'O2',  label:'O2',  top:90, left:62 },
+  ];
+
+  const _BMP_PROTOCOLS = [
+    { id:'dep-tms',    label:'Depression — Left DLPFC TMS',    active:['F3'],       ref:['Fp1','Fz'],   modality:'TMS',  params:'10Hz, 120% MT, 3000 pulses/session', evidence:'Level A' },
+    { id:'dep-itbs',   label:'Depression — iTBS Left DLPFC',   active:['F3'],       ref:['Fp1'],        modality:'TMS',  params:'iTBS, 600 pulses, 3 min', evidence:'Level A' },
+    { id:'dep-bilat',  label:'Depression — Bilateral TMS',     active:['F3','F4'],  ref:[],             modality:'TMS',  params:'L: 10Hz excit. / R: 1Hz inhib.', evidence:'Level B' },
+    { id:'ocd-tms',    label:'OCD — Medial PFC / DMPFC TMS',   active:['Fz','Fpz'], ref:[],             modality:'TMS',  params:'20Hz dTMS H-coil, 2000 pulses', evidence:'Level A' },
+    { id:'ptsd-tms',   label:'PTSD — Right DLPFC inhibition',  active:['F4'],       ref:['Fp2'],        modality:'TMS',  params:'1Hz, 110% MT, 1200 pulses', evidence:'Level B' },
+    { id:'pain-tdcs',  label:'Chronic Pain — M1 tDCS',         active:['C3','C4'],  ref:['Fp1','Fp2'],  modality:'tDCS', params:'2mA, 20 min, anodal M1', evidence:'Level B' },
+    { id:'rehab-tdcs', label:'Motor Rehab — M1 tDCS',          active:['C3'],       ref:['C4'],         modality:'tDCS', params:'1–2mA, 20 min, anodal affected M1', evidence:'Level B' },
+    { id:'cog-tdcs',   name:'Cognitive Enhancement — DLPFC',   active:['F3'],       ref:['Fp1'],        modality:'tDCS', params:'1.5–2mA, 20–30 min, anodal L-DLPFC', evidence:'Level C' },
+    { id:'tinnitus',   label:'Tinnitus — Temporal cortex',     active:['T3','T4'],  ref:['Cz'],         modality:'TMS',  params:'1Hz, 110% MT, 900 pulses bilateral', evidence:'Level C' },
+    { id:'sz-tdcs',    label:'Schizophrenia — T3/T4 tDCS',     active:['T3','T4'],  ref:['Cz'],         modality:'tDCS', params:'2mA, 20 min, cathodal bilateral temporal', evidence:'Level B' },
+    { id:'mig-tms',    label:'Migraine — Occipital TMS',       active:['O1','O2'],  ref:[],             modality:'TMS',  params:'1Hz, 110% MT, 600 pulses', evidence:'Level B' },
+    { id:'addiction',  label:'Addiction — PFC TMS',            active:['F3','Fz'],  ref:['Fp1','Fpz'],  modality:'TMS',  params:'10Hz, 120% MT, 2000 pulses', evidence:'Level B' },
+  ];
+
+  let _selProto = null;
+  let _customActive = new Set();
+  let _customRef    = new Set();
+  let _mode = 'protocol'; // 'protocol' | 'custom'
+
+  function _siteColor(id) {
+    if (!_selProto && _mode === 'protocol') return '#2a2d3a';
+    const active = _mode === 'protocol' ? (_selProto?.active || []) : [..._customActive];
+    const ref    = _mode === 'protocol' ? (_selProto?.ref    || []) : [..._customRef];
+    if (active.includes(id)) return 'var(--teal)';
+    if (ref.includes(id))    return 'var(--blue)';
+    return '#2a2d3a';
+  }
+
+  function _renderMap() {
+    const map = document.getElementById('bmp-scalp-map');
+    if (!map) return;
+    map.innerHTML = _BMP_SITES.map(s => {
+      const color = _siteColor(s.id);
+      const active = _mode === 'protocol' ? (_selProto?.active||[]) : [..._customActive];
+      const ref    = _mode === 'protocol' ? (_selProto?.ref||[])    : [..._customRef];
+      const isActive = active.includes(s.id);
+      const isRef    = ref.includes(s.id);
+      return `<div class="bmp-site${isActive?' bmp-site-active':''}${isRef?' bmp-site-ref':''}"
+        style="top:${s.top}%;left:${s.left}%;background:${color}"
+        title="${s.id}${isActive?' — Active stimulation site':isRef?' — Reference electrode':''}"
+        onclick="window._bmpToggleSite('${s.id}')">${s.label}</div>`;
+    }).join('');
+  }
+
+  function _renderSummary() {
+    const panel = document.getElementById('bmp-summary');
+    if (!panel) return;
+    if (_mode === 'protocol' && _selProto) {
+      const p = _selProto;
+      const activeStr = (p.active||[]).join(', ') || '—';
+      const refStr    = (p.ref||[]).join(', ') || 'None';
+      panel.innerHTML = `
+        <div class="bmp-sum-label">${p.label || p.name}</div>
+        <div class="bmp-sum-row"><span class="bmp-sum-key">Modality</span><span class="bmp-sum-val">${p.modality}</span></div>
+        <div class="bmp-sum-row"><span class="bmp-sum-key">Parameters</span><span class="bmp-sum-val">${p.params}</span></div>
+        <div class="bmp-sum-row"><span class="bmp-sum-key">Evidence</span><span class="bmp-sum-val bmp-ev-badge">${p.evidence}</span></div>
+        <div class="bmp-sum-row"><span class="bmp-sum-key">Active sites</span><span class="bmp-sum-val bmp-site-tag bmp-active-tag">${activeStr}</span></div>
+        <div class="bmp-sum-row"><span class="bmp-sum-key">Reference</span><span class="bmp-sum-val bmp-site-tag bmp-ref-tag">${refStr}</span></div>
+        <div class="bmp-sum-guidance">
+          <b>Implementation:</b> Confirm MT measurement before first session. Place coil perpendicular to skull curvature at marked site. Document inter-session site consistency with photo or neuronavigation if available.
+        </div>
+        <button class="bmp-export-btn" onclick="window._bmpExport()">Export Placement Plan</button>`;
+    } else if (_mode === 'custom') {
+      const activeStr = [..._customActive].join(', ') || '—';
+      const refStr    = [..._customRef].join(', ') || '—';
+      panel.innerHTML = `
+        <div class="bmp-sum-label">Custom Placement</div>
+        <div class="bmp-sum-row"><span class="bmp-sum-key">Active</span><span class="bmp-sum-val bmp-site-tag bmp-active-tag">${activeStr}</span></div>
+        <div class="bmp-sum-row"><span class="bmp-sum-key">Reference</span><span class="bmp-sum-val bmp-site-tag bmp-ref-tag">${refStr}</span></div>
+        <div class="bmp-sum-guidance">Click sites on the map to assign. Use the toggle below to switch between active and reference selection.</div>
+        <button class="bmp-export-btn" onclick="window._bmpExport()">Export Placement Plan</button>`;
+    } else {
+      panel.innerHTML = `<div class="bmp-sum-placeholder">Select a protocol or switch to Custom mode to begin planning.</div>`;
+    }
+  }
+
+  el.innerHTML = `
+    <div class="bmp-wrap">
+      <div class="bmp-left">
+        <div class="bmp-mode-tabs">
+          <button class="bmp-mode-tab${_mode==='protocol'?' bmp-mode-active':''}" onclick="window._bmpSetMode('protocol')">Protocol Library</button>
+          <button class="bmp-mode-tab${_mode==='custom'?' bmp-mode-active':''}" onclick="window._bmpSetMode('custom')">Custom Placement</button>
+        </div>
+        <div id="bmp-proto-list" class="bmp-proto-list">
+          ${_BMP_PROTOCOLS.map(p => `<div class="bmp-proto-item${_selProto?.id===p.id?' bmp-proto-sel':''}" onclick="window._bmpSelectProto('${p.id}')">
+            <span class="bmp-proto-name">${p.label||p.name}</span>
+            <span class="bmp-proto-mod">${p.modality}</span>
+          </div>`).join('')}
+        </div>
+        <div id="bmp-custom-ctrl" class="bmp-custom-ctrl" style="display:${_mode==='custom'?'block':'none'}">
+          <div class="bmp-custom-toggle">
+            <label><input type="radio" name="bmp-ct" value="active" checked onchange="window._bmpSetCustomType('active')"> Active site</label>
+            <label><input type="radio" name="bmp-ct" value="ref" onchange="window._bmpSetCustomType('ref')"> Reference</label>
+          </div>
+          <button class="bmp-clear-btn" onclick="window._bmpClearCustom()">Clear All</button>
+        </div>
+      </div>
+      <div class="bmp-center">
+        <div class="bmp-scalp-wrap">
+          <div id="bmp-scalp-map" class="bmp-scalp-map"></div>
+        </div>
+        <div class="bmp-legend">
+          <span class="bmp-legend-dot bmp-active-dot"></span>Active &nbsp;&nbsp;
+          <span class="bmp-legend-dot bmp-ref-dot"></span>Reference
+        </div>
+      </div>
+      <div class="bmp-right">
+        <div class="bmp-summary-panel" id="bmp-summary"></div>
+      </div>
+    </div>`;
+
+  _renderMap();
+  _renderSummary();
+
+  let _customType = 'active';
+  window._bmpSetMode = function(mode) {
+    _mode = mode;
+    _selProto = null;
+    document.querySelectorAll('.bmp-mode-tab').forEach((b,i) => b.classList.toggle('bmp-mode-active', (i===0&&mode==='protocol')||(i===1&&mode==='custom')));
+    const cCtrl = document.getElementById('bmp-custom-ctrl');
+    const pList = document.getElementById('bmp-proto-list');
+    if (cCtrl) cCtrl.style.display = mode === 'custom' ? 'block' : 'none';
+    if (pList) pList.style.display = mode === 'protocol' ? 'flex' : 'none';
+    _renderMap(); _renderSummary();
+  };
+  window._bmpSelectProto = function(id) {
+    _selProto = _BMP_PROTOCOLS.find(p => p.id === id);
+    _mode = 'protocol';
+    document.querySelectorAll('.bmp-proto-item').forEach(el2 => el2.classList.toggle('bmp-proto-sel', el2.querySelector('.bmp-proto-name')?.textContent === (_selProto?.label||_selProto?.name)));
+    _renderMap(); _renderSummary();
+  };
+  window._bmpSetCustomType = function(type) { _customType = type; };
+  window._bmpToggleSite = function(id) {
+    if (_mode !== 'custom') return;
+    if (_customType === 'active') { if (_customActive.has(id)) _customActive.delete(id); else { _customRef.delete(id); _customActive.add(id); } }
+    else { if (_customRef.has(id)) _customRef.delete(id); else { _customActive.delete(id); _customRef.add(id); } }
+    _renderMap(); _renderSummary();
+  };
+  window._bmpClearCustom = function() { _customActive.clear(); _customRef.clear(); _renderMap(); _renderSummary(); };
+  window._bmpExport = function() {
+    const active = _mode === 'protocol' ? (_selProto?.active||[]).join(', ') : [..._customActive].join(', ');
+    const ref    = _mode === 'protocol' ? (_selProto?.ref||[]).join(', ')    : [..._customRef].join(', ');
+    const label  = _mode === 'protocol' ? (_selProto?.label||_selProto?.name||'Protocol') : 'Custom';
+    const text   = `Brain Map Placement Plan\n${label}\nActive sites: ${active||'—'}\nReference: ${ref||'—'}\nExported: ${new Date().toLocaleString()}`;
+    const blob = new Blob([text], { type:'text/plain' });
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'brain-map-plan.txt'; a.click();
+  };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Notes & Dictation
+// ─────────────────────────────────────────────────────────────────────────────
+export async function pgNotesDictation(setTopbar) {
+  setTopbar('Notes & Dictation', '');
+  const el = document.getElementById('content');
+  if (!el) return;
+
+  const _ND_NOTE_TYPES = [
+    { id:'soap',      label:'SOAP Note',           template:`Subjective:\n\nObjective:\n\nAssessment:\n\nPlan:\n` },
+    { id:'session',   label:'Session Note',         template:`Session #:\nDate:\nModality:\nParameters:\n\nTolerance:\n\nClinical observations:\n\nPlan for next session:\n` },
+    { id:'intake',    label:'Intake / Evaluation',  template:`Presenting concern:\n\nRelevant history:\n\nCurrent medications:\n\nMental status:\n\nDiagnosis (provisional):\n\nRecommendation:\n` },
+    { id:'progress',  label:'Progress Note',        template:`Interval since last visit:\n\nSymptom update:\n\nFunctional status:\n\nResponse to treatment:\n\nPlan:\n` },
+    { id:'discharge', label:'Discharge Summary',    template:`Treatment course summary:\n\nResponse to treatment:\n\nFinal diagnosis:\n\nDischarge medications:\n\nFollow-up plan:\n` },
+    { id:'incident',  label:'Adverse Event / Incident', template:`Date/time of event:\n\nDescription:\n\nImmediate action taken:\n\nClinician notified:\n\nOutcome:\n` },
+  ];
+
+  const _ND_CHIPS = [
+    'Patient tolerated well','No adverse effects reported','Mood improved since last visit',
+    'Sleep quality declining','Appetite stable','Fatigue reported','Concentration difficulties',
+    'Headache post-session','Scalp tingling noted','Anxiety elevated','Good session engagement',
+  ];
+
+  let _noteType = _ND_NOTE_TYPES[0];
+  let _noteBody = _noteType.template;
+  let _listening = false;
+  let _recognition = null;
+
+  function _render() {
+    el.innerHTML = `
+      <div class="nd-wrap">
+        <div class="nd-left">
+          <div class="nd-type-row">
+            ${_ND_NOTE_TYPES.map(t => `<button class="nd-type-btn${t.id===_noteType.id?' nd-type-active':''}" onclick="window._ndSetType('${t.id}')">${t.label}</button>`).join('')}
+          </div>
+          <div class="nd-toolbar-row">
+            <button class="nd-voice-btn${_listening?' nd-voice-active':''}" id="nd-voice-btn" onclick="window._ndToggleVoice()">
+              ${_listening ? '⏹ Stop Recording' : '🎙 Start Dictation'}
+            </button>
+            <span class="nd-voice-status" id="nd-voice-status">${_listening ? 'Listening…' : ''}</span>
+          </div>
+          <div class="nd-chips-row">
+            ${_ND_CHIPS.map(c => `<button class="nd-chip" onclick="window._ndInsertChip(this)">${c}</button>`).join('')}
+          </div>
+          <textarea id="nd-body" class="nd-textarea" spellcheck="true" oninput="window._ndBodyChange(this.value)">${_noteBody}</textarea>
+          <div class="nd-action-row">
+            <button class="nd-save-btn" onclick="window._ndSave()">Save Note</button>
+            <button class="nd-clear-btn" onclick="window._ndClear()">Clear</button>
+          </div>
+        </div>
+        <div class="nd-right">
+          <div class="nd-ai-panel">
+            <div class="nd-ai-title">AI Assist</div>
+            <div class="nd-ai-actions">
+              <button class="nd-ai-btn" onclick="window._ndAI('summarize')">Summarize note</button>
+              <button class="nd-ai-btn" onclick="window._ndAI('format')">Format as SOAP</button>
+              <button class="nd-ai-btn" onclick="window._ndAI('suggest')">Suggest follow-up plan</button>
+              <button class="nd-ai-btn" onclick="window._ndAI('icd')">Suggest ICD-10 codes</button>
+            </div>
+            <div id="nd-ai-result" class="nd-ai-result"></div>
+          </div>
+          <div class="nd-saved-panel">
+            <div class="nd-saved-title">Recent Notes</div>
+            <div id="nd-saved-list" class="nd-saved-list">
+              ${(() => {
+                try {
+                  const saved = JSON.parse(localStorage.getItem('ds_nd_notes') || '[]');
+                  if (!saved.length) return '<div class="nd-saved-empty">No saved notes yet.</div>';
+                  return saved.slice(0, 5).map(n => `
+                    <div class="nd-saved-item" onclick="window._ndLoad(${JSON.stringify(JSON.stringify(n))})">
+                      <div class="nd-saved-type">${n.type}</div>
+                      <div class="nd-saved-date">${n.date}</div>
+                      <div class="nd-saved-preview">${n.body.slice(0,80)}…</div>
+                    </div>`).join('');
+                } catch(_) { return ''; }
+              })()}
+            </div>
+          </div>
+        </div>
+      </div>`;
+  }
+
+  _render();
+
+  window._ndSetType = function(id) {
+    _noteType = _ND_NOTE_TYPES.find(t => t.id === id);
+    if (!_noteBody.trim() || confirm('Switch note type? Current text will be replaced with the template.')) {
+      _noteBody = _noteType.template;
+    }
+    _render();
+  };
+
+  window._ndBodyChange = function(val) { _noteBody = val; };
+
+  window._ndInsertChip = function(btn) {
+    const ta = document.getElementById('nd-body');
+    if (!ta) return;
+    const chip = btn.textContent;
+    const pos = ta.selectionEnd || ta.value.length;
+    const before = ta.value.slice(0, pos);
+    const after  = ta.value.slice(pos);
+    const sep = before.length && !before.endsWith('\n') ? ' ' : '';
+    ta.value = before + sep + chip + '. ' + after;
+    _noteBody = ta.value;
+    ta.focus();
+    btn.classList.add('nd-chip-used');
+    setTimeout(() => btn.classList.remove('nd-chip-used'), 1200);
+  };
+
+  window._ndToggleVoice = function() {
+    if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
+      window._showNotifToast?.({ title:'Not Supported', body:'Speech recognition is not available in this browser.', severity:'warning' });
+      return;
+    }
+    if (_listening) {
+      _recognition?.stop();
+      _listening = false;
+      const btn = document.getElementById('nd-voice-btn');
+      const st  = document.getElementById('nd-voice-status');
+      if (btn) btn.textContent = '🎙 Start Dictation';
+      if (btn) btn.classList.remove('nd-voice-active');
+      if (st)  st.textContent = '';
+      return;
+    }
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    _recognition = new SR();
+    _recognition.continuous = true;
+    _recognition.interimResults = true;
+    _recognition.lang = 'en-US';
+    _recognition.onresult = function(e) {
+      let final = '';
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        if (e.results[i].isFinal) final += e.results[i][0].transcript + ' ';
+      }
+      if (final) {
+        const ta = document.getElementById('nd-body');
+        if (ta) { ta.value += final; _noteBody = ta.value; }
+      }
+    };
+    _recognition.onerror = function() {
+      _listening = false;
+      const btn = document.getElementById('nd-voice-btn');
+      if (btn) { btn.textContent = '🎙 Start Dictation'; btn.classList.remove('nd-voice-active'); }
+    };
+    _recognition.onend = function() {
+      if (_listening) _recognition.start(); // keep going until stopped
+    };
+    _recognition.start();
+    _listening = true;
+    const btn = document.getElementById('nd-voice-btn');
+    const st  = document.getElementById('nd-voice-status');
+    if (btn) { btn.textContent = '⏹ Stop Recording'; btn.classList.add('nd-voice-active'); }
+    if (st)  st.textContent = 'Listening…';
+  };
+
+  window._ndAI = async function(action) {
+    const body = (document.getElementById('nd-body')?.value || _noteBody).trim();
+    if (!body) { window._showNotifToast?.({ title:'No Content', body:'Write or dictate a note first.', severity:'warning' }); return; }
+    const resultEl = document.getElementById('nd-ai-result');
+    if (resultEl) resultEl.innerHTML = '<span class="nd-ai-loading">Thinking…</span>';
+    const prompts = {
+      summarize: `Summarize the following clinical note in 2-3 concise sentences:\n\n${body}`,
+      format:    `Reformat the following clinical note into a clean SOAP format:\n\n${body}`,
+      suggest:   `Based on the following clinical note, suggest a clear follow-up plan:\n\n${body}`,
+      icd:       `Based on the following clinical note, suggest the most appropriate ICD-10-CM codes with descriptions:\n\n${body}`,
+    };
+    try {
+      const res = await api.chatPublic(prompts[action] || body);
+      const text = res?.choices?.[0]?.message?.content || res?.response || res?.text || 'No response.';
+      if (resultEl) resultEl.innerHTML = `<div class="nd-ai-output">${text.replace(/\n/g,'<br>')}</div>`;
+    } catch(err) {
+      if (resultEl) resultEl.innerHTML = `<div class="nd-ai-error">AI assist unavailable: ${err.message||err}</div>`;
+    }
+  };
+
+  window._ndSave = function() {
+    const body = document.getElementById('nd-body')?.value || _noteBody;
+    if (!body.trim()) { window._showNotifToast?.({ title:'Empty Note', body:'Nothing to save.', severity:'warning' }); return; }
+    try {
+      const saved = JSON.parse(localStorage.getItem('ds_nd_notes') || '[]');
+      saved.unshift({ type: _noteType.label, body, date: new Date().toLocaleString() });
+      localStorage.setItem('ds_nd_notes', JSON.stringify(saved.slice(0, 30)));
+    } catch(_) {}
+    window._showNotifToast?.({ title:'Note Saved', body:'Note saved to local storage.', severity:'success' });
+    _render();
+  };
+
+  window._ndClear = function() {
+    if (!confirm('Clear current note?')) return;
+    _noteBody = _noteType.template;
+    const ta = document.getElementById('nd-body');
+    if (ta) ta.value = _noteBody;
+  };
+
+  window._ndLoad = function(jsonStr) {
+    try {
+      const n = JSON.parse(jsonStr);
+      _noteBody = n.body;
+      const t = _ND_NOTE_TYPES.find(x => x.label === n.type);
+      if (t) _noteType = t;
+      _render();
+    } catch(_) {}
+  };
+}
+
+
+// ───────────────────────────────────────────────────────────────────────────────
+// ASSESSMENTS HUB — pgAssessmentsHub
+// ───────────────────────────────────────────────────────────────────────────────
