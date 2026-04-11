@@ -86,10 +86,8 @@ async def notification_stream(
             user_id = payload.get("sub")
 
     if not user_id:
-        # Return empty stream for unauthenticated — don't raise to keep connection open
-        async def empty():
-            yield "data: {}\n\n"
-        return StreamingResponse(empty(), media_type="text/event-stream")
+        from fastapi import HTTPException
+        raise HTTPException(status_code=401, detail="Authentication required for notification stream.")
 
     queue = get_user_queue(user_id)
 

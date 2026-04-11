@@ -4,7 +4,7 @@ import logging
 import re
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, Header
+from fastapi import APIRouter, Depends, Header, Request
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -20,6 +20,8 @@ from ..repositories.users import (
 )
 from ..services import auth_service
 from ..persistence.models import PasswordResetToken, PatientInvite
+from ..settings import get_settings
+from ..limiter import limiter
 
 logger = logging.getLogger(__name__)
 
@@ -117,7 +119,9 @@ def _extract_bearer_token(authorization: str | None) -> str | None:
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 
 @router.post("/api/v1/auth/register", response_model=TokenResponse, status_code=201)
+@limiter.limit("5/minute")
 def register(
+    request: Request,
     body: RegisterRequest,
     db: Session = Depends(get_db_session),
 ) -> TokenResponse:
@@ -170,7 +174,9 @@ def register(
 
 
 @router.post("/api/v1/auth/login", response_model=TokenResponse)
+@limiter.limit("10/minute")
 def login(
+    request: Request,
     body: LoginRequest,
     db: Session = Depends(get_db_session),
 ) -> TokenResponse:
@@ -214,7 +220,9 @@ def login(
 
 
 @router.post("/api/v1/auth/refresh", response_model=TokenResponse)
+@limiter.limit("20/minute")
 def refresh_token(
+    request: Request,
     body: RefreshRequest,
     db: Session = Depends(get_db_session),
 ) -> TokenResponse:
@@ -280,17 +288,18 @@ def me(
             status_code=401,
         )
 
-    # Fall back to demo token handling first so existing demo tokens keep working.
-    demo_actor = DEMO_ACTOR_TOKENS.get(token)
-    if demo_actor is not None:
-        return UserProfile(
-            id=demo_actor.actor_id,
-            email=f"{demo_actor.actor_id}@demo.local",
-            display_name=demo_actor.display_name,
-            role=demo_actor.role,
-            package_id=demo_actor.package_id,
-            is_verified=True,
-        )
+    # Demo tokens are only honored in development and test environments.
+    if get_settings().app_env in ("development", "test"):
+        demo_actor = DEMO_ACTOR_TOKENS.get(token)
+        if demo_actor is not None:
+            return UserProfile(
+                id=demo_actor.actor_id,
+                email=f"{demo_actor.actor_id}@demo.local",
+                display_name=demo_actor.display_name,
+                role=demo_actor.role,
+                package_id=demo_actor.package_id,
+                is_verified=True,
+            )
 
     # Try to decode as a real JWT.
     payload = auth_service.decode_token(token)
@@ -329,7 +338,9 @@ def logout() -> MessageResponse:
 
 
 @router.post("/api/v1/auth/forgot-password", response_model=MessageResponse)
+@limiter.limit("3/minute")
 def forgot_password(
+    request: Request,
     body: ForgotPasswordRequest,
     db: Session = Depends(get_db_session),
 ) -> MessageResponse:
@@ -351,11 +362,12 @@ def forgot_password(
     db.add(reset_record)
     db.commit()
 
-    # No email sending yet — log the raw token for development use.
+    # Log only the first 8 characters so the token cannot be extracted from logs.
+    # Replace this block with real email dispatch when the email service is wired.
     logger.info(
-        "Password reset token for user %s: %s (expires %s)",
+        "Password reset token issued for user %s: %s... (expires %s)",
         user.email,
-        raw_token,
+        raw_token[:8],
         expires_at.isoformat(),
     )
 
@@ -365,7 +377,9 @@ def forgot_password(
 
 
 @router.post("/api/v1/auth/reset-password", response_model=MessageResponse)
+@limiter.limit("5/minute")
 def reset_password(
+    request: Request,
     body: ResetPasswordRequest,
     db: Session = Depends(get_db_session),
 ) -> MessageResponse:
@@ -428,7 +442,9 @@ class ActivatePatientRequest(BaseModel):
 
 
 @router.post("/api/v1/auth/activate-patient", response_model=TokenResponse, status_code=201)
+@limiter.limit("5/minute")
 def activate_patient(
+    request: Request,
     body: ActivatePatientRequest,
     db: Session = Depends(get_db_session),
 ) -> TokenResponse:

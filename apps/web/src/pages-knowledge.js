@@ -9546,3 +9546,926 @@ export async function pgLiteratureLibrary(setTopbar) {
 
   render();
 }
+
+// ── Longitudinal Outcomes Report ──────────────────────────────────────────────
+export async function pgLongitudinalReport(setTopbar) {
+  const el = document.getElementById('content');
+  el.innerHTML = spinner();
+
+  // ── Seed data ──────────────────────────────────────────────────────────────
+  function _lrGet() {
+    const raw = localStorage.getItem('ds_longitudinal_data');
+    if (raw) { try { return JSON.parse(raw); } catch(e) {} }
+    const seed = {
+      generatedAt: new Date().toISOString(),
+      summary: {
+        totalPatients: 347, totalPatientsPrev: 298,
+        responseRate: 66.2, responseRatePrev: 61.8,
+        avgSessions: 18.4, avgSessionsPrev: 17.9,
+        avgImprovement: 52.7, avgImprovementPrev: 49.1,
+        dropoutRate: 11.3, dropoutRatePrev: 13.7
+      },
+      conditionModality: [
+        { condition: 'Depression',   modality: 'TMS',           n: 89, responseRate: 68.5, avgImprovement: 54.2, sessions: 20, adverseEvents: 2.2 },
+        { condition: 'Depression',   modality: 'Neurofeedback', n: 34, responseRate: 58.8, avgImprovement: 44.1, sessions: 22, adverseEvents: 0.0 },
+        { condition: 'Depression',   modality: 'tDCS',          n: 28, responseRate: 57.1, avgImprovement: 42.8, sessions: 15, adverseEvents: 0.0 },
+        { condition: 'Anxiety',      modality: 'tDCS',          n: 41, responseRate: 61.0, avgImprovement: 49.3, sessions: 14, adverseEvents: 0.0 },
+        { condition: 'Anxiety',      modality: 'Neurofeedback', n: 38, responseRate: 63.2, avgImprovement: 51.4, sessions: 18, adverseEvents: 0.0 },
+        { condition: 'Anxiety',      modality: 'TMS',           n: 22, responseRate: 54.5, avgImprovement: 43.6, sessions: 16, adverseEvents: 1.8 },
+        { condition: 'PTSD',         modality: 'TMS',           n: 31, responseRate: 64.5, avgImprovement: 51.7, sessions: 20, adverseEvents: 3.2 },
+        { condition: 'PTSD',         modality: 'Neurofeedback', n: 24, responseRate: 62.5, avgImprovement: 50.0, sessions: 24, adverseEvents: 0.0 },
+        { condition: 'PTSD',         modality: 'tDCS',          n: 14, responseRate: 50.0, avgImprovement: 39.2, sessions: 14, adverseEvents: 0.0 },
+        { condition: 'ADHD',         modality: 'Neurofeedback', n: 47, responseRate: 72.3, avgImprovement: 58.6, sessions: 30, adverseEvents: 0.0 },
+        { condition: 'ADHD',         modality: 'tDCS',          n: 18, responseRate: 55.6, avgImprovement: 44.4, sessions: 14, adverseEvents: 0.0 },
+        { condition: 'ADHD',         modality: 'TMS',           n: 10, responseRate: 50.0, avgImprovement: 40.0, sessions: 18, adverseEvents: 0.0 },
+        { condition: 'OCD',          modality: 'TMS',           n: 19, responseRate: 63.2, avgImprovement: 48.7, sessions: 25, adverseEvents: 1.6 },
+        { condition: 'OCD',          modality: 'Neurofeedback', n: 12, responseRate: 58.3, avgImprovement: 46.2, sessions: 28, adverseEvents: 0.0 },
+        { condition: 'OCD',          modality: 'tDCS',          n:  8, responseRate: 50.0, avgImprovement: 38.9, sessions: 16, adverseEvents: 0.0 },
+        { condition: 'Chronic Pain', modality: 'tDCS',          n: 23, responseRate: 60.9, avgImprovement: 47.8, sessions: 12, adverseEvents: 0.0 },
+        { condition: 'Chronic Pain', modality: 'TMS',           n: 16, responseRate: 62.5, avgImprovement: 50.0, sessions: 16, adverseEvents: 0.0 },
+        { condition: 'Chronic Pain', modality: 'Neurofeedback', n:  9, responseRate: 55.6, avgImprovement: 43.3, sessions: 18, adverseEvents: 0.0 }
+      ],
+      timeline: [
+        { period: "Oct '25", responders: 58.4, n: 42 },
+        { period: "Nov '25", responders: 60.1, n: 51 },
+        { period: "Dec '25", responders: 61.8, n: 48 },
+        { period: "Jan '26", responders: 63.5, n: 63 },
+        { period: "Feb '26", responders: 65.2, n: 71 },
+        { period: "Mar '26", responders: 66.2, n: 72 }
+      ],
+      demographics: {
+        age: [
+          { bin: '<18',   n: 14 },
+          { bin: '18-30', n: 72 },
+          { bin: '31-50', n: 143 },
+          { bin: '51-65', n: 89 },
+          { bin: '65+',   n: 29 }
+        ],
+        gender: [
+          { label: 'Female',     n: 189, color: '#818cf8' },
+          { label: 'Male',       n: 141, color: '#2dd4bf' },
+          { label: 'Non-binary', n: 11,  color: '#f59e0b' },
+          { label: 'Not stated', n: 6,   color: '#64748b' }
+        ],
+        insurance: [
+          { label: 'Private',  n: 158 },
+          { label: 'Medicare', n: 94  },
+          { label: 'Medicaid', n: 61  },
+          { label: 'Self-pay', n: 34  }
+        ]
+      }
+    };
+    localStorage.setItem('ds_longitudinal_data', JSON.stringify(seed));
+    return seed;
+  }
+
+  const data = _lrGet();
+  let _lrptSortCol = 'responseRate', _lrptSortDir = -1;
+
+  setTopbar('Longitudinal Outcomes Report', `
+    <select id="lrpt-cond" class="form-control" style="width:auto;font-size:13px" onchange="window._lrptFilt()">
+      <option value="all">All Conditions</option>
+      <option value="Depression">Depression</option>
+      <option value="Anxiety">Anxiety</option>
+      <option value="PTSD">PTSD</option>
+      <option value="ADHD">ADHD</option>
+      <option value="OCD">OCD</option>
+      <option value="Chronic Pain">Chronic Pain</option>
+    </select>
+    <select id="lrpt-mod" class="form-control" style="width:auto;font-size:13px" onchange="window._lrptFilt()">
+      <option value="all">All Modalities</option>
+      <option value="TMS">TMS</option>
+      <option value="Neurofeedback">Neurofeedback</option>
+      <option value="tDCS">tDCS</option>
+    </select>
+    <select id="lrpt-range" class="form-control" style="width:auto;font-size:13px">
+      <option value="6m">Last 6 months</option>
+      <option value="12m">Last 12 months</option>
+      <option value="all">All time</option>
+    </select>
+    <button onclick="window._lrptCSV()" style="background:var(--accent-blue);color:#fff;border:none;padding:6px 14px;border-radius:6px;cursor:pointer;font-size:13px">Export CSV</button>
+    <button onclick="window.print()" style="background:var(--accent-violet);color:#fff;border:none;padding:6px 14px;border-radius:6px;cursor:pointer;font-size:13px">Export PDF</button>
+  `);
+
+  function _lrptFiltered() {
+    const cond = document.getElementById('lrpt-cond') ? document.getElementById('lrpt-cond').value : 'all';
+    const mod  = document.getElementById('lrpt-mod')  ? document.getElementById('lrpt-mod').value  : 'all';
+    return data.conditionModality.filter(r =>
+      (cond === 'all' || r.condition === cond) &&
+      (mod  === 'all' || r.modality  === mod)
+    );
+  }
+
+  function _lrptRRColor(rr) {
+    if (rr >= 70) return 'var(--teal)';
+    if (rr >= 50) return 'var(--accent-amber)';
+    return '#ef4444';
+  }
+
+  function _lrptBarChart(rows) {
+    const conditions = [];
+    rows.forEach(r => { if (!conditions.includes(r.condition)) conditions.push(r.condition); });
+    const modalities = ['TMS', 'Neurofeedback', 'tDCS'];
+    const modColors  = { TMS: '#2dd4bf', Neurofeedback: '#818cf8', tDCS: '#f59e0b' };
+    const W = 900, H = 200, padL = 44, padB = 36, padT = 24, padR = 16;
+    const chartW = W - padL - padR;
+    const chartH = H - padT - padB;
+    const maxVal = 80;
+    const groupW = chartW / Math.max(conditions.length, 1);
+    const barCount = modalities.length;
+    const barW = Math.min(28, (groupW - 8) / barCount);
+    const gap = (groupW - barCount * barW) / 2;
+
+    let bars = '', tooltips = '';
+    conditions.forEach(function(cond, ci) {
+      modalities.forEach(function(mod, mi) {
+        const row = rows.find(r => r.condition === cond && r.modality === mod);
+        if (!row) return;
+        const x = padL + ci * groupW + gap + mi * barW;
+        const barH = (row.avgImprovement / maxVal) * chartH;
+        const y = padT + chartH - barH;
+        const color = modColors[mod];
+        const tid = 'lrpt-tt-' + ci + '-' + mi;
+        bars += '<rect x="' + x.toFixed(1) + '" y="' + y.toFixed(1) + '" width="' + (barW - 2) + '" height="' + barH.toFixed(1) + '" fill="' + color + '" rx="2"'
+          + ' onmouseenter="document.getElementById(\'' + tid + '\').style.display=\'block\'"'
+          + ' onmouseleave="document.getElementById(\'' + tid + '\').style.display=\'none\'"/>';
+        tooltips += '<g id="' + tid + '" style="display:none" pointer-events="none">'
+          + '<rect x="' + (x - 30).toFixed(1) + '" y="' + (y - 44).toFixed(1) + '" width="90" height="38" rx="5" fill="#1e293b" stroke="var(--border)" stroke-width="1"/>'
+          + '<text x="' + (x + barW/2).toFixed(1) + '" y="' + (y - 28).toFixed(1) + '" text-anchor="middle" font-size="11" fill="#e2e8f0">' + cond + '</text>'
+          + '<text x="' + (x + barW/2).toFixed(1) + '" y="' + (y - 13).toFixed(1) + '" text-anchor="middle" font-size="11" fill="' + color + '">' + mod + ': ' + row.avgImprovement.toFixed(1) + '%</text>'
+          + '</g>';
+      });
+    });
+
+    let yTicks = '';
+    [0, 20, 40, 60, 80].forEach(function(v) {
+      const y = padT + chartH - (v / maxVal) * chartH;
+      yTicks += '<line x1="' + padL + '" y1="' + y.toFixed(1) + '" x2="' + (W - padR) + '" y2="' + y.toFixed(1) + '" stroke="var(--border)" stroke-width="0.5"/>'
+        + '<text x="' + (padL - 4) + '" y="' + (y + 4).toFixed(1) + '" text-anchor="end" font-size="10" fill="var(--text-secondary)">' + v + '%</text>';
+    });
+
+    let xLabels = '';
+    conditions.forEach(function(cond, ci) {
+      const x = padL + ci * groupW + groupW / 2;
+      xLabels += '<text x="' + x.toFixed(1) + '" y="' + (H - 6) + '" text-anchor="middle" font-size="10" fill="var(--text-secondary)">' + (cond.length > 10 ? cond.slice(0,9) + '\u2026' : cond) + '</text>';
+    });
+
+    const legendY = 6;
+    const legendItems = modalities.map(function(mod, i) {
+      return '<rect x="' + (padL + i * 120) + '" y="' + legendY + '" width="10" height="10" fill="' + modColors[mod] + '" rx="2"/>'
+        + '<text x="' + (padL + i * 120 + 14) + '" y="' + (legendY + 9) + '" font-size="11" fill="var(--text-secondary)">' + mod + '</text>';
+    }).join('');
+
+    return '<div class="lrpt-chart-wrap">'
+      + '<div class="lrpt-chart-label">Avg % Improvement by Condition &amp; Modality</div>'
+      + '<svg viewBox="0 0 ' + W + ' ' + H + '" width="100%" style="display:block;overflow:visible">'
+      + legendItems + yTicks + bars + tooltips + xLabels
+      + '</svg></div>';
+  }
+
+  function _lrptLineChart(tl) {
+    const W = 900, H = 150, padL = 44, padB = 28, padT = 14, padR = 16;
+    const chartW = W - padL - padR;
+    const chartH = H - padT - padB;
+    const minVal = 50, maxVal = 80;
+    const xStep = chartW / Math.max(tl.length - 1, 1);
+
+    const points = tl.map(function(d, i) {
+      return {
+        x: padL + i * xStep,
+        y: padT + chartH - ((d.responders - minVal) / (maxVal - minVal)) * chartH,
+        d: d
+      };
+    });
+
+    const polyline = points.map(p => p.x.toFixed(1) + ',' + p.y.toFixed(1)).join(' ');
+    const area = padL + ',' + (padT + chartH) + ' ' + polyline + ' ' + points[points.length-1].x.toFixed(1) + ',' + (padT + chartH);
+
+    let yTicks = '';
+    [50, 60, 70, 80].forEach(function(v) {
+      const y = padT + chartH - ((v - minVal) / (maxVal - minVal)) * chartH;
+      yTicks += '<line x1="' + padL + '" y1="' + y.toFixed(1) + '" x2="' + (W - padR) + '" y2="' + y.toFixed(1) + '" stroke="var(--border)" stroke-width="0.5"/>'
+        + '<text x="' + (padL - 4) + '" y="' + (y + 4).toFixed(1) + '" text-anchor="end" font-size="10" fill="var(--text-secondary)">' + v + '%</text>';
+    });
+
+    const dots = points.map(function(p) {
+      return '<circle cx="' + p.x.toFixed(1) + '" cy="' + p.y.toFixed(1) + '" r="4" fill="#2dd4bf" stroke="#0a1628" stroke-width="1.5"/>'
+        + '<text x="' + p.x.toFixed(1) + '" y="' + (p.y - 8).toFixed(1) + '" text-anchor="middle" font-size="10" fill="#2dd4bf">' + p.d.responders.toFixed(1) + '%</text>';
+    }).join('');
+
+    const xLabels = points.map(function(p) {
+      return '<text x="' + p.x.toFixed(1) + '" y="' + (H - 4) + '" text-anchor="middle" font-size="10" fill="var(--text-secondary)">' + p.d.period + '</text>';
+    }).join('');
+
+    return '<div class="lrpt-chart-wrap">'
+      + '<div class="lrpt-chart-label">Response Rate Over Time (% responders)</div>'
+      + '<svg viewBox="0 0 ' + W + ' ' + H + '" width="100%" style="display:block;overflow:visible">'
+      + '<defs><linearGradient id="lrptGrad" x1="0" y1="0" x2="0" y2="1">'
+      + '<stop offset="0%" stop-color="#2dd4bf" stop-opacity="0.25"/>'
+      + '<stop offset="100%" stop-color="#2dd4bf" stop-opacity="0.02"/>'
+      + '</linearGradient></defs>'
+      + yTicks
+      + '<polygon points="' + area + '" fill="url(#lrptGrad)"/>'
+      + '<polyline points="' + polyline + '" fill="none" stroke="#2dd4bf" stroke-width="2.5" stroke-linejoin="round"/>'
+      + dots + xLabels
+      + '</svg></div>';
+  }
+
+  function _lrptAgeHist(bins) {
+    const W = 320, H = 140, padL = 36, padB = 28, padT = 16, padR = 10;
+    const chartW = W - padL - padR, chartH = H - padT - padB;
+    const maxN = Math.max.apply(null, bins.map(b => b.n));
+    const bw = chartW / bins.length;
+    const barsHtml = bins.map(function(b, i) {
+      const bh = (b.n / maxN) * chartH;
+      const x = padL + i * bw + 2;
+      const y = padT + chartH - bh;
+      return '<rect x="' + x.toFixed(1) + '" y="' + y.toFixed(1) + '" width="' + (bw - 4) + '" height="' + bh.toFixed(1) + '" fill="var(--accent-blue)" rx="2"/>'
+        + '<text x="' + (padL + i * bw + bw / 2).toFixed(1) + '" y="' + (y - 3).toFixed(1) + '" text-anchor="middle" font-size="10" fill="var(--text-secondary)">' + b.n + '</text>'
+        + '<text x="' + (padL + i * bw + bw / 2).toFixed(1) + '" y="' + (H - 4) + '" text-anchor="middle" font-size="10" fill="var(--text-secondary)">' + b.bin + '</text>';
+    }).join('');
+    return '<svg viewBox="0 0 ' + W + ' ' + H + '" width="100%" style="display:block">'
+      + '<text x="' + (W/2) + '" y="11" text-anchor="middle" font-size="11" fill="var(--text-secondary)">Age Distribution</text>'
+      + barsHtml + '</svg>';
+  }
+
+  function _lrptDonut(genders) {
+    const total = genders.reduce(function(s, g) { return s + g.n; }, 0);
+    const R = 50, cx = 80, cy = 72, innerR = 28;
+    let startAngle = -Math.PI / 2;
+    const slices = genders.map(function(g) {
+      const angle = (g.n / total) * 2 * Math.PI;
+      const x1 = cx + R * Math.cos(startAngle);
+      const y1 = cy + R * Math.sin(startAngle);
+      startAngle += angle;
+      const x2 = cx + R * Math.cos(startAngle);
+      const y2 = cy + R * Math.sin(startAngle);
+      const lg = angle > Math.PI ? 1 : 0;
+      return { label: g.label, n: g.n, color: g.color, x1: x1, y1: y1, x2: x2, y2: y2, lg: lg, pct: ((g.n / total) * 100).toFixed(0) };
+    });
+    const paths = slices.map(function(s) {
+      return '<path d="M ' + cx + ' ' + cy + ' L ' + s.x1.toFixed(2) + ' ' + s.y1.toFixed(2) + ' A ' + R + ' ' + R + ' 0 ' + s.lg + ' 1 ' + s.x2.toFixed(2) + ' ' + s.y2.toFixed(2) + ' Z" fill="' + s.color + '" stroke="#0a1628" stroke-width="2"/>';
+    }).join('');
+    const hole = '<circle cx="' + cx + '" cy="' + cy + '" r="' + innerR + '" fill="var(--card-bg)"/>';
+    const legend = slices.map(function(s, i) {
+      return '<rect x="145" y="' + (12 + i * 18) + '" width="10" height="10" fill="' + s.color + '" rx="2"/>'
+        + '<text x="159" y="' + (21 + i * 18) + '" font-size="10" fill="var(--text-secondary)">' + s.label + ' ' + s.pct + '%</text>';
+    }).join('');
+    return '<svg viewBox="0 0 280 148" width="100%" style="display:block">'
+      + '<text x="80" y="11" text-anchor="middle" font-size="11" fill="var(--text-secondary)">Gender Distribution</text>'
+      + paths + hole
+      + '<text x="' + cx + '" y="' + (cy + 5) + '" text-anchor="middle" font-size="13" font-weight="700" fill="var(--text-primary)">N=' + total + '</text>'
+      + legend + '</svg>';
+  }
+
+  function _lrptInsBar(ins) {
+    const total = ins.reduce(function(s, i) { return s + i.n; }, 0);
+    const W = 280, H = 130, padL = 58, padR = 50, padT = 18, padB = 10;
+    const chartW = W - padL - padR, chartH = H - padT - padB;
+    const rowH = chartH / ins.length;
+    const maxN = Math.max.apply(null, ins.map(function(i) { return i.n; }));
+    const colors = ['#2dd4bf','#818cf8','#f59e0b','#64748b'];
+    const barsHtml = ins.map(function(ins2, i) {
+      const bw = (ins2.n / maxN) * chartW;
+      const y = padT + i * rowH + rowH * 0.15;
+      const bh = rowH * 0.7;
+      return '<text x="' + (padL - 4) + '" y="' + (y + bh / 2 + 4).toFixed(1) + '" text-anchor="end" font-size="10" fill="var(--text-secondary)">' + ins2.label + '</text>'
+        + '<rect x="' + padL + '" y="' + y.toFixed(1) + '" width="' + bw.toFixed(1) + '" height="' + bh.toFixed(1) + '" fill="' + colors[i] + '" rx="2"/>'
+        + '<text x="' + (padL + bw + 4).toFixed(1) + '" y="' + (y + bh / 2 + 4).toFixed(1) + '" font-size="10" fill="var(--text-secondary)">' + ins2.n + ' (' + ((ins2.n/total)*100).toFixed(0) + '%)</text>';
+    }).join('');
+    return '<svg viewBox="0 0 ' + W + ' ' + H + '" width="100%" style="display:block">'
+      + '<text x="' + (W/2) + '" y="12" text-anchor="middle" font-size="11" fill="var(--text-secondary)">Insurance Mix</text>'
+      + barsHtml + '</svg>';
+  }
+
+  function _lrptTableHTML(rows, sortCol, sortDir) {
+    const sorted = rows.slice().sort(function(a, b) {
+      const va = a[sortCol], vb = b[sortCol];
+      if (typeof va === 'string') return sortDir * va.localeCompare(vb);
+      return sortDir * (va - vb);
+    });
+    function th(col, label) {
+      const active = col === sortCol;
+      const arrow = active ? (sortDir === 1 ? ' \u25b2' : ' \u25bc') : '';
+      return '<th class="lrpt-th' + (active ? ' active' : '') + '" onclick="window._lrptSort(\'' + col + '\')" style="cursor:pointer">' + label + arrow + '</th>';
+    }
+    const rowsHtml = sorted.map(function(r) {
+      const rrColor = _lrptRRColor(r.responseRate);
+      const rrBg = r.responseRate >= 70 ? 'rgba(45,212,191,0.12)' : r.responseRate >= 50 ? 'rgba(245,158,11,0.12)' : 'rgba(239,68,68,0.12)';
+      return '<tr>'
+        + '<td>' + r.condition + ' \u2014 ' + r.modality + '</td>'
+        + '<td>' + r.condition + '</td>'
+        + '<td>' + r.modality + '</td>'
+        + '<td>' + r.n + '</td>'
+        + '<td style="color:' + rrColor + ';background:' + rrBg + ';font-weight:600;border-radius:4px;text-align:center">' + r.responseRate.toFixed(1) + '%</td>'
+        + '<td>' + r.avgImprovement.toFixed(1) + '%</td>'
+        + '<td>' + r.sessions + '</td>'
+        + '<td>' + r.adverseEvents.toFixed(1) + '%</td>'
+        + '</tr>';
+    }).join('');
+    return '<table class="lrpt-table" id="lrpt-table">'
+      + '<thead><tr>'
+      + th('condition', 'Protocol Name')
+      + th('condition', 'Condition')
+      + th('modality', 'Modality')
+      + th('n', 'N Patients')
+      + th('responseRate', 'Response Rate')
+      + th('avgImprovement', 'Avg Improvement')
+      + th('sessions', 'Sessions')
+      + th('adverseEvents', 'Adverse Events %')
+      + '</tr></thead>'
+      + '<tbody>' + rowsHtml + '</tbody>'
+      + '</table>';
+  }
+
+  function _lrptTrend(cur, prev, unit, higherBetter) {
+    const delta = cur - prev;
+    const better = higherBetter ? delta >= 0 : delta <= 0;
+    const color = better ? 'var(--teal)' : '#ef4444';
+    const arrow = delta >= 0 ? '\u2191' : '\u2193';
+    const sign  = delta >= 0 ? '+' : '';
+    return '<span class="lrpt-trend" style="color:' + color + '">' + arrow + ' ' + sign + Math.abs(delta).toFixed(1) + unit + ' vs prev period</span>';
+  }
+
+  function _lrptRender() {
+    const rows = _lrptFiltered();
+    const s = data.summary;
+
+    const kpiCards = '<div class="lrpt-kpi-row">'
+      + '<div class="lrpt-kpi-card" style="border-color:var(--teal)"><div class="lrpt-kpi-num">' + s.totalPatients + '</div><div class="lrpt-kpi-label">Total Patients Treated</div>' + _lrptTrend(s.totalPatients, s.totalPatientsPrev, '', true) + '</div>'
+      + '<div class="lrpt-kpi-card" style="border-color:var(--accent-blue)"><div class="lrpt-kpi-num">' + s.responseRate.toFixed(1) + '%</div><div class="lrpt-kpi-label">Response Rate (\u226550% improvement)</div>' + _lrptTrend(s.responseRate, s.responseRatePrev, '%', true) + '</div>'
+      + '<div class="lrpt-kpi-card" style="border-color:var(--accent-violet)"><div class="lrpt-kpi-num">' + s.avgSessions.toFixed(1) + '</div><div class="lrpt-kpi-label">Avg Sessions / Course</div>' + _lrptTrend(s.avgSessions, s.avgSessionsPrev, '', false) + '</div>'
+      + '<div class="lrpt-kpi-card" style="border-color:var(--accent-amber)"><div class="lrpt-kpi-num">' + s.avgImprovement.toFixed(1) + '%</div><div class="lrpt-kpi-label">Avg % Improvement</div>' + _lrptTrend(s.avgImprovement, s.avgImprovementPrev, '%', true) + '</div>'
+      + '<div class="lrpt-kpi-card" style="border-color:#ef4444"><div class="lrpt-kpi-num">' + s.dropoutRate.toFixed(1) + '%</div><div class="lrpt-kpi-label">Dropout Rate</div>' + _lrptTrend(s.dropoutRate, s.dropoutRatePrev, '%', false) + '</div>'
+      + '</div>';
+
+    el.innerHTML = '<div class="lrpt-page">'
+      + kpiCards
+      + '<div class="lrpt-section-title">Outcome by Condition &amp; Modality</div>'
+      + _lrptBarChart(rows)
+      + '<div class="lrpt-section-title">Response Rate Over Time</div>'
+      + _lrptLineChart(data.timeline)
+      + '<div class="lrpt-section-title">Protocol Performance</div>'
+      + '<div id="lrpt-table-wrap">' + _lrptTableHTML(rows, _lrptSortCol, _lrptSortDir) + '</div>'
+      + '<div class="lrpt-section-title">Cohort Demographics</div>'
+      + '<div class="lrpt-demo-row">'
+      + '<div class="lrpt-demo-card">' + _lrptAgeHist(data.demographics.age) + '</div>'
+      + '<div class="lrpt-demo-card">' + _lrptDonut(data.demographics.gender) + '</div>'
+      + '<div class="lrpt-demo-card">' + _lrptInsBar(data.demographics.insurance) + '</div>'
+      + '</div>'
+      + '</div>';
+  }
+
+  window._lrptFilt = function() { _lrptRender(); };
+
+  window._lrptSort = function(col) {
+    if (_lrptSortCol === col) { _lrptSortDir *= -1; }
+    else { _lrptSortCol = col; _lrptSortDir = -1; }
+    const rows = _lrptFiltered();
+    const wrap = document.getElementById('lrpt-table-wrap');
+    if (wrap) wrap.innerHTML = _lrptTableHTML(rows, _lrptSortCol, _lrptSortDir);
+  };
+
+  window._lrptCSV = function() {
+    const rows = _lrptFiltered();
+    const headers = ['Protocol Name','Condition','Modality','N Patients','Response Rate %','Avg Improvement %','Avg Sessions','Adverse Events %'];
+    const lines = [headers.join(',')].concat(rows.map(function(r) {
+      return [r.condition + ' - ' + r.modality, r.condition, r.modality, r.n, r.responseRate.toFixed(1), r.avgImprovement.toFixed(1), r.sessions, r.adverseEvents.toFixed(1)].join(',');
+    }));
+    const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = 'longitudinal-report-' + new Date().toISOString().slice(0,10) + '.csv';
+    a.click(); URL.revokeObjectURL(url);
+    window._showNotifToast && window._showNotifToast({ title: 'CSV Exported', body: rows.length + ' rows exported', severity: 'success' });
+  };
+
+  _lrptRender();
+}
+
+// ── Clinical Scoring Calculator ───────────────────────────────────────────────
+export async function pgClinicalScoringCalc(setTopbar) {
+  setTopbar('Clinical Scoring Calculator', '');
+  const el = document.getElementById('content');
+
+  const SCALES = {
+    'PHQ-9': {
+      fullName: 'Patient Health Questionnaire-9',
+      condition: 'Depression', icd10: ['F32','F33'], maxScore: 27,
+      items: [
+        'Little interest or pleasure in doing things',
+        'Feeling down, depressed, or hopeless',
+        'Trouble falling or staying asleep, or sleeping too much',
+        'Feeling tired or having little energy',
+        'Poor appetite or overeating',
+        'Feeling bad about yourself \u2014 or that you are a failure or have let yourself or your family down',
+        'Trouble concentrating on things, such as reading the newspaper or watching television',
+        'Moving or speaking so slowly that other people could have noticed. Or the opposite \u2014 being so fidgety or restless that you have been moving around a lot more than usual',
+        'Thoughts that you would be better off dead, or of hurting yourself in some way'
+      ],
+      optionLabels: ['Not at all','Several days','More than half the days','Nearly every day'],
+      itemType: 'radio4', crisisItem: 8,
+      severity: [
+        { min:0,  max:4,  label:'Minimal Depression',         color:'#22c55e', interp:'Score suggests minimal depression. Monitor and repeat screening in 3\u20136 months. Watchful waiting is appropriate.' },
+        { min:5,  max:9,  label:'Mild Depression',            color:'#84cc16', interp:'Score suggests mild depression. Watchful waiting, guided self-help, and psychoeducation are recommended.' },
+        { min:10, max:14, label:'Moderate Depression',        color:'var(--accent-amber)', interp:'Score suggests moderate depression. Consider initiating treatment with antidepressant and/or structured psychotherapy. TMS may be indicated if medication trials are inadequate.' },
+        { min:15, max:19, label:'Moderately Severe Depression',color:'#f97316', interp:'Score indicates moderately severe depression. Active treatment strongly recommended. TMS is evidence-based at this severity.' },
+        { min:20, max:27, label:'Severe Depression',          color:'#ef4444', interp:'Score indicates severe depression. Urgent active treatment required. Refer to psychiatry.' }
+      ],
+      cutoffs:[{range:'0\u20134',label:'Minimal',action:'Watchful waiting'},{range:'5\u20139',label:'Mild',action:'Guided self-help'},{range:'10\u201314',label:'Moderate',action:'Treatment initiation'},{range:'15\u201319',label:'Moderately Severe',action:'Active treatment'},{range:'20\u201327',label:'Severe',action:'Urgent referral'}],
+      txRecs:{'TMS':'Indicated for PHQ-9 \u226510 with inadequate med response. Left DLPFC, 10 Hz.','Medication':'SSRIs first-line. SNRI or augmentation for partial response.','Psychotherapy':'CBT and IPT have strong RCT evidence.'}
+    },
+    'GAD-7': {
+      fullName: 'Generalized Anxiety Disorder-7',
+      condition: 'Anxiety', icd10: ['F41.1'], maxScore: 21,
+      items: [
+        'Feeling nervous, anxious, or on edge',
+        'Not being able to stop or control worrying',
+        'Worrying too much about different things',
+        'Trouble relaxing',
+        'Being so restless that it is hard to sit still',
+        'Becoming easily annoyed or irritable',
+        'Feeling afraid, as if something awful might happen'
+      ],
+      optionLabels: ['Not at all','Several days','More than half the days','Nearly every day'],
+      itemType: 'radio4',
+      severity: [
+        { min:0,  max:4,  label:'Minimal Anxiety',  color:'#22c55e', interp:'Score suggests minimal anxiety. Reassurance and psychoeducation appropriate.' },
+        { min:5,  max:9,  label:'Mild Anxiety',     color:'#84cc16', interp:'Score suggests mild anxiety. Self-management strategies and relaxation techniques recommended.' },
+        { min:10, max:14, label:'Moderate Anxiety', color:'var(--accent-amber)', interp:'Score suggests moderate anxiety. Consider structured CBT, SSRIs, or SNRIs. Neurofeedback has emerging evidence.' },
+        { min:15, max:21, label:'Severe Anxiety',   color:'#ef4444', interp:'Score indicates severe anxiety. Active pharmacological and/or psychological treatment required.' }
+      ],
+      cutoffs:[{range:'0\u20134',label:'Minimal',action:'Reassurance'},{range:'5\u20139',label:'Mild',action:'Self-management'},{range:'10\u201314',label:'Moderate',action:'Structured intervention'},{range:'15\u201321',label:'Severe',action:'Active treatment + referral'}],
+      txRecs:{'Neurofeedback':'Alpha/theta protocols for GAD. 20\u201330 sessions.','Medication':'SSRIs/SNRIs first-line.','Psychotherapy':'CBT with worry postponement is first-line.'}
+    },
+    'PCL-5': {
+      fullName: 'PTSD Checklist for DSM-5',
+      condition: 'PTSD', icd10: ['F43.1'], maxScore: 80, itemType: 'quick',
+      domains: [
+        { label:'Intrusion Symptoms (items 1\u20135)', max:20 },
+        { label:'Avoidance (items 6\u20137)', max:8 },
+        { label:'Negative Cognitions (items 8\u201314)', max:28 },
+        { label:'Hyperarousal (items 15\u201320)', max:24 }
+      ],
+      severity: [
+        { min:0,  max:31, label:'Below PTSD Threshold', color:'#22c55e', interp:'Score below clinical threshold of 31\u201333. Monitor; consider further evaluation if clinical concern.' },
+        { min:32, max:49, label:'Probable PTSD',        color:'var(--accent-amber)', interp:'Score in probable PTSD range. CAPS-5 interview recommended to confirm diagnosis.' },
+        { min:50, max:80, label:'Severe PTSD',          color:'#ef4444', interp:'Score indicates severe PTSD. Trauma-focused CBT (CPT, PE) and TMS have evidence.' }
+      ],
+      cutoffs:[{range:'0\u201331',label:'Subclinical',action:'Monitor'},{range:'32\u201349',label:'Probable PTSD',action:'Full assessment'},{range:'50\u201380',label:'Severe PTSD',action:'Active trauma treatment'}],
+      txRecs:{'TMS':'Right DLPFC inhibition or bilateral. 20\u201330 sessions.','Psychotherapy':'CPT and Prolonged Exposure first-line.','EMDR':'WHO-endorsed trauma processing.'}
+    },
+    'HAM-D': {
+      fullName: 'Hamilton Depression Rating Scale',
+      condition: 'Depression', icd10: ['F32','F33'], maxScore: 52, itemType: 'quick',
+      domains: [
+        {label:'Depressed Mood (0\u20134)',max:4},{label:'Guilt (0\u20134)',max:4},{label:'Suicide (0\u20134)',max:4},
+        {label:'Early Insomnia (0\u20132)',max:2},{label:'Middle Insomnia (0\u20132)',max:2},{label:'Late Insomnia (0\u20132)',max:2},
+        {label:'Work/Activities (0\u20134)',max:4},{label:'Retardation (0\u20134)',max:4},{label:'Agitation (0\u20134)',max:4},
+        {label:'Anxiety Psychic (0\u20134)',max:4},{label:'Anxiety Somatic (0\u20134)',max:4},{label:'Somatic GI (0\u20132)',max:2},
+        {label:'Somatic General (0\u20132)',max:2},{label:'Genital Symptoms (0\u20132)',max:2},{label:'Hypochondriasis (0\u20134)',max:4},
+        {label:'Weight Loss (0\u20132)',max:2},{label:'Insight (0\u20132)',max:2}
+      ],
+      severity:[
+        {min:0,max:7,label:'Normal / Remission',color:'#22c55e',interp:'Normal range or remission.'},
+        {min:8,max:13,label:'Mild Depression',color:'#84cc16',interp:'Mild depressive symptoms. Monitor; consider initiating treatment.'},
+        {min:14,max:18,label:'Moderate Depression',color:'var(--accent-amber)',interp:'Moderate depression. Treatment indicated. TMS or pharmacotherapy.'},
+        {min:19,max:22,label:'Severe Depression',color:'#f97316',interp:'Severe depression. Intensify treatment.'},
+        {min:23,max:52,label:'Very Severe',color:'#ef4444',interp:'Very severe depression. Urgent psychiatric care.'}
+      ],
+      cutoffs:[{range:'0\u20137',label:'Normal',action:'Maintenance'},{range:'8\u201313',label:'Mild',action:'Monitor'},{range:'14\u201318',label:'Moderate',action:'Treatment'},{range:'19\u201322',label:'Severe',action:'Intensify'},{range:'23+',label:'Very Severe',action:'Urgent'}],
+      txRecs:{'TMS':'Left DLPFC, 10 Hz. Response: \u226550% HAM-D reduction.','ECT':'Consider for HAM-D \u226523 with insufficient prior treatment responses.'}
+    },
+    'MADRS': {
+      fullName: 'Montgomery\u2013\u00c5sberg Depression Rating Scale',
+      condition: 'Depression', icd10: ['F32','F33'], maxScore: 60, itemType: 'quick',
+      domains: [
+        {label:'Apparent Sadness (0\u20136)',max:6},{label:'Reported Sadness (0\u20136)',max:6},{label:'Inner Tension (0\u20136)',max:6},
+        {label:'Reduced Sleep (0\u20136)',max:6},{label:'Reduced Appetite (0\u20136)',max:6},{label:'Concentration Difficulties (0\u20136)',max:6},
+        {label:'Lassitude (0\u20136)',max:6},{label:'Inability to Feel (0\u20136)',max:6},{label:'Pessimistic Thoughts (0\u20136)',max:6},
+        {label:'Suicidal Thoughts (0\u20136)',max:6}
+      ],
+      severity:[
+        {min:0,max:6,label:'Normal',color:'#22c55e',interp:'Normal range. No treatment indicated.'},
+        {min:7,max:19,label:'Mild Depression',color:'#84cc16',interp:'Mild depression. Watchful waiting or self-management.'},
+        {min:20,max:34,label:'Moderate Depression',color:'var(--accent-amber)',interp:'Moderate depression. Active treatment recommended. TMS or pharmacotherapy.'},
+        {min:35,max:60,label:'Severe Depression',color:'#ef4444',interp:'Severe depression. Urgent treatment. MADRS \u226530 typical TMS trial inclusion criterion.'}
+      ],
+      cutoffs:[{range:'0\u20136',label:'Normal',action:'None'},{range:'7\u201319',label:'Mild',action:'Self-management'},{range:'20\u201334',label:'Moderate',action:'Active treatment'},{range:'35\u201360',label:'Severe',action:'Urgent referral'}],
+      txRecs:{'TMS':'Standard inclusion: MADRS \u226520. Response: \u226550% reduction. Remission: MADRS \u226410.'}
+    },
+    'BDI-II': {
+      fullName: 'Beck Depression Inventory-II',
+      condition: 'Depression', icd10: ['F32','F33'], maxScore: 63, itemType: 'quick',
+      domains: [
+        {label:'Sadness (0\u20133)',max:3},{label:'Pessimism (0\u20133)',max:3},{label:'Past Failure (0\u20133)',max:3},
+        {label:'Loss of Pleasure (0\u20133)',max:3},{label:'Guilty Feelings (0\u20133)',max:3},{label:'Punishment Feelings (0\u20133)',max:3},
+        {label:'Self-Dislike (0\u20133)',max:3},{label:'Self-Criticalness (0\u20133)',max:3},{label:'Suicidal Ideation (0\u20133)',max:3},
+        {label:'Crying (0\u20133)',max:3},{label:'Agitation (0\u20133)',max:3},{label:'Loss of Interest (0\u20133)',max:3},
+        {label:'Indecisiveness (0\u20133)',max:3},{label:'Worthlessness (0\u20133)',max:3},{label:'Loss of Energy (0\u20133)',max:3},
+        {label:'Sleep Changes (0\u20133)',max:3},{label:'Irritability (0\u20133)',max:3},{label:'Appetite Changes (0\u20133)',max:3},
+        {label:'Concentration Difficulties (0\u20133)',max:3},{label:'Tiredness/Fatigue (0\u20133)',max:3},{label:'Loss of Sex Interest (0\u20133)',max:3}
+      ],
+      severity:[
+        {min:0,max:13,label:'Minimal Depression',color:'#22c55e',interp:'Minimal depressive symptoms.'},
+        {min:14,max:19,label:'Mild Depression',color:'#84cc16',interp:'Mild depression. Monitoring and self-help.'},
+        {min:20,max:28,label:'Moderate Depression',color:'var(--accent-amber)',interp:'Moderate depression. Treatment initiation recommended.'},
+        {min:29,max:63,label:'Severe Depression',color:'#ef4444',interp:'Severe depression. Active treatment urgently recommended.'}
+      ],
+      cutoffs:[{range:'0\u201313',label:'Minimal',action:'Monitor'},{range:'14\u201319',label:'Mild',action:'Self-help'},{range:'20\u201328',label:'Moderate',action:'Treatment'},{range:'29\u201363',label:'Severe',action:'Urgent'}],
+      txRecs:{'TMS':'BDI-II \u226520 typical TMS trial eligibility. Response: \u226550% reduction.','CBT':'First-line with or without pharmacotherapy.'}
+    },
+    'Y-BOCS': {
+      fullName: 'Yale-Brown Obsessive Compulsive Scale',
+      condition: 'OCD', icd10: ['F42'], maxScore: 40, itemType: 'quick',
+      domains: [
+        {label:'Obsessions \u2014 Time (0\u20134)',max:4},{label:'Obsessions \u2014 Interference (0\u20134)',max:4},{label:'Obsessions \u2014 Distress (0\u20134)',max:4},
+        {label:'Obsessions \u2014 Resistance (0\u20134)',max:4},{label:'Obsessions \u2014 Control (0\u20134)',max:4},
+        {label:'Compulsions \u2014 Time (0\u20134)',max:4},{label:'Compulsions \u2014 Interference (0\u20134)',max:4},{label:'Compulsions \u2014 Distress (0\u20134)',max:4},
+        {label:'Compulsions \u2014 Resistance (0\u20134)',max:4},{label:'Compulsions \u2014 Control (0\u20134)',max:4}
+      ],
+      severity:[
+        {min:0,max:7,label:'Subclinical',color:'#22c55e',interp:'Score in subclinical range.'},
+        {min:8,max:15,label:'Mild OCD',color:'#84cc16',interp:'Mild OCD. Brief ERP, self-guided materials.'},
+        {min:16,max:23,label:'Moderate OCD',color:'var(--accent-amber)',interp:'Moderate OCD. Structured ERP \u00b1 SRI. TMS (SMA or OFC) has emerging evidence.'},
+        {min:24,max:31,label:'Severe OCD',color:'#f97316',interp:'Severe OCD. Intensive ERP + SRI. TMS for treatment-resistant cases.'},
+        {min:32,max:40,label:'Extreme OCD',color:'#ef4444',interp:'Extreme OCD. Intensive/residential treatment. Neuromodulation (TMS, DBS) for refractory.'}
+      ],
+      cutoffs:[{range:'0\u20137',label:'Subclinical',action:'Monitor'},{range:'8\u201315',label:'Mild',action:'ERP self-guided'},{range:'16\u201323',label:'Moderate',action:'ERP + SRI'},{range:'24\u201331',label:'Severe',action:'Intensive ERP'},{range:'32\u201340',label:'Extreme',action:'Residential/TMS'}],
+      txRecs:{'TMS':'Deep TMS (H7 coil) FDA-cleared for OCD.','ERP':'Gold standard first-line. Response: \u226535% Y-BOCS reduction.'}
+    },
+    'BPRS': {
+      fullName: 'Brief Psychiatric Rating Scale',
+      condition: 'Psychosis / General Psychiatry', icd10: ['F20','F25','F31'], maxScore: 168, itemType: 'quick',
+      domains: [
+        {label:'Somatic Concern (1\u20137)',max:7},{label:'Anxiety (1\u20137)',max:7},{label:'Emotional Withdrawal (1\u20137)',max:7},
+        {label:'Conceptual Disorganization (1\u20137)',max:7},{label:'Guilt Feelings (1\u20137)',max:7},{label:'Tension (1\u20137)',max:7},
+        {label:'Mannerisms/Posturing (1\u20137)',max:7},{label:'Grandiosity (1\u20137)',max:7},{label:'Depressive Mood (1\u20137)',max:7},
+        {label:'Hostility (1\u20137)',max:7},{label:'Suspiciousness (1\u20137)',max:7},{label:'Hallucinatory Behavior (1\u20137)',max:7},
+        {label:'Motor Retardation (1\u20137)',max:7},{label:'Uncooperativeness (1\u20137)',max:7},{label:'Unusual Thought Content (1\u20137)',max:7},
+        {label:'Blunted Affect (1\u20137)',max:7},{label:'Excitement (1\u20137)',max:7},{label:'Disorientation (1\u20137)',max:7},
+        {label:'Poor Attention (1\u20137)',max:7},{label:'Reduced Social Interest (1\u20137)',max:7},{label:'Self-Neglect (1\u20137)',max:7},
+        {label:'Disturbance of Volition (1\u20137)',max:7},{label:'Bizarre Behavior (1\u20137)',max:7},{label:'Increased Motor Activity (1\u20137)',max:7}
+      ],
+      severity:[
+        {min:24,max:40,label:'Normal',color:'#22c55e',interp:'Within normal limits.'},
+        {min:41,max:70,label:'Borderline\u2013Mild',color:'#84cc16',interp:'Some symptoms present. Monitor closely.'},
+        {min:71,max:108,label:'Moderate',color:'var(--accent-amber)',interp:'Moderate symptom burden. Active management.'},
+        {min:109,max:168,label:'Severe',color:'#ef4444',interp:'Severe psychiatric symptoms. Urgent care required.'}
+      ],
+      cutoffs:[{range:'24\u201340',label:'Normal',action:'Monitor'},{range:'41\u201370',label:'Mild',action:'Outpatient'},{range:'71\u2013108',label:'Moderate',action:'Active treatment'},{range:'109+',label:'Severe',action:'Urgent care'}],
+      txRecs:{'Antipsychotics':'First-line for positive symptoms.','TMS':'Left DLPFC for negative symptoms in schizophrenia (research).'}
+    },
+    'MoCA': {
+      fullName: 'Montreal Cognitive Assessment',
+      condition: 'Cognitive Impairment', icd10: ['F06.7','G31.84'], maxScore: 30, itemType: 'moca',
+      domains: [
+        {label:'Visuospatial / Executive (0\u20135)',max:5},{label:'Naming (0\u20133)',max:3},
+        {label:'Memory \u2014 Registration',max:0,note:'Not scored'},
+        {label:'Attention (0\u20136)',max:6},{label:'Language (0\u20133)',max:3},
+        {label:'Abstraction (0\u20132)',max:2},{label:'Delayed Recall (0\u20135)',max:5},{label:'Orientation (0\u20136)',max:6}
+      ],
+      severity:[
+        {min:0,max:17,label:'Moderate-Severe Impairment',color:'#ef4444',interp:'Significant cognitive impairment. Neuropsychological evaluation and neurology referral.'},
+        {min:18,max:22,label:'Mild Impairment',color:'var(--accent-amber)',interp:'Mild cognitive impairment (MCI) range. Longitudinal monitoring and lifestyle interventions.'},
+        {min:23,max:25,label:'Low Normal',color:'#84cc16',interp:'Low normal. Consider education adjustment (+1 if \u226412 years education). Retest in 12 months.'},
+        {min:26,max:30,label:'Normal',color:'#22c55e',interp:'Within normal limits (\u226526). No significant cognitive impairment detected.'}
+      ],
+      cutoffs:[{range:'\u226526',label:'Normal',action:'Annual screen'},{range:'18\u201325',label:'MCI',action:'Monitor + lifestyle'},{range:'\u226417',label:'Dementia range',action:'Neurology referral'}],
+      txRecs:{'Neurofeedback':'Emerging evidence for alpha/theta enhancement in MCI.','tDCS':'Left DLPFC stimulation for working memory in MCI populations.'}
+    },
+    'MMSE': {
+      fullName: 'Mini-Mental State Examination',
+      condition: 'Cognitive Impairment / Dementia', icd10: ['F00','F01','F02','F03'], maxScore: 30, itemType: 'moca',
+      domains: [
+        {label:'Orientation to Time (0\u20135)',max:5},{label:'Orientation to Place (0\u20135)',max:5},
+        {label:'Registration (0\u20133)',max:3},{label:'Attention / Calculation (0\u20135)',max:5},
+        {label:'Recall (0\u20133)',max:3},{label:'Language \u2014 Naming (0\u20132)',max:2},
+        {label:'Language \u2014 Repetition (0\u20131)',max:1},{label:'Language \u2014 Commands (0\u20133)',max:3},
+        {label:'Reading (0\u20131)',max:1},{label:'Writing (0\u20131)',max:1},{label:'Copying (0\u20131)',max:1}
+      ],
+      severity:[
+        {min:0,max:9,label:'Severe Dementia',color:'#ef4444',interp:'Severe dementia. Specialist care required.'},
+        {min:10,max:18,label:'Moderate Dementia',color:'#f97316',interp:'Moderate dementia. Structured care planning and safety assessment.'},
+        {min:19,max:23,label:'Mild Dementia',color:'var(--accent-amber)',interp:'Mild dementia. Consider cholinesterase inhibitors. Cognitive rehabilitation.'},
+        {min:24,max:30,label:'Normal',color:'#22c55e',interp:'Normal range. Repeat annually.'}
+      ],
+      cutoffs:[{range:'24\u201330',label:'Normal',action:'Annual screen'},{range:'19\u201323',label:'Mild dementia',action:'Medication + rehab'},{range:'10\u201318',label:'Moderate',action:'Structured care'},{range:'0\u20139',label:'Severe',action:'Specialist care'}],
+      txRecs:{'Medication':'Cholinesterase inhibitors for mild-moderate Alzheimer\'s.','Neurofeedback':'Research stage for dementia populations.'}
+    },
+    'CAGE': {
+      fullName: 'CAGE Alcohol Questionnaire',
+      condition: 'Alcohol Use Disorder', icd10: ['F10.1','F10.2'], maxScore: 4, itemType: 'quick',
+      domains: [
+        {label:'C \u2014 Cut down (0\u20131): Have you ever felt you should cut down on your drinking?',max:1},
+        {label:'A \u2014 Annoyed (0\u20131): Have people annoyed you by criticizing your drinking?',max:1},
+        {label:'G \u2014 Guilty (0\u20131): Have you ever felt bad or guilty about your drinking?',max:1},
+        {label:'E \u2014 Eye-opener (0\u20131): Have you ever had a drink first thing in the morning?',max:1}
+      ],
+      severity:[
+        {min:0,max:1,label:'Low Risk',color:'#22c55e',interp:'Low risk. Provide brief alcohol education.'},
+        {min:2,max:2,label:'Possible AUD',color:'var(--accent-amber)',interp:'Score of 2 suggests possible alcohol use disorder. Brief intervention and further assessment.'},
+        {min:3,max:4,label:'Probable AUD / Dependence',color:'#ef4444',interp:'Score \u22653 highly suggestive of alcohol dependence. Formal assessment and specialist referral.'}
+      ],
+      cutoffs:[{range:'0\u20131',label:'Low risk',action:'Brief education'},{range:'2',label:'Possible AUD',action:'Brief intervention'},{range:'3\u20134',label:'Probable dependence',action:'Specialist referral'}],
+      txRecs:{'Psychotherapy':'Motivational interviewing and CBT for AUD.','Medication':'Naltrexone, acamprosate, or disulfiram per guidelines.'}
+    },
+    'AUDIT-C': {
+      fullName: 'Alcohol Use Disorders Identification Test-C',
+      condition: 'Alcohol Use Disorder', icd10: ['F10.1','F10.2'], maxScore: 12, itemType: 'quick',
+      domains: [
+        {label:'Q1: Frequency of drinking (0=Never to 4=4+\u00d7/week)',max:4},
+        {label:'Q2: Drinks on typical day (0=1\u20132 to 4=10+)',max:4},
+        {label:'Q3: Frequency of heavy drinking \u22656 drinks (0=Never to 4=Daily)',max:4}
+      ],
+      severity:[
+        {min:0,max:2,label:'Low Risk',color:'#22c55e',interp:'Low-risk drinking. Provide education on safe limits.'},
+        {min:3,max:4,label:'Hazardous / Harmful',color:'var(--accent-amber)',interp:'Hazardous/harmful drinking. Brief counselling recommended.'},
+        {min:5,max:12,label:'Probable AUD',color:'#ef4444',interp:'Probable alcohol use disorder. Full AUDIT and clinical assessment needed.'}
+      ],
+      cutoffs:[{range:'0\u20132',label:'Low risk',action:'Education'},{range:'3\u20134',label:'Hazardous',action:'Brief counselling'},{range:'5\u201312',label:'Probable AUD',action:'Full assessment'}],
+      txRecs:{'Brief Intervention':'FRAMES model for hazardous drinkers.','Specialist':'Formal AUD treatment for AUDIT-C \u22655.'}
+    }
+  };
+
+  const SCALE_KEYS = Object.keys(SCALES);
+
+  function _scalLoad() { try { return JSON.parse(localStorage.getItem('ds_scale_scores') || '[]'); } catch(e){ return []; } }
+  function _scalSave(arr) { localStorage.setItem('ds_scale_scores', JSON.stringify(arr)); }
+
+  let _scalActive = 'PHQ-9';
+  let _scalValues = {};
+  let _histOpen = false;
+  let _refOpen = false;
+
+  function _scalScore() {
+    const scale = SCALES[_scalActive];
+    if (!scale) return 0;
+    if (scale.itemType === 'radio4') {
+      return scale.items.reduce(function(s, _, i) {
+        const v = parseInt(_scalValues['item_' + i]);
+        return s + (v >= 0 ? v : 0);
+      }, 0);
+    }
+    return (scale.domains || []).reduce(function(s, d, i) {
+      const v = parseFloat(_scalValues['domain_' + i]) || 0;
+      return s + Math.min(v, d.max);
+    }, 0);
+  }
+
+  function _scalSeverity(score) {
+    const scale = SCALES[_scalActive];
+    if (!scale) return null;
+    for (let si = 0; si < scale.severity.length; si++) {
+      const sv = scale.severity[si];
+      if (score >= sv.min && score <= sv.max) return sv;
+    }
+    return scale.severity[scale.severity.length - 1];
+  }
+
+  function _scalLastEntry() {
+    const hist = _scalLoad().filter(function(e) { return e.scale === _scalActive; });
+    if (!hist.length) return null;
+    hist.sort(function(a, b) { return new Date(b.date) - new Date(a.date); });
+    return hist[0];
+  }
+
+  function _scalSparkline(vals) {
+    if (vals.length < 2) return '';
+    const W = 100, H = 30;
+    const mn = Math.min.apply(null, vals), mx = Math.max.apply(null, vals);
+    const range = mx - mn || 1;
+    const pts = vals.map(function(v, i) {
+      const x = (i / (vals.length - 1)) * W;
+      const y = H - ((v - mn) / range) * (H - 4) - 2;
+      return x.toFixed(1) + ',' + y.toFixed(1);
+    }).join(' ');
+    return '<svg viewBox="0 0 ' + W + ' ' + H + '" width="100" height="30" style="vertical-align:middle"><polyline points="' + pts + '" fill="none" stroke="var(--teal)" stroke-width="1.5"/></svg>';
+  }
+
+  function _scalItemsHTML() {
+    const scale = SCALES[_scalActive];
+    if (!scale) return '';
+    if (scale.itemType === 'radio4') {
+      return scale.items.map(function(item, i) {
+        const isCrisis = scale.crisisItem === i;
+        const val = parseInt(_scalValues['item_' + i]);
+        const opts = scale.optionLabels.map(function(lbl, v) {
+          const sel = val === v;
+          return '<label class="scal-radio-opt' + (sel ? ' selected' : '') + '">'
+            + '<input type="radio" name="scal-item-' + i + '" value="' + v + '" onchange="window._scalSet(\'item_' + i + '\',' + v + ')" ' + (sel ? 'checked' : '') + '>'
+            + '<span class="scal-radio-num">' + v + '</span>'
+            + '<span class="scal-radio-lbl">' + lbl + '</span>'
+            + '</label>';
+        }).join('');
+        const crisisFlag = (isCrisis && val > 0)
+          ? '<div class="scal-crisis-flag">\u26a0 Crisis Resources: If patient endorses self-harm thoughts, assess immediate safety. Contact 988 Suicide &amp; Crisis Lifeline or nearest emergency services.</div>'
+          : '';
+        return '<div class="scal-item' + (isCrisis ? ' scal-item-crisis' : '') + '">'
+          + '<div class="scal-item-label"><span class="scal-item-num">' + (i + 1) + '.</span> ' + item + '</div>'
+          + '<div class="scal-radio-row">' + opts + '</div>'
+          + crisisFlag
+          + '</div>';
+      }).join('');
+    }
+    return '<div class="scal-quick-note">Quick entry mode \u2014 enter domain scores from your paper/tablet form:</div>'
+      + (scale.domains || []).map(function(d, i) {
+        const val = _scalValues['domain_' + i] || '';
+        if (d.max === 0) {
+          return '<div class="scal-domain-row scal-domain-skip"><span class="scal-domain-label">' + d.label + '</span><span class="scal-domain-note">' + (d.note||'') + '</span></div>';
+        }
+        return '<div class="scal-domain-row">'
+          + '<label class="scal-domain-label">' + d.label + '</label>'
+          + '<input type="number" class="scal-domain-input" min="0" max="' + d.max + '" step="1" value="' + val + '"'
+          + ' oninput="window._scalSet(\'domain_' + i + '\',this.value)" placeholder="0\u2013' + d.max + '">'
+          + '<span class="scal-domain-max">/ ' + d.max + '</span>'
+          + '</div>';
+      }).join('');
+  }
+
+  function _scalResultHTML() {
+    const scale = SCALES[_scalActive];
+    const score = _scalScore();
+    const sv = _scalSeverity(score);
+    const prev = _scalLastEntry();
+    const delta = prev ? score - prev.score : null;
+    const deltaStr = delta !== null ? ((delta >= 0 ? '+' : '') + delta + ' pts vs. ' + prev.date) : null;
+    const deltaColor = delta !== null ? (delta <= 0 ? 'var(--teal)' : '#ef4444') : '';
+    const prevHtml = deltaStr
+      ? '<div class="scal-delta" style="color:' + deltaColor + '">' + (delta <= 0 ? '\u2193' : '\u2191') + ' ' + deltaStr + '</div>'
+      : '<div class="scal-delta" style="color:var(--text-secondary)">No previous assessment on record</div>';
+
+    let pats = [];
+    try { pats = JSON.parse(localStorage.getItem('ds_patients') || '[]'); } catch(e) {}
+    const patOpts = pats.length
+      ? pats.map(function(p) { return '<option value="' + p.id + '">' + (p.name || p.full_name || p.id) + '</option>'; }).join('')
+      : '<option value="">No patients in local store</option>';
+
+    return '<div class="scal-result-panel">'
+      + '<div class="scal-result-main">'
+      + '<div class="scal-score-big" style="color:' + (sv ? sv.color : 'var(--text-primary)') + '">' + score + '<span class="scal-score-denom">/' + scale.maxScore + '</span></div>'
+      + '<div class="scal-severity-badge" style="background:' + (sv ? sv.color : '#64748b') + '22;color:' + (sv ? sv.color : 'var(--text-primary)') + ';border:1px solid ' + (sv ? sv.color : 'var(--border)') + '">' + (sv ? sv.label : '\u2014') + '</div>'
+      + '</div>'
+      + '<div class="scal-interp">' + (sv ? sv.interp : '') + '</div>'
+      + prevHtml
+      + '<div class="scal-save-row">'
+      + '<select id="scal-pat-sel" class="form-control" style="width:auto;flex:1;font-size:13px"><option value="">Select patient\u2026</option>' + patOpts + '</select>'
+      + '<input type="text" id="scal-meas-pt" class="form-control" placeholder="Assessment point (e.g. Baseline)" style="flex:1;font-size:13px">'
+      + '<button class="scal-btn scal-btn-primary" onclick="window._scalSavePat()">Save to Patient</button>'
+      + '<button class="scal-btn" onclick="window._scalCopy()">Copy Result</button>'
+      + '</div>'
+      + '</div>';
+  }
+
+  function _scalHistHTML() {
+    const hist = _scalLoad().filter(function(e) { return e.scale === _scalActive; })
+      .sort(function(a, b) { return new Date(b.date) - new Date(a.date); }).slice(0, 5);
+    if (!hist.length) return '<div style="color:var(--text-secondary);font-size:13px;padding:12px 0">No saved scores for ' + _scalActive + ' yet.</div>';
+    const scale = SCALES[_scalActive];
+    const sparkVals = hist.slice().reverse().map(function(e) { return e.score; });
+    return '<div class="scal-hist-row">'
+      + '<div style="flex:1">'
+      + hist.map(function(e) {
+          const sv = _scalSeverity(e.score);
+          return '<div class="scal-hist-entry">'
+            + '<span class="scal-hist-date">' + e.date + '</span>'
+            + '<span class="scal-hist-pt">' + (e.measurementPoint||'') + '</span>'
+            + '<span class="scal-hist-score" style="color:' + (sv ? sv.color : 'var(--text-primary)') + '">' + e.score + '/' + scale.maxScore + '</span>'
+            + '<span class="scal-hist-sev">' + (sv ? sv.label : '\u2014') + '</span>'
+            + '</div>';
+        }).join('')
+      + '</div>'
+      + '<div class="scal-hist-spark">' + _scalSparkline(sparkVals) + '</div>'
+      + '</div>';
+  }
+
+  function _scalRefHTML() {
+    const scale = SCALES[_scalActive];
+    const icd = scale.icd10.join(', ');
+    const cutRows = scale.cutoffs.map(function(c) {
+      return '<tr><td>' + c.range + '</td><td>' + c.label + '</td><td>' + c.action + '</td></tr>';
+    }).join('');
+    const txRows = Object.keys(scale.txRecs || {}).map(function(k) {
+      return '<div class="scal-ref-tx"><strong>' + k + ':</strong> ' + scale.txRecs[k] + '</div>';
+    }).join('');
+    return '<div class="scal-ref-inner">'
+      + '<div class="scal-ref-section"><strong>ICD-10:</strong> ' + icd + '</div>'
+      + '<div class="scal-ref-section"><strong>Scoring Cutoffs</strong>'
+      + '<table class="scal-ref-table"><thead><tr><th>Range</th><th>Severity</th><th>Action</th></tr></thead><tbody>' + cutRows + '</tbody></table>'
+      + '</div>'
+      + '<div class="scal-ref-section"><strong>Treatment Recommendations</strong>' + txRows + '</div>'
+      + '</div>';
+  }
+
+  function _scalRender() {
+    const tabs = SCALE_KEYS.map(function(k) {
+      return '<button class="scal-tab' + (k === _scalActive ? ' active' : '') + '" onclick="window._scalTab(\'' + k + '\')">' + k + '</button>';
+    }).join('');
+
+    el.innerHTML = '<div class="scal-page">'
+      + '<div class="scal-tab-row">' + tabs + '</div>'
+      + '<div class="scal-scale-name">' + (SCALES[_scalActive] ? SCALES[_scalActive].fullName : '') + '</div>'
+      + '<div class="scal-body">'
+      + '<div class="scal-main-col">'
+      + '<div class="scal-items" id="scal-items">' + _scalItemsHTML() + '</div>'
+      + '<div id="scal-result">' + _scalResultHTML() + '</div>'
+      + '<div class="scal-collapsible">'
+      + '<button class="scal-collapse-btn" onclick="window._scalToggleHist()">' + (_histOpen ? '\u25be' : '\u25b8') + ' Score History</button>'
+      + '<div id="scal-hist" style="' + (_histOpen ? '' : 'display:none') + '">' + _scalHistHTML() + '</div>'
+      + '</div>'
+      + '</div>'
+      + '<div class="scal-ref-col">'
+      + '<button class="scal-collapse-btn scal-ref-toggle" onclick="window._scalToggleRef()">' + (_refOpen ? '\u25be' : '\u25b8') + ' Reference Card</button>'
+      + '<div id="scal-ref" style="' + (_refOpen ? '' : 'display:none') + '">' + _scalRefHTML() + '</div>'
+      + '</div>'
+      + '</div>'
+      + '</div>';
+  }
+
+  window._scalTab = function(k) { _scalActive = k; _scalValues = {}; _scalRender(); };
+
+  window._scalSet = function(key, val) {
+    _scalValues[key] = val;
+    const result = document.getElementById('scal-result');
+    if (result) result.innerHTML = _scalResultHTML();
+    const items = document.getElementById('scal-items');
+    if (items) items.innerHTML = _scalItemsHTML();
+  };
+
+  window._scalSavePat = async function() {
+    const patEl = document.getElementById('scal-pat-sel');
+    const mpEl  = document.getElementById('scal-meas-pt');
+    const pat  = patEl ? patEl.value : '';
+    const mp   = (mpEl && mpEl.value) ? mpEl.value : 'Assessment';
+    const score = _scalScore();
+    const sv = _scalSeverity(score);
+    const scale = SCALES[_scalActive];
+    const entry = {
+      id: 'sc_' + Date.now(),
+      scale: _scalActive,
+      patientId: pat || null,
+      score: score,
+      maxScore: scale.maxScore,
+      severity: sv ? sv.label : '',
+      measurementPoint: mp,
+      date: new Date().toISOString().slice(0, 10),
+      savedAt: new Date().toISOString()
+    };
+    const arr = _scalLoad();
+    arr.push(entry);
+    _scalSave(arr);
+    if (pat) {
+      await api.recordOutcome({
+        patient_id: pat,
+        scale: _scalActive,
+        score: score,
+        max_score: scale.maxScore,
+        severity: sv ? sv.label : '',
+        measurement_point: mp,
+        assessed_at: entry.date
+      }).catch(function() { return null; });
+    }
+    window._showNotifToast && window._showNotifToast({ title: 'Score Saved', body: _scalActive + ': ' + score + '/' + scale.maxScore + ' \u2014 ' + (sv ? sv.label : ''), severity: 'success' });
+    const result = document.getElementById('scal-result');
+    if (result) result.innerHTML = _scalResultHTML();
+    const hist = document.getElementById('scal-hist');
+    if (hist && _histOpen) hist.innerHTML = _scalHistHTML();
+  };
+
+  window._scalCopy = function() {
+    const score = _scalScore();
+    const sv = _scalSeverity(score);
+    const scale = SCALES[_scalActive];
+    const txt = _scalActive + ': ' + score + '/' + scale.maxScore + ' \u2014 ' + (sv ? sv.label : '') + ' (assessed ' + new Date().toISOString().slice(0, 10) + ')';
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(txt).catch(function() {
+        const ta = document.createElement('textarea');
+        ta.value = txt; ta.style.cssText = 'position:fixed;opacity:0;left:-9999px';
+        document.body.appendChild(ta); ta.select(); document.execCommand('copy'); ta.remove();
+      });
+    } else {
+      const ta = document.createElement('textarea');
+      ta.value = txt; ta.style.cssText = 'position:fixed;opacity:0;left:-9999px';
+      document.body.appendChild(ta); ta.select(); document.execCommand('copy'); ta.remove();
+    }
+    window._showNotifToast && window._showNotifToast({ title: 'Copied', body: txt, severity: 'info' });
+  };
+
+  window._scalToggleHist = function() {
+    _histOpen = !_histOpen;
+    const hist = document.getElementById('scal-hist');
+    const btn  = el.querySelector('.scal-collapse-btn');
+    if (hist) { hist.style.display = _histOpen ? '' : 'none'; if (_histOpen) hist.innerHTML = _scalHistHTML(); }
+    if (btn) btn.textContent = (_histOpen ? '\u25be' : '\u25b8') + ' Score History';
+  };
+
+  window._scalToggleRef = function() {
+    _refOpen = !_refOpen;
+    const ref = document.getElementById('scal-ref');
+    const btn = el.querySelector('.scal-ref-toggle');
+    if (ref) ref.style.display = _refOpen ? '' : 'none';
+    if (btn) btn.textContent = (_refOpen ? '\u25be' : '\u25b8') + ' Reference Card';
+  };
+
+  _scalRender();
+}

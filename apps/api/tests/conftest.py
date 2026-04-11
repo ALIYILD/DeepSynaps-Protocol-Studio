@@ -7,6 +7,8 @@ from fastapi.testclient import TestClient
 
 
 TEST_DB_PATH = Path(__file__).resolve().parent / ".test_deepsynaps_protocol_studio.db"
+# Set environment BEFORE any app module is imported so cached settings reflect test values.
+os.environ["DEEPSYNAPS_APP_ENV"] = "test"
 os.environ["DEEPSYNAPS_DATABASE_URL"] = f"sqlite:///{TEST_DB_PATH.as_posix()}"
 
 REPO_ROOT = Path(__file__).resolve().parents[3]

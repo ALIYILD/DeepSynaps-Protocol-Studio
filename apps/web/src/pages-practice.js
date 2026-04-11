@@ -4813,14 +4813,331 @@ export async function pgWearableIntegration(setTopbar) {
     if (chartEl) chartEl.innerHTML = _buildLiveChartSvg(_hrBuf, _hrvBuf);
   }
 
+  // ── Clinical Dashboard seed data ───────────────────────────────────────────
+  function _seedWearableReadings() {
+    const key = 'ds_wearable_readings';
+    if (localStorage.getItem(key)) return;
+    const patients = [
+      { id: 'pt-001', name: 'Alex Johnson',  device: 'Polar H10',        deviceType: 'ECG Chest Strap' },
+      { id: 'pt-002', name: 'Morgan Lee',    device: 'Garmin HRM-Pro',   deviceType: 'Chest Strap'     },
+      { id: 'pt-003', name: 'Jordan Smith',  device: 'Apple Watch',      deviceType: 'Smartwatch'      },
+    ];
+    const readings = [];
+    const today = new Date();
+    patients.forEach((pt, pi) => {
+      // Alex: HRV improving (treatment working), Morgan: stable-low, Jordan: declining
+      for (let d = 13; d >= 0; d--) {
+        const date = new Date(today);
+        date.setDate(date.getDate() - d);
+        const dateStr = date.toISOString().slice(0, 10);
+        const dayIdx = 13 - d; // 0=oldest,13=today
+        let hrv, rhr, sleep, steps, sessionTolerance;
+        if (pi === 0) {
+          // Alex: improving HRV 18→42, RHR improving 88→70
+          hrv = Math.round(18 + dayIdx * 1.7 + (Math.random() - 0.5) * 4);
+          rhr = Math.round(88 - dayIdx * 1.3 + (Math.random() - 0.5) * 3);
+          sleep = Math.round((4.5 + dayIdx * 0.2 + (Math.random() - 0.5) * 0.5) * 10) / 10;
+          steps = Math.round(1800 + dayIdx * 250 + (Math.random() - 0.5) * 400);
+          sessionTolerance = dayIdx < 4 ? 2 : dayIdx < 8 ? 3 : dayIdx < 12 ? 4 : 5;
+        } else if (pi === 1) {
+          // Morgan: stable moderate
+          hrv = Math.round(32 + (Math.random() - 0.5) * 6);
+          rhr = Math.round(72 + (Math.random() - 0.5) * 4);
+          sleep = Math.round((6.2 + (Math.random() - 0.5) * 0.8) * 10) / 10;
+          steps = Math.round(5500 + (Math.random() - 0.5) * 1200);
+          sessionTolerance = 3 + (Math.random() > 0.5 ? 1 : 0);
+        } else {
+          // Jordan: low activity, poor sleep
+          hrv = Math.round(24 + (Math.random() - 0.5) * 5);
+          rhr = Math.round(78 + (Math.random() - 0.5) * 6);
+          sleep = Math.round((4.8 + (Math.random() - 0.5) * 1.2) * 10) / 10;
+          steps = Math.round(1400 + (Math.random() - 0.5) * 600);
+          sessionTolerance = 2 + (Math.random() > 0.6 ? 1 : 0);
+        }
+        readings.push({
+          id: `wr-${pt.id}-${dateStr}`,
+          patientId: pt.id,
+          patientName: pt.name,
+          device: pt.device,
+          deviceType: pt.deviceType,
+          date: dateStr,
+          hrv: Math.max(8, hrv),
+          rhr: Math.min(110, Math.max(50, rhr)),
+          sleepHrs: Math.max(3, Math.min(10, sleep)),
+          steps: Math.max(200, steps),
+          sessionTolerance: Math.max(1, Math.min(5, sessionTolerance)),
+          battery: 70 + Math.floor(Math.random() * 25),
+          lastSync: date.toISOString(),
+          status: d === 0 ? 'active' : 'synced',
+        });
+      }
+    });
+    localStorage.setItem(key, JSON.stringify(readings));
+  }
+
+  function _getWearableReadings() {
+    try { return JSON.parse(localStorage.getItem('ds_wearable_readings') || '[]'); } catch { return []; }
+  }
+
+  // ── Clinical Dashboard render ───────────────────────────────────────────────
+  let _wciPatient = 'all';
+  let _dismissedAlerts = [];
+
+  function _renderClinicalDashboard() {
+    _seedWearableReadings();
+    const allReadings = _getWearableReadings();
+    const patientIds  = [...new Set(allReadings.map(r => r.patientId))];
+    const patientMap  = {};
+    allReadings.forEach(r => { patientMap[r.patientId] = r.patientName; });
+
+    const filtered = _wciPatient === 'all'
+      ? allReadings
+      : allReadings.filter(r => r.patientId === _wciPatient);
+
+    // Latest reading per patient
+    function latestFor(pid) {
+      return filtered.filter(r => r.patientId === pid).sort((a,b) => b.date.localeCompare(a.date))[0] || null;
+    }
+    // 7-day readings per patient
+    function last7For(pid) {
+      return filtered.filter(r => r.patientId === pid).sort((a,b) => a.date.localeCompare(b.date)).slice(-7);
+    }
+
+    const pids = _wciPatient === 'all' ? patientIds : [_wciPatient];
+
+    // ── Biometric summary cards ────────────────────────────────────────────
+    function sparklineSvg(values, color) {
+      if (!values.length) return '';
+      const W = 80, H = 28, pad = 2;
+      const mn = Math.min(...values), mx = Math.max(...values);
+      const range = mx - mn || 1;
+      const pts = values.map((v, i) => {
+        const x = pad + (i / Math.max(values.length - 1, 1)) * (W - pad * 2);
+        const y = H - pad - ((v - mn) / range) * (H - pad * 2);
+        return `${x.toFixed(1)},${y.toFixed(1)}`;
+      }).join(' ');
+      return `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" style="display:block">
+        <polyline points="${pts}" fill="none" stroke="${color}" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/>
+      </svg>`;
+    }
+
+    function trendArrow(values) {
+      if (values.length < 3) return { arrow: '–', color: 'var(--text-secondary)' };
+      const first = values.slice(0, 3).reduce((a,b)=>a+b,0)/3;
+      const last  = values.slice(-3).reduce((a,b)=>a+b,0)/3;
+      const diff  = last - first;
+      if (Math.abs(diff) < 0.5) return { arrow: '→', color: 'var(--text-secondary)' };
+      return diff > 0 ? { arrow: '↑', color: '#10b981' } : { arrow: '↓', color: '#ef4444' };
+    }
+
+    const summaryCards = pids.map(pid => {
+      const latest = latestFor(pid);
+      const days7  = last7For(pid);
+      if (!latest) return '';
+      const name = patientMap[pid] || pid;
+
+      const hrvVals   = days7.map(r => r.hrv);
+      const rhrVals   = days7.map(r => r.rhr);
+      const sleepVals = days7.map(r => r.sleepHrs);
+      const stepVals  = days7.map(r => r.steps);
+
+      const hrvTrend  = trendArrow(hrvVals);
+      const rhrTrend  = trendArrow(rhrVals);
+      const sleepTrend = trendArrow(sleepVals);
+      const stepTrend = trendArrow(stepVals);
+
+      const weeklySteps = stepVals.reduce((a,b)=>a+b,0);
+      const avgSleep = sleepVals.length ? (sleepVals.reduce((a,b)=>a+b,0)/sleepVals.length).toFixed(1) : '–';
+
+      const hrvBorder = latest.hrv < 20 ? '#f59e0b' : latest.hrv < 30 ? '#3b82f6' : '#00d4bc';
+      const rhrBorder = latest.rhr > 90 ? '#ef4444' : latest.rhr > 80 ? '#f59e0b' : '#10b981';
+      const sleepBorder = latest.sleepHrs < 5 ? '#f59e0b' : '#9b7fff';
+      const stepBorder = latest.steps < 2000 ? '#f59e0b' : '#4a9eff';
+
+      return `<div class="wci-patient-block">
+        <div class="wci-patient-name">${name}</div>
+        <div class="wci-cards-row">
+          <div class="wci-card" style="border-left-color:${hrvBorder}">
+            <div class="wci-card-label">HRV RMSSD</div>
+            <div class="wci-card-value" style="color:${hrvBorder}">${latest.hrv} <span style="font-size:.7rem">ms</span></div>
+            <div class="wci-card-trend" style="color:${hrvTrend.color}">${hrvTrend.arrow}</div>
+            ${sparklineSvg(hrvVals, hrvBorder)}
+          </div>
+          <div class="wci-card" style="border-left-color:${rhrBorder}">
+            <div class="wci-card-label">Resting HR</div>
+            <div class="wci-card-value" style="color:${rhrBorder}">${latest.rhr} <span style="font-size:.7rem">bpm</span></div>
+            <div class="wci-card-trend" style="color:${rhrTrend.color}">${rhrTrend.arrow}</div>
+            ${sparklineSvg(rhrVals, rhrBorder)}
+          </div>
+          <div class="wci-card" style="border-left-color:${sleepBorder}">
+            <div class="wci-card-label">Sleep Quality</div>
+            <div class="wci-card-value" style="color:${sleepBorder}">${avgSleep} <span style="font-size:.7rem">hrs avg</span></div>
+            <div class="wci-card-trend" style="color:${sleepTrend.color}">${sleepTrend.arrow}</div>
+            ${sparklineSvg(sleepVals, sleepBorder)}
+          </div>
+          <div class="wci-card" style="border-left-color:${stepBorder}">
+            <div class="wci-card-label">Weekly Steps</div>
+            <div class="wci-card-value" style="color:${stepBorder}">${(weeklySteps/1000).toFixed(1)}<span style="font-size:.7rem">k</span></div>
+            <div class="wci-card-trend" style="color:${stepTrend.color}">${stepTrend.arrow}</div>
+            ${sparklineSvg(stepVals, stepBorder)}
+          </div>
+        </div>
+      </div>`;
+    }).join('');
+
+    // ── Clinical Alerts ────────────────────────────────────────────────────
+    const alerts = [];
+    patientIds.forEach(pid => {
+      const latest = allReadings.filter(r => r.patientId === pid).sort((a,b) => b.date.localeCompare(a.date))[0];
+      if (!latest) return;
+      const name = patientMap[pid];
+      const last14 = allReadings.filter(r => r.patientId === pid).sort((a,b) => a.date.localeCompare(b.date)).slice(-14);
+      const alertId_hrv  = `alert-hrv-${pid}`;
+      const alertId_rhr  = `alert-rhr-${pid}`;
+      const alertId_sleep = `alert-sleep-${pid}`;
+      const alertId_step  = `alert-step-${pid}`;
+      if (latest.hrv < 20 && !_dismissedAlerts.includes(alertId_hrv)) {
+        alerts.push({ id: alertId_hrv, sev: 'amber', patient: name, metric: 'HRV', value: `${latest.hrv} ms`, rec: 'Consider stress-reduction protocol or session delay. HRV below 20ms suggests high sympathetic load.' });
+      }
+      if (latest.rhr > 90 && !_dismissedAlerts.includes(alertId_rhr)) {
+        alerts.push({ id: alertId_rhr, sev: 'red', patient: name, metric: 'Resting Heart Rate', value: `${latest.rhr} bpm`, rec: 'Elevated RHR. Rule out illness, dehydration, or acute stress before proceeding with session.' });
+      }
+      const lowSleepNights = last14.filter(r => r.sleepHrs < 5).length;
+      if (lowSleepNights >= 3 && !_dismissedAlerts.includes(alertId_sleep)) {
+        alerts.push({ id: alertId_sleep, sev: 'amber', patient: name, metric: 'Sleep', value: `${lowSleepNights} nights <5h`, rec: 'Chronic sleep deprivation may reduce treatment efficacy. Review sleep hygiene homework tasks.' });
+      }
+      const lowStepDays = last14.filter(r => r.steps < 2000).length;
+      if (lowStepDays >= 5 && !_dismissedAlerts.includes(alertId_step)) {
+        alerts.push({ id: alertId_step, sev: 'info', patient: name, metric: 'Activity', value: `${lowStepDays} days <2k steps`, rec: 'Low physical activity may impact treatment outcomes. Consider assigning outdoor activity tasks.' });
+      }
+    });
+
+    const alertsHtml = alerts.length === 0
+      ? `<div style="text-align:center;padding:20px;color:var(--text-secondary);font-size:.85rem">No active clinical alerts</div>`
+      : alerts.map(a => {
+          const bg    = a.sev === 'red' ? 'rgba(239,68,68,0.08)' : a.sev === 'amber' ? 'rgba(245,158,11,0.08)' : 'rgba(74,158,255,0.08)';
+          const border = a.sev === 'red' ? 'rgba(239,68,68,0.35)' : a.sev === 'amber' ? 'rgba(245,158,11,0.35)' : 'rgba(74,158,255,0.35)';
+          const icon  = a.sev === 'red' ? '🔴' : a.sev === 'amber' ? '🟡' : 'ℹ️';
+          return `<div class="wci-alert" style="background:${bg};border-color:${border}" id="${a.id}-wrap">
+            <div style="display:flex;justify-content:space-between;align-items:flex-start">
+              <div style="display:flex;gap:8px;align-items:flex-start">
+                <span style="font-size:13px;margin-top:1px">${icon}</span>
+                <div>
+                  <div style="font-size:.82rem;font-weight:600;color:var(--text-primary)">${a.patient} — ${a.metric}: <span style="color:${a.sev==='red'?'#ef4444':a.sev==='amber'?'#f59e0b':'#4a9eff'}">${a.value}</span></div>
+                  <div style="font-size:.76rem;color:var(--text-secondary);margin-top:2px;line-height:1.4">${a.rec}</div>
+                </div>
+              </div>
+              <button class="btn btn-ghost btn-sm" style="font-size:.7rem;flex-shrink:0" onclick="window._wciDismissAlert('${a.id}')">Dismiss</button>
+            </div>
+          </div>`;
+        }).join('');
+
+    // ── HRV vs Session Tolerance scatter plot ──────────────────────────────
+    const scatterData = allReadings.filter(r => r.sessionTolerance);
+    const W = 300, H = 200, padL = 40, padB = 30, padT = 20, padR = 20;
+    const innerW = W - padL - padR, innerH = H - padT - padB;
+    const hrvMin = 10, hrvMax = 55, tolMin = 1, tolMax = 5;
+    const dots = scatterData.map(r => {
+      const x = padL + ((r.hrv - hrvMin) / (hrvMax - hrvMin)) * innerW;
+      const y = padT + innerH - ((r.sessionTolerance - tolMin) / (tolMax - tolMin)) * innerH;
+      const ptColor = r.patientId === 'pt-001' ? '#00d4bc' : r.patientId === 'pt-002' ? '#9b7fff' : '#f59e0b';
+      return `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="4" fill="${ptColor}" fill-opacity="0.7" stroke="${ptColor}" stroke-width="1"/>`;
+    }).join('');
+    // Axis labels
+    const xLabels = [10,20,30,40,50].map(v => {
+      const x = padL + ((v - hrvMin) / (hrvMax - hrvMin)) * innerW;
+      return `<text x="${x.toFixed(1)}" y="${H - 6}" font-size="8" fill="rgba(255,255,255,0.35)" text-anchor="middle">${v}</text>`;
+    }).join('');
+    const yLabels = [1,2,3,4,5].map(v => {
+      const y = padT + innerH - ((v - tolMin) / (tolMax - tolMin)) * innerH;
+      return `<text x="${padL - 5}" y="${(y+3).toFixed(1)}" font-size="8" fill="rgba(255,255,255,0.35)" text-anchor="end">${v}</text>`;
+    }).join('');
+    const scatterSvg = `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" style="max-width:100%;background:rgba(255,255,255,0.02);border-radius:8px">
+      <line x1="${padL}" y1="${padT}" x2="${padL}" y2="${padT+innerH}" stroke="rgba(255,255,255,0.15)" stroke-width="1"/>
+      <line x1="${padL}" y1="${padT+innerH}" x2="${padL+innerW}" y2="${padT+innerH}" stroke="rgba(255,255,255,0.15)" stroke-width="1"/>
+      ${xLabels}${yLabels}
+      <text x="${padL + innerW/2}" y="${H}" font-size="9" fill="rgba(255,255,255,0.4)" text-anchor="middle">HRV (ms)</text>
+      <text x="10" y="${padT + innerH/2}" font-size="9" fill="rgba(255,255,255,0.4)" text-anchor="middle" transform="rotate(-90,10,${padT + innerH/2})">Tolerance</text>
+      ${dots}
+    </svg>`;
+
+    const legendHtml = [
+      { pid:'pt-001', name:'Alex Johnson', color:'#00d4bc' },
+      { pid:'pt-002', name:'Morgan Lee',   color:'#9b7fff' },
+      { pid:'pt-003', name:'Jordan Smith', color:'#f59e0b' },
+    ].map(l => `<span style="display:flex;align-items:center;gap:4px;font-size:.72rem;color:var(--text-secondary)"><span style="width:8px;height:8px;border-radius:50%;background:${l.color};display:inline-block"></span>${l.name}</span>`).join('');
+
+    // ── Device Status table ────────────────────────────────────────────────
+    const devRows = patientIds.map(pid => {
+      const latest = allReadings.filter(r => r.patientId === pid).sort((a,b) => b.date.localeCompare(a.date))[0];
+      if (!latest) return '';
+      const syncAgo = latest.date === new Date().toISOString().slice(0,10) ? 'Today' : latest.date;
+      const statusColor = latest.status === 'active' ? '#10b981' : 'var(--text-secondary)';
+      const batColor = latest.battery >= 50 ? '#10b981' : latest.battery >= 20 ? '#f59e0b' : '#ef4444';
+      return `<tr>
+        <td style="padding:8px 10px;border-bottom:1px solid var(--border);font-weight:600;font-size:.82rem">${latest.device}</td>
+        <td style="padding:8px 10px;border-bottom:1px solid var(--border);font-size:.82rem">${patientMap[pid]}</td>
+        <td style="padding:8px 10px;border-bottom:1px solid var(--border);font-size:.78rem;color:var(--text-secondary)">${syncAgo}</td>
+        <td style="padding:8px 10px;border-bottom:1px solid var(--border)">
+          <div style="display:flex;align-items:center;gap:6px">
+            <div class="battery-bar" style="width:50px"><div class="battery-fill" style="width:${latest.battery}%;background:${batColor}"></div></div>
+            <span style="font-size:.75rem;color:${batColor}">${latest.battery}%</span>
+          </div>
+        </td>
+        <td style="padding:8px 10px;border-bottom:1px solid var(--border)"><span style="font-size:.75rem;font-weight:600;color:${statusColor}">${latest.status}</span></td>
+      </tr>`;
+    }).join('');
+
+    const patientOptions = patientIds.map(pid => `<option value="${pid}" ${_wciPatient===pid?'selected':''}>${patientMap[pid]}</option>`).join('');
+
+    return `<div style="max-width:900px">
+      <!-- Patient selector -->
+      <div style="margin-bottom:16px;display:flex;align-items:center;gap:10px">
+        <label style="font-size:.82rem;color:var(--text-secondary);font-weight:600">Patient:</label>
+        <select class="form-control" style="max-width:220px;height:32px;font-size:.82rem" onchange="window._wciSetPatient(this.value)">
+          <option value="all" ${_wciPatient==='all'?'selected':''}>All Patients</option>
+          ${patientOptions}
+        </select>
+      </div>
+
+      <!-- Biometric Summary -->
+      <div class="wci-section-title">Biometric Summary — Last 7 Days</div>
+      ${summaryCards}
+
+      <!-- Clinical Alerts -->
+      <div class="wci-section-title" style="margin-top:20px">Clinical Alerts</div>
+      <div class="wci-alerts-panel">${alertsHtml}</div>
+
+      <!-- Correlation Plot -->
+      <div class="wci-section-title" style="margin-top:20px">HRV vs. Session Tolerance Correlation</div>
+      <div class="card" style="padding:14px;display:inline-block">
+        ${scatterSvg}
+        <div style="display:flex;gap:12px;margin-top:8px;flex-wrap:wrap">${legendHtml}</div>
+        <div style="font-size:.72rem;color:var(--text-secondary);margin-top:6px">Higher HRV at session time correlates with better patient tolerance scores.</div>
+      </div>
+
+      <!-- Device Status -->
+      <div class="wci-section-title" style="margin-top:20px">Device Status</div>
+      <div class="card" style="padding:0;overflow:hidden">
+        <table style="width:100%;border-collapse:collapse">
+          <thead><tr>
+            ${['Device','Patient Linked','Last Sync','Battery','Status'].map(h=>`<th style="padding:9px 10px;border-bottom:2px solid var(--border);text-align:left;font-size:.72rem;text-transform:uppercase;letter-spacing:.5px;color:var(--text-secondary)">${h}</th>`).join('')}
+          </tr></thead>
+          <tbody>${devRows}</tbody>
+        </table>
+      </div>
+    </div>`;
+  }
+
   // ── Tab render ─────────────────────────────────────────────────────────────
   function render() {
     const wr = _wr();
     if (!wr) return;
     const tabs = [
-      { id: 'monitor', label: 'Live Monitor' },
-      { id: 'history', label: 'Session History' },
-      { id: 'devices', label: 'Device Manager' },
+      { id: 'monitor',   label: 'Live Monitor' },
+      { id: 'history',   label: 'Session History' },
+      { id: 'devices',   label: 'Device Manager' },
+      { id: 'clinical',  label: 'Clinical Dashboard' },
     ];
     wr.innerHTML = `
       <div style="display:flex;gap:0;border-bottom:2px solid var(--border);margin-bottom:16px">
@@ -4832,9 +5149,10 @@ export async function pgWearableIntegration(setTopbar) {
   }
 
   function _renderTab() {
-    if (_activeTab === 'monitor') return _renderMonitor();
-    if (_activeTab === 'history') return _renderHistory();
-    if (_activeTab === 'devices') return _renderDevices();
+    if (_activeTab === 'monitor')  return _renderMonitor();
+    if (_activeTab === 'history')  return _renderHistory();
+    if (_activeTab === 'devices')  return _renderDevices();
+    if (_activeTab === 'clinical') return _renderClinicalDashboard();
     return '';
   }
 
@@ -5266,6 +5584,25 @@ export async function pgWearableIntegration(setTopbar) {
     const sessions = getBiosensorSessions();
     _corrPanel = sessions.find(s => s.id === sessionId) || null;
     render();
+  };
+
+  window._wciSetPatient = function(pid) {
+    _wciPatient = pid;
+    const body = document.getElementById('w-tab-body');
+    if (body) body.innerHTML = _renderClinicalDashboard();
+  };
+
+  window._wciDismissAlert = function(alertId) {
+    _dismissedAlerts.push(alertId);
+    const wrap = document.getElementById(alertId + '-wrap');
+    if (wrap) {
+      wrap.style.transition = 'opacity .2s';
+      wrap.style.opacity = '0';
+      setTimeout(() => {
+        const body = document.getElementById('w-tab-body');
+        if (body) body.innerHTML = _renderClinicalDashboard();
+      }, 220);
+    }
   };
 
   window._wearableHistoryFilter = function(key, val) {
@@ -6560,4 +6897,399 @@ export async function pgMediaQueue(setTopbar) {
   `;
 
   await window._mqRefresh();
+}
+
+// ── Home Task Manager ─────────────────────────────────────────────────────────
+export async function pgHomeTaskManager(setTopbar) {
+  setTopbar('Home Task Manager',
+    `<button class="btn btn-primary btn-sm" onclick="window._htmOpenAssign()">+ Assign Task</button>`);
+
+  const el = document.getElementById('content');
+  if (!el) return;
+  el.innerHTML = '<div id="htm-root"></div>';
+
+  // ── localStorage helpers ─────────────────────────────────────────────────
+  function lsGet(k, def) { try { return JSON.parse(localStorage.getItem(k) || 'null') ?? def; } catch { return def; } }
+  function lsSet(k, v)   { localStorage.setItem(k, JSON.stringify(v)); }
+
+  // ── Seed data ────────────────────────────────────────────────────────────
+  function seedTasks() {
+    if (localStorage.getItem('ds_clinician_tasks')) return;
+    const today = new Date();
+    function dStr(offset) {
+      const d = new Date(today); d.setDate(d.getDate() + offset);
+      return d.toISOString().slice(0, 10);
+    }
+    const seed = [
+      // Alex — high compliance
+      { id:'ht-001', patientId:'pt-001', patientName:'Alex Johnson',  title:'4-7-8 Breathing Exercise', category:'Breathing',  dueDate:dStr(0),  status:'complete',  recurrence:'Daily',   priority:'High',   instructions:'Inhale 4s, hold 7s, exhale 8s. Perform 3 rounds before sleep.' },
+      { id:'ht-002', patientId:'pt-001', patientName:'Alex Johnson',  title:'Mood & Energy Journal',    category:'Journal',    dueDate:dStr(1),  status:'pending',   recurrence:'Daily',   priority:'Medium', instructions:'Log mood (1-10), energy (1-10), and one notable event each evening.' },
+      { id:'ht-003', patientId:'pt-001', patientName:'Alex Johnson',  title:'30-min Outdoor Walk',      category:'Activity',   dueDate:dStr(-1), status:'complete',  recurrence:'3x/week', priority:'Medium', instructions:'Walk outdoors during daylight hours for 30 minutes at a comfortable pace.' },
+      { id:'ht-004', patientId:'pt-001', patientName:'Alex Johnson',  title:'Sleep Hygiene Protocol',   category:'Sleep',      dueDate:dStr(2),  status:'pending',   recurrence:'Daily',   priority:'High',   instructions:'No screens 1 hour before bed. Consistent sleep/wake time within 30 minutes.' },
+      { id:'ht-005', patientId:'pt-001', patientName:'Alex Johnson',  title:'Social Check-in',          category:'Social',     dueDate:dStr(-3), status:'complete',  recurrence:'Weekly',  priority:'Low',    instructions:'Reach out to one friend or family member for a meaningful conversation.' },
+      // Morgan — medium compliance
+      { id:'ht-006', patientId:'pt-002', patientName:'Morgan Lee',    title:'Progressive Muscle Relax', category:'Breathing',  dueDate:dStr(0),  status:'overdue',   recurrence:'Daily',   priority:'High',   instructions:'Tense and release each muscle group from feet to face over 15 minutes.' },
+      { id:'ht-007', patientId:'pt-002', patientName:'Morgan Lee',    title:'Gratitude Journal',        category:'Journal',    dueDate:dStr(1),  status:'pending',   recurrence:'Daily',   priority:'Low',    instructions:'Write 3 things you are grateful for before sleeping.' },
+      { id:'ht-008', patientId:'pt-002', patientName:'Morgan Lee',    title:'Outdoor Activity 20min',   category:'Activity',   dueDate:dStr(-2), status:'complete',  recurrence:'2x/week', priority:'Medium', instructions:'Any outdoor physical activity for at least 20 minutes.' },
+      { id:'ht-009', patientId:'pt-002', patientName:'Morgan Lee',    title:'Screen-free Evening Hour', category:'Screen',     dueDate:dStr(-1), status:'overdue',   recurrence:'Daily',   priority:'Medium', instructions:'Avoid all screens (phone, TV, computer) for 1 hour before bedtime.' },
+      // Jordan — low compliance
+      { id:'ht-010', patientId:'pt-003', patientName:'Jordan Smith',  title:'Box Breathing',            category:'Breathing',  dueDate:dStr(-4), status:'overdue',   recurrence:'Daily',   priority:'High',   instructions:'Inhale 4s, hold 4s, exhale 4s, hold 4s. Repeat 5 times, 2x/day.' },
+      { id:'ht-011', patientId:'pt-003', patientName:'Jordan Smith',  title:'Daily Step Goal 3k',       category:'Activity',   dueDate:dStr(-3), status:'overdue',   recurrence:'Daily',   priority:'Medium', instructions:'Aim for at least 3,000 steps per day. Use a phone pedometer.' },
+      { id:'ht-012', patientId:'pt-003', patientName:'Jordan Smith',  title:'Sleep Diary',              category:'Sleep',      dueDate:dStr(0),  status:'pending',   recurrence:'Daily',   priority:'Medium', instructions:'Record bedtime, wake time, perceived sleep quality (1-5) each morning.' },
+    ];
+    lsSet('ds_clinician_tasks', seed);
+  }
+
+  seedTasks();
+
+  // ── State ─────────────────────────────────────────────────────────────────
+  let _expandedPatient = null;
+  let _libExpanded     = false;
+  let _modalOpen       = false;
+  let _modalTemplate   = '';
+  let _modalPatient    = '';
+
+  // ── Helpers ───────────────────────────────────────────────────────────────
+  function getTasks()   { return lsGet('ds_clinician_tasks', []); }
+  function saveTasks(t) { lsSet('ds_clinician_tasks', t); }
+
+  const PATIENTS = [
+    { id:'pt-001', name:'Alex Johnson'  },
+    { id:'pt-002', name:'Morgan Lee'    },
+    { id:'pt-003', name:'Jordan Smith'  },
+    { id:'pt-004', name:'Taylor Rivera' },
+    { id:'pt-005', name:'Casey Brown'   },
+  ];
+
+  const TASK_TEMPLATES = [
+    { title:'Breathing Exercise',  cat:'Breathing', freq:'Daily',   evidence:'HRV improvement in 4 weeks (Zaccaro et al., 2018)',    instructions:'Practice 4-7-8 breathing: inhale 4s, hold 7s, exhale 8s. 3 rounds before sleep.' },
+    { title:'Mood Journal',        cat:'Journal',   freq:'Daily',   evidence:'CBT outcome predictor (Beck & Haigh, 2014)',            instructions:'Log mood (1-10), energy (1-10), and one notable event each day.' },
+    { title:'Outdoor Activity',    cat:'Activity',  freq:'3x/week', evidence:'Reduced cortisol (Bratman et al., 2015)',              instructions:'30-minute outdoor walk or activity during daylight hours.' },
+    { title:'Screen-free Hour',    cat:'Screen',    freq:'Daily',   evidence:'Improved sleep onset (Chang et al., 2015)',            instructions:'No screens 1 hour before intended sleep time.' },
+    { title:'Social Activity',     cat:'Social',    freq:'Weekly',  evidence:'Depression buffer (Holt-Lunstad et al., 2015)',        instructions:'Meaningful social interaction with friend or family member.' },
+    { title:'Sleep Hygiene',       cat:'Sleep',     freq:'Daily',   evidence:'TMS outcome improvement (Philip et al., 2021)',        instructions:'Consistent sleep/wake schedule within 30 min. No caffeine after noon.' },
+    { title:'Custom',              cat:'Custom',    freq:'',        evidence:'',                                                     instructions:'' },
+  ];
+
+  function computeCompliance(patientId) {
+    const tasks = getTasks().filter(t => t.patientId === patientId);
+    if (!tasks.length) return { active:0, dueToday:0, completedWk:0, pct:0, lastActivity:null };
+    const today = new Date().toISOString().slice(0,10);
+    const wkAgo = new Date(Date.now() - 7*86400000).toISOString().slice(0,10);
+    const active      = tasks.filter(t => t.status !== 'removed').length;
+    const dueToday    = tasks.filter(t => t.dueDate === today && t.status === 'pending').length;
+    const completedWk = tasks.filter(t => t.status === 'complete' && t.dueDate >= wkAgo).length;
+    const eligible    = tasks.filter(t => t.dueDate >= wkAgo);
+    const pct         = eligible.length ? Math.round((eligible.filter(t=>t.status==='complete').length/eligible.length)*100) : 0;
+    const dates       = tasks.filter(t=>t.status==='complete').map(t=>t.dueDate).sort();
+    const lastActivity = dates.length ? dates[dates.length-1] : null;
+    return { active, dueToday, completedWk, pct, lastActivity };
+  }
+
+  function pctColor(p) {
+    return p >= 80 ? '#10b981' : p >= 50 ? '#f59e0b' : '#ef4444';
+  }
+
+  // ── Render ────────────────────────────────────────────────────────────────
+  function render() {
+    const root = document.getElementById('htm-root');
+    if (!root) return;
+    root.innerHTML = `
+      ${_renderTable()}
+      ${_renderCompliance()}
+      ${_renderLibrary()}
+      ${_renderModal()}
+    `;
+  }
+
+  // ── Patient Task Table ─────────────────────────────────────────────────
+  function _renderTable() {
+    const taskPatients = PATIENTS.filter(p => getTasks().some(t => t.patientId === p.id));
+    const rows = taskPatients.map(p => {
+      const c = computeCompliance(p.id);
+      const pc = pctColor(c.pct);
+      return `<tr>
+        <td style="padding:10px 12px;border-bottom:1px solid var(--border);font-weight:600;font-size:.83rem">${p.name}</td>
+        <td style="padding:10px 12px;border-bottom:1px solid var(--border);text-align:center;font-size:.83rem">${c.active}</td>
+        <td style="padding:10px 12px;border-bottom:1px solid var(--border);text-align:center;font-size:.83rem">${c.dueToday}</td>
+        <td style="padding:10px 12px;border-bottom:1px solid var(--border);text-align:center;font-size:.83rem">${c.completedWk}</td>
+        <td style="padding:10px 12px;border-bottom:1px solid var(--border);text-align:center">
+          <span style="font-weight:700;color:${pc};font-size:.85rem">${c.pct}%</span>
+        </td>
+        <td style="padding:10px 12px;border-bottom:1px solid var(--border);font-size:.78rem;color:var(--text-secondary)">${c.lastActivity || '\u2014'}</td>
+        <td style="padding:10px 12px;border-bottom:1px solid var(--border)">
+          <button class="btn btn-ghost btn-sm" onclick="window._htmToggleDetail('${p.id}')">
+            ${_expandedPatient === p.id ? 'Hide' : 'View Details'}
+          </button>
+        </td>
+      </tr>
+      ${_expandedPatient === p.id ? `<tr><td colspan="7" style="padding:0;border-bottom:2px solid var(--border)">${_renderDetail(p.id)}</td></tr>` : ''}`;
+    }).join('');
+
+    return `<div class="card" style="margin-bottom:16px;overflow:hidden">
+      <div class="card-header"><h3>Patient Task Overview</h3></div>
+      <div style="overflow-x:auto">
+        <table style="width:100%;border-collapse:collapse">
+          <thead><tr>
+            ${['Patient','Active Tasks','Due Today','Completed This Week','Compliance %','Last Activity','Actions']
+              .map(h=>`<th style="padding:9px 12px;border-bottom:2px solid var(--border);text-align:left;font-size:.72rem;text-transform:uppercase;letter-spacing:.5px;color:var(--text-secondary);white-space:nowrap">${h}</th>`).join('')}
+          </tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
+    </div>`;
+  }
+
+  function _renderDetail(patientId) {
+    const tasks = getTasks().filter(t => t.patientId === patientId && t.status !== 'removed');
+    if (!tasks.length) return `<div style="padding:16px;color:var(--text-secondary);font-size:.83rem">No active tasks.</div>`;
+    const rows = tasks.map(t => {
+      const statusColor = t.status === 'complete' ? '#10b981' : t.status === 'overdue' ? '#ef4444' : 'var(--text-secondary)';
+      return `<div class="htm-task-row">
+        <div style="flex:1">
+          <div style="font-size:.83rem;font-weight:600;color:var(--text-primary)">${t.title}</div>
+          <div style="font-size:.74rem;color:var(--text-secondary);margin-top:2px">${t.category} \u00b7 Due: ${t.dueDate} \u00b7 ${t.recurrence}</div>
+          <div style="font-size:.73rem;color:var(--text-tertiary);margin-top:2px">${t.instructions}</div>
+        </div>
+        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;flex-shrink:0">
+          <span style="font-size:.72rem;font-weight:700;color:${statusColor};text-transform:capitalize">${t.status}</span>
+          <div style="display:flex;gap:4px">
+            <button class="btn btn-ghost btn-sm" style="font-size:.7rem" onclick="window._htmReassign('${t.id}')">Reassign</button>
+            <button class="btn btn-ghost btn-sm" style="font-size:.7rem;color:#ef4444" onclick="window._htmRemoveTask('${t.id}')">Remove</button>
+          </div>
+        </div>
+      </div>`;
+    }).join('');
+    return `<div style="background:rgba(255,255,255,0.02);padding:12px 16px">${rows}</div>`;
+  }
+
+  // ── Compliance Analytics ────────────────────────────────────────────────
+  function _renderCompliance() {
+    const taskPatients = PATIENTS.filter(p => getTasks().some(t => t.patientId === p.id));
+    const data = taskPatients.map(p => ({ name: p.name.split(' ')[0], pct: computeCompliance(p.id).pct }));
+    const W = 420, H = 140, padL = 36, padB = 24, padT = 12, padR = 12;
+    const innerW = W - padL - padR, innerH = H - padT - padB;
+    const barW = Math.min(40, (innerW / Math.max(data.length, 1)) - 8);
+    const bars = data.map((d, i) => {
+      const x  = padL + (i / Math.max(data.length, 1)) * innerW + (innerW / Math.max(data.length, 1) - barW) / 2;
+      const bh = (d.pct / 100) * innerH;
+      const y  = padT + innerH - bh;
+      const col = pctColor(d.pct);
+      return `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW}" height="${Math.max(bh,1).toFixed(1)}" rx="3" fill="${col}" fill-opacity="0.8"/>
+        <text x="${(x + barW/2).toFixed(1)}" y="${(y - 3).toFixed(1)}" font-size="8.5" fill="${col}" text-anchor="middle" font-weight="600">${d.pct}%</text>
+        <text x="${(x + barW/2).toFixed(1)}" y="${H - 6}" font-size="8" fill="rgba(255,255,255,0.4)" text-anchor="middle">${d.name}</text>`;
+    }).join('');
+    const gridLines = [0,25,50,75,100].map(v => {
+      const y = padT + innerH - (v/100) * innerH;
+      return `<line x1="${padL}" y1="${y}" x2="${padL+innerW}" y2="${y}" stroke="rgba(255,255,255,0.06)" stroke-width="1"/>
+        <text x="${padL-4}" y="${y+3}" font-size="7.5" fill="rgba(255,255,255,0.3)" text-anchor="end">${v}</text>`;
+    }).join('');
+    const chartSvg = `<svg viewBox="0 0 ${W} ${H}" style="max-width:100%;height:${H}px;background:rgba(255,255,255,0.02);border-radius:8px">
+      <line x1="${padL}" y1="${padT}" x2="${padL}" y2="${padT+innerH}" stroke="rgba(255,255,255,0.12)" stroke-width="1"/>
+      <line x1="${padL}" y1="${padT+innerH}" x2="${padL+innerW}" y2="${padT+innerH}" stroke="rgba(255,255,255,0.12)" stroke-width="1"/>
+      ${gridLines}${bars}
+    </svg>`;
+
+    const sorted   = [...data].sort((a,b)=>b.pct-a.pct);
+    const improved = data.find(d => d.pct >= 50 && d.pct < 80);
+    const top      = sorted[0];
+
+    return `<div class="card" style="margin-bottom:16px">
+      <div class="card-header"><h3>Compliance Analytics \u2014 This Week</h3></div>
+      <div class="card-body">
+        ${chartSvg}
+        <div style="display:flex;gap:12px;margin-top:14px;flex-wrap:wrap">
+          ${top ? `<div class="htm-highlight-badge" style="border-color:rgba(16,185,129,0.4);background:rgba(16,185,129,0.07)">
+            <span style="font-size:13px">&#x1F3C6;</span>
+            <div>
+              <div style="font-size:.72rem;color:#10b981;font-weight:700">Top Compliant</div>
+              <div style="font-size:.8rem;color:var(--text-primary);font-weight:600">${top.name} \u2014 ${top.pct}%</div>
+            </div>
+          </div>` : ''}
+          ${improved ? `<div class="htm-highlight-badge" style="border-color:rgba(245,158,11,0.4);background:rgba(245,158,11,0.07)">
+            <span style="font-size:13px">&#x1F4C8;</span>
+            <div>
+              <div style="font-size:.72rem;color:#f59e0b;font-weight:700">Most Improved</div>
+              <div style="font-size:.8rem;color:var(--text-primary);font-weight:600">${improved.name} \u2014 ${improved.pct}%</div>
+            </div>
+          </div>` : ''}
+        </div>
+      </div>
+    </div>`;
+  }
+
+  // ── Task Library ──────────────────────────────────────────────────────────
+  function _renderLibrary() {
+    const inner = _libExpanded ? TASK_TEMPLATES.map(t => `
+      <div class="htm-lib-card">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px">
+          <div style="font-size:.83rem;font-weight:600;color:var(--text-primary)">${t.title}</div>
+          <span style="font-size:.68rem;padding:2px 7px;border-radius:10px;background:rgba(0,212,188,0.1);color:var(--teal);white-space:nowrap">${t.cat}</span>
+        </div>
+        ${t.instructions ? `<div style="font-size:.74rem;color:var(--text-secondary);line-height:1.45;margin-bottom:6px">${t.instructions}</div>` : ''}
+        ${t.freq ? `<div style="font-size:.7rem;color:var(--text-tertiary);margin-bottom:4px">Suggested: <strong>${t.freq}</strong></div>` : ''}
+        ${t.evidence ? `<div style="font-size:.68rem;color:var(--accent-blue);margin-bottom:8px;font-style:italic">${t.evidence}</div>` : ''}
+        <button class="btn btn-ghost btn-sm" style="font-size:.72rem;width:100%" onclick="window._htmUseTemplate('${t.title.replace(/'/g,"\\'").replace(/"/g,"&quot;")}')">Use Template</button>
+      </div>`).join('') : '';
+
+    return `<div class="card" style="margin-bottom:16px">
+      <div class="card-header" style="cursor:pointer" onclick="window._htmToggleLib()">
+        <h3>Task Library</h3>
+        <span style="font-size:.8rem;color:var(--text-secondary)">${_libExpanded ? '\u25b2 Collapse' : '\u25bc Expand'}</span>
+      </div>
+      ${_libExpanded ? `<div class="card-body"><div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px">${inner}</div></div>` : ''}
+    </div>`;
+  }
+
+  // ── Assign Modal ──────────────────────────────────────────────────────────
+  function _renderModal() {
+    if (!_modalOpen) return '';
+    const tmpl = TASK_TEMPLATES.find(t => t.title === _modalTemplate);
+    const patientOpts = PATIENTS.map(p =>
+      `<option value="${p.id}" ${_modalPatient===p.id?'selected':''}>${p.name}</option>`).join('');
+    const tmplOpts = TASK_TEMPLATES.map(t =>
+      `<option value="${t.title}" ${_modalTemplate===t.title?'selected':''}>${t.title}</option>`).join('');
+    const today   = new Date().toISOString().slice(0,10);
+    const futureWk = new Date(Date.now()+7*86400000).toISOString().slice(0,10);
+
+    return `<div class="htm-modal-overlay" onclick="if(event.target===this)window._htmCloseModal()">
+      <div class="htm-modal">
+        <div class="htm-modal-header">
+          <h3>Assign Home Task</h3>
+          <button class="btn btn-ghost btn-sm" onclick="window._htmCloseModal()">\u2715</button>
+        </div>
+        <div class="htm-modal-body">
+          <div class="form-group">
+            <label class="form-label">Patient</label>
+            <select class="form-control" id="htm-assign-patient" onchange="window._htmModalPatient(this.value)">
+              <option value="">Select patient\u2026</option>
+              ${patientOpts}
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Task Template</label>
+            <select class="form-control" id="htm-assign-template" onchange="window._htmModalTemplate(this.value)">
+              <option value="">Select template\u2026</option>
+              ${tmplOpts}
+            </select>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+            <div class="form-group">
+              <label class="form-label">Start Date</label>
+              <input type="date" class="form-control" id="htm-assign-start" value="${today}">
+            </div>
+            <div class="form-group">
+              <label class="form-label">End Date</label>
+              <input type="date" class="form-control" id="htm-assign-end" value="${futureWk}">
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Priority</label>
+            <select class="form-control" id="htm-assign-priority">
+              <option>Low</option>
+              <option selected>Medium</option>
+              <option>High</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Instructions</label>
+            <textarea class="form-control" id="htm-assign-instructions" rows="3" style="resize:vertical">${tmpl ? tmpl.instructions : ''}</textarea>
+          </div>
+        </div>
+        <div class="htm-modal-footer">
+          <button class="btn btn-ghost btn-sm" onclick="window._htmCloseModal()">Cancel</button>
+          <button class="btn btn-primary btn-sm" onclick="window._htmSubmitAssign()">Assign Task</button>
+        </div>
+      </div>
+    </div>`;
+  }
+
+  // ── Global Handlers ───────────────────────────────────────────────────────
+  window._htmToggleDetail = function(pid) {
+    _expandedPatient = _expandedPatient === pid ? null : pid;
+    render();
+  };
+
+  window._htmOpenAssign = function(prefillTemplate) {
+    _modalOpen     = true;
+    _modalTemplate = prefillTemplate || '';
+    _modalPatient  = '';
+    render();
+  };
+
+  window._htmCloseModal = function() {
+    _modalOpen = false;
+    render();
+  };
+
+  window._htmModalTemplate = function(val) {
+    _modalTemplate = val;
+    const tmpl = TASK_TEMPLATES.find(t => t.title === val);
+    const instrEl = document.getElementById('htm-assign-instructions');
+    if (instrEl && tmpl) instrEl.value = tmpl.instructions;
+  };
+
+  window._htmModalPatient = function(val) {
+    _modalPatient = val;
+  };
+
+  window._htmSubmitAssign = function() {
+    const pid          = document.getElementById('htm-assign-patient')?.value;
+    const tmplName     = document.getElementById('htm-assign-template')?.value;
+    const start        = document.getElementById('htm-assign-start')?.value;
+    const priority     = document.getElementById('htm-assign-priority')?.value;
+    const instructions = document.getElementById('htm-assign-instructions')?.value || '';
+    if (!pid || !tmplName) {
+      window._showNotifToast?.({ title:'Missing fields', body:'Please select a patient and task template.', severity:'warn' });
+      return;
+    }
+    const patient = PATIENTS.find(p => p.id === pid);
+    const tmpl    = TASK_TEMPLATES.find(t => t.title === tmplName);
+    const tasks   = getTasks();
+    const newTask = {
+      id:          'ht-' + Date.now(),
+      patientId:   pid,
+      patientName: patient?.name || pid,
+      title:       tmplName,
+      category:    tmpl?.cat || 'Custom',
+      dueDate:     start || new Date().toISOString().slice(0,10),
+      status:      'pending',
+      recurrence:  tmpl?.freq || 'Once',
+      priority,
+      instructions,
+    };
+    tasks.push(newTask);
+    saveTasks(tasks);
+    _modalOpen = false;
+    render();
+    window._showNotifToast?.({ title:'Task Assigned', body:`${tmplName} assigned to ${patient?.name}.`, severity:'success' });
+  };
+
+  window._htmReassign = function(taskId) {
+    const tasks = getTasks();
+    const t     = tasks.find(tk => tk.id === taskId);
+    if (!t) return;
+    _modalOpen     = true;
+    _modalTemplate = t.title;
+    _modalPatient  = t.patientId;
+    render();
+  };
+
+  window._htmRemoveTask = function(taskId) {
+    const tasks = getTasks();
+    const idx   = tasks.findIndex(t => t.id === taskId);
+    if (idx !== -1) { tasks[idx].status = 'removed'; saveTasks(tasks); }
+    render();
+  };
+
+  window._htmToggleLib = function() {
+    _libExpanded = !_libExpanded;
+    render();
+  };
+
+  window._htmUseTemplate = function(templateTitle) {
+    window._htmOpenAssign(templateTitle);
+  };
+
+  render();
 }

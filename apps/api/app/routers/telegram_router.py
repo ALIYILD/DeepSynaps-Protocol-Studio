@@ -2,11 +2,12 @@
 Telegram webhook + account linking endpoints.
 """
 from __future__ import annotations
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Header, Request
 from pydantic import BaseModel
 from typing import Optional
-from app.auth import AuthenticatedActor, get_authenticated_actor
+from app.auth import AuthenticatedActor, get_authenticated_actor, require_minimum_role
 from app.services.telegram_service import generate_link_code, send_message
+from app.settings import get_settings
 
 router = APIRouter(prefix="/api/v1/telegram", tags=["telegram"])
 
@@ -31,8 +32,23 @@ def get_link_code(actor: AuthenticatedActor = Depends(get_authenticated_actor)) 
 
 
 @router.post("/webhook")
-async def telegram_webhook(request: Request) -> dict:
-    """Receives Telegram webhook updates."""
+async def telegram_webhook(
+    request: Request,
+    x_telegram_bot_api_secret_token: str | None = Header(default=None),
+) -> dict:
+    """Receives Telegram webhook updates.
+
+    Telegram passes the secret token set during setWebhook registration in the
+    X-Telegram-Bot-Api-Secret-Token header.  We reject any request that does not
+    carry the correct token when a secret is configured.
+    """
+    _settings = get_settings()
+    if _settings.telegram_webhook_secret:
+        if x_telegram_bot_api_secret_token != _settings.telegram_webhook_secret:
+            # Return HTTP 200 / ok:true to prevent Telegram retry storms, but
+            # do NOT process the payload — it may be forged.
+            return {"ok": True}
+
     try:
         payload = await request.json()
         message = payload.get("message", {})
@@ -70,7 +86,8 @@ def send_test_message(
     body: dict,
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
 ) -> dict:
-    """Send a test message to a chat_id (admin only)."""
+    """Send a test message to a chat_id. Admin only."""
+    require_minimum_role(actor, "admin")
     chat_id = body.get("chat_id")
     if not chat_id:
         return {"ok": False, "error": "chat_id required"}

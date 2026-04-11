@@ -7281,3 +7281,510 @@ export async function pgAINoteAssistant(setTopbar) {
     }
   }, { once: false, capture: false });
 }
+
+// ══════════════════════════════════════════════════════════════════════════════
+// FEATURE 1: Course Completion Report
+// ══════════════════════════════════════════════════════════════════════════════
+
+function _ccrFmtDate(d) {
+  if (!d) return '—';
+  const dt = new Date(d);
+  if (isNaN(dt)) return '—';
+  return dt.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+}
+
+function _ccrWeeksBetween(a, b) {
+  if (!a || !b) return null;
+  const ms = new Date(b) - new Date(a);
+  if (isNaN(ms) || ms < 0) return null;
+  return Math.round(ms / (1000 * 60 * 60 * 24 * 7));
+}
+
+function _ccrResponderBadge(pctChange) {
+  if (pctChange == null) return '<span class="ccr-badge ccr-badge-neutral">No Data</span>';
+  const pct = Math.abs(pctChange);
+  if (pct >= 50) return '<span class="ccr-badge ccr-badge-success">Responder (&ge;50% improvement)</span>';
+  if (pct >= 25) return '<span class="ccr-badge ccr-badge-warning">Partial Responder (25–49%)</span>';
+  return '<span class="ccr-badge ccr-badge-error">Non-Responder</span>';
+}
+
+function _ccrBuildSvgChart(outcomes) {
+  // outcomes: array of { template_name, score_numeric, session_number }
+  if (!outcomes || outcomes.length === 0) {
+    return `<div class="ccr-chart-placeholder">
+      <svg width="600" height="180" viewBox="0 0 600 180">
+        <rect width="600" height="180" rx="8" fill="var(--bg-card)" stroke="var(--border)"/>
+        <text x="300" y="95" text-anchor="middle" fill="var(--text-tertiary)" font-size="14">No outcome data recorded yet</text>
+      </svg>
+    </div>`;
+  }
+
+  // Group by template
+  const byTemplate = {};
+  outcomes.forEach(o => {
+    const key = o.template_name || 'Unknown';
+    if (!byTemplate[key]) byTemplate[key] = [];
+    byTemplate[key].push(o);
+  });
+
+  const W = 600, H = 180, padL = 48, padR = 16, padT = 20, padB = 36;
+  const chartW = W - padL - padR;
+  const chartH = H - padT - padB;
+
+  const allScores = outcomes.map(o => Number(o.score_numeric)).filter(n => !isNaN(n));
+  if (allScores.length === 0) return '<div class="ccr-chart-placeholder"><svg width="600" height="180"><text x="300" y="95" text-anchor="middle" fill="var(--text-tertiary)" font-size="14">No numeric scores</text></svg></div>';
+
+  const maxScore = Math.max(...allScores, 1);
+  const minScore = Math.min(...allScores, 0);
+  const scoreRange = maxScore - minScore || 1;
+
+  const allSessions = outcomes.map(o => Number(o.session_number || 0)).filter(n => !isNaN(n));
+  const maxSess = Math.max(...allSessions, 1);
+  const minSess = Math.min(...allSessions, 0);
+  const sessRange = maxSess - minSess || 1;
+
+  const colors = ['var(--teal,#00d4bc)', 'var(--accent-blue,#3b82f6)', 'var(--accent-violet,#8b5cf6)', 'var(--accent-amber,#f59e0b)', 'var(--accent-rose,#f43f5e)'];
+  const templateKeys = Object.keys(byTemplate);
+
+  const toX = (s) => padL + ((s - minSess) / sessRange) * chartW;
+  const toY = (v) => padT + chartH - ((v - minScore) / scoreRange) * chartH;
+
+  // Grid lines
+  const gridLines = [0, 0.25, 0.5, 0.75, 1].map(frac => {
+    const y = padT + chartH * (1 - frac);
+    const label = Math.round(minScore + scoreRange * frac);
+    return `<line x1="${padL}" y1="${y}" x2="${W - padR}" y2="${y}" stroke="var(--border)" stroke-dasharray="3,3" stroke-width="1"/>
+    <text x="${padL - 6}" y="${y + 4}" text-anchor="end" fill="var(--text-tertiary)" font-size="10">${label}</text>`;
+  }).join('');
+
+  // Polylines + dots per template
+  const lines = templateKeys.map((key, ti) => {
+    const pts = byTemplate[key]
+      .filter(o => o.score_numeric != null && o.session_number != null)
+      .sort((a, b) => Number(a.session_number) - Number(b.session_number));
+    if (pts.length < 1) return '';
+    const color = colors[ti % colors.length];
+    const pointsStr = pts.map(o => `${toX(Number(o.session_number))},${toY(Number(o.score_numeric))}`).join(' ');
+    const dots = pts.map(o =>
+      `<circle cx="${toX(Number(o.session_number))}" cy="${toY(Number(o.score_numeric))}" r="4" fill="${color}" stroke="var(--bg-card)" stroke-width="2"/>`
+    ).join('');
+    return `<polyline points="${pointsStr}" fill="none" stroke="${color}" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>${dots}`;
+  }).join('');
+
+  // Legend
+  const legendItems = templateKeys.map((key, ti) => {
+    const color = colors[ti % colors.length];
+    return `<rect x="${padL + ti * 140}" y="${H - padB + 18}" width="10" height="10" rx="2" fill="${color}"/>
+    <text x="${padL + ti * 140 + 14}" y="${H - padB + 27}" fill="var(--text-secondary)" font-size="11">${key}</text>`;
+  }).join('');
+
+  // X-axis ticks
+  const xTicks = [];
+  for (let s = minSess; s <= maxSess; s++) {
+    const x = toX(s);
+    xTicks.push(`<line x1="${x}" y1="${padT + chartH}" x2="${x}" y2="${padT + chartH + 4}" stroke="var(--border)"/>
+    <text x="${x}" y="${padT + chartH + 15}" text-anchor="middle" fill="var(--text-tertiary)" font-size="10">S${s}</text>`);
+  }
+
+  return `<svg class="ccr-chart-svg" width="600" height="${H}" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">
+    ${gridLines}
+    ${xTicks.join('')}
+    ${lines}
+    ${legendItems}
+    <line x1="${padL}" y1="${padT}" x2="${padL}" y2="${padT + chartH}" stroke="var(--border)" stroke-width="1"/>
+    <line x1="${padL}" y1="${padT + chartH}" x2="${W - padR}" y2="${padT + chartH}" stroke="var(--border)" stroke-width="1"/>
+  </svg>`;
+}
+
+export async function pgCourseCompletionReport(setTopbar, navigate) {
+  const id = window._selectedCourseId;
+  if (!id) { navigate('courses'); return; }
+
+  const el = document.getElementById('content');
+  el.innerHTML = spinner();
+
+  // Parallel fetch
+  const [course, sessionsRaw, outcomesRaw, summaryRaw] = await Promise.all([
+    api.getCourse(id).catch(() => null),
+    api.listCourseSessions(id).catch(() => null),
+    api.listOutcomes({ course_id: id }).catch(() => null),
+    api.courseOutcomeSummary(id).catch(() => null),
+  ]);
+
+  if (!course) { navigate('courses'); return; }
+
+  // Patient name
+  let patientName = course.patient_name || course.patient_id || 'Unknown Patient';
+  if (course.patient_id && !course.patient_name) {
+    const pt = await api.getPatient(course.patient_id).catch(() => null);
+    if (pt) patientName = `${pt.first_name || ''} ${pt.last_name || ''}`.trim() || patientName;
+  }
+
+  // Normalize data
+  const sessions = Array.isArray(sessionsRaw) ? sessionsRaw : (sessionsRaw?.items || []);
+  const outcomes = Array.isArray(outcomesRaw) ? outcomesRaw : (outcomesRaw?.items || []);
+
+  // Stats
+  const sessionsCompleted = sessions.filter(s => s.status === 'completed').length;
+  const sessionsPlanned = course.planned_sessions || course.total_sessions || sessions.length || 0;
+  const pctComplete = sessionsPlanned > 0 ? Math.round((sessionsCompleted / sessionsPlanned) * 100) : 0;
+
+  const sortedSessions = [...sessions].sort((a, b) => new Date(a.scheduled_at || a.date || 0) - new Date(b.scheduled_at || b.date || 0));
+  const startDate = sortedSessions[0]?.scheduled_at || sortedSessions[0]?.date || course.start_date;
+  const endDate = course.end_date || (course.status === 'completed' ? (sortedSessions[sortedSessions.length - 1]?.scheduled_at || null) : null);
+  const durationWeeks = _ccrWeeksBetween(startDate, endDate || new Date().toISOString());
+
+  // Adverse events from sessions
+  const adverseEvents = sessions.filter(s => s.adverse_event || s.adverse_event_note);
+
+  // Soap notes count
+  let soapCount = 0;
+  try {
+    const allNotes = JSON.parse(localStorage.getItem('ds_soap_notes') || '{}');
+    const courseNotes = allNotes[String(id)] || {};
+    soapCount = Object.keys(courseNotes).length;
+  } catch { soapCount = 0; }
+
+  // Responder status: look at the first outcome measure with pct_change
+  const summaryOutcomes = summaryRaw?.outcomes || [];
+  const firstWithPct = summaryOutcomes.find(o => o.pct_change != null) || null;
+  const responderBadge = _ccrResponderBadge(firstWithPct?.pct_change ?? null);
+
+  // Build outcomes array with session_number for chart
+  const chartOutcomes = outcomes.map((o, i) => ({
+    ...o,
+    session_number: o.session_number ?? (i + 1),
+  }));
+
+  const clinicName = localStorage.getItem('ds_clinic_name') || 'DeepSynaps Clinic';
+  const reportDate = new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
+
+  // Topbar
+  setTopbar(
+    `${course.condition || 'Course'} — ${course.modality || 'Protocol'}`,
+    [
+      { label: '← Back', action: () => navigate('courses') },
+      { label: 'Record Outcome', action: () => window._openQuickOutcomeCapture?.(id, null, patientName) },
+      { label: 'Print Report', action: () => window.print() },
+      { label: 'Download PDF', action: () => window._ccrDownloadPDF?.() },
+    ]
+  );
+
+  // Render
+  el.innerHTML = `
+  <div id="ccr-root" class="ccr-wrapper">
+    <!-- Report Card -->
+    <div class="ccr-report-card" id="ccr-printable">
+
+      <!-- Header -->
+      <div class="ccr-header">
+        <div class="ccr-header-left">
+          <div class="ccr-clinic-name">${clinicName}</div>
+          <h1 class="ccr-title">Course Completion Report</h1>
+          <div class="ccr-subtitle">${course.condition || '—'} &nbsp;·&nbsp; ${course.modality || '—'}</div>
+        </div>
+        <div class="ccr-header-right">
+          <div class="ccr-patient-block">
+            <div class="ccr-patient-label">Patient</div>
+            <div class="ccr-patient-name">${patientName}</div>
+          </div>
+          <div class="ccr-meta-block">
+            <div><span class="ccr-meta-label">Protocol:</span> ${course.protocol_name || course.name || '—'}</div>
+            <div><span class="ccr-meta-label">Report Date:</span> ${reportDate}</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Summary Stats Row -->
+      <div class="ccr-stats-row">
+        <div class="ccr-stat-card">
+          <div class="ccr-stat-value">${sessionsCompleted}</div>
+          <div class="ccr-stat-label">Sessions Completed</div>
+        </div>
+        <div class="ccr-stat-card">
+          <div class="ccr-stat-value">${sessionsPlanned}</div>
+          <div class="ccr-stat-label">Sessions Planned</div>
+        </div>
+        <div class="ccr-stat-card ccr-stat-highlight">
+          <div class="ccr-stat-value">${pctComplete}%</div>
+          <div class="ccr-stat-label">Complete</div>
+        </div>
+        <div class="ccr-stat-card">
+          <div class="ccr-stat-value">${_ccrFmtDate(startDate)}</div>
+          <div class="ccr-stat-label">Start Date</div>
+        </div>
+        <div class="ccr-stat-card">
+          <div class="ccr-stat-value">${endDate ? _ccrFmtDate(endDate) : 'Ongoing'}</div>
+          <div class="ccr-stat-label">End Date</div>
+        </div>
+        <div class="ccr-stat-card">
+          <div class="ccr-stat-value">${durationWeeks != null ? durationWeeks + 'w' : '—'}</div>
+          <div class="ccr-stat-label">Duration</div>
+        </div>
+      </div>
+
+      <!-- Responder Status -->
+      <div class="ccr-section">
+        <div class="ccr-section-title">Responder Status</div>
+        <div class="ccr-responder-row">
+          ${responderBadge}
+          ${firstWithPct ? `<span class="ccr-responder-detail">Based on ${firstWithPct.template_name || 'outcome measure'}: ${firstWithPct.pct_change > 0 ? '+' : ''}${Math.round(firstWithPct.pct_change)}% change</span>` : '<span class="ccr-responder-detail">No outcome comparison data available</span>'}
+        </div>
+      </div>
+
+      <!-- Outcome Trends -->
+      <div class="ccr-section">
+        <div class="ccr-section-title">Outcome Trends</div>
+        <div class="ccr-chart-container" id="ccr-chart-container">
+          ${_ccrBuildSvgChart(chartOutcomes)}
+        </div>
+      </div>
+
+      <!-- Session Log -->
+      <div class="ccr-section">
+        <div class="ccr-section-title">Session Log</div>
+        ${sessions.length === 0
+          ? '<div class="ccr-empty-state">No sessions recorded.</div>'
+          : `<div class="ccr-table-wrap">
+            <table class="ccr-table">
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Duration</th>
+                  <th>Tolerance</th>
+                  <th>Mood Before → After</th>
+                  <th>Adverse Event</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${sortedSessions.map(s => `<tr>
+                  <td>${_ccrFmtDate(s.scheduled_at || s.date)}</td>
+                  <td>${s.duration_minutes != null ? s.duration_minutes + ' min' : '—'}</td>
+                  <td>${s.tolerance_rating != null ? s.tolerance_rating + '/5' : '—'}</td>
+                  <td>${s.mood_before != null || s.mood_after != null ? (s.mood_before ?? '—') + ' → ' + (s.mood_after ?? '—') : '—'}</td>
+                  <td>${(s.adverse_event || s.adverse_event_note) ? '<span class="ccr-ae-yes">Yes</span>' : '<span class="ccr-ae-no">No</span>'}</td>
+                </tr>`).join('')}
+              </tbody>
+            </table>
+          </div>`
+        }
+      </div>
+
+      <!-- Adverse Events -->
+      ${adverseEvents.length > 0 ? `
+      <div class="ccr-section">
+        <div class="ccr-section-title">Adverse Events</div>
+        <div class="ccr-adverse-card">
+          ${adverseEvents.map(s => `
+            <div class="ccr-adverse-item">
+              <span class="ccr-adverse-date">${_ccrFmtDate(s.scheduled_at || s.date)}</span>
+              <span class="ccr-adverse-note">${s.adverse_event_note || s.adverse_event || 'Adverse event noted'}</span>
+            </div>`).join('')}
+        </div>
+      </div>` : ''}
+
+      <!-- Clinical Notes -->
+      <div class="ccr-section">
+        <div class="ccr-section-title">Clinical Notes</div>
+        <div class="ccr-notes-summary">
+          <span class="ccr-notes-count">${soapCount}</span>
+          <span class="ccr-notes-label"> SOAP note${soapCount !== 1 ? 's' : ''} recorded for this course</span>
+        </div>
+      </div>
+
+      <!-- Footer -->
+      <div class="ccr-footer">
+        <div class="ccr-sig-block">
+          <div class="ccr-sig-line"></div>
+          <div class="ccr-sig-label">Clinician Signature &amp; Date</div>
+        </div>
+        <div class="ccr-footer-right">
+          <div class="ccr-footer-clinic">${clinicName}</div>
+          <div class="ccr-footer-date">Generated: ${reportDate}</div>
+        </div>
+      </div>
+
+    </div><!-- /ccr-printable -->
+  </div><!-- /ccr-wrapper -->`;
+
+  // Draw charts & handle resize
+  window._ccrRedrawCharts = function() {
+    if (!document.getElementById('ccr-root')) return;
+    const container = document.getElementById('ccr-chart-container');
+    if (container) container.innerHTML = _ccrBuildSvgChart(chartOutcomes);
+  };
+  window._ccrRedrawCharts();
+
+  let _ccrResizeTimer = null;
+  const _ccrResizeHandler = function() {
+    clearTimeout(_ccrResizeTimer);
+    _ccrResizeTimer = setTimeout(() => {
+      if (!document.getElementById('ccr-root')) {
+        window.removeEventListener('resize', _ccrResizeHandler);
+        return;
+      }
+      window._ccrRedrawCharts();
+    }, 200);
+  };
+  window.addEventListener('resize', _ccrResizeHandler);
+
+  window._ccrDownloadPDF = function() {
+    document.body.classList.add('ccr-print-mode');
+    window.print();
+    setTimeout(() => document.body.classList.remove('ccr-print-mode'), 1000);
+  };
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// FEATURE 2: Quick Outcome Capture
+// ══════════════════════════════════════════════════════════════════════════════
+
+const _QOC_MEASURE_MAXES = {
+  'PHQ-9': 27,
+  'GAD-7': 21,
+  'PCL-5': 80,
+  'HAM-D': 52,
+  'MADRS': 60,
+  'BDI-II': 63,
+  'Custom': 100,
+};
+
+window._openQuickOutcomeCapture = function(courseId, sessionId, patientName) {
+  // Remove any existing modal
+  const existing = document.getElementById('qoc-overlay');
+  if (existing) existing.remove();
+
+  const overlay = document.createElement('div');
+  overlay.id = 'qoc-overlay';
+  overlay.className = 'qoc-overlay';
+  overlay.setAttribute('role', 'dialog');
+  overlay.setAttribute('aria-modal', 'true');
+  overlay.setAttribute('aria-labelledby', 'qoc-title');
+
+  overlay.innerHTML = `
+    <div class="qoc-modal" id="qoc-modal">
+      <div class="qoc-modal-header">
+        <h2 class="qoc-title" id="qoc-title">Record Outcome</h2>
+        <button class="qoc-close-btn" onclick="document.getElementById('qoc-overlay').remove()" aria-label="Close">&times;</button>
+      </div>
+      ${patientName ? `<div class="qoc-patient-name">${patientName}</div>` : ''}
+      <div class="qoc-body">
+        <div class="qoc-field">
+          <label class="qoc-label" for="qoc-measure">Outcome Measure</label>
+          <select id="qoc-measure" class="qoc-select" onchange="window._qocUpdateMax()">
+            ${Object.keys(_QOC_MEASURE_MAXES).map(m => `<option value="${m}">${m}</option>`).join('')}
+          </select>
+        </div>
+        <div class="qoc-field">
+          <label class="qoc-label" for="qoc-score">Score <span id="qoc-max-label" class="qoc-max-label">(max 27)</span></label>
+          <input id="qoc-score" class="qoc-input" type="number" min="0" max="27" placeholder="0" />
+        </div>
+        <div class="qoc-field">
+          <label class="qoc-label" for="qoc-point">Measurement Point</label>
+          <select id="qoc-point" class="qoc-select">
+            ${['Baseline','Week 2','Week 4','Week 8','End of Course','Follow-up'].map(p => `<option value="${p}">${p}</option>`).join('')}
+          </select>
+        </div>
+        <div class="qoc-field">
+          <label class="qoc-label" for="qoc-notes">Notes</label>
+          <textarea id="qoc-notes" class="qoc-textarea" rows="2" placeholder="Optional clinical notes..."></textarea>
+        </div>
+      </div>
+      <div class="qoc-footer">
+        <button class="qoc-btn qoc-btn-cancel" onclick="document.getElementById('qoc-overlay').remove()">Cancel</button>
+        <button class="qoc-btn qoc-btn-primary" onclick="window._qocSave(${JSON.stringify(courseId)}, ${JSON.stringify(sessionId)})">Save Outcome</button>
+      </div>
+    </div>`;
+
+  document.body.appendChild(overlay);
+
+  // Close on backdrop click
+  overlay.addEventListener('click', function(e) {
+    if (e.target === overlay) overlay.remove();
+  });
+
+  // Focus first field
+  setTimeout(() => document.getElementById('qoc-measure')?.focus(), 50);
+};
+
+window._qocUpdateMax = function() {
+  const measure = document.getElementById('qoc-measure')?.value || 'PHQ-9';
+  const max = _QOC_MEASURE_MAXES[measure] || 100;
+  const scoreInput = document.getElementById('qoc-score');
+  const maxLabel = document.getElementById('qoc-max-label');
+  if (scoreInput) scoreInput.max = max;
+  if (maxLabel) maxLabel.textContent = `(max ${max})`;
+};
+
+window._qocSave = async function(courseId, sessionId) {
+  const measure = document.getElementById('qoc-measure')?.value || 'PHQ-9';
+  const scoreRaw = document.getElementById('qoc-score')?.value;
+  const point = document.getElementById('qoc-point')?.value || 'Baseline';
+  const notes = document.getElementById('qoc-notes')?.value || '';
+
+  if (scoreRaw === '' || scoreRaw == null) {
+    window._showNotifToast?.({ title: 'Validation', body: 'Please enter a score.', severity: 'warning' });
+    return;
+  }
+
+  const score = Number(scoreRaw);
+  const max = _QOC_MEASURE_MAXES[measure] || 100;
+  if (isNaN(score) || score < 0 || score > max) {
+    window._showNotifToast?.({ title: 'Invalid Score', body: `Score must be between 0 and ${max} for ${measure}.`, severity: 'warning' });
+    return;
+  }
+
+  const payload = {
+    course_id: courseId,
+    session_id: sessionId,
+    template_name: measure,
+    score_numeric: score,
+    measurement_point: point,
+    notes,
+    administered_at: new Date().toISOString(),
+  };
+
+  // Disable save button to prevent double-submit
+  const saveBtn = document.querySelector('#qoc-modal .qoc-btn-primary');
+  if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'Saving…'; }
+
+  let saved = false;
+  try {
+    const result = await api.recordOutcome(payload);
+    if (result) saved = true;
+  } catch (_) { saved = false; }
+
+  if (!saved) {
+    // Fallback: localStorage
+    try {
+      const localKey = 'ds_local_outcomes';
+      const existing = JSON.parse(localStorage.getItem(localKey) || '[]');
+      existing.push({ ...payload, _local: true, _saved_at: new Date().toISOString() });
+      localStorage.setItem(localKey, JSON.stringify(existing));
+      saved = true;
+    } catch (_) { /* ignore */ }
+  }
+
+  if (saved) {
+    window._showNotifToast?.({ title: 'Outcome Saved', body: `${measure} score of ${score} recorded (${point}).`, severity: 'success' });
+    document.getElementById('qoc-overlay')?.remove();
+  } else {
+    window._showNotifToast?.({ title: 'Save Failed', body: 'Could not save outcome. Please try again.', severity: 'error' });
+    if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = 'Save Outcome'; }
+  }
+};
+
+export async function pgQuickOutcomeCapture(setTopbar) {
+  // Utility page — delegates to the modal
+  const el = document.getElementById('content');
+  el.innerHTML = `<div style="padding:60px 24px;text-align:center;color:var(--text-secondary)">
+    <div style="font-size:2rem;margin-bottom:16px">📋</div>
+    <div style="font-size:1.1rem;font-weight:600;margin-bottom:8px">Quick Outcome Capture</div>
+    <div style="font-size:0.9rem">Use this from within a session to record outcome scores.</div>
+  </div>`;
+  setTopbar('Quick Outcome Capture', []);
+}
+
+export function openQuickOutcomeCapture(courseId, sessionId, patientName) {
+  window._openQuickOutcomeCapture(courseId, sessionId, patientName);
+}

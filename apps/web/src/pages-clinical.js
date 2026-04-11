@@ -10767,6 +10767,16 @@ export async function pgFormsBuilder(setTopbar) {
   }
   if (!localStorage.getItem('ds_active_form_id')) localStorage.setItem('ds_active_form_id', 'custom_intake_001');
 
+  // Additional validated scales for the Validated Scales tab (beyond what's already in VALIDATED_SCALES)
+  const EXTRA_SCALES = [
+    { id:'hamd', name:'HAM-D', condition:'Depression', range:'0–52', rater:'Clinician-rated', description:'Hamilton Depression Rating Scale — 17-item clinician-administered gold standard.', maxScore:52, bands:[{max:7,label:'None'},{max:13,label:'Mild'},{max:18,label:'Moderate'},{max:22,label:'Severe'},{max:52,label:'Very Severe'}], items:['Depressed mood (0-4)','Guilt (0-4)','Suicide ideation (0-4)','Early insomnia (0-2)','Middle insomnia (0-2)','Late insomnia (0-2)','Work and activities (0-4)','Retardation (0-4)','Agitation (0-4)','Anxiety — psychic (0-4)','Anxiety — somatic (0-4)','Somatic symptoms GI (0-2)','General somatic symptoms (0-2)','Genital symptoms (0-2)','Hypochondriasis (0-4)','Weight loss (0-2)','Insight (0-2)'], itemMax:[4,4,4,2,2,2,4,4,4,4,4,2,2,2,4,2,2] },
+    { id:'madrs', name:'MADRS', condition:'Depression', range:'0–60', rater:'Clinician-rated', description:'Montgomery-Åsberg Depression Rating Scale — sensitive to antidepressant change.', maxScore:60, bands:[{max:6,label:'Normal'},{max:19,label:'Mild'},{max:34,label:'Moderate'},{max:60,label:'Severe'}], items:['Apparent sadness','Reported sadness','Inner tension','Reduced sleep','Reduced appetite','Concentration difficulties','Lassitude','Inability to feel','Pessimistic thoughts','Suicidal thoughts'], itemMax:[6,6,6,6,6,6,6,6,6,6] },
+    { id:'bdiii', name:'BDI-II', condition:'Depression', range:'0–63', rater:'Self-report', description:'Beck Depression Inventory — 21-item self-report depression severity.', maxScore:63, bands:[{max:13,label:'Minimal'},{max:19,label:'Mild'},{max:28,label:'Moderate'},{max:63,label:'Severe'}], items:['Sadness','Pessimism','Past failure','Loss of pleasure','Guilty feelings','Punishment feelings','Self-dislike','Self-criticalness','Suicidal thoughts or wishes','Crying','Agitation','Loss of interest','Indecisiveness','Worthlessness','Loss of energy','Changes in sleeping pattern','Irritability','Changes in appetite','Concentration difficulty','Tiredness or fatigue','Loss of interest in sex'], itemMax:Array(21).fill(3) },
+    { id:'cdss', name:'CDSS', condition:'Cognitive / Schizophrenia', range:'0–12', rater:'Clinician-rated', description:'Calgary Depression Scale for Schizophrenia — 9-item depression in psychosis.', maxScore:12, bands:[{max:5,label:'Non-depressed'},{max:12,label:'Depressed'}], items:['Depression','Hopelessness','Self-depreciation','Guilty ideas of reference','Pathological guilt','Morning depression','Early wakening','Suicide','Observed depression'], itemMax:Array(9).fill(3) },
+    { id:'moca2', name:'MoCA', condition:'Cognitive', range:'0–30', rater:'Clinician-rated', description:'Montreal Cognitive Assessment — full 30-item version for cognitive screening.', maxScore:30, bands:[{max:25,label:'Possible Impairment'},{max:30,label:'Normal'}], items:['Trail-making (alternating)','Copy cube','Draw clock (contour)','Draw clock (numbers)','Draw clock (hands)','Name lion','Name rhinoceros','Name camel','Forward digit span (5-2-1-4-1)','Backward digit span (7-4-2)','Tap for letter A','Serial 7s (93)','Serial 7s (86)','Serial 7s (79)','Serial 7s (72)','Serial 7s (65)','Repeat sentence 1','Repeat sentence 2','Fluency — F words','Abstraction — train/bicycle','Abstraction — watch/ruler','Recall — Face','Recall — Velvet','Recall — Church','Recall — Daisy','Recall — Red','Orientation — date','Orientation — month','Orientation — year','Orientation — day','Orientation — place','Orientation — city'], itemMax:Array(32).fill(1) },
+    { id:'briefa', name:'BRIEF-A', condition:'Executive Function', range:'Norm-referenced', rater:'Self/informant', description:'Behavior Rating Inventory of Executive Function — Adult version; T-scores normed against population.', maxScore:null, bands:[], items:['Inhibit — stop actions/impulses','Shift — move between situations','Emotional Control — modulate emotions','Self-Monitor — check own behavior','Initiate — begin tasks','Working Memory — hold information','Plan/Organize — manage future-oriented tasks','Task Monitor — check work','Organization of Materials — keep workspace orderly'], itemMax:Array(9).fill(4) },
+  ];
+
   // Module state
   let _fbTab = 'builder';
   let _fbActiveId = localStorage.getItem('ds_active_form_id') || 'custom_intake_001';
@@ -10904,13 +10914,63 @@ export async function pgFormsBuilder(setTopbar) {
     '</div></div>';
   }
 
+  // Validated Scales tab HTML
+  function _renderValidatedScales() {
+    const allScales = [
+      { id:'phq9',  name:'PHQ-9',    condition:'Depression',        range:'0–27',         rater:'Self-report',   description:'Patient Health Questionnaire — 9-item depression severity screener.' },
+      { id:'gad7',  name:'GAD-7',    condition:'Anxiety',           range:'0–21',         rater:'Self-report',   description:'Generalized Anxiety Disorder 7-item scale.' },
+      { id:'pcl5',  name:'PCL-5',    condition:'PTSD',              range:'0–80',         rater:'Self-report',   description:'PTSD Checklist for DSM-5 — 20 symptom items (0–4 each).' },
+      ...EXTRA_SCALES.map(s => ({ id:s.id, name:s.name, condition:s.condition, range:s.range, rater:s.rater, description:s.description })),
+    ];
+    const scores = _fbLoad('ds_scale_scores', []);
+    const iconMap = { 'Depression':'🧠','Anxiety':'😰','PTSD':'⚡','Cognitive / Schizophrenia':'🔬','Cognitive':'💡','Executive Function':'🎯', default:'📋' };
+    const scaleCards = allScales.map(s => {
+      const recentScores = scores.filter(sc => sc.scaleId === s.id).sort((a,b) => new Date(b.date)-new Date(a.date));
+      const latest = recentScores[0];
+      const sparkHTML = recentScores.length >= 2 ? _fbSparklineSVG(recentScores.slice(0,6).reverse(), s) : '';
+      const icon = iconMap[s.condition] || iconMap.default;
+      return '<div class="vscale-card">' +
+        '<div class="vscale-card-header">' +
+          '<div class="vscale-card-icon">' + icon + '</div>' +
+          '<div class="vscale-card-info">' +
+            '<div class="vscale-card-name">' + _e(s.name) + '</div>' +
+            '<div class="vscale-card-meta"><span class="vscale-condition-tag">' + _e(s.condition) + '</span><span class="vscale-range-tag">' + _e(s.range) + '</span><span class="vscale-rater-tag">' + _e(s.rater) + '</span></div>' +
+          '</div>' +
+        '</div>' +
+        '<div class="vscale-card-desc">' + _e(s.description) + '</div>' +
+        (sparkHTML ? '<div class="vscale-spark-wrap"><div class="vscale-spark-label">Last ' + Math.min(recentScores.length,6) + ' scores</div>' + sparkHTML + (latest ? '<div class="vscale-spark-latest">Latest: <strong>' + latest.total + '</strong><span class="vscale-sev-badge vscale-sev-' + _e((latest.severity||'').toLowerCase().replace(/\s+/g,'-')) + '">' + _e(latest.severity||'') + '</span></div>' : '') + '</div>' : '') +
+        '<div class="vscale-card-footer"><button class="btn btn-sm btn-primary" onclick="window._fbOpenScaleEntry(\'' + _e(s.id) + '\')">Use Scale</button>' + (recentScores.length ? '<span class="vscale-score-count">' + recentScores.length + ' score' + (recentScores.length!==1?'s':'') + ' recorded</span>' : '') + '</div>' +
+      '</div>';
+    }).join('');
+    return '<div class="vscale-wrap"><div class="vscale-header"><div><div class="vscale-header-title">Validated Assessment Scales</div><div class="vscale-header-sub">Standardized instruments for tracking clinical outcomes. Scores are stored and trended automatically.</div></div></div><div class="vscale-grid">' + scaleCards + '</div></div>';
+  }
+
+  // SVG sparkline (200×60px) for scale score trend
+  function _fbSparklineSVG(recentScores, scaleDef) {
+    if (!recentScores || recentScores.length < 2) return '';
+    const W = 200, H = 60, PAD = 8;
+    const vals = recentScores.map(s => s.total);
+    const minV = Math.min(...vals), maxV = Math.max(...vals), range = maxV - minV || 1;
+    const xStep = (W - PAD*2) / Math.max(vals.length-1, 1);
+    const pts = vals.map((v,i) => ({ x: PAD + i*xStep, y: PAD + (1 - (v-minV)/range) * (H - PAD*2) }));
+    const poly = pts.map(p => p.x.toFixed(1)+','+p.y.toFixed(1)).join(' ');
+    const dots = pts.map((p,i) => '<circle cx="'+p.x.toFixed(1)+'" cy="'+p.y.toFixed(1)+'" r="3" fill="var(--teal)" stroke="var(--bg-base)" stroke-width="1.5"><title>'+vals[i]+'</title></circle>').join('');
+    return '<svg class="vscale-spark-svg" viewBox="0 0 '+W+' '+H+'" xmlns="http://www.w3.org/2000/svg"><polyline points="'+poly+'" fill="none" stroke="var(--teal)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>'+dots+'</svg>';
+  }
+
   // Full page HTML
   function _renderBuilder() {
     const form = _fbGetForm(_fbActiveId), sc = _fbGetSubs().length;
-    return '<div style="height:100%;display:flex;flex-direction:column;overflow:hidden">' +
-      '<div class="ppp-tab-bar"><div class="ppp-tab ' + (_fbTab === 'builder' ? 'active' : '') + '" onclick="window._fbSetTab(\'builder\')">Builder</div><div class="ppp-tab ' + (_fbTab === 'responses' ? 'active' : '') + '" onclick="window._fbSetTab(\'responses\')">Responses <span style="font-size:10px;background:rgba(0,212,188,0.12);color:var(--teal);border-radius:8px;padding:1px 6px;margin-left:4px">' + sc + '</span></div></div>' +
-      '<div style="flex:1;min-height:0;overflow:hidden">' + (_fbTab === 'builder' ? '<div class="ppp-builder-layout" style="height:100%">' + _renderLibrary() + _renderCanvas(form) + _renderProperties(form) + '</div>' : _renderResponses()) + '</div>' +
+    const tabBar = '<div class="ppp-tab-bar">' +
+      '<div class="ppp-tab ' + (_fbTab==='builder'?'active':'') + '" onclick="window._fbSetTab(\'builder\')">Builder</div>' +
+      '<div class="ppp-tab ' + (_fbTab==='responses'?'active':'') + '" onclick="window._fbSetTab(\'responses\')">Responses <span style="font-size:10px;background:rgba(0,212,188,0.12);color:var(--teal);border-radius:8px;padding:1px 6px;margin-left:4px">' + sc + '</span></div>' +
+      '<div class="ppp-tab ' + (_fbTab==='scales'?'active':'') + '" onclick="window._fbSetTab(\'scales\')" style="display:flex;align-items:center;gap:5px">Validated Scales <span style="font-size:10px;background:rgba(93,95,239,0.12);color:var(--accent-violet);border-radius:8px;padding:1px 6px">9</span></div>' +
     '</div>';
+    let content;
+    if (_fbTab === 'builder') content = '<div class="ppp-builder-layout" style="height:100%">' + _renderLibrary() + _renderCanvas(form) + _renderProperties(form) + '</div>';
+    else if (_fbTab === 'scales') content = _renderValidatedScales();
+    else content = _renderResponses();
+    return '<div style="height:100%;display:flex;flex-direction:column;overflow:hidden">' + tabBar + '<div style="flex:1;min-height:0;overflow:' + (_fbTab==='scales'?'auto':'hidden') + '">' + content + '</div></div>';
   }
 
   // Responses view HTML
@@ -11003,6 +11063,145 @@ export async function pgFormsBuilder(setTopbar) {
 
   // Window handlers
   window._fbSetTab = t => { _fbTab = t; el.innerHTML = _renderBuilder(); if (t === 'builder') _fbBindDrag(); };
+
+  // ── Validated Scales: Score Entry Modal ──────────────────────────────────────
+  window._fbOpenScaleEntry = function(scaleId) {
+    // Merge all scales
+    const allScaleDefs = [
+      ...VALIDATED_SCALES,
+      ...EXTRA_SCALES,
+    ];
+    const scaleDef = allScaleDefs.find(s => s.id === scaleId);
+    if (!scaleDef) return;
+    const pts = ['Baseline','2-week','4-week','8-week','End of Course','Follow-up'];
+    const today = new Date().toISOString().slice(0,10);
+    const patients = [
+      { id:'pt001', name:'Alexis Morgan' },
+      { id:'pt002', name:'Jordan Blake' },
+      { id:'pt003', name:'Sam Rivera' },
+      { id:'pt004', name:'Casey Kim' },
+    ];
+    // Get previous scores for comparison
+    const prevScores = _fbLoad('ds_scale_scores', []).filter(s => s.scaleId === scaleId).sort((a,b) => new Date(b.date)-new Date(a.date));
+    const itemsHTML = (scaleDef.items || []).map((item, i) => {
+      const maxV = (scaleDef.itemMax && scaleDef.itemMax[i] != null) ? scaleDef.itemMax[i] : 3;
+      const opts = Array.from({length: maxV+1}, (_,v) => '<option value="'+v+'">'+v+'</option>').join('');
+      return '<div class="vscale-item-row">' +
+        '<div class="vscale-item-num">' + (i+1) + '.</div>' +
+        '<div class="vscale-item-text">' + _e(item) + '</div>' +
+        '<select class="vscale-item-sel" id="vscale_item_'+i+'" onchange="window._fbScaleItemChange()" data-max="'+maxV+'">' + opts + '</select>' +
+      '</div>';
+    }).join('');
+    const ptOpts = patients.map(p => '<option value="'+p.id+'">'+_e(p.name)+'</option>').join('');
+    const ptSelOpts = pts.map(p => '<option value="'+_e(p)+'">'+_e(p)+'</option>').join('');
+    // Previous score comparison HTML
+    const prevHtml = prevScores.length
+      ? '<div class="vscale-prev-scores"><div class="vscale-prev-label">Previous scores:</div>' +
+        prevScores.slice(0,3).map(s => '<span class="vscale-prev-entry"><strong>'+s.total+'</strong> <span class="vscale-sev-badge vscale-sev-'+(s.severity||'').toLowerCase().replace(/\s+/g,'-')+'">'+_e(s.severity||'')+'</span> &bull; '+(_fbFmt(s.date)||'')+'</span>').join('') +
+        '</div>'
+      : '';
+    const modal = document.createElement('div');
+    modal.className = 'vscale-modal-overlay';
+    modal.id = 'vscale-modal';
+    modal.innerHTML = '<div class="vscale-modal" onclick="event.stopPropagation()">' +
+      '<div class="vscale-modal-header">' +
+        '<div><div class="vscale-modal-title">' + _e(scaleDef.name) + '</div><div class="vscale-modal-sub">' + _e(scaleDef.description || '') + '</div></div>' +
+        '<button class="vscale-modal-close" onclick="document.getElementById(\'vscale-modal\').remove()">\u2715</button>' +
+      '</div>' +
+      '<div class="vscale-modal-body">' +
+        '<div class="vscale-modal-top-row">' +
+          '<div class="vscale-field-group"><label class="vscale-field-label">Patient</label><select class="vscale-field-input" id="vscale_patient">' + ptOpts + '</select></div>' +
+          '<div class="vscale-field-group"><label class="vscale-field-label">Date</label><input type="date" class="vscale-field-input" id="vscale_date" value="'+today+'"></div>' +
+          '<div class="vscale-field-group"><label class="vscale-field-label">Measurement Point</label><select class="vscale-field-input" id="vscale_mpoint">' + ptSelOpts + '</select></div>' +
+        '</div>' +
+        '<div class="vscale-score-display" id="vscale-score-display">' +
+          '<div class="vscale-score-live"><span class="vscale-score-val" id="vscale-score-val">0</span>' + (scaleDef.maxScore ? '<span class="vscale-score-max"> / '+scaleDef.maxScore+'</span>' : '') + '</div>' +
+          '<span class="vscale-sev-badge vscale-sev-minimal" id="vscale-sev-badge">Minimal</span>' +
+        '</div>' +
+        (scaleDef.maxScore ? prevHtml : '') +
+        '<div class="vscale-items-list">' + itemsHTML + '</div>' +
+        '<div class="vscale-field-group" style="margin-top:12px"><label class="vscale-field-label">Notes (optional)</label><textarea class="vscale-field-input" id="vscale_notes" rows="2" placeholder="Clinical notes\u2026" style="resize:vertical"></textarea></div>' +
+      '</div>' +
+      '<div class="vscale-modal-footer">' +
+        '<button class="btn btn-sm" onclick="document.getElementById(\'vscale-modal\').remove()">Cancel</button>' +
+        '<button class="btn btn-sm btn-primary" onclick="window._fbSaveScaleScore(\'' + _e(scaleId) + '\')">Save Score</button>' +
+      '</div>' +
+    '</div>';
+    modal.addEventListener('click', e => { if (e.target === modal) modal.remove(); });
+    document.body.appendChild(modal);
+    window._fbScaleItemChange();
+  };
+
+  window._fbScaleItemChange = function() {
+    // Re-calculate total from all item selects
+    const items = document.querySelectorAll('.vscale-item-sel');
+    let total = 0;
+    items.forEach(sel => { total += parseInt(sel.value || '0', 10); });
+    const valEl = document.getElementById('vscale-score-val');
+    if (valEl) valEl.textContent = total;
+    // Find the scale def from the modal title (we need the scaleId)
+    // Get severity from current open modal's scaleId — stored in save button onclick attr
+    const saveBtn = document.querySelector('#vscale-modal .btn-primary');
+    if (!saveBtn) return;
+    const m = saveBtn.getAttribute('onclick').match(/'([^']+)'/);
+    if (!m) return;
+    const scaleId = m[1];
+    const allScaleDefs = [...VALIDATED_SCALES, ...EXTRA_SCALES];
+    const scaleDef = allScaleDefs.find(s => s.id === scaleId);
+    if (!scaleDef) return;
+    const sev = _fbScoreSeverity(total, scaleDef);
+    const sevEl = document.getElementById('vscale-sev-badge');
+    if (sevEl) {
+      sevEl.textContent = sev;
+      sevEl.className = 'vscale-sev-badge vscale-sev-' + sev.toLowerCase().replace(/\s+/g,'-');
+    }
+  };
+
+  window._fbSaveScaleScore = async function(scaleId) {
+    const allScaleDefs = [...VALIDATED_SCALES, ...EXTRA_SCALES];
+    const scaleDef = allScaleDefs.find(s => s.id === scaleId);
+    if (!scaleDef) return;
+    const ptSel = document.getElementById('vscale_patient');
+    const dateSel = document.getElementById('vscale_date');
+    const mpSel = document.getElementById('vscale_mpoint');
+    const notesSel = document.getElementById('vscale_notes');
+    const items = document.querySelectorAll('.vscale-item-sel');
+    const answers = Array.from(items).map(sel => parseInt(sel.value||'0',10));
+    const total = answers.reduce((a,b)=>a+b, 0);
+    const patients = [{id:'pt001',name:'Alexis Morgan'},{id:'pt002',name:'Jordan Blake'},{id:'pt003',name:'Sam Rivera'},{id:'pt004',name:'Casey Kim'}];
+    const pt = patients.find(p => p.id === (ptSel?.value||'pt001')) || patients[0];
+    const sev = _fbScoreSeverity(total, scaleDef);
+    const entry = {
+      id: 'ss_'+Date.now(),
+      scaleId, scaleName: scaleDef.name,
+      patientId: pt.id, patientName: pt.name,
+      date: dateSel?.value || new Date().toISOString().slice(0,10),
+      measurementPoint: mpSel?.value || 'Baseline',
+      answers, total, severity: sev,
+      notes: notesSel?.value?.trim() || '',
+      recordedAt: new Date().toISOString(),
+    };
+    const all = _fbLoad('ds_scale_scores', []);
+    all.unshift(entry);
+    if (all.length > 500) all.splice(500);
+    _fbSave('ds_scale_scores', all);
+    // Attempt API save
+    await api.recordOutcome({ patientId: pt.id, scaleId, scaleName: scaleDef.name, score: total, severity: sev, date: entry.date }).catch(() => null);
+    // Find previous score for comparison
+    const prev = all.slice(1).find(s => s.scaleId === scaleId && s.patientId === pt.id);
+    const delta = prev != null ? (total - prev.total) : null;
+    const deltaStr = delta != null ? (delta < 0 ? ' (' + delta + ' vs previous, improved)' : delta > 0 ? ' (+' + delta + ' vs previous, worsened)' : ' (no change vs previous)') : '';
+    window._showNotifToast?.({ title: scaleDef.name + ' Score Saved', body: pt.name + ' — ' + total + (scaleDef.maxScore?'/'+scaleDef.maxScore:'') + ' ' + sev + deltaStr, severity: sev.toLowerCase().includes('severe') ? 'warn' : 'info' });
+    document.getElementById('vscale-modal')?.remove();
+    // Re-render if on scales tab
+    if (_fbTab === 'scales') { el.innerHTML = _renderBuilder(); }
+  };
+
+  function _fbScoreSeverity(total, scaleDef) {
+    if (!scaleDef.bands || !scaleDef.bands.length) return '';
+    const band = scaleDef.bands.find(b => total <= b.max);
+    return band ? band.label : scaleDef.bands[scaleDef.bands.length-1].label;
+  }
   window._fbOpenForm = id => { _fbActiveId = id; localStorage.setItem('ds_active_form_id', id); el.innerHTML = _renderBuilder(); _fbBindDrag(); };
   window._fbUseScale = id => { const src = _fbGetForm(id); if (!src) return; const c = JSON.parse(JSON.stringify(src)); c.id = 'custom_' + id + '_' + Date.now(); c.name = src.name + ' (Copy)'; c.locked = false; c.version = '1.0'; c.lastModified = new Date().toISOString(); _fbSaveForm(c); _fbActiveId = c.id; localStorage.setItem('ds_active_form_id', c.id); el.innerHTML = _renderBuilder(); _fbBindDrag(); };
   window._fbDuplicateForm = id => { const src = _fbGetForm(id); if (!src) return; const c = JSON.parse(JSON.stringify(src)); c.id = 'custom_copy_' + Date.now(); c.name = src.name + ' (Copy)'; c.locked = false; c.lastModified = new Date().toISOString(); _fbSaveForm(c); _fbActiveId = c.id; localStorage.setItem('ds_active_form_id', c.id); el.innerHTML = _renderBuilder(); _fbBindDrag(); };
@@ -11542,4 +11741,238 @@ function _ebMatchedPapersHTML(proto) {
     <div style="display:flex;flex-direction:column;gap:12px">
       ${papers.map(_ebRenderMatchCard).join('')}
     </div>`;
+}
+
+// =============================================================================
+// pgPatientQueue — Clinician Daily Patient Queue
+// =============================================================================
+export async function pgPatientQueue(setTopbar) {
+  const today = new Date();
+  const todayStr = today.toLocaleDateString('en-GB', { weekday:'long', year:'numeric', month:'long', day:'numeric' });
+  const todayISO = today.toISOString().slice(0,10);
+
+  setTopbar(
+    'Today\'s Queue \u2014 ' + todayStr,
+    '<button class="btn btn-sm btn-primary" onclick="window._pqAddWalkin()">+ Add Walk-in</button>' +
+    '<input type="date" class="pq-date-sel" id="pq-date-sel" value="' + todayISO + '" onchange="window._pqChangeDate(this.value)" style="margin-left:8px">'
+  );
+
+  function _pqLoad(k, d) { try { return JSON.parse(localStorage.getItem(k)) || d; } catch { return d; } }
+  function _pqSave(k, v) { localStorage.setItem(k, JSON.stringify(v)); }
+  const _pqE = s => String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+
+  // Seed queue data if missing
+  if (!localStorage.getItem('ds_today_queue')) {
+    const seed = [
+      { id:'pq001', time:'08:30', patientId:'pt001', patientName:'Alexis Morgan',   condition:'Depression', sessionNum:8,  sessionTotal:20, protocol:'TMS 10Hz L-DLPFC',       status:'done',       alerts:[],                    notes:'Tolerated well, reported mood lift.' },
+      { id:'pq002', time:'09:15', patientId:'pt002', patientName:'Jordan Blake',    condition:'Anxiety',    sessionNum:15, sessionTotal:20, protocol:'Alpha/Beta NFB',          status:'done',       alerts:['homework'],          notes:'Missed home EEG exercises x2.' },
+      { id:'pq003', time:'10:00', patientId:'pt003', patientName:'Sam Rivera',      condition:'PTSD',       sessionNum:3,  sessionTotal:30, protocol:'Alpha/Theta NFB',         status:'in-session', alerts:['wearable'],          notes:'HRV anomaly detected during last session.' },
+      { id:'pq004', time:'11:00', patientId:'pt004', patientName:'Casey Kim',       condition:'ADHD',       sessionNum:12, sessionTotal:20, protocol:'Theta Suppression NFB',   status:'waiting',    alerts:[],                    notes:'' },
+      { id:'pq005', time:'13:30', patientId:'pt005', patientName:'Morgan Ellis',    condition:'Insomnia',   sessionNum:5,  sessionTotal:15, protocol:'SMR Enhancement NFB',     status:'waiting',    alerts:['assessment'],        notes:'PHQ-9 overdue by 9 days.' },
+      { id:'pq006', time:'14:15', patientId:'pt006', patientName:'Taylor Nguyen',   condition:'OCD',        sessionNum:6,  sessionTotal:20, protocol:'Deep TMS H7 Coil',        status:'no-show',    alerts:['deviation'],         notes:'Called \u2014 no answer. Left voicemail.' },
+    ];
+    _pqSave('ds_today_queue', seed);
+  }
+
+  if (!localStorage.getItem('ds_pq_adherence_alerts')) {
+    _pqSave('ds_pq_adherence_alerts', [
+      { id:'pal001', patientId:'pt006', patientName:'Taylor Nguyen', type:'overdue-session',  detail:'No session recorded in 11 days (last: 2026-03-31)',                                                  daysSince:11, status:'active' },
+      { id:'pal002', patientId:'pt003', patientName:'Sam Rivera',    type:'parameter-drift',  detail:'Pulse width increased from 230\u03bcs to 290\u03bcs across last 3 sessions \u2014 outside protocol spec', daysSince:5,  status:'active' },
+      { id:'pal003', patientId:'pt002', patientName:'Jordan Blake',  type:'unreviewed-ae',    detail:'Adverse event (mild headache) logged after Session 13 \u2014 not yet reviewed by clinician',          daysSince:7,  status:'active' },
+    ]);
+  }
+
+  const el = document.getElementById('content');
+
+  function _pqGetQueue()  { return _pqLoad('ds_today_queue', []); }
+  function _pqGetAlerts() { return _pqLoad('ds_pq_adherence_alerts', []); }
+
+  const STATUS_CONFIG = {
+    'waiting':    { label:'Waiting',    cls:'pq-status-waiting',   dot:true  },
+    'in-session': { label:'In Session', cls:'pq-status-in-session', dot:false },
+    'done':       { label:'Done',       cls:'pq-status-done',       dot:false },
+    'no-show':    { label:'No Show',    cls:'pq-status-noshow',     dot:false },
+  };
+
+  const ALERT_ICONS = {
+    'deviation':  { icon:'\u26a0\ufe0f', cls:'pq-alert-deviation',  tip:'Protocol deviation'   },
+    'homework':   { icon:'\uD83D\uDCDA', cls:'pq-alert-homework',   tip:'Missed homework'       },
+    'wearable':   { icon:'\uD83D\uDC9C', cls:'pq-alert-wearable',   tip:'Wearable anomaly'      },
+    'assessment': { icon:'\uD83D\uDCCB', cls:'pq-alert-assessment', tip:'Overdue assessment'    },
+  };
+
+  const ALERT_TYPE_LABELS = {
+    'overdue-session':  { icon:'\uD83D\uDD50', color:'var(--accent-amber)',  label:'Overdue Session'   },
+    'parameter-drift':  { icon:'\uD83D\uDCCA', color:'var(--accent-blue)',   label:'Parameter Drift'   },
+    'unreviewed-ae':    { icon:'\uD83D\uDEA8', color:'#ff6b6b',             label:'Unreviewed AE'     },
+    'outcomes-overdue': { icon:'\uD83D\uDCCB', color:'var(--accent-violet)', label:'Outcomes Overdue'  },
+  };
+
+  function _pqSummaryStrip(queue) {
+    const total   = queue.length;
+    const done    = queue.filter(p => p.status === 'done').length;
+    const pending = queue.filter(p => p.status === 'waiting').length;
+    const ae      = queue.filter(p => (p.alerts||[]).some(a => a === 'deviation' || a === 'wearable')).length;
+    return '<div class="pq-summary-strip">' +
+      '<div class="pq-summary-card"><div class="pq-summary-val">' + total + '</div><div class="pq-summary-lbl">Patients Today</div></div>' +
+      '<div class="pq-summary-card"><div class="pq-summary-val pq-val-green">' + done + '</div><div class="pq-summary-lbl">Completed</div></div>' +
+      '<div class="pq-summary-card"><div class="pq-summary-val pq-val-amber">' + pending + '</div><div class="pq-summary-lbl">Pending</div></div>' +
+      '<div class="pq-summary-card"><div class="pq-summary-val pq-val-red">' + ae + '</div><div class="pq-summary-lbl">Alerts Flagged</div></div>' +
+    '</div>';
+  }
+
+  function _pqRenderAlertIcons(alerts) {
+    if (!alerts || !alerts.length) return '<span style="color:var(--text-tertiary);font-size:11px">\u2014</span>';
+    return alerts.map(a => {
+      const cfg = ALERT_ICONS[a]; if (!cfg) return '';
+      return '<span class="pq-alert-icon ' + cfg.cls + '" title="' + _pqE(cfg.tip) + '">' + cfg.icon + '</span>';
+    }).join('');
+  }
+
+  function _pqStatusBadge(status) {
+    const cfg = STATUS_CONFIG[status] || { label:status, cls:'', dot:false };
+    const dot = cfg.dot ? '<span class="pq-pulse-dot"></span>' : '';
+    return '<span class="pq-status-badge ' + cfg.cls + '">' + dot + cfg.label + '</span>';
+  }
+
+  function _pqQueueTable(queue) {
+    const rows = queue.map(p => {
+      const nearEnd = p.sessionNum >= p.sessionTotal - 2;
+      const sesLabel = 'Session ' + p.sessionNum + ' of ' + p.sessionTotal + (nearEnd ? ' \u2014 Nearing completion' : '');
+      const actions = '<div class="pq-actions">' +
+        (p.status !== 'done' && p.status !== 'no-show'
+          ? '<button class="pq-action-btn pq-action-start" onclick="window._pqStartSession(\'' + _pqE(p.id) + '\')">Start Session</button>'
+          : '') +
+        '<button class="pq-action-btn pq-action-chart" onclick="window._pqViewChart(\'' + _pqE(p.id) + '\')">View Chart</button>' +
+        '<button class="pq-action-btn pq-action-note"  onclick="window._pqQuickNote(\'' + _pqE(p.id) + '\')">Quick Note</button>' +
+      '</div>';
+      return '<tr>' +
+        '<td class="pq-td-time">' + _pqE(p.time) + '</td>' +
+        '<td class="pq-td-patient"><div class="pq-patient-name">' + _pqE(p.patientName) + '</div></td>' +
+        '<td><span class="pq-condition-tag">' + _pqE(p.condition) + '</span></td>' +
+        '<td class="pq-td-session"><span class="pq-session-label">' + _pqE(sesLabel) + '</span></td>' +
+        '<td class="pq-td-protocol">' + _pqE(p.protocol) + '</td>' +
+        '<td>' + _pqStatusBadge(p.status) + '</td>' +
+        '<td class="pq-td-alerts">' + _pqRenderAlertIcons(p.alerts) + '</td>' +
+        '<td>' + actions + '</td>' +
+      '</tr>';
+    }).join('');
+    return '<div class="pq-table-wrap"><table class="pq-table">' +
+      '<thead><tr><th>Time</th><th>Patient</th><th>Condition</th><th>Session #</th><th>Protocol</th><th>Status</th><th>Alerts</th><th>Actions</th></tr></thead>' +
+      '<tbody>' + rows + '</tbody>' +
+    '</table></div>';
+  }
+
+  function _pqAdherenceAlerts(alerts) {
+    const active = alerts.filter(a => a.status === 'active');
+    if (!active.length) {
+      return '<div class="pq-adherence-card"><div class="pq-adherence-title">Protocol Adherence Alerts</div><div style="padding:16px;color:var(--text-tertiary);font-size:13px;text-align:center">\u2705 No active protocol adherence alerts.</div></div>';
+    }
+    const items = active.map(a => {
+      const cfg = ALERT_TYPE_LABELS[a.type] || { icon:'\u26a0\ufe0f', color:'var(--accent-amber)', label:a.type };
+      return '<div class="pq-adherence-item">' +
+        '<div class="pq-adherence-item-icon" style="color:' + cfg.color + '">' + cfg.icon + '</div>' +
+        '<div class="pq-adherence-item-body">' +
+          '<div class="pq-adherence-item-patient">' + _pqE(a.patientName) + ' <span class="pq-adherence-type-tag" style="border-color:' + cfg.color + '40;color:' + cfg.color + '">' + cfg.label + '</span></div>' +
+          '<div class="pq-adherence-item-detail">' + _pqE(a.detail) + '</div>' +
+          '<div class="pq-adherence-item-days">' + a.daysSince + ' day' + (a.daysSince !== 1 ? 's' : '') + ' since event</div>' +
+        '</div>' +
+        '<div class="pq-adherence-item-actions">' +
+          '<button class="pq-action-btn pq-action-start" onclick="window._pqReviewAlert(\'' + _pqE(a.id) + '\')">Review</button>' +
+          '<button class="pq-action-btn pq-action-chart" onclick="window._pqDismissAlert(\'' + _pqE(a.id) + '\')">Dismiss</button>' +
+        '</div>' +
+      '</div>';
+    }).join('');
+    return '<div class="pq-adherence-card">' +
+      '<div class="pq-adherence-title">Protocol Adherence Alerts <span class="pq-adherence-count">' + active.length + '</span></div>' +
+      items +
+    '</div>';
+  }
+
+  function _pqQuickActions() {
+    return '<div class="pq-quick-actions">' +
+      '<button class="pq-qa-btn" onclick="window._nav(\'session-execution\')"><span class="pq-qa-icon">\uD83D\uDCC5</span><span>Schedule Session</span></button>' +
+      '<button class="pq-qa-btn" onclick="window._nav(\'forms-builder\')"><span class="pq-qa-icon">\uD83D\uDCCA</span><span>Record Outcome</span></button>' +
+      '<button class="pq-qa-btn" onclick="window._nav(\'patient-profile\')"><span class="pq-qa-icon">\uD83D\uDC65</span><span>View All Patients</span></button>' +
+      '<button class="pq-qa-btn" onclick="window._nav(\'reports\')"><span class="pq-qa-icon">\uD83D\uDCC8</span><span>Reports</span></button>' +
+    '</div>';
+  }
+
+  function _pqRender() {
+    const queue = _pqGetQueue(), alerts = _pqGetAlerts();
+    el.innerHTML = '<div class="pq-page">' +
+      _pqSummaryStrip(queue) +
+      '<div class="pq-section-title">Patient Queue</div>' +
+      _pqQueueTable(queue) +
+      '<div class="pq-section-title" style="margin-top:28px">Protocol Adherence</div>' +
+      _pqAdherenceAlerts(alerts) +
+      '<div class="pq-section-title" style="margin-top:28px">Quick Actions</div>' +
+      _pqQuickActions() +
+    '</div>';
+  }
+
+  _pqRender();
+
+  window._pqStartSession = function(id) {
+    const q = _pqGetQueue(); const p = q.find(x => x.id === id); if (!p) return;
+    p.status = 'in-session'; _pqSave('ds_today_queue', q);
+    window._nav('session-execution');
+  };
+
+  window._pqViewChart = function() {
+    window._nav('patient-profile');
+  };
+
+  window._pqQuickNote = function(pqId) {
+    const q = _pqGetQueue(); const p = q.find(x => x.id === pqId); if (!p) return;
+    const existing = p.notes || '';
+    const modal = document.createElement('div');
+    modal.className = 'pq-modal-overlay';
+    modal.innerHTML = '<div class="pq-note-modal" onclick="event.stopPropagation()">' +
+      '<div class="pq-note-modal-header"><strong>Quick Note \u2014 ' + _pqE(p.patientName) + '</strong>' +
+      '<button onclick="this.closest(\'.pq-modal-overlay\').remove()" style="background:none;border:none;color:var(--text-tertiary);font-size:18px;cursor:pointer;margin-left:auto">\u2715</button></div>' +
+      '<textarea id="pq-note-ta" rows="5" style="width:100%;background:var(--bg-input,#1e2235);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);padding:10px;font-family:var(--font-body);font-size:13px;resize:vertical;box-sizing:border-box;margin-top:10px">' + _pqE(existing) + '</textarea>' +
+      '<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:10px">' +
+        '<button class="btn btn-sm" onclick="this.closest(\'.pq-modal-overlay\').remove()">Cancel</button>' +
+        '<button class="btn btn-sm btn-primary" onclick="window._pqSaveNote(\'' + _pqE(pqId) + '\',document.getElementById(\'pq-note-ta\').value)">Save Note</button>' +
+      '</div>' +
+    '</div>';
+    modal.addEventListener('click', e => { if (e.target === modal) modal.remove(); });
+    document.body.appendChild(modal);
+  };
+
+  window._pqSaveNote = function(pqId, text) {
+    const q = _pqGetQueue(); const p = q.find(x => x.id === pqId); if (!p) return;
+    p.notes = text.trim(); _pqSave('ds_today_queue', q);
+    document.querySelector('.pq-modal-overlay')?.remove();
+    window._showNotifToast?.({ title:'Note Saved', body:'Quick note added for ' + p.patientName, severity:'info' });
+  };
+
+  window._pqAddWalkin = function() {
+    const name = prompt('Walk-in patient name:'); if (!name) return;
+    const condition = prompt('Condition:') || 'General';
+    const protocol  = prompt('Protocol:')  || 'To be determined';
+    const id = 'pq_wi_' + Date.now();
+    const q  = _pqGetQueue();
+    const t  = new Date();
+    const hh = String(t.getHours()).padStart(2,'0'), mm = String(t.getMinutes()).padStart(2,'0');
+    q.push({ id, time:hh+':'+mm, patientId:'pt_wi_'+Date.now(), patientName:name, condition, sessionNum:1, sessionTotal:1, protocol, status:'waiting', alerts:[], notes:'Walk-in patient' });
+    _pqSave('ds_today_queue', q); _pqRender();
+    window._showNotifToast?.({ title:'Walk-in Added', body:name + ' added to today\'s queue', severity:'info' });
+  };
+
+  window._pqChangeDate = function(dateVal) {
+    window._showNotifToast?.({ title:'Date Changed', body:'Viewing queue for ' + dateVal, severity:'info' });
+  };
+
+  window._pqReviewAlert = function() {
+    window._showNotifToast?.({ title:'Review Mode', body:'Opening alert for review \u2014 navigate to patient chart for details', severity:'info' });
+  };
+
+  window._pqDismissAlert = function(alertId) {
+    if (!confirm('Dismiss this protocol adherence alert?')) return;
+    const alerts = _pqGetAlerts(); const al = alerts.find(a => a.id === alertId); if (!al) return;
+    al.status = 'dismissed'; _pqSave('ds_pq_adherence_alerts', alerts); _pqRender();
+    window._showNotifToast?.({ title:'Alert Dismissed', body:'Protocol alert has been dismissed', severity:'info' });
+  };
 }

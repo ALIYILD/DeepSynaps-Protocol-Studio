@@ -10,6 +10,10 @@ from pydantic import BaseModel, Field, ValidationError, field_validator
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 
+# The known-bad placeholder shipped in .env.example.
+# Any deployment that hasn't changed this is misconfigured.
+_INSECURE_JWT_DEFAULT = "CHANGE-THIS-IN-PRODUCTION-use-openssl-rand-hex-32"
+
 
 def _parse_cors_origins(value: str | None) -> list[str]:
     if not value:
@@ -45,8 +49,8 @@ class AppSettings(BaseModel):
     database_backup_root: Path = REPO_ROOT / "data" / "backups"
     request_timeout_seconds: int = 30
 
-    # JWT
-    jwt_secret_key: str = Field(default="CHANGE-THIS-IN-PRODUCTION-use-openssl-rand-hex-32")
+    # JWT — no insecure default; load_settings() enforces a real secret in production/staging
+    jwt_secret_key: str = Field(default=_INSECURE_JWT_DEFAULT)
     jwt_algorithm: str = Field(default="HS256")
     jwt_access_token_expire_minutes: int = Field(default=60)
     jwt_refresh_token_expire_days: int = Field(default=30)
@@ -115,10 +119,22 @@ class AppSettings(BaseModel):
 
 
 def load_settings() -> AppSettings:
+    _app_env = os.getenv("DEEPSYNAPS_APP_ENV", "development")
+    _jwt_secret = os.getenv("JWT_SECRET_KEY", _INSECURE_JWT_DEFAULT)
+
+    # Fail fast in production/staging if the JWT secret is missing or still the insecure placeholder.
+    if _app_env in ("production", "staging"):
+        if not _jwt_secret or _jwt_secret == _INSECURE_JWT_DEFAULT:
+            raise RuntimeError(
+                "JWT_SECRET_KEY must be set to a cryptographically random value in "
+                f"{_app_env} environments. "
+                "Generate one with: openssl rand -hex 32"
+            )
+
     try:
         return AppSettings.model_validate(
             {
-                "app_env": os.getenv("DEEPSYNAPS_APP_ENV", "development"),
+                "app_env": _app_env,
                 "api_title": os.getenv("DEEPSYNAPS_API_TITLE", "DeepSynaps Protocol Studio API"),
                 "api_version": os.getenv("DEEPSYNAPS_API_VERSION", "0.1.0"),
                 "api_host": os.getenv("DEEPSYNAPS_API_HOST", "127.0.0.1"),
@@ -153,11 +169,8 @@ def load_settings() -> AppSettings:
                 "request_timeout_seconds": int(
                     os.getenv("DEEPSYNAPS_REQUEST_TIMEOUT_SECONDS", "30")
                 ),
-                # JWT
-                "jwt_secret_key": os.getenv(
-                    "JWT_SECRET_KEY",
-                    "CHANGE-THIS-IN-PRODUCTION-use-openssl-rand-hex-32",
-                ),
+                # JWT — _jwt_secret already resolved above (with production fail-fast)
+                "jwt_secret_key": _jwt_secret,
                 "jwt_algorithm": os.getenv("JWT_ALGORITHM", "HS256"),
                 "jwt_access_token_expire_minutes": int(
                     os.getenv("JWT_ACCESS_TOKEN_EXPIRE_MINUTES", "60")

@@ -5368,6 +5368,198 @@ function assignHWPlan(planId, patientId, patientName) {
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
+// ── Patient Task Tracker (used inside pgHomeworkBuilder) ──────────────────────
+// ══════════════════════════════════════════════════════════════════════════════
+
+const _PTT_TASKS_KEY       = 'ds_homework_tasks';
+const _PTT_COMPLETIONS_KEY = 'ds_task_completions';
+
+const _PTT_CAT_COLORS = {
+  breathing: 'breathing', movement: 'movement', journaling: 'journaling',
+  'screen-free': 'screen-free', social: 'social', custom: 'custom',
+};
+
+function _pttSeedTasks() {
+  const existing = localStorage.getItem(_PTT_TASKS_KEY);
+  if (existing) { try { const a = JSON.parse(existing); if (a.length) return a; } catch (_e) {} }
+  const today = new Date().toISOString().slice(0, 10);
+  const tasks = [
+    { id: 'ptask1', title: '5-min breathing exercise', category: 'breathing',   recurrence: 'daily',  dueDate: today, notes: 'Box breathing or 4-7-8 technique' },
+    { id: 'ptask2', title: 'Mood journal entry \u2014 write 3 sentences', category: 'journaling',  recurrence: 'daily',  dueDate: today, notes: 'Focus on what went well today' },
+    { id: 'ptask3', title: '30-min outdoor activity', category: 'movement',    recurrence: 'weekly', dueDate: today, notes: 'Walk, jog, or any outdoor exercise' },
+    { id: 'ptask4', title: 'Screen-free hour before bed', category: 'screen-free', recurrence: 'daily',  dueDate: today, notes: 'No phones, tablets, or TV for 1 hour before sleep' },
+  ];
+  try { localStorage.setItem(_PTT_TASKS_KEY, JSON.stringify(tasks)); } catch (_e) {}
+  return tasks;
+}
+
+function _pttGetTasks() { return _pttSeedTasks(); }
+
+function _pttGetCompletions() {
+  try { return JSON.parse(localStorage.getItem(_PTT_COMPLETIONS_KEY) || '{}'); } catch (_e) { return {}; }
+}
+
+function _pttMarkComplete(taskId, date) {
+  const c = _pttGetCompletions();
+  c[taskId + '_' + date] = true;
+  try { localStorage.setItem(_PTT_COMPLETIONS_KEY, JSON.stringify(c)); } catch (_e) {}
+}
+
+function _pttIsComplete(taskId, date) {
+  const c = _pttGetCompletions();
+  return !!c[taskId + '_' + date];
+}
+
+function _pttStreak() {
+  const c = _pttGetCompletions();
+  const tasks = _pttGetTasks();
+  let streak = 0;
+  const d = new Date();
+  for (let i = 0; i < 60; i++) {
+    const ds = d.toISOString().slice(0, 10);
+    const todayTasks = tasks.filter(function(t) { return t.dueDate <= ds || t.recurrence === 'daily'; });
+    if (!todayTasks.length) { d.setDate(d.getDate() - 1); continue; }
+    const anyDone = todayTasks.some(function(t) { return !!c[t.id + '_' + ds]; });
+    if (!anyDone) break;
+    streak++;
+    d.setDate(d.getDate() - 1);
+  }
+  return streak;
+}
+
+function _pttWeekCompletions() {
+  const tasks = _pttGetTasks();
+  const c = _pttGetCompletions();
+  const today = new Date();
+  const dayOfWeek = today.getDay();
+  const monday = new Date(today);
+  monday.setDate(today.getDate() - ((dayOfWeek + 6) % 7));
+  const days = [];
+  for (let i = 0; i < 7; i++) {
+    const d = new Date(monday);
+    d.setDate(monday.getDate() + i);
+    const ds = d.toISOString().slice(0, 10);
+    const dayTasks = tasks.filter(function(t) { return t.dueDate <= ds || t.recurrence === 'daily'; });
+    const doneTasks = dayTasks.filter(function(t) { return !!c[t.id + '_' + ds]; });
+    days.push({ date: ds, label: ['M','T','W','T','F','S','S'][i], dayNum: d.getDate(), total: dayTasks.length, done: doneTasks.length });
+  }
+  return days;
+}
+
+function _pttHeatmapSVG() {
+  const days = _pttWeekCompletions();
+  const SZ = 36, GAP = 8, totalW = days.length * (SZ + GAP) - GAP + 2, H = SZ + 24;
+  const cells = days.map(function(d, i) {
+    const x = i * (SZ + GAP) + 1;
+    const fill = d.done === 0 ? 'rgba(255,255,255,0.04)' : (d.done >= d.total && d.total > 0) ? '#2dd4bf' : 'rgba(45,212,191,0.4)';
+    const stroke = d.done > 0 ? 'rgba(45,212,191,0.5)' : 'rgba(255,255,255,0.08)';
+    const textCol = d.done > 0 ? '#0f172a' : 'rgba(148,163,184,0.7)';
+    const today = new Date().toISOString().slice(0, 10);
+    const isToday = d.date === today;
+    return '<rect x="' + x + '" y="0" width="' + SZ + '" height="' + SZ + '" rx="8" fill="' + fill + '" stroke="' + (isToday ? '#2dd4bf' : stroke) + '" stroke-width="' + (isToday ? 2 : 1) + '"/>' +
+      '<text x="' + (x + SZ / 2) + '" y="' + (SZ / 2 + 1) + '" text-anchor="middle" dominant-baseline="middle" font-size="13" font-weight="700" fill="' + textCol + '">' + d.dayNum + '</text>' +
+      '<text x="' + (x + SZ / 2) + '" y="' + (SZ + 16) + '" text-anchor="middle" font-size="9.5" fill="rgba(148,163,184,0.7)">' + d.label + '</text>';
+  }).join('');
+  return '<svg width="100%" viewBox="0 0 ' + totalW + ' ' + H + '" style="display:block;overflow:visible">' + cells + '</svg>';
+}
+
+function _pttRingProgress(done, total) {
+  const sz = 64, r = 24, circ = 2 * Math.PI * r, cx = sz / 2, cy = sz / 2;
+  const pct = total > 0 ? done / total : 0;
+  const dash = pct * circ;
+  return '<svg width="' + sz + '" height="' + sz + '" viewBox="0 0 ' + sz + ' ' + sz + '" style="transform:rotate(-90deg)">' +
+    '<circle cx="' + cx + '" cy="' + cy + '" r="' + r + '" fill="none" stroke="rgba(255,255,255,0.07)" stroke-width="7"/>' +
+    '<circle cx="' + cx + '" cy="' + cy + '" r="' + r + '" fill="none" stroke="#2dd4bf" stroke-width="7" stroke-dasharray="' + dash.toFixed(2) + ' ' + circ.toFixed(2) + '" stroke-linecap="round"/>' +
+    '<text x="' + cx + '" y="' + (cy + 5) + '" text-anchor="middle" fill="var(--text-primary,#f1f5f9)" font-size="12" font-weight="700" style="transform:rotate(90deg);transform-origin:' + cx + 'px ' + cy + 'px">' + Math.round(pct * 100) + '%</text>' +
+    '</svg>';
+}
+
+function _pttRenderTaskSections() {
+  const tasks = _pttGetTasks();
+  const today = new Date().toISOString().slice(0, 10);
+  const todayTasks = tasks.filter(function(t) { return t.dueDate <= today || t.recurrence === 'daily' || t.recurrence === 'weekly'; });
+  const streak = _pttStreak();
+  const allCompletions = Object.keys(_pttGetCompletions()).filter(function(k) { return _pttGetCompletions()[k]; }).length;
+  const weekDays = _pttWeekCompletions();
+  const weekDone = weekDays.reduce(function(s, d) { return s + d.done; }, 0);
+  const weekTotal = weekDays.reduce(function(s, d) { return s + d.total; }, 0);
+
+  // Today's task cards
+  const taskCardsHTML = todayTasks.map(function(task) {
+    const done = _pttIsComplete(task.id, today);
+    const catClass = 'pthtask-cat-badge--' + (task.category || 'custom');
+    return '<div class="pthtask-card' + (done ? ' pthtask-card--done' : '') + '" id="pthtask-card-' + task.id + '">' +
+      '<button class="pthtask-check-btn' + (done ? ' pthtask-check-btn--done' : '') + '" onclick="window._pttMarkDone(\'' + task.id + '\')" title="Mark complete">' + (done ? '&#10003;' : '') + '</button>' +
+      '<div class="pthtask-card-body">' +
+        '<div class="pthtask-title' + (done ? ' pthtask-title--done' : '') + '">' + task.title + '</div>' +
+        '<div class="pthtask-meta">' +
+          '<span class="pthtask-cat-badge ' + catClass + '">' + (task.category || 'custom') + '</span>' +
+          '<span>' + task.recurrence + '</span>' +
+          (task.notes ? '<span>' + task.notes + '</span>' : '') +
+        '</div>' +
+      '</div>' +
+    '</div>';
+  }).join('') || '<div style="padding:20px;text-align:center;color:var(--text-secondary,#94a3b8);font-size:0.82rem">No tasks due today.</div>';
+
+  return '<div class="pthtask-page">' +
+
+    // Today's Tasks
+    '<div class="pthtask-section">' +
+      '<div class="pthtask-section-title">' +
+        'Today\'s Tasks' +
+        (streak > 0 ? '<span class="pthtask-streak">&#128293; ' + streak + ' day streak</span>' : '') +
+      '</div>' +
+      taskCardsHTML +
+    '</div>' +
+
+    // Weekly Overview heatmap
+    '<div class="pthtask-section">' +
+      '<div class="pthtask-section-title">Weekly Overview</div>' +
+      '<div class="pthtask-heatmap-wrap">' + _pttHeatmapSVG() + '</div>' +
+    '</div>' +
+
+    // Stats
+    '<div class="pthtask-section">' +
+      '<div class="pthtask-section-title">Completion Stats</div>' +
+      '<div class="pthtask-stats-row">' +
+        _pttRingProgress(weekDone, weekTotal) +
+        '<div class="pthtask-stat-pill">This week: <span>' + weekDone + '/' + weekTotal + '</span> tasks</div>' +
+        '<div class="pthtask-stat-pill">All time: <span>' + allCompletions + '</span> completed</div>' +
+      '</div>' +
+    '</div>' +
+
+    // Add Task Form
+    '<div class="pthtask-section">' +
+      '<div class="pthtask-section-title">Add Task</div>' +
+      '<button class="pthtask-add-toggle" onclick="window._pttToggleAddForm()">+ Add Custom Task</button>' +
+      '<div id="pthtask-add-form" style="display:none" class="pthtask-add-form">' +
+        '<div class="pthtask-add-form-grid">' +
+          '<div><label class="pthtask-form-label">Title</label>' +
+            '<input type="text" id="pthtask-title-in" class="pthtask-form-input" placeholder="e.g. Evening stretching"/></div>' +
+          '<div><label class="pthtask-form-label">Category</label>' +
+            '<select id="pthtask-cat-in" class="pthtask-form-input">' +
+              ['breathing','movement','journaling','screen-free','social','custom'].map(function(c) { return '<option value="' + c + '">' + c.charAt(0).toUpperCase() + c.slice(1) + '</option>'; }).join('') +
+            '</select></div>' +
+          '<div><label class="pthtask-form-label">Due Date</label>' +
+            '<input type="date" id="pthtask-date-in" class="pthtask-form-input" value="' + today + '"/></div>' +
+          '<div><label class="pthtask-form-label">Recurrence</label>' +
+            '<select id="pthtask-recur-in" class="pthtask-form-input">' +
+              ['once','daily','weekly'].map(function(r) { return '<option value="' + r + '">' + r.charAt(0).toUpperCase() + r.slice(1) + '</option>'; }).join('') +
+            '</select></div>' +
+        '</div>' +
+        '<div style="margin-bottom:12px"><label class="pthtask-form-label">Notes (optional)</label>' +
+          '<input type="text" id="pthtask-notes-in" class="pthtask-form-input" placeholder="Additional instructions..."/></div>' +
+        '<button class="pthtask-submit-btn" onclick="window._pttAddTask()">Save Task</button>' +
+      '</div>' +
+    '</div>' +
+
+    '<div style="border-top:1px solid var(--border,rgba(255,255,255,0.08));margin:8px 16px 24px;"></div>' +
+    '<div style="padding:0 16px 8px;font-size:0.88rem;font-weight:700;color:var(--text-primary,#f1f5f9)">Homework Plan Builder</div>' +
+
+  '</div>';
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
 // ── pgHomeworkBuilder — Clinician-side builder ────────────────────────────────
 // ══════════════════════════════════════════════════════════════════════════════
 
@@ -5522,6 +5714,7 @@ export async function pgHomeworkBuilder(setTopbarFn) {
 
   // ── Initial render ─────────────────────────────────────────────────────────
   el.innerHTML =
+    _pttRenderTaskSections() +
     '<div class="hw-builder-layout">' +
       renderPalettePanel() +
       '<div class="hw-canvas-panel"><div id="hw-canvas-inner"></div></div>' +
@@ -5530,6 +5723,63 @@ export async function pgHomeworkBuilder(setTopbarFn) {
 
   renderCanvas();
   renderSavedPlansList();
+
+  // ── Patient task handlers ──────────────────────────────────────────────────
+  window._pttToggleAddForm = function () {
+    const f = document.getElementById('pthtask-add-form');
+    if (f) f.style.display = f.style.display === 'none' ? 'block' : 'none';
+  };
+
+  window._pttMarkDone = function (taskId) {
+    const today = new Date().toISOString().slice(0, 10);
+    _pttMarkComplete(taskId, today);
+    // Update card in DOM
+    const card = document.getElementById('pthtask-card-' + taskId);
+    if (card) {
+      card.classList.add('pthtask-card--done');
+      const btn = card.querySelector('.pthtask-check-btn');
+      if (btn) { btn.classList.add('pthtask-check-btn--done'); btn.innerHTML = '&#10003;'; }
+      const title = card.querySelector('.pthtask-title');
+      if (title) title.classList.add('pthtask-title--done');
+    }
+    window._showNotifToast && window._showNotifToast({ title: 'Done!', body: 'Task marked complete.', severity: 'success' });
+    // Refresh streak display without full re-render
+    const streakEl = document.querySelector('.pthtask-streak');
+    const newStreak = _pttStreak();
+    if (streakEl) streakEl.textContent = '\uD83D\uDD25 ' + newStreak + ' day streak';
+  };
+
+  window._pttAddTask = function () {
+    const titleIn = document.getElementById('pthtask-title-in');
+    const catIn   = document.getElementById('pthtask-cat-in');
+    const dateIn  = document.getElementById('pthtask-date-in');
+    const recurIn = document.getElementById('pthtask-recur-in');
+    const notesIn = document.getElementById('pthtask-notes-in');
+    const title = titleIn ? titleIn.value.trim() : '';
+    if (!title) { window._showNotifToast && window._showNotifToast({ title: 'Missing title', body: 'Please enter a task title.', severity: 'warning' }); return; }
+    const tasks = _pttGetTasks();
+    const today = new Date().toISOString().slice(0, 10);
+    const newTask = {
+      id: 'ptask_' + Date.now(),
+      title: title,
+      category: catIn ? catIn.value : 'custom',
+      dueDate: dateIn && dateIn.value ? dateIn.value : today,
+      recurrence: recurIn ? recurIn.value : 'once',
+      notes: notesIn ? notesIn.value.trim() : '',
+    };
+    tasks.push(newTask);
+    try { localStorage.setItem(_PTT_TASKS_KEY, JSON.stringify(tasks)); } catch (_e) {}
+    window._showNotifToast && window._showNotifToast({ title: 'Task added', body: newTask.title, severity: 'success' });
+    // Re-render task sections
+    const taskWrap = document.querySelector('.pthtask-page');
+    if (taskWrap) {
+      const newHtml = _pttRenderTaskSections();
+      const tmp = document.createElement('div');
+      tmp.innerHTML = newHtml;
+      const newPage = tmp.querySelector('.pthtask-page');
+      if (newPage) taskWrap.replaceWith(newPage);
+    }
+  };
 
   // ── Global handlers ────────────────────────────────────────────────────────
 
@@ -7269,6 +7519,43 @@ function _buildReportHTML(data) {
     '<div class="footer">Generated by DeepSynaps Protocol Studio &nbsp;&bull;&nbsp; ' + today + ' &nbsp;&bull;&nbsp; Confidential &#8212; for personal use only</div>\n</body>\n</html>';
 }
 
+// ── Patient outcome seed data with PHQ-9 / GAD-7 measures ────────────────────
+const _PTO_SEED_KEY = 'ds_patient_outcomes_v2';
+function _ptoSeed() {
+  const existing = localStorage.getItem(_PTO_SEED_KEY);
+  if (existing) { try { return JSON.parse(existing); } catch (_e) {} }
+  const base = new Date('2026-01-20');
+  function addDays(d, n) { const r = new Date(d); r.setDate(r.getDate() + n); return r; }
+  const data = {
+    patient: { name: 'Alex Rivera', startDate: '2026-01-20', totalSessions: 20, condition: 'Depression', clinician: 'Dr. Reyes' },
+    nextAssessmentDate: addDays(new Date(), 7).toISOString().slice(0, 10),
+    measures: [
+      { id: 'phq9',  label: 'PHQ-9',  max: 27, color: 'teal',   points: [
+        { date: addDays(base, 0).toISOString().slice(0,10),  score: 18 },
+        { date: addDays(base, 14).toISOString().slice(0,10), score: 16 },
+        { date: addDays(base, 28).toISOString().slice(0,10), score: 13 },
+        { date: addDays(base, 42).toISOString().slice(0,10), score: 11 },
+        { date: addDays(base, 56).toISOString().slice(0,10), score: 8  },
+      ]},
+      { id: 'gad7',  label: 'GAD-7',  max: 21, color: 'blue',   points: [
+        { date: addDays(base, 0).toISOString().slice(0,10),  score: 14 },
+        { date: addDays(base, 14).toISOString().slice(0,10), score: 12 },
+        { date: addDays(base, 28).toISOString().slice(0,10), score: 10 },
+        { date: addDays(base, 42).toISOString().slice(0,10), score: 8  },
+        { date: addDays(base, 56).toISOString().slice(0,10), score: 6  },
+      ]},
+      { id: 'pcl5',  label: 'PCL-5',  max: 80, color: 'violet', points: [
+        { date: addDays(base, 0).toISOString().slice(0,10),  score: 38 },
+        { date: addDays(base, 28).toISOString().slice(0,10), score: 30 },
+        { date: addDays(base, 56).toISOString().slice(0,10), score: 22 },
+      ]},
+    ],
+  };
+  localStorage.setItem(_PTO_SEED_KEY, JSON.stringify(data));
+  return data;
+}
+function _ptoLoad() { return _ptoSeed(); }
+
 // ── Main render ───────────────────────────────────────────────────────────────
 function _renderOutcomePortal() {
   const data = _outcomeGetData();
@@ -7277,6 +7564,7 @@ function _renderOutcomePortal() {
   const p = data.patient;
   const el = document.getElementById('patient-content');
   if (!el) return;
+  const _rptLoc = getLocale() === 'tr' ? 'tr-TR' : 'en-US';
 
   const daysSince = Math.floor((Date.now() - new Date(p.startDate).getTime()) / 86400000);
   const goalsDone = data.goals.filter(function (g) { return g.status === 'achieved'; }).length;
@@ -7327,10 +7615,196 @@ function _renderOutcomePortal() {
 
   const sdates = data.sessions.map(function (s) { return new Date(s.date).toLocaleDateString(_rptLoc, { month: 'short', day: 'numeric' }); }).join(', ');
 
+  // ── New rich outcome sections ────────────────────────────────────────────────
+  const ptoData = _ptoLoad();
+  const ptoPatient = ptoData.patient;
+  const ptoMeasures = ptoData.measures || [];
+
+  // PHQ-9 summary
+  const phq9m = ptoMeasures.find(function(m) { return m.id === 'phq9'; });
+  const phq9pts = phq9m ? phq9m.points : [];
+  const phq9baseline = phq9pts.length ? phq9pts[0].score : null;
+  const phq9latest = phq9pts.length ? phq9pts[phq9pts.length - 1].score : null;
+  const phq9pct = (phq9baseline && phq9baseline > 0 && phq9latest !== null)
+    ? Math.round(((phq9baseline - phq9latest) / phq9baseline) * 100) : 0;
+  const ptoBadgeClass = phq9pct >= 50 ? 'pto-badge--responder' : phq9pct >= 20 ? 'pto-badge--improving' : 'pto-badge--monitoring';
+  const ptoBadgeLabel = phq9pct >= 50 ? 'Responder' : phq9pct >= 20 ? 'Improving' : 'Monitoring';
+  const ptoDays = Math.floor((Date.now() - new Date(ptoPatient.startDate).getTime()) / 86400000);
+
+  // ── Trend chart SVG ──────────────────────────────────────────────────────────
+  function _ptoTrendChart() {
+    const W = 860, H = 180, PAD_L = 36, PAD_R = 16, PAD_T = 14, PAD_B = 34;
+    const iW = W - PAD_L - PAD_R, iH = H - PAD_T - PAD_B;
+    const colorMap = { teal: '#2dd4bf', blue: '#60a5fa', violet: '#a78bfa' };
+    // collect all dates across measures for x-axis
+    const allDates = [];
+    ptoMeasures.forEach(function(m) { m.points.forEach(function(pt) { if (!allDates.includes(pt.date)) allDates.push(pt.date); }); });
+    allDates.sort();
+    const nX = allDates.length;
+    if (nX < 2) return '<div style="padding:20px;text-align:center;color:var(--text-secondary,#94a3b8);font-size:0.82rem">Not enough data points yet.</div>';
+    function xPos(date) { const i = allDates.indexOf(date); return PAD_L + (i / (nX - 1)) * iW; }
+    function yPos(score, max) { return PAD_T + iH - (score / max) * iH; }
+    // threshold line for PHQ-9=10
+    const threshY = phq9m ? yPos(10, phq9m.max) : null;
+    let svgParts = [];
+    // grid lines
+    [0, 0.25, 0.5, 0.75, 1].forEach(function(f) {
+      const y = PAD_T + iH * (1 - f);
+      svgParts.push('<line x1="' + PAD_L + '" y1="' + y.toFixed(1) + '" x2="' + (W - PAD_R) + '" y2="' + y.toFixed(1) + '" stroke="rgba(255,255,255,0.06)" stroke-width="1"/>');
+    });
+    // threshold dashed line
+    if (threshY !== null) {
+      svgParts.push('<line x1="' + PAD_L + '" y1="' + threshY.toFixed(1) + '" x2="' + (W - PAD_R) + '" y2="' + threshY.toFixed(1) + '" stroke="rgba(251,191,36,0.5)" stroke-width="1.2" stroke-dasharray="5,4"/>');
+      svgParts.push('<text x="' + (W - PAD_R - 2) + '" y="' + (threshY - 4).toFixed(1) + '" text-anchor="end" font-size="9" fill="rgba(251,191,36,0.7)">Moderate threshold</text>');
+    }
+    // measure lines + dots
+    ptoMeasures.forEach(function(m) {
+      const col = colorMap[m.color] || '#2dd4bf';
+      const pts = m.points;
+      if (pts.length < 1) return;
+      const points = pts.map(function(pt) { return xPos(pt.date).toFixed(1) + ',' + yPos(pt.score, m.max).toFixed(1); }).join(' ');
+      if (pts.length > 1) {
+        svgParts.push('<polyline points="' + points + '" fill="none" stroke="' + col + '" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round" opacity="0.85"/>');
+      }
+      pts.forEach(function(pt, i) {
+        const cx = xPos(pt.date), cy = yPos(pt.score, m.max);
+        const isLast = i === pts.length - 1;
+        if (isLast) {
+          svgParts.push('<circle cx="' + cx.toFixed(1) + '" cy="' + cy.toFixed(1) + '" r="7" fill="none" stroke="' + col + '" stroke-width="1.5" opacity="0.35" class="pto-pulse-ring"/>');
+        }
+        svgParts.push('<circle cx="' + cx.toFixed(1) + '" cy="' + cy.toFixed(1) + '" r="' + (isLast ? 5 : 3.5) + '" fill="' + col + '" stroke="#0f172a" stroke-width="1.5"/>');
+        svgParts.push('<text x="' + cx.toFixed(1) + '" y="' + (cy - 9).toFixed(1) + '" text-anchor="middle" font-size="9.5" fill="' + col + '" font-weight="600">' + pt.score + '</text>');
+      });
+    });
+    // x-axis date labels
+    allDates.forEach(function(d) {
+      const x = xPos(d);
+      const lbl = new Date(d).toLocaleDateString(_rptLoc, { month: 'short', day: 'numeric' });
+      svgParts.push('<text x="' + x.toFixed(1) + '" y="' + (H - 4) + '" text-anchor="middle" font-size="9.5" fill="rgba(148,163,184,0.8)">' + lbl + '</text>');
+    });
+    // y-axis tick
+    svgParts.push('<text x="' + (PAD_L - 4) + '" y="' + (PAD_T + 4) + '" text-anchor="end" font-size="9" fill="rgba(148,163,184,0.6)">27</text>');
+    svgParts.push('<text x="' + (PAD_L - 4) + '" y="' + (PAD_T + iH / 2 + 4) + '" text-anchor="end" font-size="9" fill="rgba(148,163,184,0.6)">13</text>');
+    svgParts.push('<text x="' + (PAD_L - 4) + '" y="' + (PAD_T + iH + 4) + '" text-anchor="end" font-size="9" fill="rgba(148,163,184,0.6)">0</text>');
+    return '<svg id="pto-trend-svg" viewBox="0 0 ' + W + ' ' + H + '" width="100%" height="' + H + '" style="display:block;overflow:visible">' + svgParts.join('') + '</svg>';
+  }
+
+  // ── Scores table ─────────────────────────────────────────────────────────────
+  function _ptoScoresTable() {
+    const rows = [];
+    ptoMeasures.forEach(function(m) {
+      m.points.forEach(function(pt, i) {
+        const prev = i > 0 ? m.points[i - 1].score : null;
+        const change = prev !== null ? pt.score - prev : null;
+        const changeCls = change === null ? 'pto-change-neu' : change < 0 ? 'pto-change-pos' : change > 0 ? 'pto-change-neg' : 'pto-change-neu';
+        const changeStr = change === null ? '\u2014' : (change < 0 ? change : '+' + change);
+        const point = i === 0 ? 'Baseline' : 'Follow-up ' + i;
+        const isLast = i === m.points.length - 1;
+        let status = '\u2014';
+        if (m.id === 'phq9' && pt.score !== null) {
+          status = pt.score >= 20 ? 'Severe' : pt.score >= 15 ? 'Mod. Severe' : pt.score >= 10 ? 'Moderate' : pt.score >= 5 ? 'Mild' : 'Minimal';
+        } else if (m.id === 'gad7' && pt.score !== null) {
+          status = pt.score >= 15 ? 'Severe' : pt.score >= 10 ? 'Moderate' : pt.score >= 5 ? 'Mild' : 'Minimal';
+        }
+        const dateFmt = new Date(pt.date).toLocaleDateString(_rptLoc, { month: 'short', day: 'numeric', year: 'numeric' });
+        rows.push('<tr>' +
+          '<td>' + dateFmt + '</td>' +
+          '<td><span style="font-weight:600;color:' + (m.id === 'phq9' ? '#2dd4bf' : m.id === 'gad7' ? '#60a5fa' : '#a78bfa') + '">' + m.label + '</span></td>' +
+          '<td><strong>' + pt.score + '</strong>' + (isLast ? ' <span style="font-size:0.7rem;color:var(--teal,#2dd4bf)">(latest)</span>' : '') + '</td>' +
+          '<td class="' + changeCls + '">' + changeStr + '</td>' +
+          '<td style="color:var(--text-secondary,#94a3b8)">' + point + '</td>' +
+          '<td style="color:var(--text-secondary,#94a3b8);font-size:0.78rem">' + status + '</td>' +
+          '</tr>');
+      });
+    });
+    return '<div style="overflow-x:auto"><table class="pto-table"><thead><tr>' +
+      '<th>Date</th><th>Measure</th><th>Score</th><th>Change</th><th>Point</th><th>Status</th>' +
+      '</tr></thead><tbody>' + rows.join('') + '</tbody></table></div>';
+  }
+
+  // ── Next assessment card ─────────────────────────────────────────────────────
+  function _ptoNextAssessCard() {
+    const nextDate = ptoData.nextAssessmentDate || new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10);
+    const daysUntil = Math.ceil((new Date(nextDate).getTime() - Date.now()) / 86400000);
+    const due = daysUntil <= 0 ? 'Today' : daysUntil === 1 ? 'Tomorrow' : 'In ' + daysUntil + ' days';
+    const dueFmt = new Date(nextDate).toLocaleDateString(_rptLoc, { weekday: 'long', month: 'long', day: 'numeric' });
+    return '<div class="pto-next-card">' +
+      '<h4>&#128197; Next Assessment Due</h4>' +
+      '<p><strong style="color:' + (daysUntil <= 1 ? 'var(--accent-amber,#fbbf24)' : 'var(--teal,#2dd4bf)') + '">' + due + '</strong> &mdash; ' + dueFmt + '</p>' +
+      '<button class="pto-share-btn pto-share-btn--copy" onclick="window._ptoToggleAssessForm()" style="margin-bottom:0">Complete Now</button>' +
+      '<div id="pto-assess-form" style="display:none" class="pto-inline-form">' +
+        '<div class="pto-inline-form-row"><label>PHQ-9 score</label><input type="number" min="0" max="27" id="pto-phq9-input" class="pto-form-inp" placeholder="0-27"/></div>' +
+        '<div class="pto-inline-form-row"><label>GAD-7 score</label><input type="number" min="0" max="21" id="pto-gad7-input" class="pto-form-inp" placeholder="0-21"/></div>' +
+        '<div class="pto-inline-form-row"><label>PCL-5 score</label><input type="number" min="0" max="80" id="pto-pcl5-input" class="pto-form-inp" placeholder="0-80 (opt.)"/></div>' +
+        '<button class="pto-share-btn pto-share-btn--copy" onclick="window._ptoSubmitAssessment()" style="align-self:flex-start">Save Scores</button>' +
+      '</div>' +
+    '</div>';
+  }
+
+  // ── Legend ───────────────────────────────────────────────────────────────────
+  const colorMap2 = { teal: '#2dd4bf', blue: '#60a5fa', violet: '#a78bfa' };
+  const legendHTML = ptoMeasures.map(function(m) {
+    return '<div class="pto-legend-item"><div class="pto-legend-dot" style="background:' + (colorMap2[m.color] || '#2dd4bf') + '"></div>' + m.label + '</div>';
+  }).join('') + '<div class="pto-legend-item"><div class="pto-legend-dot" style="background:rgba(251,191,36,0.6);border-radius:2px;height:2px;width:16px"></div>PHQ-9 moderate threshold</div>';
+
+  // ── Rich new top sections ─────────────────────────────────────────────────────
+  const richSectionsHTML =
+    '<div class="pto-page">' +
+
+    // Progress Summary Card
+    '<div class="pto-summary-card">' +
+      '<div class="pto-big-stat">' +
+        '<div class="pto-big-score">' + (phq9latest !== null ? phq9latest : '\u2014') + '</div>' +
+        '<div class="pto-big-label">PHQ-9 Now</div>' +
+        '<div style="font-size:0.72rem;color:var(--text-secondary,#94a3b8);margin-top:3px">was ' + (phq9baseline !== null ? phq9baseline : '\u2014') + ' at baseline</div>' +
+      '</div>' +
+      '<div style="width:1px;height:60px;background:var(--border,rgba(255,255,255,0.08));flex-shrink:0"></div>' +
+      '<div class="pto-summary-meta">' +
+        '<h3>' + ptoPatient.name + '</h3>' +
+        '<p>' + (ptoPatient.condition || 'Treatment') + ' &nbsp;&bull;&nbsp; ' + ptoPatient.totalSessions + ' sessions &nbsp;&bull;&nbsp; ' +
+          new Date(ptoPatient.startDate).toLocaleDateString(_rptLoc, { month: 'short', day: 'numeric', year: 'numeric' }) + '</p>' +
+        '<span class="pto-badge ' + ptoBadgeClass + '">' + ptoBadgeLabel + '</span>' +
+        '<div class="pto-days-badge" style="margin-top:6px">&#9200; ' + ptoDays + ' days in treatment &nbsp;&bull;&nbsp; ' + phq9pct + '% PHQ-9 reduction</div>' +
+      '</div>' +
+    '</div>' +
+
+    // Trend Chart
+    '<div class="pto-section">' +
+      '<div class="pto-section-title"><span class="pto-section-accent">&#9647;</span> Score Trend Over Time</div>' +
+      '<div class="pto-chart-wrap">' +
+        _ptoTrendChart() +
+        '<div class="pto-chart-legend">' + legendHTML + '</div>' +
+      '</div>' +
+    '</div>' +
+
+    // Scores Table
+    '<div class="pto-section">' +
+      '<div class="pto-section-title"><span class="pto-section-accent">&#9776;</span> Assessment History</div>' +
+      _ptoScoresTable() +
+    '</div>' +
+
+    // Share Progress
+    '<div class="pto-section">' +
+      '<div class="pto-section-title"><span class="pto-section-accent">&#8679;</span> Share Progress</div>' +
+      '<div class="pto-share-row">' +
+        '<button class="pto-share-btn pto-share-btn--copy" onclick="window._ptoCopyProgress()">&#128203; Copy Progress Summary</button>' +
+        '<button class="pto-share-btn pto-share-btn--dl" onclick="window._ptoDownloadChart()">&#8595; Download Chart</button>' +
+      '</div>' +
+    '</div>' +
+
+    // Next Assessment
+    '<div class="pto-section">' +
+      '<div class="pto-section-title"><span class="pto-section-accent">&#128197;</span> Next Assessment</div>' +
+      _ptoNextAssessCard() +
+    '</div>' +
+
+    '</div>';
+
   el.innerHTML =
+    richSectionsHTML +
     '<div class="iii-outcome-banner">' +
     '<div class="iii-banner-greeting">' +
-    '<div style="font-size:1.6rem;font-weight:800;color:var(--text,#f1f5f9);line-height:1.2">Your Progress, <span style="color:var(--accent-teal,#2dd4bf)">' + p.name + '</span></div>' +
+    '<div style="font-size:1.6rem;font-weight:800;color:var(--text,#f1f5f9);line-height:1.2">Full Outcome History, <span style="color:var(--accent-teal,#2dd4bf)">' + p.name + '</span></div>' +
     '<div style="font-size:0.85rem;color:var(--text-muted,#94a3b8);margin-top:4px">Treatment started ' + new Date(p.startDate).toLocaleDateString(_rptLoc, { month: 'long', day: 'numeric', year: 'numeric' }) + '</div>' +
     '</div>' +
     '<div class="iii-stat-cards">' +
@@ -7457,6 +7931,81 @@ window._outcomeShowDay = function (dateStr) {
   } else {
     popup.innerHTML = '<strong style="color:var(--text,#f1f5f9)">' + df + '</strong><div style="margin-top:6px">No journal entry for this day. Visit <a href="#" onclick="window._navPatient(\'pt-journal\');return false" style="color:var(--accent-teal,#2dd4bf)">Symptom Journal</a> to add one.</div>';
   }
+};
+
+// ── New outcome portal window handlers ────────────────────────────────────────
+window._ptoCopyProgress = function () {
+  const d = _ptoLoad();
+  const pat = d.patient;
+  const phq9m = (d.measures || []).find(function(m) { return m.id === 'phq9'; });
+  const pts = phq9m ? phq9m.points : [];
+  const baseline = pts.length ? pts[0].score : '?';
+  const latest = pts.length ? pts[pts.length - 1].score : '?';
+  const pct = (baseline > 0 && latest !== '?') ? Math.round(((baseline - latest) / baseline) * 100) : 0;
+  const startFmt = new Date(pat.startDate).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+  const text = 'My TMS treatment progress: Started ' + startFmt + ', PHQ-9 improved from ' + baseline + ' to ' + latest + ' (' + pct + '% reduction). ' + pat.totalSessions + ' sessions completed.';
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(function () {
+      window._showNotifToast && window._showNotifToast({ title: 'Copied!', body: 'Progress summary copied to clipboard.', severity: 'success' });
+    }).catch(function () { prompt('Copy this summary:', text); });
+  } else { prompt('Copy this summary:', text); }
+};
+
+window._ptoDownloadChart = function () {
+  const svg = document.getElementById('pto-trend-svg');
+  if (!svg) { alert('Chart not found.'); return; }
+  const svgData = new XMLSerializer().serializeToString(svg);
+  const canvas = document.createElement('canvas');
+  const bbox = svg.getBoundingClientRect();
+  canvas.width = Math.max(bbox.width || 860, 860);
+  canvas.height = 180;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#0f172a';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  const img = new Image();
+  const blob = new Blob([svgData], { type: 'image/svg+xml;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  img.onload = function () {
+    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+    URL.revokeObjectURL(url);
+    const a = document.createElement('a');
+    a.download = 'outcome-chart-' + new Date().toISOString().slice(0, 10) + '.png';
+    a.href = canvas.toDataURL('image/png');
+    a.click();
+  };
+  img.onerror = function () { URL.revokeObjectURL(url); alert('Could not render chart image.'); };
+  img.src = url;
+};
+
+window._ptoToggleAssessForm = function () {
+  const f = document.getElementById('pto-assess-form');
+  if (f) f.style.display = f.style.display === 'none' ? 'block' : 'none';
+};
+
+window._ptoSubmitAssessment = function () {
+  const phq9v = parseInt(document.getElementById('pto-phq9-input') ? document.getElementById('pto-phq9-input').value : '', 10);
+  const gad7v = parseInt(document.getElementById('pto-gad7-input') ? document.getElementById('pto-gad7-input').value : '', 10);
+  const pcl5v = parseInt(document.getElementById('pto-pcl5-input') ? document.getElementById('pto-pcl5-input').value : '', 10);
+  if (isNaN(phq9v) && isNaN(gad7v)) {
+    window._showNotifToast && window._showNotifToast({ title: 'Missing scores', body: 'Enter at least PHQ-9 or GAD-7.', severity: 'warning' });
+    return;
+  }
+  const d = _ptoLoad();
+  const today = new Date().toISOString().slice(0, 10);
+  const addScore = function (id, score) {
+    if (isNaN(score)) return;
+    const m = (d.measures || []).find(function(m) { return m.id === id; });
+    if (!m) return;
+    const exists = m.points.find(function(pt) { return pt.date === today; });
+    if (exists) { exists.score = score; } else { m.points.push({ date: today, score: score }); }
+  };
+  addScore('phq9', phq9v);
+  addScore('gad7', gad7v);
+  addScore('pcl5', pcl5v);
+  d.nextAssessmentDate = new Date(Date.now() + 14 * 86400000).toISOString().slice(0, 10);
+  localStorage.setItem(_PTO_SEED_KEY, JSON.stringify(d));
+  window._showNotifToast && window._showNotifToast({ title: 'Saved', body: 'Assessment scores recorded.', severity: 'success' });
+  _renderOutcomePortal();
 };
 
 // ── Exported page entry point ─────────────────────────────────────────────────

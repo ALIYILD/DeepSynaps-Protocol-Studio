@@ -692,6 +692,20 @@ def post_review_action(
     if item is None:
         raise ApiServiceError(code="not_found", message="Review queue item not found.", status_code=404)
 
+    # Ownership check: admins can act on any item; clinicians may only act on items
+    # that are assigned to them or that they created.
+    if actor.role != "admin":
+        owns_item = (
+            item.assigned_to == actor.actor_id
+            or item.created_by == actor.actor_id
+        )
+        if not owns_item:
+            raise ApiServiceError(
+                code="not_found",
+                message="Review queue item not found.",
+                status_code=404,
+            )
+
     # Apply state transition
     now = datetime.now(timezone.utc)
     if action == "approve":

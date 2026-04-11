@@ -7,6 +7,7 @@ from deepsynaps_core_schema import UserRole
 
 from app.errors import ApiServiceError
 from app.registries.auth import ANONYMOUS_ACTOR, DEMO_ACTOR_TOKENS
+from app.settings import get_settings
 
 
 @dataclass(frozen=True, slots=True)
@@ -38,16 +39,19 @@ def get_authenticated_actor(authorization: str | None = Header(default=None)) ->
             package_id=ANONYMOUS_ACTOR.package_id,
         )
 
-    # Check demo tokens first (backward compat)
-    demo_actor = DEMO_ACTOR_TOKENS.get(token)
-    if demo_actor is not None:
-        return AuthenticatedActor(
-            actor_id=demo_actor.actor_id,
-            display_name=demo_actor.display_name,
-            role=demo_actor.role,
-            package_id=demo_actor.package_id,
-            token_id=token,
-        )
+    # Demo tokens are only honored in development and test environments.
+    # In production/staging, every request must carry a real JWT.
+    _settings = get_settings()
+    if _settings.app_env in ("development", "test"):
+        demo_actor = DEMO_ACTOR_TOKENS.get(token)
+        if demo_actor is not None:
+            return AuthenticatedActor(
+                actor_id=demo_actor.actor_id,
+                display_name=demo_actor.display_name,
+                role=demo_actor.role,
+                package_id=demo_actor.package_id,
+                token_id=token,
+            )
 
     # Try real JWT
     try:
@@ -74,8 +78,9 @@ def get_authenticated_actor(authorization: str | None = Header(default=None)) ->
                     package_id=package_id,
                     token_id=token,
                 )
-    except Exception:
-        pass
+    except Exception as e:
+        import logging as _logging
+        _logging.getLogger(__name__).warning("JWT decode failed: %s: %s", type(e).__name__, e)
 
     raise ApiServiceError(
         code="invalid_auth_token",

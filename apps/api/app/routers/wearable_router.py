@@ -422,11 +422,13 @@ def get_clinic_alert_summary(
     without N per-patient queries.
     """
     _require_clinician_access(actor)
-    flags = (
-        db.query(WearableAlertFlag)
-        .filter_by(dismissed=False)
-        .all()
-    )
+    q = db.query(WearableAlertFlag).filter(WearableAlertFlag.dismissed == False)  # noqa: E712
+    if actor.role != "admin":
+        # Scope to patients owned by this clinician so data never leaks across clinics.
+        q = q.join(Patient, WearableAlertFlag.patient_id == Patient.id).filter(
+            Patient.clinician_id == actor.actor_id
+        )
+    flags = q.all()
     urgent  = sum(1 for f in flags if f.severity == 'urgent')
     warning = sum(1 for f in flags if f.severity == 'warning')
     info    = sum(1 for f in flags if f.severity == 'info')

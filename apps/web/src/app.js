@@ -18,6 +18,14 @@ function announce(message, urgent = false) {
 }
 window._announce = announce;
 
+// ── Session expiry handler (called by api.js _on401) ─────────────────────────
+window._handleSessionExpired = function() {
+  api.clearToken();
+  setCurrentUser(null);
+  navigatePublic('home');
+  announce('Your session has expired. Please sign in again.', true);
+};
+
 // ── Accessibility: focus trap for modals ──────────────────────────────────────
 function trapFocus(element) {
   const focusable = element.querySelectorAll('a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])');
@@ -372,6 +380,13 @@ document.addEventListener('keydown', (e) => {
     if (sidePanel) sidePanel.remove();
     // Close mobile sidebar
     window._closeSidebar();
+    // Close command palette
+    if (typeof window._closePalette === 'function') window._closePalette(e);
+  }
+  // Ctrl+K / Cmd+K → Command palette
+  if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+    e.preventDefault();
+    if (typeof window._openPalette === 'function') window._openPalette();
   }
   // Alt+D → Dashboard, Alt+P → Patients, Alt+C → Courses
   if (e.altKey && !e.ctrlKey && !e.metaKey) {
@@ -388,12 +403,16 @@ window._toggleSidebar = function() {
   const isOpen = sb.classList.contains('mobile-open');
   if (isOpen) { sb.classList.remove('mobile-open'); if (ov) ov.classList.remove('visible'); }
   else { sb.classList.add('mobile-open'); if (ov) ov.classList.add('visible'); }
+  const btn = document.getElementById('sidebar-toggle');
+  if (btn) btn.setAttribute('aria-expanded', !isOpen ? 'true' : 'false');
 };
 window._closeSidebar = function() {
   const sb = document.getElementById('sidebar');
   const ov = document.getElementById('sidebar-overlay');
   if (sb) sb.classList.remove('mobile-open');
   if (ov) ov.classList.remove('visible');
+  const btn = document.getElementById('sidebar-toggle');
+  if (btn) btn.setAttribute('aria-expanded', 'false');
 };
 
 // ── State ─────────────────────────────────────────────────────────────────────
@@ -411,7 +430,7 @@ const ROLE_NAV_HIDE = {
 const NAV = [
   { section: 'Care Delivery' },
   { id: 'dashboard',          label: 'Dashboard',             icon: '◈' },
-  { id: 'today',              label: 'Today',                 icon: '◎' },
+  { id: 'patient-queue',      label: 'Today\'s Queue',        icon: '◉' },
   { id: 'patients',           label: 'Patients',              icon: '◉' },
   { id: 'courses',            label: 'Treatment Courses',     icon: '◎', badge: null },
   { id: 'session-execution',  label: 'Session Execution',     icon: '◧' },
@@ -423,7 +442,10 @@ const NAV = [
 
   { section: 'Intelligence' },
   { id: 'wearables',          label: 'Monitoring',            icon: '◌' },
+  { id: 'home-task-manager',  label: 'Home Tasks',            icon: '◩' },
   { id: 'outcomes',           label: 'Outcomes',              icon: '◫' },
+  { id: 'longitudinal-report',label: 'Population Report',     icon: '◫' },
+  { id: 'scoring-calc',       label: 'Scoring Calculator',    icon: '◇' },
   { id: 'protocol-wizard',    label: 'Protocol Intelligence', icon: '⬡', ai: true },
 
   { section: 'More', sectionId: 'more', collapsed: true },
@@ -689,6 +711,11 @@ const PAGE_TITLES = {
   'rules-engine': 'Automated Alerts & Rules Engine',
   'data-import': 'Data Import & Migration',
   'wearables': 'Wearable & Biosensor Integration',
+  'home-task-manager': 'Home Task Manager',
+  'patient-queue': 'Today\'s Queue',
+  'course-completion-report': 'Course Completion Report',
+  'longitudinal-report': 'Longitudinal Outcomes Report',
+  'scoring-calc': 'Clinical Scoring Calculator',
   'clinic-analytics': 'Clinic Analytics',
   'consent-automation': 'Consent & Compliance',
   'multi-site': 'Multi-Site Network',
@@ -725,6 +752,10 @@ async function navigate(id, params = {}) {
   if (id !== 'profile') _setPtab('courses');
   if (id !== 'protocol-wizard') window._wizardProtocolId = null;
   if (id !== 'course-detail') window._cdTab = 'overview';
+  // Push browser history so back/forward works
+  if (typeof history !== 'undefined' && history.pushState) {
+    history.pushState({ page: id, params }, '', `?page=${encodeURIComponent(id)}`);
+  }
   renderNav();
   initSidebarKeyboard();
   announce(`Navigated to ${PAGE_TITLES[id] || id}`);
@@ -955,6 +986,7 @@ async function renderPage() {
       break;
     }
     case 'session-monitor': { const m = await loadCourses(); await m.pgSessionMonitor(setTopbar); break; }
+    case 'course-completion-report': { const m = await loadCourses(); await m.pgCourseCompletionReport(setTopbar, navigate); break; }
     case 'review-queue': {
       const m = await loadCourses();
       await m.pgReviewQueue(setTopbar, navigate);
@@ -1039,6 +1071,8 @@ async function renderPage() {
     case 'data-export': { const { pgDataExport } = await loadKnowledge(); await pgDataExport(setTopbar); break; }
     case 'literature': { const { pgLiteratureLibrary } = await loadKnowledge(); await pgLiteratureLibrary(setTopbar); break; }
     case 'irb-manager': { const { pgIRBManager } = await loadKnowledge(); await pgIRBManager(setTopbar); break; }
+    case 'longitudinal-report': { const { pgLongitudinalReport } = await loadKnowledge(); await pgLongitudinalReport(setTopbar); break; }
+    case 'scoring-calc': { const { pgClinicalScoringCalc } = await loadKnowledge(); await pgClinicalScoringCalc(setTopbar); break; }
     // ── Legacy pages (kept functional) ───────────────────────────────────
     case 'assessments': {
       const m = await loadClinical();
@@ -1073,6 +1107,7 @@ async function renderPage() {
     }
     case 'telehealth-recorder': { const m = await loadPractice(); await m.pgTelehealthRecorder(setTopbar); break; }
     case 'wearables': { const m = await loadPractice(); await m.pgWearableIntegration(setTopbar); break; }
+    case 'home-task-manager': { const m = await loadPractice(); await m.pgHomeTaskManager(setTopbar); break; }
     case 'messaging': {
       const m = await loadClinical();
       await m.pgMessaging(setTopbar);
@@ -1099,6 +1134,7 @@ async function renderPage() {
     case 'media-queue': { const m = await loadClinical(); await m.pgMediaReviewQueue(setTopbar); break; }
     case 'media-detail': { const m = await loadClinical(); await m.pgMediaDetail(setTopbar); break; }
     case 'clinician-dictation': { const m = await loadClinical(); await m.pgClinicianDictation(setTopbar); break; }
+    case 'patient-queue': { const { pgPatientQueue } = await loadClinical(); await pgPatientQueue(setTopbar); break; }
     case 'clinician-draft-review': { const m = await loadClinical(); await m.pgClinicianDraftReview(setTopbar); break; }
     case 'clinical-notes': {
       const m = await loadCourses();
@@ -1781,7 +1817,7 @@ async function init() {
   }
   try {
     const user = await api.me();
-    if (!user) { api.clearToken(); navigatePublic('home'); return; }
+    if (!user || !user.role) { api.clearToken(); navigatePublic('home'); return; }
     setCurrentUser(user);
     if (user.role === 'patient') {
       showPatient();
@@ -1799,6 +1835,13 @@ async function init() {
 }
 
 init();
+
+// ── Browser back/forward navigation ──────────────────────────────────────────
+window.addEventListener('popstate', (e) => {
+  const page = e.state?.page || new URLSearchParams(location.search).get('page') || 'dashboard';
+  const params = e.state?.params || {};
+  navigate(page, params);
+});
 
 // ── AI Clinical Co-pilot ─────────────────────────────────────────────────────
 (function initAICopilot() {
