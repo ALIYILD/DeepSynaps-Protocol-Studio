@@ -4637,14 +4637,335 @@ const CONDITION_BUNDLES = {
 };
 
 export async function pgAssess(setTopbar) {
-  setTopbar('Assessments', `<button class="btn btn-primary btn-sm" onclick="window.showAssessModal()">+ Run Assessment</button>`);
+  setTopbar('Assessments Hub', `<button class="btn btn-primary btn-sm" onclick="window._ahTab('run')">+ Run Assessment</button>`);
   const el = document.getElementById('content');
   el.innerHTML = spinner();
 
   let items = [];
   try { const res = await api.listAssessments(); items = res?.items || []; } catch {}
 
-  const templates = ASSESS_TEMPLATES;
+  const registry = ASSESS_REGISTRY;
+  const condIds = Object.keys(CONDITION_BUNDLES);
+  const phases = ['baseline','pre_session','post_session','weekly','discharge'];
+  const phaseNames = { baseline:'Baseline', pre_session:'Pre-Session', post_session:'Post-Session', weekly:'Weekly', discharge:'Discharge' };
+  const measureMap = { baseline:'baseline', pre_session:'pre', post_session:'post', weekly:'mid', discharge:'follow_up' };
+  const categories = [...new Set(condIds.map(id => CONDITION_BUNDLES[id].cat))].sort();
+
+  function scaleChip(id, clickable) {
+    const s = registry.find(r => r.id === id);
+    if (!s) return `<span class="ah-chip">${id}</span>`;
+    const attrs = clickable ? `onclick="window._ahQuickRunScale('${id}')" title="${s.sub}"` : `title="${s.sub}"`;
+    return `<span class="ah-chip${clickable?' ah-chip-btn':''}" ${attrs}>${s.abbr||s.id}${s.inline?' ◉':''}</span>`;
+  }
+
+  function bundlePhaseRows(condId) {
+    const b = CONDITION_BUNDLES[condId];
+    return phases.map(ph => `
+      <div class="ah-phase-row">
+        <span class="ah-phase-label">${phaseNames[ph]}</span>
+        <div class="ah-chip-row">${(b[ph]||[]).map(id => scaleChip(id,false)).join('')}</div>
+        <button class="btn btn-sm ah-run-bundle-btn" onclick="window._ahSelectBundle('${condId}','${ph}')">Run →</button>
+      </div>`).join('');
+  }
+
+  function condCard(condId) {
+    const b = CONDITION_BUNDLES[condId];
+    const total = [...new Set(phases.flatMap(ph => b[ph]||[]))].length;
+    return `<div class="ah-cond-card" id="ah-cond-${condId}">
+      <div class="ah-cond-hd" onclick="window._ahToggleCond('${condId}')">
+        <span class="ah-cond-name">${b.name}</span>
+        <span class="ah-cond-meta">${total} scales · 5 phases</span>
+        <span class="ah-cond-cat">${b.cat}</span>
+        <span class="ah-cond-chevron">▾</span>
+      </div>
+      <div class="ah-cond-body" style="display:none" id="ah-condbody-${condId}">
+        ${bundlePhaseRows(condId)}
+      </div>
+    </div>`;
+  }
+
+  function recentRows() {
+    if (!items.length) return `<div class="ah-empty">No assessments yet.</div>`;
+    return `<table class="ds-table"><thead><tr><th>Scale</th><th>Patient</th><th>Score</th><th>Interpretation</th><th>Date</th></tr></thead>
+      <tbody>${items.slice(0,8).map(a => {
+        const tpl = registry.find(r => r.id === a.template_id);
+        const sn = parseFloat(a.score);
+        const interp = (tpl?.interpret && !isNaN(sn)) ? tpl.interpret(sn) : null;
+        return `<tr>
+          <td style="font-weight:500">${a.template_title||a.template_id}</td>
+          <td style="color:var(--text-tertiary)">${a.patient_id||'—'}</td>
+          <td class="mono" style="color:${interp?.color||'var(--teal)'}">${a.score||'—'}</td>
+          <td style="font-size:11px;color:${interp?.color||'var(--text-secondary)'}">${interp?.label||'—'}</td>
+          <td style="color:var(--text-tertiary)">${a.created_at?.split('T')[0]||'—'}</td>
+        </tr>`;
+      }).join('')}</tbody></table>`;
+  }
+
+  el.innerHTML = `
+  <div id="ah-root">
+    <div class="ah-tabbar">
+      <button class="ah-tab active" id="ah-tab-overview"  onclick="window._ahTab('overview')">Overview</button>
+      <button class="ah-tab"        id="ah-tab-bundles"   onclick="window._ahTab('bundles')">Bundles</button>
+      <button class="ah-tab"        id="ah-tab-run"       onclick="window._ahTab('run')">Run Assessment</button>
+      <button class="ah-tab"        id="ah-tab-results"   onclick="window._ahTab('results')">Results <span class="ah-count">${items.length}</span></button>
+    </div>
+    <div id="ah-overview" class="ah-view">
+      <div class="g2" style="margin-bottom:20px">
+        <div class="card"><div class="card-body">
+          <div class="ah-section-title">Quick-Assign Bundle</div>
+          <div class="form-group" style="margin-bottom:10px"><label class="form-label">Patient ID</label>
+            <input id="ah-ov-patient" class="form-control" placeholder="Enter patient ID…"></div>
+          <div class="form-group" style="margin-bottom:10px"><label class="form-label">Condition</label>
+            <select id="ah-ov-cond" class="form-control" onchange="window._ahOvPreview()">
+              <option value="">— Select condition —</option>
+              ${condIds.map(id=>`<option value="${id}">${CONDITION_BUNDLES[id].name}</option>`).join('')}
+            </select></div>
+          <div class="form-group" style="margin-bottom:12px"><label class="form-label">Phase</label>
+            <select id="ah-ov-phase" class="form-control" onchange="window._ahOvPreview()">
+              ${phases.map(ph=>`<option value="${ph}">${phaseNames[ph]}</option>`).join('')}
+            </select></div>
+          <div id="ah-ov-preview" class="ah-ov-preview"></div>
+          <button class="btn btn-primary" style="margin-top:10px" onclick="window._ahOvRun()">Run This Bundle →</button>
+        </div></div>
+        <div class="card"><div class="card-body">
+          <div class="ah-section-title">Scale Library <span style="font-size:10px;color:var(--text-tertiary);font-weight:400">(${registry.length} scales)</span></div>
+          <div style="display:flex;flex-direction:column;gap:4px;max-height:270px;overflow-y:auto;margin-top:8px">
+            ${registry.map(s=>`
+              <div class="ah-lib-row" onclick="window._ahQuickRunScale('${s.id}')">
+                <span class="ah-lib-abbr">${s.abbr||s.id}</span>
+                <span class="ah-lib-name">${s.t}</span>
+                ${s.inline?'<span class="ah-inline-badge">◉</span>':''}
+                <span class="ah-lib-cat">${s.cat}</span>
+              </div>`).join('')}
+          </div>
+        </div></div>
+      </div>
+      <div class="card"><div class="card-body">
+        <div class="ah-section-title">Recent Assessments</div>${recentRows()}
+      </div></div>
+    </div>
+    <div id="ah-bundles" class="ah-view" style="display:none">
+      <div class="ah-cat-bar">
+        <button class="ah-cat-btn active" id="ah-cat-all" onclick="window._ahFilterCat('all')">All</button>
+        ${categories.map(c=>`<button class="ah-cat-btn" id="ah-cat-${c.replace(/[\s']/g,'-')}" onclick="window._ahFilterCat('${c}')">${c}</button>`).join('')}
+      </div>
+      <div id="ah-cond-list" style="margin-top:16px">${condIds.map(id => condCard(id)).join('')}</div>
+    </div>
+    <div id="ah-run" class="ah-view" style="display:none">
+      <div class="card" style="margin-bottom:16px"><div class="card-body">
+        <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end">
+          <div class="form-group" style="margin:0;flex:1;min-width:180px"><label class="form-label">Patient ID</label>
+            <input id="ah-run-patient" class="form-control" placeholder="Patient ID (optional)"></div>
+          <div class="form-group" style="margin:0;flex:1;min-width:160px"><label class="form-label">Condition</label>
+            <select id="ah-run-cond" class="form-control" onchange="window._ahRunFilter()">
+              <option value="">All scales</option>
+              ${condIds.map(id=>`<option value="${id}">${CONDITION_BUNDLES[id].name}</option>`).join('')}
+            </select></div>
+          <div class="form-group" style="margin:0;flex:1;min-width:160px"><label class="form-label">Phase</label>
+            <select id="ah-run-phase" class="form-control" onchange="window._ahRunFilter()">
+              ${phases.map(ph=>`<option value="${ph}">${phaseNames[ph]}</option>`).join('')}
+            </select></div>
+        </div>
+      </div></div>
+      <div id="ah-run-scale-list" class="g3">
+        ${registry.map(s=>`
+          <div class="card ah-scale-card" style="margin-bottom:0" id="ahsc-${s.id.replace(/[^a-z0-9]/gi,'_')}">
+            <div class="card-body">
+              <div style="font-family:var(--font-display);font-size:13px;font-weight:600;margin-bottom:3px">${s.t}</div>
+              <div style="font-size:11px;color:var(--text-secondary);margin-bottom:8px">${s.sub} · max ${s.max}</div>
+              <div style="margin-bottom:10px">${s.tags.slice(0,3).map(t=>tag(t)).join('')}</div>
+              <div style="display:flex;gap:6px">
+                ${s.inline?`<button class="btn btn-primary btn-sm" onclick="window._ahRunScale('${s.id}')">Run Inline ◉</button>`:''}
+                <button class="btn btn-sm" onclick="window._ahScoreEntry('${s.id}')">Enter Score</button>
+              </div>
+            </div>
+          </div>`).join('')}
+      </div>
+      <div id="ah-inline-panel" style="display:none;max-width:680px;margin-top:16px">
+        <div class="card"><div class="card-body">
+          <div style="display:flex;align-items:center;gap:12px;margin-bottom:18px">
+            <button class="btn btn-sm" onclick="window._ahCloseInline()">← Back</button>
+            <div id="ah-inline-title" style="font-family:var(--font-display);font-size:15px;font-weight:600;flex:1"></div>
+            <div id="ah-inline-badge" style="font-family:var(--font-mono);font-size:20px;font-weight:700;color:var(--teal)">0</div>
+          </div>
+          <div id="ah-inline-interp" style="font-size:12px;font-weight:600;padding:6px 10px;border-radius:var(--radius-sm);margin-bottom:18px;display:inline-block"></div>
+          <div id="ah-inline-questions"></div>
+          <div class="form-group" style="margin-top:14px"><label class="form-label">Clinician Notes</label>
+            <textarea id="ah-inline-notes" class="form-control" rows="2" placeholder="Optional notes…"></textarea></div>
+          <div id="ah-inline-err" style="color:var(--red);font-size:12px;display:none;margin-bottom:8px"></div>
+          <button class="btn btn-primary" onclick="window._ahSaveInline()">Save Assessment →</button>
+        </div></div>
+      </div>
+      <div id="ah-score-panel" style="display:none;max-width:440px;margin-top:16px">
+        <div class="card"><div class="card-body">
+          <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px">
+            <button class="btn btn-sm" onclick="window._ahCloseScore()">← Back</button>
+            <div id="ah-score-title" style="font-family:var(--font-display);font-size:14px;font-weight:600;flex:1"></div>
+          </div>
+          <div class="form-group"><label class="form-label">Score</label>
+            <input id="ah-score-val" class="form-control" type="number" placeholder="e.g. 14" oninput="window._ahScorePreview()"></div>
+          <div id="ah-score-interp" style="font-size:12px;font-weight:600;padding:6px 10px;border-radius:var(--radius-sm);margin-bottom:10px;display:none"></div>
+          <div class="form-group"><label class="form-label">Clinician Notes</label>
+            <textarea id="ah-score-notes" class="form-control" rows="2" placeholder="Notes…"></textarea></div>
+          <div id="ah-score-err" style="color:var(--red);font-size:12px;display:none;margin-bottom:8px"></div>
+          <button class="btn btn-primary" onclick="window._ahSaveScore()">Save →</button>
+        </div></div>
+      </div>
+    </div>
+    <div id="ah-results" class="ah-view" style="display:none">
+      ${items.length === 0 ? emptyState('◧', 'No assessments recorded yet.') : `<div class="card"><div class="card-body">
+          <div class="ah-section-title">All Assessment Records</div>
+          <table class="ds-table">
+            <thead><tr><th>Scale</th><th>Patient</th><th>Score</th><th>Interpretation</th><th>Phase</th><th>Date</th><th>Notes</th></tr></thead>
+            <tbody>${items.map(a => {
+              const tpl = registry.find(r => r.id === a.template_id);
+              const sn = parseFloat(a.score);
+              const interp = (tpl?.interpret && !isNaN(sn)) ? tpl.interpret(sn) : null;
+              return `<tr>
+                <td style="font-weight:500">${a.template_title||a.template_id}</td>
+                <td style="color:var(--text-tertiary)">${a.patient_id||'—'}</td>
+                <td class="mono" style="color:${interp?.color||'var(--teal)'}">${a.score||'—'}</td>
+                <td style="font-size:11px;color:${interp?.color||'var(--text-secondary)'}">${interp?.label||'—'}</td>
+                <td style="font-size:11px;color:var(--text-tertiary)">${a.measurement_point||'—'}</td>
+                <td style="color:var(--text-tertiary)">${a.created_at?.split('T')[0]||'—'}</td>
+                <td style="font-size:11.5px;color:var(--text-secondary);max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${a.clinician_notes||'—'}</td>
+              </tr>`;
+            }).join('')}</tbody>
+          </table>
+        </div></div>`}
+    </div>
+  </div>`;
+
+  let _ahInlineTpl = null, _ahInlineAnswers = [], _ahScoreTpl = null;
+
+  window._ahTab = function(tab) {
+    ['overview','bundles','run','results'].forEach(t => {
+      document.getElementById(`ah-${t}`).style.display = (t===tab)?'':'none';
+      document.getElementById(`ah-tab-${t}`).classList.toggle('active', t===tab);
+    });
+  };
+  window._ahOvPreview = function() {
+    const condId = document.getElementById('ah-ov-cond').value;
+    const phase  = document.getElementById('ah-ov-phase').value;
+    const prev   = document.getElementById('ah-ov-preview');
+    if (!condId) { prev.innerHTML = ''; return; }
+    const scales = CONDITION_BUNDLES[condId]?.[phase] || [];
+    prev.innerHTML = `<div style="font-size:11px;color:var(--text-secondary);margin-bottom:6px">${scales.length} scale${scales.length!==1?'s':''}:</div><div class="ah-chip-row">${scales.map(id=>scaleChip(id,false)).join('')}</div>`;
+  };
+  window._ahOvRun = function() {
+    const condId = document.getElementById('ah-ov-cond').value; if (!condId) return;
+    document.getElementById('ah-run-patient').value = document.getElementById('ah-ov-patient').value;
+    document.getElementById('ah-run-cond').value = condId;
+    document.getElementById('ah-run-phase').value = document.getElementById('ah-ov-phase').value;
+    window._ahRunFilter(); window._ahTab('run');
+  };
+  window._ahToggleCond = function(condId) {
+    const card = document.getElementById(`ah-cond-${condId}`);
+    const body = document.getElementById(`ah-condbody-${condId}`);
+    const open = card.classList.toggle('ah-cond-open');
+    body.style.display = open ? '' : 'none';
+  };
+  window._ahFilterCat = function(cat) {
+    document.querySelectorAll('.ah-cat-btn').forEach(b => b.classList.remove('active'));
+    document.getElementById(cat==='all'?'ah-cat-all':`ah-cat-${cat.replace(/[\s']/g,'-')}`)?.classList.add('active');
+    condIds.forEach(id => { const c = document.getElementById(`ah-cond-${id}`); if(c) c.style.display = (cat==='all'||CONDITION_BUNDLES[id].cat===cat)?'':'none'; });
+  };
+  window._ahSelectBundle = function(condId, phase) {
+    document.getElementById('ah-run-cond').value = condId;
+    document.getElementById('ah-run-phase').value = phase;
+    window._ahRunFilter(); window._ahTab('run');
+  };
+  window._ahRunFilter = function() {
+    const condId = document.getElementById('ah-run-cond').value;
+    const phase  = document.getElementById('ah-run-phase').value;
+    const scales = condId ? (CONDITION_BUNDLES[condId]?.[phase] || []) : null;
+    registry.forEach(s => { const c = document.getElementById(`ahsc-${s.id.replace(/[^a-z0-9]/gi,'_')}`); if(c) c.style.display = (!scales||scales.includes(s.id))?'':'none'; });
+    window._ahCloseInline(); window._ahCloseScore();
+  };
+  window._ahRunScale = function(id) {
+    const tpl = registry.find(r => r.id === id);
+    if (!tpl?.inline) { window._ahScoreEntry(id); return; }
+    _ahInlineTpl = tpl; _ahInlineAnswers = new Array(tpl.questions.length).fill(0);
+    document.getElementById('ah-score-panel').style.display = 'none';
+    document.getElementById('ah-run-scale-list').style.display = 'none';
+    document.getElementById('ah-inline-panel').style.display = '';
+    document.getElementById('ah-inline-title').textContent = tpl.t;
+    document.getElementById('ah-inline-err').style.display = 'none';
+    document.getElementById('ah-inline-notes').value = '';
+    document.getElementById('ah-inline-questions').innerHTML = tpl.questions.map((q,qi) => `
+      <div style="margin-bottom:14px;padding:12px;background:rgba(0,0,0,0.2);border-radius:var(--radius-md);border:1px solid var(--border)">
+        <div style="font-size:12.5px;color:var(--text-primary);margin-bottom:8px;line-height:1.5"><span style="color:var(--teal);font-weight:600;font-family:var(--font-mono)">${qi+1}.</span> ${q}</div>
+        <div style="display:flex;flex-wrap:wrap;gap:6px">${tpl.options.map((opt,vi)=>`
+          <label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:11.5px;padding:4px 8px;border-radius:var(--radius-sm);border:1px solid var(--border);background:rgba(0,0,0,0.15)">
+            <input type="radio" name="ahq${qi}" value="${vi}" onchange="window._ahInlineChange(${qi},${vi})" ${vi===0?'checked':''}> ${opt}</label>`).join('')}</div>
+      </div>`).join('');
+    window._ahUpdateInline();
+  };
+  window._ahInlineChange = function(qi, val) { _ahInlineAnswers[qi] = val; window._ahUpdateInline(); };
+  window._ahUpdateInline = function() {
+    if (!_ahInlineTpl) return;
+    const total = _ahInlineAnswers.reduce((a,b)=>a+b,0);
+    const badge = document.getElementById('ah-inline-badge'); if (badge) badge.textContent = total;
+    const interp = _ahInlineTpl.interpret(total);
+    const el = document.getElementById('ah-inline-interp');
+    if (el) { el.textContent=interp.label; el.style.color=interp.color; el.style.borderLeft=`3px solid ${interp.color}`; el.style.background=`${interp.color}15`; }
+  };
+  window._ahCloseInline = function() {
+    const p=document.getElementById('ah-inline-panel'); if(p) p.style.display='none';
+    const l=document.getElementById('ah-run-scale-list'); if(l) l.style.display=''; _ahInlineTpl=null;
+  };
+  window._ahScoreEntry = function(id) {
+    _ahScoreTpl = registry.find(r => r.id === id); if (!_ahScoreTpl) return;
+    document.getElementById('ah-inline-panel').style.display='none';
+    document.getElementById('ah-run-scale-list').style.display='none';
+    document.getElementById('ah-score-panel').style.display='';
+    document.getElementById('ah-score-title').textContent = `${_ahScoreTpl.t} (max ${_ahScoreTpl.max})`;
+    document.getElementById('ah-score-val').value=''; document.getElementById('ah-score-notes').value='';
+    document.getElementById('ah-score-interp').style.display='none'; document.getElementById('ah-score-err').style.display='none';
+  };
+  window._ahScorePreview = function() {
+    if (!_ahScoreTpl?.interpret) return;
+    const val = parseFloat(document.getElementById('ah-score-val').value);
+    const el  = document.getElementById('ah-score-interp');
+    if (isNaN(val)) { el.style.display='none'; return; }
+    const interp = _ahScoreTpl.interpret(val);
+    el.textContent=interp.label; el.style.color=interp.color; el.style.borderLeft=`3px solid ${interp.color}`; el.style.background=`${interp.color}15`; el.style.display='inline-block';
+  };
+  window._ahCloseScore = function() {
+    const p=document.getElementById('ah-score-panel'); if(p) p.style.display='none';
+    const l=document.getElementById('ah-run-scale-list'); if(l) l.style.display=''; _ahScoreTpl=null;
+  };
+  async function _doSave(tpl, score, patientId, notes, phase) {
+    const interp = tpl.interpret ? tpl.interpret(score) : null;
+    const noteStr = interp ? (notes ? `${interp.label} (${score}/${tpl.max}). ${notes}` : `${interp.label} (${score}/${tpl.max})`) : notes;
+    const result = await api.createAssessment({ template_id:tpl.id, template_title:tpl.t, patient_id:patientId||null, data:{}, clinician_notes:noteStr||null, score:String(score), status:'completed' });
+    if (patientId) {
+      try {
+        const cr = await api.listCourses({ patient_id: patientId, status: 'active' });
+        const active = cr?.items || [];
+        if (active.length) await api.recordOutcome({ patient_id:patientId, course_id:active[0].id, template_id:tpl.id, template_title:tpl.t, score:String(score), score_numeric:score, measurement_point:measureMap[phase]||'mid', assessment_id:result?.id||null });
+      } catch (_) {}
+    }
+  }
+  window._ahSaveInline = async function() {
+    const errEl = document.getElementById('ah-inline-err'); errEl.style.display='none';
+    if (!_ahInlineTpl) return;
+    try { await _doSave(_ahInlineTpl, _ahInlineAnswers.reduce((a,b)=>a+b,0), document.getElementById('ah-run-patient').value.trim(), document.getElementById('ah-inline-notes').value.trim(), document.getElementById('ah-run-phase')?.value||'weekly'); window._nav('assessments'); }
+    catch(e) { errEl.textContent=e.message; errEl.style.display=''; }
+  };
+  window._ahSaveScore = async function() {
+    const errEl = document.getElementById('ah-score-err'); errEl.style.display='none';
+    if (!_ahScoreTpl) return;
+    const val = parseFloat(document.getElementById('ah-score-val').value);
+    if (isNaN(val)) { errEl.textContent='Enter a valid score.'; errEl.style.display=''; return; }
+    try { await _doSave(_ahScoreTpl, val, document.getElementById('ah-run-patient').value.trim(), document.getElementById('ah-score-notes').value.trim(), document.getElementById('ah-run-phase')?.value||'weekly'); window._nav('assessments'); }
+    catch(e) { errEl.textContent=e.message; errEl.style.display=''; }
+  };
+  window._ahQuickRunScale = function(id) { window._ahTab('run'); setTimeout(() => window._ahRunScale(id), 50); };
+  window.runInline       = (id) => window._ahRunScale(id);
+  window.switchAssessTab = (t) => { if(t==='templates') window._ahTab('overview'); else if(t==='records') window._ahTab('results'); else window._ahTab('run'); };
+  window.showAssessModal = () => window._ahTab('run');
+  window.runTemplate     = (id) => window._ahScoreEntry(id);
 
   el.innerHTML = `
   <div id="assess-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:200;display:none;align-items:center;justify-content:center">
