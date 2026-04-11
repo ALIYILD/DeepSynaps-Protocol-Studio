@@ -288,11 +288,9 @@ export const api = {
   patientPortalSessions: () => apiFetch('/api/v1/patient-portal/sessions'),
   patientPortalAssessments: () => apiFetch('/api/v1/patient-portal/assessments'),
   patientPortalOutcomes: () => apiFetch('/api/v1/patient-portal/outcomes'),
-  // NOTE: patient-portal has no dedicated /messages endpoint; messaging goes through
-  // the patients router — caller must supply their own patient_id (from patientPortalMe).
-  patientPortalMessages: (patientId) => apiFetch(`/api/v1/patients/${patientId}/messages`),
-  patientPortalSendMessage: (patientId, message) =>
-    apiFetch(`/api/v1/patients/${patientId}/messages`, { method: 'POST', body: JSON.stringify({ body: message }) }),
+  patientPortalMessages: () => apiFetch('/api/v1/patient-portal/messages'),
+  patientPortalSendMessage: (data) =>
+    apiFetch('/api/v1/patient-portal/messages', { method: 'POST', body: JSON.stringify(data) }),
 
   // ── Wearable monitoring ───────────────────────────────────────────────────
   patientPortalWearables: () => apiFetch('/api/v1/patient-portal/wearables'),

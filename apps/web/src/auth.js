@@ -111,7 +111,7 @@ function renderLoginPage() {
         <span onclick="window._navPublic?.('signup-patient')" style="color:var(--blue);cursor:pointer;white-space:nowrap;font-weight:600">First time? Activate →</span>
       </div>
       <div style="display:flex;justify-content:space-between;align-items:center;margin-top:14px">
-        <span style="font-size:11.5px;color:var(--text-tertiary)">Demo: <code style="color:var(--teal)">clinician@demo.com</code> / <code style="color:var(--teal)">demo1234</code></span>
+        ${import.meta.env.DEV ? '<span style="font-size:11.5px;color:var(--text-tertiary)">Demo: <code style="color:var(--teal)">clinician@demo.com</code> / <code style="color:var(--teal)">demo1234</code></span>' : '<span></span>'}
         <button class="btn btn-ghost btn-sm" style="font-size:11px;padding:3px 6px" onclick="switchAuthTab('forgot')">Forgot password?</button>
       </div>
       <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border);display:flex;gap:8px">
@@ -295,9 +295,15 @@ window.demoLogin = async function(token) {
     const user = await api.me();
     if (user) { currentUser = user; bootUser(user); return; }
   } catch (_) {}
-  const demoUser = DEMO_USERS[token];
-  if (demoUser) { currentUser = demoUser; bootUser(demoUser); }
-  else { api.clearToken(); if (errEl) { errEl.textContent = 'Unknown demo token.'; errEl.style.display = ''; } }
+  // Offline fallback only in dev — never leak hardcoded users to production
+  if (import.meta.env.DEV) {
+    const demoUser = DEMO_USERS[token];
+    if (demoUser) { currentUser = demoUser; bootUser(demoUser); }
+    else { api.clearToken(); if (errEl) { errEl.textContent = 'Unknown demo token.'; errEl.style.display = ''; } }
+  } else {
+    api.clearToken();
+    if (errEl) { errEl.textContent = 'Demo login unavailable — backend not reachable.'; errEl.style.display = ''; }
+  }
 };
 
 const DEMO_CREDENTIALS = {
@@ -320,15 +326,20 @@ window.submitLogin = async function() {
     bootUser(currentUser);
     return;
   } catch (_) { /* fall through to offline demo */ }
-  // Offline demo credentials fallback
-  const cred = DEMO_CREDENTIALS[email];
-  if (cred && cred.password === password) {
-    const demoUser = DEMO_USERS[cred.token];
-    api.setToken(cred.token);
-    currentUser = demoUser;
-    bootUser(demoUser);
+  // Offline demo credentials fallback — dev only
+  if (import.meta.env.DEV) {
+    const cred = DEMO_CREDENTIALS[email];
+    if (cred && cred.password === password) {
+      const demoUser = DEMO_USERS[cred.token];
+      api.setToken(cred.token);
+      currentUser = demoUser;
+      bootUser(demoUser);
+    } else {
+      errEl.textContent = 'Invalid credentials. Try clinician@demo.com / demo1234';
+      errEl.style.display = '';
+    }
   } else {
-    errEl.textContent = 'Invalid credentials. Try clinician@demo.com / demo1234';
+    errEl.textContent = 'Invalid credentials.';
     errEl.style.display = '';
   }
 };

@@ -6879,3 +6879,1732 @@ export async function pgProtocolMarketplace(setTopbar) {
   };
   document.addEventListener('keydown', window._mpKeyHandler);
 }
+
+// ── Research Data Export Pipeline (NNN-B) ─────────────────────────────────────
+export async function pgDataExport(setTopbar) {
+  setTopbar('Research Data Export', '');
+  const el = document.getElementById('app-content') || document.getElementById('content');
+  if (!el) return;
+
+  // ── localStorage helpers ──────────────────────────────────────────────────
+  function lsGet(k, def) {
+    try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : def; } catch { return def; }
+  }
+  function lsSet(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} }
+
+  // ── Seed export history ───────────────────────────────────────────────────
+  if (!localStorage.getItem('ds_export_history')) {
+    lsSet('ds_export_history', [
+      { id: 'exp_001', date: '2026-03-15T09:42:00Z', user: 'Dr. Reyes',       domains: ['Session Records','Outcome Scores'],                                  recordCount: 142, format: 'CSV',       deidMethod: 'Safe Harbor',           purpose: 'IRB-2024-011 interim analysis',       studyFilter: 'All patients' },
+      { id: 'exp_002', date: '2026-03-22T14:10:00Z', user: 'Dr. Yamamoto',    domains: ['Protocol Parameters','Adverse Events'],                              recordCount: 87,  format: 'JSON',      deidMethod: 'Expert Determination',  purpose: 'Device safety review',               studyFilter: 'All patients' },
+      { id: 'exp_003', date: '2026-04-01T11:05:00Z', user: 'Dr. Reyes',       domains: ['Outcome Scores','Demographic Aggregates'],                           recordCount: 315, format: 'BIDS JSON', deidMethod: 'Safe Harbor',           purpose: 'Multi-site consortium submission',   studyFilter: 'IRB-2024-011' },
+      { id: 'exp_004', date: '2026-04-05T16:30:00Z', user: 'Admin (system)',  domains: ['Session Records','Outcome Scores','Protocol Parameters'],            recordCount: 489, format: 'REDCap CSV',deidMethod: 'Limited Dataset',       purpose: 'Quarterly registry upload',          studyFilter: 'All patients' },
+      { id: 'exp_005', date: '2026-04-09T08:55:00Z', user: 'Dr. Chen',        domains: ['Medication Records','Adverse Events'],                              recordCount: 64,  format: 'CSV',       deidMethod: 'Safe Harbor',           purpose: 'Pharmacovigilance report',           studyFilter: 'All patients' },
+    ]);
+  }
+
+  // ── Seed DSAs ─────────────────────────────────────────────────────────────
+  if (!localStorage.getItem('ds_data_sharing_agreements')) {
+    lsSet('ds_data_sharing_agreements', [
+      { id: 'dsa_001', institution: 'Stanford Center for Neuromodulation',  purpose: 'Multi-site TMS depression outcomes registry',    domains: ['Session Records','Outcome Scores','Protocol Parameters'], effectiveDate: '2025-01-01', expiryDate: '2027-12-31', status: 'Active'            },
+      { id: 'dsa_002', institution: 'NIH BRAIN Initiative Consortium',       purpose: 'Neural circuit biomarker discovery',             domains: ['Session Records','Outcome Scores','Demographic Aggregates'],effectiveDate: '2024-06-01', expiryDate: '2026-05-31', status: 'Expired'           },
+      { id: 'dsa_003', institution: 'Mayo Clinic Neuroscience Division',     purpose: 'rTMS protocol benchmarking collaborative',       domains: ['Protocol Parameters','Outcome Scores'],                   effectiveDate: '2026-03-01', expiryDate: '2029-02-28', status: 'Pending Signature' },
+    ]);
+  }
+
+  // ── Seed IRB studies ──────────────────────────────────────────────────────
+  if (!localStorage.getItem('ds_irb_studies')) {
+    lsSet('ds_irb_studies', [
+      { id: 'IRB-2024-011', label: 'IRB-2024-011: rTMS for Treatment-Resistant Depression' },
+      { id: 'IRB-2025-003', label: 'IRB-2025-003: tDCS Augmentation in OCD' },
+      { id: 'IRB-2025-017', label: 'IRB-2025-017: Neurofeedback Protocol Optimization' },
+    ]);
+  }
+
+  // ── Wizard state ──────────────────────────────────────────────────────────
+  let _step = 1;
+  const _sel = {
+    domains: [],
+    startDate: '2025-01-01',
+    endDate: '2026-04-11',
+    studyFilter: 'all',
+    deidMethod: 'safe-harbor',
+    format: 'csv',
+    compress: 'none',
+  };
+
+  // ── 18 HIPAA Safe Harbor identifiers ─────────────────────────────────────
+  const HIPAA_18 = [
+    { id: 1,  name: 'Names',                              transform: 'SUBJ_XXX'    },
+    { id: 2,  name: 'Geographic data (sub-state)',        transform: 'State only'  },
+    { id: 3,  name: 'Dates (except year)',                transform: 'Week offset' },
+    { id: 4,  name: 'Phone numbers',                      transform: null          },
+    { id: 5,  name: 'Fax numbers',                        transform: null          },
+    { id: 6,  name: 'Email addresses',                    transform: null          },
+    { id: 7,  name: 'Social security numbers',            transform: null          },
+    { id: 8,  name: 'Medical record numbers',             transform: 'MRN_XXXXX'  },
+    { id: 9,  name: 'Health plan beneficiary numbers',    transform: null          },
+    { id: 10, name: 'Account numbers',                    transform: null          },
+    { id: 11, name: 'Certificate / license numbers',      transform: null          },
+    { id: 12, name: 'Vehicle identifiers',                transform: null          },
+    { id: 13, name: 'Device identifiers / serial numbers',transform: 'DEVICE_XXX' },
+    { id: 14, name: 'Web URLs',                           transform: null          },
+    { id: 15, name: 'IP addresses',                       transform: null          },
+    { id: 16, name: 'Biometric identifiers',              transform: null          },
+    { id: 17, name: 'Full-face photos / images',          transform: null          },
+    { id: 18, name: 'Any other unique identifier',        transform: null          },
+  ];
+
+  // ── Synthetic preview rows ────────────────────────────────────────────────
+  const PREVIEW_ROWS = [
+    { subj: 'SUBJ_001', age: '[Age bracket: 30-39]', diag: 'MDD',  week: 'W+02', modality: 'rTMS', phq9: 14, protocol: 'PROTO_A', clinician: 'CLINICIAN_A', event: 'None'                     },
+    { subj: 'SUBJ_002', age: '[Age bracket: 40-49]', diag: 'OCD',  week: 'W+04', modality: 'tDCS', phq9: 9,  protocol: 'PROTO_B', clinician: 'CLINICIAN_B', event: 'Headache (mild)'           },
+    { subj: 'SUBJ_003', age: '[Age bracket: 50-59]', diag: 'PTSD', week: 'W+06', modality: 'rTMS', phq9: 17, protocol: 'PROTO_A', clinician: 'CLINICIAN_A', event: 'None'                     },
+    { subj: 'SUBJ_004', age: '[Age bracket: 20-29]', diag: 'GAD',  week: 'W+03', modality: 'NFB',  phq9: 11, protocol: 'PROTO_C', clinician: 'CLINICIAN_C', event: 'None'                     },
+    { subj: 'SUBJ_005', age: '[Age bracket: 60-69]', diag: 'MDD',  week: 'W+08', modality: 'rTMS', phq9: 5,  protocol: 'PROTO_A', clinician: 'CLINICIAN_B', event: 'Scalp discomfort (mild)'  },
+  ];
+
+  // ── Aggregate analytics data (already-anonymous) ──────────────────────────
+  const COND_DIST = [
+    { label: 'MDD',   pct: 38, color: '#00d4bc' },
+    { label: 'OCD',   pct: 12, color: '#4a9eff' },
+    { label: 'PTSD',  pct: 20, color: '#9b7fff' },
+    { label: 'GAD',   pct: 15, color: '#f59e0b' },
+    { label: 'Other', pct: 15, color: '#6b7280' },
+  ];
+  const MODALITY_DATA = [
+    { label: 'rTMS', count: 312, color: '#00d4bc' },
+    { label: 'tDCS', count: 87,  color: '#4a9eff' },
+    { label: 'NFB',  count: 145, color: '#9b7fff' },
+    { label: 'PEMF', count: 43,  color: '#f59e0b' },
+    { label: 'tACS', count: 29,  color: '#f87171' },
+  ];
+  const PHQ9_HIST = [
+    { label: '0–4',   count: 58,  color: '#22c55e' },
+    { label: '5–9',   count: 112, color: '#84cc16' },
+    { label: '10–14', count: 134, color: '#f59e0b' },
+    { label: '15–19', count: 97,  color: '#f97316' },
+    { label: '20–27', count: 45,  color: '#ef4444' },
+  ];
+  const SESSIONS_WEEKLY = [18,22,19,24,21,28,26,31,29,34,32,37];
+
+  // ── SVG chart builders ────────────────────────────────────────────────────
+  function buildDonut(data) {
+    const cx = 80, cy = 80, r = 60, strokeW = 18;
+    const total = data.reduce((s, d) => s + d.pct, 0);
+    let offset = 0;
+    const circ = 2 * Math.PI * r;
+    const slices = data.map(d => {
+      const dash = (d.pct / total) * circ;
+      const gap  = circ - dash;
+      const rot  = (offset / total) * 360 - 90;
+      offset += d.pct;
+      return `<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="${d.color}" stroke-width="${strokeW}"
+        stroke-dasharray="${dash.toFixed(2)} ${gap.toFixed(2)}"
+        transform="rotate(${rot.toFixed(2)} ${cx} ${cy})" opacity="0.9"/>`;
+    }).join('');
+    const legend = data.map(d =>
+      `<div style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--text-muted,var(--text-secondary))">
+        <span style="width:8px;height:8px;border-radius:50%;background:${d.color};flex-shrink:0"></span>${d.label} ${d.pct}%</div>`
+    ).join('');
+    return `<div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap">
+      <svg viewBox="0 0 160 160" width="130" height="130" style="flex-shrink:0">${slices}</svg>
+      <div style="display:flex;flex-direction:column;gap:5px">${legend}</div>
+    </div>`;
+  }
+
+  function buildBarChart(data) {
+    const maxC = Math.max(...data.map(d => d.count));
+    const bars = data.map(d => {
+      const pct = Math.round((d.count / maxC) * 100);
+      return `<div style="display:flex;flex-direction:column;align-items:center;gap:4px;flex:1">
+        <span style="font-size:10px;font-weight:600;color:var(--text,var(--text-primary))">${d.count}</span>
+        <div style="width:100%;background:rgba(255,255,255,0.06);border-radius:4px 4px 0 0;height:80px;display:flex;align-items:flex-end">
+          <div style="width:100%;height:${pct}%;background:${d.color};border-radius:4px 4px 0 0;opacity:0.85;transition:height 0.3s"></div>
+        </div>
+        <span style="font-size:10px;color:var(--text-muted,var(--text-secondary));white-space:nowrap">${d.label}</span>
+      </div>`;
+    }).join('');
+    return `<div style="display:flex;gap:8px;align-items:flex-end;padding:4px 0">${bars}</div>`;
+  }
+
+  function buildHistogram(data) {
+    const maxC = Math.max(...data.map(d => d.count));
+    const bars = data.map(d => {
+      const pct = Math.round((d.count / maxC) * 100);
+      return `<div style="display:flex;flex-direction:column;align-items:center;gap:4px;flex:1">
+        <span style="font-size:10px;font-weight:600;color:var(--text,var(--text-primary))">${d.count}</span>
+        <div style="width:100%;background:rgba(255,255,255,0.06);border-radius:4px 4px 0 0;height:70px;display:flex;align-items:flex-end">
+          <div style="width:100%;height:${pct}%;background:${d.color};border-radius:4px 4px 0 0;opacity:0.85"></div>
+        </div>
+        <span style="font-size:9.5px;color:var(--text-muted,var(--text-secondary));text-align:center">${d.label}</span>
+      </div>`;
+    }).join('');
+    return `<div style="display:flex;gap:6px;align-items:flex-end;padding:4px 0">${bars}</div>`;
+  }
+
+  function buildTrendLine(data) {
+    const w = 300, h = 80, pad = 8;
+    const maxV = Math.max(...data), minV = Math.min(...data);
+    const pts = data.map((v, i) => {
+      const x = pad + (i / (data.length - 1)) * (w - pad * 2);
+      const y = h - pad - ((v - minV) / (maxV - minV || 1)) * (h - pad * 2);
+      return `${x.toFixed(1)},${y.toFixed(1)}`;
+    }).join(' ');
+    const area = data.map((v, i) => {
+      const x = pad + (i / (data.length - 1)) * (w - pad * 2);
+      const y = h - pad - ((v - minV) / (maxV - minV || 1)) * (h - pad * 2);
+      return `${x.toFixed(1)},${y.toFixed(1)}`;
+    });
+    const lastX = (pad + (w - pad * 2)).toFixed(1);
+    const botY  = (h - pad).toFixed(1);
+    const areaPath = `M${area[0]} ${area.slice(1).map(p => `L${p}`).join(' ')} L${lastX},${botY} L${pad},${botY} Z`;
+    const wkLabels = data.map((_, i) => {
+      if (i % 3 !== 0) return '';
+      const x = pad + (i / (data.length - 1)) * (w - pad * 2);
+      return `<text x="${x.toFixed(1)}" y="${h + 14}" text-anchor="middle" font-size="8" fill="rgba(255,255,255,0.35)">W-${data.length - i}</text>`;
+    }).join('');
+    const dots = data.map((v, i) => {
+      const x = pad + (i / (data.length - 1)) * (w - pad * 2);
+      const y = h - pad - ((v - minV) / (maxV - minV || 1)) * (h - pad * 2);
+      return `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="3" fill="#00d4bc"/>`;
+    }).join('');
+    return `<svg viewBox="0 0 ${w} ${h + 20}" width="100%" style="overflow:visible">
+      <defs>
+        <linearGradient id="trendGrad" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="#00d4bc" stop-opacity="0.25"/>
+          <stop offset="100%" stop-color="#00d4bc" stop-opacity="0"/>
+        </linearGradient>
+      </defs>
+      <path d="${areaPath}" fill="url(#trendGrad)"/>
+      <polyline points="${pts}" fill="none" stroke="#00d4bc" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+      ${dots}
+      ${wkLabels}
+    </svg>`;
+  }
+
+  // ── DSA status badge ──────────────────────────────────────────────────────
+  function dsaBadge(status) {
+    const styleMap = {
+      'Active':            'background:rgba(0,212,188,0.12);color:#00d4bc',
+      'Expired':           'background:rgba(248,113,113,0.12);color:#f87171',
+      'Pending Signature': 'background:rgba(245,158,11,0.12);color:#f59e0b',
+    };
+    const s = styleMap[status] || 'background:rgba(255,255,255,0.06);color:#94a3b8';
+    return `<span style="font-size:10.5px;font-weight:700;padding:3px 9px;border-radius:5px;${s}">${status}</span>`;
+  }
+
+  // ── HIPAA checklist renderer ──────────────────────────────────────────────
+  function buildHIPAAChecklist(method) {
+    return HIPAA_18.map(item => {
+      let statusLabel, statusClass;
+      if (method === 'limited') {
+        if ([2, 3].includes(item.id)) { statusLabel = 'Retained';    statusClass = 'nnnb-deid-retained'; }
+        else if (item.transform)      { statusLabel = 'Transformed'; statusClass = 'nnnb-deid-transform'; }
+        else                          { statusLabel = 'Removed';     statusClass = 'nnnb-deid-removed';  }
+      } else {
+        if (item.transform) { statusLabel = 'Transformed'; statusClass = 'nnnb-deid-transform'; }
+        else                { statusLabel = 'Removed';     statusClass = 'nnnb-deid-removed';   }
+      }
+      const transformNote = item.transform && statusLabel !== 'Removed'
+        ? `<span style="font-size:10px;color:var(--text-muted,var(--text-secondary));margin-left:4px;font-style:italic">→ ${item.transform}</span>`
+        : '';
+      return `<div class="nnnb-deid-item">
+        <span style="font-size:10px;color:var(--text-muted,var(--text-secondary));font-family:var(--font-mono,monospace);min-width:20px">${item.id}.</span>
+        <span style="color:var(--text,var(--text-primary));font-size:12px">${item.name}</span>
+        ${transformNote}
+        <span class="nnnb-deid-status ${statusClass}">${statusLabel}</span>
+      </div>`;
+    }).join('');
+  }
+
+  // ── Preview table renderer ────────────────────────────────────────────────
+  function buildPreviewTable() {
+    const cols = [
+      { key: 'subj',     label: 'Subject ID',    masked: true  },
+      { key: 'age',      label: 'Age Bracket',   masked: true  },
+      { key: 'diag',     label: 'Diagnosis',     masked: false },
+      { key: 'week',     label: 'Study Week',    masked: true  },
+    ];
+    if (_sel.domains.includes('Session Records'))     cols.push({ key: 'modality',   label: 'Modality',     masked: false });
+    if (_sel.domains.includes('Outcome Scores'))      cols.push({ key: 'phq9',       label: 'PHQ-9 Score',  masked: false });
+    if (_sel.domains.includes('Protocol Parameters')) cols.push({ key: 'protocol',   label: 'Protocol ID',  masked: true  });
+    if (_sel.domains.includes('Adverse Events'))      cols.push({ key: 'event',      label: 'AE (category)',masked: false });
+    cols.push({ key: 'clinician', label: 'Clinician', masked: true });
+    // Always show at least 6 columns for readability
+    if (cols.length < 6) {
+      if (!cols.find(c => c.key === 'modality')) cols.splice(4, 0, { key: 'modality', label: 'Modality', masked: false });
+      if (!cols.find(c => c.key === 'phq9'))     cols.splice(5, 0, { key: 'phq9',     label: 'PHQ-9',    masked: false });
+    }
+    const headers = cols.map(c => `<th>${c.label}</th>`).join('');
+    const rows = PREVIEW_ROWS.map(row =>
+      `<tr>${cols.map(c => {
+        const val = row[c.key] !== undefined ? row[c.key] : '—';
+        return c.masked
+          ? `<td><span class="nnnb-cell-masked">${val}</span></td>`
+          : `<td>${val}</td>`;
+      }).join('')}</tr>`
+    ).join('');
+    return `<div style="overflow-x:auto"><table class="nnnb-preview-table">
+      <thead><tr>${headers}</tr></thead>
+      <tbody>${rows}</tbody>
+    </table></div>
+    <div style="margin-top:8px;font-size:11px;color:var(--accent-teal,#00d4bc)">
+      <span style="background:rgba(0,212,188,0.08);padding:2px 8px;border-radius:4px;font-style:italic;font-family:var(--font-mono,monospace)">teal cells</span>
+      = de-identified / transformed values &nbsp;|&nbsp; Patient Name → SUBJ_XXX &nbsp;|&nbsp; DOB → [Age bracket] &nbsp;|&nbsp; Exact dates → [Week offset] &nbsp;|&nbsp; Clinician → CLINICIAN_A
+    </div>`;
+  }
+
+  // ── Export summary card ───────────────────────────────────────────────────
+  function buildExportSummary() {
+    const methodLabels = { 'safe-harbor': 'Safe Harbor', 'expert': 'Expert Determination', 'limited': 'Limited Dataset' };
+    const fmtLabels    = { csv: 'CSV', json: 'JSON', bids: 'BIDS JSON', redcap: 'REDCap CSV' };
+    const domainCount  = _sel.domains.length;
+    const estRecords   = domainCount > 0 ? domainCount * 89 + 23 : 0;
+    const estFields    = domainCount > 0 ? domainCount * 4 + 6   : 0;
+    return `<div class="nnnb-export-summary">
+      <div class="nnnb-summary-item">
+        <span class="nnnb-summary-label">Data Domains</span>
+        <span class="nnnb-summary-value">${domainCount > 0 ? domainCount + ' selected' : '—'}</span>
+      </div>
+      <div class="nnnb-summary-item">
+        <span class="nnnb-summary-label">Est. Records</span>
+        <span class="nnnb-summary-value">${domainCount > 0 ? estRecords.toLocaleString() : '—'}</span>
+      </div>
+      <div class="nnnb-summary-item">
+        <span class="nnnb-summary-label">Est. Fields</span>
+        <span class="nnnb-summary-value">${domainCount > 0 ? estFields : '—'}</span>
+      </div>
+      <div class="nnnb-summary-item">
+        <span class="nnnb-summary-label">Date Range</span>
+        <span class="nnnb-summary-value" style="font-size:12px">${_sel.startDate} → ${_sel.endDate}</span>
+      </div>
+      <div class="nnnb-summary-item">
+        <span class="nnnb-summary-label">De-ID Method</span>
+        <span class="nnnb-summary-value" style="font-size:12px">${methodLabels[_sel.deidMethod]}</span>
+      </div>
+      <div class="nnnb-summary-item">
+        <span class="nnnb-summary-label">Format</span>
+        <span class="nnnb-summary-value">${fmtLabels[_sel.format]}</span>
+      </div>
+    </div>`;
+  }
+
+  // ── Export generators ─────────────────────────────────────────────────────
+  function generateCSV() {
+    const methodLabel = { 'safe-harbor':'SafeHarbor','expert':'ExpertDetermination','limited':'LimitedDataset' }[_sel.deidMethod];
+    const meta = `# DeepSynaps Protocol Studio — De-identified Research Export\r\n# ExportDate: ${new Date().toISOString()}\r\n# DeIdMethod: ${methodLabel}\r\n# Domains: ${_sel.domains.join('; ')}\r\n# DateRange: ${_sel.startDate} to ${_sel.endDate}\r\n`;
+    const cols  = 'SubjectID|AgeBracket|Diagnosis|StudyWeek|Modality|PHQ9Score|PHQ9Severity|ProtocolID|ClinicianID|AECategory|AESeverity\r\n';
+    const phqLabel = v => v <= 4 ? 'Minimal' : v <= 9 ? 'Mild' : v <= 14 ? 'Moderate' : v <= 19 ? 'ModeratelySevere' : 'Severe';
+    const rows  = PREVIEW_ROWS.map(r => [
+      r.subj, r.age, r.diag, r.week, r.modality, r.phq9, phqLabel(r.phq9),
+      r.protocol, r.clinician,
+      r.event !== 'None' ? r.event.split('(')[0].trim() : 'None',
+      r.event !== 'None' ? (r.event.match(/\(([^)]+)\)/)?.[1] || 'Unknown') : 'N/A',
+    ].join('|')).join('\r\n');
+    return new Blob([meta + cols + rows], { type: 'text/csv;charset=utf-8;' });
+  }
+
+  function generateJSON() {
+    const methodLabel = { 'safe-harbor':'SafeHarbor','expert':'ExpertDetermination','limited':'LimitedDataset' }[_sel.deidMethod];
+    const phqLabel = v => v <= 4 ? 'Minimal' : v <= 9 ? 'Mild' : v <= 14 ? 'Moderate' : v <= 19 ? 'ModeratelySevere' : 'Severe';
+    const payload = {
+      exportDate:      new Date().toISOString(),
+      deIdMethod:      methodLabel,
+      recordCount:     PREVIEW_ROWS.length,
+      fields:          ['subjectId','ageBracket','diagnosis','studyWeek','modality','phq9Score','phq9Severity','protocolId','clinicianId','aeCategory','aeSeverity'],
+      dateRangeStart:  _sel.startDate,
+      dateRangeEnd:    _sel.endDate,
+      domains:         _sel.domains,
+      records: PREVIEW_ROWS.map(r => ({
+        subjectId:    r.subj,
+        ageBracket:   r.age,
+        diagnosis:    r.diag,
+        studyWeek:    r.week,
+        modality:     r.modality,
+        phq9Score:    r.phq9,
+        phq9Severity: phqLabel(r.phq9),
+        protocolId:   r.protocol,
+        clinicianId:  r.clinician,
+        aeCategory:   r.event !== 'None' ? r.event.split('(')[0].trim() : null,
+        aeSeverity:   r.event !== 'None' ? (r.event.match(/\(([^)]+)\)/)?.[1] || 'Unknown') : null,
+      })),
+    };
+    return new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+  }
+
+  function generateBIDS() {
+    const phqLabel = v => v <= 4 ? 'Minimal' : v <= 9 ? 'Mild' : v <= 14 ? 'Moderate' : v <= 19 ? 'ModeratelySevere' : 'Severe';
+    const bids = {
+      BIDSVersion:              '1.9.0',
+      DatasetType:              'raw',
+      TaskName:                 'Neuromodulation Treatment',
+      TaskDescription:          'De-identified multi-modal neuromodulation session and outcomes data exported from DeepSynaps Protocol Studio',
+      Modality:                 'neuromodulation',
+      InstitutionName:          '[REDACTED — HIPAA Safe Harbor]',
+      DeIdentificationMethod:   'HIPAA Safe Harbor (45 CFR § 164.514(b))',
+      Authors:                  ['[De-identified Research Export]'],
+      License:                  'CC0',
+      HowToAcknowledge:         'Cite: DeepSynaps Protocol Studio De-identified Export',
+      ReferencesAndLinks:       [],
+      DatasetDOI:               'n/a',
+      ExportMetadata: {
+        exportDate:    new Date().toISOString(),
+        dateRange:     { start: _sel.startDate, end: _sel.endDate },
+        domains:       _sel.domains,
+        recordCount:   PREVIEW_ROWS.length,
+        deIdMethod:    'SafeHarbor',
+        softwareVersion: 'DeepSynaps-Protocol-Studio/1.0',
+      },
+      participants: PREVIEW_ROWS.map((r, i) => ({
+        participant_id: r.subj,
+        age:            r.age,
+        sex:            i % 2 === 0 ? 'F' : 'M',
+        diagnosis:      r.diag,
+        modality:       r.modality,
+        protocolId:     r.protocol,
+        sessions: [{
+          session_id:    `${r.subj}_ses-01`,
+          task:          'NeuromodulationSession',
+          studyWeek:     r.week,
+          outcomes: { phq9: r.phq9, phq9Severity: phqLabel(r.phq9) },
+          adverseEvents: r.event !== 'None'
+            ? [{ category: r.event.split('(')[0].trim(), severity: r.event.match(/\(([^)]+)\)/)?.[1] || 'Unknown' }]
+            : [],
+        }],
+      })),
+    };
+    return new Blob([JSON.stringify(bids, null, 2)], { type: 'application/json' });
+  }
+
+  function generateREDCap() {
+    const cols = 'study_id|redcap_event_name|age_bracket|diagnosis|study_week|modality|phq9_score|phq9_severity|protocol_id|clinician_id|ae_category|ae_severity\r\n';
+    const sevCode = v => v <= 4 ? '1' : v <= 9 ? '2' : v <= 14 ? '3' : v <= 19 ? '4' : '5';
+    const rows = PREVIEW_ROWS.map(r => [
+      r.subj, 'session_1_arm_1', r.age, r.diag, r.week, r.modality, r.phq9, sevCode(r.phq9),
+      r.protocol, r.clinician,
+      r.event !== 'None' ? r.event.split('(')[0].trim() : '',
+      r.event !== 'None' ? (r.event.match(/\(([^)]+)\)/)?.[1] || '') : '',
+    ].join('|')).join('\r\n');
+    return new Blob([cols + rows], { type: 'text/csv;charset=utf-8;' });
+  }
+
+  // ── Audit log helper ──────────────────────────────────────────────────────
+  function logExport(format) {
+    const methodLabels = { 'safe-harbor':'Safe Harbor','expert':'Expert Determination','limited':'Limited Dataset' };
+    const fmtLabels    = { csv:'CSV',json:'JSON',bids:'BIDS JSON',redcap:'REDCap CSV' };
+    const history = lsGet('ds_export_history', []);
+    history.unshift({
+      id:          'exp_' + Date.now(),
+      date:        new Date().toISOString(),
+      user:        'Current User',
+      domains:     [..._sel.domains],
+      recordCount: _sel.domains.length * 89 + 23,
+      format:      fmtLabels[format],
+      deidMethod:  methodLabels[_sel.deidMethod],
+      purpose:     document.getElementById('nnnb-export-purpose')?.value?.trim() || 'Not specified',
+      studyFilter: _sel.studyFilter === 'all' ? 'All patients' : _sel.studyFilter,
+    });
+    lsSet('ds_export_history', history);
+  }
+
+  // ── Step indicator ────────────────────────────────────────────────────────
+  function renderStepIndicator() {
+    const steps = [{ n:1, label:'Select Data' },{ n:2, label:'De-identification' },{ n:3, label:'Export' }];
+    return `<div class="nnnb-wizard-steps">
+      ${steps.map(s => {
+        const cls = _step === s.n ? 'active' : _step > s.n ? 'done' : 'disabled';
+        const clickable = _step > s.n ? `onclick="window._nnnbGoStep(${s.n})"` : '';
+        return `<div class="nnnb-wizard-step ${cls}" ${clickable}>
+          <span class="nnnb-step-num">${_step > s.n ? '✓' : s.n}</span>
+          <span>${s.label}</span>
+        </div>`;
+      }).join('')}
+    </div>`;
+  }
+
+  // ── Step 1 ────────────────────────────────────────────────────────────────
+  function renderStep1() {
+    const irbStudies = lsGet('ds_irb_studies', []);
+    const DOMAINS = ['Session Records','Outcome Scores','Protocol Parameters','Adverse Events','Medication Records','Demographic Aggregates'];
+    const domainHelp = {
+      'Session Records':       'Dates (relative), duration, modality, protocol — no patient name',
+      'Outcome Scores':        'PHQ-9, GAD-7, symptom ratings over time',
+      'Protocol Parameters':   'Device settings, frequencies, intensities',
+      'Adverse Events':        'De-identified severity, category',
+      'Medication Records':    'Drug class only — no specific drug names',
+      'Demographic Aggregates':'Age brackets, diagnosis categories — no individual records',
+    };
+    return `
+      <div class="nnnb-section">
+        <div class="nnnb-section-title">📋 Select Data Domains</div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:10px;margin-bottom:20px">
+          ${DOMAINS.map(d => {
+            const active = _sel.domains.includes(d);
+            return `<label style="display:flex;align-items:flex-start;gap:10px;padding:12px 14px;border-radius:8px;
+              border:1px solid ${active ? 'var(--accent-teal,#00d4bc)' : 'var(--border)'};
+              background:${active ? 'rgba(0,212,188,0.06)' : 'rgba(255,255,255,0.02)'};cursor:pointer;transition:all 0.15s">
+              <input type="checkbox" style="margin-top:2px;accent-color:var(--accent-teal,#00d4bc)"
+                ${active ? 'checked' : ''} onchange="window._nnnbToggleDomain('${d}')">
+              <div>
+                <div style="font-size:12.5px;font-weight:600;color:var(--text,var(--text-primary));margin-bottom:2px">${d}</div>
+                <div style="font-size:11px;color:var(--text-muted,var(--text-secondary))">${domainHelp[d]}</div>
+              </div>
+            </label>`;
+          }).join('')}
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
+          <div>
+            <label class="form-label" style="font-size:11.5px;font-weight:600">Date Range — Start</label>
+            <input type="date" class="form-control" id="nnnb-start-date" value="${_sel.startDate}" onchange="window._nnnbSetDate('start',this.value)">
+          </div>
+          <div>
+            <label class="form-label" style="font-size:11.5px;font-weight:600">Date Range — End</label>
+            <input type="date" class="form-control" id="nnnb-end-date" value="${_sel.endDate}" onchange="window._nnnbSetDate('end',this.value)">
+          </div>
+        </div>
+        <div>
+          <label class="form-label" style="font-size:11.5px;font-weight:600">Study / IRB Filter</label>
+          <select class="form-control" id="nnnb-study-filter" onchange="window._nnnbSetStudy(this.value)" style="max-width:420px">
+            <option value="all" ${_sel.studyFilter==='all'?'selected':''}>All patients</option>
+            ${irbStudies.map(s => `<option value="${s.id}" ${_sel.studyFilter===s.id?'selected':''}>${s.label}</option>`).join('')}
+          </select>
+        </div>
+      </div>
+      <div style="display:flex;justify-content:flex-end;margin-top:8px">
+        <button class="btn btn-primary" onclick="window._nnnbGoStep(2)"
+          ${_sel.domains.length === 0 ? 'disabled style="opacity:0.5;cursor:not-allowed"' : ''}>
+          Next: De-identification Preview →
+        </button>
+      </div>`;
+  }
+
+  // ── Step 2 ────────────────────────────────────────────────────────────────
+  function renderStep2() {
+    const methods = [
+      { val:'safe-harbor', label:'Safe Harbor',          desc:'Removes all 18 HIPAA identifiers — safest for public sharing'                           },
+      { val:'expert',      label:'Expert Determination', desc:'Statistical expert certifies re-identification risk falls below acceptable threshold'    },
+      { val:'limited',     label:'Limited Dataset',      desc:'Retains some date and geographic identifiers — requires a Data Use Agreement (DUA)'     },
+    ];
+    return `
+      <div class="nnnb-section">
+        <div class="nnnb-section-title">🔒 De-identification Method</div>
+        <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:18px">
+          ${methods.map(m => {
+            const active = _sel.deidMethod === m.val;
+            return `<label style="display:flex;align-items:center;gap:10px;padding:10px 14px;border-radius:8px;
+              border:1px solid ${active ? 'var(--accent-blue,#4a9eff)' : 'var(--border)'};
+              background:${active ? 'rgba(74,158,255,0.06)' : 'rgba(255,255,255,0.02)'};cursor:pointer;transition:all 0.15s">
+              <input type="radio" name="nnnb-deid-method" value="${m.val}" ${active?'checked':''} onchange="window._nnnbSetMethod('${m.val}')" style="accent-color:var(--accent-blue,#4a9eff)">
+              <div>
+                <div style="font-size:12.5px;font-weight:600;color:var(--text,var(--text-primary))">${m.label}</div>
+                <div style="font-size:11px;color:var(--text-muted,var(--text-secondary))">${m.desc}</div>
+              </div>
+            </label>`;
+          }).join('')}
+        </div>
+        ${_sel.deidMethod === 'limited' ? `<div class="nnnb-dua-banner">⚠ Data Use Agreement required for Limited Dataset exports. Ensure an active DSA is in place before sharing externally.</div>` : ''}
+      </div>
+      <div class="nnnb-section">
+        <div class="nnnb-section-title">👁 De-identification Preview
+          <span style="font-size:11px;font-weight:400;color:var(--text-muted,var(--text-secondary));margin-left:6px">(5 synthetic rows)</span>
+        </div>
+        ${buildPreviewTable()}
+      </div>
+      <div class="nnnb-section">
+        <div class="nnnb-section-title">☑ HIPAA Safe Harbor — 18 Identifier Checklist</div>
+        <div class="nnnb-deid-checklist">${buildHIPAAChecklist(_sel.deidMethod)}</div>
+      </div>
+      <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:8px">
+        <button class="btn btn-secondary" onclick="window._nnnbGoStep(1)">← Back</button>
+        <button class="btn btn-primary" onclick="window._nnnbGoStep(3)">Next: Export →</button>
+      </div>`;
+  }
+
+  // ── Step 3 ────────────────────────────────────────────────────────────────
+  function renderStep3() {
+    const formats = [
+      { val:'csv',    label:'CSV',        desc:'Pipe-delimited with de-identified headers'    },
+      { val:'json',   label:'JSON',       desc:'Structured with metadata header block'         },
+      { val:'bids',   label:'BIDS JSON',  desc:'Brain Imaging Data Structure (v1.9) format'   },
+      { val:'redcap', label:'REDCap CSV', desc:'REDCap import-ready with codebook fields'      },
+    ];
+    return `
+      ${buildExportSummary()}
+      <div class="nnnb-section">
+        <div class="nnnb-section-title">📦 Export Format</div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin-bottom:18px">
+          ${formats.map(f => {
+            const active = _sel.format === f.val;
+            return `<label style="display:flex;flex-direction:column;gap:6px;padding:12px 14px;border-radius:8px;
+              border:1px solid ${active ? 'var(--accent-violet,#9b7fff)' : 'var(--border)'};
+              background:${active ? 'rgba(155,127,255,0.07)' : 'rgba(255,255,255,0.02)'};cursor:pointer;transition:all 0.15s">
+              <div style="display:flex;align-items:center;gap:8px">
+                <input type="radio" name="nnnb-format" value="${f.val}" ${active?'checked':''} onchange="window._nnnbSetFormat('${f.val}')" style="accent-color:var(--accent-violet,#9b7fff)">
+                <span style="font-size:13px;font-weight:700;color:var(--text,var(--text-primary))">${f.label}</span>
+              </div>
+              <span style="font-size:10.5px;color:var(--text-muted,var(--text-secondary));padding-left:20px">${f.desc}</span>
+            </label>`;
+          }).join('')}
+        </div>
+        <div style="margin-bottom:16px">
+          <label class="form-label" style="font-size:11.5px;font-weight:600">Compression</label>
+          <div style="display:flex;gap:14px;margin-top:4px">
+            ${[['none','None'],['zip','ZIP (simulated)']].map(([val,label]) => `
+              <label style="display:flex;align-items:center;gap:7px;font-size:12.5px;cursor:pointer">
+                <input type="radio" name="nnnb-compress" value="${val}" ${_sel.compress===val?'checked':''} onchange="window._nnnbSetCompress('${val}')" style="accent-color:var(--accent-teal,#00d4bc)">
+                ${label}
+              </label>`).join('')}
+          </div>
+        </div>
+        <div>
+          <label class="form-label" style="font-size:11.5px;font-weight:600">Export Purpose / Notes (audit log)</label>
+          <input type="text" class="form-control" id="nnnb-export-purpose" placeholder="e.g. IRB-2024-011 interim analysis" style="max-width:500px">
+        </div>
+      </div>
+      <div style="padding:12px 16px;border-radius:9px;background:rgba(245,158,11,0.07);border:1px solid rgba(245,158,11,0.25);margin-bottom:16px;font-size:12px;color:var(--accent-amber,#f59e0b)">
+        ⚠ Exports to external parties require a valid active Data Sharing Agreement covering the exported domains. Check Section 4 below before sharing.
+      </div>
+      <div style="display:flex;gap:10px;justify-content:flex-end">
+        <button class="btn btn-secondary" onclick="window._nnnbGoStep(2)">← Back</button>
+        <button class="btn btn-primary" style="background:var(--accent-teal,#00d4bc);color:#000;font-weight:700;padding:10px 22px" onclick="window._nnnbGenerateExport()">
+          📤 Generate Export
+        </button>
+      </div>`;
+  }
+
+  // ── History table ─────────────────────────────────────────────────────────
+  function renderHistoryTable() {
+    const history = lsGet('ds_export_history', []);
+    const filterDate = document.getElementById('nnnb-hist-date')?.value || '';
+    const filterFmt  = document.getElementById('nnnb-hist-fmt')?.value  || '';
+    let rows = history;
+    if (filterDate) rows = rows.filter(r => r.date && r.date.slice(0,10) >= filterDate);
+    if (filterFmt)  rows = rows.filter(r => r.format === filterFmt);
+    if (rows.length === 0) {
+      return `<div style="text-align:center;padding:32px;color:var(--text-muted,var(--text-secondary));font-size:13px">No export records found.</div>`;
+    }
+    return `<div style="overflow-x:auto"><table class="nnnb-history-table">
+      <thead><tr>
+        <th>Date</th><th>User</th><th>Domains</th><th>Records</th><th>Format</th><th>De-ID Method</th><th>Purpose</th><th></th>
+      </tr></thead>
+      <tbody>
+        ${rows.map(r => `<tr>
+          <td style="font-family:var(--font-mono,monospace);font-size:11px;white-space:nowrap">${new Date(r.date).toLocaleString()}</td>
+          <td style="font-size:12px">${r.user}</td>
+          <td style="max-width:200px">
+            <div style="display:flex;flex-wrap:wrap;gap:3px">
+              ${(r.domains||[]).map(d => `<span style="font-size:9.5px;padding:1px 6px;border-radius:3px;background:rgba(74,158,255,0.1);color:var(--accent-blue,#4a9eff)">${d}</span>`).join('')}
+            </div>
+          </td>
+          <td style="font-family:var(--font-mono,monospace);font-size:12px">${(r.recordCount||0).toLocaleString()}</td>
+          <td><span style="font-size:10.5px;font-weight:700;padding:2px 8px;border-radius:4px;background:rgba(155,127,255,0.1);color:var(--accent-violet,#9b7fff)">${r.format}</span></td>
+          <td style="font-size:11.5px;color:var(--text-muted,var(--text-secondary))">${r.deidMethod}</td>
+          <td style="font-size:11.5px;color:var(--text-muted,var(--text-secondary));max-width:180px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${r.purpose||'—'}</td>
+          <td><button class="btn btn-secondary" style="font-size:11px;padding:4px 10px" onclick="window._nnnbReExport('${r.id}')">Re-export</button></td>
+        </tr>`).join('')}
+      </tbody>
+    </table></div>`;
+  }
+
+  // ── DSA cards ─────────────────────────────────────────────────────────────
+  function renderDSACards() {
+    const dsas = lsGet('ds_data_sharing_agreements', []);
+    if (dsas.length === 0) return `<div style="text-align:center;padding:24px;color:var(--text-muted,var(--text-secondary));font-size:13px">No data sharing agreements on file.</div>`;
+    return dsas.map(d => `
+      <div class="nnnb-dsa-card" style="margin-bottom:10px">
+        <div style="font-size:28px;padding-top:2px">🤝</div>
+        <div class="nnnb-dsa-card-body">
+          <div class="nnnb-dsa-title">${d.institution}</div>
+          <div class="nnnb-dsa-meta">${d.purpose}<br>Effective: ${d.effectiveDate} &nbsp;→&nbsp; Expiry: ${d.expiryDate}</div>
+          <div class="nnnb-dsa-domains">
+            ${(d.domains||[]).map(dom => `<span class="nnnb-dsa-domain-pill">${dom}</span>`).join('')}
+          </div>
+        </div>
+        <div style="flex-shrink:0">${dsaBadge(d.status)}</div>
+      </div>`).join('');
+  }
+
+  // ── DSA add form ──────────────────────────────────────────────────────────
+  function renderDSAForm() {
+    const domOpts = ['Session Records','Outcome Scores','Protocol Parameters','Adverse Events','Medication Records','Demographic Aggregates'];
+    return `<div id="nnnb-dsa-form" style="border:1px solid var(--border);border-radius:10px;padding:18px 20px;margin-top:12px;background:rgba(255,255,255,0.02)">
+      <div style="font-size:13px;font-weight:700;margin-bottom:14px;color:var(--text,var(--text-primary))">New Data Sharing Agreement</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px">
+        <div>
+          <label class="form-label" style="font-size:11.5px;font-weight:600">Institution Name</label>
+          <input type="text" class="form-control" id="nnnb-dsa-inst" placeholder="e.g. Stanford Center for Neuromodulation">
+        </div>
+        <div>
+          <label class="form-label" style="font-size:11.5px;font-weight:600">Purpose</label>
+          <input type="text" class="form-control" id="nnnb-dsa-purpose" placeholder="e.g. Multi-site TMS outcomes registry">
+        </div>
+        <div>
+          <label class="form-label" style="font-size:11.5px;font-weight:600">Effective Date</label>
+          <input type="date" class="form-control" id="nnnb-dsa-eff">
+        </div>
+        <div>
+          <label class="form-label" style="font-size:11.5px;font-weight:600">Expiry Date</label>
+          <input type="date" class="form-control" id="nnnb-dsa-exp">
+        </div>
+      </div>
+      <div style="margin-bottom:14px">
+        <label class="form-label" style="font-size:11.5px;font-weight:600;display:block;margin-bottom:6px">Data Domains Covered</label>
+        <div style="display:flex;flex-wrap:wrap;gap:10px">
+          ${domOpts.map(d => `<label style="display:flex;align-items:center;gap:5px;font-size:12px;cursor:pointer">
+            <input type="checkbox" class="nnnb-dsa-domain-cb" value="${d}" style="accent-color:var(--accent-blue,#4a9eff)"> ${d}
+          </label>`).join('')}
+        </div>
+      </div>
+      <div style="display:flex;gap:8px;justify-content:flex-end">
+        <button class="btn btn-secondary" onclick="document.getElementById('nnnb-dsa-form').remove()">Cancel</button>
+        <button class="btn btn-primary" onclick="window._nnnbSaveDSA()">Save DSA</button>
+      </div>
+    </div>`;
+  }
+
+  // ── Full page render ──────────────────────────────────────────────────────
+  function renderPage() {
+    el.innerHTML = `
+    <div style="max-width:1100px;margin:0 auto;padding:0 4px">
+
+      <!-- Wizard Section -->
+      <div style="margin-bottom:24px">
+        <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:1px;color:var(--text-muted,var(--text-secondary));margin-bottom:12px">Export Wizard</div>
+        ${renderStepIndicator()}
+        <div id="nnnb-step-body">
+          ${_step === 1 ? renderStep1() : _step === 2 ? renderStep2() : renderStep3()}
+        </div>
+      </div>
+
+      <!-- Aggregate Analytics Preview -->
+      <div class="nnnb-section">
+        <div class="nnnb-section-title">
+          📊 Aggregate Analytics Preview
+          <span style="font-size:11px;font-weight:400;color:var(--text-muted,var(--text-secondary));margin-left:6px">— aggregated anonymous data, no de-identification trigger</span>
+        </div>
+        <div class="nnnb-chart-row">
+          <div class="nnnb-chart-card">
+            <div class="nnnb-chart-title">Condition Distribution</div>
+            ${buildDonut(COND_DIST)}
+          </div>
+          <div class="nnnb-chart-card">
+            <div class="nnnb-chart-title">Modality Usage</div>
+            ${buildBarChart(MODALITY_DATA)}
+          </div>
+          <div class="nnnb-chart-card">
+            <div class="nnnb-chart-title">PHQ-9 Score Distribution</div>
+            ${buildHistogram(PHQ9_HIST)}
+          </div>
+          <div class="nnnb-chart-card">
+            <div class="nnnb-chart-title">Sessions per Week (Last 12 Weeks)</div>
+            ${buildTrendLine(SESSIONS_WEEKLY)}
+          </div>
+        </div>
+      </div>
+
+      <!-- Export History -->
+      <div class="nnnb-section">
+        <div class="nnnb-section-title" style="justify-content:space-between;flex-wrap:wrap;gap:8px">
+          <span>📜 Export History</span>
+          <span style="font-size:10.5px;font-weight:500;color:var(--accent-amber,#f59e0b);background:rgba(245,158,11,0.1);padding:3px 10px;border-radius:5px">
+            Export logs retained for 6 years per HIPAA requirements
+          </span>
+        </div>
+        <div style="display:flex;gap:12px;margin-bottom:14px;flex-wrap:wrap;align-items:flex-end">
+          <div>
+            <label class="form-label" style="font-size:11px">Filter from date</label>
+            <input type="date" class="form-control" id="nnnb-hist-date" style="font-size:12px" onchange="window._nnnbRefreshHistory()">
+          </div>
+          <div>
+            <label class="form-label" style="font-size:11px">Format</label>
+            <select class="form-control" id="nnnb-hist-fmt" style="font-size:12px" onchange="window._nnnbRefreshHistory()">
+              <option value="">All formats</option>
+              <option value="CSV">CSV</option>
+              <option value="JSON">JSON</option>
+              <option value="BIDS JSON">BIDS JSON</option>
+              <option value="REDCap CSV">REDCap CSV</option>
+            </select>
+          </div>
+        </div>
+        <div id="nnnb-history-body">${renderHistoryTable()}</div>
+      </div>
+
+      <!-- Data Sharing Agreements -->
+      <div class="nnnb-section">
+        <div class="nnnb-section-title" style="justify-content:space-between;flex-wrap:wrap;gap:8px">
+          <span>🤝 Data Sharing Agreements</span>
+          <button class="btn btn-secondary" style="font-size:12px" onclick="window._nnnbShowDSAForm()">+ Add New DSA</button>
+        </div>
+        <div style="padding:10px 14px;border-radius:8px;background:rgba(245,158,11,0.07);border:1px solid rgba(245,158,11,0.25);font-size:12px;color:var(--accent-amber,#f59e0b);margin-bottom:14px">
+          ⚠ Exports to external parties require a valid <strong>Active</strong> Data Sharing Agreement covering the exported data domains.
+        </div>
+        <div id="nnnb-dsa-list">${renderDSACards()}</div>
+        <div id="nnnb-dsa-form-container"></div>
+      </div>
+
+    </div>`;
+  }
+
+  // ── Window-exposed handlers ───────────────────────────────────────────────
+  window._nnnbGoStep = function(n) {
+    if (n === 2 && _sel.domains.length === 0) {
+      // Show inline validation message
+      const btn = document.querySelector('.nnnb-section .btn-primary');
+      if (btn) { btn.textContent = 'Please select at least one domain first'; setTimeout(() => { btn.textContent = 'Next: De-identification Preview →'; }, 2000); }
+      return;
+    }
+    _step = n;
+    // Refresh step indicator and body without full re-render to preserve filter state
+    const indicator = document.querySelector('.nnnb-wizard-steps');
+    const body      = document.getElementById('nnnb-step-body');
+    if (indicator) indicator.outerHTML = renderStepIndicator();
+    if (body)      body.innerHTML = _step === 1 ? renderStep1() : _step === 2 ? renderStep2() : renderStep3();
+    // After outerHTML swap the old reference is gone — scroll to top of content
+    el.scrollTop = 0;
+  };
+
+  window._nnnbToggleDomain = function(domain) {
+    const i = _sel.domains.indexOf(domain);
+    if (i === -1) _sel.domains.push(domain);
+    else _sel.domains.splice(i, 1);
+    const body = document.getElementById('nnnb-step-body');
+    if (body && _step === 1) body.innerHTML = renderStep1();
+  };
+
+  window._nnnbSetDate  = function(which, val) { if (which === 'start') _sel.startDate = val; else _sel.endDate = val; };
+  window._nnnbSetStudy = function(val) { _sel.studyFilter = val; };
+
+  window._nnnbSetMethod = function(val) {
+    _sel.deidMethod = val;
+    const body = document.getElementById('nnnb-step-body');
+    if (body && _step === 2) body.innerHTML = renderStep2();
+  };
+
+  window._nnnbSetFormat = function(val) {
+    _sel.format = val;
+    const body = document.getElementById('nnnb-step-body');
+    if (body && _step === 3) body.innerHTML = renderStep3();
+  };
+
+  window._nnnbSetCompress = function(val) { _sel.compress = val; };
+
+  window._nnnbGenerateExport = function() {
+    if (_sel.domains.length === 0) {
+      alert('Please select at least one data domain in Step 1 before generating an export.');
+      return;
+    }
+    let blob, filename;
+    const ts = new Date().toISOString().slice(0,10);
+    if (_sel.format === 'json') {
+      blob = generateJSON(); filename = `deepsynaps_deid_export_${ts}.json`;
+    } else if (_sel.format === 'bids') {
+      blob = generateBIDS(); filename = `deepsynaps_bids_${ts}.json`;
+    } else if (_sel.format === 'redcap') {
+      blob = generateREDCap(); filename = `deepsynaps_redcap_${ts}.csv`;
+    } else {
+      blob = generateCSV(); filename = `deepsynaps_deid_export_${ts}.csv`;
+    }
+    // Trigger download
+    const url = URL.createObjectURL(blob);
+    const a   = document.createElement('a');
+    a.href     = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    // Write audit log
+    logExport(_sel.format);
+    // Refresh history panel
+    const hb = document.getElementById('nnnb-history-body');
+    if (hb) hb.innerHTML = renderHistoryTable();
+    // Show toast
+    const toast = document.createElement('div');
+    toast.style.cssText = 'position:fixed;bottom:24px;right:24px;max-width:340px;padding:14px 18px;border-radius:10px;background:var(--navy-800,#0f172a);border:1px solid var(--accent-teal,#00d4bc);z-index:9999;box-shadow:0 4px 24px rgba(0,0,0,0.5)';
+    toast.innerHTML = `<div style="font-size:13px;font-weight:600;color:var(--text,var(--text-primary));margin-bottom:3px">✓ Export generated</div><div style="font-size:12px;color:var(--text-muted,var(--text-secondary))">${filename} — audit entry recorded</div>`;
+    document.body.appendChild(toast);
+    setTimeout(() => { toast.style.opacity = '0'; toast.style.transition = 'opacity 0.3s'; setTimeout(() => toast.remove(), 300); }, 3500);
+  };
+
+  window._nnnbRefreshHistory = function() {
+    const hb = document.getElementById('nnnb-history-body');
+    if (hb) hb.innerHTML = renderHistoryTable();
+  };
+
+  window._nnnbReExport = function(id) {
+    const history = lsGet('ds_export_history', []);
+    const rec = history.find(r => r.id === id);
+    if (!rec) return;
+    _sel.domains    = [...(rec.domains || [])];
+    _sel.deidMethod = rec.deidMethod === 'Safe Harbor' ? 'safe-harbor' : rec.deidMethod === 'Expert Determination' ? 'expert' : 'limited';
+    _sel.format     = rec.format === 'JSON' ? 'json' : rec.format === 'BIDS JSON' ? 'bids' : rec.format === 'REDCap CSV' ? 'redcap' : 'csv';
+    _step = 3;
+    renderPage();
+    const toast = document.createElement('div');
+    toast.style.cssText = 'position:fixed;bottom:24px;right:24px;max-width:340px;padding:12px 16px;border-radius:10px;background:var(--navy-800,#0f172a);border:1px solid var(--accent-blue,#4a9eff);z-index:9999;box-shadow:0 4px 20px rgba(0,0,0,0.5)';
+    toast.innerHTML = `<div style="font-size:12.5px;font-weight:600;color:var(--text,var(--text-primary))">Config loaded from history — review and click Generate Export</div>`;
+    document.body.appendChild(toast);
+    setTimeout(() => toast.remove(), 3000);
+  };
+
+  window._nnnbShowDSAForm = function() {
+    const c = document.getElementById('nnnb-dsa-form-container');
+    if (!c) return;
+    if (document.getElementById('nnnb-dsa-form')) {
+      document.getElementById('nnnb-dsa-form').remove();
+      return;
+    }
+    c.innerHTML = renderDSAForm();
+    c.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+
+  window._nnnbSaveDSA = function() {
+    const inst    = document.getElementById('nnnb-dsa-inst')?.value?.trim();
+    const purpose = document.getElementById('nnnb-dsa-purpose')?.value?.trim();
+    const eff     = document.getElementById('nnnb-dsa-eff')?.value;
+    const exp     = document.getElementById('nnnb-dsa-exp')?.value;
+    if (!inst || !purpose || !eff || !exp) {
+      alert('Please fill in Institution, Purpose, Effective Date, and Expiry Date.');
+      return;
+    }
+    const domains = [...document.querySelectorAll('.nnnb-dsa-domain-cb:checked')].map(cb => cb.value);
+    const dsas = lsGet('ds_data_sharing_agreements', []);
+    dsas.push({ id: 'dsa_' + Date.now(), institution: inst, purpose, domains, effectiveDate: eff, expiryDate: exp, status: 'Pending Signature' });
+    lsSet('ds_data_sharing_agreements', dsas);
+    const list = document.getElementById('nnnb-dsa-list');
+    if (list) list.innerHTML = renderDSACards();
+    const c = document.getElementById('nnnb-dsa-form-container');
+    if (c) c.innerHTML = '';
+    const toast = document.createElement('div');
+    toast.style.cssText = 'position:fixed;bottom:24px;right:24px;max-width:320px;padding:12px 16px;border-radius:10px;background:var(--navy-800,#0f172a);border:1px solid var(--accent-teal,#00d4bc);z-index:9999;box-shadow:0 4px 20px rgba(0,0,0,0.5)';
+    toast.innerHTML = `<div style="font-size:12.5px;font-weight:600;color:var(--text,var(--text-primary))">DSA saved — status: Pending Signature</div>`;
+    document.body.appendChild(toast);
+    setTimeout(() => toast.remove(), 2500);
+  };
+
+  // ── Initial render ────────────────────────────────────────────────────────
+  renderPage();
+}
+
+// ── NNN-E: Clinical Trial Enrollment Matcher ──────────────────────────────────
+export async function pgTrialEnrollment(setTopbar) {
+  setTopbar('Trial Enrollment', '');
+
+  // ── localStorage helpers ─────────────────────────────────────────────────
+  function lsGet(key, fallback) {
+    try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : fallback; } catch { return fallback; }
+  }
+  function lsSet(key, val) {
+    try { localStorage.setItem(key, JSON.stringify(val)); } catch (_) {}
+  }
+
+  // ── Seed data ────────────────────────────────────────────────────────────
+  const TRIAL_SEED_STUDIES = [
+    { id:'ts1', title:'Theta Burst TMS for TRD — Pilot RCT', arms:['Active TBS','Sham TBS'], target:24, enrolled:18, screened:31, excluded:13,
+      criteria: { inclusion: ['Age 18–65','MDD diagnosis (DSM-5)','Failed ≥2 antidepressants','HAMD-17 ≥ 18'], exclusion: ['Active psychosis','Metallic implants','Pregnancy','Seizure history','Recent ECT (<3 months)'] } },
+    { id:'ts2', title:'NFB vs Methylphenidate for ADHD', arms:['Neurofeedback','Methylphenidate','Combined'], target:40, enrolled:31, screened:52, excluded:21,
+      criteria: { inclusion: ['Age 6–18','ADHD diagnosis (DSM-5)','ADHD-RS score ≥ 24','Naïve to stimulant medication'], exclusion: ['Autism comorbidity','Active seizure disorder','Current stimulant use','IQ < 70'] } },
+  ];
+
+  const TRIAL_SEED_PARTICIPANTS = Array.from({length:18}, (_,i) => ({
+    id: `P${String(i+1).padStart(3,'0')}`,
+    arm: i < 9 ? 'Active TBS' : 'Sham TBS',
+    studyId: 'ts1',
+    enrollDate: `2025-${String(Math.floor(i/3)+3).padStart(2,'0')}-${String((i%3)*8+5).padStart(2,'0')}`,
+    status: i < 14 ? 'active' : i < 17 ? 'completed' : 'withdrawn',
+    sessionsCompleted: 10 + ((i*7+3) % 20),
+    compliance: 70 + ((i*11+5) % 30),
+    adverseEvents: i % 5 === 0 ? 1 : 0,
+  }));
+
+  const SEED_PATIENTS = [
+    { id:'pt1', name:'Alice Novak',  age:34, diagnosis:'MDD',  hamd:22, metalImplants:false, seizureHistory:false, pregnant:false, failedAD:3 },
+    { id:'pt2', name:'Brian Torres', age:57, diagnosis:'MDD',  hamd:19, metalImplants:true,  seizureHistory:false, pregnant:false, failedAD:2 },
+    { id:'pt3', name:'Chloe Marsh',  age:29, diagnosis:'MDD',  hamd:14, metalImplants:false, seizureHistory:false, pregnant:false, failedAD:1 },
+    { id:'pt4', name:'David Chen',   age:45, diagnosis:'MDD',  hamd:21, metalImplants:false, seizureHistory:true,  pregnant:false, failedAD:3 },
+    { id:'pt5', name:'Elena Russo',  age:38, diagnosis:'MDD',  hamd:20, metalImplants:false, seizureHistory:false, pregnant:false, failedAD:2 },
+    { id:'pt6', name:'Frank Osei',   age:70, diagnosis:'MDD',  hamd:18, metalImplants:false, seizureHistory:false, pregnant:false, failedAD:2 },
+    { id:'pt7', name:'Grace Kim',    age:25, diagnosis:'ADHD', hamd:8,  metalImplants:false, seizureHistory:false, pregnant:false, failedAD:0 },
+    { id:'pt8', name:'Hiro Tanaka',  age:41, diagnosis:'MDD',  hamd:23, metalImplants:false, seizureHistory:false, pregnant:false, failedAD:2 },
+  ];
+
+  const SEED_INVITATIONS = [
+    { id:'inv1', studyId:'ts1', patientId:'pt1', patientName:'Alice Novak',  date:'2026-01-15', status:'invited'   },
+    { id:'inv2', studyId:'ts1', patientId:'pt5', patientName:'Elena Russo',  date:'2026-01-16', status:'consented' },
+    { id:'inv3', studyId:'ts1', patientId:'pt8', patientName:'Hiro Tanaka',  date:'2026-01-17', status:'declined'  },
+  ];
+
+  const SEED_DEVIATIONS = [
+    { id:'dev1', studyId:'ts1', participantId:'P002', date:'2026-01-20', type:'missed session',       severity:'minor',    status:'resolved', action:'Extra session scheduled',              irb:false },
+    { id:'dev2', studyId:'ts1', participantId:'P007', date:'2026-02-03', type:'wrong dose',           severity:'major',    status:'reviewed', action:'Protocol amended, DSMB notified',      irb:false },
+    { id:'dev3', studyId:'ts1', participantId:'P011', date:'2026-02-14', type:'eligibility violation',severity:'critical', status:'open',     action:'IRB notification submitted',           irb:true  },
+    { id:'dev4', studyId:'ts2', participantId:'P001', date:'2026-02-28', type:'consent issue',        severity:'major',    status:'open',     action:'Re-consent scheduled',                 irb:false },
+    { id:'dev5', studyId:'ts2', participantId:'P003', date:'2026-03-10', type:'missed session',       severity:'minor',    status:'resolved', action:'Session rescheduled and completed',    irb:false },
+  ];
+
+  const SEED_RAND_LOG = [
+    { ts:'2026-03-01T09:12:00Z', participantId:'P015', arm:'Active TBS',      studyId:'ts1' },
+    { ts:'2026-03-03T11:05:00Z', participantId:'P016', arm:'Sham TBS',        studyId:'ts1' },
+    { ts:'2026-03-07T14:30:00Z', participantId:'P017', arm:'Active TBS',      studyId:'ts1' },
+    { ts:'2026-03-09T10:22:00Z', participantId:'P018', arm:'Sham TBS',        studyId:'ts1' },
+    { ts:'2026-03-12T16:45:00Z', participantId:'P031', arm:'Neurofeedback',   studyId:'ts2' },
+    { ts:'2026-03-15T09:55:00Z', participantId:'P032', arm:'Methylphenidate', studyId:'ts2' },
+    { ts:'2026-03-18T13:10:00Z', participantId:'P033', arm:'Combined',        studyId:'ts2' },
+    { ts:'2026-03-20T15:40:00Z', participantId:'P034', arm:'Neurofeedback',   studyId:'ts2' },
+    { ts:'2026-03-22T10:05:00Z', participantId:'P035', arm:'Methylphenidate', studyId:'ts2' },
+    { ts:'2026-03-25T11:30:00Z', participantId:'P036', arm:'Combined',        studyId:'ts2' },
+  ];
+
+  // Seed on first load
+  if (!lsGet('ds_trial_enrollments', null)) lsSet('ds_trial_enrollments', TRIAL_SEED_PARTICIPANTS);
+  if (!lsGet('ds_trial_invitations', null)) lsSet('ds_trial_invitations', SEED_INVITATIONS);
+  if (!lsGet('ds_trial_deviations',  null)) lsSet('ds_trial_deviations',  SEED_DEVIATIONS);
+  if (!lsGet('ds_trial_randomization_log', null)) lsSet('ds_trial_randomization_log', SEED_RAND_LOG);
+
+  // ── State ────────────────────────────────────────────────────────────────
+  let _activeSection = 'eligibility';
+  let _selectedStudyId = 'ts1';
+  let _eligibilityFilter = 'all';
+  let _eligibilityResults = null;
+  let _selectedParticipantId = null;
+  let _deviationFilter = 'all';
+  let _showDeviationForm = false;
+
+  // ── Data helpers ─────────────────────────────────────────────────────────
+  function getStudies() {
+    const stored = lsGet('ds_irb_studies', null);
+    return (stored && stored.length) ? stored : TRIAL_SEED_STUDIES;
+  }
+  function getPatients() {
+    const stored = lsGet('ds_patients', null);
+    return (stored && stored.length) ? stored : SEED_PATIENTS;
+  }
+  function getEnrollments() { return lsGet('ds_trial_enrollments', []); }
+  function getInvitations() { return lsGet('ds_trial_invitations', []); }
+  function getDeviations()  { return lsGet('ds_trial_deviations',  []); }
+  function getRandLog()     { return lsGet('ds_trial_randomization_log', []); }
+  function getStudyById(id) { return getStudies().find(s => s.id === id) || getStudies()[0]; }
+
+  // ── Eligibility engine ───────────────────────────────────────────────────
+  function scorePatientForStudy(patient, study) {
+    let score = 100;
+    const reasons = [];
+    const crit = study.criteria;
+    if (!crit) return { score:50, reasons:['No criteria defined'], status:'potentially' };
+
+    if (study.id === 'ts1') {
+      if (patient.age < 18 || patient.age > 65)  { score -= 40; reasons.push('Age out of range (18–65)'); }
+      if (patient.diagnosis !== 'MDD')            { score -= 50; reasons.push('No MDD diagnosis'); }
+      if ((patient.hamd || 0) < 18)              { score -= 30; reasons.push('HAMD-17 < 18'); }
+      if ((patient.failedAD || 0) < 2)           { score -= 20; reasons.push('Fewer than 2 failed antidepressants'); }
+      if (patient.metalImplants)                  { score -= 50; reasons.push('Metallic implants (exclusion)'); }
+      if (patient.seizureHistory)                 { score -= 50; reasons.push('Seizure history (exclusion)'); }
+      if (patient.pregnant)                       { score -= 50; reasons.push('Pregnancy (exclusion)'); }
+    } else if (study.id === 'ts2') {
+      if (patient.age < 6 || patient.age > 18)   { score -= 40; reasons.push('Age out of range (6–18)'); }
+      if (patient.diagnosis !== 'ADHD')           { score -= 50; reasons.push('No ADHD diagnosis'); }
+    } else {
+      if (!patient.diagnosis)                     { score -= 20; reasons.push('No diagnosis on record'); }
+    }
+
+    score = Math.max(0, Math.min(100, score));
+    const status = score >= 80 ? 'eligible' : score >= 40 ? 'potentially' : 'ineligible';
+    return { score, reasons, status };
+  }
+
+  function runEligibilityScan() {
+    const study = getStudyById(_selectedStudyId);
+    const patients = getPatients();
+    _eligibilityResults = patients.map(p => {
+      const { score, reasons, status } = scorePatientForStudy(p, study);
+      return { ...p, score, reasons, status };
+    });
+    render();
+  }
+
+  // ── CONSORT data ─────────────────────────────────────────────────────────
+  function getConsortData(study) {
+    const enroll     = getEnrollments().filter(e => e.studyId === study.id);
+    const n_screened = study.screened || 0;
+    const n_excluded = study.excluded || 0;
+    const n_no_crit  = Math.round(n_excluded * 0.6);
+    const n_declined = Math.round(n_excluded * 0.25);
+    const n_other    = n_excluded - n_no_crit - n_declined;
+    const n_rand     = study.enrolled || 0;
+    const arms       = study.arms || ['Arm A'];
+    const armBase    = Math.floor(n_rand / arms.length);
+    const armRem     = n_rand - armBase * arms.length;
+    const armData    = arms.map((name, i) => {
+      const sz        = i === arms.length - 1 ? armBase + armRem : armBase;
+      const completed = enroll.filter(e => e.arm === name && e.status === 'completed').length || Math.round(sz * 0.78);
+      const lost      = Math.round(sz * 0.10);
+      const analysed  = Math.round(completed * 0.98);
+      return { name, enrolled:sz, completed, lost, analysed };
+    });
+    return { n_screened, n_excluded, n_no_crit, n_declined, n_other, n_rand, armData };
+  }
+
+  // ── SVG CONSORT diagram ──────────────────────────────────────────────────
+  function buildConsortSVG(study) {
+    const d     = getConsortData(study);
+    const arms  = d.armData;
+    const nArms = arms.length;
+    const W     = Math.max(720, nArms * 230 + 80);
+    const H     = 640;
+    const BW    = 200;
+    const BH    = 48;
+    const cx    = W / 2;
+
+    const Y_SCREEN = 20;
+    const Y_RAND   = Y_SCREEN + BH + 130;   // room for excl box
+    const Y_ARMS   = Y_RAND  + BH + 50;
+    const Y_COMP   = Y_ARMS  + BH + 40;
+    const Y_LOST   = Y_COMP  + BH + 40;
+    const Y_ANAL   = Y_LOST  + BH + 40;
+
+    const COLORS   = ['#00d4bc','#6366f1','#f59e0b','#f43f5e'];
+    const armXs    = arms.map((_, i) => Math.round(W * (i + 1) / (nArms + 1)));
+
+    function rect(x, y, w, h, fill, stroke, rx=6) {
+      return `<rect x="${x-w/2}" y="${y}" width="${w}" height="${h}" rx="${rx}" fill="${fill}" stroke="${stroke}" stroke-width="1.5"/>`;
+    }
+    function txt(x, y, s, fill, sz=12, fw='400') {
+      return `<text x="${x}" y="${y}" text-anchor="middle" font-family="system-ui,sans-serif" font-size="${sz}" fill="${fill}" font-weight="${fw}">${s}</text>`;
+    }
+    function arrow(x, y1, y2, col='#475569') {
+      return `<line x1="${x}" y1="${y1}" x2="${x}" y2="${y2-8}" stroke="${col}" stroke-width="1.5"/>` +
+             `<polygon points="${x-5},${y2-8} ${x+5},${y2-8} ${x},${y2}" fill="${col}"/>`;
+    }
+    function hline(x1, x2, y, col='#475569') {
+      return `<line x1="${x1}" y1="${y}" x2="${x2}" y2="${y}" stroke="${col}" stroke-width="1.5"/>`;
+    }
+
+    let s = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H+30}" style="background:#fff;font-family:system-ui,sans-serif">`;
+    s += `<rect width="${W}" height="${H+30}" fill="#fff"/>`;
+
+    // ── Assessed for eligibility ─────────────────────────────────────────
+    s += rect(cx, Y_SCREEN, BW+60, BH, '#1e293b', '#334155');
+    s += txt(cx, Y_SCREEN+18, 'Assessed for Eligibility', '#e2e8f0', 13, '600');
+    s += txt(cx, Y_SCREEN+34, `(N=${d.n_screened})`, '#00d4bc', 13, '700');
+
+    // Arrow from screened → randomized, with horizontal branch to exclusion box
+    s += arrow(cx, Y_SCREEN+BH, Y_RAND, '#475569');
+
+    // Exclusion box (right side of vertical arrow)
+    const excX  = cx + 150;
+    const excW  = 210;
+    const excH  = 100;
+    const excY  = Y_SCREEN + BH + 15;
+    const branchY = excY + 20;
+    s += hline(cx, excX - excW/2, branchY);
+    s += `<polygon points="${excX-excW/2-8},${branchY} ${excX-excW/2},${branchY-5} ${excX-excW/2},${branchY+5}" fill="#475569"/>`;
+    s += `<rect x="${excX-excW/2}" y="${excY}" width="${excW}" height="${excH}" rx="6" fill="#2d1b1b" stroke="#7f1d1d" stroke-width="1.5"/>`;
+    s += txt(excX, excY+17, `Excluded  (N=${d.n_excluded})`, '#fca5a5', 12, '700');
+    s += txt(excX, excY+34, `Not meeting criteria: ${d.n_no_crit}`, '#94a3b8', 10.5);
+    s += txt(excX, excY+49, `Declined to participate: ${d.n_declined}`, '#94a3b8', 10.5);
+    s += txt(excX, excY+64, `Other reasons: ${d.n_other}`, '#94a3b8', 10.5);
+
+    // ── Randomized ──────────────────────────────────────────────────────
+    s += rect(cx, Y_RAND, BW+40, BH, '#1e293b', '#334155');
+    s += txt(cx, Y_RAND+18, 'Randomized', '#e2e8f0', 13, '600');
+    s += txt(cx, Y_RAND+34, `(N=${d.n_rand})`, '#00d4bc', 13, '700');
+
+    // Fan-out horizontal line
+    const fanY = Y_RAND + BH + 18;
+    s += `<line x1="${cx}" y1="${Y_RAND+BH}" x2="${cx}" y2="${fanY}" stroke="#475569" stroke-width="1.5"/>`;
+    if (nArms > 1) {
+      s += hline(armXs[0], armXs[nArms-1], fanY);
+    }
+    armXs.forEach(ax => {
+      s += arrow(ax, fanY, Y_ARMS, '#475569');
+    });
+
+    // ── Per-arm boxes ────────────────────────────────────────────────────
+    arms.forEach((arm, i) => {
+      const ax  = armXs[i];
+      const col = COLORS[i % COLORS.length];
+
+      // Arm allocation box
+      s += `<rect x="${ax-BW/2}" y="${Y_ARMS}" width="${BW}" height="${BH}" rx="6" fill="#1a1f2e" stroke="${col}" stroke-width="2"/>`;
+      s += txt(ax, Y_ARMS+17, arm.name, '#e2e8f0', 12, '600');
+      s += txt(ax, Y_ARMS+33, `Allocated  (N=${arm.enrolled})`, col, 11, '700');
+
+      // → Received intervention
+      s += arrow(ax, Y_ARMS+BH, Y_COMP, col);
+      s += rect(ax, Y_COMP, BW, BH, '#1a1f2e', '#334155');
+      s += txt(ax, Y_COMP+17, 'Received Intervention', '#e2e8f0', 11);
+      s += txt(ax, Y_COMP+33, `Completed  (N=${arm.completed})`, col, 11, '600');
+
+      // → Lost to follow-up
+      s += arrow(ax, Y_COMP+BH, Y_LOST, '#475569');
+      s += rect(ax, Y_LOST, BW, BH, '#1e1a2e', '#4c1d95');
+      s += txt(ax, Y_LOST+17, 'Lost to Follow-Up', '#e2e8f0', 11);
+      s += txt(ax, Y_LOST+33, `N=${arm.lost}`, '#a78bfa', 11, '600');
+
+      // → Analysed
+      s += arrow(ax, Y_LOST+BH, Y_ANAL, '#475569');
+      s += rect(ax, Y_ANAL, BW, BH, '#1a1f2e', '#0d9488');
+      s += txt(ax, Y_ANAL+17, 'Analysed', '#e2e8f0', 11);
+      s += txt(ax, Y_ANAL+33, `N=${arm.analysed}`, '#2dd4bf', 11, '700');
+    });
+
+    // Caption
+    s += txt(cx, H+18, study.title, '#64748b', 10.5, '400');
+    s += `</svg>`;
+    return s;
+  }
+
+  // ── Gantt chart SVG ──────────────────────────────────────────────────────
+  function buildGanttSVG(study) {
+    const enroll = getEnrollments().filter(e => e.studyId === study.id);
+    if (!enroll.length) return '<p style="color:var(--text-muted);padding:20px;text-align:center">No enrolled participants for this study.</p>';
+
+    const LW = 58, RH = 28, CW = 22, MAX_W = 22, PAD_TOP = 28;
+    const W  = LW + CW * MAX_W + 18;
+    const H  = PAD_TOP + RH * enroll.length + 8;
+
+    const PHASE_C = { screening:'#f59e0b', treatment:'#6366f1', followup:'#0ea5e9', completed:'#00d4bc', withdrawn:'#f43f5e' };
+
+    let s = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" style="font-family:system-ui,sans-serif;background:#0f172a;border-radius:8px">`;
+
+    // Week labels & gridlines
+    for (let w = 0; w <= MAX_W; w += 4) {
+      const x = LW + w * CW;
+      s += `<text x="${x}" y="16" text-anchor="middle" font-size="9.5" fill="#475569">W${w}</text>`;
+      s += `<line x1="${x}" y1="20" x2="${x}" y2="${H-4}" stroke="#1e293b" stroke-width="0.8"/>`;
+    }
+
+    enroll.forEach((p, i) => {
+      const ry = PAD_TOP + i * RH;
+      const ly = ry + RH/2 + 3.5;
+      if (i % 2 === 0) s += `<rect x="0" y="${ry}" width="${W}" height="${RH}" fill="rgba(255,255,255,0.015)"/>`;
+
+      s += `<text x="${LW-5}" y="${ly}" text-anchor="end" font-size="9.5" fill="#94a3b8" font-weight="500">${p.id}</text>`;
+
+      const sc = 2;
+      const tr = Math.min(12, Math.round((p.sessionsCompleted || 10) / 1.4));
+      const fu = p.status === 'completed' ? 4 : 0;
+      const phases = [{ ph:'screening', start:0, wk:sc }];
+      phases.push({ ph: p.status === 'withdrawn' ? 'withdrawn' : 'treatment', start:sc, wk:tr });
+      if (p.status === 'completed') {
+        phases.push({ ph:'followup',  start:sc+tr,    wk:fu });
+        phases.push({ ph:'completed', start:sc+tr+fu, wk:2  });
+      }
+
+      phases.forEach(({ ph, start, wk }) => {
+        const rx = LW + start * CW;
+        const rw = wk * CW - 2;
+        if (rw < 2) return;
+        s += `<rect x="${rx}" y="${ry+4}" width="${rw}" height="${RH-8}" rx="3" fill="${PHASE_C[ph]}" opacity="0.87"
+               onclick="window._nnnESelectParticipant('${p.id}')" style="cursor:pointer"/>`;
+      });
+
+      // Compliance dot
+      const cc = (p.compliance||0)>=80 ? '#00d4bc' : (p.compliance||0)>=60 ? '#f59e0b' : '#f43f5e';
+      s += `<circle cx="${LW+MAX_W*CW+10}" cy="${ry+RH/2}" r="4.5" fill="${cc}"/>`;
+    });
+
+    s += `</svg>`;
+    return s;
+  }
+
+  // ── Donut SVG ────────────────────────────────────────────────────────────
+  function buildDonutSVG(armData) {
+    const total = armData.reduce((a, b) => a + b.enrolled, 0);
+    if (!total) return '';
+    const SZ = 120, R = 44, CX = 60, CY = 60;
+    const COLS = ['#00d4bc','#6366f1','#f59e0b','#f43f5e'];
+    let s = `<svg width="${SZ}" height="${SZ}" viewBox="0 0 ${SZ} ${SZ}">`;
+    let angle = -Math.PI / 2;
+    armData.forEach((arm, i) => {
+      const sweep = (arm.enrolled / total) * 2 * Math.PI;
+      const x1 = CX + R * Math.cos(angle);
+      const y1 = CY + R * Math.sin(angle);
+      const x2 = CX + R * Math.cos(angle + sweep);
+      const y2 = CY + R * Math.sin(angle + sweep);
+      const la = sweep > Math.PI ? 1 : 0;
+      s += `<path d="M${CX},${CY} L${x1},${y1} A${R},${R} 0 ${la} 1 ${x2},${y2} Z" fill="${COLS[i%COLS.length]}" opacity="0.87"/>`;
+      angle += sweep;
+    });
+    s += `<circle cx="${CX}" cy="${CY}" r="26" fill="#0f172a"/>`;
+    s += `<text x="${CX}" y="${CY+5}" text-anchor="middle" font-size="13" fill="#e2e8f0" font-weight="700">${total}</text>`;
+    s += `<text x="${CX}" y="${CY+17}" text-anchor="middle" font-size="8.5" fill="#64748b">enrolled</text>`;
+    s += `</svg>`;
+    return s;
+  }
+
+  // ── Deviation bar chart SVG ──────────────────────────────────────────────
+  function buildDeviationBarSVG() {
+    const devs = getDeviations();
+    const counts = {};
+    devs.forEach(d => { const m = (d.date||'2026-01').slice(0,7); counts[m] = (counts[m]||0)+1; });
+    const months = Object.keys(counts).sort().slice(-6);
+    if (!months.length) return '<span style="color:var(--text-muted);font-size:.8rem">No data</span>';
+    const maxV = Math.max(...months.map(m => counts[m]), 1);
+    const BW = 34, GAP = 12, BAR_H = 90, PL = 28, PB = 26;
+    const W = PL + months.length * (BW + GAP) + 16;
+    let s = `<svg width="${W}" height="${BAR_H+PB}" style="font-family:system-ui,sans-serif">`;
+    s += `<rect width="${W}" height="${BAR_H+PB}" fill="#0f172a" rx="8"/>`;
+    for (let v = 0; v <= maxV; v++) {
+      const y = BAR_H - Math.round((v/maxV)*(BAR_H-10));
+      s += `<line x1="${PL}" y1="${y}" x2="${W-6}" y2="${y}" stroke="#1e293b" stroke-width="0.8"/>`;
+      s += `<text x="${PL-3}" y="${y+3.5}" text-anchor="end" font-size="8.5" fill="#475569">${v}</text>`;
+    }
+    months.forEach((m, i) => {
+      const x  = PL + i * (BW + GAP);
+      const bh = Math.round((counts[m]/maxV)*(BAR_H-10));
+      const y  = BAR_H - bh;
+      const col= counts[m]>=3 ? '#f43f5e' : counts[m]>=2 ? '#f59e0b' : '#6366f1';
+      s += `<rect x="${x}" y="${y}" width="${BW}" height="${bh}" rx="3" fill="${col}" opacity="0.85"/>`;
+      s += `<text x="${x+BW/2}" y="${BAR_H+17}" text-anchor="middle" font-size="8.5" fill="#64748b">${m.slice(5)}</text>`;
+      s += `<text x="${x+BW/2}" y="${y-3}" text-anchor="middle" font-size="9.5" fill="#e2e8f0" font-weight="600">${counts[m]}</text>`;
+    });
+    s += `</svg>`;
+    return s;
+  }
+
+  // ── Score bar HTML ────────────────────────────────────────────────────────
+  function scoreBar(score) {
+    const col = score >= 80 ? '#00d4bc' : score >= 40 ? '#f59e0b' : '#f43f5e';
+    return `<div style="display:flex;align-items:center;gap:5px">
+      <div class="nnne-score-bar-wrap" style="width:72px"><div class="nnne-score-bar" style="width:${score}%;background:${col}"></div></div>
+      <span style="font-size:.76rem;color:${col};font-weight:600">${score}</span>
+    </div>`;
+  }
+
+  // ── Toast ─────────────────────────────────────────────────────────────────
+  function showToast(msg, ok=true) {
+    let t = document.getElementById('nnne-toast');
+    if (!t) { t = document.createElement('div'); t.id='nnne-toast'; t.className='nnne-toast'; document.body.appendChild(t); }
+    t.textContent = (ok ? '✓ ' : '⚠ ') + msg;
+    t.style.borderColor = ok ? 'rgba(0,212,188,.35)' : 'rgba(245,158,11,.35)';
+    t.classList.add('show');
+    clearTimeout(window._nnnEToastTimer);
+    window._nnnEToastTimer = setTimeout(() => t.classList.remove('show'), 3000);
+  }
+
+  // ── Study selector ────────────────────────────────────────────────────────
+  function studySel(label='Study') {
+    const studies = getStudies();
+    return `<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:16px">
+      <label style="font-size:.82rem;color:var(--text-muted);font-weight:600">${label}:</label>
+      <select class="nnne-select" id="nnne-study-sel" onchange="window._nnnEStudyChange(this.value)">
+        ${studies.map(s=>`<option value="${s.id}"${s.id===_selectedStudyId?' selected':''}>${s.title}</option>`).join('')}
+      </select>
+    </div>`;
+  }
+
+  // ── Section 1: Eligibility Matcher ───────────────────────────────────────
+  function buildEligibilitySection() {
+    const study = getStudyById(_selectedStudyId);
+    const crit  = study.criteria || {};
+
+    let html = studySel();
+    html += `<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:16px">
+      <button class="nnne-btn primary" onclick="window._nnnERunScan()">Run Eligibility Scan</button>
+      ${_eligibilityResults ? `<button class="nnne-btn amber" onclick="window._nnnESendInvitations()">Send Batch Invitations</button>` : ''}
+      <span style="font-size:.79rem;color:var(--text-muted)">${_eligibilityResults ? `${_eligibilityResults.length} patients scanned` : 'Select study and click Run to scan patients'}</span>
+    </div>`;
+
+    if (crit.inclusion || crit.exclusion) {
+      html += `<div style="display:flex;gap:14px;margin-bottom:16px;flex-wrap:wrap">
+        <div style="flex:1;min-width:190px;background:rgba(0,212,188,.07);border:1px solid rgba(0,212,188,.2);border-radius:8px;padding:12px">
+          <div style="font-size:.79rem;font-weight:700;color:var(--accent-teal);margin-bottom:6px">Inclusion Criteria</div>
+          <ul style="margin:0;padding-left:15px;font-size:.79rem;color:var(--text-muted);line-height:1.75">
+            ${(crit.inclusion||[]).map(c=>`<li>${c}</li>`).join('')}
+          </ul>
+        </div>
+        <div style="flex:1;min-width:190px;background:rgba(244,63,94,.07);border:1px solid rgba(244,63,94,.2);border-radius:8px;padding:12px">
+          <div style="font-size:.79rem;font-weight:700;color:var(--accent-rose);margin-bottom:6px">Exclusion Criteria</div>
+          <ul style="margin:0;padding-left:15px;font-size:.79rem;color:var(--text-muted);line-height:1.75">
+            ${(crit.exclusion||[]).map(c=>`<li>${c}</li>`).join('')}
+          </ul>
+        </div>
+      </div>`;
+    }
+
+    if (_eligibilityResults) {
+      const all      = _eligibilityResults;
+      const filtered = _eligibilityFilter === 'all' ? all : all.filter(r => r.status === _eligibilityFilter);
+      const ec       = { eligible: all.filter(r=>r.status==='eligible').length, potentially: all.filter(r=>r.status==='potentially').length, ineligible: all.filter(r=>r.status==='ineligible').length };
+
+      html += `<div class="nnne-filter-bar">
+        ${[['all',`All (${all.length})`],['eligible',`Eligible (${ec.eligible})`],['potentially',`Potentially Eligible (${ec.potentially})`],['ineligible',`Ineligible (${ec.ineligible})`]].map(([f,lbl])=>
+          `<button class="nnne-filter-btn${_eligibilityFilter===f?' active':''}" onclick="window._nnnEFilter('${f}')">${lbl}</button>`).join('')}
+      </div>`;
+
+      html += `<div style="border:1px solid var(--border);border-radius:8px;overflow:hidden">
+        <div class="nnne-eligibility-row nnne-table-header">
+          <span>Patient</span><span>Age</span><span>Diagnosis</span><span>Eligibility Score</span><span>Status / Reasons</span><span>Action</span>
+        </div>`;
+
+      filtered.forEach(r => {
+        const alreadyInvited = getInvitations().some(inv => inv.patientId === r.id && inv.studyId === _selectedStudyId);
+        const reasons = r.reasons && r.reasons.length ? r.reasons.join('; ') : 'Meets all criteria';
+        html += `<div class="nnne-eligibility-row ${r.status}">
+          <span style="font-weight:600;color:var(--text)">${r.name}</span>
+          <span style="color:var(--text-muted)">${r.age}</span>
+          <span style="color:var(--text-muted)">${r.diagnosis}</span>
+          <span>${scoreBar(r.score)}</span>
+          <span>
+            <span class="nnne-badge ${r.status}">${r.status==='potentially'?'Potentially Eligible':r.status.charAt(0).toUpperCase()+r.status.slice(1)}</span>
+            ${r.status!=='eligible'?`<div style="font-size:.74rem;color:var(--text-muted);margin-top:3px">${reasons}</div>`:''}
+          </span>
+          <span>
+            ${alreadyInvited
+              ? `<span style="font-size:.77rem;color:var(--accent-teal);font-weight:600">Invited ✓</span>`
+              : r.status!=='ineligible'
+                ? `<button class="nnne-btn primary small" onclick="window._nnnEInvite('${r.id}','${(r.name||'').replace(/'/g,'&#x27;')}')">Invite</button>`
+                : `<span style="font-size:.74rem;color:var(--text-muted)">—</span>`}
+          </span>
+        </div>`;
+      });
+      html += `</div>`;
+    } else {
+      html += `<div style="padding:32px;text-align:center;color:var(--text-muted);border:1px dashed var(--border);border-radius:8px">
+        <div style="font-size:2rem;margin-bottom:8px">🔍</div>
+        <div>Select a study and click <strong>Run Eligibility Scan</strong> to match patients against inclusion/exclusion criteria.</div>
+      </div>`;
+    }
+    return html;
+  }
+
+  // ── Section 2: CONSORT Funnel ─────────────────────────────────────────────
+  function buildFunnelSection() {
+    const study = getStudyById(_selectedStudyId);
+    return `
+      ${studySel('Study for CONSORT Diagram')}
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px">
+        <span style="font-size:.81rem;color:var(--text-muted)">Publication-ready CONSORT flow diagram with counts from enrollment data</span>
+        <button class="nnne-btn secondary small" onclick="window._nnnEPrintConsort()">Print / Export</button>
+      </div>
+      <div class="nnne-consort-diagram" id="nnne-consort-wrap">${buildConsortSVG(study)}</div>`;
+  }
+
+  // ── Section 3: Participant Timeline ──────────────────────────────────────
+  function buildTimelineSection() {
+    const study  = getStudyById(_selectedStudyId);
+    const enroll = getEnrollments().filter(e => e.studyId === study.id);
+    const sel    = _selectedParticipantId ? enroll.find(e => e.id === _selectedParticipantId) : null;
+
+    return `
+      ${studySel('Study Timeline')}
+      <div style="margin-bottom:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <span style="font-size:.79rem;color:var(--text-muted)">Click a participant bar to view detail panel below</span>
+        <button class="nnne-btn secondary small" onclick="window._nnnEPrintGantt()">Print Gantt</button>
+      </div>
+      <div class="nnne-gantt" id="nnne-gantt-wrap">${buildGanttSVG(study)}</div>
+      <div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:10px;align-items:center">
+        ${[['Screening','#f59e0b'],['Treatment','#6366f1'],['Follow-up','#0ea5e9'],['Completed','#00d4bc'],['Withdrawn','#f43f5e']].map(([lbl,c])=>
+          `<div style="display:flex;align-items:center;gap:4px"><div style="width:13px;height:9px;border-radius:2px;background:${c}"></div><span style="font-size:.76rem;color:var(--text-muted)">${lbl}</span></div>`).join('')}
+        <span style="font-size:.76rem;color:var(--text-muted);margin-left:6px">Dots: compliance ≥80% / 60–79% / &lt;60%</span>
+      </div>
+      ${sel ? `<div class="nnne-detail-panel">
+        <div style="font-size:.88rem;font-weight:700;color:var(--text);margin-bottom:8px">Participant ${sel.id} — Detail</div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px;font-size:.82rem">
+          <div><span style="color:var(--text-muted)">Arm:</span> <strong>${sel.arm}</strong></div>
+          <div><span style="color:var(--text-muted)">Enroll Date:</span> <strong>${sel.enrollDate}</strong></div>
+          <div><span style="color:var(--text-muted)">Status:</span> <strong>${sel.status}</strong></div>
+          <div><span style="color:var(--text-muted)">Sessions:</span> <strong>${sel.sessionsCompleted}</strong></div>
+          <div><span style="color:var(--text-muted)">Compliance:</span> <strong>${sel.compliance}%</strong></div>
+          <div><span style="color:var(--text-muted)">Adverse Events:</span> <strong>${sel.adverseEvents||0}</strong></div>
+        </div>
+      </div>` : ''}`;
+  }
+
+  // ── Section 4: Arm Balance Monitor ───────────────────────────────────────
+  function buildArmBalanceSection() {
+    const study        = getStudyById(_selectedStudyId);
+    const enroll       = getEnrollments().filter(e => e.studyId === study.id);
+    const arms         = study.arms || ['Arm A'];
+    const perTarget    = Math.ceil((study.target || 20) / arms.length);
+    const COLS         = ['#00d4bc','#6366f1','#f59e0b','#f43f5e'];
+
+    const armData = arms.map(armName => {
+      const pts        = enroll.filter(e => e.arm === armName);
+      const enrolled   = pts.length || Math.round((study.enrolled||0) / arms.length);
+      const compliance = pts.length ? Math.round(pts.reduce((a,p)=>a+(p.compliance||80),0)/pts.length) : 80;
+      const ae         = pts.reduce((a,p)=>a+(p.adverseEvents||0),0);
+      return { name:armName, enrolled, target:perTarget, compliance, ae };
+    });
+
+    const maxE     = Math.max(...armData.map(a=>a.enrolled));
+    const minE     = Math.min(...armData.map(a=>a.enrolled));
+    const imbalance = maxE > 0 && (maxE - minE) / maxE > 0.20;
+
+    const randLog = getRandLog().filter(r=>r.studyId===study.id).slice(-10).reverse();
+
+    return `
+      ${studySel('Study Arm Balance')}
+      ${imbalance ? `<div class="nnne-alert warning">⚠ Arm imbalance detected — consider stratified randomization</div>` : ''}
+      <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:20px;align-items:flex-start">
+        <div style="display:flex;gap:12px;flex-wrap:wrap;flex:1">
+          ${armData.map((arm,i) => {
+            const pct = Math.round((arm.enrolled/arm.target)*100);
+            const col = COLS[i%COLS.length];
+            return `<div class="nnne-arm-card">
+              <div class="nnne-arm-card-title" style="color:${col}">${arm.name}</div>
+              <div style="font-size:.81rem;color:var(--text-muted)">
+                <div>Enrolled: <strong style="color:var(--text)">${arm.enrolled} / ${arm.target}</strong></div>
+                <div style="margin:6px 0 2px">Progress:</div>
+                <div style="height:7px;background:rgba(255,255,255,.07);border-radius:4px;overflow:hidden">
+                  <div style="height:100%;width:${Math.min(pct,100)}%;background:${col};border-radius:4px"></div>
+                </div>
+                <div style="text-align:right;font-size:.74rem;color:${col};margin-bottom:6px">${pct}% full</div>
+                <div>Compliance: <strong style="color:${arm.compliance>=80?'#00d4bc':arm.compliance>=60?'#f59e0b':'#f43f5e'}">${arm.compliance}%</strong></div>
+                <div>Adverse Events: <strong style="color:${arm.ae>0?'#f43f5e':'#64748b'}">${arm.ae}</strong></div>
+              </div>
+            </div>`;
+          }).join('')}
+        </div>
+        <div style="display:flex;flex-direction:column;align-items:center;gap:8px">
+          ${buildDonutSVG(armData)}
+          <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:center">
+            ${armData.map((a,i)=>`<div style="display:flex;align-items:center;gap:3px">
+              <div style="width:9px;height:9px;border-radius:50%;background:${COLS[i%COLS.length]}"></div>
+              <span style="font-size:.74rem;color:var(--text-muted)">${a.name}</span>
+            </div>`).join('')}
+          </div>
+        </div>
+      </div>
+      <div style="font-size:.85rem;font-weight:700;color:var(--text);margin-bottom:8px">Recent Randomization Log (last 10)</div>
+      <div style="border:1px solid var(--border);border-radius:8px;overflow:hidden">
+        <div style="display:grid;grid-template-columns:44px 1fr 160px 150px;gap:8px;padding:8px 12px;font-size:.74rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em;background:var(--bg-secondary)">#<span>Participant</span><span>Arm</span><span>Timestamp</span></div>
+        ${!randLog.length
+          ? `<div style="padding:16px;text-align:center;color:var(--text-muted);font-size:.82rem">No assignments yet</div>`
+          : randLog.map((r,idx) => {
+            const ai  = arms.indexOf(r.arm);
+            const col = COLS[ai>=0?ai%COLS.length:0];
+            return `<div style="display:grid;grid-template-columns:44px 1fr 160px 150px;gap:8px;padding:9px 12px;border-bottom:1px solid var(--border);font-size:.82rem;align-items:center">
+              <span style="color:var(--text-muted)">${randLog.length-idx}</span>
+              <span style="font-weight:600;color:var(--text)">${r.participantId}</span>
+              <span style="color:${col};font-weight:600">${r.arm}</span>
+              <span style="color:var(--text-muted)">${new Date(r.ts).toLocaleString('en-US',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'})}</span>
+            </div>`;
+          }).join('')}
+      </div>`;
+  }
+
+  // ── Section 5: Protocol Deviation Log ────────────────────────────────────
+  function buildDeviationSection() {
+    const devs      = getDeviations();
+    const filtered  = _deviationFilter === 'all' ? devs : devs.filter(d => d.status===_deviationFilter || d.severity===_deviationFilter);
+    const critCount = devs.filter(d => d.severity==='critical').length;
+    const TYPES     = ['missed session','wrong dose','eligibility violation','consent issue','other'];
+    const SEVS      = ['minor','major','critical'];
+    const STATS     = ['open','reviewed','resolved'];
+
+    return `
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:12px">
+        <div class="nnne-filter-bar" style="margin:0">
+          ${['all','open','reviewed','resolved','minor','major','critical'].map(f=>
+            `<button class="nnne-filter-btn${_deviationFilter===f?' active':''}" onclick="window._nnnEDevFilter('${f}')">${f.charAt(0).toUpperCase()+f.slice(1)}</button>`).join('')}
+        </div>
+        <button class="nnne-btn primary" onclick="window._nnnEOpenDevForm()">+ Log Deviation</button>
+      </div>
+      ${critCount>0 ? `<div class="nnne-alert danger">⚠ ${critCount} critical deviation${critCount>1?'s':''} — <strong>IRB Notification Required</strong> for flagged items</div>` : ''}
+      <div style="border:1px solid var(--border);border-radius:8px;overflow:hidden;margin-bottom:20px">
+        <div class="nnne-deviation-row nnne-table-header"><span>Study</span><span>Participant</span><span>Date</span><span>Type</span><span>Severity</span><span>Status</span><span>Action / IRB</span></div>
+        ${!filtered.length
+          ? `<div style="padding:20px;text-align:center;color:var(--text-muted)">No deviations match this filter.</div>`
+          : filtered.map(d=>`<div class="nnne-deviation-row${d.severity==='critical'?' critical-row':''}">
+              <span style="color:var(--text-muted);font-size:.77rem">${d.studyId}</span>
+              <span style="font-weight:600;color:var(--text)">${d.participantId}</span>
+              <span style="color:var(--text-muted)">${d.date}</span>
+              <span style="color:var(--text)">${d.type}</span>
+              <span><span class="nnne-badge ${d.severity}">${d.severity}</span></span>
+              <span><span class="nnne-badge ${d.status}">${d.status}</span></span>
+              <span>
+                <span style="font-size:.77rem;color:var(--text-muted)">${d.action||'—'}</span>
+                ${d.irb?`<span class="nnne-irb-flag" style="display:block;margin-top:2px">IRB Notify</span>`:''}
+              </span>
+            </div>`).join('')}
+      </div>
+      <div style="font-size:.85rem;font-weight:700;color:var(--text);margin-bottom:10px">Monthly Deviation Rate</div>
+      <div style="display:flex;gap:16px;align-items:flex-end;flex-wrap:wrap">
+        ${buildDeviationBarSVG()}
+        <div style="font-size:.78rem;color:var(--text-muted);line-height:1.8">
+          <div>Total: <strong style="color:var(--text)">${devs.length}</strong></div>
+          <div>Critical: <strong style="color:var(--accent-rose)">${devs.filter(d=>d.severity==='critical').length}</strong></div>
+          <div>Open: <strong style="color:var(--accent-amber)">${devs.filter(d=>d.status==='open').length}</strong></div>
+          <div>Resolved: <strong style="color:var(--accent-teal)">${devs.filter(d=>d.status==='resolved').length}</strong></div>
+        </div>
+      </div>
+
+      ${_showDeviationForm ? `<div class="nnne-modal-overlay" id="nnne-dev-overlay" onclick="window._nnnECloseDevForm(event)">
+        <div class="nnne-modal" onclick="event.stopPropagation()">
+          <h3>Log Protocol Deviation</h3>
+          <div class="nnne-form-row"><label>Study</label>
+            <select class="nnne-form-select" id="nnne-dev-study">${getStudies().map(s=>`<option value="${s.id}">${s.title}</option>`).join('')}</select></div>
+          <div class="nnne-form-row"><label>Participant ID</label>
+            <input class="nnne-input" id="nnne-dev-pid" placeholder="e.g. P007"></div>
+          <div class="nnne-form-row"><label>Date</label>
+            <input class="nnne-input" id="nnne-dev-date" type="date" value="${new Date().toISOString().slice(0,10)}"></div>
+          <div class="nnne-form-row"><label>Deviation Type</label>
+            <select class="nnne-form-select" id="nnne-dev-type">${TYPES.map(t=>`<option value="${t}">${t}</option>`).join('')}</select></div>
+          <div class="nnne-form-row"><label>Severity</label>
+            <select class="nnne-form-select" id="nnne-dev-severity">${SEVS.map(sv=>`<option value="${sv}">${sv}</option>`).join('')}</select></div>
+          <div class="nnne-form-row"><label>Status</label>
+            <select class="nnne-form-select" id="nnne-dev-status">${STATS.map(st=>`<option value="${st}">${st}</option>`).join('')}</select></div>
+          <div class="nnne-form-row"><label>Action Taken</label>
+            <textarea class="nnne-textarea" id="nnne-dev-action" placeholder="Describe corrective action taken..."></textarea></div>
+          <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:16px">
+            <button class="nnne-btn secondary" onclick="window._nnnECloseDevFormDirect()">Cancel</button>
+            <button class="nnne-btn primary" onclick="window._nnnESaveDeviation()">Save Deviation</button>
+          </div>
+        </div>
+      </div>` : ''}`;
+  }
+
+  // ── Main render ───────────────────────────────────────────────────────────
+  function render() {
+    const SECTIONS = [
+      { id:'eligibility', label:'Eligibility Matcher', icon:'🔍' },
+      { id:'funnel',      label:'Enrollment Funnel',   icon:'📊' },
+      { id:'timeline',    label:'Participant Timeline', icon:'📅' },
+      { id:'arms',        label:'Arm Balance',          icon:'⚖' },
+      { id:'deviations',  label:'Protocol Deviations',  icon:'⚠' },
+    ];
+
+    const tabs = `<div style="display:flex;gap:0;border-bottom:2px solid var(--border);margin-bottom:20px;overflow-x:auto">
+      ${SECTIONS.map(sec=>`<button onclick="window._nnnESection('${sec.id}')" style="padding:10px 18px;border:none;background:none;cursor:pointer;font-size:.83rem;font-weight:${_activeSection===sec.id?'700':'400'};color:${_activeSection===sec.id?'var(--accent-teal)':'var(--text-muted)'};border-bottom:${_activeSection===sec.id?'2px solid var(--accent-teal)':'2px solid transparent'};margin-bottom:-2px;white-space:nowrap;transition:all .15s">${sec.icon} ${sec.label}</button>`).join('')}
+    </div>`;
+
+    let body = '';
+    if      (_activeSection === 'eligibility') body = buildEligibilitySection();
+    else if (_activeSection === 'funnel')      body = buildFunnelSection();
+    else if (_activeSection === 'timeline')    body = buildTimelineSection();
+    else if (_activeSection === 'arms')        body = buildArmBalanceSection();
+    else                                        body = buildDeviationSection();
+
+    document.getElementById('app-content').innerHTML = `
+      <div class="nnne-page">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:18px;flex-wrap:wrap;gap:8px">
+          <div>
+            <h2 style="margin:0;font-size:1.15rem;font-weight:800;color:var(--text)">Clinical Trial Enrollment Matcher</h2>
+            <p style="margin:4px 0 0 0;font-size:.81rem;color:var(--text-muted)">Eligibility screening · CONSORT funnel · Participant timeline · Arm balance · Protocol deviations</p>
+          </div>
+        </div>
+        <div class="nnne-section">
+          ${tabs}
+          ${body}
+        </div>
+      </div>`;
+  }
+
+  // ── Window-scoped handlers ────────────────────────────────────────────────
+
+  window._nnnEStudyChange = function(val) {
+    _selectedStudyId = val;
+    _eligibilityResults = null;
+    _selectedParticipantId = null;
+    render();
+  };
+
+  window._nnnESection = function(id) {
+    _activeSection = id;
+    render();
+  };
+
+  window._nnnEFilter = function(f) {
+    _eligibilityFilter = f;
+    render();
+  };
+
+  window._nnnERunScan = function() {
+    _eligibilityFilter = 'all';
+    runEligibilityScan();
+  };
+
+  window._nnnEInvite = function(patientId, patientName) {
+    const invites = getInvitations();
+    if (invites.some(i => i.patientId === patientId && i.studyId === _selectedStudyId)) {
+      showToast('Patient already invited to this study', false);
+      return;
+    }
+    invites.push({ id:'inv_'+Date.now(), studyId:_selectedStudyId, patientId, patientName, date:new Date().toISOString().slice(0,10), status:'invited' });
+    lsSet('ds_trial_invitations', invites);
+    showToast(`Invitation sent to ${patientName}`);
+    render();
+  };
+
+  window._nnnESendInvitations = function() {
+    if (!_eligibilityResults) return;
+    const eligible = _eligibilityResults.filter(r => r.status === 'eligible' || r.status === 'potentially');
+    const invites  = getInvitations();
+    let added = 0;
+    eligible.forEach(r => {
+      if (!invites.some(i => i.patientId === r.id && i.studyId === _selectedStudyId)) {
+        invites.push({ id:'inv_'+Date.now()+'_'+r.id, studyId:_selectedStudyId, patientId:r.id, patientName:r.name, date:new Date().toISOString().slice(0,10), status:'invited' });
+        added++;
+      }
+    });
+    lsSet('ds_trial_invitations', invites);
+    showToast(`${added} invitation${added!==1?'s':''} sent`);
+    render();
+  };
+
+  window._nnnESelectParticipant = function(id) {
+    _selectedParticipantId = _selectedParticipantId === id ? null : id;
+    render();
+  };
+
+  window._nnnEDevFilter = function(f) {
+    _deviationFilter = f;
+    render();
+  };
+
+  window._nnnEOpenDevForm = function() {
+    _showDeviationForm = true;
+    render();
+  };
+
+  window._nnnECloseDevForm = function(e) {
+    if (e && e.target && e.target.id === 'nnne-dev-overlay') {
+      _showDeviationForm = false;
+      render();
+    }
+  };
+
+  window._nnnECloseDevFormDirect = function() {
+    _showDeviationForm = false;
+    render();
+  };
+
+  window._nnnESaveDeviation = function() {
+    const studyId  = document.getElementById('nnne-dev-study')?.value;
+    const pid      = (document.getElementById('nnne-dev-pid')?.value||'').trim();
+    const date     = document.getElementById('nnne-dev-date')?.value;
+    const type     = document.getElementById('nnne-dev-type')?.value;
+    const severity = document.getElementById('nnne-dev-severity')?.value;
+    const status   = document.getElementById('nnne-dev-status')?.value;
+    const action   = (document.getElementById('nnne-dev-action')?.value||'').trim();
+    if (!pid) { showToast('Participant ID is required', false); return; }
+    const devs = getDeviations();
+    devs.push({ id:'dev_'+Date.now(), studyId, participantId:pid, date, type, severity, status, action, irb: severity==='critical' });
+    lsSet('ds_trial_deviations', devs);
+    _showDeviationForm = false;
+    showToast(severity==='critical' ? 'Critical deviation logged — IRB notification required!' : 'Deviation logged', severity!=='critical');
+    render();
+  };
+
+  window._nnnEPrintConsort = function() {
+    const el = document.getElementById('nnne-consort-wrap');
+    if (!el) return;
+    const win = window.open('', '_blank');
+    win.document.write(`<!DOCTYPE html><html><head><title>CONSORT Diagram</title><style>body{margin:20px;background:#fff;font-family:system-ui,sans-serif}@media print{body{margin:0}}</style></head><body>${el.innerHTML}<script>window.print();<\/script></body></html>`);
+    win.document.close();
+  };
+
+  window._nnnEPrintGantt = function() {
+    const el = document.getElementById('nnne-gantt-wrap');
+    if (!el) return;
+    const win = window.open('', '_blank');
+    win.document.write(`<!DOCTYPE html><html><head><title>Participant Timeline</title><style>body{margin:20px;background:#fff}@media print{body{margin:0}}</style></head><body>${el.innerHTML}<script>window.print();<\/script></body></html>`);
+    win.document.close();
+  };
+
+  // ── Initial render ────────────────────────────────────────────────────────
+  render();
+}

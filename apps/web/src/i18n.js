@@ -327,6 +327,11 @@ export const TRANSLATIONS = {
     'patient.dash.msg.none': 'No new messages from your clinic.',
     'patient.dash.msg.send': 'Send a message \u2192',
     'patient.dash.msg.notice': 'If you have a question or concern, message your care team \u2014 they aim to respond within 1 business day.',
+    // ── Wearable dashboard card ─────────────────────────────────
+    'patient.dash.wearable.title': 'My Health Data',
+    'patient.dash.wearable.view': 'View all →',
+    'patient.dash.wearable.empty': 'No device connected yet. Connect a wearable to see your health trends here.',
+    'patient.dash.wearable.connect': 'Connect a device →',
     // ── Assessments ───────────────────────────────────────────────────────────
     'patient.assess.completed': 'Completed Assessments',
     'patient.assess.phq9.header': 'Weekly Mood Check-in',
@@ -955,6 +960,11 @@ export const TRANSLATIONS = {
     'patient.dash.msg.none': 'Kliniğinizden yeni mesaj yok.',
     'patient.dash.msg.send': 'Mesaj gönder \u2192',
     'patient.dash.msg.notice': 'Soru veya endişeniz varsa bakım ekibinize mesaj atın — 1 iş günü içinde yanıt vermeyi hedefliyorlar.',
+    // ── Wearable dashboard card
+    'patient.dash.wearable.title': 'Sağlık Verilerim',
+    'patient.dash.wearable.view': 'Tamamını gör →',
+    'patient.dash.wearable.empty': 'Henüz bağlı cihaz yok. Sağlık trendlerinizi görmek için bir giyilebilir cihaz bağlayın.',
+    'patient.dash.wearable.connect': 'Cihaz bağla →',
     // ── Assessments ───────────────────────────────────────────────────────────
     'patient.assess.completed': 'Tamamlanan Değerlendirmeler',
     'patient.assess.phq9.header': 'Haftalık Ruh Hali Kontrolü',

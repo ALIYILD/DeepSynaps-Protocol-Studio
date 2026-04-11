@@ -3,6 +3,12 @@ import { currentUser, setCurrentUser, updateUserBar, updatePatientBar, showApp, 
 import { ROLE_ENTRY_PAGE } from './constants.js';
 import { t, setLocale, getLocale, LOCALES } from './i18n.js';
 
+// ── XSS escape helper (module-level) ─────────────────────────────────────────
+function esc(v) {
+  if (v == null) return '';
+  return String(v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#x27;');
+}
+
 // ── Accessibility: screen-reader announcements ────────────────────────────────
 function announce(message, urgent = false) {
   const el = document.getElementById(urgent ? 'a11y-alert' : 'a11y-announce');
@@ -432,6 +438,7 @@ const NAV = [
   { id: 'assessments',       label: 'Assessments',          icon: '◉' },
   { id: 'forms-builder',     label: 'Forms & Assessments',  icon: '📝', section: 'clinical' },
   { section: 'Registries & Knowledge' },
+  { id: 'evidence-builder',  label: 'Evidence Builder',     icon: '🔭', section: 'clinical' },
   { id: 'evidence',          label: 'Evidence Library',     icon: '◉' },
   { id: 'devices',           label: 'Device Registry',      icon: '◇' },
   { id: 'brainregions',      label: 'Brain Regions',        icon: '◎' },
@@ -440,9 +447,12 @@ const NAV = [
   { id: 'quality-assurance', label: 'Quality Assurance', icon: '✅' },
   { id: 'device-management', label: 'Devices', icon: '🔬' },
   { id: 'clinical-trials', label: 'Clinical Trials', icon: '🧪' },
+  { id: 'trial-enrollment', label: 'Trial Enrollment', icon: '🧪', section: 'knowledge' },
   { id: 'staff-scheduling', label: 'Staff Scheduling', icon: '👥' },
   { id: 'clinic-analytics', label: 'Clinic Analytics', icon: '📊', section: 'knowledge' },
   { id: 'protocol-marketplace', label: 'Protocol Marketplace', icon: '🏪', section: 'knowledge' },
+  { id: 'data-export',        label: 'Research Data Export', icon: '📤', section: 'knowledge' },
+  { id: 'literature',         label: 'Evidence Library',     icon: '📚', section: 'knowledge' },
   { id: 'med-interactions',   label: 'Medication Safety',    icon: '💊', section: 'clinical' },
   { section: 'Governance' },
   { id: 'adverse-events',    label: 'Adverse Events',       icon: '⚠' },
@@ -547,6 +557,7 @@ const PAGE_TITLES = {
   'quality-assurance': 'Quality Assurance & Peer Review',
   'device-management': 'Device & Equipment Management',
   'clinical-trials': 'Clinical Trial Management',
+  'trial-enrollment': 'Trial Enrollment',
   'staff-scheduling': 'Staff Scheduling & Shifts',
   reports: 'Reports', admin: 'Admin Panel', 'clinic-settings': 'Clinic Settings & Branding', settings: 'Settings',
   permissions: 'Permissions & Security Admin',
@@ -584,6 +595,9 @@ const PAGE_TITLES = {
   'med-interactions': 'Medication Safety',
   'protocol-marketplace': 'Protocol Marketplace',
   'reminders': 'Reminders & Adherence',
+  'data-export': 'Research Data Export',
+  'evidence-builder': 'Evidence Builder',
+  'literature': 'Evidence Library',
 };
 
 // ── Navigate ──────────────────────────────────────────────────────────────────
@@ -679,11 +693,11 @@ async function renderPatientPage() {
     case 'patient-portal':      await m.pgPatientDashboard(currentUser);  break;
     case 'patient-sessions':    await m.pgPatientSessions();              break;
     case 'patient-course':      await m.pgPatientCourse();                break;
-    case 'patient-assessments': m.pgPatientAssessments();                 break;
-    case 'patient-reports':     m.pgPatientReports();                     break;
-    case 'patient-messages':    m.pgPatientMessages();                    break;
-    case 'patient-wearables':   await m.pgPatientWearables();            break;
-    case 'patient-profile':     m.pgPatientProfile(currentUser);          break;
+    case 'patient-assessments': await m.pgPatientAssessments();           break;
+    case 'patient-reports':     await m.pgPatientReports();               break;
+    case 'patient-messages':    await m.pgPatientMessages();              break;
+    case 'patient-wearables':   await m.pgPatientWearables();             break;
+    case 'patient-profile':     await m.pgPatientProfile(currentUser);    break;
     case 'pt-wellness':         await m.pgPatientWellness();              break;
     case 'pt-learn':            await m.pgPatientLearn();                 break;
     case 'pt-journal':          await m.pgSymptomJournal(m.setTopbar);   break;
@@ -890,9 +904,12 @@ async function renderPage() {
     case 'quality-assurance': { const m = await loadKnowledge(); await m.pgQualityAssurance(setTopbar); break; }
     case 'device-management': { const m = await loadKnowledge(); await m.pgDeviceManagement(setTopbar); break; }
     case 'clinical-trials': { const m = await loadKnowledge(); await m.pgClinicalTrials(setTopbar); break; }
+    case 'trial-enrollment': { const { pgTrialEnrollment } = await loadKnowledge(); await pgTrialEnrollment(setTopbar); break; }
     case 'staff-scheduling': { const m = await loadKnowledge(); await m.pgStaffScheduling(setTopbar); break; }
     case 'clinic-analytics': { const m = await loadKnowledge(); await m.pgClinicAnalytics(setTopbar); break; }
     case 'protocol-marketplace': { const { pgProtocolMarketplace } = await loadKnowledge(); await pgProtocolMarketplace(setTopbar); break; }
+    case 'data-export': { const { pgDataExport } = await loadKnowledge(); await pgDataExport(setTopbar); break; }
+    case 'literature': { const { pgLiteratureLibrary } = await loadKnowledge(); await pgLiteratureLibrary(setTopbar); break; }
     // ── Legacy pages (kept functional) ───────────────────────────────────
     case 'assessments': {
       const m = await loadClinical();
@@ -1003,6 +1020,7 @@ async function renderPage() {
       break;
     }
     case 'reminders': { const { pgReminderAutomation } = await loadPractice(); await pgReminderAutomation(setTopbar); break; }
+    case 'evidence-builder': { const { pgEvidenceBuilder } = await loadClinical(); await pgEvidenceBuilder(setTopbar); break; }
     default:
       el.innerHTML = `<div style="text-align:center;padding:48px;color:var(--text-tertiary)">Page not found.</div>`;
   }
@@ -1050,7 +1068,7 @@ function _showNotifToast(notif) {
   const color = notif.severity === 'serious' ? 'var(--red)' : notif.severity === 'warn' ? 'var(--amber)' : 'var(--teal)';
   const t = document.createElement('div');
   t.style.cssText = `position:fixed;bottom:24px;right:24px;max-width:320px;padding:12px 16px;border-radius:10px;background:var(--navy-800);border:1px solid ${color};z-index:9999;box-shadow:0 4px 20px rgba(0,0,0,0.5);cursor:pointer;transition:opacity 0.3s`;
-  t.innerHTML = `<div style="font-size:12.5px;font-weight:600;color:var(--text-primary);margin-bottom:3px">${notif.title}</div><div style="font-size:11.5px;color:var(--text-secondary)">${notif.body}</div>`;
+  t.innerHTML = `<div style="font-size:12.5px;font-weight:600;color:var(--text-primary);margin-bottom:3px">${esc(notif.title)}</div><div style="font-size:11.5px;color:var(--text-secondary)">${esc(notif.body)}</div>`;
   t.onclick = () => { if (notif.link) window._nav(notif.link); t.remove(); };
   document.body.appendChild(t);
   announce(`${notif.title}: ${notif.body}`, notif.severity === 'serious');
@@ -1256,8 +1274,8 @@ window._toggleNotifPanel = function() {
               <div style="display:flex;gap:8px;align-items:flex-start">
                 <span style="color:${color};font-size:14px;flex-shrink:0;margin-top:1px">${icon}</span>
                 <div style="flex:1;min-width:0">
-                  <div style="font-size:12.5px;font-weight:600;color:var(--text-primary)">${n.title}</div>
-                  <div style="font-size:11.5px;color:var(--text-secondary);margin-top:2px;line-height:1.4">${n.body}</div>
+                  <div style="font-size:12.5px;font-weight:600;color:var(--text-primary)">${esc(n.title)}</div>
+                  <div style="font-size:11.5px;color:var(--text-secondary);margin-top:2px;line-height:1.4">${esc(n.body)}</div>
                   <div style="font-size:10px;color:var(--text-tertiary);margin-top:4px">${new Date(n.ts).toLocaleTimeString()}</div>
                 </div>
               </div>
@@ -1583,14 +1601,14 @@ init();
 
   // Highlight matching chars in text
   function _highlight(query, text) {
-    if (!query || !text) return text || '';
+    if (!query || !text) return esc(text) || '';
     const q = query.toLowerCase();
     const t = text.toLowerCase();
     const idx = t.indexOf(q);
     if (idx >= 0) {
-      return text.slice(0, idx) + `<span class="cmd-match">${text.slice(idx, idx + q.length)}</span>` + text.slice(idx + q.length);
+      return esc(text.slice(0, idx)) + `<span class="cmd-match">${esc(text.slice(idx, idx + q.length))}</span>` + esc(text.slice(idx + q.length));
     }
-    return text;
+    return esc(text);
   }
 
   async function _loadData() {
@@ -1725,8 +1743,8 @@ init();
         html += `<div class="cmd-item${active}" data-idx="${item._i}" onclick="window._paletteSelect(${item._i})">
           <div class="cmd-item-icon ${item.type || 'nav'}">${item.icon}</div>
           <div class="cmd-item-body">
-            <div class="cmd-item-title">${query ? _highlight(query, item.title) : item.title}</div>
-            ${item.subtitle ? `<div class="cmd-item-subtitle">${item.subtitle}</div>` : ''}
+            <div class="cmd-item-title">${query ? _highlight(query, item.title) : esc(item.title)}</div>
+            ${item.subtitle ? `<div class="cmd-item-subtitle">${esc(item.subtitle)}</div>` : ''}
           </div>
           ${item.shortcut ? `<span class="cmd-item-shortcut">${item.shortcut}</span>` : ''}
         </div>`;

@@ -590,6 +590,47 @@ export async function pgDash(setTopbar, navigate) {
     <div style="border-left:3px solid ${mediaQueueBorderColor}">${_dStatCard('Media Queue', mediaNeedsAttention.length, mediaQueueSub, mediaQueueColor, 'media-queue', mediaNeedsAttention.length > 0)}</div>
   </div>`;
 
+  // ── Today's Schedule + Action Items ──────────────────────────────────────
+  const actionItems = [
+    { show: openAEs.length > 0,       icon: '⚡', label: 'Open Adverse Events',  count: openAEs.length,       color: 'var(--red)',   nav: 'adverse-events' },
+    { show: pendingQueue.length > 0,  icon: '◱', label: 'Pending Approvals',     count: pendingQueue.length,  color: 'var(--amber)', nav: 'review-queue' },
+    { show: mediaUrgent > 0,          icon: '⚑', label: 'Urgent Media',          count: mediaUrgent,          color: 'var(--red)',   nav: 'media-queue' },
+    { show: wearableUrgentCount > 0,  icon: '◌', label: 'Wearable Alerts',       count: wearableUrgentCount,  color: 'var(--red)',   nav: 'wearables' },
+    { show: consentAlertCount > 0,    icon: '◎', label: 'Consent Alerts',        count: consentAlertCount,    color: 'var(--amber)', nav: 'patients' },
+  ].filter(i => i.show);
+
+  const rowToday = `<div class="g2" style="margin-bottom:14px;align-items:start">
+  <div class="card" style="overflow:hidden">
+    <div style="padding:13px 16px 11px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--border)">
+      <span style="font-weight:600;font-size:13px">Today's Schedule</span>
+      <button class="btn btn-sm" style="font-size:10.5px" onclick="window._nav('session-execution')">Start Session →</button>
+    </div>
+    ${renderUpcomingSessionsWidget([])}
+    <div style="padding:8px 16px 10px;font-size:10.5px;color:var(--text-tertiary)">Connect calendar sync to see real-time session schedule</div>
+  </div>
+  <div class="card" style="overflow:hidden">
+    <div style="padding:13px 16px 11px;border-bottom:1px solid var(--border)">
+      <span style="font-weight:600;font-size:13px">Action Items</span>
+      ${actionItems.length > 0
+        ? `<span style="font-size:11px;font-weight:700;color:var(--red);font-family:var(--font-mono);margin-left:8px">${actionItems.length} urgent</span>`
+        : `<span style="font-size:11px;color:var(--green);margin-left:8px">✓ Clear</span>`}
+    </div>
+    ${actionItems.length > 0
+      ? actionItems.map(i => `<div style="display:flex;align-items:center;gap:10px;padding:9px 16px;border-bottom:1px solid var(--border);cursor:pointer"
+          onclick="window._nav('${i.nav}')"
+          onmouseover="this.style.background='rgba(255,255,255,0.02)'" onmouseout="this.style.background=''">
+        <span style="font-size:14px;flex-shrink:0">${i.icon}</span>
+        <span style="flex:1;font-size:12.5px;font-weight:500;color:var(--text-primary)">${i.label}</span>
+        <span style="font-size:12px;font-weight:700;color:${i.color};font-family:var(--font-mono)">${i.count}</span>
+        <span style="color:var(--text-tertiary);font-size:12px">→</span>
+      </div>`).join('')
+      : `<div style="padding:32px 16px;text-align:center">
+          <div style="font-size:20px;margin-bottom:6px">✓</div>
+          <div style="font-size:12.5px;color:var(--green)">All clear — no urgent actions</div>
+        </div>`}
+  </div>
+</div>`;
+
   // ── Row A: Quick Actions + Clinic Queue ────────────────────────────────────
   const quickActions = [
     { icon: '◧', label: 'Start Session',  sub: 'Execute a treatment session',     page: 'session-execution', color: 'var(--teal)' },
@@ -826,7 +867,17 @@ export async function pgDash(setTopbar, navigate) {
     </div>`;
   }).join('');
 
-  const rowRecommend = uniqueConditions.length === 0 ? '' : `<div class="card" style="overflow:hidden;margin-bottom:14px">
+  const rowRecommend = uniqueConditions.length === 0
+    ? `<div class="card" style="overflow:hidden;margin-bottom:14px">
+      <div style="padding:13px 16px 11px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--border)">
+        <span style="font-weight:600;font-size:13px">Protocol Recommendations</span>
+        <button class="btn btn-sm" style="font-size:10.5px" onclick="window._nav('protocols-registry')">Browse Registry →</button>
+      </div>
+      <div style="padding:24px 16px;text-align:center">
+        <div style="font-size:11.5px;color:var(--text-tertiary)">Enroll patients in active treatment courses to see condition-matched protocol recommendations here.</div>
+      </div>
+    </div>`
+    : `<div class="card" style="overflow:hidden;margin-bottom:14px">
     <div style="padding:13px 16px 11px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--border)">
       <div>
         <span style="font-weight:600;font-size:13px">Protocol Recommendations</span>
@@ -836,6 +887,35 @@ export async function pgDash(setTopbar, navigate) {
     </div>
     <div style="padding:12px 14px;display:flex;gap:12px;flex-wrap:wrap">${recBlocks}</div>
   </div>`;
+
+  // ── Enrollment Pipeline ────────────────────────────────────────────────────
+  const pipelineItems = [
+    ...approvedCourses.map(c => ({ ...c, _pipeStatus: 'approved', _pipeLabel: 'Ready to Start', _pipeColor: 'var(--green)', _pipeAction: `<button class="btn btn-sm" style="font-size:10px;padding:2px 8px" onclick="event.stopPropagation();window._nav('session-execution')">Start →</button>` })),
+    ...pendingCourses.map(c => ({ ...c, _pipeStatus: 'pending', _pipeLabel: 'Awaiting Approval', _pipeColor: 'var(--amber)', _pipeAction: `<button class="btn btn-sm" style="font-size:10px;padding:2px 8px" onclick="event.stopPropagation();window._nav('review-queue')">Review →</button>` })),
+  ].slice(0, 8);
+
+  const rowEnrollment = pipelineItems.length === 0 ? '' : `<div class="card" style="overflow:hidden;margin-bottom:14px">
+  <div style="padding:13px 16px 11px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--border)">
+    <div>
+      <span style="font-weight:600;font-size:13px">Enrollment Pipeline</span>
+      <span style="font-size:11px;color:var(--text-tertiary);margin-left:8px">${pipelineItems.length} course${pipelineItems.length !== 1 ? 's' : ''} in queue</span>
+    </div>
+    <button class="btn btn-sm" style="font-size:10.5px" onclick="window._nav('courses')">All Courses →</button>
+  </div>
+  ${pipelineItems.map(c => `<div style="display:flex;align-items:center;gap:10px;padding:9px 16px;border-bottom:1px solid var(--border);cursor:pointer"
+      onclick="window._openCourse('${c.id}')"
+      onmouseover="this.style.background='var(--bg-card-hover)'" onmouseout="this.style.background=''">
+    <div style="width:6px;height:6px;border-radius:50%;background:${c._pipeColor};flex-shrink:0"></div>
+    <div style="flex:1;min-width:0">
+      <div style="font-size:12.5px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">
+        ${c._patientName ? `<span style="color:var(--text-secondary)">${c._patientName} · </span>` : ''}${c.condition_slug?.replace(/-/g,' ') || '—'} <span style="color:var(--teal);font-size:11px">${c.modality_slug || ''}</span>
+      </div>
+      <div style="font-size:10.5px;color:${c._pipeColor};margin-top:1px">${c._pipeLabel}</div>
+    </div>
+    ${c._pipeAction}
+    <span style="font-size:12px;color:var(--text-tertiary)">→</span>
+  </div>`).join('')}
+</div>`;
 
   // ── Recent Activity Table ──────────────────────────────────────────────────
   const rowD = `<div class="card" style="overflow:hidden">
@@ -941,7 +1021,19 @@ export async function pgDash(setTopbar, navigate) {
     ? recentAnalyzedItems.map(_mRow).join('')
     : `<div style="padding:24px 16px;text-align:center;font-size:12px;color:var(--text-tertiary)">No recently analyzed items.</div>`;
 
-  const rowMedia = allMediaItems.length === 0 ? '' : `
+  const rowMedia = allMediaItems.length === 0
+    ? `<div class="card" style="overflow:hidden;margin-bottom:14px">
+      <div style="padding:13px 16px 11px;border-bottom:1px solid var(--border)">
+        <span style="font-weight:600;font-size:13px">Patient Media Updates</span>
+      </div>
+      <div style="padding:36px 16px;text-align:center">
+        <div style="font-size:28px;margin-bottom:8px;opacity:0.3">📤</div>
+        <div style="font-size:12.5px;color:var(--text-tertiary);margin-bottom:12px">No media uploads yet</div>
+        <div style="font-size:11px;color:var(--text-tertiary);margin-bottom:14px">Patients can upload voice notes, videos, and text updates between sessions</div>
+        <button class="btn btn-sm" onclick="window._nav('media-queue')">Open Media Queue →</button>
+      </div>
+    </div>`
+  : `
   <div class="card" style="overflow:hidden;margin-bottom:14px">
     <div style="padding:13px 16px 11px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--border)">
       <div style="display:flex;align-items:center;gap:8px">
@@ -971,7 +1063,7 @@ export async function pgDash(setTopbar, navigate) {
     </div>
   </div>`;
 
-  el.innerHTML = statBar + rowA + rowB + rowC + rowMedia + rowRecommend + rowD;
+  el.innerHTML = statBar + rowToday + rowA + rowB + rowC + rowEnrollment + rowMedia + rowRecommend + rowD;
 }
 
 // ── Enriched course row (dashboard clinic queue, includes patient name) ────
@@ -2722,8 +2814,12 @@ function renderMonitoringTab(pt, wData, navigate) {
 
   function flagRow(flag) {
     const st = FLAG_STYLE[flag.flag_type] || { color: 'var(--text-tertiary)', bg: 'rgba(255,255,255,0.04)', icon: '◎', label: flag.flag_type || 'Unknown' };
+    const sevColors = { critical: 'var(--red)', warning: 'var(--amber)', info: 'var(--blue)' };
+    const sevColor = sevColors[flag.severity] || st.color;
+    const sevLabel = flag.severity ? flag.severity.toUpperCase() : 'INFO';
     const timeStr = flag.triggered_at ? new Date(flag.triggered_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '—';
-    return `<div style="display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:var(--radius-md);background:${st.bg};border:1px solid ${st.color}33;margin-bottom:6px">
+    return `<div id="flag-row-${flag.id || ''}" style="display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:var(--radius-md);background:${st.bg};border:1px solid ${sevColor}44;margin-bottom:6px">
+      <span style="font-size:9px;font-weight:700;color:${sevColor};background:rgba(0,0,0,.2);padding:2px 6px;border-radius:99px;border:1px solid ${sevColor}66;flex-shrink:0;white-space:nowrap">${sevLabel}</span>
       <span style="color:${st.color};font-size:13px;flex-shrink:0">${st.icon}</span>
       <div style="flex:1;min-width:0">
         <div style="font-size:12.5px;font-weight:600;color:${st.color}">${st.label}</div>
@@ -2731,6 +2827,7 @@ function renderMonitoringTab(pt, wData, navigate) {
       </div>
       <div style="font-size:10.5px;color:var(--text-tertiary);white-space:nowrap;flex-shrink:0">${timeStr}</div>
       <button class="btn btn-sm" style="font-size:11px;flex-shrink:0" onclick="window._reviewFlag('${flag.id || ''}')">Review</button>
+      <button class="btn btn-sm" style="font-size:11px;flex-shrink:0;color:var(--text-tertiary)" onclick="window._dismissAlertFlag('${flag.id || ''}')">Dismiss</button>
     </div>`;
   }
 
@@ -2793,10 +2890,12 @@ function renderMonitoringTab(pt, wData, navigate) {
     <div style="font-size:13px;font-weight:600;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.8px;margin-bottom:12px;padding-bottom:8px;border-bottom:1px solid var(--border)">
       Alert Flags
     </div>
+    <div id="monitoring-flags-wrap">
     ${alertFlags.length === 0
       ? `<div style="font-size:12.5px;color:var(--text-tertiary);padding:12px 0">No alert flags recorded.</div>`
       : alertFlags.map(f => flagRow(f)).join('')
     }
+    </div>
   </div>
 
   <!-- Section 3: AI Summary -->
@@ -2840,6 +2939,26 @@ function renderMonitoringTab(pt, wData, navigate) {
 function bindMonitoringActions(pt, wData, navigate) {
   window._reviewFlag = function(flagId) {
     if (navigate) navigate('review-queue');
+  };
+
+  window._dismissAlertFlag = async function(flagId) {
+    if (!flagId) return;
+    const rowEl = document.getElementById('flag-row-' + flagId);
+    if (rowEl) {
+      rowEl.style.opacity = '0.4';
+      rowEl.style.pointerEvents = 'none';
+    }
+    try {
+      await api.dismissAlertFlag(flagId);
+      if (rowEl) rowEl.remove();
+      const wrap = document.getElementById('monitoring-flags-wrap');
+      if (wrap && !wrap.querySelector('[id^="flag-row-"]')) {
+        wrap.innerHTML = '<div style="font-size:12.5px;color:var(--text-tertiary);padding:12px 0">No alert flags recorded.</div>';
+      }
+    } catch (_e) {
+      if (rowEl) { rowEl.style.opacity = ''; rowEl.style.pointerEvents = ''; }
+      alert('Could not dismiss flag. Please try again.');
+    }
   };
 
   window._generateMonitoringSummary = async function() {
@@ -10757,4 +10876,517 @@ export async function pgFormsBuilder(setTopbar) {
   window._fbShowSubDetail = subId => { const subs = _fbGetSubs(); const sub = subs.find(s => s.id === subId); if (!sub) return; const form = _fbGetForm(sub.formId); const trend = subs.filter(s => s.formId === sub.formId && s.patientId === sub.patientId && s.score != null).sort((a, b) => new Date(a.date) - new Date(b.date)).slice(-5); document.querySelector('.ppp-sub-detail')?.remove(); const qs = form?.questions || []; const ansH = (sub.answers || []).map((a, i) => '<div style="margin-bottom:10px;padding-bottom:10px;border-bottom:1px solid var(--border)"><div style="font-size:11px;color:var(--text-tertiary);margin-bottom:3px">' + _e(qs[i]?.text || 'Question ' + (i + 1)) + '</div><div style="font-size:12.5px;color:var(--text-primary);font-weight:500">' + _e(String(a)) + '</div></div>').join(''); const panel = document.createElement('div'); panel.className = 'ppp-sub-detail'; panel.innerHTML = '<div class="ppp-sub-detail-header"><div style="flex:1"><div style="font-size:13px;font-weight:600;color:var(--text-primary)">' + _e(sub.formName) + '</div><div style="font-size:11px;color:var(--text-tertiary);margin-top:2px">' + _e(sub.patientName) + ' &bull; ' + _fbFmt(sub.date) + '</div></div><button onclick="document.querySelector(\'.ppp-sub-detail\').remove()" style="background:none;border:none;color:var(--text-tertiary);font-size:18px;cursor:pointer">\u2715</button></div><div class="ppp-sub-detail-scroll"><div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;padding:12px 14px;background:var(--bg-surface);border-radius:8px"><div><div style="font-size:24px;font-weight:700;color:var(--teal)">' + (sub.score != null ? sub.score : '\u2014') + '</div><div style="font-size:10px;color:var(--text-tertiary)">Score' + (form?.maxScore ? ' / ' + form.maxScore : '') + '</div></div>' + (sub.severity ? '<span class="ppp-severity-pill ' + _fbSevClass(sub.severity) + '" style="font-size:12px;padding:4px 12px">' + _e(sub.severity) + '</span>' : '') + (sub.flagged ? '<span style="color:var(--red);font-size:12px">\uD83D\uDEA9 Flagged</span>' : '') + '</div>' + (trend.length > 1 ? '<div style="margin-bottom:16px"><div style="font-size:10px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.8px;font-weight:500;margin-bottom:6px">Score Trend (Last ' + trend.length + ')</div>' + _fbTrendSVG(trend) + '</div>' : '') + '<div style="margin-bottom:16px"><div style="font-size:10px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.8px;font-weight:500;margin-bottom:10px">Response Detail</div>' + (ansH || '<div style="color:var(--text-tertiary);font-size:12px">No detailed answers recorded.</div>') + '</div><div style="display:flex;gap:8px;flex-wrap:wrap;padding-top:10px;border-top:1px solid var(--border)">' + (!sub.flagged ? '<button class="btn btn-sm" style="color:var(--red);border-color:rgba(255,107,107,0.3)" onclick="window._fbFlagSub(\'' + _e(subId) + '\');document.querySelector(\'.ppp-sub-detail\').remove()">\uD83D\uDEA9 Flag for Review</button>' : '<span style="font-size:12px;color:var(--red)">\uD83D\uDEA9 Already Flagged</span>') + '</div></div>'; document.body.appendChild(panel); };
   window._fbFlagSub = subId => { const subs = _fbGetSubs(); const sub = subs.find(s => s.id === subId); if (!sub) return; sub.flagged = true; _fbSave('ds_form_submissions', subs); el.innerHTML = _renderBuilder(); if (_fbTab === 'builder') _fbBindDrag(); };
   window._fbExportCSV = () => { const subs = _fbGetSubs(); if (!subs.length) { alert('No submissions to export.'); return; } const hdr = ['ID','Patient','Form','Date','Score','Severity','Flagged']; const rows = subs.map(s => [s.id, s.patientName, s.formName, _fbFmt(s.date), s.score != null ? s.score : '', s.severity || '', s.flagged ? 'Yes' : 'No'].map(v => '"' + String(v).replace(/"/g, '""') + '"').join(',')); const blob = new Blob([[hdr.join(','), ...rows].join('\n')], { type:'text/csv' }); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = 'form_submissions_' + new Date().toISOString().slice(0, 10) + '.csv'; a.click(); URL.revokeObjectURL(url); };
+}
+
+// ── NNN-C: Evidence Builder ───────────────────────────────────────────────────
+
+const EVIDENCE_SEED_PAPERS = [
+  { id:'ev1', title:'High-frequency rTMS of left DLPFC for MDD', authors:'George et al.', year:2010, journal:'Arch Gen Psychiatry', modality:'TMS', condition:'Depression', effectSize:0.55, ci:'[0.38–0.72]', n:190, design:'RCT', outcome:'HDRS-17' },
+  { id:'ev2', title:'iTBS vs 10Hz rTMS equivalence trial', authors:'Blumberger et al.', year:2018, journal:'Lancet', modality:'TMS', condition:'Depression', effectSize:0.51, ci:'[0.35–0.67]', n:414, design:'RCT', outcome:'MADRS' },
+  { id:'ev3', title:'Neurofeedback for ADHD: meta-analysis', authors:'Arns et al.', year:2009, journal:'Clinical EEG & Neuroscience', modality:'Neurofeedback', condition:'ADHD', effectSize:0.59, ci:'[0.44–0.74]', n:1194, design:'Meta-analysis', outcome:'ADHD rating scale' },
+  { id:'ev4', title:'Alpha/theta neurofeedback for PTSD', authors:'Peniston & Kulkosky', year:1991, journal:'Medical Psychotherapy', modality:'Neurofeedback', condition:'PTSD', effectSize:1.12, ci:'[0.71–1.53]', n:29, design:'RCT', outcome:'MMPI scales' },
+  { id:'ev5', title:'Anodal tDCS M1/SO for depression', authors:'Brunoni et al.', year:2013, journal:'JAMA Psychiatry', modality:'tDCS', condition:'Depression', effectSize:0.37, ci:'[0.14–0.60]', n:120, design:'RCT', outcome:'MADRS' },
+  { id:'ev6', title:'tDCS for fibromyalgia pain', authors:'Fregni et al.', year:2006, journal:'Pain', modality:'tDCS', condition:'Chronic Pain', effectSize:0.68, ci:'[0.31–1.05]', n:32, design:'RCT', outcome:'VAS pain score' },
+  { id:'ev7', title:'Neurofeedback for insomnia: pilot RCT', authors:'Cortoos et al.', year:2010, journal:'Applied Psychophysiology', modality:'Neurofeedback', condition:'Insomnia', effectSize:0.72, ci:'[0.22–1.22]', n:17, design:'Pilot RCT', outcome:'Sleep diary + PSG' },
+  { id:'ev8', title:'Deep TMS for OCD: multicenter trial', authors:'Carmi et al.', year:2019, journal:'Am J Psychiatry', modality:'TMS', condition:'OCD', effectSize:0.64, ci:'[0.38–0.90]', n:99, design:'RCT', outcome:'Y-BOCS' },
+];
+
+const SEED_PATIENT_OUTCOMES = [
+  { id:'po1', condition:'Depression', modality:'TMS',          n:28, meanChange:-9.4,  sdChange:3.1, pctImproved:71 },
+  { id:'po2', condition:'ADHD',       modality:'Neurofeedback', n:14, meanChange:-6.2,  sdChange:2.8, pctImproved:64 },
+  { id:'po3', condition:'Anxiety',    modality:'Neurofeedback', n:11, meanChange:-7.1,  sdChange:3.5, pctImproved:73 },
+  { id:'po4', condition:'PTSD',       modality:'Neurofeedback', n:8,  meanChange:-10.3, sdChange:4.2, pctImproved:75 },
+  { id:'po5', condition:'Insomnia',   modality:'Neurofeedback', n:9,  meanChange:-5.8,  sdChange:2.6, pctImproved:67 },
+  { id:'po6', condition:'Depression', modality:'tDCS',          n:12, meanChange:-6.5,  sdChange:3.8, pctImproved:58 },
+  { id:'po7', condition:'Chronic Pain',modality:'tDCS',         n:10, meanChange:-4.3,  sdChange:2.9, pctImproved:60 },
+  { id:'po8', condition:'OCD',        modality:'TMS',           n:7,  meanChange:-8.2,  sdChange:3.3, pctImproved:71 },
+];
+
+function _ebLoad(key, def) {
+  try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : def; } catch { return def; }
+}
+function _ebSave(key, val) {
+  try { localStorage.setItem(key, JSON.stringify(val)); } catch {}
+}
+function _ebEsc(v) {
+  if (v == null) return '';
+  return String(v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#x27;');
+}
+
+function _ebGetLiterature() {
+  const ext = _ebLoad('ds_literature', null);
+  if (ext && Array.isArray(ext) && ext.length > 0) return ext;
+  if (!localStorage.getItem('ds_literature_seeded')) {
+    _ebSave('ds_literature', EVIDENCE_SEED_PAPERS);
+    localStorage.setItem('ds_literature_seeded', '1');
+  }
+  return _ebLoad('ds_literature', EVIDENCE_SEED_PAPERS);
+}
+
+function _ebGetProtocols() {
+  return _ebLoad('ds_protocols', [
+    { id:'proto1', name:'TMS for Depression (Standard)', modality:'TMS', condition:'Depression', description:'10 Hz rTMS protocol targeting left DLPFC for MDD treatment.', notes:'' },
+    { id:'proto2', name:'Neurofeedback ADHD Alpha/Beta', modality:'Neurofeedback', condition:'ADHD', description:'Alpha/beta neurofeedback targeting frontal midline theta suppression.', notes:'' },
+    { id:'proto3', name:'tDCS for Chronic Pain', modality:'tDCS', condition:'Chronic Pain', description:'Anodal M1 tDCS for fibromyalgia and central sensitization.', notes:'' },
+    { id:'proto4', name:'Neurofeedback PTSD Alpha/Theta', modality:'Neurofeedback', condition:'PTSD', description:'Alpha/theta downtraining with heart rate variability integration.', notes:'' },
+    { id:'proto5', name:'Deep TMS OCD Protocol', modality:'TMS', condition:'OCD', description:'H7 coil dTMS protocol for OCD based on multicenter RCT.', notes:'' },
+  ]);
+}
+
+function _ebGetPatientOutcomes() {
+  if (!localStorage.getItem('ds_patient_outcomes_seeded')) {
+    _ebSave('ds_patient_outcomes', SEED_PATIENT_OUTCOMES);
+    localStorage.setItem('ds_patient_outcomes_seeded', '1');
+  }
+  return _ebLoad('ds_patient_outcomes', SEED_PATIENT_OUTCOMES);
+}
+
+function _ebRelevanceScore(paper, protocol) {
+  let score = 0;
+  if (paper.modality === protocol.modality) score += 40;
+  if (paper.condition === protocol.condition) score += 40;
+  const currentYear = 2026;
+  if (currentYear - paper.year <= 5) score += 20;
+  return score;
+}
+
+function _ebMatchPapers(protocol) {
+  const lit = _ebGetLiterature();
+  return lit
+    .filter(p => p.modality === protocol.modality || p.condition === protocol.condition)
+    .map(p => ({ ...p, relevance: _ebRelevanceScore(p, protocol) }))
+    .sort((a, b) => b.relevance - a.relevance);
+}
+
+function _ebEvidenceLevel(design) {
+  if (!design) return 'Level IV';
+  const d = design.toLowerCase();
+  if (d.includes('meta')) return 'Level I';
+  if (d.includes('rct') || d.includes('randomized')) return 'Level II';
+  if (d.includes('pilot')) return 'Level III';
+  return 'Level IV';
+}
+
+function _ebLevelColor(level) {
+  if (level === 'Level I')   return 'var(--accent-teal)';
+  if (level === 'Level II')  return 'var(--accent-blue)';
+  if (level === 'Level III') return 'var(--accent-amber)';
+  return 'var(--accent-rose)';
+}
+
+function _ebDesignBadge(design) {
+  const level = _ebEvidenceLevel(design);
+  return `<span class="nnnc-ev-level-badge" style="background:${_ebLevelColor(level)}22;color:${_ebLevelColor(level)};border:1px solid ${_ebLevelColor(level)}44;padding:2px 8px;border-radius:4px;font-size:10px;font-weight:600;letter-spacing:0.4px">${_ebEsc(level)}</span>`;
+}
+
+function _ebRenderMatchCard(paper) {
+  const rel = paper.relevance ?? 0;
+  const barW = Math.min(rel, 100);
+  return `<div class="nnnc-match-card">
+    <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap">
+      <div style="flex:1;min-width:0">
+        <div style="font-size:13px;font-weight:600;color:var(--text);margin-bottom:3px">${_ebEsc(paper.title)}</div>
+        <div style="font-size:11.5px;color:var(--text-muted)">${_ebEsc(paper.authors)} (${paper.year}) — <em>${_ebEsc(paper.journal)}</em></div>
+      </div>
+      ${_ebDesignBadge(paper.design)}
+    </div>
+    <div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:10px;font-size:12px;color:var(--text-muted)">
+      <span><strong style="color:var(--text)">Effect size:</strong> d = ${paper.effectSize} ${_ebEsc(paper.ci)}</span>
+      <span><strong style="color:var(--text)">N:</strong> ${paper.n}</span>
+      <span><strong style="color:var(--text)">Outcome:</strong> ${_ebEsc(paper.outcome)}</span>
+      <span><strong style="color:var(--text)">Modality:</strong> ${_ebEsc(paper.modality)}</span>
+      <span><strong style="color:var(--text)">Condition:</strong> ${_ebEsc(paper.condition)}</span>
+    </div>
+    <div style="margin-top:10px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
+        <span style="font-size:10.5px;color:var(--text-muted);letter-spacing:0.4px;text-transform:uppercase">Relevance</span>
+        <span style="font-size:11px;font-weight:600;color:var(--accent-teal)">${rel}/100</span>
+      </div>
+      <div style="height:6px;background:var(--border);border-radius:3px;overflow:hidden">
+        <div class="nnnc-effect-bar" style="height:100%;width:${barW}%;background:var(--accent-teal);border-radius:3px;transition:width 0.4s"></div>
+      </div>
+    </div>
+    <div style="margin-top:10px;display:flex;justify-content:flex-end">
+      <button class="btn btn-sm" onclick="window._ebAddCitation('${_ebEsc(paper.id)}')" style="font-size:11px">+ Add to Protocol Notes</button>
+    </div>
+  </div>`;
+}
+
+function _ebBuildComparisonSVG(pubES, pubCILow, pubCIHigh, clinicES, clinicSD) {
+  const W = 480, H = 120, PL = 120, PR = 20, PT = 18, PB = 28;
+  const innerW = W - PL - PR;
+  const maxVal = Math.max(pubCIHigh + 0.1, clinicES + clinicSD + 0.1, 1.4);
+  const scale = innerW / maxVal;
+  const rowH = (H - PT - PB) / 2;
+  const barH = 22;
+  const pubY  = PT + rowH * 0 + (rowH - barH) / 2;
+  const clinY = PT + rowH * 1 + (rowH - barH) / 2;
+  const pubBarW  = Math.max(pubES  * scale, 2);
+  const cliBarW  = Math.max(clinicES * scale, 2);
+  const ciLowX   = PL + pubCILow  * scale;
+  const ciHighX  = PL + pubCIHigh * scale;
+  const cliLowX  = PL + Math.max(clinicES - clinicSD, 0) * scale;
+  const cliHighX = PL + (clinicES + clinicSD) * scale;
+  const midY1    = pubY  + barH / 2;
+  const midY2    = clinY + barH / 2;
+  return `<svg class="nnnc-comparison-chart" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" style="width:100%;max-width:${W}px;height:auto;display:block">
+    <text x="${PL - 8}" y="${midY1 + 4}" text-anchor="end" font-size="12" fill="var(--text-muted)">Published</text>
+    <text x="${PL - 8}" y="${midY2 + 4}" text-anchor="end" font-size="12" fill="var(--text-muted)">Your Clinic</text>
+    <rect x="${PL}" y="${pubY}" width="${pubBarW}" height="${barH}" rx="4" fill="var(--accent-blue)" opacity="0.8"/>
+    <rect x="${PL}" y="${clinY}" width="${cliBarW}" height="${barH}" rx="4" fill="var(--accent-teal)" opacity="0.85"/>
+    <line x1="${ciLowX}" y1="${midY1 - 8}" x2="${ciLowX}" y2="${midY1 + 8}" stroke="var(--accent-blue)" stroke-width="2"/>
+    <line x1="${ciHighX}" y1="${midY1 - 8}" x2="${ciHighX}" y2="${midY1 + 8}" stroke="var(--accent-blue)" stroke-width="2"/>
+    <line x1="${ciLowX}" y1="${midY1}" x2="${ciHighX}" y2="${midY1}" stroke="var(--accent-blue)" stroke-width="1.5" stroke-dasharray="3,2"/>
+    <line x1="${cliLowX}" y1="${midY2 - 8}" x2="${cliLowX}" y2="${midY2 + 8}" stroke="var(--accent-teal)" stroke-width="2"/>
+    <line x1="${cliHighX}" y1="${midY2 - 8}" x2="${cliHighX}" y2="${midY2 + 8}" stroke="var(--accent-teal)" stroke-width="2"/>
+    <line x1="${cliLowX}" y1="${midY2}" x2="${cliHighX}" y2="${midY2}" stroke="var(--accent-teal)" stroke-width="1.5" stroke-dasharray="3,2"/>
+    <text x="${PL + pubBarW + 6}" y="${midY1 + 4}" font-size="11" fill="var(--text)">d=${pubES.toFixed(2)}</text>
+    <text x="${PL + cliBarW + 6}" y="${midY2 + 4}" font-size="11" fill="var(--text)">d=${clinicES.toFixed(2)}</text>
+    <line x1="${PL}" y1="${H - PB}" x2="${W - PR}" y2="${H - PB}" stroke="var(--border)" stroke-width="1"/>
+    <text x="${PL}" y="${H - PB + 12}" font-size="9" fill="var(--text-muted)">0</text>
+    <text x="${PL + innerW / 2}" y="${H - PB + 12}" text-anchor="middle" font-size="9" fill="var(--text-muted)">Cohen's d</text>
+    <text x="${W - PR}" y="${H - PB + 12}" text-anchor="end" font-size="9" fill="var(--text-muted)">${maxVal.toFixed(1)}</text>
+  </svg>`;
+}
+
+function _ebParseCI(ciStr) {
+  if (!ciStr) return { low: 0, high: 0 };
+  const m = ciStr.match(/([\d.]+)[–\-]([\d.]+)/);
+  if (m) return { low: parseFloat(m[1]), high: parseFloat(m[2]) };
+  return { low: 0, high: 0 };
+}
+
+function _ebInterpretation(clinicES, pubCILow, pubCIHigh, condition, modality) {
+  let pos = 'within';
+  if (clinicES > pubCIHigh) pos = 'above';
+  else if (clinicES < pubCILow) pos = 'below';
+  const posLabel = { above: 'above', within: 'within', below: 'below' }[pos];
+  const posColor = { above: 'var(--accent-teal)', within: 'var(--accent-blue)', below: 'var(--accent-amber)' }[pos];
+  return `<div style="padding:12px 16px;border-radius:8px;border:1px solid ${posColor}33;background:${posColor}0d;font-size:13px;line-height:1.6">
+    <strong style="color:${posColor}">Your clinic's outcomes are ${posLabel} the published range</strong> for <em>${_ebEsc(condition)}</em> treated with <em>${_ebEsc(modality)}</em>.
+    Published benchmark: d = ${pubCILow.toFixed(2)}–${pubCIHigh.toFixed(2)} (95% CI). Your clinic: d ≈ ${clinicES.toFixed(2)}.
+    ${pos === 'above' ? 'Excellent outcome — consider documenting your protocol parameters for dissemination.' :
+      pos === 'below' ? 'Review session adherence, patient selection criteria, and protocol parameters.' :
+      'Your real-world results align well with the published evidence base.'}
+  </div>`;
+}
+
+function _ebRenderGapSection(protocols, literature) {
+  const gaps = [];
+  for (const proto of protocols) {
+    const matched = literature.filter(p => p.modality === proto.modality && p.condition === proto.condition);
+    if (matched.length === 0) {
+      gaps.push({ proto, type: 'No matched literature', action: 'Search PubMed for recent trials on this modality + condition combination', severity: 'high' });
+      continue;
+    }
+    const hasOnlyLevelIII = matched.every(p => {
+      const l = _ebEvidenceLevel(p.design);
+      return l === 'Level III' || l === 'Level IV';
+    });
+    if (hasOnlyLevelIII) {
+      gaps.push({ proto, type: 'Only Level III/IV evidence', action: 'Consider conducting a pilot study or consulting a specialist', severity: 'medium' });
+    }
+    const positives = matched.filter(p => p.effectSize > 0).length;
+    const negatives = matched.filter(p => p.effectSize <= 0).length;
+    if (positives > 0 && negatives > 0) {
+      gaps.push({ proto, type: 'Contradictory findings', action: 'Review conflicting studies and identify moderating variables', severity: 'medium' });
+    }
+  }
+  if (gaps.length === 0) {
+    return `<div style="padding:20px;text-align:center;color:var(--text-muted);font-size:13px">No evidence gaps detected across active protocols.</div>`;
+  }
+  return gaps.map(g => {
+    const sColor = g.severity === 'high' ? 'var(--accent-rose)' : 'var(--accent-amber)';
+    const irbList = _ebLoad('ds_irb_wishlist', []);
+    const alreadyAdded = irbList.some(i => i.protoId === g.proto.id && i.gapType === g.type);
+    return `<div class="nnnc-gap-item">
+      <div style="display:flex;align-items:flex-start;gap:12px;flex-wrap:wrap">
+        <div style="flex:1;min-width:0">
+          <div style="font-size:13px;font-weight:600;color:var(--text);margin-bottom:2px">${_ebEsc(g.proto.name)}</div>
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap">
+            <span style="font-size:10.5px;font-weight:600;color:${sColor};background:${sColor}18;padding:2px 8px;border-radius:4px;border:1px solid ${sColor}33">${_ebEsc(g.type)}</span>
+            <span style="font-size:11px;color:var(--text-muted)">${_ebEsc(g.proto.modality)} / ${_ebEsc(g.proto.condition)}</span>
+          </div>
+          <div style="font-size:12px;color:var(--text-muted)">Suggested action: ${_ebEsc(g.action)}</div>
+        </div>
+        <button class="btn btn-sm" ${alreadyAdded ? 'disabled style="opacity:0.5"' : ''}
+          onclick="window._ebAddToIRB('${_ebEsc(g.proto.id)}','${_ebEsc(g.proto.name)}','${_ebEsc(g.type)}')"
+          style="flex-shrink:0;font-size:11px;${alreadyAdded ? '' : 'border-color:var(--accent-violet);color:var(--accent-violet)'}">
+          ${alreadyAdded ? 'Added to IRB ✓' : '+ IRB Wishlist'}
+        </button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+export async function pgEvidenceBuilder(setTopbar) {
+  setTopbar('Evidence Builder', `<button class="btn btn-sm" onclick="window._ebRefresh()" style="font-size:12px">↺ Refresh</button>`);
+
+  const el = document.getElementById('content');
+  if (!el) return;
+
+  // Ensure seed data is ready
+  _ebGetLiterature();
+  _ebGetPatientOutcomes();
+
+  const protocols = _ebGetProtocols();
+  const selProto  = protocols[0] || null;
+
+  el.innerHTML = `<div style="padding:24px 28px;max-width:1100px;margin:0 auto">
+
+    <!-- Page header -->
+    <div style="margin-bottom:24px">
+      <div style="font-size:10px;color:var(--accent-teal);letter-spacing:1.2px;text-transform:uppercase;font-weight:600;margin-bottom:6px">Clinical Intelligence</div>
+      <div style="font-size:22px;font-weight:700;color:var(--text);margin-bottom:4px">Outcome Evidence Builder</div>
+      <div style="font-size:13px;color:var(--text-muted)">Connect your real-world patient outcomes to published research evidence and identify gaps in your protocol portfolio.</div>
+    </div>
+
+    <!-- Section 1: Protocol-Evidence Matcher -->
+    <div style="background:var(--card-bg);border:1px solid var(--border);border-radius:12px;padding:20px 24px;margin-bottom:20px">
+      <div style="font-size:14px;font-weight:700;color:var(--text);margin-bottom:4px">Protocol–Evidence Matcher</div>
+      <div style="font-size:12px;color:var(--text-muted);margin-bottom:16px">Select a protocol to see matched literature with relevance scoring.</div>
+      <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:20px">
+        <label style="font-size:12px;color:var(--text-muted)">Protocol:</label>
+        <select id="eb-proto-select" class="input" style="max-width:340px;font-size:13px" onchange="window._ebOnProtoChange(this.value)">
+          ${protocols.map(p => `<option value="${_ebEsc(p.id)}">${_ebEsc(p.name)}</option>`).join('')}
+        </select>
+      </div>
+      <div id="eb-matched-papers">
+        ${selProto ? _ebMatchedPapersHTML(selProto) : '<div style="color:var(--text-muted);font-size:13px">No protocols found.</div>'}
+      </div>
+    </div>
+
+    <!-- Section 2: Real-World vs Published Comparison -->
+    <div style="background:var(--card-bg);border:1px solid var(--border);border-radius:12px;padding:20px 24px;margin-bottom:20px">
+      <div style="font-size:14px;font-weight:700;color:var(--text);margin-bottom:4px">Real-World vs Published Comparison</div>
+      <div style="font-size:12px;color:var(--text-muted);margin-bottom:16px">Compare your clinic's outcomes to published benchmarks side-by-side.</div>
+      <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px">
+        <div>
+          <label style="font-size:11px;color:var(--text-muted);display:block;margin-bottom:4px">Condition</label>
+          <select id="eb-cmp-condition" class="input" style="min-width:160px;font-size:13px" onchange="window._ebRenderComparison()">
+            ${['Depression','ADHD','Anxiety','PTSD','Insomnia','Chronic Pain','TBI','OCD'].map(c => `<option value="${c}">${c}</option>`).join('')}
+          </select>
+        </div>
+        <div>
+          <label style="font-size:11px;color:var(--text-muted);display:block;margin-bottom:4px">Modality</label>
+          <select id="eb-cmp-modality" class="input" style="min-width:160px;font-size:13px" onchange="window._ebRenderComparison()">
+            ${['TMS','Neurofeedback','tDCS','PEMF','HEG','Biofeedback'].map(m => `<option value="${m}">${m}</option>`).join('')}
+          </select>
+        </div>
+      </div>
+      <div id="eb-comparison-panel"></div>
+    </div>
+
+    <!-- Section 3: Evidence Summary Generator -->
+    <div style="background:var(--card-bg);border:1px solid var(--border);border-radius:12px;padding:20px 24px;margin-bottom:20px">
+      <div style="font-size:14px;font-weight:700;color:var(--text);margin-bottom:4px">Evidence Summary Generator</div>
+      <div style="font-size:12px;color:var(--text-muted);margin-bottom:16px">Generate a formatted evidence brief for the selected protocol. Download as .txt or copy to clipboard.</div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+        <select id="eb-sum-proto-select" class="input" style="max-width:320px;font-size:13px">
+          ${protocols.map(p => `<option value="${_ebEsc(p.id)}">${_ebEsc(p.name)}</option>`).join('')}
+        </select>
+        <button class="btn btn-sm" onclick="window._ebGenerateSummary()" style="font-size:12px;background:var(--accent-blue)22;color:var(--accent-blue);border-color:var(--accent-blue)55">Generate Summary</button>
+        <button class="btn btn-sm" onclick="window._ebCopySummary()" style="font-size:12px">Copy to Clipboard</button>
+      </div>
+      <div id="eb-summary-output" style="margin-top:16px"></div>
+    </div>
+
+    <!-- Section 4: Evidence Gap Finder -->
+    <div style="background:var(--card-bg);border:1px solid var(--border);border-radius:12px;padding:20px 24px;margin-bottom:20px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;flex-wrap:wrap;gap:8px">
+        <div style="font-size:14px;font-weight:700;color:var(--text)">Evidence Gap Finder</div>
+        <div style="font-size:11px;color:var(--text-muted)">IRB Wishlist: <span id="eb-irb-count" style="color:var(--accent-violet);font-weight:600">${_ebLoad('ds_irb_wishlist',[]).length}</span> item(s)</div>
+      </div>
+      <div style="font-size:12px;color:var(--text-muted);margin-bottom:16px">Automatically flags protocols with missing, weak, or conflicting evidence.</div>
+      <div id="eb-gap-list">
+        ${_ebRenderGapSection(protocols, _ebGetLiterature())}
+      </div>
+    </div>
+
+  </div>`;
+
+  // Wire up all handlers
+  window._ebGetProtocols     = _ebGetProtocols;
+  window._ebGetLiterature    = _ebGetLiterature;
+  window._ebGetPatientOutcomes = _ebGetPatientOutcomes;
+
+  window._ebRefresh = function() {
+    pgEvidenceBuilder(setTopbar);
+  };
+
+  window._ebOnProtoChange = function(protoId) {
+    const protocols = _ebGetProtocols();
+    const proto = protocols.find(p => p.id === protoId);
+    const panel = document.getElementById('eb-matched-papers');
+    if (!panel) return;
+    if (!proto) { panel.innerHTML = '<div style="color:var(--text-muted);font-size:13px">Protocol not found.</div>'; return; }
+    panel.innerHTML = _ebMatchedPapersHTML(proto);
+    // Also update summary selector
+    const sumSel = document.getElementById('eb-sum-proto-select');
+    if (sumSel) sumSel.value = protoId;
+  };
+
+  window._ebAddCitation = function(paperId) {
+    const literature = _ebGetLiterature();
+    const paper = literature.find(p => p.id === paperId);
+    if (!paper) return;
+    const proSel = document.getElementById('eb-proto-select');
+    const protoId = proSel ? proSel.value : null;
+    const protocols = _ebGetProtocols();
+    const protoIdx = protocols.findIndex(p => p.id === protoId);
+    if (protoIdx === -1) { alert('Select a protocol first.'); return; }
+    const citation = `[${paper.authors} (${paper.year}), ${paper.journal}] "${paper.title}" — Effect size: d=${paper.effectSize} ${paper.ci}, N=${paper.n}, ${paper.design}.`;
+    protocols[protoIdx].notes = ((protocols[protoIdx].notes || '') + '\n' + citation).trim();
+    _ebSave('ds_protocols', protocols);
+    const btn = event.target;
+    if (btn) { const orig = btn.textContent; btn.textContent = 'Added ✓'; btn.disabled = true; setTimeout(() => { btn.textContent = orig; btn.disabled = false; }, 2000); }
+  };
+
+  window._ebRenderComparison = function() {
+    const condition = document.getElementById('eb-cmp-condition')?.value;
+    const modality  = document.getElementById('eb-cmp-modality')?.value;
+    const panel     = document.getElementById('eb-comparison-panel');
+    if (!panel || !condition || !modality) return;
+    const literature = _ebGetLiterature();
+    const matched = literature.filter(p => p.condition === condition && p.modality === modality);
+    if (matched.length === 0) {
+      panel.innerHTML = `<div style="padding:16px;color:var(--text-muted);font-size:13px;text-align:center">No published studies found for ${_ebEsc(condition)} + ${_ebEsc(modality)} in the literature database.</div>`;
+      return;
+    }
+    const avgES = matched.reduce((s,p) => s + p.effectSize, 0) / matched.length;
+    const ciLows  = matched.map(p => _ebParseCI(p.ci).low);
+    const ciHighs = matched.map(p => _ebParseCI(p.ci).high);
+    const pubCILow  = ciLows.reduce((s,v) => s + v, 0) / ciLows.length;
+    const pubCIHigh = ciHighs.reduce((s,v) => s + v, 0) / ciHighs.length;
+    const totalN = matched.reduce((s,p) => s + (p.n || 0), 0);
+    const outcomes = _ebGetPatientOutcomes();
+    const clinicRec = outcomes.find(o => o.condition === condition && o.modality === modality);
+    let clinicES = 0.45, clinicSD = 0.18, clinicN = 0, clinicPct = 0;
+    if (clinicRec) {
+      clinicES  = Math.abs(clinicRec.meanChange) / 15;
+      clinicSD  = clinicRec.sdChange / 15;
+      clinicN   = clinicRec.n;
+      clinicPct = clinicRec.pctImproved;
+    }
+    const svg = _ebBuildComparisonSVG(avgES, pubCILow, pubCIHigh, clinicES, clinicSD);
+    const interp = _ebInterpretation(clinicES, pubCILow, pubCIHigh, condition, modality);
+    panel.innerHTML = `
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:16px">
+        <div style="background:var(--hover-bg);border:1px solid var(--border);border-radius:8px;padding:14px 16px">
+          <div style="font-size:10px;color:var(--accent-blue);text-transform:uppercase;letter-spacing:0.8px;font-weight:600;margin-bottom:8px">Published Benchmark</div>
+          <div style="font-size:22px;font-weight:700;color:var(--text)">d = ${avgES.toFixed(2)}</div>
+          <div style="font-size:12px;color:var(--text-muted);margin-top:2px">95% CI: ${pubCILow.toFixed(2)}–${pubCIHigh.toFixed(2)}</div>
+          <div style="font-size:12px;color:var(--text-muted)">Total N = ${totalN} across ${matched.length} study(ies)</div>
+        </div>
+        <div style="background:var(--hover-bg);border:1px solid var(--border);border-radius:8px;padding:14px 16px">
+          <div style="font-size:10px;color:var(--accent-teal);text-transform:uppercase;letter-spacing:0.8px;font-weight:600;margin-bottom:8px">Your Clinic</div>
+          ${clinicRec ? `
+            <div style="font-size:22px;font-weight:700;color:var(--text)">d ≈ ${clinicES.toFixed(2)}</div>
+            <div style="font-size:12px;color:var(--text-muted);margin-top:2px">${clinicPct}% improved</div>
+            <div style="font-size:12px;color:var(--text-muted)">N = ${clinicN} patients</div>
+          ` : `<div style="font-size:13px;color:var(--text-muted);margin-top:4px">No clinic outcome data found for this combination.</div>`}
+        </div>
+      </div>
+      <div style="margin-bottom:16px">${svg}</div>
+      ${interp}
+    `;
+  };
+
+  window._ebGenerateSummary = function() {
+    const sumSel = document.getElementById('eb-sum-proto-select');
+    const protoId = sumSel ? sumSel.value : null;
+    const protocols = _ebGetProtocols();
+    const proto = protocols.find(p => p.id === protoId);
+    if (!proto) { alert('Select a protocol first.'); return; }
+    const matched = _ebMatchPapers(proto).filter(p => p.relevance >= 40);
+    const outcomes = _ebGetPatientOutcomes();
+    const clinicRec = outcomes.find(o => o.condition === proto.condition && o.modality === proto.modality);
+    const date = new Date().toLocaleDateString('en-GB', { year:'numeric', month:'long', day:'numeric' });
+    const studyLines = matched.map((p,i) => {
+      const level = _ebEvidenceLevel(p.design);
+      const clinSig = p.effectSize >= 0.8 ? 'Large effect' : p.effectSize >= 0.5 ? 'Medium effect' : 'Small effect';
+      return `  ${i+1}. ${p.authors} (${p.year}). "${p.title}". ${p.journal}.\n     Effect: d=${p.effectSize} ${p.ci}, N=${p.n}, Design: ${p.design}, Outcome: ${p.outcome}.\n     Evidence level: ${level}. Clinical significance: ${clinSig}.`;
+    }).join('\n\n');
+    const outcomeLines = clinicRec
+      ? `  Condition: ${proto.condition} | Modality: ${proto.modality}\n  Patients: N=${clinicRec.n}\n  Mean score change: ${clinicRec.meanChange} (SD ${clinicRec.sdChange})\n  Percentage improved: ${clinicRec.pctImproved}%`
+      : '  No clinic outcome data recorded for this protocol combination.';
+    const designs = matched.map(p => p.design);
+    const hasOldStudies = matched.some(p => 2026 - p.year > 10);
+    const hasSingleArm  = matched.some(p => p.design.toLowerCase().includes('pilot'));
+    const limitations = [
+      'Outcome measures vary across studies; direct comparison requires caution.',
+      hasOldStudies ? 'Some cited studies are over 10 years old; consider searching for more recent trials.' : null,
+      hasSingleArm  ? 'Some studies used single-arm or pilot designs with limited generalizability.' : null,
+      matched.length < 3 ? 'Limited evidence base; findings should be interpreted with caution.' : null,
+    ].filter(Boolean).map((l,i) => `  ${i+1}. ${l}`).join('\n');
+    const summaryText = `EVIDENCE SUMMARY — ${proto.name}\nGenerated: ${date}\n\n${'='.repeat(60)}\nOVERVIEW\n${'='.repeat(60)}\n${proto.description || 'No description provided.'}\n\n${'='.repeat(60)}\nSUPPORTING EVIDENCE (${matched.length} ${matched.length === 1 ? 'study' : 'studies'})\n${'='.repeat(60)}\n${studyLines || '  No closely matched studies found in the literature database.'}\n\n${'='.repeat(60)}\nREAL-WORLD OUTCOMES (This Clinic, N=${clinicRec ? clinicRec.n : 0})\n${'='.repeat(60)}\n${outcomeLines}\n\n${'='.repeat(60)}\nLIMITATIONS & CONSIDERATIONS\n${'='.repeat(60)}\n${limitations || '  No specific limitations identified.'}\n`;
+    window._ebLastSummary = summaryText;
+    // Save to log
+    const logs = _ebLoad('ds_evidence_summaries', []);
+    logs.unshift({ id: 'sum_' + Date.now(), protoId: proto.id, protoName: proto.name, generatedAt: new Date().toISOString(), length: summaryText.length });
+    if (logs.length > 50) logs.splice(50);
+    _ebSave('ds_evidence_summaries', logs);
+    const outEl = document.getElementById('eb-summary-output');
+    if (outEl) {
+      outEl.innerHTML = `<pre style="background:var(--bg-secondary);border:1px solid var(--border);border-radius:8px;padding:16px;font-size:11.5px;color:var(--text);white-space:pre-wrap;word-break:break-word;max-height:360px;overflow-y:auto;line-height:1.7;font-family:monospace">${_ebEsc(summaryText)}</pre>
+        <div style="display:flex;gap:8px;margin-top:10px">
+          <button class="btn btn-sm" onclick="window._ebDownloadSummary()" style="font-size:11px">Download .txt</button>
+          <button class="btn btn-sm" onclick="window._ebCopySummary()" style="font-size:11px">Copy to Clipboard</button>
+        </div>`;
+    }
+  };
+
+  window._ebDownloadSummary = function() {
+    if (!window._ebLastSummary) { alert('Generate a summary first.'); return; }
+    const blob = new Blob([window._ebLastSummary], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'evidence_summary_' + new Date().toISOString().slice(0, 10) + '.txt';
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  window._ebCopySummary = function() {
+    const text = window._ebLastSummary;
+    if (!text) { alert('Generate a summary first.'); return; }
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(text).then(() => window._announce?.('Summary copied to clipboard'));
+    } else {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.position = 'fixed'; ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+      window._announce?.('Summary copied to clipboard');
+    }
+  };
+
+  window._ebAddToIRB = function(protoId, protoName, gapType) {
+    const list = _ebLoad('ds_irb_wishlist', []);
+    if (list.some(i => i.protoId === protoId && i.gapType === gapType)) return;
+    list.push({ id: 'irb_' + Date.now(), protoId, protoName, gapType, addedAt: new Date().toISOString() });
+    _ebSave('ds_irb_wishlist', list);
+    const cntEl = document.getElementById('eb-irb-count');
+    if (cntEl) cntEl.textContent = list.length;
+    // Re-render gap section
+    const gapEl = document.getElementById('eb-gap-list');
+    if (gapEl) gapEl.innerHTML = _ebRenderGapSection(_ebGetProtocols(), _ebGetLiterature());
+  };
+
+  // Trigger initial comparison render
+  window._ebRenderComparison();
+}
+
+function _ebMatchedPapersHTML(proto) {
+  const papers = _ebMatchPapers(proto);
+  if (papers.length === 0) {
+    return `<div style="padding:16px;color:var(--text-muted);font-size:13px;text-align:center">No literature matches found for <strong>${_ebEsc(proto.name)}</strong>. Try adding more studies to the Evidence Library.</div>`;
+  }
+  return `<div style="font-size:12px;color:var(--text-muted);margin-bottom:12px">${papers.length} matched paper${papers.length !== 1 ? 's' : ''} for <strong style="color:var(--text)">${_ebEsc(proto.name)}</strong> (${_ebEsc(proto.modality)} / ${_ebEsc(proto.condition)})</div>
+    <div style="display:flex;flex-direction:column;gap:12px">
+      ${papers.map(_ebRenderMatchCard).join('')}
+    </div>`;
 }

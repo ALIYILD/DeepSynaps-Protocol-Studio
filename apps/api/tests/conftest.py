@@ -30,10 +30,9 @@ from app.main import app  # noqa: E402
 
 @pytest.fixture(autouse=True)
 def isolated_database() -> None:
-    init_database()
-    reset_database()
+    reset_database()   # drop_all then create_all — always idempotent regardless of prior state
     yield
-    reset_database()
+    reset_database()   # clean up after each test
 
 
 @pytest.fixture
