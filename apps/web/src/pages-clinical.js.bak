@@ -12427,3 +12427,556 @@ export async function pgPatientQueue(setTopbar) {
   };
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Assessments Hub
+// ─────────────────────────────────────────────────────────────────────────────
+export async function pgAssessmentsHub(setTopbar) {
+  setTopbar('Assessments', '');
+  const el = document.getElementById('content');
+  if (!el) return;
+
+  const _AH_CATS = ['All','Mood','Anxiety','Cognition','Sleep','PTSD','Substance','QoL','Side Effects'];
+  const _AH_TIMING = [
+    { id:'pre',    label:'Pre-treatment',   color:'var(--blue)' },
+    { id:'weekly', label:'Weekly check-in', color:'var(--teal)' },
+    { id:'post',   label:'Post-treatment',  color:'var(--green,#22c55e)' },
+    { id:'prn',    label:'PRN / as needed', color:'var(--amber,#f59e0b)' },
+    { id:'annual', label:'Annual review',   color:'var(--text-secondary)' },
+    { id:'custom', label:'Custom schedule', color:'var(--purple,#a855f7)' },
+  ];
+  const _AH_BUNDLES = [
+    { id:'phq9',   name:'PHQ-9',           cat:'Mood',      items:9,  mins:3,  timing:['pre','weekly','post'], desc:'Depression severity screening' },
+    { id:'gad7',   name:'GAD-7',           cat:'Anxiety',   items:7,  mins:2,  timing:['pre','weekly','post'], desc:'Generalised anxiety disorder' },
+    { id:'pcl5',   name:'PCL-5',           cat:'PTSD',      items:20, mins:7,  timing:['pre','weekly'],        desc:'PTSD checklist — DSM-5' },
+    { id:'madrs',  name:'MADRS',           cat:'Mood',      items:10, mins:15, timing:['pre','weekly','post'], desc:'Montgomery–Åsberg Depression Rating' },
+    { id:'ham-a',  name:'HAM-A',           cat:'Anxiety',   items:14, mins:15, timing:['pre','post'],          desc:'Hamilton Anxiety Rating Scale' },
+    { id:'bdi2',   name:'BDI-II',          cat:'Mood',      items:21, mins:10, timing:['pre','weekly','post'], desc:'Beck Depression Inventory' },
+    { id:'moca',   name:'MoCA',            cat:'Cognition', items:30, mins:12, timing:['pre','post','annual'], desc:'Montreal Cognitive Assessment' },
+    { id:'moca-b', name:'MoCA-BLIND',      cat:'Cognition', items:22, mins:10, timing:['pre','post'],          desc:'MoCA adapted for visual impairment' },
+    { id:'cogstate',name:'CogState Brief', cat:'Cognition', items:4,  mins:15, timing:['pre','weekly','post'], desc:'Digital cognitive battery' },
+    { id:'psqi',   name:'PSQI',            cat:'Sleep',     items:19, mins:5,  timing:['pre','weekly','post'], desc:'Pittsburgh Sleep Quality Index' },
+    { id:'isi',    name:'ISI',             cat:'Sleep',     items:7,  mins:2,  timing:['pre','weekly'],        desc:'Insomnia Severity Index' },
+    { id:'audit',  name:'AUDIT',           cat:'Substance', items:10, mins:3,  timing:['pre','annual'],        desc:'Alcohol Use Disorders Identification' },
+    { id:'dast10', name:'DAST-10',         cat:'Substance', items:10, mins:3,  timing:['pre','annual'],        desc:'Drug Abuse Screening Test' },
+    { id:'qlesq',  name:'Q-LES-Q-SF',      cat:'QoL',       items:16, mins:5,  timing:['pre','post'],          desc:'Quality of Life Enjoyment & Satisfaction' },
+    { id:'sf36',   name:'SF-36',           cat:'QoL',       items:36, mins:10, timing:['pre','post','annual'], desc:'Short Form Health Survey' },
+    { id:'whoqol', name:'WHOQOL-BREF',     cat:'QoL',       items:26, mins:8,  timing:['pre','post'],          desc:'WHO Quality of Life Brief' },
+    { id:'tses',   name:'TMS Side Effects',cat:'Side Effects',items:8,mins:3,  timing:['weekly','prn'],        desc:'TMS tolerability & adverse events' },
+    { id:'tdcs-ae',name:'tDCS Adverse Events',cat:'Side Effects',items:6,mins:2,timing:['prn'],              desc:'tDCS tolerability checklist' },
+    { id:'ybocs',  name:'Y-BOCS',          cat:'Anxiety',   items:10, mins:20, timing:['pre','weekly','post'], desc:'Yale–Brown OCD Scale' },
+    { id:'lsas',   name:'LSAS',            cat:'Anxiety',   items:24, mins:10, timing:['pre','post'],          desc:'Liebowitz Social Anxiety Scale' },
+    { id:'panss',  name:'PANSS',           cat:'Mood',      items:30, mins:40, timing:['pre','post'],          desc:'Positive and Negative Syndrome Scale' },
+    { id:'cdrs',   name:'CDRS-R',          cat:'Mood',      items:17, mins:20, timing:['pre','weekly'],        desc:'Children\'s Depression Rating Scale' },
+    { id:'bprs',   name:'BPRS',            cat:'Mood',      items:24, mins:25, timing:['pre','weekly'],        desc:'Brief Psychiatric Rating Scale' },
+    { id:'ymrs',   name:'YMRS',            cat:'Mood',      items:11, mins:15, timing:['pre','weekly'],        desc:'Young Mania Rating Scale' },
+    { id:'snap4',  name:'SNAP-IV',         cat:'Cognition', items:26, mins:10, timing:['pre','post'],          desc:'ADHD rating (parent/teacher form)' },
+    { id:'caps5',  name:'CAPS-5',          cat:'PTSD',      items:30, mins:45, timing:['pre','post'],          desc:'Clinician-Administered PTSD Scale' },
+    { id:'ders',   name:'DERS-16',         cat:'Mood',      items:16, mins:5,  timing:['pre','post'],          desc:'Difficulties in Emotion Regulation' },
+    { id:'bam',    name:'BAM-R',           cat:'Substance', items:17, mins:5,  timing:['pre','weekly'],        desc:'Brief Addiction Monitor' },
+    { id:'tanner', name:'Tanner Scale',    cat:'QoL',       items:5,  mins:3,  timing:['pre','annual'],        desc:'Pubertal staging (paediatric)' },
+    { id:'cogflex',name:'Cognitive Flexibility Inv.',cat:'Cognition',items:20,mins:7,timing:['pre','post'],   desc:'CFI — cognitive rigidity assessment' },
+    { id:'cfq',    name:'CFQ',             cat:'Cognition', items:25, mins:8,  timing:['pre','post'],          desc:'Cognitive Failures Questionnaire' },
+    { id:'phq15',  name:'PHQ-15',          cat:'Mood',      items:15, mins:4,  timing:['pre','weekly'],        desc:'Somatic symptom severity' },
+  ];
+
+  let _activeCat = 'All';
+  let _activeSearch = '';
+
+  function _catColor(cat) {
+    const m = { Mood:'var(--blue)', Anxiety:'var(--teal)', Cognition:'var(--purple,#a855f7)',
+      Sleep:'var(--amber,#f59e0b)', PTSD:'var(--red,#ef4444)', Substance:'var(--orange,#f97316)',
+      'QoL':'var(--green,#22c55e)', 'Side Effects':'var(--text-secondary)' };
+    return m[cat] || 'var(--teal)';
+  }
+
+  function _timingBadge(t) {
+    const tm = _AH_TIMING.find(x => x.id === t);
+    return tm ? `<span class="ah-timing-badge" style="background:${tm.color}20;color:${tm.color};border-color:${tm.color}40">${tm.label}</span>` : '';
+  }
+
+  function _renderGrid() {
+    const filtered = _AH_BUNDLES.filter(b => {
+      const catOk = _activeCat === 'All' || b.cat === _activeCat;
+      const q = _activeSearch.toLowerCase();
+      const searchOk = !q || b.name.toLowerCase().includes(q) || b.desc.toLowerCase().includes(q) || b.cat.toLowerCase().includes(q);
+      return catOk && searchOk;
+    });
+    const grid = document.getElementById('ah-grid');
+    if (!grid) return;
+    if (!filtered.length) { grid.innerHTML = `<div class="ah-empty">No assessments match your filter.</div>`; return; }
+    grid.innerHTML = filtered.map(b => `
+      <div class="ah-card">
+        <div class="ah-card-top">
+          <span class="ah-card-name">${b.name}</span>
+          <span class="ah-cat-badge" style="background:${_catColor(b.cat)}20;color:${_catColor(b.cat)}">${b.cat}</span>
+        </div>
+        <div class="ah-card-desc">${b.desc}</div>
+        <div class="ah-card-meta">${b.items} items &nbsp;·&nbsp; ~${b.mins} min</div>
+        <div class="ah-timing-row">${b.timing.map(_timingBadge).join('')}</div>
+        <div class="ah-card-actions">
+          <button class="ah-btn-assign" onclick="window._ahAssign('${b.id}')">Assign to Patient</button>
+          <button class="ah-btn-preview" onclick="window._ahPreview('${b.id}')">Preview</button>
+        </div>
+      </div>`).join('');
+  }
+
+  el.innerHTML = `
+    <div class="ah-wrap">
+      <div class="ah-header-row">
+        <div class="ah-title-block">
+          <h2 class="ah-title">Assessment Library</h2>
+          <p class="ah-subtitle">${_AH_BUNDLES.length} validated instruments &mdash; filter, assign, and schedule for any patient</p>
+        </div>
+        <button class="ah-btn-schedule" onclick="window._ahOpenScheduler()">Manage Schedules</button>
+      </div>
+      <div class="ah-toolbar">
+        <div class="ah-cats">
+          ${_AH_CATS.map(c => `<button class="ah-cat-btn${c===_activeCat?' ah-cat-active':''}" onclick="window._ahSetCat('${c}')">${c}</button>`).join('')}
+        </div>
+        <input id="ah-search" class="ah-search-input" type="text" placeholder="Search instruments…" oninput="window._ahSearch(this.value)" value="${_activeSearch}">
+      </div>
+      <div id="ah-grid" class="ah-grid"></div>
+    </div>
+    <div id="ah-modal" class="ah-modal-overlay" style="display:none" onclick="if(event.target===this)this.style.display='none'">
+      <div class="ah-modal-box" id="ah-modal-box"></div>
+    </div>`;
+
+  _renderGrid();
+
+  window._ahSetCat = function(cat) {
+    _activeCat = cat;
+    document.querySelectorAll('.ah-cat-btn').forEach(b => b.classList.toggle('ah-cat-active', b.textContent === cat));
+    _renderGrid();
+  };
+  window._ahSearch = function(val) { _activeSearch = val; _renderGrid(); };
+  window._ahPreview = function(id) {
+    const b = _AH_BUNDLES.find(x => x.id === id); if (!b) return;
+    const modal = document.getElementById('ah-modal');
+    document.getElementById('ah-modal-box').innerHTML = `
+      <div class="ah-modal-header"><span class="ah-modal-title">${b.name}</span><button class="ah-modal-close" onclick="document.getElementById('ah-modal').style.display='none'">✕</button></div>
+      <p class="ah-modal-desc">${b.desc}</p>
+      <div class="ah-modal-meta"><b>${b.items}</b> items &nbsp;·&nbsp; <b>~${b.mins} min</b> &nbsp;·&nbsp; Category: <b>${b.cat}</b></div>
+      <div class="ah-modal-timing"><b>Recommended timing:</b><br>${b.timing.map(_timingBadge).join(' ')}</div>
+      <div class="ah-modal-footer"><button class="ah-btn-assign" onclick="window._ahAssign('${b.id}')">Assign to Patient</button></div>`;
+    modal.style.display = 'flex';
+  };
+  window._ahAssign = function(id) {
+    const b = _AH_BUNDLES.find(x => x.id === id); if (!b) return;
+    const modal = document.getElementById('ah-modal');
+    document.getElementById('ah-modal-box').innerHTML = `
+      <div class="ah-modal-header"><span class="ah-modal-title">Assign ${b.name}</span><button class="ah-modal-close" onclick="document.getElementById('ah-modal').style.display='none'">✕</button></div>
+      <div class="ah-assign-form">
+        <label class="ah-form-label">Patient</label>
+        <input class="ah-form-input" id="ah-pat-input" placeholder="Search patient name or ID…" type="text">
+        <label class="ah-form-label">Schedule</label>
+        <select class="ah-form-select" id="ah-sched-select">
+          ${_AH_TIMING.map(t => `<option value="${t.id}"${b.timing.includes(t.id)?' selected':''}>${t.label}</option>`).join('')}
+        </select>
+        <label class="ah-form-label">Due date (optional)</label>
+        <input class="ah-form-input" id="ah-due-input" type="date">
+        <button class="ah-btn-assign" style="margin-top:14px;width:100%" onclick="window._ahConfirmAssign('${b.id}')">Confirm Assignment</button>
+      </div>`;
+    modal.style.display = 'flex';
+  };
+  window._ahConfirmAssign = function(id) {
+    const b = _AH_BUNDLES.find(x => x.id === id); if (!b) return;
+    document.getElementById('ah-modal').style.display = 'none';
+    window._showNotifToast?.({ title:'Assessment Assigned', body:`${b.name} assigned successfully`, severity:'success' });
+  };
+  window._ahOpenScheduler = function() {
+    window._showNotifToast?.({ title:'Schedules', body:'Assessment schedule manager coming soon', severity:'info' });
+  };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Brain Map Planner
+// ─────────────────────────────────────────────────────────────────────────────
+export async function pgBrainMapPlanner(setTopbar) {
+  setTopbar('Brain Map Planner', '');
+  const el = document.getElementById('content');
+  if (!el) return;
+
+  // 10-20 EEG site positions (percent top/left of scalp map container 340×340px)
+  const _BMP_SITES = [
+    { id:'Fpz', label:'Fpz', top:4,  left:50 },
+    { id:'Fp1', label:'Fp1', top:8,  left:34 },
+    { id:'Fp2', label:'Fp2', top:8,  left:66 },
+    { id:'F7',  label:'F7',  top:26, left:16 },
+    { id:'F3',  label:'F3',  top:26, left:34 },
+    { id:'Fz',  label:'Fz',  top:26, left:50 },
+    { id:'F4',  label:'F4',  top:26, left:66 },
+    { id:'F8',  label:'F8',  top:26, left:84 },
+    { id:'T3',  label:'T3',  top:50, left:8  },
+    { id:'C3',  label:'C3',  top:50, left:34 },
+    { id:'Cz',  label:'Cz',  top:50, left:50 },
+    { id:'C4',  label:'C4',  top:50, left:66 },
+    { id:'T4',  label:'T4',  top:50, left:92 },
+    { id:'T5',  label:'T5',  top:74, left:16 },
+    { id:'P3',  label:'P3',  top:74, left:34 },
+    { id:'Pz',  label:'Pz',  top:74, left:50 },
+    { id:'P4',  label:'P4',  top:74, left:66 },
+    { id:'T6',  label:'T6',  top:74, left:84 },
+    { id:'O1',  label:'O1',  top:90, left:38 },
+    { id:'Oz',  label:'Oz',  top:93, left:50 },
+    { id:'O2',  label:'O2',  top:90, left:62 },
+  ];
+
+  const _BMP_PROTOCOLS = [
+    { id:'dep-tms',    label:'Depression — Left DLPFC TMS',    active:['F3'],       ref:['Fp1','Fz'],   modality:'TMS',  params:'10Hz, 120% MT, 3000 pulses/session', evidence:'Level A' },
+    { id:'dep-itbs',   label:'Depression — iTBS Left DLPFC',   active:['F3'],       ref:['Fp1'],        modality:'TMS',  params:'iTBS, 600 pulses, 3 min', evidence:'Level A' },
+    { id:'dep-bilat',  label:'Depression — Bilateral TMS',     active:['F3','F4'],  ref:[],             modality:'TMS',  params:'L: 10Hz excit. / R: 1Hz inhib.', evidence:'Level B' },
+    { id:'ocd-tms',    label:'OCD — Medial PFC / DMPFC TMS',   active:['Fz','Fpz'], ref:[],             modality:'TMS',  params:'20Hz dTMS H-coil, 2000 pulses', evidence:'Level A' },
+    { id:'ptsd-tms',   label:'PTSD — Right DLPFC inhibition',  active:['F4'],       ref:['Fp2'],        modality:'TMS',  params:'1Hz, 110% MT, 1200 pulses', evidence:'Level B' },
+    { id:'pain-tdcs',  label:'Chronic Pain — M1 tDCS',         active:['C3','C4'],  ref:['Fp1','Fp2'],  modality:'tDCS', params:'2mA, 20 min, anodal M1', evidence:'Level B' },
+    { id:'rehab-tdcs', label:'Motor Rehab — M1 tDCS',          active:['C3'],       ref:['C4'],         modality:'tDCS', params:'1–2mA, 20 min, anodal affected M1', evidence:'Level B' },
+    { id:'cog-tdcs',   name:'Cognitive Enhancement — DLPFC',   active:['F3'],       ref:['Fp1'],        modality:'tDCS', params:'1.5–2mA, 20–30 min, anodal L-DLPFC', evidence:'Level C' },
+    { id:'tinnitus',   label:'Tinnitus — Temporal cortex',     active:['T3','T4'],  ref:['Cz'],         modality:'TMS',  params:'1Hz, 110% MT, 900 pulses bilateral', evidence:'Level C' },
+    { id:'sz-tdcs',    label:'Schizophrenia — T3/T4 tDCS',     active:['T3','T4'],  ref:['Cz'],         modality:'tDCS', params:'2mA, 20 min, cathodal bilateral temporal', evidence:'Level B' },
+    { id:'mig-tms',    label:'Migraine — Occipital TMS',       active:['O1','O2'],  ref:[],             modality:'TMS',  params:'1Hz, 110% MT, 600 pulses', evidence:'Level B' },
+    { id:'addiction',  label:'Addiction — PFC TMS',            active:['F3','Fz'],  ref:['Fp1','Fpz'],  modality:'TMS',  params:'10Hz, 120% MT, 2000 pulses', evidence:'Level B' },
+  ];
+
+  let _selProto = null;
+  let _customActive = new Set();
+  let _customRef    = new Set();
+  let _mode = 'protocol'; // 'protocol' | 'custom'
+
+  function _siteColor(id) {
+    if (!_selProto && _mode === 'protocol') return '#2a2d3a';
+    const active = _mode === 'protocol' ? (_selProto?.active || []) : [..._customActive];
+    const ref    = _mode === 'protocol' ? (_selProto?.ref    || []) : [..._customRef];
+    if (active.includes(id)) return 'var(--teal)';
+    if (ref.includes(id))    return 'var(--blue)';
+    return '#2a2d3a';
+  }
+
+  function _renderMap() {
+    const map = document.getElementById('bmp-scalp-map');
+    if (!map) return;
+    map.innerHTML = _BMP_SITES.map(s => {
+      const color = _siteColor(s.id);
+      const active = _mode === 'protocol' ? (_selProto?.active||[]) : [..._customActive];
+      const ref    = _mode === 'protocol' ? (_selProto?.ref||[])    : [..._customRef];
+      const isActive = active.includes(s.id);
+      const isRef    = ref.includes(s.id);
+      return `<div class="bmp-site${isActive?' bmp-site-active':''}${isRef?' bmp-site-ref':''}"
+        style="top:${s.top}%;left:${s.left}%;background:${color}"
+        title="${s.id}${isActive?' — Active stimulation site':isRef?' — Reference electrode':''}"
+        onclick="window._bmpToggleSite('${s.id}')">${s.label}</div>`;
+    }).join('');
+  }
+
+  function _renderSummary() {
+    const panel = document.getElementById('bmp-summary');
+    if (!panel) return;
+    if (_mode === 'protocol' && _selProto) {
+      const p = _selProto;
+      const activeStr = (p.active||[]).join(', ') || '—';
+      const refStr    = (p.ref||[]).join(', ') || 'None';
+      panel.innerHTML = `
+        <div class="bmp-sum-label">${p.label || p.name}</div>
+        <div class="bmp-sum-row"><span class="bmp-sum-key">Modality</span><span class="bmp-sum-val">${p.modality}</span></div>
+        <div class="bmp-sum-row"><span class="bmp-sum-key">Parameters</span><span class="bmp-sum-val">${p.params}</span></div>
+        <div class="bmp-sum-row"><span class="bmp-sum-key">Evidence</span><span class="bmp-sum-val bmp-ev-badge">${p.evidence}</span></div>
+        <div class="bmp-sum-row"><span class="bmp-sum-key">Active sites</span><span class="bmp-sum-val bmp-site-tag bmp-active-tag">${activeStr}</span></div>
+        <div class="bmp-sum-row"><span class="bmp-sum-key">Reference</span><span class="bmp-sum-val bmp-site-tag bmp-ref-tag">${refStr}</span></div>
+        <div class="bmp-sum-guidance">
+          <b>Implementation:</b> Confirm MT measurement before first session. Place coil perpendicular to skull curvature at marked site. Document inter-session site consistency with photo or neuronavigation if available.
+        </div>
+        <button class="bmp-export-btn" onclick="window._bmpExport()">Export Placement Plan</button>`;
+    } else if (_mode === 'custom') {
+      const activeStr = [..._customActive].join(', ') || '—';
+      const refStr    = [..._customRef].join(', ') || '—';
+      panel.innerHTML = `
+        <div class="bmp-sum-label">Custom Placement</div>
+        <div class="bmp-sum-row"><span class="bmp-sum-key">Active</span><span class="bmp-sum-val bmp-site-tag bmp-active-tag">${activeStr}</span></div>
+        <div class="bmp-sum-row"><span class="bmp-sum-key">Reference</span><span class="bmp-sum-val bmp-site-tag bmp-ref-tag">${refStr}</span></div>
+        <div class="bmp-sum-guidance">Click sites on the map to assign. Use the toggle below to switch between active and reference selection.</div>
+        <button class="bmp-export-btn" onclick="window._bmpExport()">Export Placement Plan</button>`;
+    } else {
+      panel.innerHTML = `<div class="bmp-sum-placeholder">Select a protocol or switch to Custom mode to begin planning.</div>`;
+    }
+  }
+
+  el.innerHTML = `
+    <div class="bmp-wrap">
+      <div class="bmp-left">
+        <div class="bmp-mode-tabs">
+          <button class="bmp-mode-tab${_mode==='protocol'?' bmp-mode-active':''}" onclick="window._bmpSetMode('protocol')">Protocol Library</button>
+          <button class="bmp-mode-tab${_mode==='custom'?' bmp-mode-active':''}" onclick="window._bmpSetMode('custom')">Custom Placement</button>
+        </div>
+        <div id="bmp-proto-list" class="bmp-proto-list">
+          ${_BMP_PROTOCOLS.map(p => `<div class="bmp-proto-item${_selProto?.id===p.id?' bmp-proto-sel':''}" onclick="window._bmpSelectProto('${p.id}')">
+            <span class="bmp-proto-name">${p.label||p.name}</span>
+            <span class="bmp-proto-mod">${p.modality}</span>
+          </div>`).join('')}
+        </div>
+        <div id="bmp-custom-ctrl" class="bmp-custom-ctrl" style="display:${_mode==='custom'?'block':'none'}">
+          <div class="bmp-custom-toggle">
+            <label><input type="radio" name="bmp-ct" value="active" checked onchange="window._bmpSetCustomType('active')"> Active site</label>
+            <label><input type="radio" name="bmp-ct" value="ref" onchange="window._bmpSetCustomType('ref')"> Reference</label>
+          </div>
+          <button class="bmp-clear-btn" onclick="window._bmpClearCustom()">Clear All</button>
+        </div>
+      </div>
+      <div class="bmp-center">
+        <div class="bmp-scalp-wrap">
+          <div id="bmp-scalp-map" class="bmp-scalp-map"></div>
+        </div>
+        <div class="bmp-legend">
+          <span class="bmp-legend-dot bmp-active-dot"></span>Active &nbsp;&nbsp;
+          <span class="bmp-legend-dot bmp-ref-dot"></span>Reference
+        </div>
+      </div>
+      <div class="bmp-right">
+        <div class="bmp-summary-panel" id="bmp-summary"></div>
+      </div>
+    </div>`;
+
+  _renderMap();
+  _renderSummary();
+
+  let _customType = 'active';
+  window._bmpSetMode = function(mode) {
+    _mode = mode;
+    _selProto = null;
+    document.querySelectorAll('.bmp-mode-tab').forEach((b,i) => b.classList.toggle('bmp-mode-active', (i===0&&mode==='protocol')||(i===1&&mode==='custom')));
+    const cCtrl = document.getElementById('bmp-custom-ctrl');
+    const pList = document.getElementById('bmp-proto-list');
+    if (cCtrl) cCtrl.style.display = mode === 'custom' ? 'block' : 'none';
+    if (pList) pList.style.display = mode === 'protocol' ? 'flex' : 'none';
+    _renderMap(); _renderSummary();
+  };
+  window._bmpSelectProto = function(id) {
+    _selProto = _BMP_PROTOCOLS.find(p => p.id === id);
+    _mode = 'protocol';
+    document.querySelectorAll('.bmp-proto-item').forEach(el2 => el2.classList.toggle('bmp-proto-sel', el2.querySelector('.bmp-proto-name')?.textContent === (_selProto?.label||_selProto?.name)));
+    _renderMap(); _renderSummary();
+  };
+  window._bmpSetCustomType = function(type) { _customType = type; };
+  window._bmpToggleSite = function(id) {
+    if (_mode !== 'custom') return;
+    if (_customType === 'active') { if (_customActive.has(id)) _customActive.delete(id); else { _customRef.delete(id); _customActive.add(id); } }
+    else { if (_customRef.has(id)) _customRef.delete(id); else { _customActive.delete(id); _customRef.add(id); } }
+    _renderMap(); _renderSummary();
+  };
+  window._bmpClearCustom = function() { _customActive.clear(); _customRef.clear(); _renderMap(); _renderSummary(); };
+  window._bmpExport = function() {
+    const active = _mode === 'protocol' ? (_selProto?.active||[]).join(', ') : [..._customActive].join(', ');
+    const ref    = _mode === 'protocol' ? (_selProto?.ref||[]).join(', ')    : [..._customRef].join(', ');
+    const label  = _mode === 'protocol' ? (_selProto?.label||_selProto?.name||'Protocol') : 'Custom';
+    const text   = `Brain Map Placement Plan\n${label}\nActive sites: ${active||'—'}\nReference: ${ref||'—'}\nExported: ${new Date().toLocaleString()}`;
+    const blob = new Blob([text], { type:'text/plain' });
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'brain-map-plan.txt'; a.click();
+  };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Notes & Dictation
+// ─────────────────────────────────────────────────────────────────────────────
+export async function pgNotesDictation(setTopbar) {
+  setTopbar('Notes & Dictation', '');
+  const el = document.getElementById('content');
+  if (!el) return;
+
+  const _ND_NOTE_TYPES = [
+    { id:'soap',      label:'SOAP Note',           template:`Subjective:\n\nObjective:\n\nAssessment:\n\nPlan:\n` },
+    { id:'session',   label:'Session Note',         template:`Session #:\nDate:\nModality:\nParameters:\n\nTolerance:\n\nClinical observations:\n\nPlan for next session:\n` },
+    { id:'intake',    label:'Intake / Evaluation',  template:`Presenting concern:\n\nRelevant history:\n\nCurrent medications:\n\nMental status:\n\nDiagnosis (provisional):\n\nRecommendation:\n` },
+    { id:'progress',  label:'Progress Note',        template:`Interval since last visit:\n\nSymptom update:\n\nFunctional status:\n\nResponse to treatment:\n\nPlan:\n` },
+    { id:'discharge', label:'Discharge Summary',    template:`Treatment course summary:\n\nResponse to treatment:\n\nFinal diagnosis:\n\nDischarge medications:\n\nFollow-up plan:\n` },
+    { id:'incident',  label:'Adverse Event / Incident', template:`Date/time of event:\n\nDescription:\n\nImmediate action taken:\n\nClinician notified:\n\nOutcome:\n` },
+  ];
+
+  const _ND_CHIPS = [
+    'Patient tolerated well','No adverse effects reported','Mood improved since last visit',
+    'Sleep quality declining','Appetite stable','Fatigue reported','Concentration difficulties',
+    'Headache post-session','Scalp tingling noted','Anxiety elevated','Good session engagement',
+  ];
+
+  let _noteType = _ND_NOTE_TYPES[0];
+  let _noteBody = _noteType.template;
+  let _listening = false;
+  let _recognition = null;
+
+  function _render() {
+    el.innerHTML = `
+      <div class="nd-wrap">
+        <div class="nd-left">
+          <div class="nd-type-row">
+            ${_ND_NOTE_TYPES.map(t => `<button class="nd-type-btn${t.id===_noteType.id?' nd-type-active':''}" onclick="window._ndSetType('${t.id}')">${t.label}</button>`).join('')}
+          </div>
+          <div class="nd-toolbar-row">
+            <button class="nd-voice-btn${_listening?' nd-voice-active':''}" id="nd-voice-btn" onclick="window._ndToggleVoice()">
+              ${_listening ? '⏹ Stop Recording' : '🎙 Start Dictation'}
+            </button>
+            <span class="nd-voice-status" id="nd-voice-status">${_listening ? 'Listening…' : ''}</span>
+          </div>
+          <div class="nd-chips-row">
+            ${_ND_CHIPS.map(c => `<button class="nd-chip" onclick="window._ndInsertChip(this)">${c}</button>`).join('')}
+          </div>
+          <textarea id="nd-body" class="nd-textarea" spellcheck="true" oninput="window._ndBodyChange(this.value)">${_noteBody}</textarea>
+          <div class="nd-action-row">
+            <button class="nd-save-btn" onclick="window._ndSave()">Save Note</button>
+            <button class="nd-clear-btn" onclick="window._ndClear()">Clear</button>
+          </div>
+        </div>
+        <div class="nd-right">
+          <div class="nd-ai-panel">
+            <div class="nd-ai-title">AI Assist</div>
+            <div class="nd-ai-actions">
+              <button class="nd-ai-btn" onclick="window._ndAI('summarize')">Summarize note</button>
+              <button class="nd-ai-btn" onclick="window._ndAI('format')">Format as SOAP</button>
+              <button class="nd-ai-btn" onclick="window._ndAI('suggest')">Suggest follow-up plan</button>
+              <button class="nd-ai-btn" onclick="window._ndAI('icd')">Suggest ICD-10 codes</button>
+            </div>
+            <div id="nd-ai-result" class="nd-ai-result"></div>
+          </div>
+          <div class="nd-saved-panel">
+            <div class="nd-saved-title">Recent Notes</div>
+            <div id="nd-saved-list" class="nd-saved-list">
+              ${(() => {
+                try {
+                  const saved = JSON.parse(localStorage.getItem('ds_nd_notes') || '[]');
+                  if (!saved.length) return '<div class="nd-saved-empty">No saved notes yet.</div>';
+                  return saved.slice(0, 5).map(n => `
+                    <div class="nd-saved-item" onclick="window._ndLoad(${JSON.stringify(JSON.stringify(n))})">
+                      <div class="nd-saved-type">${n.type}</div>
+                      <div class="nd-saved-date">${n.date}</div>
+                      <div class="nd-saved-preview">${n.body.slice(0,80)}…</div>
+                    </div>`).join('');
+                } catch(_) { return ''; }
+              })()}
+            </div>
+          </div>
+        </div>
+      </div>`;
+  }
+
+  _render();
+
+  window._ndSetType = function(id) {
+    _noteType = _ND_NOTE_TYPES.find(t => t.id === id);
+    if (!_noteBody.trim() || confirm('Switch note type? Current text will be replaced with the template.')) {
+      _noteBody = _noteType.template;
+    }
+    _render();
+  };
+
+  window._ndBodyChange = function(val) { _noteBody = val; };
+
+  window._ndInsertChip = function(btn) {
+    const ta = document.getElementById('nd-body');
+    if (!ta) return;
+    const chip = btn.textContent;
+    const pos = ta.selectionEnd || ta.value.length;
+    const before = ta.value.slice(0, pos);
+    const after  = ta.value.slice(pos);
+    const sep = before.length && !before.endsWith('\n') ? ' ' : '';
+    ta.value = before + sep + chip + '. ' + after;
+    _noteBody = ta.value;
+    ta.focus();
+    btn.classList.add('nd-chip-used');
+    setTimeout(() => btn.classList.remove('nd-chip-used'), 1200);
+  };
+
+  window._ndToggleVoice = function() {
+    if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
+      window._showNotifToast?.({ title:'Not Supported', body:'Speech recognition is not available in this browser.', severity:'warning' });
+      return;
+    }
+    if (_listening) {
+      _recognition?.stop();
+      _listening = false;
+      const btn = document.getElementById('nd-voice-btn');
+      const st  = document.getElementById('nd-voice-status');
+      if (btn) btn.textContent = '🎙 Start Dictation';
+      if (btn) btn.classList.remove('nd-voice-active');
+      if (st)  st.textContent = '';
+      return;
+    }
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    _recognition = new SR();
+    _recognition.continuous = true;
+    _recognition.interimResults = true;
+    _recognition.lang = 'en-US';
+    _recognition.onresult = function(e) {
+      let final = '';
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        if (e.results[i].isFinal) final += e.results[i][0].transcript + ' ';
+      }
+      if (final) {
+        const ta = document.getElementById('nd-body');
+        if (ta) { ta.value += final; _noteBody = ta.value; }
+      }
+    };
+    _recognition.onerror = function() {
+      _listening = false;
+      const btn = document.getElementById('nd-voice-btn');
+      if (btn) { btn.textContent = '🎙 Start Dictation'; btn.classList.remove('nd-voice-active'); }
+    };
+    _recognition.onend = function() {
+      if (_listening) _recognition.start(); // keep going until stopped
+    };
+    _recognition.start();
+    _listening = true;
+    const btn = document.getElementById('nd-voice-btn');
+    const st  = document.getElementById('nd-voice-status');
+    if (btn) { btn.textContent = '⏹ Stop Recording'; btn.classList.add('nd-voice-active'); }
+    if (st)  st.textContent = 'Listening…';
+  };
+
+  window._ndAI = async function(action) {
+    const body = (document.getElementById('nd-body')?.value || _noteBody).trim();
+    if (!body) { window._showNotifToast?.({ title:'No Content', body:'Write or dictate a note first.', severity:'warning' }); return; }
+    const resultEl = document.getElementById('nd-ai-result');
+    if (resultEl) resultEl.innerHTML = '<span class="nd-ai-loading">Thinking…</span>';
+    const prompts = {
+      summarize: `Summarize the following clinical note in 2-3 concise sentences:\n\n${body}`,
+      format:    `Reformat the following clinical note into a clean SOAP format:\n\n${body}`,
+      suggest:   `Based on the following clinical note, suggest a clear follow-up plan:\n\n${body}`,
+      icd:       `Based on the following clinical note, suggest the most appropriate ICD-10-CM codes with descriptions:\n\n${body}`,
+    };
+    try {
+      const res = await api.chatPublic(prompts[action] || body);
+      const text = res?.choices?.[0]?.message?.content || res?.response || res?.text || 'No response.';
+      if (resultEl) resultEl.innerHTML = `<div class="nd-ai-output">${text.replace(/\n/g,'<br>')}</div>`;
+    } catch(err) {
+      if (resultEl) resultEl.innerHTML = `<div class="nd-ai-error">AI assist unavailable: ${err.message||err}</div>`;
+    }
+  };
+
+  window._ndSave = function() {
+    const body = document.getElementById('nd-body')?.value || _noteBody;
+    if (!body.trim()) { window._showNotifToast?.({ title:'Empty Note', body:'Nothing to save.', severity:'warning' }); return; }
+    try {
+      const saved = JSON.parse(localStorage.getItem('ds_nd_notes') || '[]');
+      saved.unshift({ type: _noteType.label, body, date: new Date().toLocaleString() });
+      localStorage.setItem('ds_nd_notes', JSON.stringify(saved.slice(0, 30)));
+    } catch(_) {}
+    window._showNotifToast?.({ title:'Note Saved', body:'Note saved to local storage.', severity:'success' });
+    _render();
+  };
+
+  window._ndClear = function() {
+    if (!confirm('Clear current note?')) return;
+    _noteBody = _noteType.template;
+    const ta = document.getElementById('nd-body');
+    if (ta) ta.value = _noteBody;
+  };
+
+  window._ndLoad = function(jsonStr) {
+    try {
+      const n = JSON.parse(jsonStr);
+      _noteBody = n.body;
+      const t = _ND_NOTE_TYPES.find(x => x.label === n.type);
+      if (t) _noteType = t;
+      _render();
+    } catch(_) {}
+  };
+}
+
+
+// ───────────────────────────────────────────────────────────────────────────────
+// ASSESSMENTS HUB — pgAssessmentsHub
+// ───────────────────────────────────────────────────────────────────────────────
