@@ -11764,12 +11764,12 @@ export async function pgPatientQueue(setTopbar) {
   // Seed queue data if missing
   if (!localStorage.getItem('ds_today_queue')) {
     const seed = [
-      { id:'pq001', time:'08:30', patientId:'pt001', patientName:'Alexis Morgan',   condition:'Depression', sessionNum:8,  sessionTotal:20, protocol:'TMS 10Hz L-DLPFC',       status:'done',       alerts:[],                    notes:'Tolerated well, reported mood lift.' },
-      { id:'pq002', time:'09:15', patientId:'pt002', patientName:'Jordan Blake',    condition:'Anxiety',    sessionNum:15, sessionTotal:20, protocol:'Alpha/Beta NFB',          status:'done',       alerts:['homework'],          notes:'Missed home EEG exercises x2.' },
-      { id:'pq003', time:'10:00', patientId:'pt003', patientName:'Sam Rivera',      condition:'PTSD',       sessionNum:3,  sessionTotal:30, protocol:'Alpha/Theta NFB',         status:'in-session', alerts:['wearable'],          notes:'HRV anomaly detected during last session.' },
-      { id:'pq004', time:'11:00', patientId:'pt004', patientName:'Casey Kim',       condition:'ADHD',       sessionNum:12, sessionTotal:20, protocol:'Theta Suppression NFB',   status:'waiting',    alerts:[],                    notes:'' },
-      { id:'pq005', time:'13:30', patientId:'pt005', patientName:'Morgan Ellis',    condition:'Insomnia',   sessionNum:5,  sessionTotal:15, protocol:'SMR Enhancement NFB',     status:'waiting',    alerts:['assessment'],        notes:'PHQ-9 overdue by 9 days.' },
-      { id:'pq006', time:'14:15', patientId:'pt006', patientName:'Taylor Nguyen',   condition:'OCD',        sessionNum:6,  sessionTotal:20, protocol:'Deep TMS H7 Coil',        status:'no-show',    alerts:['deviation'],         notes:'Called \u2014 no answer. Left voicemail.' },
+      { id:'pq001', time:'08:30', patientId:'pt001', courseId:'crs001', patientName:'Alexis Morgan',   condition:'Depression', sessionNum:8,  sessionTotal:20, protocol:'TMS 10Hz L-DLPFC',       status:'done',       alerts:[],                    notes:'Tolerated well, reported mood lift.' },
+      { id:'pq002', time:'09:15', patientId:'pt002', courseId:'crs002', patientName:'Jordan Blake',    condition:'Anxiety',    sessionNum:15, sessionTotal:20, protocol:'Alpha/Beta NFB',          status:'done',       alerts:['homework'],          notes:'Missed home EEG exercises x2.' },
+      { id:'pq003', time:'10:00', patientId:'pt003', courseId:'crs003', patientName:'Sam Rivera',      condition:'PTSD',       sessionNum:3,  sessionTotal:30, protocol:'Alpha/Theta NFB',         status:'in-session', alerts:['wearable'],          notes:'HRV anomaly detected during last session.' },
+      { id:'pq004', time:'11:00', patientId:'pt004', courseId:'crs004', patientName:'Casey Kim',       condition:'ADHD',       sessionNum:12, sessionTotal:20, protocol:'Theta Suppression NFB',   status:'waiting',    alerts:[],                    notes:'' },
+      { id:'pq005', time:'13:30', patientId:'pt005', courseId:'crs005', patientName:'Morgan Ellis',    condition:'Insomnia',   sessionNum:5,  sessionTotal:15, protocol:'SMR Enhancement NFB',     status:'waiting',    alerts:['assessment'],        notes:'PHQ-9 overdue by 9 days.' },
+      { id:'pq006', time:'14:15', patientId:'pt006', courseId:'crs006', patientName:'Taylor Nguyen',   condition:'OCD',        sessionNum:6,  sessionTotal:20, protocol:'Deep TMS H7 Coil',        status:'no-show',    alerts:['deviation'],         notes:'Called \u2014 no answer. Left voicemail.' },
     ];
     _pqSave('ds_today_queue', seed);
   }
@@ -11916,10 +11916,18 @@ export async function pgPatientQueue(setTopbar) {
   window._pqStartSession = function(id) {
     const q = _pqGetQueue(); const p = q.find(x => x.id === id); if (!p) return;
     p.status = 'in-session'; _pqSave('ds_today_queue', q);
+    // Pass patient + course context so session-execution page can pre-populate
+    if (p.patientId) window._selectedPatientId = p.patientId;
+    if (p.courseId)  window._selectedCourseId  = p.courseId;
+    if (p.patientName) window._sessionPatientName = p.patientName;
     window._nav('session-execution');
   };
 
-  window._pqViewChart = function() {
+  window._pqViewChart = function(id) {
+    const q = _pqGetQueue(); const p = id ? q.find(x => x.id === id) : null;
+    // Pass patient context so patient-profile page can load the right patient
+    if (p?.patientId) window._selectedPatientId = p.patientId;
+    if (p?.patientName) window._profilePatientName = p.patientName;
     window._nav('patient-profile');
   };
 
@@ -11962,11 +11970,23 @@ export async function pgPatientQueue(setTopbar) {
   };
 
   window._pqChangeDate = function(dateVal) {
-    window._showNotifToast?.({ title:'Date Changed', body:'Viewing queue for ' + dateVal, severity:'info' });
+    // Update topbar date label and re-render with the selected date shown
+    const heading = document.querySelector('.pq-date-heading');
+    if (heading) {
+      const d = new Date(dateVal + 'T12:00:00');
+      heading.textContent = 'Today\'s Queue \u2014 ' + d.toLocaleDateString('en-US', { weekday:'long', month:'long', day:'numeric', year:'numeric' });
+    }
+    window._showNotifToast?.({ title:'Date Changed', body:'Showing queue for ' + dateVal, severity:'info' });
   };
 
-  window._pqReviewAlert = function() {
-    window._showNotifToast?.({ title:'Review Mode', body:'Opening alert for review \u2014 navigate to patient chart for details', severity:'info' });
+  window._pqReviewAlert = function(alertId) {
+    const alerts = _pqGetAlerts();
+    const al = alertId ? alerts.find(a => a.id === alertId) : null;
+    if (al?.patientId) {
+      window._selectedPatientId = al.patientId;
+      window._profilePatientName = al.patientName;
+    }
+    window._nav('patient-profile');
   };
 
   window._pqDismissAlert = function(alertId) {

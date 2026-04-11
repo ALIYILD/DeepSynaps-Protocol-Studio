@@ -7771,6 +7771,15 @@ window._qocSave = async function(courseId, sessionId) {
   if (saved) {
     window._showNotifToast?.({ title: 'Outcome Saved', body: `${measure} score of ${score} recorded (${point}).`, severity: 'success' });
     document.getElementById('qoc-overlay')?.remove();
+    // Invoke caller-registered refresh callback (e.g. outcomes page)
+    if (typeof window._qocOnSave === 'function') {
+      try { window._qocOnSave({ courseId, sessionId, measure, score, point }); } catch (_) {}
+      window._qocOnSave = null;
+    }
+    // Auto-refresh course completion report if currently displayed
+    if (document.getElementById('ccr-root')) {
+      setTimeout(() => window._ccrRedrawCharts?.(), 300);
+    }
   } else {
     window._showNotifToast?.({ title: 'Save Failed', body: 'Could not save outcome. Please try again.', severity: 'error' });
     if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = 'Save Outcome'; }

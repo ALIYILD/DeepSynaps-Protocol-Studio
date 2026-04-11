@@ -9638,7 +9638,7 @@ export async function pgLongitudinalReport(setTopbar) {
       <option value="Neurofeedback">Neurofeedback</option>
       <option value="tDCS">tDCS</option>
     </select>
-    <select id="lrpt-range" class="form-control" style="width:auto;font-size:13px">
+    <select id="lrpt-range" class="form-control" style="width:auto;font-size:13px" onchange="window._lrptFilt()">
       <option value="6m">Last 6 months</option>
       <option value="12m">Last 12 months</option>
       <option value="all">All time</option>
@@ -9648,12 +9648,15 @@ export async function pgLongitudinalReport(setTopbar) {
   `);
 
   function _lrptFiltered() {
-    const cond = document.getElementById('lrpt-cond') ? document.getElementById('lrpt-cond').value : 'all';
-    const mod  = document.getElementById('lrpt-mod')  ? document.getElementById('lrpt-mod').value  : 'all';
+    const cond  = document.getElementById('lrpt-cond')  ? document.getElementById('lrpt-cond').value  : 'all';
+    const mod   = document.getElementById('lrpt-mod')   ? document.getElementById('lrpt-mod').value   : 'all';
+    const range = document.getElementById('lrpt-range') ? document.getElementById('lrpt-range').value : 'all';
+    // Date-range scaling: reduce n proportionally for demo data
+    const rangeMult = range === '6m' ? 0.5 : range === '12m' ? 0.85 : 1;
     return data.conditionModality.filter(r =>
       (cond === 'all' || r.condition === cond) &&
       (mod  === 'all' || r.modality  === mod)
-    );
+    ).map(r => rangeMult < 1 ? { ...r, n: Math.max(1, Math.round(r.n * rangeMult)) } : r);
   }
 
   function _lrptRRColor(rr) {
