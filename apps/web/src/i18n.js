@@ -441,6 +441,41 @@ export const TRANSLATIONS = {
     // ── Learn / Homework ──────────────────────────────────────────────────────
     'patient.learn.assigned_plan': 'Assigned Plan',
     'patient.learn.assigned': 'Assigned {date}',
+    // ── Course page empty state ───────────────────────────────────────────────
+    'patient.course.empty.title': 'No treatment plan yet',
+    'patient.course.empty.body': 'Your care team will set up your treatment plan here once your course begins. Contact your clinic if you have questions.',
+    'patient.course.empty.cta': 'Contact your clinic \u2192',
+    // ── Secure messages ───────────────────────────────────────────────────────
+    'patient.msg.sending': 'Sending\u2026',
+    'patient.msg.send_reply': 'Send Reply \u2192',
+    'patient.msg.reply_sent': 'Your reply has been sent. Your care team will respond within 1\u20132 business days.',
+    'patient.msg.reply_failed': 'Could not send your reply. Please check your connection and try again.',
+    // ── Media history empty state ─────────────────────────────────────────────
+    'patient.media.no_updates': 'No updates yet.',
+    'patient.media.send_first': 'Send Your First Update \u2192',
+    // ── Profile page ──────────────────────────────────────────────────────────
+    'patient.profile.title': 'My Profile',
+    'patient.profile.full_name': 'Full Name',
+    'patient.profile.email': 'Email',
+    'patient.profile.edit_notice': 'To update your name or email, contact your clinic directly.',
+    'patient.profile.notif_prefs': 'Notification Preferences',
+    'patient.profile.notif.session_rem': 'Session Reminders',
+    'patient.profile.notif.assess_rem': 'Assessment Reminders',
+    'patient.profile.notif.report_notif': 'Report Notifications',
+    'patient.profile.notif.language': 'Language',
+    'patient.profile.notif.val_email_sms': 'Email + SMS',
+    'patient.profile.notif.val_email': 'Email',
+    'patient.profile.update_prefs': 'Update Preferences',
+    'patient.profile.account': 'Account',
+    'patient.profile.change_pw': 'Change Password',
+    'patient.profile.sign_out': 'Sign Out \u21aa',
+    'patient.profile.caregiver_access': 'Caregiver Access',
+    'patient.profile.caregiver_desc': 'Allow a family member or carer to view your treatment progress and sessions on your behalf.',
+    'patient.profile.caregiver_notice': 'Caregiver access is set up by your clinic. Contact your care team to grant or update access permissions.',
+    'patient.profile.caregiver_request': 'Request caregiver access \u2192',
+    // ── Coming soon stub ──────────────────────────────────────────────────────
+    'patient.coming_soon.title': 'Coming Soon',
+    'patient.coming_soon.body': 'This feature is being set up for your account. Check back soon.',
     // ── PHQ-9 Assessment ─────────────────────────────────────────────────────
     'patient.phq9.header': 'PHQ-9 — Over the last 2 weeks, how often have you been bothered by any of the following problems?',
     'patient.phq9.q0': 'Little interest or pleasure in doing things',
@@ -904,6 +939,41 @@ export const TRANSLATIONS = {
     // ── Learn / Homework ──────────────────────────────────────────────────────
     'patient.learn.assigned_plan': 'Atanmış Plan',
     'patient.learn.assigned': '{date} tarihinde atandı',
+    // ── Course page empty state ───────────────────────────────────────────────
+    'patient.course.empty.title': 'Henüz tedavi planı yok',
+    'patient.course.empty.body': 'Bakım ekibiniz kursunuz başladıktan sonra tedavi planınızı buraya ekleyecektir. Sorularınız için kliniğinizle iletişime geçin.',
+    'patient.course.empty.cta': 'Kliniğinizle iletişime geçin \u2192',
+    // ── Secure messages ───────────────────────────────────────────────────────
+    'patient.msg.sending': 'Gönderiliyor\u2026',
+    'patient.msg.send_reply': 'Yanıt Gönder \u2192',
+    'patient.msg.reply_sent': 'Yanıtınız gönderildi. Bakım ekibiniz 1\u20132 iş günü içinde yanıtlayacaktır.',
+    'patient.msg.reply_failed': 'Yanıtınız gönderilemedi. Lütfen bağlantınızı kontrol edip tekrar deneyin.',
+    // ── Media history empty state ─────────────────────────────────────────────
+    'patient.media.no_updates': 'Henüz güncelleme yok.',
+    'patient.media.send_first': 'İlk Güncellemenizi Gönderin \u2192',
+    // ── Profile page ──────────────────────────────────────────────────────────
+    'patient.profile.title': 'Profilim',
+    'patient.profile.full_name': 'Ad Soyad',
+    'patient.profile.email': 'E-posta',
+    'patient.profile.edit_notice': 'Adınızı veya e-postanızı güncellemek için kliniğinizle doğrudan iletişime geçin.',
+    'patient.profile.notif_prefs': 'Bildirim Tercihleri',
+    'patient.profile.notif.session_rem': 'Seans Hatırlatıcıları',
+    'patient.profile.notif.assess_rem': 'Değerlendirme Hatırlatıcıları',
+    'patient.profile.notif.report_notif': 'Rapor Bildirimleri',
+    'patient.profile.notif.language': 'Dil',
+    'patient.profile.notif.val_email_sms': 'E-posta + SMS',
+    'patient.profile.notif.val_email': 'E-posta',
+    'patient.profile.update_prefs': 'Tercihleri Güncelle',
+    'patient.profile.account': 'Hesap',
+    'patient.profile.change_pw': 'Şifre Değiştir',
+    'patient.profile.sign_out': 'Çıkış Yap \u21aa',
+    'patient.profile.caregiver_access': 'Bakıcı Erişimi',
+    'patient.profile.caregiver_desc': 'Bir aile üyesinin veya bakıcının tedavi sürecinizi ve seanslarınızı sizin adınıza görüntülemesine izin verin.',
+    'patient.profile.caregiver_notice': 'Bakıcı erişimi kliniğiniz tarafından ayarlanır. Erişim izni vermek veya güncellemek için bakım ekibinizle iletişime geçin.',
+    'patient.profile.caregiver_request': 'Bakıcı erişimi talep et \u2192',
+    // ── Coming soon stub ──────────────────────────────────────────────────────
+    'patient.coming_soon.title': 'Yakında',
+    'patient.coming_soon.body': 'Bu özellik hesabınız için hazırlanıyor. Yakında tekrar kontrol edin.',
     // ── PHQ-9 Assessment ─────────────────────────────────────────────────────
     'patient.phq9.header': 'PHQ-9 — Son 2 hafta içinde aşağıdaki sorunlardan herhangi biri sizi ne sıklıkla rahatsız etti?',
     'patient.phq9.q0': 'Bir şeyler yapmaya karşı ilgi veya zevk azlığı',

@@ -69,6 +69,7 @@ function spinner() {
 
 // ── Sparkline helper ──────────────────────────────────────────────────────────
 function sparklineSVG(data, color, width = 120, height = 32) {
+  if (!data || data.length < 2) return '';
   const max = Math.max(...data);
   const min = Math.min(...data);
   const range = max - min || 1;
@@ -1183,10 +1184,10 @@ export async function pgPatientCourse() {
     el.innerHTML = `
       <div class="pt-portal-empty">
         <div class="pt-portal-empty-ico" aria-hidden="true">&#9678;</div>
-        <div class="pt-portal-empty-title">No treatment plan yet</div>
-        <div class="pt-portal-empty-body">Your care team will set up your treatment plan here once your course begins. Contact your clinic if you have questions.</div>
+        <div class="pt-portal-empty-title">${t('patient.course.empty.title')}</div>
+        <div class="pt-portal-empty-body">${t('patient.course.empty.body')}</div>
         <button class="btn btn-ghost btn-sm" style="margin-top:14px"
-                onclick="window._navPatient('patient-messages')">Contact your clinic \u2192</button>
+                onclick="window._navPatient('patient-messages')">${t('patient.course.empty.cta')}</button>
       </div>`;
     return;
   }
@@ -2655,7 +2656,7 @@ export async function pgPatientMessages() {
         </div>`;
     }
 
-    const initials = senderName.replace(/&[^;]+;/g, '').split(' ').map(w => w[0] || '').join('').slice(0, 2).toUpperCase() || 'CT';
+    const initials = (senderName || '').replace(/&[^;]+;/g, '').split(' ').map(w => w[0] || '').join('').slice(0, 2).toUpperCase() || 'CT';
     return `
       <div class="pt-msg-bubble-row pt-msg-row-in${urgent ? ' pt-msg-row-urgent' : ''}">
         <div class="pt-msg-avatar pt-msg-avatar-clinic" aria-hidden="true">${initials}</div>
@@ -2936,29 +2937,29 @@ export async function pgPatientMessages() {
     const text = input.value.trim();
     if (!text) { input.focus(); return; }
 
-    if (btn) { btn.disabled = true; btn.textContent = 'Sending\u2026'; }
+    if (btn) { btn.disabled = true; btn.textContent = t('patient.msg.sending'); }
 
     try {
       // Extension point: include thread_id when backend supports threaded replies.
       await api.patientPortalSendMessage({
         thread_id: threadKey,
         body:      text,
-        category:  threads.find(t => t.key === threadKey)?.category || null,
+        category:  threads.find(th => th.key === threadKey)?.category || null,
       });
       input.value = '';
       if (status) {
         status.removeAttribute('hidden');
         status.className = 'pt-msg-send-status pt-msg-send-ok';
-        status.textContent = 'Your reply has been sent. Your care team will respond within 1\u20132 business days.';
+        status.textContent = t('patient.msg.reply_sent');
       }
-      if (btn) { btn.disabled = false; btn.textContent = 'Send Reply \u2192'; }
+      if (btn) { btn.disabled = false; btn.textContent = t('patient.msg.send_reply'); }
     } catch (_e) {
       if (status) {
         status.removeAttribute('hidden');
         status.className = 'pt-msg-send-status pt-msg-send-fail';
-        status.textContent = 'Could not send your reply. Please check your connection and try again.';
+        status.textContent = t('patient.msg.reply_failed');
       }
-      if (btn) { btn.disabled = false; btn.textContent = 'Send Reply \u2192'; }
+      if (btn) { btn.disabled = false; btn.textContent = t('patient.msg.send_reply'); }
     }
   };
 
@@ -4162,8 +4163,8 @@ export async function pgPatientMediaHistory() {
       listEl.innerHTML = `
         <div style="text-align:center;padding:48px;color:var(--text-tertiary)">
           <div style="font-size:24px;margin-bottom:12px;opacity:.4">📋</div>
-          No updates yet.<br>
-          <button class="btn btn-ghost btn-sm" style="margin-top:14px" onclick="window._navPatient('pt-media-upload')">Send Your First Update →</button>
+          ${t('patient.media.no_updates')}<br>
+          <button class="btn btn-ghost btn-sm" style="margin-top:14px" onclick="window._navPatient('pt-media-upload')">${t('patient.media.send_first')}</button>
         </div>`;
       return;
     }
