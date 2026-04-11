@@ -4967,243 +4967,17 @@ export async function pgAssess(setTopbar) {
   window.showAssessModal = () => window._ahTab('run');
   window.runTemplate     = (id) => window._ahScoreEntry(id);
 
-  el.innerHTML = `
-  <div id="assess-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:200;display:none;align-items:center;justify-content:center">
-    <div style="background:var(--navy-850);border:1px solid var(--border);border-radius:var(--radius-xl);padding:24px;width:440px;max-height:80vh;overflow-y:auto">
-      <h3 style="font-family:var(--font-display);margin-bottom:16px">Run Assessment</h3>
-      <div class="form-group"><label class="form-label">Template</label>
-        <select id="assess-template" class="form-control">
-          ${templates.map(t => `<option value="${t.id}">${t.t}</option>`).join('')}
-        </select>
-      </div>
-      <div class="form-group"><label class="form-label">Patient ID (optional)</label>
-        <input id="assess-patient" class="form-control" placeholder="Patient ID or leave blank">
-      </div>
-      <div class="form-group"><label class="form-label">Score / Result</label>
-        <input id="assess-score" class="form-control" type="number" placeholder="e.g. 14">
-      </div>
-      <div class="form-group"><label class="form-label">Notes</label>
-        <textarea id="assess-notes" class="form-control" placeholder="Clinician notes…"></textarea>
-      </div>
-      <div id="assess-error" style="color:var(--red);font-size:12px;display:none;margin-bottom:8px"></div>
-      <div style="display:flex;gap:8px">
-        <button class="btn" onclick="document.getElementById('assess-modal').style.display='none'">Cancel</button>
-        <button class="btn btn-primary" onclick="window.saveAssessment()">Save Assessment</button>
-      </div>
-    </div>
-  </div>
-
-  <div class="tab-bar" style="margin-bottom:20px">
-    <button class="tab-btn active" id="tab-templates" onclick="window.switchAssessTab('templates')">Templates</button>
-    <button class="tab-btn" id="tab-records" onclick="window.switchAssessTab('records')">Records (${items.length})</button>
-  </div>
-
-  <div id="assess-templates-view">
-    <div class="g3">
-      ${templates.map(a => `<div class="card" style="margin-bottom:0">
-        <div class="card-body">
-          <div style="font-family:var(--font-display);font-size:13px;font-weight:600;color:var(--text-primary);margin-bottom:5px">${a.t}</div>
-          <div style="font-size:11.5px;color:var(--text-secondary);margin-bottom:12px;line-height:1.55">${a.sub} · max ${a.max}</div>
-          <div style="margin-bottom:12px">${a.tags.map(t => tag(t)).join('')}</div>
-          <div style="display:flex;gap:6px">
-            ${a.inline ? `<button class="btn btn-primary btn-sm" onclick="window.runInline('${a.id}')">Run Inline ↗</button>` : ''}
-            <button class="btn btn-sm" onclick="window.runTemplate('${a.id}')">Enter Score</button>
-          </div>
-        </div>
-      </div>`).join('')}
-    </div>
-  </div>
-
-  <div id="assess-inline-view" style="display:none;max-width:680px">
-    <div class="card">
-      <div class="card-body">
-        <div style="display:flex;align-items:center;gap:12px;margin-bottom:18px">
-          <button class="btn btn-sm" onclick="window.switchAssessTab('templates')">← Back</button>
-          <div id="inline-title" style="font-family:var(--font-display);font-size:15px;font-weight:600;flex:1"></div>
-          <div id="inline-score-badge" style="font-family:var(--font-mono);font-size:20px;font-weight:700;color:var(--teal);min-width:48px;text-align:right">0</div>
-        </div>
-        <div id="inline-interpret" style="font-size:12px;font-weight:600;margin-bottom:18px;padding:6px 10px;border-radius:var(--radius-sm);background:rgba(var(--teal-rgb,0,200,150),.08);display:inline-block"></div>
-        <div id="inline-questions"></div>
-        <div class="form-group" style="margin-top:16px"><label class="form-label">Patient ID (optional)</label>
-          <input id="inline-patient" class="form-control" placeholder="Patient ID">
-        </div>
-        <div class="form-group"><label class="form-label">Clinician Notes</label>
-          <textarea id="inline-notes" class="form-control" rows="2" placeholder="Optional notes…"></textarea>
-        </div>
-        <div id="inline-error" style="color:var(--red);font-size:12px;display:none;margin-bottom:8px"></div>
-        <button class="btn btn-primary" onclick="window.saveInlineAssess()">Save Assessment →</button>
-      </div>
-    </div>
-  </div>
-
-  <div id="assess-records-view" style="display:none">
-    ${items.length === 0
-      ? emptyState('◧', 'No assessments recorded yet.')
-      : cardWrap('Assessment Records', `<table class="ds-table">
-        <thead><tr><th>Template</th><th>Date</th><th>Score</th><th>Status</th><th>Notes</th></tr></thead>
-        <tbody>${items.map(a => `<tr>
-          <td style="font-weight:500">${a.template_title || a.template_id}</td>
-          <td style="color:var(--text-tertiary)">${a.created_at?.split('T')[0] || '—'}</td>
-          <td class="mono" style="color:var(--teal)">${a.score ?? '—'}</td>
-          <td>${pillSt(a.status)}</td>
-          <td style="font-size:12px;color:var(--text-secondary);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${a.clinician_notes || '—'}</td>
-        </tr>`).join('')}</tbody>
-      </table>`)}
-  </div>`;
-
-  let _inlineTpl = null;
-  let _inlineAnswers = [];
-
-  window.showAssessModal = function() { document.getElementById('assess-modal').style.display = 'flex'; };
-  window.runTemplate = function(id) {
-    document.getElementById('assess-modal').style.display = 'flex';
-    document.getElementById('assess-template').value = id;
-  };
-  window.switchAssessTab = function(tab) {
-    document.getElementById('assess-templates-view').style.display = (tab === 'templates') ? '' : 'none';
-    document.getElementById('assess-inline-view').style.display = (tab === 'inline') ? '' : 'none';
-    document.getElementById('assess-records-view').style.display = (tab === 'records') ? '' : 'none';
-    document.getElementById('tab-templates').classList.toggle('active', tab === 'templates');
-    document.getElementById('tab-records').classList.toggle('active', tab === 'records');
-  };
-  window.runInline = function(id) {
-    _inlineTpl = templates.find(t => t.id === id);
-    if (!_inlineTpl) return;
-    _inlineAnswers = new Array(_inlineTpl.questions.length).fill(0);
-    document.getElementById('inline-title').textContent = _inlineTpl.t;
-    document.getElementById('inline-error').style.display = 'none';
-    document.getElementById('inline-patient').value = '';
-    document.getElementById('inline-notes').value = '';
-    const qEl = document.getElementById('inline-questions');
-    qEl.innerHTML = _inlineTpl.questions.map((q, qi) => `
-      <div style="margin-bottom:14px;padding:12px;background:rgba(0,0,0,0.2);border-radius:var(--radius-md);border:1px solid var(--border)">
-        <div style="font-size:12.5px;color:var(--text-primary);margin-bottom:8px;line-height:1.5">
-          <span style="color:var(--teal);font-weight:600;font-family:var(--font-mono)">${qi + 1}.</span> ${q}
-        </div>
-        <div style="display:flex;flex-wrap:wrap;gap:6px">
-          ${_inlineTpl.options.map((opt, vi) => `
-            <label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:11.5px;padding:4px 8px;border-radius:var(--radius-sm);border:1px solid var(--border);background:rgba(0,0,0,0.15)">
-              <input type="radio" name="q${qi}" value="${vi}" onchange="window._inlineChange(${qi},${vi})" ${vi === 0 ? 'checked' : ''}>
-              ${opt}
-            </label>`).join('')}
-        </div>
-      </div>`).join('');
-    window._updateInlineScore();
-    // switch views
-    document.getElementById('assess-templates-view').style.display = 'none';
-    document.getElementById('assess-inline-view').style.display = '';
-    document.getElementById('assess-records-view').style.display = 'none';
-    document.getElementById('tab-templates').classList.remove('active');
-    document.getElementById('tab-records').classList.remove('active');
-  };
-  window._inlineChange = function(qi, val) {
-    _inlineAnswers[qi] = val;
-    window._updateInlineScore();
-  };
-  window._updateInlineScore = function() {
-    if (!_inlineTpl) return;
-    const total = _inlineAnswers.reduce((a, b) => a + b, 0);
-    document.getElementById('inline-score-badge').textContent = total;
-    const interp = _inlineTpl.interpret(total);
-    const interpEl = document.getElementById('inline-interpret');
-    interpEl.textContent = interp.label;
-    interpEl.style.color = interp.color;
-    interpEl.style.borderLeft = `3px solid ${interp.color}`;
-    interpEl.style.background = `${interp.color}15`;
-  };
-  window.saveInlineAssess = async function() {
-    const errEl = document.getElementById('inline-error');
-    errEl.style.display = 'none';
-    if (!_inlineTpl) return;
-    const total = _inlineAnswers.reduce((a, b) => a + b, 0);
-    const patientId = document.getElementById('inline-patient').value.trim() || null;
-    const notes = document.getElementById('inline-notes').value.trim() || null;
-    const interp = _inlineTpl.interpret(total);
-    const data = {
-      template_id: _inlineTpl.id,
-      template_title: _inlineTpl.t,
-      patient_id: patientId,
-      data: Object.fromEntries(_inlineAnswers.map((v, i) => [`q${i + 1}`, v])),
-      clinician_notes: notes ? `${interp.label} (${total}/${_inlineTpl.max}). ${notes}` : `${interp.label} (${total}/${_inlineTpl.max})`,
-      score: String(total),
-      status: 'completed',
-    };
-    try {
-      const assessment = await api.createAssessment(data);
-      if (patientId) {
-        try {
-          const coursesRes = await api.listCourses({ patient_id: patientId, status: 'active' });
-          const activeCourses = coursesRes?.items || [];
-          if (activeCourses.length > 0) {
-            await api.recordOutcome({
-              patient_id: patientId,
-              course_id: activeCourses[0].id,
-              template_id: _inlineTpl.id,
-              template_title: _inlineTpl.t,
-              score: String(total),
-              score_numeric: total,
-              measurement_point: 'mid',
-              assessment_id: assessment?.id || null,
-            });
-          }
-        } catch (_) { /* best-effort */ }
-      }
-      window._nav('assessments');
-    } catch (e) { errEl.textContent = e.message; errEl.style.display = ''; }
-  };
-  window.saveAssessment = async function() {
-    const errEl = document.getElementById('assess-error');
-    errEl.style.display = 'none';
-    const tid = document.getElementById('assess-template').value;
-    const ttemplate = templates.find(t => t.id === tid);
-    const patientId = document.getElementById('assess-patient').value || null;
-    const scoreRaw = document.getElementById('assess-score').value;
-    const scoreNum = parseFloat(scoreRaw) || null;
-    const data = {
-      template_id: tid,
-      template_title: ttemplate?.t || tid,
-      patient_id: patientId,
-      data: {},
-      clinician_notes: document.getElementById('assess-notes').value || null,
-      score: scoreNum !== null ? String(scoreNum) : null,
-      status: 'completed',
-    };
-    try {
-      const assessment = await api.createAssessment(data);
-      // Auto-link to active course if patient has one
-      if (patientId && scoreNum !== null) {
-        try {
-          const coursesRes = await api.listCourses({ patient_id: patientId, status: 'active' });
-          const activeCourses = coursesRes?.items || [];
-          if (activeCourses.length > 0) {
-            await api.recordOutcome({
-              patient_id: patientId,
-              course_id: activeCourses[0].id,
-              template_id: tid,
-              template_title: ttemplate?.t || tid,
-              score: String(scoreNum),
-              score_numeric: scoreNum,
-              measurement_point: 'mid',
-              assessment_id: assessment?.id || null,
-            });
-          }
-        } catch (_) { /* outcome linkage is best-effort */ }
-      }
-      document.getElementById('assess-modal').style.display = 'none';
-      window._nav('assessments');
-    } catch (e) { errEl.textContent = e.message; errEl.style.display = ''; }
-  };
-
-  // Auto-launch inline assessment if navigated from patient profile
+  // Auto-launch if navigated from patient profile
   if (window._assessPreFillTemplate && window._assessPreFillPatient) {
     const tplId = window._assessPreFillTemplate;
-    const patId = window._assessPreFillPatient;
+    const patId  = window._assessPreFillPatient;
     window._assessPreFillTemplate = null;
-    window._assessPreFillPatient = null;
+    window._assessPreFillPatient  = null;
     setTimeout(() => {
-      window.runInline && window.runInline(tplId);
-      const patientInput = document.getElementById('inline-patient');
-      if (patientInput) patientInput.value = patId;
+      window._ahTab("run");
+      const pi = document.getElementById("ah-run-patient");
+      if (pi) pi.value = patId;
+      window._ahRunScale && window._ahRunScale(tplId);
     }, 50);
   }
 }
@@ -12745,6 +12519,407 @@ export async function pgPatientQueue(setTopbar) {
     const alerts = _pqGetAlerts(); const al = alerts.find(a => a.id === alertId); if (!al) return;
     al.status = 'dismissed'; _pqSave('ds_pq_adherence_alerts', alerts); _pqRender();
     window._showNotifToast?.({ title:'Alert Dismissed', body:'Protocol alert has been dismissed', severity:'info' });
+  };
+}
+
+// ── pgAssessmentsHub — Assessment library & scheduling ────────────────────────
+
+export async function pgAssessmentsHub(setTopbar) {
+  setTopbar('Assessments', `
+    <button class="btn btn-sm" onclick="window._nav('assessments')">Legacy View</button>
+  `);
+  const el = document.getElementById('content');
+  if (!el) return;
+
+  const CATS = ['All', 'Mood', 'Anxiety', 'PTSD', 'Cognition', 'Sleep', 'Substance', 'QoL', 'Side Effects'];
+
+  const BUNDLES = [
+    { id:'phq9',   name:'PHQ-9',       cat:'Mood',     items:9,  mins:3,  ev:'A', timing:['pre','weekly','post'], desc:'Gold-standard depression severity screen. Mandatory for MDD, TRD, BD-Depression, Postpartum.' },
+    { id:'madrs',  name:'MADRS',       cat:'Mood',     items:10, mins:15, ev:'A', timing:['pre','milestone','post'], desc:'Clinician-rated depression scale. Preferred for TMS/tDCS MDD protocols.' },
+    { id:'hamd',   name:'HAM-D 17',    cat:'Mood',     items:17, mins:20, ev:'A', timing:['pre','weekly','post'], desc:'Hamilton Depression Rating. Widely used in RCTs.' },
+    { id:'gad7',   name:'GAD-7',       cat:'Anxiety',  items:7,  mins:2,  ev:'A', timing:['pre','weekly','post'], desc:'Generalised anxiety disorder 7-item scale.' },
+    { id:'pcl5',   name:'PCL-5',       cat:'PTSD',     items:20, mins:5,  ev:'A', timing:['pre','weekly','post'], desc:'PTSD Checklist DSM-5 version. Required for PTSD protocols.' },
+    { id:'ybocs',  name:'Y-BOCS',      cat:'Anxiety',  items:10, mins:20, ev:'A', timing:['pre','weekly'], desc:'Yale-Brown OCD Scale. Clinician-rated, required for OCD.' },
+    { id:'dass21', name:'DASS-21',     cat:'Mood',     items:21, mins:5,  ev:'A', timing:['pre','weekly','post'], desc:'Depression, Anxiety and Stress 21-item scale.' },
+    { id:'isi',    name:'ISI',         cat:'Sleep',    items:7,  mins:2,  ev:'A', timing:['pre','weekly','post'], desc:'Insomnia Severity Index. Self-report, 7-item.' },
+    { id:'moca',   name:'MoCA',        cat:'Cognition',items:30, mins:10, ev:'A', timing:['pre','milestone'], desc:'Montreal Cognitive Assessment. Baseline cognitive screen.' },
+    { id:'audit',  name:'AUDIT',       cat:'Substance',items:10, mins:5,  ev:'A', timing:['pre','milestone'], desc:'Alcohol Use Disorders Identification Test.' },
+    { id:'bprs',   name:'BPRS',        cat:'Mood',     items:18, mins:20, ev:'B', timing:['pre','weekly'], desc:'Brief Psychiatric Rating Scale. For psychotic features.' },
+    { id:'cgi',    name:'CGI-S / CGI-I',cat:'QoL',   items:2,  mins:2,  ev:'A', timing:['pre','weekly','post'], desc:'Clinical Global Impression — severity and improvement.' },
+    { id:'eq5d',   name:'EQ-5D',       cat:'QoL',     items:5,  mins:2,  ev:'A', timing:['pre','post'], desc:'Generic health-related quality of life. Pre/post course.' },
+    { id:'ses',    name:'Side Effects', cat:'Side Effects', items:12, mins:3, ev:'B', timing:['weekly'], desc:'Neuromodulation-specific side-effect checklist. Headache, skin sensation, mood.' },
+  ];
+
+  const evColor = { A: '#2dd4bf', B: '#60a5fa', C: '#fbbf24', D: '#94a3b8' };
+
+  function renderBundle(b, cat) {
+    if (cat !== 'All' && b.cat !== cat) return '';
+    const ec = evColor[b.ev] || '#94a3b8';
+    return `<div class="card" style="padding:0;cursor:default">
+      <div style="padding:12px 16px">
+        <div style="display:flex;gap:8px;align-items:flex-start;justify-content:space-between;margin-bottom:4px">
+          <div>
+            <span style="font-size:13px;font-weight:600;color:var(--text-primary)">${b.name}</span>
+            <span style="font-size:10px;font-weight:700;padding:1px 6px;border-radius:3px;background:${ec}22;color:${ec};border:1px solid ${ec}33;margin-left:6px">EV-${b.ev}</span>
+          </div>
+          <span style="font-size:10.5px;color:var(--text-tertiary);white-space:nowrap">${b.items} items · ${b.mins} min</span>
+        </div>
+        <div style="font-size:11.5px;color:var(--text-secondary);line-height:1.5;margin-bottom:8px">${b.desc}</div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px">
+          ${b.timing.map(t => {
+            const tl = { pre:'Pre-treatment', weekly:'Weekly', post:'Post-treatment', milestone:'At milestone', prn:'PRN' };
+            return `<span style="font-size:10px;padding:2px 7px;border-radius:10px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);color:var(--text-tertiary)">${tl[t] || t}</span>`;
+          }).join('')}
+        </div>
+        <div style="display:flex;gap:6px">
+          <button class="btn btn-primary btn-sm" onclick="window._ahSchedule('${b.id}','${b.name}')">Schedule →</button>
+          <button class="btn btn-sm" onclick="window._ahAdminister('${b.id}','${b.name}')">Administer Now</button>
+        </div>
+      </div>
+    </div>`;
+  }
+
+  let activeCat = 'All';
+
+  function renderPage(cat) {
+    el.innerHTML = `
+      <div style="max-width:960px;margin:0 auto">
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">
+          ${CATS.map(c => `<button class="btn btn-sm${c === cat ? ' btn-primary' : ''}" onclick="window._ahCat('${c}')">${c}</button>`).join('')}
+        </div>
+        <div class="g3" style="align-items:start">
+          ${BUNDLES.map(b => renderBundle(b, cat)).join('')}
+        </div>
+      </div>`;
+
+    window._ahCat = function(c) { activeCat = c; renderPage(activeCat); };
+
+    window._ahSchedule = function(id, name) {
+      window._showNotifToast?.({ title: 'Scheduled', body: `${name} added to assessment schedule.`, severity: 'info' });
+    };
+
+    window._ahAdminister = function(id, name) {
+      window._nav('assessments');
+    };
+  }
+
+  renderPage(activeCat);
+}
+
+// ── pgBrainMapPlanner — Interactive 10-20 stimulation map ─────────────────────
+
+export async function pgBrainMapPlanner(setTopbar) {
+  setTopbar('Brain Map Planner', `
+    <button class="btn btn-sm" onclick="window._nav('protocols')" style="border-color:var(--teal);color:var(--teal)">Protocol Library →</button>
+  `);
+  const el = document.getElementById('content');
+  if (!el) return;
+
+  // Load registry data for dropdowns
+  let conds = [], mods = [], protos = [];
+  try {
+    const [cd, md, pd] = await Promise.all([
+      api.conditions().catch(() => null),
+      api.modalities().catch(() => null),
+      api.protocols().catch(() => null),
+    ]);
+    conds  = cd?.items  || [];
+    mods   = md?.items  || [];
+    protos = pd?.items  || [];
+  } catch (_) {}
+
+  const TARGET_REGIONS = [
+    'DLPFC','M1','SMA','VMPFC','PFC','Cerebellum','Parietal','Occipital','Temporal','Insula',
+    'Primary Somatosensory',
+  ];
+  const LATERALITIES = ['left','right','bilateral'];
+
+  el.innerHTML = `
+    <div style="max-width:1000px;margin:0 auto">
+      <div class="g2" style="gap:24px;align-items:start">
+        <!-- Controls -->
+        <div>
+          <div class="card" style="margin-bottom:14px">
+            <div class="card-header"><h3>Stimulation Target</h3></div>
+            <div class="card-body">
+              <div class="form-group">
+                <label class="form-label">Modality</label>
+                <select id="bmp-mod" class="form-control" onchange="window._bmpRender()">
+                  <option value="">Select modality</option>
+                  ${mods.map(m => `<option value="${m.id||m.name||m.Modality_Name}">${m.name||m.Modality_Name||m.id}</option>`).join('')}
+                  ${!mods.length ? ['TMS / rTMS','tDCS','tACS','Neurofeedback','HEG','LENS'].map(m => `<option value="${m}">${m}</option>`).join('') : ''}
+                </select>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Target Region</label>
+                <select id="bmp-region" class="form-control" onchange="window._bmpRender()">
+                  <option value="">Select region</option>
+                  ${TARGET_REGIONS.map(r => `<option value="${r}">${r}</option>`).join('')}
+                </select>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Laterality</label>
+                <select id="bmp-lat" class="form-control" onchange="window._bmpRender()">
+                  ${LATERALITIES.map(l => `<option value="${l}">${l.charAt(0).toUpperCase() + l.slice(1)}</option>`).join('')}
+                </select>
+              </div>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-header"><h3>Match to Registry Protocol</h3></div>
+            <div class="card-body">
+              <div id="bmp-matched" style="font-size:12px;color:var(--text-tertiary)">Select a region to see matching protocols.</div>
+            </div>
+          </div>
+        </div>
+        <!-- Map display -->
+        <div>
+          <div class="card" style="text-align:center">
+            <div class="card-header"><h3>10-20 Stimulation Map</h3></div>
+            <div class="card-body" style="display:flex;flex-direction:column;align-items:center;gap:12px">
+              <div id="bmp-map-container" style="padding:12px">
+                <div style="font-size:12px;color:var(--text-tertiary)">Select modality + region to see map.</div>
+              </div>
+              <div id="bmp-legend" style="display:none;font-size:11px;color:var(--text-tertiary);line-height:1.7;text-align:left;max-width:280px"></div>
+            </div>
+          </div>
+          <div style="margin-top:12px;text-align:center">
+            <button class="btn btn-primary" onclick="window._bmpUseInWizard()">Use in Protocol Wizard →</button>
+          </div>
+        </div>
+      </div>
+    </div>`;
+
+  window._bmpRender = function() {
+    const mod    = document.getElementById('bmp-mod')?.value    || '';
+    const region = document.getElementById('bmp-region')?.value || '';
+    const lat    = document.getElementById('bmp-lat')?.value    || 'bilateral';
+
+    const mapCont = document.getElementById('bmp-map-container');
+    const legend  = document.getElementById('bmp-legend');
+    const matched = document.getElementById('bmp-matched');
+
+    if (!mod && !region) {
+      if (mapCont) mapCont.innerHTML = `<div style="font-size:12px;color:var(--text-tertiary)">Select modality + region to see map.</div>`;
+      if (legend) legend.style.display = 'none';
+      return;
+    }
+
+    // Render map (large version for the planner)
+    if (mapCont) {
+      const mapHtml = _stimMapSVG(region, lat, mod);
+      // Make it larger by replacing the fixed width/height in the output
+      mapCont.innerHTML = mapHtml.replace('width="148" height="148"', 'width="220" height="220"').replace('viewBox="0 0 148 148"', 'viewBox="0 0 148 148"');
+    }
+
+    if (legend) {
+      legend.style.display = '';
+      const modL = mod.toLowerCase();
+      const isNFB = modL.includes('nfb') || modL.includes('neurofeedback');
+      const isTDCS = modL.includes('tdcs') || modL.includes('tacs');
+      const isTMS  = modL.includes('tms');
+      legend.innerHTML = [
+        region  ? `<strong>Target:</strong> ${region}` : null,
+        lat !== 'bilateral' ? `<strong>Laterality:</strong> ${lat}` : null,
+        isNFB  ? '<strong>Protocol type:</strong> Neurofeedback — active electrode(s) shown' : null,
+        isTDCS ? '<strong>Protocol type:</strong> Transcranial electrical — anode site shown. Cathode placement varies by protocol.' : null,
+        isTMS  ? '<strong>Protocol type:</strong> Transcranial magnetic — coil center position shown' : null,
+      ].filter(Boolean).map(l => `<div>${l}</div>`).join('');
+    }
+
+    // Find matching registry protocols
+    if (matched) {
+      const hits = protos.filter(p => {
+        const r = (p.target_region || '').toLowerCase();
+        const m = (p.modality_id  || '').toLowerCase();
+        return (!region || r.includes(region.toLowerCase().slice(0,4)))
+          && (!mod || m.includes(mod.toLowerCase().slice(0,4)));
+      }).slice(0, 4);
+
+      matched.innerHTML = hits.length
+        ? hits.map(p => `<div style="padding:6px 0;border-bottom:1px solid var(--border);font-size:12px">
+            <div style="font-weight:500;color:var(--text-primary)">${p.name || '—'}</div>
+            <div style="color:var(--text-tertiary);font-size:11px">${p.condition_id || ''} · ${p.evidence_grade || ''}</div>
+          </div>`).join('')
+        : `<div style="color:var(--text-tertiary);font-size:11.5px">No registry protocols match current selection.</div>`;
+    }
+  };
+
+  window._bmpUseInWizard = function() {
+    const region = document.getElementById('bmp-region')?.value || '';
+    const lat    = document.getElementById('bmp-lat')?.value    || 'bilateral';
+    const mod    = document.getElementById('bmp-mod')?.value    || '';
+    if (window._wizState) {
+      window._wizState.targetRegion = region;
+      window._wizState.laterality   = lat;
+      if (mod && !(window._wizState.modalitySlugs||[]).includes(mod)) {
+        window._wizState.modalitySlugs = [mod];
+      }
+      window._wizState._fresh = false;
+    }
+    window._pilMode = 'wizard';
+    window._nav('protocols');
+  };
+}
+
+// ── pgNotesDictation — Protocol & session notes with dictation ────────────────
+
+export async function pgNotesDictation(setTopbar) {
+  setTopbar('Notes & Dictation', `
+    <button class="btn btn-sm" onclick="window._nav('courses')">Treatment Courses</button>
+  `);
+  const el = document.getElementById('content');
+  if (!el) return;
+
+  const NOTE_TYPES = [
+    { id:'pre_session',  label:'Pre-session',    color:'var(--blue)' },
+    { id:'post_session', label:'Post-session',   color:'var(--teal)' },
+    { id:'observation',  label:'Observation',    color:'var(--text-secondary)' },
+    { id:'adverse',      label:'Adverse Event',  color:'var(--amber)' },
+    { id:'progress',     label:'Progress Note',  color:'var(--green,#22c55e)' },
+  ];
+  const SEVERITIES = ['none','mild','moderate','severe'];
+  const NOTES_KEY = 'ds_protocol_notes';
+  const esc = s => String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+
+  function loadNotes() {
+    try { return JSON.parse(localStorage.getItem(NOTES_KEY) || '[]'); } catch { return []; }
+  }
+  function saveNotes(notes) { localStorage.setItem(NOTES_KEY, JSON.stringify(notes)); }
+
+  function renderNotes(notes) {
+    const listEl = document.getElementById('nd-notes-list');
+    if (!listEl) return;
+    if (!notes.length) {
+      listEl.innerHTML = `<div style="padding:20px;text-align:center;color:var(--text-tertiary);font-size:12px">No notes yet. Use the form above to add your first note.</div>`;
+      return;
+    }
+    listEl.innerHTML = notes.slice().reverse().map((n, i) => {
+      const nt = NOTE_TYPES.find(t => t.id === n.type) || NOTE_TYPES[0];
+      const sevColor = n.severity === 'severe' ? 'var(--red)' : n.severity === 'moderate' ? 'var(--amber)' : 'var(--text-tertiary)';
+      return `<div style="border:1px solid var(--border);border-radius:var(--radius-md);padding:12px 14px;margin-bottom:8px;background:var(--bg-card)">
+        <div style="display:flex;gap:8px;align-items:center;margin-bottom:6px;flex-wrap:wrap">
+          <span style="font-size:10px;font-weight:700;padding:2px 7px;border-radius:4px;background:${nt.color}18;color:${nt.color};border:1px solid ${nt.color}30">${nt.label}</span>
+          ${n.severity && n.severity !== 'none' ? `<span style="font-size:10px;color:${sevColor};font-weight:600">${n.severity.toUpperCase()}</span>` : ''}
+          ${n.followUp ? `<span style="font-size:10px;color:var(--amber);font-weight:600">⚑ Follow-up</span>` : ''}
+          <span style="font-size:10.5px;color:var(--text-tertiary);margin-left:auto">${new Date(n.createdAt).toLocaleString()}</span>
+        </div>
+        <div style="font-size:12.5px;color:var(--text-primary);line-height:1.6;white-space:pre-wrap">${esc(n.body)}</div>
+        <div style="margin-top:8px">
+          <button class="btn btn-ghost btn-sm" style="font-size:10px;color:var(--red)" onclick="window._ndDelete(${n.id})">Delete</button>
+        </div>
+      </div>`;
+    }).join('');
+  }
+
+  const hasSpeechAPI = 'SpeechRecognition' in window || 'webkitSpeechRecognition' in window;
+
+  el.innerHTML = `
+    <div style="max-width:800px;margin:0 auto">
+      <!-- Add note form -->
+      <div class="card" style="margin-bottom:16px">
+        <div class="card-header">
+          <h3>New Note</h3>
+          ${hasSpeechAPI ? `<button id="nd-dictate-btn" class="btn btn-sm" onclick="window._ndStartDictation()" style="border-color:var(--violet);color:var(--violet)">🎙 Dictate</button>` : ''}
+        </div>
+        <div class="card-body">
+          <div class="g2" style="margin-bottom:12px">
+            <div class="form-group">
+              <label class="form-label">Note Type</label>
+              <select id="nd-type" class="form-control">
+                ${NOTE_TYPES.map(t => `<option value="${t.id}">${t.label}</option>`).join('')}
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Severity</label>
+              <select id="nd-severity" class="form-control">
+                ${SEVERITIES.map(s => `<option value="${s}">${s.charAt(0).toUpperCase() + s.slice(1)}</option>`).join('')}
+              </select>
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Note</label>
+            <textarea id="nd-body" class="form-control" rows="4" placeholder="Enter clinical observation, session note, or adverse event description…"></textarea>
+          </div>
+          <div style="display:flex;gap:10px;align-items:center;margin-top:4px">
+            <label style="display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--text-secondary);cursor:pointer">
+              <input type="checkbox" id="nd-followup"> Flag for follow-up
+            </label>
+            <button class="btn btn-primary" onclick="window._ndSave()" style="margin-left:auto">Save Note</button>
+          </div>
+        </div>
+      </div>
+      <!-- Notes list -->
+      <div class="card">
+        <div class="card-header"><h3>Saved Notes</h3></div>
+        <div class="card-body">
+          <div id="nd-notes-list"></div>
+        </div>
+      </div>
+    </div>`;
+
+  let notes = loadNotes();
+  renderNotes(notes);
+
+  window._ndSave = function() {
+    const body = document.getElementById('nd-body')?.value?.trim() || '';
+    if (!body) { window._showNotifToast?.({ title:'Empty Note', body:'Please enter note content.', severity:'warning' }); return; }
+    notes.push({
+      id: Date.now(),
+      type:      document.getElementById('nd-type')?.value     || 'observation',
+      severity:  document.getElementById('nd-severity')?.value || 'none',
+      followUp:  document.getElementById('nd-followup')?.checked || false,
+      body,
+      createdAt: new Date().toISOString(),
+    });
+    saveNotes(notes);
+    const ta = document.getElementById('nd-body');
+    if (ta) ta.value = '';
+    renderNotes(notes);
+    window._showNotifToast?.({ title:'Note Saved', body:'Clinical note recorded.', severity:'info' });
+  };
+
+  window._ndDelete = function(id) {
+    if (!confirm('Delete this note?')) return;
+    notes = notes.filter(n => n.id !== id);
+    saveNotes(notes);
+    renderNotes(notes);
+  };
+
+  // Web Speech API dictation
+  window._ndStartDictation = function() {
+    const Rec = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!Rec) return;
+    const rec = new Rec();
+    rec.continuous    = true;
+    rec.interimResults = true;
+    rec.lang = 'en-US';
+    const btn = document.getElementById('nd-dictate-btn');
+    const ta  = document.getElementById('nd-body');
+    let interim = '';
+    let saved   = ta?.value || '';
+
+    rec.onstart = function() { if (btn) { btn.textContent = '⏹ Stop'; btn.style.borderColor = 'var(--red)'; btn.style.color = 'var(--red)'; } };
+    rec.onresult = function(e) {
+      interim = '';
+      let finalText = '';
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        const t = e.results[i][0].transcript;
+        if (e.results[i].isFinal) finalText += t + ' ';
+        else interim += t;
+      }
+      saved += finalText;
+      if (ta) ta.value = saved + interim;
+    };
+    rec.onerror = function() { rec.stop(); };
+    rec.onend   = function() {
+      if (btn) { btn.textContent = '🎙 Dictate'; btn.style.borderColor = 'var(--violet)'; btn.style.color = 'var(--violet)'; }
+      if (ta) ta.value = saved;
+      btn.onclick = () => window._ndStartDictation();
+    };
+
+    rec.start();
+    if (btn) btn.onclick = () => { rec.stop(); };
   };
 }
 
