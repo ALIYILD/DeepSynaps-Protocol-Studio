@@ -1894,13 +1894,13 @@ export async function pgSessionExecution(setTopbar, navigate) {
         post_session_notes: document.getElementById('se-notes')?.value || null,
       };
 
-      let session;
       if (!navigator.onLine) {
-        window._addToOfflineQueue?.({ type: 'session_log', courseId, data: sessionData });
-        session = { offline: true, queued: true };
-      } else {
-        session = await api.logSession(courseId, sessionData);
+        if (errEl) { errEl.textContent = 'No internet connection. Session logs require an active connection. Please reconnect and try again.'; errEl.style.display = ''; }
+        if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = 'Submit Session Log'; }
+        return;
       }
+      let session;
+      session = await api.logSession(courseId, sessionData);
 
       // Determine course info for post-session panel
       const course = (window._seActiveCourses || []).find(c => c.id === courseId) || {};
@@ -2582,7 +2582,10 @@ export async function pgReviewQueue(setTopbar, navigate) {
       // Map 'request_changes' to 'comment' (backend only accepts: approve, reject, escalate, comment)
       const backendAction = decision === 'request_changes' ? 'comment' : decision;
       await api.submitReview({ review_item_id: itemId, course_id: courseId, action: backendAction, notes: noteValue });
-      if (decision === 'approve') await api.activateCourse(courseId).catch(() => {});
+      if (decision === 'approve') {
+        try { await api.activateCourse(courseId); }
+        catch(ae) { console.warn('Course activation failed after approval:', ae); window._rqToast?.('Approved, but activation failed — please activate manually.', 'warn'); }
+      }
       window._rqToast(
         decision === 'approve'         ? 'Course approved and activated.' :
         decision === 'reject'          ? 'Course rejected.' :

@@ -483,6 +483,14 @@ export async function pgPatientDashboard(user) {
 
   // Inline check-in submission from dashboard
   window._dashSubmitCheckin = async function() {
+    // Prevent double-submission on same day
+    const _todayKey = new Date().toISOString().slice(0, 10);
+    if (localStorage.getItem('ds_last_checkin') === _todayKey) {
+      const card = document.getElementById('pt-dash-checkin-card');
+      if (card) card.innerHTML = `<div class="card-body" style="padding:13px 16px;color:var(--text-secondary);font-size:13px">✓ You have already checked in today.</div>`;
+      return;
+    }
+
     const moodEl   = document.getElementById('dc-mood');
     const sleepEl  = document.getElementById('dc-sleep');
     const energyEl = document.getElementById('dc-energy');
@@ -1606,19 +1614,24 @@ function renderPHQ9Form(containerId, patientId) {
     const severity = phq9Severity(score);
     const pct      = Math.round((score / 27) * 100);
 
-    // Submit to API — non-fatal
-    try {
-      if (patientId) {
-        await api.submitAssessment(patientId, {
-          template_id:       'PHQ-9',
-          score,
-          measurement_point: 'post',
-          notes:             '',
-        });
-      }
-    } catch (_e) { /* non-fatal */ }
-
+    // Submit to API
     const resultEl = document.getElementById('phq9-result');
+    if (!patientId) {
+      if (resultEl) { resultEl.style.display = ''; resultEl.innerHTML = '<div class="notice notice-error" style="margin-top:12px">Unable to identify patient. Please refresh and try again.</div>'; }
+      return;
+    }
+    try {
+      await api.submitAssessment(patientId, {
+        template_id:       'PHQ-9',
+        score,
+        measurement_point: 'post',
+        notes:             '',
+      });
+    } catch (_e) {
+      if (resultEl) { resultEl.style.display = ''; resultEl.innerHTML = `<div class="notice notice-error" style="margin-top:12px">Submission failed: ${_e?.message || 'Please try again.'}</div>`; }
+      return;
+    }
+
     if (!resultEl) return;
     resultEl.style.display = '';
     resultEl.innerHTML = `
@@ -1933,7 +1946,7 @@ export async function pgPatientAssessments() {
           <span class="pt-assess-score-label">Your result</span>
           ${ctx
             ? `<span class="pt-assess-score-band ${esc(ctx.label.toLowerCase().replace(/\s+/g,'-'))}">${esc(ctx.label)}</span>`
-            : `<span class="pt-assess-score-num">${esc(String(item.score))}</span>`}
+            : `<span class="pt-assess-score-num">${(item.score != null && !isNaN(Number(item.score))) ? esc(String(item.score)) : '—'}</span>`}
         </div>
         ${ctx ? `<div class="pt-assess-score-note">${esc(ctx.note)}</div>` : ''}`;
     }
@@ -2370,7 +2383,7 @@ export async function pgPatientReports() {
     const interpBand = doc.scoreInterp;
     const scoreHTML = doc.score != null
       ? `<div class="pt-doc-score">
-           <span class="pt-doc-score-num">${esc(String(doc.score))}</span>
+           <span class="pt-doc-score-num">${(doc.score != null && !isNaN(Number(doc.score))) ? esc(String(doc.score)) : '—'}</span>
            ${interpBand ? `<span class="pt-doc-score-band ${esc(interpBand.label.toLowerCase().replace(/\s+/g,'-'))}">${esc(interpBand.label)}</span>` : ''}
          </div>`
       : '';
@@ -2736,7 +2749,7 @@ export async function pgPatientMessages() {
           </div>
           <span class="pt-msg-thread-date">${esc(date)}</span>
         </div>
-        <div class="pt-msg-thread-subject">${th.subject}</div>
+        <div class="pt-msg-thread-subject">${esc(th.subject || '')}</div>
         <div class="pt-msg-thread-preview">${preview || '<em>No content</em>'}${th.messages.length > 1 ? ` <span class="pt-msg-reply-count">${th.messages.length} messages</span>` : ''}</div>
         <div class="pt-msg-thread-chips">${catBadge}${courseChip}</div>
       </div>`;
@@ -2770,7 +2783,7 @@ export async function pgPatientMessages() {
           \u2190 Back to messages
         </button>
         <div class="pt-msg-detail-header">
-          <div class="pt-msg-detail-subject">${th.subject}</div>
+          <div class="pt-msg-detail-subject">${esc(th.subject || '')}</div>
           ${th.category ? `<span class="pt-msg-cat-badge pt-msg-cat-badge-lg">${esc(cm.icon)} ${esc(cm.label)}</span>` : ''}
         </div>
         ${urgentBanner}

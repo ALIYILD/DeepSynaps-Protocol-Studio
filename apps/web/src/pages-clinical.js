@@ -762,7 +762,7 @@ export async function pgDash(setTopbar, navigate) {
           <span style="color:var(--red);font-size:12px;flex-shrink:0;margin-top:1px">&#9888;</span>
           <div style="flex:1;min-width:0">
             <div style="font-size:12px;font-weight:500">${c._patientName ? `<span style="color:var(--text-secondary)">${c._patientName} · </span>` : ''}${c.condition_slug?.replace(/-/g, ' ') || '—'}</div>
-            <div style="font-size:10.5px;color:var(--red);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${(c.governance_warnings || []).join(' · ')}</div>
+            <div style="font-size:10.5px;color:var(--red);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${(c.governance_warnings || []).map(w => String(w).replace(/[<>&"]/g, '')).join(' · ')}</div>
           </div>
           <span style="font-size:10px;color:var(--text-tertiary)">→</span>
         </div>`
@@ -2210,7 +2210,7 @@ function renderProfileTab(pt, sessions, courses = []) {
                     <div style="height:3px;border-radius:2px;background:${sc};width:${pct}%"></div>
                   </div>
                 </div>
-                ${(c.governance_warnings || []).map(w => `<div style="font-size:11px;color:var(--amber);margin-bottom:3px">⚠ ${w}</div>`).join('')}
+                ${(c.governance_warnings || []).map(w => `<div style="font-size:11px;color:var(--amber);margin-bottom:3px">⚠ ${String(w).replace(/[<>&"]/g, '')}</div>`).join('')}
                 <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:4px">${actionBtns.join('')}</div>
               </div>`;
             }).join('')}

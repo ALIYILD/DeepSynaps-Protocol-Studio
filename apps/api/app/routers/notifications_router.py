@@ -7,7 +7,6 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, Request, Header, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-from ..services import auth_service
 from ..auth import get_authenticated_actor, AuthenticatedActor
 
 logger = logging.getLogger(__name__)
@@ -147,25 +146,13 @@ async def get_page_presence(
 
 @router.post("/api/v1/notifications/test")
 async def send_test_notification(
-    token: str | None = Query(default=None),
-    authorization: str | None = Header(default=None),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
 ):
-    """Dev endpoint to push a test notification to yourself."""
-    raw_token = token
-    if not raw_token and authorization and authorization.lower().startswith("bearer "):
-        raw_token = authorization[7:].strip()
-
-    user_id = None
-    if raw_token:
-        payload = auth_service.decode_token(raw_token)
-        if payload:
-            user_id = payload.get("sub")
-
-    if user_id:
-        await broadcast_to_user(user_id, "ae_alert", {
-            "title": "Adverse Event Reported",
-            "body": "A new serious adverse event has been reported and requires immediate review.",
-            "severity": "serious",
-            "link": "adverse-events",
-        })
+    """Push a test notification to the authenticated user. Requires a valid session."""
+    await broadcast_to_user(actor.actor_id, "ae_alert", {
+        "title": "Adverse Event Reported",
+        "body": "A new serious adverse event has been reported and requires immediate review.",
+        "severity": "serious",
+        "link": "adverse-events",
+    })
     return {"ok": True}
