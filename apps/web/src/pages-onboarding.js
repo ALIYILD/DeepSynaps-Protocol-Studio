@@ -593,20 +593,20 @@ function _wizStep1() {
         </p>
       </div>
       <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:36px">
-        <div style="background:rgba(0,212,188,0.06);border:1px solid rgba(0,212,188,0.2);border-radius:12px;padding:16px;text-align:center">
-          <div style="font-size:24px;margin-bottom:8px">📋</div>
-          <div style="font-size:12.5px;font-weight:600;color:var(--text-primary);margin-bottom:4px">Evidence-Based Protocols</div>
-          <div style="font-size:11.5px;color:var(--text-secondary);line-height:1.5">Backed by peer-reviewed research across 15+ conditions</div>
+        <div style="background:linear-gradient(135deg,var(--card-bg,var(--bg-card)) 0%,rgba(0,212,188,0.03) 100%);border:1px solid rgba(0,212,188,0.2);border-radius:12px;padding:16px;text-align:center">
+          <div style="width:40px;height:40px;border-radius:50%;background:rgba(0,212,188,0.15);display:flex;align-items:center;justify-content:center;font-size:20px;margin:0 auto 10px">📋</div>
+          <div style="font-size:12.5px;font-weight:700;color:var(--text-primary);margin-bottom:4px">Evidence-Based Protocols</div>
+          <div style="font-size:11px;color:var(--text-secondary);line-height:1.5">Backed by peer-reviewed research across 15+ conditions</div>
         </div>
-        <div style="background:rgba(59,130,246,0.06);border:1px solid rgba(59,130,246,0.2);border-radius:12px;padding:16px;text-align:center">
-          <div style="font-size:24px;margin-bottom:8px">👥</div>
-          <div style="font-size:12.5px;font-weight:600;color:var(--text-primary);margin-bottom:4px">Complete Patient Management</div>
-          <div style="font-size:11.5px;color:var(--text-secondary);line-height:1.5">From intake to outcomes in one unified workspace</div>
+        <div style="background:linear-gradient(135deg,var(--card-bg,var(--bg-card)) 0%,rgba(59,130,246,0.03) 100%);border:1px solid rgba(59,130,246,0.2);border-radius:12px;padding:16px;text-align:center">
+          <div style="width:40px;height:40px;border-radius:50%;background:rgba(59,130,246,0.15);display:flex;align-items:center;justify-content:center;font-size:20px;margin:0 auto 10px">👥</div>
+          <div style="font-size:12.5px;font-weight:700;color:var(--text-primary);margin-bottom:4px">Complete Patient Management</div>
+          <div style="font-size:11px;color:var(--text-secondary);line-height:1.5">From intake to outcomes in one unified workspace</div>
         </div>
-        <div style="background:rgba(139,92,246,0.06);border:1px solid rgba(139,92,246,0.2);border-radius:12px;padding:16px;text-align:center">
-          <div style="font-size:24px;margin-bottom:8px">📊</div>
-          <div style="font-size:12.5px;font-weight:600;color:var(--text-primary);margin-bottom:4px">Research-Grade Analytics</div>
-          <div style="font-size:11.5px;color:var(--text-secondary);line-height:1.5">Export BIDS-compliant data and benchmark outcomes</div>
+        <div style="background:linear-gradient(135deg,var(--card-bg,var(--bg-card)) 0%,rgba(139,92,246,0.03) 100%);border:1px solid rgba(139,92,246,0.2);border-radius:12px;padding:16px;text-align:center">
+          <div style="width:40px;height:40px;border-radius:50%;background:rgba(139,92,246,0.15);display:flex;align-items:center;justify-content:center;font-size:20px;margin:0 auto 10px">📊</div>
+          <div style="font-size:12.5px;font-weight:700;color:var(--text-primary);margin-bottom:4px">Research-Grade Analytics</div>
+          <div style="font-size:11px;color:var(--text-secondary);line-height:1.5">Export BIDS-compliant data and benchmark outcomes</div>
         </div>
       </div>
       <div style="display:flex;justify-content:center">
@@ -668,8 +668,8 @@ function _wizStep2() {
         </div>
       </div>
       <div style="display:flex;gap:12px;justify-content:flex-end">
-        <button class="btn" onclick="window._wizGo(1)">← Back</button>
-        <button class="btn btn-primary" onclick="window._wizSaveClinic()">Continue →</button>
+        <button class="btn onboarding-nav-btn" onclick="window._wizGo(1)">← Back</button>
+        <button class="btn btn-primary onboarding-nav-btn" onclick="window._wizSaveClinic()">Continue →</button>
       </div>
     </div>`;
 }
@@ -690,7 +690,7 @@ function _wizStep3() {
         <h2 style="font-size:20px;font-weight:700;color:var(--text-primary);margin:0 0 6px">Your Role</h2>
         <p style="font-size:13px;color:var(--text-secondary);margin:0">We'll customise your workspace based on how you use the platform.</p>
       </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:24px">
+      <div class="onboarding-role-grid" style="margin-bottom:24px">
         ${roles.map(r => `
           <div class="onboarding-role-card${_wiz.role === r.id ? ' selected' : ''}"
             id="wiz-role-${r.id}"
@@ -704,8 +704,8 @@ function _wizStep3() {
         Please select a role to continue.
       </div>
       <div style="display:flex;gap:12px;justify-content:flex-end">
-        <button class="btn" onclick="window._wizGo(2)">← Back</button>
-        <button class="btn btn-primary" onclick="window._wizSaveRole()">Continue →</button>
+        <button class="btn onboarding-nav-btn" onclick="window._wizGo(2)">← Back</button>
+        <button class="btn btn-primary onboarding-nav-btn" onclick="window._wizSaveRole()">Continue →</button>
       </div>
     </div>`;
 }
@@ -742,10 +742,10 @@ function _wizStep4() {
       </div>
       <div id="wiz-data-msg" style="display:none;font-size:12.5px;color:var(--accent-teal,#00d4bc);text-align:center;margin-bottom:8px;padding:8px;background:rgba(0,212,188,0.06);border-radius:8px"></div>
       <div style="display:flex;gap:12px;justify-content:space-between;align-items:center">
-        <button class="btn" onclick="window._wizGo(3)">← Back</button>
+        <button class="btn onboarding-nav-btn" onclick="window._wizGo(3)">← Back</button>
         <div style="display:flex;gap:8px;align-items:center">
           <a href="#" style="font-size:12px;color:var(--text-tertiary);text-decoration:none" onclick="window._wizSkipData(event)">Skip for now</a>
-          <button class="btn btn-primary" onclick="window._wizGo(5)">Continue →</button>
+          <button class="btn btn-primary onboarding-nav-btn" onclick="window._wizGo(5)">Continue →</button>
         </div>
       </div>
     </div>`;
@@ -765,18 +765,22 @@ function _wizStep5() {
         <p style="font-size:13px;color:var(--text-secondary);margin:0">Here are the key tools built for your role.</p>
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:24px">
-        ${features.map(f => `
-          <div class="onboarding-feature-card">
+        ${features.map(f => {
+          const typeMap = { clinician:'clinical', researcher:'research', admin:'admin', guardian:'patient' };
+          const dtype = typeMap[role] || 'clinical';
+          return `
+          <div class="onboarding-feature-card" data-type="${dtype}">
             <div style="font-size:22px;margin-bottom:8px">${f.icon}</div>
             <div style="font-size:13.5px;font-weight:600;color:var(--text-primary);margin-bottom:4px">${f.name}</div>
             <div style="font-size:12px;color:var(--text-secondary);line-height:1.5;margin-bottom:10px">${f.desc}</div>
-            <a href="#" style="font-size:12px;color:var(--accent-teal,#00d4bc);text-decoration:none;font-weight:500"
+            <a href="#" class="onboarding-explore-btn"
               onclick="window._wizExplore('${f.page}',event)">Explore →</a>
-          </div>`).join('')}
+          </div>`;
+        }).join('')}
       </div>
       <div style="display:flex;gap:12px;justify-content:flex-end">
-        <button class="btn" onclick="window._wizGo(4)">← Back</button>
-        <button class="btn btn-primary" onclick="window._wizGo(6)">Continue →</button>
+        <button class="btn onboarding-nav-btn" onclick="window._wizGo(4)">← Back</button>
+        <button class="btn btn-primary onboarding-nav-btn" onclick="window._wizGo(6)">Continue →</button>
       </div>
     </div>`;
 }
@@ -806,7 +810,7 @@ function _wizStep6() {
             <span>${q.label}</span>
           </button>`).join('')}
       </div>
-      <button class="btn btn-primary" style="padding:13px 48px;font-size:15px;font-weight:700"
+      <button class="btn btn-primary onboarding-finish-btn" style="font-weight:700"
         onclick="window._wizFinish('dashboard')">Go to Dashboard →</button>
     </div>`;
 }
@@ -968,10 +972,7 @@ function _buildWizOverlay() {
   overlay.className = 'onboarding-overlay';
   overlay.innerHTML = `
     <div class="onboarding-overlay-inner" style="width:100%;display:flex;align-items:center;justify-content:center;padding:24px"></div>
-    <div style="position:absolute;top:16px;right:20px">
-      <a href="#" style="font-size:12px;color:var(--text-tertiary);text-decoration:none"
-        onclick="window._wizSkip(event)">Skip setup</a>
-    </div>`;
+    <a href="#" class="onboarding-skip-link" onclick="window._wizSkip(event)">Skip setup</a>`;
   document.body.appendChild(overlay);
   _renderWizStep(1);
 }

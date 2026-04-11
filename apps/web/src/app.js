@@ -1578,11 +1578,9 @@ function _injectDemoBanner() {
   banner.id = 'demo-mode-banner';
   banner.className = 'demo-banner';
   banner.innerHTML = `
-    <span>⚗</span>
-    <span>Demo Mode — sample data only</span>
-    <span style="margin:0 4px;color:var(--text-tertiary)">·</span>
-    <a href="#" style="color:var(--accent-amber,#f59e0b);text-decoration:underline;font-size:12px"
-      onclick="window._exitDemo(event)">[Exit Demo]</a>`;
+    <span class="demo-banner-dot"></span>
+    <span>Demo Mode — exploring with sample data</span>
+    <a href="#" class="demo-banner-exit-btn" onclick="window._exitDemo(event)">Exit Demo</a>`;
   // Insert at very top of #app-shell or body
   const shell = document.getElementById('app-shell') || document.getElementById('topbar') || document.body.firstElementChild;
   if (shell && shell.parentNode) {
@@ -1633,11 +1631,12 @@ function _initFeatureTooltips() {
     const tip = document.createElement('div');
     tip.id = 'feature-tooltip-' + page;
     tip.className = 'feature-tooltip';
+    tip.style.position = 'relative';
     tip.innerHTML = `
       <span style="font-size:16px;flex-shrink:0">💡</span>
       <span style="flex:1;line-height:1.5;color:var(--text-primary)">${FEATURE_TOOLTIPS[page]}</span>
       <button onclick="window._dismissTooltip('${page}')"
-        style="flex-shrink:0;background:none;border:none;cursor:pointer;color:var(--text-tertiary);font-size:16px;padding:0 0 0 8px;line-height:1"
+        class="feature-tooltip-dismiss"
         aria-label="Dismiss tip">×</button>`;
     el.insertBefore(tip, el.firstChild);
   });

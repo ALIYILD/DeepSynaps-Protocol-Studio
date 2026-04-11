@@ -53,7 +53,7 @@ export function renderPatientNav(currentPage) {
   if (bottomNav) {
     bottomNav.innerHTML = _patientBottomNav().map(n => {
       const active = currentPage === n.id;
-      return `<button style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;background:none;border:none;cursor:pointer;color:${active ? 'var(--teal)' : 'var(--text-tertiary)'};font-size:9px;padding:4px" onclick="window._navPatient('${n.id}')">
+      return `<button class="pt-bottom-nav-item${active ? ' active' : ''}" onclick="window._navPatient('${n.id}')">
         <span style="font-size:18px">${n.icon}</span>
         <span>${n.label}</span>
       </button>`;
@@ -245,17 +245,42 @@ export async function pgPatientDashboard(user) {
   const loc      = getLocale() === 'tr' ? 'tr-TR' : 'en-US';
   const todayFmt = new Date().toLocaleDateString(loc, { weekday: 'long', month: 'long', day: 'numeric' });
 
+  const isFreshPatient = sessions.length === 0 && !activeCourse;
+
+  // Wellness streak from localStorage
+  let wellnessStreak = 0;
+  try { wellnessStreak = parseInt(localStorage.getItem('ds_wellness_streak') || '0', 10) || 0; } catch (_e) { /* ignore */ }
+
   el.innerHTML = `
     <!-- Header -->
-    <div style="margin-bottom:20px">
-      <div style="font-family:var(--font-display);font-size:19px;font-weight:600;color:var(--text-primary);margin-bottom:3px">
-        ${greeting}, ${firstName}
+    <div style="margin-bottom:20px;display:flex;align-items:center;justify-content:space-between;gap:12px">
+      <div>
+        <div style="font-family:var(--font-display);font-size:19px;font-weight:600;color:var(--text-primary);margin-bottom:3px">
+          ${greeting}, ${firstName}
+        </div>
+        <div style="font-size:12.5px;color:var(--text-secondary)">${todayFmt}</div>
       </div>
-      <div style="font-size:12.5px;color:var(--text-secondary)">${todayFmt}</div>
+      ${wellnessStreak >= 1 ? `
+      <div class="pt-streak-ring" title="${wellnessStreak} day streak">
+        <span style="font-size:36px;font-weight:700;color:var(--teal);line-height:1">${wellnessStreak}</span>
+        <span style="font-size:9px;color:var(--text-tertiary);margin-top:1px">day streak</span>
+      </div>` : ''}
     </div>
 
+    ${isFreshPatient ? `
+    <!-- Welcome card for fresh patients -->
+    <div class="pt-welcome-card">
+      <div style="font-size:28px;margin-bottom:12px">🌱</div>
+      <div style="font-family:var(--font-display);font-size:17px;font-weight:600;color:var(--text-primary);margin-bottom:6px">Welcome to your care portal</div>
+      <div style="font-size:13px;color:var(--text-secondary);line-height:1.6;margin-bottom:18px">Your journey starts here. Complete a quick check-in to get started with your care team.</div>
+      <div style="display:flex;flex-direction:column;gap:10px">
+        <button class="btn btn-primary pt-action-btn" onclick="window._navPatient('pt-wellness')">Start daily check-in</button>
+        <button class="btn btn-ghost pt-action-btn" onclick="window._navPatient('pt-learn')">Explore your care guide</button>
+      </div>
+    </div>` : ''}
+
     <!-- 3 Primary Cards -->
-    <div class="pt-primary-cards">
+    <div class="pt-primary-cards"${isFreshPatient ? ' style="display:none"' : ''}>
 
       <div class="pt-primary-card ${nextSess ? 'session' : 'muted'}" onclick="window._navPatient('patient-sessions')" style="cursor:pointer" role="button" tabindex="0">
         <div class="pt-pc-eyebrow">${t('patient.card.next_session')}</div>
@@ -407,8 +432,8 @@ export async function pgPatientDashboard(user) {
       </div>
     </div>
 
-    <!-- Latest Document -->
-    <div class="card" style="margin-bottom:20px">
+    <!-- Latest Document (hidden for fresh patients with nothing to show) -->
+    ${!isFreshPatient || latestDoc ? `<div class="card" style="margin-bottom:20px">
       <div class="card-header" style="display:flex;justify-content:space-between;align-items:center">
         <h3>${t('patient.dash.doc.title')}</h3>
         <button class="btn btn-ghost btn-sm" onclick="window._navPatient('patient-reports')">${t('patient.dash.doc.all')}</button>
@@ -435,10 +460,10 @@ export async function pgPatientDashboard(user) {
               <span style="font-size:12px">${t('patient.dash.doc.care_team')}</span>
             </div>`}
       </div>
-    </div>
+    </div>` : ''}
 
-    <!-- Secure Messages -->
-    <div class="card" style="margin-bottom:24px">
+    <!-- Secure Messages (hidden for fresh patients) -->
+    ${isFreshPatient ? '' : `<div class="card" style="margin-bottom:24px">
       <div class="card-header" style="display:flex;justify-content:space-between;align-items:center">
         <h3>${t('patient.dash.msg.title')}</h3>
         <button class="btn btn-ghost btn-sm" onclick="window._navPatient('patient-messages')">${t('patient.dash.msg.open')}</button>
@@ -453,7 +478,7 @@ export async function pgPatientDashboard(user) {
           ${t('patient.dash.msg.notice')}
         </div>
       </div>
-    </div>
+    </div>`}
   `;
 
   // Inline check-in submission from dashboard

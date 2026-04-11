@@ -3368,19 +3368,20 @@ body.light-theme .pt-uc-prep-toggle:hover { background: rgba(0,0,0,0.04); }
 .hr-chip { padding:3px 8px; border-radius:12px; font-size:.75rem; font-weight:700; }
 
 /* ── Clinic Analytics ── */
-.fff-analytics-grid { display:grid; grid-template-columns:repeat(2,1fr); gap:18px; }
+.fff-analytics-grid { display:grid; grid-template-columns:repeat(2,1fr); gap:24px; }
 @media (max-width:900px) { .fff-analytics-grid { grid-template-columns:1fr; } }
 .fff-kpi-row { display:flex; flex-direction:row; gap:12px; margin-bottom:20px; flex-wrap:wrap; }
 .fff-kpi-card { flex:1; min-width:160px; background:var(--card-bg); border:1px solid var(--border); border-radius:12px; padding:14px 16px; display:flex; flex-direction:column; gap:4px; transition:border-color .2s; }
 .fff-kpi-card:hover { border-color:var(--accent-teal); }
 .fff-kpi-label { font-size:.72rem; color:var(--text-muted); text-transform:uppercase; letter-spacing:.04em; }
-.fff-kpi-value { font-size:1.55rem; font-weight:800; color:var(--text); font-variant-numeric:tabular-nums; line-height:1.1; }
+.fff-kpi-value { font-size:28px; font-weight:800; color:var(--text); font-variant-numeric:tabular-nums; line-height:1.1; }
 .fff-kpi-delta { font-size:.75rem; font-weight:600; }
 .fff-kpi-delta.up { color:#10b981; }
 .fff-kpi-delta.down { color:#ef4444; }
 .fff-kpi-sparkline { margin-top:4px; }
-.fff-chart-card { background:var(--card-bg); border:1px solid var(--border); border-radius:12px; padding:16px; }
-.fff-chart-title { font-size:.85rem; font-weight:700; color:var(--text); margin-bottom:12px; display:flex; justify-content:space-between; align-items:center; }
+.fff-chart-card { background:var(--card-bg); border:1px solid var(--border); border-radius:12px; padding:20px; margin-bottom:24px; }
+.fff-chart-card svg { width:100%; max-width:100%; }
+.fff-chart-title { font-size:13px; font-weight:600; color:var(--text); margin-bottom:12px; display:flex; justify-content:space-between; align-items:center; }
 .fff-heatmap { display:grid; gap:2px; }
 .fff-heatmap-cell { border-radius:3px; cursor:pointer; transition:opacity .15s; }
 .fff-heatmap-cell:hover { opacity:.7; outline:1px solid var(--accent-teal); }
@@ -7389,10 +7390,10 @@ body.light-theme #pred-ai-interpretation { background:rgba(0,180,160,0.04); }
 .onboarding-overlay { position:fixed; inset:0; background:var(--bg); z-index:2000; display:flex; align-items:center; justify-content:center; overflow-y:auto; }
 .onboarding-card { background:var(--card-bg,var(--bg-card,#0f172a)); border:1px solid var(--border); border-radius:16px; padding:48px; max-width:640px; width:90%; position:relative; }
 .onboarding-steps { display:flex; gap:8px; justify-content:center; margin-bottom:32px; align-items:center; }
-.onboarding-step-dot { width:8px; height:8px; border-radius:50%; background:var(--border); transition:background 0.3s, width 0.3s; flex-shrink:0; }
+.onboarding-step-dot { width:6px; height:6px; border-radius:50%; background:var(--border); transition:background 0.3s, width 0.3s, height 0.3s, border-radius 0.3s; flex-shrink:0; }
 .onboarding-step-dot.active { background:var(--accent-teal,#00d4bc); width:24px; border-radius:4px; }
 .onboarding-step-dot.done { background:var(--accent-teal,#00d4bc); opacity:0.4; }
-.onboarding-role-card { border:2px solid var(--border); border-radius:12px; padding:20px; cursor:pointer; transition:border-color 0.2s, background 0.2s; text-align:center; }
+.onboarding-role-card { border:2px solid var(--border); border-radius:12px; padding:20px; cursor:pointer; transition:border-color 0.2s, background 0.2s; text-align:center; position:relative; }
 .onboarding-role-card:hover { border-color:var(--accent-teal,#00d4bc); }
 .onboarding-role-card.selected { border-color:var(--accent-teal,#00d4bc); background:rgba(0,212,188,0.05); }
 .onboarding-feature-card { border:1px solid var(--border); border-radius:10px; padding:16px; transition:border-color 0.2s; }
@@ -7405,3 +7406,412 @@ body.light-theme #pred-ai-interpretation { background:rgba(0,180,160,0.04); }
 .demo-banner { background:rgba(251,191,36,0.1); border-bottom:1px solid rgba(251,191,36,0.3); padding:6px 16px; font-size:12px; color:var(--accent-amber,#f59e0b); display:flex; align-items:center; gap:8px; }
 .feature-tooltip { position:sticky; top:8px; background:var(--card-bg,var(--bg-card,#0f172a)); border:1px solid var(--accent-teal,#00d4bc); border-radius:10px; padding:12px 16px; margin:0 0 16px; font-size:13px; display:flex; align-items:flex-start; gap:10px; z-index:10; box-shadow:0 4px 12px rgba(0,212,188,0.15); }
 /* ── End Onboarding Wizard ───────────────────────────────────────────────────── */
+
+/* ── Dashboard & Card Polish ─────────────────────────────────────────────────── */
+
+/* Dashboard empty states (compact, inline-card variant) */
+.ds-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 32px 16px;
+  gap: 8px;
+  text-align: center;
+}
+.ds-empty-state-icon {
+  font-size: 32px;
+  opacity: 0.4;
+  line-height: 1;
+}
+.ds-empty-state-headline {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.ds-empty-state-subtext {
+  font-size: 12px;
+  color: var(--text-secondary);
+  text-align: center;
+  max-width: 240px;
+}
+
+/* Stat card border-top accent variants */
+.stat-card--teal  > .metric-card { border-top: 3px solid var(--teal); }
+.stat-card--blue  > .metric-card { border-top: 3px solid var(--blue); }
+.stat-card--violet > .metric-card { border-top: 3px solid var(--violet); }
+.stat-card--amber > .metric-card { border-top: 3px solid var(--amber); }
+
+/* Interactive card hover lift */
+.card--interactive {
+  transition: box-shadow 0.15s, border-color var(--transition);
+}
+.card--interactive:hover {
+  box-shadow: 0 4px 16px rgba(0,0,0,0.15);
+}
+
+/* Card section label — uppercase, muted, small */
+.card-section-label {
+  font-size: 13px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-secondary);
+}
+
+/* ── End Dashboard & Card Polish ─────────────────────────────────────────────── */
+
+/* ── Onboarding & Tooltip Polish ─────────────────────────────────────────────── */
+
+/* Step progress dot — active pill (overrides base rule) */
+.onboarding-step-dot.active { width:32px; height:6px; border-radius:3px; background:var(--accent-teal,#00d4bc); }
+
+/* Wizard card depth + scroll safety */
+.onboarding-card {
+  box-shadow:0 20px 60px rgba(0,0,0,0.4);
+  max-height:90vh;
+  overflow-y:auto;
+}
+
+/* Step 3 — role grid helper class */
+.onboarding-role-grid { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+
+/* Role card selected checkmark in top-right corner */
+.onboarding-role-card.selected::after {
+  content:'✓';
+  position:absolute;
+  top:8px;
+  right:10px;
+  font-size:11px;
+  font-weight:700;
+  color:var(--accent-teal,#00d4bc);
+  line-height:1;
+}
+
+/* Step 5 — feature card left-border accent per role type */
+.onboarding-feature-card[data-type="clinical"]  { border-left:3px solid var(--accent-teal,#00d4bc); }
+.onboarding-feature-card[data-type="research"]  { border-left:3px solid var(--accent-blue,#3b82f6); }
+.onboarding-feature-card[data-type="admin"]     { border-left:3px solid var(--accent-violet,#8b5cf6); }
+.onboarding-feature-card[data-type="patient"]   { border-left:3px solid var(--accent-amber,#f59e0b); }
+
+/* Step 5 — Explore link styled as small teal button */
+.onboarding-explore-btn {
+  display:inline-block;
+  font-size:11.5px;
+  font-weight:600;
+  color:var(--accent-teal,#00d4bc);
+  background:rgba(0,212,188,0.1);
+  border:1px solid rgba(0,212,188,0.3);
+  border-radius:6px;
+  padding:4px 10px;
+  text-decoration:none;
+  transition:background 0.2s;
+}
+.onboarding-explore-btn:hover { background:rgba(0,212,188,0.18); }
+
+/* Step 6 — completion card scale-in animation */
+@keyframes celebrate-in {
+  from { transform:scale(0.85); opacity:0; }
+  to   { transform:scale(1);    opacity:1; }
+}
+#wiz-step-6 { animation:celebrate-in 0.4s cubic-bezier(0.34,1.56,0.64,1); }
+
+/* Step 6 — Go to Dashboard larger button */
+.onboarding-finish-btn { font-size:16px; padding:14px 32px; border-radius:10px; }
+
+/* Back/Next navigation buttons minimum width */
+.onboarding-nav-btn { min-width:100px; }
+
+/* Skip setup overlay link — absolute position top-right */
+.onboarding-skip-link {
+  color:var(--text-muted,var(--text-tertiary));
+  font-size:12px;
+  position:absolute;
+  top:20px;
+  right:24px;
+  text-decoration:none;
+}
+
+/* Feature tooltip — slide-down fade-in animation */
+@keyframes tooltip-appear {
+  from { transform:translateY(-8px); opacity:0; }
+  to   { transform:translateY(0);    opacity:1; }
+}
+.feature-tooltip {
+  position:sticky;
+  top:72px;
+  animation:tooltip-appear 0.25s ease forwards;
+}
+
+/* Feature tooltip dismiss button — absolutely positioned */
+.feature-tooltip-dismiss {
+  position:absolute;
+  right:12px;
+  top:50%;
+  transform:translateY(-50%);
+  background:transparent;
+  border:none;
+  color:var(--text-muted,var(--text-tertiary));
+  cursor:pointer;
+  font-size:16px;
+  padding:4px;
+  line-height:1;
+}
+
+/* Demo banner — pulsing amber dot indicator */
+.demo-banner-dot {
+  width:8px;
+  height:8px;
+  border-radius:50%;
+  background:var(--accent-amber,#f59e0b);
+  flex-shrink:0;
+  animation:pulse-amber 2s infinite;
+}
+
+@keyframes pulse-amber {
+  0%, 100% { opacity:1;   transform:scale(1); }
+  50%       { opacity:0.4; transform:scale(1.4); }
+}
+
+/* Demo banner — Exit Demo button */
+.demo-banner-exit-btn {
+  border:1px solid var(--accent-amber,#f59e0b);
+  color:var(--accent-amber,#f59e0b);
+  border-radius:6px;
+  padding:3px 10px;
+  font-size:11px;
+  background:transparent;
+  cursor:pointer;
+  text-decoration:none;
+  display:inline-block;
+}
+.demo-banner-exit-btn:hover { background:rgba(245,158,11,0.1); }
+/* ── End Onboarding & Tooltip Polish ─────────────────────────────────────────── */
+
+/* ── Sidebar Polish (Wave 15 polish) ─────────────────────────────────────────── */
+
+/* Topbar stability */
+#topbar {
+  min-height: 56px;
+  align-items: center;
+}
+
+/* Page title truncates on narrow viewports */
+#page-title {
+  max-width: calc(100vw - 400px);
+}
+
+/* Topbar scroll-shadow state */
+.topbar--scrolled {
+  box-shadow: 0 1px 8px rgba(0,0,0,0.25);
+}
+
+/* Topbar right-side group — already set via inline style in HTML,
+   this class provides a CSS-first fallback for any JS-injected wrappers */
+#topbar-right {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-left: auto;
+  border-left: 1px solid var(--border);
+  padding-left: 12px;
+  flex-shrink: 0;
+}
+
+/* ── Collapsible nav section groups ─── */
+
+/* Outer wrapper — replaces old flat .nav-section label */
+.nav-section-group {
+  margin-bottom: 2px;
+}
+
+/* Clickable section header */
+.nav-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 18px 5px;
+  cursor: pointer;
+  user-select: none;
+  gap: 6px;
+}
+.nav-section-header--static {
+  cursor: default;
+}
+.nav-section-header:not(.nav-section-header--static):hover .nav-section-label {
+  color: var(--text-secondary);
+}
+.nav-section-header:not(.nav-section-header--static):focus-visible {
+  outline: 2px solid var(--teal);
+  outline-offset: -2px;
+  border-radius: 4px;
+}
+
+/* Section label typography */
+.nav-section-label {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+  line-height: 1;
+}
+
+/* Chevron: rotated right (›) becomes down when open */
+.nav-section-chevron {
+  display: inline-block;
+  font-size: 12px;
+  color: var(--text-tertiary);
+  opacity: 0.5;
+  transition: transform 0.2s ease;
+  transform: rotate(90deg); /* › rotated 90° = pointing down = open */
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+/* When collapsed, chevron points right (default › orientation) */
+.nav-section-group--collapsed .nav-section-chevron {
+  transform: rotate(0deg);
+}
+
+/* Items container: collapsed = hidden */
+.nav-section-group--collapsed .nav-section-items {
+  display: none;
+}
+
+/* ── Active nav item — reinforce the existing ::before teal bar ─── */
+/* The ::before pseudo-element (defined above in the file) already renders the
+   left accent bar. Here we make it taller and brighter to aid scannability. */
+.nav-item.active::before {
+  top: 2px;
+  bottom: 2px;
+  width: 3px;
+  box-shadow: 0 0 14px var(--teal-glow), 0 0 4px var(--teal);
+}
+
+/* ── Icon + label baseline consistency ─── */
+.nav-item {
+  align-items: center;
+}
+.nav-label {
+  flex: 1;
+  line-height: 1.2;
+  vertical-align: middle;
+}
+
+/* Light theme overrides */
+body.light-theme .nav-section-label { color: #64748b; }
+body.light-theme .nav-section-chevron { color: #94a3b8; }
+body.light-theme #topbar-right { border-left-color: rgba(0,0,0,0.1); }
+body.light-theme .topbar--scrolled { box-shadow: 0 1px 8px rgba(0,0,0,0.1); }
+
+/* ── End Sidebar Polish (Wave 15 polish) ─────────────────────────────────────── */
+
+/* ── Patient Shell Polish ── */
+
+/* Bottom navigation bar */
+.pt-bottom-nav {
+  height: 64px;
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  background: rgba(var(--bg-rgb, 15, 23, 42), 0.92);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-top: 1px solid var(--border);
+  display: flex;
+  align-items: stretch;
+}
+
+/* Bottom nav items */
+.pt-bottom-nav-item {
+  flex: 1;
+  min-width: 60px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--text-tertiary);
+  font-size: 10px;
+  padding: 6px 4px;
+  position: relative;
+  transition: color var(--transition);
+}
+.pt-bottom-nav-item.active {
+  color: var(--teal);
+}
+.pt-bottom-nav-item.active::before {
+  content: '';
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--teal);
+  position: absolute;
+  top: 6px;
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+/* Patient-specific card style */
+.pt-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 16px 20px;
+  margin-bottom: 16px;
+}
+.pt-card .pt-card-header {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 12px;
+}
+
+/* Wellness streak / count circular ring */
+.pt-streak-ring {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  background: rgba(0, 212, 188, 0.1);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+/* Welcome card for fresh / onboarding patients */
+.pt-welcome-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 28px 20px 24px;
+  margin-bottom: 20px;
+  text-align: center;
+}
+
+/* Patient portal body typography */
+#patient-app-shell {
+  line-height: 1.6;
+}
+#patient-app-shell h1,
+#patient-app-shell h2,
+#patient-app-shell h3,
+#patient-app-shell h4 {
+  font-weight: 600;
+}
+#patient-app-shell a {
+  color: var(--teal);
+}
+#patient-app-shell a:hover {
+  text-decoration: underline;
+}
+
+/* Full-width action buttons on mobile */
+@media (max-width: 480px) {
+  .pt-action-btn {
+    width: 100%;
+  }
+}
