@@ -414,6 +414,10 @@ class Message(Base):
     recipient_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     patient_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True, index=True)
     body: Mapped[str] = mapped_column(Text(), nullable=False)
+    subject: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    category: Mapped[Optional[str]] = mapped_column(String(60), nullable=True)
+    thread_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, index=True)
+    priority: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(), default=datetime.utcnow)
     read_at: Mapped[Optional[datetime]] = mapped_column(DateTime(), nullable=True)
 

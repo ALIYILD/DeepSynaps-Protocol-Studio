@@ -244,7 +244,34 @@ window._addToOfflineQueue = addToOfflineQueue;
 window._syncOfflineQueue = syncOfflineQueue;
 window._showOfflineQueue = function() {
   const q = getOfflineQueue();
-  alert(`Pending syncs (${q.length}):\n${q.map(i => `• ${i.type} — ${new Date(i.queued_at).toLocaleString()}`).join('\n')}\n\nThey will sync automatically when back online.`);
+  // Show as a modal panel instead of alert()
+  const existing = document.getElementById('offline-queue-panel');
+  if (existing) { existing.remove(); return; }
+  const panel = document.createElement('div');
+  panel.id = 'offline-queue-panel';
+  panel.style.cssText = 'position:fixed;bottom:60px;left:16px;width:320px;max-height:320px;background:var(--navy-850,#0f172a);border:1px solid var(--border,rgba(255,255,255,.12));border-radius:12px;z-index:400;box-shadow:0 8px 32px rgba(0,0,0,.5);overflow:hidden;display:flex;flex-direction:column';
+  panel.innerHTML = `
+    <div style="padding:12px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
+      <span style="font-size:13px;font-weight:600">Pending Syncs (${q.length})</span>
+      <button onclick="document.getElementById('offline-queue-panel').remove()" style="background:none;border:none;cursor:pointer;color:var(--text-secondary);font-size:16px">×</button>
+    </div>
+    <div style="flex:1;overflow-y:auto;padding:8px 12px">
+      ${q.length === 0
+        ? '<div style="padding:16px;text-align:center;color:var(--text-tertiary);font-size:12.5px">No pending items.</div>'
+        : q.map(i => `<div style="padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.05);font-size:12px;color:var(--text-secondary)">
+            <span style="color:var(--text-primary);font-weight:500">${i.type.replace(/_/g,' ')}</span>
+            <span style="float:right;color:var(--text-tertiary)">${new Date(i.queued_at).toLocaleTimeString()}</span>
+          </div>`).join('')}
+    </div>
+    <div style="padding:10px 12px;border-top:1px solid var(--border)">
+      <div style="font-size:11px;color:var(--text-tertiary)">Will sync automatically when back online.</div>
+    </div>`;
+  document.body.appendChild(panel);
+  setTimeout(() => {
+    document.addEventListener('click', function h(e) {
+      if (!panel.contains(e.target)) { panel.remove(); document.removeEventListener('click', h); }
+    });
+  }, 100);
 };
 
 // Check queue on boot
@@ -553,7 +580,16 @@ const PAGE_TITLES = {
 };
 
 // ── Navigate ──────────────────────────────────────────────────────────────────
-async function navigate(id) {
+async function navigate(id, params = {}) {
+  // Apply any params before navigating so pages can read them
+  if (params && typeof params === 'object') {
+    if (params.id !== undefined) {
+      window._selectedPatientId = params.id;
+      window._profilePatientId  = params.id;
+    }
+    if (params.courseId !== undefined) window._selectedCourseId   = params.courseId;
+    if (params.uploadId !== undefined) window._mediaDetailUploadId = params.uploadId;
+  }
   window._closeSidebar();
   // Track recent pages for command palette
   if (!window._recentPages) window._recentPages = [];
@@ -725,6 +761,7 @@ function _injectPatientLangPicker() {
 // ── Page dispatcher ───────────────────────────────────────────────────────────
 async function renderPage() {
   const el = document.getElementById('content');
+  if (!el) return;
   el.scrollTop = 0;
 
   switch (currentPage) {
@@ -739,6 +776,7 @@ async function renderPage() {
       await m.pgPatients(setTopbar, navigate);
       break;
     }
+    case 'patient':
     case 'patient-profile': { const m = await loadClinical(); await m.pgPatientProfile(setTopbar); break; }
     case 'homework-builder': { const m = await loadPatient(); await m.pgHomeworkBuilder(setTopbar); break; }
     case 'intake': { const m = await loadPatient(); await m.pgIntake(setTopbar); break; }
@@ -862,7 +900,7 @@ async function renderPage() {
     }
     case 'ai-assistant': {
       const m = await loadPractice();
-      await m.pgAIAssistant(setTopbar, navigate);
+      await m.pgAIAssistant(setTopbar);
       break;
     }
     case 'ai-agents': {
@@ -1234,6 +1272,13 @@ window._toggleNotifPanel = function() {
 
 // ── Notification: test helper ─────────────────────────────────────────────────
 window._testNotif = function() {
+  // Dispatch via backend so the notification flows through the SSE stream
+  const token = api.getToken();
+  if (token) {
+    fetch(`${_API_BASE}/api/v1/notifications/test?token=${encodeURIComponent(token)}`, { method: 'POST' })
+      .catch(() => {});
+  }
+  // Also trigger locally for instant feedback (handles case where SSE isn't up yet)
   _handleNotification({
     type: 'ae_alert',
     data: { title: 'Test: Adverse Event', body: 'Simulated AE notification — system is working.', severity: 'warn', link: 'adverse-events' },
@@ -1241,12 +1286,25 @@ window._testNotif = function() {
   });
 };
 
-// ── SSE connection ────────────────────────────────────────────────────────────
+// ── SSE connection (with exponential backoff reconnect) ───────────────────────
+let _sseRetryDelay = 3000;   // initial retry: 3 s, doubles each failure, capped at 60 s
+let _sseRetryTimer = null;
+
 function connectSSE() {
   const token = api.getToken();
   if (!token) return;
 
+  // Tear down any stale connection before opening a new one
+  if (window._sseSource) {
+    try { window._sseSource.close(); } catch (_) {}
+    window._sseSource = null;
+  }
+
   const evtSource = new EventSource(`${_API_BASE}/api/v1/notifications/stream?token=${encodeURIComponent(token)}`);
+
+  evtSource.onopen = () => {
+    _sseRetryDelay = 3000; // reset backoff on successful connection
+  };
 
   evtSource.onmessage = (e) => {
     try {
@@ -1258,8 +1316,14 @@ function connectSSE() {
 
   evtSource.onerror = () => {
     evtSource.close();
-    // Reconnect after 5 seconds
-    setTimeout(connectSSE, 5000);
+    window._sseSource = null;
+    // Don't retry if the user has logged out
+    if (!api.getToken()) return;
+    clearTimeout(_sseRetryTimer);
+    _sseRetryTimer = setTimeout(() => {
+      _sseRetryDelay = Math.min(_sseRetryDelay * 2, 60000);
+      connectSSE();
+    }, _sseRetryDelay);
   };
 
   window._sseSource = evtSource;

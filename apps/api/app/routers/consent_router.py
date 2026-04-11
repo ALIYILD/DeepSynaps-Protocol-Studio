@@ -30,8 +30,10 @@ class ConsentCreate(BaseModel):
     patient_id: str
     consent_type: str               # e.g. "general", "off_label", "research"
     modality_slug: Optional[str] = None
+    status: Optional[str] = "active"    # active | withdrawn | expired
     signed: bool = False
     signed_at: Optional[str] = None     # ISO datetime
+    expires_at: Optional[str] = None    # ISO datetime; when this consent expires
     document_ref: Optional[str] = None  # URL or file reference
     notes: Optional[str] = None
 
@@ -39,6 +41,8 @@ class ConsentCreate(BaseModel):
 class ConsentUpdate(BaseModel):
     signed: Optional[bool] = None
     signed_at: Optional[str] = None     # ISO datetime
+    status: Optional[str] = None        # active | withdrawn | expired
+    expires_at: Optional[str] = None    # ISO datetime
     document_ref: Optional[str] = None
     notes: Optional[str] = None
 
@@ -49,8 +53,10 @@ class ConsentOut(BaseModel):
     clinician_id: str
     consent_type: str
     modality_slug: Optional[str]
+    status: str
     signed: bool
     signed_at: Optional[str]
+    expires_at: Optional[str]
     document_ref: Optional[str]
     notes: Optional[str]
     created_at: str
@@ -58,15 +64,19 @@ class ConsentOut(BaseModel):
     @classmethod
     def from_record(cls, r: ConsentRecord) -> "ConsentOut":
         def _dt(v) -> Optional[str]:
-            return v.isoformat() if isinstance(v, datetime) else v
+            if v is None:
+                return None
+            return v.isoformat() if isinstance(v, datetime) else str(v)
         return cls(
             id=r.id,
             patient_id=r.patient_id,
             clinician_id=r.clinician_id,
             consent_type=r.consent_type,
             modality_slug=r.modality_slug,
+            status=getattr(r, "status", "active") or "active",
             signed=r.signed,
             signed_at=_dt(r.signed_at),
+            expires_at=_dt(getattr(r, "expires_at", None)),
             document_ref=r.document_ref,
             notes=r.notes,
             created_at=r.created_at.isoformat(),
@@ -112,13 +122,19 @@ def create_consent_record(
     elif body.signed:
         signed_at = datetime.utcnow()
 
+    expires_at: Optional[datetime] = None
+    if body.expires_at:
+        expires_at = _parse_iso(body.expires_at)
+
     record = ConsentRecord(
         patient_id=body.patient_id,
         clinician_id=actor.actor_id,
         consent_type=body.consent_type.strip(),
         modality_slug=body.modality_slug,
+        status=body.status or "active",
         signed=body.signed,
         signed_at=signed_at,
+        expires_at=expires_at,
         document_ref=body.document_ref,
         notes=body.notes,
     )
@@ -176,6 +192,12 @@ def update_consent_record(
 
     if body.signed_at is not None:
         record.signed_at = _parse_iso(body.signed_at)
+
+    if body.status is not None:
+        record.status = body.status
+
+    if body.expires_at is not None:
+        record.expires_at = _parse_iso(body.expires_at)
 
     if body.document_ref is not None:
         record.document_ref = body.document_ref
