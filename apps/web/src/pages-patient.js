@@ -781,6 +781,32 @@ export async function pgPatientSessions() {
   const outcomes     = Array.isArray(outcomesRaw)     ? outcomesRaw     : [];
   const coursesArr   = Array.isArray(coursesRaw)      ? coursesRaw      : [];
   const assessments  = Array.isArray(assessmentsRaw)  ? assessmentsRaw  : [];
+
+  // ── Seed demo data (used when backend returns empty) ─────────────────────────
+  const _SEED = sessions.length === 0 && coursesArr.length === 0;
+  const _feedbackItems = [];
+  if (_SEED) {
+    coursesArr.push({
+      id: 'demo-crs-001', name: 'Left DLPFC TMS \u2014 Depression',
+      condition_slug: 'depression-mdd', modality_slug: 'tms', status: 'active',
+      phase: 'Active Treatment', total_sessions_planned: 6, session_count: 3,
+      next_review_date: '2026-04-14', primary_clinician_name: 'Dr. S. Okonkwo',
+    });
+    sessions.push(
+      { id:'dm-s4', session_number:4, scheduled_at:'2026-04-14T10:00:00', status:'scheduled', modality_slug:'tms', location:'Clinic', duration_minutes:45 },
+      { id:'dm-s5', session_number:5, scheduled_at:'2026-04-16T10:00:00', status:'scheduled', modality_slug:'tms', location:'Clinic', duration_minutes:45 },
+      { id:'dm-s6', session_number:6, scheduled_at:'2026-04-18T10:00:00', status:'scheduled', modality_slug:'tms', location:'Clinic', duration_minutes:45 },
+      { id:'dm-s1', session_number:1, delivered_at:'2026-04-07T10:00:00', scheduled_at:'2026-04-07T10:00:00', status:'completed', modality_slug:'tms', location:'Clinic', duration_minutes:45, tolerance_rating:'mild',     post_session_notes:'Mild scalp tingling during stimulation \u2014 tolerated well.'  },
+      { id:'dm-s2', session_number:2, delivered_at:'2026-04-09T10:00:00', scheduled_at:'2026-04-09T10:00:00', status:'completed', modality_slug:'tms', location:'Clinic', duration_minutes:45, tolerance_rating:'excellent', post_session_notes:'No side effects reported.'                               },
+      { id:'dm-s3', session_number:3, delivered_at:'2026-04-11T10:00:00', scheduled_at:'2026-04-11T10:00:00', status:'completed', modality_slug:'tms', location:'Clinic', duration_minutes:45, tolerance_rating:'mild',     post_session_notes:'Mild headache after session \u2014 resolved same day.'      },
+    );
+    _feedbackItems.push(
+      { date:'2026-04-11', text:"You\u2019re tolerating treatment well so far. We\u2019ll continue with the current plan.", clinician:'Dr. S. Okonkwo', session_number:3 },
+      { date:'2026-04-09', text:'Mood check-in scores are moving in a positive direction.',                                  clinician:'Dr. S. Okonkwo', session_number:2 },
+      { date:'2026-04-07', text:'Please continue breathing practice and sleep routine between visits.',                      clinician:'Care Team',        session_number:1 },
+    );
+  }
+
   const activeCourse = coursesArr.find(c => c.status === 'active') || coursesArr[0] || null;
 
   // ── Safe HTML escaper ────────────────────────────────────────────────────────
@@ -866,6 +892,20 @@ export async function pgPatientSessions() {
       const db = new Date(a.delivered_at || a.scheduled_at || a.created_at || 0).getTime();
       return da - db;
     });
+
+  // ── Collect feedback from real sessions (non-seed path) ──────────────────────
+  if (!_SEED) {
+    pastSessions.forEach(s => {
+      const note = s.post_session_notes || s.clinician_notes || '';
+      if (!note.trim()) return;
+      _feedbackItems.push({
+        date:           (s.delivered_at || s.scheduled_at || '').slice(0, 10),
+        text:           note,
+        clinician:      s.clinician_name || s.technician_name || 'Your care team',
+        session_number: Number.isFinite(s.session_number) ? s.session_number : null,
+      });
+    });
+  }
 
   // ── Stable session numbering ─────────────────────────────────────────────────
   const deliveredInOrder = sessions
@@ -1062,7 +1102,7 @@ export async function pgPatientSessions() {
     return `
       <div class="pt-wte-section" id="pt-wte-section">
         <div class="pt-sess-section-hd" style="margin-bottom:16px">
-          <span class="pt-sess-section-title">How to Prepare</span>
+          <span class="pt-sess-section-title">Before Your Next Session</span>
         </div>
 
         <div class="pt-wte-grid">
@@ -1281,15 +1321,13 @@ export async function pgPatientSessions() {
           </div>
           <div class="pt-rdf-empty">
             <div class="pt-rdf-empty-ico">\ud83d\udcc4</div>
-            <div class="pt-rdf-empty-title">Reports and notes will appear here</div>
-            <div class="pt-rdf-empty-body">After each completed session your clinician may add notes, assessments, and follow-up tasks. They'll show up here for easy reference.</div>
+            <div class="pt-rdf-empty-title">Reports will appear here</div>
+            <div class="pt-rdf-empty-body">Assessment reports and clinical documents linked to your sessions will show up here after they are completed.</div>
           </div>
         </div>`;
     }
 
     const reports  = items.filter(i => i.type === 'report');
-    const notes    = items.filter(i => i.type === 'note');
-    const homework = items.filter(i => i.type === 'homework');
 
     function reportCardHTML(item) {
       const doc   = item.doc;
@@ -1307,68 +1345,137 @@ export async function pgPatientSessions() {
         </div>`;
     }
 
-    function noteCardHTML(item) {
-      return `
-        <div class="pt-rdf-note">
-          <div class="pt-rdf-note-label">Clinician note \u00b7 ${esc(fmtDate(item.date))}</div>
-          <div class="pt-rdf-note-body">${esc(item.session.post_session_notes || item.session.clinician_notes || '')}</div>
-        </div>`;
-    }
-
-    function homeworkCardHTML(item) {
-      return `
-        <div class="pt-rdf-homework">
-          <div class="pt-rdf-homework-label">\ud83d\udccc\u00a0Follow-up task \u00b7 ${esc(fmtDate(item.date))}</div>
-          <div class="pt-rdf-homework-body">${esc(item.session.clinic_notes || '')}</div>
-        </div>`;
-    }
-
-    return `
+    return reports.length === 0 ? '' : `
       <div class="pt-sess-section">
         <div class="pt-sess-section-hd">
-          <span class="pt-sess-section-title">Reports &amp; Feedback</span>
-          <span class="pt-sess-badge">${items.length}</span>
+          <span class="pt-sess-section-title">Session Reports</span>
+          <span class="pt-sess-badge">${reports.length}</span>
         </div>
         <div class="pt-rdf-wrap">
           ${reports.map(reportCardHTML).join('')}
-          ${notes.map(noteCardHTML).join('')}
-          ${homework.map(homeworkCardHTML).join('')}
+        </div>
+      </div>`;
+  }
+
+  // ── Feedback from recent sessions ─────────────────────────────────────────────
+  function feedbackFromSessionsHTML() {
+    if (!_feedbackItems.length) {
+      return `
+        <div class="pt-sess-section">
+          <div class="pt-sess-section-hd">
+            <span class="pt-sess-section-title">Feedback From Recent Sessions</span>
+          </div>
+          <div class="pt-rdf-empty">
+            <div class="pt-rdf-empty-ico">\ud83d\udcac</div>
+            <div class="pt-rdf-empty-title">No feedback yet</div>
+            <div class="pt-rdf-empty-body">After each completed session your care team may leave notes or feedback here. They appear after your appointments.</div>
+          </div>
+        </div>`;
+    }
+    return `
+      <div class="pt-sess-section">
+        <div class="pt-sess-section-hd">
+          <span class="pt-sess-section-title">Feedback From Recent Sessions</span>
+          <span class="pt-sess-badge">${_feedbackItems.length}</span>
+        </div>
+        <div class="pt-feedback-list">
+          ${_feedbackItems.map(fb => `
+            <div class="pt-feedback-card">
+              <div class="pt-feedback-icon">\ud83d\udcac</div>
+              <div class="pt-feedback-body">
+                <div class="pt-feedback-text">${esc(fb.text)}</div>
+                <div class="pt-feedback-meta">
+                  ${fb.clinician ? `${esc(fb.clinician)}\u00a0\u00b7\u00a0` : ''}${fb.session_number != null ? `Session\u00a0${fb.session_number}\u00a0\u00b7\u00a0` : ''}${esc(fmtDate(fb.date))}
+                </div>
+              </div>
+            </div>`).join('')}
+        </div>
+      </div>`;
+  }
+
+  // ── Aftercare / What to Watch ─────────────────────────────────────────────────
+  function aftercareHTML() {
+    const mod = modalityLabel(activeCourse?.modality_slug || '');
+    const modLine = mod ? `After a ${esc(mod)} session` : 'After your session';
+    return `
+      <div class="pt-sess-section pt-aftercare-section">
+        <div class="pt-sess-section-hd">
+          <span class="pt-sess-section-title">Aftercare &amp; What to Watch</span>
+        </div>
+        <div class="pt-aftercare-grid">
+
+          <div class="pt-aftercare-col">
+            <div class="pt-aftercare-col-label">\u2713\u00a0What is normal</div>
+            <ul class="pt-prep-list">
+              <li class="pt-prep-item"><span class="pt-prep-ico pt-ac-ok">\u2713</span><span>${modLine}, mild fatigue or scalp sensitivity is common and usually passes within an hour.</span></li>
+              <li class="pt-prep-item"><span class="pt-prep-ico pt-ac-ok">\u2713</span><span>A mild headache right after stimulation is not unusual and typically resolves the same day.</span></li>
+              <li class="pt-prep-item"><span class="pt-prep-ico pt-ac-ok">\u2713</span><span>Mood can fluctuate in early sessions. Changes tend to stabilise as the course continues.</span></li>
+            </ul>
+          </div>
+
+          <div class="pt-aftercare-col">
+            <div class="pt-aftercare-col-label">! Contact your clinic if</div>
+            <ul class="pt-prep-list">
+              <li class="pt-prep-item"><span class="pt-prep-ico pt-ac-warn">!</span><span>A headache lasts more than 24 hours or feels unusually severe.</span></li>
+              <li class="pt-prep-item"><span class="pt-prep-ico pt-ac-warn">!</span><span>You experience sudden or significant mood changes that feel out of character.</span></li>
+              <li class="pt-prep-item"><span class="pt-prep-ico pt-ac-warn">!</span><span>Any symptom that concerns you \u2014 there is no threshold too small to mention.</span></li>
+            </ul>
+          </div>
+
+          <div class="pt-aftercare-col">
+            <div class="pt-aftercare-col-label">\u25ce\u00a0Keep doing between sessions</div>
+            <ul class="pt-prep-list">
+              <li class="pt-prep-item"><span class="pt-prep-ico">\u25ce</span><span>Your daily check-in \u2014 mood, sleep, and energy logs help your care team track your response.</span></li>
+              <li class="pt-prep-item"><span class="pt-prep-ico">\u25ce</span><span>Breathing, mindfulness, or sleep practices your clinician has recommended.</span></li>
+              <li class="pt-prep-item"><span class="pt-prep-ico">\u25ce</span><span>Regular meals and good hydration, especially on session days.</span></li>
+            </ul>
+          </div>
+
+        </div>
+        <div class="pt-aftercare-emergency">
+          If you are in crisis or need urgent support, contact your clinic or reach a crisis line immediately.
+          <button class="btn btn-ghost btn-sm" style="margin-left:12px;flex-shrink:0"
+                  onclick="window._navPatient('patient-messages')">Message Clinic</button>
         </div>
       </div>`;
   }
 
   // ── Page HTML ────────────────────────────────────────────────────────────────
   const nextSession = upcoming[0] || null;
+  const _phaseDisplay = esc(activeCourse?.phase || phaseLabel(progressPct));
+  const _reviewLabel  = nextMilestoneDate
+    ? `After Session\u00a04\u00a0\u00b7\u00a0${esc(fmtDate(nextMilestoneDate))}`
+    : 'Not yet scheduled';
 
   el.innerHTML = `
 
-    <!-- Course context bar -->
+    <!-- ── Course context bar ── -->
     ${activeCourse ? `
     <div class="pt-course-ctx-bar">
-      <div class="pt-ctx-item">
-        <div class="pt-ctx-label">Treatment</div>
-        <div class="pt-ctx-value">${esc(activeCourse.name || activeCourse.condition_slug || 'Active Treatment')}</div>
-      </div>
-      <div class="pt-ctx-divider"></div>
-      <div class="pt-ctx-item">
-        <div class="pt-ctx-label">Completed</div>
-        <div class="pt-ctx-value">${sessDelivered}\u00a0of\u00a0${totalPlanned ?? '?'}</div>
-      </div>
-      ${sessRemaining !== null ? `
-      <div class="pt-ctx-divider"></div>
-      <div class="pt-ctx-item">
-        <div class="pt-ctx-label">Remaining</div>
-        <div class="pt-ctx-value">${sessRemaining}</div>
-      </div>` : ''}
-      <div class="pt-ctx-divider"></div>
-      <div class="pt-ctx-item">
-        <div class="pt-ctx-label">Phase</div>
-        <div class="pt-ctx-value">${phaseLabel(progressPct)}</div>
-      </div>
-      <div class="pt-ctx-divider"></div>
-      <div class="pt-ctx-item">
-        <div class="pt-ctx-label">Next review</div>
-        <div class="pt-ctx-value pt-ctx-value-dim">${esc(nextMilestoneLabel)}</div>
+      <div class="pt-ctx-main-row">
+        <div class="pt-ctx-item pt-ctx-item--name">
+          <div class="pt-ctx-label">Treatment course</div>
+          <div class="pt-ctx-value pt-ctx-value--name">${esc(activeCourse.name || activeCourse.condition_slug || 'Active Treatment')}</div>
+        </div>
+        <div class="pt-ctx-divider"></div>
+        <div class="pt-ctx-item">
+          <div class="pt-ctx-label">Phase</div>
+          <div class="pt-ctx-value">${_phaseDisplay}</div>
+        </div>
+        <div class="pt-ctx-divider"></div>
+        <div class="pt-ctx-item">
+          <div class="pt-ctx-label">Sessions</div>
+          <div class="pt-ctx-value">${sessDelivered}\u00a0of\u00a0${totalPlanned ?? '?'} completed${sessRemaining !== null ? `\u00a0\u00b7\u00a0${sessRemaining} left` : ''}</div>
+        </div>
+        <div class="pt-ctx-divider"></div>
+        <div class="pt-ctx-item">
+          <div class="pt-ctx-label">Next milestone review</div>
+          <div class="pt-ctx-value pt-ctx-value-dim">${_reviewLabel}</div>
+        </div>
+        <div class="pt-ctx-link-wrap">
+          <button class="pt-ctx-plan-link"
+                  onclick="window._navPatient('patient-course')">View full treatment plan \u203a</button>
+        </div>
       </div>
       ${progressPct !== null ? `
       <div class="pt-ctx-bar-wrap">
@@ -1379,7 +1486,7 @@ export async function pgPatientSessions() {
     <!-- Assessment due banner -->
     ${assessmentDueBannerHTML(nextSession)}
 
-    <!-- Next session hero -->
+    <!-- ── Section 1: Next Session ── -->
     ${nextSession
       ? nextSessionHeroHTML(nextSession)
       : `<div class="pt-ns-empty">
@@ -1387,33 +1494,14 @@ export async function pgPatientSessions() {
            <div class="pt-ns-empty-title">No upcoming sessions scheduled</div>
            <div class="pt-ns-empty-body">
              ${activeCourse
-               ? "Your next session hasn't been booked yet. Your care team will be in touch to confirm your schedule."
-               : "You don't have any active treatment sessions scheduled. Contact your clinic to get started."}
+               ? "Your next session hasn\u2019t been booked yet. Your care team will be in touch to confirm your schedule."
+               : "You don\u2019t have any active treatment sessions scheduled. Contact your clinic to get started."}
            </div>
            <button class="btn btn-ghost btn-sm" style="margin-top:14px"
                    onclick="window._navPatient('patient-messages')">Contact Clinic</button>
-           <details class="pt-sess-what-to-expect" style="margin-top:20px;max-width:480px;margin-left:auto;margin-right:auto">
-             <summary class="pt-sess-expect-toggle">What happens at a typical session?</summary>
-             <div class="pt-sess-expect-body">
-               <p>${t('patient.sess.what_happens.p1')}</p>
-               <p>${t('patient.sess.what_happens.p2')}</p>
-               <p>${t('patient.sess.what_happens.p3')}</p>
-               <div class="pt-prep-col-title" style="margin-top:14px">${t('patient.sess.what_bring.any')}</div>
-               <ul class="pt-prep-list">
-                 ${getDefaultBringList().map(item => `
-                   <li class="pt-prep-item">
-                     <span class="pt-prep-ico" style="font-size:10px;opacity:.5">\u25cf</span>
-                     <span>${item}</span>
-                   </li>`).join('')}
-               </ul>
-             </div>
-           </details>
          </div>`}
 
-    <!-- What to expect — standalone (only when next session exists) -->
-    ${nextSession ? whatToExpectHTML(nextSession) : ''}
-
-    <!-- Upcoming sessions beyond the next one -->
+    <!-- ── Section 2: Upcoming Sessions ── -->
     ${upcoming.length > 1 ? `
     <div class="pt-sess-section">
       <div class="pt-sess-section-hd">
@@ -1425,13 +1513,12 @@ export async function pgPatientSessions() {
       </div>
     </div>` : ''}
 
-    <!-- Past / completed sessions -->
+    <!-- ── Section 3: Session History ── -->
     <div class="pt-sess-section">
       <div class="pt-sess-section-hd">
         <span class="pt-sess-section-title">${t('patient.sess.history')}</span>
         ${pastSessions.length > 0 ? `<span class="pt-sess-badge">${pastSessions.length}</span>` : ''}
       </div>
-
       ${pastSessions.length === 0
         ? `<div class="pt-sess-empty" style="padding:28px 20px">
             <div class="pt-sess-empty-icon">\ud83d\udcc5</div>
@@ -1443,7 +1530,16 @@ export async function pgPatientSessions() {
           </div>`}
     </div>
 
-    <!-- Related documents & feedback -->
+    <!-- ── Section 4: Feedback From Recent Sessions ── -->
+    ${feedbackFromSessionsHTML()}
+
+    <!-- ── Section 5: Before Your Next Session ── -->
+    ${nextSession ? whatToExpectHTML(nextSession) : ''}
+
+    <!-- ── Section 6: Aftercare / What to Watch ── -->
+    ${aftercareHTML()}
+
+    <!-- Session reports (if any linked assessments) -->
     ${relatedDocsFeedbackHTML()}
   `;
 
@@ -2997,6 +3093,18 @@ export async function pgPatientReports() {
       ? `<span class="pt-doc-status-badge">${esc(doc.status)}</span>`
       : '';
 
+    // Delta — what changed since the most recent prior report of same template type
+    const delta = _ptComputeDelta(doc, docs);
+    let deltaRow = '';
+    if (delta !== null) {
+      const abs = Math.abs(delta.delta);
+      const dir = delta.delta < 0 ? 'dropped' : 'increased';
+      const tone = delta.delta < 0 ? 'This is a positive sign.' : 'Your care team is monitoring this.';
+      deltaRow = `<div class="pt-doc-pl-row"><span class="pt-doc-pl-label">What changed</span>Your score ${dir} by ${abs} point${abs !== 1 ? 's' : ''} since your last report on ${esc(delta.prevDate)}. ${tone}</div>`;
+    } else if (doc.score != null && doc.templateKey) {
+      deltaRow = `<div class="pt-doc-pl-row"><span class="pt-doc-pl-label">What changed</span>This is your first recorded result for this measure — future reports will show how you are progressing.</div>`;
+    }
+
     // Plain-language section
     const hasPl = Boolean(doc.plainLang);
     const plSection = hasPl
@@ -3010,18 +3118,29 @@ export async function pgPatientReports() {
          <div class="pt-doc-pl-body" id="${plId}" ${expandPl ? '' : 'hidden'}>
            ${doc.plainLang.what ? `<div class="pt-doc-pl-row"><span class="pt-doc-pl-label">${t('patient.reports.doc.what_this')}</span>${esc(doc.plainLang.what)}</div>` : ''}
            ${doc.plainLang.why  ? `<div class="pt-doc-pl-row"><span class="pt-doc-pl-label">${t('patient.reports.doc.why')}</span>${esc(doc.plainLang.why)}</div>` : ''}
+           ${deltaRow}
            ${interpBand         ? `<div class="pt-doc-pl-row pt-doc-pl-row-hl"><span class="pt-doc-pl-label">${t('patient.reports.doc.what_means')}</span>${esc(interpBand.note)}</div>` : ''}
          </div>`
       : '';
 
-    // CTA
-    const ctaHtml = doc.url
+    // Actions
+    const viewCta = doc.url
       ? `<a class="pt-doc-cta" href="${esc(doc.url)}" target="_blank" rel="noopener noreferrer"
               aria-label="${t('patient.reports.doc.view')} ${esc(doc.title)}"
               tabindex="0">${t('patient.reports.doc.view')}</a>`
       : `<button class="pt-doc-cta pt-doc-cta-stub"
                onclick="window._ptViewDoc('${esc(doc.id)}')"
                aria-label="${t('patient.reports.doc.view')} ${esc(doc.title)}">${t('patient.reports.doc.view')}</button>`;
+
+    const dlCta = doc.url
+      ? `<a class="pt-doc-cta pt-doc-cta-dl" href="${esc(doc.url)}" download
+              target="_blank" rel="noopener noreferrer"
+              aria-label="Download ${esc(doc.title)}">Download</a>`
+      : '';
+
+    const askCta = `<button class="pt-doc-cta pt-doc-cta-ask"
+             onclick="window._ptAskAbout('${esc(doc.id)}','${esc(doc.title)}')"
+             aria-label="Ask about ${esc(doc.title)}">Ask about this</button>`;
 
     return `
       <div class="pt-doc-card" data-cat="${esc(doc.category)}" data-id="${esc(doc.id)}">
@@ -3037,7 +3156,9 @@ export async function pgPatientReports() {
             ${chips ? `<div class="pt-doc-chips">${chips}</div>` : ''}
           </div>
           <div class="pt-doc-actions-col">
-            ${ctaHtml}
+            ${viewCta}
+            ${dlCta}
+            ${askCta}
             ${scoreHTML}
           </div>
         </div>
@@ -3045,103 +3166,147 @@ export async function pgPatientReports() {
       </div>`;
   }
 
-  // ── Build by-course grouping ─────────────────────────────────────────────
-  const byCourse = new Map();
-  docs.forEach(d => {
-    const key = d.courseRef ? d.courseRef.id : '__none__';
-    if (!byCourse.has(key)) {
-      byCourse.set(key, { label: d.courseRef?.title || null, items: [] });
+  // ── Hero card: latest report, visually elevated ───────────────────────
+  function heroCardHTML(doc) {
+    if (!doc) return '';
+    const cm = CAT_META[doc.category] || CAT_META['outcome'];
+    const pl = doc.plainLang;
+
+    // Reviewed badge — trusts status field or presence of clinician notes
+    const isReviewed = doc.status === 'reviewed' || Boolean(doc.clinicianNotes);
+    const reviewedBadge = isReviewed
+      ? `<span class="pt-hero-badge pt-hero-badge--reviewed">&#10003;&nbsp;Reviewed by care team</span>`
+      : `<span class="pt-hero-badge pt-hero-badge--pending">Awaiting review</span>`;
+
+    // Summary — plain-language what + why combined
+    const summary = pl
+      ? [pl.what, pl.why].filter(Boolean).join('. ')
+      : 'Your latest report is available from your care team.';
+
+    // What this means — score band interpretation or plain why
+    const interp = doc.scoreInterp;
+    let meansHTML = '';
+    if (interp) {
+      const scoreStr = doc.score != null ? esc(String(doc.score)) : '—';
+      meansHTML = `<div class="pt-report-hero-means">
+        <div class="pt-report-hero-means-label">What this means</div>
+        <div class="pt-report-hero-means-text">Your score of <strong>${scoreStr}</strong> puts you in the <strong>${esc(interp.label)}</strong> range. ${esc(interp.note)}</div>
+      </div>`;
+    } else if (pl && pl.why) {
+      meansHTML = `<div class="pt-report-hero-means">
+        <div class="pt-report-hero-means-label">What this means</div>
+        <div class="pt-report-hero-means-text">${esc(pl.why)}</div>
+      </div>`;
     }
-    byCourse.get(key).items.push(d);
-  });
-  const courseEntries = [...byCourse.entries()].filter(([k]) => k !== '__none__');
 
-  // ── Render ───────────────────────────────────────────────────────────────
+    // What changed — conservative language, never diagnostic
+    const heroDelta = _ptComputeDelta(doc, docs);
+    let deltaText = '';
+    if (heroDelta !== null) {
+      const abs = Math.abs(heroDelta.delta);
+      const dir = heroDelta.delta < 0 ? 'dropped' : 'increased';
+      const tone = heroDelta.delta < 0 ? 'This is a positive sign.' : 'Your care team is monitoring this.';
+      deltaText = `Your score ${dir} by <strong>${abs}</strong> point${abs !== 1 ? 's' : ''} since your last report on ${esc(heroDelta.prevDate)}. ${tone}`;
+    } else if (doc.score != null) {
+      deltaText = 'This is your first recorded result for this measure — future reports will show your progress over time.';
+    } else {
+      deltaText = 'Check back after your next session for updated results.';
+    }
+
+    // Actions
+    const viewBtn = doc.url
+      ? `<a class="pt-hero-action pt-hero-action--primary" href="${esc(doc.url)}" target="_blank" rel="noopener noreferrer">View full report</a>`
+      : `<button class="pt-hero-action pt-hero-action--primary" onclick="window._ptViewDoc('${esc(doc.id)}')">View full report</button>`;
+
+    const dlBtn = doc.url
+      ? `<a class="pt-hero-action" href="${esc(doc.url)}" download target="_blank" rel="noopener noreferrer">Download</a>`
+      : '';
+
+    const askBtn = `<button class="pt-hero-action pt-hero-action--ask" onclick="window._ptAskAbout('${esc(doc.id)}','${esc(doc.title)}')">Ask about this</button>`;
+
+    return `
+      <div class="pt-report-hero" data-id="${esc(doc.id)}">
+        <div class="pt-report-hero-head">
+          <div class="pt-report-hero-icon" style="background:${cm.bg};color:${cm.color}" aria-hidden="true">${cm.icon}</div>
+          <div class="pt-report-hero-meta">
+            <div class="pt-report-hero-eyebrow">Latest report</div>
+            <div class="pt-report-hero-title">${esc(doc.title)}</div>
+            <div class="pt-report-hero-sub">
+              <span class="pt-doc-date">${esc(doc.displayDate)}</span>
+              <span class="pt-doc-type-label" style="color:${cm.color}">${esc(cm.label)}</span>
+            </div>
+          </div>
+          <div class="pt-report-hero-badge-wrap">${reviewedBadge}</div>
+        </div>
+        <div class="pt-report-hero-body">
+          <p class="pt-report-hero-summary">${esc(summary)}</p>
+          ${meansHTML}
+          <div class="pt-report-hero-delta">
+            <span class="pt-report-hero-delta-label">What changed</span>
+            <span class="pt-report-hero-delta-text">${deltaText}</span>
+          </div>
+        </div>
+        <div class="pt-report-hero-actions">
+          ${viewBtn}
+          ${dlBtn}
+          ${askBtn}
+        </div>
+      </div>`;
+  }
+
+  // ── Category section HTML ─────────────────────────────────────────
+  function catSectionHTML(cat, items) {
+    const isOpen = cat.defaultOpen && items.length > 0;
+    const countBadge = items.length > 0
+      ? `<span class="pt-docs-cat-count">${items.length}</span>`
+      : `<span class="pt-docs-cat-count pt-docs-cat-count--empty">0</span>`;
+
+    const bodyContent = items.length > 0
+      ? items.map(d => docCardHTML(d)).join('')
+      : `<div class="pt-docs-cat-empty">${esc(cat.emptyMsg)}</div>`;
+
+    return `
+      <div class="pt-docs-cat-section" id="pt-cat-${esc(cat.id)}">
+        <button class="pt-docs-cat-hd" aria-expanded="${isOpen}"
+                onclick="window._ptToggleCatSection('${esc(cat.id)}')">
+          <span class="pt-docs-cat-icon" style="background:${cat.bg};color:${cat.color}" aria-hidden="true">${cat.icon}</span>
+          <span class="pt-docs-cat-label">${esc(cat.label)}</span>
+          ${countBadge}
+          <span class="pt-docs-cat-chev" id="pt-cat-chev-${esc(cat.id)}" aria-hidden="true">${isOpen ? '▴' : '▾'}</span>
+        </button>
+        <div class="pt-docs-cat-body" id="pt-cat-body-${esc(cat.id)}" ${isOpen ? '' : 'hidden'}>
+          ${bodyContent}
+        </div>
+      </div>`;
+  }
+
+  // ── Render ───────────────────────────────────────────────────────────────────────────
   const latest = docs[0] || null;
-
-  const filterBar = visibleFilters.length > 1
-    ? `<div class="pt-docs-filters" id="pt-docs-filters" role="tablist" aria-label="Filter documents">
-         ${visibleFilters.map((f, i) =>
-           `<button class="pt-docs-filter-chip${i === 0 ? ' active' : ''}"
-                   role="tab"
-                   aria-selected="${i === 0}"
-                   data-filter="${esc(f.key)}"
-                   onclick="window._ptSetDocFilter('${esc(f.key)}')">${esc(f.label)}</button>`
-         ).join('')}
-       </div>`
-    : '';
-
-  const latestSection = latest
-    ? `<div class="pt-docs-section">
-         <div class="pt-docs-section-hd">
-           <span class="pt-docs-section-title">${t('patient.reports.section.latest')}</span>
-         </div>
-         ${docCardHTML(latest, { expandPl: true })}
-       </div>`
-    : '';
-
-  const RECENT_LIMIT = 5;
-  const recentItems  = docs.slice(0, RECENT_LIMIT);
-  const recentSection = docs.length >= 1
-    ? `<div class="pt-docs-section" id="pt-docs-main-list">
-         <div class="pt-docs-section-hd">
-           <span class="pt-docs-section-title">${t('patient.reports.section.recent')}</span>
-           <span class="pt-docs-section-count" id="pt-docs-count">${t('patient.reports.total', { n: docs.length })}</span>
-         </div>
-         <div id="pt-docs-card-list">
-           ${recentItems.map(d => docCardHTML(d)).join('')}
-         </div>
-         ${docs.length > RECENT_LIMIT
-           ? `<button class="pt-docs-show-all" id="pt-docs-show-all"
-                     onclick="window._ptShowAllDocs()">${t('patient.reports.show_all', { n: docs.length })}</button>`
-           : ''}
-       </div>`
-    : '';
-
-  const byCourseSection = courseEntries.length > 0
-    ? `<div class="pt-docs-section">
-         <div class="pt-docs-section-hd">
-           <span class="pt-docs-section-title">${t('patient.reports.section.bycourse')}</span>
-         </div>
-         ${courseEntries.map(([, entry]) =>
-           `<div class="pt-docs-course-group">
-              <div class="pt-docs-course-label">${esc(entry.label || 'Your treatment')}</div>
-              ${entry.items.map(d => docCardHTML(d)).join('')}
-            </div>`
-         ).join('')}
-       </div>`
-    : '';
 
   el.innerHTML = `
     <div class="pt-docs-wrap">
-      ${filterBar}
-      <div id="pt-docs-sections">
-        ${latestSection}
-        ${recentSection}
-        ${byCourseSection}
+      <div id="pt-docs-ask-anchor"></div>
+      ${heroCardHTML(latest)}
+      <div class="pt-docs-sections-wrap">
+        ${DISPLAY_CATS.map(cat => catSectionHTML(cat, docs.filter(cat.filter))).join('')}
       </div>
     </div>`;
 
-  // ── Interaction handlers ─────────────────────────────────────────────────
+  // ── Interaction handlers ─────────────────────────────────────────────────────
 
-  // Filter chips — show/hide cards by category
-  window._ptSetDocFilter = function(filter) {
-    el.querySelectorAll('.pt-docs-filter-chip').forEach(btn => {
-      const active = btn.dataset.filter === filter;
-      btn.classList.toggle('active', active);
-      btn.setAttribute('aria-selected', String(active));
-    });
-    let visibleCount = 0;
-    el.querySelectorAll('.pt-doc-card').forEach(card => {
-      const show = filter === 'all' || card.dataset.cat === filter;
-      card.hidden = !show;
-      if (show) visibleCount++;
-    });
-    const countEl = el.querySelector('#pt-docs-count');
-    if (countEl) countEl.textContent = filter === 'all' ? t('patient.reports.total', { n: docs.length }) : t('patient.reports.filter.shown', { n: visibleCount });
+  // Toggle collapsible category section
+  window._ptToggleCatSection = function(catId) {
+    const body = el.querySelector('#pt-cat-body-' + catId);
+    const chev = el.querySelector('#pt-cat-chev-' + catId);
+    const btn  = el.querySelector('#pt-cat-' + catId + ' .pt-docs-cat-hd');
+    if (!body) return;
+    const opening = body.hasAttribute('hidden');
+    if (opening) { body.removeAttribute('hidden'); } else { body.setAttribute('hidden', ''); }
+    if (chev) chev.textContent = opening ? '▴' : '▾';
+    if (btn)  btn.setAttribute('aria-expanded', String(opening));
   };
 
-  // Plain-language accordion
+  // Plain-language accordion (unchanged behaviour)
   window._ptToggleDocPl = function(docId) {
     const safeId = CSS.escape(docId);
     const body = el.querySelector(`#pt-doc-pl-${safeId}`);
@@ -3150,26 +3315,11 @@ export async function pgPatientReports() {
     if (!body) return;
     const opening = body.hasAttribute('hidden');
     if (opening) { body.removeAttribute('hidden'); } else { body.setAttribute('hidden', ''); }
-    if (chev) chev.textContent = opening ? '\u25b4' : '\u25be';
+    if (chev) chev.textContent = opening ? '▴' : '▾';
     if (btn)  btn.setAttribute('aria-expanded', String(opening));
   };
 
-  // Show all documents (replaces truncated recent list)
-  window._ptShowAllDocs = function() {
-    const listEl = el.querySelector('#pt-docs-card-list');
-    const showAllBtn = el.querySelector('#pt-docs-show-all');
-    if (!listEl) return;
-    listEl.innerHTML = docs.map(d => docCardHTML(d)).join('');
-    if (showAllBtn) showAllBtn.remove();
-    // Re-apply current filter
-    const activeChip = el.querySelector('.pt-docs-filter-chip.active');
-    const currentFilter = activeChip ? activeChip.dataset.filter : 'all';
-    if (currentFilter !== 'all') window._ptSetDocFilter(currentFilter);
-  };
-
-  // View document
-  // Extension point: replace stub with in-app PDF viewer, download handler,
-  // or caregiver/proxy share dialog as those features are built.
+  // View document (unchanged — graceful unavailable notice)
   window._ptViewDoc = function(docId) {
     const doc = docs.find(d => String(d.id) === String(docId));
     if (!doc) return;
@@ -3177,14 +3327,29 @@ export async function pgPatientReports() {
       window.open(doc.url, '_blank', 'noopener,noreferrer');
       return;
     }
-    // Unavailable: show a calm inline notice instead of an error
     const card = el.querySelector(`[data-id="${CSS.escape(docId)}"]`);
     if (!card) return;
-    if (card.querySelector('.pt-doc-unavail')) return; // already shown
+    if (card.querySelector('.pt-doc-unavail')) return;
     const notice = document.createElement('div');
     notice.className = 'pt-doc-unavail';
     notice.textContent = t('patient.media.doc_unavailable');
     card.appendChild(notice);
+  };
+
+  // Ask about this — prepares a prefilled prompt and navigates to patient Messages
+  window._ptAskAbout = function(docId, title) {
+    const prompt = 'Explain "' + title + '" in simple language. What does this report mean for me?';
+    window._ptPendingAsk = prompt;
+    const anchor = el.querySelector('#pt-docs-ask-anchor');
+    if (!anchor) return;
+    anchor.innerHTML = `
+      <div class="pt-doc-ask-toast" role="status">
+        <span class="pt-doc-ask-toast-msg">Your question is ready about: <em>${esc(title)}</em></span>
+        <button class="pt-doc-ask-toast-btn" onclick="window._navPatient('patient-messages')">Go to Messages →</button>
+        <button class="pt-doc-ask-toast-close" aria-label="Dismiss"
+                onclick="document.querySelector('#pt-docs-ask-anchor').innerHTML=''">&#10005;</button>
+      </div>`;
+    anchor.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   };
 }
 
@@ -5350,21 +5515,25 @@ export async function pgPatientWearables() {
   <!-- ① CONNECTION SUMMARY BAR -->
   <div class="pdw-summary-bar">
     <div class="pdw-stat">
+      <div class="pdw-stat-icon">◌</div>
       <div class="pdw-stat-val">${connectedCount}</div>
       <div class="pdw-stat-lbl">Health source${connectedCount !== 1 ? 's' : ''} connected</div>
     </div>
     <div class="pdw-stat-divider"></div>
     <div class="pdw-stat">
+      <div class="pdw-stat-icon">⊕</div>
       <div class="pdw-stat-val">${assignedCount}</div>
       <div class="pdw-stat-lbl">Home therapy device${assignedCount !== 1 ? 's' : ''}</div>
     </div>
     <div class="pdw-stat-divider"></div>
     <div class="pdw-stat">
+      <div class="pdw-stat-icon">↻</div>
       <div class="pdw-stat-val">${lastSyncMs ? fmtRelative(new Date(lastSyncMs).toISOString()) : 'Never'}</div>
       <div class="pdw-stat-lbl">Last sync</div>
     </div>
     <div class="pdw-stat-divider"></div>
     <div class="pdw-stat">
+      <div class="pdw-stat-icon ${connectedCount > 0 ? 'pdw-stat-ok' : 'pdw-stat-off'}">◎</div>
       <div class="pdw-stat-val ${connectedCount > 0 ? 'pdw-stat-ok' : 'pdw-stat-off'}">${connectedCount > 0 ? 'Active' : 'Inactive'}</div>
       <div class="pdw-stat-lbl">Monitoring</div>
     </div>
@@ -5375,37 +5544,42 @@ export async function pgPatientWearables() {
   <!-- ② HEALTH SOURCES -->
   <div class="pdw-section">
     <div class="pdw-section-header">
-      <h3 class="pdw-section-title">Health sources</h3>
+      <h3 class="pdw-section-title"><span class="pdw-title-icon">◌</span>Health sources</h3>
       <span class="pdw-section-sub">Connect your phone or wearable to share health data with your care team</span>
     </div>
     <div class="pdw-source-grid">
       ${HEALTH_SOURCES.map(src => {
-        const conn   = connFor(src.id);
-        const status = syncStatus(conn);
-        const isConn = status === 'synced' || status === 'stale' || status === 'pending';
-        const accent = `var(${src.accentVar},#00d4bc)`;
+        const conn    = connFor(src.id);
+        const status  = syncStatus(conn);
+        const isConn  = status === 'synced' || status === 'stale' || status === 'pending';
+        const accent  = `var(${src.accentVar},#00d4bc)`;
         const syncStr = conn?.last_sync_at ? `Last sync ${fmtRelative(conn.last_sync_at)}` : 'Never synced';
         return `
-        <div class="pdw-source-card">
-          <div class="pdw-source-top">
-            <div class="pdw-source-icon" style="color:${accent}">${src.icon}</div>
-            <div class="pdw-source-meta">
-              <div class="pdw-source-name">${esc(src.label)}</div>
-              <div class="pdw-source-platform">${esc(src.platform)}</div>
+        <div class="pdw-source-card pdw-source-card--${status}" style="${isConn ? `--src-accent:${accent}` : ''}">
+          <div class="pdw-source-status-bar" style="background:${isConn ? accent : 'rgba(255,255,255,0.06)'}"></div>
+          <div class="pdw-source-inner">
+            <div class="pdw-source-top">
+              <div class="pdw-source-icon-wrap" style="background:${accent}18;border-color:${accent}30">
+                <span class="pdw-source-icon" style="color:${accent}">${src.icon}</span>
+              </div>
+              <div class="pdw-source-meta">
+                <div class="pdw-source-name">${esc(src.label)}</div>
+                <div class="pdw-source-platform">${esc(src.platform)}</div>
+              </div>
+              ${statusPill(status)}
             </div>
-            ${statusPill(status)}
-          </div>
-          <div class="pdw-source-sync">${isConn ? syncStr : 'Not connected'}</div>
-          <div class="pdw-data-used">
-            <span class="pdw-data-label">Data used:</span>
-            ${src.dataUsed.map(d=>`<span class="pdw-data-chip">${esc(d)}</span>`).join('')}
-          </div>
-          <div class="pdw-source-note">${esc(src.connectNote)}</div>
-          <div class="pdw-source-actions">
-            ${isConn
-              ? `<button class="pdw-btn-manage"    onclick="window._pdwManageSource('${src.id}','${conn?.id||''}')">Manage</button>
-                 <button class="pdw-btn-reconnect" onclick="window._pdwReconnect('${src.id}')">Reconnect</button>`
-              : `<button class="pdw-btn-connect"   onclick="window._pdwConnect('${src.id}')">Connect</button>`}
+            <div class="pdw-source-sync">${isConn ? syncStr : 'Tap Connect to start syncing'}</div>
+            <div class="pdw-data-used">
+              <span class="pdw-data-label">Data synced:</span>
+              ${src.dataUsed.map(d=>`<span class="pdw-data-chip">${esc(d)}</span>`).join('')}
+            </div>
+            ${!isConn ? `<div class="pdw-source-note">${esc(src.connectNote)}</div>` : ''}
+            <div class="pdw-source-actions">
+              ${isConn
+                ? `<button class="pdw-btn-manage"    onclick="window._pdwManageSource('${src.id}','${conn?.id||''}')">Manage</button>
+                   <button class="pdw-btn-reconnect" onclick="window._pdwReconnect('${src.id}')">Reconnect</button>`
+                : `<button class="pdw-btn-connect"   onclick="window._pdwConnect('${src.id}')">Connect</button>`}
+            </div>
           </div>
         </div>`;
       }).join('')}
@@ -5415,7 +5589,7 @@ export async function pgPatientWearables() {
   <!-- ③ HOME THERAPY DEVICES -->
   <div class="pdw-section">
     <div class="pdw-section-header">
-      <h3 class="pdw-section-title">Home therapy devices</h3>
+      <h3 class="pdw-section-title"><span class="pdw-title-icon">⊕</span>Home therapy devices</h3>
       <span class="pdw-section-sub">Devices assigned by your clinic for use between sessions</span>
     </div>
     <div class="pdw-device-list">
@@ -5442,11 +5616,13 @@ export async function pgPatientWearables() {
             <div class="pdw-detail-row"><span class="pdw-detail-lbl">Clinician monitoring</span><span class="pdw-detail-val ${asgn.monitoredByClinician?'pdw-monitored-yes':''}">${asgn.monitoredByClinician?'✓ Monitored':'Self-tracking only'}</span></div>
             ${asgn._isDemoData ? '<div class="pdw-demo-badge">Example assignment</div>' : ''}
           </div>
-          <div class="pdw-device-actions">
-            <button class="pdw-action-btn pdw-action-primary" onclick="window._pdwLogSession('${dev.id}')">Log Session</button>
-            <button class="pdw-action-btn"                    onclick="window._pdwViewInstructions('${dev.id}')">Instructions</button>
-            <button class="pdw-action-btn pdw-action-report"  onclick="window._pdwReportIssue()">Report Issue</button>
-            <button class="pdw-action-btn pdw-action-ble" disabled title="Coming soon">Connect Device</button>
+          <div class="pdw-device-actions-wrap">
+            <button class="pdw-action-primary-btn" onclick="window._pdwLogSession('${dev.id}')">+ Log Session</button>
+            <div class="pdw-action-secondary-row">
+              <button class="pdw-action-ghost" onclick="window._pdwViewInstructions('${dev.id}')">Instructions</button>
+              <button class="pdw-action-ghost pdw-action-ghost--warn" onclick="window._pdwReportIssue()">Report Issue</button>
+              <button class="pdw-action-ghost pdw-action-ghost--ble" disabled title="Coming soon — Bluetooth pairing">◌ Connect</button>
+            </div>
           </div>` : `
           <p class="pdw-device-unassigned">Not currently part of your plan. Contact your care team if you have this device.</p>
           <div class="pdw-device-actions"><button class="pdw-action-btn" onclick="window._navPatient('patient-messages')">Ask my clinician</button></div>`}
@@ -5485,12 +5661,20 @@ export async function pgPatientWearables() {
   <!-- ④ WHAT YOUR CLINIC MONITORS -->
   <div class="pdw-section">
     <div class="pdw-section-header">
-      <h3 class="pdw-section-title">What your clinic monitors</h3>
+      <h3 class="pdw-section-title"><span class="pdw-title-icon">◎</span>What your clinic monitors</h3>
       <span class="pdw-section-sub">Automatically shared with your care team</span>
     </div>
     <div class="pdw-monitoring-chips">
-      ${['Sleep','HRV','Heart rate','Steps & activity','Home session completion','Symptom check-ins','Side effects reported','Uploaded updates'].map(
-        c=>`<span class="pdw-monitor-chip">${esc(c)}</span>`).join('')}
+      ${[
+        {label:'Sleep',           icon:'◗'},
+        {label:'HRV',             icon:'∿'},
+        {label:'Heart rate',      icon:'♡'},
+        {label:'Steps & activity',icon:'◈'},
+        {label:'Home sessions',   icon:'⊕'},
+        {label:'Symptom check-ins',icon:'◉'},
+        {label:'Side effects',    icon:'◬'},
+        {label:'Uploaded updates',icon:'↑'},
+      ].map(c=>`<span class="pdw-monitor-chip"><span class="pdw-chip-icon">${c.icon}</span>${esc(c.label)}</span>`).join('')}
     </div>
     <p class="pdw-note-text">Only the items above are visible to your clinic. Personal notes and voice memos are only shared when you choose to upload them.</p>
   </div>
@@ -5498,36 +5682,71 @@ export async function pgPatientWearables() {
   <!-- ⑤ BIOMETRICS SNAPSHOT -->
   <div class="pdw-section">
     <div class="pdw-section-header">
-      <h3 class="pdw-section-title">Biometrics snapshot</h3>
+      <h3 class="pdw-section-title"><span class="pdw-title-icon">◗</span>Biometrics snapshot</h3>
       ${bio._isDemoData
-        ? '<span class="pdw-demo-tag">Example — connect a device to see real data</span>'
+        ? '<span class="pdw-demo-tag">Example data — connect a device to see real values</span>'
         : `<span class="pdw-section-sub">Last sync ${lastSyncMs ? fmtRelative(new Date(lastSyncMs).toISOString()) : '—'}</span>`}
     </div>
     <div class="pdw-bio-tiles">
-      <div class="pdw-bio-tile"><div class="pdw-bio-val">${esc(bio.sleep)}</div><div class="pdw-bio-lbl">Sleep last night</div></div>
-      <div class="pdw-bio-tile"><div class="pdw-bio-val">${esc(bio.hrv)}</div><div class="pdw-bio-lbl">HRV</div></div>
-      <div class="pdw-bio-tile"><div class="pdw-bio-val">${esc(bio.rhr||'—')}</div><div class="pdw-bio-lbl">Resting heart rate</div></div>
-      <div class="pdw-bio-tile"><div class="pdw-bio-val">${esc(bio.steps)}</div><div class="pdw-bio-lbl">Steps today</div></div>
+      <div class="pdw-bio-tile pdw-bio-tile--sleep">
+        <div class="pdw-bio-icon">◗</div>
+        <div class="pdw-bio-val">${esc(bio.sleep)}</div>
+        <div class="pdw-bio-lbl">Sleep last night</div>
+      </div>
+      <div class="pdw-bio-tile pdw-bio-tile--hrv">
+        <div class="pdw-bio-icon">∿</div>
+        <div class="pdw-bio-val">${esc(bio.hrv)}</div>
+        <div class="pdw-bio-lbl">HRV</div>
+      </div>
+      <div class="pdw-bio-tile pdw-bio-tile--rhr">
+        <div class="pdw-bio-icon">♡</div>
+        <div class="pdw-bio-val">${esc(bio.rhr||'—')}</div>
+        <div class="pdw-bio-lbl">Resting heart rate</div>
+      </div>
+      <div class="pdw-bio-tile pdw-bio-tile--steps">
+        <div class="pdw-bio-icon">◈</div>
+        <div class="pdw-bio-val">${esc(bio.steps)}</div>
+        <div class="pdw-bio-lbl">Steps today</div>
+      </div>
     </div>
   </div>
 
   <!-- ⑥ PRIVACY & PERMISSIONS -->
   <div class="pdw-section pdw-privacy-section">
-    <div class="pdw-section-header"><h3 class="pdw-section-title">Privacy &amp; permissions</h3></div>
+    <div class="pdw-section-header"><h3 class="pdw-section-title"><span class="pdw-title-icon">◧</span>Privacy &amp; permissions</h3></div>
     <div class="pdw-privacy-grid">
-      <div class="pdw-priv-block"><div class="pdw-priv-heading">What data is read</div><p class="pdw-priv-text">Sleep, heart rate, HRV, steps, and activity. No location data is ever accessed.</p></div>
-      <div class="pdw-priv-block"><div class="pdw-priv-heading">Permissions used</div><p class="pdw-priv-text">Read-only access you explicitly grant. We never write back to Apple Health or Health Connect.</p></div>
-      <div class="pdw-priv-block"><div class="pdw-priv-heading">How to disconnect</div><p class="pdw-priv-text">Use the Manage button on any connected source. On iOS, revoke access in Settings → Privacy → Health.</p></div>
-      <div class="pdw-priv-block"><div class="pdw-priv-heading">How to stop sharing</div><p class="pdw-priv-text">Disconnect any source at any time. Historical data stays in your record but no new data will be collected.</p></div>
+      <div class="pdw-priv-block">
+        <div class="pdw-priv-heading"><span class="pdw-priv-icon">◉</span>What data is read</div>
+        <p class="pdw-priv-text">Sleep, heart rate, HRV, steps, and activity. No location data is ever accessed.</p>
+      </div>
+      <div class="pdw-priv-block">
+        <div class="pdw-priv-heading"><span class="pdw-priv-icon">◌</span>Permissions used</div>
+        <p class="pdw-priv-text">Read-only access you explicitly grant. We never write back to Apple Health or Health Connect.</p>
+      </div>
+      <div class="pdw-priv-block">
+        <div class="pdw-priv-heading"><span class="pdw-priv-icon">◫</span>How to disconnect</div>
+        <p class="pdw-priv-text">Use the Manage button on any connected source. On iOS, revoke in Settings → Privacy → Health.</p>
+      </div>
+      <div class="pdw-priv-block">
+        <div class="pdw-priv-heading"><span class="pdw-priv-icon">◻</span>How to stop sharing</div>
+        <p class="pdw-priv-text">Disconnect any source at any time. Historical data stays in your record but no new data will be collected.</p>
+      </div>
     </div>
   </div>
 
   <!-- ⑦ FUTURE-READY BLE PLACEHOLDER -->
-  <div class="pdw-section pdw-ble-section">
-    <div class="pdw-ble-icon">◌</div>
-    <div class="pdw-ble-copy">
-      <div class="pdw-ble-heading">Direct Bluetooth connection — coming soon</div>
-      <p class="pdw-ble-text">Future versions will allow your home device to connect directly via Bluetooth, automatically importing session logs and device diagnostics.</p>
+  <div class="pdw-ble-section">
+    <div class="pdw-ble-inner">
+      <div class="pdw-ble-pulse">
+        <div class="pdw-ble-ring"></div>
+        <div class="pdw-ble-ring pdw-ble-ring--2"></div>
+        <span class="pdw-ble-center-icon">◌</span>
+      </div>
+      <div class="pdw-ble-copy">
+        <div class="pdw-ble-badge">Coming soon</div>
+        <div class="pdw-ble-heading">Direct Bluetooth connection</div>
+        <p class="pdw-ble-text">Your home device will connect directly via Bluetooth — automatically importing session logs, device diagnostics, and usage data to your care record.</p>
+      </div>
     </div>
   </div>
 
@@ -8325,32 +8544,284 @@ function _outcomeGetGoalNotes() {
   }
 }
 
-// ── Progress ring SVG ──────────────────────────────────────────────────────────
-function _progressRingSVG(value, max, color, size) {
-  const sz = size || 72;
-  const pct = Math.min(1, Math.max(0, value / max));
-  const r = sz / 2 - 7;
-  const circ = 2 * Math.PI * r;
-  const dash = pct * circ;
-  const cx = sz / 2;
-  const uid = 'pr-' + Math.random().toString(36).slice(2);
-  return (
-    '<svg width="' + sz + '" height="' + sz + '" viewBox="0 0 ' + sz + ' ' + sz + '" class="iii-progress-ring" role="img" aria-label="' + Math.round(pct * 100) + '%">' +
-    '<defs><linearGradient id="' + uid + '" x1="0%" y1="0%" x2="100%" y2="100%">' +
-    '<stop offset="0%" stop-color="' + color + '" stop-opacity="0.6"/>' +
-    '<stop offset="100%" stop-color="' + color + '" stop-opacity="1"/>' +
-    '</linearGradient></defs>' +
-    '<circle cx="' + cx + '" cy="' + cx + '" r="' + r + '" fill="none" stroke="rgba(255,255,255,0.07)" stroke-width="6"/>' +
-    '<circle cx="' + cx + '" cy="' + cx + '" r="' + r + '" fill="none" stroke="url(#' + uid + ')" stroke-width="6"' +
-    ' stroke-dasharray="' + dash.toFixed(2) + ' ' + (circ - dash).toFixed(2) + '"' +
-    ' stroke-dashoffset="' + (circ / 4).toFixed(2) + '" stroke-linecap="round"' +
-    ' style="transition:stroke-dasharray 1.2s cubic-bezier(.4,0,.2,1);filter:drop-shadow(0 0 3px ' + color + ')"/>' +
-    '<text x="' + cx + '" y="' + (cx + 5) + '" text-anchor="middle" font-size="' + (sz < 64 ? 10 : 13) + '" font-weight="700" fill="' + color + '">' + Math.round(pct * 100) + '%</text>' +
-    '</svg>'
-  );
+// ── Patient-friendly score bands ─────────────────────────────────────────────
+function _pgpPhq9Band(score) {
+  if (score === null || score === undefined) return { label: 'Not yet measured', note: '' };
+  if (score >= 20) return { label: 'Struggling significantly', note: 'This is the highest range. Your care team is actively supporting you.' };
+  if (score >= 15) return { label: 'Having a difficult time',  note: 'You\'re experiencing significant symptoms. Your treatment is focused on this.' };
+  if (score >= 10) return { label: 'Experiencing some difficulty', note: 'Moderate range — there\'s clear room to improve and your treatment is working toward it.' };
+  if (score >= 5)  return { label: 'Mild difficulties',  note: 'You\'re in the mild range — meaningful progress from where you started.' };
+  return               { label: 'Doing well',           note: 'Minimal symptoms. This is excellent progress.' };
 }
 
-// ── Symptom multi-line chart ───────────────────────────────────────────────────
+// ── Overall progress status ───────────────────────────────────────────────────
+function _pgpStatus(pct) {
+  if (pct === null || pct === undefined) return { key: 'start',    label: 'Getting Started',   icon: '○', color: '#60a5fa', bg: 'rgba(96,165,250,0.08)',  tagline: 'Your progress tracking begins after your first assessment.' };
+  if (pct >= 30)  return { key: 'improving', label: 'Improving',        icon: '↑', color: '#2dd4bf', bg: 'rgba(45,212,191,0.08)',  tagline: 'Your scores show meaningful improvement since you started.' };
+  if (pct >= 10)  return { key: 'improving', label: 'Slowly Improving', icon: '↗', color: '#2dd4bf', bg: 'rgba(45,212,191,0.06)',  tagline: 'You\'re heading in the right direction — progress takes time.' };
+  if (pct >= -10) return { key: 'steady',    label: 'Holding Steady',   icon: '→', color: '#60a5fa', bg: 'rgba(96,165,250,0.08)',  tagline: 'Your scores are stable. Keep attending sessions and checking in.' };
+  return               { key: 'review',   label: 'Let\'s Check In',  icon: '!', color: '#fbbf24', bg: 'rgba(251,191,36,0.08)',   tagline: 'Your care team has been notified and will reach out soon.' };
+}
+
+// ── Single-measure trend chart ────────────────────────────────────────────────
+function _pgpTrendChart(measure, sessions) {
+  if (!measure || !measure.points || measure.points.length < 2) {
+    return '<div class="pgp-chart-empty">Your trend chart will appear after your second assessment.</div>';
+  }
+  var W = 860, H = 200, PL = 36, PR = 20, PT = 30, PB = 44;
+  var iW = W - PL - PR, iH = H - PT - PB;
+  var pts = measure.points;
+  var maxV = measure.max || 27;
+  var nX = pts.length;
+  var col = '#2dd4bf';
+  function xP(i) { return PL + (i / (nX - 1)) * iW; }
+  function yP(s) { return PT + iH - (s / maxV) * iH; }
+  var uid = 'pgc' + Math.random().toString(36).slice(2, 8);
+  var parts = [];
+  // Gradient fill under line
+  var areaPts = pts.map(function(pt, i) { return xP(i).toFixed(1) + ',' + yP(pt.score).toFixed(1); }).join(' ');
+  parts.push('<defs><linearGradient id="' + uid + '" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="' + col + '" stop-opacity="0.15"/><stop offset="100%" stop-color="' + col + '" stop-opacity="0"/></linearGradient></defs>');
+  parts.push('<polygon points="' + areaPts + ' ' + xP(nX - 1).toFixed(1) + ',' + (PT + iH) + ' ' + PL + ',' + (PT + iH) + '" fill="url(#' + uid + ')"/>');
+  // Grid
+  [0, 0.25, 0.5, 0.75, 1].forEach(function(f) {
+    var y = (PT + iH * (1 - f)).toFixed(1);
+    parts.push('<line x1="' + PL + '" y1="' + y + '" x2="' + (W - PR) + '" y2="' + y + '" stroke="rgba(255,255,255,0.05)" stroke-width="1"/>');
+    parts.push('<text x="' + (PL - 4) + '" y="' + (parseFloat(y) + 4) + '" text-anchor="end" font-size="9" fill="rgba(148,163,184,0.45)">' + Math.round(maxV * f) + '</text>');
+  });
+  parts.push('<text x="' + (PL + 2) + '" y="' + (PT - 12) + '" font-size="9" fill="rgba(148,163,184,0.45)">← Lower scores = fewer symptoms</text>');
+  // Line
+  var linePts = pts.map(function(pt, i) { return xP(i).toFixed(1) + ',' + yP(pt.score).toFixed(1); }).join(' ');
+  parts.push('<polyline points="' + linePts + '" fill="none" stroke="' + col + '" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>');
+  // Session markers (triangles below axis)
+  if (sessions && sessions.length) {
+    var allDates = pts.map(function(pt) { return pt.date; });
+    var tStart = new Date(allDates[0]).getTime();
+    var tEnd   = new Date(allDates[allDates.length - 1]).getTime();
+    var tRange = tEnd - tStart;
+    if (tRange > 0) {
+      sessions.slice(0, 30).forEach(function(s) {
+        var t = new Date(s.date).getTime();
+        if (t < tStart || t > tEnd) return;
+        var sx = (PL + ((t - tStart) / tRange) * iW).toFixed(1);
+        var sy = PT + iH + 6;
+        parts.push('<polygon points="' + sx + ',' + (sy - 4) + ' ' + (parseFloat(sx) - 4) + ',' + (sy + 4) + ' ' + (parseFloat(sx) + 4) + ',' + (sy + 4) + '" fill="rgba(96,165,250,0.4)"/>');
+      });
+      parts.push('<text x="' + PL + '" y="' + (PT + iH + 22) + '" font-size="8.5" fill="rgba(96,165,250,0.55)">▲ sessions</text>');
+    }
+  }
+  // Dots, score labels, date ticks
+  pts.forEach(function(pt, i) {
+    var cx = xP(i).toFixed(1), cy = yP(pt.score).toFixed(1);
+    var isLast = i === pts.length - 1, isFirst = i === 0;
+    if (isLast) parts.push('<circle cx="' + cx + '" cy="' + cy + '" r="9" fill="' + col + '" opacity="0.12"/>');
+    parts.push('<circle cx="' + cx + '" cy="' + cy + '" r="' + (isLast ? 5 : 3.5) + '" fill="' + col + '" stroke="#0f172a" stroke-width="1.5"/>');
+    var scoreY = parseFloat(cy) > PT + 20 ? parseFloat(cy) - 10 : parseFloat(cy) + 16;
+    parts.push('<text x="' + cx + '" y="' + scoreY + '" text-anchor="middle" font-size="10.5" fill="' + col + '" font-weight="700">' + pt.score + '</text>');
+    if (isFirst) parts.push('<text x="' + cx + '" y="' + (scoreY - 12) + '" text-anchor="middle" font-size="8" fill="rgba(148,163,184,0.45)">baseline</text>');
+    if (isLast)  parts.push('<text x="' + cx + '" y="' + (scoreY - 12) + '" text-anchor="middle" font-size="8" fill="' + col + '">now</text>');
+    var dl = new Date(pt.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    parts.push('<text x="' + cx + '" y="' + (PT + iH + 14) + '" text-anchor="middle" font-size="9" fill="rgba(148,163,184,0.65)">' + dl + '</text>');
+  });
+  return '<div class="pgp-chart-wrap">' +
+    '<svg id="pgp-trend-svg" viewBox="0 0 ' + W + ' ' + H + '" width="100%" height="' + H + '" style="display:block;overflow:visible">' + parts.join('') + '</svg>' +
+    '<div class="pgp-chart-caption">' + (measure.label || 'Score') + ' over time &nbsp;·&nbsp; ' + pts.length + ' assessments</div>' +
+    '</div>';
+}
+
+// ── What changed this week tiles ──────────────────────────────────────────────
+function _pgpWeeklyTiles() {
+  var journal = [];
+  try { journal = JSON.parse(localStorage.getItem('ds_symptom_journal') || '[]'); } catch (_e) {}
+  var cutoff = new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10);
+  var recent = journal.filter(function(e) { return (e.date || (e.created_at || '').slice(0, 10)) >= cutoff; });
+  if (!recent.length) {
+    return '<div class="pgp-weekly-empty">' +
+      '<span class="pgp-we-icon">📊</span>' +
+      '<div>Log your daily check-in to see what changed this week.</div>' +
+      '<button class="pgp-btn-ghost" onclick="window._navPatient(\'pt-wellness\')">Complete Today\'s Check-in →</button>' +
+      '</div>';
+  }
+  function numArr(k1, k2) { return recent.map(function(e) { return e[k1] != null ? e[k1] : e[k2]; }).filter(function(v) { return typeof v === 'number' && !isNaN(v); }); }
+  function avg(arr) { return arr.length ? arr.reduce(function(a, b) { return a + b; }, 0) / arr.length : null; }
+  function dir(arr, invert) {
+    if (arr.length < 2) return 'neutral';
+    var mid = Math.max(1, Math.floor(arr.length / 2));
+    var first = avg(arr.slice(0, mid)), last = avg(arr.slice(mid));
+    if (last > first + 0.4) return invert ? 'down' : 'up';
+    if (last < first - 0.4) return invert ? 'up'   : 'down';
+    return 'neutral';
+  }
+  var moodArr  = numArr('mood_score', 'mood');
+  var sleepArr = numArr('sleep_score', 'sleep');
+  var stressArr = numArr('stress', 'anxiety_score');
+  var cols  = { up: '#2dd4bf', down: '#f43f5e', neutral: '#60a5fa' };
+  var icons = { up: '↑ Better', down: '↓ Lower', neutral: '→ Stable' };
+  var tiles = [
+    { label: 'Mood',      emoji: '😌', val: avg(moodArr),   d: dir(moodArr,  false), unit: '/10', key: 'mood'    },
+    { label: 'Sleep',     emoji: '🌙', val: avg(sleepArr),  d: dir(sleepArr, false), unit: '/10', key: 'sleep'   },
+    { label: 'Stress',    emoji: '🧘', val: avg(stressArr), d: dir(stressArr, true), unit: '/10', key: 'stress'  },
+    { label: 'Check-ins', emoji: '✅', val: recent.length,  d: recent.length >= 4 ? 'up' : recent.length >= 2 ? 'neutral' : 'down', unit: ' days', key: 'checkin', isInt: true },
+  ];
+  return '<div class="pgp-weekly-grid">' +
+    tiles.map(function(t) {
+      var c = cols[t.d];
+      if (t.key === 'stress') { if (t.d === 'down') c = cols.up; else if (t.d === 'up') c = cols.down; }
+      var dv = t.val === null ? '—' : (t.isInt ? t.val : parseFloat(t.val).toFixed(1)) + t.unit;
+      return '<div class="pgp-wt"><div class="pgp-wt-emoji">' + t.emoji + '</div>' +
+        '<div class="pgp-wt-label">' + t.label + '</div>' +
+        '<div class="pgp-wt-val">' + dv + '</div>' +
+        '<div class="pgp-wt-trend" style="color:' + c + '">' + icons[t.d] + '</div></div>';
+    }).join('') +
+    '</div>';
+}
+
+// ── Improvement drivers ────────────────────────────────────────────────────────
+function _pgpDriverBars(data, ptoData) {
+  var phq9m = (ptoData.measures || []).find(function(m) { return m.id === 'phq9'; });
+  var pts = phq9m ? phq9m.points : [];
+  var sympPct = pts.length >= 2
+    ? Math.max(0, Math.min(100, Math.round(((pts[0].score - pts[pts.length - 1].score) / pts[0].score) * 100)))
+    : 0;
+  var journal = [];
+  try { journal = JSON.parse(localStorage.getItem('ds_symptom_journal') || '[]'); } catch (_e) {}
+  var cut14 = new Date(Date.now() - 14 * 86400000).toISOString().slice(0, 10);
+  var rec14 = journal.filter(function(e) { return (e.date || (e.created_at || '').slice(0, 10)) >= cut14; });
+  function avgPct(key1, key2, maxVal) {
+    var vals = rec14.map(function(e) { var v = e[key1] != null ? e[key1] : e[key2]; return typeof v === 'number' ? v : null; }).filter(function(v) { return v !== null; });
+    return vals.length ? Math.round((vals.reduce(function(a, b) { return a + b; }, 0) / vals.length / maxVal) * 100) : 0;
+  }
+  var moodPct    = avgPct('mood_score', 'mood', 10);
+  var sleepPct   = avgPct('sleep_score', 'sleep', 10);
+  var checkinPct = Math.min(100, Math.round((rec14.length / 14) * 100));
+  var sessTotal  = data.patient.totalSessions || 0;
+  var sessPct    = Math.min(100, Math.round((sessTotal / 24) * 100));
+  var goals      = data.goals || [];
+  var goalPct    = goals.length ? Math.round((goals.filter(function(g) { return g.status === 'achieved'; }).length / goals.length) * 100) : 0;
+  var clinSess   = (data.sessions || []).filter(function(s) { return s.clinicianRead; }).length;
+  var clinPct    = data.sessions && data.sessions.length ? Math.round((clinSess / data.sessions.length) * 100) : 0;
+  var drivers = [
+    { label: 'Symptom Improvement',  pct: sympPct,    note: sympPct + '% reduction in primary symptoms',       color: '#2dd4bf' },
+    { label: 'Sleep Quality',         pct: sleepPct,   note: 'Based on recent daily check-ins',                  color: '#60a5fa' },
+    { label: 'Mood & Wellbeing',      pct: moodPct,    note: 'Based on recent daily check-ins',                  color: '#a78bfa' },
+    { label: 'Session Attendance',    pct: sessPct,    note: sessTotal + ' sessions completed',                   color: '#fbbf24' },
+    { label: 'Daily Check-in Streak', pct: checkinPct, note: rec14.length + ' of 14 days logged',                color: '#fb923c' },
+    { label: 'Care Team Reviews',     pct: clinPct,    note: clinSess + ' sessions reviewed by your clinician',  color: '#2dd4bf' },
+    { label: 'Goals Reached',         pct: goalPct,    note: goals.filter(function(g) { return g.status === 'achieved'; }).length + ' of ' + goals.length + ' goals achieved', color: '#60a5fa' },
+  ];
+  return '<div class="pgp-drivers">' +
+    drivers.map(function(d) {
+      var pct = Math.max(0, Math.min(100, Math.round(d.pct)));
+      var chip = pct >= 70 ? '<span class="pgp-dchip pgp-dchip-good">Strong</span>'
+               : pct >= 35 ? '<span class="pgp-dchip pgp-dchip-ok">Building</span>'
+               :              '<span class="pgp-dchip pgp-dchip-low">Getting started</span>';
+      return '<div class="pgp-driver">' +
+        '<div class="pgp-driver-hd"><span class="pgp-driver-lbl">' + d.label + '</span>' + chip + '</div>' +
+        '<div class="pgp-driver-track"><div class="pgp-driver-fill" style="width:' + pct + '%;background:' + d.color + '"></div></div>' +
+        '<div class="pgp-driver-note">' + d.note + '</div>' +
+        '</div>';
+    }).join('') +
+    '</div>';
+}
+
+// ── Clinician feedback card ────────────────────────────────────────────────────
+function _pgpClinicianFeedback(data, _rptLoc) {
+  function esc(v) { if (v == null) return ''; return String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#x27;'); }
+  var sessions = (data.sessions || []).filter(function(s) { return s.clinicianRead && s.note; });
+  if (!sessions.length) return '<div class="pgp-empty-block">Your clinician\'s feedback will appear here after your next session review.</div>';
+  var s = sessions[sessions.length - 1];
+  var dl = new Date(s.date).toLocaleDateString(_rptLoc, { weekday: 'long', month: 'long', day: 'numeric' });
+  var initials = (s.clinician || 'DR').split(' ').map(function(w) { return w[0] || ''; }).join('').slice(0, 2).toUpperCase();
+  return '<div class="pgp-feedback-card">' +
+    '<div class="pgp-fb-hd">' +
+      '<div class="pgp-fb-avatar">' + initials + '</div>' +
+      '<div class="pgp-fb-meta"><div class="pgp-fb-name">' + esc(s.clinician) + '</div><div class="pgp-fb-date">' + dl + '</div></div>' +
+      '<span class="pgp-fb-badge">✓ Reviewed</span>' +
+    '</div>' +
+    '<div class="pgp-fb-note">&#8220;' + esc(s.note) + '&#8221;</div>' +
+    '<div class="pgp-fb-ctx">' + esc(s.type) + ' session</div>' +
+    '<button class="pgp-btn-ghost" style="margin-top:12px" onclick="window._navPatient(\'patient-messages\')">Ask a question about this →</button>' +
+    '</div>';
+}
+
+// ── Goals & milestones ─────────────────────────────────────────────────────────
+function _pgpGoals(data) {
+  var goals = data.goals || [];
+  if (!goals.length) return '<div class="pgp-empty-block">Your treatment goals will appear here once set by your care team.</div>';
+  function friendly(g) {
+    var n = (g.name || '').toLowerCase();
+    if (n.indexOf('anxiety') !== -1) return 'Feel less anxious';
+    if (n.indexOf('sleep')   !== -1) return 'Sleep better each night';
+    if (n.indexOf('focus')   !== -1) return 'Improve focus and clarity';
+    return g.name;
+  }
+  return '<div class="pgp-goals">' +
+    goals.map(function(g) {
+      var pct = Math.min(100, Math.round((g.current / g.target) * 100));
+      var st = g.status === 'achieved' ? { label: 'Achieved ✓', color: '#2dd4bf' }
+             : g.status === 'on-track' ? { label: 'On track',   color: '#60a5fa' }
+             :                           { label: 'In progress', color: '#fbbf24' };
+      return '<div class="pgp-goal">' +
+        '<div class="pgp-goal-top"><div class="pgp-goal-name">' + friendly(g) + '</div>' +
+        '<span class="pgp-goal-pill" style="color:' + st.color + ';background:' + st.color + '18;border-color:' + st.color + '44">' + st.label + '</span></div>' +
+        '<div class="pgp-goal-track"><div class="pgp-goal-fill" style="width:' + pct + '%;background:' + st.color + '"></div></div>' +
+        '<div class="pgp-goal-caption" style="color:' + st.color + '">' + pct + '% of goal reached</div>' +
+        '</div>';
+    }).join('') +
+    '</div>';
+}
+
+// ── Devices & biometrics (compact) ────────────────────────────────────────────
+function _pgpBiometrics() {
+  var tiles = [
+    { label: 'Sleep',      val: '7.2 hrs', sub: 'avg last 7 nights',  icon: '🌙' },
+    { label: 'HRV',        val: '48 ms',   sub: 'avg last 7 days',    icon: '💚' },
+    { label: 'Resting HR', val: '64 bpm',  sub: 'avg last 7 days',    icon: '❤️' },
+    { label: 'Adherence',  val: '87%',     sub: 'homework completion', icon: '📋' },
+  ];
+  return '<div class="pgp-bio-grid">' +
+    tiles.map(function(t) {
+      return '<div class="pgp-bio-tile"><div class="pgp-bio-icon">' + t.icon + '</div>' +
+        '<div class="pgp-bio-label">' + t.label + '</div>' +
+        '<div class="pgp-bio-val">' + t.val + '</div>' +
+        '<div class="pgp-bio-sub">' + t.sub + '</div></div>';
+    }).join('') +
+    '</div>' +
+    '<div class="pgp-bio-sync">Last synced today &nbsp;·&nbsp; <a href="#" style="color:var(--accent-teal,#2dd4bf);text-decoration:none" onclick="window._navPatient(\'patient-wearables\');return false">Manage devices →</a></div>';
+}
+
+// ── Care assistant prompt panel ────────────────────────────────────────────────
+function _pgpCareAssistant() {
+  var prompts = [
+    'Explain my progress',
+    'What changed since last week?',
+    'Compare now with when I started',
+    'Explain my biometrics',
+    'What should I do before my next session?',
+  ];
+  return '<div class="pgp-assistant">' +
+    '<div class="pgp-assistant-hd">Ask your care assistant</div>' +
+    '<div class="pgp-assistant-hint">Tap a question to get a plain-language answer.</div>' +
+    '<div class="pgp-assistant-btns">' +
+    prompts.map(function(p) {
+      return '<button class="pgp-assistant-btn" onclick="window._pgpAskAssistant(' + JSON.stringify(p) + ')">' + p + ' →</button>';
+    }).join('') +
+    '</div></div>';
+}
+
+// ── Plain-language accordion ───────────────────────────────────────────────────
+function _pgpAccordion(id, label, body) {
+  return '<details class="pgp-accordion" id="' + id + '"><summary class="pgp-accordion-sum">' + label + '</summary><div class="pgp-accordion-body">' + body + '</div></details>';
+}
+
+// ── Section wrapper ────────────────────────────────────────────────────────────
+function _pgpSection(title, content, accordionLabel, accordionBody) {
+  var accId = 'pgp-acc-' + title.replace(/\W+/g, '').toLowerCase().slice(0, 18);
+  return '<div class="pgp-section"><h2 class="pgp-section-title">' + title + '</h2>' + content +
+    (accordionLabel ? _pgpAccordion(accId, accordionLabel, accordionBody) : '') +
+    '</div>';
+}
+
+// ── [legacy chart helpers removed — replaced by pgp helpers above] ────────────
 function _symptomLineChart(symptoms) {
   const W = 380, H = 200, padL = 30, padT = 16, padR = 12, padB = 28;
   const cW = W - padL - padR, cH = H - padT - padB;
@@ -8606,8 +9077,141 @@ async function _ptoLoadLive() {
   }
 }
 
-// ── Main render ───────────────────────────────────────────────────────────────
-function _renderOutcomePortal() {
+// ── Patient Progress page render ───────────────────────────────────────────────
+function _renderProgressPage() {
+  var el = document.getElementById('patient-content');
+  if (!el) return;
+  function esc(v) { if (v == null) return ''; return String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#x27;'); }
+
+  var data     = _outcomeGetData();
+  var ptoData  = _ptoLoad();
+  var p        = data.patient;
+  var ptoPat   = ptoData.patient;
+  var measures = ptoData.measures || [];
+  var _rptLoc  = (typeof getLocale === 'function' ? getLocale() : 'en') === 'tr' ? 'tr-TR' : 'en-US';
+
+  var phq9m    = measures.find(function(m) { return m.id === 'phq9'; }) || measures[0] || null;
+  var phq9pts  = phq9m ? phq9m.points : [];
+  var phq9base = phq9pts.length ? phq9pts[0].score : null;
+  var phq9now  = phq9pts.length ? phq9pts[phq9pts.length - 1].score : null;
+  var phq9pct  = (phq9base && phq9base > 0 && phq9now !== null)
+    ? Math.round(((phq9base - phq9now) / phq9base) * 100) : null;
+
+  var status   = _pgpStatus(phq9pct);
+  var nowBand  = _pgpPhq9Band(phq9now);
+  var baseBand = _pgpPhq9Band(phq9base);
+
+  var daysSince     = Math.floor((Date.now() - new Date(ptoPat.startDate).getTime()) / 86400000);
+  var lastRevSess   = (data.sessions || []).filter(function(s) { return s.clinicianRead; }).pop();
+  var lastRevDate   = lastRevSess ? new Date(lastRevSess.date).toLocaleDateString(_rptLoc, { month: 'long', day: 'numeric' }) : null;
+  var nextRevDate   = ptoData.nextAssessmentDate ? new Date(ptoData.nextAssessmentDate).toLocaleDateString(_rptLoc, { month: 'long', day: 'numeric' }) : null;
+  var daysUntilNext = ptoData.nextAssessmentDate ? Math.max(0, Math.ceil((new Date(ptoData.nextAssessmentDate).getTime() - Date.now()) / 86400000)) : 14;
+
+  var demoBanner = ptoData._isDemoData
+    ? '<div class="pgp-demo-banner">&#128204; Showing example data \u2014 your real scores appear here after your first assessment.</div>'
+    : '';
+
+  // 1. Progress Summary Hero
+  var heroHTML =
+    '<div class="pgp-hero" style="background:' + status.bg + ';border-left:4px solid ' + status.color + '">' +
+      '<div class="pgp-hero-status">' +
+        '<span class="pgp-hero-icon" style="color:' + status.color + '">' + status.icon + '</span>' +
+        '<span class="pgp-hero-label" style="color:' + status.color + '">' + status.label + '</span>' +
+      '</div>' +
+      '<div class="pgp-hero-tagline">' + status.tagline + '</div>' +
+      '<div class="pgp-hero-stats">' +
+        (phq9pct !== null ? '<span class="pgp-hero-stat">' + Math.abs(phq9pct) + '% ' + (phq9pct >= 0 ? 'reduction' : 'increase') + ' since baseline</span>' : '') +
+        '<span class="pgp-hero-stat">' + daysSince + ' days in treatment</span>' +
+        '<span class="pgp-hero-stat">' + (p.totalSessions || 0) + ' sessions completed</span>' +
+      '</div>' +
+      '<div class="pgp-hero-reviews">' +
+        '<div class="pgp-review-row"><span class="pgp-review-dot pgp-dot-teal"></span>Last reviewed: ' + (lastRevDate || 'Pending first review') + '</div>' +
+        '<div class="pgp-review-row"><span class="pgp-review-dot pgp-dot-blue"></span>Next assessment: ' + (nextRevDate || 'In ~2 weeks') + (nextRevDate ? ' (' + daysUntilNext + ' days)' : '') + '</div>' +
+      '</div>' +
+    '</div>';
+
+  // 2. Baseline vs Now
+  var baselineHTML;
+  if (phq9base !== null && phq9now !== null) {
+    var ptDiff = phq9base - phq9now, diffPos = ptDiff >= 0;
+    var bDFmt = phq9pts[0].date ? new Date(phq9pts[0].date).toLocaleDateString(_rptLoc, { month: 'short', year: 'numeric' }) : '';
+    var nDFmt = phq9pts[phq9pts.length - 1].date ? new Date(phq9pts[phq9pts.length - 1].date).toLocaleDateString(_rptLoc, { month: 'short', year: 'numeric' }) : '';
+    baselineHTML =
+      '<div class="pgp-bn-row">' +
+        '<div class="pgp-bn-card">' +
+          '<div class="pgp-bn-eyebrow">When You Started</div>' +
+          '<div class="pgp-bn-date">' + bDFmt + '</div>' +
+          '<div class="pgp-bn-score">' + (phq9m ? phq9m.label : 'PHQ-9') + ': ' + phq9base + '</div>' +
+          '<div class="pgp-bn-band">' + baseBand.label + '</div>' +
+        '</div>' +
+        '<div class="pgp-bn-mid">' +
+          '<div class="pgp-bn-arrow" style="color:' + (diffPos ? '#2dd4bf' : '#f43f5e') + '">' + (diffPos ? '\u2193' : '\u2191') + '</div>' +
+          '<div class="pgp-bn-delta" style="color:' + (diffPos ? '#2dd4bf' : '#f43f5e') + '">' + (diffPos ? '\u2212' : '+') + Math.abs(ptDiff) + ' pts</div>' +
+          (phq9pct !== null ? '<div class="pgp-bn-pct">' + (diffPos ? '\u2212' : '+') + Math.abs(phq9pct) + '%</div>' : '') +
+        '</div>' +
+        '<div class="pgp-bn-card pgp-bn-now">' +
+          '<div class="pgp-bn-eyebrow">Right Now</div>' +
+          '<div class="pgp-bn-date">' + nDFmt + '</div>' +
+          '<div class="pgp-bn-score" style="color:#2dd4bf">' + (phq9m ? phq9m.label : 'PHQ-9') + ': ' + phq9now + '</div>' +
+          '<div class="pgp-bn-band" style="color:#2dd4bf">' + nowBand.label + '</div>' +
+        '</div>' +
+      '</div>' +
+      _pgpAccordion('pgp-acc-bn', 'What this means',
+        '<p>' + nowBand.note + '</p>' +
+        (phq9pct !== null && phq9pct >= 10 ? '<p style="margin-top:8px">A ' + phq9pct + '% reduction is a clinically meaningful improvement. Your treatment is working.</p>' : '') +
+        '<p style="margin-top:8px">PHQ-9 measures depression symptoms on a scale of 0\u201327. Lower scores mean fewer symptoms.</p>'
+      );
+  } else {
+    baselineHTML = '<div class="pgp-empty-block">Your baseline comparison will appear after your first completed assessment.</div>';
+  }
+
+  // 3. Trend Over Time
+  var trendHTML = _pgpTrendChart(phq9m, data.sessions) +
+    _pgpAccordion('pgp-acc-trend', 'What this chart shows',
+      '<p>Each dot is one assessment result. Blue triangles mark your treatment sessions. A downward trend means fewer symptoms \u2014 a positive sign.</p>' +
+      (phq9m ? '<p style="margin-top:8px">' + phq9m.label + ' is scored 0\u2013' + phq9m.max + '. Lower is better.</p>' : '')
+    );
+
+  // 4. What Changed This Week
+  var weeklyHTML = _pgpWeeklyTiles() +
+    _pgpAccordion('pgp-acc-weekly', 'How are these measured?',
+      '<p>These tiles come from your daily check-ins over the past 7 days. The more you log, the clearer your picture becomes.</p>'
+    );
+
+  // 5. Improvement Drivers
+  var driversHTML = _pgpDriverBars(data, ptoData) +
+    _pgpAccordion('pgp-acc-drivers', 'What influences your progress?',
+      '<p>Progress in neuromodulation therapy comes from several factors: symptom scores, sleep quality, session attendance, daily check-ins, and engagement with your care team.</p>' +
+      '<p style="margin-top:8px">Each bar shows how strongly that factor is contributing right now.</p>'
+    );
+
+  // 6–8. Feedback / Goals / Biometrics
+  var feedbackHTML = _pgpClinicianFeedback(data, _rptLoc);
+  var goalsHTML    = _pgpGoals(data);
+  var bioHTML      = _pgpBiometrics() +
+    _pgpAccordion('pgp-acc-bio', 'What these numbers mean',
+      '<p><strong>Sleep (hrs):</strong> 7\u20139 hours supports brain recovery. <strong>HRV (ms):</strong> higher generally means better nervous system balance. <strong>Resting HR:</strong> lower is generally healthier. <strong>Adherence:</strong> homework completion rate.</p>'
+    );
+
+  el.innerHTML =
+    '<div class="pgp-page">' +
+    demoBanner +
+    _pgpSection('Am I getting better?',          heroHTML) +
+    _pgpSection('Then vs Now',                    baselineHTML) +
+    _pgpSection('Trend Over Time',                trendHTML) +
+    _pgpSection('What Changed This Week',         weeklyHTML) +
+    _pgpSection('What\'s Driving Your Progress',  driversHTML) +
+    _pgpSection('Your Care Team\'s Feedback',     feedbackHTML) +
+    _pgpSection('Your Goals',                     goalsHTML) +
+    _pgpSection('Devices & Biometrics',           bioHTML) +
+    _pgpCareAssistant() +
+    '</div>';
+}
+
+// ── Legacy render (delegates to new page) ─────────────────────────────────────
+// ── Legacy outcome history ────────────────────────────────────────────────────
+function _renderOutcomePortal() { _renderProgressPage(); }
+function _renderOutcomePortal_LEGACY() {
   const data = _outcomeGetData();
   const ratings = _outcomeGetRatings();
   const notes = _outcomeGetGoalNotes();
@@ -9069,16 +9673,24 @@ window._ptoSubmitAssessment = function () {
   if (!isNaN(gad7v)) api.recordOutcome({ template_name: 'GAD-7', score_numeric: gad7v, measurement_point: 'Self-report', administered_at: _apiNow }).catch(() => {});
   if (!isNaN(pcl5v)) api.recordOutcome({ template_name: 'PCL-5', score_numeric: pcl5v, measurement_point: 'Self-report', administered_at: _apiNow }).catch(() => {});
   window._showNotifToast && window._showNotifToast({ title: 'Saved', body: 'Assessment scores recorded.', severity: 'success' });
-  _renderOutcomePortal();
+  _renderProgressPage();
+};
+
+window._pgpAskAssistant = function(promptText) {
+  if (window._navPatient) window._navPatient('ai-agents', { prompt: promptText });
 };
 
 // ── Exported page entry point ─────────────────────────────────────────────────
 export async function pgPatientOutcomePortal(setTopbarFn) {
   const _tb = typeof setTopbarFn === 'function' ? setTopbarFn : setTopbar;
-  _tb('My Outcomes', '<button style="display:inline-flex;align-items:center;gap:6px;background:rgba(96,165,250,0.12);color:var(--accent-blue,#60a5fa);border:1px solid rgba(96,165,250,0.25);border-radius:8px;padding:6px 14px;font-size:0.8rem;font-weight:600;cursor:pointer" onclick="window._outcomeDownloadReport()">&#8595; Download Report</button>');
-  // Fetch live API data first (updates localStorage cache), then render
+  _tb('My Progress',
+    '<div style="display:flex;gap:8px">' +
+    '<button style="display:inline-flex;align-items:center;gap:6px;background:rgba(45,212,191,0.1);color:#2dd4bf;border:1px solid rgba(45,212,191,0.25);border-radius:8px;padding:6px 14px;font-size:0.8rem;font-weight:600;cursor:pointer" onclick="window._ptoCopyProgress()">&#8599; Share</button>' +
+    '<button style="display:inline-flex;align-items:center;gap:6px;background:rgba(96,165,250,0.08);color:#60a5fa;border:1px solid rgba(96,165,250,0.2);border-radius:8px;padding:6px 14px;font-size:0.8rem;font-weight:600;cursor:pointer" onclick="window._outcomeDownloadReport()">&#8595; Report</button>' +
+    '</div>'
+  );
   await _ptoLoadLive().catch(() => null);
-  _renderOutcomePortal();
+  _renderProgressPage();
 }
 
 // ════════════════════════════════════════════════════════════════════════════

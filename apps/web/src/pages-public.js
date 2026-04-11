@@ -505,55 +505,7 @@ export function pgHome() {
     }
   };
 
-  // (old page content removed — replaced by phome-* commercial sections above)
-  void `REMOVED_OLD_HERO_START`; // placeholder to avoid parse issues
-  void `
-    <section class="pub-hero-REMOVED">
-      <div class="pub-hero-badge-REMOVED">REMOVED</div>
-
-      <h1 class="pub-hero-title">
-        One structured system<br>
-        for <span>neuromodulation clinics</span>
-      </h1>
-
-      <p class="pub-hero-sub">
-        Evidence-graded protocols, device-aware session execution, clinical governance,
-        and a patient portal &mdash; built around how neuromodulation actually works,
-        not adapted from general-purpose tools.
-      </p>
-
-      <div class="pub-hero-ctas">
-        <button class="btn-hero-primary" onclick="window._navPublic('signup-professional')"
-          title="Start your 14-day free trial — for clinicians, technicians &amp; administrators">
-          Start Free 14-Day Trial &rarr;
-        </button>
-        <button class="btn-hero-secondary" onclick="window._navPublic('signup-patient')"
-          style="border-color:var(--border-blue);color:var(--blue)"
-          title="Activate your patient portal — requires an invitation code from your clinic">
-          Patient Portal Access &rarr;
-        </button>
-        <button class="btn-hero-ghost" onclick="window._showSignIn()"
-          title="Sign in to your existing professional or patient account">
-          Sign In
-        </button>
-      </div>
-
-      <!-- Stats bar -->
-      <div style="display:flex;gap:0;border:1px solid var(--border);border-radius:var(--radius-lg);overflow:hidden;background:var(--bg-card);backdrop-filter:blur(8px);flex-wrap:wrap;">
-        ${[
-          { val: '52',     label: 'Conditions',         sub: 'tracked across 11 modalities' },
-          { val: 'A–D',    label: 'Evidence grades',    sub: 'on every protocol, from literature' },
-          { val: '11',     label: 'Modalities',         sub: 'with device-aware parameter fields' },
-          { val: '14-day', label: 'Free trial',         sub: 'full access, no credit card needed' },
-        ].map((s, i) => `
-          <div style="flex:1;min-width:130px;padding:18px 22px;text-align:center;${i > 0 ? 'border-left:1px solid var(--border)' : ''}">
-            <div style="font-family:var(--font-display);font-size:22px;font-weight:700;color:var(--text-primary);letter-spacing:-0.5px">${s.val}</div>
-            <div style="font-size:11px;font-weight:600;color:var(--teal);margin-top:3px">${s.label}</div>
-            <div style="font-size:10px;color:var(--text-tertiary);margin-top:1px">${s.sub}</div>
-          </div>
-        `).join('')}
-      </div>
-    </section>
+  el.insertAdjacentHTML('beforeend', `
 
     <!-- ─── Specialty trust bar ───────────────────────────────────────────── -->
     <div class="pub-specialties-bar">
@@ -840,24 +792,6 @@ export function pgHome() {
       </div>
       <span class="pub-device-bar-note">Device-aware parameter fields, not generic forms</span>
     </div>
-
-    <div class="pub-divider"></div>
-
-    <!-- ─── Evidence Matrix ──────────────────────────────────────────────── -->
-    <section id="evidence-matrix" class="pub-section pub-ev-section">
-      <div style="text-align:center;margin-bottom:44px">
-        <div class="pub-eyebrow">Evidence reference</div>
-        <div class="pub-section-title" style="text-align:center;font-size:28px;margin-bottom:10px">
-          52 conditions &times; 11 modalities &mdash; graded from primary literature
-        </div>
-        <div style="font-size:14px;color:var(--text-secondary);max-width:600px;margin:0 auto;line-height:1.7">
-          Filter by modality to see evidence strength across conditions. Graded S (strong: RCT + meta-analysis),
-          M (moderate: RCT), or E (emerging: pilot / open-label). Sourced from the DeepSynaps
-          Neuromodulation Master Database and 30 primary references.
-        </div>
-      </div>
-      ${_buildEvMatrix()}
-    </section>
 
     <div class="pub-divider"></div>
 
@@ -1468,7 +1402,7 @@ export function pgHome() {
       </div>
       <div class="pub-footer-copy">&copy; 2026 DeepSynaps. All rights reserved.</div>
     </div>
-  `;
+  `);
 
   // ── FAQ accordion ──────────────────────────────────────────────────────────
   window._faqToggle = function(i) {
