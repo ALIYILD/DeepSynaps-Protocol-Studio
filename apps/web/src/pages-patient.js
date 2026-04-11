@@ -14,7 +14,7 @@ function _patientNav() {
     { id: 'pt-outcomes',         label: 'Progress',             icon: '📈', group: 'main' },
     { id: 'pt-wellness',         label: 'Tasks',                icon: '✓',  group: 'main' },
     { id: 'patient-assessments', label: 'Assessments',          icon: '◉',  group: 'main' },
-    { id: 'patient-reports',     label: 'Reports',              icon: '◱',  group: 'main' },
+    { id: 'patient-reports',     label: 'My Reports',           icon: '◱',  group: 'main' },
     { id: 'patient-messages',    label: 'Messages',             icon: '◫',  group: 'main' },
     { id: 'patient-wearables',   label: 'Devices & Wearables',  icon: '◌',  group: 'main' },
     { id: 'patient-profile',     label: 'Profile',              icon: '◇',  group: 'main' },
@@ -304,7 +304,7 @@ export async function pgPatientDashboard(user) {
     const ptKey = user?.patient_id || user?.id || 'default';
     const homeTasks = JSON.parse(localStorage.getItem('ds_homework_tasks_' + ptKey) || '[]');
     homeTasks.filter(t => !t.completed && !t.done).slice(0, 3).forEach(t => {
-      taskList.push({ id: 'ht_' + (t.id || Math.random()), icon: '📝', label: t.title || t.name || 'Home task', urgency: 'normal', nav: 'pt-wellness', cta: 'Complete' });
+      taskList.push({ id: 'ht_' + (t.id || Math.random()), icon: '📝', label: t.title || t.name || 'Home task', urgency: 'recommended', nav: 'pt-wellness', cta: 'Complete' });
     });
   } catch (_e) {}
   if (sortedOutcomes.length > 0) {
@@ -348,10 +348,25 @@ export async function pgPatientDashboard(user) {
   }
 
   function urgencyBadge(urgency) {
-    if (urgency === 'overdue') return '<span class="ptd-task-badge ptd-task-badge--overdue">Overdue</span>';
-    if (urgency === 'today') return '<span class="ptd-task-badge ptd-task-badge--today">Today</span>';
+    if (urgency === 'overdue')        return '<span class="ptd-task-badge ptd-task-badge--overdue">Overdue</span>';
+    if (urgency === 'today')          return '<span class="ptd-task-badge ptd-task-badge--today">Today</span>';
+    if (urgency === 'before-session') return '<span class="ptd-task-badge ptd-task-badge--session">Before next session</span>';
+    if (urgency === 'recommended')    return '<span class="ptd-task-badge ptd-task-badge--rec">Recommended</span>';
     return '';
   }
+
+  // ── Wellness interpretation sentence ─────────────────────────────────────────
+  function _ptdWellnessInterp() {
+    if (!hasCheckinData || recentCheckins.length < 2) return 'Complete more check-ins to build your trend.';
+    if (wellnessTrend.label === 'Improving') {
+      const lt = recentCheckins[0], pv = recentCheckins[1];
+      if ((lt.energy || 5) > (pv.energy || 5)) return 'Your energy is improving compared with recent check-ins.';
+      return 'Your recent check-ins show a positive trend.';
+    }
+    if (wellnessTrend.label === 'Steady') return 'Your recent check-ins look stable.';
+    return 'Your care team can see any variation in your check-ins.';
+  }
+  const wellnessInterp = _ptdWellnessInterp();
 
   // ── Render ────────────────────────────────────────────────────────────────────
   el.innerHTML = `
@@ -383,8 +398,10 @@ export async function pgPatientDashboard(user) {
                  <span class="ptd-chip">${sessDelivered} done</span>
                  ${sessRemaining !== null ? '<span class="ptd-chip">' + sessRemaining + ' remaining</span>' : ''}
                </div>`
-            : `<div class="ptd-next-date ptd-next-date--empty">Not yet scheduled</div>
-               <div class="ptd-next-time">Contact your clinic to book</div>`}
+            : `<div class="ptd-empty-headline">No session booked yet</div>
+               <div class="ptd-empty-support">Your clinic can help you schedule your next visit.</div>
+               <button class="ptd-inline-btn" onclick="event.stopPropagation();window._navPatient('patient-messages')" style="margin:8px 0 4px">Contact clinic to schedule \u2192</button>
+               <div class="ptd-empty-hint">You&rsquo;ll see session details here once it&rsquo;s booked.</div>`}
           <div class="ptd-card-link">View session details \u2192</div>
         </div>
 
@@ -399,9 +416,10 @@ export async function pgPatientDashboard(user) {
                  <div class="ptd-prog-labels"><span>${sessDelivered} of ${totalPlanned ?? '?'} sessions</span><span>${progressPct !== null ? progressPct + '%' : ''}</span></div>
                </div>
                ${milestone ? '<div class="ptd-milestone">Next: ' + milestone.label + ' at session ' + milestone.at + '</div>' : ''}`
-            : `<div class="ptd-card-headline ptd-empty">Not yet assigned</div>
-               <div class="ptd-card-sub">Your care team will set up your treatment plan.</div>`}
-          <div class="ptd-card-link">View full plan \u2192</div>
+            : `<div class="ptd-empty-headline">Your treatment plan is not active yet</div>
+               <div class="ptd-empty-support">Your care team will add your treatment course here.</div>
+               <div class="ptd-empty-hint">Once assigned, you&rsquo;ll see your phase, sessions, and milestones here.</div>`}
+          <div class="ptd-card-link${activeCourse ? '' : ' ptd-card-link--dim'}">View full plan \u2192</div>
         </div>
 
         <!-- Wellness Snapshot -->
@@ -412,17 +430,19 @@ export async function pgPatientDashboard(user) {
             <span class="ptd-card-headline" style="color:${wellnessTrend.color}">${wellnessTrend.label}</span>
           </div>
           ${hasCheckinData
-            ? `<div class="ptd-driver-grid">
+            ? `<div class="ptd-snapshot-interp">${wellnessInterp}</div>
+               <div class="ptd-driver-grid">
                  ${wellnessDrivers.map(d => `<div class="ptd-driver">
                    <span class="ptd-driver-icon" style="color:${d.color}">${d.icon}</span>
                    <span class="ptd-driver-label">${d.label}</span>
                    <span class="ptd-driver-val">${d.val}${typeof d.val === 'number' ? '/10' : ''}</span>
                  </div>`).join('')}
                </div>
-               <div class="ptd-snapshot-note">Based on your last check-in. Not a medical assessment.</div>`
+               <div class="ptd-snapshot-note">Your care team uses check-ins to monitor progress. Not a medical assessment.</div>`
             : `<div class="ptd-snapshot-empty">
-                 <div style="font-size:12.5px;color:var(--text-secondary);margin-bottom:10px">Complete a daily check-in to build your wellness picture.</div>
+                 <div class="ptd-empty-support" style="margin-bottom:10px">Complete a daily check-in to build your wellness picture.</div>
                  <button class="ptd-inline-btn" onclick="event.stopPropagation();window._navPatient('pt-wellness')">Start check-in \u2192</button>
+                 <div class="ptd-empty-hint" style="margin-top:8px">Your care team uses check-ins to help monitor progress.</div>
                </div>`}
         </div>
 
@@ -493,7 +513,7 @@ export async function pgPatientDashboard(user) {
                  <div style="font-size:12px;color:var(--text-tertiary);margin-top:4px;line-height:1.5">Your care team&rsquo;s notes will appear here after they review your sessions.</div>
                </div>`}
           <div class="ptd-feedback-actions">
-            <button class="ptd-inline-btn" onclick="window._navPatient('patient-reports')">View reports</button>
+            <button class="ptd-feedback-action-primary" onclick="window._navPatient('patient-reports')">View report \u2192</button>
             <button class="ptd-inline-btn" onclick="window._ptdOpenAssistant()">Ask a question</button>
           </div>
         </div>
@@ -2668,7 +2688,7 @@ export async function pgPatientAssessments() {
 
 // \u2500\u2500 Reports \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
 export async function pgPatientReports() {
-  setTopbar(t('patient.nav.reports'));
+  setTopbar('My Reports');
 
   const el = document.getElementById('patient-content');
   el.innerHTML = spinner();
@@ -2779,6 +2799,29 @@ export async function pgPatientReports() {
       if (n <= band.max) return { label: band.label, note: band.note };
     }
     return null;
+  }
+
+  // ── Delta helper: compare doc score against the most recent prior same-type doc ──
+  // Returns { delta, prevScore, prevDate } or null if no comparison is possible.
+  // Language is kept conservative — never diagnostic, never overclaiming.
+  function _ptComputeDelta(doc, allDocs) {
+    if (doc.score == null || !doc.templateKey) return null;
+    const n = Number(doc.score);
+    if (!Number.isFinite(n)) return null;
+    const prior = allDocs
+      .filter(d =>
+        d.id !== doc.id &&
+        d.templateKey === doc.templateKey &&
+        d.score != null &&
+        Number.isFinite(Number(d.score)) &&
+        new Date(d.date || 0) < new Date(doc.date || 0)
+      )
+      .sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
+    if (!prior.length) return null;
+    const prev = prior[0];
+    const delta = n - Number(prev.score);
+    if (!Number.isFinite(delta)) return null;
+    return { delta, prevScore: prev.score, prevDate: prev.displayDate || '' };
   }
 
   // ── Document type categorisation ─────────────────────────────────────────
@@ -2898,27 +2941,34 @@ export async function pgPatientReports() {
     return;
   }
 
-  // ── Filter chip bar ──────────────────────────────────────────────────────
-  const FILTERS = [
-    { key: 'all',             label: t('patient.reports.filter.all') },
-    { key: 'outcome',         label: t('patient.reports.filter.reports') },
-    { key: 'assessment',      label: t('patient.reports.filter.assessments') },
-    { key: 'care',            label: t('patient.reports.filter.care') },
-    { key: 'consent',         label: t('patient.reports.filter.consent') },
-    { key: 'session-summary', label: t('patient.reports.filter.sessions') },
-    { key: 'guide',           label: t('patient.reports.filter.guides') },
-    { key: 'letter',          label: t('patient.reports.filter.letters') },
+  // ── Category definitions (display-layer grouping, not data-model categories) ──
+  const DISPLAY_CATS = [
+    { id: 'progress',   label: 'Progress Reports',           icon: '&#9649;', color: 'var(--blue)',  bg: 'rgba(74,158,255,.1)',   defaultOpen: true,
+      filter: d => d.category === 'outcome',
+      emptyMsg: 'Progress reports will appear here as your treatment continues.' },
+    { id: 'assessment', label: 'Assessment Results',         icon: '&#9673;', color: 'var(--teal)',  bg: 'rgba(0,212,188,.08)',   defaultOpen: true,
+      filter: d => d.category === 'assessment',
+      emptyMsg: 'Assessment results will appear here after your clinician completes a check-in.' },
+    { id: 'feedback',   label: 'Care Team Feedback',         icon: '&#9678;', color: '#34d399',      bg: 'rgba(52,211,153,.1)',   defaultOpen: true,
+      filter: d => Boolean(d.clinicianNotes),
+      emptyMsg: 'Notes from your care team will appear here. Check back after your next session.' },
+    { id: 'sessions',   label: 'Session Summaries',          icon: '&#9671;', color: '#a78bfa',      bg: 'rgba(167,139,250,.1)',  defaultOpen: false,
+      filter: d => d.category === 'session-summary',
+      emptyMsg: 'Session summaries will appear here after each of your treatment sessions.' },
+    { id: 'guides',     label: 'Instructions & Care Guides', icon: '&#128218;', color: '#f59e0b',    bg: 'rgba(245,158,11,.08)',  defaultOpen: false,
+      filter: d => d.category === 'care' || d.category === 'guide',
+      emptyMsg: 'Instructions and care guides from your team will appear here.' },
+    { id: 'forms',      label: 'Consent & Forms',            icon: '&#9643;', color: '#94a3b8',      bg: 'rgba(148,163,184,.1)',  defaultOpen: false,
+      filter: d => d.category === 'consent' || d.category === 'adverse' || d.category === 'letter',
+      emptyMsg: 'Consent forms and other documents will appear here when added by your care team.' },
   ];
-  const presentCats = new Set(docs.map(d => d.category));
-  const visibleFilters = FILTERS.filter(f => f.key === 'all' || presentCats.has(f.key));
 
   // ── Document card HTML ───────────────────────────────────────────────────
   // Extension point: pass { showSharing: true } to add caregiver/proxy share UI.
-  // Pass { showTranslation: true } to show a translated plain-language toggle.
   function docCardHTML(doc, opts = {}) {
     const { expandPl = false } = opts;
     const cm = CAT_META[doc.category] || CAT_META['outcome'];
-    const plId  = `pt-doc-pl-${esc(doc.id)}`;
+    const plId = `pt-doc-pl-${esc(doc.id)}`;
 
     // Context chips: session ref + course ref + measurement point
     const sessionChip = doc.sessionRef
@@ -5127,22 +5177,98 @@ export async function pgPatientMediaHistory() {
 }
 
 // Module-level chat state so history survives tab navigation
-const _wearableChat = { msgs: [] };
-
-// ── Wearables ─────────────────────────────────────────────────────────────────
+// ── Devices & Wearables ───────────────────────────────────────────────────────
 export async function pgPatientWearables() {
-  setTopbar(t('patient.nav.wearables'));
-  const el = document.getElementById('patient-content');
+  setTopbar('Devices & Wearables');
+  const user = currentUser;
+  const uid  = user?.patient_id || user?.id;
+  const el   = document.getElementById('patient-content');
   el.innerHTML = spinner();
 
-  // ── Device metadata ──────────────────────────────────────────────────────
-  const DEVICES = [
-    { source: 'apple_health',      display_name: 'Apple Health',           icon: '◌', iconColor: 'var(--teal)' },
-    { source: 'android_health',    display_name: 'Android Health Connect', icon: '◌', iconColor: 'var(--green)' },
-    { source: 'fitbit',            display_name: 'Fitbit',                 icon: '◌', iconColor: 'var(--blue)' },
-    { source: 'oura',              display_name: 'Oura Ring',              icon: '◌', iconColor: 'var(--violet)' },
-    { source: 'garmin',            display_name: 'Garmin',                 icon: '◌', iconColor: 'var(--amber)' },
-    { source: 'whoop',             display_name: 'WHOOP',                  icon: '◌', iconColor: 'var(--red)' },
+  // ── Health source definitions ─────────────────────────────────────────────
+  const HEALTH_SOURCES = [
+    {
+      id: 'apple_health', label: 'Apple Health', platform: 'iPhone / iOS',
+      icon: '◌', accentVar: '--teal',
+      dataUsed: ['Sleep', 'Heart rate', 'HRV', 'Steps', 'Activity'],
+      connectNote: 'Opens Apple Health permissions on your iPhone.',
+    },
+    {
+      id: 'android_health', label: 'Android Health Connect', platform: 'Android',
+      icon: '◌', accentVar: '--green',
+      dataUsed: ['Sleep', 'Heart rate', 'Steps', 'Activity'],
+      connectNote: 'Opens Health Connect on your Android phone.',
+    },
+    {
+      id: 'smartwatch', label: 'Smart Watch', platform: 'Any',
+      icon: '◌', accentVar: '--blue',
+      dataUsed: ['Heart rate', 'HRV', 'Activity', 'Stress'],
+      connectNote: "Sync via your phone's health app (Apple Health or Health Connect).",
+    },
+    {
+      id: 'oura', label: 'Oura Ring', platform: 'iOS / Android',
+      icon: '◌', accentVar: '--violet',
+      dataUsed: ['Sleep stages', 'HRV', 'Resting heart rate', 'Readiness'],
+      connectNote: 'Authorise via Oura API — no extra app needed.',
+    },
+    {
+      id: 'fitbit', label: 'Smart Band / Fitbit', platform: 'iOS / Android',
+      icon: '◌', accentVar: '--amber',
+      dataUsed: ['Sleep', 'Heart rate', 'Steps', 'SpO₂'],
+      connectNote: 'Authorise via Fitbit account.',
+    },
+  ];
+
+  // ── Home therapy device definitions ──────────────────────────────────────
+  const HOME_THERAPY_DEVICES = [
+    {
+      id: 'tdcs',
+      label: 'Home tDCS Device',
+      category: 'Transcranial Direct Current Stimulation',
+      icon: '⊕', accentVar: '--teal',
+      what: 'A small device that delivers a very low, safe current to specific areas of the scalp. Used between clinic sessions to maintain treatment benefits.',
+      whyMatters: 'Home sessions can extend treatment effects and reduce the number of clinic visits needed.',
+      dataShared: ['Session completed (yes/no)', 'Date and time', 'Side effects you report'],
+      dataNotShared: ['Current settings (set by clinician only)', 'Your location'],
+      troubleshoot: ['Check electrode contacts are moist before use.', 'If you feel sharp discomfort, stop and contact your clinic.', 'Device not powering on? Check the battery or charger.'],
+      contactClinic: "Unusual discomfort, tingling that doesn't fade after 5 minutes, or skin irritation.",
+    },
+    {
+      id: 'pbm',
+      label: 'Photobiomodulation (PBM)',
+      category: 'Near-Infrared / Red Light Therapy',
+      icon: '◎', accentVar: '--amber',
+      what: 'A helmet or headband that uses near-infrared light to gently stimulate brain metabolism and neuroplasticity.',
+      whyMatters: 'PBM supports the effects of clinic-based neuromodulation and improves cognitive energy.',
+      dataShared: ['Session completed', 'Date and time', 'How you felt after the session'],
+      dataNotShared: ['Light intensity settings', 'Your location'],
+      troubleshoot: ['Position the device correctly before starting.', 'Avoid direct eye exposure to the light.', 'If the device feels hot, stop and let it cool.'],
+      contactClinic: 'Headaches, visual disturbances, or unusual skin sensitivity.',
+    },
+    {
+      id: 'vns',
+      label: 'Vagus Nerve Stimulator (VNS)',
+      category: 'Non-Invasive Vagal Stimulation',
+      icon: '∿', accentVar: '--blue',
+      what: 'A handheld device placed on the neck that delivers gentle pulses to the vagus nerve, supporting mood regulation and stress resilience.',
+      whyMatters: 'The vagus nerve connects your brain and body. Stimulating it helps regulate the stress response and supports depression treatment.',
+      dataShared: ['Session completed', 'Date and time', 'Side effects reported'],
+      dataNotShared: ['Pulse parameters', 'Your location'],
+      troubleshoot: ['Ensure the gel pad is correctly applied.', 'If you feel dizziness, reduce session duration.', 'App not connecting? Restart Bluetooth.'],
+      contactClinic: 'Persistent neck discomfort, voice changes, or dizziness that does not resolve in a few minutes.',
+    },
+    {
+      id: 'ces',
+      label: 'Cranial Electrotherapy Stimulation (CES)',
+      category: 'Cranial Electrotherapy',
+      icon: '⌁', accentVar: '--violet',
+      what: 'A clip-on device worn on the earlobes delivering a very low alternating current to promote relaxation, reduce anxiety, and improve sleep.',
+      whyMatters: 'CES supports mood and sleep between clinic sessions. Non-invasive and gentle.',
+      dataShared: ['Session completed', 'Date and time', 'Sleep quality after night use'],
+      dataNotShared: ['Frequency settings', 'Your location'],
+      troubleshoot: ['Ensure ear clips are properly positioned.', 'If you feel contact discomfort, check for skin irritation.', 'Start at the lowest comfortable intensity.'],
+      contactClinic: 'Unusual sensations, persistent skin irritation, or dizziness.',
+    },
   ];
 
   // ── XSS helper ───────────────────────────────────────────────────────────
