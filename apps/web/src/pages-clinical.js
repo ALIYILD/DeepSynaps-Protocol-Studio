@@ -1212,11 +1212,12 @@ export async function pgPatients(setTopbar, navigate) {
 
   <div id="add-patient-panel" style="display:none;margin-bottom:16px">
     ${cardWrap('New Patient', `
+      <p style="font-size:11.5px;color:var(--text-tertiary);margin-bottom:14px">Fields marked <span style="color:var(--red)">*</span> are required.</p>
       <div class="g2">
         <div>
-          <div class="form-group"><label class="form-label">First Name</label><input id="np-first" class="form-control" placeholder="First name"></div>
-          <div class="form-group"><label class="form-label">Last Name</label><input id="np-last" class="form-control" placeholder="Last name"></div>
-          <div class="form-group"><label class="form-label">Date of Birth</label><input id="np-dob" class="form-control" type="date"></div>
+          <div class="form-group"><label class="form-label">First Name <span style="color:var(--red)">*</span></label><input id="np-first" class="form-control" placeholder="First name"></div>
+          <div class="form-group"><label class="form-label">Last Name <span style="color:var(--red)">*</span></label><input id="np-last" class="form-control" placeholder="Last name"></div>
+          <div class="form-group"><label class="form-label">Date of Birth <span style="color:var(--red)">*</span></label><input id="np-dob" class="form-control" type="date"></div>
           <div class="form-group"><label class="form-label">Gender</label>
             <select id="np-gender" class="form-control"><option value="">Select…</option><option>Male</option><option>Female</option><option>Non-binary</option><option>Prefer not to say</option></select>
           </div>
@@ -1249,7 +1250,10 @@ export async function pgPatients(setTopbar, navigate) {
   <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;align-items:center">
     <input class="form-control" id="pt-search" placeholder="Search patients by name or condition…" style="flex:1;min-width:200px" oninput="window.filterPatients()">
     <select class="form-control" id="pt-status-filter" style="width:auto" onchange="window.filterPatients()">
-      <option value="">All Status</option><option>active</option><option>pending</option><option>inactive</option>
+      <option value="">All Status</option>
+      <option value="active">Active</option>
+      <option value="pending">Pending</option>
+      <option value="inactive">Inactive</option>
     </select>
     <select class="form-control" id="pt-modality-filter" style="width:auto" onchange="window.filterPatients()">
       <option value="">All Modalities</option>
@@ -1926,7 +1930,8 @@ export async function pgProfile(setTopbar, navigate) {
   const total = sessions.length;
 
   setTopbar(`${name}`,
-    `<button class="btn btn-ghost btn-sm" onclick="window._nav('patients')">← Patients</button>
+    `<button class="btn btn-ghost btn-sm" onclick="window._nav('patients')">← All Patients</button>
+     <button class="btn btn-ghost btn-sm" onclick="window._nav('dashboard')">⌂ Dashboard</button>
      <button class="btn btn-primary btn-sm" onclick="window.startNewCourse()">+ New Course</button>`
   );
 
@@ -1937,12 +1942,14 @@ export async function pgProfile(setTopbar, navigate) {
       <div style="flex:1">
         <div style="font-family:var(--font-display);font-size:20px;font-weight:700;color:var(--text-primary)">${name}</div>
         <div style="font-size:12.5px;color:var(--text-secondary);margin-top:4px">
-          ${pt.dob ? pt.dob + ' · ' : ''}${pt.gender || ''} · ${pt.primary_condition || 'No condition set'}
+          ${pt.dob ? `DOB: ${pt.dob} · ` : ''}${pt.gender ? `${pt.gender} · ` : ''}${pt.primary_condition || 'No condition set'}
         </div>
-        <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
+        <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;align-items:center">
           ${pt.primary_modality ? tag(pt.primary_modality) : ''}
-          ${pt.consent_signed ? '<span class="tag" style="color:var(--green)">✓ Consent Signed</span>' : '<span class="tag" style="color:var(--amber)">Consent Pending</span>'}
           ${pt.primary_condition ? tag(pt.primary_condition) : ''}
+          ${pt.consent_signed
+            ? '<span class="tag" style="color:var(--green);border-color:rgba(34,197,94,0.3)">✓ Consent on File</span>'
+            : '<span class="tag" style="color:var(--amber);border-color:rgba(255,181,71,0.4);cursor:pointer" onclick="window.switchPT(\'consent\')" title="Click to manage consent">⚠ Consent Required</span>'}
         </div>
       </div>
       <div style="text-align:right">
@@ -1955,7 +1962,19 @@ export async function pgProfile(setTopbar, navigate) {
 
   <div class="tab-bar">
     ${['overview', 'courses', 'sessions', 'outcomes', 'protocol', 'assessments', 'notes', 'phenotype', 'consent', 'monitoring', 'home-therapy'].map(t => {
-      const labels = { monitoring: '◌ Monitoring', 'home-therapy': '⚡ Home Therapy' };
+      const labels = {
+        'overview':     'Overview',
+        'courses':      'Treatment Courses',
+        'sessions':     'Sessions',
+        'outcomes':     'Outcomes',
+        'protocol':     'AI Protocol',
+        'assessments':  'Assessments',
+        'notes':        'Clinical Notes',
+        'phenotype':    'Phenotype',
+        'consent':      'Consent',
+        'monitoring':   '◌ Monitoring',
+        'home-therapy': '⚡ Home Therapy',
+      };
       const label = labels[t] || t;
       return `<button class="tab-btn ${ptab === t ? 'active' : ''}" onclick="window.switchPT('${t}')">${label}${t === 'courses' && courses.length ? ` (${courses.length})` : ''}</button>`;
     }).join('')}
@@ -1999,6 +2018,8 @@ export async function pgProfile(setTopbar, navigate) {
     if (t === 'assessments') {
       document.getElementById('ptab-body').innerHTML = renderProfileTab(pt, sessions, window._currentCourses || []);
       // Async load patient's recent assessments
+      const bodyEl2 = document.getElementById('assessments-tab-body');
+      if (bodyEl2) bodyEl2.innerHTML = `<div style="font-size:12px;color:var(--text-tertiary);padding:8px 0">Loading assessments…</div>`;
       setTimeout(async () => {
         const bodyEl = document.getElementById('assessments-tab-body');
         if (!bodyEl) return;
@@ -2131,7 +2152,7 @@ function renderProfileTab(pt, sessions, courses = []) {
         <button class="btn btn-primary btn-sm" onclick="window.startNewCourse()">+ New Treatment Course</button>
       </div>
       ${courses.length === 0
-        ? emptyState('◎', 'No treatment courses yet. Click "+ New Treatment Course" to start.')
+        ? emptyState('◎', 'No treatment courses yet', 'Create a treatment course to start planning sessions for this patient.', '+ Create Treatment Course', 'window.startNewCourse()')
         : `<div style="display:flex;flex-direction:column;gap:8px">
             ${courses.map(c => {
               const sc = COURSE_STATUS_COLORS[c.status] || 'var(--text-tertiary)';

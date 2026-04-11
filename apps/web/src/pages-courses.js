@@ -1690,7 +1690,7 @@ export async function pgSessionExecution(setTopbar, navigate) {
                     ? Math.min(100, Math.round(c.sessions_delivered / c.planned_sessions_total * 100)) : 0;
                   return `<div style="display:flex;align-items:center;gap:12px;padding:10px 12px;border:1px solid var(--border);border-radius:8px;cursor:pointer" onclick="document.getElementById('se-course').value='${c.id}'">
                     <div style="flex:1">
-                      <div style="font-size:13px;font-weight:500;color:var(--text-primary)">${c.condition_slug?.replace(/-/g,' ')} · <span style="color:var(--teal)">${c.modality_slug}</span></div>
+                      <div style="font-size:13px;font-weight:500;color:var(--text-primary)">${c.patient_name || c._patientName ? `<span style="color:var(--text-secondary)">${c.patient_name || c._patientName} · </span>` : ''}${c.condition_slug?.replace(/-/g,' ')} · <span style="color:var(--teal)">${c.modality_slug}</span></div>
                       <div style="font-size:11px;color:var(--text-secondary);margin-top:2px">
                         Session ${(c.sessions_delivered || 0) + 1} of ${c.planned_sessions_total || '?'}
                         ${c.planned_frequency_hz ? ` · Protocol: ${c.planned_frequency_hz} Hz` : ''}
@@ -2230,10 +2230,10 @@ export async function pgReviewQueue(setTopbar, navigate) {
   // ── Topbar ─────────────────────────────────────────────────────────────────
   setTopbar('Review Queue', `
     <div style="display:flex;align-items:center;gap:8px">
-      <select id="rq-status-filter" class="form-control" style="height:30px;padding:0 28px 0 10px;font-size:12px;width:130px"
+      <select id="rq-status-filter" class="form-control" style="height:30px;padding:0 28px 0 10px;font-size:12px;width:160px"
         onchange="window._rqFilterStatus(this.value)">
-        <option value="">All Statuses</option>
-        <option value="pending">Pending</option>
+        <option value="">All Items</option>
+        <option value="pending">Awaiting Review</option>
         <option value="approved">Approved</option>
         <option value="rejected">Rejected</option>
       </select>
@@ -2285,7 +2285,7 @@ export async function pgReviewQueue(setTopbar, navigate) {
     if (isOverdue(item))
       return '<span style="font-size:9.5px;font-weight:700;padding:2px 6px;border-radius:3px;background:rgba(255,107,107,0.15);color:var(--red)">OVERDUE</span>';
     if (isUrgent(item))
-      return '<span style="font-size:9.5px;font-weight:700;padding:2px 6px;border-radius:3px;background:rgba(255,181,71,0.15);color:var(--amber)">URGENT</span>';
+      return '<span title="Urgent: off-label use, governance flags, or serious adverse event linked" style="cursor:help;font-size:9.5px;font-weight:700;padding:2px 6px;border-radius:3px;background:rgba(255,181,71,0.15);color:var(--amber)">⚑ URGENT</span>';
     return hours !== null
       ? '<span style="font-size:9.5px;color:var(--text-tertiary)">' + hours + 'h ago</span>'
       : '';
@@ -2486,7 +2486,7 @@ export async function pgReviewQueue(setTopbar, navigate) {
   // ── Full page render ───────────────────────────────────────────────────────
   el.innerHTML =
     '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:18px">'
-    + statCard('Pending Reviews',     pendingItems.length,  pendingItems.length  > 0 ? 'var(--amber)' : 'var(--green)', pendingItems.length  > 0 ? 'Awaiting action' : 'Queue clear')
+    + statCard('Awaiting Review',      pendingItems.length,  pendingItems.length  > 0 ? 'var(--amber)' : 'var(--green)', pendingItems.length  > 0 ? 'Awaiting action' : 'Queue clear')
     + statCard('Overdue (&gt;48h)',  overdueItems.length,  'var(--red)',   overdueItems.length > 0 ? 'Past SLA threshold' : 'All within SLA', overdueItems.length > 0)
     + statCard('Approved Today',      approvedToday,        'var(--green)', approvedToday > 0 ? 'This calendar day' : 'None yet today')
     + statCard('Open Adverse Events', openAEs.length,       openAEs.length > 0 ? 'var(--red)' : 'var(--teal)', openAEs.length > 0 ? seriousAECount + ' serious' : 'No open AEs')

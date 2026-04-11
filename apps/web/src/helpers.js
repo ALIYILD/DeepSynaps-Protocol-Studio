@@ -9,39 +9,45 @@ export function roleGate(allowedRoles, currentRole, content, fallback = '') {
 // Clinical-domain badges — explicit, scannable at a glance
 export function evidenceBadge(grade) {
   const map = {
-    'EV-A': { bg: 'rgba(0,212,188,0.12)', color: 'var(--teal)', label: 'EV-A' },
-    'EV-B': { bg: 'rgba(74,158,255,0.12)', color: 'var(--blue)', label: 'EV-B' },
-    'EV-C': { bg: 'rgba(255,181,71,0.12)', color: 'var(--amber)', label: 'EV-C' },
-    'EV-D': { bg: 'rgba(255,107,107,0.12)', color: 'var(--red)', label: 'EV-D' },
+    'EV-A': { bg: 'rgba(0,212,188,0.12)',  color: 'var(--teal)',          label: 'EV-A', title: 'Grade A — High quality evidence (RCTs, systematic reviews)' },
+    'EV-B': { bg: 'rgba(74,158,255,0.12)', color: 'var(--blue)',          label: 'EV-B', title: 'Grade B — Moderate evidence (controlled studies)' },
+    'EV-C': { bg: 'rgba(255,181,71,0.12)', color: 'var(--amber)',         label: 'EV-C', title: 'Grade C — Limited evidence (case series, expert opinion)' },
+    'EV-D': { bg: 'rgba(255,107,107,0.12)',color: 'var(--red)',           label: 'EV-D', title: 'Grade D — Insufficient evidence — use with caution' },
+    // Legacy single-letter grades
+    'A': { bg: 'rgba(0,212,188,0.12)',  color: 'var(--teal)',  label: 'EV-A', title: 'Grade A — High quality evidence (RCTs, systematic reviews)' },
+    'B': { bg: 'rgba(74,158,255,0.12)', color: 'var(--blue)',  label: 'EV-B', title: 'Grade B — Moderate evidence (controlled studies)' },
+    'C': { bg: 'rgba(255,181,71,0.12)', color: 'var(--amber)', label: 'EV-C', title: 'Grade C — Limited evidence (case series, expert opinion)' },
+    'D': { bg: 'rgba(255,107,107,0.12)',color: 'var(--red)',   label: 'EV-D', title: 'Grade D — Insufficient evidence — use with caution' },
   };
-  const s = map[grade] || { bg: 'rgba(255,255,255,0.06)', color: 'var(--text-tertiary)', label: grade || '—' };
-  return `<span style="font-size:10px;font-weight:700;padding:2px 7px;border-radius:4px;background:${s.bg};color:${s.color};font-family:var(--font-mono);letter-spacing:0.5px">${s.label}</span>`;
+  const s = map[grade] || { bg: 'rgba(255,255,255,0.06)', color: 'var(--text-tertiary)', label: grade || '—', title: 'Evidence grade not specified' };
+  return `<span title="${s.title}" style="cursor:help;font-size:10px;font-weight:700;padding:2px 7px;border-radius:4px;background:${s.bg};color:${s.color};font-family:var(--font-mono);letter-spacing:0.5px">${s.label}</span>`;
 }
 
 export function labelBadge(onLabel) {
   const on = String(onLabel).toLowerCase().startsWith('on');
   return on
-    ? `<span style="font-size:10px;font-weight:600;padding:2px 7px;border-radius:4px;background:rgba(0,212,188,0.08);color:var(--teal)">On-label</span>`
-    : `<span style="font-size:10px;font-weight:600;padding:2px 7px;border-radius:4px;background:rgba(255,181,71,0.1);color:var(--amber)">Off-label</span>`;
+    ? `<span title="On-label: this treatment is approved for the stated indication" style="cursor:help;font-size:10px;font-weight:600;padding:2px 7px;border-radius:4px;background:rgba(0,212,188,0.08);color:var(--teal)">On-label</span>`
+    : `<span title="Off-label: this treatment is used outside its approved indication — additional documentation required" style="cursor:help;font-size:10px;font-weight:600;padding:2px 7px;border-radius:4px;background:rgba(255,181,71,0.1);color:var(--amber)">⚠ Off-label</span>`;
 }
 
 export function safetyBadge(warnings = []) {
   if (!warnings || warnings.length === 0) return '';
-  return `<span style="font-size:10px;font-weight:600;padding:2px 7px;border-radius:4px;background:rgba(255,107,107,0.1);color:var(--red)">⚠ ${warnings.length} flag${warnings.length > 1 ? 's' : ''}</span>`;
+  const tip = warnings.slice(0, 5).join(' | ');
+  return `<span title="${tip}" style="cursor:help;font-size:10px;font-weight:600;padding:2px 7px;border-radius:4px;background:rgba(255,107,107,0.1);color:var(--red)">⚠ ${warnings.length} flag${warnings.length > 1 ? 's' : ''}</span>`;
 }
 
 export function approvalBadge(status) {
   const map = {
-    pending_approval: { bg: 'rgba(255,181,71,0.12)', color: 'var(--amber)', label: 'Pending Approval' },
-    approved:         { bg: 'rgba(74,158,255,0.12)', color: 'var(--blue)',  label: 'Approved' },
-    active:           { bg: 'rgba(0,212,188,0.12)',  color: 'var(--teal)',  label: 'Active' },
-    paused:           { bg: 'rgba(255,181,71,0.12)', color: 'var(--amber)', label: 'Paused' },
-    completed:        { bg: 'rgba(74,222,128,0.12)', color: 'var(--green)', label: 'Completed' },
-    discontinued:     { bg: 'rgba(255,107,107,0.12)',color: 'var(--red)',   label: 'Discontinued' },
-    draft:            { bg: 'rgba(255,255,255,0.06)', color: 'var(--text-tertiary)', label: 'Draft' },
+    pending_approval: { bg: 'rgba(255,181,71,0.12)', color: 'var(--amber)', label: 'Awaiting Approval', title: 'Awaiting clinical supervisor approval before treatment can begin' },
+    approved:         { bg: 'rgba(74,158,255,0.12)', color: 'var(--blue)',  label: 'Approved',          title: 'Approved — ready to start treatment sessions' },
+    active:           { bg: 'rgba(0,212,188,0.12)',  color: 'var(--teal)',  label: 'In Treatment',      title: 'Active — treatment sessions in progress' },
+    paused:           { bg: 'rgba(255,181,71,0.12)', color: 'var(--amber)', label: 'Paused',            title: 'Treatment paused — follow up with patient before resuming' },
+    completed:        { bg: 'rgba(74,222,128,0.12)', color: 'var(--green)', label: 'Completed',         title: 'Full course of treatment completed' },
+    discontinued:     { bg: 'rgba(255,107,107,0.12)',color: 'var(--red)',   label: 'Discontinued',      title: 'Treatment discontinued — see clinical notes for reason' },
+    draft:            { bg: 'rgba(255,255,255,0.06)', color: 'var(--text-tertiary)', label: 'Draft',    title: 'Draft — not yet submitted for approval' },
   };
-  const s = map[status] || { bg: 'rgba(255,255,255,0.06)', color: 'var(--text-tertiary)', label: status || '—' };
-  return `<span style="font-size:10.5px;font-weight:600;padding:3px 9px;border-radius:5px;background:${s.bg};color:${s.color}">${s.label}</span>`;
+  const s = map[status] || { bg: 'rgba(255,255,255,0.06)', color: 'var(--text-tertiary)', label: status?.replace(/_/g, ' ') || '—', title: '' };
+  return `<span title="${s.title}" style="cursor:help;font-size:10.5px;font-weight:600;padding:3px 9px;border-radius:5px;background:${s.bg};color:${s.color}">${s.label}</span>`;
 }
 
 // Registry-backed select — renders <select> with fetched options; falls back to static list
@@ -93,7 +99,12 @@ export function evBar(l, p, c) {
 
 export function pillSt(st) {
   const m = { active: 'pill-active', pending: 'pill-pending', review: 'pill-review', inactive: 'pill-inactive', completed: 'pill-active', draft: 'pill-pending' };
-  const label = st ? st.charAt(0).toUpperCase() + st.slice(1) : '—';
+  const labels = {
+    active: 'Active', pending: 'Pending', review: 'Under Review',
+    inactive: 'Inactive', completed: 'Completed', draft: 'Draft',
+    pending_activation: 'Pending Activation',
+  };
+  const label = labels[st] || (st ? st.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) : '—');
   return `<span class="pill ${m[st] || 'pill-inactive'}">${label}</span>`;
 }
 
