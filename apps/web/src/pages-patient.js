@@ -2244,7 +2244,243 @@ export async function pgPatientAssessments() {
   const completed = items.filter(i => i.status === 'completed')
                          .sort((a, b) => new Date(b.completedAt || 0) - new Date(a.completedAt || 0));
 
-  // ── Assessment card HTML ─────────────────────────────────────────────────
+  // ── Category metadata ────────────────────────────────────────────────────
+  const CAT_MAP = {
+    phq9:'mood', phq2:'mood', hdrs:'mood', madrs:'mood', qids:'mood',
+    gad7:'anxiety', gad2:'anxiety', pcl5:'anxiety', dass21:'anxiety',
+    psqi:'sleep', isi:'sleep',
+    moca:'cognitive',
+    bprs:'symptom',
+  };
+  const CAT_META = {
+    mood:      { icon: '💭', label: 'Mood',               color: '#818cf8' },
+    anxiety:   { icon: '🌊', label: 'Anxiety & Stress',   color: '#60a5fa' },
+    sleep:     { icon: '🌙', label: 'Sleep',              color: '#a78bfa' },
+    cognitive: { icon: '🧩', label: 'Memory & Thinking',  color: '#34d399' },
+    symptom:   { icon: '📋', label: 'Symptoms',           color: '#fb923c' },
+    custom:    { icon: '✦',  label: 'Assessment',         color: '#94a3b8' },
+  };
+
+  function itemCat(item) {
+    const key = (item.raw.template_id || item.raw.assessment_type || '')
+      .toLowerCase().replace(/[-_\s]/g, '');
+    return CAT_META[CAT_MAP[key] || 'custom'] || CAT_META.custom;
+  }
+
+  // ── Summary row ──────────────────────────────────────────────────────────
+  function summaryRow() {
+    const sevenDaysAgo = Date.now() - 7 * 86400000;
+    const doneThisWeek = completed.filter(function(i) {
+      return i.completedAt && new Date(i.completedAt).getTime() >= sevenDaysAgo;
+    }).length;
+    const nextUp = upcoming[0];
+    const nextLabel = nextUp
+      ? (nextUp.dueDate ? fmtDate(nextUp.dueDate) : nextUp.name)
+      : (completed.length > 0 ? 'All caught up' : 'None scheduled');
+
+    return '<div class="pt-assess-summary-row">' +
+      '<div class="pt-assess-kpi-card' + (due.length > 0 ? ' pt-assess-kpi-card--urgent' : '') + '">' +
+        '<div class="pt-assess-kpi-label">Due Now</div>' +
+        '<div class="pt-assess-kpi-value">' + due.length + '</div>' +
+        (due.length > 0
+          ? '<div class="pt-assess-kpi-sub">Complete when you\'re ready</div>'
+          : '<div class="pt-assess-kpi-sub" style="color:#10b981">All up to date ✓</div>') +
+      '</div>' +
+      '<div class="pt-assess-kpi-card">' +
+        '<div class="pt-assess-kpi-label">Completed This Week</div>' +
+        '<div class="pt-assess-kpi-value">' + doneThisWeek + '</div>' +
+        '<div class="pt-assess-kpi-sub">' + (doneThisWeek > 0 ? 'Good progress' : 'Nothing yet this week') + '</div>' +
+      '</div>' +
+      '<div class="pt-assess-kpi-card">' +
+        '<div class="pt-assess-kpi-label">Next Review</div>' +
+        '<div class="pt-assess-kpi-value pt-assess-kpi-value--sm">' + esc(nextLabel) + '</div>' +
+        (nextUp ? '<div class="pt-assess-kpi-sub">' + esc(nextUp.name) + '</div>' : '') +
+      '</div>' +
+    '</div>';
+  }
+
+  // ── Section header helper ────────────────────────────────────────────────
+  function sectionHd(title, count) {
+    return '<div class="pt-assess-section-hd">' +
+      '<span class="pt-assess-section-title">' + esc(title) + '</span>' +
+      (count > 0 ? '<span class="pt-assess-section-count">' + count + '</span>' : '') +
+    '</div>';
+  }
+
+  // ── Due / in-progress card ───────────────────────────────────────────────
+  function dueCardHTML(item) {
+    const cat = itemCat(item);
+    const isInProgress = item.status === 'in-progress';
+    const catBg = cat.color + '1a';
+    const pillHtml = isInProgress
+      ? '<span class="pt-assess-pill pt-assess-pill-progress">In progress</span>'
+      : '<span class="pt-assess-pill pt-assess-pill-due">Due now</span>';
+
+    const chips = [
+      item.timeMin ? '<span class="pt-assess-chip">⏱ ' + item.timeMin + ' min</span>' : '',
+      item.dueDate ? '<span class="pt-assess-chip">Due ' + esc(fmtDate(item.dueDate)) + '</span>' : '',
+      item.courseRef ? '<span class="pt-assess-chip">📋 ' + esc(item.courseRef.title) + '</span>' : '',
+      item.sessionRef ? '<span class="pt-assess-chip">Session' + (item.sessionRef.number ? ' #' + item.sessionRef.number : '') + '</span>' : '',
+    ].filter(Boolean).join('');
+
+    let ctaHtml = '';
+    const ctaLabel = isInProgress ? 'Continue →' : 'Start →';
+    if (item.formKey === 'phq9') {
+      ctaHtml = '<button class="btn btn-primary btn-sm" id="pt-assess-cta-' + esc(item.id) + '"' +
+        ' onclick="window._ptToggleAssessForm(\'' + esc(item.id) + '\')"' +
+        ' aria-expanded="false" aria-controls="pt-assess-form-' + esc(item.id) + '">' + ctaLabel + '</button>';
+    } else if (item.formUrl) {
+      ctaHtml = '<a class="btn btn-primary btn-sm" href="' + esc(item.formUrl) + '" target="_blank" rel="noopener noreferrer">' + ctaLabel + '</a>';
+    } else {
+      ctaHtml = '<button class="btn btn-ghost btn-sm" onclick="window._ptAssessContactClinic(\'' + esc(item.id) + '\')">Ask your clinic →</button>';
+    }
+
+    const progressHtml = isInProgress && item.progress != null
+      ? '<div class="pt-assess-progress-bar" role="progressbar" aria-valuenow="' + item.progress + '" aria-valuemin="0" aria-valuemax="100">' +
+          '<div class="pt-assess-progress-fill" style="width:' + Math.min(100, item.progress) + '%"></div>' +
+        '</div>'
+      : '';
+
+    return '<div class="pt-assess-card pt-assess-card-due" data-id="' + esc(item.id) + '" data-status="' + esc(item.status) + '">' +
+      '<div class="pt-assess-card-hd">' +
+        '<div class="pt-assess-card-hd-left">' +
+          '<span class="pt-assess-cat-chip" style="background:' + catBg + ';color:' + cat.color + '">' + cat.icon + ' ' + cat.label + '</span>' +
+          pillHtml +
+        '</div>' +
+        '<div class="pt-assess-cta-col">' + ctaHtml + '</div>' +
+      '</div>' +
+      '<div class="pt-assess-card-body">' +
+        '<div class="pt-assess-name">' + esc(item.name) + '</div>' +
+        (item.whyItMatters
+          ? '<div class="pt-assess-why-inline">' + esc(item.whyItMatters) + '</div>'
+          : (item.purpose ? '<div class="pt-assess-why-inline">' + esc(item.purpose) + '</div>' : '')) +
+        (chips ? '<div class="pt-assess-chips">' + chips + '</div>' : '') +
+        progressHtml +
+      '</div>' +
+      '<div class="pt-assess-inline-form" id="pt-assess-form-' + esc(item.id) + '" hidden></div>' +
+    '</div>';
+  }
+
+  // ── Upcoming card ────────────────────────────────────────────────────────
+  function upcomingCardHTML(item) {
+    const cat = itemCat(item);
+    const catBg = cat.color + '12';
+    const chips = [
+      item.timeMin ? '<span class="pt-assess-chip">⏱ ' + item.timeMin + ' min</span>' : '',
+      item.dueDate ? '<span class="pt-assess-chip">Due ' + esc(fmtDate(item.dueDate)) + '</span>' : '',
+      item.sessionRef ? '<span class="pt-assess-chip">Session' + (item.sessionRef.number ? ' #' + item.sessionRef.number : '') + '</span>' : '',
+    ].filter(Boolean).join('');
+
+    return '<div class="pt-assess-card pt-assess-card-upcoming" data-id="' + esc(item.id) + '" data-status="upcoming">' +
+      '<div class="pt-assess-card-hd">' +
+        '<div class="pt-assess-card-hd-left">' +
+          '<span class="pt-assess-cat-chip" style="background:' + catBg + ';color:' + cat.color + '">' + cat.icon + ' ' + cat.label + '</span>' +
+          '<span class="pt-assess-pill pt-assess-pill-upcoming">Upcoming</span>' +
+        '</div>' +
+      '</div>' +
+      '<div class="pt-assess-card-body">' +
+        '<div class="pt-assess-name" style="font-size:.85rem">' + esc(item.name) + '</div>' +
+        (item.purpose ? '<div class="pt-assess-purpose">' + esc(item.purpose) + '</div>' : '') +
+        (chips ? '<div class="pt-assess-chips">' + chips + '</div>' : '') +
+      '</div>' +
+    '</div>';
+  }
+
+  // ── Completed card ───────────────────────────────────────────────────────
+  function completedCardHTML(item) {
+    const cat = itemCat(item);
+    const catBg = cat.color + '10';
+    const isReviewed = !!(item.raw.clinician_reviewed || item.raw.reviewed_by);
+
+    const chips = [
+      item.completedAt ? '<span class="pt-assess-chip">Completed ' + esc(fmtDate(item.completedAt)) + '</span>' : '',
+      item.sessionRef ? '<span class="pt-assess-chip">Session' + (item.sessionRef.number ? ' #' + item.sessionRef.number : '') + '</span>' : '',
+    ].filter(Boolean).join('');
+
+    let resultHtml = '';
+    if (item.score != null) {
+      const ctx = item.scoreCtx;
+      const bandClass = ctx ? ctx.label.toLowerCase().replace(/\s+/g, '-') : '';
+      resultHtml =
+        '<div class="pt-assess-result-row">' +
+          '<span class="pt-assess-score-label">Your result</span>' +
+          (ctx
+            ? '<span class="pt-assess-score-band ' + bandClass + '">' + esc(ctx.label) + '</span>'
+            : '<span class="pt-assess-score-num">' + esc(String(item.score)) + '</span>') +
+          (isReviewed ? '<span class="pt-assess-reviewed-badge">✓ Reviewed by your team</span>' : '') +
+        '</div>' +
+        (ctx ? '<div class="pt-assess-score-note">' + esc(ctx.note) + '</div>' : '');
+    } else if (isReviewed) {
+      resultHtml = '<div class="pt-assess-result-row"><span class="pt-assess-reviewed-badge">✓ Reviewed by your team</span></div>';
+    }
+
+    return '<div class="pt-assess-card pt-assess-card-done" data-id="' + esc(item.id) + '" data-status="completed">' +
+      '<div class="pt-assess-card-hd">' +
+        '<div class="pt-assess-card-hd-left">' +
+          '<span class="pt-assess-cat-chip" style="background:' + catBg + ';color:' + cat.color + '">' + cat.icon + ' ' + cat.label + '</span>' +
+          '<span class="pt-assess-pill pt-assess-pill-done">Completed</span>' +
+        '</div>' +
+        '<div class="pt-assess-cta-col">' +
+          '<button class="btn btn-ghost btn-sm" onclick="window._ptAssessReview(\'' + esc(item.id) + '\')">Review result</button>' +
+        '</div>' +
+      '</div>' +
+      '<div class="pt-assess-card-body">' +
+        '<div class="pt-assess-name" style="font-size:.85rem">' + esc(item.name) + '</div>' +
+        resultHtml +
+        (chips ? '<div class="pt-assess-chips" style="margin-top:8px">' + chips + '</div>' : '') +
+      '</div>' +
+    '</div>';
+  }
+
+  // ── Why section ──────────────────────────────────────────────────────────
+  function whySection() {
+    const catSeen = {};
+    const groups = [];
+    items.forEach(function(i) {
+      const c = itemCat(i);
+      if (!catSeen[c.label]) {
+        catSeen[c.label] = true;
+        groups.push({ cat: c, item: i });
+      }
+    });
+    const display = groups.slice(0, 5);
+    if (display.length === 0) return '';
+
+    return '<div class="pt-assess-why-section">' +
+      sectionHd('Why These Assessments Matter', 0) +
+      '<div class="pt-assess-why-grid">' +
+        display.map(function(g) {
+          return '<div class="pt-assess-why-card">' +
+            '<div class="pt-assess-why-name" style="color:' + g.cat.color + '">' + g.cat.icon + ' ' + g.cat.label + '</div>' +
+            '<div class="pt-assess-why-text">' + esc(g.item.whyItMatters || g.item.purpose || '') + '</div>' +
+          '</div>';
+        }).join('') +
+        '<div class="pt-assess-why-card pt-assess-why-note">' +
+          '<div class="pt-assess-why-name">Your results are private</div>' +
+          '<div class="pt-assess-why-text">Your scores are only seen by your care team. They are used to guide your treatment, not to judge you.</div>' +
+        '</div>' +
+      '</div>' +
+      '<div class="pt-assess-why-purpose">Assessments help your care team track changes over time, support treatment follow-up, and monitor your progress between sessions.</div>' +
+    '</div>';
+  }
+
+  // ── Care Assistant section ───────────────────────────────────────────────
+  function assistSection() {
+    return '<div class="pt-assess-section">' +
+      sectionHd('Ask Your Care Assistant', 0) +
+      '<div class="pt-assess-assist-grid">' +
+        '<button class="pt-assess-assist-btn" onclick="window._assessAskAI(\'Why was this assessment assigned to me?\')">Why was this assigned to me?</button>' +
+        '<button class="pt-assess-assist-btn" onclick="window._assessAskAI(\'Which assessment should I complete first?\')">Which one should I complete first?</button>' +
+        '<button class="pt-assess-assist-btn" onclick="window._assessAskAI(\'Can you explain my recent assessment result in simple language?\')">Explain my result simply</button>' +
+        '<button class="pt-assess-assist-btn" onclick="window._assessAskAI(\'How have my assessment scores changed since last week?\')">What changed since last week?</button>' +
+      '</div>' +
+    '</div>';
+  }
+
+  // ── DEAD CODE kept for reference — replaced below ─────────────────────────
+  // Old assessCardHTML is replaced by dueCardHTML / upcomingCardHTML / completedCardHTML.
+  // Old whyCalloutHTML is replaced by whySection().
+  // Old sectionHTML is replaced by inline section builders + sectionHd().
   function assessCardHTML(item) {
     const isDue       = item.status === 'due';
     const isInProgress = item.status === 'in-progress';
@@ -2364,110 +2600,69 @@ export async function pgPatientAssessments() {
       </div>`;
   }
 
-  // ── Why these assessments matter callout ─────────────────────────────────
-  // Extension point: populate from meta.whyItMatters per assessment type.
-  function whyCalloutHTML() {
-    const unique = [...new Map(
-      items.filter(i => i.whyItMatters)
-           .map(i => [i.name, i])
-    ).values()].slice(0, 4);
-    if (unique.length === 0) return '';
-    return `
-      <div class="pt-assess-why-section">
-        <div class="pt-docs-section-hd" style="margin-bottom:10px">
-          <span class="pt-docs-section-title">Why these assessments matter</span>
-        </div>
-        <div class="pt-assess-why-wrap">
-          ${unique.map(i => `
-            <div class="pt-assess-why-card">
-              <div class="pt-assess-why-name">${esc(i.name)}</div>
-              <div class="pt-assess-why-text">${esc(i.whyItMatters)}</div>
-            </div>`).join('')}
-          <div class="pt-assess-why-card pt-assess-why-note">
-            <div class="pt-assess-why-name">Your results are private</div>
-            <div class="pt-assess-why-text">Your assessment scores are only seen by your care team. They are used to guide your treatment, not to judge you.</div>
-          </div>
-        </div>
-      </div>`;
-  }
-
-  // ── Section HTML helper ──────────────────────────────────────────────────
-  function sectionHTML(title, assessList, emptyMsg) {
-    if (assessList.length === 0) {
-      if (!emptyMsg) return '';
-      return `
-        <div class="pt-assess-section">
-          <div class="pt-docs-section-hd"><span class="pt-docs-section-title">${esc(title)}</span></div>
-          <div class="pt-assess-section-empty">${esc(emptyMsg)}</div>
-        </div>`;
-    }
-    return `
-      <div class="pt-assess-section">
-        <div class="pt-docs-section-hd">
-          <span class="pt-docs-section-title">${esc(title)}</span>
-          <span class="pt-docs-section-count">${assessList.length}</span>
-        </div>
-        ${assessList.map(i => assessCardHTML(i)).join('')}
-      </div>`;
-  }
-
   // ── Empty page state ─────────────────────────────────────────────────────
   if (items.length === 0) {
-    el.innerHTML = `
-      <div class="pt-assess-empty">
-        <div class="pt-assess-empty-ico" aria-hidden="true">&#9673;</div>
-        <div class="pt-assess-empty-title">${t('patient.assess.empty.title')}</div>
-        <div class="pt-assess-empty-body">${t('patient.assess.empty.body')}</div>
-        <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin-top:16px">
-          <button class="btn btn-ghost btn-sm" onclick="window._navPatient('patient-messages')">${t('patient.assess.empty.cta_message')}</button>
-          <button class="btn btn-ghost btn-sm" onclick="window._navPatient('patient-portal')">${t('patient.assess.empty.cta_home')}</button>
-        </div>
-      </div>`;
+    el.innerHTML =
+      '<div class="pt-assess-empty">' +
+        '<div class="pt-assess-empty-ico" aria-hidden="true">&#9673;</div>' +
+        '<div class="pt-assess-empty-title">' + t('patient.assess.empty.title') + '</div>' +
+        '<div class="pt-assess-empty-body">' + t('patient.assess.empty.body') + '</div>' +
+        '<div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin-top:16px">' +
+          '<button class="btn btn-ghost btn-sm" onclick="window._navPatient(\'patient-messages\')">' + t('patient.assess.empty.cta_message') + '</button>' +
+          '<button class="btn btn-ghost btn-sm" onclick="window._navPatient(\'patient-portal\')">' + t('patient.assess.empty.cta_home') + '</button>' +
+        '</div>' +
+      '</div>';
     return;
   }
 
   // ── Render page ──────────────────────────────────────────────────────────
-  el.innerHTML = `
-    <div class="pt-assess-wrap">
-      ${sectionHTML('Due Now', due, null)}
-      ${sectionHTML('Upcoming', upcoming, null)}
-      ${sectionHTML('Completed', completed, null)}
-      ${whyCalloutHTML()}
-    </div>`;
+  el.innerHTML =
+    '<div class="pt-assess-wrap">' +
+      summaryRow() +
+      (due.length > 0
+        ? '<div class="pt-assess-section">' + sectionHd('Due Now', due.length) + due.map(dueCardHTML).join('') + '</div>'
+        : '') +
+      (upcoming.length > 0
+        ? '<div class="pt-assess-section">' + sectionHd('Upcoming', upcoming.length) + upcoming.map(upcomingCardHTML).join('') + '</div>'
+        : '') +
+      (completed.length > 0
+        ? '<div class="pt-assess-section">' + sectionHd('Completed', completed.length) + completed.map(completedCardHTML).join('') + '</div>'
+        : '') +
+      whySection() +
+      assistSection() +
+    '</div>';
 
   // ── Handlers ─────────────────────────────────────────────────────────────
 
-  // Toggle inline form (PHQ-9 or other embeddable forms)
   window._ptToggleAssessForm = function(itemId) {
-    const item   = items.find(i => i.id === itemId);
+    const item = items.find(function(i) { return i.id === itemId; });
     if (!item) return;
-    const formEl = el.querySelector(`#pt-assess-form-${CSS.escape(itemId)}`);
-    const btn    = el.querySelector(`#pt-assess-cta-${CSS.escape(itemId)}`);
+    const formEl = el.querySelector('#pt-assess-form-' + CSS.escape(itemId));
+    const btn    = el.querySelector('#pt-assess-cta-' + CSS.escape(itemId));
     if (!formEl) return;
     const opening = formEl.hasAttribute('hidden');
     if (opening) {
       formEl.removeAttribute('hidden');
-      if (btn) { btn.textContent = 'Close \u2715'; btn.setAttribute('aria-expanded', 'true'); }
-      // Render the appropriate form
-      if (item.formKey === 'phq9') {
-        renderPHQ9Form(`pt-assess-form-${CSS.escape(itemId)}`, currentUser?.id);
-      }
-      setTimeout(() => formEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' }), 50);
+      if (btn) { btn.textContent = 'Close ×'; btn.setAttribute('aria-expanded', 'true'); }
+      if (item.formKey === 'phq9') renderPHQ9Form('pt-assess-form-' + CSS.escape(itemId), currentUser?.id);
+      setTimeout(function() { formEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); }, 50);
     } else {
       formEl.setAttribute('hidden', '');
-      if (btn) { btn.textContent = (item.status === 'in-progress' ? 'Continue' : 'Start') + ' \u2192'; btn.setAttribute('aria-expanded', 'false'); }
+      if (btn) { btn.textContent = (item.status === 'in-progress' ? 'Continue' : 'Start') + ' →'; btn.setAttribute('aria-expanded', 'false'); }
     }
   };
 
-  // Review a completed assessment
-  // Extension point: open a detail modal or navigate to Documents & Reports.
-  window._ptAssessReview = function(itemId) {
-    window._navPatient('patient-reports');
-  };
+  window._ptAssessReview = function(_itemId) { window._navPatient('patient-reports'); };
+  window._ptAssessContactClinic = function(_itemId) { window._navPatient('patient-messages'); };
 
-  // Contact clinic for clinic-administered assessments
-  window._ptAssessContactClinic = function(_itemId) {
-    window._navPatient('patient-messages');
+  window._assessAskAI = function(prompt) {
+    if (typeof window._navPatient === 'function') {
+      window._navPatient('ai-agents');
+      setTimeout(function() {
+        const inp = document.getElementById('pt-ai-input') || document.querySelector('.pt-ai-input');
+        if (inp) { inp.value = prompt; inp.focus(); }
+      }, 300);
+    }
   };
 }
 
