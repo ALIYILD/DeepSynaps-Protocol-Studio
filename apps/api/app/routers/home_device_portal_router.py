@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import json
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends
@@ -232,7 +232,7 @@ def log_home_session(
             status_code=404,
         )
 
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     log = DeviceSessionLog(
         id=str(uuid.uuid4()),
         assignment_id=assignment.id,
@@ -323,7 +323,7 @@ def submit_adherence_event(
         )
 
     assignment = _get_active_assignment(patient.id, db)
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
 
     event = PatientAdherenceEvent(
         id=str(uuid.uuid4()),

@@ -14,7 +14,7 @@ Phase 1 — manual/supervised home device support:
 """
 from alembic import op
 import sqlalchemy as sa
-from datetime import datetime
+from datetime import datetime, timezone
 
 revision = '008_home_device_workflows'
 down_revision = '007_media_workflows'
@@ -54,7 +54,7 @@ def upgrade() -> None:
             "('00000000-0000-0000-0000-000000000001', 'manual', 'Manual Entry', 'other', NULL, "
             " 'not_integrated', '{\"session_duration\": true, \"intensity\": true, \"notes\": true}', "
             " 0, 0, 1, :now, :now)"
-        ).bindparams(now=datetime.utcnow())
+        ).bindparams(now=datetime.now(timezone.utc))
     )
 
     # ── home_device_assignments ───────────────────────────────────────────────

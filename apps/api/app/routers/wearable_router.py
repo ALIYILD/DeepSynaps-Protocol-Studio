@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 import logging
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Query
@@ -120,7 +120,7 @@ def get_patient_wearable_summary(
     """7-30-day wearable trend summary for a patient. Clinician-facing."""
     _require_patient_access(actor, patient_id, db)
 
-    cutoff = (datetime.utcnow() - timedelta(days=days)).date().isoformat()
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).date().isoformat()
 
     connections = db.query(DeviceConnection).filter_by(patient_id=patient_id).all()
     summaries = (
@@ -180,7 +180,7 @@ def dismiss_alert(
     if flag is None:
         raise ApiServiceError(code='not_found', message='Alert flag not found.', status_code=404)
     flag.dismissed = True
-    flag.reviewed_at = datetime.utcnow()
+    flag.reviewed_at = datetime.now(timezone.utc)
     flag.reviewed_by = actor.actor_id
     db.commit()
     return {'ok': True, 'flag_id': flag_id}
@@ -314,7 +314,7 @@ def upsert_daily_summary(
                 setattr(existing, field, v)
         if data_json_str:
             existing.data_json = data_json_str
-        existing.synced_at = datetime.utcnow()
+        existing.synced_at = datetime.now(timezone.utc)
         db.commit()
         summary_id = existing.id
     else:

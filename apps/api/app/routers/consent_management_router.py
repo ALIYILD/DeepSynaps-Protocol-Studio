@@ -13,7 +13,7 @@ POST /api/v1/consent/compliance-score         — compute compliance score
 from __future__ import annotations
 
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Query
@@ -204,7 +204,7 @@ def create_consent_record(
     if body.signed_at:
         signed_at = _parse_iso(body.signed_at)
     elif body.signed:
-        signed_at = datetime.utcnow()
+        signed_at = datetime.now(timezone.utc)
     expires_at: Optional[datetime] = _parse_iso(body.expires_at) if body.expires_at else None
 
     record = ConsentRecord(
@@ -238,7 +238,7 @@ def update_consent_record(
     if body.signed is not None:
         record.signed = body.signed
         if body.signed and record.signed_at is None and body.signed_at is None:
-            record.signed_at = datetime.utcnow()
+            record.signed_at = datetime.now(timezone.utc)
     if body.signed_at is not None:
         record.signed_at = _parse_iso(body.signed_at)
     if body.status is not None:
@@ -327,7 +327,7 @@ def create_automation_rule(
         "conditions": body.conditions_json,
         "active": body.active,
         "notes": body.notes,
-        "created_at": datetime.utcnow().isoformat(),
+        "created_at": datetime.now(timezone.utc).isoformat(),
         "created_by": actor.actor_id,
     }
     _automation_rules.append(rule)

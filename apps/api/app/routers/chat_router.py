@@ -1,7 +1,7 @@
 import json
 import logging
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Request
@@ -113,7 +113,7 @@ class WearableClinicianChatRequest(BaseModel):
 def _build_wearable_context(patient_id: str, db: Session) -> str:
     """Build a plain-text wearable context string for the AI from the last 7 days of summaries."""
     from datetime import timedelta
-    cutoff = (datetime.utcnow() - timedelta(days=7)).date().isoformat()
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=7)).date().isoformat()
     summaries = (
         db.query(WearableDailySummary)
         .filter(

@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import uuid
 from collections import defaultdict
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from sqlalchemy.orm import Session
@@ -48,7 +48,7 @@ def _already_flagged(
     db: Session,
 ) -> bool:
     """Return True if an active flag of this type was raised within the dedup window."""
-    cutoff = datetime.utcnow() - timedelta(hours=_DEDUP_HOURS)
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=_DEDUP_HOURS)
     q = (
         db.query(HomeDeviceReviewFlag)
         .filter(
@@ -91,9 +91,9 @@ def _emit(
         severity=severity,
         detail=detail,
         auto_generated=True,
-        triggered_at=datetime.utcnow(),
+        triggered_at=datetime.now(timezone.utc),
         dismissed=False,
-        created_at=datetime.utcnow(),
+        created_at=datetime.now(timezone.utc),
     )
     db.add(flag)
     db.flush()
@@ -119,7 +119,7 @@ def run_home_device_flag_checks(
     Returns list of newly created flags.
     """
     new_flags: list[HomeDeviceReviewFlag] = []
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
 
     # ── 1. Urgent symptom — immediate flag on urgent adherence event ───────────
     if new_adherence_event and new_adherence_event.severity == "urgent":

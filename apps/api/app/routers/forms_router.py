@@ -13,7 +13,7 @@ GET  /api/v1/forms/submissions/{id}    — get one submission with scoring
 from __future__ import annotations
 
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, Query
@@ -321,7 +321,7 @@ def submit_form(
         score_numeric=score_numeric,
         scoring_details_json=json.dumps(scoring_details) if scoring_details else None,
         status="scored" if score_label else "submitted",
-        submitted_at=datetime.utcnow(),
+        submitted_at=datetime.now(timezone.utc),
     )
     db.add(sub)
     db.commit()

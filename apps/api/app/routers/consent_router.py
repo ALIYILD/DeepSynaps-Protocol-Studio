@@ -9,7 +9,7 @@ PATCH  /api/v1/consent-records/{id}      Update a consent record (e.g. mark as s
 """
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Query
@@ -120,7 +120,7 @@ def create_consent_record(
     if body.signed_at:
         signed_at = _parse_iso(body.signed_at)
     elif body.signed:
-        signed_at = datetime.utcnow()
+        signed_at = datetime.now(timezone.utc)
 
     expires_at: Optional[datetime] = None
     if body.expires_at:
@@ -188,7 +188,7 @@ def update_consent_record(
         record.signed = body.signed
         # Auto-stamp signed_at when marking as signed if not supplied
         if body.signed and record.signed_at is None and body.signed_at is None:
-            record.signed_at = datetime.utcnow()
+            record.signed_at = datetime.now(timezone.utc)
 
     if body.signed_at is not None:
         record.signed_at = _parse_iso(body.signed_at)

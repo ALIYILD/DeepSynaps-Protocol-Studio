@@ -26,7 +26,7 @@ from __future__ import annotations
 import json
 import logging
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Query
@@ -295,7 +295,7 @@ def assign_device(
     if patient is None:
         raise ApiServiceError(code="not_found", message="Patient not found.", status_code=404)
 
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     assignment = HomeDeviceAssignment(
         id=str(uuid.uuid4()),
         patient_id=body.patient_id,
@@ -375,7 +375,7 @@ def update_assignment(
             )
         assignment.status = body.status
         if body.status == "revoked":
-            assignment.revoked_at = datetime.utcnow()
+            assignment.revoked_at = datetime.now(timezone.utc)
             assignment.revoke_reason = body.revoke_reason
 
     if body.instructions_text is not None:
@@ -387,7 +387,7 @@ def update_assignment(
     if body.planned_total_sessions is not None:
         assignment.planned_total_sessions = body.planned_total_sessions
 
-    assignment.updated_at = datetime.utcnow()
+    assignment.updated_at = datetime.now(timezone.utc)
     db.commit()
     db.refresh(assignment)
     return AssignmentOut.from_record(assignment)
@@ -432,7 +432,7 @@ def review_session_log(
         )
     log.status = body.status
     log.reviewed_by = actor.actor_id
-    log.reviewed_at = datetime.utcnow()
+    log.reviewed_at = datetime.now(timezone.utc)
     log.review_note = body.review_note
     db.commit()
     db.refresh(log)
@@ -485,7 +485,7 @@ def acknowledge_adherence_event(
         )
     ev.status = body.status
     ev.acknowledged_by = actor.actor_id
-    ev.acknowledged_at = datetime.utcnow()
+    ev.acknowledged_at = datetime.now(timezone.utc)
     ev.resolution_note = body.resolution_note
     db.commit()
     db.refresh(ev)
@@ -525,7 +525,7 @@ def dismiss_review_flag(
         raise ApiServiceError(code="not_found", message="Flag not found.", status_code=404)
     flag.dismissed = True
     flag.reviewed_by = actor.actor_id
-    flag.reviewed_at = datetime.utcnow()
+    flag.reviewed_at = datetime.now(timezone.utc)
     flag.resolution = body.resolution
     db.commit()
     db.refresh(flag)
@@ -655,7 +655,7 @@ def generate_home_therapy_summary(
         response_preview=summary_text[:200],
         sources_used=json.dumps(["device_session_logs", "patient_adherence_events"]),
         model_used=model_used,
-        created_at=datetime.utcnow(),
+        created_at=datetime.now(timezone.utc),
     )
     db.add(audit)
     db.commit()

@@ -1183,6 +1183,43 @@ export const TRANSLATIONS = {
     'patient.msg.cat.documents': 'Belgeler & Raporlar',
     'patient.msg.cat.billing': 'Faturalama / Yönetim',
     'patient.msg.cat.other': 'Diğer',
+    // ── Keys added to complete TR coverage (were falling back to EN) ──────────
+    'patient.progress.sessions_start': '0 Seans',
+    'patient.sess.countdown.now': 'Seansınız şimdi başlıyor!',
+    'patient.sess.status.completed': 'Tamamlandı',
+    'patient.course.week_progress': 'Bu haftaki ilerleme',
+    'patient.course.tasks_label': 'görev',
+    'patient.course.today_label': 'bugün',
+    'patient.phq9.running_score': 'Şimdiye kadarki puanınız',
+    'patient.assess.empty.title': 'Şu anda değerlendirme yok',
+    'patient.assess.empty.body': 'Bakım ekibiniz, tedaviniz ilerledikçe buraya değerlendirmeler atayacak. Bir değerlendirme geldiğinde sizi bilgilendirecekler.',
+    'patient.assess.empty.cta_message': 'Bakım ekibinize mesaj gönderin \u2192',
+    'patient.assess.empty.cta_home': 'Kontrol Paneline Dön',
+    'patient.reports.filter.shown': '{n} gösteriliyor',
+    'patient.msg.compose.topic_label': 'Bu konu ne hakkında?',
+    'patient.msg.compose.topic_placeholder': 'Bir konu seçin\u2026',
+    'patient.msg.compose.subject_label': 'Konu başlığı',
+    'patient.msg.compose.subject_placeholder': 'Örn. Bir sonraki seans hakkında sorum var',
+    'patient.msg.compose.body_label': 'Mesajınız',
+    'patient.msg.compose.body_placeholder': 'Sorunuzu veya endişenizi açıklayın\u2026',
+    'patient.msg.compose.hint': 'Yalnızca acil olmayan sorular için. Tıbbi bir acil durumda yerel acil servis numaranızı arayın.',
+    'patient.msg.compose.send': 'Mesaj Gönder',
+    'patient.msg.care_team_title': 'Bakım Ekibiniz',
+    'patient.msg.load_error': 'Mesajlarınız yüklenemedi. Lütfen daha sonra tekrar deneyin.',
+    'patient.msg.thread_count_one': '1 konuşma',
+    'patient.msg.thread_count': '{n} konuşma',
+    'patient.msg.err.select_topic': 'Lütfen bu mesajın konusunu seçin.',
+    'patient.msg.err.enter_subject': 'Lütfen bakım ekibinizin ne bekleyeceğini bilebilmesi için bir konu başlığı girin.',
+    'patient.msg.err.enter_message': 'Göndermeden önce lütfen mesajınızı yazın.',
+    'patient.msg.sent.title': 'Mesaj gönderildi',
+    'patient.msg.sent.body': 'Bakım ekibiniz 1\u20132 iş günü içinde yanıt verecek. Yanıtı burada, mesajlarınızda bulacaksınız.',
+    'patient.msg.sent.again': 'Başka bir mesaj gönder',
+    'patient.msg.send_failed': 'Mesajınız gönderilemedi. Bağlantınızı kontrol edip tekrar deneyin.',
+    'patient.profile.coming_soon_tip': 'Bu bilgileri güncellemek için kliniğinizle iletişime geçin.',
+    'patient.profile.change_pw_tip': 'Şifrenizi değiştirmek için kliniğinizle iletişime geçin veya giriş e-postanızdaki bağlantıyı kullanın.',
+    'checkin.thanks_detail': 'Bakım ekibiniz bu güncellemeyi görebilir. Başka bir kontrol girişi için yarın geri gelin.',
+    'patient.wellness.cta_home': 'Kontrol Paneline Dön',
+    'patient.wellness.cta_assess': 'Değerlendirmeleri Gör',
   },
   es: {
     'nav.dashboard': 'Panel de Control',
@@ -1419,7 +1456,16 @@ let _currentLocale = localStorage.getItem(I18N_KEY) || 'en';
 
 export function t(key, vars) {
   const locale = TRANSLATIONS[_currentLocale] || TRANSLATIONS.en;
-  let str = locale[key] ?? TRANSLATIONS.en[key] ?? key;
+  let str = locale[key] ?? TRANSLATIONS.en[key];
+  if (str === undefined || str === null) {
+    // Guard: never render a raw i18n key in the UI.
+    // In dev builds, warn so missing keys are caught early.
+    // In production, derive a human-readable fallback from the key's last segment.
+    if (import.meta.env && import.meta.env.DEV) {
+      console.warn('[i18n] missing key:', key, '(locale:', _currentLocale, ')');
+    }
+    str = key.split('.').pop().replace(/[-_]/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+  }
   if (vars) {
     for (const [k, v] of Object.entries(vars)) {
       str = str.replace(new RegExp(`\\{${k}\\}`, 'g'), v);

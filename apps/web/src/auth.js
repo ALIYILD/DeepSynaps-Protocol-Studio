@@ -79,6 +79,46 @@ export function doLogout() {
 }
 window.doLogout = doLogout;
 
+// ── Session-expired handler ───────────────────────────────────────────────────
+function _showSessionExpiredNotice() {
+  document.getElementById('session-expired-notice')?.remove();
+  const el = document.createElement('div');
+  el.id = 'session-expired-notice';
+  el.className = 'session-expired-notice';
+  el.innerHTML = `
+    <span class="session-expired-icon">🔒</span>
+    <span class="session-expired-text">Your session has expired. Redirecting to login…</span>
+  `;
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), 4000);
+}
+
+window._handleSessionExpired = function() {
+  const intended = location.hash.replace('#', '') || 'dashboard';
+  if (intended !== 'login' && intended !== 'home') {
+    sessionStorage.setItem('ds_intended_destination', intended);
+  }
+  api.clearToken();
+  currentUser = null;
+  _showSessionExpiredNotice();
+  setTimeout(() => {
+    window._401InFlight = false;
+    // Close any open shells and return to public landing
+    document.getElementById('sidebar')?.classList.remove('visible');
+    document.getElementById('app-shell')?.classList.remove('visible');
+    document.getElementById('patient-shell')?.classList.remove('visible');
+    document.getElementById('login-overlay')?.classList.remove('visible');
+    window._navPublic?.('home');
+  }, 1500);
+};
+
+// ── isAuthenticated (synchronous) ─────────────────────────────────────────────
+window._isAuthenticated = function() {
+  // In dev mode with no token, allow demo sessions that set currentUser directly
+  if (import.meta.env.DEV && currentUser) return true;
+  return !!api.getToken();
+};
+
 function renderLoginPage() {
   return `<div style="width:380px">
     <div style="text-align:center;margin-bottom:36px">
@@ -293,12 +333,25 @@ window.demoLogin = async function(token) {
   api.setToken(token);
   try {
     const user = await api.me();
-    if (user) { currentUser = user; bootUser(user); return; }
+    if (user) {
+      currentUser = user;
+      const _intendedDemo = sessionStorage.getItem('ds_intended_destination');
+      sessionStorage.removeItem('ds_intended_destination');
+      bootUser(user);
+      if (_intendedDemo) setTimeout(() => window._nav?.(_intendedDemo), 100);
+      return;
+    }
   } catch (_) {}
   // Offline fallback only in dev — never leak hardcoded users to production
   if (import.meta.env.DEV) {
     const demoUser = DEMO_USERS[token];
-    if (demoUser) { currentUser = demoUser; bootUser(demoUser); }
+    if (demoUser) {
+      currentUser = demoUser;
+      const _intendedDemo = sessionStorage.getItem('ds_intended_destination');
+      sessionStorage.removeItem('ds_intended_destination');
+      bootUser(demoUser);
+      if (_intendedDemo) setTimeout(() => window._nav?.(_intendedDemo), 100);
+    }
     else { api.clearToken(); if (errEl) { errEl.textContent = 'Unknown demo token.'; errEl.style.display = ''; } }
   } else {
     api.clearToken();
@@ -323,7 +376,10 @@ window.submitLogin = async function() {
     api.setToken(res.access_token);
     if (res.refresh_token) api.setRefreshToken(res.refresh_token);
     currentUser = res.user;
+    const _intendedAfterLogin = sessionStorage.getItem('ds_intended_destination');
+    sessionStorage.removeItem('ds_intended_destination');
     bootUser(currentUser);
+    if (_intendedAfterLogin) setTimeout(() => window._nav?.(_intendedAfterLogin), 100);
     return;
   } catch (_) { /* fall through to offline demo */ }
   // Offline demo credentials fallback — dev only

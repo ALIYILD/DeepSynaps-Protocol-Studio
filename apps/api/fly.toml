@@ -1,0 +1,57 @@
+# DeepSynaps Protocol Studio — API Fly.io configuration (apps/api)
+#
+# Required secrets (set via `fly secrets set KEY=value`):
+#   DEEPSYNAPS_DATABASE_URL   — SQLite path or PostgreSQL URL for production DB
+#   JWT_SECRET_KEY            — Secret key for JWT signing (min 32 chars)
+#   DEEPSYNAPS_CORS_ORIGINS   — Comma-separated allowed frontend origins
+#   STRIPE_SECRET_KEY         — Stripe secret key (when payments are enabled)
+#   STRIPE_WEBHOOK_SECRET     — Stripe webhook signing secret
+#   SENTRY_DSN                — Sentry DSN for error tracking (optional)
+
+app = "deepsynaps-studio"
+primary_region = "lhr"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  DEEPSYNAPS_APP_ENV = "production"
+  DEEPSYNAPS_LOG_LEVEL = "INFO"
+  PORT = "8080"
+  # DEEPSYNAPS_CORS_ORIGINS and DEEPSYNAPS_DATABASE_URL must be set as secrets
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = true
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [http_service.concurrency]
+    type = "connections"
+    hard_limit = 25
+    soft_limit = 20
+
+  # NOTE: SSE connections (notifications endpoint) use long-lived HTTP connections.
+  # With auto_stop_machines = true, machines may sleep and cut open SSE streams.
+  # The frontend EventSource must handle reconnects on EventSource.CLOSED / onerror.
+  [[http_service.checks]]
+    grace_period = "10s"
+    interval = "15s"
+    method = "GET"
+    timeout = "5s"
+    path = "/health"
+
+[deploy]
+  # alembic.ini lives in apps/api/ — run from that subdirectory
+  release_command = "sh -c 'cd /app/apps/api && python -m alembic upgrade head'"
+
+[[vm]]
+  memory = "1gb"
+  cpu_kind = "shared"
+  cpus = 1
+
+[[mounts]]
+  source = "deepsynaps_data"
+  destination = "/data"
+  initial_size = "1gb"

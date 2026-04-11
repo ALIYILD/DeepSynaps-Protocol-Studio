@@ -14,7 +14,7 @@ GET    /api/v1/review-queue                         List pending review queue it
 from __future__ import annotations
 
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Query
@@ -434,7 +434,7 @@ def update_course(
         require_minimum_role(actor, "admin")
         course.status = body.status
 
-    course.updated_at = datetime.utcnow()
+    course.updated_at = datetime.now(timezone.utc)
     db.commit()
     db.refresh(course)
     return CourseOut.from_record(course)
@@ -473,7 +473,7 @@ def activate_course(
             status_code=403,
         )
 
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     course.status = "active"
     course.approved_by = actor.actor_id
     course.approved_at = now
@@ -540,9 +540,9 @@ def log_session(
     # Auto-complete if all sessions delivered
     if course.sessions_delivered >= course.planned_sessions_total:
         course.status = "completed"
-        course.completed_at = datetime.utcnow()
+        course.completed_at = datetime.now(timezone.utc)
 
-    course.updated_at = datetime.utcnow()
+    course.updated_at = datetime.now(timezone.utc)
     db.commit()
     db.refresh(record)
 
@@ -693,7 +693,7 @@ def post_review_action(
         raise ApiServiceError(code="not_found", message="Review queue item not found.", status_code=404)
 
     # Apply state transition
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     if action == "approve":
         item.status = "completed"
         item.completed_at = now

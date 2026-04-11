@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import random
 import string
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends
@@ -193,7 +193,7 @@ def delete_patient_endpoint(
 
 def _generate_invite_code(clinic_prefix: str) -> str:
     """Generate an invite code like NB-2026-A3F7."""
-    year = datetime.utcnow().year
+    year = datetime.now(timezone.utc).year
     suffix = "".join(random.choices(string.ascii_uppercase + string.digits, k=4))
     return f"{clinic_prefix}-{year}-{suffix}"
 
@@ -233,7 +233,7 @@ def create_patient_invite(
         if existing is None:
             break
 
-    expires_at = datetime.utcnow() + timedelta(days=body.expires_in_days)
+    expires_at = datetime.now(timezone.utc) + timedelta(days=body.expires_in_days)
 
     invite = PatientInvite(
         invite_code=code,

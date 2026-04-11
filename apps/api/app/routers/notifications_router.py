@@ -3,7 +3,7 @@ import asyncio
 import json
 import logging
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, Request, Header, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
@@ -62,7 +62,7 @@ async def broadcast_to_user(user_id: str, event_type: str, data: dict):
     """Call this from other routers to push a notification to a user."""
     q = get_user_queue(user_id)
     try:
-        q.put_nowait({"type": event_type, "data": data, "ts": datetime.utcnow().isoformat()})
+        q.put_nowait({"type": event_type, "data": data, "ts": datetime.now(timezone.utc).isoformat()})
     except asyncio.QueueFull:
         pass  # drop if queue full
 
@@ -105,7 +105,7 @@ async def notification_stream(
                 event = await asyncio.wait_for(queue.get(), timeout=25.0)
                 yield f"data: {json.dumps(event)}\n\n"
             except asyncio.TimeoutError:
-                yield f"data: {json.dumps({'type': 'heartbeat', 'ts': datetime.utcnow().isoformat()})}\n\n"
+                yield f"data: {json.dumps({'type': 'heartbeat', 'ts': datetime.now(timezone.utc).isoformat()})}\n\n"
 
     return StreamingResponse(
         event_generator(),

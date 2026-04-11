@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 from sqlalchemy import Boolean, DateTime, Float, Integer, String, Text, UniqueConstraint
@@ -62,8 +62,8 @@ class User(Base):
     clinic_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, index=True)
     is_verified: Mapped[bool] = mapped_column(Boolean(), default=False)
     is_active: Mapped[bool] = mapped_column(Boolean(), default=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(), default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(), default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
 
 class Subscription(Base):
@@ -76,8 +76,8 @@ class Subscription(Base):
     status: Mapped[str] = mapped_column(String(50), default="active")  # active, canceled, past_due
     seat_limit: Mapped[int] = mapped_column(Integer(), default=1)
     current_period_end: Mapped[Optional[datetime]] = mapped_column(DateTime(), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(), default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(), default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
 
 class TeamMember(Base):
@@ -86,7 +86,7 @@ class TeamMember(Base):
     subscription_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
     user_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
     role: Mapped[str] = mapped_column(String(50), default="member")  # owner, admin, member
-    invited_at: Mapped[datetime] = mapped_column(DateTime(), default=datetime.utcnow)
+    invited_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
     joined_at: Mapped[Optional[datetime]] = mapped_column(DateTime(), nullable=True)
 
 
@@ -97,7 +97,7 @@ class PasswordResetToken(Base):
     token_hash: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
     expires_at: Mapped[datetime] = mapped_column(DateTime(), nullable=False)
     used_at: Mapped[Optional[datetime]] = mapped_column(DateTime(), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(), default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
 
 
 # ── Clinical Practice Models ────────────────────────────────────────────────────
@@ -122,8 +122,8 @@ class Patient(Base):
     consent_date: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
     status: Mapped[str] = mapped_column(String(30), default="active")  # active, on_hold, discharged
     notes: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(), default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(), default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
 
 class ClinicalSession(Base):
@@ -143,8 +143,8 @@ class ClinicalSession(Base):
     adverse_events: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
     billing_code: Mapped[Optional[str]] = mapped_column(String(30), nullable=True)
     billing_status: Mapped[str] = mapped_column(String(30), default="unbilled")  # unbilled, billed, paid
-    created_at: Mapped[datetime] = mapped_column(DateTime(), default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(), default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
 
 class AssessmentRecord(Base):
@@ -158,8 +158,8 @@ class AssessmentRecord(Base):
     clinician_notes: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
     status: Mapped[str] = mapped_column(String(30), default="draft")  # draft, completed
     score: Mapped[Optional[str]] = mapped_column(String(30), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(), default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(), default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
 
 class PrescribedProtocol(Base):
@@ -175,8 +175,8 @@ class PrescribedProtocol(Base):
     sessions_completed: Mapped[int] = mapped_column(Integer(), default=0)
     status: Mapped[str] = mapped_column(String(30), default="active")  # active, completed, paused
     started_at: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(), default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(), default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
 
 # ── Neuromodulation Platform Models ──────────────────────
@@ -210,8 +210,8 @@ class TreatmentCourse(Base):
     clinician_notes: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
     protocol_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
     review_required: Mapped[bool] = mapped_column(Boolean(), default=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(), default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(), default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
 
 class TreatmentCourseReview(Base):
@@ -223,7 +223,7 @@ class TreatmentCourseReview(Base):
     outcome: Mapped[Optional[str]] = mapped_column(String(40), nullable=True)
     notes: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
     milestone_session: Mapped[Optional[int]] = mapped_column(Integer(), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(), default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
 
 
 class ProtocolVersion(Base):
@@ -239,7 +239,7 @@ class ProtocolVersion(Base):
     on_label: Mapped[bool] = mapped_column(Boolean(), default=True)
     governance_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
     created_by: Mapped[str] = mapped_column(String(64), nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime(), default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
     is_current: Mapped[bool] = mapped_column(Boolean(), default=True)
 
 
@@ -263,7 +263,7 @@ class DeliveredSessionParameters(Base):
     interruption_reason: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
     post_session_notes: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
     checklist_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(), default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
 
 
 class AdverseEvent(Base):
@@ -281,7 +281,7 @@ class AdverseEvent(Base):
     action_taken: Mapped[Optional[str]] = mapped_column(String(30), nullable=True)
     reported_at: Mapped[datetime] = mapped_column(DateTime(), nullable=False)
     resolved_at: Mapped[Optional[datetime]] = mapped_column(DateTime(), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(), default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
 
 
 class ConsentRecord(Base):
@@ -297,7 +297,7 @@ class ConsentRecord(Base):
     expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime(), nullable=True)
     document_ref: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     notes: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(), default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
 
 
 class PhenotypeAssignment(Base):
@@ -312,7 +312,7 @@ class PhenotypeAssignment(Base):
     qeeg_supported: Mapped[bool] = mapped_column(Boolean(), default=False)
     confidence: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
     assigned_at: Mapped[datetime] = mapped_column(DateTime(), nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime(), default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
 
 
 class QEEGRecord(Base):
@@ -328,7 +328,7 @@ class QEEGRecord(Base):
     raw_data_ref: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     summary_notes: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
     findings_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(), default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
 
 
 class OutcomeSeries(Base):
@@ -344,7 +344,7 @@ class OutcomeSeries(Base):
     measurement_point: Mapped[str] = mapped_column(String(40), nullable=False)
     administered_at: Mapped[datetime] = mapped_column(DateTime(), nullable=False)
     clinician_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(), default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
 
 
 class ReviewQueueItem(Base):
@@ -361,7 +361,7 @@ class ReviewQueueItem(Base):
     due_by: Mapped[Optional[datetime]] = mapped_column(DateTime(), nullable=True)
     completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(), nullable=True)
     notes: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(), default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
 
 
 class IntakePacket(Base):
@@ -382,8 +382,8 @@ class IntakePacket(Base):
     consent_obtained: Mapped[bool] = mapped_column(Boolean(), default=False)
     clinician_notes: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
     completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(), default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(), default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
 
 # ── Patient Provisioning Models ──────────────────────────────────────────────
@@ -398,7 +398,7 @@ class PatientInvite(Base):
     clinic_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, index=True)
     clinician_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     condition: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(), default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
     expires_at: Mapped[datetime] = mapped_column(DateTime(), nullable=False)
     used_at: Mapped[Optional[datetime]] = mapped_column(DateTime(), nullable=True)
     activated_user_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
@@ -418,7 +418,7 @@ class Message(Base):
     category: Mapped[Optional[str]] = mapped_column(String(60), nullable=True)
     thread_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, index=True)
     priority: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(), default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
     read_at: Mapped[Optional[datetime]] = mapped_column(DateTime(), nullable=True)
 
 
@@ -444,7 +444,7 @@ class DeviceConnection(Base):
     access_token_enc: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
     refresh_token_enc: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
     scope: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(), default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
     updated_at: Mapped[Optional[datetime]] = mapped_column(DateTime(), nullable=True)
 
 
@@ -462,7 +462,7 @@ class WearableObservation(Base):
     observed_at: Mapped[datetime] = mapped_column(DateTime(), nullable=False, index=True)
     aggregation_window: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
     quality_flag: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
-    synced_at: Mapped[datetime] = mapped_column(DateTime(), default=datetime.utcnow)
+    synced_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
 
 
 class WearableDailySummary(Base):
@@ -486,7 +486,7 @@ class WearableDailySummary(Base):
     pain_score: Mapped[Optional[float]] = mapped_column(Float(), nullable=True)
     anxiety_score: Mapped[Optional[float]] = mapped_column(Float(), nullable=True)
     data_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
-    synced_at: Mapped[datetime] = mapped_column(DateTime(), default=datetime.utcnow)
+    synced_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
 
 
 class WearableAlertFlag(Base):
@@ -516,7 +516,7 @@ class AiSummaryAudit(Base):
     response_preview: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
     sources_used: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
     model_used: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(), default=datetime.utcnow, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc), index=True)
 
 
 # ── Media Upload & AI Analysis Models ────────────────────────────────────────
@@ -532,7 +532,7 @@ class MediaConsent(Base):
     revoked_at: Mapped[Optional[datetime]] = mapped_column(DateTime(), nullable=True)
     retention_days: Mapped[int] = mapped_column(Integer(), default=365)
     ip_address: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(), default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
 
 
 class PatientMediaUpload(Base):
@@ -552,8 +552,8 @@ class PatientMediaUpload(Base):
     consent_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
     expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime(), nullable=True)
     deleted_at: Mapped[Optional[datetime]] = mapped_column(DateTime(), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(), default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(), default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
 
 class PatientMediaTranscript(Base):
@@ -566,7 +566,7 @@ class PatientMediaTranscript(Base):
     confidence: Mapped[Optional[float]] = mapped_column(Float(), nullable=True)
     word_count: Mapped[int] = mapped_column(Integer(), default=0)
     processing_seconds: Mapped[Optional[float]] = mapped_column(Float(), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(), default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
 
 
 class PatientMediaAnalysis(Base):
@@ -589,7 +589,7 @@ class PatientMediaAnalysis(Base):
     clinician_reviewed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(), nullable=True)
     clinician_reviewer_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
     clinician_amendments: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(), default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
 
 
 class PatientMediaReviewAction(Base):
@@ -599,7 +599,7 @@ class PatientMediaReviewAction(Base):
     actor_id: Mapped[str] = mapped_column(String(36), nullable=False)
     action: Mapped[str] = mapped_column(String(40), nullable=False)  # "approve"|"reject"|"request_reupload"|"flag_urgent"|"mark_reviewed"
     reason: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(), default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
 
 
 class ClinicianMediaNote(Base):
@@ -616,8 +616,8 @@ class ClinicianMediaNote(Base):
     duration_seconds: Mapped[Optional[int]] = mapped_column(Integer(), nullable=True)
     text_content: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
     status: Mapped[str] = mapped_column(String(40), default="recorded")  # "recorded"|"transcribed"|"draft_generated"|"draft_approved"|"finalized"
-    created_at: Mapped[datetime] = mapped_column(DateTime(), default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(), default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
 
 class MediaRedFlag(Base):
@@ -633,7 +633,7 @@ class MediaRedFlag(Base):
     reviewed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(), nullable=True)
     reviewed_by: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
     dismissed: Mapped[bool] = mapped_column(Boolean(), default=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime(), default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
 
 
 class ClinicianMediaTranscript(Base):
@@ -644,7 +644,7 @@ class ClinicianMediaTranscript(Base):
     provider: Mapped[str] = mapped_column(String(64), nullable=False)
     language: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
     word_count: Mapped[int] = mapped_column(Integer(), default=0)
-    created_at: Mapped[datetime] = mapped_column(DateTime(), default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
 
 
 class ClinicianNoteDraft(Base):
@@ -662,7 +662,7 @@ class ClinicianNoteDraft(Base):
     approved_by: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
     approved_at: Mapped[Optional[datetime]] = mapped_column(DateTime(), nullable=True)
     clinician_edits: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(), default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
 
 
 # ── Home Device Workflow Models (Phase 1) ───────────────────────────────────────
@@ -688,8 +688,8 @@ class DeviceSourceRegistry(Base):
     webhook_supported: Mapped[bool] = mapped_column(Boolean(), default=False)
     documentation_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean(), default=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(), default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(), default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
 
 class HomeDeviceAssignment(Base):
@@ -716,8 +716,8 @@ class HomeDeviceAssignment(Base):
     status: Mapped[str] = mapped_column(String(30), default="active", index=True)
     revoked_at: Mapped[Optional[datetime]] = mapped_column(DateTime(), nullable=True)
     revoke_reason: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(), default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(), default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
 
 class DeviceSessionLog(Base):
@@ -730,7 +730,7 @@ class DeviceSessionLog(Base):
     patient_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
     course_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
     session_date: Mapped[str] = mapped_column(String(10), nullable=False)     # YYYY-MM-DD
-    logged_at: Mapped[datetime] = mapped_column(DateTime(), default=datetime.utcnow)
+    logged_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
     duration_minutes: Mapped[Optional[int]] = mapped_column(Integer(), nullable=True)
     completed: Mapped[bool] = mapped_column(Boolean(), default=True)
     actual_intensity: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)   # e.g. "1.5mA"
@@ -746,7 +746,7 @@ class DeviceSessionLog(Base):
     reviewed_by: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
     reviewed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(), nullable=True)
     review_note: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(), default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
 
 
 class PatientAdherenceEvent(Base):
@@ -771,7 +771,7 @@ class PatientAdherenceEvent(Base):
     acknowledged_by: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
     acknowledged_at: Mapped[Optional[datetime]] = mapped_column(DateTime(), nullable=True)
     resolution_note: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(), default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
 
 
 class DeviceSyncEvent(Base):
@@ -789,10 +789,10 @@ class DeviceSyncEvent(Base):
     # vendor_api | health_kit | android_health | manual | csv_import
     source: Mapped[str] = mapped_column(String(80), nullable=False, default="manual")
     occurred_at: Mapped[datetime] = mapped_column(DateTime(), nullable=False)
-    synced_at: Mapped[datetime] = mapped_column(DateTime(), default=datetime.utcnow)
+    synced_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
     reconciled: Mapped[bool] = mapped_column(Boolean(), default=False)
     reconciled_session_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(), default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
 
 
 class HomeDeviceReviewFlag(Base):
@@ -813,12 +813,12 @@ class HomeDeviceReviewFlag(Base):
     severity: Mapped[str] = mapped_column(String(20), nullable=False, default="warning")
     detail: Mapped[str] = mapped_column(Text(), nullable=False)
     auto_generated: Mapped[bool] = mapped_column(Boolean(), default=True)
-    triggered_at: Mapped[datetime] = mapped_column(DateTime(), default=datetime.utcnow, index=True)
+    triggered_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc), index=True)
     reviewed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(), nullable=True)
     reviewed_by: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
     dismissed: Mapped[bool] = mapped_column(Boolean(), default=False, index=True)
     resolution: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(), default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
 
 
 # ── Forms & Assessments Models ────────────────────────────────────────────────
@@ -835,8 +835,8 @@ class FormDefinition(Base):
     questions_json: Mapped[str] = mapped_column(Text(), nullable=False, default="[]")
     scoring_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)  # scoring rules
     status: Mapped[str] = mapped_column(String(30), default="draft")  # draft, active, archived
-    created_at: Mapped[datetime] = mapped_column(DateTime(), default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(), default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
 
 class FormSubmission(Base):
@@ -852,8 +852,8 @@ class FormSubmission(Base):
     score_numeric: Mapped[Optional[float]] = mapped_column(Float(), nullable=True)
     scoring_details_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
     status: Mapped[str] = mapped_column(String(30), default="submitted")  # submitted, scored, reviewed
-    submitted_at: Mapped[datetime] = mapped_column(DateTime(), default=datetime.utcnow)
-    created_at: Mapped[datetime] = mapped_column(DateTime(), default=datetime.utcnow)
+    submitted_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
 
 
 # ── Medication Safety Models ──────────────────────────────────────────────────
@@ -877,8 +877,8 @@ class PatientMedication(Base):
     stopped_at: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
     active: Mapped[bool] = mapped_column(Boolean(), default=True, index=True)
     notes: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(), default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(), default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
 
 class MedicationInteractionLog(Base):
@@ -891,7 +891,7 @@ class MedicationInteractionLog(Base):
     medications_checked_json: Mapped[str] = mapped_column(Text(), nullable=False, default="[]")
     interactions_found_json: Mapped[str] = mapped_column(Text(), nullable=False, default="[]")
     severity_summary: Mapped[Optional[str]] = mapped_column(String(30), nullable=True)  # none, mild, moderate, severe
-    created_at: Mapped[datetime] = mapped_column(DateTime(), default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
 
 
 # ── Reminder Campaign Models ──────────────────────────────────────────────────
@@ -910,8 +910,8 @@ class ReminderCampaign(Base):
     message_template: Mapped[str] = mapped_column(Text(), nullable=False, default="")
     patient_ids_json: Mapped[str] = mapped_column(Text(), nullable=False, default="[]")  # targeted patients
     active: Mapped[bool] = mapped_column(Boolean(), default=True, index=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(), default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(), default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
 
 class ReminderOutboxMessage(Base):
@@ -928,7 +928,7 @@ class ReminderOutboxMessage(Base):
     scheduled_at: Mapped[Optional[datetime]] = mapped_column(DateTime(), nullable=True)
     sent_at: Mapped[Optional[datetime]] = mapped_column(DateTime(), nullable=True)
     error_detail: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(), default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
 
 
 # ── IRB Study Models ──────────────────────────────────────────────────────────
@@ -951,8 +951,8 @@ class IRBStudy(Base):
     enrolled_count: Mapped[int] = mapped_column(Integer(), default=0)
     description: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
     protocol_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(), default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(), default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
 
 class IRBAmendment(Base):
@@ -965,9 +965,9 @@ class IRBAmendment(Base):
     amendment_type: Mapped[str] = mapped_column(String(60), nullable=False)  # protocol_change, enrollment_expansion, etc.
     description: Mapped[str] = mapped_column(Text(), nullable=False)
     status: Mapped[str] = mapped_column(String(30), default="submitted")  # submitted, under_review, approved, rejected
-    submitted_at: Mapped[datetime] = mapped_column(DateTime(), default=datetime.utcnow)
+    submitted_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
     resolved_at: Mapped[Optional[datetime]] = mapped_column(DateTime(), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(), default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
 
 
 class IRBAdverseEvent(Base):
@@ -983,10 +983,10 @@ class IRBAdverseEvent(Base):
     description: Mapped[str] = mapped_column(Text(), nullable=False)
     relatedness: Mapped[Optional[str]] = mapped_column(String(40), nullable=True)  # unrelated, possibly, probably, definitely
     status: Mapped[str] = mapped_column(String(30), default="open")  # open, under_review, closed, reported_to_irb
-    reported_at: Mapped[datetime] = mapped_column(DateTime(), default=datetime.utcnow)
+    reported_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
     resolved_at: Mapped[Optional[datetime]] = mapped_column(DateTime(), nullable=True)
     notes: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(), default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
 
 
 # ── Literature Library Models ─────────────────────────────────────────────────
@@ -1010,8 +1010,8 @@ class LiteraturePaper(Base):
     study_type: Mapped[Optional[str]] = mapped_column(String(80), nullable=True)  # RCT, meta-analysis, case-series, etc.
     tags_json: Mapped[str] = mapped_column(Text(), nullable=False, default="[]")
     url: Mapped[Optional[str]] = mapped_column(String(1024), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(), default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(), default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
 
 class LiteratureProtocolTag(Base):
@@ -1022,7 +1022,7 @@ class LiteratureProtocolTag(Base):
     paper_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
     protocol_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     tagged_by: Mapped[str] = mapped_column(String(64), nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime(), default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
 
 
 class LiteratureReadingList(Base):
@@ -1034,4 +1034,4 @@ class LiteratureReadingList(Base):
     paper_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
     notes: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
     read_at: Mapped[Optional[datetime]] = mapped_column(DateTime(), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(), default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))

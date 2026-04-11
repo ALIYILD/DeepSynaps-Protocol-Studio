@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import json
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Query
@@ -570,7 +570,7 @@ def get_portal_wearable_summary(
         raise ApiServiceError(code="forbidden", message="Patient portal access only.", status_code=403)
 
     patient = _require_patient(actor, db)
-    cutoff = (datetime.utcnow() - timedelta(days=days)).date().isoformat()
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).date().isoformat()
 
     summaries = (
         db.query(WearableDailySummary)
@@ -634,7 +634,7 @@ def connect_wearable_source(
     # See apps/api/app/crypto.py for the full OAuth V2 production checklist.
     # ─────────────────────────────────────────────────────────────────────────���
     existing = db.query(DeviceConnection).filter_by(patient_id=patient.id, source=body.source).first()
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     if existing:
         existing.status = 'connected'
         existing.display_name = body.display_name or existing.display_name
@@ -681,7 +681,7 @@ def disconnect_wearable_source(
         raise ApiServiceError(code="not_found", message="Connection not found.", status_code=404)
 
     conn.status = 'disconnected'
-    conn.updated_at = datetime.utcnow()
+    conn.updated_at = datetime.now(timezone.utc)
     db.commit()
     return {'ok': True, 'source': conn.source}
 
@@ -707,7 +707,7 @@ def patient_wearable_sync(
         patient_id=patient.id, source=body.source, date=body.date
     ).first()
 
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
 
     if existing:
         for field in ('rhr_bpm', 'hrv_ms', 'sleep_duration_h', 'steps',

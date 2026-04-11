@@ -14,7 +14,7 @@ PUT  /api/v1/irb/adverse-events/{id}          — update AE status
 from __future__ import annotations
 
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Query
@@ -334,7 +334,7 @@ def request_amendment(
         amendment_type=body.amendment_type.strip(),
         description=body.description.strip(),
         status="submitted",
-        submitted_at=datetime.utcnow(),
+        submitted_at=datetime.now(timezone.utc),
     )
     db.add(amendment)
     db.commit()
@@ -391,7 +391,7 @@ def report_irb_adverse_event(
         description=body.description.strip(),
         relatedness=body.relatedness,
         status="open",
-        reported_at=datetime.utcnow(),
+        reported_at=datetime.now(timezone.utc),
         notes=body.notes,
     )
     db.add(ae)
@@ -426,7 +426,7 @@ def update_irb_adverse_event(
         except ValueError:
             pass
     elif body.status in ("closed", "reported_to_irb") and ae.resolved_at is None:
-        ae.resolved_at = datetime.utcnow()
+        ae.resolved_at = datetime.now(timezone.utc)
 
     db.commit()
     db.refresh(ae)

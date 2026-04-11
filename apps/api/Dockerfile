@@ -1,0 +1,52 @@
+# Stage 1: Build React frontend
+FROM node:20-slim AS frontend-builder
+WORKDIR /app
+
+COPY package.json package-lock.json ./
+COPY apps/web/package.json ./apps/web/
+
+RUN npm ci
+
+COPY apps/web ./apps/web
+
+# Empty string → same-origin relative URLs (no hardcoded host)
+ARG VITE_API_BASE_URL=""
+ENV VITE_API_BASE_URL=${VITE_API_BASE_URL}
+
+RUN npm run build:web
+
+# Stage 2: Python runtime
+FROM python:3.11-slim
+WORKDIR /app
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY packages ./packages
+COPY apps/api ./apps/api
+COPY pyproject.toml ./
+COPY data ./data
+
+RUN pip install --no-cache-dir \
+    -e ./packages/core-schema \
+    -e ./packages/condition-registry \
+    -e ./packages/modality-registry \
+    -e ./packages/device-registry \
+    -e ./packages/safety-engine \
+    -e ./packages/generation-engine \
+    -e ./packages/render-engine \
+    -e ./apps/api
+
+# Create persistent volume mount point and data directories
+RUN mkdir -p /data && \
+    mkdir -p ./data/snapshots/clinical-database && \
+    mkdir -p ./data/backups && \
+    mkdir -p /data/media_uploads
+
+COPY --from=frontend-builder /app/apps/web/dist ./apps/web/dist
+
+EXPOSE 8080
+
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8080", "--app-dir", "apps/api", "--workers", "1"]

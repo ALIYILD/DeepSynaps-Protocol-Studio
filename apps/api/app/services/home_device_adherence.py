@@ -6,7 +6,7 @@ All calculations are descriptive, not clinical.
 from __future__ import annotations
 
 from collections import Counter
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from sqlalchemy.orm import Session
@@ -41,7 +41,7 @@ def compute_adherence_summary(
         open_flags            int
         logs_by_week          list[dict]  [{week_start, count}]
     """
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
 
     logs: list[DeviceSessionLog] = (
         db.query(DeviceSessionLog)

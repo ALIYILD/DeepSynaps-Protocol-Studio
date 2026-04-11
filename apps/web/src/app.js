@@ -899,6 +899,19 @@ async function renderPage() {
   if (!el) return;
   el.scrollTop = 0;
 
+  // ── Auth guard (synchronous — runs before any async data fetch) ───────────
+  const _publicRoutes = ['home', 'login', 'register', 'onboarding', 'onboarding-wizard'];
+  if (!_publicRoutes.includes(currentPage) && !window._isAuthenticated?.()) {
+    el.innerHTML = `
+      <div class="auth-required-notice">
+        <div class="auth-required-icon">🔒</div>
+        <div class="auth-required-text">Please log in to access this page.</div>
+        <button class="btn btn-primary" onclick="window._nav('home')">Go to Login</button>
+      </div>
+    `;
+    return;
+  }
+
   switch (currentPage) {
     // ── Clinical ─────────────────────────────────────────────────────────
     case 'today':

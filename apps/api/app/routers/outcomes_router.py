@@ -8,7 +8,7 @@ GET   /api/v1/outcomes/summary/{course_id}  Compute pre/post delta and responder
 """
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Query
@@ -166,7 +166,7 @@ def record_outcome(
 ) -> OutcomeOut:
     require_minimum_role(actor, "clinician")
 
-    administered_at = datetime.utcnow()
+    administered_at = datetime.now(timezone.utc)
     if body.administered_at:
         try:
             administered_at = datetime.fromisoformat(body.administered_at.rstrip("Z"))

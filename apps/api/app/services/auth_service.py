@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 import secrets
 import hashlib
@@ -19,7 +19,7 @@ def verify_password(plain: str, hashed: str) -> bool:
 
 
 def create_access_token(user_id: str, email: str, role: str, package_id: str) -> str:
-    expire = datetime.utcnow() + timedelta(minutes=settings.jwt_access_token_expire_minutes)
+    expire = datetime.now(timezone.utc) + timedelta(minutes=settings.jwt_access_token_expire_minutes)
     payload = {
         "sub": user_id,
         "email": email,
@@ -32,7 +32,7 @@ def create_access_token(user_id: str, email: str, role: str, package_id: str) ->
 
 
 def create_refresh_token(user_id: str) -> str:
-    expire = datetime.utcnow() + timedelta(days=settings.jwt_refresh_token_expire_days)
+    expire = datetime.now(timezone.utc) + timedelta(days=settings.jwt_refresh_token_expire_days)
     payload = {
         "sub": user_id,
         "type": "refresh",

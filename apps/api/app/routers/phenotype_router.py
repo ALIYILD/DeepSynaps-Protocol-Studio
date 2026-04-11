@@ -8,7 +8,7 @@ DELETE /api/v1/phenotype-assignments/{id}      Delete an assignment (ownership c
 """
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Query
@@ -95,7 +95,7 @@ def create_phenotype_assignment(
             status_code=422,
         )
 
-    assigned_at = datetime.utcnow()
+    assigned_at = datetime.now(timezone.utc)
     if body.assigned_at:
         try:
             assigned_at = datetime.fromisoformat(body.assigned_at.rstrip("Z"))

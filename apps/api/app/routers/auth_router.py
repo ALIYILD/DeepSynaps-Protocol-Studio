@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 import re
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, Header
 from pydantic import BaseModel
@@ -341,7 +341,7 @@ def forgot_password(
         )
 
     raw_token, token_hash = auth_service.generate_password_reset_token()
-    expires_at = datetime.utcnow() + timedelta(hours=1)
+    expires_at = datetime.now(timezone.utc) + timedelta(hours=1)
 
     reset_record = PasswordResetToken(
         user_id=user.id,
@@ -393,7 +393,7 @@ def reset_password(
             status_code=400,
         )
 
-    if reset_record.expires_at < datetime.utcnow():
+    if reset_record.expires_at < datetime.now(timezone.utc):
         raise ApiServiceError(
             code="reset_token_expired",
             message="This password reset token has expired.",
@@ -411,7 +411,7 @@ def reset_password(
         )
 
     user.hashed_password = auth_service.hash_password(body.new_password)
-    reset_record.used_at = datetime.utcnow()
+    reset_record.used_at = datetime.now(timezone.utc)
     db.commit()
 
     return MessageResponse(message="Password has been reset successfully.")
@@ -455,7 +455,7 @@ def activate_patient(
             status_code=400,
         )
 
-    if invite.expires_at < datetime.utcnow():
+    if invite.expires_at < datetime.now(timezone.utc):
         raise ApiServiceError(
             code="invite_expired",
             message="This invitation code has expired.",
@@ -484,7 +484,7 @@ def activate_patient(
     create_subscription(db, user_id=user.id, package_id="explorer")
 
     # Mark invite as used and link to the newly created user
-    invite.used_at = datetime.utcnow()
+    invite.used_at = datetime.now(timezone.utc)
     invite.activated_user_id = user.id
 
     # If the invite has a patient_email different from the activation email,

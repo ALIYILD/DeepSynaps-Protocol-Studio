@@ -2,6 +2,7 @@ import { defineConfig, devices } from '@playwright/test';
 
 export default defineConfig({
   testDir: './e2e',
+  timeout: 30000,
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
@@ -9,6 +10,7 @@ export default defineConfig({
   reporter: [['html', { outputFolder: 'playwright-report' }], ['list']],
   use: {
     baseURL: 'http://localhost:5173',
+    actionTimeout: 10000,
     trace: 'on-first-retry',
     screenshot: 'only-on-failure',
   },
@@ -19,6 +21,6 @@ export default defineConfig({
     command: 'npm run dev',
     url: 'http://localhost:5173',
     reuseExistingServer: !process.env.CI,
-    timeout: 30000,
+    timeout: 60000,
   },
 });

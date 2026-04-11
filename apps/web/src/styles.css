@@ -7815,3 +7815,39 @@ body.light-theme .topbar--scrolled { box-shadow: 0 1px 8px rgba(0,0,0,0.1); }
     width: 100%;
   }
 }
+
+/* ── Session Expired Notice ── */
+.session-expired-notice {
+  position: fixed;
+  top: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--card-bg);
+  border: 1px solid var(--accent-amber);
+  border-radius: 10px;
+  padding: 12px 20px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  z-index: 9999;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+  animation: slide-down-notice 0.25s ease;
+  font-size: 14px;
+  color: var(--text);
+}
+.session-expired-icon { font-size: 16px; }
+@keyframes slide-down-notice {
+  from { transform: translateX(-50%) translateY(-12px); opacity: 0; }
+  to   { transform: translateX(-50%) translateY(0);    opacity: 1; }
+}
+.auth-required-notice {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  padding: 80px 20px;
+  text-align: center;
+}
+.auth-required-icon { font-size: 40px; opacity: 0.4; }
+.auth-required-text { font-size: 16px; color: var(--text-muted); }

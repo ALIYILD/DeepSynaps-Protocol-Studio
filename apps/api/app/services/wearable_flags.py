@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 import uuid
 from collections import Counter
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from sqlalchemy.orm import Session
@@ -45,7 +45,7 @@ def run_flag_checks(
     Returns list of newly created flags (duplicates suppressed by flag_type
     within the last 48h).
     """
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     cutoff_14d = now - timedelta(days=14)
     cutoff_7d  = now - timedelta(days=7)
 

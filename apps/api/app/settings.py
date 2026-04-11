@@ -125,7 +125,11 @@ def load_settings() -> AppSettings:
                 "api_port": int(os.getenv("DEEPSYNAPS_API_PORT", "8000")),
                 "log_level": os.getenv("DEEPSYNAPS_LOG_LEVEL", "INFO").upper(),
                 "database_url": os.getenv(
-                    "DEEPSYNAPS_DATABASE_URL", "sqlite:///./deepsynaps_protocol_studio.db"
+                    "DEEPSYNAPS_DATABASE_URL",
+                    # Use /data volume in production (Fly.io persistent volume), local file in dev
+                    "sqlite:////data/deepsynaps_protocol_studio.db"
+                    if os.getenv("DEEPSYNAPS_APP_ENV") == "production"
+                    else "sqlite:///./deepsynaps_protocol_studio.db",
                 ),
                 "cors_origins": _parse_cors_origins(os.getenv("DEEPSYNAPS_CORS_ORIGINS")),
                 "clinical_data_root": Path(
@@ -183,7 +187,13 @@ def load_settings() -> AppSettings:
                 "app_url": os.getenv("APP_URL", "http://localhost:5173"),
                 # Media storage
                 "media_storage_backend": os.getenv("MEDIA_STORAGE_BACKEND", "local"),
-                "media_storage_root": os.getenv("MEDIA_STORAGE_ROOT", "./media_uploads"),
+                "media_storage_root": os.getenv(
+                    "MEDIA_STORAGE_ROOT",
+                    # Use /data volume in production (Fly.io persistent volume), local dir in dev
+                    "/data/media_uploads"
+                    if os.getenv("DEEPSYNAPS_APP_ENV") == "production"
+                    else "./media_uploads",
+                ),
                 "media_max_upload_bytes": int(os.getenv("MEDIA_MAX_UPLOAD_BYTES", "52428800")),
                 "media_signed_url_ttl_seconds": int(os.getenv("MEDIA_SIGNED_URL_TTL_SECONDS", "3600")),
                 # Transcription

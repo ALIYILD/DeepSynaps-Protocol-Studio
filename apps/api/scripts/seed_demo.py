@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import sys
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 # Ensure apps/api is on the path when run directly
@@ -118,7 +118,7 @@ def seed(session) -> None:
     print(f"Created TreatmentCourse: {course_id}")
 
     # ── 5. HomeDeviceAssignment ────────────────────────────────────────────────
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     assignment_id = _make_id()
     assignment = HomeDeviceAssignment(
         id=assignment_id,

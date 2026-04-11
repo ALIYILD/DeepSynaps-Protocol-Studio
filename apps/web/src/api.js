@@ -10,44 +10,79 @@ function getRefreshToken() { return localStorage.getItem(REFRESH_KEY); }
 function setRefreshToken(t) { localStorage.setItem(REFRESH_KEY, t); }
 function clearRefreshToken() { localStorage.removeItem(REFRESH_KEY); }
 
+// ── 401 interceptor ───────────────────────────────────────────────────────────
+let _401InFlight = false;
+function _on401() {
+  if (_401InFlight) return;
+  _401InFlight = true;
+  window._handleSessionExpired?.();
+  setTimeout(() => { _401InFlight = false; }, 5000);
+}
+
 async function apiFetch(path, opts = {}) {
-  const token = getToken();
-  const headers = { 'Content-Type': 'application/json', ...(opts.headers || {}) };
-  if (token) headers['Authorization'] = `Bearer ${token}`;
-  const res = await fetch(`${API_BASE}${path}`, { ...opts, headers });
+  let res;
+  try {
+    const token = getToken();
+    const headers = { 'Content-Type': 'application/json', ...(opts.headers || {}) };
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    res = await fetch(`${API_BASE}${path}`, { ...opts, headers });
+  } catch (networkErr) {
+    const err = new Error('Network error');
+    err.status = 0;
+    err.message = 'Network error';
+    throw err;
+  }
   if (res.status === 401) {
     // Avoid infinite loop — never attempt refresh when the refresh call itself 401s
-    if (path === '/api/v1/auth/refresh') { clearToken(); return null; }
+    if (path === '/api/v1/auth/refresh') { clearToken(); _on401(); const e = new Error('API error 401'); e.status = 401; return Promise.reject(e); }
     const storedRefresh = getRefreshToken();
     if (storedRefresh) {
-      const refreshResult = await apiFetch('/api/v1/auth/refresh', {
-        method: 'POST',
-        body: JSON.stringify({ refresh_token: storedRefresh }),
-      });
+      let refreshResult;
+      try {
+        refreshResult = await apiFetch('/api/v1/auth/refresh', {
+          method: 'POST',
+          body: JSON.stringify({ refresh_token: storedRefresh }),
+        });
+      } catch (_) { refreshResult = null; }
       if (refreshResult && refreshResult.access_token) {
         setToken(refreshResult.access_token);
         if (refreshResult.refresh_token) setRefreshToken(refreshResult.refresh_token);
         // Retry original request once with new token
         const retryHeaders = { 'Content-Type': 'application/json', ...(opts.headers || {}) };
         retryHeaders['Authorization'] = `Bearer ${refreshResult.access_token}`;
-        const retryRes = await fetch(`${API_BASE}${path}`, { ...opts, headers: retryHeaders });
+        let retryRes;
+        try {
+          retryRes = await fetch(`${API_BASE}${path}`, { ...opts, headers: retryHeaders });
+        } catch (networkErr) {
+          const err = new Error('Network error');
+          err.status = 0;
+          throw err;
+        }
         if (retryRes.status === 204) return null;
         if (!retryRes.ok) {
-          let msg = `API error ${retryRes.status}`;
-          try { const e = await retryRes.json(); msg = e.detail || msg; } catch {}
-          throw new Error(msg);
+          const retryErr = new Error(`API error ${retryRes.status}`);
+          retryErr.status = retryRes.status;
+          try { const e = await retryRes.json(); retryErr.message = e.detail || retryErr.message; } catch {}
+          if (retryRes.status === 403) { console.warn('[api] 403 Forbidden:', path); }
+          throw retryErr;
         }
         return retryRes.json();
       }
     }
+    // Refresh failed or unavailable — session truly expired
     clearToken();
-    return null;
+    _on401();
+    const expiredErr = new Error('API error 401');
+    expiredErr.status = 401;
+    return Promise.reject(expiredErr);
   }
   if (res.status === 204) return null;
   if (!res.ok) {
-    let msg = `API error ${res.status}`;
-    try { const e = await res.json(); msg = e.detail || msg; } catch {}
-    throw new Error(msg);
+    const err = new Error(`API error ${res.status}`);
+    err.status = res.status;
+    try { const e = await res.json(); err.message = e.detail || err.message; err.body = e; } catch {}
+    if (res.status === 403) { console.warn('[api] 403 Forbidden:', path); }
+    throw err;
   }
   return res.json();
 }

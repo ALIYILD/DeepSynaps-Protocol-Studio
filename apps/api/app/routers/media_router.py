@@ -7,7 +7,7 @@ from __future__ import annotations
 import json
 import logging
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Form, Response, UploadFile
@@ -87,7 +87,7 @@ class ApproveDraftRequest(BaseModel):
 
 
 def _now_iso() -> str:
-    return datetime.utcnow().isoformat()
+    return datetime.now(timezone.utc).isoformat()
 
 
 def _require_clinician(actor: AuthenticatedActor) -> None:
@@ -273,7 +273,7 @@ def record_consent(
         .first()
     )
 
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
 
     if existing:
         existing.granted = body.granted
@@ -997,7 +997,7 @@ def approve_analysis(
 
     analysis.approved_for_clinical_use = True
     analysis.clinician_reviewer_id = actor.actor_id
-    analysis.clinician_reviewed_at = datetime.utcnow()
+    analysis.clinician_reviewed_at = datetime.now(timezone.utc)
 
     if body:
         if body.chart_note_draft is not None:
@@ -1088,7 +1088,7 @@ def dismiss_red_flag(
         raise ApiServiceError(code="not_found", message="Red flag not found.", status_code=404)
 
     flag.dismissed = True
-    flag.reviewed_at = datetime.utcnow()
+    flag.reviewed_at = datetime.now(timezone.utc)
     flag.reviewed_by = actor.actor_id
 
     _write_audit(
@@ -1381,7 +1381,7 @@ def approve_clinician_draft(
 
     draft.status = "approved"
     draft.approved_by = actor.actor_id
-    draft.approved_at = datetime.utcnow()
+    draft.approved_at = datetime.now(timezone.utc)
     if body.clinician_edits is not None:
         draft.clinician_edits = body.clinician_edits
     # Persist clinician-edited fields if provided in approval body
@@ -1451,7 +1451,7 @@ async def delete_patient_upload(
     settings = get_settings()
 
     # Soft delete
-    upload.deleted_at = datetime.utcnow()
+    upload.deleted_at = datetime.now(timezone.utc)
     db.commit()
 
     # Delete file from storage (best effort)

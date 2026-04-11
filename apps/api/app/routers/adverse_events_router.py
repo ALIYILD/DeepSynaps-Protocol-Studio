@@ -8,7 +8,7 @@ GET   /api/v1/adverse-events/{id}      Get event detail
 """
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Query
@@ -104,7 +104,7 @@ def report_adverse_event(
             status_code=422,
         )
 
-    reported_at = datetime.utcnow()
+    reported_at = datetime.now(timezone.utc)
     if body.reported_at:
         try:
             reported_at = datetime.fromisoformat(body.reported_at.rstrip("Z"))
@@ -188,7 +188,7 @@ def resolve_adverse_event(
         raise ApiServiceError(code="not_found", message="Adverse event not found.", status_code=404)
     if actor.role != "admin" and event.clinician_id != actor.actor_id:
         raise ApiServiceError(code="not_found", message="Adverse event not found.", status_code=404)
-    event.resolved_at = datetime.utcnow()
+    event.resolved_at = datetime.now(timezone.utc)
     event.resolution = body.resolution or "resolved"
     db.commit()
     db.refresh(event)
