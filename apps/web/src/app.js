@@ -435,6 +435,7 @@ const NAV = [
   { id: 'clinic-settings',   label: 'Clinic Settings',      icon: '🏥' },
   { id: 'settings',          label: 'Settings',             icon: '◎' },
   { id: 'wearables',         label: 'Wearables',            icon: '⌚' },
+  { id: 'reminders',         label: 'Reminders & Adherence', icon: '🔔', section: 'practice' },
 ];
 
 // ── Nav render ────────────────────────────────────────────────────────────────
@@ -548,6 +549,7 @@ const PAGE_TITLES = {
   'forms-builder': 'Forms & Assessments',
   'med-interactions': 'Medication Safety',
   'protocol-marketplace': 'Protocol Marketplace',
+  'reminders': 'Reminders & Adherence',
 };
 
 // ── Navigate ──────────────────────────────────────────────────────────────────
@@ -955,6 +957,7 @@ async function renderPage() {
       await m.pgSettings(setTopbar, currentUser);
       break;
     }
+    case 'reminders': { const { pgReminderAutomation } = await loadPractice(); await pgReminderAutomation(setTopbar); break; }
     default:
       el.innerHTML = `<div style="text-align:center;padding:48px;color:var(--text-tertiary)">Page not found.</div>`;
   }

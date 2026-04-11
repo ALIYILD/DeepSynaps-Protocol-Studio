@@ -6065,3 +6065,127 @@ body.light-theme .ppp-sub-detail { background: #fff; }
 }
 
 /* ── End Protocol Marketplace ─────────────────────────────────────────────── */
+
+/* ── JJJ: Reminder Automation & Patient Adherence ────────────────────────── */
+
+/* Campaign card */
+.jjj-campaign-card {
+  background: var(--bg-card, rgba(14,22,40,.8));
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg, 14px);
+  padding: 16px 18px;
+  transition: border-color var(--transition), box-shadow var(--transition);
+}
+.jjj-campaign-card:hover {
+  border-color: var(--border-hover);
+  box-shadow: 0 2px 16px rgba(0,0,0,.25);
+}
+
+/* Toggle switch */
+.jjj-toggle {
+  position: relative;
+  display: inline-block;
+  width: 34px;
+  height: 18px;
+  flex-shrink: 0;
+  cursor: pointer;
+}
+.jjj-toggle input { opacity: 0; width: 0; height: 0; position: absolute; }
+.jjj-toggle-slider {
+  position: absolute;
+  inset: 0;
+  background: rgba(255,255,255,.1);
+  border-radius: 18px;
+  border: 1px solid var(--border);
+  transition: background var(--transition, .15s);
+}
+.jjj-toggle-slider::before {
+  content: '';
+  position: absolute;
+  width: 12px; height: 12px;
+  left: 2px; top: 2px;
+  background: var(--text-secondary, #8892a4);
+  border-radius: 50%;
+  transition: transform var(--transition, .15s), background var(--transition, .15s);
+}
+.jjj-toggle input:checked + .jjj-toggle-slider {
+  background: rgba(0,212,188,.18);
+  border-color: var(--teal, #00d4bc);
+}
+.jjj-toggle input:checked + .jjj-toggle-slider::before {
+  transform: translateX(16px);
+  background: var(--teal, #00d4bc);
+}
+
+/* Channel badge pills */
+.jjj-channel-badge {
+  display: inline-flex;
+  align-items: center;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .06em;
+  padding: 2px 8px;
+  border-radius: 20px;
+  border: 1px solid transparent;
+}
+.jjj-ch-sms   { background: rgba(0,212,188,.1);   color: var(--teal,  #00d4bc); border-color: rgba(0,212,188,.25);  }
+.jjj-ch-email { background: rgba(74,158,255,.1);  color: var(--blue,  #4a9eff); border-color: rgba(74,158,255,.25); }
+.jjj-ch-push  { background: rgba(155,127,255,.1); color: var(--violet,#9b7fff); border-color: rgba(155,127,255,.25);}
+
+/* Delivery chart container */
+.jjj-delivery-chart {
+  background: var(--bg-card, rgba(14,22,40,.8));
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg, 14px);
+  padding: 16px 20px;
+  margin-bottom: 20px;
+}
+
+/* Adherence row color coding */
+.jjj-adherence-row { transition: background var(--transition); }
+.jjj-adherence-row:hover { background: var(--bg-card-hover, rgba(21,32,64,.9)) !important; }
+.jjj-adh-green { border-left: 3px solid var(--teal,  #00d4bc); }
+.jjj-adh-amber { border-left: 3px solid var(--amber, #ffb547); }
+.jjj-adh-red   { border-left: 3px solid var(--red,   #ff6b6b); }
+
+/* Template card */
+.jjj-template-card {
+  background: var(--bg-card, rgba(14,22,40,.8));
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md, 10px);
+  padding: 14px 16px;
+  transition: border-color var(--transition);
+}
+.jjj-template-card:hover { border-color: var(--border-hover); }
+
+/* Summary stats strip */
+.jjj-stat-strip {
+  display: flex;
+  gap: 0;
+  background: var(--bg-card, rgba(14,22,40,.8));
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg, 14px);
+  overflow: hidden;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+}
+.jjj-stat-item {
+  flex: 1;
+  min-width: 130px;
+  padding: 16px 20px;
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.jjj-stat-item:last-child { border-right: none; }
+
+/* Light theme overrides */
+body.light-theme .jjj-campaign-card,
+body.light-theme .jjj-delivery-chart,
+body.light-theme .jjj-template-card,
+body.light-theme .jjj-stat-strip { background: #fff; border-color: rgba(0,0,0,.1); }
+body.light-theme .jjj-stat-item  { border-color: rgba(0,0,0,.08); }
+body.light-theme .jjj-toggle-slider { background: rgba(0,0,0,.08); border-color: rgba(0,0,0,.15); }
+
+/* ── End JJJ Reminder Automation ──────────────────────────────────────────── */

@@ -5344,3 +5344,733 @@ export async function pgWearableIntegration(setTopbar) {
 
   render();
 }
+
+// ── Reminder Automation & Patient Adherence ───────────────────────────────────
+export async function pgReminderAutomation(setTopbar) {
+  setTopbar('Reminders & Adherence', `
+    <button class="btn btn-ghost btn-sm" onclick="window._remRefresh()">&#8634; Refresh</button>
+    <button class="btn btn-primary btn-sm" onclick="window._remNewCampaignModal()">+ New Campaign</button>
+  `);
+
+  // ── Seed helpers ───────────────────────────────────────────────────────────
+  function lsGet(k, def) { try { return JSON.parse(localStorage.getItem(k) || 'null') ?? def; } catch { return def; } }
+  function lsSet(k, v)   { localStorage.setItem(k, JSON.stringify(v)); }
+
+  const CAMPAIGN_SEED = [
+    { id:'rc1', name:'Pre-Session Reminder',    trigger:'24h_before',       channels:['sms','email'], active:true,  sentMonth:187, openRate:72,   confirmRate:68,
+      template:'Your session is tomorrow at [time] with [clinician]. Reply CONFIRM or CANCEL.' },
+    { id:'rc2', name:'Same-Day Reminder',        trigger:'2h_before',        channels:['sms'],          active:true,  sentMonth:143, openRate:null, confirmRate:null,
+      template:'Your appointment is in 2 hours. DeepSynaps Clinic, 100 Wellness Ave. See you soon!' },
+    { id:'rc3', name:'Missed Session Follow-up', trigger:'missed',           channels:['email'],        active:true,  sentMonth:23,  openRate:41,   confirmRate:17,
+      template:'We missed you today, [patient_name]. Would you like to reschedule? Reply or log into the portal.' },
+    { id:'rc4', name:'Homework Check-in',        trigger:'3day_interval',    channels:['email','push'], active:false, sentMonth:0,   openRate:0,    confirmRate:0,
+      template:'Hi [patient_name], how is your [homework_task] going? Log your progress in the portal.' },
+    { id:'rc5', name:'Treatment Milestone',      trigger:'session_milestone', channels:['email'],       active:true,  sentMonth:12,  openRate:83,   confirmRate:null,
+      template:"Congratulations [patient_name]! You've completed [session_number] sessions! Here's your progress summary." },
+  ];
+
+  const PATIENTS_FALLBACK = [
+    { id:'pt-001', name:'Alex Johnson',  condition:'MDD' },
+    { id:'pt-002', name:'Morgan Lee',    condition:'PTSD + ADHD' },
+    { id:'pt-003', name:'Jordan Smith',  condition:'Bipolar I' },
+    { id:'pt-004', name:'Taylor Rivera', condition:'Anxiety' },
+    { id:'pt-005', name:'Casey Brown',   condition:'TBI' },
+  ];
+
+  const CHANNELS = ['sms','email','push'];
+  const STATUSES = ['Queued','Sent','Delivered','Failed','Opened'];
+  const CAMPAIGN_IDS = ['rc1','rc2','rc3','rc4','rc5'];
+
+  function seedOutbox() {
+    const patients = lsGet('ds_patients', PATIENTS_FALLBACK);
+    const msgs = [];
+    const now = Date.now();
+    for (let i = 0; i < 20; i++) {
+      const pt = patients[i % patients.length];
+      const ch = CHANNELS[i % 3];
+      const cid = CAMPAIGN_IDS[i % 5];
+      const camp = CAMPAIGN_SEED.find(c => c.id === cid);
+      const minsAgo = Math.floor(Math.random() * 10080);
+      msgs.push({
+        id: 'ob-' + (i + 1),
+        patientId: pt.id,
+        patientName: pt.name,
+        channel: ch,
+        campaignId: cid,
+        campaignName: camp.name,
+        scheduledAt: new Date(now - minsAgo * 60000).toISOString(),
+        status: STATUSES[Math.floor(Math.random() * STATUSES.length)],
+        preview: (camp.template.replace('[patient_name]', pt.name).replace('[time]','10:00 AM').replace('[clinician]','Dr. Patel').replace('[session_number]','10').replace('[homework_task]','breathing exercises')).slice(0, 80) + '...',
+      });
+    }
+    return msgs;
+  }
+
+  const TEMPLATE_SEED = [
+    { id:'tpl-1', name:'Appointment Reminder',      channel:'sms',   category:'scheduling', subject:'',                              body:'Hi [patient_name], your appointment is on [date] at [time] with [clinician]. Reply CONFIRM or CANCEL.' },
+    { id:'tpl-2', name:'Cancellation Notice',        channel:'email', category:'scheduling', subject:'Your appointment has been cancelled', body:'Hi [patient_name], your [date] appointment at [time] has been cancelled. Please call us to reschedule.' },
+    { id:'tpl-3', name:'Reschedule Request',         channel:'email', category:'scheduling', subject:'Request to Reschedule',         body:'Hi [patient_name], we need to reschedule your session. Please log into the portal or call to select a new time.' },
+    { id:'tpl-4', name:'Homework Check',             channel:'email', category:'adherence',  subject:'How is your homework going?',   body:'Hi [patient_name], checking in on your [homework_task]. Log your progress in the portal - it helps us track your progress.' },
+    { id:'tpl-5', name:'Milestone Congratulations',  channel:'email', category:'milestones', subject:'You reached a milestone!',      body:'Congratulations [patient_name]! You have completed [session_number] sessions. Here is a summary of your progress.' },
+    { id:'tpl-6', name:'Intake Reminder',            channel:'email', category:'admin',      subject:'Complete your intake forms',    body:'Hi [patient_name], please complete your intake forms before your first appointment on [date]. Link: [portal_link].' },
+    { id:'tpl-7', name:'Consent Reminder',           channel:'sms',   category:'admin',      subject:'',                              body:'Hi [patient_name], please sign your consent forms in the patient portal before [date]. Thank you.' },
+    { id:'tpl-8', name:'Birthday Greeting',          channel:'email', category:'engagement', subject:'Happy Birthday from DeepSynaps!', body:'Happy Birthday [patient_name]! Wishing you a wonderful day. As always, we are here to support your wellbeing journey.' },
+  ];
+
+  function seedAdherenceScores() {
+    const patients = lsGet('ds_patients', PATIENTS_FALLBACK);
+    const baseScores = [88, 54, 72, 91, 41, 63, 78, 55];
+    const prevScores = [82, 58, 71, 87, 50, 60, 80, 57];
+    return patients.map((pt, i) => {
+      const base = baseScores[i % 8];
+      const prev = prevScores[i % 8];
+      const appt  = Math.min(100, base + Math.round((Math.random() - 0.5) * 10));
+      const hw    = Math.min(100, base - 5 + Math.round((Math.random() - 0.5) * 8));
+      const login = Math.min(100, base + 3 + Math.round((Math.random() - 0.5) * 6));
+      const score = Math.round((appt * 0.5) + (hw * 0.3) + (login * 0.2));
+      const trend = score > prev ? 'up' : score < prev - 3 ? 'down' : 'stable';
+      return { patientId: pt.id, patientName: pt.name, condition: pt.condition || '', score, prev, appt, hw, login, trend };
+    });
+  }
+
+  // Seed on first load
+  if (!localStorage.getItem('ds_reminder_campaigns')) lsSet('ds_reminder_campaigns', CAMPAIGN_SEED);
+  if (!localStorage.getItem('ds_reminder_outbox'))    lsSet('ds_reminder_outbox', seedOutbox());
+  if (!localStorage.getItem('ds_message_templates'))  lsSet('ds_message_templates', TEMPLATE_SEED);
+  if (!localStorage.getItem('ds_adherence_scores'))   lsSet('ds_adherence_scores', seedAdherenceScores());
+
+  // ── Tab state ──────────────────────────────────────────────────────────────
+  let activeTab = 'campaigns';
+
+  // ── Render shell ───────────────────────────────────────────────────────────
+  document.getElementById('app-content').innerHTML = `
+    <div style="max-width:1200px;margin:0 auto;padding:20px 24px">
+      <div style="display:flex;gap:6px;margin-bottom:20px;border-bottom:1px solid var(--border);padding-bottom:0;flex-wrap:wrap">
+        ${['campaigns','outbox','adherence','templates'].map(tab =>
+          `<button id="remtab-${tab}" class="tab-btn ${tab === 'campaigns' ? 'active' : ''}" onclick="window._remSwitchTab('${tab}')">${
+            {campaigns:'Reminder Campaigns', outbox:'Outbox & Delivery Log', adherence:'Patient Adherence', templates:'Message Templates'}[tab]
+          }</button>`
+        ).join('')}
+      </div>
+      <div id="rem-tab-content"></div>
+    </div>
+    <div id="rem-modal-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:200;align-items:center;justify-content:center;padding:16px"></div>
+  `;
+
+  // ── Utility ────────────────────────────────────────────────────────────────
+  function fmtDt(iso) {
+    if (!iso) return '—';
+    const d = new Date(iso);
+    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+  }
+
+  // ── Tab: Campaigns ─────────────────────────────────────────────────────────
+  function renderCampaigns() {
+    const campaigns = lsGet('ds_reminder_campaigns', CAMPAIGN_SEED);
+    const TRIGGER_LABELS = {
+      '24h_before':       '24 h before appointment',
+      '2h_before':        '2 h before appointment',
+      'missed':           '2 h after missed slot',
+      '3day_interval':    'Every 3 days',
+      'session_milestone':'Session 10 / 20 / 30',
+    };
+    document.getElementById('rem-tab-content').innerHTML = `
+      <div style="display:grid;gap:14px">
+        ${campaigns.map(c => `
+          <div class="jjj-campaign-card" id="cc-${c.id}">
+            <div style="display:flex;align-items:flex-start;gap:16px;flex-wrap:wrap">
+              <div style="flex:1;min-width:200px">
+                <div style="font-size:14px;font-weight:600;color:var(--text-primary);margin-bottom:3px">${c.name}</div>
+                <div style="font-size:11.5px;color:var(--text-secondary);margin-bottom:8px">${TRIGGER_LABELS[c.trigger] || c.trigger}</div>
+                <div style="display:flex;gap:6px;flex-wrap:wrap">
+                  ${c.channels.map(ch => `<span class="jjj-channel-badge jjj-ch-${ch}">${ch.toUpperCase()}</span>`).join('')}
+                </div>
+              </div>
+              <div style="display:flex;gap:20px;align-items:center;flex-wrap:wrap">
+                <div style="text-align:center">
+                  <div style="font-size:20px;font-weight:700;color:var(--teal)">${c.sentMonth}</div>
+                  <div style="font-size:10px;color:var(--text-secondary)">Sent/mo</div>
+                </div>
+                ${c.openRate != null ? `<div style="text-align:center">
+                  <div style="font-size:20px;font-weight:700;color:var(--blue)">${c.openRate}%</div>
+                  <div style="font-size:10px;color:var(--text-secondary)">Open rate</div>
+                </div>` : ''}
+                ${c.confirmRate != null ? `<div style="text-align:center">
+                  <div style="font-size:20px;font-weight:700;color:var(--violet)">${c.confirmRate}%</div>
+                  <div style="font-size:10px;color:var(--text-secondary)">Confirm rate</div>
+                </div>` : ''}
+                <div style="display:flex;align-items:center;gap:10px;margin-left:8px">
+                  <button class="btn btn-ghost btn-sm" onclick="window._remEditCampaign('${c.id}')">Edit</button>
+                  <label class="jjj-toggle" title="${c.active ? 'Pause' : 'Activate'} campaign">
+                    <input type="checkbox" ${c.active ? 'checked' : ''} onchange="window._remToggleCampaign('${c.id}',this.checked)">
+                    <span class="jjj-toggle-slider"></span>
+                  </label>
+                  <span style="font-size:11px;color:${c.active ? 'var(--teal)' : 'var(--text-secondary)'};font-weight:600">${c.active ? 'Active' : 'Paused'}</span>
+                </div>
+              </div>
+            </div>
+            <div id="cc-edit-${c.id}" style="display:none;margin-top:14px;padding-top:14px;border-top:1px solid var(--border)">
+              <div style="margin-bottom:8px;font-size:11.5px;font-weight:600;color:var(--text-secondary)">Message Template</div>
+              <textarea id="cc-tpl-${c.id}" rows="3" style="width:100%;background:rgba(255,255,255,.04);border:1px solid var(--border);border-radius:8px;padding:10px 12px;color:var(--text-primary);font-size:12.5px;resize:vertical;font-family:inherit">${c.template || ''}</textarea>
+              <div style="margin-top:5px;font-size:10.5px;color:var(--text-secondary)">Variables: [patient_name] [clinician] [time] [date] [session_number] [homework_task]</div>
+              <div style="margin-top:8px;display:flex;gap:8px">
+                <button class="btn btn-primary btn-sm" onclick="window._remSaveCampaignTemplate('${c.id}')">Save</button>
+                <button class="btn btn-ghost btn-sm" onclick="document.getElementById('cc-edit-${c.id}').style.display='none'">Cancel</button>
+              </div>
+            </div>
+          </div>
+        `).join('')}
+      </div>
+    `;
+  }
+
+  // ── Tab: Outbox ────────────────────────────────────────────────────────────
+  function renderOutbox() {
+    const outbox = lsGet('ds_reminder_outbox', []);
+    const STATUS_COLORS = {
+      Queued:'var(--text-secondary)', Sent:'var(--blue)', Delivered:'var(--teal)',
+      Failed:'var(--red)', Opened:'var(--violet)', Test:'var(--amber)',
+    };
+
+    // 7-day stacked bar chart
+    const DAY_NAMES = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+    const now = new Date();
+    const dayCounts = {};
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date(now);
+      d.setDate(d.getDate() - i);
+      const key = DAY_NAMES[d.getDay()] + '-' + d.getDate();
+      dayCounts[key] = { sms: 0, email: 0, push: 0, label: DAY_NAMES[d.getDay()] };
+    }
+    const dayKeys = Object.keys(dayCounts);
+    outbox.forEach(m => {
+      const d = new Date(m.scheduledAt);
+      const key = DAY_NAMES[d.getDay()] + '-' + d.getDate();
+      if (dayCounts[key]) {
+        if (dayCounts[key][m.channel] !== undefined) dayCounts[key][m.channel]++;
+      }
+    });
+    const maxVal = Math.max(1, ...dayKeys.map(k => dayCounts[k].sms + dayCounts[k].email + dayCounts[k].push));
+    const CH_COLORS = { sms: 'var(--teal)', email: 'var(--blue)', push: 'var(--violet)' };
+    const BAR_H = 80, BAR_W = 28, GAP = 14;
+    const svgW = dayKeys.length * (BAR_W + GAP) + GAP;
+    const bars = dayKeys.map((key, i) => {
+      const d = dayCounts[key];
+      const x = GAP + i * (BAR_W + GAP);
+      let yOff = BAR_H;
+      const rects = ['push', 'email', 'sms'].map(ch => {
+        const h = Math.round((d[ch] / maxVal) * BAR_H);
+        if (!h) return '';
+        yOff -= h;
+        return `<rect x="${x}" y="${yOff}" width="${BAR_W}" height="${h}" rx="2" fill="${CH_COLORS[ch]}" opacity="0.85"/>`;
+      }).join('');
+      return `${rects}<text x="${x + BAR_W / 2}" y="${BAR_H + 16}" text-anchor="middle" fill="var(--text-secondary)" font-size="10">${d.label}</text>`;
+    }).join('');
+
+    const filterStatus  = (window._remOutboxFilter && window._remOutboxFilter.status)  || '';
+    const filterChannel = (window._remOutboxFilter && window._remOutboxFilter.channel) || '';
+    const filtered = outbox.filter(m =>
+      (!filterStatus  || m.status  === filterStatus) &&
+      (!filterChannel || m.channel === filterChannel)
+    );
+    const failed = filtered.filter(m => m.status === 'Failed');
+
+    document.getElementById('rem-tab-content').innerHTML = `
+      <div class="jjj-delivery-chart">
+        <div style="font-size:12px;font-weight:600;margin-bottom:10px;color:var(--text-primary)">7-Day Delivery Volume</div>
+        <div style="display:flex;gap:14px;margin-bottom:10px;flex-wrap:wrap">
+          ${Object.entries(CH_COLORS).map(([ch, col]) =>
+            `<div style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--text-secondary)">
+              <span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:${col};opacity:.85"></span>${ch.toUpperCase()}
+            </div>`
+          ).join('')}
+        </div>
+        <svg viewBox="0 0 ${svgW} ${BAR_H + 28}" style="width:100%;max-width:480px;overflow:visible" xmlns="http://www.w3.org/2000/svg">${bars}</svg>
+      </div>
+      <div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap;align-items:center">
+        <select style="padding:5px 10px;font-size:12px;background:rgba(255,255,255,.04);border:1px solid var(--border);border-radius:7px;color:var(--text-primary)"
+                onchange="window._remSetOutboxFilter('status',this.value)">
+          <option value="">All Statuses</option>
+          ${STATUSES.map(s => `<option value="${s}" ${filterStatus === s ? 'selected' : ''}>${s}</option>`).join('')}
+        </select>
+        <select style="padding:5px 10px;font-size:12px;background:rgba(255,255,255,.04);border:1px solid var(--border);border-radius:7px;color:var(--text-primary)"
+                onchange="window._remSetOutboxFilter('channel',this.value)">
+          <option value="">All Channels</option>
+          ${CHANNELS.map(c => `<option value="${c}" ${filterChannel === c ? 'selected' : ''}>${c.toUpperCase()}</option>`).join('')}
+        </select>
+        ${failed.length > 0 ? `<button class="btn btn-sm" style="background:rgba(255,107,107,.12);color:var(--red);border:1px solid rgba(255,107,107,.3)" onclick="window._remRetryFailed()">&#8634; Retry ${failed.length} Failed</button>` : ''}
+        <span style="font-size:11.5px;color:var(--text-secondary);margin-left:4px">${filtered.length} message${filtered.length !== 1 ? 's' : ''}</span>
+      </div>
+      <div style="overflow-x:auto;border-radius:10px;border:1px solid var(--border)">
+        <table style="width:100%;border-collapse:collapse;font-size:12px">
+          <thead>
+            <tr style="background:rgba(255,255,255,.04);border-bottom:1px solid var(--border)">
+              ${['Patient','Channel','Campaign','Scheduled','Status','Message','Action'].map(h =>
+                `<th style="padding:9px 12px;text-align:left;font-size:10.5px;color:var(--text-secondary);font-weight:600;letter-spacing:.04em;text-transform:uppercase;white-space:nowrap">${h}</th>`
+              ).join('')}
+            </tr>
+          </thead>
+          <tbody>
+            ${filtered.length === 0
+              ? `<tr><td colspan="7" style="padding:32px;text-align:center;color:var(--text-secondary)">No messages match filters</td></tr>`
+              : filtered.map((m, i) => `
+                <tr style="border-bottom:1px solid var(--border);${i % 2 ? 'background:rgba(255,255,255,.01)' : ''}">
+                  <td style="padding:8px 12px;color:var(--text-primary);font-weight:500">${m.patientName}</td>
+                  <td style="padding:8px 12px"><span class="jjj-channel-badge jjj-ch-${m.channel}">${m.channel.toUpperCase()}</span></td>
+                  <td style="padding:8px 12px;color:var(--text-secondary);white-space:nowrap">${m.campaignName}</td>
+                  <td style="padding:8px 12px;color:var(--text-secondary);white-space:nowrap;font-family:var(--font-mono);font-size:11px">${fmtDt(m.scheduledAt)}</td>
+                  <td style="padding:8px 12px"><span style="font-size:11px;font-weight:600;color:${STATUS_COLORS[m.status] || 'var(--text-secondary)'}">${m.status}</span></td>
+                  <td style="padding:8px 12px;color:var(--text-secondary);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${m.preview}">${m.preview}</td>
+                  <td style="padding:8px 12px">
+                    ${m.status === 'Queued' ? `<button class="btn btn-ghost btn-sm" style="font-size:11px;padding:3px 8px" onclick="window._remSendNow('${m.id}')">Send Now</button>` : ''}
+                    ${m.status === 'Failed' ? `<button class="btn btn-ghost btn-sm" style="font-size:11px;padding:3px 8px" onclick="window._remSendNow('${m.id}')">Retry</button>` : ''}
+                  </td>
+                </tr>`
+              ).join('')}
+          </tbody>
+        </table>
+      </div>
+    `;
+  }
+
+  // ── Tab: Adherence ─────────────────────────────────────────────────────────
+  function renderAdherence() {
+    let scores = lsGet('ds_adherence_scores', []);
+    if (!scores.length) { scores = seedAdherenceScores(); lsSet('ds_adherence_scores', scores); }
+
+    const avg       = Math.round(scores.reduce((a, s) => a + s.score, 0) / scores.length);
+    const atRisk    = scores.filter(s => s.score < 60).length;
+    const apptWeek  = 14;
+    const cancelRate = 12;
+
+    // 8-week trend
+    const weekLabels = [];
+    const nowD = new Date();
+    for (let i = 7; i >= 0; i--) {
+      const d = new Date(nowD);
+      d.setDate(d.getDate() - i * 7);
+      weekLabels.push(d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }));
+    }
+    const weekScores = weekLabels.map((_, i) =>
+      Math.max(30, Math.min(100, avg + (i - 4) * 2 + Math.round((Math.random() - 0.5) * 8)))
+    );
+    const WMIN = 30, WMAX = 100, CW = 340, CH2 = 80;
+    const linePts = weekScores.map((v, i) => {
+      const x = Math.round((i / (weekScores.length - 1)) * CW);
+      const y = Math.round(CH2 - ((v - WMIN) / (WMAX - WMIN)) * CH2);
+      return `${x},${y}`;
+    }).join(' ');
+    const areaPath = 'M 0,' + CH2 + ' ' + weekScores.map((v, i) => {
+      const x = Math.round((i / (weekScores.length - 1)) * CW);
+      const y = Math.round(CH2 - ((v - WMIN) / (WMAX - WMIN)) * CH2);
+      return `L ${x},${y}`;
+    }).join(' ') + ` L ${CW},${CH2} Z`;
+
+    const TREND_ARROWS = { up: '&#8593;', stable: '&#8594;', down: '&#8595;' };
+    const TREND_COLORS = { up: 'var(--teal)', stable: 'var(--text-secondary)', down: 'var(--red)' };
+
+    document.getElementById('rem-tab-content').innerHTML = `
+      <div class="jjj-stat-strip">
+        ${[['Average Adherence', avg + '%', 'var(--teal)'],
+           ['At-Risk Patients', atRisk, 'var(--red)'],
+           ['Appts This Week', apptWeek, 'var(--blue)'],
+           ['Cancellation Rate', cancelRate + '%', 'var(--amber)']
+        ].map(([l, v, c]) => `
+          <div class="jjj-stat-item">
+            <div style="font-size:24px;font-weight:700;color:${c}">${v}</div>
+            <div style="font-size:11px;color:var(--text-secondary)">${l}</div>
+          </div>`).join('')}
+      </div>
+
+      <div style="background:var(--bg-card,rgba(14,22,40,.8));border:1px solid var(--border);border-radius:10px;padding:16px 20px;margin-bottom:20px">
+        <div style="font-size:12px;font-weight:600;color:var(--text-primary);margin-bottom:14px">Clinic-Wide Adherence — Last 8 Weeks</div>
+        <svg viewBox="0 0 ${CW} ${CH2 + 26}" style="width:100%;max-width:500px;overflow:visible" xmlns="http://www.w3.org/2000/svg">
+          <defs><linearGradient id="adhGrad" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="var(--teal)" stop-opacity=".22"/>
+            <stop offset="100%" stop-color="var(--teal)" stop-opacity="0"/>
+          </linearGradient></defs>
+          <path d="${areaPath}" fill="url(#adhGrad)"/>
+          <polyline points="${linePts}" fill="none" stroke="var(--teal)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+          ${weekScores.map((v, i) => {
+            const x = Math.round((i / (weekScores.length - 1)) * CW);
+            const y = Math.round(CH2 - ((v - WMIN) / (WMAX - WMIN)) * CH2);
+            return `<circle cx="${x}" cy="${y}" r="3.5" fill="var(--teal)"/>`;
+          }).join('')}
+          ${weekLabels.filter((_, i) => i % 2 === 0).map((lbl, ii) => {
+            const i = ii * 2;
+            const x = Math.round((i / (weekScores.length - 1)) * CW);
+            return `<text x="${x}" y="${CH2 + 18}" text-anchor="middle" fill="var(--text-secondary)" font-size="9">${lbl}</text>`;
+          }).join('')}
+        </svg>
+      </div>
+
+      ${atRisk > 0 ? `<div style="display:flex;justify-content:flex-end;margin-bottom:12px">
+        <button class="btn btn-sm" style="background:rgba(255,107,107,.12);color:var(--red);border:1px solid rgba(255,107,107,.3)"
+                onclick="window._remSendAdherenceBoost()">
+          &#128226; Send Adherence Boost to ${atRisk} At-Risk Patient${atRisk > 1 ? 's' : ''}
+        </button>
+      </div>` : ''}
+
+      <div style="overflow-x:auto;border-radius:10px;border:1px solid var(--border)">
+        <table style="width:100%;border-collapse:collapse;font-size:12.5px">
+          <thead>
+            <tr style="background:rgba(255,255,255,.04);border-bottom:1px solid var(--border)">
+              ${['Patient','Condition','Score','Appt %','Homework %','Login %','Trend','Action'].map(h =>
+                `<th style="padding:9px 12px;text-align:left;font-size:10.5px;color:var(--text-secondary);font-weight:600;letter-spacing:.04em;text-transform:uppercase;white-space:nowrap">${h}</th>`
+              ).join('')}
+            </tr>
+          </thead>
+          <tbody>
+            ${scores.map((s, i) => {
+              const cls = s.score >= 80 ? 'green' : s.score >= 60 ? 'amber' : 'red';
+              const barColor = cls === 'green' ? 'var(--teal)' : cls === 'amber' ? 'var(--amber)' : 'var(--red)';
+              return `<tr class="jjj-adherence-row jjj-adh-${cls}" style="border-bottom:1px solid var(--border);${i % 2 ? 'background:rgba(255,255,255,.01)' : ''}">
+                <td style="padding:9px 12px;font-weight:600;color:var(--text-primary)">${s.patientName}</td>
+                <td style="padding:9px 12px;color:var(--text-secondary);font-size:11.5px">${s.condition || '—'}</td>
+                <td style="padding:9px 12px">
+                  <div style="display:flex;align-items:center;gap:8px">
+                    <div style="width:50px;height:6px;border-radius:3px;background:rgba(255,255,255,.08);overflow:hidden">
+                      <div style="height:100%;width:${s.score}%;background:${barColor};border-radius:3px"></div>
+                    </div>
+                    <span style="font-weight:700;color:${barColor}">${s.score}</span>
+                  </div>
+                </td>
+                <td style="padding:9px 12px;color:var(--text-secondary)">${s.appt}%</td>
+                <td style="padding:9px 12px;color:var(--text-secondary)">${s.hw}%</td>
+                <td style="padding:9px 12px;color:var(--text-secondary)">${s.login}%</td>
+                <td style="padding:9px 12px;font-size:18px;font-weight:700;color:${TREND_COLORS[s.trend]}">${TREND_ARROWS[s.trend]}</td>
+                <td style="padding:9px 12px">
+                  <button class="btn btn-ghost btn-sm" style="font-size:11px;padding:3px 10px"
+                          onclick="window._remComposeFor('${s.patientId}','${s.patientName.replace(/'/g, "\\'")}')">Send</button>
+                </td>
+              </tr>`;
+            }).join('')}
+          </tbody>
+        </table>
+      </div>
+    `;
+  }
+
+  // ── Tab: Templates ─────────────────────────────────────────────────────────
+  function renderTemplates() {
+    const templates = lsGet('ds_message_templates', TEMPLATE_SEED);
+    const VARS = ['[patient_name]','[clinician]','[time]','[date]','[session_number]','[homework_task]','[portal_link]'];
+    const CAT_COLORS = {
+      scheduling: 'var(--blue)', adherence: 'var(--teal)',
+      milestones: 'var(--violet)', admin: 'var(--amber)', engagement: 'var(--red)',
+    };
+
+    document.getElementById('rem-tab-content').innerHTML = `
+      <div style="display:grid;grid-template-columns:1fr 210px;gap:20px;align-items:start">
+        <div style="display:grid;gap:12px">
+          ${templates.map(t => `
+            <div class="jjj-template-card" id="tpl-card-${t.id}">
+              <div style="display:flex;align-items:flex-start;gap:12px">
+                <div style="flex:1;min-width:0">
+                  <div style="display:flex;align-items:center;gap:8px;margin-bottom:5px;flex-wrap:wrap">
+                    <span style="font-size:13px;font-weight:600;color:var(--text-primary)">${t.name}</span>
+                    <span class="jjj-channel-badge jjj-ch-${t.channel}">${t.channel.toUpperCase()}</span>
+                    <span style="font-size:10px;padding:2px 8px;border-radius:10px;background:rgba(255,255,255,.06);color:${CAT_COLORS[t.category] || 'var(--text-secondary)'};font-weight:600;text-transform:uppercase;letter-spacing:.04em">${t.category}</span>
+                  </div>
+                  ${t.subject ? `<div style="font-size:11.5px;color:var(--text-secondary);margin-bottom:4px">Subject: ${t.subject}</div>` : ''}
+                  <div style="font-size:12px;color:var(--text-secondary);line-height:1.5">${t.body}</div>
+                </div>
+                <div style="display:flex;flex-direction:column;gap:5px;flex-shrink:0">
+                  <button class="btn btn-ghost btn-sm" style="font-size:11px;padding:3px 8px" onclick="window._remEditTemplate('${t.id}')">Edit</button>
+                  <button class="btn btn-ghost btn-sm" style="font-size:11px;padding:3px 8px" onclick="window._remDupTemplate('${t.id}')">Dup</button>
+                  <button class="btn btn-ghost btn-sm" style="font-size:11px;padding:3px 8px;color:var(--teal)" onclick="window._remSendTestTemplate('${t.id}')">Test</button>
+                  <button class="btn btn-ghost btn-sm" style="font-size:11px;padding:3px 8px;color:var(--red)" onclick="window._remDeleteTemplate('${t.id}')">Del</button>
+                </div>
+              </div>
+            </div>
+          `).join('')}
+        </div>
+        <div style="background:rgba(14,22,40,.8);border:1px solid var(--border);border-radius:10px;padding:16px;position:sticky;top:0">
+          <div style="font-size:11px;font-weight:700;color:var(--text-secondary);margin-bottom:10px;letter-spacing:.05em">AVAILABLE VARIABLES</div>
+          ${VARS.map(v => `
+            <div style="padding:5px 0;border-bottom:1px solid rgba(255,255,255,.04)">
+              <code style="font-size:11px;background:rgba(255,255,255,.06);padding:2px 7px;border-radius:5px;color:var(--teal);font-family:var(--font-mono)">${v}</code>
+            </div>`).join('')}
+        </div>
+      </div>
+    `;
+  }
+
+  // ── Modal helper ───────────────────────────────────────────────────────────
+  function showModal(html) {
+    const overlay = document.getElementById('rem-modal-overlay');
+    overlay.style.display = 'flex';
+    overlay.innerHTML = `<div style="background:var(--bg-card,rgba(8,13,26,.97));border:1px solid var(--border);border-radius:14px;padding:24px;width:100%;max-width:520px;max-height:90vh;overflow-y:auto;position:relative;box-shadow:0 20px 60px rgba(0,0,0,.75)">
+      <button onclick="window._remCloseModal()" style="position:absolute;top:12px;right:14px;background:none;border:none;font-size:18px;color:var(--text-secondary);cursor:pointer;line-height:1">&#x2715;</button>
+      ${html}
+    </div>`;
+  }
+
+  window._remCloseModal = function() {
+    const overlay = document.getElementById('rem-modal-overlay');
+    if (overlay) overlay.style.display = 'none';
+  };
+
+  // ── Campaign handlers ──────────────────────────────────────────────────────
+  window._remNewCampaignModal = function() {
+    showModal(`
+      <div style="font-size:16px;font-weight:700;color:var(--text-primary);margin-bottom:18px">New Reminder Campaign</div>
+      <div style="display:grid;gap:12px">
+        <div>
+          <label style="font-size:11.5px;color:var(--text-secondary);display:block;margin-bottom:4px">Campaign Name</label>
+          <input id="nc-name" style="width:100%;background:rgba(255,255,255,.04);border:1px solid var(--border);border-radius:8px;padding:8px 12px;color:var(--text-primary);font-size:13px" placeholder="e.g. Weekly Motivation"/>
+        </div>
+        <div>
+          <label style="font-size:11.5px;color:var(--text-secondary);display:block;margin-bottom:4px">Trigger Type</label>
+          <select id="nc-trigger" style="width:100%;background:rgba(255,255,255,.04);border:1px solid var(--border);border-radius:8px;padding:8px 12px;color:var(--text-primary);font-size:13px">
+            <option value="24h_before">Time-based — 24 h before appointment</option>
+            <option value="2h_before">Time-based — 2 h before appointment</option>
+            <option value="missed">Event-based — After missed session</option>
+            <option value="3day_interval">Recurring — Every 3 days</option>
+            <option value="session_milestone">Event-based — Session milestone (10/20/30)</option>
+          </select>
+        </div>
+        <div>
+          <label style="font-size:11.5px;color:var(--text-secondary);display:block;margin-bottom:6px">Channels</label>
+          <div style="display:flex;gap:14px">
+            ${['sms','email','push'].map(ch =>
+              `<label style="display:flex;align-items:center;gap:5px;font-size:12.5px;cursor:pointer;color:var(--text-secondary)">
+                <input type="checkbox" id="nc-ch-${ch}" value="${ch}" style="accent-color:var(--teal)"> ${ch.toUpperCase()}
+              </label>`
+            ).join('')}
+          </div>
+        </div>
+        <div>
+          <label style="font-size:11.5px;color:var(--text-secondary);display:block;margin-bottom:4px">Message Template</label>
+          <textarea id="nc-tpl" rows="4" style="width:100%;background:rgba(255,255,255,.04);border:1px solid var(--border);border-radius:8px;padding:8px 12px;color:var(--text-primary);font-size:12.5px;resize:vertical;font-family:inherit" placeholder="Hi [patient_name], your appointment is on [date] at [time] with [clinician]."></textarea>
+          <div style="margin-top:4px;font-size:10.5px;color:var(--text-secondary)">Variables: [patient_name] [clinician] [time] [date] [session_number] [homework_task]</div>
+        </div>
+        <div id="nc-err" style="color:var(--red);font-size:12px;display:none"></div>
+        <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:4px">
+          <button class="btn btn-ghost btn-sm" onclick="window._remCloseModal()">Cancel</button>
+          <button class="btn btn-primary btn-sm" onclick="window._remSaveCampaign()">Create Campaign</button>
+        </div>
+      </div>
+    `);
+  };
+
+  window._remSaveCampaign = function() {
+    const name     = (document.getElementById('nc-name')?.value || '').trim();
+    const trigger  = document.getElementById('nc-trigger')?.value || '24h_before';
+    const template = (document.getElementById('nc-tpl')?.value || '').trim();
+    const channels = ['sms','email','push'].filter(ch => document.getElementById('nc-ch-' + ch)?.checked);
+    const errEl    = document.getElementById('nc-err');
+    if (!name) { if (errEl) { errEl.style.display = 'block'; errEl.textContent = 'Campaign name is required.'; } return; }
+    if (!channels.length) { if (errEl) { errEl.style.display = 'block'; errEl.textContent = 'Select at least one channel.'; } return; }
+    const campaigns = lsGet('ds_reminder_campaigns', []);
+    campaigns.push({ id: 'rc-' + Date.now(), name, trigger, channels, active: true, sentMonth: 0, openRate: 0, confirmRate: 0, template });
+    lsSet('ds_reminder_campaigns', campaigns);
+    window._remCloseModal();
+    renderCampaigns();
+  };
+
+  window._remEditCampaign = function(id) {
+    const el = document.getElementById('cc-edit-' + id);
+    if (el) el.style.display = el.style.display === 'none' ? 'block' : 'none';
+  };
+
+  window._remSaveCampaignTemplate = function(id) {
+    const tplEl = document.getElementById('cc-tpl-' + id);
+    if (!tplEl) return;
+    const campaigns = lsGet('ds_reminder_campaigns', []);
+    const c = campaigns.find(c => c.id === id);
+    if (c) { c.template = tplEl.value; lsSet('ds_reminder_campaigns', campaigns); }
+    const editEl = document.getElementById('cc-edit-' + id);
+    if (editEl) editEl.style.display = 'none';
+  };
+
+  window._remToggleCampaign = function(id, active) {
+    const campaigns = lsGet('ds_reminder_campaigns', []);
+    const c = campaigns.find(c => c.id === id);
+    if (c) { c.active = active; lsSet('ds_reminder_campaigns', campaigns); }
+    renderCampaigns();
+  };
+
+  // ── Outbox handlers ────────────────────────────────────────────────────────
+  window._remSetOutboxFilter = function(key, val) {
+    if (!window._remOutboxFilter) window._remOutboxFilter = {};
+    window._remOutboxFilter[key] = val;
+    renderOutbox();
+  };
+
+  window._remSendNow = function(id) {
+    setTimeout(() => {
+      const outbox = lsGet('ds_reminder_outbox', []);
+      const m = outbox.find(m => m.id === id);
+      if (m) { m.status = 'Delivered'; lsSet('ds_reminder_outbox', outbox); }
+      renderOutbox();
+    }, 800);
+  };
+
+  window._remRetryFailed = function() {
+    const outbox = lsGet('ds_reminder_outbox', []);
+    outbox.forEach(m => { if (m.status === 'Failed') m.status = 'Queued'; });
+    lsSet('ds_reminder_outbox', outbox);
+    renderOutbox();
+  };
+
+  // ── Adherence handlers ─────────────────────────────────────────────────────
+  window._remSendAdherenceBoost = function() {
+    const scores  = lsGet('ds_adherence_scores', []);
+    const atRisk  = scores.filter(s => s.score < 60);
+    const outbox  = lsGet('ds_reminder_outbox', []);
+    atRisk.forEach(s => {
+      outbox.unshift({
+        id: 'ob-boost-' + Date.now() + '-' + s.patientId,
+        patientId: s.patientId, patientName: s.patientName,
+        channel: 'email', campaignId: 'manual', campaignName: 'Adherence Boost',
+        scheduledAt: new Date().toISOString(), status: 'Queued',
+        preview: 'Hi ' + s.patientName + ', we noticed your recent attendance has been lower. We are here to help.',
+      });
+    });
+    lsSet('ds_reminder_outbox', outbox);
+    alert('Queued adherence boost reminders for ' + atRisk.length + ' at-risk patient' + (atRisk.length > 1 ? 's' : '') + '.');
+    window._remSwitchTab('outbox');
+  };
+
+  window._remComposeFor = function(patientId, patientName) {
+    showModal(`
+      <div style="font-size:16px;font-weight:700;color:var(--text-primary);margin-bottom:18px">Send Manual Reminder</div>
+      <div style="font-size:13px;color:var(--text-secondary);margin-bottom:16px">To: <strong style="color:var(--text-primary)">${patientName}</strong></div>
+      <div style="display:grid;gap:12px">
+        <div>
+          <label style="font-size:11.5px;color:var(--text-secondary);display:block;margin-bottom:4px">Channel</label>
+          <select id="mc-ch" style="width:100%;background:rgba(255,255,255,.04);border:1px solid var(--border);border-radius:8px;padding:8px 12px;color:var(--text-primary);font-size:13px">
+            <option value="email">Email</option><option value="sms">SMS</option><option value="push">Push</option>
+          </select>
+        </div>
+        <div>
+          <label style="font-size:11.5px;color:var(--text-secondary);display:block;margin-bottom:4px">Message</label>
+          <textarea id="mc-body" rows="4" style="width:100%;background:rgba(255,255,255,.04);border:1px solid var(--border);border-radius:8px;padding:8px 12px;color:var(--text-primary);font-size:12.5px;resize:vertical;font-family:inherit">Hi ${patientName}, we wanted to check in on your treatment progress. If you have any questions or need to reschedule, please reach out.</textarea>
+        </div>
+        <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:4px">
+          <button class="btn btn-ghost btn-sm" onclick="window._remCloseModal()">Cancel</button>
+          <button class="btn btn-primary btn-sm" onclick="window._remSendManual('${patientId}','${patientName.replace(/'/g, "\\'")}')">Send</button>
+        </div>
+      </div>
+    `);
+  };
+
+  window._remSendManual = function(patientId, patientName) {
+    const ch   = document.getElementById('mc-ch')?.value || 'email';
+    const body = (document.getElementById('mc-body')?.value || '').trim();
+    if (!body) return;
+    const outbox = lsGet('ds_reminder_outbox', []);
+    outbox.unshift({
+      id: 'ob-manual-' + Date.now(),
+      patientId, patientName, channel: ch,
+      campaignId: 'manual', campaignName: 'Manual Reminder',
+      scheduledAt: new Date().toISOString(), status: 'Queued',
+      preview: body.slice(0, 80) + '...',
+    });
+    lsSet('ds_reminder_outbox', outbox);
+    window._remCloseModal();
+    alert('Reminder queued for ' + patientName + '.');
+  };
+
+  // ── Template handlers ──────────────────────────────────────────────────────
+  window._remEditTemplate = function(id) {
+    const templates = lsGet('ds_message_templates', TEMPLATE_SEED);
+    const t = templates.find(t => t.id === id);
+    if (!t) return;
+    showModal(`
+      <div style="font-size:16px;font-weight:700;color:var(--text-primary);margin-bottom:18px">Edit Template</div>
+      <div style="display:grid;gap:12px">
+        <div>
+          <label style="font-size:11.5px;color:var(--text-secondary);display:block;margin-bottom:4px">Name</label>
+          <input id="et-name" style="width:100%;background:rgba(255,255,255,.04);border:1px solid var(--border);border-radius:8px;padding:8px 12px;color:var(--text-primary);font-size:13px" value="${t.name}"/>
+        </div>
+        <div>
+          <label style="font-size:11.5px;color:var(--text-secondary);display:block;margin-bottom:4px">Channel</label>
+          <select id="et-ch" style="width:100%;background:rgba(255,255,255,.04);border:1px solid var(--border);border-radius:8px;padding:8px 12px;color:var(--text-primary);font-size:13px">
+            ${['sms','email','push'].map(c => `<option value="${c}" ${t.channel === c ? 'selected' : ''}>${c.toUpperCase()}</option>`).join('')}
+          </select>
+        </div>
+        <div>
+          <label style="font-size:11.5px;color:var(--text-secondary);display:block;margin-bottom:4px">Subject (email only)</label>
+          <input id="et-sub" style="width:100%;background:rgba(255,255,255,.04);border:1px solid var(--border);border-radius:8px;padding:8px 12px;color:var(--text-primary);font-size:13px" value="${t.subject || ''}"/>
+        </div>
+        <div>
+          <label style="font-size:11.5px;color:var(--text-secondary);display:block;margin-bottom:4px">Body</label>
+          <textarea id="et-body" rows="5" style="width:100%;background:rgba(255,255,255,.04);border:1px solid var(--border);border-radius:8px;padding:8px 12px;color:var(--text-primary);font-size:12.5px;resize:vertical;font-family:inherit">${t.body}</textarea>
+        </div>
+        <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:4px">
+          <button class="btn btn-ghost btn-sm" onclick="window._remCloseModal()">Cancel</button>
+          <button class="btn btn-primary btn-sm" onclick="window._remSaveTemplate('${id}')">Save</button>
+        </div>
+      </div>
+    `);
+  };
+
+  window._remSaveTemplate = function(id) {
+    const templates = lsGet('ds_message_templates', TEMPLATE_SEED);
+    const t = templates.find(t => t.id === id);
+    if (!t) return;
+    t.name    = (document.getElementById('et-name')?.value || '').trim() || t.name;
+    t.channel = document.getElementById('et-ch')?.value  || t.channel;
+    t.subject = document.getElementById('et-sub')?.value || '';
+    t.body    = document.getElementById('et-body')?.value || t.body;
+    lsSet('ds_message_templates', templates);
+    window._remCloseModal();
+    renderTemplates();
+  };
+
+  window._remDupTemplate = function(id) {
+    const templates = lsGet('ds_message_templates', TEMPLATE_SEED);
+    const t = templates.find(t => t.id === id);
+    if (!t) return;
+    templates.push(Object.assign({}, t, { id: 'tpl-' + Date.now(), name: t.name + ' (Copy)' }));
+    lsSet('ds_message_templates', templates);
+    renderTemplates();
+  };
+
+  window._remDeleteTemplate = function(id) {
+    if (!confirm('Delete this template?')) return;
+    const templates = lsGet('ds_message_templates', TEMPLATE_SEED).filter(t => t.id !== id);
+    lsSet('ds_message_templates', templates);
+    renderTemplates();
+  };
+
+  window._remSendTestTemplate = function(id) {
+    const templates = lsGet('ds_message_templates', TEMPLATE_SEED);
+    const t = templates.find(t => t.id === id);
+    if (!t) return;
+    const outbox = lsGet('ds_reminder_outbox', []);
+    outbox.unshift({
+      id: 'ob-test-' + Date.now(), patientId: 'test', patientName: '[TEST]',
+      channel: t.channel, campaignId: 'test', campaignName: t.name,
+      scheduledAt: new Date().toISOString(), status: 'Test',
+      preview: t.body.slice(0, 80) + '...',
+    });
+    lsSet('ds_reminder_outbox', outbox);
+    alert('Test message queued in Outbox for template "' + t.name + '".');
+  };
+
+  // ── Tab switching ──────────────────────────────────────────────────────────
+  window._remSwitchTab = function(tab) {
+    activeTab = tab;
+    document.querySelectorAll('[id^="remtab-"]').forEach(btn => {
+      const t = btn.id.replace('remtab-', '');
+      btn.classList.toggle('active', t === tab);
+    });
+    if (tab === 'campaigns')  renderCampaigns();
+    else if (tab === 'outbox')     renderOutbox();
+    else if (tab === 'adherence')  renderAdherence();
+    else if (tab === 'templates')  renderTemplates();
+  };
+
+  window._remRefresh = function() { window._remSwitchTab(activeTab); };
+
+  // Close modal on backdrop click
+  document.getElementById('rem-modal-overlay')?.addEventListener('click', function(e) {
+    if (e.target === this) window._remCloseModal();
+  });
+
+  // Initial render
+  renderCampaigns();
+}
