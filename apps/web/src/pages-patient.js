@@ -7533,22 +7533,582 @@ window._gpToggleEdit = () => { const form = document.getElementById('gp-edit-con
 window._gpCancelEdit = () => { const form = document.getElementById('gp-edit-contacts-form'), list = document.getElementById('gp-contacts-list'); if (form) form.style.display = 'none'; if (list) list.style.display = 'flex'; };
 window._gpSaveContacts = () => { try { const prof = JSON.parse(localStorage.getItem('ds_guardian_profiles') || '{}'); (prof.emergencyContacts || []).forEach(ec => { const n = document.getElementById('gp-ec-name-' + ec.id), r = document.getElementById('gp-ec-rel-' + ec.id), p = document.getElementById('gp-ec-phone-' + ec.id); if (n) ec.name = n.value; if (r) ec.relation = r.value; if (p) ec.phone = p.value; }); localStorage.setItem('ds_guardian_profiles', JSON.stringify(prof)); } catch (_e) { /* safe */ } _gpRender(); };
 
-// ── Coming-soon stubs (routes defined in app.js; features pending) ─────────────
-function _renderComingSoon(titleKey) {
-  setTopbar(t(titleKey));
+// ── Home Device pages ─────────────────────────────────────────────────────────
+
+// Shared HTML escaper for home-device pages
+function _hdEsc(v) {
+  if (v == null) return '';
+  return String(v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#x27;');
+}
+
+// ── pgPatientHomeDevice ───────────────────────────────────────────────────────
+export async function pgPatientHomeDevice() {
+  setTopbar(t('patient.nav.home_device'));
   const el = document.getElementById('patient-content');
   if (!el) return;
-  el.innerHTML = `
-    <div class="pt-portal-empty" style="padding:60px 24px">
-      <div class="pt-portal-empty-ico" aria-hidden="true" style="font-size:32px">🔧</div>
-      <div class="pt-portal-empty-title">${t('patient.coming_soon.title')}</div>
-      <div class="pt-portal-empty-body">${t('patient.coming_soon.body')}</div>
+  el.innerHTML = spinner();
+
+  let assignment = null;
+  try { assignment = await api.portalGetHomeDevice(); } catch (_e) { assignment = null; }
+
+  if (!assignment) {
+    el.innerHTML = `
+      <div class="pt-portal-empty" style="padding:60px 24px">
+        <div class="pt-portal-empty-ico" aria-hidden="true" style="font-size:32px">⚡</div>
+        <div class="pt-portal-empty-title">No Home Device Assigned</div>
+        <div class="pt-portal-empty-body">Your care team has not assigned a home device yet. Once they do, your device details, schedule, and session log will appear here.</div>
+        <button class="btn btn-ghost btn-sm" style="margin-top:18px" onclick="window._navPatient('patient-messages')">Contact Your Care Team →</button>
+      </div>`;
+    return;
+  }
+
+  const deviceName   = _hdEsc(assignment.device_name || assignment.device_slug || 'Home Device');
+  const category     = _hdEsc(assignment.device_category || assignment.modality_slug || '');
+  const frequency    = _hdEsc(assignment.prescribed_frequency || assignment.frequency || '');
+  const instructions = _hdEsc(assignment.instructions || assignment.notes || '');
+  const startDate    = fmtDate(assignment.start_date || assignment.assigned_at || assignment.created_at);
+  const endDate      = assignment.end_date ? fmtDate(assignment.end_date) : null;
+  const totalSessions    = assignment.total_sessions_prescribed ?? null;
+  const completedSessions = assignment.sessions_completed ?? assignment.session_count ?? 0;
+  const adherencePct = (totalSessions && completedSessions != null)
+    ? Math.min(100, Math.round((completedSessions / totalSessions) * 100)) : null;
+
+  // Adherence ring SVG
+  function adherenceRingSVG(pct) {
+    if (pct == null) return '';
+    const r = 36; const circ = 2 * Math.PI * r;
+    const dash = (pct / 100) * circ;
+    const color = pct >= 80 ? 'var(--teal)' : pct >= 50 ? 'var(--amber,#f59e0b)' : '#ff6b6b';
+    return `<div style="position:relative;width:96px;height:96px;flex-shrink:0">
+      <svg width="96" height="96" viewBox="0 0 96 96">
+        <circle cx="48" cy="48" r="${r}" fill="none" stroke="rgba(255,255,255,0.07)" stroke-width="7"/>
+        <circle cx="48" cy="48" r="${r}" fill="none" stroke="${color}" stroke-width="7"
+          stroke-dasharray="${dash} ${circ - dash}" stroke-dashoffset="${circ / 4}"
+          stroke-linecap="round" style="transition:stroke-dasharray 1s ease"/>
+      </svg>
+      <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center">
+        <div style="font-size:18px;font-weight:700;color:${color}">${pct}%</div>
+        <div style="font-size:9px;color:var(--text-tertiary);margin-top:1px">adherence</div>
+      </div>
     </div>`;
+  }
+
+  el.innerHTML = `
+    <!-- Device card -->
+    <div class="card" style="margin-bottom:20px;border-color:var(--border-teal)">
+      <div class="card-header" style="display:flex;justify-content:space-between;align-items:center">
+        <h3>⚡ ${deviceName}</h3>
+        <span class="pill pill-active" style="font-size:10.5px">Active</span>
+      </div>
+      <div class="card-body">
+        <div class="g2">
+          <div>
+            ${category    ? `<div class="field-row"><span>Category</span><span>${category}</span></div>` : ''}
+            ${frequency   ? `<div class="field-row"><span>Prescribed Frequency</span><span>${frequency}</span></div>` : ''}
+            <div class="field-row"><span>Assigned</span><span>${_hdEsc(startDate)}</span></div>
+            ${endDate     ? `<div class="field-row"><span>Target End</span><span>${_hdEsc(endDate)}</span></div>` : ''}
+            ${totalSessions != null ? `<div class="field-row"><span>Sessions Prescribed</span><span>${totalSessions}</span></div>` : ''}
+            <div class="field-row"><span>Sessions Completed</span><span>${completedSessions}</span></div>
+          </div>
+          <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px">
+            ${adherenceRingSVG(adherencePct)}
+            ${adherencePct != null
+              ? `<div style="font-size:11px;color:var(--text-tertiary);text-align:center">${completedSessions} of ${totalSessions} sessions</div>`
+              : `<div style="font-size:12px;color:var(--text-tertiary);text-align:center">No target set</div>`}
+          </div>
+        </div>
+        ${instructions ? `
+        <div class="notice notice-info" style="margin-top:16px;font-size:12.5px;line-height:1.65">
+          <strong>Instructions:</strong> ${instructions}
+        </div>` : ''}
+      </div>
+    </div>
+
+    <!-- CTA buttons -->
+    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:24px">
+      <button class="btn btn-primary" style="flex:1;min-width:130px" onclick="window._navPatient('pt-home-session-log')">Log Session</button>
+      <button class="btn btn-ghost"   style="flex:1;min-width:130px" onclick="window._navPatient('pt-adherence-events')">Report Issue</button>
+      <button class="btn btn-ghost"   style="flex:1;min-width:130px" onclick="window._navPatient('pt-adherence-history')">View History</button>
+    </div>
+
+    <!-- Encouragement -->
+    <div class="card" style="margin-bottom:20px;border-color:rgba(0,212,188,0.2);background:rgba(0,212,188,0.03)">
+      <div class="card-body" style="padding:16px 20px">
+        <div style="font-size:13px;font-weight:600;color:var(--teal);margin-bottom:6px">Keep going!</div>
+        <div style="font-size:12.5px;color:var(--text-secondary);line-height:1.65">
+          Consistent home device use is an important part of your treatment plan. Even short sessions as prescribed help your brain respond to therapy. Your care team can see your session logs and will check in with you regularly.
+        </div>
+      </div>
+    </div>
+  `;
 }
-export async function pgPatientHomeDevice()      { _renderComingSoon('patient.nav.home_device'); }
-export async function pgPatientHomeSessionLog()  { _renderComingSoon('patient.nav.home_device'); }
-export async function pgPatientAdherenceEvents() { _renderComingSoon('patient.nav.adherence'); }
-export async function pgPatientAdherenceHistory(){ _renderComingSoon('patient.nav.adherence'); }
+
+// ── pgPatientHomeSessionLog ───────────────────────────────────────────────────
+export async function pgPatientHomeSessionLog() {
+  setTopbar('Log Home Session');
+  const el = document.getElementById('patient-content');
+  if (!el) return;
+  el.innerHTML = spinner();
+
+  let sessions = [];
+  try {
+    const raw = await api.portalListHomeSessions();
+    sessions = Array.isArray(raw) ? raw : [];
+  } catch (_e) { sessions = []; }
+
+  const todayStr = new Date().toISOString().slice(0, 10);
+
+  // Tolerance button helper
+  function tolButtons(name, selectedVal) {
+    return [1,2,3,4,5].map(v => `
+      <button type="button"
+        id="${name}-${v}"
+        class="pt-tol-btn${selectedVal === v ? ' selected' : ''}"
+        style="width:38px;height:38px;border-radius:50%;border:2px solid var(--border);background:${selectedVal === v ? 'var(--teal)' : 'var(--surface)'};color:${selectedVal === v ? '#000' : 'var(--text-primary)'};font-weight:600;font-size:14px;cursor:pointer;transition:all .15s"
+        onclick="window._hdTolPick('${name}', ${v})">${v}</button>
+    `).join('');
+  }
+
+  el.innerHTML = `
+    <!-- Session log form -->
+    <div class="card" style="margin-bottom:24px">
+      <div class="card-header"><h3>Log a Home Session</h3></div>
+      <div class="card-body" style="padding:20px">
+        <div class="form-group">
+          <label class="form-label">Session Date</label>
+          <input type="date" id="hsl-date" class="form-control" value="${todayStr}" max="${todayStr}">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Duration (minutes)</label>
+          <input type="number" id="hsl-duration" class="form-control" min="1" max="480" placeholder="e.g. 30">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Tolerance (1 = very easy, 5 = very difficult)</label>
+          <div style="display:flex;gap:8px;margin-top:6px" id="hsl-tol-wrap">
+            ${tolButtons('hsl-tol', null)}
+          </div>
+          <input type="hidden" id="hsl-tolerance" value="">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Mood Before Session (1 = very low, 5 = very good)</label>
+          <div style="display:flex;gap:8px;margin-top:6px" id="hsl-mood-before-wrap">
+            ${tolButtons('hsl-mood-before', null)}
+          </div>
+          <input type="hidden" id="hsl-mood-before" value="">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Mood After Session (1 = very low, 5 = very good)</label>
+          <div style="display:flex;gap:8px;margin-top:6px" id="hsl-mood-after-wrap">
+            ${tolButtons('hsl-mood-after', null)}
+          </div>
+          <input type="hidden" id="hsl-mood-after" value="">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Side Effects (if any)</label>
+          <textarea id="hsl-side-effects" class="form-control" rows="2" placeholder="e.g. mild headache, tingling, none"></textarea>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Notes</label>
+          <textarea id="hsl-notes" class="form-control" rows="2" placeholder="Any other observations…"></textarea>
+        </div>
+        <div class="form-group" style="display:flex;align-items:center;gap:10px">
+          <input type="checkbox" id="hsl-completed" checked style="width:16px;height:16px;accent-color:var(--teal);cursor:pointer">
+          <label for="hsl-completed" style="font-size:13px;font-weight:500;color:var(--text-primary);cursor:pointer">Session completed as prescribed</label>
+        </div>
+        <div id="hsl-status" style="display:none;margin-bottom:10px;font-size:13px"></div>
+        <button class="btn btn-primary" style="width:100%;padding:11px" onclick="window._hslSubmit()">Save Session Log →</button>
+      </div>
+    </div>
+
+    <!-- Past sessions list -->
+    <div class="card" style="margin-bottom:20px">
+      <div class="card-header" style="display:flex;justify-content:space-between;align-items:center">
+        <h3>Session History</h3>
+        <span style="font-size:12px;color:var(--text-tertiary)">${sessions.length} session${sessions.length !== 1 ? 's' : ''} logged</span>
+      </div>
+      <div id="hsl-history-list" style="padding:0 0 4px">
+        ${sessions.length === 0
+          ? `<div style="padding:24px;text-align:center;color:var(--text-tertiary);font-size:13px">No sessions logged yet. Use the form above to add your first session.</div>`
+          : sessions.slice().sort((a,b) => new Date(b.session_date||b.created_at||0)-new Date(a.session_date||a.created_at||0)).map(s => {
+              const tol  = s.tolerance_rating != null ? `Tol: ${_hdEsc(String(s.tolerance_rating))}` : '';
+              const dur  = s.duration_minutes ? `${s.duration_minutes} min` : '';
+              const done = s.completed !== false;
+              return `<div style="display:flex;align-items:center;gap:12px;padding:12px 18px;border-bottom:1px solid var(--border)">
+                <span style="font-size:14px;color:${done ? 'var(--teal)' : 'var(--text-tertiary)'}">${done ? '✓' : '○'}</span>
+                <div style="flex:1">
+                  <div style="font-size:13px;font-weight:500;color:var(--text-primary)">${fmtDate(s.session_date||s.created_at)}</div>
+                  <div style="font-size:11.5px;color:var(--text-secondary);margin-top:2px">${[dur, tol].filter(Boolean).join(' · ') || 'No details'}</div>
+                  ${s.side_effects ? `<div style="font-size:11px;color:var(--text-tertiary);margin-top:2px">${_hdEsc(s.side_effects)}</div>` : ''}
+                </div>
+                <span style="font-size:10px;padding:2px 8px;border-radius:99px;background:${done ? 'rgba(0,212,188,0.1)' : 'rgba(148,163,184,0.1)'};color:${done ? 'var(--teal)' : 'var(--text-tertiary)'}">${done ? 'Done' : 'Partial'}</span>
+              </div>`;
+            }).join('')}
+      </div>
+    </div>
+  `;
+
+  // Tolerance/mood picker state
+  const _hdSelections = {};
+
+  window._hdTolPick = function(name, val) {
+    _hdSelections[name] = val;
+    // Update hidden input
+    const hidden = document.getElementById(name);
+    if (hidden) hidden.value = String(val);
+    // Update button styles
+    [1,2,3,4,5].forEach(v => {
+      const btn = document.getElementById(`${name}-${v}`);
+      if (!btn) return;
+      const sel = v === val;
+      btn.style.background = sel ? 'var(--teal)' : 'var(--surface)';
+      btn.style.color = sel ? '#000' : 'var(--text-primary)';
+      btn.style.borderColor = sel ? 'var(--teal)' : 'var(--border)';
+    });
+  };
+
+  window._hslSubmit = async function() {
+    const dateEl       = document.getElementById('hsl-date');
+    const durationEl   = document.getElementById('hsl-duration');
+    const tolEl        = document.getElementById('hsl-tolerance');
+    const moodBeforeEl = document.getElementById('hsl-mood-before');
+    const moodAfterEl  = document.getElementById('hsl-mood-after');
+    const sideEl       = document.getElementById('hsl-side-effects');
+    const notesEl      = document.getElementById('hsl-notes');
+    const completedEl  = document.getElementById('hsl-completed');
+    const statusEl     = document.getElementById('hsl-status');
+
+    const sessionDate = dateEl?.value;
+    if (!sessionDate) {
+      if (statusEl) { statusEl.style.display=''; statusEl.style.color='#ff6b6b'; statusEl.textContent='Please select a session date.'; }
+      return;
+    }
+
+    const payload = {
+      session_date:     sessionDate,
+      duration_minutes: durationEl?.value ? parseInt(durationEl.value, 10) : null,
+      tolerance_rating: tolEl?.value ? parseInt(tolEl.value, 10) : null,
+      mood_before:      moodBeforeEl?.value ? parseInt(moodBeforeEl.value, 10) : null,
+      mood_after:       moodAfterEl?.value ? parseInt(moodAfterEl.value, 10) : null,
+      side_effects:     sideEl?.value?.trim() || null,
+      notes:            notesEl?.value?.trim() || null,
+      completed:        completedEl?.checked !== false,
+    };
+
+    const btn = el.querySelector('button.btn-primary[onclick*="_hslSubmit"]');
+    if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+    if (statusEl) statusEl.style.display = 'none';
+
+    try {
+      await api.portalLogHomeSession(payload);
+      if (statusEl) {
+        statusEl.style.display='';
+        statusEl.style.color='var(--teal)';
+        statusEl.textContent='Session logged successfully!';
+      }
+      if (btn) { btn.disabled = false; btn.textContent = 'Save Session Log →'; }
+      // Refresh the page to show updated history
+      setTimeout(() => pgPatientHomeSessionLog(), 800);
+    } catch (err) {
+      if (statusEl) {
+        statusEl.style.display='';
+        statusEl.style.color='#ff6b6b';
+        statusEl.textContent='Could not save session: ' + (err?.message || 'Unknown error');
+      }
+      if (btn) { btn.disabled = false; btn.textContent = 'Save Session Log →'; }
+    }
+  };
+}
+
+// ── pgPatientAdherenceEvents ──────────────────────────────────────────────────
+export async function pgPatientAdherenceEvents() {
+  setTopbar('Report Adherence Event');
+  const el = document.getElementById('patient-content');
+  if (!el) return;
+  el.innerHTML = spinner();
+
+  let events = [];
+  try {
+    const raw = await api.portalListAdherenceEvents();
+    events = Array.isArray(raw) ? raw : [];
+  } catch (_e) { events = []; }
+
+  const todayStr = new Date().toISOString().slice(0, 10);
+
+  const SEVERITY_COLORS = { low:'var(--teal)', moderate:'var(--blue)', high:'var(--amber,#f59e0b)', urgent:'#ff6b6b' };
+  const EVENT_TYPE_LABELS = {
+    adherence_report: 'Adherence Report',
+    side_effect: 'Side Effect',
+    tolerance_change: 'Tolerance Change',
+    break_request: 'Break Request',
+    concern: 'Concern',
+    positive_feedback: 'Positive Feedback',
+  };
+
+  el.innerHTML = `
+    <!-- Report form -->
+    <div class="card" style="margin-bottom:24px">
+      <div class="card-header"><h3>Report an Adherence Event</h3></div>
+      <div class="card-body" style="padding:20px">
+        <div class="form-group">
+          <label class="form-label">Event Type</label>
+          <select id="hae-type" class="form-control">
+            <option value="">Select type…</option>
+            <option value="adherence_report">Adherence Report</option>
+            <option value="side_effect">Side Effect</option>
+            <option value="tolerance_change">Tolerance Change</option>
+            <option value="break_request">Break Request</option>
+            <option value="concern">Concern</option>
+            <option value="positive_feedback">Positive Feedback</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Severity</label>
+          <select id="hae-severity" class="form-control">
+            <option value="low">Low</option>
+            <option value="moderate">Moderate</option>
+            <option value="high">High</option>
+            <option value="urgent">Urgent — contact clinic immediately</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Date</label>
+          <input type="date" id="hae-date" class="form-control" value="${todayStr}" max="${todayStr}">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Description</label>
+          <textarea id="hae-body" class="form-control" rows="4" placeholder="Describe what happened, how you felt, or any symptoms you noticed…"></textarea>
+        </div>
+        <div id="hae-status" style="display:none;margin-bottom:10px;font-size:13px"></div>
+        <button class="btn btn-primary" style="width:100%;padding:11px" onclick="window._haeSubmit()">Submit Report →</button>
+        <div class="notice notice-info" style="margin-top:12px;font-size:12px">
+          For medical emergencies call your local emergency number. This form is for non-urgent reports only.
+        </div>
+      </div>
+    </div>
+
+    <!-- Event history -->
+    <div class="card" style="margin-bottom:20px">
+      <div class="card-header" style="display:flex;justify-content:space-between;align-items:center">
+        <h3>Report History</h3>
+        <span style="font-size:12px;color:var(--text-tertiary)">${events.length} report${events.length !== 1 ? 's' : ''}</span>
+      </div>
+      <div style="padding:0 0 4px">
+        ${events.length === 0
+          ? `<div style="padding:24px;text-align:center;color:var(--text-tertiary);font-size:13px">No reports yet.</div>`
+          : events.slice().sort((a,b) => new Date(b.report_date||b.created_at||0)-new Date(a.report_date||a.created_at||0)).map(ev => {
+              const sev   = ev.severity || 'low';
+              const color = SEVERITY_COLORS[sev] || 'var(--text-secondary)';
+              const label = EVENT_TYPE_LABELS[ev.event_type] || _hdEsc(ev.event_type || 'Report');
+              const ack   = ev.acknowledged ? ' · Acknowledged' : '';
+              return `<div style="padding:12px 18px;border-bottom:1px solid var(--border)">
+                <div style="display:flex;align-items:flex-start;gap:10px">
+                  <div style="flex:1">
+                    <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+                      <span style="font-size:13px;font-weight:600;color:var(--text-primary)">${_hdEsc(label)}</span>
+                      <span style="font-size:10px;padding:2px 8px;border-radius:99px;background:${color}22;color:${color};font-weight:600">${_hdEsc(sev)}</span>
+                    </div>
+                    <div style="font-size:11.5px;color:var(--text-tertiary)">${fmtDate(ev.report_date||ev.created_at)}${_hdEsc(ack)}</div>
+                    ${ev.body ? `<div style="font-size:12.5px;color:var(--text-secondary);margin-top:5px;line-height:1.55">${_hdEsc(ev.body)}</div>` : ''}
+                  </div>
+                </div>
+              </div>`;
+            }).join('')}
+      </div>
+    </div>
+  `;
+
+  window._haeSubmit = async function() {
+    const typeEl     = document.getElementById('hae-type');
+    const severityEl = document.getElementById('hae-severity');
+    const dateEl     = document.getElementById('hae-date');
+    const bodyEl     = document.getElementById('hae-body');
+    const statusEl   = document.getElementById('hae-status');
+
+    if (!typeEl?.value) {
+      if (statusEl) { statusEl.style.display=''; statusEl.style.color='#ff6b6b'; statusEl.textContent='Please select an event type.'; }
+      return;
+    }
+    if (!bodyEl?.value?.trim()) {
+      if (statusEl) { statusEl.style.display=''; statusEl.style.color='#ff6b6b'; statusEl.textContent='Please add a description.'; }
+      return;
+    }
+
+    const payload = {
+      event_type:  typeEl.value,
+      severity:    severityEl?.value || 'low',
+      report_date: dateEl?.value || new Date().toISOString().slice(0,10),
+      body:        bodyEl.value.trim(),
+    };
+
+    const btn = el.querySelector('button.btn-primary[onclick*="_haeSubmit"]');
+    if (btn) { btn.disabled = true; btn.textContent = 'Submitting…'; }
+    if (statusEl) statusEl.style.display = 'none';
+
+    try {
+      await api.portalSubmitAdherenceEvent(payload);
+      if (statusEl) {
+        statusEl.style.display='';
+        statusEl.style.color='var(--teal)';
+        statusEl.textContent='Report submitted successfully. Your care team has been notified.';
+      }
+      if (btn) { btn.disabled = false; btn.textContent = 'Submit Report →'; }
+      setTimeout(() => pgPatientAdherenceEvents(), 1000);
+    } catch (err) {
+      if (statusEl) {
+        statusEl.style.display='';
+        statusEl.style.color='#ff6b6b';
+        statusEl.textContent='Could not submit report: ' + (err?.message || 'Unknown error');
+      }
+      if (btn) { btn.disabled = false; btn.textContent = 'Submit Report →'; }
+    }
+  };
+}
+
+// ── pgPatientAdherenceHistory ─────────────────────────────────────────────────
+export async function pgPatientAdherenceHistory() {
+  setTopbar(t('patient.nav.adherence'));
+  const el = document.getElementById('patient-content');
+  if (!el) return;
+  el.innerHTML = spinner();
+
+  let summary = null;
+  let sessions = [];
+  try {
+    [summary, sessions] = await Promise.all([
+      api.portalHomeAdherenceSummary().catch(() => null),
+      api.portalListHomeSessions().catch(() => []),
+    ]);
+  } catch (_e) { /* handled below */ }
+
+  const sessArr = Array.isArray(sessions) ? sessions : [];
+  const s = summary || {};
+
+  // Stats
+  const totalSessions   = s.total_sessions    ?? sessArr.length;
+  const completedCount  = s.completed_sessions ?? sessArr.filter(x => x.completed !== false).length;
+  const completedRate   = totalSessions > 0 ? Math.round((completedCount / totalSessions) * 100) : 0;
+  const currentStreak   = s.current_streak   ?? 0;
+  const longestStreak   = s.longest_streak   ?? 0;
+  const avgTolerance    = s.avg_tolerance    != null
+    ? Number(s.avg_tolerance).toFixed(1)
+    : (sessArr.filter(x => x.tolerance_rating != null).length > 0
+        ? (sessArr.reduce((acc, x) => acc + (x.tolerance_rating ?? 0), 0) / sessArr.filter(x => x.tolerance_rating != null).length).toFixed(1)
+        : null);
+  const avgMoodBefore = s.avg_mood_before != null ? Number(s.avg_mood_before).toFixed(1) : null;
+  const avgMoodAfter  = s.avg_mood_after  != null ? Number(s.avg_mood_after).toFixed(1)  : null;
+
+  // Weekly bar chart data (8 weeks)
+  const weeklyData = Array.isArray(s.weekly_sessions) ? s.weekly_sessions : [];
+
+  // Build 8-week local data if no server data
+  function buildLocalWeekly() {
+    if (!sessArr.length) return Array(8).fill(0);
+    const weeks = Array(8).fill(0);
+    const now = Date.now();
+    sessArr.forEach(sess => {
+      const d = new Date(sess.session_date || sess.created_at || 0);
+      const msAgo = now - d.getTime();
+      const weekIdx = Math.floor(msAgo / (7 * 86400000));
+      if (weekIdx >= 0 && weekIdx < 8) weeks[7 - weekIdx]++;
+    });
+    return weeks;
+  }
+
+  const chartData = weeklyData.length >= 8
+    ? weeklyData.slice(-8).map(w => (typeof w === 'object' ? (w.count ?? w.sessions ?? 0) : Number(w)))
+    : buildLocalWeekly();
+
+  const maxBar = Math.max(...chartData, 1);
+
+  // Simple bar chart SVG
+  function barChartHTML(data) {
+    const w = 280; const h = 80; const barW = 26; const gap = 10;
+    const totalW = data.length * (barW + gap) - gap;
+    const startX = (w - totalW) / 2;
+    const bars = data.map((v, i) => {
+      const barH = Math.max(2, Math.round((v / maxBar) * (h - 20)));
+      const x = startX + i * (barW + gap);
+      const y = h - barH;
+      const color = v === 0 ? 'rgba(255,255,255,0.07)' : 'var(--teal)';
+      return `<rect x="${x}" y="${y}" width="${barW}" height="${barH}" rx="4" fill="${color}"/>
+              <text x="${x + barW/2}" y="${h + 14}" text-anchor="middle" font-size="9" fill="var(--text-tertiary)">W${i+1}</text>
+              ${v > 0 ? `<text x="${x + barW/2}" y="${y - 4}" text-anchor="middle" font-size="9" fill="var(--text-secondary)">${v}</text>` : ''}`;
+    }).join('');
+    return `<svg width="${w}" height="${h + 20}" viewBox="0 0 ${w} ${h + 20}" style="overflow:visible">${bars}</svg>`;
+  }
+
+  // Stat card helper
+  function statCard(label, value, sub, color) {
+    return `<div class="card" style="padding:16px;text-align:center;border-color:rgba(${color},0.3)">
+      <div style="font-size:24px;font-weight:700;font-family:var(--font-display);color:rgb(${color})">${_hdEsc(String(value ?? '—'))}</div>
+      <div style="font-size:11.5px;font-weight:600;color:var(--text-primary);margin-top:4px">${_hdEsc(label)}</div>
+      ${sub ? `<div style="font-size:10.5px;color:var(--text-tertiary);margin-top:3px">${_hdEsc(sub)}</div>` : ''}
+    </div>`;
+  }
+
+  el.innerHTML = `
+    <!-- Stats grid -->
+    <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-bottom:20px">
+      ${statCard('Total Sessions', totalSessions, 'logged', '0,212,188')}
+      ${statCard('Completed Rate', completedRate + '%', completedCount + ' of ' + totalSessions, '74,158,255')}
+      ${statCard('Current Streak', currentStreak, currentStreak === 1 ? 'day' : 'days', '167,139,250')}
+      ${statCard('Avg Tolerance', avgTolerance ?? '—', 'out of 5', '0,212,188')}
+      ${avgMoodBefore != null ? statCard('Avg Mood Before', avgMoodBefore, 'out of 5', '74,158,255') : ''}
+      ${avgMoodAfter  != null ? statCard('Avg Mood After',  avgMoodAfter,  'out of 5', '52,211,153') : ''}
+    </div>
+
+    <!-- Weekly chart -->
+    <div class="card" style="margin-bottom:20px">
+      <div class="card-header"><h3>Sessions per Week (last 8 weeks)</h3></div>
+      <div class="card-body" style="padding:16px 20px;display:flex;justify-content:center">
+        ${barChartHTML(chartData)}
+      </div>
+    </div>
+
+    <!-- Full session log table -->
+    <div class="card" style="margin-bottom:20px">
+      <div class="card-header" style="display:flex;justify-content:space-between;align-items:center">
+        <h3>Full Session Log</h3>
+        <span style="font-size:12px;color:var(--text-tertiary)">${sessArr.length} session${sessArr.length !== 1 ? 's' : ''}</span>
+      </div>
+      <div style="overflow-x:auto">
+        ${sessArr.length === 0
+          ? `<div style="padding:24px;text-align:center;color:var(--text-tertiary);font-size:13px">No sessions logged yet.</div>`
+          : `<table style="width:100%;border-collapse:collapse;font-size:12.5px">
+              <thead>
+                <tr style="border-bottom:1px solid var(--border)">
+                  <th style="padding:10px 16px;text-align:left;font-weight:600;color:var(--text-secondary);white-space:nowrap">Date</th>
+                  <th style="padding:10px 16px;text-align:left;font-weight:600;color:var(--text-secondary)">Duration</th>
+                  <th style="padding:10px 16px;text-align:left;font-weight:600;color:var(--text-secondary)">Tolerance</th>
+                  <th style="padding:10px 16px;text-align:left;font-weight:600;color:var(--text-secondary)">Mood ↑</th>
+                  <th style="padding:10px 16px;text-align:left;font-weight:600;color:var(--text-secondary)">Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${sessArr.slice().sort((a,b)=>new Date(b.session_date||b.created_at||0)-new Date(a.session_date||a.created_at||0)).map(s => {
+                  const done = s.completed !== false;
+                  const mb = s.mood_before != null ? String(s.mood_before) : '—';
+                  const ma = s.mood_after  != null ? String(s.mood_after)  : '—';
+                  return `<tr style="border-bottom:1px solid var(--border)">
+                    <td style="padding:10px 16px;color:var(--text-primary)">${fmtDate(s.session_date||s.created_at)}</td>
+                    <td style="padding:10px 16px;color:var(--text-secondary)">${s.duration_minutes ? s.duration_minutes + ' min' : '—'}</td>
+                    <td style="padding:10px 16px;color:var(--text-secondary)">${s.tolerance_rating != null ? s.tolerance_rating + '/5' : '—'}</td>
+                    <td style="padding:10px 16px;color:var(--text-secondary)">${mb} → ${ma}</td>
+                    <td style="padding:10px 16px"><span style="font-size:10px;padding:2px 8px;border-radius:99px;background:${done?'rgba(0,212,188,0.1)':'rgba(148,163,184,0.1)'};color:${done?'var(--teal)':'var(--text-tertiary)'}">${done?'Done':'Partial'}</span></td>
+                  </tr>`;
+                }).join('')}
+              </tbody>
+            </table>`}
+      </div>
+    </div>
+
+    <!-- Navigation links -->
+    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:4px">
+      <button class="btn btn-ghost btn-sm" style="flex:1;min-width:130px" onclick="window._navPatient('pt-home-device')">← Home Device</button>
+      <button class="btn btn-ghost btn-sm" style="flex:1;min-width:130px" onclick="window._navPatient('pt-home-session-log')">Log New Session →</button>
+    </div>
+  `;
+}
 
 export async function pgGuardianPortal(setTopbarFn) {
   const _tb = typeof setTopbarFn === 'function' ? setTopbarFn : setTopbar;
