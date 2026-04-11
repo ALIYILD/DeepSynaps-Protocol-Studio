@@ -347,6 +347,112 @@ export const api = {
     apiFetch('/api/v1/patient-portal/adherence-events', { method: 'POST', body: JSON.stringify(data) }),
   portalHomeAdherenceSummary: () => apiFetch('/api/v1/patient-portal/home-adherence-summary'),
 
+  // ── Forms & Assessments ───────────────────────────────────────────────────
+  getForms: (params = {}) => {
+    const q = new URLSearchParams(params).toString();
+    return apiFetchWithRetry(`/api/v1/forms${q ? '?' + q : ''}`);
+  },
+  createForm: (data) => apiFetch('/api/v1/forms', { method: 'POST', body: JSON.stringify(data) }),
+  getForm: (id) => apiFetch(`/api/v1/forms/${id}`),
+  deployForm: (id, data) => apiFetch(`/api/v1/forms/${id}/deploy`, { method: 'POST', body: JSON.stringify(data) }),
+  submitForm: (id, data) => apiFetch(`/api/v1/forms/${id}/submit`, { method: 'POST', body: JSON.stringify(data) }),
+  getFormSubmissions: (params = {}) => {
+    const q = new URLSearchParams(params).toString();
+    return apiFetchWithRetry(`/api/v1/forms/submissions${q ? '?' + q : ''}`);
+  },
+  getFormSubmission: (id) => apiFetch(`/api/v1/forms/submissions/${id}`),
+
+  // ── Medication Safety ─────────────────────────────────────────────────────
+  getPatientMedications: (patientId, params = {}) => {
+    const q = new URLSearchParams(params).toString();
+    return apiFetchWithRetry(`/api/v1/medications/patient/${patientId}${q ? '?' + q : ''}`);
+  },
+  addMedication: (patientId, med) =>
+    apiFetch(`/api/v1/medications/patient/${patientId}`, { method: 'POST', body: JSON.stringify(med) }),
+  removeMedication: (patientId, medId) =>
+    apiFetch(`/api/v1/medications/patient/${patientId}/${medId}`, { method: 'DELETE' }),
+  checkInteractions: (medications, patientId = null) =>
+    apiFetch('/api/v1/medications/check-interactions', { method: 'POST', body: JSON.stringify({ medications, patient_id: patientId }) }),
+  getMedicationInteractionLog: (params = {}) => {
+    const q = new URLSearchParams(params).toString();
+    return apiFetchWithRetry(`/api/v1/medications/interaction-log${q ? '?' + q : ''}`);
+  },
+
+  // ── Consent Management ────────────────────────────────────────────────────
+  getConsentRecords: (params = {}) => {
+    const q = new URLSearchParams(params).toString();
+    return apiFetchWithRetry(`/api/v1/consent/records${q ? '?' + q : ''}`);
+  },
+  createConsentRecord: (data) =>
+    apiFetch('/api/v1/consent/records', { method: 'POST', body: JSON.stringify(data) }),
+  updateConsentRecord: (id, data) =>
+    apiFetch(`/api/v1/consent/records/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  getConsentAuditLog: (params = {}) => {
+    const q = new URLSearchParams(params).toString();
+    return apiFetchWithRetry(`/api/v1/consent/audit-log${q ? '?' + q : ''}`);
+  },
+  createConsentAutomationRule: (data) =>
+    apiFetch('/api/v1/consent/automation-rules', { method: 'POST', body: JSON.stringify(data) }),
+  listConsentAutomationRules: () => apiFetch('/api/v1/consent/automation-rules'),
+  computeConsentComplianceScore: (data = {}) =>
+    apiFetch('/api/v1/consent/compliance-score', { method: 'POST', body: JSON.stringify(data) }),
+
+  // ── Reminder Campaigns ────────────────────────────────────────────────────
+  getReminderCampaigns: (params = {}) => {
+    const q = new URLSearchParams(params).toString();
+    return apiFetchWithRetry(`/api/v1/reminders/campaigns${q ? '?' + q : ''}`);
+  },
+  createReminderCampaign: (data) =>
+    apiFetch('/api/v1/reminders/campaigns', { method: 'POST', body: JSON.stringify(data) }),
+  updateReminderCampaign: (id, data) =>
+    apiFetch(`/api/v1/reminders/campaigns/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  getReminderOutbox: (params = {}) => {
+    const q = new URLSearchParams(params).toString();
+    return apiFetchWithRetry(`/api/v1/reminders/outbox${q ? '?' + q : ''}`);
+  },
+  sendReminderMessage: (data) =>
+    apiFetch('/api/v1/reminders/send', { method: 'POST', body: JSON.stringify(data) }),
+  getPatientAdherenceScore: (patientId) =>
+    apiFetch(`/api/v1/reminders/adherence/${patientId}`),
+  getAdherenceScores: () => apiFetchWithRetry('/api/v1/reminders/adherence'),
+
+  // ── IRB Studies ───────────────────────────────────────────────────────────
+  getIRBStudies: (params = {}) => {
+    const q = new URLSearchParams(params).toString();
+    return apiFetchWithRetry(`/api/v1/irb/studies${q ? '?' + q : ''}`);
+  },
+  createIRBStudy: (data) =>
+    apiFetch('/api/v1/irb/studies', { method: 'POST', body: JSON.stringify(data) }),
+  getIRBStudy: (id) => apiFetch(`/api/v1/irb/studies/${id}`),
+  updateIRBStudy: (id, data) =>
+    apiFetch(`/api/v1/irb/studies/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  requestIRBAmendment: (studyId, data) =>
+    apiFetch(`/api/v1/irb/studies/${studyId}/amend`, { method: 'POST', body: JSON.stringify(data) }),
+  getIRBAdverseEvents: (params = {}) => {
+    const q = new URLSearchParams(params).toString();
+    return apiFetchWithRetry(`/api/v1/irb/adverse-events${q ? '?' + q : ''}`);
+  },
+  reportIRBAdverseEvent: (data) =>
+    apiFetch('/api/v1/irb/adverse-events', { method: 'POST', body: JSON.stringify(data) }),
+  updateIRBAdverseEvent: (id, data) =>
+    apiFetch(`/api/v1/irb/adverse-events/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+
+  // ── Literature Library ────────────────────────────────────────────────────
+  getLiterature: (params = {}) => {
+    const q = new URLSearchParams(params).toString();
+    return apiFetchWithRetry(`/api/v1/literature${q ? '?' + q : ''}`);
+  },
+  addLiteraturePaper: (data) =>
+    apiFetch('/api/v1/literature', { method: 'POST', body: JSON.stringify(data) }),
+  getLiteraturePaper: (id) => apiFetch(`/api/v1/literature/${id}`),
+  tagPaperToProtocol: (paperId, protocolId) =>
+    apiFetch('/api/v1/literature/tag-protocol', { method: 'POST', body: JSON.stringify({ paper_id: paperId, protocol_id: protocolId }) }),
+  getReadingList: () => apiFetchWithRetry('/api/v1/literature/reading-list'),
+  addToReadingList: (paperId, data = {}) =>
+    apiFetch(`/api/v1/literature/reading-list/${paperId}`, { method: 'POST', body: JSON.stringify(data) }),
+  removeFromReadingList: (paperId) =>
+    apiFetch(`/api/v1/literature/reading-list/${paperId}`, { method: 'DELETE' }),
+
   // ── Telegram ────────────────────────────────────────────────────────────
   telegramLinkCode: () => apiFetch('/api/v1/telegram/link-code'),
 

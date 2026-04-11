@@ -19,3 +19,7 @@ Thumbs.db
 .runtime/
 *.log
 *.tsbuildinfo
+
+# Playwright
+playwright-report/
+test-results/

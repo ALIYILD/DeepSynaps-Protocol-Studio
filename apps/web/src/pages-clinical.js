@@ -5779,6 +5779,8 @@ export async function pgProtocolBuilder(setTopbar) {
         <button class="btn btn-sm" style="border-color:var(--teal,#00d4bc);color:var(--teal,#00d4bc)"
           onclick="window._builderUseInWizard()">⚡ Use in Wizard</button>
         <button class="btn btn-ghost btn-sm" onclick="window._builderClear()">✕ Clear</button>
+        <button class="btn btn-sm" style="border-color:var(--violet,#9b7fff);color:var(--violet,#9b7fff);margin-left:auto"
+          onclick="window._pbAISuggest()">🤖 AI Suggest</button>
         <span style="font-size:0.78rem;color:var(--text-secondary);margin-left:8px" id="builder-status"></span>
       </div>
       <div style="display:grid;grid-template-columns:220px 1fr;gap:16px">
@@ -5788,9 +5790,114 @@ export async function pgProtocolBuilder(setTopbar) {
         <div id="builder-main">
           ${_renderBuilderCanvas()}
           ${_renderBuilderProps()}
+          <div id="pb-ai-suggest-panel" style="display:none"></div>
         </div>
       </div>
     </div>`;
+
+  // ── AI Suggest ─────────────────────────────────────────────────────────────
+  window._pbAISuggest = function() {
+    const panel = document.getElementById('pb-ai-suggest-panel');
+    if (!panel) return;
+
+    const nodes = _builderNodes;
+
+    if (nodes.length === 0) {
+      panel.style.display = '';
+      panel.innerHTML = `<div id="pb-ai-suggest-panel" style="">
+        <h4>🤖 AI Protocol Suggestion</h4>
+        <p style="font-size:12.5px;color:var(--text-secondary)">Add some blocks to the canvas first, then run AI Suggest to get evidence-based recommendations.</p>
+      </div>`;
+      panel.style.display = '';
+      return;
+    }
+
+    // Detect modalities present on canvas
+    const types = nodes.map(n => n.type);
+    const hasTMS = types.some(t => ['tms', 'theta-burst', 'deep-tms'].includes(t));
+    const hasNFB = types.some(t => ['neurofeedback', 'eeg-neurofeedback', 'alpha-theta', 'smr-training'].includes(t));
+    const hasTDCS = types.some(t => ['tdcs', 'tacs', 'trns'].includes(t));
+    const hasHRV = types.some(t => ['hrv-biofeedback', 'biofeedback'].includes(t));
+    const hasRest = types.some(t => t === 'rest');
+    const hasRepeat = types.some(t => t === 'repeat');
+
+    // Session count recommendation
+    let sessionRec = '20–30 sessions recommended for most neuromodulation courses.';
+    if (hasTMS) sessionRec = 'TMS: 20–36 sessions standard. Depression protocols typically 5×/week for 4–6 weeks.';
+    else if (hasNFB) sessionRec = 'Neurofeedback: 20–40 sessions for durable effect. 2–3×/week is optimal pacing.';
+    else if (hasTDCS) sessionRec = 'tDCS: 10–20 sessions typical. 5 consecutive sessions followed by a break period.';
+    else if (hasHRV) sessionRec = 'HRV Biofeedback: 8–12 sessions with home practice. 1–2×/week in-clinic.';
+
+    // Evidence-based parameter adjustments
+    const paramTips = [];
+    if (hasTMS) {
+      paramTips.push('Set intensity to 120% motor threshold for left DLPFC protocols. Consider 80–90% MT for anxious patients.');
+      paramTips.push('Inter-train interval of ≥2 seconds reduces seizure risk. Verify device default settings match protocol.');
+    }
+    if (hasNFB) {
+      paramTips.push('For ADHD: SMR reward (12–15 Hz) at Cz + theta inhibit (4–8 Hz). Threshold should auto-adjust to keep reward rate 60–70%.');
+      paramTips.push('Electrode placement: always use EEG-grade gel for impedance <5 kΩ. Check before each session.');
+    }
+    if (hasTDCS) {
+      paramTips.push('tDCS: ramp current up over 30 seconds to reduce skin sensation. Current density should not exceed 0.06 mA/cm².');
+    }
+    if (!hasRest && (hasTMS || hasTDCS)) {
+      paramTips.push('Consider adding Rest Period blocks between stimulation blocks to reduce fatigue and support consolidation.');
+    }
+    if (paramTips.length === 0) {
+      paramTips.push('No specific parameters flagged. Review your block settings against the protocol specification.');
+    }
+
+    // Contraindication warnings
+    const warnings = [];
+    if (hasTMS && hasNFB) {
+      warnings.push('Combining TMS + Neurofeedback in same session: ensure TMS is completed first. EEG cap must be removed during TMS stimulation.');
+    }
+    if (hasTMS && hasTDCS) {
+      warnings.push('Simultaneous TMS + tDCS is experimental. If sequential, allow ≥30 min between modalities. Document patient tolerance carefully.');
+    }
+    if (hasRepeat && hasTMS) {
+      warnings.push('Repeat blocks with TMS: ensure cumulative pulse count per day does not exceed safety limits (typically ≤3000 standard, ≤6000 in published iTBS protocols).');
+    }
+
+    // Literature links (rule-based)
+    const links = [];
+    if (hasTMS) links.push({ text: 'George et al. (2010) — TMS for depression, d=0.55', page: 'evidence' });
+    if (hasNFB) links.push({ text: 'Arns et al. (2009) — Neurofeedback for ADHD, d=0.59', page: 'evidence' });
+    if (hasTDCS) links.push({ text: 'Brunoni et al. (2017) — tDCS meta-analysis, d=0.37', page: 'evidence' });
+    links.push({ text: 'Browse full evidence library →', page: 'evidence' });
+
+    panel.style.display = '';
+    panel.innerHTML = `
+      <h4>🤖 AI Protocol Suggestion <span style="font-size:11px;font-weight:400;color:var(--text-secondary)">(${nodes.length} block${nodes.length !== 1 ? 's' : ''} analysed)</span></h4>
+
+      <div class="ai-suggest-section">
+        <div class="ai-suggest-section-title">Recommended Session Count</div>
+        <div class="ai-suggest-item">${sessionRec}</div>
+      </div>
+
+      <div class="ai-suggest-section">
+        <div class="ai-suggest-section-title">Evidence-Based Parameter Adjustments</div>
+        ${paramTips.map(t => `<div class="ai-suggest-item">• ${t}</div>`).join('')}
+      </div>
+
+      ${warnings.length > 0 ? `
+      <div class="ai-suggest-section">
+        <div class="ai-suggest-section-title">Contraindication Warnings</div>
+        ${warnings.map(w => `<div class="ai-suggest-warn">⚠ <span>${w}</span></div>`).join('')}
+      </div>` : ''}
+
+      <div class="ai-suggest-section">
+        <div class="ai-suggest-section-title">Relevant Literature</div>
+        ${links.map(l => `<div style="margin-bottom:4px"><span class="ai-suggest-link" onclick="window._nav('${l.page}')">${l.text}</span></div>`).join('')}
+      </div>
+
+      <div style="margin-top:12px;display:flex;gap:10px;align-items:center">
+        <button class="btn btn-sm" style="border-color:var(--teal,#00d4bc);color:var(--teal,#00d4bc)"
+          onclick="window._aiQuick?.('TMS parameters');window._aiToggle?.()">Ask AI Co-pilot</button>
+        <button class="btn btn-ghost btn-sm" onclick="document.getElementById('pb-ai-suggest-panel').style.display='none'">Dismiss</button>
+      </div>`;
+  };
 
   // ── Drag from palette ──────────────────────────────────────────────────────
   window._builderPaletteDragStart = function(e, blockType, category) {

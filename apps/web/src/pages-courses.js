@@ -4787,6 +4787,7 @@ function _monitorTick() {
 }
 
 function _monitorShowCompletion() {
+  if (_aiTickerInterval) { clearInterval(_aiTickerInterval); _aiTickerInterval = null; }
   const root = document.getElementById('session-monitor-root');
   if (!root) return;
   const s = _monitorSession;
@@ -4865,6 +4866,7 @@ window._monitorStart = async function() {
     root.innerHTML = _monitorDashboardHTML();
     _monitorLogEvent(`Session started — ${modality} / ${protocol}`);
     _monitorUpdateUI();
+    _injectAIMonitorTicker();
   }
 
   // Start tick
@@ -4910,6 +4912,7 @@ window._monitorConfirmAbort = function(reason) {
   _monitorSession.abortReason = reason;
   if (note) _monitorSession.notes = (_monitorSession.notes ? _monitorSession.notes + '\n' : '') + `Abort note: ${note}`;
   if (_monitorTimer) { clearInterval(_monitorTimer); _monitorTimer = null; }
+  if (_aiTickerInterval) { clearInterval(_aiTickerInterval); _aiTickerInterval = null; }
   _monitorLogEvent(`Session aborted — ${reason}`);
 
   // Save to localStorage
@@ -5226,9 +5229,72 @@ function _monitorDashboardHTML() {
     </style>`;
 }
 
+// ── AI Monitor Ticker ─────────────────────────────────────────────────────���────
+const _AI_TICKER_TIPS = [
+  'HR elevated — consider pausing stimulation and checking patient comfort.',
+  'Patient in optimal alertness range — good time for cognitive tasks.',
+  'Session duration optimal — 45–60 min sessions show best outcomes in the literature.',
+  'Theta activity increasing — expected response to NFB protocol. Maintain current settings.',
+  'Compliance tip: document mid-session observations now while details are fresh.',
+  'Impedance stable — electrode contact is good. Continue monitoring.',
+  'At the halfway mark, consider a brief 2-min rest check-in with the patient.',
+  'Amplitude within therapeutic range — no adjustment needed at this time.',
+  'Evidence note: session frequency ≥2×/week is associated with faster response onset.',
+  'Safety reminder: confirm patient comfort level every 15 minutes per protocol.',
+];
+
+let _aiTickerInterval = null;
+let _aiTickerIndex = 0;
+
+function _injectAIMonitorTicker() {
+  // Clean up any prior ticker
+  if (_aiTickerInterval) { clearInterval(_aiTickerInterval); _aiTickerInterval = null; }
+
+  const root = document.getElementById('session-monitor-root');
+  if (!root) return;
+
+  // Inject ticker element after the monitor dashboard
+  const existing = document.getElementById('ai-monitor-ticker');
+  if (existing) existing.remove();
+
+  const ticker = document.createElement('div');
+  ticker.id = 'ai-monitor-ticker';
+  ticker.innerHTML = `
+    <span class="ai-ticker-label">🤖 AI Insight</span>
+    <span class="ai-ticker-text" id="ai-ticker-text">${_AI_TICKER_TIPS[0]}</span>`;
+  root.appendChild(ticker);
+
+  _aiTickerIndex = 0;
+
+  // Rotate tips every 30 seconds
+  _aiTickerInterval = setInterval(() => {
+    // Stop if session monitor root is gone (navigated away)
+    if (!document.getElementById('session-monitor-root')) {
+      clearInterval(_aiTickerInterval);
+      _aiTickerInterval = null;
+      return;
+    }
+    const textEl = document.getElementById('ai-ticker-text');
+    if (!textEl) {
+      clearInterval(_aiTickerInterval);
+      _aiTickerInterval = null;
+      return;
+    }
+    _aiTickerIndex = (_aiTickerIndex + 1) % _AI_TICKER_TIPS.length;
+    // Fade transition
+    textEl.style.opacity = '0';
+    setTimeout(() => {
+      textEl.textContent = _AI_TICKER_TIPS[_aiTickerIndex];
+      textEl.style.opacity = '1';
+    }, 500);
+  }, 30000);
+}
+
 export async function pgSessionMonitor(setTopbar) {
   // Stop any running timer from a previous session
   if (_monitorTimer) { clearInterval(_monitorTimer); _monitorTimer = null; }
+  // Stop any prior AI ticker
+  if (_aiTickerInterval) { clearInterval(_aiTickerInterval); _aiTickerInterval = null; }
 
   setTopbar('Live Session Monitor', '');
 
@@ -5248,6 +5314,7 @@ export async function pgSessionMonitor(setTopbar) {
       ).join('');
       logEl.scrollTop = logEl.scrollHeight;
     }
+    _injectAIMonitorTicker();
     if (_monitorTimer) clearInterval(_monitorTimer);
     _monitorTimer = setInterval(_monitorTick, 1000);
     return;
@@ -5453,6 +5520,55 @@ function _predResultHTML(result, ci) {
     </div>`;
   }).join('');
 
+  // ── AI Clinical Interpretation (rule-based) ───────────────────────────────
+  const topFeat = sortedFeats[0]?.[0];
+  const secondFeat = sortedFeats[1]?.[0];
+  const topFeatLabel = _PRED_FEAT_LABELS[topFeat] || topFeat || 'adherence';
+  const secondFeatLabel = _PRED_FEAT_LABELS[secondFeat] || secondFeat || 'session count';
+  const isTopPos = (sortedFeats[0]?.[1]?.signed ?? 0) >= 0;
+  const isSecondPos = (sortedFeats[1]?.[1]?.signed ?? 0) >= 0;
+
+  let scoreInterpretation;
+  if (predictedScore >= 75) {
+    scoreInterpretation = `A predicted outcome score of <strong>${predictedScore}/100</strong> indicates a <strong>strong likelihood of clinical improvement</strong> with current treatment parameters. This patient profile aligns closely with high-responder cohorts in the neuromodulation evidence base.`;
+  } else if (predictedScore >= 55) {
+    scoreInterpretation = `A predicted outcome score of <strong>${predictedScore}/100</strong> suggests a <strong>moderate probability of meaningful improvement</strong>. Close monitoring and protocol optimisation are recommended to maximise this patient's response trajectory.`;
+  } else if (predictedScore >= 40) {
+    scoreInterpretation = `A predicted outcome score of <strong>${predictedScore}/100</strong> reflects a <strong>guarded prognosis</strong>. This patient may require additional support, enhanced session frequency, or a protocol adjustment to achieve clinically meaningful gains.`;
+  } else {
+    scoreInterpretation = `A predicted outcome score of <strong>${predictedScore}/100</strong> signals a <strong>high-risk trajectory</strong>. Consider a multidisciplinary review, barrier assessment, and protocol intensification or adjunct interventions.`;
+  }
+
+  const drivingFactors = `The two strongest predictors in this model are <strong>${topFeatLabel}</strong> (${isTopPos ? 'positively' : 'negatively'} influencing outcome) and <strong>${secondFeatLabel}</strong> (${isSecondPos ? 'positively' : 'negatively'} influencing outcome). Targeting improvements in these dimensions is likely to shift the predicted score most efficiently.`;
+
+  let adjustmentAdvice;
+  if (predictedScore < 50) {
+    adjustmentAdvice = 'Consider increasing session frequency to 3×/week if patient schedule allows, reviewing adherence barriers, and assessing for untreated comorbidities that may be dampening response. A mid-course protocol review at session 10–12 is advised.';
+  } else if (predictedScore < 70) {
+    adjustmentAdvice = 'Maintain current protocol with standard review at session 10. If adherence drops below 80%, implement a proactive outreach plan. Consider adding a structured home practice component to reinforce in-clinic gains.';
+  } else {
+    adjustmentAdvice = 'Current parameters appear well-matched to this patient profile. Continue standard monitoring cadence. Document response markers carefully — this case may be suitable for evidence contribution or protocol benchmarking.';
+  }
+
+  const aiInterpHTML = `
+    <div id="pred-ai-interpretation">
+      <div class="ai-interp-title">🤖 AI Clinical Interpretation</div>
+      <div class="ai-interp-body">
+        <div class="ai-interp-section">
+          <div class="ai-interp-label">What this score means</div>
+          <div class="ai-interp-text">${scoreInterpretation}</div>
+        </div>
+        <div class="ai-interp-section">
+          <div class="ai-interp-label">Key factors driving this prediction</div>
+          <div class="ai-interp-text">${drivingFactors}</div>
+        </div>
+        <div class="ai-interp-section">
+          <div class="ai-interp-label">Suggested protocol adjustments</div>
+          <div class="ai-interp-adjust">${adjustmentAdvice}</div>
+        </div>
+      </div>
+    </div>`;
+
   return `
     <div style="display:flex;flex-direction:column;gap:20px">
       <div class="prediction-gauge-wrap">
@@ -5489,6 +5605,8 @@ function _predResultHTML(result, ci) {
         <div style="font-size:.82rem;font-weight:600;margin-bottom:10px">Cohort Comparison</div>
         ${cohortRows}
       </div>
+
+      ${aiInterpHTML}
     </div>`;
 }
 

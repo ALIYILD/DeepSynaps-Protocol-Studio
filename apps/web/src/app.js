@@ -568,7 +568,7 @@ const PAGE_TITLES = {
   permissions: 'Permissions & Security Admin',
   calendar: 'Schedule & Calendar',
   scheduling: 'Scheduling', telehealth: 'Telehealth', 'telehealth-recorder': 'Telehealth Session Recorder', messaging: 'Messaging',
-  billing: 'Billing & Superbills', pricing: 'Pricing', onboarding: 'Onboarding',
+  billing: 'Billing & Superbills', pricing: 'Pricing', onboarding: 'Onboarding', 'onboarding-wizard': 'Setup Wizard',
   insurance: 'Insurance Verification & Eligibility',
   referrals: 'Referrals & Care Coordination',
   'population-analytics': 'Population Analytics',
@@ -637,6 +637,8 @@ async function navigate(id, params = {}) {
   if (contentEl) contentEl.innerHTML = '<div class="page-loading">Loading…</div>';
   try {
     await renderPage();
+    // Update AI co-pilot context for current page
+    window._aiUpdateContext?.(id);
     // Ping presence after page renders (non-blocking, best-effort)
     if (api.getToken()) {
       api.pingPresence(id).then(r => { if (r && r.users) renderPresence(r.users); }).catch(() => {});
@@ -660,7 +662,11 @@ async function navigate(id, params = {}) {
   }
 }
 
-window._nav = navigate;
+window._nav = async function(id, params) {
+  await navigate(id, params);
+  // Show first-visit feature tooltip if applicable
+  if (typeof _initFeatureTooltips === 'function') _initFeatureTooltips();
+};
 
 // Global course opener — used from courses list, patient profile, AE table, dashboard
 window._openCourse = function(id) {
@@ -999,6 +1005,11 @@ async function renderPage() {
     case 'onboarding': {
       const m = await loadOnboarding();
       await m.pgOnboarding(setTopbar, navigate);
+      break;
+    }
+    case 'onboarding-wizard': {
+      const { pgOnboardingWizard } = await loadOnboarding();
+      await pgOnboardingWizard(setTopbar);
       break;
     }
     case 'adverse-events': {
@@ -1442,6 +1453,95 @@ window._initClinicSwitcher = function(user) {
   }
 };
 
+// ── Demo Mode ─────────────────────────────────────────────────────────────────
+function _injectDemoBanner() {
+  const existing = document.getElementById('demo-mode-banner');
+  if (existing) existing.remove();
+
+  if (localStorage.getItem('ds_demo_mode') !== 'true') return;
+
+  const banner = document.createElement('div');
+  banner.id = 'demo-mode-banner';
+  banner.className = 'demo-banner';
+  banner.innerHTML = `
+    <span>⚗</span>
+    <span>Demo Mode — sample data only</span>
+    <span style="margin:0 4px;color:var(--text-tertiary)">·</span>
+    <a href="#" style="color:var(--accent-amber,#f59e0b);text-decoration:underline;font-size:12px"
+      onclick="window._exitDemo(event)">[Exit Demo]</a>`;
+  // Insert at very top of #app-shell or body
+  const shell = document.getElementById('app-shell') || document.getElementById('topbar') || document.body.firstElementChild;
+  if (shell && shell.parentNode) {
+    shell.parentNode.insertBefore(banner, shell);
+  } else {
+    document.body.insertBefore(banner, document.body.firstChild);
+  }
+}
+
+window._activateDemo = function() {
+  localStorage.setItem('ds_demo_mode', 'true');
+  _injectDemoBanner();
+};
+
+window._exitDemo = function(e) {
+  e?.preventDefault();
+  localStorage.removeItem('ds_demo_mode');
+  const banner = document.getElementById('demo-mode-banner');
+  if (banner) banner.remove();
+  window._nav?.('dashboard');
+};
+
+// ── Feature Tooltips ──────────────────────────────────────────────────────────
+const FEATURE_TOOLTIPS = {
+  'protocol-builder': 'Drag blocks from the palette to build a custom neuromodulation protocol. Click a block to edit parameters.',
+  'med-interactions': 'Select a patient and click "Run Interaction Check" to screen medications for TMS and neuromodulation safety.',
+  'evidence-builder': "Select a protocol and condition to compare your clinic's outcomes against published research benchmarks.",
+  'forms-builder':    'Use the validated scales (PHQ-9, GAD-7) or build custom forms. Deploy to patients with one click.',
+  'literature':       'Browse 52 peer-reviewed neuromodulation papers. Click the Evidence Map tab to see effect sizes plotted by year.',
+};
+
+function _initFeatureTooltips() {
+  const page = currentPage;
+  if (!FEATURE_TOOLTIPS[page]) return;
+
+  // Check if already dismissed for this page
+  let dismissed = {};
+  try { dismissed = JSON.parse(localStorage.getItem('ds_tooltip_dismissed') || '{}'); } catch {}
+  if (dismissed[page]) return;
+
+  // Wait for content to be painted, then inject
+  requestAnimationFrame(() => {
+    const el = document.getElementById('content');
+    if (!el) return;
+    // Don't add if already present
+    if (document.getElementById('feature-tooltip-' + page)) return;
+
+    const tip = document.createElement('div');
+    tip.id = 'feature-tooltip-' + page;
+    tip.className = 'feature-tooltip';
+    tip.innerHTML = `
+      <span style="font-size:16px;flex-shrink:0">💡</span>
+      <span style="flex:1;line-height:1.5;color:var(--text-primary)">${FEATURE_TOOLTIPS[page]}</span>
+      <button onclick="window._dismissTooltip('${page}')"
+        style="flex-shrink:0;background:none;border:none;cursor:pointer;color:var(--text-tertiary);font-size:16px;padding:0 0 0 8px;line-height:1"
+        aria-label="Dismiss tip">×</button>`;
+    el.insertBefore(tip, el.firstChild);
+  });
+}
+
+window._dismissTooltip = function(page) {
+  const el = document.getElementById('feature-tooltip-' + page);
+  if (el) el.remove();
+  let dismissed = {};
+  try { dismissed = JSON.parse(localStorage.getItem('ds_tooltip_dismissed') || '{}'); } catch {}
+  dismissed[page] = true;
+  try { localStorage.setItem('ds_tooltip_dismissed', JSON.stringify(dismissed)); } catch {}
+};
+
+// Re-run tooltip check on every navigate
+const _origNavigate = window._nav;
+// (will be patched after navigate is defined — see below)
+
 // ── Boot after login ──────────────────────────────────────────────────────────
 async function bootApp() {
   // First-time onboarding: route non-patient users who haven't completed onboarding
@@ -1457,7 +1557,24 @@ async function bootApp() {
   window._initClinicSwitcher(currentUser);
   renderNav();
   initSidebarKeyboard();
+
+  // ── Demo mode banner ───────────────────────────────────────────────────────
+  _injectDemoBanner();
+
   await renderPage();
+
+  // ── First-run onboarding overlay check ────────────────────────────────────
+  if (!localStorage.getItem('ds_onboarding_complete') && !localStorage.getItem('ds_onboarding_skip')) {
+    loadOnboarding().then(() => {
+      if (typeof window._startOnboarding === 'function') {
+        window._startOnboarding();
+      }
+    }).catch(() => {});
+  }
+
+  // ── Feature tooltips (initialise after page renders) ──────────────────────
+  _initFeatureTooltips();
+
   // Refresh nav badges after page loads (don't block render)
   refreshNavBadges();
   // Refresh badges every 3 minutes while app is open
@@ -1558,6 +1675,264 @@ async function init() {
 
 init();
 
+// ── AI Clinical Co-pilot ─────────────────────────────────────────────────────
+(function initAICopilot() {
+
+  // ── Response knowledge base ───────────────────────────────────────────────
+  const AI_RESPONSES = {
+    tms: [
+      'TMS (Transcranial Magnetic Stimulation) protocols typically run 20–30 sessions over 4–6 weeks. Standard parameters for depression: 10 Hz, 120% MT, left DLPFC, 3000 pulses/session.',
+      'For TMS safety screening, always check: metal implants, seizure history, medication interactions (especially lithium, clozapine, bupropion at high doses).',
+    ],
+    neurofeedback: [
+      'Neurofeedback protocols for ADHD typically target SMR (12–15 Hz) reward and theta (4–8 Hz) inhibit at Cz. Expect 20–40 sessions for sustained benefit.',
+      'For PTSD, alpha-theta training (cross-over point protocol) at Pz is well-supported in the literature. Sessions run 20–30 min.',
+    ],
+    phq: [
+      'PHQ-9 scoring: 0–4 Minimal, 5–9 Mild, 10–14 Moderate, 15–19 Moderately Severe, 20–27 Severe. A 5-point change is considered clinically meaningful.',
+    ],
+    gad: [
+      'GAD-7 scoring: 0–4 Minimal, 5–9 Mild, 10–14 Moderate, 15–21 Severe. A 5-point change is clinically meaningful.',
+    ],
+    medication: [
+      'For TMS safety: lithium requires monitoring (keep <0.8 mEq/L), clozapine is a relative contraindication, bupropion >300 mg/day requires conservative parameters.',
+    ],
+    session: [
+      'Session compliance below 80% is associated with reduced outcomes. Consider reaching out to patients with 2+ missed sessions.',
+    ],
+    evidence: [
+      'Effect sizes for neuromodulation: TMS for depression d=0.55 (George 2010), Neurofeedback for ADHD d=0.59 (Arns 2009), tDCS for depression d=0.37–0.43.',
+    ],
+    tdcs: [
+      'tDCS (transcranial direct current stimulation) for depression: anode at F3 (left DLPFC), cathode at right supraorbital. Typical: 2 mA, 20 min, 5 sessions/week for 3 weeks. Effect sizes range d=0.37–0.43.',
+    ],
+    adhd: [
+      'ADHD neurofeedback: SMR/theta ratio training at Cz is the most replicated protocol. Typical course: 30–40 sessions, 2–3×/week. Combined with slow cortical potential (SCP) training for non-responders.',
+    ],
+    ptsd: [
+      'For PTSD: alpha-theta training at Pz (Peniston protocol) shows strong evidence. TMS to right DLPFC (inhibitory, 1 Hz) is also used. Both typically require 20+ sessions.',
+    ],
+    anxiety: [
+      'Anxiety disorders: alpha asymmetry NFB (increase left frontal alpha) is commonly used. GAD-7 should be tracked every 4 sessions. Consider HRV biofeedback as adjunct.',
+    ],
+    contraindication: [
+      'Absolute TMS contraindications: cochlear implants, cardiac pacemaker, deep brain stimulator, intracranial metal clips, pregnancy (relative). Relative: history of epilepsy, severe head injury.',
+    ],
+    default: [
+      'I can help with protocol parameters, evidence summaries, medication interactions, scoring interpretation, and clinical decision support. What would you like to know?',
+      'For clinical questions, I can reference our evidence library with 52 neuromodulation studies. Try asking about a specific modality or condition.',
+      'Tip: Open the Evidence Library to browse peer-reviewed neuromodulation papers with effect sizes and clinical summaries.',
+    ],
+  };
+
+  const AI_CONV_KEY  = 'ds_ai_conversations';
+  const AI_STATE_KEY = 'ds_ai_panel_open';
+  let _aiMessages = [];
+
+  // Load saved conversation (last 50)
+  try {
+    const saved = JSON.parse(localStorage.getItem(AI_CONV_KEY) || '[]');
+    _aiMessages = Array.isArray(saved) ? saved.slice(-50) : [];
+  } catch { _aiMessages = []; }
+
+  function _saveConversation() {
+    try {
+      localStorage.setItem(AI_CONV_KEY, JSON.stringify(_aiMessages.slice(-50)));
+    } catch {}
+  }
+
+  // ── Inject DOM ────────────────────────────────────────────────────────────
+  function _injectAIPanel() {
+    if (document.getElementById('ai-copilot-panel')) return;
+
+    const panel = document.createElement('div');
+    panel.id = 'ai-copilot-panel';
+    panel.className = 'ai-panel';
+    panel.innerHTML = `
+      <div class="ai-panel-header">
+        <span>Clinical AI Co-pilot</span>
+        <button onclick="window._aiClose()" title="Close" aria-label="Close AI panel">×</button>
+      </div>
+      <div class="ai-panel-context" id="ai-context-bar">Ready — navigate to a page for context.</div>
+      <div class="ai-panel-messages" id="ai-messages"></div>
+      <div class="ai-panel-input">
+        <div class="ai-quick-prompts">
+          <button class="ai-quick-btn" onclick="window._aiQuick('TMS parameters')">TMS parameters</button>
+          <button class="ai-quick-btn" onclick="window._aiQuick('PHQ-9 scoring')">PHQ-9 scoring</button>
+          <button class="ai-quick-btn" onclick="window._aiQuick('Medication risks')">Medication risks</button>
+          <button class="ai-quick-btn" onclick="window._aiQuick('Evidence summary')">Evidence summary</button>
+        </div>
+        <textarea id="ai-input" placeholder="Ask about this patient, protocol, or evidence…" rows="3"
+          onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();window._aiSend();}"></textarea>
+        <button onclick="window._aiSend()">Send</button>
+      </div>`;
+    document.body.appendChild(panel);
+
+    const fab = document.createElement('button');
+    fab.id = 'ai-fab';
+    fab.title = 'AI Clinical Co-pilot';
+    fab.setAttribute('aria-label', 'Toggle AI Co-pilot');
+    fab.textContent = '🤖';
+    fab.onclick = window._aiToggle;
+    document.body.appendChild(fab);
+
+    // Restore open state
+    if (localStorage.getItem(AI_STATE_KEY) === '1') {
+      panel.classList.add('open');
+    }
+
+    // Render any existing messages
+    _renderMessages();
+  }
+
+  // ── Render messages ───────────────────────────────────────────────────────
+  function _renderMessages() {
+    const el = document.getElementById('ai-messages');
+    if (!el) return;
+    if (_aiMessages.length === 0) {
+      el.innerHTML = `<div style="text-align:center;padding:32px 16px;color:var(--text-secondary);font-size:12.5px;line-height:1.6">
+        <div style="font-size:2rem;margin-bottom:8px">🧠</div>
+        <div>Your AI clinical co-pilot is ready.</div>
+        <div style="margin-top:4px;color:var(--text-tertiary)">Ask about protocols, medications, scoring, or evidence.</div>
+      </div>`;
+      return;
+    }
+    el.innerHTML = _aiMessages.map(m => {
+      const cls = m.role === 'user' ? 'ai-msg-user' : 'ai-msg-bot';
+      return `<div class="${cls}">${esc(m.text)}</div>`;
+    }).join('');
+    el.scrollTop = el.scrollHeight;
+  }
+
+  // ── Match response ────────────────────────────────────────────────────────
+  function _matchResponse(input) {
+    const q = input.toLowerCase();
+    const keywordMap = [
+      ['tms', 'transcranial magnetic', 'rtms', 'repetitive tms'],
+      ['neurofeedback', 'nfb', 'eeg biofeedback', 'brain training'],
+      ['phq', 'phq-9', 'depression score', 'patient health questionnaire'],
+      ['gad', 'gad-7', 'anxiety score', 'generalised anxiety'],
+      ['medication', 'drug', 'lithium', 'clozapine', 'bupropion', 'med interaction'],
+      ['session', 'compliance', 'attendance', 'adherence', 'missed'],
+      ['evidence', 'effect size', 'study', 'literature', 'research', 'rct'],
+      ['tdcs', 'direct current', 'tcs'],
+      ['adhd', 'attention deficit', 'hyperactivity'],
+      ['ptsd', 'post-traumatic', 'trauma'],
+      ['anxiety', 'anxious', 'worry', 'gad'],
+      ['contraindication', 'contraindicated', 'safety', 'risk', 'unsafe'],
+    ];
+    const responseKeys = ['tms', 'neurofeedback', 'phq', 'gad', 'medication', 'session', 'evidence', 'tdcs', 'adhd', 'ptsd', 'anxiety', 'contraindication'];
+
+    for (let i = 0; i < keywordMap.length; i++) {
+      if (keywordMap[i].some(kw => q.includes(kw))) {
+        const pool = AI_RESPONSES[responseKeys[i]];
+        return pool[Math.floor(Math.random() * pool.length)];
+      }
+    }
+    const pool = AI_RESPONSES.default;
+    return pool[Math.floor(Math.random() * pool.length)];
+  }
+
+  // ── Send message ──────────────────────────────────────────────────────────
+  window._aiSend = function() {
+    const input = document.getElementById('ai-input');
+    if (!input) return;
+    const text = input.value.trim();
+    if (!text) return;
+    input.value = '';
+
+    _aiMessages.push({ role: 'user', text });
+    _saveConversation();
+
+    // Show user message + typing indicator
+    const msgEl = document.getElementById('ai-messages');
+    if (msgEl) {
+      msgEl.innerHTML += `<div class="ai-msg-user">${esc(text)}</div>`;
+      msgEl.innerHTML += `<div class="ai-msg-typing" id="ai-typing">Thinking…</div>`;
+      msgEl.scrollTop = msgEl.scrollHeight;
+    }
+
+    // Simulate typing delay
+    setTimeout(() => {
+      const reply = _matchResponse(text);
+      _aiMessages.push({ role: 'bot', text: reply });
+      _saveConversation();
+      const typing = document.getElementById('ai-typing');
+      if (typing) typing.remove();
+      const msgEl2 = document.getElementById('ai-messages');
+      if (msgEl2) {
+        msgEl2.innerHTML += `<div class="ai-msg-bot">${esc(reply)}</div>`;
+        msgEl2.scrollTop = msgEl2.scrollHeight;
+      }
+    }, 800);
+  };
+
+  // ── Quick prompt ──────────────────────────────────────────────────────────
+  window._aiQuick = function(prompt) {
+    const input = document.getElementById('ai-input');
+    if (input) { input.value = prompt; }
+    window._aiSend();
+  };
+
+  // ── Toggle / open / close ─────────────────────────────────────────────────
+  window._aiToggle = function() {
+    const panel = document.getElementById('ai-copilot-panel');
+    if (!panel) return;
+    const isOpen = panel.classList.toggle('open');
+    localStorage.setItem(AI_STATE_KEY, isOpen ? '1' : '0');
+    if (isOpen) {
+      _renderMessages();
+      setTimeout(() => {
+        const msgEl = document.getElementById('ai-messages');
+        if (msgEl) msgEl.scrollTop = msgEl.scrollHeight;
+      }, 350);
+    }
+  };
+
+  window._aiClose = function() {
+    const panel = document.getElementById('ai-copilot-panel');
+    if (panel) panel.classList.remove('open');
+    localStorage.setItem(AI_STATE_KEY, '0');
+  };
+
+  // ── Context updater (called after each page render) ───────────────────────
+  window._aiUpdateContext = function(pageId) {
+    const ctxEl = document.getElementById('ai-context-bar');
+    if (!ctxEl) return;
+    const ctxMap = {
+      'protocol-builder': 'Context: Protocol Builder — ask about parameters, modalities, contraindications',
+      'med-interactions': 'Context: Medication Safety — ask about drug interactions, TMS seizure risk',
+      'evidence-builder': 'Context: Evidence Builder — ask about effect sizes, study designs, benchmarks',
+      'session-monitor':  'Context: Live Session Monitor — ask about session parameters, cues, safety',
+      'outcome-prediction': 'Context: Outcome Prediction — ask about prediction scores, risk levels, interventions',
+      'decision-support': 'Context: Clinical Decision Support — ask about treatment decisions, guidelines',
+    };
+    const ctx = ctxMap[pageId];
+    if (ctx) {
+      ctxEl.textContent = ctx;
+    } else {
+      const title = PAGE_TITLES[pageId] || pageId;
+      ctxEl.textContent = `Current page: ${title}`;
+    }
+  };
+
+  // ── Clear history ─────────────────────────────────────────────────────────
+  window._aiClearHistory = function() {
+    _aiMessages = [];
+    _saveConversation();
+    _renderMessages();
+  };
+
+  // ── Bootstrap on first call ───────────────────────────────────────────────
+  // Wait for DOM to be ready (body should exist by now, but guard anyway)
+  if (document.body) {
+    _injectAIPanel();
+  } else {
+    document.addEventListener('DOMContentLoaded', _injectAIPanel);
+  }
+
+})();
+
 // ── Command Palette ──────────────────────────────────────────────────────────
 (function initCommandPalette() {
   // Static nav commands — always available
@@ -1621,7 +1996,7 @@ init();
 
   async function _loadData() {
     if (!_cachedPatients) {
-      try { _cachedPatients = (await api.listPatients()) || []; } catch { _cachedPatients = []; }
+      try { const _r = await api.listPatients(); _cachedPatients = _r?.items || _r || []; } catch { _cachedPatients = []; }
     }
     if (!_cachedCourses) {
       try {
@@ -1630,7 +2005,7 @@ init();
       } catch { _cachedCourses = []; }
     }
     if (!_cachedProtocols) {
-      try { _cachedProtocols = (await api.protocols()) || []; } catch { _cachedProtocols = []; }
+      try { const _r = await api.protocols(); _cachedProtocols = _r?.items || _r || []; } catch { _cachedProtocols = []; }
     }
   }
 

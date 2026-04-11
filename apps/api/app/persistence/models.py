@@ -819,3 +819,219 @@ class HomeDeviceReviewFlag(Base):
     dismissed: Mapped[bool] = mapped_column(Boolean(), default=False, index=True)
     resolution: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(), default=datetime.utcnow)
+
+
+# ── Forms & Assessments Models ────────────────────────────────────────────────
+
+class FormDefinition(Base):
+    """Clinician-defined form/questionnaire definition."""
+    __tablename__ = "form_definitions"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    clinician_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    description: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    form_type: Mapped[str] = mapped_column(String(60), nullable=False, default="custom")  # custom, intake, outcome, screening
+    questions_json: Mapped[str] = mapped_column(Text(), nullable=False, default="[]")
+    scoring_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)  # scoring rules
+    status: Mapped[str] = mapped_column(String(30), default="draft")  # draft, active, archived
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(), default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class FormSubmission(Base):
+    """Patient's completed form submission."""
+    __tablename__ = "form_submissions"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    form_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    patient_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    clinician_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    responses_json: Mapped[str] = mapped_column(Text(), nullable=False, default="{}")
+    score: Mapped[Optional[str]] = mapped_column(String(60), nullable=True)
+    score_numeric: Mapped[Optional[float]] = mapped_column(Float(), nullable=True)
+    scoring_details_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    status: Mapped[str] = mapped_column(String(30), default="submitted")  # submitted, scored, reviewed
+    submitted_at: Mapped[datetime] = mapped_column(DateTime(), default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=datetime.utcnow)
+
+
+# ── Medication Safety Models ──────────────────────────────────────────────────
+
+class PatientMedication(Base):
+    """Medication record for a patient."""
+    __tablename__ = "patient_medications"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    patient_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    clinician_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    generic_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    drug_class: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
+    dose: Mapped[Optional[str]] = mapped_column(String(80), nullable=True)
+    frequency: Mapped[Optional[str]] = mapped_column(String(80), nullable=True)
+    route: Mapped[Optional[str]] = mapped_column(String(60), nullable=True)  # oral, topical, IV, etc.
+    indication: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    prescriber: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    started_at: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    stopped_at: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    active: Mapped[bool] = mapped_column(Boolean(), default=True, index=True)
+    notes: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(), default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class MedicationInteractionLog(Base):
+    """Log of interaction checks performed for a patient."""
+    __tablename__ = "medication_interaction_logs"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    patient_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    clinician_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    medications_checked_json: Mapped[str] = mapped_column(Text(), nullable=False, default="[]")
+    interactions_found_json: Mapped[str] = mapped_column(Text(), nullable=False, default="[]")
+    severity_summary: Mapped[Optional[str]] = mapped_column(String(30), nullable=True)  # none, mild, moderate, severe
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=datetime.utcnow)
+
+
+# ── Reminder Campaign Models ──────────────────────────────────────────────────
+
+class ReminderCampaign(Base):
+    """Scheduled reminder campaign for a patient cohort."""
+    __tablename__ = "reminder_campaigns"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    clinician_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    description: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    campaign_type: Mapped[str] = mapped_column(String(60), nullable=False, default="session")  # session, medication, assessment, general
+    channel: Mapped[str] = mapped_column(String(30), nullable=False, default="email")  # email, sms, push, telegram
+    schedule_json: Mapped[str] = mapped_column(Text(), nullable=False, default="{}")  # cron or offset rules
+    message_template: Mapped[str] = mapped_column(Text(), nullable=False, default="")
+    patient_ids_json: Mapped[str] = mapped_column(Text(), nullable=False, default="[]")  # targeted patients
+    active: Mapped[bool] = mapped_column(Boolean(), default=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(), default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class ReminderOutboxMessage(Base):
+    """Individual queued or sent reminder message."""
+    __tablename__ = "reminder_outbox_messages"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    campaign_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True, index=True)
+    patient_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    clinician_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    channel: Mapped[str] = mapped_column(String(30), nullable=False)
+    message_body: Mapped[str] = mapped_column(Text(), nullable=False)
+    status: Mapped[str] = mapped_column(String(30), default="queued", index=True)  # queued, sent, delivered, failed
+    scheduled_at: Mapped[Optional[datetime]] = mapped_column(DateTime(), nullable=True)
+    sent_at: Mapped[Optional[datetime]] = mapped_column(DateTime(), nullable=True)
+    error_detail: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=datetime.utcnow)
+
+
+# ── IRB Study Models ──────────────────────────────────────────────────────────
+
+class IRBStudy(Base):
+    """Institutional Review Board study record."""
+    __tablename__ = "irb_studies"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    clinician_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    title: Mapped[str] = mapped_column(String(512), nullable=False)
+    irb_number: Mapped[Optional[str]] = mapped_column(String(120), nullable=True, index=True)
+    sponsor: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    principal_investigator: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    phase: Mapped[Optional[str]] = mapped_column(String(40), nullable=True)  # I, II, III, IV, observational
+    status: Mapped[str] = mapped_column(String(40), default="pending")  # pending, approved, active, closed, suspended, withdrawn
+    approval_date: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    expiry_date: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    enrollment_target: Mapped[Optional[int]] = mapped_column(Integer(), nullable=True)
+    enrolled_count: Mapped[int] = mapped_column(Integer(), default=0)
+    description: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    protocol_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(), default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class IRBAmendment(Base):
+    """Amendment request on an IRB study."""
+    __tablename__ = "irb_amendments"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    study_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    clinician_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    amendment_type: Mapped[str] = mapped_column(String(60), nullable=False)  # protocol_change, enrollment_expansion, etc.
+    description: Mapped[str] = mapped_column(Text(), nullable=False)
+    status: Mapped[str] = mapped_column(String(30), default="submitted")  # submitted, under_review, approved, rejected
+    submitted_at: Mapped[datetime] = mapped_column(DateTime(), default=datetime.utcnow)
+    resolved_at: Mapped[Optional[datetime]] = mapped_column(DateTime(), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=datetime.utcnow)
+
+
+class IRBAdverseEvent(Base):
+    """Adverse event report within an IRB study context."""
+    __tablename__ = "irb_adverse_events"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    study_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    patient_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True, index=True)
+    clinician_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    event_type: Mapped[str] = mapped_column(String(60), nullable=False)
+    severity: Mapped[str] = mapped_column(String(20), nullable=False)  # mild, moderate, severe, serious, unexpected
+    description: Mapped[str] = mapped_column(Text(), nullable=False)
+    relatedness: Mapped[Optional[str]] = mapped_column(String(40), nullable=True)  # unrelated, possibly, probably, definitely
+    status: Mapped[str] = mapped_column(String(30), default="open")  # open, under_review, closed, reported_to_irb
+    reported_at: Mapped[datetime] = mapped_column(DateTime(), default=datetime.utcnow)
+    resolved_at: Mapped[Optional[datetime]] = mapped_column(DateTime(), nullable=True)
+    notes: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=datetime.utcnow)
+
+
+# ── Literature Library Models ─────────────────────────────────────────────────
+
+class LiteraturePaper(Base):
+    """Clinical literature reference in the library."""
+    __tablename__ = "literature_papers"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    added_by: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    title: Mapped[str] = mapped_column(String(1024), nullable=False)
+    authors: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    journal: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    year: Mapped[Optional[int]] = mapped_column(Integer(), nullable=True, index=True)
+    doi: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    pubmed_id: Mapped[Optional[str]] = mapped_column(String(60), nullable=True)
+    abstract: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    modality: Mapped[Optional[str]] = mapped_column(String(60), nullable=True, index=True)
+    condition: Mapped[Optional[str]] = mapped_column(String(120), nullable=True, index=True)
+    evidence_grade: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    study_type: Mapped[Optional[str]] = mapped_column(String(80), nullable=True)  # RCT, meta-analysis, case-series, etc.
+    tags_json: Mapped[str] = mapped_column(Text(), nullable=False, default="[]")
+    url: Mapped[Optional[str]] = mapped_column(String(1024), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(), default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class LiteratureProtocolTag(Base):
+    """Many-to-many: paper tagged to a protocol."""
+    __tablename__ = "literature_protocol_tags"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    paper_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    protocol_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    tagged_by: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=datetime.utcnow)
+
+
+class LiteratureReadingList(Base):
+    """User's personal reading list entries."""
+    __tablename__ = "literature_reading_list"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    paper_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    notes: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    read_at: Mapped[Optional[datetime]] = mapped_column(DateTime(), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=datetime.utcnow)

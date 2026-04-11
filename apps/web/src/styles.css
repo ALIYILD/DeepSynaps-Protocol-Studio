@@ -7328,3 +7328,79 @@ body.light-theme .nnna-doc-row:hover { background: rgba(0,0,0,.03); }
 body.light-theme .nnna-enrollment-bar { background: rgba(0,0,0,.07); }
 body.light-theme .nnna-btn-sm { background: rgba(0,0,0,.04); border-color: rgba(0,0,0,.12); color: #334155; }
 /* ── End NNN-A IRB Protocol Manager ──────────────────────────────────────────── */
+
+/* ── AI Co-pilot Panel ──────────────────────────────────────────────────────── */
+.ai-panel { position:fixed; right:0; top:0; height:100vh; width:340px; background:var(--bg-sidebar,var(--navy-950,#050810)); border-left:1px solid var(--border); display:flex; flex-direction:column; z-index:1000; transform:translateX(100%); transition:transform 0.3s ease; box-shadow:-4px 0 20px rgba(0,0,0,0.3); }
+.ai-panel.open { transform:translateX(0); }
+.ai-panel-header { padding:16px; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center; font-weight:600; color:var(--teal,#00d4bc); flex-shrink:0; }
+.ai-panel-header button { background:none; border:none; color:var(--text-secondary); cursor:pointer; font-size:20px; line-height:1; padding:0 4px; }
+.ai-panel-header button:hover { color:var(--text-primary); }
+.ai-panel-context { padding:8px 16px; font-size:11px; color:var(--text-secondary); background:rgba(0,212,188,0.05); border-bottom:1px solid var(--border); flex-shrink:0; min-height:32px; display:flex; align-items:center; }
+.ai-panel-messages { flex:1; overflow-y:auto; padding:16px; display:flex; flex-direction:column; gap:12px; }
+.ai-msg-user { background:rgba(0,212,188,0.1); border-radius:12px 12px 4px 12px; padding:10px 14px; font-size:13px; align-self:flex-end; max-width:85%; word-wrap:break-word; }
+.ai-msg-bot { background:var(--bg-card,rgba(14,22,40,0.8)); border:1px solid var(--border); border-radius:12px 12px 12px 4px; padding:10px 14px; font-size:13px; align-self:flex-start; max-width:85%; line-height:1.5; word-wrap:break-word; }
+.ai-msg-typing { color:var(--text-secondary); font-style:italic; font-size:12px; align-self:flex-start; padding:6px 0; }
+.ai-panel-input { padding:12px; border-top:1px solid var(--border); display:flex; flex-direction:column; gap:8px; flex-shrink:0; }
+.ai-panel-input textarea { width:100%; height:64px; resize:none; background:var(--bg-input,rgba(255,255,255,0.04)); border:1px solid var(--border); border-radius:8px; padding:8px; color:var(--text-primary); font-size:13px; font-family:inherit; box-sizing:border-box; }
+.ai-panel-input textarea:focus { outline:none; border-color:var(--teal,#00d4bc); }
+.ai-panel-input > button { padding:7px 14px; background:var(--teal,#00d4bc); color:#000; border:none; border-radius:8px; font-size:13px; font-weight:600; cursor:pointer; transition:opacity 0.15s; }
+.ai-panel-input > button:hover { opacity:0.85; }
+.ai-quick-prompts { display:flex; flex-wrap:wrap; gap:6px; }
+.ai-quick-btn { font-size:11px; padding:4px 10px; border-radius:20px; border:1px solid var(--border); background:transparent; color:var(--text-secondary); cursor:pointer; transition:border-color 0.15s, color 0.15s; }
+.ai-quick-btn:hover { border-color:var(--teal,#00d4bc); color:var(--teal,#00d4bc); }
+#ai-fab { position:fixed; bottom:80px; right:20px; width:48px; height:48px; border-radius:50%; background:var(--teal,#00d4bc); border:none; font-size:20px; cursor:pointer; z-index:999; box-shadow:0 4px 12px rgba(0,212,188,0.4); transition:transform 0.2s; }
+#ai-fab:hover { transform:scale(1.1); }
+
+/* AI Suggest panel (Protocol Builder) */
+#pb-ai-suggest-panel { margin-top:16px; border:1px solid var(--border-teal,rgba(0,212,188,0.3)); border-radius:12px; padding:18px; background:rgba(0,212,188,0.04); }
+#pb-ai-suggest-panel h4 { margin:0 0 12px; color:var(--teal,#00d4bc); font-size:13.5px; display:flex; align-items:center; gap:8px; }
+#pb-ai-suggest-panel .ai-suggest-section { margin-bottom:14px; }
+#pb-ai-suggest-panel .ai-suggest-section-title { font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.08em; color:var(--text-secondary); margin-bottom:6px; }
+#pb-ai-suggest-panel .ai-suggest-item { font-size:12.5px; color:var(--text-primary); line-height:1.5; padding:4px 0; }
+#pb-ai-suggest-panel .ai-suggest-warn { color:var(--amber,#ffb547); font-size:12px; display:flex; align-items:flex-start; gap:6px; }
+#pb-ai-suggest-panel .ai-suggest-link { color:var(--teal,#00d4bc); font-size:11.5px; text-decoration:none; cursor:pointer; }
+#pb-ai-suggest-panel .ai-suggest-link:hover { text-decoration:underline; }
+
+/* AI Ticker (Session Monitor) */
+#ai-monitor-ticker { margin-top:12px; background:rgba(0,212,188,0.06); border:1px solid rgba(0,212,188,0.2); border-radius:8px; padding:8px 14px; display:flex; align-items:center; gap:10px; overflow:hidden; }
+#ai-monitor-ticker .ai-ticker-label { font-size:10px; font-weight:700; color:var(--teal,#00d4bc); text-transform:uppercase; letter-spacing:.06em; white-space:nowrap; flex-shrink:0; }
+#ai-monitor-ticker .ai-ticker-text { font-size:12px; color:var(--text-secondary); flex:1; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; transition:opacity 0.5s ease; }
+
+/* AI Interpretation (Outcome Prediction) */
+#pred-ai-interpretation { margin-top:18px; border:1px solid rgba(0,212,188,0.25); border-radius:10px; padding:16px; background:rgba(0,212,188,0.03); }
+#pred-ai-interpretation .ai-interp-title { font-size:12.5px; font-weight:700; color:var(--teal,#00d4bc); margin-bottom:10px; display:flex; align-items:center; gap:6px; }
+#pred-ai-interpretation .ai-interp-body { font-size:12.5px; color:var(--text-primary); line-height:1.65; }
+#pred-ai-interpretation .ai-interp-section { margin-top:10px; }
+#pred-ai-interpretation .ai-interp-label { font-size:10.5px; font-weight:600; color:var(--text-secondary); text-transform:uppercase; letter-spacing:.07em; margin-bottom:4px; }
+#pred-ai-interpretation .ai-interp-text { font-size:12.5px; color:var(--text-primary); line-height:1.6; }
+#pred-ai-interpretation .ai-interp-adjust { background:rgba(0,212,188,0.07); border-radius:6px; padding:8px 10px; margin-top:6px; font-size:12px; color:var(--text-primary); line-height:1.55; }
+
+/* Light theme overrides for AI panel */
+body.light-theme .ai-panel { background:#fff; }
+body.light-theme .ai-msg-bot { background:#f8fafc; border-color:rgba(0,0,0,0.08); }
+body.light-theme .ai-panel-context { background:rgba(0,180,160,0.06); }
+body.light-theme #ai-monitor-ticker { background:rgba(0,180,160,0.06); }
+body.light-theme #pb-ai-suggest-panel { background:rgba(0,180,160,0.04); }
+body.light-theme #pred-ai-interpretation { background:rgba(0,180,160,0.04); }
+/* ── End AI Co-pilot Panel ───────────────────────────────────────────────────── */
+
+/* ── Onboarding Wizard ───────────────────────────────────────────────────────── */
+.onboarding-overlay { position:fixed; inset:0; background:var(--bg); z-index:2000; display:flex; align-items:center; justify-content:center; overflow-y:auto; }
+.onboarding-card { background:var(--card-bg,var(--bg-card,#0f172a)); border:1px solid var(--border); border-radius:16px; padding:48px; max-width:640px; width:90%; position:relative; }
+.onboarding-steps { display:flex; gap:8px; justify-content:center; margin-bottom:32px; align-items:center; }
+.onboarding-step-dot { width:8px; height:8px; border-radius:50%; background:var(--border); transition:background 0.3s, width 0.3s; flex-shrink:0; }
+.onboarding-step-dot.active { background:var(--accent-teal,#00d4bc); width:24px; border-radius:4px; }
+.onboarding-step-dot.done { background:var(--accent-teal,#00d4bc); opacity:0.4; }
+.onboarding-role-card { border:2px solid var(--border); border-radius:12px; padding:20px; cursor:pointer; transition:border-color 0.2s, background 0.2s; text-align:center; }
+.onboarding-role-card:hover { border-color:var(--accent-teal,#00d4bc); }
+.onboarding-role-card.selected { border-color:var(--accent-teal,#00d4bc); background:rgba(0,212,188,0.05); }
+.onboarding-feature-card { border:1px solid var(--border); border-radius:10px; padding:16px; transition:border-color 0.2s; }
+.onboarding-feature-card:hover { border-color:rgba(0,212,188,0.4); }
+.confetti-dot { position:fixed; width:8px; height:8px; border-radius:50%; animation:confetti-fall 2s ease-in forwards; pointer-events:none; z-index:2001; }
+@keyframes confetti-fall {
+  0%   { opacity:1; transform:translateY(-20px) rotate(0deg); }
+  100% { opacity:0; transform:translateY(100vh) rotate(720deg); }
+}
+.demo-banner { background:rgba(251,191,36,0.1); border-bottom:1px solid rgba(251,191,36,0.3); padding:6px 16px; font-size:12px; color:var(--accent-amber,#f59e0b); display:flex; align-items:center; gap:8px; }
+.feature-tooltip { position:sticky; top:8px; background:var(--card-bg,var(--bg-card,#0f172a)); border:1px solid var(--accent-teal,#00d4bc); border-radius:10px; padding:12px 16px; margin:0 0 16px; font-size:13px; display:flex; align-items:flex-start; gap:10px; z-index:10; box-shadow:0 4px 12px rgba(0,212,188,0.15); }
+/* ── End Onboarding Wizard ───────────────────────────────────────────────────── */
