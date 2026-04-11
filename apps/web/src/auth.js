@@ -96,7 +96,7 @@ function renderLoginPage() {
     <div id="login-form">
       <div class="form-group">
         <label class="form-label">Email</label>
-        <input id="login-email" class="form-control" type="email" placeholder="clinician@clinic.com" autocomplete="username"
+        <input id="login-email" class="form-control" type="email" placeholder="your@email.com" autocomplete="username"
                onkeydown="if(event.key==='Enter')document.getElementById('login-password').focus()">
       </div>
       <div class="form-group">
@@ -106,6 +106,10 @@ function renderLoginPage() {
       </div>
       <div id="login-error" style="color:var(--red);font-size:12px;margin-bottom:12px;display:none"></div>
       <button class="btn btn-primary" style="width:100%;padding:10px;font-size:13.5px" onclick="submitLogin()">Sign In →</button>
+      <div style="margin-top:10px;padding:8px 10px;background:rgba(74,158,255,0.06);border:1px solid var(--border-blue);border-radius:var(--radius-md);font-size:11.5px;color:var(--text-secondary);display:flex;align-items:center;justify-content:space-between;gap:8px">
+        <span>◉ Patient? Use your portal email &amp; password here.</span>
+        <span onclick="window._navPublic?.('signup-patient')" style="color:var(--blue);cursor:pointer;white-space:nowrap;font-weight:600">First time? Activate →</span>
+      </div>
       <div style="display:flex;justify-content:space-between;align-items:center;margin-top:14px">
         <span style="font-size:11.5px;color:var(--text-tertiary)">Demo: <code style="color:var(--teal)">clinician@demo.com</code> / <code style="color:var(--teal)">demo1234</code></span>
         <button class="btn btn-ghost btn-sm" style="font-size:11px;padding:3px 6px" onclick="switchAuthTab('forgot')">Forgot password?</button>
@@ -343,7 +347,7 @@ window.submitRegister = async function() {
     currentUser = res.user;
     showApp();
     updateUserBar();
-    window._bootApp();
+    window._bootApp?.();
   } catch (e) {
     errEl.textContent = e.message || 'Registration failed.';
     errEl.style.display = '';

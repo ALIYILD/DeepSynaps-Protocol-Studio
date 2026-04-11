@@ -39,7 +39,9 @@ def init_database() -> None:
 def reset_database() -> None:
     import app.persistence.models  # noqa: F401
 
-    Base.metadata.drop_all(bind=engine)
+    # Use checkfirst=True so drop_all skips tables that don't exist yet
+    # (guards against stale / partially-initialised SQLite test DBs).
+    Base.metadata.drop_all(bind=engine, checkfirst=True)
     Base.metadata.create_all(bind=engine)
 
 

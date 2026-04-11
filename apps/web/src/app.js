@@ -162,13 +162,15 @@ window.addEventListener('error', (e) => {
 // ── Offline detection ─────────────────────────────────────────────────────────
 window.addEventListener('online', () => {
   document.body.classList.remove('is-offline');
-  document.getElementById('offline-banner').style.display = 'none';
+  const _ob = document.getElementById('offline-banner');
+  if (_ob) _ob.style.display = 'none';
   window._announce?.('Connection restored');
   setTimeout(syncOfflineQueue, 2000); // Wait 2s for connection to stabilize
 });
 window.addEventListener('offline', async () => {
   document.body.classList.add('is-offline');
-  document.getElementById('offline-banner').style.display = 'flex';
+  const _ob = document.getElementById('offline-banner');
+  if (_ob) _ob.style.display = 'flex';
   window._announce?.('You are offline', true);
   // Register background sync if supported
   if ('serviceWorker' in navigator && 'SyncManager' in window) {
@@ -178,7 +180,8 @@ window.addEventListener('offline', async () => {
 });
 if (!navigator.onLine) {
   document.body.classList.add('is-offline');
-  document.getElementById('offline-banner').style.display = 'flex';
+  const _ob0 = document.getElementById('offline-banner');
+  if (_ob0) _ob0.style.display = 'flex';
 }
 
 // ── Offline sync queue ────────────────────────────────────────────────────────
@@ -467,13 +470,15 @@ const NAV = [
 
 // ── Nav render ────────────────────────────────────────────────────────────────
 function renderNav() {
+  const _navList = document.getElementById('nav-list');
+  if (!_navList) return;
   const hiddenForRole = ROLE_NAV_HIDE[currentUser?.role] || [];
   const patientBtn = `<div class="nav-item" onclick="window._previewPatientPortal()" style="margin-top:4px;border:1px solid var(--border-blue);color:var(--blue);opacity:0.85">
     <span class="nav-icon">◉</span>
     <span style="flex:1">Patient View</span>
     <span style="font-size:10px;opacity:0.6">demo</span>
   </div>`;
-  document.getElementById('nav-list').innerHTML = NAV.map(n => {
+  _navList.innerHTML = NAV.map(n => {
     if (n.section) return `<div class="nav-section">${n.section}</div>`;
     // Admin panel only visible to admin role
     if (n.id === 'admin' && currentUser?.role !== 'admin') return '';
@@ -506,8 +511,10 @@ function initSidebarKeyboard() {
 
 // ── Topbar helper ─────────────────────────────────────────────────────────────
 function setTopbar(title, html = '') {
-  document.getElementById('page-title').textContent = title;
-  document.getElementById('topbar-actions').innerHTML = html;
+  const _pt = document.getElementById('page-title');
+  const _ta = document.getElementById('topbar-actions');
+  if (_pt) _pt.textContent = title;
+  if (_ta) _ta.innerHTML = html;
 }
 
 // ── Loading bar ───────────────────────────────────────────────────────────────

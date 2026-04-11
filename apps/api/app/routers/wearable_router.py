@@ -400,3 +400,41 @@ def _alert_out(a: WearableAlertFlag) -> AlertFlagOut:
         reviewed_at=_dt(a.reviewed_at),
         dismissed=a.dismissed,
     )
+
+
+# ── Clinic-wide alert summary (dashboard widget) ──────────────────────────────
+
+class ClinicAlertSummaryOut(BaseModel):
+    total_active: int
+    urgent_count: int
+    warning_count: int
+    info_count: int
+    patient_ids_with_alerts: list[str]
+
+
+@router.get("/clinic/alerts/summary", response_model=ClinicAlertSummaryOut)
+def get_clinic_alert_summary(
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> ClinicAlertSummaryOut:
+    """Aggregate undismissed wearable alert counts across all clinic patients.
+    Used by the clinician dashboard KPI bar to surface wearable degradation
+    without N per-patient queries.
+    """
+    _require_clinician_access(actor)
+    flags = (
+        db.query(WearableAlertFlag)
+        .filter_by(dismissed=False)
+        .all()
+    )
+    urgent  = sum(1 for f in flags if f.severity == 'urgent')
+    warning = sum(1 for f in flags if f.severity == 'warning')
+    info    = sum(1 for f in flags if f.severity == 'info')
+    patient_ids = list({f.patient_id for f in flags if f.patient_id})
+    return ClinicAlertSummaryOut(
+        total_active=len(flags),
+        urgent_count=urgent,
+        warning_count=warning,
+        info_count=info,
+        patient_ids_with_alerts=patient_ids,
+    )

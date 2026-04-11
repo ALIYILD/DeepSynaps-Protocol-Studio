@@ -486,6 +486,17 @@ def activate_patient(
     # Mark invite as used and link to the newly created user
     invite.used_at = datetime.utcnow()
     invite.activated_user_id = user.id
+
+    # If the invite has a patient_email different from the activation email,
+    # update the Patient record's email so the portal email-match works.
+    if invite.patient_email and invite.patient_email.lower() != body.email.lower():
+        from app.persistence.models import Patient
+        linked_patient = db.query(Patient).filter(
+            Patient.email == invite.patient_email
+        ).first()
+        if linked_patient is not None:
+            linked_patient.email = body.email
+
     db.commit()
 
     access_token = auth_service.create_access_token(

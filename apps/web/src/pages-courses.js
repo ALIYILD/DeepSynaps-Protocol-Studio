@@ -1848,16 +1848,17 @@ export async function pgSessionExecution(setTopbar, navigate) {
 
               <div id="se-error"   style="display:none;color:var(--red);font-size:12px;margin-bottom:10px;padding:8px 10px;border-radius:6px;background:rgba(255,107,107,0.07)"></div>
               <div id="se-success" style="display:none;color:var(--green);font-size:12px;margin-bottom:10px;padding:8px 10px;border-radius:6px;background:rgba(74,222,128,0.07)"></div>
-              <button class="btn btn-primary" onclick="window._logSession()">Submit Session Log</button>
+              <button id="se-submit-btn" class="btn btn-primary" onclick="window._logSession()">Submit Session Log</button>
             </div>`
         }
       </div>
     </div>`;
 
   window._logSession = async function() {
-    const courseId = document.getElementById('se-course')?.value;
-    const errEl = document.getElementById('se-error');
-    const okEl  = document.getElementById('se-success');
+    const courseId  = document.getElementById('se-course')?.value;
+    const errEl     = document.getElementById('se-error');
+    const okEl      = document.getElementById('se-success');
+    const submitBtn = document.getElementById('se-submit-btn');
     errEl.style.display = 'none';
     okEl.style.display  = 'none';
 
@@ -1872,6 +1873,9 @@ export async function pgSessionExecution(setTopbar, navigate) {
       errEl.style.display = '';
       return;
     }
+
+    // Prevent double-submit
+    if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = 'Saving\u2026'; }
 
     try {
       const toleranceVal = document.getElementById('se-tolerance')?.value || null;
@@ -1972,6 +1976,8 @@ export async function pgSessionExecution(setTopbar, navigate) {
     } catch (e) {
       errEl.textContent = e.message || 'Failed to log session.';
       errEl.style.display = '';
+      // Re-enable submit so clinician can correct and retry
+      if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = 'Submit Session Log'; }
     }
   };
 
@@ -2472,7 +2478,7 @@ export async function pgReviewQueue(setTopbar, navigate) {
           + '<td style="font-size:12px">' + (ae.event_type || ae.type || '\u2014') + '</td>'
           + '<td>' + aeSeverityBadge(ae.severity) + '</td>'
           + '<td style="font-size:12px;font-weight:600;color:' + (typeof daysOpen === 'number' && daysOpen > 7 ? 'var(--red)' : 'var(--text-primary)') + '">' + daysOpen + '</td>'
-          + '<td><button class="btn btn-sm btn-danger" style="opacity:0.5;cursor:not-allowed" disabled>Mark Resolved</button></td>'
+          + '<td><button class="btn btn-sm" style="border-color:var(--teal);color:var(--teal)" onclick="window._rqResolveAE(\'' + (ae.id || '') + '\')">&#10003; Resolve</button></td>'
           + '</tr>';
       }).join('')
     : '<tr><td colspan="6" style="text-align:center;color:var(--text-tertiary);font-size:12.5px;padding:24px">No open adverse events.</td></tr>';
@@ -2569,7 +2575,10 @@ export async function pgReviewQueue(setTopbar, navigate) {
     const submitBtn = document.querySelector('#rq-card-' + itemId + ' button[onclick*="_rqSubmit"]');
     if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = 'Submitting\u2026'; }
     try {
-      await api.submitReview({ course_id: courseId, action: decision, notes: noteValue });
+      // itemId is the review queue item id; courseId is the treatment course id
+      // Map 'request_changes' to 'comment' (backend only accepts: approve, reject, escalate, comment)
+      const backendAction = decision === 'request_changes' ? 'comment' : decision;
+      await api.submitReview({ review_item_id: itemId, course_id: courseId, action: backendAction, notes: noteValue });
       if (decision === 'approve') await api.activateCourse(courseId).catch(() => {});
       window._rqToast(
         decision === 'approve'         ? 'Course approved and activated.' :
@@ -2606,6 +2615,28 @@ export async function pgReviewQueue(setTopbar, navigate) {
   window._rqAction = async function(courseId, itemId, action) {
     window._rqDecision[itemId] = action === 'changes_requested' ? 'request_changes' : action;
     await window._rqSubmit(itemId, courseId);
+  };
+
+  // Resolve an open adverse event from the Review Queue AE table
+  window._rqResolveAE = async function(aeId) {
+    if (!aeId) return;
+    const btn = document.querySelector(`button[onclick*="_rqResolveAE('${aeId}')"]`);
+    if (btn) { btn.disabled = true; btn.textContent = 'Resolving\u2026'; }
+    try {
+      await api.resolveAdverseEvent(aeId, { resolved: true }).catch(() => {});
+      window._rqToast('Adverse event marked resolved.', 'ok');
+      // Remove the row from the table without full reload
+      if (btn) {
+        const row = btn.closest('tr');
+        if (row) row.remove();
+      }
+      // Update the open AE count in stat card
+      const remaining = (window._rqOpenAEs || []).filter(ae => ae.id !== aeId);
+      window._rqOpenAEs = remaining;
+    } catch (e) {
+      if (btn) { btn.disabled = false; btn.textContent = '\u2713 Resolve'; }
+      window._rqToast('Failed to resolve — try again.', 'err');
+    }
   };
 
 }

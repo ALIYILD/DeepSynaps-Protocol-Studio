@@ -373,10 +373,10 @@ def patient_upload_text(
         .filter_by(id=body.consent_id, patient_id=actor.actor_id)
         .first()
     )
-    if consent is None or not consent.granted or consent.consent_type != "upload_text":
+    if consent is None or not consent.granted or consent.consent_type not in ("upload_text", "text_updates"):
         raise ApiServiceError(
             code="consent_required",
-            message="Valid 'upload_text' consent is required to submit a text upload.",
+            message="Valid text-upload consent is required to submit a text upload.",
             status_code=400,
         )
 
@@ -434,10 +434,10 @@ async def patient_upload_audio(
         .filter_by(id=consent_id, patient_id=actor.actor_id)
         .first()
     )
-    if consent is None or not consent.granted or consent.consent_type != "upload_voice":
+    if consent is None or not consent.granted or consent.consent_type not in ("upload_voice", "voice_notes"):
         raise ApiServiceError(
             code="consent_required",
-            message="Valid 'upload_voice' consent is required to submit an audio upload.",
+            message="Valid voice-upload consent is required to submit an audio upload.",
             status_code=400,
         )
 
@@ -541,6 +541,19 @@ def patient_list_uploads(
         .all()
     )
 
+    # Pre-fetch all undismissed flags for this patient's uploads in one query
+    upload_ids = [u.id for u in uploads]
+    upload_flags: dict[str, list] = {u.id: [] for u in uploads}
+    if upload_ids:
+        flag_rows = (
+            db.query(MediaRedFlag)
+            .filter(MediaRedFlag.upload_id.in_(upload_ids), MediaRedFlag.dismissed == False)  # noqa: E712
+            .all()
+        )
+        for f in flag_rows:
+            if f.upload_id in upload_flags:
+                upload_flags[f.upload_id].append(f)
+
     results = []
     for upload in uploads:
         transcript = (
@@ -549,7 +562,11 @@ def patient_list_uploads(
         analysis = (
             db.query(PatientMediaAnalysis).filter_by(upload_id=upload.id).first()
         )
-        results.append(_upload_to_dict(upload, transcript, analysis))
+        d = _upload_to_dict(upload, transcript, analysis)
+        flags = upload_flags.get(upload.id, [])
+        d["has_undismissed_flag"] = bool(flags)
+        d["flagged_urgent"]       = any(f.severity == "high" and not f.ai_generated for f in flags)
+        results.append(d)
 
     return results
 
@@ -959,13 +976,19 @@ def get_analysis(
     return _analysis_full_dict(analysis)
 
 
+class ApproveAnalysisRequest(BaseModel):
+    chart_note_draft: Optional[str] = None
+    clinician_amendments: Optional[str] = None
+
+
 @router.post("/analysis/{upload_id}/approve")
 def approve_analysis(
     upload_id: str,
+    body: ApproveAnalysisRequest = None,
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
     db: Session = Depends(get_db_session),
 ) -> dict:
-    """Clinician approves AI analysis for clinical use."""
+    """Clinician approves AI analysis for clinical use, optionally saving edits."""
     _require_clinician(actor)
 
     analysis = db.query(PatientMediaAnalysis).filter_by(upload_id=upload_id).first()
@@ -975,6 +998,12 @@ def approve_analysis(
     analysis.approved_for_clinical_use = True
     analysis.clinician_reviewer_id = actor.actor_id
     analysis.clinician_reviewed_at = datetime.utcnow()
+
+    if body:
+        if body.chart_note_draft is not None:
+            analysis.chart_note_draft = body.chart_note_draft
+        if body.clinician_amendments is not None:
+            analysis.clinician_amendments = body.clinician_amendments
 
     upload = db.query(PatientMediaUpload).filter_by(id=upload_id).first()
     if upload:
@@ -1008,6 +1037,8 @@ def amend_analysis(
         raise ApiServiceError(code="not_found", message="Analysis not found.", status_code=404)
 
     analysis.clinician_amendments = body.clinician_amendments
+    if body.chart_note_draft is not None:
+        analysis.chart_note_draft = body.chart_note_draft
 
     _write_audit(
         db,
@@ -1162,7 +1193,7 @@ async def clinician_note_text(
     return {
         "note_id": note.id,
         "draft_id": draft.id,
-        "draft": _draft_to_dict(draft),
+        "draft": _draft_to_dict(draft, patient_id=body.patient_id),
     }
 
 
@@ -1289,7 +1320,7 @@ async def clinician_note_audio(
     return {
         "note_id": note.id,
         "draft_id": draft.id,
-        "draft": _draft_to_dict(draft),
+        "draft": _draft_to_dict(draft, patient_id=patient_id),
     }
 
 
@@ -1353,6 +1384,17 @@ def approve_clinician_draft(
     draft.approved_at = datetime.utcnow()
     if body.clinician_edits is not None:
         draft.clinician_edits = body.clinician_edits
+    # Persist clinician-edited fields if provided in approval body
+    if body.soap_note is not None:
+        draft.session_note = body.soap_note
+    if body.patient_summary is not None:
+        draft.patient_friendly_summary = body.patient_summary
+    if body.treatment_update is not None:
+        draft.treatment_update_draft = body.treatment_update
+    if body.adverse_event_note is not None:
+        draft.adverse_event_draft = body.adverse_event_note
+    if body.included_tasks is not None:
+        draft.task_suggestions = json.dumps(body.included_tasks)
 
     note = db.query(ClinicianMediaNote).filter_by(id=draft.note_id).first()
     if note:
@@ -1477,8 +1519,14 @@ async def serve_media_file(
     # Determine a safe content type from file extension only
     ext = file_ref.rsplit(".", 1)[-1].lower() if "." in file_ref else ""
     _safe_types = {
-        "webm": "audio/webm", "mp4": "audio/mp4", "mp3": "audio/mpeg",
-        "ogg": "audio/ogg", "wav": "audio/wav",
+        # Audio
+        "webm": "audio/webm",
+        "mp3":  "audio/mpeg",
+        "ogg":  "audio/ogg",
+        "wav":  "audio/wav",
+        "m4a":  "audio/mp4",
+        # Video (mp4 is video when file is video; use generic video/mp4)
+        "mp4":  "video/mp4",
     }
     content_type = _safe_types.get(ext, "application/octet-stream")
 

@@ -35,11 +35,21 @@ function pubTopbar() {
         <button class="pub-nav-link" onclick="document.querySelector('.pub-ev-section')?.scrollIntoView({behavior:'smooth',block:'start'})">${t('pub.nav.conditions')}</button>
         <button class="pub-nav-link" onclick="document.querySelector('.pub-pricing-grid')?.scrollIntoView({behavior:'smooth',block:'start'})">${t('pub.nav.pricing')}</button>
         <div style="width:1px;height:20px;background:var(--border);margin:0 6px"></div>
-        <button class="pub-nav-link" onclick="window._navPublic('signup-patient')">${t('pub.nav.patients')}</button>
+        <button class="pub-nav-link" onclick="window._navPublic('signup-patient')" title="Patient portal access">${t('pub.nav.patients')}</button>
         ${_pubLangMenu()}
         <button class="pub-nav-link" onclick="window._showSignIn()">${t('pub.nav.signin')}</button>
         <button class="btn btn-primary btn-sm" onclick="window._navPublic('signup-professional')" style="margin-left:4px">${t('pub.nav.trial')}</button>
       </div>
+      <!-- Mobile CTA strip (hidden on desktop via CSS) -->
+      <div class="pub-topbar-mobile-ctas">
+        <button class="pub-mobile-cta-sign-in" onclick="window._showSignIn()">Sign In</button>
+        <button class="pub-mobile-cta-trial" onclick="window._navPublic('signup-professional')">Free Trial</button>
+      </div>
+    </div>
+    <!-- Mobile sticky patient CTA bar -->
+    <div class="pub-mobile-patient-bar">
+      <span style="font-size:11px;color:var(--text-tertiary)">◉ Patient?</span>
+      <button onclick="window._navPublic('signup-patient')" style="font-size:12px;font-weight:600;color:var(--blue);background:rgba(74,158,255,0.1);border:1px solid var(--border-blue);border-radius:8px;padding:6px 14px;cursor:pointer;font-family:var(--font-body)">Activate Patient Portal &rarr;</button>
     </div>
   `;
 }
@@ -1080,15 +1090,18 @@ export function pgHome() {
           </div>
           <ul class="pub-plan-features">
             <li>Up to 5 professional seats</li>
-            <li>Shared review queue</li>
-            <li>Technician workflows</li>
+            <li>Clinician + Technician + Reviewer roles</li>
+            <li>Shared protocol &amp; review queue</li>
             <li>Device-aware session execution</li>
-            <li>Team audit trail</li>
+            <li>Evidence-graded protocol intelligence</li>
+            <li>Team audit trail &amp; governance</li>
             <li>Clinic outcomes dashboard</li>
+            <li>Patient portal for all patients</li>
             <li>Light white-labelling</li>
+            <li>Dedicated onboarding support</li>
           </ul>
-          <button class="pub-plan-cta" onclick="window._navPublic('signup-professional')">
-            Book Demo &rarr;
+          <button class="pub-plan-cta" onclick="window._navPublic('signup-professional')" title="Start with a 14-day trial or contact us for a guided demo">
+            Start Trial or Book Demo &rarr;
           </button>
         </div>
 
@@ -1385,6 +1398,10 @@ function _initContactLauncher() {
           <div style="font-size:10px;color:rgba(255,255,255,0.6);margin-top:1px">${t('pub.chat.header.sub')}</div>
         </div>
         <button class="pub-chat-close" onclick="window._launcherClose()" aria-label="Close">\u2715</button>
+      </div>
+      <div style="padding:6px 14px;background:rgba(255,181,71,0.08);border-bottom:1px solid rgba(255,181,71,0.2);font-size:10.5px;color:rgba(255,181,71,0.9);display:flex;align-items:center;gap:6px">
+        <span style="font-size:11px">⚠</span>
+        <span>General platform enquiries only &mdash; not clinical advice. Consult your clinician for all medical decisions.</span>
       </div>
 
       <div class="pub-chat-messages" id="pub-chat-messages">
@@ -1833,7 +1850,10 @@ export function pgSignupPatient() {
         </div>
       </div>
       <div style="text-align:center;margin-top:20px;font-size:12px;color:var(--text-tertiary)">
-        Already have access? <span onclick="window._showSignIn()" style="color:var(--blue);cursor:pointer">Sign in</span>
+        Already activated your portal? <span onclick="window._showSignIn()" style="color:var(--blue);cursor:pointer;font-weight:600">Sign in to your patient account &rarr;</span>
+      </div>
+      <div style="text-align:center;margin-top:8px;font-size:11px;color:var(--text-tertiary)">
+        The sign-in form works for both patients and clinicians.
       </div>
     </div>
   `;

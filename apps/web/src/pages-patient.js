@@ -38,13 +38,16 @@ function _patientBottomNav() {
 }
 
 export function renderPatientNav(currentPage) {
-  document.getElementById('patient-nav-list').innerHTML = _patientNav().map(n => {
-    const badge = n.badge ? `<span class="nav-badge">${n.badge}</span>` : '';
-    return `<div class="nav-item ${currentPage === n.id ? 'active' : ''}" onclick="window._navPatient('${n.id}')">
-      <span class="nav-icon">${n.icon}</span>
-      <span style="flex:1">${n.label}</span>${badge}
-    </div>`;
-  }).join('');
+  const _ptNavList = document.getElementById('patient-nav-list');
+  if (_ptNavList) {
+    _ptNavList.innerHTML = _patientNav().map(n => {
+      const badge = n.badge ? `<span class="nav-badge">${n.badge}</span>` : '';
+      return `<div class="nav-item ${currentPage === n.id ? 'active' : ''}" onclick="window._navPatient('${n.id}')">
+        <span class="nav-icon">${n.icon}</span>
+        <span style="flex:1">${n.label}</span>${badge}
+      </div>`;
+    }).join('');
+  }
 
   const bottomNav = document.getElementById('pt-bottom-nav');
   if (bottomNav) {
@@ -59,8 +62,10 @@ export function renderPatientNav(currentPage) {
 }
 
 export function setTopbar(title, html = '') {
-  document.getElementById('patient-page-title').textContent = title;
-  document.getElementById('patient-topbar-actions').innerHTML = html;
+  const _ttl = document.getElementById('patient-page-title');
+  const _act = document.getElementById('patient-topbar-actions');
+  if (_ttl) _ttl.textContent = title;
+  if (_act) _act.innerHTML = html;
 }
 
 function spinner() {
@@ -626,7 +631,7 @@ export async function pgPatientSessions() {
       case 'rescheduled':           return { label: t('patient.sess.status.rescheduled'),  pillClass: 'pt-pill-rescheduled', iconChar: '\u21bb', iconClass: 'rescheduled'  };
       case 'interrupted':           return { label: t('patient.sess.status.interrupted'),  pillClass: 'pt-pill-interrupted', iconChar: '\u25d0', iconClass: 'interrupted'  };
       case 'completed':
-      case 'done':
+      case 'done':                  return { label: t('patient.sess.status.completed'),    pillClass: 'pill-active',         iconChar: '\u2713', iconClass: 'done'         };
       default:                      return { label: t('patient.sess.status.done'),         pillClass: 'pill-active',         iconChar: '\u2713', iconClass: 'done'         };
     }
   }
@@ -1441,8 +1446,8 @@ export async function pgPatientCourse() {
       '</div>' +
       '<div style="margin-bottom:14px">' +
         '<div style="display:flex;justify-content:space-between;margin-bottom:5px">' +
-          '<span style="font-size:11.5px;color:var(--text-secondary)">This week\'s progress</span>' +
-          '<span style="font-size:11.5px;font-weight:600;color:var(--teal)">' + completedCount + ' / ' + totalPossible + ' tasks</span>' +
+          '<span style="font-size:11.5px;color:var(--text-secondary)">' + t('patient.course.week_progress') + '</span>' +
+          '<span style="font-size:11.5px;font-weight:600;color:var(--teal)">' + completedCount + ' / ' + totalPossible + ' ' + t('patient.course.tasks_label') + '</span>' +
         '</div>' +
         '<div class="progress-bar" style="height:6px">' +
           '<div class="progress-fill" style="width:' + pctPlan + '%"></div>' +
@@ -1463,7 +1468,7 @@ export async function pgPatientCourse() {
           '<div style="display:flex;flex-direction:column;align-items:center;gap:4px;padding-top:2px">' +
             '<input type="checkbox" ' + (doneToday ? 'checked' : '') + ' style="width:16px;height:16px;accent-color:var(--teal);cursor:pointer"' +
               ' onchange="window._hwMarkComplete(\'' + assignment.id + '\',\'' + block.id + '\',\'' + today + '\')">' +
-            '<span style="font-size:9.5px;color:var(--text-tertiary)">today</span>' +
+            '<span style="font-size:9.5px;color:var(--text-tertiary)">' + t('patient.course.today_label') + '</span>' +
           '</div>' +
         '</div>';
       }).join('');
@@ -2776,34 +2781,34 @@ export async function pgPatientMessages() {
     return `
       <div class="pt-msg-compose" id="pt-msg-compose">
         <div class="pt-docs-section-hd" style="margin-bottom:12px">
-          <span class="pt-docs-section-title">New Message</span>
+          <span class="pt-docs-section-title">${t('patient.messages.new')}</span>
         </div>
         <div class="pt-msg-compose-body">
           <div class="form-group">
-            <label class="form-label" for="pt-msg-category">What is this about?</label>
+            <label class="form-label" for="pt-msg-category">${t('patient.msg.compose.topic_label')}</label>
             <select id="pt-msg-category" class="form-control" aria-required="true">
-              <option value="">Select a reason\u2026</option>
+              <option value="">${t('patient.msg.compose.topic_placeholder')}</option>
               ${categoryOptions}
             </select>
           </div>
           <div class="form-group">
-            <label class="form-label" for="pt-msg-subject">Subject</label>
+            <label class="form-label" for="pt-msg-subject">${t('patient.msg.compose.subject_label')}</label>
             <input id="pt-msg-subject" class="form-control"
                    type="text" maxlength="120"
-                   placeholder="e.g. Question about my next session"
+                   placeholder="${t('patient.msg.compose.subject_placeholder')}"
                    aria-required="true">
           </div>
           <div class="form-group">
-            <label class="form-label" for="pt-msg-body">Message</label>
+            <label class="form-label" for="pt-msg-body">${t('patient.msg.compose.body_label')}</label>
             <textarea id="pt-msg-body" class="form-control"
                       rows="4" maxlength="2000"
-                      placeholder="Describe your question or concern\u2026"
+                      placeholder="${t('patient.msg.compose.body_placeholder')}"
                       aria-required="true"></textarea>
           </div>
           <div class="pt-msg-compose-footer">
-            <span class="pt-msg-compose-hint">Non-urgent messages only. For medical emergencies call 000 or your local emergency number.</span>
+            <span class="pt-msg-compose-hint">${t('patient.msg.compose.hint')}</span>
             <button class="btn btn-primary btn-sm" id="pt-msg-send-btn"
-                    onclick="window._ptSendNewMessage()">Send Message \u2192</button>
+                    onclick="window._ptSendNewMessage()">${t('patient.msg.compose.send')} \u2192</button>
           </div>
           <div id="pt-msg-send-status" class="pt-msg-send-status" hidden></div>
         </div>
@@ -2840,7 +2845,7 @@ export async function pgPatientMessages() {
     return `
       <div class="pt-msg-care-team">
         <div class="pt-docs-section-hd" style="margin-bottom:12px">
-          <span class="pt-docs-section-title">Your Care Team</span>
+          <span class="pt-docs-section-title">${t('patient.msg.care_team_title')}</span>
         </div>
         ${memberCards}
       </div>`;
@@ -2882,9 +2887,9 @@ export async function pgPatientMessages() {
            </div>`)
     : `<div class="pt-msg-load-error">
          <span class="pt-msg-load-error-ico" aria-hidden="true">&#9680;</span>
-         Could not load your messages. Please try again later.
+         ${t('patient.msg.load_error')}
          <button class="btn btn-ghost btn-sm" style="margin-left:10px;margin-top:6px"
-                 onclick="window._navPatient('patient-messages')">Retry \u2192</button>
+                 onclick="window._navPatient('patient-messages')">${t('common.retry')} \u2192</button>
        </div>`;
 
   el.innerHTML = `
@@ -2893,8 +2898,8 @@ export async function pgPatientMessages() {
 
       <div class="pt-msg-section" id="pt-msg-list-section">
         <div class="pt-docs-section-hd" style="margin-bottom:10px">
-          <span class="pt-docs-section-title">Messages</span>
-          ${threads.length > 0 ? `<span class="pt-docs-section-count">${threads.length} thread${threads.length !== 1 ? 's' : ''}</span>` : ''}
+          <span class="pt-docs-section-title">${t('patient.messages.title')}</span>
+          ${threads.length > 0 ? `<span class="pt-docs-section-count">${threads.length === 1 ? t('patient.msg.thread_count_one') : t('patient.msg.thread_count', { n: threads.length })}</span>` : ''}
         </div>
         <div id="pt-msg-thread-list">${threadListHTML}</div>
       </div>
@@ -2992,7 +2997,7 @@ export async function pgPatientMessages() {
     if (!subject)  { _showComposeErr(subjEl, t('patient.msg.err.enter_subject')); return; }
     if (!body)     { _showComposeErr(bodyEl, t('patient.msg.err.enter_message')); return; }
 
-    if (btn) { btn.disabled = true; btn.textContent = 'Sending\u2026'; }
+    if (btn) { btn.disabled = true; btn.textContent = t('patient.msg.sending'); }
 
     try {
       // Extension point: add attachment_ids[], course_id, session_id as backend supports them.
@@ -3007,23 +3012,23 @@ export async function pgPatientMessages() {
       if (compose) {
         compose.innerHTML = `
           <div class="pt-docs-section-hd" style="margin-bottom:12px">
-            <span class="pt-docs-section-title">New Message</span>
+            <span class="pt-docs-section-title">${t('patient.messages.new')}</span>
           </div>
           <div class="pt-msg-sent-confirm">
             <div class="pt-msg-sent-ico" aria-hidden="true">&#10003;</div>
-            <div class="pt-msg-sent-title">Message sent</div>
-            <div class="pt-msg-sent-body">Your care team will respond within 1\u20132 business days.<br>You\u2019ll find the reply here in Secure Messages.</div>
+            <div class="pt-msg-sent-title">${t('patient.msg.sent.title')}</div>
+            <div class="pt-msg-sent-body">${t('patient.msg.sent.body')}</div>
             <button class="btn btn-ghost btn-sm" style="margin-top:14px"
-                    onclick="window._navPatient('patient-messages')">Send another message \u2192</button>
+                    onclick="window._navPatient('patient-messages')">${t('patient.msg.sent.again')} \u2192</button>
           </div>`;
       }
     } catch (_e) {
       if (status) {
         status.removeAttribute('hidden');
         status.className = 'pt-msg-send-status pt-msg-send-fail';
-        status.textContent = 'Could not send your message. Please check your connection and try again.';
+        status.textContent = t('patient.msg.send_failed');
       }
-      if (btn) { btn.disabled = false; btn.textContent = 'Send Message \u2192'; }
+      if (btn) { btn.disabled = false; btn.textContent = t('patient.msg.compose.send') + ' \u2192'; }
     }
   };
 }
@@ -3316,8 +3321,10 @@ export async function pgPatientWellness() {
         <div class="card-body" style="padding:32px;text-align:center">
           <div style="font-size:3rem;margin-bottom:16px">✅</div>
           <div style="font-size:16px;font-weight:600;color:var(--text-primary);margin-bottom:8px">${t('checkin.thanks')}</div>
+          <div style="font-size:12.5px;color:var(--text-secondary);margin-bottom:18px">${t('checkin.thanks_detail')}</div>
           <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap">
-            <button class="btn btn-primary btn-sm" onclick="window._navPatient('patient-portal')">${t('common.back')}</button>
+            <button class="btn btn-primary btn-sm" onclick="window._navPatient('patient-portal')">${t('patient.wellness.cta_home')}</button>
+            <button class="btn btn-ghost btn-sm" onclick="window._navPatient('patient-assessments')">${t('patient.wellness.cta_assess')}</button>
           </div>
         </div>
       `;
@@ -4008,14 +4015,20 @@ export async function pgPatientMediaUpload() {
           if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = 'Send Update'; }
           return;
         }
-        const textConsent = consents.find(c => c.consent_type === 'text_updates');
+        // consent_type "upload_text" matches backend validation in media_router.py
+        const textConsent = consents.find(c => c.consent_type === 'upload_text');
+        if (!textConsent?.id) {
+          if (warnEl) { warnEl.className = 'notice notice-warn'; warnEl.style.display = ''; warnEl.innerHTML = `${t('patient.media.consent_submit_text')} <a href="#" onclick="window._navPatient('pt-media-consent');return false" style="color:var(--teal)">${t('patient.media.consent_enable')}</a>`; }
+          if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = 'Send Update'; }
+          return;
+        }
         await _mediaFetch('/api/v1/media/patient/upload/text', {
           method: 'POST',
           body: JSON.stringify({
             text_content:  content,
             course_id:     courseId || undefined,
             patient_note:  noteLabel || undefined,
-            consent_id:    textConsent?.id || undefined,
+            consent_id:    textConsent.id,
           }),
         });
       } else {
@@ -4027,12 +4040,18 @@ export async function pgPatientMediaUpload() {
         }
         const courseId  = document.getElementById('upload-voice-course')?.value || null;
         const noteLabel = document.getElementById('upload-voice-note')?.value?.trim() || '';
-        const voiceConsent = consents.find(c => c.consent_type === 'voice_notes');
+        // consent_type "upload_voice" matches backend validation in media_router.py
+        const voiceConsent = consents.find(c => c.consent_type === 'upload_voice');
+        if (!voiceConsent?.id) {
+          if (warnEl) { warnEl.className = 'notice notice-warn'; warnEl.style.display = ''; warnEl.innerHTML = `${t('patient.media.consent_submit_voice')} <a href="#" onclick="window._navPatient('pt-media-consent');return false" style="color:var(--teal)">${t('patient.media.consent_enable')}</a>`; }
+          if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = 'Send Update'; }
+          return;
+        }
         const formData = new FormData();
         formData.append('file', _recordedBlob, 'voice-note.webm');
-        if (courseId)              formData.append('course_id',    courseId);
-        if (noteLabel)             formData.append('patient_note', noteLabel);
-        if (voiceConsent?.id)      formData.append('consent_id',   voiceConsent.id);
+        if (courseId)  formData.append('course_id',    courseId);
+        if (noteLabel) formData.append('patient_note', noteLabel);
+        formData.append('consent_id', voiceConsent.id);
 
         await _mediaFetch('/api/v1/media/patient/upload/audio', {
           method: 'POST',
@@ -4117,7 +4136,9 @@ export async function pgPatientMediaHistory() {
     reupload_requested:     { label: 'New Upload Requested',  color: '#f97316',              bg: 'rgba(249,115,22,0.08)' },
   };
 
-  const NON_DELETABLE = new Set(['clinician_reviewed', 'analyzing']);
+  // approved_for_analysis added: upload is already in the AI queue, deleting mid-flight
+  // causes an orphaned analysis job. Backend also blocks deletes at clinician_reviewed.
+  const NON_DELETABLE = new Set(['clinician_reviewed', 'analyzing', 'approved_for_analysis']);
 
   function statusChip(status) {
     const meta = STATUS_META[status] || { label: status || 'Unknown', color: 'var(--text-tertiary)', bg: 'rgba(255,255,255,0.06)' };
@@ -4290,10 +4311,12 @@ export async function pgPatientWearables() {
 
   // ── Device metadata ──────────────────────────────────────────────────────
   const DEVICES = [
-    { source: 'apple_health',      display_name: 'Apple Health',        icon: '◌', iconColor: 'var(--teal)' },
+    { source: 'apple_health',      display_name: 'Apple Health',           icon: '◌', iconColor: 'var(--teal)' },
     { source: 'android_health',    display_name: 'Android Health Connect', icon: '◌', iconColor: 'var(--green)' },
-    { source: 'fitbit',            display_name: 'Fitbit',              icon: '◌', iconColor: 'var(--blue)' },
-    { source: 'oura',              display_name: 'Oura Ring',           icon: '◌', iconColor: 'var(--violet)' },
+    { source: 'fitbit',            display_name: 'Fitbit',                 icon: '◌', iconColor: 'var(--blue)' },
+    { source: 'oura',              display_name: 'Oura Ring',              icon: '◌', iconColor: 'var(--violet)' },
+    { source: 'garmin',            display_name: 'Garmin',                 icon: '◌', iconColor: 'var(--amber)' },
+    { source: 'whoop',             display_name: 'WHOOP',                  icon: '◌', iconColor: 'var(--red)' },
   ];
 
   // ── XSS helper ───────────────────────────────────────────────────────────
@@ -4385,18 +4408,22 @@ export async function pgPatientWearables() {
   }
 
   // ── Compute metric values ─────────────────────────────────────────────────
-  const rhrVals    = trendVals('rhr_bpm');
-  const hrvVals    = trendVals('hrv_ms');
-  const sleepVals  = trendVals('sleep_duration_h');
-  const stepsVals  = trendVals('steps');
-  const spo2Vals   = trendVals('spo2_pct');
+  const rhrVals     = trendVals('rhr_bpm');
+  const hrvVals     = trendVals('hrv_ms');
+  const sleepVals   = trendVals('sleep_duration_h');
+  const stepsVals   = trendVals('steps');
+  const spo2Vals    = trendVals('spo2_pct');
+  const painVals    = trendVals('pain_score');
+  const anxietyVals = trendVals('anxiety_score');
 
-  const latestRhr   = rhrVals.length   ? rhrVals[rhrVals.length - 1]   : null;
-  const latestHrv   = hrvVals.length   ? hrvVals[hrvVals.length - 1]   : null;
-  const latestSleep = sleepVals.length ? sleepVals[sleepVals.length - 1] : null;
-  const latestSteps = stepsVals.length ? stepsVals[stepsVals.length - 1] : null;
-  const latestSpo2  = spo2Vals.length  ? spo2Vals[spo2Vals.length - 1]  : null;
-  const latestMood  = latest?.mood_score != null ? latest.mood_score : null;
+  const latestRhr     = rhrVals.length     ? rhrVals[rhrVals.length - 1]     : null;
+  const latestHrv     = hrvVals.length     ? hrvVals[hrvVals.length - 1]     : null;
+  const latestSleep   = sleepVals.length   ? sleepVals[sleepVals.length - 1] : null;
+  const latestSteps   = stepsVals.length   ? stepsVals[stepsVals.length - 1] : null;
+  const latestSpo2    = spo2Vals.length    ? spo2Vals[spo2Vals.length - 1]   : null;
+  const latestMood    = latest?.mood_score    != null ? latest.mood_score    : null;
+  const latestPain    = latest?.pain_score    != null ? latest.pain_score    : null;
+  const latestAnxiety = latest?.anxiety_score != null ? latest.anxiety_score : null;
 
   const connectedSource = connections.find(c => c.status === 'connected')?.display_name || 'Connected device';
   const hasSummaryData  = summaries.length > 0;

@@ -571,7 +571,7 @@ export async function pgBilling(setTopbar) {
   let _filterStatus = 'all';
   let _searchQ      = '';
 
-  const el = document.getElementById('app-content');
+  const el = document.getElementById('content') || document.getElementById('app-content');
 
   function renderPage() {
     const invoices = getInvoices();
@@ -5443,7 +5443,8 @@ export async function pgReminderAutomation(setTopbar) {
   let activeTab = 'campaigns';
 
   // ── Render shell ───────────────────────────────────────────────────────────
-  document.getElementById('app-content').innerHTML = `
+  const _remEl = document.getElementById('content') || document.getElementById('app-content');
+  _remEl.innerHTML = `
     <div style="max-width:1200px;margin:0 auto;padding:20px 24px">
       <div style="display:flex;gap:6px;margin-bottom:20px;border-bottom:1px solid var(--border);padding-bottom:0;flex-wrap:wrap">
         ${['campaigns','outbox','adherence','templates'].map(tab =>
@@ -6073,4 +6074,474 @@ export async function pgReminderAutomation(setTopbar) {
 
   // Initial render
   renderCampaigns();
+}
+
+// ── Media Queue (clinician review) ────────────────────────────────────────────
+// Endpoints (all in media_router.py):
+//   GET  /api/v1/media/review-queue              — items in pending_review | reupload_requested
+//   POST /api/v1/media/review/{id}/action        — approve | reject | request_reupload | flag_urgent | mark_reviewed
+//   POST /api/v1/media/review/{id}/analyze       — trigger AI analysis (status must be approved_for_analysis)
+//   GET  /api/v1/media/analysis/{id}             — fetch full analysis result
+//   POST /api/v1/media/analysis/{id}/approve     — approve AI draft for clinical use → status clinician_reviewed
+//   GET  /api/v1/media/file/{file_ref:path}      — authenticated audio file serving
+
+const _MQ_BASE = (import.meta.env && import.meta.env.VITE_API_BASE_URL) || 'http://127.0.0.1:8000';
+
+async function _mqFetch(path, opts = {}) {
+  const token   = api.getToken();
+  const isForm  = opts.body instanceof FormData;
+  const headers = { ...(opts.headers || {}) };
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+  if (!isForm) headers['Content-Type'] = 'application/json';
+  const res = await fetch(`${_MQ_BASE}${path}`, { ...opts, headers });
+  if (res.status === 204) return null;
+  if (!res.ok) {
+    let msg = `API error ${res.status}`;
+    try { const e = await res.json(); msg = e.detail || msg; } catch (_e2) { /* ignore */ }
+    throw new Error(msg);
+  }
+  return res.json();
+}
+
+export async function pgMediaQueue(setTopbar) {
+  setTopbar('Patient Media Queue', `
+    <button class="btn btn-ghost btn-sm" onclick="window._mqRefresh()">&#8634; Refresh</button>
+  `);
+
+  // The practice shell may use 'main-content', 'content', or fall back to body.
+  const container = document.getElementById('main-content')
+    || document.getElementById('content')
+    || document.body;
+  container.innerHTML = spinner();
+
+  // ── Local helpers ──────────────────────────────────────────────────────────
+  function _mqFmtDate(d) {
+    if (!d) return '\u2014';
+    try {
+      return new Date(d).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+    } catch (_e) { return d; }
+  }
+
+  function _mqEsc(v) {
+    if (v == null) return '';
+    return String(v)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#x27;');
+  }
+
+  // Status labels/colours — aligned with backend status enum values in media_router.py
+  const MQ_STATUS = {
+    pending_review:        { label: 'Pending Review',       color: '#f59e0b', bg: 'rgba(245,158,11,0.12)'  },
+    approved_for_analysis: { label: 'Approved — Queued',    color: 'var(--blue,#4a9eff)', bg: 'rgba(74,158,255,0.1)' },
+    analyzing:             { label: 'AI Analysis Running',  color: 'var(--blue,#4a9eff)', bg: 'rgba(74,158,255,0.1)' },
+    analyzed:              { label: 'Analyzed',              color: 'var(--teal,#00d4bc)', bg: 'rgba(0,212,188,0.08)' },
+    clinician_reviewed:    { label: 'Reviewed',              color: 'var(--green,#22c55e)', bg: 'rgba(34,197,94,0.08)' },
+    rejected:              { label: 'Rejected',              color: '#94a3b8', bg: 'rgba(148,163,184,0.08)' },
+    reupload_requested:    { label: 'Re-upload Requested',   color: '#f97316', bg: 'rgba(249,115,22,0.08)'  },
+  };
+
+  function _mqChip(status) {
+    const m = MQ_STATUS[status] || { label: status || 'Unknown', color: 'var(--text-tertiary)', bg: 'rgba(255,255,255,0.06)' };
+    return `<span style="font-size:10.5px;font-weight:600;padding:2px 9px;border-radius:99px;
+      color:${m.color};background:${m.bg};border:1px solid ${m.color}">${_mqEsc(m.label)}</span>`;
+  }
+
+  // ── Module state ───────────────────────────────────────────────────────────
+  let _mqQueue  = [];   // current queue list
+  let _mqDetail = null; // upload currently open in detail view
+
+  // ── Queue list renderer ────────────────────────────────────────────────────
+  function _mqRenderQueue() {
+    const listEl = document.getElementById('mq-list');
+    if (!listEl) return;
+
+    if (_mqQueue.length === 0) {
+      listEl.innerHTML = `
+        <div style="text-align:center;padding:56px 20px;color:var(--text-tertiary)">
+          <div style="font-size:28px;margin-bottom:14px;opacity:.35">&#x1f4ed;</div>
+          <div style="font-size:13.5px">No items pending review.</div>
+        </div>`;
+      return;
+    }
+
+    listEl.innerHTML = _mqQueue.map((u, idx) => {
+      const isVoice   = (u.media_type || '').toLowerCase() === 'voice';
+      const typeIcon  = isVoice ? '&#127897;' : '&#128221;';
+      const typeLabel = isVoice ? 'Voice Note' : 'Text Update';
+      const urgentBadge = u.is_urgent
+        ? `<span style="font-size:10px;font-weight:700;color:#ef4444;background:rgba(239,68,68,0.12);border:1px solid rgba(239,68,68,0.4);border-radius:4px;padding:1px 7px;margin-right:4px">URGENT</span>`
+        : '';
+      return `
+        <div class="card" style="margin-bottom:10px;cursor:pointer;${u.is_urgent ? 'border-color:rgba(239,68,68,0.35)' : ''}"
+             id="mq-card-${idx}" onclick="window._mqOpenDetail(${idx})" role="button" tabindex="0">
+          <div class="card-body" style="padding:14px 16px;display:flex;align-items:center;gap:14px">
+            <div style="font-size:22px;flex-shrink:0">${typeIcon}</div>
+            <div style="flex:1;min-width:0">
+              <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:4px">
+                ${urgentBadge}
+                <span style="font-size:12.5px;font-weight:600;color:var(--text-primary)">${_mqEsc(typeLabel)}</span>
+                <span style="font-size:11.5px;color:var(--text-tertiary)">&mdash; Patient&nbsp;${_mqEsc(u.patient_id || '\u2014')}</span>
+                ${_mqChip(u.status)}
+              </div>
+              <div style="font-size:11.5px;color:var(--text-secondary)">
+                ${_mqEsc(_mqFmtDate(u.created_at))}
+                ${u.course_id ? ` &middot; Course&nbsp;${_mqEsc(u.course_id)}` : ''}
+                ${u.patient_note ? ` &middot; ${_mqEsc(u.patient_note.slice(0, 60))}` : ''}
+              </div>
+            </div>
+            <div style="flex-shrink:0;color:var(--text-tertiary);font-size:16px">&#8250;</div>
+          </div>
+        </div>`;
+    }).join('');
+  }
+
+  // ── Detail view renderer ───────────────────────────────────────────────────
+  function _mqRenderDetail(upload) {
+    const detailEl = document.getElementById('mq-detail');
+    if (!detailEl) return;
+
+    const isVoice  = (upload.media_type || '').toLowerCase() === 'voice';
+    const analysis = upload._analysis || null;
+    const transcript = upload.transcript || null;
+
+    // AI analysis panel (shown after analyze step completes)
+    let analysisHTML = '';
+    if (analysis) {
+      const approved = analysis.approved_for_clinical_use;
+      const fqList   = (() => {
+        try {
+          const fq = typeof analysis.follow_up_questions === 'string'
+            ? JSON.parse(analysis.follow_up_questions)
+            : analysis.follow_up_questions;
+          if (Array.isArray(fq)) return fq.map(q => `<li style="margin-bottom:4px">${_mqEsc(String(q))}</li>`).join('');
+          return _mqEsc(String(fq || ''));
+        } catch (_e) { return _mqEsc(String(analysis.follow_up_questions || '')); }
+      })();
+
+      analysisHTML = `
+        <div class="card" style="margin-bottom:16px;border-color:rgba(0,212,188,0.3)">
+          <div class="card-header" style="display:flex;align-items:center;gap:10px">
+            <span style="font-size:12px;font-weight:600;color:var(--teal,#00d4bc)">&#129302; AI Analysis</span>
+            <span style="font-size:10.5px;color:var(--text-tertiary)">
+              Draft only &mdash; clinician approval required before clinical use
+            </span>
+          </div>
+          <div class="card-body" style="padding:16px 18px">
+            ${analysis.structured_summary ? `
+            <div style="margin-bottom:14px">
+              <div style="font-size:11.5px;font-weight:600;color:var(--text-secondary);margin-bottom:5px">Summary</div>
+              <div style="font-size:12.5px;color:var(--text-primary);line-height:1.65;white-space:pre-wrap">${_mqEsc(analysis.structured_summary)}</div>
+            </div>` : ''}
+            ${analysis.chart_note_draft ? `
+            <div style="margin-bottom:14px">
+              <div style="font-size:11.5px;font-weight:600;color:var(--text-secondary);margin-bottom:5px">Chart Note Draft</div>
+              <div style="font-size:12px;background:rgba(0,212,188,0.05);border:1px solid rgba(0,212,188,0.15);border-radius:6px;padding:12px;line-height:1.65;white-space:pre-wrap">${_mqEsc(analysis.chart_note_draft)}</div>
+            </div>` : ''}
+            ${fqList ? `
+            <div style="margin-bottom:14px">
+              <div style="font-size:11.5px;font-weight:600;color:var(--text-secondary);margin-bottom:5px">Suggested Follow-up Questions</div>
+              <ul style="margin:0;padding-left:18px;font-size:12px;color:var(--text-primary);line-height:1.65">${fqList}</ul>
+            </div>` : ''}
+            <div id="mq-draft-approve-msg" style="display:none;margin-bottom:10px"></div>
+            ${!approved ? `
+            <button class="btn btn-primary btn-sm" id="mq-btn-approve-draft"
+                    onclick="window._mqApproveDraft('${_mqEsc(upload.id)}')">
+              Approve Draft for Clinical Use
+            </button>` : `
+            <div style="font-size:12px;color:var(--green,#22c55e);font-weight:600">
+              &#x2713; Approved for clinical use
+              ${analysis.clinician_reviewed_at
+                ? `<span style="font-weight:400;color:var(--text-tertiary);margin-left:6px">${_mqEsc(_mqFmtDate(analysis.clinician_reviewed_at))}</span>`
+                : ''}
+            </div>`}
+          </div>
+        </div>`;
+    }
+
+    // Transcript panel
+    let transcriptHTML = '';
+    if (transcript?.transcript_text) {
+      transcriptHTML = `
+        <div class="card" style="margin-bottom:16px">
+          <div class="card-header" style="font-size:12px;font-weight:600">Transcript</div>
+          <div class="card-body" style="padding:14px 18px;font-size:12.5px;line-height:1.7;white-space:pre-wrap">${_mqEsc(transcript.transcript_text)}</div>
+        </div>`;
+    }
+
+    // Audio player (voice notes only, served via authenticated endpoint)
+    let audioHTML = '';
+    if (isVoice && upload.file_ref) {
+      const audioSrc = `${_MQ_BASE}/api/v1/media/file/${encodeURIComponent(upload.file_ref)}`;
+      audioHTML = `
+        <div class="card" style="margin-bottom:16px">
+          <div class="card-header" style="font-size:12px;font-weight:600">Voice Note</div>
+          <div class="card-body" style="padding:14px 18px">
+            <audio controls style="width:100%;max-width:480px" src="${_mqEsc(audioSrc)}" preload="metadata">
+              Your browser does not support audio playback.
+            </audio>
+            ${upload.duration_seconds != null
+              ? `<div style="font-size:11px;color:var(--text-tertiary);margin-top:6px">Duration: ${_mqEsc(String(upload.duration_seconds))}s</div>`
+              : ''}
+          </div>
+        </div>`;
+    }
+
+    // Text content panel (text uploads only)
+    let textHTML = '';
+    if (!isVoice && upload.text_content) {
+      textHTML = `
+        <div class="card" style="margin-bottom:16px">
+          <div class="card-header" style="font-size:12px;font-weight:600">Patient Update</div>
+          <div class="card-body" style="padding:14px 18px;font-size:13px;line-height:1.7;white-space:pre-wrap">${_mqEsc(upload.text_content)}</div>
+        </div>`;
+    }
+
+    // Review action buttons — computed from current status
+    const s = upload.status;
+    const canApprove      = s === 'pending_review';
+    const canAnalyze      = s === 'approved_for_analysis';
+    const canMarkReviewed = s === 'analyzed';
+    const canReject       = s === 'pending_review' || s === 'reupload_requested';
+    const canReupload     = s === 'pending_review';
+    const canFlagUrgent   = s === 'pending_review';
+
+    const actionsHTML = `
+      <div class="card" style="margin-bottom:16px">
+        <div class="card-header" style="font-size:12px;font-weight:600">Review Actions</div>
+        <div class="card-body" style="padding:16px 18px">
+          <div style="font-size:11.5px;color:var(--text-tertiary);margin-bottom:12px">
+            Status: ${_mqChip(s)}
+            &nbsp;&middot;&nbsp; Uploaded ${_mqEsc(_mqFmtDate(upload.created_at))}
+            &nbsp;&middot;&nbsp; Patient&nbsp;${_mqEsc(upload.patient_id || '\u2014')}
+          </div>
+          <div style="margin-bottom:12px">
+            <label style="font-size:12px;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:5px">
+              Reason / note for patient
+              ${(canReject || canReupload) ? '<span style="color:#f97316">(required for Reject &amp; Re-upload)</span>' : '(optional)'}
+            </label>
+            <textarea id="mq-action-reason" class="form-control" rows="2"
+                      placeholder="Brief reason visible to the patient\u2026"
+                      style="font-size:12.5px;resize:vertical"></textarea>
+          </div>
+          <div id="mq-action-msg" style="display:none;margin-bottom:10px"></div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            ${canApprove
+              ? `<button class="btn btn-primary btn-sm"
+                         onclick="window._mqAction('${_mqEsc(upload.id)}','approve')">
+                   Approve for Analysis
+                 </button>`
+              : ''}
+            ${canAnalyze
+              ? `<button class="btn btn-primary btn-sm" id="mq-btn-analyze"
+                         onclick="window._mqAnalyze('${_mqEsc(upload.id)}')">
+                   &#129302; Run AI Analysis
+                 </button>`
+              : ''}
+            ${canMarkReviewed
+              ? `<button class="btn btn-primary btn-sm"
+                         onclick="window._mqAction('${_mqEsc(upload.id)}','mark_reviewed')">
+                   Mark Reviewed
+                 </button>`
+              : ''}
+            ${canReject
+              ? `<button class="btn btn-ghost btn-sm"
+                         style="color:#94a3b8;border-color:rgba(148,163,184,0.4)"
+                         onclick="window._mqAction('${_mqEsc(upload.id)}','reject')">
+                   Reject
+                 </button>`
+              : ''}
+            ${canReupload
+              ? `<button class="btn btn-ghost btn-sm"
+                         style="color:#f97316;border-color:rgba(249,115,22,0.4)"
+                         onclick="window._mqAction('${_mqEsc(upload.id)}','request_reupload')">
+                   Request Re-upload
+                 </button>`
+              : ''}
+            ${canFlagUrgent
+              ? `<button class="btn btn-ghost btn-sm"
+                         style="color:#ef4444;border-color:rgba(239,68,68,0.4)"
+                         onclick="window._mqAction('${_mqEsc(upload.id)}','flag_urgent')">
+                   &#9888; Flag Urgent
+                 </button>`
+              : ''}
+          </div>
+        </div>
+      </div>`;
+
+    detailEl.innerHTML = `
+      <div style="margin-bottom:16px;display:flex;align-items:center;gap:10px">
+        <button class="btn btn-ghost btn-sm" onclick="window._mqBack()">&#8592; Back to Queue</button>
+        <span style="font-size:12.5px;color:var(--text-tertiary)">${isVoice ? 'Voice Note' : 'Text Update'}</span>
+        ${upload.is_urgent
+          ? `<span style="font-size:10px;font-weight:700;color:#ef4444;background:rgba(239,68,68,0.12);
+               border:1px solid rgba(239,68,68,0.4);border-radius:4px;padding:1px 7px">URGENT</span>`
+          : ''}
+      </div>
+      ${textHTML}
+      ${audioHTML}
+      ${transcriptHTML}
+      ${actionsHTML}
+      ${analysisHTML}
+    `;
+  }
+
+  // ── Action handlers ────────────────────────────────────────────────────────
+  window._mqAction = async function(uploadId, action) {
+    const reason      = document.getElementById('mq-action-reason')?.value?.trim() || '';
+    const msgEl       = document.getElementById('mq-action-msg');
+    const needsReason = action === 'reject' || action === 'request_reupload';
+    if (needsReason && !reason) {
+      if (msgEl) {
+        msgEl.className    = 'notice notice-warn';
+        msgEl.style.display = '';
+        msgEl.textContent  = 'Please enter a reason for the patient before taking this action.';
+      }
+      return;
+    }
+    // Disable all buttons while the request is in flight
+    document.querySelectorAll('#mq-detail .btn').forEach(b => { b.disabled = true; });
+    if (msgEl) { msgEl.className = 'notice notice-info'; msgEl.style.display = ''; msgEl.textContent = 'Processing\u2026'; }
+    try {
+      await _mqFetch(`/api/v1/media/review/${encodeURIComponent(uploadId)}/action`, {
+        method: 'POST',
+        body:   JSON.stringify({ action, reason: reason || undefined }),
+      });
+      if (msgEl) { msgEl.className = 'notice notice-success'; msgEl.style.display = ''; msgEl.textContent = 'Action recorded. Returning to queue\u2026'; }
+      await window._mqRefresh();
+      window._mqBack();
+    } catch (err) {
+      if (msgEl) {
+        msgEl.className    = 'notice notice-error';
+        msgEl.style.display = '';
+        msgEl.textContent  = `Could not perform action: ${err.message || 'Unknown error'}. Please try again.`;
+      }
+      document.querySelectorAll('#mq-detail .btn').forEach(b => { b.disabled = false; });
+    }
+  };
+
+  window._mqAnalyze = async function(uploadId) {
+    const msgEl     = document.getElementById('mq-action-msg');
+    const analyzeBtn = document.getElementById('mq-btn-analyze');
+    if (analyzeBtn) { analyzeBtn.disabled = true; analyzeBtn.textContent = 'Analyzing\u2026'; }
+    if (msgEl) {
+      msgEl.className    = 'notice notice-info';
+      msgEl.style.display = '';
+      msgEl.textContent  = 'Running AI analysis. This may take 15\u201330 seconds\u2026';
+    }
+    try {
+      const result = await _mqFetch(`/api/v1/media/review/${encodeURIComponent(uploadId)}/analyze`, { method: 'POST' });
+      if (msgEl) { msgEl.className = 'notice notice-success'; msgEl.style.display = ''; msgEl.textContent = 'AI analysis complete.'; }
+      // Attach result and re-render detail in place
+      if (_mqDetail && _mqDetail.id === uploadId) {
+        _mqDetail._analysis = result;
+        _mqDetail.status    = 'analyzed';
+        const qi = _mqQueue.find(u => u.id === uploadId);
+        if (qi) qi.status = 'analyzed';
+        _mqRenderDetail(_mqDetail);
+      }
+    } catch (err) {
+      if (msgEl) {
+        msgEl.className    = 'notice notice-error';
+        msgEl.style.display = '';
+        msgEl.textContent  = `Analysis failed: ${err.message || 'Unknown error'}. Please try again.`;
+      }
+      if (analyzeBtn) { analyzeBtn.disabled = false; analyzeBtn.innerHTML = '&#129302; Run AI Analysis'; }
+    }
+  };
+
+  window._mqApproveDraft = async function(uploadId) {
+    const msgEl     = document.getElementById('mq-draft-approve-msg');
+    const approveBtn = document.getElementById('mq-btn-approve-draft');
+    if (approveBtn) { approveBtn.disabled = true; approveBtn.textContent = 'Approving\u2026'; }
+    if (msgEl) { msgEl.className = 'notice notice-info'; msgEl.style.display = ''; msgEl.textContent = 'Approving draft\u2026'; }
+    try {
+      await _mqFetch(`/api/v1/media/analysis/${encodeURIComponent(uploadId)}/approve`, { method: 'POST' });
+      if (msgEl) { msgEl.className = 'notice notice-success'; msgEl.style.display = ''; msgEl.textContent = 'Draft approved for clinical use.'; }
+      // Update local state and re-render
+      if (_mqDetail && _mqDetail.id === uploadId && _mqDetail._analysis) {
+        _mqDetail._analysis.approved_for_clinical_use = true;
+        _mqDetail._analysis.clinician_reviewed_at     = new Date().toISOString();
+        _mqDetail.status = 'clinician_reviewed';
+        const qi = _mqQueue.find(u => u.id === uploadId);
+        if (qi) qi.status = 'clinician_reviewed';
+        _mqRenderDetail(_mqDetail);
+      }
+    } catch (err) {
+      if (msgEl) {
+        msgEl.className    = 'notice notice-error';
+        msgEl.style.display = '';
+        msgEl.textContent  = `Could not approve draft: ${err.message || 'Unknown error'}.`;
+      }
+      if (approveBtn) { approveBtn.disabled = false; approveBtn.textContent = 'Approve Draft for Clinical Use'; }
+    }
+  };
+
+  window._mqOpenDetail = async function(idx) {
+    const upload = _mqQueue[idx];
+    if (!upload) return;
+    _mqDetail = upload;
+
+    const listWrap = document.getElementById('mq-list-wrap');
+    const detailEl = document.getElementById('mq-detail');
+    if (listWrap) listWrap.style.display = 'none';
+    if (detailEl) detailEl.style.display = '';
+    _mqRenderDetail(upload);
+
+    // Lazy-load analysis for analyzed/reviewed items
+    if (['analyzed', 'clinician_reviewed'].includes(upload.status) && !upload._analysis) {
+      try {
+        const analysis = await _mqFetch(`/api/v1/media/analysis/${encodeURIComponent(upload.id)}`);
+        _mqDetail._analysis = analysis;
+        _mqRenderDetail(_mqDetail);
+      } catch (_e) { /* analysis may not yet exist — silently skip */ }
+    }
+  };
+
+  window._mqBack = function() {
+    _mqDetail = null;
+    const listWrap = document.getElementById('mq-list-wrap');
+    const detailEl = document.getElementById('mq-detail');
+    if (listWrap) listWrap.style.display = '';
+    if (detailEl) detailEl.style.display = 'none';
+    _mqRenderQueue();
+  };
+
+  window._mqRefresh = async function() {
+    try {
+      const raw = await _mqFetch('/api/v1/media/review-queue');
+      _mqQueue  = Array.isArray(raw) ? raw : [];
+      _mqRenderQueue();
+    } catch (_e) {
+      const listEl = document.getElementById('mq-list');
+      if (listEl) {
+        listEl.innerHTML = `
+          <div class="notice notice-error" style="margin:16px 0">
+            Could not load review queue. Please check your connection and try again.
+            <button class="btn btn-ghost btn-sm" style="margin-left:10px"
+                    onclick="window._mqRefresh()">Retry</button>
+          </div>`;
+      }
+    }
+  };
+
+  // ── Shell layout ───────────────────────────────────────────────────────────
+  container.innerHTML = `
+    <div id="mq-list-wrap">
+      <div style="margin-bottom:16px">
+        <div style="font-size:17px;font-weight:600;color:var(--text-primary);margin-bottom:4px">Patient Media Queue</div>
+        <div style="font-size:12.5px;color:var(--text-secondary)">
+          Review patient voice notes and text updates before AI analysis is triggered.
+          Approve for analysis, request revision, or flag urgent items.
+        </div>
+      </div>
+      <div class="notice notice-warn" style="margin-bottom:16px;font-size:12px">
+        <strong>Clinical AI Notice:</strong> All AI-generated analysis is a draft only and must be reviewed and
+        explicitly approved by a qualified clinician before it affects any clinical decision or record.
+      </div>
+      <div id="mq-list">${spinner()}</div>
+    </div>
+    <div id="mq-detail" style="display:none"></div>
+  `;
+
+  await window._mqRefresh();
 }
