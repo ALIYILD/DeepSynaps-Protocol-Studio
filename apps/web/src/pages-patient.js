@@ -3545,12 +3545,43 @@ export async function pgPatientLearn() {
 // Mirrors the API_BASE logic from api.js
 const _MEDIA_BASE = (import.meta.env && import.meta.env.VITE_API_BASE_URL) || 'http://127.0.0.1:8000';
 async function _mediaFetch(path, opts = {}) {
-  const token   = api.getToken();
-  const isForm  = opts.body instanceof FormData;
-  const headers = { ...(opts.headers || {}) };
-  if (token) headers['Authorization'] = `Bearer ${token}`;
-  if (!isForm) headers['Content-Type'] = 'application/json';
-  const res = await fetch(`${_MEDIA_BASE}${path}`, { ...opts, headers });
+  const isForm = opts.body instanceof FormData;
+
+  function _buildHeaders(token) {
+    const h = { ...(opts.headers || {}) };
+    if (token) h['Authorization'] = `Bearer ${token}`;
+    if (!isForm) h['Content-Type'] = 'application/json';
+    return h;
+  }
+
+  async function _doFetch(token) {
+    return fetch(`${_MEDIA_BASE}${path}`, { ...opts, headers: _buildHeaders(token) });
+  }
+
+  let res = await _doFetch(api.getToken());
+
+  // Mirror apiFetch: on 401, attempt one token refresh then retry
+  if (res.status === 401 && path !== '/api/v1/auth/refresh') {
+    try {
+      const storedRefresh = localStorage.getItem('ds_refresh_token');
+      if (storedRefresh) {
+        const refreshRes = await fetch(`${_MEDIA_BASE}/api/v1/auth/refresh`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ refresh_token: storedRefresh }),
+        });
+        if (refreshRes.ok) {
+          const refreshData = await refreshRes.json();
+          if (refreshData.access_token) {
+            api.setToken(refreshData.access_token);
+            if (refreshData.refresh_token) localStorage.setItem('ds_refresh_token', refreshData.refresh_token);
+            res = await _doFetch(refreshData.access_token);
+          }
+        }
+      }
+    } catch (_refreshErr) { /* fall through to original 401 error */ }
+  }
+
   if (res.status === 204) return null;
   if (!res.ok) {
     let msg = `API error ${res.status}`;
