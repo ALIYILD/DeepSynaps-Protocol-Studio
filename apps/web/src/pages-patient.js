@@ -249,7 +249,7 @@ export async function pgPatientDashboard(user) {
   const latestCheckin = recentCheckins[0] || null;
 
   function _ptdWellnessTrend() {
-    if (recentCheckins.length < 2) return { label: 'Check in to see your trend', icon: '○', color: 'var(--text-tertiary)' };
+    if (recentCheckins.length < 2) return { label: 'Check in to see your trend', icon: '○', color: 'var(--text-secondary,#94a3b8)' };
     const recent = recentCheckins.slice(0, 2);
     const all5 = recentCheckins.slice(0, Math.min(5, recentCheckins.length));
     const avgRecent = recent.reduce((s, c) => s + ((c.mood || 5) + (c.sleep || 5) + (c.energy || 5)) / 3, 0) / recent.length;
@@ -402,7 +402,7 @@ export async function pgPatientDashboard(user) {
                <div class="ptd-empty-support">Your clinic can help you schedule your next visit.</div>
                <button class="ptd-inline-btn" onclick="event.stopPropagation();window._navPatient('patient-messages')" style="margin:8px 0 4px">Contact clinic to schedule \u2192</button>
                <div class="ptd-empty-hint">You&rsquo;ll see session details here once it&rsquo;s booked.</div>`}
-          <div class="ptd-card-link">View session details \u2192</div>
+          <div class="ptd-card-link${nextSessDateLabel ? '' : ' ptd-card-link--dim'}">View session details \u2192</div>
         </div>
 
         <!-- Treatment Progress -->
@@ -5272,342 +5272,416 @@ export async function pgPatientWearables() {
   ];
 
   // ── XSS helper ───────────────────────────────────────────────────────────
-  function esc(v) { if (v == null) return ''; return String(v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#x27;'); }
-
-  // ── Fetch data ────────────────────────────────────────────────────────────
-  let wearableData = null;
-  let summaryData  = null;
-  try {
-    [wearableData, summaryData] = await Promise.all([
-      api.patientPortalWearables().catch(() => null),
-      api.patientPortalWearableSummary(7).catch(() => null),
-    ]);
-  } catch (_e) {
-    wearableData = null;
-    summaryData  = null;
+  function esc(v) {
+    if (v == null) return '';
+    return String(v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#x27;');
   }
 
-  const connections   = wearableData?.connections   || [];
-  const recentAlerts  = wearableData?.recent_alerts || [];
-  const summaries     = summaryData?.summaries      || [];
-  const latest        = summaryData?.latest         || null;
+  // ── Fetch API data ────────────────────────────────────────────────────────
+  const [wearableData, _summaryData] = await Promise.all([
+    api.patientPortalWearables().catch(() => null),
+    api.patientPortalWearableSummary(7).catch(() => null),
+  ]);
 
-  // ── Helper: connection status ─────────────────────────────────────────────
-  function connFor(source) {
-    return connections.find(c => c.source === source) || null;
+  const connections  = wearableData?.connections   || [];
+  const recentAlerts = wearableData?.recent_alerts || [];
+
+  // ── LocalStorage: home device assignments + session log ───────────────────
+  const homeDevKey  = 'ds_home_devices_'  + (uid || 'demo');
+  const homeSessKey = 'ds_home_sessions_' + (uid || 'demo');
+  let homeDevices  = [];
+  let homeSessions = [];
+  try { homeDevices  = JSON.parse(localStorage.getItem(homeDevKey)  || '[]'); } catch (_e) {}
+  try { homeSessions = JSON.parse(localStorage.getItem(homeSessKey) || '[]'); } catch (_e) {}
+
+  // Demo seed: assign tDCS if nothing stored
+  if (!homeDevices.length) {
+    homeDevices = [{
+      deviceId: 'tdcs', assigned: true, prescribedFreq: 'Daily (Mon–Fri)',
+      status: 'active', monitoredByClinician: true,
+      lastSession: new Date(Date.now() - 86400000).toISOString(),
+      _isDemoData: true,
+    }];
+  }
+
+  // ── Helpers ───────────────────────────────────────────────────────────────
+  function connFor(id)    { return connections.find(c => c.source === id) || null; }
+  function homeDevFor(id) { return homeDevices.find(d => d.deviceId === id) || null; }
+  function lastSessFor(id) {
+    const all = homeSessions.filter(s => s.deviceId === id);
+    return all.length ? all[all.length - 1] : null;
   }
 
   function syncStatus(conn) {
     if (!conn || conn.status !== 'connected') return 'disconnected';
     if (!conn.last_sync_at) return 'pending';
     const hrs = (Date.now() - new Date(conn.last_sync_at).getTime()) / 3600000;
-    if (hrs <= 24) return 'synced';
-    return 'stale';
+    return hrs <= 24 ? 'synced' : 'stale';
   }
 
-  function statusDot(s) {
-    const map = {
-      synced:       { color: 'var(--green)',  label: 'Synced' },
-      stale:        { color: 'var(--amber)',  label: 'Sync overdue' },
-      disconnected: { color: 'var(--red)',    label: 'Not connected' },
-      pending:      { color: 'var(--amber)',  label: 'Pending' },
+  function statusPill(s, label) {
+    const cfg = {
+      synced:       { bg:'rgba(34,197,94,0.12)',  color:'var(--green,#22c55e)',   lbl:label||'Synced' },
+      stale:        { bg:'rgba(245,158,11,0.12)', color:'var(--amber,#f59e0b)',  lbl:label||'Sync overdue' },
+      disconnected: { bg:'rgba(255,107,107,0.1)', color:'var(--red,#ef4444)',    lbl:label||'Not connected' },
+      pending:      { bg:'rgba(245,158,11,0.12)', color:'var(--amber,#f59e0b)',  lbl:label||'Pending' },
+      active:       { bg:'rgba(0,212,188,0.12)',  color:'var(--teal,#00d4bc)',   lbl:label||'Active' },
+      assigned:     { bg:'rgba(59,130,246,0.12)', color:'var(--blue,#3b82f6)',   lbl:label||'Assigned' },
     };
-    const st = map[s] || map.disconnected;
-    return `<span style="display:inline-flex;align-items:center;gap:5px;font-size:11px;color:${st.color};font-weight:500">
-      <span style="width:7px;height:7px;border-radius:50%;background:${st.color};flex-shrink:0;display:inline-block"></span>${st.label}
-    </span>`;
+    const c = cfg[s] || cfg.disconnected;
+    return `<span class="pdw-pill" style="background:${c.bg};color:${c.color}"><span class="pdw-pill-dot" style="background:${c.color}"></span>${c.lbl}</span>`;
   }
 
-  // ── Trend helpers ─────────────────────────────────────────────────────────
-  function trendVals(field) {
-    return summaries.map(s => s[field]).filter(v => v != null);
-  }
+  // ── Summary counts ────────────────────────────────────────────────────────
+  const connectedCount = connections.filter(c => c.status === 'connected').length;
+  const assignedCount  = homeDevices.filter(d => d.assigned).length;
+  const lastSyncMs     = connections.filter(c => c.last_sync_at)
+    .map(c => new Date(c.last_sync_at).getTime()).sort((a,b) => b-a)[0] || null;
 
-  function trendIndicator(vals) {
-    if (vals.length < 2) return '→';
-    const delta = vals[vals.length - 1] - vals[0];
-    if (delta > 0) return '↑';
-    if (delta < 0) return '↓';
-    return '→';
-  }
-
-  function miniSparkline(vals, color) {
-    if (!vals || vals.length < 2) {
-      return `<svg width="90" height="24" viewBox="0 0 90 24"><line x1="0" y1="12" x2="90" y2="12" stroke="${color}" stroke-width="1" stroke-dasharray="3,3" opacity=".3"/></svg>`;
-    }
-    return sparklineSVG(vals, color, 90, 24);
-  }
-
-  function trendCard(label, value, unit, vals, color, source, cardColor) {
-    const indicator = trendIndicator(vals);
-    const indColor  = indicator === '↑' ? 'var(--green)' : indicator === '↓' ? 'var(--red)' : 'var(--text-tertiary)';
-    const displayVal = (value != null) ? `${value}` : 'N/A';
-    return `<div class="card" style="padding:14px 16px;position:relative;overflow:hidden">
-      <div style="position:absolute;top:0;left:0;width:3px;height:100%;background:${cardColor}"></div>
-      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;margin-bottom:8px">
-        <div>
-          <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.8px;color:var(--text-tertiary);margin-bottom:3px">${label}</div>
-          <div style="display:flex;align-items:baseline;gap:4px">
-            <span style="font-size:22px;font-weight:700;color:${cardColor};font-family:var(--font-mono)">${displayVal}</span>
-            <span style="font-size:11px;color:var(--text-tertiary)">${unit}</span>
-          </div>
-        </div>
-        <span style="font-size:16px;color:${indColor};font-weight:700;margin-top:4px">${indicator}</span>
-      </div>
-      <div style="margin-bottom:6px">${miniSparkline(vals, cardColor)}</div>
-      <div style="font-size:10px;color:var(--text-tertiary)">${source || 'Source unknown'}</div>
-    </div>`;
-  }
-
-  // ── Compute metric values ─────────────────────────────────────────────────
-  const rhrVals     = trendVals('rhr_bpm');
-  const hrvVals     = trendVals('hrv_ms');
-  const sleepVals   = trendVals('sleep_duration_h');
-  const stepsVals   = trendVals('steps');
-  const spo2Vals    = trendVals('spo2_pct');
-  const painVals    = trendVals('pain_score');
-  const anxietyVals = trendVals('anxiety_score');
-
-  const latestRhr     = rhrVals.length     ? rhrVals[rhrVals.length - 1]     : null;
-  const latestHrv     = hrvVals.length     ? hrvVals[hrvVals.length - 1]     : null;
-  const latestSleep   = sleepVals.length   ? sleepVals[sleepVals.length - 1] : null;
-  const latestSteps   = stepsVals.length   ? stepsVals[stepsVals.length - 1] : null;
-  const latestSpo2    = spo2Vals.length    ? spo2Vals[spo2Vals.length - 1]   : null;
-  const latestMood    = latest?.mood_score    != null ? latest.mood_score    : null;
-  const latestPain    = latest?.pain_score    != null ? latest.pain_score    : null;
-  const latestAnxiety = latest?.anxiety_score != null ? latest.anxiety_score : null;
-
-  const connectedSource = connections.find(c => c.status === 'connected')?.display_name || 'Connected device';
-  const hasSummaryData  = summaries.length > 0;
-
-  // ── Build chat state ──────────────────────────────────────────────────────
-  // Use module-level cache so history survives tab navigation
-  const wearableChatMessages = _wearableChat.msgs;
+  // ── Biometric snapshot ────────────────────────────────────────────────────
+  let bio = null;
+  try { bio = JSON.parse(localStorage.getItem('ds_wearable_summary') || 'null'); } catch (_e) {}
+  if (!bio) bio = { _isDemoData:true, hrv:'42 ms', sleep:'7h 12m', steps:'6,840', rhr:'64 bpm' };
 
   // ── Render ────────────────────────────────────────────────────────────────
   el.innerHTML = `
-  <!-- Section 1: Connected Devices -->
-  <div style="margin-bottom:24px">
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
-      <div>
-        <div style="font-size:15px;font-weight:600;color:var(--text-primary)">◌ Connected Devices</div>
-        <div style="font-size:11.5px;color:var(--text-tertiary);margin-top:2px">Sync health data from your wearable or phone</div>
-      </div>
+<div class="pdw-wrap">
+
+  <!-- ① CONNECTION SUMMARY BAR -->
+  <div class="pdw-summary-bar">
+    <div class="pdw-stat">
+      <div class="pdw-stat-val">${connectedCount}</div>
+      <div class="pdw-stat-lbl">Health source${connectedCount !== 1 ? 's' : ''} connected</div>
     </div>
-    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px;margin-bottom:12px">
-      ${DEVICES.map(dev => {
-        const conn   = connFor(dev.source);
+    <div class="pdw-stat-divider"></div>
+    <div class="pdw-stat">
+      <div class="pdw-stat-val">${assignedCount}</div>
+      <div class="pdw-stat-lbl">Home therapy device${assignedCount !== 1 ? 's' : ''}</div>
+    </div>
+    <div class="pdw-stat-divider"></div>
+    <div class="pdw-stat">
+      <div class="pdw-stat-val">${lastSyncMs ? fmtRelative(new Date(lastSyncMs).toISOString()) : 'Never'}</div>
+      <div class="pdw-stat-lbl">Last sync</div>
+    </div>
+    <div class="pdw-stat-divider"></div>
+    <div class="pdw-stat">
+      <div class="pdw-stat-val ${connectedCount > 0 ? 'pdw-stat-ok' : 'pdw-stat-off'}">${connectedCount > 0 ? 'Active' : 'Inactive'}</div>
+      <div class="pdw-stat-lbl">Monitoring</div>
+    </div>
+  </div>
+
+  ${recentAlerts.length ? `<div class="notice notice-warn" style="font-size:12px"><strong>Sync note:</strong> ${esc(recentAlerts[0].detail||'A recent sync issue was detected.')}</div>` : ''}
+
+  <!-- ② HEALTH SOURCES -->
+  <div class="pdw-section">
+    <div class="pdw-section-header">
+      <h3 class="pdw-section-title">Health sources</h3>
+      <span class="pdw-section-sub">Connect your phone or wearable to share health data with your care team</span>
+    </div>
+    <div class="pdw-source-grid">
+      ${HEALTH_SOURCES.map(src => {
+        const conn   = connFor(src.id);
         const status = syncStatus(conn);
-        const isConn = status === 'synced' || status === 'stale';
-        const lastSyncStr = conn?.last_sync_at
-          ? `Last sync: ${fmtRelative(conn.last_sync_at)}`
-          : 'Never synced';
-        return `<div class="card" style="padding:16px;display:flex;flex-direction:column;gap:10px">
-          <div style="display:flex;align-items:center;gap:10px">
-            <div style="width:36px;height:36px;border-radius:var(--radius-md);background:rgba(255,255,255,0.04);display:flex;align-items:center;justify-content:center;font-size:20px;color:${dev.iconColor};flex-shrink:0">${dev.icon}</div>
-            <div style="flex:1;min-width:0">
-              <div style="font-size:13px;font-weight:600;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${dev.display_name}</div>
-              <div style="margin-top:3px">${statusDot(status)}</div>
+        const isConn = status === 'synced' || status === 'stale' || status === 'pending';
+        const accent = `var(${src.accentVar},#00d4bc)`;
+        const syncStr = conn?.last_sync_at ? `Last sync ${fmtRelative(conn.last_sync_at)}` : 'Never synced';
+        return `
+        <div class="pdw-source-card">
+          <div class="pdw-source-top">
+            <div class="pdw-source-icon" style="color:${accent}">${src.icon}</div>
+            <div class="pdw-source-meta">
+              <div class="pdw-source-name">${esc(src.label)}</div>
+              <div class="pdw-source-platform">${esc(src.platform)}</div>
             </div>
+            ${statusPill(status)}
           </div>
-          <div style="font-size:11px;color:var(--text-tertiary)">${isConn ? lastSyncStr : 'Not connected'}</div>
-          <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
+          <div class="pdw-source-sync">${isConn ? syncStr : 'Not connected'}</div>
+          <div class="pdw-data-used">
+            <span class="pdw-data-label">Data used:</span>
+            ${src.dataUsed.map(d=>`<span class="pdw-data-chip">${esc(d)}</span>`).join('')}
+          </div>
+          <div class="pdw-source-note">${esc(src.connectNote)}</div>
+          <div class="pdw-source-actions">
             ${isConn
-              ? `<button class="btn btn-sm" style="color:var(--red);border-color:rgba(255,107,107,0.3);font-size:11px" onclick="window._connectWearable('${dev.source}','disconnect','${conn?.id || ''}')">Disconnect</button>`
-              : `<button class="btn btn-sm btn-primary" style="font-size:11.5px" onclick="window._connectWearable('${dev.source}','connect','')">Connect</button>`}
+              ? `<button class="pdw-btn-manage"    onclick="window._pdwManageSource('${src.id}','${conn?.id||''}')">Manage</button>
+                 <button class="pdw-btn-reconnect" onclick="window._pdwReconnect('${src.id}')">Reconnect</button>`
+              : `<button class="pdw-btn-connect"   onclick="window._pdwConnect('${src.id}')">Connect</button>`}
           </div>
-          <div style="font-size:10px;color:var(--text-tertiary);border-top:1px solid var(--border);padding-top:8px">Not a medical device — data is for personal insight only.</div>
         </div>`;
       }).join('')}
     </div>
-    ${recentAlerts.length > 0 ? `
-    <div class="notice notice-warn" style="font-size:12px;margin-top:8px">
-      <strong>Sync note:</strong> ${esc(recentAlerts[0].detail) || 'A recent sync issue was detected.'}
-    </div>` : ''}
   </div>
 
-  <!-- Section 2: Health Trends -->
-  <div style="margin-bottom:24px">
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
-      <div>
-        <div style="font-size:15px;font-weight:600;color:var(--text-primary)">◎ Health Trends (7-day)</div>
-        <div style="font-size:11.5px;color:var(--text-tertiary);margin-top:2px">Based on synced device data</div>
-      </div>
+  <!-- ③ HOME THERAPY DEVICES -->
+  <div class="pdw-section">
+    <div class="pdw-section-header">
+      <h3 class="pdw-section-title">Home therapy devices</h3>
+      <span class="pdw-section-sub">Devices assigned by your clinic for use between sessions</span>
     </div>
-    ${!hasSummaryData
-      ? `<div class="card"><div class="card-body" style="padding:32px;text-align:center;color:var(--text-tertiary)">
-          <div style="font-size:28px;margin-bottom:10px;opacity:.4">◌</div>
-          <div style="font-size:13px;margin-bottom:6px;color:var(--text-secondary)">No data synced yet</div>
-          <div style="font-size:12px">Connect a device above to start seeing your health trends.</div>
-        </div></div>`
-      : `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px">
-          ${trendCard('Resting HR', latestRhr, 'bpm', rhrVals, 'var(--teal)', connectedSource, 'var(--teal)')}
-          ${trendCard('HRV', latestHrv, 'ms', hrvVals, 'var(--blue)', connectedSource, 'var(--blue)')}
-          ${trendCard('Sleep', latestSleep, 'hrs', sleepVals, 'var(--violet)', connectedSource, 'var(--violet)')}
-          ${trendCard('Steps', latestSteps, '/day', stepsVals, 'var(--green)', connectedSource, 'var(--green)')}
-          ${trendCard('SpO\u2082', latestSpo2, '%', spo2Vals, 'var(--blue)', connectedSource, 'var(--blue)')}
-          ${latestMood != null ? trendCard('Mood', latestMood, '/5', [], 'var(--amber)', 'Wellness check-in', 'var(--amber)') : ''}
-        </div>
-        <div class="notice notice-info" style="font-size:11.5px;margin-top:12px">
-          ◎ &nbsp;Data is informational only. For medical decisions, always consult your clinician.
-        </div>`
-    }
+    <div class="pdw-device-list">
+      ${HOME_THERAPY_DEVICES.map(dev => {
+        const asgn     = homeDevFor(dev.id);
+        const lastSess = lastSessFor(dev.id) || (asgn?.lastSession ? { date: asgn.lastSession } : null);
+        const devSt    = asgn?.status || 'unassigned';
+        const accent   = `var(${dev.accentVar},#00d4bc)`;
+        const assigned = asgn?.assigned;
+        return `
+        <div class="pdw-device-card ${assigned ? 'pdw-device-card--assigned' : ''}" style="${assigned ? `border-left:3px solid ${accent}` : ''}">
+          <div class="pdw-device-top">
+            <div class="pdw-device-icon" style="color:${accent}">${dev.icon}</div>
+            <div class="pdw-device-meta">
+              <div class="pdw-device-name">${esc(dev.label)}</div>
+              <div class="pdw-device-category">${esc(dev.category)}</div>
+            </div>
+            ${assigned ? statusPill(devSt, devSt==='active'?'Active':'Assigned') : statusPill('disconnected','Not assigned')}
+          </div>
+          ${assigned ? `
+          <div class="pdw-device-details">
+            <div class="pdw-detail-row"><span class="pdw-detail-lbl">Prescribed frequency</span><span class="pdw-detail-val">${esc(asgn.prescribedFreq||'As directed')}</span></div>
+            <div class="pdw-detail-row"><span class="pdw-detail-lbl">Last session logged</span><span class="pdw-detail-val">${lastSess ? fmtRelative(lastSess.date||lastSess.completedAt) : 'Not yet logged'}</span></div>
+            <div class="pdw-detail-row"><span class="pdw-detail-lbl">Clinician monitoring</span><span class="pdw-detail-val ${asgn.monitoredByClinician?'pdw-monitored-yes':''}">${asgn.monitoredByClinician?'✓ Monitored':'Self-tracking only'}</span></div>
+            ${asgn._isDemoData ? '<div class="pdw-demo-badge">Example assignment</div>' : ''}
+          </div>
+          <div class="pdw-device-actions">
+            <button class="pdw-action-btn pdw-action-primary" onclick="window._pdwLogSession('${dev.id}')">Log Session</button>
+            <button class="pdw-action-btn"                    onclick="window._pdwViewInstructions('${dev.id}')">Instructions</button>
+            <button class="pdw-action-btn pdw-action-report"  onclick="window._pdwReportIssue()">Report Issue</button>
+            <button class="pdw-action-btn pdw-action-ble" disabled title="Coming soon">Connect Device</button>
+          </div>` : `
+          <p class="pdw-device-unassigned">Not currently part of your plan. Contact your care team if you have this device.</p>
+          <div class="pdw-device-actions"><button class="pdw-action-btn" onclick="window._navPatient('patient-messages')">Ask my clinician</button></div>`}
+          <!-- Detail drawer -->
+          <div class="pdw-detail-drawer" id="pdw-drawer-${dev.id}" style="display:none">
+            <div class="pdw-drawer-body">
+              <div class="pdw-drawer-section"><div class="pdw-drawer-heading">What is this device?</div><p class="pdw-drawer-text">${esc(dev.what)}</p></div>
+              <div class="pdw-drawer-section"><div class="pdw-drawer-heading">Why does it matter?</div><p class="pdw-drawer-text">${esc(dev.whyMatters)}</p></div>
+              <div class="pdw-drawer-section">
+                <div class="pdw-drawer-heading">What data is shared with your clinic</div>
+                <ul class="pdw-drawer-list">${dev.dataShared.map(d=>`<li>${esc(d)}</li>`).join('')}</ul>
+              </div>
+              <div class="pdw-drawer-section">
+                <div class="pdw-drawer-heading">What is NOT shared</div>
+                <ul class="pdw-drawer-list pdw-list-muted">${dev.dataNotShared.map(d=>`<li>${esc(d)}</li>`).join('')}</ul>
+              </div>
+              <div class="pdw-drawer-section">
+                <div class="pdw-drawer-heading">Troubleshooting</div>
+                <ul class="pdw-drawer-list">${dev.troubleshoot.map(d=>`<li>${esc(d)}</li>`).join('')}</ul>
+              </div>
+              <div class="pdw-drawer-section pdw-drawer-contact">
+                <div class="pdw-drawer-heading">When to contact your clinic</div>
+                <p class="pdw-drawer-text">${esc(dev.contactClinic)}</p>
+                <button class="pdw-action-btn pdw-action-primary" style="margin-top:10px" onclick="window._navPatient('patient-messages')">Message care team</button>
+              </div>
+            </div>
+          </div>
+          <button class="pdw-drawer-toggle" onclick="window._pdwToggleDrawer('${dev.id}')">
+            <span id="pdw-dtgl-${dev.id}">Show details</span> ▾
+          </button>
+        </div>`;
+      }).join('')}
+    </div>
   </div>
 
-  <!-- Section 3: AI Copilot -->
-  <div>
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
-      <div>
-        <div style="font-size:15px;font-weight:600;color:var(--text-primary)">◈ Ask About My Health Data</div>
-        <div style="font-size:11.5px;color:var(--text-tertiary);margin-top:2px">AI-powered insights about your wearable data</div>
-      </div>
+  <!-- ④ WHAT YOUR CLINIC MONITORS -->
+  <div class="pdw-section">
+    <div class="pdw-section-header">
+      <h3 class="pdw-section-title">What your clinic monitors</h3>
+      <span class="pdw-section-sub">Automatically shared with your care team</span>
     </div>
-    <div class="notice notice-warn" style="font-size:12px;margin-bottom:14px">
-      AI responses are informational only. Your clinician is your primary medical contact.
+    <div class="pdw-monitoring-chips">
+      ${['Sleep','HRV','Heart rate','Steps & activity','Home session completion','Symptom check-ins','Side effects reported','Uploaded updates'].map(
+        c=>`<span class="pdw-monitor-chip">${esc(c)}</span>`).join('')}
     </div>
-    <div class="card" style="margin-bottom:14px">
-      <div class="card-body" style="padding:14px 16px">
-        <div style="font-size:11px;font-weight:600;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.8px;margin-bottom:10px">Quick Questions</div>
-        <div style="display:flex;flex-wrap:wrap;gap:8px">
-          <button class="btn btn-sm" onclick="window._wearablePrompt('How did my sleep change this week?')">How did my sleep change this week?</button>
-          <button class="btn btn-sm" onclick="window._wearablePrompt('Show my heart rate before my last sessions')">Heart rate before sessions</button>
-          <button class="btn btn-sm" onclick="window._wearablePrompt('What changed since I started treatment?')">What changed since I started treatment?</button>
-          <button class="btn btn-sm" onclick="window._wearablePrompt('How consistent has my sleep been?')">How consistent has my sleep been?</button>
+    <p class="pdw-note-text">Only the items above are visible to your clinic. Personal notes and voice memos are only shared when you choose to upload them.</p>
+  </div>
+
+  <!-- ⑤ BIOMETRICS SNAPSHOT -->
+  <div class="pdw-section">
+    <div class="pdw-section-header">
+      <h3 class="pdw-section-title">Biometrics snapshot</h3>
+      ${bio._isDemoData
+        ? '<span class="pdw-demo-tag">Example — connect a device to see real data</span>'
+        : `<span class="pdw-section-sub">Last sync ${lastSyncMs ? fmtRelative(new Date(lastSyncMs).toISOString()) : '—'}</span>`}
+    </div>
+    <div class="pdw-bio-tiles">
+      <div class="pdw-bio-tile"><div class="pdw-bio-val">${esc(bio.sleep)}</div><div class="pdw-bio-lbl">Sleep last night</div></div>
+      <div class="pdw-bio-tile"><div class="pdw-bio-val">${esc(bio.hrv)}</div><div class="pdw-bio-lbl">HRV</div></div>
+      <div class="pdw-bio-tile"><div class="pdw-bio-val">${esc(bio.rhr||'—')}</div><div class="pdw-bio-lbl">Resting heart rate</div></div>
+      <div class="pdw-bio-tile"><div class="pdw-bio-val">${esc(bio.steps)}</div><div class="pdw-bio-lbl">Steps today</div></div>
+    </div>
+  </div>
+
+  <!-- ⑥ PRIVACY & PERMISSIONS -->
+  <div class="pdw-section pdw-privacy-section">
+    <div class="pdw-section-header"><h3 class="pdw-section-title">Privacy &amp; permissions</h3></div>
+    <div class="pdw-privacy-grid">
+      <div class="pdw-priv-block"><div class="pdw-priv-heading">What data is read</div><p class="pdw-priv-text">Sleep, heart rate, HRV, steps, and activity. No location data is ever accessed.</p></div>
+      <div class="pdw-priv-block"><div class="pdw-priv-heading">Permissions used</div><p class="pdw-priv-text">Read-only access you explicitly grant. We never write back to Apple Health or Health Connect.</p></div>
+      <div class="pdw-priv-block"><div class="pdw-priv-heading">How to disconnect</div><p class="pdw-priv-text">Use the Manage button on any connected source. On iOS, revoke access in Settings → Privacy → Health.</p></div>
+      <div class="pdw-priv-block"><div class="pdw-priv-heading">How to stop sharing</div><p class="pdw-priv-text">Disconnect any source at any time. Historical data stays in your record but no new data will be collected.</p></div>
+    </div>
+  </div>
+
+  <!-- ⑦ FUTURE-READY BLE PLACEHOLDER -->
+  <div class="pdw-section pdw-ble-section">
+    <div class="pdw-ble-icon">◌</div>
+    <div class="pdw-ble-copy">
+      <div class="pdw-ble-heading">Direct Bluetooth connection — coming soon</div>
+      <p class="pdw-ble-text">Future versions will allow your home device to connect directly via Bluetooth, automatically importing session logs and device diagnostics.</p>
+    </div>
+  </div>
+
+</div>
+
+<!-- HOME SESSION LOG MODAL -->
+<div class="pdw-modal-overlay" id="pdw-log-modal" style="display:none">
+  <div class="pdw-modal-card">
+    <div class="pdw-modal-header">
+      <h4 class="pdw-modal-title" id="pdw-log-title">Log home session</h4>
+      <button class="pdw-modal-close" onclick="window._pdwCloseModal()">✕</button>
+    </div>
+    <div class="pdw-modal-body">
+      <input type="hidden" id="pdw-log-device-id">
+      <div class="pdw-form-row">
+        <label class="pdw-form-label">Did you complete a session?</label>
+        <div class="pdw-radio-row">
+          <label class="pdw-radio-label"><input type="radio" name="pdw-completed" value="yes" checked> Yes, completed</label>
+          <label class="pdw-radio-label"><input type="radio" name="pdw-completed" value="partial"> Partial</label>
+          <label class="pdw-radio-label"><input type="radio" name="pdw-completed" value="no"> No, skipped</label>
         </div>
       </div>
-    </div>
-    <div class="card">
-      <div class="card-body" style="padding:14px 16px">
-        <div id="wearable-chat-history" style="min-height:80px;max-height:380px;overflow-y:auto;display:flex;flex-direction:column;gap:10px;margin-bottom:14px"></div>
-        <div style="display:flex;gap:8px;align-items:flex-end">
-          <textarea id="wearable-chat-input" placeholder="Ask about your health data…" rows="2"
-            style="flex:1;resize:none;background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius-md);padding:10px 12px;font-size:13px;color:var(--text-primary);font-family:var(--font-body);line-height:1.5"
-            onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();window._wearableSend();}"></textarea>
-          <button class="btn btn-primary btn-sm" onclick="window._wearableSend()" style="flex-shrink:0;padding:10px 16px">Send ◈</button>
+      <div class="pdw-form-row">
+        <label class="pdw-form-label" for="pdw-log-time">When?</label>
+        <input type="datetime-local" id="pdw-log-time" class="form-control" style="font-size:13px">
+      </div>
+      <div class="pdw-form-row">
+        <label class="pdw-form-label">Any side effects or discomfort?</label>
+        <div class="pdw-checkbox-grid">
+          ${['None','Mild headache','Scalp tingling','Fatigue afterward','Skin irritation','Jaw tension','Other'].map(
+            e=>`<label class="pdw-check-label"><input type="checkbox" name="pdw-effects" value="${e}"> ${e}</label>`
+          ).join('')}
         </div>
       </div>
+      <div class="pdw-form-row">
+        <label class="pdw-form-label" for="pdw-log-feel">How did you feel after?</label>
+        <select id="pdw-log-feel" class="form-control" style="font-size:13px">
+          <option value="">Select…</option>
+          <option>Much better</option><option>A bit better</option>
+          <option>About the same</option><option>A bit worse</option><option>Much worse</option>
+        </select>
+      </div>
+      <div class="pdw-form-row">
+        <label class="pdw-form-label" for="pdw-log-note">Optional note</label>
+        <textarea id="pdw-log-note" class="form-control" rows="2" placeholder="Anything you want your clinician to know…" style="font-size:13px;resize:vertical"></textarea>
+      </div>
     </div>
-  </div>`;
+    <div class="pdw-modal-footer">
+      <button class="btn btn-ghost btn-sm" onclick="window._pdwCloseModal()">Cancel</button>
+      <button class="btn btn-primary btn-sm" onclick="window._pdwSaveSession()">Save session</button>
+    </div>
+  </div>
+</div>`;
 
-  // ── Chat logic ────────────────────────────────────────────────────────────
-  function buildContext() {
-    if (!hasSummaryData) return 'No wearable data available.';
-    const lines = [`7-day wearable summary (${summaries.length} days):`];
-    if (latestRhr != null)   lines.push(`Resting HR: ${latestRhr} bpm (7-day trend: ${rhrVals.join(', ')})`);
-    if (latestHrv != null)   lines.push(`HRV: ${latestHrv} ms (7-day trend: ${hrvVals.join(', ')})`);
-    if (latestSleep != null) lines.push(`Sleep duration: ${latestSleep} hrs (7-day trend: ${sleepVals.join(', ')})`);
-    if (latestSteps != null) lines.push(`Steps: ${latestSteps}/day (7-day trend: ${stepsVals.join(', ')})`);
-    if (latestSpo2 != null)  lines.push(`SpO2: ${latestSpo2}%`);
-    if (latestMood != null)  lines.push(`Latest mood check-in: ${latestMood}/5`);
-    return lines.join('\n');
-  }
-
-  function renderChatHistory() {
-    const histEl = document.getElementById('wearable-chat-history');
-    if (!histEl) return;
-    if (wearableChatMessages.length === 0) {
-      histEl.innerHTML = `<div style="text-align:center;padding:24px 0;color:var(--text-tertiary);font-size:12.5px">
-        Ask me anything about your health data above.
-      </div>`;
-      return;
-    }
-    const visible = wearableChatMessages.slice(-6);
-    histEl.innerHTML = visible.map(m => {
-      const isUser = m.role === 'user';
-      return `<div style="display:flex;${isUser ? 'justify-content:flex-end' : 'justify-content:flex-start'}">
-        <div style="max-width:78%;padding:10px 13px;border-radius:${isUser ? '12px 12px 3px 12px' : '12px 12px 12px 3px'};
-          background:${isUser ? 'rgba(0,212,188,0.12)' : 'var(--bg-card)'};
-          border:1px solid ${isUser ? 'rgba(0,212,188,0.25)' : 'var(--border)'};
-          font-size:12.5px;color:var(--text-primary);line-height:1.55;white-space:pre-wrap">
-          ${m.content.replace(/</g, '&lt;').replace(/>/g, '&gt;')}
-          ${!isUser ? `<div style="font-size:10px;color:var(--text-tertiary);margin-top:6px;border-top:1px solid var(--border);padding-top:5px">AI-generated — verify with your clinician</div>` : ''}
-        </div>
-      </div>`;
-    }).join('');
-    histEl.scrollTop = histEl.scrollHeight;
-  }
-
-  function showTyping() {
-    const histEl = document.getElementById('wearable-chat-history');
-    if (!histEl) return;
-    const typingEl = document.createElement('div');
-    typingEl.id = 'wearable-typing';
-    typingEl.style.cssText = 'display:flex;justify-content:flex-start';
-    typingEl.innerHTML = `<div style="padding:10px 13px;border-radius:12px 12px 12px 3px;background:var(--bg-card);border:1px solid var(--border);display:flex;gap:4px;align-items:center">
-      ${[0,1,2].map(i => `<span style="width:5px;height:5px;border-radius:50%;background:var(--teal);display:inline-block;animation:pulseDot 1.2s ${i*0.2}s infinite ease-in-out"></span>`).join('')}
-    </div>`;
-    histEl.appendChild(typingEl);
-    histEl.scrollTop = histEl.scrollHeight;
-  }
-
-  function removeTyping() {
-    const t = document.getElementById('wearable-typing');
-    if (t) t.remove();
-  }
-
-  renderChatHistory();
-
-  window._wearablePrompt = function(text) {
-    const input = document.getElementById('wearable-chat-input');
-    if (input) { input.value = text; input.focus(); }
-    window._wearableSend();
+  // ── Drawer toggle ─────────────────────────────────────────────────────────
+  window._pdwToggleDrawer = function(id) {
+    const dr  = document.getElementById('pdw-drawer-' + id);
+    const lbl = document.getElementById('pdw-dtgl-' + id);
+    if (!dr) return;
+    const open = dr.style.display === 'none';
+    dr.style.display = open ? '' : 'none';
+    if (lbl) lbl.textContent = open ? 'Hide details' : 'Show details';
   };
 
-  window._wearableSend = async function() {
-    const input = document.getElementById('wearable-chat-input');
-    const btn   = document.querySelector('#wearable-chat-input ~ button, button[onclick*="_wearableSend"]');
-    if (!input) return;
-    const text = input.value.trim();
-    if (!text) return;
-    input.value = '';
-    input.disabled = true;
-    if (btn) { btn.disabled = true; btn.textContent = '…'; }
-
-    wearableChatMessages.push({ role: 'user', content: text });
-    renderChatHistory();
-    showTyping();
-
-    try {
-      const context = buildContext();
-      const result  = await api.wearableCopilotPatient(
-        wearableChatMessages.slice(-10).map(m => ({ role: m.role, content: m.content })),
-        context
-      );
-      removeTyping();
-      const reply = result?.message || result?.content || result?.reply || 'No response received.';
-      wearableChatMessages.push({ role: 'assistant', content: reply });
-    } catch (_e) {
-      removeTyping();
-      const isRateLimit = _e?.message?.includes('429') || _e?.status === 429;
-      const errMsg = isRateLimit
-        ? "You're sending messages too quickly. Please wait a moment and try again."
-        : 'Could not reach AI assistant. Please try again.';
-      wearableChatMessages.push({ role: 'assistant', content: errMsg });
+  window._pdwViewInstructions = function(id) {
+    const dr  = document.getElementById('pdw-drawer-' + id);
+    const lbl = document.getElementById('pdw-dtgl-' + id);
+    if (dr && dr.style.display === 'none') {
+      dr.style.display = '';
+      if (lbl) lbl.textContent = 'Hide details';
+      dr.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     }
-
-    renderChatHistory();
-    input.disabled = false;
-    if (btn) { btn.disabled = false; btn.textContent = 'Send ◈'; }
-    input.focus();
   };
 
+  // ── Source actions ────────────────────────────────────────────────────────
+  window._pdwConnect = async function(sourceId) {
+    try { await api.connectWearableSource({ source: sourceId }); await pgPatientWearables(); }
+    catch (_e) { showToast('Could not initiate connection. Please try again.'); }
+  };
+  window._pdwReconnect = async function(sourceId) {
+    try { await api.connectWearableSource({ source: sourceId }); await pgPatientWearables(); }
+    catch (_e) { showToast('Could not reconnect. Please try again.'); }
+  };
+  window._pdwManageSource = async function(sourceId, connectionId) {
+    if (!connectionId) return;
+    if (!confirm('Disconnect this source? Your existing data will remain but no new syncs will occur.')) return;
+    try { await api.disconnectWearableSource(connectionId); await pgPatientWearables(); }
+    catch (_e) { showToast('Could not disconnect. Please try again.'); }
+  };
+
+  // ── Legacy compat ─────────────────────────────────────────────────────────
   window._connectWearable = async function(source, action, connectionId) {
-    if (action === 'disconnect' && connectionId) {
-      if (!confirm(`Disconnect this device? Your data will remain but no new syncs will occur.`)) return;
-      try {
-        await api.disconnectWearableSource(connectionId);
-        await pgPatientWearables();
-      } catch (_e) {
-        alert('Could not disconnect. Please try again.');
-      }
-    } else {
-      try {
-        await api.connectWearableSource({ source });
-        await pgPatientWearables();
-      } catch (_e) {
-        alert('Could not initiate connection. Please try again.');
-      }
+    if (action === 'disconnect' && connectionId) await window._pdwManageSource(source, connectionId);
+    else await window._pdwConnect(source);
+  };
+
+  // ── Session log modal ─────────────────────────────────────────────────────
+  window._pdwLogSession = function(deviceId) {
+    const dev   = HOME_THERAPY_DEVICES.find(d => d.id === deviceId);
+    const modal = document.getElementById('pdw-log-modal');
+    if (!modal) return;
+    const title = document.getElementById('pdw-log-title');
+    if (title)  title.textContent = 'Log session — ' + (dev?.label || deviceId);
+    const devInp = document.getElementById('pdw-log-device-id');
+    if (devInp)  devInp.value = deviceId;
+    const timeInp = document.getElementById('pdw-log-time');
+    if (timeInp) {
+      const now = new Date();
+      now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
+      timeInp.value = now.toISOString().slice(0, 16);
     }
+    modal.querySelectorAll('input[name="pdw-effects"]').forEach(cb => { cb.checked = false; });
+    const noneBox = modal.querySelector('input[name="pdw-effects"][value="None"]');
+    if (noneBox) noneBox.checked = true;
+    const feel = document.getElementById('pdw-log-feel');
+    if (feel) feel.value = '';
+    const note = document.getElementById('pdw-log-note');
+    if (note) note.value = '';
+    modal.style.display = 'flex';
+  };
+
+  window._pdwCloseModal = function() {
+    const m = document.getElementById('pdw-log-modal');
+    if (m) m.style.display = 'none';
+  };
+
+  window._pdwSaveSession = function() {
+    const deviceId  = document.getElementById('pdw-log-device-id')?.value || '';
+    const completed = document.querySelector('input[name="pdw-completed"]:checked')?.value || 'yes';
+    const timeVal   = document.getElementById('pdw-log-time')?.value || new Date().toISOString();
+    const effects   = [...document.querySelectorAll('input[name="pdw-effects"]:checked')].map(cb => cb.value).filter(v => v !== 'None');
+    const feel      = document.getElementById('pdw-log-feel')?.value || '';
+    const note      = document.getElementById('pdw-log-note')?.value?.trim() || '';
+    const entry = { id:'sess_'+Date.now(), deviceId, date:timeVal, completedAt:timeVal, completed, effects, feel, note };
+
+    let sess = [];
+    try { sess = JSON.parse(localStorage.getItem(homeSessKey) || '[]'); } catch (_e) {}
+    sess.push(entry);
+    try { localStorage.setItem(homeSessKey, JSON.stringify(sess)); } catch (_e) {}
+
+    let devs = [];
+    try { devs = JSON.parse(localStorage.getItem(homeDevKey) || '[]'); } catch (_e) {}
+    const devRec = devs.find(d => d.deviceId === deviceId);
+    if (devRec) devRec.lastSession = timeVal;
+    try { localStorage.setItem(homeDevKey, JSON.stringify(devs)); } catch (_e) {}
+
+    window._pdwCloseModal();
+    showToast('Session logged. Your care team can see this.');
+    pgPatientWearables();
+  };
+
+  window._pdwReportIssue = function() {
+    showToast('Opening messages — describe the issue to your care team.');
+    window._navPatient('patient-messages');
   };
 }
 
