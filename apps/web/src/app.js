@@ -406,106 +406,110 @@ const ROLE_NAV_HIDE = {
 
 // ── Nav definition ────────────────────────────────────────────────────────────
 const NAV = [
-  { section: 'Operations' },
-  { id: 'dashboard',         label: 'Dashboard',            icon: '◈' },
-  { id: 'patients',          label: 'Patients',             icon: '◉' },
-  { id: 'patient-profile',   label: 'Patient Profile',      icon: '👤' },
-  { id: 'homework-builder',  label: 'Homework Builder',     icon: '📚' },
-  { id: 'intake',            label: 'Intake & Consent',     icon: '📋' },
-  { id: 'data-import',      label: 'Data Import',          icon: '📥' },
-  { id: 'pt-outcomes',      label: 'My Outcomes',          icon: '📈' },
-  { id: 'guardian-portal',  label: 'Guardian Portal',      icon: '👨‍👩‍👧' },
-  { id: 'messaging',         label: 'Messaging',            icon: '💬' },
-  { id: 'advanced-search',   label: 'Advanced Search',      icon: '🔍' },
-  { id: 'courses',           label: 'Treatment Courses',    icon: '◎', badge: null },
-  { id: 'session-execution', label: 'Session Execution',    icon: '◧' },
-  { id: 'session-monitor',   label: 'Live Monitor',         icon: '📡' },
-  { id: 'calendar',          label: 'Calendar',             icon: '📅' },
-  { id: 'review-queue',      label: 'Review Queue',         icon: '◱', badge: null },
-  { section: 'Protocol Intelligence' },
-  { id: 'protocol-wizard',   label: 'Protocol Intelligence',icon: '⬡' },
-  { id: 'protocol-builder',  label: 'Visual Builder',       icon: '⚡' },
-  { id: 'decision-support', label: 'Decision Support',      icon: '🧬' },
-  { id: 'benchmark-library', label: 'Benchmarks', icon: '📐' },
-  { id: 'protocols-registry',label: 'Protocol Registry',   icon: '◇' },
-  { id: 'outcomes',          label: 'Outcomes & Trends',    icon: '◫' },
-  { id: 'outcome-prediction', label: 'Outcome Prediction', icon: '🔮' },
-  { id: 'ai-assistant',      label: 'AI Clinical Assistant',icon: '✦', ai: true },
-  { id: 'ai-agents',        label: 'AI Practice Agent',   icon: '◈', ai: true },
-  { section: 'Brain Data & Assessment' },
-  { id: 'braindata',         label: 'qEEG / Brain Data',    icon: '◈' },
-  { id: 'qeegmaps',          label: 'qEEG Maps',            icon: '◫' },
-  { id: 'assessments',       label: 'Assessments',          icon: '◉' },
-  { id: 'forms-builder',     label: 'Forms & Assessments',  icon: '📝', section: 'clinical' },
-  { section: 'Registries & Knowledge' },
-  { id: 'evidence-builder',  label: 'Evidence Builder',     icon: '🔭', section: 'clinical' },
-  { id: 'evidence',          label: 'Evidence Library',     icon: '◉' },
-  { id: 'devices',           label: 'Device Registry',      icon: '◇' },
-  { id: 'brainregions',      label: 'Brain Regions',        icon: '◎' },
-  { id: 'handbooks',         label: 'Handbooks',            icon: '◧' },
-  { id: 'report-builder',    label: 'Report Builder',       icon: '📊' },
-  { id: 'quality-assurance', label: 'Quality Assurance', icon: '✅' },
-  { id: 'device-management', label: 'Devices', icon: '🔬' },
-  { id: 'clinical-trials', label: 'Clinical Trials', icon: '🧪' },
-  { id: 'irb-manager',     label: 'IRB Manager',      icon: '🔬', section: 'knowledge' },
-  { id: 'trial-enrollment', label: 'Trial Enrollment', icon: '🧪', section: 'knowledge' },
-  { id: 'staff-scheduling', label: 'Staff Scheduling', icon: '👥' },
-  { id: 'clinic-analytics', label: 'Clinic Analytics', icon: '📊', section: 'knowledge' },
-  { id: 'protocol-marketplace', label: 'Protocol Marketplace', icon: '🏪', section: 'knowledge' },
-  { id: 'data-export',        label: 'Research Data Export', icon: '📤', section: 'knowledge' },
-  { id: 'literature',         label: 'Evidence Library',     icon: '📚', section: 'knowledge' },
-  { id: 'med-interactions',   label: 'Medication Safety',    icon: '💊', section: 'clinical' },
-  { section: 'Governance' },
-  { id: 'adverse-events',    label: 'Adverse Events',       icon: '⚠' },
-  { id: 'audittrail',        label: 'Audit Trail',          icon: '◧' },
-  { id: 'consent-automation', label: 'Consent & Compliance', icon: '📋', section: 'clinical' },
-  { section: 'Practice' },
-  { id: 'media-queue',       label: 'Media Queue',          icon: '📥' },
-  { id: 'clinician-dictation', label: 'Dictate Note',       icon: '🎙' },
-  { id: 'clinical-notes',    label: 'Clinical Notes',       icon: '📝' },
-  { id: 'ai-note-assistant', label: 'AI Note Assistant',   icon: '✍️' },
-  { id: 'population-analytics', label: 'Population Analytics', icon: '🌍' },
-  { id: 'rules-engine', label: 'Rules & Alerts', icon: '⚙️' },
-  { id: 'reports',           label: 'Reports',              icon: '📄' },
-  { id: 'admin',             label: 'Admin Panel',          icon: '◈' },
-  { id: 'multi-site',        label: 'Multi-Site Network',   icon: '🌐' },
-  { id: 'permissions',       label: 'Permissions',          icon: '🔐' },
-  { id: 'billing',           label: 'Billing',              icon: '💰' },
-  { id: 'insurance',         label: 'Insurance',            icon: '🏥' },
-  { id: 'referrals',         label: 'Referrals',            icon: '🔗' },
-  { id: 'clinic-settings',   label: 'Clinic Settings',      icon: '🏥' },
-  { id: 'settings',          label: 'Settings',             icon: '◎' },
-  { id: 'wearables',         label: 'Wearables',            icon: '⌚' },
-  { id: 'reminders',         label: 'Reminders & Adherence', icon: '🔔', section: 'practice' },
+  { section: 'Care Delivery' },
+  { id: 'dashboard',          label: 'Dashboard',             icon: '◈' },
+  { id: 'today',              label: 'Today',                 icon: '◎' },
+  { id: 'patients',           label: 'Patients',              icon: '◉' },
+  { id: 'courses',            label: 'Treatment Courses',     icon: '◎', badge: null },
+  { id: 'session-execution',  label: 'Session Execution',     icon: '◧' },
+
+  { section: 'Review & Communication' },
+  { id: 'review-queue',       label: 'Review Queue',          icon: '◱', badge: null },
+  { id: 'messaging',          label: 'Messages',              icon: '◎' },
+  { id: 'media-queue',        label: 'Media Queue',           icon: '◫', badge: null },
+
+  { section: 'Intelligence' },
+  { id: 'wearables',          label: 'Monitoring',            icon: '◌' },
+  { id: 'outcomes',           label: 'Outcomes',              icon: '◫' },
+  { id: 'protocol-wizard',    label: 'Protocol Intelligence', icon: '⬡', ai: true },
+
+  { section: 'More', sectionId: 'more', collapsed: true },
+  { id: 'protocols-registry', label: 'Registries',           icon: '◇' },
+  { id: 'adverse-events',     label: 'Governance',           icon: '⚠' },
+  { id: 'settings',           label: 'Settings',             icon: '◎' },
 ];
+
+// ── Nav collapse state ────────────────────────────────────────────────────────
+const _navCollapsed = (() => {
+  try { return JSON.parse(localStorage.getItem('ds_nav_collapsed') || '{}'); } catch { return {}; }
+})();
+function _saveNavCollapsed() {
+  try { localStorage.setItem('ds_nav_collapsed', JSON.stringify(_navCollapsed)); } catch {}
+}
+NAV.forEach(n => {
+  if (n.section && n.collapsed && _navCollapsed[n.sectionId] === undefined)
+    _navCollapsed[n.sectionId] = true;
+});
 
 // ── Nav render ────────────────────────────────────────────────────────────────
 function renderNav() {
   const _navList = document.getElementById('nav-list');
   if (!_navList) return;
   const hiddenForRole = ROLE_NAV_HIDE[currentUser?.role] || [];
-  const patientBtn = `<div class="nav-item" onclick="window._previewPatientPortal()" style="margin-top:4px;border:1px solid var(--border-blue);color:var(--blue);opacity:0.85">
-    <span class="nav-icon">◉</span>
-    <span style="flex:1">Patient View</span>
-    <span style="font-size:10px;opacity:0.6">demo</span>
-  </div>`;
-  _navList.innerHTML = NAV.map(n => {
-    if (n.section) return `<div class="nav-section">${n.section}</div>`;
-    // Admin panel only visible to admin role
-    if (n.id === 'admin' && currentUser?.role !== 'admin') return '';
-    // Hide nav items based on role permissions
-    if (hiddenForRole.includes(n.id)) return '';
-    const badge = n.badge
+
+  // ── "+ New Course" quick-action (injected once above nav-list) ──────────────
+  if (!document.getElementById('nav-new-course')) {
+    const btn = document.createElement('div');
+    btn.id = 'nav-new-course';
+    btn.style.cssText = 'padding:10px 12px 6px;';
+    btn.innerHTML = `<button
+      onclick="window._nav('protocol-wizard')"
+      style="width:100%;padding:9px 0;background:linear-gradient(135deg,var(--teal),var(--blue));color:#000;border:none;border-radius:8px;font-size:12.5px;font-weight:700;cursor:pointer;letter-spacing:0.2px;display:flex;align-items:center;justify-content:center;gap:7px;transition:opacity 0.15s"
+      onmouseover="this.style.opacity='0.88'" onmouseout="this.style.opacity='1'">
+      <span style="font-size:15px;line-height:1">＋</span> New Course
+    </button>`;
+    _navList.parentNode.insertBefore(btn, _navList);
+  }
+
+  let currentSectionId = null;
+  let currentSectionCollapsed = false;
+  const html = [];
+
+  NAV.forEach(n => {
+    if (n.section) {
+      currentSectionId = n.sectionId || null;
+      currentSectionCollapsed = currentSectionId ? !!_navCollapsed[currentSectionId] : false;
+      const chevron = currentSectionId
+        ? `<span class="nav-section-chevron" style="${currentSectionCollapsed ? 'transform:rotate(-90deg)' : ''}">▾</span>`
+        : '';
+      const clickAttr = currentSectionId
+        ? `onclick="window._toggleNavSection('${currentSectionId}')" style="cursor:pointer"`
+        : '';
+      html.push(`<div class="nav-section ${currentSectionId ? 'nav-section-toggle' : ''}" ${clickAttr}><span>${n.section}</span>${chevron}</div>`);
+      return;
+    }
+
+    if (n.id === 'admin' && currentUser?.role !== 'admin') return;
+    if (hiddenForRole.includes(n.id)) return;
+    if (currentSectionCollapsed) return;
+
+    const badge = n.badge != null
       ? (String(n.badge).startsWith('!')
           ? `<span class="nav-badge" style="background:rgba(255,107,107,0.2);color:var(--red);border-color:rgba(255,107,107,0.3)">${String(n.badge).slice(1)}</span>`
           : `<span class="nav-badge">${n.badge}</span>`)
       : n.ai ? `<span class="nav-badge-ai">AI</span>` : '';
-    return `<div class="nav-item ${currentPage === n.id ? 'active' : ''}" onclick="window._nav('${n.id}')" role="menuitem" tabindex="0" aria-current="${currentPage === n.id ? 'page' : 'false'}">
+
+    html.push(`<div class="nav-item ${currentPage === n.id ? 'active' : ''}" onclick="window._nav('${n.id}')" role="menuitem" tabindex="0" aria-current="${currentPage === n.id ? 'page' : 'false'}">
       <span class="nav-icon" aria-hidden="true">${n.icon}</span>
       <span style="flex:1">${t('nav.' + n.id) || n.label}</span>${badge}
-    </div>`;
-  }).join('') + patientBtn;
+    </div>`);
+  });
+
+  // Patient View demo button
+  html.push(`<div class="nav-item" onclick="window._previewPatientPortal()" style="margin-top:4px;border:1px solid var(--border-blue);color:var(--blue);opacity:0.85">
+    <span class="nav-icon">◉</span>
+    <span style="flex:1">Patient View</span>
+    <span style="font-size:10px;opacity:0.6">demo</span>
+  </div>`);
+
+  _navList.innerHTML = html.join('');
 }
+
+window._toggleNavSection = function(sectionId) {
+  _navCollapsed[sectionId] = !_navCollapsed[sectionId];
+  _saveNavCollapsed();
+  renderNav();
+};
 
 // ── Sidebar keyboard navigation ───────────────────────────────────────────────
 function initSidebarKeyboard() {
@@ -789,6 +793,7 @@ async function renderPage() {
 
   switch (currentPage) {
     // ── Clinical ─────────────────────────────────────────────────────────
+    case 'today':
     case 'dashboard': {
       const m = await loadClinical();
       await m.pgDash(setTopbar, navigate);

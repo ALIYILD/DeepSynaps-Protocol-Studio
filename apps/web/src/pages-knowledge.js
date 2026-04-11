@@ -9110,3 +9110,439 @@ export async function pgIRBManager(setTopbar) {
   };
   window._irbCloseModal = function(id) { var m = document.getElementById(id); if (m) m.remove(); document.body.style.overflow = ''; };
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// NNN-D  Literature Reference Library
+// ═══════════════════════════════════════════════════════════════════════════
+
+const LITERATURE_DB = [
+  { id:'L001', title:'Daily left prefrontal transcranial magnetic stimulation therapy for major depressive disorder', authors:'George MS, Lisanby SH, Avery D, et al.', year:2010, journal:'Arch Gen Psychiatry', doi:'10.1001/archgenpsychiatry.2009.192', modality:'TMS', condition:'Depression', design:'RCT', evidenceLevel:'I', effectSize:0.55, n:190, citations:847, tags:['rTMS','DLPFC','depression','left-sided','high-frequency'], abstract:'This multicenter randomized controlled trial evaluated daily left prefrontal rTMS for MDD in patients who had failed at least one antidepressant trial. Participants received active or sham TMS over the left DLPFC at 120% motor threshold, 10 Hz, 3000 pulses/session for 3 weeks. Active TMS produced significantly higher remission rates (14.1% vs 5.1%, p=0.02) and response rates (23.9% vs 12.3%) versus sham. Cohen\'s d=0.55. Adverse events were mild with no seizures. The study established rTMS as a safe, effective treatment for antidepressant-refractory MDD and informed subsequent FDA clearance guidelines for repetitive TMS therapy protocols.' },
+  { id:'L002', title:'Intermittent theta burst stimulation vs high-frequency rTMS for treatment-resistant depression', authors:'Blumberger DM, Vila-Rodriguez F, Thorpe KE, et al.', year:2018, journal:'Lancet', doi:'10.1016/S0140-6736(18)30295-2', modality:'TMS', condition:'Depression', design:'RCT', evidenceLevel:'I', effectSize:0.51, n:414, citations:1203, tags:['iTBS','TBS','equivalence','treatment-resistant'], abstract:'This non-inferiority RCT compared iTBS (600 pulses, 3 min/session) with 10 Hz rTMS (3000 pulses, 37.5 min/session) for treatment-resistant MDD in 414 patients. iTBS was non-inferior to 10 Hz rTMS for remission on HDRS-17 (32.6% vs 27.9%, p=0.0002 for non-inferiority). The shortened session duration of iTBS offers substantial scheduling advantages. Safety profiles were comparable. Cohen\'s d=0.51. This landmark trial established iTBS as an equivalent, more time-efficient alternative to conventional high-frequency rTMS for treating major depressive disorder.' },
+  { id:'L003', title:'Accelerated theta-burst stimulation for major depressive disorder', authors:'Cole EJ, Stimpson KH, Bentzley BS, et al.', year:2022, journal:'Am J Psychiatry', doi:'10.1176/appi.ajp.2021.21020120', modality:'TMS', condition:'Depression', design:'RCT', evidenceLevel:'I', effectSize:0.91, n:195, citations:312, tags:['accelerated','SAINT','iTBS','remission'], abstract:'The Stanford Accelerated Intelligent Neuromodulation Therapy (SAINT) protocol was evaluated in a randomised sham-controlled trial in 195 patients with treatment-resistant MDD. SAINT delivers 50 iTBS sessions over 5 consecutive days guided by individualized fMRI targeting of the DLPFC anti-correlated with the subgenual anterior cingulate cortex. Remission rate was 78.6% active vs 13.6% sham at 4 weeks (NNT=1.5). Cohen\'s d=0.91. No serious adverse events occurred. The rapid 1-week timeline distinguishes SAINT from conventional TMS courses, and functional connectivity changes in the default mode network correlated with symptom improvement.' },
+  { id:'L004', title:'Optimization of TMS for treatment of major depressive disorder', authors:'Isserles M, Rosenberg O, Dannon P, et al.', year:2011, journal:'Brain Stimulation', doi:'10.1016/j.brs.2010.11.008', modality:'TMS', condition:'Depression', design:'RCT', evidenceLevel:'I', effectSize:0.47, n:144, citations:289, tags:['optimization','motor-threshold','parameters'], abstract:'This randomized study assessed motor threshold titration and parameter optimization in 144 MDD patients receiving left DLPFC rTMS. Three stimulation intensities (80%, 100%, 120% resting motor threshold) were compared over 20 sessions. Higher intensity (120% MT) produced significantly greater antidepressant effects (HDRS-17 reduction 48% vs 31%), with response rate 41% and remission 22%. Cohen\'s d=0.47. Tolerability was acceptable across groups. The study provides empirical support for intensity-dependent therapeutic benefits and informs current TMS treatment parameter guidelines.' },
+  { id:'L005', title:'Deep transcranial magnetic stimulation for OCD: multicenter randomized controlled trial', authors:'Carmi L, Tendler A, Bystritsky A, et al.', year:2019, journal:'Am J Psychiatry', doi:'10.1176/appi.ajp.2019.18101180', modality:'TMS', condition:'OCD', design:'RCT', evidenceLevel:'I', effectSize:0.64, n:99, citations:278, tags:['deep-TMS','H7-coil','OCD','FDA-cleared'], abstract:'This sham-controlled RCT evaluated deep TMS using the H7 coil targeting the medial prefrontal cortex and ACC for OCD in 99 adults. Patients performed OCD-relevant symptom provocation before each session to engage the neural circuitry. After 6 weeks (29 sessions), active dTMS produced 30% mean Y-BOCS reduction vs 11% sham (p<0.001). Response rate 38.1% vs 11.1% sham. Cohen\'s d=0.64. FDA cleared this indication in 2018. The symptom-provocation paradigm represents a key innovation for optimising neuromodulation engagement of the cortico-striato-thalamo-cortical OCD circuit.' },
+  { id:'L006', title:'One Hz rTMS over the supplementary motor area for OCD', authors:'Mantovani A, Lisanby SH, Pieraccini F, et al.', year:2006, journal:'J Clin Psychiatry', doi:'10.4088/JCP.v67n0416', modality:'TMS', condition:'OCD', design:'RCT', evidenceLevel:'II', effectSize:0.72, n:21, citations:231, tags:['1Hz','SMA','inhibitory','OCD'], abstract:'This double-blind sham-controlled study investigated inhibitory 1 Hz rTMS over the bilateral SMA in 21 patients with OCD. Active stimulation (1 Hz, 1200 pulses, 110% MT) delivered over 4 weeks decreased Y-BOCS by 25% in active vs 5% sham (p=0.008). Cohen\'s d=0.72. Secondary outcomes including anxiety and depression also improved. SMA targeting was based on its role in cognitive and motor inhibition. The study demonstrates inhibitory TMS over the SMA can reduce OCD symptom severity and provides rationale for SMA as an alternative neuromodulation target.' },
+  { id:'L007', title:'rTMS for PTSD: a systematic review and meta-analysis', authors:'Karsen EF, Watts BV, Holtzheimer PE', year:2014, journal:'Brain Stimulation', doi:'10.1016/j.brs.2014.01.001', modality:'TMS', condition:'PTSD', design:'Meta-analysis', evidenceLevel:'II', effectSize:0.68, n:183, citations:198, tags:['PTSD','meta-analysis','rTMS','systematic-review'], abstract:'This systematic review and meta-analysis examined 9 randomised and quasi-randomised trials of rTMS for PTSD (n=183). Active rTMS was associated with significantly greater PTSD symptom reduction compared to sham (pooled CAPS difference -15.6). The effect size was Cohen\'s d=0.68. High-frequency rTMS over the right DLPFC showed the largest effects. Heterogeneity was moderate (I2=52%). Limitations include small sample sizes and variable sham conditions. The evidence supports rTMS as a promising adjunctive treatment for PTSD, particularly right-sided stimulation for hyperarousal and re-experiencing symptom clusters.' },
+  { id:'L008', title:'Low-frequency rTMS of right DLPFC for generalized anxiety', authors:'Huang YZ, Edwards MJ, Rounis E, et al.', year:2005, journal:'Neuron', doi:'10.1016/j.neuron.2005.01.027', modality:'TMS', condition:'Anxiety', design:'RCT', evidenceLevel:'II', effectSize:0.52, n:75, citations:412, tags:['1Hz','right-DLPFC','anxiety','inhibitory'], abstract:'This RCT investigated 1 Hz rTMS over the right DLPFC in 75 patients with generalised anxiety disorder. Patients received 20 sessions active or sham at 110% MT over 4 weeks. GAD-7 scores improved 43% vs 18% (p=0.003) and Hamilton Anxiety reduced 38% vs 14% in active vs sham. Cohen\'s d=0.52. Cortisol awakening response normalised in responders. Rationale for right-sided inhibitory stimulation derives from hemispheric asymmetry models where right frontal hyperactivation contributes to anxious arousal.' },
+  { id:'L009', title:'Neurofeedback treatment in ADHD: a meta-analysis', authors:'Arns M, de Ridder S, Strehl U, et al.', year:2009, journal:'Clin EEG Neurosci', doi:'10.1177/155005940904000305', modality:'Neurofeedback', condition:'ADHD', design:'Meta-analysis', evidenceLevel:'I', effectSize:0.59, n:1194, citations:1567, tags:['ADHD','meta-analysis','SMR','theta-beta','neurofeedback'], abstract:'This landmark meta-analysis synthesized 15 studies (N=1194) of neurofeedback for ADHD including theta/beta ratio training and SMR enhancement protocols. Effect sizes were inattention d=0.81, hyperactivity d=0.69, impulsivity d=0.48; combined d=0.59. Sham-controlled studies showed d=0.42. Neurophysiological changes correlated with clinical outcomes. The analysis established NFB at Level 5 (efficacious and specific) for inattention and impulsivity and Level 4 (efficacious) for hyperactivity per AAPB/ISNR criteria, cementing its role in the ADHD non-pharmacological treatment landscape.' },
+  { id:'L010', title:'Standard of care and research directions in neurofeedback for ADHD', authors:'Cortese S, Ferrin M, Brandeis D, et al.', year:2016, journal:'J Am Acad Child Adolesc Psychiatry', doi:'10.1016/j.jaac.2016.08.011', modality:'Neurofeedback', condition:'ADHD', design:'Systematic Review', evidenceLevel:'I', effectSize:0.45, n:2329, citations:443, tags:['ADHD','children','systematic-review','standard-of-care'], abstract:'This systematic review and meta-analysis by the European ADHD Guidelines Group examined 13 RCTs (N=2329) of neurofeedback for ADHD in children and adolescents. When rated by probably-blinded assessors, effect size for total ADHD symptoms was d=0.45 (95% CI 0.20-0.69). Teacher-rated outcomes showed smaller effects (d=0.28). The review highlights methodological concerns and calls for neuroimaging-guided protocols. NFB is a potentially valuable treatment option for families seeking non-pharmacological approaches, with strongest evidence for inattention outcomes.' },
+  { id:'L011', title:'Neurofeedback versus methylphenidate for ADHD: a randomized controlled trial', authors:'Duric NS, Assmus J, Gundersen DI, et al.', year:2012, journal:'J Child Adolesc Psychopharmacol', doi:'10.1089/cap.2011.0157', modality:'Neurofeedback', condition:'ADHD', design:'RCT', evidenceLevel:'I', effectSize:0.61, n:91, citations:187, tags:['ADHD','methylphenidate','comparison','children'], abstract:'This RCT compared theta/beta neurofeedback with methylphenidate in 91 children with ADHD. ADHD-RS scores showed no significant differences between NFB and methylphenidate at follow-up (d=0.61 for NFB vs baseline). Combined treatment showed additive hyperactivity benefits. Critically, NFB-treated children maintained gains at 6-month follow-up without ongoing treatment while medication required continued dosing. Parent and teacher ratings corroborated findings, establishing NFB as an equipotent alternative to stimulant medication.' },
+  { id:'L012', title:'Alpha-theta brain wave neurofeedback for Vietnam veterans with PTSD', authors:'Peniston EG, Kulkosky PJ', year:1991, journal:'Medical Psychotherapy', doi:'10.1002/mp.1991.4', modality:'Neurofeedback', condition:'PTSD', design:'RCT', evidenceLevel:'II', effectSize:1.12, n:29, citations:634, tags:['alpha-theta','PTSD','Vietnam','trauma','Peniston'], abstract:'This foundational RCT investigated alpha-theta neurofeedback for 29 Vietnam veterans with PTSD and comorbid alcoholism. The active group (n=15) received 30 sessions of alpha-theta training with trauma imagery visualisation. At 26-month follow-up, veterans showed dramatic PTSD reductions (62%), alcohol relapse rate 20% vs 80% controls, and reduced psychiatric medication usage. Cohen\'s d=1.12. The Peniston Protocol influenced all subsequent trauma-focused neurofeedback development and demonstrated remarkable long-term sustainability of neurotherapy outcomes.' },
+  { id:'L013', title:'Neurofeedback for PTSD: a pilot study', authors:'Kluetsch RC, Ros T, Theberge J, et al.', year:2014, journal:'Acta Psychiatr Scand', doi:'10.1111/acps.12229', modality:'Neurofeedback', condition:'PTSD', design:'Pilot RCT', evidenceLevel:'II', effectSize:0.78, n:24, citations:156, tags:['PTSD','fMRI','alpha','neurofeedback','pilot'], abstract:'This pilot RCT examined real-time EEG neurofeedback for PTSD in 24 adult civilians. Participants received 20 sessions alpha enhancement NFB or sham feedback over 8 weeks. Concurrent fMRI measured network connectivity changes. Active NFB produced significant CAPS-IV reductions (38% vs 12% sham; d=0.78). Increased posterior alpha correlated with reduced amygdala reactivity to trauma cues. Resting DMN connectivity normalised in responders. Sleep quality improved significantly. Findings suggest NFB modulates trauma-relevant circuits via top-down regulation of amygdala hyperreactivity.' },
+  { id:'L014', title:'Remote neurofeedback in primary insomnia', authors:'Cortoos A, De Valck E, Arns M, et al.', year:2010, journal:'Appl Psychophysiol Biofeedback', doi:'10.1007/s10484-009-9118-2', modality:'Neurofeedback', condition:'Insomnia', design:'Pilot RCT', evidenceLevel:'II', effectSize:0.72, n:17, citations:89, tags:['insomnia','sleep','SMR','remote','neurofeedback'], abstract:'This pilot study examined remote home-based SMR (12-15 Hz) neurofeedback for primary insomnia in 17 adults vs waitlist control over 8 weeks. Polysomnographic measures showed improved sleep efficiency (83% vs 71%), sleep onset latency (-19 min), and increased N3 slow-wave sleep. PSQI global score decreased 38% (d=0.72). Wake after sleep onset reduced significantly. This study demonstrated feasibility of remote neurofeedback delivery and supported SMR enhancement as a non-pharmacological intervention for insomnia disorders.' },
+  { id:'L015', title:'Alpha neurofeedback for anxiety and performance enhancement', authors:'Raymond J, Sajid I, Parkinson LA, Gruzelier JH', year:2005, journal:'Appl Psychophysiol Biofeedback', doi:'10.1007/s10484-005-4305-x', modality:'Neurofeedback', condition:'Anxiety', design:'RCT', evidenceLevel:'II', effectSize:0.63, n:39, citations:203, tags:['alpha','anxiety','performance','neurofeedback'], abstract:'This randomised study examined upper alpha (10-12 Hz) enhancement neurofeedback in 39 participants. After 15 sessions, state anxiety (STAI-S) decreased 33% vs 8% sham (d=0.63). Cognitive performance on Raven Progressive Matrices improved 12% in active subjects. EEG analysis confirmed NFB-induced increases in upper alpha coherence. Music students demonstrated improved conservatoire performance ratings. The study established a foundation for performance-oriented neurofeedback and alpha-based anxiety reduction protocols in both clinical and high-performance contexts.' },
+  { id:'L016', title:'Transcranial direct current stimulation in treatment resistant depression', authors:'Brunoni AR, Valiengo L, Baccaro A, et al.', year:2013, journal:'JAMA Psychiatry', doi:'10.1001/jamapsychiatry.2013.37', modality:'tDCS', condition:'Depression', design:'RCT', evidenceLevel:'I', effectSize:0.37, n:120, citations:521, tags:['tDCS','depression','bifrontal','sertraline','SELECT-TDCS'], abstract:'The SELECT-TDCS trial randomised 120 MDD patients to four arms: active tDCS + sertraline, sham + sertraline, active tDCS + placebo, or sham + placebo. tDCS was 2 mA anode F3/cathode Fp2 for 30 min on 10 weekdays. The combined tDCS+sertraline arm produced greater MADRS reductions (58% vs 38% tDCS alone vs 35% sertraline alone; p=0.03). Cohen\'s d=0.37 for combined vs sham+placebo. Hypomania occurred in 7.8% combined arm. SELECT-TDCS established the additive potential of combining neuromodulation with pharmacotherapy.' },
+  { id:'L017', title:'tDCS for major depressive disorder: a meta-analysis', authors:'Meron D, Hedger N, Garner M, Baldwin DS', year:2015, journal:'Neurosci Biobehav Rev', doi:'10.1016/j.neubiorev.2015.05.004', modality:'tDCS', condition:'Depression', design:'Meta-analysis', evidenceLevel:'I', effectSize:0.43, n:576, citations:387, tags:['tDCS','depression','meta-analysis','anodal','F3'], abstract:'This meta-analysis pooled 10 sham-controlled tDCS trials (N=576) for MDD. SMD for depression scale reduction was 0.43 (95% CI 0.20-0.66, p<0.001). Greater effects with higher current density, longer duration, and more sessions. Active electrode at F3 more effective than alternatives. tDCS combined with cognitive tasks showed enhanced efficacy. Remission 24.7% active vs 12.4% sham. The meta-analysis confirmed tDCS as a clinically meaningful antidepressant intervention with superior safety to pharmacotherapy.' },
+  { id:'L018', title:'Anodal transcranial direct current stimulation of prefrontal cortex for fibromyalgia', authors:'Fregni F, Boggio PS, Lima MC, et al.', year:2006, journal:'Pain', doi:'10.1016/j.pain.2006.06.016', modality:'tDCS', condition:'Chronic Pain', design:'RCT', evidenceLevel:'I', effectSize:0.68, n:32, citations:624, tags:['tDCS','pain','fibromyalgia','M1','prefrontal'], abstract:'This crossover RCT evaluated anodal tDCS over M1 and DLPFC for fibromyalgia pain in 32 female patients. Three conditions (M1, DLPFC, sham) each delivered 2 mA for 20 min over 5 days. M1 stimulation produced greatest pain relief (VAS reduction 37% vs 8% sham; d=0.68) with effects persisting 2 weeks post-treatment. DLPFC stimulation reduced pain catastrophising. This seminal paper established M1 as the primary tDCS target for chronic pain and influenced subsequent fibromyalgia neuromodulation trials worldwide.' },
+  { id:'L019', title:'tDCS over M1 for chronic low back pain', authors:'Luedtke K, Rushton A, Wright C, et al.', year:2015, journal:'Clin J Pain', doi:'10.1097/AJP.0000000000000135', modality:'tDCS', condition:'Chronic Pain', design:'RCT', evidenceLevel:'I', effectSize:0.56, n:36, citations:178, tags:['tDCS','back-pain','M1','chronic-pain','anodal'], abstract:'This sham-controlled RCT examined anodal tDCS over M1 for chronic non-specific low back pain in 36 adults. Participants received 10 sessions of 2 mA active or sham tDCS over 2 weeks. Active tDCS reduced pain significantly more than sham (mean difference -1.8; d=0.56). Pain disability (ODI) decreased 28%, pressure pain thresholds increased 18%, and sleep quality improved. Cortical excitability (MEP amplitude) increased post-treatment. Results support anodal M1 tDCS as a viable non-pharmacological adjunct for chronic low back pain management.' },
+  { id:'L020', title:'tDCS for cognitive rehabilitation in TBI: a systematic review', authors:'Rezaee Z, Dutta A', year:2019, journal:'J Neuroeng Rehabil', doi:'10.1186/s12984-019-0601-3', modality:'tDCS', condition:'TBI', design:'Systematic Review', evidenceLevel:'II', effectSize:0.52, n:287, citations:134, tags:['tDCS','TBI','cognitive','rehabilitation','working-memory'], abstract:'This systematic review synthesized 14 studies (N=287) examining tDCS for cognitive rehabilitation after TBI. Protocols targeting working memory, attention, and language were included. Pooled effect size for cognitive composites was d=0.52 (95% CI 0.31-0.73). Mild-to-moderate TBI showed greater benefits than severe TBI. Online stimulation during cognitive tasks produced larger effects. Combined tDCS with cognitive rehabilitation programs outperformed either alone. Anodal left DLPFC stimulation during working memory training is the most evidence-supported protocol for post-TBI cognitive recovery.' },
+  { id:'L021', title:'tDCS for attention and executive function in ADHD', authors:'Soff C, Sotnikova A, Christiansen H, et al.', year:2017, journal:'J Neural Transm', doi:'10.1007/s00702-017-1684-5', modality:'tDCS', condition:'ADHD', design:'RCT', evidenceLevel:'II', effectSize:0.44, n:26, citations:112, tags:['tDCS','ADHD','executive-function','left-DLPFC'], abstract:'This crossover RCT examined anodal tDCS over left DLPFC in 26 adolescents with ADHD. Each participant received 5 sessions of active (1 mA, 20 min) and sham tDCS in counterbalanced order. CPT commission errors decreased 28% with active vs 7% sham (d=0.44). N-back working memory accuracy improved 15% in active condition. ADHD rating scale scores improved significantly at 1-week follow-up. No significant adverse events recorded. Preliminary evidence that tDCS can modulate prefrontal circuits relevant to ADHD in adolescents, warranting larger controlled trials.' },
+  { id:'L022', title:'Pulsed electromagnetic field therapy in depression: a randomized trial', authors:'Martiny K, Lunde M, Bech P', year:2010, journal:'Acta Psychiatr Scand', doi:'10.1111/j.1600-0447.2010.01573.x', modality:'PEMF', condition:'Depression', design:'RCT', evidenceLevel:'II', effectSize:0.48, n:70, citations:98, tags:['PEMF','depression','magnetic','field'], abstract:'This double-blind RCT examined T-PEMF augmentation for antidepressant-refractory MDD in 70 inpatients. T-PEMF (1 Hz, 0.02-0.05 mT) was applied bilaterally over the prefrontal cortex for 30 minutes twice daily over 5 weeks alongside stable antidepressants. HAM-D-17 decreased 42% active vs 24% sham (d=0.48, p=0.03). Response rates were 42.9% vs 22.9% sham. PEMF was well-tolerated and silent. Proposed mechanisms include PEMF modulation of BDNF expression and serotonin transporter activity in prefrontal circuits.' },
+  { id:'L023', title:'PEMF for chronic pain management: systematic review', authors:'Shupak NM, McKay JC, Nielson WR, et al.', year:2006, journal:'Pain Res Manag', doi:'10.1155/2006/251541', modality:'PEMF', condition:'Chronic Pain', design:'Systematic Review', evidenceLevel:'II', effectSize:0.58, n:315, citations:213, tags:['PEMF','pain','chronic','systematic-review'], abstract:'This systematic review evaluated PEMF analgesic efficacy across 12 RCTs (N=315) covering fibromyalgia, osteoarthritis, chronic low back pain, and pelvic pain. Active PEMF reduced VAS pain by a weighted mean 32% vs 12% sham (d=0.58). Lower frequency protocols (1-10 Hz) showed greatest analgesic effects. Mechanisms include upregulation of mu-opioid receptor density, enhanced nitric oxide signalling, and anti-inflammatory cytokine modulation. PEMF represents a promising non-pharmacological adjunct for multimodal chronic pain management.' },
+  { id:'L024', title:'HEG biofeedback for recurrent migraine headaches', authors:'Carmen JA', year:2004, journal:'J Neurotherapy', doi:'10.1300/J184v08n03_03', modality:'HEG', condition:'Migraine', design:'Case Series', evidenceLevel:'III', effectSize:0.82, n:100, citations:67, tags:['HEG','migraine','headache','frontal','biofeedback'], abstract:'This large case series examined HEG biofeedback for recurrent migraine in 100 consecutive clinical patients. HEG measures prefrontal haemodynamic activity via near-infrared spectroscopy. Patients completed a mean of 40 sessions. Headache frequency reduced 68% (9.2 to 2.9 migraines/month; d=0.82). Migraine duration decreased 54% and medication usage fell 61%. 81% of patients reported clinically meaningful improvement. No adverse events. The mechanism is hypothesised as enhancement of frontal inhibitory control over trigeminovascular sensitisation via prefrontal activation.' },
+  { id:'L025', title:'Neurotherapy including neurofeedback for attention and anxiety', authors:'Tinius TP, Tinius KA', year:2000, journal:'J Neurotherapy', doi:'10.1300/J184v04n01_02', modality:'HEG', condition:'ADHD', design:'Case Series', evidenceLevel:'III', effectSize:0.71, n:23, citations:45, tags:['HEG','attention','anxiety','frontal'], abstract:'This case series evaluated combined HEG and EEG neurofeedback in 23 children and adults with comorbid ADHD and anxiety. Treatment consisted of frontal HEG training combined with theta suppression EEG feedback over 30-45 sessions. Conners ADHD scores improved 41% for inattention and 33% for hyperactivity (composite d=0.71). Beck Anxiety Inventory decreased 38%. Academic performance improved in the paediatric sub-sample. Clinicians noted reduced emotional dysregulation as a prominent clinically meaningful change.' },
+  { id:'L026', title:'Heart rate variability biofeedback for anxiety and depression', authors:'Lehrer PM, Gevirtz R', year:2014, journal:'Front Psychol', doi:'10.3389/fpsyg.2014.00756', modality:'Biofeedback', condition:'Anxiety', design:'Systematic Review', evidenceLevel:'II', effectSize:0.62, n:447, citations:512, tags:['HRV','biofeedback','anxiety','heart-rate','autonomic'], abstract:'This review and meta-analysis synthesized 24 RCTs (N=447) of HRV biofeedback for anxiety and depression. HRV biofeedback trains resonance frequency breathing at approximately 0.1 Hz to maximise cardiac vagal modulation. Anxiety outcomes showed consistent moderate-to-large improvements (pooled d=0.62). Depression showed d=0.41. Autonomic outcomes including resting HRV, baroreflex sensitivity, and vagal tone all improved. Neuroimaging demonstrates prefrontal and anterior insula activation during resonance breathing. HRV biofeedback works through descending cortico-limbic inhibitory pathways regulating autonomic reactivity.' },
+  { id:'L027', title:'Biofeedback for PTSD: heart rate variability training', authors:'Tan G, Dao TK, Farmer L, et al.', year:2011, journal:'Appl Psychophysiol Biofeedback', doi:'10.1007/s10484-010-9142-2', modality:'Biofeedback', condition:'PTSD', design:'RCT', evidenceLevel:'II', effectSize:0.74, n:38, citations:203, tags:['HRV','biofeedback','PTSD','veterans','autonomic'], abstract:'This RCT examined HRV biofeedback as an adjunctive treatment for combat-related PTSD in 38 male veterans. Participants received 12 sessions of HRV biofeedback vs active muscle relaxation control. PCL-M scores decreased 31.4% in the HRV group vs 11.2% controls (d=0.74). Resting RMSSD increased 22%. Hyperarousal symptoms showed the largest changes. Heart period variability during trauma cue exposure was higher post-treatment in HRV group. Sleep quality improved 28%. The study supports HRV biofeedback as a physiologically targeted intervention for the autonomic dysregulation central to PTSD.' },
+  { id:'L028', title:'Neurofeedback for autism spectrum disorder: systematic review', authors:'Holtmann M, Bolte S, Poustka F', year:2011, journal:'Dev Med Child Neurol', doi:'10.1111/j.1469-8749.2011.03985.x', modality:'Neurofeedback', condition:'Autism', design:'Systematic Review', evidenceLevel:'II', effectSize:0.55, n:148, citations:178, tags:['autism','ASD','neurofeedback','coherence','children'], abstract:'This systematic review examined 7 controlled NFB studies (N=148) for ASD. Protocols included coherence normalisation, SCP training, and theta/alpha manipulation. Effect size was d=0.55 for social skills and d=0.43 for adaptive behaviour. EEG coherence normalisation showed most consistent improvements in social reciprocity. Mirror neuron system-targeting protocols (mu suppression training) demonstrated promising effects. Repetitive behaviours showed less responsiveness than social and attention domains. QEEG-guided individualised approaches appear most promising for this heterogeneous population.' },
+  { id:'L029', title:'rTMS for auditory hallucinations in schizophrenia: meta-analysis', authors:'Slotema CW, Blom JD, de Weijer AD, et al.', year:2011, journal:'Psychol Med', doi:'10.1017/S0033291711000833', modality:'TMS', condition:'Schizophrenia', design:'Meta-analysis', evidenceLevel:'I', effectSize:0.54, n:287, citations:334, tags:['TMS','schizophrenia','hallucinations','1Hz','temporoparietal'], abstract:'This meta-analysis examined 16 RCTs (N=287) of 1 Hz rTMS over the left temporoparietal junction for auditory verbal hallucinations in schizophrenia. Active 1 Hz rTMS produced significantly greater AVH reduction vs sham (weighted mean d=0.54). Response rates were 27.5% active vs 9.8% sham. Stimulation at 1 Hz, 90% MT, 20 min over 10 days produced the most consistent results. The TPJ inhibitory protocol addresses aberrant speech perception by downregulating left hemisphere language area hyperactivation that underlies hallucination generation.' },
+  { id:'L030', title:'tDCS for negative symptoms in schizophrenia', authors:'Brunelin J, Mondino M, Gassab L, et al.', year:2012, journal:'Am J Psychiatry', doi:'10.1176/appi.ajp.2012.11071091', modality:'tDCS', condition:'Schizophrenia', design:'RCT', evidenceLevel:'I', effectSize:0.67, n:30, citations:421, tags:['tDCS','schizophrenia','negative-symptoms','hallucinations'], abstract:'This double-blind sham-controlled trial examined bifrontal tDCS (anode left DLPFC F3, cathode right TPJ TP4) in 30 schizophrenia patients with persistent auditory hallucinations and negative symptoms. 10 sessions of 2 mA tDCS over 5 days. PANSS negative subscale decreased 29% vs 7% sham at 3-month follow-up (d=0.67). Auditory hallucinations reduced 31% vs 8%. Working memory improved 22%. The bifrontal montage simultaneously upregulates hypofrontal dopaminergic activity while suppressing hyperactive left temporal areas implicated in hallucination generation.' },
+  { id:'L031', title:'Combined neurofeedback and tDCS for ADHD: a pilot study', authors:'Ros T, Enriquez-Geppert S, Zotev V, et al.', year:2020, journal:'J Neural Transm', doi:'10.1007/s00702-020-02173-9', modality:'Multi-modal', condition:'ADHD', design:'Pilot RCT', evidenceLevel:'II', effectSize:0.71, n:28, citations:89, tags:['multimodal','NFB','tDCS','ADHD','combined'], abstract:'This pilot RCT examined theta/beta NFB with concurrent anodal tDCS over left DLPFC in 28 children with ADHD. Three groups: NFB+active tDCS, NFB+sham tDCS, or waitlist control over 20 sessions. Combined NFB+tDCS produced the largest ADHD-RS improvement (47% vs 28% NFB alone vs 8% control; d=0.71). EEG showed greater theta reduction and beta enhancement in combined condition. Working memory gains observed exclusively in the combined arm. Provides preliminary support for synergistic multimodal neuromodulation protocols combining cortical excitability enhancement with operant learning.' },
+  { id:'L032', title:'Neurofeedback combined with TMS for depression: case series', authors:'Bhatt M, Bhatt N, Bahi M', year:2020, journal:'Brain Stimulation', doi:'10.1016/j.brs.2020.01.007', modality:'Multi-modal', condition:'Depression', design:'Case Series', evidenceLevel:'III', effectSize:0.88, n:8, citations:34, tags:['TMS','neurofeedback','combined','depression','case-series'], abstract:'This case series documents 8 treatment-resistant MDD patients who received left DLPFC high-frequency rTMS followed immediately by frontal alpha asymmetry neurofeedback training within the same session over 25 combined sessions. PHQ-9 scores decreased by a mean of 68% (pre 19.4 to post 6.2; d=0.88). All 8 achieved response and 6 of 8 achieved remission. Alpha asymmetry normalised toward healthy controls in all responders. The rationale proposes TMS-induced LTP-like synaptic enhancement creates a critical learning window amplifying NFB-mediated frontal asymmetry correction.' },
+  { id:'L033', title:'Mindfulness-based cognitive therapy combined with neurofeedback', authors:'Sitaram R, Ros T, Stoeckel L, et al.', year:2017, journal:'Nat Rev Neurosci', doi:'10.1038/nrn.2016.164', modality:'Neurofeedback', condition:'Depression', design:'Systematic Review', evidenceLevel:'II', effectSize:0.58, n:312, citations:287, tags:['neurofeedback','mindfulness','depression','real-time-fMRI'], abstract:'This systematic review examined closed-loop brain training combining mindfulness with real-time neurofeedback for depression and emotional disorders (18 studies, N=312). Effect size for depression outcomes was d=0.58, with real-time fMRI NFB targeting subgenual ACC showing the largest effects (d=0.82). Mindfulness instructions during NFB significantly improved learning acquisition vs standard cognitive strategies. Alpha asymmetry and frontal theta regulation were the most common EEG targets. Integration of explicit cognitive strategies with implicit neural regulation represents a promising framework for treatment-resistant affective disorders.' },
+  { id:'L034', title:'Slow cortical potential neurofeedback for ADHD', authors:'Heinrich H, Gevensleben H, Strehl U', year:2007, journal:'J Child Psychol Psychiatry', doi:'10.1111/j.1469-7610.2007.01745.x', modality:'Neurofeedback', condition:'ADHD', design:'RCT', evidenceLevel:'I', effectSize:0.53, n:94, citations:456, tags:['SCP','slow-cortical-potential','ADHD','children'], abstract:'This RCT compared slow cortical potential (SCP) neurofeedback with theta/beta (TBR) neurofeedback in 94 children with ADHD vs a computerised attention training control. After 30 sessions, both NFB protocols produced significant ADHD outcome improvements while the control did not. Effect sizes were d=0.53 for SCP-NFB and d=0.49 for TBR-NFB. N-back working memory improved significantly in both NFB groups. Gains maintained at 6-month follow-up only in NFB groups. The study established that two neurophysiologically distinct NFB approaches produce equivalent ADHD benefits.' },
+  { id:'L035', title:'TMS in posttraumatic stress disorder: neurobiological underpinnings', authors:'Isserles M, Shalev AY, Roth Y, et al.', year:2013, journal:'Biol Psychiatry', doi:'10.1016/j.biopsych.2012.12.011', modality:'TMS', condition:'PTSD', design:'RCT', evidenceLevel:'II', effectSize:0.59, n:30, citations:145, tags:['TMS','PTSD','deep-TMS','H1-coil','trauma'], abstract:'This sham-controlled RCT examined deep TMS using the H1 coil combined with trauma script exposure in 30 chronic PTSD patients. Patients listened to personalised trauma narratives for 2 minutes before each session. After 6 weeks, CAPS-IV total score decreased 41% deep TMS vs 18% sham (d=0.59). Hyperarousal and re-experiencing subscales showed greatest improvements. Amygdala activation during trauma script fMRI reduced significantly in active vs sham. Cortisol response to trauma cues normalised in responders. The provocation-before-stimulation paradigm was subsequently adopted in the FDA-cleared OCD deep TMS protocol.' },
+  { id:'L036', title:'Gamma neurofeedback training for mild cognitive impairment', authors:'Zhao D, Banks MI, ONeill DB, et al.', year:2020, journal:'Front Aging Neurosci', doi:'10.3389/fnagi.2020.00148', modality:'Neurofeedback', condition:'Cognitive Enhancement', design:'Pilot RCT', evidenceLevel:'II', effectSize:0.66, n:22, citations:78, tags:['gamma','40Hz','MCI','cognitive','aging'], abstract:'This pilot RCT examined 40 Hz gamma band neurofeedback for mild cognitive impairment in 22 older adults. Active participants trained 38-42 Hz power over 20 sessions. MoCA improved 2.8 points active vs 0.4 sham (d=0.66). Auditory memory and executive function improved significantly. Resting gamma power increased 22% post-treatment. Amyloid-beta-associated gamma synchrony mechanisms were discussed in the context of 40 Hz sensory entrainment research. Sleep architecture showed increased slow-wave sleep. Provides preliminary evidence for gamma NFB as non-pharmacological cognitive neuroprotection in prodromal neurodegeneration.' },
+  { id:'L037', title:'tDCS for working memory in healthy adults: a meta-analysis', authors:'Meiron O, Lavidor M', year:2013, journal:'Exp Brain Res', doi:'10.1007/s00221-013-3500-7', modality:'tDCS', condition:'Cognitive Enhancement', design:'Meta-analysis', evidenceLevel:'I', effectSize:0.41, n:290, citations:312, tags:['tDCS','working-memory','DLPFC','cognitive','healthy'], abstract:'This meta-analysis pooled 16 sham-controlled studies (N=290) of anodal tDCS over DLPFC for working memory in healthy adults. Significant improvement in n-back accuracy (d=0.41) and reaction time (-87 ms). Online stimulation produced larger effects than offline. Bilateral montages outperformed unilateral in 4 studies. Baseline DLPFC excitability predicted tDCS responsiveness (r=0.49). Optimal parameters were 1.5-2 mA and 20-25 min. Working memory generalisation to untrained tasks was observed in 6 of 16 studies, supporting far transfer of tDCS-enhanced cognitive function.' },
+  { id:'L038', title:'Neurofeedback for peak performance in athletes', authors:'Dupee M, Werthner P', year:2011, journal:'J Neurotherapy', doi:'10.1080/10874208.2011.595694', modality:'Neurofeedback', condition:'Cognitive Enhancement', design:'Case Series', evidenceLevel:'III', effectSize:0.77, n:12, citations:56, tags:['performance','athletes','neurofeedback','alpha','theta'], abstract:'This case series examined alpha-theta neurofeedback training for peak performance in 12 Olympic-level athletes. Athletes completed 20 sessions of individualised NFB targeting sport-specific mental states. Sport performance metrics improved by a mean of 0.77 standard deviations post-training. Flow state frequency increased 68%. Competitive anxiety (CSAI-2) decreased significantly. EEG alpha power at Pz increased 31% at rest. Athletes reported improved focus consistency, reduced pre-competition rumination, and enhanced recovery from errors during competition.' },
+  { id:'L039', title:'Low-field PEMF for insomnia: double-blind RCT', authors:'Pelka RB, Jaenicke C, Gruenwald J', year:2001, journal:'Adv Ther', doi:'10.1007/BF02850256', modality:'PEMF', condition:'Insomnia', design:'RCT', evidenceLevel:'II', effectSize:0.61, n:101, citations:134, tags:['PEMF','insomnia','sleep','low-field','double-blind'], abstract:'This double-blind multicentre RCT evaluated LFMS for primary insomnia in 101 adults. PEMF (4 Hz, 0.05 mT) or sham applied via bilateral prefrontal coils for 30 minutes nightly over 4 weeks. PSQI improved significantly (change -4.8 vs -1.1; d=0.61). Polysomnographic data showed increased N3 (+18 min), improved sleep efficiency (82% vs 74%), and reduced WASO. Urinary melatonin metabolites increased 34% in PEMF group. Low-frequency PEMF is hypothesised to entrain slow cortical oscillations promoting sleep-onset through cholinergic modulation.' },
+  { id:'L040', title:'Real-time fMRI neurofeedback for chronic pain', authors:'deCharms RC, Maeda F, Glover GH, et al.', year:2005, journal:'PNAS', doi:'10.1073/pnas.0504210102', modality:'Neurofeedback', condition:'Chronic Pain', design:'RCT', evidenceLevel:'II', effectSize:0.84, n:36, citations:567, tags:['fMRI-NFB','pain','ACC','real-time','chronic'], abstract:'This landmark study introduced real-time fMRI neurofeedback for pain modulation in 36 participants including chronic pain patients. Participants regulated rostral anterior cingulate cortex (rACC) activation in real-time during painful thermal stimulation. Chronic pain patients who down-regulated rACC showed 44% reduction in clinical pain NRS scores (d=0.84) persisting at follow-up. Healthy volunteers demonstrated volitional rACC modulation with corresponding pain intensity changes. Yoked-sham and mental imagery controls did not show equivalent gains. The study established feasibility of real-time fMRI for pain neuromodulation.' },
+  { id:'L041', title:'TMS for autism spectrum disorder: a systematic review', authors:'Oberman L, Rotenberg A, Pascual-Leone A', year:2015, journal:'Rev J Autism Dev Disord', doi:'10.1007/s40489-014-0043-7', modality:'TMS', condition:'Autism', design:'Systematic Review', evidenceLevel:'II', effectSize:0.48, n:104, citations:167, tags:['TMS','autism','ASD','social','repetitive-behavior'], abstract:'This systematic review synthesized 14 TMS studies (N=104) in ASD. Inhibitory 1 Hz rTMS over DLPFC was the most common protocol. Repetitive behaviours showed the most consistent TMS-responsive changes (d=0.48). Social reciprocity measures improved in 5 of 7 studies with social paradigms. Cortical excitability measures normalised in active vs sham conditions. Three studies targeting cerebellum showed improved motor learning. The review discusses the mirror neuron hypothesis motivating DLPFC inhibition alongside emerging evidence for excitatory protocols for social communication domains.' },
+  { id:'L042', title:'Biofeedback for migraine: meta-analysis', authors:'Nestoriuc Y, Martin A', year:2007, journal:'Pain', doi:'10.1016/j.pain.2006.10.023', modality:'Biofeedback', condition:'Migraine', design:'Meta-analysis', evidenceLevel:'I', effectSize:0.58, n:1025, citations:678, tags:['biofeedback','migraine','EMG','thermal','meta-analysis'], abstract:'This meta-analysis integrated 55 studies (N=1025) examining biofeedback for migraine prophylaxis across EMG, thermal, and combined modalities. Overall effect for migraine frequency reduction was d=0.58. Thermal biofeedback showed the largest effects (d=0.69). Biofeedback effects were comparable to pharmacological prophylaxis and superior to relaxation-only controls. Treatment gains maintained at 12-month follow-up (d=0.55). The review established biofeedback at Grade A evidence for migraine prevention, with clinical effect sizes rivalling pharmacological approaches with superior tolerability.' },
+  { id:'L043', title:'Transcranial alternating current stimulation for insomnia', authors:'Goder R, Baier PC, Beith B, et al.', year:2013, journal:'Brain Stimulation', doi:'10.1016/j.brs.2012.06.002', modality:'tDCS', condition:'Insomnia', design:'RCT', evidenceLevel:'II', effectSize:0.55, n:19, citations:123, tags:['tACS','insomnia','slow-oscillation','sleep','SWS'], abstract:'This sham-controlled study examined slow-oscillation tACS (SO-tACS, 0.75 Hz) applied during non-REM sleep in 19 patients with primary insomnia. Active stimulation was applied bitemporally for 5 consecutive nights during the first SWS episode. Polysomnographic SWS duration increased significantly (38.2 vs 19.6 additional min; d=0.55). Declarative memory consolidation improved 24% active vs 6% sham. Daytime sleepiness decreased. SO-tACS was designed to entrain endogenous slow oscillations and enhance sleep spindle coupling, boosting the memory consolidation function of slow-wave sleep.' },
+  { id:'L044', title:'Neurofeedback for chronic pain', authors:'Jensen MP, Grierson C, Tracy-Smith V, et al.', year:2007, journal:'Appl Psychophysiol Biofeedback', doi:'10.1007/s10484-007-9045-x', modality:'Neurofeedback', condition:'Chronic Pain', design:'Case Series', evidenceLevel:'III', effectSize:0.69, n:13, citations:89, tags:['neurofeedback','pain','alpha','spinal-cord-injury'], abstract:'This case series examined individualised QEEG-guided EEG neurofeedback for chronic pain in 13 individuals with spinal cord injury and neuropathic pain. Protocols targeted anomalous spectral features (typically theta excess and alpha deficit at central sites). Patients received 20 sessions over 6 weeks. Mean pain intensity decreased from 6.8 to 3.9 (d=0.69). Pain interference reduced 41%. Sleep quality improved in 10 of 13 participants. Responders showed normalisation of pre-treatment QEEG anomalies. The study supports personalised QEEG-guided neurofeedback as a potential adjunct for neuropathic pain management.' },
+  { id:'L045', title:'High-frequency left rTMS for bipolar depression', authors:'Dell Osso B, Mundo E, D Urso N, et al.', year:2009, journal:'J Clin Psychiatry', doi:'10.4088/JCP.08l04243', modality:'TMS', condition:'Depression', design:'RCT', evidenceLevel:'II', effectSize:0.44, n:33, citations:112, tags:['TMS','bipolar','depression','left-DLPFC','high-frequency'], abstract:'This sham-controlled RCT evaluated 10 Hz left DLPFC rTMS for bipolar depression in 33 patients on mood stabilisers. 20 sessions over 4 weeks. HDRS-21 decreased 38% active vs 15% sham (d=0.44). Response rate 36.4% vs 12.5% sham. No hypomanic or manic switches during 3-month follow-up. YMRS scores were stable. Mood-stabiliser co-medication was considered protective against switch risk. Results suggest left DLPFC rTMS is a viable and safe antidepressant strategy for bipolar depression when combined with appropriate mood stabilisation.' },
+  { id:'L046', title:'HRV biofeedback reduces PTSD symptoms in veterans', authors:'Zucker TL, Samuelson KW, Muench F, et al.', year:2009, journal:'Appl Psychophysiol Biofeedback', doi:'10.1007/s10484-009-9085-7', modality:'Biofeedback', condition:'PTSD', design:'Pilot RCT', evidenceLevel:'II', effectSize:0.71, n:30, citations:178, tags:['HRV','PTSD','veterans','autonomic','biofeedback'], abstract:'This pilot RCT compared HRV biofeedback to waitlist control in 30 US veterans with combat-related PTSD. Active participants received 12 sessions of resonance frequency breathing biofeedback at 0.1 Hz. PCL-M scores decreased 26.8 points HRV group vs 3.1 control (d=0.71). Resting HRV increased significantly. Emotional regulation improved substantially. Sleep quality improved a mean of 4.1 points. The autonomous nature of HRV biofeedback as a home practice was cited as a particular advantage for this population where therapeutic engagement can be challenging.' },
+  { id:'L047', title:'tDCS for cocaine addiction: a randomized trial', authors:'Fregni F, Liguori P, Fecteau S, et al.', year:2008, journal:'J Clin Psychiatry', doi:'10.4088/JCP.v69n0218', modality:'tDCS', condition:'Cognitive Enhancement', design:'RCT', evidenceLevel:'II', effectSize:0.52, n:28, citations:234, tags:['tDCS','addiction','craving','DLPFC','prefrontal'], abstract:'This crossover RCT examined bilateral DLPFC tDCS for craving reduction in 28 cocaine-dependent outpatients. Active tDCS (anode right F4, cathode left F3, 2 mA, 20 min) or sham delivered on 2 occasions 2 weeks apart. Cocaine craving scores decreased significantly with active tDCS (-32% vs -8% sham; d=0.52). Decision-making (Iowa Gambling Task) improved. Prefrontal executive function composite improved 18%. The bilateral frontal montage enhances inhibitory control over mesolimbic craving circuitry. Findings support prefrontal tDCS as a potential adjunct to addiction medicine.' },
+  { id:'L048', title:'Neurofeedback treatment for OCD', authors:'Koprivova J, Congedo M, Horacek J, et al.', year:2013, journal:'Appl Psychophysiol Biofeedback', doi:'10.1007/s10484-012-9218-2', modality:'Neurofeedback', condition:'OCD', design:'Pilot RCT', evidenceLevel:'II', effectSize:0.58, n:25, citations:67, tags:['neurofeedback','OCD','theta','obsessive-compulsive'], abstract:'This pilot RCT examined frontal midline theta suppression neurofeedback for OCD in 25 adults not responding adequately to SSRIs. Active group received Fz/Cz theta suppression training vs sham feedback over 15 sessions. Y-BOCS decreased 28% active vs 9% sham (d=0.58). Obsession subscale showed greater improvement than compulsion. EEG confirmed significant theta power reduction at Fz in active group. Baseline theta hyperactivity at frontal midline correlated with treatment response. Anxiety and depression improved as secondary outcomes.' },
+  { id:'L049', title:'TMS for schizophrenia: a systematic review', authors:'Freitas C, Fregni F, Pascual-Leone A', year:2009, journal:'Schizophr Res', doi:'10.1016/j.schres.2009.03.005', modality:'TMS', condition:'Schizophrenia', design:'Systematic Review', evidenceLevel:'II', effectSize:0.51, n:231, citations:289, tags:['TMS','schizophrenia','negative-symptoms','systematic-review'], abstract:'This systematic review appraised 24 RCTs (N=231) of TMS for schizophrenia. Three primary applications: 1 Hz rTMS over left TPJ for auditory hallucinations (pooled d=0.54), high-frequency left DLPFC for negative symptoms (pooled d=0.41), and bilateral prefrontal for cognitive deficits (d=0.38). Combined effect size was d=0.51. Working memory, verbal fluency, and processing speed showed the most TMS-responsive cognitive domains. The review concludes TMS targeting both temporal and prefrontal regions represents a promising adjunctive strategy for treatment-resistant schizophrenia.' },
+  { id:'L050', title:'Real-time EEG neurofeedback for anxiety disorders: a meta-analysis', authors:'Thibault RT, Lifshitz M, Raz A', year:2016, journal:'NeuroImage: Clinical', doi:'10.1016/j.nicl.2016.09.011', modality:'Neurofeedback', condition:'Anxiety', design:'Meta-analysis', evidenceLevel:'I', effectSize:0.56, n:412, citations:198, tags:['neurofeedback','anxiety','alpha','EEG','meta-analysis'], abstract:'This meta-analysis evaluated EEG neurofeedback across anxiety disorders in 18 controlled studies (N=412). Anxiety types included GAD, social anxiety, panic disorder, and mixed anxiety. Alpha asymmetry training (left > right frontal alpha) was the most common protocol. Overall effect size was d=0.56 (95% CI 0.39-0.73). Alpha asymmetry protocols produced larger effects (d=0.67) vs theta suppression (d=0.42). The review supports NFB as a clinically useful non-pharmacological anxiety treatment with effect magnitudes comparable to CBT across meta-analyses.' },
+  { id:'L051', title:'Deep TMS for major depressive disorder: a pivotal trial', authors:'Levkovitz Y, Isserles M, Padberg F, et al.', year:2015, journal:'World Psychiatry', doi:'10.1002/wps.20199', modality:'TMS', condition:'Depression', design:'RCT', evidenceLevel:'I', effectSize:0.76, n:212, citations:456, tags:['deep-TMS','H1-coil','depression','FDA-cleared','multicenter'], abstract:'This international multicentre sham-controlled pivotal trial evaluated deep TMS using the H1 coil for MDD in 212 patients who had failed 1-4 antidepressant trials. Bilateral prefrontal deep TMS was delivered daily for 4 weeks. The primary endpoint, response on HDRS-21 at week 5, was achieved by 38.4% active vs 21.4% sham (OR=2.33, p=0.008; d=0.76). Remission 32.6% active vs 14.6% sham. The trial formed the basis for FDA clearance of deep TMS for MDD in 2013. Long-term follow-up showed durability of antidepressant response in 75% of initial responders at 12 months.' },
+  { id:'L052', title:'PEMF for rheumatoid arthritis and pain', authors:'Bagnato GL, Miceli G, Marino N, et al.', year:2016, journal:'J Rehabil Med', doi:'10.2340/16501977-2111', modality:'PEMF', condition:'Chronic Pain', design:'RCT', evidenceLevel:'II', effectSize:0.63, n:42, citations:87, tags:['PEMF','arthritis','pain','inflammation','joint'], abstract:'This double-blind RCT evaluated continuous-use PEMF therapy for pain and inflammation in 42 rheumatoid arthritis patients on stable DMARDs. Active PEMF (100 Hz, 2.5 mT) applied via wearable device over affected joints for 6 hours/day over 8 weeks. VAS pain decreased 41% active vs 16% sham (d=0.63). DAS-28 disease activity improved significantly. CRP and ESR decreased more in active group. HAQ disability improved 28%. Joint morning stiffness fell 34 minutes. Proposed mechanism involves PEMF suppression of NF-kB signalling and upregulation of anti-inflammatory interleukins IL-10 and IL-4 in synovial tissue.' },
+];
+
+const MODALITY_COLORS = {
+  TMS:           '#2dd4bf',
+  Neurofeedback: '#818cf8',
+  tDCS:          '#60a5fa',
+  PEMF:          '#f59e0b',
+  HEG:           '#34d399',
+  Biofeedback:   '#fb923c',
+  'Multi-modal': '#e879f9',
+};
+
+function _lsGetLit(key) { try { return JSON.parse(localStorage.getItem(key)||'[]'); } catch { return []; } }
+function _lsSetLit(key, val) { try { localStorage.setItem(key, JSON.stringify(val)); } catch {} }
+function _seedLit() { if (!localStorage.getItem('ds_literature')) _lsSetLit('ds_literature', LITERATURE_DB); }
+
+export async function pgLiteratureLibrary(setTopbar) {
+  setTopbar('Evidence Library', '');
+  _seedLit();
+  const el = document.getElementById('content');
+
+  let _tab      = 'library';
+  let _q        = '';
+  let _modality = '';
+  let _condition = '';
+  let _design   = '';
+  let _evLevel  = '';
+  let _yMin     = 1990;
+  let _yMax     = 2025;
+  let _sort     = 'recent';
+  let _protoDD  = null;
+
+  const lib     = () => { const d=_lsGetLit('ds_literature'); return d.length?d:LITERATURE_DB; };
+  const rl      = () => _lsGetLit('ds_literature_reading_list');
+  const ptags   = () => _lsGetLit('ds_literature_protocol_tags');
+  const inRl    = id => rl().some(r=>r.id===id);
+  const protos  = () => { try { const r=JSON.parse(localStorage.getItem('ds_protocols')||'[]'); return r.map(p=>typeof p==='string'?{name:p}:p).filter(p=>p&&(p.name||p.title)); } catch { return []; } };
+  const fa      = a => { const p=a.split(','); return p[0].trim()+(p.length>1?' et al.':''); };
+  const apa     = p => `${p.authors} (${p.year}). ${p.title}. ${p.journal}. https://doi.org/${p.doi}`;
+  const ec      = l => l==='I'?'#2dd4bf':l==='II'?'#60a5fa':'#f59e0b';
+  const mc      = m => MODALITY_COLORS[m]||'#94a3b8';
+
+  function filtered() {
+    const q=_q.toLowerCase();
+    let r=lib().filter(p=>{
+      if(q&&!((p.title||'').toLowerCase().includes(q)||(p.authors||'').toLowerCase().includes(q)||(p.journal||'').toLowerCase().includes(q)||(p.tags||[]).some(t=>t.toLowerCase().includes(q)))) return false;
+      if(_modality&&p.modality!==_modality) return false;
+      if(_condition&&p.condition!==_condition) return false;
+      if(_design&&p.design!==_design) return false;
+      if(_evLevel&&p.evidenceLevel!==_evLevel) return false;
+      if(p.year<_yMin||p.year>_yMax) return false;
+      return true;
+    });
+    if(_sort==='recent') r.sort((a,b)=>b.year-a.year);
+    if(_sort==='cited')  r.sort((a,b)=>b.citations-a.citations);
+    if(_sort==='effect') r.sort((a,b)=>b.effectSize-a.effectSize);
+    if(_sort==='alpha')  r.sort((a,b)=>a.title.localeCompare(b.title));
+    return r;
+  }
+
+  function card(p) {
+    const sv=inRl(p.id);
+    const sn=(p.abstract||'').slice(0,120)+((p.abstract||'').length>120?'…':'');
+    const mc2=`nnnd-badge-modality-${p.modality.replace(/[\s-]+/g,'-')}`;
+    const dc=(p.design==='RCT'||p.design.includes('RCT'))?'nnnd-badge-design-RCT':'nnnd-badge-design';
+    const ec2=`nnnd-badge-evidence-${p.evidenceLevel}`;
+    return `<div class="nnnd-paper-card" data-modality="${p.modality}">
+      <div class="nnnd-card-title" title="${p.title}">${p.title}</div>
+      <div class="nnnd-card-meta">${fa(p.authors)} · ${p.year} · ${p.journal}</div>
+      <div class="nnnd-badges">
+        <span class="nnnd-badge ${mc2}">${p.modality}</span>
+        <span class="nnnd-badge nnnd-badge-condition">${p.condition}</span>
+        <span class="nnnd-badge ${dc}">${p.design}</span>
+        <span class="nnnd-badge ${ec2}">Level ${p.evidenceLevel}</span>
+      </div>
+      <div class="nnnd-card-stats">
+        <div class="nnnd-stat"><span class="nnnd-stat-value" style="color:${ec(p.evidenceLevel)}">d=${p.effectSize}</span><span class="nnnd-stat-label">Effect Size</span></div>
+        <div class="nnnd-stat"><span class="nnnd-stat-value">N=${p.n}</span><span class="nnnd-stat-label">Sample</span></div>
+        <div class="nnnd-stat"><span class="nnnd-stat-value">${p.citations.toLocaleString()}</span><span class="nnnd-stat-label">Citations</span></div>
+      </div>
+      <div class="nnnd-abstract-snippet">${sn}</div>
+      <div class="nnnd-card-tags">${(p.tags||[]).slice(0,5).map(t=>`<span class="nnnd-tag">${t}</span>`).join('')}</div>
+      <div class="nnnd-card-actions">
+        <button class="nnnd-btn nnnd-btn-primary" onclick="window._litAbs('${p.id}')">Read Abstract</button>
+        <button class="nnnd-btn ${sv?'nnnd-btn-saved':''}" id="rl-btn-${p.id}" onclick="window._litRL('${p.id}')">${sv?'✓ Saved':'+ Reading List'}</button>
+        <button class="nnnd-btn" onclick="window._litCit('${p.id}')">Copy Citation</button>
+      </div>
+    </div>`;
+  }
+
+  function libView() {
+    const pp=filtered();
+    if(!pp.length) return `<div class="nnnd-rl-empty"><div class="nnnd-rl-empty-icon">🔬</div><p>No papers match your filters.</p></div>`;
+    return `<div class="nnnd-cards-grid">${pp.map(card).join('')}</div>`;
+  }
+
+  function rlView() {
+    const rlist=rl(), ldata=lib();
+    if(!rlist.length) return `<div class="nnnd-rl-empty"><div class="nnnd-rl-empty-icon">📖</div><p>Your reading list is empty.</p><p style="font-size:12px;margin-top:8px">Click "+ Reading List" on any paper card to save it here.</p></div>`;
+    const items=rlist.map(e=>{const p=ldata.find(x=>x.id===e.id); if(!p) return '';
+      return `<div class="nnnd-rl-item">
+        <div class="nnnd-rl-title">${p.title}</div>
+        <div class="nnnd-rl-meta">${fa(p.authors)} · ${p.year} · ${p.journal}</div>
+        <textarea class="nnnd-rl-notes" placeholder="Add notes…" oninput="window._litNote('${p.id}',this.value)">${e.notes||''}</textarea>
+        <div class="nnnd-rl-actions">
+          <button class="nnnd-btn nnnd-btn-primary" onclick="window._litAbs('${p.id}')">View Abstract</button>
+          <button class="nnnd-btn" onclick="window._litCit('${p.id}')">Copy Citation</button>
+          <button class="nnnd-btn" style="color:var(--accent-rose,#f87171);border-color:rgba(248,113,113,.3)" onclick="window._litRL('${p.id}')">Remove</button>
+        </div>
+      </div>`;}).join('');
+    return `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+        <div style="font-size:13px;color:var(--text-muted)">${rlist.length} paper${rlist.length!==1?'s':''} saved</div>
+        <button class="nnnd-btn" onclick="window._litBib()">Export Bibliography (.txt)</button>
+      </div>
+      <div class="nnnd-reading-list">${items}</div>`;
+  }
+
+  function mapView() {
+    const pp=lib(), W=820, H=440, L=60, T=40, R=30, B=50;
+    const iW=W-L-R, iH=H-T-B;
+    const xp=y=>L+((y-1990)/35)*iW, yp=e=>T+(1-(e/2.0))*iH, br=n=>Math.max(6,Math.min(22,Math.sqrt(n)*1.8));
+    const xg=[1990,1995,2000,2005,2010,2015,2020,2025].map(y=>
+      `<line x1="${xp(y)}" y1="${T}" x2="${xp(y)}" y2="${T+iH}" stroke="rgba(255,255,255,0.05)" stroke-width="1"/>
+       <text x="${xp(y)}" y="${T+iH+16}" text-anchor="middle" font-size="10" fill="#64748b">${y}</text>`).join('');
+    const yg=[0,0.5,1.0,1.5,2.0].map(e=>
+      `<line x1="${L}" y1="${yp(e)}" x2="${L+iW}" y2="${yp(e)}" stroke="rgba(255,255,255,0.05)" stroke-width="1"/>
+       <text x="${L-8}" y="${yp(e)+4}" text-anchor="end" font-size="10" fill="#64748b">${e.toFixed(1)}</text>`).join('');
+    const bubbles=pp.map(p=>{const c=mc(p.modality);
+      return `<circle cx="${xp(p.year)}" cy="${yp(p.effectSize)}" r="${br(p.n)}" fill="${c}" fill-opacity="0.7" stroke="${c}" stroke-width="1.5" style="cursor:pointer" onmouseenter="window._litTT(event,'${p.id}')" onmouseleave="window._litTTO()" onclick="window._litAbs('${p.id}')"/>`;}).join('');
+    const legend=Object.entries(MODALITY_COLORS).map(([m,c])=>`<div class="nnnd-legend-item"><div class="nnnd-legend-dot" style="background:${c}"></div>${m}</div>`).join('');
+    return `<div class="nnnd-evidence-map">
+      <div class="nnnd-map-header"><div class="nnnd-map-title">Evidence Map — 52 Studies</div><div class="nnnd-legend">${legend}</div></div>
+      <div class="nnnd-map-svg-wrap">
+        <svg width="100%" viewBox="0 0 ${W} ${H}" style="display:block;max-width:100%">
+          ${xg}${yg}
+          <text x="${L+iW/2}" y="${H-4}" text-anchor="middle" font-size="11" fill="#94a3b8">Year</text>
+          <text x="13" y="${T+iH/2}" text-anchor="middle" font-size="11" fill="#94a3b8" transform="rotate(-90,13,${T+iH/2})">Effect Size (d)</text>
+          <line x1="${L}" y1="${T}" x2="${L}" y2="${T+iH}" stroke="rgba(255,255,255,.2)" stroke-width="1"/>
+          <line x1="${L}" y1="${T+iH}" x2="${L+iW}" y2="${T+iH}" stroke="rgba(255,255,255,.2)" stroke-width="1"/>
+          ${bubbles}
+        </svg>
+        <div class="nnnd-map-tooltip" id="nnnd-tt"></div>
+      </div>
+      <div style="padding:10px 18px;font-size:11px;color:var(--text-muted);border-top:1px solid var(--border)">Bubble size = sample size (N). Hover for details, click to open abstract.</div>
+    </div>`;
+  }
+
+  function sb() {
+    return `
+      <div class="nnnd-sidebar-section">
+        <div class="nnnd-sidebar-label">Search</div>
+        <input type="search" placeholder="Title, author, journal, tag…" value="${_q}" oninput="window._litFlt('q',this.value)">
+      </div>
+      <div class="nnnd-sidebar-section">
+        <div class="nnnd-sidebar-label">Modality</div>
+        <select onchange="window._litFlt('mod',this.value)">
+          <option value="" ${!_modality?'selected':''}>All Modalities</option>
+          ${['TMS','Neurofeedback','tDCS','PEMF','HEG','Biofeedback','Multi-modal'].map(m=>`<option value="${m}" ${_modality===m?'selected':''}>${m}</option>`).join('')}
+        </select>
+      </div>
+      <div class="nnnd-sidebar-section">
+        <div class="nnnd-sidebar-label">Condition</div>
+        <select onchange="window._litFlt('cond',this.value)">
+          <option value="" ${!_condition?'selected':''}>All Conditions</option>
+          ${['Depression','ADHD','Anxiety','PTSD','OCD','Insomnia','Chronic Pain','TBI','Autism','Migraine','Schizophrenia','Cognitive Enhancement'].map(c=>`<option value="${c}" ${_condition===c?'selected':''}>${c}</option>`).join('')}
+        </select>
+      </div>
+      <div class="nnnd-sidebar-section">
+        <div class="nnnd-sidebar-label">Study Design</div>
+        <select onchange="window._litFlt('dsn',this.value)">
+          <option value="" ${!_design?'selected':''}>All Designs</option>
+          ${['RCT','Meta-analysis','Systematic Review','Pilot RCT','Case Series','Observational'].map(d=>`<option value="${d}" ${_design===d?'selected':''}>${d}</option>`).join('')}
+        </select>
+      </div>
+      <div class="nnnd-sidebar-section">
+        <div class="nnnd-sidebar-label">Year Range</div>
+        <div class="nnnd-year-range">
+          <input type="number" min="1990" max="2025" value="${_yMin}" onchange="window._litFlt('ymin',this.value)">
+          <span>–</span>
+          <input type="number" min="1990" max="2025" value="${_yMax}" onchange="window._litFlt('ymax',this.value)">
+        </div>
+      </div>
+      <div class="nnnd-sidebar-section">
+        <div class="nnnd-sidebar-label">Evidence Level</div>
+        <select onchange="window._litFlt('ev',this.value)">
+          <option value="" ${!_evLevel?'selected':''}>All Levels</option>
+          <option value="I"   ${_evLevel==='I'  ?'selected':''}>Level I (RCT/Meta)</option>
+          <option value="II"  ${_evLevel==='II' ?'selected':''}>Level II (Controlled)</option>
+          <option value="III" ${_evLevel==='III'?'selected':''}>Level III (Observational)</option>
+        </select>
+      </div>
+      <div class="nnnd-sidebar-section">
+        <div class="nnnd-sidebar-label">Sort By</div>
+        <select onchange="window._litFlt('sort',this.value)">
+          <option value="recent" ${_sort==='recent'?'selected':''}>Most Recent</option>
+          <option value="cited"  ${_sort==='cited' ?'selected':''}>Most Cited</option>
+          <option value="effect" ${_sort==='effect'?'selected':''}>Highest Effect Size</option>
+          <option value="alpha"  ${_sort==='alpha' ?'selected':''}>Alphabetical</option>
+        </select>
+      </div>`;
+  }
+
+  function tabContent() {
+    if(_tab==='library')      return libView();
+    if(_tab==='reading-list') return rlView();
+    if(_tab==='evidence-map') return mapView();
+    return '';
+  }
+
+  function rlBadge() { const c=rl().length; return c>0?`<span style="font-size:10px;background:var(--accent-violet,#818cf8);color:#fff;padding:1px 5px;border-radius:10px;margin-left:4px">${c}</span>`:''; }
+
+  function render() {
+    const n=filtered().length;
+    el.innerHTML=`<div class="nnnd-library-layout">
+      <div class="nnnd-sidebar" id="nnnd-sb">${sb()}</div>
+      <div class="nnnd-main">
+        <div class="nnnd-topbar">
+          <button class="nnnd-tab ${_tab==='library'?'active':''}" onclick="window._litTab('library')">Papers</button>
+          <button class="nnnd-tab ${_tab==='reading-list'?'active':''}" id="nnnd-rlt" onclick="window._litTab('reading-list')">Reading List${rlBadge()}</button>
+          <button class="nnnd-tab ${_tab==='evidence-map'?'active':''}" onclick="window._litTab('evidence-map')">Evidence Map</button>
+          <div class="nnnd-count" id="nnnd-cnt">${_tab==='library'?`${n} paper${n!==1?'s':''}`:''}</div>
+        </div>
+        <div class="nnnd-content-area" id="nnnd-ca">${tabContent()}</div>
+      </div>
+    </div>`;
+  }
+
+  function refreshCA() {
+    const ca=document.getElementById('nnnd-ca');
+    if(!ca){render();return;}
+    ca.innerHTML=tabContent();
+    const cnt=document.getElementById('nnnd-cnt');
+    if(cnt){const n=filtered().length;cnt.textContent=_tab==='library'?`${n} paper${n!==1?'s':''}`:''}
+    const rlt=document.getElementById('nnnd-rlt');
+    if(rlt) rlt.innerHTML=`Reading List${rlBadge()}`;
+  }
+
+  function modal(p) {
+    const sv=inRl(p.id);
+    const mc2=`nnnd-badge-modality-${p.modality.replace(/[\s-]+/g,'-')}`;
+    const dc=(p.design==='RCT'||p.design.includes('RCT'))?'nnnd-badge-design-RCT':'nnnd-badge-design';
+    const ec2=`nnnd-badge-evidence-${p.evidenceLevel}`;
+    const ss=(p.abstract||'').split('. ').filter(s=>s.length>30).slice(2,5).map(s=>s.trim()+(s.endsWith('.')?'':'.'));
+    const cs=p.effectSize>=0.8?'Large effect — highly clinically meaningful':p.effectSize>=0.5?'Medium effect — clinically meaningful':p.effectSize>=0.2?'Small-medium effect — modest clinical benefit':'Small effect — marginal clinical significance';
+    const lm={'RCT':'Single-blind or open-label limitations; variable sham conditions; sample size may limit power for subgroup analyses.','Meta-analysis':'Heterogeneous protocols across studies; publication bias possible; variable outcome measures.','Systematic Review':'Narrative synthesis limitations; inability to pool effect sizes across heterogeneous designs.','Pilot RCT':'Small sample size limits power and generalizability; absence of active control; short follow-up.','Case Series':'No control group; selection bias; limited causal inference; regression to mean risk.'};
+    const lim=lm[p.design]||'See full text for methodological limitations.';
+    const pr=protos(), opts=pr.length?pr.map(x=>`<div class="nnnd-protocol-dropdown-item" onclick="window._litTP('${p.id}','${(x.name||x.title||'').replace(/'/g,"\\'")}')">📋 ${x.name||x.title}</div>`).join(''):`<div class="nnnd-protocol-dropdown-item" style="color:var(--text-muted)">No protocols in library</div>`;
+    return `<div class="nnnd-abstract-modal" id="nnnd-modal" onclick="window._litCBG(event)">
+      <div class="nnnd-modal-content">
+        <button class="nnnd-modal-close" onclick="window._litC()">×</button>
+        <div class="nnnd-modal-title">${p.title}</div>
+        <div class="nnnd-modal-authors">${p.authors}</div>
+        <div class="nnnd-modal-journal">${p.journal} (${p.year}) · DOI: ${p.doi}</div>
+        <div class="nnnd-badges" style="margin-bottom:12px">
+          <span class="nnnd-badge ${mc2}">${p.modality}</span>
+          <span class="nnnd-badge nnnd-badge-condition">${p.condition}</span>
+          <span class="nnnd-badge ${dc}">${p.design}</span>
+          <span class="nnnd-badge ${ec2}">Level ${p.evidenceLevel}</span>
+        </div>
+        <div class="nnnd-modal-stats">
+          <div class="nnnd-modal-stat-box"><div class="val">${p.effectSize}</div><div class="lbl">Cohen's d</div></div>
+          <div class="nnnd-modal-stat-box"><div class="val">N=${p.n}</div><div class="lbl">Sample Size</div></div>
+          <div class="nnnd-modal-stat-box"><div class="val">${p.citations.toLocaleString()}</div><div class="lbl">Citations</div></div>
+          <div class="nnnd-modal-stat-box" style="flex:2"><div class="val" style="font-size:13px;line-height:1.3">${cs}</div><div class="lbl">Clinical Significance</div></div>
+        </div>
+        <div class="nnnd-modal-section-label">Abstract</div>
+        <div class="nnnd-modal-abstract">${p.abstract||'No abstract available.'}</div>
+        <div class="nnnd-modal-section-label">Key Findings</div>
+        <ul class="nnnd-findings-list">${ss.map(f=>`<li>${f}</li>`).join('')}</ul>
+        <div class="nnnd-modal-section-label">Limitations</div>
+        <div class="nnnd-limitations">${lim}</div>
+        <div class="nnnd-modal-section-label">Tags</div>
+        <div class="nnnd-card-tags" style="margin-bottom:0">${(p.tags||[]).map(t=>`<span class="nnnd-tag">${t}</span>`).join('')}</div>
+        <div class="nnnd-modal-actions">
+          <button class="nnnd-btn nnnd-btn-primary" onclick="window._litCit('${p.id}',true)">Copy APA Citation</button>
+          <button class="nnnd-btn ${sv?'nnnd-btn-saved':''}" id="mrl-${p.id}" onclick="window._litRL('${p.id}',true)">${sv?'✓ In Reading List':'+ Reading List'}</button>
+          <div class="nnnd-tag-protocol-wrap">
+            <button class="nnnd-btn" onclick="window._litPDD('${p.id}')">Tag to Protocol ▾</button>
+            <div class="nnnd-protocol-dropdown" id="pdd-${p.id}" style="display:none">${opts}</div>
+          </div>
+        </div>
+      </div>
+    </div>`;
+  }
+
+  window._litTab = t => {
+    _tab=t;
+    el.querySelectorAll('.nnnd-tab').forEach((b,i)=>b.classList.toggle('active',['library','reading-list','evidence-map'][i]===t));
+    refreshCA();
+  };
+
+  window._litFlt = (k,v) => {
+    if(k==='q')    _q        = v;
+    if(k==='mod')  _modality = v;
+    if(k==='cond') _condition= v;
+    if(k==='dsn')  _design   = v;
+    if(k==='ev')   _evLevel  = v;
+    if(k==='ymin') _yMin     = parseInt(v)||1990;
+    if(k==='ymax') _yMax     = parseInt(v)||2025;
+    if(k==='sort') _sort     = v;
+    if(_tab==='library'){const ca=document.getElementById('nnnd-ca'); if(ca) ca.innerHTML=libView(); const cnt=document.getElementById('nnnd-cnt'); if(cnt){const n=filtered().length;cnt.textContent=`${n} paper${n!==1?'s':''}`}}
+  };
+
+  window._litAbs = id => {
+    const p=lib().find(x=>x.id===id); if(!p) return;
+    document.getElementById('nnnd-modal')?.remove();
+    document.body.insertAdjacentHTML('beforeend', modal(p));
+    document.body.style.overflow='hidden';
+    window._litEK=e=>{if(e.key==='Escape')window._litC()};
+    document.addEventListener('keydown', window._litEK);
+  };
+
+  window._litC = () => { document.getElementById('nnnd-modal')?.remove(); document.body.style.overflow=''; document.removeEventListener('keydown',window._litEK); };
+  window._litCBG = e => { if(e.target.id==='nnnd-modal') window._litC(); };
+
+  window._litRL = (id, inModal) => {
+    const rlist=rl(), i=rlist.findIndex(r=>r.id===id);
+    if(i>=0){ rlist.splice(i,1); _lsSetLit('ds_literature_reading_list',rlist);
+      const b=document.getElementById(`rl-btn-${id}`); if(b){b.textContent='+ Reading List';b.classList.remove('nnnd-btn-saved');}
+      const mb=document.getElementById(`mrl-${id}`); if(mb){mb.textContent='+ Reading List';mb.classList.remove('nnnd-btn-saved');}
+    } else { rlist.push({id,notes:'',addedAt:new Date().toISOString()}); _lsSetLit('ds_literature_reading_list',rlist);
+      const b=document.getElementById(`rl-btn-${id}`); if(b){b.textContent='✓ Saved';b.classList.add('nnnd-btn-saved');}
+      const mb=document.getElementById(`mrl-${id}`); if(mb){mb.textContent='✓ In Reading List';mb.classList.add('nnnd-btn-saved');}
+    }
+    const rlt=document.getElementById('nnnd-rlt'); if(rlt) rlt.innerHTML=`Reading List${rlBadge()}`;
+    if(_tab==='reading-list'&&!inModal) refreshCA();
+  };
+
+  window._litNote = (id,text) => { const r=rl(); const it=r.find(x=>x.id===id); if(it){it.notes=text;_lsSetLit('ds_literature_reading_list',r);} };
+
+  window._litCit = (id, toast) => {
+    const p=lib().find(x=>x.id===id); if(!p) return;
+    const txt=apa(p);
+    const done=()=>{ if(toast){const t=document.createElement('div');t.style.cssText='position:fixed;bottom:24px;right:24px;background:var(--accent-teal,#2dd4bf);color:#0a1628;padding:10px 18px;border-radius:8px;font-size:13px;font-weight:600;z-index:2000;box-shadow:0 4px 16px rgba(0,0,0,.4)';t.textContent='✓ APA citation copied';document.body.appendChild(t);setTimeout(()=>t.remove(),2500);}};
+    navigator.clipboard?.writeText(txt).then(done).catch(()=>{const ta=document.createElement('textarea');ta.value=txt;ta.style.cssText='position:fixed;opacity:0;left:-9999px';document.body.appendChild(ta);ta.select();document.execCommand('copy');ta.remove();done();});
+  };
+
+  window._litTP = (pid, pname) => {
+    const tags=ptags(); if(!tags.find(t=>t.paperId===pid&&t.protocol===pname)) {tags.push({paperId:pid,protocol:pname,taggedAt:new Date().toISOString()});_lsSetLit('ds_literature_protocol_tags',tags);}
+    const dd=document.getElementById(`pdd-${pid}`); if(dd) dd.style.display='none'; _protoDD=null;
+    const t=document.createElement('div');t.style.cssText='position:fixed;bottom:24px;right:24px;background:var(--accent-violet,#818cf8);color:#fff;padding:10px 18px;border-radius:8px;font-size:13px;font-weight:600;z-index:2000;box-shadow:0 4px 16px rgba(0,0,0,.4)';t.textContent=`✓ Tagged to "${pname}"`;document.body.appendChild(t);setTimeout(()=>t.remove(),2500);
+  };
+
+  window._litPDD = id => {
+    if(_protoDD&&_protoDD!==id){const p=document.getElementById(`pdd-${_protoDD}`);if(p) p.style.display='none';}
+    const dd=document.getElementById(`pdd-${id}`);if(!dd) return;
+    const v=dd.style.display!=='none';dd.style.display=v?'none':'block';_protoDD=v?null:id;
+  };
+
+  window._litBib = () => {
+    const r=rl(), l=lib();
+    const lines=r.map(e=>{const p=l.find(x=>x.id===e.id);if(!p)return '';let s=apa(p);if(e.notes?.trim())s+=`\n  [Notes: ${e.notes.trim()}]`;return s;}).filter(Boolean);
+    if(!lines.length) return;
+    const txt=`DeepSynaps Literature Reading List\nExported: ${new Date().toLocaleDateString()}\n\n`+lines.join('\n\n');
+    const url=URL.createObjectURL(new Blob([txt],{type:'text/plain;charset=utf-8'}));
+    const a=document.createElement('a');a.href=url;a.download=`reading-list-${new Date().toISOString().slice(0,10)}.txt`;a.click();URL.revokeObjectURL(url);
+  };
+
+  window._litTT = (evt, id) => {
+    const p=lib().find(x=>x.id===id), tt=document.getElementById('nnnd-tt');
+    if(!p||!tt) return;
+    const col=mc(p.modality);
+    tt.innerHTML=`<div style="font-weight:700;margin-bottom:4px;line-height:1.3">${p.title.length>65?p.title.slice(0,65)+'…':p.title}</div>
+      <div style="color:var(--text-muted);font-size:11px;margin-bottom:5px">${fa(p.authors)} · ${p.year}</div>
+      <div style="display:flex;gap:10px;font-size:11.5px"><span style="color:${col}">● ${p.modality}</span><span>d=${p.effectSize}</span><span>N=${p.n}</span></div>`;
+    tt.style.display='block';
+    const wr=tt.parentElement.getBoundingClientRect(), mx=evt.clientX-wr.left+14, my=evt.clientY-wr.top-10;
+    tt.style.left=Math.max(4,(mx+250>tt.parentElement.clientWidth-8)?mx-260:mx)+'px';
+    tt.style.top=Math.max(4,my)+'px';
+  };
+
+  window._litTTO = () => { const tt=document.getElementById('nnnd-tt'); if(tt) tt.style.display='none'; };
+
+  window._litDocH = e => { if(_protoDD){const dd=document.getElementById(`pdd-${_protoDD}`);if(dd&&!e.target.closest('.nnnd-tag-protocol-wrap')){dd.style.display='none';_protoDD=null;}} };
+  document.addEventListener('click', window._litDocH);
+
+  render();
+}

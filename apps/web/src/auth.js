@@ -111,7 +111,7 @@ function renderLoginPage() {
         <span onclick="window._navPublic?.('signup-patient')" style="color:var(--blue);cursor:pointer;white-space:nowrap;font-weight:600">First time? Activate →</span>
       </div>
       <div style="display:flex;justify-content:space-between;align-items:center;margin-top:14px">
-        ${import.meta.env.DEV ? '<span style="font-size:11.5px;color:var(--text-tertiary)">Demo: <code style="color:var(--teal)">clinician@demo.com</code> / <code style="color:var(--teal)">demo1234</code></span>' : '<span></span>'}
+        <span style="font-size:11.5px;color:var(--text-tertiary)">${import.meta.env.DEV ? 'Demo: clinician@demo.com / demo1234' : ''}</span>
         <button class="btn btn-ghost btn-sm" style="font-size:11px;padding:3px 6px" onclick="switchAuthTab('forgot')">Forgot password?</button>
       </div>
       <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border);display:flex;gap:8px">
