@@ -287,13 +287,17 @@ export function pgHome() {
       </p>
 
       <div class="pub-hero-ctas">
-        <button class="btn-hero-primary" onclick="window._navPublic('signup-professional')">
+        <button class="btn-hero-primary" onclick="window._navPublic('signup-professional')"
+          title="Start your 14-day free trial — for clinicians, technicians &amp; administrators">
           Start Free 14-Day Trial &rarr;
         </button>
-        <button class="btn-hero-secondary" onclick="window._navPublic('signup-patient')">
-          Patient Portal
+        <button class="btn-hero-secondary" onclick="window._navPublic('signup-patient')"
+          style="border-color:var(--border-blue);color:var(--blue)"
+          title="Activate your patient portal — requires an invitation code from your clinic">
+          Patient Portal Access &rarr;
         </button>
-        <button class="btn-hero-ghost" onclick="window._showSignIn()">
+        <button class="btn-hero-ghost" onclick="window._showSignIn()"
+          title="Sign in to your existing professional or patient account">
           Sign In
         </button>
       </div>
@@ -1028,12 +1032,13 @@ export function pgHome() {
           </div>
           <ul class="pub-plan-features">
             <li>1 professional seat</li>
-            <li>Deterministic protocol intelligence</li>
-            <li>Treatment courses</li>
-            <li>Assessments</li>
-            <li>Patient portal access</li>
-            <li>Basic reports</li>
-            <li>EV-A / EV-B evidence access</li>
+            <li>Up to 25 active patients</li>
+            <li>Evidence-graded protocol intelligence</li>
+            <li>Treatment courses &amp; session execution</li>
+            <li>Assessments &amp; basic reports</li>
+            <li>Patient portal access (clinic-provisioned)</li>
+            <li>EV-A / EV-B evidence grades</li>
+            <li>Email support</li>
           </ul>
           <button class="pub-plan-cta" onclick="window._navPublic('signup-professional')">
             Start Free Trial &rarr;
@@ -1051,16 +1056,18 @@ export function pgHome() {
           <ul class="pub-plan-features">
             <li>1 professional seat</li>
             <li>Unlimited patients</li>
-            <li>Treatment-course workflows</li>
-            <li>Protocol intelligence</li>
-            <li>Patient portal</li>
-            <li>Outcomes tracking</li>
-            <li>qEEG &amp; brain data</li>
-            <li>DOCX / report exports</li>
+            <li>Full treatment-course workflows</li>
+            <li>Device-aware session execution runner</li>
+            <li>Evidence-graded protocol intelligence</li>
+            <li>Patient portal (clinic-provisioned)</li>
+            <li>Outcomes tracking &amp; assessments</li>
+            <li>qEEG &amp; brain data integration</li>
+            <li>DOCX / PDF report exports</li>
             <li>EV-C override &amp; off-label governance</li>
+            <li>Priority email support</li>
           </ul>
           <button class="pub-plan-cta pub-plan-cta--featured" onclick="window._navPublic('signup-professional')">
-            Get Started &rarr;
+            Start Free Trial &rarr;
           </button>
         </div>
 

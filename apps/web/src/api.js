@@ -157,8 +157,18 @@ export const api = {
   exportPatientGuideDocx: (data) => apiFetchBlob('/api/v1/export/patient-guide-docx', data),
 
   // ── Review & Audit ──────────────────────────────────────────────────────
-  submitReview: (data) =>
-    apiFetch('/api/v1/review-actions', { method: 'POST', body: JSON.stringify(data) }),
+  // postReviewQueueAction: post approve/reject/escalate/comment to the review queue
+  postReviewQueueAction: (data) =>
+    apiFetch('/api/v1/review-queue/actions', { method: 'POST', body: JSON.stringify(data) }),
+  // submitReview: normalises legacy { course_id, action, notes } shape to { review_item_id, action, notes }
+  submitReview: (data) => {
+    const body = {
+      review_item_id: data.review_item_id || data.item_id || data.course_id,
+      action: data.action,
+      notes: data.notes || data.note || '',
+    };
+    return apiFetch('/api/v1/review-queue/actions', { method: 'POST', body: JSON.stringify(body) });
+  },
   auditTrail: () => apiFetch('/api/v1/audit-trail'),
 
   // ── Payments ────────────────────────────────────────────────────────────
@@ -276,8 +286,11 @@ export const api = {
   patientPortalSessions: () => apiFetch('/api/v1/patient-portal/sessions'),
   patientPortalAssessments: () => apiFetch('/api/v1/patient-portal/assessments'),
   patientPortalOutcomes: () => apiFetch('/api/v1/patient-portal/outcomes'),
-  patientPortalMessages: () => apiFetch('/api/v1/patient-portal/messages'),
-  patientPortalSendMessage: (data) => apiFetch('/api/v1/patient-portal/messages', { method: 'POST', body: JSON.stringify(data) }),
+  // NOTE: patient-portal has no dedicated /messages endpoint; messaging goes through
+  // the patients router — caller must supply their own patient_id (from patientPortalMe).
+  patientPortalMessages: (patientId) => apiFetch(`/api/v1/patients/${patientId}/messages`),
+  patientPortalSendMessage: (patientId, message) =>
+    apiFetch(`/api/v1/patients/${patientId}/messages`, { method: 'POST', body: JSON.stringify({ body: message }) }),
 
   // ── Wearable monitoring ───────────────────────────────────────────────────
   patientPortalWearables: () => apiFetch('/api/v1/patient-portal/wearables'),

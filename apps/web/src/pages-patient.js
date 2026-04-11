@@ -381,7 +381,7 @@ export async function pgPatientDashboard(user) {
               <div class="progress-fill" style="width:${progressPct || 0}%"></div>
             </div>
             <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text-tertiary);margin-bottom:16px">
-              <span>0 sessions</span>
+              <span>${t('patient.progress.sessions_start')}</span>
               <span>${totalPlanned ? t('patient.progress.sessions_total', { n: totalPlanned }) : t('patient.progress.no_total')}</span>
             </div>
             <div class="pt-plain-language">
@@ -510,7 +510,7 @@ function startCountdown(targetDateStr) {
     const diff = target - now;
     if (diff <= 0) {
       const el = document.getElementById('countdown-display');
-      if (el) el.textContent = 'Session time!';
+      if (el) el.textContent = t('patient.sess.countdown.now');
       return;
     }
     const d       = Math.floor(diff / 86400000);
@@ -1541,7 +1541,7 @@ function renderPHQ9Form(containerId, patientId) {
       `).join('')}
       <div style="display:flex;align-items:center;gap:16px;margin-top:20px;padding-top:16px;border-top:1px solid var(--border)">
         <div style="flex:1">
-          <div style="font-size:11px;color:var(--text-tertiary)">${t('patient.phq9.live_score')}</div>
+          <div style="font-size:11px;color:var(--text-tertiary)">${t('patient.phq9.running_score')}</div>
           <div style="font-size:20px;font-weight:700;font-family:var(--font-display);color:var(--teal)" id="phq9-live-score">0 / 27</div>
         </div>
         <button class="btn btn-primary" onclick="window._ptPHQ9Submit()">${t('patient.phq9.submit')}</button>
@@ -2015,8 +2015,12 @@ export async function pgPatientAssessments() {
     el.innerHTML = `
       <div class="pt-assess-empty">
         <div class="pt-assess-empty-ico" aria-hidden="true">&#9673;</div>
-        <div class="pt-assess-empty-title">No assessments right now</div>
-        <div class="pt-assess-empty-body">Your care team will assign assessments here as your treatment progresses. They will let you know when one is due.</div>
+        <div class="pt-assess-empty-title">${t('patient.assess.empty.title')}</div>
+        <div class="pt-assess-empty-body">${t('patient.assess.empty.body')}</div>
+        <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin-top:16px">
+          <button class="btn btn-ghost btn-sm" onclick="window._navPatient('patient-messages')">${t('patient.assess.empty.cta_message')}</button>
+          <button class="btn btn-ghost btn-sm" onclick="window._navPatient('patient-portal')">${t('patient.assess.empty.cta_home')}</button>
+        </div>
       </div>`;
     return;
   }
@@ -2488,7 +2492,7 @@ export async function pgPatientReports() {
       if (show) visibleCount++;
     });
     const countEl = el.querySelector('#pt-docs-count');
-    if (countEl) countEl.textContent = filter === 'all' ? `${docs.length} total` : `${visibleCount} shown`;
+    if (countEl) countEl.textContent = filter === 'all' ? t('patient.reports.total', { n: docs.length }) : t('patient.reports.filter.shown', { n: visibleCount });
   };
 
   // Plain-language accordion
@@ -2975,10 +2979,18 @@ export async function pgPatientMessages() {
     const subject  = subjEl?.value.trim() || '';
     const body     = bodyEl?.value.trim() || '';
 
-    // Validate
-    if (!category) { catEl?.focus(); return; }
-    if (!subject)  { subjEl?.focus(); return; }
-    if (!body)     { bodyEl?.focus(); return; }
+    // Validate — show inline error and focus the offending field
+    function _showComposeErr(fieldEl, msg) {
+      if (status) {
+        status.removeAttribute('hidden');
+        status.className = 'pt-msg-send-status pt-msg-send-fail';
+        status.textContent = msg;
+      }
+      fieldEl?.focus();
+    }
+    if (!category) { _showComposeErr(catEl, t('patient.msg.err.select_topic')); return; }
+    if (!subject)  { _showComposeErr(subjEl, t('patient.msg.err.enter_subject')); return; }
+    if (!body)     { _showComposeErr(bodyEl, t('patient.msg.err.enter_message')); return; }
 
     if (btn) { btn.disabled = true; btn.textContent = 'Sending\u2026'; }
 
@@ -3069,15 +3081,21 @@ export async function pgPatientProfile(user) {
                   <span style="color:var(--blue)">${v}</span>
                 </div>
               `).join('')}
-              <button class="btn btn-ghost btn-sm" style="margin-top:12px;opacity:0.5;cursor:not-allowed" disabled>
+              <button class="btn btn-ghost btn-sm" style="margin-top:12px;opacity:0.5;cursor:not-allowed" disabled
+                      title="${t('patient.profile.coming_soon_tip')}" aria-label="${t('patient.profile.update_prefs')} — ${t('patient.profile.coming_soon_tip')}">
                 ${t('patient.profile.update_prefs')}
               </button>
+              <div style="font-size:11px;color:var(--text-tertiary);margin-top:5px">${t('patient.profile.coming_soon_tip')}</div>
             </div>
           </div>
           <div class="card">
             <div class="card-header"><h3>${t('patient.profile.account')}</h3></div>
             <div class="card-body" style="display:flex;flex-direction:column;gap:8px">
-              <button class="btn btn-ghost btn-sm" style="opacity:0.5;cursor:not-allowed" disabled>${t('patient.profile.change_pw')}</button>
+              <button class="btn btn-ghost btn-sm" style="opacity:0.5;cursor:not-allowed" disabled
+                      title="${t('patient.profile.change_pw_tip')}" aria-label="${t('patient.profile.change_pw')} — ${t('patient.profile.change_pw_tip')}">
+                ${t('patient.profile.change_pw')}
+              </button>
+              <div style="font-size:11px;color:var(--text-tertiary);margin-top:2px;margin-bottom:6px">${t('patient.profile.change_pw_tip')}</div>
               <button class="btn btn-danger btn-sm" onclick="window.doLogout()">${t('patient.profile.sign_out')}</button>
             </div>
           </div>
@@ -3558,15 +3576,17 @@ export async function pgPatientMediaConsent() {
     return consents.find(c => c.consent_type === type) || null;
   }
 
+  // consent_type strings MUST match backend validation in media_router.py:
+  // "upload_voice" | "upload_text" | "ai_analysis"
   const CONSENT_TYPES = [
     {
-      type:        'voice_notes',
+      type:        'upload_voice',
       icon:        '🎙',
       title:       'Upload Voice Notes',
       description: 'Record short voice updates about how you\'re feeling, side effects, or treatment questions.',
     },
     {
-      type:        'text_updates',
+      type:        'upload_text',
       icon:        '📝',
       title:       'Upload Text Updates',
       description: 'Send written updates — symptom notes, daily check-ins, or questions for your care team.',
@@ -3721,7 +3741,8 @@ export async function pgPatientMediaUpload() {
     return c?.granted === true;
   }
 
-  const hasAnyConsent = isConsentGranted('voice_notes') || isConsentGranted('text_updates');
+  // consent_type strings match backend: "upload_text" | "upload_voice"
+  const hasAnyConsent = isConsentGranted('upload_voice') || isConsentGranted('upload_text');
 
   const courseOptions = courses.length > 0
     ? `<option value="">— Not linked to a course —</option>` +
@@ -3878,7 +3899,8 @@ export async function pgPatientMediaUpload() {
     if (voiceForm) voiceForm.style.display = type === 'voice' ? '' : 'none';
 
     // Immediate consent check — surface the issue before submit, not on submit
-    const consentNeeded = type === 'text' ? 'text_updates' : 'voice_notes';
+    // consent_type strings match backend: "upload_text" | "upload_voice"
+    const consentNeeded = type === 'text' ? 'upload_text' : 'upload_voice';
     if (warnEl) {
       if (!isConsentGranted(consentNeeded)) {
         warnEl.className = 'notice notice-warn';
@@ -3962,8 +3984,8 @@ export async function pgPatientMediaUpload() {
     const warnEl   = document.getElementById('pt-upload-consent-warn');
     const submitBtn = document.getElementById('pt-upload-submit-btn');
 
-    // Check consent for selected type
-    const consentType = _selectedType === 'text' ? 'text_updates' : 'voice_notes';
+    // Check consent for selected type; strings match backend: "upload_text" | "upload_voice"
+    const consentType = _selectedType === 'text' ? 'upload_text' : 'upload_voice';
     if (!isConsentGranted(consentType)) {
       if (warnEl) {
         warnEl.className = 'notice notice-warn';

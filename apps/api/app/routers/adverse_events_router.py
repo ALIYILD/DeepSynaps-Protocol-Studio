@@ -51,11 +51,14 @@ class AdverseEventOut(BaseModel):
     resolution: Optional[str]
     action_taken: Optional[str]
     reported_at: str
+    resolved_at: Optional[str]
     created_at: str
 
     @classmethod
     def from_record(cls, r: AdverseEvent) -> "AdverseEventOut":
-        def _dt(v) -> str:
+        def _dt(v) -> Optional[str]:
+            if v is None:
+                return None
             return v.isoformat() if isinstance(v, datetime) else str(v)
         return cls(
             id=r.id,
@@ -70,6 +73,7 @@ class AdverseEventOut(BaseModel):
             resolution=r.resolution,
             action_taken=r.action_taken,
             reported_at=_dt(r.reported_at),
+            resolved_at=_dt(r.resolved_at),
             created_at=_dt(r.created_at),
         )
 
@@ -163,4 +167,29 @@ def get_adverse_event(
         raise ApiServiceError(code="not_found", message="Adverse event not found.", status_code=404)
     if actor.role != "admin" and event.clinician_id != actor.actor_id:
         raise ApiServiceError(code="not_found", message="Adverse event not found.", status_code=404)
+    return AdverseEventOut.from_record(event)
+
+
+class AdverseEventResolve(BaseModel):
+    resolution: Optional[str] = "resolved"
+
+
+@router.patch("/{event_id}/resolve", response_model=AdverseEventOut)
+def resolve_adverse_event(
+    event_id: str,
+    body: AdverseEventResolve = AdverseEventResolve(),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> AdverseEventOut:
+    """Mark an adverse event as resolved by setting resolved_at."""
+    require_minimum_role(actor, "clinician")
+    event = db.query(AdverseEvent).filter_by(id=event_id).first()
+    if event is None:
+        raise ApiServiceError(code="not_found", message="Adverse event not found.", status_code=404)
+    if actor.role != "admin" and event.clinician_id != actor.actor_id:
+        raise ApiServiceError(code="not_found", message="Adverse event not found.", status_code=404)
+    event.resolved_at = datetime.utcnow()
+    event.resolution = body.resolution or "resolved"
+    db.commit()
+    db.refresh(event)
     return AdverseEventOut.from_record(event)

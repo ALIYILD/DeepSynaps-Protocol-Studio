@@ -280,6 +280,7 @@ class AdverseEvent(Base):
     resolution: Mapped[Optional[str]] = mapped_column(String(30), nullable=True)
     action_taken: Mapped[Optional[str]] = mapped_column(String(30), nullable=True)
     reported_at: Mapped[datetime] = mapped_column(DateTime(), nullable=False)
+    resolved_at: Mapped[Optional[datetime]] = mapped_column(DateTime(), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(), default=datetime.utcnow)
 
 
@@ -290,8 +291,10 @@ class ConsentRecord(Base):
     clinician_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     consent_type: Mapped[str] = mapped_column(String(40), nullable=False)
     modality_slug: Mapped[Optional[str]] = mapped_column(String(60), nullable=True)
+    status: Mapped[str] = mapped_column(String(30), default="active", index=True)  # active, withdrawn, expired
     signed: Mapped[bool] = mapped_column(Boolean(), default=False)
     signed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(), nullable=True)
+    expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime(), nullable=True)
     document_ref: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     notes: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(), default=datetime.utcnow)

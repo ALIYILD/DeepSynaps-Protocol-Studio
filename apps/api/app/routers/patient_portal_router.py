@@ -7,6 +7,8 @@ GET  /api/v1/patient-portal/courses               Treatment courses for the auth
 GET  /api/v1/patient-portal/sessions              Sessions across all courses for the patient
 GET  /api/v1/patient-portal/assessments           Assessment records for the patient
 GET  /api/v1/patient-portal/outcomes              Outcome measurements for the patient
+GET  /api/v1/patient-portal/messages              Messages for the authenticated patient
+POST /api/v1/patient-portal/messages              Send a message from the patient
 GET  /api/v1/patient-portal/wearables             Device connections for the patient
 GET  /api/v1/patient-portal/wearable-summary      7-day daily summary for the patient
 POST /api/v1/patient-portal/wearable-connect      Register/update a device connection
@@ -31,6 +33,7 @@ from app.persistence.models import (
     AssessmentRecord,
     DeliveredSessionParameters,
     DeviceConnection,
+    Message,
     OutcomeSeries,
     Patient,
     TreatmentCourse,
@@ -334,6 +337,129 @@ def get_portal_outcomes(
         )
         for r in records
     ]
+
+
+# ── Messages portal schemas ───────────────────────────────────────────────────
+
+
+class PortalMessageOut(BaseModel):
+    id: str
+    sender_id: str
+    recipient_id: str
+    patient_id: Optional[str]
+    body: str
+    subject: Optional[str]
+    category: Optional[str]
+    thread_id: Optional[str]
+    priority: Optional[str]
+    sender_type: Optional[str]  # 'patient' | 'clinician'
+    sender_name: Optional[str]
+    created_at: str
+    read_at: Optional[str]
+    is_read: bool
+
+
+class SendPortalMessageIn(BaseModel):
+    body: str
+    subject: Optional[str] = None
+    category: Optional[str] = None
+    thread_id: Optional[str] = None
+    course_id: Optional[str] = None
+    priority: Optional[str] = None
+
+
+# ── Messages endpoints ─────────────────────────────────────────────────────────
+
+
+@router.get("/messages", response_model=list[PortalMessageOut])
+def get_portal_messages(
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> list[PortalMessageOut]:
+    """List all messages for the authenticated patient (sent or received)."""
+    if actor.role != "patient":
+        raise ApiServiceError(code="forbidden", message="Patient portal access only.", status_code=403)
+
+    patient = _require_patient(actor, db)
+
+    rows = (
+        db.query(Message)
+        .filter(
+            (Message.patient_id == patient.id)
+            | (Message.sender_id == actor.actor_id)
+            | (Message.recipient_id == actor.actor_id)
+        )
+        .order_by(Message.created_at.asc())
+        .all()
+    )
+
+    return [
+        PortalMessageOut(
+            id=r.id,
+            sender_id=r.sender_id,
+            recipient_id=r.recipient_id,
+            patient_id=r.patient_id,
+            body=r.body,
+            subject=getattr(r, "subject", None),
+            category=getattr(r, "category", None),
+            thread_id=getattr(r, "thread_id", None),
+            priority=getattr(r, "priority", None),
+            sender_type="patient" if r.sender_id == actor.actor_id else "clinician",
+            sender_name=None,  # resolved client-side
+            created_at=_dt(r.created_at),
+            read_at=_dt(r.read_at) if r.read_at else None,
+            is_read=r.read_at is not None,
+        )
+        for r in rows
+    ]
+
+
+@router.post("/messages", response_model=PortalMessageOut, status_code=201)
+def send_portal_message(
+    body: SendPortalMessageIn,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> PortalMessageOut:
+    """Patient sends a message to their care team."""
+    if actor.role != "patient":
+        raise ApiServiceError(code="forbidden", message="Patient portal access only.", status_code=403)
+
+    if not body.body or not body.body.strip():
+        raise ApiServiceError(code="empty_message", message="Message body cannot be empty.", status_code=400)
+
+    patient = _require_patient(actor, db)
+
+    # recipient_id: the clinician_id on the patient record is the best available target.
+    # Falls back to patient.id as a placeholder if no clinician is assigned.
+    recipient_id = getattr(patient, "clinician_id", None) or patient.id
+
+    msg = Message(
+        id=str(uuid.uuid4()),
+        sender_id=actor.actor_id,
+        recipient_id=recipient_id,
+        patient_id=patient.id,
+        body=body.body.strip(),
+    )
+    db.add(msg)
+    db.commit()
+    db.refresh(msg)
+
+    return PortalMessageOut(
+        id=msg.id,
+        sender_id=msg.sender_id,
+        recipient_id=msg.recipient_id,
+        patient_id=msg.patient_id,
+        body=msg.body,
+        subject=body.subject,
+        category=body.category,
+        thread_id=body.thread_id,
+        priority=body.priority,
+        sender_type="patient",
+        sender_name=None,
+        created_at=_dt(msg.created_at),
+        read_at=None,
+        is_read=False,
+    )
 
 
 # ── Wearable portal schemas ────────────────────────────────────────────────────

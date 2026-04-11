@@ -1,3 +1,4 @@
+import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -87,6 +88,9 @@ init_sentry(settings.sentry_dsn, settings.app_env)
 
 @asynccontextmanager
 async def lifespan(app_instance: FastAPI) -> AsyncIterator[None]:
+    # Ensure media storage directory exists before anything else
+    os.makedirs(settings.media_storage_root, exist_ok=True)
+
     init_database()
     session = SessionLocal()
     try:
@@ -199,12 +203,12 @@ async def log_requests(request: Request, call_next):
     return response
 
 
-@app.get("/health")
-def health(session: Session = Depends(get_db_session)) -> dict[str, object]:
+def _health_payload(session: Session) -> dict[str, object]:
     session.execute(text("SELECT 1"))
     snapshot = get_latest_snapshot(session)
     return {
         "status": "ok",
+        "db": "connected",
         "environment": settings.app_env,
         "version": settings.api_version,
         "database": "ok",
@@ -215,9 +219,20 @@ def health(session: Session = Depends(get_db_session)) -> dict[str, object]:
     }
 
 
+@app.get("/health")
+def health(session: Session = Depends(get_db_session)) -> dict[str, object]:
+    return _health_payload(session)
+
+
 @app.get("/healthz")
 def healthz(session: Session = Depends(get_db_session)) -> dict[str, object]:
-    return health(session)
+    return _health_payload(session)
+
+
+@app.get("/api/v1/health")
+def health_v1(session: Session = Depends(get_db_session)) -> dict[str, object]:
+    """Versioned health check — returns {status, db, version} plus richer diagnostics."""
+    return _health_payload(session)
 
 
 @app.exception_handler(ApiServiceError)

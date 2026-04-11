@@ -1292,7 +1292,8 @@ export async function pgPatients(setTopbar, navigate) {
 
   window.openPatient = function(id) {
     window._selectedPatientId = id;
-    navigate('profile');
+    window._profilePatientId  = id;
+    navigate('patient-profile');
   };
 
   window.deletePatient = async function(id) {
@@ -2453,8 +2454,9 @@ function bindPhenotypeActions(pt) {
       document.getElementById('ptab-body').innerHTML = renderPhenotypeTab(pt, assigns, phenos);
       bindPhenotypeActions(pt);
     } catch (e) {
-      const errEl = document.getElementById('pheno-save-error');
+      const errEl = document.getElementById('ph-error');
       if (errEl) { errEl.textContent = e.message || 'Delete failed.'; errEl.style.display = ''; }
+      else { alert(e.message || 'Delete failed.'); }
     }
   };
 
@@ -5216,7 +5218,7 @@ export async function pgMessaging(setTopbar) {
   el.innerHTML = '<div class="page-loading"></div>';
 
   let patients = [];
-  try { patients = await api.listPatients() || []; } catch {}
+  try { const _pRes = await api.listPatients(); patients = _pRes?.items || _pRes || []; } catch {}
 
   window._msgSelectedPatientId = window._msgSelectedPatientId || (patients[0]?.id || null);
 
@@ -5229,7 +5231,7 @@ async function _renderMessaging(patients) {
 
   let messages = [];
   if (window._msgSelectedPatientId) {
-    try { messages = await api.getPatientMessages(window._msgSelectedPatientId) || []; } catch {}
+    try { const _mRes = await api.getPatientMessages(window._msgSelectedPatientId); messages = Array.isArray(_mRes) ? _mRes : (_mRes?.items || []); } catch {}
   }
 
   const selectedPatient = patients.find(p => p.id === window._msgSelectedPatientId);

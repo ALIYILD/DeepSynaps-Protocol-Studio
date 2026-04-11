@@ -25,10 +25,12 @@ from app.persistence.models import (
     ClinicianNoteDraft,
     MediaConsent,
     MediaRedFlag,
+    Patient,
     PatientMediaAnalysis,
     PatientMediaReviewAction,
     PatientMediaTranscript,
     PatientMediaUpload,
+    TreatmentCourse,
 )
 from app.services import media_analysis_service, media_storage, transcription_service
 from app.settings import get_settings
@@ -61,6 +63,7 @@ class TextUploadRequest(BaseModel):
 
 class AmendAnalysisRequest(BaseModel):
     clinician_amendments: str
+    chart_note_draft: Optional[str] = None
 
 
 class TextNoteRequest(BaseModel):
@@ -73,6 +76,11 @@ class TextNoteRequest(BaseModel):
 
 class ApproveDraftRequest(BaseModel):
     clinician_edits: Optional[str] = None
+    soap_note: Optional[str] = None
+    patient_summary: Optional[str] = None
+    treatment_update: Optional[str] = None
+    adverse_event_note: Optional[str] = None
+    included_tasks: Optional[list] = None
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -135,6 +143,8 @@ def _upload_to_dict(upload: PatientMediaUpload, transcript: Optional[PatientMedi
         "session_id": upload.session_id,
         "uploaded_by": upload.uploaded_by,
         "media_type": upload.media_type,
+        # upload_type mirrors media_type — frontend uses both field names
+        "upload_type": upload.media_type,
         "file_ref": upload.file_ref,
         "file_size_bytes": upload.file_size_bytes,
         "duration_seconds": upload.duration_seconds,
@@ -145,8 +155,17 @@ def _upload_to_dict(upload: PatientMediaUpload, transcript: Optional[PatientMedi
         "created_at": upload.created_at.isoformat() if upload.created_at else None,
         "updated_at": upload.updated_at.isoformat() if upload.updated_at else None,
         "deleted_at": upload.deleted_at.isoformat() if upload.deleted_at else None,
-        "transcript": _transcript_to_dict(transcript) if transcript else None,
+        # Flat transcript string for the detail page (upload.transcript)
+        "transcript": transcript.transcript_text if transcript else None,
+        "transcript_detail": _transcript_to_dict(transcript) if transcript else None,
         "analysis_summary": _analysis_summary_dict(analysis) if analysis else None,
+        # Placeholder — populated by review-queue and detail routes that do the join
+        "patient_name": None,
+        "primary_condition": None,
+        "course_name": None,
+        "flagged_urgent": False,
+        "has_undismissed_flag": False,
+        "audit_trail": [],
     }
 
 
@@ -171,7 +190,22 @@ def _analysis_summary_dict(a: PatientMediaAnalysis) -> dict:
     }
 
 
+def _parse_json_field(raw: Optional[str], fallback):
+    """Parse a JSON-encoded model field; return fallback on missing/invalid."""
+    if not raw:
+        return fallback
+    try:
+        return json.loads(raw)
+    except (json.JSONDecodeError, TypeError):
+        return fallback
+
+
 def _analysis_full_dict(a: PatientMediaAnalysis) -> dict:
+    symptoms = _parse_json_field(a.symptoms_mentioned, [])
+    side_effects = _parse_json_field(a.side_effects_mentioned, [])
+    functional_impact = _parse_json_field(a.functional_impact, {})
+    adherence_mentions = _parse_json_field(a.adherence_mentions, {})
+    follow_up_questions = _parse_json_field(a.follow_up_questions, [])
     return {
         "id": a.id,
         "upload_id": a.upload_id,
@@ -180,12 +214,16 @@ def _analysis_full_dict(a: PatientMediaAnalysis) -> dict:
         "model_used": a.model_used,
         "prompt_hash": a.prompt_hash,
         "structured_summary": a.structured_summary,
-        "symptoms_mentioned": a.symptoms_mentioned,
-        "side_effects_mentioned": a.side_effects_mentioned,
-        "functional_impact": a.functional_impact,
-        "adherence_mentions": a.adherence_mentions,
-        "follow_up_questions": a.follow_up_questions,
+        "symptoms_mentioned": symptoms,
+        # Also expose as side_effects — frontend uses both field names
+        "side_effects_mentioned": side_effects,
+        "side_effects": side_effects,
+        "functional_impact": functional_impact,
+        "adherence_mentions": adherence_mentions,
+        "follow_up_questions": follow_up_questions,
         "chart_note_draft": a.chart_note_draft,
+        # Also expose as soap_note — frontend uses both field names
+        "soap_note": a.chart_note_draft,
         "comparison_notes": a.comparison_notes,
         "approved_for_clinical_use": a.approved_for_clinical_use,
         "clinician_reviewed_at": a.clinician_reviewed_at.isoformat() if a.clinician_reviewed_at else None,
@@ -543,8 +581,35 @@ def get_patient_upload(
         _require_clinician_or_reviewer(actor)
 
     transcript = db.query(PatientMediaTranscript).filter_by(upload_id=upload.id).first()
-    analysis = db.query(PatientMediaAnalysis).filter_by(upload_id=upload.id).first()
-    return _upload_to_dict(upload, transcript, analysis)
+    analysis   = db.query(PatientMediaAnalysis).filter_by(upload_id=upload.id).first()
+
+    patient = db.query(Patient).filter_by(id=upload.patient_id).first()
+    course  = db.query(TreatmentCourse).filter_by(id=upload.course_id).first() if upload.course_id else None
+
+    undismissed_flags = (
+        db.query(MediaRedFlag)
+        .filter_by(upload_id=upload.id, dismissed=False)
+        .all()
+    )
+    is_urgent = any(f.severity == "high" and not f.ai_generated for f in undismissed_flags)
+
+    audit_rows = (
+        db.query(AuditEventRecord)
+        .filter_by(target_id=upload.id)
+        .order_by(AuditEventRecord.created_at.asc())
+        .all()
+    )
+    audit_trail = [f"{r.action} by {r.role}" for r in audit_rows]
+
+    d = _upload_to_dict(upload, transcript, analysis)
+    d["patient_name"]        = f"{patient.first_name} {patient.last_name}".strip() if patient else None
+    d["primary_condition"]   = course.condition_slug if course else None
+    d["course_name"]         = f"{course.condition_slug} / {course.modality_slug}".strip(" /") if course else None
+    d["flagged_urgent"]      = is_urgent
+    d["has_undismissed_flag"] = bool(undismissed_flags)
+    d["audit_trail"]         = audit_trail
+    d["red_flags"]           = [_flag_to_dict(f) for f in undismissed_flags]
+    return d
 
 
 # ── Review queue (clinician) ──────────────────────────────────────────────────
@@ -584,14 +649,44 @@ def get_review_queue(
         )
         urgent_upload_ids = {f.upload_id for f in flags if f.upload_id}
 
+    # Pre-fetch all relevant patients and courses to avoid N+1
+    patient_ids = {u.patient_id for u in uploads}
+    course_ids  = {u.course_id for u in uploads if u.course_id}
+
+    patients_by_id: dict[str, Patient] = {}
+    if patient_ids:
+        rows = db.query(Patient).filter(Patient.id.in_(patient_ids)).all()
+        patients_by_id = {p.id: p for p in rows}
+
+    courses_by_id: dict[str, TreatmentCourse] = {}
+    if course_ids:
+        rows = db.query(TreatmentCourse).filter(TreatmentCourse.id.in_(course_ids)).all()
+        courses_by_id = {c.id: c for c in rows}
+
     results = []
     for upload in uploads:
+        patient = patients_by_id.get(upload.patient_id)
+        course  = courses_by_id.get(upload.course_id) if upload.course_id else None
+
+        patient_name = (
+            f"{patient.first_name} {patient.last_name}".strip() if patient else None
+        )
+        primary_condition = course.condition_slug if course else None
+        course_name = (
+            f"{course.condition_slug} / {course.modality_slug}".strip(" /") if course else None
+        )
+
         d = _upload_to_dict(upload)
-        d["is_urgent"] = upload.id in urgent_upload_ids
+        is_urgent = upload.id in urgent_upload_ids
+        d["is_urgent"]         = is_urgent
+        d["flagged_urgent"]    = is_urgent
+        d["patient_name"]      = patient_name
+        d["primary_condition"] = primary_condition
+        d["course_name"]       = course_name
         results.append(d)
 
     # Sort: urgent first, then by created_at
-    results.sort(key=lambda x: (not x["is_urgent"], x.get("created_at") or ""))
+    results.sort(key=lambda x: (not x["flagged_urgent"], x.get("created_at") or ""))
     return results
 
 
@@ -1397,19 +1492,35 @@ async def serve_media_file(
 # ── Serialiser helpers ────────────────────────────────────────────────────────
 
 
-def _draft_to_dict(draft: ClinicianNoteDraft) -> dict:
+def _draft_to_dict(draft: ClinicianNoteDraft, patient_id: Optional[str] = None) -> dict:
+    task_suggestions = _parse_json_field(draft.task_suggestions, [])
     return {
         "id": draft.id,
         "note_id": draft.note_id,
         "generated_by": draft.generated_by,
+        # Canonical field name
         "session_note": draft.session_note,
+        # Frontend also reads draftData.soap_note
+        "soap_note": draft.session_note,
+        # Canonical field name
         "treatment_update_draft": draft.treatment_update_draft,
+        # Frontend also reads draftData.treatment_update
+        "treatment_update": draft.treatment_update_draft,
+        # Canonical field name
         "adverse_event_draft": draft.adverse_event_draft,
+        # Frontend also reads draftData.adverse_event_note
+        "adverse_event_note": draft.adverse_event_draft,
+        # Canonical field name
         "patient_friendly_summary": draft.patient_friendly_summary,
-        "task_suggestions": draft.task_suggestions,
+        # Frontend also reads draftData.patient_summary
+        "patient_summary": draft.patient_friendly_summary,
+        # Parsed from JSON string; frontend expects array
+        "task_suggestions": task_suggestions,
         "status": draft.status,
         "approved_by": draft.approved_by,
         "approved_at": draft.approved_at.isoformat() if draft.approved_at else None,
         "clinician_edits": draft.clinician_edits,
         "created_at": draft.created_at.isoformat() if draft.created_at else None,
+        # patient_id is needed by draft review page for post-approve navigation
+        "patient_id": patient_id,
     }
