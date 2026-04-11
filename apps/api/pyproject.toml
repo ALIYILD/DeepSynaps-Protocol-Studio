@@ -26,6 +26,7 @@ dependencies = [
     "stripe>=7.0.0",
     "sentry-sdk[fastapi]>=2.0.0",
     "anthropic>=0.40.0",
+    "openai>=1.0.0,<2.0.0",
     "python-telegram-bot>=20.0",
 ]
 

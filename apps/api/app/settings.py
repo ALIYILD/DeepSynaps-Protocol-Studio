@@ -83,6 +83,15 @@ class AppSettings(BaseModel):
     # App URL (used for Stripe redirect URLs)
     app_url: str = Field(default="http://localhost:5173")
 
+    # Media storage
+    media_storage_backend: str = Field(default="local")
+    media_storage_root: str = Field(default="./media_uploads")
+    media_max_upload_bytes: int = Field(default=52428800)  # 50MB
+    media_signed_url_ttl_seconds: int = Field(default=3600)
+
+    # Transcription
+    whisper_provider: str = Field(default="openai")
+
     @field_validator("database_url")
     @classmethod
     def validate_database_url(cls, value: str) -> str:
@@ -172,6 +181,13 @@ def load_settings() -> AppSettings:
                 "wearable_token_enc_key": os.getenv("WEARABLE_TOKEN_ENC_KEY", ""),
                 # App URL
                 "app_url": os.getenv("APP_URL", "http://localhost:5173"),
+                # Media storage
+                "media_storage_backend": os.getenv("MEDIA_STORAGE_BACKEND", "local"),
+                "media_storage_root": os.getenv("MEDIA_STORAGE_ROOT", "./media_uploads"),
+                "media_max_upload_bytes": int(os.getenv("MEDIA_MAX_UPLOAD_BYTES", "52428800")),
+                "media_signed_url_ttl_seconds": int(os.getenv("MEDIA_SIGNED_URL_TTL_SECONDS", "3600")),
+                # Transcription
+                "whisper_provider": os.getenv("WHISPER_PROVIDER", "openai"),
             }
         )
     except ValidationError as exc:

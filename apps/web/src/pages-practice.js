@@ -2385,3 +2385,2962 @@ export async function pgReferrals(setTopbar) {
     if (btn) { const orig = btn.textContent; btn.textContent = 'Saved!'; setTimeout(() => { btn.textContent = orig; }, 1500); }
   };
 }
+
+// ── Clinic Config Store ───────────────────────────────────────────────────────
+const CLINIC_CONFIG_KEY = 'ds_clinic_config';
+function getClinicConfig() {
+  const defaults = {
+    name: 'DeepSynaps Neuromodulation Clinic',
+    tagline: 'Advanced Brain Health Solutions',
+    logoDataUrl: null,
+    primaryColor: '#0d9488',
+    secondaryColor: '#1e3a5f',
+    accentColor: '#7c3aed',
+    address: '123 Neural Way, Brain City, BC 90210',
+    phone: '(555) 867-5309',
+    email: 'info@clinic.com',
+    website: 'https://clinic.com',
+    customDomain: '',
+    npi: '1234567890',
+    taxId: '12-3456789',
+    licenseNumber: 'MH-2024-001',
+    emailFooter: 'This communication is intended for the addressed recipient only.',
+    termsOfService: 'Standard terms of service apply. All patient data is protected under HIPAA.',
+    privacyPolicy: 'Patient privacy is our priority. Data is encrypted and never sold.',
+    appointmentReminderTemplate: 'Hi {patient_name}, this is a reminder for your appointment on {date} at {time}.',
+    sessionCompleteTemplate: 'Hi {patient_name}, your session on {date} has been recorded. See you next time!',
+    showBrandingInPatientPortal: true,
+    showPoweredBy: true,
+    customCss: '',
+  };
+  try {
+    return { ...defaults, ...JSON.parse(localStorage.getItem(CLINIC_CONFIG_KEY) || '{}') };
+  } catch { return defaults; }
+}
+function saveClinicConfig(config) {
+  localStorage.setItem(CLINIC_CONFIG_KEY, JSON.stringify(config));
+  window._clinicConfig = config;
+  applyClinicBranding(config);
+}
+function applyClinicBranding(config) {
+  document.documentElement.style.setProperty('--brand-primary', config.primaryColor);
+  document.documentElement.style.setProperty('--brand-secondary', config.secondaryColor);
+  document.documentElement.style.setProperty('--brand-accent', config.accentColor);
+  const nameEl = document.getElementById('clinic-brand-name');
+  if (nameEl) nameEl.textContent = config.name;
+  let styleTag = document.getElementById('clinic-custom-css');
+  if (!styleTag) {
+    styleTag = document.createElement('style');
+    styleTag.id = 'clinic-custom-css';
+    document.head.appendChild(styleTag);
+  }
+  styleTag.textContent = config.customCss || '';
+}
+
+// ── pgClinicSettings ──────────────────────────────────────────────────────────
+export async function pgClinicSettings(setTopbar) {
+  setTopbar('Clinic Settings & Branding', `<button class="btn btn-primary btn-sm" onclick="window._csSaveAll()">Save All</button>`);
+
+  let cfg = getClinicConfig();
+  let activeTab = 'branding';
+
+  function renderTabs() {
+    return `<div class="tab-bar" style="margin-bottom:20px">
+      ${['branding','identity','communications','legal','preview'].map(t => `
+        <button class="tab-btn${activeTab===t?' active':''}" onclick="window._csTab('${t}')">${{
+          branding:'Branding',identity:'Identity',communications:'Communications',
+          legal:'Legal & Compliance',preview:'Preview'
+        }[t]}</button>`).join('')}
+    </div>`;
+  }
+
+  function logoHtml() {
+    if (cfg.logoDataUrl) {
+      return `<img src="${cfg.logoDataUrl}" alt="Clinic Logo" />`;
+    }
+    return `<span style="color:var(--text-tertiary);font-size:.8rem">No logo uploaded</span>`;
+  }
+
+  function renderBranding() {
+    return `
+      <div class="g2">
+        <div class="card">
+          <div class="card-header">Logo & Identity</div>
+          <div class="card-body">
+            <label class="form-label">Clinic Logo</label>
+            <div class="cs-logo-preview" id="cs-logo-preview">${logoHtml()}</div>
+            <input type="file" id="cs-logo-file" accept="image/*" style="display:none" onchange="window._csUploadLogo()" />
+            <button class="btn btn-sm btn-ghost" onclick="document.getElementById('cs-logo-file').click()">Upload Logo</button>
+            ${cfg.logoDataUrl ? `<button class="btn btn-sm btn-ghost" style="margin-left:6px;color:var(--rose)" onclick="window._csRemoveLogo()">Remove</button>` : ''}
+            <div style="margin-top:16px">
+              <label class="form-label">Clinic Name</label>
+              <input class="form-input" id="cs-name" value="${cfg.name}" oninput="document.getElementById('cs-preview-name')&&(document.getElementById('cs-preview-name').textContent=this.value)" />
+            </div>
+            <div style="margin-top:12px">
+              <label class="form-label">Tagline</label>
+              <input class="form-input" id="cs-tagline" value="${cfg.tagline}" oninput="document.getElementById('cs-preview-tagline')&&(document.getElementById('cs-preview-tagline').textContent=this.value)" />
+            </div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-header">Color Palette</div>
+          <div class="card-body">
+            <div class="cs-color-row">
+              <input type="color" id="cs-primary-picker" value="${cfg.primaryColor}" oninput="document.getElementById('cs-primary-hex').value=this.value" />
+              <input class="form-input" id="cs-primary-hex" value="${cfg.primaryColor}" style="font-family:monospace;width:110px" oninput="document.getElementById('cs-primary-picker').value=this.value" />
+              <span style="font-size:.82rem;color:var(--text-secondary)">Primary (teal)</span>
+            </div>
+            <div class="cs-color-row">
+              <input type="color" id="cs-secondary-picker" value="${cfg.secondaryColor}" oninput="document.getElementById('cs-secondary-hex').value=this.value" />
+              <input class="form-input" id="cs-secondary-hex" value="${cfg.secondaryColor}" style="font-family:monospace;width:110px" oninput="document.getElementById('cs-secondary-picker').value=this.value" />
+              <span style="font-size:.82rem;color:var(--text-secondary)">Secondary (navy)</span>
+            </div>
+            <div class="cs-color-row">
+              <input type="color" id="cs-accent-picker" value="${cfg.accentColor}" oninput="document.getElementById('cs-accent-hex').value=this.value" />
+              <input class="form-input" id="cs-accent-hex" value="${cfg.accentColor}" style="font-family:monospace;width:110px" oninput="document.getElementById('cs-accent-picker').value=this.value" />
+              <span style="font-size:.82rem;color:var(--text-secondary)">Accent (violet)</span>
+            </div>
+            <div style="display:flex;gap:8px;margin-top:8px">
+              <button class="btn btn-sm btn-primary" onclick="window._csApplyColors()">Apply Colors</button>
+              <button class="btn btn-sm btn-ghost" onclick="window._csResetColors()">Reset to Defaults</button>
+            </div>
+          </div>
+        </div>
+        <div class="card" style="grid-column:1/-1">
+          <div class="card-header">Advanced</div>
+          <div class="card-body">
+            <label class="form-label">Custom CSS <span style="color:var(--text-tertiary);font-size:.75rem">(advanced)</span></label>
+            <textarea class="form-input" id="cs-custom-css" rows="5" style="font-family:monospace;font-size:.8rem">${cfg.customCss || ''}</textarea>
+            <div style="margin-top:14px;display:flex;flex-direction:column;gap:10px">
+              <label style="display:flex;align-items:center;gap:10px;cursor:pointer">
+                <input type="checkbox" id="cs-show-branding" ${cfg.showBrandingInPatientPortal ? 'checked' : ''} />
+                <span style="font-size:.85rem">Show clinic branding in patient portal</span>
+              </label>
+              <label style="display:flex;align-items:center;gap:10px;cursor:pointer">
+                <input type="checkbox" id="cs-show-powered-by" ${cfg.showPoweredBy ? 'checked' : ''} />
+                <span style="font-size:.85rem">Show "Powered by DeepSynaps" badge</span>
+              </label>
+            </div>
+          </div>
+        </div>
+      </div>`;
+  }
+
+  function renderIdentity() {
+    return `
+      <div class="card" style="max-width:640px">
+        <div class="card-header">Practice Identity</div>
+        <div class="card-body" style="display:flex;flex-direction:column;gap:12px">
+          <div>
+            <label class="form-label">Address</label>
+            <textarea class="form-input" id="cs-address" rows="3">${cfg.address}</textarea>
+          </div>
+          <div class="g2">
+            <div>
+              <label class="form-label">Phone</label>
+              <input class="form-input" id="cs-phone" value="${cfg.phone}" />
+            </div>
+            <div>
+              <label class="form-label">Email</label>
+              <input class="form-input" id="cs-email" type="email" value="${cfg.email}" />
+            </div>
+            <div>
+              <label class="form-label">Website</label>
+              <input class="form-input" id="cs-website" value="${cfg.website}" />
+            </div>
+            <div>
+              <label class="form-label">Custom Domain <span style="font-size:.75rem;color:var(--text-tertiary)">(display only)</span></label>
+              <input class="form-input" id="cs-custom-domain" value="${cfg.customDomain}" placeholder="e.g. portal.myclinic.com" />
+              <div style="font-size:.74rem;color:var(--text-tertiary);margin-top:4px">Contact support to activate a custom domain.</div>
+            </div>
+          </div>
+          <div class="g2">
+            <div>
+              <label class="form-label">NPI Number</label>
+              <input class="form-input" id="cs-npi" value="${cfg.npi}" />
+            </div>
+            <div>
+              <label class="form-label">Tax ID</label>
+              <input class="form-input" id="cs-tax-id" value="${cfg.taxId}" />
+            </div>
+            <div>
+              <label class="form-label">License Number</label>
+              <input class="form-input" id="cs-license" value="${cfg.licenseNumber}" />
+            </div>
+          </div>
+          <div style="margin-top:4px">
+            <button class="btn btn-primary btn-sm" onclick="window._csSaveIdentity()">Save Identity</button>
+          </div>
+        </div>
+      </div>`;
+  }
+
+  function templateVarsHtml() {
+    return ['patient_name','date','time','clinic_name','clinician_name']
+      .map(v => `<span class="cs-template-var">{${v}}</span>`).join(' ');
+  }
+
+  function renderCommunications() {
+    return `
+      <div class="card" style="max-width:720px">
+        <div class="card-header">Email & Messaging Templates</div>
+        <div class="card-body" style="display:flex;flex-direction:column;gap:16px">
+          <div>
+            <label class="form-label">Email Footer</label>
+            <textarea class="form-input" id="cs-email-footer" rows="3">${cfg.emailFooter}</textarea>
+            <div style="font-size:.75rem;color:var(--text-tertiary);margin-top:4px">Appended to all outgoing clinic emails.</div>
+          </div>
+          <div>
+            <label class="form-label">Appointment Reminder Template</label>
+            <div style="margin-bottom:6px">Available variables: ${templateVarsHtml()}</div>
+            <textarea class="form-input" id="cs-appt-reminder" rows="4">${cfg.appointmentReminderTemplate}</textarea>
+            <button class="btn btn-ghost btn-sm" style="margin-top:6px" onclick="window._csTestTemplate('appointment')">Test Template</button>
+          </div>
+          <div>
+            <label class="form-label">Session Complete Template</label>
+            <div style="margin-bottom:6px">Available variables: ${templateVarsHtml()}</div>
+            <textarea class="form-input" id="cs-session-complete" rows="4">${cfg.sessionCompleteTemplate}</textarea>
+            <button class="btn btn-ghost btn-sm" style="margin-top:6px" onclick="window._csTestTemplate('session')">Test Template</button>
+          </div>
+          <div>
+            <button class="btn btn-primary btn-sm" onclick="window._csSaveTemplates()">Save Templates</button>
+          </div>
+        </div>
+      </div>`;
+  }
+
+  function renderLegal() {
+    return `
+      <div style="display:flex;flex-direction:column;gap:16px;max-width:720px">
+        <div class="card">
+          <div class="card-header" style="display:flex;align-items:center;justify-content:space-between">
+            <span>Terms of Service</span>
+            <button class="btn btn-ghost btn-sm" onclick="window._csPreviewTOS()">Preview</button>
+          </div>
+          <div class="card-body">
+            <textarea class="form-input" id="cs-tos" rows="8">${cfg.termsOfService}</textarea>
+            <div style="margin-top:10px">
+              <label class="form-label" style="font-size:.78rem">Last Updated</label>
+              <input class="form-input" id="cs-tos-date" type="date" value="${cfg.tosLastUpdated || new Date().toISOString().slice(0,10)}" style="width:180px" />
+            </div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-header" style="display:flex;align-items:center;justify-content:space-between">
+            <span>Privacy Policy</span>
+            <button class="btn btn-ghost btn-sm" onclick="window._csPreviewPrivacy()">Preview</button>
+          </div>
+          <div class="card-body">
+            <textarea class="form-input" id="cs-privacy" rows="8">${cfg.privacyPolicy}</textarea>
+            <div style="margin-top:10px">
+              <label class="form-label" style="font-size:.78rem">Last Updated</label>
+              <input class="form-input" id="cs-privacy-date" type="date" value="${cfg.privacyLastUpdated || new Date().toISOString().slice(0,10)}" style="width:180px" />
+            </div>
+          </div>
+        </div>
+        <div>
+          <button class="btn btn-primary btn-sm" onclick="window._csSaveLegal()">Save Legal</button>
+        </div>
+      </div>`;
+  }
+
+  function renderPreview() {
+    const primary   = cfg.primaryColor;
+    const secondary = cfg.secondaryColor;
+    const accent    = cfg.accentColor;
+    return `
+      <div style="display:flex;flex-direction:column;gap:20px;max-width:720px">
+        <div class="card">
+          <div class="card-header">Live Branding Preview</div>
+          <div class="card-body">
+            <div style="display:flex;gap:16px;align-items:flex-start">
+              <div class="cs-preview-sidebar" style="background:${secondary}">
+                <div style="padding:14px 12px;border-bottom:1px solid rgba(255,255,255,0.1)">
+                  ${cfg.logoDataUrl
+                    ? `<img src="${cfg.logoDataUrl}" style="max-width:100%;max-height:36px;object-fit:contain" />`
+                    : `<span style="color:#fff;font-weight:700;font-size:.85rem" id="cs-preview-name">${cfg.name}</span>`}
+                </div>
+                ${['Dashboard','Patients','Protocols','Settings'].map(item =>
+                  `<div class="cs-preview-sidebar-item" style="color:rgba(255,255,255,0.75)">${item}</div>`
+                ).join('')}
+                <div class="cs-preview-sidebar-item" style="color:#fff;background:${primary}40;border-left:3px solid ${primary}">Clinic Settings</div>
+              </div>
+              <div style="flex:1">
+                <div class="cs-preview-header" style="background:${secondary}">
+                  <div style="width:32px;height:32px;border-radius:6px;background:${primary};display:flex;align-items:center;justify-content:center;font-size:16px">🏥</div>
+                  <div>
+                    <div style="color:#fff;font-weight:700;font-size:.9rem" id="cs-preview-name">${cfg.name}</div>
+                    <div style="color:rgba(255,255,255,.65);font-size:.73rem" id="cs-preview-tagline">${cfg.tagline}</div>
+                  </div>
+                </div>
+                <div style="padding:12px;background:var(--bg-surface-2);border-radius:0 0 8px 8px;border:1px solid var(--border);border-top:none">
+                  <div style="background:var(--card-bg);border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:10px">
+                    <div style="display:flex;align-items:center;gap:10px">
+                      <div style="width:36px;height:36px;border-radius:50%;background:${primary};display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:.9rem">JD</div>
+                      <div>
+                        <div style="font-size:.85rem;font-weight:600">Jane Doe</div>
+                        <div style="font-size:.75rem;color:var(--text-secondary)">Protocol: tDCS DLPFC — Session 5/12</div>
+                      </div>
+                      <span style="margin-left:auto;background:${accent}22;color:${accent};padding:2px 10px;border-radius:12px;font-size:.73rem;font-weight:600">Active</span>
+                    </div>
+                  </div>
+                  <div style="background:${primary}18;border:1px solid ${primary}44;border-radius:8px;padding:10px;font-size:.78rem;color:var(--text-secondary)">
+                    Patient Portal header preview
+                    ${cfg.showPoweredBy ? `<span style="float:right;color:var(--text-tertiary);font-size:.7rem">Powered by DeepSynaps</span>` : ''}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div style="text-align:center">
+          <button class="btn btn-primary" onclick="window._csSaveAll()" style="padding:10px 36px;font-size:1rem">Save All Settings</button>
+        </div>
+      </div>`;
+  }
+
+  function render() {
+    cfg = getClinicConfig();
+    const content = document.getElementById('content');
+    if (!content) return;
+    content.innerHTML = `
+      <div style="max-width:960px;margin:0 auto;padding:0 4px">
+        <h2 style="font-size:1.15rem;font-weight:700;margin-bottom:16px">Clinic Settings & White-labelling</h2>
+        ${renderTabs()}
+        <div id="cs-tab-content">
+          ${activeTab === 'branding'       ? renderBranding()       :
+            activeTab === 'identity'       ? renderIdentity()       :
+            activeTab === 'communications' ? renderCommunications() :
+            activeTab === 'legal'          ? renderLegal()          :
+            renderPreview()}
+        </div>
+      </div>
+    `;
+  }
+
+  render();
+
+  // ── Global handlers ─────────────────────────────────────────────────────────
+  window._csTab = function(name) {
+    activeTab = name;
+    render();
+  };
+
+  window._csUploadLogo = function() {
+    const file = document.getElementById('cs-logo-file')?.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = function(e) {
+      cfg.logoDataUrl = e.target.result;
+      const preview = document.getElementById('cs-logo-preview');
+      if (preview) preview.innerHTML = `<img src="${e.target.result}" alt="Clinic Logo" />`;
+    };
+    reader.readAsDataURL(file);
+  };
+
+  window._csRemoveLogo = function() {
+    cfg.logoDataUrl = null;
+    render();
+  };
+
+  window._csApplyColors = function() {
+    const primary   = document.getElementById('cs-primary-hex')?.value   || cfg.primaryColor;
+    const secondary = document.getElementById('cs-secondary-hex')?.value || cfg.secondaryColor;
+    const accent    = document.getElementById('cs-accent-hex')?.value    || cfg.accentColor;
+    cfg.primaryColor   = primary;
+    cfg.secondaryColor = secondary;
+    cfg.accentColor    = accent;
+    applyClinicBranding(cfg);
+    window._showToast?.('Colors applied — save all settings to persist.', 'info');
+  };
+
+  window._csResetColors = function() {
+    cfg.primaryColor   = '#0d9488';
+    cfg.secondaryColor = '#1e3a5f';
+    cfg.accentColor    = '#7c3aed';
+    applyClinicBranding(cfg);
+    render();
+  };
+
+  window._csSaveIdentity = function() {
+    cfg.address       = document.getElementById('cs-address')?.value       ?? cfg.address;
+    cfg.phone         = document.getElementById('cs-phone')?.value         ?? cfg.phone;
+    cfg.email         = document.getElementById('cs-email')?.value         ?? cfg.email;
+    cfg.website       = document.getElementById('cs-website')?.value       ?? cfg.website;
+    cfg.customDomain  = document.getElementById('cs-custom-domain')?.value ?? cfg.customDomain;
+    cfg.npi           = document.getElementById('cs-npi')?.value           ?? cfg.npi;
+    cfg.taxId         = document.getElementById('cs-tax-id')?.value        ?? cfg.taxId;
+    cfg.licenseNumber = document.getElementById('cs-license')?.value       ?? cfg.licenseNumber;
+    saveClinicConfig(cfg);
+    window._showToast?.('Identity saved.') || alert('Identity saved.');
+  };
+
+  window._csSaveTemplates = function() {
+    cfg.emailFooter                 = document.getElementById('cs-email-footer')?.value    ?? cfg.emailFooter;
+    cfg.appointmentReminderTemplate = document.getElementById('cs-appt-reminder')?.value   ?? cfg.appointmentReminderTemplate;
+    cfg.sessionCompleteTemplate     = document.getElementById('cs-session-complete')?.value ?? cfg.sessionCompleteTemplate;
+    saveClinicConfig(cfg);
+    window._showToast?.('Templates saved.') || alert('Templates saved.');
+  };
+
+  window._csTestTemplate = function(key) {
+    const sample = {
+      patient_name: 'Jane Doe', date: 'April 15, 2026',
+      time: '10:00 AM', clinic_name: cfg.name, clinician_name: 'Dr. Smith'
+    };
+    const tmpl = key === 'appointment'
+      ? (document.getElementById('cs-appt-reminder')?.value   || cfg.appointmentReminderTemplate)
+      : (document.getElementById('cs-session-complete')?.value || cfg.sessionCompleteTemplate);
+    const rendered = tmpl.replace(/\{(\w+)\}/g, (_, k) => sample[k] || '{' + k + '}');
+    const modal = document.createElement('div');
+    modal.className = 'modal-overlay';
+    modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;z-index:9999';
+    modal.innerHTML = `
+      <div class="card" style="max-width:480px;width:90%;padding:20px">
+        <div style="font-weight:700;margin-bottom:12px">Template Preview</div>
+        <div style="background:var(--hover-bg);border-radius:8px;padding:14px;font-size:.88rem;white-space:pre-wrap">${rendered}</div>
+        <button class="btn btn-sm btn-primary" style="margin-top:16px" onclick="this.closest('.modal-overlay').remove()">Close</button>
+      </div>`;
+    document.body.appendChild(modal);
+  };
+
+  window._csSaveLegal = function() {
+    cfg.termsOfService     = document.getElementById('cs-tos')?.value           ?? cfg.termsOfService;
+    cfg.privacyPolicy      = document.getElementById('cs-privacy')?.value       ?? cfg.privacyPolicy;
+    cfg.tosLastUpdated     = document.getElementById('cs-tos-date')?.value      ?? cfg.tosLastUpdated;
+    cfg.privacyLastUpdated = document.getElementById('cs-privacy-date')?.value ?? cfg.privacyLastUpdated;
+    saveClinicConfig(cfg);
+    window._showToast?.('Legal documents saved.') || alert('Legal documents saved.');
+  };
+
+  function openTextModal(title, text) {
+    const modal = document.createElement('div');
+    modal.className = 'modal-overlay';
+    modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;z-index:9999';
+    modal.innerHTML = `
+      <div class="card" style="max-width:640px;width:92%;padding:20px;max-height:80vh;overflow-y:auto">
+        <div style="font-weight:700;margin-bottom:14px;font-size:1rem">${title}</div>
+        <div style="font-size:.84rem;line-height:1.6;white-space:pre-wrap;color:var(--text-secondary)">${text}</div>
+        <button class="btn btn-sm btn-primary" style="margin-top:18px" onclick="this.closest('.modal-overlay').remove()">Close</button>
+      </div>`;
+    document.body.appendChild(modal);
+  }
+
+  window._csPreviewTOS = function() {
+    openTextModal('Terms of Service Preview', document.getElementById('cs-tos')?.value || cfg.termsOfService);
+  };
+
+  window._csPreviewPrivacy = function() {
+    openTextModal('Privacy Policy Preview', document.getElementById('cs-privacy')?.value || cfg.privacyPolicy);
+  };
+
+  window._csSaveAll = function() {
+    const v   = id => document.getElementById(id)?.value;
+    const chk = id => document.getElementById(id)?.checked;
+    cfg.name                        = v('cs-name')             ?? cfg.name;
+    cfg.tagline                     = v('cs-tagline')          ?? cfg.tagline;
+    cfg.primaryColor                = v('cs-primary-hex')      ?? cfg.primaryColor;
+    cfg.secondaryColor              = v('cs-secondary-hex')    ?? cfg.secondaryColor;
+    cfg.accentColor                 = v('cs-accent-hex')       ?? cfg.accentColor;
+    cfg.customCss                   = v('cs-custom-css')       ?? cfg.customCss;
+    if (document.getElementById('cs-show-branding')   != null) cfg.showBrandingInPatientPortal = chk('cs-show-branding');
+    if (document.getElementById('cs-show-powered-by') != null) cfg.showPoweredBy               = chk('cs-show-powered-by');
+    cfg.address                     = v('cs-address')          ?? cfg.address;
+    cfg.phone                       = v('cs-phone')            ?? cfg.phone;
+    cfg.email                       = v('cs-email')            ?? cfg.email;
+    cfg.website                     = v('cs-website')          ?? cfg.website;
+    cfg.customDomain                = v('cs-custom-domain')    ?? cfg.customDomain;
+    cfg.npi                         = v('cs-npi')              ?? cfg.npi;
+    cfg.taxId                       = v('cs-tax-id')           ?? cfg.taxId;
+    cfg.licenseNumber               = v('cs-license')          ?? cfg.licenseNumber;
+    cfg.emailFooter                 = v('cs-email-footer')     ?? cfg.emailFooter;
+    cfg.appointmentReminderTemplate = v('cs-appt-reminder')    ?? cfg.appointmentReminderTemplate;
+    cfg.sessionCompleteTemplate     = v('cs-session-complete') ?? cfg.sessionCompleteTemplate;
+    cfg.termsOfService              = v('cs-tos')              ?? cfg.termsOfService;
+    cfg.privacyPolicy               = v('cs-privacy')          ?? cfg.privacyPolicy;
+    cfg.tosLastUpdated              = v('cs-tos-date')         ?? cfg.tosLastUpdated;
+    cfg.privacyLastUpdated          = v('cs-privacy-date')     ?? cfg.privacyLastUpdated;
+    saveClinicConfig(cfg);
+    window._showToast?.('All clinic settings saved successfully!', 'success') || alert('All clinic settings saved!');
+  };
+}
+
+// Apply saved clinic branding on module load (side-effect bootstrap)
+applyClinicBranding(getClinicConfig());
+
+// ── Telehealth Session Recorder ───────────────────────────────────────────────
+
+const RECORDINGS_KEY = 'ds_telehealth_recordings';
+
+function getRecordings() {
+  try { return JSON.parse(localStorage.getItem(RECORDINGS_KEY) || '[]'); } catch { return []; }
+}
+
+function saveRecording(rec) {
+  const recs = getRecordings();
+  const idx = recs.findIndex(r => r.id === rec.id);
+  if (idx >= 0) recs[idx] = rec; else recs.unshift(rec);
+  localStorage.setItem(RECORDINGS_KEY, JSON.stringify(recs));
+}
+
+function deleteRecording(id) {
+  const recs = getRecordings().filter(r => r.id !== id);
+  localStorage.setItem(RECORDINGS_KEY, JSON.stringify(recs));
+}
+
+function _seedRecordings() {
+  if (getRecordings().length > 0) return;
+  const seeds = [
+    {
+      id: 'rec-seed-1',
+      title: 'Alpha Training — Session 4',
+      patientName: 'Sarah Mitchell',
+      date: '2026-04-08T10:15:00.000Z',
+      duration: '24:12',
+      sizeKB: 42300,
+      transcript: [
+        { time: '00:00', text: 'Patient reports improved sleep quality since last session.' },
+        { time: '08:05', text: 'Reviewing EEG feedback from last session.' },
+        { time: '16:20', text: 'Adjusting alpha training threshold to 11 Hz.' },
+        { time: '24:00', text: 'Session concluded — patient demonstrates increased relaxation response.' },
+      ],
+      notes: 'Good progress on alpha amplitude. Schedule follow-up in 5 days.',
+      blobUrl: null,
+      status: 'saved',
+    },
+    {
+      id: 'rec-seed-2',
+      title: 'tDCS DLPFC Protocol — Intake',
+      patientName: 'James Okonkwo',
+      date: '2026-04-07T14:00:00.000Z',
+      duration: '18:47',
+      sizeKB: 31200,
+      transcript: [
+        { time: '00:00', text: 'Patient presenting with treatment-resistant depression.' },
+        { time: '06:30', text: 'Discussing tDCS anode placement at F3, cathode at FP2.' },
+        { time: '12:15', text: 'Patient confirms no metal implants or seizure history.' },
+        { time: '18:00', text: 'Consent obtained and baseline PHQ-9 recorded (score 17).' },
+      ],
+      notes: 'Baseline established. First tDCS session scheduled for next week.',
+      blobUrl: null,
+      status: 'uploaded',
+    },
+    {
+      id: 'rec-seed-3',
+      title: 'Anxiety Protocol Review — SMR Training',
+      patientName: 'Priya Nair',
+      date: '2026-04-05T09:30:00.000Z',
+      duration: '31:05',
+      sizeKB: 58900,
+      transcript: [
+        { time: '00:00', text: 'Patient reports reduced anxiety symptoms this week.' },
+        { time: '10:20', text: 'SMR amplitude trending upward — excellent compliance.' },
+        { time: '21:00', text: 'Introduced theta suppression protocol component.' },
+        { time: '30:00', text: 'Patient completed 30 min without breaks — milestone reached.' },
+      ],
+      notes: 'Consider advancing to Phase 2 protocol on next visit.',
+      blobUrl: null,
+      status: 'saved',
+    },
+  ];
+  localStorage.setItem(RECORDINGS_KEY, JSON.stringify(seeds));
+}
+
+// ── Module-level recorder state ───────────────────────────────────────────────
+let _recMediaRecorder = null;
+let _recStream = null;
+let _recChunks = [];
+let _recStartTime = null;
+let _recTimerInterval = null;
+let _recTranscript = [];   // { time, text }
+let _recScreenStream = null;
+let _recIsScreenSharing = false;
+
+const _REC_PHRASES = [
+  'Patient reports reduced anxiety symptoms.',
+  'Reviewing EEG feedback from last session.',
+  'Adjusting alpha training threshold to 11 Hz.',
+  'SMR amplitude trending upward — good progress.',
+  'Patient demonstrates increased relaxation response.',
+  'Theta suppression protocol component introduced.',
+  'Discussing homework compliance between sessions.',
+  'Patient confirms no adverse effects since last visit.',
+  'Baseline qEEG shows improvement in coherence scores.',
+  'tDCS anode placement confirmed at F3 per protocol.',
+  'Heart rate variability biofeedback initiated.',
+  'Patient reports improved sleep quality this week.',
+  'Reviewing PHQ-9 scores — down 4 points from last visit.',
+  'Adjusting reward threshold — beta amplitude at 18 Hz.',
+  'Session goal met: 20 min sustained focus achieved.',
+  'Clinician note: consider advancing to Phase 2 next visit.',
+  'Patient completing session without breaks — milestone.',
+  'Discussing neurofeedback rationale with patient.',
+  'Informed consent reviewed and re-confirmed.',
+  'Scheduling follow-up appointment in 5 days.',
+];
+
+function _recFormatTime(ms) {
+  const total = Math.floor(ms / 1000);
+  const m = String(Math.floor(total / 60)).padStart(2, '0');
+  const s = String(total % 60).padStart(2, '0');
+  return `${m}:${s}`;
+}
+
+function _recSimulateLine() {
+  const elapsed = _recStartTime ? _recFormatTime(Date.now() - _recStartTime) : '00:00';
+  const phrase = _REC_PHRASES[Math.floor(Math.random() * _REC_PHRASES.length)];
+  _recTranscript.push({ time: elapsed, text: phrase });
+  const panel = document.getElementById('rec-transcript-panel');
+  if (panel) {
+    const line = document.createElement('div');
+    line.className = 'rec-transcript-line';
+    line.innerHTML = `<span class="rec-transcript-time">[${elapsed}]</span><span class="rec-transcript-clinician">Clinician:</span><span>${phrase}</span>`;
+    panel.appendChild(line);
+    panel.scrollTop = panel.scrollHeight;
+  }
+}
+
+function _recUpdateTimer() {
+  if (!_recStartTime) return;
+  const el = document.getElementById('rec-elapsed');
+  if (el) el.textContent = _recFormatTime(Date.now() - _recStartTime);
+}
+
+function _recSetStatus(status) {
+  const bar = document.getElementById('rec-status-bar');
+  if (!bar) return;
+  if (status === 'recording') {
+    bar.innerHTML = `<span class="rec-indicator"><span class="rec-dot"></span><span class="rec-timer" id="rec-elapsed">00:00</span></span><span style="font-size:.8rem;color:var(--text-secondary);margin-left:8px">Recording…</span>`;
+  } else if (status === 'paused') {
+    bar.innerHTML = `<span class="rec-indicator"><span class="rec-dot" style="animation:none;background:#f59e0b"></span><span class="rec-timer" id="rec-elapsed" style="color:#f59e0b">Paused</span></span>`;
+  } else if (status === 'idle') {
+    bar.innerHTML = `<span style="font-size:.8rem;color:var(--text-secondary)">Not recording</span>`;
+  }
+}
+
+function _recShowToast(msg, type = 'success') {
+  const t = document.createElement('div');
+  t.style.cssText = `position:fixed;bottom:24px;right:24px;z-index:9999;padding:12px 18px;border-radius:10px;font-size:.85rem;font-weight:600;color:#fff;background:${type === 'success' ? '#10b981' : type === 'error' ? '#ef4444' : '#6366f1'};box-shadow:0 4px 16px rgba(0,0,0,.3);transition:opacity .3s`;
+  t.textContent = msg;
+  document.body.appendChild(t);
+  setTimeout(() => { t.style.opacity = '0'; setTimeout(() => t.remove(), 300); }, 3000);
+}
+
+function _recBuildLibraryHTML(filter = '') {
+  _seedRecordings();
+  const recs = getRecordings().filter(r =>
+    !filter || r.patientName.toLowerCase().includes(filter.toLowerCase())
+  );
+  if (recs.length === 0) {
+    return `<div style="text-align:center;padding:40px;color:var(--text-secondary)">No recordings found.</div>`;
+  }
+  return recs.map(r => {
+    const statusClass = `rec-status-${r.status}`;
+    const dateStr = new Date(r.date).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' });
+    const sizeStr = r.sizeKB >= 1024 ? `${(r.sizeKB / 1024).toFixed(1)} MB` : `${r.sizeKB} KB`;
+    const transcriptHtml = (r.transcript || []).map(l =>
+      `<div class="rec-transcript-line"><span class="rec-transcript-time">[${l.time}]</span><span>${l.text}</span></div>`
+    ).join('');
+    return `<div class="rec-library-item" id="lib-item-${r.id}">
+  <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap">
+    <div style="flex:1;min-width:200px">
+      <div style="font-weight:600;font-size:.95rem">${r.title}</div>
+      <div style="font-size:.8rem;color:var(--text-secondary);margin-top:2px">${r.patientName} &nbsp;·&nbsp; ${dateStr}</div>
+      <div style="font-size:.78rem;color:var(--text-tertiary);margin-top:2px">Duration: ${r.duration} &nbsp;·&nbsp; Size: ${sizeStr}</div>
+    </div>
+    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+      <span class="${statusClass}">${r.status.charAt(0).toUpperCase() + r.status.slice(1)}</span>
+      <button class="btn btn-sm btn-ghost" onclick="window._recPlayInline('${r.id}')">▶ Play</button>
+      <button class="btn btn-sm btn-ghost" onclick="window._recExportTranscript('${r.id}')">Export Transcript</button>
+      <button class="btn btn-sm btn-ghost" style="color:#ef4444" onclick="window._recDelete('${r.id}')">Delete</button>
+    </div>
+  </div>
+  <div id="lib-player-${r.id}" style="display:none;margin-top:12px"></div>
+  <details style="margin-top:10px">
+    <summary style="font-size:.8rem;cursor:pointer;color:var(--text-secondary)">Transcript (${(r.transcript || []).length} entries)</summary>
+    <div class="rec-transcript-panel" style="margin-top:6px">${transcriptHtml || '<span style="color:var(--text-tertiary)">No transcript available.</span>'}</div>
+  </details>
+  ${r.notes ? `<div style="margin-top:8px;font-size:.8rem;background:var(--hover-bg);padding:8px 12px;border-radius:6px;border-left:3px solid var(--accent-teal)"><strong>Notes:</strong> ${r.notes}</div>` : ''}
+</div>`;
+  }).join('');
+}
+
+export async function pgTelehealthRecorder(setTopbar) {
+  _seedRecordings();
+  setTopbar('Telehealth Session Recorder', `<button class="btn btn-ghost btn-sm" onclick="window._nav('telehealth')">← Back to Telehealth</button>`);
+
+  const el = document.getElementById('content');
+  if (!el) return;
+
+  let _activeTab = 'live';
+
+  function render() {
+    el.innerHTML = `
+<div style="max-width:960px;margin:0 auto;padding:0 4px">
+  <!-- Tab bar -->
+  <div style="display:flex;gap:4px;margin-bottom:20px;background:var(--bg-surface-2,#1e293b);padding:4px;border-radius:10px;width:fit-content">
+    <button class="btn btn-sm${_activeTab === 'live' ? ' btn-primary' : ' btn-ghost'}" onclick="window._recSwitchTab('live')">Live Session</button>
+    <button class="btn btn-sm${_activeTab === 'library' ? ' btn-primary' : ' btn-ghost'}" onclick="window._recSwitchTab('library')">Recording Library</button>
+  </div>
+
+  <!-- Live Session Tab -->
+  <div id="rec-tab-live" style="display:${_activeTab === 'live' ? 'block' : 'none'}">
+
+    <!-- Control bar -->
+    <div class="card" style="margin-bottom:16px">
+      <div class="card-body" style="display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end">
+        <div style="flex:1;min-width:160px">
+          <label style="font-size:.75rem;color:var(--text-secondary);display:block;margin-bottom:4px">Patient Name</label>
+          <input id="rec-patient-name" class="input" style="width:100%" placeholder="e.g. Sarah Mitchell" />
+        </div>
+        <div style="flex:1;min-width:160px">
+          <label style="font-size:.75rem;color:var(--text-secondary);display:block;margin-bottom:4px">Session Title</label>
+          <input id="rec-session-title" class="input" style="width:100%" placeholder="e.g. Alpha Training – Session 5" />
+        </div>
+        <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center">
+          <button class="btn btn-sm" id="btn-start-camera" onclick="window._recStartCamera()">Start Camera</button>
+          <button class="btn btn-sm btn-ghost" id="btn-toggle-screen" onclick="window._recToggleScreen()">Share Screen</button>
+          <button class="btn btn-sm btn-primary" id="btn-start-rec" onclick="window._recStart()" disabled>Start Recording</button>
+          <button class="btn btn-sm btn-ghost" id="btn-pause-rec" onclick="window._recPause()" style="display:none">Pause</button>
+          <button class="btn btn-sm btn-ghost" id="btn-resume-rec" onclick="window._recResume()" style="display:none">Resume</button>
+          <button class="btn btn-sm" id="btn-stop-rec" onclick="window._recStop()" style="display:none;background:#ef4444;color:#fff">Stop &amp; Save</button>
+        </div>
+      </div>
+      <div class="card-footer" style="padding:8px 16px">
+        <div id="rec-status-bar"><span style="font-size:.8rem;color:var(--text-secondary)">Not recording</span></div>
+      </div>
+    </div>
+
+    <!-- Video area -->
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px" id="rec-video-grid">
+      <div>
+        <div style="font-size:.75rem;color:var(--text-secondary);margin-bottom:4px">Camera Feed</div>
+        <div class="rec-video-wrap">
+          <video id="rec-local-video" autoplay muted playsinline style="width:100%;height:240px;object-fit:cover"></video>
+        </div>
+      </div>
+      <div id="rec-screen-col" style="display:none">
+        <div style="font-size:.75rem;color:var(--text-secondary);margin-bottom:4px">Screen Share</div>
+        <div class="rec-video-wrap">
+          <video id="rec-screen-video" autoplay muted playsinline style="width:100%;height:240px;object-fit:cover"></video>
+        </div>
+      </div>
+    </div>
+
+    <!-- Live transcript -->
+    <div class="card" style="margin-bottom:16px">
+      <div class="card-header" style="display:flex;align-items:center;justify-content:space-between">
+        <span>Live Transcript</span>
+        <div style="display:flex;gap:8px;align-items:center">
+          <input id="rec-note-input" class="input input-sm" placeholder="Add a timestamped note…" style="width:240px;display:none" onkeydown="if(event.key==='Enter')window._recAddNote()" />
+          <button class="btn btn-sm btn-ghost" id="btn-add-note" onclick="window._recToggleNoteInput()">Add Note</button>
+        </div>
+      </div>
+      <div class="card-body" style="padding:0">
+        <div id="rec-transcript-panel" class="rec-transcript-panel" style="border-radius:0">
+          <div style="color:var(--text-tertiary);font-size:.8rem;padding:4px 0">Transcript will appear here once recording starts…</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Post-recording playback (hidden until recording stopped) -->
+    <div id="rec-playback-section" style="display:none">
+      <div class="card">
+        <div class="card-header">Playback &amp; Save</div>
+        <div class="card-body">
+          <video id="rec-playback-video" controls style="width:100%;border-radius:8px;background:#000;margin-bottom:12px"></video>
+          <div style="display:flex;gap:16px;font-size:.82rem;color:var(--text-secondary);margin-bottom:12px">
+            <span>Duration: <strong id="rec-pb-duration">—</strong></span>
+            <span>Size: <strong id="rec-pb-size">—</strong></span>
+          </div>
+          <div id="rec-save-confirm" style="margin-bottom:12px;display:none;padding:10px 14px;background:var(--teal-ghost,rgba(0,212,188,.08));border-radius:8px;border:1px solid var(--border-teal,rgba(0,212,188,.25));font-size:.85rem">
+            Recording saved for <strong id="rec-save-patient"></strong> — <strong id="rec-save-title"></strong>
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <button class="btn btn-primary btn-sm" onclick="window._recUpload()">Upload to Cloud</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Recording Library Tab -->
+  <div id="rec-tab-library" style="display:${_activeTab === 'library' ? 'block' : 'none'}">
+    <div style="display:flex;gap:10px;margin-bottom:16px;align-items:center">
+      <input id="rec-search-input" class="input" placeholder="Search by patient name…" style="max-width:320px" oninput="window._recSearchLibrary(this.value)" />
+    </div>
+    <div id="rec-library-list">${_recBuildLibraryHTML()}</div>
+  </div>
+</div>`;
+  }
+
+  render();
+
+  // ── Tab switch ─────────────────────────────────────────────────────────────
+  window._recSwitchTab = function(tab) {
+    _activeTab = tab;
+    render();
+    // Restore video streams after re-render
+    if (_recStream) {
+      const v = document.getElementById('rec-local-video');
+      if (v) v.srcObject = _recStream;
+    }
+    if (_recScreenStream) {
+      const sv = document.getElementById('rec-screen-video');
+      if (sv) sv.srcObject = _recScreenStream;
+      const sc = document.getElementById('rec-screen-col');
+      if (sc) sc.style.display = 'block';
+    }
+    // Re-apply button states
+    _recRefreshButtons();
+    if (_recMediaRecorder && _recMediaRecorder.state === 'recording') {
+      _recSetStatus('recording');
+    } else if (_recMediaRecorder && _recMediaRecorder.state === 'paused') {
+      _recSetStatus('paused');
+    }
+  };
+
+  function _recRefreshButtons() {
+    const cameraReady = !!_recStream;
+    const isRecording = _recMediaRecorder && _recMediaRecorder.state === 'recording';
+    const isPaused = _recMediaRecorder && _recMediaRecorder.state === 'paused';
+    const isActive = isRecording || isPaused;
+
+    const btnStart = document.getElementById('btn-start-rec');
+    const btnPause = document.getElementById('btn-pause-rec');
+    const btnResume = document.getElementById('btn-resume-rec');
+    const btnStop = document.getElementById('btn-stop-rec');
+    const btnCam = document.getElementById('btn-start-camera');
+    const btnScreen = document.getElementById('btn-toggle-screen');
+
+    if (btnStart) btnStart.disabled = !cameraReady || isActive;
+    if (btnPause) btnPause.style.display = isRecording ? 'inline-flex' : 'none';
+    if (btnResume) btnResume.style.display = isPaused ? 'inline-flex' : 'none';
+    if (btnStop) btnStop.style.display = isActive ? 'inline-flex' : 'none';
+    if (btnCam) {
+      btnCam.textContent = cameraReady ? 'Camera On' : 'Start Camera';
+      btnCam.disabled = !!_recStream;
+    }
+    if (btnScreen) {
+      btnScreen.textContent = _recIsScreenSharing ? 'Stop Screen' : 'Share Screen';
+    }
+  }
+
+  // ── Camera ─────────────────────────────────────────────────────────────────
+  window._recStartCamera = async function() {
+    try {
+      _recStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+      const v = document.getElementById('rec-local-video');
+      if (v) v.srcObject = _recStream;
+      _recRefreshButtons();
+      _recShowToast('Camera started', 'success');
+    } catch (err) {
+      console.error('[Recorder] Camera error:', err);
+      _recShowToast('Camera not available: ' + (err.message || err.name), 'error');
+    }
+  };
+
+  // ── Screen share ───────────────────────────────────────────────────────────
+  window._recToggleScreen = async function() {
+    if (_recIsScreenSharing) {
+      if (_recScreenStream) { _recScreenStream.getTracks().forEach(t => t.stop()); _recScreenStream = null; }
+      _recIsScreenSharing = false;
+      const sv = document.getElementById('rec-screen-video');
+      if (sv) sv.srcObject = null;
+      const sc = document.getElementById('rec-screen-col');
+      if (sc) sc.style.display = 'none';
+      _recRefreshButtons();
+      _recShowToast('Screen sharing stopped', 'success');
+      return;
+    }
+    try {
+      _recScreenStream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
+      _recIsScreenSharing = true;
+      const sv = document.getElementById('rec-screen-video');
+      if (sv) { sv.srcObject = _recScreenStream; sv.style.display = ''; }
+      const sc = document.getElementById('rec-screen-col');
+      if (sc) sc.style.display = 'block';
+      _recScreenStream.getTracks()[0].addEventListener('ended', () => {
+        _recIsScreenSharing = false;
+        _recScreenStream = null;
+        const scEnd = document.getElementById('rec-screen-col');
+        if (scEnd) scEnd.style.display = 'none';
+        _recRefreshButtons();
+      });
+      _recRefreshButtons();
+      _recShowToast('Screen sharing started', 'success');
+    } catch (err) {
+      console.error('[Recorder] Screen share error:', err);
+      if (err.name !== 'NotAllowedError') {
+        _recShowToast('Screen share not available: ' + (err.message || err.name), 'error');
+      }
+    }
+  };
+
+  // ── Start recording ────────────────────────────────────────────────────────
+  window._recStart = function() {
+    if (!_recStream) { _recShowToast('Please start camera first.', 'error'); return; }
+    try {
+      _recChunks = [];
+      _recTranscript = [];
+      const panel = document.getElementById('rec-transcript-panel');
+      if (panel) panel.innerHTML = '';
+
+      // Combine camera + screen if available
+      let tracks = [..._recStream.getTracks()];
+      if (_recScreenStream) tracks = [...tracks, ..._recScreenStream.getVideoTracks()];
+
+      const combined = new MediaStream(tracks);
+      const mimeType = MediaRecorder.isTypeSupported('video/webm;codecs=vp9,opus')
+        ? 'video/webm;codecs=vp9,opus'
+        : MediaRecorder.isTypeSupported('video/webm')
+        ? 'video/webm'
+        : '';
+
+      const opts = mimeType ? { mimeType } : {};
+      _recMediaRecorder = new MediaRecorder(combined, opts);
+
+      _recMediaRecorder.ondataavailable = e => { if (e.data && e.data.size > 0) _recChunks.push(e.data); };
+      _recMediaRecorder.onerror = e => { console.error('[Recorder] MediaRecorder error:', e.error); _recShowToast('Recording error: ' + e.error?.message, 'error'); };
+      _recMediaRecorder.start(1000);
+
+      _recStartTime = Date.now();
+      _recTimerInterval = setInterval(_recUpdateTimer, 500);
+
+      // Simulate transcript every 8 seconds
+      window._recSimInterval = setInterval(_recSimulateLine, 8000);
+      _recSimulateLine(); // immediate first line
+
+      _recSetStatus('recording');
+      _recRefreshButtons();
+
+      // Hide old playback
+      const pb = document.getElementById('rec-playback-section');
+      if (pb) pb.style.display = 'none';
+      const sc = document.getElementById('rec-save-confirm');
+      if (sc) sc.style.display = 'none';
+
+    } catch (err) {
+      console.error('[Recorder] Start error:', err);
+      _recShowToast('Could not start recording: ' + (err.message || err.name), 'error');
+    }
+  };
+
+  // ── Pause ──────────────────────────────────────────────────────────────────
+  window._recPause = function() {
+    if (_recMediaRecorder && _recMediaRecorder.state === 'recording') {
+      _recMediaRecorder.pause();
+      clearInterval(_recTimerInterval);
+      clearInterval(window._recSimInterval);
+      _recSetStatus('paused');
+      _recRefreshButtons();
+    }
+  };
+
+  // ── Resume ─────────────────────────────────────────────────────────────────
+  window._recResume = function() {
+    if (_recMediaRecorder && _recMediaRecorder.state === 'paused') {
+      _recMediaRecorder.resume();
+      _recTimerInterval = setInterval(_recUpdateTimer, 500);
+      window._recSimInterval = setInterval(_recSimulateLine, 8000);
+      _recSetStatus('recording');
+      _recRefreshButtons();
+    }
+  };
+
+  // ── Stop & Save ────────────────────────────────────────────────────────────
+  window._recStop = function() {
+    if (!_recMediaRecorder || _recMediaRecorder.state === 'inactive') return;
+
+    clearInterval(_recTimerInterval);
+    clearInterval(window._recSimInterval);
+
+    const durationMs = _recStartTime ? Date.now() - _recStartTime : 0;
+    const durationFmt = _recFormatTime(durationMs);
+
+    _recMediaRecorder.onstop = () => {
+      const mimeType = _recChunks[0]?.type || 'video/webm';
+      const blob = new Blob(_recChunks, { type: mimeType });
+      const blobUrl = URL.createObjectURL(blob);
+      const sizeKB = Math.round(blob.size / 1024);
+
+      // Show playback
+      const pb = document.getElementById('rec-playback-section');
+      if (pb) pb.style.display = 'block';
+      const pv = document.getElementById('rec-playback-video');
+      if (pv) pv.src = blobUrl;
+      const dur = document.getElementById('rec-pb-duration');
+      if (dur) dur.textContent = durationFmt;
+      const sz = document.getElementById('rec-pb-size');
+      if (sz) sz.textContent = sizeKB >= 1024 ? `${(sizeKB / 1024).toFixed(1)} MB` : `${sizeKB} KB`;
+
+      // Save to store
+      const patientName = document.getElementById('rec-patient-name')?.value.trim() || 'Unknown Patient';
+      const title = document.getElementById('rec-session-title')?.value.trim() || `Session ${new Date().toLocaleDateString()}`;
+
+      const rec = {
+        id: 'rec-' + Date.now(),
+        title,
+        patientName,
+        date: new Date().toISOString(),
+        duration: durationFmt,
+        sizeKB,
+        transcript: [..._recTranscript],
+        notes: '',
+        blobUrl,
+        status: 'saved',
+      };
+      saveRecording(rec);
+      window._lastSavedRecId = rec.id;
+
+      // Show confirmation
+      const confirm = document.getElementById('rec-save-confirm');
+      if (confirm) {
+        confirm.style.display = 'block';
+        const sp = document.getElementById('rec-save-patient');
+        const st = document.getElementById('rec-save-title');
+        if (sp) sp.textContent = patientName;
+        if (st) st.textContent = title;
+      }
+
+      _recSetStatus('idle');
+      _recRefreshButtons();
+      _recShowToast('Recording saved!', 'success');
+    };
+
+    _recMediaRecorder.stop();
+  };
+
+  // ── Add Note ───────────────────────────────────────────────────────────────
+  window._recToggleNoteInput = function() {
+    const inp = document.getElementById('rec-note-input');
+    if (!inp) return;
+    const visible = inp.style.display !== 'none';
+    inp.style.display = visible ? 'none' : '';
+    if (!visible) inp.focus();
+  };
+
+  window._recAddNote = function() {
+    const inp = document.getElementById('rec-note-input');
+    if (!inp || !inp.value.trim()) return;
+    const elapsed = _recStartTime ? _recFormatTime(Date.now() - _recStartTime) : '00:00';
+    const note = inp.value.trim();
+    _recTranscript.push({ time: elapsed, text: '[NOTE] ' + note });
+    const panel = document.getElementById('rec-transcript-panel');
+    if (panel) {
+      const line = document.createElement('div');
+      line.className = 'rec-transcript-line';
+      line.innerHTML = `<span class="rec-transcript-time">[${elapsed}]</span><span class="rec-transcript-clinician" style="color:var(--amber-400,#f59e0b)">Note:</span><span>${note}</span>`;
+      panel.appendChild(line);
+      panel.scrollTop = panel.scrollHeight;
+    }
+    inp.value = '';
+    inp.style.display = 'none';
+  };
+
+  // ── Upload (simulated) ─────────────────────────────────────────────────────
+  window._recUpload = function() {
+    const id = window._lastSavedRecId;
+    if (!id) { _recShowToast('No recording to upload.', 'error'); return; }
+    const recs = getRecordings();
+    const rec = recs.find(r => r.id === id);
+    if (!rec) { _recShowToast('Recording not found.', 'error'); return; }
+    rec.status = 'processing';
+    saveRecording(rec);
+    _recShowToast('Uploading…', 'info');
+    setTimeout(() => {
+      rec.status = 'uploaded';
+      saveRecording(rec);
+      _recShowToast('Simulated upload complete ✓', 'success');
+    }, 2000);
+  };
+
+  // ── Library: play inline ───────────────────────────────────────────────────
+  window._recPlayInline = function(id) {
+    const recs = getRecordings();
+    const rec = recs.find(r => r.id === id);
+    const container = document.getElementById(`lib-player-${id}`);
+    if (!container) return;
+    if (container.style.display !== 'none') { container.style.display = 'none'; return; }
+    if (!rec || !rec.blobUrl) {
+      container.style.display = 'block';
+      container.innerHTML = `<div style="padding:10px 0;font-size:.82rem;color:var(--text-secondary)">Recording unavailable — this is a sample record with no stored media.</div>`;
+      return;
+    }
+    container.style.display = 'block';
+    container.innerHTML = `<video controls src="${rec.blobUrl}" style="width:100%;border-radius:8px;background:#000;max-height:240px"></video>`;
+  };
+
+  // ── Delete ─────────────────────────────────────────────────────────────────
+  window._recDelete = function(id) {
+    const recs = getRecordings();
+    const rec = recs.find(r => r.id === id);
+    if (!rec) return;
+    if (!confirm(`Delete recording "${rec.title}" for ${rec.patientName}?\n\nThis cannot be undone.`)) return;
+    deleteRecording(id);
+    const item = document.getElementById(`lib-item-${id}`);
+    if (item) item.remove();
+    _recShowToast('Recording deleted.', 'success');
+  };
+
+  // ── Export Transcript ──────────────────────────────────────────────────────
+  window._recExportTranscript = function(id) {
+    const recs = getRecordings();
+    const rec = recs.find(r => r.id === id);
+    if (!rec) { _recShowToast('Recording not found.', 'error'); return; }
+    const lines = (rec.transcript || []).map(l => `[${l.time}] ${l.text}`).join('\n');
+    const content = `Telehealth Session Transcript\nPatient: ${rec.patientName}\nSession: ${rec.title}\nDate: ${new Date(rec.date).toLocaleString()}\nDuration: ${rec.duration}\n\n${lines}\n${rec.notes ? '\n--- Notes ---\n' + rec.notes : ''}`;
+    const blob = new Blob([content], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `transcript-${rec.patientName.replace(/\s+/g, '-')}-${rec.id}.txt`;
+    a.click();
+    URL.revokeObjectURL(url);
+    _recShowToast('Transcript downloaded.', 'success');
+  };
+
+  // ── Search library ─────────────────────────────────────────────────────────
+  window._recSearchLibrary = function(q) {
+    const list = document.getElementById('rec-library-list');
+    if (list) list.innerHTML = _recBuildLibraryHTML(q);
+  };
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// Insurance Verification & Eligibility Management
+// ════════════════════════════════════════════════════════════════════════════
+
+const ELIGIBILITY_KEY = 'ds_eligibility_checks';
+const PRIOR_AUTH_KEY  = 'ds_prior_auths';
+const CLAIMS_KEY      = 'ds_claims';
+
+// ── Date helpers ──────────────────────────────────────────────────────────────
+function _insDateStr(daysAgo) {
+  const d = new Date();
+  d.setDate(d.getDate() - daysAgo);
+  return d.toISOString().slice(0, 10);
+}
+function _insDateFmt(iso) {
+  if (!iso) return '—';
+  const d = new Date(iso + 'T00:00:00');
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+}
+function _insDaysSince(iso) {
+  if (!iso) return 0;
+  return Math.floor((Date.now() - new Date(iso + 'T00:00:00').getTime()) / 86400000);
+}
+function _insDaysUntil(iso) {
+  if (!iso) return 9999;
+  return Math.floor((new Date(iso + 'T00:00:00').getTime() - Date.now()) / 86400000);
+}
+
+// ── Eligibility checks store ──────────────────────────────────────────────────
+function getEligibilityChecks() {
+  const raw = localStorage.getItem(ELIGIBILITY_KEY);
+  if (raw) return JSON.parse(raw);
+  const seed = [
+    {
+      id: 'elig-001', patientName: 'Sarah Thompson', payer: 'BCBS', memberId: 'BCB123456789',
+      groupId: 'GRP-5001', dob: '1985-03-12', checkedDate: _insDateStr(2), checkedBy: 'Dr. Martinez',
+      status: 'active', deductible: 1500, deductibleMet: 500, outOfPocketMax: 5000, outOfPocketMet: 800,
+      copay: 30, coinsurance: 20,
+      coveredServices: [
+        { code: '90837', description: 'Psychotherapy 60 min', covered: true, notes: 'Pre-auth required after 20 visits' },
+        { code: '90901', description: 'Biofeedback training', covered: true, notes: 'Up to 10 visits/year' },
+        { code: '95999', description: 'Neurofeedback', covered: false, notes: 'Not covered – experimental' },
+      ],
+      notes: 'Patient has met partial deductible. Confirm referral on file.',
+    },
+    {
+      id: 'elig-002', patientName: 'James Okafor', payer: 'Aetna', memberId: 'AET987654321',
+      groupId: 'GRP-7700', dob: '1972-07-24', checkedDate: _insDateStr(5), checkedBy: 'Dr. Chen',
+      status: 'active', deductible: 2000, deductibleMet: 0, outOfPocketMax: 6500, outOfPocketMet: 0,
+      copay: 40, coinsurance: 20,
+      coveredServices: [
+        { code: '90837', description: 'Psychotherapy 60 min', covered: true, notes: '' },
+        { code: '90901', description: 'Biofeedback training', covered: true, notes: 'Requires PA after visit 6' },
+        { code: '95999', description: 'Neurofeedback', covered: false, notes: 'Covered only with autism diagnosis' },
+      ],
+      notes: 'Deductible not met. Collect full contracted rate until met.',
+    },
+    {
+      id: 'elig-003', patientName: 'Maria Gonzalez', payer: 'Cigna', memberId: 'CIG456123789',
+      groupId: 'GRP-3300', dob: '1990-11-08', checkedDate: _insDateStr(1), checkedBy: 'Dr. Park',
+      status: 'active', deductible: 1800, deductibleMet: 900, outOfPocketMax: 4000, outOfPocketMet: 1200,
+      copay: 35, coinsurance: 15,
+      coveredServices: [
+        { code: '90837', description: 'Psychotherapy 60 min', covered: true, notes: '' },
+        { code: '90901', description: 'Biofeedback training', covered: true, notes: '' },
+        { code: '95999', description: 'Neurofeedback', covered: true, notes: 'Covered for ADHD, anxiety diagnoses' },
+      ],
+      notes: 'Deductible 50% met. Good standing.',
+    },
+    {
+      id: 'elig-004', patientName: 'Robert Kim', payer: 'UHC', memberId: 'UHC112233445',
+      groupId: 'GRP-9900', dob: '1968-05-30', checkedDate: _insDateStr(3), checkedBy: 'Dr. Martinez',
+      status: 'pending', deductible: 3000, deductibleMet: 1500, outOfPocketMax: 7500, outOfPocketMet: 2000,
+      copay: 50, coinsurance: 20,
+      coveredServices: [],
+      notes: 'Verification pending with UHC portal. Follow up in 24h.',
+    },
+    {
+      id: 'elig-005', patientName: 'Linda Patel', payer: 'Other', memberId: 'OTH999888777',
+      groupId: 'GRP-0001', dob: '1995-09-14', checkedDate: _insDateStr(10), checkedBy: 'Dr. Chen',
+      status: 'error', deductible: 0, deductibleMet: 0, outOfPocketMax: 0, outOfPocketMet: 0,
+      copay: 0, coinsurance: 0,
+      coveredServices: [],
+      notes: 'Member ID not found in payer database. Contact patient.',
+    },
+  ];
+  localStorage.setItem(ELIGIBILITY_KEY, JSON.stringify(seed));
+  return seed;
+}
+function saveEligibilityCheck(check) {
+  const all = getEligibilityChecks();
+  const idx = all.findIndex(e => e.id === check.id);
+  if (idx >= 0) all[idx] = check; else all.unshift(check);
+  localStorage.setItem(ELIGIBILITY_KEY, JSON.stringify(all));
+}
+
+// ── Prior auths store ─────────────────────────────────────────────────────────
+function getPriorAuths() {
+  const raw = localStorage.getItem(PRIOR_AUTH_KEY);
+  if (raw) return JSON.parse(raw);
+  const seed = [
+    {
+      id: 'pa-001', patientName: 'Sarah Thompson', payer: 'BCBS', cptCode: '90837',
+      diagnosisCode: 'F41.1', requestDate: _insDateStr(30), approvedDate: _insDateStr(25),
+      expiryDate: _insDateStr(-60), authNumber: 'BCBS-2025-4411',
+      requestedUnits: 20, approvedUnits: 20,
+      status: 'approved', clinician: 'Dr. Martinez', notes: 'Full approval for anxiety treatment.',
+      denialReason: '',
+    },
+    {
+      id: 'pa-002', patientName: 'James Okafor', payer: 'Aetna', cptCode: '90901',
+      diagnosisCode: 'F43.10', requestDate: _insDateStr(15), approvedDate: '',
+      expiryDate: '', authNumber: '',
+      requestedUnits: 10, approvedUnits: 0,
+      status: 'pending', clinician: 'Dr. Chen', notes: 'Awaiting medical necessity review.',
+      denialReason: '',
+    },
+    {
+      id: 'pa-003', patientName: 'Maria Gonzalez', payer: 'Cigna', cptCode: '95999',
+      diagnosisCode: 'F90.0', requestDate: _insDateStr(45), approvedDate: _insDateStr(40),
+      expiryDate: _insDateStr(-20), authNumber: 'CGN-2025-7722',
+      requestedUnits: 30, approvedUnits: 15,
+      status: 'partial', clinician: 'Dr. Park', notes: '15 units approved for ADHD neurofeedback.',
+      denialReason: '',
+    },
+    {
+      id: 'pa-004', patientName: 'David Wilson', payer: 'BCBS', cptCode: '90837',
+      diagnosisCode: 'F32.1', requestDate: _insDateStr(60), approvedDate: '',
+      expiryDate: '', authNumber: '',
+      requestedUnits: 24, approvedUnits: 0,
+      status: 'denied', clinician: 'Dr. Martinez',
+      notes: 'Denied – criteria not met.',
+      denialReason: 'Medical necessity not established; missing clinical documentation.',
+    },
+  ];
+  localStorage.setItem(PRIOR_AUTH_KEY, JSON.stringify(seed));
+  return seed;
+}
+function savePriorAuth(pa) {
+  const all = getPriorAuths();
+  const idx = all.findIndex(p => p.id === pa.id);
+  if (idx >= 0) all[idx] = pa; else all.unshift(pa);
+  localStorage.setItem(PRIOR_AUTH_KEY, JSON.stringify(all));
+}
+function updatePriorAuthStatus(id, status, notes) {
+  const all = getPriorAuths();
+  const pa = all.find(p => p.id === id);
+  if (!pa) return;
+  pa.status = status;
+  if (notes !== undefined) pa.notes = notes;
+  localStorage.setItem(PRIOR_AUTH_KEY, JSON.stringify(all));
+}
+
+// ── Claims store ──────────────────────────────────────────────────────────────
+function getClaims() {
+  const raw = localStorage.getItem(CLAIMS_KEY);
+  if (raw) return JSON.parse(raw);
+  const seed = [
+    {
+      id: 'clm-001', patientName: 'Sarah Thompson', payer: 'BCBS', dos: _insDateStr(14),
+      cptCodes: ['90837'], diagnosisCodes: ['F41.1'],
+      billedAmount: 200, allowedAmount: 145, paidAmount: 116, patientBalance: 29,
+      status: 'paid', submittedDate: _insDateStr(12), processedDate: _insDateStr(5),
+      eobNotes: 'Paid at contracted rate. Copay $30 collected.',
+    },
+    {
+      id: 'clm-002', patientName: 'James Okafor', payer: 'Aetna', dos: _insDateStr(7),
+      cptCodes: ['90901'], diagnosisCodes: ['F43.10'],
+      billedAmount: 175, allowedAmount: 0, paidAmount: 0, patientBalance: 0,
+      status: 'submitted', submittedDate: _insDateStr(5), processedDate: '',
+      eobNotes: '',
+    },
+    {
+      id: 'clm-003', patientName: 'Maria Gonzalez', payer: 'Cigna', dos: _insDateStr(21),
+      cptCodes: ['95999'], diagnosisCodes: ['F90.0'],
+      billedAmount: 250, allowedAmount: 0, paidAmount: 0, patientBalance: 0,
+      status: 'processing', submittedDate: _insDateStr(18), processedDate: '',
+      eobNotes: 'Under review — neurofeedback medical necessity.',
+    },
+    {
+      id: 'clm-004', patientName: 'Robert Kim', payer: 'UHC', dos: _insDateStr(35),
+      cptCodes: ['90837', '90836'], diagnosisCodes: ['F33.0'],
+      billedAmount: 320, allowedAmount: 0, paidAmount: 0, patientBalance: 0,
+      status: 'denied', submittedDate: _insDateStr(32), processedDate: _insDateStr(25),
+      eobNotes: 'Denied: duplicate claim. Original claim paid on DOS -40.',
+    },
+    {
+      id: 'clm-005', patientName: 'Linda Patel', payer: 'Other', dos: _insDateStr(50),
+      cptCodes: ['90837'], diagnosisCodes: ['F41.0'],
+      billedAmount: 200, allowedAmount: 0, paidAmount: 0, patientBalance: 0,
+      status: 'appealing', submittedDate: _insDateStr(47), processedDate: _insDateStr(40),
+      eobNotes: 'Appeal filed 2025-01-10. Awaiting payer response.',
+    },
+    {
+      id: 'clm-006', patientName: 'David Wilson', payer: 'BCBS', dos: _insDateStr(75),
+      cptCodes: ['90837'], diagnosisCodes: ['F32.1'],
+      billedAmount: 200, allowedAmount: 145, paidAmount: 0, patientBalance: 0,
+      status: 'write-off', submittedDate: _insDateStr(72), processedDate: _insDateStr(65),
+      eobNotes: 'Appeal lost. Written off per policy.',
+    },
+  ];
+  localStorage.setItem(CLAIMS_KEY, JSON.stringify(seed));
+  return seed;
+}
+function saveClaim(claim) {
+  const all = getClaims();
+  const idx = all.findIndex(c => c.id === claim.id);
+  if (idx >= 0) all[idx] = claim; else all.unshift(claim);
+  localStorage.setItem(CLAIMS_KEY, JSON.stringify(all));
+}
+function updateClaimStatus(id, status) {
+  const all = getClaims();
+  const c = all.find(x => x.id === id);
+  if (!c) return;
+  c.status = status;
+  if (status === 'paid') {
+    c.processedDate = new Date().toISOString().slice(0, 10);
+    c.paidAmount = c.allowedAmount || c.billedAmount;
+  }
+  localStorage.setItem(CLAIMS_KEY, JSON.stringify(all));
+}
+
+// ── Mock eligibility check engine ─────────────────────────────────────────────
+function runEligibilityCheck(patientName, payer, memberId) {
+  return new Promise((resolve) => {
+    setTimeout(() => {
+      const p = payer.toLowerCase();
+      let result;
+      if (p.includes('bcbs') || p.includes('blue')) {
+        result = {
+          status: 'active', deductible: 1500, deductibleMet: 500,
+          outOfPocketMax: 5000, outOfPocketMet: 800, copay: 30, coinsurance: 20,
+          coveredServices: [
+            { code: '90837', description: 'Psychotherapy 60 min', covered: true, notes: 'PA after 20 visits' },
+            { code: '90901', description: 'Biofeedback training', covered: true, notes: '' },
+            { code: '95999', description: 'Neurofeedback', covered: false, notes: 'Not covered' },
+          ],
+        };
+      } else if (p.includes('aetna')) {
+        result = {
+          status: 'active', deductible: 2000, deductibleMet: 0,
+          outOfPocketMax: 6500, outOfPocketMet: 0, copay: 40, coinsurance: 20,
+          coveredServices: [
+            { code: '90837', description: 'Psychotherapy 60 min', covered: true, notes: '' },
+            { code: '90901', description: 'Biofeedback training', covered: true, notes: 'PA after visit 6' },
+            { code: '95999', description: 'Neurofeedback', covered: false, notes: 'Autism dx only' },
+          ],
+        };
+      } else if (p.includes('cigna')) {
+        result = {
+          status: 'active', deductible: 1800, deductibleMet: 900,
+          outOfPocketMax: 4000, outOfPocketMet: 1200, copay: 35, coinsurance: 15,
+          coveredServices: [
+            { code: '90837', description: 'Psychotherapy 60 min', covered: true, notes: '' },
+            { code: '90901', description: 'Biofeedback training', covered: true, notes: '' },
+            { code: '95999', description: 'Neurofeedback', covered: true, notes: 'ADHD/Anxiety dx' },
+          ],
+        };
+      } else if (p.includes('uhc') || p.includes('united')) {
+        result = {
+          status: 'pending', deductible: 0, deductibleMet: 0,
+          outOfPocketMax: 0, outOfPocketMet: 0, copay: 0, coinsurance: 0, coveredServices: [],
+        };
+      } else {
+        result = {
+          status: 'error', deductible: 0, deductibleMet: 0,
+          outOfPocketMax: 0, outOfPocketMet: 0, copay: 0, coinsurance: 0, coveredServices: [],
+        };
+      }
+      resolve(result);
+    }, 1500);
+  });
+}
+
+// ── Status badge helper ───────────────────────────────────────────────────────
+function _insStatusBadge(status) {
+  const map = {
+    active: 'ins-status-active', approved: 'ins-status-approved',
+    pending: 'ins-status-pending', partial: 'ins-status-pending',
+    inactive: 'ins-status-denied', error: 'ins-status-denied',
+    denied: 'ins-status-denied', expired: 'ins-status-denied',
+    paid: 'ins-status-active', submitted: 'ins-status-pending',
+    processing: 'ins-status-pending', appealing: 'ins-status-pending',
+    'write-off': 'ins-status-denied',
+  };
+  const cls = map[status] || 'ins-status-pending';
+  return `<span class="${cls}">${status.toUpperCase()}</span>`;
+}
+
+// ── Progress bar percent helper ───────────────────────────────────────────────
+function _insPct(met, total) {
+  return total > 0 ? Math.min(100, Math.round((met / total) * 100)) : 0;
+}
+
+// ── Eligibility tab HTML ──────────────────────────────────────────────────────
+function _insEligibilityTabHTML() {
+  const checks = getEligibilityChecks();
+  const counts = { active: 0, inactive: 0, pending: 0, error: 0 };
+  checks.forEach(c => {
+    if (counts[c.status] !== undefined) counts[c.status]++;
+    else counts.error++;
+  });
+
+  const recentRows = checks.slice(0, 10).map(c => `
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--border)">
+      <div>
+        <div style="font-weight:600;font-size:.9rem">${c.patientName}</div>
+        <div style="font-size:.78rem;color:var(--text-secondary)">${c.payer} · ${_insDateFmt(c.checkedDate)}</div>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px">
+        ${_insStatusBadge(c.status)}
+        <button class="btn btn-ghost btn-sm" onclick="window._insRerunCheck('${c.id}')">Re-run</button>
+      </div>
+    </div>`).join('');
+
+  return `
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:20px">
+    <div class="card">
+      <div class="card-header">Run Eligibility Check</div>
+      <div class="card-body" style="display:flex;flex-direction:column;gap:10px">
+        <div><label class="form-label">Patient Name</label>
+          <input id="ins-chk-name" class="form-control" placeholder="Full name" /></div>
+        <div><label class="form-label">Payer</label>
+          <select id="ins-chk-payer" class="form-control">
+            <option value="BCBS">BCBS</option>
+            <option value="Aetna">Aetna</option>
+            <option value="Cigna">Cigna</option>
+            <option value="UHC">UHC</option>
+            <option value="Other">Other</option>
+          </select></div>
+        <div><label class="form-label">Member ID</label>
+          <input id="ins-chk-memberid" class="form-control" placeholder="Member ID" /></div>
+        <div><label class="form-label">Group ID</label>
+          <input id="ins-chk-groupid" class="form-control" placeholder="Group ID" /></div>
+        <div><label class="form-label">Date of Birth</label>
+          <input id="ins-chk-dob" type="date" class="form-control" /></div>
+        <button class="btn btn-primary" onclick="window._insCheckEligibility()">Check Eligibility</button>
+        <div id="ins-chk-result"></div>
+      </div>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:10px">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+        <div class="card" style="text-align:center;padding:16px">
+          <div style="font-size:1.6rem;font-weight:700;color:#059669">${counts.active}</div>
+          <div style="font-size:.78rem;color:var(--text-secondary)">Active</div>
+        </div>
+        <div class="card" style="text-align:center;padding:16px">
+          <div style="font-size:1.6rem;font-weight:700;color:#d97706">${counts.pending}</div>
+          <div style="font-size:.78rem;color:var(--text-secondary)">Pending</div>
+        </div>
+        <div class="card" style="text-align:center;padding:16px">
+          <div style="font-size:1.6rem;font-weight:700;color:#dc2626">${counts.inactive + counts.error}</div>
+          <div style="font-size:.78rem;color:var(--text-secondary)">Inactive / Error</div>
+        </div>
+        <div class="card" style="text-align:center;padding:16px">
+          <div style="font-size:1.6rem;font-weight:700;color:var(--accent-teal)">${checks.length}</div>
+          <div style="font-size:.78rem;color:var(--text-secondary)">Total Checks</div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-header">Recent Eligibility Checks</div>
+    <div class="card-body">${recentRows || '<div style="color:var(--text-secondary)">No checks yet.</div>'}</div>
+  </div>`;
+}
+
+function _insEligResultHTML(r, patientName, payer, memberId) {
+  if (r.status === 'error') {
+    return `<div class="eligibility-result" style="margin-top:12px;border-color:#ef4444">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">${_insStatusBadge('error')}<b>Member Not Found</b></div>
+      <div style="font-size:.82rem;color:var(--text-secondary)">The member ID could not be verified with ${payer}. Please contact the patient to confirm insurance information.</div>
+    </div>`;
+  }
+  if (r.status === 'pending') {
+    return `<div class="eligibility-result" style="margin-top:12px;border-color:#f59e0b">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">${_insStatusBadge('pending')}<b>Verification Pending</b></div>
+      <div style="font-size:.82rem;color:var(--text-secondary)">${payer} portal is slow to respond. Check back in 24 hours or call payer directly.</div>
+    </div>`;
+  }
+  const dedPct = _insPct(r.deductibleMet, r.deductible);
+  const oopPct = _insPct(r.outOfPocketMet, r.outOfPocketMax);
+  const svcRows = (r.coveredServices || []).map(s => `<tr>
+    <td style="padding:6px 8px;font-size:.8rem">${s.code}</td>
+    <td style="padding:6px 8px;font-size:.8rem">${s.description}</td>
+    <td style="padding:6px 8px;font-size:.8rem">${s.covered ? '<span style="color:#059669">Covered</span>' : '<span style="color:#dc2626">Not Covered</span>'}</td>
+    <td style="padding:6px 8px;font-size:.8rem;color:var(--text-secondary)">${s.notes}</td>
+  </tr>`).join('');
+  return `<div class="eligibility-result" style="margin-top:12px">
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
+      ${_insStatusBadge('active')}<b>${patientName}</b>
+      <span style="color:var(--text-secondary);font-size:.8rem">${payer} · ${memberId}</span>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
+      <div>
+        <div style="font-size:.78rem;color:var(--text-secondary)">Deductible — $${r.deductibleMet} / $${r.deductible}</div>
+        <div class="deductible-bar"><div class="deductible-fill" style="width:${dedPct}%"></div></div>
+        <div style="font-size:.72rem;color:var(--text-secondary)">${dedPct}% met</div>
+      </div>
+      <div>
+        <div style="font-size:.78rem;color:var(--text-secondary)">Out-of-Pocket — $${r.outOfPocketMet} / $${r.outOfPocketMax}</div>
+        <div class="deductible-bar"><div class="deductible-fill" style="width:${oopPct}%"></div></div>
+        <div style="font-size:.72rem;color:var(--text-secondary)">${oopPct}% met</div>
+      </div>
+    </div>
+    <div style="display:flex;gap:16px;margin-bottom:12px">
+      <div style="font-size:.82rem"><b>Copay:</b> $${r.copay}</div>
+      <div style="font-size:.82rem"><b>Coinsurance:</b> ${r.coinsurance}%</div>
+    </div>
+    ${svcRows ? `<table style="width:100%;border-collapse:collapse;background:var(--hover-bg);border-radius:6px;overflow:hidden">
+      <thead><tr style="font-size:.75rem;color:var(--text-muted);text-align:left">
+        <th style="padding:6px 8px">CPT</th><th style="padding:6px 8px">Description</th>
+        <th style="padding:6px 8px">Coverage</th><th style="padding:6px 8px">Notes</th>
+      </tr></thead><tbody>${svcRows}</tbody>
+    </table>` : ''}
+  </div>`;
+}
+
+// ── Prior Auth tab HTML ───────────────────────────────────────────────────────
+function _insPATabHTML(filterStatus, filterPayer, filterClinician) {
+  const pas = getPriorAuths();
+
+  const expiring = pas.filter(p =>
+    p.status === 'approved' && p.expiryDate &&
+    _insDaysUntil(p.expiryDate) <= 30 && _insDaysUntil(p.expiryDate) >= 0
+  );
+  const warningHTML = expiring.length ? `<div class="notice notice-warning" style="margin-bottom:12px">
+    <b>Expiry Warnings:</b> ${expiring.map(p => `<b>${p.patientName}</b> (${p.authNumber}) expires ${_insDateFmt(p.expiryDate)}`).join(' · ')}
+  </div>` : '';
+
+  let filtered = pas;
+  if (filterStatus && filterStatus !== 'all') filtered = filtered.filter(p => p.status === filterStatus);
+  if (filterPayer && filterPayer !== 'all') filtered = filtered.filter(p => p.payer === filterPayer);
+  if (filterClinician && filterClinician !== 'all') filtered = filtered.filter(p => p.clinician === filterClinician);
+
+  const payers = [...new Set(pas.map(p => p.payer))];
+  const clinicians = [...new Set(pas.map(p => p.clinician))];
+
+  const paCards = filtered.map(p => {
+    const daysUntil = p.expiryDate ? _insDaysUntil(p.expiryDate) : null;
+    let expiryColor = '#059669';
+    if (daysUntil !== null) {
+      if (daysUntil < 0) expiryColor = '#dc2626';
+      else if (daysUntil <= 30) expiryColor = '#d97706';
+    }
+    const unitsPct = p.requestedUnits > 0 ? _insPct(p.approvedUnits, p.requestedUnits) : 0;
+    return `<div class="pa-card">
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:8px">
+        <div>
+          <div style="font-weight:600;font-size:.9rem">${p.cptCode} — <span style="color:var(--text-secondary);font-size:.82rem">${p.patientName}</span></div>
+          <div style="font-size:.78rem;color:var(--text-secondary)">${p.payer} · ${p.clinician} · Dx: ${p.diagnosisCode}</div>
+          ${p.authNumber ? `<div style="font-size:.78rem;color:var(--accent-teal)">Auth #: ${p.authNumber}</div>` : ''}
+        </div>
+        ${_insStatusBadge(p.status)}
+      </div>
+      <div style="font-size:.78rem;color:var(--text-secondary);margin-bottom:6px">Units: ${p.approvedUnits}/${p.requestedUnits} approved</div>
+      ${p.requestedUnits > 0 ? `<div class="pa-units-bar"><div class="pa-units-fill" style="width:${unitsPct}%"></div></div>` : ''}
+      ${p.expiryDate ? `<div style="font-size:.76rem;color:${expiryColor};margin-top:4px">Expires: ${_insDateFmt(p.expiryDate)}${daysUntil !== null && daysUntil < 0 ? ' (EXPIRED)' : daysUntil !== null && daysUntil <= 30 ? ` (${daysUntil}d remaining)` : ''}</div>` : ''}
+      ${p.denialReason ? `<div style="font-size:.76rem;color:#dc2626;margin-top:4px">Denial: ${p.denialReason}</div>` : ''}
+      <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap">
+        ${(p.status === 'pending' || p.status === 'denied') ? `<button class="btn btn-sm btn-ghost" style="color:#059669" onclick="window._insApprovePA('${p.id}')">Mark Approved</button>` : ''}
+        ${p.status === 'pending' ? `<button class="btn btn-sm btn-ghost" style="color:#dc2626" onclick="window._insDenyPA('${p.id}')">Mark Denied</button>` : ''}
+        ${p.status === 'pending' ? `<button class="btn btn-sm btn-ghost" style="color:#d97706" onclick="window._insPartialPA('${p.id}')">Partial Approval</button>` : ''}
+      </div>
+      <div id="pa-action-${p.id}"></div>
+    </div>`;
+  }).join('') || '<div style="color:var(--text-secondary);padding:20px 0">No prior authorizations match filter.</div>';
+
+  return `
+  ${warningHTML}
+  <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap">
+    <select class="form-control" style="width:auto" onchange="window._insFilterPA(this.value,'payer')">
+      <option value="all">All Payers</option>
+      ${payers.map(p => `<option value="${p}"${filterPayer===p?' selected':''}>${p}</option>`).join('')}
+    </select>
+    <select class="form-control" style="width:auto" onchange="window._insFilterPA(this.value,'status')">
+      <option value="all">All Statuses</option>
+      ${['pending','approved','denied','partial','expired'].map(s => `<option value="${s}"${filterStatus===s?' selected':''}>${s.charAt(0).toUpperCase()+s.slice(1)}</option>`).join('')}
+    </select>
+    <select class="form-control" style="width:auto" onchange="window._insFilterPA(this.value,'clinician')">
+      <option value="all">All Clinicians</option>
+      ${clinicians.map(c => `<option value="${c}"${filterClinician===c?' selected':''}>${c}</option>`).join('')}
+    </select>
+    <button class="btn btn-primary btn-sm" style="margin-left:auto" onclick="window._insNewPA()">+ Request PA</button>
+  </div>
+  <div id="ins-new-pa-form" style="display:none"></div>
+  ${paCards}`;
+}
+
+// ── Claims Board tab HTML ─────────────────────────────────────────────────────
+function _insClaimsBoardHTML() {
+  const claims = getClaims();
+  const statuses = ['submitted', 'processing', 'paid', 'denied', 'appealing'];
+  const cols = statuses.map(st => {
+    const cards = claims.filter(c => c.status === st).map(c => `
+      <div class="claim-card" onclick="window._insExpandClaim('${c.id}')">
+        <div style="font-weight:600">${c.patientName}</div>
+        <div style="color:var(--text-secondary);font-size:.75rem">${c.payer} · ${_insDateFmt(c.dos)}</div>
+        <div style="font-size:.75rem">${c.cptCodes.join(', ')}</div>
+        <div style="font-weight:600;margin-top:4px">$${c.billedAmount.toFixed(2)}</div>
+        <div id="claim-detail-${c.id}"></div>
+      </div>`).join('');
+    return `<div class="claims-column">
+      <div class="claims-column-header">${st}</div>
+      ${cards || '<div style="font-size:.75rem;color:var(--text-muted);padding:8px 0">Empty</div>'}
+    </div>`;
+  }).join('');
+
+  const totalBilled = claims.reduce((a, c) => a + c.billedAmount, 0);
+  const totalPaid = claims.reduce((a, c) => a + c.paidAmount, 0);
+  const totalDenied = claims.filter(c => c.status === 'denied').reduce((a, c) => a + c.billedAmount, 0);
+  const collectionRate = totalBilled > 0 ? ((totalPaid / totalBilled) * 100).toFixed(1) : '0.0';
+
+  return `
+  <div style="display:flex;gap:12px;margin-bottom:14px;flex-wrap:wrap">
+    <div class="card" style="flex:1;min-width:120px;padding:12px;text-align:center">
+      <div style="font-size:1.1rem;font-weight:700">$${totalBilled.toFixed(0)}</div>
+      <div style="font-size:.72rem;color:var(--text-secondary)">Total Billed</div>
+    </div>
+    <div class="card" style="flex:1;min-width:120px;padding:12px;text-align:center">
+      <div style="font-size:1.1rem;font-weight:700;color:#059669">$${totalPaid.toFixed(0)}</div>
+      <div style="font-size:.72rem;color:var(--text-secondary)">Total Paid</div>
+    </div>
+    <div class="card" style="flex:1;min-width:120px;padding:12px;text-align:center">
+      <div style="font-size:1.1rem;font-weight:700;color:#dc2626">$${totalDenied.toFixed(0)}</div>
+      <div style="font-size:.72rem;color:var(--text-secondary)">Total Denied</div>
+    </div>
+    <div class="card" style="flex:1;min-width:120px;padding:12px;text-align:center">
+      <div style="font-size:1.1rem;font-weight:700;color:var(--accent-teal)">${collectionRate}%</div>
+      <div style="font-size:.72rem;color:var(--text-secondary)">Collection Rate</div>
+    </div>
+  </div>
+  <div style="display:flex;gap:8px;margin-bottom:12px">
+    <button class="btn btn-primary btn-sm" onclick="window._insNewClaim()">+ New Claim</button>
+    <button class="btn btn-ghost btn-sm" onclick="window._insExportClaims()">Export Claims CSV</button>
+  </div>
+  <div id="ins-new-claim-form" style="display:none;margin-bottom:14px"></div>
+  <div class="claims-kanban">${cols}</div>`;
+}
+
+// ── Denial Management tab HTML ────────────────────────────────────────────────
+function _insDenialHTML() {
+  const claims = getClaims();
+  const denied = claims.filter(c => c.status === 'denied' || c.status === 'write-off');
+  const appealing = claims.filter(c => c.status === 'appealing');
+  const paidAfterAppeal = claims.filter(c => c.status === 'paid' && c.eobNotes && c.eobNotes.toLowerCase().includes('appeal won'));
+
+  const denialRate = claims.length > 0
+    ? ((denied.length / claims.length) * 100).toFixed(1) : '0.0';
+  const appealTotal = appealing.length + paidAfterAppeal.length;
+  const appealRate = appealTotal > 0
+    ? ((paidAfterAppeal.length / appealTotal) * 100).toFixed(1) : '0.0';
+  const avgDays = denied.length > 0
+    ? Math.round(denied.reduce((a, c) => a + _insDaysSince(c.processedDate || c.submittedDate), 0) / denied.length) : 0;
+
+  // Top denial reasons from eobNotes
+  const reasonMap = {};
+  denied.forEach(c => {
+    const raw = c.eobNotes || 'Unknown';
+    const reason = raw.split(':').pop().trim().substring(0, 45) || 'Unknown';
+    reasonMap[reason] = (reasonMap[reason] || 0) + 1;
+  });
+  const reasons = Object.entries(reasonMap).sort((a, b) => b[1] - a[1]);
+  const maxCount = reasons.length > 0 ? reasons[0][1] : 1;
+  const barsHTML = reasons.map(([r, n]) => `
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+      <div style="font-size:.78rem;min-width:200px;color:var(--text-secondary)">${r}</div>
+      <svg width="180" height="14" style="flex-shrink:0">
+        <rect x="0" y="3" width="${Math.round((n / maxCount) * 160)}" height="8" rx="4" fill="#ef4444"/>
+      </svg>
+      <div style="font-size:.78rem;font-weight:600">${n}</div>
+    </div>`).join('');
+
+  const deniedRows = denied.map(c => `
+    <div class="denial-row" id="denial-row-${c.id}">
+      <div style="display:flex;align-items:flex-start;justify-content:space-between">
+        <div>
+          <div style="font-weight:600;font-size:.9rem">${c.patientName}
+            <span style="font-weight:400;color:var(--text-secondary);font-size:.8rem">· ${c.payer} · DOS ${_insDateFmt(c.dos)}</span>
+          </div>
+          <div style="font-size:.78rem;color:var(--text-secondary)">${c.cptCodes.join(', ')} · $${c.billedAmount.toFixed(2)}</div>
+          <div style="font-size:.76rem;color:#dc2626;margin-top:2px">${c.eobNotes || '—'}</div>
+          <div style="font-size:.75rem;color:var(--text-muted);margin-top:2px">${_insDaysSince(c.processedDate || c.submittedDate)} days since denial</div>
+        </div>
+        <div style="display:flex;gap:6px;align-items:center;flex-shrink:0">
+          ${_insStatusBadge(c.status)}
+          ${c.status === 'denied' ? `<button class="btn btn-sm btn-ghost" style="color:#3b82f6" onclick="window._insStartAppeal('${c.id}')">Start Appeal</button>` : ''}
+          ${c.status === 'appealing' ? `
+            <button class="btn btn-sm btn-ghost" style="color:#059669" onclick="window._insAppealOutcome('${c.id}','won')">Appeal Won</button>
+            <button class="btn btn-sm btn-ghost" style="color:#dc2626" onclick="window._insAppealOutcome('${c.id}','lost')">Appeal Lost</button>` : ''}
+        </div>
+      </div>
+      <div id="appeal-form-${c.id}" style="display:none"></div>
+    </div>`).join('') || '<div style="padding:20px;color:var(--text-secondary)">No denied claims.</div>';
+
+  return `
+  <div style="display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap">
+    <div class="card" style="flex:1;min-width:120px;padding:12px;text-align:center">
+      <div style="font-size:1.4rem;font-weight:700;color:#dc2626">${denialRate}%</div>
+      <div style="font-size:.72rem;color:var(--text-secondary)">Denial Rate</div>
+    </div>
+    <div class="card" style="flex:1;min-width:120px;padding:12px;text-align:center">
+      <div style="font-size:1.4rem;font-weight:700;color:#059669">${appealRate}%</div>
+      <div style="font-size:.72rem;color:var(--text-secondary)">Appeal Success Rate</div>
+    </div>
+    <div class="card" style="flex:1;min-width:120px;padding:12px;text-align:center">
+      <div style="font-size:1.4rem;font-weight:700">${avgDays}d</div>
+      <div style="font-size:.72rem;color:var(--text-secondary)">Avg Days to Resolution</div>
+    </div>
+  </div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
+    <div class="card">
+      <div class="card-header">Denied Claims</div>
+      <div class="card-body" style="padding:0">${deniedRows}</div>
+    </div>
+    <div class="card">
+      <div class="card-header">Top Denial Reasons</div>
+      <div class="card-body">${barsHTML || '<div style="color:var(--text-secondary)">No denial data yet.</div>'}</div>
+    </div>
+  </div>`;
+}
+
+// ── Internal tab renderer ─────────────────────────────────────────────────────
+function _insRenderTab(tab) {
+  const el = document.getElementById('ins-tab-content');
+  if (!el) return;
+  if (tab === 'eligibility') el.innerHTML = _insEligibilityTabHTML();
+  else if (tab === 'priorauth') el.innerHTML = _insPATabHTML(
+    window._insPAFilterStatus || 'all',
+    window._insPAFilterPayer || 'all',
+    window._insPAFilterClinician || 'all'
+  );
+  else if (tab === 'claims') el.innerHTML = _insClaimsBoardHTML();
+  else if (tab === 'denial') el.innerHTML = _insDenialHTML();
+  document.querySelectorAll('.ins-tab-btn').forEach(b => {
+    const active = b.dataset.tab === tab;
+    b.classList.toggle('active', active);
+    b.style.borderBottom = active ? '2px solid var(--accent-teal)' : '2px solid transparent';
+  });
+}
+
+// ── Main exported page function ───────────────────────────────────────────────
+export async function pgInsuranceVerification(setTopbar) {
+  setTopbar('Insurance Verification & Eligibility',
+    `<button class="btn btn-ghost btn-sm" onclick="window._insExportClaims()">Export Claims</button>`);
+
+  const container = document.getElementById('main-content')
+    || document.querySelector('.main-content')
+    || document.querySelector('main');
+  if (!container) return;
+
+  // Reset filter state
+  window._insPAFilterStatus = 'all';
+  window._insPAFilterPayer = 'all';
+  window._insPAFilterClinician = 'all';
+
+  container.innerHTML = `
+    <div style="padding:20px">
+      <div style="display:flex;gap:0;margin-bottom:18px;border-bottom:1px solid var(--border)">
+        <button class="ins-tab-btn btn btn-ghost active" data-tab="eligibility"
+          onclick="window._insTab('eligibility')"
+          style="border-radius:6px 6px 0 0;border-bottom:2px solid var(--accent-teal)">Eligibility</button>
+        <button class="ins-tab-btn btn btn-ghost" data-tab="priorauth"
+          onclick="window._insTab('priorauth')"
+          style="border-radius:6px 6px 0 0;border-bottom:2px solid transparent">Prior Auth</button>
+        <button class="ins-tab-btn btn btn-ghost" data-tab="claims"
+          onclick="window._insTab('claims')"
+          style="border-radius:6px 6px 0 0;border-bottom:2px solid transparent">Claims Board</button>
+        <button class="ins-tab-btn btn btn-ghost" data-tab="denial"
+          onclick="window._insTab('denial')"
+          style="border-radius:6px 6px 0 0;border-bottom:2px solid transparent">Denial Mgmt</button>
+      </div>
+      <div id="ins-tab-content"></div>
+    </div>`;
+
+  // ── Tab switching ──────────────────────────────────────────────────────────
+  window._insTab = function(tab) {
+    _insRenderTab(tab);
+  };
+
+  // ── Eligibility handlers ───────────────────────────────────────────────────
+  window._insCheckEligibility = async function() {
+    const name = document.getElementById('ins-chk-name')?.value.trim();
+    const payer = document.getElementById('ins-chk-payer')?.value;
+    const memberId = document.getElementById('ins-chk-memberid')?.value.trim();
+    const groupId = document.getElementById('ins-chk-groupid')?.value.trim();
+    const dob = document.getElementById('ins-chk-dob')?.value;
+    if (!name || !memberId) { alert('Patient name and Member ID are required.'); return; }
+    const resultEl = document.getElementById('ins-chk-result');
+    if (resultEl) resultEl.innerHTML = `<div style="margin-top:12px;display:flex;align-items:center;gap:8px;color:var(--text-secondary)">
+      <div style="width:18px;height:18px;border:2px solid var(--accent-teal);border-top-color:transparent;border-radius:50%;animation:spin .7s linear infinite;flex-shrink:0"></div>
+      Checking eligibility with ${payer}…
+    </div>`;
+    const r = await runEligibilityCheck(name, payer, memberId);
+    const check = {
+      id: 'elig-' + Date.now(), patientName: name, payer, memberId,
+      groupId: groupId || '', dob: dob || '',
+      checkedDate: new Date().toISOString().slice(0, 10), checkedBy: 'Current User',
+      status: r.status, deductible: r.deductible, deductibleMet: r.deductibleMet,
+      outOfPocketMax: r.outOfPocketMax, outOfPocketMet: r.outOfPocketMet,
+      copay: r.copay, coinsurance: r.coinsurance, coveredServices: r.coveredServices, notes: '',
+    };
+    saveEligibilityCheck(check);
+    if (resultEl) resultEl.innerHTML = _insEligResultHTML(r, name, payer, memberId);
+  };
+
+  window._insRerunCheck = function(id) {
+    const checks = getEligibilityChecks();
+    const check = checks.find(c => c.id === id);
+    if (!check) return;
+    const nameEl = document.getElementById('ins-chk-name');
+    const payerEl = document.getElementById('ins-chk-payer');
+    const memberEl = document.getElementById('ins-chk-memberid');
+    const groupEl = document.getElementById('ins-chk-groupid');
+    const dobEl = document.getElementById('ins-chk-dob');
+    if (nameEl) nameEl.value = check.patientName;
+    if (payerEl) payerEl.value = check.payer;
+    if (memberEl) memberEl.value = check.memberId;
+    if (groupEl) groupEl.value = check.groupId || '';
+    if (dobEl) dobEl.value = check.dob || '';
+    nameEl?.scrollIntoView({ behavior: 'smooth' });
+    window._insCheckEligibility();
+  };
+
+  // ── Prior Auth handlers ────────────────────────────────────────────────────
+  window._insFilterPA = function(val, type) {
+    if (type === 'status') window._insPAFilterStatus = val;
+    else if (type === 'payer') window._insPAFilterPayer = val;
+    else if (type === 'clinician') window._insPAFilterClinician = val;
+    const el = document.getElementById('ins-tab-content');
+    if (el) el.innerHTML = _insPATabHTML(
+      window._insPAFilterStatus || 'all',
+      window._insPAFilterPayer || 'all',
+      window._insPAFilterClinician || 'all'
+    );
+  };
+
+  window._insNewPA = function() {
+    const f = document.getElementById('ins-new-pa-form');
+    if (!f) return;
+    if (f.style.display !== 'none') { f.style.display = 'none'; return; }
+    f.style.display = 'block';
+    f.innerHTML = `<div class="card" style="margin-bottom:14px">
+      <div class="card-header">Request Prior Authorization</div>
+      <div class="card-body" style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+        <div><label class="form-label">Patient Name</label><input id="pa-pat" class="form-control" /></div>
+        <div><label class="form-label">Payer</label>
+          <select id="pa-payer" class="form-control">
+            <option>BCBS</option><option>Aetna</option><option>Cigna</option><option>UHC</option><option>Other</option>
+          </select></div>
+        <div><label class="form-label">CPT Code</label><input id="pa-cpt" class="form-control" placeholder="e.g. 90837" /></div>
+        <div><label class="form-label">Diagnosis Code</label><input id="pa-dx" class="form-control" placeholder="e.g. F41.1" /></div>
+        <div><label class="form-label">Clinician</label><input id="pa-clin" class="form-control" placeholder="Dr. Name" /></div>
+        <div><label class="form-label">Units Requested</label><input id="pa-units" type="number" class="form-control" value="20" /></div>
+        <div style="grid-column:1/-1">
+          <label class="form-label">Clinical Justification</label>
+          <textarea id="pa-justification" class="form-control" rows="3"
+            placeholder="Medical necessity, treatment history, prior failed treatments…"></textarea>
+        </div>
+        <div style="grid-column:1/-1;display:flex;align-items:center;gap:8px">
+          <input type="checkbox" id="pa-urgent" />
+          <label for="pa-urgent" style="font-size:.85rem">Urgent request (expedited review)</label>
+        </div>
+        <div style="grid-column:1/-1;display:flex;gap:8px">
+          <button class="btn btn-primary" onclick="window._insSavePA()">Submit PA Request</button>
+          <button class="btn btn-ghost" onclick="document.getElementById('ins-new-pa-form').style.display='none'">Cancel</button>
+        </div>
+      </div>
+    </div>`;
+  };
+
+  window._insSavePA = function() {
+    const pat = document.getElementById('pa-pat')?.value.trim();
+    const payer = document.getElementById('pa-payer')?.value;
+    const cpt = document.getElementById('pa-cpt')?.value.trim();
+    const dx = document.getElementById('pa-dx')?.value.trim();
+    const clin = document.getElementById('pa-clin')?.value.trim();
+    const units = parseInt(document.getElementById('pa-units')?.value) || 20;
+    const notes = document.getElementById('pa-justification')?.value.trim();
+    if (!pat || !cpt) { alert('Patient name and CPT code are required.'); return; }
+    const pa = {
+      id: 'pa-' + Date.now(), patientName: pat, payer, cptCode: cpt, diagnosisCode: dx || '',
+      requestDate: new Date().toISOString().slice(0, 10), approvedDate: '', expiryDate: '',
+      authNumber: '', requestedUnits: units, approvedUnits: 0,
+      status: 'pending', clinician: clin || 'Unknown', notes: notes || '', denialReason: '',
+    };
+    savePriorAuth(pa);
+    window._insTab('priorauth');
+  };
+
+  window._insApprovePA = function(id) {
+    const el = document.getElementById(`pa-action-${id}`);
+    if (!el) return;
+    if (el.innerHTML.includes(`auth-num-inp-${id}`)) { el.innerHTML = ''; return; }
+    el.innerHTML = `<div style="display:flex;gap:8px;margin-top:8px;align-items:center;flex-wrap:wrap">
+      <input id="auth-num-inp-${id}" class="form-control" style="width:180px" placeholder="Auth number" />
+      <input id="auth-units-inp-${id}" type="number" class="form-control" style="width:80px" placeholder="Units" />
+      <button class="btn btn-sm btn-primary" onclick="window._insConfirmApprove('${id}')">Confirm</button>
+      <button class="btn btn-sm btn-ghost" onclick="document.getElementById('pa-action-${id}').innerHTML=''">Cancel</button>
+    </div>`;
+  };
+
+  window._insConfirmApprove = function(id) {
+    const authNum = document.getElementById(`auth-num-inp-${id}`)?.value.trim();
+    const units = parseInt(document.getElementById(`auth-units-inp-${id}`)?.value) || 0;
+    const all = getPriorAuths();
+    const pa = all.find(p => p.id === id);
+    if (!pa) return;
+    pa.status = 'approved';
+    pa.authNumber = authNum || ('AUTH-' + Date.now());
+    pa.approvedUnits = units || pa.requestedUnits;
+    pa.approvedDate = new Date().toISOString().slice(0, 10);
+    const exp = new Date(); exp.setFullYear(exp.getFullYear() + 1);
+    pa.expiryDate = exp.toISOString().slice(0, 10);
+    savePriorAuth(pa);
+    window._insTab('priorauth');
+  };
+
+  window._insDenyPA = function(id) {
+    const el = document.getElementById(`pa-action-${id}`);
+    if (!el) return;
+    el.innerHTML = `<div style="display:flex;gap:8px;margin-top:8px;align-items:center;flex-wrap:wrap">
+      <input id="deny-reason-${id}" class="form-control" style="flex:1;min-width:200px" placeholder="Denial reason" />
+      <button class="btn btn-sm" style="background:#dc2626;border-color:#dc2626;color:#fff" onclick="window._insConfirmDeny('${id}')">Confirm Denial</button>
+      <button class="btn btn-sm btn-ghost" onclick="document.getElementById('pa-action-${id}').innerHTML=''">Cancel</button>
+    </div>`;
+  };
+
+  window._insConfirmDeny = function(id) {
+    const reason = document.getElementById(`deny-reason-${id}`)?.value.trim();
+    const all = getPriorAuths();
+    const pa = all.find(p => p.id === id);
+    if (!pa) return;
+    pa.status = 'denied';
+    pa.denialReason = reason || 'Not specified';
+    savePriorAuth(pa);
+    window._insTab('priorauth');
+  };
+
+  window._insPartialPA = function(id) {
+    const el = document.getElementById(`pa-action-${id}`);
+    if (!el) return;
+    el.innerHTML = `<div style="display:flex;gap:8px;margin-top:8px;align-items:center;flex-wrap:wrap">
+      <input id="partial-auth-${id}" class="form-control" style="width:160px" placeholder="Auth number" />
+      <input id="partial-units-${id}" type="number" class="form-control" style="width:90px" placeholder="Approved units" />
+      <button class="btn btn-sm" style="background:#d97706;border-color:#d97706;color:#fff" onclick="window._insConfirmPartial('${id}')">Confirm Partial</button>
+      <button class="btn btn-sm btn-ghost" onclick="document.getElementById('pa-action-${id}').innerHTML=''">Cancel</button>
+    </div>`;
+  };
+
+  window._insConfirmPartial = function(id) {
+    const authNum = document.getElementById(`partial-auth-${id}`)?.value.trim();
+    const units = parseInt(document.getElementById(`partial-units-${id}`)?.value) || 0;
+    const all = getPriorAuths();
+    const pa = all.find(p => p.id === id);
+    if (!pa) return;
+    pa.status = 'partial';
+    pa.authNumber = authNum || ('PART-' + Date.now());
+    pa.approvedUnits = units;
+    pa.approvedDate = new Date().toISOString().slice(0, 10);
+    const exp = new Date(); exp.setFullYear(exp.getFullYear() + 1);
+    pa.expiryDate = exp.toISOString().slice(0, 10);
+    savePriorAuth(pa);
+    window._insTab('priorauth');
+  };
+
+  // ── Claims handlers ────────────────────────────────────────────────────────
+  window._insFilterClaims = function(_status) {
+    _insRenderTab('claims');
+  };
+
+  window._insExpandClaim = function(id) {
+    const claims = getClaims();
+    const c = claims.find(x => x.id === id);
+    if (!c) return;
+    const el = document.getElementById(`claim-detail-${id}`);
+    if (!el) return;
+    if (el.innerHTML) { el.innerHTML = ''; return; }
+    const nextMap = { submitted: 'processing', processing: 'paid', denied: 'appealing', appealing: 'paid', 'write-off': '' };
+    const next = nextMap[c.status] || '';
+    el.innerHTML = `<div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--border)">
+      <div style="font-size:.76rem;display:grid;grid-template-columns:1fr 1fr;gap:4px">
+        <div>Billed: <b>$${c.billedAmount.toFixed(2)}</b></div>
+        <div>Allowed: <b>$${c.allowedAmount.toFixed(2)}</b></div>
+        <div>Paid: <b style="color:#059669">$${c.paidAmount.toFixed(2)}</b></div>
+        <div>Pt Balance: <b style="color:#d97706">$${c.patientBalance.toFixed(2)}</b></div>
+      </div>
+      ${c.eobNotes ? `<div style="font-size:.74rem;color:var(--text-secondary);margin-top:6px">${c.eobNotes}</div>` : ''}
+      ${c.diagnosisCodes.length ? `<div style="font-size:.74rem;color:var(--text-muted);margin-top:4px">Dx: ${c.diagnosisCodes.join(', ')}</div>` : ''}
+      ${next ? `<button class="btn btn-sm btn-primary" style="margin-top:8px;width:100%" onclick="window._insMoveClaimStatus('${c.id}','${next}')">Move to ${next}</button>` : ''}
+    </div>`;
+  };
+
+  window._insMoveClaimStatus = function(id, status) {
+    updateClaimStatus(id, status);
+    window._insTab('claims');
+  };
+
+  window._insNewClaim = function() {
+    const f = document.getElementById('ins-new-claim-form');
+    if (!f) return;
+    if (f.style.display !== 'none') { f.style.display = 'none'; return; }
+    f.style.display = 'block';
+    f.innerHTML = `<div class="card">
+      <div class="card-header">New Claim</div>
+      <div class="card-body" style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+        <div><label class="form-label">Patient Name</label><input id="clm-pat" class="form-control" /></div>
+        <div><label class="form-label">Payer</label>
+          <select id="clm-payer" class="form-control">
+            <option>BCBS</option><option>Aetna</option><option>Cigna</option><option>UHC</option><option>Other</option>
+          </select></div>
+        <div><label class="form-label">Date of Service</label><input id="clm-dos" type="date" class="form-control" /></div>
+        <div><label class="form-label">CPT Codes (comma-separated)</label><input id="clm-cpt" class="form-control" placeholder="90837,90901" /></div>
+        <div><label class="form-label">Diagnosis Codes (comma-separated)</label><input id="clm-dx" class="form-control" placeholder="F41.1" /></div>
+        <div><label class="form-label">Billed Amount ($)</label><input id="clm-billed" type="number" class="form-control" placeholder="200" /></div>
+        <div style="grid-column:1/-1;display:flex;gap:8px">
+          <button class="btn btn-primary" onclick="window._insSaveClaim()">Submit Claim</button>
+          <button class="btn btn-ghost" onclick="document.getElementById('ins-new-claim-form').style.display='none'">Cancel</button>
+        </div>
+      </div>
+    </div>`;
+  };
+
+  window._insSaveClaim = function() {
+    const pat = document.getElementById('clm-pat')?.value.trim();
+    const payer = document.getElementById('clm-payer')?.value;
+    const dos = document.getElementById('clm-dos')?.value;
+    const cptRaw = document.getElementById('clm-cpt')?.value.trim();
+    const dxRaw = document.getElementById('clm-dx')?.value.trim();
+    const billed = parseFloat(document.getElementById('clm-billed')?.value) || 0;
+    if (!pat || !cptRaw) { alert('Patient name and CPT codes are required.'); return; }
+    const claim = {
+      id: 'clm-' + Date.now(), patientName: pat, payer,
+      dos: dos || new Date().toISOString().slice(0, 10),
+      cptCodes: cptRaw.split(',').map(s => s.trim()),
+      diagnosisCodes: dxRaw ? dxRaw.split(',').map(s => s.trim()) : [],
+      billedAmount: billed, allowedAmount: 0, paidAmount: 0, patientBalance: 0,
+      status: 'submitted', submittedDate: new Date().toISOString().slice(0, 10),
+      processedDate: '', eobNotes: '',
+    };
+    saveClaim(claim);
+    window._insTab('claims');
+  };
+
+  window._insExportClaims = function() {
+    const claims = getClaims();
+    const headers = ['ID','Patient','Payer','DOS','CPT Codes','Dx Codes','Billed','Allowed','Paid','Balance','Status','Submitted','Processed','Notes'];
+    const rows = claims.map(c => [
+      c.id, c.patientName, c.payer, c.dos,
+      c.cptCodes.join(';'), c.diagnosisCodes.join(';'),
+      c.billedAmount, c.allowedAmount, c.paidAmount, c.patientBalance,
+      c.status, c.submittedDate, c.processedDate || '',
+      `"${(c.eobNotes || '').replace(/"/g, '""')}"`
+    ].join(','));
+    const csv = [headers.join(','), ...rows].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `claims-export-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  // ── Denial / Appeal handlers ───────────────────────────────────────────────
+  window._insStartAppeal = function(id) {
+    const el = document.getElementById(`appeal-form-${id}`);
+    if (!el) return;
+    if (el.style.display !== 'none') { el.style.display = 'none'; return; }
+    const deadline = new Date();
+    deadline.setDate(deadline.getDate() + 30);
+    el.style.display = 'block';
+    el.innerHTML = `<div class="appeal-form">
+      <div style="font-weight:600;margin-bottom:8px;font-size:.88rem">Appeal Filing</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+        <div><label class="form-label">Appeal Reason</label>
+          <select id="appeal-reason-${id}" class="form-control">
+            <option value="clinical">Clinical necessity not adequately reviewed</option>
+            <option value="billing">Billing/coding error</option>
+            <option value="duplicate">Duplicate claim – original not paid</option>
+            <option value="prior-auth">Prior authorization was in place</option>
+            <option value="other">Other</option>
+          </select></div>
+        <div><label class="form-label">Appeal Deadline</label>
+          <input id="appeal-deadline-${id}" type="date" class="form-control" value="${deadline.toISOString().slice(0, 10)}" /></div>
+        <div style="grid-column:1/-1">
+          <label class="form-label">Supporting Documentation Notes</label>
+          <textarea id="appeal-docs-${id}" class="form-control" rows="3"
+            placeholder="List documents attached: clinical notes, auth numbers, EOBs…"></textarea>
+        </div>
+        <div style="grid-column:1/-1;display:flex;gap:8px">
+          <button class="btn btn-primary btn-sm" onclick="window._insSaveAppeal('${id}')">Submit Appeal</button>
+          <button class="btn btn-ghost btn-sm" onclick="document.getElementById('appeal-form-${id}').style.display='none'">Cancel</button>
+        </div>
+      </div>
+    </div>`;
+  };
+
+  window._insSaveAppeal = function(id) {
+    const reason = document.getElementById(`appeal-reason-${id}`)?.value || '';
+    const deadline = document.getElementById(`appeal-deadline-${id}`)?.value || '';
+    const docs = document.getElementById(`appeal-docs-${id}`)?.value || '';
+    updateClaimStatus(id, 'appealing');
+    const all = getClaims();
+    const c = all.find(x => x.id === id);
+    if (c) {
+      c.eobNotes = (c.eobNotes || '') +
+        ` | Appeal filed ${new Date().toISOString().slice(0, 10)}: ${reason}. Deadline: ${deadline}. Docs: ${docs || 'none'}`;
+      localStorage.setItem(CLAIMS_KEY, JSON.stringify(all));
+    }
+    window._insTab('denial');
+  };
+
+  window._insAppealOutcome = function(id, outcome) {
+    const all = getClaims();
+    const c = all.find(x => x.id === id);
+    if (outcome === 'won') {
+      updateClaimStatus(id, 'paid');
+      if (c) {
+        c.eobNotes = (c.eobNotes || '') + ' | Appeal WON — claim paid.';
+        localStorage.setItem(CLAIMS_KEY, JSON.stringify(all));
+      }
+    } else {
+      updateClaimStatus(id, 'write-off');
+      if (c) {
+        c.eobNotes = (c.eobNotes || '') + ' | Appeal LOST — written off.';
+        localStorage.setItem(CLAIMS_KEY, JSON.stringify(all));
+      }
+    }
+    window._insTab('denial');
+  };
+
+  // Render default tab on load
+  _insRenderTab('eligibility');
+}
+
+// ── Wearable & Biosensor Integration ─────────────────────────────────────────
+
+const BIOSENSOR_KEY     = 'ds_biosensor_data';
+const DEVICE_PAIRING_KEY = 'ds_paired_devices';
+
+function getPairedDevices() {
+  try { return JSON.parse(localStorage.getItem(DEVICE_PAIRING_KEY)) || []; }
+  catch { return []; }
+}
+function savePairedDevice(device) {
+  const all = getPairedDevices();
+  const idx = all.findIndex(d => d.id === device.id);
+  if (idx >= 0) all[idx] = device; else all.push(device);
+  localStorage.setItem(DEVICE_PAIRING_KEY, JSON.stringify(all));
+}
+function removePairedDevice(id) {
+  const all = getPairedDevices().filter(d => d.id !== id);
+  localStorage.setItem(DEVICE_PAIRING_KEY, JSON.stringify(all));
+}
+
+function _genDeterministicHR(seed, count) {
+  const pts = [];
+  let bpm = 68 + (seed % 10);
+  for (let i = 0; i < count; i++) {
+    const pseudo = Math.sin(seed * 9301 + i * 49297 + 233720923) * 0.5 + 0.5;
+    bpm = Math.max(55, Math.min(95, bpm + (pseudo - 0.5) * 6));
+    pts.push({ t: i, bpm: Math.round(bpm) });
+  }
+  return pts;
+}
+function _genDeterministicHRV(seed, count) {
+  const pts = [];
+  let rmssd = 42 + (seed % 20);
+  for (let i = 0; i < count; i++) {
+    const pseudo = Math.sin(seed * 1234567 + i * 7919 + 314159) * 0.5 + 0.5;
+    rmssd = Math.max(20, Math.min(80, rmssd + (pseudo - 0.5) * 4));
+    pts.push({ t: i, rmssd: Math.round(rmssd * 10) / 10 });
+  }
+  return pts;
+}
+
+function getBiosensorSessions() {
+  try {
+    const stored = JSON.parse(localStorage.getItem(BIOSENSOR_KEY));
+    if (stored && stored.length > 0) return stored;
+  } catch {}
+
+  const patients = [
+    { name: 'Alexandra Reid',  device: 'Polar H10',    type: 'Chest Strap' },
+    { name: 'Marcus Chen',     device: 'Garmin HRM-Pro',type: 'Chest Strap' },
+    { name: 'Sofia Navarro',   device: 'Apple Watch',   type: 'Wrist' },
+    { name: 'James Okafor',    device: 'Polar H10',     type: 'Chest Strap' },
+    { name: 'Priya Sharma',    device: 'Garmin HRM-Pro',type: 'Chest Strap' },
+  ];
+  const dates = ['2026-04-08','2026-04-07','2026-04-06','2026-04-05','2026-04-04'];
+
+  const sessions = patients.map((p, i) => {
+    const hrData  = _genDeterministicHR(i + 1, 60);
+    const hrvData = _genDeterministicHRV(i + 1, 60);
+    const hrVals  = hrData.map(d => d.bpm);
+    const hrvVals = hrvData.map(d => d.rmssd);
+    const avgHR   = Math.round(hrVals.reduce((a, b) => a + b, 0) / hrVals.length);
+    const avgHRV  = Math.round(hrvVals.reduce((a, b) => a + b, 0) / hrvVals.length * 10) / 10;
+    return {
+      id: `bs-${i + 1}`,
+      patientName: p.name,
+      deviceName:  p.device,
+      deviceType:  p.type,
+      date:        dates[i],
+      duration:    20 + i * 5,
+      hrData, hrvData,
+      avgHR,
+      minHR:  Math.min(...hrVals),
+      maxHR:  Math.max(...hrVals),
+      avgHRV,
+      stressIndex:   _computeStressIndex(avgHR, avgHRV),
+      recoveryScore: Math.round(100 - _computeStressIndex(avgHR, avgHRV) * 0.7),
+    };
+  });
+  localStorage.setItem(BIOSENSOR_KEY, JSON.stringify(sessions));
+  return sessions;
+}
+function saveBiosensorSession(session) {
+  const all = getBiosensorSessions();
+  const idx = all.findIndex(s => s.id === session.id);
+  if (idx >= 0) all[idx] = session; else all.unshift(session);
+  localStorage.setItem(BIOSENSOR_KEY, JSON.stringify(all));
+}
+
+function _generateHRTick(prevBpm) {
+  return Math.max(48, Math.min(140, prevBpm + (Math.random() - 0.5) * 6));
+}
+function _generateHRVTick(prevRmssd) {
+  return Math.max(15, Math.min(100, prevRmssd + (Math.random() - 0.5) * 4));
+}
+function _computeStressIndex(avgHR, avgHRV) {
+  const hrFactor  = (avgHR - 55) / 85;
+  const hrvFactor = 1 - (avgHRV - 15) / 85;
+  return Math.max(0, Math.min(100, Math.round((hrFactor * 0.4 + hrvFactor * 0.6) * 100)));
+}
+
+function _hrClass(bpm) {
+  if (bpm < 60)  return 'hr-bradycardia';
+  if (bpm <= 100) return 'hr-normal';
+  if (bpm <= 120) return 'hr-elevated';
+  return 'hr-high';
+}
+function _hrvClass(rmssd) {
+  if (rmssd >= 50) return 'hrv-good';
+  if (rmssd >= 30) return 'hrv-moderate';
+  return 'hrv-low';
+}
+function _hrvLabel(rmssd) {
+  if (rmssd >= 50) return 'Good';
+  if (rmssd >= 30) return 'Moderate';
+  return 'Low';
+}
+
+function _miniGaugeSvg(value, color, size = 60) {
+  const circ = Math.PI * 28;
+  const filled = circ * (value / 100);
+  const gap    = circ - filled;
+  return `<svg width="${size}" height="${Math.round(size * 0.65)}" viewBox="0 0 64 42" style="overflow:visible">
+    <path d="M 4 38 A 28 28 0 0 1 60 38" fill="none" stroke="rgba(255,255,255,0.08)" stroke-width="5" stroke-linecap="round"/>
+    <path d="M 4 38 A 28 28 0 0 1 60 38" fill="none" stroke="${color}" stroke-width="5" stroke-linecap="round"
+      stroke-dasharray="${filled.toFixed(1)} ${gap.toFixed(1)}" stroke-dashoffset="0"
+      style="transition:stroke-dashoffset .5s ease"/>
+  </svg>
+  <div style="font-size:${size >= 80 ? 22 : 14}px;font-weight:800;color:${color};text-align:center;margin-top:-4px;font-variant-numeric:tabular-nums">${value}</div>`;
+}
+
+function _buildLiveChartSvg(hrBuffer, hrvBuffer) {
+  const W = 480, H = 120, padL = 36, padR = 36, padT = 8, padB = 24;
+  const n = 60;
+  const hrMin = 40, hrMax = 160;
+  const hrvMin = 0, hrvMax = 100;
+  const pw = W - padL - padR;
+  const ph = H - padT - padB;
+
+  function xOf(i) { return padL + (i / (n - 1)) * pw; }
+  function yHR(v)  { return padT + ph - ((v - hrMin) / (hrMax - hrMin)) * ph; }
+  function yHRV(v) { return padT + ph - ((v - hrvMin) / (hrvMax - hrvMin)) * ph; }
+
+  const hrLine = hrBuffer.length > 1
+    ? hrBuffer.map((v, i) => `${i === 0 ? 'M' : 'L'} ${xOf(i).toFixed(1)} ${yHR(v).toFixed(1)}`).join(' ')
+    : '';
+  const hrvLine = hrvBuffer.length > 1
+    ? hrvBuffer.map((v, i) => `${i === 0 ? 'M' : 'L'} ${xOf(i).toFixed(1)} ${yHRV(v).toFixed(1)}`).join(' ')
+    : '';
+
+  // Grid lines
+  const gridH = [60,80,100,120,140].map(v =>
+    `<line x1="${padL}" y1="${yHR(v).toFixed(1)}" x2="${W - padR}" y2="${yHR(v).toFixed(1)}" stroke="rgba(255,255,255,0.05)" stroke-width="1"/>`
+  ).join('');
+
+  // Axis labels
+  const hrLabels  = [60, 100, 140].map(v =>
+    `<text x="${padL - 4}" y="${yHR(v).toFixed(1)}" font-size="9" fill="rgba(0,212,188,0.6)" text-anchor="end" dominant-baseline="middle">${v}</text>`
+  ).join('');
+  const hrvLabels = [20, 50, 80].map(v =>
+    `<text x="${W - padR + 4}" y="${yHRV(v).toFixed(1)}" font-size="9" fill="rgba(155,127,255,0.6)" text-anchor="start" dominant-baseline="middle">${v}</text>`
+  ).join('');
+  const xLabels = [0, 15, 30, 45, 59].map(i =>
+    `<text x="${xOf(i).toFixed(1)}" y="${H - 4}" font-size="9" fill="rgba(255,255,255,0.3)" text-anchor="middle">-${59 - i}s</text>`
+  ).join('');
+
+  return `<svg id="wearable-live-chart" viewBox="0 0 ${W} ${H}" style="width:100%;height:${H}px;display:block">
+    ${gridH}
+    ${hrLine  ? `<path d="${hrLine}"  fill="none" stroke="#00d4bc" stroke-width="2" stroke-linejoin="round"/>` : ''}
+    ${hrvLine ? `<path d="${hrvLine}" fill="none" stroke="#9b7fff" stroke-width="2" stroke-linejoin="round"/>` : ''}
+    ${hrLabels}${hrvLabels}${xLabels}
+    <text x="${padL}" y="${padT + 2}" font-size="9" fill="#00d4bc" font-weight="600">HR (bpm)</text>
+    <text x="${W - padR}" y="${padT + 2}" font-size="9" fill="#9b7fff" font-weight="600" text-anchor="end">HRV (ms)</text>
+  </svg>`;
+}
+
+export async function pgWearableIntegration(setTopbar) {
+  setTopbar('Wearable & Biosensor Integration',
+    `<button class="btn btn-ghost btn-sm" onclick="window._wearableScan()">Scan Devices</button>`);
+
+  const root = document.getElementById('content');
+  if (!root) return;
+  root.innerHTML = '<div id="wearable-root"></div>';
+
+  // ── State ──────────────────────────────────────────────────────────────────
+  let _activeTab   = 'monitor';
+  let _liveDevId   = null;
+  let _tickIv      = null;
+  let _hrBuf       = [];
+  let _hrvBuf      = [];
+  let _curHR       = 72;
+  let _curHRV      = 45;
+  let _recording   = false;
+  let _recHR       = [];
+  let _recHRV      = [];
+  let _recStart    = null;
+  let _corrPanel   = null;
+  let _filterName  = '';
+  let _filterFrom  = '';
+  let _filterTo    = '';
+  let _scanResults = null;
+
+  function _wr() { return document.getElementById('wearable-root'); }
+
+  // ── Tick ───────────────────────────────────────────────────────────────────
+  function _wearableTick() {
+    if (!document.getElementById('wearable-root')) {
+      clearInterval(_tickIv);
+      _tickIv = null;
+      return;
+    }
+    _curHR  = Math.round(_generateHRTick(_curHR) * 10) / 10;
+    _curHRV = Math.round(_generateHRVTick(_curHRV) * 10) / 10;
+
+    if (_hrBuf.length  >= 60) _hrBuf.shift();
+    if (_hrvBuf.length >= 60) _hrvBuf.shift();
+    _hrBuf.push(_curHR);
+    _hrvBuf.push(_curHRV);
+
+    if (_recording) {
+      _recHR.push({ t: _recHR.length, bpm: Math.round(_curHR) });
+      _recHRV.push({ t: _recHRV.length, rmssd: Math.round(_curHRV * 10) / 10 });
+    }
+    _updateLiveUI();
+  }
+
+  function _updateLiveUI() {
+    const bpm  = Math.round(_curHR);
+    const rmssd = Math.round(_curHRV * 10) / 10;
+
+    const hrEl = document.getElementById('w-cur-hr');
+    if (hrEl) {
+      hrEl.className = `hr-display ${_hrClass(bpm)}`;
+      hrEl.textContent = bpm;
+    }
+    const hrvEl = document.getElementById('w-cur-hrv');
+    if (hrvEl) {
+      hrvEl.className = _hrvClass(rmssd);
+      hrvEl.textContent = `${rmssd} ms — ${_hrvLabel(rmssd)}`;
+    }
+    const avgHR  = _hrBuf.length ? Math.round(_hrBuf.reduce((a,b)=>a+b,0)/_hrBuf.length) : bpm;
+    const avgHRV = _hrvBuf.length ? Math.round(_hrvBuf.reduce((a,b)=>a+b,0)/_hrvBuf.length * 10)/10 : rmssd;
+    const stress   = _computeStressIndex(avgHR, avgHRV);
+    const recovery = Math.max(0, Math.min(100, Math.round(100 - stress * 0.7)));
+
+    const stEl = document.getElementById('w-stress-gauge');
+    if (stEl) stEl.innerHTML = _miniGaugeSvg(stress, '#ef4444', 80);
+    const rcEl = document.getElementById('w-recovery-gauge');
+    if (rcEl) rcEl.innerHTML = _miniGaugeSvg(recovery, '#10b981', 80);
+
+    const chartEl = document.getElementById('w-chart-wrap');
+    if (chartEl) chartEl.innerHTML = _buildLiveChartSvg(_hrBuf, _hrvBuf);
+  }
+
+  // ── Tab render ─────────────────────────────────────────────────────────────
+  function render() {
+    const wr = _wr();
+    if (!wr) return;
+    const tabs = [
+      { id: 'monitor', label: 'Live Monitor' },
+      { id: 'history', label: 'Session History' },
+      { id: 'devices', label: 'Device Manager' },
+    ];
+    wr.innerHTML = `
+      <div style="display:flex;gap:0;border-bottom:2px solid var(--border);margin-bottom:16px">
+        ${tabs.map(t => `<button class="tab-btn${_activeTab === t.id ? ' active' : ''}" onclick="window._wearableTab('${t.id}')"
+          style="padding:10px 20px;background:none;border:none;cursor:pointer;font-size:.85rem;font-weight:600;color:${_activeTab === t.id ? 'var(--teal)' : 'var(--text-secondary)'};border-bottom:2px solid ${_activeTab === t.id ? 'var(--teal)' : 'transparent'};margin-bottom:-2px;transition:all .15s">${t.label}</button>`).join('')}
+      </div>
+      <div id="w-tab-body">${_renderTab()}</div>
+    `;
+  }
+
+  function _renderTab() {
+    if (_activeTab === 'monitor') return _renderMonitor();
+    if (_activeTab === 'history') return _renderHistory();
+    if (_activeTab === 'devices') return _renderDevices();
+    return '';
+  }
+
+  // ── Monitor tab ────────────────────────────────────────────────────────────
+  function _renderMonitor() {
+    const paired   = getPairedDevices();
+    const connected = paired.find(d => d.status === 'connected');
+
+    const deviceBar = paired.length === 0
+      ? `<div style="background:var(--card-bg);border:1px dashed var(--border);border-radius:8px;padding:14px;color:var(--text-secondary);font-size:.85rem;text-align:center">
+          No device connected — pair a device in <a href="#" onclick="window._wearableTab('devices');return false" style="color:var(--teal)">Device Manager</a>
+         </div>`
+      : paired.map(d => `
+          <div class="device-card">
+            <div style="width:36px;height:36px;border-radius:50%;background:${d.status === 'connected' ? 'rgba(0,212,188,0.12)' : 'rgba(255,255,255,0.06)'};display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">⌚</div>
+            <div style="flex:1">
+              <div style="font-size:.88rem;font-weight:600;color:var(--text-primary)">${d.name}</div>
+              <div style="font-size:.75rem;color:var(--text-secondary)">${d.type} · ${d.macAddress}</div>
+            </div>
+            <span style="padding:3px 10px;border-radius:12px;font-size:.72rem;font-weight:700;background:${d.status === 'connected' ? 'rgba(0,212,188,0.12)' : 'rgba(255,255,255,0.06)'};color:${d.status === 'connected' ? 'var(--teal)' : 'var(--text-secondary)'}">${d.status}</span>
+            ${d.status === 'connected'
+              ? `<button class="btn btn-ghost btn-sm" onclick="window._wearableDisconnect('${d.id}')">Disconnect</button>`
+              : `<button class="btn btn-primary btn-sm" onclick="window._wearableConnect('${d.id}')">Connect</button>`}
+          </div>`).join('');
+
+    const liveSection = _liveDevId
+      ? `<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
+          <div class="card" style="padding:16px;text-align:center">
+            <div style="font-size:.72rem;text-transform:uppercase;letter-spacing:.8px;color:var(--text-secondary);margin-bottom:8px">Heart Rate</div>
+            <div id="w-cur-hr" class="hr-display hr-normal">--</div>
+            <div style="font-size:.75rem;color:var(--text-secondary);margin-top:4px">BPM</div>
+          </div>
+          <div class="card" style="padding:16px;text-align:center">
+            <div style="font-size:.72rem;text-transform:uppercase;letter-spacing:.8px;color:var(--text-secondary);margin-bottom:8px">HRV (RMSSD)</div>
+            <div id="w-cur-hrv" class="hrv-good">-- ms</div>
+          </div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
+          <div class="card" style="padding:16px;text-align:center">
+            <div style="font-size:.72rem;text-transform:uppercase;letter-spacing:.8px;color:var(--text-secondary);margin-bottom:8px">Stress Index</div>
+            <div id="w-stress-gauge"></div>
+          </div>
+          <div class="card" style="padding:16px;text-align:center">
+            <div style="font-size:.72rem;text-transform:uppercase;letter-spacing:.8px;color:var(--text-secondary);margin-bottom:8px">Recovery Score</div>
+            <div id="w-recovery-gauge"></div>
+          </div>
+        </div>
+        <div class="card wearable-chart" style="margin-bottom:12px">
+          <div style="font-size:.72rem;text-transform:uppercase;letter-spacing:.8px;color:var(--text-secondary);margin-bottom:6px;padding:0 4px">Live Waveform — last 60 seconds
+            <span style="float:right"><span style="color:#00d4bc">━</span> HR &nbsp;<span style="color:#9b7fff">━</span> HRV</span>
+          </div>
+          <div id="w-chart-wrap">${_buildLiveChartSvg(_hrBuf, _hrvBuf)}</div>
+        </div>
+        <div style="display:flex;gap:8px;margin-bottom:12px">
+          ${!_recording
+            ? `<button class="btn btn-primary btn-sm" onclick="window._wearableStartRecord()">⏺ Start Session Recording</button>`
+            : `<button class="btn btn-sm" style="background:rgba(239,68,68,0.15);color:#ef4444;border:1px solid rgba(239,68,68,0.3)" onclick="window._wearableStopRecord()">⏹ Stop & Save</button>
+               <span style="font-size:.78rem;color:var(--teal);align-self:center">Recording… ${_recHR.length}s</span>`}
+        </div>`
+      : `<div style="background:rgba(0,212,188,0.04);border:1px dashed var(--border-teal);border-radius:8px;padding:24px;text-align:center;color:var(--text-secondary);font-size:.85rem;margin-bottom:12px">
+          Connect a device above to view live biosensor data
+         </div>`;
+
+    return `
+      <div style="max-width:760px">
+        <div style="margin-bottom:12px">${deviceBar}</div>
+        ${liveSection}
+        ${_renderImportSection()}
+      </div>`;
+  }
+
+  function _renderImportSection() {
+    return `<div class="card">
+      <div class="card-header"><h3>Import from Garmin / Polar / Apple Health</h3></div>
+      <div class="card-body">
+        <div style="font-size:.8rem;color:var(--text-secondary);margin-bottom:10px">
+          Upload a .csv file exported from your wearable app. Expected columns:
+          <code style="background:rgba(255,255,255,0.06);padding:1px 5px;border-radius:4px">timestamp</code>,
+          <code style="background:rgba(255,255,255,0.06);padding:1px 5px;border-radius:4px">heart_rate</code>,
+          <code style="background:rgba(255,255,255,0.06);padding:1px 5px;border-radius:4px">hrv_rmssd</code>
+          (common variants auto-mapped).
+        </div>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <label style="cursor:pointer">
+            <input type="file" accept=".csv" style="display:none" onchange="window._wearableImportCSV(this)">
+            <span class="btn btn-sm">Choose CSV File</span>
+          </label>
+          <button class="btn btn-ghost btn-sm" onclick="window._wearableDownloadSample()">Download Sample CSV</button>
+        </div>
+        <div id="w-import-status" style="margin-top:8px;font-size:.8rem"></div>
+      </div>
+    </div>`;
+  }
+
+  // ── History tab ────────────────────────────────────────────────────────────
+  function _renderHistory() {
+    let sessions = getBiosensorSessions();
+    if (_filterName) sessions = sessions.filter(s => s.patientName.toLowerCase().includes(_filterName.toLowerCase()));
+    if (_filterFrom) sessions = sessions.filter(s => s.date >= _filterFrom);
+    if (_filterTo)   sessions = sessions.filter(s => s.date <= _filterTo);
+
+    const cards = sessions.length === 0
+      ? `<div style="text-align:center;padding:32px;color:var(--text-secondary)">No sessions match the current filter.</div>`
+      : sessions.map(s => {
+          const hrColor = s.avgHR < 60 ? '#3b82f6' : s.avgHR <= 100 ? '#10b981' : s.avgHR <= 120 ? '#f59e0b' : '#ef4444';
+          return `<div class="biosensor-session-card">
+            <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:8px">
+              <div>
+                <div style="font-weight:600;font-size:.9rem">${s.patientName}</div>
+                <div style="font-size:.75rem;color:var(--text-secondary)">${s.deviceName} (${s.deviceType}) · ${s.date} · ${s.duration} min</div>
+              </div>
+              <button class="btn btn-ghost btn-sm" onclick="window._wearableCorrelate('${s.id}')">Correlate with Session</button>
+            </div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;margin:10px 0 8px">
+              <span class="hr-chip" style="background:${hrColor}22;color:${hrColor}">avg ${s.avgHR} bpm</span>
+              <span class="hr-chip" style="background:rgba(74,158,255,0.1);color:#4a9eff">min ${s.minHR}</span>
+              <span class="hr-chip" style="background:rgba(239,68,68,0.1);color:#ef4444">max ${s.maxHR}</span>
+              <span class="${_hrvClass(s.avgHRV)}" style="font-size:.78rem">HRV ${s.avgHRV} ms (${_hrvLabel(s.avgHRV)})</span>
+            </div>
+            <div style="display:flex;gap:20px;align-items:center">
+              <div style="text-align:center">
+                <div style="font-size:.7rem;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.6px">Stress</div>
+                ${_miniGaugeSvg(s.stressIndex, '#ef4444', 60)}
+              </div>
+              <div style="text-align:center">
+                <div style="font-size:.7rem;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.6px">Recovery</div>
+                ${_miniGaugeSvg(s.recoveryScore, '#10b981', 60)}
+              </div>
+            </div>
+          </div>`;
+        }).join('');
+
+    const panel = _corrPanel ? _renderCorrPanel(_corrPanel) : '';
+
+    return `
+      <div style="${_corrPanel ? 'display:grid;grid-template-columns:1fr 1fr;gap:16px' : ''}">
+        <div>
+          <div class="card" style="padding:12px;margin-bottom:12px">
+            <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+              <input type="text" placeholder="Filter by patient…" value="${_filterName}" oninput="window._wearableHistoryFilter('name',this.value)" class="form-control" style="max-width:200px;height:32px;font-size:.82rem">
+              <input type="date" value="${_filterFrom}" onchange="window._wearableHistoryFilter('from',this.value)" class="form-control" style="max-width:140px;height:32px;font-size:.82rem">
+              <span style="color:var(--text-secondary);font-size:.8rem">to</span>
+              <input type="date" value="${_filterTo}" onchange="window._wearableHistoryFilter('to',this.value)" class="form-control" style="max-width:140px;height:32px;font-size:.82rem">
+              <button class="btn btn-ghost btn-sm" onclick="window._wearableHistoryFilter('clear','')">Clear</button>
+            </div>
+          </div>
+          ${cards}
+        </div>
+        ${panel ? `<div>${panel}</div>` : ''}
+      </div>`;
+  }
+
+  function _renderCorrPanel(session) {
+    // Build a simple mini-chart of session HR data
+    const hrLine = session.hrData.length > 1
+      ? session.hrData.map((d, i) => {
+          const x = (i / (session.hrData.length - 1) * 220 + 20).toFixed(1);
+          const y = (80 - ((d.bpm - 50) / 60) * 60).toFixed(1);
+          return `${i === 0 ? 'M' : 'L'} ${x} ${y}`;
+        }).join(' ')
+      : '';
+    return `<div class="card" style="position:sticky;top:16px">
+      <div class="card-header">
+        <h3>Correlation — ${session.patientName}</h3>
+        <button class="btn btn-ghost btn-sm" onclick="window._wearableCorrelate(null)">Close</button>
+      </div>
+      <div class="card-body">
+        <div style="font-size:.8rem;color:var(--text-secondary);margin-bottom:12px">${session.date} · ${session.deviceName}</div>
+        <div style="margin-bottom:12px">
+          <div style="font-size:.72rem;text-transform:uppercase;letter-spacing:.7px;color:var(--text-secondary);margin-bottom:6px">HR Trend During Session</div>
+          <svg viewBox="0 0 260 90" style="width:100%;height:80px;background:rgba(255,255,255,0.02);border-radius:6px">
+            ${hrLine ? `<path d="${hrLine}" fill="none" stroke="#00d4bc" stroke-width="2" stroke-linejoin="round"/>` : ''}
+            <text x="20" y="88" font-size="9" fill="rgba(255,255,255,0.3)">0</text>
+            <text x="236" y="88" font-size="9" fill="rgba(255,255,255,0.3)">${session.duration}m</text>
+          </svg>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px">
+          <div style="background:rgba(0,212,188,0.06);border-radius:8px;padding:10px;text-align:center">
+            <div style="font-size:.7rem;color:var(--text-secondary)">Avg HR</div>
+            <div style="font-size:1.4rem;font-weight:800;color:#10b981">${session.avgHR}</div>
+            <div style="font-size:.68rem;color:var(--text-secondary)">bpm</div>
+          </div>
+          <div style="background:rgba(155,127,255,0.06);border-radius:8px;padding:10px;text-align:center">
+            <div style="font-size:.7rem;color:var(--text-secondary)">Avg HRV</div>
+            <div style="font-size:1.4rem;font-weight:800;color:#9b7fff">${session.avgHRV}</div>
+            <div style="font-size:.68rem;color:var(--text-secondary)">ms RMSSD</div>
+          </div>
+        </div>
+        <div style="background:rgba(255,181,71,0.06);border-radius:8px;padding:10px;font-size:.8rem;line-height:1.5;color:var(--text-secondary);border:1px solid rgba(255,181,71,0.15)">
+          <strong style="color:var(--amber)">Clinical Correlation Note:</strong>
+          ${session.stressIndex > 60
+            ? `Elevated stress index (${session.stressIndex}/100) during this session suggests sympathetic nervous system activation. Consider pre-session relaxation protocol or adjusted stimulation parameters.`
+            : session.stressIndex > 35
+            ? `Moderate stress index (${session.stressIndex}/100) is within acceptable range. HRV values suggest adequate parasympathetic tone for the session.`
+            : `Low stress index (${session.stressIndex}/100) with good HRV indicates high patient readiness. Optimal physiological state for neuromodulation protocol.`}
+        </div>
+      </div>
+    </div>`;
+  }
+
+  // ── Device Manager tab ─────────────────────────────────────────────────────
+  function _renderDevices() {
+    const paired = getPairedDevices();
+
+    const pairedList = paired.length === 0
+      ? `<div style="text-align:center;padding:24px;color:var(--text-secondary);font-size:.85rem;border:1px dashed var(--border);border-radius:8px">No paired devices yet. Scan below to find devices.</div>`
+      : paired.map(d => {
+          const batColor = d.batteryLevel >= 50 ? '#10b981' : d.batteryLevel >= 20 ? '#f59e0b' : '#ef4444';
+          return `<div class="device-card">
+            <div style="font-size:22px;flex-shrink:0">⌚</div>
+            <div style="flex:1">
+              <div style="font-size:.88rem;font-weight:600;color:var(--text-primary)">${d.name}</div>
+              <div style="font-size:.74rem;color:var(--text-secondary)">${d.macAddress}</div>
+              <div style="font-size:.72rem;color:var(--text-tertiary)">Last seen: ${d.lastSeen}</div>
+            </div>
+            <div style="text-align:center;min-width:60px">
+              <span class="device-type-ble">${d.type}</span>
+              <div style="margin-top:6px">
+                <div style="font-size:.7rem;color:var(--text-secondary);margin-bottom:2px">Battery ${d.batteryLevel}%</div>
+                <div class="battery-bar"><div class="battery-fill" style="width:${d.batteryLevel}%;background:${batColor}"></div></div>
+              </div>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:4px">
+              ${d.status === 'connected'
+                ? `<button class="btn btn-ghost btn-sm" onclick="window._wearableDisconnect('${d.id}')">Disconnect</button>`
+                : `<button class="btn btn-primary btn-sm" onclick="window._wearableConnect('${d.id}')">Connect</button>`}
+              <button class="btn btn-ghost btn-sm" style="color:var(--red);font-size:.72rem" onclick="window._wearableRemoveDevice('${d.id}')">Remove</button>
+            </div>
+          </div>`;
+        }).join('');
+
+    const scanSection = _scanResults === null
+      ? `<button class="btn btn-primary btn-sm" onclick="window._wearableScan()">Scan for Devices</button>`
+      : _scanResults === 'scanning'
+      ? `<div style="display:flex;align-items:center;gap:10px;padding:12px">
+           <div class="spinner" style="width:18px;height:18px;border-width:2px"></div>
+           <span style="font-size:.85rem;color:var(--text-secondary)">Scanning for Bluetooth devices…</span>
+         </div>`
+      : `<div>
+           ${_scanResults.map(d => `
+             <div class="device-card" style="background:rgba(0,212,188,0.04)">
+               <div style="font-size:20px">⌚</div>
+               <div style="flex:1">
+                 <div style="font-size:.88rem;font-weight:600">${d.name}</div>
+                 <div style="font-size:.74rem;color:var(--text-secondary)">${d.type} · Signal:
+                   <span class="signal-bar">${Array.from({length:4},(_, i) => `<span style="height:${(i+1)*3}px;opacity:${i < d.signal ? 1 : 0.2}"></span>`).join('')}</span>
+                 </div>
+               </div>
+               <button class="btn btn-primary btn-sm" onclick='window._wearablePair(${JSON.stringify(d)})'>Pair</button>
+             </div>`).join('')}
+           <button class="btn btn-ghost btn-sm" style="margin-top:8px" onclick="window._wearableScan()">Scan Again</button>
+         </div>`;
+
+    const supportedDevices = [
+      { name: 'Polar H10',     type: 'ECG Chest Strap', conn: 'BLE / ANT+',  channels: 'HR, HRV, ECG waveform' },
+      { name: 'Garmin HRM-Pro',type: 'Chest Strap',     conn: 'BLE / ANT+',  channels: 'HR, HRV, Running Dynamics' },
+      { name: 'Apple Watch',   type: 'Smartwatch',      conn: 'BLE',         channels: 'HR, HRV, SpO₂, EDA' },
+      { name: 'Polar Verity Sense', type: 'Optical',   conn: 'BLE / ANT+',  channels: 'HR, HRV' },
+      { name: 'Garmin Forerunner', type: 'Smartwatch', conn: 'BLE',          channels: 'HR, HRV, Stress' },
+      { name: 'Oura Ring',     type: 'Smart Ring',      conn: 'BLE',         channels: 'HR, HRV, SpO₂, Sleep' },
+    ];
+
+    return `
+      <div style="max-width:760px">
+        ${cardWrap('Paired Devices', pairedList)}
+        <div style="height:12px"></div>
+        ${cardWrap('+ Pair New Device', `
+          <div id="w-scan-section">${scanSection}</div>
+        `)}
+        <div style="height:12px"></div>
+        ${cardWrap('Supported Devices', `
+          <table style="width:100%;border-collapse:collapse;font-size:.8rem">
+            <thead><tr>
+              ${['Device','Type','Connection','Data Channels'].map(h => `<th style="padding:7px 10px;border-bottom:2px solid var(--border);text-align:left;color:var(--text-secondary);font-size:.72rem;text-transform:uppercase;letter-spacing:.5px">${h}</th>`).join('')}
+            </tr></thead>
+            <tbody>
+              ${supportedDevices.map(d => `<tr>
+                <td style="padding:8px 10px;border-bottom:1px solid var(--border);font-weight:600">${d.name}</td>
+                <td style="padding:8px 10px;border-bottom:1px solid var(--border);color:var(--text-secondary)">${d.type}</td>
+                <td style="padding:8px 10px;border-bottom:1px solid var(--border)"><span class="device-type-ble">${d.conn}</span></td>
+                <td style="padding:8px 10px;border-bottom:1px solid var(--border);color:var(--text-secondary)">${d.channels}</td>
+              </tr>`).join('')}
+            </tbody>
+          </table>
+          <div style="margin-top:12px;padding:10px;background:rgba(255,181,71,0.06);border:1px solid rgba(255,181,71,0.2);border-radius:8px;font-size:.78rem;color:var(--text-secondary);line-height:1.5">
+            <strong style="color:var(--amber)">Web Bluetooth Note:</strong>
+            Real Bluetooth connectivity requires Chrome or Edge with the Web Bluetooth API enabled. This demo uses simulated data to demonstrate the full integration workflow.
+          </div>
+        `)}
+      </div>`;
+  }
+
+  // ── Global handlers ────────────────────────────────────────────────────────
+  window._wearableTab = function(tab) {
+    _activeTab = tab;
+    render();
+  };
+
+  window._wearableConnect = function(id) {
+    const devices = getPairedDevices();
+    const dev = devices.find(d => d.id === id);
+    if (!dev) return;
+    // Disconnect any currently connected device first
+    devices.forEach(d => { if (d.status === 'connected') d.status = 'disconnected'; });
+    dev.status = 'connected';
+    dev.lastSeen = new Date().toLocaleString();
+    localStorage.setItem(DEVICE_PAIRING_KEY, JSON.stringify(devices));
+
+    _liveDevId = id;
+    _hrBuf  = [];
+    _hrvBuf = [];
+    _curHR  = 70 + Math.random() * 10;
+    _curHRV = 40 + Math.random() * 15;
+
+    clearInterval(_tickIv);
+    _tickIv = setInterval(_wearableTick, 1000);
+    render();
+  };
+
+  window._wearableDisconnect = function(id) {
+    const devices = getPairedDevices();
+    const dev = devices.find(d => d.id === id);
+    if (dev) {
+      dev.status = 'disconnected';
+      localStorage.setItem(DEVICE_PAIRING_KEY, JSON.stringify(devices));
+    }
+    if (_liveDevId === id) {
+      _liveDevId = null;
+      clearInterval(_tickIv);
+      _tickIv = null;
+      _recording = false;
+    }
+    render();
+  };
+
+  window._wearableStartRecord = function() {
+    if (!_liveDevId) return;
+    _recording = true;
+    _recHR  = [];
+    _recHRV = [];
+    _recStart = Date.now();
+    render();
+  };
+
+  window._wearableStopRecord = function() {
+    _recording = false;
+    if (_recHR.length < 2) { render(); return; }
+    const hrVals  = _recHR.map(d => d.bpm);
+    const hrvVals = _recHRV.map(d => d.rmssd);
+    const avgHR   = Math.round(hrVals.reduce((a,b)=>a+b,0)/hrVals.length);
+    const avgHRV  = Math.round(hrvVals.reduce((a,b)=>a+b,0)/hrvVals.length * 10)/10;
+    const devices = getPairedDevices();
+    const dev = devices.find(d => d.id === _liveDevId) || { name: 'Unknown', type: 'BLE' };
+    const session = {
+      id: `bs-${Date.now()}`,
+      patientName: 'Live Session',
+      deviceName: dev.name,
+      deviceType: dev.type,
+      date: new Date().toISOString().slice(0, 10),
+      duration: Math.round(_recHR.length / 60),
+      hrData:  _recHR,
+      hrvData: _recHRV,
+      avgHR,
+      minHR:  Math.min(...hrVals),
+      maxHR:  Math.max(...hrVals),
+      avgHRV,
+      stressIndex:   _computeStressIndex(avgHR, avgHRV),
+      recoveryScore: Math.max(0, Math.min(100, Math.round(100 - _computeStressIndex(avgHR, avgHRV) * 0.7))),
+    };
+    saveBiosensorSession(session);
+    _recHR = [];
+    _recHRV = [];
+    render();
+    const status = document.getElementById('w-import-status');
+    if (status) { status.style.color = '#10b981'; status.textContent = 'Session saved to history.'; }
+  };
+
+  window._wearableScan = function() {
+    _scanResults = 'scanning';
+    const scanEl = document.getElementById('w-scan-section');
+    if (scanEl) scanEl.innerHTML = `<div style="display:flex;align-items:center;gap:10px;padding:12px">
+      <div class="spinner" style="width:18px;height:18px;border-width:2px"></div>
+      <span style="font-size:.85rem;color:var(--text-secondary)">Scanning for Bluetooth devices…</span>
+    </div>`;
+    setTimeout(() => {
+      _scanResults = [
+        { id: 'disc-polar',  name: 'Polar H10',      type: 'ECG Chest Strap', mac: 'A4:C1:38:01:23:45', signal: 4 },
+        { id: 'disc-garmin', name: 'Garmin HRM-Pro',  type: 'Chest Strap',    mac: 'B8:D8:12:8E:67:AB', signal: 3 },
+        { id: 'disc-apple',  name: 'Apple Watch',     type: 'Smartwatch',     mac: 'F0:D5:BF:C9:00:F1', signal: 3 },
+      ];
+      if (_activeTab === 'devices') render();
+    }, 2000);
+  };
+
+  window._wearablePair = function(device) {
+    const scanEl = document.getElementById('w-scan-section');
+    if (scanEl) scanEl.innerHTML = `<div style="display:flex;align-items:center;gap:10px;padding:12px">
+      <div class="spinner" style="width:18px;height:18px;border-width:2px"></div>
+      <span style="font-size:.85rem;color:var(--text-secondary)">Pairing with ${device.name}…</span>
+    </div>`;
+    setTimeout(() => {
+      savePairedDevice({
+        id:           device.id,
+        name:         device.name,
+        type:         device.type,
+        macAddress:   device.mac,
+        status:       'disconnected',
+        lastSeen:     new Date().toLocaleString(),
+        batteryLevel: 72 + Math.floor(Math.random() * 20),
+      });
+      _scanResults = null;
+      render();
+    }, 1500);
+  };
+
+  window._wearableRemoveDevice = function(id) {
+    if (_liveDevId === id) {
+      _liveDevId = null;
+      clearInterval(_tickIv);
+      _tickIv = null;
+      _recording = false;
+    }
+    removePairedDevice(id);
+    render();
+  };
+
+  window._wearableCorrelate = function(sessionId) {
+    if (!sessionId) { _corrPanel = null; render(); return; }
+    const sessions = getBiosensorSessions();
+    _corrPanel = sessions.find(s => s.id === sessionId) || null;
+    render();
+  };
+
+  window._wearableHistoryFilter = function(key, val) {
+    if (key === 'name') _filterName = val;
+    else if (key === 'from') _filterFrom = val;
+    else if (key === 'to')   _filterTo   = val;
+    else if (key === 'clear') { _filterName = ''; _filterFrom = ''; _filterTo = ''; }
+    const body = document.getElementById('w-tab-body');
+    if (body) body.innerHTML = _renderHistory();
+  };
+
+  window._wearableImportCSV = function(input) {
+    const file = input.files[0];
+    if (!file) return;
+    const statusEl = document.getElementById('w-import-status');
+    if (statusEl) { statusEl.style.color = 'var(--text-secondary)'; statusEl.textContent = 'Parsing…'; }
+    const reader = new FileReader();
+    reader.onload = function(e) {
+      try {
+        const text  = e.target.result;
+        const lines = text.trim().split('\n');
+        const headers = lines[0].split(',').map(h => h.trim().toLowerCase().replace(/[^a-z0-9_]/g,''));
+        // Column name mapping
+        const tsIdx  = headers.findIndex(h => ['timestamp','time','datetime','date'].includes(h));
+        const hrIdx  = headers.findIndex(h => ['heart_rate','heartrate','hr','bpm','pulse'].includes(h));
+        const hrvIdx = headers.findIndex(h => ['hrv_rmssd','hrv','rmssd','hrvrmssd'].includes(h));
+        if (hrIdx === -1) {
+          if (statusEl) { statusEl.style.color='#ef4444'; statusEl.textContent='Error: no heart_rate column found.'; }
+          return;
+        }
+        const hrData = [], hrvData = [];
+        for (let i = 1; i < lines.length; i++) {
+          const cols = lines[i].split(',');
+          const bpm  = parseFloat(cols[hrIdx]);
+          if (isNaN(bpm)) continue;
+          hrData.push({ t: i - 1, bpm: Math.round(bpm) });
+          if (hrvIdx !== -1) {
+            const rmssd = parseFloat(cols[hrvIdx]);
+            if (!isNaN(rmssd)) hrvData.push({ t: i - 1, rmssd: Math.round(rmssd * 10) / 10 });
+          }
+        }
+        if (hrData.length === 0) {
+          if (statusEl) { statusEl.style.color='#ef4444'; statusEl.textContent='Error: no valid rows found.'; }
+          return;
+        }
+        const hrVals  = hrData.map(d => d.bpm);
+        const hrvVals = hrvData.map(d => d.rmssd);
+        const avgHR   = Math.round(hrVals.reduce((a,b)=>a+b,0)/hrVals.length);
+        const avgHRV  = hrvVals.length ? Math.round(hrvVals.reduce((a,b)=>a+b,0)/hrvVals.length * 10)/10 : 0;
+        const session = {
+          id: `bs-${Date.now()}`,
+          patientName: 'Imported Session',
+          deviceName:  file.name,
+          deviceType:  'CSV Import',
+          date:        new Date().toISOString().slice(0, 10),
+          duration:    Math.round(hrData.length / 60) || 1,
+          hrData, hrvData,
+          avgHR,
+          minHR:  Math.min(...hrVals),
+          maxHR:  Math.max(...hrVals),
+          avgHRV,
+          stressIndex:   _computeStressIndex(avgHR, avgHRV || 40),
+          recoveryScore: Math.max(0, Math.min(100, Math.round(100 - _computeStressIndex(avgHR, avgHRV || 40) * 0.7))),
+        };
+        saveBiosensorSession(session);
+        if (statusEl) { statusEl.style.color='#10b981'; statusEl.textContent=`Imported ${hrData.length} data points. Session saved.`; }
+        // Reset file input
+        input.value = '';
+      } catch(err) {
+        if (statusEl) { statusEl.style.color='#ef4444'; statusEl.textContent=`Parse error: ${err.message}`; }
+      }
+    };
+    reader.readAsText(file);
+  };
+
+  window._wearableDownloadSample = function() {
+    const rows = ['timestamp,heart_rate,hrv_rmssd'];
+    let bpm = 70, rmssd = 45;
+    for (let i = 0; i < 60; i++) {
+      const ts = new Date(Date.now() - (60 - i) * 1000).toISOString();
+      bpm   = Math.max(55, Math.min(95, bpm   + (Math.random() - 0.5) * 4));
+      rmssd = Math.max(20, Math.min(75, rmssd + (Math.random() - 0.5) * 3));
+      rows.push(`${ts},${Math.round(bpm)},${(Math.round(rmssd * 10) / 10).toFixed(1)}`);
+    }
+    const blob = new Blob([rows.join('\n')], { type: 'text/csv' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'sample_wearable_data.csv';
+    a.click();
+    URL.revokeObjectURL(a.href);
+  };
+
+  render();
+}

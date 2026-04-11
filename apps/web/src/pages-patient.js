@@ -16,11 +16,11 @@ function _patientNav() {
     { id: 'patient-wearables',    label: t('patient.nav.wearables'),   icon: '◌' },
     { id: 'pt-wellness',          label: t('patient.nav.checkin'),     icon: '💚' },
     { id: 'pt-learn',             label: t('patient.nav.learn'),       icon: '📚' },
-    { id: 'pt-outcomes',           label: 'My Outcomes',               icon: '📈' },
-    { id: 'pt-media-history',     label: 'My Updates',                 icon: '📋' },
-    { id: 'pt-media-upload',      label: 'Send Update',                icon: '📤' },
-    { id: 'pt-home-device',       label: 'My Home Device',             icon: '⚡' },
-    { id: 'pt-adherence-history', label: 'Adherence History',          icon: '📊' },
+    { id: 'pt-outcomes',           label: t('patient.nav.outcomes'),    icon: '📈' },
+    { id: 'pt-media-history',     label: t('patient.nav.feedback'),    icon: '📋' },
+    { id: 'pt-media-upload',      label: t('patient.nav.updates'),     icon: '📤' },
+    { id: 'pt-home-device',       label: t('patient.nav.home_device'), icon: '⚡' },
+    { id: 'pt-adherence-history', label: t('patient.nav.adherence'),   icon: '📊' },
     { id: 'patient-profile',      label: t('patient.nav.profile'),     icon: '◇' },
   ];
 }
@@ -164,7 +164,8 @@ function daysUntil(d) {
 // ── Dashboard ─────────────────────────────────────────────────────────────────────────────
 export async function pgPatientDashboard(user) {
   setTopbar(t('patient.nav.dashboard'));
-  const firstName = (user?.display_name || 'there').split(' ')[0];
+  function esc(v) { if (v == null) return ''; return String(v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#x27;'); }
+  const firstName = esc((user?.display_name || 'there').split(' ')[0]);
 
   const el = document.getElementById('patient-content');
   el.innerHTML = spinner();
@@ -192,11 +193,12 @@ export async function pgPatientDashboard(user) {
   const upcomingFromSessions = sessions.filter(s => s.scheduled_at && new Date(s.scheduled_at).getTime() > now);
   upcomingFromSessions.sort((a, b) => new Date(a.scheduled_at) - new Date(b.scheduled_at));
   const nextSess  = upcomingFromSessions[0] || null;
+  const _dashLoc  = getLocale() === 'tr' ? 'tr-TR' : 'en-US';
   const nextLabel = nextSess
-    ? new Date(nextSess.scheduled_at).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
+    ? new Date(nextSess.scheduled_at).toLocaleDateString(_dashLoc, { weekday: 'short', month: 'short', day: 'numeric' })
     : null;
   const nextTime  = nextSess
-    ? new Date(nextSess.scheduled_at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+    ? new Date(nextSess.scheduled_at).toLocaleTimeString(_dashLoc, { hour: 'numeric', minute: '2-digit' })
     : null;
 
   // Daily check-in state
@@ -253,7 +255,7 @@ export async function pgPatientDashboard(user) {
         <div class="pt-pc-eyebrow">${t('patient.card.next_session')}</div>
         ${nextSess
           ? `<div class="pt-pc-main">${nextLabel}</div>
-             <div class="pt-pc-detail">${nextTime}${nextSess.modality_slug ? ' · ' + nextSess.modality_slug.toUpperCase() : ''}</div>`
+             <div class="pt-pc-detail">${nextTime}${nextSess.modality_slug ? ' · ' + esc(nextSess.modality_slug).toUpperCase() : ''}</div>`
           : `<div class="pt-pc-main pt-pc-main--muted">${t('patient.card.not_scheduled')}</div>
              <div class="pt-pc-detail">${t('patient.card.contact_clinic')}</div>`}
         <div class="pt-pc-action">${t('patient.card.view_sessions')}</div>
@@ -262,7 +264,7 @@ export async function pgPatientDashboard(user) {
       <div class="pt-primary-card plan" onclick="window._navPatient('patient-course')" style="cursor:pointer" role="button" tabindex="0">
         <div class="pt-pc-eyebrow">${t('patient.card.treatment_plan')}</div>
         ${activeCourse
-          ? `<div class="pt-pc-main">${activeCourse.condition_slug || t('status.active')}</div>
+          ? `<div class="pt-pc-main">${esc(activeCourse.condition_slug) || t('status.active')}</div>
              <div class="pt-pc-detail">${sessDelivered} of ${totalPlanned ?? '?'} sessions${progressPct !== null ? ' · ' + progressPct + '%' : ''}</div>`
           : `<div class="pt-pc-main pt-pc-main--muted">${t('patient.card.not_assigned')}</div>
              <div class="pt-pc-detail">${t('patient.card.speak_clinic')}</div>`}
@@ -367,11 +369,11 @@ export async function pgPatientDashboard(user) {
               ${latestDoc ? `
               <div class="pt-progress-row">
                 <span class="pt-pr-label">${t('patient.progress.latest_assessment')}</span>
-                <span class="pt-pr-value">${latestDoc.template_title || t('status.completed')} · ${fmtDate(latestDoc.administered_at)}</span>
+                <span class="pt-pr-value">${esc(latestDoc.template_title) || t('status.completed')} · ${fmtDate(latestDoc.administered_at)}</span>
               </div>` : ''}
               <div class="pt-progress-row">
                 <span class="pt-pr-label">${t('patient.progress.care_status')}</span>
-                <span class="pt-pr-value" style="color:var(--teal)">${activeCourse.status === 'active' ? t('patient.progress.care_active') : (activeCourse.status || t('status.active'))}</span>
+                <span class="pt-pr-value" style="color:var(--teal)">${activeCourse.status === 'active' ? t('patient.progress.care_active') : (esc(activeCourse.status) || t('status.active'))}</span>
               </div>
             </div>
             <div class="progress-bar" style="height:7px;margin:14px 0 4px">
@@ -410,8 +412,8 @@ export async function pgPatientDashboard(user) {
           ? `<div style="display:flex;align-items:flex-start;gap:14px">
               <div style="width:40px;height:40px;border-radius:var(--radius-md);background:rgba(74,158,255,0.1);display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0;color:var(--blue)">◱</div>
               <div style="flex:1">
-                <div style="font-size:13px;font-weight:500;color:var(--text-primary)">${latestDoc.template_title || latestDoc.template_id || t('patient.reports.cat.outcome')}</div>
-                <div style="font-size:11.5px;color:var(--text-tertiary);margin-top:3px">${fmtDate(latestDoc.administered_at)}${latestDoc.score != null ? ' · Score: ' + latestDoc.score : ''}${latestDoc.measurement_point ? ' · ' + latestDoc.measurement_point : ''}</div>
+                <div style="font-size:13px;font-weight:500;color:var(--text-primary)">${esc(latestDoc.template_title) || esc(latestDoc.template_id) || t('patient.reports.cat.outcome')}</div>
+                <div style="font-size:11.5px;color:var(--text-tertiary);margin-top:3px">${fmtDate(latestDoc.administered_at)}${latestDoc.score != null ? ' · Score: ' + latestDoc.score : ''}${latestDoc.measurement_point ? ' · ' + esc(latestDoc.measurement_point) : ''}</div>
                 <div class="pt-plain-language" style="margin-top:10px">
                   <div class="pt-pl-title">${t('patient.dash.doc.about')}</div>
                   <div class="pt-pl-body">${t('patient.dash.doc.body')}</div>
@@ -1430,9 +1432,9 @@ export async function pgPatientCourse() {
 
     planBody.innerHTML =
       '<div style="margin-bottom:14px">' +
-        '<div style="font-size:14px;font-weight:600;color:var(--text-primary);margin-bottom:2px">' + esc(assignment.planName || 'Assigned Plan') + '</div>' +
+        '<div style="font-size:14px;font-weight:600;color:var(--text-primary);margin-bottom:2px">' + esc(assignment.planName || t('patient.learn.assigned_plan')) + '</div>' +
         '<div style="font-size:11.5px;color:var(--text-secondary)">' +
-          'Assigned ' + (assignment.assignedDate ? new Date(assignment.assignedDate).toLocaleDateString() : '') +
+          (assignment.assignedDate ? t('patient.learn.assigned', { date: new Date(assignment.assignedDate).toLocaleDateString(getLocale() === 'tr' ? 'tr-TR' : 'en-US') }) : '') +
           (assignment.patientName ? ' &nbsp;&middot;&nbsp; ' + esc(assignment.patientName) : '') +
         '</div>' +
       '</div>' +
@@ -1465,6 +1467,18 @@ export async function pgPatientCourse() {
         '</div>';
       }).join('');
   })();
+
+  // Quick cross-page links
+  const _navRow = el.appendChild(document.createElement('div'));
+  _navRow.style.cssText = 'display:flex;gap:10px;flex-wrap:wrap;margin-top:4px';
+  [['patient-sessions','View upcoming sessions →'],['patient-messages','Contact your care team →']].forEach(([id,lbl]) => {
+    const b = document.createElement('button');
+    b.className = 'btn btn-ghost btn-sm';
+    b.style.cssText = 'flex:1;min-width:140px';
+    b.textContent = lbl;
+    b.onclick = () => window._navPatient(id);
+    _navRow.appendChild(b);
+  });
 }
 
 // ── PHQ-9 Assessment ──────────────────────────────────────────────────────────
@@ -2518,7 +2532,7 @@ export async function pgPatientReports() {
     if (card.querySelector('.pt-doc-unavail')) return; // already shown
     const notice = document.createElement('div');
     notice.className = 'pt-doc-unavail';
-    notice.textContent = 'This document is not yet available to view online. Contact your clinic if you need a copy.';
+    notice.textContent = t('patient.media.doc_unavailable');
     card.appendChild(notice);
   };
 }
@@ -3006,6 +3020,7 @@ export async function pgPatientProfile(user) {
   setTopbar(t('patient.nav.profile'));
 
   function renderProfile(u) {
+    function esc(v) { if (v == null) return ''; return String(v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#x27;'); }
     const initials = (u?.display_name || '?').slice(0, 2).toUpperCase();
     document.getElementById('patient-content').innerHTML = `
       <div class="g2">
@@ -3019,17 +3034,17 @@ export async function pgPatientProfile(user) {
               <div style="display:flex;align-items:center;gap:14px;margin-bottom:20px">
                 <div class="avatar" style="width:52px;height:52px;font-size:18px;background:linear-gradient(135deg,var(--blue-dim),var(--violet))">${initials}</div>
                 <div>
-                  <div style="font-size:14px;font-weight:600;color:var(--text-primary)" id="pt-profile-name">${u?.display_name || 'Patient'}</div>
-                  <div style="font-size:12px;color:var(--text-tertiary)" id="pt-profile-email">${u?.email || ''}</div>
+                  <div style="font-size:14px;font-weight:600;color:var(--text-primary)" id="pt-profile-name">${esc(u?.display_name) || 'Patient'}</div>
+                  <div style="font-size:12px;color:var(--text-tertiary)" id="pt-profile-email">${esc(u?.email)}</div>
                 </div>
               </div>
               <div class="form-group">
                 <label class="form-label">Full Name</label>
-                <input class="form-control" id="pt-profile-name-input" value="${u?.display_name || ''}" readonly style="opacity:0.7">
+                <input class="form-control" id="pt-profile-name-input" value="${esc(u?.display_name)}" readonly style="opacity:0.7">
               </div>
               <div class="form-group">
                 <label class="form-label">Email</label>
-                <input class="form-control" id="pt-profile-email-input" value="${u?.email || ''}" readonly style="opacity:0.7">
+                <input class="form-control" id="pt-profile-email-input" value="${esc(u?.email)}" readonly style="opacity:0.7">
               </div>
               <div id="pt-profile-refresh-notice" style="display:none;margin-top:8px"></div>
               <div class="notice notice-info" style="font-size:11.5px;margin-top:4px">
@@ -3359,7 +3374,11 @@ export async function pgPatientLearn() {
     });
 
     if (filtered.length === 0) {
-      return '<div style="text-align:center;padding:40px;color:var(--text-tertiary)">No articles match your search.</div>';
+      return `<div class="pt-portal-empty">
+        <div class="pt-portal-empty-ico" aria-hidden="true">&#128196;</div>
+        <div class="pt-portal-empty-title">No articles found</div>
+        <div class="pt-portal-empty-body">Try a different search term or browse all categories.</div>
+      </div>`;
     }
 
     return `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:16px;margin-top:16px">
@@ -3863,7 +3882,7 @@ export async function pgPatientMediaUpload() {
       if (!isConsentGranted(consentNeeded)) {
         warnEl.className = 'notice notice-warn';
         warnEl.style.display = '';
-        warnEl.innerHTML = `You haven\u2019t enabled consent for ${type === 'text' ? 'text updates' : 'voice notes'} yet. <a href="#" onclick="window._navPatient('pt-media-consent');return false" style="color:var(--teal)">Enable consent \u2192</a>`;
+        warnEl.innerHTML = `${t(type === 'text' ? 'patient.media.consent_warn_text' : 'patient.media.consent_warn_voice')} <a href="#" onclick="window._navPatient('pt-media-consent');return false" style="color:var(--teal)">${t('patient.media.consent_enable')}</a>`;
       } else {
         warnEl.style.display = 'none';
       }
@@ -3894,7 +3913,7 @@ export async function pgPatientMediaUpload() {
         _recordedBlob = new Blob(_recordedChunks, { type: 'audio/webm' });
         stream.getTracks().forEach(t => t.stop());
         const dur = _recordingSeconds;
-        if (ready) { ready.style.display = ''; ready.textContent = `Ready to upload (${dur}s)`; }
+        if (ready) { ready.style.display = ''; ready.textContent = t('patient.media.recording_ready', { dur }); }
       };
       _recordedChunks = [];
       _recordingSeconds = 0;
@@ -3915,7 +3934,7 @@ export async function pgPatientMediaUpload() {
       if (warnEl) {
         warnEl.className = 'notice notice-error';
         warnEl.style.display = '';
-        warnEl.textContent = 'Microphone access denied. Please allow microphone permissions or upload a file instead.';
+        warnEl.textContent = t('patient.media.err_mic_denied');
       }
     }
   };
@@ -3928,13 +3947,13 @@ export async function pgPatientMediaUpload() {
     if (input.files[0].size > MAX_BYTES) {
       input.value = '';
       _recordedBlob = null;
-      if (warnEl) { warnEl.className = 'notice notice-error'; warnEl.style.display = ''; warnEl.textContent = 'File is too large (max 50 MB). Please record a shorter clip or compress the file.'; }
+      if (warnEl) { warnEl.className = 'notice notice-error'; warnEl.style.display = ''; warnEl.textContent = t('patient.media.err_file_size'); }
       if (ready) ready.style.display = 'none';
       return;
     }
     _recordedBlob = input.files[0];
     if (warnEl) warnEl.style.display = 'none';
-    if (ready) { ready.style.display = ''; ready.textContent = `File selected: ${input.files[0].name} (${(input.files[0].size / 1048576).toFixed(1)} MB)`; }
+    if (ready) { ready.style.display = ''; ready.textContent = t('patient.media.file_selected', { name: input.files[0].name, size: (input.files[0].size / 1048576).toFixed(1) }); }
   };
 
   window._ptSubmitUpload = async function() {
@@ -3948,8 +3967,7 @@ export async function pgPatientMediaUpload() {
       if (warnEl) {
         warnEl.className = 'notice notice-warn';
         warnEl.style.display = '';
-        warnEl.innerHTML = `You haven't given consent for ${_selectedType === 'text' ? 'text updates' : 'voice notes'}.
-          <a href="#" onclick="window._navPatient('pt-media-consent');return false" style="color:var(--teal)">Enable consent →</a>`;
+        warnEl.innerHTML = `${t(_selectedType === 'text' ? 'patient.media.consent_submit_text' : 'patient.media.consent_submit_voice')} <a href="#" onclick="window._navPatient('pt-media-consent');return false" style="color:var(--teal)">${t('patient.media.consent_enable')}</a>`;
       }
       return;
     }
@@ -3963,7 +3981,7 @@ export async function pgPatientMediaUpload() {
         const courseId  = document.getElementById('upload-text-course')?.value || null;
         const noteLabel = document.getElementById('upload-text-note')?.value?.trim() || '';
         if (!content) {
-          if (warnEl) { warnEl.className = 'notice notice-warn'; warnEl.style.display = ''; warnEl.textContent = 'Please enter some text before sending.'; }
+          if (warnEl) { warnEl.className = 'notice notice-warn'; warnEl.style.display = ''; warnEl.textContent = t('patient.media.err_no_text'); }
           if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = 'Send Update'; }
           return;
         }
@@ -3980,7 +3998,7 @@ export async function pgPatientMediaUpload() {
       } else {
         // Voice upload via FormData
         if (!_recordedBlob) {
-          if (warnEl) { warnEl.className = 'notice notice-warn'; warnEl.style.display = ''; warnEl.textContent = 'Please record or select an audio file first.'; }
+          if (warnEl) { warnEl.className = 'notice notice-warn'; warnEl.style.display = ''; warnEl.textContent = t('patient.media.err_no_audio'); }
           if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = 'Send Update'; }
           return;
         }
@@ -4157,7 +4175,7 @@ export async function pgPatientMediaHistory() {
       <span style="font-size:13px;flex-shrink:0">🚨</span>
       <div style="font-size:11.5px;color:var(--text-secondary);line-height:1.5">
         <strong style="color:var(--text-primary)">Not for emergencies.</strong>
-        Call <strong>000 / 911 / 999</strong> or go to emergency if you need urgent medical help.
+        If you are in immediate danger or experiencing a medical emergency, call <strong>000 / 911 / 999</strong> or go to your nearest emergency department. This portal is not monitored in real time.
       </div>
     </div>
 
@@ -4254,6 +4272,9 @@ export async function pgPatientWearables() {
     { source: 'fitbit',            display_name: 'Fitbit',              icon: '◌', iconColor: 'var(--blue)' },
     { source: 'oura',              display_name: 'Oura Ring',           icon: '◌', iconColor: 'var(--violet)' },
   ];
+
+  // ── XSS helper ───────────────────────────────────────────────────────────
+  function esc(v) { if (v == null) return ''; return String(v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#x27;'); }
 
   // ── Fetch data ────────────────────────────────────────────────────────────
   let wearableData = null;
@@ -4399,7 +4420,7 @@ export async function pgPatientWearables() {
     </div>
     ${recentAlerts.length > 0 ? `
     <div class="notice notice-warn" style="font-size:12px;margin-top:8px">
-      <strong>Sync note:</strong> ${recentAlerts[0].detail || 'A recent sync issue was detected.'}
+      <strong>Sync note:</strong> ${esc(recentAlerts[0].detail) || 'A recent sync issue was detected.'}
     </div>` : ''}
   </div>
 
@@ -5848,7 +5869,7 @@ function saveNotifPrefs(prefs) {
 window._patRequestPush = async function() {
   const statusEl = document.getElementById('push-status');
   if (!('Notification' in window)) {
-    if (statusEl) statusEl.innerHTML = '<span style="color:var(--text-tertiary);font-size:12px">Push notifications are not supported in this browser.</span>';
+    if (statusEl) statusEl.innerHTML = `<span style="color:var(--text-tertiary);font-size:12px">${t('patient.notif.unsupported')}</span>`;
     return;
   }
   const result = await Notification.requestPermission();
@@ -5858,13 +5879,13 @@ window._patRequestPush = async function() {
     prefs.pushGranted = true;
     saveNotifPrefs(prefs);
   } else {
-    if (statusEl) statusEl.innerHTML = '<span class="push-denied">Permission denied</span>';
+    if (statusEl) statusEl.innerHTML = `<span class="push-denied">${t('patient.notif.denied')}</span>`;
   }
 };
 
 window._patShareProgress = async function() {
-  const title = 'My Treatment Progress — DeepSynaps';
-  const text = 'Tracking my neuromodulation treatment progress with DeepSynaps Protocol Studio.';
+  const title = t('patient.share.title');
+  const text  = t('patient.share.text');
   const url = window.location.href;
   if (navigator.share) {
     try { await navigator.share({ title, text, url }); }
@@ -5873,9 +5894,9 @@ window._patShareProgress = async function() {
     try {
       await navigator.clipboard.writeText(`${title}\n${text}\n${url}`);
       const btn = document.getElementById('share-btn');
-      if (btn) { const orig = btn.textContent; btn.textContent = 'Copied to clipboard!'; setTimeout(() => { btn.textContent = orig; }, 2000); }
+      if (btn) { const orig = btn.textContent; btn.textContent = t('patient.share.copied'); setTimeout(() => { btn.textContent = orig; }, 2000); }
     } catch (_) {
-      alert('Share not available. Copy this link: ' + url);
+      alert(t('patient.share.unavailable') + ' ' + url);
     }
   }
 };
@@ -7096,8 +7117,9 @@ function _calendarDots30() {
 // ── Progress report HTML builder ──────────────────────────────────────────────
 function _buildReportHTML(data) {
   const p = data.patient;
-  const today = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
-  const startFmt = new Date(p.startDate).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+  const _rptLoc  = getLocale() === 'tr' ? 'tr-TR' : 'en-US';
+  const today = new Date().toLocaleDateString(_rptLoc, { year: 'numeric', month: 'long', day: 'numeric' });
+  const startFmt = new Date(p.startDate).toLocaleDateString(_rptLoc, { year: 'numeric', month: 'long', day: 'numeric' });
   const avgScore = (data.sessionScores.reduce(function (a, b) { return a + b; }, 0) / data.sessionScores.length).toFixed(1);
   const anxArr = data.symptoms.anxiety, slpArr = data.symptoms.sleep;
   const anxImp = anxArr[0] - anxArr[anxArr.length - 1];
@@ -7186,7 +7208,7 @@ function _renderOutcomePortal() {
 
   const sessionHTML = data.sessions.map(function (s) {
     const read = s.clinicianRead ? '<span style="color:var(--accent-teal,#2dd4bf);font-size:0.72rem" title="Clinician has read">&#10003;&#10003; Read</span>' : '<span style="color:var(--text-muted,#94a3b8);font-size:0.72rem">&#10003; Sent</span>';
-    const dl = new Date(s.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    const dl = new Date(s.date).toLocaleDateString(_rptLoc, { month: 'short', day: 'numeric', year: 'numeric' });
     return '<div style="display:flex;flex-direction:column;gap:8px;padding:14px 16px;background:var(--card-bg,rgba(255,255,255,0.03));border:1px solid var(--border,rgba(255,255,255,0.07));border-radius:12px">' +
       '<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">' +
       '<div><div style="font-weight:600;font-size:0.9rem;color:var(--text,#f1f5f9)">' + s.type + '</div><div style="font-size:0.75rem;color:var(--text-muted,#94a3b8);margin-top:2px">' + dl + ' &nbsp;&bull;&nbsp; ' + s.clinician + '</div></div>' +
@@ -7195,13 +7217,13 @@ function _renderOutcomePortal() {
       '</div>';
   }).join('');
 
-  const sdates = data.sessions.map(function (s) { return new Date(s.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }); }).join(', ');
+  const sdates = data.sessions.map(function (s) { return new Date(s.date).toLocaleDateString(_rptLoc, { month: 'short', day: 'numeric' }); }).join(', ');
 
   el.innerHTML =
     '<div class="iii-outcome-banner">' +
     '<div class="iii-banner-greeting">' +
     '<div style="font-size:1.6rem;font-weight:800;color:var(--text,#f1f5f9);line-height:1.2">Your Progress, <span style="color:var(--accent-teal,#2dd4bf)">' + p.name + '</span></div>' +
-    '<div style="font-size:0.85rem;color:var(--text-muted,#94a3b8);margin-top:4px">Treatment started ' + new Date(p.startDate).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) + '</div>' +
+    '<div style="font-size:0.85rem;color:var(--text-muted,#94a3b8);margin-top:4px">Treatment started ' + new Date(p.startDate).toLocaleDateString(_rptLoc, { month: 'long', day: 'numeric', year: 'numeric' }) + '</div>' +
     '</div>' +
     '<div class="iii-stat-cards">' +
     statCards.map(function (sc) {
@@ -7320,7 +7342,7 @@ window._outcomeShowDay = function (dateStr) {
     entry = j.find(function (e) { return e.date === dateStr || (e.created_at || '').slice(0, 10) === dateStr; });
   } catch (_e) { /* no journal */ }
   popup.style.display = 'block';
-  const df = new Date(dateStr).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
+  const df = new Date(dateStr).toLocaleDateString(getLocale() === 'tr' ? 'tr-TR' : 'en-US', { weekday: 'long', month: 'long', day: 'numeric' });
   if (entry) {
     const mood = entry.mood || entry.mood_score || '\u2014', nt = entry.notes || entry.free_text || '';
     popup.innerHTML = '<strong style="color:var(--text,#f1f5f9)">' + df + '</strong><div style="margin-top:6px">Mood: <strong style="color:var(--accent-teal,#2dd4bf)">' + mood + '</strong></div>' + (nt ? '<div style="margin-top:6px;line-height:1.5">&#8220;' + nt + '&#8221;</div>' : '');
@@ -7334,4 +7356,184 @@ export async function pgPatientOutcomePortal(setTopbarFn) {
   const _tb = typeof setTopbarFn === 'function' ? setTopbarFn : setTopbar;
   _tb('My Outcomes', '<button style="display:inline-flex;align-items:center;gap:6px;background:rgba(96,165,250,0.12);color:var(--accent-blue,#60a5fa);border:1px solid rgba(96,165,250,0.25);border-radius:8px;padding:6px 14px;font-size:0.8rem;font-weight:600;cursor:pointer" onclick="window._outcomeDownloadReport()">&#8595; Download Report</button>');
   _renderOutcomePortal();
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// GUARDIAN PORTAL — Family & Caregiver Interface
+// Route: guardian-portal | localStorage keys: ds_guardian_profiles, ds_guardian_messages,
+//   ds_guardian_consents, ds_crisis_plans, ds_homework_plans, ds_active_guardian_patient
+// ════════════════════════════════════════════════════════════════════════════
+
+const _GP_SEED = {
+  guardians: [{ id: 'guard1', name: 'Maria Santos', email: 'm.santos@email.com', phone: '555-0192', relation: 'Mother' }],
+  linkedPatients: [
+    { id: 'lp1', patientId: 'p_child', name: 'Diego Santos', age: 12, relation: 'Son', program: 'Pediatric Neurofeedback \u2013 ADHD', nextAppt: '2026-04-18', compliance: 87, accessLevel: 'full' },
+    { id: 'lp2', patientId: 'p_adult', name: 'Carlos Santos', age: 34, relation: 'Brother', program: 'TMS \u2013 Depression Protocol', nextAppt: '2026-04-22', compliance: 72, accessLevel: 'view' },
+  ],
+  emergencyContacts: [
+    { id: 'ec1', name: 'Maria Santos', relation: 'Mother', phone: '555-0192', priority: 1 },
+    { id: 'ec2', name: 'Dr. Reyes', relation: 'Primary Care', phone: '555-0847', priority: 2 },
+    { id: 'ec3', name: 'Crisis Line', relation: '24/7 Support', phone: '988', priority: 3 },
+  ],
+};
+
+function _gpSeed() {
+  if (!localStorage.getItem('ds_guardian_profiles')) localStorage.setItem('ds_guardian_profiles', JSON.stringify(_GP_SEED));
+  if (!localStorage.getItem('ds_guardian_messages')) {
+    localStorage.setItem('ds_guardian_messages', JSON.stringify([
+      { id: 'gmsg1', patientId: 'p_child', from: 'care_team', fromName: 'Dr. Nguyen', text: 'Diego had a great session today \u2014 strong focus improvements noted.', ts: '2026-04-10T14:30:00Z', read: false },
+      { id: 'gmsg2', patientId: 'p_child', from: 'guardian', fromName: 'Maria Santos', text: 'Thank you! He mentioned the new breathing exercise really helped.', ts: '2026-04-10T15:00:00Z', read: true },
+      { id: 'gmsg3', patientId: 'p_adult', from: 'care_team', fromName: 'Dr. Patel', text: 'Carlos completed his 4th TMS session. He may feel mildly fatigued this evening.', ts: '2026-04-09T16:00:00Z', read: false },
+    ]));
+  }
+  if (!localStorage.getItem('ds_guardian_consents')) {
+    localStorage.setItem('ds_guardian_consents', JSON.stringify([
+      { id: 'con1', patientId: 'p_child', title: 'Pediatric Neurofeedback Treatment Consent', signedDate: '2026-01-15', expiresDate: '2027-01-15', status: 'valid', categories: { sessionNotes: true, medicationInfo: true, biometricData: true, financialRecords: false } },
+      { id: 'con2', patientId: 'p_child', title: 'HIPAA Authorization \u2013 Guardian Access', signedDate: '2026-01-15', expiresDate: '2026-07-15', status: 'expiring', categories: { sessionNotes: true, medicationInfo: false, biometricData: false, financialRecords: false } },
+      { id: 'con3', patientId: 'p_adult', title: 'Adult TMS Treatment Consent (Power of Attorney)', signedDate: '2025-10-01', expiresDate: '2026-03-31', status: 'expired', categories: { sessionNotes: true, medicationInfo: true, biometricData: false, financialRecords: false } },
+    ]));
+  }
+  if (!localStorage.getItem('ds_crisis_plans')) {
+    localStorage.setItem('ds_crisis_plans', JSON.stringify([
+      { patientId: 'p_child', warningSigns: ['Increased irritability or aggression', 'Refusal to attend sessions two or more times in a row', 'Sleep disturbance lasting more than three nights', 'Regression in focus or school performance'], deEscalation: ['Use calm, low-stimulation environment', 'Offer preferred comfort activity (LEGO, drawing)', 'Reduce screen time for 24 hours', 'Contact Dr. Nguyen before changing medication schedule'], emergencyOrder: ['ec1', 'ec2', 'ec3'] },
+      { patientId: 'p_adult', warningSigns: ['Increased withdrawal or isolation', 'Expressing hopelessness or worthlessness', 'Missing two or more TMS appointments', 'Changes in sleep or appetite lasting more than one week'], deEscalation: ['Maintain daily check-in routine', 'Encourage light physical activity', 'Remove or secure items that could cause harm', 'Do not leave alone during acute distress'], emergencyOrder: ['ec1', 'ec2', 'ec3'] },
+    ]));
+  }
+  if (!localStorage.getItem('ds_homework_plans')) {
+    localStorage.setItem('ds_homework_plans', JSON.stringify([
+      { id: 'hw1', patientId: 'p_child', task: 'Daily Breathing Exercise (5 min)', dueDate: '2026-04-12', status: 'pending', assisted: false },
+      { id: 'hw2', patientId: 'p_child', task: 'Focus Journal \u2013 write 3 sentences before bed', dueDate: '2026-04-13', status: 'completed', assisted: true },
+      { id: 'hw3', patientId: 'p_child', task: 'Outdoor activity \u2265 30 min', dueDate: '2026-04-14', status: 'pending', assisted: false },
+      { id: 'hw4', patientId: 'p_child', task: 'Screen-free hour before bedtime', dueDate: '2026-04-15', status: 'pending', assisted: false },
+      { id: 'hw5', patientId: 'p_adult', task: 'Mood check-in log (morning + evening)', dueDate: '2026-04-12', status: 'completed', assisted: false },
+      { id: 'hw6', patientId: 'p_adult', task: 'Social activity \u2013 call a friend or family member', dueDate: '2026-04-14', status: 'pending', assisted: false },
+    ]));
+  }
+  if (!localStorage.getItem('ds_active_guardian_patient')) localStorage.setItem('ds_active_guardian_patient', 'p_child');
+}
+
+function _gpLoad() {
+  _gpSeed();
+  return {
+    profiles: JSON.parse(localStorage.getItem('ds_guardian_profiles') || '{}'),
+    messages: JSON.parse(localStorage.getItem('ds_guardian_messages') || '[]'),
+    consents: JSON.parse(localStorage.getItem('ds_guardian_consents') || '[]'),
+    crisisPlans: JSON.parse(localStorage.getItem('ds_crisis_plans') || '[]'),
+    homework: JSON.parse(localStorage.getItem('ds_homework_plans') || '[]'),
+    activePatientId: localStorage.getItem('ds_active_guardian_patient') || 'p_child',
+  };
+}
+
+function _gpBadge(lvl) {
+  const m = { full: ['Full Access', 'full'], view: ['View Only', 'view'], emergency: ['Emergency Only', 'emergency'] };
+  const [l, c] = m[lvl] || ['Unknown', 'view'];
+  return `<span class="ooo-access-badge ooo-access-badge--${c}">${l}</span>`;
+}
+
+function _gpRing(pct, sz) {
+  sz = sz || 80;
+  const r = sz / 2 - 8, circ = 2 * Math.PI * r, dash = (pct / 100) * circ, cx = sz / 2, cy = sz / 2;
+  const col = pct >= 80 ? 'var(--accent-teal,#2dd4bf)' : pct >= 60 ? 'var(--accent-amber,#fbbf24)' : 'var(--accent-rose,#fb7185)';
+  return `<svg width="${sz}" height="${sz}" viewBox="0 0 ${sz} ${sz}" style="transform:rotate(-90deg)"><circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="var(--border,rgba(255,255,255,0.08))" stroke-width="7"/><circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="${col}" stroke-width="7" stroke-dasharray="${dash.toFixed(2)} ${circ.toFixed(2)}" stroke-linecap="round"/><text x="${cx}" y="${cy + 5}" text-anchor="middle" fill="var(--text,#f1f5f9)" font-size="14" font-weight="700" style="transform:rotate(90deg);transform-origin:${cx}px ${cy}px">${pct}%</text></svg>`;
+}
+
+function _gpBars(days) {
+  const W = 280, H = 80, bW = 28, gap = 12, totalW = days.length * (bW + gap) - gap, ox = (W - totalW) / 2;
+  const bars = days.map((d, i) => { const x = ox + i * (bW + gap), bh = Math.max(4, (d.rate / 100) * H), y = H - bh, col = d.rate >= 80 ? '#2dd4bf' : d.rate >= 50 ? '#fbbf24' : '#fb7185'; return `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${bW}" height="${bh.toFixed(1)}" rx="5" fill="${col}" opacity="${d.rate === 0 ? 0.25 : 1}"/><text x="${(x + bW / 2).toFixed(1)}" y="${H + 16}" text-anchor="middle" fill="var(--text-muted,#94a3b8)" font-size="10">${d.label}</text>`; }).join('');
+  return `<svg width="${W}" height="${H + 24}" viewBox="0 0 ${W} ${H + 24}" class="ooo-adherence-chart">${bars}</svg>`;
+}
+
+function _gpWeekData(hw, pid) {
+  const lbs = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'], today = new Date('2026-04-11'), td = today.getDay();
+  return lbs.map((label, i) => { const d = new Date(today); d.setDate(today.getDate() - td + i); const ds = d.toISOString().slice(0, 10), tasks = hw.filter(h => h.patientId === pid && h.dueDate === ds); const rate = tasks.length === 0 ? (i < td ? 50 : 0) : Math.round((tasks.filter(h => h.status === 'completed').length / tasks.length) * 100); return { label, rate }; });
+}
+
+function _gpSpark(pid) {
+  try {
+    const j = JSON.parse(localStorage.getItem('ds_symptom_journal') || '[]'), entries = j.filter(e => e.patientId === pid || !e.patientId).slice(-8);
+    const vals = entries.length >= 2 ? entries.map(e => Number(e.mood || e.mood_score || 5)) : [5, 4, 6, 5, 7, 6, 7, 8];
+    return sparklineSVG(vals, '#2dd4bf');
+  } catch (_e) { return ''; }
+}
+
+function _gpRender() {
+  const { profiles, messages, consents, crisisPlans, homework, activePatientId: pid } = _gpLoad();
+  const patients = profiles.linkedPatients || [], ecList = profiles.emergencyContacts || [];
+  const activePt = patients.find(p => p.patientId === pid) || patients[0];
+  const guardian = (profiles.guardians || [])[0] || { name: 'Guardian', relation: '', email: '' };
+  const unread = messages.filter(m => m.patientId === pid && !m.read).length;
+  const ptMsgs = messages.filter(m => m.patientId === pid);
+  const ptCons = consents.filter(c => c.patientId === pid);
+  const ptHw = homework.filter(h => h.patientId === pid);
+  const crisis = crisisPlans.find(c => c.patientId === pid);
+  const weekData = _gpWeekData(homework, pid);
+  const clinicNotes = [
+    { date: '2026-04-10', clinician: 'Dr. Nguyen', text: 'Patient showed strong response to theta/beta neurofeedback today. Sustained attention improved by approx. 18% from baseline. Homework compliance noted as excellent.' },
+    { date: '2026-04-03', clinician: 'Dr. Nguyen', text: 'Mild difficulty staying on-task during the first 10 minutes, then settled well. Recommended extending outdoor activity to 45 min on non-session days.' },
+    { date: '2026-03-27', clinician: 'Dr. Nguyen', text: 'Week 4 check-in complete. Overall trajectory positive. Guardian feedback incorporated \u2014 adjusted protocol timing to after-school schedule.' },
+  ];
+
+  // patient cards
+  const ptCards = patients.map(pt => { const active = pt.patientId === pid; const cc = pt.compliance >= 80 ? 'var(--accent-teal,#2dd4bf)' : pt.compliance >= 60 ? 'var(--accent-amber,#fbbf24)' : 'var(--accent-rose,#fb7185)'; return `<div class="ooo-patient-card${active ? ' ooo-patient-card--active' : ''}" onclick="window._gpSwitch('${pt.patientId}')"><div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px"><div><div style="font-weight:700;font-size:1rem;color:var(--text,#f1f5f9)">${pt.name}</div><div style="font-size:0.8rem;color:var(--text-muted,#94a3b8);margin-top:2px">Age ${pt.age} \u00b7 ${pt.relation}</div></div>${_gpBadge(pt.accessLevel)}</div><div style="font-size:0.82rem;color:var(--text-muted,#94a3b8);margin-bottom:8px">&#9639; ${pt.program}</div><div style="display:flex;justify-content:space-between;font-size:0.8rem;color:var(--text-muted,#94a3b8);margin-bottom:14px"><span>Next: <strong style="color:var(--text,#f1f5f9)">${new Date(pt.nextAppt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</strong></span><span>Compliance: <strong style="color:${cc}">${pt.compliance}%</strong></span></div><button style="width:100%;padding:8px;border-radius:8px;border:1px solid ${active ? 'var(--accent-teal,#2dd4bf)' : 'var(--border,rgba(255,255,255,0.1))'};background:${active ? 'rgba(45,212,191,0.12)' : 'transparent'};color:${active ? 'var(--accent-teal,#2dd4bf)' : 'var(--text-muted,#94a3b8)'};font-size:0.82rem;font-weight:600;cursor:pointer">${active ? '\u2713 Currently Viewing' : 'Switch to Patient'}</button></div>`; }).join('');
+
+  // treatment progress
+  const treatHtml = !activePt ? '' : `<section style="margin-bottom:36px"><h2 style="font-size:1rem;font-weight:600;color:var(--text,#f1f5f9);margin:0 0 16px;display:flex;align-items:center;gap:8px"><span style="color:var(--accent-blue,#60a5fa)">&#9639;</span> Treatment Progress \u2014 ${activePt.name}</h2><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:16px"><div style="background:var(--card-bg,rgba(255,255,255,0.03));border:1px solid var(--border,rgba(255,255,255,0.08));border-radius:14px;padding:20px"><div style="font-size:0.72rem;text-transform:uppercase;letter-spacing:0.08em;color:var(--text-muted,#94a3b8);margin-bottom:10px">Current Protocol</div><div style="font-weight:600;color:var(--text,#f1f5f9);margin-bottom:4px">${activePt.program}</div><div style="font-size:0.85rem;color:var(--text-muted,#94a3b8);margin-bottom:16px">Week 6 of treatment</div><div style="font-size:0.78rem;color:var(--text-muted,#94a3b8)">Next Session</div><div style="font-weight:600;color:var(--accent-teal,#2dd4bf);font-size:0.9rem;margin-top:2px">${new Date(activePt.nextAppt).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}</div><div style="font-size:0.78rem;color:var(--text-muted,#94a3b8);margin-top:2px">Clinician: Dr. Nguyen \u00b7 10:00 AM</div></div><div style="background:var(--card-bg,rgba(255,255,255,0.03));border:1px solid var(--border,rgba(255,255,255,0.08));border-radius:14px;padding:20px;display:flex;align-items:center;gap:20px">${_gpRing(activePt.compliance, 88)}<div><div style="font-size:0.72rem;text-transform:uppercase;letter-spacing:0.08em;color:var(--text-muted,#94a3b8);margin-bottom:6px">Session Compliance</div><div style="font-weight:600;font-size:1.1rem;color:var(--text,#f1f5f9)">${activePt.compliance}%</div><div style="font-size:0.8rem;color:var(--text-muted,#94a3b8);margin-top:4px">Sessions attended</div><div style="font-size:0.78rem;color:${activePt.compliance >= 80 ? 'var(--accent-teal,#2dd4bf)' : 'var(--accent-amber,#fbbf24)'};margin-top:6px">${activePt.compliance >= 80 ? 'Excellent progress' : 'Good \u2014 keep it up'}</div></div></div><div style="background:var(--card-bg,rgba(255,255,255,0.03));border:1px solid var(--border,rgba(255,255,255,0.08));border-radius:14px;padding:20px"><div style="font-size:0.72rem;text-transform:uppercase;letter-spacing:0.08em;color:var(--text-muted,#94a3b8);margin-bottom:10px">Symptom Trend \u2014 Last 8 Sessions</div><div style="margin-bottom:8px">${_gpSpark(pid)}</div><div style="font-size:0.78rem;color:var(--text-muted,#94a3b8)">Higher is better \u00b7 Scale 1\u201310</div><div style="font-size:0.78rem;color:var(--accent-teal,#2dd4bf);margin-top:4px">\u2191 Improving trend</div></div></div><div style="margin-top:16px;background:var(--card-bg,rgba(255,255,255,0.03));border:1px solid var(--border,rgba(255,255,255,0.08));border-radius:14px;padding:20px"><div style="font-size:0.72rem;text-transform:uppercase;letter-spacing:0.08em;color:var(--text-muted,#94a3b8);margin-bottom:14px">Recent Clinician Notes (Guardian-Visible)</div><div style="display:flex;flex-direction:column;gap:12px">${clinicNotes.map(n => `<div style="padding:12px 16px;background:var(--hover-bg,rgba(255,255,255,0.04));border-radius:10px;border-left:3px solid var(--accent-blue,#60a5fa)"><div style="display:flex;justify-content:space-between;margin-bottom:6px;font-size:0.78rem;color:var(--text-muted,#94a3b8)"><span>${n.clinician}</span><span>${new Date(n.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span></div><div style="font-size:0.87rem;color:var(--text,#f1f5f9);line-height:1.55">${n.text}</div></div>`).join('')}</div></div></section>`;
+
+  // homework & adherence
+  const hwHtml = !activePt ? '' : `<section style="margin-bottom:36px"><h2 style="font-size:1rem;font-weight:600;color:var(--text,#f1f5f9);margin:0 0 16px;display:flex;align-items:center;gap:8px"><span style="color:var(--accent-violet,#a78bfa)">&#9643;</span> Homework &amp; Adherence</h2><div style="display:grid;grid-template-columns:1fr 1fr;gap:16px"><div style="background:var(--card-bg,rgba(255,255,255,0.03));border:1px solid var(--border,rgba(255,255,255,0.08));border-radius:14px;padding:20px"><div style="font-size:0.72rem;text-transform:uppercase;letter-spacing:0.08em;color:var(--text-muted,#94a3b8);margin-bottom:14px">Assigned Tasks</div><div id="gp-homework-list" style="display:flex;flex-direction:column;gap:10px">${ptHw.map(hw => { const sbg = hw.status === 'completed' ? 'rgba(45,212,191,0.12)' : 'rgba(251,191,36,0.12)', sc = hw.status === 'completed' ? 'var(--accent-teal,#2dd4bf)' : 'var(--accent-amber,#fbbf24)'; return `<div style="padding:10px 12px;background:var(--hover-bg,rgba(255,255,255,0.04));border-radius:10px;border:1px solid var(--border,rgba(255,255,255,0.07))"><div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px"><div style="flex:1"><div style="font-size:0.87rem;font-weight:600;color:var(--text,#f1f5f9);margin-bottom:3px">${hw.task}</div><div style="font-size:0.75rem;color:var(--text-muted,#94a3b8)">Due: ${new Date(hw.dueDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}${hw.assisted ? ' \u00b7 Guardian assisted' : ''}</div></div><span style="flex-shrink:0;padding:3px 9px;border-radius:20px;font-size:0.72rem;font-weight:700;background:${sbg};color:${sc}">${hw.status === 'completed' ? '\u2713 Done' : 'Pending'}</span></div>${hw.status !== 'completed' ? `<div style="display:flex;gap:8px;margin-top:8px"><button onclick="window._gpMarkHw('${hw.id}','completed')" style="flex:1;padding:5px 0;border-radius:7px;border:1px solid var(--accent-teal,#2dd4bf);background:transparent;color:var(--accent-teal,#2dd4bf);font-size:0.75rem;font-weight:600;cursor:pointer">Mark Complete</button><button onclick="window._gpMarkHw('${hw.id}','assisted')" style="flex:1;padding:5px 0;border-radius:7px;border:1px solid var(--accent-violet,#a78bfa);background:transparent;color:var(--accent-violet,#a78bfa);font-size:0.75rem;font-weight:600;cursor:pointer">Mark Assisted</button></div>` : ''}</div>`; }).join('')}</div><button onclick="window._gpEncourage()" style="margin-top:16px;width:100%;padding:10px;border-radius:10px;border:1px solid var(--accent-amber,#fbbf24);background:rgba(251,191,36,0.08);color:var(--accent-amber,#fbbf24);font-size:0.85rem;font-weight:600;cursor:pointer">&#128155; Send Encouragement</button></div><div style="background:var(--card-bg,rgba(255,255,255,0.03));border:1px solid var(--border,rgba(255,255,255,0.08));border-radius:14px;padding:20px"><div style="font-size:0.72rem;text-transform:uppercase;letter-spacing:0.08em;color:var(--text-muted,#94a3b8);margin-bottom:14px">Weekly Adherence</div><div style="overflow-x:auto">${_gpBars(weekData)}</div><div style="display:flex;gap:14px;margin-top:14px;flex-wrap:wrap"><span style="display:flex;align-items:center;gap:5px;font-size:0.75rem;color:var(--text-muted,#94a3b8)"><span style="width:10px;height:10px;border-radius:2px;background:#2dd4bf;display:inline-block"></span>On track (\u226580%)</span><span style="display:flex;align-items:center;gap:5px;font-size:0.75rem;color:var(--text-muted,#94a3b8)"><span style="width:10px;height:10px;border-radius:2px;background:#fbbf24;display:inline-block"></span>Partial (50\u201379%)</span><span style="display:flex;align-items:center;gap:5px;font-size:0.75rem;color:var(--text-muted,#94a3b8)"><span style="width:10px;height:10px;border-radius:2px;background:#fb7185;display:inline-block"></span>Missed (&lt;50%)</span></div></div></div></section>`;
+
+  // messaging
+  const msgHtml = !activePt ? '' : `<section style="margin-bottom:36px"><h2 style="font-size:1rem;font-weight:600;color:var(--text,#f1f5f9);margin:0 0 16px;display:flex;align-items:center;gap:8px"><span style="color:var(--accent-teal,#2dd4bf)">&#9643;</span> Secure Messages${unread > 0 ? ` <span style="background:var(--accent-rose,#fb7185);color:#fff;border-radius:20px;padding:2px 9px;font-size:0.7rem;font-weight:700">${unread}</span>` : ''}</h2><div style="background:var(--card-bg,rgba(255,255,255,0.03));border:1px solid var(--border,rgba(255,255,255,0.08));border-radius:14px;padding:20px"><div class="ooo-message-thread" id="gp-message-thread" style="max-height:320px;overflow-y:auto;margin-bottom:16px">${ptMsgs.length === 0 ? '<div style="text-align:center;padding:32px;color:var(--text-muted,#94a3b8);font-size:0.87rem">No messages yet. Send a message to your care team below.</div>' : ptMsgs.map(msg => { const g = msg.from === 'guardian'; const bg = g ? 'rgba(45,212,191,0.12)' : 'var(--hover-bg,rgba(255,255,255,0.05))', brd = g ? 'rgba(45,212,191,0.2)' : 'var(--border,rgba(255,255,255,0.08))', rad = g ? '14px 14px 4px 14px' : '14px 14px 14px 4px', dot = (!msg.read && !g) ? '<span style="position:absolute;top:-4px;right:-4px;width:10px;height:10px;border-radius:50%;background:var(--accent-rose,#fb7185)"></span>' : ''; return `<div style="display:flex;flex-direction:column;align-items:${g ? 'flex-end' : 'flex-start'};margin-bottom:12px"><div style="max-width:78%;padding:10px 14px;border-radius:${rad};background:${bg};border:1px solid ${brd};position:relative">${dot}<div style="font-size:0.75rem;color:var(--text-muted,#94a3b8);margin-bottom:4px">${msg.fromName} \u00b7 ${new Date(msg.ts).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</div><div style="font-size:0.875rem;color:var(--text,#f1f5f9);line-height:1.5">${msg.text}</div></div></div>`; }).join('')}</div><div style="display:flex;gap:10px"><textarea id="gp-msg-input" placeholder="Type a message to your care team\u2026" rows="2" style="flex:1;padding:10px 14px;background:var(--hover-bg,rgba(255,255,255,0.05));border:1px solid var(--border,rgba(255,255,255,0.1));border-radius:10px;color:var(--text,#f1f5f9);font-size:0.87rem;resize:vertical;font-family:inherit;outline:none"></textarea><button onclick="window._gpSendMsg()" style="padding:10px 18px;border-radius:10px;border:none;background:var(--accent-teal,#2dd4bf);color:#0a0f1a;font-weight:700;font-size:0.85rem;cursor:pointer;flex-shrink:0;align-self:flex-end">Send</button></div><div style="margin-top:10px"><input id="gp-note-input" type="text" placeholder="Attach a brief note (optional)\u2026" style="width:100%;box-sizing:border-box;padding:8px 14px;background:var(--hover-bg,rgba(255,255,255,0.05));border:1px solid var(--border,rgba(255,255,255,0.1));border-radius:8px;color:var(--text,#f1f5f9);font-size:0.82rem;font-family:inherit;outline:none"/></div></div></section>`;
+
+  // consents
+  const catL = { sessionNotes: 'Session Notes', medicationInfo: 'Medication Info', biometricData: 'Biometric Data', financialRecords: 'Financial Records' };
+  const consentHtml = !activePt ? '' : `<section style="margin-bottom:36px"><h2 style="font-size:1rem;font-weight:600;color:var(--text,#f1f5f9);margin:0 0 16px;display:flex;align-items:center;gap:8px"><span style="color:var(--accent-amber,#fbbf24)">&#9673;</span> Consent &amp; Authorization</h2><div style="display:flex;flex-direction:column;gap:12px">${ptCons.map(con => { const stBg = con.status === 'valid' ? 'rgba(45,212,191,0.12)' : con.status === 'expiring' ? 'rgba(251,191,36,0.12)' : 'rgba(251,113,133,0.12)', stC = con.status === 'valid' ? 'var(--accent-teal,#2dd4bf)' : con.status === 'expiring' ? 'var(--accent-amber,#fbbf24)' : 'var(--accent-rose,#fb7185)', stL = con.status === 'valid' ? '\u2713 Valid' : con.status === 'expiring' ? '\u26a0 Expiring Soon' : '\u2715 Expired', rBtn = con.status !== 'valid' ? `<button onclick="window._gpResign('${con.id}')" style="padding:5px 14px;border-radius:8px;border:1px solid var(--accent-amber,#fbbf24);background:rgba(251,191,36,0.08);color:var(--accent-amber,#fbbf24);font-size:0.8rem;font-weight:600;cursor:pointer">Re-sign</button>` : '', catBtns = Object.keys(catL).map(k => { const on = con.categories[k]; return `<button onclick="window._gpToggleCat('${con.id}','${k}')" style="padding:4px 12px;border-radius:20px;border:1px solid ${on ? 'var(--accent-blue,#60a5fa)' : 'var(--border,rgba(255,255,255,0.1))'};background:${on ? 'rgba(96,165,250,0.1)' : 'transparent'};color:${on ? 'var(--accent-blue,#60a5fa)' : 'var(--text-muted,#94a3b8)'};font-size:0.75rem;cursor:pointer">${on ? '\u2713' : '\u25cb'} ${catL[k]}</button>`; }).join(''); return `<div class="ooo-consent-item"><div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px"><div style="flex:1;min-width:200px"><div style="font-weight:600;font-size:0.9rem;color:var(--text,#f1f5f9);margin-bottom:3px">${con.title}</div><div style="font-size:0.78rem;color:var(--text-muted,#94a3b8)">Signed: ${new Date(con.signedDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} \u00b7 Expires: ${new Date(con.expiresDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</div></div><div style="display:flex;align-items:center;gap:10px;flex-shrink:0"><span style="padding:4px 12px;border-radius:20px;font-size:0.75rem;font-weight:700;background:${stBg};color:${stC}">${stL}</span>${rBtn}</div></div><div style="margin-top:12px;display:flex;flex-wrap:wrap;gap:8px">${catBtns}</div></div>`; }).join('')}</div></section>`;
+
+  // emergency & crisis
+  const eis = 'padding:7px 10px;background:var(--hover-bg,rgba(255,255,255,0.05));border:1px solid var(--border,rgba(255,255,255,0.1));border-radius:7px;color:var(--text,#f1f5f9);font-size:0.82rem;font-family:inherit;outline:none';
+  const ecRows = ecList.map(ec => `<div style="display:flex;align-items:center;gap:12px;padding:10px 12px;background:var(--hover-bg,rgba(255,255,255,0.04));border-radius:10px"><div style="width:28px;height:28px;border-radius:50%;background:rgba(251,113,133,0.15);display:flex;align-items:center;justify-content:center;font-size:0.75rem;font-weight:700;color:var(--accent-rose,#fb7185);flex-shrink:0">${ec.priority}</div><div style="flex:1"><div style="font-weight:600;font-size:0.87rem;color:var(--text,#f1f5f9)">${ec.name}</div><div style="font-size:0.75rem;color:var(--text-muted,#94a3b8)">${ec.relation}</div></div><a href="tel:${ec.phone}" style="color:var(--accent-teal,#2dd4bf);font-size:0.87rem;font-weight:600;text-decoration:none">${ec.phone}</a></div>`).join('');
+  const ecEditRows = ecList.map(ec => `<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:10px"><input id="gp-ec-name-${ec.id}" value="${ec.name}" placeholder="Name" style="${eis}"/><input id="gp-ec-rel-${ec.id}" value="${ec.relation}" placeholder="Relation" style="${eis}"/><input id="gp-ec-phone-${ec.id}" value="${ec.phone}" placeholder="Phone" style="${eis}"/></div>`).join('');
+  const crisisDetail = crisis ? `<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px"><div><div style="font-size:0.75rem;text-transform:uppercase;letter-spacing:0.07em;color:var(--accent-amber,#fbbf24);margin-bottom:10px;font-weight:600">Warning Signs</div><ul style="margin:0;padding-left:18px;display:flex;flex-direction:column;gap:6px">${crisis.warningSigns.map(s => `<li style="font-size:0.85rem;color:var(--text,#f1f5f9);line-height:1.5">${s}</li>`).join('')}</ul></div><div><div style="font-size:0.75rem;text-transform:uppercase;letter-spacing:0.07em;color:var(--accent-teal,#2dd4bf);margin-bottom:10px;font-weight:600">De-escalation Steps</div><ol style="margin:0;padding-left:18px;display:flex;flex-direction:column;gap:6px">${crisis.deEscalation.map(s => `<li style="font-size:0.85rem;color:var(--text,#f1f5f9);line-height:1.5">${s}</li>`).join('')}</ol></div></div><div style="margin-top:14px;padding:12px 16px;background:rgba(251,113,133,0.06);border-radius:10px;border:1px solid rgba(251,113,133,0.15)"><div style="font-size:0.75rem;text-transform:uppercase;letter-spacing:0.07em;color:var(--accent-rose,#fb7185);margin-bottom:8px;font-weight:600">If in immediate danger, call 911</div><div style="font-size:0.82rem;color:var(--text-muted,#94a3b8)">Then contact emergency contacts in priority order. Keep this plan accessible.</div></div>` : '<div style="color:var(--text-muted,#94a3b8);font-size:0.87rem">No crisis plan on file. Contact your care team to create one.</div>';
+  const crisisHtml = !activePt ? '' : `<section style="margin-bottom:36px"><h2 style="font-size:1rem;font-weight:600;color:var(--text,#f1f5f9);margin:0 0 16px;display:flex;align-items:center;gap:8px"><span style="color:var(--accent-rose,#fb7185)">&#9888;</span> Emergency Contacts &amp; Crisis Plan</h2><div style="background:var(--card-bg,rgba(255,255,255,0.03));border:1px solid var(--border,rgba(255,255,255,0.08));border-radius:14px;padding:20px;margin-bottom:14px"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px"><div style="font-size:0.72rem;text-transform:uppercase;letter-spacing:0.08em;color:var(--text-muted,#94a3b8)">Emergency Contacts</div><button onclick="window._gpToggleEdit()" style="padding:5px 12px;border-radius:8px;border:1px solid var(--border,rgba(255,255,255,0.1));background:transparent;color:var(--text-muted,#94a3b8);font-size:0.78rem;cursor:pointer">Update Info</button></div><div id="gp-contacts-list" style="display:flex;flex-direction:column;gap:8px">${ecRows}</div><div id="gp-edit-contacts-form" style="display:none;margin-top:14px;border-top:1px solid var(--border,rgba(255,255,255,0.08));padding-top:14px">${ecEditRows}<div style="display:flex;gap:8px;margin-top:4px"><button onclick="window._gpSaveContacts()" style="padding:7px 18px;border-radius:8px;border:none;background:var(--accent-teal,#2dd4bf);color:#0a0f1a;font-weight:700;font-size:0.82rem;cursor:pointer">Save Changes</button><button onclick="window._gpCancelEdit()" style="padding:7px 14px;border-radius:8px;border:1px solid var(--border,rgba(255,255,255,0.1));background:transparent;color:var(--text-muted,#94a3b8);font-size:0.82rem;cursor:pointer">Cancel</button></div></div></div><div class="ooo-crisis-panel"><div style="display:flex;justify-content:space-between;align-items:center;cursor:pointer" onclick="window._gpToggleCrisis()"><div><div style="font-weight:600;font-size:0.92rem;color:var(--text,#f1f5f9)">Crisis &amp; Safety Plan \u2014 ${activePt.name}</div><div style="font-size:0.78rem;color:var(--text-muted,#94a3b8);margin-top:2px">Know the warning signs and what to do</div></div><button id="gp-crisis-btn" style="background:rgba(251,113,133,0.1);border:1px solid rgba(251,113,133,0.25);color:var(--accent-rose,#fb7185);border-radius:8px;padding:6px 14px;font-size:0.8rem;font-weight:600;cursor:pointer">View Plan</button></div><div id="gp-crisis-detail" style="display:none;margin-top:16px;border-top:1px solid rgba(251,113,133,0.2);padding-top:16px">${crisisDetail}</div></div></section>`;
+
+  document.getElementById('app-content').innerHTML = `<div style="max-width:960px;margin:0 auto;padding:24px 20px 60px"><div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:28px"><div><div style="font-size:0.72rem;text-transform:uppercase;letter-spacing:0.08em;color:var(--text-muted,#94a3b8);margin-bottom:4px">Family &amp; Guardian Portal</div><h1 style="margin:0;font-size:1.5rem;font-weight:700;color:var(--text,#f1f5f9)">Welcome, ${guardian.name}</h1><div style="font-size:0.85rem;color:var(--text-muted,#94a3b8);margin-top:3px">${guardian.relation} \u00b7 ${guardian.email}</div></div><div style="display:flex;align-items:center;gap:10px">${unread > 0 ? `<span style="background:var(--accent-rose,#fb7185);color:#fff;border-radius:20px;padding:4px 12px;font-size:0.78rem;font-weight:700">${unread} unread message${unread > 1 ? 's' : ''}</span>` : ''}<div style="font-size:0.8rem;color:var(--text-muted,#94a3b8)">April 11, 2026</div></div></div><section style="margin-bottom:36px"><h2 style="font-size:1rem;font-weight:600;color:var(--text,#f1f5f9);margin:0 0 16px;display:flex;align-items:center;gap:8px"><span style="color:var(--accent-teal,#2dd4bf)">&#9673;</span> Your Linked Patients</h2><div class="ooo-patient-cards">${ptCards}</div></section>${treatHtml}${hwHtml}${msgHtml}${consentHtml}${crisisHtml}</div><div id="gp-resign-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.65);z-index:1000;align-items:center;justify-content:center;padding:20px"><div style="background:var(--bg-secondary,#0f172a);border:1px solid var(--border,rgba(255,255,255,0.1));border-radius:16px;padding:28px;max-width:520px;width:100%"><h3 style="margin:0 0 8px;color:var(--text,#f1f5f9);font-size:1.1rem">Re-sign Consent</h3><p id="gp-resign-title" style="color:var(--text-muted,#94a3b8);font-size:0.87rem;margin:0 0 16px"></p><div style="background:var(--hover-bg,rgba(255,255,255,0.04));border:1px solid var(--border,rgba(255,255,255,0.08));border-radius:10px;padding:16px;font-size:0.82rem;color:var(--text-muted,#94a3b8);line-height:1.6;margin-bottom:16px;max-height:160px;overflow-y:auto">I, the undersigned legal guardian, acknowledge and consent to the treatment protocols outlined by the care team at DeepSynaps Protocol Studio. I understand the nature of neuromodulation therapy, associated risks, and my right to withdraw consent at any time. I authorize the care team to share relevant treatment information with me as the authorized guardian. This consent is valid for one year from the date of signature.</div><div style="margin-bottom:14px"><div style="font-size:0.78rem;color:var(--text-muted,#94a3b8);margin-bottom:6px">Signature (draw below):</div><canvas id="gp-sig-canvas" width="460" height="60" style="border:1px solid var(--border,rgba(255,255,255,0.12));border-radius:8px;background:rgba(255,255,255,0.03);cursor:crosshair;touch-action:none;display:block;width:100%;max-width:460px"></canvas><button onclick="window._gpClearSig()" style="margin-top:6px;padding:4px 12px;border-radius:6px;border:1px solid var(--border,rgba(255,255,255,0.1));background:transparent;color:var(--text-muted,#94a3b8);font-size:0.75rem;cursor:pointer">Clear Signature</button></div><div style="display:flex;gap:10px;justify-content:flex-end"><button onclick="window._gpCloseResign()" style="padding:8px 18px;border-radius:9px;border:1px solid var(--border,rgba(255,255,255,0.1));background:transparent;color:var(--text-muted,#94a3b8);font-size:0.85rem;cursor:pointer">Cancel</button><button onclick="window._gpDoResign()" style="padding:8px 20px;border-radius:9px;border:none;background:var(--accent-teal,#2dd4bf);color:#0a0f1a;font-weight:700;font-size:0.85rem;cursor:pointer">Submit Signature</button></div></div></div>`;
+
+  try { const m2 = JSON.parse(localStorage.getItem('ds_guardian_messages') || '[]'); localStorage.setItem('ds_guardian_messages', JSON.stringify(m2.map(m => m.patientId === pid ? { ...m, read: true } : m))); } catch (_e) { /* safe */ }
+  setTimeout(() => { const t = document.getElementById('gp-message-thread'); if (t) t.scrollTop = t.scrollHeight; }, 50);
+}
+
+function _gpInitSig() {
+  const c = document.getElementById('gp-sig-canvas');
+  if (!c) return;
+  const ctx = c.getContext('2d');
+  let drawing = false, lx = 0, ly = 0;
+  function pos(e) { const r = c.getBoundingClientRect(), sx = c.width / r.width, sy = c.height / r.height, src = e.touches ? e.touches[0] : e; return { x: (src.clientX - r.left) * sx, y: (src.clientY - r.top) * sy }; }
+  function ln(e) { const p = pos(e); ctx.beginPath(); ctx.moveTo(lx, ly); ctx.lineTo(p.x, p.y); ctx.strokeStyle = '#f1f5f9'; ctx.lineWidth = 2; ctx.lineCap = 'round'; ctx.stroke(); lx = p.x; ly = p.y; }
+  c.addEventListener('mousedown', e => { drawing = true; const p = pos(e); lx = p.x; ly = p.y; });
+  c.addEventListener('mousemove', e => { if (drawing) ln(e); });
+  c.addEventListener('mouseup', () => { drawing = false; });
+  c.addEventListener('mouseleave', () => { drawing = false; });
+  c.addEventListener('touchstart', e => { e.preventDefault(); drawing = true; const p = pos(e); lx = p.x; ly = p.y; }, { passive: false });
+  c.addEventListener('touchmove', e => { e.preventDefault(); if (drawing) ln(e); }, { passive: false });
+  c.addEventListener('touchend', () => { drawing = false; });
+}
+
+window._gpSwitch = pid => { localStorage.setItem('ds_active_guardian_patient', pid); _gpRender(); };
+window._gpMarkHw = (id, action) => { try { const hw = JSON.parse(localStorage.getItem('ds_homework_plans') || '[]'), i = hw.findIndex(h => h.id === id); if (i === -1) return; if (action === 'completed') { hw[i].status = 'completed'; hw[i].assisted = false; } if (action === 'assisted') hw[i].assisted = true; localStorage.setItem('ds_homework_plans', JSON.stringify(hw)); _gpRender(); } catch (_e) { /* safe */ } };
+window._gpEncourage = () => { const pid = localStorage.getItem('ds_active_guardian_patient') || 'p_child', prof = JSON.parse(localStorage.getItem('ds_guardian_profiles') || '{}'), grd = (prof.guardians || [])[0] || { name: 'Guardian' }, pt = (prof.linkedPatients || []).find(p => p.patientId === pid), msgs = JSON.parse(localStorage.getItem('ds_guardian_messages') || '[]'); msgs.push({ id: 'genc_' + Date.now(), patientId: pid, from: 'guardian', fromName: grd.name, text: 'Encouragement sent to ' + (pt ? pt.name : 'the patient') + ': \u201cWe\u2019re proud of your hard work and progress. Keep going!\u201d', ts: new Date().toISOString(), read: true, type: 'encouragement' }); localStorage.setItem('ds_guardian_messages', JSON.stringify(msgs)); _gpRender(); setTimeout(() => { const t = document.getElementById('gp-message-thread'); if (t) t.scrollTop = t.scrollHeight; }, 50); };
+window._gpSendMsg = () => { const inp = document.getElementById('gp-msg-input'), note = document.getElementById('gp-note-input'), text = inp ? inp.value.trim() : ''; if (!text) return; const pid = localStorage.getItem('ds_active_guardian_patient') || 'p_child', prof = JSON.parse(localStorage.getItem('ds_guardian_profiles') || '{}'), grd = (prof.guardians || [])[0] || { name: 'Guardian' }, msgs = JSON.parse(localStorage.getItem('ds_guardian_messages') || '[]'), nt = note ? note.value.trim() : ''; msgs.push({ id: 'gmsg_' + Date.now(), patientId: pid, from: 'guardian', fromName: grd.name, text: text + (nt ? '\n\nNote: ' + nt : ''), ts: new Date().toISOString(), read: true }); localStorage.setItem('ds_guardian_messages', JSON.stringify(msgs)); _gpRender(); setTimeout(() => { const t = document.getElementById('gp-message-thread'); if (t) t.scrollTop = t.scrollHeight; }, 50); };
+window._gpResign = conId => { const cons = JSON.parse(localStorage.getItem('ds_guardian_consents') || '[]'), con = cons.find(c => c.id === conId), modal = document.getElementById('gp-resign-modal'); if (!modal || !con) return; const tEl = document.getElementById('gp-resign-title'); if (tEl) tEl.textContent = con.title; modal._consentId = conId; modal.style.display = 'flex'; _gpInitSig(); };
+window._gpCloseResign = () => { const m = document.getElementById('gp-resign-modal'); if (m) m.style.display = 'none'; };
+window._gpClearSig = () => { const c = document.getElementById('gp-sig-canvas'); if (c) c.getContext('2d').clearRect(0, 0, c.width, c.height); };
+window._gpDoResign = () => { const modal = document.getElementById('gp-resign-modal'); if (!modal) return; try { const cons = JSON.parse(localStorage.getItem('ds_guardian_consents') || '[]'), i = cons.findIndex(c => c.id === modal._consentId); if (i !== -1) { const now = new Date(), exp = new Date(now); exp.setFullYear(now.getFullYear() + 1); cons[i].status = 'valid'; cons[i].signedDate = now.toISOString().slice(0, 10); cons[i].expiresDate = exp.toISOString().slice(0, 10); localStorage.setItem('ds_guardian_consents', JSON.stringify(cons)); } } catch (_e) { /* safe */ } modal.style.display = 'none'; _gpRender(); };
+window._gpToggleCat = (conId, cat) => { try { const cons = JSON.parse(localStorage.getItem('ds_guardian_consents') || '[]'), i = cons.findIndex(c => c.id === conId); if (i === -1) return; cons[i].categories[cat] = !cons[i].categories[cat]; localStorage.setItem('ds_guardian_consents', JSON.stringify(cons)); _gpRender(); } catch (_e) { /* safe */ } };
+window._gpToggleCrisis = () => { const det = document.getElementById('gp-crisis-detail'), btn = document.getElementById('gp-crisis-btn'); if (!det) return; const h = det.style.display === 'none'; det.style.display = h ? 'block' : 'none'; if (btn) btn.textContent = h ? 'Hide Plan' : 'View Plan'; };
+window._gpToggleEdit = () => { const form = document.getElementById('gp-edit-contacts-form'), list = document.getElementById('gp-contacts-list'); if (!form) return; const s = form.style.display !== 'none'; form.style.display = s ? 'none' : 'block'; if (list) list.style.display = s ? 'flex' : 'none'; };
+window._gpCancelEdit = () => { const form = document.getElementById('gp-edit-contacts-form'), list = document.getElementById('gp-contacts-list'); if (form) form.style.display = 'none'; if (list) list.style.display = 'flex'; };
+window._gpSaveContacts = () => { try { const prof = JSON.parse(localStorage.getItem('ds_guardian_profiles') || '{}'); (prof.emergencyContacts || []).forEach(ec => { const n = document.getElementById('gp-ec-name-' + ec.id), r = document.getElementById('gp-ec-rel-' + ec.id), p = document.getElementById('gp-ec-phone-' + ec.id); if (n) ec.name = n.value; if (r) ec.relation = r.value; if (p) ec.phone = p.value; }); localStorage.setItem('ds_guardian_profiles', JSON.stringify(prof)); } catch (_e) { /* safe */ } _gpRender(); };
+
+export async function pgGuardianPortal(setTopbarFn) {
+  const _tb = typeof setTopbarFn === 'function' ? setTopbarFn : setTopbar;
+  _tb('Guardian Portal', '<div style="display:flex;align-items:center;gap:10px"><span style="font-size:0.8rem;color:var(--text-muted,#94a3b8)">Family &amp; Caregiver Access</span><button style="display:inline-flex;align-items:center;gap:6px;background:rgba(251,113,133,0.1);color:var(--accent-rose,#fb7185);border:1px solid rgba(251,113,133,0.25);border-radius:8px;padding:6px 14px;font-size:0.8rem;font-weight:600;cursor:pointer" onclick="window._gpToggleCrisis();setTimeout(function(){var el=document.getElementById(\'gp-crisis-detail\');if(el)el.scrollIntoView({behavior:\'smooth\'})},50)">&#9888; Crisis Plan</button></div>');
+  _gpRender();
 }

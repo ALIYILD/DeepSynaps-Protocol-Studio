@@ -2727,3 +2727,3023 @@ export async function pgQualityAssurance(setTopbar) {
 
   render();
 }
+
+// ── Device & Equipment Management ─────────────────────────────────────────────
+
+const DEVICES_KEY      = 'ds_devices';
+const DEVICE_LOGS_KEY  = 'ds_device_logs';
+
+function _seedDevices() {
+  return [
+    {
+      id: 'DEV-001', name: 'NeuroAmp Pro 2024', type: 'neurofeedback-amp',
+      serialNumber: 'NA-2024-0471', manufacturer: 'BrainTech Systems', model: 'NAP-2024',
+      purchaseDate: '2023-06-15', warrantyExpiry: '2026-06-15',
+      lastCalibration: '2026-01-10', nextCalibration: '2026-04-10',
+      lastMaintenance: '2025-12-20', nextMaintenance: '2026-06-20',
+      status: 'active', assignedRoom: 'Room A', notes: 'Primary EEG amplifier for neurofeedback sessions.',
+      sessionCount: 142,
+    },
+    {
+      id: 'DEV-002', name: 'MagStim Rapid\u00b2', type: 'tms-coil',
+      serialNumber: 'MS-R2-8823', manufacturer: 'MagStim Co.', model: 'Rapid2',
+      purchaseDate: '2022-11-01', warrantyExpiry: '2026-04-20',
+      lastCalibration: '2025-10-15', nextCalibration: '2026-04-15',
+      lastMaintenance: '2026-02-01', nextMaintenance: '2026-08-01',
+      status: 'active', assignedRoom: 'Room B', notes: 'High-frequency rTMS coil. Handle with care.',
+      sessionCount: 310,
+    },
+    {
+      id: 'DEV-003', name: 'Soterix tDCS 1x1', type: 'tdcs-device',
+      serialNumber: 'SOT-1X1-3312', manufacturer: 'Soterix Medical', model: '1x1 CT',
+      purchaseDate: '2021-03-10', warrantyExpiry: '2024-03-10',
+      lastCalibration: '2025-08-20', nextCalibration: '2026-03-01',
+      lastMaintenance: '2025-11-10', nextMaintenance: '2026-05-10',
+      status: 'maintenance', assignedRoom: 'Room C', notes: 'Under scheduled maintenance. Warranty expired.',
+      sessionCount: 88,
+    },
+    {
+      id: 'DEV-004', name: '32-Ch EEG Cap Set', type: 'eeg-cap',
+      serialNumber: 'EEG-32-0092', manufacturer: 'Neuroscan', model: 'SynAmps-32',
+      purchaseDate: '2024-01-20', warrantyExpiry: '2027-01-20',
+      lastCalibration: '2026-03-05', nextCalibration: '2026-07-05',
+      lastMaintenance: '2026-03-05', nextMaintenance: '2026-09-05',
+      status: 'active', assignedRoom: 'Room A', notes: 'Full 32-channel cap; includes spare electrodes.',
+      sessionCount: 59,
+    },
+    {
+      id: 'DEV-005', name: 'EmWave Pro Biofeedback', type: 'biofeedback-sensor',
+      serialNumber: 'EW-PRO-1147', manufacturer: 'HeartMath', model: 'emWave Pro+',
+      purchaseDate: '2023-09-05', warrantyExpiry: '2025-09-05',
+      lastCalibration: '2025-09-01', nextCalibration: '2026-03-25',
+      lastMaintenance: '2025-09-01', nextMaintenance: '2026-03-20',
+      status: 'loaned-out', assignedRoom: 'Portable', notes: 'Loaned to Dr. Chen clinic until Apr 30.',
+      sessionCount: 77,
+    },
+    {
+      id: 'DEV-006', name: 'Stimpod TMS Coil (Old)', type: 'tms-coil',
+      serialNumber: 'SP-TMS-0088', manufacturer: 'Xavant Technology', model: 'Stimpod NMS460',
+      purchaseDate: '2019-05-01', warrantyExpiry: '2022-05-01',
+      lastCalibration: '2022-12-01', nextCalibration: '2023-06-01',
+      lastMaintenance: '2022-12-01', nextMaintenance: '2023-06-01',
+      status: 'decommissioned', assignedRoom: 'Room C', notes: 'Decommissioned \u2014 exceeded service life.',
+      sessionCount: 520,
+    },
+  ];
+}
+
+function _seedDeviceLogs() {
+  return [
+    { id: 'DL-001', deviceId: 'DEV-001', deviceName: 'NeuroAmp Pro 2024',      type: 'calibration',  date: '2026-01-10', technician: 'Dr. Yildiz',  notes: 'Full impedance calibration. All channels within spec.', outcome: 'pass' },
+    { id: 'DL-002', deviceId: 'DEV-001', deviceName: 'NeuroAmp Pro 2024',      type: 'session-use',  date: '2026-04-08', technician: 'Nurse Park',   notes: 'Alpha/theta neurofeedback \u2014 Patient ID P-0047.', outcome: 'pending' },
+    { id: 'DL-003', deviceId: 'DEV-002', deviceName: 'MagStim Rapid\u00b2',    type: 'maintenance',  date: '2026-02-01', technician: 'Tech. Alves',  notes: 'Coil cooling system inspected. Fan replaced.', outcome: 'pass' },
+    { id: 'DL-004', deviceId: 'DEV-002', deviceName: 'MagStim Rapid\u00b2',    type: 'calibration',  date: '2025-10-15', technician: 'Dr. Yildiz',  notes: 'MT threshold verified at 52%. Output stable.', outcome: 'pass' },
+    { id: 'DL-005', deviceId: 'DEV-003', deviceName: 'Soterix tDCS 1x1',       type: 'repair',       date: '2026-03-28', technician: 'Tech. Alves',  notes: 'Faulty output cable replaced. Testing pending re-calibration.', outcome: 'pending' },
+    { id: 'DL-006', deviceId: 'DEV-003', deviceName: 'Soterix tDCS 1x1',       type: 'inspection',   date: '2025-11-10', technician: 'Dr. Yildiz',  notes: 'Routine safety inspection. Cable wear noted \u2014 flagged for repair.', outcome: 'fail' },
+    { id: 'DL-007', deviceId: 'DEV-004', deviceName: '32-Ch EEG Cap Set',      type: 'calibration',  date: '2026-03-05', technician: 'Nurse Park',   notes: 'Electrode impedance verified across all 32 channels.', outcome: 'pass' },
+    { id: 'DL-008', deviceId: 'DEV-004', deviceName: '32-Ch EEG Cap Set',      type: 'maintenance',  date: '2026-03-05', technician: 'Nurse Park',   notes: 'Cap washed, electrode gel residue cleared, snap connectors tested.', outcome: 'pass' },
+    { id: 'DL-009', deviceId: 'DEV-005', deviceName: 'EmWave Pro Biofeedback', type: 'inspection',   date: '2025-09-01', technician: 'Dr. Yildiz',  notes: 'Pre-loan inspection. Device functional, sensor cable intact.', outcome: 'pass' },
+    { id: 'DL-010', deviceId: 'DEV-006', deviceName: 'Stimpod TMS Coil (Old)', type: 'inspection',   date: '2022-12-01', technician: 'Tech. Alves', notes: 'End-of-life inspection. Decommissioned per service protocol.', outcome: 'fail' },
+  ];
+}
+
+function getDevices() {
+  try {
+    const raw = localStorage.getItem(DEVICES_KEY);
+    if (raw) return JSON.parse(raw);
+  } catch (_e) {}
+  const seed = _seedDevices();
+  localStorage.setItem(DEVICES_KEY, JSON.stringify(seed));
+  return seed;
+}
+
+function saveDevice(d) {
+  const list = getDevices();
+  const idx = list.findIndex(x => x.id === d.id);
+  if (idx >= 0) list[idx] = d; else list.push(d);
+  localStorage.setItem(DEVICES_KEY, JSON.stringify(list));
+}
+
+function deleteDevice(id) {
+  const list = getDevices().filter(x => x.id !== id);
+  localStorage.setItem(DEVICES_KEY, JSON.stringify(list));
+}
+
+function getDeviceLogs() {
+  try {
+    const raw = localStorage.getItem(DEVICE_LOGS_KEY);
+    if (raw) return JSON.parse(raw);
+  } catch (_e) {}
+  const seed = _seedDeviceLogs();
+  localStorage.setItem(DEVICE_LOGS_KEY, JSON.stringify(seed));
+  return seed;
+}
+
+function saveDeviceLog(entry) {
+  const list = getDeviceLogs();
+  const idx = list.findIndex(x => x.id === entry.id);
+  if (idx >= 0) list[idx] = entry; else list.push(entry);
+  localStorage.setItem(DEVICE_LOGS_KEY, JSON.stringify(list));
+}
+
+function getDeviceAlerts(devices) {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const alerts = [];
+  devices.forEach(d => {
+    if (d.status === 'decommissioned') return;
+    const cal = d.nextCalibration  ? new Date(d.nextCalibration)  : null;
+    const mnt = d.nextMaintenance  ? new Date(d.nextMaintenance)  : null;
+    const war = d.warrantyExpiry   ? new Date(d.warrantyExpiry)   : null;
+    if (cal) {
+      const diff = Math.ceil((cal - today) / 86400000);
+      if (diff < 0)
+        alerts.push({ deviceId: d.id, deviceName: d.name, alertType: 'calibration-overdue',
+          message: 'Calibration overdue by ' + Math.abs(diff) + ' day' + (Math.abs(diff) !== 1 ? 's' : '') + ' (was due ' + d.nextCalibration + ')',
+          severity: 'critical' });
+      else if (diff <= 7)
+        alerts.push({ deviceId: d.id, deviceName: d.name, alertType: 'calibration-due-soon',
+          message: 'Calibration due in ' + diff + ' day' + (diff !== 1 ? 's' : '') + ' (' + d.nextCalibration + ')',
+          severity: 'warning' });
+    }
+    if (mnt) {
+      const diff = Math.ceil((mnt - today) / 86400000);
+      if (diff < 0)
+        alerts.push({ deviceId: d.id, deviceName: d.name, alertType: 'maintenance-overdue',
+          message: 'Maintenance overdue by ' + Math.abs(diff) + ' day' + (Math.abs(diff) !== 1 ? 's' : '') + ' (was due ' + d.nextMaintenance + ')',
+          severity: 'critical' });
+      else if (diff <= 14)
+        alerts.push({ deviceId: d.id, deviceName: d.name, alertType: 'maintenance-due-soon',
+          message: 'Maintenance due in ' + diff + ' day' + (diff !== 1 ? 's' : '') + ' (' + d.nextMaintenance + ')',
+          severity: 'warning' });
+    }
+    if (war) {
+      const diff = Math.ceil((war - today) / 86400000);
+      if (diff >= 0 && diff <= 30)
+        alerts.push({ deviceId: d.id, deviceName: d.name, alertType: 'warranty-expiring',
+          message: 'Warranty expiring in ' + diff + ' day' + (diff !== 1 ? 's' : '') + ' (' + d.warrantyExpiry + ')',
+          severity: 'info' });
+    }
+  });
+  return alerts;
+}
+
+// ── UI helpers ─────────────────────────────────────────────────────────────────
+function _deviceModal(title, bodyHtml, footerHtml) {
+  const existing = document.getElementById('dm-modal-overlay');
+  if (existing) existing.remove();
+  const ov = document.createElement('div');
+  ov.id = 'dm-modal-overlay';
+  ov.className = 'modal-overlay';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:2000;display:flex;align-items:center;justify-content:center;padding:16px';
+  ov.innerHTML = '<div style="background:var(--card-bg);border:1px solid var(--border);border-radius:12px;padding:24px;width:100%;max-width:540px;max-height:90vh;overflow-y:auto;position:relative">'
+    + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">'
+    + '<h3 style="margin:0;font-size:15px;font-weight:700;color:var(--text-primary)">' + title + '</h3>'
+    + '<button onclick="document.getElementById(\'dm-modal-overlay\').remove()" style="background:none;border:none;cursor:pointer;font-size:18px;color:var(--text-tertiary);line-height:1">\u2715</button>'
+    + '</div>'
+    + '<div>' + bodyHtml + '</div>'
+    + '<div style="display:flex;gap:8px;margin-top:18px;justify-content:flex-end">' + footerHtml + '</div>'
+    + '</div>';
+  ov.addEventListener('click', function(e) { if (e.target === ov) ov.remove(); });
+  document.body.appendChild(ov);
+}
+
+function _deviceFormHtml(d) {
+  const types    = ['neurofeedback-amp','tms-coil','tdcs-device','eeg-cap','biofeedback-sensor','other'];
+  const statuses = ['active','maintenance','decommissioned','loaned-out'];
+  const rooms    = ['Room A','Room B','Room C','Portable'];
+  function fi(id, label, val, type) {
+    type = type || 'text';
+    return '<div style="margin-bottom:10px">'
+      + '<label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:3px">' + label + '</label>'
+      + '<input id="' + id + '" class="form-control" type="' + type + '" value="' + (val || '') + '" style="width:100%">'
+      + '</div>';
+  }
+  function fs(id, label, val, opts) {
+    return '<div style="margin-bottom:10px">'
+      + '<label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:3px">' + label + '</label>'
+      + '<select id="' + id + '" class="form-control" style="width:100%">'
+      + opts.map(function(o) { return '<option value="' + o + '"' + (o === val ? ' selected' : '') + '>' + o + '</option>'; }).join('')
+      + '</select></div>';
+  }
+  return '<div style="display:grid;grid-template-columns:1fr 1fr;gap:0 12px">'
+    + fi('dm-f-name',         'Device Name *',    d && d.name)
+    + fs('dm-f-type',         'Type',             d && d.type || 'other',        types)
+    + fi('dm-f-serial',       'Serial Number',    d && d.serialNumber)
+    + fi('dm-f-manufacturer', 'Manufacturer',     d && d.manufacturer)
+    + fi('dm-f-model',        'Model',            d && d.model)
+    + fs('dm-f-status',       'Status',           d && d.status || 'active',     statuses)
+    + fs('dm-f-room',         'Assigned Room',    d && d.assignedRoom || 'Room A', rooms)
+    + fi('dm-f-purchase',     'Purchase Date',    d && d.purchaseDate,   'date')
+    + fi('dm-f-warranty',     'Warranty Expiry',  d && d.warrantyExpiry, 'date')
+    + fi('dm-f-last-cal',     'Last Calibration', d && d.lastCalibration,'date')
+    + fi('dm-f-next-cal',     'Next Calibration', d && d.nextCalibration,'date')
+    + fi('dm-f-last-mnt',     'Last Maintenance', d && d.lastMaintenance,'date')
+    + fi('dm-f-next-mnt',     'Next Maintenance', d && d.nextMaintenance,'date')
+    + fi('dm-f-sessions',     'Session Count',    d && d.sessionCount || 0, 'number')
+    + '</div>'
+    + '<div style="margin-bottom:10px">'
+    + '<label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:3px">Notes</label>'
+    + '<textarea id="dm-f-notes" class="form-control" rows="2" style="width:100%;resize:vertical">' + (d && d.notes || '') + '</textarea>'
+    + '</div>'
+    + '<input type="hidden" id="dm-f-id" value="' + (d && d.id || '') + '">';
+}
+
+function _calClass(nextDate) {
+  if (!nextDate) return '';
+  const today = new Date(); today.setHours(0,0,0,0);
+  const diff = Math.ceil((new Date(nextDate) - today) / 86400000);
+  if (diff < 0)  return 'device-cal-overdue';
+  if (diff <= 7) return 'device-cal-soon';
+  return 'device-cal-ok';
+}
+
+function _mntClass(nextDate) {
+  if (!nextDate) return '';
+  const today = new Date(); today.setHours(0,0,0,0);
+  const diff = Math.ceil((new Date(nextDate) - today) / 86400000);
+  if (diff < 0)   return 'device-cal-overdue';
+  if (diff <= 14) return 'device-cal-soon';
+  return 'device-cal-ok';
+}
+
+function _statusBadge(status) {
+  const map = {
+    'active':         'rgba(16,185,129,0.15):#10b981',
+    'maintenance':    'rgba(245,158,11,0.15):#f59e0b',
+    'decommissioned': 'rgba(239,68,68,0.15):#ef4444',
+    'loaned-out':     'rgba(59,130,246,0.15):#3b82f6',
+  };
+  const parts = (map[status] || 'rgba(255,255,255,0.08):var(--text-muted)').split(':');
+  const bg = parts[0], color = parts[1];
+  return '<span style="padding:3px 8px;border-radius:10px;font-size:.7rem;font-weight:700;background:' + bg + ';color:' + color + '">' + status + '</span>';
+}
+
+function _logTypeBadge(type) {
+  return '<span class="log-type-' + type + '">' + type + '</span>';
+}
+
+function _outcomeBadge(outcome) {
+  const map = { pass: 'rgba(16,185,129,0.15):#10b981', fail: 'rgba(239,68,68,0.15):#ef4444', pending: 'rgba(245,158,11,0.15):#f59e0b' };
+  const parts = (map[outcome] || 'rgba(255,255,255,0.08):var(--text-muted)').split(':');
+  const bg = parts[0], color = parts[1];
+  return '<span style="padding:2px 7px;border-radius:4px;font-size:.7rem;font-weight:700;background:' + bg + ';color:' + color + '">' + (outcome || '\u2014') + '</span>';
+}
+
+// ── pgDeviceManagement ────────────────────────────────────────────────────────
+export async function pgDeviceManagement(setTopbar) {
+  setTopbar('Device & Equipment Management',
+    '<button class="btn btn-primary btn-sm" onclick="window._deviceNew()">+ Register Device</button>');
+
+  const el = document.getElementById('content');
+
+  var _activeTab       = 'registry';
+  var _filterType      = '';
+  var _filterStatus    = '';
+  var _filterRoom      = '';
+  var _filterLogDevice = '';
+  var _filterLogType   = '';
+  var _dismissedInfo   = false;
+
+  function render() {
+    var devices = getDevices();
+    var logs    = getDeviceLogs();
+    var alerts  = getDeviceAlerts(devices);
+
+    var criticalAlerts = alerts.filter(function(a) { return a.severity === 'critical'; });
+    var warningAlerts  = alerts.filter(function(a) { return a.severity === 'warning'; });
+    var infoAlerts     = _dismissedInfo ? [] : alerts.filter(function(a) { return a.severity === 'info'; });
+
+    var filteredDevices = devices.filter(function(d) {
+      return (!_filterType   || d.type         === _filterType)
+          && (!_filterStatus || d.status       === _filterStatus)
+          && (!_filterRoom   || d.assignedRoom === _filterRoom);
+    });
+
+    var filteredLogs = logs.filter(function(l) {
+      return (!_filterLogDevice || l.deviceId === _filterLogDevice)
+          && (!_filterLogType   || l.type     === _filterLogType);
+    }).sort(function(a,b) { return b.date.localeCompare(a.date); });
+
+    var types    = ['neurofeedback-amp','tms-coil','tdcs-device','eeg-cap','biofeedback-sensor','other'];
+    var statuses = ['active','maintenance','decommissioned','loaned-out'];
+    var rooms    = ['Room A','Room B','Room C','Portable'];
+    var logTypes = ['calibration','maintenance','repair','inspection','session-use'];
+
+    function tabBtn(id, label, count) {
+      var active = _activeTab === id;
+      var badge  = count > 0 ? ' <span style="display:inline-block;padding:1px 6px;border-radius:8px;font-size:.65rem;background:rgba(239,68,68,0.2);color:#ef4444;font-weight:700;margin-left:4px">' + count + '</span>' : '';
+      return '<button onclick="window._deviceTab(\'' + id + '\')" style="padding:8px 16px;border:none;cursor:pointer;font-size:13px;font-weight:' + (active ? 700 : 500) + ';color:' + (active ? 'var(--teal)' : 'var(--text-secondary)') + ';background:none;border-bottom:2px solid ' + (active ? 'var(--teal)' : 'transparent') + ';transition:all .15s">' + label + badge + '</button>';
+    }
+
+    function renderRegistry() {
+      var deviceCards = filteredDevices.map(function(d) {
+        return '<div class="device-card">'
+          + '<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px;gap:8px">'
+          + '<div><div style="font-size:13px;font-weight:700;color:var(--text-primary);margin-bottom:3px">' + d.name + '</div>'
+          + '<span class="device-type-badge">' + d.type + '</span></div>'
+          + _statusBadge(d.status)
+          + '</div>'
+          + '<div style="font-size:11.5px;color:var(--text-secondary);margin-bottom:8px">'
+          + '<div><span style="color:var(--text-tertiary)">S/N:</span> ' + (d.serialNumber || '\u2014') + '</div>'
+          + '<div><span style="color:var(--text-tertiary)">Manufacturer:</span> ' + (d.manufacturer || '\u2014') + (d.model ? ' \u00b7 ' + d.model : '') + '</div>'
+          + '<div><span style="color:var(--text-tertiary)">Room:</span> ' + (d.assignedRoom || '\u2014') + '</div>'
+          + '</div>'
+          + '<div style="margin-bottom:8px">'
+          + '<div style="font-size:10px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.6px;margin-bottom:3px">Calibration</div>'
+          + '<div style="font-size:11.5px"><span style="color:var(--text-secondary)">Last: ' + (d.lastCalibration || '\u2014') + '</span>'
+          + '<span style="margin:0 4px;color:var(--text-tertiary)">|</span>'
+          + '<span class="' + _calClass(d.nextCalibration) + '">Next: ' + (d.nextCalibration || '\u2014') + '</span></div>'
+          + '</div>'
+          + '<div style="margin-bottom:8px">'
+          + '<div style="font-size:10px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.6px;margin-bottom:3px">Maintenance</div>'
+          + '<div style="font-size:11.5px"><span style="color:var(--text-secondary)">Last: ' + (d.lastMaintenance || '\u2014') + '</span>'
+          + '<span style="margin:0 4px;color:var(--text-tertiary)">|</span>'
+          + '<span class="' + _mntClass(d.nextMaintenance) + '">Next: ' + (d.nextMaintenance || '\u2014') + '</span></div>'
+          + '</div>'
+          + '<div style="font-size:11.5px;color:var(--text-secondary);margin-bottom:12px">'
+          + '<span style="color:var(--text-tertiary)">Sessions used in:</span> <strong style="color:var(--text-primary)">' + (d.sessionCount || 0) + '</strong></div>'
+          + '<div style="display:flex;gap:6px;flex-wrap:wrap;border-top:1px solid var(--border);padding-top:10px">'
+          + '<button class="btn btn-sm" onclick="window._deviceEdit(\'' + d.id + '\')">Edit</button>'
+          + '<button class="btn btn-sm" onclick="window._deviceLogNew(\'' + d.id + '\')">Log Entry</button>'
+          + (d.status !== 'decommissioned'
+              ? '<button class="btn btn-sm" style="color:#ef4444;border-color:rgba(239,68,68,0.3)" onclick="window._deviceDecommission(\'' + d.id + '\')">Decommission</button>'
+              : '<button class="btn btn-sm" style="color:#ef4444;border-color:rgba(239,68,68,0.3)" onclick="window._deviceDelete(\'' + d.id + '\')">Delete</button>')
+          + '</div>'
+          + '</div>';
+      }).join('');
+
+      return '<div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;align-items:center">'
+        + '<select class="form-control" style="width:auto" onchange="window._deviceFilterType(this.value)">'
+        + '<option value="">All Types</option>'
+        + types.map(function(t) { return '<option value="' + t + '"' + (_filterType === t ? ' selected' : '') + '>' + t + '</option>'; }).join('')
+        + '</select>'
+        + '<select class="form-control" style="width:auto" onchange="window._deviceFilterStatus(this.value)">'
+        + '<option value="">All Statuses</option>'
+        + statuses.map(function(s) { return '<option value="' + s + '"' + (_filterStatus === s ? ' selected' : '') + '>' + s + '</option>'; }).join('')
+        + '</select>'
+        + '<select class="form-control" style="width:auto" onchange="window._deviceFilterRoom(this.value)">'
+        + '<option value="">All Rooms</option>'
+        + rooms.map(function(r) { return '<option value="' + r + '"' + (_filterRoom === r ? ' selected' : '') + '>' + r + '</option>'; }).join('')
+        + '</select>'
+        + '<span style="font-size:11.5px;color:var(--text-tertiary);margin-left:auto">' + filteredDevices.length + ' device' + (filteredDevices.length !== 1 ? 's' : '') + '</span>'
+        + '</div>'
+        + (filteredDevices.length === 0
+            ? '<div style="text-align:center;padding:48px;color:var(--text-tertiary)">No devices match the current filters.</div>'
+            : '<div class="device-grid">' + deviceCards + '</div>')
+        + '<div style="margin-top:24px;background:var(--card-bg);border:1px solid var(--border);border-radius:10px;padding:16px">'
+        + '<div style="font-size:12px;font-weight:700;color:var(--text-primary);margin-bottom:10px">Session Assignment</div>'
+        + '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">'
+        + '<select id="dm-assign-device" class="form-control" style="flex:1;min-width:180px">'
+        + '<option value="">Select active device\u2026</option>'
+        + devices.filter(function(d) { return d.status === 'active'; }).map(function(d) { return '<option value="' + d.id + '">' + d.name + '</option>'; }).join('')
+        + '</select>'
+        + '<input id="dm-assign-session" class="form-control" placeholder="Session ID (e.g. S-0123)" style="flex:1;min-width:160px">'
+        + '<button class="btn btn-primary btn-sm" onclick="window._deviceAssignSession()">Assign to Session</button>'
+        + '</div>'
+        + '<div id="dm-assign-msg" style="margin-top:8px;font-size:11.5px;color:var(--teal);display:none"></div>'
+        + '</div>';
+    }
+
+    function renderLogs() {
+      var timeline = filteredLogs.map(function(l) {
+        return '<div style="display:flex;gap:14px;padding:12px 0;border-bottom:1px solid var(--border)">'
+          + '<div style="flex-shrink:0;width:10px;height:10px;border-radius:50%;background:var(--teal);margin-top:4px"></div>'
+          + '<div style="flex:1;min-width:0">'
+          + '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:4px">'
+          + '<span style="font-size:11px;color:var(--text-tertiary)">' + l.date + '</span>'
+          + '<strong style="font-size:12.5px;color:var(--text-primary)">' + l.deviceName + '</strong>'
+          + _logTypeBadge(l.type)
+          + _outcomeBadge(l.outcome)
+          + '</div>'
+          + (l.technician ? '<div style="font-size:11.5px;color:var(--text-secondary);margin-bottom:3px">Technician: ' + l.technician + '</div>' : '')
+          + (l.notes ? '<div style="font-size:12px;color:var(--text-secondary);line-height:1.55">' + l.notes + '</div>' : '')
+          + '</div>'
+          + '</div>';
+      }).join('');
+
+      return '<div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;align-items:center;justify-content:space-between">'
+        + '<div style="display:flex;gap:8px;flex-wrap:wrap">'
+        + '<select class="form-control" style="width:auto" onchange="window._deviceFilterLogDevice(this.value)">'
+        + '<option value="">All Devices</option>'
+        + devices.map(function(d) { return '<option value="' + d.id + '"' + (_filterLogDevice === d.id ? ' selected' : '') + '>' + d.name + '</option>'; }).join('')
+        + '</select>'
+        + '<select class="form-control" style="width:auto" onchange="window._deviceFilterLogType(this.value)">'
+        + '<option value="">All Log Types</option>'
+        + logTypes.map(function(t) { return '<option value="' + t + '"' + (_filterLogType === t ? ' selected' : '') + '>' + t + '</option>'; }).join('')
+        + '</select>'
+        + '</div>'
+        + '<button class="btn btn-primary btn-sm" onclick="window._deviceLogNew(\'\')">+ Add Log Entry</button>'
+        + '</div>'
+        + (filteredLogs.length === 0
+            ? '<div style="text-align:center;padding:48px;color:var(--text-tertiary)">No log entries match the current filters.</div>'
+            : '<div>' + timeline + '</div>');
+    }
+
+    function renderAlerts() {
+      function renderGroup(title, arr, cls, icon) {
+        if (arr.length === 0) return '';
+        return '<div style="margin-bottom:20px">'
+          + '<div style="font-size:11px;font-weight:700;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.7px;margin-bottom:8px">' + icon + ' ' + title + ' (' + arr.length + ')</div>'
+          + arr.map(function(a) {
+              return '<div class="' + cls + '">'
+                + '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">'
+                + '<div>'
+                + '<div style="font-size:12.5px;font-weight:700;color:#1e293b;margin-bottom:3px">' + a.deviceName + '</div>'
+                + '<div style="font-size:12px;color:#334155;line-height:1.5">' + a.message + '</div>'
+                + '</div>'
+                + '<div style="flex-shrink:0">'
+                + (a.alertType.indexOf('warranty') !== -1
+                    ? '<button class="btn btn-sm" onclick="window._deviceRenewWarranty(\'' + a.deviceId + '\')">Renew</button>'
+                    : '<button class="btn btn-sm btn-primary" onclick="window._deviceSchedule(\'' + a.deviceId + '\',\'' + (a.alertType.indexOf('calibration') !== -1 ? 'calibration' : 'maintenance') + '\')">Schedule Now</button>')
+                + '</div>'
+                + '</div>'
+                + '</div>';
+            }).join('')
+          + '</div>';
+      }
+
+      return '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:8px">'
+        + '<div style="font-size:13px;color:var(--text-primary)">'
+        + (criticalAlerts.length > 0
+            ? '<span style="color:#ef4444;font-weight:700">\u26a0 ' + criticalAlerts.length + ' device' + (criticalAlerts.length !== 1 ? 's' : '') + ' require immediate attention</span>'
+            : '<span style="color:#10b981;font-weight:600">\u2713 No critical alerts</span>')
+        + '</div>'
+        + (infoAlerts.length > 0 ? '<button class="btn btn-sm" onclick="window._deviceDismissInfo()">Dismiss All Info</button>' : '')
+        + '</div>'
+        + renderGroup('Critical', criticalAlerts, 'alert-card-critical', '\ud83d\udd34')
+        + renderGroup('Warning',  warningAlerts,  'alert-card-warning',  '\ud83d\udfe1')
+        + renderGroup('Info',     infoAlerts,     'alert-card-info',     '\u2139\ufe0f')
+        + (criticalAlerts.length === 0 && warningAlerts.length === 0 && infoAlerts.length === 0
+            ? '<div style="text-align:center;padding:48px;color:var(--text-tertiary)">No active alerts \u2014 all devices are up to date.</div>'
+            : '');
+    }
+
+    el.innerHTML = '<div style="display:flex;border-bottom:1px solid var(--border);margin-bottom:20px;gap:0">'
+      + tabBtn('registry', 'Device Registry', 0)
+      + tabBtn('logs',     'Maintenance Log', 0)
+      + tabBtn('alerts',   'Alerts', criticalAlerts.length + warningAlerts.length)
+      + '</div>'
+      + '<div id="dm-tab-content">'
+      + (_activeTab === 'registry' ? renderRegistry()
+          : _activeTab === 'logs'  ? renderLogs()
+          : renderAlerts())
+      + '</div>';
+  }
+
+  window._deviceTab = function(tab) { _activeTab = tab; render(); };
+
+  window._deviceFilterType   = function(v) { _filterType   = v; render(); };
+  window._deviceFilterStatus = function(v) { _filterStatus = v; render(); };
+  window._deviceFilterRoom   = function(v) { _filterRoom   = v; render(); };
+  window._deviceFilterLogDevice = function(v) { _filterLogDevice = v; render(); };
+  window._deviceFilterLogType   = function(v) { _filterLogType   = v; render(); };
+
+  window._deviceNew = function() {
+    _deviceModal(
+      'Register New Device',
+      _deviceFormHtml(null),
+      '<button class="btn" onclick="document.getElementById(\'dm-modal-overlay\').remove()">Cancel</button>'
+      + '<button class="btn btn-primary" onclick="window._deviceSave()">Register Device</button>'
+    );
+  };
+
+  window._deviceSave = function() {
+    var name = (document.getElementById('dm-f-name') || {}).value;
+    if (!name || !name.trim()) { alert('Device name is required.'); return; }
+    var id = ((document.getElementById('dm-f-id') || {}).value || '').trim();
+    var devices = getDevices();
+    var newId = id || ('DEV-' + String(devices.length + 1).padStart(3,'0') + '-' + Math.random().toString(36).slice(2,5).toUpperCase());
+    var d = {
+      id:             id || newId,
+      name:           name.trim(),
+      type:           (document.getElementById('dm-f-type')         || {}).value || 'other',
+      serialNumber:   (document.getElementById('dm-f-serial')       || {}).value || '',
+      manufacturer:   (document.getElementById('dm-f-manufacturer') || {}).value || '',
+      model:          (document.getElementById('dm-f-model')        || {}).value || '',
+      status:         (document.getElementById('dm-f-status')       || {}).value || 'active',
+      assignedRoom:   (document.getElementById('dm-f-room')         || {}).value || 'Room A',
+      purchaseDate:   (document.getElementById('dm-f-purchase')     || {}).value || '',
+      warrantyExpiry: (document.getElementById('dm-f-warranty')     || {}).value || '',
+      lastCalibration:(document.getElementById('dm-f-last-cal')     || {}).value || '',
+      nextCalibration:(document.getElementById('dm-f-next-cal')     || {}).value || '',
+      lastMaintenance:(document.getElementById('dm-f-last-mnt')     || {}).value || '',
+      nextMaintenance:(document.getElementById('dm-f-next-mnt')     || {}).value || '',
+      sessionCount:   parseInt((document.getElementById('dm-f-sessions') || {}).value || '0', 10),
+      notes:          (document.getElementById('dm-f-notes')        || {}).value || '',
+    };
+    saveDevice(d);
+    var ov = document.getElementById('dm-modal-overlay');
+    if (ov) ov.remove();
+    render();
+  };
+
+  window._deviceEdit = function(id) {
+    var d = getDevices().find(function(x) { return x.id === id; });
+    if (!d) return;
+    _deviceModal(
+      'Edit Device',
+      _deviceFormHtml(d),
+      '<button class="btn" onclick="document.getElementById(\'dm-modal-overlay\').remove()">Cancel</button>'
+      + '<button class="btn btn-primary" onclick="window._deviceSave()">Save Changes</button>'
+    );
+  };
+
+  window._deviceDelete = function(id) {
+    if (!confirm('Permanently delete this device record? This cannot be undone.')) return;
+    deleteDevice(id);
+    render();
+  };
+
+  window._deviceDecommission = function(id) {
+    if (!confirm('Mark this device as decommissioned?')) return;
+    var d = getDevices().find(function(x) { return x.id === id; });
+    if (!d) return;
+    d.status = 'decommissioned';
+    saveDevice(d);
+    render();
+  };
+
+  window._deviceLogNew = function(preselectedId) {
+    var devices  = getDevices();
+    var logTypes = ['calibration','maintenance','repair','inspection','session-use'];
+    var outcomes = ['pass','fail','pending'];
+    var today    = new Date().toISOString().slice(0,10);
+    var bodyHtml = '<div style="margin-bottom:10px">'
+      + '<label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:3px">Device *</label>'
+      + '<select id="dm-log-device" class="form-control" style="width:100%">'
+      + devices.map(function(d) { return '<option value="' + d.id + '"' + (d.id === preselectedId ? ' selected' : '') + '>' + d.name + '</option>'; }).join('')
+      + '</select></div>'
+      + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:0 12px">'
+      + '<div style="margin-bottom:10px"><label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:3px">Log Type *</label>'
+      + '<select id="dm-log-type" class="form-control" style="width:100%">'
+      + logTypes.map(function(t) { return '<option value="' + t + '">' + t + '</option>'; }).join('')
+      + '</select></div>'
+      + '<div style="margin-bottom:10px"><label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:3px">Date *</label>'
+      + '<input id="dm-log-date" class="form-control" type="date" value="' + today + '" style="width:100%"></div>'
+      + '<div style="margin-bottom:10px"><label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:3px">Technician</label>'
+      + '<input id="dm-log-tech" class="form-control" placeholder="Name" style="width:100%"></div>'
+      + '<div style="margin-bottom:10px"><label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:3px">Outcome</label>'
+      + '<select id="dm-log-outcome" class="form-control" style="width:100%">'
+      + outcomes.map(function(o) { return '<option value="' + o + '">' + o + '</option>'; }).join('')
+      + '</select></div>'
+      + '</div>'
+      + '<div style="margin-bottom:10px"><label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:3px">Notes</label>'
+      + '<textarea id="dm-log-notes" class="form-control" rows="3" style="width:100%;resize:vertical"></textarea></div>';
+    _deviceModal(
+      'Add Log Entry',
+      bodyHtml,
+      '<button class="btn" onclick="document.getElementById(\'dm-modal-overlay\').remove()">Cancel</button>'
+      + '<button class="btn btn-primary" onclick="window._deviceLogSave()">Save Entry</button>'
+    );
+  };
+
+  window._deviceLogSave = function() {
+    var deviceId = (document.getElementById('dm-log-device') || {}).value;
+    var date     = (document.getElementById('dm-log-date')   || {}).value;
+    if (!deviceId || !date) { alert('Device and date are required.'); return; }
+    var devices = getDevices();
+    var dev  = devices.find(function(d) { return d.id === deviceId; });
+    var logs = getDeviceLogs();
+    var entry = {
+      id:         'DL-' + String(logs.length + 1).padStart(3,'0') + '-' + Math.random().toString(36).slice(2,5).toUpperCase(),
+      deviceId:   deviceId,
+      deviceName: dev ? dev.name : deviceId,
+      type:       (document.getElementById('dm-log-type')    || {}).value || 'inspection',
+      date:       date,
+      technician: (document.getElementById('dm-log-tech')    || {}).value || '',
+      notes:      (document.getElementById('dm-log-notes')   || {}).value || '',
+      outcome:    (document.getElementById('dm-log-outcome') || {}).value || 'pending',
+    };
+    saveDeviceLog(entry);
+    var ov = document.getElementById('dm-modal-overlay');
+    if (ov) ov.remove();
+    _activeTab = 'logs';
+    render();
+  };
+
+  window._deviceSchedule = function(deviceId, type) {
+    var d = getDevices().find(function(x) { return x.id === deviceId; });
+    if (!d) return;
+    var fieldLabel  = type === 'calibration' ? 'Next Calibration Date' : 'Next Maintenance Date';
+    var currentVal  = type === 'calibration' ? (d.nextCalibration || '') : (d.nextMaintenance || '');
+    var typeLabel   = type.charAt(0).toUpperCase() + type.slice(1);
+    _deviceModal(
+      'Schedule ' + typeLabel + ' \u2014 ' + d.name,
+      '<div style="margin-bottom:10px">'
+        + '<label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:3px">' + fieldLabel + ' *</label>'
+        + '<input id="dm-sched-date" class="form-control" type="date" value="' + currentVal + '" style="width:100%">'
+        + '</div>',
+      '<button class="btn" onclick="document.getElementById(\'dm-modal-overlay\').remove()">Cancel</button>'
+        + '<button class="btn btn-primary" onclick="window._deviceScheduleSave(\'' + deviceId + '\',\'' + type + '\')">Set Date</button>'
+    );
+  };
+
+  window._deviceScheduleSave = function(deviceId, type) {
+    var newDate = (document.getElementById('dm-sched-date') || {}).value;
+    if (!newDate) { alert('Please select a date.'); return; }
+    var d = getDevices().find(function(x) { return x.id === deviceId; });
+    if (!d) return;
+    if (type === 'calibration') d.nextCalibration = newDate;
+    else d.nextMaintenance = newDate;
+    saveDevice(d);
+    var ov = document.getElementById('dm-modal-overlay');
+    if (ov) ov.remove();
+    render();
+  };
+
+  window._deviceRenewWarranty = function(deviceId) {
+    _deviceModal(
+      'Warranty Renewal',
+      '<div style="padding:12px;background:rgba(59,130,246,0.08);border-radius:8px;border:1px solid rgba(59,130,246,0.2)">'
+        + '<div style="font-size:13px;color:var(--text-primary);line-height:1.65;margin-bottom:8px">'
+        + 'To renew the warranty for this device, please contact the manufacturer or your procurement team with the device serial number.'
+        + '</div>'
+        + '<div style="font-size:11.5px;color:var(--text-secondary)">Once renewed, use the <strong>Edit</strong> button on the device card to update the warranty expiry date.</div>'
+        + '</div>',
+      '<button class="btn btn-primary" onclick="document.getElementById(\'dm-modal-overlay\').remove()">OK</button>'
+    );
+  };
+
+  window._deviceDismissInfo = function() {
+    _dismissedInfo = true;
+    render();
+  };
+
+  window._deviceAssignSession = function() {
+    var deviceId  = (document.getElementById('dm-assign-device')  || {}).value;
+    var sessionId = ((document.getElementById('dm-assign-session') || {}).value || '').trim();
+    var msg = document.getElementById('dm-assign-msg');
+    if (!deviceId || !sessionId) {
+      if (msg) { msg.style.display = 'block'; msg.style.color = '#ef4444'; msg.textContent = 'Please select a device and enter a session ID.'; }
+      return;
+    }
+    var d = getDevices().find(function(x) { return x.id === deviceId; });
+    if (!d) return;
+    d.sessionCount = (d.sessionCount || 0) + 1;
+    saveDevice(d);
+    var log = {
+      id:         'DL-SU-' + Date.now(),
+      deviceId:   deviceId,
+      deviceName: d.name,
+      type:       'session-use',
+      date:       new Date().toISOString().slice(0,10),
+      technician: '',
+      notes:      'Assigned to session ' + sessionId,
+      outcome:    'pending',
+    };
+    saveDeviceLog(log);
+    if (msg) {
+      msg.style.display = 'block';
+      msg.style.color = '#10b981';
+      msg.textContent = '\u2713 ' + d.name + ' assigned to session ' + sessionId + ' \u2014 session count now ' + d.sessionCount + '.';
+    }
+    var sessInput = document.getElementById('dm-assign-session');
+    if (sessInput) sessInput.value = '';
+  };
+
+  render();
+}
+
+// ── Clinical Trials ───────────────────────────────────────────────────────────
+
+const TRIALS_KEY = 'ds_clinical_trials';
+const TRIAL_PARTICIPANTS_KEY = 'ds_trial_participants';
+const TRIAL_DATA_KEY = 'ds_trial_data';
+
+function _trialSeedData() {
+  return [
+    {
+      id: 'trial-001',
+      title: 'Neurofeedback vs Sham for ADHD',
+      irbNumber: 'IRB-2024-NF-001',
+      sponsor: 'DeepSynaps Research Institute',
+      phase: 'Phase II',
+      status: 'active',
+      startDate: '2024-01-15',
+      endDate: '2025-06-30',
+      targetEnrollment: 40,
+      arms: [
+        { id: 'a1', name: 'Neurofeedback', description: 'Active neurofeedback training 3x/week for 8 weeks', type: 'treatment' },
+        { id: 'a2', name: 'Sham Control', description: 'Placebo neurofeedback with no real feedback signal', type: 'control' },
+      ],
+      primaryOutcome: 'ADHD-RS total score change from baseline at 8 weeks',
+      secondaryOutcomes: ['CGI-S improvement', 'Sustained attention (CPT-II)', 'Parent/teacher rating scales'],
+      inclusionCriteria: ['Age 8-18 years', 'DSM-5 ADHD diagnosis', 'ADHD-RS score >= 28', 'Stable medication for >= 4 weeks or medication-naive'],
+      exclusionCriteria: ['Comorbid seizure disorder', 'Active psychosis', 'Prior neurofeedback within 12 months', 'IQ < 70'],
+      principalInvestigator: 'Dr. Sarah Chen',
+      coordinatorName: 'James Park',
+      blinded: true,
+      notes: 'IRB approved. Study running on schedule. Interim safety review passed.',
+    },
+    {
+      id: 'trial-002',
+      title: 'tDCS for Depression - Dose Optimization',
+      irbNumber: 'IRB-2024-TDCS-002',
+      sponsor: 'NeuroModulation Consortium',
+      phase: 'Phase II',
+      status: 'recruiting',
+      startDate: '2024-06-01',
+      endDate: '2026-01-31',
+      targetEnrollment: 60,
+      arms: [
+        { id: 'b1', name: 'tDCS 1mA', description: 'tDCS at 1mA for 20 minutes, 5 sessions/week x 4 weeks', type: 'treatment' },
+        { id: 'b2', name: 'tDCS 2mA', description: 'tDCS at 2mA for 20 minutes, 5 sessions/week x 4 weeks', type: 'treatment' },
+        { id: 'b3', name: 'Sham tDCS', description: 'Sham stimulation with electrode placement only', type: 'control' },
+      ],
+      primaryOutcome: 'PHQ-9 score reduction >= 50% at 4 weeks',
+      secondaryOutcomes: ['HAM-D17 total score', 'GAD-7 anxiety score', 'Quality of life (SF-36)', 'Response and remission rates'],
+      inclusionCriteria: ['Age 18-65 years', 'MDD diagnosis (DSM-5)', 'PHQ-9 >= 15', 'Failed >= 1 adequate antidepressant trial'],
+      exclusionCriteria: ['Bipolar disorder', 'Metal implants near stimulation site', 'Pregnancy', 'Active suicidal ideation with plan', 'ECT within 6 months'],
+      principalInvestigator: 'Dr. Marco Reyes',
+      coordinatorName: 'Lisa Thompson',
+      blinded: true,
+      notes: 'Actively recruiting. Site initiation visit completed. DSMB charter approved.',
+    },
+  ];
+}
+
+function _trialSeedParticipants() {
+  var participants = [];
+  var statuses = ['active','active','active','active','completed','active','active','withdrawn','active','active','active','active'];
+  var arms1 = ['a1','a1','a1','a1','a1','a1','a2','a2','a2','a2','a2','a2'];
+  for (var i = 0; i < 24; i++) {
+    var arm = arms1[i % 12] || (i % 2 === 0 ? 'a1' : 'a2');
+    var armName = arm === 'a1' ? 'Neurofeedback' : 'Sham Control';
+    var stat = statuses[i % 12] || 'active';
+    var mo = String((i % 9) + 1).padStart(2, '0');
+    var dy = String((i % 28) + 1).padStart(2, '0');
+    participants.push({
+      id: 'p-t1-' + String(i + 1).padStart(3, '0'),
+      trialId: 'trial-001',
+      patientName: 'Participant NF-' + String(i + 1).padStart(3, '0'),
+      enrollmentDate: '2024-' + mo + '-' + dy,
+      screeningDate: '2024-' + mo + '-' + dy,
+      armId: arm,
+      armName: armName,
+      status: stat,
+      visits: [
+        { date: '2024-02-01', type: 'Baseline', completed: true, notes: '' },
+        { date: '2024-03-01', type: 'Week 4', completed: i < 18, notes: '' },
+        { date: '2024-04-01', type: 'Week 8', completed: i < 10, notes: '' },
+      ],
+      safetyNotes: '',
+    });
+  }
+  for (var j = 0; j < 12; j++) {
+    var armIdx = j % 3;
+    var armIds = ['b1','b2','b3'];
+    var armNames = ['tDCS 1mA','tDCS 2mA','Sham tDCS'];
+    var mo2 = String((j % 6) + 6).padStart(2, '0');
+    participants.push({
+      id: 'p-t2-' + String(j + 1).padStart(3, '0'),
+      trialId: 'trial-002',
+      patientName: 'Participant TD-' + String(j + 1).padStart(3, '0'),
+      enrollmentDate: '2024-' + mo2 + '-01',
+      screeningDate: '2024-' + mo2 + '-01',
+      armId: armIds[armIdx],
+      armName: armNames[armIdx],
+      status: j < 9 ? 'active' : 'screening',
+      visits: [
+        { date: '2024-07-01', type: 'Baseline', completed: true, notes: '' },
+        { date: '2024-08-01', type: 'Week 2', completed: j < 6, notes: '' },
+        { date: '2024-09-01', type: 'Week 4', completed: false, notes: '' },
+      ],
+      safetyNotes: '',
+    });
+  }
+  return participants;
+}
+
+function getTrials() {
+  try {
+    var raw = localStorage.getItem(TRIALS_KEY);
+    if (raw) return JSON.parse(raw);
+  } catch(e) {}
+  var seed = _trialSeedData();
+  localStorage.setItem(TRIALS_KEY, JSON.stringify(seed));
+  return seed;
+}
+
+function saveTrial(trial) {
+  var trials = getTrials();
+  var idx = trials.findIndex(function(t) { return t.id === trial.id; });
+  if (idx >= 0) trials[idx] = trial; else trials.push(trial);
+  localStorage.setItem(TRIALS_KEY, JSON.stringify(trials));
+}
+
+function deleteTrial(id) {
+  var trials = getTrials().filter(function(t) { return t.id !== id; });
+  localStorage.setItem(TRIALS_KEY, JSON.stringify(trials));
+}
+
+function _getAllParticipants() {
+  try {
+    var raw = localStorage.getItem(TRIAL_PARTICIPANTS_KEY);
+    if (raw) return JSON.parse(raw);
+  } catch(e) {}
+  var seeded = _trialSeedParticipants();
+  localStorage.setItem(TRIAL_PARTICIPANTS_KEY, JSON.stringify(seeded));
+  return seeded;
+}
+
+function getTrialParticipants(trialId) {
+  return _getAllParticipants().filter(function(p) { return p.trialId === trialId; });
+}
+
+function saveTrialParticipant(p) {
+  var all = _getAllParticipants();
+  var idx = all.findIndex(function(x) { return x.id === p.id; });
+  if (idx >= 0) all[idx] = p; else all.push(p);
+  localStorage.setItem(TRIAL_PARTICIPANTS_KEY, JSON.stringify(all));
+}
+
+function randomizeArm(trialId, participantId) {
+  var trial = getTrials().find(function(t) { return t.id === trialId; });
+  if (!trial || !trial.arms || trial.arms.length === 0) return null;
+  var all = _getAllParticipants();
+  var idx = all.findIndex(function(x) { return x.id === participantId; });
+  if (idx < 0) return null;
+  var chosen = trial.arms[Math.floor(Math.random() * trial.arms.length)];
+  all[idx].armId = chosen.id;
+  all[idx].armName = chosen.name;
+  all[idx].status = 'enrolled';
+  localStorage.setItem(TRIAL_PARTICIPANTS_KEY, JSON.stringify(all));
+  return { armId: chosen.id, armName: chosen.name, blinded: trial.blinded };
+}
+
+function getTrialData(trialId) {
+  try {
+    var raw = localStorage.getItem(TRIAL_DATA_KEY);
+    var all = raw ? JSON.parse(raw) : [];
+    return all.filter(function(d) { return d.trialId === trialId; });
+  } catch(e) { return []; }
+}
+
+function saveTrialDataPoint(point) {
+  try {
+    var raw = localStorage.getItem(TRIAL_DATA_KEY);
+    var all = raw ? JSON.parse(raw) : [];
+    var idx = all.findIndex(function(x) { return x.id === point.id; });
+    if (idx >= 0) all[idx] = point; else all.push(point);
+    localStorage.setItem(TRIAL_DATA_KEY, JSON.stringify(all));
+  } catch(e) {}
+}
+
+function trialEnrollmentStats(trial, participants) {
+  return {
+    total: participants.length,
+    active: participants.filter(function(p) { return p.status === 'active'; }).length,
+    completed: participants.filter(function(p) { return p.status === 'completed'; }).length,
+    withdrawn: participants.filter(function(p) { return p.status === 'withdrawn' || p.status === 'lost-to-followup'; }).length,
+    enrollmentPct: Math.round(participants.length / trial.targetEnrollment * 100),
+    byArm: trial.arms.map(function(arm) {
+      return Object.assign({}, arm, {
+        count: participants.filter(function(p) { return p.armId === arm.id; }).length,
+      });
+    }),
+  };
+}
+
+function _trialStatusBadge(status) {
+  var cls = {
+    planning: 'trial-phase-badge',
+    recruiting: 'trial-status-recruiting',
+    active: 'trial-status-active',
+    completed: 'trial-status-completed',
+    paused: 'trial-status-paused',
+    terminated: 'trial-status-terminated',
+  }[status] || 'trial-phase-badge';
+  return '<span class="' + cls + '">' + (status.charAt(0).toUpperCase() + status.slice(1)) + '</span>';
+}
+
+function _trialParticipantStatusBadge(status) {
+  var map = {
+    screening:        { bg:'#f3f4f6', color:'#374151' },
+    enrolled:         { bg:'#dbeafe', color:'#1e40af' },
+    active:           { bg:'#d1fae5', color:'#065f46' },
+    completed:        { bg:'#ede9fe', color:'#5b21b6' },
+    withdrawn:        { bg:'#fee2e2', color:'#991b1b' },
+    'lost-to-followup': { bg:'#fef3c7', color:'#92400e' },
+  };
+  var s = map[status] || { bg:'#f3f4f6', color:'#374151' };
+  return '<span style="padding:2px 8px;border-radius:12px;font-size:.72rem;font-weight:700;background:' + s.bg + ';color:' + s.color + '">' + status + '</span>';
+}
+
+function _armPieChart(byArm) {
+  if (!byArm || byArm.length === 0) return '';
+  var total = byArm.reduce(function(s, a) { return s + a.count; }, 0);
+  if (total === 0) return '<div style="color:var(--text-muted);font-size:.8rem">No participants yet</div>';
+  var colors = ['#00d4bc','#4a9eff','#9b7fff','#ffb547','#ff6b9d'];
+  var slices = '';
+  var cumAngle = -90;
+  byArm.forEach(function(arm, i) {
+    var pct = arm.count / total;
+    var angle = pct * 360;
+    var r = 40, cx = 50, cy = 50;
+    var startRad = (cumAngle * Math.PI) / 180;
+    var endRad   = ((cumAngle + angle) * Math.PI) / 180;
+    var x1 = cx + r * Math.cos(startRad);
+    var y1 = cy + r * Math.sin(startRad);
+    var x2 = cx + r * Math.cos(endRad);
+    var y2 = cy + r * Math.sin(endRad);
+    var largeArc = angle > 180 ? 1 : 0;
+    slices += '<path d="M' + cx + ',' + cy + ' L' + x1.toFixed(2) + ',' + y1.toFixed(2) + ' A' + r + ',' + r + ' 0 ' + largeArc + ',1 ' + x2.toFixed(2) + ',' + y2.toFixed(2) + ' Z" fill="' + colors[i % colors.length] + '" opacity="0.85"/>';
+    cumAngle += angle;
+  });
+  var legend = byArm.map(function(arm, i) {
+    return '<div style="display:flex;align-items:center;gap:6px;font-size:.75rem;margin-bottom:3px"><span style="width:10px;height:10px;border-radius:2px;background:' + colors[i % colors.length] + ';flex-shrink:0;display:inline-block"></span><span>' + arm.name + ': <strong>' + arm.count + '</strong></span></div>';
+  }).join('');
+  return '<div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap"><svg width="100" height="100" viewBox="0 0 100 100">' + slices + '</svg><div>' + legend + '</div></div>';
+}
+
+function _outcomeLineChart(dataPoints, arms) {
+  if (!dataPoints || dataPoints.length === 0) return '<div style="color:var(--text-muted);font-size:.8rem;padding:20px 0">No data points recorded yet.</div>';
+  var colors = ['#00d4bc','#4a9eff','#9b7fff'];
+  var W = 500, H = 200;
+  var PAD = { t:20, r:20, b:40, l:50 };
+  var iW = W - PAD.l - PAD.r, iH = H - PAD.t - PAD.b;
+  var pts = dataPoints.map(function(d) {
+    return Object.assign({}, d, { ts: new Date(d.visitDate).getTime() });
+  }).filter(function(d) { return !isNaN(d.ts) && !isNaN(parseFloat(d.value)); });
+  if (pts.length === 0) return '<div style="color:var(--text-muted);font-size:.8rem;padding:20px 0">No numeric data to chart.</div>';
+  var minT = Math.min.apply(null, pts.map(function(p) { return p.ts; }));
+  var maxT = Math.max.apply(null, pts.map(function(p) { return p.ts; }));
+  var minV = Math.min.apply(null, pts.map(function(p) { return parseFloat(p.value); }));
+  var maxV = Math.max.apply(null, pts.map(function(p) { return parseFloat(p.value); }));
+  var rangeT = maxT - minT || 1;
+  var rangeV = maxV - minV || 1;
+  function toX(t) { return PAD.l + ((t - minT) / rangeT) * iW; }
+  function toY(v) { return PAD.t + (1 - (v - minV) / rangeV) * iH; }
+  var paths = '';
+  arms.forEach(function(arm, i) {
+    var armPts = pts.filter(function(p) { return p.armId === arm.id; }).sort(function(a,b) { return a.ts - b.ts; });
+    if (armPts.length === 0) return;
+    var d = armPts.map(function(p, j) { return (j === 0 ? 'M' : 'L') + toX(p.ts).toFixed(1) + ',' + toY(parseFloat(p.value)).toFixed(1); }).join(' ');
+    paths += '<path d="' + d + '" fill="none" stroke="' + colors[i % colors.length] + '" stroke-width="2" stroke-linejoin="round"/>';
+    armPts.forEach(function(p) {
+      paths += '<circle cx="' + toX(p.ts).toFixed(1) + '" cy="' + toY(parseFloat(p.value)).toFixed(1) + '" r="3.5" fill="' + colors[i % colors.length] + '"/>';
+    });
+  });
+  var axes = '<line x1="' + PAD.l + '" y1="' + PAD.t + '" x2="' + PAD.l + '" y2="' + (PAD.t + iH) + '" stroke="var(--border)" stroke-width="1"/>'
+           + '<line x1="' + PAD.l + '" y1="' + (PAD.t + iH) + '" x2="' + (PAD.l + iW) + '" y2="' + (PAD.t + iH) + '" stroke="var(--border)" stroke-width="1"/>'
+           + '<text x="' + (PAD.l - 5) + '" y="' + (PAD.t + 5) + '" text-anchor="end" font-size="10" fill="var(--text-muted)">' + maxV.toFixed(1) + '</text>'
+           + '<text x="' + (PAD.l - 5) + '" y="' + (PAD.t + iH) + '" text-anchor="end" font-size="10" fill="var(--text-muted)">' + minV.toFixed(1) + '</text>';
+  var legend = arms.map(function(arm, i) {
+    return '<span style="display:inline-flex;align-items:center;gap:4px;margin-right:10px;font-size:.72rem"><span style="width:16px;height:3px;background:' + colors[i % colors.length] + ';display:inline-block;border-radius:2px"></span>' + arm.name + '</span>';
+  }).join('');
+  return '<div><svg width="100%" viewBox="0 0 ' + W + ' ' + H + '" style="overflow:visible;max-width:' + W + 'px">' + axes + paths + '</svg><div style="margin-top:6px">' + legend + '</div></div>';
+}
+
+function _trialWizardHtml() {
+  return '<div id="trial-wizard" style="background:var(--card-bg);border:1px solid var(--border);border-radius:12px;padding:20px;margin-bottom:16px;display:none">'
+    + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">'
+    + '<strong style="font-size:1rem">New Clinical Trial</strong>'
+    + '<div style="display:flex;gap:6px">'
+    + '<span id="wiz-step-1" style="padding:3px 10px;border-radius:12px;font-size:.72rem;font-weight:700;background:var(--accent-teal);color:#000">1. Basic Info</span>'
+    + '<span id="wiz-step-2" style="padding:3px 10px;border-radius:12px;font-size:.72rem;font-weight:700;background:var(--hover-bg);color:var(--text-muted)">2. Arms</span>'
+    + '<span id="wiz-step-3" style="padding:3px 10px;border-radius:12px;font-size:.72rem;font-weight:700;background:var(--hover-bg);color:var(--text-muted)">3. Outcomes</span>'
+    + '</div></div>'
+    + '<div id="wiz-panel-1">'
+    + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">'
+    + '<div style="grid-column:1/-1"><label class="form-label">Trial Title *</label><input class="form-control" id="wiz-title" placeholder="e.g. Neurofeedback for ADHD RCT"></div>'
+    + '<div><label class="form-label">IRB Number</label><input class="form-control" id="wiz-irb" placeholder="IRB-2025-XXX"></div>'
+    + '<div><label class="form-label">Phase</label><select class="form-control" id="wiz-phase"><option value="Phase I">Phase I</option><option value="Phase II" selected>Phase II</option><option value="Phase III">Phase III</option><option value="Phase IV">Phase IV</option><option value="Observational">Observational</option></select></div>'
+    + '<div><label class="form-label">Sponsor</label><input class="form-control" id="wiz-sponsor" placeholder="Institution / Funder"></div>'
+    + '<div><label class="form-label">Principal Investigator</label><input class="form-control" id="wiz-pi" placeholder="Dr. Full Name"></div>'
+    + '<div><label class="form-label">Coordinator</label><input class="form-control" id="wiz-coord" placeholder="Coordinator Name"></div>'
+    + '<div><label class="form-label">Start Date</label><input type="date" class="form-control" id="wiz-start"></div>'
+    + '<div><label class="form-label">End Date</label><input type="date" class="form-control" id="wiz-end"></div>'
+    + '<div><label class="form-label">Target Enrollment</label><input type="number" class="form-control" id="wiz-target" placeholder="60" min="1"></div>'
+    + '<div style="display:flex;align-items:center;gap:8px;padding-top:22px"><input type="checkbox" id="wiz-blinded" checked style="width:16px;height:16px"><label for="wiz-blinded" style="font-size:.85rem">Double-blind study</label></div>'
+    + '</div>'
+    + '<div style="margin-top:14px;display:flex;justify-content:flex-end;gap:8px">'
+    + '<button class="btn btn-ghost" onclick="document.getElementById(\'trial-wizard\').style.display=\'none\'">Cancel</button>'
+    + '<button class="btn btn-primary" onclick="window._trialWizNext(1)">Next: Arms &rarr;</button>'
+    + '</div></div>'
+    + '<div id="wiz-panel-2" style="display:none">'
+    + '<div id="wiz-arms-list"></div>'
+    + '<button class="btn btn-ghost" style="margin-top:8px" onclick="window._trialAddArm()">+ Add Arm</button>'
+    + '<div style="margin-top:14px;display:flex;justify-content:flex-end;gap:8px">'
+    + '<button class="btn btn-ghost" onclick="window._trialWizBack(2)">Back</button>'
+    + '<button class="btn btn-primary" onclick="window._trialWizNext(2)">Next: Outcomes &rarr;</button>'
+    + '</div></div>'
+    + '<div id="wiz-panel-3" style="display:none">'
+    + '<div style="display:grid;gap:10px">'
+    + '<div><label class="form-label">Primary Outcome *</label><input class="form-control" id="wiz-primary-outcome" placeholder="e.g. ADHD-RS score change from baseline at 8 weeks"></div>'
+    + '<div><label class="form-label">Secondary Outcomes (one per line)</label><textarea class="form-control" id="wiz-secondary-outcomes" rows="3" placeholder="HAM-D score\nQuality of life\nRemission rate"></textarea></div>'
+    + '<div><label class="form-label">Inclusion Criteria (one per line)</label><textarea class="form-control" id="wiz-inclusion" rows="3" placeholder="Age 18-65\nDSM-5 diagnosis\nPHQ-9 >= 15"></textarea></div>'
+    + '<div><label class="form-label">Exclusion Criteria (one per line)</label><textarea class="form-control" id="wiz-exclusion" rows="3" placeholder="Active psychosis\nPregnancy\nMetal implants"></textarea></div>'
+    + '</div>'
+    + '<div style="margin-top:14px;display:flex;justify-content:flex-end;gap:8px">'
+    + '<button class="btn btn-ghost" onclick="window._trialWizBack(3)">Back</button>'
+    + '<button class="btn btn-primary" onclick="window._trialSave()">Save Trial</button>'
+    + '</div></div></div>';
+}
+
+function _trialEnrollFormHtml(trialId) {
+  return '<div id="trial-enroll-form" style="background:var(--card-bg);border:1px solid var(--border);border-radius:12px;padding:20px;margin-bottom:16px;display:none">'
+    + '<strong style="display:block;margin-bottom:12px">Enroll Participant</strong>'
+    + '<input type="hidden" id="enroll-trial-id" value="' + trialId + '">'
+    + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">'
+    + '<div style="grid-column:1/-1"><label class="form-label">Patient Name *</label><input class="form-control" id="enroll-name" placeholder="Full name or study ID"></div>'
+    + '<div><label class="form-label">Screening Date</label><input type="date" class="form-control" id="enroll-screen-date"></div>'
+    + '<div><label class="form-label">Enrollment Date</label><input type="date" class="form-control" id="enroll-date"></div>'
+    + '</div>'
+    + '<div id="enroll-msg" style="display:none;margin-top:8px;font-size:.82rem;color:#10b981"></div>'
+    + '<div style="margin-top:12px;display:flex;justify-content:flex-end;gap:8px">'
+    + '<button class="btn btn-ghost" onclick="document.getElementById(\'trial-enroll-form\').style.display=\'none\'">Cancel</button>'
+    + '<button class="btn btn-primary" onclick="window._trialSaveParticipant()">Enroll</button>'
+    + '</div></div>';
+}
+
+export async function pgClinicalTrials(setTopbar) {
+  setTopbar('Clinical Trial Management', '');
+  var el = document.getElementById('content');
+
+  var _activeTab = 'registry';
+  var _filterStatus = '';
+  var _filterPhase = '';
+  var _selectedTrialId = '';
+  var _selectedDataTrialId = '';
+  var _wizStep = 1;
+  var _wizArms = [];
+  var _trialIdBeingEdited = null;
+  var _expandedTrials = {};
+
+  var OUTCOME_MEASURES = ['PHQ-9','GAD-7','ADHD-RS','HAM-D','CGI','BIS-11','Custom'];
+
+  function render() {
+    var trials = getTrials();
+    var tabBar = '<div style="display:flex;gap:0;border-bottom:2px solid var(--border);margin-bottom:16px">'
+      + ['registry','participants','data'].map(function(t) {
+          var labels = { registry: '🧪 Trial Registry', participants: '👥 Participants', data: '📊 Data Collection' };
+          var active = _activeTab === t;
+          return '<button onclick="window._trialTabSwitch(\'' + t + '\')" style="padding:10px 20px;border:none;background:none;cursor:pointer;font-size:.88rem;font-weight:' + (active?'700':'400') + ';color:' + (active?'var(--accent-teal)':'var(--text-muted)') + ';border-bottom:' + (active?'2px solid var(--accent-teal)':'2px solid transparent') + ';margin-bottom:-2px;transition:all .15s">' + labels[t] + '</button>';
+        }).join('')
+      + '</div>';
+    var body = '';
+    if (_activeTab === 'registry') body = renderRegistry(trials);
+    else if (_activeTab === 'participants') body = renderParticipants(trials);
+    else body = renderDataCollection(trials);
+    el.innerHTML = tabBar + body;
+    bindHandlers();
+  }
+
+  function renderRegistry(trials) {
+    var phases = [];
+    trials.forEach(function(t) { if (t.phase && phases.indexOf(t.phase) < 0) phases.push(t.phase); });
+    var statuses = ['planning','recruiting','active','paused','completed','terminated'];
+    var filtered = trials.filter(function(t) {
+      var matchS = !_filterStatus || t.status === _filterStatus;
+      var matchP = !_filterPhase || t.phase === _filterPhase;
+      return matchS && matchP;
+    });
+    var filterBar = '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:14px">'
+      + '<span style="font-size:.78rem;color:var(--text-muted);font-weight:600">STATUS:</span>'
+      + [''].concat(statuses).map(function(s) {
+          var label = s ? s.charAt(0).toUpperCase() + s.slice(1) : 'All';
+          var active = _filterStatus === s;
+          return '<button onclick="window._trialFilterStatus(\'' + s + '\')" style="padding:3px 10px;border-radius:12px;border:1px solid var(--border);background:' + (active ? 'var(--accent-teal)' : 'var(--card-bg)') + ';color:' + (active ? '#000' : 'var(--text-secondary)') + ';font-size:.72rem;font-weight:600;cursor:pointer">' + label + '</button>';
+        }).join('')
+      + '<select class="form-control" style="width:auto;font-size:.78rem;padding:3px 8px;height:28px" onchange="window._trialFilterPhase(this.value)">'
+      + '<option value="">All Phases</option>'
+      + phases.map(function(p) { return '<option value="' + p + '"' + (_filterPhase === p ? ' selected' : '') + '>' + p + '</option>'; }).join('')
+      + '</select>'
+      + '<span style="flex:1"></span>'
+      + '<button class="btn btn-primary" style="font-size:.8rem;padding:6px 14px" onclick="window._trialNew()">+ New Trial</button>'
+      + '</div>';
+
+    var cards = filtered.length === 0
+      ? '<div style="text-align:center;padding:40px;color:var(--text-muted)">No trials match the current filter.</div>'
+      : filtered.map(function(trial) {
+          var participants = getTrialParticipants(trial.id);
+          var stats = trialEnrollmentStats(trial, participants);
+          var expanded = !!_expandedTrials[trial.id];
+          var armSummary = trial.arms.map(function(a) { return '<span class="trial-arm-badge">' + a.name + '</span>'; }).join('<span style="color:var(--text-muted);margin:0 4px;font-size:.78rem">vs</span>');
+
+          var expandContent = '';
+          if (expanded) {
+            expandContent = '<div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--border)">'
+              + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">'
+              + '<div>'
+              + '<div style="font-size:.75rem;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">Primary Outcome</div>'
+              + '<div style="font-size:.82rem">' + (trial.primaryOutcome || '—') + '</div>'
+              + (trial.secondaryOutcomes && trial.secondaryOutcomes.length ? '<div style="font-size:.75rem;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em;margin-top:10px;margin-bottom:4px">Secondary Outcomes</div><ul class="trial-criteria-list">' + trial.secondaryOutcomes.map(function(o) { return '<li style="font-size:.8rem">' + o + '</li>'; }).join('') + '</ul>' : '')
+              + '</div>'
+              + '<div>'
+              + '<div style="font-size:.75rem;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">Inclusion Criteria</div>'
+              + '<ul class="trial-criteria-list">' + (trial.inclusionCriteria && trial.inclusionCriteria.length ? trial.inclusionCriteria.map(function(c) { return '<li style="font-size:.8rem">' + c + '</li>'; }).join('') : '<li style="font-size:.8rem;color:var(--text-muted)">None defined</li>') + '</ul>'
+              + '<div style="font-size:.75rem;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em;margin-top:10px;margin-bottom:4px">Exclusion Criteria</div>'
+              + '<ul class="trial-criteria-list">' + (trial.exclusionCriteria && trial.exclusionCriteria.length ? trial.exclusionCriteria.map(function(c) { return '<li style="font-size:.8rem">' + c + '</li>'; }).join('') : '<li style="font-size:.8rem;color:var(--text-muted)">None defined</li>') + '</ul>'
+              + '</div></div>'
+              + (trial.notes ? '<div style="margin-top:10px;font-size:.8rem;color:var(--text-muted);background:var(--hover-bg);padding:8px 12px;border-radius:6px">' + trial.notes + '</div>' : '')
+              + '</div>';
+          }
+
+          return '<div class="trial-card">'
+            + '<div style="display:flex;align-items:flex-start;gap:10px;flex-wrap:wrap">'
+            + '<div style="flex:1;min-width:0">'
+            + '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:4px">'
+            + '<span style="font-weight:700;font-size:.95rem">' + trial.title + '</span>'
+            + '<span class="trial-phase-badge">' + trial.phase + '</span>'
+            + _trialStatusBadge(trial.status)
+            + (trial.blinded ? '<span style="padding:2px 6px;border-radius:4px;font-size:.68rem;font-weight:700;background:rgba(155,127,255,.15);color:#9b7fff">DBL-BLIND</span>' : '')
+            + '</div>'
+            + '<div style="font-size:.78rem;color:var(--text-muted);display:flex;gap:14px;flex-wrap:wrap;margin-bottom:8px">'
+            + '<span>IRB: <strong style="color:var(--text-secondary)">' + (trial.irbNumber || '—') + '</strong></span>'
+            + '<span>Sponsor: <strong style="color:var(--text-secondary)">' + (trial.sponsor || '—') + '</strong></span>'
+            + '<span>PI: <strong style="color:var(--text-secondary)">' + (trial.principalInvestigator || '—') + '</strong></span>'
+            + '<span>Coordinator: <strong style="color:var(--text-secondary)">' + (trial.coordinatorName || '—') + '</strong></span>'
+            + '</div>'
+            + '<div style="font-size:.78rem;color:var(--text-muted);margin-bottom:8px"><span>Arms: </span>' + armSummary + '</div>'
+            + '<div style="font-size:.78rem;color:var(--text-muted);margin-bottom:4px">Enrollment: <strong style="color:var(--text-primary)">' + stats.total + ' / ' + trial.targetEnrollment + '</strong><span style="color:var(--accent-teal);margin-left:4px">(' + stats.enrollmentPct + '%)</span></div>'
+            + '<div class="trial-enrollment-bar"><div class="trial-enrollment-fill" style="width:' + Math.min(stats.enrollmentPct, 100) + '%"></div></div>'
+            + '<div style="font-size:.75rem;color:var(--text-muted)">' + (trial.startDate || '?') + ' \u2192 ' + (trial.endDate || '?') + '</div>'
+            + '</div>'
+            + '<div style="display:flex;flex-direction:column;gap:6px;flex-shrink:0">'
+            + '<button class="btn btn-ghost" style="font-size:.75rem;padding:4px 10px" onclick="window._trialToggleExpand(\'' + trial.id + '\')">' + (expanded ? '▲ Collapse' : '▼ View Details') + '</button>'
+            + '<button class="btn btn-ghost" style="font-size:.75rem;padding:4px 10px" onclick="window._trialManageParticipants(\'' + trial.id + '\')">Manage Participants</button>'
+            + (trial.status === 'active' ? '<button class="btn btn-ghost" style="font-size:.75rem;padding:4px 10px;color:#f59e0b" onclick="window._trialSetStatus(\'' + trial.id + '\',\'paused\')">Pause</button>'
+              : trial.status === 'paused' ? '<button class="btn btn-ghost" style="font-size:.75rem;padding:4px 10px;color:#10b981" onclick="window._trialSetStatus(\'' + trial.id + '\',\'active\')">Resume</button>'
+              : '')
+            + '</div></div>'
+            + expandContent
+            + '</div>';
+        }).join('');
+
+    return _trialWizardHtml() + filterBar + '<div id="trial-cards">' + cards + '</div>';
+  }
+
+  function renderParticipants(trials) {
+    var selId = _selectedTrialId || (trials[0] && trials[0].id) || '';
+    var trial = trials.find(function(t) { return t.id === selId; });
+    var participants = trial ? getTrialParticipants(selId) : [];
+    var stats = trial ? trialEnrollmentStats(trial, participants) : null;
+
+    var trialSelector = '<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:16px">'
+      + '<label class="form-label" style="margin:0">Trial:</label>'
+      + '<select class="form-control" style="width:auto" onchange="window._trialSelectTrial(this.value)">'
+      + trials.map(function(t) { return '<option value="' + t.id + '"' + (t.id === selId ? ' selected' : '') + '>' + t.title + '</option>'; }).join('')
+      + '</select>'
+      + (trial ? '<button class="btn btn-primary" style="font-size:.8rem;padding:6px 14px" onclick="window._trialEnroll()">+ Enroll Participant</button>' : '')
+      + '</div>';
+
+    if (!trial) return trialSelector + '<div style="color:var(--text-muted);text-align:center;padding:40px">Select a trial above.</div>';
+
+    var summaryBar = '<div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px">'
+      + [['Total Enrolled', stats.total, 'var(--text-primary)'], ['Active', stats.active, '#10b981'], ['Completed', stats.completed, '#9b7fff'], ['Withdrawn/LTF', stats.withdrawn, '#ef4444'], ['Target', trial.targetEnrollment, 'var(--text-muted)']].map(function(item) {
+          return '<div style="background:var(--card-bg);border:1px solid var(--border);border-radius:8px;padding:10px 16px;text-align:center;min-width:90px"><div style="font-size:1.4rem;font-weight:800;color:' + item[2] + '">' + item[1] + '</div><div style="font-size:.7rem;color:var(--text-muted)">' + item[0] + '</div></div>';
+        }).join('')
+      + '<div style="background:var(--card-bg);border:1px solid var(--border);border-radius:8px;padding:10px 16px;min-width:200px"><div style="font-size:.7rem;color:var(--text-muted);margin-bottom:6px;font-weight:700">ARM DISTRIBUTION</div>' + _armPieChart(stats.byArm) + '</div>'
+      + '</div>';
+
+    var enrollBar = '<div style="margin-bottom:14px">'
+      + '<div style="display:flex;justify-content:space-between;font-size:.75rem;color:var(--text-muted);margin-bottom:3px"><span>Enrollment Progress</span><span>' + stats.total + ' / ' + trial.targetEnrollment + ' (' + stats.enrollmentPct + '%)</span></div>'
+      + '<div class="trial-enrollment-bar" style="height:10px"><div class="trial-enrollment-fill" style="width:' + Math.min(stats.enrollmentPct, 100) + '%"></div></div>'
+      + '</div>';
+
+    var tableRows = participants.length === 0
+      ? '<tr><td colspan="6" style="text-align:center;padding:20px;color:var(--text-muted)">No participants enrolled yet.</td></tr>'
+      : participants.map(function(p) {
+          var armArrIdx = trial.arms.findIndex(function(a) { return a.id === p.armId; });
+          var armDisplay = (trial.blinded && p.armId)
+            ? ('Arm ' + String.fromCharCode(65 + (armArrIdx >= 0 ? armArrIdx : 0)))
+            : (p.armName || '—');
+          var visitsDone = (p.visits || []).filter(function(v) { return v.completed; }).length;
+          var visitsTotal = (p.visits || []).length;
+          return '<tr id="pt-row-' + p.id + '" style="border-bottom:1px solid var(--border)">'
+            + '<td style="padding:8px 10px;font-size:.83rem;font-weight:600">' + p.patientName + '</td>'
+            + '<td style="padding:8px 10px;font-size:.8rem;color:var(--text-muted)">' + (p.enrollmentDate || '—') + '</td>'
+            + '<td style="padding:8px 10px;font-size:.8rem">' + (p.armId ? armDisplay : '<span style="color:var(--text-muted)">Not randomized</span>') + '</td>'
+            + '<td style="padding:8px 10px">' + _trialParticipantStatusBadge(p.status) + '</td>'
+            + '<td style="padding:8px 10px;font-size:.8rem">' + visitsDone + '/' + visitsTotal + '</td>'
+            + '<td style="padding:8px 10px"><div style="display:flex;gap:6px;flex-wrap:wrap">'
+            + (!p.armId ? '<button class="btn btn-ghost" style="font-size:.72rem;padding:2px 8px" onclick="window._trialRandomize(\'' + p.id + '\')">Randomize</button>' : '')
+            + '<button class="btn btn-ghost" style="font-size:.72rem;padding:2px 8px" onclick="window._trialToggleVisits(\'' + p.id + '\')">Visits</button>'
+            + (p.status !== 'withdrawn' && p.status !== 'completed' ? '<button class="btn btn-ghost" style="font-size:.72rem;padding:2px 8px;color:#ef4444" onclick="window._trialWithdraw(\'' + p.id + '\')">Withdraw</button>' : '')
+            + '</div>'
+            + '<div id="visits-' + p.id + '" style="display:none;margin-top:8px">'
+            + (p.visits || []).map(function(v, vi) {
+                return '<div class="visit-row">'
+                  + '<span style="color:var(--text-muted);min-width:80px">' + v.date + '</span>'
+                  + '<span style="flex:1">' + v.type + '</span>'
+                  + (v.completed ? '<span style="color:#10b981;font-size:.72rem;font-weight:700">\u2713 Done</span>' : '<button class="btn btn-ghost" style="font-size:.7rem;padding:1px 7px" onclick="window._trialCompleteVisit(\'' + p.id + '\',' + vi + ')">Mark Complete</button>')
+                  + '</div>';
+              }).join('')
+            + '</div></td></tr>';
+        }).join('');
+
+    var table = '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse">'
+      + '<thead><tr style="border-bottom:2px solid var(--border)">'
+      + ['Patient','Enrolled','Arm' + (trial.blinded ? ' (Masked)' : ''),'Status','Visits','Actions'].map(function(h) {
+          return '<th style="padding:8px 10px;text-align:left;font-size:.75rem;color:var(--text-muted);font-weight:700;text-transform:uppercase">' + h + '</th>';
+        }).join('')
+      + '</tr></thead><tbody>' + tableRows + '</tbody></table></div>';
+
+    return trialSelector + _trialEnrollFormHtml(selId) + summaryBar + enrollBar + table;
+  }
+
+  function renderDataCollection(trials) {
+    var selTrialId = _selectedDataTrialId || (trials[0] && trials[0].id) || '';
+    var trial = trials.find(function(t) { return t.id === selTrialId; });
+    var participants = trial ? getTrialParticipants(selTrialId) : [];
+    var selParticipantId = (participants[0] && participants[0].id) || '';
+    var dataPoints = trial ? getTrialData(selTrialId) : [];
+
+    var selectors = '<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:16px">'
+      + '<label class="form-label" style="margin:0">Trial:</label>'
+      + '<select class="form-control" style="width:auto" onchange="window._trialDataSelectTrial(this.value)">'
+      + trials.map(function(t) { return '<option value="' + t.id + '"' + (t.id === selTrialId ? ' selected' : '') + '>' + t.title + '</option>'; }).join('')
+      + '</select></div>';
+
+    if (!trial) return selectors + '<div style="color:var(--text-muted);text-align:center;padding:40px">Select a trial above.</div>';
+
+    var dataForm = '<div style="background:var(--card-bg);border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:16px">'
+      + '<strong style="display:block;margin-bottom:12px;font-size:.9rem">Record Data Point</strong>'
+      + '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:10px">'
+      + '<div><label class="form-label">Participant</label><select class="form-control" id="dp-participant">'
+      + participants.map(function(p) { return '<option value="' + p.id + '"' + (p.id === selParticipantId ? ' selected' : '') + '>' + p.patientName + '</option>'; }).join('')
+      + '</select></div>'
+      + '<div><label class="form-label">Measure</label><select class="form-control" id="dp-measure">'
+      + OUTCOME_MEASURES.map(function(m) { return '<option value="' + m + '">' + m + '</option>'; }).join('')
+      + '</select></div>'
+      + '<div><label class="form-label">Value</label><input type="number" class="form-control" id="dp-value" placeholder="e.g. 12"></div>'
+      + '<div><label class="form-label">Unit</label><input class="form-control" id="dp-unit" placeholder="score/mg/Hz"></div>'
+      + '<div><label class="form-label">Visit Date</label><input type="date" class="form-control" id="dp-date"></div>'
+      + '<div style="grid-column:1/-1"><label class="form-label">Notes</label><input class="form-control" id="dp-notes" placeholder="Optional notes"></div>'
+      + '</div>'
+      + '<div id="dp-msg" style="display:none;margin-top:8px;font-size:.82rem;color:#10b981"></div>'
+      + '<div style="margin-top:12px;display:flex;justify-content:flex-end;gap:8px">'
+      + '<button class="btn btn-primary" style="font-size:.8rem;padding:6px 14px" onclick="window._trialSaveData()">Save Data Point</button>'
+      + '<button class="btn btn-ghost" style="font-size:.8rem;padding:6px 14px" onclick="window._trialExportData(\'' + selTrialId + '\')">Export CSV</button>'
+      + '</div></div>';
+
+    var chartSection = '<div style="background:var(--card-bg);border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:16px">'
+      + '<div style="font-size:.85rem;font-weight:700;margin-bottom:12px">Outcome Over Time by Arm</div>'
+      + _outcomeLineChart(dataPoints, trial.arms)
+      + '</div>';
+
+    var grouped = {};
+    dataPoints.forEach(function(d) {
+      if (!grouped[d.participantId]) grouped[d.participantId] = [];
+      grouped[d.participantId].push(d);
+    });
+
+    var dataTableHtml = Object.keys(grouped).length === 0
+      ? '<div style="text-align:center;padding:30px;color:var(--text-muted)">No data recorded yet. Use the form above to enter data.</div>'
+      : Object.keys(grouped).map(function(pid) {
+          var pts2 = grouped[pid];
+          var pName = (participants.find(function(p) { return p.id === pid; }) || {}).patientName || pid;
+          var rows2 = pts2.map(function(d) {
+            return '<tr style="border-bottom:1px solid var(--border)">'
+              + '<td style="padding:6px 10px;font-size:.8rem">' + (d.visitDate || '—') + '</td>'
+              + '<td style="padding:6px 10px;font-size:.8rem;font-weight:600">' + d.measure + '</td>'
+              + '<td style="padding:6px 10px;font-size:.8rem">' + d.value + ' ' + (d.unit || '') + '</td>'
+              + '<td style="padding:6px 10px;font-size:.8rem;color:var(--text-muted)">' + (d.notes || '—') + '</td>'
+              + '</tr>';
+          }).join('');
+          return '<div style="margin-bottom:16px"><div style="font-size:.82rem;font-weight:700;padding:6px 0;color:var(--text-secondary)">' + pName + '</div>'
+            + '<table style="width:100%;border-collapse:collapse"><thead><tr style="border-bottom:2px solid var(--border)">'
+            + ['Date','Measure','Value','Notes'].map(function(h) { return '<th style="padding:6px 10px;text-align:left;font-size:.72rem;color:var(--text-muted);font-weight:700;text-transform:uppercase">' + h + '</th>'; }).join('')
+            + '</tr></thead><tbody>' + rows2 + '</tbody></table></div>';
+        }).join('');
+
+    return selectors + dataForm + chartSection + '<div style="background:var(--card-bg);border:1px solid var(--border);border-radius:12px;padding:16px"><div style="font-size:.85rem;font-weight:700;margin-bottom:12px">Data Records</div>' + dataTableHtml + '</div>';
+  }
+
+  function bindHandlers() {
+    window._trialTabSwitch = function(tab) { _activeTab = tab; render(); };
+    window._trialFilterStatus = function(s) { _filterStatus = s; render(); };
+    window._trialFilterPhase = function(p) { _filterPhase = p; render(); };
+
+    window._trialToggleExpand = function(id) {
+      _expandedTrials[id] = !_expandedTrials[id];
+      render();
+    };
+
+    window._trialManageParticipants = function(id) {
+      _selectedTrialId = id;
+      _activeTab = 'participants';
+      render();
+    };
+
+    window._trialSetStatus = function(id, status) {
+      var trial = getTrials().find(function(t) { return t.id === id; });
+      if (!trial) return;
+      trial.status = status;
+      saveTrial(trial);
+      render();
+    };
+
+    window._trialNew = function() {
+      _wizStep = 1;
+      _wizArms = [
+        { id: 'arm-' + Date.now() + '-1', name: 'Treatment', description: '', type: 'treatment' },
+        { id: 'arm-' + Date.now() + '-2', name: 'Control', description: '', type: 'control' },
+      ];
+      _trialIdBeingEdited = null;
+      var wiz = document.getElementById('trial-wizard');
+      if (!wiz) return;
+      wiz.style.display = 'block';
+      document.getElementById('wiz-panel-1').style.display = '';
+      document.getElementById('wiz-panel-2').style.display = 'none';
+      document.getElementById('wiz-panel-3').style.display = 'none';
+      ['wiz-step-1','wiz-step-2','wiz-step-3'].forEach(function(sid, i) {
+        var el2 = document.getElementById(sid);
+        if (el2) { el2.style.background = i === 0 ? 'var(--accent-teal)' : 'var(--hover-bg)'; el2.style.color = i === 0 ? '#000' : 'var(--text-muted)'; }
+      });
+    };
+
+    window._trialWizNext = function(currentStep) {
+      if (currentStep === 2) {
+        _wizArms = [];
+        document.querySelectorAll('.wiz-arm-row').forEach(function(row) {
+          _wizArms.push({
+            id: row.dataset.armId,
+            name: row.querySelector('.arm-name').value.trim(),
+            type: row.querySelector('.arm-type').value,
+            description: row.querySelector('.arm-desc').value.trim(),
+          });
+        });
+      }
+      var next = currentStep + 1;
+      document.getElementById('wiz-panel-' + currentStep).style.display = 'none';
+      document.getElementById('wiz-panel-' + next).style.display = '';
+      ['wiz-step-1','wiz-step-2','wiz-step-3'].forEach(function(sid, i) {
+        var el2 = document.getElementById(sid);
+        if (el2) { el2.style.background = i === next - 1 ? 'var(--accent-teal)' : 'var(--hover-bg)'; el2.style.color = i === next - 1 ? '#000' : 'var(--text-muted)'; }
+      });
+      if (next === 2) window._trialRenderArms();
+    };
+
+    window._trialWizBack = function(currentStep) {
+      var prev = currentStep - 1;
+      document.getElementById('wiz-panel-' + currentStep).style.display = 'none';
+      document.getElementById('wiz-panel-' + prev).style.display = '';
+      ['wiz-step-1','wiz-step-2','wiz-step-3'].forEach(function(sid, i) {
+        var el2 = document.getElementById(sid);
+        if (el2) { el2.style.background = i === prev - 1 ? 'var(--accent-teal)' : 'var(--hover-bg)'; el2.style.color = i === prev - 1 ? '#000' : 'var(--text-muted)'; }
+      });
+    };
+
+    window._trialRenderArms = function() {
+      var list = document.getElementById('wiz-arms-list');
+      if (!list) return;
+      list.innerHTML = _wizArms.map(function(arm) {
+        return '<div class="wiz-arm-row" data-arm-id="' + arm.id + '" style="display:grid;grid-template-columns:1fr auto 2fr auto;gap:8px;margin-bottom:8px;align-items:start">'
+          + '<div><label class="form-label" style="font-size:.72rem">Arm Name</label><input class="form-control arm-name" value="' + arm.name + '" placeholder="e.g. Treatment A"></div>'
+          + '<div><label class="form-label" style="font-size:.72rem">Type</label><select class="form-control arm-type"><option value="treatment"' + (arm.type === 'treatment' ? ' selected' : '') + '>Treatment</option><option value="control"' + (arm.type === 'control' ? ' selected' : '') + '>Control</option><option value="comparator"' + (arm.type === 'comparator' ? ' selected' : '') + '>Comparator</option></select></div>'
+          + '<div><label class="form-label" style="font-size:.72rem">Description</label><input class="form-control arm-desc" value="' + arm.description + '" placeholder="Intervention details"></div>'
+          + '<div style="padding-top:22px"><button class="btn btn-ghost" style="font-size:.72rem;padding:4px 8px;color:#ef4444" onclick="window._trialRemoveArm(\'' + arm.id + '\')">\u2715</button></div>'
+          + '</div>';
+      }).join('');
+    };
+
+    window._trialAddArm = function() {
+      _wizArms.push({ id: 'arm-' + Date.now(), name: '', type: 'treatment', description: '' });
+      window._trialRenderArms();
+    };
+
+    window._trialRemoveArm = function(id) {
+      _wizArms = _wizArms.filter(function(a) { return a.id !== id; });
+      window._trialRenderArms();
+    };
+
+    window._trialSave = function() {
+      var title = (document.getElementById('wiz-title') || {}).value;
+      if (!title || !title.trim()) { alert('Please enter a trial title.'); return; }
+      var arms = [];
+      document.querySelectorAll('.wiz-arm-row').forEach(function(row) {
+        arms.push({
+          id: row.dataset.armId,
+          name: row.querySelector('.arm-name').value.trim(),
+          type: row.querySelector('.arm-type').value,
+          description: row.querySelector('.arm-desc').value.trim(),
+        });
+      });
+      var secRaw = (document.getElementById('wiz-secondary-outcomes') || {}).value || '';
+      var incRaw = (document.getElementById('wiz-inclusion') || {}).value || '';
+      var excRaw = (document.getElementById('wiz-exclusion') || {}).value || '';
+      var trial = {
+        id: _trialIdBeingEdited || ('trial-' + Date.now()),
+        title: title.trim(),
+        irbNumber: ((document.getElementById('wiz-irb') || {}).value || '').trim(),
+        sponsor: ((document.getElementById('wiz-sponsor') || {}).value || '').trim(),
+        phase: (document.getElementById('wiz-phase') || {}).value || 'Phase II',
+        status: 'planning',
+        startDate: (document.getElementById('wiz-start') || {}).value || '',
+        endDate: (document.getElementById('wiz-end') || {}).value || '',
+        targetEnrollment: parseInt((document.getElementById('wiz-target') || {}).value || '0') || 0,
+        arms: arms.length ? arms : [{ id: 'arm-a', name: 'Treatment', type: 'treatment', description: '' }],
+        primaryOutcome: ((document.getElementById('wiz-primary-outcome') || {}).value || '').trim(),
+        secondaryOutcomes: secRaw.split('\n').map(function(s) { return s.trim(); }).filter(Boolean),
+        inclusionCriteria: incRaw.split('\n').map(function(s) { return s.trim(); }).filter(Boolean),
+        exclusionCriteria: excRaw.split('\n').map(function(s) { return s.trim(); }).filter(Boolean),
+        principalInvestigator: ((document.getElementById('wiz-pi') || {}).value || '').trim(),
+        coordinatorName: ((document.getElementById('wiz-coord') || {}).value || '').trim(),
+        blinded: !!(document.getElementById('wiz-blinded') || { checked: true }).checked,
+        notes: '',
+      };
+      saveTrial(trial);
+      document.getElementById('trial-wizard').style.display = 'none';
+      render();
+    };
+
+    window._trialSelectTrial = function(id) { _selectedTrialId = id; render(); };
+    window._trialDataSelectTrial = function(id) { _selectedDataTrialId = id; render(); };
+
+    window._trialEnroll = function() {
+      var form = document.getElementById('trial-enroll-form');
+      if (form) form.style.display = form.style.display === 'none' ? 'block' : 'none';
+    };
+
+    window._trialSaveParticipant = function() {
+      var name = ((document.getElementById('enroll-name') || {}).value || '').trim();
+      var trialId = (document.getElementById('enroll-trial-id') || {}).value;
+      var msg = document.getElementById('enroll-msg');
+      if (!name) {
+        if (msg) { msg.style.display = 'block'; msg.style.color = '#ef4444'; msg.textContent = 'Patient name is required.'; }
+        return;
+      }
+      var p = {
+        id: 'p-' + Date.now(),
+        trialId: trialId,
+        patientName: name,
+        screeningDate: (document.getElementById('enroll-screen-date') || {}).value || new Date().toISOString().slice(0, 10),
+        enrollmentDate: (document.getElementById('enroll-date') || {}).value || new Date().toISOString().slice(0, 10),
+        armId: null,
+        armName: null,
+        status: 'screening',
+        visits: [{ date: new Date().toISOString().slice(0, 10), type: 'Baseline', completed: false, notes: '' }],
+        safetyNotes: '',
+      };
+      saveTrialParticipant(p);
+      if (msg) { msg.style.display = 'block'; msg.style.color = '#10b981'; msg.textContent = '\u2713 ' + name + ' enrolled successfully.'; }
+      setTimeout(function() { render(); }, 800);
+    };
+
+    window._trialRandomize = function(participantId) {
+      var all = _getAllParticipants();
+      var participant = all.find(function(p) { return p.id === participantId; });
+      var trialId = (participant && participant.trialId) || _selectedTrialId;
+      if (!trialId) return;
+      var result = randomizeArm(trialId, participantId);
+      if (!result) return;
+      var msg2 = result.blinded ? 'Arm assigned \u2014 blinding maintained.' : ('Randomized to: ' + result.armName);
+      alert(msg2);
+      render();
+    };
+
+    window._trialWithdraw = function(participantId) {
+      var reasons = 'Adverse event\nProtocol deviation\nPatient request\nLost to follow-up\nInvestigator decision';
+      var reason = prompt('Withdrawal reason:\n' + reasons + '\n\nEnter reason:');
+      if (!reason) return;
+      var all = _getAllParticipants();
+      var idx = all.findIndex(function(p) { return p.id === participantId; });
+      if (idx < 0) return;
+      all[idx].status = 'withdrawn';
+      all[idx].safetyNotes = (all[idx].safetyNotes ? all[idx].safetyNotes + '; ' : '') + 'Withdrawn: ' + reason;
+      localStorage.setItem(TRIAL_PARTICIPANTS_KEY, JSON.stringify(all));
+      render();
+    };
+
+    window._trialCompleteVisit = function(participantId, visitIdx) {
+      var all = _getAllParticipants();
+      var idx = all.findIndex(function(p) { return p.id === participantId; });
+      if (idx < 0 || !all[idx].visits[visitIdx]) return;
+      all[idx].visits[visitIdx].completed = true;
+      localStorage.setItem(TRIAL_PARTICIPANTS_KEY, JSON.stringify(all));
+      render();
+    };
+
+    window._trialToggleVisits = function(participantId) {
+      var el2 = document.getElementById('visits-' + participantId);
+      if (el2) el2.style.display = el2.style.display === 'none' ? 'block' : 'none';
+    };
+
+    window._trialSaveData = function() {
+      var participantId = (document.getElementById('dp-participant') || {}).value || '';
+      var measure = (document.getElementById('dp-measure') || {}).value || '';
+      var value = (document.getElementById('dp-value') || {}).value || '';
+      var unit = (document.getElementById('dp-unit') || {}).value || '';
+      var visitDate = (document.getElementById('dp-date') || {}).value || '';
+      var notes = (document.getElementById('dp-notes') || {}).value || '';
+      var msg = document.getElementById('dp-msg');
+      if (!participantId || !measure || !value || !visitDate) {
+        if (msg) { msg.style.display = 'block'; msg.style.color = '#ef4444'; msg.textContent = 'Participant, measure, value and date are required.'; }
+        return;
+      }
+      var participant = _getAllParticipants().find(function(p) { return p.id === participantId; });
+      var trialId = _selectedDataTrialId || (participant && participant.trialId) || '';
+      var point = {
+        id: 'dp-' + Date.now(),
+        trialId: trialId,
+        participantId: participantId,
+        armId: participant ? participant.armId : '',
+        visitDate: visitDate,
+        measure: measure,
+        value: parseFloat(value),
+        unit: unit,
+        notes: notes,
+      };
+      saveTrialDataPoint(point);
+      if (msg) { msg.style.display = 'block'; msg.style.color = '#10b981'; msg.textContent = '\u2713 Data point saved.'; }
+      setTimeout(function() { render(); }, 600);
+    };
+
+    window._trialExportData = function(trialId) {
+      var trial = getTrials().find(function(t) { return t.id === trialId; });
+      var dataPoints = getTrialData(trialId);
+      var participants = getTrialParticipants(trialId);
+      if (dataPoints.length === 0) { alert('No data points to export.'); return; }
+      var header = 'Trial,Participant,Arm,Visit Date,Measure,Value,Unit,Notes';
+      var rows = dataPoints.map(function(d) {
+        var p = participants.find(function(x) { return x.id === d.participantId; });
+        return [
+          trial ? trial.title : trialId,
+          p ? p.patientName : d.participantId,
+          p ? (p.armName || '') : '',
+          d.visitDate,
+          d.measure,
+          d.value,
+          d.unit || '',
+          (d.notes || '').replace(/,/g, ';'),
+        ].map(function(v) { return '"' + String(v).replace(/"/g, '""') + '"'; }).join(',');
+      });
+      var csv = [header].concat(rows).join('\n');
+      var blob = new Blob([csv], { type: 'text/csv' });
+      var url = URL.createObjectURL(blob);
+      var a = document.createElement('a');
+      a.href = url;
+      a.download = 'trial-data-' + trialId + '-' + new Date().toISOString().slice(0, 10) + '.csv';
+      a.click();
+      URL.revokeObjectURL(url);
+    };
+  }
+
+  render();
+}
+
+// ── Staff Scheduling ──────────────────────────────────────────────────────────
+
+const STAFF_KEY = 'ds_staff_roster';
+const SHIFTS_KEY = 'ds_shifts';
+const PTO_KEY = 'ds_pto_requests';
+const SWAP_KEY = 'ds_shift_swaps';
+
+function _staffId() { return 'st_' + Math.random().toString(36).slice(2) + Date.now().toString(36); }
+function _shiftId() { return 'sh_' + Math.random().toString(36).slice(2) + Date.now().toString(36); }
+function _ptoId()   { return 'pto_' + Math.random().toString(36).slice(2) + Date.now().toString(36); }
+function _swapId()  { return 'sw_' + Math.random().toString(36).slice(2) + Date.now().toString(36); }
+
+function _isoDate(d) {
+  var y = d.getFullYear(), m = String(d.getMonth() + 1).padStart(2, '0'), day = String(d.getDate()).padStart(2, '0');
+  return y + '-' + m + '-' + day;
+}
+function _addDays(dateStr, n) {
+  var d = new Date(dateStr + 'T12:00:00');
+  d.setDate(d.getDate() + n);
+  return _isoDate(d);
+}
+function _mondayOf(dateStr) {
+  var d = new Date(dateStr + 'T12:00:00');
+  var day = d.getDay();
+  var diff = day === 0 ? -6 : 1 - day;
+  d.setDate(d.getDate() + diff);
+  return _isoDate(d);
+}
+function _todayIso() { return _isoDate(new Date()); }
+function _hoursFromRange(range) {
+  if (!range) return 0;
+  var parts = range.split('-');
+  if (parts.length !== 2) return 0;
+  var s = parts[0].split(':').map(Number), e = parts[1].split(':').map(Number);
+  return (e[0] * 60 + e[1] - s[0] * 60 - s[1]) / 60;
+}
+
+function getStaffRoster() {
+  try { var d = JSON.parse(localStorage.getItem(STAFF_KEY) || 'null'); if (d && d.length) return d; } catch (_e) { /* fall through */ }
+  var seed = [
+    { id: _staffId(), name: 'Dr. Sarah Chen', role: 'clinician', email: 'schen@clinic.com', phone: '555-0101', color: '#10b981',
+      defaultHours: { mon: '09:00-17:00', tue: '09:00-17:00', wed: '09:00-17:00', thu: '09:00-17:00', fri: '09:00-15:00' },
+      maxHoursPerWeek: 40, contractType: 'full-time', skills: ['neurofeedback', 'tms', 'tdcs'] },
+    { id: _staffId(), name: 'Dr. Raj Patel', role: 'clinician', email: 'rpatel@clinic.com', phone: '555-0102', color: '#6366f1',
+      defaultHours: { mon: '08:00-16:00', tue: '08:00-16:00', wed: null, thu: '08:00-16:00', fri: '08:00-16:00' },
+      maxHoursPerWeek: 32, contractType: 'part-time', skills: ['tms', 'emdr', 'biofeedback'] },
+    { id: _staffId(), name: 'NP Jordan Rodriguez', role: 'clinician', email: 'jrodriguez@clinic.com', phone: '555-0103', color: '#f59e0b',
+      defaultHours: { mon: '10:00-18:00', tue: '10:00-18:00', wed: '10:00-18:00', thu: null, fri: '10:00-18:00' },
+      maxHoursPerWeek: 36, contractType: 'full-time', skills: ['neurofeedback', 'cranial-stim'] },
+    { id: _staffId(), name: 'Alex Kim', role: 'technician', email: 'akim@clinic.com', phone: '555-0104', color: '#3b82f6',
+      defaultHours: { mon: '08:00-17:00', tue: '08:00-17:00', wed: '08:00-17:00', thu: '08:00-17:00', fri: '08:00-17:00' },
+      maxHoursPerWeek: 40, contractType: 'full-time', skills: ['qeeg', 'tdcs', 'device-maintenance'] },
+    { id: _staffId(), name: 'Jamie Scott', role: 'receptionist', email: 'jscott@clinic.com', phone: '555-0105', color: '#ec4899',
+      defaultHours: { mon: '08:30-17:00', tue: '08:30-17:00', wed: '08:30-17:00', thu: '08:30-17:00', fri: '08:30-16:00' },
+      maxHoursPerWeek: 40, contractType: 'full-time', skills: ['scheduling', 'billing', 'patient-intake'] },
+    { id: _staffId(), name: 'Morgan Lee', role: 'supervisor', email: 'mlee@clinic.com', phone: '555-0106', color: '#8b5cf6',
+      defaultHours: { mon: '09:00-17:00', tue: '09:00-17:00', wed: '09:00-17:00', thu: '09:00-17:00', fri: '09:00-17:00' },
+      maxHoursPerWeek: 40, contractType: 'full-time', skills: ['neurofeedback', 'tms', 'supervision', 'training'] },
+  ];
+  localStorage.setItem(STAFF_KEY, JSON.stringify(seed));
+  return seed;
+}
+
+function saveStaffMember(member) {
+  var roster = getStaffRoster();
+  var idx = roster.findIndex(function(s) { return s.id === member.id; });
+  if (idx >= 0) roster[idx] = member; else roster.push(member);
+  localStorage.setItem(STAFF_KEY, JSON.stringify(roster));
+}
+
+function getShifts() {
+  try { var d = JSON.parse(localStorage.getItem(SHIFTS_KEY) || 'null'); if (d && d.length) return d; } catch (_e) { /* fall through */ }
+  var staff = getStaffRoster();
+  var today = _todayIso();
+  var mon = _mondayOf(today);
+  var prevMon = _addDays(mon, -7);
+  var nextMon = _addDays(mon, 7);
+  var shifts = [];
+  var dayOffsets = [0, 1, 2, 3, 4];
+  var weekStarts = [prevMon, mon, nextMon];
+  var rooms = ['Room A', 'Room B', 'Room C', 'Lab 1', 'Lab 2', 'Front Desk'];
+  var dayKeys = ['mon', 'tue', 'wed', 'thu', 'fri'];
+  weekStarts.forEach(function(ws) {
+    staff.forEach(function(s) {
+      dayOffsets.forEach(function(d) {
+        var dayDate = _addDays(ws, d);
+        var hrs = s.defaultHours && s.defaultHours[dayKeys[d]];
+        if (!hrs) return;
+        var parts = hrs.split('-');
+        var room = rooms[Math.floor(Math.random() * rooms.length)];
+        var type = s.role === 'receptionist' ? 'admin' : (d === 2 && s.role === 'technician' ? 'training' : 'clinical');
+        shifts.push({
+          id: _shiftId(), staffId: s.id, staffName: s.name,
+          date: dayDate, startTime: parts[0], endTime: parts[1],
+          room: room, type: type, notes: '',
+          status: dayDate < today ? 'completed' : 'scheduled'
+        });
+      });
+    });
+  });
+  localStorage.setItem(SHIFTS_KEY, JSON.stringify(shifts));
+  return shifts;
+}
+
+function saveShift(shift) {
+  var shifts = getShifts();
+  var idx = shifts.findIndex(function(s) { return s.id === shift.id; });
+  if (idx >= 0) shifts[idx] = shift; else shifts.push(shift);
+  localStorage.setItem(SHIFTS_KEY, JSON.stringify(shifts));
+}
+
+function deleteShift(id) {
+  var shifts = getShifts().filter(function(s) { return s.id !== id; });
+  localStorage.setItem(SHIFTS_KEY, JSON.stringify(shifts));
+}
+
+function getPTORequests() {
+  try { var d = JSON.parse(localStorage.getItem(PTO_KEY) || 'null'); if (d && d.length) return d; } catch (_e) { /* fall through */ }
+  var staff = getStaffRoster();
+  var today = _todayIso();
+  var seed = [
+    { id: _ptoId(), staffId: staff[0].id, staffName: staff[0].name,
+      startDate: _addDays(today, 10), endDate: _addDays(today, 14),
+      type: 'vacation', status: 'pending', reason: 'Annual family vacation', approvedBy: null },
+    { id: _ptoId(), staffId: staff[1].id, staffName: staff[1].name,
+      startDate: _addDays(today, -5), endDate: _addDays(today, -3),
+      type: 'sick', status: 'approved', reason: 'Flu recovery', approvedBy: 'Morgan Lee' },
+    { id: _ptoId(), staffId: staff[2].id, staffName: staff[2].name,
+      startDate: _addDays(today, 21), endDate: _addDays(today, 25),
+      type: 'vacation', status: 'approved', reason: 'Conference attendance', approvedBy: 'Morgan Lee' },
+    { id: _ptoId(), staffId: staff[4].id, staffName: staff[4].name,
+      startDate: _addDays(today, 3), endDate: _addDays(today, 3),
+      type: 'personal', status: 'pending', reason: 'Personal appointment', approvedBy: null },
+  ];
+  localStorage.setItem(PTO_KEY, JSON.stringify(seed));
+  return seed;
+}
+
+function savePTORequest(req) {
+  var reqs = getPTORequests();
+  var idx = reqs.findIndex(function(r) { return r.id === req.id; });
+  if (idx >= 0) reqs[idx] = req; else reqs.push(req);
+  localStorage.setItem(PTO_KEY, JSON.stringify(reqs));
+}
+
+function updatePTOStatus(id, status) {
+  var reqs = getPTORequests();
+  var req = reqs.find(function(r) { return r.id === id; });
+  if (req) { req.status = status; req.approvedBy = status === 'approved' ? 'Morgan Lee' : null; }
+  localStorage.setItem(PTO_KEY, JSON.stringify(reqs));
+}
+
+function getSwapRequests() {
+  try { var d = JSON.parse(localStorage.getItem(SWAP_KEY) || 'null'); if (d && d.length) return d; } catch (_e) { /* fall through */ }
+  var staff = getStaffRoster();
+  var shifts = getShifts();
+  var today = _todayIso();
+  var futureShifts = shifts.filter(function(s) { return s.date >= today; });
+  var s0Shifts = futureShifts.filter(function(s) { return s.staffId === staff[0].id; });
+  var s1Shifts = futureShifts.filter(function(s) { return s.staffId === staff[1].id; });
+  var s2Shifts = futureShifts.filter(function(s) { return s.staffId === staff[2].id; });
+  var s3Shifts = futureShifts.filter(function(s) { return s.staffId === staff[3].id; });
+  var seed = [
+    { id: _swapId(), requestorId: staff[0].id, requestorName: staff[0].name,
+      requestorShiftId: (s0Shifts[0] || {}).id || '', coverId: staff[1].id, coverName: staff[1].name,
+      coverShiftId: (s1Shifts[0] || {}).id || '', reason: 'Medical appointment conflict', status: 'pending' },
+    { id: _swapId(), requestorId: staff[2].id, requestorName: staff[2].name,
+      requestorShiftId: (s2Shifts[0] || {}).id || '', coverId: staff[3].id, coverName: staff[3].name,
+      coverShiftId: (s3Shifts[0] || {}).id || '', reason: 'Personal scheduling conflict', status: 'approved' },
+  ];
+  localStorage.setItem(SWAP_KEY, JSON.stringify(seed));
+  return seed;
+}
+
+function saveSwapRequest(req) {
+  var reqs = getSwapRequests();
+  var idx = reqs.findIndex(function(r) { return r.id === req.id; });
+  if (idx >= 0) reqs[idx] = req; else reqs.push(req);
+  localStorage.setItem(SWAP_KEY, JSON.stringify(reqs));
+}
+
+function updateSwapStatus(id, status) {
+  var reqs = getSwapRequests();
+  var req = reqs.find(function(r) { return r.id === id; });
+  if (req) req.status = status;
+  localStorage.setItem(SWAP_KEY, JSON.stringify(reqs));
+}
+
+// ── Coverage Analyzer ─────────────────────────────────────────────────────────
+function analyzeCoverage(shifts, staff, weekStart) {
+  var days = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
+  var dayLabels = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+  var byDay = {};
+  var warnings = [];
+  days.forEach(function(day, i) {
+    var dateStr = _addDays(weekStart, i);
+    var dayShifts = shifts.filter(function(s) { return s.date === dateStr && s.status !== 'cancelled'; });
+    var staffIds = Array.from(new Set(dayShifts.map(function(s) { return s.staffId; })));
+    var rooms = Array.from(new Set(dayShifts.map(function(s) { return s.room; }).filter(Boolean)));
+    var clinicians = dayShifts.filter(function(s) {
+      var member = staff.find(function(m) { return m.id === s.staffId; });
+      return member && member.role === 'clinician';
+    });
+    byDay[day] = { date: dateStr, staffCount: staffIds.length, rooms: rooms, shifts: dayShifts, clinicianCount: clinicians.length };
+    if (i < 5) {
+      if (clinicians.length === 0) warnings.push(dayLabels[i] + ' has no clinician scheduled');
+      if (staffIds.length === 1) warnings.push(dayLabels[i] + ' has only 1 staff member (minimum 2 required)');
+      if (staffIds.length === 0) warnings.push(dayLabels[i] + ' has no staff scheduled');
+    }
+  });
+  return { byDay: byDay, warnings: warnings };
+}
+
+// ── Auto-Schedule Suggestion ──────────────────────────────────────────────────
+function suggestSchedule(staff, weekStart, existingShifts) {
+  var days = ['mon', 'tue', 'wed', 'thu', 'fri'];
+  var rooms = ['Room A', 'Room B', 'Room C', 'Lab 1', 'Lab 2'];
+  var suggestions = [];
+  staff.forEach(function(member) {
+    days.forEach(function(day, i) {
+      var dateStr = _addDays(weekStart, i);
+      var alreadyHasShift = existingShifts.some(function(s) {
+        return s.staffId === member.id && s.date === dateStr && s.status !== 'cancelled';
+      });
+      if (alreadyHasShift) return;
+      var hrs = member.defaultHours && member.defaultHours[day];
+      if (!hrs) return;
+      var parts = hrs.split('-');
+      suggestions.push({
+        id: _shiftId(), staffId: member.id, staffName: member.name,
+        date: dateStr, startTime: parts[0], endTime: parts[1],
+        room: rooms[Math.floor(Math.random() * rooms.length)],
+        type: member.role === 'receptionist' ? 'admin' : 'clinical',
+        notes: 'Auto-suggested', status: 'scheduled', _suggested: true
+      });
+    });
+  });
+  return suggestions;
+}
+
+// ── Display Helpers ───────────────────────────────────────────────────────────
+function _fmtDate(dateStr) {
+  if (!dateStr) return '';
+  var d = new Date(dateStr + 'T12:00:00');
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
+function _fmtDateLong(dateStr) {
+  if (!dateStr) return '';
+  var d = new Date(dateStr + 'T12:00:00');
+  return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+}
+function _roleBadge(role) {
+  var colors = { clinician: '#10b981', technician: '#3b82f6', receptionist: '#ec4899', supervisor: '#8b5cf6', admin: '#f59e0b' };
+  var bg = colors[role] || '#6b7280';
+  return '<span style="background:' + bg + '22;color:' + bg + ';padding:2px 8px;border-radius:12px;font-size:.72rem;font-weight:700">' + (role || '—') + '</span>';
+}
+function _staffStatusBadge(status) {
+  var cfg = {
+    scheduled: '#3b82f6', confirmed: '#10b981', completed: '#6b7280',
+    'no-show': '#ef4444', cancelled: '#9ca3af', pending: '#f59e0b',
+    approved: '#10b981', denied: '#ef4444'
+  };
+  var c = cfg[status] || '#6b7280';
+  return '<span style="color:' + c + ';padding:2px 8px;border-radius:12px;font-size:.72rem;font-weight:700;border:1px solid ' + c + '44">' + (status || '—') + '</span>';
+}
+function _calcWeekHours(staffId, shifts, weekStart) {
+  var total = 0;
+  for (var i = 0; i < 7; i++) {
+    var dateStr = _addDays(weekStart, i);
+    shifts.filter(function(s) { return s.staffId === staffId && s.date === dateStr && s.status !== 'cancelled'; })
+      .forEach(function(s) { total += _hoursFromRange(s.startTime + '-' + s.endTime); });
+  }
+  return total;
+}
+function _ptoUsed(staffId, type, ptoRequests) {
+  return ptoRequests
+    .filter(function(r) { return r.staffId === staffId && r.type === type && r.status === 'approved'; })
+    .reduce(function(acc, r) {
+      var d1 = new Date(r.startDate + 'T12:00:00'), d2 = new Date(r.endDate + 'T12:00:00');
+      return acc + Math.round((d2 - d1) / 86400000) + 1;
+    }, 0);
+}
+
+// ── Modal Helpers ─────────────────────────────────────────────────────────────
+function _ssOpenModal(html) {
+  var existing = document.getElementById('_staff-modal');
+  if (existing) existing.remove();
+  var overlay = document.createElement('div');
+  overlay.id = '_staff-modal';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:500;display:flex;align-items:center;justify-content:center;padding:16px';
+  overlay.innerHTML = '<div style="background:var(--card-bg,#1e293b);border:1px solid var(--border);border-radius:12px;padding:24px;max-width:560px;width:100%;max-height:90vh;overflow-y:auto">' + html + '</div>';
+  overlay.addEventListener('click', function(e) { if (e.target === overlay) _ssCloseModal(); });
+  document.body.appendChild(overlay);
+}
+function _ssCloseModal() {
+  var m = document.getElementById('_staff-modal');
+  if (m) m.remove();
+}
+
+// ── Main Exported Page ────────────────────────────────────────────────────────
+export async function pgStaffScheduling(setTopbar) {
+  setTopbar('Staff Scheduling & Shifts', '<button class="btn btn-ghost btn-sm" onclick="window._staffAutoSchedule()">⚡ Auto-Schedule</button>');
+  var el = document.getElementById('content');
+
+  if (!window._staffWeekStart) window._staffWeekStart = _mondayOf(_todayIso());
+  if (!window._staffActiveTab) window._staffActiveTab = 'schedule';
+
+  function render() {
+    var ws = window._staffWeekStart;
+    var staff = getStaffRoster();
+    var shifts = getShifts();
+    var ptoReqs = getPTORequests();
+    var swapReqs = getSwapRequests();
+    var activeTab = window._staffActiveTab;
+
+    var tabs = [
+      { id: 'schedule', label: '📅 Weekly Schedule' },
+      { id: 'roster',   label: '👤 Staff Roster' },
+      { id: 'pto',      label: '🏖 PTO & Leave' },
+      { id: 'swaps',    label: '🔄 Shift Swaps' },
+    ];
+
+    el.innerHTML =
+      '<div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap">' +
+      tabs.map(function(t) {
+        return '<button class="btn btn-sm ' + (activeTab === t.id ? '' : 'btn-ghost') + '" onclick="window._staffTab(\'' + t.id + '\')">' + t.label + '</button>';
+      }).join('') +
+      '</div><div id="_staff-tab-body"></div>';
+
+    var body = document.getElementById('_staff-tab-body');
+    if (activeTab === 'schedule') body.innerHTML = renderScheduleTab(ws, staff, shifts);
+    else if (activeTab === 'roster') body.innerHTML = renderRosterTab(staff, shifts, ws);
+    else if (activeTab === 'pto') body.innerHTML = renderPTOTab(ptoReqs, staff);
+    else if (activeTab === 'swaps') body.innerHTML = renderSwapsTab(swapReqs, shifts, staff);
+  }
+
+  // ── Schedule Tab ─────────────────────────────────────────────────────────
+  function renderScheduleTab(ws, staff, shifts) {
+    var days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    var dates = days.map(function(_, i) { return _addDays(ws, i); });
+    var coverage = analyzeCoverage(shifts, staff, ws);
+    var gridCols = '180px repeat(7, 1fr)';
+    var todayStr = _todayIso();
+
+    var headerCells = '<div class="staff-grid-name" style="background:var(--hover-bg)">Staff</div>' +
+      days.map(function(day, i) {
+        var d = dates[i];
+        var isToday = d === todayStr;
+        return '<div style="padding:8px;text-align:center;font-size:.8rem;font-weight:600;border-right:1px solid var(--border);' +
+          (isToday ? 'color:var(--accent-teal,#00d4bc);' : 'color:var(--text-muted)') + '">' +
+          day + '<br><span style="font-size:.75rem;opacity:.7">' + _fmtDate(d) + '</span></div>';
+      }).join('');
+
+    var rows = staff.map(function(member) {
+      var weekHrs = _calcWeekHours(member.id, shifts, ws);
+      var max = member.maxHoursPerWeek || 40;
+      var hrsClass = weekHrs > max ? 'staff-hours-over' : weekHrs < max * 0.75 ? 'staff-hours-under' : 'staff-hours-ok';
+      var nameCell =
+        '<div class="staff-grid-name" style="flex-direction:column;align-items:flex-start">' +
+        '<div style="display:flex;align-items:center;gap:6px">' +
+        '<span style="width:10px;height:10px;border-radius:50%;background:' + member.color + ';flex-shrink:0"></span>' +
+        '<span style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:140px">' + member.name + '</span></div>' +
+        '<div style="font-size:.7rem;color:var(--text-muted)">' + _roleBadge(member.role) + '</div>' +
+        '<div class="' + hrsClass + '" style="font-size:.68rem;margin-top:2px">' + weekHrs.toFixed(1) + '/' + max + 'h</div></div>';
+
+      var dayCells = dates.map(function(dateStr) {
+        var dayShifts = shifts.filter(function(s) { return s.staffId === member.id && s.date === dateStr && s.status !== 'cancelled'; });
+        var blocks = dayShifts.map(function(s) {
+          return '<div class="staff-shift-block" style="background:' + member.color + '" onclick="event.stopPropagation();window._staffEditShift(\'' + s.id + '\')">' +
+            s.startTime + '–' + s.endTime + '<br>' + (s.room || '') + '</div>';
+        }).join('');
+        var addBtn = '<div style="font-size:.65rem;color:var(--text-muted);text-align:center;padding-top:4px;opacity:.5">+ add</div>';
+        return '<div class="staff-grid-cell" onclick="window._staffAddShift(\'' + member.id + '\',\'' + dateStr + '\')">' +
+          blocks + (dayShifts.length === 0 ? addBtn : '') + '</div>';
+      }).join('');
+
+      return '<div class="staff-grid-row" style="grid-template-columns:' + gridCols + '">' + nameCell + dayCells + '</div>';
+    }).join('');
+
+    var warningHtml = coverage.warnings.length === 0
+      ? '<div style="color:var(--text-muted);font-size:.82rem">No coverage issues this week.</div>'
+      : coverage.warnings.map(function(w) { return '<div class="coverage-warning">⚠ ' + w + '</div>'; }).join('');
+
+    return '<div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap">' +
+      '<button class="btn btn-sm btn-ghost" onclick="window._staffWeekPrev()">← Prev</button>' +
+      '<button class="btn btn-sm btn-ghost" onclick="window._staffWeekToday()">This Week</button>' +
+      '<button class="btn btn-sm btn-ghost" onclick="window._staffWeekNext()">Next →</button>' +
+      '<span style="font-weight:600;font-size:.9rem">Week of ' + _fmtDate(ws) + ' – ' + _fmtDate(_addDays(ws, 6)) + '</span></div>' +
+      '<div style="overflow-x:auto;margin-bottom:16px"><div class="staff-grid" style="min-width:700px">' +
+      '<div class="staff-grid-header" style="grid-template-columns:' + gridCols + '">' + headerCells + '</div>' +
+      rows + '</div></div>' +
+      '<div style="margin-bottom:16px"><div style="font-weight:600;margin-bottom:8px;font-size:.85rem">Coverage Analysis</div>' +
+      warningHtml + '</div>';
+  }
+
+  // ── Roster Tab ────────────────────────────────────────────────────────────
+  function renderRosterTab(staff, shifts, ws) {
+    var cards = staff.map(function(member) {
+      var weekHrs = _calcWeekHours(member.id, shifts, ws);
+      var skills = (member.skills || []).map(function(sk) { return '<span class="skill-tag">' + sk + '</span>'; }).join('');
+      return '<div style="background:var(--card-bg);border:1px solid var(--border);border-radius:10px;padding:16px">' +
+        '<div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">' +
+        '<div style="width:36px;height:36px;border-radius:50%;background:' + member.color + ';flex-shrink:0;display:flex;align-items:center;justify-content:center;color:white;font-weight:700;font-size:.9rem">' + member.name.charAt(0) + '</div>' +
+        '<div style="flex:1"><div style="font-weight:600">' + member.name + '</div><div>' + _roleBadge(member.role) + '</div></div>' +
+        '<button class="btn btn-sm btn-ghost" onclick="window._staffEditMember(\'' + member.id + '\')">Edit</button></div>' +
+        '<div style="font-size:.78rem;color:var(--text-muted);margin-bottom:6px">' + (member.email || '') + ' · ' + (member.phone || '') + '</div>' +
+        '<div style="font-size:.78rem;margin-bottom:8px"><span style="color:var(--text-muted)">Contract:</span> ' + (member.contractType || '') + ' · ' + (member.maxHoursPerWeek || 40) + 'h/wk</div>' +
+        '<div style="margin-bottom:8px">' + (skills || '<span style="color:var(--text-muted);font-size:.75rem">No skills listed</span>') + '</div>' +
+        '<div style="font-size:.75rem;color:var(--text-muted)">This week: ' + weekHrs.toFixed(1) + 'h</div></div>';
+    }).join('');
+
+    return '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">' +
+      '<span style="font-weight:600">' + staff.length + ' Staff Members</span>' +
+      '<button class="btn btn-sm" onclick="window._staffNew()">+ Add Staff Member</button></div>' +
+      '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:14px">' + cards + '</div>';
+  }
+
+  // ── PTO Tab ───────────────────────────────────────────────────────────────
+  function renderPTOTab(ptoReqs, staff) {
+    var sorted = ptoReqs.slice().sort(function(a, b) { return a.startDate < b.startDate ? 1 : -1; });
+    var ptoTotals = { vacation: 15, sick: 10, personal: 5 };
+
+    var requestRows = sorted.map(function(req) {
+      var actionBtns = req.status === 'pending'
+        ? '<button class="btn btn-sm" style="background:#10b981;margin-left:8px" onclick="window._staffApprovePTO(\'' + req.id + '\')">Approve</button>' +
+          '<button class="btn btn-sm btn-ghost" style="color:#ef4444;margin-left:4px" onclick="window._staffDenyPTO(\'' + req.id + '\')">Deny</button>'
+        : '';
+      return '<div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--border);flex-wrap:wrap">' +
+        '<div style="flex:1;min-width:160px"><div style="font-weight:600;font-size:.85rem">' + req.staffName + '</div>' +
+        '<div style="font-size:.78rem;color:var(--text-muted)">' + _fmtDate(req.startDate) + ' – ' + _fmtDate(req.endDate) + '</div>' +
+        '<div style="font-size:.75rem;color:var(--text-muted)">' + (req.reason || '') + '</div></div>' +
+        '<span class="skill-tag">' + req.type + '</span>' + _staffStatusBadge(req.status) + actionBtns + '</div>';
+    }).join('');
+
+    function ptoBar(used, total) {
+      var pct = Math.min(100, Math.round(used / total * 100));
+      return '<div class="pto-balance-bar"><div class="pto-balance-fill" style="width:' + pct + '%"></div></div>';
+    }
+
+    var balanceCards = staff.map(function(member) {
+      var vUsed = _ptoUsed(member.id, 'vacation', ptoReqs);
+      var sUsed = _ptoUsed(member.id, 'sick', ptoReqs);
+      var pUsed = _ptoUsed(member.id, 'personal', ptoReqs);
+      return '<div style="background:var(--card-bg);border:1px solid var(--border);border-radius:8px;padding:12px">' +
+        '<div style="font-weight:600;font-size:.85rem;margin-bottom:8px">' + member.name + '</div>' +
+        '<div style="font-size:.75rem;margin-bottom:4px">Vacation: ' + (ptoTotals.vacation - vUsed) + '/' + ptoTotals.vacation + 'd remaining' + ptoBar(vUsed, ptoTotals.vacation) + '</div>' +
+        '<div style="font-size:.75rem;margin-bottom:4px">Sick: ' + (ptoTotals.sick - sUsed) + '/' + ptoTotals.sick + 'd remaining' + ptoBar(sUsed, ptoTotals.sick) + '</div>' +
+        '<div style="font-size:.75rem">Personal: ' + (ptoTotals.personal - pUsed) + '/' + ptoTotals.personal + 'd remaining' + ptoBar(pUsed, ptoTotals.personal) + '</div></div>';
+    }).join('');
+
+    return '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">' +
+      '<span style="font-weight:600">PTO Requests (' + ptoReqs.length + ')</span>' +
+      '<button class="btn btn-sm" onclick="window._staffRequestPTO()">+ Request PTO</button></div>' +
+      '<div style="background:var(--card-bg);border:1px solid var(--border);border-radius:10px;padding:16px;margin-bottom:20px">' +
+      (requestRows || '<div style="color:var(--text-muted);font-size:.85rem">No PTO requests</div>') + '</div>' +
+      '<div style="font-weight:600;margin-bottom:10px">PTO Balances</div>' +
+      '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px">' + balanceCards + '</div>';
+  }
+
+  // ── Swaps Tab ─────────────────────────────────────────────────────────────
+  function renderSwapsTab(swapReqs, shifts, staff) {
+    function shiftLabel(shiftId) {
+      var s = shifts.find(function(x) { return x.id === shiftId; });
+      return s ? _fmtDateLong(s.date) + ' ' + s.startTime + '–' + s.endTime : 'Unknown shift';
+    }
+    var cards = swapReqs.map(function(req) {
+      var actionBtns = req.status === 'pending'
+        ? '<button class="btn btn-sm" style="background:#10b981;margin-left:8px" onclick="window._staffApproveSwap(\'' + req.id + '\')">Approve</button>' +
+          '<button class="btn btn-sm btn-ghost" style="color:#ef4444;margin-left:4px" onclick="window._staffDenySwap(\'' + req.id + '\')">Deny</button>'
+        : '';
+      var notif = req.status === 'approved'
+        ? '<div style="font-size:.72rem;color:var(--text-muted);margin-top:6px">Cover clinician will be notified via messaging</div>'
+        : '';
+      return '<div class="swap-card">' +
+        '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:8px">' +
+        '<div><div style="font-weight:600;font-size:.85rem">' + req.requestorName + '</div>' +
+        '<div style="font-size:.75rem;color:var(--text-muted)">' + shiftLabel(req.requestorShiftId) + '</div></div>' +
+        '<span class="swap-arrow">⇄</span>' +
+        '<div><div style="font-weight:600;font-size:.85rem">' + req.coverName + '</div>' +
+        '<div style="font-size:.75rem;color:var(--text-muted)">' + shiftLabel(req.coverShiftId) + '</div></div></div>' +
+        '<div style="font-size:.78rem;color:var(--text-muted);margin-bottom:8px">Reason: ' + (req.reason || '') + '</div>' +
+        '<div style="display:flex;align-items:center">' + _staffStatusBadge(req.status) + actionBtns + '</div>' + notif + '</div>';
+    }).join('');
+
+    return '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">' +
+      '<span style="font-weight:600">Shift Swap Requests (' + swapReqs.length + ')</span>' +
+      '<button class="btn btn-sm" onclick="window._staffRequestSwap()">Request Swap</button></div>' +
+      (cards || '<div style="color:var(--text-muted);font-size:.85rem">No swap requests</div>');
+  }
+
+  // ── Window Handlers ───────────────────────────────────────────────────────
+  window._staffTab = function(tabId) { window._staffActiveTab = tabId; render(); };
+  window._staffWeekPrev  = function() { window._staffWeekStart = _addDays(window._staffWeekStart, -7); render(); };
+  window._staffWeekNext  = function() { window._staffWeekStart = _addDays(window._staffWeekStart, 7); render(); };
+  window._staffWeekToday = function() { window._staffWeekStart = _mondayOf(_todayIso()); render(); };
+
+  window._staffAddShift = function(staffId, dateStr) {
+    var staff = getStaffRoster();
+    var staffOptions = staff.map(function(s) {
+      return '<option value="' + s.id + '"' + (s.id === staffId ? ' selected' : '') + '>' + s.name + '</option>';
+    }).join('');
+    _ssOpenModal(
+      '<div style="font-weight:700;font-size:1rem;margin-bottom:16px">Add Shift</div>' +
+      '<div style="display:flex;flex-direction:column;gap:10px">' +
+      '<div><label style="font-size:.8rem;color:var(--text-muted)">Staff Member</label>' +
+      '<select class="form-control" id="_sh-staff">' + staffOptions + '</select></div>' +
+      '<div><label style="font-size:.8rem;color:var(--text-muted)">Date</label>' +
+      '<input class="form-control" type="date" id="_sh-date" value="' + (dateStr || _todayIso()) + '"></div>' +
+      '<div style="display:flex;gap:8px">' +
+      '<div style="flex:1"><label style="font-size:.8rem;color:var(--text-muted)">Start Time</label>' +
+      '<input class="form-control" type="time" id="_sh-start" value="09:00"></div>' +
+      '<div style="flex:1"><label style="font-size:.8rem;color:var(--text-muted)">End Time</label>' +
+      '<input class="form-control" type="time" id="_sh-end" value="17:00"></div></div>' +
+      '<div><label style="font-size:.8rem;color:var(--text-muted)">Room</label>' +
+      '<select class="form-control" id="_sh-room"><option>Room A</option><option>Room B</option><option>Room C</option><option>Lab 1</option><option>Lab 2</option><option>Front Desk</option></select></div>' +
+      '<div><label style="font-size:.8rem;color:var(--text-muted)">Shift Type</label>' +
+      '<select class="form-control" id="_sh-type"><option value="clinical">Clinical</option><option value="admin">Admin</option><option value="training">Training</option><option value="on-call">On-Call</option><option value="coverage">Coverage</option></select></div>' +
+      '<div><label style="font-size:.8rem;color:var(--text-muted)">Notes</label>' +
+      '<input class="form-control" id="_sh-notes" placeholder="Optional notes..."></div></div>' +
+      '<div style="display:flex;gap:8px;margin-top:16px;justify-content:flex-end">' +
+      '<button class="btn btn-ghost btn-sm" onclick="window._staffCloseModal()">Cancel</button>' +
+      '<button class="btn btn-sm" onclick="window._staffSaveShift(null)">Save Shift</button></div>'
+    );
+  };
+
+  window._staffEditShift = function(shiftId) {
+    var shifts = getShifts();
+    var s = shifts.find(function(x) { return x.id === shiftId; });
+    if (!s) return;
+    var staff = getStaffRoster();
+    var staffOptions = staff.map(function(m) {
+      return '<option value="' + m.id + '"' + (m.id === s.staffId ? ' selected' : '') + '>' + m.name + '</option>';
+    }).join('');
+    var roomOpts = ['Room A', 'Room B', 'Room C', 'Lab 1', 'Lab 2', 'Front Desk'].map(function(r) {
+      return '<option' + (r === s.room ? ' selected' : '') + '>' + r + '</option>';
+    }).join('');
+    var typeOpts = ['clinical', 'admin', 'training', 'on-call', 'coverage'].map(function(t) {
+      return '<option value="' + t + '"' + (t === s.type ? ' selected' : '') + '>' + t + '</option>';
+    }).join('');
+    var statusOpts = ['scheduled', 'confirmed', 'completed', 'no-show', 'cancelled'].map(function(st) {
+      return '<option value="' + st + '"' + (st === s.status ? ' selected' : '') + '>' + st + '</option>';
+    }).join('');
+    _ssOpenModal(
+      '<div style="font-weight:700;font-size:1rem;margin-bottom:16px">Edit Shift</div>' +
+      '<div style="display:flex;flex-direction:column;gap:10px">' +
+      '<div><label style="font-size:.8rem;color:var(--text-muted)">Staff Member</label>' +
+      '<select class="form-control" id="_sh-staff">' + staffOptions + '</select></div>' +
+      '<div><label style="font-size:.8rem;color:var(--text-muted)">Date</label>' +
+      '<input class="form-control" type="date" id="_sh-date" value="' + s.date + '"></div>' +
+      '<div style="display:flex;gap:8px">' +
+      '<div style="flex:1"><label style="font-size:.8rem;color:var(--text-muted)">Start Time</label>' +
+      '<input class="form-control" type="time" id="_sh-start" value="' + s.startTime + '"></div>' +
+      '<div style="flex:1"><label style="font-size:.8rem;color:var(--text-muted)">End Time</label>' +
+      '<input class="form-control" type="time" id="_sh-end" value="' + s.endTime + '"></div></div>' +
+      '<div><label style="font-size:.8rem;color:var(--text-muted)">Room</label>' +
+      '<select class="form-control" id="_sh-room">' + roomOpts + '</select></div>' +
+      '<div><label style="font-size:.8rem;color:var(--text-muted)">Type</label>' +
+      '<select class="form-control" id="_sh-type">' + typeOpts + '</select></div>' +
+      '<div><label style="font-size:.8rem;color:var(--text-muted)">Status</label>' +
+      '<select class="form-control" id="_sh-status">' + statusOpts + '</select></div>' +
+      '<div><label style="font-size:.8rem;color:var(--text-muted)">Notes</label>' +
+      '<input class="form-control" id="_sh-notes" value="' + (s.notes || '') + '"></div></div>' +
+      '<div style="display:flex;gap:8px;margin-top:16px;justify-content:space-between">' +
+      '<button class="btn btn-sm btn-ghost" style="color:#ef4444" onclick="window._staffDeleteShift(\'' + shiftId + '\')">Delete</button>' +
+      '<div style="display:flex;gap:8px"><button class="btn btn-ghost btn-sm" onclick="window._staffCloseModal()">Cancel</button>' +
+      '<button class="btn btn-sm" onclick="window._staffSaveShift(\'' + shiftId + '\')">Save</button></div></div>'
+    );
+  };
+
+  window._staffSaveShift = function(existingId) {
+    var staffId = document.getElementById('_sh-staff') ? document.getElementById('_sh-staff').value : '';
+    var date = document.getElementById('_sh-date') ? document.getElementById('_sh-date').value : '';
+    var startTime = document.getElementById('_sh-start') ? document.getElementById('_sh-start').value : '';
+    var endTime = document.getElementById('_sh-end') ? document.getElementById('_sh-end').value : '';
+    var room = document.getElementById('_sh-room') ? document.getElementById('_sh-room').value : '';
+    var type = document.getElementById('_sh-type') ? document.getElementById('_sh-type').value : 'clinical';
+    var statusEl = document.getElementById('_sh-status');
+    var status = statusEl ? statusEl.value : 'scheduled';
+    var notes = document.getElementById('_sh-notes') ? document.getElementById('_sh-notes').value : '';
+    if (!date || !startTime || !endTime) { alert('Please fill in date and times'); return; }
+    var staff = getStaffRoster();
+    var member = staff.find(function(s) { return s.id === staffId; });
+    saveShift({
+      id: existingId || _shiftId(),
+      staffId: staffId, staffName: member ? member.name : '',
+      date: date, startTime: startTime, endTime: endTime,
+      room: room, type: type, notes: notes, status: status
+    });
+    _ssCloseModal();
+    render();
+  };
+
+  window._staffDeleteShift = function(id) {
+    if (!confirm('Delete this shift?')) return;
+    deleteShift(id);
+    _ssCloseModal();
+    render();
+  };
+
+  window._staffAutoSchedule = function() {
+    var staff = getStaffRoster();
+    var shifts = getShifts();
+    var ws = window._staffWeekStart;
+    var suggestions = suggestSchedule(staff, ws, shifts);
+    if (suggestions.length === 0) {
+      alert('All staff members already have shifts this week. No suggestions to make.');
+      return;
+    }
+    var rows = suggestions.map(function(s, i) {
+      var member = staff.find(function(m) { return m.id === s.staffId; });
+      return '<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border)">' +
+        '<input type="checkbox" id="_sg-' + i + '" checked style="flex-shrink:0">' +
+        '<div style="flex:1"><span style="font-weight:600">' + s.staffName + '</span> — ' +
+        _fmtDateLong(s.date) + ' ' + s.startTime + '–' + s.endTime + ' (' + (s.room || '') + ')' +
+        '<span style="margin-left:6px" class="skill-tag">' + s.type + '</span></div>' +
+        (member ? '<span style="width:10px;height:10px;border-radius:50%;background:' + member.color + ';display:inline-block;flex-shrink:0"></span>' : '') +
+        '</div>';
+    }).join('');
+    window._staffSuggestedShifts = suggestions;
+    _ssOpenModal(
+      '<div style="font-weight:700;font-size:1rem;margin-bottom:6px">Auto-Schedule Suggestions</div>' +
+      '<div style="font-size:.8rem;color:var(--text-muted);margin-bottom:14px">' + suggestions.length + ' shifts suggested based on default hours</div>' +
+      '<div style="max-height:320px;overflow-y:auto">' + rows + '</div>' +
+      '<div style="display:flex;gap:8px;margin-top:16px;justify-content:flex-end">' +
+      '<button class="btn btn-ghost btn-sm" onclick="window._staffCloseModal()">Cancel</button>' +
+      '<button class="btn btn-sm btn-ghost" onclick="window._staffApplySchedule(false)">Apply Selected</button>' +
+      '<button class="btn btn-sm" onclick="window._staffApplySchedule(true)">Apply All</button></div>'
+    );
+  };
+
+  window._staffApplySchedule = function(applyAll) {
+    var suggestions = window._staffSuggestedShifts || [];
+    suggestions.forEach(function(s, i) {
+      var cb = document.getElementById('_sg-' + i);
+      if (applyAll || (cb && cb.checked)) {
+        var copy = Object.assign({}, s);
+        delete copy._suggested;
+        saveShift(copy);
+      }
+    });
+    _ssCloseModal();
+    render();
+  };
+
+  window._staffCloseModal = _ssCloseModal;
+
+  window._staffNew = function() {
+    var dayKeys = ['mon', 'tue', 'wed', 'thu', 'fri'];
+    var dayLabels = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'];
+    var hrsGrid = dayLabels.map(function(day, i) {
+      var key = dayKeys[i];
+      return '<div><div style="font-size:.7rem;text-align:center;color:var(--text-muted)">' + day + '</div>' +
+        '<input class="form-control" id="_sm-hrs-' + key + '" placeholder="09:00-17:00" style="font-size:.7rem;padding:4px"></div>';
+    }).join('');
+    _ssOpenModal(
+      '<div style="font-weight:700;font-size:1rem;margin-bottom:16px">Add Staff Member</div>' +
+      '<div style="display:flex;flex-direction:column;gap:10px">' +
+      '<div><label style="font-size:.8rem;color:var(--text-muted)">Full Name</label>' +
+      '<input class="form-control" id="_sm-name" placeholder="Dr. Full Name"></div>' +
+      '<div style="display:flex;gap:8px">' +
+      '<div style="flex:1"><label style="font-size:.8rem;color:var(--text-muted)">Role</label>' +
+      '<select class="form-control" id="_sm-role"><option value="clinician">Clinician</option><option value="technician">Technician</option>' +
+      '<option value="receptionist">Receptionist</option><option value="supervisor">Supervisor</option><option value="admin">Admin</option></select></div>' +
+      '<div style="flex:1"><label style="font-size:.8rem;color:var(--text-muted)">Contract</label>' +
+      '<select class="form-control" id="_sm-contract"><option value="full-time">Full-time</option><option value="part-time">Part-time</option><option value="contractor">Contractor</option></select></div></div>' +
+      '<div><label style="font-size:.8rem;color:var(--text-muted)">Email</label>' +
+      '<input class="form-control" id="_sm-email" type="email" placeholder="email@clinic.com"></div>' +
+      '<div><label style="font-size:.8rem;color:var(--text-muted)">Phone</label>' +
+      '<input class="form-control" id="_sm-phone" placeholder="555-0000"></div>' +
+      '<div style="display:flex;gap:8px">' +
+      '<div style="flex:1"><label style="font-size:.8rem;color:var(--text-muted)">Max Hours/Week</label>' +
+      '<input class="form-control" id="_sm-maxhrs" type="number" value="40" min="1" max="80"></div>' +
+      '<div style="flex:1"><label style="font-size:.8rem;color:var(--text-muted)">Color</label>' +
+      '<input class="form-control" id="_sm-color" type="color" value="#10b981"></div></div>' +
+      '<div><label style="font-size:.8rem;color:var(--text-muted)">Skills (comma-separated)</label>' +
+      '<input class="form-control" id="_sm-skills" placeholder="neurofeedback, tms, qeeg"></div>' +
+      '<div><label style="font-size:.8rem;color:var(--text-muted)">Default Hours (blank = day off)</label>' +
+      '<div style="display:grid;grid-template-columns:repeat(5,1fr);gap:4px;margin-top:4px">' + hrsGrid + '</div></div></div>' +
+      '<div style="display:flex;gap:8px;margin-top:16px;justify-content:flex-end">' +
+      '<button class="btn btn-ghost btn-sm" onclick="window._staffCloseModal()">Cancel</button>' +
+      '<button class="btn btn-sm" onclick="window._staffSaveMember(null)">Add Member</button></div>'
+    );
+  };
+
+  window._staffEditMember = function(memberId) {
+    var staff = getStaffRoster();
+    var m = staff.find(function(s) { return s.id === memberId; });
+    if (!m) return;
+    var dayKeys = ['mon', 'tue', 'wed', 'thu', 'fri'];
+    var dayLabels = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'];
+    var roleOpts = ['clinician', 'technician', 'receptionist', 'supervisor', 'admin'].map(function(r) {
+      return '<option value="' + r + '"' + (r === m.role ? ' selected' : '') + '>' + r + '</option>';
+    }).join('');
+    var contractOpts = ['full-time', 'part-time', 'contractor'].map(function(c) {
+      return '<option value="' + c + '"' + (c === m.contractType ? ' selected' : '') + '>' + c + '</option>';
+    }).join('');
+    var hrsGrid = dayLabels.map(function(day, i) {
+      var key = dayKeys[i];
+      var val = (m.defaultHours && m.defaultHours[key]) || '';
+      return '<div><div style="font-size:.7rem;text-align:center;color:var(--text-muted)">' + day + '</div>' +
+        '<input class="form-control" id="_sm-hrs-' + key + '" value="' + val + '" placeholder="09:00-17:00" style="font-size:.7rem;padding:4px"></div>';
+    }).join('');
+    _ssOpenModal(
+      '<div style="font-weight:700;font-size:1rem;margin-bottom:16px">Edit Staff Member</div>' +
+      '<div style="display:flex;flex-direction:column;gap:10px">' +
+      '<div><label style="font-size:.8rem;color:var(--text-muted)">Full Name</label>' +
+      '<input class="form-control" id="_sm-name" value="' + m.name + '"></div>' +
+      '<div style="display:flex;gap:8px">' +
+      '<div style="flex:1"><label style="font-size:.8rem;color:var(--text-muted)">Role</label>' +
+      '<select class="form-control" id="_sm-role">' + roleOpts + '</select></div>' +
+      '<div style="flex:1"><label style="font-size:.8rem;color:var(--text-muted)">Contract</label>' +
+      '<select class="form-control" id="_sm-contract">' + contractOpts + '</select></div></div>' +
+      '<div><label style="font-size:.8rem;color:var(--text-muted)">Email</label>' +
+      '<input class="form-control" id="_sm-email" type="email" value="' + (m.email || '') + '"></div>' +
+      '<div><label style="font-size:.8rem;color:var(--text-muted)">Phone</label>' +
+      '<input class="form-control" id="_sm-phone" value="' + (m.phone || '') + '"></div>' +
+      '<div style="display:flex;gap:8px">' +
+      '<div style="flex:1"><label style="font-size:.8rem;color:var(--text-muted)">Max Hours/Week</label>' +
+      '<input class="form-control" id="_sm-maxhrs" type="number" value="' + (m.maxHoursPerWeek || 40) + '" min="1" max="80"></div>' +
+      '<div style="flex:1"><label style="font-size:.8rem;color:var(--text-muted)">Color</label>' +
+      '<input class="form-control" id="_sm-color" type="color" value="' + (m.color || '#10b981') + '"></div></div>' +
+      '<div><label style="font-size:.8rem;color:var(--text-muted)">Skills (comma-separated)</label>' +
+      '<input class="form-control" id="_sm-skills" value="' + (m.skills || []).join(', ') + '"></div>' +
+      '<div><label style="font-size:.8rem;color:var(--text-muted)">Default Hours (blank = day off)</label>' +
+      '<div style="display:grid;grid-template-columns:repeat(5,1fr);gap:4px;margin-top:4px">' + hrsGrid + '</div></div></div>' +
+      '<div style="display:flex;gap:8px;margin-top:16px;justify-content:flex-end">' +
+      '<button class="btn btn-ghost btn-sm" onclick="window._staffCloseModal()">Cancel</button>' +
+      '<button class="btn btn-sm" onclick="window._staffSaveMember(\'' + memberId + '\')">Save</button></div>'
+    );
+  };
+
+  window._staffSaveMember = function(existingId) {
+    var name = (document.getElementById('_sm-name') || {}).value;
+    if (!name || !name.trim()) { alert('Name is required'); return; }
+    var dayKeys = ['mon', 'tue', 'wed', 'thu', 'fri'];
+    var defaultHours = {};
+    dayKeys.forEach(function(k) {
+      var el = document.getElementById('_sm-hrs-' + k);
+      var v = el ? el.value.trim() : '';
+      defaultHours[k] = v || null;
+    });
+    var skillsEl = document.getElementById('_sm-skills');
+    var skillsRaw = skillsEl ? skillsEl.value : '';
+    saveStaffMember({
+      id: existingId || _staffId(),
+      name: name.trim(),
+      role: (document.getElementById('_sm-role') || {}).value || 'clinician',
+      contractType: (document.getElementById('_sm-contract') || {}).value || 'full-time',
+      email: (document.getElementById('_sm-email') || {}).value || '',
+      phone: (document.getElementById('_sm-phone') || {}).value || '',
+      maxHoursPerWeek: parseInt((document.getElementById('_sm-maxhrs') || {}).value || '40', 10),
+      color: (document.getElementById('_sm-color') || {}).value || '#10b981',
+      skills: skillsRaw.split(',').map(function(s) { return s.trim(); }).filter(Boolean),
+      defaultHours: defaultHours,
+    });
+    _ssCloseModal();
+    render();
+  };
+
+  window._staffRequestPTO = function() {
+    var staff = getStaffRoster();
+    var staffOptions = staff.map(function(s) {
+      return '<option value="' + s.id + '">' + s.name + '</option>';
+    }).join('');
+    _ssOpenModal(
+      '<div style="font-weight:700;font-size:1rem;margin-bottom:16px">Request PTO</div>' +
+      '<div style="display:flex;flex-direction:column;gap:10px">' +
+      '<div><label style="font-size:.8rem;color:var(--text-muted)">Staff Member</label>' +
+      '<select class="form-control" id="_pto-staff">' + staffOptions + '</select></div>' +
+      '<div style="display:flex;gap:8px">' +
+      '<div style="flex:1"><label style="font-size:.8rem;color:var(--text-muted)">Start Date</label>' +
+      '<input class="form-control" type="date" id="_pto-start" value="' + _todayIso() + '"></div>' +
+      '<div style="flex:1"><label style="font-size:.8rem;color:var(--text-muted)">End Date</label>' +
+      '<input class="form-control" type="date" id="_pto-end" value="' + _todayIso() + '"></div></div>' +
+      '<div><label style="font-size:.8rem;color:var(--text-muted)">Type</label>' +
+      '<select class="form-control" id="_pto-type"><option value="vacation">Vacation</option><option value="sick">Sick</option>' +
+      '<option value="personal">Personal</option><option value="unpaid">Unpaid</option></select></div>' +
+      '<div><label style="font-size:.8rem;color:var(--text-muted)">Reason</label>' +
+      '<input class="form-control" id="_pto-reason" placeholder="Brief reason..."></div></div>' +
+      '<div style="display:flex;gap:8px;margin-top:16px;justify-content:flex-end">' +
+      '<button class="btn btn-ghost btn-sm" onclick="window._staffCloseModal()">Cancel</button>' +
+      '<button class="btn btn-sm" onclick="window._staffSavePTO()">Submit Request</button></div>'
+    );
+  };
+
+  window._staffSavePTO = function() {
+    var staffId = (document.getElementById('_pto-staff') || {}).value;
+    var startDate = (document.getElementById('_pto-start') || {}).value;
+    var endDate = (document.getElementById('_pto-end') || {}).value;
+    var type = (document.getElementById('_pto-type') || {}).value;
+    var reason = (document.getElementById('_pto-reason') || {}).value || '';
+    if (!startDate || !endDate) { alert('Please select start and end dates'); return; }
+    if (endDate < startDate) { alert('End date must be on or after start date'); return; }
+    var staff = getStaffRoster();
+    var member = staff.find(function(s) { return s.id === staffId; });
+    savePTORequest({
+      id: _ptoId(), staffId: staffId, staffName: member ? member.name : '',
+      startDate: startDate, endDate: endDate, type: type,
+      status: 'pending', reason: reason, approvedBy: null
+    });
+    _ssCloseModal();
+    render();
+  };
+
+  window._staffApprovePTO = function(id) { updatePTOStatus(id, 'approved'); render(); };
+  window._staffDenyPTO    = function(id) { updatePTOStatus(id, 'denied');   render(); };
+
+  window._staffRequestSwap = function() {
+    var staff = getStaffRoster();
+    var shifts = getShifts();
+    var today = _todayIso();
+    var futureShifts = shifts.filter(function(s) { return s.date >= today && s.status !== 'cancelled'; });
+    var staffOptions = staff.map(function(s) {
+      return '<option value="' + s.id + '">' + s.name + '</option>';
+    }).join('');
+
+    function shiftOptsFor(staffId) {
+      return futureShifts
+        .filter(function(s) { return s.staffId === staffId; })
+        .map(function(s) { return '<option value="' + s.id + '">' + _fmtDateLong(s.date) + ' ' + s.startTime + '–' + s.endTime + '</option>'; })
+        .join('') || '<option value="">No upcoming shifts</option>';
+    }
+
+    var firstId = staff[0] ? staff[0].id : '';
+    var secondId = staff[1] ? staff[1].id : '';
+
+    _ssOpenModal(
+      '<div style="font-weight:700;font-size:1rem;margin-bottom:16px">Request Shift Swap</div>' +
+      '<div style="display:flex;flex-direction:column;gap:10px">' +
+      '<div><label style="font-size:.8rem;color:var(--text-muted)">Requestor</label>' +
+      '<select class="form-control" id="_sw-req" onchange="window._staffRefreshSwapShifts()">' + staffOptions + '</select></div>' +
+      '<div><label style="font-size:.8rem;color:var(--text-muted)">Requestor Shift</label>' +
+      '<select class="form-control" id="_sw-req-shift">' + shiftOptsFor(firstId) + '</select></div>' +
+      '<div><label style="font-size:.8rem;color:var(--text-muted)">Cover Person</label>' +
+      '<select class="form-control" id="_sw-cover" onchange="window._staffRefreshSwapShifts()">' + staffOptions + '</select></div>' +
+      '<div><label style="font-size:.8rem;color:var(--text-muted)">Cover Shift</label>' +
+      '<select class="form-control" id="_sw-cover-shift">' + shiftOptsFor(secondId) + '</select></div>' +
+      '<div><label style="font-size:.8rem;color:var(--text-muted)">Reason</label>' +
+      '<input class="form-control" id="_sw-reason" placeholder="Reason for swap..."></div></div>' +
+      '<div style="display:flex;gap:8px;margin-top:16px;justify-content:flex-end">' +
+      '<button class="btn btn-ghost btn-sm" onclick="window._staffCloseModal()">Cancel</button>' +
+      '<button class="btn btn-sm" onclick="window._staffSaveSwap()">Submit Swap Request</button></div>'
+    );
+
+    window._staffRefreshSwapShifts = function() {
+      var reqId = (document.getElementById('_sw-req') || {}).value;
+      var covId = (document.getElementById('_sw-cover') || {}).value;
+      var reqSel = document.getElementById('_sw-req-shift');
+      var covSel = document.getElementById('_sw-cover-shift');
+      if (reqSel) reqSel.innerHTML = shiftOptsFor(reqId);
+      if (covSel) covSel.innerHTML = shiftOptsFor(covId);
+    };
+  };
+
+  window._staffSaveSwap = function() {
+    var requestorId = (document.getElementById('_sw-req') || {}).value;
+    var requestorShiftId = (document.getElementById('_sw-req-shift') || {}).value;
+    var coverId = (document.getElementById('_sw-cover') || {}).value;
+    var coverShiftId = (document.getElementById('_sw-cover-shift') || {}).value;
+    var reason = (document.getElementById('_sw-reason') || {}).value || '';
+    if (!requestorShiftId || !coverShiftId) { alert('Please select shifts for both parties'); return; }
+    var staff = getStaffRoster();
+    var reqMember = staff.find(function(s) { return s.id === requestorId; });
+    var covMember = staff.find(function(s) { return s.id === coverId; });
+    saveSwapRequest({
+      id: _swapId(),
+      requestorId: requestorId, requestorName: reqMember ? reqMember.name : '',
+      requestorShiftId: requestorShiftId,
+      coverId: coverId, coverName: covMember ? covMember.name : '',
+      coverShiftId: coverShiftId, reason: reason, status: 'pending'
+    });
+    _ssCloseModal();
+    render();
+  };
+
+  window._staffApproveSwap = function(id) { updateSwapStatus(id, 'approved'); render(); };
+  window._staffDenySwap    = function(id) { updateSwapStatus(id, 'denied');   render(); };
+
+  render();
+}
+
+// ── Clinic Analytics Deep-Dive ────────────────────────────────────────────────
+export async function pgClinicAnalytics(setTopbar) {
+  setTopbar('Clinic Analytics', `
+    <button class="btn-secondary" style="font-size:.8rem;padding:5px 12px" onclick="window._caRefresh()">↺ Refresh</button>
+    <button class="btn-primary"   style="font-size:.8rem;padding:5px 12px;margin-left:6px" onclick="window._caExport()">⬇ Export CSV</button>
+  `);
+
+  // ── Seed constants ────────────────────────────────────────────────────────
+  const ANALYTICS_SEED = {
+    revenue: [42000,48000,45000,52000,58000,61000,55000,67000,72000,68000,79000,85000],
+    funnel: { leads:180, consults:112, intakes:87, active:71, completed:43 },
+    clinicians: ['Dr. Patel','Dr. Kim','Dr. Osei','NP Rivera','NP Tanaka'],
+    weeklyTargets: 18,
+  };
+
+  const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const DAYS   = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+  const HOURS  = ['8am','9am','10am','11am','12pm','1pm','2pm','3pm','4pm','5pm','6pm','7pm'];
+
+  // ── Load / seed localStorage ───────────────────────────────────────────────
+  function loadData() {
+    try {
+      const raw = localStorage.getItem('ds_clinic_analytics');
+      if (raw) return JSON.parse(raw);
+    } catch(_) {}
+    return null;
+  }
+
+  function seedData() {
+    const revenueData = ANALYTICS_SEED.revenue.map((v, i) => ({ month: MONTHS[i], value: v }));
+
+    const funnelData = { ...ANALYTICS_SEED.funnel };
+
+    // 5 clinicians × 4 weeks of session counts
+    const clinicianMatrix = ANALYTICS_SEED.clinicians.map(name => {
+      const weeks = Array.from({ length: 4 }, (_, w) => {
+        const base = 14 + Math.floor(Math.random() * 8);
+        return { week: `W${w + 1}`, sessions: base };
+      });
+      return { name, weeks };
+    });
+
+    // 7 days × 12 hours heatmap
+    const heatmapData = DAYS.map((day, di) => {
+      return HOURS.map((hour, hi) => {
+        const isWeekday = di < 5;
+        const isPeak = hi >= 2 && hi <= 5; // 10am–2pm
+        let base = isWeekday ? (isPeak ? 8 : 4) : 1;
+        base = Math.max(0, base + Math.floor(Math.random() * 5) - 1);
+        return { day, hour, count: base };
+      });
+    });
+
+    // Churn breakdown
+    const churnData = {
+      segments: [
+        { label: 'Active',             count: 71,  color: '#10b981' },
+        { label: 'Discharged',         count: 43,  color: '#4a9eff' },
+        { label: 'Lost to Follow-up',  count: 18,  color: '#ef4444' },
+        { label: 'On Hold',            count: 12,  color: '#f59e0b' },
+      ],
+      atRisk: [
+        { name: 'Jordan T.',   lastSess: 52, attendance: 68 },
+        { name: 'Morgan L.',   lastSess: 61, attendance: 72 },
+        { name: 'Casey M.',    lastSess: 47, attendance: 75 },
+        { name: 'Riley P.',    lastSess: 89, attendance: 55 },
+        { name: 'Avery S.',    lastSess: 50, attendance: 79 },
+      ],
+    };
+
+    const data = { revenueData, funnelData, clinicianMatrix, heatmapData, churnData, lastUpdated: new Date().toISOString() };
+    localStorage.setItem('ds_clinic_analytics', JSON.stringify(data));
+    return data;
+  }
+
+  const data = loadData() || seedData();
+  window._caData = data;
+
+  // ── SVG helpers ────────────────────────────────────────────────────────────
+  function sparkline(values, color, w, h) {
+    if (!values || values.length < 2) return '';
+    const mn = Math.min(...values), mx = Math.max(...values);
+    const range = mx - mn || 1;
+    const pts = values.map((v, i) => {
+      const x = (i / (values.length - 1)) * w;
+      const y = h - ((v - mn) / range) * h;
+      return `${x.toFixed(1)},${y.toFixed(1)}`;
+    }).join(' ');
+    return `<svg width="${w}" height="${h}" style="display:block;overflow:visible"><polyline points="${pts}" fill="none" stroke="${color}" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"/></svg>`;
+  }
+
+  // ── KPI cards ──────────────────────────────────────────────────────────────
+  function buildKPIRow(d) {
+    const rev = d.revenueData;
+    const thisMo = rev[rev.length - 1].value;
+    const lastMo = rev[rev.length - 2].value;
+    const revDelta = (((thisMo - lastMo) / lastMo) * 100).toFixed(1);
+    const revUp = thisMo >= lastMo;
+
+    const totalSessions = 247;
+    const prevSessions  = 231;
+    const sessDelta = (((totalSessions - prevSessions) / prevSessions) * 100).toFixed(1);
+
+    const newPat = 19, prevNewPat = 14;
+    const patDelta = (((newPat - prevNewPat) / prevNewPat) * 100).toFixed(1);
+
+    const avgRating = 4.6, prevRating = 4.4;
+    const ratingDelta = (avgRating - prevRating).toFixed(1);
+
+    const cancelRate = 8.3, prevCancel = 11.2;
+    const cancelDelta = (cancelRate - prevCancel).toFixed(1);
+
+    const revVals = rev.slice(-6).map(r => r.value);
+    const sessVals = [195,210,225,231,240,247];
+    const patVals  = [9,12,11,14,16,19];
+    const ratingVals = [4.2,4.3,4.4,4.5,4.4,4.6];
+    const cancelVals = [14,13,12,11.2,9.5,8.3];
+
+    const kpis = [
+      { label:'Total Revenue MTD',   value:`$${(thisMo/1000).toFixed(0)}k`, delta:`${revUp?'+':''}${revDelta}% vs last month`,    up:revUp,    spark:sparkline(revVals,'var(--accent-teal)',60,20) },
+      { label:'Sessions This Month', value:`${totalSessions}`,              delta:`+${sessDelta}% vs last month`,                  up:true,     spark:sparkline(sessVals,'var(--accent-blue)',60,20) },
+      { label:'New Patients',        value:`${newPat}`,                     delta:`+${patDelta}% vs last month`,                   up:true,     spark:sparkline(patVals,'var(--accent-violet)',60,20) },
+      { label:'Avg Session Rating',  value:`${avgRating}`,                  delta:`+${ratingDelta} vs last month`,                 up:true,     spark:sparkline(ratingVals,'var(--accent-amber)',60,20) },
+      { label:'Cancellation Rate',   value:`${cancelRate}%`,                delta:`${cancelDelta}% vs last month`,                 up:false,    spark:sparkline(cancelVals,'var(--accent-rose)',60,20) },
+    ];
+
+    return `<div class="fff-kpi-row">${kpis.map(k => `
+      <div class="fff-kpi-card">
+        <div class="fff-kpi-label">${k.label}</div>
+        <div class="fff-kpi-value">${k.value}</div>
+        <div class="fff-kpi-delta ${k.up ? 'up' : 'down'}">${k.delta}</div>
+        <div class="fff-kpi-sparkline">${k.spark}</div>
+      </div>`).join('')}</div>`;
+  }
+
+  // ── Revenue area chart ─────────────────────────────────────────────────────
+  function buildRevenueChart(d) {
+    const vals = d.revenueData.map(r => r.value);
+    const W = 480, H = 160, PAD = { l:48, r:10, t:12, b:28 };
+    const cW = W - PAD.l - PAD.r, cH = H - PAD.t - PAD.b;
+    const mn = 0, mx = Math.max(...vals) * 1.1;
+
+    function px(i) { return PAD.l + (i / (vals.length - 1)) * cW; }
+    function py(v) { return PAD.t + cH - ((v - mn) / (mx - mn)) * cH; }
+
+    // Grid lines
+    const gridTicks = [0, 0.25, 0.5, 0.75, 1].map(p => mn + p * (mx - mn));
+    const gridLines = gridTicks.map(v => {
+      const y = py(v);
+      return `<line x1="${PAD.l}" y1="${y.toFixed(1)}" x2="${W - PAD.r}" y2="${y.toFixed(1)}" stroke="var(--border)" stroke-width="1"/>
+              <text x="${PAD.l - 4}" y="${(y + 4).toFixed(1)}" text-anchor="end" fill="var(--text-muted)" font-size="10">$${(v/1000).toFixed(0)}k</text>`;
+    }).join('');
+
+    // Line points
+    const linePts = vals.map((v, i) => `${px(i).toFixed(1)},${py(v).toFixed(1)}`).join(' ');
+
+    // Area fill (close path to bottom)
+    const areaPath = `M${px(0).toFixed(1)},${py(vals[0]).toFixed(1)} ` +
+      vals.map((v, i) => `L${px(i).toFixed(1)},${py(v).toFixed(1)}`).join(' ') +
+      ` L${px(vals.length-1).toFixed(1)},${py(0).toFixed(1)} L${px(0).toFixed(1)},${py(0).toFixed(1)} Z`;
+
+    // Month labels
+    const labels = d.revenueData.map((r, i) =>
+      `<text x="${px(i).toFixed(1)}" y="${(H - 4).toFixed(1)}" text-anchor="middle" fill="var(--text-muted)" font-size="10">${r.month}</text>`
+    ).join('');
+
+    // Hover dots (invisible, revealed on hover via JS)
+    const dots = vals.map((v, i) =>
+      `<circle class="ca-rev-dot" data-idx="${i}" data-val="${v}" data-mo="${d.revenueData[i].month}"
+        cx="${px(i).toFixed(1)}" cy="${py(v).toFixed(1)}" r="4"
+        fill="var(--accent-teal)" stroke="var(--bg)" stroke-width="2" opacity="0" style="cursor:pointer"
+        onmouseenter="window._caRevHover(event,${i},${v},'${d.revenueData[i].month}')"
+        onmouseleave="window._caRevLeave(event,${i})"/>`
+    ).join('');
+
+    return `<svg id="ca-rev-svg" width="100%" viewBox="0 0 ${W} ${H}" style="overflow:visible">
+      <defs>
+        <linearGradient id="rev-grad" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="var(--accent-teal)" stop-opacity="0.35"/>
+          <stop offset="100%" stop-color="var(--accent-teal)" stop-opacity="0"/>
+        </linearGradient>
+      </defs>
+      ${gridLines}
+      <path d="${areaPath}" fill="url(#rev-grad)"/>
+      <polyline points="${linePts}" fill="none" stroke="var(--accent-teal)" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>
+      ${labels}
+      ${dots}
+    </svg>`;
+  }
+
+  // ── Funnel chart ───────────────────────────────────────────────────────────
+  function buildFunnelChart(d) {
+    const stages = [
+      { key:'leads',     label:'Leads',           count:d.funnelData.leads },
+      { key:'consults',  label:'Consultations',   count:d.funnelData.consults },
+      { key:'intakes',   label:'Intakes',         count:d.funnelData.intakes },
+      { key:'active',    label:'Active Patients', count:d.funnelData.active },
+      { key:'completed', label:'Completed',       count:d.funnelData.completed },
+    ];
+    const colors = ['var(--accent-teal)','#4a9eff','var(--accent-violet)','var(--accent-amber)','var(--accent-rose)'];
+    const maxCount = stages[0].count;
+
+    return stages.map((s, i) => {
+      const pct = ((s.count / maxCount) * 100).toFixed(0);
+      const conv = i === 0 ? 100 : ((s.count / stages[i-1].count) * 100).toFixed(0);
+      return `<div class="fff-funnel-stage" onclick="window._caFunnelClick('${s.key}','${s.label}',${s.count},${conv})" style="margin-bottom:8px">
+        <div style="display:flex;justify-content:space-between;font-size:.78rem;color:var(--text-muted);margin-bottom:3px">
+          <span style="font-weight:600;color:var(--text)">${s.label}</span>
+          <span>${s.count} <span style="color:${colors[i]};font-weight:700">${i===0?'':'↓'+conv+'%'}</span></span>
+        </div>
+        <div style="background:var(--border);border-radius:4px;height:20px;overflow:hidden">
+          <div style="width:${pct}%;height:100%;background:${colors[i]};border-radius:4px;transition:width .5s;display:flex;align-items:center;padding:0 8px;font-size:.72rem;font-weight:700;color:var(--bg)">${pct}%</div>
+        </div>
+      </div>`;
+    }).join('') + `<div id="ca-funnel-detail" class="fff-detail-panel" style="display:none"></div>`;
+  }
+
+  // ── Clinician matrix ───────────────────────────────────────────────────────
+  function buildMatrix(d) {
+    const target = ANALYTICS_SEED.weeklyTargets;
+    const weekHeaders = d.clinicianMatrix[0].weeks.map(w =>
+      `<th>${w.week}</th>`
+    ).join('');
+
+    const rows = d.clinicianMatrix.map(cl =>
+      `<tr>
+        <td style="padding:6px 8px;font-size:.82rem;font-weight:600;color:var(--text);white-space:nowrap">${cl.name}</td>
+        ${cl.weeks.map(w => {
+          const ratio = w.sessions / target;
+          const cls = ratio >= 0.9 ? 'green' : ratio >= 0.65 ? 'amber' : 'red';
+          return `<td><div class="fff-matrix-cell ${cls}" onclick="window._caMatrixClick('${cl.name}','${w.week}',${w.sessions},${target})">${w.sessions}</div></td>`;
+        }).join('')}
+      </tr>`
+    ).join('');
+
+    return `<div style="overflow-x:auto">
+      <table class="fff-matrix-table">
+        <thead><tr><th style="text-align:left;padding:6px 8px">Clinician</th>${weekHeaders}<th style="color:var(--text-muted);font-size:.7rem">Target: ${target}</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>
+    <div id="ca-matrix-detail" class="fff-detail-panel" style="display:none"></div>`;
+  }
+
+  // ── Heatmap ────────────────────────────────────────────────────────────────
+  function buildHeatmap(d) {
+    const allCounts = d.heatmapData.flat().map(c => c.count);
+    const maxC = Math.max(...allCounts) || 1;
+
+    // Day labels column + 12 hour columns = 13 cols
+    const cols = 1 + HOURS.length;
+    const gridStyle = `grid-template-columns: 36px repeat(${HOURS.length}, 1fr); grid-template-rows: repeat(${DAYS.length + 1}, auto);`;
+
+    // Hour headers
+    const hourHeaders = `<div></div>` + HOURS.map(h =>
+      `<div style="text-align:center;font-size:.68rem;color:var(--text-muted);padding-bottom:4px">${h}</div>`
+    ).join('');
+
+    // Day rows
+    const dayRows = d.heatmapData.map((row, di) => {
+      const cells = row.map((cell, hi) => {
+        const intensity = cell.count / maxC;
+        const alpha = (0.1 + intensity * 0.85).toFixed(2);
+        const bg = cell.count === 0
+          ? 'var(--border)'
+          : `rgba(0,212,188,${alpha})`;
+        return `<div class="fff-heatmap-cell fff-heatmap"
+          style="height:22px;background:${bg}"
+          onclick="window._caHeatClick('${DAYS[di]}','${HOURS[hi]}',${cell.count})"
+          title="${DAYS[di]} ${HOURS[hi]}: ${cell.count} sessions"></div>`;
+      }).join('');
+      return `<div style="display:contents">
+        <div style="font-size:.72rem;color:var(--text-muted);display:flex;align-items:center">${DAYS[di]}</div>
+        ${cells}
+      </div>`;
+    }).join('');
+
+    return `<div class="fff-heatmap" style="${gridStyle}">
+      ${hourHeaders}
+      ${dayRows}
+    </div>
+    <div id="ca-heat-detail" class="fff-detail-panel" style="display:none;margin-top:8px"></div>`;
+  }
+
+  // ── Churn donut ────────────────────────────────────────────────────────────
+  function buildChurnDonut(d) {
+    const segs = d.churnData.segments;
+    const total = segs.reduce((s, x) => s + x.count, 0);
+    const R = 60, cx = 90, cy = 80;
+    let angle = -Math.PI / 2;
+    const arcs = segs.map(seg => {
+      const slice = (seg.count / total) * 2 * Math.PI;
+      const x1 = cx + R * Math.cos(angle);
+      const y1 = cy + R * Math.sin(angle);
+      angle += slice;
+      const x2 = cx + R * Math.cos(angle);
+      const y2 = cy + R * Math.sin(angle);
+      const largeArc = slice > Math.PI ? 1 : 0;
+      const path = `M${cx},${cy} L${x1.toFixed(2)},${y1.toFixed(2)} A${R},${R} 0 ${largeArc},1 ${x2.toFixed(2)},${y2.toFixed(2)} Z`;
+      return `<path d="${path}" fill="${seg.color}" stroke="var(--bg)" stroke-width="2"
+        style="cursor:pointer;transition:opacity .15s"
+        onmouseenter="this.style.opacity='.75'"
+        onmouseleave="this.style.opacity='1'"
+        onclick="window._caChurnSegClick('${seg.label}',${seg.count},${total})"/>`;
+    }).join('');
+
+    // Inner hole
+    const hole = `<circle cx="${cx}" cy="${cy}" r="36" fill="var(--card-bg)"/>
+      <text x="${cx}" y="${cy}" text-anchor="middle" dominant-baseline="middle" fill="var(--text)" font-size="13" font-weight="800">${total}</text>
+      <text x="${cx}" y="${cy+15}" text-anchor="middle" fill="var(--text-muted)" font-size="9">patients</text>`;
+
+    const legend = segs.map(seg =>
+      `<div style="display:flex;align-items:center;gap:6px;font-size:.8rem;margin-bottom:4px">
+        <div style="width:10px;height:10px;border-radius:2px;background:${seg.color};flex-shrink:0"></div>
+        <span style="flex:1;color:var(--text-muted)">${seg.label}</span>
+        <span style="font-weight:700;color:var(--text)">${seg.count}</span>
+        <span style="color:var(--text-muted);font-size:.72rem">${((seg.count/total)*100).toFixed(0)}%</span>
+      </div>`
+    ).join('');
+
+    const atRiskRows = d.churnData.atRisk.map(p => {
+      const risk = p.attendance < 65 || p.lastSess > 70 ? 'high' : 'medium';
+      const riskColor = risk === 'high' ? '#ef4444' : '#f59e0b';
+      return `<tr>
+        <td>${p.name}</td>
+        <td>${p.lastSess} days</td>
+        <td><span style="color:${p.attendance<70?'#ef4444':p.attendance<80?'#f59e0b':'#10b981'};font-weight:700">${p.attendance}%</span></td>
+        <td><span style="background:${riskColor}22;color:${riskColor};padding:2px 8px;border-radius:4px;font-size:.72rem;font-weight:700">${risk.toUpperCase()}</span></td>
+        <td><button class="btn-secondary" style="font-size:.72rem;padding:3px 8px" onclick="window._caSendReEngage('${p.name}')">Send Re-engagement</button></td>
+      </tr>`;
+    }).join('');
+
+    return `<div style="display:flex;gap:20px;align-items:flex-start;flex-wrap:wrap">
+      <svg width="180" height="160" viewBox="0 0 180 160">${arcs}${hole}</svg>
+      <div style="flex:1;min-width:150px;padding-top:8px">${legend}</div>
+    </div>
+    <div id="ca-churn-seg-detail" class="fff-detail-panel" style="display:none;margin-bottom:10px"></div>
+    <div style="font-size:.8rem;font-weight:700;color:var(--text);margin:14px 0 6px">At-Risk Patients (last session &gt;45 days or attendance &lt;80%)</div>
+    <div style="overflow-x:auto">
+      <table class="fff-churn-table">
+        <thead><tr><th>Patient</th><th>Last Session</th><th>Attendance</th><th>Risk</th><th>Action</th></tr></thead>
+        <tbody>${atRiskRows}</tbody>
+      </table>
+    </div>`;
+  }
+
+  // ── Render page HTML ───────────────────────────────────────────────────────
+  document.getElementById('app-content').innerHTML = `
+    <div id="fff-root" style="padding:20px;max-width:1400px;margin:0 auto">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:18px;flex-wrap:wrap;gap:8px">
+        <div>
+          <h1 style="font-size:1.3rem;font-weight:800;color:var(--text);margin:0">Clinic Analytics</h1>
+          <div style="font-size:.78rem;color:var(--text-muted);margin-top:2px">Last updated: ${new Date(data.lastUpdated).toLocaleString()}</div>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center">
+          <select class="form-control" id="ca-period" style="font-size:.78rem;width:auto" onchange="window._caPeriodChange()">
+            <option value="12">Last 12 months</option>
+            <option value="6">Last 6 months</option>
+            <option value="3">Last 3 months</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- KPI Row -->
+      ${buildKPIRow(data)}
+
+      <!-- Charts grid -->
+      <div class="fff-analytics-grid">
+        <!-- Revenue chart -->
+        <div class="fff-chart-card" style="grid-column:1/-1">
+          <div class="fff-chart-title">
+            <span>Revenue Trend (Month-over-Month)</span>
+            <span style="font-size:.75rem;color:var(--text-muted)" id="ca-rev-total">YTD: $${data.revenueData.reduce((s,r)=>s+r.value,0).toLocaleString()}</span>
+          </div>
+          <div id="ca-rev-chart">${buildRevenueChart(data)}</div>
+          <div id="ca-rev-tooltip" class="fff-tooltip" style="display:none"></div>
+        </div>
+
+        <!-- Patient acquisition funnel -->
+        <div class="fff-chart-card">
+          <div class="fff-chart-title">Patient Acquisition Funnel</div>
+          <div id="ca-funnel">${buildFunnelChart(data)}</div>
+        </div>
+
+        <!-- Clinician productivity matrix -->
+        <div class="fff-chart-card">
+          <div class="fff-chart-title">
+            <span>Clinician Productivity (sessions/week)</span>
+            <span style="font-size:.72rem;background:rgba(16,185,129,.15);color:#10b981;padding:2px 8px;border-radius:4px">Target: ${ANALYTICS_SEED.weeklyTargets}/wk</span>
+          </div>
+          <div id="ca-matrix">${buildMatrix(data)}</div>
+        </div>
+
+        <!-- Peak hours heatmap -->
+        <div class="fff-chart-card">
+          <div class="fff-chart-title">
+            <span>Peak Hours Heatmap (sessions/slot)</span>
+            <span style="font-size:.72rem;color:var(--text-muted)">Mon–Sun × 8am–7pm</span>
+          </div>
+          <div id="ca-heatmap">${buildHeatmap(data)}</div>
+        </div>
+
+        <!-- Churn analysis (full width) -->
+        <div class="fff-chart-card" style="grid-column:1/-1">
+          <div class="fff-chart-title">Churn & Patient Status Analysis</div>
+          <div id="ca-churn">${buildChurnDonut(data)}</div>
+        </div>
+      </div>
+
+      <div id="ca-toast" style="display:none;position:fixed;bottom:24px;right:24px;background:var(--accent-teal);color:#000;padding:10px 18px;border-radius:10px;font-size:.85rem;font-weight:700;z-index:9999;box-shadow:0 4px 20px rgba(0,0,0,.4)"></div>
+    </div>
+  `;
+
+  // ── Tooltip for revenue chart ──────────────────────────────────────────────
+  window._caRevHover = function(evt, idx, val, month) {
+    const tt = document.getElementById('ca-rev-tooltip');
+    if (!tt) return;
+    tt.style.display = 'block';
+    tt.innerHTML = `<strong>${month}</strong><br>$${val.toLocaleString()}`;
+    tt.style.left = (evt.clientX + 12) + 'px';
+    tt.style.top  = (evt.clientY - 36) + 'px';
+    // Make dot visible
+    const dots = document.querySelectorAll('.ca-rev-dot');
+    dots.forEach(d => d.setAttribute('opacity', d.dataset.idx == idx ? '1' : '0'));
+  };
+  window._caRevLeave = function(evt, idx) {
+    const tt = document.getElementById('ca-rev-tooltip');
+    if (tt) tt.style.display = 'none';
+    const dots = document.querySelectorAll('.ca-rev-dot');
+    dots.forEach(d => d.setAttribute('opacity', '0'));
+  };
+
+  // Mousemove to keep tooltip near cursor
+  document.getElementById('ca-rev-chart')?.addEventListener('mousemove', function(e) {
+    const tt = document.getElementById('ca-rev-tooltip');
+    if (tt && tt.style.display !== 'none') {
+      tt.style.left = (e.clientX + 14) + 'px';
+      tt.style.top  = (e.clientY - 38) + 'px';
+    }
+  });
+
+  // ── Funnel click ───────────────────────────────────────────────────────────
+  window._caFunnelClick = function(key, label, count, conv) {
+    const panel = document.getElementById('ca-funnel-detail');
+    if (!panel) return;
+    const isOpen = panel.style.display !== 'none' && panel.dataset.key === key;
+    if (isOpen) { panel.style.display = 'none'; return; }
+    panel.dataset.key = key;
+    panel.style.display = 'block';
+    panel.innerHTML = `<strong>${label}</strong> — ${count} patients
+      <span style="margin-left:10px;font-size:.78rem;color:var(--text-muted)">Conversion from previous stage: <strong style="color:var(--accent-teal)">${conv}%</strong></span>
+      <div style="margin-top:6px;font-size:.78rem;color:var(--text-muted)">
+        ${key==='leads'?'Referral sources: 42% physician, 31% self-referred, 27% online'
+          :key==='consults'?'Consultation-to-intake gap avg: 6.2 days'
+          :key==='intakes'?'Intake completion rate: 97.7%'
+          :key==='active'?'Avg sessions completed: 14.3 of 20'
+          :'Avg treatment duration: 18.7 weeks'}
+      </div>`;
+  };
+
+  // ── Matrix click ───────────────────────────────────────────────────────────
+  window._caMatrixClick = function(name, week, sessions, target) {
+    const panel = document.getElementById('ca-matrix-detail');
+    if (!panel) return;
+    const key = name + week;
+    const isOpen = panel.style.display !== 'none' && panel.dataset.key === key;
+    if (isOpen) { panel.style.display = 'none'; return; }
+    panel.dataset.key = key;
+    panel.style.display = 'block';
+    const status = sessions / target >= 0.9 ? 'On target' : sessions / target >= 0.65 ? 'Below target' : 'Significantly below target';
+    const statusColor = sessions / target >= 0.9 ? '#10b981' : sessions / target >= 0.65 ? '#f59e0b' : '#ef4444';
+    const breakdown = Array.from({length:sessions}, (_,i) => i).slice(0,5).map(i =>
+      `<span style="background:var(--border);border-radius:4px;padding:2px 8px;font-size:.75rem">Session ${i+1}</span>`
+    ).join(' ');
+    panel.innerHTML = `<strong>${name}</strong> — <strong>${week}</strong>
+      <span style="margin-left:8px;color:${statusColor};font-weight:700">${status}</span>
+      <div style="margin-top:6px;font-size:.78rem;color:var(--text-muted)">
+        Sessions completed: <strong style="color:var(--text)">${sessions}</strong> / ${target} target
+        (${((sessions/target)*100).toFixed(0)}%)
+      </div>
+      <div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:8px">${breakdown} ${sessions > 5 ? `<span style="color:var(--text-muted);font-size:.75rem">+${sessions-5} more</span>`:''}</div>`;
+  };
+
+  // ── Heatmap click ──────────────────────────────────────────────────────────
+  window._caHeatClick = function(day, hour, count) {
+    const panel = document.getElementById('ca-heat-detail');
+    if (!panel) return;
+    const key = day + hour;
+    const isOpen = panel.style.display !== 'none' && panel.dataset.key === key;
+    if (isOpen) { panel.style.display = 'none'; return; }
+    panel.dataset.key = key;
+    panel.style.display = 'block';
+    const busyLabel = count >= 8 ? 'Peak' : count >= 4 ? 'Moderate' : count >= 1 ? 'Light' : 'Empty';
+    const busyColor = count >= 8 ? 'var(--accent-teal)' : count >= 4 ? '#4a9eff' : count >= 1 ? 'var(--accent-amber)' : 'var(--text-muted)';
+    panel.innerHTML = `<strong>${day} ${hour}</strong>
+      <span style="margin-left:10px;background:${busyColor}22;color:${busyColor};padding:2px 8px;border-radius:4px;font-size:.75rem;font-weight:700">${busyLabel}</span>
+      <div style="margin-top:5px;font-size:.78rem;color:var(--text-muted)">
+        ${count} session${count!==1?'s':''} scheduled this slot &nbsp;·&nbsp;
+        ${count > 0 ? `Avg utilisation: ${((count / 12)*100).toFixed(0)}% of room capacity` : 'No sessions scheduled'}
+      </div>`;
+  };
+
+  // ── Churn segment click ────────────────────────────────────────────────────
+  window._caChurnSegClick = function(label, count, total) {
+    const panel = document.getElementById('ca-churn-seg-detail');
+    if (!panel) return;
+    const isOpen = panel.style.display !== 'none' && panel.dataset.label === label;
+    if (isOpen) { panel.style.display = 'none'; return; }
+    panel.dataset.label = label;
+    panel.style.display = 'block';
+    const pct = ((count / total) * 100).toFixed(1);
+    const notes = {
+      'Active': 'Patients currently engaged in active treatment courses.',
+      'Discharged': 'Patients who completed their treatment plan and were formally discharged.',
+      'Lost to Follow-up': 'Patients who did not respond to 3+ re-engagement attempts over 60 days.',
+      'On Hold': 'Patients who paused treatment (insurance, personal, or medical hold).',
+    };
+    panel.innerHTML = `<strong>${label}</strong> — <strong style="color:var(--accent-teal)">${count}</strong> patients (${pct}% of total)
+      <div style="margin-top:5px;font-size:.78rem;color:var(--text-muted)">${notes[label] || ''}</div>`;
+  };
+
+  // ── Re-engagement action ────────────────────────────────────────────────────
+  window._caSendReEngage = function(name) {
+    window._caShowToast(`Re-engagement message queued for ${name}`);
+  };
+
+  // ── Toast helper ──────────────────────────────────────────────────────────
+  window._caShowToast = function(msg) {
+    const t = document.getElementById('ca-toast');
+    if (!t) return;
+    t.textContent = msg;
+    t.style.display = 'block';
+    clearTimeout(window._caToastTimer);
+    window._caToastTimer = setTimeout(() => { if (t) t.style.display = 'none'; }, 3000);
+  };
+
+  // ── Refresh ────────────────────────────────────────────────────────────────
+  window._caRefresh = function() {
+    if (!document.getElementById('fff-root')) return;
+    // Re-seed with slight variation
+    const old = loadData() || seedData();
+    old.revenueData = old.revenueData.map(r => ({ ...r, value: Math.round(r.value * (0.97 + Math.random() * 0.06)) }));
+    old.lastUpdated = new Date().toISOString();
+    localStorage.setItem('ds_clinic_analytics', JSON.stringify(old));
+    pgClinicAnalytics(setTopbar);
+  };
+
+  // ── Period change ──────────────────────────────────────────────────────────
+  window._caPeriodChange = function() {
+    const sel = document.getElementById('ca-period');
+    const n = parseInt(sel?.value || '12', 10);
+    const d = loadData() || seedData();
+    const sliced = { ...d, revenueData: d.revenueData.slice(-n) };
+    const revDiv = document.getElementById('ca-rev-chart');
+    const revTotal = document.getElementById('ca-rev-total');
+    if (revDiv) revDiv.innerHTML = buildRevenueChart(sliced);
+    if (revTotal) revTotal.textContent = `${n === 12 ? 'YTD' : `Last ${n}mo`}: $${sliced.revenueData.reduce((s,r)=>s+r.value,0).toLocaleString()}`;
+  };
+
+  // ── Export CSV ────────────────────────────────────────────────────────────
+  window._caExport = function() {
+    const d = window._caData || loadData();
+    if (!d) return;
+    const rows = [['Month','Revenue'],...d.revenueData.map(r=>[r.month,r.value])];
+    const csv = rows.map(r=>r.join(',')).join('\n');
+    const blob = new Blob([csv], { type:'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = 'clinic-analytics.csv'; a.click();
+    URL.revokeObjectURL(url);
+    window._caShowToast('CSV exported successfully');
+  };
+
+  // ── Self-terminating refresh interval (live-update simulation) ────────────
+  const t = setInterval(() => {
+    if (!document.getElementById('fff-root')) { clearInterval(t); return; }
+    // Silently update last-updated label
+    const lbl = document.querySelector('#fff-root > div > div > div > div:last-child');
+    // no-op; interval just checks if page is alive
+  }, 10000);
+}

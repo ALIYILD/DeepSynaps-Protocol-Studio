@@ -101,16 +101,22 @@ def chat_clinician(messages: list[dict], patient_context: str | None = None) -> 
     return response.content[0].text
 
 
-def chat_patient(messages: list[dict]) -> str:
+def chat_patient(messages: list[dict], language: str = "en") -> str:
     settings = get_settings()
     if not settings.anthropic_api_key:
         return "Health assistant is not configured. Please contact your clinician directly."
+
+    lang_map = {"tr": "Turkish", "es": "Spanish", "fr": "French", "de": "German", "pt": "Portuguese"}
+    lang_name = lang_map.get(language, "English")
+    system = PATIENT_SYSTEM
+    if language != "en":
+        system += f"\n\nIMPORTANT: Respond in {lang_name}. Use natural, friendly {lang_name} throughout your reply."
 
     client = Anthropic(api_key=settings.anthropic_api_key)
     response = client.messages.create(
         model="claude-haiku-4-5-20251001",
         max_tokens=512,
-        system=PATIENT_SYSTEM,
+        system=system,
         messages=messages,
     )
     return response.content[0].text

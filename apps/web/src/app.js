@@ -378,6 +378,7 @@ const NAV = [
   { id: 'intake',            label: 'Intake & Consent',     icon: '📋' },
   { id: 'data-import',      label: 'Data Import',          icon: '📥' },
   { id: 'pt-outcomes',      label: 'My Outcomes',          icon: '📈' },
+  { id: 'guardian-portal',  label: 'Guardian Portal',      icon: '👨‍👩‍👧' },
   { id: 'messaging',         label: 'Messaging',            icon: '💬' },
   { id: 'advanced-search',   label: 'Advanced Search',      icon: '🔍' },
   { id: 'courses',           label: 'Treatment Courses',    icon: '◎', badge: null },
@@ -411,6 +412,7 @@ const NAV = [
   { id: 'clinical-trials', label: 'Clinical Trials', icon: '🧪' },
   { id: 'staff-scheduling', label: 'Staff Scheduling', icon: '👥' },
   { id: 'clinic-analytics', label: 'Clinic Analytics', icon: '📊', section: 'knowledge' },
+  { id: 'protocol-marketplace', label: 'Protocol Marketplace', icon: '🏪', section: 'knowledge' },
   { id: 'med-interactions',   label: 'Medication Safety',    icon: '💊', section: 'clinical' },
   { section: 'Governance' },
   { id: 'adverse-events',    label: 'Adverse Events',       icon: '⚠' },
@@ -530,6 +532,7 @@ const PAGE_TITLES = {
   'pt-journal': 'Symptom Journal',
   'pt-notifications': 'Notification Settings',
   'pt-outcomes': 'My Outcomes',
+  'guardian-portal': 'Guardian Portal',
   'homework-builder': 'Patient Education & Homework Builder',
   'decision-support': 'AI Clinical Decision Support',
   'benchmark-library': 'Outcome Benchmark Library',
@@ -544,6 +547,7 @@ const PAGE_TITLES = {
   'multi-site': 'Multi-Site Network',
   'forms-builder': 'Forms & Assessments',
   'med-interactions': 'Medication Safety',
+  'protocol-marketplace': 'Protocol Marketplace',
 };
 
 // ── Navigate ──────────────────────────────────────────────────────────────────
@@ -738,6 +742,7 @@ async function renderPage() {
     case 'intake': { const m = await loadPatient(); await m.pgIntake(setTopbar); break; }
     case 'data-import': { const m = await loadPatient(); await m.pgDataImport(setTopbar); break; }
     case 'pt-outcomes': { const { pgPatientOutcomePortal } = await loadPatient(); await pgPatientOutcomePortal(setTopbar); break; }
+    case 'guardian-portal': { const { pgGuardianPortal } = await loadPatient(); await pgGuardianPortal(setTopbar); break; }
     case 'profile': {
       const m = await loadClinical();
       await m.pgProfile(setTopbar, navigate);
@@ -840,6 +845,7 @@ async function renderPage() {
     case 'clinical-trials': { const m = await loadKnowledge(); await m.pgClinicalTrials(setTopbar); break; }
     case 'staff-scheduling': { const m = await loadKnowledge(); await m.pgStaffScheduling(setTopbar); break; }
     case 'clinic-analytics': { const m = await loadKnowledge(); await m.pgClinicAnalytics(setTopbar); break; }
+    case 'protocol-marketplace': { const { pgProtocolMarketplace } = await loadKnowledge(); await pgProtocolMarketplace(setTopbar); break; }
     // ── Legacy pages (kept functional) ───────────────────────────────────
     case 'assessments': {
       const m = await loadClinical();
@@ -957,19 +963,24 @@ async function renderPage() {
 // ── Nav badge update ─────────────────────────────────────────────────────────
 async function refreshNavBadges() {
   try {
-    const [queueData, coursesData, aeData] = await Promise.all([
+    const [queueData, coursesData, aeData, mediaData] = await Promise.all([
       api.listReviewQueue().catch(() => null),
       api.listCourses().catch(() => null),
       api.listAdverseEvents().catch(() => null),
+      api.listMediaQueue().catch(() => null),
     ]);
-    const pendingReview  = (queueData?.items || []).filter(i => i.status === 'pending').length;
+    const pendingReview   = (queueData?.items || []).filter(i => i.status === 'pending').length;
     const pendingApproval = (coursesData?.items || []).filter(c => c.status === 'pending_approval').length;
-    const seriousAE      = (aeData?.items || []).filter(ae => ae.severity === 'serious').length;
+    const seriousAE       = (aeData?.items || []).filter(ae => ae.severity === 'serious').length;
+    const mediaItems      = Array.isArray(mediaData) ? mediaData : (mediaData?.items || []);
+    const mediaUrgent     = mediaItems.filter(i => i.flagged_urgent).length;
+    const mediaAwaiting   = mediaItems.filter(i => i.status === 'pending_review' || i.status === 'reupload_requested').length;
 
     NAV.forEach(n => {
-      if (n.id === 'review-queue')  n.badge = pendingReview > 0 ? pendingReview : null;
-      if (n.id === 'courses')       n.badge = pendingApproval > 0 ? pendingApproval : null;
+      if (n.id === 'review-queue')   n.badge = pendingReview > 0 ? pendingReview : null;
+      if (n.id === 'courses')        n.badge = pendingApproval > 0 ? pendingApproval : null;
       if (n.id === 'adverse-events') n.badge = seriousAE > 0 ? `!${seriousAE}` : null;
+      if (n.id === 'media-queue')    n.badge = mediaUrgent > 0 ? `!${mediaUrgent}` : mediaAwaiting > 0 ? mediaAwaiting : null;
     });
     renderNav();
     initSidebarKeyboard();
@@ -1073,6 +1084,65 @@ function _handleNotification(event) {
     return;
   }
 
+  // ── Media workflow notifications ──────────────────────────────────────────
+  if (type === 'media_upload') {
+    const notif = {
+      id: Date.now(), type,
+      title: 'New Patient Update',
+      body: `${data.patient_name || 'A patient'} submitted a ${data.media_type || 'media'} update${data.course_name ? ' for ' + data.course_name : ''}.`,
+      severity: 'info', link: 'media-queue',
+      ts: ts || new Date().toISOString(), read: false,
+    };
+    _notifs.unshift(notif); _notifCount++; window._updateNotifBadge(); _showNotifToast(notif);
+    refreshNavBadges();
+    return;
+  }
+  if (type === 'media_urgent') {
+    const notif = {
+      id: Date.now(), type,
+      title: 'Urgent Media Flag',
+      body: `${data.patient_name || 'A patient'} upload has been flagged as urgent${data.flag_type ? ': ' + data.flag_type : ''}.`,
+      severity: 'warn', link: 'media-queue',
+      ts: ts || new Date().toISOString(), read: false,
+    };
+    _notifs.unshift(notif); _notifCount++; window._updateNotifBadge(); _showNotifToast(notif);
+    refreshNavBadges();
+    return;
+  }
+  if (type === 'media_analyzed') {
+    const notif = {
+      id: Date.now(), type,
+      title: 'AI Analysis Complete',
+      body: `Analysis ready for ${data.patient_name || 'a patient'} — review and approve the draft.`,
+      severity: 'info', link: 'media-queue',
+      ts: ts || new Date().toISOString(), read: false,
+    };
+    _notifs.unshift(notif); _notifCount++; window._updateNotifBadge(); _showNotifToast(notif);
+    return;
+  }
+  if (type === 'media_reupload') {
+    const notif = {
+      id: Date.now(), type,
+      title: 'Re-upload Requested',
+      body: `${data.patient_name || 'A patient'} was asked to re-submit their media update.`,
+      severity: 'warn', link: 'media-queue',
+      ts: ts || new Date().toISOString(), read: false,
+    };
+    _notifs.unshift(notif); _notifCount++; window._updateNotifBadge(); _showNotifToast(notif);
+    return;
+  }
+  if (type === 'media_reviewed') {
+    const notif = {
+      id: Date.now(), type,
+      title: 'Media Review Complete',
+      body: `Clinician review finished for ${data.patient_name || 'a patient'} upload.`,
+      severity: 'info', link: 'media-queue',
+      ts: ts || new Date().toISOString(), read: false,
+    };
+    _notifs.unshift(notif); _notifCount++; window._updateNotifBadge(); _showNotifToast(notif);
+    return;
+  }
+
   // ── Default: push to notification store and show toast ────────────────────
   const notif = {
     id: Date.now(),
@@ -1121,7 +1191,15 @@ window._toggleNotifPanel = function() {
       ${_notifs.length === 0
         ? '<div style="text-align:center;padding:32px;color:var(--text-tertiary);font-size:12.5px">No notifications yet</div>'
         : _notifs.slice(0, 20).map(n => {
-            const icon = n.type === 'ae_alert' ? '⚠' : n.type === 'review_pending' ? '◱' : n.type === 'session_reminder' ? '◧' : '◈';
+            const icon = n.type === 'ae_alert' ? '⚠'
+              : n.type === 'review_pending'  ? '◱'
+              : n.type === 'session_reminder' ? '◧'
+              : n.type === 'media_upload'    ? '📤'
+              : n.type === 'media_urgent'    ? '⚑'
+              : n.type === 'media_analyzed'  ? '✦'
+              : n.type === 'media_reupload'  ? '↺'
+              : n.type === 'media_reviewed'  ? '✓'
+              : '◈';
             const color = n.severity === 'serious' ? 'var(--red)' : n.severity === 'warn' ? 'var(--amber)' : 'var(--teal)';
             return `<div style="padding:10px 12px;border-radius:8px;margin-bottom:4px;background:rgba(255,255,255,0.02);cursor:pointer;transition:background 0.15s"
               onmouseover="this.style.background='rgba(255,255,255,0.05)'"
