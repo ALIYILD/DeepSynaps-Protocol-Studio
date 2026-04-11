@@ -266,6 +266,11 @@ export const api = {
     const q = new URLSearchParams(params).toString();
     return apiFetchWithRetry(`/api/v1/review-queue${q ? '?' + q : ''}`);
   },
+  assignReviewer: (itemId, assignedTo) =>
+    apiFetch(`/api/v1/review-queue/${itemId}/assign`, {
+      method: 'PATCH',
+      body: JSON.stringify({ assigned_to: assignedTo || null }),
+    }),
 
   // ── Media queue ───────────────────────────────────────────────────────────
   listMediaQueue: () => apiFetchWithRetry('/api/v1/media/review-queue'),

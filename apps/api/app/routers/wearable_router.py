@@ -179,6 +179,16 @@ def dismiss_alert(
     flag = db.query(WearableAlertFlag).filter_by(id=flag_id).first()
     if flag is None:
         raise ApiServiceError(code='not_found', message='Alert flag not found.', status_code=404)
+    # Ownership check: non-admin clinicians may only dismiss alerts for patients
+    # assigned to them (Patient.clinician_id == actor.actor_id).
+    if actor.role != 'admin':
+        patient = db.query(Patient).filter_by(id=flag.patient_id, clinician_id=actor.actor_id).first()
+        if patient is None:
+            raise ApiServiceError(
+                code='forbidden',
+                message='Not authorized to dismiss this alert.',
+                status_code=403,
+            )
     flag.dismissed = True
     flag.reviewed_at = datetime.now(timezone.utc)
     flag.reviewed_by = actor.actor_id

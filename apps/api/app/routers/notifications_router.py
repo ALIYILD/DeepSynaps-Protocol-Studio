@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, Request, Header, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from ..auth import get_authenticated_actor, AuthenticatedActor
+from ..services.auth_service import decode_token
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="", tags=["notifications"])
@@ -80,7 +81,7 @@ async def notification_stream(
 
     user_id = None
     if raw_token:
-        payload = auth_service.decode_token(raw_token)
+        payload = decode_token(raw_token)
         if payload and payload.get("type") == "access":
             user_id = payload.get("sub")
 
@@ -148,7 +149,9 @@ async def get_page_presence(
 async def send_test_notification(
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
 ):
-    """Push a test notification to the authenticated user. Requires a valid session."""
+    """Push a test notification to the authenticated user. Requires clinician access."""
+    from ..auth import require_minimum_role
+    require_minimum_role(actor, "clinician")
     await broadcast_to_user(actor.actor_id, "ae_alert", {
         "title": "Adverse Event Reported",
         "body": "A new serious adverse event has been reported and requires immediate review.",

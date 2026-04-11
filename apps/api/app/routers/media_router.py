@@ -113,6 +113,22 @@ def _require_clinician_staff(actor: AuthenticatedActor) -> None:
         )
 
 
+def _check_patient_access(patient_id: str, actor: AuthenticatedActor, db: Session) -> None:
+    """Verify the actor owns the patient record (or is admin/supervisor).
+
+    Raises a 404 (not_found) rather than 403 to avoid leaking patient IDs.
+    """
+    if actor.role in ("admin", "supervisor"):
+        return
+    patient = db.query(Patient).filter_by(id=patient_id).first()
+    if patient is None or patient.clinician_id != actor.actor_id:
+        raise ApiServiceError(
+            code="not_found",
+            message="Patient not found.",
+            status_code=404,
+        )
+
+
 def _write_audit(
     db: Session,
     *,
@@ -1064,6 +1080,7 @@ def get_red_flags(
 ) -> list[dict]:
     """Return active (not dismissed) red flags for a patient."""
     _require_clinician_or_reviewer(actor)
+    _check_patient_access(patient_id, actor, db)
 
     flags = (
         db.query(MediaRedFlag)
@@ -1115,6 +1132,7 @@ async def clinician_note_text(
 ) -> dict:
     """Clinician submits a text note; AI draft is generated immediately."""
     _require_clinician_staff(actor)
+    _check_patient_access(body.patient_id, actor, db)
 
     settings = get_settings()
 
@@ -1332,6 +1350,7 @@ def list_clinician_notes(
 ) -> list[dict]:
     """List clinician notes for a patient, with draft status."""
     _require_clinician_or_reviewer(actor)
+    _check_patient_access(patient_id, actor, db)
 
     notes = (
         db.query(ClinicianMediaNote)

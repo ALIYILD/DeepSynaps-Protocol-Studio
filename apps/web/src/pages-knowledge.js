@@ -1457,9 +1457,14 @@ export async function pgPricing(setTopbar) {
   };
 
   window.subscribe = async function(pkg) {
+    if (pkg === 'enterprise') { window._showEnterpriseModal(); return; }
     try {
       const res = await api.createCheckout(pkg);
-      if (res?.checkout_url) window.location.href = res.checkout_url;
+      if (res?.checkout_url) {
+        window.location.href = res.checkout_url;
+      } else if (res?.contact_us) {
+        window._showEnterpriseModal();
+      }
     } catch (e) {
       const b = document.createElement('div');
       b.className = 'notice notice-warn';
@@ -1467,6 +1472,49 @@ export async function pgPricing(setTopbar) {
       b.textContent = e.message || 'Checkout unavailable.';
       document.body.appendChild(b); setTimeout(() => b.remove(), 5000);
     }
+  };
+
+  window._showEnterpriseModal = function() {
+    const existing = document.getElementById('ent-modal-overlay');
+    if (existing) existing.remove();
+
+    const ov = document.createElement('div');
+    ov.id = 'ent-modal-overlay';
+    ov.className = 'ent-modal-overlay';
+    ov.onclick = function(e) { if (e.target === ov) ov.remove(); };
+    ov.innerHTML = `
+      <div class="ent-modal-card" role="dialog" aria-modal="true" aria-labelledby="ent-modal-title">
+        <button class="ent-modal-close" onclick="document.getElementById('ent-modal-overlay').remove()" aria-label="Close">&times;</button>
+        <div class="ent-modal-eyebrow">Enterprise Plan</div>
+        <h2 class="ent-modal-title" id="ent-modal-title">Let&rsquo;s build your plan together</h2>
+        <p class="ent-modal-sub">Multi-site networks, research institutions, and high-volume clinics. Custom seats, EHR integration, white-label, and SLA. Tell us what you need.</p>
+        <div class="ent-contact-grid">
+          <a class="ent-contact-option" href="mailto:hello@deepsynaps.com?subject=Enterprise%20Plan%20Enquiry" target="_blank">
+            <span class="ent-contact-icon">&#9993;</span>
+            <div>
+              <div class="ent-contact-label">Email us</div>
+              <div class="ent-contact-detail">hello@deepsynaps.com</div>
+            </div>
+          </a>
+          <a class="ent-contact-option" href="https://calendly.com/deepsynaps/enterprise" target="_blank" rel="noopener">
+            <span class="ent-contact-icon">&#128197;</span>
+            <div>
+              <div class="ent-contact-label">Schedule a call</div>
+              <div class="ent-contact-detail">30-min discovery &mdash; Calendly</div>
+            </div>
+          </a>
+          <a class="ent-contact-option" href="https://wa.me/message/deepsynaps" target="_blank" rel="noopener">
+            <span class="ent-contact-icon">&#128172;</span>
+            <div>
+              <div class="ent-contact-label">WhatsApp</div>
+              <div class="ent-contact-detail">Quick message &mdash; reply within 24h</div>
+            </div>
+          </a>
+        </div>
+        <div class="ent-modal-footer">We typically respond within one business day.</div>
+      </div>`;
+    document.body.appendChild(ov);
+    requestAnimationFrame(() => ov.classList.add('ent-modal-visible'));
   };
 }
 
@@ -10474,8 +10522,13 @@ export async function pgClinicalScoringCalc(setTopbar) {
       return '<button class="scal-tab' + (k === _scalActive ? ' active' : '') + '" onclick="window._scalTab(\'' + k + '\')">' + k + '</button>';
     }).join('');
 
+    const hasDemoSeed = SCALES[_scalActive] && SCALES[_scalActive].itemType === 'radio4';
+    const demoBtn = hasDemoSeed
+      ? '<button class="scal-demo-btn" onclick="window._scalLoadDemo()" title="Pre-fill with a sample moderately-severe case for demo purposes">&#9654; Load demo scores</button>'
+      : '';
+
     el.innerHTML = '<div class="scal-page">'
-      + '<div class="scal-tab-row">' + tabs + '</div>'
+      + '<div class="scal-tab-row">' + tabs + (demoBtn ? '<div class="scal-tab-row-right">' + demoBtn + '</div>' : '') + '</div>'
       + '<div style="border-left:3px solid #4a9eff;background:rgba(74,158,255,0.07);padding:7px 12px;margin:8px 0 12px;border-radius:0 4px 4px 0;font-size:11.5px;color:var(--text-secondary);line-height:1.5">Clinical decision support tool \u2014 scores assist clinician judgment and do not constitute diagnosis or treatment recommendations.</div>'
       + '<div class="scal-scale-name">' + (SCALES[_scalActive] ? SCALES[_scalActive].fullName : '') + '</div>'
       + '<div class="scal-body">'
@@ -10496,6 +10549,35 @@ export async function pgClinicalScoringCalc(setTopbar) {
   }
 
   window._scalTab = function(k) { _scalActive = k; _scalValues = {}; _scalRender(); };
+
+  // Demo mode: pre-fill current scale with a moderately-severe example
+  window._scalLoadDemo = function() {
+    const scale = SCALES[_scalActive];
+    if (!scale) return;
+    if (scale.itemType === 'radio4') {
+      // PHQ-9 → total 17 (Moderately Severe): items 3,3,2,3,2,2,1,1,0
+      // GAD-7 → total 13 (Moderate): items 3,2,3,2,1,2,0
+      // Generic: fill most items with 2, last with 0
+      const demoMaps = {
+        'PHQ-9': [3,3,2,3,2,2,1,1,0],
+        'GAD-7': [3,2,3,2,1,2,0],
+        'HAM-D': [2,2,1,2,1,1,2,0,1,1,1,1,0,0,0,0,1],
+        'MADRS': [2,2,2,2,2,2,2,2,2,2],
+        'BDI-II':[2,1,2,2,1,1,2,1,1,1,1,1,1,1,1,1,1,1,1,1,2],
+      };
+      const scores = demoMaps[_scalActive] || scale.items.map(function(_, i) { return i < scale.items.length - 1 ? 2 : 0; });
+      _scalValues = {};
+      scores.forEach(function(v, i) { _scalValues['item_' + i] = v; });
+    } else if (scale.itemType === 'quick') {
+      (scale.domains || []).forEach(function(d, i) {
+        if (d.max > 0) _scalValues['domain_' + i] = Math.floor(d.max * 0.45);
+      });
+    }
+    _scalRender();
+    if (typeof window._showNotifToast === 'function') {
+      window._showNotifToast({ title: 'Demo scores loaded', body: 'Showing a moderately-severe example. Scores are illustrative only.', severity: 'info' });
+    }
+  };
 
   window._scalSet = function(key, val) {
     _scalValues[key] = val;

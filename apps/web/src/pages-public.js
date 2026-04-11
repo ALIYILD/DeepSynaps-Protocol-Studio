@@ -388,43 +388,98 @@ export function pgHome() {
     window._demoTour = {
       step: 0,
       steps: [
-        { route: 'patient-queue',            label: 'Step 1 of 5', title: "Today\u2019s Queue",              desc: "See your clinic day at a glance. All patients, statuses, and alerts." },
-        { route: 'outcomes',                 label: 'Step 2 of 5', title: "Outcome Tracking",               desc: "Record PHQ-9/GAD-7/MADRS and review trends. Start from \u2018Record Outcome\u2019 in the top right." },
-        { route: 'course-completion-report', label: 'Step 3 of 5', title: "Course Completion Report",       desc: "Auto-generated treatment summary. Try \u2018Print Report\u2019 or \u2018Record Outcome\u2019 buttons." },
-        { route: 'scoring-calc',             label: 'Step 4 of 5', title: "Clinical Scoring Calculator",    desc: "Select PHQ-9 or GAD-7. Enter scores item-by-item. Watch severity update live." },
-        { route: 'homework-builder',         label: 'Step 5 of 5', title: "Patient Homework & Progress",    desc: "Tasks assigned here appear in the patient portal. Track compliance and streaks." },
+        {
+          route: 'patient-queue',
+          label: 'Step 1 of 5',
+          title: "Today\u2019s Queue",
+          desc: "6 patients, 3 protocol alerts, all managed from one screen. Click \u2018Start Session\u2019 on any waiting patient.",
+          hint: null,
+        },
+        {
+          route: 'course-completion-report',
+          label: 'Step 2 of 5',
+          title: "Course Completion Report",
+          desc: "Auto-generated treatment summary with responder status and trend chart. Click \u2018Record Outcome\u2019 in the topbar to capture a score right now.",
+          hint: 'record-outcome',
+        },
+        {
+          route: 'outcomes',
+          label: 'Step 3 of 5',
+          title: "Outcome Tracking",
+          desc: "Every scale recorded from any screen lands here. PHQ-9 trend showing an 18 \u2192 8 arc \u2014 50% reduction, Responder status.",
+          hint: null,
+        },
+        {
+          route: 'scoring-calc',
+          label: 'Step 4 of 5',
+          title: "Clinical Scoring Calculator",
+          desc: "PHQ-9 active. Click \u2018Load demo scores\u2019 in the top right to watch live severity scoring in action.",
+          hint: 'load-demo-scores',
+        },
+        {
+          route: 'pricing',
+          label: 'Step 5 of 5',
+          title: "Ready to start?",
+          desc: "14-day free trial, no credit card required. Clinic Starter covers solo practices; Clinic Pro for multi-clinician teams.",
+          hint: null,
+        },
       ]
     };
     window._demoNextStep();
   };
 
-  window._demoNextStep = function() {
+  window._demoNextStep = async function() {
     const tour = window._demoTour;
     if (!tour) return;
     const step = tour.steps[tour.step];
     if (!step) return;
 
-    // Set selectedCourseId before navigating to course-completion-report
+    // Resolve a valid course ID before navigating to course-completion-report
     if (step.route === 'course-completion-report') {
-      window._selectedCourseId = 'crs001';
+      try {
+        const { api: _api } = await import('./api.js');
+        const courses = await _api.listCourses().catch(() => null);
+        const firstCourse = Array.isArray(courses) && courses.length ? courses[0] : null;
+        if (firstCourse) {
+          window._selectedCourseId = firstCourse.id || firstCourse.course_id || 'crs001';
+        } else {
+          // Fall back to localStorage seeded courses
+          const lsSeeded = (() => { try { return JSON.parse(localStorage.getItem('ds_courses') || '[]'); } catch { return []; } })();
+          window._selectedCourseId = (lsSeeded[0]?.id) || 'crs001';
+        }
+      } catch {
+        window._selectedCourseId = window._selectedCourseId || 'crs001';
+      }
     }
 
     window._nav(step.route);
 
-    const isLast = tour.step === tour.steps.length - 1;
-    const nextLabel = isLast ? 'Finish Tour' : 'Next &rarr;';
+    const totalSteps = tour.steps.length;
+    const pct = Math.round(((tour.step + 1) / totalSteps) * 100);
+    const isLast = tour.step === totalSteps - 1;
+    const nextLabel = isLast ? 'Start Free Trial \u2192' : 'Next \u2192';
     const nextAction = isLast ? 'window._demoEndTour()' : 'window._demoTour.step++;window._demoNextStep()';
 
+    // Hint button: step-specific shortcut (e.g. open outcome capture, load demo scores)
+    let hintBtn = '';
+    if (step.hint === 'record-outcome') {
+      hintBtn = '<button class="demo-tour-hint" onclick="window._openQuickOutcomeCapture?.(window._selectedCourseId,null,\'Demo Patient\')">&#9654; Open Outcome Capture</button>';
+    } else if (step.hint === 'load-demo-scores') {
+      hintBtn = '<button class="demo-tour-hint" onclick="window._scalLoadDemo?.()">&#9654; Load demo scores</button>';
+    }
+
     const bannerHTML = `
+      <div class="demo-tour-progress-bar"><div class="demo-tour-progress-fill" style="width:${pct}%"></div></div>
       <div class="demo-tour-inner">
         <div class="demo-tour-meta">
           <span class="demo-tour-label">${step.label}</span>
           <span class="demo-tour-title">${step.title}</span>
           <span class="demo-tour-desc">${step.desc}</span>
+          ${hintBtn}
         </div>
         <div class="demo-tour-actions">
           <button class="demo-tour-next" onclick="${nextAction}">${nextLabel}</button>
-          <button class="demo-tour-end" onclick="window._demoEndTour()">End Tour &#10005;</button>
+          <button class="demo-tour-end" onclick="window._demoEndTour()">End &#10005;</button>
         </div>
       </div>`;
 
@@ -444,9 +499,9 @@ export function pgHome() {
     const banner = document.getElementById('demo-tour-banner');
     if (banner) banner.remove();
     window._demoTour = null;
-    window._nav('dashboard');
+    window._nav('pricing');
     if (typeof window._showNotifToast === 'function') {
-      window._showNotifToast({ title: 'Demo complete', body: 'Ready to explore on your own. Visit Pricing for plan options.', severity: 'success' });
+      window._showNotifToast({ title: 'Tour complete', body: '14-day free trial \u2014 no credit card required.', severity: 'success' });
     }
   };
 

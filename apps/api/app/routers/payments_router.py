@@ -28,25 +28,47 @@ PACKAGE_ROLE_MAP = {
     "resident": "clinician",
     "clinician_pro": "clinician",
     "clinic_team": "clinician",
+    # Current pricing page plan IDs
+    "clinic-starter": "clinician",
+    "clinic-pro": "clinician",
     "enterprise": "admin",
 }
 
 PACKAGE_INFO = [
     {
+        "id": "clinic-starter",
+        "name": "Clinic Starter",
+        "price_monthly": 299,
+        "features": ["Up to 3 clinicians", "Full protocol access", "Outcome tracking", "PDF & DOCX export"],
+    },
+    {
+        "id": "clinic-pro",
+        "name": "Clinic Pro",
+        "price_monthly": 599,
+        "features": ["Unlimited clinicians", "Full protocol access", "Outcome tracking", "PDF & DOCX export", "Wearable integrations", "Priority support"],
+    },
+    {
+        "id": "enterprise",
+        "name": "Enterprise",
+        "price_monthly": None,
+        "features": ["Custom seats", "White-label options", "EHR integration", "Dedicated support", "Custom SLA"],
+    },
+    # Legacy plan IDs kept for backward-compatibility
+    {
         "id": "resident",
-        "name": "Resident",
+        "name": "Resident (legacy)",
         "price_monthly": 29,
         "features": ["1 seat", "Full protocol access", "PDF & DOCX export"],
     },
     {
         "id": "clinician_pro",
-        "name": "Clinician Pro",
+        "name": "Clinician Pro (legacy)",
         "price_monthly": 79,
         "features": ["Up to 3 seats", "Full protocol access", "PDF & DOCX export", "Priority support"],
     },
     {
         "id": "clinic_team",
-        "name": "Clinic Team",
+        "name": "Clinic Team (legacy)",
         "price_monthly": 199,
         "features": ["Up to 20 seats", "Full protocol access", "PDF & DOCX export", "Priority support", "Team management"],
     },
@@ -95,11 +117,17 @@ def create_checkout(
     if not s.stripe_secret_key:
         raise HTTPException(status_code=400, detail="Stripe not configured")
 
-    # Map package_id → Stripe price ID
+    # Enterprise is a "contact us" plan — no Stripe checkout
+    if body.package_id == "enterprise":
+        return {"checkout_url": None, "contact_us": True, "message": "Contact us at hello@deepsynaps.com to set up an Enterprise plan."}
+
+    # Map package_id → Stripe price ID (new IDs fall back to legacy price env vars if new ones unset)
     price_map = {
         "resident": s.stripe_price_resident,
         "clinician_pro": s.stripe_price_clinician_pro,
         "clinic_team": s.stripe_price_clinic_team,
+        "clinic-starter": s.stripe_price_clinic_starter or s.stripe_price_clinician_pro,
+        "clinic-pro": s.stripe_price_clinic_pro or s.stripe_price_clinic_team,
     }
     price_id = price_map.get(body.package_id)
     if not price_id:
@@ -192,7 +220,11 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db_session)
                     s.stripe_price_resident: "resident",
                     s.stripe_price_clinician_pro: "clinician_pro",
                     s.stripe_price_clinic_team: "clinic_team",
+                    s.stripe_price_clinic_starter: "clinic-starter",
+                    s.stripe_price_clinic_pro: "clinic-pro",
                 }
+                # Remove empty-string key that maps unset prices to explorer
+                price_map_rev = {k: v for k, v in price_map_rev.items() if k}
                 package_id = price_map_rev.get(price_id, "explorer")
                 current_period_end_ts = stripe_sub.get("current_period_end")
                 from datetime import datetime
@@ -245,7 +277,11 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db_session)
             s.stripe_price_resident: "resident",
             s.stripe_price_clinician_pro: "clinician_pro",
             s.stripe_price_clinic_team: "clinic_team",
+            s.stripe_price_clinic_starter: "clinic-starter",
+            s.stripe_price_clinic_pro: "clinic-pro",
         }
+        # Remove empty-string key that maps unset prices to explorer
+        price_map_rev = {k: v for k, v in price_map_rev.items() if k}
         package_id = price_map_rev.get(price_id, "explorer") if price_id else "explorer"
 
         current_period_end_ts = data_obj.get("current_period_end")

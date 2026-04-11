@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Optional
 
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, CheckConstraint, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
@@ -128,6 +128,12 @@ class Patient(Base):
 
 class ClinicalSession(Base):
     __tablename__ = "clinical_sessions"
+    __table_args__ = (
+        CheckConstraint(
+            "billing_status IN ('unbilled', 'billed', 'paid')",
+            name='ck_clinical_sessions_billing_status',
+        ),
+    )
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     patient_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
     clinician_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
@@ -142,7 +148,7 @@ class ClinicalSession(Base):
     session_notes: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
     adverse_events: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
     billing_code: Mapped[Optional[str]] = mapped_column(String(30), nullable=True)
-    billing_status: Mapped[str] = mapped_column(String(30), default="unbilled")  # unbilled, billed, paid
+    billing_status: Mapped[str] = mapped_column(String(30), default='unbilled')
     created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
     updated_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 

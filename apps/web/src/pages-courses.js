@@ -2553,10 +2553,16 @@ export async function pgReviewQueue(setTopbar, navigate) {
     });
   };
 
-  // Reviewer assignment — display-only
-  window._rqAssign = function(itemId, reviewer) {
-    const item = (window._rqItems || []).find(i => i.id === itemId);
-    if (item) item._assignedTo = reviewer;
+  // Reviewer assignment — persists to backend
+  window._rqAssign = async function(itemId, reviewer) {
+    try {
+      await api.assignReviewer(itemId, reviewer || null);
+      const item = (window._rqItems || []).find(i => i.id === itemId);
+      if (item) item.assigned_to = reviewer || null;
+    } catch (e) {
+      console.warn('assignReviewer failed:', e);
+      window._rqToast?.('Failed to save reviewer assignment — please try again.', 'error');
+    }
   };
 
   // Submit review

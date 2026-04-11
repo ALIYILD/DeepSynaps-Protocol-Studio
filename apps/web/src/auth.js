@@ -359,10 +359,10 @@ window.demoLogin = async function(token) {
   }
 };
 
-const DEMO_CREDENTIALS = {
+const DEMO_CREDENTIALS = import.meta.env.DEV ? {
   'clinician@demo.com': { password: 'demo1234', token: 'clinician-demo-token' },
   'admin@demo.com':     { password: 'demo1234', token: 'admin-demo-token' },
-};
+} : {};
 
 window.submitLogin = async function() {
   const email = document.getElementById('login-email').value.trim();

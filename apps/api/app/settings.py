@@ -61,9 +61,13 @@ class AppSettings(BaseModel):
     stripe_webhook_secret: str = Field(default="")
 
     # Stripe Price IDs (set these in Fly.io secrets after creating products in Stripe dashboard)
+    # Legacy plan IDs (kept for backward-compatibility with existing Stripe products)
     stripe_price_resident: str = Field(default="")
     stripe_price_clinician_pro: str = Field(default="")
     stripe_price_clinic_team: str = Field(default="")
+    # New plan IDs — if unset, fall back to legacy aliases (clinician_pro → clinic-starter, clinic_team → clinic-pro)
+    stripe_price_clinic_starter: str = Field(default="")
+    stripe_price_clinic_pro: str = Field(default="")
 
     # Telegram
     telegram_bot_token: str = Field(default="")
@@ -185,6 +189,8 @@ def load_settings() -> AppSettings:
                 "stripe_price_resident": os.getenv("STRIPE_PRICE_RESIDENT", ""),
                 "stripe_price_clinician_pro": os.getenv("STRIPE_PRICE_CLINICIAN_PRO", ""),
                 "stripe_price_clinic_team": os.getenv("STRIPE_PRICE_CLINIC_TEAM", ""),
+                "stripe_price_clinic_starter": os.getenv("STRIPE_PRICE_CLINIC_STARTER", ""),
+                "stripe_price_clinic_pro": os.getenv("STRIPE_PRICE_CLINIC_PRO", ""),
                 # Telegram
                 "telegram_bot_token": os.getenv("TELEGRAM_BOT_TOKEN", ""),
                 "telegram_webhook_secret": os.getenv("TELEGRAM_WEBHOOK_SECRET", ""),

@@ -653,6 +653,36 @@ def list_review_queue(
     return ReviewQueueListResponse(items=items, total=len(items))
 
 
+# ── Reviewer assignment endpoint ───────────────────────────────────────────────
+
+class AssignReviewerBody(BaseModel):
+    assigned_to: Optional[str] = None  # None / empty string → unassign
+
+
+@review_router.patch("/{item_id}/assign", status_code=200)
+def assign_reviewer(
+    item_id: str,
+    body: AssignReviewerBody,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> dict:
+    """Assign (or unassign) a reviewer to a review queue item."""
+    require_minimum_role(actor, "clinician")
+    item = db.query(ReviewQueueItem).filter_by(id=item_id).first()
+    if item is None:
+        raise ApiServiceError(code='not_found', message='Review queue item not found.', status_code=404)
+    # Non-admins may only reassign items they created.
+    if actor.role != 'admin' and item.created_by != actor.actor_id:
+        raise ApiServiceError(
+            code='forbidden',
+            message='Not authorized to assign this review item.',
+            status_code=403,
+        )
+    item.assigned_to = body.assigned_to or None
+    db.commit()
+    return {'ok': True, 'item_id': item_id, 'assigned_to': item.assigned_to}
+
+
 # ── Review actions endpoint ────────────────────────────────────────────────────
 
 class ReviewActionCreate(BaseModel):

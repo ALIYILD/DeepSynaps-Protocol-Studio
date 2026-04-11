@@ -1,5 +1,25 @@
+import re
+
 from anthropic import Anthropic
 from app.settings import get_settings
+
+
+# ── LLM output sanitization ───────────────────────────────────────────────────
+
+# Patterns to strip from LLM output before returning to clients.
+# This is a defence-in-depth measure: it prevents obvious XSS vectors if the
+# frontend ever renders chat responses as HTML rather than plain text.
+_SCRIPT_RE = re.compile(r"<script[^>]*>.*?</script>", re.IGNORECASE | re.DOTALL)
+_JS_URI_RE = re.compile(r"javascript\s*:", re.IGNORECASE)
+_ONEVT_RE  = re.compile(r'\bon\w+\s*=\s*(?:"[^"]*"|\'[^\']*\')', re.IGNORECASE)
+
+
+def _sanitize_llm_output(text: str) -> str:
+    """Strip the most dangerous XSS vectors from LLM-generated text."""
+    text = _SCRIPT_RE.sub("", text)
+    text = _JS_URI_RE.sub("", text)
+    text = _ONEVT_RE.sub("", text)
+    return text
 
 PUBLIC_FAQ_SYSTEM = """You are DeepSynaps AI, a helpful assistant on the DeepSynaps Protocol Studio website.
 DeepSynaps Protocol Studio is a clinical operations platform for neuromodulation practitioners.
@@ -98,7 +118,7 @@ def chat_clinician(messages: list[dict], patient_context: str | None = None) -> 
         system=system,
         messages=messages,
     )
-    return response.content[0].text
+    return _sanitize_llm_output(response.content[0].text)
 
 
 def chat_patient(messages: list[dict], language: str = "en") -> str:
@@ -119,7 +139,7 @@ def chat_patient(messages: list[dict], language: str = "en") -> str:
         system=system,
         messages=messages,
     )
-    return response.content[0].text
+    return _sanitize_llm_output(response.content[0].text)
 
 
 def chat_public_faq(messages: list[dict]) -> str:
@@ -135,7 +155,7 @@ def chat_public_faq(messages: list[dict]) -> str:
         system=PUBLIC_FAQ_SYSTEM,
         messages=messages,
     )
-    return response.content[0].text
+    return _sanitize_llm_output(response.content[0].text)
 
 
 def chat_agent(
@@ -182,7 +202,7 @@ def chat_agent(
         system=system,
         messages=messages,
     )
-    return response.content[0].text
+    return _sanitize_llm_output(response.content[0].text)
 
 
 # ── Wearable copilot system prompts ──────────────────────────────────────────
@@ -243,7 +263,7 @@ def chat_wearable_patient(messages: list[dict], wearable_context: str | None = N
         system=system,
         messages=messages,
     )
-    return response.content[0].text
+    return _sanitize_llm_output(response.content[0].text)
 
 
 def chat_wearable_clinician(messages: list[dict], patient_context: str | None = None) -> str:
@@ -263,4 +283,4 @@ def chat_wearable_clinician(messages: list[dict], patient_context: str | None = 
         system=system,
         messages=messages,
     )
-    return response.content[0].text
+    return _sanitize_llm_output(response.content[0].text)

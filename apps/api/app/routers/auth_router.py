@@ -118,8 +118,8 @@ def _extract_bearer_token(authorization: str | None) -> str | None:
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 
-@router.post("/api/v1/auth/register", response_model=TokenResponse, status_code=201)
 @limiter.limit("5/minute")
+@router.post("/api/v1/auth/register", response_model=TokenResponse, status_code=201)
 def register(
     request: Request,
     body: RegisterRequest,
@@ -173,8 +173,8 @@ def register(
     )
 
 
-@router.post("/api/v1/auth/login", response_model=TokenResponse)
 @limiter.limit("10/minute")
+@router.post("/api/v1/auth/login", response_model=TokenResponse)
 def login(
     request: Request,
     body: LoginRequest,
@@ -219,8 +219,8 @@ def login(
     )
 
 
-@router.post("/api/v1/auth/refresh", response_model=TokenResponse)
 @limiter.limit("20/minute")
+@router.post("/api/v1/auth/refresh", response_model=TokenResponse)
 def refresh_token(
     request: Request,
     body: RefreshRequest,
@@ -337,8 +337,8 @@ def logout() -> MessageResponse:
     return MessageResponse(message="Successfully logged out.")
 
 
-@router.post("/api/v1/auth/forgot-password", response_model=MessageResponse)
 @limiter.limit("3/minute")
+@router.post("/api/v1/auth/forgot-password", response_model=MessageResponse)
 def forgot_password(
     request: Request,
     body: ForgotPasswordRequest,
@@ -376,8 +376,8 @@ def forgot_password(
     )
 
 
-@router.post("/api/v1/auth/reset-password", response_model=MessageResponse)
 @limiter.limit("5/minute")
+@router.post("/api/v1/auth/reset-password", response_model=MessageResponse)
 def reset_password(
     request: Request,
     body: ResetPasswordRequest,
@@ -407,7 +407,8 @@ def reset_password(
             status_code=400,
         )
 
-    if reset_record.expires_at < datetime.now(timezone.utc):
+    reset_expires_utc = reset_record.expires_at if reset_record.expires_at.tzinfo else reset_record.expires_at.replace(tzinfo=timezone.utc)
+    if reset_expires_utc < datetime.now(timezone.utc):
         raise ApiServiceError(
             code="reset_token_expired",
             message="This password reset token has expired.",
@@ -441,8 +442,8 @@ class ActivatePatientRequest(BaseModel):
     password: str
 
 
-@router.post("/api/v1/auth/activate-patient", response_model=TokenResponse, status_code=201)
 @limiter.limit("5/minute")
+@router.post("/api/v1/auth/activate-patient", response_model=TokenResponse, status_code=201)
 def activate_patient(
     request: Request,
     body: ActivatePatientRequest,
@@ -471,7 +472,8 @@ def activate_patient(
             status_code=400,
         )
 
-    if invite.expires_at < datetime.now(timezone.utc):
+    expires_at_utc = invite.expires_at if invite.expires_at.tzinfo else invite.expires_at.replace(tzinfo=timezone.utc)
+    if expires_at_utc < datetime.now(timezone.utc):
         raise ApiServiceError(
             code="invite_expired",
             message="This invitation code has expired.",

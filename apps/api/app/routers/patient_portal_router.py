@@ -216,13 +216,27 @@ def get_portal_courses(
         .all()
     )
 
+    # Batch-load all delivered sessions for these courses in one query to
+    # avoid the N+1 pattern (one query per course).
+    import json as _json
+    course_id_list = [c.id for c in courses]
+    if course_id_list:
+        all_sessions = (
+            db.query(DeliveredSessionParameters)
+            .filter(DeliveredSessionParameters.course_id.in_(course_id_list))
+            .all()
+        )
+        session_counts: dict[str, int] = {}
+        for s in all_sessions:
+            session_counts[s.course_id] = session_counts.get(s.course_id, 0) + 1
+    else:
+        session_counts = {}
+
     result = []
     for c in courses:
-        sessions = db.query(DeliveredSessionParameters).filter_by(course_id=c.id).all()
-        import json as _json
         params = {}
         try:
-            params = _json.loads(c.protocol_params_json or "{}")
+            params = _json.loads(c.protocol_json or "{}")
         except Exception:
             pass
         result.append(PortalCourseOut(
@@ -232,7 +246,7 @@ def get_portal_courses(
             modality_slug=c.modality_slug,
             status=c.status,
             clinician_notes=c.clinician_notes,
-            session_count=len(sessions),
+            session_count=session_counts.get(c.id, 0),
             total_sessions_planned=params.get("total_sessions_planned"),
             started_at=_dt(c.started_at) if c.started_at else None,
             created_at=_dt(c.created_at),
@@ -429,9 +443,16 @@ def send_portal_message(
 
     patient = _require_patient(actor, db)
 
-    # recipient_id: the clinician_id on the patient record is the best available target.
-    # Falls back to patient.id as a placeholder if no clinician is assigned.
-    recipient_id = getattr(patient, "clinician_id", None) or patient.id
+    # Messages must route to the assigned clinician.  Falling back to patient.id
+    # causes the message to silently disappear (patient messaging themselves).
+    recipient_id = getattr(patient, "clinician_id", None)
+    if not recipient_id:
+        from app.errors import ApiServiceError as _ApiServiceError
+        raise _ApiServiceError(
+            code="no_clinician_assigned",
+            message="No clinician is assigned to your account. Please contact your clinic to be assigned a clinician before sending messages.",
+            status_code=422,
+        )
 
     msg = Message(
         id=str(uuid.uuid4()),
