@@ -172,6 +172,40 @@ export const api = {
   // ── Clinical Knowledge ──────────────────────────────────────────────────
   listEvidence: () => apiFetchWithRetry('/api/v1/evidence'),
   listDevices: () => apiFetchWithRetry('/api/v1/devices'),
+
+  // ── Live evidence pipeline (PubMed + OpenAlex + CT.gov + FDA) ───────────
+  // Hits services/evidence-pipeline via the api's evidence_router.
+  // Router returns 503 with a clear message until the evidence DB is built.
+  evidenceIndications: () => apiFetch('/api/v1/evidence/indications'),
+  searchEvidencePapers: ({ q = '', indication = '', grade = '', oa_only = false, limit = 20 } = {}) => {
+    const params = new URLSearchParams();
+    if (q)          params.set('q', q);
+    if (indication) params.set('indication', indication);
+    if (grade)      params.set('grade', grade);
+    if (oa_only)    params.set('oa_only', 'true');
+    if (limit)      params.set('limit', String(limit));
+    return apiFetch(`/api/v1/evidence/papers?${params.toString()}`);
+  },
+  evidencePaperDetail: (id) => apiFetch(`/api/v1/evidence/papers/${encodeURIComponent(id)}`),
+  searchEvidenceTrials: ({ indication = '', q = '', status = '', limit = 20 } = {}) => {
+    const params = new URLSearchParams();
+    if (indication) params.set('indication', indication);
+    if (q)          params.set('q', q);
+    if (status)     params.set('status', status);
+    if (limit)      params.set('limit', String(limit));
+    return apiFetch(`/api/v1/evidence/trials?${params.toString()}`);
+  },
+  searchEvidenceDevices: ({ indication = '', applicant = '', kind = '', limit = 30 } = {}) => {
+    const params = new URLSearchParams();
+    if (indication) params.set('indication', indication);
+    if (applicant)  params.set('applicant', applicant);
+    if (kind)       params.set('kind', kind);
+    if (limit)      params.set('limit', String(limit));
+    return apiFetch(`/api/v1/evidence/devices?${params.toString()}`);
+  },
+  // Promote an evidence paper to the doctor's personal Literature Library.
+  promoteEvidencePaper: (id) =>
+    apiFetch(`/api/v1/evidence/papers/${encodeURIComponent(id)}/promote-to-library`, { method: 'POST' }),
   listBrainRegions: () => apiFetchWithRetry('/api/v1/brain-regions'),
   listQEEGBiomarkers: () => apiFetch('/api/v1/qeeg/biomarkers'),
   listQEEGConditionMap: () => apiFetch('/api/v1/qeeg/condition-map'),

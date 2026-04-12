@@ -6,6 +6,7 @@ import {
   CONDITIONS, DEVICES, PROTOCOL_TYPES, GOVERNANCE_LABELS, EVIDENCE_GRADES,
   PROTOCOL_LIBRARY, searchProtocols, getProtocolsByCondition, getCondition, getDevice,
 } from './protocols-data.js';
+import { renderLiveEvidencePanel } from './live-evidence.js';
 
 // ── Shared helpers ────────────────────────────────────────────────────────────
 const _esc = s => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
@@ -208,10 +209,22 @@ export async function pgProtocolSearch(setTopbar, navigate) {
               <span class="prot-results-count">${results.length} protocol${results.length!==1?'s':''} found</span>
             </div>
             ${filterBar}
+            <div id="prot-live-evidence"></div>
             ${mainContent}
           </div>
         </div>
       </div>`;
+
+    // Live evidence panel — queries services/evidence-pipeline. Scoped to the
+    // current search query so doctors see the same keywords surface real
+    // PubMed/OpenAlex/trial/FDA hits alongside the curated protocol library.
+    const liveHost = document.getElementById('prot-live-evidence');
+    if (liveHost) {
+      renderLiveEvidencePanel(liveHost, {
+        defaultQuery: _state.query || '',
+        compact: true,
+      });
+    }
   };
 
   // ── Handlers ──────────────────────────────────────────────────────────────

@@ -1,0 +1,8 @@
+# Generated at ingestion time — regenerate with `python3 ingest.py --all`
+evidence.db
+evidence.db-wal
+evidence.db-shm
+ingest.log
+
+# Local env overrides
+.env
