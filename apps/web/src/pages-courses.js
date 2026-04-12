@@ -3580,18 +3580,10 @@ export async function pgReviewQueue(setTopbar, navigate) {
 
 }
 
-// ── pgOutcomes — Outcomes & Trends ────────────────────────────────────────────
+// ── pgOutcomes — Outcomes & Progress ─────────────────────────────────────────
 export async function pgOutcomes(setTopbar, navigate) {
-  // Topbar: title + Export CSV button + time range select
-  setTopbar('Outcomes & Trends', `
+  setTopbar('Outcomes & Progress', `
     <div style="display:flex;align-items:center;gap:8px">
-      <select id="outcomes-time-range" class="form-control" style="font-size:12px;padding:4px 10px;height:32px;width:auto"
-        onchange="window._outcomesTimeRange=this.value;window._renderOutcomes()">
-        <option value="30d">Last 30 days</option>
-        <option value="90d">Last 90 days</option>
-        <option value="6m">Last 6 months</option>
-        <option value="all" selected>All time</option>
-      </select>
       <button class="btn btn-sm" onclick="window._exportOutcomesCSV()">Export CSV</button>
       <button class="btn btn-primary btn-sm" onclick="window._showRecordOutcome()">+ Record Outcome</button>
     </div>`);
@@ -3600,17 +3592,24 @@ export async function pgOutcomes(setTopbar, navigate) {
   el.innerHTML = spinner();
 
   // ── Data loading ──────────────────────────────────────────────────────────
-  const [outcomesRes, aggregateRes, coursesRes] = await Promise.all([
+  const [outcomesRes, aggregateRes, coursesRes, patientsRes, aeRes] = await Promise.all([
     api.listOutcomes().catch(() => null),
     api.aggregateOutcomes().catch(() => null),
     api.listCourses().catch(() => null),
+    api.listPatients?.().catch(() => null),
+    api.listAdverseEvents?.().catch(() => null),
   ]);
   const outcomes  = outcomesRes?.items || [];
   const aggregate = aggregateRes || {};
   const courses   = coursesRes?.items || [];
+  const patients  = patientsRes?.items || [];
+  const allAEs    = aeRes?.items || [];
 
   const courseMap = {};
   courses.forEach(c => { courseMap[c.id] = c; });
+  const patientMap = {};
+  patients.forEach(p => { patientMap[p.id] = p; });
+  const openAEs = allAEs.filter(ae => ae.status === 'open' || ae.status === 'active');
 
   // Persist for CSV export and time-range filtering
   window._outcomesData    = outcomes;
@@ -3887,131 +3886,404 @@ export async function pgOutcomes(setTopbar, navigate) {
     </table>`;
   }
 
-  // ── _renderOutcomes — re-renders all sections with current time filter ──
-  window._renderOutcomes = function() {
-    const range   = window._outcomesTimeRange || 'all';
-    const filtered = filterByTimeRange(window._outcomesAllData || [], range);
-    window._outcomesData = filtered;
-
-    // Sync select if present
-    const sel = document.getElementById('outcomes-time-range');
-    if (sel && sel.value !== range) sel.value = range;
-
-    // KPIs
-    const { responderRatePct, meanChange, activeCourses, completionPct } = computeKPIs(filtered);
-    const rrDisplay = responderRatePct != null ? responderRatePct + '%' : '—';
-    const mcDisplay = meanChange != null ? (meanChange > 0 ? '+' : '') + meanChange.toFixed(1) : '—';
-    const mcColor   = meanChange == null ? 'var(--text-tertiary)' : meanChange < 0 ? 'var(--green)' : 'var(--teal)';
-    const cpDisplay = completionPct != null ? completionPct + '%' : '—';
-
-    const kpiEl = document.getElementById('oc-kpi-strip');
-    if (kpiEl) kpiEl.innerHTML = `
-      ${metricCard('Responder Rate', rrDisplay, 'var(--teal)', `n=${aggregate.total_outcomes || filtered.length} measurements`)}
-      ${metricCard('Mean Score Change', `<span style="color:${mcColor}">${mcDisplay}</span>`, mcColor, 'Avg baseline vs latest')}
-      ${metricCard('Courses with Outcomes', String(activeCourses), 'var(--violet)', 'Unique courses tracked')}
-      ${metricCard('Assessment Completion', cpDisplay, 'var(--blue)', 'Scores recorded')}`;
-
-    // Waterfall
-    const wfEl = document.getElementById('oc-waterfall');
-    if (wfEl) wfEl.innerHTML = renderWaterfall(filtered);
-
-    // Sparklines
-    const spEl = document.getElementById('oc-sparklines');
-    if (spEl) spEl.innerHTML = renderSparklineCards(filtered);
-
-    // Modality table
-    const modEl = document.getElementById('oc-modality');
-    if (modEl) modEl.innerHTML = renderModalityTable(filtered);
-
-    // Trajectory chart
-    const trajEl = document.getElementById('oc-trajectory');
-    if (trajEl) trajEl.innerHTML = filtered.length > 0 ? outcomeTrajectoryChart(filtered) : '';
-
-    // Records table (also apply template/course filters)
-    window._rerenderOutcomeTable();
-  };
-
-  window._rerenderOutcomeTable = function() {
-    const base   = window._outcomesData || [];
-    const tmplF  = document.getElementById('oc-filter-tmpl')?.value || '';
-    const courseF = document.getElementById('oc-filter-course')?.value || '';
-    const filtered = base.filter(o => {
-      if (tmplF   && (o.template_name || o.template_id || '') !== tmplF)   return false;
-      if (courseF && (o.course_id || '') !== courseF)                       return false;
-      return true;
-    });
-    const tableEl = document.getElementById('oc-records-table');
-    if (tableEl) tableEl.innerHTML = renderOutcomeTable(filtered);
-  };
-
   // ── Unique templates + courses for filter dropdowns ────────────────────
   const uniqueTemplates = [...new Set(outcomes.map(o => o.template_name || o.template_id || '').filter(Boolean))];
-  const uniqueCourses   = courses.slice(0, 40); // cap for dropdown
+  const uniqueCourses   = courses.slice(0, 40);
 
-  // ── Initial render ────────────────────────────────────────────────────────
-  const initFiltered = filterByTimeRange(outcomes, window._outcomesTimeRange);
-  window._outcomesData = initFiltered;
-  const { responderRatePct, meanChange, activeCourses, completionPct } = computeKPIs(initFiltered);
+  // ── Per-patient/course outcome status computation ─────────────────────────
+  // Group raw outcome records by course_id + template, compute baseline→latest
+  const LOWER_IS_BETTER_SET = new Set(['PHQ-9','GAD-7','PCL-5','ISI','DASS-21','NRS-Pain','UPDRS-III','HAMD','MADRS','BAI','BDI','CAPS','Y-BOCS','PANSS']);
+  function _ocLowerBetter(name) {
+    return LOWER_IS_BETTER_SET.has(name) || [...LOWER_IS_BETTER_SET].some(t => String(name||'').toUpperCase().includes(t.toUpperCase()));
+  }
+
+  function _ocComputeStatus(baseline, latest, lowerBetter) {
+    if (baseline == null || latest == null) return 'steady';
+    const change = latest - baseline;
+    const pct    = baseline > 0 ? Math.abs(change / baseline) * 100 : 0;
+    const improving = lowerBetter ? change < 0 : change > 0;
+    const worsening = lowerBetter ? change > 0 : change < 0;
+    if (improving && pct >= 20) return 'improving';
+    if (worsening && pct >= 15) return 'needs-review';
+    return 'steady';
+  }
+
+  // Build per-course outcome summary
+  const courseOutcomeMap = {}; // courseId → { courseId, patientId, template, baseline, latest, change, pct, status, lastDate, measurements }
+  const byCourseTemplate = {};
+  outcomes.forEach(o => {
+    const key = (o.course_id || 'x') + '|' + (o.template_name || o.template_id || 'unknown');
+    if (!byCourseTemplate[key]) byCourseTemplate[key] = [];
+    byCourseTemplate[key].push(o);
+  });
+
+  Object.entries(byCourseTemplate).forEach(([key, pts]) => {
+    const sorted = pts.slice().sort((a, b) => (a.recorded_at || a.administered_at || '').localeCompare(b.recorded_at || b.administered_at || ''));
+    const bl    = sorted.find(p => p.measurement_point === 'baseline') || sorted[0];
+    const la    = sorted[sorted.length - 1];
+    const bs    = parseFloat(bl?.score_numeric ?? bl?.score ?? NaN);
+    const ls    = parseFloat(la?.score_numeric ?? la?.score ?? NaN);
+    const tmpl  = pts[0].template_name || pts[0].template_id || '—';
+    const lowerBetter = _ocLowerBetter(tmpl);
+    const change = !isNaN(bs) && !isNaN(ls) && bl !== la ? ls - bs : null;
+    const pct    = change != null && bs > 0 ? Math.round(Math.abs(change / bs) * 100) : null;
+    const status = _ocComputeStatus(!isNaN(bs) ? bs : null, !isNaN(ls) ? ls : null, lowerBetter);
+    const courseId = pts[0].course_id;
+    const patientId = pts[0].patient_id;
+    const lastDate  = la?.recorded_at || la?.administered_at || '';
+
+    // Keep the "most significant" template per course (most measurements)
+    if (!courseOutcomeMap[courseId] || pts.length > courseOutcomeMap[courseId].measurements) {
+      courseOutcomeMap[courseId] = { courseId, patientId, template: tmpl, baseline: !isNaN(bs) ? bs : null, latest: !isNaN(ls) ? ls : null, change, pct, status, lastDate, measurements: pts.length, lowerBetter };
+    }
+  });
+
+  // Build patient rows — join with course + patient data
+  const patientRows = Object.values(courseOutcomeMap).map(oc => {
+    const course  = courseMap[oc.courseId] || {};
+    const patient = patientMap[oc.patientId] || {};
+    const name    = patient.first_name ? `${patient.first_name} ${patient.last_name}`.trim() : (course.patient_name || `Patient …${(oc.patientId||'').slice(-6)}`);
+    const cAEs    = openAEs.filter(ae => ae.course_id === oc.courseId);
+    const hasSeriousAE = cAEs.some(ae => ae.severity === 'serious' || ae.severity === 'severe');
+    // Override: serious AE always → needs-review
+    const status = hasSeriousAE ? 'needs-review' : oc.status;
+
+    // Adherence signal: sessions since last session date
+    let daysSince = null;
+    if (course.last_session_at) {
+      daysSince = Math.floor((Date.now() - new Date(course.last_session_at).getTime()) / 86400000);
+    }
+    const lowAdherence = daysSince != null && daysSince > 14 && course.status === 'active';
+    if (lowAdherence && status !== 'improving') oc.status = 'needs-review';
+
+    return { ...oc, name, course, hasSeriousAE, cAEs, daysSince, lowAdherence, status };
+  });
+
+  // Summary counts
+  const trackedTotal  = patientRows.length;
+  const improving     = patientRows.filter(r => r.status === 'improving').length;
+  const steady        = patientRows.filter(r => r.status === 'steady').length;
+  const needsReview   = patientRows.filter(r => r.status === 'needs-review').length;
+  const overdue       = patientRows.filter(r => {
+    if (!r.lastDate) return true;
+    const days = Math.floor((Date.now() - new Date(r.lastDate).getTime()) / 86400000);
+    return days > 30 && r.course.status === 'active';
+  }).length;
+  const { responderRatePct } = computeKPIs(outcomes);
   const rrDisplay = responderRatePct != null ? responderRatePct + '%' : '—';
-  const mcDisplay = meanChange != null ? (meanChange > 0 ? '+' : '') + meanChange.toFixed(1) : '—';
-  const mcColor   = meanChange == null ? 'var(--text-tertiary)' : meanChange < 0 ? 'var(--green)' : 'var(--teal)';
-  const cpDisplay = completionPct != null ? completionPct + '%' : '—';
+
+  // ── Patient row renderer ─────────────────────────────────────────────────
+  const OC_STATUS = {
+    'improving':    { label: 'Improving',    color: 'var(--green)',  bg: 'rgba(34,197,94,0.1)',   icon: '↑' },
+    'steady':       { label: 'Steady',       color: 'var(--blue)',   bg: 'rgba(59,130,246,0.1)',  icon: '→' },
+    'needs-review': { label: 'Needs Review', color: 'var(--amber)',  bg: 'rgba(245,158,11,0.1)',  icon: '⚠' },
+  };
+
+  function ocPatientRow(r) {
+    const st    = OC_STATUS[r.status] || OC_STATUS.steady;
+    const c     = r.course;
+    const changeStr = r.change != null ? (r.change > 0 ? '+' : '') + r.change.toFixed(1) : '—';
+    const changeColor = r.change == null ? 'var(--text-tertiary)' : (r.lowerBetter ? (r.change < 0 ? 'var(--green)' : 'var(--amber)') : (r.change > 0 ? 'var(--green)' : 'var(--amber)'));
+    const trendIcon = r.change == null ? '—' : (r.lowerBetter ? (r.change < 0 ? '↓' : '↑') : (r.change > 0 ? '↑' : '↓'));
+    const trendColor = r.change == null ? 'var(--text-tertiary)' : changeColor;
+    const lastUpdated = r.lastDate ? new Date(r.lastDate).toLocaleDateString() : '—';
+
+    // Driver signals
+    const drivers = [];
+    if (r.lowAdherence && r.daysSince != null) drivers.push({ icon: '↓', label: `${r.daysSince}d gap`, color: 'var(--amber)' });
+    if (r.hasSeriousAE) drivers.push({ icon: '⚡', label: 'Serious AE', color: 'var(--red)' });
+    else if (r.cAEs.length) drivers.push({ icon: '⚡', label: 'AE open', color: 'var(--amber)' });
+    if (c.review_required) drivers.push({ icon: '◱', label: 'Review due', color: 'var(--amber)' });
+    const delivered = c.sessions_delivered || 0;
+    const total     = c.planned_sessions_total || 0;
+    if (total > 0) drivers.push({ icon: '◎', label: `${delivered}/${total} sessions`, color: 'var(--text-tertiary)' });
+
+    // CTA
+    let cta = { label: 'Review Progress', onclick: `window._openCourse('${r.courseId}')`, style: 'normal' };
+    if (r.status === 'needs-review' && r.hasSeriousAE) cta = { label: 'Open Chart', onclick: `window._openCourse('${r.courseId}')`, style: 'danger' };
+    else if (r.status === 'needs-review') cta = { label: 'Review Progress', onclick: `window._openCourse('${r.courseId}')`, style: 'amber' };
+    else if (r.status === 'improving') cta = { label: 'View Report', onclick: `window._openCourse('${r.courseId}')`, style: 'ghost' };
+
+    const btnStyles = {
+      normal: 'background:transparent;color:var(--teal);border:1px solid rgba(0,212,188,0.3)',
+      amber:  'background:rgba(245,158,11,0.1);color:var(--amber);border:1px solid rgba(245,158,11,0.25)',
+      danger: 'background:rgba(239,68,68,0.1);color:var(--red);border:1px solid rgba(239,68,68,0.25)',
+      ghost:  'background:transparent;color:var(--text-secondary);border:1px solid var(--border)',
+    };
+
+    return `<div class="oc-row" data-status="${r.status}" data-condition="${c.condition_slug||''}" data-modality="${c.modality_slug||''}"
+      style="display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid var(--border);cursor:pointer;transition:background 0.12s"
+      onmouseover="this.style.background='var(--bg-card-hover)'" onmouseout="this.style.background=''"
+      onclick="window._openCourse('${r.courseId}')">
+
+      <!-- Patient info -->
+      <div style="flex:1.5;min-width:0">
+        <div style="font-size:13px;font-weight:700;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${r.name}</div>
+        <div style="font-size:11px;color:var(--text-secondary);margin-top:2px">${(c.condition_slug||'—').replace(/-/g,' ')} · <span style="color:var(--teal)">${c.modality_slug||'—'}</span></div>
+      </div>
+
+      <!-- Primary measure -->
+      <div style="flex:1;min-width:0">
+        <div style="font-size:10.5px;color:var(--text-tertiary);margin-bottom:2px">Primary measure</div>
+        <div style="font-size:12px;font-weight:600;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${r.template}">${r.template}</div>
+      </div>
+
+      <!-- Baseline → Latest -->
+      <div style="flex:0.8;text-align:center;min-width:0">
+        <div style="font-size:10.5px;color:var(--text-tertiary);margin-bottom:2px">Baseline → Latest</div>
+        <div style="font-size:12.5px;font-weight:600;color:var(--text-primary)">
+          ${r.baseline != null ? r.baseline : '—'} <span style="color:var(--text-tertiary)">→</span> ${r.latest != null ? r.latest : '—'}
+        </div>
+      </div>
+
+      <!-- Change + trend -->
+      <div style="flex:0.5;text-align:center;min-width:60px">
+        <div style="font-size:10.5px;color:var(--text-tertiary);margin-bottom:2px">Change</div>
+        <div style="font-size:14px;font-weight:700;color:${changeColor}">${trendIcon} ${r.pct != null ? r.pct + '%' : changeStr}</div>
+      </div>
+
+      <!-- Status badge -->
+      <div style="flex-shrink:0">
+        <span style="font-size:11px;font-weight:700;padding:3px 10px;border-radius:10px;background:${st.bg};color:${st.color};white-space:nowrap">${st.icon} ${st.label}</span>
+      </div>
+
+      <!-- Driver signals -->
+      <div style="flex:0.8;display:flex;flex-wrap:wrap;gap:3px;min-width:0">
+        ${drivers.slice(0,2).map(d => `<span style="font-size:9.5px;padding:1px 6px;border-radius:6px;background:rgba(255,255,255,0.05);color:${d.color};white-space:nowrap">${d.icon} ${d.label}</span>`).join('')}
+      </div>
+
+      <!-- Last updated -->
+      <div style="flex-shrink:0;font-size:10.5px;color:var(--text-tertiary);white-space:nowrap;min-width:60px;text-align:right">${lastUpdated}</div>
+
+      <!-- CTA -->
+      <button onclick="event.stopPropagation();${cta.onclick}"
+        style="flex-shrink:0;font-size:11px;font-weight:600;padding:6px 11px;border-radius:var(--radius-md);cursor:pointer;font-family:var(--font-body);white-space:nowrap;${btnStyles[cta.style]||''}">${cta.label}</button>
+    </div>`;
+  }
+
+  // ── Section renderers ────────────────────────────────────────────────────
+  function ocSectionRows(status, rows) {
+    const filtered = rows.filter(r => r.status === status);
+    if (!filtered.length) return `<div style="padding:24px;text-align:center;color:var(--text-tertiary);font-size:12px">No patients in this category.</div>`;
+    return filtered.map(ocPatientRow).join('');
+  }
+
+  function ocSummaryCard(label, value, color, sub, filterStatus) {
+    return `<div style="padding:16px 18px;border-radius:var(--radius-lg);background:var(--bg-card);border:1px solid var(--border);cursor:pointer;transition:border-color 0.15s"
+      onclick="window._ocFilterStatus('${filterStatus}')"
+      onmouseover="this.style.borderColor='${color}55'" onmouseout="this.style.borderColor='var(--border)'">
+      <div style="font-size:10.5px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.7px;margin-bottom:6px">${label}</div>
+      <div style="font-size:26px;font-weight:800;color:${color};line-height:1">${value}</div>
+      <div style="font-size:10.5px;color:var(--text-secondary);margin-top:5px">${sub}</div>
+    </div>`;
+  }
+
+  // ── Apply filters ────────────────────────────────────────────────────────
+  window._ocPatientRows   = patientRows;
+  window._ocActiveFilter  = { status: '', condition: '', modality: '', search: '' };
+
+  function ocApplyFilters() {
+    const f = window._ocActiveFilter;
+    let rows = window._ocPatientRows || [];
+    if (f.search)    rows = rows.filter(r => r.name.toLowerCase().includes(f.search.toLowerCase()));
+    if (f.status)    rows = rows.filter(r => r.status === f.status);
+    if (f.condition) rows = rows.filter(r => (r.course.condition_slug||'').includes(f.condition));
+    if (f.modality)  rows = rows.filter(r => (r.course.modality_slug||'') === f.modality);
+
+    const nr  = document.getElementById('oc-needs-review-list');
+    const imp = document.getElementById('oc-improving-list');
+    const st  = document.getElementById('oc-steady-list');
+    const nrC = document.getElementById('oc-needs-review-count');
+    const impC= document.getElementById('oc-improving-count');
+    const stC = document.getElementById('oc-steady-count');
+
+    const needsReviewRows = rows.filter(r => r.status === 'needs-review');
+    const improvingRows   = rows.filter(r => r.status === 'improving');
+    const steadyRows      = rows.filter(r => r.status === 'steady');
+
+    if (nr)  nr.innerHTML  = needsReviewRows.length ? needsReviewRows.map(ocPatientRow).join('') : `<div style="padding:20px;text-align:center;color:var(--text-tertiary);font-size:12px">None in this category.</div>`;
+    if (imp) imp.innerHTML = improvingRows.length   ? improvingRows.map(ocPatientRow).join('')   : `<div style="padding:20px;text-align:center;color:var(--text-tertiary);font-size:12px">None in this category.</div>`;
+    if (st)  st.innerHTML  = steadyRows.length      ? steadyRows.map(ocPatientRow).join('')      : `<div style="padding:20px;text-align:center;color:var(--text-tertiary);font-size:12px">None in this category.</div>`;
+    if (nrC) nrC.textContent = needsReviewRows.length;
+    if (impC)impC.textContent= improvingRows.length;
+    if (stC) stC.textContent = steadyRows.length;
+  }
+
+  window._ocFilterStatus = function(status) {
+    window._ocActiveFilter.status = window._ocActiveFilter.status === status ? '' : status;
+    // Update tab UI
+    document.querySelectorAll('.oc-tab').forEach(b => b.classList.remove('active'));
+    if (status) {
+      const tabMap = { 'needs-review': 'tab-nr', 'improving': 'tab-imp', 'steady': 'tab-st', '': 'tab-all' };
+      document.getElementById(tabMap[status])?.classList.add('active');
+    } else {
+      document.getElementById('tab-all')?.classList.add('active');
+    }
+    ocApplyFilters();
+  };
+
+  window._ocApplyFilters = function() {
+    window._ocActiveFilter.search    = document.getElementById('oc-search')?.value || '';
+    window._ocActiveFilter.condition = document.getElementById('oc-filter-condition')?.value || '';
+    window._ocActiveFilter.modality  = document.getElementById('oc-filter-modality')?.value || '';
+    ocApplyFilters();
+  };
+
+  // ── Full page render ─────────────────────────────────────────────────────
+  const needsReviewRows = patientRows.filter(r => r.status === 'needs-review');
+  const improvingRows   = patientRows.filter(r => r.status === 'improving');
+  const steadyRows      = patientRows.filter(r => r.status === 'steady');
+  const overdueRows     = patientRows.filter(r => {
+    if (!r.lastDate) return r.course.status === 'active';
+    const days = Math.floor((Date.now() - new Date(r.lastDate).getTime()) / 86400000);
+    return days > 30 && r.course.status === 'active';
+  });
+
+  const uniqueConditions = [...new Set(courses.map(c => c.condition_slug).filter(Boolean))];
+  const uniqueModalities = [...new Set(courses.map(c => c.modality_slug).filter(Boolean))];
 
   el.innerHTML = `<div class="page-section">
 
-    <!-- ── Section 1: KPI Strip ──────────────────────────────────────────── -->
-    <div class="g4" id="oc-kpi-strip">
-      ${metricCard('Responder Rate', rrDisplay, 'var(--teal)', `n=${aggregate.total_outcomes || initFiltered.length} measurements`)}
-      ${metricCard('Mean Score Change', `<span style="color:${mcColor}">${mcDisplay}</span>`, mcColor, 'Avg baseline vs latest')}
-      ${metricCard('Courses with Outcomes', String(activeCourses), 'var(--violet)', 'Unique courses tracked')}
-      ${metricCard('Assessment Completion', cpDisplay, 'var(--blue)', 'Scores recorded')}
+    <!-- ── Summary Strip ──────────────────────────────────────────────────── -->
+    <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:12px;margin-bottom:20px">
+      ${ocSummaryCard('Tracked', trackedTotal, 'var(--teal)',  'Patients with data', '')}
+      ${ocSummaryCard('Improving', improving,   'var(--green)', 'Score moving right', 'improving')}
+      ${ocSummaryCard('Steady',    steady,       'var(--blue)',  'No significant change', 'steady')}
+      ${ocSummaryCard('Needs Review', needsReview,'var(--amber)', 'Action required', 'needs-review')}
+      ${ocSummaryCard('Overdue', overdue,        'var(--red)',   'No assessment 30d+', '__overdue')}
+      ${ocSummaryCard('Responder Rate', rrDisplay,'var(--teal)', 'Of tracked cohort', '')}
     </div>
 
-    <!-- ── Section 1b: Trajectory Chart ────────────────────────────────── -->
-    <div id="oc-trajectory" style="${initFiltered.length > 0 ? '' : 'display:none'}">
-      ${initFiltered.length > 0 ? `<div class="card" style="padding:16px 20px;margin-bottom:20px">${outcomeTrajectoryChart(initFiltered)}</div>` : ''}
+    <!-- ── Filter bar ─────────────────────────────────────────────────────── -->
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:16px">
+      <div style="position:relative;flex:1;min-width:200px">
+        <span style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--text-tertiary);font-size:13px;pointer-events:none">⌕</span>
+        <input id="oc-search" type="text" placeholder="Search patients…"
+          class="form-control" style="padding-left:28px;font-size:13px;height:34px" oninput="window._ocApplyFilters()">
+      </div>
+      <select id="oc-filter-condition" class="form-control" style="width:auto;font-size:12px;height:34px;padding:0 10px" onchange="window._ocApplyFilters()">
+        <option value="">All Conditions</option>
+        ${uniqueConditions.map(c => `<option value="${c}">${c.replace(/-/g,' ')}</option>`).join('')}
+      </select>
+      <select id="oc-filter-modality" class="form-control" style="width:auto;font-size:12px;height:34px;padding:0 10px" onchange="window._ocApplyFilters()">
+        <option value="">All Modalities</option>
+        ${uniqueModalities.map(m => `<option value="${m}">${m}</option>`).join('')}
+      </select>
+      <div style="display:flex;border:1px solid var(--border);border-radius:var(--radius-md);overflow:hidden">
+        <button id="tab-all" class="oc-tab active" onclick="window._ocFilterStatus('')"
+          style="padding:6px 12px;font-size:12px;border:none;cursor:pointer;background:var(--teal);color:#000;font-weight:700;font-family:var(--font-body)">All</button>
+        <button id="tab-nr" class="oc-tab" onclick="window._ocFilterStatus('needs-review')"
+          style="padding:6px 12px;font-size:12px;border:none;cursor:pointer;background:transparent;color:var(--amber);font-family:var(--font-body)">⚠ Needs Review (${needsReview})</button>
+        <button id="tab-imp" class="oc-tab" onclick="window._ocFilterStatus('improving')"
+          style="padding:6px 12px;font-size:12px;border:none;cursor:pointer;background:transparent;color:var(--green);font-family:var(--font-body)">↑ Improving (${improving})</button>
+        <button id="tab-st" class="oc-tab" onclick="window._ocFilterStatus('steady')"
+          style="padding:6px 12px;font-size:12px;border:none;cursor:pointer;background:transparent;color:var(--blue);font-family:var(--font-body)">→ Steady (${steady})</button>
+      </div>
     </div>
 
-    <!-- ── Section 2: Responder Waterfall ───────────────────────────────── -->
-    <div class="card" style="margin-bottom:20px">
-      <div class="card-header" style="padding:14px 20px;border-bottom:1px solid var(--border)">
-        <span style="font-weight:600;font-size:14px">Responder Rate by Template</span>
-        <div style="display:flex;align-items:center;gap:14px;font-size:11px;color:var(--text-tertiary)">
-          <span><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:var(--teal);margin-right:4px;vertical-align:middle"></span>Responders</span>
-          <span><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:var(--bg-surface-2);margin-right:4px;vertical-align:middle"></span>Non-responders</span>
+    <!-- ── Needs Review ────────────────────────────────────────────────────── -->
+    ${needsReviewRows.length ? `<div class="card" style="padding:0;overflow:hidden;margin-bottom:16px;border-color:rgba(245,158,11,0.3)">
+      <div style="padding:12px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;background:rgba(245,158,11,0.05)">
+        <div style="display:flex;align-items:center;gap:8px">
+          <span style="font-size:13px;font-weight:700;color:var(--amber)">⚠ Needs Review</span>
+          <span id="oc-needs-review-count" style="font-size:11px;font-weight:700;padding:1px 7px;border-radius:8px;background:rgba(245,158,11,0.15);color:var(--amber)">${needsReviewRows.length}</span>
+        </div>
+        <span style="font-size:11px;color:var(--text-tertiary)">Action required · check protocol and patient contact</span>
+      </div>
+      <div id="oc-needs-review-list">${needsReviewRows.map(ocPatientRow).join('')}</div>
+    </div>` : ''}
+
+    <!-- ── Improving ─────────────────────────────────────────────────────── -->
+    <div class="card" style="padding:0;overflow:hidden;margin-bottom:16px">
+      <div style="padding:12px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
+        <div style="display:flex;align-items:center;gap:8px">
+          <span style="font-size:13px;font-weight:700;color:var(--green)">↑ Improving</span>
+          <span id="oc-improving-count" style="font-size:11px;font-weight:700;padding:1px 7px;border-radius:8px;background:rgba(34,197,94,0.12);color:var(--green)">${improvingRows.length}</span>
+        </div>
+        <span style="font-size:11px;color:var(--text-tertiary)">Score trending in the right direction</span>
+      </div>
+      <div id="oc-improving-list">
+        ${improvingRows.length ? improvingRows.map(ocPatientRow).join('') : `<div style="padding:20px;text-align:center;color:var(--text-tertiary);font-size:12px">No patients currently in the improving category.</div>`}
+      </div>
+    </div>
+
+    <!-- ── Steady ─────────────────────────────────────────────────────────── -->
+    <div class="card" style="padding:0;overflow:hidden;margin-bottom:20px">
+      <div style="padding:12px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
+        <div style="display:flex;align-items:center;gap:8px">
+          <span style="font-size:13px;font-weight:700;color:var(--blue)">→ Steady</span>
+          <span id="oc-steady-count" style="font-size:11px;font-weight:700;padding:1px 7px;border-radius:8px;background:rgba(59,130,246,0.12);color:var(--blue)">${steadyRows.length}</span>
+        </div>
+        <span style="font-size:11px;color:var(--text-tertiary)">No significant score change yet</span>
+      </div>
+      <div id="oc-steady-list">
+        ${steadyRows.length ? steadyRows.map(ocPatientRow).join('') : `<div style="padding:20px;text-align:center;color:var(--text-tertiary);font-size:12px">No patients in this category.</div>`}
+      </div>
+    </div>
+
+    <!-- ── Overdue assessments ────────────────────────────────────────────── -->
+    ${overdueRows.length ? `<div class="card" style="padding:0;overflow:hidden;margin-bottom:20px;border-color:rgba(239,68,68,0.25)">
+      <div style="padding:12px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;background:rgba(239,68,68,0.04)">
+        <span style="font-size:13px;font-weight:700;color:var(--red)">◷ Overdue Assessments</span>
+        <span style="font-size:11px;color:var(--text-tertiary)">No outcome recorded in 30+ days</span>
+      </div>
+      ${overdueRows.map(r => {
+        const days = r.lastDate ? Math.floor((Date.now() - new Date(r.lastDate).getTime()) / 86400000) : '?';
+        return `<div style="display:flex;align-items:center;gap:12px;padding:11px 16px;border-bottom:1px solid var(--border)">
+          <div style="flex:1">
+            <div style="font-size:13px;font-weight:600;color:var(--text-primary)">${r.name}</div>
+            <div style="font-size:11px;color:var(--text-secondary)">${(r.course.condition_slug||'—').replace(/-/g,' ')} · ${r.course.modality_slug||'—'}</div>
+          </div>
+          <div style="font-size:11.5px;color:var(--red)">${days}d since last assessment</div>
+          <button onclick="window._ocPreRecordForCourse('${r.courseId}')"
+            style="font-size:11px;font-weight:600;padding:5px 11px;border-radius:var(--radius-md);background:rgba(239,68,68,0.1);color:var(--red);border:1px solid rgba(239,68,68,0.25);cursor:pointer;font-family:var(--font-body)">Record Outcome</button>
+        </div>`;
+      }).join('')}
+    </div>` : ''}
+
+    <!-- ── Outcome Trends (analytics — collapsed by default) ─────────────── -->
+    <details style="margin-bottom:16px">
+      <summary style="font-size:13px;font-weight:600;color:var(--text-primary);padding:14px 16px;background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius-md);cursor:pointer;list-style:none;display:flex;align-items:center;justify-content:space-between">
+        <span>◈ Outcome Trends & Cohort Analytics</span>
+        <span style="font-size:11px;color:var(--text-tertiary)">Click to expand</span>
+      </summary>
+      <div style="padding-top:16px">
+        <!-- Score trends sparklines -->
+        <div style="font-size:12px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.6px;margin-bottom:10px">Score Trends by Template</div>
+        <div class="g4" style="margin-bottom:20px">${renderSparklineCards(outcomes)}</div>
+
+        <!-- Waterfall -->
+        <div class="card" style="margin-bottom:16px">
+          <div class="card-header" style="padding:14px 20px;border-bottom:1px solid var(--border)">
+            <span style="font-weight:600;font-size:14px">Responder Rate by Template</span>
+          </div>
+          <div class="card-body">${renderWaterfall(outcomes)}</div>
+        </div>
+
+        <!-- Modality table -->
+        <div class="card" style="margin-bottom:16px">
+          <div class="card-header" style="padding:14px 20px;border-bottom:1px solid var(--border)">
+            <span style="font-weight:600;font-size:14px">Cohort by Modality</span>
+          </div>
+          <div style="padding:16px;overflow-x:auto">${renderModalityTable(outcomes)}</div>
         </div>
       </div>
-      <div class="card-body" id="oc-waterfall">
-        ${renderWaterfall(initFiltered)}
-      </div>
-    </div>
-
-    <!-- ── Section 3: Sparkline Cards ───────────────────────────────────── -->
-    <div style="margin-bottom:8px">${sectionHeader('Score Trends by Template — Top 4')}</div>
-    <div class="g4" id="oc-sparklines" style="margin-bottom:20px">
-      ${renderSparklineCards(initFiltered)}
-    </div>
-
-    <!-- ── Section 4: Cohort by Modality ────────────────────────────────── -->
-    <div class="card" style="margin-bottom:20px">
-      <div class="card-header" style="padding:14px 20px;border-bottom:1px solid var(--border)">
-        <span style="font-weight:600;font-size:14px">Cohort Comparison by Modality</span>
-      </div>
-      <div style="padding:16px;overflow-x:auto" id="oc-modality">
-        ${renderModalityTable(initFiltered)}
-      </div>
-    </div>
+    </details>
 
     <!-- ── Record Outcome Panel ─────────────────────────────────────────── -->
     <div id="record-outcome-panel" style="display:none;margin-bottom:16px">
       <div class="card" style="padding:20px">
-        <div style="font-size:13px;font-weight:600;margin-bottom:14px">Record Outcome Measurement</div>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+          <div style="font-size:13px;font-weight:600">Record Outcome Measurement</div>
+          <button onclick="document.getElementById('record-outcome-panel').style.display='none'"
+            style="background:none;border:none;color:var(--text-tertiary);font-size:18px;cursor:pointer;line-height:1">×</button>
+        </div>
         <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:12px">
           <div>
             <label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:4px">Course</label>
             <select id="oc-course" class="form-control" style="font-size:12.5px">
               <option value="">Select course…</option>
-              ${courses.map(c => `<option value="${c.id}|${c.patient_id}">${c.condition_slug?.replace(/-/g,' ')} · ${c.modality_slug} (${c.status})</option>`).join('')}
+              ${courses.map(c => `<option value="${c.id}|${c.patient_id||''}">${(c.condition_slug||'').replace(/-/g,' ')} · ${c.modality_slug||''} (${c.status||''})</option>`).join('')}
             </select>
           </div>
           <div>
@@ -4048,84 +4320,108 @@ export async function pgOutcomes(setTopbar, navigate) {
       </div>
     </div>
 
-    <!-- ── Section 5: Outcome Records Table ─────────────────────────────── -->
-    <div class="card">
-      <div class="card-header" style="padding:14px 20px;border-bottom:1px solid var(--border)">
-        <span style="font-weight:600;font-size:14px">Outcome Records</span>
-        <div style="display:flex;align-items:center;gap:8px">
-          <select id="oc-filter-tmpl" class="form-control" style="font-size:12px;padding:3px 8px;height:28px;width:auto" onchange="window._rerenderOutcomeTable()">
-            <option value="">All templates</option>
-            ${uniqueTemplates.map(t => `<option value="${t}">${t}</option>`).join('')}
-          </select>
-          <select id="oc-filter-course" class="form-control" style="font-size:12px;padding:3px 8px;height:28px;width:auto" onchange="window._rerenderOutcomeTable()">
-            <option value="">All courses</option>
-            ${uniqueCourses.map(c => `<option value="${c.id}">${c.condition_slug?.replace(/-/g,' ') || c.id.slice(0,8)} · ${c.modality_slug || ''}</option>`).join('')}
-          </select>
+    <!-- ── Outcome Records Table ──────────────────────────────────────────── -->
+    <details style="margin-bottom:16px">
+      <summary style="font-size:13px;font-weight:600;color:var(--text-primary);padding:14px 16px;background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius-md);cursor:pointer;list-style:none;display:flex;align-items:center;justify-content:space-between">
+        <span>All Outcome Records (${outcomes.length})</span>
+        <span style="font-size:11px;color:var(--text-tertiary)">Click to expand</span>
+      </summary>
+      <div style="padding-top:12px">
+        <div class="card">
+          <div style="padding:10px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px">
+            <select id="oc-filter-tmpl" class="form-control" style="font-size:12px;height:28px;width:auto;padding:0 8px" onchange="window._rerenderOutcomeTable()">
+              <option value="">All templates</option>
+              ${uniqueTemplates.map(t => `<option value="${t}">${t}</option>`).join('')}
+            </select>
+            <select id="oc-filter-course" class="form-control" style="font-size:12px;height:28px;width:auto;padding:0 8px" onchange="window._rerenderOutcomeTable()">
+              <option value="">All courses</option>
+              ${uniqueCourses.map(c => `<option value="${c.id}">${(c.condition_slug||'').replace(/-/g,' ') || c.id.slice(0,8)} · ${c.modality_slug||''}</option>`).join('')}
+            </select>
+          </div>
+          <div style="padding:16px;overflow-x:auto" id="oc-records-table">
+            ${renderOutcomeTable(outcomes)}
+          </div>
         </div>
       </div>
-      <div style="padding:16px;overflow-x:auto" id="oc-records-table">
-        ${renderOutcomeTable(initFiltered)}
-      </div>
-    </div>
-
-    <!-- ── Section 6: Clinic Benchmarks ──────────────────────────────────── -->
-    ${(() => {
-      // Compute per-modality responder rates from outcome data
-      const modalityRates = {};
-      const byModality = {};
-      initFiltered.forEach(o => {
-        const c = courseMap[o.course_id] || {};
-        const mod = c.modality_slug || o.modality_slug;
-        if (!mod) return;
-        // Normalise slug to match BENCHMARKS key (e.g. tms -> TMS)
-        const modKey = Object.keys(BENCHMARKS).find(k => k.toLowerCase() === mod.toLowerCase()) || mod;
-        if (!byModality[modKey]) byModality[modKey] = { total: 0, responders: 0 };
-        const withData = o.pct_change != null || o.is_responder != null;
-        if (withData) {
-          byModality[modKey].total++;
-          const resp = o.is_responder != null ? o.is_responder : Math.abs(o.pct_change || 0) >= 50;
-          if (resp) byModality[modKey].responders++;
-        }
-      });
-      const matchedRows = Object.entries(BENCHMARKS)
-        .filter(([mod]) => byModality[mod] && byModality[mod].total > 0)
-        .map(([mod, bm]) => {
-          const { total, responders } = byModality[mod];
-          const clinicRate = Math.round((responders / total) * 100);
-          return benchmarkRow(mod, clinicRate, bm.expected_responder_rate, bm);
-        });
-      if (!matchedRows.length) return '';
-      return `<div class="card" style="margin-bottom:20px">
-        <div class="card-header" style="padding:14px 20px;border-bottom:1px solid var(--border)">
-          <span style="font-weight:600;font-size:14px">Clinic Benchmarks vs. Published Literature</span>
-        </div>
-        <div style="padding:20px">
-          ${matchedRows.join('')}
-          <div style="font-size:11px;color:var(--text-tertiary);font-style:italic;margin-top:12px">Benchmarks sourced from published meta-analyses. Direct comparison should account for patient population differences.</div>
-        </div>
-      </div>`;
-    })()}
+    </details>
 
   </div>`;
 
-  // ── Wire up show record outcome ────────────────────────────────────────
-  window._showRecordOutcome = () => {
-    document.getElementById('record-outcome-panel').style.display = '';
-    document.getElementById('record-outcome-panel').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  // ── Filter tab style toggle ───────────────────────────────────────────────
+  function ocUpdateTabStyles() {
+    document.querySelectorAll('.oc-tab').forEach(b => {
+      const isActive = b.classList.contains('active');
+      b.style.background  = isActive ? 'var(--teal)' : 'transparent';
+      b.style.color       = isActive ? '#000' : b.dataset.color || 'var(--text-secondary)';
+      b.style.fontWeight  = isActive ? '700' : '400';
+    });
+  }
+  // Set initial data-color attributes
+  document.getElementById('tab-nr')?.setAttribute('data-color','var(--amber)');
+  document.getElementById('tab-imp')?.setAttribute('data-color','var(--green)');
+  document.getElementById('tab-st')?.setAttribute('data-color','var(--blue)');
+
+  // ── Wire ups ────────────────────────────────────────────────────────────
+  window._showRecordOutcome = function() {
+    const panel = document.getElementById('record-outcome-panel');
+    if (panel) { panel.style.display = ''; panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); }
+  };
+
+  window._ocPreRecordForCourse = function(courseId) {
+    const panel = document.getElementById('record-outcome-panel');
+    if (panel) { panel.style.display = ''; panel.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
+    const sel = document.getElementById('oc-course');
+    if (sel) {
+      for (const opt of sel.options) { if (opt.value.startsWith(courseId)) { sel.value = opt.value; break; } }
+    }
+  };
+
+  window._rerenderOutcomeTable = function() {
+    const base    = outcomes;
+    const tmplF   = document.getElementById('oc-filter-tmpl')?.value || '';
+    const courseF = document.getElementById('oc-filter-course')?.value || '';
+    const filtered = base.filter(o => {
+      if (tmplF   && (o.template_name || o.template_id || '') !== tmplF) return false;
+      if (courseF && (o.course_id || '') !== courseF) return false;
+      return true;
+    });
+    const tableEl = document.getElementById('oc-records-table');
+    if (tableEl) tableEl.innerHTML = renderOutcomeTable(filtered);
+  };
+
+  window._exportOutcomesCSV = function() {
+    const rows = [['Date', 'Patient', 'Template', 'Score', 'Point', 'Change%', 'Status']];
+    (window._outcomesAllData || []).forEach(o => {
+      rows.push([
+        o.recorded_at?.split('T')[0] || o.administered_at?.split('T')[0] || '',
+        o.patient_id?.slice(0,8) || '',
+        o.template_name || o.template_id || '',
+        o.score ?? o.score_numeric ?? '',
+        o.measurement_point || '',
+        o.pct_change != null ? Math.round(o.pct_change) + '%' : '',
+        isResponder(o) ? 'Responder' : 'Non-responder',
+      ]);
+    });
+    const csv  = rows.map(r => r.map(v => '"' + String(v).replace(/"/g,'""') + '"').join(',')).join('\n');
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'outcomes.csv';
+    a.click();
   };
 
   window._saveOutcome = async function() {
     const errEl = document.getElementById('oc-error');
-    errEl.style.display = 'none';
+    if (errEl) errEl.style.display = 'none';
     const courseVal = document.getElementById('oc-course')?.value || '';
     const [courseId, patientId] = courseVal.split('|');
     const score = document.getElementById('oc-score')?.value;
-    if (!courseId || !patientId) { errEl.textContent = 'Select a course.'; errEl.style.display = ''; return; }
-    if (!score) { errEl.textContent = 'Enter a score.'; errEl.style.display = ''; return; }
+    if (!courseId) { if (errEl) { errEl.textContent = 'Select a course.'; errEl.style.display = ''; } return; }
+    if (!score)    { if (errEl) { errEl.textContent = 'Enter a score.';   errEl.style.display = ''; } return; }
     const tid = document.getElementById('oc-template')?.value || 'PHQ-9';
     try {
       await api.recordOutcome({
-        patient_id:        patientId,
+        patient_id:        patientId || null,
         course_id:         courseId,
         template_id:       tid,
         template_title:    tid,
@@ -4136,8 +4432,7 @@ export async function pgOutcomes(setTopbar, navigate) {
       });
       await pgOutcomes(setTopbar, navigate);
     } catch (e) {
-      errEl.textContent = e.message || 'Save failed.';
-      errEl.style.display = '';
+      if (errEl) { errEl.textContent = e.message || 'Save failed.'; errEl.style.display = ''; }
     }
   };
 }

@@ -422,7 +422,7 @@ let currentPage = 'dashboard';
 const ROLE_NAV_HIDE = {
   technician: ['protocol-wizard', 'patients', 'evidence', 'handbooks', 'billing', 'pricing', 'audittrail', 'brainregions', 'qeegmaps', 'protocols-registry', 'outcomes', 'adverse-events', 'population-analytics', 'brain-map-planner', 'handbook-generator', 'notes-dictation', 'assessments-hub'],
   reviewer:   ['session-execution', 'protocol-wizard', 'billing', 'pricing', 'population-analytics', 'brain-map-planner'],
-  guest:      ['session-execution', 'protocol-wizard', 'patients', 'courses', 'review-queue', 'braindata', 'assessments', 'assessments-hub', 'outcomes', 'adverse-events', 'audittrail', 'billing', 'population-analytics', 'brain-map-planner', 'notes-dictation'],
+  guest:      ['session-execution', 'protocol-wizard', 'patients', 'courses', 'review-queue', 'braindata', 'assessments', 'assessments-hub', 'medical-history', 'documents', 'reports', 'outcomes', 'adverse-events', 'audittrail', 'billing', 'population-analytics', 'brain-map-planner', 'notes-dictation'],
   clinician:  ['population-analytics'],
 };
 
@@ -440,7 +440,10 @@ const NAV = [
   { section: 'PATIENT CARE' },
   { id: 'patients',           label: 'Patients',           icon: '◉' },
   { id: 'courses',            label: 'Treatment Courses',  icon: '◎', badge: null },
+  { id: 'medical-history',    label: 'Medical History',    icon: '◧' },
+  { id: 'documents',          label: 'Documents',          icon: '◩' },
   { id: 'assessments-hub',    label: 'Assessments',        icon: '◈' },
+  { id: 'reports',            label: 'Reports',            icon: '◫' },
   { id: 'outcomes',           label: 'Outcomes',           icon: '◫' },
   { id: 'wearables',          label: 'Patient Monitoring', icon: '◌' },
   { id: 'home-task-manager',  label: 'Home Programs',      icon: '◩' },
@@ -687,7 +690,7 @@ const PAGE_TITLES = {
   courses: 'Treatment Courses', 'course-detail': 'Course Detail',
   'session-execution': 'Session Execution', 'review-queue': 'Clinical Review & Approvals',
   'protocol-wizard': 'Protocol Intelligence', 'protocols-registry': 'Protocol Registry',
-  outcomes: 'Outcomes and Trends', 'ai-assistant': 'AI Clinical Assistant', 'ai-agents': 'AI Practice Agent',
+  outcomes: 'Outcomes & Progress', 'ai-assistant': 'AI Clinical Assistant', 'ai-agents': 'AI Practice Agent',
   braindata: 'qEEG / Brain Data', qeegmaps: 'qEEG Maps', assessments: 'Assessments',
   evidence: 'Evidence Library', devices: 'Device Registry', brainregions: 'Brain Regions',
   handbooks: 'Handbooks', 'report-builder': 'Report Builder & Exports', 'adverse-events': 'Adverse Events', audittrail: 'Audit Trail',
@@ -1141,6 +1144,11 @@ async function renderPage() {
     case 'insurance': { const m = await loadPractice(); await m.pgInsuranceVerification(setTopbar); break; }
     case 'referrals': { const m = await loadPractice(); await m.pgReferrals(setTopbar); break; }
     case 'reports': {
+      const { pgReportsHub } = await loadClinical();
+      await pgReportsHub(setTopbar);
+      break;
+    }
+    case 'population-reports': {
       const m = await loadCourses();
       await m.pgClinicalReports(setTopbar);
       break;
@@ -1205,6 +1213,8 @@ async function renderPage() {
     }
     case 'reminders': { const { pgReminderAutomation } = await loadPractice(); await pgReminderAutomation(setTopbar); break; }
     case 'evidence-builder': { const { pgEvidenceBuilder } = await loadClinical(); await pgEvidenceBuilder(setTopbar); break; }
+    case 'medical-history': { const { pgMedicalHistory } = await loadClinical(); await pgMedicalHistory(setTopbar); break; }
+    case 'documents':       { const { pgDocumentsHub }   = await loadClinical(); await pgDocumentsHub(setTopbar);   break; }
     case 'assessments-hub': { const { pgAssessmentsHub } = await loadClinical(); await pgAssessmentsHub(setTopbar); break; }
     case 'brain-map-planner': { const { pgBrainMapPlanner } = await loadClinical(); await pgBrainMapPlanner(setTopbar); break; }
     case 'notes-dictation': { const { pgNotesDictation } = await loadClinical(); await pgNotesDictation(setTopbar); break; }
@@ -2128,7 +2138,7 @@ window.addEventListener('popstate', (e) => {
     { type: 'nav', icon: '📋', title: 'Treatment Courses',    page: 'courses',          shortcut: 'Alt+C' },
     { type: 'nav', icon: '🧠', title: 'Protocol Intelligence', page: 'protocol-wizard' },
     { type: 'nav', icon: '◇',  title: 'Protocol Registry',   page: 'protocols-registry' },
-    { type: 'nav', icon: '📊', title: 'Outcomes & Trends',    page: 'outcomes' },
+    { type: 'nav', icon: '📊', title: 'Outcomes & Progress',   page: 'outcomes' },
     { type: 'nav', icon: '⚠️', title: 'Review & Approvals',    page: 'review-queue',     shortcut: 'Alt+R' },
     { type: 'nav', icon: '◧',  title: 'Session Execution',   page: 'session-execution', shortcut: 'Alt+S' },
     { type: 'nav', icon: '📁', title: 'Evidence Library',    page: 'evidence' },

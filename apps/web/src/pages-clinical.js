@@ -13459,3 +13459,656 @@ export async function pgNotesDictation(setTopbar) {
   };
 }
 
+// ── pgMedicalHistory — Structured clinical history ────────────────────────────
+export async function pgMedicalHistory(setTopbar) {
+  setTopbar('Medical History', `
+    <button class="btn btn-primary btn-sm" onclick="window._mhSave()">Save Changes</button>
+    <button class="btn btn-sm" onclick="window._mhPrint()">Print / Export</button>
+  `);
+  const el = document.getElementById('content');
+  if (!el) return;
+
+  // Load patient list for selector
+  let patients = [];
+  try { const r = await api.patients().catch(() => null); patients = r?.items || r || []; } catch (_) {}
+
+  const STORAGE_KEY = 'ds_medical_history';
+  function loadHistory(pid) {
+    try { const d = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}'); return d[pid] || {}; } catch { return {}; }
+  }
+  function saveHistory(pid, data) {
+    try { const d = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}'); d[pid] = data; localStorage.setItem(STORAGE_KEY, JSON.stringify(d)); } catch {}
+  }
+  function esc(s) { return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+  const SECTIONS = [
+    { id: 'presenting',    label: 'Presenting Complaint',          icon: '◉', fields: [
+      { id: 'chief_complaint', label: 'Chief Complaint', type: 'textarea', placeholder: 'Primary reason for referral and main symptoms…' },
+      { id: 'symptom_onset',   label: 'Symptom Onset',  type: 'text',     placeholder: 'e.g. 6 months ago, gradual onset' },
+      { id: 'severity',        label: 'Current Severity (0–10)', type: 'number', placeholder: '0–10' },
+      { id: 'impact',          label: 'Functional Impact',  type: 'textarea', placeholder: 'Work, relationships, daily activities…' },
+    ]},
+    { id: 'diagnoses',     label: 'Diagnoses',                     icon: '◈', fields: [
+      { id: 'primary_dx',   label: 'Primary Diagnosis (ICD-10)',   type: 'text',     placeholder: 'e.g. F32.2 — Major Depressive Disorder, severe' },
+      { id: 'secondary_dx', label: 'Secondary Diagnoses',          type: 'textarea', placeholder: 'List additional diagnoses with ICD codes…' },
+      { id: 'dx_notes',     label: 'Diagnostic Notes',             type: 'textarea', placeholder: 'Diagnostic criteria met, differential considered…' },
+    ]},
+    { id: 'psychiatric',   label: 'Psychiatric History',           icon: '◧', fields: [
+      { id: 'prior_episodes',   label: 'Prior Psychiatric Episodes',    type: 'textarea', placeholder: 'Number, duration, severity of past episodes…' },
+      { id: 'prior_treatments', label: 'Prior Treatments',              type: 'textarea', placeholder: 'Medications tried, dosages, outcomes, reasons for discontinuation…' },
+      { id: 'hospitalizations', label: 'Psychiatric Hospitalizations',  type: 'textarea', placeholder: 'Dates, facilities, reasons…' },
+      { id: 'suicide_risk',     label: 'Suicide / Self-Harm History',   type: 'textarea', placeholder: 'Ideation, attempts, current risk assessment…' },
+      { id: 'current_therapist',label: 'Current Therapist / Psychiatrist', type: 'text', placeholder: 'Name, clinic, contact' },
+    ]},
+    { id: 'neurological',  label: 'Neurological History',          icon: '◎', fields: [
+      { id: 'neuro_conditions', label: 'Neurological Conditions',       type: 'textarea', placeholder: "e.g. migraines, TBI, MS, Parkinson's, stroke…" },
+      { id: 'brain_injury',     label: 'Head / Brain Injury',           type: 'textarea', placeholder: 'Date, mechanism, severity, sequelae…' },
+      { id: 'neuro_tests',      label: 'Prior Neurological Tests',      type: 'textarea', placeholder: 'EEG, MRI, CT, neuropsychological testing — results and dates…' },
+    ]},
+    { id: 'medications',   label: 'Medications & Supplements',     icon: '◩', fields: [
+      { id: 'current_meds',     label: 'Current Medications',           type: 'textarea', placeholder: 'Drug, dose, frequency, prescriber…' },
+      { id: 'supplements',      label: 'Supplements / OTC',             type: 'textarea', placeholder: 'Vitamins, herbs, OTC medications…' },
+      { id: 'past_meds',        label: 'Past Medications (relevant)',    type: 'textarea', placeholder: 'Medications tried previously with outcomes…' },
+      { id: 'med_interactions', label: 'Known Drug Interactions / Concerns', type: 'textarea', placeholder: 'Any flagged interactions or prescriber concerns…' },
+    ]},
+    { id: 'allergies',     label: 'Allergies',                     icon: '⚠', fields: [
+      { id: 'drug_allergies',   label: 'Drug Allergies',                type: 'textarea', placeholder: 'Drug name — reaction type…' },
+      { id: 'other_allergies',  label: 'Other Allergies',               type: 'textarea', placeholder: 'Food, environmental, latex, metals…' },
+      { id: 'allergy_notes',    label: 'Allergy Notes',                 type: 'textarea', placeholder: 'Severity, cross-reactivity, anaphylaxis risk…' },
+    ]},
+    { id: 'seizure',       label: 'Seizure History',               icon: '⚠', fields: [
+      { id: 'seizure_history',  label: 'Seizure / Epilepsy History',    type: 'textarea', placeholder: 'Type, frequency, last episode, current status…' },
+      { id: 'seizure_meds',     label: 'Anti-epileptic Medications',    type: 'text',     placeholder: 'Current AEDs if applicable…' },
+      { id: 'seizure_risk',     label: 'Seizure Risk Assessment',       type: 'select',   options: ['Not assessed', 'Low', 'Moderate', 'High — contraindicated'] },
+    ]},
+    { id: 'implants',      label: 'Implants & Contraindications',  icon: '⚠', fields: [
+      { id: 'metal_implants',   label: 'Metal Implants / Devices',      type: 'textarea', placeholder: 'Cochlear implants, DBS leads, aneurysm clips, cardiac devices…' },
+      { id: 'pacemaker',        label: 'Cardiac Device',                type: 'select',   options: ['None', 'Pacemaker', 'ICD', 'CRT-D', 'Other cardiac device'] },
+      { id: 'pregnancy',        label: 'Pregnancy / Breastfeeding',     type: 'select',   options: ['N/A', 'Pregnant — trimester:', 'Breastfeeding', 'Planning pregnancy'] },
+      { id: 'contra_notes',     label: 'Contraindication Notes',        type: 'textarea', placeholder: 'Safety review, clinician sign-off, workarounds…' },
+      { id: 'contra_cleared',   label: 'Safety Clearance',              type: 'select',   options: ['Pending review', 'Cleared — proceed', 'Cleared with conditions', 'Contraindicated — do not proceed'] },
+    ]},
+    { id: 'neuromod',      label: 'Prior Neuromodulation History', icon: '◎', fields: [
+      { id: 'prior_neuromod',   label: 'Prior Neuromodulation Treatments', type: 'textarea', placeholder: 'TMS, tDCS, ECT, DBS, etc. — dates, modality, target, sessions…' },
+      { id: 'neuromod_response',label: 'Treatment Response',              type: 'textarea', placeholder: 'Responder / partial / non-responder, % improvement, notes…' },
+      { id: 'neuromod_ae',      label: 'Adverse Events from Prior Treatment', type: 'textarea', placeholder: 'Any adverse effects during or after prior neuromodulation…' },
+      { id: 'neuromod_pref',    label: 'Patient Preferences',            type: 'textarea', placeholder: 'Device tolerance, session preferences, anxiety about treatment…' },
+    ]},
+    { id: 'sleep',         label: 'Sleep History',                 icon: '◌', fields: [
+      { id: 'sleep_quality',    label: 'Current Sleep Quality',          type: 'select',   options: ['Good', 'Mild difficulties', 'Moderate difficulties', 'Severe insomnia'] },
+      { id: 'sleep_hours',      label: 'Average Sleep (hours/night)',     type: 'number',   placeholder: 'e.g. 6' },
+      { id: 'sleep_conditions', label: 'Sleep Conditions',               type: 'textarea', placeholder: 'Sleep apnea, restless legs, parasomnias, CPAP use…' },
+      { id: 'sleep_notes',      label: 'Sleep History Notes',            type: 'textarea', placeholder: 'Patterns, triggers, impact on symptoms…' },
+    ]},
+    { id: 'family',        label: 'Family History',                icon: '◉', fields: [
+      { id: 'family_psych',     label: 'Family Psychiatric History',     type: 'textarea', placeholder: 'Depression, bipolar, schizophrenia, anxiety, ADHD, OCD…' },
+      { id: 'family_neuro',     label: 'Family Neurological History',    type: 'textarea', placeholder: "Epilepsy, dementia, stroke, Parkinson's, MS\u2026" },
+      { id: 'family_notes',     label: 'Family History Notes',           type: 'textarea', placeholder: 'First-degree relatives, severity, treatment responses…' },
+    ]},
+    { id: 'substance',     label: 'Substance Use',                 icon: '◧', fields: [
+      { id: 'alcohol',          label: 'Alcohol Use',                    type: 'select',   options: ['None', 'Social / low risk', 'Moderate', 'Heavy use', 'Dependence / AUD', 'In remission'] },
+      { id: 'tobacco',          label: 'Tobacco / Nicotine',             type: 'select',   options: ['Never', 'Former (>1yr)', 'Former (<1yr)', 'Current'] },
+      { id: 'cannabis',         label: 'Cannabis',                       type: 'select',   options: ['Never', 'Occasional', 'Regular', 'Daily', 'CUD'] },
+      { id: 'other_substances', label: 'Other Substances',               type: 'textarea', placeholder: 'Opioids, stimulants, benzodiazepines, other — use pattern, last use…' },
+      { id: 'substance_notes',  label: 'Substance Use Notes',            type: 'textarea', placeholder: 'Treatment history, current program, harm reduction…' },
+    ]},
+    { id: 'surgical',      label: 'Surgeries & Major Illness',     icon: '◩', fields: [
+      { id: 'surgeries',        label: 'Surgeries',                      type: 'textarea', placeholder: 'Procedure, year, hospital, complications…' },
+      { id: 'major_illness',    label: 'Major Medical Illness',          type: 'textarea', placeholder: 'Cancer, cardiac events, autoimmune conditions, hospitalizations…' },
+      { id: 'chronic_conditions',label:'Chronic Medical Conditions',     type: 'textarea', placeholder: 'Diabetes, hypertension, thyroid, cardiovascular, chronic pain…' },
+    ]},
+    { id: 'summary',       label: 'Clinician Summary',             icon: '◈', fields: [
+      { id: 'clinical_summary', label: 'Clinical Summary',               type: 'textarea', placeholder: 'Overall clinical formulation, diagnostic impression, key risk factors…', rows: 6 },
+      { id: 'treatment_goals',  label: 'Treatment Goals',                type: 'textarea', placeholder: 'Short-term and long-term goals agreed with patient…' },
+      { id: 'safety_flags',     label: 'Safety Flags for Protocol Team', type: 'textarea', placeholder: 'Contraindications, cautions, monitoring requirements to flag for neuromod team…' },
+      { id: 'last_updated_by',  label: 'Last Updated By',                type: 'text',     placeholder: 'Clinician name' },
+    ]},
+  ];
+
+  function fieldHTML(f, val) {
+    const v = esc(val ?? '');
+    if (f.type === 'textarea') {
+      return `<textarea id="mh-${f.id}" class="form-control" placeholder="${esc(f.placeholder || '')}" style="min-height:${(f.rows||3)*22}px;resize:vertical;font-size:13px">${v}</textarea>`;
+    }
+    if (f.type === 'select') {
+      return `<select id="mh-${f.id}" class="form-control" style="font-size:13px">${f.options.map(o => `<option${val===o?' selected':''}>${esc(o)}</option>`).join('')}</select>`;
+    }
+    return `<input id="mh-${f.id}" class="form-control" type="${f.type||'text'}" placeholder="${esc(f.placeholder||'')}" value="${v}" style="font-size:13px">`;
+  }
+
+  function sectionHTML(sec, data) {
+    return `<div class="mh-section card" id="mh-sec-${sec.id}" style="margin-bottom:16px">
+      <div class="mh-sec-hd" onclick="window._mhToggle('${sec.id}')" style="display:flex;align-items:center;gap:10px;padding:14px 18px;cursor:pointer;user-select:none">
+        <span style="font-size:15px">${sec.icon}</span>
+        <span style="font-size:13px;font-weight:600;color:var(--text)">${esc(sec.label)}</span>
+        <span id="mh-chev-${sec.id}" style="margin-left:auto;font-size:12px;color:var(--text-muted);transition:transform 0.2s">▼</span>
+      </div>
+      <div id="mh-body-${sec.id}" style="padding:0 18px 18px">
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:14px">
+          ${sec.fields.map(f => `<div>
+            <label style="font-size:11px;font-weight:600;color:var(--text-muted);display:block;margin-bottom:5px;text-transform:uppercase;letter-spacing:0.6px">${esc(f.label)}</label>
+            ${fieldHTML(f, data[f.id])}
+          </div>`).join('')}
+        </div>
+      </div>
+    </div>`;
+  }
+
+  function buildForm(pid, data) {
+    el.innerHTML = `
+      <div style="max-width:900px;margin:0 auto">
+        <!-- Patient selector -->
+        <div style="display:flex;gap:12px;align-items:center;margin-bottom:20px;flex-wrap:wrap">
+          <div style="flex:1;min-width:220px">
+            <label style="font-size:11px;font-weight:600;color:var(--text-muted);display:block;margin-bottom:5px;text-transform:uppercase;letter-spacing:0.6px">Patient</label>
+            <select id="mh-patient-sel" class="form-control" onchange="window._mhSwitchPatient(this.value)" style="font-size:13px">
+              <option value="">— Select patient —</option>
+              ${patients.map(p => `<option value="${esc(p.id)}"${pid===String(p.id)?' selected':''}>${esc(p.full_name||p.name||'Patient '+p.id)}</option>`).join('')}
+            </select>
+          </div>
+          ${pid ? `<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
+            <button class="btn btn-sm" onclick="window._mhExpandAll()">Expand All</button>
+            <button class="btn btn-sm" onclick="window._mhCollapseAll()">Collapse All</button>
+            <button class="btn btn-sm" onclick="window._nav('med-interactions')" style="border-color:var(--accent-violet);color:var(--accent-violet)">Check Drug Interactions →</button>
+          </div>` : ''}
+        </div>
+        ${pid ? `
+          <div style="background:rgba(var(--accent-teal-rgb,45,212,191),0.08);border:1px solid rgba(45,212,191,0.25);border-radius:10px;padding:12px 16px;margin-bottom:18px;font-size:12.5px;color:var(--text-secondary)">
+            ◧ This record feeds safety and contraindication checks during protocol planning. Keep it current before each treatment course.
+          </div>
+          ${SECTIONS.map(s => sectionHTML(s, data)).join('')}
+        ` : `<div style="padding:48px;text-align:center;color:var(--text-muted);font-size:14px">Select a patient to view or edit their medical history.</div>`}
+      </div>`;
+
+    SECTIONS.forEach(s => {
+      const body = document.getElementById(`mh-body-${s.id}`);
+      if (body) body.hidden = true;
+      const chev = document.getElementById(`mh-chev-${s.id}`);
+      if (chev) chev.style.transform = 'rotate(-90deg)';
+    });
+  }
+
+  let activePid = '';
+  let activeData = {};
+
+  buildForm(activePid, activeData);
+
+  window._mhSwitchPatient = function(pid) {
+    activePid = pid;
+    activeData = pid ? loadHistory(pid) : {};
+    buildForm(pid, activeData);
+  };
+
+  window._mhToggle = function(secId) {
+    const body = document.getElementById(`mh-body-${secId}`);
+    const chev = document.getElementById(`mh-chev-${secId}`);
+    if (!body) return;
+    body.hidden = !body.hidden;
+    if (chev) chev.style.transform = body.hidden ? 'rotate(-90deg)' : 'rotate(0deg)';
+  };
+
+  window._mhExpandAll = function() {
+    SECTIONS.forEach(s => {
+      const body = document.getElementById(`mh-body-${s.id}`);
+      const chev = document.getElementById(`mh-chev-${s.id}`);
+      if (body) { body.hidden = false; }
+      if (chev) chev.style.transform = 'rotate(0deg)';
+    });
+  };
+
+  window._mhCollapseAll = function() {
+    SECTIONS.forEach(s => {
+      const body = document.getElementById(`mh-body-${s.id}`);
+      const chev = document.getElementById(`mh-chev-${s.id}`);
+      if (body) { body.hidden = true; }
+      if (chev) chev.style.transform = 'rotate(-90deg)';
+    });
+  };
+
+  window._mhSave = function() {
+    if (!activePid) { window._showNotifToast?.({ title: 'No Patient', body: 'Select a patient first.', severity: 'warning' }); return; }
+    const data = {};
+    SECTIONS.forEach(sec => {
+      sec.fields.forEach(f => {
+        const el2 = document.getElementById(`mh-${f.id}`);
+        if (el2) data[f.id] = el2.tagName === 'SELECT' ? el2.value : el2.value.trim();
+      });
+    });
+    data._updated = new Date().toISOString();
+    saveHistory(activePid, data);
+    activeData = data;
+    window._showNotifToast?.({ title: 'Saved', body: 'Medical history updated.', severity: 'success' });
+  };
+
+  window._mhPrint = function() {
+    window.print();
+  };
+}
+
+// ── pgDocumentsHub — Forms, consent & document management ────────────────────
+export async function pgDocumentsHub(setTopbar) {
+  setTopbar('Documents', `
+    <button class="btn btn-primary btn-sm" onclick="window._dhAssignForm()">Assign Form</button>
+    <button class="btn btn-sm" onclick="window._dhUpload()">Upload Document</button>
+    <button class="btn btn-sm" onclick="window._nav('forms-builder')" style="border-color:var(--accent-violet);color:var(--accent-violet)">Form Builder →</button>
+  `);
+  const el = document.getElementById('content');
+  if (!el) return;
+
+  function esc(s) { return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+  let patients = [];
+  try { const r = await api.patients().catch(() => null); patients = r?.items || r || []; } catch {}
+
+  const STORAGE_KEY = 'ds_documents_hub';
+  function loadDocs() { try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]'); } catch { return []; } }
+  function saveDocs(d) { try { localStorage.setItem(STORAGE_KEY, JSON.stringify(d)); } catch {} }
+
+  const FORM_TEMPLATES = [
+    // Intake
+    { id:'intake-general',   cat:'Intake',    name:'General Intake Form',               desc:'Demographics, contact, emergency contact, GP details.' },
+    { id:'intake-clinical',  cat:'Intake',    name:'Clinical Intake Form',              desc:'Presenting problem, goals, previous treatment, medication.' },
+    // Consent
+    { id:'consent-tms',      cat:'Consent',   name:'TMS Treatment Consent',             desc:'Risks, benefits, alternatives, voluntary participation for TMS.' },
+    { id:'consent-tdcs',     cat:'Consent',   name:'tDCS Treatment Consent',            desc:'Consent form for transcranial direct current stimulation.' },
+    { id:'consent-ect',      cat:'Consent',   name:'ECT Consent',                       desc:'Electroconvulsive therapy consent including anaesthetic risks.' },
+    { id:'consent-dbs',      cat:'Consent',   name:'DBS Consent',                       desc:'Deep brain stimulation surgical and device consent.' },
+    { id:'consent-general',  cat:'Consent',   name:'General Treatment Consent',         desc:'Umbrella consent for neuromodulation treatments.' },
+    // Privacy & Data
+    { id:'privacy-clinic',   cat:'Privacy',   name:'Privacy & Data Sharing Policy',     desc:'Clinic privacy policy acknowledgement and data consent.' },
+    { id:'privacy-research', cat:'Privacy',   name:'Research Data Use Consent',         desc:'Consent for de-identified data use in research.' },
+    // Caregiver
+    { id:'caregiver-auth',   cat:'Caregiver', name:'Caregiver / Representative Auth',   desc:"Authorises caregiver to act on patient's behalf." },
+    { id:'caregiver-consent',cat:'Caregiver', name:'Caregiver Treatment Consent',       desc:'Caregiver consent for treatment when patient lacks capacity.' },
+    // Clinical
+    { id:'clinic-referral',  cat:'Clinical',  name:'Referral Acknowledgement',          desc:'Acknowledgement of referral and treatment pathway.' },
+    { id:'clinic-discharge', cat:'Clinical',  name:'Discharge Summary',                 desc:'Structured discharge summary template.' },
+    { id:'clinic-release',   cat:'Clinical',  name:'Information Release Auth',          desc:'Authorises release of records to third parties.' },
+    { id:'clinic-adverse',   cat:'Clinical',  name:'Adverse Event Report',              desc:'Structured adverse event documentation form.' },
+    // Custom
+    { id:'custom-template',  cat:'Custom',    name:'Custom Form Template',              desc:'Blank template — configure in Form Builder.' },
+  ];
+
+  const CAT_COLORS = {
+    Intake:    'var(--accent-teal)',
+    Consent:   'var(--accent-blue)',
+    Privacy:   'var(--accent-violet)',
+    Caregiver: '#f59e0b',
+    Clinical:  '#94a3b8',
+    Custom:    '#ec4899',
+    Signed:    '#2dd4bf',
+    Generated: '#60a5fa',
+    Uploaded:  '#a78bfa',
+  };
+
+  const CATS = ['All', 'Intake', 'Consent', 'Privacy', 'Caregiver', 'Clinical', 'Custom', 'Signed', 'Uploaded'];
+
+  let activePid = '';
+  let activeCat = 'All';
+  let docs = loadDocs();
+
+  function docsByCat(cat, pid) {
+    let d = docs;
+    if (pid) d = d.filter(x => x.patientId === pid);
+    if (cat !== 'All') d = d.filter(x => x.category === cat);
+    return d;
+  }
+
+  function statusBadgeHTML(status) {
+    const cfg = {
+      assigned:  ['Assigned',   '#f59e0b'],
+      pending:   ['Pending',    '#f59e0b'],
+      completed: ['Completed',  'var(--accent-teal)'],
+      signed:    ['Signed',     'var(--accent-teal)'],
+      uploaded:  ['Uploaded',   '#a78bfa'],
+      generated: ['Generated',  '#60a5fa'],
+      overdue:   ['Overdue',    '#ef4444'],
+    };
+    const [label, color] = cfg[status] || ['Unknown', '#94a3b8'];
+    return `<span style="font-size:10px;font-weight:700;padding:2px 7px;border-radius:3px;background:${color}22;color:${color};border:1px solid ${color}44">${label}</span>`;
+  }
+
+  function docCardHTML(d) {
+    const cc = CAT_COLORS[d.category] || '#94a3b8';
+    const pt = patients.find(p => String(p.id) === String(d.patientId));
+    const ptName = pt ? esc(pt.full_name || pt.name || 'Patient') : esc(d.patientId ? 'Patient #'+d.patientId : '');
+    return `<div class="card" style="padding:0;cursor:default">
+      <div style="padding:12px 16px">
+        <div style="display:flex;gap:8px;align-items:flex-start;justify-content:space-between;margin-bottom:6px">
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+            <span style="font-size:12.5px;font-weight:600;color:var(--text)">${esc(d.name)}</span>
+            <span style="font-size:10px;font-weight:600;padding:2px 7px;border-radius:3px;background:${cc}22;color:${cc};border:1px solid ${cc}44">${esc(d.category)}</span>
+            ${statusBadgeHTML(d.status)}
+          </div>
+          <div style="display:flex;gap:5px;flex-shrink:0">
+            ${d.url ? `<button class="btn btn-sm" style="font-size:10px;padding:2px 8px" onclick="window.open('${esc(d.url)}','_blank')">View</button>` : ''}
+            <button class="btn btn-sm" style="font-size:10px;padding:2px 8px" onclick="window._dhMarkSigned('${esc(d.id)}')">Mark Signed</button>
+            <button class="btn btn-sm" style="font-size:10px;padding:2px 8px;color:#ef4444;border-color:#ef444444" onclick="window._dhRemoveDoc('${esc(d.id)}')">✕</button>
+          </div>
+        </div>
+        ${ptName ? `<div style="font-size:11px;color:var(--text-muted);margin-bottom:4px">Patient: ${ptName}</div>` : ''}
+        ${d.desc ? `<div style="font-size:11.5px;color:var(--text-secondary);line-height:1.5;margin-bottom:6px">${esc(d.desc)}</div>` : ''}
+        <div style="font-size:11px;color:var(--text-muted)">${d.assignedDate ? 'Assigned: '+esc(d.assignedDate) : ''} ${d.completedDate ? '· Completed: '+esc(d.completedDate) : ''}</div>
+      </div>
+    </div>`;
+  }
+
+  function renderPage() {
+    const filtered = docsByCat(activeCat, activePid);
+    const pending = docs.filter(d => ['assigned','pending','overdue'].includes(d.status) && (!activePid || d.patientId === activePid));
+    const signed  = docs.filter(d => ['signed','completed'].includes(d.status) && (!activePid || d.patientId === activePid));
+
+    el.innerHTML = `
+      <div style="max-width:960px;margin:0 auto">
+        <!-- Patient + filter bar -->
+        <div style="display:flex;gap:12px;align-items:center;margin-bottom:16px;flex-wrap:wrap">
+          <select id="dh-patient-sel" class="form-control" onchange="window._dhSwitchPatient(this.value)" style="font-size:13px;max-width:260px">
+            <option value="">— All patients —</option>
+            ${patients.map(p => `<option value="${esc(p.id)}"${activePid===String(p.id)?' selected':''}>${esc(p.full_name||p.name||'Patient '+p.id)}</option>`).join('')}
+          </select>
+          <div style="display:flex;gap:6px;flex-wrap:wrap">
+            ${CATS.map(c => `<button class="btn btn-sm${c===activeCat?' btn-primary':''}" onclick="window._dhCat('${c}')">${c}</button>`).join('')}
+          </div>
+        </div>
+
+        <!-- KPI strip -->
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px">
+          ${[
+            { label:'Total Documents', val: docs.filter(d=>!activePid||d.patientId===activePid).length, color:'var(--accent-blue)' },
+            { label:'Pending / Assigned', val: pending.length, color:'#f59e0b' },
+            { label:'Signed / Complete', val: signed.length, color:'var(--accent-teal)' },
+            { label:'Form Templates', val: FORM_TEMPLATES.length, color:'var(--accent-violet)' },
+          ].map(k => `<div class="card" style="padding:14px 16px">
+            <div style="font-size:22px;font-weight:700;color:${k.color}">${k.val}</div>
+            <div style="font-size:11px;color:var(--text-muted);margin-top:2px">${k.label}</div>
+          </div>`).join('')}
+        </div>
+
+        <!-- Document list -->
+        <div style="margin-bottom:24px">
+          <div style="font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.7px;margin-bottom:10px">
+            ${activeCat === 'All' ? 'All Documents' : activeCat} (${filtered.length})
+          </div>
+          ${filtered.length ? `<div class="g3" style="align-items:start">${filtered.map(docCardHTML).join('')}</div>`
+            : `<div style="padding:32px;text-align:center;color:var(--text-muted);font-size:13px;background:var(--card-bg);border:1px solid var(--border);border-radius:12px">
+                No documents in this category. Use <strong>Assign Form</strong> or <strong>Upload Document</strong> to add one.
+               </div>`}
+        </div>
+
+        <!-- Form template library -->
+        <div>
+          <div style="font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.7px;margin-bottom:10px">Form Template Library</div>
+          <div class="g3" style="align-items:start">
+            ${FORM_TEMPLATES.map(t => {
+              const cc = CAT_COLORS[t.cat] || '#94a3b8';
+              return `<div class="card" style="padding:0">
+                <div style="padding:12px 16px">
+                  <div style="display:flex;gap:8px;align-items:flex-start;justify-content:space-between;margin-bottom:4px">
+                    <div>
+                      <span style="font-size:12.5px;font-weight:600;color:var(--text)">${esc(t.name)}</span>
+                      <span style="font-size:10px;font-weight:600;padding:2px 7px;border-radius:3px;background:${cc}22;color:${cc};border:1px solid ${cc}44;margin-left:6px">${esc(t.cat)}</span>
+                    </div>
+                  </div>
+                  <div style="font-size:11.5px;color:var(--text-secondary);line-height:1.5;margin-bottom:10px">${esc(t.desc)}</div>
+                  <div style="display:flex;gap:6px">
+                    <button class="btn btn-primary btn-sm" onclick="window._dhAssignTemplate('${esc(t.id)}','${esc(t.name)}','${esc(t.cat)}','${esc(t.desc)}')">Assign to Patient</button>
+                    ${t.id === 'custom-template' ? `<button class="btn btn-sm" onclick="window._nav('forms-builder')">Build Custom →</button>` : ''}
+                  </div>
+                </div>
+              </div>`;
+            }).join('')}
+          </div>
+        </div>
+      </div>`;
+  }
+
+  renderPage();
+
+  window._dhSwitchPatient = function(pid) { activePid = pid; renderPage(); };
+  window._dhCat = function(c) { activeCat = c; renderPage(); };
+
+  window._dhAssignTemplate = function(templateId, name, cat, desc) {
+    const pid = activePid;
+    if (!pid) { window._showNotifToast?.({ title: 'No Patient', body: 'Select a patient first.', severity: 'warning' }); return; }
+    docs = loadDocs();
+    docs.push({ id: 'doc_'+Date.now(), patientId: pid, templateId, name, category: cat, desc, status: 'assigned', assignedDate: new Date().toISOString().slice(0,10) });
+    saveDocs(docs);
+    renderPage();
+    window._showNotifToast?.({ title: 'Form Assigned', body: `${name} assigned to patient.`, severity: 'success' });
+  };
+
+  window._dhAssignForm = function() {
+    if (!activePid) { window._showNotifToast?.({ title: 'No Patient', body: 'Select a patient first, then click Assign Form.', severity: 'warning' }); return; }
+    window._showNotifToast?.({ title: 'Assign Form', body: 'Choose a template from the library below and click Assign to Patient.', severity: 'info' });
+    el.scrollTo?.({ top: el.scrollHeight, behavior: 'smooth' });
+  };
+
+  window._dhUpload = function() {
+    if (!activePid) { window._showNotifToast?.({ title: 'No Patient', body: 'Select a patient first.', severity: 'warning' }); return; }
+    const name = prompt('Document name:');
+    if (!name) return;
+    const cat = prompt('Category (Intake / Consent / Signed / Uploaded / Clinical):') || 'Uploaded';
+    docs = loadDocs();
+    docs.push({ id: 'doc_'+Date.now(), patientId: activePid, name, category: cat, status: 'uploaded', desc: 'Manually uploaded', assignedDate: new Date().toISOString().slice(0,10) });
+    saveDocs(docs);
+    renderPage();
+    window._showNotifToast?.({ title: 'Uploaded', body: `${name} added to patient's documents.`, severity: 'success' });
+  };
+
+  window._dhMarkSigned = function(id) {
+    docs = loadDocs();
+    const d = docs.find(x => x.id === id);
+    if (!d) return;
+    d.status = 'signed';
+    d.completedDate = new Date().toISOString().slice(0,10);
+    saveDocs(docs);
+    renderPage();
+    window._showNotifToast?.({ title: 'Marked Signed', body: `${d.name} marked as signed.`, severity: 'success' });
+  };
+
+  window._dhRemoveDoc = function(id) {
+    if (!confirm('Remove this document record?')) return;
+    docs = loadDocs().filter(x => x.id !== id);
+    saveDocs(docs);
+    renderPage();
+  };
+}
+
+// ── pgReportsHub — Patient report upload, filter, compare, AI summary ─────────
+export async function pgReportsHub(setTopbar) {
+  setTopbar('Reports', `
+    <button class="btn btn-primary btn-sm" onclick="window._rhUpload()">Upload Report</button>
+    <button class="btn btn-sm" onclick="window._nav('reports')" style="border-color:var(--accent-blue);color:var(--accent-blue)">Population Reports →</button>
+  `);
+  const el = document.getElementById('content');
+  if (!el) return;
+
+  function esc(s) { return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+  let patients = [];
+  try { const r = await api.patients().catch(() => null); patients = r?.items || r || []; } catch {}
+
+  const STORAGE_KEY = 'ds_reports_hub';
+  function loadReports() { try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]'); } catch { return []; } }
+  function saveReports(d) { try { localStorage.setItem(STORAGE_KEY, JSON.stringify(d)); } catch {} }
+
+  const REPORT_TYPES = ['All', 'EEG / qEEG', 'Blood / Lab', 'MRI / Imaging', 'Specialist Letter', 'Progress Report', 'Clinician Summary', 'AI Summary', 'Other'];
+
+  const TYPE_COLORS = {
+    'EEG / qEEG':       'var(--accent-violet)',
+    'Blood / Lab':      '#f59e0b',
+    'MRI / Imaging':    '#60a5fa',
+    'Specialist Letter':'#94a3b8',
+    'Progress Report':  'var(--accent-teal)',
+    'Clinician Summary':'var(--accent-blue)',
+    'AI Summary':       '#ec4899',
+    'Other':            '#6b7280',
+  };
+
+  let activePid = '';
+  let activeType = 'All';
+  let compareIds = new Set();
+  let reports = loadReports();
+
+  // Seed demo reports if empty
+  if (reports.length === 0 && patients.length > 0) {
+    const pid = String(patients[0]?.id || '1');
+    reports = [
+      { id:'r1', patientId:pid, type:'EEG / qEEG',       name:'Baseline qEEG — DLPFC Alpha Power', date:'2026-03-01', source:'NeuroGuide', summary:'Elevated alpha at Fp1-Fp2. DLPFC alpha asymmetry consistent with MDD.', linked:'course-001', aiSummary:'', status:'final' },
+      { id:'r2', patientId:pid, type:'Progress Report',   name:'4-Week TMS Progress Report',         date:'2026-03-28', source:'Internal', summary:'PHQ-9 dropped from 22 to 14 (36% reduction). Session tolerance excellent.', linked:'course-001', aiSummary:'', status:'final' },
+      { id:'r3', patientId:pid, type:'Specialist Letter', name:'Psychiatry Referral Letter',         date:'2026-02-15', source:'Dr. K. Mehta', summary:'Referred for TMS following two failed antidepressant trials.', linked:'', aiSummary:'', status:'final' },
+      { id:'r4', patientId:pid, type:'Blood / Lab',       name:'Pre-treatment Labs',                 date:'2026-02-20', source:'LabCorp', summary:'TSH 2.1, CBC normal, CMP normal. No flagged abnormalities.', linked:'', aiSummary:'', status:'final' },
+    ];
+    saveReports(reports);
+  }
+
+  function filteredReports() {
+    let d = reports;
+    if (activePid) d = d.filter(x => x.patientId === activePid);
+    if (activeType !== 'All') d = d.filter(x => x.type === activeType);
+    return d;
+  }
+
+  function reportCardHTML(r) {
+    const tc = TYPE_COLORS[r.type] || '#94a3b8';
+    const inCompare = compareIds.has(r.id);
+    return `<div class="card" style="padding:0;border:2px solid ${inCompare ? 'var(--accent-teal)' : 'transparent'};transition:border-color 0.15s" id="rh-card-${esc(r.id)}">
+      <div style="padding:14px 16px">
+        <div style="display:flex;gap:8px;align-items:flex-start;justify-content:space-between;margin-bottom:6px">
+          <div style="flex:1">
+            <div style="font-size:13px;font-weight:600;color:var(--text);margin-bottom:4px">${esc(r.name)}</div>
+            <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+              <span style="font-size:10px;font-weight:600;padding:2px 7px;border-radius:3px;background:${tc}22;color:${tc};border:1px solid ${tc}44">${esc(r.type)}</span>
+              <span style="font-size:11px;color:var(--text-muted)">${esc(r.date)}</span>
+              ${r.source ? `<span style="font-size:11px;color:var(--text-muted)">· ${esc(r.source)}</span>` : ''}
+              ${r.linked ? `<span style="font-size:10px;padding:1px 6px;border-radius:3px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);color:var(--text-muted)">Linked: Course</span>` : ''}
+            </div>
+          </div>
+          <div style="display:flex;gap:5px;flex-shrink:0">
+            <button class="btn btn-sm" style="font-size:10px;padding:2px 8px;${inCompare?'background:var(--accent-teal)22;color:var(--accent-teal);border-color:var(--accent-teal)55':''}" onclick="window._rhToggleCompare('${esc(r.id)}')">${inCompare?'✓ Compare':'Compare'}</button>
+            <button class="btn btn-sm" style="font-size:10px;padding:2px 8px" onclick="window._rhAISummary('${esc(r.id)}')">AI Summary</button>
+            <button class="btn btn-sm" style="font-size:10px;padding:2px 8px;color:#ef4444;border-color:#ef444444" onclick="window._rhRemove('${esc(r.id)}')">✕</button>
+          </div>
+        </div>
+        ${r.summary ? `<div style="font-size:12px;color:var(--text-secondary);line-height:1.55;margin-bottom:6px">${esc(r.summary)}</div>` : ''}
+        ${r.aiSummary ? `<div style="font-size:11.5px;color:#ec4899;background:rgba(236,72,153,0.07);border-radius:6px;padding:8px 10px;margin-top:6px"><span style="font-weight:600">AI: </span>${esc(r.aiSummary)}</div>` : ''}
+      </div>
+    </div>`;
+  }
+
+  function comparePanel() {
+    if (compareIds.size < 2) return '';
+    const sel = reports.filter(r => compareIds.has(r.id));
+    return `<div style="background:rgba(45,212,191,0.07);border:1px solid rgba(45,212,191,0.3);border-radius:12px;padding:16px 18px;margin-bottom:20px">
+      <div style="font-size:12px;font-weight:600;color:var(--accent-teal);margin-bottom:10px">Comparing ${compareIds.size} Reports</div>
+      <div style="display:grid;grid-template-columns:repeat(${Math.min(sel.length,3)},1fr);gap:14px">
+        ${sel.map(r => `<div style="font-size:12px">
+          <div style="font-weight:600;color:var(--text);margin-bottom:4px">${esc(r.name)}</div>
+          <div style="color:var(--text-muted);font-size:11px;margin-bottom:6px">${esc(r.date)} · ${esc(r.type)}</div>
+          <div style="color:var(--text-secondary);line-height:1.5">${esc(r.summary || '—')}</div>
+        </div>`).join('')}
+      </div>
+      <button class="btn btn-sm" onclick="window._rhClearCompare()" style="margin-top:12px">Clear Comparison</button>
+    </div>`;
+  }
+
+  function renderPage() {
+    const filtered = filteredReports();
+    el.innerHTML = `
+      <div style="max-width:960px;margin:0 auto">
+        <!-- Filter bar -->
+        <div style="display:flex;gap:12px;align-items:center;margin-bottom:16px;flex-wrap:wrap">
+          <select id="rh-patient-sel" class="form-control" onchange="window._rhSwitchPatient(this.value)" style="font-size:13px;max-width:260px">
+            <option value="">— All patients —</option>
+            ${patients.map(p => `<option value="${esc(p.id)}"${activePid===String(p.id)?' selected':''}>${esc(p.full_name||p.name||'Patient '+p.id)}</option>`).join('')}
+          </select>
+          <input id="rh-search" type="text" class="form-control" placeholder="Search reports…" oninput="window._rhSearch(this.value)" style="font-size:13px;max-width:220px">
+          <div style="display:flex;gap:6px;flex-wrap:wrap">
+            ${REPORT_TYPES.map(t => `<button class="btn btn-sm${t===activeType?' btn-primary':''}" onclick="window._rhType('${esc(t)}')">${esc(t)}</button>`).join('')}
+          </div>
+        </div>
+
+        <!-- KPI strip -->
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px">
+          ${[
+            { label:'Total Reports', val: reports.filter(r=>!activePid||r.patientId===activePid).length, color:'var(--accent-blue)' },
+            { label:'EEG / Imaging',  val: reports.filter(r=>(!activePid||r.patientId===activePid)&&['EEG / qEEG','MRI / Imaging'].includes(r.type)).length, color:'var(--accent-violet)' },
+            { label:'Progress Reports',val:reports.filter(r=>(!activePid||r.patientId===activePid)&&r.type==='Progress Report').length, color:'var(--accent-teal)' },
+            { label:'AI Summaries',   val: reports.filter(r=>(!activePid||r.patientId===activePid)&&r.aiSummary).length, color:'#ec4899' },
+          ].map(k => `<div class="card" style="padding:14px 16px">
+            <div style="font-size:22px;font-weight:700;color:${k.color}">${k.val}</div>
+            <div style="font-size:11px;color:var(--text-muted);margin-top:2px">${k.label}</div>
+          </div>`).join('')}
+        </div>
+
+        ${comparePanel()}
+
+        <!-- Report list -->
+        <div id="rh-list">
+          ${filtered.length
+            ? `<div class="g2" style="align-items:start">${filtered.map(reportCardHTML).join('')}</div>`
+            : `<div style="padding:32px;text-align:center;color:var(--text-muted);font-size:13px;background:var(--card-bg);border:1px solid var(--border);border-radius:12px">No reports found. Upload a report or adjust filters.</div>`}
+        </div>
+      </div>`;
+  }
+
+  renderPage();
+
+  window._rhSwitchPatient = function(pid) { activePid = pid; compareIds.clear(); renderPage(); };
+  window._rhType = function(t) { activeType = t; renderPage(); };
+
+  window._rhSearch = function(q) {
+    const cards = el.querySelectorAll('.card[id^="rh-card-"]');
+    cards.forEach(c => {
+      c.style.display = !q || c.textContent.toLowerCase().includes(q.toLowerCase()) ? '' : 'none';
+    });
+  };
+
+  window._rhToggleCompare = function(id) {
+    if (compareIds.has(id)) compareIds.delete(id);
+    else compareIds.add(id);
+    renderPage();
+  };
+
+  window._rhClearCompare = function() { compareIds.clear(); renderPage(); };
+
+  window._rhAISummary = function(id) {
+    reports = loadReports();
+    const r = reports.find(x => x.id === id);
+    if (!r) return;
+    // Simulated AI summary — replace with real API call when backend endpoint available
+    const summaries = [
+      'Findings consistent with treatment response. Key metrics within expected range for this protocol phase.',
+      'Compared to baseline, significant improvement noted. Recommend continuing current protocol.',
+      'No red flags identified. Results support continued neuromodulation at current parameters.',
+      'Partial response observed. Consider protocol adjustment at next clinical review.',
+    ];
+    r.aiSummary = summaries[Math.floor(Math.random() * summaries.length)];
+    saveReports(reports);
+    renderPage();
+    window._showNotifToast?.({ title: 'AI Summary', body: 'Summary generated and attached to report.', severity: 'success' });
+  };
+
+  window._rhUpload = function() {
+    if (!activePid) { window._showNotifToast?.({ title: 'No Patient', body: 'Select a patient first.', severity: 'warning' }); return; }
+    const name = prompt('Report name:');
+    if (!name) return;
+    const typeOpts = REPORT_TYPES.slice(1).join(' / ');
+    const type = prompt(`Report type:\n${typeOpts}`) || 'Other';
+    const source = prompt('Source / author (optional):') || '';
+    const summary = prompt('Brief summary (optional):') || '';
+    reports = loadReports();
+    reports.push({ id:'r'+Date.now(), patientId:activePid, type, name, date:new Date().toISOString().slice(0,10), source, summary, linked:'', aiSummary:'', status:'final' });
+    saveReports(reports);
+    renderPage();
+    window._showNotifToast?.({ title:'Uploaded', body:`${name} added.`, severity:'success' });
+  };
+
+  window._rhRemove = function(id) {
+    if (!confirm('Remove this report?')) return;
+    reports = loadReports().filter(x => x.id !== id);
+    saveReports(reports);
+    renderPage();
+  };
+}
+
