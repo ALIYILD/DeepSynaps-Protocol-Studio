@@ -2080,7 +2080,7 @@ const ALL_FEATURES = [
   { id: 'protocol-builder',    label: 'Visual Builder',       category: 'Clinical'  },
   { id: 'decision-support',    label: 'Decision Support',     category: 'Clinical'  },
   { id: 'brain-data',          label: 'Brain Data',           category: 'Clinical'  },
-  { id: 'messaging',           label: 'Messaging',            category: 'Clinical'  },
+  { id: 'messaging',           label: 'Virtual Care',         category: 'Clinical'  },
   { id: 'clinical-notes',      label: 'Clinical Notes',       category: 'Clinical'  },
   { id: 'homework-builder',    label: 'Homework Builder',     category: 'Clinical'  },
   { id: 'advanced-search',     label: 'Advanced Search',      category: 'Clinical'  },

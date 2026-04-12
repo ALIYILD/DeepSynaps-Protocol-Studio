@@ -477,7 +477,7 @@ const ROLE_FEATURES = {
     { icon: '👨‍👩‍👧', name: 'Guardian Portal',    desc: 'View your family member\'s treatment progress and upcoming appointments.',       page: 'guardian-portal' },
     { icon: '📈', name: 'Patient Outcomes',   desc: 'Track symptom trends and treatment milestones over time.',                        page: 'pt-outcomes' },
     { icon: '📓', name: 'Symptom Journal',    desc: 'Log daily mood, sleep, and symptom entries to support clinical care.',            page: 'pt-journal' },
-    { icon: '💬', name: 'Secure Messaging',   desc: 'Send messages directly to the care team with full privacy protection.',           page: 'messaging' },
+    { icon: '💬', name: 'Virtual Care',       desc: 'Connect with your care team via messaging, video visits, and voice calls.',     page: 'messaging' },
   ],
 };
 

@@ -304,7 +304,7 @@ function _tcCTA(course, signals) {
   if (course.status === 'approved')         return { label: 'Activate',            onclick: "window._nav('review-queue')",       style: 'normal'  };
   if (hasSeriousAE || needsAdjust)          return { label: 'Open Chart',          onclick: `window._openCourse('${course.id}')`, style: 'danger'  };
   if (needsReview || milestoneDue)          return { label: 'Review Progress',     onclick: `window._openCourse('${course.id}')`, style: 'amber'   };
-  if (lowAdherence)                         return { label: 'Message Patient',     onclick: "window._nav('messaging')",          style: 'normal'  };
+  if (lowAdherence)                         return { label: 'Virtual Care',        onclick: "window._nav('messaging')",          style: 'normal'  };
   return                                           { label: 'Start Session',       onclick: "window._nav('session-execution')",  style: 'primary' };
 }
 

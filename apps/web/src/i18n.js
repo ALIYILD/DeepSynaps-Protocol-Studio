@@ -18,7 +18,7 @@ export const TRANSLATIONS = {
     'nav.protocol-builder': 'Visual Builder',
     'nav.decision-support': 'Decision Support',
     'nav.brain-data': 'Brain Data',
-    'nav.messaging': 'Messaging',
+    'nav.messaging': 'Virtual Care',
     'nav.clinical-notes': 'Clinical Notes',
     'nav.sessions': 'Sessions',
     'nav.calendar': 'Calendar',
