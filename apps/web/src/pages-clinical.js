@@ -1131,13 +1131,32 @@ export async function pgPatients(setTopbar, navigate) {
     ? modalities.map(m => `<option value="${m.name || m.Modality_Name}">${m.name || m.Modality_Name}</option>`).join('')
     : FALLBACK_MODALITIES.map(m => `<option>${m}</option>`).join('');
 
+  // ── Cohort definitions ──────────────────────────────────────────────────────
+  const _thirtyDaysAgo = Date.now() - 30 * 86400000;
+  const _cohorts = [
+    { id: 'all',        label: 'All Patients',          count: items.length },
+    { id: 'active',     label: 'Active Patients',        count: items.filter(p => p.status === 'active').length },
+    { id: 'today',      label: 'Sessions Today',         count: items.filter(p => (p.sessions_today || 0) > 0).length },
+    { id: 'review',     label: 'Needs Review',           count: items.filter(p => p.needs_review || p.review_overdue).length },
+    { id: 'assessment', label: 'Overdue Assessments',    count: items.filter(p => p.assessment_overdue || p.missing_assessment).length },
+    { id: 'ae',         label: 'Side Effects / AE',      count: items.filter(p => p.has_adverse_event || p.adverse_event_flag).length },
+    { id: 'adherence',  label: 'Low Adherence (<50%)',   count: items.filter(p => p.home_adherence != null && p.home_adherence < 0.5).length },
+    { id: 'wearable',   label: 'Wearable Issues',        count: items.filter(p => p.wearable_disconnected).length },
+    { id: 'call',       label: 'Awaiting Reply',         count: items.filter(p => p.call_requested).length },
+    { id: 'offlabel',   label: 'Off-label Review',       count: items.filter(p => p.off_label_flag || p.offlabel_review).length },
+    { id: 'recent',     label: 'Recently Added (30d)',   count: items.filter(p => p.created_at && new Date(p.created_at).getTime() >= _thirtyDaysAgo).length },
+    { id: 'discharged', label: 'Discharged / Completed', count: items.filter(p => p.status === 'completed' || p.status === 'discharged').length },
+  ];
+
   el.innerHTML = `
-  <!-- CSV Import Panel -->
-  <div id="csv-import-panel" style="display:none;margin-bottom:16px">
-    <div class="card">
+  <!-- ── Hidden modal panels ─────────────────────────────────────────── -->
+
+  <!-- CSV Import Panel (modal) -->
+  <div id="csv-import-panel" style="display:none;position:fixed;inset:0;z-index:1200;background:rgba(0,0,0,0.55);align-items:center;justify-content:center">
+    <div class="card" style="width:min(680px,95vw);max-height:85vh;overflow-y:auto;position:relative">
       <div class="card-header">
         <h3>Import Patients from CSV</h3>
-        <button class="btn btn-sm" onclick="document.getElementById('csv-import-panel').style.display='none'">Close</button>
+        <button class="btn btn-sm" onclick="window.showImportCSV()">Close</button>
       </div>
       <div class="card-body">
         <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
@@ -1174,12 +1193,12 @@ export async function pgPatients(setTopbar, navigate) {
     </div>
   </div>
 
-  <!-- FHIR Import Panel -->
-  <div id="fhir-import-panel" style="display:none;margin-bottom:16px">
-    <div class="card">
+  <!-- FHIR Import Panel (modal) -->
+  <div id="fhir-import-panel" style="display:none;position:fixed;inset:0;z-index:1200;background:rgba(0,0,0,0.55);align-items:center;justify-content:center">
+    <div class="card" style="width:min(560px,95vw);max-height:85vh;overflow-y:auto">
       <div class="card-header" style="display:flex;justify-content:space-between;align-items:center">
         <span>Import HL7 FHIR Patient</span>
-        <button class="btn btn-sm" onclick="document.getElementById('fhir-import-panel').style.display='none'">Close</button>
+        <button class="btn btn-sm" onclick="window.showFHIRImport()">Close</button>
       </div>
       <div class="card-body">
         <div style="display:flex;gap:8px;margin-bottom:10px;align-items:center">
@@ -1204,111 +1223,125 @@ export async function pgPatients(setTopbar, navigate) {
     </div>
   </div>
 
-  <div id="add-patient-panel" style="display:none;margin-bottom:16px">
-    ${cardWrap('New Patient', `
-      <p style="font-size:11.5px;color:var(--text-tertiary);margin-bottom:14px">Fields marked <span style="color:var(--red)">*</span> are required.</p>
-      <div class="g2">
-        <div>
-          <div class="form-group"><label class="form-label">First Name <span style="color:var(--red)">*</span></label><input id="np-first" class="form-control" placeholder="First name"></div>
-          <div class="form-group"><label class="form-label">Last Name <span style="color:var(--red)">*</span></label><input id="np-last" class="form-control" placeholder="Last name"></div>
-          <div class="form-group"><label class="form-label">Date of Birth <span style="color:var(--red)">*</span></label><input id="np-dob" class="form-control" type="date"></div>
-          <div class="form-group"><label class="form-label">Gender</label>
-            <select id="np-gender" class="form-control"><option value="">Select…</option><option>Male</option><option>Female</option><option>Non-binary</option><option>Prefer not to say</option></select>
+  <!-- Add Patient Panel (modal) -->
+  <div id="add-patient-panel" style="display:none;position:fixed;inset:0;z-index:1200;background:rgba(0,0,0,0.55);align-items:center;justify-content:center">
+    <div class="card" style="width:min(700px,95vw);max-height:90vh;overflow-y:auto">
+      <div class="card-header" style="display:flex;justify-content:space-between;align-items:center">
+        <h3>New Patient</h3>
+        <button class="btn btn-sm" onclick="document.getElementById('add-patient-panel').style.display='none'">Close</button>
+      </div>
+      <div class="card-body">
+        <p style="font-size:11.5px;color:var(--text-tertiary);margin-bottom:14px">Fields marked <span style="color:var(--red)">*</span> are required.</p>
+        <div class="g2">
+          <div>
+            <div class="form-group"><label class="form-label">First Name <span style="color:var(--red)">*</span></label><input id="np-first" class="form-control" placeholder="First name"></div>
+            <div class="form-group"><label class="form-label">Last Name <span style="color:var(--red)">*</span></label><input id="np-last" class="form-control" placeholder="Last name"></div>
+            <div class="form-group"><label class="form-label">Date of Birth <span style="color:var(--red)">*</span></label><input id="np-dob" class="form-control" type="date"></div>
+            <div class="form-group"><label class="form-label">Gender</label>
+              <select id="np-gender" class="form-control"><option value="">Select…</option><option>Male</option><option>Female</option><option>Non-binary</option><option>Prefer not to say</option></select>
+            </div>
+          </div>
+          <div>
+            <div class="form-group"><label class="form-label">Email</label><input id="np-email" class="form-control" type="email" placeholder="patient@email.com"></div>
+            <div class="form-group"><label class="form-label">Primary Condition</label>
+              <select id="np-condition" class="form-control">
+                <option value="">Select condition…</option>
+                ${conditionOptions}
+              </select>
+            </div>
+            <div class="form-group"><label class="form-label">Primary Modality</label>
+              <select id="np-modality" class="form-control">
+                <option value="">Select modality…</option>
+                ${modalityOptions}
+              </select>
+            </div>
+            <div class="form-group"><label class="form-label">Notes</label><textarea id="np-notes" class="form-control" placeholder="Clinical notes…"></textarea></div>
           </div>
         </div>
-        <div>
-          <div class="form-group"><label class="form-label">Email</label><input id="np-email" class="form-control" type="email" placeholder="patient@email.com"></div>
-          <div class="form-group"><label class="form-label">Primary Condition</label>
-            <select id="np-condition" class="form-control">
-              <option value="">Select condition…</option>
-              ${conditionOptions}
-            </select>
-          </div>
-          <div class="form-group"><label class="form-label">Primary Modality</label>
-            <select id="np-modality" class="form-control">
-              <option value="">Select modality…</option>
-              ${modalityOptions}
-            </select>
-          </div>
-          <div class="form-group"><label class="form-label">Notes</label><textarea id="np-notes" class="form-control" placeholder="Clinical notes…"></textarea></div>
+        <div id="np-error" style="color:var(--red);font-size:12px;margin-bottom:10px;display:none"></div>
+        <div style="display:flex;gap:8px">
+          <button class="btn" onclick="document.getElementById('add-patient-panel').style.display='none'">Cancel</button>
+          <button class="btn btn-primary" onclick="window.saveNewPatient()">Save Patient</button>
         </div>
       </div>
-      <div id="np-error" style="color:var(--red);font-size:12px;margin-bottom:10px;display:none"></div>
-      <div style="display:flex;gap:8px">
-        <button class="btn" onclick="document.getElementById('add-patient-panel').style.display='none'">Cancel</button>
-        <button class="btn btn-primary" onclick="window.saveNewPatient()">Save Patient</button>
-      </div>
-    `)}
-  </div>
-
-  <!-- Summary Chips -->
-  <div class="pat-summary-chips" id="pat-summary-chips">
-    <div class="pat-chip pat-chip--active" onclick="window._patSetQuick('active')" style="cursor:pointer"><span class="pat-chip-val">${_statActive}</span><span class="pat-chip-lbl">Active Patients</span></div>
-    <div class="pat-chip pat-chip--review" onclick="window._patSetQuick('review')" style="cursor:pointer"><span class="pat-chip-val">${_statReview}</span><span class="pat-chip-lbl">Needs Review</span></div>
-    <div class="pat-chip pat-chip--alert"  onclick="window._patSetQuick('alert')"  style="cursor:pointer"><span class="pat-chip-val">${_statAlerts}</span><span class="pat-chip-lbl">Active Alerts</span></div>
-    <div class="pat-chip pat-chip--assess"><span class="pat-chip-val">${_statAssess}</span><span class="pat-chip-lbl">Overdue Assess.</span></div>
-    <div class="pat-chip"><span class="pat-chip-val">${_statToday}</span><span class="pat-chip-lbl">Sessions Today</span></div>
-    <div class="pat-chip" style="margin-left:auto"><span class="pat-chip-val">${items.length}</span><span class="pat-chip-lbl">Total</span></div>
-  </div>
-
-  <!-- Enhanced Filter Bar -->
-  <div class="pat-filter-bar">
-    <input class="form-control" id="pt-search" placeholder="Search name, condition, email…" style="flex:1;min-width:180px" oninput="window.filterPatients()">
-    <div class="pat-quick-chips">
-      <button class="pat-qchip pat-qchip--on" id="ptq-all"    onclick="window._patSetQuick('all')">All <span>${items.length}</span></button>
-      <button class="pat-qchip" id="ptq-review" onclick="window._patSetQuick('review')">Review <span>${_statReview}</span></button>
-      <button class="pat-qchip" id="ptq-alert"  onclick="window._patSetQuick('alert')">Alerts <span>${_statAlerts}</span></button>
-      <button class="pat-qchip" id="ptq-active" onclick="window._patSetQuick('active')">Active <span>${_statActive}</span></button>
     </div>
-    <select class="form-control" id="pt-status-filter" style="width:130px;flex-shrink:0" onchange="window.filterPatients()">
-      <option value="">All Status</option>
-      <option value="active">Active</option>
-      <option value="pending">Pending</option>
-      <option value="inactive">Inactive</option>
-      <option value="completed">Completed</option>
-    </select>
-    <select class="form-control" id="pt-modality-filter" style="width:150px;flex-shrink:0" onchange="window.filterPatients()">
-      <option value="">All Modalities</option>
-      ${FALLBACK_MODALITIES.map(m => `<option>${m}</option>`).join('')}
-    </select>
-    <span id="pt-count" style="font-size:11px;color:var(--text-tertiary);white-space:nowrap">${items.length} patients</span>
   </div>
 
-  <!-- Patient Roster -->
-  <div id="pat-roster">${
-    items.length === 0
-      ? emptyState('\u{1F465}', 'No patients yet', canAddPatient ? 'Add your first patient to get started.' : '', canAddPatient ? '+ Add Patient' : null, canAddPatient ? 'window.showAddPatient()' : null)
-      : items.map(p => _patCard(p, _patAttention(p), _patCourseStats(p), canTransfer)).join('')
-  }</div>
-
-  <!-- AI Intake Parser -->
-  <div style="margin-top:16px">
-    <div class="card">
-      <div class="card-header" style="cursor:pointer" onclick="window.toggleIntakeParser()">
+  <!-- AI Intake Parser (hidden modal) -->
+  <div id="intake-parser-modal" style="display:none;position:fixed;inset:0;z-index:1200;background:rgba(0,0,0,0.55);align-items:center;justify-content:center">
+    <div class="card" style="width:min(600px,95vw);max-height:88vh;overflow-y:auto">
+      <div class="card-header" style="display:flex;justify-content:space-between;align-items:center">
         <h3>AI Intake Parser <span style="font-size:10px;font-weight:700;padding:2px 7px;border-radius:4px;background:rgba(74,158,255,0.1);color:var(--blue);margin-left:6px">Beta</span></h3>
-        <span id="intake-parser-arrow" style="font-size:12px;color:var(--text-tertiary)">▶ expand</span>
+        <button class="btn btn-sm" onclick="document.getElementById('intake-parser-modal').style.display='none'">Close</button>
       </div>
-      <div id="intake-parser-body" style="display:none">
-        <div class="card-body">
-          <p style="font-size:12px;color:var(--text-secondary);margin-bottom:12px">Upload or paste a referral letter / intake form to extract patient data using AI.</p>
-          <div id="intake-pdf-drop" style="border:2px dashed var(--border);border-radius:8px;padding:24px;text-align:center;cursor:pointer;transition:border-color 0.2s;color:var(--text-tertiary);font-size:13px;margin-bottom:10px" onclick="document.getElementById('intake-file-input').click()">
-            <div style="font-size:20px;margin-bottom:6px;opacity:.5">⬆</div>
-            Drag &amp; drop PDF or TXT file, or <strong style="color:var(--teal)">click to browse</strong>
-            <div style="font-size:11px;margin-top:4px">Note: PDF text layer only. If garbled, use paste below.</div>
-          </div>
-          <input type="file" id="intake-file-input" accept=".pdf,.txt" style="display:none">
-          <div style="font-size:11px;color:var(--text-tertiary);margin-bottom:6px;text-align:center">— or paste text —</div>
-          <textarea id="intake-paste-text" class="form-control" rows="5" placeholder="Paste intake notes, referral letter, or clinical summary here…" style="font-size:12px"></textarea>
-          <div id="intake-parse-notice" style="margin-top:8px;display:none"></div>
-          <button class="btn btn-primary" style="margin-top:10px;width:100%" id="intake-extract-btn" onclick="window.runIntakeParse()">Extract Patient Data →</button>
-          <div id="intake-result-panel" style="display:none;margin-top:14px">
-            <div style="font-size:11px;font-weight:600;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.8px;margin-bottom:8px">Extraction Result</div>
-            <div id="intake-result-content" style="font-size:12px;color:var(--text-secondary);line-height:1.7;background:rgba(255,255,255,0.02);border:1px solid var(--border);border-radius:6px;padding:12px;white-space:pre-wrap"></div>
-            <button class="btn btn-sm" style="margin-top:8px" onclick="window.prefillPatientFromIntake()">Create Patient from Extraction →</button>
-          </div>
+      <div class="card-body">
+        <p style="font-size:12px;color:var(--text-secondary);margin-bottom:12px">Upload or paste a referral letter / intake form to extract patient data using AI.</p>
+        <div id="intake-pdf-drop" style="border:2px dashed var(--border);border-radius:8px;padding:24px;text-align:center;cursor:pointer;transition:border-color 0.2s;color:var(--text-tertiary);font-size:13px;margin-bottom:10px" onclick="document.getElementById('intake-file-input').click()">
+          <div style="font-size:20px;margin-bottom:6px;opacity:.5">⬆</div>
+          Drag &amp; drop PDF or TXT file, or <strong style="color:var(--teal)">click to browse</strong>
+          <div style="font-size:11px;margin-top:4px">Note: PDF text layer only. If garbled, use paste below.</div>
+        </div>
+        <input type="file" id="intake-file-input" accept=".pdf,.txt" style="display:none">
+        <div style="font-size:11px;color:var(--text-tertiary);margin-bottom:6px;text-align:center">— or paste text —</div>
+        <textarea id="intake-paste-text" class="form-control" rows="5" placeholder="Paste intake notes, referral letter, or clinical summary here…" style="font-size:12px"></textarea>
+        <div id="intake-parse-notice" style="margin-top:8px;display:none"></div>
+        <button class="btn btn-primary" style="margin-top:10px;width:100%" id="intake-extract-btn" onclick="window.runIntakeParse()">Extract Patient Data →</button>
+        <div id="intake-result-panel" style="display:none;margin-top:14px">
+          <div style="font-size:11px;font-weight:600;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.8px;margin-bottom:8px">Extraction Result</div>
+          <div id="intake-result-content" style="font-size:12px;color:var(--text-secondary);line-height:1.7;background:rgba(255,255,255,0.02);border:1px solid var(--border);border-radius:6px;padding:12px;white-space:pre-wrap"></div>
+          <button class="btn btn-sm" style="margin-top:8px" onclick="window.prefillPatientFromIntake()">Create Patient from Extraction →</button>
         </div>
       </div>
     </div>
+  </div>
+
+  <!-- ── 3-Column Master-Detail Layout ──────────────────────────────────── -->
+  <div class="pat-master-detail">
+
+    <!-- LEFT RAIL: Cohort filters -->
+    <div class="pat-left-rail">
+      <div class="pat-left-rail-title">Cohorts</div>
+      ${_cohorts.map(c => `
+        <div class="pat-cohort-item${c.id === 'all' ? ' active' : ''}" id="pat-cohort-${c.id}" onclick="window._patSetCohort('${c.id}')">
+          <span>${c.label}</span>
+          <span class="pat-cohort-count" id="pat-cohort-count-${c.id}">${c.count}</span>
+        </div>`).join('')}
+    </div>
+
+    <!-- CENTER: Searchable patient roster -->
+    <div class="pat-center">
+      <div class="pat-center-header">
+        <input class="form-control" id="pt-search" placeholder="Search name, condition, email…" style="flex:1;min-width:160px" oninput="window.filterPatients()">
+        <select class="form-control" id="pt-status-filter" style="width:120px;flex-shrink:0" onchange="window.filterPatients()">
+          <option value="">All Status</option>
+          <option value="active">Active</option>
+          <option value="pending">Pending</option>
+          <option value="inactive">Inactive</option>
+          <option value="completed">Completed</option>
+        </select>
+        <select class="form-control" id="pt-modality-filter" style="width:140px;flex-shrink:0" onchange="window.filterPatients()">
+          <option value="">All Modalities</option>
+          ${FALLBACK_MODALITIES.map(m => `<option>${m}</option>`).join('')}
+        </select>
+        <span id="pt-count" style="font-size:11px;color:var(--text-tertiary);white-space:nowrap">${items.length} patients</span>
+      </div>
+      <div id="pat-roster">${
+        items.length === 0
+          ? emptyState('\u{1F465}', 'No patients yet', canAddPatient ? 'Add your first patient to get started.' : '', canAddPatient ? '+ Add Patient' : null, canAddPatient ? 'window.showAddPatient()' : null)
+          : items.map(p => _patCard(p, _patAttention(p), _patCourseStats(p), canTransfer)).join('')
+      }</div>
+    </div>
+
+    <!-- RIGHT PANEL: Selected patient detail -->
+    <div class="pat-right-panel" id="pat-right-panel">
+      <div class="pat-rp-empty" id="pat-rp-empty">
+        <div class="pat-rp-empty-icon">&#9670;</div>
+        <div style="font-size:13px;font-weight:600;color:var(--text-secondary)">No patient selected</div>
+        <div style="font-size:11.5px">Select a patient to view summary</div>
+      </div>
+      <div id="pat-rp-detail" style="display:none"></div>
+    </div>
+
   </div>`;
 
   window._patientsData    = items;
@@ -13521,6 +13554,8 @@ export async function pgAssessmentsHub(setTopbar) {
   let DATA = loadData();
   let activeTab = 'dashboard';
   let activeCat = 'all';
+  let tlibFilter = 'All';
+  let tlibSearch = '';
 
   const extraMap = Object.fromEntries(EXTRA_SCALES.map(s => [s.id, s]));
   function interpretScore(scaleId, score) {
