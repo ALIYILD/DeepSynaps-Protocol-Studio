@@ -69,7 +69,7 @@ class User(Base):
 class Subscription(Base):
     __tablename__ = "subscriptions"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    user_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     stripe_customer_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     stripe_subscription_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     package_id: Mapped[str] = mapped_column(String(50), default="explorer")
@@ -135,7 +135,7 @@ class ClinicalSession(Base):
         ),
     )
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    patient_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    patient_id: Mapped[str] = mapped_column(String(36), ForeignKey("patients.id", ondelete="CASCADE"), nullable=False, index=True)
     clinician_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     scheduled_at: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
     duration_minutes: Mapped[int] = mapped_column(Integer(), default=60)
@@ -171,7 +171,7 @@ class AssessmentRecord(Base):
 class PrescribedProtocol(Base):
     __tablename__ = "prescribed_protocols"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    patient_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    patient_id: Mapped[str] = mapped_column(String(36), ForeignKey("patients.id", ondelete="CASCADE"), nullable=False, index=True)
     clinician_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     condition: Mapped[str] = mapped_column(String(120), nullable=False)
     modality: Mapped[str] = mapped_column(String(60), nullable=False)
@@ -191,7 +191,7 @@ class PrescribedProtocol(Base):
 class TreatmentCourse(Base):
     __tablename__ = "treatment_courses"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    patient_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    patient_id: Mapped[str] = mapped_column(String(36), ForeignKey("patients.id", ondelete="CASCADE"), nullable=False, index=True)
     clinician_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     protocol_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     condition_slug: Mapped[str] = mapped_column(String(120), nullable=False)
@@ -223,7 +223,7 @@ class TreatmentCourse(Base):
 class TreatmentCourseReview(Base):
     __tablename__ = "treatment_course_reviews"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    course_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    course_id: Mapped[str] = mapped_column(String(36), ForeignKey("treatment_courses.id", ondelete="CASCADE"), nullable=False, index=True)
     reviewer_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     review_type: Mapped[str] = mapped_column(String(40), nullable=False)
     outcome: Mapped[Optional[str]] = mapped_column(String(40), nullable=True)

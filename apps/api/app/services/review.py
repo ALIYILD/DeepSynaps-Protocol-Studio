@@ -1,3 +1,4 @@
+import uuid
 from datetime import datetime, timezone
 
 from sqlalchemy.orm import Session
@@ -30,7 +31,7 @@ def record_review_action(
 
     event = create_audit_event(
         session,
-        event_id=f"evt-{1000 + count_audit_events(session) + 1}",
+        event_id=f"evt-{uuid.uuid4().hex[:16]}",
         target_id=payload.target_id,
         target_type=payload.target_type,
         action=payload.action,

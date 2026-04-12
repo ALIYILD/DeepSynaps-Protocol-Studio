@@ -34,9 +34,19 @@ def run_migrations_offline() -> None:
 
 
 def run_migrations_online() -> None:
+    import sqlite3 as _sqlite3
+    from sqlalchemy import event as _event
+
     url = get_url()
     if url.startswith("sqlite"):
         connectable = create_engine(url, connect_args={"check_same_thread": False})
+
+        @_event.listens_for(connectable, "connect")
+        def _set_fk_pragma(dbapi_conn, _record):
+            if isinstance(dbapi_conn, _sqlite3.Connection):
+                cursor = dbapi_conn.cursor()
+                cursor.execute("PRAGMA foreign_keys=ON")
+                cursor.close()
     else:
         connectable = create_engine(url, poolclass=pool.NullPool)
     with connectable.connect() as connection:

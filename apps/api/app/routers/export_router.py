@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 from io import BytesIO
 from typing import Optional
 
-from fastapi import APIRouter, Header
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
@@ -73,29 +73,16 @@ class _ProtocolDocxAdapter:
 
 
 # ---------------------------------------------------------------------------
-# Auth helper
-# ---------------------------------------------------------------------------
-
-def _require_clinician_actor(authorization: str | None) -> AuthenticatedActor:
-    actor = get_authenticated_actor(authorization)
-    require_minimum_role(
-        actor,
-        "clinician",
-        warnings=["Export endpoints require clinician or admin role."],
-    )
-    return actor
-
-
-# ---------------------------------------------------------------------------
 # Routes
 # ---------------------------------------------------------------------------
 
 @router.post("/api/v1/export/protocol-docx")
 def export_protocol_docx(
     payload: ExportProtocolDocxRequest,
-    authorization: str | None = Header(default=None),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
 ) -> StreamingResponse:
-    actor = _require_clinician_actor(authorization)
+    if actor.role not in ("clinician", "admin"):
+        raise HTTPException(status_code=403, detail="Export endpoints require clinician or admin role.")
 
     draft_request = ProtocolDraftRequest(
         condition=payload.condition_name,
@@ -144,9 +131,10 @@ def export_protocol_docx(
 @router.post("/api/v1/export/handbook-docx")
 def export_handbook_docx(
     payload: ExportHandbookDocxRequest,
-    authorization: str | None = Header(default=None),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
 ) -> StreamingResponse:
-    actor = _require_clinician_actor(authorization)
+    if actor.role not in ("clinician", "admin"):
+        raise HTTPException(status_code=403, detail="Export endpoints require clinician or admin role.")
 
     handbook_request = HandbookGenerateRequest(
         handbook_kind="clinician_handbook",
@@ -218,9 +206,10 @@ def export_handbook_docx(
 @router.post("/api/v1/export/patient-guide-docx")
 def export_patient_guide_docx(
     payload: ExportPatientGuideDocxRequest,
-    authorization: str | None = Header(default=None),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
 ) -> StreamingResponse:
-    actor = _require_clinician_actor(authorization)
+    if actor.role not in ("clinician", "admin"):
+        raise HTTPException(status_code=403, detail="Export endpoints require clinician or admin role.")
 
     # Build protocol draft to extract patient communication notes
     draft_request = ProtocolDraftRequest(

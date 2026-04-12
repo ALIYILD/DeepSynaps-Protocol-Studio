@@ -1,10 +1,10 @@
-from fastapi import APIRouter, Depends, Header, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from typing import Optional
 import stripe
 
-from ..services.auth_service import decode_token
+from ..auth import AuthenticatedActor, get_authenticated_actor
 from ..services.stripe_service import (
     create_customer,
     create_checkout_session,
@@ -75,17 +75,6 @@ PACKAGE_INFO = [
 ]
 
 
-def _get_current_user_id(authorization: Optional[str] = Header(default=None)) -> str:
-    if not authorization or not authorization.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="Missing or invalid Authorization header")
-    token = authorization.removeprefix("Bearer ")
-    payload = decode_token(token)
-    if not payload:
-        raise HTTPException(status_code=401, detail="Invalid or expired token")
-    user_id = payload.get("sub")
-    if not user_id:
-        raise HTTPException(status_code=401, detail="Token missing subject")
-    return user_id
 
 
 # ── Request schemas ────────────────────────────────────────────────────────────
@@ -109,10 +98,11 @@ def get_payments_config():
 @router.post("/api/v1/payments/create-checkout")
 def create_checkout(
     body: CreateCheckoutRequest,
-    user_id: str = Depends(_get_current_user_id),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
     db: Session = Depends(get_db_session),
 ):
     """Create a Stripe Checkout session for the authenticated user."""
+    user_id = actor.actor_id
     s = get_settings()
     if not s.stripe_secret_key:
         raise HTTPException(status_code=400, detail="Stripe not configured")
@@ -165,10 +155,11 @@ def create_checkout(
 
 @router.post("/api/v1/payments/create-portal")
 def create_portal(
-    user_id: str = Depends(_get_current_user_id),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
     db: Session = Depends(get_db_session),
 ):
     """Create a Stripe Customer Portal session for the authenticated user."""
+    user_id = actor.actor_id
     s = get_settings()
 
     sub = get_subscription_by_user(db, user_id)

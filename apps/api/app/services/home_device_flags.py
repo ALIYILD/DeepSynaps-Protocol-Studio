@@ -19,6 +19,7 @@ from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.persistence.models import (
@@ -96,7 +97,14 @@ def _emit(
         created_at=datetime.now(timezone.utc),
     )
     db.add(flag)
-    db.flush()
+    # flush() stages the write within the current transaction;
+    # caller (router) is responsible for commit() to persist the flags.
+    try:
+        db.flush()
+    except IntegrityError:
+        db.rollback()
+        # Flag already exists due to concurrent insert — expected, skip.
+        return None
     return flag
 
 

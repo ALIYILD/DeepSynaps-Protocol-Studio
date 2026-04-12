@@ -117,7 +117,7 @@ const VC_DATA = {
 
 // ── Module state ──────────────────────────────────────────────────────────────
 let _vc = {
-  tab: 'messages',
+  tab: 'inbox',
   selectedPid: null,
   selectedItem: null,
   activeCall: null,    // { type:'video'|'voice', item, phase:'connecting'|'active'|'ended' }
@@ -132,14 +132,14 @@ let _vc = {
 // pgVirtualCare
 // =============================================================================
 export async function pgVirtualCare(setTopbar, navigate) {
-  setTopbar({ title: 'Virtual Care', subtitle: 'Video visits · voice calls · messaging · note capture · AI transcription' });
+  setTopbar({ title: 'Virtual Care', subtitle: 'Inbox · video visits · voice calls · shared media · AI notes' });
 
   const el = document.getElementById('main-content') || document.getElementById('content');
   if (!el) return;
   el.innerHTML = '<div class="vc-loading">Loading Virtual Care\u2026</div>';
 
   // Reset state
-  _vc.tab = 'messages';
+  _vc.tab = 'inbox';
   _vc.selectedPid = null;
   _vc.selectedItem = null;
   _vc.activeCall = null;
@@ -330,13 +330,12 @@ export async function pgVirtualCare(setTopbar, navigate) {
 
   // ── TABS ─────────────────────────────────────────────────────────────────
   const TABS = [
-    { id:'messages',        label:'Messages',         count:unreadCount,   attn:unreadCount>0 },
-    { id:'call-requests',   label:'Call Requests',    count:VC_DATA.callRequests.length, attn:urgentCalls>0 },
-    { id:'video-visits',    label:'Video Visits',     count:todayVisits },
-    { id:'voice-calls',     label:'Voice Calls',      count:VC_DATA.voiceCalls.filter(v=>v.status==='scheduled').length },
-    { id:'patient-updates', label:'Patient Updates',  count:unreviewed,    attn:unreviewed>0 },
-    { id:'capture-note',    label:'Capture Note',     count:null,          icon:'\uD83C\uDFA4' },
-    { id:'ai-notes',        label:'AI Notes',         count:pendingNotes,  attn:pendingNotes>0, ai:true },
+    { id:'inbox',         label:'Inbox',          count:unreadCount,   attn:unreadCount>0 },
+    { id:'call-requests', label:'Call Requests',  count:VC_DATA.callRequests.length, attn:urgentCalls>0 },
+    { id:'video-visits',  label:'Video Visits',   count:todayVisits },
+    { id:'voice-calls',   label:'Voice Calls',    count:VC_DATA.voiceCalls.filter(v=>v.status==='scheduled').length },
+    { id:'shared-media',  label:'Shared Media',   count:unreviewed,    attn:unreviewed>0 },
+    { id:'ai-notes',      label:'AI Notes',       count:pendingNotes,  attn:pendingNotes>0, ai:true },
   ];
 
   const tabBar = () => TABS.map(t => `
@@ -347,8 +346,8 @@ export async function pgVirtualCare(setTopbar, navigate) {
       ${t.ai ? '<span class="vc-ai-dot">\uD83E\uDD16</span>' : ''}
     </button>`).join('');
 
-  // ── Messages tab ──────────────────────────────────────────────────────
-  const messagesTab = () => {
+  // ── Inbox tab ─────────────────────────────────────────────────────────
+  const inboxTab = () => {
     const threads = VC_DATA.messages;
     const selThread = _vc.selectedPid;
     const msgs = selThread ? (VC_DATA.messageThreads[selThread] || []) : [];
@@ -357,8 +356,8 @@ export async function pgVirtualCare(setTopbar, navigate) {
       <div class="vc-messages-layout">
         <div class="vc-thread-list">
           <div class="vc-thread-search-bar">
-            <input class="vc-thread-search" type="text" placeholder="Search messages\u2026">
-            <button class="vc-compose-btn" onclick="window._vcCompose()">+ New</button>
+            <input class="vc-thread-search" type="text" placeholder="Search conversations\u2026">
+            <button class="vc-compose-btn" onclick="window._vcCompose()">+ New Message</button>
           </div>
           ${threads.map(t => `
             <div class="vc-thread-item${selThread===t.patientId?' vc-thread-active':''}" onclick="window._vcSelectThread('${t.patientId}')">
@@ -403,7 +402,7 @@ export async function pgVirtualCare(setTopbar, navigate) {
                 <button class="vc-msg-send" onclick="window._vcSendMsg('${selThread}')">Send</button>
               </div>
             </div>
-          ` : `<div class="vc-empty-state">Select a message thread to begin</div>`}
+          ` : `<div class="vc-empty-state">Select a conversation to begin</div>`}
         </div>
       </div>`;
   };

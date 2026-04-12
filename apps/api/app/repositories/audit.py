@@ -65,7 +65,7 @@ def list_audit_events(session: Session) -> list[AuditEvent]:
 
 
 def count_audit_events(session: Session) -> int:
-    return len(list_audit_events(session))
+    return session.query(AuditEventRecord).count()
 
 
 def _to_schema(record: AuditEventRecord) -> AuditEvent:

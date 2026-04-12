@@ -2,8 +2,9 @@ from __future__ import annotations
 
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 
+from app.auth import AuthenticatedActor, get_authenticated_actor
 from app.services.registries import (
     get_condition,
     get_condition_package,
@@ -33,19 +34,26 @@ _EVIDENCE_GRADE_ORDER: dict[str, int] = {
 # ---------------------------------------------------------------------------
 
 @router.get("/conditions")
-def registry_list_conditions() -> dict:
+def registry_list_conditions(
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> dict:
     items = list_conditions()
     return {"items": items, "total": len(items)}
 
 
 @router.get("/conditions/packages")
-def registry_list_condition_packages() -> dict:
+def registry_list_condition_packages(
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> dict:
     slugs = list_condition_package_slugs()
     return {"slugs": slugs, "total": len(slugs)}
 
 
 @router.get("/conditions/{condition_id}/package")
-def registry_get_condition_package(condition_id: str) -> dict:
+def registry_get_condition_package(
+    condition_id: str,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> dict:
     pkg = get_condition_package(condition_id)
     if pkg is None:
         raise HTTPException(status_code=404, detail=f"Condition package '{condition_id}' not found.")
@@ -53,7 +61,10 @@ def registry_get_condition_package(condition_id: str) -> dict:
 
 
 @router.get("/conditions/{condition_id}")
-def registry_get_condition(condition_id: str) -> dict:
+def registry_get_condition(
+    condition_id: str,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> dict:
     condition = get_condition(condition_id)
     if condition is None:
         raise HTTPException(status_code=404, detail=f"Condition '{condition_id}' not found.")
@@ -65,7 +76,9 @@ def registry_get_condition(condition_id: str) -> dict:
 # ---------------------------------------------------------------------------
 
 @router.get("/modalities")
-def registry_list_modalities() -> dict:
+def registry_list_modalities(
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> dict:
     items = list_modalities()
     return {"items": items, "total": len(items)}
 
@@ -75,7 +88,9 @@ def registry_list_modalities() -> dict:
 # ---------------------------------------------------------------------------
 
 @router.get("/devices")
-def registry_list_devices() -> dict:
+def registry_list_devices(
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> dict:
     items = list_devices()
     return {"items": items, "total": len(items)}
 
@@ -93,6 +108,7 @@ def registry_list_protocols(
         default=None,
         description="Minimum evidence grade to include (EV-A, EV-B, EV-C, EV-D). EV-A is highest.",
     ),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
 ) -> dict:
     items = list_protocols()
 
@@ -116,7 +132,10 @@ def registry_list_protocols(
 
 
 @router.get("/protocols/{protocol_id}")
-def registry_get_protocol(protocol_id: str) -> dict:
+def registry_get_protocol(
+    protocol_id: str,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> dict:
     protocol = get_protocol(protocol_id)
     if protocol is None:
         raise HTTPException(status_code=404, detail=f"Protocol '{protocol_id}' not found.")
@@ -130,6 +149,7 @@ def registry_get_protocol(protocol_id: str) -> dict:
 @router.get("/phenotypes")
 def registry_list_phenotypes(
     condition_id: Optional[str] = Query(default=None, description="Filter by associated Condition_ID"),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
 ) -> dict:
     if condition_id:
         items = get_phenotypes_for_condition(condition_id)
@@ -143,6 +163,8 @@ def registry_list_phenotypes(
 # ---------------------------------------------------------------------------
 
 @router.get("/governance-rules")
-def registry_list_governance_rules() -> dict:
+def registry_list_governance_rules(
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> dict:
     items = list_governance_rules()
     return {"items": items, "total": len(items)}

@@ -260,9 +260,11 @@ def refresh_token(
         package_id=user.package_id,
     )
 
+    new_refresh_token = auth_service.create_refresh_token(user_id=user.id)
+
     return TokenResponse(
         access_token=new_access_token,
-        refresh_token=body.refresh_token,
+        refresh_token=new_refresh_token,
         user=UserProfile(
             id=user.id,
             email=user.email,

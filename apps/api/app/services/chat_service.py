@@ -109,8 +109,14 @@ def chat_clinician(messages: list[dict], patient_context: str | None = None) -> 
     client = Anthropic(api_key=settings.anthropic_api_key)
 
     system = CLINICIAN_SYSTEM
+
+    # Add patient context as a user message, not system prompt, to prevent
+    # prompt injection via patient-supplied data overriding system instructions.
     if patient_context:
-        system += f"\n\nCurrent patient context:\n{patient_context}"
+        messages = [
+            {"role": "user", "content": f"[Patient context for this session]\n{patient_context}"},
+            {"role": "assistant", "content": "Understood. I have the patient context."},
+        ] + messages
 
     response = client.messages.create(
         model="claude-opus-4-6",
@@ -170,8 +176,14 @@ def chat_agent(
     """
     settings = get_settings()
     system = AGENT_SYSTEM
+
+    # Add dashboard context as a user message, not system prompt, to prevent
+    # prompt injection via clinician-supplied context overriding system instructions.
     if context:
-        system += f"\n\nCurrent dashboard context provided by the clinician:\n{context}"
+        messages = [
+            {"role": "user", "content": f"[Dashboard context for this session]\n{context}"},
+            {"role": "assistant", "content": "Understood. I have the dashboard context."},
+        ] + messages
 
     if provider == "openai":
         key = openai_key or settings.openai_api_key
@@ -254,8 +266,13 @@ def chat_wearable_patient(messages: list[dict], wearable_context: str | None = N
 
     client = Anthropic(api_key=settings.anthropic_api_key)
     system = WEARABLE_PATIENT_SYSTEM
+
+    # Add wearable context as a user message, not system prompt.
     if wearable_context:
-        system += f"\n\nPatient's recent health data:\n{wearable_context}"
+        messages = [
+            {"role": "user", "content": f"[Patient health data for this session]\n{wearable_context}"},
+            {"role": "assistant", "content": "Understood. I have the patient health data."},
+        ] + messages
 
     response = client.messages.create(
         model="claude-haiku-4-5-20251001",
@@ -274,8 +291,13 @@ def chat_wearable_clinician(messages: list[dict], patient_context: str | None = 
 
     client = Anthropic(api_key=settings.anthropic_api_key)
     system = WEARABLE_CLINICIAN_SYSTEM
+
+    # Add patient context as a user message, not system prompt.
     if patient_context:
-        system += f"\n\nPatient context and data:\n{patient_context}"
+        messages = [
+            {"role": "user", "content": f"[Patient context and data for this session]\n{patient_context}"},
+            {"role": "assistant", "content": "Understood. I have the patient context and data."},
+        ] + messages
 
     response = client.messages.create(
         model="claude-opus-4-6",

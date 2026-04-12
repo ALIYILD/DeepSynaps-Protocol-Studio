@@ -506,6 +506,27 @@ export const api = {
     apiFetch('/api/v1/notifications/presence', { method: 'POST', body: JSON.stringify({ page_id }) }),
   getPresence: (page_id) =>
     apiFetch(`/api/v1/notifications/presence/${encodeURIComponent(page_id)}`),
+
+  // ── Reports (clinician report hub) ──────────────────────────────────────
+  listReports: (patientId) =>
+    patientId
+      ? apiFetch(`/api/v1/patients/${encodeURIComponent(patientId)}/reports`)
+          .then(r => (r?.items ?? r ?? []))
+      : Promise.resolve([]),
+
+  uploadReport: (formData) => {
+    const token = getToken();
+    const headers = {};
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    return fetch(`${API_BASE}/api/v1/reports/upload`, { method: 'POST', headers, body: formData })
+      .then(r => { if (!r.ok) throw new Error(`API error ${r.status}`); return r.status === 204 ? null : r.json(); });
+  },
+
+  aiSummarizeReport: (reportId) =>
+    apiFetch(`/api/v1/reports/${encodeURIComponent(reportId)}/ai-summary`, { method: 'POST' }),
+
+  // ── Patient outcomes (portal alias) ─────────────────────────────────────
+  patientOutcomes: () => apiFetch('/api/v1/patient-portal/outcomes'),
 };
 
 // Helper: download a blob

@@ -12,6 +12,7 @@ from collections import Counter
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.persistence.models import WearableDailySummary, WearableAlertFlag
@@ -117,6 +118,12 @@ def run_flag_checks(
             auto_generated=True,
         )
         db.add(flag)
+        try:
+            db.flush()
+        except IntegrityError:
+            db.rollback()
+            # Flag already exists due to concurrent insert — expected, skip.
+            return
         dedup_48h.add(flag_type)  # prevent a second rule from emitting the same type this run
         new_flags.append(flag)
 

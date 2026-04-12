@@ -28,7 +28,7 @@ def _parse_cors_origins(value: str | None) -> list[str]:
 
 
 class AppSettings(BaseModel):
-    app_env: Literal["development", "test", "staging", "production"] = "development"
+    app_env: Literal["development", "test", "staging", "production"] = "production"
     api_title: str = "DeepSynaps Protocol Studio API"
     api_version: str = "0.1.0"
     api_host: str = "127.0.0.1"
@@ -47,7 +47,7 @@ class AppSettings(BaseModel):
     clinical_data_root: Path = REPO_ROOT / "data" / "imports" / "clinical-database"
     clinical_snapshot_root: Path = REPO_ROOT / "data" / "snapshots" / "clinical-database"
     database_backup_root: Path = REPO_ROOT / "data" / "backups"
-    request_timeout_seconds: int = 30
+    request_timeout_seconds: int = 30  # Applied at ASGI server level (uvicorn --timeout-keep-alive); not enforced in middleware.
 
     # JWT — no insecure default; load_settings() enforces a real secret in production/staging
     jwt_secret_key: str = Field(default=_INSECURE_JWT_DEFAULT)

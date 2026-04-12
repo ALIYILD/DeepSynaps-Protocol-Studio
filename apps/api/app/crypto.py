@@ -78,6 +78,13 @@ def encrypt_token(plaintext: str | None) -> str | None:
         return plaintext
     f = _fernet()
     if f is None:
+        # Lazy import to avoid circular dependency at module load time.
+        from app.settings import get_settings as _get_settings
+        if _get_settings().app_env == "production":
+            raise RuntimeError(
+                "WEARABLE_TOKEN_ENC_KEY must be set in production. "
+                "Generate one with: python -c \"from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())\""
+            )
         _logger.warning(
             "WEARABLE_TOKEN_ENC_KEY not set — storing OAuth token as plaintext. "
             "Set this env var before enabling real OAuth device connections."

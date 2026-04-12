@@ -2,7 +2,7 @@
 Telegram webhook + account linking endpoints.
 """
 from __future__ import annotations
-from fastapi import APIRouter, Depends, Header, Request
+from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from pydantic import BaseModel
 from typing import Optional
 from app.auth import AuthenticatedActor, get_authenticated_actor, require_minimum_role
@@ -45,9 +45,7 @@ async def telegram_webhook(
     _settings = get_settings()
     if _settings.telegram_webhook_secret:
         if x_telegram_bot_api_secret_token != _settings.telegram_webhook_secret:
-            # Return HTTP 200 / ok:true to prevent Telegram retry storms, but
-            # do NOT process the payload — it may be forged.
-            return {"ok": True}
+            raise HTTPException(status_code=401, detail="Invalid webhook token")
 
     try:
         payload = await request.json()

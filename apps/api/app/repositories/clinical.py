@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 
-from sqlalchemy import select
+from sqlalchemy import select, tuple_
 from sqlalchemy.orm import Session
 
 from app.persistence.models import ClinicalDatasetSnapshotRecord, ClinicalSeedRecord
@@ -65,14 +65,22 @@ def upsert_seed_records(
     snapshot_id: str,
     records: Iterable[dict[str, str]],
 ) -> None:
-    for record in records:
-        existing = session.scalar(
-            select(ClinicalSeedRecord).where(
-                ClinicalSeedRecord.dataset_name == record["dataset_name"],
-                ClinicalSeedRecord.record_key == record["record_key"],
-            )
+    records_list = list(records)  # materialise once — records may be a generator
+
+    # Bulk-fetch all existing records whose (dataset_name, record_key) matches any
+    # incoming record, replacing the previous per-record SELECT (N+1 pattern).
+    keys = [(r["dataset_name"], r["record_key"]) for r in records_list]
+    existing_rows = session.scalars(
+        select(ClinicalSeedRecord).where(
+            tuple_(ClinicalSeedRecord.dataset_name, ClinicalSeedRecord.record_key).in_(keys)
         )
-        if existing is None:
+    ).all()
+    existing = {(row.dataset_name, row.record_key): row for row in existing_rows}
+
+    for record in records_list:
+        key = (record["dataset_name"], record["record_key"])
+        row = existing.get(key)
+        if row is None:
             session.add(
                 ClinicalSeedRecord(
                     dataset_name=record["dataset_name"],
@@ -83,12 +91,11 @@ def upsert_seed_records(
                     content_hash=record["content_hash"],
                 )
             )
-            continue
-
-        existing.snapshot_id = snapshot_id
-        existing.source_file = record["source_file"]
-        existing.payload_json = record["payload_json"]
-        existing.content_hash = record["content_hash"]
+        else:
+            row.snapshot_id = snapshot_id
+            row.source_file = record["source_file"]
+            row.payload_json = record["payload_json"]
+            row.content_hash = record["content_hash"]
     session.flush()
 
 
