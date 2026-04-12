@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+import json
 from functools import lru_cache
+from pathlib import Path
 
 from app.services.clinical_data import _read_csv_records, _split_values
 from app.settings import CLINICAL_DATA_ROOT
+
+_CONDITIONS_PACKAGES_ROOT = CLINICAL_DATA_ROOT.parents[1] / "conditions"
 
 _CONDITIONS_FILE = "conditions.csv"
 _MODALITIES_FILE = "modalities.csv"
@@ -200,6 +204,21 @@ def get_protocol(protocol_id: str) -> dict | None:
 
 def get_protocols_for_condition(condition_id: str) -> list[dict]:
     return [p for p in list_protocols() if p["condition_id"] == condition_id]
+
+
+def get_condition_package(slug: str) -> dict | None:
+    """Load the full condition JSON package from data/conditions/{slug}.json."""
+    path = _CONDITIONS_PACKAGES_ROOT / f"{slug}.json"
+    if not path.exists():
+        return None
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def list_condition_package_slugs() -> list[str]:
+    """Return slugs of all available condition packages."""
+    if not _CONDITIONS_PACKAGES_ROOT.exists():
+        return []
+    return sorted(p.stem for p in _CONDITIONS_PACKAGES_ROOT.glob("*.json"))
 
 
 def get_phenotypes_for_condition(condition_id: str) -> list[dict]:

@@ -3157,17 +3157,73 @@ export async function pgSessionExecution(setTopbar, navigate) {
 
 // ── pgReviewQueue — Protocol & course approvals ───────────────────────────────
 export async function pgReviewQueue(setTopbar, navigate) {
+  const esc = s => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+
+  // ── Config ─────────────────────────────────────────────────────────────────
+  const REVIEW_TYPES = {
+    'off-label':      { label: 'Off-Label',     icon: '\u26A1', cssClass: 'rq-type-off-label',    color: '#f59e0b' },
+    'ai-note':        { label: 'AI Note',        icon: '\uD83E\uDD16', cssClass: 'rq-type-ai-note',       color: '#a78bfa' },
+    'protocol':       { label: 'Protocol',       icon: '\uD83D\uDCCB', cssClass: 'rq-type-protocol',      color: '#60a5fa' },
+    'consent':        { label: 'Consent',        icon: '\u270D',  cssClass: 'rq-type-consent',     color: '#2dd4bf' },
+    'adverse-event':  { label: 'Adverse Event',  icon: '\u26A0', cssClass: 'rq-type-adverse-event', color: '#f87171' },
+  };
+  const STATE_COLORS = {
+    pending: '#f59e0b', assigned: '#60a5fa', 'in-review': '#a78bfa',
+    approved: '#22c55e', 'signed-off': '#22c55e', rejected: '#ef4444',
+    escalated: '#f97316', 'changes-requested': '#f59e0b',
+  };
+  const REVIEWERS = ['Dr. Chen', 'Dr. Patel', 'Dr. Kim', 'Dr. Martinez', 'Dr. Okafor', 'Dr. Singh'];
+  const AUDIT_KEY = 'ds_audit_trail';
+  const QUEUE_KEY = 'ds_review_queue_local';
+
+  // ── Audit trail helpers ────────────────────────────────────────────────────
+  function readAudit() { try { return JSON.parse(localStorage.getItem(AUDIT_KEY) || '[]'); } catch { return []; } }
+  function writeAudit(entry) {
+    const trail = readAudit();
+    trail.unshift({ id: 'aud-' + Date.now(), ...entry, created_at: new Date().toISOString() });
+    try { localStorage.setItem(AUDIT_KEY, JSON.stringify(trail.slice(0, 500))); } catch {}
+  }
+  function readLocalQueue()       { try { return JSON.parse(localStorage.getItem(QUEUE_KEY) || 'null'); } catch { return null; } }
+  function writeLocalQueue(items) { try { localStorage.setItem(QUEUE_KEY, JSON.stringify(items)); } catch {} }
+
+  // ── Demo seed ──────────────────────────────────────────────────────────────
+  const now = Date.now();
+  const DEMO_SEED = [
+    { id:'rev-001', review_type:'off-label',     status:'pending',   subject:'rTMS \u2014 Right DLPFC, Off-Label for GAD',                   patient_name:'Emma Wilson',  patient_id:'pt-001', submitted_by:'Dr. Martinez', submitted_at:new Date(now-26*3600000).toISOString(), notes:'Treatment-resistant GAD. Standard options exhausted. Off-label rTMS with enhanced monitoring proposed.',                            on_label:false, evidence_grade:'EV-B', governance_warnings:[{type:'off_label_use',message:'Dual sign-off required for off-label use'}], review_history:[] },
+    { id:'rev-002', review_type:'ai-note',        status:'pending',   subject:'AI SOAP Note \u2014 Session 4, ADHD / TBR Neurofeedback',      patient_name:'Lucas Turner', patient_id:'pt-002', submitted_by:'System (AI)', submitted_at:new Date(now-3*3600000).toISOString(),  notes:'AI-generated session note awaiting clinician review before filing.',                                                              ai_draft:'S: Patient reports improved concentration this week. Sleep remains disrupted (avg 6h).\nO: Theta/beta ratio 3.2 \u2192 2.9. Session 4 of 20. Reward threshold 68%. No adverse effects.\nA: Positive trajectory. Theta reduction in target range. Protocol tolerance good.\nP: Continue TBR protocol. Increase to 3\xd7/week from next session. Re-assess ADHD-RS at session 10.', review_history:[] },
+    { id:'rev-003', review_type:'protocol',       status:'assigned',  subject:'rTMS 10 Hz Left DLPFC \u2014 MDD \u2014 30 sessions',          patient_name:'Sarah Chen',   patient_id:'pt-003', submitted_by:'Dr. Martinez', submitted_at:new Date(now-5*3600000).toISOString(),  notes:'Standard on-label TMS for MDD. PHQ-9 = 18 at baseline.',                                                                         evidence_grade:'EV-A', on_label:true, assigned_to:'Dr. Patel', review_history:[{action:'assigned',reviewer:'Dr. Patel',created_at:new Date(now-2*3600000).toISOString(),note:'Assigned for routine pre-treatment sign-off.'}] },
+    { id:'rev-004', review_type:'consent',        status:'in-review', subject:'Informed Consent \u2014 Home tDCS Programme (CON-HC-004)',     patient_name:'Emma Wilson',  patient_id:'pt-001', submitted_by:'Nurse Okonkwo', submitted_at:new Date(now-12*3600000).toISOString(), notes:'Patient signed consent. Requires clinician co-signature per governance.',                                                          consent_type:'home-device-agreement', patient_signed:true, patient_signed_at:new Date(now-13*3600000).toISOString(), witness_required:false, clinician_cosign_required:true, assigned_to:'Dr. Chen', review_history:[{action:'in-review',reviewer:'Dr. Chen',created_at:new Date(now-6*3600000).toISOString(),note:'Reviewing consent disclosures.'}] },
+    { id:'rev-005', review_type:'adverse-event',  status:'pending',   subject:'AE: Moderate headache post-TMS, Session 12',                   patient_name:'Sarah Chen',   patient_id:'pt-003', submitted_by:'Dr. Martinez', submitted_at:new Date(now-55*3600000).toISOString(), notes:'Moderate headache ~2h post-session. Resolved with paracetamol. No neurological signs. Session paused this week.', ae_severity:'moderate', ae_type:'headache', review_history:[] },
+  ];
+
+  // ── Data loading ───────────────────────────────────────────────────────────
+  const [queueRes, aeRes] = await Promise.all([
+    api.listReviewQueue({}).catch(() => ({ items: [] })),
+    api.listAdverseEvents({ resolved: false }).catch(() => ({ items: [] })),
+  ]);
+  let items   = queueRes?.items || [];
+  const openAEs = aeRes?.items  || [];
+
+  const localQueue = readLocalQueue();
+  if (items.length === 0) {
+    items = localQueue || DEMO_SEED;
+    if (!localQueue) writeLocalQueue(DEMO_SEED);
+  } else {
+    if (localQueue) {
+      const localById = Object.fromEntries(localQueue.map(i => [i.id, i]));
+      items = items.map(i => localById[i.id] ? { ...i, ...localById[i.id] } : i);
+    }
+  }
+
+  window._rqItems   = items;
+  window._rqOpenAEs = openAEs;
+  if (!window._rqDecision)  window._rqDecision  = {};
+  if (!window._rqActiveTab) window._rqActiveTab = 'all';
+
   // ── Topbar ─────────────────────────────────────────────────────────────────
-  setTopbar('Clinical Review & Approvals', `
+  setTopbar('Review &amp; Approvals', `
     <div style="display:flex;align-items:center;gap:8px">
-      <select id="rq-status-filter" class="form-control" style="height:30px;padding:0 28px 0 10px;font-size:12px;width:160px"
-        onchange="window._rqFilterStatus(this.value)">
-        <option value="">All Items</option>
-        <option value="pending">Awaiting Review</option>
-        <option value="approved">Approved</option>
-        <option value="rejected">Rejected</option>
-      </select>
-      <button class="btn btn-sm" onclick="window._rqSortPriority()" title="Sort by priority">&#x2195; Priority</button>
+      <button class="btn btn-sm" onclick="window._rqExportAudit()" title="Export audit trail">&#x21A7; Audit CSV</button>
       <button class="btn btn-sm btn-primary" onclick="pgReviewQueue(window._rqSetTopbar,window._rqNavigate)">&#x21BB; Refresh</button>
     </div>`);
 
@@ -3177,21 +3233,7 @@ export async function pgReviewQueue(setTopbar, navigate) {
   const el = document.getElementById('content');
   el.innerHTML = spinner();
 
-  // ── Data loading ────────────────────────────────────────────────────────────
-  const [queueRes, aeRes] = await Promise.all([
-    api.listReviewQueue({}).catch(() => ({ items: [] })),
-    api.listAdverseEvents({ resolved: false }).catch(() => ({ items: [] })),
-  ]);
-  const items   = queueRes?.items || [];
-  const openAEs = aeRes?.items    || [];
-
-  window._rqItems   = items;
-  window._rqOpenAEs = openAEs;
-  if (!window._rqDecision) window._rqDecision = {};
-
   // ── SLA / urgency helpers ──────────────────────────────────────────────────
-  const now = Date.now();
-
   function isOverdue(item) {
     if (item.status !== 'pending') return false;
     const ts = item.submitted_at || item.created_at;
@@ -4251,7 +4293,7 @@ export async function pgOutcomes(setTopbar, navigate) {
           if (r.milestoneFlag) urgTags.push('<span style="font-size:9.5px;padding:1px 6px;border-radius:5px;background:rgba(245,158,11,0.12);color:var(--amber)">◷ ' + r.milestoneFlag.label + '</span>');
           if (r.lowAdherence) urgTags.push('<span style="font-size:9.5px;padding:1px 6px;border-radius:5px;background:rgba(255,255,255,0.06);color:var(--text-secondary)">' + r.daysSince + 'd gap</span>');
           if ((r.signals6?.adherencePct ?? 100) < 50) urgTags.push('<span style="font-size:9.5px;padding:1px 6px;border-radius:5px;background:rgba(239,68,68,0.12);color:var(--red)">Low adherence</span>');
-          return '<div style="background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius-md);padding:11px 14px;cursor:pointer;transition:border-color 0.15s" onclick="window._openCourse('' + r.courseId + '')" onmouseover="this.style.borderColor='rgba(245,158,11,0.5)'" onmouseout="this.style.borderColor='var(--border)'">'
+          return '<div style="background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius-md);padding:11px 14px;cursor:pointer;transition:border-color 0.15s" data-cid="' + (r.courseId||'') + '" onclick="window._openCourse(this.dataset.cid)" onmouseover="this.style.borderColor=\'rgba(245,158,11,0.5)\'" onmouseout="this.style.borderColor=\'var(--border)\'">'
             + '<div style="font-size:12.5px;font-weight:700;color:var(--text-primary);margin-bottom:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + r.name + '</div>'
             + '<div style="font-size:10.5px;color:var(--text-secondary);margin-bottom:7px">' + (r.course.condition_slug||'—').replace(/-/g,' ') + ' · ' + (r.course.modality_slug||'—') + '</div>'
             + '<div style="display:flex;flex-wrap:wrap;gap:3px">' + urgTags.join('') + '</div>'

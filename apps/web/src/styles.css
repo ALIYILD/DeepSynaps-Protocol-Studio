@@ -3505,51 +3505,45 @@ body.light-theme .pt-aftercare-emergency { background: rgba(239,68,68,0.04); }
 .dq-action-btn { flex-shrink: 0; font-size: 11px; font-weight: 700; padding: 5px 10px; border-radius: var(--radius-md); border: 1px solid var(--border); background: var(--bg-card); color: var(--text-primary); cursor: pointer; font-family: var(--font-body); white-space: nowrap; transition: border-color 0.12s, color 0.12s; }
 .dq-action-btn:hover { border-color: var(--teal); color: var(--teal); }
 
-/* ── Brain Map Planner ── */
-.bmp-wrap { display: grid; grid-template-columns: 240px 1fr 260px; gap: 20px; min-height: 540px; padding-bottom: 48px; }
-.bmp-left { display: flex; flex-direction: column; gap: 12px; }
-.bmp-mode-tabs { display: flex; gap: 0; border: 1px solid var(--border); border-radius: var(--radius-md); overflow: hidden; }
-.bmp-mode-tab { flex: 1; padding: 8px 6px; font-size: 12px; font-weight: 600; background: transparent; border: none; color: var(--text-secondary); cursor: pointer; font-family: var(--font-body); transition: background var(--transition), color var(--transition); }
-.bmp-mode-active { background: rgba(0,212,188,0.12); color: var(--teal); }
-.bmp-proto-list { display: flex; flex-direction: column; gap: 4px; overflow-y: auto; max-height: 460px; }
-.bmp-proto-item { padding: 10px 12px; border-radius: var(--radius-md); border: 1px solid var(--border); background: var(--bg-card); cursor: pointer; transition: border-color var(--transition), background var(--transition); }
-.bmp-proto-item:hover { border-color: rgba(0,212,188,0.3); }
-.bmp-proto-sel { border-color: rgba(0,212,188,0.5) !important; background: rgba(0,212,188,0.07) !important; }
-.bmp-proto-name { display: block; font-size: 12px; font-weight: 600; color: var(--text-primary); line-height: 1.4; }
-.bmp-proto-mod { display: block; font-size: 11px; color: var(--text-tertiary); margin-top: 2px; }
-.bmp-custom-ctrl { display: flex; flex-direction: column; gap: 8px; padding: 12px; background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-md); }
-.bmp-custom-toggle { display: flex; flex-direction: column; gap: 6px; font-size: 13px; color: var(--text-secondary); }
-.bmp-custom-toggle label { display: flex; align-items: center; gap: 8px; cursor: pointer; }
-.bmp-clear-btn { font-size: 12px; font-weight: 600; padding: 6px 12px; border-radius: var(--radius-md); border: 1px solid var(--border); background: transparent; color: var(--text-tertiary); cursor: pointer; font-family: var(--font-body); }
-.bmp-clear-btn:hover { color: var(--red,#ef4444); border-color: rgba(239,68,68,0.4); }
-.bmp-center { display: flex; flex-direction: column; align-items: center; gap: 16px; }
-.bmp-scalp-wrap { position: relative; width: 340px; height: 340px; }
-.bmp-scalp-map { position: relative; width: 340px; height: 340px; border-radius: 50%; background: radial-gradient(ellipse at 50% 40%, #1e2235 0%, #12151f 70%); border: 2px solid var(--border); }
-.bmp-site { position: absolute; transform: translate(-50%,-50%); width: 30px; height: 30px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 9px; font-weight: 700; color: #fff; cursor: pointer; transition: transform 0.15s, box-shadow 0.15s; font-family: var(--font-mono); letter-spacing: -0.5px; }
-.bmp-site:hover { transform: translate(-50%,-50%) scale(1.25); z-index: 10; }
-.bmp-site-active { box-shadow: 0 0 12px rgba(0,212,188,0.7); z-index: 5; }
-.bmp-site-ref    { box-shadow: 0 0 10px rgba(59,130,246,0.6); z-index: 5; }
-.bmp-legend { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-secondary); }
-.bmp-legend-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
-.bmp-active-dot { background: var(--teal); }
-.bmp-ref-dot    { background: var(--blue); }
-.bmp-right { display: flex; flex-direction: column; }
-.bmp-summary-panel { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 18px; display: flex; flex-direction: column; gap: 10px; }
-.bmp-sum-placeholder { font-size: 13px; color: var(--text-tertiary); text-align: center; padding: 24px 0; }
-.bmp-sum-label { font-size: 14px; font-weight: 700; color: var(--text-primary); line-height: 1.4; }
-.bmp-sum-row { display: flex; align-items: flex-start; gap: 8px; }
-.bmp-sum-key { font-size: 11.5px; font-weight: 600; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.4px; min-width: 80px; padding-top: 1px; }
-.bmp-sum-val { font-size: 13px; color: var(--text-primary); flex: 1; line-height: 1.5; }
-.bmp-ev-badge { font-size: 12px; font-weight: 700; padding: 1px 8px; border-radius: 8px; background: rgba(0,212,188,0.12); color: var(--teal); border: 1px solid rgba(0,212,188,0.3); }
-.bmp-site-tag { font-size: 12px; font-weight: 700; padding: 2px 8px; border-radius: 8px; }
-.bmp-active-tag { background: rgba(0,212,188,0.1); color: var(--teal); }
-.bmp-ref-tag    { background: rgba(59,130,246,0.1); color: var(--blue); }
-.bmp-sum-guidance { font-size: 12px; color: var(--text-secondary); line-height: 1.65; padding: 10px; background: rgba(255,255,255,0.03); border-radius: var(--radius-md); border-left: 2px solid rgba(0,212,188,0.3); }
-.bmp-export-btn { font-size: 13px; font-weight: 600; padding: 9px 16px; border-radius: var(--radius-md); border: 1px solid rgba(0,212,188,0.3); background: rgba(0,212,188,0.08); color: var(--teal); cursor: pointer; font-family: var(--font-body); transition: background var(--transition); margin-top: 4px; }
-.bmp-export-btn:hover { background: rgba(0,212,188,0.15); }
-@media (max-width: 1000px) {
-  .bmp-wrap { grid-template-columns: 1fr; }
-  .bmp-scalp-wrap, .bmp-scalp-map { width: 280px; height: 280px; }
+/* ── Brain Map Planner (v2) ── */
+.bmp-layout { display:flex; flex-direction:row; gap:16px; align-items:flex-start; padding-bottom:48px; }
+.bmp-panel { min-width:0; padding:0; }
+.bmp-panel--left { width:260px; flex-shrink:0; }
+.bmp-panel--map { flex:1; min-width:320px; }
+.bmp-panel--right { width:270px; flex-shrink:0; }
+.bmp-section-card { background:var(--bg-card); border:1px solid var(--border); border-radius:10px; padding:14px 16px; margin-bottom:12px; }
+.bmp-section-title { font-size:11px; text-transform:uppercase; letter-spacing:0.6px; color:var(--text-tertiary); font-weight:600; margin-bottom:8px; }
+.bmp-lat-toggle { display:flex; flex-direction:row; gap:4px; }
+.bmp-lat-btn { flex:1; border:1px solid var(--border); border-radius:6px; padding:5px 4px; cursor:pointer; font-size:11px; font-weight:600; background:transparent; color:var(--text-secondary); font-family:var(--font-body); transition:all var(--transition,0.15s); text-align:center; }
+.bmp-lat-btn:hover { border-color:rgba(0,212,188,0.35); color:var(--teal); }
+.bmp-lat-active { background:rgba(0,212,188,0.12) !important; border-color:var(--teal) !important; color:var(--teal) !important; }
+.bmp-map-wrap { background:var(--bg-card); border:1px solid var(--border); border-radius:12px; overflow:hidden; }
+.bmp-map-header { display:flex; justify-content:space-between; align-items:center; padding:12px 16px; border-bottom:1px solid var(--border); }
+.bmp-view-toggle { display:flex; border:1px solid var(--border); border-radius:6px; overflow:hidden; }
+.bmp-view-btn { padding:4px 11px; font-size:11px; font-weight:600; background:transparent; border:none; color:var(--text-secondary); cursor:pointer; font-family:var(--font-body); transition:all var(--transition,0.15s); }
+.bmp-view-btn:hover { color:var(--text-primary); }
+.bmp-view-active { background:rgba(0,212,188,0.12) !important; color:var(--teal) !important; }
+.bmp-svg-wrap { padding:16px; display:flex; justify-content:center; background:rgba(0,0,0,0.18); }
+.bmp-legend-row { display:flex; gap:12px; padding:8px 16px; border-top:1px solid var(--border); flex-wrap:wrap; }
+.bmp-legend-item { display:flex; align-items:center; gap:5px; font-size:11px; color:var(--text-tertiary); }
+.bmp-legend-swatch { width:10px; height:10px; border-radius:50%; display:inline-block; }
+.bmp-tooltip { position:fixed; background:#0f1e38; border:1px solid rgba(148,163,184,0.2); border-radius:8px; padding:8px 12px; font-size:12px; pointer-events:none; z-index:9999; max-width:220px; box-shadow:0 4px 24px rgba(0,0,0,0.5); color:var(--text-primary,#e2e8f0); }
+.bmp-detail-card { background:var(--bg-card); border:1px solid var(--border); border-radius:10px; padding:16px; }
+.bmp-detail-placeholder { background:var(--bg-card); border:1px solid var(--border); border-radius:10px; padding:8px; min-height:120px; display:flex; align-items:center; justify-content:center; }
+.bmp-detail-site-name { font-size:28px; font-weight:800; color:var(--text-primary); line-height:1.1; margin-bottom:4px; }
+.bmp-detail-region { font-size:12px; color:var(--text-secondary); margin-bottom:12px; line-height:1.5; }
+.bmp-detail-section-label { font-size:10px; text-transform:uppercase; letter-spacing:0.6px; color:var(--text-tertiary); font-weight:600; margin:10px 0 4px; }
+.bmp-cond-chip { font-size:11px; padding:2px 7px; border-radius:10px; background:rgba(255,255,255,0.05); border:1px solid var(--border); color:var(--text-secondary); }
+.bmp-alt-btn { font-size:11px; padding:3px 10px; border-radius:12px; border:1px solid var(--border); background:rgba(74,158,255,0.06); color:#4a9eff; cursor:pointer; font-family:var(--font-body); transition:all 0.12s; }
+.bmp-alt-btn:hover { border-color:#4a9eff; background:rgba(74,158,255,0.14); }
+.bmp-proto-link { font-size:11px; padding:5px 10px; border-radius:7px; border:1px solid rgba(0,212,188,0.3); background:rgba(0,212,188,0.06); color:var(--teal); cursor:pointer; font-family:var(--font-body); text-align:left; transition:all 0.12s; }
+.bmp-proto-link:hover { background:rgba(0,212,188,0.14); }
+.bmp-placement-text { font-size:12px; color:var(--text-secondary); line-height:1.7; background:rgba(255,255,255,0.02); border-radius:6px; padding:8px 10px; border-left:2px solid rgba(0,212,188,0.3); margin-bottom:4px; }
+.bmp-site-g { cursor:pointer; }
+@media (max-width:900px) {
+  .bmp-layout { flex-direction:column; }
+  .bmp-panel--left, .bmp-panel--right { width:100%; }
+  .bmp-panel--map { min-width:unset; }
 }
 
 /* ── Notes & Dictation ── */

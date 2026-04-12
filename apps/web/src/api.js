@@ -232,6 +232,8 @@ export const api = {
     return apiFetchWithRetry(`/api/v1/registry/protocols${q ? '?' + q : ''}`);
   },
   protocolDetail: (id) => apiFetch(`/api/v1/registry/protocols/${id}`),
+  conditionPackage: (slug) => apiFetch(`/api/v1/registry/conditions/${encodeURIComponent(slug)}/package`).catch(() => null),
+  conditionPackageSlugs: () => apiFetch('/api/v1/registry/conditions/packages').catch(() => ({ slugs: [] })),
   phenotypes: (params = {}) => {
     const q = new URLSearchParams(params).toString();
     return apiFetch(`/api/v1/registry/phenotypes${q ? '?' + q : ''}`);

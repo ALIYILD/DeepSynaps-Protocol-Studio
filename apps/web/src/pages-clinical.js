@@ -13857,186 +13857,696 @@ export async function pgBrainMapPlanner(setTopbar) {
   const el = document.getElementById('content');
   if (!el) return;
 
-  // Load registry data for dropdowns
-  let conds = [], mods = [], protos = [];
-  try {
-    const [cd, md, pd] = await Promise.all([
-      api.conditions().catch(() => null),
-      api.modalities().catch(() => null),
-      api.protocols().catch(() => null),
-    ]);
-    conds  = cd?.items  || [];
-    mods   = md?.items  || [];
-    protos = pd?.items  || [];
-  } catch (_) {}
-
-  const TARGET_REGIONS = [
-    'DLPFC','M1','SMA','VMPFC','PFC','Cerebellum','Parietal','Occipital','Temporal','Insula',
-    'Primary Somatosensory',
+  const FALLBACK_CONDITIONS = [
+    'Major Depressive Disorder','Treatment-Resistant Depression','Bipolar Depression',
+    'OCD','PTSD','Generalized Anxiety','Social Anxiety','Panic Disorder',
+    'ADHD','Schizophrenia','Auditory Hallucinations','Chronic Pain','Fibromyalgia',
+    'Parkinson Disease','Stroke Rehabilitation','Aphasia','Tinnitus',
+    'Insomnia','Traumatic Brain Injury','Eating Disorders','Addiction','Autism Spectrum'
   ];
-  const LATERALITIES = ['left','right','bilateral'];
 
-  el.innerHTML = `
-    <div style="max-width:1000px;margin:0 auto">
-      <div class="g2" style="gap:24px;align-items:start">
-        <!-- Controls -->
-        <div>
-          <div class="card" style="margin-bottom:14px">
-            <div class="card-header"><h3>Stimulation Target</h3></div>
-            <div class="card-body">
-              <div class="form-group">
-                <label class="form-label">Modality</label>
-                <select id="bmp-mod" class="form-control" onchange="window._bmpRender()">
-                  <option value="">Select modality</option>
-                  ${mods.map(m => `<option value="${m.id||m.name||m.Modality_Name}">${m.name||m.Modality_Name||m.id}</option>`).join('')}
-                  ${!mods.length ? ['TMS / rTMS','tDCS','tACS','Neurofeedback','HEG','LENS'].map(m => `<option value="${m}">${m}</option>`).join('') : ''}
-                </select>
-              </div>
-              <div class="form-group">
-                <label class="form-label">Target Region</label>
-                <select id="bmp-region" class="form-control" onchange="window._bmpRender()">
-                  <option value="">Select region</option>
-                  ${TARGET_REGIONS.map(r => `<option value="${r}">${r}</option>`).join('')}
-                </select>
-              </div>
-              <div class="form-group">
-                <label class="form-label">Laterality</label>
-                <select id="bmp-lat" class="form-control" onchange="window._bmpRender()">
-                  ${LATERALITIES.map(l => `<option value="${l}">${l.charAt(0).toUpperCase() + l.slice(1)}</option>`).join('')}
-                </select>
-              </div>
-            </div>
-          </div>
-          <div class="card">
-            <div class="card-header"><h3>Match to Registry Protocol</h3></div>
-            <div class="card-body">
-              <div id="bmp-matched" style="font-size:12px;color:var(--text-tertiary)">Select a region to see matching protocols.</div>
-            </div>
-          </div>
-        </div>
-        <!-- Map display -->
-        <div>
-          <div class="card" style="text-align:center">
-            <div class="card-header">
-              <h3 style="margin:0">Stimulation Map</h3>
-              <span style="font-size:11px;color:var(--text-tertiary);margin-left:auto">10-20 / 10-10 grid</span>
-            </div>
-            <div class="card-body" style="display:flex;flex-direction:column;align-items:center;gap:12px">
-              <div id="bmp-map-container" style="padding:12px">
-                <div style="font-size:12px;color:var(--text-tertiary)">Select modality + region to see map.</div>
-              </div>
-              <div id="bmp-legend" style="display:none;font-size:11px;color:var(--text-tertiary);line-height:1.7;text-align:left;max-width:280px"></div>
-            </div>
-          </div>
-          <div style="margin-top:12px;display:flex;gap:8px;justify-content:center;flex-wrap:wrap">
-            <button class="btn btn-primary btn-sm" onclick="window._bmpPrescribe()">Prescribe from this Map →</button>
-            <button class="btn btn-sm" onclick="window._bmpUseInWizard()">Use in Course Wizard</button>
-          </div>
-        </div>
-      </div>
-    </div>`;
+  const BMP_SITES = {
+    'Fpz':[150,14],'Fp1':[107,20],'Fp2':[193,20],
+    'AF7':[72,38],'AFz':[150,40],'AF8':[228,38],
+    'F7':[38,82],'F3':[97,72],'Fz':[150,68],'F4':[203,72],'F8':[262,82],
+    'FT7':[28,118],'FC3':[90,108],'FCz':[150,104],'FC4':[210,108],'FT8':[272,118],
+    'T7':[22,155],'C3':[78,155],'Cz':[150,155],'C4':[222,155],'T8':[278,155],
+    'TP7':[28,192],'CP3':[90,202],'CPz':[150,206],'CP4':[210,202],'TP8':[272,192],
+    'T5':[38,228],'P3':[97,238],'Pz':[150,242],'P4':[203,238],'T6':[262,228],
+    'PO7':[60,268],'PO3':[107,260],'POz':[150,264],'PO4':[193,260],'PO8':[240,268],
+    'O1':[108,288],'Oz':[150,294],'O2':[192,288],
+    'AF3':[118,46],'AF4':[182,46],
+    'F1':[123,72],'F2':[177,72],'F5':[62,80],'F6':[238,80],
+    'FC1':[119,108],'FC2':[181,108],'FC5':[54,114],'FC6':[246,114],
+    'C1':[114,155],'C2':[186,155],'C5':[50,155],'C6':[250,155],
+    'CP1':[119,202],'CP2':[181,202],'CP5':[54,196],'CP6':[246,196],
+    'P1':[122,240],'P2':[178,240],'P5':[72,236],'P6':[228,236],
+    'PO1':[125,262],'PO2':[175,262],
+  };
 
-  window._bmpRender = function() {
-    const mod    = document.getElementById('bmp-mod')?.value    || '';
-    const region = document.getElementById('bmp-region')?.value || '';
-    const lat    = document.getElementById('bmp-lat')?.value    || 'bilateral';
+  const BMP_REGION_SITES = {
+    'DLPFC-L':    { primary:['F3'],        ref:['Fp2'],        alt:['AF3','F1','FC1'] },
+    'DLPFC-R':    { primary:['F4'],        ref:['Fp1'],        alt:['AF4','F2','FC2'] },
+    'DLPFC-B':    { primary:['F3','F4'],   ref:[],             alt:['Fz'] },
+    'M1-L':       { primary:['C3'],        ref:['C4'],         alt:['FC3','CP3'] },
+    'M1-R':       { primary:['C4'],        ref:['C3'],         alt:['FC4','CP4'] },
+    'M1-B':       { primary:['C3','C4'],   ref:['Cz'],         alt:['FC3','FC4'] },
+    'SMA':        { primary:['FCz','Cz'],  ref:[],             alt:['FC1','FC2','Fz'] },
+    'mPFC':       { primary:['Fz'],        ref:['Pz'],         alt:['AFz','FCz'] },
+    'DMPFC':      { primary:['Fz'],        ref:['Oz'],         alt:['FCz','AF4'] },
+    'VMPFC':      { primary:['Fpz'],       ref:['Pz'],         alt:['Fp1','Fp2'] },
+    'OFC':        { primary:['Fp1','Fp2'], ref:['Pz'],         alt:['AF3','AF4'] },
+    'ACC':        { primary:['FCz'],       ref:['Pz'],         alt:['Cz','Fz'] },
+    'IFG-L':      { primary:['F7'],        ref:['F8'],         alt:['FT7','FC3'] },
+    'IFG-R':      { primary:['F8'],        ref:['F7'],         alt:['FT8','FC4'] },
+    'PPC-L':      { primary:['P3'],        ref:['F4'],         alt:['CP3','P5'] },
+    'PPC-R':      { primary:['P4'],        ref:['F3'],         alt:['CP4','P6'] },
+    'TEMPORAL-L': { primary:['T7'],        ref:['T8'],         alt:['TP7','FT7'] },
+    'TEMPORAL-R': { primary:['T8'],        ref:['T7'],         alt:['TP8','FT8'] },
+    'S1':         { primary:['C3'],        ref:['C4'],         alt:['CP3','FC3'] },
+    'V1':         { primary:['Oz'],        ref:['Cz'],         alt:['O1','O2'] },
+    'CEREBELLUM': { primary:['Oz'],        ref:['Cz'],         alt:['O1','O2','POz'] },
+    'Cz':         { primary:['Cz'],        ref:['Fz'],         alt:['FC1','FC2','CP1','CP2'] },
+    'Pz':         { primary:['Pz'],        ref:['Fz'],         alt:['CPz','POz'] },
+    'Fz':         { primary:['Fz'],        ref:['Pz'],         alt:['FCz','AFz'] },
+  };
 
-    const mapCont = document.getElementById('bmp-map-container');
-    const legend  = document.getElementById('bmp-legend');
-    const matched = document.getElementById('bmp-matched');
+  const BMP_PROTO_MAP = {
+    'tms-mdd-hf-standard':    { region:'DLPFC-L', modality:'TMS/rTMS',     lat:'left',     freq:'10',      intensity:'120',  pulses:'3000', sessions:'36' },
+    'tms-mdd-itbs':           { region:'DLPFC-L', modality:'iTBS',         lat:'left',     freq:'50',      intensity:'80',   pulses:'600',  sessions:'30' },
+    'tms-mdd-bilateral':      { region:'DLPFC-B', modality:'TMS/rTMS',     lat:'bilateral',freq:'10',      intensity:'120',  pulses:'3000', sessions:'36' },
+    'tms-mdd-saint':          { region:'DLPFC-L', modality:'iTBS',         lat:'left',     freq:'50',      intensity:'90',   pulses:'1800', sessions:'50' },
+    'tms-ocd-h7coil':         { region:'DMPFC',   modality:'Deep TMS',     lat:'bilateral',freq:'20',      intensity:'100',  pulses:'2000', sessions:'29' },
+    'tms-ocd-standard':       { region:'DMPFC',   modality:'TMS/rTMS',     lat:'bilateral',freq:'20',      intensity:'100',  pulses:'1500', sessions:'30' },
+    'tms-anxiety-r-dlpfc':    { region:'DLPFC-R', modality:'TMS/rTMS',     lat:'right',    freq:'1',       intensity:'110',  pulses:'360',  sessions:'20' },
+    'tms-ptsd-dlpfc':         { region:'DLPFC-L', modality:'TMS/rTMS',     lat:'left',     freq:'10',      intensity:'110',  pulses:'2000', sessions:'20' },
+    'tms-schiz-avh':          { region:'TEMPORAL-L', modality:'TMS/rTMS',  lat:'left',     freq:'1',       intensity:'90',   pulses:'360',  sessions:'15' },
+    'tms-parkinsons-motor':   { region:'M1-L',    modality:'TMS/rTMS',     lat:'bilateral',freq:'5',       intensity:'90',   pulses:'500',  sessions:'20' },
+    'tdcs-mdd-anodal-f3':     { region:'DLPFC-L', modality:'tDCS',         lat:'left',     freq:'DC',      intensity:'2 mA', pulses:'\u2014', sessions:'20' },
+    'tdcs-adhd':              { region:'DLPFC-L', modality:'tDCS',         lat:'bilateral',freq:'DC',      intensity:'1 mA', pulses:'\u2014', sessions:'15' },
+    'tdcs-pain-m1':           { region:'M1-L',    modality:'tDCS',         lat:'left',     freq:'DC',      intensity:'2 mA', pulses:'\u2014', sessions:'10' },
+    'tdcs-stroke-motor':      { region:'M1-L',    modality:'tDCS',         lat:'left',     freq:'DC',      intensity:'2 mA', pulses:'\u2014', sessions:'15' },
+    'tdcs-aphasia':           { region:'IFG-L',   modality:'tDCS',         lat:'left',     freq:'DC',      intensity:'1 mA', pulses:'\u2014', sessions:'15' },
+    'nfb-alpha-theta-anxiety':{ region:'Pz',      modality:'Neurofeedback',lat:'bilateral',freq:'6-12Hz',  intensity:'\u2014', pulses:'\u2014', sessions:'30' },
+    'nfb-smr-adhd':           { region:'Cz',      modality:'Neurofeedback',lat:'bilateral',freq:'12-15Hz', intensity:'\u2014', pulses:'\u2014', sessions:'40' },
+    'nfb-gamma-cognition':    { region:'Fz',      modality:'Neurofeedback',lat:'bilateral',freq:'38-42Hz', intensity:'\u2014', pulses:'\u2014', sessions:'30' },
+    'nfb-theta-alpha-depress':{ region:'Fz',      modality:'Neurofeedback',lat:'bilateral',freq:'4-12Hz',  intensity:'\u2014', pulses:'\u2014', sessions:'30' },
+  };
 
-    if (!mod && !region) {
-      if (mapCont) mapCont.innerHTML = `<div style="font-size:12px;color:var(--text-tertiary)">Select modality + region to see map.</div>`;
-      if (legend) legend.style.display = 'none';
+  const BMP_MNI = {
+    'F3':'-46, 36, 20','F4':'46, 36, 20','C3':'-52, -2, 50','C4':'52, -2, 50',
+    'Cz':'0, -2, 62','Fz':'0, 24, 58','Pz':'0, -62, 56','T7':'-72, -24, 4',
+    'T8':'72, -24, 4','T5':'-62, -52, 0','T6':'62, -52, 0','Fp1':'-28, 70, 8',
+    'Fp2':'28, 70, 8','Oz':'0, -100, 12','FCz':'0, 16, 62','F7':'-52, 22, 8',
+    'F8':'52, 22, 8','O1':'-28, -102, 12','O2':'28, -102, 12',
+    'P3':'-46, -58, 46','P4':'46, -58, 46',
+  };
+
+  const BMP_BA = {
+    'F3':'BA9/46','F4':'BA9/46','C3':'BA4','C4':'BA4','Cz':'BA4',
+    'Fz':'BA8/32','Pz':'BA7','T7':'BA21/22','T8':'BA21/22',
+    'Fp1':'BA10','Fp2':'BA10','Oz':'BA17','FCz':'BA6',
+    'F7':'BA45/47','F8':'BA45/47','O1':'BA17/18','O2':'BA17/18',
+    'P3':'BA40','P4':'BA40',
+  };
+
+  const BMP_ANATOMY = {
+    'Fpz':'Prefrontal Midline','Fp1':'Left Frontopolar Cortex','Fp2':'Right Frontopolar Cortex',
+    'AF7':'Left Anterior Frontal','AFz':'Anterior Frontal Midline','AF8':'Right Anterior Frontal',
+    'AF3':'Left Anterior Frontal (lat)','AF4':'Right Anterior Frontal (lat)',
+    'F7':'Left Inferior Frontal Gyrus','F3':'Left Dorsolateral Prefrontal Cortex (DLPFC)',
+    'Fz':'Supplementary Motor / Medial PFC','F4':'Right Dorsolateral Prefrontal Cortex (DLPFC)',
+    'F8':'Right Inferior Frontal Gyrus',
+    'F1':'Left Frontal (medial)','F2':'Right Frontal (medial)',
+    'F5':'Left Frontal (lateral)','F6':'Right Frontal (lateral)',
+    'FT7':'Left Frontotemporal','FC3':'Left Premotor / Frontal Eye Field',
+    'FCz':'Supplementary Motor Area (SMA)','FC4':'Right Premotor','FT8':'Right Frontotemporal',
+    'FC1':'Left SMA (medial)','FC2':'Right SMA (medial)',
+    'FC5':'Left Premotor (lateral)','FC6':'Right Premotor (lateral)',
+    'T7':'Left Superior Temporal Gyrus','C3':'Left Primary Motor Cortex (M1)',
+    'Cz':'Primary Motor / Sensory Midline','C4':'Right Primary Motor Cortex (M1)',
+    'T8':'Right Superior Temporal Gyrus',
+    'C1':'Left Motor (medial)','C2':'Right Motor (medial)',
+    'C5':'Left Motor (lateral)','C6':'Right Motor (lateral)',
+    'TP7':'Left Temporoparietal Junction','CP3':'Left Somatosensory / Parietal',
+    'CPz':'Parietal Midline','CP4':'Right Somatosensory / Parietal',
+    'TP8':'Right Temporoparietal Junction',
+    'CP1':'Left Parietal (medial)','CP2':'Right Parietal (medial)',
+    'CP5':'Left Parietal (lateral)','CP6':'Right Parietal (lateral)',
+    'T5':'Left Posterior Temporal','P3':'Left Inferior Parietal Lobule',
+    'Pz':'Posterior Parietal Midline','P4':'Right Inferior Parietal Lobule',
+    'T6':'Right Posterior Temporal',
+    'P1':'Left Parietal (medial)','P2':'Right Parietal (medial)',
+    'P5':'Left Parietal (lateral)','P6':'Right Parietal (lateral)',
+    'PO7':'Left Parieto-Occipital','PO3':'Left Parieto-Occipital (medial)',
+    'POz':'Parieto-Occipital Midline','PO4':'Right Parieto-Occipital (medial)',
+    'PO8':'Right Parieto-Occipital',
+    'PO1':'Left Parieto-Occipital (para)','PO2':'Right Parieto-Occipital (para)',
+    'O1':'Left Primary Visual Cortex','Oz':'Occipital Midline / V1','O2':'Right Primary Visual Cortex',
+  };
+
+  const BMP_CONDITIONS = {
+    'F3':['MDD','TRD','PTSD','ADHD','Anxiety','Bipolar Depression'],
+    'F4':['Anxiety','Depression (inhibitory)','OCD','Addiction'],
+    'Fz':['ADHD','Depression (midline)','Neurofeedback','SMA disorders'],
+    'FCz':['SMA','OCD (deep midline)','Motor recovery'],
+    'C3':['Motor rehabilitation','Chronic pain','Parkinson','Stroke'],
+    'C4':['Motor rehabilitation','Stroke (left hemisphere)','Chronic pain'],
+    'Cz':['Neurofeedback (SMR)','Motor midline','ADHD'],
+    'Pz':['Neurofeedback (alpha-theta)','Anxiety','Memory'],
+    'T7':['Auditory hallucinations','Schizophrenia','Language disorders'],
+    'T8':['Tinnitus','Right temporal disorders'],
+    'F7':['Aphasia','IFG stimulation'],
+    'Oz':['Visual cortex stimulation','Migraine','V1 research'],
+  };
+
+  const BMP_PLACEMENT = {
+    'F3': 'Position the coil 5 cm anterior and 2 cm lateral to M1 (C3). Target: -46,36,20 MNI. Beam F3: from Cz, 2cm left then 3cm forward.',
+    'F4': '5 cm anterior and 2 cm lateral to C4. Mirror of F3. MNI: +46,36,20. From Cz: 2cm right then 3cm forward.',
+    'C3': 'Motor cortex left. Locate Cz (50% nasion-inion), measure 7cm lateral left. Confirm with MEP for motor threshold.',
+    'C4': 'Motor cortex right. Mirror of C3. 7cm lateral right from Cz.',
+    'Cz': 'Midpoint: 50% of nasion-to-inion and 50% of tragus-to-tragus. Their intersection = Cz.',
+    'Fz': 'Midline frontal. 30% from nasion along nasion-to-inion midline = Fz.',
+    'FCz': 'Midpoint between Fz and Cz on the midline.',
+    'T7': 'Left temporal. Step = 10% of nasion-inion arc. T7 is 3 steps lateral-left from Cz on temporal line.',
+    'Oz': 'Occipital midline. 10% above the inion; measure upward from inion along midline.',
+    'Fp1': 'Left frontopolar. ~5% from Fpz toward F7 on nasion arc.',
+    'Fp2': 'Right frontopolar. Mirror of Fp1.',
+    'F7': 'Left inferior frontal. Between F3 and T7; ~3 steps lateral from Fz on frontal arc.',
+    'F8': 'Right inferior frontal. Mirror of F7.',
+    'P3': 'Left inferior parietal. 7cm left from Pz, or 60% nasion-inion then 7cm lateral.',
+    'P4': 'Right inferior parietal. Mirror of P3.',
+    'T8': 'Right temporal. Mirror of T7.',
+    'Pz': 'Parietal midline. 80% of nasion-to-inion distance from nasion.',
+  };
+
+  const BMP_PROTO_LABELS = {
+    'tms-mdd-hf-standard':    'HF-rTMS DLPFC-L (MDD)',
+    'tms-mdd-itbs':           'iTBS DLPFC-L (MDD)',
+    'tms-mdd-bilateral':      'Bilateral rTMS (MDD)',
+    'tms-mdd-saint':          'SAINT / Accelerated iTBS',
+    'tms-ocd-h7coil':         'Deep TMS H7-Coil (OCD)',
+    'tms-ocd-standard':       'rTMS DMPFC (OCD)',
+    'tms-anxiety-r-dlpfc':    'LF-rTMS R-DLPFC (Anxiety)',
+    'tms-ptsd-dlpfc':         'rTMS DLPFC-L (PTSD)',
+    'tms-schiz-avh':          'LF-rTMS Temporal-L (AVH)',
+    'tms-parkinsons-motor':   'rTMS M1 (Parkinson)',
+    'tdcs-mdd-anodal-f3':     'tDCS Anodal F3 (MDD)',
+    'tdcs-adhd':              'tDCS DLPFC Bilateral (ADHD)',
+    'tdcs-pain-m1':           'tDCS M1 (Chronic Pain)',
+    'tdcs-stroke-motor':      'tDCS M1 (Stroke Motor)',
+    'tdcs-aphasia':           'tDCS IFG-L (Aphasia)',
+    'nfb-alpha-theta-anxiety':'NFB Alpha-Theta Pz (Anxiety)',
+    'nfb-smr-adhd':           'NFB SMR Cz (ADHD)',
+    'nfb-gamma-cognition':    'NFB Gamma Fz (Cognition)',
+    'nfb-theta-alpha-depress':'NFB Theta-Alpha Fz (Depression)',
+  };
+
+  const MODALITY_COLORS = {
+    'TMS/rTMS':'#00d4bc','iTBS':'#00d4bc','cTBS':'#5ee7df','Deep TMS':'#06b6d4',
+    'tDCS':'#4a9eff','tACS':'#818cf8','Neurofeedback':'#f59e0b',
+    'taVNS':'#a78bfa','CES':'#34d399','PBM':'#fb923c','TPS':'#f472b6',
+  };
+
+  let bmpState = {
+    region:'', modality:'TMS/rTMS', lat:'left',
+    freq:'', intensity:'', pulses:'', duration:'', sessions:'', notes:'',
+    selectedSite:'', view:'clinical', protoId:'',
+  };
+
+  let conds = [], protos = [];
+  try {
+    const apiObj = window._api || window.api;
+    const [cd, pd] = await Promise.all([
+      apiObj ? apiObj.conditions().catch(function() { return null; }) : Promise.resolve(null),
+      apiObj ? apiObj.protocols().catch(function()  { return null; }) : Promise.resolve(null),
+    ]);
+    conds  = (cd && cd.items)  ? cd.items  : [];
+    protos = (pd && pd.items)  ? pd.items  : [];
+  } catch (_) {}
+  if (!conds.length) conds = FALLBACK_CONDITIONS.map(function(n) { return { name: n }; });
+
+  function _esc(s) {
+    return String(s || '').replace(/[&<>"']/g, function(c) {
+      return { '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c];
+    });
+  }
+
+  function _mc() { return MODALITY_COLORS[bmpState.modality] || '#00d4bc'; }
+
+  function _siteRole(site) {
+    if (!bmpState.region || !BMP_REGION_SITES[bmpState.region]) return 'inactive';
+    const rs = BMP_REGION_SITES[bmpState.region];
+    if (rs.primary.indexOf(site) !== -1) return 'primary';
+    if (rs.ref.indexOf(site)     !== -1) return 'ref';
+    if (rs.alt.indexOf(site)     !== -1) return 'alt';
+    return 'inactive';
+  }
+
+  // SVG uses data-site attr + delegated events (avoids inline handler quoting issues)
+  function _siteG(name, sx, sy, innerHtml) {
+    return '<g class="bmp-site-g" data-site="' + _esc(name) + '" style="cursor:pointer">'
+      + innerHtml
+      + '</g>';
+  }
+
+  function _buildSVG(patientView) {
+    const mc = _mc();
+    const region = (bmpState.region && BMP_REGION_SITES[bmpState.region])
+      ? BMP_REGION_SITES[bmpState.region] : { primary:[], ref:[], alt:[] };
+    const pp = region.primary, rp = region.ref, ap = region.alt;
+    const sp = [];
+    const s = function(x) { sp.push(x); };
+    s('<svg id="bmp-svg" viewBox="0 0 300 310" width="280" height="290"'
+      + ' xmlns="http://www.w3.org/2000/svg" style="display:block;overflow:visible">');
+    s('<defs><filter id="bmp-glow" x="-50%" y="-50%" width="200%" height="200%">'
+      + '<feGaussianBlur stdDeviation="3" result="blur"/>'
+      + '<feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>'
+      + '</filter></defs>');
+    s('<ellipse cx="150" cy="155" rx="128" ry="148" fill="#0f1623"'
+      + ' stroke="rgba(148,163,184,0.25)" stroke-width="1.5"/>');
+    s('<path d="M143,8 Q150,2 157,8" fill="none" stroke="rgba(148,163,184,0.25)"'
+      + ' stroke-width="1.5" stroke-linecap="round"/>');
+    s('<path d="M22,148 Q15,155 22,162" fill="none" stroke="rgba(148,163,184,0.25)"'
+      + ' stroke-width="1.5" stroke-linecap="round"/>');
+    s('<path d="M278,148 Q285,155 278,162" fill="none" stroke="rgba(148,163,184,0.25)"'
+      + ' stroke-width="1.5" stroke-linecap="round"/>');
+    s('<line x1="150" y1="10" x2="150" y2="300" stroke="rgba(148,163,184,0.08)"'
+      + ' stroke-width="0.5" stroke-dasharray="4 4"/>');
+    s('<line x1="22" y1="155" x2="278" y2="155" stroke="rgba(148,163,184,0.08)"'
+      + ' stroke-width="0.5" stroke-dasharray="4 4"/>');
+    if (patientView) {
+      pp.forEach(function(site) {
+        const pos = BMP_SITES[site]; if (!pos) return;
+        const sx = pos[0], sy = pos[1];
+        const anat = BMP_ANATOMY[site] || site;
+        const lbl  = anat.length > 22 ? anat.slice(0, 22) + '...' : anat;
+        s(_siteG(site, sx, sy,
+          '<circle cx="' + sx + '" cy="' + sy + '" r="32" fill="' + mc + '" opacity="0.18"/>'
+          + '<circle cx="' + sx + '" cy="' + sy + '" r="22" fill="' + mc + '" opacity="0.28"/>'
+          + '<circle cx="' + sx + '" cy="' + sy + '" r="13" fill="' + mc + '" opacity="0.55"/>'
+          + '<text x="' + sx + '" y="' + (sy + 42) + '" text-anchor="middle" font-size="7.5"'
+          + ' fill="rgba(255,255,255,0.7)" font-family="system-ui">' + _esc(lbl) + '</text>'
+        ));
+      });
+    } else {
+      Object.keys(BMP_SITES).forEach(function(name) {
+        if (_siteRole(name) !== 'inactive') return;
+        const pos = BMP_SITES[name];
+        const sx = pos[0], sy = pos[1];
+        s(_siteG(name, sx, sy,
+          '<circle cx="' + sx + '" cy="' + sy + '" r="5" fill="rgba(148,163,184,0.10)"'
+          + ' stroke="rgba(148,163,184,0.22)" stroke-width="0.8"/>'
+          + '<text x="' + (sx + 7) + '" y="' + (sy + 3) + '" font-size="6"'
+          + ' fill="rgba(148,163,184,0.35)" font-family="system-ui">' + _esc(name) + '</text>'
+        ));
+      });
+      ap.forEach(function(name) {
+        const pos = BMP_SITES[name]; if (!pos) return;
+        const sx = pos[0], sy = pos[1];
+        s(_siteG(name, sx, sy,
+          '<circle cx="' + sx + '" cy="' + sy + '" r="7" fill="rgba(74,158,255,0.15)"'
+          + ' stroke="#4a9eff" stroke-width="0.8" stroke-dasharray="3 2"/>'
+          + '<text x="' + (sx + 9) + '" y="' + (sy + 3) + '" font-size="7"'
+          + ' fill="rgba(74,158,255,0.7)" font-family="system-ui">' + _esc(name) + '</text>'
+        ));
+      });
+      rp.forEach(function(name) {
+        const pos = BMP_SITES[name]; if (!pos) return;
+        const sx = pos[0], sy = pos[1];
+        s(_siteG(name, sx, sy,
+          '<circle cx="' + sx + '" cy="' + sy + '" r="13" fill="#ffb547" opacity="0.12"/>'
+          + '<circle cx="' + sx + '" cy="' + sy + '" r="8" fill="#ffb547" opacity="0.55"'
+          + ' filter="url(#bmp-glow)"/>'
+          + '<text x="' + (sx + 10) + '" y="' + (sy + 3) + '" font-size="7.5" fill="#ffb547"'
+          + ' font-weight="600" font-family="system-ui">' + _esc(name)
+          + (bmpState.modality === 'tDCS' ? ' \u2212' : '') + '</text>'
+        ));
+      });
+      pp.forEach(function(name) {
+        const pos = BMP_SITES[name]; if (!pos) return;
+        const sx = pos[0], sy = pos[1];
+        const isTDCS = (bmpState.modality === 'tDCS');
+        const isNFB  = (bmpState.modality === 'Neurofeedback');
+        const isTMS  = (['TMS/rTMS','iTBS','cTBS','Deep TMS'].indexOf(bmpState.modality) !== -1);
+        s('<circle cx="' + sx + '" cy="' + sy + '" r="18" fill="' + mc + '" opacity="0.09"/>');
+        s('<circle cx="' + sx + '" cy="' + sy + '" r="14" fill="' + mc + '" opacity="0.13"/>');
+        if (isTMS) {
+          s('<circle cx="' + sx + '" cy="' + sy + '" r="18" fill="none" stroke="' + mc + '"'
+            + ' stroke-width="3" stroke-dasharray="2 3" opacity="0.35"/>');
+          s('<line x1="' + sx + '" y1="' + (sy - 18) + '" x2="' + sx + '" y2="' + (sy - 25) + '"'
+            + ' stroke="' + mc + '" stroke-width="2" opacity="0.5"/>');
+        }
+        if (isNFB) {
+          s('<circle cx="' + sx + '" cy="' + sy + '" r="16" fill="none" stroke="' + mc + '"'
+            + ' stroke-width="1.5" stroke-dasharray="4 3" opacity="0.4"/>');
+          s('<circle cx="' + sx + '" cy="' + sy + '" r="22" fill="none" stroke="' + mc + '"'
+            + ' stroke-width="1" stroke-dasharray="6 4" opacity="0.25"/>');
+        }
+        s(_siteG(name, sx, sy,
+          '<circle cx="' + sx + '" cy="' + sy + '" r="9" fill="' + mc + '" opacity="0.85"'
+          + ' filter="url(#bmp-glow)"/>'
+          + '<text x="' + (sx + 11) + '" y="' + (sy + 3) + '" font-size="8" fill="' + mc + '"'
+          + ' font-weight="700" font-family="system-ui">' + _esc(name)
+          + (isTDCS ? ' +' : '') + '</text>'
+        ));
+      });
+    }
+    s('</svg>');
+    return sp.join('');
+  }
+
+  // Attach delegated events to the SVG container after it is rendered
+  function _attachSVGEvents(container) {
+    if (!container) return;
+    container.addEventListener('click', function(e) {
+      const g = e.target.closest('[data-site]');
+      if (g) window._bmpSiteClick(g.dataset.site);
+    });
+    container.addEventListener('mouseover', function(e) {
+      const g = e.target.closest('[data-site]');
+      if (g) window._bmpSiteHover(g.dataset.site, true, e);
+    });
+    container.addEventListener('mouseout', function(e) {
+      const g = e.target.closest('[data-site]');
+      if (g) window._bmpSiteHover(g.dataset.site, false, e);
+    });
+  }
+
+  function _buildDetailPanel(site) {
+    if (!site) {
+      return '<div class="bmp-detail-placeholder">'
+        + '<div style="font-size:13px;color:var(--text-tertiary);text-align:center;padding:40px 0">'
+        + 'Click any electrode on the map<br>or load a protocol to see details'
+        + '</div></div>';
+    }
+    const anat = BMP_ANATOMY[site] || site;
+    const mni  = BMP_MNI[site]  || '\u2014';
+    const ba   = BMP_BA[site]   || '\u2014';
+    const condArr = BMP_CONDITIONS[site] || [];
+    const condsHtml = condArr.map(function(c) {
+      return '<span class="bmp-cond-chip">' + _esc(c) + '</span>';
+    }).join('');
+    const placement = BMP_PLACEMENT[site] || 'See 10-20 standard for placement.';
+    let siteRegion = '';
+    const rkeys = Object.keys(BMP_REGION_SITES);
+    for (let ri = 0; ri < rkeys.length; ri++) {
+      const rv = BMP_REGION_SITES[rkeys[ri]];
+      if (rv.primary.indexOf(site) !== -1 || rv.ref.indexOf(site) !== -1 || rv.alt.indexOf(site) !== -1) {
+        siteRegion = rkeys[ri]; break;
+      }
+    }
+    const altSites = (siteRegion && BMP_REGION_SITES[siteRegion]) ? BMP_REGION_SITES[siteRegion].alt : [];
+    const linkedProtos = [];
+    Object.keys(BMP_PROTO_MAP).forEach(function(pid) {
+      const rs = BMP_REGION_SITES[BMP_PROTO_MAP[pid].region];
+      if (rs && (rs.primary.indexOf(site) !== -1 || rs.ref.indexOf(site) !== -1) && linkedProtos.length < 6)
+        linkedProtos.push(pid);
+    });
+    let h = '<div class="bmp-detail-card">';
+    h += '<div class="bmp-detail-site-name">' + _esc(site) + '</div>';
+    h += '<div class="bmp-detail-region">' + _esc(anat) + '</div>';
+    h += '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">';
+    if (mni !== '\u2014') h += '<span style="font-size:11px;padding:2px 8px;border-radius:6px;background:rgba(255,255,255,0.04);border:1px solid var(--border);color:var(--text-secondary)">MNI: ' + _esc(mni) + '</span>';
+    if (ba  !== '\u2014') h += '<span style="font-size:11px;padding:2px 8px;border-radius:6px;background:rgba(255,255,255,0.04);border:1px solid var(--border);color:var(--text-secondary)">' + _esc(ba) + '</span>';
+    h += '</div>';
+    if (condsHtml) {
+      h += '<div class="bmp-detail-section-label">Associated Conditions</div>';
+      h += '<div style="display:flex;flex-wrap:wrap;gap:5px;margin-bottom:4px">' + condsHtml + '</div>';
+    }
+    h += '<div class="bmp-detail-section-label">Placement Guidance</div>';
+    h += '<div class="bmp-placement-text">' + _esc(placement) + '</div>';
+    if (altSites.length) {
+      h += '<div class="bmp-detail-section-label">Alternate Targets</div>';
+      h += '<div style="display:flex;flex-wrap:wrap;gap:5px">';
+      altSites.forEach(function(s2) {
+        h += '<button class="bmp-alt-btn" data-altsite="' + _esc(s2) + '">'
+          + _esc(s2) + '</button>';
+      });
+      h += '</div>';
+    }
+    if (linkedProtos.length) {
+      h += '<div class="bmp-detail-section-label">Linked Protocols</div>';
+      h += '<div style="display:flex;flex-direction:column;gap:5px">';
+      linkedProtos.forEach(function(pid) {
+        h += '<button class="bmp-proto-link" data-proto="' + _esc(pid) + '">'
+          + _esc(BMP_PROTO_LABELS[pid] || pid) + '</button>';
+      });
+      h += '</div>';
+    }
+    h += '</div>';
+    return h;
+  }
+
+  function _updateMap() {
+    const ctr = document.getElementById('bmp-svg-container');
+    if (!ctr) return;
+    ctr.innerHTML = _buildSVG(bmpState.view === 'patient');
+    _attachSVGEvents(ctr);
+  }
+
+  function _updateDetail() {
+    const dp = document.getElementById('bmp-detail-panel');
+    if (dp) dp.innerHTML = _buildDetailPanel(bmpState.selectedSite);
+  }
+
+  function _updateParams() {
+    const pp = document.getElementById('bmp-params-section');
+    if (pp) pp.style.display = (bmpState.modality || bmpState.protoId) ? '' : 'none';
+  }
+
+  function _loadProtocol(pid) {
+    const pm = BMP_PROTO_MAP[pid]; if (!pm) return;
+    bmpState.protoId   = pid;
+    bmpState.region    = pm.region;
+    bmpState.modality  = pm.modality;
+    bmpState.lat       = pm.lat;
+    bmpState.freq      = pm.freq;
+    bmpState.intensity = pm.intensity;
+    bmpState.pulses    = pm.pulses;
+    bmpState.sessions  = pm.sessions;
+    const modSel = document.getElementById('bmp-mod-sel');
+    if (modSel) modSel.value = pm.modality;
+    document.querySelectorAll('.bmp-lat-btn').forEach(function(b) {
+      b.classList.toggle('bmp-lat-active', b.dataset.lat === pm.lat);
+    });
+    ['freq','intensity','pulses','sessions'].forEach(function(k) {
+      const inp = document.getElementById('bmp-param-' + k);
+      if (inp) inp.value = pm[k] || '';
+    });
+    const ps = document.getElementById('bmp-proto-sel');
+    if (ps) ps.value = pid;
+    const rs = BMP_REGION_SITES[pm.region];
+    if (rs && rs.primary.length) bmpState.selectedSite = rs.primary[0];
+    _updateMap(); _updateDetail(); _updateParams();
+  }
+
+  const protoOptions = Object.keys(BMP_PROTO_LABELS).map(function(id) {
+    return '<option value="' + _esc(id) + '">' + _esc(BMP_PROTO_LABELS[id]) + '</option>';
+  }).join('');
+
+  const condOptions = conds.map(function(c) {
+    const n = c.name || c;
+    return '<option value="' + _esc(n) + '">' + _esc(n) + '</option>';
+  }).join('');
+
+  const modalityOptions = ['TMS/rTMS','iTBS','cTBS','Deep TMS','tDCS','tACS',
+    'Neurofeedback','taVNS','CES','PBM','TPS'].map(function(m) {
+    return '<option value="' + _esc(m) + '"'
+      + (m === bmpState.modality ? ' selected' : '') + '>' + _esc(m) + '</option>';
+  }).join('');
+
+  const latVal = bmpState.lat;
+  function _latBtn(v, lbl) {
+    return '<button class="bmp-lat-btn' + (latVal === v ? ' bmp-lat-active' : '') + '"'
+      + ' data-lat="' + v + '">'
+      + lbl + '</button>';
+  }
+
+  el.innerHTML =
+    '<div class="bmp-layout">'
+    + '<div class="bmp-panel bmp-panel--left">'
+      + '<div class="bmp-section-card">'
+        + '<div class="bmp-section-title">Load Protocol</div>'
+        + '<select id="bmp-proto-sel" class="form-select" style="width:100%;font-size:12px"'
+          + ' onchange="window._bmpLoadProto(this.value)">'
+          + '<option value="">\u2014 select protocol \u2014</option>'
+          + protoOptions
+        + '</select>'
+      + '</div>'
+      + '<div style="display:flex;align-items:center;gap:8px;margin:2px 0 4px">'
+        + '<div style="flex:1;height:1px;background:var(--border)"></div>'
+        + '<span style="font-size:11px;color:var(--text-tertiary);white-space:nowrap">or configure manually</span>'
+        + '<div style="flex:1;height:1px;background:var(--border)"></div>'
+      + '</div>'
+      + '<div class="bmp-section-card">'
+        + '<div class="bmp-section-title">Condition</div>'
+        + '<select id="bmp-cond-sel" class="form-select" style="width:100%;font-size:12px">'
+          + '<option value="">\u2014 select \u2014</option>' + condOptions
+        + '</select>'
+      + '</div>'
+      + '<div class="bmp-section-card">'
+        + '<div class="bmp-section-title">Modality</div>'
+        + '<select id="bmp-mod-sel" class="form-select" style="width:100%;font-size:12px"'
+          + ' onchange="window._bmpSetModality(this.value)">'
+          + modalityOptions
+        + '</select>'
+      + '</div>'
+      + '<div class="bmp-section-card">'
+        + '<div class="bmp-section-title">Laterality</div>'
+        + '<div class="bmp-lat-toggle">'
+          + _latBtn('left','Left') + _latBtn('bilateral','Bilateral') + _latBtn('right','Right')
+        + '</div>'
+      + '</div>'
+      + '<div id="bmp-params-section" class="bmp-section-card" style="display:none">'
+        + '<div class="bmp-section-title">Parameters</div>'
+        + '<div style="display:flex;flex-direction:column;gap:8px">'
+          + '<label style="font-size:11px;color:var(--text-secondary)">Frequency (Hz)'
+            + '<input id="bmp-param-freq" class="form-input" type="text"'
+            + ' style="margin-top:3px;width:100%;font-size:12px;box-sizing:border-box"></label>'
+          + '<label style="font-size:11px;color:var(--text-secondary)">Intensity (% MT)'
+            + '<input id="bmp-param-intensity" class="form-input" type="text"'
+            + ' style="margin-top:3px;width:100%;font-size:12px;box-sizing:border-box"></label>'
+          + '<label style="font-size:11px;color:var(--text-secondary)">Pulses/session'
+            + '<input id="bmp-param-pulses" class="form-input" type="text"'
+            + ' style="margin-top:3px;width:100%;font-size:12px;box-sizing:border-box"></label>'
+          + '<label style="font-size:11px;color:var(--text-secondary)">Duration (min)'
+            + '<input id="bmp-param-duration" class="form-input" type="text"'
+            + ' style="margin-top:3px;width:100%;font-size:12px;box-sizing:border-box"></label>'
+          + '<label style="font-size:11px;color:var(--text-secondary)">Sessions'
+            + '<input id="bmp-param-sessions" class="form-input" type="text"'
+            + ' style="margin-top:3px;width:100%;font-size:12px;box-sizing:border-box"></label>'
+          + '<label style="font-size:11px;color:var(--text-secondary)">Notes'
+            + '<textarea id="bmp-param-notes" class="form-input" rows="2"'
+            + ' style="margin-top:3px;width:100%;font-size:12px;box-sizing:border-box;resize:vertical"></textarea></label>'
+        + '</div>'
+      + '</div>'
+      + '<div style="display:flex;flex-direction:column;gap:6px;margin-top:4px">'
+        + '<button class="btn btn-sm" style="border-color:var(--teal);color:var(--teal);font-size:12px"'
+          + ' onclick="window._bmpPrescribe()">Add to Prescription</button>'
+        + '<button class="btn btn-sm" style="font-size:12px"'
+          + ' onclick="window._bmpUseInWizard()">Use in Protocol Wizard</button>'
+      + '</div>'
+    + '</div>'
+    + '<div class="bmp-panel bmp-panel--map">'
+      + '<div class="bmp-map-wrap">'
+        + '<div class="bmp-map-header">'
+          + '<span style="font-size:13px;font-weight:700;color:var(--text-primary)">Electrode Map</span>'
+          + '<div class="bmp-view-toggle">'
+            + '<button class="bmp-view-btn bmp-view-active" data-view="clinical">Clinical</button>'
+            + '<button class="bmp-view-btn" data-view="patient">Patient</button>'
+          + '</div>'
+        + '</div>'
+        + '<div class="bmp-svg-wrap"><div id="bmp-svg-container">' + _buildSVG(false) + '</div></div>'
+        + '<div class="bmp-legend-row">'
+          + '<div class="bmp-legend-item"><span class="bmp-legend-swatch" style="background:var(--teal)"></span>Primary</div>'
+          + '<div class="bmp-legend-item"><span class="bmp-legend-swatch" style="background:#ffb547"></span>Reference</div>'
+          + '<div class="bmp-legend-item"><span class="bmp-legend-swatch" style="background:#4a9eff;opacity:0.6"></span>Alternate</div>'
+          + '<div class="bmp-legend-item"><span class="bmp-legend-swatch" style="background:rgba(148,163,184,0.3)"></span>Inactive</div>'
+        + '</div>'
+      + '</div>'
+    + '</div>'
+    + '<div class="bmp-panel bmp-panel--right">'
+      + '<div id="bmp-detail-panel">' + _buildDetailPanel('') + '</div>'
+      + '<div style="margin-top:8px;display:flex;flex-direction:column;gap:6px">'
+        + '<button class="btn btn-sm" style="font-size:12px" onclick="window._bmpViewDetail()">View Protocol Detail</button>'
+        + '<button class="btn btn-sm" style="font-size:12px" onclick="window._bmpPrescribeProto(window._bmpState && window._bmpState.protoId)">Prescribe This Protocol</button>'
+      + '</div>'
+    + '</div>'
+    + '</div>'
+    + '<div id="bmp-tooltip" class="bmp-tooltip" style="display:none"></div>';
+
+  // Attach SVG events after initial render
+  _attachSVGEvents(document.getElementById('bmp-svg-container'));
+
+  // Delegated events for lat buttons
+  const latToggle = el.querySelector('.bmp-lat-toggle');
+  if (latToggle) {
+    latToggle.addEventListener('click', function(e) {
+      const b = e.target.closest('[data-lat]');
+      if (!b) return;
+      bmpState.lat = b.dataset.lat;
+      el.querySelectorAll('.bmp-lat-btn').forEach(function(btn) {
+        btn.classList.toggle('bmp-lat-active', btn.dataset.lat === bmpState.lat);
+      });
+    });
+  }
+
+  // View toggle
+  const viewToggle = el.querySelector('.bmp-view-toggle');
+  if (viewToggle) {
+    viewToggle.addEventListener('click', function(e) {
+      const b = e.target.closest('[data-view]');
+      if (!b) return;
+      bmpState.view = b.dataset.view;
+      el.querySelectorAll('.bmp-view-btn').forEach(function(btn) {
+        btn.classList.toggle('bmp-view-active', btn.dataset.view === bmpState.view);
+      });
+      _updateMap();
+    });
+  }
+
+  // Detail panel delegated events (alt targets + linked protocols)
+  const detailPanel = document.getElementById('bmp-detail-panel');
+  if (detailPanel) {
+    detailPanel.addEventListener('click', function(e) {
+      const ab = e.target.closest('[data-altsite]');
+      if (ab) { window._bmpSiteClick(ab.dataset.altsite); return; }
+      const pb = e.target.closest('[data-proto]');
+      if (pb) { window._bmpLoadProto(pb.dataset.proto); return; }
+    });
+  }
+
+  // ── global handlers ───────────────────────────────────────────────────────
+  window._bmpLoadProto = function(pid) { if (pid) _loadProtocol(pid); };
+
+  window._bmpSetModality = function(m) {
+    bmpState.modality = m; _updateMap(); _updateParams();
+  };
+
+  window._bmpSetLat = function(lat) {
+    bmpState.lat = lat;
+    el.querySelectorAll('.bmp-lat-btn').forEach(function(b) {
+      b.classList.toggle('bmp-lat-active', b.dataset.lat === lat);
+    });
+  };
+
+  window._bmpSetView = function(v) {
+    bmpState.view = v;
+    const btns = el.querySelectorAll('.bmp-view-btn');
+    btns.forEach(function(b) { b.classList.toggle('bmp-view-active', b.dataset.view === v); });
+    _updateMap();
+  };
+
+  window._bmpSiteHover = function(name, on, evt) {
+    const tt = document.getElementById('bmp-tooltip');
+    if (!tt) return;
+    if (!on) {
+      tt.style.display = 'none';
       return;
     }
-
-    // Render map (large version for the planner)
-    if (mapCont) {
-      const mapHtml = _stimMapSVG(region, lat, mod);
-      // Make it larger by replacing the fixed width/height in the output
-      mapCont.innerHTML = mapHtml.replace('width="148" height="148"', 'width="220" height="220"').replace('viewBox="0 0 148 148"', 'viewBox="0 0 148 148"');
-    }
-
-    if (legend) {
-      legend.style.display = '';
-      const modL = mod.toLowerCase();
-      const isNFB = modL.includes('nfb') || modL.includes('neurofeedback');
-      const isTDCS = modL.includes('tdcs') || modL.includes('tacs');
-      const isTMS  = modL.includes('tms');
-      legend.innerHTML = [
-        region  ? `<strong>Target:</strong> ${region}` : null,
-        lat !== 'bilateral' ? `<strong>Laterality:</strong> ${lat}` : null,
-        isNFB  ? '<strong>Protocol type:</strong> Neurofeedback — active electrode(s) shown' : null,
-        isTDCS ? '<strong>Protocol type:</strong> Transcranial electrical — anode site shown. Cathode placement varies by protocol.' : null,
-        isTMS  ? '<strong>Protocol type:</strong> Transcranial magnetic — coil center position shown' : null,
-      ].filter(Boolean).map(l => `<div>${l}</div>`).join('');
-    }
-
-    // Find matching registry protocols
-    if (matched) {
-      const hits = protos.filter(p => {
-        const r = (p.target_region || '').toLowerCase();
-        const m = (p.modality_id  || '').toLowerCase();
-        return (!region || r.includes(region.toLowerCase().slice(0,4)))
-          && (!mod || m.includes(mod.toLowerCase().slice(0,4)));
-      }).slice(0, 4);
-
-      matched.innerHTML = hits.length
-        ? hits.map(p => {
-            const pid = (p.id||'').replace(/['"<>&]/g,'');
-            return `<div style="padding:8px 0;border-bottom:1px solid var(--border);font-size:12px">
-              <div style="display:flex;align-items:baseline;justify-content:space-between;gap:8px;margin-bottom:3px">
-                <div style="font-weight:500;color:var(--text-primary)">${p.name || '—'}</div>
-                ${evidenceBadge(p.evidence_grade)}
-              </div>
-              <div style="color:var(--text-tertiary);font-size:11px;margin-bottom:6px">${p.condition_id || ''}</div>
-              <div style="display:flex;gap:6px">
-                <button class="btn btn-ghost btn-sm" style="font-size:10.5px;padding:3px 8px" onclick="window._bmpViewDetail('${pid}')">Detail ↗</button>
-                <button class="btn btn-sm" style="font-size:10.5px;padding:3px 8px;border-color:var(--teal);color:var(--teal)" onclick="window._bmpPrescribeProto('${pid}')">Prescribe</button>
-              </div>
-            </div>`;
-          }).join('')
-        : `<div style="color:var(--text-tertiary);font-size:11.5px">No registry protocols match current selection.</div>`;
-    }
+    const anat = BMP_ANATOMY[name] || name;
+    const cl   = (BMP_CONDITIONS[name] || []).join(', ') || 'General electrode site';
+    tt.innerHTML = '<strong style="font-size:13px">' + name + '</strong>'
+      + '<br><span style="font-size:11px;color:rgba(255,255,255,0.7)">' + anat + '</span>'
+      + '<br><span style="font-size:10px;color:rgba(255,255,255,0.5);margin-top:4px;display:block">' + cl + '</span>';
+    tt.style.display = 'block';
+    if (evt) { tt.style.left = (evt.clientX + 14) + 'px'; tt.style.top = (evt.clientY - 10) + 'px'; }
   };
 
-  window._bmpUseInWizard = function() {
-    const region = document.getElementById('bmp-region')?.value || '';
-    const lat    = document.getElementById('bmp-lat')?.value    || 'bilateral';
-    const mod    = document.getElementById('bmp-mod')?.value    || '';
-    if (window._wizState) {
-      window._wizState.targetRegion = region;
-      window._wizState.laterality   = lat;
-      if (mod && !(window._wizState.modalitySlugs||[]).includes(mod)) {
-        window._wizState.modalitySlugs = [mod];
-      }
-      window._wizState._fresh = false;
+  document.addEventListener('mousemove', function(e) {
+    const tt = document.getElementById('bmp-tooltip');
+    if (tt && tt.style.display !== 'none') {
+      tt.style.left = (e.clientX + 14) + 'px';
+      tt.style.top  = (e.clientY - 10) + 'px';
     }
-    window._pilMode = 'wizard';
-    window._nav('protocol-wizard');
+  });
+
+  window._bmpSiteClick = function(name) {
+    bmpState.selectedSite = name;
+    _updateDetail(); _updateMap(); _updateParams();
   };
 
-  window._bmpPrescribe = function() {
-    const region = document.getElementById('bmp-region')?.value || '';
-    const lat    = document.getElementById('bmp-lat')?.value    || 'bilateral';
-    const mod    = document.getElementById('bmp-mod')?.value    || '';
-    // Pre-fill a minimal proto object for the prescriptions modal
-    window._rxPrefilledProto = { target_region: region, laterality: lat, modality_id: mod, name: `${mod || 'Protocol'} — ${region || 'Custom Target'}` };
-    window._nav('prescriptions');
-  };
+  window._bmpPrescribe   = function() { window._nav('prescriptions'); };
+  window._bmpUseInWizard = function() { window._nav('protocol-wizard'); };
 
-  window._bmpViewDetail = function(pid) {
-    const p = (protos || []).find(pr => (pr.id||'').replace(/['"<>&]/g,'') === pid);
-    if (p) window._pilDetailProto = p;
+  window._bmpViewDetail = function() {
+    if (bmpState.protoId && protos && protos.find) {
+      const p = protos.find(function(pr) { return (pr.id || '') === bmpState.protoId; });
+      if (p) window._pilDetailProto = p;
+    }
     window._nav('protocol-detail');
   };
 
   window._bmpPrescribeProto = function(pid) {
-    const p = (protos || []).find(pr => (pr.id||'').replace(/['"<>&]/g,'') === pid);
-    if (p) window._rxPrefilledProto = p;
+    if (pid && protos && protos.find) {
+      const p = protos.find(function(pr) { return (pr.id || '').replace(/['"<>&]/g, '') === pid; });
+      if (p) window._rxPrefilledProto = p;
+    }
     window._nav('prescriptions');
   };
+
+  window._bmpState = bmpState;
 }
 
 // ── pgNotesDictation — Protocol & session notes with dictation ────────────────
@@ -15902,6 +16412,533 @@ export async function pgReportsHub(setTopbar) {
   };
 
   renderPage();
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// pgPrescriptions — Prescribe Protocol Workflow
+// ─────────────────────────────────────────────────────────────────────────────
+export async function pgPrescriptions(setTopbar) {
+  setTopbar('Prescriptions', `
+    <button class="btn btn-primary btn-sm" onclick="window._rxOpenWizard()">+ New Prescription</button>
+    <button class="btn btn-sm" onclick="window._nav('patient-protocol')" style="border-color:var(--teal);color:var(--teal)">Patient View</button>
+  `);
+
+  const PROTOCOLS_SEED = [
+    { id:'PROTO-001', name:'Left DLPFC TMS \u2014 Depression (Standard)', modality:'TMS', indication:'MDD', sessions:30, freqPerWeek:5, durationMin:37 },
+    { id:'PROTO-002', name:'Deep TMS \u2014 OCD Protocol', modality:'TMS', indication:'OCD', sessions:29, freqPerWeek:5, durationMin:20 },
+    { id:'PROTO-003', name:'tDCS Anodal DLPFC \u2014 Depression', modality:'tDCS', indication:'MDD', sessions:20, freqPerWeek:5, durationMin:30 },
+    { id:'PROTO-004', name:'tDCS M1 \u2014 Chronic Pain', modality:'tDCS', indication:'Chronic Pain', sessions:15, freqPerWeek:3, durationMin:20 },
+    { id:'PROTO-005', name:'Alpha Neurofeedback \u2014 Anxiety', modality:'Neurofeedback', indication:'GAD', sessions:20, freqPerWeek:2, durationMin:45 },
+    { id:'PROTO-006', name:'Theta Burst TMS \u2014 Depression (Accelerated)', modality:'TMS', indication:'TRD', sessions:10, freqPerWeek:5, durationMin:10 },
+    { id:'PROTO-007', name:'Right DLPFC TMS \u2014 Anxiety', modality:'TMS', indication:'GAD', sessions:30, freqPerWeek:5, durationMin:37 },
+    { id:'PROTO-008', name:'tDCS Prefrontal \u2014 PTSD', modality:'tDCS', indication:'PTSD', sessions:15, freqPerWeek:3, durationMin:20 },
+  ];
+  const DEVICES_SEED = [
+    { id:'DEV-001', name:'MagVenture MagPro R30', type:'TMS' },
+    { id:'DEV-002', name:'Neuronetics NeuroStar', type:'TMS' },
+    { id:'DEV-003', name:'BrainsWay Deep TMS H1', type:'TMS' },
+    { id:'DEV-004', name:'Soterix Medical 1x1 tDCS', type:'tDCS' },
+    { id:'DEV-005', name:'NeuroConn DC-Stimulator', type:'tDCS' },
+    { id:'DEV-006', name:'Emotiv EPOC X', type:'Neurofeedback' },
+    { id:'DEV-007', name:'Muse S Headband', type:'Neurofeedback' },
+  ];
+  const HOME_PROGRAMS_SEED = [
+    { id:'HP-001', name:'Depression Management Home Program' },
+    { id:'HP-002', name:'Anxiety & Mindfulness Program' },
+    { id:'HP-003', name:'Pain Self-Management Program' },
+    { id:'HP-004', name:'Sleep Hygiene Protocol' },
+    { id:'HP-005', name:'PTSD Grounding & Stabilisation' },
+    { id:'HP-006', name:'Cognitive Stimulation Daily Exercises' },
+  ];
+  const CONSENT_PACKS_SEED = [
+    'Informed Consent for TMS Therapy',
+    'Informed Consent for tDCS Therapy',
+    'Informed Consent for Neurofeedback',
+    'Privacy & Data Handling Consent',
+    'Home Device Use Agreement',
+    'Video Consultation Consent',
+    'Research Participation Consent',
+  ];
+  const COND_ASSESS = [
+    { condId:'CON-001', label:'MDD \u2014 Weekly (PHQ-9, QIDS-SR, C-SSRS)', scales:['PHQ-9','QIDS-SR','C-SSRS'] },
+    { condId:'CON-002', label:'TRD \u2014 Weekly (PHQ-9, QIDS-SR, TMS-SE)', scales:['PHQ-9','QIDS-SR','TMS-SE'] },
+    { condId:'CON-011', label:'GAD \u2014 Weekly (GAD-7, PSWQ)', scales:['GAD-7','PSWQ'] },
+    { condId:'CON-019', label:'PTSD \u2014 Weekly (PCL-5, PHQ-9)', scales:['PCL-5','PHQ-9'] },
+    { condId:'CON-027', label:'Chronic Pain \u2014 Weekly (BPI, PCS)', scales:['BPI','PCS'] },
+    { condId:'CON-051', label:'TMS Protocol \u2014 Per-session (TMS-SE, C-SSRS)', scales:['TMS-SE','C-SSRS'] },
+  ];
+
+  const STORE_KEY = 'ds_rx_hub_v1';
+  function loadRx() {
+    try { return JSON.parse(localStorage.getItem(STORE_KEY)||'null')||seedRx(); } catch(e) { return seedRx(); }
+  }
+  function saveRx(d) { localStorage.setItem(STORE_KEY, JSON.stringify(d)); }
+  function seedRx() {
+    const d = { prescriptions:[
+      { id:'RX-001', patientId:'P-1234', patientName:'James Mitchell', conditionName:'Major Depressive Disorder',
+        protocol:PROTOCOLS_SEED[0], device:DEVICES_SEED[0],
+        schedule:{startDate:'2026-04-14',sessionsPerWeek:5,sessionDurationMin:37,totalSessions:30,completedSessions:8},
+        assessments:[COND_ASSESS[0]], homeProgram:HOME_PROGRAMS_SEED[0],
+        consentPacks:['Informed Consent for TMS Therapy','Privacy & Data Handling Consent'],
+        status:'active', prescribedBy:'Dr. Sarah Chen', prescribedDate:'2026-04-12',
+        notes:'Patient motivated. Two prior SSRI trials. No contraindications. Start 110% MT.' },
+      { id:'RX-002', patientId:'P-5678', patientName:'Anna Torres', conditionName:'Generalized Anxiety Disorder',
+        protocol:PROTOCOLS_SEED[6], device:DEVICES_SEED[1],
+        schedule:{startDate:'2026-04-20',sessionsPerWeek:5,sessionDurationMin:37,totalSessions:30,completedSessions:0},
+        assessments:[COND_ASSESS[2]], homeProgram:HOME_PROGRAMS_SEED[1],
+        consentPacks:['Informed Consent for TMS Therapy','Privacy & Data Handling Consent'],
+        status:'draft', prescribedBy:'Dr. Sarah Chen', prescribedDate:'2026-04-11',
+        notes:'Starting next Monday. Baseline completed.' },
+      { id:'RX-003', patientId:'P-9012', patientName:'Marcus Webb', conditionName:'PTSD',
+        protocol:PROTOCOLS_SEED[7], device:DEVICES_SEED[3],
+        schedule:{startDate:'2026-02-10',sessionsPerWeek:3,sessionDurationMin:20,totalSessions:15,completedSessions:15},
+        assessments:[COND_ASSESS[3]], homeProgram:HOME_PROGRAMS_SEED[4],
+        consentPacks:['Informed Consent for tDCS Therapy','Privacy & Data Handling Consent'],
+        status:'completed', prescribedBy:'Dr. James Patel', prescribedDate:'2026-02-05',
+        notes:'Full course completed. PCL-5 reduced 28 pts. Schedule discharge assessment.' },
+    ]};
+    saveRx(d); return d;
+  }
+
+  let RX = loadRx();
+  let activeTab = 'active';
+  let wizardOpen = false;
+  let wizardStep = 1;
+  let wizardData = {};
+  let detailId = null;
+  const STEPS = ['Patient','Protocol','Device','Schedule','Assessments','Consent & Review'];
+
+  function kpis() {
+    return {
+      active:RX.prescriptions.filter(r=>r.status==='active').length,
+      draft:RX.prescriptions.filter(r=>r.status==='draft').length,
+      completed:RX.prescriptions.filter(r=>r.status==='completed').length,
+    };
+  }
+  function pct(rx) { return rx.schedule.totalSessions?Math.round((rx.schedule.completedSessions/rx.schedule.totalSessions)*100):0; }
+  function sBadge(s) {
+    const m={active:'rx-status-active',draft:'rx-status-draft',completed:'rx-status-ok',paused:'rx-status-warn'};
+    return '<span class="rx-badge '+(m[s]||'rx-status-neutral')+'">'+s+'</span>';
+  }
+
+  function rxCard(rx) {
+    const p=pct(rx);
+    const modCls='rx-mod-'+rx.protocol.modality.toLowerCase().replace(/[\s/]+/g,'-');
+    return '<div class="rx-card">'+
+      '<div class="rx-card-header">'+
+        '<div class="rx-card-patient"><span class="rx-patient-name">'+rx.patientName+'</span><span class="rx-patient-id">'+rx.patientId+'</span></div>'+
+        '<div class="rx-card-badges">'+sBadge(rx.status)+'<span class="rx-mod-badge '+modCls+'">'+rx.protocol.modality+'</span></div>'+
+      '</div>'+
+      '<div class="rx-card-cond">'+rx.conditionName+'</div>'+
+      '<div class="rx-card-proto">'+rx.protocol.name+'</div>'+
+      '<div class="rx-card-device">Device: <strong>'+rx.device.name+'</strong></div>'+
+      (rx.status==='active'?
+        '<div class="rx-prog-wrap"><div class="rx-prog-label"><span>'+rx.schedule.completedSessions+' / '+rx.schedule.totalSessions+' sessions</span><span>'+p+'%</span></div>'+
+        '<div class="rx-prog-bar"><div class="rx-prog-fill" style="width:'+p+'%"></div></div></div>':'')+
+      '<div class="rx-card-meta">'+rx.prescribedBy+' &bull; '+rx.prescribedDate+'</div>'+
+      '<div class="rx-card-actions">'+
+        '<button class="rx-btn rx-btn-sm" onclick="window._rxDetail(\''+rx.id+'\')">Detail</button>'+
+        '<button class="rx-btn rx-btn-sm rx-btn-teal" onclick="window._rxPatientView(\''+rx.id+'\')">Patient View</button>'+
+        (rx.status==='draft'?'<button class="rx-btn rx-btn-sm rx-btn-ok" onclick="window._rxActivate(\''+rx.id+'\')">Activate</button>':'')+
+        (rx.status==='active'?'<button class="rx-btn rx-btn-sm rx-btn-ghost" onclick="window._rxComplete(\''+rx.id+'\')">Complete</button>':'')+
+      '</div>'+
+    '</div>';
+  }
+
+  function renderList() {
+    const list=activeTab==='all'?RX.prescriptions:RX.prescriptions.filter(r=>r.status===activeTab);
+    if (!list.length) return '<div class="rx-empty">No prescriptions here</div>';
+    return '<div class="rx-list">'+list.map(rxCard).join('')+'</div>';
+  }
+
+  function renderMain() {
+    const k=kpis();
+    return '<div class="rx-kpi-strip">'+
+        '<div class="rx-kpi rx-kpi-active"><span class="rx-kpi-val">'+k.active+'</span><span class="rx-kpi-lbl">Active</span></div>'+
+        '<div class="rx-kpi rx-kpi-draft"><span class="rx-kpi-val">'+k.draft+'</span><span class="rx-kpi-lbl">Drafts</span></div>'+
+        '<div class="rx-kpi"><span class="rx-kpi-val">'+k.completed+'</span><span class="rx-kpi-lbl">Completed</span></div>'+
+        '<div class="rx-kpi"><span class="rx-kpi-val">'+RX.prescriptions.length+'</span><span class="rx-kpi-lbl">Total</span></div>'+
+      '</div>'+
+      '<div class="rx-tabs">'+['active','draft','completed','all'].map(t=>
+        '<button class="rx-tab'+(activeTab===t?' rx-tab-active':'')+'" onclick="window._rxTab(\''+t+'\')">'+(t==='all'?'All':t.charAt(0).toUpperCase()+t.slice(1))+'</button>'
+      ).join('')+'</div>'+
+      '<div class="rx-tab-body">'+renderList()+'</div>';
+  }
+
+  function wizardContent() {
+    const d=wizardData;
+    if (wizardStep===1) return '<div class="rx-wiz-sec"><h3 class="rx-wiz-stitle">Patient &amp; Condition</h3>'+
+      '<div class="rx-frow"><label>Patient ID</label><input id="wiz-pid" class="rx-input" placeholder="P-XXXX" value="'+(d.patientId||'')+'"/></div>'+
+      '<div class="rx-frow"><label>Patient Name</label><input id="wiz-pname" class="rx-input" placeholder="Full name" value="'+(d.patientName||'')+'"/></div>'+
+      '<div class="rx-frow"><label>Primary Condition</label><input id="wiz-cond" class="rx-input" placeholder="e.g. Major Depressive Disorder" value="'+(d.conditionName||'')+'"/></div>'+
+      '<div class="rx-frow"><label>Clinical Notes</label><textarea id="wiz-notes" class="rx-input rx-textarea" placeholder="History, prior treatments, contraindication notes...">'+(d.notes||'')+'</textarea></div>'+
+      '</div>';
+    if (wizardStep===2) return '<div class="rx-wiz-sec"><h3 class="rx-wiz-stitle">Select Protocol</h3>'+
+      '<div class="rx-proto-grid">'+PROTOCOLS_SEED.map(p=>
+        '<div class="rx-proto-opt'+(d.protocolId===p.id?' rx-proto-sel':'')+'" onclick="window._rxSelProto(\''+p.id+'\')">'+
+          '<div class="rx-proto-mod rx-mod-'+p.modality.toLowerCase().replace(/[\s/]+/g,'-')+'">'+p.modality+'</div>'+
+          '<div class="rx-proto-name">'+p.name+'</div>'+
+          '<div class="rx-proto-meta">'+p.sessions+' sessions &bull; '+p.freqPerWeek+'x/week &bull; '+p.durationMin+' min</div>'+
+          '<div class="rx-proto-ind">'+p.indication+'</div>'+
+        '</div>').join('')+'</div></div>';
+    if (wizardStep===3) return '<div class="rx-wiz-sec"><h3 class="rx-wiz-stitle">Select Device</h3>'+
+      '<div class="rx-device-grid">'+DEVICES_SEED.map(dv=>
+        '<div class="rx-device-opt'+(d.deviceId===dv.id?' rx-device-sel':'')+'" onclick="window._rxSelDevice(\''+dv.id+'\')">'+
+          '<div class="rx-device-type rx-mod-'+dv.type.toLowerCase().replace(/[\s/]+/g,'-')+'">'+dv.type+'</div>'+
+          '<div class="rx-device-name">'+dv.name+'</div>'+
+        '</div>').join('')+'</div></div>';
+    if (wizardStep===4) {
+      const pr=PROTOCOLS_SEED.find(p=>p.id===d.protocolId)||PROTOCOLS_SEED[0];
+      return '<div class="rx-wiz-sec"><h3 class="rx-wiz-stitle">Set Schedule</h3>'+
+        '<div class="rx-frow"><label>Start Date</label><input id="wiz-start" type="date" class="rx-input" value="'+(d.startDate||new Date(Date.now()+2*864e5).toISOString().slice(0,10))+'"/></div>'+
+        '<div class="rx-frow"><label>Sessions per Week</label><input id="wiz-freq" type="number" min="1" max="7" class="rx-input" value="'+(d.sessionsPerWeek||pr.freqPerWeek)+'"/></div>'+
+        '<div class="rx-frow"><label>Session Duration (min)</label><input id="wiz-dur" type="number" min="5" max="120" class="rx-input" value="'+(d.sessionDurationMin||pr.durationMin)+'"/></div>'+
+        '<div class="rx-frow"><label>Total Sessions</label><input id="wiz-total" type="number" min="1" max="100" class="rx-input" value="'+(d.totalSessions||pr.sessions)+'" oninput="window._rxCalcEnd()"/></div>'+
+        '<div class="rx-sched-prev" id="rx-sched-prev"></div></div>';
+    }
+    if (wizardStep===5) return '<div class="rx-wiz-sec"><h3 class="rx-wiz-stitle">Assessments &amp; Home Program</h3>'+
+      '<div class="rx-assess-list">'+COND_ASSESS.map(a=>
+        '<label class="rx-assess-item"><input type="checkbox" class="rx-assess-chk" data-condid="'+a.condId+'" '+((d.assessmentIds||[]).includes(a.condId)?'checked':'')+'/> '+a.label+'</label>'
+      ).join('')+'</div>'+
+      '<h3 class="rx-wiz-stitle" style="margin-top:18px">Home Program</h3>'+
+      '<select id="wiz-hp" class="rx-input"><option value="">None</option>'+HOME_PROGRAMS_SEED.map(h=>
+        '<option value="'+h.id+'"'+(d.homeProgramId===h.id?' selected':'')+'>'+h.name+'</option>').join('')+'</select></div>';
+    if (wizardStep===6) {
+      const pr=PROTOCOLS_SEED.find(p=>p.id===d.protocolId)||{name:'\u2014'};
+      const dv=DEVICES_SEED.find(x=>x.id===d.deviceId)||{name:'\u2014'};
+      const hp=HOME_PROGRAMS_SEED.find(h=>h.id===d.homeProgramId);
+      return '<div class="rx-wiz-sec"><h3 class="rx-wiz-stitle">Consent Packs</h3>'+
+        '<div class="rx-consent-list">'+CONSENT_PACKS_SEED.map(cp=>
+          '<label class="rx-assess-item"><input type="checkbox" class="rx-consent-chk" data-name="'+cp+'" '+((d.consentPacks||[]).includes(cp)?'checked':'')+'/> '+cp+'</label>'
+        ).join('')+'</div>'+
+        '<h3 class="rx-wiz-stitle" style="margin-top:18px">Review</h3>'+
+        '<table class="rx-review-tbl">'+
+          '<tr><td>Patient</td><td><strong>'+(d.patientName||'\u2014')+'</strong> ('+(d.patientId||'\u2014')+')</td></tr>'+
+          '<tr><td>Condition</td><td>'+(d.conditionName||'\u2014')+'</td></tr>'+
+          '<tr><td>Protocol</td><td>'+pr.name+'</td></tr>'+
+          '<tr><td>Device</td><td>'+dv.name+'</td></tr>'+
+          '<tr><td>Schedule</td><td>'+(d.totalSessions||'\u2014')+' sessions, '+(d.sessionsPerWeek||'\u2014')+'x/week from '+(d.startDate||'\u2014')+'</td></tr>'+
+          '<tr><td>Home Program</td><td>'+(hp?hp.name:'None')+'</td></tr>'+
+        '</table></div>';
+    }
+    return '';
+  }
+
+  function renderWizard() {
+    if (!wizardOpen) return '';
+    return '<div class="rx-wiz-overlay">'+
+      '<div class="rx-wiz-panel">'+
+        '<div class="rx-wiz-hdr"><h2>New Prescription</h2>'+
+        '<button class="rx-wiz-close" onclick="window._rxCloseWizard()">&times;</button></div>'+
+        '<div class="rx-wiz-steps">'+STEPS.map((s,i)=>
+          '<div class="rx-wiz-step'+(wizardStep===i+1?' rx-step-active':wizardStep>i+1?' rx-step-done':'')+'">'+
+            '<span class="rx-step-num">'+(wizardStep>i+1?'&#10003;':i+1)+'</span>'+
+            '<span class="rx-step-lbl">'+s+'</span>'+
+          '</div>'+(i<STEPS.length-1?'<div class="rx-step-conn"></div>':'')
+        ).join('')+'</div>'+
+        '<div class="rx-wiz-body">'+wizardContent()+'</div>'+
+        '<div class="rx-wiz-ftr">'+
+          (wizardStep>1?'<button class="rx-btn rx-btn-ghost" onclick="window._rxWizBack()">&#8592; Back</button>':'<span></span>')+
+          '<div style="display:flex;gap:8px">'+
+            '<button class="rx-btn rx-btn-ghost" onclick="window._rxSaveDraft()">Save Draft</button>'+
+            (wizardStep<STEPS.length
+              ?'<button class="rx-btn" onclick="window._rxWizNext()">Next &#8594;</button>'
+              :'<button class="rx-btn rx-btn-ok" onclick="window._rxFinalize()">Prescribe &amp; Activate</button>')+
+          '</div>'+
+        '</div>'+
+      '</div>'+
+    '</div>';
+  }
+
+  function renderDetail() {
+    if (!detailId) return '';
+    const rx=RX.prescriptions.find(r=>r.id===detailId);
+    if (!rx) return '';
+    const p=pct(rx);
+    return '<div class="rx-detail-overlay">'+
+      '<div class="rx-detail-panel">'+
+        '<div class="rx-detail-hdr">'+
+          '<div><h2 class="rx-det-patient">'+rx.patientName+'</h2>'+
+          '<div class="rx-det-sub">'+rx.patientId+' &bull; '+rx.conditionName+'</div></div>'+
+          '<button class="rx-wiz-close" onclick="window._rxCloseDetail()">&times;</button>'+
+        '</div>'+
+        '<div class="rx-det-body">'+
+          '<div class="rx-det-sec"><h4>Protocol &amp; Device</h4>'+
+            '<div class="rx-det-row"><span>Protocol</span><span>'+rx.protocol.name+'</span></div>'+
+            '<div class="rx-det-row"><span>Modality</span><span>'+rx.protocol.modality+'</span></div>'+
+            '<div class="rx-det-row"><span>Device</span><span>'+rx.device.name+'</span></div>'+
+          '</div>'+
+          '<div class="rx-det-sec"><h4>Schedule</h4>'+
+            '<div class="rx-det-row"><span>Start</span><span>'+rx.schedule.startDate+'</span></div>'+
+            '<div class="rx-det-row"><span>Frequency</span><span>'+rx.schedule.sessionsPerWeek+'x/week</span></div>'+
+            '<div class="rx-det-row"><span>Duration</span><span>'+rx.schedule.sessionDurationMin+' min</span></div>'+
+            '<div class="rx-det-row"><span>Total</span><span>'+rx.schedule.totalSessions+'</span></div>'+
+            '<div class="rx-det-row"><span>Done</span><span>'+rx.schedule.completedSessions+' ('+p+'%)</span></div>'+
+            '<div class="rx-prog-wrap"><div class="rx-prog-bar"><div class="rx-prog-fill" style="width:'+p+'%"></div></div></div>'+
+          '</div>'+
+          '<div class="rx-det-sec"><h4>Assessments</h4>'+rx.assessments.map(a=>'<div>'+a.label+'</div>').join('')+'</div>'+
+          '<div class="rx-det-sec"><h4>Home Program</h4><div>'+rx.homeProgram.name+'</div></div>'+
+          '<div class="rx-det-sec"><h4>Consent</h4>'+rx.consentPacks.map(cp=>'<div>&#10003; '+cp+'</div>').join('')+'</div>'+
+          '<div class="rx-det-sec"><h4>Notes</h4><div class="rx-det-notes">'+rx.notes+'</div></div>'+
+        '</div>'+
+        '<div class="rx-wiz-ftr">'+
+          '<button class="rx-btn rx-btn-teal" onclick="window._rxPatientView(\''+rx.id+'\')">Patient View</button>'+
+          '<button class="rx-btn rx-btn-ghost" onclick="window._rxCloseDetail()">Close</button>'+
+        '</div>'+
+      '</div>'+
+    '</div>';
+  }
+
+  function renderPage() {
+    const el=document.getElementById('content');
+    if (!el) return;
+    el.innerHTML='<div class="rx-wrap"><div class="rx-main">'+renderMain()+'</div>'+renderWizard()+renderDetail()+'</div>';
+  }
+
+  window._rxTab=t=>{activeTab=t;renderPage();};
+  window._rxOpenWizard=()=>{wizardOpen=true;wizardStep=1;wizardData={};renderPage();};
+  window._rxCloseWizard=()=>{wizardOpen=false;renderPage();};
+  window._rxCloseDetail=()=>{detailId=null;renderPage();};
+  window._rxDetail=id=>{detailId=id;renderPage();};
+  window._rxSelProto=id=>{wizardData.protocolId=id;renderPage();};
+  window._rxSelDevice=id=>{wizardData.deviceId=id;renderPage();};
+
+  window._rxWizNext=()=>{
+    if (wizardStep===1){
+      wizardData.patientId=(document.getElementById('wiz-pid')||{}).value||'';
+      wizardData.patientName=(document.getElementById('wiz-pname')||{}).value||'';
+      wizardData.conditionName=(document.getElementById('wiz-cond')||{}).value||'';
+      wizardData.notes=(document.getElementById('wiz-notes')||{}).value||'';
+      if (!wizardData.patientId||!wizardData.patientName){alert('Patient ID and name required');return;}
+    }
+    if (wizardStep===2&&!wizardData.protocolId){alert('Select a protocol');return;}
+    if (wizardStep===3&&!wizardData.deviceId){alert('Select a device');return;}
+    if (wizardStep===4){
+      wizardData.startDate=(document.getElementById('wiz-start')||{}).value||'';
+      wizardData.sessionsPerWeek=parseInt((document.getElementById('wiz-freq')||{}).value||'3');
+      wizardData.sessionDurationMin=parseInt((document.getElementById('wiz-dur')||{}).value||'30');
+      wizardData.totalSessions=parseInt((document.getElementById('wiz-total')||{}).value||'20');
+      if (!wizardData.startDate){alert('Start date required');return;}
+    }
+    if (wizardStep===5){
+      wizardData.assessmentIds=[...(document.querySelectorAll('.rx-assess-chk:checked'))].map(c=>c.dataset.condid);
+      wizardData.homeProgramId=(document.getElementById('wiz-hp')||{}).value||'';
+    }
+    wizardStep++;renderPage();
+  };
+  window._rxWizBack=()=>{wizardStep=Math.max(1,wizardStep-1);renderPage();};
+  window._rxCalcEnd=()=>{
+    const start=(document.getElementById('wiz-start')||{}).value;
+    const freq=parseInt((document.getElementById('wiz-freq')||{}).value||'3');
+    const total=parseInt((document.getElementById('wiz-total')||{}).value||'20');
+    const prev=document.getElementById('rx-sched-prev');
+    if (!prev||!start||!freq) return;
+    const weeks=Math.ceil(total/freq);
+    const end=new Date(new Date(start).getTime()+weeks*7*864e5).toISOString().slice(0,10);
+    prev.textContent=total+' sessions at '+freq+'x/week = ~'+weeks+' weeks. Est. end: '+end;
+  };
+
+  function _build(status){
+    const pr=PROTOCOLS_SEED.find(p=>p.id===wizardData.protocolId)||PROTOCOLS_SEED[0];
+    const dv=DEVICES_SEED.find(d=>d.id===wizardData.deviceId)||DEVICES_SEED[0];
+    const hp=HOME_PROGRAMS_SEED.find(h=>h.id===wizardData.homeProgramId)||HOME_PROGRAMS_SEED[0];
+    const consents=[...(document.querySelectorAll('.rx-consent-chk:checked')||[])].map(c=>c.dataset.name);
+    const assesses=COND_ASSESS.filter(a=>(wizardData.assessmentIds||[]).includes(a.condId));
+    RX.prescriptions.push({
+      id:'RX-'+String(Date.now()).slice(-4),
+      patientId:wizardData.patientId||'P-NEW',patientName:wizardData.patientName||'Unknown',
+      conditionName:wizardData.conditionName||'\u2014',protocol:pr,device:dv,
+      schedule:{startDate:wizardData.startDate||'',sessionsPerWeek:wizardData.sessionsPerWeek||3,
+        sessionDurationMin:wizardData.sessionDurationMin||30,totalSessions:wizardData.totalSessions||20,completedSessions:0},
+      assessments:assesses,homeProgram:hp,consentPacks:consents,
+      status,prescribedBy:'Current Clinician',prescribedDate:new Date().toISOString().slice(0,10),notes:wizardData.notes||'',
+    });
+    saveRx(RX);wizardOpen=false;activeTab=status;renderPage();
+  }
+  window._rxFinalize=()=>_build('active');
+  window._rxSaveDraft=()=>{
+    if (wizardStep===1){
+      wizardData.patientId=(document.getElementById('wiz-pid')||{}).value||'P-NEW';
+      wizardData.patientName=(document.getElementById('wiz-pname')||{}).value||'Draft';
+      wizardData.conditionName=(document.getElementById('wiz-cond')||{}).value||'';
+      wizardData.notes=(document.getElementById('wiz-notes')||{}).value||'';
+    }
+    _build('draft');
+  };
+  window._rxActivate=id=>{const rx=RX.prescriptions.find(r=>r.id===id);if(rx){rx.status='active';saveRx(RX);renderPage();}};
+  window._rxComplete=id=>{const rx=RX.prescriptions.find(r=>r.id===id);if(rx){rx.status='completed';saveRx(RX);renderPage();}};
+  window._rxPatientView=id=>{localStorage.setItem('ds_ppv_rx_id',id);window._nav('patient-protocol');};
+
+  renderPage();
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// pgPatientProtocolView — Patient-facing protocol explanation page
+// ─────────────────────────────────────────────────────────────────────────────
+export async function pgPatientProtocolView(setTopbar) {
+  setTopbar('Your Treatment Plan', `
+    <button class="btn btn-sm" onclick="window._nav('prescriptions')" style="border-color:var(--teal);color:var(--teal)">&#8592; Prescriptions</button>
+    <button class="btn btn-sm" onclick="window.print()">Print</button>
+  `);
+
+  const rxId=localStorage.getItem('ds_ppv_rx_id');
+  let rx=null;
+  try { const s=JSON.parse(localStorage.getItem('ds_rx_hub_v1')||'{}'); rx=(s.prescriptions||[]).find(r=>r.id===rxId); } catch(e){}
+  if (!rx) rx={
+    patientName:'James Mitchell',conditionName:'Major Depressive Disorder',
+    protocol:{name:'Left DLPFC TMS \u2014 Depression (Standard)',modality:'TMS',indication:'MDD'},
+    device:{name:'MagVenture MagPro R30',type:'TMS'},
+    schedule:{startDate:'2026-04-14',sessionsPerWeek:5,sessionDurationMin:37,totalSessions:30,completedSessions:8},
+    assessments:[{label:'MDD Weekly',scales:['PHQ-9','QIDS-SR','C-SSRS']}],
+    homeProgram:{name:'Depression Management Home Program'},
+    consentPacks:['Informed Consent for TMS Therapy'],
+    notes:'You have completed two prior medication trials with partial response. TMS is a non-invasive, evidence-based treatment targeting specific brain areas associated with mood regulation.',
+    prescribedBy:'Dr. Sarah Chen',prescribedDate:'2026-04-12',
+  };
+
+  const totalWeeks=Math.ceil(rx.schedule.totalSessions/rx.schedule.sessionsPerWeek);
+  const progress=Math.round((rx.schedule.completedSessions/rx.schedule.totalSessions)*100);
+
+  const MODALITY_EXPLAIN={
+    TMS:'Transcranial Magnetic Stimulation (TMS) uses gentle magnetic pulses to stimulate specific areas of your brain. It is non-invasive \u2014 no surgery, no anaesthetic, and you remain fully awake. Sessions take 30\u201340 minutes and you can drive home afterwards.',
+    tDCS:'Transcranial Direct Current Stimulation (tDCS) delivers a very small, safe electrical current through electrodes placed on your scalp. It gently adjusts the activity of targeted brain areas. Sessions are comfortable and you stay fully awake.',
+    Neurofeedback:'Neurofeedback trains your brain to regulate itself by showing you your own brain activity in real time. Sensors on your scalp provide feedback that helps your brain build healthier activity patterns over time.',
+  };
+  const explain=MODALITY_EXPLAIN[rx.protocol.modality]||'This treatment uses evidence-based neurostimulation to support your recovery.';
+
+  const SCALE_PLAIN={'PHQ-9':'Depression symptoms (9 questions)','QIDS-SR':'Depression severity (16 questions)','C-SSRS':'Safety &amp; wellbeing check','GAD-7':'Anxiety symptoms (7 questions)','PCL-5':'Trauma &amp; stress symptoms','ISI':'Sleep quality','TMS-SE':'Treatment comfort &amp; side effects','BPI':'Pain levels &amp; daily impact','PCS':'Pain thoughts &amp; coping','CGI':'Overall progress (clinician-rated)'};
+
+  const BRAIN_TARGETS={TMS:{label:'Left DLPFC',cx:135,cy:105},tDCS:{label:'Prefrontal Cortex',cx:130,cy:90},Neurofeedback:{label:'Frontal Cortex',cx:130,cy:85}};
+  const tgt=BRAIN_TARGETS[rx.protocol.modality]||{label:'Target Region',cx:130,cy:100};
+
+  const brainSvg='<svg viewBox="0 0 280 215" xmlns="http://www.w3.org/2000/svg" class="ppv-brain-svg">'+
+    '<path d="M140,25 C170,22 205,38 218,65 C230,90 228,115 220,135 C210,158 195,170 175,175 C165,177 155,177 140,177 Z" fill="rgba(20,184,166,0.07)" stroke="rgba(20,184,166,0.22)" stroke-width="1.5"/>'+
+    '<path d="M140,25 C110,22 75,38 62,65 C50,90 52,115 60,135 C70,158 85,170 105,175 C115,177 125,177 140,177 Z" fill="rgba(20,184,166,0.05)" stroke="rgba(20,184,166,0.18)" stroke-width="1.5"/>'+
+    '<line x1="140" y1="25" x2="140" y2="177" stroke="rgba(255,255,255,0.1)" stroke-width="1.5" stroke-dasharray="4,4"/>'+
+    '<path d="M88,72 Q104,62 119,72 Q129,80 139,70" fill="none" stroke="rgba(20,184,166,0.15)" stroke-width="1.5"/>'+
+    '<path d="M158,66 Q174,58 189,67 Q199,75 207,68" fill="none" stroke="rgba(20,184,166,0.15)" stroke-width="1.5"/>'+
+    '<path d="M74,112 Q89,102 104,112 Q114,120 124,110" fill="none" stroke="rgba(20,184,166,0.12)" stroke-width="1.5"/>'+
+    '<path d="M154,107 Q167,97 182,106 Q192,114 204,105" fill="none" stroke="rgba(20,184,166,0.12)" stroke-width="1.5"/>'+
+    '<circle cx="'+tgt.cx+'" cy="'+tgt.cy+'" r="22" fill="rgba(20,184,166,0.2)" stroke="var(--teal,#14b8a6)" stroke-width="2"/>'+
+    '<circle cx="'+tgt.cx+'" cy="'+tgt.cy+'" r="6" fill="var(--teal,#14b8a6)"/>'+
+    '<circle cx="'+tgt.cx+'" cy="'+tgt.cy+'" r="30" fill="none" stroke="rgba(20,184,166,0.3)" stroke-width="1.5" stroke-dasharray="5,3"/>'+
+    '<circle cx="'+tgt.cx+'" cy="'+tgt.cy+'" r="38" fill="none" stroke="rgba(20,184,166,0.15)" stroke-width="1" stroke-dasharray="4,4"/>'+
+    '<line x1="'+tgt.cx+'" y1="'+(tgt.cy-22)+'" x2="'+tgt.cx+'" y2="'+(tgt.cy-46)+'" stroke="var(--teal,#14b8a6)" stroke-width="1.5"/>'+
+    '<rect x="'+(tgt.cx-54)+'" y="'+(tgt.cy-67)+'" width="108" height="22" rx="11" fill="rgba(20,184,166,0.15)" stroke="rgba(20,184,166,0.4)" stroke-width="1"/>'+
+    '<text x="'+tgt.cx+'" y="'+(tgt.cy-53)+'" text-anchor="middle" fill="var(--teal,#14b8a6)" font-size="11" font-weight="600" font-family="inherit">'+tgt.label+'</text>'+
+    '<text x="140" y="202" text-anchor="middle" fill="rgba(255,255,255,0.25)" font-size="9" font-family="inherit">Brain \u2014 Top View</text>'+
+    '</svg>';
+
+  const timelineHtml=(function(){
+    let h='';
+    for (let w=1;w<=totalWeeks;w++){
+      const done=(w-1)*rx.schedule.sessionsPerWeek<rx.schedule.completedSessions;
+      const cur=(w-1)*rx.schedule.sessionsPerWeek<rx.schedule.completedSessions&&w*rx.schedule.sessionsPerWeek>=rx.schedule.completedSessions;
+      const isAssess=w===1||w%4===0||w===totalWeeks;
+      h+='<div class="ppv-week'+(cur?' ppv-wk-cur':done?' ppv-wk-done':'')+'">'+
+        '<div class="ppv-wk-n">Wk '+w+'</div>'+
+        '<div class="ppv-wk-dots">'+Array.from({length:rx.schedule.sessionsPerWeek},(_,i)=>{
+          const sd=(w-1)*rx.schedule.sessionsPerWeek+i+1<=rx.schedule.completedSessions;
+          return '<div class="ppv-dot'+(sd?' ppv-dot-done':'')+'"></div>';
+        }).join('')+'</div>'+
+        (isAssess?'<div class="ppv-wk-a">&#128203;</div>':'')+
+      '</div>';
+    }
+    return h;
+  })();
+
+  const milestones=[
+    {wk:1,label:'Treatment begins',icon:'&#128640;'},
+    {wk:Math.max(2,Math.round(totalWeeks*0.33)),label:'First progress check',icon:'&#128203;'},
+    {wk:Math.max(3,Math.round(totalWeeks*0.67)),label:'Mid-course review',icon:'&#128202;'},
+    {wk:totalWeeks,label:'Course complete',icon:'&#127942;'},
+  ].filter((m,i,a)=>a.findIndex(x=>x.wk===m.wk)===i);
+
+  const monitorItems=rx.assessments.flatMap(a=>a.scales||[]).map(sid=>
+    '<div class="ppv-mon-item"><span class="ppv-mon-ico">&#128202;</span><span>'+(SCALE_PLAIN[sid]||sid)+'</span></div>'
+  ).join('');
+
+  const el=document.getElementById('content');
+  if (!el) return;
+
+  el.innerHTML=
+    '<div class="ppv-wrap">'+
+    '<div class="ppv-hero">'+
+      '<div class="ppv-hero-l">'+
+        '<div class="ppv-greeting">Your treatment plan</div>'+
+        '<h1 class="ppv-hero-name">'+rx.patientName+'</h1>'+
+        '<div class="ppv-hero-cond">'+rx.conditionName+'</div>'+
+        '<div class="ppv-hero-pill">'+rx.protocol.modality+' &bull; '+rx.schedule.totalSessions+' sessions &bull; '+totalWeeks+' weeks</div>'+
+      '</div>'+
+      '<div class="ppv-hero-r">'+
+        '<svg class="ppv-ring-svg" viewBox="0 0 80 80">'+
+          '<circle cx="40" cy="40" r="32" fill="none" stroke="rgba(255,255,255,0.1)" stroke-width="6"/>'+
+          '<circle cx="40" cy="40" r="32" fill="none" stroke="var(--teal,#14b8a6)" stroke-width="6" stroke-dasharray="201" stroke-dashoffset="'+Math.round(201*(1-progress/100))+'" stroke-linecap="round" transform="rotate(-90 40 40)"/>'+
+          '<text x="40" y="37" text-anchor="middle" fill="#fff" font-size="16" font-weight="700">'+progress+'%</text>'+
+          '<text x="40" y="50" text-anchor="middle" fill="rgba(255,255,255,0.45)" font-size="8">complete</text>'+
+        '</svg>'+
+        '<div class="ppv-sess-n">'+rx.schedule.completedSessions+' of '+rx.schedule.totalSessions+'</div>'+
+      '</div>'+
+    '</div>'+
+    '<div class="ppv-content">'+
+
+      '<section class="ppv-sec"><h2 class="ppv-sec-h"><span>&#129504;</span>What is your treatment?</h2>'+
+        '<p class="ppv-lead">'+rx.protocol.name+'</p>'+
+        '<p class="ppv-text">'+explain+'</p>'+
+      '</section>'+
+
+      '<section class="ppv-sec"><h2 class="ppv-sec-h"><span>&#128270;</span>Why was this chosen?</h2>'+
+        '<p class="ppv-text">'+(rx.notes||'Your clinician selected this based on your clinical history, diagnosis, and prior treatment response.')+'</p>'+
+        '<div class="ppv-prescriber">Prescribed by <strong>'+rx.prescribedBy+'</strong>'+(rx.prescribedDate?' &bull; '+rx.prescribedDate:'')+'</div>'+
+      '</section>'+
+
+      '<section class="ppv-sec"><h2 class="ppv-sec-h"><span>&#128197;</span>Your session plan</h2>'+
+        '<div class="ppv-plan-cards">'+
+          '<div class="ppv-plan-c"><div class="ppv-plan-v">'+rx.schedule.totalSessions+'</div><div class="ppv-plan-l">Sessions</div></div>'+
+          '<div class="ppv-plan-c"><div class="ppv-plan-v">'+rx.schedule.sessionsPerWeek+'&times;</div><div class="ppv-plan-l">Per Week</div></div>'+
+          '<div class="ppv-plan-c"><div class="ppv-plan-v">'+rx.schedule.sessionDurationMin+'<small>min</small></div><div class="ppv-plan-l">Per Session</div></div>'+
+          '<div class="ppv-plan-c"><div class="ppv-plan-v">'+totalWeeks+'<small>wks</small></div><div class="ppv-plan-l">Duration</div></div>'+
+        '</div>'+
+        '<div class="ppv-device-note">Device: <strong>'+rx.device.name+'</strong></div>'+
+      '</section>'+
+
+      '<section class="ppv-sec"><h2 class="ppv-sec-h"><span>&#128336;</span>Expected timeline</h2>'+
+        '<div class="ppv-milestones">'+milestones.map(m=>
+          '<div class="ppv-ms"><div class="ppv-ms-ico">'+m.icon+'</div>'+
+          '<div><div class="ppv-ms-lbl">'+m.label+'</div><div class="ppv-ms-wk">Week '+m.wk+'</div></div></div>'
+        ).join('')+'</div>'+
+        '<div class="ppv-tl-wrap"><div class="ppv-timeline">'+timelineHtml+'</div></div>'+
+        '<div class="ppv-legend">'+
+          '<span class="ppv-leg"><span class="ppv-dot ppv-dot-done"></span>Completed</span>'+
+          '<span class="ppv-leg"><span class="ppv-dot"></span>Upcoming</span>'+
+          '<span class="ppv-leg">&#128203; Assessment week</span>'+
+        '</div>'+
+      '</section>'+
+
+      '<section class="ppv-sec"><h2 class="ppv-sec-h"><span>&#128200;</span>What we are tracking</h2>'+
+        '<p class="ppv-text">Regular short questionnaires help us track your progress and adjust your treatment when needed.</p>'+
+        '<div class="ppv-mon-grid">'+(monitorItems||'<div class="ppv-mon-item"><span>Progress tracked at each visit</span></div>')+'</div>'+
+        (rx.homeProgram?'<div class="ppv-home-prog">&#127968; Home program: <strong>'+rx.homeProgram.name+'</strong></div>':'')+
+      '</section>'+
+
+      '<section class="ppv-sec"><h2 class="ppv-sec-h"><span>&#129504;</span>Where we are targeting</h2>'+
+        '<div class="ppv-brain-sec">'+
+          '<div class="ppv-brain-wrap">'+brainSvg+'</div>'+
+          '<div class="ppv-brain-txt">'+
+            '<p class="ppv-lead">Target area: <strong>'+tgt.label+'</strong></p>'+
+            '<p class="ppv-text">The highlighted region plays a key role in '+
+            (rx.protocol.modality==='TMS'&&rx.protocol.indication==='MDD'?'regulating mood and emotional wellbeing.':
+             rx.protocol.modality==='TMS'&&rx.protocol.indication==='OCD'?'regulating intrusive thoughts and compulsive behaviours.':
+             rx.protocol.modality==='tDCS'?'reducing pain signals and improving mood regulation.':
+             'regulating brain activity related to your condition.')+
+            ' The stimulation is precise, safe, and calibrated specifically for your plan.</p>'+
+          '</div>'+
+        '</div>'+
+      '</section>'+
+
+      '<div class="ppv-footer"><p>Questions? Speak with <strong>'+rx.prescribedBy+'</strong> at your next appointment.</p></div>'+
+
+    '</div></div>';
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

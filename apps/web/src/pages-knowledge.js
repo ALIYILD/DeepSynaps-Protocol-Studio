@@ -10664,3 +10664,676 @@ export async function pgClinicalScoringCalc(setTopbar) {
 
   _scalRender();
 }
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// pgConditionBrowser — browse all 20 condition packages
+// ─────────────────────────────────────────────────────────────────────────────
+export async function pgConditionBrowser(setTopbar) {
+  setTopbar('Condition Packages', `
+    <div style="display:flex;align-items:center;gap:8px">
+      <span style="font-size:11px;color:var(--text-tertiary)">Gold-standard clinical schemas · ADHD + 19 conditions</span>
+    </div>`);
+
+  const el = document.getElementById('content');
+  if (!el) return;
+  el.innerHTML = '<div style="padding:40px;text-align:center;color:var(--text-tertiary);font-size:13px">Loading condition packages…</div>';
+
+  if (!document.getElementById('cpb-styles')) {
+    const st = document.createElement('style');
+    st.id = 'cpb-styles';
+    st.textContent = `
+      .cpb-grid { display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:14px;padding:4px 0 }
+      .cpb-card { background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius-lg);padding:18px;cursor:pointer;transition:border-color 0.15s,transform 0.12s }
+      .cpb-card:hover { border-color:var(--teal);transform:translateY(-1px) }
+      .cpb-cat { font-size:9.5px;font-weight:700;text-transform:uppercase;letter-spacing:0.7px;color:var(--text-tertiary);margin-bottom:6px }
+      .cpb-name { font-size:14px;font-weight:700;color:var(--text-primary);margin-bottom:4px;line-height:1.3 }
+      .cpb-icd { font-size:10.5px;color:var(--text-secondary);font-family:var(--font-mono,monospace);margin-bottom:8px }
+      .cpb-tags { display:flex;flex-wrap:wrap;gap:4px;margin-bottom:10px }
+      .cpb-tag { font-size:9.5px;padding:1px 7px;border-radius:6px;background:rgba(0,212,188,0.1);color:var(--teal) }
+      .cpb-ev { font-size:10px;font-weight:700;padding:2px 7px;border-radius:5px;color:#000 }
+      .cpb-ev-a { background:#22c55e } .cpb-ev-b { background:#3b82f6;color:#fff }
+      .cpb-ev-c { background:#f59e0b } .cpb-ev-d { background:#94a3b8 }
+      .cpb-footer { display:flex;align-items:center;justify-content:space-between;margin-top:10px }
+      .cpb-sections { font-size:9.5px;color:var(--text-tertiary) }
+    `;
+    document.head.appendChild(st);
+  }
+
+  // All 20 known slugs with metadata for the browser
+  const KNOWN_PACKAGES = [
+    { slug:'adhd', name:'ADHD', category:'Neurodevelopmental', icd:'F90.x', ev:'EV-C', modalities:['Neurofeedback','tDCS','TMS'] },
+    { slug:'major-depressive-disorder', name:'Major Depressive Disorder', category:'Mood & Affective', icd:'F32.9', ev:'EV-A', modalities:['TMS/rTMS','iTBS','tDCS'] },
+    { slug:'treatment-resistant-depression', name:'Treatment-Resistant Depression', category:'Mood & Affective', icd:'F32.2', ev:'EV-A', modalities:['TMS','iTBS','ECT','tDCS'] },
+    { slug:'obsessive-compulsive-disorder', name:'OCD', category:'OCD-Spectrum', icd:'F42', ev:'EV-B', modalities:['TMS','tDCS','DBS'] },
+    { slug:'generalized-anxiety-disorder', name:'Generalised Anxiety Disorder', category:'Anxiety', icd:'F41.1', ev:'EV-C', modalities:['TMS','tDCS','taVNS'] },
+    { slug:'ptsd', name:'PTSD', category:'Trauma & Stress', icd:'F43.1', ev:'EV-B', modalities:['TMS','Neurofeedback','taVNS'] },
+    { slug:'insomnia', name:'Insomnia', category:'Sleep', icd:'G47.0', ev:'EV-C', modalities:['tDCS','Neurofeedback','taVNS','CES'] },
+    { slug:'chronic-pain-fibromyalgia', name:'Chronic Pain / Fibromyalgia', category:'Neurological — Pain', icd:'M79.7', ev:'EV-C', modalities:['TMS','tDCS','taVNS'] },
+    { slug:'migraine', name:'Migraine', category:'Neurological — Headache', icd:'G43', ev:'EV-B', modalities:['TMS','tDCS','taVNS'] },
+    { slug:'cluster-headache', name:'Cluster Headache', category:'Neurological — Headache', icd:'G44.0', ev:'EV-C', modalities:['TMS','taVNS','Sphenopalatine stimulation'] },
+    { slug:'drug-resistant-epilepsy', name:'Epilepsy (Drug-Resistant)', category:'Neurological — Epilepsy', icd:'G40.9', ev:'EV-B', modalities:['VNS','taVNS','DBS','TMS (inhibitory)'] },
+    { slug:'parkinsons-disease', name:"Parkinson's Disease", category:'Neurological — Movement', icd:'G20', ev:'EV-B', modalities:['TMS','tDCS','DBS'] },
+    { slug:'essential-tremor', name:'Essential Tremor', category:'Neurological — Movement', icd:'G25.0', ev:'EV-B', modalities:['TMS','tDCS','DBS'] },
+    { slug:'dystonia', name:'Dystonia', category:'Neurological — Movement', icd:'G24', ev:'EV-C', modalities:['TMS','DBS'] },
+    { slug:'stroke-rehabilitation', name:'Stroke Rehabilitation', category:'Neurological — Rehabilitation', icd:'I69', ev:'EV-B', modalities:['TMS','tDCS','Neurofeedback'] },
+    { slug:'tinnitus', name:'Tinnitus', category:'Sensory', icd:'H93.1', ev:'EV-C', modalities:['TMS','tDCS','taVNS'] },
+    { slug:'cognitive-impairment-tbi', name:'Cognitive Impairment / TBI', category:'Neurological — Cognitive', icd:'S09.90', ev:'EV-C', modalities:['tDCS','TMS','Neurofeedback'] },
+    { slug:'autism-spectrum-disorder', name:'Autism Spectrum Disorder', category:'Neurodevelopmental', icd:'F84.0', ev:'EV-C', modalities:['TMS','tDCS','Neurofeedback'] },
+    { slug:'smoking-cessation', name:'Smoking Cessation', category:'Addiction', icd:'F17.2', ev:'EV-C', modalities:['TMS','tDCS','taVNS'] },
+    { slug:'opioid-withdrawal', name:'Opioid Withdrawal', category:'Addiction', icd:'F11.2', ev:'EV-C', modalities:['TMS','taVNS','CES'] },
+  ];
+
+  function evClass(ev) {
+    if (ev === 'EV-A') return 'cpb-ev-a';
+    if (ev === 'EV-B') return 'cpb-ev-b';
+    if (ev === 'EV-C') return 'cpb-ev-c';
+    return 'cpb-ev-d';
+  }
+
+  const cards = KNOWN_PACKAGES.map(p => `
+    <div class="cpb-card" onclick="window._openCondPkg('${p.slug}')">
+      <div class="cpb-cat">${p.category}</div>
+      <div class="cpb-name">${p.name}</div>
+      <div class="cpb-icd">${p.icd}</div>
+      <div class="cpb-tags">
+        ${p.modalities.slice(0,3).map(m => `<span class="cpb-tag">${m}</span>`).join('')}
+      </div>
+      <div class="cpb-footer">
+        <span class="cpb-sections">13 clinical sections · protocols · handbook · consent</span>
+        <span class="cpb-ev ${evClass(p.ev)}">${p.ev}</span>
+      </div>
+    </div>`).join('');
+
+  el.innerHTML = `<div class="page-section">
+    <div style="margin-bottom:20px">
+      <div style="font-size:20px;font-weight:800;color:var(--text-primary);font-family:var(--font-display);margin-bottom:6px">Clinical Condition Packages</div>
+      <div style="font-size:13px;color:var(--text-secondary)">One schema per condition · generates assessments, protocols, handbooks, monitoring rules, home programs, patient guides, and consent documents</div>
+    </div>
+    <div class="cpb-grid">${cards}</div>
+  </div>`;
+
+  window._openCondPkg = function(slug) {
+    window._condPkgSlug = slug;
+    window._nav('condition-package');
+  };
+}
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// pgConditionPackage — full condition package viewer (8 tabs)
+// ─────────────────────────────────────────────────────────────────────────────
+export async function pgConditionPackage(setTopbar, navigate) {
+  const slug = window._condPkgSlug || 'adhd';
+
+  const el = document.getElementById('content');
+  if (!el) return;
+  el.innerHTML = '<div style="padding:40px;text-align:center;color:var(--text-tertiary);font-size:13px">Loading condition package…</div>';
+
+  // ── CSS ───────────────────────────────────────────────────────────────────
+  if (!document.getElementById('cp-styles')) {
+    const st = document.createElement('style');
+    st.id = 'cp-styles';
+    st.textContent = `
+      .cp-header { background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius-lg);padding:20px 24px;margin-bottom:20px }
+      .cp-tab-bar { display:flex;gap:2px;border-bottom:2px solid var(--border);margin-bottom:20px;overflow-x:auto;flex-wrap:nowrap }
+      .cp-tab { padding:9px 15px;font-size:12px;font-weight:600;color:var(--text-secondary);cursor:pointer;border:none;background:transparent;font-family:var(--font-body);border-bottom:2px solid transparent;margin-bottom:-2px;white-space:nowrap;transition:color 0.12s }
+      .cp-tab:hover { color:var(--text-primary) }
+      .cp-tab.active { color:var(--teal);border-bottom-color:var(--teal) }
+      .cp-section { margin-bottom:20px }
+      .cp-section-title { font-size:12px;font-weight:700;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.6px;margin-bottom:12px;padding-bottom:6px;border-bottom:1px solid var(--border) }
+      .cp-grid2 { display:grid;grid-template-columns:1fr 1fr;gap:14px }
+      .cp-grid3 { display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px }
+      .cp-card { background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius-lg);padding:16px }
+      .cp-pheno-card { background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius-md);padding:14px }
+      .cp-ev-badge { font-size:10px;font-weight:700;padding:2px 8px;border-radius:5px;color:#000 }
+      .cp-ev-a { background:#22c55e } .cp-ev-b { background:#3b82f6;color:#fff }
+      .cp-ev-c { background:#f59e0b } .cp-ev-d { background:#94a3b8 }
+      .cp-proto-card { background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius-lg);padding:18px;margin-bottom:14px }
+      .cp-proto-header { display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:12px }
+      .cp-proto-name { font-size:14px;font-weight:700;color:var(--text-primary) }
+      .cp-param-grid { display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:12px 0 }
+      .cp-param-row { background:var(--bg-surface-2);border-radius:var(--radius-sm);padding:8px 10px }
+      .cp-param-lbl { font-size:9.5px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:3px }
+      .cp-param-val { font-size:12px;font-weight:600;color:var(--text-primary) }
+      .cp-caveat { background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.25);border-radius:var(--radius-md);padding:10px 14px;margin-top:10px;font-size:11.5px;color:var(--amber);line-height:1.5 }
+      .cp-ae-row { display:grid;grid-template-columns:24px 1fr 80px 100px;gap:10px;align-items:center;padding:10px 12px;border-radius:var(--radius-sm);margin-bottom:6px }
+      .cp-ae-serious { background:rgba(239,68,68,0.07);border:1px solid rgba(239,68,68,0.18) }
+      .cp-ae-moderate { background:rgba(245,158,11,0.07);border:1px solid rgba(245,158,11,0.18) }
+      .cp-ae-mild { background:rgba(255,255,255,0.03);border:1px solid var(--border) }
+      .cp-timeline { display:flex;gap:0;margin:14px 0;overflow-x:auto }
+      .cp-timeline-step { flex:1;min-width:90px;text-align:center;position:relative;padding:0 4px }
+      .cp-timeline-step:before { content:'';position:absolute;top:15px;left:50%;right:-50%;height:2px;background:var(--border);z-index:0 }
+      .cp-timeline-step:last-child:before { display:none }
+      .cp-timeline-dot { width:32px;height:32px;border-radius:50%;background:var(--teal);border:2px solid var(--teal);margin:0 auto 8px;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:#000;position:relative;z-index:1 }
+      .cp-timeline-lbl { font-size:9.5px;color:var(--text-secondary);line-height:1.3 }
+      .cp-handbook-sub { display:flex;gap:6px;margin-bottom:14px }
+      .cp-handbook-tab { padding:5px 12px;font-size:11px;font-weight:600;cursor:pointer;border-radius:var(--radius-md);background:transparent;border:1px solid var(--border);color:var(--text-secondary);font-family:var(--font-body);transition:all 0.12s }
+      .cp-handbook-tab.active { background:var(--teal);color:#000;border-color:var(--teal) }
+      .cp-handbook-section { background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius-md);padding:14px 16px;margin-bottom:10px }
+      .cp-handbook-sec-title { font-size:12.5px;font-weight:700;color:var(--text-primary);margin-bottom:8px }
+      .cp-faq-item { border-bottom:1px solid var(--border);padding:12px 0;cursor:pointer }
+      .cp-faq-q { font-size:13px;font-weight:600;color:var(--text-primary);display:flex;align-items:center;justify-content:space-between }
+      .cp-faq-a { font-size:12.5px;color:var(--text-secondary);margin-top:8px;line-height:1.6;display:none }
+      .cp-faq-item.open .cp-faq-a { display:block }
+      .cp-faq-item.open .cp-faq-arrow { transform:rotate(180deg) }
+      .cp-faq-arrow { transition:transform 0.2s;color:var(--text-tertiary) }
+      .cp-consent-card { background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius-lg);padding:16px;margin-bottom:12px }
+      .cp-report-sec { background:var(--bg-surface-2);border-radius:var(--radius-sm);padding:10px 12px;margin-bottom:6px }
+      .cp-chip { font-size:9.5px;padding:1px 7px;border-radius:6px;background:rgba(0,212,188,0.1);color:var(--teal);margin-right:4px }
+      .cp-chip-red { background:rgba(239,68,68,0.1);color:var(--red) }
+      .cp-chip-amber { background:rgba(245,158,11,0.1);color:var(--amber) }
+      .cp-chip-green { background:rgba(34,197,94,0.1);color:var(--green) }
+      .cp-off-label { font-size:10px;font-weight:700;padding:2px 7px;border-radius:5px;background:rgba(245,158,11,0.15);color:var(--amber) }
+      @media (max-width:760px) { .cp-grid2,.cp-grid3 { grid-template-columns:1fr; } .cp-param-grid { grid-template-columns:1fr; } }
+    `;
+    document.head.appendChild(st);
+  }
+
+  // ── Load package ──────────────────────────────────────────────────────────
+  const pkg = await api.conditionPackage(slug);
+  if (!pkg) {
+    el.innerHTML = emptyState('◈', 'Condition package not found', `No package found for slug '${slug}'. Ensure the backend is running and the condition JSON exists.`);
+    return;
+  }
+
+  // ── Helpers ───────────────────────────────────────────────────────────────
+  const esc = s => String(s || '').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  const ev = e => `<span class="cp-ev-badge cp-ev-${(e||'').toLowerCase().replace('-','')||'d'}">${e||'?'}</span>`;
+  const modBadge = m => `<span class="cp-chip">${esc(m)}</span>`;
+  const chip = (t, cls) => `<span class="cp-chip ${cls||''}">${esc(t)}</span>`;
+
+  function safeList(arr) {
+    if (!Array.isArray(arr) || !arr.length) return '<span style="color:var(--text-tertiary);font-size:12px">None listed</span>';
+    return arr.map(s => `<li style="font-size:12.5px;color:var(--text-secondary);margin-bottom:4px;line-height:1.5">${esc(s)}</li>`).join('');
+  }
+
+  // ── Topbar ────────────────────────────────────────────────────────────────
+  const ov = pkg.condition_overview || {};
+  setTopbar(pkg.name || slug, `
+    <div style="display:flex;align-items:center;gap:8px">
+      ${ev(ov.highest_evidence_level)}
+      <button class="btn btn-sm" onclick="window._nav('condition-packages')">← All Conditions</button>
+      <button class="btn btn-primary btn-sm" onclick="window._cpPrescribe()">Prescribe Protocol →</button>
+    </div>`);
+
+  // ── Condition header card ─────────────────────────────────────────────────
+  const headerCard = `
+    <div class="cp-header">
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap">
+        <div>
+          <div style="font-size:11px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.7px;margin-bottom:4px">${esc(pkg.category)}</div>
+          <div style="font-size:22px;font-weight:800;color:var(--text-primary);font-family:var(--font-display);margin-bottom:6px">${esc(pkg.name)}</div>
+          <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+            ${(pkg.icd_10||[]).map(c => `<span style="font-size:11px;font-family:var(--font-mono,monospace);color:var(--text-tertiary);background:var(--bg-surface-2);padding:1px 6px;border-radius:4px">${esc(c)}</span>`).join('')}
+            ${pkg.dsm_5_code ? `<span style="font-size:11px;font-family:var(--font-mono,monospace);color:var(--text-tertiary);background:var(--bg-surface-2);padding:1px 6px;border-radius:4px">DSM-5: ${esc(pkg.dsm_5_code)}</span>` : ''}
+            ${ev(ov.highest_evidence_level)}
+            ${(ov.relevant_modalities||[]).map(m => modBadge(m)).join('')}
+          </div>
+        </div>
+        <div style="text-align:right;flex-shrink:0">
+          <div style="font-size:10px;color:var(--text-tertiary);margin-bottom:3px">Schema</div>
+          <div style="font-size:11px;color:var(--text-secondary)">${esc(pkg.schema_version)} · ${esc(pkg.review_status)}</div>
+          <div style="font-size:10px;color:var(--text-tertiary);margin-top:4px">Updated ${esc(pkg.updated_at)}</div>
+        </div>
+      </div>
+    </div>`;
+
+  // ── Tab bar ───────────────────────────────────────────────────────────────
+  const TABS = ['Overview','Assessments','Protocols','Monitoring','Handbook','Home Programs','Patient Guide','Documents'];
+  window._cpActiveTab = window._cpActiveTab || 0;
+  window._cpPkg = pkg;
+  window._cpHandbookSub = window._cpHandbookSub || 0;
+
+  function tabBar() {
+    return `<div class="cp-tab-bar">
+      ${TABS.map((t,i) => `<button class="cp-tab${window._cpActiveTab===i?' active':''}" onclick="window._cpTab(${i})">${t}</button>`).join('')}
+    </div>`;
+  }
+
+  // ── Tab renderers ─────────────────────────────────────────────────────────
+
+  function tabOverview() {
+    const summ = ov.summary || '';
+    const phenoClusters = (ov.phenotype_clusters || []).map(p => `
+      <div class="cp-pheno-card">
+        <div style="font-size:11px;font-weight:700;color:var(--teal);text-transform:uppercase;margin-bottom:4px">${esc(p.id)}</div>
+        <div style="font-size:13px;font-weight:700;color:var(--text-primary);margin-bottom:5px">${esc(p.name)}</div>
+        <div style="font-size:11.5px;color:var(--text-secondary);line-height:1.5;margin-bottom:6px">${esc(p.description)}</div>
+        ${p.qeeg_signature ? `<div style="font-size:10.5px;color:var(--teal);background:rgba(0,212,188,0.07);padding:5px 8px;border-radius:4px">qEEG: ${esc(p.qeeg_signature)}</div>` : ''}
+      </div>`).join('');
+
+    const brainTargets = (pkg.brain_targets || []).map(bt => `
+      <div style="display:flex;align-items:center;gap:10px;padding:9px 12px;background:var(--bg-surface-2);border-radius:var(--radius-sm);margin-bottom:6px">
+        <div style="flex:1">
+          <div style="font-size:12.5px;font-weight:700;color:var(--text-primary)">${esc(bt.region)}</div>
+          <div style="font-size:10.5px;color:var(--text-secondary)">${esc(bt.laterality)} · EEG: ${esc((bt.eeg_10_20_positions||[]).join(', '))}</div>
+        </div>
+        <div style="text-align:right">
+          <div style="font-size:10px;color:var(--text-tertiary)">${esc(bt.effect_direction)}</div>
+          <div style="font-size:9.5px;color:var(--text-tertiary)">${(bt.modalities||[]).join(', ')}</div>
+        </div>
+      </div>`).join('');
+
+    return `
+      <div class="cp-section">
+        <div class="cp-section-title">Clinical Summary</div>
+        <p style="font-size:13px;color:var(--text-secondary);line-height:1.7;margin-bottom:12px">${esc(summ)}</p>
+        ${ov.neurobiology ? `<div class="cp-caveat" style="color:var(--text-secondary);border-color:rgba(0,212,188,0.25);background:rgba(0,212,188,0.05)">🧠 <strong>Neurobiology:</strong> ${esc(ov.neurobiology)}</div>` : ''}
+      </div>
+
+      <div class="cp-section">
+        <div class="cp-section-title">Phenotype Clusters (${(ov.phenotype_clusters||[]).length})</div>
+        <div class="cp-grid2">${phenoClusters}</div>
+      </div>
+
+      <div class="cp-section">
+        <div class="cp-section-title">Brain Targets</div>
+        ${brainTargets || '<span style="color:var(--text-tertiary);font-size:12px">No brain targets defined.</span>'}
+      </div>
+
+      <div class="cp-grid2">
+        <div class="cp-card">
+          <div class="cp-section-title">Comorbidities</div>
+          <ul style="margin:0;padding-left:18px">${safeList(ov.comorbidities)}</ul>
+        </div>
+        <div class="cp-card">
+          <div class="cp-section-title">Differential Diagnoses</div>
+          <ul style="margin:0;padding-left:18px">${safeList(ov.differential_diagnoses)}</ul>
+        </div>
+      </div>`;
+  }
+
+  function tabAssessments() {
+    const ab = pkg.assessment_bundle || {};
+    const sections = [
+      { key: 'screening',       label: 'Screening' },
+      { key: 'diagnostic',      label: 'Diagnostic' },
+      { key: 'baseline',        label: 'Baseline' },
+      { key: 'monitoring',      label: 'Monitoring' },
+      { key: 'outcome',         label: 'Outcome' },
+      { key: 'neurophysiological', label: 'Neurophysiological' },
+    ];
+
+    return sections.map(s => {
+      const items = ab[s.key] || [];
+      if (!items.length) return '';
+      const rows = items.map(a => `
+        <div style="display:grid;grid-template-columns:1fr 80px 120px 80px;gap:10px;align-items:center;padding:9px 12px;border-bottom:1px solid var(--border)">
+          <div>
+            <div style="font-size:12.5px;font-weight:700;color:var(--text-primary)">${esc(a.name || a.id)}</div>
+            ${a.rationale ? `<div style="font-size:10.5px;color:var(--text-secondary);margin-top:2px">${esc(a.rationale)}</div>` : ''}
+          </div>
+          <div style="font-size:10.5px;color:var(--text-tertiary)">${esc(a.clinician_vs_patient || a.administered_by || '—')}</div>
+          <div style="font-size:10.5px;color:var(--text-secondary)">${esc(a.frequency || a.timing || '—')}</div>
+          <div>${a.required ? '<span class="cp-chip cp-chip-red" style="font-size:9px">Required</span>' : '<span style="font-size:9px;color:var(--text-tertiary)">Optional</span>'}</div>
+        </div>`).join('');
+
+      return `<div class="cp-section">
+        <div class="cp-section-title">${s.label}</div>
+        <div class="cp-card" style="padding:0;overflow:hidden">
+          <div style="display:grid;grid-template-columns:1fr 80px 120px 80px;gap:10px;padding:7px 12px;background:var(--bg-surface-2);font-size:9.5px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.5px;font-weight:700">
+            <span>Assessment</span><span>Who</span><span>When</span><span>Status</span>
+          </div>
+          ${rows}
+        </div>
+      </div>`;
+    }).join('');
+  }
+
+  function tabProtocols() {
+    const protos = pkg.protocol_bundle || [];
+    if (!protos.length) return emptyState('◈', 'No protocols defined', 'Protocol bundle is empty for this condition package.');
+
+    return protos.map(p => {
+      const params = p.parameters || {};
+      const paramEntries = Object.entries(params).filter(([k]) => !['notes'].includes(k));
+      const paramGrid = paramEntries.map(([k, v]) => `
+        <div class="cp-param-row">
+          <div class="cp-param-lbl">${esc(k.replace(/_/g,' '))}</div>
+          <div class="cp-param-val">${esc(String(v||'—'))}</div>
+        </div>`).join('');
+
+      const sessStruct = p.session_structure || {};
+      const sessRows = Object.entries(sessStruct).filter(([k]) => k !== 'notes').map(([k,v]) => `
+        <div class="cp-param-row">
+          <div class="cp-param-lbl">${esc(k.replace(/_/g,' '))}</div>
+          <div class="cp-param-val">${esc(String(v||'—'))}</div>
+        </div>`).join('');
+
+      const govBadges = [];
+      const gov = p.governance || {};
+      if (p.on_label_vs_off_label === 'Off-label') govBadges.push('<span class="cp-off-label">Off-label</span>');
+      if (gov.off_label_acknowledgement_required) govBadges.push(chip('Consent required', 'cp-chip-amber'));
+      if (gov.requires_clinician_sign_off) govBadges.push(chip('Clinician sign-off', 'cp-chip-amber'));
+      if (gov.patient_export_allowed !== false) govBadges.push(chip('Patient export ✓', 'cp-chip-green'));
+
+      const hasEvidenceCaveat = (p.notes||'').toLowerCase().includes('caveat') || (p.evidence_summary||'').toLowerCase().includes('caveat');
+
+      return `<div class="cp-proto-card">
+        <div class="cp-proto-header">
+          <div style="flex:1;min-width:0">
+            <div class="cp-proto-name">${esc(p.name)}</div>
+            <div style="font-size:10.5px;color:var(--text-tertiary);margin-top:3px;font-family:var(--font-mono,monospace)">${esc(p.protocol_id)}</div>
+          </div>
+          <div style="display:flex;align-items:center;gap:6px;flex-shrink:0">
+            ${modBadge(p.modality_slug)}
+            ${ev(p.evidence_grade)}
+            <button onclick="window._cpPrescribeProto('${esc(p.protocol_id)}')"
+              style="font-size:11px;font-weight:600;padding:5px 11px;border-radius:var(--radius-md);background:var(--teal);color:#000;border:none;cursor:pointer;font-family:var(--font-body)">Prescribe →</button>
+          </div>
+        </div>
+
+        <div style="display:flex;flex-wrap:wrap;gap:5px;margin-bottom:12px">${govBadges.join('')}</div>
+
+        <div class="cp-section-title" style="margin-bottom:8px">Evidence Summary</div>
+        <p style="font-size:11.5px;color:var(--text-secondary);line-height:1.6;margin-bottom:10px">${esc(p.evidence_summary||'No evidence summary provided.')}</p>
+
+        ${hasEvidenceCaveat ? `<div class="cp-caveat">⚠ <strong>Evidence Caveat:</strong> ${esc(p.notes||'')}</div>` : ''}
+
+        ${paramGrid ? `<div class="cp-section-title" style="margin:14px 0 8px">Protocol Parameters</div>
+          <div class="cp-param-grid">${paramGrid}</div>` : ''}
+
+        ${sessRows ? `<div class="cp-section-title" style="margin:14px 0 8px">Session Structure</div>
+          <div class="cp-param-grid">${sessRows}</div>` : ''}
+
+        ${(p.monitoring_required||[]).length ? `<div class="cp-section-title" style="margin:14px 0 8px">Monitoring Requirements</div>
+          <ul style="margin:0;padding-left:18px">${safeList(p.monitoring_required)}</ul>` : ''}
+
+        ${(p.escalation_rules||[]).length ? `<div class="cp-section-title" style="margin:14px 0 8px">Escalation Rules</div>
+          <ul style="margin:0;padding-left:18px">${safeList(p.escalation_rules)}</ul>` : ''}
+      </div>`;
+    }).join('');
+  }
+
+  function tabMonitoring() {
+    const mr = pkg.monitoring_rules || {};
+
+    // Assessment schedule timeline
+    const schedule = mr.assessment_schedule || [];
+    const timelineHTML = schedule.length ? `
+      <div class="cp-section">
+        <div class="cp-section-title">Assessment Schedule</div>
+        <div class="cp-card" style="padding:0;overflow:hidden">
+          ${schedule.map((s,i) => `
+            <div style="display:grid;grid-template-columns:2px 1fr 120px 150px;gap:12px;align-items:center;padding:11px 16px;border-bottom:1px solid var(--border)">
+              <div style="height:100%;background:var(--teal);width:2px;border-radius:2px;align-self:stretch"></div>
+              <div>
+                <div style="font-size:12.5px;font-weight:700;color:var(--text-primary)">${esc(s.assessment_name || s.assessment_id)}</div>
+              </div>
+              <div style="font-size:10.5px;color:var(--text-secondary)">${esc(s.frequency || '—')}</div>
+              <div style="font-size:10.5px;color:var(--text-tertiary)">${esc(s.administered_by || '—')}</div>
+            </div>`).join('')}
+        </div>
+      </div>` : '';
+
+    // Response thresholds
+    const thresholds = mr.response_thresholds || [];
+    const threshHTML = thresholds.length ? `
+      <div class="cp-section">
+        <div class="cp-section-title">Response Thresholds</div>
+        ${thresholds.map(t => `
+          <div class="cp-card" style="margin-bottom:10px">
+            <div style="font-size:13px;font-weight:700;color:var(--text-primary);margin-bottom:10px">${esc(t.assessment_name || t.assessment_id)}</div>
+            <div class="cp-param-grid">
+              <div class="cp-param-row"><div class="cp-param-lbl">Response</div><div class="cp-param-val" style="color:var(--green)">${esc(t.response_threshold||'—')}</div></div>
+              <div class="cp-param-row"><div class="cp-param-lbl">Remission</div><div class="cp-param-val" style="color:var(--teal)">${esc(t.remission_threshold||'—')}</div></div>
+              <div class="cp-param-row"><div class="cp-param-lbl">Non-Response</div><div class="cp-param-val" style="color:var(--amber)">${esc(t.non_response_threshold||'—')}</div></div>
+              <div class="cp-param-row"><div class="cp-param-lbl">Deterioration ⚠</div><div class="cp-param-val" style="color:var(--red)">${esc(t.deterioration_threshold||'—')}</div></div>
+            </div>
+          </div>`).join('')}
+      </div>` : '';
+
+    // AE triggers
+    const aeTriggers = mr.adverse_event_triggers || [];
+    const aeColors = { Serious: 'cp-ae-serious', Severe: 'cp-ae-serious', Moderate: 'cp-ae-moderate', Mild: 'cp-ae-mild' };
+    const aeHTML = aeTriggers.length ? `
+      <div class="cp-section">
+        <div class="cp-section-title">Adverse Event Triggers</div>
+        ${aeTriggers.map(ae => `
+          <div class="cp-ae-row ${aeColors[ae.severity]||'cp-ae-mild'}">
+            <div style="font-size:14px">${ae.suspend_treatment ? '🛑' : '⚠'}</div>
+            <div>
+              <div style="font-size:12px;font-weight:700;color:var(--text-primary)">${esc(ae.event_type)}</div>
+              <div style="font-size:10.5px;color:var(--text-secondary);margin-top:2px">${esc(ae.action)}</div>
+            </div>
+            <span class="${ae.severity==='Serious'||ae.severity==='Severe'?'cp-chip-red':ae.severity==='Moderate'?'cp-chip-amber':''} cp-chip" style="font-size:9px">${esc(ae.severity)}</span>
+            <span class="cp-chip ${ae.suspend_treatment?'cp-chip-red':''}" style="font-size:9px">${ae.suspend_treatment?'Suspend':'Continue'}</span>
+          </div>`).join('')}
+      </div>` : '';
+
+    // Escalation rules
+    const escalation = mr.escalation_rules || [];
+    const escHTML = escalation.length ? `
+      <div class="cp-section">
+        <div class="cp-section-title">Escalation Rules</div>
+        ${escalation.map(r => `
+          <div style="display:grid;grid-template-columns:1fr 80px;gap:10px;align-items:start;padding:10px 14px;background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius-sm);margin-bottom:8px">
+            <div>
+              <div style="font-size:11.5px;font-weight:600;color:var(--text-primary);margin-bottom:3px">${esc(r.trigger)}</div>
+              <div style="font-size:10.5px;color:var(--text-secondary)">${esc(r.action)}</div>
+            </div>
+            <span class="cp-chip ${r.urgency==='Emergency'?'cp-chip-red':r.urgency==='Urgent'?'cp-chip-amber':''}" style="font-size:9px;text-align:center">${esc(r.urgency)}</span>
+          </div>`).join('')}
+      </div>` : '';
+
+    // Adherence rules
+    const adh = mr.adherence_rules || {};
+    const adhHTML = adh.minimum_session_adherence_pct ? `
+      <div class="cp-section">
+        <div class="cp-section-title">Adherence Rules</div>
+        <div class="cp-grid3">
+          <div class="cp-param-row"><div class="cp-param-lbl">Minimum adherence</div><div class="cp-param-val">${adh.minimum_session_adherence_pct}%</div></div>
+          <div class="cp-param-row"><div class="cp-param-lbl">Consecutive missed sessions</div><div class="cp-param-val">${adh.consecutive_missed_sessions_flag} sessions</div></div>
+          <div class="cp-param-row" style="grid-column:1/-1"><div class="cp-param-lbl">Action</div><div class="cp-param-val" style="font-size:11px;font-weight:400">${esc(adh.action_on_low_adherence||'—')}</div></div>
+        </div>
+      </div>` : '';
+
+    return timelineHTML + threshHTML + aeHTML + escHTML + adhHTML;
+  }
+
+  function tabHandbook() {
+    const ho = pkg.handbook_outputs || {};
+    const subs = [
+      { key: 'clinician_handbook', label: 'Clinician' },
+      { key: 'patient_guide',      label: 'Patient' },
+      { key: 'technician_sop',     label: 'Technician' },
+    ];
+
+    const subBar = `<div class="cp-handbook-sub">
+      ${subs.map((s,i) => `<button class="cp-handbook-tab${window._cpHandbookSub===i?' active':''}" onclick="window._cpHandbookSub=${i};window._cpRender()">${s.label} Guide</button>`).join('')}
+    </div>`;
+
+    const active = subs[window._cpHandbookSub] || subs[0];
+    const doc = ho[active.key] || {};
+    const sections = doc.sections || [];
+
+    const content = sections.length ? sections.map(s => `
+      <div class="cp-handbook-section">
+        <div class="cp-handbook-sec-title">${esc(s.title || s.section || '')}</div>
+        ${s.content ? `<div style="font-size:12px;color:var(--text-secondary);line-height:1.7">${esc(s.content)}</div>` : ''}
+        ${(s.subsections||[]).map(ss => `
+          <div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--border)">
+            <div style="font-size:11.5px;font-weight:600;color:var(--text-primary);margin-bottom:4px">${esc(ss.title||'')}</div>
+            <div style="font-size:11.5px;color:var(--text-secondary);line-height:1.6">${esc(ss.content||'')}</div>
+          </div>`).join('')}
+      </div>`).join('') : `<div style="color:var(--text-tertiary);font-size:12px;padding:16px">No ${active.label} content defined.</div>`;
+
+    return subBar + `
+      <div style="margin-bottom:10px">
+        <div style="font-size:14px;font-weight:700;color:var(--text-primary)">${esc(doc.title||'')}</div>
+        ${doc.audience ? `<div style="font-size:11px;color:var(--text-tertiary);margin-top:2px">Audience: ${esc(doc.audience)}</div>` : ''}
+      </div>
+      ${content}`;
+  }
+
+  function tabHomePrograms() {
+    const hps = pkg.home_program_templates || [];
+    if (!hps.length) return emptyState('🏠', 'No home programs defined', 'No home program templates have been added to this condition package yet.');
+
+    return hps.map(hp => `
+      <div class="cp-card" style="margin-bottom:14px">
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:12px">
+          <div>
+            <div style="font-size:14px;font-weight:700;color:var(--text-primary)">${esc(hp.name)}</div>
+            <div style="font-size:10.5px;color:var(--text-tertiary);margin-top:2px">${esc(hp.id)} · ${esc(hp.modality_slug)}</div>
+          </div>
+          <div style="text-align:right">
+            <div class="cp-param-row" style="min-width:120px">
+              <div class="cp-param-lbl">Session</div>
+              <div class="cp-param-val">${hp.session_duration_minutes || '?'} min · ${hp.sessions_per_week || '?'}×/wk · ${hp.total_weeks || '?'} wks</div>
+            </div>
+          </div>
+        </div>
+
+        ${hp.device_required ? `<div style="font-size:11.5px;color:var(--text-secondary);margin-bottom:10px"><strong>Device required:</strong> ${esc(hp.device_required)}</div>` : ''}
+        ${hp.prerequisite_clinic_sessions ? `<div style="font-size:11px;color:var(--amber);background:rgba(245,158,11,0.08);padding:6px 10px;border-radius:var(--radius-sm);margin-bottom:10px">⚠ Requires ${hp.prerequisite_clinic_sessions} clinic sessions before home use</div>` : ''}
+
+        <div class="cp-grid2">
+          <div>
+            <div class="cp-section-title">Patient Instructions</div>
+            <ol style="margin:0;padding-left:18px">
+              ${(hp.patient_instructions||[]).map(i => `<li style="font-size:11.5px;color:var(--text-secondary);margin-bottom:5px;line-height:1.5">${esc(i)}</li>`).join('')}
+            </ol>
+          </div>
+          <div>
+            <div class="cp-section-title">Pre-Session Safety Checklist</div>
+            ${(hp.safety_checklist||[]).map(item => `
+              <div style="display:flex;align-items:flex-start;gap:7px;margin-bottom:6px">
+                <span style="color:var(--teal);margin-top:1px;flex-shrink:0">◻</span>
+                <span style="font-size:11.5px;color:var(--text-secondary);line-height:1.4">${esc(item)}</span>
+              </div>`).join('')}
+          </div>
+        </div>
+
+        ${(hp.contraindications_for_home||[]).length ? `
+          <div style="margin-top:12px">
+            <div class="cp-section-title">Do NOT use home device if:</div>
+            <ul style="margin:0;padding-left:18px">${safeList(hp.contraindications_for_home)}</ul>
+          </div>` : ''}
+
+        ${hp.evidence_note ? `<div class="cp-caveat" style="margin-top:12px">📊 ${esc(hp.evidence_note)}</div>` : ''}
+      </div>`).join('');
+  }
+
+  function tabPatientGuide() {
+    const pf = pkg.patient_friendly_explanation || {};
+    const faqItems = (pf.faq || []).map((f,i) => `
+      <div class="cp-faq-item" id="faq-${i}" onclick="this.classList.toggle('open')">
+        <div class="cp-faq-q">${esc(f.question)} <span class="cp-faq-arrow">▾</span></div>
+        <div class="cp-faq-a">${esc(f.answer)}</div>
+      </div>`).join('');
+
+    return `
+      <div class="cp-section">
+        <div class="cp-section-title">What Is ${esc(pkg.name)}?</div>
+        <p style="font-size:13.5px;color:var(--text-secondary);line-height:1.7">${esc(pf.what_is_it||'Not available.')}</p>
+      </div>
+
+      <div class="cp-section">
+        <div class="cp-section-title">How It Affects You</div>
+        <p style="font-size:13.5px;color:var(--text-secondary);line-height:1.7">${esc(pf.how_it_affects_you||'Not available.')}</p>
+      </div>
+
+      <div class="cp-section">
+        <div class="cp-section-title">Treatment Options</div>
+        <p style="font-size:13.5px;color:var(--text-secondary);line-height:1.7">${esc(pf.treatment_options_overview||'Not available.')}</p>
+      </div>
+
+      <div class="cp-section">
+        <div class="cp-section-title">What to Expect</div>
+        <p style="font-size:13.5px;color:var(--text-secondary);line-height:1.7">${esc(pf.what_to_expect||'Not available.')}</p>
+      </div>
+
+      ${faqItems ? `<div class="cp-section">
+        <div class="cp-section-title">Frequently Asked Questions</div>
+        ${faqItems}
+      </div>` : ''}`;
+  }
+
+  function tabDocuments() {
+    const consents = pkg.consent_documents || [];
+    const reports  = pkg.report_templates  || [];
+
+    const consentCards = consents.map(c => `
+      <div class="cp-consent-card">
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:8px">
+          <div>
+            <div style="font-size:10px;font-family:var(--font-mono,monospace);color:var(--text-tertiary)">${esc(c.id)}</div>
+            <div style="font-size:13px;font-weight:700;color:var(--text-primary)">${esc(c.name)}</div>
+          </div>
+          <div style="text-align:right">
+            ${c.document_type ? `<span class="cp-chip">${esc(c.document_type)}</span>` : ''}
+            ${c.signature_required ? `<span class="cp-chip cp-chip-amber">Signature required</span>` : ''}
+          </div>
+        </div>
+        <div style="font-size:10.5px;color:var(--text-tertiary);margin-bottom:8px">${esc(c.when_required||'')}</div>
+        ${(c.key_disclosures||[]).length ? `
+          <div class="cp-section-title" style="margin-bottom:6px">Key Disclosures</div>
+          <ul style="margin:0;padding-left:16px">${(c.key_disclosures||[]).map(d => `<li style="font-size:11.5px;color:var(--text-secondary);margin-bottom:4px">${esc(d)}</li>`).join('')}</ul>` : ''}
+      </div>`).join('');
+
+    const reportCards = reports.map(r => `
+      <div class="cp-card" style="margin-bottom:12px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+          <div>
+            <div style="font-size:10px;font-family:var(--font-mono,monospace);color:var(--text-tertiary)">${esc(r.id)}</div>
+            <div style="font-size:13px;font-weight:700;color:var(--text-primary)">${esc(r.name)}</div>
+          </div>
+          <div style="text-align:right">
+            ${r.audience ? chip(r.audience, '') : ''}
+            ${r.frequency ? `<div style="font-size:9.5px;color:var(--text-tertiary);margin-top:3px">${esc(r.frequency)}</div>` : ''}
+          </div>
+        </div>
+        ${(r.sections||[]).map(s => `
+          <div class="cp-report-sec">
+            <div style="font-size:11.5px;font-weight:600;color:var(--text-primary);margin-bottom:3px">${esc(s.title)}</div>
+            ${s.clinician_narrative_prompt ? `<div style="font-size:10.5px;color:var(--amber);font-style:italic">Narrative prompt: ${esc(s.clinician_narrative_prompt)}</div>` : ''}
+            ${(s.auto_populate_from||[]).length ? `<div style="font-size:9.5px;color:var(--teal);margin-top:3px">Auto-fills: ${(s.auto_populate_from||[]).join(', ')}</div>` : ''}
+          </div>`).join('')}
+      </div>`).join('');
+
+    return `
+      ${consents.length ? `<div class="cp-section">
+        <div class="cp-section-title">Consent Documents (${consents.length})</div>
+        ${consentCards}
+      </div>` : ''}
+      ${reports.length ? `<div class="cp-section">
+        <div class="cp-section-title">Report Templates (${reports.length})</div>
+        ${reportCards}
+      </div>` : ''}
+      ${!consents.length && !reports.length ? emptyState('◱', 'No documents defined', 'Consent documents and report templates have not been added to this condition package.') : ''}`;
+  }
+
+  // ── Tab renderer dispatch ─────────────────────────────────────────────────
+  const RENDERERS = [tabOverview, tabAssessments, tabProtocols, tabMonitoring, tabHandbook, tabHomePrograms, tabPatientGuide, tabDocuments];
+
+  window._cpRender = function() {
+    const tabContent = document.getElementById('cp-tab-content');
+    if (!tabContent) return;
+    // Update tab bar active state
+    document.querySelectorAll('.cp-tab').forEach((b,i) => b.classList.toggle('active', i === window._cpActiveTab));
+    tabContent.innerHTML = RENDERERS[window._cpActiveTab]?.() || '';
+  };
+
+  window._cpTab = function(i) {
+    window._cpActiveTab = i;
+    window._cpRender();
+  };
+
+  window._cpPrescribe = function() {
+    const proto = (window._cpPkg?.protocol_bundle || [])[0];
+    if (proto) window._rxPrefilledProto = { ...proto, name: proto.name, modality_id: proto.modality_slug };
+    window._nav('prescriptions');
+  };
+
+  window._cpPrescribeProto = function(pid) {
+    const proto = (window._cpPkg?.protocol_bundle || []).find(p => p.protocol_id === pid);
+    if (proto) window._rxPrefilledProto = { ...proto, name: proto.name, modality_id: proto.modality_slug };
+    window._nav('prescriptions');
+  };
+
+  // ── Render ────────────────────────────────────────────────────────────────
+  el.innerHTML = headerCard + tabBar() + `<div id="cp-tab-content"></div>`;
+  window._cpRender();
+}

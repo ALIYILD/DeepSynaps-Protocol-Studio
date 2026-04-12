@@ -6,8 +6,10 @@ from fastapi import APIRouter, HTTPException, Query
 
 from app.services.registries import (
     get_condition,
+    get_condition_package,
     get_protocol,
     get_phenotypes_for_condition,
+    list_condition_package_slugs,
     list_conditions,
     list_devices,
     list_governance_rules,
@@ -34,6 +36,20 @@ _EVIDENCE_GRADE_ORDER: dict[str, int] = {
 def registry_list_conditions() -> dict:
     items = list_conditions()
     return {"items": items, "total": len(items)}
+
+
+@router.get("/conditions/packages")
+def registry_list_condition_packages() -> dict:
+    slugs = list_condition_package_slugs()
+    return {"slugs": slugs, "total": len(slugs)}
+
+
+@router.get("/conditions/{condition_id}/package")
+def registry_get_condition_package(condition_id: str) -> dict:
+    pkg = get_condition_package(condition_id)
+    if pkg is None:
+        raise HTTPException(status_code=404, detail=f"Condition package '{condition_id}' not found.")
+    return pkg
 
 
 @router.get("/conditions/{condition_id}")
