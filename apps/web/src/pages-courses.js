@@ -2176,6 +2176,7 @@ export async function pgSessionExecution(setTopbar, navigate) {
   setTopbar('Session Execution', `<span id="sex-topbar-status" style="font-size:11px;color:var(--text-tertiary)">Select a patient to begin</span>`);
   const el = document.getElementById('content');
   el.innerHTML = spinner();
+  const esc = s => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 
   let activeCourses = [], devices = [];
   try {
@@ -2313,7 +2314,7 @@ export async function pgSessionExecution(setTopbar, navigate) {
       ${currentUser?.role === 'technician' ? `<div class="notice notice-info" style="margin-bottom:14px">◧ Technician mode — log session parameters only. Course management is handled by your supervising clinician.</div>` : ''}
       <div class="sex-queue-card card">
         <div class="sex-queue-header">
-          <span>Active Courses <span class="sex-queue-count">${activeCourses.length}</span></span>
+          <span>Today's Sessions <span class="sex-queue-count">${activeCourses.length}</span></span>
           <input id="sex-search" class="form-control" placeholder="Search patient or condition…"
             style="max-width:220px;height:28px;font-size:12px;padding:0 8px"
             oninput="window._seFilterQueue(this.value)">
@@ -2340,345 +2341,459 @@ export async function pgSessionExecution(setTopbar, navigate) {
     <!-- ── PHASE 1: SETUP & SAFETY ────────────────────────────────────── -->
     <div id="sex-phase-setup" class="sex-phase" style="display:none">
 
-      <!-- Session Header -->
-      <div class="card sex-header-card" id="sex-header">
-        <div class="sex-header-body">
-          <div class="sex-header-patient">
-            <div id="sex-h-name" class="sex-h-name">—</div>
-            <div id="sex-h-meta" class="sex-h-meta"></div>
-          </div>
-          <div class="sex-header-right">
-            <div id="sex-h-session" class="sex-h-session"></div>
-            <div id="sex-h-status" class="sex-status-pill sex-status-pending">Pending</div>
-          </div>
+      <!-- Patient Identity Banner -->
+      <div class="sex-identity-banner">
+        <div style="flex:1;min-width:0">
+          <div id="sex-h-name" class="sex-identity-name">—</div>
+          <div id="sex-h-meta" class="sex-identity-meta"></div>
         </div>
-        <div id="sex-h-course-bar" class="sex-h-course-bar" style="display:none"></div>
+        <div class="sex-identity-session">
+          <div id="sex-h-session" class="sex-h-session"></div>
+          <div id="sex-h-status" class="sex-status-pill sex-status-pending" style="margin-top:4px;display:inline-block">Pending</div>
+        </div>
       </div>
+      <div id="sex-h-course-bar" class="sex-h-course-bar" style="display:none;margin-bottom:12px"></div>
 
-      <!-- Protocol Summary + Parameters -->
-      <div class="card" style="margin-bottom:12px">
-        <div class="sex-section-hd">Protocol Summary</div>
-        <div class="sex-proto-body">
-          <div class="sex-proto-params">
-            <div class="sex-param"><span class="sex-param-label">Protocol</span><span id="spp-name" class="sex-param-val">—</span></div>
-            <div class="sex-param"><span class="sex-param-label">Label</span><span id="spp-label" class="sex-param-val">—</span></div>
-            <div class="sex-param"><span class="sex-param-label">Target</span><span id="spp-target" class="sex-param-val">—</span></div>
-            <div class="sex-param"><span class="sex-param-label">Side</span><span id="spp-side" class="sex-param-val">—</span></div>
+      <!-- 2-column layout -->
+      <div class="sex-two-col">
+
+        <!-- LEFT COLUMN -->
+        <div>
+          <!-- Treatment Overview -->
+          <div class="card" style="margin-bottom:12px">
+            <div class="sex-section-hd">Treatment Overview</div>
+            <div id="sex-tx-overview">
+              <div style="padding:14px 16px;color:var(--text-tertiary);font-size:12px">Select a course to load overview…</div>
+            </div>
           </div>
-          <div class="sex-proto-fields">
-            <div class="sex-param-grid">
-              <div class="sex-field-group">
-                <label class="sex-field-lbl">Device</label>
-                <select id="sex-device-vis" class="form-control sex-field-input"
-                  onchange="document.getElementById('se-device').value=this.value">
-                  <option value="">Select device…</option>${deviceOptions}<option value="other">Other</option>
-                </select>
-              </div>
-              <div class="sex-field-group">
-                <label class="sex-field-lbl">Site / Montage</label>
-                <input id="sex-montage-vis" class="form-control sex-field-input" placeholder="e.g. F3-Fp2"
-                  oninput="document.getElementById('se-montage').value=this.value">
-              </div>
-              <div class="sex-field-group">
-                <label class="sex-field-lbl">Freq (Hz)</label>
-                <input id="sex-freq-vis" class="form-control sex-field-input" type="number" step="0.1"
-                  oninput="document.getElementById('se-freq').value=this.value">
-              </div>
-              <div class="sex-field-group">
-                <label class="sex-field-lbl">Intensity (% RMT)</label>
-                <input id="sex-intensity-vis" class="form-control sex-field-input" type="number" step="1"
-                  oninput="document.getElementById('se-intensity').value=this.value">
-              </div>
-              <div class="sex-field-group">
-                <label class="sex-field-lbl">Pulses</label>
-                <input id="sex-pulses-vis" class="form-control sex-field-input" type="number"
-                  oninput="document.getElementById('se-pulses').value=this.value">
-              </div>
-              <div class="sex-field-group">
-                <label class="sex-field-lbl">Duration (min)</label>
-                <input id="sex-duration-vis" class="form-control sex-field-input" type="number"
-                  oninput="document.getElementById('se-duration').value=this.value;document.getElementById('se-timer-dur').value=this.value">
+
+          <!-- Protocol Details -->
+          <div class="card" style="margin-bottom:12px">
+            <div class="sex-section-hd">Protocol Details</div>
+            <div id="sex-proto-detail">
+              <div style="padding:14px 16px;color:var(--text-tertiary);font-size:12px">Loading protocol…</div>
+            </div>
+            <!-- Editable params (synced to ghost fields) -->
+            <div style="padding:0 16px 14px;border-top:1px solid var(--border);margin-top:4px">
+              <div style="font-size:10.5px;text-transform:uppercase;letter-spacing:0.7px;color:var(--text-tertiary);margin-bottom:8px;margin-top:10px">Override Parameters</div>
+              <div class="sex-param-grid">
+                <div class="sex-field-group">
+                  <label class="sex-field-lbl">Device</label>
+                  <select id="sex-device-vis" class="form-control sex-field-input"
+                    onchange="document.getElementById('se-device').value=this.value">
+                    <option value="">Select device…</option>${deviceOptions}<option value="other">Other</option>
+                  </select>
+                </div>
+                <div class="sex-field-group">
+                  <label class="sex-field-lbl">Site / Montage</label>
+                  <input id="sex-montage-vis" class="form-control sex-field-input" placeholder="e.g. F3-Fp2"
+                    oninput="document.getElementById('se-montage').value=this.value">
+                </div>
+                <div class="sex-field-group">
+                  <label class="sex-field-lbl">Freq (Hz)</label>
+                  <input id="sex-freq-vis" class="form-control sex-field-input" type="number" step="0.1"
+                    oninput="document.getElementById('se-freq').value=this.value">
+                </div>
+                <div class="sex-field-group">
+                  <label class="sex-field-lbl">Intensity (% RMT)</label>
+                  <input id="sex-intensity-vis" class="form-control sex-field-input" type="number" step="1"
+                    oninput="document.getElementById('se-intensity').value=this.value">
+                </div>
+                <div class="sex-field-group">
+                  <label class="sex-field-lbl">Pulses</label>
+                  <input id="sex-pulses-vis" class="form-control sex-field-input" type="number"
+                    oninput="document.getElementById('se-pulses').value=this.value">
+                </div>
+                <div class="sex-field-group">
+                  <label class="sex-field-lbl">Duration (min)</label>
+                  <input id="sex-duration-vis" class="form-control sex-field-input" type="number"
+                    oninput="document.getElementById('se-duration').value=this.value;document.getElementById('se-timer-dur').value=this.value">
+                </div>
               </div>
             </div>
           </div>
-        </div>
-        <div id="sex-consent-display" style="margin:0 16px 12px"></div>
-      </div>
 
-      <!-- Safety Checklist -->
-      <div class="card" style="margin-bottom:16px">
-        <div class="sex-section-hd">
-          Safety Checklist
-          <span id="sex-safety-tally" class="sex-safety-tally">0 / 7</span>
-        </div>
-        <div style="padding:0 16px 16px">
-          <div class="sex-checks">
-            ${[
-              ['sex-ck-identity', 'Patient identity confirmed against record'],
-              ['sex-ck-contra',   'Contraindications reviewed — none currently active'],
-              ['sex-ck-consent',  'Treatment consent on file and valid'],
-              ['sex-ck-ae',       'Prior adverse events reviewed'],
-              ['sex-ck-assess',   'Baseline / pre-session assessment completed'],
-              ['sex-ck-device',   'Device ready and calibration confirmed'],
-              ['sex-ck-target',   'Target site verified and marked on patient'],
-            ].map(([id, lbl]) => `
-              <label class="sex-check-row" for="${id}">
-                <input type="checkbox" id="${id}" class="sex-check-input" onchange="window._seCheckSafety()">
-                <span class="sex-check-box"></span>
-                <span class="sex-check-lbl">${lbl}</span>
-              </label>`).join('')}
-          </div>
-          <div id="sex-safety-err" style="display:none;font-size:11.5px;color:var(--amber);margin-top:8px;padding:6px 10px;background:rgba(255,181,71,0.07);border-radius:4px">
-            Complete all safety checks before beginning the session.
+          <!-- Brain Target Card -->
+          <div class="card" style="margin-bottom:12px">
+            <div class="sex-section-hd">Brain Target</div>
+            <div class="sex-brain-target-card">
+              <div id="sex-brain-target-setup">
+                <div style="width:140px;height:140px;background:rgba(255,255,255,0.03);border-radius:50%;display:flex;align-items:center;justify-content:center;color:var(--text-tertiary);font-size:11px">No target</div>
+              </div>
+              <div class="sex-brain-placement-note" id="sex-guide-instructions-setup"></div>
+            </div>
+            <!-- Keep hidden legacy guide elements for _seAutoFill compatibility -->
+            <div style="display:none">
+              <div id="sex-guide-visual-wrap"></div>
+              <div id="sex-guide-instructions" class="sex-guide-text"></div>
+            </div>
           </div>
         </div>
-        <div style="padding:0 16px 16px;display:flex;gap:10px;align-items:center">
-          <button id="sex-begin-btn" class="btn btn-primary" onclick="window._seSetPhase('active')" disabled style="opacity:0.5">
-            Begin Session →
-          </button>
-          <button class="btn btn-sm" onclick="window._seSetPhase('select')">← Change Patient</button>
+
+        <!-- RIGHT COLUMN -->
+        <div>
+          <!-- Safety Checklist -->
+          <div class="card" style="margin-bottom:12px">
+            <div class="sex-section-hd">
+              Safety Checklist
+              <span id="sex-safety-tally" class="sex-safety-tally">0 / 8</span>
+            </div>
+            <div style="padding:0 16px 12px">
+              <div class="sex-checks">
+                ${[
+                  ['sex-ck-identity', 'Patient identity confirmed against record'],
+                  ['sex-ck-contra',   'Contraindications reviewed — none currently active'],
+                  ['sex-ck-consent',  'Treatment consent on file and valid'],
+                  ['sex-ck-ae',       'Prior adverse events reviewed'],
+                  ['sex-ck-assess',   'Baseline / pre-session assessment completed'],
+                  ['sex-ck-device',   'Device ready and calibration confirmed'],
+                  ['sex-ck-target',   'Target site verified and marked on patient'],
+                  ['sex-ck-ready',    'Patient is comfortable and ready to begin'],
+                ].map(([id, lbl]) => `
+                  <label class="sex-check-row" for="${id}">
+                    <input type="checkbox" id="${id}" class="sex-check-input" onchange="window._seCheckSafety()">
+                    <span class="sex-check-box"></span>
+                    <span class="sex-check-lbl">${lbl}</span>
+                  </label>`).join('')}
+              </div>
+              <div id="sex-safety-err" style="display:none;font-size:11.5px;color:var(--amber);margin-top:8px;padding:6px 10px;background:rgba(255,181,71,0.07);border-radius:4px">
+                Complete all safety checks before beginning the session.
+              </div>
+            </div>
+            <!-- Consent status -->
+            <div id="sex-consent-display" style="margin:0 16px 12px"></div>
+            <!-- Begin button -->
+            <div style="padding:0 16px 16px;display:flex;gap:10px;align-items:center">
+              <button id="sex-begin-btn" class="btn btn-primary" onclick="window._seSetPhase('active')" disabled style="opacity:0.5;flex:1">
+                Begin Session →
+              </button>
+              <button class="btn btn-sm" onclick="window._seSetPhase('select')">← Change</button>
+            </div>
+          </div>
         </div>
+
+      </div><!-- /sex-two-col -->
+
+      <!-- hidden protocol summary params for legacy _seAutoFill compatibility -->
+      <div style="display:none">
+        <span id="spp-name"></span><span id="spp-label"></span>
+        <span id="spp-target"></span><span id="spp-side"></span>
       </div>
     </div>
 
     <!-- ── PHASE 2: ACTIVE SESSION ────────────────────────────────────── -->
     <div id="sex-phase-active" class="sex-phase" style="display:none">
 
-      <!-- Mini session header -->
-      <div id="sex-active-header" class="sex-active-header"></div>
-
-      <!-- Stimulation Guide (collapsible) -->
-      <details class="sex-guide-details card" style="margin-bottom:12px">
-        <summary class="sex-section-hd sex-guide-sum">
-          Stimulation Guide
-          <span style="font-size:10px;color:var(--text-tertiary);font-weight:400;margin-left:6px">▸ expand</span>
-        </summary>
-        <div class="sex-guide-body">
-          <div id="sex-guide-visual-wrap"></div>
-          <div id="sex-guide-instructions" class="sex-guide-text"></div>
-        </div>
-      </details>
-
-      <!-- Live Session Controls -->
-      <div class="card sex-controls-card" style="margin-bottom:12px">
-        <div class="sex-section-hd">
-          Live Session Controls
-          <span id="se-timer-active-label" style="display:none;font-size:11px;color:var(--green);font-weight:600;display:none;align-items:center;gap:5px">
-            <span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--green);animation:sexPulse 1.5s ease-in-out infinite"></span>
-            Active
-          </span>
-        </div>
-        <div class="sex-timer-row">
-          <div class="sex-timer-block">
-            <div class="sex-timer-display" id="se-timer-display">25:00</div>
-            <div class="sex-timer-sub">countdown</div>
-            <div id="se-timer-pulse" style="display:none;width:8px;height:8px;border-radius:50%;background:var(--green);animation:sexPulse 1.5s ease-in-out infinite;margin:6px auto 0"></div>
-          </div>
-          <div class="sex-timer-controls">
-            <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
-              <label class="sex-field-lbl">Duration (min)</label>
-              <input id="se-timer-dur" type="number" value="25" min="1" max="120"
-                class="sex-field-input form-control" style="width:60px"
-                onchange="window._seTimerReset()">
-            </div>
-            <div style="display:flex;gap:8px;flex-wrap:wrap">
-              <button class="btn btn-primary" id="se-timer-start-btn" onclick="window._seTimerStart()">▶ Start</button>
-              <button class="btn" id="se-timer-stop-btn" onclick="window._seTimerStop()" style="display:none">⏹ Stop</button>
-            </div>
-            <div id="se-timer-notice" style="display:none;font-size:12px;color:var(--green);margin-top:8px;padding:6px 10px;background:rgba(74,222,128,0.08);border:1px solid rgba(74,222,128,0.2);border-radius:4px"></div>
-            <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
-              <label class="sex-flag-btn sex-flag-amber" id="sex-flag-interrupt">
-                <input type="checkbox" id="sex-p2-interrupt" style="display:none" onchange="window._seUpdateFlags()"> ⚡ Interruption
-              </label>
-              <label class="sex-flag-btn sex-flag-red" id="sex-flag-deviation">
-                <input type="checkbox" id="sex-p2-deviation" style="display:none" onchange="window._seUpdateFlags()"> ⚠ Deviation
-              </label>
-            </div>
-            <div id="sex-flags-notice" style="display:none;font-size:11.5px;color:var(--amber);margin-top:6px"></div>
-          </div>
-        </div>
+      <!-- Mini session header strip -->
+      <div id="sex-active-header" class="sex-active-hdr-strip">
+        <span class="sex-active-hdr-name">—</span>
+        <span class="sex-active-hdr-sep">·</span>
+        <span style="font-size:12px;color:var(--text-secondary)" id="sex-ah-meta"></span>
+        <span class="sex-active-hdr-session" id="sex-ah-session"></span>
+        <span class="sex-status-pill sex-status-active" style="font-size:10px;padding:2px 8px">Active</span>
       </div>
 
-      <!-- During-Session Observations -->
-      <div class="card" style="margin-bottom:12px">
-        <div class="sex-section-hd">During-Session Observations</div>
-        <div style="padding:0 16px 16px">
-          <div style="margin-bottom:14px">
-            <div class="sex-obs-label">Patient Tolerance</div>
-            <div class="sex-tol-row">
-              ${[
-                ['well-tolerated',  'Well tolerated',    'var(--teal)'],
-                ['mild-discomfort', 'Mild discomfort',   '#60a5fa'],
-                ['moderate',        'Moderate',          'var(--amber)'],
-                ['poor',            'Poor — stop',       'var(--red)'],
-              ].map(([val, lbl, col]) =>
-                `<button class="sex-tol-btn" data-val="${val}" onclick="window._seSetTolerance('${val}')" style="--tol-color:${col}">${lbl}</button>`
-              ).join('')}
+      <!-- 2-column active layout -->
+      <div class="sex-two-col-active">
+
+        <!-- LEFT: Controls + Delivered Params -->
+        <div>
+          <!-- Live Session Controls -->
+          <div class="card sex-controls-card" style="margin-bottom:12px">
+            <div class="sex-section-hd">
+              Live Session Controls
+              <span id="se-timer-active-label" style="display:none;font-size:11px;color:var(--green);font-weight:600;align-items:center;gap:5px">
+                <span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--green);animation:sexPulse 1.5s ease-in-out infinite"></span>
+                Active
+              </span>
+            </div>
+            <div class="sex-timer-row">
+              <div class="sex-timer-block">
+                <div class="sex-timer-display" id="se-timer-display">25:00</div>
+                <div class="sex-timer-sub">countdown</div>
+                <div id="se-timer-pulse" style="display:none;width:8px;height:8px;border-radius:50%;background:var(--green);animation:sexPulse 1.5s ease-in-out infinite;margin:6px auto 0"></div>
+              </div>
+              <div class="sex-timer-controls">
+                <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+                  <label class="sex-field-lbl">Duration (min)</label>
+                  <input id="se-timer-dur" type="number" value="25" min="1" max="120"
+                    class="sex-field-input form-control" style="width:60px"
+                    onchange="window._seTimerReset()">
+                </div>
+                <div style="display:flex;gap:8px;flex-wrap:wrap">
+                  <button class="btn btn-primary" id="se-timer-start-btn" onclick="window._seTimerStart()">▶ Start</button>
+                  <button class="btn" id="se-timer-stop-btn" onclick="window._seTimerStop()" style="display:none">⏹ Stop</button>
+                </div>
+                <div id="se-timer-notice" style="display:none;font-size:12px;color:var(--green);margin-top:8px;padding:6px 10px;background:rgba(74,222,128,0.08);border:1px solid rgba(74,222,128,0.2);border-radius:4px"></div>
+                <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
+                  <label class="sex-flag-btn sex-flag-amber" id="sex-flag-interrupt">
+                    <input type="checkbox" id="sex-p2-interrupt" style="display:none" onchange="window._seUpdateFlags()"> ⚡ Interruption
+                  </label>
+                  <label class="sex-flag-btn sex-flag-red" id="sex-flag-deviation">
+                    <input type="checkbox" id="sex-p2-deviation" style="display:none" onchange="window._seUpdateFlags()"> ⚠ Deviation
+                  </label>
+                </div>
+                <div id="sex-flags-notice" style="display:none;font-size:11.5px;color:var(--amber);margin-top:6px"></div>
+              </div>
             </div>
           </div>
-          <div style="margin-bottom:14px">
-            <div class="sex-obs-label">Side Effects <span style="font-weight:400;color:var(--text-tertiary)">(select all that apply)</span></div>
-            <div class="sex-se-chips">
-              ${['Headache','Tingling','Burning','Scalp discomfort','Nausea','Dizziness','Fatigue','Eye twitching','Mood change','None'].map(se =>
-                `<button class="sex-se-chip" onclick="window._seToggleSE(this,'${se}')">${se}</button>`
-              ).join('')}
+
+          <!-- Delivered Parameters -->
+          <div class="card" style="margin-bottom:12px">
+            <div class="sex-section-hd">Delivered Parameters <span style="font-size:10px;font-weight:400;color:var(--text-tertiary)">actual vs planned</span></div>
+            <div class="sex-delivered-grid">
+              <div class="sex-field-group">
+                <label class="sex-field-lbl">Actual Intensity (% RMT)</label>
+                <input id="sex-actual-intensity" class="form-control sex-field-input" type="number" step="1" placeholder="Planned: —">
+              </div>
+              <div class="sex-field-group">
+                <label class="sex-field-lbl">Actual Duration (min)</label>
+                <input id="sex-actual-duration" class="form-control sex-field-input" type="number" placeholder="Planned: —">
+              </div>
+              <div class="sex-field-group">
+                <label class="sex-field-lbl">Delivered Site</label>
+                <input id="sex-actual-site" class="form-control sex-field-input" placeholder="e.g. F3-Fp2">
+              </div>
+              <div class="sex-field-group">
+                <label class="sex-field-lbl">Device Used</label>
+                <select id="sex-device-vis-active" class="form-control sex-field-input"
+                  onchange="document.getElementById('se-device').value=this.value;const s=document.getElementById('sex-device-vis');if(s)s.value=this.value">
+                  <option value="">Select device…</option>${deviceOptions}<option value="other">Other</option>
+                </select>
+              </div>
+            </div>
+            <div id="sex-deviation-reason-wrap" style="display:none;padding:0 16px 12px">
+              <label class="sex-field-lbl">Deviation Reason</label>
+              <textarea id="sex-deviation-reason" class="form-control sex-deviation-reason" rows="2"
+                placeholder="Describe the protocol deviation and clinical rationale…"
+                style="font-size:12.5px;margin-top:6px;resize:vertical"></textarea>
             </div>
           </div>
-          <div>
-            <label class="sex-obs-label">
-              Clinician Notes
-              <span style="font-weight:400;color:var(--text-tertiary)">(patient comments, events, observations)</span>
-            </label>
-            <textarea id="sex-obs-note" class="form-control" rows="2"
-              placeholder="Patient reports, observations during stimulation…"
-              style="font-size:12.5px;margin-top:6px"></textarea>
+
+          <!-- Navigation -->
+          <div style="display:flex;gap:10px;margin-bottom:12px">
+            <button class="btn btn-primary" onclick="window._seSetPhase('post')">End Session → Post-Session</button>
+            <button class="btn btn-sm" onclick="window._seSetPhase('setup')">← Back to Setup</button>
           </div>
         </div>
-        <div style="padding:0 16px 16px;display:flex;gap:10px">
-          <button class="btn btn-primary" onclick="window._seSetPhase('post')">End Session → Post-Session</button>
-          <button class="btn btn-sm" onclick="window._seSetPhase('setup')">← Back to Setup</button>
+
+        <!-- RIGHT: Brain Target + Protocol Ref + Observations -->
+        <div>
+          <!-- Brain Target -->
+          <div class="card" style="margin-bottom:12px">
+            <div class="sex-section-hd">Brain Target</div>
+            <div class="sex-brain-target-card">
+              <div id="sex-brain-target-active">
+                <div style="width:140px;height:140px;background:rgba(255,255,255,0.03);border-radius:50%;display:flex;align-items:center;justify-content:center;color:var(--text-tertiary);font-size:11px">No target</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Protocol Quick Ref -->
+          <div class="card" style="margin-bottom:12px">
+            <div class="sex-section-hd">Protocol Quick Ref</div>
+            <div id="sex-active-proto-ref" class="sex-proto-ref">
+              <span style="font-size:12px;color:var(--text-tertiary)">No protocol parameters on file</span>
+            </div>
+          </div>
+
+          <!-- During-Session Observations -->
+          <div class="card" style="margin-bottom:12px">
+            <div class="sex-section-hd">During-Session Observations</div>
+            <div style="padding:0 16px 16px">
+              <div style="margin-bottom:14px">
+                <div class="sex-obs-label">Patient Tolerance</div>
+                <div class="sex-tol-row">
+                  ${[
+                    ['well-tolerated',  'Well tolerated',    'var(--teal)'],
+                    ['mild-discomfort', 'Mild discomfort',   '#60a5fa'],
+                    ['moderate',        'Moderate',          'var(--amber)'],
+                    ['poor',            'Poor — stop',       'var(--red)'],
+                  ].map(([val, lbl, col]) =>
+                    `<button class="sex-tol-btn" data-val="${val}" onclick="window._seSetTolerance('${val}')" style="--tol-color:${col}">${lbl}</button>`
+                  ).join('')}
+                </div>
+              </div>
+              <div style="margin-bottom:14px">
+                <div class="sex-obs-label">Side Effects <span style="font-weight:400;color:var(--text-tertiary)">(select all that apply)</span></div>
+                <div class="sex-se-chips">
+                  ${['Headache','Tingling','Burning','Scalp discomfort','Nausea','Dizziness','Fatigue','Eye twitching','Mood change','None'].map(se =>
+                    `<button class="sex-se-chip" onclick="window._seToggleSE(this,'${se}')">${se}</button>`
+                  ).join('')}
+                </div>
+              </div>
+              <div>
+                <label class="sex-obs-label">
+                  Patient Comments &amp; Notes
+                </label>
+                <textarea id="sex-obs-note" class="form-control" rows="3"
+                  placeholder="Patient reports, observations during stimulation…"
+                  style="font-size:12.5px;margin-top:6px"></textarea>
+              </div>
+            </div>
+          </div>
         </div>
-      </div>
+
+      </div><!-- /sex-two-col-active -->
     </div>
 
     <!-- ── PHASE 3: POST-SESSION ──────────────────────────────────────── -->
     <div id="sex-phase-post" class="sex-phase" style="display:none">
 
       <!-- Mini session header -->
-      <div id="sex-post-header" class="sex-active-header"></div>
-
-      <!-- Post-Session Summary -->
-      <div class="card" style="margin-bottom:12px">
-        <div class="sex-section-hd">Post-Session Summary</div>
-        <div style="padding:0 16px 16px">
-          <div class="sex-post-grid">
-            <div class="sex-field-group">
-              <label class="sex-field-lbl">Session Outcome <span style="color:var(--red)">*</span></label>
-              <select id="se-outcome" class="form-control sex-field-input">
-                <option value="completed">Completed as planned</option>
-                <option value="partially_completed">Partially completed</option>
-                <option value="parameters_modified">Parameters modified</option>
-                <option value="stopped_early">Stopped early</option>
-              </select>
-            </div>
-            <div class="sex-field-group">
-              <label class="sex-field-lbl">Final Tolerance</label>
-              <select id="se-tolerance" class="form-control sex-field-input">
-                <option value="">Select…</option>
-                <option value="well-tolerated">Well tolerated</option>
-                <option value="mild-discomfort">Mild discomfort</option>
-                <option value="moderate">Moderate discomfort</option>
-                <option value="poor">Poor — intervention required</option>
-              </select>
-            </div>
-          </div>
-          <div style="display:flex;gap:16px;margin:10px 0 12px;flex-wrap:wrap">
-            <label class="sex-check-row">
-              <input type="checkbox" id="se-interrupt" class="sex-check-input">
-              <span class="sex-check-box"></span>
-              <span class="sex-check-lbl" style="color:var(--amber)">Session was interrupted</span>
-            </label>
-            <label class="sex-check-row">
-              <input type="checkbox" id="se-deviation" class="sex-check-input">
-              <span class="sex-check-box"></span>
-              <span class="sex-check-lbl" style="color:var(--red)">Protocol deviation occurred</span>
-            </label>
-            <label class="sex-check-row">
-              <input type="checkbox" id="sex-reviewed-pt" class="sex-check-input">
-              <span class="sex-check-box"></span>
-              <span class="sex-check-lbl">Reviewed with patient</span>
-            </label>
-          </div>
-          <label class="sex-field-lbl">Post-Session Notes &amp; Observations</label>
-          <textarea id="se-notes" class="form-control" rows="3"
-            placeholder="Patient response, tolerance observations, deviation rationale, adverse reactions…"
-            style="font-size:12.5px;margin-top:6px;resize:vertical"></textarea>
-        </div>
+      <div id="sex-post-header" class="sex-active-hdr-strip">
+        <span class="sex-active-hdr-name">—</span>
+        <span class="sex-active-hdr-sep">·</span>
+        <span style="font-size:12px;color:var(--text-secondary)" id="sex-ph-meta"></span>
+        <span class="sex-active-hdr-session" id="sex-ph-session"></span>
+        <span class="sex-status-pill sex-status-ready" style="font-size:10px;padding:2px 8px">Post-Session</span>
       </div>
 
-      <!-- Quick Outcome Capture -->
-      <div class="card" style="margin-bottom:12px">
-        <div class="sex-section-hd">
-          Quick Outcome Capture
-          <span style="font-size:10px;font-weight:400;color:var(--text-tertiary)">optional</span>
-        </div>
-        <div style="padding:0 16px 16px">
-          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:10px">
-            <div>
-              <label class="sex-field-lbl">Assessment Template</label>
-              <select id="pse-template" class="form-control sex-field-input">
-                <option value="">Skip outcome</option>
-                ${FALLBACK_ASSESSMENT_TEMPLATES.map(t => `<option value="${t.id}">${t.id} — ${t.label.split('—')[1]?.trim() || t.label}</option>`).join('')}
-              </select>
-            </div>
-            <div>
-              <label class="sex-field-lbl">Score</label>
-              <input id="pse-score" class="form-control sex-field-input" type="number" placeholder="e.g. 12">
-            </div>
-            <div>
-              <label class="sex-field-lbl">Measurement Point</label>
-              <select id="pse-point" class="form-control sex-field-input">
-                <option value="mid">Mid-course</option>
-                <option value="post">Post-course</option>
-                <option value="baseline">Baseline</option>
-                <option value="follow_up">Follow-up</option>
-              </select>
+      <!-- 2-column post layout -->
+      <div class="sex-two-col-post">
+
+        <!-- LEFT: Post Summary + Aftercare + AE -->
+        <div>
+          <!-- Post-Session Summary -->
+          <div class="card" style="margin-bottom:12px">
+            <div class="sex-section-hd">Post-Session Summary</div>
+            <div style="padding:0 16px 16px">
+              <div class="sex-post-grid">
+                <div class="sex-field-group">
+                  <label class="sex-field-lbl">Session Outcome <span style="color:var(--red)">*</span></label>
+                  <select id="se-outcome" class="form-control sex-field-input">
+                    <option value="completed">Completed as planned</option>
+                    <option value="partially_completed">Partially completed</option>
+                    <option value="parameters_modified">Parameters modified</option>
+                    <option value="stopped_early">Stopped early</option>
+                  </select>
+                </div>
+                <div class="sex-field-group">
+                  <label class="sex-field-lbl">Final Tolerance</label>
+                  <select id="se-tolerance" class="form-control sex-field-input">
+                    <option value="">Select…</option>
+                    <option value="well-tolerated">Well tolerated</option>
+                    <option value="mild-discomfort">Mild discomfort</option>
+                    <option value="moderate">Moderate discomfort</option>
+                    <option value="poor">Poor — intervention required</option>
+                  </select>
+                </div>
+              </div>
+              <div style="display:flex;gap:16px;margin:10px 0 12px;flex-wrap:wrap">
+                <label class="sex-check-row">
+                  <input type="checkbox" id="se-interrupt" class="sex-check-input">
+                  <span class="sex-check-box"></span>
+                  <span class="sex-check-lbl" style="color:var(--amber)">Session was interrupted</span>
+                </label>
+                <label class="sex-check-row">
+                  <input type="checkbox" id="se-deviation" class="sex-check-input">
+                  <span class="sex-check-box"></span>
+                  <span class="sex-check-lbl" style="color:var(--red)">Protocol deviation occurred</span>
+                </label>
+                <label class="sex-check-row">
+                  <input type="checkbox" id="sex-reviewed-pt" class="sex-check-input">
+                  <span class="sex-check-box"></span>
+                  <span class="sex-check-lbl">Reviewed with patient</span>
+                </label>
+              </div>
+              <label class="sex-field-lbl">Post-Session Notes &amp; Observations</label>
+              <textarea id="se-notes" class="form-control" rows="4"
+                placeholder="Patient response, tolerance observations, deviation rationale, adverse reactions…"
+                style="font-size:12.5px;margin-top:6px;resize:vertical"></textarea>
             </div>
           </div>
-          <div id="pse-error" style="display:none;color:var(--red);font-size:12px;margin-bottom:6px"></div>
-          <button class="btn btn-sm" onclick="window._savePostSessionOutcome(document.getElementById('se-course').value, window._seCurrentPatientId)">
-            Save Outcome
-          </button>
-        </div>
-      </div>
 
-      <!-- Aftercare Guidance -->
-      <div class="card" style="margin-bottom:12px">
-        <div class="sex-section-hd">Aftercare &amp; Patient Guidance</div>
-        <div style="padding:0 16px 16px">
-          <div id="sex-aftercare-items" class="sex-aftercare-list"></div>
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px">
-            <div>
-              <label class="sex-field-lbl">Next Appointment</label>
-              <input id="sex-next-appt" class="form-control sex-field-input" placeholder="e.g. Thu 17 Apr, 10:00">
-            </div>
-            <div>
-              <label class="sex-field-lbl">Home Task Assigned</label>
-              <input id="sex-home-task" class="form-control sex-field-input" placeholder="e.g. HRV breathing 10 min daily">
+          <!-- Aftercare Guidance -->
+          <div class="card" style="margin-bottom:12px">
+            <div class="sex-section-hd">Aftercare &amp; Next Steps</div>
+            <div style="padding:0 16px 16px">
+              <div id="sex-aftercare-items" class="sex-aftercare-list"></div>
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px">
+                <div>
+                  <label class="sex-field-lbl">Next Appointment</label>
+                  <input id="sex-next-appt" class="form-control sex-field-input" placeholder="e.g. Thu 17 Apr, 10:00">
+                </div>
+                <div>
+                  <label class="sex-field-lbl">Home Task Assigned</label>
+                  <input id="sex-home-task" class="form-control sex-field-input" placeholder="e.g. HRV breathing 10 min daily">
+                </div>
+              </div>
+              <label class="sex-check-row" style="margin-top:10px">
+                <input type="checkbox" id="sex-ac-given" class="sex-check-input">
+                <span class="sex-check-box"></span>
+                <span class="sex-check-lbl">Aftercare instructions given to patient</span>
+              </label>
             </div>
           </div>
-          <label class="sex-check-row" style="margin-top:10px">
-            <input type="checkbox" id="sex-ac-given" class="sex-check-input">
-            <span class="sex-check-box"></span>
-            <span class="sex-check-lbl">Aftercare instructions given to patient</span>
-          </label>
-        </div>
-      </div>
 
-      <!-- AE warning panels -->
-      <div id="sex-ae-warning" style="display:none" class="notice notice-warn" style="margin-bottom:12px"></div>
-      <div id="sex-ae-panel" style="display:none;margin-bottom:12px"></div>
+          <!-- AE warning panels -->
+          <div id="sex-ae-warning" style="display:none" class="notice notice-warn" style="margin-bottom:12px"></div>
+          <div id="sex-ae-panel" style="display:none;margin-bottom:12px"></div>
+        </div>
 
-      <!-- Final Actions -->
-      <div class="card sex-actions-card">
-        <div class="sex-section-hd">Save &amp; Next Steps</div>
-        <div id="se-error" style="display:none;color:var(--red);font-size:12px;margin:0 16px 10px;padding:8px 10px;border-radius:6px;background:rgba(255,107,107,0.07)"></div>
-        <div id="se-success" style="display:none;color:var(--green);font-size:12px;margin:0 16px 10px;padding:8px 10px;border-radius:6px;background:rgba(74,222,128,0.07)"></div>
-        <div class="sex-actions-row">
-          <button id="se-submit-btn" class="btn btn-primary sex-action-primary" onclick="window._logSession()">Save Session</button>
-          <button class="btn sex-action-btn" onclick="window._seLogAndNext()">Save + Next Patient</button>
-          <button class="btn sex-action-btn" onclick="window._seLogAndFlag()">Save + Flag Review</button>
-          <button class="btn btn-sm sex-action-btn no-print"
-            onclick="window._printSessionNotes(document.getElementById('se-course').value)">&#128424; Print Notes</button>
+        <!-- RIGHT: Quick Outcome + Next Actions -->
+        <div>
+          <!-- Quick Outcome Capture -->
+          <div class="card" style="margin-bottom:12px">
+            <div class="sex-section-hd">
+              Quick Outcome Capture
+              <span style="font-size:10px;font-weight:400;color:var(--text-tertiary)">optional</span>
+            </div>
+            <div style="padding:0 16px 16px">
+              <div style="display:flex;flex-direction:column;gap:10px;margin-bottom:10px">
+                <div class="sex-field-group">
+                  <label class="sex-field-lbl">Assessment Template</label>
+                  <select id="pse-template" class="form-control sex-field-input">
+                    <option value="">Skip outcome</option>
+                    ${FALLBACK_ASSESSMENT_TEMPLATES.map(t => `<option value="${t.id}">${t.id} — ${t.label.split('—')[1]?.trim() || t.label}</option>`).join('')}
+                  </select>
+                </div>
+                <div class="sex-field-group">
+                  <label class="sex-field-lbl">Score</label>
+                  <input id="pse-score" class="form-control sex-field-input" type="number" placeholder="e.g. 12">
+                </div>
+                <div class="sex-field-group">
+                  <label class="sex-field-lbl">Measurement Point</label>
+                  <select id="pse-point" class="form-control sex-field-input">
+                    <option value="mid">Mid-course</option>
+                    <option value="post">Post-course</option>
+                    <option value="baseline">Baseline</option>
+                    <option value="follow_up">Follow-up</option>
+                  </select>
+                </div>
+              </div>
+              <div id="pse-error" style="display:none;color:var(--red);font-size:12px;margin-bottom:6px"></div>
+              <button class="btn btn-sm" style="width:100%" onclick="window._savePostSessionOutcome(document.getElementById('se-course').value, window._seCurrentPatientId)">
+                Save Outcome
+              </button>
+            </div>
+          </div>
+
+          <!-- Next Actions -->
+          <div class="card sex-actions-card" style="margin-bottom:12px">
+            <div class="sex-section-hd">Next Actions</div>
+            <div id="se-error" style="display:none;color:var(--red);font-size:12px;margin:0 16px 10px;padding:8px 10px;border-radius:6px;background:rgba(255,107,107,0.07)"></div>
+            <div id="se-success" style="display:none;color:var(--green);font-size:12px;margin:0 16px 10px;padding:8px 10px;border-radius:6px;background:rgba(74,222,128,0.07)"></div>
+            <div class="sex-next-actions">
+              <button id="se-submit-btn" class="sex-action-primary-lg" onclick="window._logSession()">Save Session</button>
+              <div class="sex-actions-divider"></div>
+              <button class="sex-action-secondary-lg" onclick="window._seLogAndHomeTask()">Save + Assign Home Task</button>
+              <button class="sex-action-secondary-lg" onclick="window._seLogAndOutcome()">Save + Log Outcome</button>
+              <button class="sex-action-secondary-lg" onclick="window._seLogAndMessage()">Save + Message Patient</button>
+              <button class="sex-action-secondary-lg" onclick="window._seLogAndNext()">Save + Next Patient</button>
+              <div class="sex-actions-divider"></div>
+              <button class="sex-action-secondary-lg sex-action-flag" onclick="window._seLogAndFlag()">Save + Flag for Review</button>
+            </div>
+            <div style="padding:4px 16px 12px;display:flex;gap:8px;flex-wrap:wrap;border-top:1px solid var(--border);margin-top:4px;padding-top:10px">
+              <button class="btn btn-sm no-print"
+                onclick="window._printSessionNotes(document.getElementById('se-course').value)">&#128424; Print Notes</button>
+              <button class="btn btn-sm" onclick="window._selectedCourseId=document.getElementById('se-course').value;window._cdTab='sessions';window._nav('course-detail')">View Course →</button>
+              <button class="btn btn-sm" onclick="window._seSetPhase('active')">← Back to Active</button>
+            </div>
+          </div>
         </div>
-        <div style="padding:8px 16px 16px">
-          <button class="btn btn-sm" onclick="window._seSetPhase('active')">← Back to Active Session</button>
-        </div>
-        <div style="padding:0 16px 12px;display:flex;gap:8px;flex-wrap:wrap;border-top:1px solid var(--border);padding-top:12px">
-          <button class="btn btn-sm" onclick="window._selectedCourseId=document.getElementById('se-course').value;window._cdTab='sessions';window._nav('course-detail')">View Course →</button>
-          <button class="btn btn-sm" onclick="window._nav('courses')">All Courses</button>
-        </div>
-      </div>
+
+      </div><!-- /sex-two-col-post -->
     </div>
   </div>`;
 
@@ -2720,19 +2835,25 @@ export async function pgSessionExecution(setTopbar, navigate) {
     }
     // Scroll to top
     document.getElementById('sex-root')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    // Sync mini session header
+    // Sync mini session header strips
     if (phase === 'active' || phase === 'post') {
-      const hdrId = phase === 'active' ? 'sex-active-header' : 'sex-post-header';
-      const dst = document.getElementById(hdrId);
-      if (dst) {
-        const name    = document.getElementById('sex-h-name')?.textContent || '—';
-        const meta    = document.getElementById('sex-h-meta')?.textContent || '';
-        const session = document.getElementById('sex-h-session')?.textContent || '';
-        dst.innerHTML = `<div class="sex-active-hdr-row">
-          <span style="font-weight:700;font-size:14px;color:var(--text-primary)">${name}</span>
-          <span style="color:var(--text-tertiary);font-size:12px;margin-left:10px">${meta}</span>
-          <span style="margin-left:auto;font-size:12px;font-weight:600;color:var(--teal)">${session}</span>
-        </div>`;
+      const name    = document.getElementById('sex-h-name')?.textContent || '—';
+      const meta    = document.getElementById('sex-h-meta')?.textContent || '';
+      const session = document.getElementById('sex-h-session')?.textContent || '';
+      if (phase === 'active') {
+        const nameEl = document.querySelector('#sex-active-header .sex-active-hdr-name');
+        const metaEl = document.getElementById('sex-ah-meta');
+        const sessEl = document.getElementById('sex-ah-session');
+        if (nameEl) nameEl.textContent = name;
+        if (metaEl) metaEl.textContent = meta;
+        if (sessEl) sessEl.textContent = session;
+      } else {
+        const nameEl = document.querySelector('#sex-post-header .sex-active-hdr-name');
+        const metaEl = document.getElementById('sex-ph-meta');
+        const sessEl = document.getElementById('sex-ph-session');
+        if (nameEl) nameEl.textContent = name;
+        if (metaEl) metaEl.textContent = meta;
+        if (sessEl) sessEl.textContent = session;
       }
     }
     // On entering post: sync flags + tolerance + obs notes
@@ -2764,7 +2885,7 @@ export async function pgSessionExecution(setTopbar, navigate) {
     window._seSideEffects      = [];
     window._seCurrentTolerance = null;
     // Reset safety checks
-    ['sex-ck-identity','sex-ck-contra','sex-ck-consent','sex-ck-ae','sex-ck-assess','sex-ck-device','sex-ck-target']
+    ['sex-ck-identity','sex-ck-contra','sex-ck-consent','sex-ck-ae','sex-ck-assess','sex-ck-device','sex-ck-target','sex-ck-ready']
       .forEach(id => { const cb = document.getElementById(id); if (cb) cb.checked = false; });
     window._seCheckSafety();
     // Reset phase 2
@@ -2788,14 +2909,14 @@ export async function pgSessionExecution(setTopbar, navigate) {
   };
 
   window._seCheckSafety = function() {
-    const ids = ['sex-ck-identity','sex-ck-contra','sex-ck-consent','sex-ck-ae','sex-ck-assess','sex-ck-device','sex-ck-target'];
+    const ids = ['sex-ck-identity','sex-ck-contra','sex-ck-consent','sex-ck-ae','sex-ck-assess','sex-ck-device','sex-ck-target','sex-ck-ready'];
     const n = ids.filter(id => document.getElementById(id)?.checked).length;
     const tally = document.getElementById('sex-safety-tally');
     const btn   = document.getElementById('sex-begin-btn');
     const err   = document.getElementById('sex-safety-err');
-    if (tally) tally.textContent = `${n} / 7`;
-    if (btn)   { btn.disabled = n < 7; btn.style.opacity = n === 7 ? '' : '0.5'; }
-    if (err)   err.style.display = n === 7 ? 'none' : '';
+    if (tally) tally.textContent = `${n} / 8`;
+    if (btn)   { btn.disabled = n < 8; btn.style.opacity = n === 8 ? '' : '0.5'; }
+    if (err)   err.style.display = n === 8 ? 'none' : '';
   };
 
   window._seSetTolerance = function(val) {
@@ -2836,6 +2957,8 @@ export async function pgSessionExecution(setTopbar, navigate) {
     if (p2i) msgs.push('⚡ Interruption flagged — note reason in observations below');
     if (p2d) msgs.push('⚠ Deviation flagged — record parameter deviation in observations');
     if (notice) { notice.textContent = msgs.join(' · '); notice.style.display = msgs.length ? '' : 'none'; }
+    const devReason = document.getElementById('sex-deviation-reason-wrap');
+    if (devReason) devReason.style.display = p2d ? '' : 'none';
   };
 
   window._seFilterQueue = function(query) {
@@ -2857,6 +2980,24 @@ export async function pgSessionExecution(setTopbar, navigate) {
     await window._logSession();
     const ok = document.getElementById('se-success');
     if (ok && ok.style.display !== 'none') setTimeout(() => window._nav?.('review-queue'), 1800);
+  };
+
+  window._seLogAndHomeTask = async function() {
+    await window._logSession();
+    const ok = document.getElementById('se-success');
+    if (ok && ok.style.display !== 'none') setTimeout(() => window._nav?.('home-task-manager'), 1400);
+  };
+
+  window._seLogAndOutcome = async function() {
+    await window._logSession();
+    const ok = document.getElementById('se-success');
+    if (ok && ok.style.display !== 'none') setTimeout(() => window._nav?.('outcomes'), 1400);
+  };
+
+  window._seLogAndMessage = async function() {
+    await window._logSession();
+    const ok = document.getElementById('se-success');
+    if (ok && ok.style.display !== 'none') setTimeout(() => window._nav?.('messaging'), 1400);
   };
 
   // ── Session Save ───────────────────────────────────────────────────────────
@@ -2896,6 +3037,10 @@ export async function pgSessionExecution(setTopbar, navigate) {
         interruptions:      document.getElementById('se-interrupt')?.checked  || false,
         protocol_deviation: document.getElementById('se-deviation')?.checked  || false,
         post_session_notes: combinedNotes || null,
+        actual_intensity_pct:      parseFloat(document.getElementById('sex-actual-intensity')?.value) || null,
+        actual_duration_minutes:   parseInt(document.getElementById('sex-actual-duration')?.value)    || null,
+        delivered_site:            document.getElementById('sex-actual-site')?.value                  || null,
+        deviation_reason:          document.getElementById('sex-deviation-reason')?.value             || null,
       };
 
       if (!navigator.onLine) {
@@ -3202,6 +3347,90 @@ export async function pgSessionExecution(setTopbar, navigate) {
         course.coil_placement ? `<p><strong>Placement:</strong> ${course.coil_placement}</p>` : '',
         course.notes ? `<p style="color:var(--text-secondary);font-size:11.5px">${course.notes}</p>` : '',
       ].filter(Boolean).join('') || '<p style="color:var(--text-tertiary)">No placement details on file — confirm with protocol.</p>';
+    }
+
+    // ── Treatment overview card ───────────────────────────────────────────────
+    const txOv = document.getElementById('sex-tx-overview');
+    if (txOv) {
+      const sessN = (course.sessions_delivered || 0) + 1;
+      const sessTotal = course.planned_sessions_total || '?';
+      const sessDone = course.sessions_delivered || 0;
+      const pct = sessTotal !== '?' ? Math.min(100, Math.round((sessDone / sessTotal) * 100)) : 0;
+      const phase = course.phase || (sessDone < 5 ? 'Initiation' : sessDone < 15 ? 'Treatment' : 'Maintenance');
+      const goal = course.goal || course.treatment_goal || 'Symptom reduction via neuromodulation';
+      const lastOutcome = course.last_outcome_score != null ? `${course.last_outcome_score} (${course.last_outcome_template || 'score'})` : '—';
+      const lastTol = course.last_tolerance || (course.sessions_delivered > 0 ? (course.last_tolerance || 'Well tolerated') : '—');
+      txOv.innerHTML = `
+        <div class="sex-tx-overview-grid">
+          <div class="sex-tx-stat">
+            <div class="sex-tx-stat-label">Goal</div>
+            <div class="sex-tx-stat-val" style="font-size:12.5px;font-weight:500">${esc(goal)}</div>
+          </div>
+          <div class="sex-tx-stat">
+            <div class="sex-tx-stat-label">Phase</div>
+            <div class="sex-tx-stat-val">${esc(phase)}</div>
+          </div>
+          <div class="sex-tx-stat" style="grid-column:span 2">
+            <div class="sex-tx-stat-label">Progress — Session ${sessN} of ${sessTotal}</div>
+            <div class="sex-tx-progress"><div class="sex-tx-progress-fill" style="width:${pct}%"></div></div>
+            <div style="font-size:11px;color:var(--text-tertiary);margin-top:4px">${sessDone} delivered · ${sessTotal !== '?' ? sessTotal - sessDone : '?'} remaining</div>
+          </div>
+          <div class="sex-tx-stat">
+            <div class="sex-tx-stat-label">Last Outcome</div>
+            <div class="sex-tx-stat-val" style="font-size:13px">${esc(lastOutcome)}</div>
+          </div>
+          <div class="sex-tx-stat">
+            <div class="sex-tx-stat-label">Last Tolerance</div>
+            <div class="sex-tx-stat-val" style="font-size:13px">${esc(lastTol)}</div>
+          </div>
+        </div>`;
+    }
+
+    // ── Protocol detail card ──────────────────────────────────────────────────
+    const protoDet = document.getElementById('sex-proto-detail');
+    if (protoDet) {
+      const onLabel = course.on_label === false
+        ? '<span style="background:rgba(245,158,11,0.15);color:var(--amber);border:1px solid rgba(245,158,11,0.3);border-radius:4px;padding:2px 7px;font-size:11px;font-weight:600">Off-label</span>'
+        : '<span style="background:rgba(34,197,94,0.12);color:var(--green);border:1px solid rgba(34,197,94,0.25);border-radius:4px;padding:2px 7px;font-size:11px;font-weight:600">On-label</span>';
+      protoDet.innerHTML = `
+        <div class="sex-proto-detail-grid">
+          <div class="sex-proto-field"><span class="sex-proto-field-label">Protocol</span><span class="sex-proto-field-val">${esc(course.protocol_id || course.protocol_name || '—')}</span></div>
+          <div class="sex-proto-field"><span class="sex-proto-field-label">Type</span><span class="sex-proto-field-val">${onLabel}</span></div>
+          <div class="sex-proto-field"><span class="sex-proto-field-label">Target Site</span><span class="sex-proto-field-val">${esc(course.target_region || '—')}</span></div>
+          <div class="sex-proto-field"><span class="sex-proto-field-label">Laterality</span><span class="sex-proto-field-val">${esc(course.laterality || '—')}</span></div>
+          <div class="sex-proto-field"><span class="sex-proto-field-label">Planned Freq</span><span class="sex-proto-field-val">${course.planned_frequency_hz ? course.planned_frequency_hz + ' Hz' : '—'}</span></div>
+          <div class="sex-proto-field"><span class="sex-proto-field-label">Intensity</span><span class="sex-proto-field-val">${course.planned_intensity ? course.planned_intensity + '% RMT' : '—'}</span></div>
+          <div class="sex-proto-field"><span class="sex-proto-field-label">Duration</span><span class="sex-proto-field-val">${course.planned_session_duration_minutes ? course.planned_session_duration_minutes + ' min' : '—'}</span></div>
+          <div class="sex-proto-field"><span class="sex-proto-field-label">Montage</span><span class="sex-proto-field-val">${esc(course.coil_placement || '—')}</span></div>
+        </div>`;
+    }
+
+    // ── Brain target — both panels ────────────────────────────────────────────
+    ['sex-brain-target-setup','sex-brain-target-active'].forEach(bId => {
+      const bEl = document.getElementById(bId);
+      if (bEl) bEl.innerHTML = siteVisual(course.target_region || course.coil_placement || '');
+    });
+
+    // ── Protocol quick ref in active phase ────────────────────────────────────
+    const protoRef = document.getElementById('sex-active-proto-ref');
+    if (protoRef) {
+      const pills = [
+        course.planned_frequency_hz ? `<span class="sex-proto-ref-pill"><strong>${course.planned_frequency_hz} Hz</strong></span>` : '',
+        course.planned_intensity ? `<span class="sex-proto-ref-pill"><strong>${course.planned_intensity}%</strong> RMT</span>` : '',
+        course.planned_session_duration_minutes ? `<span class="sex-proto-ref-pill"><strong>${course.planned_session_duration_minutes} min</strong></span>` : '',
+        course.target_region ? `<span class="sex-proto-ref-pill">${esc(course.target_region)}</span>` : '',
+        course.coil_placement ? `<span class="sex-proto-ref-pill">${esc(course.coil_placement)}</span>` : '',
+      ].filter(Boolean).join('');
+      protoRef.innerHTML = pills || '<span style="font-size:12px;color:var(--text-tertiary)">No protocol parameters on file</span>';
+    }
+
+    // ── Setup brain target placement note ─────────────────────────────────────
+    const setupPlacementNote = document.getElementById('sex-guide-instructions-setup');
+    if (setupPlacementNote) {
+      const parts = [];
+      if (course.target_region) parts.push(course.target_region);
+      if (course.coil_placement) parts.push(course.coil_placement);
+      setupPlacementNote.textContent = parts.join(' · ') || 'No placement details on file';
     }
 
     // ── Aftercare items ───────────────────────────────────────────────────────
@@ -7671,7 +7900,7 @@ export async function pgSessionMonitor(setTopbar) {
   // Fetch patients (with mock fallback)
   let patients = _MONITOR_MOCK_PATIENTS;
   try {
-    const res = await api.getPatients();
+    const res = await api.listPatients();
     const list = res?.items || res?.patients || res;
     if (Array.isArray(list) && list.length) {
       patients = list.map(p => ({ id: p.id || p._id, name: p.name || `${p.first_name || ''} ${p.last_name || ''}`.trim() }));
