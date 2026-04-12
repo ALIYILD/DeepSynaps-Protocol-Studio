@@ -3376,15 +3376,32 @@ export async function pgPatientReports() {
   }
 
   // ── Category section HTML ─────────────────────────────────────────
+  const CAT_PAGE_SIZE = 4;
+
   function catSectionHTML(cat, items) {
     const isOpen = cat.defaultOpen && items.length > 0;
     const countBadge = items.length > 0
       ? `<span class="pt-docs-cat-count">${items.length}</span>`
       : `<span class="pt-docs-cat-count pt-docs-cat-count--empty">0</span>`;
 
-    const bodyContent = items.length > 0
-      ? items.map(d => docCardHTML(d)).join('')
-      : `<div class="pt-docs-cat-empty">${esc(cat.emptyMsg)}</div>`;
+    let bodyContent;
+    if (items.length === 0) {
+      bodyContent = `<div class="pt-docs-cat-empty">${esc(cat.emptyMsg)}</div>`;
+    } else if (items.length <= CAT_PAGE_SIZE) {
+      bodyContent = items.map(d => docCardHTML(d)).join('');
+    } else {
+      const visible = items.slice(0, CAT_PAGE_SIZE);
+      const hidden  = items.slice(CAT_PAGE_SIZE);
+      bodyContent =
+        visible.map(d => docCardHTML(d)).join('') +
+        `<div class="pt-docs-cat-more" id="pt-cat-more-${esc(cat.id)}" hidden>` +
+          hidden.map(d => docCardHTML(d)).join('') +
+        `</div>` +
+        `<button class="pt-docs-cat-show-more" id="pt-cat-show-btn-${esc(cat.id)}"
+                 onclick="window._ptCatShowMore('${esc(cat.id)}',${items.length})">
+           Show ${hidden.length} more
+         </button>`;
+    }
 
     return `
       <div class="pt-docs-cat-section" id="pt-cat-${esc(cat.id)}">
@@ -3471,6 +3488,14 @@ export async function pgPatientReports() {
                 onclick="document.querySelector('#pt-docs-ask-anchor').innerHTML=''">&#10005;</button>
       </div>`;
     anchor.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  };
+
+  // Expand hidden overflow cards inside a category section
+  window._ptCatShowMore = function(catId, _total) {
+    const more = el.querySelector('#pt-cat-more-' + catId);
+    const btn  = el.querySelector('#pt-cat-show-btn-' + catId);
+    if (more) more.removeAttribute('hidden');
+    if (btn)  btn.remove();
   };
 }
 
