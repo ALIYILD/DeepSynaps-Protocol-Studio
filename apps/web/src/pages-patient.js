@@ -4397,13 +4397,34 @@ export async function pgPatientWellness() {
   };
 
   window._tasksStartTask = function(taskId) {
-    if (taskId === 'pt-daily-checkin') {
-      window._tasksLaunchCheckin();
+    if (taskId === 'pt-daily-checkin') { window._tasksLaunchCheckin(); return; }
+    const allTasks = _tasksGetEnriched();
+    const task = allTasks.find(function(t) { return t.id === taskId; });
+    if (!task) {
+      _pttMarkComplete(taskId, new Date().toISOString().slice(0, 10));
+      el.innerHTML = _tasksRenderPage();
       return;
     }
-    // For other tasks, mark done and re-render
-    const today = new Date().toISOString().slice(0, 10);
-    _pttMarkComplete(taskId, today);
+    window._tasksLaunchByType(taskId, task);
+  };
+
+  window._tasksLaunchByType = function(taskId, task) {
+    const type = task.type || task.category || 'custom';
+    const launcherMap = {
+      'breathing':    window._launcherBreathing,
+      'sleep':        window._launcherSleep,
+      'mood-journal': window._launcherMoodJournal,
+      'activity':     window._launcherExercise,
+      'home-device':  window._launcherHomeDevice,
+      'caregiver':    window._launcherCaregiver,
+      'pre-session':  window._launcherPreSession,
+      'post-session': window._launcherPostSession,
+      'assessment':   window._tasksLaunchCheckin,
+    };
+    const fn = launcherMap[type];
+    if (fn) { fn(taskId, task); return; }
+    // Fallback: mark complete immediately
+    _pttMarkComplete(taskId, new Date().toISOString().slice(0, 10));
     el.innerHTML = _tasksRenderPage();
   };
 
@@ -4487,6 +4508,345 @@ export async function pgPatientWellness() {
     const today = new Date().toISOString().slice(0, 10);
     _pttMarkComplete('pt-daily-checkin', today);
     localStorage.setItem('ds_last_checkin', today);
+
+    el.innerHTML = _tasksRenderPage();
+  };
+
+  // ── Type-specific launcher helpers ─────────────────────────────────────────
+
+  function _launcherOpen(taskId, html) {
+    const panel = document.getElementById('pt-task-launcher-' + taskId);
+    if (!panel) return;
+    if (panel.style.display !== 'none' && panel.innerHTML) { panel.style.display = 'none'; return; }
+    panel.innerHTML = '<div class="pt-launcher-panel">' + html + '</div>';
+    panel.style.display = 'block';
+  }
+
+  window._launcherBreathing = function(taskId) {
+    _launcherOpen(taskId,
+      '<div class="pt-launcher-heading">Breathing Exercise</div>' +
+      '<div style="text-align:center;padding:12px 0">' +
+        '<div class="pt-launcher-timer-circle" id="bl-circle">' +
+          '<div class="pt-launcher-timer-phase" id="bl-phase">Inhale</div>' +
+          '<div class="pt-launcher-timer-count" id="bl-count">4</div>' +
+        '</div>' +
+        '<div class="pt-launcher-timer-guide" id="bl-guide">Press Start to begin</div>' +
+      '</div>' +
+      '<div class="pt-launcher-row">' +
+        '<label class="pt-launcher-label">Rounds</label>' +
+        '<select id="bl-rounds" class="pt-launcher-select">' +
+          '<option value="5">5 rounds (~2 min)</option>' +
+          '<option value="10" selected>10 rounds (~4 min)</option>' +
+          '<option value="15">15 rounds (~6 min)</option>' +
+        '</select>' +
+      '</div>' +
+      '<div class="pt-launcher-row">' +
+        '<label class="pt-launcher-label">Pattern</label>' +
+        '<select id="bl-pattern" class="pt-launcher-select">' +
+          '<option value="4-2-6">4-2-6 (relax)</option>' +
+          '<option value="4-7-8" selected>4-7-8 (sleep/calm)</option>' +
+          '<option value="5-0-5">5-0-5 (balance)</option>' +
+        '</select>' +
+      '</div>' +
+      '<div class="pt-launcher-slider-row">' +
+        '<label class="pt-launcher-label">Feeling after (1-10)</label>' +
+        '<input type="range" id="bl-rating" min="1" max="10" value="7" class="pt-launcher-slider" ' +
+          'oninput="document.getElementById(\'bl-rating-val\').textContent=this.value">' +
+        '<span id="bl-rating-val" class="pt-launcher-slider-val">7</span>' +
+      '</div>' +
+      '<div class="pt-launcher-row">' +
+        '<label class="pt-launcher-label">Notes (optional)</label>' +
+        '<textarea id="bl-notes" class="pt-launcher-textarea" placeholder="How did it feel?"></textarea>' +
+      '</div>' +
+      '<div class="pt-launcher-submit-row">' +
+        '<button class="pt-launcher-submit" onclick="window._tasksSubmitTask(\'' + taskId + '\',{type:\'breathing\',pattern:document.getElementById(\'bl-pattern\').value,rounds:document.getElementById(\'bl-rounds\').value,rating:document.getElementById(\'bl-rating\').value,notes:document.getElementById(\'bl-notes\').value})">Mark Complete</button>' +
+        '<button class="pt-launcher-skip" onclick="window._tasksSubmitTask(\'' + taskId + '\',null)">Skip</button>' +
+      '</div>'
+    );
+  };
+
+  window._launcherSleep = function(taskId) {
+    const now = new Date();
+    const hhmm = String(now.getHours()).padStart(2,'0') + ':' + String(now.getMinutes()).padStart(2,'0');
+    _launcherOpen(taskId,
+      '<div class="pt-launcher-heading">Sleep Routine Log</div>' +
+      '<div class="pt-launcher-row">' +
+        '<label class="pt-launcher-label">Bedtime (last night)</label>' +
+        '<input type="time" id="sl-bed" class="pt-launcher-input" value="22:30">' +
+      '</div>' +
+      '<div class="pt-launcher-row">' +
+        '<label class="pt-launcher-label">Wake time (this morning)</label>' +
+        '<input type="time" id="sl-wake" class="pt-launcher-input" value="' + hhmm + '">' +
+      '</div>' +
+      '<div class="pt-launcher-slider-row">' +
+        '<label class="pt-launcher-label">Sleep quality (1-10)</label>' +
+        '<input type="range" id="sl-qual" min="1" max="10" value="6" class="pt-launcher-slider" ' +
+          'oninput="document.getElementById(\'sl-qual-val\').textContent=this.value">' +
+        '<span id="sl-qual-val" class="pt-launcher-slider-val">6</span>' +
+      '</div>' +
+      '<div class="pt-launcher-row">' +
+        '<label class="pt-launcher-label">Disruptions?</label>' +
+        '<select id="sl-disrupt" class="pt-launcher-select">' +
+          '<option value="none">None</option>' +
+          '<option value="once">Woke once</option>' +
+          '<option value="multiple">Woke multiple times</option>' +
+          '<option value="nightmare">Nightmare / disturbed</option>' +
+          '<option value="couldnt-sleep">Couldn\'t fall asleep</option>' +
+        '</select>' +
+      '</div>' +
+      '<div class="pt-launcher-row">' +
+        '<label class="pt-launcher-label">Notes</label>' +
+        '<textarea id="sl-notes" class="pt-launcher-textarea" placeholder="Anything notable?"></textarea>' +
+      '</div>' +
+      '<div class="pt-launcher-submit-row">' +
+        '<button class="pt-launcher-submit" onclick="window._tasksSubmitTask(\'' + taskId + '\',{type:\'sleep\',bedtime:document.getElementById(\'sl-bed\').value,waketime:document.getElementById(\'sl-wake\').value,quality:document.getElementById(\'sl-qual\').value,disruptions:document.getElementById(\'sl-disrupt\').value,notes:document.getElementById(\'sl-notes\').value})">Save Sleep Log</button>' +
+        '<button class="pt-launcher-skip" onclick="window._tasksSubmitTask(\'' + taskId + '\',null)">Skip</button>' +
+      '</div>'
+    );
+  };
+
+  window._launcherMoodJournal = function(taskId) {
+    _launcherOpen(taskId,
+      '<div class="pt-launcher-heading">Mood Journal</div>' +
+      '<div class="pt-launcher-slider-row">' +
+        '<label class="pt-launcher-label">Mood (1=low, 10=great)</label>' +
+        '<input type="range" id="mj-mood" min="1" max="10" value="5" class="pt-launcher-slider" ' +
+          'oninput="document.getElementById(\'mj-mood-val\').textContent=this.value">' +
+        '<span id="mj-mood-val" class="pt-launcher-slider-val">5</span>' +
+      '</div>' +
+      '<div class="pt-launcher-slider-row">' +
+        '<label class="pt-launcher-label">Energy (1=exhausted, 10=high)</label>' +
+        '<input type="range" id="mj-energy" min="1" max="10" value="5" class="pt-launcher-slider" ' +
+          'oninput="document.getElementById(\'mj-energy-val\').textContent=this.value">' +
+        '<span id="mj-energy-val" class="pt-launcher-slider-val">5</span>' +
+      '</div>' +
+      '<div class="pt-launcher-slider-row">' +
+        '<label class="pt-launcher-label">Anxiety (1=calm, 10=very anxious)</label>' +
+        '<input type="range" id="mj-anxiety" min="1" max="10" value="3" class="pt-launcher-slider" ' +
+          'oninput="document.getElementById(\'mj-anxiety-val\').textContent=this.value">' +
+        '<span id="mj-anxiety-val" class="pt-launcher-slider-val">3</span>' +
+      '</div>' +
+      '<div class="pt-launcher-row">' +
+        '<label class="pt-launcher-label">What\'s on your mind today?</label>' +
+        '<textarea id="mj-thoughts" class="pt-launcher-textarea" placeholder="Thoughts, feelings, observations\u2026" style="min-height:70px"></textarea>' +
+      '</div>' +
+      '<div class="pt-launcher-row">' +
+        '<label class="pt-launcher-label">Any positive moments?</label>' +
+        '<textarea id="mj-positive" class="pt-launcher-textarea" placeholder="Gratitude or highlights\u2026"></textarea>' +
+      '</div>' +
+      '<div class="pt-launcher-submit-row">' +
+        '<button class="pt-launcher-submit" onclick="window._tasksSubmitTask(\'' + taskId + '\',{type:\'mood-journal\',mood:document.getElementById(\'mj-mood\').value,energy:document.getElementById(\'mj-energy\').value,anxiety:document.getElementById(\'mj-anxiety\').value,thoughts:document.getElementById(\'mj-thoughts\').value,positive:document.getElementById(\'mj-positive\').value})">Save Journal</button>' +
+        '<button class="pt-launcher-skip" onclick="window._tasksSubmitTask(\'' + taskId + '\',null)">Skip</button>' +
+      '</div>'
+    );
+  };
+
+  window._launcherExercise = function(taskId) {
+    _launcherOpen(taskId,
+      '<div class="pt-launcher-heading">Activity Log</div>' +
+      '<div class="pt-launcher-row">' +
+        '<label class="pt-launcher-label">Activity type</label>' +
+        '<select id="ex-type" class="pt-launcher-select">' +
+          '<option value="walk">Walk</option>' +
+          '<option value="run">Run / Jog</option>' +
+          '<option value="cycle">Cycling</option>' +
+          '<option value="swim">Swimming</option>' +
+          '<option value="yoga">Yoga / Stretching</option>' +
+          '<option value="gym">Gym / Weights</option>' +
+          '<option value="other">Other</option>' +
+        '</select>' +
+      '</div>' +
+      '<div class="pt-launcher-row">' +
+        '<label class="pt-launcher-label">Duration (minutes)</label>' +
+        '<input type="number" id="ex-dur" class="pt-launcher-input" min="1" max="300" value="20">' +
+      '</div>' +
+      '<div class="pt-launcher-slider-row">' +
+        '<label class="pt-launcher-label">Intensity (1=light, 10=intense)</label>' +
+        '<input type="range" id="ex-intensity" min="1" max="10" value="5" class="pt-launcher-slider" ' +
+          'oninput="document.getElementById(\'ex-int-val\').textContent=this.value">' +
+        '<span id="ex-int-val" class="pt-launcher-slider-val">5</span>' +
+      '</div>' +
+      '<div class="pt-launcher-slider-row">' +
+        '<label class="pt-launcher-label">Mood after (1=worse, 10=better)</label>' +
+        '<input type="range" id="ex-mood" min="1" max="10" value="7" class="pt-launcher-slider" ' +
+          'oninput="document.getElementById(\'ex-mood-val\').textContent=this.value">' +
+        '<span id="ex-mood-val" class="pt-launcher-slider-val">7</span>' +
+      '</div>' +
+      '<div class="pt-launcher-row">' +
+        '<label class="pt-launcher-label">Notes</label>' +
+        '<textarea id="ex-notes" class="pt-launcher-textarea" placeholder="How did it go?"></textarea>' +
+      '</div>' +
+      '<div class="pt-launcher-submit-row">' +
+        '<button class="pt-launcher-submit" onclick="window._tasksSubmitTask(\'' + taskId + '\',{type:\'activity\',activityType:document.getElementById(\'ex-type\').value,duration:document.getElementById(\'ex-dur\').value,intensity:document.getElementById(\'ex-intensity\').value,moodAfter:document.getElementById(\'ex-mood\').value,notes:document.getElementById(\'ex-notes\').value})">Log Activity</button>' +
+        '<button class="pt-launcher-skip" onclick="window._tasksSubmitTask(\'' + taskId + '\',null)">Skip</button>' +
+      '</div>'
+    );
+  };
+
+  window._launcherHomeDevice = function(taskId) {
+    _launcherOpen(taskId,
+      '<div class="pt-launcher-heading">Home Device Session</div>' +
+      '<div class="pt-launcher-row">' +
+        '<label class="pt-launcher-label">Duration completed (minutes)</label>' +
+        '<input type="number" id="hd-dur" class="pt-launcher-input" min="1" max="120" value="20">' +
+      '</div>' +
+      '<div class="pt-launcher-row">' +
+        '<label class="pt-launcher-label">Intensity / setting used</label>' +
+        '<input type="text" id="hd-intensity" class="pt-launcher-input" placeholder="e.g. 1.0 mA, Level 3">' +
+      '</div>' +
+      '<div class="pt-launcher-row">' +
+        '<label class="pt-launcher-label">Any discomfort or side effects?</label>' +
+        '<select id="hd-se" class="pt-launcher-select">' +
+          '<option value="none">None</option>' +
+          '<option value="tingling">Tingling / itching</option>' +
+          '<option value="headache">Headache</option>' +
+          '<option value="fatigue">Fatigue after</option>' +
+          '<option value="dizziness">Dizziness</option>' +
+          '<option value="other">Other</option>' +
+        '</select>' +
+      '</div>' +
+      '<div class="pt-launcher-row">' +
+        '<label class="pt-launcher-label">Upload session report (optional)</label>' +
+        '<label class="pt-launcher-upload-label">' +
+          '<input type="file" id="hd-file" accept=".pdf,.csv,.txt,image/*" style="display:none" ' +
+            'onchange="var p=document.getElementById(\'hd-preview\');p.textContent=this.files[0]?.name||\'\';">' +
+          '\uD83D\uDCCE Choose file' +
+        '</label>' +
+        '<div id="hd-preview" class="pt-launcher-upload-preview"></div>' +
+      '</div>' +
+      '<div class="pt-launcher-row">' +
+        '<label class="pt-launcher-label">Notes</label>' +
+        '<textarea id="hd-notes" class="pt-launcher-textarea" placeholder="Observations during session\u2026"></textarea>' +
+      '</div>' +
+      '<div class="pt-launcher-submit-row">' +
+        '<button class="pt-launcher-submit" onclick="window._tasksSubmitTask(\'' + taskId + '\',{type:\'home-device\',duration:document.getElementById(\'hd-dur\').value,intensity:document.getElementById(\'hd-intensity\').value,sideEffects:document.getElementById(\'hd-se\').value,hasFile:!!(document.getElementById(\'hd-file\')?.files?.length),notes:document.getElementById(\'hd-notes\').value})">Submit Session</button>' +
+        '<button class="pt-launcher-skip" onclick="window._tasksSubmitTask(\'' + taskId + '\',null)">Skip</button>' +
+      '</div>'
+    );
+  };
+
+  window._launcherCaregiver = function(taskId) {
+    _launcherOpen(taskId,
+      '<div class="pt-launcher-heading">Caregiver Task</div>' +
+      '<div class="pt-launcher-row">' +
+        '<label class="pt-launcher-label">Completed by</label>' +
+        '<select id="cg-by" class="pt-launcher-select">' +
+          '<option value="caregiver">Caregiver</option>' +
+          '<option value="patient">Patient (assisted)</option>' +
+          '<option value="both">Both together</option>' +
+        '</select>' +
+      '</div>' +
+      '<div class="pt-launcher-row">' +
+        '<label class="pt-launcher-label">Caregiver name (optional)</label>' +
+        '<input type="text" id="cg-name" class="pt-launcher-input" placeholder="e.g. Parent, Partner">' +
+      '</div>' +
+      '<div class="pt-launcher-slider-row">' +
+        '<label class="pt-launcher-label">Patient co-operation (1=difficult, 10=easy)</label>' +
+        '<input type="range" id="cg-coop" min="1" max="10" value="7" class="pt-launcher-slider" ' +
+          'oninput="document.getElementById(\'cg-coop-val\').textContent=this.value">' +
+        '<span id="cg-coop-val" class="pt-launcher-slider-val">7</span>' +
+      '</div>' +
+      '<div class="pt-launcher-row">' +
+        '<label class="pt-launcher-label">Caregiver observations</label>' +
+        '<textarea id="cg-obs" class="pt-launcher-textarea" placeholder="Behaviour, mood, any concerns\u2026" style="min-height:70px"></textarea>' +
+      '</div>' +
+      '<div class="pt-launcher-submit-row">' +
+        '<button class="pt-launcher-submit" onclick="window._tasksSubmitTask(\'' + taskId + '\',{type:\'caregiver\',completedBy:document.getElementById(\'cg-by\').value,caregiverName:document.getElementById(\'cg-name\').value,cooperation:document.getElementById(\'cg-coop\').value,observations:document.getElementById(\'cg-obs\').value})">Submit</button>' +
+        '<button class="pt-launcher-skip" onclick="window._tasksSubmitTask(\'' + taskId + '\',null)">Skip</button>' +
+      '</div>'
+    );
+  };
+
+  window._launcherPreSession = function(taskId) {
+    const items = [
+      'Avoided caffeine for 2+ hours',
+      'Had a light meal (not too full)',
+      'Removed metal jewellery / piercings',
+      'Feeling relaxed and not rushing',
+      'Confirmed no headache or migraine today',
+      'Reviewed any new medications with clinician',
+    ];
+    _launcherOpen(taskId,
+      '<div class="pt-launcher-heading">Pre-Session Preparation</div>' +
+      '<div style="font-size:12px;color:var(--text-secondary);margin-bottom:10px">Tick each item you\'ve completed:</div>' +
+      '<div class="pt-launcher-checklist">' +
+        items.map(function(item, i) {
+          return '<label class="pt-launcher-check-item">' +
+            '<input type="checkbox" id="pre-item-' + i + '" style="accent-color:#2dd4bf"> ' +
+            '<span>' + item + '</span></label>';
+        }).join('') +
+      '</div>' +
+      '<div class="pt-launcher-row" style="margin-top:10px">' +
+        '<label class="pt-launcher-label">Anything to flag for your clinician?</label>' +
+        '<textarea id="pre-flag" class="pt-launcher-textarea" placeholder="Optional notes\u2026"></textarea>' +
+      '</div>' +
+      '<div class="pt-launcher-submit-row">' +
+        '<button class="pt-launcher-submit" onclick="(function(){' +
+          'var checked=[]; [0,1,2,3,4,5].forEach(function(i){if(document.getElementById(\'pre-item-\'+i)?.checked)checked.push(i);});' +
+          'window._tasksSubmitTask(\'' + taskId + '\',{type:\'pre-session\',checkedItems:checked,flag:document.getElementById(\'pre-flag\').value});' +
+        '})()">Ready — Submit</button>' +
+        '<button class="pt-launcher-skip" onclick="window._tasksSubmitTask(\'' + taskId + '\',null)">Skip</button>' +
+      '</div>'
+    );
+  };
+
+  window._launcherPostSession = function(taskId) {
+    _launcherOpen(taskId,
+      '<div class="pt-launcher-heading">Post-Session Aftercare</div>' +
+      '<div class="pt-launcher-slider-row">' +
+        '<label class="pt-launcher-label">How are you feeling? (1=rough, 10=great)</label>' +
+        '<input type="range" id="ps-feeling" min="1" max="10" value="7" class="pt-launcher-slider" ' +
+          'oninput="document.getElementById(\'ps-feel-val\').textContent=this.value">' +
+        '<span id="ps-feel-val" class="pt-launcher-slider-val">7</span>' +
+      '</div>' +
+      '<div class="pt-launcher-row">' +
+        '<label class="pt-launcher-label">Any unusual sensations?</label>' +
+        '<select id="ps-se" class="pt-launcher-select">' +
+          '<option value="none">None</option>' +
+          '<option value="tingling">Tingling at site</option>' +
+          '<option value="headache">Mild headache</option>' +
+          '<option value="fatigue">Tiredness / fatigue</option>' +
+          '<option value="light-headed">Light-headedness</option>' +
+          '<option value="nausea">Nausea</option>' +
+          '<option value="other">Other</option>' +
+        '</select>' +
+      '</div>' +
+      '<div class="pt-launcher-row">' +
+        '<label class="pt-launcher-label">Did you rest for at least 10 min after?</label>' +
+        '<select id="ps-rest" class="pt-launcher-select">' +
+          '<option value="yes">Yes</option>' +
+          '<option value="no">No — needed to leave</option>' +
+        '</select>' +
+      '</div>' +
+      '<div class="pt-launcher-row">' +
+        '<label class="pt-launcher-label">Additional notes</label>' +
+        '<textarea id="ps-notes" class="pt-launcher-textarea" placeholder="Anything you\'d like your clinician to know\u2026"></textarea>' +
+      '</div>' +
+      '<div class="pt-launcher-submit-row">' +
+        '<button class="pt-launcher-submit" onclick="window._tasksSubmitTask(\'' + taskId + '\',{type:\'post-session\',feeling:document.getElementById(\'ps-feeling\').value,sideEffects:document.getElementById(\'ps-se\').value,rested:document.getElementById(\'ps-rest\').value,notes:document.getElementById(\'ps-notes\').value})">Submit</button>' +
+        '<button class="pt-launcher-skip" onclick="window._tasksSubmitTask(\'' + taskId + '\',null)">Skip</button>' +
+      '</div>'
+    );
+  };
+
+  window._tasksSubmitTask = async function(taskId, data) {
+    const today = new Date().toISOString().slice(0, 10);
+    _pttMarkComplete(taskId, today, data);
+
+    // Bridge completion data to the clinician's completions key for adherence monitoring
+    if (data) {
+      const pid = _pttPatientKey();
+      const clinKey = 'ds_task_completions_' + pid;
+      try {
+        const comps = JSON.parse(localStorage.getItem(clinKey) || '{}');
+        comps[taskId + '_' + today] = { done: true, ...data, completedAt: new Date().toISOString() };
+        localStorage.setItem(clinKey, JSON.stringify(comps));
+      } catch (_e) {}
+    }
+
+    // Hide the launcher panel
+    const panel = document.getElementById('pt-task-launcher-' + taskId);
+    if (panel) panel.style.display = 'none';
 
     el.innerHTML = _tasksRenderPage();
   };
@@ -6802,15 +7162,22 @@ function _pttGetCompletions() {
   try { return JSON.parse(localStorage.getItem(key) || '{}'); } catch (_e) { return {}; }
 }
 
-function _pttMarkComplete(taskId, date) {
+function _pttMarkComplete(taskId, date, data) {
   const c = _pttGetCompletions();
-  c[taskId + '_' + date] = true;
+  c[taskId + '_' + date] = data ? { done: true, ...data, completedAt: new Date().toISOString() } : true;
   try { localStorage.setItem(_pttCompletionsKey(), JSON.stringify(c)); } catch (_e) {}
 }
 
 function _pttIsComplete(taskId, date) {
   const c = _pttGetCompletions();
-  return !!c[taskId + '_' + date];
+  const v = c[taskId + '_' + date];
+  return v === true || (v && v.done === true);
+}
+
+function _pttGetCompletionData(taskId, date) {
+  const c = _pttGetCompletions();
+  const v = c[taskId + '_' + date];
+  return (v && typeof v === 'object') ? v : null;
 }
 
 function _pttStreak() {

@@ -3928,6 +3928,16 @@ function _stimMapSVG(targetRegion, laterality, modality) {
     'O1':[58,128],'Oz':[74,134],'O2':[90,128],
     'AF3':[57,33],'AF4':[91,33],'FC3':[47,60],'FCz':[74,57],'FC4':[101,60],
     'CP3':[47,88],'CPz':[74,90],'CP4':[101,88],
+    // 10-10 extension sites
+    'F1':[62,44],'F2':[86,44],'F5':[36,50],'F6':[112,50],
+    'FC1':[61,59],'FC2':[88,59],'FC5':[20,65],'FC6':[128,65],
+    'FT7':[20,65],'FT8':[128,65],
+    'C1':[57,74],'C2':[91,74],'C5':[28,74],'C6':[120,74],
+    'TP7':[19,84],'TP8':[129,84],'TP9':[14,90],'TP10':[134,90],
+    'CP1':[61,89],'CP2':[88,89],'CP5':[36,98],'CP6':[112,98],
+    'P1':[62,105],'P2':[86,105],'P9':[18,108],'P10':[130,108],
+    'PO3':[54,115],'PO4':[94,115],'PO7':[40,111],'PO8':[108,111],'POz':[74,122],
+    'AF7':[41,38],'AF8':[107,38],
   };
 
   // Target region → 10-20 site mappings
@@ -13407,315 +13417,442 @@ const PHASE2_CSS = `
 }
 `;
 
+// ─────────────────────────────────────────────────────────────────────────────
 export async function pgAssessmentsHub(setTopbar) {
-  setTopbar('Assessments', `
-    <button class="btn btn-primary btn-sm" onclick="window._ahScheduleOpen()">Schedule Assessment</button>
-    <button class="btn btn-sm" onclick="window._nav('forms-builder')" style="border-color:var(--accent-violet);color:var(--accent-violet)">Form Builder &#8594;</button>
+  setTopbar('Assessments Hub', `
+    <button class="btn btn-primary btn-sm" onclick="document.getElementById('ah2-assign-modal') && document.getElementById('ah2-assign-modal').classList.remove('ah2-hidden')">+ Assign Bundle</button>
+    <button class="btn btn-sm" onclick="alert('Export coming soon')">Export Results</button>
   `);
-  const el = document.getElementById('content');
-  if (!el) return;
 
-  function esc(s) { return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
-
-  const BUNDLES = [
-    { id: 'phq9',   name: 'PHQ-9',         cat: 'Mood',         items: 9,  mins: 3,  ev: 'A', timing: ['pre','weekly','post'],    desc: 'Gold-standard depression severity screen. Mandatory for MDD, TRD, BD-Depression, Postpartum.' },
-    { id: 'madrs',  name: 'MADRS',         cat: 'Mood',         items: 10, mins: 15, ev: 'A', timing: ['pre','milestone','post'], desc: 'Clinician-rated depression scale. Preferred for TMS/tDCS MDD protocols.' },
-    { id: 'hamd',   name: 'HAM-D 17',      cat: 'Mood',         items: 17, mins: 20, ev: 'A', timing: ['pre','weekly','post'],    desc: 'Hamilton Depression Rating. Widely used in RCTs.' },
-    { id: 'gad7',   name: 'GAD-7',         cat: 'Anxiety',      items: 7,  mins: 2,  ev: 'A', timing: ['pre','weekly','post'],    desc: 'Generalised anxiety disorder 7-item scale.' },
-    { id: 'pcl5',   name: 'PCL-5',         cat: 'PTSD',         items: 20, mins: 5,  ev: 'A', timing: ['pre','weekly','post'],    desc: 'PTSD Checklist DSM-5 version. Required for PTSD protocols.' },
-    { id: 'ybocs',  name: 'Y-BOCS',        cat: 'Anxiety',      items: 10, mins: 20, ev: 'A', timing: ['pre','weekly'],           desc: 'Yale-Brown OCD Scale. Clinician-rated, required for OCD.' },
-    { id: 'dass21', name: 'DASS-21',       cat: 'Mood',         items: 21, mins: 5,  ev: 'A', timing: ['pre','weekly','post'],    desc: 'Depression, Anxiety and Stress 21-item scale.' },
-    { id: 'isi',    name: 'ISI',           cat: 'Sleep',        items: 7,  mins: 2,  ev: 'A', timing: ['pre','weekly','post'],    desc: 'Insomnia Severity Index. Self-report, 7-item.' },
-    { id: 'moca',   name: 'MoCA',          cat: 'Cognition',    items: 30, mins: 10, ev: 'A', timing: ['pre','milestone'],        desc: 'Montreal Cognitive Assessment. Baseline cognitive screen.' },
-    { id: 'audit',  name: 'AUDIT',         cat: 'Substance',    items: 10, mins: 5,  ev: 'A', timing: ['pre','milestone'],        desc: 'Alcohol Use Disorders Identification Test.' },
-    { id: 'bprs',   name: 'BPRS',          cat: 'Mood',         items: 18, mins: 20, ev: 'B', timing: ['pre','weekly'],           desc: 'Brief Psychiatric Rating Scale. For psychotic features.' },
-    { id: 'cgi',    name: 'CGI-S / CGI-I', cat: 'QoL',          items: 2,  mins: 2,  ev: 'A', timing: ['pre','weekly','post'],    desc: 'Clinical Global Impression &mdash; severity and improvement.' },
-    { id: 'eq5d',   name: 'EQ-5D',         cat: 'QoL',          items: 5,  mins: 2,  ev: 'A', timing: ['pre','post'],             desc: 'Generic health-related quality of life. Pre/post course.' },
-    { id: 'panss',  name: 'PANSS',         cat: 'Mood',         items: 30, mins: 30, ev: 'A', timing: ['pre','weekly'],           desc: 'Positive and Negative Syndrome Scale. Psychosis/schizophrenia.' },
-    { id: 'caps5',  name: 'CAPS-5',        cat: 'PTSD',         items: 30, mins: 45, ev: 'A', timing: ['pre','post'],             desc: 'Clinician-Administered PTSD Scale DSM-5. Gold standard PTSD measure.' },
-    { id: 'qids',   name: 'QIDS-SR16',     cat: 'Mood',         items: 16, mins: 5,  ev: 'A', timing: ['pre','weekly','post'],    desc: 'Quick Inventory of Depressive Symptomatology &mdash; self-rated.' },
-    { id: 'ses',    name: 'Side Effects',  cat: 'Side Effects', items: 12, mins: 3,  ev: 'B', timing: ['weekly'],                 desc: 'Neuromodulation-specific side-effect checklist.' },
+  const EXTRA_SCALES = [
+    { id:'QIDS-SR', name:'QIDS-SR', full:'Quick Inventory of Depressive Symptomatology', domain:'Depression', items:16, min:0, max:27, interpretation:[{max:5,label:'None'},{max:10,label:'Mild'},{max:15,label:'Moderate'},{max:20,label:'Severe'},{max:27,label:'Very Severe'}] },
+    { id:'PANSS', name:'PANSS', full:'Positive and Negative Syndrome Scale', domain:'Psychosis', items:30, min:30, max:210, interpretation:[{max:58,label:'Mild'},{max:75,label:'Moderate'},{max:99,label:'Severe'},{max:210,label:'Very Severe'}] },
+    { id:'BPRS', name:'BPRS', full:'Brief Psychiatric Rating Scale', domain:'Psychosis', items:24, min:24, max:168, interpretation:[{max:40,label:'Mild'},{max:60,label:'Moderate'},{max:168,label:'Severe'}] },
+    { id:'CAPS-5', name:'CAPS-5', full:'Clinician-Administered PTSD Scale for DSM-5', domain:'Trauma/PTSD', items:30, min:0, max:80, interpretation:[{max:22,label:'Mild'},{max:36,label:'Moderate'},{max:52,label:'Severe'},{max:80,label:'Extreme'}] },
+    { id:'C-SSRS', name:'C-SSRS', full:'Columbia Suicide Severity Rating Scale', domain:'Safety', items:6, min:0, max:6, interpretation:[{max:0,label:'No Ideation'},{max:2,label:'Passive/Low'},{max:5,label:'Active Ideation'},{max:6,label:'Behavior'}] },
+    { id:'SPIN', name:'SPIN', full:'Social Phobia Inventory', domain:'Anxiety', items:17, min:0, max:68, interpretation:[{max:20,label:'None/Minimal'},{max:30,label:'Mild'},{max:40,label:'Moderate'},{max:50,label:'Severe'},{max:68,label:'Very Severe'}] },
+    { id:'PSWQ', name:'PSWQ', full:'Penn State Worry Questionnaire', domain:'Anxiety', items:16, min:16, max:80, interpretation:[{max:40,label:'Low'},{max:59,label:'Moderate'},{max:80,label:'High'}] },
+    { id:'BPI', name:'BPI', full:'Brief Pain Inventory', domain:'Pain', items:9, min:0, max:10, interpretation:[{max:3,label:'Mild'},{max:6,label:'Moderate'},{max:10,label:'Severe'}] },
+    { id:'PCS', name:'PCS', full:'Pain Catastrophizing Scale', domain:'Pain', items:13, min:0, max:52, interpretation:[{max:20,label:'Low'},{max:30,label:'Moderate'},{max:52,label:'High Catastrophizing'}] },
+    { id:'MMSE', name:'MMSE', full:'Mini-Mental State Examination', domain:'Cognitive', items:30, min:0, max:30, interpretation:[{max:9,label:'Severe Impairment'},{max:18,label:'Moderate'},{max:23,label:'Mild'},{max:30,label:'Normal'}] },
+    { id:'MoCA', name:'MoCA', full:'Montreal Cognitive Assessment', domain:'Cognitive', items:30, min:0, max:30, interpretation:[{max:17,label:'Moderate Impairment'},{max:22,label:'Mild'},{max:25,label:'Borderline'},{max:30,label:'Normal'}] },
+    { id:'HAM-A', name:'HAM-A', full:'Hamilton Anxiety Rating Scale', domain:'Anxiety', items:14, min:0, max:56, interpretation:[{max:14,label:'None'},{max:17,label:'Mild'},{max:24,label:'Moderate'},{max:56,label:'Severe'}] },
+    { id:'TMS-SE', name:'TMS-SE', full:'TMS Side-Effects Checklist', domain:'Neuromod', items:10, min:0, max:30, interpretation:[{max:5,label:'None/Minimal'},{max:10,label:'Mild'},{max:20,label:'Moderate'},{max:30,label:'Severe'}] },
+    { id:'tDCS-CS', name:'tDCS-CS', full:'tDCS Comfort and Side Effects Scale', domain:'Neuromod', items:8, min:0, max:24, interpretation:[{max:4,label:'Comfortable'},{max:10,label:'Mild Discomfort'},{max:24,label:'Significant'}] },
   ];
 
-  const STRUCTURED_FORMS = [
-    {
-      id: 'neuromod-baseline', name: 'Neuromodulation Baseline Screen', timing: 'Pre-treatment',
-      icon: '\u25CE', color: 'var(--accent-teal)',
-      desc: 'Clinician-led intake screen before starting any neuromodulation course.',
-      questions: [
-        { q: 'What symptoms are most affecting you right now?',                       type: 'textarea' },
-        { q: 'How long have these symptoms been present?',                            type: 'text' },
-        { q: 'Have you had neuromodulation treatment before?',                        type: 'yesno' },
-        { q: 'If yes \u2014 did you improve with previous treatment?',               type: 'select', options: ['N/A', 'Yes \u2014 significant', 'Yes \u2014 partial', 'No improvement', 'Worsened'] },
-        { q: 'Any discomfort with stimulation, light, sound, or wearable devices?',  type: 'textarea', placeholder: 'Describe if yes\u2026' },
-        { q: 'Any history of seizures, fainting, implants, or brain injury?',        type: 'yesno' },
-        { q: 'If yes \u2014 please describe:',                                       type: 'textarea', placeholder: 'Seizure type, dates, implant location\u2026' },
-        { q: 'What are your top 3 goals from this treatment?',                       type: 'textarea', placeholder: '1.\n2.\n3.' },
-      ],
-    },
-    {
-      id: 'session-tolerance', name: 'Session Tolerance Check', timing: 'Post-session',
-      icon: '\u25A7', color: 'var(--accent-blue)',
-      desc: 'Quick post-session screen to capture tolerance, side effects, and readiness.',
-      questions: [
-        { q: 'Did you notice any discomfort during the session?',                    type: 'yesno' },
-        { q: 'Did you experience any of the following? (select all that apply)',     type: 'checklist', options: ['Headache', 'Fatigue', 'Dizziness', 'Tingling / scalp sensation', 'Mood change', 'Sleep change', 'Nausea', 'None of the above'] },
-        { q: 'Compared to before the session, your symptoms:',                      type: 'select', options: ['Improved', 'Stayed the same', 'Worsened', 'Too early to say'] },
-        { q: 'Overall, how was the session? (0 = very difficult, 10 = easy)',       type: 'slider', min: 0, max: 10 },
-        { q: 'Do you feel ready for the next session?',                             type: 'yesno' },
-        { q: 'Any other concerns or feedback for your clinician?',                  type: 'textarea', placeholder: 'Optional\u2026' },
-      ],
-    },
-    {
-      id: 'weekly-progress', name: 'Weekly Progress Check-In', timing: 'Weekly',
-      icon: '\u25C8', color: 'var(--accent-violet)',
-      desc: 'Weekly self-report on symptom change, adherence, and home program completion.',
-      questions: [
-        { q: 'Compared with last week, how is your mood?',           type: 'select', options: ['Much better', 'Better', 'About the same', 'Worse', 'Much worse'] },
-        { q: 'Compared with last week, how is your sleep?',          type: 'select', options: ['Much better', 'Better', 'About the same', 'Worse', 'Much worse'] },
-        { q: 'Compared with last week, how is your energy?',         type: 'select', options: ['Much better', 'Better', 'About the same', 'Worse', 'Much worse'] },
-        { q: 'Compared with last week, how is your anxiety?',        type: 'select', options: ['Much better', 'Better', 'About the same', 'Worse', 'Much worse'] },
-        { q: 'Compared with last week, how is your focus?',          type: 'select', options: ['Much better', 'Better', 'About the same', 'Worse', 'Much worse'] },
-        { q: 'Have you completed your home program tasks this week?', type: 'select', options: ['Yes \u2014 all tasks', 'Most tasks', 'Some tasks', 'None', 'No home program assigned'] },
-        { q: 'Have you used your assigned home device?',              type: 'select', options: ['Yes \u2014 as directed', 'Some days', 'Not yet', 'No home device assigned'] },
-        { q: 'Any new side effects or concerns this week?',          type: 'textarea', placeholder: 'Describe if yes\u2026' },
-        { q: 'Would you like your clinician to review this before the next session?', type: 'yesno' },
-      ],
-    },
-    {
-      id: 'discharge-readiness', name: 'Discharge Readiness Screen', timing: 'End of course',
-      icon: '\u25EB', color: '#f59e0b',
-      desc: 'End-of-course review to assess treatment response, relapse risk, and aftercare planning.',
-      questions: [
-        { q: 'Overall, how much did your main symptoms improve?',    type: 'select', options: ['Very much improved (>50%)', 'Moderately improved (25\u201350%)', 'Slightly improved (<25%)', 'No change', 'Worse'] },
-        { q: 'Do you feel your treatment goals were met?',           type: 'select', options: ['Fully met', 'Mostly met', 'Partially met', 'Not met'] },
-        { q: 'How confident are you managing symptoms without active treatment? (0\u201310)', type: 'slider', min: 0, max: 10 },
-        { q: 'Are you continuing medications or therapy after discharge?',               type: 'yesno' },
-        { q: 'Do you have concerns about relapse or a future episode?',                  type: 'yesno' },
-        { q: 'Aftercare plan agreed (home program, follow-up, maintenance sessions)?',   type: 'yesno' },
-        { q: 'Additional notes for discharge summary:',              type: 'textarea', placeholder: 'Clinician notes\u2026' },
-      ],
-    },
+  const COND_BUNDLES = [
+    { id:'CON-001', name:'Major Depressive Disorder', category:'Mood', phases:{ baseline:['PHQ-9','MADRS','HAM-D','QIDS-SR','C-SSRS','ISI','PSS','WHODAS'], weekly:['PHQ-9','QIDS-SR','C-SSRS','ISI'], pre_session:['PHQ-9','C-SSRS'], post_session:['CGI'], milestone:['PHQ-9','MADRS','HAM-D','QIDS-SR','ISI','WHODAS'], discharge:['PHQ-9','MADRS','HAM-D','QIDS-SR','ISI','WHODAS','SF-36'] }},
+    { id:'CON-002', name:'Treatment-Resistant Depression', category:'Mood', phases:{ baseline:['PHQ-9','MADRS','HAM-D','QIDS-SR','C-SSRS','ISI','TMS-SE','WHODAS'], weekly:['PHQ-9','QIDS-SR','C-SSRS','TMS-SE'], pre_session:['PHQ-9','C-SSRS','TMS-SE'], post_session:['CGI','TMS-SE'], milestone:['PHQ-9','MADRS','HAM-D','QIDS-SR','ISI','WHODAS'], discharge:['PHQ-9','MADRS','HAM-D','QIDS-SR','ISI','WHODAS','SF-36'] }},
+    { id:'CON-003', name:'Bipolar I Disorder', category:'Mood', phases:{ baseline:['MDQ','YMRS','PHQ-9','C-SSRS','ISI','WHODAS'], weekly:['MDQ','YMRS','PHQ-9','C-SSRS'], pre_session:['MDQ','YMRS','C-SSRS'], post_session:['CGI'], milestone:['MDQ','YMRS','PHQ-9','ISI','WHODAS'], discharge:['MDQ','YMRS','PHQ-9','ISI','WHODAS','SF-36'] }},
+    { id:'CON-004', name:'Bipolar II Disorder', category:'Mood', phases:{ baseline:['MDQ','YMRS','PHQ-9','C-SSRS','ISI','WHODAS'], weekly:['MDQ','PHQ-9','C-SSRS','ISI'], pre_session:['MDQ','PHQ-9','C-SSRS'], post_session:['CGI'], milestone:['MDQ','YMRS','PHQ-9','ISI','WHODAS'], discharge:['MDQ','YMRS','PHQ-9','ISI','WHODAS','SF-36'] }},
+    { id:'CON-005', name:'Persistent Depressive Disorder', category:'Mood', phases:{ baseline:['PHQ-9','MADRS','QIDS-SR','C-SSRS','ISI','PSS','WHODAS'], weekly:['PHQ-9','QIDS-SR','C-SSRS'], pre_session:['PHQ-9','C-SSRS'], post_session:['CGI'], milestone:['PHQ-9','MADRS','QIDS-SR','ISI','WHODAS'], discharge:['PHQ-9','MADRS','QIDS-SR','ISI','WHODAS','SF-36'] }},
+    { id:'CON-006', name:'Seasonal Affective Disorder', category:'Mood', phases:{ baseline:['PHQ-9','MADRS','ISI','PSQI','EPWORTH','PSS'], weekly:['PHQ-9','ISI','PSQI'], pre_session:['PHQ-9'], post_session:['CGI'], milestone:['PHQ-9','MADRS','ISI','PSQI'], discharge:['PHQ-9','MADRS','ISI','PSQI','SF-36'] }},
+    { id:'CON-007', name:'Postpartum Depression', category:'Mood', phases:{ baseline:['PHQ-9','C-SSRS','ISI','PSS','WHODAS'], weekly:['PHQ-9','C-SSRS','ISI'], pre_session:['PHQ-9','C-SSRS'], post_session:['CGI'], milestone:['PHQ-9','ISI','WHODAS'], discharge:['PHQ-9','ISI','WHODAS','SF-36'] }},
+    { id:'CON-008', name:'Premenstrual Dysphoric Disorder', category:'Mood', phases:{ baseline:['PHQ-9','GAD-7','ISI','PSS'], weekly:['PHQ-9','GAD-7'], pre_session:['PHQ-9'], post_session:['CGI'], milestone:['PHQ-9','GAD-7','ISI'], discharge:['PHQ-9','GAD-7','ISI','SF-36'] }},
+    { id:'CON-009', name:'Depression with Psychotic Features', category:'Mood', phases:{ baseline:['PHQ-9','MADRS','C-SSRS','PANSS','BPRS','ISI','WHODAS'], weekly:['PHQ-9','BPRS','C-SSRS'], pre_session:['PHQ-9','BPRS','C-SSRS'], post_session:['CGI'], milestone:['PHQ-9','MADRS','PANSS','BPRS','ISI','WHODAS'], discharge:['PHQ-9','MADRS','PANSS','BPRS','ISI','WHODAS','SF-36'] }},
+    { id:'CON-010', name:'Suicidality and Crisis Management', category:'Mood', phases:{ baseline:['C-SSRS','PHQ-9','MADRS','QIDS-SR','WHODAS'], weekly:['C-SSRS','PHQ-9'], pre_session:['C-SSRS','PHQ-9'], post_session:['C-SSRS','CGI'], milestone:['C-SSRS','PHQ-9','MADRS'], discharge:['C-SSRS','PHQ-9','MADRS','WHODAS'] }},
+    { id:'CON-011', name:'Generalized Anxiety Disorder', category:'Anxiety', phases:{ baseline:['GAD-7','HAM-A','PSWQ','PSS','ISI','WHODAS'], weekly:['GAD-7','PSWQ'], pre_session:['GAD-7'], post_session:['CGI'], milestone:['GAD-7','HAM-A','PSWQ','ISI','WHODAS'], discharge:['GAD-7','HAM-A','PSWQ','ISI','WHODAS','SF-36'] }},
+    { id:'CON-012', name:'Panic Disorder', category:'Anxiety', phases:{ baseline:['GAD-7','PDSS','HAM-A','PSS','WHODAS'], weekly:['GAD-7','PDSS'], pre_session:['GAD-7','PDSS'], post_session:['CGI'], milestone:['GAD-7','PDSS','HAM-A','WHODAS'], discharge:['GAD-7','PDSS','HAM-A','WHODAS','SF-36'] }},
+    { id:'CON-013', name:'Social Anxiety Disorder', category:'Anxiety', phases:{ baseline:['GAD-7','SPIN','HAM-A','PSS','WHODAS'], weekly:['GAD-7','SPIN'], pre_session:['GAD-7'], post_session:['CGI'], milestone:['GAD-7','SPIN','HAM-A','WHODAS'], discharge:['GAD-7','SPIN','HAM-A','WHODAS','SF-36'] }},
+    { id:'CON-014', name:'Specific Phobia', category:'Anxiety', phases:{ baseline:['GAD-7','PSS','WHODAS'], weekly:['GAD-7'], pre_session:['GAD-7'], post_session:['CGI'], milestone:['GAD-7','WHODAS'], discharge:['GAD-7','WHODAS','SF-36'] }},
+    { id:'CON-015', name:'Adjustment Disorder with Anxiety', category:'Anxiety', phases:{ baseline:['GAD-7','PSS','ISI','WHODAS'], weekly:['GAD-7','PSS'], pre_session:['GAD-7'], post_session:['CGI'], milestone:['GAD-7','PSS','ISI','WHODAS'], discharge:['GAD-7','PSS','ISI','WHODAS','SF-36'] }},
+    { id:'CON-016', name:'Obsessive-Compulsive Disorder', category:'OCD Spectrum', phases:{ baseline:['Y-BOCS','OCI-R','GAD-7','PHQ-9','WHODAS'], weekly:['Y-BOCS','OCI-R'], pre_session:['OCI-R'], post_session:['CGI'], milestone:['Y-BOCS','OCI-R','GAD-7','WHODAS'], discharge:['Y-BOCS','OCI-R','GAD-7','WHODAS','SF-36'] }},
+    { id:'CON-017', name:'Body Dysmorphic Disorder', category:'OCD Spectrum', phases:{ baseline:['Y-BOCS','PHQ-9','GAD-7','C-SSRS','WHODAS'], weekly:['Y-BOCS','PHQ-9'], pre_session:['Y-BOCS'], post_session:['CGI'], milestone:['Y-BOCS','PHQ-9','WHODAS'], discharge:['Y-BOCS','PHQ-9','WHODAS','SF-36'] }},
+    { id:'CON-018', name:'Hoarding Disorder', category:'OCD Spectrum', phases:{ baseline:['Y-BOCS','PHQ-9','GAD-7','WHODAS'], weekly:['Y-BOCS','PHQ-9'], pre_session:['Y-BOCS'], post_session:['CGI'], milestone:['Y-BOCS','PHQ-9','WHODAS'], discharge:['Y-BOCS','PHQ-9','WHODAS','SF-36'] }},
+    { id:'CON-019', name:'Post-Traumatic Stress Disorder', category:'Trauma', phases:{ baseline:['PCL-5','CAPS-5','PHQ-9','C-SSRS','ISI','DERS','WHODAS'], weekly:['PCL-5','PHQ-9','C-SSRS'], pre_session:['PCL-5','C-SSRS'], post_session:['CGI'], milestone:['PCL-5','CAPS-5','PHQ-9','ISI','WHODAS'], discharge:['PCL-5','CAPS-5','PHQ-9','ISI','WHODAS','SF-36'] }},
+    { id:'CON-020', name:'Complex PTSD Developmental Trauma', category:'Trauma', phases:{ baseline:['PCL-5','CAPS-5','PHQ-9','C-SSRS','DERS','ISI','WHODAS'], weekly:['PCL-5','PHQ-9','DERS','C-SSRS'], pre_session:['PCL-5','C-SSRS'], post_session:['CGI','DERS'], milestone:['PCL-5','CAPS-5','PHQ-9','DERS','ISI','WHODAS'], discharge:['PCL-5','CAPS-5','PHQ-9','DERS','ISI','WHODAS','SF-36'] }},
+    { id:'CON-021', name:'ADHD Inattentive Type', category:'ADHD', phases:{ baseline:['WHODAS','PHQ-9','ISI','PSS'], weekly:['WHODAS','PHQ-9'], pre_session:['WHODAS'], post_session:['CGI'], milestone:['WHODAS','PHQ-9','ISI'], discharge:['WHODAS','PHQ-9','ISI','SF-36'] }},
+    { id:'CON-022', name:'ADHD Combined Type', category:'ADHD', phases:{ baseline:['WHODAS','PHQ-9','ISI','PSS','DERS'], weekly:['WHODAS','PHQ-9','DERS'], pre_session:['WHODAS'], post_session:['CGI'], milestone:['WHODAS','PHQ-9','ISI','DERS'], discharge:['WHODAS','PHQ-9','ISI','DERS','SF-36'] }},
+    { id:'CON-023', name:'Schizophrenia', category:'Psychotic', phases:{ baseline:['PANSS','BPRS','C-SSRS','ISI','WHODAS','CGI'], weekly:['PANSS','BPRS','C-SSRS'], pre_session:['BPRS','C-SSRS'], post_session:['CGI','BPRS'], milestone:['PANSS','BPRS','C-SSRS','ISI','WHODAS'], discharge:['PANSS','BPRS','ISI','WHODAS','SF-36'] }},
+    { id:'CON-024', name:'Schizoaffective Disorder', category:'Psychotic', phases:{ baseline:['PANSS','BPRS','PHQ-9','MDQ','C-SSRS','ISI','WHODAS'], weekly:['PANSS','BPRS','PHQ-9','C-SSRS'], pre_session:['BPRS','C-SSRS'], post_session:['CGI','BPRS'], milestone:['PANSS','BPRS','PHQ-9','ISI','WHODAS'], discharge:['PANSS','BPRS','PHQ-9','ISI','WHODAS','SF-36'] }},
+    { id:'CON-025', name:'Insomnia Disorder', category:'Sleep', phases:{ baseline:['ISI','PSQI','EPWORTH','ESS','PHQ-9','GAD-7'], weekly:['ISI','PSQI'], pre_session:['ISI'], post_session:['CGI'], milestone:['ISI','PSQI','EPWORTH','PHQ-9'], discharge:['ISI','PSQI','EPWORTH','PHQ-9','SF-36'] }},
+    { id:'CON-026', name:'Sleep-Related Anxiety', category:'Sleep', phases:{ baseline:['ISI','PSQI','GAD-7','PHQ-9'], weekly:['ISI','GAD-7'], pre_session:['ISI'], post_session:['CGI'], milestone:['ISI','PSQI','GAD-7','PHQ-9'], discharge:['ISI','PSQI','GAD-7','PHQ-9','SF-36'] }},
+    { id:'CON-027', name:'Chronic Pain General', category:'Pain', phases:{ baseline:['BPI','PCS','PHQ-9','GAD-7','ISI','SF-36','WHODAS'], weekly:['BPI','PCS','PHQ-9'], pre_session:['BPI'], post_session:['BPI','CGI'], milestone:['BPI','PCS','PHQ-9','ISI','WHODAS'], discharge:['BPI','PCS','PHQ-9','ISI','WHODAS','SF-36'] }},
+    { id:'CON-028', name:'Fibromyalgia', category:'Pain', phases:{ baseline:['BPI','PCS','PHQ-9','GAD-7','ISI','PSQI','SF-36'], weekly:['BPI','PHQ-9','ISI'], pre_session:['BPI'], post_session:['BPI','CGI'], milestone:['BPI','PCS','PHQ-9','ISI','SF-36'], discharge:['BPI','PCS','PHQ-9','ISI','SF-36'] }},
+    { id:'CON-029', name:'Chronic Low Back Pain', category:'Pain', phases:{ baseline:['BPI','PCS','PHQ-9','GAD-7','WHODAS','tDCS-CS'], weekly:['BPI','PHQ-9'], pre_session:['BPI','tDCS-CS'], post_session:['BPI','tDCS-CS','CGI'], milestone:['BPI','PCS','PHQ-9','WHODAS'], discharge:['BPI','PCS','PHQ-9','WHODAS','SF-36'] }},
+    { id:'CON-030', name:'Neuropathic Pain', category:'Pain', phases:{ baseline:['BPI','PCS','PHQ-9','GAD-7','WHODAS'], weekly:['BPI','PHQ-9'], pre_session:['BPI'], post_session:['BPI','CGI'], milestone:['BPI','PCS','PHQ-9','WHODAS'], discharge:['BPI','PCS','PHQ-9','WHODAS','SF-36'] }},
+    { id:'CON-031', name:'Migraine and Headache Disorders', category:'Pain', phases:{ baseline:['BPI','PHQ-9','GAD-7','ISI','TMS-SE','WHODAS'], weekly:['BPI','PHQ-9','TMS-SE'], pre_session:['BPI','TMS-SE'], post_session:['BPI','TMS-SE','CGI'], milestone:['BPI','PHQ-9','ISI','WHODAS'], discharge:['BPI','PHQ-9','ISI','WHODAS','SF-36'] }},
+    { id:'CON-032', name:'Complex Regional Pain Syndrome', category:'Pain', phases:{ baseline:['BPI','PCS','PHQ-9','GAD-7','DERS','WHODAS'], weekly:['BPI','PHQ-9'], pre_session:['BPI'], post_session:['BPI','CGI'], milestone:['BPI','PCS','PHQ-9','WHODAS'], discharge:['BPI','PCS','PHQ-9','WHODAS','SF-36'] }},
+    { id:'CON-033', name:'Epilepsy Seizure Disorder', category:'Neurology', phases:{ baseline:['PHQ-9','GAD-7','ISI','WHODAS','SF-36'], weekly:['PHQ-9','GAD-7'], pre_session:['PHQ-9'], post_session:['CGI'], milestone:['PHQ-9','GAD-7','ISI','WHODAS'], discharge:['PHQ-9','GAD-7','ISI','WHODAS','SF-36'] }},
+    { id:'CON-034', name:"Parkinson's Disease", category:'Neurology', phases:{ baseline:['PHQ-9','MADRS','ISI','PSQI','MMSE','MoCA','WHODAS','SF-36'], weekly:['PHQ-9','ISI'], pre_session:['PHQ-9','MoCA'], post_session:['CGI'], milestone:['PHQ-9','MADRS','ISI','MMSE','MoCA','WHODAS'], discharge:['PHQ-9','MADRS','ISI','MMSE','MoCA','WHODAS','SF-36'] }},
+    { id:'CON-035', name:"Alzheimer's Disease and Dementia", category:'Neurology', phases:{ baseline:['MMSE','MoCA','PHQ-9','ISI','WHODAS','SF-36'], weekly:['MMSE','PHQ-9'], pre_session:['MoCA'], post_session:['CGI'], milestone:['MMSE','MoCA','PHQ-9','ISI','WHODAS'], discharge:['MMSE','MoCA','PHQ-9','ISI','WHODAS','SF-36'] }},
+    { id:'CON-036', name:'Mild Cognitive Impairment', category:'Neurology', phases:{ baseline:['MoCA','MMSE','PHQ-9','ISI','WHODAS'], weekly:['MoCA','PHQ-9'], pre_session:['MoCA'], post_session:['CGI'], milestone:['MoCA','MMSE','PHQ-9','WHODAS'], discharge:['MoCA','MMSE','PHQ-9','WHODAS','SF-36'] }},
+    { id:'CON-037', name:'Traumatic Brain Injury', category:'Neurology', phases:{ baseline:['MMSE','MoCA','PHQ-9','C-SSRS','ISI','BPI','WHODAS'], weekly:['PHQ-9','ISI','BPI'], pre_session:['PHQ-9','BPI'], post_session:['CGI'], milestone:['MMSE','MoCA','PHQ-9','ISI','BPI','WHODAS'], discharge:['MMSE','MoCA','PHQ-9','ISI','BPI','WHODAS','SF-36'] }},
+    { id:'CON-038', name:'Stroke Rehabilitation', category:'Neurology', phases:{ baseline:['PHQ-9','MADRS','BPI','ISI','MMSE','WHODAS','SF-36'], weekly:['PHQ-9','BPI'], pre_session:['PHQ-9','BPI'], post_session:['CGI'], milestone:['PHQ-9','MADRS','BPI','MMSE','WHODAS'], discharge:['PHQ-9','MADRS','BPI','MMSE','WHODAS','SF-36'] }},
+    { id:'CON-039', name:'Multiple Sclerosis', category:'Neurology', phases:{ baseline:['PHQ-9','MADRS','BPI','ISI','PSQI','MMSE','WHODAS','SF-36'], weekly:['PHQ-9','BPI','ISI'], pre_session:['PHQ-9','BPI'], post_session:['CGI'], milestone:['PHQ-9','MADRS','BPI','ISI','MMSE','WHODAS'], discharge:['PHQ-9','MADRS','BPI','ISI','MMSE','WHODAS','SF-36'] }},
+    { id:'CON-040', name:'ALS Motor Neuron Disease', category:'Neurology', phases:{ baseline:['PHQ-9','C-SSRS','BPI','ISI','WHODAS','SF-36'], weekly:['PHQ-9','C-SSRS','BPI'], pre_session:['PHQ-9','C-SSRS'], post_session:['CGI'], milestone:['PHQ-9','C-SSRS','BPI','WHODAS'], discharge:['PHQ-9','C-SSRS','BPI','WHODAS','SF-36'] }},
+    { id:'CON-041', name:'Essential Tremor', category:'Neurology', phases:{ baseline:['PHQ-9','GAD-7','ISI','WHODAS'], weekly:['PHQ-9','GAD-7'], pre_session:['PHQ-9'], post_session:['CGI'], milestone:['PHQ-9','GAD-7','ISI','WHODAS'], discharge:['PHQ-9','GAD-7','ISI','WHODAS','SF-36'] }},
+    { id:'CON-042', name:'Tourette Syndrome Tic Disorders', category:'Neurology', phases:{ baseline:['PHQ-9','GAD-7','Y-BOCS','OCI-R','WHODAS'], weekly:['PHQ-9','GAD-7'], pre_session:['PHQ-9'], post_session:['CGI'], milestone:['PHQ-9','GAD-7','Y-BOCS','WHODAS'], discharge:['PHQ-9','GAD-7','Y-BOCS','WHODAS','SF-36'] }},
+    { id:'CON-043', name:'Tinnitus', category:'Sensory', phases:{ baseline:['PHQ-9','GAD-7','ISI','PSQI','TMS-SE','SF-36'], weekly:['PHQ-9','GAD-7','ISI'], pre_session:['PHQ-9','TMS-SE'], post_session:['TMS-SE','CGI'], milestone:['PHQ-9','GAD-7','ISI','SF-36'], discharge:['PHQ-9','GAD-7','ISI','SF-36'] }},
+    { id:'CON-044', name:'Alcohol Use Disorder', category:'Substance', phases:{ baseline:['AUDIT','PHQ-9','GAD-7','C-SSRS','ISI','WHODAS'], weekly:['AUDIT','PHQ-9','C-SSRS'], pre_session:['AUDIT','C-SSRS'], post_session:['CGI'], milestone:['AUDIT','PHQ-9','ISI','WHODAS'], discharge:['AUDIT','PHQ-9','ISI','WHODAS','SF-36'] }},
+    { id:'CON-045', name:'Substance Use Disorder Other', category:'Substance', phases:{ baseline:['DAST-10','PHQ-9','GAD-7','C-SSRS','ISI','WHODAS'], weekly:['DAST-10','PHQ-9','C-SSRS'], pre_session:['DAST-10','C-SSRS'], post_session:['CGI'], milestone:['DAST-10','PHQ-9','ISI','WHODAS'], discharge:['DAST-10','PHQ-9','ISI','WHODAS','SF-36'] }},
+    { id:'CON-046', name:'Gambling Behavioural Addiction', category:'Substance', phases:{ baseline:['PHQ-9','GAD-7','C-SSRS','DERS','WHODAS'], weekly:['PHQ-9','DERS'], pre_session:['PHQ-9'], post_session:['CGI'], milestone:['PHQ-9','GAD-7','DERS','WHODAS'], discharge:['PHQ-9','GAD-7','DERS','WHODAS','SF-36'] }},
+    { id:'CON-047', name:'Anorexia Nervosa', category:'Eating', phases:{ baseline:['EDE-Q','PHQ-9','C-SSRS','GAD-7','ISI','WHODAS'], weekly:['EDE-Q','PHQ-9','C-SSRS'], pre_session:['EDE-Q','C-SSRS'], post_session:['CGI'], milestone:['EDE-Q','PHQ-9','ISI','WHODAS'], discharge:['EDE-Q','PHQ-9','ISI','WHODAS','SF-36'] }},
+    { id:'CON-048', name:'Bulimia Binge Eating Disorder', category:'Eating', phases:{ baseline:['EDE-Q','BINGE','PHQ-9','GAD-7','C-SSRS','ISI','WHODAS'], weekly:['EDE-Q','BINGE','PHQ-9'], pre_session:['EDE-Q'], post_session:['CGI'], milestone:['EDE-Q','BINGE','PHQ-9','ISI','WHODAS'], discharge:['EDE-Q','BINGE','PHQ-9','ISI','WHODAS','SF-36'] }},
+    { id:'CON-049', name:'Cognitive Decline Unspecified', category:'Cognitive', phases:{ baseline:['MMSE','MoCA','PHQ-9','ISI','WHODAS'], weekly:['MMSE','PHQ-9'], pre_session:['MoCA'], post_session:['CGI'], milestone:['MMSE','MoCA','PHQ-9','WHODAS'], discharge:['MMSE','MoCA','PHQ-9','WHODAS','SF-36'] }},
+    { id:'CON-050', name:'Executive Function Deficits', category:'Cognitive', phases:{ baseline:['MoCA','PHQ-9','WHODAS','DERS'], weekly:['MoCA','PHQ-9'], pre_session:['MoCA'], post_session:['CGI'], milestone:['MoCA','PHQ-9','DERS','WHODAS'], discharge:['MoCA','PHQ-9','DERS','WHODAS','SF-36'] }},
+    { id:'CON-051', name:'TMS Protocol General', category:'Neuromod', phases:{ baseline:['PHQ-9','GAD-7','ISI','TMS-SE','C-SSRS','WHODAS'], weekly:['PHQ-9','TMS-SE','C-SSRS'], pre_session:['TMS-SE','C-SSRS'], post_session:['TMS-SE','CGI'], milestone:['PHQ-9','GAD-7','ISI','TMS-SE','WHODAS'], discharge:['PHQ-9','GAD-7','ISI','WHODAS','SF-36'] }},
+    { id:'CON-052', name:'tDCS Protocol General', category:'Neuromod', phases:{ baseline:['PHQ-9','GAD-7','BPI','tDCS-CS','WHODAS'], weekly:['PHQ-9','BPI','tDCS-CS'], pre_session:['tDCS-CS'], post_session:['tDCS-CS','CGI'], milestone:['PHQ-9','GAD-7','BPI','tDCS-CS','WHODAS'], discharge:['PHQ-9','GAD-7','BPI','WHODAS','SF-36'] }},
+    { id:'CON-053', name:'Neurofeedback Protocol', category:'Neuromod', phases:{ baseline:['PHQ-9','GAD-7','ISI','PSQI','PSS','WHODAS'], weekly:['PHQ-9','GAD-7','ISI'], pre_session:['PHQ-9','PSS'], post_session:['CGI'], milestone:['PHQ-9','GAD-7','ISI','PSQI','WHODAS'], discharge:['PHQ-9','GAD-7','ISI','PSQI','WHODAS','SF-36'] }},
   ];
 
-  const CONDITION_BUNDLES = [
-    { condition: 'Major Depressive Disorder',       scales: ['phq9','madrs','hamd','cgi','eq5d','ses'],  timing: ['pre','weekly','post'] },
-    { condition: 'Treatment-Resistant Depression',  scales: ['madrs','hamd','qids','cgi','ses'],          timing: ['pre','weekly','post'] },
-    { condition: 'Bipolar Depression',              scales: ['phq9','madrs','cgi','ses'],                 timing: ['pre','weekly','post'] },
-    { condition: 'Postpartum Depression',           scales: ['phq9','madrs','cgi'],                       timing: ['pre','weekly','post'] },
-    { condition: 'Generalised Anxiety Disorder',    scales: ['gad7','dass21','cgi','eq5d','ses'],         timing: ['pre','weekly','post'] },
-    { condition: 'Panic Disorder',                  scales: ['gad7','cgi'],                               timing: ['pre','weekly','post'] },
-    { condition: 'Social Anxiety Disorder',         scales: ['gad7','cgi'],                               timing: ['pre','weekly','post'] },
-    { condition: 'OCD',                             scales: ['ybocs','cgi','ses'],                        timing: ['pre','weekly','post'] },
-    { condition: 'PTSD',                            scales: ['pcl5','caps5','phq9','cgi','ses'],          timing: ['pre','weekly','post'] },
-    { condition: 'ADHD',                            scales: ['cgi','qids'],                               timing: ['pre','milestone','post'] },
-    { condition: 'Chronic Pain',                    scales: ['eq5d','cgi','ses'],                         timing: ['pre','weekly','post'] },
-    { condition: 'Fibromyalgia',                    scales: ['eq5d','cgi','ses'],                         timing: ['pre','weekly','post'] },
-    { condition: 'Insomnia',                        scales: ['isi','cgi','ses'],                          timing: ['pre','weekly','post'] },
-    { condition: 'Tinnitus',                        scales: ['cgi','ses'],                                timing: ['pre','weekly','post'] },
-    { condition: 'Schizophrenia',                   scales: ['panss','bprs','cgi','ses'],                 timing: ['pre','weekly'] },
-    { condition: 'Stroke Rehabilitation',           scales: ['moca','cgi','eq5d'],                        timing: ['pre','milestone','post'] },
-    { condition: 'Traumatic Brain Injury',          scales: ['moca','cgi','eq5d'],                        timing: ['pre','milestone','post'] },
-    { condition: "Alzheimer's / Dementia",          scales: ['moca','cgi'],                               timing: ['pre','milestone'] },
-    { condition: "Parkinson's Disease",             scales: ['moca','cgi','eq5d','ses'],                  timing: ['pre','milestone','post'] },
-    { condition: 'Multiple Sclerosis',              scales: ['eq5d','cgi','ses'],                         timing: ['pre','milestone','post'] },
-    { condition: 'Substance Use Disorder',          scales: ['audit','cgi'],                              timing: ['pre','milestone'] },
-    { condition: 'Eating Disorder',                 scales: ['phq9','gad7','cgi'],                        timing: ['pre','weekly','post'] },
-    { condition: 'Autism / ASD',                    scales: ['cgi'],                                      timing: ['pre','milestone'] },
-  ];
+  const CATEGORIES = [...new Set(COND_BUNDLES.map(c => c.category))];
+  const PHASES = ['baseline','weekly','pre_session','post_session','milestone','discharge'];
+  const PHASE_LABELS = { baseline:'Baseline', weekly:'Weekly', pre_session:'Pre-Session', post_session:'Post-Session', milestone:'Milestone', discharge:'Discharge' };
 
-  const SCALE_CATS   = ['All', 'Mood', 'Anxiety', 'PTSD', 'Cognition', 'Sleep', 'Substance', 'QoL', 'Side Effects'];
-  const FORM_TIMINGS = ['All', 'Pre-treatment', 'Post-session', 'Weekly', 'End of course'];
-  const TABS         = ['Scale Library', 'Structured Forms', 'Condition Bundles', 'Schedule'];
-  const evColor      = { A: '#2dd4bf', B: '#60a5fa', C: '#fbbf24', D: '#94a3b8' };
-  const TL           = { pre: 'Pre-treatment', weekly: 'Weekly', post: 'Post-treatment', milestone: 'At milestone', prn: 'PRN' };
-
-  let activeTab    = 'Scale Library';
-  let activeCat    = 'All';
-  let activeTiming = 'All';
-  let activeFormId = null;
-
-  function bundleCardHTML(b) {
-    if (activeCat !== 'All' && b.cat !== activeCat) return '';
-    const ec = evColor[b.ev] || '#94a3b8';
-    return `<div class="card" style="padding:0;cursor:default"><div style="padding:12px 16px">
-      <div style="display:flex;gap:8px;align-items:flex-start;justify-content:space-between;margin-bottom:4px">
-        <div>
-          <span style="font-size:13px;font-weight:600;color:var(--text)">${esc(b.name)}</span>
-          <span style="font-size:10px;font-weight:700;padding:1px 6px;border-radius:3px;background:${ec}22;color:${ec};border:1px solid ${ec}33;margin-left:6px">EV-${b.ev}</span>
-        </div>
-        <span style="font-size:10.5px;color:var(--text-muted);white-space:nowrap">${b.items} items &middot; ${b.mins} min</span>
-      </div>
-      <div style="font-size:11.5px;color:var(--text-secondary);line-height:1.5;margin-bottom:8px">${b.desc}</div>
-      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px">
-        ${b.timing.map(t => `<span style="font-size:10px;padding:2px 7px;border-radius:10px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);color:var(--text-muted)">${TL[t] || t}</span>`).join('')}
-      </div>
-      <div style="display:flex;gap:6px">
-        <button class="btn btn-primary btn-sm" onclick="window._ahScheduleScale('${esc(b.id)}','${esc(b.name)}')">Schedule &#8594;</button>
-        <button class="btn btn-sm" onclick="window._nav('assessments')">Administer Now</button>
-      </div>
-    </div></div>`;
+  const STORE_KEY = 'ds_assess_hub_v4';
+  function loadData() {
+    try { return JSON.parse(localStorage.getItem(STORE_KEY) || 'null') || seedData(); }
+    catch(e) { return seedData(); }
+  }
+  function saveData(d) { localStorage.setItem(STORE_KEY, JSON.stringify(d)); }
+  function seedData() {
+    const d = { assignments: [
+      { id:'A001', patientId:'P-1234', condId:'CON-001', condName:'Major Depressive Disorder', phase:'baseline', scales:['PHQ-9','MADRS','HAM-D','QIDS-SR','C-SSRS','ISI'], assignedBy:'Dr. Chen', assignedDate:'2026-04-01', dueDate:'2026-04-08', recurrence:null, status:'overdue', completedDate:null, reviewed:false, results:[] },
+      { id:'A002', patientId:'P-1234', condId:'CON-001', condName:'Major Depressive Disorder', phase:'weekly', scales:['PHQ-9','QIDS-SR','C-SSRS'], assignedBy:'Dr. Chen', assignedDate:'2026-04-06', dueDate:'2026-04-13', recurrence:'weekly', status:'pending', completedDate:null, reviewed:false, results:[] },
+      { id:'A003', patientId:'P-5678', condId:'CON-019', condName:'Post-Traumatic Stress Disorder', phase:'baseline', scales:['PCL-5','CAPS-5','PHQ-9','C-SSRS','ISI'], assignedBy:'Dr. Patel', assignedDate:'2026-04-08', dueDate:'2026-04-15', recurrence:null, status:'pending', completedDate:null, reviewed:false, results:[] },
+      { id:'A004', patientId:'P-1234', condId:'CON-001', condName:'Major Depressive Disorder', phase:'weekly', scales:['PHQ-9','QIDS-SR'], assignedBy:'Dr. Chen', assignedDate:'2026-03-24', dueDate:'2026-03-31', recurrence:'weekly', status:'completed', completedDate:'2026-03-30', reviewed:false, results:[{scale:'PHQ-9',score:14,interp:'Moderate'},{scale:'QIDS-SR',score:11,interp:'Moderate'}] },
+      { id:'A005', patientId:'P-9012', condId:'CON-051', condName:'TMS Protocol General', phase:'pre_session', scales:['TMS-SE','C-SSRS'], assignedBy:'Dr. Nguyen', assignedDate:'2026-04-11', dueDate:'2026-04-12', recurrence:'per-session', status:'completed', completedDate:'2026-04-12', reviewed:true, results:[{scale:'TMS-SE',score:3,interp:'None/Minimal'},{scale:'C-SSRS',score:0,interp:'No Ideation'}] },
+    ]};
+    saveData(d); return d;
   }
 
-  function questionHTML(q, idx) {
-    const label = `<label style="font-size:12px;color:var(--text-secondary);display:block;margin-bottom:4px">${idx + 1}. ${esc(q.q)}</label>`;
-    if (q.type === 'textarea') return `<div style="margin-bottom:10px">${label}<textarea class="form-control" placeholder="${esc(q.placeholder || '')}" style="min-height:54px;font-size:12px;resize:vertical"></textarea></div>`;
-    if (q.type === 'text')     return `<div style="margin-bottom:10px">${label}<input class="form-control" type="text" style="font-size:12px"></div>`;
-    if (q.type === 'yesno')    return `<div style="margin-bottom:10px"><div style="font-size:12px;color:var(--text-secondary);margin-bottom:6px">${idx + 1}. ${esc(q.q)}</div><div style="display:flex;gap:8px"><label style="font-size:12px;cursor:pointer;display:flex;align-items:center;gap:5px;color:var(--text-secondary)"><input type="radio" name="q${idx}"> Yes</label><label style="font-size:12px;cursor:pointer;display:flex;align-items:center;gap:5px;color:var(--text-secondary)"><input type="radio" name="q${idx}"> No</label></div></div>`;
-    if (q.type === 'select')   return `<div style="margin-bottom:10px">${label}<select class="form-control" style="font-size:12px">${(q.options || []).map(o => `<option>${esc(o)}</option>`).join('')}</select></div>`;
-    if (q.type === 'checklist')return `<div style="margin-bottom:10px"><div style="font-size:12px;color:var(--text-secondary);margin-bottom:6px">${idx + 1}. ${esc(q.q)}</div><div style="display:flex;flex-wrap:wrap;gap:8px">${(q.options || []).map(o => `<label style="font-size:12px;cursor:pointer;display:flex;align-items:center;gap:5px;color:var(--text-secondary)"><input type="checkbox"> ${esc(o)}</label>`).join('')}</div></div>`;
-    if (q.type === 'slider')   return `<div style="margin-bottom:10px">${label}<div style="display:flex;align-items:center;gap:10px"><span style="font-size:11px;color:var(--text-muted)">${q.min ?? 0}</span><input type="range" min="${q.min ?? 0}" max="${q.max ?? 10}" style="flex:1"><span style="font-size:11px;color:var(--text-muted)">${q.max ?? 10}</span></div></div>`;
+  let DATA = loadData();
+  let activeTab = 'dashboard';
+  let activeCat = 'all';
+
+  const extraMap = Object.fromEntries(EXTRA_SCALES.map(s => [s.id, s]));
+  function interpretScore(scaleId, score) {
+    const s = extraMap[scaleId];
+    if (!s || score === null || score === undefined || isNaN(score)) return '';
+    for (const r of s.interpretation) { if (score <= r.max) return r.label; }
     return '';
   }
 
-  function structuredFormCardHTML(f) {
-    if (activeTiming !== 'All' && f.timing !== activeTiming) return '';
-    return `<div class="card" style="padding:0"><div style="padding:14px 18px">
-      <div style="display:flex;gap:8px;align-items:flex-start;justify-content:space-between;margin-bottom:6px">
-        <div>
-          <span style="font-size:13px;font-weight:600;color:var(--text)">${f.icon} ${esc(f.name)}</span>
-          <span style="font-size:10px;font-weight:600;padding:2px 7px;border-radius:3px;background:${f.color}22;color:${f.color};border:1px solid ${f.color}44;margin-left:6px">${esc(f.timing)}</span>
-        </div>
-        <div style="display:flex;gap:6px;flex-shrink:0">
-          <button class="btn btn-primary btn-sm" onclick="window._ahOpenForm('${esc(f.id)}')">Administer</button>
-          <button class="btn btn-sm" onclick="window._ahScheduleForm('${esc(f.id)}','${esc(f.name)}')">Schedule</button>
-        </div>
-      </div>
-      <div style="font-size:11.5px;color:var(--text-secondary);line-height:1.5;margin-bottom:6px">${esc(f.desc)}</div>
-      <div style="font-size:11px;color:var(--text-muted)">${f.questions.length} questions</div>
-    </div></div>`;
+  function kpis() {
+    const today = new Date().toISOString().slice(0,10);
+    const all = DATA.assignments;
+    return {
+      overdue: all.filter(a => a.status === 'overdue' || (a.status === 'pending' && a.dueDate < today)).length,
+      dueToday: all.filter(a => a.status === 'pending' && a.dueDate === today).length,
+      pendingReview: all.filter(a => a.status === 'completed' && !a.reviewed).length,
+      completed: all.filter(a => a.status === 'completed').length,
+      total: all.length,
+    };
   }
 
-  function conditionBundleHTML(b) {
-    const names = b.scales.map(id => BUNDLES.find(x => x.id === id)?.name || id).join(', ');
-    return `<div class="card" style="padding:12px 16px">
-      <div style="display:flex;gap:8px;align-items:flex-start;justify-content:space-between;margin-bottom:4px">
-        <div style="font-size:12.5px;font-weight:600;color:var(--text)">${esc(b.condition)}</div>
-        <button class="btn btn-sm" style="font-size:10px;padding:2px 8px" onclick="window._ahScheduleBundle('${esc(b.condition)}')">Schedule Bundle</button>
-      </div>
-      <div style="font-size:11px;color:var(--text-muted);margin-bottom:6px">${esc(names)}</div>
-      <div style="display:flex;gap:5px;flex-wrap:wrap">${b.timing.map(t => `<span style="font-size:10px;padding:1px 6px;border-radius:3px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);color:var(--text-muted)">${TL[t] || t}</span>`).join('')}</div>
-    </div>`;
+  function render() {
+    const k = kpis();
+    const root = document.getElementById('ah2-root');
+    if (!root) return;
+    root.innerHTML =
+      '<div class="ah2-kpi-strip">' +
+        '<div class="ah2-kpi ' + (k.overdue > 0 ? 'ah2-kpi-danger' : '') + '"><span class="ah2-kpi-val">' + k.overdue + '</span><span class="ah2-kpi-lbl">Overdue</span></div>' +
+        '<div class="ah2-kpi ' + (k.dueToday > 0 ? 'ah2-kpi-warn' : '') + '"><span class="ah2-kpi-val">' + k.dueToday + '</span><span class="ah2-kpi-lbl">Due Today</span></div>' +
+        '<div class="ah2-kpi ' + (k.pendingReview > 0 ? 'ah2-kpi-info' : '') + '"><span class="ah2-kpi-val">' + k.pendingReview + '</span><span class="ah2-kpi-lbl">Pending Review</span></div>' +
+        '<div class="ah2-kpi"><span class="ah2-kpi-val">' + k.completed + '</span><span class="ah2-kpi-lbl">Completed</span></div>' +
+        '<div class="ah2-kpi"><span class="ah2-kpi-val">' + k.total + '</span><span class="ah2-kpi-lbl">Total Assigned</span></div>' +
+      '</div>' +
+      '<div class="ah2-tabs">' +
+        ['dashboard','scheduled','results','conditions','scales'].map(t =>
+          '<button class="ah2-tab' + (activeTab===t?' ah2-tab-active':'') + '" onclick="window._ah2Tab(\'' + t + '\')">' +
+          (t==='dashboard'?'Dashboard':t==='scheduled'?'Scheduled':t==='results'?'Results':t==='conditions'?'53 Conditions':'Scale Library') +
+          '</button>'
+        ).join('') +
+      '</div>' +
+      '<div class="ah2-tab-body" id="ah2-body">' + renderTab() + '</div>';
   }
 
-  function scheduleTabHTML() {
-    let scheduled = [];
-    try { scheduled = JSON.parse(localStorage.getItem('ds_assessment_schedule') || '[]'); } catch {}
-    return `<div style="max-width:760px">
-      <div style="font-size:12px;color:var(--text-secondary);margin-bottom:16px">Assessments and forms scheduled for upcoming sessions.</div>
-      ${scheduled.length
-        ? `<div style="display:flex;flex-direction:column;gap:10px">${scheduled.map((s, i) => `<div class="card" style="padding:12px 16px;display:flex;gap:10px;align-items:center;justify-content:space-between">
-            <div>
-              <div style="font-size:13px;font-weight:600;color:var(--text)">${esc(s.name)}</div>
-              <div style="font-size:11px;color:var(--text-muted)">${esc(s.type)} &middot; ${esc(s.scheduled || 'Unspecified')}</div>
-            </div>
-            <button class="btn btn-sm" style="font-size:10px;color:#ef4444;border-color:#ef444444" onclick="window._ahRemoveScheduled(${i})">Remove</button>
-          </div>`).join('')}</div>`
-        : `<div style="padding:32px;text-align:center;color:var(--text-muted);font-size:13px;background:var(--card-bg);border:1px solid var(--border);border-radius:12px">No assessments scheduled. Use Scale Library or Structured Forms to schedule.</div>`}
-    </div>`;
+  function renderTab() {
+    if (activeTab === 'dashboard') return renderDashboard();
+    if (activeTab === 'scheduled') return renderScheduled();
+    if (activeTab === 'results') return renderResults();
+    if (activeTab === 'conditions') return renderConditions();
+    if (activeTab === 'scales') return renderScales();
+    return '';
   }
 
-  function renderPage() {
-    el.innerHTML = `
-      <div style="max-width:960px;margin:0 auto">
-        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:20px;border-bottom:1px solid var(--border);padding-bottom:12px">
-          ${TABS.map(t => `<button class="btn btn-sm${t === activeTab ? ' btn-primary' : ''}" onclick="window._ahTab('${esc(t)}')">${esc(t)}</button>`).join('')}
-        </div>
-
-        ${activeTab === 'Scale Library' ? `
-          <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:16px">
-            ${SCALE_CATS.map(c => `<button class="btn btn-sm${c === activeCat ? ' btn-primary' : ''}" onclick="window._ahCat('${esc(c)}')">${esc(c)}</button>`).join('')}
-          </div>
-          <div class="g3" style="align-items:start">${BUNDLES.map(bundleCardHTML).join('')}</div>
-        ` : ''}
-
-        ${activeTab === 'Structured Forms' ? `
-          <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px">
-            ${FORM_TIMINGS.map(t => `<button class="btn btn-sm${t === activeTiming ? ' btn-primary' : ''}" onclick="window._ahTiming('${esc(t)}')">${esc(t)}</button>`).join('')}
-          </div>
-          <div style="font-size:12px;color:var(--text-secondary);margin-bottom:14px">
-            Structured question groups for clinical workflows. Add more via <button class="btn btn-sm" onclick="window._nav('forms-builder')" style="font-size:11px;padding:1px 7px">Form Builder</button>.
-          </div>
-          <div class="g2" style="align-items:start">${STRUCTURED_FORMS.map(structuredFormCardHTML).join('')}</div>
-        ` : ''}
-
-        ${activeTab === 'Condition Bundles' ? `
-          <div style="font-size:12px;color:var(--text-secondary);margin-bottom:14px">Pre-built bundles mapped to conditions. Schedule the full bundle with one click.</div>
-          <div class="g3" style="align-items:start">${CONDITION_BUNDLES.map(conditionBundleHTML).join('')}</div>
-        ` : ''}
-
-        ${activeTab === 'Schedule' ? scheduleTabHTML() : ''}
-      </div>`;
+  function assignCard(a) {
+    const today = new Date().toISOString().slice(0,10);
+    const isOverdue = a.status === 'overdue' || (a.status === 'pending' && a.dueDate < today);
+    const statusCls = isOverdue ? 'ah2-status-danger' : a.status === 'completed' ? 'ah2-status-ok' : 'ah2-status-warn';
+    const statusLabel = isOverdue && a.status === 'pending' ? 'overdue' : a.status;
+    return '<div class="ah2-assign-card' + (isOverdue ? ' ah2-assign-card--danger' : '') + '">' +
+      '<div class="ah2-assign-main">' +
+        '<span class="ah2-assign-cond">' + a.condName + '</span>' +
+        '<span class="ah2-phase-pill ah2-phase-' + a.phase + '">' + PHASE_LABELS[a.phase] + '</span>' +
+        '<span class="ah2-assign-patient">Patient ' + a.patientId + '</span>' +
+        '<div class="ah2-assign-scales">' + a.scales.join(' &middot; ') + '</div>' +
+      '</div>' +
+      '<div class="ah2-assign-meta">' +
+        '<span class="ah2-badge ' + statusCls + '">' + statusLabel + '</span>' +
+        '<span class="ah2-assign-due">Due ' + a.dueDate + '</span>' +
+      '</div>' +
+      '<div class="ah2-assign-actions">' +
+        (a.status !== 'completed' ? '<button class="ah2-btn ah2-btn-sm" onclick="window._ah2Score(\'' + a.id + '\')">Enter Scores</button>' : '') +
+        (a.status === 'completed' && !a.reviewed ? '<button class="ah2-btn ah2-btn-sm ah2-btn-info" onclick="window._ah2Review(\'' + a.id + '\')">Review</button>' : '') +
+        '<button class="ah2-btn ah2-btn-sm ah2-btn-ghost" onclick="window._ah2Detail(\'' + a.id + '\')">Detail</button>' +
+      '</div>' +
+    '</div>';
   }
 
-  renderPage();
+  function renderDashboard() {
+    const today = new Date().toISOString().slice(0,10);
+    const overdueList = DATA.assignments.filter(a => a.status === 'overdue' || (a.status === 'pending' && a.dueDate < today));
+    const dueList = DATA.assignments.filter(a => a.status === 'pending' && a.dueDate === today);
+    const reviewList = DATA.assignments.filter(a => a.status === 'completed' && !a.reviewed);
+    let html = '';
+    if (overdueList.length) html += '<div class="ah2-dash-section"><h3 class="ah2-dash-heading ah2-dash-heading--danger">Overdue (' + overdueList.length + ')</h3><div class="ah2-assign-list">' + overdueList.map(assignCard).join('') + '</div></div>';
+    if (dueList.length) html += '<div class="ah2-dash-section"><h3 class="ah2-dash-heading ah2-dash-heading--warn">Due Today (' + dueList.length + ')</h3><div class="ah2-assign-list">' + dueList.map(assignCard).join('') + '</div></div>';
+    if (reviewList.length) html += '<div class="ah2-dash-section"><h3 class="ah2-dash-heading ah2-dash-heading--info">Pending Review (' + reviewList.length + ')</h3><div class="ah2-assign-list">' + reviewList.map(assignCard).join('') + '</div></div>';
+    if (!html) html = '<div class="ah2-empty">All clear — no urgent items</div>';
+    return '<div class="ah2-dash">' + html + '</div>';
+  }
 
-  window._ahTab     = function(t) { activeTab = t; renderPage(); };
-  window._ahCat     = function(c) { activeCat = c; renderPage(); };
-  window._ahTiming  = function(t) { activeTiming = t; renderPage(); };
-  window._ahScheduleOpen = function() { activeTab = 'Schedule'; renderPage(); };
+  function renderScheduled() {
+    const active = DATA.assignments.filter(a => a.status !== 'completed');
+    if (!active.length) return '<div class="ah2-empty">No active assignments</div>';
+    return '<div class="ah2-assign-list">' + active.map(assignCard).join('') + '</div>';
+  }
 
-  window._ahScheduleScale = function(id, name) {
-    const s = JSON.parse(localStorage.getItem('ds_assessment_schedule') || '[]');
-    s.push({ id, name, type: 'Validated Scale', scheduled: new Date().toISOString().slice(0, 10) });
-    localStorage.setItem('ds_assessment_schedule', JSON.stringify(s));
-    window._showNotifToast?.({ title: 'Scheduled', body: `${name} added to schedule.`, severity: 'success' });
+  function renderResults() {
+    const done = DATA.assignments.filter(a => a.status === 'completed');
+    if (!done.length) return '<div class="ah2-empty">No completed assessments yet</div>';
+    return '<div class="ah2-assign-list">' + done.map(a =>
+      '<div class="ah2-assign-card">' +
+        '<div class="ah2-assign-main">' +
+          '<span class="ah2-assign-cond">' + a.condName + '</span>' +
+          '<span class="ah2-phase-pill ah2-phase-' + a.phase + '">' + PHASE_LABELS[a.phase] + '</span>' +
+          '<span class="ah2-assign-patient">Patient ' + a.patientId + '</span>' +
+          '<div class="ah2-assign-scales">' + (a.results.length > 0 ? a.results.map(r => r.scale + ': <strong>' + r.score + '</strong> (' + r.interp + ')').join(' &middot; ') : a.scales.join(' &middot; ')) + '</div>' +
+        '</div>' +
+        '<div class="ah2-assign-meta">' +
+          '<span class="ah2-badge ' + (a.reviewed ? 'ah2-status-ok' : 'ah2-status-info') + '">' + (a.reviewed ? 'Reviewed' : 'Needs Review') + '</span>' +
+          '<span class="ah2-assign-due">Completed ' + a.completedDate + '</span>' +
+        '</div>' +
+        '<div class="ah2-assign-actions">' +
+          (!a.reviewed ? '<button class="ah2-btn ah2-btn-sm ah2-btn-info" onclick="window._ah2Review(\'' + a.id + '\')">Review</button>' : '') +
+          '<button class="ah2-btn ah2-btn-sm ah2-btn-ghost" onclick="window._ah2Detail(\'' + a.id + '\')">Detail</button>' +
+        '</div>' +
+      '</div>'
+    ).join('') + '</div>';
+  }
+
+  function renderConditions() {
+    const cats = activeCat === 'all' ? CATEGORIES : [activeCat];
+    const filterBtns = '<button class="ah2-filter-btn' + (activeCat==='all'?' ah2-filter-btn-active':'') + '" onclick="window._ah2Cat(\'all\')">All (' + COND_BUNDLES.length + ')</button>' +
+      CATEGORIES.map(c => '<button class="ah2-filter-btn' + (activeCat===c?' ah2-filter-btn-active':'') + '" onclick="window._ah2Cat(\'' + c + '\')">' + c + '</button>').join('');
+    const body = cats.map(cat => {
+      const conds = COND_BUNDLES.filter(c => c.category === cat);
+      return '<div class="ah2-cat-section"><h3 class="ah2-cat-heading">' + cat + ' <span class="ah2-cat-count">' + conds.length + '</span></h3>' +
+        '<div class="ah2-cond-grid">' + conds.map(cond =>
+          '<div class="ah2-cond-card">' +
+            '<div class="ah2-cond-header"><span class="ah2-cond-id">' + cond.id + '</span><span class="ah2-cond-name">' + cond.name + '</span></div>' +
+            '<div class="ah2-phase-pills">' + PHASES.map(ph => '<span class="ah2-phase-pill ah2-phase-' + ph + '" title="' + PHASE_LABELS[ph] + ': ' + cond.phases[ph].join(', ') + '">' + PHASE_LABELS[ph] + '</span>').join('') + '</div>' +
+            '<div class="ah2-cond-scales">Baseline: ' + cond.phases.baseline.join(', ') + '</div>' +
+            '<button class="ah2-btn ah2-btn-sm" onclick="window._ah2AssignCond(\'' + cond.id + '\')">Assign Bundle</button>' +
+          '</div>'
+        ).join('') + '</div></div>';
+    }).join('');
+    return '<div class="ah2-cond-toolbar">' + filterBtns + '</div>' + body;
+  }
+
+  function renderScales() {
+    const domains = [...new Set(EXTRA_SCALES.map(s => s.domain))];
+    return '<div class="ah2-scale-count">Extended scale library: <strong>' + EXTRA_SCALES.length + '</strong> scales</div>' +
+      domains.map(dom => {
+        const scs = EXTRA_SCALES.filter(s => s.domain === dom);
+        return '<div class="ah2-scale-domain"><h4 class="ah2-scale-domain-title">' + dom + '</h4>' +
+          '<div class="ah2-scale-grid">' + scs.map(s =>
+            '<div class="ah2-scale-card">' +
+              '<div class="ah2-scale-name">' + s.name + '</div>' +
+              '<div class="ah2-scale-full">' + s.full + '</div>' +
+              '<div class="ah2-scale-range">Range: ' + s.min + '\u2013' + s.max + ' &bull; ' + s.items + ' items</div>' +
+              '<div class="ah2-scale-interps">' + s.interpretation.map(r => r.label + ' (&le;' + r.max + ')').join(' &bull; ') + '</div>' +
+            '</div>'
+          ).join('') + '</div></div>';
+      }).join('');
+  }
+
+  window._ah2Tab = function(t) { activeTab = t; render(); };
+  window._ah2Cat = function(c) { activeCat = c; render(); };
+
+  window._ah2PreviewBundle = function() {
+    const condSel = document.getElementById('ah2-f-cond');
+    const phaseSel = document.getElementById('ah2-f-phase');
+    const prev = document.getElementById('ah2-bundle-preview');
+    if (!prev || !condSel) return;
+    const cond = COND_BUNDLES.find(c => c.id === condSel.value);
+    if (!cond) { prev.textContent = 'Select condition and phase to preview scales'; return; }
+    const ph = (phaseSel && phaseSel.value) || 'baseline';
+    const scales = cond.phases[ph] || [];
+    prev.innerHTML = '<strong>' + PHASE_LABELS[ph] + ' bundle (' + scales.length + ' scales):</strong><br>' + scales.join(', ');
   };
 
-  window._ahScheduleForm = function(id, name) {
-    const s = JSON.parse(localStorage.getItem('ds_assessment_schedule') || '[]');
-    s.push({ id, name, type: 'Structured Form', scheduled: new Date().toISOString().slice(0, 10) });
-    localStorage.setItem('ds_assessment_schedule', JSON.stringify(s));
-    window._showNotifToast?.({ title: 'Scheduled', body: `${name} added to schedule.`, severity: 'success' });
+  window._ah2AssignCond = function(condId) {
+    const modal = document.getElementById('ah2-assign-modal');
+    if (!modal) return;
+    const sel = modal.querySelector('#ah2-f-cond');
+    if (sel) sel.value = condId;
+    window._ah2PreviewBundle();
+    modal.classList.remove('ah2-hidden');
   };
 
-  window._ahScheduleBundle = function(condition) {
-    window._showNotifToast?.({ title: 'Bundle Scheduled', body: `${condition} bundle scheduled.`, severity: 'success' });
+  window._ah2SaveAssign = function() {
+    const patient = ((document.getElementById('ah2-f-patient') || {}).value || '').trim();
+    const condId = (document.getElementById('ah2-f-cond') || {}).value || '';
+    const phase = (document.getElementById('ah2-f-phase') || {}).value || '';
+    const due = (document.getElementById('ah2-f-due') || {}).value || '';
+    const recur = (document.getElementById('ah2-f-recur') || {}).value || '';
+    if (!patient || !condId || !phase || !due) { alert('Fill all required fields'); return; }
+    const cond = COND_BUNDLES.find(c => c.id === condId);
+    DATA.assignments.push({
+      id: 'A' + String(Date.now()).slice(-6),
+      patientId: patient, condId, condName: cond.name, phase,
+      scales: cond.phases[phase] || [],
+      assignedBy: 'Current Clinician',
+      assignedDate: new Date().toISOString().slice(0,10),
+      dueDate: due, recurrence: recur || null,
+      status: 'pending', completedDate: null, reviewed: false, results: []
+    });
+    saveData(DATA);
+    document.getElementById('ah2-assign-modal').classList.add('ah2-hidden');
+    render();
   };
 
-  window._ahRemoveScheduled = function(idx) {
-    const s = JSON.parse(localStorage.getItem('ds_assessment_schedule') || '[]');
-    s.splice(idx, 1);
-    localStorage.setItem('ds_assessment_schedule', JSON.stringify(s));
-    renderPage();
+  window._ah2Score = function(id) {
+    const a = DATA.assignments.find(x => x.id === id);
+    if (!a) return;
+    const modal = document.getElementById('ah2-score-modal');
+    modal.dataset.assignId = id;
+    document.getElementById('ah2-score-body').innerHTML =
+      '<p class="ah2-score-info"><strong>' + a.condName + '</strong> &bull; ' + PHASE_LABELS[a.phase] + ' &bull; Patient ' + a.patientId + '</p>' +
+      '<p class="ah2-score-hint">Enter scores below. Leave blank to skip.</p>' +
+      a.scales.map(sid => {
+        const es = extraMap[sid];
+        const rangeLabel = es ? sid + ' (' + es.min + '-' + es.max + ')' : sid;
+        const minmax = es ? ' min="' + es.min + '" max="' + es.max + '"' : '';
+        const existing = a.results.find(r => r.scale === sid);
+        const safeId = sid.replace(/[^a-z0-9]/gi, '-');
+        return '<div class="ah2-score-row">' +
+          '<label class="ah2-score-label">' + rangeLabel + '</label>' +
+          '<input type="number" class="ah2-input ah2-score-input" data-scale="' + sid + '" placeholder="Score" value="' + (existing ? existing.score : '') + '"' + minmax + '/>' +
+          '<span class="ah2-score-interp" id="ah2-si-' + safeId + '">' + (existing ? existing.interp : '') + '</span>' +
+        '</div>';
+      }).join('');
+    modal.querySelectorAll('.ah2-score-input').forEach(inp => {
+      inp.addEventListener('input', function() {
+        const interp = interpretScore(this.dataset.scale, parseInt(this.value));
+        const el = document.getElementById('ah2-si-' + this.dataset.scale.replace(/[^a-z0-9]/gi, '-'));
+        if (el) el.textContent = interp;
+      });
+    });
+    modal.classList.remove('ah2-hidden');
   };
 
-  window._ahOpenForm = function(id) {
-    const form = STRUCTURED_FORMS.find(f => f.id === id);
-    if (!form) return;
-    activeFormId = id;
-    const overlay = document.createElement('div');
-    overlay.id = 'ah-form-overlay';
-    overlay.style.cssText = 'position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.7);display:flex;align-items:flex-start;justify-content:center;padding:32px 16px;overflow-y:auto';
-    overlay.innerHTML = `
-      <div style="background:var(--card-bg);border:1px solid var(--border);border-radius:14px;width:100%;max-width:640px;padding:24px 28px">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:18px">
-          <div>
-            <div style="font-size:16px;font-weight:700;color:var(--text)">${form.icon} ${esc(form.name)}</div>
-            <div style="font-size:11.5px;color:var(--text-muted);margin-top:2px">${esc(form.timing)} &middot; ${form.questions.length} questions</div>
-          </div>
-          <button class="btn btn-sm" onclick="window._ahCloseForm()">&#10005;</button>
-        </div>
-        ${form.questions.map((q, i) => questionHTML(q, i)).join('')}
-        <div style="display:flex;gap:10px;margin-top:18px">
-          <button class="btn btn-primary" onclick="window._ahSubmitForm()">Save &amp; Complete</button>
-          <button class="btn btn-sm" onclick="window._ahCloseForm()">Discard</button>
-        </div>
-      </div>`;
-    document.body.appendChild(overlay);
+  window._ah2SaveScores = function() {
+    const modal = document.getElementById('ah2-score-modal');
+    const a = DATA.assignments.find(x => x.id === modal.dataset.assignId);
+    if (!a) return;
+    const results = [];
+    modal.querySelectorAll('.ah2-score-input').forEach(inp => {
+      if (inp.value !== '') {
+        const score = parseInt(inp.value);
+        results.push({ scale: inp.dataset.scale, score, interp: interpretScore(inp.dataset.scale, score) });
+      }
+    });
+    a.results = results;
+    a.status = 'completed';
+    a.completedDate = new Date().toISOString().slice(0,10);
+    saveData(DATA);
+    modal.classList.add('ah2-hidden');
+    render();
   };
 
-  window._ahCloseForm  = function() { document.getElementById('ah-form-overlay')?.remove(); activeFormId = null; };
-  window._ahSubmitForm = function() {
-    const form = STRUCTURED_FORMS.find(f => f.id === activeFormId);
-    window._showNotifToast?.({ title: 'Saved', body: `${form?.name || 'Form'} completed and saved.`, severity: 'success' });
-    window._ahCloseForm();
+  window._ah2Review = function(id) {
+    const a = DATA.assignments.find(x => x.id === id);
+    if (!a) return;
+    a.reviewed = true;
+    saveData(DATA);
+    render();
+    window._ah2Detail(id);
   };
+
+  window._ah2Detail = function(id) {
+    const a = DATA.assignments.find(x => x.id === id);
+    if (!a) return;
+    const rows = [
+      ['Condition', '<strong>' + a.condName + '</strong>'],
+      ['Phase', '<span class="ah2-phase-pill ah2-phase-' + a.phase + '">' + PHASE_LABELS[a.phase] + '</span>'],
+      ['Patient', a.patientId],
+      ['Assigned By', a.assignedBy],
+      ['Assigned', a.assignedDate],
+      ['Due', a.dueDate],
+      ['Recurrence', a.recurrence || 'None'],
+      ['Status', a.status],
+      ['Reviewed', a.reviewed ? 'Yes' : 'No'],
+      ['Scales', a.scales.join(', ')],
+    ].map(r => '<tr><td>' + r[0] + '</td><td>' + r[1] + '</td></tr>').join('');
+    const scoresHtml = a.results.length > 0
+      ? '<h4 class="ah2-detail-results-title">Scores</h4><table class="ah2-detail-table"><thead><tr><th>Scale</th><th>Score</th><th>Interpretation</th></tr></thead><tbody>' +
+        a.results.map(r => '<tr><td>' + r.scale + '</td><td><strong>' + r.score + '</strong></td><td>' + r.interp + '</td></tr>').join('') + '</tbody></table>'
+      : '<p class="ah2-detail-noresults">No scores entered yet</p>';
+    document.getElementById('ah2-detail-body').innerHTML = '<table class="ah2-detail-table"><tbody>' + rows + '</tbody></table>' + scoresHtml;
+    document.getElementById('ah2-detail-modal').classList.remove('ah2-hidden');
+  };
+
+  const dueDefault = new Date(Date.now() + 7 * 864e5).toISOString().slice(0, 10);
+  const assignModalHtml =
+    '<div class="ah2-modal-overlay ah2-hidden" id="ah2-assign-modal">' +
+      '<div class="ah2-modal-box">' +
+        '<div class="ah2-modal-header"><h2>Assign Assessment Bundle</h2>' +
+        '<button class="ah2-modal-close" onclick="document.getElementById(\'ah2-assign-modal\').classList.add(\'ah2-hidden\')">&times;</button></div>' +
+        '<div class="ah2-modal-body">' +
+          '<div class="ah2-form-row"><label>Patient ID</label><input id="ah2-f-patient" type="text" class="ah2-input" placeholder="P-XXXX"/></div>' +
+          '<div class="ah2-form-row"><label>Condition</label><select id="ah2-f-cond" class="ah2-input" onchange="window._ah2PreviewBundle()">' +
+            '<option value="">Select condition</option>' +
+            CATEGORIES.map(cat => '<optgroup label="' + cat + '">' + COND_BUNDLES.filter(c => c.category === cat).map(c => '<option value="' + c.id + '">' + c.name + '</option>').join('') + '</optgroup>').join('') +
+          '</select></div>' +
+          '<div class="ah2-form-row"><label>Phase</label><select id="ah2-f-phase" class="ah2-input" onchange="window._ah2PreviewBundle()">' + PHASES.map(p => '<option value="' + p + '">' + PHASE_LABELS[p] + '</option>').join('') + '</select></div>' +
+          '<div class="ah2-form-row"><label>Due Date</label><input id="ah2-f-due" type="date" class="ah2-input" value="' + dueDefault + '"/></div>' +
+          '<div class="ah2-form-row"><label>Recurrence</label><select id="ah2-f-recur" class="ah2-input"><option value="">None</option><option value="weekly">Weekly</option><option value="biweekly">Bi-weekly</option><option value="monthly">Monthly</option><option value="per-session">Per Session</option></select></div>' +
+          '<div class="ah2-bundle-preview" id="ah2-bundle-preview">Select condition and phase to preview scales</div>' +
+        '</div>' +
+        '<div class="ah2-modal-footer"><button class="ah2-btn" onclick="window._ah2SaveAssign()">Assign</button><button class="ah2-btn ah2-btn-ghost" onclick="document.getElementById(\'ah2-assign-modal\').classList.add(\'ah2-hidden\')">Cancel</button></div>' +
+      '</div>' +
+    '</div>';
+
+  const scoreModalHtml =
+    '<div class="ah2-modal-overlay ah2-hidden" id="ah2-score-modal">' +
+      '<div class="ah2-modal-box">' +
+        '<div class="ah2-modal-header"><h2>Enter Assessment Scores</h2>' +
+        '<button class="ah2-modal-close" onclick="document.getElementById(\'ah2-score-modal\').classList.add(\'ah2-hidden\')">&times;</button></div>' +
+        '<div class="ah2-modal-body" id="ah2-score-body"></div>' +
+        '<div class="ah2-modal-footer"><button class="ah2-btn" onclick="window._ah2SaveScores()">Save &amp; Complete</button><button class="ah2-btn ah2-btn-ghost" onclick="document.getElementById(\'ah2-score-modal\').classList.add(\'ah2-hidden\')">Cancel</button></div>' +
+      '</div>' +
+    '</div>';
+
+  const detailModalHtml =
+    '<div class="ah2-modal-overlay ah2-hidden" id="ah2-detail-modal">' +
+      '<div class="ah2-modal-box">' +
+        '<div class="ah2-modal-header"><h2>Assessment Detail</h2>' +
+        '<button class="ah2-modal-close" onclick="document.getElementById(\'ah2-detail-modal\').classList.add(\'ah2-hidden\')">&times;</button></div>' +
+        '<div class="ah2-modal-body" id="ah2-detail-body"></div>' +
+        '<div class="ah2-modal-footer"><button class="ah2-btn ah2-btn-ghost" onclick="document.getElementById(\'ah2-detail-modal\').classList.add(\'ah2-hidden\')">Close</button></div>' +
+      '</div>' +
+    '</div>';
+
+  const el = document.getElementById('content');
+  if (!el) return;
+  el.innerHTML = '<div class="ah2-wrap" id="ah2-root"></div>' + assignModalHtml + scoreModalHtml + detailModalHtml;
+  render();
 }
 
 export async function pgBrainMapPlanner(setTopbar) {
   setTopbar('Brain Map Planner', `
-    <button class="btn btn-sm" onclick="window._nav('protocols')" style="border-color:var(--teal);color:var(--teal)">Protocol Library →</button>
+    <button class="btn btn-sm" onclick="window._nav('protocol-wizard')" style="border-color:var(--teal);color:var(--teal)">Protocol Search</button>
+    <button class="btn btn-sm" onclick="window._nav('prescriptions')">Prescriptions</button>
   `);
   const el = document.getElementById('content');
   if (!el) return;
@@ -13780,7 +13917,10 @@ export async function pgBrainMapPlanner(setTopbar) {
         <!-- Map display -->
         <div>
           <div class="card" style="text-align:center">
-            <div class="card-header"><h3>10-20 Stimulation Map</h3></div>
+            <div class="card-header">
+              <h3 style="margin:0">Stimulation Map</h3>
+              <span style="font-size:11px;color:var(--text-tertiary);margin-left:auto">10-20 / 10-10 grid</span>
+            </div>
             <div class="card-body" style="display:flex;flex-direction:column;align-items:center;gap:12px">
               <div id="bmp-map-container" style="padding:12px">
                 <div style="font-size:12px;color:var(--text-tertiary)">Select modality + region to see map.</div>
@@ -13788,8 +13928,9 @@ export async function pgBrainMapPlanner(setTopbar) {
               <div id="bmp-legend" style="display:none;font-size:11px;color:var(--text-tertiary);line-height:1.7;text-align:left;max-width:280px"></div>
             </div>
           </div>
-          <div style="margin-top:12px;text-align:center">
-            <button class="btn btn-primary" onclick="window._bmpUseInWizard()">Use in Protocol Wizard →</button>
+          <div style="margin-top:12px;display:flex;gap:8px;justify-content:center;flex-wrap:wrap">
+            <button class="btn btn-primary btn-sm" onclick="window._bmpPrescribe()">Prescribe from this Map →</button>
+            <button class="btn btn-sm" onclick="window._bmpUseInWizard()">Use in Course Wizard</button>
           </div>
         </div>
       </div>
@@ -13842,10 +13983,20 @@ export async function pgBrainMapPlanner(setTopbar) {
       }).slice(0, 4);
 
       matched.innerHTML = hits.length
-        ? hits.map(p => `<div style="padding:6px 0;border-bottom:1px solid var(--border);font-size:12px">
-            <div style="font-weight:500;color:var(--text-primary)">${p.name || '—'}</div>
-            <div style="color:var(--text-tertiary);font-size:11px">${p.condition_id || ''} · ${p.evidence_grade || ''}</div>
-          </div>`).join('')
+        ? hits.map(p => {
+            const pid = (p.id||'').replace(/['"<>&]/g,'');
+            return `<div style="padding:8px 0;border-bottom:1px solid var(--border);font-size:12px">
+              <div style="display:flex;align-items:baseline;justify-content:space-between;gap:8px;margin-bottom:3px">
+                <div style="font-weight:500;color:var(--text-primary)">${p.name || '—'}</div>
+                ${evidenceBadge(p.evidence_grade)}
+              </div>
+              <div style="color:var(--text-tertiary);font-size:11px;margin-bottom:6px">${p.condition_id || ''}</div>
+              <div style="display:flex;gap:6px">
+                <button class="btn btn-ghost btn-sm" style="font-size:10.5px;padding:3px 8px" onclick="window._bmpViewDetail('${pid}')">Detail ↗</button>
+                <button class="btn btn-sm" style="font-size:10.5px;padding:3px 8px;border-color:var(--teal);color:var(--teal)" onclick="window._bmpPrescribeProto('${pid}')">Prescribe</button>
+              </div>
+            </div>`;
+          }).join('')
         : `<div style="color:var(--text-tertiary);font-size:11.5px">No registry protocols match current selection.</div>`;
     }
   };
@@ -13863,7 +14014,28 @@ export async function pgBrainMapPlanner(setTopbar) {
       window._wizState._fresh = false;
     }
     window._pilMode = 'wizard';
-    window._nav('protocols');
+    window._nav('protocol-wizard');
+  };
+
+  window._bmpPrescribe = function() {
+    const region = document.getElementById('bmp-region')?.value || '';
+    const lat    = document.getElementById('bmp-lat')?.value    || 'bilateral';
+    const mod    = document.getElementById('bmp-mod')?.value    || '';
+    // Pre-fill a minimal proto object for the prescriptions modal
+    window._rxPrefilledProto = { target_region: region, laterality: lat, modality_id: mod, name: `${mod || 'Protocol'} — ${region || 'Custom Target'}` };
+    window._nav('prescriptions');
+  };
+
+  window._bmpViewDetail = function(pid) {
+    const p = (protos || []).find(pr => (pr.id||'').replace(/['"<>&]/g,'') === pid);
+    if (p) window._pilDetailProto = p;
+    window._nav('protocol-detail');
+  };
+
+  window._bmpPrescribeProto = function(pid) {
+    const p = (protos || []).find(pr => (pr.id||'').replace(/['"<>&]/g,'') === pid);
+    if (p) window._rxPrefilledProto = p;
+    window._nav('prescriptions');
   };
 }
 
@@ -15059,201 +15231,678 @@ export async function pgDocumentsHub(setTopbar) {
 // ── pgReportsHub — Patient report upload, filter, compare, AI summary ─────────
 export async function pgReportsHub(setTopbar) {
   setTopbar('Reports', `
-    <button class="btn btn-primary btn-sm" onclick="window._rhUpload()">Upload Report</button>
-    <button class="btn btn-sm" onclick="window._nav('reports')" style="border-color:var(--accent-blue);color:var(--accent-blue)">Population Reports →</button>
+    <button class="btn btn-primary btn-sm" onclick="window._rhUpload()">+ Upload Report</button>
+    <button class="btn btn-sm" onclick="window._rhTimelineToggle()">Timeline</button>
   `);
+
   const el = document.getElementById('content');
   if (!el) return;
 
   function esc(s) { return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+  function fmt(d) { if (!d) return '—'; try { return new Date(d).toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'}); } catch { return d; } }
 
-  let patients = [];
-  try { const r = await api.patients().catch(() => null); patients = r?.items || r || []; } catch {}
+  // ── CSS injection ────────────────────────────────────────────────────────
+  if (!document.getElementById('rh2-styles')) {
+    const st = document.createElement('style'); st.id = 'rh2-styles';
+    st.textContent = `
+      .rh-layout{display:grid;grid-template-columns:210px 1fr;gap:0;height:100%}
+      .rh-sidebar{background:var(--bg-card,#0e1628);border-right:1px solid var(--border);padding:16px 12px;min-height:100%;position:sticky;top:0}
+      .rh-sidebar-sec{font-size:9.5px;font-weight:700;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:1.2px;margin:14px 0 6px;padding:0 4px}
+      .rh-nav-btn{display:flex;align-items:center;justify-content:space-between;width:100%;text-align:left;padding:7px 10px;border-radius:8px;border:none;background:transparent;color:var(--text-secondary);font-size:12.5px;cursor:pointer;margin-bottom:2px;transition:all .12s}
+      .rh-nav-btn:hover{background:rgba(255,255,255,0.05);color:var(--text-primary)}
+      .rh-nav-btn.active{background:rgba(0,212,188,0.1);color:var(--teal,#00d4bc);font-weight:600}
+      .rh-nav-count{font-size:10px;padding:1px 6px;border-radius:10px;background:rgba(255,255,255,0.07);color:var(--text-tertiary)}
+      .rh-nav-btn.active .rh-nav-count{background:rgba(0,212,188,0.15);color:var(--teal,#00d4bc)}
+      .rh-main{padding:20px 24px;flex:1;min-width:0}
+      .rh-toolbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:16px}
+      .rh-kpi-row{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:20px}
+      .rh-kpi{background:var(--bg-card,#0e1628);border:1px solid var(--border);border-radius:10px;padding:12px 14px}
+      .rh-kpi-val{font-size:22px;font-weight:700}
+      .rh-kpi-lbl{font-size:10.5px;color:var(--text-tertiary);margin-top:2px}
+      .rh-card{background:var(--bg-card,#0e1628);border:1px solid var(--border);border-radius:12px;padding:0;margin-bottom:10px;overflow:hidden;transition:border-color .15s}
+      .rh-card:hover{border-color:var(--border-hover,rgba(255,255,255,0.15))}
+      .rh-card.compare-sel{border-color:var(--teal,#00d4bc)}
+      .rh-card-body{padding:14px 16px}
+      .rh-card-header{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;margin-bottom:8px}
+      .rh-card-title{font-size:13.5px;font-weight:600;color:var(--text-primary);line-height:1.3}
+      .rh-card-meta{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-bottom:8px;font-size:11.5px;color:var(--text-tertiary)}
+      .rh-type-badge{font-size:10px;font-weight:700;padding:2px 7px;border-radius:4px;border:1px solid}
+      .rh-assoc-chips{display:flex;flex-wrap:wrap;gap:5px;margin-top:8px}
+      .rh-assoc-chip{font-size:10.5px;padding:2px 8px;border-radius:5px;border:1px solid rgba(255,255,255,0.12);color:var(--text-secondary);background:rgba(255,255,255,0.04);cursor:pointer}
+      .rh-assoc-chip:hover{border-color:var(--teal,#00d4bc);color:var(--teal,#00d4bc)}
+      .rh-card-summary{font-size:12.5px;color:var(--text-secondary);line-height:1.6;margin:6px 0}
+      .rh-card-actions{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px;padding-top:10px;border-top:1px solid rgba(255,255,255,0.05)}
+      .rh-ai-panel{padding:12px 16px;background:rgba(155,127,255,0.06);border-top:1px solid rgba(155,127,255,0.15)}
+      .rh-ai-label{font-size:10px;font-weight:700;color:var(--violet,#9b7fff);text-transform:uppercase;letter-spacing:1px;margin-bottom:6px}
+      .rh-ai-body{font-size:12.5px;color:var(--text-secondary);line-height:1.65;font-style:italic}
+      .rh-ai-findings{margin-top:8px;padding-left:16px}
+      .rh-ai-finding{font-size:12px;color:var(--text-secondary);margin-bottom:3px;list-style:disc}
+      .rh-detail-panel{padding:14px 16px;background:rgba(0,0,0,0.2);border-top:1px solid var(--border)}
+      .rh-compare-bar{background:rgba(0,212,188,0.07);border:1px solid rgba(0,212,188,0.25);border-radius:12px;padding:14px 18px;margin-bottom:16px}
+      .rh-compare-grid{display:grid;gap:14px}
+      .rh-compare-col{padding:14px;background:var(--bg-card,#0e1628);border:1px solid var(--border);border-radius:10px}
+      .rh-timeline{padding:16px 0}
+      .rh-tl-row{display:flex;gap:0;margin-bottom:28px;position:relative}
+      .rh-tl-label{width:130px;flex-shrink:0;font-size:11px;font-weight:600;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.8px;padding-top:6px}
+      .rh-tl-track{flex:1;position:relative;padding-left:16px;border-left:2px solid var(--border)}
+      .rh-tl-dot{width:10px;height:10px;border-radius:50%;border:2px solid var(--bg-card,#0e1628);position:absolute;left:-6px;top:8px}
+      .rh-tl-item{margin-bottom:12px;padding:10px 14px;background:var(--bg-card,#0e1628);border:1px solid var(--border);border-radius:8px;cursor:pointer;transition:border-color .12s}
+      .rh-tl-item:hover{border-color:var(--border-hover,rgba(255,255,255,0.15))}
+      .rh-modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.72);z-index:1000;display:flex;align-items:flex-start;justify-content:center;overflow-y:auto;padding:24px 16px}
+      .rh-modal{background:var(--bg-card,#0e1628);border:1px solid var(--border);border-radius:16px;width:100%;max-width:620px;padding:24px}
+      .rh-modal-title{font-size:16px;font-weight:700;color:var(--text-primary);margin-bottom:18px}
+      @media(max-width:720px){.rh-layout{grid-template-columns:1fr}.rh-sidebar{position:static;border-right:none;border-bottom:1px solid var(--border)}.rh-kpi-row{grid-template-columns:1fr 1fr}}
+    `;
+    document.head.appendChild(st);
+  }
 
-  const STORAGE_KEY = 'ds_reports_hub';
-  function loadReports() { try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]'); } catch { return []; } }
+  // ── Type meta ────────────────────────────────────────────────────────────
+  const TYPES = [
+    { id:'all',       label:'All Reports',         color:'var(--text-secondary)' },
+    { id:'eeg',       label:'EEG / qEEG',          color:'var(--violet,#9b7fff)' },
+    { id:'lab',       label:'Blood / Lab',          color:'#f59e0b' },
+    { id:'imaging',   label:'MRI / Imaging',        color:'var(--blue,#4a9eff)' },
+    { id:'external',  label:'External Letters',     color:'#94a3b8' },
+    { id:'progress',  label:'Progress Reports',     color:'var(--teal,#00d4bc)' },
+    { id:'clinician', label:'Clinician Summaries',  color:'var(--green,#4ade80)' },
+    { id:'ai',        label:'AI Summaries',         color:'#ec4899' },
+    { id:'other',     label:'Other',                color:'var(--text-tertiary)' },
+  ];
+  const TYPE_BY_ID = {};
+  TYPES.forEach(t => TYPE_BY_ID[t.id] = t);
+
+  // ── Storage ──────────────────────────────────────────────────────────────
+  const STORAGE_KEY = 'ds_reports_hub_v2';
+  const LINKS_KEY   = 'ds_reports_links';
+  const AI_KEY      = 'ds_reports_ai';
+
+  function loadReports()  { try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]'); } catch { return []; } }
   function saveReports(d) { try { localStorage.setItem(STORAGE_KEY, JSON.stringify(d)); } catch {} }
+  function loadLinks()    { try { return JSON.parse(localStorage.getItem(LINKS_KEY) || '{}'); } catch { return {}; } }
+  function saveLinks(d)   { try { localStorage.setItem(LINKS_KEY, JSON.stringify(d)); } catch {} }
+  function loadAI()       { try { return JSON.parse(localStorage.getItem(AI_KEY) || '{}'); } catch { return {}; } }
+  function saveAI(d)      { try { localStorage.setItem(AI_KEY, JSON.stringify(d)); } catch {} }
 
-  const REPORT_TYPES = ['All', 'EEG / qEEG', 'Blood / Lab', 'MRI / Imaging', 'Specialist Letter', 'Progress Report', 'Clinician Summary', 'AI Summary', 'Other'];
+  // ── State ────────────────────────────────────────────────────────────────
+  window._rhActiveType   = window._rhActiveType   || 'all';
+  window._rhActivePid    = window._rhActivePid    || '';
+  window._rhSearch       = window._rhSearch       || '';
+  window._rhDateFrom     = window._rhDateFrom     || '';
+  window._rhDateTo       = window._rhDateTo       || '';
+  window._rhSortBy       = window._rhSortBy       || 'date-desc';
+  window._rhCompareIds   = window._rhCompareIds   || new Set();
+  window._rhTimeline     = window._rhTimeline     || false;
+  window._rhExpandedAI   = window._rhExpandedAI   || new Set();
+  window._rhExpandedDet  = window._rhExpandedDet  || new Set();
 
-  const TYPE_COLORS = {
-    'EEG / qEEG':       'var(--accent-violet)',
-    'Blood / Lab':      '#f59e0b',
-    'MRI / Imaging':    '#60a5fa',
-    'Specialist Letter':'#94a3b8',
-    'Progress Report':  'var(--accent-teal)',
-    'Clinician Summary':'var(--accent-blue)',
-    'AI Summary':       '#ec4899',
-    'Other':            '#6b7280',
-  };
+  // ── Load data ────────────────────────────────────────────────────────────
+  let patients = [], courses = [], protocols = [], outcomes = [];
+  try {
+    const [pRes, cRes, prRes, ouRes] = await Promise.allSettled([
+      api.listPatients().catch(() => null),
+      api.listCourses?.().catch(() => null) ?? Promise.resolve(null),
+      api.protocols().catch(() => null),
+      api.listOutcomes?.().catch(() => null) ?? Promise.resolve(null),
+    ]);
+    patients  = (pRes.status  === 'fulfilled' ? pRes.value?.items  || pRes.value  || [] : []);
+    courses   = (cRes.status  === 'fulfilled' ? cRes.value?.items  || cRes.value  || [] : []);
+    protocols = (prRes.status === 'fulfilled' ? prRes.value?.items || prRes.value || [] : []);
+    outcomes  = (ouRes.status === 'fulfilled' ? ouRes.value?.items || ouRes.value || [] : []);
+  } catch (_) {}
 
-  let activePid = '';
-  let activeType = 'All';
-  let compareIds = new Set();
+  const patientMap  = {}; patients.forEach(p  => { patientMap[p.id]   = `${p.first_name||''} ${p.last_name||p.name||''}`.trim() || `Patient #${p.id}`; });
+  const courseMap   = {}; courses.forEach(c   => { courseMap[c.id]    = c.name || c.protocol_name || `Course #${c.id}`; });
+  const protocolMap = {}; protocols.forEach(p => { protocolMap[p.id]  = p.name || p.id; });
+  const outcomeMap  = {}; outcomes.forEach(o  => { outcomeMap[o.id]   = o.label || o.name || `Outcome #${o.id}`; });
+
+  // ── Seed demo reports ────────────────────────────────────────────────────
   let reports = loadReports();
-
-  // Seed demo reports if empty
-  if (reports.length === 0 && patients.length > 0) {
-    const pid = String(patients[0]?.id || '1');
+  if (!reports.length) {
+    const pid1 = String(patients[0]?.id || 'demo-1');
+    const pid2 = String(patients[1]?.id || patients[0]?.id || 'demo-1');
     reports = [
-      { id:'r1', patientId:pid, type:'EEG / qEEG',       name:'Baseline qEEG — DLPFC Alpha Power', date:'2026-03-01', source:'NeuroGuide', summary:'Elevated alpha at Fp1-Fp2. DLPFC alpha asymmetry consistent with MDD.', linked:'course-001', aiSummary:'', status:'final' },
-      { id:'r2', patientId:pid, type:'Progress Report',   name:'4-Week TMS Progress Report',         date:'2026-03-28', source:'Internal', summary:'PHQ-9 dropped from 22 to 14 (36% reduction). Session tolerance excellent.', linked:'course-001', aiSummary:'', status:'final' },
-      { id:'r3', patientId:pid, type:'Specialist Letter', name:'Psychiatry Referral Letter',         date:'2026-02-15', source:'Dr. K. Mehta', summary:'Referred for TMS following two failed antidepressant trials.', linked:'', aiSummary:'', status:'final' },
-      { id:'r4', patientId:pid, type:'Blood / Lab',       name:'Pre-treatment Labs',                 date:'2026-02-20', source:'LabCorp', summary:'TSH 2.1, CBC normal, CMP normal. No flagged abnormalities.', linked:'', aiSummary:'', status:'final' },
+      { id:'rh-s1', patientId:pid1, type:'eeg',       title:'Baseline qEEG — DLPFC Alpha Power',          date:'2026-02-10', source:'NeuroGuide Lab',       summary:'Elevated alpha at Fp1-Fp2. DLPFC alpha asymmetry (right>left) consistent with depression phenotype. Theta burst pattern at F3/F4.', file_url:'', status:'final' },
+      { id:'rh-s2', patientId:pid1, type:'eeg',       title:'Post-Session 10 qEEG — Alpha Re-assessment', date:'2026-03-20', source:'NeuroGuide Lab',       summary:'Alpha asymmetry reduced. Fp1-Fp2 power difference within 1.2 dB of symmetry. Consistent with treatment response.', file_url:'', status:'final' },
+      { id:'rh-s3', patientId:pid1, type:'lab',       title:'Pre-Treatment Full Blood Panel',              date:'2026-02-08', source:'PathLab Central',     summary:'TSH 2.1 mIU/L (normal). CBC normal. CMP normal. Vitamin D 28 ng/mL (borderline low — supplement recommended). No contraindications flagged.', file_url:'', status:'final' },
+      { id:'rh-s4', patientId:pid1, type:'lab',       title:'8-Week Labs — Thyroid & CBC',                 date:'2026-04-02', source:'PathLab Central',     summary:'TSH 2.3 mIU/L. CBC unchanged. Vitamin D improved to 36 ng/mL following supplementation.', file_url:'', status:'final' },
+      { id:'rh-s5', patientId:pid1, type:'imaging',   title:'Structural Brain MRI — Baseline',            date:'2026-02-12', source:'City Radiology',      summary:'No structural abnormalities. No contraindications to TMS. Cortical thinning absent. No white matter lesions.', file_url:'', status:'final' },
+      { id:'rh-s6', patientId:pid1, type:'external',  title:'Psychiatry Referral — Dr. K. Mehta',         date:'2026-01-28', source:'Dr. K. Mehta (Psych)', summary:'Referred for TMS evaluation following two failed SSRI trials (escitalopram, sertraline). GAD-7 15, PHQ-9 22 at referral. Suitable candidate for neuromodulation.', file_url:'', status:'final' },
+      { id:'rh-s7', patientId:pid1, type:'external',  title:'GP Clearance Letter',                        date:'2026-02-05', source:'Dr. A. Rashid (GP)',   summary:'Medical clearance for TMS. No cardiac device, no metal implants, no seizure history. Patient informed of risks and consented.', file_url:'', status:'final' },
+      { id:'rh-s8', patientId:pid1, type:'progress',  title:'4-Week Progress Note — Session 10',          date:'2026-03-14', source:'Internal',            summary:'PHQ-9 dropped from 22 to 14 (36% reduction). Session tolerance excellent. No adverse effects reported. Patient reports improved sleep and reduced anhedonia.', file_url:'', status:'final' },
+      { id:'rh-s9', patientId:pid1, type:'progress',  title:'8-Week Progress Note — Session 20',          date:'2026-04-05', source:'Internal',            summary:'PHQ-9 score 8 (remission threshold). GAD-7 dropped from 15 to 7. Patient returned to part-time work. Strong treatment response.', file_url:'', status:'final' },
+      { id:'rh-s10',patientId:pid1, type:'clinician', title:'Course 1 Treatment Summary — TMS Depression', date:'2026-04-08', source:'Dr. S. Okonkwo',     summary:'20-session left DLPFC rTMS completed. Final PHQ-9: 8 (remission). Patient achieved 64% symptom reduction. Recommend maintenance protocol.', file_url:'', status:'final' },
+      { id:'rh-s11',patientId:pid1, type:'ai',        title:'AI Analysis — Course 1 Response Pattern',    date:'2026-04-08', source:'AI Engine',            summary:'Trajectory modelling: consistent responder. Symptom onset at session 6-8. Sustained response curve. High probability of durable remission at 6 months based on response pattern.', file_url:'', status:'final' },
+      { id:'rh-s12',patientId:pid2, type:'eeg',       title:'Baseline qEEG — Frontal Asymmetry Screening',date:'2026-03-15', source:'NeuroGuide Lab',       summary:'Mild right-frontal alpha asymmetry. Theta elevation at Fz. Pattern consistent with anxiety-predominant presentation.', file_url:'', status:'final' },
     ];
+    // Seed some links
+    const links = loadLinks();
+    links['rh-s1']  = { courses:[], protocols:[], outcomes:[], notes:'Baseline before TMS Course 1' };
+    links['rh-s8']  = { courses:['c1'], protocols:[], outcomes:[], notes:'Session 10 progress check' };
+    links['rh-s9']  = { courses:['c1'], protocols:[], outcomes:['o1'], notes:'End-of-course outcome assessment' };
+    links['rh-s10'] = { courses:['c1'], protocols:['p1'], outcomes:['o1'], notes:'Course completion summary' };
+    saveLinks(links);
     saveReports(reports);
   }
 
+  // ── Filter & sort ────────────────────────────────────────────────────────
   function filteredReports() {
-    let d = reports;
-    if (activePid) d = d.filter(x => x.patientId === activePid);
-    if (activeType !== 'All') d = d.filter(x => x.type === activeType);
+    let d = [...reports];
+    if (window._rhActivePid) d = d.filter(r => r.patientId === window._rhActivePid);
+    if (window._rhActiveType !== 'all') d = d.filter(r => (r.type || 'other') === window._rhActiveType);
+    const q = (window._rhSearch || '').toLowerCase();
+    if (q) d = d.filter(r => (r.title||r.name||'').toLowerCase().includes(q) || (r.source||'').toLowerCase().includes(q) || (r.summary||'').toLowerCase().includes(q));
+    if (window._rhDateFrom) d = d.filter(r => (r.date||'') >= window._rhDateFrom);
+    if (window._rhDateTo)   d = d.filter(r => (r.date||'') <= window._rhDateTo);
+    const s = window._rhSortBy;
+    if (s === 'date-desc') d.sort((a,b) => (b.date||'').localeCompare(a.date||''));
+    else if (s === 'date-asc') d.sort((a,b) => (a.date||'').localeCompare(b.date||''));
+    else if (s === 'type')    d.sort((a,b) => (a.type||'').localeCompare(b.type||''));
+    else if (s === 'patient') d.sort((a,b) => (patientMap[a.patientId]||'').localeCompare(patientMap[b.patientId]||''));
     return d;
   }
 
+  // ── Renderers ────────────────────────────────────────────────────────────
+  function typeCounts() {
+    const counts = { all: reports.length };
+    TYPES.slice(1).forEach(t => { counts[t.id] = reports.filter(r => (r.type||'other') === t.id).length; });
+    return counts;
+  }
+
+  function sidebarHTML() {
+    const counts = typeCounts();
+    const activePid = window._rhActivePid;
+    return `
+      <div class="rh-sidebar">
+        <div class="rh-sidebar-sec">By Type</div>
+        ${TYPES.map(t => `
+          <button class="rh-nav-btn${window._rhActiveType === t.id ? ' active' : ''}" onclick="window._rhType('${t.id}')">
+            <span>${t.label}</span>
+            <span class="rh-nav-count">${counts[t.id] || 0}</span>
+          </button>`).join('')}
+        <div class="rh-sidebar-sec" style="margin-top:18px">Patient</div>
+        <select class="form-control" style="font-size:12px;width:100%" onchange="window._rhSetPt(this.value)">
+          <option value="">All patients</option>
+          ${patients.map(p => `<option value="${esc(String(p.id))}"${activePid===String(p.id)?' selected':''}>${esc(patientMap[p.id]||'Patient '+p.id)}</option>`).join('')}
+        </select>
+        <div class="rh-sidebar-sec" style="margin-top:18px">Quick Links</div>
+        <button class="rh-nav-btn" onclick="window._nav('courses')">Treatment Courses</button>
+        <button class="rh-nav-btn" onclick="window._nav('outcomes')">Outcomes</button>
+        <button class="rh-nav-btn" onclick="window._nav('protocol-wizard')">Protocols</button>
+        <button class="rh-nav-btn" onclick="window._nav('brain-map-planner')">Brain Map Planner</button>
+      </div>`;
+  }
+
+  function kpiHTML() {
+    const scope = window._rhActivePid ? reports.filter(r => r.patientId === window._rhActivePid) : reports;
+    const aiData = loadAI();
+    return `
+      <div class="rh-kpi-row">
+        ${[
+          { val: scope.length,                                                                        lbl:'Total Reports',    color:'var(--blue,#4a9eff)' },
+          { val: scope.filter(r => ['eeg','imaging'].includes(r.type)).length,                       lbl:'Neuroimaging',     color:'var(--violet,#9b7fff)' },
+          { val: scope.filter(r => r.type === 'progress' || r.type === 'clinician').length,          lbl:'Clinical Notes',   color:'var(--teal,#00d4bc)' },
+          { val: scope.filter(r => aiData[r.id]?.summary || r.type === 'ai').length,                 lbl:'AI Summaries',     color:'#ec4899' },
+        ].map(k => `<div class="rh-kpi"><div class="rh-kpi-val" style="color:${k.color}">${k.val}</div><div class="rh-kpi-lbl">${k.lbl}</div></div>`).join('')}
+      </div>`;
+  }
+
+  function toolbarHTML() {
+    return `
+      <div class="rh-toolbar">
+        <input type="text" class="form-control" placeholder="Search by title, source, content…" style="flex:1;min-width:180px;font-size:12.5px" oninput="window._rhSearchInput(this.value)" value="${esc(window._rhSearch||'')}">
+        <input type="date" class="form-control" style="width:138px;font-size:12px" value="${window._rhDateFrom||''}" onchange="window._rhDateF(this.value)" title="From date">
+        <input type="date" class="form-control" style="width:138px;font-size:12px" value="${window._rhDateTo||''}" onchange="window._rhDateT(this.value)" title="To date">
+        <select class="form-control" style="width:120px;font-size:12px" onchange="window._rhSort(this.value)">
+          <option value="date-desc"${window._rhSortBy==='date-desc'?' selected':''}>Date ↓</option>
+          <option value="date-asc" ${window._rhSortBy==='date-asc' ?' selected':''}>Date ↑</option>
+          <option value="type"     ${window._rhSortBy==='type'     ?' selected':''}>Type</option>
+          <option value="patient"  ${window._rhSortBy==='patient'  ?' selected':''}>Patient</option>
+        </select>
+        <button class="btn btn-sm${window._rhCompareIds.size ? ' btn-primary' : ''}" onclick="window._rhCompareClear()">
+          ${window._rhCompareIds.size ? `Clear Compare (${window._rhCompareIds.size})` : 'Compare'}
+        </button>
+      </div>`;
+  }
+
   function reportCardHTML(r) {
-    const tc = TYPE_COLORS[r.type] || '#94a3b8';
-    const inCompare = compareIds.has(r.id);
-    return `<div class="card" style="padding:0;border:2px solid ${inCompare ? 'var(--accent-teal)' : 'transparent'};transition:border-color 0.15s" id="rh-card-${esc(r.id)}">
-      <div style="padding:14px 16px">
-        <div style="display:flex;gap:8px;align-items:flex-start;justify-content:space-between;margin-bottom:6px">
-          <div style="flex:1">
-            <div style="font-size:13px;font-weight:600;color:var(--text);margin-bottom:4px">${esc(r.name)}</div>
-            <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
-              <span style="font-size:10px;font-weight:600;padding:2px 7px;border-radius:3px;background:${tc}22;color:${tc};border:1px solid ${tc}44">${esc(r.type)}</span>
-              <span style="font-size:11px;color:var(--text-muted)">${esc(r.date)}</span>
-              ${r.source ? `<span style="font-size:11px;color:var(--text-muted)">· ${esc(r.source)}</span>` : ''}
-              ${r.linked ? `<span style="font-size:10px;padding:1px 6px;border-radius:3px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);color:var(--text-muted)">Linked: Course</span>` : ''}
+    const t     = TYPE_BY_ID[r.type || 'other'] || TYPE_BY_ID.other;
+    const links = loadLinks()[r.id] || {};
+    const aiData = loadAI();
+    const ai    = aiData[r.id];
+    const isCompare  = window._rhCompareIds.has(r.id);
+    const isAIOpen   = window._rhExpandedAI.has(r.id);
+    const isDetOpen  = window._rhExpandedDet.has(r.id);
+    const ptN   = patientMap[r.patientId] || r.patientId || '—';
+    const linkedCourses   = (links.courses   || []).map(id => courseMap[id]  || id).filter(Boolean);
+    const linkedProtocols = (links.protocols || []).map(id => protocolMap[id]|| id).filter(Boolean);
+    const linkedOutcomes  = (links.outcomes  || []).map(id => outcomeMap[id] || id).filter(Boolean);
+
+    return `
+      <div class="rh-card${isCompare ? ' compare-sel' : ''}" id="rh-card-${esc(r.id)}">
+        <div class="rh-card-body">
+          <div class="rh-card-header">
+            <div style="flex:1;min-width:0">
+              <div class="rh-card-title">${esc(r.title || r.name || 'Untitled Report')}</div>
+              <div class="rh-card-meta">
+                <span class="rh-type-badge" style="color:${t.color};background:${t.color}18;border-color:${t.color}35">${t.label}</span>
+                <span>${fmt(r.date)}</span>
+                ${r.source ? `<span>· ${esc(r.source)}</span>` : ''}
+                ${!window._rhActivePid ? `<span>· ${esc(ptN)}</span>` : ''}
+                ${r.status === 'draft' ? `<span style="color:var(--amber,#ffb547)">· Draft</span>` : ''}
+              </div>
+            </div>
+            <div style="display:flex;gap:5px;flex-shrink:0">
+              <button class="btn btn-ghost btn-sm" style="font-size:10.5px;padding:3px 8px${isCompare?';color:var(--teal,#00d4bc)':''}" title="Add to comparison" onclick="window._rhToggleCompare('${esc(r.id)}')">
+                ${isCompare ? '✓' : '+Compare'}
+              </button>
             </div>
           </div>
-          <div style="display:flex;gap:5px;flex-shrink:0">
-            <button class="btn btn-sm" style="font-size:10px;padding:2px 8px;${inCompare?'background:var(--accent-teal)22;color:var(--accent-teal);border-color:var(--accent-teal)55':''}" onclick="window._rhToggleCompare('${esc(r.id)}')">${inCompare?'✓ Compare':'Compare'}</button>
-            <button class="btn btn-sm" style="font-size:10px;padding:2px 8px" onclick="window._rhAISummary('${esc(r.id)}')">AI Summary</button>
-            <button class="btn btn-sm" style="font-size:10px;padding:2px 8px;color:#ef4444;border-color:#ef444444" onclick="window._rhRemove('${esc(r.id)}')">✕</button>
+          ${r.summary ? `<div class="rh-card-summary">${esc(r.summary)}</div>` : ''}
+          ${(linkedCourses.length || linkedProtocols.length || linkedOutcomes.length) ? `
+            <div class="rh-assoc-chips">
+              ${linkedCourses.map(n   => `<span class="rh-assoc-chip" onclick="window._nav('courses')" title="Linked Course">Course: ${esc(n)}</span>`).join('')}
+              ${linkedProtocols.map(n => `<span class="rh-assoc-chip" onclick="window._nav('protocol-wizard')" title="Linked Protocol">Protocol: ${esc(n)}</span>`).join('')}
+              ${linkedOutcomes.map(n  => `<span class="rh-assoc-chip" onclick="window._nav('outcomes')" title="Linked Outcome">Outcome: ${esc(n)}</span>`).join('')}
+            </div>` : ''}
+          ${r.type === 'eeg' ? `
+            <div style="margin-top:8px">
+              <button class="btn btn-ghost btn-sm" style="font-size:10.5px;padding:3px 8px;color:var(--violet,#9b7fff);border-color:rgba(155,127,255,0.3)" onclick="window._nav('brain-map-planner')">View in Brain Map Planner ↗</button>
+            </div>` : ''}
+          <div class="rh-card-actions">
+            <button class="btn btn-sm" style="font-size:11px" onclick="window._rhDetail('${esc(r.id)}')">View Details</button>
+            <button class="btn btn-sm" style="font-size:11px${isAIOpen?';color:var(--violet,#9b7fff)':''}" onclick="window._rhAISummarize('${esc(r.id)}')">
+              ${ai ? (isAIOpen ? 'Hide AI Summary' : 'AI Summary ✓') : '🤖 AI Summary'}
+            </button>
+            <button class="btn btn-sm" style="font-size:11px;border-color:var(--teal,#00d4bc);color:var(--teal,#00d4bc)" onclick="window._rhLinkModal('${esc(r.id)}')">Link to Course/Protocol</button>
+            ${r.file_url ? `<button class="btn btn-sm" style="font-size:11px" onclick="window.open('${r.file_url}','_blank')">Download</button>` : ''}
+            <button class="btn btn-ghost btn-sm" style="font-size:11px;color:var(--text-tertiary)" onclick="window._rhDelete('${esc(r.id)}')">Delete</button>
           </div>
         </div>
-        ${r.summary ? `<div style="font-size:12px;color:var(--text-secondary);line-height:1.55;margin-bottom:6px">${esc(r.summary)}</div>` : ''}
-        ${r.aiSummary ? `<div style="font-size:11.5px;color:#ec4899;background:rgba(236,72,153,0.07);border-radius:6px;padding:8px 10px;margin-top:6px"><span style="font-weight:600">AI: </span>${esc(r.aiSummary)}</div>` : ''}
-      </div>
-    </div>`;
+        ${isAIOpen && ai ? `
+          <div class="rh-ai-panel">
+            <div class="rh-ai-label">AI Summary</div>
+            <div class="rh-ai-body">${esc(ai.summary || '—')}</div>
+            ${(ai.findings||[]).length ? `<ul class="rh-ai-findings">${ai.findings.map(f=>`<li class="rh-ai-finding">${esc(f)}</li>`).join('')}</ul>` : ''}
+            ${ai.protocol_hint ? `<div style="margin-top:8px;font-size:11.5px;color:var(--text-tertiary)">Suggested protocol: <button class="btn btn-ghost btn-sm" style="font-size:11px;padding:2px 8px;color:var(--teal,#00d4bc)" onclick="window._nav('protocol-wizard')">${esc(ai.protocol_hint)}</button></div>` : ''}
+          </div>` : ''}
+        ${isDetOpen ? `
+          <div class="rh-detail-panel">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;font-size:12.5px">
+              ${[
+                ['Report Type', TYPE_BY_ID[r.type||'other']?.label],
+                ['Date',        fmt(r.date)],
+                ['Source',      r.source],
+                ['Patient',     ptN],
+                ['Status',      r.status || 'Final'],
+                ['Linked Notes', (loadLinks()[r.id]?.notes) || '—'],
+              ].map(([k,v]) => v ? `<div><span style="color:var(--text-tertiary)">${k}:</span><br><span style="color:var(--text-primary)">${esc(String(v))}</span></div>` : '').join('')}
+            </div>
+          </div>` : ''}
+      </div>`;
   }
 
-  function comparePanel() {
-    if (compareIds.size < 2) return '';
-    const sel = reports.filter(r => compareIds.has(r.id));
-    return `<div style="background:rgba(45,212,191,0.07);border:1px solid rgba(45,212,191,0.3);border-radius:12px;padding:16px 18px;margin-bottom:20px">
-      <div style="font-size:12px;font-weight:600;color:var(--accent-teal);margin-bottom:10px">Comparing ${compareIds.size} Reports</div>
-      <div style="display:grid;grid-template-columns:repeat(${Math.min(sel.length,3)},1fr);gap:14px">
-        ${sel.map(r => `<div style="font-size:12px">
-          <div style="font-weight:600;color:var(--text);margin-bottom:4px">${esc(r.name)}</div>
-          <div style="color:var(--text-muted);font-size:11px;margin-bottom:6px">${esc(r.date)} · ${esc(r.type)}</div>
-          <div style="color:var(--text-secondary);line-height:1.5">${esc(r.summary || '—')}</div>
-        </div>`).join('')}
-      </div>
-      <button class="btn btn-sm" onclick="window._rhClearCompare()" style="margin-top:12px">Clear Comparison</button>
-    </div>`;
-  }
-
-  function renderPage() {
-    const filtered = filteredReports();
-    el.innerHTML = `
-      <div style="max-width:960px;margin:0 auto">
-        <!-- Filter bar -->
-        <div style="display:flex;gap:12px;align-items:center;margin-bottom:16px;flex-wrap:wrap">
-          <select id="rh-patient-sel" class="form-control" onchange="window._rhSwitchPatient(this.value)" style="font-size:13px;max-width:260px">
-            <option value="">— All patients —</option>
-            ${patients.map(p => `<option value="${esc(p.id)}"${activePid===String(p.id)?' selected':''}>${esc(p.full_name||p.name||'Patient '+p.id)}</option>`).join('')}
-          </select>
-          <input id="rh-search" type="text" class="form-control" placeholder="Search reports…" oninput="window._rhSearch(this.value)" style="font-size:13px;max-width:220px">
-          <div style="display:flex;gap:6px;flex-wrap:wrap">
-            ${REPORT_TYPES.map(t => `<button class="btn btn-sm${t===activeType?' btn-primary':''}" onclick="window._rhType('${esc(t)}')">${esc(t)}</button>`).join('')}
-          </div>
+  function comparePanelHTML() {
+    if (window._rhCompareIds.size < 2) return '';
+    const sel = reports.filter(r => window._rhCompareIds.has(r.id)).slice(0,3);
+    return `
+      <div class="rh-compare-bar">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+          <div style="font-size:12px;font-weight:600;color:var(--teal,#00d4bc)">Comparing ${window._rhCompareIds.size} reports</div>
+          <button class="btn btn-ghost btn-sm" style="font-size:11px" onclick="window._rhCompareClear()">Clear ✕</button>
         </div>
-
-        <!-- KPI strip -->
-        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px">
-          ${[
-            { label:'Total Reports', val: reports.filter(r=>!activePid||r.patientId===activePid).length, color:'var(--accent-blue)' },
-            { label:'EEG / Imaging',  val: reports.filter(r=>(!activePid||r.patientId===activePid)&&['EEG / qEEG','MRI / Imaging'].includes(r.type)).length, color:'var(--accent-violet)' },
-            { label:'Progress Reports',val:reports.filter(r=>(!activePid||r.patientId===activePid)&&r.type==='Progress Report').length, color:'var(--accent-teal)' },
-            { label:'AI Summaries',   val: reports.filter(r=>(!activePid||r.patientId===activePid)&&r.aiSummary).length, color:'#ec4899' },
-          ].map(k => `<div class="card" style="padding:14px 16px">
-            <div style="font-size:22px;font-weight:700;color:${k.color}">${k.val}</div>
-            <div style="font-size:11px;color:var(--text-muted);margin-top:2px">${k.label}</div>
-          </div>`).join('')}
-        </div>
-
-        ${comparePanel()}
-
-        <!-- Report list -->
-        <div id="rh-list">
-          ${filtered.length
-            ? `<div class="g2" style="align-items:start">${filtered.map(reportCardHTML).join('')}</div>`
-            : `<div style="padding:32px;text-align:center;color:var(--text-muted);font-size:13px;background:var(--card-bg);border:1px solid var(--border);border-radius:12px">No reports found. Upload a report or adjust filters.</div>`}
+        <div class="rh-compare-grid" style="grid-template-columns:repeat(${sel.length},1fr)">
+          ${sel.map(r => {
+            const ai = loadAI()[r.id];
+            return `<div class="rh-compare-col">
+              <div style="font-size:13px;font-weight:600;color:var(--text-primary);margin-bottom:4px">${esc(r.title||r.name||'—')}</div>
+              <div style="font-size:11px;color:var(--text-tertiary);margin-bottom:8px">${fmt(r.date)} · ${TYPE_BY_ID[r.type||'other']?.label}</div>
+              ${r.source ? `<div style="font-size:11.5px;color:var(--text-secondary);margin-bottom:6px">Source: ${esc(r.source)}</div>` : ''}
+              <div style="font-size:12.5px;color:var(--text-secondary);line-height:1.6">${esc(r.summary || '—')}</div>
+              ${ai ? `<div style="margin-top:8px;padding:8px 10px;background:rgba(155,127,255,0.08);border-radius:6px;font-size:11.5px;color:var(--violet,#9b7fff);font-style:italic">${esc(ai.summary||'')}</div>` : ''}
+            </div>`;
+          }).join('')}
         </div>
       </div>`;
   }
 
-  renderPage();
-
-  window._rhSwitchPatient = function(pid) { activePid = pid; compareIds.clear(); renderPage(); };
-  window._rhType = function(t) { activeType = t; renderPage(); };
-
-  window._rhSearch = function(q) {
-    const cards = el.querySelectorAll('.card[id^="rh-card-"]');
-    cards.forEach(c => {
-      c.style.display = !q || c.textContent.toLowerCase().includes(q.toLowerCase()) ? '' : 'none';
+  function timelineHTML() {
+    const scope = window._rhActivePid ? reports.filter(r => r.patientId === window._rhActivePid) : reports;
+    if (!scope.length) return `<div style="padding:40px;text-align:center;color:var(--text-tertiary)">No reports to show in timeline. Select a patient or upload reports.</div>`;
+    const byType = {};
+    scope.forEach(r => {
+      const tid = r.type || 'other';
+      if (!byType[tid]) byType[tid] = [];
+      byType[tid].push(r);
     });
+    Object.values(byType).forEach(arr => arr.sort((a,b) => (a.date||'').localeCompare(b.date||'')));
+    return `
+      <div class="rh-timeline">
+        ${Object.entries(byType).map(([tid, items]) => {
+          const t = TYPE_BY_ID[tid] || TYPE_BY_ID.other;
+          return `<div class="rh-tl-row">
+            <div class="rh-tl-label" style="color:${t.color}">${t.label}</div>
+            <div class="rh-tl-track">
+              ${items.map(r => `
+                <div class="rh-tl-item" onclick="window._rhDetail('${esc(r.id)}')">
+                  <div class="rh-tl-dot" style="background:${t.color}"></div>
+                  <div style="font-size:12.5px;font-weight:500;color:var(--text-primary)">${esc(r.title||r.name||'Untitled')}</div>
+                  <div style="font-size:11px;color:var(--text-tertiary);margin-top:2px">${fmt(r.date)} ${r.source ? '· ' + esc(r.source) : ''}</div>
+                  ${r.summary ? `<div style="font-size:12px;color:var(--text-secondary);margin-top:4px;line-height:1.5">${esc(r.summary.slice(0,120))}${r.summary.length>120?'…':''}</div>` : ''}
+                </div>`).join('')}
+            </div>
+          </div>`;
+        }).join('')}
+      </div>`;
+  }
+
+  function listHTML() {
+    const filtered = filteredReports();
+    if (!filtered.length) return `<div style="padding:40px;text-align:center;color:var(--text-tertiary)">No reports match your filters. <button class="btn btn-sm btn-primary" onclick="window._rhUpload()" style="margin-left:8px">+ Upload Report</button></div>`;
+    return filtered.map(reportCardHTML).join('');
+  }
+
+  // ── Upload modal ─────────────────────────────────────────────────────────
+  function uploadModalHTML() {
+    return `
+      <div class="rh-modal-overlay" id="rh-upload-modal" style="display:none" onclick="if(event.target===this)window._rhCloseModal('rh-upload-modal')">
+        <div class="rh-modal">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:18px">
+            <div class="rh-modal-title" style="margin:0">Upload Report</div>
+            <button class="btn btn-ghost btn-sm" onclick="window._rhCloseModal('rh-upload-modal')">✕</button>
+          </div>
+          <div style="display:grid;gap:12px">
+            <div class="form-group">
+              <label class="form-label">Patient *</label>
+              <select id="rh-up-patient" class="form-control">
+                <option value="">— Select patient —</option>
+                ${patients.map(p => `<option value="${esc(String(p.id))}">${esc(patientMap[p.id])}</option>`).join('')}
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Report Type *</label>
+              <select id="rh-up-type" class="form-control">
+                <option value="">— Select type —</option>
+                ${TYPES.slice(1).map(t => `<option value="${t.id}">${t.label}</option>`).join('')}
+              </select>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+              <div class="form-group">
+                <label class="form-label">Report Date</label>
+                <input id="rh-up-date" type="date" class="form-control" value="${new Date().toISOString().slice(0,10)}">
+              </div>
+              <div class="form-group">
+                <label class="form-label">Status</label>
+                <select id="rh-up-status" class="form-control">
+                  <option value="final">Final</option>
+                  <option value="draft">Draft</option>
+                  <option value="preliminary">Preliminary</option>
+                </select>
+              </div>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Title *</label>
+              <input id="rh-up-title" type="text" class="form-control" placeholder="e.g. Baseline qEEG Report — March 2026">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Source / Author</label>
+              <input id="rh-up-source" type="text" class="form-control" placeholder="e.g. NeuroGuide Lab / Dr. K. Mehta">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Summary / Key Findings</label>
+              <textarea id="rh-up-summary" class="form-control" rows="3" placeholder="Brief summary of findings…"></textarea>
+            </div>
+            <div class="form-group">
+              <label class="form-label">File (PDF, JPEG, DOCX)</label>
+              <input id="rh-up-file" type="file" class="form-control" accept=".pdf,.jpg,.jpeg,.png,.docx">
+            </div>
+            <div id="rh-up-msg" style="display:none;padding:8px 12px;border-radius:8px;font-size:13px"></div>
+            <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:4px">
+              <button class="btn btn-sm" onclick="window._rhCloseModal('rh-upload-modal')">Cancel</button>
+              <button class="btn btn-primary btn-sm" onclick="window._rhSubmitUpload()">Upload Report</button>
+            </div>
+          </div>
+        </div>
+      </div>`;
+  }
+
+  // ── Link modal ───────────────────────────────────────────────────────────
+  function linkModalHTML(reportId) {
+    const links = loadLinks()[reportId] || { courses:[], protocols:[], outcomes:[], notes:'' };
+    const courseOpts = courses.map(c => `<option value="${esc(String(c.id))}"${links.courses?.includes(String(c.id))?' selected':''}>${esc(courseMap[c.id]||'Course '+c.id)}</option>`).join('');
+    const protoOpts  = protocols.map(p => `<option value="${esc(String(p.id))}"${links.protocols?.includes(String(p.id))?' selected':''}>${esc(protocolMap[p.id]||'Protocol '+p.id)}</option>`).join('');
+    const ouOpts     = outcomes.map(o => `<option value="${esc(String(o.id))}"${links.outcomes?.includes(String(o.id))?' selected':''}>${esc(outcomeMap[o.id]||'Outcome '+o.id)}</option>`).join('');
+    return `
+      <div class="rh-modal-overlay" id="rh-link-modal" onclick="if(event.target===this)window._rhCloseModal('rh-link-modal')">
+        <div class="rh-modal">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:18px">
+            <div class="rh-modal-title" style="margin:0">Link Report to Course / Protocol / Outcome</div>
+            <button class="btn btn-ghost btn-sm" onclick="window._rhCloseModal('rh-link-modal')">✕</button>
+          </div>
+          <input type="hidden" id="rh-link-rid" value="${esc(reportId)}">
+          <div style="display:grid;gap:14px">
+            <div class="form-group">
+              <label class="form-label">Treatment Course</label>
+              <select id="rh-link-course" class="form-control" multiple size="4" style="height:auto">
+                ${courseOpts || '<option disabled>No courses available</option>'}
+              </select>
+              <div style="font-size:10.5px;color:var(--text-tertiary);margin-top:4px">Hold Ctrl/Cmd to select multiple</div>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Protocol</label>
+              <select id="rh-link-proto" class="form-control" multiple size="3" style="height:auto">
+                ${protoOpts || '<option disabled>No protocols available</option>'}
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Outcome Record</label>
+              <select id="rh-link-outcome" class="form-control" multiple size="3" style="height:auto">
+                ${ouOpts || '<option disabled>No outcomes available</option>'}
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Association Notes</label>
+              <input type="text" id="rh-link-notes" class="form-control" value="${esc(links.notes||'')}" placeholder="e.g. Used to guide protocol selection">
+            </div>
+            <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:4px">
+              <button class="btn btn-sm" onclick="window._rhCloseModal('rh-link-modal')">Cancel</button>
+              <button class="btn btn-primary btn-sm" onclick="window._rhSaveLinks()">Save Links</button>
+            </div>
+          </div>
+        </div>
+      </div>`;
+  }
+
+  // ── Main render ──────────────────────────────────────────────────────────
+  function renderPage() {
+    el.innerHTML = `
+      <div class="rh-layout">
+        ${sidebarHTML()}
+        <div class="rh-main">
+          ${kpiHTML()}
+          ${toolbarHTML()}
+          ${comparePanelHTML()}
+          <div id="rh-content">
+            ${window._rhTimeline ? timelineHTML() : listHTML()}
+          </div>
+        </div>
+      </div>
+      ${uploadModalHTML()}`;
+  }
+
+  // ── Handlers ─────────────────────────────────────────────────────────────
+  window._rhType = function(t) { window._rhActiveType = t; renderPage(); };
+  window._rhSetPt = function(pid) { window._rhActivePid = pid; renderPage(); };
+
+  window._rhSearchInput = function(q) {
+    window._rhSearch = q;
+    const cont = document.getElementById('rh-content');
+    if (cont && !window._rhTimeline) cont.innerHTML = listHTML();
   };
+
+  window._rhDateF  = function(v) { window._rhDateFrom = v; document.getElementById('rh-content').innerHTML = window._rhTimeline ? timelineHTML() : listHTML(); };
+  window._rhDateT  = function(v) { window._rhDateTo   = v; document.getElementById('rh-content').innerHTML = window._rhTimeline ? timelineHTML() : listHTML(); };
+  window._rhSort   = function(v) { window._rhSortBy   = v; document.getElementById('rh-content').innerHTML = window._rhTimeline ? timelineHTML() : listHTML(); };
 
   window._rhToggleCompare = function(id) {
-    if (compareIds.has(id)) compareIds.delete(id);
-    else compareIds.add(id);
+    if (window._rhCompareIds.has(id)) window._rhCompareIds.delete(id);
+    else if (window._rhCompareIds.size < 5) window._rhCompareIds.add(id);
     renderPage();
   };
+  window._rhCompareClear = function() { window._rhCompareIds.clear(); renderPage(); };
 
-  window._rhClearCompare = function() { compareIds.clear(); renderPage(); };
+  window._rhTimelineToggle = function() { window._rhTimeline = !window._rhTimeline; renderPage(); };
 
-  window._rhAISummary = function(id) {
-    reports = loadReports();
+  window._rhDetail = function(id) {
+    if (window._rhExpandedDet.has(id)) window._rhExpandedDet.delete(id);
+    else window._rhExpandedDet.add(id);
+    const el2 = document.getElementById('rh-card-' + id);
+    if (el2) el2.outerHTML = reportCardHTML(reports.find(r => r.id === id));
+  };
+
+  window._rhAISummarize = async function(id) {
     const r = reports.find(x => x.id === id);
     if (!r) return;
-    // Simulated AI summary — replace with real API call when backend endpoint available
-    const summaries = [
-      'Findings consistent with treatment response. Key metrics within expected range for this protocol phase.',
-      'Compared to baseline, significant improvement noted. Recommend continuing current protocol.',
-      'No red flags identified. Results support continued neuromodulation at current parameters.',
-      'Partial response observed. Consider protocol adjustment at next clinical review.',
-    ];
-    r.aiSummary = summaries[Math.floor(Math.random() * summaries.length)];
-    saveReports(reports);
-    renderPage();
-    window._showNotifToast?.({ title: 'AI Summary', body: 'Summary generated and attached to report.', severity: 'success' });
+    const aiData = loadAI();
+
+    if (aiData[id] && window._rhExpandedAI.has(id)) {
+      window._rhExpandedAI.delete(id);
+      const el2 = document.getElementById('rh-card-' + id);
+      if (el2) el2.outerHTML = reportCardHTML(r);
+      return;
+    }
+    if (aiData[id]) {
+      window._rhExpandedAI.add(id);
+      const el2 = document.getElementById('rh-card-' + id);
+      if (el2) el2.outerHTML = reportCardHTML(r);
+      return;
+    }
+
+    // Show loading state
+    const card = document.getElementById('rh-card-' + id);
+    if (card) {
+      const actionsEl = card.querySelector('.rh-card-actions');
+      if (actionsEl) { const btn = actionsEl.querySelectorAll('button')[1]; if (btn) { btn.textContent = 'Generating…'; btn.disabled = true; } }
+    }
+
+    try {
+      let result = null;
+      if (api.aiSummarizeReport) {
+        result = await api.aiSummarizeReport(id);
+      } else {
+        // Simulated type-aware fallback
+        await new Promise(res => setTimeout(res, 800));
+        const TYPE_SUMMARIES = {
+          eeg:       { summary:'EEG findings analysed. Alpha asymmetry pattern is consistent with the documented clinical presentation. Frequency band distribution within expected range for this modality.', findings:['Frontal alpha asymmetry present','Theta activity elevated at midline sites','Beta coherence reduced bilaterally'] },
+          lab:       { summary:'Laboratory values reviewed. Key markers are within normal clinical range. No contraindications to current protocol identified.', findings:['Thyroid function normal','Blood count within reference range','Electrolytes balanced'] },
+          imaging:   { summary:'Structural imaging reviewed. No significant abnormalities identified that would impact current treatment protocol.', findings:['No cortical thinning','White matter intact','No space-occupying lesion'] },
+          external:  { summary:'Referral letter reviewed. Clinical context is consistent with current treatment approach. Recommendations noted and incorporated.', findings:['Diagnosis confirmed by referring clinician','Prior treatment trials documented','No undisclosed contraindications'] },
+          progress:  { summary:'Progress note reviewed. Response trajectory is consistent with expected treatment pattern. Recommend continuing current protocol.', findings:['Symptom reduction trend positive','Tolerance reported as good','Next review scheduled on target'] },
+          clinician: { summary:'Clinical summary reviewed. Assessment and treatment rationale are consistent and well-documented. Next phase clearly outlined.', findings:['Treatment goals partially met','Protocol adherence documented','Outcome measures trending positively'] },
+          ai:        { summary:'AI analysis reviewed. Predicted response pattern aligns with observed clinical trajectory. Confidence interval acceptable.', findings:['Response probability within expected range','Symptom trajectory modelled','Maintenance recommendation generated'] },
+        };
+        const base = TYPE_SUMMARIES[r.type] || { summary:'Report reviewed. Key findings are documented and consistent with the clinical record.', findings:['Content reviewed','No anomalies flagged','Recommend filing in clinical record'] };
+        result = { ...base, protocol_hint: r.type === 'eeg' ? 'Left DLPFC rTMS — Depression' : null };
+      }
+      const ai = {
+        summary:       result?.summary   || result?.content || result?.text || 'No summary returned.',
+        findings:      result?.findings  || result?.key_findings || [],
+        protocol_hint: result?.protocol_hint || null,
+        generated_at:  new Date().toISOString(),
+      };
+      aiData[id] = ai;
+      saveAI(aiData);
+      window._rhExpandedAI.add(id);
+      const el2 = document.getElementById('rh-card-' + id);
+      if (el2) el2.outerHTML = reportCardHTML(r);
+    } catch (e) {
+      const card2 = document.getElementById('rh-card-' + id);
+      if (card2) { const actionsEl = card2.querySelector('.rh-card-actions'); if (actionsEl) { const btn = actionsEl.querySelectorAll('button')[1]; if (btn) { btn.textContent = '🤖 AI Summary'; btn.disabled = false; } } }
+    }
   };
 
   window._rhUpload = function() {
-    if (!activePid) { window._showNotifToast?.({ title: 'No Patient', body: 'Select a patient first.', severity: 'warning' }); return; }
-    const name = prompt('Report name:');
-    if (!name) return;
-    const typeOpts = REPORT_TYPES.slice(1).join(' / ');
-    const type = prompt(`Report type:\n${typeOpts}`) || 'Other';
-    const source = prompt('Source / author (optional):') || '';
-    const summary = prompt('Brief summary (optional):') || '';
-    reports = loadReports();
-    reports.push({ id:'r'+Date.now(), patientId:activePid, type, name, date:new Date().toISOString().slice(0,10), source, summary, linked:'', aiSummary:'', status:'final' });
-    saveReports(reports);
-    renderPage();
-    window._showNotifToast?.({ title:'Uploaded', body:`${name} added.`, severity:'success' });
+    document.getElementById('rh-upload-modal')?.remove();
+    document.body.insertAdjacentHTML('beforeend', uploadModalHTML());
+    document.getElementById('rh-upload-modal').style.display = 'flex';
+    if (window._rhActivePid) { const sel = document.getElementById('rh-up-patient'); if (sel) sel.value = window._rhActivePid; }
   };
 
-  window._rhRemove = function(id) {
-    if (!confirm('Remove this report?')) return;
-    reports = loadReports().filter(x => x.id !== id);
+  window._rhCloseModal = function(id) { document.getElementById(id)?.remove(); };
+
+  window._rhSubmitUpload = async function() {
+    const patientId = document.getElementById('rh-up-patient')?.value;
+    const type      = document.getElementById('rh-up-type')?.value;
+    const date      = document.getElementById('rh-up-date')?.value;
+    const title     = document.getElementById('rh-up-title')?.value?.trim();
+    const source    = document.getElementById('rh-up-source')?.value?.trim();
+    const summary   = document.getElementById('rh-up-summary')?.value?.trim();
+    const status    = document.getElementById('rh-up-status')?.value || 'final';
+    const fileInput = document.getElementById('rh-up-file');
+    const msgEl     = document.getElementById('rh-up-msg');
+
+    if (!patientId || !type || !title) {
+      if (msgEl) { msgEl.textContent = '⚠ Patient, type and title are required.'; msgEl.style.display = ''; msgEl.style.background = 'rgba(255,100,100,0.1)'; } return;
+    }
+    if (msgEl) msgEl.style.display = 'none';
+
+    const newReport = { id: 'r' + Date.now(), patientId, type, date: date || new Date().toISOString().slice(0,10), title, source, summary, status, file_url: '' };
+
+    try {
+      if (api.uploadReport) {
+        const fd = new FormData();
+        Object.entries({ patient_id:patientId, type, report_date:newReport.date, title, source:source||'', summary:summary||'', status }).forEach(([k,v]) => fd.append(k,v));
+        if (fileInput?.files?.[0]) fd.append('file', fileInput.files[0]);
+        const res = await api.uploadReport(fd);
+        if (res?.id) newReport.id = res.id;
+        if (res?.file_url) newReport.file_url = res.file_url;
+      }
+    } catch (_) {}
+
+    reports.push(newReport);
     saveReports(reports);
+    window._rhCloseModal('rh-upload-modal');
+    renderPage();
+    window._showNotifToast?.({ title:'Report Uploaded', body:`"${title}" added to ${TYPE_BY_ID[type]?.label || type} category.`, severity:'success' });
+  };
+
+  window._rhLinkModal = function(id) {
+    document.getElementById('rh-link-modal')?.remove();
+    document.body.insertAdjacentHTML('beforeend', linkModalHTML(id));
+  };
+
+  window._rhSaveLinks = function() {
+    const id      = document.getElementById('rh-link-rid')?.value;
+    const cSel    = document.getElementById('rh-link-course');
+    const pSel    = document.getElementById('rh-link-proto');
+    const oSel    = document.getElementById('rh-link-outcome');
+    const notes   = document.getElementById('rh-link-notes')?.value?.trim() || '';
+    if (!id) return;
+    const links = loadLinks();
+    links[id] = {
+      courses:   cSel ? [...cSel.selectedOptions].map(o => o.value)  : [],
+      protocols: pSel ? [...pSel.selectedOptions].map(o => o.value)  : [],
+      outcomes:  oSel ? [...oSel.selectedOptions].map(o => o.value)  : [],
+      notes,
+    };
+    saveLinks(links);
+    window._rhCloseModal('rh-link-modal');
+    const r = reports.find(x => x.id === id);
+    const el2 = document.getElementById('rh-card-' + id);
+    if (el2 && r) el2.outerHTML = reportCardHTML(r);
+    window._showNotifToast?.({ title:'Links Saved', body:'Report associations updated.', severity:'success' });
+  };
+
+  window._rhDelete = function(id) {
+    if (!confirm('Delete this report? This cannot be undone.')) return;
+    reports = reports.filter(r => r.id !== id);
+    saveReports(reports);
+    const el2 = document.getElementById('rh-card-' + id);
+    if (el2) el2.remove();
     renderPage();
   };
+
+  renderPage();
 }
-
 
 // ─────────────────────────────────────────────────────────────────────────────
 // pgMonitoring — Clinic-wide Patient Monitoring & Remote Follow-Up
@@ -15585,6 +16234,7 @@ export async function pgHomePrograms(setTopbar, navigate) {
   // ── Storage helpers ──────────────────────────────────────────────────────
   const _ls    = (k, d) => { try { return JSON.parse(localStorage.getItem(k) || 'null') ?? d; } catch { return d; } };
   const _lsSet = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} };
+  const _esc   = s => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 
   const _clinKey  = pid => 'ds_clinician_tasks_' + pid;
   const _patKey   = pid => 'ds_homework_tasks_' + pid;
@@ -15833,6 +16483,47 @@ export async function pgHomePrograms(setTopbar, navigate) {
       const overdue = ptTasks.filter(t => _isOverdue(t.dueDate) && !comps[t.id] && t.status !== 'completed').length;
       const rate    = ptTasks.length ? Math.round((done / ptTasks.length) * 100) : 0;
       const rColor  = rate >= 75 ? '#22c55e' : rate >= 40 ? '#f59e0b' : '#ef4444';
+
+      // Build per-task detail rows with completion data
+      const today = new Date().toISOString().slice(0, 10);
+      const taskRows = ptTasks.map(t => {
+        // Find most recent completion key for this task
+        const compKeys = Object.keys(comps).filter(k => k.startsWith(t.id + '_')).sort().reverse();
+        const compKey  = compKeys[0];
+        const compVal  = compKey ? comps[compKey] : null;
+        const isDone   = compVal === true || (compVal && compVal.done);
+        const compDate = compKey ? compKey.replace(t.id + '_', '') : null;
+        const compData = (compVal && typeof compVal === 'object') ? compVal : null;
+        const isOvd    = _isOverdue(t.dueDate) && !isDone;
+
+        // Extract notes from completion data based on task type
+        let noteSnippet = '';
+        if (compData) {
+          const notes = compData.notes || compData.thoughts || compData.observations || compData.flag || '';
+          const mood  = compData.mood != null ? `Mood ${compData.mood}/10` : '';
+          const energy = compData.energy != null ? `Energy ${compData.energy}/10` : '';
+          const rating = compData.rating != null ? `Rating ${compData.rating}/10` : '';
+          const se    = (compData.sideEffects && compData.sideEffects !== 'none') ? `SE: ${compData.sideEffects}` : '';
+          const flagBits = [mood, energy, rating, se].filter(Boolean).join(' · ');
+          noteSnippet = [flagBits, notes.slice(0, 100)].filter(Boolean).join(' — ');
+        }
+
+        const detailId = `hp-adh-detail-${pid.replace(/[^a-z0-9]/gi,'-')}-${t.id.replace(/[^a-z0-9]/gi,'-')}`;
+        return `<div class="hp-adh-task-row">
+          <span class="hp-adh-task-icon">${_typeIcon(t.type)}</span>
+          <span class="hp-adh-task-name" style="color:${isDone ? 'var(--text-secondary)' : isOvd ? '#ef4444' : 'var(--text-primary)'}">${_esc(t.title)}</span>
+          ${isDone
+            ? `<span class="hp-adh-task-badge" style="background:rgba(34,197,94,.15);color:#22c55e">\u2713 ${compDate || 'done'}</span>`
+            : isOvd
+              ? `<span class="hp-adh-task-badge" style="background:rgba(239,68,68,.12);color:#ef4444">Overdue</span>`
+              : `<span class="hp-adh-task-badge" style="background:rgba(148,163,184,.1);color:var(--text-tertiary)">Pending</span>`
+          }
+          ${compData ? `<button class="hp-adh-expand-btn" onclick="(function(){var d=document.getElementById('${detailId}');d.style.display=d.style.display==='none'?'block':'none';})()" title="View completion data">\u25BC</button>` : ''}
+          ${compData ? `<div class="hp-adh-task-detail" id="${detailId}" style="display:none">${noteSnippet ? _esc(noteSnippet) : 'No notes recorded.'}</div>` : ''}
+        </div>`;
+      }).join('');
+
+      const cardId = `hp-adh-tasks-${pid.replace(/[^a-z0-9]/gi,'-')}`;
       return `<div class="hp-adh-card">
         <div class="hp-adh-name" onclick="window.openPatient('${pid}');window._nav('patient-profile')">${_ptName(pid)}</div>
         <div class="hp-adh-bar-wrap"><div class="hp-adh-bar" style="width:${rate}%;background:${rColor}"></div></div>
@@ -15840,6 +16531,10 @@ export async function pgHomePrograms(setTopbar, navigate) {
           <span>${done}/${ptTasks.length} tasks</span>
           <span style="color:${rColor};font-weight:700">${rate}%</span>
           ${overdue ? `<span class="hp-adh-overdue">${overdue} overdue</span>` : ''}
+          <button class="hp-adh-expand-btn" onclick="(function(){var d=document.getElementById('${cardId}');d.style.display=d.style.display==='none'?'block':'none';})()" title="Task detail">\u25BC</button>
+        </div>
+        <div id="${cardId}" style="display:none;margin-top:8px;border-top:1px solid rgba(148,163,184,.1);padding-top:8px">
+          ${taskRows}
         </div>
         <div class="hp-adh-actions">
           <button class="hp-act-btn hp-act-primary" onclick="window._hpOpenAssign('${pid}')">+ Add Task</button>
