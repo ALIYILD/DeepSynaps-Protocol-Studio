@@ -6434,7 +6434,7 @@ let _vcSelMedia = null;
 let _vcSelNote = null;
 
 export async function pgVirtualCare(setTopbar) {
-  setTopbar('Virtual Care', 'Consultation & communication hub');
+  setTopbar('Virtual Care', 'Video visits · Voice calls · Secure messaging · AI notes');
   const el = document.getElementById('content');
   if (!el) return;
   el.innerHTML = '<div class="page-loading"></div>';
@@ -6509,7 +6509,7 @@ function _vcRender() {
   <div class="vc-action-bar">
     <button class="vc-act vc-act--primary" onclick="window._vcStartVideoVisit(null)">&#9654;&ensp;Start Video Visit</button>
     <button class="vc-act"                 onclick="window._vcStartVoiceCall(null)">&#9742;&ensp;Start Voice Call</button>
-    <button class="vc-act"                 onclick="window._vcSendMessage(null)">&#9993;&ensp;Send Message</button>
+    <button class="vc-act"                 onclick="window._vcSendMessage(null)">&#9993;&ensp;New Message</button>
     <button class="vc-act"                 onclick="window._vcRecordNote()">&#9210;&ensp;Record Note</button>
   </div>
 
@@ -17700,7 +17700,7 @@ export async function pgMonitoring(setTopbar, navigate) {
     return `<div class="mon-act-row">
       <button class="mon-act-btn mon-act-primary" onclick="event.stopPropagation();window.openPatient('${p}');window._nav('patient-profile')">Open</button>
       <button class="mon-act-btn" onclick="event.stopPropagation();window.openPatient('${p}');window._nav('outcomes')">Outcomes</button>
-      <button class="mon-act-btn" onclick="event.stopPropagation();window.openPatient('${p}');window._nav('messaging')">Message</button>
+      <button class="mon-act-btn" onclick="event.stopPropagation();window.openPatient('${p}');window._nav('messaging')">Virtual Care</button>
     </div>`;
   }
 
@@ -17904,7 +17904,7 @@ export async function pgMonitoring(setTopbar, navigate) {
             + '<div style="display:flex;gap:5px">'
             + '<button class="mon-act-btn mon-act-primary" onclick="event.stopPropagation();window.openPatient(\'' + entry.id + '\');window._nav(\'patient-profile\')">Open</button>'
             + '<button class="mon-act-btn" onclick="event.stopPropagation();window.openPatient(\'' + entry.id + '\');window._nav(\'outcomes\')">Log Outcome</button>'
-            + '<button class="mon-act-btn" onclick="event.stopPropagation();window.openPatient(\'' + entry.id + '\');window._nav(\'messaging\')">Message</button>'
+            + '<button class="mon-act-btn" onclick="event.stopPropagation();window.openPatient(\'' + entry.id + '\');window._nav(\'messaging\')">Virtual Care</button>'
             + '</div>'
             + '</div>';
         }).join('')}
@@ -18146,7 +18146,7 @@ export async function pgHomePrograms(setTopbar, navigate) {
         <div class="hp-task-status">${_statusBadge(task)}</div>
         <div class="hp-task-actions" onclick="event.stopPropagation()">
           <button class="hp-act-btn hp-act-primary" onclick="window._hpEditTask('${task.id}','${task.patientId}')">Edit</button>
-          <button class="hp-act-btn" onclick="window.openPatient('${task.patientId}');window._nav('messaging')">Message</button>
+          <button class="hp-act-btn" onclick="window.openPatient('${task.patientId}');window._nav('messaging')">Virtual Care</button>
           <div class="hp-act-more" onclick="this.nextElementSibling.classList.toggle('hp-drop-open')">\u22EF</div>
           <div class="hp-act-dropdown">
             ${!isDone ? `<div onclick="window._hpMarkDone('${task.id}','${task.patientId}')">Mark Complete</div>` : ''}
@@ -18247,7 +18247,7 @@ export async function pgHomePrograms(setTopbar, navigate) {
         </div>
         <div class="hp-adh-actions">
           <button class="hp-act-btn hp-act-primary" onclick="window._hpOpenAssign('${pid}')">+ Add Task</button>
-          <button class="hp-act-btn" onclick="window.openPatient('${pid}');window._nav('messaging')">Message</button>
+          <button class="hp-act-btn" onclick="window.openPatient('${pid}');window._nav('messaging')">Virtual Care</button>
         </div>
       </div>`;
     }).join('')}</div>`;

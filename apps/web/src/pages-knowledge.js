@@ -4989,7 +4989,7 @@ export async function pgStaffScheduling(setTopbar) {
           '<button class="btn btn-sm btn-ghost" style="color:#ef4444;margin-left:4px" onclick="window._staffDenySwap(\'' + req.id + '\')">Deny</button>'
         : '';
       var notif = req.status === 'approved'
-        ? '<div style="font-size:.72rem;color:var(--text-muted);margin-top:6px">Cover clinician will be notified via messaging</div>'
+        ? '<div style="font-size:.72rem;color:var(--text-muted);margin-top:6px">Cover clinician will be notified via Virtual Care</div>'
         : '';
       return '<div class="swap-card">' +
         '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:8px">' +
