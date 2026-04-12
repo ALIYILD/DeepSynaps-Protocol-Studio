@@ -1,6 +1,6 @@
-from typing import Literal
+from typing import Literal, Union
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 UserRole = Literal["guest", "clinician", "admin"]
@@ -30,6 +30,22 @@ class ConditionProfile(BaseModel):
     phenotypes: list[str] = Field(default_factory=list)
     contraindications: list[str] = Field(default_factory=list)
     notes: list[str] = Field(default_factory=list)
+
+    @field_validator("contraindications", mode="before")
+    @classmethod
+    def _flatten_contraindications(cls, v: Union[list, dict]) -> list[str]:
+        """Accept both flat list[str] and structured {'absolute': [...], 'relative': [...]} dict."""
+        if isinstance(v, dict):
+            items: list[str] = []
+            for section in v.values():
+                if isinstance(section, list):
+                    for entry in section:
+                        if isinstance(entry, dict):
+                            items.append(entry.get("condition") or str(entry))
+                        else:
+                            items.append(str(entry))
+            return items
+        return v
 
 
 class ModalityProfile(BaseModel):

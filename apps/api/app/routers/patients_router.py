@@ -559,12 +559,13 @@ def send_patient_message(
             status_code=400,
         )
 
-    # For patient senders, recipient defaults to the patient's clinician (unresolved here —
-    # we store patient_id as context and leave recipient_id as a placeholder).
+    # For patient senders, route to the patient's assigned clinician.
     # For clinician senders, recipient is the patient.
     if actor.role == "patient":
         sender_id = actor.actor_id
-        recipient_id = patient_id  # best effort — clinician's user id not resolved without extra lookup
+        from app.persistence.models import Patient as _Patient
+        _patient_rec = session.query(_Patient).filter_by(id=patient_id).first()
+        recipient_id = _patient_rec.clinician_id if _patient_rec and _patient_rec.clinician_id else patient_id
     else:
         require_minimum_role(actor, "clinician")
         sender_id = actor.actor_id

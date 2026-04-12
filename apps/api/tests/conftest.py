@@ -6,7 +6,8 @@ import pytest
 from fastapi.testclient import TestClient
 
 
-TEST_DB_PATH = Path(__file__).resolve().parent / ".test_deepsynaps_protocol_studio.db"
+# Use a per-process DB file so parallel pytest invocations don't collide.
+TEST_DB_PATH = Path(__file__).resolve().parent / f".test_deepsynaps_{os.getpid()}.db"
 # Set environment BEFORE any app module is imported so cached settings reflect test values.
 os.environ["DEEPSYNAPS_APP_ENV"] = "test"
 os.environ["DEEPSYNAPS_DATABASE_URL"] = f"sqlite:///{TEST_DB_PATH.as_posix()}"
@@ -28,6 +29,16 @@ for source_path in SOURCE_PATHS:
 
 from app.database import init_database, reset_database  # noqa: E402
 from app.main import app  # noqa: E402
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _cleanup_test_db():
+    """Delete the per-process test DB file after the full session completes."""
+    yield
+    try:
+        TEST_DB_PATH.unlink(missing_ok=True)
+    except OSError:
+        pass
 
 
 @pytest.fixture(autouse=True)

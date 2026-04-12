@@ -721,6 +721,15 @@ def patient_wearable_sync(
     if actor.role != "patient":
         raise ApiServiceError(code="forbidden", message="Patient portal access only.", status_code=403)
 
+    # Validate date format before any DB access
+    import re as _re
+    if not _re.fullmatch(r"\d{4}-\d{2}-\d{2}", body.date):
+        raise ApiServiceError(
+            code="invalid_date",
+            message="Field 'date' must be in YYYY-MM-DD format.",
+            status_code=422,
+        )
+
     patient = _require_patient(actor, db)
 
     # Upsert daily summary

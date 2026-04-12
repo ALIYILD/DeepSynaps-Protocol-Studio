@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Optional
 
 from fastapi import APIRouter, Depends
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.auth import AuthenticatedActor, get_authenticated_actor, require_minimum_role
@@ -26,7 +26,7 @@ router = APIRouter(prefix="/api/v1/sessions", tags=["sessions"])
 class SessionCreate(BaseModel):
     patient_id: str
     scheduled_at: str  # ISO datetime string
-    duration_minutes: int = 60
+    duration_minutes: int = Field(default=60, ge=1, le=480)
     modality: Optional[str] = None
     protocol_ref: Optional[str] = None
     session_number: Optional[int] = None

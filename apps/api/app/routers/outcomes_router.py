@@ -23,8 +23,9 @@ from app.persistence.models import OutcomeSeries
 router = APIRouter(prefix="/api/v1/outcomes", tags=["Outcomes"])
 
 # Common assessment templates whose lower score = improvement
-_LOWER_IS_BETTER = {"PHQ-9", "GAD-7", "PCL-5", "ISI", "DASS-21", "NRS-Pain", "UPDRS-III"}
-_HIGHER_IS_BETTER = {"ADHD-RS-5"}   # higher = worse in ADHD-RS, keep lower_is_better logic
+_LOWER_IS_BETTER = {"PHQ-9", "GAD-7", "PCL-5", "ISI", "DASS-21", "NRS-Pain", "UPDRS-III", "ADHD-RS-5"}
+# Templates where a HIGHER score = improvement (e.g. quality-of-life, functioning scales)
+_HIGHER_IS_BETTER: set[str] = set()  # extend when higher-is-better scales are added
 
 
 # ── Schemas ────────────────────────────────────────────────────────────────────
@@ -124,14 +125,19 @@ def _compute_summary(course_id: str, records: list[OutcomeSeries]) -> CourseSumm
 
         if baseline is not None and latest is not None and baseline != 0:
             lower_better = tid in _LOWER_IS_BETTER
+            higher_better = tid in _HIGHER_IS_BETTER
             if lower_better:
                 delta = baseline - latest            # positive = improved
+                pct_change = round(delta / baseline * 100, 1)
+                is_responder = pct_change >= 50.0
+            elif higher_better:
+                delta = latest - baseline            # positive = improved
                 pct_change = round(delta / baseline * 100, 1)
                 is_responder = pct_change >= 50.0
             else:
                 delta = latest - baseline
                 pct_change = round(delta / baseline * 100, 1) if baseline else None
-                is_responder = None  # not applicable generically
+                is_responder = None  # direction unknown for this template
 
         if is_responder:
             any_responder = True

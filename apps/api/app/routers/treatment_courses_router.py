@@ -19,6 +19,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from app.auth import AuthenticatedActor, get_authenticated_actor, require_minimum_role
@@ -321,6 +322,15 @@ def create_course(
             )
         params = build_course_structure_from_protocol(raw_proto)
 
+    # Validate protocol has a usable session count
+    total_sessions = params.get("total_sessions", 0)
+    if not total_sessions or int(total_sessions) < 1:
+        raise ApiServiceError(
+            code="invalid_protocol",
+            message="Protocol has no valid session count (planned_sessions_total must be ≥ 1).",
+            status_code=422,
+        )
+
     # Run governance checks
     gov_warnings = _run_governance(params, actor)
 
@@ -606,7 +616,12 @@ def list_review_queue(
 
     q = db.query(ReviewQueueItem)
     if actor.role != "admin":
-        q = q.filter(ReviewQueueItem.created_by == actor.actor_id)
+        q = q.filter(
+            or_(
+                ReviewQueueItem.created_by == actor.actor_id,
+                ReviewQueueItem.assigned_to == actor.actor_id,
+            )
+        )
     if status:
         q = q.filter(ReviewQueueItem.status == status)
     if reviewer_id:

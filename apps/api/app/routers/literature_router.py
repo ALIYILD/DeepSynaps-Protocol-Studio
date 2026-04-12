@@ -150,6 +150,11 @@ class ReadingListAddRequest(BaseModel):
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
+def _escape_like(s: str) -> str:
+    """Escape LIKE metacharacters so user input is treated as a literal string."""
+    return s.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
 def _get_paper_or_404(db: Session, paper_id: str) -> LiteraturePaper:
     paper = db.query(LiteraturePaper).filter_by(id=paper_id).first()
     if paper is None:
@@ -239,9 +244,9 @@ def list_papers(
     require_minimum_role(actor, "clinician")
     q = db.query(LiteraturePaper)
     if modality:
-        q = q.filter(LiteraturePaper.modality.ilike(f"%{modality}%"))
+        q = q.filter(LiteraturePaper.modality.ilike(f"%{_escape_like(modality)}%"))
     if condition:
-        q = q.filter(LiteraturePaper.condition.ilike(f"%{condition}%"))
+        q = q.filter(LiteraturePaper.condition.ilike(f"%{_escape_like(condition)}%"))
     if year_min is not None:
         q = q.filter(LiteraturePaper.year >= year_min)
     if year_max is not None:
@@ -249,12 +254,12 @@ def list_papers(
     if evidence_grade:
         q = q.filter(LiteraturePaper.evidence_grade == evidence_grade.upper())
     if study_type:
-        q = q.filter(LiteraturePaper.study_type.ilike(f"%{study_type}%"))
+        q = q.filter(LiteraturePaper.study_type.ilike(f"%{_escape_like(study_type)}%"))
     if q_text:
-        search_term = f"%{q_text}%"
+        escaped = _escape_like(q_text)
         q = q.filter(
-            LiteraturePaper.title.ilike(search_term) |
-            LiteraturePaper.abstract.ilike(search_term)
+            LiteraturePaper.title.ilike(f"%{escaped}%") |
+            LiteraturePaper.abstract.ilike(f"%{escaped}%")
         )
     records = q.order_by(LiteraturePaper.year.desc(), LiteraturePaper.created_at.desc()).all()
     items = [PaperOut.from_record(r) for r in records]

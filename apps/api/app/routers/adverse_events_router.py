@@ -9,10 +9,10 @@ GET   /api/v1/adverse-events/{id}      Get event detail
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from sqlalchemy.orm import Session
 
 from app.auth import AuthenticatedActor, get_authenticated_actor, require_minimum_role
@@ -30,7 +30,12 @@ class AdverseEventCreate(BaseModel):
     course_id: Optional[str] = None
     session_id: Optional[str] = None
     event_type: str           # e.g. "headache", "seizure", "syncope", "scalp_discomfort"
-    severity: str             # "mild" | "moderate" | "severe" | "serious"
+    severity: Literal["mild", "moderate", "severe", "serious"]
+
+    @field_validator("severity", mode="before")
+    @classmethod
+    def _normalize_severity(cls, v: object) -> object:
+        return v.strip().lower() if isinstance(v, str) else v
     description: Optional[str] = None
     onset_timing: Optional[str] = None   # e.g. "during", "immediately_after", "24h_post"
     resolution: Optional[str] = None     # e.g. "resolved", "ongoing", "unknown"
@@ -85,9 +90,6 @@ class AdverseEventListResponse(BaseModel):
 
 # ── Endpoints ──────────────────────────────────────────────────────────────────
 
-_VALID_SEVERITIES = {"mild", "moderate", "severe", "serious"}
-
-
 @router.post("", response_model=AdverseEventOut, status_code=201)
 def report_adverse_event(
     body: AdverseEventCreate,
@@ -96,13 +98,7 @@ def report_adverse_event(
 ) -> AdverseEventOut:
     require_minimum_role(actor, "clinician")
 
-    severity = body.severity.strip().lower()
-    if severity not in _VALID_SEVERITIES:
-        raise ApiServiceError(
-            code="invalid_severity",
-            message=f"Severity must be one of: {', '.join(sorted(_VALID_SEVERITIES))}.",
-            status_code=422,
-        )
+    severity = body.severity  # already validated by Pydantic Literal
 
     reported_at = datetime.now(timezone.utc)
     if body.reported_at:
