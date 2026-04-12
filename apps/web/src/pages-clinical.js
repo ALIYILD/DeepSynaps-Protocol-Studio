@@ -466,7 +466,6 @@ function renderUpcomingSessionsWidget(sessions) {
 export async function pgDash(setTopbar, navigate) {
   const role = currentUser?.role || 'clinician';
 
-  // Ensure openPatient is always callable, even if pgPatients hasn't been visited yet
   if (!window.openPatient) {
     window.openPatient = function(id) {
       window._selectedPatientId = id;
@@ -474,9 +473,14 @@ export async function pgDash(setTopbar, navigate) {
       navigate('patient-profile');
     };
   }
+  // Always wire up course session launcher so Execute buttons work from dashboard
+  window._startCourseSession = function(courseId) {
+    if (courseId) window._selectedCourseId = courseId;
+    window._nav('session-execution');
+  };
 
   setTopbar('Dashboard',
-    `<button class="btn btn-primary btn-sm" onclick="window._nav('session-execution')" style="white-space:nowrap">◧ Start Session</button>`
+    `<button class="btn btn-primary btn-sm" onclick="window._nav('session-execution')" style="white-space:nowrap">&#9647; Start Session</button>`
   );
 
   const el = document.getElementById('content');
@@ -682,11 +686,204 @@ export async function pgDash(setTopbar, navigate) {
     { icon: '◌', label: 'Notes & Dictation', sub: 'Text · Voice · AI transcription',      page: 'notes-dictation',   color: 'var(--amber)' },
   ];
 
-  const clinicQueueRows = [
-    ...(activeCourses.length  ? [_dQueueSection('Active — In Treatment',    activeCourses.slice(0, 5).map(c  => _dCourseRowRich(c, 'active')))]           : []),
-    ...(pausedCourses.length  ? [_dQueueSection('Paused — Needs Attention', pausedCourses.slice(0, 3).map(c  => _dCourseRowRich(c, 'paused')))]           : []),
-    ...(pendingCourses.length ? [_dQueueSection('Awaiting Approval',        pendingCourses.slice(0, 3).map(c => _dCourseRowRich(c, 'pending_approval')))] : []),
+  // ── Today's Queue — build prioritized action items ───────────────────────
+  const _todayISO = new Date().toISOString().slice(0, 10);
+  const _dqItems  = [];
+
+  // Helper: resolve patient name from a course object
+  const _dqPatName = c => c._patientName || (() => { const p = patientMap[c.patient_id]; return p ? `${p.first_name||''} ${p.last_name||''}`.trim() : '—'; })();
+
+  // 1. Sessions scheduled today → "Start Session"  [urgent]
+  activeCourses.forEach(c => {
+    if ((c.next_session_date || '').slice(0, 10) === _todayISO) {
+      _dqItems.push({ name: _dqPatName(c), patientId: c.patient_id,
+        condition: c.condition_slug?.replace(/-/g,' ') || '—', modality: c.modality_slug || '—',
+        reason: 'Session scheduled today', reasonKey: 'session-today', urgency: 'urgent',
+        filters: 'all today',
+        action: { label: 'Start Session', onclick: "window._nav('session-execution')" } });
+    }
+  });
+
+  // 2. Open adverse events → "Open Chart"  [critical / high]
+  openAEs.slice(0, 5).forEach(ae => {
+    const c  = allCourses.find(x => x.id === ae.course_id);
+    const pt = patientMap[ae.patient_id || c?.patient_id];
+    const name = pt ? `${pt.first_name||''} ${pt.last_name||''}`.trim() : (c?._patientName || '—');
+    _dqItems.push({ name, patientId: ae.patient_id || c?.patient_id,
+      condition: c?.condition_slug?.replace(/-/g,' ') || (ae.event_type||'Event').replace(/_/g,' '),
+      modality: c?.modality_slug || '—',
+      reason: `Side effect: ${(ae.event_type||'event').replace(/_/g,' ')}`,
+      reasonKey: 'side-effect',
+      urgency: (ae.severity === 'serious' || ae.severity === 'severe') ? 'critical' : 'high',
+      filters: 'all alerts',
+      action: { label: 'Open Chart', onclick: "window._nav('adverse-events')" } });
+  });
+
+  // 3. Pending review queue → "Complete Review"  [high]
+  pendingQueue.slice(0, 5).forEach(item => {
+    const c    = allCourses.find(x => x.id === item.course_id) || {};
+    const ptId = item.patient_id || c.patient_id;
+    const pt   = patientMap[ptId];
+    const name = c._patientName || (pt ? `${pt.first_name||''} ${pt.last_name||''}`.trim() : '—');
+    _dqItems.push({ name, patientId: ptId,
+      condition: c.condition_slug?.replace(/-/g,' ') || '—', modality: c.modality_slug || '—',
+      reason: 'Overdue — approval pending', reasonKey: 'overdue-review', urgency: 'high',
+      filters: 'all needs-review',
+      action: { label: 'Complete Review', onclick: "window._nav('review-queue')" } });
+  });
+
+  // 4. Governance-flagged courses → "Open Chart"  [high]
+  flaggedCourses.slice(0, 3).forEach(c => {
+    const wc = (c.governance_warnings || []).length;
+    _dqItems.push({ name: _dqPatName(c), patientId: c.patient_id,
+      condition: c.condition_slug?.replace(/-/g,' ') || '—', modality: c.modality_slug || '—',
+      reason: `Protocol deviation · ${wc} flag${wc > 1 ? 's' : ''}`, reasonKey: 'deviation', urgency: 'high',
+      filters: 'all needs-review alerts',
+      action: { label: 'Open Chart', onclick: `window._openCourse('${c.id}')` } });
+  });
+
+  // 5. Worsened outcome proxy: paused courses with governance warnings → "Log Outcome"  [high]
+  allCourses.filter(c => c.status === 'paused' && (c.governance_warnings||[]).length).slice(0,2).forEach(c => {
+    _dqItems.push({ name: _dqPatName(c), patientId: c.patient_id,
+      condition: c.condition_slug?.replace(/-/g,' ') || '—', modality: c.modality_slug || '—',
+      reason: 'Worsened outcome — review flagged', reasonKey: 'worsened', urgency: 'high',
+      filters: 'all alerts needs-review',
+      action: { label: 'Log Outcome', onclick: "window._nav('outcomes')" } });
+  });
+
+  // 6. Media / voice / video needing review → "Review Update"  [normal / high]
+  mediaNeedsAttention.slice(0, 4).forEach(item => {
+    const pt = patientMap[item.patient_id];
+    const name = pt ? `${pt.first_name||''} ${pt.last_name||''}`.trim() : (item.patient_name || 'Patient');
+    _dqItems.push({ name, patientId: item.patient_id,
+      condition: item.condition || '—', modality: item.media_type || 'Media',
+      reason: item.flagged_urgent ? 'Urgent media flagged' : 'New voice / video update',
+      reasonKey: 'media-update', urgency: item.flagged_urgent ? 'high' : 'normal',
+      filters: 'all needs-review',
+      action: { label: 'Review Update', onclick: "window._nav('media-queue')" } });
+  });
+
+  // 7. Wearable alerts → "View Alert"  [urgent / normal]
+  if (wearableAlertCount > 0) {
+    _dqItems.push({ name: `${wearableAlertCount} patient${wearableAlertCount > 1 ? 's' : ''}`, patientId: null,
+      condition: '—', modality: 'Wearable',
+      reason: `${wearableUrgentCount > 0 ? wearableUrgentCount + ' urgent · ' : ''}${wearableAlertCount} active alert${wearableAlertCount > 1 ? 's' : ''}`,
+      reasonKey: 'wearable-alert', urgency: wearableUrgentCount > 0 ? 'urgent' : 'normal',
+      filters: 'all alerts',
+      action: { label: 'View Alert', onclick: "window._nav('wearables')" } });
+  }
+
+  // 8. Missing assessments proxy: active courses with no recent outcome data → "Log Outcome"  [normal]
+  activeCourses.filter(c => !c.last_assessment_date && (c.sessions_delivered || 0) >= 3).slice(0, 2).forEach(c => {
+    _dqItems.push({ name: _dqPatName(c), patientId: c.patient_id,
+      condition: c.condition_slug?.replace(/-/g,' ') || '—', modality: c.modality_slug || '—',
+      reason: 'Missing assessment data', reasonKey: 'missing-assess', urgency: 'normal',
+      filters: 'all needs-review',
+      action: { label: 'Log Outcome', onclick: "window._nav('outcomes')" } });
+  });
+
+  // 9. Home task non-adherence: paused courses without governance flag → "Message Patient"  [normal]
+  pausedCourses.filter(c => !(c.governance_warnings||[]).length).slice(0, 3).forEach(c => {
+    _dqItems.push({ name: _dqPatName(c), patientId: c.patient_id,
+      condition: c.condition_slug?.replace(/-/g,' ') || '—', modality: c.modality_slug || '—',
+      reason: 'Paused — home task follow-up needed', reasonKey: 'paused', urgency: 'normal',
+      filters: 'all needs-review',
+      action: { label: 'Message Patient', onclick: "window._nav('messaging')" } });
+  });
+
+  // Sort by urgency and deduplicate patient+reason
+  const _urgOrd = { critical: 0, urgent: 1, high: 2, normal: 3 };
+  _dqItems.sort((a, b) => (_urgOrd[a.urgency] ?? 9) - (_urgOrd[b.urgency] ?? 9));
+  const _dqSeen = new Set();
+  const _dqFinal = _dqItems.filter(item => {
+    const key = `${item.patientId || item.name}|${item.reasonKey}`;
+    if (_dqSeen.has(key)) return false;
+    _dqSeen.add(key); return true;
+  }).slice(0, 12);
+
+  // Render a single queue row
+  const _dqRowHTML = item => {
+    const urgConf = {
+      critical: { label: 'Critical', bg: 'rgba(239,68,68,0.12)',  border: 'rgba(239,68,68,0.35)',  color: 'var(--red)',   avBg: 'rgba(239,68,68,0.15)'  },
+      urgent:   { label: 'Urgent',   bg: 'rgba(249,115,22,0.1)',  border: 'rgba(249,115,22,0.3)',  color: '#f97316',     avBg: 'rgba(249,115,22,0.12)' },
+      high:     { label: 'High',     bg: 'rgba(245,158,11,0.1)',  border: 'rgba(245,158,11,0.3)',  color: 'var(--amber)', avBg: 'rgba(245,158,11,0.12)' },
+      normal:   { label: '',         bg: '',                       border: 'var(--border)',          color: 'var(--text-tertiary)', avBg: 'rgba(255,255,255,0.06)' },
+    };
+    const reasonConf = {
+      'session-today':  { icon: '◧', cls: 'dq-r-session'  },
+      'side-effect':    { icon: '⚡', cls: 'dq-r-ae'       },
+      'overdue-review': { icon: '◱', cls: 'dq-r-review'   },
+      'deviation':      { icon: '⚠', cls: 'dq-r-dev'      },
+      'worsened':       { icon: '↘', cls: 'dq-r-worsened' },
+      'media-update':   { icon: '◎', cls: 'dq-r-media'    },
+      'wearable-alert': { icon: '◌', cls: 'dq-r-wearable' },
+      'missing-assess': { icon: '◻', cls: 'dq-r-assess'   },
+      'paused':         { icon: '⏸', cls: 'dq-r-paused'   },
+    };
+    const uc = urgConf[item.urgency] || urgConf.normal;
+    const rc = reasonConf[item.reasonKey] || { icon: '●', cls: '' };
+    const av = initials(item.name);
+    const urgBadge = uc.label
+      ? `<span style="flex-shrink:0;font-size:9.5px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;padding:2px 6px;border-radius:4px;background:${uc.bg};border:1px solid ${uc.border};color:${uc.color}">${uc.label}</span>`
+      : '';
+    return `<div class="dq-row" data-dqf="${item.filters}"
+        style="display:flex;align-items:center;gap:10px;padding:9px 14px;border-bottom:1px solid var(--border);cursor:pointer;transition:background 0.12s"
+        onmouseover="this.style.background='var(--bg-card-hover)'" onmouseout="this.style.background=''"
+        onclick="${item.action.onclick}">
+      <div style="width:30px;height:30px;border-radius:50%;background:${uc.avBg};border:1px solid ${uc.border};display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:${uc.color};flex-shrink:0">${av}</div>
+      <div style="flex:1;min-width:0;overflow:hidden">
+        <div style="display:flex;align-items:center;gap:5px;margin-bottom:1px">
+          <span style="font-size:12.5px;font-weight:600;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:110px">${item.name}</span>
+          ${urgBadge}
+        </div>
+        <div style="font-size:10.5px;color:var(--text-tertiary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">
+          ${item.condition} · <span style="color:var(--teal)">${item.modality}</span>
+        </div>
+      </div>
+      <div style="flex-shrink:0;max-width:130px">
+        <span class="dq-reason-chip ${rc.cls}" title="${item.reason}">${rc.icon} ${item.reason}</span>
+      </div>
+      <button class="dq-action-btn" onclick="event.stopPropagation();${item.action.onclick}">${item.action.label}</button>
+    </div>`;
+  };
+
+  // Filter tab keys
+  const _dqTabs = [
+    { key: 'all',          label: 'All',              count: _dqFinal.length },
+    { key: 'today',        label: 'Today',            count: _dqFinal.filter(i => i.filters.includes('today')).length },
+    { key: 'needs-review', label: 'Needs Review',     count: _dqFinal.filter(i => i.filters.includes('needs-review')).length },
+    { key: 'alerts',       label: 'Alerts',           count: _dqFinal.filter(i => i.filters.includes('alerts')).length },
+    { key: 'waiting',      label: 'Waiting for Response', count: 0 },
   ];
+  const _dqUrgent = _dqFinal.filter(i => i.urgency === 'critical' || i.urgency === 'urgent').length;
+
+  const _dqEmptyState = `<div style="padding:32px 16px;text-align:center">
+    <div style="font-size:28px;margin-bottom:10px">✓</div>
+    <div style="font-size:14px;font-weight:600;color:var(--text-primary);margin-bottom:4px">All clear for now</div>
+    <div style="font-size:12px;color:var(--text-tertiary);margin-bottom:14px">No patients need immediate attention</div>
+    <button class="btn btn-sm" onclick="window._nav('scheduling')" style="font-size:11.5px">View today's schedule →</button>
+  </div>`;
+
+  const _dqQueueCard = `<div class="card" style="overflow:hidden">
+    <div style="padding:11px 14px 0;border-bottom:1px solid var(--border)">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+        <div style="display:flex;align-items:center;gap:8px">
+          <span class="card-section-label">Today's Queue</span>
+          ${_dqUrgent > 0 ? `<span style="font-size:10.5px;font-weight:700;color:var(--red);background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.25);border-radius:4px;padding:1px 7px;font-family:var(--font-mono)">${_dqUrgent} urgent</span>` : `<span style="font-size:10.5px;color:var(--green)">✓</span>`}
+        </div>
+        <button class="btn btn-sm" style="font-size:10px" onclick="window._nav('patient-queue')">Full Queue →</button>
+      </div>
+      <div id="dq-tabs" style="display:flex;gap:0;margin-bottom:-1px">
+        ${_dqTabs.map((t, i) => `<button id="dq-tab-${t.key}" onclick="window._dqFilter('${t.key}')"
+          style="font-size:11px;font-weight:600;padding:5px 10px;border:none;border-bottom:2px solid ${i === 0 ? 'var(--teal)' : 'transparent'};background:transparent;color:${i === 0 ? 'var(--teal)' : 'var(--text-tertiary)'};cursor:pointer;font-family:var(--font-body);transition:color 0.12s,border-color 0.12s;white-space:nowrap">
+          ${t.label}${t.count > 0 ? ` <span style="font-size:10px;font-family:var(--font-mono)">(${t.count})</span>` : ''}
+        </button>`).join('')}
+      </div>
+    </div>
+    <div id="dq-list">
+      ${_dqFinal.length ? _dqFinal.map(_dqRowHTML).join('') : _dqEmptyState}
+    </div>
+  </div>`;
 
   const rowA = `<div class="g2" style="margin-bottom:14px;align-items:start">
     <div class="card card--interactive" style="overflow:hidden">
@@ -703,18 +900,32 @@ export async function pgDash(setTopbar, navigate) {
           </div>`).join('')}
       </div>
     </div>
-
-    <div class="card card--interactive" style="overflow:hidden">
-      <div style="padding:13px 16px 11px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--border)">
-        <span class="card-section-label">Clinic Queue</span>
-        <button class="btn btn-sm" style="font-size:10.5px" onclick="window._nav('courses')">All Courses →</button>
-      </div>
-      ${clinicQueueRows.length
-        ? clinicQueueRows.join('')
-        : _emptyState('📝', 'No recent notes', 'Notes from sessions will appear here', null, null)
-      }
-    </div>
+    ${_dqQueueCard}
   </div>`;
+
+  // ── Wire up queue filter interactivity (runs after render) ─────────────────
+  window._dqFilter = function(key) {
+    const rows = document.querySelectorAll('#dq-list .dq-row');
+    rows.forEach(row => {
+      const filters = row.getAttribute('data-dqf') || '';
+      row.style.display = (key === 'all' || filters.includes(key)) ? '' : 'none';
+    });
+    document.querySelectorAll('#dq-tabs button').forEach(btn => {
+      const isActive = btn.id === `dq-tab-${key}`;
+      btn.style.borderBottomColor = isActive ? 'var(--teal)' : 'transparent';
+      btn.style.color = isActive ? 'var(--teal)' : 'var(--text-tertiary)';
+    });
+    // Show empty state if no rows visible
+    const list = document.getElementById('dq-list');
+    if (list) {
+      const visible = [...rows].filter(r => r.style.display !== 'none');
+      const existingEmpty = list.querySelector('.dq-filter-empty');
+      if (existingEmpty) existingEmpty.remove();
+      if (!visible.length && rows.length) {
+        list.insertAdjacentHTML('beforeend', `<div class="dq-filter-empty" style="padding:24px 16px;text-align:center;font-size:12.5px;color:var(--text-tertiary)">No items in this category</div>`);
+      }
+    }
+  };
 
   // ── Row B: Active Patients + Governance ────────────────────────────────────
   const activePatientsHTML = activePatients.length === 0

@@ -3491,6 +3491,20 @@ body.light-theme .pt-aftercare-emergency { background: rgba(239,68,68,0.04); }
 .ah-form-input, .ah-form-select { padding: 8px 12px; border-radius: var(--radius-md); border: 1px solid var(--border); background: var(--bg-page, #0e1117); color: var(--text-primary); font-size: 13px; font-family: var(--font-body); outline: none; }
 .ah-form-input:focus, .ah-form-select:focus { border-color: var(--teal); }
 
+/* ── Today's Queue (dashboard action queue) ── */
+.dq-reason-chip { display: inline-block; font-size: 10px; font-weight: 600; padding: 2px 7px; border-radius: 10px; max-width: 128px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: default; }
+.dq-r-session  { background: rgba(0,212,188,0.1);   color: var(--teal);           border: 1px solid rgba(0,212,188,0.25);  }
+.dq-r-ae       { background: rgba(239,68,68,0.08);   color: var(--red,#ef4444);   border: 1px solid rgba(239,68,68,0.2);   }
+.dq-r-review   { background: rgba(245,158,11,0.1);   color: var(--amber,#f59e0b); border: 1px solid rgba(245,158,11,0.25); }
+.dq-r-dev      { background: rgba(245,158,11,0.1);   color: var(--amber,#f59e0b); border: 1px solid rgba(245,158,11,0.25); }
+.dq-r-worsened { background: rgba(239,68,68,0.08);   color: var(--red,#ef4444);   border: 1px solid rgba(239,68,68,0.2);   }
+.dq-r-media    { background: rgba(99,102,241,0.09);  color: var(--violet,#6366f1);border: 1px solid rgba(99,102,241,0.2);  }
+.dq-r-wearable { background: rgba(59,130,246,0.09);  color: var(--blue);          border: 1px solid rgba(59,130,246,0.2);  }
+.dq-r-assess   { background: rgba(255,255,255,0.05); color: var(--text-secondary);border: 1px solid var(--border);          }
+.dq-r-paused   { background: rgba(255,255,255,0.04); color: var(--text-secondary);border: 1px solid var(--border);          }
+.dq-action-btn { flex-shrink: 0; font-size: 11px; font-weight: 700; padding: 5px 10px; border-radius: var(--radius-md); border: 1px solid var(--border); background: var(--bg-card); color: var(--text-primary); cursor: pointer; font-family: var(--font-body); white-space: nowrap; transition: border-color 0.12s, color 0.12s; }
+.dq-action-btn:hover { border-color: var(--teal); color: var(--teal); }
+
 /* ── Brain Map Planner ── */
 .bmp-wrap { display: grid; grid-template-columns: 240px 1fr 260px; gap: 20px; min-height: 540px; padding-bottom: 48px; }
 .bmp-left { display: flex; flex-direction: column; gap: 12px; }
@@ -4655,6 +4669,13 @@ body.light-theme .pt-uc-prep-toggle:hover { background: rgba(0,0,0,0.04); }
   padding:18px 16px; font-size:.82rem; color:var(--text-muted); line-height:1.55;
   text-align:center; font-style:italic;
 }
+.pt-docs-cat-more[hidden] { display:none; }
+.pt-docs-cat-show-more {
+  width:100%; padding:10px 16px; border:none; border-top:1px solid var(--border);
+  background:none; cursor:pointer; font-size:.8rem; font-weight:600;
+  color:var(--teal); letter-spacing:.01em; transition:background .15s;
+}
+.pt-docs-cat-show-more:hover { background:rgba(0,212,188,.06); }
 
 /* ── Sprint 1: Ask-about toast notification ──────────────────────────────── */
 .pt-doc-ask-toast {
@@ -4693,9 +4714,17 @@ body.light-theme .pt-uc-prep-toggle:hover { background: rgba(0,0,0,0.04); }
   .pt-report-hero-head { padding:14px 14px 10px; gap:10px; }
   .pt-report-hero-icon { width:36px; height:36px; font-size:16px; }
   .pt-report-hero-title { font-size:.92rem; }
-  .pt-report-hero-body { padding:0 14px 12px; }
-  .pt-report-hero-actions { padding:10px 14px 12px; }
+  .pt-report-hero-eyebrow { font-size:.65rem; }
+  .pt-report-hero-body { padding:0 14px 12px; gap:8px; }
+  .pt-report-hero-means { padding:9px 11px; }
+  .pt-report-hero-actions { padding:10px 14px 12px; gap:6px; }
+  .pt-hero-action { font-size:.78rem; padding:6px 12px; }
+  .pt-hero-badge { font-size:.68rem; padding:2px 7px; }
   .pt-docs-cat-hd { padding:10px 12px; }
+  .pt-docs-cat-label { font-size:.82rem; }
+  .pt-docs-cat-show-more { padding:9px 14px; font-size:.78rem; }
+  .pt-doc-ask-toast { gap:8px; padding:9px 12px; }
+  .pt-doc-ask-toast-btn { font-size:.76rem; padding:5px 10px; }
 }
 
 /* Light theme */
