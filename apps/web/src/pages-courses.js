@@ -224,156 +224,389 @@ function benchmarkRow(modality, clinicRate, benchmarkRate, benchmark) {
   </div>`;
 }
 
-function courseCard(c) {
-  const statusCol = STATUS_COLOR[c.status] || 'var(--text-tertiary)';
-  const progress = c.planned_sessions_total > 0
-    ? Math.min(100, Math.round((c.sessions_delivered / c.planned_sessions_total) * 100))
-    : 0;
+// ── Treatment Courses — status / phase / signal / CTA helpers ─────────────────
 
-  // Last activity line
-  let lastActivityLine = '';
-  if (c.status === 'pending_approval') {
-    lastActivityLine = '<span style="color:var(--amber)">Awaiting approval</span>';
-  } else if (c.last_session_at) {
-    const days = Math.round((Date.now() - new Date(c.last_session_at).getTime()) / 86400000);
-    lastActivityLine = days === 0 ? 'Last session: today' : days === 1 ? 'Last session: yesterday' : `Last session: ${days} days ago`;
-  } else if (c.sessions_delivered > 0) {
-    lastActivityLine = `${c.sessions_delivered} session${c.sessions_delivered !== 1 ? 's' : ''} delivered`;
-  } else {
-    lastActivityLine = 'No sessions logged yet';
+const TC_STATUS = {
+  pending_approval: { label: 'Awaiting Approval', color: 'var(--amber)',  bg: 'rgba(245,158,11,0.12)'  },
+  approved:         { label: 'Planned',            color: 'var(--blue)',   bg: 'rgba(59,130,246,0.12)'  },
+  active:           { label: 'Active',             color: 'var(--teal)',   bg: 'rgba(0,212,188,0.12)'   },
+  paused:           { label: 'Paused',             color: 'var(--amber)',  bg: 'rgba(245,158,11,0.12)'  },
+  completed:        { label: 'Completed',          color: 'var(--green)',  bg: 'rgba(34,197,94,0.12)'   },
+  discontinued:     { label: 'Discontinued',       color: 'var(--red)',    bg: 'rgba(239,68,68,0.12)'   },
+};
+
+function _tcPhase(delivered, total) {
+  if (!delivered) return 'Pre-treatment';
+  const pct = total > 0 ? delivered / total : 0;
+  if (delivered <= 3) return 'Induction';
+  if (pct < 0.5)      return 'Active Treatment';
+  if (pct < 0.8)      return 'Mid-Course';
+  if (pct < 1.0)      return 'Final Phase';
+  return 'Maintenance';
+}
+
+function _tcNextMilestone(delivered, total) {
+  const milestones = [5, 10, 20].filter(m => m <= (total || 999));
+  for (const m of milestones) {
+    if (delivered < m) {
+      const label = m === 5 ? 'Tolerance check' : m === 10 ? 'Mid-course review' : 'Completion review';
+      return { session: m, remaining: m - delivered, label };
+    }
   }
+  return null;
+}
 
-  // Patient name if available
-  const patientLine = c._patientName ? `<span style="font-size:11px;color:var(--text-tertiary);margin-right:8px">◉ ${c._patientName}</span>` : '';
+function _tcSignals(course, openAEs = []) {
+  const signals = [];
+  const delivered = course.sessions_delivered || 0;
+  const total     = course.planned_sessions_total || 0;
+  const ms        = _tcNextMilestone(delivered, total);
 
-  return `<div class="card" style="padding:16px 20px;cursor:pointer;transition:background 0.15s" onmouseover="this.style.background='var(--bg-card-hover)'" onmouseout="this.style.background=''" onclick="window._openCourse('${c.id}')">
-    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-      <div style="flex:1;min-width:0">
-        <div style="font-size:13px;font-weight:600;color:var(--text-primary);margin-bottom:4px">
-          ${c.condition_slug ? c.condition_slug.replace(/-/g,' ') : '—'} · <span style="color:var(--teal)">${c.modality_slug || '—'}</span>
-        </div>
-        <div style="font-size:11px;color:var(--text-secondary)">
-          ${patientLine}${c.planned_sessions_per_week || '?'}×/wk · ${c.planned_sessions_total || '?'} sessions total
-          ${c.planned_frequency_hz ? ` · ${c.planned_frequency_hz} Hz` : ''}
-          ${c.target_region ? ` · Target: ${c.target_region}` : ''}
-        </div>
+  if (ms && ms.remaining <= 1 && course.status === 'active')
+    signals.push({ key: 'milestone',    icon: '◎', label: `${ms.label} due`,        color: 'var(--blue)',          bg: 'rgba(59,130,246,0.1)',   filter: 'milestone-due'    });
+  if (course.on_label === false)
+    signals.push({ key: 'off-label',   icon: '◈', label: 'Off-label',               color: 'var(--amber)',         bg: 'rgba(245,158,11,0.1)',   filter: 'off-label'        });
+  if ((course.governance_warnings || []).length > 0)
+    signals.push({ key: 'safety-flag', icon: '⚠', label: 'Safety flag',             color: 'var(--red)',           bg: 'rgba(239,68,68,0.1)',    filter: 'needs-review'     });
+  if (course.review_required)
+    signals.push({ key: 'review-due',  icon: '◱', label: 'Review due',              color: 'var(--amber)',         bg: 'rgba(245,158,11,0.1)',   filter: 'needs-review'     });
+  if (course.status === 'pending_approval')
+    signals.push({ key: 'awaiting',    icon: '◱', label: 'Awaiting approval',       color: 'var(--amber)',         bg: 'rgba(245,158,11,0.1)',   filter: 'needs-review'     });
+
+  const courseAEs = openAEs.filter(ae => ae.course_id === course.id);
+  if (courseAEs.length) {
+    const serious = courseAEs.some(ae => ae.severity === 'serious' || ae.severity === 'severe');
+    signals.push({ key: 'side-effects', icon: '⚡', label: serious ? 'Serious AE open' : 'Side effects',
+      color: serious ? 'var(--red)' : 'var(--amber)', bg: serious ? 'rgba(239,68,68,0.1)' : 'rgba(245,158,11,0.1)',
+      filter: 'alerts' });
+  }
+  if (course.status === 'active' && course.last_session_at) {
+    const days = Math.floor((Date.now() - new Date(course.last_session_at).getTime()) / 86400000);
+    if (days > 14)
+      signals.push({ key: 'low-adherence', icon: '↓', label: `${days}d no session`, color: 'var(--amber)', bg: 'rgba(245,158,11,0.1)', filter: 'low-adherence' });
+  }
+  if ((course.governance_warnings || []).length >= 2 || (courseAEs.some(a => a.severity === 'serious') && (course.governance_warnings||[]).length))
+    signals.push({ key: 'needs-adjustment', icon: '↘', label: 'Needs adjustment',   color: 'var(--red)',           bg: 'rgba(239,68,68,0.1)',    filter: 'needs-adjustment' });
+
+  return signals;
+}
+
+function _tcCTA(course, signals) {
+  const hasSeriousAE   = signals.some(s => s.key === 'side-effects' && s.color === 'var(--red)');
+  const needsReview    = signals.some(s => s.key === 'review-due' || s.key === 'safety-flag');
+  const milestoneDue   = signals.some(s => s.key === 'milestone');
+  const lowAdherence   = signals.some(s => s.key === 'low-adherence');
+  const needsAdjust    = signals.some(s => s.key === 'needs-adjustment');
+
+  if (course.status === 'pending_approval') return { label: 'Approve & Activate', onclick: "window._nav('review-queue')",       style: 'primary' };
+  if (course.status === 'paused')           return { label: 'Resume Course',       onclick: `window._openCourse('${course.id}')`, style: 'normal'  };
+  if (course.status === 'completed')        return { label: 'View Report',         onclick: `window._openCourse('${course.id}')`, style: 'ghost'   };
+  if (course.status === 'approved')         return { label: 'Activate',            onclick: "window._nav('review-queue')",       style: 'normal'  };
+  if (hasSeriousAE || needsAdjust)          return { label: 'Open Chart',          onclick: `window._openCourse('${course.id}')`, style: 'danger'  };
+  if (needsReview || milestoneDue)          return { label: 'Review Progress',     onclick: `window._openCourse('${course.id}')`, style: 'amber'   };
+  if (lowAdherence)                         return { label: 'Message Patient',     onclick: "window._nav('messaging')",          style: 'normal'  };
+  return                                           { label: 'Start Session',       onclick: "window._nav('session-execution')",  style: 'primary' };
+}
+
+const _tcBtnStyle = {
+  primary: 'background:var(--teal);color:#000;border:none;font-weight:700',
+  amber:   'background:rgba(245,158,11,0.15);color:var(--amber,#f59e0b);border:1px solid rgba(245,158,11,0.3)',
+  danger:  'background:rgba(239,68,68,0.12);color:var(--red,#ef4444);border:1px solid rgba(239,68,68,0.25)',
+  ghost:   'background:transparent;color:var(--text-secondary);border:1px solid var(--border)',
+  normal:  'background:transparent;color:var(--teal);border:1px solid rgba(0,212,188,0.3)',
+};
+
+function _tcListRow(c, openAEs = []) {
+  const signals  = _tcSignals(c, openAEs);
+  const cta      = _tcCTA(c, signals);
+  const delivered = c.sessions_delivered || 0;
+  const total     = c.planned_sessions_total || 0;
+  const pct       = total > 0 ? Math.min(100, Math.round(delivered / total * 100)) : 0;
+  const phase     = _tcPhase(delivered, total);
+  const ms        = _tcNextMilestone(delivered, total);
+  const st        = TC_STATUS[c.status] || TC_STATUS.active;
+
+  return `<div class="tc-row" onclick="window._openCourse('${c.id}')"
+    style="display:flex;align-items:center;gap:12px;padding:11px 16px;border-bottom:1px solid var(--border);cursor:pointer;transition:background 0.12s"
+    onmouseover="this.style.background='var(--bg-card-hover)'" onmouseout="this.style.background=''">
+    <div style="flex:1;min-width:0;overflow:hidden">
+      <div style="display:flex;align-items:center;gap:6px;margin-bottom:3px;flex-wrap:nowrap;overflow:hidden">
+        <span style="font-size:13px;font-weight:700;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:150px">${c._patientName || '—'}</span>
+        <span style="font-size:11.5px;color:var(--text-secondary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${(c.condition_slug || '—').replace(/-/g,' ')}</span>
+        <span style="font-size:11px;color:var(--teal);font-weight:600;flex-shrink:0">${c.modality_slug || '—'}</span>
       </div>
-      <div style="display:flex;align-items:center;gap:6px;flex-shrink:0">
-        ${approvalBadge(c.status)}
-        ${evidenceBadge(c.evidence_grade)}
-        ${c.on_label === false ? labelBadge(false) : ''}
-        ${safetyBadge(c.governance_warnings)}
+      <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+        <span style="font-size:10px;font-weight:700;padding:1px 7px;border-radius:10px;background:${st.bg};color:${st.color};white-space:nowrap">${st.label}</span>
+        <span style="font-size:10.5px;color:var(--text-tertiary)">${phase}</span>
+        ${ms ? `<span style="font-size:10.5px;color:var(--text-tertiary)">· ${ms.label} in ${ms.remaining}s</span>` : ''}
+        ${signals.slice(0, 2).map(s => `<span style="font-size:9.5px;font-weight:600;padding:1px 6px;border-radius:8px;background:${s.bg};color:${s.color};white-space:nowrap">${s.icon} ${s.label}</span>`).join('')}
       </div>
     </div>
-    <div style="margin-top:12px">
-      <div style="display:flex;justify-content:space-between;font-size:10.5px;color:var(--text-tertiary);margin-bottom:4px">
-        <span>Progress</span><span>${c.sessions_delivered || 0} / ${c.planned_sessions_total || '?'}</span>
-      </div>
+    <div style="flex-shrink:0;width:100px">
+      <div style="display:flex;justify-content:space-between;font-size:9.5px;color:var(--text-tertiary);margin-bottom:3px"><span>${delivered}/${total || '?'}</span><span>${pct}%</span></div>
       <div style="height:4px;border-radius:2px;background:var(--border)">
-        <div style="height:4px;border-radius:2px;background:${statusCol};width:${progress}%;transition:width 0.3s"></div>
+        <div style="height:4px;border-radius:2px;background:${st.color};width:${pct}%"></div>
       </div>
     </div>
-    <div style="margin-top:8px;display:flex;align-items:center;justify-content:space-between">
-      <span style="font-size:10.5px;color:var(--text-tertiary)">${lastActivityLine}</span>
-      ${riskGauge(computeRiskScore(c), true)}
+    <button onclick="event.stopPropagation();${cta.onclick}"
+      style="flex-shrink:0;font-size:11px;font-weight:600;padding:6px 11px;border-radius:var(--radius-md);cursor:pointer;font-family:var(--font-body);white-space:nowrap;${_tcBtnStyle[cta.style] || ''}">${cta.label}</button>
+  </div>`;
+}
+
+function _tcCard(c, openAEs = []) {
+  const signals  = _tcSignals(c, openAEs);
+  const cta      = _tcCTA(c, signals);
+  const delivered = c.sessions_delivered || 0;
+  const total     = c.planned_sessions_total || 0;
+  const pct       = total > 0 ? Math.min(100, Math.round(delivered / total * 100)) : 0;
+  const phase     = _tcPhase(delivered, total);
+  const ms        = _tcNextMilestone(delivered, total);
+  const st        = TC_STATUS[c.status] || TC_STATUS.active;
+
+  return `<div class="card" style="padding:16px;cursor:pointer;display:flex;flex-direction:column;gap:10px;transition:border-color 0.15s"
+    onmouseover="this.style.borderColor='rgba(0,212,188,0.3)'" onmouseout="this.style.borderColor='var(--border)'"
+    onclick="window._openCourse('${c.id}')">
+    <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px">
+      <div style="flex:1;min-width:0">
+        <div style="font-size:13px;font-weight:700;color:var(--text-primary);margin-bottom:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${c._patientName || '—'}</div>
+        <div style="font-size:11.5px;color:var(--text-secondary)">${(c.condition_slug || '—').replace(/-/g,' ')} · <span style="color:var(--teal)">${c.modality_slug || '—'}</span></div>
+      </div>
+      <span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:10px;background:${st.bg};color:${st.color};flex-shrink:0;white-space:nowrap">${st.label}</span>
     </div>
-    ${c.clinician_notes ? `<div style="margin-top:4px;font-size:11px;color:var(--text-tertiary);font-style:italic">${c.clinician_notes}</div>` : ''}
-    ${(c.governance_warnings || []).map(w => `<div style="margin-top:4px;font-size:11px;color:var(--amber)">⚠ ${w}</div>`).join('')}
+    <div>
+      <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--text-tertiary);margin-bottom:3px"><span>${phase}</span><span>${delivered}/${total || '?'} · ${pct}%</span></div>
+      <div style="height:5px;border-radius:3px;background:var(--border)"><div style="height:5px;border-radius:3px;background:${st.color};width:${pct}%"></div></div>
+    </div>
+    ${ms ? `<div style="font-size:10.5px;color:var(--text-secondary)">◎ ${ms.label} in ${ms.remaining} session${ms.remaining !== 1 ? 's' : ''}</div>` : ''}
+    ${signals.length ? `<div style="display:flex;flex-wrap:wrap;gap:4px">${signals.map(s => `<span style="font-size:9.5px;font-weight:600;padding:2px 7px;border-radius:8px;background:${s.bg};color:${s.color}">${s.icon} ${s.label}</span>`).join('')}</div>` : ''}
+    <button onclick="event.stopPropagation();${cta.onclick}"
+      style="width:100%;font-size:12px;font-weight:700;padding:8px;border-radius:var(--radius-md);cursor:pointer;font-family:var(--font-body);${_tcBtnStyle[cta.style] || ''}">${cta.label}</button>
   </div>`;
 }
 
 // ── pgCourses — Treatment Courses list ───────────────────────────────────────
 export async function pgCourses(setTopbar, navigate) {
-  const canCreateCourse = ['clinician', 'admin', 'supervisor'].includes(currentUser?.role);
+  const canCreate = ['clinician', 'admin', 'supervisor'].includes(currentUser?.role);
   setTopbar('Treatment Courses',
-    `<select id="course-filter" class="form-control" style="width:auto;font-size:12px;padding:5px 10px" onchange="window._filterCourses()">
-       <option value="">All Status</option>
-       <option value="active">Active</option>
-       <option value="pending_approval">Pending Approval</option>
-       <option value="approved">Approved</option>
-       <option value="completed">Completed</option>
-       <option value="paused">Paused</option>
-     </select>
-     <select id="course-sort" class="form-control" style="width:auto;font-size:12px;padding:5px 10px" onchange="window._filterCourses()">
-       <option value="recent">Sort: Recent</option>
-       <option value="name">Sort: Name</option>
-       <option value="status">Sort: Status</option>
-       <option value="evidence">Sort: Evidence Grade</option>
-     </select>
-     ${canCreateCourse ? `<button class="btn btn-primary btn-sm" onclick="window._nav('protocol-wizard')">+ New Course</button>` : ''}`
+    canCreate ? `<button class="btn btn-primary btn-sm" onclick="window._nav('protocol-wizard')">+ New Course</button>` : ''
   );
+
   const el = document.getElementById('content');
   el.innerHTML = spinner();
 
+  let items = [], openAEs = [];
   try {
-    const data = await api.listCourses();
-    const items = data?.items || [];
-    window._allCourses = items;
+    const [cData, pData, aeData] = await Promise.all([
+      api.listCourses(),
+      api.listPatients?.().catch(() => ({ items: [] })),
+      api.listAdverseEvents?.().catch(() => ({ items: [] })),
+    ]);
+    items  = cData?.items || [];
+    openAEs = (aeData?.items || []).filter(ae => ae.status === 'open' || ae.status === 'active');
 
-    const active    = items.filter(c => c.status === 'active').length;
-    const pending   = items.filter(c => c.status === 'pending_approval').length;
-    const completed = items.filter(c => c.status === 'completed').length;
-    const flagged   = items.filter(c => (c.governance_warnings || []).length > 0).length;
-
-    el.innerHTML = `
-      <div class="page-section">
-        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:24px">
-          ${metricCard('Active Courses',     active    || '0', 'var(--teal)',  'Ongoing treatment')}
-          ${metricCard('Pending Approval',   pending   || '0', 'var(--amber)', 'Awaiting review')}
-          ${metricCard('Completed',          completed || '0', 'var(--green)', 'This quarter')}
-          ${metricCard('Governance Flags',   flagged   || '0', 'var(--red)',   'Require attention')}
-        </div>
-        <div class="card">
-          <div class="card-header" style="padding:14px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
-            <span style="font-weight:600;font-size:14px">Treatment Courses</span>
-            <span style="font-size:11px;color:var(--text-tertiary)">${items.length} total</span>
-          </div>
-          <div id="courses-list" style="padding:16px;display:flex;flex-direction:column;gap:8px">
-            ${items.length
-              ? items.map(courseCard).join('')
-              : emptyState('📋', 'No treatment courses', "Create a course to start tracking a patient's treatment journey.", '+ New Course', "window._nav('protocol-wizard')")}
-          </div>
-        </div>
-      </div>`;
+    const patientMap = {};
+    (pData?.items || []).forEach(p => { patientMap[p.id] = p; });
+    items.forEach(c => {
+      const p = patientMap[c.patient_id];
+      c._patientName = p ? `${p.first_name || ''} ${p.last_name || ''}`.trim() : (c.patient_name || '—');
+    });
   } catch (e) {
-    el.innerHTML = `
-      <div class="page-section">
-        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:24px">
-          ${metricCard('Active Courses',   '—', 'var(--teal)',  'Ongoing treatment')}
-          ${metricCard('Pending Approval', '—', 'var(--amber)', 'Awaiting review')}
-          ${metricCard('Completed',        '—', 'var(--green)', 'This quarter')}
-          ${metricCard('Governance Flags', '—', 'var(--red)',   'Require attention')}
-        </div>
-        <div class="card">
-          <div style="padding:48px;text-align:center">
-            ${emptyState('◎', 'Could not load courses. Ensure the backend is running.')}
-          </div>
-        </div>
-      </div>`;
+    // continue with empty data — fallback UI below
   }
 
-  window._filterCourses = function() {
-    const filter = document.getElementById('course-filter')?.value || '';
-    const sort   = document.getElementById('course-sort')?.value || 'recent';
-    const items  = window._allCourses || [];
-    let visible  = filter ? items.filter(c => c.status === filter) : [...items];
+  // ── Summary metrics ─────────────────────────────────────────────────────────
+  const now     = Date.now();
+  const inWeek  = now + 7 * 86400000;
+  const active          = items.filter(c => c.status === 'active').length;
+  const paused          = items.filter(c => c.status === 'paused').length;
+  const completed       = items.filter(c => c.status === 'completed').length;
+  const startingThisWeek = items.filter(c => {
+    if (c.status !== 'approved' && c.status !== 'active') return false;
+    const s = c.start_date ? new Date(c.start_date).getTime() : 0;
+    return s >= now && s <= inWeek;
+  }).length;
+  const milestoneDue    = items.filter(c => {
+    const ms = _tcNextMilestone(c.sessions_delivered || 0, c.planned_sessions_total || 0);
+    return ms && ms.remaining <= 1 && c.status === 'active';
+  }).length;
+  const needsAdjustment = items.filter(c => _tcSignals(c, openAEs).some(s => s.key === 'needs-adjustment')).length;
 
-    const GRADE_ORDER = { A: 0, B: 1, C: 2, D: 3 };
-    const STATUS_ORDER = { active: 0, pending_approval: 1, approved: 2, paused: 3, completed: 4, discontinued: 5 };
-    if (sort === 'name') {
-      visible.sort((a, b) => (a.condition_slug || '').localeCompare(b.condition_slug || ''));
-    } else if (sort === 'status') {
-      visible.sort((a, b) => (STATUS_ORDER[a.status] ?? 9) - (STATUS_ORDER[b.status] ?? 9));
+  function tcSummaryCard(label, value, color, sub, clickFilter) {
+    return `<div class="tc-summary-card" onclick="window._tcFilterByStatus('${clickFilter}')"
+      style="padding:16px 18px;border-radius:var(--radius-lg);background:var(--bg-card);border:1px solid var(--border);cursor:pointer;transition:border-color 0.15s"
+      onmouseover="this.style.borderColor='${color}55'" onmouseout="this.style.borderColor='var(--border)'">
+      <div style="font-size:10.5px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.7px;margin-bottom:6px">${label}</div>
+      <div style="font-size:26px;font-weight:800;color:${color};line-height:1">${value}</div>
+      <div style="font-size:10.5px;color:var(--text-secondary);margin-top:5px">${sub}</div>
+    </div>`;
+  }
+
+  window._tcAllCourses = items;
+  window._tcOpenAEs    = openAEs;
+  window._tcViewMode   = 'list';
+
+  el.innerHTML = `
+    <div class="page-section">
+
+      <!-- Summary strip -->
+      <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:12px;margin-bottom:20px">
+        ${tcSummaryCard('Active',          active,          'var(--teal)',  'In progress',          'active')}
+        ${tcSummaryCard('Starting Soon',   startingThisWeek,'var(--blue)',  'Next 7 days',          'approved')}
+        ${tcSummaryCard('Milestone Due',   milestoneDue,    'var(--blue)',  'Needs check-in',       '__milestone')}
+        ${tcSummaryCard('Needs Adjustment',needsAdjustment, 'var(--red)',   'Protocol review req.', '__adjustment')}
+        ${tcSummaryCard('Paused',          paused,          'var(--amber)', 'On hold',              'paused')}
+        ${tcSummaryCard('Completed',       completed,       'var(--green)', 'Finished courses',     'completed')}
+      </div>
+
+      <!-- Search + filter bar -->
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:16px">
+        <div style="position:relative;flex:1;min-width:220px">
+          <span style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--text-tertiary);font-size:13px;pointer-events:none">⌕</span>
+          <input id="tc-search" type="text" placeholder="Search patients, conditions, modalities…"
+            class="form-control" style="padding-left:28px;font-size:13px;height:34px"
+            oninput="window._tcApplyFilters()">
+        </div>
+        <select id="tc-status" class="form-control" style="width:auto;font-size:12px;height:34px;padding:0 10px" onchange="window._tcApplyFilters()">
+          <option value="">All Status</option>
+          <option value="active">Active</option>
+          <option value="pending_approval">Pending Approval</option>
+          <option value="approved">Planned</option>
+          <option value="paused">Paused</option>
+          <option value="completed">Completed</option>
+          <option value="discontinued">Discontinued</option>
+        </select>
+        <select id="tc-modality" class="form-control" style="width:auto;font-size:12px;height:34px;padding:0 10px" onchange="window._tcApplyFilters()">
+          <option value="">All Modalities</option>
+          ${[...new Set(items.map(c => c.modality_slug).filter(Boolean))].map(m => `<option value="${m}">${m}</option>`).join('')}
+        </select>
+        <select id="tc-signal" class="form-control" style="width:auto;font-size:12px;height:34px;padding:0 10px" onchange="window._tcApplyFilters()">
+          <option value="">All Signals</option>
+          <option value="milestone-due">Milestone Due</option>
+          <option value="needs-review">Needs Review</option>
+          <option value="alerts">Alerts / AEs</option>
+          <option value="low-adherence">Low Adherence</option>
+          <option value="needs-adjustment">Needs Adjustment</option>
+          <option value="off-label">Off-Label</option>
+        </select>
+        <select id="tc-sort" class="form-control" style="width:auto;font-size:12px;height:34px;padding:0 10px" onchange="window._tcApplyFilters()">
+          <option value="recent">Sort: Recent</option>
+          <option value="urgency">Sort: Urgency</option>
+          <option value="patient">Sort: Patient Name</option>
+          <option value="progress">Sort: Progress</option>
+          <option value="evidence">Sort: Evidence Grade</option>
+        </select>
+        <div style="display:flex;border:1px solid var(--border);border-radius:var(--radius-md);overflow:hidden">
+          <button id="tc-view-list" onclick="window._tcSetView('list')"
+            style="padding:6px 12px;font-size:12px;border:none;cursor:pointer;background:var(--teal);color:#000;font-weight:700;font-family:var(--font-body)">≡ List</button>
+          <button id="tc-view-card" onclick="window._tcSetView('card')"
+            style="padding:6px 12px;font-size:12px;border:none;cursor:pointer;background:transparent;color:var(--text-secondary);font-family:var(--font-body)">⊞ Cards</button>
+        </div>
+      </div>
+
+      <!-- Course list -->
+      <div class="card" style="padding:0;overflow:hidden">
+        <div style="padding:12px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
+          <span style="font-size:13px;font-weight:600;color:var(--text-primary)">Treatment Courses</span>
+          <span id="tc-count" style="font-size:11px;color:var(--text-tertiary)">${items.length} total</span>
+        </div>
+        <div id="tc-list"></div>
+      </div>
+
+    </div>`;
+
+  // ── Render helpers ──────────────────────────────────────────────────────────
+  const GRADE_ORDER  = { A: 0, B: 1, C: 2, D: 3 };
+  const STATUS_ORDER = { active: 0, pending_approval: 1, approved: 2, paused: 3, completed: 4, discontinued: 5 };
+  const SIGNAL_URGENCY = { 'needs-adjustment': 0, 'safety-flag': 1, 'review-due': 2, 'milestone-due': 3, 'low-adherence': 4, 'off-label': 5, 'awaiting': 6 };
+
+  function tcRenderList(visible) {
+    const list = document.getElementById('tc-list');
+    const cnt  = document.getElementById('tc-count');
+    if (!list) return;
+    if (cnt) cnt.textContent = `${visible.length} of ${items.length}`;
+    if (!visible.length) {
+      list.innerHTML = `<div style="padding:48px;text-align:center">${emptyState('◎', 'No courses match', 'Try adjusting your filters or search query.')}</div>`;
+      return;
+    }
+    if (window._tcViewMode === 'card') {
+      list.style.cssText = 'display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:16px;padding:16px';
+      list.innerHTML = visible.map(c => _tcCard(c, openAEs)).join('');
+    } else {
+      list.style.cssText = '';
+      list.innerHTML = visible.map(c => _tcListRow(c, openAEs)).join('');
+    }
+  }
+
+  window._tcSetView = function(mode) {
+    window._tcViewMode = mode;
+    const btnList = document.getElementById('tc-view-list');
+    const btnCard = document.getElementById('tc-view-card');
+    if (btnList) { btnList.style.background = mode === 'list' ? 'var(--teal)' : 'transparent'; btnList.style.color = mode === 'list' ? '#000' : 'var(--text-secondary)'; btnList.style.fontWeight = mode === 'list' ? '700' : '400'; }
+    if (btnCard) { btnCard.style.background = mode === 'card' ? 'var(--teal)' : 'transparent'; btnCard.style.color = mode === 'card' ? '#000' : 'var(--text-secondary)'; btnCard.style.fontWeight = mode === 'card' ? '700' : '400'; }
+    window._tcApplyFilters();
+  };
+
+  window._tcFilterByStatus = function(key) {
+    const statusEl  = document.getElementById('tc-status');
+    const signalEl  = document.getElementById('tc-signal');
+    if (key === '__milestone') {
+      if (statusEl) statusEl.value = '';
+      if (signalEl) signalEl.value = 'milestone-due';
+    } else if (key === '__adjustment') {
+      if (statusEl) statusEl.value = '';
+      if (signalEl) signalEl.value = 'needs-adjustment';
+    } else {
+      if (statusEl) statusEl.value = key;
+      if (signalEl) signalEl.value = '';
+    }
+    window._tcApplyFilters();
+    document.getElementById('tc-list')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+
+  window._tcApplyFilters = function() {
+    const q       = (document.getElementById('tc-search')?.value  || '').toLowerCase();
+    const status  = document.getElementById('tc-status')?.value   || '';
+    const modality= document.getElementById('tc-modality')?.value || '';
+    const signal  = document.getElementById('tc-signal')?.value   || '';
+    const sort    = document.getElementById('tc-sort')?.value     || 'recent';
+
+    let visible = [...(window._tcAllCourses || [])];
+
+    if (q) visible = visible.filter(c =>
+      (c._patientName || '').toLowerCase().includes(q) ||
+      (c.condition_slug || '').toLowerCase().includes(q) ||
+      (c.modality_slug  || '').toLowerCase().includes(q)
+    );
+    if (status)   visible = visible.filter(c => c.status === status);
+    if (modality) visible = visible.filter(c => c.modality_slug === modality);
+    if (signal)   visible = visible.filter(c => _tcSignals(c, window._tcOpenAEs || []).some(s => s.filter === signal));
+
+    if (sort === 'urgency') {
+      visible.sort((a, b) => {
+        const sa = _tcSignals(a, openAEs); const sb = _tcSignals(b, openAEs);
+        const ua = sa.length ? Math.min(...sa.map(s => SIGNAL_URGENCY[s.key] ?? 99)) : 99;
+        const ub = sb.length ? Math.min(...sb.map(s => SIGNAL_URGENCY[s.key] ?? 99)) : 99;
+        return ua - ub;
+      });
+    } else if (sort === 'patient') {
+      visible.sort((a, b) => (a._patientName || '').localeCompare(b._patientName || ''));
+    } else if (sort === 'progress') {
+      visible.sort((a, b) => {
+        const pa = (a.planned_sessions_total || 0) > 0 ? (a.sessions_delivered || 0) / a.planned_sessions_total : 0;
+        const pb = (b.planned_sessions_total || 0) > 0 ? (b.sessions_delivered || 0) / b.planned_sessions_total : 0;
+        return pb - pa;
+      });
     } else if (sort === 'evidence') {
       visible.sort((a, b) => (GRADE_ORDER[a.evidence_grade] ?? 9) - (GRADE_ORDER[b.evidence_grade] ?? 9));
     } else {
       visible.sort((a, b) => ((b.updated_at || b.created_at || '') > (a.updated_at || a.created_at || '') ? 1 : -1));
     }
 
-    const list = document.getElementById('courses-list');
-    if (list) list.innerHTML = visible.length ? visible.map(courseCard).join('') : emptyState('◎', 'No courses match filter.');
+    tcRenderList(visible);
   };
 
+  // Initial render
+  tcRenderList(items);
 }
 
 // ── pgClinicalNotes — SOAP Notes Hub ─────────────────────────────────────────
@@ -1658,326 +1891,764 @@ export async function pgSessionExecution(setTopbar, navigate) {
     ]);
   } catch (_) {}
 
-  const courseOptions = activeCourses.map(c =>
-    `<option value="${c.id}">${c.condition_slug?.replace(/-/g,' ') || c.condition_slug} · ${c.modality_slug} — Session ${(c.sessions_delivered || 0) + 1} of ${c.planned_sessions_total || '?'}</option>`
-  ).join('');
-
   const deviceOptions = devices.map(d =>
     `<option value="${d.id || d.Device_ID || d.name}">${d.name || d.Device_Name || d.id}</option>`
   ).join('');
 
-  const technicianNotice = currentUser?.role === 'technician'
-    ? `<div class="notice notice-info" style="margin-bottom:16px">
-        ◧ Technician mode — you can log session parameters. Course management is handled by your supervising clinician.
-      </div>`
-    : '';
+  window._seActiveCourses = activeCourses;
+  window._seConsentBlocked = false;
+  if (window._seTimerInterval) { clearInterval(window._seTimerInterval); window._seTimerInterval = null; }
+
+  // ── Site-target SVG (top-of-head EEG 10-20 view) ──────────────────────────
+  function siteVisual(targetText) {
+    const t = (targetText || '').toLowerCase();
+    const sites = {
+      'F3': [72,64],  'F4': [128,64],  'Fz': [100,60],
+      'C3': [65,100], 'C4': [135,100], 'Cz': [100,100],
+      'T3': [26,100], 'T4': [174,100],
+      'P3': [72,136], 'P4': [128,136], 'Pz': [100,140],
+      'Fp1':[70,36],  'Fp2':[130,36],  'Fpz':[100,32],
+      'O1': [70,164], 'O2': [130,164], 'Oz': [100,168],
+      'F7': [42,70],  'F8': [158,70],
+    };
+    let target = null, label = '';
+    if (t.includes('dlpfc') && (t.includes('left')||t.includes('l-')||t.includes('f3'))) { target='F3'; label='L-DLPFC (F3)'; }
+    else if (t.includes('dlpfc') && (t.includes('right')||t.includes('r-')||t.includes('f4'))) { target='F4'; label='R-DLPFC (F4)'; }
+    else if (t.includes('f3')) { target='F3'; label='F3'; }
+    else if (t.includes('f4')) { target='F4'; label='F4'; }
+    else if (t.includes('motor')||t.includes('m1')||t.includes('c3')) { target='C3'; label='Motor (C3)'; }
+    else if (t.includes('c4')) { target='C4'; label='Motor (C4)'; }
+    else if (t.includes('vertex')||t.includes('cz')) { target='Cz'; label='Vertex (Cz)'; }
+    else if (t.includes('temporal')||t.includes('t3')||t.includes('auditory')) { target='T3'; label='Temporal (T3)'; }
+    else if (t.includes('t4')) { target='T4'; label='Temporal (T4)'; }
+    else if (t.includes('occipital')||t.includes('oz')) { target='Oz'; label='Occipital (Oz)'; }
+    else if (t.includes('parietal')||t.includes('pz')) { target='Pz'; label='Parietal (Pz)'; }
+    const dots = Object.entries(sites).map(([k,[x,y]]) => {
+      const isT = k === target;
+      return isT
+        ? `<circle cx="${x}" cy="${y}" r="8" fill="rgba(0,212,188,0.2)" stroke="var(--teal)" stroke-width="2"/>
+           <circle cx="${x}" cy="${y}" r="3" fill="var(--teal)"/>
+           <text x="${x}" y="${y-12}" font-size="9" text-anchor="middle" fill="var(--teal)" font-weight="700">${k}</text>`
+        : `<circle cx="${x}" cy="${y}" r="3" fill="rgba(255,255,255,0.12)" stroke="rgba(255,255,255,0.2)" stroke-width="1"/>
+           <text x="${x}" y="${y-6}" font-size="7" text-anchor="middle" fill="rgba(255,255,255,0.28)">${k}</text>`;
+    }).join('');
+    return `<div class="sex-guide-visual">
+      <svg viewBox="0 0 200 200" width="140" height="140" style="display:block">
+        <ellipse cx="100" cy="100" rx="88" ry="92" fill="rgba(14,22,40,0.6)" stroke="rgba(255,255,255,0.15)" stroke-width="2"/>
+        <line x1="12" y1="100" x2="188" y2="100" stroke="rgba(255,255,255,0.07)" stroke-width="1"/>
+        <line x1="100" y1="8" x2="100" y2="192" stroke="rgba(255,255,255,0.07)" stroke-width="1"/>
+        ${dots}
+        <text x="100" y="8" font-size="7" text-anchor="middle" fill="rgba(255,255,255,0.25)">Nasion</text>
+        <text x="100" y="198" font-size="7" text-anchor="middle" fill="rgba(255,255,255,0.25)">Inion</text>
+        <text x="4" y="103" font-size="7" text-anchor="start" fill="rgba(255,255,255,0.25)">L</text>
+        <text x="194" y="103" font-size="7" text-anchor="end" fill="rgba(255,255,255,0.25)">R</text>
+      </svg>
+      ${target
+        ? `<div style="font-size:11px;font-weight:600;color:var(--teal);margin-top:6px;text-align:center">${label}</div>`
+        : `<div style="font-size:10px;color:var(--text-tertiary);margin-top:6px;text-align:center">Site not specified</div>`}
+    </div>`;
+  }
+
+  // ── Aftercare text by modality ─────────────────────────────────────────────
+  function aftercareItems(slug) {
+    const m = (slug || '').toLowerCase();
+    if (m.includes('tms') || m.includes('rtms'))
+      return ['Avoid driving for 30 min if any dizziness was experienced', 'Report any headache lasting more than 2 hours', 'No alcohol for 24 hours post-session', 'Contact clinic immediately if seizure-like activity or fainting occurs'];
+    if (m.includes('tdcs'))
+      return ['Monitor skin at electrode sites — report burning or redness lasting >1 hour', 'Stay well hydrated', 'Mild scalp tingling or itching during stimulation is normal', 'Contact clinic for blistering or prolonged skin discomfort'];
+    if (m.includes('tavns') || m.includes('vns'))
+      return ['Check ear canal / skin for any irritation after removal', 'Report nausea, dizziness, or persistent cough', 'Normal daily activity can resume immediately', 'Ensure device is charged for next session'];
+    if (m.includes('nfb') || m.includes('neurofeedback'))
+      return ['Some mental fatigue after deep focus sessions is normal', 'Stay hydrated and take a short rest if needed', 'Light physical activity is recommended post-session', 'Note any mood changes, sleep changes, or vivid dreams in your journal'];
+    if (m.includes('tps') || m.includes('ultrasound'))
+      return ['Rest is recommended for 30 minutes post-session', 'Avoid strenuous physical activity for 2 hours', 'Report any unusual sensations at the treatment site', 'Contact clinic for significant or worsening pain'];
+    return ['Rest and stay hydrated', 'Note any unusual symptoms and contact the clinic if concerned', 'Keep your next appointment as scheduled', 'Record any changes in mood, sleep, or cognition'];
+  }
+
+  // ── Active course queue ────────────────────────────────────────────────────
+  function buildQueue() {
+    if (!activeCourses.length)
+      return emptyState('◧', 'No active courses. Courses appear here once approved and activated.');
+    return activeCourses.map(c => {
+      const pct = c.planned_sessions_total > 0
+        ? Math.min(100, Math.round(((c.sessions_delivered || 0) / c.planned_sessions_total) * 100)) : 0;
+      const patient = c.patient_name || c._patientName || '';
+      const sessionN = (c.sessions_delivered || 0) + 1;
+      return `<div class="sex-queue-row" onclick="window._seSelectCourse('${c.id}')">
+        <div class="sex-queue-info">
+          <div class="sex-queue-patient">
+            ${patient ? `<span class="sex-queue-pt-name">${patient}</span><span style="color:var(--text-tertiary);margin:0 5px">·</span>` : ''}
+            <span style="color:var(--text-primary);font-weight:500">${c.condition_slug?.replace(/-/g,' ') || ''}</span>
+            <span class="sex-modality-badge">${c.modality_slug || ''}</span>
+          </div>
+          <div class="sex-queue-meta">
+            Session ${sessionN} of ${c.planned_sessions_total || '?'}
+            ${c.planned_frequency_hz ? ` · ${c.planned_frequency_hz} Hz` : ''}
+            ${c.target_region ? ` · ${c.target_region}` : ''}
+          </div>
+        </div>
+        <div class="sex-queue-progress">
+          <div class="sex-queue-pct">${pct}%</div>
+          <div class="sex-queue-bar"><div class="sex-queue-fill" style="width:${pct}%"></div></div>
+        </div>
+        <span class="sex-queue-cta">Select →</span>
+      </div>`;
+    }).join('');
+  }
 
   el.innerHTML = `
-    <div class="page-section">
-      ${technicianNotice}
-      <!-- Active courses queue -->
+  <style>
+    @keyframes sexPulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.5;transform:scale(1.2)}}
+    @keyframes sexFadeIn{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:translateY(0)}}
+  </style>
+
+  <!-- Ghost fields: se-course, se-device, se-montage, se-freq, se-intensity, se-pulses, se-duration -->
+  <!-- se-outcome, se-tolerance, se-interrupt, se-deviation, se-notes live as real Phase 3 fields -->
+  <div style="display:none" aria-hidden="true">
+    <input id="se-course" type="text">
+    <select id="se-device"><option value="">—</option>${deviceOptions}<option value="other">Other</option></select>
+    <input id="se-montage"><input id="se-freq" type="number"><input id="se-intensity" type="number">
+    <input id="se-pulses" type="number"><input id="se-duration" type="number">
+    <div id="se-protocol-banner"></div><div id="se-consent-banner"></div>
+  </div>
+
+  <div id="sex-root">
+
+    <!-- ── STEP 0: SELECT PATIENT ─────────────────────────────────────── -->
+    <div id="sex-select">
+      ${currentUser?.role === 'technician' ? `<div class="notice notice-info" style="margin-bottom:14px">◧ Technician mode — log session parameters only. Course management is handled by your supervising clinician.</div>` : ''}
+      <div class="sex-queue-card card">
+        <div class="sex-queue-header">
+          <span>Active Courses <span class="sex-queue-count">${activeCourses.length}</span></span>
+          <input id="sex-search" class="form-control" placeholder="Search patient or condition…"
+            style="max-width:220px;height:28px;font-size:12px;padding:0 8px"
+            oninput="window._seFilterQueue(this.value)">
+        </div>
+        <div id="sex-queue-list" style="padding:12px 16px">${buildQueue()}</div>
+      </div>
+    </div>
+
+    <!-- ── PHASE PROGRESS BAR ──────────────────────────────────────────── -->
+    <div id="sex-pbar" class="sex-pbar" style="display:none">
+      <div class="sex-pbar-step" id="sex-ps-setup" onclick="window._sePhaseNav('setup')">
+        <span class="sex-ps-num">1</span><span class="sex-ps-label">Setup &amp; Safety</span>
+      </div>
+      <div class="sex-pbar-conn"></div>
+      <div class="sex-pbar-step" id="sex-ps-active" onclick="window._sePhaseNav('active')">
+        <span class="sex-ps-num">2</span><span class="sex-ps-label">Active Session</span>
+      </div>
+      <div class="sex-pbar-conn"></div>
+      <div class="sex-pbar-step" id="sex-ps-post" onclick="window._sePhaseNav('post')">
+        <span class="sex-ps-num">3</span><span class="sex-ps-label">Post-Session</span>
+      </div>
+    </div>
+
+    <!-- ── PHASE 1: SETUP & SAFETY ────────────────────────────────────── -->
+    <div id="sex-phase-setup" class="sex-phase" style="display:none">
+
+      <!-- Session Header -->
+      <div class="card sex-header-card" id="sex-header">
+        <div class="sex-header-body">
+          <div class="sex-header-patient">
+            <div id="sex-h-name" class="sex-h-name">—</div>
+            <div id="sex-h-meta" class="sex-h-meta"></div>
+          </div>
+          <div class="sex-header-right">
+            <div id="sex-h-session" class="sex-h-session"></div>
+            <div id="sex-h-status" class="sex-status-pill sex-status-pending">Pending</div>
+          </div>
+        </div>
+        <div id="sex-h-course-bar" class="sex-h-course-bar" style="display:none"></div>
+      </div>
+
+      <!-- Protocol Summary + Parameters -->
+      <div class="card" style="margin-bottom:12px">
+        <div class="sex-section-hd">Protocol Summary</div>
+        <div class="sex-proto-body">
+          <div class="sex-proto-params">
+            <div class="sex-param"><span class="sex-param-label">Protocol</span><span id="spp-name" class="sex-param-val">—</span></div>
+            <div class="sex-param"><span class="sex-param-label">Label</span><span id="spp-label" class="sex-param-val">—</span></div>
+            <div class="sex-param"><span class="sex-param-label">Target</span><span id="spp-target" class="sex-param-val">—</span></div>
+            <div class="sex-param"><span class="sex-param-label">Side</span><span id="spp-side" class="sex-param-val">—</span></div>
+          </div>
+          <div class="sex-proto-fields">
+            <div class="sex-param-grid">
+              <div class="sex-field-group">
+                <label class="sex-field-lbl">Device</label>
+                <select id="sex-device-vis" class="form-control sex-field-input"
+                  onchange="document.getElementById('se-device').value=this.value">
+                  <option value="">Select device…</option>${deviceOptions}<option value="other">Other</option>
+                </select>
+              </div>
+              <div class="sex-field-group">
+                <label class="sex-field-lbl">Site / Montage</label>
+                <input id="sex-montage-vis" class="form-control sex-field-input" placeholder="e.g. F3-Fp2"
+                  oninput="document.getElementById('se-montage').value=this.value">
+              </div>
+              <div class="sex-field-group">
+                <label class="sex-field-lbl">Freq (Hz)</label>
+                <input id="sex-freq-vis" class="form-control sex-field-input" type="number" step="0.1"
+                  oninput="document.getElementById('se-freq').value=this.value">
+              </div>
+              <div class="sex-field-group">
+                <label class="sex-field-lbl">Intensity (% RMT)</label>
+                <input id="sex-intensity-vis" class="form-control sex-field-input" type="number" step="1"
+                  oninput="document.getElementById('se-intensity').value=this.value">
+              </div>
+              <div class="sex-field-group">
+                <label class="sex-field-lbl">Pulses</label>
+                <input id="sex-pulses-vis" class="form-control sex-field-input" type="number"
+                  oninput="document.getElementById('se-pulses').value=this.value">
+              </div>
+              <div class="sex-field-group">
+                <label class="sex-field-lbl">Duration (min)</label>
+                <input id="sex-duration-vis" class="form-control sex-field-input" type="number"
+                  oninput="document.getElementById('se-duration').value=this.value;document.getElementById('se-timer-dur').value=this.value">
+              </div>
+            </div>
+          </div>
+        </div>
+        <div id="sex-consent-display" style="margin:0 16px 12px"></div>
+      </div>
+
+      <!-- Safety Checklist -->
       <div class="card" style="margin-bottom:16px">
-        <div style="padding:14px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
-          <span style="font-size:13px;font-weight:600">Active Treatment Courses</span>
-          <span style="font-size:11px;color:var(--text-tertiary)">${activeCourses.length} active</span>
+        <div class="sex-section-hd">
+          Safety Checklist
+          <span id="sex-safety-tally" class="sex-safety-tally">0 / 7</span>
         </div>
-        <div style="padding:16px">
-          ${activeCourses.length === 0
-            ? emptyState('◧', 'No active courses. Courses appear here once approved and activated.')
-            : `<div style="display:flex;flex-direction:column;gap:8px">
-                ${activeCourses.map(c => {
-                  const pct = c.planned_sessions_total > 0
-                    ? Math.min(100, Math.round(c.sessions_delivered / c.planned_sessions_total * 100)) : 0;
-                  return `<div style="display:flex;align-items:center;gap:12px;padding:10px 12px;border:1px solid var(--border);border-radius:8px;cursor:pointer" onclick="document.getElementById('se-course').value='${c.id}'">
-                    <div style="flex:1">
-                      <div style="font-size:13px;font-weight:500;color:var(--text-primary)">${c.patient_name || c._patientName ? `<span style="color:var(--text-secondary)">${c.patient_name || c._patientName} · </span>` : ''}${c.condition_slug?.replace(/-/g,' ')} · <span style="color:var(--teal)">${c.modality_slug}</span></div>
-                      <div style="font-size:11px;color:var(--text-secondary);margin-top:2px">
-                        Session ${(c.sessions_delivered || 0) + 1} of ${c.planned_sessions_total || '?'}
-                        ${c.planned_frequency_hz ? ` · Protocol: ${c.planned_frequency_hz} Hz` : ''}
-                        ${c.target_region ? ` · ${c.target_region}` : ''}
-                      </div>
-                    </div>
-                    <div style="width:80px;text-align:right">
-                      <div style="font-size:10px;color:var(--text-tertiary);margin-bottom:3px">${pct}%</div>
-                      <div style="height:3px;border-radius:2px;background:var(--border)">
-                        <div style="height:3px;border-radius:2px;background:var(--teal);width:${pct}%"></div>
-                      </div>
-                    </div>
-                    <span style="font-size:11px;color:var(--text-tertiary)">Select →</span>
-                  </div>`;
-                }).join('')}
-              </div>`
-          }
+        <div style="padding:0 16px 16px">
+          <div class="sex-checks">
+            ${[
+              ['sex-ck-identity', 'Patient identity confirmed against record'],
+              ['sex-ck-contra',   'Contraindications reviewed — none currently active'],
+              ['sex-ck-consent',  'Treatment consent on file and valid'],
+              ['sex-ck-ae',       'Prior adverse events reviewed'],
+              ['sex-ck-assess',   'Baseline / pre-session assessment completed'],
+              ['sex-ck-device',   'Device ready and calibration confirmed'],
+              ['sex-ck-target',   'Target site verified and marked on patient'],
+            ].map(([id, lbl]) => `
+              <label class="sex-check-row" for="${id}">
+                <input type="checkbox" id="${id}" class="sex-check-input" onchange="window._seCheckSafety()">
+                <span class="sex-check-box"></span>
+                <span class="sex-check-lbl">${lbl}</span>
+              </label>`).join('')}
+          </div>
+          <div id="sex-safety-err" style="display:none;font-size:11.5px;color:var(--amber);margin-top:8px;padding:6px 10px;background:rgba(255,181,71,0.07);border-radius:4px">
+            Complete all safety checks before beginning the session.
+          </div>
+        </div>
+        <div style="padding:0 16px 16px;display:flex;gap:10px;align-items:center">
+          <button id="sex-begin-btn" class="btn btn-primary" onclick="window._seSetPhase('active')" disabled style="opacity:0.5">
+            Begin Session →
+          </button>
+          <button class="btn btn-sm" onclick="window._seSetPhase('select')">← Change Patient</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── PHASE 2: ACTIVE SESSION ────────────────────────────────────── -->
+    <div id="sex-phase-active" class="sex-phase" style="display:none">
+
+      <!-- Mini session header -->
+      <div id="sex-active-header" class="sex-active-header"></div>
+
+      <!-- Stimulation Guide (collapsible) -->
+      <details class="sex-guide-details card" style="margin-bottom:12px">
+        <summary class="sex-section-hd sex-guide-sum">
+          Stimulation Guide
+          <span style="font-size:10px;color:var(--text-tertiary);font-weight:400;margin-left:6px">▸ expand</span>
+        </summary>
+        <div class="sex-guide-body">
+          <div id="sex-guide-visual-wrap"></div>
+          <div id="sex-guide-instructions" class="sex-guide-text"></div>
+        </div>
+      </details>
+
+      <!-- Live Session Controls -->
+      <div class="card sex-controls-card" style="margin-bottom:12px">
+        <div class="sex-section-hd">
+          Live Session Controls
+          <span id="se-timer-active-label" style="display:none;font-size:11px;color:var(--green);font-weight:600;display:none;align-items:center;gap:5px">
+            <span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--green);animation:sexPulse 1.5s ease-in-out infinite"></span>
+            Active
+          </span>
+        </div>
+        <div class="sex-timer-row">
+          <div class="sex-timer-block">
+            <div class="sex-timer-display" id="se-timer-display">25:00</div>
+            <div class="sex-timer-sub">countdown</div>
+            <div id="se-timer-pulse" style="display:none;width:8px;height:8px;border-radius:50%;background:var(--green);animation:sexPulse 1.5s ease-in-out infinite;margin:6px auto 0"></div>
+          </div>
+          <div class="sex-timer-controls">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+              <label class="sex-field-lbl">Duration (min)</label>
+              <input id="se-timer-dur" type="number" value="25" min="1" max="120"
+                class="sex-field-input form-control" style="width:60px"
+                onchange="window._seTimerReset()">
+            </div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap">
+              <button class="btn btn-primary" id="se-timer-start-btn" onclick="window._seTimerStart()">▶ Start</button>
+              <button class="btn" id="se-timer-stop-btn" onclick="window._seTimerStop()" style="display:none">⏹ Stop</button>
+            </div>
+            <div id="se-timer-notice" style="display:none;font-size:12px;color:var(--green);margin-top:8px;padding:6px 10px;background:rgba(74,222,128,0.08);border:1px solid rgba(74,222,128,0.2);border-radius:4px"></div>
+            <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
+              <label class="sex-flag-btn sex-flag-amber" id="sex-flag-interrupt">
+                <input type="checkbox" id="sex-p2-interrupt" style="display:none" onchange="window._seUpdateFlags()"> ⚡ Interruption
+              </label>
+              <label class="sex-flag-btn sex-flag-red" id="sex-flag-deviation">
+                <input type="checkbox" id="sex-p2-deviation" style="display:none" onchange="window._seUpdateFlags()"> ⚠ Deviation
+              </label>
+            </div>
+            <div id="sex-flags-notice" style="display:none;font-size:11.5px;color:var(--amber);margin-top:6px"></div>
+          </div>
         </div>
       </div>
 
-      <!-- Session log form -->
-      <div class="card">
-        <div style="padding:14px 20px;border-bottom:1px solid var(--border)">
-          <span style="font-size:13px;font-weight:600">Log Delivered Session Parameters</span>
+      <!-- During-Session Observations -->
+      <div class="card" style="margin-bottom:12px">
+        <div class="sex-section-hd">During-Session Observations</div>
+        <div style="padding:0 16px 16px">
+          <div style="margin-bottom:14px">
+            <div class="sex-obs-label">Patient Tolerance</div>
+            <div class="sex-tol-row">
+              ${[
+                ['well-tolerated',  'Well tolerated',    'var(--teal)'],
+                ['mild-discomfort', 'Mild discomfort',   '#60a5fa'],
+                ['moderate',        'Moderate',          'var(--amber)'],
+                ['poor',            'Poor — stop',       'var(--red)'],
+              ].map(([val, lbl, col]) =>
+                `<button class="sex-tol-btn" data-val="${val}" onclick="window._seSetTolerance('${val}')" style="--tol-color:${col}">${lbl}</button>`
+              ).join('')}
+            </div>
+          </div>
+          <div style="margin-bottom:14px">
+            <div class="sex-obs-label">Side Effects <span style="font-weight:400;color:var(--text-tertiary)">(select all that apply)</span></div>
+            <div class="sex-se-chips">
+              ${['Headache','Tingling','Burning','Scalp discomfort','Nausea','Dizziness','Fatigue','Eye twitching','Mood change','None'].map(se =>
+                `<button class="sex-se-chip" onclick="window._seToggleSE(this,'${se}')">${se}</button>`
+              ).join('')}
+            </div>
+          </div>
+          <div>
+            <label class="sex-obs-label">
+              Clinician Notes
+              <span style="font-weight:400;color:var(--text-tertiary)">(patient comments, events, observations)</span>
+            </label>
+            <textarea id="sex-obs-note" class="form-control" rows="2"
+              placeholder="Patient reports, observations during stimulation…"
+              style="font-size:12.5px;margin-top:6px"></textarea>
+          </div>
         </div>
-        ${activeCourses.length === 0
-          ? `<div style="padding:32px">${emptyState('◧', 'No active courses to log sessions for.')}</div>`
-          : `<div style="padding:20px">
-              <div style="margin-bottom:16px">
-                <label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:4px;font-weight:500">Treatment Course <span style="color:var(--red)">*</span></label>
-                <select id="se-course" class="form-control" style="font-size:12.5px" onchange="window._seAutoFill(this.value)">
-                  <option value="">Select course…</option>
-                  ${courseOptions}
-                </select>
-                <div id="se-protocol-banner" style="display:none;margin-top:8px;padding:8px 12px;background:rgba(0,212,188,0.06);border:1px solid var(--border-teal);border-radius:6px;font-size:11.5px;color:var(--text-secondary)"></div>
-                <div id="se-consent-banner" style="display:none;margin-top:6px"></div>
-              </div>
-
-              <div style="font-size:10px;font-weight:600;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:1px;margin-bottom:10px;padding-bottom:6px;border-bottom:1px solid var(--border)">Device &amp; Setup</div>
-              <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px">
-                <div>
-                  <label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:4px">Device Used</label>
-                  <select id="se-device" class="form-control" style="font-size:12.5px">
-                    <option value="">Select device…</option>
-                    ${deviceOptions}
-                    <option value="other">Other (specify in notes)</option>
-                  </select>
-                </div>
-                <div>
-                  <label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:4px">Stimulation Site / Montage</label>
-                  <input id="se-montage" class="form-control" placeholder="e.g. Left DLPFC, F3-Fp2" style="font-size:12.5px">
-                </div>
-              </div>
-
-              <div style="font-size:10px;font-weight:600;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:1px;margin-bottom:10px;padding-bottom:6px;border-bottom:1px solid var(--border)">Delivered Parameters</div>
-              <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:12px;margin-bottom:16px">
-                <div>
-                  <label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:4px">Frequency (Hz)</label>
-                  <input id="se-freq" class="form-control" type="number" step="0.1" placeholder="e.g. 10" style="font-size:12.5px">
-                </div>
-                <div>
-                  <label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:4px">Intensity (% RMT)</label>
-                  <input id="se-intensity" class="form-control" type="number" step="1" placeholder="e.g. 120" style="font-size:12.5px">
-                </div>
-                <div>
-                  <label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:4px">Pulses Delivered</label>
-                  <input id="se-pulses" class="form-control" type="number" placeholder="e.g. 3000" style="font-size:12.5px">
-                </div>
-                <div>
-                  <label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:4px">Duration (min)</label>
-                  <input id="se-duration" class="form-control" type="number" placeholder="e.g. 37" style="font-size:12.5px">
-                </div>
-              </div>
-
-              <div style="font-size:10px;font-weight:600;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:1px;margin-bottom:10px;padding-bottom:6px;border-bottom:1px solid var(--border)">Tolerance &amp; Outcome</div>
-              <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px">
-                <div>
-                  <label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:4px">Tolerance Rating</label>
-                  <select id="se-tolerance" class="form-control" style="font-size:12.5px">
-                    <option value="">Select…</option>
-                    <option value="well-tolerated">Well tolerated</option>
-                    <option value="mild-discomfort">Mild discomfort</option>
-                    <option value="moderate">Moderate discomfort</option>
-                    <option value="poor">Poor — intervention required</option>
-                  </select>
-                </div>
-                <div>
-                  <label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:4px">Session Outcome</label>
-                  <select id="se-outcome" class="form-control" style="font-size:12.5px">
-                    <option value="completed">Completed as planned</option>
-                    <option value="partially_completed">Partially completed</option>
-                    <option value="parameters_modified">Parameters modified</option>
-                    <option value="stopped_early">Stopped early</option>
-                  </select>
-                </div>
-              </div>
-
-              <!-- Session Timer -->
-              <div style="font-size:10px;font-weight:600;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:1px;margin-bottom:10px;padding-bottom:6px;border-bottom:1px solid var(--border)">Session Timer</div>
-              <div style="margin-bottom:20px;display:flex;align-items:center;gap:16px;flex-wrap:wrap">
-                <div style="display:flex;align-items:center;gap:12px;padding:16px 24px;background:rgba(0,0,0,0.25);border:1px solid var(--border);border-radius:var(--radius-md);min-width:200px">
-                  <div>
-                    <div style="font-family:var(--font-mono);font-size:40px;font-weight:700;color:var(--teal);letter-spacing:2px;line-height:1" id="se-timer-display">25:00</div>
-                    <div style="font-size:10px;color:var(--text-tertiary);margin-top:4px;text-transform:uppercase;letter-spacing:.7px">Session countdown</div>
-                  </div>
-                  <div id="se-timer-pulse" style="display:none;width:10px;height:10px;border-radius:50%;background:var(--green);animation:pulse 1.5s ease-in-out infinite"></div>
-                </div>
-                <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-                  <div style="display:flex;align-items:center;gap:6px">
-                    <label style="font-size:11px;color:var(--text-secondary)">Duration (min):</label>
-                    <input id="se-timer-dur" type="number" value="25" min="1" max="120" style="width:56px;padding:4px 8px;font-size:12px;background:var(--navy-800);border:1px solid var(--border);border-radius:4px;color:var(--text-primary);font-family:var(--font-mono)" onchange="window._seTimerReset()">
-                  </div>
-                  <button class="btn btn-primary btn-sm" id="se-timer-start-btn" onclick="window._seTimerStart()">Begin Session</button>
-                  <button class="btn btn-sm" id="se-timer-stop-btn" onclick="window._seTimerStop()" style="display:none">Stop Timer</button>
-                  <span id="se-timer-active-label" style="display:none;font-size:11px;color:var(--green);font-weight:600;display:none;align-items:center;gap:4px">
-                    <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--green);animation:pulse 1.5s ease-in-out infinite"></span>
-                    Session Active
-                  </span>
-                </div>
-              </div>
-              <style>@keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.5;transform:scale(1.15)}}</style>
-              <div id="se-timer-notice" style="display:none;padding:8px 12px;background:rgba(74,222,128,0.08);border:1px solid rgba(74,222,128,0.2);border-radius:var(--radius-md);color:var(--green);font-size:12.5px;margin-bottom:12px"></div>
-
-              <div style="font-size:10px;font-weight:600;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:1px;margin-bottom:10px;padding-bottom:6px;border-bottom:1px solid var(--border)">Pre / Post Session Checklist</div>
-              <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:16px">
-                ${[
-                  ['ck-consent',    'Consent verified'],
-                  ['ck-contra',     'Contraindications checked'],
-                  ['ck-rmt',        'RMT established / verified'],
-                  ['ck-device',     'Device calibration confirmed'],
-                  ['ck-post-check', 'Post-session patient check completed'],
-                  ['ck-documented', 'Session documented in clinical record'],
-                ].map(([cid, lbl]) => `
-                  <div style="display:flex;align-items:center;gap:8px;padding:7px 10px;border:1px solid var(--border);border-radius:6px">
-                    <input id="${cid}" type="checkbox" style="accent-color:var(--teal)">
-                    <label for="${cid}" style="font-size:12px;color:var(--text-secondary);cursor:pointer">${lbl}</label>
-                  </div>`).join('')}
-              </div>
-
-              <div style="display:flex;gap:16px;margin-bottom:16px;flex-wrap:wrap">
-                <div style="display:flex;align-items:center;gap:8px">
-                  <input id="se-interrupt" type="checkbox" style="accent-color:var(--amber)">
-                  <label for="se-interrupt" style="font-size:12px;color:var(--text-secondary)">Session interrupted</label>
-                </div>
-                <div style="display:flex;align-items:center;gap:8px">
-                  <input id="se-deviation" type="checkbox" style="accent-color:var(--red)">
-                  <label for="se-deviation" style="font-size:12px;color:var(--text-secondary)">Protocol deviation (explain in notes)</label>
-                </div>
-              </div>
-
-              <div style="margin-bottom:16px">
-                <label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:4px">Post-session Notes &amp; Observations</label>
-                <textarea id="se-notes" class="form-control" rows="3" placeholder="Patient response, observations, any adverse reactions, deviation rationale…" style="font-size:12.5px;resize:vertical"></textarea>
-              </div>
-
-              <div id="se-error"   style="display:none;color:var(--red);font-size:12px;margin-bottom:10px;padding:8px 10px;border-radius:6px;background:rgba(255,107,107,0.07)"></div>
-              <div id="se-success" style="display:none;color:var(--green);font-size:12px;margin-bottom:10px;padding:8px 10px;border-radius:6px;background:rgba(74,222,128,0.07)"></div>
-              <button id="se-submit-btn" class="btn btn-primary" onclick="window._logSession()">Submit Session Log</button>
-            </div>`
-        }
+        <div style="padding:0 16px 16px;display:flex;gap:10px">
+          <button class="btn btn-primary" onclick="window._seSetPhase('post')">End Session → Post-Session</button>
+          <button class="btn btn-sm" onclick="window._seSetPhase('setup')">← Back to Setup</button>
+        </div>
       </div>
-    </div>`;
+    </div>
 
-  window._logSession = async function() {
-    const courseId  = document.getElementById('se-course')?.value;
-    const errEl     = document.getElementById('se-error');
-    const okEl      = document.getElementById('se-success');
-    const submitBtn = document.getElementById('se-submit-btn');
-    errEl.style.display = 'none';
-    okEl.style.display  = 'none';
+    <!-- ── PHASE 3: POST-SESSION ──────────────────────────────────────── -->
+    <div id="sex-phase-post" class="sex-phase" style="display:none">
 
-    if (window._seConsentBlocked) {
-      errEl.textContent = 'Cannot log session: no valid treatment consent on file for this patient.';
-      errEl.style.display = '';
-      return;
-    }
+      <!-- Mini session header -->
+      <div id="sex-post-header" class="sex-active-header"></div>
 
-    if (!courseId) {
-      errEl.textContent = 'Select a treatment course.';
-      errEl.style.display = '';
-      return;
-    }
-
-    // Prevent double-submit
-    if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = 'Saving\u2026'; }
-
-    try {
-      const toleranceVal = document.getElementById('se-tolerance')?.value || null;
-      const outcomeVal   = document.getElementById('se-outcome')?.value || 'completed';
-      const sessionData = {
-        device_slug:        document.getElementById('se-device')?.value || null,
-        coil_position:      document.getElementById('se-montage')?.value || null,
-        frequency_hz:       parseFloat(document.getElementById('se-freq')?.value) || null,
-        intensity_pct_rmt:  parseFloat(document.getElementById('se-intensity')?.value) || null,
-        pulses_delivered:   parseInt(document.getElementById('se-pulses')?.value) || null,
-        duration_minutes:   parseInt(document.getElementById('se-duration')?.value) || null,
-        tolerance_rating:   toleranceVal,
-        session_outcome:    outcomeVal,
-        interruptions:      document.getElementById('se-interrupt')?.checked || false,
-        protocol_deviation: document.getElementById('se-deviation')?.checked || false,
-        post_session_notes: document.getElementById('se-notes')?.value || null,
-      };
-
-      if (!navigator.onLine) {
-        if (errEl) { errEl.textContent = 'No internet connection. Session logs require an active connection. Please reconnect and try again.'; errEl.style.display = ''; }
-        if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = 'Submit Session Log'; }
-        return;
-      }
-      let session;
-      session = await api.logSession(courseId, sessionData);
-
-      // Determine course info for post-session panel
-      const course = (window._seActiveCourses || []).find(c => c.id === courseId) || {};
-      const patientId = course.patient_id || null;
-      const needsAE = toleranceVal === 'poor' || outcomeVal === 'stopped_early';
-
-      // Show post-session action panel instead of just reloading
-      const sessionForm = document.querySelector('.card div[style*="padding:20px"]');
-      if (sessionForm) {
-        sessionForm.innerHTML = `
-          <div style="text-align:center;padding:16px 0 20px">
-            <div style="font-size:28px;color:var(--teal);margin-bottom:8px">${session.offline ? '💾' : '✓'}</div>
-            <div style="font-family:var(--font-display);font-size:15px;font-weight:600;color:var(--text-primary);margin-bottom:4px">${session.offline ? 'Saved Offline' : 'Session Logged'}</div>
-            <div style="font-size:12px;color:var(--text-secondary)">
-              ${session.offline
-                ? '💾 Saved offline — will sync when connected'
-                : `${course.condition_slug?.replace(/-/g,' ') || 'Course'} · Session ${(course.sessions_delivered || 0) + 1} of ${course.planned_sessions_total || '?'}`}
+      <!-- Post-Session Summary -->
+      <div class="card" style="margin-bottom:12px">
+        <div class="sex-section-hd">Post-Session Summary</div>
+        <div style="padding:0 16px 16px">
+          <div class="sex-post-grid">
+            <div class="sex-field-group">
+              <label class="sex-field-lbl">Session Outcome <span style="color:var(--red)">*</span></label>
+              <select id="se-outcome" class="form-control sex-field-input">
+                <option value="completed">Completed as planned</option>
+                <option value="partially_completed">Partially completed</option>
+                <option value="parameters_modified">Parameters modified</option>
+                <option value="stopped_early">Stopped early</option>
+              </select>
+            </div>
+            <div class="sex-field-group">
+              <label class="sex-field-lbl">Final Tolerance</label>
+              <select id="se-tolerance" class="form-control sex-field-input">
+                <option value="">Select…</option>
+                <option value="well-tolerated">Well tolerated</option>
+                <option value="mild-discomfort">Mild discomfort</option>
+                <option value="moderate">Moderate discomfort</option>
+                <option value="poor">Poor — intervention required</option>
+              </select>
             </div>
           </div>
-
-          ${needsAE ? `
-          <div class="notice notice-warn" style="margin-bottom:16px">
-            <strong>⚠ Attention required:</strong> Tolerance rated "${toleranceVal || outcomeVal}". Consider filing an adverse event report.
+          <div style="display:flex;gap:16px;margin:10px 0 12px;flex-wrap:wrap">
+            <label class="sex-check-row">
+              <input type="checkbox" id="se-interrupt" class="sex-check-input">
+              <span class="sex-check-box"></span>
+              <span class="sex-check-lbl" style="color:var(--amber)">Session was interrupted</span>
+            </label>
+            <label class="sex-check-row">
+              <input type="checkbox" id="se-deviation" class="sex-check-input">
+              <span class="sex-check-box"></span>
+              <span class="sex-check-lbl" style="color:var(--red)">Protocol deviation occurred</span>
+            </label>
+            <label class="sex-check-row">
+              <input type="checkbox" id="sex-reviewed-pt" class="sex-check-input">
+              <span class="sex-check-box"></span>
+              <span class="sex-check-lbl">Reviewed with patient</span>
+            </label>
           </div>
-          <div id="se-ae-panel" style="margin-bottom:16px">
-            ${renderAEForm(courseId, patientId)}
-            <div id="ae-error" style="display:none;color:var(--red);font-size:12px;margin-top:6px"></div>
-            <div style="display:flex;gap:8px;margin-top:10px">
-              <button class="btn btn-sm" style="border-color:var(--amber);color:var(--amber)" onclick="window._submitAE('${courseId}','${patientId}')">Submit AE Report</button>
-              <button class="btn btn-sm" onclick="document.getElementById('se-ae-panel').style.display='none'">Skip</button>
-            </div>
-          </div>` : ''}
+          <label class="sex-field-lbl">Post-Session Notes &amp; Observations</label>
+          <textarea id="se-notes" class="form-control" rows="3"
+            placeholder="Patient response, tolerance observations, deviation rationale, adverse reactions…"
+            style="font-size:12.5px;margin-top:6px;resize:vertical"></textarea>
+        </div>
+      </div>
 
-          <div style="border:1px solid var(--border);border-radius:var(--radius-md);padding:14px;margin-bottom:16px">
-            <div style="font-size:11px;font-weight:600;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.8px;margin-bottom:10px">Quick Outcome Entry (optional)</div>
-            <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
-              <div>
-                <label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:4px">Assessment Template</label>
-                <select id="pse-template" class="form-control" style="font-size:12px">
-                  <option value="">Skip outcome</option>
-                  ${FALLBACK_ASSESSMENT_TEMPLATES.map(t => `<option value="${t.id}">${t.id} — ${t.label.split('—')[1]?.trim() || t.label}</option>`).join('')}
-                </select>
-              </div>
-              <div>
-                <label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:4px">Score</label>
-                <input id="pse-score" class="form-control" type="number" placeholder="e.g. 12" style="font-size:12px">
-              </div>
+      <!-- Quick Outcome Capture -->
+      <div class="card" style="margin-bottom:12px">
+        <div class="sex-section-hd">
+          Quick Outcome Capture
+          <span style="font-size:10px;font-weight:400;color:var(--text-tertiary)">optional</span>
+        </div>
+        <div style="padding:0 16px 16px">
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:10px">
+            <div>
+              <label class="sex-field-lbl">Assessment Template</label>
+              <select id="pse-template" class="form-control sex-field-input">
+                <option value="">Skip outcome</option>
+                ${FALLBACK_ASSESSMENT_TEMPLATES.map(t => `<option value="${t.id}">${t.id} — ${t.label.split('—')[1]?.trim() || t.label}</option>`).join('')}
+              </select>
             </div>
             <div>
-              <label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:4px">Measurement Point</label>
-              <select id="pse-point" class="form-control" style="font-size:12px">
+              <label class="sex-field-lbl">Score</label>
+              <input id="pse-score" class="form-control sex-field-input" type="number" placeholder="e.g. 12">
+            </div>
+            <div>
+              <label class="sex-field-lbl">Measurement Point</label>
+              <select id="pse-point" class="form-control sex-field-input">
                 <option value="mid">Mid-course</option>
                 <option value="post">Post-course</option>
                 <option value="baseline">Baseline</option>
                 <option value="follow_up">Follow-up</option>
               </select>
             </div>
-            <div id="pse-error" style="display:none;color:var(--red);font-size:12px;margin-top:6px"></div>
-            <button class="btn btn-sm" style="margin-top:10px" onclick="window._savePostSessionOutcome('${courseId}','${patientId}')">Save Outcome</button>
           </div>
+          <div id="pse-error" style="display:none;color:var(--red);font-size:12px;margin-bottom:6px"></div>
+          <button class="btn btn-sm" onclick="window._savePostSessionOutcome(document.getElementById('se-course').value, window._seCurrentPatientId)">
+            Save Outcome
+          </button>
+        </div>
+      </div>
 
-          <div style="display:flex;gap:8px;flex-wrap:wrap">
-            <button class="btn btn-primary btn-sm" onclick="window._nav('session-execution')">Log Another Session</button>
-            <button class="btn btn-sm" onclick="window._selectedCourseId='${courseId}';window._cdTab='sessions';window._nav('course-detail')">View Course →</button>
-            <button class="btn btn-sm" onclick="window._nav('courses')">All Courses</button>
-            <button class="btn btn-sm no-print" onclick="window._printSessionNotes('${courseId}')">&#128424; Print Session Notes</button>
-          </div>`;
-      } else {
-        okEl.textContent = 'Session logged successfully.';
+      <!-- Aftercare Guidance -->
+      <div class="card" style="margin-bottom:12px">
+        <div class="sex-section-hd">Aftercare &amp; Patient Guidance</div>
+        <div style="padding:0 16px 16px">
+          <div id="sex-aftercare-items" class="sex-aftercare-list"></div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px">
+            <div>
+              <label class="sex-field-lbl">Next Appointment</label>
+              <input id="sex-next-appt" class="form-control sex-field-input" placeholder="e.g. Thu 17 Apr, 10:00">
+            </div>
+            <div>
+              <label class="sex-field-lbl">Home Task Assigned</label>
+              <input id="sex-home-task" class="form-control sex-field-input" placeholder="e.g. HRV breathing 10 min daily">
+            </div>
+          </div>
+          <label class="sex-check-row" style="margin-top:10px">
+            <input type="checkbox" id="sex-ac-given" class="sex-check-input">
+            <span class="sex-check-box"></span>
+            <span class="sex-check-lbl">Aftercare instructions given to patient</span>
+          </label>
+        </div>
+      </div>
+
+      <!-- AE warning panels -->
+      <div id="sex-ae-warning" style="display:none" class="notice notice-warn" style="margin-bottom:12px"></div>
+      <div id="sex-ae-panel" style="display:none;margin-bottom:12px"></div>
+
+      <!-- Final Actions -->
+      <div class="card sex-actions-card">
+        <div class="sex-section-hd">Save &amp; Next Steps</div>
+        <div id="se-error" style="display:none;color:var(--red);font-size:12px;margin:0 16px 10px;padding:8px 10px;border-radius:6px;background:rgba(255,107,107,0.07)"></div>
+        <div id="se-success" style="display:none;color:var(--green);font-size:12px;margin:0 16px 10px;padding:8px 10px;border-radius:6px;background:rgba(74,222,128,0.07)"></div>
+        <div class="sex-actions-row">
+          <button id="se-submit-btn" class="btn btn-primary sex-action-primary" onclick="window._logSession()">Save Session</button>
+          <button class="btn sex-action-btn" onclick="window._seLogAndNext()">Save + Next Patient</button>
+          <button class="btn sex-action-btn" onclick="window._seLogAndFlag()">Save + Flag Review</button>
+          <button class="btn btn-sm sex-action-btn no-print"
+            onclick="window._printSessionNotes(document.getElementById('se-course').value)">&#128424; Print Notes</button>
+        </div>
+        <div style="padding:8px 16px 16px">
+          <button class="btn btn-sm" onclick="window._seSetPhase('active')">← Back to Active Session</button>
+        </div>
+        <div style="padding:0 16px 12px;display:flex;gap:8px;flex-wrap:wrap;border-top:1px solid var(--border);padding-top:12px">
+          <button class="btn btn-sm" onclick="window._selectedCourseId=document.getElementById('se-course').value;window._cdTab='sessions';window._nav('course-detail')">View Course →</button>
+          <button class="btn btn-sm" onclick="window._nav('courses')">All Courses</button>
+        </div>
+      </div>
+    </div>
+  </div>`;
+
+  // ── Phase state machine ────────────────────────────────────────────────────
+  window._seCurrentCourseId  = null;
+  window._seCurrentPatientId = null;
+  window._seCurrentPhase     = 'select';
+  window._seSideEffects      = [];
+  window._seCurrentTolerance = null;
+
+  window._seSetPhase = function(phase) {
+    window._seCurrentPhase = phase;
+    const ids = { select: 'sex-select', setup: 'sex-phase-setup', active: 'sex-phase-active', post: 'sex-phase-post' };
+    Object.entries(ids).forEach(([p, id]) => {
+      const el2 = document.getElementById(id);
+      if (el2) el2.style.display = p === phase ? '' : 'none';
+    });
+    const pbar = document.getElementById('sex-pbar');
+    if (pbar) pbar.style.display = phase === 'select' ? 'none' : '';
+    // Progress steps
+    const stepN = { setup: 1, active: 2, post: 3 };
+    const cur = stepN[phase] || 0;
+    ['setup', 'active', 'post'].forEach((p, i) => {
+      const s = document.getElementById(`sex-ps-${p}`);
+      if (!s) return;
+      s.classList.toggle('active', i + 1 <= cur);
+      s.classList.toggle('done', i + 1 < cur);
+    });
+    // Topbar status
+    const statusEl = document.getElementById('sex-topbar-status');
+    if (statusEl) {
+      const labels = {
+        select: 'Select a patient to begin',
+        setup:  'Setup & Safety — complete all checks before beginning',
+        active: 'Session Active',
+        post:   'Post-Session — record outcome and save',
+      };
+      statusEl.textContent = labels[phase] || '';
+    }
+    // Scroll to top
+    document.getElementById('sex-root')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    // Sync mini session header
+    if (phase === 'active' || phase === 'post') {
+      const hdrId = phase === 'active' ? 'sex-active-header' : 'sex-post-header';
+      const dst = document.getElementById(hdrId);
+      if (dst) {
+        const name    = document.getElementById('sex-h-name')?.textContent || '—';
+        const meta    = document.getElementById('sex-h-meta')?.textContent || '';
+        const session = document.getElementById('sex-h-session')?.textContent || '';
+        dst.innerHTML = `<div class="sex-active-hdr-row">
+          <span style="font-weight:700;font-size:14px;color:var(--text-primary)">${name}</span>
+          <span style="color:var(--text-tertiary);font-size:12px;margin-left:10px">${meta}</span>
+          <span style="margin-left:auto;font-size:12px;font-weight:600;color:var(--teal)">${session}</span>
+        </div>`;
+      }
+    }
+    // On entering post: sync flags + tolerance + obs notes
+    if (phase === 'post') {
+      const p2i = document.getElementById('sex-p2-interrupt');
+      const p2d = document.getElementById('sex-p2-deviation');
+      const p3i = document.getElementById('se-interrupt');
+      const p3d = document.getElementById('se-deviation');
+      if (p2i && p3i) p3i.checked = p2i.checked;
+      if (p2d && p3d) p3d.checked = p2d.checked;
+      const tol3 = document.getElementById('se-tolerance');
+      if (tol3 && window._seCurrentTolerance && !tol3.value) tol3.value = window._seCurrentTolerance;
+      const obsNote = document.getElementById('sex-obs-note');
+      const notes3  = document.getElementById('se-notes');
+      if (obsNote?.value && notes3 && !notes3.value) notes3.value = obsNote.value;
+    }
+  };
+
+  window._sePhaseNav = function(phase) {
+    const order = ['setup', 'active', 'post'];
+    const curIdx = order.indexOf(window._seCurrentPhase);
+    const tgtIdx = order.indexOf(phase);
+    if (tgtIdx <= curIdx) window._seSetPhase(phase);
+  };
+
+  window._seSelectCourse = async function(courseId) {
+    document.getElementById('se-course').value = courseId;
+    window._seCurrentCourseId  = courseId;
+    window._seSideEffects      = [];
+    window._seCurrentTolerance = null;
+    // Reset safety checks
+    ['sex-ck-identity','sex-ck-contra','sex-ck-consent','sex-ck-ae','sex-ck-assess','sex-ck-device','sex-ck-target']
+      .forEach(id => { const cb = document.getElementById(id); if (cb) cb.checked = false; });
+    window._seCheckSafety();
+    // Reset phase 2
+    ['sex-p2-interrupt','sex-p2-deviation'].forEach(id => { const cb = document.getElementById(id); if (cb) cb.checked = false; });
+    document.querySelectorAll('.sex-tol-btn').forEach(b => b.classList.remove('sex-tol-active'));
+    document.querySelectorAll('.sex-se-chip').forEach(b => b.classList.remove('sex-se-active'));
+    const obsNote = document.getElementById('sex-obs-note'); if (obsNote) obsNote.value = '';
+    // Reset phase 3
+    ['se-interrupt','se-deviation'].forEach(id => { const cb = document.getElementById(id); if (cb) cb.checked = false; });
+    const notes3 = document.getElementById('se-notes'); if (notes3) notes3.value = '';
+    const errEl  = document.getElementById('se-error');   if (errEl)  errEl.style.display = 'none';
+    const okEl   = document.getElementById('se-success'); if (okEl)   okEl.style.display  = 'none';
+    const sbtn   = document.getElementById('se-submit-btn');
+    if (sbtn) { sbtn.disabled = false; sbtn.textContent = 'Save Session'; sbtn.style.opacity = ''; }
+    // AE panels
+    const aeW = document.getElementById('sex-ae-warning'); if (aeW) aeW.style.display = 'none';
+    const aeP = document.getElementById('sex-ae-panel');   if (aeP) aeP.style.display  = 'none';
+    // Transition and auto-fill
+    window._seSetPhase('setup');
+    await window._seAutoFill(courseId);
+  };
+
+  window._seCheckSafety = function() {
+    const ids = ['sex-ck-identity','sex-ck-contra','sex-ck-consent','sex-ck-ae','sex-ck-assess','sex-ck-device','sex-ck-target'];
+    const n = ids.filter(id => document.getElementById(id)?.checked).length;
+    const tally = document.getElementById('sex-safety-tally');
+    const btn   = document.getElementById('sex-begin-btn');
+    const err   = document.getElementById('sex-safety-err');
+    if (tally) tally.textContent = `${n} / 7`;
+    if (btn)   { btn.disabled = n < 7; btn.style.opacity = n === 7 ? '' : '0.5'; }
+    if (err)   err.style.display = n === 7 ? 'none' : '';
+  };
+
+  window._seSetTolerance = function(val) {
+    window._seCurrentTolerance = val;
+    document.querySelectorAll('.sex-tol-btn').forEach(b => b.classList.toggle('sex-tol-active', b.dataset.val === val));
+  };
+
+  window._seToggleSE = function(btn, name) {
+    const idx = window._seSideEffects.indexOf(name);
+    if (name === 'None') {
+      window._seSideEffects = idx === -1 ? ['None'] : [];
+      document.querySelectorAll('.sex-se-chip').forEach(b =>
+        b.classList.toggle('sex-se-active', idx === -1 && b.textContent.trim() === 'None'));
+    } else {
+      const ni = window._seSideEffects.indexOf('None');
+      if (ni !== -1) {
+        window._seSideEffects.splice(ni, 1);
+        document.querySelectorAll('.sex-se-chip').forEach(b => { if (b.textContent.trim() === 'None') b.classList.remove('sex-se-active'); });
+      }
+      if (idx === -1) { window._seSideEffects.push(name); btn.classList.add('sex-se-active'); }
+      else            { window._seSideEffects.splice(idx, 1); btn.classList.remove('sex-se-active'); }
+    }
+    const notesEl = document.getElementById('sex-obs-note');
+    if (notesEl) {
+      const seText = window._seSideEffects.length ? `[Side effects: ${window._seSideEffects.join(', ')}]` : '';
+      const existing = notesEl.value.replace(/\[Side effects:.*?\]\n?/g, '').trim();
+      notesEl.value = seText ? (existing ? `${existing}\n${seText}` : seText) : existing;
+    }
+  };
+
+  window._seUpdateFlags = function() {
+    const p2i = document.getElementById('sex-p2-interrupt')?.checked;
+    const p2d = document.getElementById('sex-p2-deviation')?.checked;
+    document.getElementById('sex-flag-interrupt')?.classList.toggle('sex-flag-active', !!p2i);
+    document.getElementById('sex-flag-deviation')?.classList.toggle('sex-flag-active', !!p2d);
+    const notice = document.getElementById('sex-flags-notice');
+    const msgs = [];
+    if (p2i) msgs.push('⚡ Interruption flagged — note reason in observations below');
+    if (p2d) msgs.push('⚠ Deviation flagged — record parameter deviation in observations');
+    if (notice) { notice.textContent = msgs.join(' · '); notice.style.display = msgs.length ? '' : 'none'; }
+  };
+
+  window._seFilterQueue = function(query) {
+    const q = (query || '').toLowerCase().trim();
+    document.querySelectorAll('.sex-queue-row').forEach(row => {
+      row.style.display = (!q || row.textContent.toLowerCase().includes(q)) ? '' : 'none';
+    });
+  };
+
+  window._seLogAndNext = async function() {
+    await window._logSession();
+    const ok = document.getElementById('se-success');
+    if (ok && ok.style.display !== 'none') setTimeout(() => window._seSetPhase('select'), 1800);
+  };
+
+  window._seLogAndFlag = async function() {
+    const devEl = document.getElementById('se-deviation');
+    if (devEl) devEl.checked = true;
+    await window._logSession();
+    const ok = document.getElementById('se-success');
+    if (ok && ok.style.display !== 'none') setTimeout(() => window._nav?.('review-queue'), 1800);
+  };
+
+  // ── Session Save ───────────────────────────────────────────────────────────
+  window._logSession = async function() {
+    const courseId  = document.getElementById('se-course')?.value;
+    const errEl     = document.getElementById('se-error');
+    const okEl      = document.getElementById('se-success');
+    const submitBtn = document.getElementById('se-submit-btn');
+    if (errEl) errEl.style.display = 'none';
+    if (okEl)  okEl.style.display  = 'none';
+
+    if (window._seConsentBlocked) {
+      if (errEl) { errEl.textContent = 'Cannot log session: no valid treatment consent on file for this patient.'; errEl.style.display = ''; }
+      return;
+    }
+    if (!courseId) {
+      if (errEl) { errEl.textContent = 'Select a treatment course.'; errEl.style.display = ''; }
+      return;
+    }
+    if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = 'Saving\u2026'; }
+
+    try {
+      const toleranceVal = document.getElementById('se-tolerance')?.value || window._seCurrentTolerance || null;
+      const outcomeVal   = document.getElementById('se-outcome')?.value   || 'completed';
+      const notesBase    = document.getElementById('se-notes')?.value     || '';
+      const obsNote      = document.getElementById('sex-obs-note')?.value || '';
+      const combinedNotes = [notesBase, (obsNote && !notesBase.includes(obsNote)) ? obsNote : ''].filter(Boolean).join('\n');
+      const sessionData = {
+        device_slug:        document.getElementById('se-device')?.value   || null,
+        coil_position:      document.getElementById('se-montage')?.value  || null,
+        frequency_hz:       parseFloat(document.getElementById('se-freq')?.value)       || null,
+        intensity_pct_rmt:  parseFloat(document.getElementById('se-intensity')?.value)  || null,
+        pulses_delivered:   parseInt(document.getElementById('se-pulses')?.value)       || null,
+        duration_minutes:   parseInt(document.getElementById('se-duration')?.value)     || null,
+        tolerance_rating:   toleranceVal,
+        session_outcome:    outcomeVal,
+        interruptions:      document.getElementById('se-interrupt')?.checked  || false,
+        protocol_deviation: document.getElementById('se-deviation')?.checked  || false,
+        post_session_notes: combinedNotes || null,
+      };
+
+      if (!navigator.onLine) {
+        if (errEl) { errEl.textContent = 'No internet connection. Session logs require an active connection.'; errEl.style.display = ''; }
+        if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = 'Save Session'; }
+        return;
+      }
+
+      const session = await api.logSession(courseId, sessionData);
+
+      const course    = (window._seActiveCourses || []).find(c => c.id === courseId) || {};
+      const patientId = course.patient_id || null;
+      window._seCurrentPatientId = patientId;
+      const needsAE   = toleranceVal === 'poor' || outcomeVal === 'stopped_early';
+
+      // Show success state
+      if (okEl) {
+        okEl.innerHTML = session.offline
+          ? '\u{1F4BE} Saved offline \u2014 will sync when connected.'
+          : `\u2713 Session ${(course.sessions_delivered || 0) + 1} logged for <strong>${course.condition_slug?.replace(/-/g, ' ') || 'course'}</strong>.`;
         okEl.style.display = '';
-        setTimeout(() => pgSessionExecution(setTopbar, navigate), 1500);
+      }
+      if (submitBtn) { submitBtn.textContent = 'Saved \u2713'; submitBtn.style.opacity = '0.6'; }
+
+      // AE warning if poor tolerance or stopped early
+      if (needsAE) {
+        const aeWarn  = document.getElementById('sex-ae-warning');
+        const aePanel = document.getElementById('sex-ae-panel');
+        if (aeWarn) {
+          aeWarn.style.display = '';
+          aeWarn.innerHTML = `<strong>\u26A0 Attention required:</strong> Tolerance rated \u201C${toleranceVal || outcomeVal}\u201D. Consider filing an adverse event report.`;
+        }
+        if (aePanel) {
+          aePanel.style.display = '';
+          aePanel.innerHTML = renderAEForm(courseId, patientId) +
+            `<div id="ae-error" style="display:none;color:var(--red);font-size:12px;margin-top:6px"></div>
+             <div style="display:flex;gap:8px;margin-top:10px">
+               <button class="btn btn-sm" style="border-color:var(--amber);color:var(--amber)"
+                 onclick="window._submitAE('${courseId}','${patientId}')">Submit AE Report</button>
+               <button class="btn btn-sm"
+                 onclick="document.getElementById('sex-ae-panel').style.display='none'">Skip</button>
+             </div>`;
+        }
       }
     } catch (e) {
-      errEl.textContent = e.message || 'Failed to log session.';
-      errEl.style.display = '';
-      // Re-enable submit so clinician can correct and retry
-      if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = 'Submit Session Log'; }
+      if (errEl) { errEl.textContent = e.message || 'Failed to log session.'; errEl.style.display = ''; }
+      if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = 'Save Session'; }
     }
   };
 
@@ -1987,7 +2658,7 @@ export async function pgSessionExecution(setTopbar, navigate) {
     const point    = document.getElementById('pse-point')?.value || 'mid';
     const errEl    = document.getElementById('pse-error');
     if (errEl) errEl.style.display = 'none';
-    if (!template) return; // skip
+    if (!template) return;
     if (isNaN(score)) {
       if (errEl) { errEl.textContent = 'Enter a numeric score.'; errEl.style.display = ''; }
       return;
@@ -1999,10 +2670,10 @@ export async function pgSessionExecution(setTopbar, navigate) {
         score: String(score), score_numeric: score,
         measurement_point: point,
       });
-      // Show confirmation inline
-      const btn = document.querySelector('button[onclick*="savePostSessionOutcome"]');
-      const row = btn?.closest('div[style*="border:1px solid var(--border)"]');
-      if (row) row.innerHTML = `<div style="color:var(--teal);font-size:12.5px;padding:8px 0">✓ Outcome recorded: ${template} = ${score} (${point})</div>`;
+      // Show inline confirmation
+      const btn = document.querySelector('button[onclick*="_savePostSessionOutcome"]');
+      const row = btn?.closest('[style*="grid-template-columns"]')?.parentElement;
+      if (row) row.innerHTML = `<div style="color:var(--teal);font-size:12.5px;padding:8px 0">\u2713 Outcome recorded: ${template} = ${score} (${point})</div>`;
     } catch (e) {
       if (errEl) { errEl.textContent = e.message || 'Failed.'; errEl.style.display = ''; }
     }
@@ -2016,15 +2687,15 @@ export async function pgSessionExecution(setTopbar, navigate) {
     const sessionNum = (course2.sessions_delivered || 0) + 1;
     const condLabel = course2.condition_slug ? course2.condition_slug.replace(/-/g, ' ') : '\u2014';
     const modLabel  = course2.modality_slug || '\u2014';
-    const freq      = document.getElementById('se-freq')?.value || '\u2014';
+    const freq      = document.getElementById('se-freq')?.value      || '\u2014';
     const intensity = document.getElementById('se-intensity')?.value || '\u2014';
-    const pulses    = document.getElementById('se-pulses')?.value || '\u2014';
-    const duration  = document.getElementById('se-duration')?.value || '\u2014';
-    const montage   = document.getElementById('se-montage')?.value || '\u2014';
-    const device    = document.getElementById('se-device')?.value || '\u2014';
+    const pulses    = document.getElementById('se-pulses')?.value    || '\u2014';
+    const duration  = document.getElementById('se-duration')?.value  || '\u2014';
+    const montage   = document.getElementById('se-montage')?.value   || '\u2014';
+    const device    = document.getElementById('se-device')?.value    || '\u2014';
     const tolerance = document.getElementById('se-tolerance')?.value || '\u2014';
-    const sOutcome  = document.getElementById('se-outcome')?.value || '\u2014';
-    const notes     = document.getElementById('se-notes')?.value || '';
+    const sOutcome  = document.getElementById('se-outcome')?.value   || '\u2014';
+    const notes     = document.getElementById('se-notes')?.value     || '';
     const interrupted = document.getElementById('se-interrupt')?.checked ? 'Yes' : 'No';
     const deviation   = document.getElementById('se-deviation')?.checked ? 'Yes' : 'No';
     let patientName = '\u2014';
@@ -2044,7 +2715,7 @@ export async function pgSessionExecution(setTopbar, navigate) {
         + '<div style="font-size:10pt;line-height:1.6;padding:10px;background:#f9f9f9;border:1px solid #ddd;border-radius:4px;margin-bottom:20px;white-space:pre-wrap">' + notes + '</div>'
       : '';
     snFrame.innerHTML = [
-      '<div class="print-header" style="display:block;border-bottom:2px solid #003366;padding-bottom:12px;margin-bottom:20px">',
+      '<div style="border-bottom:2px solid #003366;padding-bottom:12px;margin-bottom:20px">',
       '<div style="display:flex;justify-content:space-between;align-items:flex-start">',
       '<div><div style="font-size:18pt;font-weight:700;color:#003366">DeepSynaps Protocol Studio</div>',
       '<div style="font-size:10pt;color:#555;margin-top:2px">Session Notes</div></div>',
@@ -2087,7 +2758,6 @@ export async function pgSessionExecution(setTopbar, navigate) {
   };
 
   // ── Session Timer ──────────────────────────────────────────────────────────
-  // Scoped to window to survive re-renders without leaking intervals
   if (window._seTimerInterval) { clearInterval(window._seTimerInterval); window._seTimerInterval = null; }
   if (!('_seTimerRemaining' in window)) window._seTimerRemaining = 0;
 
@@ -2102,15 +2772,14 @@ export async function pgSessionExecution(setTopbar, navigate) {
     if (window._seTimerInterval) clearInterval(window._seTimerInterval);
     const dur = parseInt(document.getElementById('se-timer-dur')?.value) || 25;
     window._seTimerRemaining = dur * 60;
-    const startBtn = document.getElementById('se-timer-start-btn');
-    const stopBtn  = document.getElementById('se-timer-stop-btn');
-    const pulse    = document.getElementById('se-timer-pulse');
+    const startBtn    = document.getElementById('se-timer-start-btn');
+    const stopBtn     = document.getElementById('se-timer-stop-btn');
+    const pulse       = document.getElementById('se-timer-pulse');
     const activeLabel = document.getElementById('se-timer-active-label');
     if (startBtn) startBtn.style.display = 'none';
     if (stopBtn)  stopBtn.style.display  = '';
     if (pulse)    pulse.style.display    = '';
-    if (activeLabel) { activeLabel.style.display = 'flex'; }
-
+    if (activeLabel) activeLabel.style.display = 'flex';
     window._seTimerInterval = setInterval(function() {
       if (!document.getElementById('se-timer-display')) {
         clearInterval(window._seTimerInterval); window._seTimerInterval = null; return;
@@ -2121,25 +2790,23 @@ export async function pgSessionExecution(setTopbar, navigate) {
       const disp = document.getElementById('se-timer-display');
       if (disp) {
         disp.textContent = String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
-        disp.style.color = window._seTimerRemaining <= 60 ? 'var(--amber)' : window._seTimerRemaining <= 0 ? 'var(--red)' : 'var(--teal)';
+        disp.style.color = window._seTimerRemaining <= 0 ? 'var(--red)' : window._seTimerRemaining <= 60 ? 'var(--amber)' : 'var(--teal)';
       }
       if (window._seTimerRemaining <= 0) {
         clearInterval(window._seTimerInterval);
         window._seTimerInterval = null;
         window._seTimerStop();
-        const timerDisp = document.getElementById('se-timer-display');
-        if (timerDisp) { timerDisp.textContent = '00:00'; timerDisp.style.color = 'var(--green)'; }
         const notice = document.getElementById('se-timer-notice');
-        if (notice) { notice.style.display = ''; notice.innerHTML = '✓ Session complete — please complete your post-session checklist.'; }
+        if (notice) { notice.style.display = ''; notice.innerHTML = '\u2713 Session complete \u2014 proceed to post-session.'; }
       }
     }, 1000);
   };
 
   window._seTimerStop = function() {
     if (window._seTimerInterval) { clearInterval(window._seTimerInterval); window._seTimerInterval = null; }
-    const startBtn = document.getElementById('se-timer-start-btn');
-    const stopBtn  = document.getElementById('se-timer-stop-btn');
-    const pulse    = document.getElementById('se-timer-pulse');
+    const startBtn    = document.getElementById('se-timer-start-btn');
+    const stopBtn     = document.getElementById('se-timer-stop-btn');
+    const pulse       = document.getElementById('se-timer-pulse');
     const activeLabel = document.getElementById('se-timer-active-label');
     if (startBtn) startBtn.style.display = '';
     if (stopBtn)  stopBtn.style.display  = 'none';
@@ -2147,46 +2814,116 @@ export async function pgSessionExecution(setTopbar, navigate) {
     if (activeLabel) activeLabel.style.display = 'none';
   };
 
-  // Store courses for auto-fill lookup
+  // ── Auto-fill from course data ─────────────────────────────────────────────
   window._seActiveCourses = activeCourses;
 
   window._seAutoFill = async function(courseId) {
-    const banner = document.getElementById('se-protocol-banner');
-    const consentBanner = document.getElementById('se-consent-banner');
-    const submitBtn = document.querySelector('button[onclick="window._logSession()"]');
+    const consentDisplay = document.getElementById('sex-consent-display');
+    const submitBtn = document.getElementById('se-submit-btn');
     window._seConsentBlocked = false;
     if (submitBtn) submitBtn.disabled = false;
-    if (!courseId) {
-      if (banner) banner.style.display = 'none';
-      if (consentBanner) consentBanner.style.display = 'none';
-      return;
-    }
+    if (!courseId) return;
     const course = (window._seActiveCourses || []).find(c => c.id === courseId);
     if (!course) return;
-    // Auto-populate fields
-    const freqEl      = document.getElementById('se-freq');
-    const intensEl    = document.getElementById('se-intensity');
-    const durEl       = document.getElementById('se-duration');
-    const montageEl   = document.getElementById('se-montage');
-    if (freqEl && course.planned_frequency_hz)  freqEl.value    = parseFloat(course.planned_frequency_hz) || '';
-    if (intensEl && course.planned_intensity)   intensEl.value  = parseFloat(course.planned_intensity) || '';
+
+    // ── Populate ghost fields ─────────────────────────────────────────────────
+    const setGhost = (id, val) => { const el2 = document.getElementById(id); if (el2 && val != null) el2.value = val; };
+    setGhost('se-freq',      course.planned_frequency_hz || '');
+    setGhost('se-intensity', course.planned_intensity || '');
+    setGhost('se-duration',  course.planned_session_duration_minutes || '');
+    setGhost('se-montage',   course.coil_placement || '');
+
+    // ── Populate visible sync fields ──────────────────────────────────────────
+    const setVis = (id, val) => { const el2 = document.getElementById(id); if (el2 && val != null) el2.value = val; };
+    setVis('sex-freq-vis',      course.planned_frequency_hz || '');
+    setVis('sex-intensity-vis', course.planned_intensity || '');
+    setVis('sex-duration-vis',  course.planned_session_duration_minutes || '');
+    setVis('sex-montage-vis',   course.coil_placement || '');
+    // Timer duration
+    const durEl = document.getElementById('se-timer-dur');
     if (durEl && course.planned_session_duration_minutes) durEl.value = course.planned_session_duration_minutes;
-    if (montageEl && course.coil_placement && !montageEl.value) montageEl.value = course.coil_placement;
-    // Show protocol banner
-    if (banner) {
-      banner.style.display = '';
-      banner.innerHTML = [
-        course.planned_frequency_hz ? `Freq: <strong>${course.planned_frequency_hz} Hz</strong>` : null,
-        course.planned_intensity ? `Intensity: <strong>${course.planned_intensity}</strong>` : null,
-        course.planned_session_duration_minutes ? `Duration: <strong>${course.planned_session_duration_minutes} min</strong>` : null,
-        course.target_region ? `Target: <strong>${course.target_region}</strong>` : null,
-        course.coil_placement ? `Placement: <strong>${course.coil_placement}</strong>` : null,
-      ].filter(Boolean).join(' &middot; ');
+
+    // ── Protocol summary params ───────────────────────────────────────────────
+    const setText = (id, val) => { const el2 = document.getElementById(id); if (el2) el2.textContent = val || '—'; };
+    const proto = course.protocol_id || course.protocol_name || course.modality_slug || '—';
+    setText('spp-name',   proto);
+    setText('spp-label',  course.on_label === false ? 'Off-label' : 'On-label');
+    setText('spp-target', course.target_region || '—');
+    setText('spp-side',   course.laterality || course.coil_placement || '—');
+
+    // ── Session header ────────────────────────────────────────────────────────
+    const sessionN = (course.sessions_delivered || 0) + 1;
+    const sessionTotal = course.planned_sessions_total || '?';
+    const condLabel = course.condition_slug?.replace(/-/g, ' ') || '—';
+    const modalityLabel = course.modality_slug || '—';
+    let patientNameStr = '';
+    if (course.patient_id) {
+      try {
+        const pt = await api.getPatient(course.patient_id).catch(() => null);
+        if (pt) {
+          patientNameStr = `${pt.first_name || ''} ${pt.last_name || ''}`.trim();
+          window._seCurrentPatientId = course.patient_id;
+        }
+      } catch (_) {}
     }
+    const nameEl = document.getElementById('sex-h-name');
+    const metaEl = document.getElementById('sex-h-meta');
+    const sessEl = document.getElementById('sex-h-session');
+    const statusEl = document.getElementById('sex-h-status');
+    if (nameEl) nameEl.textContent = patientNameStr || condLabel;
+    if (metaEl) metaEl.textContent = [condLabel, modalityLabel].filter(Boolean).join(' · ');
+    if (sessEl) sessEl.textContent = `Session ${sessionN} of ${sessionTotal}`;
+    if (statusEl) { statusEl.textContent = 'Ready'; statusEl.className = 'sex-status-pill sex-status-ready'; }
+
+    // ── Course progress bar ───────────────────────────────────────────────────
+    const courseBar = document.getElementById('sex-h-course-bar');
+    if (courseBar && course.planned_sessions_total > 0) {
+      const pct = Math.min(100, Math.round(((course.sessions_delivered || 0) / course.planned_sessions_total) * 100));
+      courseBar.style.display = '';
+      courseBar.innerHTML = `
+        <div style="display:flex;align-items:center;gap:10px;padding:0 16px 12px">
+          <div style="flex:1;height:4px;background:var(--border);border-radius:2px">
+            <div style="height:4px;border-radius:2px;background:var(--teal);width:${pct}%;transition:width .4s"></div>
+          </div>
+          <span style="font-size:10.5px;color:var(--text-tertiary);white-space:nowrap">${pct}% complete</span>
+        </div>`;
+    }
+
+    // ── Stimulation guide SVG ─────────────────────────────────────────────────
+    const vizWrap = document.getElementById('sex-guide-visual-wrap');
+    const guideText = document.getElementById('sex-guide-instructions');
+    if (vizWrap) vizWrap.innerHTML = siteVisual(course.target_region || course.coil_placement || '');
+    if (guideText) {
+      const target = course.target_region || course.coil_placement || '';
+      const freq   = course.planned_frequency_hz;
+      const inten  = course.planned_intensity;
+      const dur    = course.planned_session_duration_minutes;
+      guideText.innerHTML = [
+        target ? `<p><strong>Target site:</strong> ${target}</p>` : '',
+        (freq || inten || dur) ? `<p><strong>Parameters:</strong> ${[
+          freq  ? `${freq} Hz` : null,
+          inten ? `${inten}% RMT` : null,
+          dur   ? `${dur} min` : null,
+        ].filter(Boolean).join(' · ')}</p>` : '',
+        course.coil_placement ? `<p><strong>Placement:</strong> ${course.coil_placement}</p>` : '',
+        course.notes ? `<p style="color:var(--text-secondary);font-size:11.5px">${course.notes}</p>` : '',
+      ].filter(Boolean).join('') || '<p style="color:var(--text-tertiary)">No placement details on file — confirm with protocol.</p>';
+    }
+
+    // ── Aftercare items ───────────────────────────────────────────────────────
+    const acList = document.getElementById('sex-aftercare-items');
+    if (acList) {
+      const items = aftercareItems(course.modality_slug || '');
+      acList.innerHTML = items.map(item => `
+        <div style="display:flex;align-items:flex-start;gap:8px;padding:5px 0;border-bottom:1px solid var(--border)">
+          <span style="color:var(--teal);font-size:14px;line-height:1.3;flex-shrink:0">\u2713</span>
+          <span style="font-size:12.5px;color:var(--text-secondary);line-height:1.4">${item}</span>
+        </div>`).join('');
+    }
+
     // ── Consent gate check ────────────────────────────────────────────────────
-    if (consentBanner && course.patient_id) {
-      consentBanner.style.display = '';
-      consentBanner.innerHTML = `<span style="font-size:11px;color:var(--text-tertiary)">Checking consent...</span>`;
+    if (consentDisplay && course.patient_id) {
+      consentDisplay.innerHTML = `<span style="font-size:11px;color:var(--text-tertiary)">Checking consent\u2026</span>`;
       try {
         const consentsRes = await api.listConsents({ patient_id: course.patient_id }).catch(() => null);
         const consents = consentsRes?.items || [];
@@ -2201,32 +2938,33 @@ export async function pgSessionExecution(setTopbar, navigate) {
           return c.status === 'active' && exp && (exp - today) < 30 * 86400000;
         });
         if (validConsent) {
-          const signedDate = validConsent.signed_at ? validConsent.signed_at.split('T')[0] : '';
-          const expiryDate = validConsent.expires_at ? validConsent.expires_at.split('T')[0] : '';
+          const signedDate  = validConsent.signed_at ? validConsent.signed_at.split('T')[0] : '';
+          const expiryDate  = validConsent.expires_at ? validConsent.expires_at.split('T')[0] : '';
           const expiringSoon = validConsent.expires_at && (new Date(validConsent.expires_at) - today) < 30 * 86400000;
           if (expiringSoon) {
-            consentBanner.innerHTML = `<div style="padding:8px 12px;background:rgba(255,181,71,0.08);border:1px solid rgba(255,181,71,0.3);border-radius:6px;font-size:11.5px;color:var(--amber)">&#9888; Treatment consent expires soon (${expiryDate}) — consider renewing.</div>`;
+            consentDisplay.innerHTML = `<div style="padding:7px 12px;background:rgba(255,181,71,0.08);border:1px solid rgba(255,181,71,0.3);border-radius:5px;font-size:11.5px;color:var(--amber)">\u26A0 Consent expires soon (${expiryDate}) \u2014 consider renewing.</div>`;
           } else {
-            consentBanner.innerHTML = `<div style="padding:8px 12px;background:rgba(74,222,128,0.07);border:1px solid rgba(74,222,128,0.25);border-radius:6px;font-size:11.5px;color:var(--green)">&#10003; Treatment consent on file &mdash; signed ${signedDate}, valid until ${expiryDate || 'no expiry set'}.</div>`;
+            consentDisplay.innerHTML = `<div style="padding:7px 12px;background:rgba(74,222,128,0.07);border:1px solid rgba(74,222,128,0.25);border-radius:5px;font-size:11.5px;color:var(--green)">\u2713 Treatment consent on file \u2014 signed ${signedDate}, valid until ${expiryDate || 'no expiry set'}.</div>`;
           }
           window._seConsentBlocked = false;
           if (submitBtn) { submitBtn.disabled = false; submitBtn.style.opacity = ''; }
         } else if (expiringSoonConsent) {
           const expiryDate = expiringSoonConsent.expires_at ? expiringSoonConsent.expires_at.split('T')[0] : '';
-          consentBanner.innerHTML = `<div style="padding:8px 12px;background:rgba(255,181,71,0.08);border:1px solid rgba(255,181,71,0.3);border-radius:6px;font-size:11.5px;color:var(--amber)">&#9888; Treatment consent expires soon (${expiryDate}) &mdash; renew before next session.</div>`;
+          consentDisplay.innerHTML = `<div style="padding:7px 12px;background:rgba(255,181,71,0.08);border:1px solid rgba(255,181,71,0.3);border-radius:5px;font-size:11.5px;color:var(--amber)">\u26A0 Consent expires soon (${expiryDate}) \u2014 renew before next session.</div>`;
           window._seConsentBlocked = false;
           if (submitBtn) { submitBtn.disabled = false; submitBtn.style.opacity = ''; }
         } else {
-          consentBanner.innerHTML = `<div style="padding:8px 12px;background:rgba(255,107,107,0.08);border:1px solid rgba(255,107,107,0.3);border-radius:6px;font-size:11.5px;color:var(--red)">&#10007; No valid treatment consent on file &mdash; obtain consent before proceeding.</div>`;
+          consentDisplay.innerHTML = `<div style="padding:7px 12px;background:rgba(255,107,107,0.08);border:1px solid rgba(255,107,107,0.3);border-radius:5px;font-size:11.5px;color:var(--red)">\u2717 No valid treatment consent on file \u2014 obtain consent before proceeding.</div>`;
           window._seConsentBlocked = true;
           if (submitBtn) { submitBtn.disabled = true; submitBtn.style.opacity = '0.5'; }
         }
       } catch (_) {
-        consentBanner.innerHTML = `<div style="padding:8px 12px;background:rgba(255,181,71,0.08);border:1px solid rgba(255,181,71,0.3);border-radius:6px;font-size:11.5px;color:var(--amber)">&#9888; Could not verify consent status.</div>`;
+        consentDisplay.innerHTML = `<div style="padding:7px 12px;background:rgba(255,181,71,0.08);border:1px solid rgba(255,181,71,0.3);border-radius:5px;font-size:11.5px;color:var(--amber)">\u26A0 Could not verify consent status.</div>`;
       }
     }
   };
 }
+
 
 // ── pgReviewQueue — Protocol & course approvals ───────────────────────────────
 export async function pgReviewQueue(setTopbar, navigate) {
