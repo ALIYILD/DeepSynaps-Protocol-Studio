@@ -459,6 +459,7 @@ const NAV = [
   // ── PROTOCOLS ────────────────────────────────────────────────────────────────
   { section: 'PROTOCOLS', sectionId: 'protocols' },
   { id: 'protocol-wizard',    label: 'Protocol Search',    icon: '⬡', ai: true },
+  { id: 'condition-packages', label: 'Condition Packages', icon: '◈', badge: '20' },
   { id: 'protocol-builder',   label: 'Protocol Builder',   icon: '◇' },
   { id: 'condition-backlog',  label: 'Condition Backlog',  icon: '◈' },
   { id: 'brain-map-planner',  label: 'Brain Map Planner',  icon: '◎' },
@@ -1255,9 +1256,11 @@ async function renderPage() {
     case 'documents':       { const { pgDocumentsHub }   = await loadClinical(); await pgDocumentsHub(setTopbar);   break; }
     case 'assessments-hub': { const { pgAssessmentsHub } = await loadClinical(); await pgAssessmentsHub(setTopbar); break; }
     case 'brain-map-planner': { const { pgBrainMapPlanner } = await loadClinical(); await pgBrainMapPlanner(setTopbar); break; }
-    case 'prescriptions':     { const { pgPrescriptions }        = await loadClinical(); await pgPrescriptions(setTopbar);        break; }
-    case 'patient-protocol':  { const { pgPatientProtocolView }  = await loadClinical(); await pgPatientProtocolView(setTopbar); break; }
-    case 'protocol-detail':   { const { pgProtocolDetail }       = await loadClinical(); await pgProtocolDetail(setTopbar, navigate); break; }
+    case 'prescriptions':       { const { pgPrescriptions }        = await loadClinical(); await pgPrescriptions(setTopbar);        break; }
+    case 'patient-protocol':    { const { pgPatientProtocolView }  = await loadClinical(); await pgPatientProtocolView(setTopbar); break; }
+    case 'protocol-detail':     { const { pgProtocolDetail }       = await loadClinical(); await pgProtocolDetail(setTopbar, navigate); break; }
+    case 'condition-packages':  { const { pgConditionBrowser }     = await loadKnowledge(); await pgConditionBrowser(setTopbar);            break; }
+    case 'condition-package':   { const { pgConditionPackage }     = await loadKnowledge(); await pgConditionPackage(setTopbar, navigate);  break; }
     case 'notes-dictation': { const { pgNotesDictation } = await loadClinical(); await pgNotesDictation(setTopbar); break; }
     case 'wearable-integration': { const m = await loadPractice(); await m.pgWearableIntegration(setTopbar); break; }
     // ── Registries ─────────────────────────────────────────────────────────
