@@ -507,11 +507,59 @@ const LIBRARY_DOCS = [
 export function pgHandbooks(setTopbar) {
   setTopbar(
     'Clinical Handbooks & Documentation',
-    `<button class="btn btn-primary btn-sm" onclick="document.getElementById('hb-generator-section').scrollIntoView({behavior:'smooth'})">Generate Custom Document</button>`
+    `<button class="btn btn-primary btn-sm" onclick="window._hbSwitchTab('generator')">Generate Custom Document</button>`
   );
 
   const condOpts = FALLBACK_CONDITIONS.map(c => `<option value="${c}">${c}</option>`).join('');
   const modOpts  = FALLBACK_MODALITIES.map(m => `<option value="${m}">${m}</option>`).join('');
+
+  // ── Handbook Template Library data ────────────────────────────────────────
+  const HB_TEMPLATES = [
+    { id:'hb-tms-clin',   title:'TMS Clinician Protocol Guide',    type:'Clinician',      typeKey:'clinician',  tag:'TMS',            status:'Template', desc:'Full clinical protocol for rTMS: patient selection, coil placement, dosing parameters, safety screening and session management.' },
+    { id:'hb-tdcs-clin',  title:'tDCS Clinician Protocol Guide',   type:'Clinician',      typeKey:'clinician',  tag:'tDCS',           status:'Template', desc:'Comprehensive tDCS clinical guide: electrode montage, current density, session scheduling and electrode placement verification.' },
+    { id:'hb-pt-tms',     title:'Patient TMS Introduction',         type:'Patient',        typeKey:'patient',    tag:'TMS',            status:'Template', desc:'Plain-language patient guide to TMS treatment: what to expect, preparation, sensation, side effects and safety information.' },
+    { id:'hb-pt-tdcs',    title:'Patient tDCS Introduction',        type:'Patient',        typeKey:'patient',    tag:'tDCS',           status:'Template', desc:'Plain-language introduction to tDCS for patients: sensations, safety, home-use instructions and what to report to your clinician.' },
+    { id:'hb-tech-sop',   title:'Technician Session SOP',           type:'Technician',     typeKey:'technician', tag:'All modalities', status:'Template', desc:'Step-by-step standard operating procedure for technicians: equipment setup, patient check-in, session delivery and documentation.' },
+    { id:'hb-home-guide', title:'Home Device User Guide',           type:'Home-Use',       typeKey:'homeuse',    tag:'Home tDCS',      status:'Template', desc:'Self-contained user manual for home tDCS devices: device orientation, electrode placement, session setup, safety and troubleshooting.' },
+    { id:'hb-dep-tms',    title:'Depression TMS Protocol Handbook', type:'Protocol Guide', typeKey:'protocol',   tag:'TMS / Depression',status:'Template', desc:'Evidence-based TMS protocol handbook for major depressive disorder: DLPFC targets, dosing schedules, outcome tracking and escalation.' },
+    { id:'hb-adhd-tdcs',  title:'ADHD tDCS Protocol Handbook',      type:'Protocol Guide', typeKey:'protocol',   tag:'tDCS / ADHD',    status:'Template', desc:'Clinical handbook for tDCS in ADHD: prefrontal montages, session frequency, attention outcome measures and combined-therapy guidance.' },
+    { id:'hb-ptsd-tms',   title:'PTSD TMS Protocol Handbook',       type:'Protocol Guide', typeKey:'protocol',   tag:'TMS / PTSD',     status:'Template', desc:'TMS protocol handbook for PTSD: mPFC and DLPFC targets, trauma-informed session management, PCL-5 monitoring and safety considerations.' },
+    { id:'hb-caregiver',  title:'Caregiver Support Guide',          type:'Patient',        typeKey:'caregiver',  tag:'All',            status:'Template', desc:'Guidance for caregivers supporting patients through neuromodulation treatment: what to expect, how to help, warning signs and contacts.' },
+  ];
+
+  const HB_TYPE_BADGE = { clinician:'clinician', patient:'patient', technician:'technician', homeuse:'homeuse', protocol:'protocol', caregiver:'caregiver' };
+
+  function hbTlibHTML(q, f) {
+    const fq = (q || '').toLowerCase();
+    let items = HB_TEMPLATES;
+    if (f && f !== 'All') items = items.filter(i => i.type === f);
+    if (fq) items = items.filter(i => i.title.toLowerCase().includes(fq) || i.type.toLowerCase().includes(fq) || i.tag.toLowerCase().includes(fq) || i.desc.toLowerCase().includes(fq));
+    const filterChips = ['All','Clinician','Patient','Technician','Home-Use','Protocol Guide'].map(fc =>
+      `<button class="tlib-filter-chip${f===fc?' active':''}" onclick="window._hbTlibFilter('${fc}')">${fc}</button>`
+    ).join('');
+    const cards = items.length ? items.map(item => {
+      const bk = HB_TYPE_BADGE[item.typeKey] || 'clinician';
+      return `<div class="tlib-card">
+        <div class="tlib-card-title">${item.title}</div>
+        <div class="tlib-card-badges">
+          <span class="tlib-badge tlib-badge--${bk}">${item.type}</span>
+          <span class="tlib-badge tlib-badge--form">${item.tag}</span>
+          <span class="tlib-badge tlib-badge--clinical">${item.status}</span>
+        </div>
+        <div class="tlib-card-meta">${item.desc}</div>
+        <div class="tlib-card-actions">
+          <button class="tlib-btn-assign" onclick="window._hbTlibGenerate('${item.id}','${item.title.replace(/'/g,"\\'")}')">Generate</button>
+          <button class="tlib-btn-preview" onclick="window._hbTlibPreview('${item.id}')">Preview</button>
+          <button class="tlib-btn-secondary" onclick="window._hbTlibAssign('${item.id}','${item.title.replace(/'/g,"\\'")}')">Assign to Patient</button>
+        </div>
+      </div>`;
+    }).join('') : `<div class="tlib-empty"><div class="tlib-empty-icon">&#128269;</div><div class="tlib-empty-msg">No handbooks match your search</div></div>`;
+    return `<div class="tlib-wrap">
+      <div class="tlib-search-bar"><input class="tlib-search-input" id="hb-tlib-search" type="text" placeholder="Search handbooks\u2026" value="${(q||'').replace(/"/g,'&quot;')}" oninput="window._hbTlibSearch(this.value)"/></div>
+      <div class="tlib-filters">${filterChips}</div>
+      <div class="tlib-grid">${cards}</div>
+    </div>`;
+  }
 
   const libCards = LIBRARY_DOCS.map((doc, idx) => `
     <div>
@@ -535,129 +583,96 @@ export function pgHandbooks(setTopbar) {
       </div>
     </div>`).join('');
 
+  const HB_TABS = [
+    { id:'library', label:'Handbook Library' },
+    { id:'generator', label:'Protocol Generator' },
+    { id:'case-summary', label:'AI Case Summary' },
+    { id:'patient-guide', label:'Patient Guides' },
+    { id:'doclib', label:'Document Library' },
+  ];
+
+  function hbTabsHTML(active) {
+    return `<div class="ah2-tabs" style="margin-bottom:18px">${HB_TABS.map(t =>
+      `<button class="ah2-tab${active===t.id?' ah2-tab-active':''}" onclick="window._hbSwitchTab('${t.id}')">${t.label}</button>`
+    ).join('')}</div>`;
+  }
+
+  function hbTabBody(active) {
+    if (active === 'library') return hbTlibHTML('','All');
+    if (active === 'doclib') return `<div style="margin-bottom:28px"><div class="g2">${libCards}</div></div>`;
+    if (active === 'generator') return `
+      <div id="hb-generator-section" style="margin-bottom:28px">
+        <div class="card">
+          <div class="card-header"><h3>Generate Custom Protocol Document</h3></div>
+          <div class="card-body">
+            <div class="g2" style="margin-bottom:16px">
+              <div class="form-group"><label class="form-label">Condition</label><select id="pg-condition" class="form-control"><option value="">Select condition\u2026</option>${condOpts}</select></div>
+              <div class="form-group"><label class="form-label">Modality</label><select id="pg-modality" class="form-control"><option value="">Select modality\u2026</option>${modOpts}</select></div>
+              <div class="form-group"><label class="form-label">Device Name</label><input id="pg-device" class="form-control" placeholder="e.g. Soterix 1x1 CT" /></div>
+              <div class="form-group"><label class="form-label">Evidence Threshold</label><select id="pg-evidence" class="form-control"><option value="A">Grade A \u2014 Strong RCT</option><option value="B" selected>Grade B \u2014 Moderate</option><option value="C">Grade C \u2014 Emerging</option></select></div>
+              <div class="form-group"><label class="form-label">Setting</label><select id="pg-setting" class="form-control"><option value="clinical" selected>Clinical</option><option value="home">Home</option><option value="research">Research</option></select></div>
+              <div class="form-group"><label class="form-label">Symptom Cluster</label><input id="pg-symptom" class="form-control" placeholder="e.g. anhedonia, fatigue, low motivation" /></div>
+            </div>
+            <div class="form-group" style="display:flex;align-items:center;gap:8px;margin-bottom:16px">
+              <input type="checkbox" id="pg-offlabel" style="width:14px;height:14px;accent-color:var(--teal)" />
+              <label for="pg-offlabel" style="font-size:12px;color:var(--text-secondary);cursor:pointer">Off-label use</label>
+            </div>
+            <div id="pg-error" style="display:none" class="notice notice-warn"></div>
+            <button class="btn btn-primary" id="pg-gen-btn" onclick="window._pgGenerate()">Generate &amp; Preview \u2726</button>
+            <div id="pg-result" style="margin-top:18px"></div>
+          </div>
+        </div>
+      </div>`;
+    if (active === 'case-summary') return `
+      <div style="margin-bottom:28px">
+        <div class="card">
+          <div class="card-header"><h3>AI Case Summary</h3></div>
+          <div class="card-body">
+            <div class="g2" style="margin-bottom:16px">
+              <div class="form-group" style="grid-column:1/-1"><label class="form-label">Patient Notes</label><textarea id="cs-notes" class="form-control" style="height:90px" placeholder="Paste clinical notes, session observations, or relevant history\u2026"></textarea></div>
+              <div class="form-group"><label class="form-label">Condition</label><input id="cs-condition" class="form-control" placeholder="e.g. Major Depressive Disorder" /></div>
+              <div class="form-group"><label class="form-label">Modality</label><input id="cs-modality" class="form-control" placeholder="e.g. rTMS" /></div>
+              <div class="form-group"><label class="form-label">Session Count</label><input id="cs-sessions" class="form-control" type="number" min="0" placeholder="e.g. 15" /></div>
+            </div>
+            <div id="cs-error" style="display:none" class="notice notice-warn"></div>
+            <button class="btn btn-primary" id="cs-gen-btn" onclick="window._csGenerate()">Generate Summary \u2726</button>
+            <div id="cs-result" style="margin-top:18px"></div>
+          </div>
+        </div>
+      </div>`;
+    if (active === 'patient-guide') return `
+      <div style="margin-bottom:28px">
+        <div class="card">
+          <div class="card-header"><h3>Patient Education Guide</h3></div>
+          <div class="card-body">
+            <div class="g2" style="margin-bottom:16px">
+              <div class="form-group"><label class="form-label">Condition</label><select id="pgd-condition" class="form-control"><option value="">Select condition\u2026</option>${condOpts}</select></div>
+              <div class="form-group"><label class="form-label">Modality</label><select id="pgd-modality" class="form-control"><option value="">Select modality\u2026</option>${modOpts}</select></div>
+              <div class="form-group"><label class="form-label">Reading Level</label><select id="pgd-level" class="form-control"><option value="simple">Simple (Grade 6\u20138)</option><option value="standard" selected>Standard (Grade 9\u201312)</option><option value="advanced">Advanced (Collegiate)</option></select></div>
+              <div class="form-group"><label class="form-label">Language</label><select id="pgd-lang" class="form-control"><option value="English" selected>English</option><option value="Spanish">Spanish</option><option value="French">French</option></select></div>
+            </div>
+            <div id="pgd-error" style="display:none" class="notice notice-warn"></div>
+            <div id="pgd-status" style="display:none" class="notice notice-ok"></div>
+            <button class="btn btn-primary" id="pgd-gen-btn" onclick="window._pgdGenerate()">Generate Guide \u2726</button>
+          </div>
+        </div>
+      </div>`;
+    return '';
+  }
+
+  // Store references for tab switching
+  window._hbActiveTab = 'library';
+  window._hbTlibQ = '';
+  window._hbTlibF = 'All';
+  window._HB_TEMPLATES = HB_TEMPLATES;
+  window._hbTabsHTML = hbTabsHTML;
+  window._hbTabBody = hbTabBody;
+  window._hbTlibHTML = hbTlibHTML;
+
   return `
-  <!-- ── Section 1: Document Library ─────────────────────────────────────── -->
-  <div style="margin-bottom:28px">
-    <div style="font-size:10px;font-weight:600;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:1.2px;margin-bottom:14px">Document Library</div>
-    <div class="g2">${libCards}</div>
-  </div>
-
-  <!-- ── Section 2: Protocol Generator ───────────────────────────────────── -->
-  <div id="hb-generator-section" style="margin-bottom:28px">
-    <div class="card">
-      <div class="card-header"><h3>Generate Custom Protocol Document</h3></div>
-      <div class="card-body">
-        <div class="g2" style="margin-bottom:16px">
-          <div class="form-group">
-            <label class="form-label">Condition</label>
-            <select id="pg-condition" class="form-control"><option value="">Select condition\u2026</option>${condOpts}</select>
-          </div>
-          <div class="form-group">
-            <label class="form-label">Modality</label>
-            <select id="pg-modality" class="form-control"><option value="">Select modality\u2026</option>${modOpts}</select>
-          </div>
-          <div class="form-group">
-            <label class="form-label">Device Name</label>
-            <input id="pg-device" class="form-control" placeholder="e.g. Soterix 1x1 CT" />
-          </div>
-          <div class="form-group">
-            <label class="form-label">Evidence Threshold</label>
-            <select id="pg-evidence" class="form-control">
-              <option value="A">Grade A \u2014 Strong RCT</option>
-              <option value="B" selected>Grade B \u2014 Moderate</option>
-              <option value="C">Grade C \u2014 Emerging</option>
-            </select>
-          </div>
-          <div class="form-group">
-            <label class="form-label">Setting</label>
-            <select id="pg-setting" class="form-control">
-              <option value="clinical" selected>Clinical</option>
-              <option value="home">Home</option>
-              <option value="research">Research</option>
-            </select>
-          </div>
-          <div class="form-group">
-            <label class="form-label">Symptom Cluster</label>
-            <input id="pg-symptom" class="form-control" placeholder="e.g. anhedonia, fatigue, low motivation" />
-          </div>
-        </div>
-        <div class="form-group" style="display:flex;align-items:center;gap:8px;margin-bottom:16px">
-          <input type="checkbox" id="pg-offlabel" style="width:14px;height:14px;accent-color:var(--teal)" />
-          <label for="pg-offlabel" style="font-size:12px;color:var(--text-secondary);cursor:pointer">Off-label use</label>
-        </div>
-        <div id="pg-error" style="display:none" class="notice notice-warn"></div>
-        <button class="btn btn-primary" id="pg-gen-btn" onclick="window._pgGenerate()">Generate &amp; Preview \u2726</button>
-        <div id="pg-result" style="margin-top:18px"></div>
-      </div>
-    </div>
-  </div>
-
-  <!-- ── Section 3: Case Summary Generator ────────────────────────────────── -->
-  <div style="margin-bottom:28px">
-    <div class="card">
-      <div class="card-header"><h3>AI Case Summary</h3></div>
-      <div class="card-body">
-        <div class="g2" style="margin-bottom:16px">
-          <div class="form-group" style="grid-column:1/-1">
-            <label class="form-label">Patient Notes</label>
-            <textarea id="cs-notes" class="form-control" style="height:90px" placeholder="Paste clinical notes, session observations, or relevant history\u2026"></textarea>
-          </div>
-          <div class="form-group">
-            <label class="form-label">Condition</label>
-            <input id="cs-condition" class="form-control" placeholder="e.g. Major Depressive Disorder" />
-          </div>
-          <div class="form-group">
-            <label class="form-label">Modality</label>
-            <input id="cs-modality" class="form-control" placeholder="e.g. rTMS" />
-          </div>
-          <div class="form-group">
-            <label class="form-label">Session Count</label>
-            <input id="cs-sessions" class="form-control" type="number" min="0" placeholder="e.g. 15" />
-          </div>
-        </div>
-        <div id="cs-error" style="display:none" class="notice notice-warn"></div>
-        <button class="btn btn-primary" id="cs-gen-btn" onclick="window._csGenerate()">Generate Summary \u2726</button>
-        <div id="cs-result" style="margin-top:18px"></div>
-      </div>
-    </div>
-  </div>
-
-  <!-- ── Section 4: Patient Guide Generator ───────────────────────────────── -->
-  <div style="margin-bottom:28px">
-    <div class="card">
-      <div class="card-header"><h3>Patient Education Guide</h3></div>
-      <div class="card-body">
-        <div class="g2" style="margin-bottom:16px">
-          <div class="form-group">
-            <label class="form-label">Condition</label>
-            <select id="pgd-condition" class="form-control"><option value="">Select condition\u2026</option>${condOpts}</select>
-          </div>
-          <div class="form-group">
-            <label class="form-label">Modality</label>
-            <select id="pgd-modality" class="form-control"><option value="">Select modality\u2026</option>${modOpts}</select>
-          </div>
-          <div class="form-group">
-            <label class="form-label">Reading Level</label>
-            <select id="pgd-level" class="form-control">
-              <option value="simple">Simple (Grade 6\u20138)</option>
-              <option value="standard" selected>Standard (Grade 9\u201312)</option>
-              <option value="advanced">Advanced (Collegiate)</option>
-            </select>
-          </div>
-          <div class="form-group">
-            <label class="form-label">Language</label>
-            <select id="pgd-lang" class="form-control">
-              <option value="English" selected>English</option>
-              <option value="Spanish">Spanish</option>
-              <option value="French">French</option>
-            </select>
-          </div>
-        </div>
-        <div id="pgd-error" style="display:none" class="notice notice-warn"></div>
-        <div id="pgd-status" style="display:none" class="notice notice-ok"></div>
-        <button class="btn btn-primary" id="pgd-gen-btn" onclick="window._pgdGenerate()">Generate Guide \u2726</button>
-      </div>
-    </div>
+  <div id="hb-root">
+    ${hbTabsHTML('library')}
+    <div id="hb-tab-body">${hbTabBody('library')}</div>
   </div>
 
   <!-- OLD CONTENT HIDDEN (unused placeholder for build safety) -->
@@ -669,6 +684,67 @@ export function pgHandbooks(setTopbar) {
 }
 
 export function bindHandbooks() {
+  // ── Handbook tab switching ─────────────────────────────────────────────────
+  window._hbSwitchTab = function(tab) {
+    window._hbActiveTab = tab;
+    const root = document.getElementById('hb-root');
+    if (!root) return;
+    const tabsEl = root.querySelector('.ah2-tabs');
+    if (tabsEl && window._hbTabsHTML) {
+      const tmp = document.createElement('div');
+      tmp.innerHTML = window._hbTabsHTML(tab);
+      tabsEl.replaceWith(tmp.firstElementChild);
+    }
+    const bodyEl = document.getElementById('hb-tab-body');
+    if (bodyEl && window._hbTabBody) bodyEl.innerHTML = window._hbTabBody(tab);
+    // Re-bind after render
+    bindHandbooks();
+  };
+
+  // ── Handbook Template Library handlers ────────────────────────────────────
+  window._hbTlibFilter = function(f) {
+    window._hbTlibF = f;
+    const bodyEl = document.getElementById('hb-tab-body');
+    if (bodyEl && window._hbTlibHTML) bodyEl.innerHTML = window._hbTlibHTML(window._hbTlibQ || '', f);
+    bindHandbooks();
+  };
+  window._hbTlibSearch = function(v) {
+    window._hbTlibQ = v;
+    const bodyEl = document.getElementById('hb-tab-body');
+    if (bodyEl && window._hbTlibHTML) bodyEl.innerHTML = window._hbTlibHTML(v, window._hbTlibF || 'All');
+    bindHandbooks();
+    document.getElementById('hb-tlib-search')?.focus();
+  };
+  window._hbTlibGenerate = function(id, title) {
+    const t = document.createElement('div');
+    t.style.cssText = 'position:fixed;top:16px;right:16px;z-index:9999;max-width:380px;padding:12px 16px;border-radius:8px;background:rgba(0,212,188,.12);border:1px solid rgba(0,212,188,.3);color:var(--teal);font-size:13px';
+    t.textContent = 'Generating handbook: \u201c' + title + '\u201d\u2026';
+    document.body.appendChild(t);
+    setTimeout(() => {
+      t.remove();
+      if (typeof window._nav === 'function') {
+        window._nav('handbook-generator');
+      } else {
+        const t2 = document.createElement('div');
+        t2.style.cssText = 'position:fixed;top:16px;right:16px;z-index:9999;max-width:380px;padding:12px 16px;border-radius:8px;background:rgba(74,158,255,.12);border:1px solid rgba(74,158,255,.3);color:#4a9eff;font-size:13px';
+        t2.textContent = '\u201c' + title + '\u201d generated \u2014 handbook-generator route not found, using Protocol Generator tab';
+        document.body.appendChild(t2); setTimeout(() => t2.remove(), 3500);
+        window._hbSwitchTab('generator');
+      }
+    }, 1200);
+  };
+  window._hbTlibPreview = function(id) {
+    const templates = window._HB_TEMPLATES || [];
+    const item = templates.find(x => x.id === id);
+    if (item) alert(item.title + '\nType: ' + item.type + ' | Modality/Condition: ' + item.tag + '\n\n' + item.desc);
+  };
+  window._hbTlibAssign = function(id, title) {
+    const t = document.createElement('div');
+    t.style.cssText = 'position:fixed;top:16px;right:16px;z-index:9999;max-width:380px;padding:12px 16px;border-radius:8px;background:rgba(139,92,246,.12);border:1px solid rgba(139,92,246,.3);color:#8b5cf6;font-size:13px';
+    t.textContent = 'Assign \u201c' + title + '\u201d to patient: select patient first';
+    document.body.appendChild(t); setTimeout(() => t.remove(), 3500);
+  };
+
   // ── Library: Preview toggle ──────────────────────────────────────────────
   window._hbPreviewToggle = function(idx) {
     const panel = document.getElementById('hb-preview-' + idx);

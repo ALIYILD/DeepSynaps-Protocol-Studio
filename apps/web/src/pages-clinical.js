@@ -13590,9 +13590,9 @@ export async function pgAssessmentsHub(setTopbar) {
         '<div class="ah2-kpi"><span class="ah2-kpi-val">' + k.total + '</span><span class="ah2-kpi-lbl">Total Assigned</span></div>' +
       '</div>' +
       '<div class="ah2-tabs">' +
-        ['dashboard','scheduled','results','conditions','scales'].map(t =>
+        ['templates','dashboard','scheduled','results','conditions','scales'].map(t =>
           '<button class="ah2-tab' + (activeTab===t?' ah2-tab-active':'') + '" onclick="window._ah2Tab(\'' + t + '\')">' +
-          (t==='dashboard'?'Dashboard':t==='scheduled'?'Scheduled':t==='results'?'Results':t==='conditions'?'53 Conditions':'Scale Library') +
+          (t==='templates'?'Template Library':t==='dashboard'?'Dashboard':t==='scheduled'?'Scheduled':t==='results'?'Results':t==='conditions'?'53 Conditions':'Scale Library') +
           '</button>'
         ).join('') +
       '</div>' +
@@ -13600,12 +13600,85 @@ export async function pgAssessmentsHub(setTopbar) {
   }
 
   function renderTab() {
+    if (activeTab === 'templates') return renderTemplateLibrary();
     if (activeTab === 'dashboard') return renderDashboard();
     if (activeTab === 'scheduled') return renderScheduled();
     if (activeTab === 'results') return renderResults();
     if (activeTab === 'conditions') return renderConditions();
     if (activeTab === 'scales') return renderScales();
     return '';
+  }
+
+  // ── Assessment Template Library ───────────────────────────────────────────
+  const ASSESS_TEMPLATES = [
+    { id:'PHQ-9',  title:'PHQ-9', cat:'Validated Scale', catKey:'validated', conditions:['Depression','MDD'], time:'3 min', fill:'In-Platform',
+      desc:'Patient Health Questionnaire-9. Gold-standard depression screening and severity measure, 9 items scored 0–27.' },
+    { id:'GAD-7',  title:'GAD-7', cat:'Validated Scale', catKey:'validated', conditions:['Anxiety'], time:'3 min', fill:'In-Platform',
+      desc:'Generalised Anxiety Disorder 7-item scale. Validated for anxiety screening and severity measurement.' },
+    { id:'PCL-5',  title:'PCL-5', cat:'Validated Scale', catKey:'validated', conditions:['PTSD','Trauma'], time:'10 min', fill:'In-Platform',
+      desc:'PTSD Checklist for DSM-5. 20-item self-report measure of PTSD symptoms over the past month.' },
+    { id:'HDRS-17',title:'HDRS-17', cat:'Validated Scale', catKey:'validated', conditions:['Depression'], time:'8 min', fill:'In-Platform',
+      desc:'Hamilton Depression Rating Scale (17 items). Clinician-administered scale for depression severity.' },
+    { id:'MADRS',  title:'MADRS', cat:'Validated Scale', catKey:'validated', conditions:['Depression'], time:'6 min', fill:'In-Platform',
+      desc:'Montgomery-Asberg Depression Rating Scale. 10-item clinician-rated scale sensitive to TMS treatment change.' },
+    { id:'MoCA',   title:'MoCA', cat:'Validated Scale', catKey:'validated', conditions:['Cognition','Dementia'], time:'10 min', fill:'In-Platform',
+      desc:'Montreal Cognitive Assessment. 30-point screen for mild cognitive impairment and dementia.' },
+    { id:'PSQI',   title:'PSQI', cat:'Validated Scale', catKey:'validated', conditions:['Sleep Disorders'], time:'5 min', fill:'In-Platform',
+      desc:'Pittsburgh Sleep Quality Index. 19-item self-rated questionnaire assessing sleep quality over past month.' },
+    { id:'BPRS',   title:'BPRS', cat:'Validated Scale', catKey:'validated', conditions:['Psychosis','Schizophrenia'], time:'8 min', fill:'In-Platform',
+      desc:'Brief Psychiatric Rating Scale. 24-item clinician-rated scale for psychotic and mood symptoms.' },
+    { id:'NB-FORM',title:'Neuromod Baseline Form', cat:'Structured Form', catKey:'form', conditions:['All conditions'], time:'15 min', fill:'In-Platform',
+      desc:'Comprehensive neuromodulation baseline: medical history, current medications, contraindications, session goals.' },
+    { id:'ST-FORM',title:'Session Tolerance Form', cat:'Structured Form', catKey:'form', conditions:['All conditions'], time:'3 min', fill:'In-Platform',
+      desc:'Pre/post-session tolerability check: discomfort ratings, adverse sensations, session-readiness confirmation.' },
+    { id:'WP-FORM',title:'Weekly Progress Check', cat:'Structured Form', catKey:'form', conditions:['All conditions'], time:'5 min', fill:'In-Platform',
+      desc:'Weekly structured self-report covering symptom change, sleep, mood, energy, and treatment adherence.' },
+    { id:'SE-FORM',title:'Side Effect Monitor', cat:'Structured Form', catKey:'form', conditions:['All conditions'], time:'5 min', fill:'In-Platform',
+      desc:'Structured side-effect checklist: headache, scalp discomfort, twitching, cognitive effects — graded severity.' },
+    { id:'DEP-BDL', title:'Depression Protocol Bundle', cat:'Condition Bundle', catKey:'bundle', conditions:['Depression'], time:null, fill:'In-Platform',
+      desc:'PHQ-9 + HDRS-17 + Side Effect Monitor — recommended battery for TMS depression treatment monitoring.' },
+    { id:'ADHD-BDL',title:'ADHD Protocol Bundle', cat:'Condition Bundle', catKey:'bundle', conditions:['ADHD'], time:null, fill:'In-Platform',
+      desc:'CAARS + CGI + Side Effect Monitor — recommended battery for tDCS ADHD treatment monitoring.' },
+    { id:'PTSD-BDL',title:'PTSD Protocol Bundle', cat:'Condition Bundle', catKey:'bundle', conditions:['PTSD'], time:null, fill:'In-Platform',
+      desc:'PCL-5 + Side Effect Monitor + PSQI — recommended battery for TMS PTSD treatment monitoring.' },
+  ];
+  const ASSESS_FILTER_CHIPS = ['All','Validated Scales','Structured Forms','Condition Bundles','Side Effects','Caregiver'];
+  const ASSESS_CAT_MAP = { 'Validated Scales':'validated', 'Structured Forms':'form', 'Condition Bundles':'bundle' };
+
+  function renderTemplateLibrary() {
+    const q = tlibSearch.toLowerCase();
+    const filterKey = ASSESS_CAT_MAP[tlibFilter] || null;
+    let items = ASSESS_TEMPLATES;
+    if (filterKey) items = items.filter(i => i.catKey === filterKey);
+    if (tlibFilter === 'Side Effects') items = items.filter(i => i.title.toLowerCase().includes('side') || i.conditions.some(c => c.toLowerCase().includes('side')));
+    if (q) items = items.filter(i => i.title.toLowerCase().includes(q) || i.cat.toLowerCase().includes(q) || i.conditions.join(' ').toLowerCase().includes(q) || i.desc.toLowerCase().includes(q));
+    const chips = ASSESS_FILTER_CHIPS.map(f =>
+      '<button class="tlib-filter-chip' + (tlibFilter===f?' active':'') + '" onclick="window._ah2TlibFilter(\'' + f + '\')">' + f + '</button>'
+    ).join('');
+    const badgeCls = { validated:'tlib-badge--validated', form:'tlib-badge--form', bundle:'tlib-badge--bundle' };
+    const cards = items.length ? items.map(item => {
+      const tags = item.conditions.slice(0,3).map(c => '<span class="tlib-badge tlib-badge--form">' + c + '</span>').join('');
+      const timeTxt = item.time ? '<span style="margin-right:8px">&#9201; ' + item.time + '</span>' : '';
+      return '<div class="tlib-card">' +
+        '<div class="tlib-card-title">' + item.title + '</div>' +
+        '<div class="tlib-card-badges">' +
+          '<span class="tlib-badge ' + (badgeCls[item.catKey]||'tlib-badge--form') + '">' + item.cat + '</span>' +
+          tags +
+        '</div>' +
+        '<div class="tlib-card-meta">' + timeTxt + (item.fill ? '<span class="tlib-badge tlib-badge--clinical">' + item.fill + '</span>' : '') + '</div>' +
+        '<div class="tlib-card-meta" style="margin-bottom:0">' + item.desc + '</div>' +
+        '<div class="tlib-card-actions">' +
+          '<button class="tlib-btn-assign" onclick="window._ah2TlibAssign(\'' + item.id + '\',\'' + item.title.replace(/'/g,"\\'") + '\')">Assign</button>' +
+          '<button class="tlib-btn-preview" onclick="window._ah2TlibPreview(\'' + item.id + '\')">Preview</button>' +
+          '<button class="tlib-btn-secondary" onclick="window._ah2TlibBundle(\'' + item.id + '\',\'' + item.title.replace(/'/g,"\\'") + '\')">Add to Bundle</button>' +
+        '</div>' +
+      '</div>';
+    }).join('') : '<div class="tlib-empty"><div class="tlib-empty-icon">&#128269;</div><div class="tlib-empty-msg">No templates match your search</div></div>';
+    return '<div class="tlib-wrap">' +
+      '<div class="tlib-search-bar"><input class="tlib-search-input" id="ah2-tlib-search" type="text" placeholder="Search scales, forms, bundles\u2026" value="' + tlibSearch.replace(/"/g,'&quot;') + '" oninput="window._ah2TlibSearch(this.value)"/></div>' +
+      '<div class="tlib-filters">' + chips + '</div>' +
+      '<div class="tlib-grid">' + cards + '</div>' +
+    '</div>';
   }
 
   function assignCard(a) {
@@ -13712,6 +13785,27 @@ export async function pgAssessmentsHub(setTopbar) {
 
   window._ah2Tab = function(t) { activeTab = t; render(); };
   window._ah2Cat = function(c) { activeCat = c; render(); };
+
+  window._ah2TlibFilter = function(f) { tlibFilter = f; render(); };
+  window._ah2TlibSearch = function(v) { tlibSearch = v; render(); document.getElementById('ah2-tlib-search')?.focus(); };
+  window._ah2TlibAssign = function(id, title) {
+    const t = document.createElement('div');
+    t.className = 'notice notice-ok';
+    t.style.cssText = 'position:fixed;top:16px;right:16px;z-index:9999;max-width:360px;padding:12px 16px;border-radius:8px;background:rgba(0,212,188,.12);border:1px solid rgba(0,212,188,.3);color:var(--teal);font-size:13px';
+    t.textContent = 'Assign \u201c' + title + '\u201d to patient: select patient first';
+    document.body.appendChild(t); setTimeout(() => t.remove(), 3500);
+  };
+  window._ah2TlibPreview = function(id) {
+    const item = ASSESS_TEMPLATES.find(x => x.id === id);
+    if (item) alert(item.title + '\n\n' + item.desc + (item.time ? '\n\nTime to complete: ' + item.time : '') + (item.fill ? '\nFill method: ' + item.fill : ''));
+  };
+  window._ah2TlibBundle = function(id, title) {
+    const t = document.createElement('div');
+    t.className = 'notice notice-ok';
+    t.style.cssText = 'position:fixed;top:16px;right:16px;z-index:9999;max-width:360px;padding:12px 16px;border-radius:8px;background:rgba(74,158,255,.12);border:1px solid rgba(74,158,255,.3);color:#4a9eff;font-size:13px';
+    t.textContent = '\u201c' + title + '\u201d added to bundle';
+    document.body.appendChild(t); setTimeout(() => t.remove(), 3000);
+  };
 
   window._ah2PreviewBundle = function() {
     const condSel = document.getElementById('ah2-f-cond');
@@ -15355,6 +15449,8 @@ export async function pgDocumentsHub(setTopbar) {
   let activePid = '';
   let activeTab = 'required';
   let docs      = loadDocs();
+  let dhTlibFilter = 'All';
+  let dhTlibSearch = '';
 
   // ── Derived stats ─────────────────────────────────────────────────────────
   function computeStats(pid) {
@@ -15542,10 +15638,64 @@ export async function pgDocumentsHub(setTopbar) {
     </div>`;
   }
 
+  // ── Document Template Library data ────────────────────────────────────────
+  const DH_TLIB_ITEMS = [
+    { id:'dh-intake-form',    name:'Patient Intake Form',          type:'Intake',      typeKey:'intake',   target:'Patient',   status:'Required',  desc:'Comprehensive new-patient intake covering demographics, medical history, emergency contacts and GP details.' },
+    { id:'dh-consent-tms',   name:'Informed Consent \u2014 TMS',  type:'Consent',     typeKey:'consent',  target:'Patient',   status:'Required',  desc:'Voluntary informed consent for repetitive transcranial magnetic stimulation including risks, benefits and alternatives.' },
+    { id:'dh-consent-tdcs',  name:'Informed Consent \u2014 tDCS', type:'Consent',     typeKey:'consent',  target:'Patient',   status:'Required',  desc:'Informed consent form for transcranial direct current stimulation treatment.' },
+    { id:'dh-consent-tacs',  name:'Informed Consent \u2014 tACS', type:'Consent',     typeKey:'consent',  target:'Patient',   status:'Required',  desc:'Informed consent for transcranial alternating current stimulation.' },
+    { id:'dh-privacy',       name:'Privacy & Data Notice',         type:'Privacy',     typeKey:'privacy',  target:'Patient',   status:'Required',  desc:'Clinic privacy policy acknowledgement and GDPR/data-sharing notice for patients.' },
+    { id:'dh-homedev',       name:'Home Device Consent',           type:'Home Device', typeKey:'homedev',  target:'Patient',   status:'Required',  desc:'Consent for unsupervised home-based neuromodulation device use, including safety checklist.' },
+    { id:'dh-virtual',       name:'Virtual Care Consent',          type:'Virtual Care',typeKey:'consent',  target:'Patient',   status:'Required',  desc:'Telehealth and remote care consent form for virtual treatment delivery.' },
+    { id:'dh-caregiver',     name:'Caregiver Authorization',       type:'Caregiver',   typeKey:'caregiver',target:'Caregiver', status:'Optional',  desc:'Authorises a caregiver or legal representative to act on the patient\u2019s behalf during treatment.' },
+    { id:'dh-session-notes', name:'Clinician Session Notes',       type:'Clinical',    typeKey:'clinical', target:'Clinician', status:'Optional',  desc:'Structured session note template: observations, tolerability, response, plan.' },
+    { id:'dh-treatment-plan',name:'Treatment Plan Summary',        type:'Clinical',    typeKey:'clinical', target:'Clinician', status:'Optional',  desc:'Formalised treatment plan document including goals, modality, frequency, duration and review schedule.' },
+    { id:'dh-discharge',     name:'Discharge Summary',             type:'Clinical',    typeKey:'clinical', target:'Clinician', status:'Optional',  desc:'Comprehensive discharge summary: treatment received, outcomes, follow-up plan and GP letter.' },
+    { id:'dh-custom',        name:'Custom Form Builder',           type:'Custom',      typeKey:'custom',   target:'Clinician', status:'Optional',  desc:'Blank template \u2014 configure fields in the Form Builder for any custom clinical workflow.' },
+  ];
+  const DH_TLIB_FILTER_CHIPS = ['All','Intake','Consent','Privacy','Caregiver','Clinical','Home Device','Virtual Care','Custom'];
+  const DH_TYPE_BADGE_KEY = { Intake:'intake', Consent:'consent', Privacy:'privacy', 'Home Device':'homedev', 'Virtual Care':'consent', Caregiver:'caregiver', Clinical:'clinical', Custom:'custom' };
+
+  function renderDhTlib() {
+    const q = dhTlibSearch.toLowerCase();
+    const filt = dhTlibFilter;
+    let items = DH_TLIB_ITEMS;
+    if (filt !== 'All') items = items.filter(i => i.type === filt);
+    if (q) items = items.filter(i => i.name.toLowerCase().includes(q) || i.type.toLowerCase().includes(q) || i.target.toLowerCase().includes(q) || i.desc.toLowerCase().includes(q));
+    const chips = DH_TLIB_FILTER_CHIPS.map(f =>
+      `<button class="tlib-filter-chip${dhTlibFilter===f?' active':''}" onclick="window._dhTlibFilter('${f}')">${f}</button>`
+    ).join('');
+    const cards = items.length ? items.map(item => {
+      const bk = DH_TYPE_BADGE_KEY[item.type] || 'clinical';
+      const targetBk = item.target === 'Clinician' ? 'clinician' : item.target === 'Caregiver' ? 'caregiver' : 'patient';
+      const statusColor = item.status === 'Required' ? 'color:#ef4444' : 'color:var(--text-tertiary,#5a6475)';
+      return `<div class="tlib-card">
+        <div class="tlib-card-title">${esc(item.name)}</div>
+        <div class="tlib-card-badges">
+          <span class="tlib-badge tlib-badge--${bk}">${esc(item.type)}</span>
+          <span class="tlib-badge tlib-badge--${targetBk}">${esc(item.target)}</span>
+          <span class="tlib-badge" style="${statusColor};background:${item.status==='Required'?'rgba(239,68,68,.12)':'rgba(148,163,184,.08)'};border-color:${item.status==='Required'?'rgba(239,68,68,.25)':'rgba(148,163,184,.2)'}">${esc(item.status)}</span>
+        </div>
+        <div class="tlib-card-meta">${esc(item.desc)}</div>
+        <div class="tlib-card-actions">
+          <button class="tlib-btn-assign" onclick="window._dhTlibAssign('${esc(item.id)}','${esc(item.name).replace(/'/g,'\\\'').replace(/"/g,'&quot;')}')">Assign</button>
+          <button class="tlib-btn-preview" onclick="window._dhTlibPreview('${esc(item.id)}')">Preview</button>
+          ${item.id==='dh-custom'?`<button class="tlib-btn-secondary" onclick="window._nav('forms-builder')">Build Custom</button>`:`<button class="tlib-btn-secondary" onclick="window._dhTlibFill('${esc(item.id)}')">Fill</button>`}
+        </div>
+      </div>`;
+    }).join('') : `<div class="tlib-empty"><div class="tlib-empty-icon">&#128269;</div><div class="tlib-empty-msg">No document templates match your search</div></div>`;
+    return `<div class="tlib-wrap">
+      <div class="tlib-search-bar"><input class="tlib-search-input" id="dh-tlib-search" type="text" placeholder="Search templates\u2026" value="${esc(dhTlibSearch)}" oninput="window._dhTlibSearch(this.value)"/></div>
+      <div class="tlib-filters">${chips}</div>
+      <div class="tlib-grid">${cards}</div>
+    </div>`;
+  }
+
   // ── Main render ───────────────────────────────────────────────────────────
   function renderPage() {
     const stats = computeStats(activePid);
     const TABS = [
+      { id:'tlib',        label:'Template Library'  },
       { id:'required',    label:'Required'          },
       { id:'completed',   label:'Completed'         },
       { id:'pending-sig', label:'Pending Signature' },
@@ -15563,7 +15713,9 @@ export async function pgDocumentsHub(setTopbar) {
     ];
 
     let tabBody = '';
-    if (activeTab === 'templates') {
+    if (activeTab === 'tlib') {
+      tabBody = renderDhTlib();
+    } else if (activeTab === 'templates') {
       tabBody = `
         <div style="margin-bottom:20px">
           <div class="dh-section-hd">Form Bundles — assign a full pack in one click</div>
@@ -15618,6 +15770,19 @@ export async function pgDocumentsHub(setTopbar) {
   // ── Handlers ──────────────────────────────────────────────────────────────
   window._dhSwitchPatient = function(pid) { activePid = pid; renderPage(); };
   window._dhTab           = function(tab) { activeTab = tab; renderPage(); };
+
+  window._dhTlibFilter = function(f) { dhTlibFilter = f; renderPage(); };
+  window._dhTlibSearch = function(v) { dhTlibSearch = v; renderPage(); document.getElementById('dh-tlib-search')?.focus(); };
+  window._dhTlibAssign = function(id, name) {
+    window._showNotifToast?.({ title:'Assign Document', body:'Select a patient first, then assign \u201c' + name + '\u201d', severity:'info' });
+  };
+  window._dhTlibPreview = function(id) {
+    const item = DH_TLIB_ITEMS.find(x => x.id === id);
+    if (item) alert(item.name + '\nType: ' + item.type + ' | Target: ' + item.target + ' | ' + item.status + '\n\n' + item.desc);
+  };
+  window._dhTlibFill = function(id) {
+    window._showNotifToast?.({ title:'Fill Form', body:'In-platform form filling — select a patient first.', severity:'info' });
+  };
 
   window._dhFill       = function(id) { window._showNotifToast?.({ title:'Open Form', body:'In-platform form filling coming soon. Form sent to patient portal.', severity:'info' }); };
   window._dhOpen       = function(id) { const d=docs.find(x=>x.id===id); if(d?.url) window.open(d.url,'_blank'); else window._showNotifToast?.({ title:'No file attached', body:'No URL or file attached yet.', severity:'info' }); };

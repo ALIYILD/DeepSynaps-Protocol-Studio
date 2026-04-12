@@ -144,6 +144,7 @@ let _modCourses   = null;
 let _modOnboarding = null;
 let _modAgents    = null;
 let _modRegistries = null;
+let _modHandbooks  = null;
 let _modProtocols  = null;
 let _modVirtualCare   = null;
 let _modConditions    = null;
@@ -157,6 +158,7 @@ async function loadCourses()    { return (_modCourses   ??= await import('./page
 async function loadOnboarding() { return (_modOnboarding ??= await import('./pages-onboarding.js')); }
 async function loadAgents()     { return (_modAgents    ??= await import('./pages-agents.js')); }
 async function loadRegistries() { return (_modRegistries ??= await import('./pages-registries.js')); }
+async function loadHandbooks()  { return (_modHandbooks  ??= await import('./pages-handbooks.js')); }
 async function loadProtocols()   { return (_modProtocols   ??= await import('./pages-protocols.js')); }
 async function loadVirtualCare()  { return (_modVirtualCare  ??= await import('./pages-virtualcare.js')); }
 async function loadConditions()   { return (_modConditions   ??= await import('./pages-conditions.js')); }
@@ -1114,9 +1116,8 @@ async function renderPage() {
       break;
     }
     case 'handbooks': {
-      const m = await loadKnowledge();
-      el.innerHTML = m.pgHandbooks(setTopbar);
-      m.bindHandbooks();
+      const m = await loadHandbooks();
+      await m.pgHandbooks(setTopbar);
       break;
     }
     case 'report-builder': {

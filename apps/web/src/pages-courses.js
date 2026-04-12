@@ -444,75 +444,178 @@ export async function pgCourses(setTopbar, navigate) {
   window._tcAllCourses = items;
   window._tcOpenAEs    = openAEs;
   window._tcViewMode   = 'list';
+  window._tcCohort     = 'all';
+
+  // ── Pre-compute cohort counts ────────────────────────────────────────────────
+  const now30d = now - 30 * 86400000;
+  function _tcCohortCount(cohortId) {
+    const all = window._tcAllCourses || [];
+    const aes = window._tcOpenAEs   || [];
+    switch (cohortId) {
+      case 'all':       return all.length;
+      case 'active':    return all.filter(c => c.status === 'active').length;
+      case 'completing-soon': return all.filter(c => {
+        if (c.status !== 'active') return false;
+        const rem = (c.planned_sessions_total || 0) - (c.sessions_delivered || 0);
+        return rem > 0 && rem <= 3;
+      }).length;
+      case 'needs-assessment': return all.filter(c => c.review_required || (c.governance_warnings || []).length > 0).length;
+      case 'side-effect': return all.filter(c => aes.some(ae => ae.course_id === c.id)).length;
+      case 'low-adherence': return all.filter(c => {
+        if (c.status !== 'active' || !c.last_session_at) return false;
+        return Math.floor((Date.now() - new Date(c.last_session_at).getTime()) / 86400000) > 14;
+      }).length;
+      case 'awaiting-approval': return all.filter(c => c.status === 'pending_approval').length;
+      case 'paused':    return all.filter(c => c.status === 'paused').length;
+      case 'completed-30d': return all.filter(c => {
+        if (c.status !== 'completed') return false;
+        const t = c.completed_at || c.updated_at || c.created_at;
+        return t && new Date(t).getTime() >= now30d;
+      }).length;
+      default:          return 0;
+    }
+  }
+
+  const COHORTS = [
+    { id: 'all',              label: 'All Courses'              },
+    { id: 'active',           label: 'Active'                   },
+    { id: 'completing-soon',  label: 'Completing Soon'          },
+    { id: 'needs-assessment', label: 'Needs Assessment Review'  },
+    { id: 'side-effect',      label: 'Side Effect Reported'     },
+    { id: 'low-adherence',    label: 'Low Adherence'            },
+    { id: 'awaiting-approval',label: 'Awaiting Approval'        },
+    { id: 'paused',           label: 'Paused / On Hold'         },
+    { id: 'completed-30d',    label: 'Completed (last 30d)'     },
+  ];
+
+  function renderLeftRail(activeCohort) {
+    return `
+      <div class="course-left-rail" id="tc-left-rail">
+        <div class="course-left-rail-label">Cohorts</div>
+        ${COHORTS.map(ch => {
+          const cnt = _tcCohortCount(ch.id);
+          return `<div class="course-cohort-item${ch.id === activeCohort ? ' active' : ''}"
+            data-cohort="${ch.id}" onclick="window._courseSetCohort('${ch.id}')">
+            <span>${ch.label}</span>
+            <span class="course-cohort-count">${cnt}</span>
+          </div>`;
+        }).join('')}
+      </div>`;
+  }
 
   el.innerHTML = `
-    <div class="page-section">
+    <div class="course-master-layout">
 
-      <!-- Summary strip -->
-      <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:12px;margin-bottom:20px">
-        ${tcSummaryCard('Active',          active,          'var(--teal)',  'In progress',          'active')}
-        ${tcSummaryCard('Starting Soon',   startingThisWeek,'var(--blue)',  'Next 7 days',          'approved')}
-        ${tcSummaryCard('Milestone Due',   milestoneDue,    'var(--blue)',  'Needs check-in',       '__milestone')}
-        ${tcSummaryCard('Needs Adjustment',needsAdjustment, 'var(--red)',   'Protocol review req.', '__adjustment')}
-        ${tcSummaryCard('Paused',          paused,          'var(--amber)', 'On hold',              'paused')}
-        ${tcSummaryCard('Completed',       completed,       'var(--green)', 'Finished courses',     'completed')}
-      </div>
+      ${renderLeftRail('all')}
 
-      <!-- Search + filter bar -->
-      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:16px">
-        <div style="position:relative;flex:1;min-width:220px">
-          <span style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--text-tertiary);font-size:13px;pointer-events:none">⌕</span>
-          <input id="tc-search" type="text" placeholder="Search patients, conditions, modalities…"
-            class="form-control" style="padding-left:28px;font-size:13px;height:34px"
-            oninput="window._tcApplyFilters()">
-        </div>
-        <select id="tc-status" class="form-control" style="width:auto;font-size:12px;height:34px;padding:0 10px" onchange="window._tcApplyFilters()">
-          <option value="">All Status</option>
-          <option value="active">Active</option>
-          <option value="pending_approval">Pending Approval</option>
-          <option value="approved">Planned</option>
-          <option value="paused">Paused</option>
-          <option value="completed">Completed</option>
-          <option value="discontinued">Discontinued</option>
-        </select>
-        <select id="tc-modality" class="form-control" style="width:auto;font-size:12px;height:34px;padding:0 10px" onchange="window._tcApplyFilters()">
-          <option value="">All Modalities</option>
-          ${[...new Set(items.map(c => c.modality_slug).filter(Boolean))].map(m => `<option value="${m}">${m}</option>`).join('')}
-        </select>
-        <select id="tc-signal" class="form-control" style="width:auto;font-size:12px;height:34px;padding:0 10px" onchange="window._tcApplyFilters()">
-          <option value="">All Signals</option>
-          <option value="milestone-due">Milestone Due</option>
-          <option value="needs-review">Needs Review</option>
-          <option value="alerts">Alerts / AEs</option>
-          <option value="low-adherence">Low Adherence</option>
-          <option value="needs-adjustment">Needs Adjustment</option>
-          <option value="off-label">Off-Label</option>
-        </select>
-        <select id="tc-sort" class="form-control" style="width:auto;font-size:12px;height:34px;padding:0 10px" onchange="window._tcApplyFilters()">
-          <option value="recent">Sort: Recent</option>
-          <option value="urgency">Sort: Urgency</option>
-          <option value="patient">Sort: Patient Name</option>
-          <option value="progress">Sort: Progress</option>
-          <option value="evidence">Sort: Evidence Grade</option>
-        </select>
-        <div style="display:flex;border:1px solid var(--border);border-radius:var(--radius-md);overflow:hidden">
-          <button id="tc-view-list" onclick="window._tcSetView('list')"
-            style="padding:6px 12px;font-size:12px;border:none;cursor:pointer;background:var(--teal);color:#000;font-weight:700;font-family:var(--font-body)">≡ List</button>
-          <button id="tc-view-card" onclick="window._tcSetView('card')"
-            style="padding:6px 12px;font-size:12px;border:none;cursor:pointer;background:transparent;color:var(--text-secondary);font-family:var(--font-body)">⊞ Cards</button>
-        </div>
-      </div>
+      <div class="course-main">
+        <div class="page-section" style="padding-top:16px">
 
-      <!-- Course list -->
-      <div class="card" style="padding:0;overflow:hidden">
-        <div style="padding:12px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
-          <span style="font-size:13px;font-weight:600;color:var(--text-primary)">Treatment Courses</span>
-          <span id="tc-count" style="font-size:11px;color:var(--text-tertiary)">${items.length} total</span>
+          <!-- Summary strip -->
+          <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:12px;margin-bottom:20px">
+            ${tcSummaryCard('Active',          active,          'var(--teal)',  'In progress',          'active')}
+            ${tcSummaryCard('Starting Soon',   startingThisWeek,'var(--blue)',  'Next 7 days',          'approved')}
+            ${tcSummaryCard('Milestone Due',   milestoneDue,    'var(--blue)',  'Needs check-in',       '__milestone')}
+            ${tcSummaryCard('Needs Adjustment',needsAdjustment, 'var(--red)',   'Protocol review req.', '__adjustment')}
+            ${tcSummaryCard('Paused',          paused,          'var(--amber)', 'On hold',              'paused')}
+            ${tcSummaryCard('Completed',       completed,       'var(--green)', 'Finished courses',     'completed')}
+          </div>
+
+          <!-- Search + filter bar -->
+          <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:16px">
+            <div style="position:relative;flex:1;min-width:220px">
+              <span style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--text-tertiary);font-size:13px;pointer-events:none">&#8981;</span>
+              <input id="tc-search" type="text" placeholder="Search patients, conditions, modalities…"
+                class="form-control" style="padding-left:28px;font-size:13px;height:34px"
+                oninput="window._tcApplyFilters()">
+            </div>
+            <select id="tc-status" class="form-control" style="width:auto;font-size:12px;height:34px;padding:0 10px" onchange="window._tcApplyFilters()">
+              <option value="">All Status</option>
+              <option value="active">Active</option>
+              <option value="pending_approval">Pending Approval</option>
+              <option value="approved">Planned</option>
+              <option value="paused">Paused</option>
+              <option value="completed">Completed</option>
+              <option value="discontinued">Discontinued</option>
+            </select>
+            <select id="tc-modality" class="form-control" style="width:auto;font-size:12px;height:34px;padding:0 10px" onchange="window._tcApplyFilters()">
+              <option value="">All Modalities</option>
+              ${[...new Set(items.map(c => c.modality_slug).filter(Boolean))].map(m => `<option value="${m}">${m}</option>`).join('')}
+            </select>
+            <select id="tc-signal" class="form-control" style="width:auto;font-size:12px;height:34px;padding:0 10px" onchange="window._tcApplyFilters()">
+              <option value="">All Signals</option>
+              <option value="milestone-due">Milestone Due</option>
+              <option value="needs-review">Needs Review</option>
+              <option value="alerts">Alerts / AEs</option>
+              <option value="low-adherence">Low Adherence</option>
+              <option value="needs-adjustment">Needs Adjustment</option>
+              <option value="off-label">Off-Label</option>
+            </select>
+            <select id="tc-sort" class="form-control" style="width:auto;font-size:12px;height:34px;padding:0 10px" onchange="window._tcApplyFilters()">
+              <option value="recent">Sort: Recent</option>
+              <option value="urgency">Sort: Urgency</option>
+              <option value="patient">Sort: Patient Name</option>
+              <option value="progress">Sort: Progress</option>
+              <option value="evidence">Sort: Evidence Grade</option>
+            </select>
+            <div style="display:flex;border:1px solid var(--border);border-radius:var(--radius-md);overflow:hidden">
+              <button id="tc-view-list" onclick="window._tcSetView('list')"
+                style="padding:6px 12px;font-size:12px;border:none;cursor:pointer;background:var(--teal);color:#000;font-weight:700;font-family:var(--font-body)">&#8801; List</button>
+              <button id="tc-view-card" onclick="window._tcSetView('card')"
+                style="padding:6px 12px;font-size:12px;border:none;cursor:pointer;background:transparent;color:var(--text-secondary);font-family:var(--font-body)">&#8862; Cards</button>
+            </div>
+          </div>
+
+          <!-- Course list -->
+          <div class="card" style="padding:0;overflow:hidden">
+            <div style="padding:12px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
+              <span style="font-size:13px;font-weight:600;color:var(--text-primary)">Treatment Courses</span>
+              <span id="tc-count" style="font-size:11px;color:var(--text-tertiary)">${items.length} total</span>
+            </div>
+            <div id="tc-list"></div>
+          </div>
+
         </div>
-        <div id="tc-list"></div>
       </div>
 
     </div>`;
+
+  // ── Cohort filter helper ──────────────────────────────────────────────────────
+  function _applyCohortFilter(cohortId, all, aes) {
+    const now30dLocal = Date.now() - 30 * 86400000;
+    switch (cohortId) {
+      case 'all':             return all;
+      case 'active':          return all.filter(c => c.status === 'active');
+      case 'completing-soon': return all.filter(c => {
+        if (c.status !== 'active') return false;
+        const rem = (c.planned_sessions_total || 0) - (c.sessions_delivered || 0);
+        return rem > 0 && rem <= 3;
+      });
+      case 'needs-assessment': return all.filter(c => c.review_required || (c.governance_warnings || []).length > 0);
+      case 'side-effect':     return all.filter(c => aes.some(ae => ae.course_id === c.id));
+      case 'low-adherence':   return all.filter(c => {
+        if (c.status !== 'active' || !c.last_session_at) return false;
+        return Math.floor((Date.now() - new Date(c.last_session_at).getTime()) / 86400000) > 14;
+      });
+      case 'awaiting-approval': return all.filter(c => c.status === 'pending_approval');
+      case 'paused':          return all.filter(c => c.status === 'paused');
+      case 'completed-30d':   return all.filter(c => {
+        if (c.status !== 'completed') return false;
+        const t = c.completed_at || c.updated_at || c.created_at;
+        return t && new Date(t).getTime() >= now30dLocal;
+      });
+      default:                return all;
+    }
+  }
+
+  window._courseSetCohort = function(cohortId) {
+    window._tcCohort = cohortId;
+    // Update active state in rail
+    document.querySelectorAll('.course-cohort-item').forEach(el => {
+      el.classList.toggle('active', el.dataset.cohort === cohortId);
+    });
+    window._tcApplyFilters();
+  };
 
   // ── Render helpers ──────────────────────────────────────────────────────────
   const GRADE_ORDER  = { A: 0, B: 1, C: 2, D: 3 };
@@ -569,8 +672,10 @@ export async function pgCourses(setTopbar, navigate) {
     const modality= document.getElementById('tc-modality')?.value || '';
     const signal  = document.getElementById('tc-signal')?.value   || '';
     const sort    = document.getElementById('tc-sort')?.value     || 'recent';
+    const cohort  = window._tcCohort || 'all';
 
-    let visible = [...(window._tcAllCourses || [])];
+    // Apply cohort pre-filter first, then search/status/signal filters on top
+    let visible = _applyCohortFilter(cohort, window._tcAllCourses || [], window._tcOpenAEs || []);
 
     if (q) visible = visible.filter(c =>
       (c._patientName || '').toLowerCase().includes(q) ||
@@ -4898,12 +5003,161 @@ export async function pgAdverseEvents(setTopbar, navigate) {
   };
 }
 
-// ── pgProtocolRegistry — Browse registry protocols ────────────────────────────
+// ── pgProtocolRegistry — Protocol Library card-grid ───────────────────────────
+
+// 12 hardcoded sample protocols shown when backend returns empty
+const SAMPLE_PROTOCOLS = [
+  {
+    id: 'sp-01', name: 'High-Frequency Left DLPFC TMS',
+    condition: 'Depression/MDD', condClass: 'depression',
+    modality: 'TMS', evidenceGrade: 'EV-A', approvalStatus: 'fda-cleared',
+    sessions: 20, targetSite: 'Left DLPFC', offLabel: false,
+    chipClass: 'all evidence-based',
+  },
+  {
+    id: 'sp-02', name: 'Low-Frequency Right DLPFC TMS',
+    condition: 'Depression/MDD', condClass: 'depression',
+    modality: 'TMS', evidenceGrade: 'EV-A', approvalStatus: 'fda-cleared',
+    sessions: 20, targetSite: 'Right DLPFC', offLabel: false,
+    chipClass: 'all evidence-based',
+  },
+  {
+    id: 'sp-03', name: 'iTBS Left DLPFC',
+    condition: 'Depression/MDD', condClass: 'depression',
+    modality: 'TMS (iTBS)', evidenceGrade: 'EV-A', approvalStatus: 'fda-cleared',
+    sessions: 30, targetSite: 'Left DLPFC', offLabel: false,
+    chipClass: 'all evidence-based',
+  },
+  {
+    id: 'sp-04', name: 'Bilateral TMS — Depression',
+    condition: 'Depression/MDD', condClass: 'depression',
+    modality: 'TMS', evidenceGrade: 'EV-B', approvalStatus: 'clinical-evidence',
+    sessions: 20, targetSite: 'Bilateral DLPFC', offLabel: false,
+    chipClass: 'all evidence-based',
+  },
+  {
+    id: 'sp-05', name: 'Left F3 tDCS Anodal',
+    condition: 'Depression', condClass: 'depression',
+    modality: 'tDCS', evidenceGrade: 'EV-B', approvalStatus: 'clinical-evidence',
+    sessions: 20, targetSite: 'Left F3', offLabel: false,
+    chipClass: 'all evidence-based',
+  },
+  {
+    id: 'sp-06', name: 'DLPFC TMS for OCD',
+    condition: 'OCD', condClass: 'ocd',
+    modality: 'TMS', evidenceGrade: 'EV-A', approvalStatus: 'fda-cleared',
+    sessions: 29, targetSite: 'Left DLPFC', offLabel: false,
+    chipClass: 'all evidence-based',
+  },
+  {
+    id: 'sp-07', name: 'Right Parietal TMS — ADHD',
+    condition: 'ADHD', condClass: 'adhd',
+    modality: 'TMS', evidenceGrade: 'EV-C', approvalStatus: 'off-label',
+    sessions: 20, targetSite: 'Right Parietal', offLabel: true,
+    chipClass: 'all off-label-evidence',
+  },
+  {
+    id: 'sp-08', name: 'Left F3 / Right F4 tDCS — ADHD',
+    condition: 'ADHD', condClass: 'adhd',
+    modality: 'tDCS', evidenceGrade: 'EV-B', approvalStatus: 'clinical-evidence',
+    sessions: 15, targetSite: 'Bifrontal', offLabel: false,
+    chipClass: 'all evidence-based',
+  },
+  {
+    id: 'sp-09', name: 'DLPFC TMS for PTSD',
+    condition: 'PTSD', condClass: 'ptsd',
+    modality: 'TMS', evidenceGrade: 'EV-C', approvalStatus: 'off-label',
+    sessions: 20, targetSite: 'Left DLPFC', offLabel: true,
+    chipClass: 'all off-label-evidence',
+  },
+  {
+    id: 'sp-10', name: 'Vertex TMS — Tinnitus',
+    condition: 'Tinnitus', condClass: 'tinnitus',
+    modality: 'TMS', evidenceGrade: 'EV-C', approvalStatus: 'off-label',
+    sessions: 10, targetSite: 'Vertex', offLabel: true,
+    chipClass: 'all off-label-evidence',
+  },
+  {
+    id: 'sp-11', name: 'SMA TMS — OCD / Tourette',
+    condition: 'OCD/Tourette', condClass: 'ocd',
+    modality: 'TMS', evidenceGrade: 'EV-C', approvalStatus: 'off-label',
+    sessions: 20, targetSite: 'SMA', offLabel: true,
+    chipClass: 'all off-label-evidence',
+  },
+  {
+    id: 'sp-12', name: 'Cerebellum tDCS — Ataxia/Tremor',
+    condition: 'Ataxia/Tremor', condClass: 'other',
+    modality: 'tDCS', evidenceGrade: 'EV-D', approvalStatus: 'off-label',
+    sessions: 15, targetSite: 'Cerebellum', offLabel: true,
+    chipClass: 'all off-label-evidence',
+  },
+];
+
+// Map backend protocol evidence_grade / approval to display values
+function _prLibEvidenceGrade(p) {
+  return p.evidence_grade || p.evidenceGrade || null;
+}
+
+function _prLibApproval(p) {
+  if (p.approvalStatus) return p.approvalStatus;
+  const lv = String(p.on_label_vs_off_label || '').toLowerCase();
+  if (lv.startsWith('on')) return 'fda-cleared';
+  if (lv.startsWith('off')) return 'off-label';
+  return null;
+}
+
+function _prLibCondClass(condName) {
+  const n = (condName || '').toLowerCase();
+  if (n.includes('depress') || n.includes('mdd')) return 'depression';
+  if (n.includes('ocd') || n.includes('tourette')) return 'ocd';
+  if (n.includes('adhd')) return 'adhd';
+  if (n.includes('ptsd')) return 'ptsd';
+  if (n.includes('tinnitus')) return 'tinnitus';
+  return 'other';
+}
+
+function _prLibCard(p, compareSet) {
+  const pid         = String(p.id || '').replace(/['"<>&]/g, '');
+  const name        = p.name || '—';
+  const cond        = p.condition || p.condition_id || '—';
+  const condClass   = p.condClass || _prLibCondClass(cond);
+  const modality    = p.modality || p.modality_id || '—';
+  const sessions    = p.sessions || p.total_sessions || p.sessions_per_week ? null : null; // handled below
+  const sessionCount = p.sessions || (p.total_course ? parseInt(p.total_course) : null) || null;
+  const targetSite  = p.targetSite || p.target_region || '';
+  const offLabel    = p.offLabel === true || String(p.on_label_vs_off_label || '').toLowerCase().startsWith('off');
+  const eGrade      = _prLibEvidenceGrade(p);
+  const approval    = _prLibApproval(p);
+  const inCompare   = compareSet && compareSet.has(pid);
+
+  return `<div class="proto-card" id="plc-${pid}">
+    <div class="proto-card-name">${name}</div>
+    <div class="proto-card-badges">
+      <span class="proto-cond-badge ${condClass}">${cond}</span>
+      <span class="proto-mod-badge">${modality}</span>
+      ${eGrade ? evidenceBadge(eGrade) : ''}
+      ${approval ? approvalBadge(approval) : ''}
+    </div>
+    <div class="proto-card-chips">
+      ${targetSite ? `<span class="proto-chip site">&#9900; ${targetSite}</span>` : ''}
+      ${sessionCount ? `<span class="proto-chip count">${sessionCount} sessions</span>` : ''}
+      ${offLabel ? govFlag('Off-label use', 'warn') : ''}
+    </div>
+    <div class="proto-card-actions">
+      <button class="proto-action-btn" onclick="window._prLibOpen('${pid}')">Open</button>
+      <button class="proto-action-btn${inCompare ? ' compare-active' : ''}" id="plc-cmp-${pid}"
+        onclick="window._prLibCompare('${pid}')">Compare</button>
+      <button class="proto-prescribe-btn" onclick="window._prLibPrescribe('${pid}')">Prescribe &#8594;</button>
+    </div>
+  </div>`;
+}
+
 export async function pgProtocolRegistry(setTopbar) {
-  setTopbar('Protocol Registry', '');
+  setTopbar('Protocol Library', '');
   const el = document.getElementById('content');
   el.innerHTML = spinner();
 
+  let backendItems = [], conds = [], mods = [], patients = [];
   try {
     const [protoData, condData, modData, patientsData] = await Promise.all([
       api.protocols(),
@@ -4911,92 +5165,238 @@ export async function pgProtocolRegistry(setTopbar) {
       api.modalities().catch(() => null),
       api.listPatients().catch(() => null),
     ]);
-    const items    = protoData?.items || [];
-    const conds    = condData?.items  || [];
-    const mods     = modData?.items   || [];
-    const patients = patientsData?.items || [];
-    const condMap  = {};
-    conds.forEach(c => { condMap[c.id || c.Condition_ID] = c.name || c.Condition_Name || c.id; });
+    backendItems = protoData?.items || [];
+    conds        = condData?.items  || [];
+    mods         = modData?.items   || [];
+    patients     = patientsData?.items || [];
+  } catch (_) { /* backend offline — use samples */ }
 
-    // Build condition & modality option lists with fallback
-    const condOptions = conds.length
-      ? conds.map(c => `<option value="${c.id || c.Condition_ID}">${c.name || c.Condition_Name || c.id}</option>`).join('')
-      : FALLBACK_CONDITIONS.map(c => `<option value="${c}">${c}</option>`).join('');
+  const condMap = {};
+  conds.forEach(c => { condMap[c.id || c.Condition_ID] = c.name || c.Condition_Name || c.id; });
 
-    const modOptions = mods.length
-      ? mods.map(m => `<option value="${m.id || m.name || m.Modality_Name}">${m.name || m.Modality_Name || m.id}</option>`).join('')
-      : FALLBACK_MODALITIES.map(m => `<option value="${m}">${m}</option>`).join('');
+  // Augment backend items with display fields for the card renderer
+  const augmented = backendItems.map(p => ({
+    ...p,
+    condition:  condMap[p.condition_id] || p.condition_id || '—',
+    condClass:  _prLibCondClass(condMap[p.condition_id] || p.condition_id || ''),
+    modality:   p.modality_id || '—',
+    sessions:   p.total_sessions || null,
+    targetSite: p.target_region || '',
+    offLabel:   String(p.on_label_vs_off_label || '').toLowerCase().startsWith('off'),
+    chipClass:  'all',
+  }));
 
-    const patientOptions = patients.length
-      ? patients.map(p => `<option value="${p.id}">${p.first_name} ${p.last_name}</option>`).join('')
-      : '<option value="" disabled>No patients</option>';
+  // Use samples when backend returns nothing
+  const sourceItems = augmented.length ? augmented : SAMPLE_PROTOCOLS;
 
-    el.innerHTML = `
-      <div class="page-section">
-        <div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap">
-          <input id="pr-search" class="form-control" placeholder="Search protocols, conditions, modalities…" style="flex:1;min-width:200px;font-size:12.5px" oninput="window._filterProtocols()">
-          <select id="pr-condition" class="form-control" style="width:auto;font-size:12.5px" onchange="window._filterProtocols()">
-            <option value="">All Conditions</option>
-            ${condOptions}
+  // Build dropdown option lists
+  const condOptions = conds.length
+    ? conds.map(c => `<option value="${c.id || c.Condition_ID}">${c.name || c.Condition_Name || c.id}</option>`).join('')
+    : [...new Set(SAMPLE_PROTOCOLS.map(p => p.condition))].map(c => `<option value="${c}">${c}</option>`).join('');
+
+  const modOptions = mods.length
+    ? mods.map(m => `<option value="${m.id || m.name || m.Modality_Name}">${m.name || m.Modality_Name || m.id}</option>`).join('')
+    : [...new Set(SAMPLE_PROTOCOLS.map(p => p.modality))].map(m => `<option value="${m}">${m}</option>`).join('');
+
+  // Compare state (up to 2)
+  window._prLibCompareSet = window._prLibCompareSet || new Set();
+
+  el.innerHTML = `
+    <div class="page-section proto-lib-wrap">
+
+      <!-- Header: search + filter chips + secondary dropdowns -->
+      <div class="proto-lib-header">
+
+        <div class="proto-lib-search-row">
+          <div style="position:relative;flex:1;min-width:220px">
+            <span style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--text-tertiary);font-size:13px;pointer-events:none">&#8981;</span>
+            <input id="pl-search" type="text" class="form-control"
+              placeholder="Search protocols, conditions, modalities…"
+              style="padding-left:28px;font-size:13px;height:34px"
+              oninput="window._plFilter()">
+          </div>
+          <select id="pl-cond" class="form-control" style="width:auto;font-size:12px;height:34px;padding:0 10px" onchange="window._plFilter()">
+            <option value="">All Conditions</option>${condOptions}
           </select>
-          <select id="pr-modality" class="form-control" style="width:auto;font-size:12.5px" onchange="window._filterProtocols()">
-            <option value="">All Modalities</option>
-            ${modOptions}
+          <select id="pl-mod" class="form-control" style="width:auto;font-size:12px;height:34px;padding:0 10px" onchange="window._plFilter()">
+            <option value="">All Modalities</option>${modOptions}
           </select>
-          <select id="pr-grade" class="form-control" style="width:auto;font-size:12.5px" onchange="window._filterProtocols()">
-            <option value="">All Evidence Grades</option>
-            <option value="EV-A">EV-A (Highest)</option>
-            <option value="EV-B">EV-B</option>
-            <option value="EV-C">EV-C</option>
-            <option value="EV-D">EV-D</option>
-          </select>
-          <label style="display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--text-secondary);cursor:pointer;flex-shrink:0">
-            <input type="checkbox" id="pr-onlabel" onchange="window._filterProtocols()"> On-label only
-          </label>
         </div>
-        <div id="pr-count" style="margin-bottom:12px;font-size:12px;color:var(--text-secondary)">${items.length} registry protocols</div>
-        <div id="pr-list" style="display:flex;flex-direction:column;gap:8px">
-          ${items.map(p => renderProtocolCard(p, condMap, patientOptions)).join('')}
+
+        <div class="proto-lib-chips">
+          <span style="font-size:11px;color:var(--text-tertiary);margin-right:4px">Filter:</span>
+          ${[
+            ['all',              'All'],
+            ['evidence-based',   'Evidence-Based'],
+            ['off-label-evidence','Off-Label Evidence'],
+            ['ai-personalized',  'AI-Personalized'],
+            ['qeeg-guided',      'qEEG-Guided'],
+            ['custom-manual',    'Custom Manual'],
+          ].map(([val, label]) =>
+            `<button class="proto-lib-chip${val === 'all' ? ' active' : ''}" data-chip="${val}"
+              onclick="window._plSetChip('${val}')">${label}</button>`
+          ).join('')}
         </div>
-      </div>`;
 
-    window._allProtocols    = items;
-    window._condMap         = condMap;
-    window._patientOptions  = patientOptions;
+      </div>
 
-    bindProtocolRegistry();
+      <!-- Count -->
+      <div id="pl-count" style="font-size:12px;color:var(--text-tertiary);margin-bottom:14px">${sourceItems.length} protocols</div>
 
-    window._filterProtocols = function() {
-      const q       = (document.getElementById('pr-search')?.value || '').toLowerCase();
-      const grade   = document.getElementById('pr-grade')?.value || '';
-      const condSel = document.getElementById('pr-condition')?.value || '';
-      const modSel  = document.getElementById('pr-modality')?.value || '';
-      const onLabel = document.getElementById('pr-onlabel')?.checked || false;
-      const visible = (window._allProtocols || []).filter(p => {
-        const condName = (window._condMap || {})[p.condition_id] || p.condition_id || '';
-        const text = `${p.name || ''} ${condName} ${p.modality_id || ''} ${p.target_region || ''}`.toLowerCase();
-        const isOn = String(p.on_label_vs_off_label || '').toLowerCase().startsWith('on');
-        const matchCond = !condSel || (p.condition_id || '').includes(condSel) || condName.toLowerCase().includes(condSel.toLowerCase());
-        const matchMod  = !modSel  || (p.modality_id || '').toLowerCase().includes(modSel.toLowerCase());
-        return (!q || text.includes(q))
-          && (!grade  || p.evidence_grade === grade)
-          && (!onLabel || isOn)
-          && matchCond
-          && matchMod;
-      });
-      const listEl  = document.getElementById('pr-list');
-      const countEl = document.getElementById('pr-count');
-      if (countEl) countEl.textContent = `${visible.length} of ${(window._allProtocols || []).length} registry protocols`;
-      if (listEl) listEl.innerHTML = visible.length
-        ? visible.map(p => renderProtocolCard(p, window._condMap || {}, window._patientOptions || '')).join('')
-        : emptyState('◇', 'No protocols match filter.');
-      bindProtocolRegistry();
-    };
-  } catch (e) {
-    el.innerHTML = `<div style="padding:32px">${emptyState('◇', 'Protocol registry unavailable. Ensure backend is running.')}</div>`;
+      <!-- Card grid -->
+      <div class="proto-grid" id="pl-grid">
+        ${sourceItems.map(p => _prLibCard(p, window._prLibCompareSet)).join('')}
+      </div>
+
+      <!-- Compare bar (hidden until 2 selected) -->
+      <div id="pl-compare-bar" class="proto-compare-bar" style="display:none">
+        <div style="font-size:11.5px;font-weight:700;color:var(--teal);white-space:nowrap">Compare</div>
+        <div class="proto-compare-slot" id="pl-cmp-slot-0">— Select protocol —</div>
+        <div style="font-size:18px;color:var(--text-tertiary)">vs</div>
+        <div class="proto-compare-slot" id="pl-cmp-slot-1">— Select protocol —</div>
+        <button class="proto-prescribe-btn" style="flex-shrink:0" onclick="window._prLibClearCompare()">Clear</button>
+      </div>
+
+      <!-- Slide-out detail panel anchor (injected by _prLibOpen) -->
+      <div id="pl-slide-anchor"></div>
+
+    </div>`;
+
+  // ── State ────────────────────────────────────────────────────────────────────
+  window._plAllItems   = sourceItems;
+  window._plChip       = 'all';
+  window._plCondMap    = condMap;
+
+  // ── Filter + render ──────────────────────────────────────────────────────────
+  window._plFilter = function() {
+    const q     = (document.getElementById('pl-search')?.value || '').toLowerCase();
+    const cond  = document.getElementById('pl-cond')?.value  || '';
+    const mod   = document.getElementById('pl-mod')?.value   || '';
+    const chip  = window._plChip || 'all';
+    const all   = window._plAllItems || [];
+
+    const vis = all.filter(p => {
+      const text = `${p.name||''} ${p.condition||''} ${p.modality||''} ${p.targetSite||''}`.toLowerCase();
+      const matchQ    = !q    || text.includes(q);
+      const matchCond = !cond || (p.condition || '').toLowerCase().includes(cond.toLowerCase()) || (p.condition_id||'').includes(cond);
+      const matchMod  = !mod  || (p.modality  || '').toLowerCase().includes(mod.toLowerCase());
+      const matchChip = chip === 'all' || (p.chipClass || '').includes(chip);
+      return matchQ && matchCond && matchMod && matchChip;
+    });
+
+    const grid  = document.getElementById('pl-grid');
+    const cnt   = document.getElementById('pl-count');
+    if (cnt)  cnt.textContent  = `${vis.length} of ${all.length} protocols`;
+    if (grid) grid.innerHTML   = vis.length
+      ? vis.map(p => _prLibCard(p, window._prLibCompareSet)).join('')
+      : `<div class="proto-lib-empty">&#9671; No protocols match your filters.<br><span style="font-size:11px">Try clearing a filter chip or search.</span></div>`;
+  };
+
+  window._plSetChip = function(val) {
+    window._plChip = val;
+    document.querySelectorAll('.proto-lib-chip').forEach(b => {
+      b.classList.toggle('active', b.dataset.chip === val);
+    });
+    window._plFilter();
+  };
+
+  // ── Compare ──────────────────────────────────────────────────────────────────
+  window._prLibCompare = function(pid) {
+    const cs  = window._prLibCompareSet;
+    const btn = document.getElementById('plc-cmp-' + pid);
+    if (cs.has(pid)) {
+      cs.delete(pid);
+      if (btn) btn.classList.remove('compare-active');
+    } else {
+      if (cs.size >= 2) {
+        // Remove oldest (first)
+        const first = [...cs][0];
+        cs.delete(first);
+        const oldBtn = document.getElementById('plc-cmp-' + first);
+        if (oldBtn) oldBtn.classList.remove('compare-active');
+      }
+      cs.add(pid);
+      if (btn) btn.classList.add('compare-active');
+    }
+    _prLibUpdateCompareBar();
+  };
+
+  function _prLibUpdateCompareBar() {
+    const cs   = window._prLibCompareSet;
+    const bar  = document.getElementById('pl-compare-bar');
+    const s0   = document.getElementById('pl-cmp-slot-0');
+    const s1   = document.getElementById('pl-cmp-slot-1');
+    const arr  = [...cs];
+    const all  = window._plAllItems || [];
+    if (!bar) return;
+    if (cs.size === 0) { bar.style.display = 'none'; return; }
+    bar.style.display = 'flex';
+    const nameOf = id => (all.find(p => String(p.id) === id) || {}).name || id;
+    if (s0) { s0.textContent = arr[0] ? nameOf(arr[0]) : '— Select protocol —'; s0.classList.toggle('filled', !!arr[0]); }
+    if (s1) { s1.textContent = arr[1] ? nameOf(arr[1]) : '— Select protocol —'; s1.classList.toggle('filled', !!arr[1]); }
   }
+
+  window._prLibClearCompare = function() {
+    window._prLibCompareSet.clear();
+    document.querySelectorAll('.proto-action-btn.compare-active').forEach(b => b.classList.remove('compare-active'));
+    _prLibUpdateCompareBar();
+  };
+
+  // ── Open (slide panel) ───────────────────────────────────────────────────────
+  window._prLibOpen = function(pid) {
+    // Try protocol-detail route first
+    const all = window._plAllItems || [];
+    const p   = all.find(pr => String(pr.id) === pid);
+
+    // If a real backend protocol (has uuid-style id), navigate to detail route
+    if (p && !String(p.id).startsWith('sp-') && typeof window._nav === 'function') {
+      try { window._nav('protocol-detail'); return; } catch(_) {}
+    }
+
+    // Otherwise show slide-out panel
+    document.getElementById('pl-slide-anchor').innerHTML = '';
+    const overlay = document.createElement('div');
+    overlay.className = 'proto-slide-overlay';
+    overlay.onclick = () => { overlay.remove(); panel.remove(); };
+    const panel = document.createElement('div');
+    panel.className = 'proto-slide-panel';
+    const eGrade  = _prLibEvidenceGrade(p || {});
+    const approval = _prLibApproval(p || {});
+    panel.innerHTML = `
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px">
+        <div style="font-size:15px;font-weight:700;color:var(--text-primary)">${p?.name || pid}</div>
+        <button class="proto-action-btn" onclick="this.closest('.proto-slide-panel').remove();document.querySelector('.proto-slide-overlay')?.remove()">&#10005;</button>
+      </div>
+      <div class="proto-card-badges" style="margin-bottom:14px">
+        <span class="proto-cond-badge ${p?.condClass||''}">${p?.condition || '—'}</span>
+        <span class="proto-mod-badge">${p?.modality || '—'}</span>
+        ${eGrade ? evidenceBadge(eGrade) : ''}
+        ${approval ? approvalBadge(approval) : ''}
+      </div>
+      ${p?.targetSite ? `<div style="margin-bottom:10px"><span class="proto-chip site">&#9900; ${p.targetSite}</span></div>` : ''}
+      ${p?.sessions ? `<div style="margin-bottom:14px"><span class="proto-chip count">${p.sessions} sessions</span></div>` : ''}
+      ${p?.offLabel ? govFlag('Off-label use — governance review required', 'warn') : ''}
+      <div style="margin-top:18px;display:flex;gap:8px;flex-wrap:wrap">
+        <button class="proto-prescribe-btn" onclick="window._prLibPrescribe('${pid}')">Prescribe &#8594;</button>
+        <button class="proto-action-btn" onclick="window._prLibCompare('${pid}')">Compare</button>
+      </div>`;
+    document.body.appendChild(overlay);
+    document.getElementById('pl-slide-anchor').appendChild(panel);
+  };
+
+  // ── Prescribe ────────────────────────────────────────────────────────────────
+  window._prLibPrescribe = function(pid) {
+    const all = window._plAllItems || [];
+    const p   = all.find(pr => String(pr.id) === pid);
+    if (p) {
+      window._wizardProtocolId   = pid;
+      window._pilSelectedProtocol = p;
+    }
+    if (typeof window._nav === 'function') window._nav('prescriptions');
+  };
 }
 
+// legacy renderProtocolCard kept for any call-sites that may still reference it
 function renderProtocolCard(p, condMap = {}, patientOptions = '') {
   const isOn = String(p.on_label_vs_off_label || '').toLowerCase().startsWith('on');
   const pid  = (p.id || '').replace(/['"]/g, '');
@@ -5021,73 +5421,27 @@ function renderProtocolCard(p, condMap = {}, patientOptions = '') {
         </div>
       </div>
       <div style="display:flex;gap:6px;align-items:center;flex-shrink:0">
-        <button class="btn btn-sm" style="font-size:10.5px" onclick="event.stopPropagation();window._toggleProtoDetail('${pid}')">View Details →</button>
-        <span style="font-size:10px;color:var(--text-tertiary)" id="proto-chevron-${pid}">▼</span>
+        <button class="btn btn-sm" style="font-size:10.5px" onclick="event.stopPropagation();window._toggleProtoDetail('${pid}')">View Details &#8594;</button>
+        <span style="font-size:10px;color:var(--text-tertiary)" id="proto-chevron-${pid}">&#9660;</span>
       </div>
     </div>
-    <div id="proto-detail-${pid}" style="display:none;background:rgba(0,0,0,0.2);padding:16px 20px;border-top:1px solid var(--border);border-bottom:1px solid var(--border)">
-      <div class="g2" style="margin-bottom:14px">
-        <div>
-          ${[
-            ['Protocol ID',      p.id || '—'],
-            ['Condition',        condName],
-            ['Phenotype',        p.phenotype_id || '—'],
-            ['Modality',         p.modality_id || '—'],
-            ['Device',           p.device_id_if_specific || 'Any compatible'],
-            ['Target Region',    p.target_region || '—'],
-            ['Laterality',       p.laterality || '—'],
-          ].map(([k,v]) => `<div style="display:flex;gap:8px;padding:4px 0;border-bottom:1px solid var(--border);font-size:12px"><span style="color:var(--text-tertiary);width:130px;flex-shrink:0">${k}</span><span style="color:var(--text-primary)">${v}</span></div>`).join('')}
-        </div>
-        <div>
-          ${[
-            ['Frequency',        p.frequency_hz ? p.frequency_hz + ' Hz' : '—'],
-            ['Intensity',        p.intensity || '—'],
-            ['Session Duration', p.session_duration || '—'],
-            ['Sessions/Week',    p.sessions_per_week ? p.sessions_per_week + '×/wk' : '—'],
-            ['Total Course',     p.total_course || '—'],
-            ['Coil/Placement',   p.coil_or_electrode_placement || '—'],
-            ['Review Required',  p.clinician_review_required === 'Yes' ? '<span style="color:var(--amber)">Yes</span>' : '<span style="color:var(--green)">No</span>'],
-          ].map(([k,v]) => `<div style="display:flex;gap:8px;padding:4px 0;border-bottom:1px solid var(--border);font-size:12px"><span style="color:var(--text-tertiary);width:130px;flex-shrink:0">${k}</span><span style="color:var(--text-primary)">${v}</span></div>`).join('')}
-        </div>
-      </div>
-      <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;align-items:center">
-        ${evidenceBadge(p.evidence_grade)}
-        ${labelBadge(isOn)}
-        ${p.governance_flags?.length ? `<span style="font-size:10px;font-weight:600;padding:2px 7px;border-radius:4px;background:rgba(255,107,107,0.1);color:var(--red)">⚠ ${p.governance_flags.length} governance flag${p.governance_flags.length > 1 ? 's' : ''}</span>` : ''}
-      </div>
-      ${(p.governance_flags || []).map(f => `<div style="font-size:11.5px;color:var(--amber);padding:6px 10px;background:rgba(255,181,71,0.06);border-radius:5px;margin-bottom:6px;border-left:3px solid var(--amber)">⚠ ${f}</div>`).join('')}
-      ${p.monitoring_requirements ? `<div style="font-size:11.5px;color:var(--text-secondary);margin-bottom:12px;padding:10px;background:rgba(255,181,71,0.06);border-radius:6px;border-left:3px solid var(--amber)">Monitoring: ${p.monitoring_requirements}</div>` : ''}
+    <div id="proto-detail-${pid}" style="display:none;background:rgba(0,0,0,0.2);padding:16px 20px;border-top:1px solid var(--border)">
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">
-        <button class="btn btn-primary btn-sm" onclick="window._useProtocol('${pid}')">Use This Protocol →</button>
-        <button class="btn btn-sm" onclick="window._toggleAssignForm('${pid}')">Assign to Patient →</button>
-        <button class="btn btn-sm" onclick="window._startCourseFromProtocol('${pid}')">+ Create Course</button>
+        <button class="btn btn-primary btn-sm" onclick="window._useProtocol('${pid}')">Use This Protocol &#8594;</button>
         <button class="btn btn-sm" onclick="window._toggleProtoDetail('${pid}')">Close</button>
-      </div>
-      <div id="proto-assign-form-${pid}" style="display:none;margin-top:8px;padding:12px;background:rgba(255,255,255,0.03);border-radius:6px;border:1px solid var(--border)">
-        <div style="font-size:11.5px;font-weight:600;color:var(--text-secondary);margin-bottom:8px;text-transform:uppercase;letter-spacing:.7px">Assign to Patient</div>
-        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-          <select id="proto-assign-pat-${pid}" class="form-control" style="flex:1;min-width:180px;font-size:12.5px">
-            <option value="">Select patient…</option>
-            ${patientOptions}
-          </select>
-          <button class="btn btn-primary btn-sm" onclick="window._assignProtocolToPatient('${pid}','${p.phenotype_id || ''}')">Assign</button>
-          <button class="btn btn-sm" onclick="document.getElementById('proto-assign-form-${pid}').style.display='none'">Cancel</button>
-        </div>
-        <div id="proto-assign-msg-${pid}" style="font-size:11.5px;margin-top:6px;display:none"></div>
       </div>
     </div>
   </div>`;
 }
 
-// bind in pgProtocolRegistry
+// legacy bind helper kept for backward compatibility
 function bindProtocolRegistry() {
   window._toggleProtoDetail = function(id) {
-    // Close all other open panels
     document.querySelectorAll('[id^="proto-detail-"]').forEach(el => {
       if (el.id !== 'proto-detail-' + id && el.style.display !== 'none') {
         el.style.display = 'none';
         const chev = document.getElementById('proto-chevron-' + el.id.replace('proto-detail-', ''));
-        if (chev) chev.textContent = '▼';
+        if (chev) chev.textContent = '&#9660;';
       }
     });
     const panel = document.getElementById('proto-detail-' + id);
@@ -5095,45 +5449,15 @@ function bindProtocolRegistry() {
     if (!panel) return;
     const open = panel.style.display !== 'none';
     panel.style.display = open ? 'none' : '';
-    if (chev) chev.textContent = open ? '▼' : '▲';
+    if (chev) chev.textContent = open ? '&#9660;' : '&#9650;';
   };
-
   window._useProtocol = function(protocolId) {
     window._wizardProtocolId = protocolId;
     window._nav('protocol-wizard');
   };
-
   window._startCourseFromProtocol = function(protocolId) {
     window._wizardProtocolId = protocolId;
     window._nav('protocol-wizard');
-  };
-
-  window._toggleAssignForm = function(pid) {
-    const form = document.getElementById('proto-assign-form-' + pid);
-    if (form) form.style.display = form.style.display === 'none' ? '' : 'none';
-  };
-
-  window._assignProtocolToPatient = async function(protocolId, phenotypeId) {
-    const patEl  = document.getElementById('proto-assign-pat-' + protocolId);
-    const msgEl  = document.getElementById('proto-assign-msg-' + protocolId);
-    const patId  = patEl?.value;
-    if (!patId) {
-      if (msgEl) { msgEl.textContent = 'Select a patient.'; msgEl.style.color = 'var(--red)'; msgEl.style.display = ''; }
-      return;
-    }
-    try {
-      const payload = { patient_id: patId, protocol_id: protocolId };
-      if (phenotypeId) payload.phenotype_id = phenotypeId;
-      await api.assignPhenotype(payload);
-      if (msgEl) { msgEl.textContent = 'Assigned successfully.'; msgEl.style.color = 'var(--teal)'; msgEl.style.display = ''; }
-      setTimeout(() => {
-        const form = document.getElementById('proto-assign-form-' + protocolId);
-        if (form) form.style.display = 'none';
-        if (msgEl) msgEl.style.display = 'none';
-      }, 2000);
-    } catch (e) {
-      if (msgEl) { msgEl.textContent = e.message || 'Assignment failed.'; msgEl.style.color = 'var(--red)'; msgEl.style.display = ''; }
-    }
   };
 }
 
