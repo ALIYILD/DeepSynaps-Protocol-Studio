@@ -68,6 +68,8 @@ export function doLogout() {
   api.clearToken();
   window._sseSource?.close();
   window._clearPaletteCache?.();
+  sessionStorage.removeItem('ds_pat_selected_id');
+  sessionStorage.removeItem('ds_patient_roster');
   currentUser = null;
   document.getElementById('sidebar').classList.remove('visible');
   document.getElementById('app-shell').classList.remove('visible');

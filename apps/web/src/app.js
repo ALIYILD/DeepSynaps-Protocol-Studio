@@ -9,6 +9,12 @@ function esc(v) {
   return String(v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#x27;');
 }
 
+// ── Patient roster cache: restore from sessionStorage on boot ─────────────────
+try {
+  const _cachedRoster = sessionStorage.getItem('ds_patient_roster');
+  if (_cachedRoster) window._patientRoster = JSON.parse(_cachedRoster);
+} catch {}
+
 // ── Accessibility: screen-reader announcements ────────────────────────────────
 function announce(message, urgent = false) {
   const el = document.getElementById(urgent ? 'a11y-alert' : 'a11y-announce');
@@ -22,6 +28,8 @@ window._announce = announce;
 window._handleSessionExpired = function() {
   api.clearToken();
   setCurrentUser(null);
+  sessionStorage.removeItem('ds_pat_selected_id');
+  sessionStorage.removeItem('ds_patient_roster');
   navigatePublic('home');
   announce('Your session has expired. Please sign in again.', true);
 };
@@ -1797,6 +1805,24 @@ const _origNavigate = window._nav;
 // (will be patched after navigate is defined — see below)
 
 // ── Boot after login ──────────────────────────────────────────────────────────
+// ── Warm patient roster cache for command palette ─────────────────────────────
+async function _warmPatientRoster() {
+  try {
+    const res = await api.listPatients({ limit: 200 }).catch(() => null);
+    if (res?.items) {
+      window._patientRoster = res.items.map(p => ({
+        id: p.id,
+        name: [p.first_name, p.last_name].filter(Boolean).join(' ') || p.display_name || 'Patient',
+        condition: p.primary_condition || p.condition || '',
+        email: p.email || '',
+      }));
+      // Also persist to sessionStorage for fast access across navigations
+      try { sessionStorage.setItem('ds_patient_roster', JSON.stringify(window._patientRoster)); } catch {}
+    }
+  } catch {}
+}
+window._warmPatientRoster = _warmPatientRoster;
+
 async function bootApp() {
   if (currentPage === 'dashboard') {
     // Role-based entry: redirect technician → session-execution, reviewer → review-queue, etc.
@@ -1850,6 +1876,8 @@ async function bootApp() {
   setInterval(() => {
     if (document.getElementById('backend-banner')) checkBackendHealth();
   }, 30000);
+  // Warm patient roster cache for command palette (fire-and-forget)
+  _warmPatientRoster();
 }
 
 window._bootApp = bootApp;

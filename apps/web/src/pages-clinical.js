@@ -68,6 +68,138 @@ function _findVersionById(id) {
   return null;
 }
 
+// ── Shared assign-modal helpers ──────────────────────────────────────────────
+
+function _dsToast(msg, type = 'success') {
+  const t = document.createElement('div');
+  t.className = `ds-toast ds-toast--${type}`;
+  t.textContent = msg;
+  document.body.appendChild(t);
+  setTimeout(() => t.remove(), 3500);
+}
+
+window._dsShowAssignModal = function(config) {
+  const { templateName = '', templateId = '', onAssign } = config || {};
+
+  // Build overlay
+  const overlay = document.createElement('div');
+  overlay.className = 'ds-assign-modal-overlay';
+
+  overlay.innerHTML = `
+    <div class="ds-assign-modal" role="dialog" aria-modal="true" aria-label="Assign to patient">
+      <div class="ds-assign-modal-header">
+        <span class="ds-assign-modal-title">Assign &ldquo;${templateName}&rdquo; to Patient</span>
+        <button class="ds-assign-modal-close" aria-label="Close">&times;</button>
+      </div>
+      <input class="ds-assign-search" type="text" placeholder="Search patients\u2026" autocomplete="off" />
+      <div class="ds-assign-list"><div class="ds-assign-spinner">Loading patients\u2026</div></div>
+      <div class="ds-assign-footer">
+        <button class="ds-assign-btn-cancel">Cancel</button>
+        <button class="ds-assign-btn-primary" disabled>Assign to Selected &rarr;</button>
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(overlay);
+
+  const panel    = overlay.querySelector('.ds-assign-modal');
+  const closeBtn = overlay.querySelector('.ds-assign-modal-close');
+  const search   = overlay.querySelector('.ds-assign-search');
+  const list     = overlay.querySelector('.ds-assign-list');
+  const cancelBtn= overlay.querySelector('.ds-assign-btn-cancel');
+  const assignBtn= overlay.querySelector('.ds-assign-btn-primary');
+
+  let allPatients = [];
+  let selectedId  = null;
+  let selectedName= null;
+
+  function close() { overlay.remove(); }
+
+  // Close on overlay background click (not panel click)
+  overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
+  closeBtn.addEventListener('click', close);
+  cancelBtn.addEventListener('click', close);
+
+  // Render patient rows
+  function renderList(patients) {
+    if (!patients.length) {
+      list.innerHTML = '<div class="ds-assign-empty">No patients found.</div>';
+      return;
+    }
+    list.innerHTML = patients.map(p => {
+      const parts = (p.name || 'Patient').split(' ');
+      const av = (parts[0]?.[0] || '') + (parts[1]?.[0] || '');
+      const isSel = p.id === selectedId;
+      return `<div class="ds-assign-pat-row${isSel ? ' selected' : ''}" data-id="${p.id}" data-name="${(p.name||'').replace(/"/g,'&quot;')}">
+        <div class="ds-assign-avatar">${av.toUpperCase()}</div>
+        <div class="ds-assign-pat-info">
+          <div class="ds-assign-pat-name">${p.name || 'Patient'}</div>
+          ${p.condition ? `<div class="ds-assign-pat-cond">${p.condition}</div>` : ''}
+        </div>
+      </div>`;
+    }).join('');
+
+    list.querySelectorAll('.ds-assign-pat-row').forEach(row => {
+      row.addEventListener('click', () => {
+        selectedId   = row.dataset.id;
+        selectedName = row.dataset.name;
+        assignBtn.disabled = false;
+        list.querySelectorAll('.ds-assign-pat-row').forEach(r => r.classList.toggle('selected', r === row));
+      });
+    });
+  }
+
+  function filterAndRender() {
+    const q = search.value.trim().toLowerCase();
+    const filtered = q
+      ? allPatients.filter(p => (p.name||'').toLowerCase().includes(q) || (p.condition||'').toLowerCase().includes(q))
+      : allPatients;
+    renderList(filtered);
+  }
+
+  search.addEventListener('input', filterAndRender);
+
+  // Load patients from cache or API
+  async function loadPatients() {
+    if (Array.isArray(window._patientRoster) && window._patientRoster.length) {
+      allPatients = window._patientRoster;
+      renderList(allPatients);
+      return;
+    }
+    try {
+      const res = await api.listPatients({ limit: 100 });
+      const items = res?.items || res || [];
+      allPatients = items.map(p => ({
+        id: p.id,
+        name: [p.first_name, p.last_name].filter(Boolean).join(' ') || p.display_name || 'Patient',
+        condition: p.primary_condition || p.condition || '',
+      }));
+    } catch {
+      allPatients = [];
+    }
+    renderList(allPatients);
+  }
+
+  loadPatients();
+
+  // Assign button
+  assignBtn.addEventListener('click', async () => {
+    if (!selectedId) return;
+    assignBtn.disabled = true;
+    assignBtn.textContent = 'Assigning\u2026';
+    try {
+      if (typeof onAssign === 'function') await onAssign(selectedId, selectedName);
+    } catch (err) {
+      _dsToast('Assignment failed. Please try again.', 'error');
+    } finally {
+      close();
+    }
+  });
+
+  // Focus search
+  setTimeout(() => search.focus(), 50);
+};
+
 // Active diff state
 let _diffState = { versionId: null, diffMode: false };
 
@@ -1131,6 +1263,26 @@ export async function pgPatients(setTopbar, navigate) {
     ? modalities.map(m => `<option value="${m.name || m.Modality_Name}">${m.name || m.Modality_Name}</option>`).join('')
     : FALLBACK_MODALITIES.map(m => `<option>${m}</option>`).join('');
 
+  // ── Backend cohort count aggregates (async, optional) ─────────────────────
+  async function _fetchCohortCounts() {
+    try {
+      const res = await api.getClinicAlertSummary?.().catch(() => null);
+      if (res && typeof res === 'object') {
+        return {
+          active:     res.active_patients       ?? null,
+          review:     res.needs_review          ?? null,
+          alerts:     res.urgent_alerts         ?? null,
+          assess:     res.overdue_assessments   ?? null,
+          today:      res.sessions_today        ?? null,
+          adherence:  res.low_adherence         ?? null,
+          wearable:   res.wearable_issues       ?? null,
+          ae:         res.side_effects          ?? null,
+        };
+      }
+    } catch {}
+    return null;
+  }
+
   // ── Cohort definitions ──────────────────────────────────────────────────────
   const _thirtyDaysAgo = Date.now() - 30 * 86400000;
   const _cohorts = [
@@ -1346,32 +1498,52 @@ export async function pgPatients(setTopbar, navigate) {
 
   window._patientsData    = items;
   window._patQuickFilter  = 'all';
+  window._patCohortFilter = 'all';
+  window._patSelected     = null;
 
-  // ── Patient card renderer ─────────────────────────────────────────────────
+  // ── Update cohort counts from backend aggregate (fire-and-forget) ──────────
+  _fetchCohortCounts().then(bc => {
+    if (!bc) return;
+    const _countMap = {
+      active:     bc.active,
+      review:     bc.review,
+      assessment: bc.assess,
+      ae:         bc.ae,
+      today:      bc.today,
+      adherence:  bc.adherence,
+      wearable:   bc.wearable,
+    };
+    Object.entries(_countMap).forEach(([cohortId, val]) => {
+      if (val == null) return;
+      const el2 = document.getElementById('pat-cohort-count-' + cohortId);
+      if (el2) el2.textContent = val;
+    });
+  }).catch(() => {});
+
+  // ── Patient card renderer (master-detail version) ─────────────────────────
   function _patCard(p, att, cs, canTransferFlag) {
     att = att || _patAttention(p);
     cs  = cs  || _patCourseStats(p);
     const name    = (p.first_name || '') + ' ' + (p.last_name || '');
     const age     = p.dob ? Math.floor((Date.now() - new Date(p.dob)) / 31557600000) + 'y' : '';
     const progPct = cs.sessTotal ? Math.round((cs.sessDone / cs.sessTotal) * 100) : 0;
-    const attBadge = att
-      ? '<span class="pat-att-badge" style="color:' + att.color + ';border-color:' + att.color + '33;background:' + att.color + '0d">' + att.label + '</span>'
-      : '<span class="pat-att-badge pat-att-badge--ok">✓ On Track</span>';
+    const activeCourse = cs.activeCourses[0];
     const courseInfo = cs.activeCourses.length
-      ? '<span class="pat-course-info">' + cs.activeCourses.length + ' active course' + (cs.activeCourses.length > 1 ? 's' : '') + '</span>'
+      ? '<span class="pat-course-info">' + (activeCourse?.name || cs.activeCourses.length + ' active course' + (cs.activeCourses.length > 1 ? 's' : '')) + '</span>'
       : '<span class="pat-course-info pat-course-info--none">No active course</span>';
     const progressBar = cs.sessTotal
       ? '<div class="pat-prog-row"><div class="pat-prog-track"><div class="pat-prog-fill" style="width:' + progPct + '%"></div></div><span class="pat-prog-lbl">' + cs.sessDone + '/' + cs.sessTotal + ' sessions</span></div>'
       : '';
-    const lastSess = p.last_session_date ? '<span class="pat-last-sess">Last: ' + p.last_session_date + '</span>' : '';
     const statusColor = { active: 'var(--green)', pending: 'var(--amber)', inactive: 'var(--text-tertiary)', completed: 'var(--blue)' }[p.status] || 'var(--text-tertiary)';
     const condTag  = p.primary_condition ? '<span class="tag" style="font-size:10.5px">' + p.primary_condition + '</span>' : '';
     const modTag   = p.primary_modality  ? '<span class="tag" style="font-size:10.5px">' + p.primary_modality  + '</span>' : '';
     const ageSpan  = age ? ' <span class="pat-card-age">' + age + '</span>' : '';
-    const transferBtn = canTransferFlag
-      ? '<button class="pat-act-btn" onclick="window._transferPatient(\'' + p.id + '\',\'' + name.replace(/'/g, "\\'") + '\')">Transfer</button>'
-      : '';
-    return '<div class="pat-roster-card" data-id="' + p.id + '" data-status="' + p.status + '" data-attention="' + (att ? att.type : 'ok') + '" onclick="window.openPatient(\'' + p.id + '\')">'
+    const statusLabel = { active: 'Active', pending: 'Pending', inactive: 'Inactive', completed: 'Completed', discharged: 'Discharged' }[p.status] || (p.status || '');
+    const statusPill = statusLabel ? '<span class="pat-status-pill" style="color:' + statusColor + ';background:' + statusColor + '18;border:1px solid ' + statusColor + '44">' + statusLabel + '</span>' : '';
+    const primaryBtn = (p.sessions_today || 0) > 0
+      ? '<button class="pat-act-btn pat-act-btn--primary" onclick="event.stopPropagation();window._patStartSession(\'' + p.id + '\')">' + 'Start Session</button>'
+      : '<button class="pat-act-btn pat-act-btn--primary" onclick="event.stopPropagation();window.openPatient(\'' + p.id + '\')">' + 'Open Chart</button>';
+    return '<div class="pat-roster-card" data-id="' + p.id + '" data-status="' + p.status + '" data-attention="' + (att ? att.type : 'ok') + '" onclick="window._patSelectPatient(\'' + p.id + '\')">' 
       + '<div class="pat-card-left">'
       +   '<div class="pat-card-avatar">'
       +     '<span class="pat-status-dot" style="background:' + statusColor + '"></span>'
@@ -1379,22 +1551,89 @@ export async function pgPatients(setTopbar, navigate) {
       +   '</div>'
       + '</div>'
       + '<div class="pat-card-main">'
-      +   '<div class="pat-card-name">' + name + ageSpan + '</div>'
+      +   '<div class="pat-card-name">' + name + ageSpan + ' ' + statusPill + '</div>'
       +   '<div class="pat-card-meta">' + condTag + modTag + ' ' + courseInfo + '</div>'
       +   progressBar
-      +   lastSess
+      +   (att ? '<div style="margin-top:4px"><span class="pat-att-badge" style="color:' + att.color + ';border-color:' + att.color + '33;background:' + att.color + '0d">' + att.label + '</span></div>' : '')
       + '</div>'
-      + '<div class="pat-card-signals">' + attBadge + '</div>'
       + '<div class="pat-card-actions" onclick="event.stopPropagation()">'
-      +   '<button class="pat-act-btn pat-act-btn--primary" onclick="window.openPatient(\'' + p.id + '\')">Open Chart</button>'
-      +   '<button class="pat-act-btn" onclick="window._patStartSession(\'' + p.id + '\')">Start Session</button>'
-      +   '<button class="pat-act-btn" onclick="window._nav(\'virtual-care\')">Virtual Care</button>'
-      +   '<button class="pat-act-btn" onclick="window._patAddNote(\'' + p.id + '\')">Add Note</button>'
-      +   transferBtn
+      +   primaryBtn
       + '</div>'
       + '</div>';
   }
   window._patCard = _patCard;
+
+  // ── Right-panel renderer ──────────────────────────────────────────
+  function _renderRightPanel(p) {
+    const emptyEl  = document.getElementById('pat-rp-empty');
+    const detailEl = document.getElementById('pat-rp-detail');
+    if (!p) {
+      if (emptyEl)  emptyEl.style.display  = '';
+      if (detailEl) detailEl.style.display = 'none';
+      return;
+    }
+    if (emptyEl)  emptyEl.style.display  = 'none';
+    if (!detailEl) return;
+    const cs  = _patCourseStats(p);
+    const att = _patAttention(p);
+    const name = (p.first_name || '') + ' ' + (p.last_name || '');
+    const activeCourse = cs.activeCourses[0];
+    const trendIcon  = { improving: '↑', worsening: '↓', worsened: '↓', steady: '→' }[p.outcome_trend] || '—';
+    const trendColor = { improving: 'var(--green)', worsening: 'var(--red)', worsened: 'var(--red)', steady: 'var(--text-secondary)' }[p.outcome_trend] || 'var(--text-tertiary)';
+    const progPct    = cs.sessTotal ? Math.round((cs.sessDone / cs.sessTotal) * 100) : 0;
+    const nextSess   = p.next_session_date || p.next_session || '—';
+    const pendingAssess = p.pending_assessments != null ? p.pending_assessments : '—';
+    const pendingDocs   = p.pending_documents   != null ? p.pending_documents   : '—';
+    const recentNote    = p.recent_note || p.last_note || p.clinician_notes || '';
+    const pid = String(p.id).replace(/'/g, "\\'" );
+    detailEl.style.display = '';
+    detailEl.innerHTML = `
+      <div class="pat-rp-header">
+        <div class="pat-rp-avatar">${initials(name)}</div>
+        <div>
+          <div class="pat-rp-name">${name}</div>
+          <div class="pat-rp-sub">${p.primary_condition || ''}${p.primary_modality ? ' \xB7 ' + p.primary_modality : ''}</div>
+        </div>
+      </div>
+      <div class="pat-rp-row"><span class="pat-rp-label">Status</span><span class="pat-rp-val">${p.status || '\u2014'}</span></div>
+      <div class="pat-rp-row"><span class="pat-rp-label">Active Course</span><span class="pat-rp-val">${activeCourse?.name || (cs.activeCourses.length ? cs.activeCourses.length + ' course(s)' : '\u2014')}</span></div>
+      <div class="pat-rp-row"><span class="pat-rp-label">Next Session</span><span class="pat-rp-val">${nextSess}</span></div>
+      <div class="pat-rp-row"><span class="pat-rp-label">Sessions</span><span class="pat-rp-val">${cs.sessTotal ? cs.sessDone + ' / ' + cs.sessTotal + ' (' + progPct + '%)' : '\u2014'}</span></div>
+      <div class="pat-rp-row"><span class="pat-rp-label">Outcome Trend</span><span class="pat-rp-val" style="color:${trendColor};font-weight:600">${trendIcon} ${p.outcome_trend || '\u2014'}</span></div>
+      <div class="pat-rp-row"><span class="pat-rp-label">Pending Assess.</span><span class="pat-rp-val">${pendingAssess}</span></div>
+      <div class="pat-rp-row"><span class="pat-rp-label">Pending Docs</span><span class="pat-rp-val">${pendingDocs}</span></div>
+      ${att ? `<div class="pat-rp-row"><span class="pat-rp-label">Alert</span><span class="pat-rp-val" style="color:${att.color};font-weight:600">${att.label}</span></div>` : ''}
+      ${recentNote ? `<div class="pat-rp-section-title">Recent Note</div><div class="pat-rp-note">${recentNote}</div>` : ''}
+      <div class="pat-rp-section-title">Quick Actions</div>
+      <div class="pat-rp-actions">
+        <button class="pat-rp-action-btn pat-rp-action-btn--primary" onclick="window.openPatient('${pid}')">&#128196; Open Chart</button>
+        <button class="pat-rp-action-btn" onclick="window._patStartSession('${pid}')">&#9654; Start Session</button>
+        <button class="pat-rp-action-btn" onclick="navigate('messaging')">&#128222; Virtual Care</button>
+        <button class="pat-rp-action-btn" onclick="navigate('outcomes')">&#128200; Log Outcome</button>
+        <button class="pat-rp-action-btn" onclick="navigate('review-queue')">&#128064; Review Update</button>
+      </div>`;
+  }
+
+  window._patSelectPatient = function(patId) {
+    document.querySelectorAll('.pat-roster-card').forEach(function(c) {
+      c.classList.toggle('selected', c.dataset.id === patId);
+    });
+    window._patSelected = patId;
+    try { sessionStorage.setItem('ds_pat_selected_id', patId); } catch {}
+    const p = (window._patientsData || []).find(function(x) { return x.id === patId; });
+    _renderRightPanel(p || null);
+  };
+
+  // ── Cohort filter ─────────────────────────────────────────────────────
+  window._patSetCohort = function(cohortId) {
+    window._patCohortFilter = cohortId;
+    document.querySelectorAll('.pat-cohort-item').forEach(function(c) {
+      c.classList.toggle('active', c.id === 'pat-cohort-' + cohortId);
+    });
+    window._patSelected = null;
+    _renderRightPanel(null);
+    window.filterPatients();
+  };
 
   window._patSetQuick = function(type) {
     window._patQuickFilter = type;
@@ -1415,22 +1654,31 @@ export async function pgPatients(setTopbar, navigate) {
   };
 
   window.filterPatients = function() {
-    const q     = (document.getElementById('pt-search')?.value || '').toLowerCase();
-    const st    = document.getElementById('pt-status-filter')?.value  || '';
-    const mod   = document.getElementById('pt-modality-filter')?.value || '';
-    const quick = window._patQuickFilter || 'all';
-    const all   = window._patientsData || [];
+    const q      = (document.getElementById('pt-search')?.value || '').toLowerCase();
+    const st     = document.getElementById('pt-status-filter')?.value  || '';
+    const mod    = document.getElementById('pt-modality-filter')?.value || '';
+    const cohort = window._patCohortFilter || 'all';
+    const all    = window._patientsData || [];
+    const thirtyDaysAgo = Date.now() - 30 * 86400000;
 
     const vis = all.filter(p => {
       const name  = ((p.first_name || '') + ' ' + (p.last_name || '')).toLowerCase();
       const matchQ   = !q   || name.includes(q) || (p.primary_condition || '').toLowerCase().includes(q) || (p.email || '').toLowerCase().includes(q);
       const matchSt  = !st  || p.status === st;
       const matchMod = !mod || (p.primary_modality || '') === mod;
-      let   matchQ2  = true;
-      if (quick === 'active') matchQ2 = p.status === 'active';
-      if (quick === 'review') matchQ2 = !!(p.needs_review || p.review_overdue);
-      if (quick === 'alert')  { const a = _patAttention(p); matchQ2 = !!(a && (a.type === 'outcome' || a.type === 'ae')); }
-      return matchQ && matchSt && matchMod && matchQ2;
+      let   matchCohort = true;
+      if      (cohort === 'active')     matchCohort = p.status === 'active';
+      else if (cohort === 'today')      matchCohort = (p.sessions_today || 0) > 0;
+      else if (cohort === 'review')     matchCohort = !!(p.needs_review || p.review_overdue);
+      else if (cohort === 'assessment') matchCohort = !!(p.assessment_overdue || p.missing_assessment);
+      else if (cohort === 'ae')         matchCohort = !!(p.has_adverse_event || p.adverse_event_flag);
+      else if (cohort === 'adherence')  matchCohort = p.home_adherence != null && p.home_adherence < 0.5;
+      else if (cohort === 'wearable')   matchCohort = !!p.wearable_disconnected;
+      else if (cohort === 'call')       matchCohort = !!p.call_requested;
+      else if (cohort === 'offlabel')   matchCohort = !!(p.off_label_flag || p.offlabel_review);
+      else if (cohort === 'recent')     matchCohort = !!(p.created_at && new Date(p.created_at).getTime() >= thirtyDaysAgo);
+      else if (cohort === 'discharged') matchCohort = p.status === 'completed' || p.status === 'discharged';
+      return matchQ && matchSt && matchMod && matchCohort;
     });
 
     const countEl  = document.getElementById('pt-count');
@@ -1439,10 +1687,17 @@ export async function pgPatients(setTopbar, navigate) {
     if (rosterEl) rosterEl.innerHTML  = vis.length
       ? vis.map(p => _patCard(p, _patAttention(p), _patCourseStats(p), canTransfer)).join('')
       : `<div style="text-align:center;padding:48px 24px;color:var(--text-tertiary)"><div style="font-size:28px;margin-bottom:8px">&#9670;</div>No patients match the current filters.</div>`;
+    // Re-apply selected card highlight if patient still visible
+    if (window._patSelected) {
+      document.querySelectorAll('.pat-roster-card').forEach(function(c) {
+        c.classList.toggle('selected', c.dataset.id === window._patSelected);
+      });
+    }
   };
 
-    window.showAddPatient = function() {
-    document.getElementById('add-patient-panel').style.display = '';
+  window.showAddPatient = function() {
+    const p = document.getElementById('add-patient-panel');
+    if (p) { p.style.display = 'flex'; }
   };
 
   window.saveNewPatient = async function() {
@@ -1590,14 +1845,14 @@ export async function pgPatients(setTopbar, navigate) {
 
   window.showImportCSV = function() {
     const panel = document.getElementById('csv-import-panel');
-    if (panel) panel.style.display = panel.style.display === 'none' ? '' : 'none';
+    if (panel) panel.style.display = panel.style.display === 'none' ? 'flex' : 'none';
   };
 
   // ── FHIR Import ──────────────────────────────────────────────────────────────
   window.showFHIRImport = function() {
     const panel = document.getElementById('fhir-import-panel');
     if (!panel) return;
-    panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+    panel.style.display = panel.style.display === 'none' ? 'flex' : 'none';
     // Close CSV panel if open
     const csvPanel = document.getElementById('csv-import-panel');
     if (csvPanel) csvPanel.style.display = 'none';
@@ -1926,6 +2181,15 @@ export async function pgPatients(setTopbar, navigate) {
     // Scroll to add-patient form
     document.getElementById('add-patient-panel')?.scrollIntoView({ behavior: 'smooth' });
   };
+
+  // Restore previously selected patient after render
+  const _prevSel = sessionStorage.getItem('ds_pat_selected_id');
+  if (_prevSel) {
+    const _prevPat = items.find(p => String(p.id) === String(_prevSel));
+    if (_prevPat) {
+      setTimeout(() => window._patSelectPatient?.(_prevSel), 50);
+    }
+  }
 
   // Bind intake PDF drop zone
   setTimeout(() => {
@@ -13789,11 +14053,23 @@ export async function pgAssessmentsHub(setTopbar) {
   window._ah2TlibFilter = function(f) { tlibFilter = f; render(); };
   window._ah2TlibSearch = function(v) { tlibSearch = v; render(); document.getElementById('ah2-tlib-search')?.focus(); };
   window._ah2TlibAssign = function(id, title) {
-    const t = document.createElement('div');
-    t.className = 'notice notice-ok';
-    t.style.cssText = 'position:fixed;top:16px;right:16px;z-index:9999;max-width:360px;padding:12px 16px;border-radius:8px;background:rgba(0,212,188,.12);border:1px solid rgba(0,212,188,.3);color:var(--teal);font-size:13px';
-    t.textContent = 'Assign \u201c' + title + '\u201d to patient: select patient first';
-    document.body.appendChild(t); setTimeout(() => t.remove(), 3500);
+    window._dsShowAssignModal({
+      templateName: title,
+      templateId: id,
+      templateType: 'assessment',
+      onAssign: async (patientId, patientName) => {
+        try {
+          if (api.assignAssessment) {
+            await api.assignAssessment({ patient_id: patientId, template_id: id });
+          }
+        } catch {}
+        if (window._showNotifToast) {
+          window._showNotifToast({ title: 'Assessment Assigned', body: '\u201c' + title + '\u201d assigned to ' + patientName, severity: 'success' });
+        } else {
+          _dsToast('\u201c' + title + '\u201d assigned to ' + patientName, 'success');
+        }
+      }
+    });
   };
   window._ah2TlibPreview = function(id) {
     const item = ASSESS_TEMPLATES.find(x => x.id === id);
@@ -15774,7 +16050,23 @@ export async function pgDocumentsHub(setTopbar) {
   window._dhTlibFilter = function(f) { dhTlibFilter = f; renderPage(); };
   window._dhTlibSearch = function(v) { dhTlibSearch = v; renderPage(); document.getElementById('dh-tlib-search')?.focus(); };
   window._dhTlibAssign = function(id, name) {
-    window._showNotifToast?.({ title:'Assign Document', body:'Select a patient first, then assign \u201c' + name + '\u201d', severity:'info' });
+    window._dsShowAssignModal({
+      templateName: name,
+      templateId: id,
+      templateType: 'document',
+      onAssign: async (patientId, patientName) => {
+        try {
+          if (api.assignDocument) {
+            await api.assignDocument({ patient_id: patientId, template_id: id });
+          }
+        } catch {}
+        if (window._showNotifToast) {
+          window._showNotifToast({ title: 'Document Assigned', body: '\u201c' + name + '\u201d assigned to ' + patientName, severity: 'success' });
+        } else {
+          _dsToast('\u201c' + name + '\u201d assigned to ' + patientName, 'success');
+        }
+      }
+    });
   };
   window._dhTlibPreview = function(id) {
     const item = DH_TLIB_ITEMS.find(x => x.id === id);

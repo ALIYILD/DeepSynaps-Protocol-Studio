@@ -5012,84 +5012,108 @@ const SAMPLE_PROTOCOLS = [
     condition: 'Depression/MDD', condClass: 'depression',
     modality: 'TMS', evidenceGrade: 'EV-A', approvalStatus: 'fda-cleared',
     sessions: 20, targetSite: 'Left DLPFC', offLabel: false,
+    frequency: '10 Hz', intensity: '120% MT',
     chipClass: 'all evidence-based',
+    description: 'Standard FDA-cleared 10 Hz rTMS protocol targeting the left DLPFC for major depressive disorder.',
   },
   {
     id: 'sp-02', name: 'Low-Frequency Right DLPFC TMS',
     condition: 'Depression/MDD', condClass: 'depression',
     modality: 'TMS', evidenceGrade: 'EV-A', approvalStatus: 'fda-cleared',
     sessions: 20, targetSite: 'Right DLPFC', offLabel: false,
+    frequency: '1 Hz', intensity: '120% MT',
     chipClass: 'all evidence-based',
+    description: 'Inhibitory 1 Hz rTMS to the right DLPFC, used as an alternative or adjunct for treatment-resistant depression.',
   },
   {
     id: 'sp-03', name: 'iTBS Left DLPFC',
     condition: 'Depression/MDD', condClass: 'depression',
     modality: 'TMS (iTBS)', evidenceGrade: 'EV-A', approvalStatus: 'fda-cleared',
     sessions: 30, targetSite: 'Left DLPFC', offLabel: false,
+    frequency: 'Intermittent TBS', intensity: '80% AMT',
     chipClass: 'all evidence-based',
+    description: 'FDA-cleared intermittent theta-burst stimulation of the left DLPFC — faster sessions vs. conventional rTMS.',
   },
   {
     id: 'sp-04', name: 'Bilateral TMS — Depression',
     condition: 'Depression/MDD', condClass: 'depression',
     modality: 'TMS', evidenceGrade: 'EV-B', approvalStatus: 'clinical-evidence',
     sessions: 20, targetSite: 'Bilateral DLPFC', offLabel: false,
+    frequency: '10 Hz / 1 Hz', intensity: '120% MT',
     chipClass: 'all evidence-based',
+    description: 'Sequential bilateral protocol combining excitatory left and inhibitory right DLPFC stimulation for MDD.',
   },
   {
     id: 'sp-05', name: 'Left F3 tDCS Anodal',
     condition: 'Depression', condClass: 'depression',
     modality: 'tDCS', evidenceGrade: 'EV-B', approvalStatus: 'clinical-evidence',
     sessions: 20, targetSite: 'Left F3', offLabel: false,
+    frequency: 'DC (2 mA)', intensity: '2 mA',
     chipClass: 'all evidence-based',
+    description: 'Anodal tDCS over left F3 (DLPFC) with cathodal reference at right supraorbital position for depression.',
   },
   {
     id: 'sp-06', name: 'DLPFC TMS for OCD',
     condition: 'OCD', condClass: 'ocd',
     modality: 'TMS', evidenceGrade: 'EV-A', approvalStatus: 'fda-cleared',
     sessions: 29, targetSite: 'Left DLPFC', offLabel: false,
+    frequency: 'Deep TMS (H-coil)', intensity: '100% MT',
     chipClass: 'all evidence-based',
+    description: 'FDA-cleared deep TMS (H7 coil) targeting bilateral OFC-striatal circuits for obsessive-compulsive disorder.',
   },
   {
     id: 'sp-07', name: 'Right Parietal TMS — ADHD',
     condition: 'ADHD', condClass: 'adhd',
     modality: 'TMS', evidenceGrade: 'EV-C', approvalStatus: 'off-label',
     sessions: 20, targetSite: 'Right Parietal', offLabel: true,
+    frequency: '1 Hz', intensity: '110% MT',
     chipClass: 'all off-label-evidence',
+    description: 'Investigational low-frequency TMS over right parietal cortex to modulate attention networks in ADHD.',
   },
   {
     id: 'sp-08', name: 'Left F3 / Right F4 tDCS — ADHD',
     condition: 'ADHD', condClass: 'adhd',
     modality: 'tDCS', evidenceGrade: 'EV-B', approvalStatus: 'clinical-evidence',
     sessions: 15, targetSite: 'Bifrontal', offLabel: false,
+    frequency: 'DC (1.5 mA)', intensity: '1.5 mA',
     chipClass: 'all evidence-based',
+    description: 'Bifrontal tDCS with anodal stimulation at left F3 and cathodal at right F4 targeting executive function in ADHD.',
   },
   {
     id: 'sp-09', name: 'DLPFC TMS for PTSD',
     condition: 'PTSD', condClass: 'ptsd',
     modality: 'TMS', evidenceGrade: 'EV-C', approvalStatus: 'off-label',
     sessions: 20, targetSite: 'Left DLPFC', offLabel: true,
+    frequency: '10 Hz', intensity: '120% MT',
     chipClass: 'all off-label-evidence',
+    description: 'Off-label rTMS over left DLPFC to reduce hyperarousal and intrusive symptoms in post-traumatic stress disorder.',
   },
   {
     id: 'sp-10', name: 'Vertex TMS — Tinnitus',
     condition: 'Tinnitus', condClass: 'tinnitus',
     modality: 'TMS', evidenceGrade: 'EV-C', approvalStatus: 'off-label',
     sessions: 10, targetSite: 'Vertex', offLabel: true,
+    frequency: '1 Hz', intensity: '110% MT',
     chipClass: 'all off-label-evidence',
+    description: 'Low-frequency vertex TMS targeting auditory cortex to suppress tinnitus perception (investigational).',
   },
   {
     id: 'sp-11', name: 'SMA TMS — OCD / Tourette',
     condition: 'OCD/Tourette', condClass: 'ocd',
     modality: 'TMS', evidenceGrade: 'EV-C', approvalStatus: 'off-label',
     sessions: 20, targetSite: 'SMA', offLabel: true,
+    frequency: '1 Hz', intensity: '110% MT',
     chipClass: 'all off-label-evidence',
+    description: 'Inhibitory TMS over supplementary motor area to reduce compulsive motor behaviors in OCD and Tourette syndrome.',
   },
   {
     id: 'sp-12', name: 'Cerebellum tDCS — Ataxia/Tremor',
     condition: 'Ataxia/Tremor', condClass: 'other',
     modality: 'tDCS', evidenceGrade: 'EV-D', approvalStatus: 'off-label',
     sessions: 15, targetSite: 'Cerebellum', offLabel: true,
+    frequency: 'DC (2 mA)', intensity: '2 mA',
     chipClass: 'all off-label-evidence',
+    description: 'Anodal cerebellar tDCS aimed at improving motor coordination in cerebellar ataxia and essential tremor.',
   },
 ];
 
@@ -5248,13 +5272,14 @@ export async function pgProtocolRegistry(setTopbar) {
         ${sourceItems.map(p => _prLibCard(p, window._prLibCompareSet)).join('')}
       </div>
 
-      <!-- Compare bar (hidden until 2 selected) -->
+      <!-- Compare bar (hidden until 1+ selected) -->
       <div id="pl-compare-bar" class="proto-compare-bar" style="display:none">
         <div style="font-size:11.5px;font-weight:700;color:var(--teal);white-space:nowrap">Compare</div>
         <div class="proto-compare-slot" id="pl-cmp-slot-0">— Select protocol —</div>
         <div style="font-size:18px;color:var(--text-tertiary)">vs</div>
         <div class="proto-compare-slot" id="pl-cmp-slot-1">— Select protocol —</div>
-        <button class="proto-prescribe-btn" style="flex-shrink:0" onclick="window._prLibClearCompare()">Clear</button>
+        <button class="proto-prescribe-btn" id="pl-cmp-open-btn" style="flex-shrink:0;display:none" onclick="window._prOpenCompare()">View Comparison &#8594;</button>
+        <button class="proto-action-btn" style="flex-shrink:0" onclick="window._prLibClearCompare()">Clear</button>
       </div>
 
       <!-- Slide-out detail panel anchor (injected by _prLibOpen) -->
@@ -5322,24 +5347,113 @@ export async function pgProtocolRegistry(setTopbar) {
   };
 
   function _prLibUpdateCompareBar() {
-    const cs   = window._prLibCompareSet;
-    const bar  = document.getElementById('pl-compare-bar');
-    const s0   = document.getElementById('pl-cmp-slot-0');
-    const s1   = document.getElementById('pl-cmp-slot-1');
-    const arr  = [...cs];
-    const all  = window._plAllItems || [];
+    const cs      = window._prLibCompareSet;
+    const bar     = document.getElementById('pl-compare-bar');
+    const s0      = document.getElementById('pl-cmp-slot-0');
+    const s1      = document.getElementById('pl-cmp-slot-1');
+    const openBtn = document.getElementById('pl-cmp-open-btn');
+    const arr     = [...cs];
+    const all     = window._plAllItems || [];
     if (!bar) return;
     if (cs.size === 0) { bar.style.display = 'none'; return; }
     bar.style.display = 'flex';
     const nameOf = id => (all.find(p => String(p.id) === id) || {}).name || id;
     if (s0) { s0.textContent = arr[0] ? nameOf(arr[0]) : '— Select protocol —'; s0.classList.toggle('filled', !!arr[0]); }
     if (s1) { s1.textContent = arr[1] ? nameOf(arr[1]) : '— Select protocol —'; s1.classList.toggle('filled', !!arr[1]); }
+    // Show "View Comparison" button only when exactly 2 selected
+    if (openBtn) openBtn.style.display = cs.size === 2 ? '' : 'none';
   }
 
   window._prLibClearCompare = function() {
     window._prLibCompareSet.clear();
     document.querySelectorAll('.proto-action-btn.compare-active').forEach(b => b.classList.remove('compare-active'));
     _prLibUpdateCompareBar();
+  };
+
+  // ── Compare Modal ─────────────────────────────────────────────────────────────
+  window._prOpenCompare = function() {
+    const cs  = window._prLibCompareSet;
+    if (cs.size !== 2) return;
+    const all = window._plAllItems || [];
+    const ids = [...cs];
+    const pA  = all.find(p => String(p.id) === ids[0]);
+    const pB  = all.find(p => String(p.id) === ids[1]);
+    if (!pA || !pB) return;
+
+    window._prCloseCompare(); // remove any existing modal
+
+    // Helper: approval label
+    const approvalLabel = ap => {
+      if (!ap) return '—';
+      if (ap === 'fda-cleared')       return 'FDA Cleared';
+      if (ap === 'clinical-evidence') return 'Clinical Evidence';
+      if (ap === 'off-label')         return 'Off-Label';
+      return ap;
+    };
+
+    // Build comparison rows: [label, valueA, valueB]
+    const rows = [
+      ['Protocol Name',    pA.name        || '—',                    pB.name        || '—'],
+      ['Condition',        pA.condition   || pA.condition_id || '—', pB.condition   || pB.condition_id || '—'],
+      ['Modality',         pA.modality    || pA.modality_id  || '—', pB.modality    || pB.modality_id  || '—'],
+      ['Target Site',      pA.targetSite  || pA.target_region || '—',pB.targetSite  || pB.target_region || '—'],
+      ['Sessions',         pA.sessions != null ? String(pA.sessions) : (pA.total_sessions != null ? String(pA.total_sessions) : '—'),
+                           pB.sessions != null ? String(pB.sessions) : (pB.total_sessions != null ? String(pB.total_sessions) : '—')],
+      ['Frequency',        pA.frequency   || '—',                    pB.frequency   || '—'],
+      ['Intensity',        pA.intensity   || '—',                    pB.intensity   || '—'],
+      ['Evidence Level',   pA.evidenceGrade || pA.evidence_grade || '—', pB.evidenceGrade || pB.evidence_grade || '—'],
+      ['Approval Status',  approvalLabel(_prLibApproval(pA)),        approvalLabel(_prLibApproval(pB))],
+      ['Off-Label',        (pA.offLabel || String(pA.on_label_vs_off_label||'').toLowerCase().startsWith('off')) ? 'Yes' : 'No',
+                           (pB.offLabel || String(pB.on_label_vs_off_label||'').toLowerCase().startsWith('off')) ? 'Yes' : 'No'],
+      ['Notes',            (pA.description || '').slice(0, 100) || '—',
+                           (pB.description || '').slice(0, 100) || '—'],
+    ];
+
+    const tableRows = rows.map(([label, vA, vB]) => {
+      const differ  = vA !== vB;
+      const clsA    = differ ? 'proto-compare-diff' : 'proto-compare-match';
+      const clsB    = differ ? 'proto-compare-diff' : 'proto-compare-match';
+      return `<tr>
+        <td style="color:var(--text-tertiary);font-size:11.5px;white-space:nowrap;font-weight:600">${label}</td>
+        <td class="${clsA}">${vA}</td>
+        <td class="${clsB}">${vB}</td>
+      </tr>`;
+    }).join('');
+
+    const overlay = document.createElement('div');
+    overlay.className = 'proto-compare-modal-overlay';
+    overlay.id = 'proto-compare-modal-overlay';
+    overlay.addEventListener('click', e => { if (e.target === overlay) window._prCloseCompare(); });
+
+    overlay.innerHTML = `
+      <div class="proto-compare-modal">
+        <div class="proto-compare-modal-header">
+          <div style="font-size:16px;font-weight:700;color:var(--text-primary)">Compare Protocols</div>
+          <button class="proto-compare-close" onclick="window._prCloseCompare()" title="Close">&#10005;</button>
+        </div>
+        <table class="proto-compare-table">
+          <thead>
+            <tr>
+              <th style="width:28%"></th>
+              <th style="width:36%">${pA.name || 'Protocol A'}</th>
+              <th style="width:36%">${pB.name || 'Protocol B'}</th>
+            </tr>
+          </thead>
+          <tbody>${tableRows}</tbody>
+        </table>
+        <div class="proto-compare-footer">
+          <button class="proto-action-btn" onclick="window._prCloseCompare()">Close</button>
+          <button class="proto-prescribe-btn" onclick="window._prCloseCompare();window._prLibPrescribe('${pA.id}')">Prescribe A &#8594;</button>
+          <button class="proto-prescribe-btn" onclick="window._prCloseCompare();window._prLibPrescribe('${pB.id}')">Prescribe B &#8594;</button>
+        </div>
+      </div>`;
+
+    document.body.appendChild(overlay);
+  };
+
+  window._prCloseCompare = function() {
+    const existing = document.getElementById('proto-compare-modal-overlay');
+    if (existing) existing.remove();
   };
 
   // ── Open (slide panel) ───────────────────────────────────────────────────────
