@@ -561,33 +561,64 @@ export async function pgDash(setTopbar, navigate) {
   const assessCompletionPct = outcomeSummary?.assessment_completion_pct != null
     ? Math.round(outcomeSummary.assessment_completion_pct) + '%' : '—';
 
-  const modalityCount = {};
-  activeCourses.forEach(c => { const m = c.modality_slug || 'Unknown'; modalityCount[m] = (modalityCount[m] || 0) + 1; });
-  const topModalities = Object.entries(modalityCount).sort((a, b) => b[1] - a[1]).slice(0, 5);
-
+  const activePatientIds = [...new Set(activeCourses.map(c => c.patient_id).filter(Boolean))];
   const recentCourses = [...allCourses]
     .sort((a, b) => ((b.updated_at || b.created_at || '') > (a.updated_at || a.created_at || '') ? 1 : -1))
     .slice(0, 10);
 
-  const uniqueConditions = [...new Set(activeCourses.map(c => c.condition_slug).filter(Boolean))].slice(0, 3);
-  const activePatientIds = [...new Set(activeCourses.map(c => c.patient_id).filter(Boolean))];
-  const activePatients   = activePatientIds.map(id => {
-    const pt = patientMap[id];
-    return pt ? { pt, courses: activeCourses.filter(c => c.patient_id === id) } : null;
-  }).filter(Boolean).slice(0, 8);
-
   // ── Media queue metrics ────────────────────────────────────────────────────
-  const mediaAwaiting   = allMediaItems.filter(i => i.status === 'pending_review').length;
   const mediaUrgent     = allMediaItems.filter(i => i.flagged_urgent).length;
-  const mediaReupload   = allMediaItems.filter(i => i.status === 'reupload_requested').length;
-  const mediaAnalyzed   = allMediaItems.filter(i => i.status === 'analyzed').length;
   const mediaNeedsAttention = allMediaItems.filter(i => i.flagged_urgent || i.status === 'pending_review' || i.status === 'reupload_requested');
-  const mediaQueueColor = mediaUrgent > 0 ? 'var(--red)' : mediaAwaiting > 0 ? 'var(--amber)' : 'var(--green)';
-  const mediaQueueBorderColor = mediaUrgent > 0 ? 'var(--red)' : mediaAwaiting > 0 ? 'var(--amber)' : 'var(--border)';
-  const mediaQueueSub = mediaUrgent > 0
-    ? `${mediaUrgent} urgent · ${mediaAwaiting} awaiting`
-    : mediaAwaiting > 0 ? `${mediaAwaiting} awaiting review`
-    : 'No items pending';
+
+  // ── Patients Needing Attention (ranked by clinical urgency) ───────────────
+  const _attentionScore = patId => {
+    let score = 0;
+    const ptAEs = openAEs.filter(a => a.patient_id === patId);
+    const ptCourses = allCourses.filter(c => c.patient_id === patId);
+    if (ptAEs.some(a => a.severity === 'serious' || a.severity === 'severe')) score += 100;
+    if (ptAEs.length) score += 40;
+    if (ptCourses.some(c => c.status === 'paused')) score += 60;
+    if (ptCourses.some(c => (c.governance_warnings || []).length > 0)) score += 50;
+    if (ptCourses.some(c => c.on_label === false && c.status === 'pending_approval')) score += 30;
+    return score;
+  };
+  const _attentionReason = patId => {
+    const ptAEs = openAEs.filter(a => a.patient_id === patId);
+    const ptCourses = allCourses.filter(c => c.patient_id === patId);
+    if (ptAEs.some(a => a.severity === 'serious' || a.severity === 'severe')) return { label: 'Serious adverse event', color: 'var(--red)' };
+    if (ptAEs.length) return { label: 'Open adverse event', color: 'var(--amber)' };
+    if (ptCourses.some(c => c.status === 'paused')) return { label: 'Course paused', color: 'var(--amber)' };
+    if (ptCourses.some(c => (c.governance_warnings || []).length > 0)) return { label: 'Safety flag', color: 'var(--red)' };
+    if (ptCourses.some(c => c.on_label === false && c.status === 'pending_approval')) return { label: 'Off-label pending', color: 'var(--amber)' };
+    return { label: 'Needs review', color: 'var(--text-secondary)' };
+  };
+  const patientsNeedingAttention = [...new Set([
+    ...seriousAEs.map(a => a.patient_id),
+    ...openAEs.map(a => a.patient_id),
+    ...pausedCourses.map(c => c.patient_id),
+    ...flaggedCourses.map(c => c.patient_id),
+    ...offLabelPending.map(c => c.patient_id),
+  ].filter(Boolean))]
+    .map(id => ({ id, pt: patientMap[id], score: _attentionScore(id) }))
+    .filter(x => x.pt)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 8);
+
+  // ── Clinic Queue (ranked: urgent first, then active, paused, pending) ─────
+  const _courseUrgency = c => {
+    let s = 0;
+    if (seriousAEs.some(a => a.patient_id === c.patient_id)) s += 100;
+    if ((c.governance_warnings || []).length) s += 80;
+    if (c.status === 'paused') s += 60;
+    if (c.on_label === false) s += 40;
+    return s;
+  };
+  const clinicQueue = [
+    ...activeCourses.map(c => ({ ...c, _qStatus: 'active' })),
+    ...pausedCourses.map(c => ({ ...c, _qStatus: 'paused' })),
+    ...pendingCourses.map(c => ({ ...c, _qStatus: 'pending' })),
+    ...approvedCourses.map(c => ({ ...c, _qStatus: 'approved' })),
+  ].sort((a, b) => _courseUrgency(b) - _courseUrgency(a)).slice(0, 12);
 
   // ── KPI stat bar ──────────────────────────────────────────────────────────
   const statBar = `<div style="display:grid;grid-template-columns:repeat(6,1fr);gap:10px;margin-bottom:16px">

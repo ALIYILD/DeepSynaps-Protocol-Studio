@@ -1644,9 +1644,9 @@ window._cdGovAction = async function(action) {
   }
 };
 
-// ── pgSessionExecution — Clinical session delivery ────────────────────────────
+// ── pgSessionExecution — Guided session delivery workflow ─────────────────────
 export async function pgSessionExecution(setTopbar, navigate) {
-  setTopbar('Session Execution', '');
+  setTopbar('Session Execution', `<span id="sex-topbar-status" style="font-size:11px;color:var(--text-tertiary)">Select a patient to begin</span>`);
   const el = document.getElementById('content');
   el.innerHTML = spinner();
 
