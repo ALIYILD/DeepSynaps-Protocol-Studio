@@ -557,6 +557,21 @@ export async function pgDash(setTopbar, navigate) {
   const assessCompletionPct = outcomeSummary?.assessment_completion_pct != null
     ? Math.round(outcomeSummary.assessment_completion_pct) + '%' : '—';
 
+  // ── Assessments due (active patients without an assessment in 7+ days) ──────
+  const _assessRuns = JSON.parse(localStorage.getItem('ds_assessment_runs') || '[]');
+  const _now = Date.now();
+  const _weekMs = 7 * 24 * 3600 * 1000;
+  const _lastAssessMap = {};
+  _assessRuns.forEach(r => {
+    const key = r.patient_id || 'unknown';
+    const t = r.completed_at ? new Date(r.completed_at).getTime() : 0;
+    if (!_lastAssessMap[key] || t > _lastAssessMap[key]) _lastAssessMap[key] = t;
+  });
+  const assessmentsDueCount = activePatientIds.filter(id => {
+    const last = _lastAssessMap[id] || 0;
+    return (_now - last) > _weekMs;
+  }).length;
+
   const modalityCount = {};
   activeCourses.forEach(c => { const m = c.modality_slug || 'Unknown'; modalityCount[m] = (modalityCount[m] || 0) + 1; });
   const topModalities = Object.entries(modalityCount).sort((a, b) => b[1] - a[1]).slice(0, 5);
@@ -638,6 +653,7 @@ export async function pgDash(setTopbar, navigate) {
     { show: mediaUrgent > 0,          icon: '⚑', label: 'Urgent Media',          count: mediaUrgent,          color: 'var(--red)',   nav: 'media-queue' },
     { show: wearableUrgentCount > 0,  icon: '◌', label: 'Wearable Alerts',       count: wearableUrgentCount,  color: 'var(--red)',   nav: 'wearables' },
     { show: consentAlertCount > 0,    icon: '◎', label: 'Consent Alerts',        count: consentAlertCount,    color: 'var(--amber)', nav: 'patients' },
+    { show: assessmentsDueCount > 0,  icon: '◈', label: 'Assessments Due',        count: assessmentsDueCount,  color: 'var(--teal)',  nav: 'assessments-hub' },
   ].filter(i => i.show);
 
   const rowToday = `<div class="g2" style="margin-bottom:14px;align-items:start">
@@ -646,7 +662,34 @@ export async function pgDash(setTopbar, navigate) {
       <span class="card-section-label">Today's Schedule</span>
       <button class="btn btn-sm" style="font-size:10.5px" onclick="window._nav('session-execution')">Start Session →</button>
     </div>
-    ${activeCourses.length === 0 ? _emptyState('📅', 'No appointments today', 'Schedule a session to get started', 'Add Appointment', "window._nav('calendar')") : renderUpcomingSessionsWidget([])}
+    ${activeCourses.length === 0
+      ? `<div style="padding:20px 16px;text-align:center">
+          <div style="font-size:22px;margin-bottom:8px">📅</div>
+          <div style="font-size:13px;font-weight:600;color:var(--text-primary);margin-bottom:4px">No sessions scheduled.</div>
+          <div style="font-size:11.5px;color:var(--text-tertiary);margin-bottom:12px">Add a patient and create a treatment course to get started.</div>
+          <div style="display:flex;gap:8px;justify-content:center">
+            <button class="btn btn-sm" onclick="event.stopPropagation();window._nav('patients')">Add Patient</button>
+            <button class="btn btn-sm" onclick="event.stopPropagation();window._nav('protocols-registry')">Browse Protocols</button>
+          </div>
+        </div>`
+      : activeCourses.slice(0, 4).map(c => {
+          const _sp = patientMap[c.patient_id];
+          if (!_sp) return '';
+          const _sn = (`${_sp.first_name || ''} ${_sp.last_name || ''}`).trim();
+          const _sa = initials(_sn);
+          return `<div style="display:flex;align-items:center;gap:10px;padding:9px 16px;border-bottom:1px solid var(--border);cursor:pointer"
+                       onclick="window._nav('session-execution')"
+                       onmouseover="this.style.background='var(--bg-card-hover)'" onmouseout="this.style.background=''">
+            <div class="avatar" style="width:28px;height:28px;font-size:10px;flex-shrink:0">${_sa}</div>
+            <div style="flex:1;min-width:0">
+              <div style="font-size:12.5px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${_sn}</div>
+              <div style="font-size:10.5px;color:var(--text-tertiary)">${(c.condition_slug||'—').replace(/-/g,' ')} · <span style="color:var(--teal)">${c.modality_slug||'—'}</span></div>
+            </div>
+            <div style="font-size:10px;color:var(--text-tertiary);flex-shrink:0">Ses. ${c.sessions_delivered||0}/${c.planned_sessions_total||'?'}</div>
+            <button class="btn btn-sm" style="font-size:10px;padding:2px 7px;flex-shrink:0" onclick="event.stopPropagation();window._nav('session-execution')">Execute →</button>
+          </div>`;
+        }).join('')
+    }
     <div style="padding:8px 16px 10px;font-size:10.5px;color:var(--text-tertiary)">Connect calendar sync to see real-time session schedule</div>
   </div>
   <div class="card card--interactive" style="overflow:hidden">
