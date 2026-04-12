@@ -16055,3 +16055,35 @@ details > summary::marker { display: none; }
                     border: 1px solid var(--border, rgba(255,255,255,0.1)); }
 .cb-btn-secondary:hover { background: rgba(255,255,255,0.1); }
 .cb-btn-sm { padding: 6px 12px; font-size: 12px; }
+
+/* ── Phase 13 — Review & Approvals ─────────────────────────────────────────── */
+.rq-tabs { display:flex; gap:2px; background:rgba(0,0,0,.2); border-radius:8px; padding:3px; margin-bottom:16px; flex-wrap:wrap; }
+.rq-tab { padding:6px 14px; border-radius:6px; font-size:12px; font-weight:500; color:var(--text-secondary); cursor:pointer; transition:all .15s; white-space:nowrap; }
+.rq-tab:hover { color:var(--text-primary); background:rgba(255,255,255,.05); }
+.rq-tab.active { background:rgba(255,255,255,.1); color:var(--text-primary); font-weight:600; }
+.rq-tab .rq-tab-count { display:inline-block; min-width:18px; height:18px; line-height:18px; text-align:center; border-radius:9px; font-size:10px; font-weight:700; margin-left:6px; background:rgba(255,255,255,.08); }
+.rq-tab.active .rq-tab-count { background:rgba(255,255,255,.15); }
+.rq-tab-count.urgent { background:rgba(239,68,68,.2); color:#ef4444; }
+.rq-type-badge { display:inline-block; font-size:10px; font-weight:700; padding:2px 8px; border-radius:4px; text-transform:uppercase; letter-spacing:.5px; }
+.rq-type-off-label   { background:rgba(245,158,11,.12); color:#f59e0b; }
+.rq-type-ai-note     { background:rgba(139,92,246,.12); color:#a78bfa; }
+.rq-type-protocol    { background:rgba(59,130,246,.12);  color:#60a5fa; }
+.rq-type-consent     { background:rgba(20,184,166,.12);  color:#2dd4bf; }
+.rq-type-adverse-event { background:rgba(239,68,68,.12); color:#f87171; }
+.rq-state-pipeline { display:flex; align-items:center; gap:0; margin:10px 0 14px; }
+.rq-state-dot { width:10px; height:10px; border-radius:50%; background:rgba(255,255,255,.12); flex-shrink:0; transition:all .2s; }
+.rq-state-dot.done     { background:var(--teal); }
+.rq-state-dot.active   { background:var(--amber); box-shadow:0 0 0 3px rgba(245,158,11,.2); }
+.rq-state-dot.rejected { background:var(--red,#ef4444); }
+.rq-state-dot.approved { background:#22c55e; }
+.rq-state-line { height:2px; flex:1; background:rgba(255,255,255,.08); transition:background .2s; }
+.rq-state-line.done { background:rgba(45,212,191,.3); }
+.rq-state-label { font-size:9.5px; color:var(--text-tertiary); text-align:center; margin-top:3px; white-space:nowrap; }
+.rq-audit-timeline { list-style:none; padding:0; margin:0; }
+.rq-audit-item { display:flex; gap:12px; padding:10px 0; border-bottom:1px solid rgba(255,255,255,.04); }
+.rq-audit-dot { width:8px; height:8px; border-radius:50%; flex-shrink:0; margin-top:4px; }
+.rq-audit-body { flex:1; min-width:0; }
+.rq-audit-action { font-size:12.5px; font-weight:500; color:var(--text-primary); }
+.rq-audit-meta { font-size:11px; color:var(--text-tertiary); margin-top:2px; }
+.rq-audit-note { font-size:12px; color:var(--text-secondary); margin-top:4px; font-style:italic; }
+.rq-consent-sig { display:flex; align-items:center; gap:8px; padding:10px 12px; border-radius:8px; background:rgba(45,212,191,.06); border:1px solid rgba(45,212,191,.15); font-size:12.5px; }

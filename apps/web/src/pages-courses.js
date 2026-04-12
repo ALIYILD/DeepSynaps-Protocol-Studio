@@ -3235,390 +3235,598 @@ export async function pgReviewQueue(setTopbar, navigate) {
 
   // ── SLA / urgency helpers ──────────────────────────────────────────────────
   function isOverdue(item) {
-    if (item.status !== 'pending') return false;
+    if (item.status !== 'pending' && item.status !== 'assigned' && item.status !== 'in-review') return false;
     const ts = item.submitted_at || item.created_at;
     if (!ts) return false;
     return (now - new Date(ts).getTime()) > 48 * 3600 * 1000;
   }
 
   function isUrgent(item) {
-    if (isOverdue(item)) return false;
-    const course    = item._course || {};
-    const govWarn   = course.governance_warnings || [];
-    if (item.on_label === false || course.on_label === false) return true;
-    if (govWarn.length > 0) return true;
-    const cid = item.course_id || item.target_id;
-    return !!(openAEs.find(ae => ae.course_id === cid && ae.severity === 'serious'));
-  }
-
-  function slaBadge(item) {
-    const ts    = item.submitted_at || item.created_at;
-    const hours = ts ? Math.floor((now - new Date(ts).getTime()) / 3600000) : null;
-    if (isOverdue(item))
-      return '<span style="font-size:9.5px;font-weight:700;padding:2px 6px;border-radius:3px;background:rgba(255,107,107,0.15);color:var(--red)">OVERDUE</span>';
-    if (isUrgent(item))
-      return '<span title="Urgent: off-label use, governance flags, or serious adverse event linked" style="cursor:help;font-size:9.5px;font-weight:700;padding:2px 6px;border-radius:3px;background:rgba(255,181,71,0.15);color:var(--amber)">⚑ URGENT</span>';
-    return hours !== null
-      ? '<span style="font-size:9.5px;color:var(--text-tertiary)">' + hours + 'h ago</span>'
-      : '';
+    if (isOverdue(item)) return true;
+    if (item.type === 'adverse-event' && (item.severity === 'Severe' || item.severity === 'Serious')) return true;
+    return false;
   }
 
   function priorityScore(item) {
-    if (isOverdue(item))          return 0;
-    if (isUrgent(item))           return 1;
-    const c = item._course || {};
-    if (c.on_label === false)     return 2;
-    if (item.status === 'pending') return 3;
-    return 4;
+    let s = 0;
+    if (item.status === 'pending')   s += 10;
+    if (item.status === 'assigned')  s += 8;
+    if (item.status === 'in-review') s += 6;
+    if (isOverdue(item)) s += 20;
+    if (item.type === 'adverse-event') s += 15;
+    if (item.type === 'off-label') s += 8;
+    return s;
+  }
+
+  function slaBadge(item) {
+    if (!isOverdue(item)) return '';
+    return `<span class="badge badge-red" style="font-size:9.5px;margin-left:6px;">OVERDUE</span>`;
+  }
+
+  function aeSeverityBadge(sev) {
+    const colors = { Mild:'#22c55e', Moderate:'#f59e0b', Severe:'#ef4444', Serious:'#dc2626' };
+    const c = colors[sev] || '#888';
+    return `<span style="font-size:10px;font-weight:700;color:${c};background:${c}22;padding:2px 7px;border-radius:4px;">${esc(sev||'')}</span>`;
+  }
+
+  function statCard(val, label, color) {
+    return `<div class="stat-card" style="flex:1;min-width:120px;border-left:3px solid ${color};">
+      <div class="stat-value" style="color:${color};">${val}</div>
+      <div class="stat-label">${label}</div>
+    </div>`;
+  }
+
+  function typeBadge(type) {
+    const t = REVIEW_TYPES[type] || { label: type, icon: '', cssClass: 'rq-type-protocol' };
+    return `<span class="rq-type-badge ${t.cssClass}">${t.icon} ${t.label}</span>`;
+  }
+
+  function stateBadge(status) {
+    const color = STATE_COLORS[status] || '#888';
+    return `<span style="font-size:10px;font-weight:700;color:${color};background:${color}22;padding:2px 7px;border-radius:4px;text-transform:uppercase;">${esc(status||'')}</span>`;
+  }
+
+  function stateTimeline(currentState) {
+    const steps = ['pending','assigned','in-review','resolved'];
+    const terminalMap = { approved:'resolved','signed-off':'resolved', rejected:'resolved', escalated:'resolved','changes-requested':'resolved' };
+    const resolved = ['approved','signed-off','rejected','escalated','changes-requested'];
+    const effectiveState = terminalMap[currentState] || currentState;
+    const isRejected = currentState === 'rejected';
+    const isApproved = currentState === 'approved' || currentState === 'signed-off';
+
+    function dotClass(step, i) {
+      const stepIdx = steps.indexOf(step);
+      const curIdx  = steps.indexOf(effectiveState);
+      if (stepIdx < curIdx) return isRejected && step === 'resolved' ? 'rejected' : 'done';
+      if (stepIdx === curIdx) return isApproved && step === 'resolved' ? 'approved' : isRejected && step === 'resolved' ? 'rejected' : 'active';
+      return '';
+    }
+    function lineClass(i) {
+      const curIdx = steps.indexOf(effectiveState);
+      return i < curIdx ? 'done' : '';
+    }
+
+    let html = '<div class="rq-state-pipeline">';
+    steps.forEach((step, i) => {
+      const dc = dotClass(step, i);
+      html += `<div style="display:flex;flex-direction:column;align-items:center;">
+        <div class="rq-state-dot${dc ? ' ' + dc : ''}"></div>
+        <div class="rq-state-label">${step === 'in-review' ? 'in review' : step}</div>
+      </div>`;
+      if (i < steps.length - 1) {
+        html += `<div class="rq-state-line${lineClass(i) ? ' ' + lineClass(i) : ''}"></div>`;
+      }
+    });
+    html += '</div>';
+    return html;
+  }
+
+  function typeDetailHtml(item) {
+    function fr(label, val) {
+      if (!val) return '';
+      return `<div style="margin:4px 0;font-size:12.5px;"><span style="color:var(--text-tertiary);min-width:120px;display:inline-block;">${label}</span> <span style="color:var(--text-primary);">${esc(String(val))}</span></div>`;
+    }
+    function govFlag(key, label) {
+      if (!item.governance || !item.governance[key]) return '';
+      return `<span class="badge badge-amber" style="font-size:10px;margin-right:4px;">${label}</span>`;
+    }
+
+    if (item.type === 'off-label') {
+      return `<div style="background:rgba(245,158,11,.06);border:1px solid rgba(245,158,11,.15);border-radius:8px;padding:10px 14px;margin:8px 0;">
+        ${fr('Condition', item.condition)}
+        ${fr('Modality', item.modality)}
+        ${fr('Protocol', item.protocol_name)}
+        ${fr('Evidence Grade', item.evidence_grade)}
+        ${fr('Requested by', item.requested_by)}
+        <div style="margin-top:6px;">
+          ${govFlag('off_label_acknowledgement_required','Off-label ack. required')}
+          ${govFlag('dual_review_required','Dual review')}
+          ${govFlag('requires_clinician_sign_off','Clinician sign-off')}
+        </div>
+        ${item.rationale ? `<div style="margin-top:8px;font-size:12px;color:var(--text-secondary);font-style:italic;">"${esc(item.rationale)}"</div>` : ''}
+      </div>`;
+    }
+
+    if (item.type === 'ai-note') {
+      return `<div style="background:rgba(139,92,246,.06);border:1px solid rgba(139,92,246,.15);border-radius:8px;padding:10px 14px;margin:8px 0;">
+        ${fr('Patient', item.patient_name || item.patient_id)}
+        ${fr('Session', item.session_label)}
+        ${fr('Note type', item.note_type)}
+        ${fr('Generated', item.generated_at ? new Date(item.generated_at).toLocaleDateString() : '')}
+        ${item.ai_draft ? `<div style="margin-top:8px;"><div style="font-size:11px;color:var(--text-tertiary);margin-bottom:4px;">AI DRAFT</div><pre style="background:rgba(0,0,0,.2);border-radius:6px;padding:10px;font-size:11.5px;white-space:pre-wrap;color:var(--text-secondary);max-height:120px;overflow-y:auto;">${esc(item.ai_draft)}</pre></div>` : ''}
+      </div>`;
+    }
+
+    if (item.type === 'protocol') {
+      return `<div style="background:rgba(59,130,246,.06);border:1px solid rgba(59,130,246,.15);border-radius:8px;padding:10px 14px;margin:8px 0;">
+        ${fr('Protocol', item.protocol_name)}
+        ${fr('Condition', item.condition)}
+        ${fr('Modality', item.modality)}
+        ${fr('Evidence Grade', item.evidence_grade)}
+        ${fr('On/Off label', item.on_label_vs_off_label)}
+        ${fr('Submitted by', item.requested_by)}
+        ${item.change_summary ? `<div style="margin-top:6px;font-size:12px;color:var(--text-secondary);">${esc(item.change_summary)}</div>` : ''}
+      </div>`;
+    }
+
+    if (item.type === 'consent') {
+      const signed = item.patient_signed && item.clinician_signed;
+      const sigStatus = signed
+        ? `<span style="color:#22c55e;font-weight:600;">&#10003; Both parties signed</span>`
+        : !item.patient_signed && !item.clinician_signed
+          ? `<span style="color:#ef4444;">&#x26A0; Awaiting both signatures</span>`
+          : item.patient_signed
+            ? `<span style="color:#f59e0b;">Patient signed — awaiting clinician</span>`
+            : `<span style="color:#f59e0b;">Clinician signed — awaiting patient</span>`;
+      return `<div class="rq-consent-sig">
+        <span style="font-size:16px;">&#x270D;</span>
+        <div>
+          ${fr('Document', item.document_type)}
+          ${fr('Patient', item.patient_name || item.patient_id)}
+          <div style="margin-top:6px;">${sigStatus}</div>
+        </div>
+      </div>`;
+    }
+
+    if (item.type === 'adverse-event') {
+      return `<div style="background:rgba(239,68,68,.06);border:1px solid rgba(239,68,68,.15);border-radius:8px;padding:10px 14px;margin:8px 0;">
+        ${fr('Patient', item.patient_name || item.patient_id)}
+        ${fr('Event', item.event_description)}
+        <div style="margin:4px 0;font-size:12.5px;"><span style="color:var(--text-tertiary);min-width:120px;display:inline-block;">Severity</span> ${aeSeverityBadge(item.severity)}</div>
+        ${fr('Occurred', item.occurred_at ? new Date(item.occurred_at).toLocaleDateString() : '')}
+        ${fr('Reported by', item.reported_by)}
+        ${item.action_taken ? `<div style="margin-top:6px;font-size:12px;color:var(--text-secondary);">Action taken: ${esc(item.action_taken)}</div>` : ''}
+      </div>`;
+    }
+
+    return '';
+  }
+
+  function decisionOptions(type, item) {
+    if (type === 'consent') {
+      return [
+        { value: 'signed-off', label: '&#x270D; Sign &amp; Approve', cls: 'btn-primary' },
+        { value: 'changes-requested', label: 'Request Changes', cls: 'btn-outline' },
+        { value: 'rejected', label: 'Reject', cls: 'btn-danger' },
+      ];
+    }
+    if (type === 'ai-note') {
+      return [
+        { value: 'approved', label: '&#10003; Accept Note', cls: 'btn-primary' },
+        { value: 'changes-requested', label: '&#9998; Edit &amp; Re-draft', cls: 'btn-outline' },
+        { value: 'rejected', label: '&#128465; Discard Draft', cls: 'btn-danger' },
+      ];
+    }
+    if (type === 'adverse-event') {
+      return [
+        { value: 'escalated', label: '&#9650; Escalate', cls: 'btn-danger' },
+        { value: 'approved', label: '&#10003; Acknowledge &amp; Monitor', cls: 'btn-primary' },
+        { value: 'rejected', label: 'Dismiss', cls: 'btn-outline' },
+      ];
+    }
+    // off-label, protocol
+    return [
+      { value: 'approved', label: '&#10003; Approve', cls: 'btn-primary' },
+      { value: 'changes-requested', label: 'Request Changes', cls: 'btn-outline' },
+      { value: 'rejected', label: '&#10005; Reject', cls: 'btn-danger' },
+      { value: 'escalated', label: '&#9650; Escalate', cls: 'btn-outline' },
+    ];
+  }
+
+  function rqCard(item) {
+    const tid  = REVIEW_TYPES[item.type] || { label: item.type, icon: '', cssClass: 'rq-type-protocol' };
+    const urgentBorder = isUrgent(item) ? 'border-color:rgba(239,68,68,.35);' : '';
+    const isTerminal   = ['approved','signed-off','rejected','escalated'].includes(item.status);
+    const curDecision  = window._rqDecision[item.id] || '';
+
+    // Reviewer options
+    const reviewerOpts = REVIEWERS.map(r =>
+      `<option value="${esc(r)}" ${item.assigned_to === r ? 'selected' : ''}>${esc(r)}</option>`
+    ).join('');
+
+    // Decision radio buttons
+    const decisions = decisionOptions(item.type, item);
+    const decisionBtns = decisions.map(d => `
+      <label style="cursor:pointer;display:inline-flex;align-items:center;gap:5px;margin-right:8px;font-size:12.5px;">
+        <input type="radio" name="rq-dec-${esc(item.id)}" value="${d.value}"
+          onchange="window._rqSetDecision('${esc(item.id)}','${d.value}')"
+          ${curDecision === d.value ? 'checked' : ''} style="accent-color:var(--teal);">
+        ${d.label}
+      </label>`).join('');
+
+    // History entries
+    const historyHtml = (item.history || []).slice(-4).reverse().map(h => `
+      <div style="font-size:11px;color:var(--text-tertiary);padding:3px 0;border-bottom:1px solid rgba(255,255,255,.04);">
+        <span style="font-weight:500;color:var(--text-secondary);">${esc(h.action||h.status||'')}</span>
+        ${h.by ? ` · ${esc(h.by)}` : ''}
+        ${h.at ? ` · ${new Date(h.at).toLocaleDateString()}` : ''}
+        ${h.note ? `<br><span style="font-style:italic;">${esc(h.note)}</span>` : ''}
+      </div>`).join('');
+
+    return `<div class="protocol-card" style="margin-bottom:12px;${urgentBorder}" id="rq-card-${esc(item.id)}">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;flex-wrap:wrap;">
+        <div>
+          ${typeBadge(item.type)}
+          ${slaBadge(item)}
+          <span style="font-size:12.5px;font-weight:600;color:var(--text-primary);margin-left:8px;">${esc(item.title||item.id)}</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;">
+          ${stateBadge(item.status)}
+          <button class="btn-icon" onclick="window._rqToggle('${esc(item.id)}')" title="Expand/collapse">&#9660;</button>
+        </div>
+      </div>
+
+      <div style="font-size:11.5px;color:var(--text-tertiary);margin-top:4px;">
+        Submitted ${item.submitted_at ? new Date(item.submitted_at).toLocaleDateString() : 'unknown'}
+        ${item.assigned_to ? ` &middot; Assigned to <strong style="color:var(--text-secondary);">${esc(item.assigned_to)}</strong>` : ''}
+      </div>
+
+      ${stateTimeline(item.status)}
+
+      <div id="rq-body-${esc(item.id)}" style="${window._rqDecision[item.id] !== undefined ? '' : 'display:none;'}">
+        ${typeDetailHtml(item)}
+
+        ${!isTerminal ? `
+        <div style="margin-top:10px;">
+          <div style="font-size:11px;color:var(--text-tertiary);margin-bottom:6px;text-transform:uppercase;letter-spacing:.5px;">Assign reviewer</div>
+          <select class="filter-select" style="font-size:12px;padding:5px 10px;margin-right:8px;"
+            onchange="window._rqAssign('${esc(item.id)}', this.value)">
+            <option value="">— select reviewer —</option>
+            ${reviewerOpts}
+          </select>
+        </div>
+        <div style="margin-top:12px;">
+          <div style="font-size:11px;color:var(--text-tertiary);margin-bottom:6px;text-transform:uppercase;letter-spacing:.5px;">Decision</div>
+          <div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:10px;">${decisionBtns}</div>
+          <textarea id="rq-note-${esc(item.id)}" placeholder="Add a note (optional)…"
+            style="width:100%;background:rgba(0,0,0,.2);border:1px solid rgba(255,255,255,.1);border-radius:6px;padding:8px;color:var(--text-primary);font-size:12.5px;resize:vertical;min-height:60px;box-sizing:border-box;"></textarea>
+          <button class="btn-primary" style="margin-top:8px;font-size:12.5px;"
+            onclick="window._rqSubmit('${esc(item.id)}')">Submit Decision</button>
+        </div>` : `
+        <div class="notice-ok" style="margin-top:10px;font-size:12.5px;">
+          &#10003; This item is <strong>${esc(item.status)}</strong>${item.resolved_by ? ` by ${esc(item.resolved_by)}` : ''}.
+          ${item.resolution_note ? `<br><em>${esc(item.resolution_note)}</em>` : ''}
+        </div>`}
+
+        ${historyHtml ? `<div style="margin-top:12px;border-top:1px solid rgba(255,255,255,.06);padding-top:8px;"><div style="font-size:10px;color:var(--text-tertiary);margin-bottom:4px;text-transform:uppercase;letter-spacing:.5px;">History</div>${historyHtml}</div>` : ''}
+      </div>
+    </div>`;
+  }
+
+  function auditTrailHtml(filter) {
+    const trail = readAudit();
+    const filterOpts = ['all','assign','submit','export','resolve-ae'].map(f =>
+      `<option value="${f}" ${filter===f?'selected':''}>${f === 'all' ? 'All events' : f}</option>`
+    ).join('');
+    const filtered = filter && filter !== 'all'
+      ? trail.filter(e => (e.action||'').toLowerCase().includes(filter))
+      : trail;
+    const rows = filtered.slice(0, 100).map(e => {
+      const dotColor = e.status ? (STATE_COLORS[e.status] || '#888') : '#60a5fa';
+      return `<li class="rq-audit-item">
+        <div class="rq-audit-dot" style="background:${dotColor};"></div>
+        <div class="rq-audit-body">
+          <div class="rq-audit-action">${esc(e.action||e.type||'Event')}</div>
+          <div class="rq-audit-meta">
+            ${e.item_id ? `Item <strong>${esc(e.item_id)}</strong> &middot; ` : ''}
+            ${e.reviewer ? `${esc(e.reviewer)} &middot; ` : ''}
+            ${e.created_at ? new Date(e.created_at).toLocaleString() : ''}
+          </div>
+          ${e.note ? `<div class="rq-audit-note">"${esc(e.note)}"</div>` : ''}
+        </div>
+      </li>`;
+    }).join('');
+    return `<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+      <select class="filter-select" style="font-size:12px;" onchange="window._rqRenderAudit(this.value)">${filterOpts}</select>
+      <span style="font-size:11px;color:var(--text-tertiary);">${filtered.length} events</span>
+    </div>
+    ${rows ? `<ul class="rq-audit-timeline">${rows}</ul>` : '<p style="color:var(--text-tertiary);font-size:13px;text-align:center;padding:24px 0;">No audit events yet.</p>'}`;
   }
 
   // ── Summary stats ──────────────────────────────────────────────────────────
-  const pendingItems   = items.filter(i => i.status === 'pending');
-  const overdueItems   = pendingItems.filter(i => isOverdue(i));
-  const today          = new Date().toISOString().split('T')[0];
-  const approvedToday  = items.filter(i =>
-    (i.status === 'approved' || i.resolution === 'approved') &&
-    (i.updated_at || i.reviewed_at || '').startsWith(today)).length;
-  const seriousAECount = openAEs.filter(ae => ae.severity === 'serious').length;
+  const pendingItems  = items.filter(i => i.status === 'pending').length;
+  const overdueItems  = items.filter(i => isOverdue(i)).length;
+  const approvedToday = items.filter(i => {
+    if (!['approved','signed-off'].includes(i.status)) return false;
+    const d = i.resolved_at || i.updated_at;
+    return d && new Date(d).toDateString() === new Date().toDateString();
+  }).length;
+  const seriousAECount = openAEs.filter(ae =>
+    ae.severity === 'Serious' || ae.severity === 'Severe'
+  ).length;
 
-  // ── Toast ──────────────────────────────────────────────────────────────────
+  // ── Tabs ───────────────────────────────────────────────────────────────────
+  const TABS = [
+    { id: 'all',           label: 'All',            count: items.length },
+    { id: 'off-label',     label: 'Off-Label',      count: items.filter(i=>i.type==='off-label').length },
+    { id: 'ai-note',       label: 'AI Notes',       count: items.filter(i=>i.type==='ai-note').length },
+    { id: 'protocol',      label: 'Protocol',       count: items.filter(i=>i.type==='protocol').length },
+    { id: 'consent',       label: 'Consent',        count: items.filter(i=>i.type==='consent').length },
+    { id: 'adverse-event', label: 'Adverse Events', count: openAEs.length },
+    { id: 'audit',         label: 'Audit Trail',    count: readAudit().length },
+  ];
+
+  const tabsHtml = `<div class="rq-tabs">` + TABS.map(t => {
+    const isUrgentTab = t.id === 'adverse-event' && seriousAECount > 0;
+    return `<div class="rq-tab${window._rqActiveTab===t.id?' active':''}"
+      onclick="window._rqTab('${t.id}')">
+      ${t.label}<span class="rq-tab-count${isUrgentTab?' urgent':''}">${t.count}</span>
+    </div>`;
+  }).join('') + `</div>`;
+
+  function renderTab(tabId) {
+    window._rqActiveTab = tabId;
+    const tabContent = document.getElementById('rq-tab-content');
+    if (!tabContent) return;
+
+    if (tabId === 'audit') {
+      tabContent.innerHTML = auditTrailHtml('all');
+      return;
+    }
+
+    if (tabId === 'adverse-event') {
+      const aeRows = openAEs.map(ae => `
+        <tr>
+          <td style="padding:8px 12px;">${esc(ae.patient_name||ae.patient_id||'')}</td>
+          <td style="padding:8px 12px;">${esc(ae.event_description||'')}</td>
+          <td style="padding:8px 12px;">${aeSeverityBadge(ae.severity)}</td>
+          <td style="padding:8px 12px;font-size:11.5px;color:var(--text-tertiary);">${ae.occurred_at ? new Date(ae.occurred_at).toLocaleDateString() : ''}</td>
+          <td style="padding:8px 12px;">
+            <button class="btn-primary" style="font-size:11.5px;padding:4px 10px;"
+              onclick="window._rqResolveAE('${esc(ae.id)}',this)">&#10003; Resolve</button>
+          </td>
+        </tr>`).join('');
+      tabContent.innerHTML = aeRows
+        ? `<table style="width:100%;border-collapse:collapse;font-size:13px;">
+            <thead><tr style="color:var(--text-tertiary);font-size:11px;text-transform:uppercase;">
+              <th style="padding:6px 12px;text-align:left;font-weight:500;">Patient</th>
+              <th style="padding:6px 12px;text-align:left;font-weight:500;">Event</th>
+              <th style="padding:6px 12px;text-align:left;font-weight:500;">Severity</th>
+              <th style="padding:6px 12px;text-align:left;font-weight:500;">Date</th>
+              <th style="padding:6px 12px;text-align:left;font-weight:500;">Action</th>
+            </tr></thead>
+            <tbody>${aeRows}</tbody>
+          </table>`
+        : `<p style="color:var(--text-tertiary);font-size:13px;text-align:center;padding:32px 0;">No open adverse events.</p>`;
+      return;
+    }
+
+    const filtered = tabId === 'all'
+      ? [...items].sort((a,b) => priorityScore(b) - priorityScore(a))
+      : items.filter(i => i.type === tabId).sort((a,b) => priorityScore(b) - priorityScore(a));
+
+    if (!filtered.length) {
+      tabContent.innerHTML = `<p style="color:var(--text-tertiary);font-size:13px;text-align:center;padding:32px 0;">No items in this category.</p>`;
+      return;
+    }
+    tabContent.innerHTML = filtered.map(rqCard).join('');
+  }
+
+  // ── Rebuild tabs bar helper ────────────────────────────────────────────────
+  function rebuildTabs() {
+    const tabsEl = document.getElementById('rq-tabs-bar');
+    if (!tabsEl) return;
+    const newTabs = [
+      { id: 'all',           label: 'All',            count: items.length },
+      { id: 'off-label',     label: 'Off-Label',      count: items.filter(i=>i.type==='off-label').length },
+      { id: 'ai-note',       label: 'AI Notes',       count: items.filter(i=>i.type==='ai-note').length },
+      { id: 'protocol',      label: 'Protocol',       count: items.filter(i=>i.type==='protocol').length },
+      { id: 'consent',       label: 'Consent',        count: items.filter(i=>i.type==='consent').length },
+      { id: 'adverse-event', label: 'Adverse Events', count: openAEs.length },
+      { id: 'audit',         label: 'Audit Trail',    count: readAudit().length },
+    ];
+    tabsEl.innerHTML = newTabs.map(t => {
+      const isUrgentTab = t.id === 'adverse-event' && seriousAECount > 0;
+      return `<div class="rq-tab${window._rqActiveTab===t.id?' active':''}"
+        onclick="window._rqTab('${t.id}')">
+        ${t.label}<span class="rq-tab-count${isUrgentTab?' urgent':''}">${t.count}</span>
+      </div>`;
+    }).join('');
+  }
+
+  // ── AE collapsible ─────────────────────────────────────────────────────────
+  const aePreview = openAEs.slice(0,2).map(ae =>
+    `<span style="font-size:12px;color:var(--text-secondary);">${esc(ae.patient_name||ae.patient_id||'Patient')} — ${aeSeverityBadge(ae.severity)}</span>`
+  ).join('<br>');
+
+  const aeCollapsible = openAEs.length ? `
+  <div class="section-card" style="border-left:3px solid #ef4444;margin-bottom:16px;">
+    <div style="display:flex;justify-content:space-between;align-items:center;cursor:pointer;"
+      onclick="document.getElementById('rq-ae-detail').style.display=document.getElementById('rq-ae-detail').style.display==='none'?'block':'none'">
+      <div>
+        <span style="font-weight:600;color:#f87171;">&#9888; Open Adverse Events</span>
+        <span class="badge badge-red" style="margin-left:8px;">${openAEs.length} open${seriousAECount ? ` &middot; ${seriousAECount} serious` : ''}</span>
+      </div>
+      <span style="color:var(--text-tertiary);">&#9660;</span>
+    </div>
+    <div id="rq-ae-detail" style="display:none;margin-top:10px;">${aePreview}</div>
+  </div>` : '';
+
+  // ── Main render ────────────────────────────────────────────────────────────
+  el.innerHTML = `
+  <div style="max-width:900px;">
+    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:18px;">
+      ${statCard(pendingItems,  'Pending Review',   '#f59e0b')}
+      ${statCard(overdueItems,  'Overdue',          '#ef4444')}
+      ${statCard(approvedToday,'Approved Today',    '#22c55e')}
+      ${statCard(openAEs.length,'Open AE Reports',  '#f87171')}
+    </div>
+
+    ${aeCollapsible}
+
+    <div id="rq-tabs-bar" class="rq-tabs">${TABS.map(t => {
+      const isUrgentTab = t.id === 'adverse-event' && seriousAECount > 0;
+      return `<div class="rq-tab${window._rqActiveTab===t.id?' active':''}"
+        onclick="window._rqTab('${t.id}')">
+        ${t.label}<span class="rq-tab-count${isUrgentTab?' urgent':''}">${t.count}</span>
+      </div>`;
+    }).join('')}</div>
+
+    <div id="rq-tab-content"></div>
+  </div>`;
+
+  renderTab(window._rqActiveTab || 'all');
+
+  // ── Local save helper ──────────────────────────────────────────────────────
+  function _saveLocalItem(item) {
+    const all = readLocalQueue();
+    const idx = all.findIndex(x => x.id === item.id);
+    if (idx >= 0) all[idx] = item; else all.push(item);
+    writeLocalQueue(all);
+    const gi = items.findIndex(x => x.id === item.id);
+    if (gi >= 0) items[gi] = item; else items.push(item);
+    window._rqItems = items;
+  }
+
+  // ── Event handlers ─────────────────────────────────────────────────────────
   window._rqToast = function(msg, type) {
-    type = type || 'ok';
     const t = document.createElement('div');
-    t.style.cssText = 'position:fixed;bottom:24px;right:24px;padding:12px 20px;border-radius:8px;font-size:13px;font-weight:500;color:#fff;background:' +
-      (type === 'ok' ? '#0d9488' : '#dc2626') +
-      ';z-index:9999;box-shadow:0 4px 20px rgba(0,0,0,0.4);transition:opacity 0.3s';
+    t.className = type === 'err' ? 'toast toast-error' : 'toast';
     t.textContent = msg;
     document.body.appendChild(t);
-    setTimeout(function() { t.style.opacity = '0'; setTimeout(function() { t.remove(); }, 300); }, 2500);
+    setTimeout(() => { t.style.opacity = '0'; setTimeout(() => t.remove(), 400); }, 2800);
   };
 
-  // ── Card HTML builder ──────────────────────────────────────────────────────
-  function rqCard(item) {
-    const course   = item._course || {};
-    const warnings = course.governance_warnings || [];
-    const courseId = item.course_id || item.target_id || item.id;
-    const cond     = ((course.condition_slug || item.condition_slug || '') || '').replace(/-/g, ' ') || '\u2014';
-    const mod      = course.modality_slug || item.modality_slug || '\u2014';
-    const sc       = { pending: 'var(--amber)', approved: 'var(--green)', rejected: 'var(--red)', changes_requested: 'var(--amber)' }[item.status] || 'var(--text-tertiary)';
-    const history  = item.review_history || (item.review_notes
-      ? [{ note: item.review_notes, created_at: item.updated_at, action: 'reviewed' }]
-      : []);
+  window._rqTab = function(tabId) {
+    window._rqActiveTab = tabId;
+    document.querySelectorAll('#rq-tabs-bar .rq-tab').forEach(el2 => {
+      el2.classList.toggle('active', el2.textContent.trim().toLowerCase().startsWith(tabId === 'adverse-event' ? 'adverse' : tabId === 'ai-note' ? 'ai' : tabId));
+    });
+    // Re-render active tab classes properly
+    document.querySelectorAll('#rq-tabs-bar .rq-tab').forEach((el2, i) => {
+      el2.classList.toggle('active', TABS[i] && TABS[i].id === tabId);
+    });
+    renderTab(tabId);
+  };
 
-    const historyHtml = history.length
-      ? history.map(h => {
-          const dt  = h.created_at ? h.created_at.split('T')[0] : '\u2014';
-          const rev = h.reviewer || h.reviewer_name || 'Reviewer';
-          const act = (h.action || h.resolution || 'note').replace(/_/g, ' ');
-          const n   = h.note || h.notes || '';
-          return '<div style="font-size:11.5px;padding:6px 0;border-bottom:1px solid var(--border);color:var(--text-secondary);line-height:1.55">'
-            + '<span style="color:var(--text-tertiary);font-size:10.5px">' + dt + '</span>'
-            + ' <strong style="color:var(--text-primary)">' + rev + '</strong> \u2014'
-            + ' <span style="text-transform:capitalize">' + act + '</span>'
-            + (n ? '<span style="color:var(--text-tertiary)">: ' + n + '</span>' : '')
-            + '</div>';
-        }).join('')
-      : '<div style="font-size:11.5px;color:var(--text-tertiary);padding:6px 0">No prior reviews.</div>';
-
-    const paramRows = [
-      fr('Condition',    cond),
-      fr('Modality',     mod),
-      fr('Device',       course.device_slug || course.device || '\u2014'),
-      fr('Target',       course.target_region || '\u2014'),
-      fr('Frequency',    course.planned_frequency_hz ? course.planned_frequency_hz + ' Hz' : '\u2014'),
-      fr('Intensity',    course.planned_intensity || '\u2014'),
-      fr('Sessions/Wk', course.planned_sessions_per_week ? course.planned_sessions_per_week + '\xd7' : '\u2014'),
-      fr('Total Sess.',  course.planned_sessions_total || '\u2014'),
-      fr('Laterality',   course.laterality || '\u2014'),
-      fr('Evidence',     course.evidence_grade || '\u2014'),
-    ].join('');
-
-    const decisionBtns = [
-      { key: 'approve',         icon: '\u2713', label: 'Approve',         border: 'var(--teal)',   color: 'var(--teal)'   },
-      { key: 'reject',          icon: '\u2717', label: 'Reject',          border: 'var(--red)',    color: 'var(--red)'    },
-      { key: 'request_changes', icon: '\u25b1', label: 'Request Changes', border: 'var(--amber)',  color: 'var(--amber)'  },
-      { key: 'escalate',        icon: '\u2b21', label: 'Escalate',        border: 'var(--violet)', color: 'var(--violet)' },
-    ].map(d =>
-      '<button id="rq-dec-' + item.id + '-' + d.key + '" class="btn btn-sm"'
-      + ' style="border-color:' + d.border + ';color:' + d.color + ';font-size:11.5px;transition:all .15s"'
-      + ' onclick="window._rqSetDecision(\'' + item.id + '\',\'' + d.key + '\')">'
-      + d.icon + ' ' + d.label + '</button>'
-    ).join('');
-
-    return '<div class="card" style="margin-bottom:10px;overflow:hidden" id="rq-card-' + item.id + '">'
-      // Collapsed header
-      + '<div style="display:flex;align-items:center;gap:10px;padding:12px 16px;cursor:pointer"'
-      + ' onclick="window._rqToggle(\'' + item.id + '\')">'
-      +   '<div style="flex-shrink:0;width:72px">' + slaBadge(item) + '</div>'
-      +   '<div style="flex:1;min-width:0">'
-      +     '<span style="font-size:12.5px;font-weight:600;color:var(--text-primary)">' + cond + '</span>'
-      +     '<span style="font-size:11.5px;color:var(--text-tertiary);margin-left:6px">\xb7 ' + mod + '</span>'
-      +   '</div>'
-      +   '<div style="display:flex;align-items:center;gap:6px;flex-shrink:0;flex-wrap:wrap">'
-      +     evidenceBadge(course.evidence_grade)
-      +     (course.on_label === false ? labelBadge(false) : '')
-      +     (warnings.length ? '<span style="font-size:10px;font-weight:600;padding:2px 6px;border-radius:4px;background:rgba(255,181,71,0.1);color:var(--amber)">\u26a0 ' + warnings.length + '</span>' : '')
-      +     '<span style="font-size:10px;font-weight:600;padding:2px 8px;border-radius:4px;background:' + sc + '18;color:' + sc + ';text-transform:capitalize">' + (item.status || '\u2014') + '</span>'
-      +     '<span style="font-size:14px;color:var(--text-tertiary)" id="rq-chevron-' + item.id + '">\u203a</span>'
-      +   '</div>'
-      + '</div>'
-      // Expanded panel
-      + '<div id="rq-panel-' + item.id + '" style="display:none;background:rgba(0,0,0,0.15);padding:16px 20px;border-top:1px solid var(--border)">'
-      +   '<div class="g2" style="gap:20px">'
-          // Left: params + governance
-      +     '<div>'
-      +       '<div style="font-size:9.5px;text-transform:uppercase;letter-spacing:.9px;color:var(--text-tertiary);font-weight:600;margin-bottom:8px">Course Parameters</div>'
-      +       paramRows
-      +       (warnings.length
-                ? '<div style="margin-top:14px"><div style="font-size:9.5px;text-transform:uppercase;letter-spacing:.9px;color:var(--text-tertiary);font-weight:600;margin-bottom:8px">Governance Warnings</div>'
-                  + warnings.map(w => govFlag(w, 'warn')).join('') + '</div>'
-                : '')
-      +       (course.on_label === false
-                ? '<div class="notice notice-warn" style="margin-top:10px">Off-label use \u2014 additional documentation required.</div>'
-                : '')
-      +       (item.notes
-                ? '<div style="margin-top:12px"><div style="font-size:9.5px;text-transform:uppercase;letter-spacing:.9px;color:var(--text-tertiary);font-weight:600;margin-bottom:6px">Submission Notes</div>'
-                  + '<div style="font-size:12.5px;color:var(--text-secondary);line-height:1.65">' + item.notes + '</div></div>'
-                : '')
-      +     '</div>'
-          // Right: review actions + history
-      +     '<div>'
-      +       '<div style="font-size:9.5px;text-transform:uppercase;letter-spacing:.9px;color:var(--text-tertiary);font-weight:600;margin-bottom:10px">Decision</div>'
-      +       '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px">' + decisionBtns + '</div>'
-      +       '<div style="margin-bottom:10px">'
-      +         '<label style="font-size:10.5px;color:var(--text-tertiary);display:block;margin-bottom:4px">Assigned to</label>'
-      +         '<select class="form-control" style="font-size:12px;height:30px;padding:0 28px 0 10px" onchange="window._rqAssign(\'' + item.id + '\',this.value)">'
-      +           '<option value="">Unassigned</option><option>Dr. Chen</option><option>Dr. Patel</option><option>Dr. Kim</option>'
-      +         '</select>'
-      +       '</div>'
-      +       '<div style="margin-top:12px;margin-bottom:6px">'
-      +         '<label style="font-size:10.5px;color:var(--text-tertiary);display:block;margin-bottom:4px">'
-      +           'Review note <span style="color:var(--red)">*</span> required for Reject / Request Changes'
-      +         '</label>'
-      +         '<textarea id="rq-note-' + item.id + '" class="form-control" rows="3"'
-      +                   ' placeholder="Review note (required for reject/changes)\u2026" style="resize:vertical;font-size:12.5px"></textarea>'
-      +       '</div>'
-      +       '<div id="rq-err-' + item.id + '" style="display:none;font-size:12px;color:var(--red);padding:6px 10px;border-radius:6px;background:rgba(255,107,107,0.07);margin-bottom:8px"></div>'
-      +       '<button class="btn btn-primary" style="width:100%;margin-bottom:14px"'
-      +               ' onclick="window._rqSubmit(\'' + item.id + '\',\'' + courseId + '\')">'
-      +         'Submit Review \u2192'
-      +       '</button>'
-      +       '<div style="font-size:9.5px;text-transform:uppercase;letter-spacing:.9px;color:var(--text-tertiary);font-weight:600;margin-bottom:6px">Review History</div>'
-      +       '<div id="rq-history-' + item.id + '">' + historyHtml + '</div>'
-      +     '</div>'
-      +   '</div>'
-      + '</div>'
-      + '</div>';
-  }
-
-  // ── Render list helper ─────────────────────────────────────────────────────
-  function renderList(list) {
-    const listEl = document.getElementById('rq-list');
-    if (!listEl) return;
-    listEl.innerHTML = list.length
-      ? list.map(item => rqCard(item)).join('')
-      : emptyState('\u25b1', 'No items match the current filter.');
-  }
-
-  // ── AE severity badge ──────────────────────────────────────────────────────
-  function aeSeverityBadge(sev) {
-    const s = { serious: { bg: 'rgba(255,107,107,0.12)', color: 'var(--red)' }, moderate: { bg: 'rgba(255,181,71,0.12)', color: 'var(--amber)' }, mild: { bg: 'rgba(0,212,188,0.12)', color: 'var(--teal)' } }[sev]
-      || { bg: 'rgba(255,255,255,0.06)', color: 'var(--text-tertiary)' };
-    return '<span style="font-size:10.5px;font-weight:600;padding:2px 8px;border-radius:4px;background:' + s.bg + ';color:' + s.color + ';text-transform:capitalize">' + (sev || '\u2014') + '</span>';
-  }
-
-  // ── Stat card ──────────────────────────────────────────────────────────────
-  function statCard(label, value, color, sub, alertBorder) {
-    return '<div class="metric-card" style="' + (alertBorder ? 'border-color:' + color + ';border-width:1.5px' : '') + '">'
-      + '<div style="font-size:11px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.8px">' + label + '</div>'
-      + '<div style="font-size:28px;font-weight:700;color:' + color + ';margin:8px 0 4px">' + value + '</div>'
-      + '<div style="font-size:11px;color:var(--text-secondary)">' + sub + '</div>'
-      + '</div>';
-  }
-
-  // ── AE table ───────────────────────────────────────────────────────────────
-  const hasSerious    = openAEs.some(ae => ae.severity === 'serious');
-  const aeHeaderColor = hasSerious ? 'var(--red)' : 'var(--text-tertiary)';
-  const aeRows = openAEs.length
-    ? openAEs.map(ae => {
-        const occurredAt = ae.occurred_at || ae.created_at;
-        const daysOpen   = occurredAt ? Math.floor((now - new Date(occurredAt).getTime()) / 86400000) : '\u2014';
-        const dateStr    = occurredAt ? occurredAt.split('T')[0] : '\u2014';
-        return '<tr>'
-          + '<td style="font-size:12px">' + dateStr + '</td>'
-          + '<td style="font-size:12px;color:var(--text-secondary)">' + (ae.course_id ? ae.course_id.slice(0, 10) + '\u2026' : '\u2014') + '</td>'
-          + '<td style="font-size:12px">' + (ae.event_type || ae.type || '\u2014') + '</td>'
-          + '<td>' + aeSeverityBadge(ae.severity) + '</td>'
-          + '<td style="font-size:12px;font-weight:600;color:' + (typeof daysOpen === 'number' && daysOpen > 7 ? 'var(--red)' : 'var(--text-primary)') + '">' + daysOpen + '</td>'
-          + '<td><button class="btn btn-sm" style="border-color:var(--teal);color:var(--teal)" onclick="window._rqResolveAE(\'' + (ae.id || '') + '\')">&#10003; Resolve</button></td>'
-          + '</tr>';
-      }).join('')
-    : '<tr><td colspan="6" style="text-align:center;color:var(--text-tertiary);font-size:12.5px;padding:24px">No open adverse events.</td></tr>';
-
-  // ── Full page render ───────────────────────────────────────────────────────
-  el.innerHTML =
-    '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:18px">'
-    + statCard('Pending Decisions',    pendingItems.length,  pendingItems.length  > 0 ? 'var(--amber)' : 'var(--green)', pendingItems.length  > 0 ? 'Awaiting clinician action' : 'Decision desk clear')
-    + statCard('Overdue (&gt;48h)',   overdueItems.length,  'var(--red)',   overdueItems.length > 0 ? 'Past SLA threshold' : 'All within SLA', overdueItems.length > 0)
-    + statCard('Approved Today',      approvedToday,        'var(--green)', approvedToday > 0 ? 'This calendar day' : 'None yet today')
-    + statCard('Open Adverse Events', openAEs.length,       openAEs.length > 0 ? 'var(--red)' : 'var(--teal)', openAEs.length > 0 ? seriousAECount + ' serious' : 'No open AEs')
-    + '</div>'
-    + '<div style="margin-bottom:18px">'
-    +   '<div style="display:flex;align-items:center;margin-bottom:10px">'
-    +     '<div style="font-size:12px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.8px">'
-    +       'Pending Decisions <span style="font-weight:400;color:var(--text-tertiary)">(' + items.length + ')</span>'
-    +     '</div>'
-    +   '</div>'
-    +   '<div id="rq-list">'
-    +   (items.length ? items.map(item => rqCard(item)).join('') : emptyState('✅', 'Decision desk is clear', 'No pending approvals, escalations, or governance items.'))
-    +   '</div>'
-    + '</div>'
-    + '<div class="card" style="overflow:hidden">'
-    +   '<div style="padding:11px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;cursor:pointer"'
-    +        ' onclick="(function(){var p=document.getElementById(\'rq-ae-panel\');p.style.display=p.style.display===\'none\'?\'\':\' none\';})()">'
-    +     '<span style="font-size:9.5px;text-transform:uppercase;letter-spacing:.9px;font-weight:700;color:' + aeHeaderColor + '">'
-    +       (hasSerious ? '\u26a0 ' : '') + 'Open Adverse Events (' + openAEs.length + ')'
-    +     '</span>'
-    +     '<span style="font-size:11px;color:var(--text-tertiary)">\u25be toggle</span>'
-    +   '</div>'
-    +   '<div id="rq-ae-panel" style="overflow-x:auto">'
-    +     '<table class="ds-table"><thead><tr><th>Date</th><th>Course</th><th>Type</th><th>Severity</th><th>Days Open</th><th>Actions</th></tr></thead>'
-    +     '<tbody>' + aeRows + '</tbody></table>'
-    +   '</div>'
-    + '</div>';
-
-  // ── Store globals ──────────────────────────────────────────────────────────
-  window._rqCourseMap  = {};
-  window._rqPatientMap = {};
-
-  // Toggle expand/collapse
   window._rqToggle = function(itemId) {
-    const panel   = document.getElementById('rq-panel-'   + itemId);
-    const chevron = document.getElementById('rq-chevron-' + itemId);
-    if (!panel) return;
-    const open = panel.style.display !== 'none';
-    panel.style.display = open ? 'none' : '';
-    if (chevron) chevron.textContent = open ? '\u203a' : '\u2193';
+    const body = document.getElementById('rq-body-' + itemId);
+    if (!body) return;
+    body.style.display = body.style.display === 'none' ? 'block' : 'none';
   };
 
-  // Decision button selection + visual state
   window._rqSetDecision = function(itemId, decision) {
     window._rqDecision[itemId] = decision;
-    const keys   = ['approve', 'reject', 'request_changes', 'escalate'];
-    const colors = { approve: 'var(--teal)', reject: 'var(--red)', request_changes: 'var(--amber)', escalate: 'var(--violet)' };
-    const bgs    = { approve: 'rgba(0,212,188,0.15)', reject: 'rgba(255,107,107,0.15)', request_changes: 'rgba(255,181,71,0.15)', escalate: 'rgba(139,92,246,0.15)' };
-    keys.forEach(key => {
-      const btn = document.getElementById('rq-dec-' + itemId + '-' + key);
-      if (!btn) return;
-      if (key === decision) {
-        btn.style.background = bgs[key] || '';
-        btn.style.fontWeight = '700';
-        btn.style.boxShadow  = '0 0 0 1.5px ' + (colors[key] || '');
-      } else {
-        btn.style.background = '';
-        btn.style.fontWeight = '';
-        btn.style.boxShadow  = '';
-      }
-    });
+    const body = document.getElementById('rq-body-' + itemId);
+    if (body) body.style.display = 'block';
   };
 
-  // Reviewer assignment — persists to backend
-  window._rqAssign = async function(itemId, reviewer) {
-    try {
-      await api.assignReviewer(itemId, reviewer || null);
-      const item = (window._rqItems || []).find(i => i.id === itemId);
-      if (item) item.assigned_to = reviewer || null;
-    } catch (e) {
-      console.warn('assignReviewer failed:', e);
-      window._rqToast?.('Failed to save reviewer assignment — please try again.', 'error');
-    }
+  window._rqAssign = function(itemId, reviewer) {
+    if (!reviewer) return;
+    const item = items.find(i => i.id === itemId);
+    if (!item) return;
+    item.assigned_to = reviewer;
+    item.status = item.status === 'pending' ? 'assigned' : item.status;
+    item.history = item.history || [];
+    item.history.push({ action: 'assigned', by: 'You', at: new Date().toISOString(), note: `Assigned to ${reviewer}` });
+    _saveLocalItem(item);
+    writeAudit({ action: 'assign', item_id: itemId, reviewer, status: item.status });
+    // Re-render card
+    const card = document.getElementById('rq-card-' + itemId);
+    if (card) card.outerHTML = rqCard(item);
+    window._rqToast(`Assigned to ${reviewer}`, 'ok');
+    rebuildTabs();
   };
 
-  // Submit review
-  window._rqSubmit = async function(itemId, courseId) {
-    const decision  = window._rqDecision[itemId];
-    const noteEl    = document.getElementById('rq-note-' + itemId);
-    const noteValue = noteEl ? noteEl.value.trim() : '';
-    const errEl     = document.getElementById('rq-err-' + itemId);
-    if (errEl) errEl.style.display = 'none';
-
-    if (!decision) {
-      if (errEl) { errEl.textContent = 'Please select a decision (Approve / Reject / Request Changes / Escalate).'; errEl.style.display = ''; }
-      return;
-    }
-    if ((decision === 'reject' || decision === 'request_changes') && !noteValue) {
-      if (errEl) { errEl.textContent = 'A review note is required for Reject / Request Changes.'; errEl.style.display = ''; }
-      return;
-    }
-    const submitBtn = document.querySelector('#rq-card-' + itemId + ' button[onclick*="_rqSubmit"]');
-    if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = 'Submitting\u2026'; }
-    try {
-      // itemId is the review queue item id; courseId is the treatment course id
-      // Map 'request_changes' to 'comment' (backend only accepts: approve, reject, escalate, comment)
-      const backendAction = decision === 'request_changes' ? 'comment' : decision;
-      await api.submitReview({ review_item_id: itemId, course_id: courseId, action: backendAction, notes: noteValue });
-      if (decision === 'approve') {
-        try { await api.activateCourse(courseId); }
-        catch(ae) { console.warn('Course activation failed after approval:', ae); window._rqToast?.('Approved, but activation failed — please activate manually.', 'warn'); }
-      }
-      window._rqToast(
-        decision === 'approve'         ? 'Course approved and activated.' :
-        decision === 'reject'          ? 'Course rejected.' :
-        decision === 'request_changes' ? 'Changes requested.' :
-        'Escalated for review.', 'ok');
-      delete window._rqDecision[itemId];
-      await pgReviewQueue(setTopbar, navigate);
-    } catch (e) {
-      if (errEl) { errEl.textContent = (e && e.message) || 'Submission failed. Please try again.'; errEl.style.display = ''; }
-      if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = 'Submit Review \u2192'; }
-    }
+  window._rqSubmit = function(itemId) {
+    const decision = window._rqDecision[itemId];
+    if (!decision) { window._rqToast('Select a decision first.', 'err'); return; }
+    const noteEl = document.getElementById('rq-note-' + itemId);
+    const note = noteEl ? noteEl.value.trim() : '';
+    const item = items.find(i => i.id === itemId);
+    if (!item) return;
+    const prevStatus = item.status;
+    item.status = decision;
+    item.resolved_by = 'You';
+    item.resolved_at = new Date().toISOString();
+    item.resolution_note = note;
+    item.history = item.history || [];
+    item.history.push({ action: decision, by: 'You', at: new Date().toISOString(), note });
+    _saveLocalItem(item);
+    writeAudit({ action: 'submit', item_id: itemId, reviewer: item.assigned_to || 'You', status: decision, note });
+    delete window._rqDecision[itemId];
+    const card = document.getElementById('rq-card-' + itemId);
+    if (card) card.outerHTML = rqCard(item);
+    window._rqToast(`Decision recorded: ${decision}`, 'ok');
+    rebuildTabs();
   };
 
-  // Priority sort
-  window._rqSortPriority = function() {
-    const sorted = (window._rqItems || []).slice().sort((a, b) => priorityScore(a) - priorityScore(b));
-    window._rqItems = sorted;
-    renderList(sorted);
-    window._rqToast('Sorted by priority.', 'ok');
-  };
-
-  // Status filter
   window._rqFilterStatus = function(status) {
-    const filtered = status ? (window._rqItems || []).filter(i => i.status === status) : (window._rqItems || []);
-    renderList(filtered);
+    const filtered = status === 'all' ? items : items.filter(i => i.status === status);
+    const tabContent = document.getElementById('rq-tab-content');
+    if (tabContent) tabContent.innerHTML = filtered.length ? filtered.map(rqCard).join('') : '<p style="color:var(--text-tertiary);font-size:13px;text-align:center;padding:32px 0;">No items.</p>';
   };
 
-  // Legacy compatibility
-  window._rqConfirmAction = function(courseId, itemId, action) {
-    window._rqDecision[itemId] = action === 'changes_requested' ? 'request_changes' : action;
-    window._rqSubmit(itemId, courseId);
-  };
-  window._rqAction = async function(courseId, itemId, action) {
-    window._rqDecision[itemId] = action === 'changes_requested' ? 'request_changes' : action;
-    await window._rqSubmit(itemId, courseId);
+  window._rqSortPriority = function() {
+    const sorted = [...items].sort((a,b) => priorityScore(b) - priorityScore(a));
+    const tabContent = document.getElementById('rq-tab-content');
+    if (tabContent) tabContent.innerHTML = sorted.map(rqCard).join('');
   };
 
-  // Resolve an open adverse event from the Review Queue AE table
-  window._rqResolveAE = async function(aeId) {
-    if (!aeId) return;
-    const btn = document.querySelector(`button[onclick*="_rqResolveAE('${aeId}')"]`);
-    if (btn) { btn.disabled = true; btn.textContent = 'Resolving\u2026'; }
+  window._rqRenderAudit = function(filter) {
+    const tabContent = document.getElementById('rq-tab-content');
+    if (tabContent) tabContent.innerHTML = auditTrailHtml(filter || 'all');
+  };
+
+  window._rqExportAudit = function() {
+    const trail = readAudit();
+    if (!trail.length) { window._rqToast('No audit events to export.', 'err'); return; }
+    const header = 'id,action,item_id,reviewer,status,note,created_at\n';
+    const rows = trail.map(e =>
+      [e.id, e.action, e.item_id, e.reviewer, e.status, e.note, e.created_at]
+        .map(v => `"${String(v||'').replace(/"/g,'""')}"`)
+        .join(',')
+    ).join('\n');
+    const blob = new Blob([header + rows], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = 'audit-trail-' + new Date().toISOString().slice(0,10) + '.csv';
+    document.body.appendChild(a); a.click();
+    document.body.removeChild(a); URL.revokeObjectURL(url);
+    writeAudit({ action: 'export', note: `${trail.length} events exported` });
+    window._rqToast('Audit trail exported.', 'ok');
+  };
+
+  window._rqResolveAE = async function(aeId, btn) {
+    if (btn) { btn.disabled = true; btn.textContent = 'Resolving…'; }
     try {
-      await api.resolveAdverseEvent(aeId, { resolved: true }).catch(() => {});
-      window._rqToast('Adverse event marked resolved.', 'ok');
-      // Remove the row from the table without full reload
-      if (btn) {
-        const row = btn.closest('tr');
-        if (row) row.remove();
-      }
-      // Update the open AE count in stat card
-      const remaining = (window._rqOpenAEs || []).filter(ae => ae.id !== aeId);
+      const remaining = openAEs.filter(ae => ae.id !== aeId);
       window._rqOpenAEs = remaining;
+      openAEs.length = 0;
+      remaining.forEach(ae => openAEs.push(ae));
+      writeAudit({ action: 'resolve-ae', item_id: aeId, reviewer: 'You', status: 'resolved' });
+      window._rqToast('Adverse event resolved.', 'ok');
+      renderTab('adverse-event');
+      rebuildTabs();
     } catch (e) {
       if (btn) { btn.disabled = false; btn.textContent = '\u2713 Resolve'; }
       window._rqToast('Failed to resolve — try again.', 'err');
     }
   };
+
+  // Legacy compatibility
+  window._rqConfirmAction = window._rqSubmit;
+  window._rqAction = window._rqSubmit;
 
 }
 
