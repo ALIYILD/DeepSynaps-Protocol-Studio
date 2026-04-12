@@ -429,7 +429,7 @@ const ROLE_NAV_HIDE = {
 // ── Nav definition — organised around clinician workflow ──────────────────────
 const NAV = [
   // ── TODAY ────────────────────────────────────────────────────────────────────
-  { section: 'TODAY' },
+  { section: 'TODAY', sectionId: 'today' },
   { id: 'dashboard',          label: 'Dashboard',          icon: '◈' },
   { id: 'patient-queue',      label: 'Today\'s Queue',     icon: '◉' },
   { id: 'session-execution',  label: 'Start Session',      icon: '◧' },
@@ -437,7 +437,7 @@ const NAV = [
   { id: 'review-queue',       label: 'Review & Approvals', icon: '◱', badge: null },
 
   // ── PATIENT CARE ─────────────────────────────────────────────────────────────
-  { section: 'PATIENT CARE' },
+  { section: 'PATIENT CARE', sectionId: 'patient-care' },
   { id: 'patients',           label: 'Patients',           icon: '◉' },
   { id: 'courses',            label: 'Treatment Courses',  icon: '◎', badge: null },
   { id: 'medical-history',    label: 'Medical History',    icon: '◧' },
@@ -445,19 +445,18 @@ const NAV = [
   { id: 'assessments-hub',    label: 'Assessments',        icon: '◈' },
   { id: 'reports',            label: 'Reports',            icon: '◫' },
   { id: 'outcomes',           label: 'Outcomes',           icon: '◫' },
-  { id: 'monitoring',         label: 'Monitoring',         icon: '◌' },
   { id: 'wearables',          label: 'Wearable Integrations', icon: '⌚' },
   { id: 'home-task-manager',  label: 'Home Programs',      icon: '◩' },
 
   // ── PROTOCOLS ────────────────────────────────────────────────────────────────
-  { section: 'PROTOCOLS' },
+  { section: 'PROTOCOLS', sectionId: 'protocols' },
   { id: 'protocol-wizard',    label: 'Protocol Search',    icon: '⬡', ai: true },
   { id: 'protocol-builder',   label: 'Protocol Builder',   icon: '◇' },
   { id: 'brain-map-planner',  label: 'Brain Map Planner',  icon: '◎' },
   { id: 'handbooks',          label: 'Handbooks',          icon: '◩' },
 
   // ── CLINICAL TOOLS ───────────────────────────────────────────────────────────
-  { section: 'CLINICAL TOOLS' },
+  { section: 'CLINICAL TOOLS', sectionId: 'clinical-tools', collapsed: true },
   { id: 'scoring-calc',       label: 'Scales & Scores',    icon: '◇' },
   { id: 'protocols-registry', label: 'Protocol Registry',  icon: '◫' },
   { id: 'adverse-events',     label: 'Adverse Events',     icon: '⚠' },
@@ -473,15 +472,19 @@ const NAV = [
 
 // ── Section labels ────────────────────────────────────────────────────────────
 const SECTION_LABELS = {
-  clinical:   'Clinical',
-  courses:    'Sessions & Courses',
-  practice:   'Practice',
-  knowledge:  'Knowledge & Analytics',
-  patient:    'Patient Portal',
-  admin:      'Administration',
-  research:   'Research',
-  more:       'More',
-  clinic:     'Clinic',
+  today:          'Today',
+  'patient-care': 'Patient Care',
+  protocols:      'Protocols',
+  'clinical-tools': 'Clinical Tools',
+  clinical:       'Clinical',
+  courses:        'Sessions & Courses',
+  practice:       'Practice',
+  knowledge:      'Knowledge & Analytics',
+  patient:        'Patient Portal',
+  admin:          'Administration',
+  research:       'Research',
+  more:           'More',
+  clinic:         'Clinic',
 };
 
 // ── Nav collapse state ────────────────────────────────────────────────────────
@@ -584,7 +587,7 @@ function renderNav() {
     if (entry) {
       const label = (entry.sectionId && SECTION_LABELS[entry.sectionId]) || entry.section;
       if (sectionId) {
-        html.push(`<div class="nav-section-header" onclick="window._toggleNavSection('${sectionId}')" role="button" tabindex="0" aria-expanded="${!isCollapsed}" aria-controls="nav-sec-${sectionId}">
+        html.push(`<div class="nav-section-header" onclick="window._toggleNavSection('${sectionId}')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();window._toggleNavSection('${sectionId}')}" role="button" tabindex="0" aria-expanded="${!isCollapsed}" aria-controls="nav-sec-${sectionId}">
           <span class="nav-section-label">${label}</span>
           <span class="nav-section-chevron" aria-hidden="true">&#8250;</span>
         </div>`);
@@ -1126,7 +1129,7 @@ async function renderPage() {
     case 'telehealth-recorder': { const m = await loadPractice(); await m.pgTelehealthRecorder(setTopbar); break; }
     case 'monitoring': { const m = await loadClinical(); await m.pgMonitoring(setTopbar, navigate); break; }
     case 'wearables': { const m = await loadPractice(); await m.pgWearableIntegration(setTopbar); break; }
-    case 'home-task-manager': { const m = await loadPractice(); await m.pgHomeTaskManager(setTopbar); break; }
+    case 'home-task-manager': { const m = await loadClinical(); await m.pgHomePrograms(setTopbar, navigate); break; }
     case 'messaging': {
       const m = await loadClinical();
       await m.pgVirtualCare(setTopbar);

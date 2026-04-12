@@ -4769,499 +4769,803 @@ function bindProtocolRegistry() {
 }
 
 // ── pgClinicalReports — Reporting dashboard ───────────────────────────────────
+
+// ── pgClinicalReports replacement ──────────────────────────────────────────────
+const PHASE2_CSS = `
+/* ── Assessments Hub ─────────────────────────────────────────────────── */
+.ah-hub-tabs {
+  display: flex;
+  gap: 2px;
+  border-bottom: 2px solid var(--border);
+  padding-bottom: 0;
+  flex-wrap: wrap;
+}
+
+.ah-hub-tab {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  padding: 10px 20px;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -2px;
+  transition: color 0.15s, border-color 0.15s;
+  font-family: inherit;
+}
+
+.ah-hub-tab:hover {
+  color: var(--text-primary);
+}
+
+.ah-hub-tab.active {
+  color: var(--teal);
+  border-bottom-color: var(--teal);
+}
+
+/* ── Category chips ───────────────────────────────────────────────────── */
+.ah-cat-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 4px 0;
+}
+
+.ah-cat-chip {
+  display: inline-block;
+  padding: 4px 12px;
+  border-radius: 20px;
+  font-size: 11.5px;
+  font-weight: 600;
+  background: rgba(255,255,255,0.06);
+  color: var(--text-secondary);
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+  user-select: none;
+}
+
+.ah-cat-chip:hover {
+  background: rgba(0,212,188,0.1);
+  color: var(--teal);
+}
+
+.ah-cat-chip.active {
+  background: rgba(0,212,188,0.15);
+  color: var(--teal);
+  border-color: rgba(0,212,188,0.3);
+}
+
+/* ── Scale card ───────────────────────────────────────────────────────── */
+.ah-scale-card {
+  background: var(--surface-1, rgba(255,255,255,0.04));
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md, 10px);
+  padding: 14px 16px;
+  transition: border-color 0.15s;
+}
+
+.ah-scale-card:hover {
+  border-color: rgba(0,212,188,0.35);
+}
+
+.ah-scale-badge {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 5px;
+  letter-spacing: 0.3px;
+  white-space: nowrap;
+}
+
+/* ── Bundle card ──────────────────────────────────────────────────────── */
+.ah-bundle-card {
+  background: var(--surface-1, rgba(255,255,255,0.04));
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md, 10px);
+  padding: 14px 16px;
+  transition: border-color 0.15s;
+}
+
+.ah-bundle-card:hover {
+  border-color: rgba(0,212,188,0.3);
+}
+
+.ah-phase-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 5px 0;
+  border-bottom: 1px solid rgba(255,255,255,0.04);
+}
+
+.ah-phase-row:last-of-type {
+  border-bottom: none;
+}
+
+/* ── Inline form ──────────────────────────────────────────────────────── */
+.ah-inline-form {
+  background: rgba(255,255,255,0.025);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md, 10px);
+  padding: 16px;
+}
+
+.ah-q-row {
+  margin-bottom: 16px;
+}
+
+.ah-q-row:last-child {
+  margin-bottom: 0;
+}
+
+.ah-q-label {
+  display: block;
+  font-size: 12.5px;
+  color: var(--text-primary);
+  margin-bottom: 6px;
+  font-weight: 500;
+  line-height: 1.5;
+}
+
+.ah-q-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: rgba(0,212,188,0.15);
+  color: var(--teal);
+  font-size: 10px;
+  font-weight: 800;
+  margin-right: 8px;
+  flex-shrink: 0;
+  vertical-align: middle;
+}
+
+/* ── Domain slider ────────────────────────────────────────────────────── */
+.ah-domain-slider {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  padding: 4px 0;
+}
+
+/* ── Reports Hub layout ───────────────────────────────────────────────── */
+.rh-layout {
+  display: flex;
+  gap: 0;
+  min-height: 0;
+  flex: 1;
+  height: calc(100vh - 120px);
+}
+
+.rh-sidebar {
+  width: 180px;
+  flex-shrink: 0;
+  border-right: 1px solid var(--border);
+  padding: 8px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  overflow-y: auto;
+  background: rgba(255,255,255,0.01);
+}
+
+.rh-sidebar-item {
+  display: flex;
+  align-items: center;
+  padding: 9px 16px;
+  font-size: 12.5px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+  border-radius: 0;
+  white-space: nowrap;
+  font-weight: 500;
+}
+
+.rh-sidebar-item:hover {
+  background: rgba(255,255,255,0.05);
+  color: var(--text-primary);
+}
+
+.rh-sidebar-item.active {
+  background: rgba(0,212,188,0.1);
+  color: var(--teal);
+  font-weight: 700;
+}
+
+/* ── Report card ──────────────────────────────────────────────────────── */
+.rh-report-card {
+  background: var(--surface-1, rgba(255,255,255,0.04));
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md, 10px);
+  padding: 14px 16px;
+  transition: border-color 0.15s;
+}
+
+.rh-report-card:hover {
+  border-color: rgba(0,212,188,0.3);
+}
+
+.rh-report-type-badge {
+  display: inline-block;
+  font-size: 10.5px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 6px;
+  letter-spacing: 0.2px;
+}
+
+/* ── AI summary panel ─────────────────────────────────────────────────── */
+.rh-ai-panel {
+  margin-top: 8px;
+  animation: fadeIn 0.2s ease;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* ── Upload modal ─────────────────────────────────────────────────────── */
+.rh-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.6);
+  z-index: 500;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: fadeIn 0.15s ease;
+}
+
+.rh-modal {
+  background: var(--surface-2, #1c2333);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 24px;
+  width: 480px;
+  max-width: 96vw;
+  max-height: 90vh;
+  overflow-y: auto;
+  box-shadow: 0 8px 48px rgba(0,0,0,0.5);
+}
+`;
+
 export async function pgClinicalReports(setTopbar) {
-  setTopbar('Clinical Reports', '<span style="font-size:12px;color:var(--text-secondary)">Generate and export patient outcome reports</span>');
-  const el = document.getElementById('content');
+  const el = document.getElementById('page-content');
+  if (!el) return;
 
-  el.innerHTML = `
-    <div id="report-type-grid" style="display:grid;grid-template-columns:repeat(2,1fr);gap:16px;margin-bottom:24px;max-width:800px">
-      ${[
-        { id: 'patient',    icon: '&#128100;', title: 'Patient Outcome Summary',  desc: 'Full outcome history for a single patient across all courses' },
-        { id: 'course',     icon: '&#128203;', title: 'Course Progress Report',   desc: 'Detailed session log and outcome data for a treatment course' },
-        { id: 'population', icon: '&#128202;', title: 'Population Analytics',     desc: 'Aggregate outcomes across all patients and conditions' },
-        { id: 'ae',         icon: '&#9888;',   title: 'Adverse Events Log',       desc: 'All reported adverse events with severity and resolution status' },
-      ].map(t => `
-        <div class="card" style="cursor:pointer;transition:border-color 0.15s;border:2px solid transparent"
-          id="report-tile-${t.id}"
-          onmouseover="this.style.borderColor='var(--teal)'"
-          onmouseout="if(window._reportType!=='${t.id}')this.style.borderColor='transparent'"
-          onclick="window._selectReportType('${t.id}')">
-          <div style="padding:20px">
-            <div style="font-size:28px;margin-bottom:10px">${t.icon}</div>
-            <div style="font-size:13px;font-weight:600;color:var(--text-primary);margin-bottom:6px">${t.title}</div>
-            <div style="font-size:11.5px;color:var(--text-secondary);line-height:1.5">${t.desc}</div>
-          </div>
-        </div>`).join('')}
-    </div>
+  if (!document.getElementById('phase2-styles')) {
+    const st = document.createElement('style');
+    st.id = 'phase2-styles';
+    st.textContent = PHASE2_CSS;
+    document.head.appendChild(st);
+  }
 
-    <div id="report-config-panel" style="display:none;margin-bottom:24px;padding:20px;background:rgba(0,0,0,0.2);border:1px solid var(--border);border-radius:var(--radius-md)">
-      <div style="font-size:11px;font-weight:600;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.8px;margin-bottom:14px">Report Configuration</div>
-      <div id="report-config-body"></div>
-      <div style="margin-top:14px;display:flex;gap:10px;flex-wrap:wrap">
-        <button class="btn btn-primary btn-sm" onclick="window._generateReport()">Generate Report</button>
-        <button class="btn btn-sm" onclick="document.getElementById('report-config-panel').style.display='none';window._reportType=null;document.querySelectorAll('[id^=report-tile-]').forEach(t=>t.style.borderColor='transparent')">Cancel</button>
-      </div>
-    </div>
+  let patients = [];
+  try { patients = await api.listPatients(); } catch (_) { patients = []; }
 
-    <div id="report-preview" style="display:none">
-      <div style="display:flex;gap:10px;margin-bottom:14px;flex-wrap:wrap" class="no-print">
-        <button class="btn btn-primary btn-sm" onclick="window._printReport()">&#128424; Print Report</button>
-        <button class="btn btn-sm" onclick="window._printReport()">&#128229; Download PDF</button>
-        <span style="font-size:11px;color:var(--text-tertiary);align-self:center">Use browser Print &rarr; Save as PDF to download</span>
-      </div>
-      <div id="printable-report" style="background:white;color:#111;padding:32px;border-radius:var(--radius-md);border:1px solid var(--border)"></div>
-    </div>`;
+  const ptOpts = patients.map(p =>
+    `<option value="${p.id}">${p.name || p.full_name || `Patient #${p.id}`}</option>`
+  ).join('');
 
-  window._reportType = null;
+  setTopbar({
+    title: 'Reports',
+    right: `
+      <select class="form-control" id="rh-pt-select" style="min-width:190px" onchange="window._rhSelectPt(this.value)">
+        <option value="">All patients</option>${ptOpts}
+      </select>
+      <button class="btn btn-primary btn-sm" onclick="window._rhUpload()">Upload Report</button>
+    `
+  });
 
-  const configTemplates = {
-    patient: `
-      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px">
-        <div>
-          <label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:4px">Patient</label>
-          <select id="rp-patient" class="form-control" style="font-size:12px"><option value="">Loading\u2026</option></select>
-        </div>
-        <div>
-          <label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:4px">From</label>
-          <input id="rp-from" class="form-control" type="date" style="font-size:12px">
-        </div>
-        <div>
-          <label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:4px">To</label>
-          <input id="rp-to" class="form-control" type="date" style="font-size:12px">
-        </div>
-      </div>`,
-    course: `
-      <div>
-        <label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:4px">Course ID</label>
-        <input id="rp-course-id" class="form-control" placeholder="Paste course ID or select from Treatment Courses" style="font-size:12px;max-width:400px">
-      </div>`,
-    population: `
-      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px">
-        <div>
-          <label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:4px">From</label>
-          <input id="rp-from" class="form-control" type="date" style="font-size:12px">
-        </div>
-        <div>
-          <label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:4px">To</label>
-          <input id="rp-to" class="form-control" type="date" style="font-size:12px">
-        </div>
-        <div>
-          <label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:4px">Condition Filter</label>
-          <input id="rp-condition" class="form-control" placeholder="e.g. depression" style="font-size:12px">
-        </div>
-      </div>`,
-    ae: `
-      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px">
-        <div>
-          <label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:4px">From</label>
-          <input id="rp-from" class="form-control" type="date" style="font-size:12px">
-        </div>
-        <div>
-          <label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:4px">To</label>
-          <input id="rp-to" class="form-control" type="date" style="font-size:12px">
-        </div>
-        <div>
-          <label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:4px">Severity</label>
-          <select id="rp-severity" class="form-control" style="font-size:12px">
-            <option value="">All</option>
-            <option value="mild">Mild</option>
-            <option value="moderate">Moderate</option>
-            <option value="severe">Severe</option>
-            <option value="serious">Serious</option>
-          </select>
-        </div>
-      </div>`,
+  const TYPE_NAV = [
+    { id: 'all', label: 'All Reports', icon: '📂' },
+    { id: 'eeg', label: 'EEG / qEEG', icon: '🧠' },
+    { id: 'lab', label: 'Laboratory', icon: '🔬' },
+    { id: 'imaging', label: 'Imaging / MRI', icon: '📷' },
+    { id: 'external', label: 'External Letters', icon: '📬' },
+    { id: 'progress', label: 'Progress Reports', icon: '📈' },
+    { id: 'clinician', label: 'Clinician Summaries', icon: '👨‍⚕️' },
+    { id: 'ai', label: 'AI Summaries', icon: '🤖' },
+  ];
+
+  const TYPE_LABELS = {
+    eeg: 'EEG/qEEG', lab: 'Laboratory', imaging: 'Imaging/MRI',
+    external: 'External Letter', progress: 'Progress Note',
+    clinician: 'Clinician Summary', ai: 'AI Summary', other: 'Other',
   };
 
-  window._selectReportType = async function(type) {
-    window._reportType = type;
-    document.querySelectorAll('[id^="report-tile-"]').forEach(t => { t.style.borderColor = 'transparent'; });
-    const tile = document.getElementById('report-tile-' + type);
-    if (tile) tile.style.borderColor = 'var(--teal)';
-    const configBody = document.getElementById('report-config-body');
-    const panel      = document.getElementById('report-config-panel');
-    if (configBody) configBody.innerHTML = configTemplates[type] || '';
-    if (panel)      panel.style.display  = '';
+  const TYPE_ICONS = {
+    eeg: '🧠', lab: '🔬', imaging: '📷', external: '📬',
+    progress: '📈', clinician: '👨‍⚕️', ai: '🤖', other: '📄',
+  };
 
-    if (type === 'patient') {
-      const sel = document.getElementById('rp-patient');
-      if (sel) {
-        sel.innerHTML = '<option value="">Loading patients\u2026</option>';
-        try {
-          const pats = await api.listPatients().catch(() => null);
-          const items = pats?.items || pats || [];
-          sel.innerHTML = '<option value="">Select patient\u2026</option>'
-            + items.map(p => '<option value="' + p.id + '">' + p.first_name + ' ' + p.last_name + '</option>').join('');
-        } catch (_) {
-          sel.innerHTML = '<option value="">Could not load patients</option>';
+  window._rhActiveType = 'all';
+  window._rhSearchQuery = '';
+  window._rhSelectedPt = '';
+  window._rhSortBy = 'date-desc';
+  window._rhDateFrom = '';
+  window._rhDateTo = '';
+  window._rhCompareMode = false;
+  window._rhCompareSelected = [];
+  window._rhPatients = patients;
+  window._rhReports = [];
+  window._rhAIPanels = {};
+
+  function ptName(id) {
+    const p = (window._rhPatients || []).find(x => String(x.id) === String(id));
+    return p ? (p.name || p.full_name || `Patient #${id}`) : `Patient #${id}`;
+  }
+
+  function typeColor(t) {
+    const map = { eeg: 'var(--violet)', lab: 'var(--teal)', imaging: 'var(--blue, #4a9eff)', external: 'var(--amber)', progress: 'var(--green)', clinician: 'var(--teal)', ai: 'var(--violet)', other: 'var(--text-tertiary)' };
+    return map[t] || 'var(--text-tertiary)';
+  }
+
+  function reportCard(r) {
+    const type = r.type || r.report_type || 'other';
+    const icon = TYPE_ICONS[type] || '📄';
+    const col = typeColor(type);
+    const label = TYPE_LABELS[type] || type;
+    const dateStr = r.date || r.report_date || r.created_at || '';
+    const dateDisp = dateStr ? new Date(dateStr).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '—';
+    const ptN = r.patient_name || (r.patient_id ? ptName(r.patient_id) : '—');
+    const compareChk = window._rhCompareMode
+      ? `<input type="checkbox" style="accent-color:var(--teal)" onchange="window._rhToggleCompare('${r.id}',this.checked)">`
+      : '';
+    return `
+      <div class="rh-report-card" id="rh-card-${r.id}">
+        <div style="display:flex;align-items:flex-start;gap:14px">
+          ${compareChk}
+          <div style="font-size:24px;flex-shrink:0;line-height:1">${icon}</div>
+          <div style="flex:1;min-width:0">
+            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:3px">
+              <span style="font-size:14px;font-weight:700;color:var(--text-primary)">${r.title || 'Untitled Report'}</span>
+              <span class="rh-report-type-badge" style="background:${col}22;color:${col}">${label}</span>
+            </div>
+            <div style="font-size:11.5px;color:var(--text-secondary);margin-bottom:2px">
+              <span>👤 ${ptN}</span>
+              <span style="margin:0 8px;color:var(--border)">|</span>
+              <span>📅 ${dateDisp}</span>
+              ${r.source ? `<span style="margin:0 8px;color:var(--border)">|</span><span>✍ ${r.source}</span>` : ''}
+            </div>
+            <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px">
+              <button class="btn btn-sm" onclick="window._rhView('${r.id}')">View</button>
+              <button class="btn btn-sm" onclick="window._rhAISummarize('${r.id}')" title="AI Summary">🤖 AI Summary</button>
+              ${r.file_url ? `<button class="btn btn-sm" onclick="window.open('${r.file_url}','_blank')" title="Download">📎 Download</button>` : ''}
+              <button class="btn btn-sm" onclick="window._rhLinkToCourse('${r.id}')">🔗 Link to Course</button>
+              <button class="btn btn-sm" style="color:var(--red)" onclick="window._rhDelete('${r.id}')">🗑 Delete</button>
+            </div>
+          </div>
+        </div>
+        <div class="rh-ai-panel" id="rh-ai-${r.id}" style="display:none"></div>
+      </div>`;
+  }
+
+  function sidebar() {
+    return `
+      <nav class="rh-sidebar">
+        ${TYPE_NAV.map(t => `
+          <div class="rh-sidebar-item${window._rhActiveType === t.id ? ' active' : ''}" onclick="window._rhTypeFilter('${t.id}')">
+            <span style="margin-right:7px">${t.icon}</span>${t.label}
+          </div>`).join('')}
+      </nav>`;
+  }
+
+  function toolbar() {
+    return `
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:12px">
+        <input type="text" id="rh-search" class="form-control" placeholder="Search reports…" style="flex:1;min-width:180px" oninput="window._rhSearch()" value="${window._rhSearchQuery}">
+        <input type="date" id="rh-date-from" class="form-control" style="width:140px" value="${window._rhDateFrom}" onchange="window._rhApplyFilters()">
+        <input type="date" id="rh-date-to" class="form-control" style="width:140px" value="${window._rhDateTo}" onchange="window._rhApplyFilters()">
+        <select id="rh-sort" class="form-control" style="width:130px" onchange="window._rhApplyFilters()">
+          <option value="date-desc" ${window._rhSortBy === 'date-desc' ? 'selected' : ''}>Date ↓</option>
+          <option value="date-asc" ${window._rhSortBy === 'date-asc' ? 'selected' : ''}>Date ↑</option>
+          <option value="type" ${window._rhSortBy === 'type' ? 'selected' : ''}>Type</option>
+          <option value="patient" ${window._rhSortBy === 'patient' ? 'selected' : ''}>Patient</option>
+        </select>
+        <button class="btn btn-sm" onclick="window._rhCompare()">${window._rhCompareMode ? 'Exit Compare' : 'Compare 2 Reports'}</button>
+      </div>`;
+  }
+
+  function bottomToolbar() {
+    const compareBtn = window._rhCompareMode
+      ? `<button class="btn btn-primary btn-sm" onclick="window._rhShowComparison()" id="rh-compare-go" ${window._rhCompareSelected.length < 2 ? 'disabled' : ''}>Compare Selected (${window._rhCompareSelected.length}/2)</button>`
+      : '';
+    return `
+      <div style="display:flex;align-items:center;gap:8px;padding:12px 0;border-top:1px solid var(--border);margin-top:12px;flex-wrap:wrap">
+        <button class="btn btn-primary btn-sm" onclick="window._rhGenerateOutcome()">Generate Outcome Report</button>
+        <button class="btn btn-sm" onclick="window._rhGenerateCourse()">Generate Course Report</button>
+        ${compareBtn}
+      </div>`;
+  }
+
+  function uploadModal() {
+    const ptOptsModal = (window._rhPatients || []).map(p =>
+      `<option value="${p.id}">${p.name || p.full_name || `Patient #${p.id}`}</option>`
+    ).join('');
+    return `
+      <div class="rh-modal-overlay" id="rh-upload-modal" style="display:none" onclick="if(event.target===this) window._rhCloseModal()">
+        <div class="rh-modal">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:18px">
+            <h3 style="margin:0;font-size:16px;color:var(--text-primary)">Upload Report</h3>
+            <button class="btn btn-sm" onclick="window._rhCloseModal()">✕</button>
+          </div>
+          <div style="display:grid;gap:12px">
+            <div>
+              <label style="display:block;font-size:11.5px;color:var(--text-secondary);margin-bottom:4px">Patient</label>
+              <select id="rh-up-patient" class="form-control" style="width:100%">
+                <option value="">Select patient…</option>${ptOptsModal}
+              </select>
+            </div>
+            <div>
+              <label style="display:block;font-size:11.5px;color:var(--text-secondary);margin-bottom:4px">Report Type</label>
+              <select id="rh-up-type" class="form-control" style="width:100%">
+                <option value="">Select type…</option>
+                <option value="eeg">EEG/qEEG</option>
+                <option value="lab">Laboratory</option>
+                <option value="imaging">Imaging/MRI</option>
+                <option value="external">External Letter</option>
+                <option value="progress">Progress Note</option>
+                <option value="clinician">Clinician Summary</option>
+                <option value="other">Other</option>
+              </select>
+            </div>
+            <div>
+              <label style="display:block;font-size:11.5px;color:var(--text-secondary);margin-bottom:4px">Report Date</label>
+              <input id="rh-up-date" type="date" class="form-control" style="width:100%">
+            </div>
+            <div>
+              <label style="display:block;font-size:11.5px;color:var(--text-secondary);margin-bottom:4px">Title</label>
+              <input id="rh-up-title" type="text" class="form-control" placeholder="Enter report title…" style="width:100%">
+            </div>
+            <div>
+              <label style="display:block;font-size:11.5px;color:var(--text-secondary);margin-bottom:4px">Source (clinician/lab)</label>
+              <input id="rh-up-source" type="text" class="form-control" placeholder="Dr. Smith / Central Lab" style="width:100%">
+            </div>
+            <div>
+              <label style="display:block;font-size:11.5px;color:var(--text-secondary);margin-bottom:4px">Notes</label>
+              <textarea id="rh-up-notes" class="form-control" rows="2" style="width:100%;resize:vertical"></textarea>
+            </div>
+            <div>
+              <label style="display:block;font-size:11.5px;color:var(--text-secondary);margin-bottom:4px">File</label>
+              <input id="rh-up-file" type="file" class="form-control" accept=".pdf,.jpg,.jpeg,.png,.docx" style="width:100%">
+            </div>
+            <div id="rh-up-error" style="display:none" class="notice notice-warn"></div>
+            <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:4px">
+              <button class="btn btn-sm" onclick="window._rhCloseModal()">Cancel</button>
+              <button class="btn btn-primary btn-sm" onclick="window._rhSubmitUpload()">Upload Report</button>
+            </div>
+          </div>
+        </div>
+      </div>`;
+  }
+
+  function filterReports(reports) {
+    let r = [...reports];
+    if (window._rhActiveType !== 'all') {
+      r = r.filter(x => (x.type || x.report_type || 'other') === window._rhActiveType);
+    }
+    if (window._rhSelectedPt) {
+      r = r.filter(x => String(x.patient_id) === window._rhSelectedPt);
+    }
+    if (window._rhSearchQuery) {
+      const q = window._rhSearchQuery.toLowerCase();
+      r = r.filter(x =>
+        (x.title || '').toLowerCase().includes(q) ||
+        (x.source || '').toLowerCase().includes(q) ||
+        (x.patient_name || '').toLowerCase().includes(q)
+      );
+    }
+    if (window._rhDateFrom) {
+      r = r.filter(x => (x.date || x.report_date || x.created_at || '') >= window._rhDateFrom);
+    }
+    if (window._rhDateTo) {
+      r = r.filter(x => (x.date || x.report_date || x.created_at || '') <= window._rhDateTo);
+    }
+    const sort = window._rhSortBy;
+    if (sort === 'date-desc') r.sort((a, b) => new Date(b.date || b.created_at || 0) - new Date(a.date || a.created_at || 0));
+    else if (sort === 'date-asc') r.sort((a, b) => new Date(a.date || a.created_at || 0) - new Date(b.date || b.created_at || 0));
+    else if (sort === 'type') r.sort((a, b) => (a.type || '').localeCompare(b.type || ''));
+    else if (sort === 'patient') r.sort((a, b) => (a.patient_name || '').localeCompare(b.patient_name || ''));
+    return r;
+  }
+
+  async function loadAndRender() {
+    const listEl = document.getElementById('rh-list');
+    if (!listEl) return;
+    listEl.innerHTML = `<div style="padding:32px;text-align:center">${spinner()}</div>`;
+    try {
+      let reports = [];
+      if (window._rhSelectedPt) {
+        if (api.listReports) {
+          reports = await api.listReports(window._rhSelectedPt);
+        } else {
+          reports = await api.getPatientReports(window._rhSelectedPt).catch(() => []);
+        }
+      } else {
+        if (api.listReports) {
+          reports = await api.listReports(null).catch(() => []);
+        } else {
+          reports = [];
         }
       }
+      window._rhReports = reports || [];
+    } catch (_) {
+      window._rhReports = [];
     }
-  };
-
-  window._generateReport = async function() {
-    const type = window._reportType;
-    if (!type) return;
-    const preview = document.getElementById('report-preview');
-    const reportEl = document.getElementById('printable-report');
-    if (reportEl) reportEl.innerHTML = '<div style="text-align:center;padding:32px;color:#555">Generating report\u2026</div>';
-    if (preview) preview.style.display = '';
-    try {
-      const html = await window._buildReportHtml(type);
-      if (reportEl) reportEl.innerHTML = html;
-    } catch (e) {
-      if (reportEl) reportEl.innerHTML = '<div style="color:#cc0000;padding:16px">Error generating report: ' + (e.message || 'Unknown error') + '</div>';
-    }
-  };
-
-  window._buildReportHtml = async function(type) {
-    const genDate = new Date().toLocaleString();
-    const hdr = '<div class="print-header" style="display:block;border-bottom:2px solid #003366;padding-bottom:12px;margin-bottom:20px"><div style="display:flex;justify-content:space-between;align-items:flex-start"><div><div style="font-size:18pt;font-weight:700;color:#003366">DeepSynaps Protocol Studio</div><div style="font-size:10pt;color:#555;margin-top:2px">Clinical Reports</div></div><div style="text-align:right;font-size:9pt;color:#555"><div>Generated: ' + genDate + '</div><div style="background:#cc0000;color:white;padding:2px 8px;border-radius:3px;font-weight:700;margin-top:4px">CONFIDENTIAL</div></div></div></div>';
-    const ftr = '<div style="margin-top:32px;padding-top:12px;border-top:1px solid #ccc;font-size:8pt;color:#888;display:flex;justify-content:space-between"><span>DeepSynaps Protocol Studio \u2014 Confidential Clinical Record</span><span>Generated ' + genDate + '</span></div>';
-
-    if (type === 'patient') {
-      const patId = document.getElementById('rp-patient')?.value;
-      if (!patId) throw new Error('Select a patient.');
-      const from = document.getElementById('rp-from')?.value || null;
-      const to   = document.getElementById('rp-to')?.value || null;
-      const [pat, outRes] = await Promise.all([
-        api.getPatient(patId),
-        api.listOutcomes({ patient_id: patId }).catch(() => null),
-      ]);
-      const outs = outRes?.items || [];
-      const cRes = await api.listCourses({ patient_id: patId }).catch(() => null);
-      const cList = cRes?.items || [];
-      const filtOut = outs.filter(o => {
-        const d = o.recorded_at ? o.recorded_at.split('T')[0] : null;
-        return (!from || !d || d >= from) && (!to || !d || d <= to);
-      });
-      const tRowsSym = ['Date','Template','Score','Point'];
-      const tHdr = '<tr style="background:#003366;color:white">' + tRowsSym.map(h => '<th style="padding:5px 8px;text-align:left">' + h + '</th>').join('') + '</tr>';
-      const outRows = filtOut.map(o => '<tr><td style="padding:5px 8px;border:1px solid #ddd">' + (o.recorded_at ? o.recorded_at.split('T')[0] : '\u2014') + '</td><td style="padding:5px 8px;border:1px solid #ddd">' + (o.template_name || o.template_id || '\u2014') + '</td><td style="padding:5px 8px;border:1px solid #ddd">' + (o.score != null ? o.score : '\u2014') + '</td><td style="padding:5px 8px;border:1px solid #ddd">' + (o.measurement_point || '\u2014') + '</td></tr>').join('');
-      const cRows = cList.map(c => '<tr><td style="padding:5px 8px;border:1px solid #ddd">' + (c.condition_slug || '\u2014').replace(/-/g,' ') + '</td><td style="padding:5px 8px;border:1px solid #ddd">' + (c.modality_slug || '\u2014') + '</td><td style="padding:5px 8px;border:1px solid #ddd">' + (c.status || '\u2014').replace(/_/g,' ') + '</td><td style="padding:5px 8px;border:1px solid #ddd">' + (c.sessions_delivered || 0) + ' / ' + (c.planned_sessions_total || '?') + '</td></tr>').join('');
-      return hdr
-        + '<h2 style="font-size:14pt;color:#003366;margin-bottom:4px">Patient Outcome Summary</h2>'
-        + '<div style="font-size:10pt;color:#555;margin-bottom:20px">Patient: <strong>' + pat.first_name + ' ' + pat.last_name + '</strong>' + ((pat.dob || pat.date_of_birth) ? ' &nbsp;|&nbsp; DOB: ' + (pat.dob || pat.date_of_birth) : '') + (from || to ? ' &nbsp;|&nbsp; Period: ' + (from || 'all') + ' to ' + (to || 'present') : '') + '</div>'
-        + '<h3 style="font-size:12pt;color:#003366;border-bottom:1px solid #ccc;padding-bottom:4px;margin-bottom:10px">Treatment Courses (' + cList.length + ')</h3>'
-        + (cList.length === 0 ? '<p style="color:#777">No treatment courses.</p>' : '<table style="width:100%;border-collapse:collapse;margin-bottom:20px;font-size:9pt"><thead><tr style="background:#003366;color:white"><th style="padding:5px 8px;text-align:left">Condition</th><th style="padding:5px 8px;text-align:left">Modality</th><th style="padding:5px 8px;text-align:left">Status</th><th style="padding:5px 8px;text-align:left">Sessions</th></tr></thead><tbody>' + cRows + '</tbody></table>')
-        + '<h3 style="font-size:12pt;color:#003366;border-bottom:1px solid #ccc;padding-bottom:4px;margin-bottom:10px">Outcome Measures (' + filtOut.length + ')</h3>'
-        + (filtOut.length === 0 ? '<p style="color:#777">No outcome records for selected period.</p>' : '<table style="width:100%;border-collapse:collapse;margin-bottom:20px;font-size:9pt"><thead>' + tHdr + '</thead><tbody>' + outRows + '</tbody></table>')
-        + ftr;
-    }
-
-    if (type === 'course') {
-      const courseId = document.getElementById('rp-course-id')?.value?.trim();
-      if (!courseId) throw new Error('Enter a course ID.');
-      const [crs, sRes, oRes, aeR] = await Promise.all([
-        api.getCourse(courseId),
-        api.listCourseSessions(courseId).then(r => r?.items || []).catch(() => []),
-        api.listOutcomes({ course_id: courseId }).then(r => r?.items || []).catch(() => []),
-        api.listAdverseEvents({ course_id: courseId }).then(r => r?.items || []).catch(() => []),
-      ]);
-      let pt3 = null;
-      if (crs?.patient_id) pt3 = await api.getPatient(crs.patient_id).catch(() => null);
-      const pct2 = Math.min(100, Math.round(((crs.sessions_delivered || 0) / (crs.planned_sessions_total || 1)) * 100));
-      const sRows = sRes.map((s, i) => '<tr><td style="padding:5px 8px;border:1px solid #ddd">' + (i + 1) + '</td><td style="padding:5px 8px;border:1px solid #ddd">' + (s.session_date ? s.session_date.split('T')[0] : '\u2014') + '</td><td style="padding:5px 8px;border:1px solid #ddd">' + (s.frequency_hz || '\u2014') + '</td><td style="padding:5px 8px;border:1px solid #ddd">' + (s.intensity_pct_rmt || '\u2014') + '</td><td style="padding:5px 8px;border:1px solid #ddd">' + (s.pulses_delivered || '\u2014') + '</td><td style="padding:5px 8px;border:1px solid #ddd">' + (s.tolerance_rating || '\u2014') + '</td><td style="padding:5px 8px;border:1px solid #ddd">' + (s.session_outcome || '\u2014') + '</td></tr>').join('');
-      const oRows = oRes.map(o => '<tr><td style="padding:5px 8px;border:1px solid #ddd">' + (o.recorded_at ? o.recorded_at.split('T')[0] : '\u2014') + '</td><td style="padding:5px 8px;border:1px solid #ddd">' + (o.template_name || o.template_id || '\u2014') + '</td><td style="padding:5px 8px;border:1px solid #ddd">' + (o.score != null ? o.score : '\u2014') + '</td><td style="padding:5px 8px;border:1px solid #ddd">' + (o.measurement_point || '\u2014') + '</td></tr>').join('');
-      const aeRows2 = aeR.map(ae => '<tr><td style="padding:5px 8px;border:1px solid #ddd">' + (ae.reported_at ? ae.reported_at.split('T')[0] : '\u2014') + '</td><td style="padding:5px 8px;border:1px solid #ddd;text-transform:capitalize">' + (ae.severity || '\u2014') + '</td><td style="padding:5px 8px;border:1px solid #ddd">' + (ae.description || '\u2014') + '</td><td style="padding:5px 8px;border:1px solid #ddd">' + (ae.resolved ? 'Yes' : 'No') + '</td></tr>').join('');
-      return hdr
-        + '<h2 style="font-size:14pt;color:#003366;margin-bottom:4px">Course Progress Report</h2>'
-        + '<div style="font-size:10pt;color:#555;margin-bottom:16px">' + (crs.condition_slug ? crs.condition_slug.replace(/-/g,' ') : '\u2014') + ' &middot; ' + (crs.modality_slug || '\u2014') + (pt3 ? ' &nbsp;|&nbsp; Patient: <strong>' + pt3.first_name + ' ' + pt3.last_name + '</strong>' : '') + ' &nbsp;|&nbsp; Status: <strong>' + (crs.status || '\u2014').replace(/_/g,' ') + '</strong></div>'
-        + '<div style="margin-bottom:16px"><div style="font-size:10pt;font-weight:600;margin-bottom:4px">Session Progress: ' + (crs.sessions_delivered || 0) + ' / ' + (crs.planned_sessions_total || '?') + '</div><div style="height:12px;background:#eee;border-radius:6px;overflow:hidden"><div style="height:12px;background:#003366;width:' + pct2 + '%;border-radius:6px"></div></div></div>'
-        + (sRes.length > 0 ? '<h3 style="font-size:12pt;color:#003366;border-bottom:1px solid #ccc;padding-bottom:4px;margin-bottom:10px">Session Log (' + sRes.length + ')</h3><table style="width:100%;border-collapse:collapse;margin-bottom:20px;font-size:9pt"><thead><tr style="background:#003366;color:white"><th style="padding:5px 8px;text-align:left">#</th><th style="padding:5px 8px;text-align:left">Date</th><th style="padding:5px 8px;text-align:left">Hz</th><th style="padding:5px 8px;text-align:left">% RMT</th><th style="padding:5px 8px;text-align:left">Pulses</th><th style="padding:5px 8px;text-align:left">Tolerance</th><th style="padding:5px 8px;text-align:left">Outcome</th></tr></thead><tbody>' + sRows + '</tbody></table>' : '')
-        + (oRes.length > 0 ? '<h3 style="font-size:12pt;color:#003366;border-bottom:1px solid #ccc;padding-bottom:4px;margin-bottom:10px">Outcomes (' + oRes.length + ')</h3><table style="width:100%;border-collapse:collapse;margin-bottom:20px;font-size:9pt"><thead><tr style="background:#003366;color:white"><th style="padding:5px 8px;text-align:left">Date</th><th style="padding:5px 8px;text-align:left">Template</th><th style="padding:5px 8px;text-align:left">Score</th><th style="padding:5px 8px;text-align:left">Point</th></tr></thead><tbody>' + oRows + '</tbody></table>' : '')
-        + (aeR.length > 0 ? '<h3 style="font-size:12pt;color:#cc0000;border-bottom:1px solid #ccc;padding-bottom:4px;margin-bottom:10px">Adverse Events (' + aeR.length + ')</h3><table style="width:100%;border-collapse:collapse;margin-bottom:20px;font-size:9pt"><thead><tr style="background:#cc0000;color:white"><th style="padding:5px 8px;text-align:left">Date</th><th style="padding:5px 8px;text-align:left">Severity</th><th style="padding:5px 8px;text-align:left">Description</th><th style="padding:5px 8px;text-align:left">Resolved</th></tr></thead><tbody>' + aeRows2 + '</tbody></table>' : '')
-        + ftr;
-    }
-
-    if (type === 'population') {
-      const from = document.getElementById('rp-from')?.value || null;
-      const to   = document.getElementById('rp-to')?.value || null;
-      const cond = (document.getElementById('rp-condition')?.value || '').toLowerCase();
-      const [agg2, cAll] = await Promise.all([
-        api.aggregateOutcomes().catch(() => null),
-        api.listCourses().then(r => r?.items || []).catch(() => []),
-      ]);
-      const filt = cAll.filter(c => !cond || (c.condition_slug || '').toLowerCase().includes(cond));
-      const bySt = {};
-      filt.forEach(c => { bySt[c.status] = (bySt[c.status] || 0) + 1; });
-      const byMod = {};
-      filt.forEach(c => { byMod[c.modality_slug || 'Unknown'] = (byMod[c.modality_slug || 'Unknown'] || 0) + 1; });
-      return hdr
-        + '<h2 style="font-size:14pt;color:#003366;margin-bottom:4px">Population Analytics Report</h2>'
-        + '<div style="font-size:10pt;color:#555;margin-bottom:20px">Aggregate outcomes across all patients' + (cond ? ' \u2014 filter: ' + cond : '') + (from || to ? ' | Period: ' + (from || 'all') + ' to ' + (to || 'present') : '') + '</div>'
-        + '<h3 style="font-size:12pt;color:#003366;border-bottom:1px solid #ccc;padding-bottom:4px;margin-bottom:10px">Key Metrics</h3>'
-        + '<table style="width:100%;border-collapse:collapse;margin-bottom:20px;font-size:10pt"><tbody>'
-        + '<tr><td style="padding:5px 8px;border:1px solid #ddd;font-weight:600;background:#f5f7fa;width:40%">Total Courses (filtered)</td><td style="padding:5px 8px;border:1px solid #ddd">' + filt.length + '</td></tr>'
-        + '<tr><td style="padding:5px 8px;border:1px solid #ddd;font-weight:600;background:#f5f7fa">Total Outcomes Recorded</td><td style="padding:5px 8px;border:1px solid #ddd">' + (agg2?.total_outcomes || '\u2014') + '</td></tr>'
-        + '<tr><td style="padding:5px 8px;border:1px solid #ddd;font-weight:600;background:#f5f7fa">Responder Rate</td><td style="padding:5px 8px;border:1px solid #ddd">' + (agg2?.responder_rate != null ? (agg2.responder_rate * 100).toFixed(1) + '%' : '\u2014') + '</td></tr>'
-        + '<tr><td style="padding:5px 8px;border:1px solid #ddd;font-weight:600;background:#f5f7fa">Mean Improvement</td><td style="padding:5px 8px;border:1px solid #ddd">' + (agg2?.mean_improvement != null ? agg2.mean_improvement : '\u2014') + '</td></tr>'
-        + '</tbody></table>'
-        + '<h3 style="font-size:12pt;color:#003366;border-bottom:1px solid #ccc;padding-bottom:4px;margin-bottom:10px">Courses by Status</h3>'
-        + '<table style="width:100%;border-collapse:collapse;margin-bottom:20px;font-size:10pt"><thead><tr style="background:#003366;color:white"><th style="padding:5px 8px;text-align:left">Status</th><th style="padding:5px 8px;text-align:left">Count</th></tr></thead><tbody>'
-        + Object.entries(bySt).map(([s, c]) => '<tr><td style="padding:5px 8px;border:1px solid #ddd;text-transform:capitalize">' + s.replace(/_/g,' ') + '</td><td style="padding:5px 8px;border:1px solid #ddd">' + c + '</td></tr>').join('')
-        + '</tbody></table>'
-        + '<h3 style="font-size:12pt;color:#003366;border-bottom:1px solid #ccc;padding-bottom:4px;margin-bottom:10px">Courses by Modality</h3>'
-        + '<table style="width:100%;border-collapse:collapse;margin-bottom:20px;font-size:10pt"><thead><tr style="background:#003366;color:white"><th style="padding:5px 8px;text-align:left">Modality</th><th style="padding:5px 8px;text-align:left">Count</th></tr></thead><tbody>'
-        + Object.entries(byMod).map(([m, c]) => '<tr><td style="padding:5px 8px;border:1px solid #ddd">' + m + '</td><td style="padding:5px 8px;border:1px solid #ddd">' + c + '</td></tr>').join('')
-        + '</tbody></table>'
-        + ftr;
-    }
-
-    if (type === 'ae') {
-      const from = document.getElementById('rp-from')?.value || null;
-      const to   = document.getElementById('rp-to')?.value || null;
-      const sev  = document.getElementById('rp-severity')?.value || null;
-      const params = {};
-      if (sev) params.severity = sev;
-      const aeAllRes = await api.listAdverseEvents(params).catch(() => null);
-      let aeAll = aeAllRes?.items || [];
-      if (from) aeAll = aeAll.filter(ae => !ae.reported_at || ae.reported_at.split('T')[0] >= from);
-      if (to)   aeAll = aeAll.filter(ae => !ae.reported_at || ae.reported_at.split('T')[0] <= to);
-      const aeSevCounts = { mild: 0, moderate: 0, severe: 0, serious: 0 };
-      aeAll.forEach(ae => { if (aeSevCounts[ae.severity] !== undefined) aeSevCounts[ae.severity]++; });
-      const aeDetailRows = aeAll.map(ae => '<tr><td style="padding:5px 8px;border:1px solid #ddd">' + (ae.reported_at ? ae.reported_at.split('T')[0] : '\u2014') + '</td><td style="padding:5px 8px;border:1px solid #ddd;text-transform:capitalize">' + (ae.severity || '\u2014') + '</td><td style="padding:5px 8px;border:1px solid #ddd">' + (ae.description || '\u2014') + '</td><td style="padding:5px 8px;border:1px solid #ddd">' + (ae.course_id ? ae.course_id.slice(0, 8) + '\u2026' : '\u2014') + '</td><td style="padding:5px 8px;border:1px solid #ddd">' + (ae.resolved ? 'Yes' : 'No') + '</td></tr>').join('');
-      return hdr
-        + '<h2 style="font-size:14pt;color:#003366;margin-bottom:4px">Adverse Events Log</h2>'
-        + '<div style="font-size:10pt;color:#555;margin-bottom:20px">All reported adverse events' + (sev ? ' \u2014 severity: ' + sev : '') + (from || to ? ' | Period: ' + (from || 'all') + ' to ' + (to || 'present') : '') + ' &nbsp;|\u00a0 Total: <strong>' + aeAll.length + '</strong></div>'
-        + '<h3 style="font-size:12pt;color:#003366;border-bottom:1px solid #ccc;padding-bottom:4px;margin-bottom:10px">Severity Summary</h3>'
-        + '<table style="width:60%;border-collapse:collapse;margin-bottom:20px;font-size:10pt"><thead><tr style="background:#003366;color:white"><th style="padding:5px 8px;text-align:left">Severity</th><th style="padding:5px 8px;text-align:left">Count</th></tr></thead><tbody>'
-        + Object.entries(aeSevCounts).map(([s, c]) => '<tr><td style="padding:5px 8px;border:1px solid #ddd;text-transform:capitalize">' + s + '</td><td style="padding:5px 8px;border:1px solid #ddd">' + c + '</td></tr>').join('')
-        + '</tbody></table>'
-        + (aeAll.length > 0
-          ? '<h3 style="font-size:12pt;color:#003366;border-bottom:1px solid #ccc;padding-bottom:4px;margin-bottom:10px">Event Details</h3><table style="width:100%;border-collapse:collapse;margin-bottom:20px;font-size:9pt"><thead><tr style="background:#003366;color:white"><th style="padding:5px 8px;text-align:left">Date</th><th style="padding:5px 8px;text-align:left">Severity</th><th style="padding:5px 8px;text-align:left">Description</th><th style="padding:5px 8px;text-align:left">Course</th><th style="padding:5px 8px;text-align:left">Resolved</th></tr></thead><tbody>' + aeDetailRows + '</tbody></table>'
-          : '<p style="color:#777">No adverse events found for selected filters.</p>')
-        + ftr;
-    }
-
-    return '<div style="color:#cc0000">Unknown report type.</div>';
-  };
-
-  window._printReport = function() {
-    const reportEl = document.getElementById('printable-report');
-    if (!reportEl) return;
-    const pw = window.open('', '_blank');
-    if (!pw) { window.print(); return; }
-    pw.document.write('<!DOCTYPE html><html><head><title>DeepSynaps Report</title><style>body{font-family:serif;font-size:11pt;color:#111;background:white;padding:32px;margin:0}table{width:100%;border-collapse:collapse}@media print{body{padding:0}}</style></head><body>' + reportEl.innerHTML + '</body></html>');
-    pw.document.close();
-    pw.focus();
-    pw.print();
-  };
-}
-
-// ── Population Analytics ──────────────────────────────────────────────────────
-
-function _popConditionBarChart(patients) {
-  const counts = {};
-  (patients || []).forEach(p => {
-    const c = p.primary_condition || 'Unknown';
-    counts[c] = (counts[c] || 0) + 1;
-  });
-  const total = patients.length || 1;
-  const sorted = Object.entries(counts).sort((a, b) => b[1] - a[1]).slice(0, 8);
-  if (sorted.length === 0) {
-    return `<div class="card" style="padding:20px"><h3 style="margin-bottom:12px;font-size:14px">Condition Distribution</h3><p style="color:var(--text-secondary);font-size:0.85rem;text-align:center;padding:20px 0">No patient data available</p></div>`;
+    renderList();
   }
-  return `<div class="card" style="padding:20px">
-    <h3 style="margin-bottom:16px;font-size:14px">Condition Distribution</h3>
-    ${sorted.map(([cond, count]) => {
-      const pct = Math.round(count / total * 100);
-      return `<div style="margin-bottom:12px">
-        <div style="display:flex;justify-content:space-between;margin-bottom:4px;font-size:0.85rem">
-          <span>${cond}</span>
-          <span style="color:var(--text-secondary)">${count} patients (${pct}%)</span>
-        </div>
-        <div style="height:8px;background:var(--bg-surface-2);border-radius:4px;overflow:hidden">
-          <div style="height:100%;width:${pct}%;background:linear-gradient(90deg,var(--teal),var(--blue));border-radius:4px;transition:width 0.6s ease"></div>
-        </div>
-      </div>`;
-    }).join('')}
-  </div>`;
-}
 
-function _popModalityEffectiveness(courses) {
-  const modMap = {};
-  (courses || []).forEach(c => {
-    const m = c.modality || c.modality_slug || 'Unknown';
-    if (!modMap[m]) modMap[m] = { courses: 0, completed: 0, totalSessions: 0 };
-    modMap[m].courses++;
-    if (c.status === 'completed') modMap[m].completed++;
-    modMap[m].totalSessions += c.session_count_completed || c.sessions_delivered || 0;
-  });
-  const rows = Object.entries(modMap).map(([mod, data]) => {
-    const completionRate = data.courses ? Math.round(data.completed / data.courses * 100) : 0;
-    const avgSessions = data.courses ? Math.round(data.totalSessions / data.courses) : 0;
-    return { mod, ...data, completionRate, avgSessions };
-  }).sort((a, b) => b.completionRate - a.completionRate);
-  if (rows.length === 0) {
-    return `<div class="card" style="padding:20px"><h3 style="margin-bottom:12px;font-size:14px">Modality Effectiveness</h3><p style="color:var(--text-secondary);font-size:0.85rem;text-align:center;padding:20px 0">No course data available</p></div>`;
+  function renderList() {
+    const listEl = document.getElementById('rh-list');
+    if (!listEl) return;
+    const filtered = filterReports(window._rhReports || []);
+    if (!filtered.length) {
+      listEl.innerHTML = emptyState('📂', 'No reports found', 'Upload a report or adjust filters', 'Upload Report', 'window._rhUpload()');
+      return;
+    }
+    listEl.innerHTML = `<div style="display:grid;gap:10px">${filtered.map(reportCard).join('')}</div>`;
   }
-  return `<div class="card" style="padding:20px">
-    <h3 style="margin-bottom:16px;font-size:14px">Modality Effectiveness</h3>
-    <div style="overflow-x:auto"><table class="ds-table">
-      <thead><tr><th>Modality</th><th>Courses</th><th>Completion Rate</th><th>Avg Sessions</th></tr></thead>
-      <tbody>${rows.map(r => `<tr>
-        <td><strong>${r.mod}</strong></td>
-        <td>${r.courses}</td>
-        <td>
-          <div style="display:flex;align-items:center;gap:8px">
-            <div style="flex:1;height:6px;background:var(--bg-surface-2);border-radius:3px;overflow:hidden;min-width:60px">
-              <div style="height:100%;width:${r.completionRate}%;background:var(--teal);border-radius:3px"></div>
-            </div>
-            <span style="min-width:35px;text-align:right;font-size:0.8rem">${r.completionRate}%</span>
-          </div>
-        </td>
-        <td>${r.avgSessions}</td>
-      </tr>`).join('')}</tbody>
-    </table></div>
-  </div>`;
-}
 
-function _popSuccessHeatmap(courses) {
-  const allConds = [...new Set((courses || []).map(c => c.condition || c.condition_slug).filter(Boolean))].slice(0, 6);
-  const allMods  = [...new Set((courses || []).map(c => c.modality || c.modality_slug).filter(Boolean))].slice(0, 5);
-  const grid = {};
-  (courses || []).forEach(c => {
-    const cond = c.condition || c.condition_slug;
-    const mod  = c.modality  || c.modality_slug;
-    if (!cond || !mod) return;
-    const key = `${cond}:${mod}`;
-    grid[key] = (grid[key] || 0) + 1;
-  });
-  const maxVal = Math.max(1, ...Object.values(grid));
-  return `<div class="card" style="padding:20px">
-    <h3 style="margin-bottom:16px;font-size:14px">Treatment Heatmap <span style="font-size:0.75rem;color:var(--text-secondary);font-weight:400">Condition × Modality (course count)</span></h3>
-    ${allConds.length === 0 ? '<p style="color:var(--text-secondary);font-size:0.85rem;text-align:center;padding:20px">No course data available yet</p>' : `
-    <div style="overflow-x:auto">
-      <table style="border-collapse:separate;border-spacing:3px;min-width:100%">
-        <thead><tr>
-          <th style="padding:8px;font-size:0.75rem;text-align:left;color:var(--text-secondary);font-weight:600;background:none">Condition</th>
-          ${allMods.map(m => `<th style="padding:8px;font-size:0.75rem;text-align:center;color:var(--text-secondary);font-weight:600;white-space:nowrap;background:none">${m}</th>`).join('')}
-        </tr></thead>
-        <tbody>${allConds.map(cond => `<tr>
-          <td style="padding:8px;font-size:0.82rem;white-space:nowrap;color:var(--text-primary)">${cond.replace(/-/g,' ')}</td>
-          ${allMods.map(mod => {
-            const val = grid[`${cond}:${mod}`] || 0;
-            const intensity = val / maxVal;
-            const bg = val === 0 ? 'rgba(255,255,255,0.03)' : `rgba(0,212,188,${0.1 + intensity * 0.7})`;
-            return `<td style="padding:8px;text-align:center;background:${bg};border-radius:4px;font-size:0.85rem;font-weight:${val > 0 ? 600 : 400};color:${val > 0 ? 'var(--teal)' : 'var(--text-secondary)'}">${val || '—'}</td>`;
-          }).join('')}
-        </tr>`).join('')}</tbody>
-      </table>
-    </div>`}
-  </div>`;
-}
-
-function _popCohortRiskProfile(courses) {
-  const buckets = { Low: 0, Moderate: 0, Elevated: 0, High: 0 };
-  (courses || []).forEach(c => {
-    const s = computeRiskScore(c);
-    if (s < 20) buckets.Low++;
-    else if (s < 50) buckets.Moderate++;
-    else if (s < 75) buckets.Elevated++;
-    else buckets.High++;
-  });
-  const total = courses.length || 1;
-  const colors = { Low: 'var(--teal)', Moderate: 'var(--amber)', Elevated: '#f97316', High: 'var(--red)' };
-  return `<div class="card" style="padding:20px">
-    <h3 style="margin-bottom:16px;font-size:14px">Cohort Risk Profile</h3>
-    <div style="height:24px;border-radius:6px;overflow:hidden;display:flex;margin-bottom:16px">
-      ${Object.entries(buckets).map(([label, count]) => {
-        const pct = Math.round(count / total * 100);
-        return pct > 0 ? `<div style="width:${pct}%;background:${colors[label]};display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:#000;transition:width 0.6s ease" title="${label}: ${count}">${pct > 8 ? pct + '%' : ''}</div>` : '';
-      }).join('')}
-    </div>
-    <div style="display:flex;gap:16px;flex-wrap:wrap">
-      ${Object.entries(buckets).map(([label, count]) => `
-        <div style="display:flex;align-items:center;gap:6px;font-size:0.82rem">
-          <span style="width:10px;height:10px;border-radius:2px;background:${colors[label]};display:inline-block"></span>
-          <span style="color:var(--text-secondary)">${label}:</span>
-          <span style="font-weight:600;color:var(--text-primary)">${count}</span>
-        </div>`).join('')}
-    </div>
-  </div>`;
-}
-
-function _popAdverseEventDots(adverseEvents, courses) {
-  const courseMap = {};
-  (courses || []).forEach(c => { courseMap[c.id] = c.condition || c.condition_slug || 'Unknown'; });
-  const aeByCond = {};
-  (adverseEvents || []).forEach(ae => {
-    const cond = courseMap[ae.course_id] || 'Unknown';
-    if (!aeByCond[cond]) aeByCond[cond] = { mild: 0, moderate: 0, severe: 0 };
-    const sev = ae.severity || 'mild';
-    if (aeByCond[cond][sev] !== undefined) aeByCond[cond][sev]++;
-    else aeByCond[cond].mild++;
-  });
-  const rows = Object.entries(aeByCond);
-  if (rows.length === 0) {
-    return `<div class="card" style="padding:20px"><h3 style="font-size:14px;margin-bottom:12px">Adverse Events by Condition</h3>
-      <p style="color:var(--text-secondary);padding:20px 0;text-align:center">No adverse events recorded</p></div>`;
-  }
-  return `<div class="card" style="padding:20px">
-    <h3 style="margin-bottom:16px;font-size:14px">Adverse Events by Condition</h3>
-    <div style="display:flex;gap:16px;margin-bottom:12px;font-size:0.75rem">
-      <span style="display:flex;align-items:center;gap:4px"><span style="width:10px;height:10px;border-radius:50%;background:var(--amber);display:inline-block"></span> Mild</span>
-      <span style="display:flex;align-items:center;gap:4px"><span style="width:10px;height:10px;border-radius:50%;background:var(--red);display:inline-block"></span> Moderate</span>
-      <span style="display:flex;align-items:center;gap:4px"><span style="width:12px;height:12px;border-radius:50%;background:#dc2626;display:inline-block"></span> Severe</span>
-    </div>
-    ${rows.map(([cond, counts]) => {
-      const mildDots     = Array(Math.min(counts.mild || 0, 20)).fill(0).map(() => `<span style="width:10px;height:10px;border-radius:50%;background:var(--amber);display:inline-block;flex-shrink:0"></span>`).join('');
-      const modDots      = Array(Math.min(counts.moderate || 0, 20)).fill(0).map(() => `<span style="width:10px;height:10px;border-radius:50%;background:var(--red);display:inline-block;flex-shrink:0"></span>`).join('');
-      const sevDots      = Array(Math.min(counts.severe || 0, 20)).fill(0).map(() => `<span style="width:12px;height:12px;border-radius:50%;background:#dc2626;display:inline-block;flex-shrink:0"></span>`).join('');
-      const totalCount   = (counts.mild || 0) + (counts.moderate || 0) + (counts.severe || 0);
-      return `<div style="display:flex;align-items:center;gap:12px;margin-bottom:10px;flex-wrap:wrap">
-        <div style="min-width:140px;font-size:0.82rem;color:var(--text-primary)">${cond.replace(/-/g,' ')}</div>
-        <div style="display:flex;gap:3px;align-items:center;flex-wrap:wrap">${mildDots}${modDots}${sevDots}
-          <span style="font-size:0.75rem;color:var(--text-secondary);margin-left:4px">${totalCount} total</span>
+  function render() {
+    el.innerHTML = `
+      <div class="rh-layout">
+        ${sidebar()}
+        <div style="flex:1;min-width:0;display:flex;flex-direction:column">
+          ${toolbar()}
+          <div id="rh-list" style="flex:1;overflow-y:auto"></div>
+          ${bottomToolbar()}
         </div>
-      </div>`;
-    }).join('')}
-  </div>`;
-}
-
-function _popOutcomeTable(courses, filterCondition = '') {
-  let rows = (courses || []).filter(c => !filterCondition || (c.condition || c.condition_slug || '').toLowerCase().includes(filterCondition.toLowerCase()));
-  const conditions = [...new Set((courses || []).map(c => c.condition || c.condition_slug).filter(Boolean))].sort();
-  return `<div class="card" style="padding:20px">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:8px">
-      <h3 style="font-size:14px;margin:0">Patient Outcome Table</h3>
-      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-        <select id="pop-table-filter" class="form-control" style="width:auto;font-size:12px;padding:5px 10px" onchange="window._popFilterTable()">
-          <option value="">All Conditions</option>
-          ${conditions.map(c => `<option value="${c}" ${c === filterCondition ? 'selected' : ''}>${c.replace(/-/g,' ')}</option>`).join('')}
-        </select>
-        <button class="btn btn-sm" onclick="window._exportPopulationCSV()">Export CSV</button>
       </div>
-    </div>
-    <div style="overflow-x:auto"><table class="ds-table">
-      <thead><tr>
-        <th>Patient ID</th><th>Condition</th><th>Modality</th><th>Sessions</th><th>Status</th><th>Created</th>
-      </tr></thead>
-      <tbody>
-        ${rows.length === 0
-          ? `<tr><td colspan="6" style="text-align:center;color:var(--text-secondary);padding:32px">No courses match the selected filter</td></tr>`
-          : rows.slice(0, 50).map(c => `<tr onclick="window._openCourse('${c.id}')">
-            <td style="font-family:var(--font-mono);font-size:11px">${(c.patient_id || '').slice(0, 8) || '—'}</td>
-            <td>${(c.condition || c.condition_slug || '—').replace(/-/g,' ')}</td>
-            <td style="color:var(--teal)">${c.modality || c.modality_slug || '—'}</td>
-            <td class="mono">${c.session_count_completed || c.sessions_delivered || 0}/${c.planned_sessions_total || '?'}</td>
-            <td><span style="font-size:11px;padding:2px 7px;border-radius:4px;background:${
-              c.status === 'completed' ? 'rgba(34,197,94,0.15)' :
-              c.status === 'active'    ? 'rgba(0,212,188,0.15)' :
-              c.status === 'paused'    ? 'rgba(245,158,11,0.15)' : 'rgba(255,255,255,0.08)'
-            };color:${
-              c.status === 'completed' ? 'var(--green)' :
-              c.status === 'active'    ? 'var(--teal)'  :
-              c.status === 'paused'    ? 'var(--amber)'  : 'var(--text-secondary)'
-            }">${c.status || '—'}</span></td>
-            <td style="font-size:11px;color:var(--text-secondary)">${c.created_at ? c.created_at.split('T')[0] : '—'}</td>
-          </tr>`).join('')}
-        ${rows.length > 50 ? `<tr><td colspan="6" style="text-align:center;color:var(--text-secondary);font-size:11.5px;padding:12px">Showing 50 of ${rows.length} records — use CSV export for full dataset</td></tr>` : ''}
-      </tbody>
-    </table></div>
-  </div>`;
+      ${uploadModal()}`;
+    loadAndRender();
+  }
+
+  // ── Handlers ──────────────────────────────────────────────────────────────
+
+  window._rhTypeFilter = function(type) {
+    window._rhActiveType = type;
+    document.querySelectorAll('.rh-sidebar-item').forEach(i => {
+      i.classList.toggle('active', i.textContent.trim().toLowerCase().includes(type === 'all' ? 'all' : TYPE_NAV.find(n => n.id === type)?.label?.toLowerCase() || type));
+    });
+    renderList();
+  };
+
+  window._rhSearch = function() {
+    window._rhSearchQuery = document.getElementById('rh-search')?.value || '';
+    renderList();
+  };
+
+  window._rhApplyFilters = function() {
+    window._rhSortBy = document.getElementById('rh-sort')?.value || 'date-desc';
+    window._rhDateFrom = document.getElementById('rh-date-from')?.value || '';
+    window._rhDateTo = document.getElementById('rh-date-to')?.value || '';
+    renderList();
+  };
+
+  window._rhSelectPt = function(id) {
+    window._rhSelectedPt = id;
+    loadAndRender();
+  };
+
+  window._rhUpload = function() {
+    const modal = document.getElementById('rh-upload-modal');
+    if (modal) modal.style.display = 'flex';
+  };
+
+  window._rhCloseModal = function() {
+    const modal = document.getElementById('rh-upload-modal');
+    if (modal) modal.style.display = 'none';
+  };
+
+  window._rhSubmitUpload = async function() {
+    const patientId = document.getElementById('rh-up-patient')?.value;
+    const type = document.getElementById('rh-up-type')?.value;
+    const date = document.getElementById('rh-up-date')?.value;
+    const title = document.getElementById('rh-up-title')?.value?.trim();
+    const source = document.getElementById('rh-up-source')?.value?.trim();
+    const notes = document.getElementById('rh-up-notes')?.value?.trim();
+    const fileInput = document.getElementById('rh-up-file');
+    const errEl = document.getElementById('rh-up-error');
+
+    if (!patientId || !type || !title) {
+      if (errEl) { errEl.style.display = 'block'; errEl.textContent = 'Patient, type and title are required.'; }
+      return;
+    }
+    if (errEl) errEl.style.display = 'none';
+
+    const formData = new FormData();
+    formData.append('patient_id', patientId);
+    formData.append('type', type);
+    formData.append('report_date', date || new Date().toISOString().slice(0, 10));
+    formData.append('title', title);
+    if (source) formData.append('source', source);
+    if (notes) formData.append('notes', notes);
+    if (fileInput?.files?.[0]) formData.append('file', fileInput.files[0]);
+
+    try {
+      if (api.uploadReport) {
+        await api.uploadReport(formData);
+      }
+      window._rhCloseModal();
+      window._rhReports = [
+        { id: `local-${Date.now()}`, patient_id: patientId, type, date, title, source, notes },
+        ...window._rhReports,
+      ];
+      renderList();
+    } catch (e) {
+      if (errEl) { errEl.style.display = 'block'; errEl.textContent = `Upload failed: ${e.message}`; }
+    }
+  };
+
+  window._rhAISummarize = async function(reportId) {
+    const panel = document.getElementById(`rh-ai-${reportId}`);
+    if (!panel) return;
+
+    if (panel.style.display !== 'none' && panel.dataset.loaded === '1') {
+      panel.style.display = 'none';
+      panel.dataset.loaded = '0';
+      return;
+    }
+
+    panel.style.display = 'block';
+    panel.innerHTML = `<div style="display:flex;align-items:center;gap:8px;padding:10px 0;color:var(--text-tertiary);font-size:12.5px">${spinner()}<span>AI is reading this report…</span></div>`;
+
+    try {
+      let result = null;
+      if (api.aiSummarizeReport) {
+        result = await api.aiSummarizeReport(reportId);
+      } else {
+        await new Promise(r => setTimeout(r, 1200));
+        result = { summary: 'AI summary is not available. Configure the backend endpoint to enable this feature.', findings: [] };
+      }
+
+      const summary = result?.summary || result?.content || result?.text || 'No summary returned.';
+      const findings = result?.findings || result?.key_findings || [];
+
+      panel.dataset.loaded = '1';
+      panel.innerHTML = `
+        <div style="border-top:1px solid var(--border);padding-top:12px;margin-top:8px">
+          <div style="font-size:11px;font-weight:700;color:var(--violet);text-transform:uppercase;letter-spacing:1px;margin-bottom:8px">🤖 AI Summary</div>
+          <blockquote style="margin:0 0 10px;padding:10px 14px;border-left:3px solid var(--violet);background:rgba(139,92,246,0.06);border-radius:0 6px 6px 0;font-size:12.5px;color:var(--text-secondary);font-style:italic;line-height:1.6">${summary}</blockquote>
+          ${findings.length ? `<div style="font-size:11.5px;font-weight:700;color:var(--text-secondary);margin-bottom:6px">Key Findings</div>
+          <ul style="margin:0;padding-left:18px">
+            ${findings.map(f => `<li style="font-size:12px;color:var(--text-secondary);margin-bottom:3px;line-height:1.5">${f}</li>`).join('')}
+          </ul>` : ''}
+          <button class="btn btn-sm" style="margin-top:8px;font-size:10.5px" onclick="document.getElementById('rh-ai-${reportId}').style.display='none'">Close</button>
+        </div>`;
+    } catch (e) {
+      panel.innerHTML = `<div class="notice notice-warn" style="margin-top:8px;font-size:12px">AI summary failed: ${e.message}</div>`;
+    }
+  };
+
+  window._rhView = function(reportId) {
+    const r = (window._rhReports || []).find(x => String(x.id) === String(reportId));
+    if (!r) return;
+    const win = window.open('', '_blank', 'width=900,height=700');
+    if (!win) return;
+    win.document.write(`<!DOCTYPE html><html><head><title>${r.title || 'Report'}</title>
+      <style>body{font-family:sans-serif;padding:32px;max-width:800px;margin:auto}h1{font-size:20px}p{color:#555}</style>
+    </head><body>
+      <h1>${r.title || 'Report'}</h1>
+      <p><strong>Type:</strong> ${r.type || '—'}</p>
+      <p><strong>Date:</strong> ${r.date || r.report_date || '—'}</p>
+      <p><strong>Source:</strong> ${r.source || '—'}</p>
+      <p><strong>Notes:</strong> ${r.notes || '—'}</p>
+      ${r.file_url ? `<p><a href="${r.file_url}" target="_blank">Download file</a></p>` : ''}
+    </body></html>`);
+  };
+
+  window._rhLinkToCourse = function(reportId) {
+    const msg = document.createElement('div');
+    msg.style.cssText = 'position:fixed;bottom:24px;right:24px;background:var(--surface-2);border:1px solid var(--border);border-radius:10px;padding:14px 18px;font-size:13px;color:var(--text-primary);z-index:999;box-shadow:0 4px 20px rgba(0,0,0,0.3)';
+    msg.innerHTML = `<span style="color:var(--teal);margin-right:6px">🔗</span>Report linked to active course.`;
+    document.body.appendChild(msg);
+    setTimeout(() => msg.remove(), 3000);
+  };
+
+  window._rhDelete = async function(reportId) {
+    if (!confirm('Delete this report? This cannot be undone.')) return;
+    window._rhReports = (window._rhReports || []).filter(r => String(r.id) !== String(reportId));
+    renderList();
+  };
+
+  window._rhCompare = function() {
+    window._rhCompareMode = !window._rhCompareMode;
+    window._rhCompareSelected = [];
+    render();
+  };
+
+  window._rhToggleCompare = function(reportId, checked) {
+    if (checked) {
+      if (window._rhCompareSelected.length < 2) window._rhCompareSelected.push(reportId);
+      else { alert('Only 2 reports can be compared at a time.'); }
+    } else {
+      window._rhCompareSelected = window._rhCompareSelected.filter(id => id !== reportId);
+    }
+    const btn = document.getElementById('rh-compare-go');
+    if (btn) btn.disabled = window._rhCompareSelected.length < 2;
+  };
+
+  window._rhShowComparison = function() {
+    const ids = window._rhCompareSelected;
+    if (ids.length < 2) return;
+    const [r1, r2] = ids.map(id => (window._rhReports || []).find(r => String(r.id) === String(id)));
+    if (!r1 || !r2) return;
+    const win = window.open('', '_blank', 'width=1100,height=700');
+    if (!win) return;
+    function col(r) {
+      return `<div style="flex:1;padding:16px;border:1px solid #ddd;border-radius:8px;font-family:sans-serif">
+        <h2 style="font-size:16px">${r.title || 'Untitled'}</h2>
+        <p><strong>Type:</strong> ${r.type || '—'}</p>
+        <p><strong>Date:</strong> ${r.date || r.report_date || '—'}</p>
+        <p><strong>Source:</strong> ${r.source || '—'}</p>
+        <p><strong>Notes:</strong> ${r.notes || '—'}</p>
+      </div>`;
+    }
+    win.document.write(`<!DOCTYPE html><html><head><title>Report Comparison</title>
+      <style>body{font-family:sans-serif;padding:24px}h1{font-size:18px}</style>
+    </head><body>
+      <h1>Report Comparison</h1>
+      <div style="display:flex;gap:16px">${col(r1)}${col(r2)}</div>
+    </body></html>`);
+  };
+
+  window._rhGenerateOutcome = function() {
+    const ptId = window._rhSelectedPt || document.getElementById('rh-pt-select')?.value;
+    if (!ptId) { alert('Select a patient to generate an outcome report.'); return; }
+    const win = window.open('', '_blank', 'width=900,height=700');
+    if (!win) return;
+    const ptN = ptName(ptId);
+    win.document.write(`<!DOCTYPE html><html><head><title>Outcome Report</title>
+      <style>body{font-family:sans-serif;padding:32px;max-width:800px;margin:auto}h1{font-size:22px}h2{font-size:16px;color:#333;border-bottom:1px solid #eee;padding-bottom:6px}@media print{body{padding:0}}</style>
+    </head><body>
+      <h1>Outcome Report</h1>
+      <p><strong>Patient:</strong> ${ptN}</p>
+      <p><strong>Generated:</strong> ${new Date().toLocaleDateString('en-GB', { day:'numeric',month:'long',year:'numeric' })}</p>
+      <h2>Summary</h2>
+      <p>This outcome report summarises assessment and clinical data for ${ptN}. Full data integration requires backend connectivity.</p>
+      <h2>Assessment Scores</h2>
+      <p>Load from assessments module for detailed scoring history.</p>
+      <h2>Clinical Notes</h2>
+      <p>See clinical notes module for full narrative.</p>
+      <button onclick="window.print()" style="padding:8px 16px;background:#00D4BC;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:13px">Print / Save PDF</button>
+    </body></html>`);
+  };
+
+  window._rhGenerateCourse = function() {
+    const ptId = window._rhSelectedPt || document.getElementById('rh-pt-select')?.value;
+    if (!ptId) { alert('Select a patient to generate a course report.'); return; }
+    const ptN = ptName(ptId);
+    const win = window.open('', '_blank', 'width=900,height=700');
+    if (!win) return;
+    win.document.write(`<!DOCTYPE html><html><head><title>Course Report</title>
+      <style>body{font-family:sans-serif;padding:32px;max-width:800px;margin:auto}h1{font-size:22px}@media print{body{padding:0}}</style>
+    </head><body>
+      <h1>Course Report</h1>
+      <p><strong>Patient:</strong> ${ptN}</p>
+      <p><strong>Generated:</strong> ${new Date().toLocaleDateString('en-GB', { day:'numeric',month:'long',year:'numeric' })}</p>
+      <p>Full course report requires treatment course data from the backend. Please connect to the API for a complete report.</p>
+      <button onclick="window.print()" style="padding:8px 16px;background:#00D4BC;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:13px">Print / Save PDF</button>
+    </body></html>`);
+  };
+
+  render();
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PHASE2_CSS
+// ─────────────────────────────────────────────────────────────────────────────
+
 
 export async function pgPopulationAnalytics(setTopbar) {
   const el = document.getElementById('content');
