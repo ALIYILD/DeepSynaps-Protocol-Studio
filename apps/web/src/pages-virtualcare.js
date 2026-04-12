@@ -515,8 +515,8 @@ export async function pgVirtualCare(setTopbar, navigate) {
       `).join('')}
     </div>`;
 
-  // ── Patient Updates tab ──────────────────────────────────────────────
-  const patientUpdatesTab = () => {
+  // ── Shared Media tab ─────────────────────────────────────────────────
+  const sharedMediaTab = () => {
     const updates = VC_DATA.patientUpdates;
     const sel = _vc.selectedItem ? updates.find(u => u.id === _vc.selectedItem) : null;
     return `
@@ -576,7 +576,7 @@ export async function pgVirtualCare(setTopbar, navigate) {
 
               ${_actionBar(sel.patientId, sel.patientName, sel.transcription)}
             </div>
-          ` : `<div class="vc-empty-state">Select a patient update to review</div>`}
+          ` : `<div class="vc-empty-state">Select a shared item to review</div>`}
         </div>
       </div>`;
   };
@@ -696,22 +696,28 @@ export async function pgVirtualCare(setTopbar, navigate) {
   const renderPage = () => {
     let tabContent = '';
     switch(_vc.tab) {
-      case 'messages':        tabContent = messagesTab();       break;
-      case 'call-requests':   tabContent = callRequestsTab();   break;
-      case 'video-visits':    tabContent = videoVisitsTab();    break;
-      case 'voice-calls':     tabContent = voiceCallsTab();     break;
-      case 'patient-updates': tabContent = patientUpdatesTab(); break;
-      case 'capture-note':    tabContent = captureNoteTab();    break;
-      case 'ai-notes':        tabContent = aiNotesTab();        break;
+      case 'inbox':         tabContent = inboxTab();        break;
+      case 'call-requests': tabContent = callRequestsTab(); break;
+      case 'video-visits':  tabContent = videoVisitsTab();  break;
+      case 'voice-calls':   tabContent = voiceCallsTab();   break;
+      case 'shared-media':  tabContent = sharedMediaTab();  break;
+      case 'ai-notes':      tabContent = aiNotesTab();      break;
     }
 
     el.innerHTML = `
       <div class="vc-page">
+        <div class="vc-top-actions">
+          <button class="vc-top-btn vc-top-btn-primary" onclick="window._vcScheduleNew('video')">\uD83D\uDCF9 Start Video Visit</button>
+          <button class="vc-top-btn vc-top-btn-primary" onclick="window._vcScheduleNew('voice')">\uD83D\uDCDE Start Voice Call</button>
+          <button class="vc-top-btn" onclick="window._vcTab('inbox');window._vcCompose()">\u2709 New Message</button>
+          <button class="vc-top-btn" onclick="window._vcCaptureNote('','')">&#127908; Record Note</button>
+        </div>
+
         <div class="vc-summary-strip">
-          <div class="vc-chip"><span class="vc-chip-val">${unreadCount}</span><span class="vc-chip-lbl">Unread Messages</span></div>
-          <div class="vc-chip${urgentCalls?'vc-chip-red':''}"><span class="vc-chip-val">${VC_DATA.callRequests.length}</span><span class="vc-chip-lbl">Call Requests</span></div>
+          <div class="vc-chip${unreadCount?' vc-chip-blue':''}"><span class="vc-chip-val">${unreadCount}</span><span class="vc-chip-lbl">Unread</span></div>
+          <div class="vc-chip${urgentCalls?' vc-chip-red':''}"><span class="vc-chip-val">${VC_DATA.callRequests.length}</span><span class="vc-chip-lbl">Call Requests</span></div>
           <div class="vc-chip"><span class="vc-chip-val">${todayVisits}</span><span class="vc-chip-lbl">Video Visits Today</span></div>
-          <div class="vc-chip${unreviewed?' vc-chip-amber':''}"><span class="vc-chip-val">${unreviewed}</span><span class="vc-chip-lbl">Patient Updates</span></div>
+          <div class="vc-chip${unreviewed?' vc-chip-amber':''}"><span class="vc-chip-val">${unreviewed}</span><span class="vc-chip-lbl">Shared Media</span></div>
           <div class="vc-chip${pendingNotes?' vc-chip-amber':''}"><span class="vc-chip-val">${pendingNotes}</span><span class="vc-chip-lbl">Notes Pending Sign-off</span></div>
         </div>
 
@@ -721,7 +727,7 @@ export async function pgVirtualCare(setTopbar, navigate) {
       </div>
 
       ${_vc.activeCall ? _videoCallOverlay(_vc.activeCall) : ''}
-      ${_vc.recording && _vc.tab !== 'capture-note' ? _noteCapture(_vc.recording) : ''}`;
+      ${_vc.recording ? _noteCapture(_vc.recording) : ''}`;
   };
 
   // ── Window handlers ───────────────────────────────────────────────────
@@ -813,8 +819,7 @@ export async function pgVirtualCare(setTopbar, navigate) {
 
   window._vcCaptureNote = (pid, name) => {
     const meta = VC_DATA.messages.find(m => m.patientId === pid);
-    _vc.recording = { type:'voice', phase:'idle', patientId:pid, patientName:name||pid, initials:meta?.initials||'?', transcription:'', aiSummary:'' };
-    _vc.tab = 'capture-note';
+    _vc.recording = { type:'voice', phase:'idle', patientId:pid||'', patientName:name||'', initials:meta?.initials||'?', transcription:'', aiSummary:'' };
     renderPage();
   };
 
@@ -907,7 +912,6 @@ export async function pgVirtualCare(setTopbar, navigate) {
     const note = VC_DATA.clinicianNotes.find(n => n.id === id);
     if (!note) return;
     _vc.recording = { type:'text', phase:'idle', patientId:note.patientId, patientName:note.patientName, initials:note.initials||'?', transcription:note.transcription, aiSummary:note.aiSummary };
-    _vc.tab = 'capture-note';
     renderPage();
   };
 

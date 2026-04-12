@@ -51,21 +51,20 @@ def reset_database() -> None:
     import app.persistence.models  # noqa: F401
     from sqlalchemy import inspect, text
 
-    # Reflect existing tables first so we only drop what actually exists.
-    # This guards against stale / partially-initialised SQLite test DBs where
-    # drop_all(checkfirst=True) still fails if the metadata sort order emits
-    # a DROP for a table that was never created in this DB file.
+    # Reflect ALL existing tables (not just metadata-known ones) so stale tables
+    # from previous schema versions don't block create_all.
     insp = inspect(engine)
     existing_table_names = set(insp.get_table_names())
 
-    # For SQLite, disable FK enforcement during teardown to avoid cascade failures.
     is_sqlite = engine.dialect.name == "sqlite"
     with engine.begin() as conn:
         if is_sqlite:
             conn.execute(text("PRAGMA foreign_keys = OFF"))
-        for table in reversed(Base.metadata.sorted_tables):
-            if table.name in existing_table_names:
-                conn.execute(text(f"DROP TABLE IF EXISTS \"{table.name}\""))
+        # Drop every table currently in the DB regardless of whether it is in
+        # the current metadata — this prevents "table already exists" errors
+        # when the schema has evolved and old tables linger in the test file.
+        for table_name in existing_table_names:
+            conn.execute(text(f"DROP TABLE IF EXISTS \"{table_name}\""))
         if is_sqlite:
             conn.execute(text("PRAGMA foreign_keys = ON"))
 
