@@ -14,25 +14,41 @@ Fields:
   fda_applicants — list of applicant / trade names to hit openFDA with
 """
 
-# FDA product-code allowlist per modality. Prevents Medtronic cardiac leads,
-# pulmonary valves, etc. from showing up under rTMS/DBS/SCS indications.
-# VERIFY codes at https://www.accessdata.fda.gov/scripts/cdrh/cfdocs/cfpcd/
-# before relying in production — this is an informed-estimate starter list.
+# FDA product-code allowlist per modality.
+# -----------------------------------------------------------------------------
+# IMPORTANT — codes here have been verified against openFDA's
+# /device/classification.json endpoint (see docs/fda-product-codes.md and
+# scripts/verify_product_codes.py).
+#
+# Only codes whose FDA device_name actually matches the modality are listed.
+# Modalities with NO verified code are intentionally omitted; ingest.py will
+# SKIP FDA ingestion for those rather than pull in noise.
+#
+# To add a code: run scripts/verify_product_codes.py after editing and ensure
+# the "Match?" column in the generated report is ✓.
+# -----------------------------------------------------------------------------
 MODALITY_PRODUCT_CODES = {
-    "DBS":    ["NCJ", "MHY"],             # deep brain stimulator
-    "RNS":    ["MXO"],                    # responsive cortical stim
-    "VNS":    ["LYJ", "HCC", "QPH"],      # vagus stim (epilepsy, depression, Vivistim)
-    "SCS":    ["LGW", "NHL", "NWE"],      # spinal cord stim
-    "DRG":    ["QAB"],                    # dorsal root ganglion stim
-    "SNM":    ["LYW", "GXN"],             # sacral neuromodulation
-    "HNS":    ["MNQ"],                    # hypoglossal (OSA)
-    "PNS":    ["OXB", "QPH"],             # phrenic / peripheral
-    "rTMS":   ["OBP", "QKN"],             # repetitive TMS
-    "dTMS":   ["OBP", "QKN"],
-    "tDCS":   ["OOA", "IPF"],             # tES (best-effort; varies)
-    "MRgFUS": ["OYJ", "QBV"],             # focused ultrasound ablation
-    "BAT":    ["PLI"],                    # baroreflex activation therapy
-    "REN":    ["QOX"],                    # remote electrical neuromod (Nerivio)
+    # DBS — MHY = "Stimulator, Electrical, Implanted, For Parkinsonian Tremor", Class III.
+    # (NCJ was previously listed but openFDA resolves it to an implantable telescope;
+    # removed.) For non-PD DBS indications the applicant filter alone still applies
+    # until a broader DBS-generic code is verified.
+    "DBS":    ["MHY"],
+
+    # VNS — LYJ = "Stimulator, Autonomic Nerve, Implanted For Epilepsy", Class III.
+    "VNS":    ["LYJ"],
+
+    # SCS — LGW = "Stimulator, Spinal-Cord, Totally Implanted For Pain Relief", Class III.
+    "SCS":    ["LGW"],
+
+    # HNS — MNQ = "Stimulator, Hypoglossal Nerve, Implanted, Apnea", Class III.
+    "HNS":    ["MNQ"],
+
+    # rTMS / dTMS — OBP = "Transcranial Magnetic Stimulator", Class II.
+    "rTMS":   ["OBP"],
+    "dTMS":   ["OBP"],
+
+    # Unverified: RNS, DRG, SNM, PNS, tDCS, MRgFUS, BAT, REN.
+    # ingest.py skips FDA lookup for these until codes are confirmed.
 }
 
 SEED = [

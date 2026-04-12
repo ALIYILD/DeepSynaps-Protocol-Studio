@@ -40,10 +40,23 @@ from sqlalchemy.orm import Session
 
 from app.auth import AuthenticatedActor, get_authenticated_actor
 from app.database import get_db_session
+from app.logging_setup import get_logger
 from app.persistence.models import LiteraturePaper
 
 
 router = APIRouter(prefix="/api/v1/evidence", tags=["Evidence"])
+_logger = get_logger("evidence_router")
+
+
+def _actor_id(actor: AuthenticatedActor) -> str:
+    return getattr(actor, "actor_id", None) or getattr(actor, "email", None) or str(actor)
+
+
+def _audit(event: str, actor: AuthenticatedActor, **extra) -> None:
+    """Structured audit log — one JSON line per clinically-meaningful query.
+    Includes actor, query params, and result_count. No PHI in here."""
+    payload = {"actor_id": _actor_id(actor), "event": event, **extra}
+    _logger.info(f"evidence.{event}", extra=payload)
 
 
 # ── DB handle ─────────────────────────────────────────────────────────────────
@@ -215,7 +228,7 @@ def search_papers(
     grade: Optional[str] = Query(None, regex="^[A-E]$", description="A-E evidence grade filter."),
     oa_only: bool = Query(False, description="Only papers with accessible open-access URLs."),
     limit: int = Query(20, ge=1, le=100),
-    _: AuthenticatedActor = Depends(get_authenticated_actor),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
 ) -> list[PaperOut]:
     conn = _evidence_conn()
     try:
@@ -252,6 +265,11 @@ def search_papers(
         conn.close()
 
     ranked = sorted(rows, key=_score, reverse=True)[:limit]
+    _audit(
+        "papers.search", actor,
+        q=q, indication=indication, grade=grade, oa_only=oa_only, limit=limit,
+        result_count=len(ranked),
+    )
     return [_paper_row_to_out(r) for r in ranked]
 
 
@@ -462,4 +480,6 @@ def promote_to_library(
     db.add(lib)
     db.commit()
     db.refresh(lib)
+    _audit("papers.promote_to_library", actor, paper_id=paper_id, library_id=lib.id,
+           pmid=row["pmid"], doi=row["doi"])
     return PromoteOut(library_id=lib.id, title=lib.title)

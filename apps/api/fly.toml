@@ -18,6 +18,12 @@ primary_region = "lhr"
   DEEPSYNAPS_APP_ENV = "production"
   DEEPSYNAPS_LOG_LEVEL = "INFO"
   PORT = "8080"
+  # Evidence pipeline DB lives on the mounted volume below. The evidence_router
+  # serves 503 with a clear message until the file exists. Populate it once per
+  # machine (or weekly via cron) with:
+  #   fly ssh console -C "python3 /app/services/evidence-pipeline/ingest.py --all --unpaywall"
+  # Secrets to set: NCBI_API_KEY, UNPAYWALL_EMAIL, OPENFDA_API_KEY.
+  EVIDENCE_DB_PATH = "/data/evidence.db"
   # DEEPSYNAPS_CORS_ORIGINS and DEEPSYNAPS_DATABASE_URL must be set as secrets
 
 [http_service]

@@ -31,9 +31,14 @@ export async function renderLiveEvidencePanel(host, opts = {}) {
 
   host.innerHTML = `
     <div class="live-ev" style="background:var(--surface-1,#0d1a2b);border:1px solid var(--border,#1f2e4a);border-radius:10px;padding:${compact ? '10px' : '14px'};margin-bottom:14px">
-      <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
         <div style="font-weight:600;font-size:13px;color:var(--text-primary,#e5edf5)">Live evidence</div>
         <div style="font-size:11px;color:var(--text-tertiary,#7a8aa5)">PubMed · OpenAlex · ClinicalTrials.gov · FDA</div>
+      </div>
+      <div role="note" style="background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.35);color:#e5c47a;border-radius:6px;padding:7px 10px;margin-bottom:10px;font-size:11.5px;line-height:1.45">
+        <strong>Decision support only</strong> — not a substitute for clinical judgement.
+        Always verify parameters against the current device label and your local protocols.
+        Evidence grades and FDA product codes shown here are informed estimates and may lag current guidelines.
       </div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
         <select class="form-control live-ev-indication" style="flex:1;min-width:200px">

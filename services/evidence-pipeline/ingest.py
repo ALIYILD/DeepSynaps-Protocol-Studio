@@ -37,16 +37,22 @@ def ingest_indication(conn, entry: dict, n_papers: int, n_trials: int, n_fda: in
     summary["trials_new"] = ctgov.upsert_trials(conn, trials, ind_id)
 
     # FDA device records, per applicant, narrowed by modality product codes.
-    # Per-entry product_codes override the modality default.
+    # Per-entry product_codes override the modality default. If no verified
+    # product codes exist for this modality we SKIP FDA ingestion entirely
+    # (applicant-only search pulls in garbage like cardiac leads and pulmonary
+    # valves under a general "Medtronic" query).
     codes = entry.get("product_codes") or MODALITY_PRODUCT_CODES.get(entry["modality"]) or None
     dev_new = 0
     ev_new = 0
-    for applicant in entry.get("fda_applicants") or []:
-        pma = openfda.search_pma(applicant, max_records=n_fda, product_codes=codes)
-        k = openfda.search_510k(applicant, max_records=n_fda, product_codes=codes)
-        dev_new += openfda.upsert_devices(conn, pma, k, None, ind_id)
-        ev = openfda.search_events(applicant, max_records=n_events)
-        ev_new += openfda.upsert_events(conn, ev)
+    if not codes:
+        summary["fda_skipped_reason"] = f"no verified product codes for modality={entry['modality']}"
+    else:
+        for applicant in entry.get("fda_applicants") or []:
+            pma = openfda.search_pma(applicant, max_records=n_fda, product_codes=codes)
+            k = openfda.search_510k(applicant, max_records=n_fda, product_codes=codes)
+            dev_new += openfda.upsert_devices(conn, pma, k, None, ind_id)
+            ev = openfda.search_events(applicant, max_records=n_events)
+            ev_new += openfda.upsert_events(conn, ev)
     summary["fda_devices_new"] = dev_new
     summary["fda_events_new"] = ev_new
 
