@@ -1,0 +1,1500 @@
+{
+  "$schema": "../schemas/condition-package.schema.json",
+  "schema_version": "1.0.0",
+  "id": "CON-005",
+  "slug": "adhd",
+  "name": "Attention-Deficit/Hyperactivity Disorder (ADHD)",
+  "category": "Neurodevelopmental",
+  "icd_10": ["F90.0", "F90.1", "F90.2", "F90.8", "F90.9"],
+  "dsm_5_code": "314.0x",
+  "created_at": "2026-04-12",
+  "updated_at": "2026-04-12",
+  "review_status": "reviewed",
+  "reviewed_by": "DeepSynaps Clinical Team",
+
+  "condition_overview": {
+    "summary": "ADHD is a neurodevelopmental disorder characterised by persistent patterns of inattention and/or hyperactivity-impulsivity that interfere with functioning. It arises from dysregulation of frontal-subcortical circuits mediating attention, inhibitory control, working memory, and reward processing. It is the most prevalent neurodevelopmental condition in children and a significant source of impairment in adults.",
+    "prevalence": "Approximately 5–7% of children and 2.5–4% of adults worldwide. Frequently under-diagnosed in females and adults due to symptom masking and phenotypic differences.",
+    "phenotype_clusters": [
+      {
+        "id": "PHE-009",
+        "name": "Inattention-Dominant (ADHD-I)",
+        "description": "Predominant difficulty sustaining attention, organising tasks, and following through on instructions without hyperactivity-impulsivity being prominent. More common in females; often missed in school settings.",
+        "primary_modality": "neurofeedback",
+        "qeeg_signature": "Elevated frontal theta (4–8 Hz), reduced frontal beta, elevated Theta/Beta ratio at Fz/Cz"
+      },
+      {
+        "id": "PHE-010",
+        "name": "Hyperactive-Impulsive (ADHD-HI)",
+        "description": "Predominant restlessness, difficulty remaining seated, impulsive decision-making, and interrupting others. More visible and more commonly diagnosed in males and younger children.",
+        "primary_modality": "neurofeedback",
+        "qeeg_signature": "Elevated theta at Cz/Fz, increased right frontal beta in some cases, slow cortical potentials"
+      },
+      {
+        "id": "PHE-011",
+        "name": "Combined Presentation (ADHD-C)",
+        "description": "Meets criteria for both inattention and hyperactivity-impulsivity. Most common in clinical settings and most studied in neuromodulation trials.",
+        "primary_modality": "neurofeedback",
+        "qeeg_signature": "Elevated theta across Fz/Cz/F3/F4, reduced beta, broad frontal hypoactivation"
+      },
+      {
+        "id": "PHE-030",
+        "name": "Emotional Dysregulation Subtype",
+        "description": "Prominent emotional volatility, low frustration tolerance, and mood lability alongside core ADHD symptoms. Associated with functional impairment disproportionate to ADHD symptom severity.",
+        "primary_modality": "neurofeedback",
+        "qeeg_signature": "Frontal asymmetry (right > left alpha), elevated frontal theta, disrupted fronto-limbic connectivity"
+      }
+    ],
+    "severity_levels": ["Mild", "Moderate", "Severe"],
+    "population": ["Paediatric (6–12)", "Adolescent (13–17)", "Adult (18+)", "Older Adult (60+, limited data)"],
+    "symptom_clusters": [
+      "Inattention (distractibility, organisation deficits, forgetfulness)",
+      "Hyperactivity (motor restlessness, excessive talking)",
+      "Impulsivity (interrupting, difficulty waiting, risk-taking)",
+      "Working memory deficits",
+      "Executive dysfunction (planning, time management, initiation)",
+      "Emotional dysregulation (frustration tolerance, mood lability)",
+      "Sleep disturbance (delayed sleep phase, restless sleep)"
+    ],
+    "highest_evidence_level": "EV-B",
+    "relevant_modalities": [
+      "neurofeedback",
+      "tdcs",
+      "tms",
+      "ces",
+      "hrv-biofeedback"
+    ],
+    "neurobiology": "ADHD involves dysregulation of catecholaminergic (dopaminergic and noradrenergic) signalling in prefrontal-striatal circuits. The dorsolateral prefrontal cortex (DLPFC), anterior cingulate cortex (ACC), and basal ganglia are consistently implicated. qEEG studies show elevated theta (4–8 Hz) and reduced beta (13–21 Hz) power — particularly the Theta/Beta (TBR) ratio — at frontal and central midline sites (Fz, Cz), reflecting reduced cortical arousal and inhibitory control. This TBR elevation is the primary neurofeedback target.",
+    "comorbidities": [
+      "Anxiety disorders (up to 50% comorbidity)",
+      "Major depressive disorder (up to 40%)",
+      "Learning disabilities (30–50%)",
+      "Sleep disorders — especially delayed sleep phase (50–70%)",
+      "Oppositional defiant disorder (children, ~50%)",
+      "Autism spectrum disorder",
+      "Substance use disorders (increased risk in adults)",
+      "Tic disorders / Tourette syndrome"
+    ],
+    "differential_diagnoses": [
+      "Anxiety disorders (inattention secondary to worry)",
+      "Depression (psychomotor slowing, concentration deficits)",
+      "Bipolar disorder (hypomanic episodes mimicking hyperactivity)",
+      "Sleep apnoea / other sleep disorders (daytime inattention)",
+      "Learning disabilities (without ADHD)",
+      "Autism spectrum disorder (executive dysfunction overlap)",
+      "Post-traumatic stress disorder (hyperarousal, concentration deficits)",
+      "Thyroid dysfunction",
+      "Substance intoxication or withdrawal"
+    ]
+  },
+
+  "patient_friendly_explanation": {
+    "what_is_it": "ADHD (Attention-Deficit/Hyperactivity Disorder) is a brain-based condition that affects how a person pays attention, controls impulses, and manages energy levels. It is not a character flaw or a result of poor parenting — it is a real neurological difference in how certain areas of the brain communicate.",
+    "how_it_affects_you": "People with ADHD often find it hard to stay focused on tasks that are not immediately interesting, remember instructions, sit still for long periods, or stop and think before acting. Many people also experience strong emotions that feel difficult to manage. These challenges can affect school, work, relationships, and self-esteem.",
+    "treatment_options_overview": "There are several brain-training and brain-stimulation approaches that can help manage ADHD. Neurofeedback teaches your brain to produce more of the brain waves linked to focus. Transcranial direct current stimulation (tDCS) uses very mild electrical signals to gently activate the part of the brain responsible for attention. These are typically used alongside (not instead of) medication and behavioural strategies when prescribed by a qualified clinician.",
+    "what_to_expect": "Most neuromodulation treatment courses for ADHD involve attending sessions 2–3 times per week for 8–20 weeks. Each session lasts approximately 30–50 minutes. Sessions are painless and non-invasive. Some people notice improvements in focus and impulse control within a few weeks; others see gradual improvements over the full course. Your clinician will check in with you regularly using short questionnaires to track how you are doing.",
+    "faq": [
+      {
+        "question": "Will this cure my ADHD?",
+        "answer": "Neuromodulation is not a cure, but it can meaningfully reduce symptoms and improve daily functioning. Many people find it helpful as part of a broader treatment plan that may include medication, therapy, and lifestyle adjustments."
+      },
+      {
+        "question": "Is it safe?",
+        "answer": "Yes. Neurofeedback is completely non-invasive — it simply reads brain signals and provides audio or visual feedback. tDCS uses very low electrical current (about the level you feel touching a battery) applied via electrodes on the scalp. Both have been studied extensively. Your clinician will review your medical history to confirm they are appropriate for you."
+      },
+      {
+        "question": "Do I need to stop my ADHD medication?",
+        "answer": "No. Most neuromodulation treatments can be used alongside ADHD medication. Your prescribing clinician will advise you on the best combination. Never stop medication without medical advice."
+      },
+      {
+        "question": "How long until I see results?",
+        "answer": "Results vary between individuals. Some people notice improvements in focus and restlessness after 5–10 sessions. For others, it may take the full treatment course. Your clinician will use assessment scores to track your progress throughout."
+      },
+      {
+        "question": "Can my child have this treatment?",
+        "answer": "Neurofeedback has been researched in children aged 6 and above. The suitability of each treatment for your child's age and presentation will be carefully assessed by your clinician before any treatment begins."
+      }
+    ]
+  },
+
+  "medical_history_requirements": {
+    "required_fields": [
+      {
+        "field": "Confirmed ADHD diagnosis (DSM-5 criteria documented)",
+        "reason": "Protocol generation requires a confirmed diagnosis; all protocols are diagnosis-specific.",
+        "blocks_protocol": true
+      },
+      {
+        "field": "ADHD presentation type (ADHD-I, ADHD-HI, ADHD-C)",
+        "reason": "Presentation type determines primary phenotype and therefore the most appropriate neuromodulation target and protocol.",
+        "blocks_protocol": true
+      },
+      {
+        "field": "Current and past ADHD medications (name, dose, duration, response)",
+        "reason": "Stimulants and non-stimulants interact with neural excitability; required for safety check and protocol parameter adjustment.",
+        "blocks_protocol": false
+      },
+      {
+        "field": "Seizure history",
+        "reason": "Seizure history is an absolute contraindication for TMS and must be documented before any excitatory protocol.",
+        "blocks_protocol": true
+      },
+      {
+        "field": "Metal implants in head/neck/upper body",
+        "reason": "Metallic implants are an absolute contraindication for TMS.",
+        "blocks_protocol": true
+      },
+      {
+        "field": "Cardiac pacemaker or implanted electronic device",
+        "reason": "Absolute contraindication for TMS; relative for tDCS and neurofeedback.",
+        "blocks_protocol": true
+      },
+      {
+        "field": "Current psychiatric medications (full list)",
+        "reason": "Antidepressants, antipsychotics, and mood stabilisers lower seizure threshold; required for TMS safety screening.",
+        "blocks_protocol": false
+      },
+      {
+        "field": "Sleep disorder history or diagnosis",
+        "reason": "Sleep disturbance is highly comorbid with ADHD (50–70%) and must be addressed in the treatment plan.",
+        "blocks_protocol": false
+      },
+      {
+        "field": "Anxiety or mood disorder history",
+        "reason": "Comorbid anxiety affects protocol sequencing and target selection; anxiety management should precede or parallel ADHD neuromodulation.",
+        "blocks_protocol": false
+      },
+      {
+        "field": "Prior neuromodulation or biofeedback history",
+        "reason": "Prior exposure informs baseline readiness and expected response rate.",
+        "blocks_protocol": false
+      },
+      {
+        "field": "Scalp or skin integrity at electrode sites",
+        "reason": "Open wounds, active dermatitis, or recent surgery at electrode sites contraindicate tDCS.",
+        "blocks_protocol": false
+      }
+    ],
+    "clinical_interview_checklist": [
+      "Age of onset of ADHD symptoms (must predate age 12 per DSM-5)",
+      "Symptom presence in at least two settings (e.g. home + school/work)",
+      "Functional impairment domain(s): academic, occupational, social, domestic",
+      "Developmental and birth history (paediatric patients)",
+      "School records, reports, or psychoeducational assessments if available",
+      "Work performance history or occupational impairment (adults)",
+      "Relationship and social functioning impact",
+      "Substance use history (alcohol, cannabis, stimulant misuse, opioids)",
+      "Sleep pattern — bedtime, wake time, sleep quality, daytime sleepiness",
+      "Emotional dysregulation severity (rejection sensitivity, frustration tolerance)",
+      "Previous psychiatric treatment history (diagnoses, hospitalisations, therapy)",
+      "Family history of ADHD or other neurodevelopmental/psychiatric conditions",
+      "Motivations and goals for treatment (patient-stated)"
+    ],
+    "rule_out_differentials": [
+      "Anxiety disorder (GAD, social anxiety — present in both children and adults; produces inattention secondary to rumination)",
+      "Depression (psychomotor slowing and concentration deficits mimic ADHD-I)",
+      "Bipolar disorder (must be excluded before starting any excitatory neuromodulation)",
+      "Sleep apnoea or circadian rhythm disorder (daytime inattention and hypersomnolence)",
+      "Learning disability without ADHD (dyslexia, dyscalculia — academic underperformance without attention core features)",
+      "ASD (social-communication deficits + executive dysfunction overlap; may be comorbid)",
+      "PTSD or complex trauma (hypervigilance, concentration deficits, emotional dysregulation)",
+      "Thyroid dysfunction (hyperthyroidism — restlessness, concentration difficulties)",
+      "Medication side effects (inattention from antihistamines, anxiolytics, etc.)"
+    ],
+    "comorbidity_screen": [
+      "Anxiety (GAD-7 or Screen for Child Anxiety Related Disorders for paediatric)",
+      "Depression (PHQ-9 or CDRS-R for paediatric)",
+      "Sleep quality (ISI or PSQI — delay protocol if severe insomnia present)",
+      "Substance use (AUDIT-C, DAST-10 — increases risk with stimulant medication)",
+      "Autism spectrum features (AQ-10 screener if clinically indicated)",
+      "Oppositional or conduct disorder features (paediatric — affects behavioural intervention planning)"
+    ],
+    "prior_treatment_required": [
+      "Medication trials (stimulants: methylphenidate, amphetamine salts; non-stimulants: atomoxetine, guanfacine, clonidine)",
+      "Behavioural therapy or cognitive behavioural therapy (CBT) for ADHD",
+      "Psychoeducation programme completion",
+      "Parent management training (paediatric)",
+      "School or workplace accommodations in place"
+    ],
+    "special_population_flags": [
+      {
+        "population": "Paediatric (6–17)",
+        "additional_requirements": [
+          "Parent/caregiver co-signature on all consent documents",
+          "School report or teacher rating scale (e.g. Conners Teacher Rating Form)",
+          "Paediatric neurologist or psychiatrist diagnosis confirmation",
+          "Parental engagement and home monitoring commitment confirmed",
+          "Child assent form completed (where developmentally appropriate, age 7+)"
+        ]
+      },
+      {
+        "population": "Female patients",
+        "additional_requirements": [
+          "Menstrual cycle phase documented at assessment (hormonal fluctuations affect symptom severity and baseline scores)",
+          "Pregnancy test result if reproductive age and TMS or tDCS planned"
+        ]
+      },
+      {
+        "population": "Adult diagnosis (first time, age 18+)",
+        "additional_requirements": [
+          "Corroborating evidence of childhood symptoms (parent report, school records, or DIVA-5 retrospective interview)",
+          "Neuropsychological testing recommended if functional impairment profile is atypical"
+        ]
+      }
+    ]
+  },
+
+  "contraindications": {
+    "absolute": [
+      {
+        "condition": "Active epilepsy or uncontrolled seizure disorder",
+        "rationale": "Excitatory neuromodulation (TMS, high-density tDCS) significantly increases seizure risk. No TMS or tDCS protocol may proceed."
+      },
+      {
+        "condition": "Metallic implant in the head, neck, or upper chest (cochlear implants, aneurysm clips, vagus nerve stimulator)",
+        "rationale": "TMS electromagnetic field can heat or displace metallic implants. Absolute contraindication for all TMS protocols."
+      },
+      {
+        "condition": "Implanted cardiac pacemaker or defibrillator",
+        "rationale": "Electromagnetic fields from TMS may interfere with device function. Absolute for TMS; discuss with cardiologist for tDCS/CES."
+      },
+      {
+        "condition": "Active psychosis or first-episode psychosis not stabilised",
+        "rationale": "Neuromodulation can exacerbate psychotic symptoms. Must achieve psychiatric stabilisation before any protocol."
+      },
+      {
+        "condition": "Confirmed or suspected elevated intracranial pressure",
+        "rationale": "Stimulation may exacerbate ICP. Requires neurosurgical clearance before any protocol."
+      }
+    ],
+    "relative": [
+      {
+        "condition": "Bipolar disorder (any type)",
+        "rationale": "Excitatory left DLPFC protocols may precipitate hypomanic or manic episodes.",
+        "mitigation": "Confirm mood stabilisation and document clinician risk-benefit review. Prefer inhibitory or right-hemisphere protocols. Increase monitoring frequency."
+      },
+      {
+        "condition": "Current substance dependence (alcohol, cannabis, stimulants)",
+        "rationale": "Substance use alters neural excitability and reduces protocol reliability; increases risk in stimulant users.",
+        "mitigation": "Achieve minimum 4-week abstinence where possible. Document substance use status. Use lowest effective stimulation parameters."
+      },
+      {
+        "condition": "Severe or unstable anxiety disorder",
+        "rationale": "Neurofeedback and stimulation can transiently increase arousal and worsen anxiety.",
+        "mitigation": "Stabilise anxiety first (pharmacologically or with CBT). Begin with lower stimulation intensity or shorter sessions."
+      },
+      {
+        "condition": "Pregnancy",
+        "rationale": "TMS and tDCS have insufficient safety data in pregnancy.",
+        "mitigation": "Neurofeedback only (no known foetal risk). TMS/tDCS require obstetrician clearance. Document informed consent specific to pregnancy risks."
+      },
+      {
+        "condition": "Traumatic brain injury (within 12 months)",
+        "rationale": "Post-acute TBI increases sensitivity to neural stimulation; injury-specific cortical mapping required.",
+        "mitigation": "Neurologist clearance required. Consider waiting until 12 months post-injury. Reduce stimulation intensity."
+      },
+      {
+        "condition": "Active suicidal ideation (moderate-high risk)",
+        "rationale": "Treatment distress may temporarily exacerbate suicidality in rare cases.",
+        "mitigation": "Complete safety planning before treatment. Weekly suicide risk screening. Clinician review before each session block."
+      },
+      {
+        "condition": "Skin lesion, eczema, or wound at electrode placement site",
+        "rationale": "Active skin conditions at electrode sites increase risk of skin irritation or burn under tDCS electrodes.",
+        "mitigation": "Delay tDCS until skin healed. Alternative electrode placement if clinically feasible."
+      }
+    ],
+    "special_populations": [
+      {
+        "population": "Children under 6 years",
+        "flag": "Insufficient evidence for neuromodulation in under-6s. Not recommended outside a research protocol."
+      },
+      {
+        "population": "Adults over 65",
+        "flag": "Cortical thinning and white matter changes may alter stimulation effects. Start at minimum effective parameters. Monitor closely."
+      }
+    ],
+    "modality_specific": {
+      "tms": [
+        "No metal in skull (pins, plates, clips from neurosurgery)",
+        "No cochlear implants",
+        "No deep brain stimulator",
+        "No history of TMS-induced seizure",
+        "Completed standardised TMS Safety Screening Questionnaire (ASS-031)"
+      ],
+      "tdcs": [
+        "No open wounds or skin lesions at electrode sites (F4/Fp1 or equivalent)",
+        "No metal skull implants at stimulation site",
+        "Remove all metal jewellery from head and neck before session"
+      ],
+      "neurofeedback": [
+        "Active psychosis is a relative contraindication (may amplify positive symptoms in some patients)",
+        "Ensure adequate hair/scalp condition for gel electrode contact; clean scalp required"
+      ],
+      "ces": [
+        "Do not use over open wounds or skin lesions at ear placement sites",
+        "Avoid in patients with active ear infections"
+      ]
+    }
+  },
+
+  "assessment_bundle": {
+    "screening": [
+      {
+        "assessment_id": "ASS-005",
+        "name": "ASRS-5",
+        "full_name": "Adult ADHD Self-Report Scale (Version 1.1 — Part A, 6 items; Full 18-item version)",
+        "clinician_vs_patient": "Patient self-report",
+        "rationale": "WHO-validated 6-item screener; part A alone has 68.7% sensitivity for adult ADHD. Rapid, free, widely used. Positive screen triggers formal diagnostic workup.",
+        "lower_is_better": false,
+        "admin_duration_minutes": 5,
+        "access": "Free",
+        "population": "Adult 18+"
+      },
+      {
+        "assessment_id": "ASS-006",
+        "name": "Conners 4 (Parent/Teacher Short Form)",
+        "full_name": "Conners 4th Edition — Parent or Teacher Short Form",
+        "clinician_vs_patient": "Parent/caregiver report",
+        "rationale": "Gold-standard multi-informant paediatric ADHD screener. Captures inattention, hyperactivity, impulsivity, and executive function from observer perspective.",
+        "lower_is_better": false,
+        "admin_duration_minutes": 10,
+        "access": "Licensed — MHS Publishing",
+        "population": "Child 6–18"
+      }
+    ],
+    "diagnostic": [
+      {
+        "assessment_id": "ASS-007",
+        "name": "CAARS-2",
+        "full_name": "Conners Adult ADHD Rating Scales — 2nd Edition",
+        "clinician_vs_patient": "Either",
+        "rationale": "Comprehensive DSM-5 aligned adult ADHD diagnostic instrument with normative data for adults 18–80. Clinician-rated, self-report, and observer versions available. Provides T-scores across ADHD index, inattention, hyperactivity, and impulsivity subscales.",
+        "lower_is_better": false,
+        "admin_duration_minutes": 20,
+        "access": "Licensed — MHS Publishing",
+        "population": "Adult 18+"
+      },
+      {
+        "assessment_id": "ASS-006",
+        "name": "Conners 4 (Full)",
+        "full_name": "Conners 4th Edition — Full Form (Parent + Teacher + Self-report)",
+        "clinician_vs_patient": "Parent/caregiver report",
+        "rationale": "Full multi-informant diagnostic battery for paediatric ADHD. DSM-5 aligned. Covers all presentation types plus comorbidity content scales (anxiety, depression, defiance).",
+        "lower_is_better": false,
+        "admin_duration_minutes": 25,
+        "access": "Licensed — MHS Publishing",
+        "population": "Child/Adolescent 6–18"
+      },
+      {
+        "assessment_id": "ASS-008",
+        "name": "SNAP-IV",
+        "full_name": "Swanson, Nolan, and Pelham Rating Scale — Version IV",
+        "clinician_vs_patient": "Parent/caregiver report",
+        "rationale": "Free validated paediatric ADHD rating scale covering 18 DSM-IV-TR criteria plus ODD items. Commonly used in clinical trials and in resource-limited settings.",
+        "lower_is_better": false,
+        "admin_duration_minutes": 10,
+        "access": "Free",
+        "population": "Child/Adolescent 6–18"
+      }
+    ],
+    "baseline": [
+      {
+        "assessment_id": "ASS-005",
+        "name": "ASRS-18 (Full)",
+        "full_name": "Adult ADHD Self-Report Scale Full Version (18 items)",
+        "clinician_vs_patient": "Patient self-report",
+        "rationale": "Full 18-item version provides subscale scores for inattentive and hyperactive-impulsive symptoms. Baseline score is the primary outcome metric for adult treatment courses.",
+        "lower_is_better": false,
+        "admin_duration_minutes": 10,
+        "access": "Free",
+        "population": "Adult 18+"
+      },
+      {
+        "assessment_id": "ASS-009",
+        "name": "BRIEF-A",
+        "full_name": "Behavior Rating Inventory of Executive Function — Adult Version",
+        "clinician_vs_patient": "Either",
+        "rationale": "Captures real-world executive function deficits across 9 scales (inhibit, shift, emotional control, initiate, working memory, plan/organise, task monitor, organisation of materials). Essential baseline for adults as executive dysfunction correlates with treatment targets.",
+        "lower_is_better": false,
+        "admin_duration_minutes": 20,
+        "access": "Licensed — PAR Inc.",
+        "population": "Adult 18–90"
+      },
+      {
+        "assessment_id": "ASS-018",
+        "name": "CGI-S (ADHD)",
+        "full_name": "Clinical Global Impression — Severity (ADHD version)",
+        "clinician_vs_patient": "Clinician-rated",
+        "rationale": "7-point clinician-rated severity scale (1 = normal, 7 = extremely ill). Provides a global severity index independent of specific self-report scales. Required for governance-level reporting.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 5,
+        "access": "Free (public domain)",
+        "population": "All"
+      }
+    ],
+    "monitoring": [
+      {
+        "assessment_id": "ASS-005",
+        "name": "ASRS-18 (Monitoring)",
+        "full_name": "Adult ADHD Self-Report Scale Full Version — Repeated Measure",
+        "clinician_vs_patient": "Patient self-report",
+        "rationale": "Primary monitoring tool for adult treatment courses. Administered every 5 sessions; change from baseline is the primary outcome signal.",
+        "lower_is_better": false,
+        "admin_duration_minutes": 10,
+        "access": "Free",
+        "population": "Adult 18+"
+      },
+      {
+        "assessment_id": "ASS-018",
+        "name": "CGI-I",
+        "full_name": "Clinical Global Impression — Improvement",
+        "clinician_vs_patient": "Clinician-rated",
+        "rationale": "7-point improvement scale rated by clinician. Score of 1–2 = very much/much improved (responder). Score of 4 = no change at session 15 triggers escalation review.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 5,
+        "access": "Free (public domain)",
+        "population": "All"
+      }
+    ],
+    "outcome": [
+      {
+        "assessment_id": "ASS-005",
+        "name": "ASRS-18 (End of Course)",
+        "full_name": "Adult ADHD Self-Report Scale — End of Course",
+        "clinician_vs_patient": "Patient self-report",
+        "rationale": "Primary outcome measure. Minimum clinically important difference (MCID): 30% reduction from baseline. Remission: total score ≤24 (Screener 6-item <14).",
+        "lower_is_better": false,
+        "admin_duration_minutes": 10,
+        "access": "Free",
+        "population": "Adult 18+"
+      },
+      {
+        "assessment_id": "ASS-009",
+        "name": "BRIEF-A (End of Course)",
+        "full_name": "Behavior Rating Inventory of Executive Function — Adult Version — Endpoint",
+        "clinician_vs_patient": "Either",
+        "rationale": "Secondary outcome. Documents change in real-world executive function. T-score reduction ≥10 points on Global Executive Composite = meaningful functional improvement.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 20,
+        "access": "Licensed — PAR Inc.",
+        "population": "Adult 18+"
+      }
+    ],
+    "neurophysiological": [
+      {
+        "assessment_id": "ASS-033",
+        "name": "qEEG (ADHD Protocol)",
+        "full_name": "Quantitative EEG — ADHD Biomarker Assessment",
+        "clinician_vs_patient": "Clinician-rated",
+        "rationale": "Baseline qEEG maps theta/beta ratio (TBR) at Fz/Cz/F3/F4 to confirm biomarker presence, personalise neurofeedback electrode placement, and track normalisation across the treatment course.",
+        "lower_is_better": false,
+        "admin_duration_minutes": 45,
+        "access": "Requires qEEG system and certified interpreter",
+        "population": "All (recommended, not mandatory)"
+      }
+    ],
+    "functional": [
+      {
+        "assessment_id": "ASS-F01",
+        "name": "WFIRS-S",
+        "full_name": "Weiss Functional Impairment Rating Scale — Self Report",
+        "clinician_vs_patient": "Patient self-report",
+        "rationale": "Measures real-world functional impairment across family, work/school, life skills, self-concept, social activities, and risky activities. Critical for capturing treatment impact beyond symptom scores.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 10,
+        "access": "Free — Canadian ADHD Resource Alliance (CADDRA)",
+        "population": "Adult 18+"
+      }
+    ]
+  },
+
+  "protocol_bundle": [
+    {
+      "protocol_id": "PRO-NF-ADHD-01",
+      "name": "Neurofeedback — Theta/Beta Protocol for ADHD (Standard)",
+      "modality_slug": "neurofeedback",
+      "phenotype_id": "PHE-009",
+      "on_label_vs_off_label": "Off-label",
+      "evidence_grade": "EV-B",
+      "evidence_summary": "Multiple RCTs and meta-analyses (Cortese et al., 2016 Lancet Psychiatry; Arns et al., 2014; Van Doren et al., 2019) support theta/beta ratio neurofeedback for ADHD, particularly for inattention. Effect sizes range from small-to-moderate (g = 0.3–0.6) for inattention and are more modest for hyperactivity. ISSNR and ISNR rate this protocol as 'Probably Efficacious' (Level 3). Not FDA-cleared specifically for ADHD but classified as low-risk biofeedback device.",
+      "references": [
+        "Cortese S et al. (2016). Neurofeedback for Attention-Deficit/Hyperactivity Disorder. Lancet Psychiatry, 3(12), 1154–1167.",
+        "Arns M et al. (2014). Evaluation of Neurofeedback in ADHD: The Long and Winding Road. Biological Psychology, 95, 108–115.",
+        "Van Doren J et al. (2019). Sustained Effects of Neurofeedback in ADHD: A Systematic Review and Meta-Analysis. Eur Child Adolesc Psychiatry, 28, 293–305."
+      ],
+      "brain_target": {
+        "region": "Supplementary Motor Area / Sensorimotor Cortex",
+        "laterality": "Midline",
+        "eeg_position": "Cz (primary); Fz (frontal variant)",
+        "effect_direction": "Normalise"
+      },
+      "parameters": {
+        "reward_band": "Beta 15–18 Hz (SMR variant: 12–15 Hz)",
+        "inhibit_band": "Theta 4–8 Hz",
+        "threshold_type": "Auto-adaptive threshold (updated every 2 seconds)",
+        "feedback_modality": "Audio + visual (game or animation)",
+        "electrode_sites": "Active: Cz (or Fz for frontal variant); Reference: A1 or A2; Ground: Fpz"
+      },
+      "session_structure": {
+        "sessions_per_week": 2,
+        "session_duration_minutes": 45,
+        "total_sessions": 40,
+        "total_weeks": 20,
+        "maintenance_sessions": "Booster sessions every 4–6 weeks post-course if scores regress >20% from end-of-course",
+        "steps": [
+          { "order": 1, "title": "Scalp preparation and electrode placement", "duration_minutes": 10, "detail": "Clean electrode sites with abrasive gel. Apply conductive paste or gel. Impedance check: all channels <5 kΩ. Apply cap or single electrode." },
+          { "order": 2, "title": "Baseline EEG (eyes open/closed)", "duration_minutes": 5, "detail": "Record 3 minutes eyes open, 2 minutes eyes closed. Note resting TBR. Inform threshold-setting algorithm." },
+          { "order": 3, "title": "Neurofeedback training", "duration_minutes": 25, "detail": "4–5 training runs of 5 minutes each with 60-second rest breaks. Reward continuous beta; inhibit theta. Patient receives real-time visual/audio feedback. Technician monitors signal quality and patient engagement." },
+          { "order": 4, "title": "Post-session review and logging", "duration_minutes": 5, "detail": "Review session metrics (reward rate, threshold crossings, artefact ratio). Log patient self-report (concentration, effort, side effects). Adjust threshold for next session if needed." }
+        ]
+      },
+      "monitoring_required": [
+        "ASRS-18 every 5 sessions",
+        "CGI-I at sessions 10, 20, 30, 40",
+        "Session-level adverse event log (headache, fatigue, irritability)",
+        "qEEG TBR remeasurement at session 20 (optional but recommended)"
+      ],
+      "contraindication_check_required": true,
+      "adverse_event_monitoring": "Monitor for: fatigue immediately post-session (common, resolves within hours), transient mood changes, headache (rare). Log any increase in hyperactivity or anxiety.",
+      "escalation_rules": [
+        "Less than 20% improvement on ASRS-18 after 20 sessions: review electrode placement, consider switching to frontal (Fz) variant, discuss adjunct pharmacological optimisation",
+        "New or worsened anxiety reported in 2+ consecutive sessions: reduce session length to 20 min, assess for comorbid anxiety requiring treatment",
+        "Seizure during or within 2 hours of session: immediately stop, call emergency services, document AE, suspend all neuromodulation pending neurological review"
+      ],
+      "patient_facing_allowed": true,
+      "clinician_review_required": false,
+      "governance": {
+        "patient_export_allowed": true,
+        "requires_clinician_sign_off": false,
+        "off_label_acknowledgement_required": true,
+        "dual_review_required": false,
+        "notes": "Classified EV-B. Patient export permitted. Off-label acknowledgement required before first session."
+      },
+      "notes": "Considered first-line neuromodulation for ADHD. Effect size is larger and more consistent for inattention than for hyperactivity. Benefit from longer courses (>30 sessions) appears greater. Optimal patient: motivated, able to engage with feedback task, mild-moderate severity."
+    },
+    {
+      "protocol_id": "PRO-NF-ADHD-02",
+      "name": "Neurofeedback — Slow Cortical Potential (SCP) Training for ADHD",
+      "modality_slug": "neurofeedback",
+      "phenotype_id": "PHE-010",
+      "on_label_vs_off_label": "Off-label",
+      "evidence_grade": "EV-B",
+      "evidence_summary": "SCP training is one of two protocols rated 'Probably Efficacious' by professional standards (Arns et al., 2014; Strehl et al., 2017). Particularly suited to hyperactive-impulsive presentations. Teaches voluntary self-regulation of preparatory cortical activity. Non-inferior to TBR training in RCTs with longer follow-up.",
+      "references": [
+        "Strehl U et al. (2017). Broadening the Perspective on Slow Cortical Potentials and ADHD. Front Hum Neurosci, 11, 214.",
+        "Arns M et al. (2014). Evaluation of Neurofeedback in ADHD. Biological Psychology, 95, 108–115."
+      ],
+      "brain_target": {
+        "region": "Frontocentral cortex (preparatory activity)",
+        "laterality": "Midline",
+        "eeg_position": "Cz",
+        "effect_direction": "Normalise"
+      },
+      "parameters": {
+        "reward_band": "Positive cortical potential shift (activation)",
+        "inhibit_band": "Negative cortical potential shift (deactivation)",
+        "threshold_type": "Fixed threshold with adaptation every 20 trials",
+        "feedback_modality": "Visual — spacecraft rising/falling paradigm (ADHD SCP standard task)",
+        "electrode_sites": "Active: Cz; Reference: Mastoid (linked); Ground: Fpz"
+      },
+      "session_structure": {
+        "sessions_per_week": 2,
+        "session_duration_minutes": 50,
+        "total_sessions": 30,
+        "total_weeks": 15,
+        "maintenance_sessions": "None required in most cases; booster course available if significant regression at 6-month follow-up",
+        "steps": [
+          { "order": 1, "title": "Electrode placement and impedance check", "duration_minutes": 10, "detail": "Cz active electrode; linked mastoid reference; impedance <5 kΩ." },
+          { "order": 2, "title": "Training task — activation runs", "duration_minutes": 15, "detail": "15 trials requiring cortical activation (spacecraft rising). Patient instructed to focus and exert mental effort." },
+          { "order": 3, "title": "Training task — deactivation runs", "duration_minutes": 15, "detail": "15 trials requiring cortical relaxation (spacecraft descending). Patient instructed to calm and relax." },
+          { "order": 4, "title": "Transfer task", "duration_minutes": 5, "detail": "Mixed activation/deactivation trials without feedback (tests generalisation)." },
+          { "order": 5, "title": "Post-session review", "duration_minutes": 5, "detail": "Review metrics, log AEs, update session record." }
+        ]
+      },
+      "monitoring_required": [
+        "ASRS-18 every 5 sessions",
+        "CGI-I at sessions 10, 20, 30",
+        "Session-level AE log"
+      ],
+      "contraindication_check_required": true,
+      "adverse_event_monitoring": "Monitor for fatigue, frustration, and mood changes. SCP training requires sustained cognitive effort; fatigue is more common than with TBR training.",
+      "escalation_rules": [
+        "Less than 20% improvement on ASRS-18 hyperactivity subscale after 15 sessions: consider switching to TBR protocol (PHE-009) or adding tDCS adjunct",
+        "Patient unable to learn task (no SCP differentiation by session 8): discuss alternative protocol"
+      ],
+      "patient_facing_allowed": true,
+      "clinician_review_required": false,
+      "governance": {
+        "patient_export_allowed": true,
+        "requires_clinician_sign_off": false,
+        "off_label_acknowledgement_required": true,
+        "dual_review_required": false,
+        "notes": "EV-B. Appropriate for hyperactive-impulsive dominant presentations."
+      }
+    },
+    {
+      "protocol_id": "PRO-TDCS-ADHD-01",
+      "name": "tDCS — Right DLPFC Anodal Stimulation for ADHD",
+      "modality_slug": "tdcs",
+      "phenotype_id": "PHE-009",
+      "on_label_vs_off_label": "Off-label",
+      "evidence_grade": "EV-C",
+      "evidence_summary": "Emerging evidence from small RCTs (Soff et al., 2017; Allenby et al., 2018; Nejati et al., 2020) supports anodal tDCS to right DLPFC (F4) for ADHD. Effect sizes on inattention and executive function measures are moderate (d = 0.4–0.7) but sample sizes remain small. No FDA clearance for ADHD. EV-C: Emerging evidence — clinician sign-off required.",
+      "references": [
+        "Soff C et al. (2017). Transcranial Direct Current Stimulation Improves Clinical Symptoms in Adolescents with ADHD. J Neural Transm, 124, 133–144.",
+        "Allenby C et al. (2018). Transcranial Direct Current Brain Stimulation Decreases Impulsivity in ADHD. Brain Stimul, 11(5), 974–981.",
+        "Nejati V et al. (2020). Differential Role of Left and Right DLPFC in ADHD Symptoms. Neuropsychologia, 146, 107544."
+      ],
+      "brain_target": {
+        "region": "Right Dorsolateral Prefrontal Cortex",
+        "laterality": "Right",
+        "eeg_position": "F4",
+        "effect_direction": "Excitatory"
+      },
+      "parameters": {
+        "electrode_placement": "Anode: F4 (right DLPFC); Cathode: left supraorbital (Fp1) or left shoulder (extra-cephalic)",
+        "current_ma": "1–2 mA (start at 1 mA; escalate to 2 mA after session 3 if tolerated)",
+        "current_density": "0.04–0.08 mA/cm² (electrode size 25–35 cm²)",
+        "ramp_up_seconds": 30,
+        "ramp_down_seconds": 30,
+        "additional_params": {
+          "session_duration_active": "20–30 minutes at target current",
+          "electrode_size": "25–35 cm² saline-soaked sponge or gel electrode",
+          "skin_prep": "Clean with isopropyl alcohol; assess for skin integrity before each session"
+        }
+      },
+      "session_structure": {
+        "sessions_per_week": 3,
+        "session_duration_minutes": 35,
+        "total_sessions": 15,
+        "total_weeks": 5,
+        "maintenance_sessions": "Re-evaluation at 8 weeks post-course; booster course of 5–10 sessions if symptom regression",
+        "steps": [
+          { "order": 1, "title": "Pre-session checks", "duration_minutes": 5, "detail": "Confirm skin integrity at F4 and Fp1. Remove metal jewellery. Screen for new contraindications since last session. Administer brief ASRS-4 spot check every 5th session." },
+          { "order": 2, "title": "Electrode placement", "duration_minutes": 5, "detail": "Anode sponge electrode at F4 (right DLPFC, 10-20 system). Cathode at Fp1 or left deltoid. Secure with elastic headband. Confirm contact quality." },
+          { "order": 3, "title": "Active stimulation", "duration_minutes": 20, "detail": "30-second ramp-up to 1–2 mA. Patient may engage in cognitive task (working memory game, reading) during stimulation — cognitive engagement enhances tDCS response. Monitor for skin sensation, tingling, or discomfort." },
+          { "order": 4, "title": "Ramp-down and post-session review", "duration_minutes": 5, "detail": "30-second ramp-down. Document skin appearance at electrode sites. Log tingling, itching, or headache. Patient rest 5 minutes." }
+        ]
+      },
+      "monitoring_required": [
+        "ASRS-18 at baseline, session 5, session 10, end of course",
+        "Skin integrity check at electrode sites before every session",
+        "Adverse event log (skin redness, tingling, headache, mood change) every session"
+      ],
+      "contraindication_check_required": true,
+      "adverse_event_monitoring": "Common: transient tingling, itching, or mild warmth under electrodes (expected). Rare: skin redness lasting >1 hour, headache, flash phosphenes (cathode near eye — use extra-cephalic cathode to avoid). Serious: skin burn (incorrect electrode contact) — inspect after every session.",
+      "escalation_rules": [
+        "Persistent skin redness >1 hour post-session: reassess electrode placement and current density; reduce to 1 mA minimum; consider switching to gel from sponge electrode",
+        "No ASRS-18 improvement after 10 sessions: clinician review; consider switching electrode placement to left DLPFC (anode F3) variant",
+        "New or worsened mood symptoms: clinician same-day review; do not continue session"
+      ],
+      "patient_facing_allowed": false,
+      "clinician_review_required": true,
+      "governance": {
+        "patient_export_allowed": false,
+        "requires_clinician_sign_off": true,
+        "off_label_acknowledgement_required": true,
+        "dual_review_required": false,
+        "notes": "EV-C: Clinician sign-off required before protocol generation. Patient export blocked. Off-label acknowledgement mandatory."
+      },
+      "notes": "Best used as an adjunct to neurofeedback or pharmacotherapy, not as standalone first-line. Cognitive task during stimulation (working memory training) appears to enhance effect — consider combining with cognitive training software."
+    },
+    {
+      "protocol_id": "PRO-TMS-ADHD-01",
+      "name": "rTMS — Low-Frequency Right DLPFC Inhibitory for ADHD (Off-label, Emerging)",
+      "modality_slug": "tms",
+      "phenotype_id": "PHE-010",
+      "on_label_vs_off_label": "Off-label",
+      "evidence_grade": "EV-C",
+      "evidence_summary": "Preliminary evidence (Bloch et al., 2010; Weaver et al., 2012) suggests low-frequency (1 Hz) inhibitory rTMS to right DLPFC may reduce hyperactivity and impulsivity by decreasing right frontal overactivation. Evidence is limited (small samples, no sham-controlled trials with adequate power as of 2024). Classified EV-C. Not recommended as standalone — use only when neurofeedback and tDCS have been trialled first.",
+      "references": [
+        "Bloch Y et al. (2010). rTMS Treatment for ADHD: An Open-Label Study. J Child Adolesc Psychopharmacol, 20, 197–204.",
+        "Weaver L et al. (2012). Transcranial Magnetic Stimulation in Adolescents with ADHD. J Child Adolesc Psychopharmacol, 22(1), 56–64."
+      ],
+      "brain_target": {
+        "region": "Right Dorsolateral Prefrontal Cortex",
+        "laterality": "Right",
+        "eeg_position": "F4",
+        "effect_direction": "Inhibitory"
+      },
+      "parameters": {
+        "frequency_hz": "1 Hz (inhibitory)",
+        "intensity": "100–110% resting motor threshold (RMT) — individualised via motor threshold mapping",
+        "pulse_count": "900 pulses per session",
+        "coil_type": "Figure-8 coil (70 mm)",
+        "electrode_placement": "F4 (right DLPFC) using 10-20 system or MRI-guided neuronavigation"
+      },
+      "session_structure": {
+        "sessions_per_week": 5,
+        "session_duration_minutes": 20,
+        "total_sessions": 20,
+        "total_weeks": 4,
+        "maintenance_sessions": "Monthly maintenance sessions (5 sessions over 5 days) if significant benefit achieved",
+        "steps": [
+          { "order": 1, "title": "Safety screening review", "duration_minutes": 5, "detail": "Confirm no new contraindications. Review previous session AE log. Confirm metal/implant status unchanged." },
+          { "order": 2, "title": "Motor threshold determination (first session only)", "duration_minutes": 10, "detail": "Determine resting motor threshold (rMT) via single-pulse TMS over left motor cortex (hand representation). Target: ≥5 of 10 pulses produce visible hand twitch at minimum intensity. Document for protocol calibration." },
+          { "order": 3, "title": "Coil placement and stimulation", "duration_minutes": 15, "detail": "Position figure-8 coil at F4. Confirm patient comfort and ear protection in place. Deliver 900 pulses at 1 Hz (15 minutes active stimulation). Monitor continuously." },
+          { "order": 4, "title": "Post-session review", "duration_minutes": 5, "detail": "Check for headache, scalp discomfort, mood change. Log in AE record. Remind patient of seizure awareness." }
+        ]
+      },
+      "monitoring_required": [
+        "Completed TMS Safety Screening Questionnaire (ASS-031) before first session",
+        "ASRS-18 at baseline and every 5 sessions",
+        "CGI-I at sessions 10 and 20",
+        "Seizure awareness instruction to patient and carer",
+        "AE log every session"
+      ],
+      "contraindication_check_required": true,
+      "adverse_event_monitoring": "Headache (most common, transient). Scalp discomfort at coil site. Seizure (rare with 1 Hz inhibitory TMS but remains a risk — must have emergency protocol in clinic). Syncope. Any new neurological symptom requires immediate assessment.",
+      "escalation_rules": [
+        "Seizure during or within 1 hour of session: emergency protocol, stop treatment immediately, do not resume without neurology clearance",
+        "No improvement on ASRS-18 hyperactivity subscale after 10 sessions: clinician review; consider discontinuation",
+        "Moderate or severe headache on 2+ consecutive sessions: reduce intensity to 100% rMT; if persists reduce to 90% rMT or discontinue"
+      ],
+      "patient_facing_allowed": false,
+      "clinician_review_required": true,
+      "governance": {
+        "patient_export_allowed": false,
+        "requires_clinician_sign_off": true,
+        "off_label_acknowledgement_required": true,
+        "dual_review_required": true,
+        "notes": "EV-C off-label TMS. Dual clinician review required. Patient export blocked. Only proceed after neurofeedback and/or tDCS have been trialled. Emergency seizure protocol must be in place in clinic before first session."
+      },
+      "notes": "This is a third-line option. The evidence base is preliminary. Use only in treatment-refractory ADHD with hyperactive-impulsive phenotype after optimised pharmacotherapy and neurofeedback have been exhausted."
+    }
+  ],
+
+  "device_options": [
+    {
+      "device_id": "DEV-NF-001",
+      "name": "BrainMaster Atlantis II",
+      "manufacturer": "BrainMaster Technologies",
+      "modality_slug": "neurofeedback",
+      "regulatory_status": "FDA-cleared (other indication)",
+      "cleared_indication": "FDA 510(k) cleared as biofeedback device; specific ADHD indication not cleared",
+      "use_setting": "Clinic",
+      "compatible_protocols": ["PRO-NF-ADHD-01", "PRO-NF-ADHD-02"],
+      "constraints": [
+        "Requires certified neurofeedback practitioner (BCIA certification recommended)",
+        "BrainMaster Discovery or Atlantis II software required for SCP protocol"
+      ],
+      "notes": "Industry-standard 4-channel EEG neurofeedback system. Supports theta/beta and SCP protocols. Used in ISNR-affiliated research."
+    },
+    {
+      "device_id": "DEV-NF-002",
+      "name": "Muse 2 / InteraXon (Research Config)",
+      "manufacturer": "InteraXon",
+      "modality_slug": "neurofeedback",
+      "regulatory_status": "Not approved",
+      "cleared_indication": "Consumer wellness device; not cleared as a medical device",
+      "use_setting": "Home",
+      "compatible_protocols": ["PRO-NF-ADHD-01"],
+      "constraints": [
+        "Research/home use only — not for primary clinical neurofeedback delivery",
+        "Limited electrode channels (TP9, AF7, AF8, TP10) — no Cz channel available",
+        "Lower clinical-grade signal quality than medical-grade EEG systems"
+      ],
+      "notes": "May be used for home maintenance/adjunct programme only after minimum 10 clinic sessions. Cannot substitute for clinic-based neurofeedback course."
+    },
+    {
+      "device_id": "DEV-TDCS-001",
+      "name": "Soterix Medical 1×1 tDCS Clinical Trials Device (CT)",
+      "manufacturer": "Soterix Medical",
+      "modality_slug": "tdcs",
+      "regulatory_status": "FDA-cleared (other indication)",
+      "cleared_indication": "FDA-cleared for clinical research use; not cleared for ADHD treatment",
+      "use_setting": "Clinic",
+      "compatible_protocols": ["PRO-TDCS-ADHD-01"],
+      "constraints": [
+        "Clinic use only",
+        "Requires trained clinician operator",
+        "Current limit: 4 mA (protocol uses max 2 mA)"
+      ],
+      "notes": "Research-grade tDCS device widely used in clinical trials. Provides consistent current delivery and ramp control."
+    },
+    {
+      "device_id": "DEV-TDCS-002",
+      "name": "Flow Neuroscience FL-100",
+      "manufacturer": "Flow Neuroscience",
+      "modality_slug": "tdcs",
+      "regulatory_status": "CE-marked",
+      "cleared_indication": "CE-marked for depression (Class IIa EU MDR); not cleared for ADHD",
+      "use_setting": "Hybrid",
+      "compatible_protocols": ["PRO-TDCS-ADHD-01"],
+      "constraints": [
+        "Fixed electrode positions (Fp1 anode, F3 or bilateral) — confirm F4 placement feasibility with device",
+        "Home use requires clinic setup and monitoring protocol",
+        "Not available in all markets"
+      ],
+      "notes": "Primarily designed for depression; electrode montage may not be optimal for ADHD right DLPFC target. Consult manufacturer for custom montage options."
+    },
+    {
+      "device_id": "DEV-TMS-001",
+      "name": "Magstim Rapid²",
+      "manufacturer": "Magstim",
+      "modality_slug": "tms",
+      "regulatory_status": "FDA-cleared (other indication)",
+      "cleared_indication": "FDA-cleared for MDD; off-label use for ADHD",
+      "use_setting": "Clinic",
+      "compatible_protocols": ["PRO-TMS-ADHD-01"],
+      "constraints": [
+        "Clinic use only — specialised TMS suite required",
+        "Motor threshold mapping required before first session",
+        "Emergency seizure management equipment must be available"
+      ],
+      "notes": "Standard TMS device suitable for 1 Hz inhibitory protocol. Ensure 70 mm figure-8 coil is used for DLPFC targeting."
+    }
+  ],
+
+  "brain_targets": [
+    {
+      "region": "Right Dorsolateral Prefrontal Cortex",
+      "abbreviation": "R-DLPFC",
+      "laterality": "Right",
+      "rationale": "The right DLPFC supports inhibitory control, sustained attention, and response inhibition — core deficits in ADHD. Inhibitory stimulation (1 Hz TMS) reduces hyperactivity by decreasing right hemispheric overactivation; excitatory stimulation (tDCS anode) improves working memory and executive function.",
+      "effect_direction": "Normalise",
+      "modalities": ["tms", "tdcs"],
+      "eeg_position_10_20": "F4",
+      "brodmann_area": "BA46 / BA9",
+      "network": "Central Executive Network (CEN)",
+      "qeeg_target": "Normalise right frontal beta/theta asymmetry",
+      "evidence_note": "Most studied TMS and tDCS target for ADHD. Best evidence for inattention and executive function (tDCS anode) and hyperactivity (TMS inhibitory)."
+    },
+    {
+      "region": "Sensorimotor Cortex — Vertex",
+      "abbreviation": "SMC / Cz",
+      "laterality": "Midline",
+      "rationale": "The Cz site (vertex) is the primary neurofeedback electrode location because it captures sensorimotor rhythm (SMR, 12–15 Hz) and theta/beta activity from both motor and prefrontal regions. SMR enhancement correlates with reduced hyperactivity and improved impulse control.",
+      "effect_direction": "Normalise",
+      "modalities": ["neurofeedback"],
+      "eeg_position_10_20": "Cz",
+      "brodmann_area": "BA1/BA2/BA3/BA4 (general primary somatosensory/motor cortex region)",
+      "network": "Sensorimotor Network",
+      "qeeg_target": "Reduce theta (4–8 Hz); increase beta/SMR (12–18 Hz) — Theta/Beta Ratio normalisation",
+      "evidence_note": "Cz is the primary electrode site for the TBR neurofeedback protocol supported by the majority of published ADHD neurofeedback RCTs."
+    },
+    {
+      "region": "Frontocentral Cortex — Fz",
+      "abbreviation": "Fz",
+      "laterality": "Midline",
+      "rationale": "Fz sits over the anterior cingulate cortex (ACC) and supplementary motor area. Elevated slow-wave (theta) activity at Fz is consistently observed in ADHD and correlates with inattention severity. Fz-targeted neurofeedback is used in the frontal theta inhibition variant of TBR training.",
+      "effect_direction": "Normalise",
+      "modalities": ["neurofeedback"],
+      "eeg_position_10_20": "Fz",
+      "brodmann_area": "BA6 / BA32 (SMA / ACC region)",
+      "network": "Default Mode Network / Salience Network",
+      "qeeg_target": "Reduce theta at Fz; secondary target for SCP training",
+      "evidence_note": "Used as primary or secondary electrode in frontal theta neurofeedback variants and SCP training."
+    },
+    {
+      "region": "Anterior Cingulate Cortex",
+      "abbreviation": "ACC",
+      "laterality": "Midline",
+      "rationale": "The ACC is central to error monitoring, conflict detection, and inhibitory control — all impaired in ADHD. Default mode network overactivity in ADHD includes ACC; reduction of intrinsic activity is one theoretical mechanism of neurofeedback benefit.",
+      "effect_direction": "Normalise",
+      "modalities": ["neurofeedback", "tms"],
+      "eeg_position_10_20": "Fz (overlying scalp position)",
+      "brodmann_area": "BA24 / BA32",
+      "network": "Salience Network / Default Mode Network",
+      "qeeg_target": "Midline theta reduction; targeted in some theta-down protocols",
+      "evidence_note": "Indirect target for most protocols. Direct TMS stimulation of ACC is experimental."
+    }
+  ],
+
+  "handbook_outputs": {
+    "clinician_handbook": {
+      "title": "Clinician Handbook: ADHD Neuromodulation Protocols",
+      "audience": "Licensed clinician or supervised trainee",
+      "sections": [
+        {
+          "section_id": "ch-01",
+          "title": "Condition Summary",
+          "content": [
+            "ADHD is a neurodevelopmental disorder characterised by persistent inattention and/or hyperactivity-impulsivity interfering with daily function.",
+            "Prevalence: 5–7% children, 2.5–4% adults. Three DSM-5 presentations: Predominantly Inattentive (ADHD-I), Predominantly Hyperactive-Impulsive (ADHD-HI), Combined (ADHD-C).",
+            "Neurobiology: Frontal-subcortical circuit dysregulation; dopaminergic and noradrenergic deficit; elevated theta/beta EEG ratio at Fz/Cz is the primary neuromodulation target.",
+            "First-line treatment: Pharmacotherapy (stimulants) + behavioural interventions. Neuromodulation is adjunctive or for medication non-responders or those declining pharmacotherapy."
+          ]
+        },
+        {
+          "section_id": "ch-02",
+          "title": "Patient Selection Criteria",
+          "content": [
+            "Confirmed DSM-5 ADHD diagnosis (document diagnosis source and date).",
+            "Symptoms present in at least two settings.",
+            "Functional impairment documented in at least one domain.",
+            "Trial of evidence-based first-line treatment (medication or CBT) documented or clearly contraindicated.",
+            "Contraindication screening completed and signed — no absolute contraindications present."
+          ]
+        },
+        {
+          "section_id": "ch-03",
+          "title": "Protocol Selection Guide",
+          "content": [
+            "Predominantly Inattentive (ADHD-I): First choice — Theta/Beta Neurofeedback (PRO-NF-ADHD-01). Second choice — tDCS right DLPFC (PRO-TDCS-ADHD-01).",
+            "Predominantly Hyperactive-Impulsive (ADHD-HI): First choice — SCP Neurofeedback (PRO-NF-ADHD-02). Second choice — low-frequency rTMS right DLPFC (PRO-TMS-ADHD-01) only if neurofeedback is contraindicated or fails.",
+            "Combined Presentation (ADHD-C): First choice — Theta/Beta Neurofeedback (PRO-NF-ADHD-01). Consider sequential course of tDCS post-neurofeedback if executive dysfunction predominates.",
+            "Emotional Dysregulation Subtype: Add frontal alpha asymmetry neurofeedback component or right frontal tDCS to address emotional regulation circuits."
+          ]
+        },
+        {
+          "section_id": "ch-04",
+          "title": "Evidence Summary",
+          "content": [
+            "Neurofeedback (TBR and SCP): EV-B — Probably Efficacious per ISSNR/ISNR standards. Multiple RCTs; effect size g = 0.3–0.6 for inattention.",
+            "tDCS: EV-C — Emerging evidence. Small RCTs only; no large multicentre trial completed as of 2024. Promising for executive function and impulsivity.",
+            "rTMS (1 Hz right DLPFC): EV-C — Preliminary evidence. Open-label studies only; insufficient for routine clinical recommendation without specific refractory indication.",
+            "All protocols are off-label for ADHD. Informed consent and off-label acknowledgement required."
+          ]
+        },
+        {
+          "section_id": "ch-05",
+          "title": "Safety and Governance",
+          "content": [
+            "Complete contraindication screening (TMS Safety Screening for TMS; standard tDCS screen for tDCS) before every first session and document.",
+            "Off-label acknowledgement form required before protocol generation for all ADHD neuromodulation.",
+            "Seizure emergency protocol must be in place and all staff trained before any TMS sessions are delivered.",
+            "Monitor ASRS-18 every 5 sessions; CGI-I at mid-course and end of course.",
+            "Any serious adverse event: suspend treatment, document, report to clinical governance lead."
+          ]
+        },
+        {
+          "section_id": "ch-06",
+          "title": "Monitoring and Escalation",
+          "content": [
+            "Response definition: ≥30% reduction from baseline ASRS-18 total score.",
+            "Non-response flag: <20% ASRS-18 improvement after 15 sessions — trigger clinician review.",
+            "Escalation: Worsen from baseline at mid-course — immediate clinician review; consider protocol switch or adjunct pharmacotherapy optimisation.",
+            "Adherence threshold: ≥75% session completion expected. 3 or more missed consecutive sessions: patient contact and re-engagement plan."
+          ]
+        }
+      ]
+    },
+    "patient_guide": {
+      "title": "Patient Guide: Brain Training for ADHD",
+      "audience": "Patient (reading level: Grade 8)",
+      "sections": [
+        {
+          "section_id": "pg-01",
+          "title": "What is ADHD?",
+          "content": [
+            "ADHD is a brain condition that affects how well you can focus, control impulses, and manage energy. It has nothing to do with intelligence — many highly successful people have ADHD.",
+            "In ADHD, parts of the brain that handle concentration and self-control use a different pattern of activity than most people. Brain training treatments aim to help these areas work more efficiently."
+          ]
+        },
+        {
+          "section_id": "pg-02",
+          "title": "Your Treatment Options",
+          "content": [
+            "Neurofeedback is a form of brain training where sensors are placed on your scalp and you watch or listen to feedback that tells you when your brain is producing the right type of focus-related activity. Over time, your brain learns to stay in that state more often.",
+            "tDCS (transcranial direct current stimulation) uses a very gentle electrical current — much weaker than a 9-volt battery — delivered through comfortable sponge pads on your head. It gently activates the attention-related area of your brain."
+          ]
+        },
+        {
+          "section_id": "pg-03",
+          "title": "What to Expect at Sessions",
+          "content": [
+            "Sessions are painless and non-invasive. You will be seated comfortably in a chair.",
+            "A small cap or electrode pads will be placed on your scalp. A cool gel may be applied to improve signal quality.",
+            "Sessions typically last 45–50 minutes. Most people find them relaxing once they are used to the setup.",
+            "You might experience mild tingling (with tDCS) or feel a sense of concentration effort during neurofeedback — this is completely normal.",
+            "After sessions, some people feel briefly tired. This usually passes within an hour."
+          ]
+        },
+        {
+          "section_id": "pg-04",
+          "title": "What to Tell Your Clinician",
+          "content": [
+            "Tell your clinician immediately if you have a headache during or after any session.",
+            "Tell your clinician if you notice changes in your mood, feel more anxious or irritable, or notice anything unusual.",
+            "If you miss sessions, contact the clinic — consistent attendance is important for results.",
+            "Keep taking your ADHD medication as prescribed unless your doctor tells you otherwise."
+          ]
+        }
+      ]
+    },
+    "technician_sop": {
+      "title": "Technician Standard Operating Procedure: ADHD Neurofeedback and tDCS",
+      "audience": "Trained neurofeedback/neuromodulation technician operating under clinician supervision",
+      "sections": [
+        {
+          "section_id": "sop-01",
+          "title": "Pre-Session Checklist",
+          "content": [
+            "Confirm patient identity (name + date of birth).",
+            "Review most recent session notes for any AEs, parameter adjustments, or clinician flags.",
+            "Confirm contraindication screening is on file and current.",
+            "Inspect equipment: EEG amplifier/tDCS device, electrodes, cables, feedback software — no damage.",
+            "Confirm emergency equipment accessible: oxygen, emergency contact numbers displayed, seizure protocol posted."
+          ]
+        },
+        {
+          "section_id": "sop-02",
+          "title": "Electrode Placement (Neurofeedback)",
+          "content": [
+            "Measure Cz using 10-20 system: midpoint between nasion and inion; midpoint between left and right preauricular points.",
+            "Clean electrode site with NuPrep or equivalent abrasive gel.",
+            "Apply conductive paste (Ten20 or equivalent). Apply electrode and confirm secure contact.",
+            "Apply reference electrodes to A1 and A2 (mastoid). Apply ground at Fpz.",
+            "Check impedance: all channels must be <5 kΩ (ideally <2 kΩ) before beginning.",
+            "If impedance is high: re-clean site and reapply paste. Do not begin session with impedance >10 kΩ."
+          ]
+        },
+        {
+          "section_id": "sop-03",
+          "title": "Electrode Placement (tDCS)",
+          "content": [
+            "Inspect patient scalp at F4 and Fp1 for any cuts, redness, or skin lesions. Do not proceed if present.",
+            "Prepare saline-soaked sponge electrode (25–35 cm²) — sponge should be damp but not dripping.",
+            "Position anode (red lead) at F4. Position cathode (black lead) at Fp1 or left deltoid.",
+            "Secure with adjustable head strap. Confirm electrodes lie flat against scalp.",
+            "Set device to prescribed current (start 1 mA; escalate per protocol after session 3).",
+            "Set duration to 20–30 minutes as per protocol. Confirm ramp-up and ramp-down are set to 30 seconds."
+          ]
+        },
+        {
+          "section_id": "sop-04",
+          "title": "During Session Monitoring",
+          "content": [
+            "Monitor signal quality every 5 minutes (neurofeedback: check impedance indicator; tDCS: check current display).",
+            "Ask patient about comfort at 5-minute mark and again at midpoint.",
+            "Log any patient-reported sensation (tingling, itching, warmth — expected; pain or burning — stop session immediately).",
+            "Do not leave patient unattended during TMS or tDCS. Remain in room or immediately accessible."
+          ]
+        },
+        {
+          "section_id": "sop-05",
+          "title": "Post-Session Documentation",
+          "content": [
+            "Remove electrodes. Inspect scalp for any redness, marks, or skin reaction.",
+            "Ask patient: 'Any headache, unusual sensations, or mood changes?'",
+            "Log session completion, parameters used, duration, and any AEs in the session record.",
+            "Flag any AEs to supervising clinician within 1 hour of session end.",
+            "Clean and store electrodes per equipment hygiene protocol."
+          ]
+        }
+      ]
+    }
+  },
+
+  "monitoring_rules": {
+    "assessment_schedule": [
+      {
+        "assessment_id": "ASS-005",
+        "assessment_name": "ASRS-18",
+        "timing": "Before session 1 (baseline); after session 5; after session 10; after session 15; after session 20 (if continuing); end of course",
+        "frequency": "Every 5 sessions",
+        "administered_by": "Patient self-report"
+      },
+      {
+        "assessment_id": "ASS-018",
+        "assessment_name": "CGI-I",
+        "timing": "Session 10, session 20, end of course",
+        "frequency": "Every 10 sessions and end of course",
+        "administered_by": "Clinician-rated"
+      },
+      {
+        "assessment_id": "ASS-009",
+        "assessment_name": "BRIEF-A",
+        "timing": "Baseline and end of course",
+        "frequency": "Once at baseline and once at course completion",
+        "administered_by": "Patient self-report"
+      },
+      {
+        "assessment_id": "ASS-F01",
+        "assessment_name": "WFIRS-S",
+        "timing": "Baseline and end of course",
+        "frequency": "Once at baseline and once at course completion",
+        "administered_by": "Patient self-report"
+      }
+    ],
+    "response_thresholds": [
+      {
+        "assessment_id": "ASS-005",
+        "assessment_name": "ASRS-18",
+        "lower_is_better": false,
+        "response_threshold": "≥30% increase from baseline total score (note: higher ASRS score = more symptoms — improvement = score reduction in practice; threshold defined as ≥30% decrease in symptom frequency ratings)",
+        "remission_threshold": "Total ASRS-18 score consistent with non-clinical range; ASRS-5 Part A <14",
+        "non_response_threshold": "Fewer than 20% improvement from baseline after 15 sessions — triggers clinician review",
+        "deterioration_threshold": "Score increase of ≥5 points from baseline at any monitoring point — immediate clinician review required"
+      },
+      {
+        "assessment_id": "ASS-018",
+        "assessment_name": "CGI-I",
+        "lower_is_better": true,
+        "response_threshold": "CGI-I score of 1 (very much improved) or 2 (much improved)",
+        "remission_threshold": "CGI-S score of 1 (normal) or 2 (borderline) at end of course",
+        "non_response_threshold": "CGI-I score of 4 (no change) at session 15",
+        "deterioration_threshold": "CGI-I score of 5–7 (worse/much worse) at any point"
+      }
+    ],
+    "adverse_event_triggers": [
+      {
+        "event_type": "Seizure",
+        "severity": "Serious",
+        "action": "Stop treatment immediately. Activate emergency protocol. Do not resume any neuromodulation without neurology review and written clearance.",
+        "suspend_treatment": true
+      },
+      {
+        "event_type": "New-onset or worsened suicidal ideation",
+        "severity": "Serious",
+        "action": "Same-day clinician review. Complete suicide risk assessment. Suspend treatment until clinical safety review complete.",
+        "suspend_treatment": true
+      },
+      {
+        "event_type": "Manic or hypomanic episode",
+        "severity": "Severe",
+        "action": "Suspend treatment. Same-day psychiatric review. Consider protocol change to inhibitory approach or treatment pause.",
+        "suspend_treatment": true
+      },
+      {
+        "event_type": "Skin burn or skin lesion at electrode site",
+        "severity": "Moderate",
+        "action": "Suspend tDCS sessions. Photograph and document lesion. Medical review if wound breaks skin. Assess electrode technique before resuming.",
+        "suspend_treatment": true
+      },
+      {
+        "event_type": "Persistent headache (>4 hours post-session)",
+        "severity": "Moderate",
+        "action": "Reduce stimulation intensity or session duration. Clinician review if headache persists after two consecutive sessions.",
+        "suspend_treatment": false
+      },
+      {
+        "event_type": "Transient tingling or scalp discomfort during tDCS",
+        "severity": "Mild",
+        "action": "Reassure patient (expected side effect). Log frequency and intensity. If rated >5/10 discomfort, reduce current to 1 mA.",
+        "suspend_treatment": false
+      }
+    ],
+    "escalation_rules": [
+      {
+        "trigger": "Less than 20% ASRS-18 improvement after 15 sessions of neurofeedback",
+        "action": "Clinician review: reassess diagnosis, check comorbidities, consider medication optimisation, consider switching to tDCS adjunct",
+        "urgency": "Routine"
+      },
+      {
+        "trigger": "Three or more consecutive missed sessions without contact",
+        "action": "Patient welfare check. Document non-attendance. Discuss barriers and re-engagement plan. Notify clinical lead if unreachable.",
+        "urgency": "Routine"
+      },
+      {
+        "trigger": "Any Serious Adverse Event (seizure, hospitalisation, suicidal act)",
+        "action": "Immediate suspension of treatment. Clinical lead notification within 2 hours. Incident report filed within 24 hours.",
+        "urgency": "Emergency"
+      },
+      {
+        "trigger": "ASRS-18 score increases ≥5 points from baseline at any monitoring point",
+        "action": "Urgent clinician review within 2 working days. Assess for new comorbidity, life stressor, medication change, or protocol mismatch.",
+        "urgency": "Urgent"
+      },
+      {
+        "trigger": "Patient reports new psychiatric diagnosis or hospitalisation since last session",
+        "action": "Suspend treatment. Clinician review before next session. Update contraindication screening.",
+        "urgency": "Urgent"
+      }
+    ],
+    "adherence_rules": {
+      "minimum_session_adherence_pct": 75,
+      "consecutive_missed_sessions_flag": 3,
+      "action_on_low_adherence": "Patient contact within 48 hours. Document reason for missed sessions. Review barriers (transport, cost, time). Clinician review if adherence <60% without clear justification."
+    }
+  },
+
+  "report_templates": [
+    {
+      "id": "RPT-ADHD-INTAKE",
+      "name": "ADHD Neuromodulation Intake Summary",
+      "report_type": "intake-summary",
+      "audience": "Clinician",
+      "frequency": "Once — at intake before first session",
+      "sections": [
+        {
+          "section_id": "rpt-01",
+          "title": "Patient and Diagnosis Summary",
+          "auto_populate_from": ["patient.name", "patient.dob", "patient.diagnosis", "patient.diagnosis_date", "patient.referrer"],
+          "clinician_narrative_prompt": "Confirm the ADHD diagnosis, presentation type, and any diagnostic uncertainties or planned further assessment.",
+          "required": true
+        },
+        {
+          "section_id": "rpt-02",
+          "title": "Baseline Symptom Scores",
+          "auto_populate_from": ["assessment.ASRS-18.baseline", "assessment.BRIEF-A.baseline", "assessment.CGI-S.baseline", "assessment.WFIRS-S.baseline"],
+          "clinician_narrative_prompt": "Comment on baseline severity and functional impairment profile. Note any discrepancy between self-report and clinician-rated measures.",
+          "required": true
+        },
+        {
+          "section_id": "rpt-03",
+          "title": "Prior Treatment History",
+          "auto_populate_from": ["medical_history.prior_treatment", "medical_history.medications"],
+          "clinician_narrative_prompt": "Summarise prior ADHD treatment response. Note reason for adding neuromodulation at this stage.",
+          "required": true
+        },
+        {
+          "section_id": "rpt-04",
+          "title": "Contraindication Review",
+          "auto_populate_from": ["intake.contraindication_screening_json"],
+          "clinician_narrative_prompt": "Confirm all absolute contraindications have been excluded. Note any relative contraindications and mitigation plan.",
+          "required": true
+        },
+        {
+          "section_id": "rpt-05",
+          "title": "Selected Protocol and Rationale",
+          "auto_populate_from": ["course.protocol_id", "course.modality", "course.phenotype"],
+          "clinician_narrative_prompt": "State which protocol has been selected and why, including phenotype match, evidence grade, and any off-label acknowledgement obtained.",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "RPT-ADHD-PROGRESS",
+      "name": "ADHD Treatment Progress Report",
+      "report_type": "progress-report",
+      "audience": "Clinician",
+      "frequency": "Every 5 sessions",
+      "sections": [
+        {
+          "section_id": "prg-01",
+          "title": "Session Adherence",
+          "auto_populate_from": ["course.sessions_completed", "course.sessions_planned", "course.adherence_pct"],
+          "clinician_narrative_prompt": "Comment on attendance pattern, any missed sessions, and patient engagement.",
+          "required": true
+        },
+        {
+          "section_id": "prg-02",
+          "title": "Symptom Score Trajectory",
+          "auto_populate_from": ["assessment.ASRS-18.trend", "assessment.CGI-I.latest"],
+          "clinician_narrative_prompt": "Describe score trajectory from baseline. State whether response threshold is on track. Flag if non-response criteria are approaching.",
+          "required": true
+        },
+        {
+          "section_id": "prg-03",
+          "title": "Adverse Events Since Last Review",
+          "auto_populate_from": ["adverse_events.since_last_review"],
+          "clinician_narrative_prompt": "Summarise any AEs logged. State actions taken and current status.",
+          "required": true
+        },
+        {
+          "section_id": "prg-04",
+          "title": "Protocol Adjustments",
+          "auto_populate_from": ["course.protocol_version_history"],
+          "clinician_narrative_prompt": "Document any parameter changes made, reason, and expected impact.",
+          "required": false
+        }
+      ]
+    },
+    {
+      "id": "RPT-ADHD-EOC",
+      "name": "ADHD End-of-Course Outcome Report",
+      "report_type": "end-of-course-report",
+      "audience": "Clinician",
+      "frequency": "Once — at course completion",
+      "sections": [
+        {
+          "section_id": "eoc-01",
+          "title": "Treatment Summary",
+          "auto_populate_from": ["course.start_date", "course.end_date", "course.sessions_completed", "course.protocol_id", "course.modality"],
+          "clinician_narrative_prompt": "Summarise the treatment course delivered.",
+          "required": true
+        },
+        {
+          "section_id": "eoc-02",
+          "title": "Outcome Scores — Baseline to End of Course",
+          "auto_populate_from": ["assessment.ASRS-18.baseline", "assessment.ASRS-18.endpoint", "assessment.ASRS-18.change_pct", "assessment.BRIEF-A.baseline", "assessment.BRIEF-A.endpoint", "assessment.CGI-I.endpoint"],
+          "clinician_narrative_prompt": "Interpret outcome data. State response status (responder/non-responder/remission). Comment on functional improvement.",
+          "required": true
+        },
+        {
+          "section_id": "eoc-03",
+          "title": "Safety and Adverse Events Summary",
+          "auto_populate_from": ["adverse_events.all_course"],
+          "clinician_narrative_prompt": "Confirm all AEs documented and resolved. State any ongoing concerns.",
+          "required": true
+        },
+        {
+          "section_id": "eoc-04",
+          "title": "Recommendations",
+          "auto_populate_from": [],
+          "clinician_narrative_prompt": "State recommendation: maintenance sessions, repeat course, referral, medication review, or discharge. Specify follow-up assessment timing.",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "RPT-ADHD-SOAP",
+      "name": "ADHD Session SOAP Note",
+      "report_type": "soap-note",
+      "audience": "Internal",
+      "frequency": "Every session",
+      "sections": [
+        {
+          "section_id": "soap-s",
+          "title": "Subjective",
+          "auto_populate_from": ["session.patient_report"],
+          "clinician_narrative_prompt": "Document patient-reported symptoms today, changes since last session, medication adherence, sleep, and any concerns.",
+          "required": true
+        },
+        {
+          "section_id": "soap-o",
+          "title": "Objective",
+          "auto_populate_from": ["session.protocol_id", "session.parameters", "session.duration", "session.adverse_events"],
+          "clinician_narrative_prompt": "Record protocol delivered, parameters used, session duration, and technician observations.",
+          "required": true
+        },
+        {
+          "section_id": "soap-a",
+          "title": "Assessment",
+          "auto_populate_from": ["assessment.latest_scores"],
+          "clinician_narrative_prompt": "Clinical impression of response trajectory. Note any changes in presentation or risk factors.",
+          "required": true
+        },
+        {
+          "section_id": "soap-p",
+          "title": "Plan",
+          "auto_populate_from": ["course.next_session", "course.protocol_adjustments_pending"],
+          "clinician_narrative_prompt": "State plan for next session: parameter adjustments, additional assessment required, referral actions, or patient instructions.",
+          "required": true
+        }
+      ]
+    }
+  ],
+
+  "home_program_templates": [
+    {
+      "id": "HP-NF-ADHD-01",
+      "name": "ADHD Home Neurofeedback Maintenance Programme",
+      "modality_slug": "neurofeedback",
+      "device_required": "Muse 2 (research config) or equivalent home-grade EEG neurofeedback device",
+      "prerequisite_clinic_sessions": 10,
+      "sessions_per_week": 3,
+      "session_duration_minutes": 20,
+      "total_weeks": 8,
+      "patient_instructions": [
+        "Sit in a quiet, distraction-free room. Turn off TV, phone notifications, and other screens.",
+        "Put on the headband and check that all sensors are making good contact (green indicator on app).",
+        "Open the neurofeedback app and select your assigned training programme.",
+        "Sit still and focus on the feedback sound or image. Try to make the 'calm focus' state last as long as possible.",
+        "Complete 3 rounds of 5 minutes each, with a 2-minute rest break between each round.",
+        "After your session, log your focus score in the app and rate your attention on a scale of 1–10.",
+        "Do not use this device if you feel unwell, have a severe headache, or are very tired."
+      ],
+      "safety_checklist": [
+        "I do not have a headache or feel unwell today.",
+        "My scalp has no cuts, sores, or active skin conditions at the sensor sites.",
+        "I am not under the influence of alcohol or recreational drugs.",
+        "I have not missed clinic sessions — my home programme is still scheduled by my clinician."
+      ],
+      "reporting_requirements": [
+        "Log in-app session report after each home session (auto-syncs with clinic record).",
+        "Rate your focus and mood (1–10) in the daily log.",
+        "Report any headache, unusual mood changes, or technical issues to your clinician at the next clinic session.",
+        "Email clinic if you miss 3 or more home sessions in a row."
+      ],
+      "contraindications_for_home": [
+        "Headache rated ≥6/10",
+        "Feeling acutely distressed, anxious, or in a mental health crisis",
+        "New neurological symptoms (visual disturbance, weakness, speech problems)",
+        "Fever or active illness",
+        "You have taken a new medication that your clinician has not yet reviewed in context of your home programme"
+      ],
+      "evidence_note": "Home neurofeedback as a maintenance or adjunct strategy has limited but growing evidence. Not a substitute for clinic-based treatment. Devices such as Muse 2 use consumer-grade EEG (limited channel count and accuracy) — suitable for maintenance reinforcement only."
+    }
+  ],
+
+  "consent_documents": [
+    {
+      "id": "CONS-ADHD-GEN-01",
+      "name": "ADHD Neuromodulation — General Informed Consent",
+      "document_type": "informed-consent",
+      "modality_slug": null,
+      "when_required": "Before first session of any neuromodulation treatment for ADHD",
+      "key_disclosures": [
+        "All neuromodulation treatments for ADHD (neurofeedback, tDCS, TMS) are off-label — they are not specifically approved by the FDA or equivalent regulatory authority for ADHD treatment.",
+        "Results are not guaranteed and vary between individuals. Some patients experience no benefit.",
+        "Common side effects include scalp tingling (tDCS), post-session fatigue (neurofeedback/tDCS/TMS), and mild headache.",
+        "Serious but rare risks include seizure (TMS only), skin irritation or burn (tDCS), and transient mood changes.",
+        "Neuromodulation is not a replacement for medication or psychological therapy and is typically adjunctive.",
+        "I understand I may withdraw from treatment at any time without penalty.",
+        "My treatment data will be stored securely and used to monitor my response. It will not be shared without my consent except where legally required.",
+        "I have been informed of alternative treatment options and have had the opportunity to ask questions."
+      ],
+      "signature_required": true,
+      "witness_required": false,
+      "clinician_co_sign_required": true,
+      "review_frequency": "Each new treatment course"
+    },
+    {
+      "id": "CONS-ADHD-OFL-01",
+      "name": "ADHD Off-Label Treatment Acknowledgement",
+      "document_type": "off-label-acknowledgement",
+      "modality_slug": null,
+      "when_required": "Before protocol generation for any ADHD neuromodulation protocol",
+      "key_disclosures": [
+        "The treatment proposed is being used off-label. This means it is not specifically approved for ADHD by the relevant regulatory authority (e.g. FDA, MHRA, TGA).",
+        "My clinician has explained the current evidence base for this treatment in the context of my ADHD diagnosis.",
+        "I understand the evidence grade applicable to my proposed protocol (EV-B for neurofeedback, EV-C for tDCS or TMS).",
+        "I consent to proceeding with this off-label treatment after consideration of the available evidence and alternatives.",
+        "My clinician will monitor my response and adjust or discontinue treatment if it is not beneficial or if risks emerge."
+      ],
+      "signature_required": true,
+      "witness_required": false,
+      "clinician_co_sign_required": true,
+      "review_frequency": "Once per modality (valid for all subsequent courses with same modality unless evidence status changes)"
+    },
+    {
+      "id": "CONS-ADHD-TMS-01",
+      "name": "TMS Safety Screening and Consent",
+      "document_type": "contraindication-screening",
+      "modality_slug": "tms",
+      "when_required": "Before first TMS session and at start of any new TMS course",
+      "key_disclosures": [
+        "TMS delivers magnetic pulses to the brain. It is contraindicated in patients with metal implants in the head or neck.",
+        "Seizure is a rare but known risk of TMS. Risk is low with 1 Hz inhibitory protocols but not zero.",
+        "I have disclosed all implants, devices, medications, and medical conditions on the screening form.",
+        "I understand that if my medical status changes (new implant, new medication, new neurological event) I must inform the clinic before the next session.",
+        "Emergency seizure management procedures are available at the clinic and I have been briefed on what to do if I experience unusual symptoms."
+      ],
+      "signature_required": true,
+      "witness_required": false,
+      "clinician_co_sign_required": true,
+      "review_frequency": "Before each new TMS course and annually for ongoing treatment"
+    },
+    {
+      "id": "CONS-ADHD-MINOR-01",
+      "name": "Paediatric ADHD Treatment Consent (Parent/Guardian)",
+      "document_type": "caregiver-authorisation",
+      "modality_slug": null,
+      "when_required": "For all patients under 18 years before any neuromodulation treatment",
+      "key_disclosures": [
+        "I am the legal parent or guardian of the minor patient named above.",
+        "I have been fully informed about the proposed neuromodulation treatment, its off-label status, evidence base, and risks.",
+        "I consent on behalf of my child to the proposed treatment.",
+        "My child has been informed about the treatment in an age-appropriate way and has expressed willingness to participate.",
+        "I understand I may withdraw my consent on my child's behalf at any time without penalty."
+      ],
+      "signature_required": true,
+      "witness_required": true,
+      "clinician_co_sign_required": true,
+      "review_frequency": "Each new treatment course"
+    },
+    {
+      "id": "CONS-ADHD-HOME-01",
+      "name": "Home Neurofeedback Device Agreement",
+      "document_type": "home-device-agreement",
+      "modality_slug": "neurofeedback",
+      "when_required": "Before a home neurofeedback device is prescribed or loaned",
+      "key_disclosures": [
+        "Home neurofeedback is a supplementary programme only — it does not replace clinic-based treatment.",
+        "The device provided is a consumer-grade EEG device and is not a medical-grade system.",
+        "I will complete my home sessions as prescribed and report results through the clinic app.",
+        "I will contact the clinic if I experience any unusual symptoms during or after home sessions.",
+        "The device remains the property of the clinic (if loaned) and must be returned in good condition.",
+        "I will not allow others to use the device or use it for purposes other than my prescribed programme."
+      ],
+      "signature_required": true,
+      "witness_required": false,
+      "clinician_co_sign_required": false,
+      "review_frequency": "Once; updated if device is changed"
+    }
+  ]
+}

@@ -1,0 +1,860 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://deepsynaps.com/schemas/condition-package/1.0.0",
+  "title": "ConditionPackage",
+  "description": "Master schema for a DeepSynaps Condition Package. One JSON file per condition covers all 13 clinical sections needed to generate every downstream output: protocols, handbooks, consent docs, home programs, monitoring rules, and report templates.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "id",
+    "slug",
+    "name",
+    "category",
+    "condition_overview",
+    "patient_friendly_explanation",
+    "medical_history_requirements",
+    "contraindications",
+    "assessment_bundle",
+    "protocol_bundle",
+    "device_options",
+    "brain_targets",
+    "handbook_outputs",
+    "monitoring_rules",
+    "report_templates",
+    "home_program_templates",
+    "consent_documents",
+    "review_status"
+  ],
+  "additionalProperties": false,
+
+  "properties": {
+
+    "schema_version": {
+      "type": "string",
+      "description": "Semantic version of this schema (e.g. '1.0.0'). Increment minor on additive changes, major on breaking changes.",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$"
+    },
+    "id": {
+      "type": "string",
+      "description": "Stable cross-reference ID matching the CSV registry (e.g. CON-005).",
+      "pattern": "^CON-\\d{3}$"
+    },
+    "slug": {
+      "type": "string",
+      "description": "URL-safe kebab-case identifier (e.g. 'adhd', 'major-depressive-disorder').",
+      "pattern": "^[a-z0-9-]+$"
+    },
+    "name": {
+      "type": "string",
+      "description": "Full clinical name including acronym (e.g. 'Attention-Deficit/Hyperactivity Disorder (ADHD)')."
+    },
+    "category": {
+      "type": "string",
+      "description": "Broad clinical category.",
+      "enum": [
+        "Psychiatric — Mood",
+        "Psychiatric — Anxiety",
+        "Psychiatric — Trauma",
+        "Psychiatric — OCD-Spectrum",
+        "Psychiatric — Psychosis",
+        "Neurodevelopmental",
+        "Neurological — Movement",
+        "Neurological — Epilepsy",
+        "Neurological — Pain",
+        "Neurological — Headache",
+        "Neurological — Cognitive",
+        "Neurological — Rehabilitation",
+        "Sleep",
+        "Addiction",
+        "Sensory",
+        "Other"
+      ]
+    },
+    "icd_10": {
+      "type": "array",
+      "description": "ICD-10 codes applicable to this condition.",
+      "items": { "type": "string" }
+    },
+    "dsm_5_code": {
+      "type": "string",
+      "description": "Primary DSM-5 code if applicable (e.g. '314.0x')."
+    },
+    "created_at": {
+      "type": "string",
+      "description": "ISO 8601 date this package was first created.",
+      "format": "date"
+    },
+    "updated_at": {
+      "type": "string",
+      "description": "ISO 8601 date of last substantive update.",
+      "format": "date"
+    },
+    "review_status": {
+      "type": "string",
+      "enum": ["reviewed", "draft", "needs-update", "deprecated"]
+    },
+    "reviewed_by": {
+      "type": "string",
+      "description": "Name or role of reviewer who approved this package."
+    },
+
+    "condition_overview": {
+      "type": "object",
+      "description": "Section 1 — Clinician-facing clinical summary of the condition.",
+      "required": ["summary", "prevalence", "phenotype_clusters", "severity_levels", "population", "symptom_clusters", "highest_evidence_level", "relevant_modalities", "neurobiology"],
+      "additionalProperties": false,
+      "properties": {
+        "summary": {
+          "type": "string",
+          "description": "2-4 sentence clinical overview."
+        },
+        "prevalence": {
+          "type": "string",
+          "description": "Population prevalence with source context."
+        },
+        "phenotype_clusters": {
+          "type": "array",
+          "description": "Clinical subtypes or phenotypes with IDs from phenotypes registry.",
+          "items": {
+            "type": "object",
+            "required": ["id", "name", "description"],
+            "additionalProperties": false,
+            "properties": {
+              "id": { "type": "string", "description": "PHE-xxx ID from phenotypes registry." },
+              "name": { "type": "string" },
+              "description": { "type": "string" },
+              "primary_modality": { "type": "string" },
+              "qeeg_signature": { "type": "string" }
+            }
+          }
+        },
+        "severity_levels": {
+          "type": "array",
+          "description": "Clinical severity tiers (e.g. Mild, Moderate, Severe, Treatment-resistant).",
+          "items": { "type": "string" }
+        },
+        "population": {
+          "type": "array",
+          "description": "Age groups and populations this condition applies to.",
+          "items": { "type": "string" }
+        },
+        "symptom_clusters": {
+          "type": "array",
+          "description": "Key symptom domains (e.g. Inattention, Hyperactivity, Emotional dysregulation).",
+          "items": { "type": "string" }
+        },
+        "highest_evidence_level": {
+          "type": "string",
+          "enum": ["EV-A", "EV-B", "EV-C", "EV-D"],
+          "description": "Highest evidence level across all supported protocols for this condition."
+        },
+        "relevant_modalities": {
+          "type": "array",
+          "description": "MOD-xxx IDs or slug names of applicable modalities.",
+          "items": { "type": "string" }
+        },
+        "neurobiology": {
+          "type": "string",
+          "description": "Key neurobiological mechanism relevant to neuromodulation targeting."
+        },
+        "comorbidities": {
+          "type": "array",
+          "description": "Commonly co-occurring conditions that affect protocol selection.",
+          "items": { "type": "string" }
+        },
+        "differential_diagnoses": {
+          "type": "array",
+          "description": "Conditions to rule out before confirming diagnosis.",
+          "items": { "type": "string" }
+        }
+      }
+    },
+
+    "patient_friendly_explanation": {
+      "type": "object",
+      "description": "Section 2 — Plain-language content for patient handouts and consent conversations. Reading level: Grade 8.",
+      "required": ["what_is_it", "how_it_affects_you", "treatment_options_overview", "what_to_expect", "faq"],
+      "additionalProperties": false,
+      "properties": {
+        "what_is_it": {
+          "type": "string",
+          "description": "Plain-language definition (2-3 sentences, no jargon)."
+        },
+        "how_it_affects_you": {
+          "type": "string",
+          "description": "How symptoms manifest in daily life."
+        },
+        "treatment_options_overview": {
+          "type": "string",
+          "description": "Overview of neuromodulation as a treatment option in plain language."
+        },
+        "what_to_expect": {
+          "type": "string",
+          "description": "What a typical treatment course looks like for the patient."
+        },
+        "faq": {
+          "type": "array",
+          "description": "Common patient questions and answers.",
+          "items": {
+            "type": "object",
+            "required": ["question", "answer"],
+            "additionalProperties": false,
+            "properties": {
+              "question": { "type": "string" },
+              "answer": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+
+    "medical_history_requirements": {
+      "type": "object",
+      "description": "Section 3 — What must be collected before treatment planning can begin.",
+      "required": ["required_fields", "clinical_interview_checklist", "rule_out_differentials", "comorbidity_screen"],
+      "additionalProperties": false,
+      "properties": {
+        "required_fields": {
+          "type": "array",
+          "description": "Mandatory data fields that must be present in the patient record before a protocol can be generated.",
+          "items": {
+            "type": "object",
+            "required": ["field", "reason"],
+            "additionalProperties": false,
+            "properties": {
+              "field": { "type": "string" },
+              "reason": { "type": "string" },
+              "blocks_protocol": { "type": "boolean", "default": false }
+            }
+          }
+        },
+        "clinical_interview_checklist": {
+          "type": "array",
+          "description": "Topics a clinician must cover in the intake interview.",
+          "items": { "type": "string" }
+        },
+        "rule_out_differentials": {
+          "type": "array",
+          "description": "Conditions that must be excluded before this diagnosis is confirmed.",
+          "items": { "type": "string" }
+        },
+        "comorbidity_screen": {
+          "type": "array",
+          "description": "Co-occurring conditions to actively screen for as they affect protocol choice.",
+          "items": { "type": "string" }
+        },
+        "prior_treatment_required": {
+          "type": "array",
+          "description": "Prior treatment history items that must be documented.",
+          "items": { "type": "string" }
+        },
+        "special_population_flags": {
+          "type": "array",
+          "description": "Population-specific intake requirements (e.g. paediatric, pregnant, elderly).",
+          "items": {
+            "type": "object",
+            "required": ["population", "additional_requirements"],
+            "additionalProperties": false,
+            "properties": {
+              "population": { "type": "string" },
+              "additional_requirements": {
+                "type": "array",
+                "items": { "type": "string" }
+              }
+            }
+          }
+        }
+      }
+    },
+
+    "contraindications": {
+      "type": "object",
+      "description": "Section 4 — Safety gates. Absolute contraindications block any protocol. Relative require documented risk-benefit discussion.",
+      "required": ["absolute", "relative"],
+      "additionalProperties": false,
+      "properties": {
+        "absolute": {
+          "type": "array",
+          "description": "Conditions where NO protocol may proceed under any circumstances.",
+          "items": {
+            "type": "object",
+            "required": ["condition", "rationale"],
+            "additionalProperties": false,
+            "properties": {
+              "condition": { "type": "string" },
+              "rationale": { "type": "string" }
+            }
+          }
+        },
+        "relative": {
+          "type": "array",
+          "description": "Conditions where protocols may proceed only with documented risk-benefit discussion and clinician sign-off.",
+          "items": {
+            "type": "object",
+            "required": ["condition", "rationale", "mitigation"],
+            "additionalProperties": false,
+            "properties": {
+              "condition": { "type": "string" },
+              "rationale": { "type": "string" },
+              "mitigation": { "type": "string" }
+            }
+          }
+        },
+        "special_populations": {
+          "type": "array",
+          "description": "Population-specific contraindication flags.",
+          "items": {
+            "type": "object",
+            "required": ["population", "flag"],
+            "additionalProperties": false,
+            "properties": {
+              "population": { "type": "string" },
+              "flag": { "type": "string" }
+            }
+          }
+        },
+        "modality_specific": {
+          "type": "object",
+          "description": "Additional contraindications keyed by modality slug (overrides or supplements the above for that modality).",
+          "additionalProperties": {
+            "type": "array",
+            "items": { "type": "string" }
+          }
+        }
+      }
+    },
+
+    "assessment_bundle": {
+      "type": "object",
+      "description": "Section 5 — Full set of assessments organised by clinical purpose.",
+      "required": ["screening", "baseline", "monitoring", "outcome"],
+      "additionalProperties": false,
+      "properties": {
+        "screening": {
+          "type": "array",
+          "description": "Initial screening tools used before formal diagnosis confirmation.",
+          "items": { "$ref": "#/$defs/assessmentRef" }
+        },
+        "diagnostic": {
+          "type": "array",
+          "description": "Structured diagnostic instruments (clinician-rated or validated diagnostic scales).",
+          "items": { "$ref": "#/$defs/assessmentRef" }
+        },
+        "baseline": {
+          "type": "array",
+          "description": "Assessments administered at intake to establish baseline scores before treatment.",
+          "items": { "$ref": "#/$defs/assessmentRef" }
+        },
+        "monitoring": {
+          "type": "array",
+          "description": "Assessments repeated during treatment to track response and detect adverse change.",
+          "items": { "$ref": "#/$defs/assessmentRef" }
+        },
+        "outcome": {
+          "type": "array",
+          "description": "End-of-course and follow-up outcome measures.",
+          "items": { "$ref": "#/$defs/assessmentRef" }
+        },
+        "neurophysiological": {
+          "type": "array",
+          "description": "qEEG, ERP, or other brain-based measures if applicable.",
+          "items": { "$ref": "#/$defs/assessmentRef" }
+        },
+        "functional": {
+          "type": "array",
+          "description": "Functional impairment and quality-of-life measures.",
+          "items": { "$ref": "#/$defs/assessmentRef" }
+        }
+      }
+    },
+
+    "protocol_bundle": {
+      "type": "array",
+      "description": "Section 6 — All evidence-supported protocols for this condition. Each protocol is modality-specific.",
+      "items": { "$ref": "#/$defs/protocol" }
+    },
+
+    "device_options": {
+      "type": "array",
+      "description": "Section 7 — Devices suitable for this condition, with regulatory status and modality linkage.",
+      "items": {
+        "type": "object",
+        "required": ["device_id", "name", "manufacturer", "modality_slug", "regulatory_status", "use_setting"],
+        "additionalProperties": false,
+        "properties": {
+          "device_id": { "type": "string" },
+          "name": { "type": "string" },
+          "manufacturer": { "type": "string" },
+          "modality_slug": { "type": "string" },
+          "regulatory_status": {
+            "type": "string",
+            "enum": ["FDA-cleared", "FDA-cleared (other indication)", "CE-marked", "Investigational", "Research-only", "Not approved"]
+          },
+          "cleared_indication": { "type": "string", "description": "What the device is actually cleared for (may differ from this condition)." },
+          "use_setting": {
+            "type": "string",
+            "enum": ["Clinic", "Home", "Hybrid"]
+          },
+          "compatible_protocols": {
+            "type": "array",
+            "description": "Protocol IDs from protocol_bundle this device can deliver.",
+            "items": { "type": "string" }
+          },
+          "constraints": {
+            "type": "array",
+            "description": "Technical or clinical constraints for this device.",
+            "items": { "type": "string" }
+          },
+          "notes": { "type": "string" }
+        }
+      }
+    },
+
+    "brain_targets": {
+      "type": "array",
+      "description": "Section 8 — Brain regions and neural circuits targeted for this condition, with rationale.",
+      "items": {
+        "type": "object",
+        "required": ["region", "abbreviation", "laterality", "rationale", "modalities", "eeg_position_10_20"],
+        "additionalProperties": false,
+        "properties": {
+          "region": { "type": "string", "description": "Full anatomical name." },
+          "abbreviation": { "type": "string" },
+          "laterality": {
+            "type": "string",
+            "enum": ["Left", "Right", "Bilateral", "Midline", "N/A"]
+          },
+          "rationale": { "type": "string", "description": "Clinical rationale for targeting this region." },
+          "effect_direction": {
+            "type": "string",
+            "enum": ["Excitatory", "Inhibitory", "Normalise", "N/A"],
+            "description": "Whether the goal is to upregulate, downregulate, or normalise activity."
+          },
+          "modalities": {
+            "type": "array",
+            "description": "Which modalities target this region.",
+            "items": { "type": "string" }
+          },
+          "eeg_position_10_20": { "type": "string", "description": "Closest 10-20 EEG position (e.g. F4, Cz)." },
+          "brodmann_area": { "type": "string" },
+          "network": { "type": "string", "description": "Brain network this region belongs to (e.g. Default Mode Network, Salience Network)." },
+          "qeeg_target": { "type": "string", "description": "qEEG biomarker to normalise at this region (e.g. 'Theta/Beta ratio at Cz')." },
+          "evidence_note": { "type": "string" }
+        }
+      }
+    },
+
+    "handbook_outputs": {
+      "type": "object",
+      "description": "Section 9 — Structured content for generating clinician handbooks, patient guides, and technician SOPs. Each document type has section-by-section content blocks.",
+      "required": ["clinician_handbook", "patient_guide", "technician_sop"],
+      "additionalProperties": false,
+      "properties": {
+        "clinician_handbook": { "$ref": "#/$defs/handbookDocument" },
+        "patient_guide": { "$ref": "#/$defs/handbookDocument" },
+        "technician_sop": { "$ref": "#/$defs/handbookDocument" }
+      }
+    },
+
+    "monitoring_rules": {
+      "type": "object",
+      "description": "Section 10 — Rules that govern how patients are monitored during a treatment course. Used by the monitoring engine to trigger alerts and escalations.",
+      "required": ["assessment_schedule", "response_thresholds", "adverse_event_triggers", "escalation_rules"],
+      "additionalProperties": false,
+      "properties": {
+        "assessment_schedule": {
+          "type": "array",
+          "description": "When assessments should be administered relative to treatment.",
+          "items": {
+            "type": "object",
+            "required": ["assessment_id", "timing", "frequency"],
+            "additionalProperties": false,
+            "properties": {
+              "assessment_id": { "type": "string" },
+              "assessment_name": { "type": "string" },
+              "timing": {
+                "type": "string",
+                "description": "Relative timing (e.g. 'Before session 1', 'Every 5 sessions', 'End of course', 'Week 4 and 8')."
+              },
+              "frequency": { "type": "string", "description": "How often to repeat (e.g. 'Once', 'Weekly', 'Every 5 sessions')." },
+              "administered_by": {
+                "type": "string",
+                "enum": ["Patient self-report", "Clinician-rated", "Technician-guided", "Either"]
+              }
+            }
+          }
+        },
+        "response_thresholds": {
+          "type": "array",
+          "description": "Score change thresholds that define response, non-response, and deterioration.",
+          "items": {
+            "type": "object",
+            "required": ["assessment_id", "response_threshold", "non_response_threshold", "deterioration_threshold"],
+            "additionalProperties": false,
+            "properties": {
+              "assessment_id": { "type": "string" },
+              "assessment_name": { "type": "string" },
+              "lower_is_better": { "type": "boolean" },
+              "response_threshold": { "type": "string", "description": "Definition of clinical response (e.g. '≥30% reduction from baseline')." },
+              "remission_threshold": { "type": "string", "description": "Definition of remission score." },
+              "non_response_threshold": { "type": "string", "description": "When to flag for clinical review (e.g. '<20% improvement at session 15')." },
+              "deterioration_threshold": { "type": "string", "description": "Score increase that triggers urgent clinician review." }
+            }
+          }
+        },
+        "adverse_event_triggers": {
+          "type": "array",
+          "description": "AE types that must trigger specific actions.",
+          "items": {
+            "type": "object",
+            "required": ["event_type", "severity", "action"],
+            "additionalProperties": false,
+            "properties": {
+              "event_type": { "type": "string" },
+              "severity": { "type": "string", "enum": ["Mild", "Moderate", "Severe", "Serious"] },
+              "action": { "type": "string" },
+              "suspend_treatment": { "type": "boolean", "default": false }
+            }
+          }
+        },
+        "escalation_rules": {
+          "type": "array",
+          "description": "Criteria that require escalation to senior clinician or protocol adjustment.",
+          "items": {
+            "type": "object",
+            "required": ["trigger", "action"],
+            "additionalProperties": false,
+            "properties": {
+              "trigger": { "type": "string" },
+              "action": { "type": "string" },
+              "urgency": { "type": "string", "enum": ["Routine", "Urgent", "Emergency"] }
+            }
+          }
+        },
+        "adherence_rules": {
+          "type": "object",
+          "description": "Rules for flagging and managing adherence issues.",
+          "additionalProperties": false,
+          "properties": {
+            "minimum_session_adherence_pct": { "type": "number" },
+            "consecutive_missed_sessions_flag": { "type": "integer" },
+            "action_on_low_adherence": { "type": "string" }
+          }
+        }
+      }
+    },
+
+    "report_templates": {
+      "type": "array",
+      "description": "Section 11 — Structured report templates. Each template defines sections and auto-populated fields for generating PDF/DOCX reports.",
+      "items": {
+        "type": "object",
+        "required": ["id", "name", "report_type", "audience", "sections"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string" },
+          "name": { "type": "string" },
+          "report_type": {
+            "type": "string",
+            "enum": ["intake-summary", "progress-report", "end-of-course-report", "adverse-event-report", "referral-letter", "soap-note"]
+          },
+          "audience": {
+            "type": "string",
+            "enum": ["Clinician", "Patient", "Referring Physician", "Insurer", "Internal"]
+          },
+          "frequency": { "type": "string", "description": "When this report is generated (e.g. 'Once — at intake', 'Every 5 sessions', 'End of course')." },
+          "sections": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["section_id", "title", "auto_populate_from", "clinician_narrative_prompt"],
+              "additionalProperties": false,
+              "properties": {
+                "section_id": { "type": "string" },
+                "title": { "type": "string" },
+                "auto_populate_from": {
+                  "type": "array",
+                  "description": "Data fields that populate this section automatically from patient record.",
+                  "items": { "type": "string" }
+                },
+                "clinician_narrative_prompt": {
+                  "type": "string",
+                  "description": "Prompt shown to clinician for the free-text narrative portion of this section."
+                },
+                "required": { "type": "boolean", "default": true }
+              }
+            }
+          }
+        }
+      }
+    },
+
+    "home_program_templates": {
+      "type": "array",
+      "description": "Section 12 — Home program templates for conditions/modalities that support at-home components.",
+      "items": {
+        "type": "object",
+        "required": ["id", "name", "modality_slug", "sessions_per_week", "session_duration_minutes", "patient_instructions", "safety_checklist", "reporting_requirements"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string" },
+          "name": { "type": "string" },
+          "modality_slug": { "type": "string" },
+          "device_required": { "type": "string" },
+          "prerequisite_clinic_sessions": { "type": "integer", "description": "Minimum clinic sessions before home program may begin." },
+          "sessions_per_week": { "type": "integer" },
+          "session_duration_minutes": { "type": "integer" },
+          "total_weeks": { "type": "integer" },
+          "patient_instructions": {
+            "type": "array",
+            "description": "Step-by-step plain-language instructions for the patient.",
+            "items": { "type": "string" }
+          },
+          "safety_checklist": {
+            "type": "array",
+            "description": "Patient must confirm these items before each home session.",
+            "items": { "type": "string" }
+          },
+          "reporting_requirements": {
+            "type": "array",
+            "description": "What the patient must log/report after each session.",
+            "items": { "type": "string" }
+          },
+          "contraindications_for_home": {
+            "type": "array",
+            "description": "Reasons the patient should not proceed with a home session (call clinic instead).",
+            "items": { "type": "string" }
+          },
+          "evidence_note": { "type": "string" }
+        }
+      }
+    },
+
+    "consent_documents": {
+      "type": "array",
+      "description": "Section 13 — Consent forms and documents that must be obtained before treatment. Keyed by modality where relevant.",
+      "items": {
+        "type": "object",
+        "required": ["id", "name", "document_type", "when_required", "key_disclosures", "signature_required"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string" },
+          "name": { "type": "string" },
+          "document_type": {
+            "type": "string",
+            "enum": [
+              "informed-consent",
+              "contraindication-screening",
+              "off-label-acknowledgement",
+              "data-sharing-consent",
+              "photography-consent",
+              "minor-assent",
+              "caregiver-authorisation",
+              "research-participation",
+              "home-device-agreement"
+            ]
+          },
+          "modality_slug": {
+            "type": "string",
+            "description": "If this consent is modality-specific, the modality slug. Leave null for condition-level consent."
+          },
+          "when_required": { "type": "string", "description": "At what point in the workflow this document must be signed (e.g. 'Before first session', 'Before protocol generation')." },
+          "key_disclosures": {
+            "type": "array",
+            "description": "Critical facts the patient must be informed of. These become checkboxes in the consent form.",
+            "items": { "type": "string" }
+          },
+          "signature_required": { "type": "boolean" },
+          "witness_required": { "type": "boolean", "default": false },
+          "clinician_co_sign_required": { "type": "boolean", "default": false },
+          "review_frequency": { "type": "string", "description": "How often re-consent is required (e.g. 'Each new course', 'Annually', 'Once')." }
+        }
+      }
+    }
+
+  },
+
+  "$defs": {
+
+    "assessmentRef": {
+      "type": "object",
+      "required": ["assessment_id", "name", "rationale"],
+      "additionalProperties": false,
+      "properties": {
+        "assessment_id": { "type": "string", "description": "ASS-xxx ID from assessments registry." },
+        "name": { "type": "string", "description": "Short label (e.g. 'ASRS-5', 'Conners 4')." },
+        "full_name": { "type": "string" },
+        "clinician_vs_patient": {
+          "type": "string",
+          "enum": ["Patient self-report", "Clinician-rated", "Parent/caregiver report", "Observer-rated", "Either"]
+        },
+        "rationale": { "type": "string", "description": "Why this assessment is included in this bundle." },
+        "lower_is_better": { "type": "boolean", "description": "True if lower scores indicate improvement (e.g. PHQ-9, ASRS)." },
+        "admin_duration_minutes": { "type": "integer" },
+        "access": { "type": "string", "description": "Free / Licensed / Requires training." },
+        "population": { "type": "string", "description": "Who this version is for (e.g. 'Adult 18+', 'Child 6-18', 'All')." }
+      }
+    },
+
+    "protocol": {
+      "type": "object",
+      "required": [
+        "protocol_id",
+        "name",
+        "modality_slug",
+        "phenotype_id",
+        "on_label_vs_off_label",
+        "evidence_grade",
+        "evidence_summary",
+        "brain_target",
+        "parameters",
+        "session_structure",
+        "monitoring_required",
+        "contraindication_check_required",
+        "adverse_event_monitoring",
+        "escalation_rules",
+        "governance"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "protocol_id": { "type": "string", "description": "PRO-xxx cross-reference ID." },
+        "name": { "type": "string" },
+        "modality_slug": { "type": "string" },
+        "phenotype_id": { "type": "string" },
+        "device_id": { "type": "string", "description": "Required if protocol is device-specific." },
+        "on_label_vs_off_label": { "type": "string", "enum": ["On-label", "Off-label", "Investigational"] },
+        "evidence_grade": { "type": "string", "enum": ["EV-A", "EV-B", "EV-C", "EV-D"] },
+        "evidence_summary": { "type": "string" },
+        "references": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "brain_target": {
+          "type": "object",
+          "required": ["region", "laterality"],
+          "additionalProperties": false,
+          "properties": {
+            "region": { "type": "string" },
+            "laterality": { "type": "string" },
+            "eeg_position": { "type": "string" },
+            "effect_direction": { "type": "string" }
+          }
+        },
+        "parameters": {
+          "type": "object",
+          "description": "Stimulation parameters. Fields present vary by modality.",
+          "additionalProperties": false,
+          "properties": {
+            "frequency_hz": { "type": "string" },
+            "intensity": { "type": "string" },
+            "pulse_count": { "type": "string" },
+            "electrode_placement": { "type": "string" },
+            "coil_type": { "type": "string" },
+            "current_ma": { "type": "string" },
+            "current_density": { "type": "string" },
+            "ramp_up_seconds": { "type": "integer" },
+            "ramp_down_seconds": { "type": "integer" },
+            "reward_band": { "type": "string" },
+            "inhibit_band": { "type": "string" },
+            "threshold_type": { "type": "string" },
+            "feedback_modality": { "type": "string" },
+            "electrode_sites": { "type": "string" },
+            "additional_params": { "type": "object", "additionalProperties": { "type": "string" } }
+          }
+        },
+        "session_structure": {
+          "type": "object",
+          "required": ["sessions_per_week", "session_duration_minutes", "total_sessions", "total_weeks"],
+          "additionalProperties": false,
+          "properties": {
+            "sessions_per_week": { "type": "integer" },
+            "session_duration_minutes": { "type": "integer" },
+            "total_sessions": { "type": "integer" },
+            "total_weeks": { "type": "integer" },
+            "maintenance_sessions": { "type": "string" },
+            "steps": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["order", "title", "duration_minutes", "detail"],
+                "additionalProperties": false,
+                "properties": {
+                  "order": { "type": "integer" },
+                  "title": { "type": "string" },
+                  "duration_minutes": { "type": "integer" },
+                  "detail": { "type": "string" }
+                }
+              }
+            }
+          }
+        },
+        "monitoring_required": {
+          "type": "array",
+          "description": "Assessments or checks required specifically for this protocol.",
+          "items": { "type": "string" }
+        },
+        "contraindication_check_required": { "type": "boolean" },
+        "adverse_event_monitoring": { "type": "string" },
+        "escalation_rules": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "patient_facing_allowed": { "type": "boolean" },
+        "clinician_review_required": { "type": "boolean" },
+        "governance": {
+          "type": "object",
+          "required": ["patient_export_allowed", "requires_clinician_sign_off", "off_label_acknowledgement_required"],
+          "additionalProperties": false,
+          "properties": {
+            "patient_export_allowed": { "type": "boolean" },
+            "requires_clinician_sign_off": { "type": "boolean" },
+            "off_label_acknowledgement_required": { "type": "boolean" },
+            "dual_review_required": { "type": "boolean", "default": false },
+            "notes": { "type": "string" }
+          }
+        },
+        "notes": { "type": "string" }
+      }
+    },
+
+    "handbookDocument": {
+      "type": "object",
+      "required": ["title", "audience", "sections"],
+      "additionalProperties": false,
+      "properties": {
+        "title": { "type": "string" },
+        "audience": { "type": "string" },
+        "sections": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["section_id", "title", "content"],
+            "additionalProperties": false,
+            "properties": {
+              "section_id": { "type": "string" },
+              "title": { "type": "string" },
+              "content": {
+                "type": "array",
+                "description": "Bullet points or paragraphs of content.",
+                "items": { "type": "string" }
+              },
+              "subsections": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": ["title", "content"],
+                  "additionalProperties": false,
+                  "properties": {
+                    "title": { "type": "string" },
+                    "content": { "type": "array", "items": { "type": "string" } }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+
+  }
+}
