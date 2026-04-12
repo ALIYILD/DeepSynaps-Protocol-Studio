@@ -1,14 +1,1294 @@
 {
+  "$schema": "../schemas/condition-package.schema.json",
+  "schema_version": "1.0.0",
+  "id": "CON-012",
   "slug": "parkinsons-disease",
-  "name": "Parkinson's disease",
-  "phenotypes": [
-    "motor-dominant",
-    "gait-instability"
+  "name": "Parkinson's Disease (PD)",
+  "category": "Neurological \u2014 Movement",
+  "icd_10": ["G20"],
+  "dsm_5_code": "332",
+  "created_at": "2026-04-12",
+  "updated_at": "2026-04-12",
+  "review_status": "reviewed",
+  "reviewed_by": "DeepSynaps Clinical Team",
+
+  "condition_overview": {
+    "summary": "Parkinson's disease (PD) is a progressive neurodegenerative disorder characterised by motor features — bradykinesia, rigidity, resting tremor, and postural instability — arising from dopaminergic neuronal loss in the substantia nigra pars compacta. Non-motor features including depression, cognitive decline, autonomic dysfunction, sleep disorders, and anosmia are increasingly recognised as central to disease burden. For patients with advanced PD experiencing motor fluctuations and dyskinesias despite optimised pharmacotherapy, deep brain stimulation (DBS) of the subthalamic nucleus (STN) or globus pallidus internus (GPi) represents guideline-supported standard of care. Adaptive DBS (Medtronic BrainSense) received FDA approval in February 2025.",
+    "prevalence": "PD affects approximately 10 million people worldwide (Parkinson's Foundation, 2023). Prevalence increases with age: approximately 1% of adults over 60 and 4% over 80. Mean age of onset is approximately 60 years. Young-onset PD (YOPD, onset before age 50) accounts for 5-10% of cases. PD is the second most common neurodegenerative condition after Alzheimer's disease.",
+    "phenotype_clusters": [
+      {
+        "id": "PHE-044",
+        "name": "Tremor-Dominant PD",
+        "description": "Resting tremor is the predominant feature with relatively slow motor progression. Better prognosis than akinetic-rigid type. Particularly amenable to VIM thalamic DBS or STN DBS for tremor control. MRgFUS is also FDA cleared for tremor-dominant PD (unilateral).",
+        "primary_modality": "dbs",
+        "qeeg_signature": "Beta oscillations (13-35 Hz) in STN LFP; resting tremor band 4-6 Hz in motor cortex and STN"
+      },
+      {
+        "id": "PHE-045",
+        "name": "Akinetic-Rigid PD",
+        "description": "Predominant bradykinesia and rigidity with minimal tremor. Faster progression. More significant impact on gait and daily function. Both STN and GPi DBS are effective; GPi may have advantage for dyskinesia management without medication reduction.",
+        "primary_modality": "dbs",
+        "qeeg_signature": "Exaggerated STN beta power (20-30 Hz); reduced beta desynchronisation with movement"
+      },
+      {
+        "id": "PHE-046",
+        "name": "Mixed Presentation PD",
+        "description": "Combination of tremor, rigidity, and bradykinesia. Most common clinical presentation. STN DBS is most studied and most widely used. Motor fluctuations and dyskinesias develop over time with advancing disease and levodopa therapy.",
+        "primary_modality": "dbs",
+        "qeeg_signature": "Combined beta elevation and tremor-frequency oscillations in STN LFP"
+      },
+      {
+        "id": "PHE-047",
+        "name": "PD with Mild Cognitive Impairment (PD-MCI)",
+        "description": "PD with objectively documented cognitive deficits not yet meeting dementia criteria. More common in akinetic-rigid subtype. Cognitive impairment is a relative contraindication for STN DBS (not absolute if mild); careful neuropsychological evaluation required. GPi DBS may be safer in this group.",
+        "primary_modality": "dbs",
+        "qeeg_signature": "Frontal theta elevation; reduced alpha at posterior sites; abnormal P300 ERP"
+      },
+      {
+        "id": "PHE-048",
+        "name": "Young-Onset PD (YOPD)",
+        "description": "Onset before age 50. More rapid dyskinesia development, longer disease duration, higher genetic association (LRRK2, PINK1, Parkin). Longer life expectancy means earlier DBS candidacy is often appropriate. STN DBS is preferred to allow medication reduction and prevent long-term levodopa complications.",
+        "primary_modality": "dbs",
+        "qeeg_signature": "Similar to mixed/akinetic-rigid; may show genetic-specific network signatures"
+      }
+    ],
+    "severity_levels": [
+      "Hoehn-Yahr Stage I — Unilateral involvement; no functional impairment",
+      "Hoehn-Yahr Stage II — Bilateral involvement; no balance impairment",
+      "Hoehn-Yahr Stage III — Bilateral disease; mild postural instability; functionally independent",
+      "Hoehn-Yahr Stage IV — Severe disability; requires assistance; able to stand and walk",
+      "Hoehn-Yahr Stage V — Wheelchair or bedridden unless aided"
+    ],
+    "population": ["Adult (mean onset 60+)", "Young-Onset PD (onset <50 years)", "Older Adult (>80 — DBS requires careful risk-benefit assessment)"],
+    "symptom_clusters": [
+      "Bradykinesia (slowness of movement — cardinal feature required for PD diagnosis)",
+      "Rigidity (cogwheel or lead-pipe; limb and axial)",
+      "Resting tremor (3-6 Hz; pill-rolling; limb or jaw; typically asymmetric at onset)",
+      "Postural instability and gait freezing (later features; significant falls risk)",
+      "Motor fluctuations: wearing-off phenomenon and on-off pattern (with advancing disease and levodopa therapy)",
+      "Dyskinesias: peak-dose, levodopa-induced choreiform movements",
+      "Non-motor: depression (40%), anxiety, apathy",
+      "Non-motor: constipation, urinary urgency, orthostatic hypotension (autonomic)",
+      "Non-motor: REM sleep behaviour disorder (RBD), excessive daytime sleepiness",
+      "Non-motor: cognitive impairment and dementia in advanced disease",
+      "Non-motor: anosmia (often a pre-motor symptom preceding motor diagnosis by years)"
+    ],
+    "highest_evidence_level": "EV-A",
+    "relevant_modalities": ["dbs", "tms", "mrgfus"],
+    "neurobiology": "PD results from progressive loss of dopaminergic neurons in the substantia nigra pars compacta (SNpc), leading to striatal dopamine depletion and consequent dysfunction of basal ganglia-thalamo-cortical motor circuits. The hypokinetic state reflects excessive inhibitory output from the internal globus pallidus (GPi) driven by subthalamic nucleus (STN) overactivity via the indirect pathway. High-frequency DBS of the STN suppresses pathological beta oscillations (13-35 Hz), reducing excessive GPi inhibition of thalamocortical motor circuits and restoring voluntary movement. GPi DBS achieves similar benefit by direct inhibition of excessive GPi output. Adaptive DBS (FDA approved February 2025) closes the loop by sensing STN local field potentials (LFP) and adjusting stimulation intensity in real-time based on the patient's instantaneous motor state.",
+    "comorbidities": [
+      "Major depressive disorder (40% of PD patients)",
+      "Anxiety disorders (30-40%)",
+      "Parkinson's disease dementia (PDD — approximately 30% after 20 years disease duration)",
+      "REM sleep behaviour disorder (RBD — approximately 50%; often precedes motor diagnosis)",
+      "Restless legs syndrome",
+      "Orthostatic hypotension",
+      "Constipation (near-universal)",
+      "Impulse control disorders (ICDs — related to dopamine agonist therapy)",
+      "Psychosis and hallucinations (in advanced disease or with dopaminergic therapy)"
+    ],
+    "differential_diagnoses": [
+      "Multiple System Atrophy (MSA) — autonomic failure, cerebellar signs; DBS poorly effective",
+      "Progressive Supranuclear Palsy (PSP) — vertical gaze palsy, early falls; DBS contraindicated",
+      "Corticobasal Degeneration (CBD) — alien limb, cortical sensory loss; DBS not effective",
+      "Lewy Body Dementia (DLB) — dementia precedes or concurrent with parkinsonism",
+      "Drug-induced parkinsonism (antipsychotics, metoclopramide, calcium channel blockers)",
+      "Essential tremor (postural/kinetic tremor; no bradykinesia; levodopa non-responsive)",
+      "Vascular parkinsonism (white matter lesions on MRI; gait-predominant; lower body)",
+      "Wilson's disease in young patients — copper metabolism disorder; treatable"
+    ]
+  },
+
+  "patient_friendly_explanation": {
+    "what_is_it": "Parkinson's disease is a condition that develops when certain brain cells that produce a chemical called dopamine gradually stop working. Dopamine is the brain's messenger for smooth, controlled movement. Without enough dopamine, movements become slower, stiffer, and harder to control. Parkinson's is not caused by anything you did wrong and it is not contagious.",
+    "how_it_affects_you": "The main movement symptoms are slowness, stiffness, and sometimes a tremor (shaking at rest). As the condition progresses, getting up from a chair, walking, and maintaining balance can become more difficult. Many people also experience non-movement symptoms such as low mood, difficulty sleeping, constipation, and changes in memory or thinking. Taking medication (levodopa) helps most people, but over time the medication effects can become less predictable, causing wearing-off periods and uncontrolled movements called dyskinesias.",
+    "treatment_options_overview": "When medication alone is not controlling symptoms well enough, brain stimulation treatments offer important options. Deep Brain Stimulation (DBS) is a surgical procedure that places tiny electrodes in specific parts of the brain to deliver gentle electrical pulses that restore more normal brain activity. This reduces tremor, stiffness, and slow movements and can allow a significant reduction in medication. A newer form called Adaptive DBS automatically adjusts stimulation based on your brain's own signals. For people with mainly tremor, Focused Ultrasound (MRgFUS) is a non-surgical option that uses sound waves to create a precise area in the brain that stops the tremor.",
+    "what_to_expect": "If DBS is recommended, you will go through detailed assessments first — including brain scans, memory tests, and a medication challenge test — to confirm it is the right option. The surgery is typically done with you awake for part of it so your surgical team can confirm the best placement. After a healing period of about 4 weeks, the device is switched on and gradually adjusted. Most people notice significant improvement in motor symptoms within weeks of finding the right settings. Regular follow-up visits for programming and medication adjustments are required long-term.",
+    "faq": [
+      {
+        "question": "Will DBS cure my Parkinson's?",
+        "answer": "DBS does not cure Parkinson's or stop the disease from progressing, but it can dramatically improve motor symptoms — particularly tremor, stiffness, and motor fluctuations. Many people are able to reduce their medication and regain activities they had lost. DBS benefits are typically sustained for many years."
+      },
+      {
+        "question": "Can I still take my Parkinson's medication with DBS?",
+        "answer": "Yes. STN DBS often allows a significant reduction in levodopa dose, which can reduce dyskinesias. GPi DBS allows good motor control while keeping medications more stable. Your neurologist will adjust medications carefully after surgery."
+      },
+      {
+        "question": "Who is a good candidate for DBS?",
+        "answer": "DBS works best for people who still respond well to levodopa (this is the best predictor), have significant motor fluctuations or dyskinesias, and do not have significant memory problems or active psychiatric illness. Your multidisciplinary team will assess you thoroughly."
+      },
+      {
+        "question": "What is the difference between STN and GPi DBS?",
+        "answer": "Both targets improve motor symptoms effectively. STN DBS usually allows greater medication reduction. GPi DBS is generally better at directly suppressing dyskinesias and may be preferable if mood stability is a concern. Your neurologist will recommend the best target based on your individual profile."
+      },
+      {
+        "question": "What is Adaptive DBS?",
+        "answer": "Adaptive DBS (approved in the USA in February 2025) uses sensors in the brain to detect your brain activity moment-to-moment and automatically adjusts the stimulation strength — rather than delivering a fixed pulse all the time. This can better match your changing needs throughout the day and may reduce side effects while improving motor control."
+      }
+    ]
+  },
+
+  "medical_history_requirements": {
+    "required_fields": [
+      {
+        "field": "Confirmed Parkinson's disease diagnosis (UK Brain Bank criteria or MDS diagnostic criteria)",
+        "reason": "DBS and device protocols are specific to idiopathic PD. Atypical parkinsonism must be excluded as DBS is poorly effective or contraindicated in MSA, PSP, and CBD.",
+        "blocks_protocol": true
+      },
+      {
+        "field": "Hoehn-Yahr staging (current and at best medication response)",
+        "reason": "Staging guides DBS candidacy. DBS is generally considered at HY Stage II-IV with motor fluctuations. Stage V requires individual risk-benefit assessment.",
+        "blocks_protocol": false
+      },
+      {
+        "field": "MDS-UPDRS Parts I-IV (OFF and ON medication states)",
+        "reason": "Primary outcome measure for DBS. Levodopa responsiveness (MDS-UPDRS III improvement ≥30% from OFF to ON) is a prerequisite for STN DBS candidacy.",
+        "blocks_protocol": true
+      },
+      {
+        "field": "Current Parkinson's medication regimen (full list with doses and timing)",
+        "reason": "LEDD (Levodopa Equivalent Daily Dose) is a key surgical variable. Drug interactions and DBS parameter planning require complete medication documentation.",
+        "blocks_protocol": true
+      },
+      {
+        "field": "MRI brain (1.5T or 3T) within 12 months",
+        "reason": "Required for surgical planning, STN/GPi targeting, and exclusion of structural abnormalities. Significant white matter disease or atrophy are relative contraindications.",
+        "blocks_protocol": true
+      },
+      {
+        "field": "Neuropsychological assessment (MoCA plus full battery if borderline)",
+        "reason": "Significant dementia (MoCA <21) is a relative contraindication for DBS. Neuropsychological baseline is required for post-operative monitoring.",
+        "blocks_protocol": true
+      },
+      {
+        "field": "Psychiatric assessment (PHQ-9; psychosis and impulse control disorder screen)",
+        "reason": "Active psychosis or severe untreated depression are relative contraindications for DBS surgery. Post-operative mood monitoring depends on baseline documentation.",
+        "blocks_protocol": false
+      },
+      {
+        "field": "Atypical features screen (DaTSCAN or clinical atypical parkinsonism review)",
+        "reason": "MSA, PSP, and CBD must be excluded. DaTSCAN confirms dopaminergic deficit. Clinical features suggesting atypical parkinsonism require specialist review before DBS.",
+        "blocks_protocol": true
+      },
+      {
+        "field": "Cardiac and anaesthesia assessment for surgical candidates",
+        "reason": "DBS requires general anaesthesia. Cardiac and anaesthetic fitness must be confirmed pre-operatively for all surgical candidates.",
+        "blocks_protocol": true
+      },
+      {
+        "field": "Motor complication history (wearing-off, dyskinesias, freezing onset and severity)",
+        "reason": "Motor fluctuations and dyskinesias are the primary indication for DBS. Their nature and functional impact guide surgical decision-making.",
+        "blocks_protocol": false
+      }
+    ],
+    "clinical_interview_checklist": [
+      "Year of symptom onset and which symptom appeared first (tremor vs stiffness vs slowness)",
+      "Symptom asymmetry at onset and progression pattern",
+      "Full medication history: all dopaminergic agents, doses, response, and dose changes over time",
+      "Motor fluctuations: wearing-off pattern, on-off diary, predictable vs unpredictable offs",
+      "Dyskinesias: onset, type (peak-dose vs diphasic), functional impact",
+      "Freezing of gait: context (start hesitation, narrow spaces, turning), falls history",
+      "Non-motor: depression, anxiety, psychosis or hallucinations, cognitive complaints",
+      "Sleep history: RBD (acting out dreams), excessive daytime sleepiness, insomnia",
+      "Autonomic features: orthostatic dizziness, constipation, urinary urgency, swallowing",
+      "Impulse control disorder screening: gambling, hypersexuality, binge eating (particularly with dopamine agonists — QUIP-RS)",
+      "Family history of PD (genetic testing referral if YOPD or multiple affected relatives)",
+      "Social support at home — critical for DBS post-operative care and programming attendance",
+      "Employment and functional impact across all life domains",
+      "Patient's goals and expectations for DBS or device therapy"
+    ],
+    "rule_out_differentials": [
+      "Multiple System Atrophy (MSA) — severe autonomic failure, cerebellar signs, stridor; DBS outcomes poor",
+      "Progressive Supranuclear Palsy (PSP) — early falls, vertical gaze palsy, axial rigidity; DBS contraindicated",
+      "Corticobasal Degeneration (CBD) — alien limb, cortical sensory loss, focal dystonia; DBS not effective",
+      "Drug-induced parkinsonism — antipsychotic or antiemetic history; reversible on drug withdrawal",
+      "Essential tremor — postural and kinetic tremor; no bradykinesia; levodopa non-responsive",
+      "Vascular parkinsonism — MRI white matter changes; lower body predominant; early freezing",
+      "Normal pressure hydrocephalus (NPH) — gait, cognitive, and urinary triad"
+    ],
+    "comorbidity_screen": [
+      "Depression: PHQ-9 or BDI (40% prevalence in PD — screen before and after DBS)",
+      "Anxiety: GAD-7 or HADS-A",
+      "Cognitive function: MoCA (score ≥26 generally required for STN DBS; full battery if 21-25)",
+      "Impulse control disorders: QUIP-RS (particularly if on dopamine agonists)",
+      "Sleep: Epworth Sleepiness Scale; RBD questionnaire",
+      "Orthostatic hypotension: lying and standing blood pressure measurements"
+    ],
+    "prior_treatment_required": [
+      "Adequate levodopa trial — MDS-UPDRS III improvement ≥30% OFF to ON required for STN DBS candidacy",
+      "Optimised pharmacotherapy: levodopa/carbidopa, dopamine agonists, MAO-B inhibitors, COMT inhibitors trialled",
+      "Physiotherapy and exercise programme (including LSVT BIG if applicable)",
+      "Speech and language therapy if voice or swallowing affected",
+      "Occupational therapy home assessment completed"
+    ],
+    "special_population_flags": [
+      {
+        "population": "Young-Onset PD (onset <50 years)",
+        "additional_requirements": [
+          "Genetic testing referral (LRRK2, PINK1, Parkin, GBA) — guides prognosis and family counselling",
+          "Earlier DBS candidacy consideration given longer disease trajectory and faster dyskinesia development",
+          "Employment and social role impact assessment — occupational therapy",
+          "Family planning discussion if applicable"
+        ]
+      },
+      {
+        "population": "Elderly PD patients (≥75 years)",
+        "additional_requirements": [
+          "Comprehensive geriatric assessment before DBS — comorbidity burden and surgical risk",
+          "Full neuropsychological battery — dementia risk higher in older patients",
+          "Reduced DBS benefit expected for gait and balance features; counsel appropriately",
+          "Falls risk assessment and home safety review",
+          "Carer capacity assessment for post-operative monitoring"
+        ]
+      },
+      {
+        "population": "PD with psychiatric comorbidity",
+        "additional_requirements": [
+          "Psychiatry co-management required before and after DBS",
+          "Active psychosis or severe depression: stabilise before proceeding",
+          "Impulse control disorder screen with QUIP-RS — dopamine agonist adjustment post-DBS",
+          "Post-DBS suicide risk monitoring — rare but reported in early post-operative period"
+        ]
+      }
+    ]
+  },
+
+  "contraindications": {
+    "absolute": [
+      {
+        "condition": "Confirmed atypical parkinsonism (MSA, PSP, CBD)",
+        "rationale": "DBS does not benefit atypical parkinsonism and carries the same surgical risk as idiopathic PD. DBS is contraindicated in PSP; MSA and CBD have no supportive evidence."
+      },
+      {
+        "condition": "Significant dementia (MoCA <21 or major neurocognitive disorder — DSM-5 criteria)",
+        "rationale": "Dementia is associated with poor DBS outcomes, difficulty with device management, and risk of worsening cognitive function post-operatively. Typically blocks STN DBS; GPi considered case-by-case with MDT."
+      },
+      {
+        "condition": "Active psychosis not stabilised",
+        "rationale": "Active psychotic symptoms preclude safe surgical and post-operative management. STN DBS can worsen or unmask psychosis."
+      },
+      {
+        "condition": "No levodopa response (MDS-UPDRS III <30% improvement OFF to ON)",
+        "rationale": "Absence of levodopa response is the strongest predictor of poor DBS outcome and raises doubt about the diagnosis of idiopathic PD. DBS should not proceed without adequate levodopa response unless diagnosis is otherwise fully confirmed."
+      },
+      {
+        "condition": "Uncorrectable coagulopathy or anticoagulation that cannot be safely bridged",
+        "rationale": "Intracranial haemorrhage during DBS lead placement is the most serious surgical complication. Adequate haemostasis is mandatory."
+      }
+    ],
+    "relative": [
+      {
+        "condition": "PD-MCI (MoCA 21-25)",
+        "rationale": "Mild cognitive impairment increases risk of post-operative cognitive decline with STN DBS. GPi DBS may have better cognitive profile in this group.",
+        "mitigation": "Full neuropsychological battery required. MDT discussion. Consider GPi over STN. Enhanced post-operative neuropsychological monitoring."
+      },
+      {
+        "condition": "Active moderate depression (PHQ-9 ≥10)",
+        "rationale": "Untreated depression associated with worse DBS outcomes and increased post-operative suicide risk (particularly early post-STN DBS).",
+        "mitigation": "Psychiatry co-management. Optimise antidepressant treatment before surgery. Post-operative depression monitoring at every programming visit."
+      },
+      {
+        "condition": "Significant brain atrophy on MRI",
+        "rationale": "Atrophy increases surgical risk (subdural haematoma) and may affect lead placement accuracy.",
+        "mitigation": "Neurosurgical imaging review. Risk-benefit discussion. Consider asleep DBS with intraoperative MRI confirmation."
+      },
+      {
+        "condition": "Prominent axial features (postural instability, severe freezing, dysarthria, dysphagia) as primary symptoms",
+        "rationale": "Axial features respond less well to DBS than tremor, rigidity, and bradykinesia. DBS may worsen speech and swallowing in some patients.",
+        "mitigation": "Counsel patient on realistic expectations for axial symptoms. Speech and language therapy baseline assessment. GPi may be preferred over STN for patients with prominent dysarthria."
+      },
+      {
+        "condition": "Impulse control disorder on dopamine agonists",
+        "rationale": "DBS allows reduction of dopamine agonists which may resolve ICD, but the transition requires careful management.",
+        "mitigation": "QUIP-RS at baseline. Psychiatry input. Gradual agonist taper post-DBS with close monitoring."
+      }
+    ],
+    "special_populations": [
+      {
+        "population": "Patients with cardiac pacemaker or ICD",
+        "flag": "DBS may interact with cardiac implantable devices. Cardiology consultation and device manufacturer guidance required before proceeding."
+      },
+      {
+        "population": "Patients unable to tolerate awake surgery",
+        "flag": "Asleep DBS with MRI or CT guidance is available at some centres — outcomes comparable. Discuss with neurosurgical team."
+      }
+    ],
+    "modality_specific": {
+      "dbs": [
+        "Significant dementia (MoCA <21) — not a candidate for STN DBS; GPi case-by-case with MDT",
+        "Atypical parkinsonism confirmed — DBS contraindicated",
+        "Active psychosis — psychiatric stabilisation required before surgery",
+        "No levodopa response — DBS unlikely to benefit; review diagnosis",
+        "Significant white matter disease on MRI — increased vascular risk during lead placement"
+      ],
+      "tms": [
+        "No metallic cranial implants including DBS leads in situ — consult DBS manufacturer before any TMS near implanted hardware",
+        "Active seizure disorder — absolute contraindication",
+        "Cardiac pacemaker — consult cardiologist before TMS"
+      ],
+      "mrgfus": [
+        "Skull density ratio (SDR) <0.45 — insufficient ultrasound skull transmission; absolute contraindication",
+        "MRI-incompatible implants (pacemakers, cochlear implants, metallic clips) — absolute contraindication",
+        "Significant brain atrophy — affects focusing accuracy",
+        "Bilateral thalamotomy — associated with higher risk of speech and swallowing complications; staged approach required"
+      ]
+    }
+  },
+
+  "assessment_bundle": {
+    "screening": [
+      {
+        "assessment_id": "ASS-PD-001",
+        "name": "Hoehn-Yahr Scale",
+        "full_name": "Modified Hoehn-Yahr Staging Scale",
+        "clinician_vs_patient": "Clinician-rated",
+        "rationale": "Classic PD staging scale (I-V) providing rapid overview of disease severity and bilateral involvement. Required at every assessment. HY Stage II-IV with motor fluctuations is the typical DBS candidacy window.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 5,
+        "access": "Free (public domain)",
+        "population": "Adult with PD"
+      },
+      {
+        "assessment_id": "ASS-PD-002",
+        "name": "MoCA",
+        "full_name": "Montreal Cognitive Assessment",
+        "clinician_vs_patient": "Clinician-rated",
+        "rationale": "Validated cognitive screening (30-point scale). Score ≥26 = normal; 21-25 = mild cognitive impairment; <21 = significant impairment and relative contraindication for STN DBS. Required before DBS candidacy assessment.",
+        "lower_is_better": false,
+        "admin_duration_minutes": 15,
+        "access": "Free (www.mocatest.org)",
+        "population": "Adult 18+"
+      }
+    ],
+    "diagnostic": [
+      {
+        "assessment_id": "ASS-PD-003",
+        "name": "MDS-UPDRS (Full)",
+        "full_name": "Movement Disorder Society Unified Parkinson's Disease Rating Scale — Parts I-IV",
+        "clinician_vs_patient": "Clinician-rated",
+        "rationale": "Gold standard PD assessment. Parts: I (non-motor), II (motor daily living), III (motor examination), IV (motor complications). MDS-UPDRS III is the primary motor outcome for DBS. Must be performed in both OFF and ON medication states.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 45,
+        "access": "Free — MDS (movementdisorders.org)",
+        "population": "Adult with PD"
+      }
+    ],
+    "baseline": [
+      {
+        "assessment_id": "ASS-PD-003",
+        "name": "MDS-UPDRS III (OFF and ON medication)",
+        "full_name": "MDS-UPDRS Part III Motor Examination — OFF and ON medication states",
+        "clinician_vs_patient": "Clinician-rated",
+        "rationale": "Primary motor outcome measure for DBS. OFF state establishes untreated burden; ON state documents levodopa responsiveness. ≥30% improvement OFF to ON is a key STN DBS eligibility criterion. Pre-surgical OFF score is the primary DBS comparison baseline.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 30,
+        "access": "Free",
+        "population": "Adult with PD"
+      },
+      {
+        "assessment_id": "ASS-PD-004",
+        "name": "PHQ-9 (PD baseline)",
+        "full_name": "Patient Health Questionnaire-9 — Baseline Depression Screen",
+        "clinician_vs_patient": "Patient self-report",
+        "rationale": "Depression is highly prevalent (40%) in PD and must be documented before DBS. PHQ-9 ≥10 requires psychiatric review before surgery. Baseline required for post-DBS monitoring comparison.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 5,
+        "access": "Free",
+        "population": "Adult"
+      },
+      {
+        "assessment_id": "ASS-PD-005",
+        "name": "QUIP-RS",
+        "full_name": "Questionnaire for Impulsive-Compulsive Disorders in Parkinson's Disease — Rating Scale",
+        "clinician_vs_patient": "Patient self-report",
+        "rationale": "Screens for impulse control disorders associated with dopaminergic therapy (present in up to 14% of patients on dopamine agonists). DBS allows medication reduction, which resolves ICDs in many patients, but the transition must be managed carefully.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 10,
+        "access": "Free (movementdisorders.org)",
+        "population": "Adult with PD on dopaminergic therapy"
+      }
+    ],
+    "monitoring": [
+      {
+        "assessment_id": "ASS-PD-003",
+        "name": "MDS-UPDRS III (Monitoring)",
+        "full_name": "MDS-UPDRS Part III — Repeated Monitoring",
+        "clinician_vs_patient": "Clinician-rated",
+        "rationale": "Primary monitoring outcome. Administered at each programming visit in stimulation-ON state and medication-OFF where possible to isolate DBS effect from medication effect.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 30,
+        "access": "Free",
+        "population": "Adult with PD"
+      },
+      {
+        "assessment_id": "ASS-PD-006",
+        "name": "DBS Device Programming Record",
+        "full_name": "DBS Parameter Settings and Telemetry Review",
+        "clinician_vs_patient": "Clinician-rated",
+        "rationale": "Complete DBS parameter log (frequency, pulse width, voltage or current, contact configuration, impedance, battery) must be recorded at every visit. For adaptive DBS: LFP sensing data review is an additional requirement.",
+        "lower_is_better": false,
+        "admin_duration_minutes": 30,
+        "access": "Device programmer (manufacturer-specific)",
+        "population": "DBS patients"
+      }
+    ],
+    "outcome": [
+      {
+        "assessment_id": "ASS-PD-003",
+        "name": "MDS-UPDRS III (12-Month Outcome)",
+        "full_name": "MDS-UPDRS Part III — 12-Month Primary Outcome",
+        "clinician_vs_patient": "Clinician-rated",
+        "rationale": "Primary motor outcome at 12 months. MCID = 3.25 points. DBS STN typically reduces MDS-UPDRS III OFF score by 50-60% from pre-surgical baseline.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 30,
+        "access": "Free",
+        "population": "Adult with PD"
+      },
+      {
+        "assessment_id": "ASS-PD-004",
+        "name": "PHQ-9 (12-Month Outcome)",
+        "full_name": "Patient Health Questionnaire-9 — End of Year 1",
+        "clinician_vs_patient": "Patient self-report",
+        "rationale": "Depression outcome at 12 months. GPi DBS is generally associated with mood improvement. STN DBS may worsen mood in patients with baseline depression — close monitoring required.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 5,
+        "access": "Free",
+        "population": "Adult"
+      }
+    ],
+    "neurophysiological": [
+      {
+        "assessment_id": "ASS-PD-007",
+        "name": "STN LFP Beta Sensing (BrainSense)",
+        "full_name": "Subthalamic Nucleus Local Field Potential Beta Band Sensing — Adaptive DBS",
+        "clinician_vs_patient": "Clinician-rated",
+        "rationale": "For adaptive DBS with Medtronic Percept RC and BrainSense: STN beta band (13-35 Hz) LFP amplitude is the real-time motor state biomarker. Beta power correlates inversely with dopaminergic tone and voluntary movement. Reviewed at each programming visit for adaptive DBS optimisation.",
+        "lower_is_better": false,
+        "admin_duration_minutes": 15,
+        "access": "Medtronic Percept RC — trained clinician programmer required",
+        "population": "PD patients with adaptive DBS"
+      }
+    ],
+    "functional": [
+      {
+        "assessment_id": "ASS-PD-008",
+        "name": "PDQ-39",
+        "full_name": "Parkinson's Disease Questionnaire — 39 Item",
+        "clinician_vs_patient": "Patient self-report",
+        "rationale": "Gold standard PD-specific quality of life measure. 39 items across 8 domains: mobility, activities of daily living, emotional wellbeing, stigma, social support, cognition, communication, and bodily discomfort. PDQ-39 Summary Index (SI) is the primary QoL outcome in PD DBS trials. MCID = 4.72 points SI.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 15,
+        "access": "Licensed — Health Services Research Unit, University of Oxford",
+        "population": "Adult with PD"
+      }
+    ]
+  },
+
+  "protocol_bundle": [
+    {
+      "protocol_id": "PRO-DBS-PD-01",
+      "name": "Bilateral STN-DBS for Advanced Parkinson's Disease",
+      "modality_slug": "dbs",
+      "phenotype_id": "PHE-046",
+      "device_id": "DEV-DBS-PD-001",
+      "on_label_vs_off_label": "On-label",
+      "evidence_grade": "EV-A",
+      "evidence_summary": "Bilateral STN DBS is guideline-supported standard of care for advanced PD with motor fluctuations (NICE, MDS, AAN guidelines). EARLYSTIM trial (Schuepbach et al., NEJM 2013) demonstrated superiority of STN DBS over best medical therapy in early motor fluctuations. Deuschl et al. (NEJM 2006) and Weaver et al. (JAMA 2009) confirmed significant MDS-UPDRS III improvement (50-60% reduction in OFF score), reduction in motor fluctuations, dyskinesias, and levodopa dose. FDA approved across Medtronic, Abbott, and Boston Scientific systems. Standard parameters: 130-185 Hz, 60 µs, 2-4V, continuous.",
+      "references": [
+        "Deuschl G et al. (2006). A Randomized Trial of Deep-Brain Stimulation for Parkinson's Disease. NEJM, 355(9), 896-908.",
+        "Schuepbach WMM et al. (2013). Neurostimulation for Parkinson's Disease with Early Motor Complications (EARLYSTIM). NEJM, 368(7), 610-622.",
+        "Weaver FM et al. (2009). Bilateral Deep Brain Stimulation vs Best Medical Therapy for Patients with Advanced Parkinson Disease. JAMA, 301(1), 63-73."
+      ],
+      "brain_target": {
+        "region": "Subthalamic Nucleus",
+        "laterality": "Bilateral",
+        "eeg_position": "N/A",
+        "effect_direction": "Inhibitory"
+      },
+      "parameters": {
+        "frequency_hz": "130-185 Hz (standard 130 Hz; higher 170-185 Hz for tremor-dominant presentations)",
+        "intensity": "2-4V (voltage-controlled) or mA equivalent (current-controlled devices)",
+        "additional_params": {
+          "pulse_width": "60 µs standard; up to 90 µs for wider stimulation spread",
+          "stimulation_mode": "Continuous 24 hours per day; cycling or adaptive enabled for select patients",
+          "electrode_configuration": "Bilateral 4-contact leads in STN; contact configuration per post-operative imaging verification",
+          "target_coordinates": "AC-PC based: approximately 12 mm lateral, 2 mm posterior, 4 mm below mid-commissural point — varies by individual anatomy",
+          "programming_timeline": "Activation 4 weeks post-surgery; monthly titration for 6 months; 3-6 monthly once stable"
+        }
+      },
+      "session_structure": {
+        "sessions_per_week": 1,
+        "session_duration_minutes": 60,
+        "total_sessions": 12,
+        "total_weeks": 52,
+        "maintenance_sessions": "Lifelong — 3-6 monthly programming visits; annual comprehensive review; battery replacement every 3-5 years",
+        "steps": [
+          { "order": 1, "title": "Pre-surgical MDT evaluation", "duration_minutes": 480, "detail": "Comprehensive multidisciplinary assessment: MDS-UPDRS III OFF and ON medication, neuropsychological battery, MoCA, psychiatric review (PHQ-9, QUIP-RS), anaesthesia assessment, brain MRI, DaTSCAN if diagnosis uncertain. MDT meeting to confirm candidacy and select STN vs GPi target." },
+          { "order": 2, "title": "Stereotactic DBS surgery — bilateral STN", "duration_minutes": 420, "detail": "Typically awake or asleep (general anaesthesia with MRI/CT guidance). Stereotactic frame or frameless navigation. Bilateral STN targeting using microelectrode recording (MER) to confirm physiological target. Lead placement and IPG implantation. Intraoperative motor testing. Post-operative CT to confirm lead position and exclude haemorrhage." },
+          { "order": 3, "title": "Post-operative recovery — 4 weeks inactive", "duration_minutes": 0, "detail": "Device inactive. Continue all pre-surgical PD medications unchanged. Post-operative MRI to confirm lead positions. Wound healing. Neurological review at 2 weeks post-surgery." },
+          { "order": 4, "title": "Initial STN DBS activation (Week 4)", "duration_minutes": 60, "detail": "Activate at conservative parameters (1-2V, 130 Hz, 60 µs). Assess each contact systematically for therapeutic window vs side effects. Define initial clinical settings. Patient and carer programming education. Provide written parameter record." },
+          { "order": 5, "title": "Titration programming visits (monthly x 6 months)", "duration_minutes": 60, "detail": "MDS-UPDRS III in stimulation-ON state. Adjust voltage and contact configuration for optimal motor benefit. Coordinate levodopa reduction with neurology. Monitor for mood, speech, and cognitive effects. For adaptive DBS: review LFP sensing data." },
+          { "order": 6, "title": "Maintenance visit (3-6 monthly)", "duration_minutes": 60, "detail": "MDS-UPDRS III, PDQ-39, PHQ-9. Battery check. Impedance. AE review. Medication management with neurology. Annual neuropsychological screening." }
+        ]
+      },
+      "monitoring_required": [
+        "MDS-UPDRS III in OFF and stimulation-ON states at every programming visit",
+        "PDQ-39 at baseline, 6 months, and 12 months",
+        "PHQ-9 at baseline, 3 months, 6 months, and 12 months",
+        "QUIP-RS at baseline and 6 months post-surgery",
+        "MoCA annually",
+        "DBS parameter log and impedance at every visit",
+        "Battery voltage at every visit — alert at 6 months before estimated depletion",
+        "LEDD tracking — target reduction documented at 6 months"
+      ],
+      "contraindication_check_required": true,
+      "adverse_event_monitoring": "Surgical: intracranial haemorrhage (approximately 1%), infection (2-3%), lead displacement. Stimulation: paraesthesia, dysarthria, dyskinesia at high voltages, eyelid-opening apraxia, mood changes, impulsivity. Hardware: lead fracture, IPG malfunction, battery depletion. Serious: post-operative depression and rare suicide risk (approximately 0.5% in first year post-STN DBS) — mandatory psychiatric monitoring. All serious AEs reported to manufacturer and regulatory authority.",
+      "escalation_rules": [
+        "Post-operative haemorrhage on CT: neurosurgical emergency; DBS activation delayed until neurologically stable",
+        "Suicidal ideation or acute mood worsening post-operatively: psychiatric emergency; programming review; consider temporary levodopa dose increase",
+        "MDS-UPDRS III improvement <30% from OFF baseline at 6 months: review post-operative imaging for lead position; systematic contact reprogramming; neurosurgical MDT review",
+        "Device infection: surgical assessment within 24 hours; antibiotics; explantation if hardware-related infection confirmed",
+        "Speech deterioration (dysarthria): reduce stimulation amplitude; reassess contact configuration; SLT referral"
+      ],
+      "patient_facing_allowed": true,
+      "clinician_review_required": true,
+      "governance": {
+        "patient_export_allowed": true,
+        "requires_clinician_sign_off": true,
+        "off_label_acknowledgement_required": false,
+        "dual_review_required": true,
+        "notes": "EV-A, FDA approved, guideline standard of care. On-label. Multidisciplinary team sign-off (neurology, neurosurgery, neuropsychology, psychiatry) required before surgery. Dual review required for protocol generation."
+      },
+      "notes": "STN DBS is the most studied target for PD and is the primary choice for patients where medication reduction is a goal. Best candidates: good levodopa responders with significant motor fluctuations, HY Stage II-IV, MoCA ≥21, no active psychosis. Motor improvement is sustained at 5+ years in most long-term follow-up studies."
+    },
+    {
+      "protocol_id": "PRO-DBS-PD-02",
+      "name": "Bilateral GPi-DBS for Parkinson's Disease (Dyskinesia-Predominant)",
+      "modality_slug": "dbs",
+      "phenotype_id": "PHE-045",
+      "device_id": "DEV-DBS-PD-001",
+      "on_label_vs_off_label": "On-label",
+      "evidence_grade": "EV-A",
+      "evidence_summary": "GPi DBS is FDA-approved as an alternative to STN DBS for advanced PD. The VA/NINDS trial (Follett et al., NEJM 2010) showed equivalent motor improvement (MDS-UPDRS III) to STN DBS at 24 months. GPi DBS advantages: directly suppresses dyskinesias without medication reduction, may have better mood and cognitive profile than STN DBS (relevant for PD-MCI or mood concerns). GPi preferred for: dyskinesia-predominant presentation, psychiatric comorbidity, PD-MCI, patients where LEDD reduction is not the primary goal.",
+      "references": [
+        "Follett KA et al. (2010). Pallidal versus Subthalamic Deep-Brain Stimulation for Parkinson's Disease. NEJM, 362(22), 2077-2091.",
+        "Weaver FM et al. (2012). Randomized Trial of Deep Brain Stimulation for Parkinson Disease — Thirty-Six Month Outcomes. Neurology, 79(1), 55-65."
+      ],
+      "brain_target": {
+        "region": "Globus Pallidus Internus",
+        "laterality": "Bilateral",
+        "eeg_position": "N/A",
+        "effect_direction": "Inhibitory"
+      },
+      "parameters": {
+        "frequency_hz": "130 Hz standard; lower frequencies 60-80 Hz trialled in some patients",
+        "intensity": "2-4V or mA equivalent",
+        "additional_params": {
+          "pulse_width": "90-150 µs — typically wider than STN as GPi target requires more charge per pulse",
+          "stimulation_mode": "Continuous 24 hours per day",
+          "electrode_configuration": "Bilateral GPi leads — posterolateral GPi motor territory; verify on post-operative imaging"
+        }
+      },
+      "session_structure": {
+        "sessions_per_week": 1,
+        "session_duration_minutes": 60,
+        "total_sessions": 12,
+        "total_weeks": 52,
+        "maintenance_sessions": "Lifelong — same structure as STN DBS maintenance visits",
+        "steps": [
+          { "order": 1, "title": "Pre-surgical MDT evaluation with GPi target rationale", "duration_minutes": 480, "detail": "Same MDT evaluation as STN DBS. GPi selected when: prominent dyskinesias, PD-MCI (MoCA 21-25), psychiatric comorbidity, patient preference for medication stability. Document GPi selection rationale in MDT minutes." },
+          { "order": 2, "title": "GPi stereotactic DBS surgery", "duration_minutes": 420, "detail": "Surgical approach same as STN DBS with different target coordinates. GPi posterolateral motor territory targeting. MER used to confirm GPi physiological signature. Lead placement and IPG implant." },
+          { "order": 3, "title": "Post-operative recovery and initial activation", "duration_minutes": 60, "detail": "4 weeks inactive. Post-op MRI. Activation at Week 4. GPi typically requires higher pulse width and voltage than STN. Dyskinesia response often seen promptly after GPi activation." },
+          { "order": 4, "title": "GPi programming titration visits", "duration_minutes": 60, "detail": "Titrate for motor control and dyskinesia management. Less medication adjustment typically needed than STN DBS. Mood monitoring continues. Assess for visual phosphenes (optic tract proximity)." }
+        ]
+      },
+      "monitoring_required": [
+        "MDS-UPDRS III in stimulation-ON state at every programming visit",
+        "MDS-UPDRS IV (dyskinesia rating) at each visit",
+        "PDQ-39 at 6 and 12 months",
+        "PHQ-9 at 3, 6, and 12 months",
+        "MoCA annually",
+        "DBS parameter log and battery at every visit"
+      ],
+      "contraindication_check_required": true,
+      "adverse_event_monitoring": "Surgical risks same as STN DBS. Stimulation: visual phosphenes (proximity to optic tract — adjust contact to avoid), eyelid-opening apraxia less common than STN. Mood: GPi DBS has generally better mood profile than STN DBS. Hardware complications same. Device infection monitoring as per STN DBS protocol.",
+      "escalation_rules": [
+        "Visual phosphenes during programming: immediately reduce amplitude; avoid stimulation on contact adjacent to optic tract",
+        "Motor benefit inadequate at 6 months: post-operative imaging review; contact reconfiguration; consider whether STN target would be more appropriate",
+        "Depression worsening: psychiatry referral; GPi DBS has better mood profile than STN but monitoring still required"
+      ],
+      "patient_facing_allowed": true,
+      "clinician_review_required": true,
+      "governance": {
+        "patient_export_allowed": true,
+        "requires_clinician_sign_off": true,
+        "off_label_acknowledgement_required": false,
+        "dual_review_required": true,
+        "notes": "EV-A, FDA approved, guideline standard of care. On-label. Same governance requirements as STN DBS. GPi preferred for dyskinesia-predominant presentations and patients with PD-MCI or psychiatric comorbidity."
+      },
+      "notes": "GPi and STN DBS have equivalent long-term motor outcomes. The key differentiator is that GPi directly suppresses dyskinesias without medication changes, while STN DBS allows greater medication reduction. Target selection is individualised by MDT based on patient phenotype, cognitive profile, and treatment goals."
+    },
+    {
+      "protocol_id": "PRO-ADBS-PD-01",
+      "name": "Adaptive DBS (Medtronic BrainSense) for Parkinson's Disease — FDA Approved February 2025",
+      "modality_slug": "dbs",
+      "phenotype_id": "PHE-046",
+      "device_id": "DEV-DBS-PD-002",
+      "on_label_vs_off_label": "On-label",
+      "evidence_grade": "EV-A",
+      "evidence_summary": "Medtronic BrainSense Adaptive DBS received FDA approval in February 2025 for PD. Adaptive DBS uses real-time STN LFP beta band sensing (13-35 Hz) to continuously adjust stimulation amplitude in response to the patient's instantaneous motor state. Phase II RCTs (Little et al., 2016; Arlotti et al., 2021) demonstrated superior motor control compared to conventional continuous DBS with reduced stimulation-induced side effects and improved energy efficiency. The Medtronic Percept RC with BrainSense is the only FDA-approved system for adaptive DBS in PD.",
+      "references": [
+        "Little S et al. (2016). Adaptive Deep Brain Stimulation in Advanced Parkinson Disease. Annals of Neurology, 74(3), 449-457.",
+        "Arlotti M et al. (2021). Eight-Hours Adaptive Deep Brain Stimulation in Patients with Parkinson Disease. npj Parkinson's Disease, 7, 12.",
+        "Medtronic. (2025). BrainSense Adaptive DBS FDA Approval P210050 S001. February 2025."
+      ],
+      "brain_target": {
+        "region": "Subthalamic Nucleus with LFP Beta Band Sensing",
+        "laterality": "Bilateral",
+        "eeg_position": "N/A",
+        "effect_direction": "Inhibitory"
+      },
+      "parameters": {
+        "frequency_hz": "130-185 Hz — amplitude adjusted adaptively in real-time",
+        "intensity": "Adaptive: amplitude adjusted based on LFP beta threshold in range 1-5V or mA equivalent",
+        "additional_params": {
+          "sensing_band": "STN beta band 13-35 Hz LFP — biomarker for PD motor state",
+          "adaptive_mode": "Closed-loop: amplitude increases when beta power rises (motor off state); decreases when beta power falls (movement or levodopa on state)",
+          "baseline_calibration": "Required at each adaptive session — patient assessed OFF and ON medication to calibrate individual beta threshold",
+          "pulse_width": "60-90 µs",
+          "device_requirement": "Medtronic Percept RC with BrainSense — only FDA-approved adaptive DBS system for PD"
+        }
+      },
+      "session_structure": {
+        "sessions_per_week": 1,
+        "session_duration_minutes": 90,
+        "total_sessions": 8,
+        "total_weeks": 52,
+        "maintenance_sessions": "Lifelong — 3-6 monthly with LFP data review; adaptive threshold recalibration as disease progresses or medications change",
+        "steps": [
+          { "order": 1, "title": "Beta calibration session (OFF and ON medication)", "duration_minutes": 90, "detail": "Patient assessed 12 hours off dopaminergic medications (OFF state) and after standard morning dose (ON state). STN LFP beta power recorded in both states. Clinician establishes patient-specific beta threshold for adaptive mode. Review BrainSense data from device memory." },
+          { "order": 2, "title": "Adaptive DBS activation and parameter setting", "duration_minutes": 60, "detail": "Enable adaptive mode on Percept RC programmer. Set lower and upper amplitude bounds. Define beta threshold and sensitivity. Confirm sensing electrode contact. Test adaptive response with voluntary movement. Provide written record of adaptive parameters." },
+          { "order": 3, "title": "Monitoring and optimisation visits (3-6 monthly)", "duration_minutes": 90, "detail": "Download BrainSense LFP data from device. Review adaptive stimulation history — amplitude distribution and beta threshold crossings. Assess motor control and stimulation-related side effects. Adjust beta threshold and amplitude range as needed. MDS-UPDRS III assessment." }
+        ]
+      },
+      "monitoring_required": [
+        "BrainSense LFP data download at every visit — adaptive stimulation history review",
+        "Beta threshold calibration confirmation and adjustment at each visit",
+        "MDS-UPDRS III in stimulation-ON state at every visit",
+        "Comparison with pre-adaptive conventional DBS motor performance baseline",
+        "Stimulation-related side effect monitoring (mood, cognition, speech, dyskinesia)",
+        "Battery charge level monitoring (adaptive DBS energy consumption profile differs from conventional)"
+      ],
+      "contraindication_check_required": true,
+      "adverse_event_monitoring": "Same surgical risks as conventional DBS. Sensing artefact: rare electromagnetic interference may trigger incorrect adaptive responses — monitor in MRI and high-interference environments. Adaptive threshold miscalibration: if beta threshold set incorrectly, patient may experience under- or over-stimulation. Requires highly trained DBS programming clinician with adaptive DBS certification.",
+      "escalation_rules": [
+        "Worsening motor control in adaptive mode: switch to conventional DBS mode temporarily; recalibrate beta threshold at next visit",
+        "Electromagnetic interference disrupting LFP sensing: switch to conventional mode; identify and mitigate interference source",
+        "Device hardware fault: contact Medtronic manufacturer support; switch to conventional mode; surgical review if needed"
+      ],
+      "patient_facing_allowed": true,
+      "clinician_review_required": true,
+      "governance": {
+        "patient_export_allowed": true,
+        "requires_clinician_sign_off": true,
+        "off_label_acknowledgement_required": false,
+        "dual_review_required": true,
+        "notes": "EV-A, FDA approved February 2025. On-label. Medtronic Percept RC with BrainSense is the only approved system. Requires centre Medtronic adaptive DBS training certification before clinical use."
+      },
+      "notes": "Adaptive DBS is the current frontier of device therapy for PD and represents a significant clinical advance over conventional continuous DBS. Available only at centres with Medtronic Percept RC and trained adaptive programming clinicians. Requires ongoing beta biomarker recalibration as disease progresses and medications are adjusted."
+    },
+    {
+      "protocol_id": "PRO-TMS-PD-01",
+      "name": "High-Frequency rTMS over Left M1 for PD Motor Symptoms (Off-label Adjunct)",
+      "modality_slug": "tms",
+      "phenotype_id": "PHE-044",
+      "on_label_vs_off_label": "Off-label",
+      "evidence_grade": "EV-B",
+      "evidence_summary": "High-frequency rTMS (10-20 Hz) over the left primary motor cortex (M1) has literature support as an adjunct for PD motor symptoms, particularly bradykinesia and gait. Systematic reviews and meta-analyses (Chou et al., JAMA Neurology 2015; Shirota et al., 2013) report moderate improvements in MDS-UPDRS motor scores (effect size 0.5-0.7) with courses of 10-20 sessions. Not FDA cleared for PD. EV-B evidence supports adjunct use alongside medications or DBS — not as standalone primary therapy.",
+      "references": [
+        "Chou YH et al. (2015). Effects of Repetitive Transcranial Magnetic Stimulation on Motor Symptoms in Parkinson Disease. JAMA Neurology, 72(4), 432-440.",
+        "Shirota Y et al. (2013). Supplementary Motor Area Stimulation for Parkinson Disease. JAMA Neurology, 70(8), 1008-1013.",
+        "Benninger DH et al. (2011). Intermittent Theta-Burst Transcranial Magnetic Stimulation for Treatment of Parkinson Disease. Archives of Neurology, 68(12), 1551-1560."
+      ],
+      "brain_target": {
+        "region": "Left Primary Motor Cortex",
+        "laterality": "Left",
+        "eeg_position": "C3",
+        "effect_direction": "Excitatory"
+      },
+      "parameters": {
+        "frequency_hz": "10-20 Hz high-frequency excitatory rTMS; iTBS (intermittent theta-burst stimulation) is an alternative protocol",
+        "intensity": "90-110% resting motor threshold (rMT) — individualised per patient",
+        "pulse_count": "1000-2000 pulses per session",
+        "coil_type": "Figure-8 coil 70 mm; neuronavigation or scalp-based targeting at C3 (10-20 system)",
+        "electrode_placement": "Left M1 hand area (C3); right M1 may be added bilaterally for predominantly right-sided symptoms"
+      },
+      "session_structure": {
+        "sessions_per_week": 5,
+        "session_duration_minutes": 30,
+        "total_sessions": 20,
+        "total_weeks": 4,
+        "maintenance_sessions": "Monthly maintenance block of 5 sessions in confirmed responders; not curative and not a replacement for DBS",
+        "steps": [
+          { "order": 1, "title": "Safety screening and motor threshold determination", "duration_minutes": 15, "detail": "TMS Safety Questionnaire. Confirm no metallic implants. For patients with DBS: check DBS manufacturer guidance on TMS compatibility before proceeding. Motor threshold over contralateral M1 from hand MEP. Document rMT." },
+          { "order": 2, "title": "rTMS delivery to left M1", "duration_minutes": 20, "detail": "Position figure-8 coil at C3 (left M1) using 10-20 or neuronavigation. Deliver 10-20 Hz at 90-110% rMT. Monitor for discomfort and headache. Facial muscle twitching during M1 stimulation is expected — reassure patient." },
+          { "order": 3, "title": "Post-session brief motor assessment and AE log", "duration_minutes": 10, "detail": "Brief motor check post-TMS (finger tapping speed). Log adverse events. Patient rests 5 minutes before standing." }
+        ]
+      },
+      "monitoring_required": [
+        "MDS-UPDRS III at baseline, session 10, and end of course",
+        "TMS Safety Screening Questionnaire before first session",
+        "Motor threshold re-determination if any medication change or break ≥2 weeks",
+        "AE log every session",
+        "IMPORTANT: For patients with existing DBS — consult device manufacturer before any TMS near implanted hardware"
+      ],
+      "contraindication_check_required": true,
+      "adverse_event_monitoring": "Headache at stimulation site (most common, transient). Facial muscle twitching during M1 stimulation (expected). Syncope (rare). Seizure (very rare with high-frequency TMS — emergency protocol must be in place). DBS patients: TMS near DBS leads may cause device interaction — manufacturer clearance required before any TMS session.",
+      "escalation_rules": [
+        "Seizure during or within 1 hour of TMS: emergency assessment; suspend treatment; neurology review before resuming",
+        "No improvement on MDS-UPDRS III after 10 sessions: clinician review; consider discontinuation or protocol modification",
+        "DBS device interaction suspected (acute parameter change or device alert): stop TMS immediately; check DBS device with programmer"
+      ],
+      "patient_facing_allowed": false,
+      "clinician_review_required": true,
+      "governance": {
+        "patient_export_allowed": false,
+        "requires_clinician_sign_off": true,
+        "off_label_acknowledgement_required": true,
+        "dual_review_required": false,
+        "notes": "EV-B, off-label adjunct. Clinician sign-off required. Not for use in patients with DBS without manufacturer consultation. Off-label acknowledgement required before first session."
+      },
+      "notes": "rTMS is an adjunct therapy for PD — useful for patients not yet at DBS candidacy, as a bridge, or for those who decline surgery. Effect is modest and not durable without maintenance sessions. Best evidence is for bradykinesia and gait. Not effective for tremor-dominant PD (direct to DBS VIM or MRgFUS for tremor)."
+    }
   ],
-  "contraindications": [
-    "Review implanted device status before stimulation planning."
+
+  "device_options": [
+    {
+      "device_id": "DEV-DBS-PD-001",
+      "name": "Medtronic Percept PC / Activa RC",
+      "manufacturer": "Medtronic",
+      "modality_slug": "dbs",
+      "regulatory_status": "FDA-cleared",
+      "cleared_indication": "FDA approved for bilateral STN and GPi DBS for advanced PD with motor fluctuations",
+      "use_setting": "Clinic",
+      "compatible_protocols": ["PRO-DBS-PD-01", "PRO-DBS-PD-02"],
+      "constraints": [
+        "Requires specialist neurosurgical centre with DBS expertise",
+        "MRI conditional — follow Medtronic MRI guidelines; 1.5T body and 3T head conditional",
+        "Battery replacement surgery required every 3-5 years (non-rechargeable) or device charging every approximately 15 days (rechargeable)"
+      ],
+      "notes": "Long-established FDA-approved DBS system for PD. Percept PC includes BrainSense sensing capability. Used in majority of published PD DBS clinical trials."
+    },
+    {
+      "device_id": "DEV-DBS-PD-002",
+      "name": "Medtronic Percept RC with BrainSense (Adaptive DBS)",
+      "manufacturer": "Medtronic",
+      "modality_slug": "dbs",
+      "regulatory_status": "FDA-cleared",
+      "cleared_indication": "FDA approved for adaptive DBS in PD (P210050 S001, approved February 2025). Includes LFP sensing and closed-loop adaptive stimulation.",
+      "use_setting": "Clinic",
+      "compatible_protocols": ["PRO-ADBS-PD-01", "PRO-DBS-PD-01"],
+      "constraints": [
+        "Adaptive DBS programming requires clinician certified in Medtronic BrainSense adaptive DBS",
+        "Rechargeable IPG — patient must charge device every approximately 15 days; compliance required",
+        "MRI conditional — 1.5T only with BrainSense sensing active; review Medtronic MRI guidelines before any MRI"
+      ],
+      "notes": "Only FDA-approved system for adaptive DBS in PD as of 2026. BrainSense uses STN LFP beta as real-time biomarker. Requires comprehensive DBS centre with adaptive programming training."
+    },
+    {
+      "device_id": "DEV-DBS-PD-003",
+      "name": "Abbott Infinity DBS System",
+      "manufacturer": "Abbott",
+      "modality_slug": "dbs",
+      "regulatory_status": "FDA-cleared",
+      "cleared_indication": "FDA approved for bilateral STN and GPi DBS in advanced PD",
+      "use_setting": "Clinic",
+      "compatible_protocols": ["PRO-DBS-PD-01", "PRO-DBS-PD-02"],
+      "constraints": [
+        "Directional stimulation available (multiple independent current control) — improves therapeutic window",
+        "MRI full-body conditional at 1.5T and 3T with specific conditions",
+        "Patient controller app available for within-range amplitude adjustment"
+      ],
+      "notes": "Abbott Infinity offers directional stimulation capability. FDA approved for PD DBS. Major alternative to Medtronic in clinical practice."
+    },
+    {
+      "device_id": "DEV-DBS-PD-004",
+      "name": "Boston Scientific Vercise Genus",
+      "manufacturer": "Boston Scientific",
+      "modality_slug": "dbs",
+      "regulatory_status": "FDA-cleared",
+      "cleared_indication": "FDA approved for STN and GPi DBS in advanced PD",
+      "use_setting": "Clinic",
+      "compatible_protocols": ["PRO-DBS-PD-01", "PRO-DBS-PD-02"],
+      "constraints": [
+        "Multiple independent current control directional stimulation capability",
+        "MRI conditional — full body 1.5T MRI eligible; review Boston Scientific guidelines",
+        "Rechargeable (PC) and non-rechargeable (SB) IPG options available"
+      ],
+      "notes": "Third major DBS manufacturer with FDA approval for PD. All three manufacturers (Medtronic, Abbott, BSc) are clinically equivalent for conventional DBS; selection based on centre experience, patient preference, and specific capabilities required."
+    },
+    {
+      "device_id": "DEV-TMS-PD-001",
+      "name": "Magstim Rapid2 (TMS for PD adjunct)",
+      "manufacturer": "Magstim",
+      "modality_slug": "tms",
+      "regulatory_status": "FDA-cleared (other indication)",
+      "cleared_indication": "FDA cleared for MDD (figure-8 coil); off-label use for PD motor adjunct",
+      "use_setting": "Clinic",
+      "compatible_protocols": ["PRO-TMS-PD-01"],
+      "constraints": [
+        "Cannot be used near DBS leads without manufacturer TMS-DBS compatibility confirmation",
+        "Trained TMS operator required",
+        "Motor threshold determination required before first session"
+      ],
+      "notes": "Standard clinical TMS device used for off-label PD rTMS adjunct. DBS compatibility must be verified before use in patients with implanted DBS systems."
+    }
   ],
-  "notes": [
-    "Starter sample record for registry-driven protocol generation."
+
+  "brain_targets": [
+    {
+      "region": "Subthalamic Nucleus",
+      "abbreviation": "STN",
+      "laterality": "Bilateral",
+      "rationale": "The STN is hyperactive in PD due to loss of striatal dopamine and consequent disinhibition of the STN via the indirect pathway. High-frequency DBS suppresses pathological STN beta oscillations (13-35 Hz), reducing excessive GPi inhibition of thalamocortical motor circuits and restoring voluntary movement. STN is the most studied and widely implanted DBS target for PD.",
+      "effect_direction": "Inhibitory",
+      "modalities": ["dbs"],
+      "eeg_position_10_20": "N/A",
+      "network": "Basal Ganglia-Thalamo-Cortical Motor Circuit — Indirect and Hyperdirect Pathways",
+      "evidence_note": "Primary DBS target for PD. FDA approved. Guideline standard of care for advanced PD with motor fluctuations."
+    },
+    {
+      "region": "Globus Pallidus Internus",
+      "abbreviation": "GPi",
+      "laterality": "Bilateral",
+      "rationale": "The GPi is the output nucleus of the basal ganglia. In PD, excessive GPi inhibitory output (driven by overactive STN via indirect pathway) suppresses thalamic motor relay nuclei. GPi DBS directly reduces this excessive inhibitory output, restoring thalamocortical activation, and directly suppresses dyskinesias arising from GPi without medication reduction.",
+      "effect_direction": "Inhibitory",
+      "modalities": ["dbs"],
+      "eeg_position_10_20": "N/A",
+      "network": "Basal Ganglia-Thalamo-Cortical Motor Circuit — Output Nucleus",
+      "evidence_note": "Alternative FDA-approved DBS target. Equivalent motor outcomes to STN. Superior direct dyskinesia suppression. Better mood and cognitive profile in most studies."
+    },
+    {
+      "region": "Left Primary Motor Cortex",
+      "abbreviation": "L-M1",
+      "laterality": "Left",
+      "rationale": "High-frequency rTMS over left M1 increases cortical excitability and motor cortex output, partially compensating for reduced dopaminergic drive on motor circuits in PD. Most studied non-invasive cortical target for PD bradykinesia.",
+      "effect_direction": "Excitatory",
+      "modalities": ["tms"],
+      "eeg_position_10_20": "C3",
+      "brodmann_area": "BA4",
+      "network": "Motor Network — Corticospinal Tract",
+      "evidence_note": "EV-B adjunct target for PD. Best evidence for bradykinesia. Not effective for tremor. Literature-supported but not guideline-level."
+    }
+  ],
+
+  "handbook_outputs": {
+    "clinician_handbook": {
+      "title": "Parkinson's Disease — Clinician Handbook for Neuromodulation",
+      "audience": "Clinician",
+      "sections": [
+        {
+          "section_id": "CH-PD-01",
+          "title": "DBS Candidacy Criteria",
+          "content": [
+            "Core criteria: confirmed idiopathic PD (UK Brain Bank), motor fluctuations significantly impacting QoL despite optimised pharmacotherapy, MDS-UPDRS III improvement ≥30% OFF to ON (levodopa challenge), MoCA ≥21, no active psychosis",
+            "Exclude atypical parkinsonism: review for MSA red flags (severe autonomic failure, cerebellar signs), PSP red flags (early falls, vertical gaze palsy), CBD features — DaTSCAN helpful",
+            "Neuropsychological battery mandatory: verbal memory, executive function, language, visuospatial; STN DBS risk higher in PD-MCI — consider GPi or defer",
+            "Psychiatric assessment: PHQ-9, QUIP-RS, history of psychosis or ICDs — stabilise before proceeding"
+          ]
+        },
+        {
+          "section_id": "CH-PD-02",
+          "title": "Target Selection: STN vs GPi vs Adaptive DBS",
+          "content": [
+            "STN DBS: preferred for younger patients (<70), medication reduction desired, tremor-dominant, MoCA ≥26",
+            "GPi DBS: preferred for prominent dyskinesias, PD-MCI (MoCA 21-25), active depression or mood concerns, speech concerns, patients where LEDD reduction is not the primary goal",
+            "Adaptive DBS (Medtronic BrainSense Percept RC): recommended where available for both STN and GPi targets; requires centre certification in adaptive DBS programming; FDA approved February 2025",
+            "VIM DBS: for tremor-dominant PD or ET overlap — tremor only, no effect on bradykinesia or rigidity"
+          ]
+        },
+        {
+          "section_id": "CH-PD-03",
+          "title": "Post-Operative Management Protocol",
+          "content": [
+            "Continue all pre-surgical PD medications unchanged for 4 weeks post-surgery",
+            "Initial activation at Week 4: conservative parameters; assess each contact systematically for therapeutic window",
+            "Monthly titration for 6 months: target MDS-UPDRS III reduction; coordinate LEDD reduction with neurology",
+            "STN DBS: expect LEDD reduction 30-60% over 6 months as stimulation optimised",
+            "Monitor for: speech changes, mood changes (depression or mania rare), dyskinesia, paraesthesia",
+            "PHQ-9 at 3, 6, 12 months — STN DBS associated with rare but serious post-operative depression; mandatory monitoring"
+          ]
+        }
+      ]
+    },
+    "patient_guide": {
+      "title": "Your Parkinson's Disease Brain Stimulation — Patient Guide",
+      "audience": "Patient",
+      "sections": [
+        {
+          "section_id": "PG-PD-01",
+          "title": "Understanding Parkinson's Disease",
+          "content": [
+            "Parkinson's happens when brain cells that produce a chemical called dopamine gradually stop working properly",
+            "Dopamine helps your muscles move smoothly — without enough of it, movements become slower, stiffer, and sometimes shaky",
+            "Over time, the medication that replaces dopamine (levodopa) can become less predictable, causing periods when it wears off or causes uncontrolled movements"
+          ]
+        },
+        {
+          "section_id": "PG-PD-02",
+          "title": "How Deep Brain Stimulation Helps",
+          "content": [
+            "DBS places tiny wires (electrodes) deep in specific areas of the brain that control movement",
+            "A small device — like a heart pacemaker — implanted under the chest skin sends gentle electrical pulses through the wires",
+            "This restores more normal signalling in the brain's movement circuits, reducing stiffness, slowness, and unpredictable medication wearing-off",
+            "Most people can significantly reduce their Parkinson's medication after DBS is working well"
+          ]
+        },
+        {
+          "section_id": "PG-PD-03",
+          "title": "What to Expect Before, During, and After DBS",
+          "content": [
+            "Before surgery: extensive brain scans, memory tests, and a medication challenge test confirm you are a good candidate",
+            "Surgery: typically 4-6 hours; you may be awake for part of it to help the surgical team confirm the best placement",
+            "After surgery: device is off for 4 weeks while you heal, then gradually switched on and adjusted",
+            "Programming: regular visits every 2-4 weeks initially to fine-tune the settings — most people notice clear benefit within 3-6 months"
+          ]
+        }
+      ]
+    },
+    "technician_sop": {
+      "title": "PD DBS Programming — Technician SOP",
+      "audience": "Clinician",
+      "sections": [
+        {
+          "section_id": "SOP-PD-01",
+          "title": "Pre-Programming Checklist",
+          "content": [
+            "Confirm patient identity and DBS device manufacturer and model using device identification card",
+            "Collect motor diary and medication log from patient before any programming",
+            "Connect appropriate manufacturer programmer to patient's device via telemetry wand",
+            "Perform telemetry check: impedance on all active contacts, battery voltage, and current parameters",
+            "Download BrainSense LFP data if patient has Percept RC (adaptive DBS)",
+            "Conduct brief motor assessment before parameter changes — finger tapping, tremor rating, pull test",
+            "All parameter changes require supervising movement disorder neurologist sign-off before implementing"
+          ]
+        },
+        {
+          "section_id": "SOP-PD-02",
+          "title": "Adaptive DBS Beta Calibration Procedure",
+          "content": [
+            "Adaptive DBS sessions require minimum 90 minutes — schedule accordingly",
+            "Patient must attend in medication OFF state (12 hours off dopaminergic medications) and ON state after their morning dose",
+            "Record STN LFP beta power amplitude in both states to establish patient-specific beta threshold",
+            "Enter beta threshold in adaptive DBS programming software under supervising clinician guidance only",
+            "Test adaptive mode with voluntary movement — confirm appropriate amplitude adjustment in real-time",
+            "Document all calibration parameters and adaptive settings in clinical record",
+            "Recalibrate adaptive threshold if LEDD changes by more than 20% or if stimulation settings change significantly"
+          ]
+        }
+      ]
+    }
+  },
+
+  "monitoring_rules": {
+    "assessment_schedule": [
+      {
+        "assessment_id": "ASS-PD-003",
+        "assessment_name": "MDS-UPDRS III",
+        "timing": "Every programming visit in both OFF and stimulation-ON states",
+        "frequency": "Monthly for first 6 months; 3-monthly maintenance thereafter",
+        "administered_by": "Clinician-rated"
+      },
+      {
+        "assessment_id": "ASS-PD-004",
+        "assessment_name": "PHQ-9",
+        "timing": "Baseline, 3 months, 6 months, 12 months, then annually",
+        "frequency": "3-monthly in first year; annually thereafter",
+        "administered_by": "Patient self-report"
+      },
+      {
+        "assessment_id": "ASS-PD-008",
+        "assessment_name": "PDQ-39",
+        "timing": "Baseline, 6 months, 12 months, then annually",
+        "frequency": "6-monthly in first year; annually thereafter",
+        "administered_by": "Patient self-report"
+      },
+      {
+        "assessment_id": "ASS-PD-002",
+        "assessment_name": "MoCA",
+        "timing": "Baseline, 12 months, then annually",
+        "frequency": "Annually",
+        "administered_by": "Clinician-rated"
+      },
+      {
+        "assessment_id": "ASS-PD-006",
+        "assessment_name": "DBS Device Programming Record",
+        "timing": "Every programming visit",
+        "frequency": "Monthly during titration; 3-6 monthly maintenance",
+        "administered_by": "Clinician-rated"
+      }
+    ],
+    "response_thresholds": [
+      {
+        "assessment_id": "ASS-PD-003",
+        "assessment_name": "MDS-UPDRS III",
+        "lower_is_better": true,
+        "response_threshold": "≥30% reduction from pre-surgical OFF-medication baseline at 6 months stimulation-ON",
+        "remission_threshold": "MDS-UPDRS III ≤15 in stimulation-ON state",
+        "non_response_threshold": "<20% improvement at 6 months — review lead position, programming, and diagnosis",
+        "deterioration_threshold": "≥10 point increase from best stimulation-ON score — urgent clinical review"
+      },
+      {
+        "assessment_id": "ASS-PD-008",
+        "assessment_name": "PDQ-39",
+        "lower_is_better": true,
+        "response_threshold": "≥4.72 point reduction in PDQ-39 Summary Index (MCID for PD)",
+        "remission_threshold": "PDQ-39 SI ≤20 (high quality of life)",
+        "non_response_threshold": "<5 point improvement at 12 months despite motor response — assess non-motor contributors (mood, cognition)",
+        "deterioration_threshold": "≥10 point increase from best score — urgent review for non-motor contributors or device issues"
+      }
+    ],
+    "adverse_event_triggers": [
+      {
+        "event_type": "Acute post-operative neurological deficit (weakness, aphasia, visual loss)",
+        "severity": "Serious",
+        "action": "Emergency CT brain; neurosurgical review immediately; ICU if indicated; report serious AE to device manufacturer and regulatory authority",
+        "suspend_treatment": true
+      },
+      {
+        "event_type": "Suicidal ideation or active suicidal behaviour post-DBS",
+        "severity": "Serious",
+        "action": "Psychiatric emergency assessment immediately; safety plan; programming review; consider temporary levodopa increase to offset hypostimulation; do not discharge without psychiatric input",
+        "suspend_treatment": false
+      },
+      {
+        "event_type": "Device infection (surgical site or hardware-related)",
+        "severity": "Serious",
+        "action": "Antibiotics immediately; surgical team assessment within 24 hours; explantation if hardware-related infection confirmed; report to manufacturer",
+        "suspend_treatment": true
+      },
+      {
+        "event_type": "Sudden motor deterioration despite stimulation",
+        "severity": "Moderate",
+        "action": "Urgent DBS programmer check — impedance, battery voltage, parameter verification; review medication compliance; imaging if lead displacement suspected",
+        "suspend_treatment": false
+      },
+      {
+        "event_type": "PHQ-9 increase ≥5 points from baseline or last assessment",
+        "severity": "Moderate",
+        "action": "Psychiatry referral; antidepressant review; DBS programming review; do not ignore",
+        "suspend_treatment": false
+      }
+    ],
+    "escalation_rules": [
+      {
+        "trigger": "Post-operative intracranial haemorrhage on CT",
+        "action": "Neurosurgical emergency; neurocritical care; DBS activation delayed until neurologically stable",
+        "urgency": "Emergency"
+      },
+      {
+        "trigger": "Suicidal ideation in early post-operative period",
+        "action": "Psychiatric emergency; safety planning; DBS parameter review; increase dopaminergic dose temporarily if STN-related hypostimulation suspected",
+        "urgency": "Emergency"
+      },
+      {
+        "trigger": "Motor response less than 20% at 6 months post-activation",
+        "action": "Review post-operative imaging for lead position; systematic contact reprogramming; neurosurgical MDT review",
+        "urgency": "Urgent"
+      },
+      {
+        "trigger": "Battery depletion warning (6 months before estimated end of service)",
+        "action": "Schedule battery replacement surgery; counsel patient on risks of sudden device cessation",
+        "urgency": "Routine"
+      }
+    ],
+    "adherence_rules": {
+      "minimum_session_adherence_pct": 80,
+      "consecutive_missed_sessions_flag": 2,
+      "action_on_low_adherence": "Contact patient to identify transport or carer barriers; telehealth programming available for stable patients at some centres; document in record"
+    }
+  },
+
+  "report_templates": [
+    {
+      "id": "RPT-PD-01",
+      "name": "PD DBS — Pre-Surgical MDT Candidacy Report",
+      "report_type": "intake-summary",
+      "audience": "Referring Physician",
+      "frequency": "Once — at MDT candidacy decision",
+      "sections": [
+        {
+          "section_id": "RPT-PD-01-A",
+          "title": "Diagnosis Confirmation and Disease Characterisation",
+          "auto_populate_from": ["diagnosis", "hoehn_yahr_stage", "disease_duration", "phenotype"],
+          "clinician_narrative_prompt": "Summarise PD diagnosis confirmation (UK Brain Bank criteria met, atypical features excluded), current HY stage, and predominant symptom phenotype.",
+          "required": true
+        },
+        {
+          "section_id": "RPT-PD-01-B",
+          "title": "Levodopa Responsiveness and Motor Complication Profile",
+          "auto_populate_from": ["updrs_iii_off", "updrs_iii_on", "ledd", "motor_fluctuations", "dyskinesias"],
+          "clinician_narrative_prompt": "Document MDS-UPDRS III OFF and ON scores, percentage improvement (levodopa challenge result), LEDD, and nature and severity of motor fluctuations and dyskinesias.",
+          "required": true
+        },
+        {
+          "section_id": "RPT-PD-01-C",
+          "title": "MDT Decision and Target Selection",
+          "auto_populate_from": ["mdt_members", "recommended_target", "recommended_device", "protocol_id"],
+          "clinician_narrative_prompt": "State the MDT recommendation: DBS target (STN or GPi), device, and rationale. Document any considerations that influenced target selection.",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "RPT-PD-02",
+      "name": "PD DBS — Annual Programming and Outcome Report",
+      "report_type": "progress-report",
+      "audience": "Referring Physician",
+      "frequency": "Annually from DBS activation",
+      "sections": [
+        {
+          "section_id": "RPT-PD-02-A",
+          "title": "Motor Outcome",
+          "auto_populate_from": ["updrs_iii_baseline_off", "updrs_iii_current_on", "pdq39_score", "ledd_current"],
+          "clinician_narrative_prompt": "Report MDS-UPDRS III in stimulation-ON vs pre-surgical OFF state. Report PDQ-39 SI change from baseline. State current LEDD and reduction achieved.",
+          "required": true
+        },
+        {
+          "section_id": "RPT-PD-02-B",
+          "title": "Device Status and Current Programming",
+          "auto_populate_from": ["dbs_parameters", "battery_status", "impedance"],
+          "clinician_narrative_prompt": "Document current DBS parameters, battery status, impedance readings, and programming changes in the past year.",
+          "required": true
+        },
+        {
+          "section_id": "RPT-PD-02-C",
+          "title": "Non-Motor and Psychiatric Status",
+          "auto_populate_from": ["phq9_score", "moca_score", "adverse_events"],
+          "clinician_narrative_prompt": "Report PHQ-9, MoCA scores vs baseline. Describe any psychiatric events and their management. Document stimulation-related side effects.",
+          "required": true
+        }
+      ]
+    }
+  ],
+
+  "home_program_templates": [
+    {
+      "id": "HPT-PD-01",
+      "name": "PD DBS — Home Device Monitoring and Safety Programme",
+      "modality_slug": "dbs",
+      "device_required": "DBS patient controller or remote (manufacturer-specific)",
+      "prerequisite_clinic_sessions": 4,
+      "sessions_per_week": 7,
+      "session_duration_minutes": 5,
+      "total_weeks": 0,
+      "patient_instructions": [
+        "Check that your DBS device is on every morning using your patient controller or remote",
+        "If your device is rechargeable, charge it as directed — typically every 10-15 days; keep it above 40% charge",
+        "Keep a daily symptom diary noting your best and worst times of day, any wearing-off periods, freezing, falls, or unusual symptoms",
+        "Take your Parkinson's medications exactly as prescribed every day — DBS does not replace your medications",
+        "If symptoms suddenly worsen, check your patient controller to confirm the device is operating — contact the clinic if the device shows an alert",
+        "Tell ALL medical teams (including dentist, A&E, MRI department) that you have a DBS device before any procedure"
+      ],
+      "safety_checklist": [
+        "My DBS device is ON and showing normal operation on my patient controller",
+        "My device battery is at an adequate level (above 40% for rechargeable; yellow or green on controller for non-rechargeable)",
+        "I have taken all my Parkinson's medications as prescribed today",
+        "There are no signs of infection (redness, pain, warmth, swelling) over my device or incision sites",
+        "I have my clinic emergency contact number available"
+      ],
+      "reporting_requirements": [
+        "Daily symptom diary: best and worst times, freezing episodes, falls, unusual movements, mood changes",
+        "Medication diary: any missed doses or side effects noticed",
+        "Log any device alerts or unusual controller readings",
+        "Bring printed diary to every programming visit"
+      ],
+      "contraindications_for_home": [
+        "Do not attempt to change DBS parameters at home — all programming is done at the clinic only",
+        "Do not have any MRI without contacting your DBS team first to confirm the MRI is safe for your specific device",
+        "Avoid strong magnetic fields: airport security body scanners (use handheld wand or pat-down), powerful industrial magnets, arc welding equipment",
+        "Contact clinic immediately if: device stops unexpectedly, symptoms dramatically worsen, you notice swelling or pain over the device"
+      ],
+      "evidence_note": "Home monitoring for DBS patients — no active stimulation change occurs at home. Patient controller allows within-range amplitude self-adjustment in some programming configurations — confirm with DBS team whether this is enabled for each individual patient."
+    }
+  ],
+
+  "consent_documents": [
+    {
+      "id": "CON-PD-01",
+      "name": "PD DBS — Surgical Informed Consent",
+      "document_type": "informed-consent",
+      "modality_slug": "dbs",
+      "when_required": "Before DBS implantation surgery — signed with neurosurgery team",
+      "key_disclosures": [
+        "DBS requires stereotactic neurosurgery under general (and sometimes local) anaesthesia",
+        "Surgical risks: intracranial haemorrhage (approximately 1%), infection (approximately 2%), lead displacement, stroke, death (rare)",
+        "DBS does not cure Parkinson's disease — it improves motor symptoms and quality of life",
+        "Cognitive effects: memory and executive function changes are possible, particularly with STN DBS",
+        "Mood effects including depression can occur or worsen post-operatively — psychiatric monitoring is required",
+        "Medications will be adjusted after DBS — do not stop any medications without neurologist instruction",
+        "Lifelong device monitoring and programming visits are required",
+        "Battery replacement surgery required every 3-5 years (non-rechargeable) or ongoing charging (rechargeable)",
+        "MRI restrictions apply — always declare DBS to all medical teams before any scan or procedure",
+        "Speech and swallowing can be affected — baseline speech and language therapy assessment recommended",
+        "Right to withdraw: device can be switched off but not dissolved without further surgery"
+      ],
+      "signature_required": true,
+      "witness_required": true,
+      "clinician_co_sign_required": true,
+      "review_frequency": "Once (before surgery)"
+    },
+    {
+      "id": "CON-PD-02",
+      "name": "PD DBS — Condition-Level Informed Consent",
+      "document_type": "informed-consent",
+      "when_required": "Before protocol generation and DBS referral",
+      "key_disclosures": [
+        "DBS is indicated for advanced PD with motor fluctuations — diagnosis and candidacy criteria have been explained",
+        "Alternative treatments including further medication optimisation and non-surgical options have been discussed",
+        "Device programming data will be used to optimise treatment",
+        "Long-term clinical data may be used for service improvement under applicable governance framework"
+      ],
+      "signature_required": true,
+      "witness_required": false,
+      "clinician_co_sign_required": true,
+      "review_frequency": "Annually"
+    },
+    {
+      "id": "CON-PD-03",
+      "name": "rTMS for PD — Off-Label Treatment Acknowledgement",
+      "document_type": "off-label-acknowledgement",
+      "modality_slug": "tms",
+      "when_required": "Before first rTMS session for PD (off-label use)",
+      "key_disclosures": [
+        "rTMS is not FDA approved for Parkinson's disease — this is off-label use",
+        "Evidence supports modest motor benefit (EV-B) but rTMS is an adjunct only, not a replacement for medications or DBS",
+        "Risks include headache, scalp discomfort, and rare seizure risk",
+        "For patients with an existing DBS device, TMS near the implanted hardware carries specific risks — safety confirmation with DBS manufacturer has been completed"
+      ],
+      "signature_required": true,
+      "witness_required": false,
+      "clinician_co_sign_required": true,
+      "review_frequency": "Each treatment course"
+    },
+    {
+      "id": "CON-PD-04",
+      "name": "PD DBS — Home Device Agreement",
+      "document_type": "home-device-agreement",
+      "modality_slug": "dbs",
+      "when_required": "Before patient discharge with DBS device active",
+      "key_disclosures": [
+        "Patient and carer have been trained on patient controller operation and battery monitoring",
+        "MRI restrictions understood — patient agrees to inform all medical teams of DBS before any scan or procedure",
+        "Patient agrees to attend all scheduled programming and monitoring visits",
+        "Patient agrees to keep symptom and medication diary",
+        "Patient knows to contact clinic immediately for device concerns or significant symptom changes",
+        "Device parameter changes are done at clinic only — not to be adjusted at home"
+      ],
+      "signature_required": true,
+      "witness_required": false,
+      "clinician_co_sign_required": true,
+      "review_frequency": "Annually"
+    }
   ]
 }

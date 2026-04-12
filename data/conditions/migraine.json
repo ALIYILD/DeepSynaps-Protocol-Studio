@@ -1,0 +1,1258 @@
+{
+  "$schema": "../schemas/condition-package.schema.json",
+  "schema_version": "1.0.0",
+  "id": "CON-009",
+  "slug": "migraine",
+  "name": "Migraine",
+  "category": "Neurological — Headache",
+  "icd_10": ["G43.0", "G43.1", "G43.7", "G43.9"],
+  "created_at": "2026-04-12",
+  "updated_at": "2026-04-12",
+  "review_status": "reviewed",
+  "reviewed_by": "DeepSynaps Clinical Team",
+
+  "condition_overview": {
+    "summary": "Migraine is a primary headache disorder characterised by recurrent attacks of moderate-to-severe unilateral pulsating pain lasting 4–72 hours, often accompanied by nausea, vomiting, photophobia, and phonophobia. It is driven by cortical spreading depression and trigeminovascular sensitisation. A subset of patients experience aura — transient neurological symptoms preceding or accompanying headache — while chronic migraine is defined as ≥15 headache days per month for >3 months. Neuromodulation offers FDA-cleared acute and preventive options without systemic side effects.",
+    "prevalence": "Migraine affects approximately 12% of the global population (15% of women, 6% of men). It is the second leading cause of disability worldwide (GBD 2016). Chronic migraine affects approximately 1–2% of the population.",
+    "phenotype_clusters": [
+      {
+        "id": "PHE-MIG-01",
+        "name": "Migraine Without Aura",
+        "description": "Most common migraine phenotype (75%). Characterised by unilateral pulsating headache with nausea, photophobia, or phonophobia, without preceding neurological aura. Primary target for acute and preventive neuromodulation.",
+        "primary_modality": "stms",
+        "qeeg_signature": "Cortical hyperexcitability; occipital hypersensitivity interictal"
+      },
+      {
+        "id": "PHE-MIG-02",
+        "name": "Migraine With Aura",
+        "description": "Approximately 25% of migraineurs experience transient, fully reversible neurological symptoms (visual, sensory, speech/language, motor, brainstem, or retinal) preceding or accompanying the headache. Cortical spreading depression underlies aura. sTMS is particularly suited to this phenotype.",
+        "primary_modality": "stms",
+        "qeeg_signature": "Cortical spreading depression signature; occipital hyperexcitability"
+      },
+      {
+        "id": "PHE-MIG-03",
+        "name": "Chronic Migraine",
+        "description": "≥15 headache days per month for >3 months, with at least 8 fulfilling migraine criteria. Often complicated by medication overuse headache (MOH). Preventive neuromodulation strategies are front-line in MOH management.",
+        "primary_modality": "nvns",
+        "qeeg_signature": "Interictal cortical hyperexcitability; widespread sensitisation patterns"
+      },
+      {
+        "id": "PHE-MIG-04",
+        "name": "Vestibular Migraine",
+        "description": "Migraine variant characterised by vestibular symptoms (vertigo, dizziness, imbalance) with or without headache. Meets migraine diagnostic criteria. Limited neuromodulation data; CEFALY may offer symptomatic benefit.",
+        "primary_modality": "cefaly",
+        "qeeg_signature": "Not well characterised"
+      }
+    ],
+    "severity_levels": [
+      "Episodic Low-Frequency (<4 days/month)",
+      "Episodic High-Frequency (4–14 days/month)",
+      "Chronic (≥15 days/month)"
+    ],
+    "population": ["Adolescent (≥12)", "Adult (18+)"],
+    "symptom_clusters": [
+      "Unilateral pulsating headache (moderate to severe)",
+      "Nausea and/or vomiting",
+      "Photophobia",
+      "Phonophobia",
+      "Aura (visual, sensory, language, or motor — in some patients)",
+      "Allodynia (in chronic migraine)",
+      "Prodrome symptoms (mood change, fatigue, yawning, neck stiffness)"
+    ],
+    "highest_evidence_level": "EV-A",
+    "relevant_modalities": ["stms", "nvns", "cefaly"],
+    "neurobiology": "Migraine involves cortical spreading depression (CSD) — a wave of neuronal and glial depolarisation propagating across the cortex at 3–5 mm/min — triggering trigeminovascular activation and central sensitisation. The trigeminal-cervical complex, thalamus, and periaqueductal grey (PAG) are key pain-processing nodes. Preventive neuromodulation targets cortical hyperexcitability (sTMS) or vagal modulation of trigeminal pain pathways (nVNS). Supraorbital nerve stimulation (CEFALY) modulates the trigeminal pathway at peripheral entry. Interictal cortical hyperexcitability is a core biomarker.",
+    "comorbidities": [
+      "Anxiety disorders (up to 50% comorbidity)",
+      "Major depressive disorder (2–4x increased risk)",
+      "Sleep disorders (insomnia, circadian rhythm disruption)",
+      "Medication overuse headache (MOH) — particularly with analgesics, triptans",
+      "Fibromyalgia / widespread pain sensitisation",
+      "Patent foramen ovale (PFO — associated with migraine with aura)"
+    ],
+    "differential_diagnoses": [
+      "Tension-type headache (bilateral, non-pulsating, no nausea/vomiting, no significant photophobia/phonophobia)",
+      "Cluster headache (strictly unilateral periorbital, short attacks, autonomic features, agitation)",
+      "Cervicogenic headache (originating from cervical spine pathology)",
+      "Raised intracranial pressure (thunderclap onset, progressive, papilloedema)",
+      "Subarachnoid haemorrhage (thunderclap worst-headache-of-life)",
+      "Idiopathic intracranial hypertension (position-dependent, visual symptoms, BMI)",
+      "Hemicrania continua (strictly unilateral, continuous, indomethacin-responsive)"
+    ]
+  },
+
+  "patient_friendly_explanation": {
+    "what_is_it": "Migraine is a neurological condition that causes severe, recurring headaches — usually on one side of your head — along with symptoms like nausea, vomiting, and sensitivity to light and sound. It is much more than a 'bad headache'; it is caused by specific changes in brain activity and can be debilitating for hours or days.",
+    "how_it_affects_you": "During a migraine attack, everyday activities like working, caring for family, or being in a lit room can become impossible. Some people see flashing lights or blind spots (called an aura) before the headache begins. Frequent migraines can significantly reduce quality of life and ability to work.",
+    "treatment_options_overview": "Several non-drug devices have been cleared by the FDA to treat migraine. The SpringTMS device uses a brief magnetic pulse to the back of your head to stop attacks or prevent them. The gammaCore device gently stimulates the vagus nerve in your neck. The CEFALY device stimulates a nerve above your eyebrow to prevent attacks. These treatments have no systemic side effects and can be used alongside your regular migraine medications.",
+    "what_to_expect": "For acute treatment, devices are used at the first sign of a migraine attack and can abort or reduce the attack within 30–60 minutes. For prevention, you will use the device once or twice daily for several weeks. Your clinician will check your headache diary every few weeks to see how well the treatment is working. Many people see a meaningful reduction in headache days within 4–8 weeks.",
+    "faq": [
+      {
+        "question": "Can I use these devices alongside my migraine tablets or injections?",
+        "answer": "Yes. These neuromodulation devices are designed to work alongside — not instead of — your usual migraine medications. Your clinician will advise on the best combination for your type of migraine."
+      },
+      {
+        "question": "Is the magnetic pulse from the SpringTMS painful?",
+        "answer": "No. The SpringTMS produces a single magnetic pulse that most people describe as a brief scalp sensation or a slight twitch of neck muscles. It is not painful. It is applied to the back of your head."
+      },
+      {
+        "question": "How long does gammaCore take to work during an attack?",
+        "answer": "You apply the gammaCore device to the right side of your neck for 2 minutes at the onset of an attack. You can repeat up to 3 times within an attack. Many people experience pain relief within 30–60 minutes."
+      },
+      {
+        "question": "What is the CEFALY device?",
+        "answer": "CEFALY is a small forehead device that stimulates the trigeminal nerve — the nerve involved in migraine pain — using gentle electrical signals for 20 minutes per day. It is FDA-cleared for migraine prevention and is painless for most people (some feel a tingling or pressure sensation)."
+      },
+      {
+        "question": "What if I am already taking too many headache tablets?",
+        "answer": "If you are using pain relief or triptans on 10 or more days per month, you may have medication overuse headache, which can make migraines worse. Neuromodulation is particularly useful in this situation because it works without adding more medication. Your clinician will help you reduce overused medications safely."
+      }
+    ]
+  },
+
+  "medical_history_requirements": {
+    "required_fields": [
+      {
+        "field": "Confirmed migraine diagnosis (ICHD-3 criteria documented)",
+        "reason": "Migraine diagnosis must be confirmed before any protocol is generated. Differentiates from secondary headache disorders requiring urgent investigation.",
+        "blocks_protocol": true
+      },
+      {
+        "field": "Headache frequency (days per month, averaged over last 3 months)",
+        "reason": "Determines episodic vs. chronic classification and appropriate protocol selection (acute vs. preventive vs. both).",
+        "blocks_protocol": true
+      },
+      {
+        "field": "Aura presence and characteristics",
+        "reason": "Migraine with aura is the primary indication for sTMS (eNeura SpringTMS) and may also indicate different vascular risk profile.",
+        "blocks_protocol": false
+      },
+      {
+        "field": "Medication overuse headache (MOH) screening",
+        "reason": "MOH is present in up to 50% of chronic migraine patients and must be identified as it affects treatment planning and outcome expectations.",
+        "blocks_protocol": false
+      },
+      {
+        "field": "Current acute and preventive migraine medications",
+        "reason": "Required to identify polypharmacy risk, document treatment history, and ensure neuromodulation is used appropriately in the treatment ladder.",
+        "blocks_protocol": false
+      },
+      {
+        "field": "Cardiovascular history (hypertension, arrhythmias, prior stroke or TIA)",
+        "reason": "Relevant to gammaCore nVNS safety screening; cardiac arrhythmias are a relative contraindication. Migraine with aura is an independent risk factor for stroke.",
+        "blocks_protocol": false
+      },
+      {
+        "field": "Metal implants or neurostimulators in head/neck region",
+        "reason": "Absolute contraindication for sTMS and may affect nVNS eligibility.",
+        "blocks_protocol": true
+      },
+      {
+        "field": "Seizure or epilepsy history",
+        "reason": "TMS protocols require careful screening; sTMS single-pulse is lower risk than repetitive TMS but seizure history still requires documented risk-benefit assessment.",
+        "blocks_protocol": false
+      },
+      {
+        "field": "Pregnancy status",
+        "reason": "Pregnancy affects protocol eligibility and safety profile of all neuromodulation devices.",
+        "blocks_protocol": false
+      }
+    ],
+    "clinical_interview_checklist": [
+      "Headache characteristics: location, quality, severity (NRS 0–10), duration per attack",
+      "Associated symptoms: nausea, vomiting, photophobia, phonophobia, osmophobia",
+      "Aura characterisation (visual, sensory, language, motor, brainstem, retinal)",
+      "Prodrome and postdrome features",
+      "Trigger factors (hormonal, dietary, sleep, stress, weather, sensory)",
+      "Menstrual relationship (menstrual migraine pattern)",
+      "Current and past preventive medications (topiramate, propranolol, amitriptyline, CGRP antagonists) and response",
+      "Acute medication use frequency and type (risk of MOH)",
+      "Impact on daily functioning (work, social, domestic)",
+      "Prior use of any neuromodulation devices for headache",
+      "Headache diary availability and willingness to maintain"
+    ],
+    "rule_out_differentials": [
+      "Secondary headache disorders requiring urgent investigation (new onset severe headache, headache with fever, meningism, papilloedema, focal neurology)",
+      "Subarachnoid haemorrhage (thunderclap headache — emergency)",
+      "Raised intracranial pressure or space-occupying lesion",
+      "Tension-type headache (no nausea/vomiting, bilateral, non-pulsating, no significant photo/phonophobia)",
+      "Cluster headache (strictly unilateral, periorbital, short duration, autonomic features)",
+      "Cervicogenic headache (neck origin, restricted movement, tenderness)",
+      "Idiopathic intracranial hypertension (especially if overweight female with visual symptoms)",
+      "Giant cell arteritis (age >50, scalp tenderness, jaw claudication, elevated ESR)"
+    ],
+    "comorbidity_screen": [
+      "Depression (PHQ-9) — highly comorbid; affects treatment engagement and outcomes",
+      "Anxiety (GAD-7) — often exacerbates migraine frequency",
+      "Sleep quality (PSQI or ISI) — poor sleep is a major trigger",
+      "Medication overuse (analgesic/triptan use >10 days/month)",
+      "Allodynia assessment — indicates central sensitisation, affects acute treatment window"
+    ],
+    "prior_treatment_required": [
+      "Trial of at least one evidence-based preventive medication OR documented contraindication/intolerance for chronic migraine patients",
+      "Acute treatment history (triptans, NSAIDs, anti-emetics)",
+      "Non-pharmacological strategies documented (sleep hygiene, trigger management, stress reduction)"
+    ],
+    "special_population_flags": [
+      {
+        "population": "Adolescent (12–17)",
+        "additional_requirements": [
+          "Parental/caregiver consent required for all procedures",
+          "Paediatric neurologist or headache specialist confirmation of diagnosis",
+          "School absence documentation as functional outcome measure",
+          "Age-appropriate device training (SpringTMS approved ≥12; CEFALY approved ≥18 per FDA)"
+        ]
+      },
+      {
+        "population": "Pregnant patients",
+        "additional_requirements": [
+          "Obstetric physician clearance required before any neuromodulation",
+          "SpringTMS limited human pregnancy data — individual risk-benefit discussion required",
+          "gammaCore: limited data in pregnancy; avoid in first trimester unless benefit clearly outweighs risk"
+        ]
+      },
+      {
+        "population": "Patients with cardiovascular disease",
+        "additional_requirements": [
+          "Cardiologist clearance for gammaCore nVNS if arrhythmia history",
+          "Carotid artery disease is a contraindication for gammaCore",
+          "Document resting ECG if gammaCore planned"
+        ]
+      }
+    ]
+  },
+
+  "contraindications": {
+    "absolute": [
+      {
+        "condition": "Metal implants in the head or neck (including cochlear implants, aneurysm clips, deep brain stimulators)",
+        "rationale": "Absolute contraindication for sTMS (magnetic field may heat or displace implants) and nVNS (electromagnetic interference)."
+      },
+      {
+        "condition": "Implanted cardiac pacemaker or defibrillator",
+        "rationale": "Electromagnetic devices including sTMS and gammaCore may interfere with implanted cardiac device function."
+      },
+      {
+        "condition": "Carotid artery disease (stenosis, atherosclerosis, prior carotid surgery) — for gammaCore/nVNS",
+        "rationale": "gammaCore is applied at the carotid level; carotid disease is an FDA-listed contraindication for this device."
+      },
+      {
+        "condition": "Active secondary headache disorder requiring urgent investigation (e.g. SAH, brain tumour, meningitis)",
+        "rationale": "No neuromodulation protocol may proceed until secondary cause is ruled out. Treat underlying cause first."
+      },
+      {
+        "condition": "Known cardiac arrhythmia (bradycardia, AV block, prior cardiac arrest) — for gammaCore",
+        "rationale": "Vagus nerve stimulation can modulate heart rate and rhythm; significant arrhythmias are a contraindication."
+      }
+    ],
+    "relative": [
+      {
+        "condition": "Active seizure disorder or epilepsy",
+        "rationale": "sTMS single-pulse is lower seizure risk than rTMS but still requires documented risk-benefit review.",
+        "mitigation": "Obtain neurologist clearance. Document seizure history, type, and medication. Prefer gammaCore or CEFALY if seizure risk is elevated."
+      },
+      {
+        "condition": "Pregnancy",
+        "rationale": "Limited safety data for all neuromodulation devices in pregnancy.",
+        "mitigation": "Obtain obstetric physician clearance. Use lowest-risk modality. Document individualised risk-benefit discussion."
+      },
+      {
+        "condition": "Medication overuse headache",
+        "rationale": "MOH can reduce response to preventive treatments including neuromodulation.",
+        "mitigation": "Address MOH first (planned analgesic withdrawal with support). Neuromodulation may assist during withdrawal but expectations should be calibrated."
+      },
+      {
+        "condition": "Syncope or vasovagal episodes — for gammaCore",
+        "rationale": "Vagal stimulation may trigger hypotension or bradycardia in susceptible individuals.",
+        "mitigation": "First session supervised in clinic. Educate patient to sit during stimulation. Document baseline blood pressure and heart rate."
+      },
+      {
+        "condition": "Cervical spine pathology (significant stenosis, recent surgery) — for nVNS",
+        "rationale": "Device applied to neck; significant neck pathology may affect safe placement or application.",
+        "mitigation": "Neurosurgeon clearance. May use CEFALY or sTMS as alternatives."
+      }
+    ],
+    "special_populations": [
+      {
+        "population": "Patients under age 12",
+        "flag": "No approved neuromodulation device for migraine below age 12. SpringTMS cleared ≥12."
+      },
+      {
+        "population": "Patients with vascular malformations",
+        "flag": "Neurosurgical clearance required before any protocol."
+      }
+    ],
+    "modality_specific": {
+      "stms": [
+        "Metal implants in head or neck — absolute",
+        "Implanted neurostimulators — absolute",
+        "Pregnancy — relative (document risk-benefit)"
+      ],
+      "nvns": [
+        "Carotid artery disease — absolute",
+        "Cardiac arrhythmia — absolute",
+        "Pacemaker or ICD — absolute",
+        "History of syncope — relative (supervise first use)"
+      ],
+      "cefaly": [
+        "Active skin condition or open wounds on forehead — temporary contraindication",
+        "Implanted metal in forehead region — absolute"
+      ]
+    }
+  },
+
+  "assessment_bundle": {
+    "screening": [
+      {
+        "assessment_id": "ASS-HD-001",
+        "name": "ID Migraine Screener",
+        "full_name": "ID Migraine — 3-Item Migraine Screener",
+        "clinician_vs_patient": "Patient self-report",
+        "rationale": "Validated 3-item screener (nausea, photophobia, functional disability) with 81% sensitivity and 75% specificity for migraine. Rapid pre-assessment filter.",
+        "lower_is_better": false,
+        "admin_duration_minutes": 2,
+        "access": "Free (public domain)",
+        "population": "Adult 18+"
+      }
+    ],
+    "baseline": [
+      {
+        "assessment_id": "ASS-HD-002",
+        "name": "MIDAS",
+        "full_name": "Migraine Disability Assessment Score",
+        "clinician_vs_patient": "Patient self-report",
+        "rationale": "Primary disability outcome measure. Captures days lost or severely impaired across work/school, household, and social domains over last 3 months. Grade I–IV severity classification. Required baseline for all migraine protocols.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 5,
+        "access": "Free (public domain)",
+        "population": "Adult 18+"
+      },
+      {
+        "assessment_id": "ASS-HD-003",
+        "name": "HIT-6",
+        "full_name": "Headache Impact Test — 6 item",
+        "clinician_vs_patient": "Patient self-report",
+        "rationale": "Six-item measure of headache impact on pain, social functioning, concentration, cognition, fatigue, and emotional distress. Validated across primary headache disorders. Score >60 = severe impact.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 3,
+        "access": "Free (public domain)",
+        "population": "Adult 18+"
+      },
+      {
+        "assessment_id": "ASS-PHQ-009",
+        "name": "PHQ-9",
+        "full_name": "Patient Health Questionnaire — 9 item",
+        "clinician_vs_patient": "Patient self-report",
+        "rationale": "Depression comorbidity screen. Depression is highly prevalent in chronic migraine and independently worsens headache burden. Baseline PHQ-9 is required for governance.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 5,
+        "access": "Free (public domain)",
+        "population": "Adult 18+"
+      },
+      {
+        "assessment_id": "ASS-HD-004",
+        "name": "Headache Diary (28-day)",
+        "full_name": "Prospective 28-Day Headache Diary",
+        "clinician_vs_patient": "Patient self-report",
+        "rationale": "Primary clinical tracking tool. Records headache days, severity, duration, acute medication use, and functional impact. Prospective diary data is required before chronic migraine classification and for monitoring protocol response.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 5,
+        "access": "Free",
+        "population": "Adult 18+"
+      }
+    ],
+    "monitoring": [
+      {
+        "assessment_id": "ASS-HD-004",
+        "name": "Headache Diary (Ongoing)",
+        "full_name": "Prospective Headache Diary — Treatment Period",
+        "clinician_vs_patient": "Patient self-report",
+        "rationale": "Continuous monitoring of headache days per month, attack severity, acute medication use, and device use compliance throughout the treatment course. Primary monitoring signal.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 5,
+        "access": "Free",
+        "population": "Adult 18+"
+      },
+      {
+        "assessment_id": "ASS-HD-003",
+        "name": "HIT-6 (Monitoring)",
+        "full_name": "Headache Impact Test — 6 item — Repeated Measure",
+        "clinician_vs_patient": "Patient self-report",
+        "rationale": "Administered every 4 weeks during treatment to track functional impact trajectory. Minimum clinically important difference (MCID) = 2.3 points.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 3,
+        "access": "Free (public domain)",
+        "population": "Adult 18+"
+      }
+    ],
+    "outcome": [
+      {
+        "assessment_id": "ASS-HD-002",
+        "name": "MIDAS (End of Course)",
+        "full_name": "Migraine Disability Assessment Score — Endpoint",
+        "clinician_vs_patient": "Patient self-report",
+        "rationale": "Primary outcome measure at end of course. Responder definition: ≥50% reduction in MIDAS score. Grade reduction of ≥1 category is clinically meaningful.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 5,
+        "access": "Free (public domain)",
+        "population": "Adult 18+"
+      },
+      {
+        "assessment_id": "ASS-HD-003",
+        "name": "HIT-6 (End of Course)",
+        "full_name": "Headache Impact Test — Endpoint",
+        "clinician_vs_patient": "Patient self-report",
+        "rationale": "Secondary outcome at end of course. MCID = 2.3 points reduction.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 3,
+        "access": "Free (public domain)",
+        "population": "Adult 18+"
+      },
+      {
+        "assessment_id": "ASS-HD-004",
+        "name": "Headache Days per Month (End of Course)",
+        "full_name": "Monthly Headache Day Count — End of Course",
+        "clinician_vs_patient": "Patient self-report",
+        "rationale": "Key preventive treatment outcome. Responder defined as ≥50% reduction in monthly headache days from baseline. Used across all device trial endpoints.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 2,
+        "access": "Free",
+        "population": "Adult 18+"
+      }
+    ],
+    "functional": [
+      {
+        "assessment_id": "ASS-HD-003",
+        "name": "HIT-6 (Functional)",
+        "full_name": "Headache Impact Test — Functional Domain Analysis",
+        "clinician_vs_patient": "Patient self-report",
+        "rationale": "Captures functional impairment across multiple life domains. Supports reporting to insurers and referring physicians.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 3,
+        "access": "Free (public domain)",
+        "population": "Adult 18+"
+      }
+    ]
+  },
+
+  "protocol_bundle": [
+    {
+      "protocol_id": "PRO-STMS-MIG-01",
+      "name": "Single-Pulse TMS — eNeura SpringTMS for Migraine (Acute + Preventive)",
+      "modality_slug": "stms",
+      "phenotype_id": "PHE-MIG-02",
+      "device_id": "DEV-SPRINGTMS-01",
+      "on_label_vs_off_label": "On-label",
+      "evidence_grade": "EV-A",
+      "evidence_summary": "The eNeura SpringTMS is FDA-cleared for acute and preventive treatment of migraine in patients aged ≥12, with or without aura. Pivotal RCT (Lipton et al., 2010, Lancet Neurology): 39% of SpringTMS patients were pain-free at 2 hours post-treatment vs. 22% sham (p=0.018). ESPOUSE study (Bhola et al., 2015): preventive BID use reduced mean headache days by 2.75/month. Meta-analysis confirms clinically meaningful acute and preventive efficacy. Mechanism: single-pulse TMS delivered to occipital cortex interrupts cortical spreading depression.",
+      "references": [
+        "Lipton RB et al. (2010). Single-pulse transcranial magnetic stimulation for acute treatment of migraine with aura. Lancet Neurology, 9(4), 373–380.",
+        "Bhola R et al. (2015). Single-pulse transcranial magnetic stimulation (sTMS) for the acute treatment of migraine: evaluation of outcome data for the UK post market pilot program. Journal of Headache and Pain, 16(1), 535.",
+        "ESPOUSE Study Group (2015). Evaluation of a novel portable single-pulse transcranial magnetic stimulation device for prevention of migraine."
+      ],
+      "brain_target": {
+        "region": "Occipital Cortex (Visual Cortex)",
+        "laterality": "Midline",
+        "eeg_position": "Oz / O1 / O2",
+        "effect_direction": "Inhibitory"
+      },
+      "parameters": {
+        "frequency_hz": "Single pulse (not repetitive TMS)",
+        "intensity": "0.9 Tesla",
+        "pulse_count": "Acute: 2 pulses per attack; Preventive: 4 pulses BID (morning and evening)",
+        "coil_type": "SpringTMS figure-of-eight coil (integrated in device)",
+        "electrode_placement": "Device placed against back of head (occipital region), self-applied",
+        "additional_params": {
+          "acute_timing": "Apply at first sign of aura or headache onset",
+          "acute_repeat": "Repeat 2-pulse application after 15 minutes if needed",
+          "preventive_dose": "4 pulses each morning + 4 pulses each evening = 8 pulses/day",
+          "device_mode": "Home-use device; patient self-administered after training"
+        }
+      },
+      "session_structure": {
+        "sessions_per_week": 14,
+        "session_duration_minutes": 5,
+        "total_sessions": 84,
+        "total_weeks": 6,
+        "maintenance_sessions": "Ongoing home use; monthly clinic review",
+        "steps": [
+          {
+            "order": 1,
+            "title": "Patient training session (clinic)",
+            "duration_minutes": 30,
+            "detail": "Clinician trains patient on SpringTMS device operation. Demonstrates placement against occipital scalp. Patient demonstrates correct technique. Discuss acute (2-pulse) and preventive (4-pulse BID) protocols. Issue headache diary app or paper diary."
+          },
+          {
+            "order": 2,
+            "title": "Acute use — at attack onset (home)",
+            "duration_minutes": 2,
+            "detail": "Patient applies device to back of head at first sign of aura or migraine onset. Delivers 2 pulses (approximately 30-second process). May repeat after 15 minutes (maximum 2 applications = 4 pulses per attack). Log attack details in diary."
+          },
+          {
+            "order": 3,
+            "title": "Preventive daily use (home)",
+            "duration_minutes": 3,
+            "detail": "Patient delivers 4 pulses each morning and 4 pulses each evening regardless of headache status. Device charges between sessions. Log daily use and headache days in diary."
+          },
+          {
+            "order": 4,
+            "title": "Monthly clinic review",
+            "duration_minutes": 30,
+            "detail": "Review headache diary, MIDAS, and HIT-6 scores. Assess device adherence. Check for adverse effects. Calibrate response: if no improvement at 6 weeks, consider protocol adjustment or alternative modality."
+          }
+        ]
+      },
+      "monitoring_required": [
+        "Headache diary — maintained daily throughout treatment",
+        "HIT-6 every 4 weeks",
+        "MIDAS at 6 and 12 weeks",
+        "PHQ-9 at baseline and end of course",
+        "Adverse event log (especially any seizure-like events)"
+      ],
+      "contraindication_check_required": true,
+      "adverse_event_monitoring": "Monitor for: tingling or twitching at application site (common, mild), brief dizziness or lightheadedness, rare seizure. Device-generated usage logs available for clinic review. Patient instructed to contact clinic immediately if any neurological symptom occurs.",
+      "escalation_rules": [
+        "No reduction in headache days at 6 weeks — clinical review and consider alternative modality or add-on therapy",
+        "Any seizure or seizure-like event — suspend protocol immediately, urgent neurological review",
+        "PHQ-9 score increase of ≥5 points — urgent clinician review and mental health referral if indicated",
+        "MOH identified during treatment — structured analgesic withdrawal protocol initiated"
+      ],
+      "patient_facing_allowed": true,
+      "clinician_review_required": true,
+      "governance": {
+        "patient_export_allowed": true,
+        "requires_clinician_sign_off": true,
+        "off_label_acknowledgement_required": false,
+        "dual_review_required": false,
+        "notes": "FDA-cleared for migraine ≥12 years, with or without aura. Home-use device. Training session mandatory before device dispensed."
+      }
+    },
+    {
+      "protocol_id": "PRO-NVNS-MIG-01",
+      "name": "Non-Invasive Vagus Nerve Stimulation — gammaCore for Migraine (Acute + Preventive)",
+      "modality_slug": "nvns",
+      "phenotype_id": "PHE-MIG-01",
+      "device_id": "DEV-GAMMACORE-01",
+      "on_label_vs_off_label": "On-label",
+      "evidence_grade": "EV-A",
+      "evidence_summary": "gammaCore (electroCore) is FDA-cleared for acute treatment of migraine in adults. The ACT1 and ACT2 RCTs (Tassorelli et al., 2018; Barbanti et al., 2015) and PRESTO trial demonstrated significant pain freedom rates at 30 and 60 minutes versus sham. The EVENT study supports preventive BID use. Mechanism: non-invasive electrical stimulation of the right vagus nerve at the neck modulates trigeminovascular pain pathways via the nucleus tractus solitarius (NTS) and brainstem pain processing centres.",
+      "references": [
+        "Tassorelli C et al. (2018). gammaCore (non-invasive vagus nerve stimulator) for the acute treatment of migraine: findings from the ACT1 double-blind, multicentre, randomised pilot study. Journal of Headache and Pain, 19(1), 4.",
+        "Barbanti P et al. (2015). Non-invasive vagus nerve stimulation for acute treatment of high-frequency and chronic migraine: an open-label study. Journal of Headache and Pain, 16, 61.",
+        "Goadsby PJ et al. (2014). Non-invasive vagus nerve stimulation: an update. Current Pain and Headache Reports, 18(7), 425."
+      ],
+      "brain_target": {
+        "region": "Vagus Nerve — Nucleus Tractus Solitarius / Trigeminal Pain Pathway",
+        "laterality": "Right",
+        "eeg_position": "N/A",
+        "effect_direction": "Inhibitory"
+      },
+      "parameters": {
+        "frequency_hz": "5000 Hz carrier wave, 25 Hz modulated",
+        "intensity": "Titrated to patient tolerance (perceptible but not painful)",
+        "pulse_count": "Acute: one 2-minute stimulation per application; Preventive: one 2-minute stimulation BID",
+        "electrode_placement": "Right side of neck, at the level of the carotid artery, applying conductive gel",
+        "additional_params": {
+          "acute_protocol": "Apply within 20 minutes of migraine onset; repeat up to 3 times per attack at 20-minute intervals",
+          "preventive_protocol": "One 2-minute stimulation each morning and each evening",
+          "gel_required": "Conductive electrode gel applied to device electrodes before each use",
+          "device_mode": "Prescription home-use device; requires clinician activation"
+        }
+      },
+      "session_structure": {
+        "sessions_per_week": 14,
+        "session_duration_minutes": 5,
+        "total_sessions": 84,
+        "total_weeks": 6,
+        "maintenance_sessions": "Ongoing home use with monthly clinic check-in",
+        "steps": [
+          {
+            "order": 1,
+            "title": "Clinic training and baseline vital signs",
+            "duration_minutes": 30,
+            "detail": "Measure baseline heart rate and blood pressure. Train patient in correct neck placement and conductive gel application. Administer first stimulation in clinic to assess tolerability and confirm no bradycardia or vagal response. Issue device activation code."
+          },
+          {
+            "order": 2,
+            "title": "Acute use — at attack onset (home)",
+            "duration_minutes": 5,
+            "detail": "Patient applies gel to device electrodes. Holds gammaCore to right side of neck at the carotid notch. Initiates 2-minute stimulation. Repeats every 20 minutes for up to 3 applications if needed. Logs attack and treatment in diary."
+          },
+          {
+            "order": 3,
+            "title": "Daily preventive use (home)",
+            "duration_minutes": 5,
+            "detail": "One 2-minute stimulation each morning and one each evening at a consistent time, applied to right neck. Sit or lie during application. Log daily use in diary."
+          },
+          {
+            "order": 4,
+            "title": "Monthly clinic review",
+            "duration_minutes": 30,
+            "detail": "Review headache diary and HIT-6. Check device dose counter and compliance. Reassess cardiovascular status. Adjust regimen if needed."
+          }
+        ]
+      },
+      "monitoring_required": [
+        "Headache diary — daily throughout treatment",
+        "HIT-6 every 4 weeks",
+        "MIDAS at 6 and 12 weeks",
+        "Blood pressure and heart rate at clinic visits",
+        "Adverse event log"
+      ],
+      "contraindication_check_required": true,
+      "adverse_event_monitoring": "Monitor for: neck discomfort, facial muscle twitching (common), hoarseness, dizziness. Rare: bradycardia, hypotension. Patient instructed to sit during use and to stop and call clinic if palpitations, significant bradycardia, or loss of consciousness occur.",
+      "escalation_rules": [
+        "Syncope or significant bradycardia during use — suspend protocol, urgent cardiology review",
+        "No response at 6 weeks (fewer than 50% attack reduction) — clinical review and consider combination or switch to sTMS",
+        "Worsening headache frequency — assess for MOH; urgent clinician review",
+        "PHQ-9 increase ≥5 points — mental health referral"
+      ],
+      "patient_facing_allowed": true,
+      "clinician_review_required": true,
+      "governance": {
+        "patient_export_allowed": true,
+        "requires_clinician_sign_off": true,
+        "off_label_acknowledgement_required": false,
+        "dual_review_required": false,
+        "notes": "FDA-cleared for acute migraine in adults. Requires prescription. First use must be supervised in clinic. Carotid artery disease and cardiac arrhythmia are absolute contraindications."
+      }
+    },
+    {
+      "protocol_id": "PRO-CEFALY-MIG-01",
+      "name": "Transcutaneous Supraorbital Neurostimulation — CEFALY for Migraine Prevention",
+      "modality_slug": "cefaly",
+      "phenotype_id": "PHE-MIG-01",
+      "device_id": "DEV-CEFALY-01",
+      "on_label_vs_off_label": "On-label",
+      "evidence_grade": "EV-B",
+      "evidence_summary": "CEFALY is FDA-cleared for preventive treatment of migraine in adults. The PREMICE RCT (Schoenen et al., 2013, Neurology): 38.3% of CEFALY patients achieved ≥50% reduction in migraine days vs. 12.1% sham (p=0.023). ACME trial (Chou et al., 2019) confirmed acute efficacy in CEFALY-ACUTE mode. Evidence grade EV-B reflecting fewer large RCTs compared to pharmaceutical comparators, though FDA clearance confirms clinical benefit. Mechanism: bilateral supraorbital transcutaneous electrical nerve stimulation (TENS) modulates the trigeminal nucleus caudalis and reduces central sensitisation.",
+      "references": [
+        "Schoenen J et al. (2013). Migraine prevention with a supraorbital transcutaneous stimulator: a randomized controlled trial. Neurology, 80(8), 697–704.",
+        "Chou DE et al. (2019). Acute migraine therapy with external trigeminal neurostimulation (ACME): A randomized controlled trial. Cephalalgia, 39(1), 3–14."
+      ],
+      "brain_target": {
+        "region": "Trigeminal Nucleus Caudalis (via supraorbital branch stimulation)",
+        "laterality": "Bilateral",
+        "eeg_position": "Fpz",
+        "effect_direction": "Inhibitory"
+      },
+      "parameters": {
+        "frequency_hz": "60 Hz (PREVENT mode); 100 Hz (ACUTE mode)",
+        "intensity": "Titrated to patient tolerance (paresthesia without pain)",
+        "pulse_count": "PREVENT mode: 20 minutes/day continuous stimulation",
+        "electrode_placement": "Self-adhesive forehead electrode (Fpz position) connected to headband device",
+        "additional_params": {
+          "prevent_mode": "20 minutes daily, same time each day for prevention",
+          "acute_mode": "60-minute session at attack onset (CEFALY-ACUTE mode, also cleared)",
+          "device_type": "Consumer prescription device; prescription required in USA"
+        }
+      },
+      "session_structure": {
+        "sessions_per_week": 7,
+        "session_duration_minutes": 20,
+        "total_sessions": 84,
+        "total_weeks": 12,
+        "maintenance_sessions": "Ongoing daily use; review at 12 weeks",
+        "steps": [
+          {
+            "order": 1,
+            "title": "Device training and first supervised session",
+            "duration_minutes": 30,
+            "detail": "Apply adhesive electrode to forehead in Fpz position. Attach CEFALY device to electrode. Start PREVENT mode (20 min). Patient experiences tingling or pressure sensation — titrate to comfortable level. Ensure correct placement and patient confidence in independent use."
+          },
+          {
+            "order": 2,
+            "title": "Daily home use — PREVENT mode",
+            "duration_minutes": 20,
+            "detail": "Patient applies electrode and device at the same time each day (ideally before bed). Runs 20-minute PREVENT session. Device switches off automatically. Log daily use and headache events."
+          },
+          {
+            "order": 3,
+            "title": "Four-week review",
+            "duration_minutes": 20,
+            "detail": "Review headache diary. HIT-6 reassessment. Assess device tolerance and adherence. Discuss any discomfort or skin reactions at electrode site."
+          }
+        ]
+      },
+      "monitoring_required": [
+        "Headache diary — daily",
+        "HIT-6 at 4, 8, and 12 weeks",
+        "MIDAS at 12 weeks",
+        "Skin tolerance at forehead electrode site — each visit"
+      ],
+      "contraindication_check_required": true,
+      "adverse_event_monitoring": "Monitor for: forehead tingling (expected, benign), skin irritation at electrode site, allodynia at electrode site during attack. Patient instructed to remove device if pain or skin irritation develops.",
+      "escalation_rules": [
+        "Skin breakdown or allergic reaction at electrode site — suspend, evaluate skin and assess for electrode allergy",
+        "No response at 12 weeks — clinical review, consider switching to or adding sTMS or nVNS",
+        "Worsening migraine frequency — rule out MOH; urgent review"
+      ],
+      "patient_facing_allowed": true,
+      "clinician_review_required": true,
+      "governance": {
+        "patient_export_allowed": true,
+        "requires_clinician_sign_off": true,
+        "off_label_acknowledgement_required": false,
+        "dual_review_required": false,
+        "notes": "FDA-cleared for preventive and acute migraine in adults (18+). Home-use device. Prescription required. Electrode must be kept clean and replaced per manufacturer schedule."
+      }
+    }
+  ],
+
+  "device_options": [
+    {
+      "device_id": "DEV-SPRINGTMS-01",
+      "name": "SpringTMS",
+      "manufacturer": "eNeura Inc.",
+      "modality_slug": "stms",
+      "regulatory_status": "FDA-cleared",
+      "cleared_indication": "Acute and preventive treatment of migraine with and without aura in patients aged 12 and older",
+      "use_setting": "Home",
+      "compatible_protocols": ["PRO-STMS-MIG-01"],
+      "constraints": [
+        "Cleared for patients aged 12 and older",
+        "Requires prescription from licensed healthcare provider",
+        "Absolute contraindication: metal implants in head or neck",
+        "Absolute contraindication: implanted cardiac pacemaker or defibrillator",
+        "Patient must receive in-person training before home use"
+      ],
+      "notes": "Single-pulse TMS device; not rTMS. Device housing positions coil against occipital scalp. Requires charging between sessions. Device dose logs downloadable by clinic."
+    },
+    {
+      "device_id": "DEV-GAMMACORE-01",
+      "name": "gammaCore",
+      "manufacturer": "electroCore Inc.",
+      "modality_slug": "nvns",
+      "regulatory_status": "FDA-cleared",
+      "cleared_indication": "Acute and preventive treatment of migraine in adults; acute and preventive treatment of episodic cluster headache in adults",
+      "use_setting": "Home",
+      "compatible_protocols": ["PRO-NVNS-MIG-01"],
+      "constraints": [
+        "Adults only (18+)",
+        "Requires prescription",
+        "Absolute contraindication: carotid artery disease",
+        "Absolute contraindication: cardiac arrhythmias",
+        "Absolute contraindication: implanted pacemaker or defibrillator",
+        "Conductive gel required for every use"
+      ],
+      "notes": "Device activation requires clinician-issued authorisation code. Dose counter visible to patient and clinic. First use should be supervised in clinic."
+    },
+    {
+      "device_id": "DEV-CEFALY-01",
+      "name": "CEFALY",
+      "manufacturer": "Cefaly Technology",
+      "modality_slug": "cefaly",
+      "regulatory_status": "FDA-cleared",
+      "cleared_indication": "Preventive and acute treatment of migraine in adults (18+)",
+      "use_setting": "Home",
+      "compatible_protocols": ["PRO-CEFALY-MIG-01"],
+      "constraints": [
+        "Adults 18+ (FDA-cleared indication)",
+        "Adhesive electrode must be replaced approximately every 20 uses",
+        "Contraindicated with implanted metal in forehead region",
+        "Active skin conditions on forehead are a temporary contraindication"
+      ],
+      "notes": "CE-marked and FDA-cleared. Two modes: PREVENT (60 Hz, 20 min) and ACUTE (100 Hz, 60 min). Patient chooses mode on device. Low-maintenance; electrode replacement is main consumable cost."
+    }
+  ],
+
+  "brain_targets": [
+    {
+      "region": "Occipital Cortex (Primary Visual Cortex)",
+      "abbreviation": "OCC / V1",
+      "laterality": "Midline",
+      "rationale": "Primary site of cortical spreading depression (CSD) initiation, particularly in migraine with aura. Single-pulse TMS delivered here interrupts CSD propagation, aborting aura and preventing subsequent trigeminovascular activation.",
+      "effect_direction": "Inhibitory",
+      "modalities": ["stms"],
+      "eeg_position_10_20": "Oz",
+      "brodmann_area": "BA17 / BA18",
+      "network": "Visual Network",
+      "evidence_note": "Primary target for SpringTMS FDA-cleared indication. Supported by CSD interruption mechanism."
+    },
+    {
+      "region": "Vagus Nerve (Right Cervical Branch) — NTS / Trigeminal Pain Pathway",
+      "abbreviation": "VN / NTS",
+      "laterality": "Right",
+      "rationale": "Non-invasive stimulation of the right cervical vagus nerve modulates the nucleus tractus solitarius (NTS) and subsequently inhibits trigeminal nucleus caudalis activity, reducing central sensitisation and nociceptive transmission in migraine.",
+      "effect_direction": "Inhibitory",
+      "modalities": ["nvns"],
+      "eeg_position_10_20": "N/A",
+      "network": "Pain Modulation Network (Vagal-NTS-Trigeminal axis)",
+      "evidence_note": "FDA-cleared target for gammaCore in migraine and cluster headache."
+    },
+    {
+      "region": "Trigeminal Nucleus Caudalis (via supraorbital nerve)",
+      "abbreviation": "TNC / V1-TENS",
+      "laterality": "Bilateral",
+      "rationale": "Transcutaneous stimulation of the supraorbital branch of the trigeminal nerve (V1) modulates the trigeminal nucleus caudalis, reducing pain transmission and central sensitisation. Provides peripheral-to-central descending pain inhibition.",
+      "effect_direction": "Inhibitory",
+      "modalities": ["cefaly"],
+      "eeg_position_10_20": "Fpz",
+      "network": "Trigeminovascular Pain Network",
+      "evidence_note": "Mechanism underlying CEFALY FDA clearance for preventive and acute migraine."
+    }
+  ],
+
+  "handbook_outputs": {
+    "clinician_handbook": {
+      "title": "Migraine Neuromodulation — Clinician Handbook",
+      "audience": "Clinician",
+      "sections": [
+        {
+          "section_id": "CH-MIG-01",
+          "title": "Clinical Overview and Patient Selection",
+          "content": [
+            "Migraine affects approximately 12% of adults globally and is a leading cause of disability. ICHD-3 diagnostic criteria should be applied rigorously before protocol selection.",
+            "Neuromodulation should be considered for: (1) patients who have failed or are intolerant of first-line preventive medications, (2) patients with frequent acute medication use (MOH risk), (3) patients who prefer non-pharmacological approaches.",
+            "Device selection: sTMS (SpringTMS) preferred for migraine with aura; nVNS (gammaCore) for acute and preventive use without aura; CEFALY for preventive use in all phenotypes.",
+            "Contraindication screening is mandatory before any device is prescribed. Screen for metal implants, cardiac devices, and carotid artery disease (for gammaCore)."
+          ]
+        },
+        {
+          "section_id": "CH-MIG-02",
+          "title": "Protocol Parameters and Clinical Evidence",
+          "content": [
+            "SpringTMS (sTMS): 0.9T single-pulse, occipital placement. Acute: 2 pulses at attack onset. Preventive: 4 pulses BID. FDA-cleared. EV-A evidence.",
+            "gammaCore (nVNS): Right neck placement, conductive gel, 2-minute stimulation. Acute: up to 3 applications per attack. Preventive: BID daily. FDA-cleared. EV-A evidence.",
+            "CEFALY: Supraorbital electrode (Fpz), 20 min daily (PREVENT mode) or 60 min at onset (ACUTE mode). FDA-cleared. EV-B evidence.",
+            "Combination use (e.g. sTMS + CEFALY) is clinically practised but evidence-base is limited to observational data."
+          ]
+        },
+        {
+          "section_id": "CH-MIG-03",
+          "title": "Monitoring and Response Assessment",
+          "content": [
+            "Primary outcome: ≥50% reduction in monthly headache days from baseline (clinically meaningful response definition).",
+            "MIDAS: administer at baseline and 12 weeks. Grade reduction of ≥1 category is clinically significant.",
+            "HIT-6: administer every 4 weeks. MCID = 2.3 points reduction.",
+            "Headache diary: essential for all patients; review at each clinic visit.",
+            "If no response at 6 weeks (sTMS/nVNS) or 12 weeks (CEFALY), escalate to clinical review and consider protocol modification."
+          ]
+        }
+      ]
+    },
+    "patient_guide": {
+      "title": "Your Migraine Treatment Guide",
+      "audience": "Patient",
+      "sections": [
+        {
+          "section_id": "PG-MIG-01",
+          "title": "Understanding Your Migraine Treatment",
+          "content": [
+            "You are starting a drug-free brain stimulation treatment for your migraines. This uses gentle electrical or magnetic signals — not drugs — to help your brain manage migraine pain.",
+            "These devices have been approved by the FDA, meaning they have been tested in clinical trials and shown to reduce migraine frequency and severity.",
+            "Treatment involves using your device at home every day. Your clinician will check in with you regularly to make sure it is working."
+          ]
+        },
+        {
+          "section_id": "PG-MIG-02",
+          "title": "How to Use Your Device",
+          "content": [
+            "SpringTMS: Hold against the back of your head and press the button. Two quick pulses. Use at the very first sign of a migraine or aura. For prevention, use 4 pulses in the morning and 4 pulses in the evening every day.",
+            "gammaCore: Apply the gel to the device contacts. Hold against the right side of your neck. Press and hold for 2 minutes. For an attack, you can repeat up to 3 times every 20 minutes. For prevention, use once in the morning and once in the evening.",
+            "CEFALY: Stick the electrode to your forehead. Attach the device. Press the button and relax for 20 minutes. You will feel a tingling — this is normal. Use every day at the same time."
+          ]
+        },
+        {
+          "section_id": "PG-MIG-03",
+          "title": "Keeping Your Headache Diary",
+          "content": [
+            "Please record every headache in your diary — even mild ones. Note the date, time it started, severity out of 10, how long it lasted, and any medications you took.",
+            "If using your device for an attack, note whether it helped and how quickly.",
+            "Bring your diary to every clinic appointment — it is the most important tool for your clinician to track how well treatment is working."
+          ]
+        }
+      ]
+    },
+    "technician_sop": {
+      "title": "Migraine Neuromodulation — Technician SOP",
+      "audience": "Technician",
+      "sections": [
+        {
+          "section_id": "TSOP-MIG-01",
+          "title": "Pre-Session Checklist",
+          "content": [
+            "Verify contraindication screening form is complete and signed.",
+            "Confirm device is charged and functioning.",
+            "Confirm patient has no new symptoms or changes since last visit (new headache type, neurological symptoms, new medications).",
+            "Review headache diary from last period. Note any adverse events.",
+            "For gammaCore: measure and document resting heart rate and blood pressure before first session."
+          ]
+        },
+        {
+          "section_id": "TSOP-MIG-02",
+          "title": "Device Training Protocol",
+          "content": [
+            "SpringTMS training: demonstrate device placement against occipital scalp. Patient repeats demonstration. Confirm understanding of acute (2 pulses) vs preventive (4 pulses BID) protocols. Provide written instruction card.",
+            "gammaCore training: demonstrate gel application, neck placement at carotid notch, and button operation. First clinic stimulation supervised — monitor for any bradycardia or dizziness. Patient completes training simulation.",
+            "CEFALY training: apply electrode to forehead. Attach device. Run a 2-minute supervised test session. Confirm patient is comfortable with sensation and can independently apply and remove device."
+          ]
+        }
+      ]
+    }
+  },
+
+  "monitoring_rules": {
+    "assessment_schedule": [
+      {
+        "assessment_id": "ASS-HD-004",
+        "assessment_name": "Headache Diary",
+        "timing": "Daily throughout treatment",
+        "frequency": "Daily",
+        "administered_by": "Patient self-report"
+      },
+      {
+        "assessment_id": "ASS-HD-003",
+        "assessment_name": "HIT-6",
+        "timing": "Baseline, Week 4, Week 8, Week 12",
+        "frequency": "Every 4 weeks",
+        "administered_by": "Patient self-report"
+      },
+      {
+        "assessment_id": "ASS-HD-002",
+        "assessment_name": "MIDAS",
+        "timing": "Baseline, Week 6, Week 12",
+        "frequency": "Every 6 weeks",
+        "administered_by": "Patient self-report"
+      },
+      {
+        "assessment_id": "ASS-PHQ-009",
+        "assessment_name": "PHQ-9",
+        "timing": "Baseline and end of course",
+        "frequency": "Once (repeat if clinical concern)",
+        "administered_by": "Patient self-report"
+      }
+    ],
+    "response_thresholds": [
+      {
+        "assessment_id": "ASS-HD-004",
+        "assessment_name": "Monthly Headache Days",
+        "lower_is_better": true,
+        "response_threshold": "≥50% reduction from baseline monthly headache days",
+        "remission_threshold": "≤4 headache days per month (episodic low-frequency)",
+        "non_response_threshold": "<30% reduction at 6 weeks for sTMS/nVNS, <30% at 12 weeks for CEFALY",
+        "deterioration_threshold": "Increase of ≥3 headache days per month from baseline"
+      },
+      {
+        "assessment_id": "ASS-HD-002",
+        "assessment_name": "MIDAS",
+        "lower_is_better": true,
+        "response_threshold": "≥50% reduction in MIDAS score from baseline",
+        "remission_threshold": "MIDAS Grade I (score 0–5)",
+        "non_response_threshold": "<30% MIDAS reduction at Week 12",
+        "deterioration_threshold": "MIDAS grade increase of ≥2 categories"
+      },
+      {
+        "assessment_id": "ASS-HD-003",
+        "assessment_name": "HIT-6",
+        "lower_is_better": true,
+        "response_threshold": "≥2.3 point reduction from baseline (MCID)",
+        "remission_threshold": "Score ≤49 (Little or no impact)",
+        "non_response_threshold": "No change at Week 8",
+        "deterioration_threshold": "Increase of ≥5 points from baseline"
+      }
+    ],
+    "adverse_event_triggers": [
+      {
+        "event_type": "Seizure or seizure-like event",
+        "severity": "Serious",
+        "action": "Suspend protocol immediately. Emergency neurology review. Device incident report filed. Do not restart without neurology clearance.",
+        "suspend_treatment": true
+      },
+      {
+        "event_type": "Syncope or loss of consciousness during nVNS",
+        "severity": "Serious",
+        "action": "Suspend gammaCore protocol immediately. Emergency cardiac evaluation. Cardiology review before any restart.",
+        "suspend_treatment": true
+      },
+      {
+        "event_type": "Significant bradycardia or palpitations during nVNS",
+        "severity": "Moderate",
+        "action": "Suspend session. Measure ECG if available. Urgent cardiology review. Escalate to clinician.",
+        "suspend_treatment": true
+      },
+      {
+        "event_type": "Skin reaction at electrode site",
+        "severity": "Mild",
+        "action": "Suspend device use at affected site. Assess for contact allergy. Dermatology referral if persistent.",
+        "suspend_treatment": false
+      },
+      {
+        "event_type": "New neurological symptom (new focal weakness, speech change, visual loss)",
+        "severity": "Serious",
+        "action": "Suspend all protocols. Urgent neurology review. Rule out secondary headache cause.",
+        "suspend_treatment": true
+      }
+    ],
+    "escalation_rules": [
+      {
+        "trigger": "No response (<30% reduction in headache days) at 6 weeks of sTMS or nVNS",
+        "action": "Clinical review. Assess adherence and correct technique. Consider switching modality or adding preventive pharmacotherapy.",
+        "urgency": "Routine"
+      },
+      {
+        "trigger": "Worsening headache frequency (>3 additional days/month) during treatment",
+        "action": "Assess for medication overuse headache (MOH). Rule out secondary cause. Clinical review within 2 weeks.",
+        "urgency": "Urgent"
+      },
+      {
+        "trigger": "PHQ-9 score ≥15 or increase of ≥5 points from baseline",
+        "action": "Urgent mental health assessment. Refer to psychiatry or GP. Headache treatment may continue in parallel if clinically appropriate.",
+        "urgency": "Urgent"
+      },
+      {
+        "trigger": "Any serious adverse event (seizure, syncope, new neurology)",
+        "action": "Suspend all protocols. Emergency assessment. Medical director notification.",
+        "urgency": "Emergency"
+      }
+    ],
+    "adherence_rules": {
+      "minimum_session_adherence_pct": 70,
+      "consecutive_missed_sessions_flag": 7,
+      "action_on_low_adherence": "Contact patient within 48 hours. Identify barrier to use. Provide additional training or device support if needed. Document in patient record."
+    }
+  },
+
+  "report_templates": [
+    {
+      "id": "RPT-MIG-INTAKE-01",
+      "name": "Migraine Intake Summary",
+      "report_type": "intake-summary",
+      "audience": "Clinician",
+      "frequency": "Once — at intake",
+      "sections": [
+        {
+          "section_id": "S1",
+          "title": "Diagnosis and Phenotype",
+          "auto_populate_from": ["diagnosis_confirmed", "migraine_phenotype", "icd_10_code", "headache_days_per_month"],
+          "clinician_narrative_prompt": "Summarise the migraine diagnosis, phenotype (with/without aura, chronic), and any relevant diagnostic considerations.",
+          "required": true
+        },
+        {
+          "section_id": "S2",
+          "title": "Baseline Assessment Scores",
+          "auto_populate_from": ["MIDAS_score", "HIT6_score", "PHQ9_score", "headache_diary_baseline"],
+          "clinician_narrative_prompt": "Comment on the severity and disability burden indicated by baseline scores.",
+          "required": true
+        },
+        {
+          "section_id": "S3",
+          "title": "Contraindication Screening Outcome",
+          "auto_populate_from": ["contraindication_screen_result", "modality_cleared"],
+          "clinician_narrative_prompt": "Confirm contraindication screening has been completed and document any relative contraindications and mitigations agreed.",
+          "required": true
+        },
+        {
+          "section_id": "S4",
+          "title": "Selected Protocol and Rationale",
+          "auto_populate_from": ["protocol_id", "protocol_name", "device_name", "on_label_status"],
+          "clinician_narrative_prompt": "State the protocol selected and clinical rationale. Note if patient has failed prior preventive medications.",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "RPT-MIG-PROG-01",
+      "name": "Migraine Progress Report",
+      "report_type": "progress-report",
+      "audience": "Clinician",
+      "frequency": "Every 4 weeks",
+      "sections": [
+        {
+          "section_id": "S1",
+          "title": "Headache Diary Review",
+          "auto_populate_from": ["headache_days_this_period", "headache_days_baseline", "pct_change_headache_days", "acute_medication_days"],
+          "clinician_narrative_prompt": "Summarise headache frequency trend. Note any change in acute medication use or MOH risk.",
+          "required": true
+        },
+        {
+          "section_id": "S2",
+          "title": "Assessment Score Trends",
+          "auto_populate_from": ["HIT6_current", "HIT6_baseline", "HIT6_change"],
+          "clinician_narrative_prompt": "Comment on HIT-6 trajectory. Has the MCID of 2.3 points been achieved?",
+          "required": true
+        },
+        {
+          "section_id": "S3",
+          "title": "Device Adherence",
+          "auto_populate_from": ["device_sessions_completed", "device_sessions_planned", "adherence_pct"],
+          "clinician_narrative_prompt": "Comment on adherence. Identify barriers if adherence is below 70%.",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "RPT-MIG-EOC-01",
+      "name": "Migraine End-of-Course Report",
+      "report_type": "end-of-course-report",
+      "audience": "Referring Physician",
+      "frequency": "Once — at end of course",
+      "sections": [
+        {
+          "section_id": "S1",
+          "title": "Treatment Summary",
+          "auto_populate_from": ["protocol_id", "device_name", "total_sessions", "treatment_dates", "on_label_status"],
+          "clinician_narrative_prompt": "Summarise the treatment course, device used, and protocol parameters.",
+          "required": true
+        },
+        {
+          "section_id": "S2",
+          "title": "Clinical Outcome",
+          "auto_populate_from": ["MIDAS_baseline", "MIDAS_endpoint", "MIDAS_pct_change", "headache_days_baseline", "headache_days_endpoint", "HIT6_baseline", "HIT6_endpoint"],
+          "clinician_narrative_prompt": "State whether responder criteria were met (≥50% reduction in MIDAS or headache days). Provide clinical interpretation.",
+          "required": true
+        },
+        {
+          "section_id": "S3",
+          "title": "Adverse Events",
+          "auto_populate_from": ["adverse_events_list", "serious_adverse_events"],
+          "clinician_narrative_prompt": "Document any adverse events, their management, and current status.",
+          "required": true
+        },
+        {
+          "section_id": "S4",
+          "title": "Recommendations",
+          "auto_populate_from": ["maintenance_plan", "medication_review_needed"],
+          "clinician_narrative_prompt": "Provide recommendations for ongoing management: maintenance protocol, medication review, follow-up timing.",
+          "required": true
+        }
+      ]
+    }
+  ],
+
+  "home_program_templates": [
+    {
+      "id": "HOME-STMS-MIG-01",
+      "name": "SpringTMS Home Program — Migraine",
+      "modality_slug": "stms",
+      "device_required": "eNeura SpringTMS",
+      "prerequisite_clinic_sessions": 1,
+      "sessions_per_week": 14,
+      "session_duration_minutes": 5,
+      "total_weeks": 12,
+      "patient_instructions": [
+        "Keep your SpringTMS device charged at all times — charge each night so it is always ready.",
+        "FOR AN ATTACK: At the very first sign of a migraine or aura (visual zigzags, etc.), take your device and apply it to the back of your head. Press the button twice. You will feel a brief sensation. Wait 15 minutes. If the migraine is still there, repeat once more (2 more pulses). Maximum 4 pulses per attack.",
+        "FOR PREVENTION (every day): Each morning, hold the device to the back of your head and press the button 4 times. Do the same each evening. You do not need to have a headache — this is to prevent attacks.",
+        "Record every attack and every prevention session in your headache diary app or diary sheet.",
+        "Keep the device away from other electronic devices, credit cards, and pacemakers."
+      ],
+      "safety_checklist": [
+        "I do not have any new metal implants, pacemakers, or implanted devices since my last clinic visit",
+        "I have no new neurological symptoms (weakness, vision loss, speech problems) today",
+        "My device is fully charged",
+        "I am seated or lying down before using the device for an attack"
+      ],
+      "reporting_requirements": [
+        "Record date and time of every migraine attack in your diary",
+        "Record device use for each attack (pulses used, whether it helped, time to relief)",
+        "Record any side effects (tingling, dizziness, neck muscle twitching)",
+        "Record your daily prevention sessions (morning and evening tick)"
+      ],
+      "contraindications_for_home": [
+        "New onset worst headache of your life — do NOT use device; call emergency services",
+        "Fever with headache and stiff neck — do NOT use device; call emergency services",
+        "New neurological symptoms (sudden weakness, vision loss, slurred speech)",
+        "Device not fully charged",
+        "Skin break or active wound at the back of the head"
+      ],
+      "evidence_note": "Home use protocol follows FDA-cleared SpringTMS label: acute 2-pulse protocol and preventive 4-pulse BID protocol."
+    },
+    {
+      "id": "HOME-NVNS-MIG-01",
+      "name": "gammaCore Home Program — Migraine",
+      "modality_slug": "nvns",
+      "device_required": "electroCore gammaCore",
+      "prerequisite_clinic_sessions": 1,
+      "sessions_per_week": 14,
+      "session_duration_minutes": 5,
+      "total_weeks": 12,
+      "patient_instructions": [
+        "Apply the conductive gel to both electrodes on the gammaCore device before every use — without gel, it will not work and may be uncomfortable.",
+        "FOR AN ATTACK: At the first sign of a migraine, sit down. Apply gel, hold the device to the RIGHT side of your neck (not left), at the angle of your jaw. Press and hold the button. Stimulation lasts 2 minutes. If needed, repeat every 20 minutes, up to 3 times per attack.",
+        "FOR PREVENTION (every day): One 2-minute stimulation each morning and one each evening. Same neck position. Sit or lie down during use.",
+        "If you feel a strong heartbeat change, dizziness, or faint, stop immediately and sit or lie down. Call the clinic.",
+        "Record every attack and prevention session in your diary."
+      ],
+      "safety_checklist": [
+        "I have conductive gel available and have applied it to the device contacts",
+        "I have no new cardiac symptoms (palpitations, chest pain) since my last clinic visit",
+        "I am seated before beginning stimulation",
+        "I have no pain or skin irritation at my neck from previous use"
+      ],
+      "reporting_requirements": [
+        "Record date and time of every attack and gammaCore use",
+        "Record whether the attack was relieved and how quickly",
+        "Record your daily prevention sessions",
+        "Report any heart palpitations, dizziness, or neck discomfort immediately"
+      ],
+      "contraindications_for_home": [
+        "Palpitations, irregular heartbeat, or chest pain — stop and call clinic or emergency services",
+        "Thunderclap headache (worst headache of life) — emergency services, not device",
+        "New neurological symptoms",
+        "Out of conductive gel",
+        "Device not activated or prescription expired"
+      ],
+      "evidence_note": "Home use follows FDA-cleared gammaCore label for acute migraine treatment (up to 3x per attack) and preventive BID use."
+    }
+  ],
+
+  "consent_documents": [
+    {
+      "id": "CON-MIG-IC-01",
+      "name": "Informed Consent — Migraine Neuromodulation",
+      "document_type": "informed-consent",
+      "when_required": "Before first session or device dispensing",
+      "key_disclosures": [
+        "These devices (SpringTMS, gammaCore, CEFALY) are FDA-cleared for migraine treatment; they are approved medical devices, not investigational.",
+        "Common side effects include tingling at the application site, brief neck muscle twitching (sTMS), and mild dizziness (nVNS).",
+        "Serious adverse events are rare but include seizures (sTMS) and cardiac effects (nVNS); any such event must be reported to the clinic immediately.",
+        "You may continue your existing migraine medications alongside these devices unless otherwise advised by your clinician.",
+        "Treatment involves home use; you will be trained on correct technique before using the device at home.",
+        "Your headache diary and device usage data will be reviewed at clinic visits.",
+        "These devices may not work for everyone; response rates in clinical trials range from 38–60%.",
+        "Carotid artery disease and cardiac arrhythmias are absolute contraindications for gammaCore — you have been screened for these."
+      ],
+      "signature_required": true,
+      "witness_required": false,
+      "clinician_co_sign_required": true,
+      "review_frequency": "Each new device course"
+    },
+    {
+      "id": "CON-MIG-SCREEN-01",
+      "name": "Contraindication Screening — Migraine Neuromodulation",
+      "document_type": "contraindication-screening",
+      "when_required": "Before protocol generation, before first session",
+      "key_disclosures": [
+        "Patient confirms no metal implants in head or neck.",
+        "Patient confirms no implanted cardiac pacemaker or defibrillator.",
+        "Patient confirms no history of carotid artery disease (for gammaCore).",
+        "Patient confirms no history of cardiac arrhythmia (for gammaCore).",
+        "Patient confirms no active seizure disorder (or has neurologist clearance).",
+        "Patient confirms not currently pregnant (or risk-benefit discussion documented).",
+        "Patient confirms no active skin conditions at electrode application site."
+      ],
+      "signature_required": true,
+      "clinician_co_sign_required": true,
+      "review_frequency": "Before each new course; annually for ongoing use"
+    },
+    {
+      "id": "CON-MIG-HOME-01",
+      "name": "Home Device Agreement — Migraine",
+      "document_type": "home-device-agreement",
+      "when_required": "Before device is dispensed for home use",
+      "key_disclosures": [
+        "I have been trained on correct device operation and confirm I can use it safely.",
+        "I will not allow others (including family members) to use my personal neuromodulation device.",
+        "I will keep the device charged (SpringTMS) / gel supplied (gammaCore) / electrode maintained (CEFALY).",
+        "I will contact the clinic before using the device if I develop new medical conditions or symptoms.",
+        "For a thunderclap headache or stroke-like symptoms, I will call emergency services and not use the device.",
+        "I will maintain my headache diary and bring it to every clinic appointment.",
+        "I understand the device remains the property of the clinic until purchased or transferred."
+      ],
+      "signature_required": true,
+      "clinician_co_sign_required": false,
+      "review_frequency": "Once — before device dispensing"
+    }
+  ]
+}

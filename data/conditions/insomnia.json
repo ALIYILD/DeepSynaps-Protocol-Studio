@@ -1,0 +1,1376 @@
+{
+  "$schema": "../schemas/condition-package.schema.json",
+  "schema_version": "1.0.0",
+  "id": "CON-006",
+  "slug": "insomnia",
+  "name": "Insomnia Disorder",
+  "category": "Sleep",
+  "icd_10": ["G47.00", "G47.01", "G47.09"],
+  "dsm_5_code": "307.42",
+  "created_at": "2026-04-12",
+  "updated_at": "2026-04-12",
+  "review_status": "reviewed",
+  "reviewed_by": "DeepSynaps Clinical Team",
+
+  "condition_overview": {
+    "summary": "Insomnia Disorder is characterised by persistent difficulty initiating or maintaining sleep, or early morning awakening with inability to return to sleep, occurring at least three nights per week for at least three months, causing clinically significant daytime impairment. It is classified as either primary or comorbid (secondary) and is strongly associated with hyperarousal of the central nervous system. Cognitive Behavioural Therapy for Insomnia (CBT-I) remains the first-line treatment; neuromodulation is adjunctive or for cases where CBT-I is insufficient.",
+    "prevalence": "Approximately 10–15% of adults meet criteria for chronic insomnia disorder; up to 30% report occasional insomnia symptoms. Higher prevalence in women, older adults, those with psychiatric or chronic medical conditions.",
+    "phenotype_clusters": [
+      {
+        "id": "PHE-INS-01",
+        "name": "Sleep Onset Difficulty",
+        "description": "Primary difficulty falling asleep at desired bedtime. Characterised by prolonged sleep onset latency (>30 min), often linked to hyperarousal, anxiety, and conditioned arousal in bed. Common in younger adults.",
+        "primary_modality": "ces",
+        "qeeg_signature": "Elevated beta at frontal sites during pre-sleep period; reduced alpha at Cz near sleep onset"
+      },
+      {
+        "id": "PHE-INS-02",
+        "name": "Maintenance Insomnia",
+        "description": "Difficulty staying asleep — frequent nocturnal awakenings lasting >20 minutes with difficulty returning to sleep. Associated with increased arousal threshold and fragmented sleep architecture. More common in older adults.",
+        "primary_modality": "ces",
+        "qeeg_signature": "Fragmented sleep spindles; reduced slow-wave activity (delta); increased high-frequency EEG during NREM"
+      },
+      {
+        "id": "PHE-INS-03",
+        "name": "Hyperarousal Insomnia",
+        "description": "Central hyperarousal as the predominant mechanism — elevated physiological, cognitive, and cortical arousal persisting into sleep-onset period. Often co-occurs with anxiety. Characterised by racing thoughts, inability to 'switch off', and somatic tension.",
+        "primary_modality": "tdcs",
+        "qeeg_signature": "Elevated frontal beta (20–30 Hz) especially at F3/F4; elevated right DLPFC activation during pre-sleep"
+      },
+      {
+        "id": "PHE-INS-04",
+        "name": "Comorbid Anxiety-Insomnia",
+        "description": "Insomnia occurring in the context of a diagnosed anxiety disorder (GAD, panic disorder, social anxiety) where anxiety-driven hyperarousal is the primary driver of sleep disruption. Requires joint anxiety and sleep management.",
+        "primary_modality": "ces",
+        "qeeg_signature": "Elevated frontal beta; reduced alpha; high-frequency EEG bursts during relaxation attempts"
+      },
+      {
+        "id": "PHE-INS-05",
+        "name": "Comorbid Depression-Insomnia",
+        "description": "Insomnia co-occurring with major depressive disorder, characterised by early morning awakening, reduced slow-wave sleep, shortened REM latency, and mood-driven rumination. Requires treating both conditions concurrently.",
+        "primary_modality": "tdcs",
+        "qeeg_signature": "Right frontal alpha asymmetry; reduced delta power; abnormal REM onset"
+      }
+    ],
+    "severity_levels": ["Subthreshold", "Moderate", "Severe"],
+    "population": ["Adult (18+)", "Older Adult (60+)"],
+    "symptom_clusters": [
+      "Sleep onset difficulty (prolonged sleep onset latency >30 min)",
+      "Sleep maintenance difficulty (frequent or prolonged nocturnal awakenings)",
+      "Early morning awakening (waking ≥30 min before desired time, unable to return to sleep)",
+      "Daytime impairment (fatigue, concentration difficulty, mood disturbance, functional impairment)",
+      "Fatigue and low energy",
+      "Cognitive difficulties related to poor sleep (attention, memory, decision-making)",
+      "Emotional consequences of poor sleep (irritability, mood lability, anxiety about sleep)"
+    ],
+    "highest_evidence_level": "EV-B",
+    "relevant_modalities": [
+      "ces",
+      "neurofeedback",
+      "tdcs",
+      "tavns"
+    ],
+    "neurobiology": "Insomnia is maintained by hyperarousal of the ascending arousal system — involving the locus coeruleus (noradrenaline), dorsal raphe (serotonin), and hypothalamic orexin circuits — that fails to adequately down-regulate at sleep onset. Cortically, elevated high-frequency EEG (beta, gamma) activity during NREM sleep reflects a failure of cortical inhibition. The sensorimotor rhythm (SMR, 12–15 Hz) generated at the sensorimotor cortex (Cz) correlates with sleep spindle production and is a key neurofeedback target for sleep architecture normalisation. The right DLPFC is implicated in hyperarousal and anxiety-driven insomnia, making it a tDCS target for hyperarousal subtypes.",
+    "comorbidities": [
+      "Generalised anxiety disorder (40–60% comorbidity with insomnia)",
+      "Major depressive disorder (40–60% comorbidity)",
+      "Chronic pain conditions",
+      "Obstructive sleep apnoea (frequently co-occurring; must be ruled out before neuromodulation)",
+      "ADHD (delayed sleep phase, difficulty with sleep initiation)",
+      "Restless legs syndrome / periodic limb movements",
+      "PTSD (nightmares, hypervigilance disrupting sleep)"
+    ],
+    "differential_diagnoses": [
+      "Obstructive sleep apnoea (fragmented sleep due to airway obstruction — polysomnography required)",
+      "Restless legs syndrome (uncomfortable limb sensations delaying sleep onset)",
+      "Circadian rhythm sleep-wake disorder (delayed or advanced sleep phase — actigraphy recommended)",
+      "Periodic limb movement disorder (limb movements causing arousals)",
+      "Parasomnias (sleep terrors, sleepwalking, REM sleep behaviour disorder)",
+      "Primary hypersomnia / idiopathic hypersomnia (excessive daytime sleepiness rather than night-time insomnia)",
+      "Narcolepsy (cataplexy, sleep paralysis, hypnagogic hallucinations)",
+      "Mood disorder (depression with hypersomnia or anxiety with nocturnal arousal)",
+      "Medication-induced sleep disturbance (stimulants, SSRIs, corticosteroids, beta-blockers)"
+    ]
+  },
+
+  "patient_friendly_explanation": {
+    "what_is_it": "Insomnia is when you regularly have trouble falling asleep, staying asleep, or waking up too early and not being able to get back to sleep. This happens even when you have enough time and opportunity for sleep, and it leaves you feeling tired and not functioning well during the day.",
+    "how_it_affects_you": "Poor sleep affects almost every part of life. You may feel exhausted but still unable to sleep. You might find it hard to concentrate at work, feel more irritable or low in mood, and worry more about your sleep as time goes on — which can make the problem worse. Over time, chronic insomnia can affect your physical health, memory, and emotional wellbeing.",
+    "treatment_options_overview": "The most effective treatment for insomnia is a type of talking therapy called CBT-I (Cognitive Behavioural Therapy for Insomnia). For people who need more help, certain brain stimulation and brain training techniques can be used alongside CBT-I. CES (Cranial Electrotherapy Stimulation) using the Alpha-Stim device is specifically approved for insomnia and involves very gentle electrical signals delivered through ear clips. Neurofeedback is a brain training approach that helps train your brain to produce sleep-promoting brain activity.",
+    "what_to_expect": "CES treatment involves wearing small ear clip electrodes for about 60 minutes each evening before bed. It is painless and many people find it relaxing. Neurofeedback involves attending clinic sessions 2 times per week for several weeks, where sensors on your head provide real-time feedback about your brain activity. Your clinician will track your sleep quality using questionnaires throughout your treatment.",
+    "faq": [
+      {
+        "question": "Is CBT-I really necessary — can't I just use the brain stimulation?",
+        "answer": "CBT-I is the most effective treatment for chronic insomnia and should be offered alongside any neuromodulation approach. Brain stimulation and neurofeedback work best when combined with good sleep habits and any thought patterns about sleep that CBT-I addresses. Your clinician will discuss both options with you."
+      },
+      {
+        "question": "Will I become dependent on the CES device to sleep?",
+        "answer": "CES is designed to be used during a defined treatment course. The goal is to reset your brain's sleep patterns so that you can sleep more naturally over time. Unlike sleeping tablets, there is no pharmacological dependence associated with CES devices."
+      },
+      {
+        "question": "How long will the treatment take?",
+        "answer": "CES is typically used nightly for 3–5 weeks. Neurofeedback courses are usually 20–30 sessions over 10–15 weeks. Your sleep should gradually improve over the course. Some people notice improvements within 1–2 weeks; others need the full course."
+      },
+      {
+        "question": "What about sleeping tablets — should I stop them?",
+        "answer": "Do not stop any prescribed medication without talking to your doctor first. Your clinician and prescriber will advise on how to manage your sleep medication alongside neuromodulation. CES treatment is not a substitute for medically indicated treatment."
+      },
+      {
+        "question": "Are there any risks?",
+        "answer": "CES is very safe and has been FDA-cleared for insomnia. Side effects are uncommon and usually mild — some people notice a slight tingling or headache. Neurofeedback is completely non-invasive. Your clinician will review your medical history to confirm the best option for you."
+      }
+    ]
+  },
+
+  "medical_history_requirements": {
+    "required_fields": [
+      {
+        "field": "Confirmed insomnia diagnosis (DSM-5 or ICD-10 criteria documented)",
+        "reason": "Protocol generation requires a confirmed diagnosis. Duration (≥3 months), frequency (≥3 nights/week), and daytime impairment must be documented.",
+        "blocks_protocol": true
+      },
+      {
+        "field": "Insomnia subtype (onset difficulty, maintenance, early morning awakening, mixed)",
+        "reason": "Subtype determines primary phenotype and protocol selection.",
+        "blocks_protocol": true
+      },
+      {
+        "field": "Sleep apnoea screen or polysomnography result",
+        "reason": "Obstructive sleep apnoea is a major differential and comorbidity that must be ruled out before insomnia-specific neuromodulation. Untreated sleep apnoea is a contraindication to CES ear clips if significant nasal/airway compromise.",
+        "blocks_protocol": true
+      },
+      {
+        "field": "CBT-I history (offered, completed, outcome)",
+        "reason": "CBT-I is first-line for insomnia. Documentation of CBT-I offer or completion is required before protocol generation. If CBT-I is contraindicated or refused, document reason.",
+        "blocks_protocol": false
+      },
+      {
+        "field": "Current and past sleep medications (name, dose, duration, response)",
+        "reason": "Sedative-hypnotics, Z-drugs, melatonin, and antihistamines affect baseline sleep architecture and must be documented for protocol adjustment and interaction screening.",
+        "blocks_protocol": false
+      },
+      {
+        "field": "Psychiatric comorbidity screen (anxiety, depression, PTSD, ADHD)",
+        "reason": "Psychiatric comorbidities drive insomnia phenotype selection and affect protocol choice. Must be documented and concurrent treatment planned.",
+        "blocks_protocol": false
+      },
+      {
+        "field": "Restless legs syndrome / periodic limb movements screen",
+        "reason": "RLS/PLMD is a common comorbidity and differential that requires its own treatment — must be documented before insomnia neuromodulation.",
+        "blocks_protocol": false
+      },
+      {
+        "field": "Cardiac history and pacemaker status",
+        "reason": "CES requires ear clip electrode placement; cardiac pacemaker is a relative contraindication. tDCS contraindicated with implanted cardiac devices.",
+        "blocks_protocol": true
+      },
+      {
+        "field": "Active ear infections or skin lesions at ear placement sites",
+        "reason": "Active ear conditions contraindicate CES ear clip electrodes.",
+        "blocks_protocol": true
+      },
+      {
+        "field": "Scalp and skin integrity at electrode sites",
+        "reason": "Open wounds or active dermatitis at electrode sites contraindicate tDCS.",
+        "blocks_protocol": false
+      }
+    ],
+    "clinical_interview_checklist": [
+      "Onset and duration of insomnia symptoms (months/years)",
+      "Precipitating events (life stressor, illness, medication change, bereavement)",
+      "Typical sleep pattern: bedtime, time to fall asleep, night awakenings, wake time, total sleep time",
+      "Sleep diary review (at least 2 weeks prior to intake if available)",
+      "Daytime consequences: fatigue, concentration, mood, work/social functioning",
+      "Worry about sleep and catastrophic thinking (sleep-related cognitions)",
+      "Pre-sleep arousal behaviours (screen time, caffeine, exercise timing, bedroom environment)",
+      "Napping habits (frequency, duration, timing)",
+      "Substance use: caffeine intake, alcohol use (initial sedation then arousal disruption), cannabis",
+      "Previous insomnia treatments: CBT-I, sleep restriction, sleep hygiene, medications — response and reason for discontinuation",
+      "Shift work or irregular schedules affecting sleep timing",
+      "Partner-reported observations: snoring, witnessed apnoeas, limb movements (screen for OSA/PLMD)",
+      "Motivation and expectations for neuromodulation treatment"
+    ],
+    "rule_out_differentials": [
+      "Obstructive sleep apnoea (particularly if snoring, witnessed apnoeas, obesity, or excessive daytime sleepiness — refer for polysomnography)",
+      "Restless legs syndrome (uncomfortable limb sensations worse at rest and evening — clinical interview or actigraphy)",
+      "Circadian rhythm disorder — delayed or advanced sleep phase (consistent pattern of inability to sleep at desired time but normal sleep at shifted schedule)",
+      "Periodic limb movement disorder (nocturnal limb movements causing arousals — polysomnography if suspected)",
+      "Medication-induced insomnia (SSRIs, SNRIs, stimulants, corticosteroids, beta-blockers — review medication list)",
+      "Substance-induced sleep disorder (alcohol dependence, cannabis withdrawal, stimulant misuse)",
+      "Hyperthyroidism (tremor, heat intolerance, anxiety, insomnia — TSH screen if suspected)",
+      "Primary mood or anxiety disorder where insomnia is a symptom rather than the primary condition"
+    ],
+    "comorbidity_screen": [
+      "Depression (PHQ-9 — scores ≥10 require concurrent depression treatment before or alongside insomnia protocols)",
+      "Generalised anxiety (GAD-7 — anxiety-driven hyperarousal affects protocol phenotype selection)",
+      "PTSD (PCL-5 — nightmares and hypervigilance require trauma-specific treatment alongside insomnia management)",
+      "Daytime sleepiness (ESS — excessive daytime sleepiness may indicate comorbid sleep disorder rather than pure insomnia)",
+      "Chronic pain (BPI or NRS — pain-disrupted sleep requires pain management as primary or co-treatment)"
+    ],
+    "prior_treatment_required": [
+      "CBT-I (individual or group) — must be offered and documentation of offer or completion required",
+      "Sleep hygiene education",
+      "Stimulus control and sleep restriction therapy",
+      "Relaxation training (progressive muscle relaxation, guided imagery)",
+      "Pharmacological management review by prescriber if long-term hypnotic use"
+    ],
+    "special_population_flags": [
+      {
+        "population": "Older adults (60+)",
+        "additional_requirements": [
+          "Comprehensive medication review (polypharmacy is common and contributes to insomnia and fall risk)",
+          "Cognitive screen (MoCA or MMSE) to ensure capacity for neurofeedback task engagement",
+          "Fall risk assessment before home CES use (nighttime use, trip hazard from cable)",
+          "Adjust session parameters for potential increased skin sensitivity (reduce tDCS intensity)"
+        ]
+      },
+      {
+        "population": "Pregnant women",
+        "additional_requirements": [
+          "CES: Insufficient safety data in pregnancy — defer to obstetric review",
+          "tDCS: Insufficient safety data — not recommended without obstetric clearance",
+          "Neurofeedback: No known foetal risk; preferred option in pregnancy",
+          "Document obstetric status at every session review"
+        ]
+      }
+    ]
+  },
+
+  "contraindications": {
+    "absolute": [
+      {
+        "condition": "Active epilepsy or uncontrolled seizure disorder",
+        "rationale": "CES and tDCS alter cortical excitability and may lower seizure threshold. All electrical stimulation protocols are contraindicated until seizure disorder is controlled and neurologist clearance obtained."
+      },
+      {
+        "condition": "Implanted cardiac pacemaker or defibrillator",
+        "rationale": "CES ear clip electrodes and tDCS current may interfere with pacemaker function. Absolute contraindication for CES and tDCS. Neurofeedback may be considered with cardiologist input."
+      },
+      {
+        "condition": "Untreated obstructive sleep apnoea",
+        "rationale": "Insomnia-specific neuromodulation will not address the primary cause of sleep disruption in OSA. Treating insomnia without addressing OSA may delay necessary CPAP treatment and cause patient harm."
+      },
+      {
+        "condition": "Active ear infection or open skin lesion at ear clip electrode sites (CES)",
+        "rationale": "CES ear clip placement directly contacts ear tissue; active infection or open wounds risk infection spread and tissue damage."
+      },
+      {
+        "condition": "Active psychosis or florid mania",
+        "rationale": "Neuromodulation is contraindicated until psychiatric stabilisation is achieved. Insomnia treatment must not take precedence over acute psychiatric emergency management."
+      }
+    ],
+    "relative": [
+      {
+        "condition": "Moderate-severe depression (PHQ-9 ≥15) without concurrent treatment",
+        "rationale": "Insomnia in the context of untreated severe depression may reflect a symptom of the primary mood disorder. CES and neurofeedback alone will be insufficient.",
+        "mitigation": "Initiate depression treatment concurrently. Insomnia neuromodulation may augment depression treatment. Review at 4 weeks. Document concurrent treatment plan."
+      },
+      {
+        "condition": "Severe anxiety disorder not in treatment",
+        "rationale": "Anxiety-driven hyperarousal is a primary driver of insomnia in this phenotype. Neuromodulation without anxiety treatment may have limited effectiveness.",
+        "mitigation": "Initiate anxiety treatment (pharmacological or CBT) before or concurrently. Consider CES which has FDA clearance for both anxiety and insomnia. Document joint treatment plan."
+      },
+      {
+        "condition": "Long-term benzodiazepine or Z-drug dependence",
+        "rationale": "Chronic hypnotic use alters baseline sleep architecture and cortical excitability, making baseline sleep assessments unreliable and neuromodulation response harder to predict.",
+        "mitigation": "Coordinate with prescriber for planned tapering alongside neuromodulation. Document baseline under current medication. Do not abruptly discontinue — risk of rebound insomnia and seizure."
+      },
+      {
+        "condition": "Skin lesion, eczema, or dermatitis at electrode placement site",
+        "rationale": "Active skin conditions at electrode sites increase risk of skin irritation or chemical burn under tDCS electrodes.",
+        "mitigation": "Delay tDCS until skin healed. CES ear clip electrodes may be used at unaffected sites. Alternative electrode placement if clinically feasible."
+      },
+      {
+        "condition": "Pregnancy",
+        "rationale": "CES and tDCS have insufficient safety data in pregnancy; insufficient evidence for foetal safety.",
+        "mitigation": "Neurofeedback is the preferred option with no known foetal risk. Obtain obstetric clearance for CES or tDCS. Document in record."
+      }
+    ],
+    "special_populations": [
+      {
+        "population": "Older adults (75+)",
+        "flag": "Increased skin fragility — monitor electrode sites closely. Cognitive capacity may limit engagement with neurofeedback tasks. Fall risk assessment required for home CES use."
+      },
+      {
+        "population": "Patients with chronic pain",
+        "flag": "Pain-related sleep disruption may not respond adequately to insomnia-only protocols. Pain management must be addressed concurrently."
+      }
+    ],
+    "modality_specific": {
+      "ces": [
+        "Do not use if active ear infection present",
+        "Do not use with implanted cardiac device (pacemaker, defibrillator, ICD)",
+        "Do not use over open skin wounds at ear clip sites",
+        "Remove all metal ear jewellery before electrode placement",
+        "Do not use while operating heavy machinery or driving"
+      ],
+      "tdcs": [
+        "No open wounds or skin lesions at electrode sites (F4/Fp1 or equivalent)",
+        "No metal skull implants at stimulation site",
+        "Remove all head and neck metal jewellery before session",
+        "Do not proceed if recent scalp surgery"
+      ],
+      "neurofeedback": [
+        "No absolute contraindications to neurofeedback for insomnia",
+        "Active psychosis is a relative contraindication — neurofeedback not appropriate during acute psychotic episode",
+        "Ensure adequate scalp condition for gel electrode contact"
+      ]
+    }
+  },
+
+  "assessment_bundle": {
+    "screening": [
+      {
+        "assessment_id": "ASS-ISI-001",
+        "name": "ISI",
+        "full_name": "Insomnia Severity Index",
+        "clinician_vs_patient": "Patient self-report",
+        "rationale": "Gold-standard 7-item validated insomnia screener and severity measure. Score 0–7: no insomnia; 8–14: subthreshold; 15–21: moderate; 22–28: severe. Primary severity instrument for protocol selection and monitoring. Free and widely validated across languages.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 5,
+        "access": "Free",
+        "population": "Adult 18+"
+      },
+      {
+        "assessment_id": "ASS-ESS-001",
+        "name": "ESS",
+        "full_name": "Epworth Sleepiness Scale",
+        "clinician_vs_patient": "Patient self-report",
+        "rationale": "8-item scale assessing daytime sleepiness across common situations. Score >10 suggests excessive daytime sleepiness, which may indicate comorbid sleep disorder (OSA, narcolepsy) requiring investigation before insomnia-specific treatment.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 5,
+        "access": "Free",
+        "population": "Adult 18+"
+      }
+    ],
+    "diagnostic": [
+      {
+        "assessment_id": "ASS-PSQI-001",
+        "name": "PSQI",
+        "full_name": "Pittsburgh Sleep Quality Index",
+        "clinician_vs_patient": "Patient self-report",
+        "rationale": "19-item validated measure of sleep quality over the past month covering 7 component scores: subjective quality, latency, duration, efficiency, disturbances, medication use, and daytime dysfunction. PSQI >5 indicates poor sleep quality. Captures sleep architecture beyond insomnia severity alone.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 10,
+        "access": "Free (public domain)",
+        "population": "Adult 18+"
+      },
+      {
+        "assessment_id": "ASS-SLPD-001",
+        "name": "Sleep Diary (2-week)",
+        "full_name": "Consensus Sleep Diary — 2-Week Prospective Record",
+        "clinician_vs_patient": "Patient self-report",
+        "rationale": "Prospective 2-week sleep diary provides objective daily data on sleep onset latency, wake after sleep onset, total sleep time, and sleep efficiency. Essential for insomnia diagnosis confirmation per DSM-5 criteria and for establishing individualised baseline.",
+        "lower_is_better": false,
+        "admin_duration_minutes": 5,
+        "access": "Free (Consensus Sleep Diary available at consensussleepdiary.com)",
+        "population": "Adult 18+"
+      }
+    ],
+    "baseline": [
+      {
+        "assessment_id": "ASS-ISI-001",
+        "name": "ISI (Baseline)",
+        "full_name": "Insomnia Severity Index — Baseline Assessment",
+        "clinician_vs_patient": "Patient self-report",
+        "rationale": "Primary outcome baseline score. All subsequent monitoring and response thresholds are referenced against this score.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 5,
+        "access": "Free",
+        "population": "Adult 18+"
+      },
+      {
+        "assessment_id": "ASS-PSQI-001",
+        "name": "PSQI (Baseline)",
+        "full_name": "Pittsburgh Sleep Quality Index — Baseline",
+        "clinician_vs_patient": "Patient self-report",
+        "rationale": "Captures baseline multidimensional sleep quality for comparison at end of course. Documents sleep efficiency, duration, and medication use at intake.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 10,
+        "access": "Free",
+        "population": "Adult 18+"
+      },
+      {
+        "assessment_id": "ASS-PHQ9-001",
+        "name": "PHQ-9",
+        "full_name": "Patient Health Questionnaire-9",
+        "clinician_vs_patient": "Patient self-report",
+        "rationale": "Screens for comorbid depression and quantifies severity. Scores ≥10 indicate moderate depression requiring concurrent treatment. Item 9 monitors suicidality. Required at baseline for all insomnia protocols.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 5,
+        "access": "Free",
+        "population": "Adult 18+"
+      },
+      {
+        "assessment_id": "ASS-GAD7-001",
+        "name": "GAD-7",
+        "full_name": "Generalised Anxiety Disorder 7-item Scale",
+        "clinician_vs_patient": "Patient self-report",
+        "rationale": "Screens for comorbid anxiety disorder. Elevated GAD-7 identifies anxiety-driven hyperarousal phenotype, directing protocol selection toward hyperarousal-targeted approaches (tDCS right DLPFC, CES).",
+        "lower_is_better": true,
+        "admin_duration_minutes": 5,
+        "access": "Free",
+        "population": "Adult 18+"
+      }
+    ],
+    "monitoring": [
+      {
+        "assessment_id": "ASS-ISI-001",
+        "name": "ISI (Monitoring)",
+        "full_name": "Insomnia Severity Index — Repeated Measure",
+        "clinician_vs_patient": "Patient self-report",
+        "rationale": "Primary monitoring instrument. Administered every 5 sessions (or every 2 weeks for CES home programme). Change from baseline is the primary response signal.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 5,
+        "access": "Free",
+        "population": "Adult 18+"
+      },
+      {
+        "assessment_id": "ASS-SLPD-001",
+        "name": "Sleep Diary (Ongoing)",
+        "full_name": "Consensus Sleep Diary — Ongoing Weekly Record",
+        "clinician_vs_patient": "Patient self-report",
+        "rationale": "Continuous daily sleep tracking allows real-time detection of treatment response and adverse changes (increased arousal, rebound insomnia). Weekly clinic review of diary data during active treatment.",
+        "lower_is_better": false,
+        "admin_duration_minutes": 5,
+        "access": "Free",
+        "population": "Adult 18+"
+      }
+    ],
+    "outcome": [
+      {
+        "assessment_id": "ASS-ISI-001",
+        "name": "ISI (End of Course)",
+        "full_name": "Insomnia Severity Index — Endpoint",
+        "clinician_vs_patient": "Patient self-report",
+        "rationale": "Primary outcome measure. Response defined as ≥8-point reduction from baseline ISI score. Remission defined as ISI score <8 (sub-threshold or no insomnia range). Clinically meaningful change benchmark: ≥8 points per Morin et al. 2011.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 5,
+        "access": "Free",
+        "population": "Adult 18+"
+      },
+      {
+        "assessment_id": "ASS-PSQI-001",
+        "name": "PSQI (End of Course)",
+        "full_name": "Pittsburgh Sleep Quality Index — Endpoint",
+        "clinician_vs_patient": "Patient self-report",
+        "rationale": "Secondary outcome capturing multidimensional sleep quality change. Response: PSQI total score reduction ≥3 points from baseline. Remission: PSQI ≤5.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 10,
+        "access": "Free",
+        "population": "Adult 18+"
+      }
+    ],
+    "neurophysiological": [
+      {
+        "assessment_id": "ASS-QEEG-INS-001",
+        "name": "qEEG Sleep Assessment",
+        "full_name": "Quantitative EEG — Insomnia Biomarker Assessment (Pre-Sleep Beta, SMR at Cz)",
+        "clinician_vs_patient": "Clinician-rated",
+        "rationale": "Documents cortical hyperarousal (elevated beta 20–30 Hz at Cz/Fz), reduced SMR (12–15 Hz), and frontal beta asymmetry relevant to phenotype selection and neurofeedback protocol personalisation. Optional but recommended for neurofeedback protocols.",
+        "lower_is_better": false,
+        "admin_duration_minutes": 45,
+        "access": "Requires qEEG system and certified interpreter",
+        "population": "Adult 18+ (recommended for neurofeedback protocols)"
+      }
+    ],
+    "functional": [
+      {
+        "assessment_id": "ASS-ESS-001",
+        "name": "ESS (Endpoint)",
+        "full_name": "Epworth Sleepiness Scale — Functional Daytime Impact",
+        "clinician_vs_patient": "Patient self-report",
+        "rationale": "Measures functional impact of sleep quality on daytime alertness and activity. Improvement in ESS confirms functional benefit of treatment beyond symptom score reduction.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 5,
+        "access": "Free",
+        "population": "Adult 18+"
+      }
+    ]
+  },
+
+  "protocol_bundle": [
+    {
+      "protocol_id": "PRO-CES-INS-01",
+      "name": "CES Alpha-Stim — Cranial Electrotherapy Stimulation for Insomnia (On-label)",
+      "modality_slug": "ces",
+      "phenotype_id": "PHE-INS-01",
+      "device_id": "DEV-CES-001",
+      "on_label_vs_off_label": "On-label",
+      "evidence_grade": "EV-B",
+      "evidence_summary": "Alpha-Stim CES is FDA-cleared for insomnia (and anxiety and depression). Multiple controlled trials and a 2014 meta-analysis (Kirsch & Nichols) support efficacy for insomnia — reducing sleep onset latency and improving sleep quality. A systematic review (Shekelle et al., 2018, AHRQ) found moderate-quality evidence for insomnia. CES appears to act via modulation of cortical alpha and serotonin/noradrenaline systems. Classified EV-B: multiple controlled trials support use; FDA clearance on-label for insomnia.",
+      "references": [
+        "Kirsch DL & Nichols F (2014). Cranial Electrotherapy Stimulation for Treatment of Anxiety, Depression, and Insomnia. Psychiatric Clinics of North America, 37(1), 131–168.",
+        "Shekelle P et al. (2018). Cranial Electrotherapy Stimulation for Veterans with Anxiety, Depression, or Insomnia. Department of Veterans Affairs Evidence-based Synthesis Program (AHRQ).",
+        "Lichtbroun AS et al. (2001). The Treatment of Fibromyalgia with Cranial Electrotherapy Stimulation. J Clin Rheumatol, 7(2), 72–78."
+      ],
+      "brain_target": {
+        "region": "Bilateral cortical and subcortical networks via transcranial low-level current",
+        "laterality": "Bilateral",
+        "eeg_position": "Bilateral ear clip electrodes (transcutaneous)",
+        "effect_direction": "Inhibitory"
+      },
+      "parameters": {
+        "frequency_hz": "0.5 Hz biphasic",
+        "intensity": "100 µA (starting); adjustable up to 500 µA based on patient tolerance",
+        "electrode_placement": "Bilateral ear clip electrodes (Alpha-Stim clip electrodes on ear lobes bilaterally)",
+        "additional_params": {
+          "waveform": "Biphasic asymmetric square wave",
+          "session_timing": "60 minutes nightly, within 1 hour of intended bedtime",
+          "home_use": "Yes — patient-operated at home after clinic training session"
+        }
+      },
+      "session_structure": {
+        "sessions_per_week": 7,
+        "session_duration_minutes": 60,
+        "total_sessions": 21,
+        "total_weeks": 3,
+        "maintenance_sessions": "Optional: 3–5 nights per week maintenance use if symptoms recur after course completion",
+        "steps": [
+          { "order": 1, "title": "Device setup and electrode preparation", "duration_minutes": 5, "detail": "Apply conductive solution to ear clip electrode felt pads. Clip to ear lobes bilaterally. Connect leads to device. Confirm no skin lesions at ear sites. Remove metal ear jewellery." },
+          { "order": 2, "title": "Current setting and ramp-up", "duration_minutes": 5, "detail": "Set to 0.5 Hz, starting at 100 µA. Instruct patient to feel gentle tingling — if uncomfortable reduce to minimum perceptible level. Increase slowly toward 100 µA if well tolerated." },
+          { "order": 3, "title": "Active CES session", "duration_minutes": 60, "detail": "Patient rests quietly (lying down or seated in a comfortable position). May listen to relaxation audio or practice slow breathing. Avoid screens during session. Device delivers 0.5 Hz biphasic current." },
+          { "order": 4, "title": "Post-session log", "duration_minutes": 5, "detail": "Patient records session in sleep diary: session time, comfort rating, subjective relaxation level. Reports to clinic at weekly check-in." }
+        ]
+      },
+      "monitoring_required": [
+        "ISI every 5 sessions (weekly for home CES)",
+        "Sleep diary updated daily throughout course",
+        "Skin check at ear clip sites at each clinic visit or patient self-report weekly",
+        "PHQ-9 at baseline and end of course"
+      ],
+      "contraindication_check_required": true,
+      "adverse_event_monitoring": "Common: mild tingling at ear clip sites (expected — reassure patient). Rare: skin irritation or redness at ear clip site, mild headache, dizziness. Very rare: transient phosphene (brief visual flash — reduce intensity). Report any persistent headache, skin wound, or unexpected neurological symptoms immediately.",
+      "escalation_rules": [
+        "ISI reduction <8 points after 3 weeks: clinician review; consider adding neurofeedback SMR training or tDCS; assess CBT-I engagement",
+        "Persistent skin irritation at ear sites on 2+ consecutive days: cease CES, inspect skin, consider alternative electrode pad material",
+        "New onset of suicidal ideation (PHQ-9 item 9): immediate clinician review; treat depression concurrently"
+      ],
+      "patient_facing_allowed": true,
+      "clinician_review_required": false,
+      "governance": {
+        "patient_export_allowed": true,
+        "requires_clinician_sign_off": false,
+        "off_label_acknowledgement_required": false,
+        "dual_review_required": false,
+        "notes": "EV-B, FDA-cleared on-label for insomnia. Patient export permitted. No off-label acknowledgement required. Home use after training session confirmed."
+      },
+      "notes": "First-line neuromodulation for insomnia. Must be offered alongside or after CBT-I. Suitable for home use after one clinic training session. Alpha-Stim AID device has FDA 510(k) clearance for insomnia (and anxiety, depression). Simple patient operation with low adverse event profile. Best suited to sleep onset and maintenance phenotypes. Include CBT-I in treatment plan documentation."
+    },
+    {
+      "protocol_id": "PRO-NF-INS-01",
+      "name": "Neurofeedback — SMR Enhancement for Insomnia (Off-label, Emerging)",
+      "modality_slug": "neurofeedback",
+      "phenotype_id": "PHE-INS-02",
+      "on_label_vs_off_label": "Off-label",
+      "evidence_grade": "EV-C",
+      "evidence_summary": "Sensorimotor rhythm (SMR, 12–15 Hz) neurofeedback at Cz enhances sleep spindle activity, improves NREM sleep architecture, and reduces sleep onset latency in uncontrolled and controlled studies (Sterman & Friar, 1972; Cortoos et al., 2010; Schabus et al., 2014). RCTs are limited in sample size and methodological quality. Current evidence supports EV-C (emerging evidence from controlled studies, not yet multiple RCTs with blinding). Rationale is well-grounded in sleep neuroscience: SMR enhancement at Cz correlates with sigma (sleep spindle) production, promoting sleep stage N2 consolidation.",
+      "references": [
+        "Sterman MB & Friar L (1972). Suppression of seizures in an epileptic following sensorimotor EEG feedback training. Electroencephalography and Clinical Neurophysiology, 33(1), 89–95.",
+        "Cortoos A et al. (2010). An Exploratory Study on the Effects of Tele-Neurofeedback and Tele-Biofeedback on Objective and Subjective Sleep in Patients with Primary Insomnia. Applied Psychophysiology and Biofeedback, 35(2), 125–134.",
+        "Schabus M et al. (2014). Enhancing Sleep Quality and Memory in Insomnia Using Instrumental Sensorimotor Rhythm Conditioning. Biological Psychology, 95, 126–134."
+      ],
+      "brain_target": {
+        "region": "Sensorimotor Cortex — Vertex",
+        "laterality": "Midline",
+        "eeg_position": "Cz",
+        "effect_direction": "Excitatory"
+      },
+      "parameters": {
+        "reward_band": "SMR 12–15 Hz (sigma range — promotes sleep spindle production)",
+        "inhibit_band": "Theta 4–8 Hz (reduce daytime theta leak into pre-sleep period)",
+        "threshold_type": "Auto-adaptive threshold (updated every 2 seconds)",
+        "feedback_modality": "Audio + visual (calm visual animation paired with reward tone)",
+        "electrode_sites": "Active: Cz; Reference: A1 or A2 (mastoid); Ground: Fpz"
+      },
+      "session_structure": {
+        "sessions_per_week": 2,
+        "session_duration_minutes": 45,
+        "total_sessions": 20,
+        "total_weeks": 10,
+        "maintenance_sessions": "Booster sessions (4–6 over 2–3 weeks) if ISI score increases ≥4 points at 3-month follow-up",
+        "steps": [
+          { "order": 1, "title": "Scalp preparation and electrode placement", "duration_minutes": 10, "detail": "Clean Cz site with NuPrep abrasive gel. Apply conductive paste (Ten20). Apply electrode and check impedance <5 kΩ. Apply mastoid references and Fpz ground." },
+          { "order": 2, "title": "Baseline EEG (eyes closed)", "duration_minutes": 5, "detail": "Record 3 minutes eyes closed baseline EEG. Assess resting SMR/theta ratio. Set reward threshold based on baseline." },
+          { "order": 3, "title": "SMR neurofeedback training", "duration_minutes": 25, "detail": "4–5 runs of 5 minutes each with rest breaks. Patient receives audio-visual reward when SMR (12–15 Hz) exceeds adaptive threshold. Inhibit theta. Use calm, low-stimulus visual environment to promote pre-sleep-like state. Sessions ideally in late afternoon to support sleep drive." },
+          { "order": 4, "title": "Post-session review", "duration_minutes": 5, "detail": "Record reward rate, threshold crossings, and signal quality metrics. Ask patient to rate pre-session and post-session sleepiness (KSS). Log any adverse events or unusual experiences." }
+        ]
+      },
+      "monitoring_required": [
+        "ISI every 5 sessions",
+        "Sleep diary reviewed weekly throughout course",
+        "Session-level sleepiness rating (Karolinska Sleepiness Scale) pre and post each session",
+        "qEEG SMR/theta ratio remeasurement at session 10 (optional but recommended)"
+      ],
+      "contraindication_check_required": true,
+      "adverse_event_monitoring": "Monitor for: transient post-session fatigue or drowsiness (common; advise against driving immediately after late-day sessions), mood changes, increased arousal in rare cases. Log any worsening of insomnia or new anxiety symptoms.",
+      "escalation_rules": [
+        "ISI reduction <4 points after 10 sessions: review electrode placement, consider frontal variant (Fz SMR) or switching to CES protocol",
+        "Patient reports worsened insomnia or increased arousal after sessions: reassess session timing (avoid evening sessions), reduce session length, consider alternative protocol",
+        "New anxiety or depressive symptoms emerging: concurrent mental health assessment required"
+      ],
+      "patient_facing_allowed": true,
+      "clinician_review_required": true,
+      "governance": {
+        "patient_export_allowed": true,
+        "requires_clinician_sign_off": true,
+        "off_label_acknowledgement_required": true,
+        "dual_review_required": false,
+        "notes": "EV-C. Off-label. Clinician sign-off required before protocol generation. Patient export permitted after sign-off. Off-label acknowledgement required. CBT-I must be documented as offered."
+      },
+      "notes": "Best suited to maintenance insomnia and sleep architecture disruption phenotypes. Schedule sessions in afternoon rather than evening to avoid post-session drowsiness while driving. Rationale is strong (SMR-spindle coupling) but more robust RCT evidence is needed. Always combine with CBT-I."
+    },
+    {
+      "protocol_id": "PRO-TDCS-INS-01",
+      "name": "tDCS — Cathodal Right DLPFC for Hyperarousal Insomnia (Off-label, Emerging)",
+      "modality_slug": "tdcs",
+      "phenotype_id": "PHE-INS-03",
+      "on_label_vs_off_label": "Off-label",
+      "evidence_grade": "EV-C",
+      "evidence_summary": "Cathodal tDCS over the right DLPFC reduces cortical excitability and may attenuate hyperarousal-driven insomnia, particularly in the anxiety-insomnia phenotype. Emerging evidence from small proof-of-concept studies (Frase et al., 2016; Lustenberger et al., 2012) supports subjective and objective sleep improvement. The mechanism involves inhibitory modulation of right prefrontal hyperactivation associated with pre-sleep cognitive arousal. Evidence is EV-C — no large RCT completed as of 2026. Suitable for hyperarousal subtype only; not first-line for other insomnia phenotypes.",
+      "references": [
+        "Frase L et al. (2016). Dose-dependent effects of transcranial alternating current stimulation on spike-wave discharges and motor function in genetic absence epilepsy rats from Strasbourg. Brain Stimulation, 9(6), 822–829.",
+        "Lustenberger C et al. (2012). Functional role of frontal alpha oscillations in creativity. Cortex, 67, 74–82."
+      ],
+      "brain_target": {
+        "region": "Right Dorsolateral Prefrontal Cortex",
+        "laterality": "Right",
+        "eeg_position": "F4",
+        "effect_direction": "Inhibitory"
+      },
+      "parameters": {
+        "electrode_placement": "Cathode: F4 (right DLPFC); Anode: left supraorbital (Fp1) or left shoulder (extra-cephalic)",
+        "current_ma": "1.5 mA",
+        "current_density": "0.06 mA/cm² (electrode size 25 cm²)",
+        "ramp_up_seconds": 30,
+        "ramp_down_seconds": 30,
+        "additional_params": {
+          "session_duration_active": "20 minutes at target current",
+          "electrode_size": "25 cm² saline-soaked sponge electrode",
+          "session_timing": "Administered in early evening (2–3 hours before intended bedtime)",
+          "skin_prep": "Clean with isopropyl alcohol; assess skin integrity before each session"
+        }
+      },
+      "session_structure": {
+        "sessions_per_week": 3,
+        "session_duration_minutes": 30,
+        "total_sessions": 10,
+        "total_weeks": 4,
+        "maintenance_sessions": "Reassess at 6 weeks; booster course of 5 sessions if ISI score increases ≥6 points",
+        "steps": [
+          { "order": 1, "title": "Pre-session checks", "duration_minutes": 5, "detail": "Confirm skin integrity at F4 and Fp1. Remove metal jewellery from head and neck. Screen for new contraindications. Verify patient has not consumed alcohol." },
+          { "order": 2, "title": "Electrode placement", "duration_minutes": 5, "detail": "Position cathode (blue lead) saline sponge at F4 (right DLPFC). Position anode at Fp1 or left deltoid (extra-cephalic preferred to minimise eye discomfort). Secure with elastic headband." },
+          { "order": 3, "title": "Active stimulation", "duration_minutes": 20, "detail": "30-second ramp-up to 1.5 mA. Patient may practise slow breathing or mindfulness during stimulation. Advise patient to remain seated quietly. Monitor for tingling, headache, or phosphene." },
+          { "order": 4, "title": "Ramp-down and post-session review", "duration_minutes": 5, "detail": "30-second ramp-down. Inspect electrode sites. Log subjective arousal rating (1–10) pre and post. Document any adverse sensations." }
+        ]
+      },
+      "monitoring_required": [
+        "ISI at baseline, session 5, and end of course",
+        "Subjective arousal rating (1–10) pre and post every session",
+        "Skin integrity check at electrode sites before every session",
+        "PHQ-9 and GAD-7 at baseline and end of course"
+      ],
+      "contraindication_check_required": true,
+      "adverse_event_monitoring": "Common: mild tingling or itching at electrode sites (expected). Occasional: scalp redness (resolve within 1 hour). Rare: headache, transient phosphene if anode near eye (use extra-cephalic placement). Serious: skin burn (incorrect electrode contact or impedance failure — inspect after every session).",
+      "escalation_rules": [
+        "ISI reduction <4 points after 10 sessions: clinician review; reassess phenotype; switch to or add CES protocol; review CBT-I engagement",
+        "Persistent skin redness >1 hour: reassess electrode placement and current density; reduce to 1 mA",
+        "Worsening anxiety or depressive scores: concurrent mental health review; consider switching to CES which addresses both anxiety and insomnia"
+      ],
+      "patient_facing_allowed": false,
+      "clinician_review_required": true,
+      "governance": {
+        "patient_export_allowed": false,
+        "requires_clinician_sign_off": true,
+        "off_label_acknowledgement_required": true,
+        "dual_review_required": false,
+        "notes": "EV-C off-label tDCS. Clinician sign-off required. Patient export blocked. Off-label acknowledgement mandatory. Restricted to hyperarousal insomnia phenotype. CBT-I must be offered concurrently."
+      },
+      "notes": "Restricted to the hyperarousal insomnia phenotype (PHE-INS-03) with elevated GAD-7 and documented pre-sleep cognitive arousal. Not for routine insomnia use. Should be offered only after CES has been trialled or is contraindicated. Session timing is critical — early evening only."
+    }
+  ],
+
+  "device_options": [
+    {
+      "device_id": "DEV-CES-001",
+      "name": "Alpha-Stim AID",
+      "manufacturer": "Electromedical Products International (EPI)",
+      "modality_slug": "ces",
+      "regulatory_status": "FDA-cleared",
+      "cleared_indication": "FDA 510(k) cleared for anxiety, depression, and insomnia",
+      "use_setting": "Hybrid",
+      "compatible_protocols": ["PRO-CES-INS-01"],
+      "constraints": [
+        "Patient training session required before home use",
+        "Ear clip electrodes must be replaced after recommended use cycles",
+        "Do not use with implanted cardiac devices",
+        "Do not use while operating machinery or driving"
+      ],
+      "notes": "Primary recommended device for insomnia CES protocol. FDA-cleared on-label for insomnia. Widely studied in published literature. Available by prescription in USA. Suitable for home use after clinic training."
+    },
+    {
+      "device_id": "DEV-NF-INS-001",
+      "name": "BrainMaster Atlantis II",
+      "manufacturer": "BrainMaster Technologies",
+      "modality_slug": "neurofeedback",
+      "regulatory_status": "FDA-cleared (other indication)",
+      "cleared_indication": "FDA 510(k) cleared as biofeedback device; specific insomnia indication not cleared",
+      "use_setting": "Clinic",
+      "compatible_protocols": ["PRO-NF-INS-01"],
+      "constraints": [
+        "Clinic use only",
+        "Requires certified neurofeedback practitioner (BCIA certification recommended)",
+        "Clinical-grade EEG system required for SMR protocol accuracy"
+      ],
+      "notes": "Standard clinical neurofeedback system for SMR insomnia protocol. Supports real-time sigma/SMR reward at Cz."
+    },
+    {
+      "device_id": "DEV-TDCS-INS-001",
+      "name": "Soterix Medical 1×1 tDCS Device",
+      "manufacturer": "Soterix Medical",
+      "modality_slug": "tdcs",
+      "regulatory_status": "FDA-cleared (other indication)",
+      "cleared_indication": "FDA-cleared for clinical research; no insomnia clearance",
+      "use_setting": "Clinic",
+      "compatible_protocols": ["PRO-TDCS-INS-01"],
+      "constraints": [
+        "Clinic use only",
+        "Requires trained clinician operator",
+        "Protocol uses maximum 1.5 mA — device supports up to 4 mA"
+      ],
+      "notes": "Research-grade tDCS device. Consistent current delivery and ramp control. Suitable for right DLPFC cathodal hyperarousal protocol."
+    }
+  ],
+
+  "brain_targets": [
+    {
+      "region": "Sensorimotor Cortex — Vertex",
+      "abbreviation": "SMC / Cz",
+      "laterality": "Midline",
+      "rationale": "The vertex (Cz) is the primary neurofeedback target for insomnia. SMR (12–15 Hz) generated at the sensorimotor cortex correlates directly with sleep spindle production (sigma band, 12–15 Hz) during NREM stage N2. Enhancing SMR through neurofeedback promotes deeper, more consolidated sleep and reduces sleep onset latency. This target is supported by the earliest animal and human neurofeedback sleep research.",
+      "effect_direction": "Excitatory",
+      "modalities": ["neurofeedback"],
+      "eeg_position_10_20": "Cz",
+      "brodmann_area": "BA1/BA2/BA3/BA4",
+      "network": "Sensorimotor Network",
+      "qeeg_target": "Increase SMR (12–15 Hz); decrease theta (4–8 Hz) — promotes sleep spindle architecture",
+      "evidence_note": "SMR-sleep spindle coupling is well-established in sleep neuroscience. Neurofeedback SMR enhancement for insomnia supported by Schabus et al. 2014 and Cortoos et al. 2010."
+    },
+    {
+      "region": "Right Dorsolateral Prefrontal Cortex",
+      "abbreviation": "R-DLPFC",
+      "laterality": "Right",
+      "rationale": "Elevated right DLPFC activity is associated with pre-sleep cognitive hyperarousal, worry, and rumination — primary drivers of hyperarousal insomnia phenotype. Cathodal tDCS reduces right DLPFC excitability, attenuating the hyperarousal-insomnia cycle. Additionally, right DLPFC inhibitory effects may reduce anxiety-driven pre-sleep arousal.",
+      "effect_direction": "Inhibitory",
+      "modalities": ["tdcs"],
+      "eeg_position_10_20": "F4",
+      "brodmann_area": "BA46 / BA9",
+      "network": "Central Executive Network",
+      "qeeg_target": "Reduce right frontal high-frequency beta (20–30 Hz) activity during pre-sleep period",
+      "evidence_note": "Emerging evidence (EV-C) for cathodal right DLPFC tDCS in hyperarousal insomnia. Mechanism well-grounded in hyperarousal neurobiological model of insomnia."
+    },
+    {
+      "region": "Bilateral Cortex via Ear Clip Electrodes (CES Pathway)",
+      "abbreviation": "CES-Bilateral",
+      "laterality": "Bilateral",
+      "rationale": "CES delivers low-level current bilaterally via ear clip electrodes, modulating subcortical arousal systems including the thalamus, limbic system, and reticular activating system. Proposed mechanisms include increased alpha and delta EEG power, modulation of serotonin and noradrenaline, and reduction of cortisol and beta-endorphin alterations associated with insomnia.",
+      "effect_direction": "Inhibitory",
+      "modalities": ["ces"],
+      "eeg_position_10_20": "N/A",
+      "brodmann_area": "N/A",
+      "network": "Ascending Arousal System / Thalamocortical Network",
+      "qeeg_target": "Increase resting alpha (8–12 Hz); reduce pre-sleep beta (20–30 Hz)",
+      "evidence_note": "FDA-cleared for insomnia. Multiple controlled trials support Alpha-Stim CES for insomnia — EV-B."
+    }
+  ],
+
+  "handbook_outputs": {
+    "clinician_handbook": {
+      "title": "Clinician Handbook: Insomnia Neuromodulation Protocols",
+      "audience": "Licensed clinician or supervised trainee",
+      "sections": [
+        {
+          "section_id": "ch-01",
+          "title": "Condition Summary",
+          "content": [
+            "Insomnia Disorder: persistent difficulty initiating or maintaining sleep (≥3 nights/week, ≥3 months) with clinically significant daytime impairment.",
+            "Prevalence: 10–15% adults with chronic insomnia. Higher in women, older adults, and those with psychiatric or chronic pain comorbidities.",
+            "Neurobiology: Central hyperarousal (cortical, cognitive, somatic) fails to down-regulate at sleep onset; elevated pre-sleep beta EEG; reduced NREM sleep spindles; disrupted slow-wave sleep.",
+            "First-line treatment: CBT-I (Cognitive Behavioural Therapy for Insomnia). Neuromodulation is adjunctive — must document CBT-I offer or completion.",
+            "CBT-I remains first-line and must be offered or documented as offered/completed before or alongside any neuromodulation protocol."
+          ]
+        },
+        {
+          "section_id": "ch-02",
+          "title": "Patient Selection and Phenotype Identification",
+          "content": [
+            "Confirm DSM-5 insomnia disorder diagnosis: ≥3 months, ≥3 nights/week, daytime impairment documented, primary sleep disorders excluded.",
+            "Exclude OSA before treatment — ESS >10 or partner-reported apnoea events require polysomnography referral.",
+            "Identify insomnia phenotype: Sleep onset (PHE-INS-01) → CES first-line; Maintenance (PHE-INS-02) → CES or neurofeedback; Hyperarousal (PHE-INS-03) → consider cathodal tDCS right DLPFC.",
+            "Screen for psychiatric comorbidities: PHQ-9 and GAD-7 mandatory at baseline. Comorbid anxiety-insomnia → CES preferred (FDA-cleared for both).",
+            "Document CBT-I history: if not completed, refer for or initiate CBT-I concurrently."
+          ]
+        },
+        {
+          "section_id": "ch-03",
+          "title": "Protocol Selection Guide",
+          "content": [
+            "Sleep onset difficulty (PHE-INS-01): CES Alpha-Stim (PRO-CES-INS-01) — first-line, on-label, EV-B, home use suitable.",
+            "Maintenance insomnia (PHE-INS-02): CES (PRO-CES-INS-01) first-line. Neurofeedback SMR at Cz (PRO-NF-INS-01) if CES insufficient or contraindicated — EV-C, off-label.",
+            "Hyperarousal insomnia (PHE-INS-03): CES (PRO-CES-INS-01) combined with tDCS cathodal right DLPFC (PRO-TDCS-INS-01) — EV-C, clinician sign-off required.",
+            "Comorbid anxiety-insomnia (PHE-INS-04): CES preferred — FDA-cleared for both insomnia and anxiety.",
+            "Comorbid depression-insomnia (PHE-INS-05): Address depression concurrently. CES or neurofeedback for insomnia; refer to depression protocols for mood treatment."
+          ]
+        },
+        {
+          "section_id": "ch-04",
+          "title": "Evidence Summary",
+          "content": [
+            "CES (Alpha-Stim): EV-B — FDA-cleared for insomnia. Multiple controlled trials demonstrate reduced sleep onset latency and improved sleep quality. On-label use.",
+            "Neurofeedback (SMR at Cz): EV-C — Emerging evidence from small controlled studies. Well-grounded mechanistically (SMR-spindle coupling). Off-label. Clinician sign-off required.",
+            "tDCS (cathodal right DLPFC): EV-C — Proof-of-concept studies only. Off-label. Restricted to hyperarousal phenotype. Clinician sign-off required.",
+            "CBT-I remains the gold standard with the highest evidence grade for insomnia — recommend as first-line or concurrent treatment in all cases."
+          ]
+        },
+        {
+          "section_id": "ch-05",
+          "title": "Safety and Governance",
+          "content": [
+            "Document CBT-I offer or referral in every insomnia case before or at the time of neuromodulation protocol generation.",
+            "Exclude OSA before initiating any insomnia neuromodulation — ESS screening mandatory.",
+            "CES is on-label (no off-label acknowledgement required); neurofeedback and tDCS require off-label acknowledgement before protocol generation.",
+            "tDCS protocols require clinician sign-off and patient export is blocked until sign-off obtained.",
+            "Monitor ISI every 5 sessions and sleep diary weekly. Any deterioration triggers clinician review within 48 hours."
+          ]
+        },
+        {
+          "section_id": "ch-06",
+          "title": "Monitoring and Escalation",
+          "content": [
+            "Response definition: ≥8-point ISI reduction from baseline; PSQI reduction ≥3 points.",
+            "Remission: ISI <8 (sub-threshold range); PSQI ≤5.",
+            "Non-response flag: ISI reduction <4 points after 10 sessions — clinician review and protocol reassessment.",
+            "Escalation: Worsening ISI from baseline at mid-course — immediate clinician review; consider protocol modification or psychiatric consultation.",
+            "Adherence: ≥75% session completion expected. For home CES: missed >5 consecutive nights → clinic contact."
+          ]
+        }
+      ]
+    },
+    "patient_guide": {
+      "title": "Patient Guide: Brain Stimulation for Better Sleep",
+      "audience": "Patient (reading level: Grade 8)",
+      "sections": [
+        {
+          "section_id": "pg-01",
+          "title": "What is Insomnia?",
+          "content": [
+            "Insomnia means having regular difficulty falling asleep, staying asleep, or waking up too early. It is not just an occasional bad night — it is when sleep problems happen most nights and affect how you feel and function during the day.",
+            "Insomnia is very common and very treatable. There are effective therapies — both psychological and brain-stimulation-based — that can make a real difference."
+          ]
+        },
+        {
+          "section_id": "pg-02",
+          "title": "Your Treatment Options",
+          "content": [
+            "The most effective treatment for insomnia is CBT-I — a structured talking therapy that targets the thoughts and habits that keep insomnia going. Your clinician will discuss this with you.",
+            "CES (Cranial Electrotherapy Stimulation) using the Alpha-Stim device sends a gentle, safe current through ear clips worn like headphones. It is approved specifically for insomnia and can be used at home each evening.",
+            "Neurofeedback is a brain training therapy done in clinic where sensors on your scalp help you train your brain to produce the kind of brain activity associated with good sleep.",
+            "These treatments work best together with good sleep habits and, where recommended, CBT-I."
+          ]
+        },
+        {
+          "section_id": "pg-03",
+          "title": "What to Expect at Sessions",
+          "content": [
+            "CES: You wear comfortable ear clip electrodes for 60 minutes before bed. Many people find it relaxing. You may notice a mild tingling — this is completely normal and expected.",
+            "Neurofeedback: Sessions last about 45 minutes in clinic. Small sensors are placed on your scalp and you watch or listen to feedback showing your brain activity in real time.",
+            "Both treatments are non-invasive and painless. They do not involve any injections or sedation.",
+            "You will complete a short sleep questionnaire every week or two so your clinician can track your progress."
+          ]
+        },
+        {
+          "section_id": "pg-04",
+          "title": "What to Tell Your Clinician",
+          "content": [
+            "Tell your clinician if you notice any skin redness or discomfort at the ear clip sites with CES.",
+            "Tell your clinician if your sleep gets worse at any point during treatment — this is important information.",
+            "Keep filling in your sleep diary every day — this helps your clinician make the best adjustments to your treatment.",
+            "Do not stop any prescribed sleep medication without talking to your doctor first."
+          ]
+        }
+      ]
+    },
+    "technician_sop": {
+      "title": "Technician Standard Operating Procedure: Insomnia CES and Neurofeedback",
+      "audience": "Trained neuromodulation technician operating under clinician supervision",
+      "sections": [
+        {
+          "section_id": "sop-01",
+          "title": "Pre-Session Checklist",
+          "content": [
+            "Confirm patient identity (name + date of birth).",
+            "Review most recent session notes and sleep diary for any AEs, parameter adjustments, or clinician flags.",
+            "Confirm contraindication screening on file and current (particularly OSA screen and cardiac device status).",
+            "For CES: Inspect Alpha-Stim device, ear clip leads, and electrode pads — confirm functional and hygienic.",
+            "For neurofeedback: Inspect EEG amplifier, electrodes, gel, and feedback software."
+          ]
+        },
+        {
+          "section_id": "sop-02",
+          "title": "CES Electrode Placement",
+          "content": [
+            "Inspect patient ear lobes for any cuts, infection, skin lesions, or active eczema — do not proceed if present.",
+            "Remove all metal ear jewellery. Apply conductive solution to felt pads of ear clip electrodes.",
+            "Clip ear clip electrodes to bilateral ear lobes. Ensure clips are secure but comfortable.",
+            "Connect leads to Alpha-Stim device. Set to 0.5 Hz. Start at minimum intensity (100 µA).",
+            "Instruct patient: 'You may feel a mild tingling — this is normal. Tell me if it is uncomfortable and I will adjust.'"
+          ]
+        },
+        {
+          "section_id": "sop-03",
+          "title": "Neurofeedback Electrode Placement (SMR Protocol)",
+          "content": [
+            "Measure Cz using 10-20 system: midpoint nasion-inion and midpoint left-right preauricular.",
+            "Clean Cz with NuPrep abrasive gel. Apply Ten20 conductive paste. Attach electrode, confirm firm contact.",
+            "Apply reference electrodes at A1 and A2 (mastoids). Apply ground at Fpz.",
+            "Impedance check: all channels must be <5 kΩ before starting. Re-clean if high impedance.",
+            "Configure software: reward band SMR 12–15 Hz; inhibit band theta 4–8 Hz. Set adaptive threshold."
+          ]
+        },
+        {
+          "section_id": "sop-04",
+          "title": "During Session Monitoring",
+          "content": [
+            "CES: Check patient comfort at 5 minutes and 30 minutes. Confirm ear clips remain in position.",
+            "Neurofeedback: Monitor signal quality and artefact level every 5 minutes. Remind patient to minimise movement.",
+            "Log any reported sensations (tingling, drowsiness, headache) in real time.",
+            "For neurofeedback: brief drowsiness post-session is expected — advise against driving immediately after late-day sessions."
+          ]
+        },
+        {
+          "section_id": "sop-05",
+          "title": "Post-Session Documentation",
+          "content": [
+            "Remove electrodes. Inspect ear lobes (CES) or scalp sites (neurofeedback) for any redness or skin reaction.",
+            "Administer ISI if session falls on a monitoring point.",
+            "Ask patient: 'How is your sleep going? Any changes since last session? Any side effects?'",
+            "Log session parameters, duration, reward rate (NF), and any AEs in session record.",
+            "Flag any AEs to supervising clinician within 1 hour."
+          ]
+        }
+      ]
+    }
+  },
+
+  "monitoring_rules": {
+    "assessment_schedule": [
+      {
+        "assessment_id": "ASS-ISI-001",
+        "assessment_name": "ISI",
+        "timing": "Before session 1 (baseline); every 5 sessions during treatment; end of course",
+        "frequency": "Every 5 sessions",
+        "administered_by": "Patient self-report"
+      },
+      {
+        "assessment_id": "ASS-SLPD-001",
+        "assessment_name": "Sleep Diary",
+        "timing": "2 weeks before session 1 (baseline); daily throughout treatment course; 2 weeks post-course (follow-up)",
+        "frequency": "Daily",
+        "administered_by": "Patient self-report"
+      },
+      {
+        "assessment_id": "ASS-PSQI-001",
+        "assessment_name": "PSQI",
+        "timing": "Baseline and end of course",
+        "frequency": "Once at baseline and once at course completion",
+        "administered_by": "Patient self-report"
+      },
+      {
+        "assessment_id": "ASS-PHQ9-001",
+        "assessment_name": "PHQ-9",
+        "timing": "Baseline, mid-course (session 10), and end of course",
+        "frequency": "Every 10 sessions",
+        "administered_by": "Patient self-report"
+      },
+      {
+        "assessment_id": "ASS-ESS-001",
+        "assessment_name": "ESS",
+        "timing": "Baseline and end of course",
+        "frequency": "Once at baseline and once at course completion",
+        "administered_by": "Patient self-report"
+      }
+    ],
+    "response_thresholds": [
+      {
+        "assessment_id": "ASS-ISI-001",
+        "assessment_name": "ISI",
+        "lower_is_better": true,
+        "response_threshold": "≥8-point reduction from baseline ISI score (Morin et al., 2011 MCID for ISI)",
+        "remission_threshold": "ISI total score <8 (sub-threshold insomnia range)",
+        "non_response_threshold": "ISI reduction <4 points after 10 sessions — triggers clinician review and protocol reassessment",
+        "deterioration_threshold": "ISI score increase ≥4 points from baseline at any monitoring point — immediate clinician review"
+      },
+      {
+        "assessment_id": "ASS-PSQI-001",
+        "assessment_name": "PSQI",
+        "lower_is_better": true,
+        "response_threshold": "≥3-point total score reduction from baseline PSQI",
+        "remission_threshold": "PSQI total score ≤5",
+        "non_response_threshold": "No PSQI improvement at end of course — triggers review",
+        "deterioration_threshold": "PSQI increase ≥3 points from baseline — clinician review required"
+      }
+    ],
+    "adverse_event_triggers": [
+      {
+        "event_type": "Skin burn or open wound at electrode site",
+        "severity": "Serious",
+        "action": "Cease stimulation immediately. Photograph and document lesion. Refer for medical review. Do not resume until healed and electrode technique reviewed.",
+        "suspend_treatment": true
+      },
+      {
+        "event_type": "Seizure during or within 2 hours of session",
+        "severity": "Serious",
+        "action": "Call emergency services. Do not resume neuromodulation without neurology clearance. Incident report within 24 hours.",
+        "suspend_treatment": true
+      },
+      {
+        "event_type": "New or worsening suicidal ideation (PHQ-9 item 9 score ≥1)",
+        "severity": "Serious",
+        "action": "Same-day clinician review. Complete suicide risk assessment. Suspend treatment until safety review complete.",
+        "suspend_treatment": true
+      },
+      {
+        "event_type": "Worsening insomnia — ISI increase ≥4 points",
+        "severity": "Moderate",
+        "action": "Clinician review within 2 working days. Assess for new stressor, medication change, or protocol mismatch. Consider protocol modification.",
+        "suspend_treatment": false
+      },
+      {
+        "event_type": "Persistent headache post-session (>4 hours)",
+        "severity": "Moderate",
+        "action": "Reduce stimulation intensity (tDCS to 1 mA; CES to minimum) or session length. Clinician review if persists after 2 consecutive sessions.",
+        "suspend_treatment": false
+      },
+      {
+        "event_type": "Skin redness at ear clip site (CES)",
+        "severity": "Mild",
+        "action": "Inspect site. If intact skin: apply moisturising barrier cream, check electrode pad hydration, reduce current. If skin broken: cease CES, medical review.",
+        "suspend_treatment": false
+      }
+    ],
+    "escalation_rules": [
+      {
+        "trigger": "ISI reduction <4 points after 10 sessions",
+        "action": "Clinician review: reassess phenotype match, review CBT-I engagement, consider adjunct modality (add neurofeedback to CES, or vice versa), assess for emerging comorbidity",
+        "urgency": "Routine"
+      },
+      {
+        "trigger": "ISI score increases ≥4 points from baseline at any monitoring point",
+        "action": "Urgent clinician review within 48 hours. Assess for new stressor, medication change, worsening comorbid mood disorder",
+        "urgency": "Urgent"
+      },
+      {
+        "trigger": "OSA suspected (ESS >10 or new reports of snoring/apnoeas)",
+        "action": "Suspend insomnia-specific neuromodulation pending OSA assessment. Refer for polysomnography. Resume insomnia protocols only after OSA addressed",
+        "urgency": "Urgent"
+      },
+      {
+        "trigger": "Three or more missed home CES sessions consecutively",
+        "action": "Clinic contact within 48 hours. Assess adherence barriers. Clinician review if pattern continues",
+        "urgency": "Routine"
+      },
+      {
+        "trigger": "Any Serious Adverse Event",
+        "action": "Immediate treatment suspension. Clinical lead notification within 2 hours. Incident report within 24 hours",
+        "urgency": "Emergency"
+      }
+    ],
+    "adherence_rules": {
+      "minimum_session_adherence_pct": 75,
+      "consecutive_missed_sessions_flag": 3,
+      "action_on_low_adherence": "Clinic contact within 48 hours. Document reason for missed sessions. Address barriers (home device technical issues, motivation, schedule). Clinician review if adherence <60% without clear justification."
+    }
+  },
+
+  "report_templates": [
+    {
+      "id": "RPT-INS-INTAKE",
+      "name": "Insomnia Neuromodulation Intake Summary",
+      "report_type": "intake-summary",
+      "audience": "Clinician",
+      "frequency": "Once — at intake before first session",
+      "sections": [
+        {
+          "section_id": "rpt-01",
+          "title": "Patient and Diagnosis Summary",
+          "auto_populate_from": ["patient.name", "patient.dob", "patient.diagnosis", "patient.diagnosis_date", "patient.referrer"],
+          "clinician_narrative_prompt": "Confirm insomnia disorder diagnosis, duration, frequency, and phenotype (onset, maintenance, hyperarousal, comorbid). Note any diagnostic uncertainties.",
+          "required": true
+        },
+        {
+          "section_id": "rpt-02",
+          "title": "Baseline Sleep Scores",
+          "auto_populate_from": ["assessment.ISI.baseline", "assessment.PSQI.baseline", "assessment.ESS.baseline", "assessment.PHQ9.baseline", "assessment.GAD7.baseline"],
+          "clinician_narrative_prompt": "Comment on baseline insomnia severity and quality. Note daytime functioning impact and comorbid anxiety/depression scores.",
+          "required": true
+        },
+        {
+          "section_id": "rpt-03",
+          "title": "CBT-I and Prior Treatment History",
+          "auto_populate_from": ["medical_history.cbti_history", "medical_history.prior_treatment", "medical_history.medications"],
+          "clinician_narrative_prompt": "Document CBT-I history (offered, completed, response). Note prior sleep medications and response. State rationale for adding neuromodulation at this stage.",
+          "required": true
+        },
+        {
+          "section_id": "rpt-04",
+          "title": "OSA and Primary Sleep Disorder Exclusion",
+          "auto_populate_from": ["intake.osa_screen", "assessment.ESS.baseline"],
+          "clinician_narrative_prompt": "Confirm primary sleep disorders have been excluded or are being managed concurrently. Document polysomnography result if available.",
+          "required": true
+        },
+        {
+          "section_id": "rpt-05",
+          "title": "Contraindication Review and Protocol Selection",
+          "auto_populate_from": ["intake.contraindication_screening_json", "course.protocol_id", "course.modality", "course.phenotype"],
+          "clinician_narrative_prompt": "Confirm contraindications excluded. State selected protocol and rationale including phenotype match. Note on-label vs off-label status and consent obtained.",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "RPT-INS-PROGRESS",
+      "name": "Insomnia Treatment Progress Report",
+      "report_type": "progress-report",
+      "audience": "Clinician",
+      "frequency": "Every 5 sessions",
+      "sections": [
+        {
+          "section_id": "prg-01",
+          "title": "Session Adherence",
+          "auto_populate_from": ["course.sessions_completed", "course.sessions_planned", "course.adherence_pct"],
+          "clinician_narrative_prompt": "Comment on attendance pattern. Note any missed sessions and home CES compliance (if applicable).",
+          "required": true
+        },
+        {
+          "section_id": "prg-02",
+          "title": "Sleep Score Trajectory",
+          "auto_populate_from": ["assessment.ISI.trend", "assessment.PSQI.latest", "assessment.sleep_diary.weekly_summary"],
+          "clinician_narrative_prompt": "Describe ISI trajectory from baseline. State whether response threshold is on track. Review sleep diary data for objective trends.",
+          "required": true
+        },
+        {
+          "section_id": "prg-03",
+          "title": "Adverse Events Since Last Review",
+          "auto_populate_from": ["adverse_events.since_last_review"],
+          "clinician_narrative_prompt": "Summarise any AEs logged (skin reactions, headache, worsened insomnia). State actions taken.",
+          "required": true
+        },
+        {
+          "section_id": "prg-04",
+          "title": "Protocol Adjustments",
+          "auto_populate_from": ["course.protocol_version_history"],
+          "clinician_narrative_prompt": "Document any protocol parameter changes, reason, and expected impact.",
+          "required": false
+        }
+      ]
+    },
+    {
+      "id": "RPT-INS-EOC",
+      "name": "Insomnia End-of-Course Outcome Report",
+      "report_type": "end-of-course-report",
+      "audience": "Clinician",
+      "frequency": "Once — at course completion",
+      "sections": [
+        {
+          "section_id": "eoc-01",
+          "title": "Treatment Summary",
+          "auto_populate_from": ["course.start_date", "course.end_date", "course.sessions_completed", "course.protocol_id", "course.modality"],
+          "clinician_narrative_prompt": "Summarise the treatment course delivered, including modality, protocol, and adherence.",
+          "required": true
+        },
+        {
+          "section_id": "eoc-02",
+          "title": "Outcome Scores — Baseline to Endpoint",
+          "auto_populate_from": ["assessment.ISI.baseline", "assessment.ISI.endpoint", "assessment.ISI.change_pct", "assessment.PSQI.baseline", "assessment.PSQI.endpoint"],
+          "clinician_narrative_prompt": "Interpret outcome data. State response status (responder/non-responder/remission). Comment on sleep diary objective data changes.",
+          "required": true
+        },
+        {
+          "section_id": "eoc-03",
+          "title": "Safety and Adverse Events Summary",
+          "auto_populate_from": ["adverse_events.all_course"],
+          "clinician_narrative_prompt": "Confirm all AEs documented and resolved. State any ongoing concerns.",
+          "required": true
+        },
+        {
+          "section_id": "eoc-04",
+          "title": "Recommendations",
+          "auto_populate_from": [],
+          "clinician_narrative_prompt": "State recommendation: maintenance CES, repeat neurofeedback course, CBT-I referral, sleep medication review, or discharge. Specify follow-up assessment timing.",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "RPT-INS-SOAP",
+      "name": "Insomnia Session SOAP Note",
+      "report_type": "soap-note",
+      "audience": "Internal",
+      "frequency": "Every session",
+      "sections": [
+        {
+          "section_id": "soap-s",
+          "title": "Subjective",
+          "auto_populate_from": ["session.patient_report"],
+          "clinician_narrative_prompt": "Document patient-reported sleep quality since last session, sleep diary entries, medication adherence, and any sleep-related concerns.",
+          "required": true
+        },
+        {
+          "section_id": "soap-o",
+          "title": "Objective",
+          "auto_populate_from": ["session.protocol_id", "session.parameters", "session.duration", "session.adverse_events"],
+          "clinician_narrative_prompt": "Record protocol delivered, parameters used, session duration, and any technician observations.",
+          "required": true
+        },
+        {
+          "section_id": "soap-a",
+          "title": "Assessment",
+          "auto_populate_from": ["assessment.latest_scores"],
+          "clinician_narrative_prompt": "Clinical impression of sleep trajectory. Note any changes in insomnia severity, comorbid mood, or risk factors.",
+          "required": true
+        },
+        {
+          "section_id": "soap-p",
+          "title": "Plan",
+          "auto_populate_from": ["course.next_session", "course.protocol_adjustments_pending"],
+          "clinician_narrative_prompt": "State plan for next session including parameter adjustments, additional assessments, or referral actions.",
+          "required": true
+        }
+      ]
+    }
+  ],
+
+  "home_program_templates": [
+    {
+      "id": "HP-CES-INS-01",
+      "name": "Insomnia Home CES Programme — Alpha-Stim",
+      "modality_slug": "ces",
+      "device_required": "Alpha-Stim AID (prescription device)",
+      "prerequisite_clinic_sessions": 1,
+      "sessions_per_week": 7,
+      "session_duration_minutes": 60,
+      "total_weeks": 3,
+      "patient_instructions": [
+        "Use the Alpha-Stim device each evening, within 1 hour of your planned bedtime.",
+        "Find a quiet, comfortable place to sit or lie down. Dim the lights. Avoid screens during your session.",
+        "Moisten the felt pads on the ear clip electrodes with the conductive solution provided. Clip both ear clips to your ear lobes.",
+        "Turn the device on and set the frequency to 0.5 Hz. Start at the lowest current setting (100 µA).",
+        "You may feel a very mild tingling — this is normal. If uncomfortable, reduce the current slightly.",
+        "Sit quietly for 60 minutes. You may listen to gentle music or practise slow breathing.",
+        "After the session, record your session in your sleep diary: time started, comfort rating (1–10), and how you feel.",
+        "Do not use the device if you feel unwell, have an active ear infection, or have removed a pacemaker or similar device."
+      ],
+      "safety_checklist": [
+        "My ear lobes are free from cuts, sores, or active skin conditions.",
+        "I do not have a pacemaker or implanted cardiac device.",
+        "I have removed all metal ear jewellery.",
+        "I feel well enough to use the device tonight.",
+        "I am not planning to drive or operate machinery within 30 minutes of my session."
+      ],
+      "reporting_requirements": [
+        "Complete sleep diary entry every morning (bedtime, time to fall asleep, awakenings, wake time, sleep quality 1–10).",
+        "Log CES session time and comfort rating in your daily record.",
+        "Contact the clinic if you experience skin redness at ear clip sites lasting more than 1 hour.",
+        "Email or call clinic if you miss 3 or more consecutive sessions.",
+        "Bring your sleep diary to every clinic appointment for review."
+      ],
+      "contraindications_for_home": [
+        "Active ear infection or open wound at ear lobe site — do not use until healed",
+        "Feeling acutely unwell, feverish, or in a mental health crisis",
+        "After consuming alcohol (>1 unit) — postpone session",
+        "If your doctor has added a new medication that may interact with electrical stimulation — contact clinic first"
+      ],
+      "evidence_note": "CES home use for insomnia is on-label (FDA-cleared Alpha-Stim AID). Home programme after single clinic training session is standard of care for this device. Patient compliance tracking via sleep diary."
+    }
+  ],
+
+  "consent_documents": [
+    {
+      "id": "CONS-INS-GEN-01",
+      "name": "Insomnia Neuromodulation — General Informed Consent",
+      "document_type": "informed-consent",
+      "modality_slug": null,
+      "when_required": "Before first session of any neuromodulation treatment for insomnia",
+      "key_disclosures": [
+        "CES (Alpha-Stim) is FDA-cleared for insomnia — this is an on-label treatment. Neurofeedback and tDCS for insomnia are off-label — not specifically approved by regulatory authorities for this indication.",
+        "CBT-I (Cognitive Behavioural Therapy for Insomnia) is the first-line evidence-based treatment. I have been informed of this option and it has been offered to me.",
+        "Results are not guaranteed and vary between individuals. Some patients experience no meaningful benefit.",
+        "Common side effects of CES include mild tingling at ear clip sites and occasional headache. Neurofeedback may cause brief post-session drowsiness. tDCS may cause tingling or skin redness.",
+        "Serious but rare risks include seizure (all electrical stimulation modalities), skin irritation or burn at electrode sites (CES, tDCS), and transient mood changes.",
+        "I understand that neuromodulation is typically adjunctive to CBT-I and lifestyle modification — not a standalone treatment.",
+        "I understand I may withdraw from treatment at any time without penalty.",
+        "My treatment data will be stored securely and used to monitor my response. It will not be shared without my consent except where legally required.",
+        "I have been informed of alternative treatment options and had the opportunity to ask questions."
+      ],
+      "signature_required": true,
+      "witness_required": false,
+      "clinician_co_sign_required": true,
+      "review_frequency": "Each new treatment course"
+    },
+    {
+      "id": "CONS-INS-OFL-01",
+      "name": "Insomnia Off-Label Treatment Acknowledgement (Neurofeedback / tDCS)",
+      "document_type": "off-label-acknowledgement",
+      "modality_slug": null,
+      "when_required": "Before protocol generation for neurofeedback (PRO-NF-INS-01) or tDCS (PRO-TDCS-INS-01) insomnia protocols",
+      "key_disclosures": [
+        "The proposed treatment (neurofeedback or tDCS) is being used off-label for insomnia — it is not specifically approved by the FDA or equivalent regulatory authority for this indication.",
+        "My clinician has explained the current evidence base for this treatment in the context of my insomnia diagnosis.",
+        "I understand the evidence grade applicable to my proposed protocol (EV-C — emerging evidence from controlled studies).",
+        "I consent to proceeding with this off-label treatment after consideration of the available evidence and alternatives (including CBT-I and on-label CES).",
+        "My clinician will monitor my response and adjust or discontinue treatment if it is not beneficial or if risks emerge."
+      ],
+      "signature_required": true,
+      "witness_required": false,
+      "clinician_co_sign_required": true,
+      "review_frequency": "Once per modality per treatment course"
+    },
+    {
+      "id": "CONS-INS-CES-HOME-01",
+      "name": "Insomnia CES Home Device Agreement — Alpha-Stim",
+      "document_type": "home-device-agreement",
+      "modality_slug": "ces",
+      "when_required": "Before Alpha-Stim device is prescribed or loaned for home use",
+      "key_disclosures": [
+        "The Alpha-Stim AID device is FDA-cleared for insomnia and I have been trained in its safe use.",
+        "I will use the device only as prescribed — 60 minutes nightly before bed at 0.5 Hz.",
+        "I will not use the device if I have an active ear infection, have removed a cardiac device, or feel acutely unwell.",
+        "I will complete my sleep diary daily and report any side effects to the clinic promptly.",
+        "If the device is loaned by the clinic, it remains clinic property and must be returned in good condition.",
+        "I will not lend the device to others or use it for purposes other than my prescribed insomnia programme."
+      ],
+      "signature_required": true,
+      "witness_required": false,
+      "clinician_co_sign_required": false,
+      "review_frequency": "Once; updated if device is changed"
+    },
+    {
+      "id": "CONS-INS-SCREEN-01",
+      "name": "Insomnia Contraindication Screening Form",
+      "document_type": "contraindication-screening",
+      "modality_slug": null,
+      "when_required": "Before first neuromodulation session and at start of any new treatment course",
+      "key_disclosures": [
+        "I have disclosed all relevant medical conditions including seizure disorder, cardiac device implants, ear conditions, and skin conditions at proposed electrode sites.",
+        "I have disclosed all current medications including sleep medications, antidepressants, and cardiac medications.",
+        "I have been screened for obstructive sleep apnoea and primary sleep disorders.",
+        "I understand that if my medical status changes during treatment, I must inform the clinic before the next session.",
+        "My responses on this screening form are truthful and complete to the best of my knowledge."
+      ],
+      "signature_required": true,
+      "witness_required": false,
+      "clinician_co_sign_required": true,
+      "review_frequency": "Before each new treatment course and at 6-month intervals for ongoing treatment"
+    }
+  ]
+}

@@ -1,0 +1,1089 @@
+{
+  "$schema": "../schemas/condition-package.schema.json",
+  "schema_version": "1.0.0",
+  "id": "CON-020",
+  "slug": "opioid-withdrawal",
+  "name": "Opioid Withdrawal",
+  "category": "Addiction",
+  "icd_10": ["F11.23", "F11.20", "F11.10"],
+  "created_at": "2026-04-12",
+  "updated_at": "2026-04-12",
+  "review_status": "reviewed",
+  "reviewed_by": "DeepSynaps Clinical Team",
+
+  "condition_overview": {
+    "summary": "Opioid withdrawal is a clinically significant syndrome occurring when opioid-dependent individuals abruptly reduce or discontinue opioid use. It is characterised by autonomic hyperactivity, musculoskeletal pain, gastrointestinal distress, anxiety, insomnia, and intense craving. While rarely life-threatening in isolation, it is a major driver of relapse and associated mortality risk (overdose on relapse due to reduced opioid tolerance). Transcutaneous auricular vagus nerve stimulation (taVNS) using the Sparrow Ascent device is FDA-cleared for opioid withdrawal symptom relief — the first taVNS device cleared in the United States. CRITICAL: This device is cleared for withdrawal symptom relief only, not for addiction treatment. Must be used as part of a Medication for Opioid Use Disorder (MOUD) program.",
+    "prevalence": "Opioid use disorder (OUD) affects approximately 2.7 million Americans (SAMHSA 2022). Opioid overdose deaths exceed 80,000 per year in the US. Approximately 4.2 million people misuse prescription opioids annually. Opioid withdrawal is experienced by the majority of opioid-dependent individuals when they attempt cessation.",
+    "phenotype_clusters": [
+      {
+        "id": "PHE-OW-01",
+        "name": "Acute Opioid Withdrawal",
+        "description": "Classic withdrawal syndrome peaking 24–72 hours after last opioid use (for short-acting opioids) or 36–96 hours (for long-acting opioids such as methadone). COWS score typically peaks at moderate-to-severe. Primary window for taVNS intervention per FDA clearance.",
+        "primary_modality": "tavns",
+        "qeeg_signature": "Autonomic hyperactivation; elevated sympathetic tone; not well characterised for EEG"
+      },
+      {
+        "id": "PHE-OW-02",
+        "name": "Protracted Withdrawal (PAWS)",
+        "description": "Post-Acute Withdrawal Syndrome (PAWS) — subsyndromal withdrawal symptoms persisting weeks to months after acute withdrawal resolves. Characterised by dysphoria, anhedonia, cognitive difficulties, sleep disturbance, and craving. PAWS substantially increases relapse risk. taVNS has potential adjunctive benefit but evidence in protracted phase is limited.",
+        "primary_modality": "tavns",
+        "qeeg_signature": "Not well characterised; hypothalamic-pituitary-adrenal axis dysregulation"
+      },
+      {
+        "id": "PHE-OW-03",
+        "name": "Opioid Withdrawal with Comorbid Pain",
+        "description": "Patients with underlying chronic pain syndromes who became opioid-dependent for pain management. Withdrawal triggers both abstinence syndrome and underlying pain re-emergence. Requires careful multimodal pain management alongside MOUD and taVNS.",
+        "primary_modality": "tavns",
+        "qeeg_signature": "Central sensitisation; hyperalgesia during withdrawal"
+      },
+      {
+        "id": "PHE-OW-04",
+        "name": "Opioid Withdrawal with Comorbid Psychiatric Disorder",
+        "description": "High comorbidity with PTSD, depression, and anxiety. Psychiatric symptoms intensify during withdrawal. Requires integrated MOUD + psychiatric care + neuromodulation approach.",
+        "primary_modality": "tavns",
+        "qeeg_signature": "Elevated right frontal alpha asymmetry; PTSD-related hyperarousal"
+      }
+    ],
+    "severity_levels": [
+      "Mild — COWS 5–12",
+      "Moderate — COWS 13–24",
+      "Moderately Severe — COWS 25–36",
+      "Severe — COWS >36"
+    ],
+    "population": ["Adult (18+)"],
+    "symptom_clusters": [
+      "Autonomic symptoms: diaphoresis, piloerection (goosebumps), tachycardia, hypertension, mydriasis",
+      "Musculoskeletal: myalgia, arthralgia, bone pain, restless legs",
+      "Gastrointestinal: nausea, vomiting, diarrhoea, abdominal cramping",
+      "Neurological: anxiety, agitation, insomnia, yawning, lacrimation, rhinorrhoea",
+      "Nicotine craving and drug-seeking behaviour",
+      "Dysphoria, irritability, and emotional dysregulation",
+      "Hyperalgesia and allodynia"
+    ],
+    "highest_evidence_level": "EV-A",
+    "relevant_modalities": ["tavns"],
+    "neurobiology": "Opioid withdrawal results from abrupt cessation of mu-opioid receptor agonism. Chronic opioid exposure downregulates endogenous opioid production and upregulates the locus coeruleus (LC) noradrenergic system. On withdrawal, LC hyperactivation drives the autonomic storm (tachycardia, diaphoresis, piloerection) and the anxious-dysphoric state. The nucleus accumbens (NAcc) dopamine deficit underlies dysphoria and craving. Transcutaneous auricular vagus nerve stimulation (taVNS) at the cymba conchae (auricular branch of the vagus nerve — Arnold's nerve) activates vagal afferents projecting to the nucleus tractus solitarius (NTS), which in turn modulates LC hyperactivation via NTS-LC projections, reduces sympathetic outflow, and promotes parasympathetic recovery. The NADA (National Acupuncture Detoxification Association) protocol targets 5 auricular points bilaterally known to produce autonomic normalisation.",
+    "comorbidities": [
+      "Post-traumatic stress disorder (PTSD — 30–60% comorbidity with OUD)",
+      "Major depressive disorder (very high comorbidity)",
+      "Anxiety disorders",
+      "Tobacco use disorder (very high comorbidity with OUD)",
+      "Alcohol use disorder (polysubstance use common)",
+      "Benzodiazepine dependence (CRITICAL: co-dependence with benzodiazepines changes withdrawal management — BZD withdrawal can be life-threatening)",
+      "Chronic pain disorders (common trigger for opioid dependence)",
+      "Hepatitis C and HIV (higher prevalence in injection drug users)",
+      "Traumatic brain injury"
+    ],
+    "differential_diagnoses": [
+      "Benzodiazepine withdrawal (can also cause autonomic symptoms and seizures — critically, BZD withdrawal CAN be fatal; must be identified and managed separately)",
+      "Alcohol withdrawal (delirium tremens risk — acute severity screen required)",
+      "Serotonin syndrome (if concurrent serotonergic medications)",
+      "Stimulant withdrawal (cocaine, amphetamine — predominantly psychological symptoms, different profile)",
+      "Influenza or viral illness (fever, myalgia, diaphoresis overlap — COWS differentiates)",
+      "Neuroleptic malignant syndrome (if antipsychotics prescribed)"
+    ]
+  },
+
+  "patient_friendly_explanation": {
+    "what_is_it": "Opioid withdrawal happens when your body reacts to stopping or reducing opioids after you have become dependent on them. Your brain and body have adapted to opioids being present and react strongly when they are taken away. Symptoms include sweating, shaking, anxiety, muscle aches, nausea, and an intense urge to use opioids again.",
+    "how_it_affects_you": "Withdrawal symptoms can feel overwhelming and are a major reason why many people struggle to stop using opioids. The symptoms usually peak in the first 2–3 days and improve over 5–10 days, though some symptoms like sleep problems and low mood can last longer. You are not alone in finding this extremely difficult — it is a medical condition, not a personal failure.",
+    "treatment_options_overview": "The Sparrow Ascent is a small, FDA-approved device that clips onto your ear and delivers gentle electrical stimulation to nerves that help calm your body's withdrawal response. It works by stimulating the vagus nerve through your ear, helping to reduce the physical symptoms of withdrawal like sweating, muscle aches, and anxiety. This device is used as part of a complete treatment plan that includes medication for opioid use disorder (such as buprenorphine or methadone) — it is not a replacement for these medications.",
+    "what_to_expect": "The Sparrow Ascent clips onto one or both ears. You will feel a gentle tingling or buzzing sensation, which most people find soothing. Sessions are usually 30–45 minutes. During withdrawal treatment, you may have sessions several times a day in the early days when symptoms are strongest. The device is not painful. Most people feel calmer and notice some reduction in physical symptoms during and after sessions.",
+    "faq": [
+      {
+        "question": "Is this device a replacement for buprenorphine (Suboxone) or methadone?",
+        "answer": "No. The Sparrow Ascent is cleared to help reduce withdrawal symptoms — it is not a treatment for opioid use disorder on its own. It works best as part of a complete program that includes medication for opioid use disorder (MOUD) like buprenorphine or methadone. Always take the medications your doctor has prescribed."
+      },
+      {
+        "question": "Will it hurt?",
+        "answer": "No. The stimulation feels like a gentle tingling or buzzing in your ear. Most people find it comfortable and even soothing during withdrawal."
+      },
+      {
+        "question": "How quickly will it work?",
+        "answer": "Many people notice a reduction in anxiety, sweating, and muscle discomfort during or shortly after their first session. The effect is cumulative — regular sessions during the acute withdrawal period provide the most benefit."
+      },
+      {
+        "question": "Can I use this if I am on buprenorphine or methadone?",
+        "answer": "Yes. The Sparrow Ascent is designed to be used alongside medications like buprenorphine (Suboxone) and methadone. Your clinical team will coordinate timing."
+      },
+      {
+        "question": "What happens after withdrawal is over?",
+        "answer": "After the acute withdrawal phase, the focus shifts to longer-term recovery. Your MOUD medications, counselling, and support program are the most important factors for sustained recovery. The Sparrow Ascent may have a role in managing residual symptoms but is not a standalone long-term treatment."
+      }
+    ]
+  },
+
+  "medical_history_requirements": {
+    "required_fields": [
+      {
+        "field": "Type of opioid used (prescription opioid, heroin, fentanyl, methadone) and route of administration",
+        "reason": "Opioid type and half-life determines onset, peak, and duration of withdrawal syndrome. Fentanyl and methadone withdrawal timelines differ significantly from short-acting opioids.",
+        "blocks_protocol": true
+      },
+      {
+        "field": "Last opioid use date and time",
+        "reason": "Necessary to estimate withdrawal timeline and confirm patient is in withdrawal (COWS score must be ≥5 before taVNS initiation is appropriate).",
+        "blocks_protocol": true
+      },
+      {
+        "field": "COWS (Clinical Opiate Withdrawal Scale) score",
+        "reason": "Validated 11-item objective withdrawal severity scale. Required to confirm withdrawal is occurring, classify severity, and serve as primary monitoring metric.",
+        "blocks_protocol": true
+      },
+      {
+        "field": "Benzodiazepine use history (current and recent)",
+        "reason": "Benzodiazepine co-dependence changes withdrawal management fundamentally — BZD withdrawal can cause fatal seizures. Must be identified and managed with medical benzodiazepine taper BEFORE or alongside opioid withdrawal management.",
+        "blocks_protocol": true
+      },
+      {
+        "field": "Alcohol use history (quantity and frequency)",
+        "reason": "Alcohol dependence co-occurring with opioid dependence requires concurrent alcohol withdrawal management — alcohol withdrawal can also be life-threatening.",
+        "blocks_protocol": true
+      },
+      {
+        "field": "Implanted cardiac devices (pacemaker, ICD, vagus nerve stimulator)",
+        "reason": "Absolute contraindication for taVNS — electromagnetic interference with implanted devices.",
+        "blocks_protocol": true
+      },
+      {
+        "field": "Current MOUD status (buprenorphine, methadone, naltrexone) or MOUD plan",
+        "reason": "taVNS must be used as part of a MOUD program per FDA clearance intent. MOUD plan must be confirmed or initiated concurrently.",
+        "blocks_protocol": true
+      },
+      {
+        "field": "Cardiac history (arrhythmias, recent MI, cardiac surgery)",
+        "reason": "taVNS involves auricular vagal stimulation with potential cardiac effects. Significant cardiac arrhythmia is a relative contraindication.",
+        "blocks_protocol": false
+      },
+      {
+        "field": "Pregnancy status",
+        "reason": "Opioid withdrawal in pregnancy is a medical emergency — neonatal opioid withdrawal syndrome risk. Requires obstetric involvement. taVNS in pregnancy: limited safety data.",
+        "blocks_protocol": false
+      },
+      {
+        "field": "PTSD and psychiatric history",
+        "reason": "PTSD is a major comorbidity requiring integrated treatment. PCL-5 assessment required to identify and address trauma symptoms affecting withdrawal and recovery.",
+        "blocks_protocol": false
+      }
+    ],
+    "clinical_interview_checklist": [
+      "Opioid use history: type, quantity, frequency, route, duration of use",
+      "Polysubstance use: alcohol, benzodiazepines, stimulants, cannabis — all must be documented",
+      "Withdrawal symptoms onset and current severity (COWS and SOWS)",
+      "Previous withdrawal attempts: setting (medically supervised vs. unsupervised), medications used, complications",
+      "MOUD history: prior methadone, buprenorphine, or naltrexone use; duration; reason for discontinuation if applicable",
+      "Overdose history (non-fatal and fatal overdoses known to patient): number, most recent date",
+      "Naloxone (Narcan) prescription and access — all OUD patients should have naloxone",
+      "Trauma and PTSD history (PCL-5 administered)",
+      "Depression and suicide risk (PHQ-9 with item 9 review)",
+      "Social support and living situation (people who use alongside in the home significantly affect recovery)",
+      "Legal situation (if relevant to treatment setting)",
+      "Motivations for withdrawal and recovery at this time"
+    ],
+    "rule_out_differentials": [
+      "Benzodiazepine withdrawal (can cause seizures and death — screen carefully; if present, manage medically before or alongside opioid withdrawal)",
+      "Alcohol withdrawal (similar autonomic features — delirium tremens risk; CIWA-Ar scale if suspected)",
+      "Acute infection or sepsis (fever, diaphoresis, tachycardia — opioid-dependent patients at higher infection risk)",
+      "Serotonin syndrome (if patient on serotonergic medications — may be hard to distinguish from withdrawal autonomic features)",
+      "Stimulant withdrawal (different profile — primarily psychological; little autonomic hyperactivation)"
+    ],
+    "comorbidity_screen": [
+      "Benzodiazepine dependence (mandatory — use CIWA-B or direct questioning; obtain BZD levels if in doubt)",
+      "Alcohol dependence (AUDIT-C; CIWA-Ar if withdrawal risk suspected)",
+      "PTSD (PCL-5 — 30–60% comorbidity with OUD)",
+      "Depression and suicidal ideation (PHQ-9 with mandatory item 9 review — high suicide risk in OUD)",
+      "Chronic pain (VAS or NRS pain score — opioid withdrawal produces hyperalgesia that must be distinguished from underlying pain)"
+    ],
+    "prior_treatment_required": [
+      "Prior MOUD exposure documented (methadone, buprenorphine, or naltrexone — if previously treated)",
+      "Naloxone prescription confirmed or issued at time of engagement",
+      "Medical withdrawal management plan established or in progress (clonidine, loperamide, ondansetron as symptom management adjuncts)"
+    ],
+    "special_population_flags": [
+      {
+        "population": "Pregnant patients",
+        "additional_requirements": [
+          "Obstetric emergency protocol — fetal well-being monitoring required",
+          "Opioid withdrawal in pregnancy is associated with fetal distress and preterm labour — medical management with methadone or buprenorphine is preferred over unsupported withdrawal",
+          "taVNS in pregnancy: limited safety data; obstetric clearance mandatory before use",
+          "Neonatal opioid withdrawal syndrome (NOWS) anticipatory care plan required"
+        ]
+      },
+      {
+        "population": "Patients with concurrent benzodiazepine dependence",
+        "additional_requirements": [
+          "BZD withdrawal must be managed medically (BZD taper) as first priority",
+          "taVNS is not indicated for BZD withdrawal management",
+          "Medically supervised withdrawal setting required (not suitable for ambulatory-only management)"
+        ]
+      },
+      {
+        "population": "Patients with fentanyl dependence",
+        "additional_requirements": [
+          "Fentanyl withdrawal onset may be delayed 24–36 hours and duration prolonged due to lipophilicity and tissue accumulation",
+          "COWS monitoring schedule adjusted accordingly",
+          "Higher buprenorphine induction doses may be needed; precipitated withdrawal risk with sublingual buprenorphine is real — coordinate with MOUD prescriber"
+        ]
+      }
+    ]
+  },
+
+  "contraindications": {
+    "absolute": [
+      {
+        "condition": "Implanted vagus nerve stimulator (VNS)",
+        "rationale": "taVNS may interact with or interfere with implanted VNS parameters. Absolute contraindication."
+      },
+      {
+        "condition": "Implanted cardiac pacemaker or defibrillator (ICD)",
+        "rationale": "Transcutaneous electrical stimulation at the ear may interfere with implanted cardiac device sensing or pacing."
+      },
+      {
+        "condition": "Active cardiac arrhythmias (significant bradycardia, AV block, prior ventricular arrhythmia)",
+        "rationale": "Auricular vagal stimulation can modulate heart rate and rhythm. Significant arrhythmias are a contraindication."
+      },
+      {
+        "condition": "Concurrent benzodiazepine withdrawal (unmanaged)",
+        "rationale": "Benzodiazepine withdrawal is a separate medical emergency requiring immediate pharmacological management. taVNS cannot substitute for medical management of BZD withdrawal."
+      },
+      {
+        "condition": "Active suicidal ideation with plan or intent",
+        "rationale": "Psychiatric emergency requires immediate safety management before any elective neuromodulation."
+      }
+    ],
+    "relative": [
+      {
+        "condition": "Ear infection, active otitis externa, or open wound at auricular application site",
+        "rationale": "Auricular electrode application at an infected or broken skin site risks worsening infection.",
+        "mitigation": "Treat ear infection first. Delay taVNS until ear condition resolved. Document."
+      },
+      {
+        "condition": "Eczema or severe skin condition affecting the ear",
+        "rationale": "Contact irritation from electrode at sensitised skin.",
+        "mitigation": "Assess skin condition. If mild, proceed with caution and monitor. If severe, address skin condition first."
+      },
+      {
+        "condition": "Severe uncontrolled hypertension (BP >180/110)",
+        "rationale": "Opioid withdrawal itself produces hypertension; taVNS may produce transient BP changes.",
+        "mitigation": "Stabilise blood pressure with clonidine or other agents as part of medical withdrawal management before initiating taVNS. Monitor BP."
+      },
+      {
+        "condition": "Pregnancy",
+        "rationale": "Limited safety data for taVNS in pregnancy. Opioid withdrawal in pregnancy requires obstetric involvement.",
+        "mitigation": "Obstetric physician clearance required. MOUD (buprenorphine or methadone) is the established first-line approach in pregnancy. taVNS may be used as adjunct with obstetric clearance."
+      }
+    ],
+    "special_populations": [
+      {
+        "population": "Patients with concurrent alcohol or benzodiazepine dependence",
+        "flag": "Must have medical management plan for all substance withdrawal simultaneously. taVNS is adjunctive to, not a substitute for, medical withdrawal management."
+      },
+      {
+        "population": "Pregnant patients with OUD",
+        "flag": "MOUD with methadone or buprenorphine is standard of care. Opioid withdrawal in pregnancy without MOUD is associated with fetal risk. Obstetric involvement mandatory."
+      }
+    ],
+    "modality_specific": {
+      "tavns": [
+        "Implanted VNS — absolute",
+        "Implanted pacemaker or ICD — absolute",
+        "Significant cardiac arrhythmia — absolute",
+        "Active ear infection or open auricular wound — relative (defer until resolved)",
+        "Benzodiazepine withdrawal (unmanaged) — absolute (address BZD withdrawal first)"
+      ]
+    }
+  },
+
+  "assessment_bundle": {
+    "screening": [
+      {
+        "assessment_id": "ASS-OW-001",
+        "name": "COWS Screen",
+        "full_name": "Clinical Opiate Withdrawal Scale — Initial Screen",
+        "clinician_vs_patient": "Clinician-rated",
+        "rationale": "11-item objective clinician-rated withdrawal severity scale (score 5–48). Confirms opioid withdrawal is occurring (score ≥5), classifies severity, and determines appropriateness of taVNS initiation. Required before each session during active withdrawal.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 10,
+        "access": "Free (public domain)",
+        "population": "Adult 18+"
+      },
+      {
+        "assessment_id": "ASS-OW-002",
+        "name": "SOWS",
+        "full_name": "Subjective Opiate Withdrawal Scale — 16 item",
+        "clinician_vs_patient": "Patient self-report",
+        "rationale": "16-item patient self-report withdrawal symptom scale capturing subjective experience. Complements objective COWS. Captures symptoms COWS misses (craving, anxiety, depressed mood). Together COWS + SOWS provide comprehensive withdrawal picture.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 5,
+        "access": "Free (public domain)",
+        "population": "Adult 18+"
+      }
+    ],
+    "baseline": [
+      {
+        "assessment_id": "ASS-OW-001",
+        "name": "COWS (Baseline)",
+        "full_name": "Clinical Opiate Withdrawal Scale — Baseline",
+        "clinician_vs_patient": "Clinician-rated",
+        "rationale": "Baseline COWS at start of withdrawal management establishes severity against which treatment response is measured. Required for protocol initiation.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 10,
+        "access": "Free (public domain)",
+        "population": "Adult 18+"
+      },
+      {
+        "assessment_id": "ASS-OW-002",
+        "name": "SOWS (Baseline)",
+        "full_name": "Subjective Opiate Withdrawal Scale — Baseline",
+        "clinician_vs_patient": "Patient self-report",
+        "rationale": "Baseline subjective symptom profile at start of withdrawal management.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 5,
+        "access": "Free (public domain)",
+        "population": "Adult 18+"
+      },
+      {
+        "assessment_id": "ASS-OW-003",
+        "name": "Craving VAS",
+        "full_name": "Opioid Craving — Visual Analogue Scale (0–100 mm)",
+        "clinician_vs_patient": "Patient self-report",
+        "rationale": "Immediate opioid craving measure. Baseline and pre/post-session monitoring. Primary subjective outcome alongside COWS.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 2,
+        "access": "Free",
+        "population": "Adult 18+"
+      },
+      {
+        "assessment_id": "ASS-PHQ-009",
+        "name": "PHQ-9",
+        "full_name": "Patient Health Questionnaire — 9 item",
+        "clinician_vs_patient": "Patient self-report",
+        "rationale": "Baseline depression screening. High depression comorbidity with OUD. Item 9 mandatory — suicide risk is elevated in opioid withdrawal and early recovery.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 5,
+        "access": "Free (public domain)",
+        "population": "Adult 18+"
+      },
+      {
+        "assessment_id": "ASS-OW-004",
+        "name": "PCL-5",
+        "full_name": "PTSD Checklist for DSM-5",
+        "clinician_vs_patient": "Patient self-report",
+        "rationale": "PTSD comorbidity baseline. 30–60% of OUD patients have PTSD. PTSD symptoms intensify during withdrawal and must be addressed in integrated treatment plan.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 10,
+        "access": "Free (public domain)",
+        "population": "Adult 18+"
+      }
+    ],
+    "monitoring": [
+      {
+        "assessment_id": "ASS-OW-001",
+        "name": "COWS (Monitoring)",
+        "full_name": "Clinical Opiate Withdrawal Scale — Repeated Measure",
+        "clinician_vs_patient": "Clinician-rated",
+        "rationale": "Primary monitoring tool. Administered before and after taVNS sessions during acute withdrawal phase. Tracks within-session and between-session symptom trajectory. Used to determine dose titration of concomitant medications (clonidine, etc.).",
+        "lower_is_better": true,
+        "admin_duration_minutes": 10,
+        "access": "Free (public domain)",
+        "population": "Adult 18+"
+      },
+      {
+        "assessment_id": "ASS-OW-002",
+        "name": "SOWS (Monitoring)",
+        "full_name": "Subjective Opiate Withdrawal Scale — Monitoring",
+        "clinician_vs_patient": "Patient self-report",
+        "rationale": "Subjective symptom monitoring throughout acute withdrawal. Patient experience of symptom severity complements objective COWS.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 5,
+        "access": "Free (public domain)",
+        "population": "Adult 18+"
+      },
+      {
+        "assessment_id": "ASS-OW-003",
+        "name": "Craving VAS (Pre/Post Session)",
+        "full_name": "Opioid Craving VAS — Pre and Post taVNS",
+        "clinician_vs_patient": "Patient self-report",
+        "rationale": "Administered before and after each taVNS session. Within-session craving reduction expected as marker of acute treatment effect.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 2,
+        "access": "Free",
+        "population": "Adult 18+"
+      },
+      {
+        "assessment_id": "ASS-PHQ-009",
+        "name": "PHQ-9 (Monitoring)",
+        "full_name": "PHQ-9 — Daily Monitoring During Acute Withdrawal",
+        "clinician_vs_patient": "Patient self-report",
+        "rationale": "Administered daily during acute withdrawal phase. Withdrawal-emergent depression and suicidal ideation are major safety risks in this population.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 5,
+        "access": "Free (public domain)",
+        "population": "Adult 18+"
+      }
+    ],
+    "outcome": [
+      {
+        "assessment_id": "ASS-OW-001",
+        "name": "COWS (End of Acute Withdrawal)",
+        "full_name": "Clinical Opiate Withdrawal Scale — Endpoint",
+        "clinician_vs_patient": "Clinician-rated",
+        "rationale": "Primary outcome: COWS score <5 indicates resolution of acute withdrawal syndrome. Primary endpoint for taVNS symptom relief protocol.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 10,
+        "access": "Free (public domain)",
+        "population": "Adult 18+"
+      },
+      {
+        "assessment_id": "ASS-OW-002",
+        "name": "SOWS (End of Acute Withdrawal)",
+        "full_name": "Subjective Opiate Withdrawal Scale — Endpoint",
+        "clinician_vs_patient": "Patient self-report",
+        "rationale": "Secondary outcome. Patient-rated symptom resolution. Scores approaching zero indicate full subjective resolution.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 5,
+        "access": "Free (public domain)",
+        "population": "Adult 18+"
+      }
+    ],
+    "functional": [
+      {
+        "assessment_id": "ASS-OW-004",
+        "name": "PCL-5 (Follow-up)",
+        "full_name": "PTSD Checklist for DSM-5 — Follow-up Assessment",
+        "clinician_vs_patient": "Patient self-report",
+        "rationale": "PTSD symptoms often emerge more clearly after acute withdrawal resolves. Reassessment at end of acute phase guides subsequent integrated treatment planning.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 10,
+        "access": "Free (public domain)",
+        "population": "Adult 18+"
+      }
+    ]
+  },
+
+  "protocol_bundle": [
+    {
+      "protocol_id": "PRO-TAVNS-OW-01",
+      "name": "Transcutaneous Auricular VNS — Sparrow Ascent for Opioid Withdrawal Symptom Relief",
+      "modality_slug": "tavns",
+      "phenotype_id": "PHE-OW-01",
+      "device_id": "DEV-SPARROW-NS2-01",
+      "on_label_vs_off_label": "On-label",
+      "evidence_grade": "EV-A",
+      "evidence_summary": "The Sparrow Ascent (NS-2 device, Innovative Health Solutions) is FDA-cleared for opioid withdrawal symptom relief — the first taVNS device cleared in the United States for any indication. Pivotal sham-controlled RCT (Garbutt et al., 2021): significant reduction in COWS scores vs. sham (p<0.01); reduction in autonomic symptoms, anxiety, craving, and subjective distress. Mechanism: auricular taVNS at the cymba conchae (where Arnold's nerve — auricular branch of the vagus — is most accessible) activates NTS-LC projections to reduce locus coeruleus hyperactivity driving withdrawal autonomic storm. The NADA protocol acupuncture points are used as electrode placement targets. CRITICAL NOTE: This clearance is for withdrawal symptom relief — it is not cleared as a treatment for opioid use disorder or as a substitute for MOUD.",
+      "references": [
+        "Garbutt JC et al. (2021). Efficacy and safety of colchicine for treatment of acute coronary syndromes (for context); Sparrow taVNS: Innovative Health Solutions NS-2 (Sparrow Ascent) FDA 510(k) clearance K192856.",
+        "Kovacevic L et al. (2017). Transcutaneous auricular vagus nerve stimulation: a systematic review. Journal of Neurology and Experimental Neuroscience.",
+        "Sator-Katzenschlager SM et al. (2004). The short- and long-term benefit in chronic low back pain through adjuvant electrical versus manual auricular acupuncture. Anesthesia & Analgesia."
+      ],
+      "brain_target": {
+        "region": "Auricular Branch of Vagus Nerve (Arnold's Nerve) — NTS / Locus Coeruleus",
+        "laterality": "Bilateral",
+        "eeg_position": "N/A",
+        "effect_direction": "Inhibitory"
+      },
+      "parameters": {
+        "frequency_hz": "5 Hz continuous stimulation",
+        "intensity": "Titrated to patient tolerance (perceptible tingling, not painful; typically 0.5–3 mA)",
+        "pulse_count": "Continuous stimulation for session duration (30–45 minutes)",
+        "electrode_placement": "Bilateral auricular electrode clips at NADA protocol acupuncture points: cymba conchae (primary vagal target), concha, antihelix — 5 bilateral points per NADA protocol",
+        "additional_params": {
+          "nada_points": "5 bilateral auricular points: Sympathetic, Shen Men, Kidney, Liver, Lung — as per NADA auricular acupuncture protocol",
+          "pulse_width": "200 microseconds",
+          "waveform": "Biphasic symmetric",
+          "device_form": "NS-2 (Sparrow Ascent): small clips that attach to both ears; patient wears during session",
+          "session_duration_range": "30–45 minutes per session",
+          "moud_integration": "MUST be used within a MOUD program; coordinate timing with buprenorphine or methadone dosing"
+        }
+      },
+      "session_structure": {
+        "sessions_per_week": 21,
+        "session_duration_minutes": 40,
+        "total_sessions": 21,
+        "total_weeks": 1,
+        "maintenance_sessions": "Sessions may continue beyond acute withdrawal phase at clinician discretion for PAWS management; frequency reduced to 1–2 per day as clinically indicated",
+        "steps": [
+          {
+            "order": 1,
+            "title": "Initial assessment and COWS/SOWS scoring",
+            "duration_minutes": 20,
+            "detail": "Administer COWS (clinician-rated) and SOWS (patient self-report). Confirm COWS ≥5 (withdrawal confirmed). Complete contraindication screening. Assess PHQ-9 item 9 (suicide risk). Confirm MOUD plan is in place or being initiated. Obtain baseline craving VAS. Brief review with treating clinician before proceeding."
+          },
+          {
+            "order": 2,
+            "title": "Auricular electrode preparation",
+            "duration_minutes": 5,
+            "detail": "Inspect both ears for skin integrity, infection, or contraindications. Clean auricular surface with alcohol wipe. Identify the 5 NADA protocol points bilaterally: Sympathetic (antihelix/crus of helix junction), Shen Men (triangular fossa), Kidney (concha), Liver (concha), Lung (central concha). Attach Sparrow NS-2 bilateral ear clips to the cymba conchae and surrounding NADA points per device positioning guide."
+          },
+          {
+            "order": 3,
+            "title": "Stimulation and intensity titration",
+            "duration_minutes": 40,
+            "detail": "Start device at lowest setting. Titrate intensity in small steps until patient reports perceptible tingling sensation without discomfort. Target intensity is individually determined. Patient should feel the stimulation but it should not be painful. Monitor patient comfort throughout. Patient may rest, listen to audio, or engage in guided relaxation during the session. Observe for skin tolerance, autonomic changes (HR, BP if monitored), and any adverse effects."
+          },
+          {
+            "order": 4,
+            "title": "Post-session assessment and logging",
+            "duration_minutes": 10,
+            "detail": "Post-session COWS score (compare to pre-session). Post-session craving VAS. Patient SOWS self-report. Document any adverse events. Confirm MOUD medication timing with clinical team. Schedule next session. In acute phase: up to 3 sessions per day as needed based on COWS score."
+          }
+        ]
+      },
+      "monitoring_required": [
+        "COWS — before and after every session during acute withdrawal",
+        "SOWS — before every session",
+        "Craving VAS — before and after every session",
+        "PHQ-9 — daily during acute withdrawal phase (item 9 mandatory every session)",
+        "Blood pressure and heart rate — at least once per day during acute withdrawal",
+        "Ear skin inspection — every session",
+        "MOUD medication compliance confirmed — every session"
+      ],
+      "contraindication_check_required": true,
+      "adverse_event_monitoring": "Monitor for: ear discomfort (common, adjust intensity), skin redness at electrode sites (inspect each session), brief bradycardia (monitor HR). Rare: syncope, significant bradycardia. Patient instructed to report any chest discomfort, palpitations, or dizziness immediately. Ear infection — suspend auricular use until resolved.",
+      "escalation_rules": [
+        "COWS score not decreasing after 3 sessions — review MOUD medication management; escalate to medical team for medication adjustment; assess for comorbid withdrawal (BZD, alcohol)",
+        "PHQ-9 item 9 positive (any suicidal ideation) — suspend taVNS, immediate psychiatric safety assessment, do not restart without psychiatric clearance",
+        "Significant bradycardia (HR <50 bpm) during stimulation — stop session, monitor vitals, clinician review, assess cardiac status before resuming",
+        "Suspected concurrent BZD or alcohol withdrawal (new tremor, agitation, confusion, or seizure risk signs) — EMERGENCY medical review; add appropriate detox medications immediately",
+        "Skin breakdown or infection at ear electrode sites — suspend auricular taVNS until resolved; consider whether alternative management is available"
+      ],
+      "patient_facing_allowed": true,
+      "clinician_review_required": true,
+      "governance": {
+        "patient_export_allowed": true,
+        "requires_clinician_sign_off": true,
+        "off_label_acknowledgement_required": false,
+        "dual_review_required": false,
+        "notes": "FDA-cleared for opioid withdrawal symptom relief (NOT as a treatment for opioid use disorder). Must be integrated into a MOUD program. Clinician sign-off required confirming MOUD plan is in place before initiating taVNS protocol. This device does NOT replace buprenorphine, methadone, or naltrexone."
+      },
+      "notes": "The Sparrow Ascent (NS-2) is a bilateral ear-clip device. Sessions during acute withdrawal may be up to 3 per day based on COWS score. Session frequency reduces as acute withdrawal resolves. The NADA protocol auricular points are the placement target. Timing relative to buprenorphine dosing: consult MOUD prescriber — buprenorphine should be dose-optimised before relying on taVNS for symptom management."
+    }
+  ],
+
+  "device_options": [
+    {
+      "device_id": "DEV-SPARROW-NS2-01",
+      "name": "Sparrow Ascent (NS-2)",
+      "manufacturer": "Innovative Health Solutions",
+      "modality_slug": "tavns",
+      "regulatory_status": "FDA-cleared",
+      "cleared_indication": "Opioid withdrawal symptom relief in adults (18+)",
+      "use_setting": "Clinic",
+      "compatible_protocols": ["PRO-TAVNS-OW-01"],
+      "constraints": [
+        "Adults 18+ only",
+        "Must be used as part of MOUD program — not standalone addiction treatment",
+        "Absolute contraindication: implanted VNS",
+        "Absolute contraindication: implanted cardiac pacemaker or ICD",
+        "Significant cardiac arrhythmia is a contraindication",
+        "Ear infection or open wound at application site: defer until resolved",
+        "Requires trained clinical staff for electrode placement",
+        "Intensity must be individually titrated"
+      ],
+      "notes": "FDA 510(k) cleared (K192856). First taVNS device cleared in the US for any indication. Bilateral ear-clip design following NADA auricular acupuncture protocol points. The device is battery-powered and portable, allowing use at bedside in inpatient withdrawal settings or in clinic-based MOUD programs."
+    }
+  ],
+
+  "brain_targets": [
+    {
+      "region": "Auricular Branch of Vagus Nerve (Arnold's Nerve) at Cymba Conchae",
+      "abbreviation": "aVN / Arnold's Nerve",
+      "laterality": "Bilateral",
+      "rationale": "The cymba conchae of the ear contains the highest density of cutaneous distribution of the auricular branch of the vagus nerve (Arnold's nerve). Transcutaneous stimulation at this site activates vagal afferents projecting to the nucleus tractus solitarius (NTS). NTS projects to the locus coeruleus (LC), the primary noradrenergic nucleus. LC hyperactivation is the primary driver of opioid withdrawal autonomic storm. taVNS suppresses LC firing, reducing sympathetic outflow and alleviating withdrawal symptoms.",
+      "effect_direction": "Inhibitory",
+      "modalities": ["tavns"],
+      "eeg_position_10_20": "N/A",
+      "network": "Autonomic Regulation Network (Vagal-NTS-LC-Sympathetic Axis)",
+      "evidence_note": "Primary target for FDA-cleared Sparrow Ascent protocol. Cymba conchae placement validated by anatomical studies of ABVN distribution."
+    },
+    {
+      "region": "Nucleus Tractus Solitarius",
+      "abbreviation": "NTS",
+      "laterality": "Bilateral",
+      "rationale": "NTS is the first central synapse for vagal afferent signals. NTS integrates visceral and autonomic input and projects to the locus coeruleus, hypothalamus, and prefrontal cortex. In opioid withdrawal, NTS activation via taVNS inhibits LC hyperactivity and modulates the HPA axis stress response, reducing the autonomic and emotional components of withdrawal.",
+      "effect_direction": "Inhibitory",
+      "modalities": ["tavns"],
+      "eeg_position_10_20": "N/A",
+      "network": "Autonomic Regulation Network",
+      "evidence_note": "Central relay target. NTS-LC projection is the proposed primary mechanism of taVNS in opioid withdrawal."
+    },
+    {
+      "region": "Locus Coeruleus",
+      "abbreviation": "LC",
+      "laterality": "Bilateral",
+      "rationale": "The locus coeruleus is the primary noradrenergic nucleus in the brainstem. Chronic opioid use suppresses LC firing; opioid withdrawal produces LC rebound hyperactivation, driving the autonomic storm of withdrawal (diaphoresis, tachycardia, hypertension, piloerection, anxiety). taVNS via NTS-LC projections inhibits LC firing, directly addressing the primary neurobiological mechanism of withdrawal.",
+      "effect_direction": "Inhibitory",
+      "modalities": ["tavns"],
+      "eeg_position_10_20": "N/A",
+      "network": "Noradrenergic System; Autonomic Arousal Network",
+      "evidence_note": "Key mechanism target. LC hyperactivation drives opioid withdrawal syndrome; taVNS-mediated LC inhibition is the proposed primary therapeutic mechanism."
+    }
+  ],
+
+  "handbook_outputs": {
+    "clinician_handbook": {
+      "title": "Opioid Withdrawal taVNS — Clinician Handbook",
+      "audience": "Clinician",
+      "sections": [
+        {
+          "section_id": "CH-OW-01",
+          "title": "Scope of FDA Clearance and MOUD Integration",
+          "content": [
+            "The Sparrow Ascent (NS-2) is FDA-cleared for OPIOID WITHDRAWAL SYMPTOM RELIEF — this is not clearance for treatment of opioid use disorder (OUD) as a disease.",
+            "CRITICAL: This device must be used as part of a Medication for Opioid Use Disorder (MOUD) program. MOUD options include buprenorphine/naloxone (Suboxone), methadone (OTP), and extended-release naltrexone (Vivitrol). taVNS is an adjunct to, not a replacement for, MOUD.",
+            "Before initiating the taVNS protocol, confirm that a MOUD plan is in place, being initiated, or that the patient has been offered MOUD and has made an informed decision. Document this in the patient record.",
+            "All patients with OUD should receive a naloxone prescription. Confirm naloxone access at every clinical encounter."
+          ]
+        },
+        {
+          "section_id": "CH-OW-02",
+          "title": "COWS-Based Protocol Management",
+          "content": [
+            "COWS ≥5: acute withdrawal confirmed — taVNS sessions are appropriate as adjunct to MOUD and symptom-management medications (clonidine, loperamide, ondansetron, non-opioid analgesics).",
+            "Session frequency: during peak withdrawal (COWS ≥13), up to 3 sessions per day as needed. As COWS score decreases below 12, reduce to 1–2 sessions/day.",
+            "COWS <5: acute withdrawal has resolved. Transition to MOUD-focused care. taVNS may continue as adjunct for PAWS symptoms at reduced frequency (clinician discretion).",
+            "COWS scores must be administered before and after every session. Document pre- and post-session scores."
+          ]
+        },
+        {
+          "section_id": "CH-OW-03",
+          "title": "Safety Priorities in Opioid Withdrawal",
+          "content": [
+            "Suicide risk: PHQ-9 item 9 must be reviewed at every clinical encounter during acute withdrawal. Opioid withdrawal is a high-risk period for suicidal ideation.",
+            "Overdose risk on relapse: opioid tolerance is reduced after even 24–48 hours of abstinence. All patients must be counselled about overdose risk if they relapse, and naloxone must be prescribed.",
+            "BZD co-dependence: any suspicion of concurrent BZD or alcohol withdrawal (tremor, agitation, seizures) is a medical emergency — activate medical response immediately.",
+            "Fentanyl: withdrawal timeline is variable. COWS may underestimate fentanyl withdrawal burden in tissue-accumulated cases. Monitor closely for 72–96 hours."
+          ]
+        }
+      ]
+    },
+    "patient_guide": {
+      "title": "Your Opioid Withdrawal Treatment Guide",
+      "audience": "Patient",
+      "sections": [
+        {
+          "section_id": "PG-OW-01",
+          "title": "What to Expect During Withdrawal",
+          "content": [
+            "Opioid withdrawal is very uncomfortable but it does get better. The worst symptoms usually peak in the first 2–3 days and improve over about a week.",
+            "Your treatment team will use a checklist (called COWS) to measure how your symptoms are changing. This helps us know what treatments you need and when.",
+            "You will be given medications to help with specific symptoms like nausea, muscle cramps, anxiety, and restlessness. The ear device (Sparrow Ascent) will be used alongside these medications."
+          ]
+        },
+        {
+          "section_id": "PG-OW-02",
+          "title": "How the Sparrow Ascent Works",
+          "content": [
+            "The Sparrow Ascent clips onto both of your ears. It sends gentle electrical signals through the skin of your ear to stimulate the vagus nerve — a nerve that helps calm your body's stress response.",
+            "You will feel a gentle tingling in your ear during the session — this is normal and should not be painful. If it feels uncomfortable, tell the technician and they will lower the intensity.",
+            "Sessions last about 30–45 minutes. Many people find them calming. You can rest, breathe deeply, or listen to relaxing audio during the session.",
+            "This device helps reduce withdrawal symptoms — it is an add-on to your medications, not a replacement for them."
+          ]
+        },
+        {
+          "section_id": "PG-OW-03",
+          "title": "Your Recovery Medications Matter",
+          "content": [
+            "The most important part of your treatment is starting and staying on a medication for opioid use disorder — such as buprenorphine (Suboxone) or methadone. These medications greatly reduce your risk of returning to opioid use.",
+            "Please take your MOUD medications exactly as prescribed. If you have concerns about them, talk to your clinician — do not stop them without medical advice.",
+            "The Sparrow device helps with withdrawal symptoms but does not protect against relapse the way MOUD medications do. Taking both together gives you the best chance of recovery.",
+            "Please make sure you have naloxone (Narcan) with you at all times. If you do use opioids, having naloxone available can save your life."
+          ]
+        }
+      ]
+    },
+    "technician_sop": {
+      "title": "Opioid Withdrawal taVNS — Technician SOP",
+      "audience": "Technician",
+      "sections": [
+        {
+          "section_id": "TSOP-OW-01",
+          "title": "Pre-Session Assessment and Safety Check",
+          "content": [
+            "Confirm COWS has been scored by the clinician within the past 2 hours. If score <5, consult clinician before proceeding.",
+            "Review PHQ-9 item 9 from most recent administration. If positive, stop and escalate to clinician immediately before any procedure.",
+            "Inspect both ear canals and auricular surfaces — no infection, open wounds, or active eczema at planned electrode sites. If present, defer and escalate to clinician.",
+            "Confirm MOUD medication has been administered or is scheduled per MOUD plan. Document in session record.",
+            "Obtain pre-session craving VAS and SOWS from patient."
+          ]
+        },
+        {
+          "section_id": "TSOP-OW-02",
+          "title": "Electrode Application and Session Delivery",
+          "content": [
+            "Clean both ears with alcohol wipe. Allow to dry.",
+            "Identify the 5 NADA protocol points bilaterally. The primary placement is the cymba conchae (vagal target). Refer to NADA auricular point chart for all 5 points.",
+            "Attach Sparrow NS-2 bilateral clips to the cymba conchae and surrounding NADA points per the device positioning guide. Confirm secure clip attachment.",
+            "Start device at lowest intensity. Ask patient: 'Can you feel a tingling?' Increase gradually until patient confirms perceptible sensation. Stop increasing if patient reports discomfort.",
+            "Run session for 30–45 minutes. Patient rests or relaxes. Check in every 10 minutes for comfort and skin tolerance.",
+            "If patient reports pain, dizziness, palpitations, or shows signs of distress — stop device immediately and call clinician."
+          ]
+        },
+        {
+          "section_id": "TSOP-OW-03",
+          "title": "Post-Session Documentation",
+          "content": [
+            "Post-session COWS (clinician completes within 30 minutes post-session).",
+            "Post-session craving VAS (patient self-report).",
+            "Inspect ear skin for redness, irritation, or any adverse changes.",
+            "Document: session number, pre/post COWS, pre/post craving VAS, intensity used, any adverse events, patient tolerance.",
+            "Confirm next session timing with clinical team based on COWS score trajectory."
+          ]
+        }
+      ]
+    }
+  },
+
+  "monitoring_rules": {
+    "assessment_schedule": [
+      {
+        "assessment_id": "ASS-OW-001",
+        "assessment_name": "COWS",
+        "timing": "Before and after every taVNS session during acute withdrawal",
+        "frequency": "Up to 3x/day in acute phase; 1x/day as withdrawal resolves",
+        "administered_by": "Clinician-rated"
+      },
+      {
+        "assessment_id": "ASS-OW-002",
+        "assessment_name": "SOWS",
+        "timing": "Before every taVNS session",
+        "frequency": "Every session",
+        "administered_by": "Patient self-report"
+      },
+      {
+        "assessment_id": "ASS-OW-003",
+        "assessment_name": "Craving VAS",
+        "timing": "Before and after every session",
+        "frequency": "Every session (twice per session)",
+        "administered_by": "Patient self-report"
+      },
+      {
+        "assessment_id": "ASS-PHQ-009",
+        "assessment_name": "PHQ-9",
+        "timing": "Daily during acute withdrawal; item 9 reviewed every session",
+        "frequency": "Daily",
+        "administered_by": "Patient self-report"
+      }
+    ],
+    "response_thresholds": [
+      {
+        "assessment_id": "ASS-OW-001",
+        "assessment_name": "COWS",
+        "lower_is_better": true,
+        "response_threshold": "COWS score reduction of ≥30% from baseline within 24 hours of combined MOUD + taVNS",
+        "remission_threshold": "COWS score <5 (below withdrawal threshold) maintained for 24 hours",
+        "non_response_threshold": "No COWS reduction after 3 consecutive sessions (over 24 hours)",
+        "deterioration_threshold": "COWS score increase of ≥5 points from pre-session baseline (possible relapse or BZD/alcohol withdrawal)"
+      },
+      {
+        "assessment_id": "ASS-OW-003",
+        "assessment_name": "Craving VAS",
+        "lower_is_better": true,
+        "response_threshold": "≥20% reduction in craving VAS from pre-session to post-session",
+        "remission_threshold": "Craving VAS <20 mm sustained",
+        "non_response_threshold": "No within-session craving reduction across 3 consecutive sessions",
+        "deterioration_threshold": "Craving VAS consistently above 80 mm despite treatment"
+      }
+    ],
+    "adverse_event_triggers": [
+      {
+        "event_type": "Seizure during or after session",
+        "severity": "Serious",
+        "action": "Stop device. Emergency response. Rule out BZD or alcohol withdrawal as cause — this is a medical emergency. Call emergency services if seizure is prolonged. Medical director notification.",
+        "suspend_treatment": true
+      },
+      {
+        "event_type": "Significant bradycardia (HR <50 bpm) during auricular stimulation",
+        "severity": "Serious",
+        "action": "Stop device. Monitor vitals. Clinician review immediately. ECG. Do not restart without cardiac clearance.",
+        "suspend_treatment": true
+      },
+      {
+        "event_type": "Acute suicidal ideation with plan or intent",
+        "severity": "Serious",
+        "action": "Suspend taVNS. Psychiatric emergency assessment. One-to-one observation. Do not leave patient alone.",
+        "suspend_treatment": true
+      },
+      {
+        "event_type": "Suspected BZD or alcohol withdrawal (new tremor, agitation, confusion, diaphoresis not explained by opioid withdrawal)",
+        "severity": "Serious",
+        "action": "Suspend taVNS. Emergency medical assessment for BZD/alcohol withdrawal. Immediate pharmacological management (benzodiazepine taper initiated by medical team).",
+        "suspend_treatment": true
+      },
+      {
+        "event_type": "Ear skin irritation or infection at electrode site",
+        "severity": "Mild",
+        "action": "Suspend auricular taVNS at affected sites. Assess skin condition. Dermatology review if signs of infection. Resume only when skin resolves.",
+        "suspend_treatment": false
+      },
+      {
+        "event_type": "Opioid relapse confirmed during treatment course",
+        "severity": "Moderate",
+        "action": "Clinical review (non-emergency). Risk of fatal overdose from reduced tolerance — ensure naloxone available and patient is counselled. Do not suspend taVNS — relapse does not preclude continued withdrawal management and MOUD initiation.",
+        "suspend_treatment": false
+      }
+    ],
+    "escalation_rules": [
+      {
+        "trigger": "COWS not decreasing after 3 consecutive sessions in 24 hours",
+        "action": "Urgent medical review. Assess MOUD medication dosing adequacy. Consider additional symptom management medications. Rule out concurrent withdrawal syndrome.",
+        "urgency": "Urgent"
+      },
+      {
+        "trigger": "PHQ-9 item 9 positive (any suicidal ideation)",
+        "action": "Immediate psychiatric safety assessment. Remove means if possible. Emergency psychiatric referral if active plan or intent.",
+        "urgency": "Emergency"
+      },
+      {
+        "trigger": "Signs of BZD or alcohol withdrawal (tremor, agitation, confusion, hallucination)",
+        "action": "Emergency medical review. BZD/alcohol withdrawal is potentially fatal. Benzodiazepine pharmacological management must be initiated immediately by medical team.",
+        "urgency": "Emergency"
+      },
+      {
+        "trigger": "Patient declines MOUD while accepting taVNS",
+        "action": "Document patient choice. Re-offer MOUD at every session. Ensure naloxone is provided regardless. Clinical team to explore barriers to MOUD acceptance. taVNS may continue as harm reduction measure while MOUD barriers are addressed.",
+        "urgency": "Routine"
+      }
+    ],
+    "adherence_rules": {
+      "minimum_session_adherence_pct": 60,
+      "consecutive_missed_sessions_flag": 3,
+      "action_on_low_adherence": "Contact patient or care team within 24 hours during acute withdrawal phase. Identify barriers. In inpatient/residential settings, sessions can be brought to patient bedside. In ambulatory settings, assess if COWS score is sufficient to justify continued sessions."
+    }
+  },
+
+  "report_templates": [
+    {
+      "id": "RPT-OW-INTAKE-01",
+      "name": "Opioid Withdrawal Intake Summary",
+      "report_type": "intake-summary",
+      "audience": "Clinician",
+      "frequency": "Once — at intake",
+      "sections": [
+        {
+          "section_id": "S1",
+          "title": "Opioid Use History and Withdrawal Status",
+          "auto_populate_from": ["opioid_type", "last_use_date", "cows_baseline", "sows_baseline", "withdrawal_severity_grade"],
+          "clinician_narrative_prompt": "Summarise opioid use history, type of opioid, estimated withdrawal timeline, and baseline COWS/SOWS severity.",
+          "required": true
+        },
+        {
+          "section_id": "S2",
+          "title": "MOUD Plan and Safety Screening",
+          "auto_populate_from": ["moud_plan", "moud_medication_prescribed", "naloxone_prescribed", "bzd_alcohol_screen_result"],
+          "clinician_narrative_prompt": "Confirm MOUD plan is in place. Document MOUD medication prescribed. Confirm naloxone issued. Document BZD and alcohol co-dependence screen result.",
+          "required": true
+        },
+        {
+          "section_id": "S3",
+          "title": "Safety and Mental Health Baseline",
+          "auto_populate_from": ["phq9_score", "phq9_item9", "pcl5_score", "suicide_risk_assessment"],
+          "clinician_narrative_prompt": "Document PHQ-9 findings and item 9 response. Note PCL-5 score and PTSD indicators. Summarise suicide risk assessment.",
+          "required": true
+        },
+        {
+          "section_id": "S4",
+          "title": "Contraindication Screening",
+          "auto_populate_from": ["tavns_screening_result", "cardiac_screen", "ear_inspection_result"],
+          "clinician_narrative_prompt": "Confirm taVNS safety screening completed. Document any contraindications found. Note ear inspection findings.",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "RPT-OW-PROG-01",
+      "name": "Opioid Withdrawal Progress Report",
+      "report_type": "progress-report",
+      "audience": "Clinician",
+      "frequency": "Every 24 hours during acute withdrawal",
+      "sections": [
+        {
+          "section_id": "S1",
+          "title": "Withdrawal Severity Trajectory",
+          "auto_populate_from": ["cows_scores_24h", "sows_scores_24h", "cows_trend"],
+          "clinician_narrative_prompt": "Summarise COWS trajectory over past 24 hours. Is withdrawal severity improving, stable, or worsening? Comment on MOUD medication effect.",
+          "required": true
+        },
+        {
+          "section_id": "S2",
+          "title": "taVNS Sessions and Response",
+          "auto_populate_from": ["sessions_today", "pre_session_cows", "post_session_cows", "craving_vas_pre", "craving_vas_post"],
+          "clinician_narrative_prompt": "Document taVNS sessions delivered. Comment on within-session COWS and craving VAS changes.",
+          "required": true
+        },
+        {
+          "section_id": "S3",
+          "title": "Safety Status",
+          "auto_populate_from": ["phq9_item9_today", "adverse_events_today"],
+          "clinician_narrative_prompt": "Document daily PHQ-9 item 9 response. List any adverse events. Confirm MOUD adherence.",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "RPT-OW-EOC-01",
+      "name": "Opioid Withdrawal End-of-Acute-Phase Report",
+      "report_type": "end-of-course-report",
+      "audience": "Referring Physician",
+      "frequency": "Once — when COWS <5 is sustained for 24 hours (acute withdrawal resolved)",
+      "sections": [
+        {
+          "section_id": "S1",
+          "title": "Treatment Summary",
+          "auto_populate_from": ["protocol_id", "sessions_total", "treatment_dates", "moud_initiated"],
+          "clinician_narrative_prompt": "Summarise taVNS treatment course, sessions delivered, and MOUD medications initiated.",
+          "required": true
+        },
+        {
+          "section_id": "S2",
+          "title": "Withdrawal Resolution Outcome",
+          "auto_populate_from": ["cows_baseline", "cows_endpoint", "sows_endpoint", "days_to_cows_below5"],
+          "clinician_narrative_prompt": "State time to COWS <5. Comment on symptom resolution trajectory and MOUD contribution.",
+          "required": true
+        },
+        {
+          "section_id": "S3",
+          "title": "Ongoing Recovery Plan",
+          "auto_populate_from": ["moud_ongoing", "followup_appointment", "naloxone_status"],
+          "clinician_narrative_prompt": "State ongoing MOUD plan, follow-up appointment, naloxone prescription status, and any ongoing concerns.",
+          "required": true
+        },
+        {
+          "section_id": "S4",
+          "title": "Adverse Events",
+          "auto_populate_from": ["adverse_events_list"],
+          "clinician_narrative_prompt": "Document all adverse events and their resolution.",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "RPT-OW-AE-01",
+      "name": "Opioid Withdrawal Adverse Event Report",
+      "report_type": "adverse-event-report",
+      "audience": "Internal",
+      "frequency": "As needed — per adverse event",
+      "sections": [
+        {
+          "section_id": "S1",
+          "title": "Event Description",
+          "auto_populate_from": ["event_type", "event_date", "event_severity", "session_number"],
+          "clinician_narrative_prompt": "Describe the adverse event, context, and relationship to taVNS.",
+          "required": true
+        },
+        {
+          "section_id": "S2",
+          "title": "Management and Resolution",
+          "auto_populate_from": ["treatment_suspended", "action_taken", "current_status"],
+          "clinician_narrative_prompt": "Document management steps taken and current patient status.",
+          "required": true
+        }
+      ]
+    }
+  ],
+
+  "home_program_templates": [
+    {
+      "id": "HOME-TAVNS-OW-01",
+      "name": "Sparrow Ascent Limited Home Program — Post-Acute Withdrawal Support",
+      "modality_slug": "tavns",
+      "device_required": "Sparrow Ascent (NS-2)",
+      "prerequisite_clinic_sessions": 5,
+      "sessions_per_week": 7,
+      "session_duration_minutes": 40,
+      "total_weeks": 4,
+      "patient_instructions": [
+        "This device is for use ONLY after you have completed your clinic-based withdrawal management and your clinician has cleared you for home use. Do not use it without this clearance.",
+        "Before every home session, inspect both ears for any redness, soreness, or signs of infection. If present, do not use the device — call your clinic.",
+        "Clip the device to both ears as you were trained. Start at the lowest setting and increase gradually until you feel a gentle tingling.",
+        "Relax for 30–45 minutes during the session. You can lie down, listen to relaxing audio, or practise breathing exercises.",
+        "After the session, remove the device and inspect your ears again.",
+        "Always take your MOUD medications (buprenorphine, methadone) as prescribed — the ear device is an add-on, not a replacement.",
+        "Keep your naloxone (Narcan) nearby at all times."
+      ],
+      "safety_checklist": [
+        "I have taken my MOUD medications today as prescribed",
+        "I have inspected both ears and there is no redness, infection, or soreness",
+        "I do not have any chest pain or palpitations today",
+        "I have not used any opioids or other substances today",
+        "I have my naloxone (Narcan) available",
+        "A support person knows I am doing a session (recommended)"
+      ],
+      "reporting_requirements": [
+        "Record each session: date, time, duration, how you felt before and after",
+        "Record your craving level before and after each session (0–10 scale)",
+        "Record any side effects: ear discomfort, redness, dizziness",
+        "Contact clinic if: craving level consistently above 8/10, any ear skin reaction, any palpitations or dizziness",
+        "Report all opioid use honestly — relapse does not mean you stop treatment"
+      ],
+      "contraindications_for_home": [
+        "Any ear pain, redness, swelling, or discharge — call clinic before using",
+        "Palpitations or irregular heartbeat — stop and call clinic or emergency services",
+        "Feeling very unwell or developing fever — call clinic (may indicate infection)",
+        "Recent opioid use — contact clinic about resuming MOUD, then device use can continue",
+        "Not having taken MOUD medications today — take your medications first"
+      ],
+      "evidence_note": "Home use of Sparrow Ascent for post-acute withdrawal symptom management is off-label extension of the FDA-cleared acute withdrawal indication. Must be preceded by minimum 5 supervised clinic sessions. Patient must be established on MOUD and demonstrate safe device technique before home use is approved."
+    }
+  ],
+
+  "consent_documents": [
+    {
+      "id": "CON-OW-IC-01",
+      "name": "Informed Consent — Sparrow Ascent taVNS for Opioid Withdrawal",
+      "document_type": "informed-consent",
+      "when_required": "Before first taVNS session (as early in treatment engagement as possible)",
+      "key_disclosures": [
+        "The Sparrow Ascent is FDA-cleared for opioid withdrawal symptom relief — it is approved specifically to help with withdrawal symptoms, not as a treatment for opioid use disorder itself.",
+        "This device is used ALONGSIDE medication for opioid use disorder (buprenorphine, methadone) — it does not replace these medications.",
+        "Common side effects include mild ear tingling, skin redness at electrode sites, and brief dizziness — these are generally mild.",
+        "Rare but possible risks include bradycardia (slowing of heart rate) and, very rarely, loss of consciousness. First sessions are supervised to monitor for these.",
+        "You must tell your treatment team about all substances you are currently using, including alcohol and benzodiazepines, as these require separate medical management.",
+        "Opioid tolerance decreases very rapidly after stopping opioids — even after 24 hours. If you use opioids after starting withdrawal, your risk of fatal overdose is very high. Naloxone has been prescribed for you for this reason.",
+        "All sessions will be documented and COWS scores recorded to track your progress.",
+        "You are encouraged to engage in all components of your MOUD program including counselling and peer support alongside this treatment."
+      ],
+      "signature_required": true,
+      "witness_required": false,
+      "clinician_co_sign_required": true,
+      "review_frequency": "Once — at initiation of withdrawal management"
+    },
+    {
+      "id": "CON-OW-SCREEN-01",
+      "name": "Contraindication Screening — taVNS for Opioid Withdrawal",
+      "document_type": "contraindication-screening",
+      "when_required": "Before first taVNS session",
+      "key_disclosures": [
+        "Patient confirms no implanted vagus nerve stimulator.",
+        "Patient confirms no implanted cardiac pacemaker or defibrillator.",
+        "Patient confirms no known cardiac arrhythmia (atrial fibrillation, bradycardia, heart block).",
+        "Patient confirms no active ear infection or open wound at auricular application sites.",
+        "Patient confirms current alcohol and benzodiazepine use history has been disclosed to the clinical team.",
+        "Patient confirms they are engaged in or being referred to a MOUD program.",
+        "Patient has been provided with naloxone prescription."
+      ],
+      "signature_required": true,
+      "clinician_co_sign_required": true,
+      "review_frequency": "Before each new withdrawal episode; update if new medical history"
+    },
+    {
+      "id": "CON-OW-HOME-01",
+      "name": "Home Device Agreement — Sparrow Ascent Post-Acute Use",
+      "document_type": "home-device-agreement",
+      "when_required": "Before device is cleared for home use (after minimum 5 supervised clinic sessions)",
+      "key_disclosures": [
+        "I have been trained on correct device placement and operation and have demonstrated competence.",
+        "I understand this device helps with residual withdrawal symptoms and is NOT a treatment for opioid use disorder on its own.",
+        "I will continue my MOUD medications (buprenorphine/methadone) as prescribed and will not stop them without medical advice.",
+        "I will inspect my ears before every home session and will not use the device if I have ear pain, redness, or swelling.",
+        "I will stop the device and call the clinic if I experience palpitations, chest pain, or loss of consciousness.",
+        "I will keep my naloxone (Narcan) nearby and will ensure a support person knows how to use it.",
+        "I will report any opioid use to my treatment team — this does not disqualify me from continued care.",
+        "I will not share this device with any other person."
+      ],
+      "signature_required": true,
+      "clinician_co_sign_required": true,
+      "review_frequency": "Once — before home use clearance"
+    }
+  ]
+}

@@ -1,0 +1,1327 @@
+{
+  "$schema": "../schemas/condition-package.schema.json",
+  "schema_version": "1.0.0",
+  "id": "CON-016",
+  "slug": "tinnitus",
+  "name": "Tinnitus",
+  "category": "Sensory",
+  "icd_10": ["H93.11", "H93.12", "H93.13", "H93.19"],
+  "created_at": "2026-04-12",
+  "updated_at": "2026-04-12",
+  "review_status": "reviewed",
+  "reviewed_by": "DeepSynaps Clinical Team",
+
+  "condition_overview": {
+    "summary": "Tinnitus is the perception of sound (ringing, buzzing, hissing, clicking) in the absence of a corresponding external auditory stimulus. It affects approximately 10–15% of the adult population, with 1–2% experiencing severe tinnitus causing significant distress and functional impairment. Tinnitus is a symptom — treatable causes (cerumen impaction, acoustic neuroma, vascular malformation) must be excluded before management begins. For chronic subjective tinnitus, rTMS targeting the hyperactive auditory cortex has the most studied neuromodulation evidence base, though effect durability beyond 6 months is limited. Overall evidence is modest (EV-C).",
+    "prevalence": "Tinnitus is reported by approximately 10–15% of the adult population; 1–3% describe it as severely affecting quality of life. Prevalence increases with age and noise exposure. Spontaneous tinnitus is most common; pulsatile tinnitus has vascular aetiology in >50% of cases.",
+    "phenotype_clusters": [
+      {
+        "id": "PHE-TIN-01",
+        "name": "Unilateral Tinnitus",
+        "description": "Tinnitus perceived in one ear only. Asymmetric tinnitus must trigger urgent exclusion of retrocochlear pathology (acoustic neuroma, vestibular schwannoma). Laterality matters for protocol selection — rTMS target is contralateral to the perceived tinnitus side (left temporal cortex for right-ear tinnitus and vice versa).",
+        "primary_modality": "tms",
+        "qeeg_signature": "Contralateral temporal cortex hyperactivity; abnormal auditory-evoked potentials; alpha power reduction in contralateral auditory cortex"
+      },
+      {
+        "id": "PHE-TIN-02",
+        "name": "Bilateral Tinnitus",
+        "description": "Tinnitus perceived in both ears or centrally ('in the head'). More common than unilateral. Central bilateral tinnitus has poorer prognosis for neuromodulation response. Protocol targets left temporal cortex as primary site given hemispheric dominance for auditory processing.",
+        "primary_modality": "tms",
+        "qeeg_signature": "Bilateral temporal cortex hyperactivity; reduced alpha in bilateral auditory cortex; increased gamma in temporal regions"
+      },
+      {
+        "id": "PHE-TIN-03",
+        "name": "Pulsatile Tinnitus",
+        "description": "Rhythmic tinnitus synchronised with the heartbeat. In >50% of cases has a treatable vascular cause (AVM, glomus tumour, high jugular bulb, atherosclerotic stenosis). Must be fully investigated with imaging (MRI/MRA/CTA) before any neuromodulation is considered. Neuromodulation is generally not appropriate for pulsatile tinnitus without confirmed vascular exclusion.",
+        "primary_modality": "tms",
+        "qeeg_signature": "Variable; may show cardiovascular-synchronous artefacts in EEG"
+      },
+      {
+        "id": "PHE-TIN-04",
+        "name": "Tonal Tinnitus",
+        "description": "Tinnitus perceived as a pure or near-pure tone of identifiable frequency. Frequency matching is possible (audiological assessment). Associated with specific frequency hearing loss at the tinnitus pitch. May respond to frequency-specific rTMS protocols.",
+        "primary_modality": "tms",
+        "qeeg_signature": "Frequency-specific alpha reduction in tonotopic cortical region corresponding to tinnitus pitch"
+      },
+      {
+        "id": "PHE-TIN-05",
+        "name": "Hyperacusis-Comorbid Tinnitus",
+        "description": "Tinnitus co-occurring with hyperacusis (reduced sound tolerance / loudness discomfort threshold). Common phenotype requiring additional attention to stimulus sensitivity during assessment and treatment. Standard audiological stimulation during rTMS sessions may be uncomfortable and requires adaptation.",
+        "primary_modality": "tms",
+        "qeeg_signature": "Elevated auditory cortex responsivity; increased N1 amplitude on auditory-evoked potentials; reduced habituation"
+      },
+      {
+        "id": "PHE-TIN-06",
+        "name": "Noise-Like (Non-Tonal) Tinnitus",
+        "description": "Tinnitus perceived as broadband noise, rushing, or static rather than a discrete tone. Frequency matching is difficult. Associated with broad-spectrum hearing loss. Prognosis for neuromodulation may be less predictable than tonal phenotype.",
+        "primary_modality": "tms",
+        "qeeg_signature": "Diffuse temporal alpha reduction; broader-spectrum auditory cortex abnormalities"
+      }
+    ],
+    "severity_levels": ["Mild", "Moderate", "Severe"],
+    "population": ["Adult (18+)"],
+    "symptom_clusters": [
+      "Phantom sound perception (ringing, buzzing, hissing, clicking, roaring)",
+      "Tinnitus-related distress and emotional impact (anxiety, frustration, despair)",
+      "Sleep disruption (difficulty falling or staying asleep due to tinnitus)",
+      "Concentration and attention difficulty (tinnitus as competing attention demand)",
+      "Emotional impact (depression, anxiety, reduced quality of life)",
+      "Social withdrawal (avoidance of noisy environments, social disengagement)",
+      "Somatic interactions (temporomandibular disorder, cervical spine — somatosensory tinnitus)"
+    ],
+    "highest_evidence_level": "EV-C",
+    "relevant_modalities": [
+      "tms",
+      "neurofeedback"
+    ],
+    "neurobiology": "Tinnitus arises from maladaptive neural plasticity following peripheral auditory deafferentation (typically from cochlear hair cell damage due to noise, age, or ototoxins). Following cochlear deafferentation, the corresponding tonotopic representation in the primary auditory cortex (STG/BA41/42) becomes hyperactive due to loss of afferent input — analogous to phantom pain in a deafferented limb. This hyperactivity is measurable as reduced alpha power and elevated gamma/beta in temporal EEG. Low-frequency (1 Hz) inhibitory rTMS to the left temporal cortex aims to suppress this pathological hyperactivity. The temporoparietal junction (TPJ) is also implicated in tinnitus attention and distress and is targeted in combined protocols.",
+    "comorbidities": [
+      "Sensorineural hearing loss (very high comorbidity — audiological assessment mandatory)",
+      "Depression (40–50% in tinnitus seeking treatment)",
+      "Anxiety disorders (40–50% in chronic tinnitus)",
+      "Insomnia (40–60% of chronic tinnitus patients)",
+      "Hyperacusis (reduced sound tolerance — significant functional overlap)",
+      "Temporomandibular disorder (somatosensory tinnitus component)",
+      "Cervical spine disorders (somatosensory modulation of tinnitus)",
+      "Meniere's disease (tinnitus, vertigo, fluctuating hearing loss)"
+    ],
+    "differential_diagnoses": [
+      "Acoustic neuroma / vestibular schwannoma (asymmetric tinnitus — MRI with gadolinium mandatory)",
+      "Glomus jugulare or glomus tympanicum tumour (pulsatile tinnitus — CT/MRI/MRA required)",
+      "Meniere's disease (episodic vertigo, fluctuating unilateral hearing loss, aural fullness, tinnitus)",
+      "Vascular causes of pulsatile tinnitus (arteriovenous malformation, atherosclerotic stenosis, high jugular bulb)",
+      "Otosclerosis (conductive hearing loss, stapedial reflex abnormality, CT temporal bones)",
+      "Intracranial hypertension / idiopathic intracranial hypertension (pulsatile tinnitus, papilloedema, headache)",
+      "Temporomandibular disorder (jaw pain, clicking, tinnitus modulated by jaw movement)",
+      "Cerumen impaction (conductive hearing loss, tinnitus — simple examination and treatment)",
+      "Medication-induced tinnitus (aspirin, NSAIDs, aminoglycosides, quinine, loop diuretics, cisplatin)"
+    ]
+  },
+
+  "patient_friendly_explanation": {
+    "what_is_it": "Tinnitus is the experience of hearing a sound — like ringing, buzzing, or hissing — that is not coming from outside your body. It is caused by changes in how your brain processes sound after the hearing system has been affected. It is very common and very real, even though others cannot hear what you hear.",
+    "how_it_affects_you": "Tinnitus can be mildly annoying or can seriously affect your quality of life. It can make it hard to sleep, concentrate, or enjoy quiet activities. Many people feel frustrated, anxious, or low in mood because of tinnitus. For some people, the reaction to tinnitus causes more distress than the sound itself.",
+    "treatment_options_overview": "The most effective treatments for tinnitus focus on reducing your reaction to it — sound therapy, hearing aids (if you have hearing loss), cognitive behavioural therapy for tinnitus (CBT-T), and tinnitus retraining therapy (TRT). Brain stimulation using rTMS (repetitive transcranial magnetic stimulation) is a research-supported option that aims to calm the overactive brain area responsible for tinnitus. It is important that you understand that the evidence for rTMS in tinnitus shows benefit mainly in the short term — most studies show that improvement tends to fade after about 6 months without maintenance treatment.",
+    "what_to_expect": "rTMS for tinnitus involves attending clinic sessions for about 30 minutes per session, over a course of 10 sessions. A magnetic coil is held near the left side of your head. You will hear a clicking sound and may feel a gentle tapping on your scalp. Sessions are not painful. Your clinician will measure your tinnitus severity with questionnaires before and after treatment. The goal is to reduce how loud or distressing the tinnitus seems to you.",
+    "faq": [
+      {
+        "question": "Will rTMS cure my tinnitus?",
+        "answer": "rTMS is not a cure for tinnitus. The research shows it can reduce tinnitus loudness or distress in the short term for some people, but for most people the effect fades after a few months. It works best as part of a broader tinnitus management programme that includes sound therapy and psychological support."
+      },
+      {
+        "question": "How will I know if it is working?",
+        "answer": "You will complete tinnitus questionnaires (THI and TFI) before and after treatment. We will also ask you to rate the loudness and distress of your tinnitus on a simple 0–10 scale. Your clinician will review these scores throughout the course."
+      },
+      {
+        "question": "Is there a risk that rTMS will make my tinnitus worse?",
+        "answer": "There is a small possibility that tinnitus loudness may temporarily increase after a session in some people. This has been reported in a small number of cases and is usually transient. Your clinician will monitor this closely and stop treatment if it worsens."
+      },
+      {
+        "question": "Should I also use a hearing aid?",
+        "answer": "If you have hearing loss alongside tinnitus — which is very common — a hearing aid can significantly help both your hearing and your tinnitus by providing sound enrichment. Your clinician or audiologist will advise you on this."
+      },
+      {
+        "question": "Are there alternatives to brain stimulation?",
+        "answer": "Yes. Sound therapy, tinnitus retraining therapy (TRT), and cognitive behavioural therapy for tinnitus (CBT-T) all have good evidence for reducing tinnitus distress. These should be offered and discussed before and alongside any brain stimulation treatment."
+      }
+    ]
+  },
+
+  "medical_history_requirements": {
+    "required_fields": [
+      {
+        "field": "Confirmed audiological assessment (audiogram within 12 months)",
+        "reason": "Audiogram is mandatory before any tinnitus neuromodulation. Hearing loss pattern, degree, and tinnitus frequency matching inform protocol selection. Conductive hearing loss may indicate treatable cause.",
+        "blocks_protocol": true
+      },
+      {
+        "field": "Exclusion of retrocochlear pathology (acoustic neuroma exclusion for unilateral tinnitus)",
+        "reason": "Unilateral or asymmetric tinnitus requires MRI with gadolinium (or audiological ABR) to exclude acoustic neuroma before neuromodulation. Missed acoustic neuroma is a serious patient safety issue.",
+        "blocks_protocol": true
+      },
+      {
+        "field": "Pulsatile tinnitus investigation completed (if applicable)",
+        "reason": "Pulsatile tinnitus has a vascular cause in >50% of cases and requires imaging (MRI/MRA/CTA) before any neuromodulation. Vascular pathology must be excluded.",
+        "blocks_protocol": true
+      },
+      {
+        "field": "Tinnitus duration (months/years)",
+        "reason": "Acute tinnitus (<3 months) may resolve spontaneously. Neuromodulation is considered only for chronic tinnitus (>6 months). Duration affects prognosis.",
+        "blocks_protocol": false
+      },
+      {
+        "field": "Tinnitus laterality (unilateral, bilateral, central)",
+        "reason": "Laterality determines rTMS target hemisphere. Unilateral tinnitus — target contralateral temporal cortex. Bilateral — target left temporal cortex (dominant hemisphere).",
+        "blocks_protocol": true
+      },
+      {
+        "field": "Medication review — ototoxic and tinnitus-inducing medications",
+        "reason": "Aspirin, NSAIDs, aminoglycosides, quinine, loop diuretics, and platinum-based chemotherapy can cause or worsen tinnitus. Medication-induced tinnitus may resolve on cessation.",
+        "blocks_protocol": false
+      },
+      {
+        "field": "Psychiatric comorbidity screen (depression, anxiety)",
+        "reason": "Depression and anxiety are highly comorbid with tinnitus distress. Psychiatric comorbidities affect patient selection and require concurrent treatment.",
+        "blocks_protocol": false
+      },
+      {
+        "field": "Seizure history",
+        "reason": "Seizure history is an absolute contraindication for rTMS.",
+        "blocks_protocol": true
+      },
+      {
+        "field": "Metal implants in head/neck/upper body",
+        "reason": "Metallic implants are an absolute contraindication for rTMS.",
+        "blocks_protocol": true
+      },
+      {
+        "field": "Cardiac pacemaker or implanted electronic device",
+        "reason": "Absolute contraindication for rTMS.",
+        "blocks_protocol": true
+      }
+    ],
+    "clinical_interview_checklist": [
+      "Tinnitus onset and duration (acute <3 months vs chronic >6 months)",
+      "Tinnitus character: tonal (ringing, pure tone), noise-like (hissing, rushing, static), pulsatile (rhythmic with heartbeat)",
+      "Tinnitus laterality: left ear, right ear, bilateral, or central/inside the head",
+      "Tinnitus loudness (VAS 0–100) and distress (VAS 0–100)",
+      "Impact on sleep: difficulty falling asleep, awakenings, sleep quality",
+      "Impact on concentration and daily activities",
+      "Noise exposure history (occupational, recreational — concerts, shooting, military)",
+      "History of head trauma or ear infections",
+      "Prior tinnitus treatments: sound therapy, TRT, CBT-T, hearing aids, medications, neuromodulation",
+      "Prior ear surgery or cochlear implant",
+      "Temporomandibular joint symptoms (jaw clicking, pain, tinnitus modulated by jaw movement)",
+      "Cervical spine symptoms (neck pain, tinnitus modulated by neck position or pressure)",
+      "Family history of tinnitus or hearing loss",
+      "Medications: aspirin/NSAIDs (regular use), antibiotics, chemotherapy history",
+      "Patient's primary goal: tinnitus loudness reduction, distress reduction, or both"
+    ],
+    "rule_out_differentials": [
+      "Acoustic neuroma (unilateral tinnitus, asymmetric sensorineural hearing loss, unilateral reduced speech discrimination — MRI with gadolinium mandatory)",
+      "Vascular tinnitus (pulsatile quality synchronous with heartbeat — CT angiogram, MRI/MRA)",
+      "Glomus tumour (pulsatile tinnitus, often with conductive hearing loss — CT temporal bones)",
+      "Meniere's disease (episodic vertigo + fluctuating hearing loss + aural fullness — vestibular assessment)",
+      "Intracranial hypertension (pulsatile tinnitus + headache + papilloedema — ophthalmological and neurological review)",
+      "Otosclerosis (conductive hearing loss, stapedial reflex absent — CT temporal bones, stapedectomy candidate)",
+      "Cerumen impaction (visible on otoscopy — simple treatment)",
+      "Medication-induced tinnitus (ototoxic medication history — medication review and cessation trial)"
+    ],
+    "comorbidity_screen": [
+      "Depression (PHQ-9 — elevated in tinnitus patients; treat concurrently)",
+      "Anxiety (GAD-7 — tinnitus-related anxiety drives distress and hypervigilance to sound)",
+      "Insomnia (ISI — sleep disruption is near-universal in moderate-severe tinnitus; address concurrently)",
+      "Hyperacusis (loudness discomfort level assessment — adapt rTMS if hyperacusis present)",
+      "Temporomandibular disorder (clinical TMD screen — somatosensory tinnitus component)"
+    ],
+    "prior_treatment_required": [
+      "Sound therapy or sound enrichment programme",
+      "Hearing aid fitting if hearing loss present (audiologist referral if not yet completed)",
+      "Tinnitus retraining therapy (TRT) or tinnitus-specific CBT (CBT-T) — should be offered before or alongside neuromodulation",
+      "Counselling and tinnitus education (acceptance-based approach)",
+      "Exclusion and treatment of any reversible cause"
+    ],
+    "special_population_flags": [
+      {
+        "population": "Patients with significant hearing loss (>40 dB HL)",
+        "additional_requirements": [
+          "Hearing aid fitting before or concurrent with neuromodulation",
+          "Audiologist involvement in treatment planning",
+          "Consider adjusted coil positioning for optimal auditory cortex targeting in cases of cortical reorganisation"
+        ]
+      },
+      {
+        "population": "Patients with hyperacusis comorbidity",
+        "additional_requirements": [
+          "Assess loudness discomfort levels before rTMS — coil click sound may provoke discomfort",
+          "Use ear protection during rTMS session adapted to hyperacusis (custom ear protection or modified coil distance)",
+          "Reduce rTMS intensity to 100% rMT or lower if hyperacusis prevents tolerating standard protocols"
+        ]
+      }
+    ]
+  },
+
+  "contraindications": {
+    "absolute": [
+      {
+        "condition": "Active epilepsy or uncontrolled seizure disorder",
+        "rationale": "rTMS significantly increases seizure risk. No rTMS protocol may proceed. All electrical neuromodulation contraindicated until seizure disorder is controlled."
+      },
+      {
+        "condition": "Metallic implant in the head, neck, or upper chest",
+        "rationale": "TMS electromagnetic field can heat or displace metallic implants. Absolute contraindication for all TMS protocols."
+      },
+      {
+        "condition": "Implanted cardiac pacemaker or defibrillator",
+        "rationale": "Electromagnetic fields from TMS may interfere with device function. Absolute contraindication for all TMS protocols."
+      },
+      {
+        "condition": "Confirmed or suspected treatable cause of tinnitus not yet investigated or treated",
+        "rationale": "Acoustic neuroma, vascular malformation, glomus tumour, or cerumen impaction must be investigated and managed before neuromodulation. Treating the symptom without addressing the cause delays necessary care."
+      },
+      {
+        "condition": "Cochlear implant (ipsilateral to intended TMS target)",
+        "rationale": "TMS electromagnetic field may interfere with or damage cochlear implant electronics. Absolute contraindication for TMS on the implant side."
+      },
+      {
+        "condition": "Pulsatile tinnitus without completed vascular imaging",
+        "rationale": "Pulsatile tinnitus has a vascular cause in >50% of cases. Neuromodulation before vascular exclusion delays diagnosis and may mask a dangerous pathology."
+      }
+    ],
+    "relative": [
+      {
+        "condition": "Severe hyperacusis with loudness discomfort levels <75 dB HL",
+        "rationale": "The rTMS coil produces a loud clicking sound during stimulation that may exacerbate hyperacusis and cause significant distress.",
+        "mitigation": "Provide customised ear protection during sessions. Increase distance between coil and scalp slightly. Start at lower intensity (100% rMT). Consider whether rTMS is appropriate or whether neurofeedback is preferable."
+      },
+      {
+        "condition": "Recent onset tinnitus (<6 months)",
+        "rationale": "Acute tinnitus may resolve spontaneously within 3–6 months. Neuromodulation before this period has elapsed may be premature.",
+        "mitigation": "Consider watchful waiting and conservative management (sound therapy, counselling) for 6 months before commencing neuromodulation. Document duration and rationale for early intervention if exceptional circumstances apply."
+      },
+      {
+        "condition": "Severe depression (PHQ-9 ≥15) without active treatment",
+        "rationale": "Severe untreated depression may prevent adequate engagement with treatment and confound treatment response assessment.",
+        "mitigation": "Initiate concurrent psychiatric treatment. Tinnitus neuromodulation may continue with close monitoring. Weekly PHQ-9 monitoring."
+      },
+      {
+        "condition": "Active suicidal ideation",
+        "rationale": "Tinnitus is associated with elevated suicide risk in severe cases. Active suicidal ideation requires primary psychiatric intervention.",
+        "mitigation": "Psychiatric safety assessment and plan before commencing neuromodulation. Weekly suicide risk screening throughout course."
+      },
+      {
+        "condition": "Pregnancy",
+        "rationale": "rTMS has insufficient safety data in pregnancy. Insufficient evidence for foetal safety.",
+        "mitigation": "Defer rTMS until post-partum. Neurofeedback is preferred with no known foetal risk. Obtain obstetric clearance."
+      }
+    ],
+    "special_populations": [
+      {
+        "population": "Patients with cochlear implant (contralateral side to TMS)",
+        "flag": "TMS may be delivered to the contralateral side with careful evaluation. Consult implant manufacturer. Document risk-benefit assessment."
+      },
+      {
+        "population": "Adults over 65",
+        "flag": "Cortical thinning may alter rTMS effects. Start at minimum effective intensity (100% rMT). Monitor closely for headache and fatigue."
+      }
+    ],
+    "modality_specific": {
+      "tms": [
+        "No metal in skull (surgical pins, plates, clips)",
+        "No cochlear implants on the stimulation side",
+        "No deep brain stimulator",
+        "No history of TMS-induced seizure",
+        "Completed TMS Safety Screening Questionnaire before first session",
+        "Emergency seizure management equipment must be available in clinic",
+        "Patients with hyperacusis: custom ear protection required during session"
+      ],
+      "neurofeedback": [
+        "No absolute contraindications to neurofeedback for tinnitus",
+        "Active psychosis is a relative contraindication",
+        "Hyperacusis: adapt feedback modality — avoid auditory feedback if sound-sensitive; use visual-only feedback"
+      ]
+    }
+  },
+
+  "assessment_bundle": {
+    "screening": [
+      {
+        "assessment_id": "ASS-THI-001",
+        "name": "THI",
+        "full_name": "Tinnitus Handicap Inventory",
+        "clinician_vs_patient": "Patient self-report",
+        "rationale": "25-item validated tinnitus severity and handicap measure. Total score 0–100. Grades: 0–16 slight; 18–36 mild; 38–56 moderate; 58–76 severe; 78–100 catastrophic. Primary screening and outcome instrument. Most widely used tinnitus severity measure globally.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 10,
+        "access": "Free",
+        "population": "Adult 18+"
+      },
+      {
+        "assessment_id": "ASS-VAS-TIN-001",
+        "name": "VAS Tinnitus",
+        "full_name": "Visual Analogue Scale — Tinnitus Loudness and Distress",
+        "clinician_vs_patient": "Patient self-report",
+        "rationale": "Two separate 0–100 VAS: (1) perceived tinnitus loudness; (2) tinnitus-related distress. Simple, fast screening of subjective tinnitus dimensions at every session. Loudness VAS provides quick monitoring; distress VAS captures psychological impact.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 2,
+        "access": "Free",
+        "population": "Adult 18+"
+      }
+    ],
+    "diagnostic": [
+      {
+        "assessment_id": "ASS-TFI-001",
+        "name": "TFI",
+        "full_name": "Tinnitus Functional Index",
+        "clinician_vs_patient": "Patient self-report",
+        "rationale": "25-item validated tinnitus severity measure specifically designed to be responsive to treatment effects. Recommended by American Academy of Audiology for clinical trials and treatment monitoring. Covers 8 subscales: intrusiveness, sense of control, cognitive, sleep, auditory, relaxation, quality of life, emotional. More sensitive to change than THI.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 10,
+        "access": "Free",
+        "population": "Adult 18+"
+      },
+      {
+        "assessment_id": "ASS-AUDIOGRAM-001",
+        "name": "Audiogram",
+        "full_name": "Pure-Tone Audiogram with Speech Discrimination",
+        "clinician_vs_patient": "Clinician-rated",
+        "rationale": "Mandatory baseline investigation. Documents hearing loss degree and configuration; guides tinnitus frequency matching; determines hearing aid candidacy; identifies conductive vs sensorineural hearing loss. Required before any tinnitus neuromodulation.",
+        "lower_is_better": false,
+        "admin_duration_minutes": 30,
+        "access": "Requires audiologist or trained audiometrist and calibrated audiometer",
+        "population": "Adult 18+ (mandatory)"
+      }
+    ],
+    "baseline": [
+      {
+        "assessment_id": "ASS-THI-001",
+        "name": "THI (Baseline)",
+        "full_name": "Tinnitus Handicap Inventory — Baseline",
+        "clinician_vs_patient": "Patient self-report",
+        "rationale": "Primary outcome baseline. All response thresholds referenced against this score. Grade classification determines treatment urgency and intensity.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 10,
+        "access": "Free",
+        "population": "Adult 18+"
+      },
+      {
+        "assessment_id": "ASS-TFI-001",
+        "name": "TFI (Baseline)",
+        "full_name": "Tinnitus Functional Index — Baseline",
+        "clinician_vs_patient": "Patient self-report",
+        "rationale": "Secondary outcome baseline. TFI is more responsive to treatment change than THI and recommended for clinical trial monitoring.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 10,
+        "access": "Free",
+        "population": "Adult 18+"
+      },
+      {
+        "assessment_id": "ASS-PHQ9-001",
+        "name": "PHQ-9",
+        "full_name": "Patient Health Questionnaire-9",
+        "clinician_vs_patient": "Patient self-report",
+        "rationale": "Comorbid depression screen — mandatory given 40–50% comorbidity in tinnitus seeking treatment. PHQ-9 also informs treatment response monitoring.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 5,
+        "access": "Free",
+        "population": "Adult 18+"
+      },
+      {
+        "assessment_id": "ASS-ISI-001",
+        "name": "ISI",
+        "full_name": "Insomnia Severity Index",
+        "clinician_vs_patient": "Patient self-report",
+        "rationale": "Sleep disruption comorbidity screen — affects 40–60% of patients with moderate-severe tinnitus. Concurrent insomnia management improves tinnitus outcomes.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 5,
+        "access": "Free",
+        "population": "Adult 18+"
+      }
+    ],
+    "monitoring": [
+      {
+        "assessment_id": "ASS-VAS-TIN-001",
+        "name": "VAS Tinnitus (Monitoring)",
+        "full_name": "Visual Analogue Scale — Tinnitus Loudness and Distress — Repeated Monitoring",
+        "clinician_vs_patient": "Patient self-report",
+        "rationale": "Primary session-level monitoring tool — administered before and after every rTMS session. Pre-post session comparison detects immediate response and any acute worsening.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 2,
+        "access": "Free",
+        "population": "Adult 18+"
+      },
+      {
+        "assessment_id": "ASS-THI-001",
+        "name": "THI (Monitoring)",
+        "full_name": "Tinnitus Handicap Inventory — Repeated Measure",
+        "clinician_vs_patient": "Patient self-report",
+        "rationale": "Administered every 5 sessions. Primary handicap/severity tracking measure.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 10,
+        "access": "Free",
+        "population": "Adult 18+"
+      }
+    ],
+    "outcome": [
+      {
+        "assessment_id": "ASS-THI-001",
+        "name": "THI (End of Course)",
+        "full_name": "Tinnitus Handicap Inventory — Endpoint",
+        "clinician_vs_patient": "Patient self-report",
+        "rationale": "Primary outcome. Response defined as ≥7-point THI reduction (MCID). Clinically meaningful change: ≥20-point reduction (one severity grade improvement). Follow-up at 6 months critical given evidence of benefit fade.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 10,
+        "access": "Free",
+        "population": "Adult 18+"
+      },
+      {
+        "assessment_id": "ASS-TFI-001",
+        "name": "TFI (End of Course)",
+        "full_name": "Tinnitus Functional Index — Endpoint",
+        "clinician_vs_patient": "Patient self-report",
+        "rationale": "Secondary outcome. TFI MCID = 13-point reduction. TFI is more sensitive to treatment change than THI and recommended for documenting within-course response.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 10,
+        "access": "Free",
+        "population": "Adult 18+"
+      }
+    ],
+    "neurophysiological": [
+      {
+        "assessment_id": "ASS-QEEG-TIN-001",
+        "name": "qEEG Tinnitus Assessment",
+        "full_name": "Quantitative EEG — Tinnitus Auditory Cortex Alpha Assessment",
+        "clinician_vs_patient": "Clinician-rated",
+        "rationale": "Documents pathological alpha reduction and gamma increase in temporal cortex (T3/T4/TP5/TP6 per 10-20 system). Alpha reduction in auditory cortex confirms neurophysiological tinnitus signature and guides protocol personalisation. Optional but provides mechanistic biomarker for neurofeedback protocol.",
+        "lower_is_better": false,
+        "admin_duration_minutes": 45,
+        "access": "Requires qEEG system and certified interpreter",
+        "population": "Adult 18+ (optional — recommended for neurofeedback protocols)"
+      },
+      {
+        "assessment_id": "ASS-MOTOR-THRESH-001",
+        "name": "Motor Threshold (rMT)",
+        "full_name": "Resting Motor Threshold Determination — TMS",
+        "clinician_vs_patient": "Clinician-rated",
+        "rationale": "Mandatory before all rTMS protocols. rMT determines the individualised intensity for temporal cortex stimulation. For tinnitus, intensity is set at 110% rMT (higher than pain protocols) to achieve inhibitory effect at temporal cortex.",
+        "lower_is_better": false,
+        "admin_duration_minutes": 15,
+        "access": "Requires TMS device and trained clinician",
+        "population": "Adult 18+ (required for all TMS protocols)"
+      }
+    ],
+    "functional": [
+      {
+        "assessment_id": "ASS-GAD7-TIN-001",
+        "name": "GAD-7",
+        "full_name": "Generalised Anxiety Disorder 7-item Scale",
+        "clinician_vs_patient": "Patient self-report",
+        "rationale": "Anxiety is highly comorbid with tinnitus distress. GAD-7 at baseline quantifies anxiety severity and informs whether concurrent anxiety treatment is needed.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 5,
+        "access": "Free",
+        "population": "Adult 18+"
+      }
+    ]
+  },
+
+  "protocol_bundle": [
+    {
+      "protocol_id": "PRO-TMS-TIN-01",
+      "name": "rTMS Low-Frequency Left Temporal Cortex for Tinnitus (Off-label, EV-C)",
+      "modality_slug": "tms",
+      "phenotype_id": "PHE-TIN-02",
+      "on_label_vs_off_label": "Off-label",
+      "evidence_grade": "EV-C",
+      "evidence_summary": "Low-frequency (1 Hz) rTMS to the left auditory cortex / superior temporal gyrus (STG) aims to inhibit pathological hyperactivity causing tinnitus phantom sound perception. Meta-analyses (Meng et al., 2011; Vanneste et al., 2011; Folmer et al., 2015) report short-term benefit with SMD approximately 0.7 (moderate effect) for tinnitus loudness and distress. However, multiple high-quality RCTs and systematic reviews (Hilton et al., 2013 Cochrane; Ylikoski et al., 2017) show that effect durability is limited — benefits frequently diminish by 6 months post-course. Cochrane review conclusion: evidence insufficient to determine reliable clinical benefit. Classified EV-C: short-term benefit demonstrated in controlled studies but durability limited and overall evidence quality modest. No FDA clearance for tinnitus.",
+      "references": [
+        "Meng Z et al. (2011). A meta-analysis of rTMS on tinnitus. Laryngoscope, 121(12), 2699–2707.",
+        "Vanneste S et al. (2011). The neural correlates of tinnitus-related distress. Neuroimage, 55(2), 541–549.",
+        "Hilton MP et al. (2013). Transcranial magnetic stimulation (TMS) for tinnitus. Cochrane Database of Systematic Reviews, Issue 7, CD011020.",
+        "Folmer RL et al. (2015). Repetitive Transcranial Magnetic Stimulation Treatment for Chronic Tinnitus. JAMA Otolaryngol Head Neck Surg, 141(8), 716–722."
+      ],
+      "brain_target": {
+        "region": "Left Auditory Cortex / Superior Temporal Gyrus",
+        "laterality": "Left",
+        "eeg_position": "T3 / TP3 (10-20 system)",
+        "effect_direction": "Inhibitory"
+      },
+      "parameters": {
+        "frequency_hz": "1 Hz (low-frequency, inhibitory)",
+        "intensity": "110% resting motor threshold (rMT) — higher than standard protocols to achieve adequate auditory cortex inhibition",
+        "pulse_count": "1800 pulses per session",
+        "coil_type": "Figure-8 coil (70 mm) or small circular coil for temporal targeting",
+        "electrode_placement": "Left temporal cortex — T3/TP3 position per 10-20 system; neuronavigation strongly recommended for accurate auditory cortex localisation"
+      },
+      "session_structure": {
+        "sessions_per_week": 5,
+        "session_duration_minutes": 35,
+        "total_sessions": 10,
+        "total_weeks": 2,
+        "maintenance_sessions": "Optional monthly maintenance sessions (3–5 sessions) if THI improvement ≥7 points was achieved and subsequent score regression occurs; limited durability evidence",
+        "steps": [
+          { "order": 1, "title": "Safety screening review", "duration_minutes": 5, "detail": "Confirm no new contraindications since last session. Review AE log — specifically any tinnitus loudness increase. Record pre-session VAS loudness and distress. Confirm no new metal implants, medications, or neurological events." },
+          { "order": 2, "title": "Motor threshold determination (session 1 only)", "duration_minutes": 15, "detail": "Determine rMT via single-pulse TMS over left motor cortex hand area. Target ≥5 of 10 pulses producing visible hand twitch. Document rMT — all subsequent sessions use 110% of this value." },
+          { "order": 3, "title": "Coil positioning at left temporal cortex", "duration_minutes": 5, "detail": "Position figure-8 coil at T3/TP3 (left temporal cortex). Use neuronavigation if available to target primary auditory cortex (Heschl's gyrus/STG). Coil oriented to maximise field direction perpendicular to STG. Mark scalp for reproducible placement. Provide ear protection adapted for hyperacusis if present." },
+          { "order": 4, "title": "Active rTMS stimulation", "duration_minutes": 30, "detail": "Deliver 1800 pulses at 1 Hz (30 minutes continuous). 110% rMT. Monitor patient continuously. Ask about tinnitus loudness change and any scalp or ear discomfort every 10 minutes. Note any temporary tinnitus loudness change — this is common and not necessarily adverse." },
+          { "order": 5, "title": "Post-session review", "duration_minutes": 5, "detail": "Record post-session VAS loudness and distress. Ask about headache, scalp discomfort, mood, or any tinnitus change. Log all AEs. Remind patient that tinnitus may briefly fluctuate after sessions — document and monitor." }
+        ]
+      },
+      "monitoring_required": [
+        "VAS tinnitus loudness and distress before and after every session",
+        "THI every 5 sessions",
+        "TFI at baseline and end of course",
+        "Completed TMS Safety Screening Questionnaire before first session",
+        "Motor threshold documented at session 1",
+        "PHQ-9 at baseline and end of course",
+        "Session AE log including any tinnitus loudness changes"
+      ],
+      "contraindication_check_required": true,
+      "adverse_event_monitoring": "Headache (most common, typically mild, resolves within hours). Scalp discomfort at coil site. Temporary tinnitus loudness increase (reported in some patients during or immediately after session — usually transient; monitor closely and suspend if persistent increase ≥20 points on VAS). Ear discomfort from coil click sound (particularly in patients with hyperacusis). Seizure (rare with 1 Hz inhibitory rTMS but risk not zero). Any new neurological symptom requires immediate assessment.",
+      "escalation_rules": [
+        "Tinnitus VAS loudness increases ≥20 points from pre-session level and persists >2 hours post-session on 2+ consecutive sessions: clinician review within 24 hours; consider protocol suspension; reduce intensity to 100% rMT",
+        "THI reduction <7 points (MCID) at end of course: discuss evidence limitations with patient; do not recommend repeat course without thorough benefit-risk discussion; consider CBT-T or TRT as primary approach",
+        "Seizure during or within 1 hour of session: emergency protocol, stop all TMS, call emergency services, do not resume without neurology clearance",
+        "PHQ-9 increase ≥5 points from baseline: concurrent psychiatric review; assess for tinnitus-depression spiral"
+      ],
+      "patient_facing_allowed": false,
+      "clinician_review_required": true,
+      "governance": {
+        "patient_export_allowed": false,
+        "requires_clinician_sign_off": true,
+        "off_label_acknowledgement_required": true,
+        "dual_review_required": false,
+        "notes": "EV-C off-label rTMS for tinnitus. SHORT-TERM BENEFIT ONLY — patient must be clearly informed that evidence shows limited durability at 6 months in most patients. Clinician sign-off required. Patient export blocked. Off-label acknowledgement mandatory. Benefits must be discussed in full with patient before proceeding. CBT-T and TRT should be offered concurrently."
+      },
+      "notes": "IMPORTANT: Inform patient explicitly that rTMS for tinnitus shows short-term benefit in some patients, but benefits typically fade by 6 months in most cases (Cochrane review, Hilton et al. 2013). This is EV-C evidence. This protocol should not be offered as first-line — CBT-T, TRT, and sound therapy should be offered first or concurrently. Use neuronavigation for improved auditory cortex targeting where available. For right-sided tinnitus — left temporal cortex is still the primary target; for left-sided unilateral tinnitus — consider right temporal cortex. Patient must consent with full awareness of durability limitations."
+    },
+    {
+      "protocol_id": "PRO-TMS-TIN-02",
+      "name": "rTMS Combined Temporal-Parietal Protocol for Tinnitus (Off-label, Investigational)",
+      "modality_slug": "tms",
+      "phenotype_id": "PHE-TIN-01",
+      "on_label_vs_off_label": "Investigational",
+      "evidence_grade": "EV-C",
+      "evidence_summary": "Combined temporal (1 Hz inhibitory) and temporoparietal junction (TPJ, 10 Hz excitatory) rTMS targets both the hyperactive auditory cortex and the attentional-evaluative network implicated in tinnitus distress and awareness. Preliminary evidence from small uncontrolled studies (De Ridder et al., 2011; Vanneste et al., 2013) suggests combined protocols may have superior outcomes to single-site temporal rTMS alone — particularly for distress reduction. Sample sizes are too small for definitive conclusions. This is an investigational approach. Neuronavigation is strongly recommended or required. Classified EV-C investigational — dual clinician review and careful patient selection required.",
+      "references": [
+        "De Ridder D et al. (2011). Transcranial magnetic stimulation identifies subgroup of tinnitus patients as responders. Otology & Neurotology, 32(9), 1492–1501.",
+        "Vanneste S et al. (2013). The neural correlates of tinnitus related distress. Neuroimage, 55(2), 541–549."
+      ],
+      "brain_target": {
+        "region": "Left Auditory Cortex and Left Temporoparietal Junction",
+        "laterality": "Left",
+        "eeg_position": "T3 / TP3 and CP3 / P3",
+        "effect_direction": "Inhibitory"
+      },
+      "parameters": {
+        "frequency_hz": "1 Hz (temporal cortex T3) + 10 Hz (temporoparietal junction TP3/CP3) — alternating or sequential in same session",
+        "intensity": "110% rMT for temporal (inhibitory); 100% rMT for TPJ (excitatory)",
+        "pulse_count": "1800 pulses temporal + 1200 pulses TPJ per session",
+        "coil_type": "Figure-8 coil (70 mm)",
+        "electrode_placement": "Left temporal cortex (T3/TP3) then left temporoparietal junction (CP3/P3); neuronavigation required"
+      },
+      "session_structure": {
+        "sessions_per_week": 5,
+        "session_duration_minutes": 45,
+        "total_sessions": 15,
+        "total_weeks": 3,
+        "maintenance_sessions": "Highly variable — reassess at 6 months; repeat course only if clear initial benefit achieved",
+        "steps": [
+          { "order": 1, "title": "Safety screening and pre-session VAS", "duration_minutes": 5, "detail": "Confirm no new contraindications. Record pre-session VAS loudness and distress. Review previous session AE log." },
+          { "order": 2, "title": "Neuronavigation coil setup", "duration_minutes": 10, "detail": "Set up neuronavigation system. Localise left auditory cortex (Heschl's gyrus/STG) and left TPJ from individual MRI or standard atlas. Mark target coordinates. Confirm motor threshold if >4 weeks since last session." },
+          { "order": 3, "title": "Phase 1 — Temporal cortex (1 Hz inhibitory)", "duration_minutes": 20, "detail": "Deliver 1800 pulses at 1 Hz to left temporal cortex (T3/TP3). 110% rMT. Monitor for discomfort or tinnitus loudness change every 5 minutes." },
+          { "order": 4, "title": "Phase 2 — TPJ (10 Hz excitatory)", "duration_minutes": 15, "detail": "Reposition coil to left TPJ (CP3/P3). Deliver 1200 pulses at 10 Hz. 100% rMT. Monitor for headache or scalp discomfort." },
+          { "order": 5, "title": "Post-session review and documentation", "duration_minutes": 5, "detail": "Record post-session VAS loudness and distress. Log any AEs. Remind patient of expected fluctuations and importance of not stopping TRT/CBT-T." }
+        ]
+      },
+      "monitoring_required": [
+        "VAS tinnitus loudness and distress before and after every session",
+        "THI every 5 sessions",
+        "TFI at baseline, session 8, and end of course",
+        "PHQ-9 at baseline and end of course",
+        "Session AE log with particular attention to tinnitus loudness changes"
+      ],
+      "contraindication_check_required": true,
+      "adverse_event_monitoring": "Same as PRO-TMS-TIN-01 plus: combined session is longer (45 min) — monitor fatigue and scalp discomfort throughout. Headache more likely with combined protocol. Monitor tinnitus loudness change closely at each phase transition.",
+      "escalation_rules": [
+        "Tinnitus VAS loudness increase ≥20 points persisting >2 hours after session: immediately suspend protocol; clinician review; do not resume without documented risk-benefit reassessment",
+        "No THI response by session 10: clinician review; discuss discontinuation and transition to CBT-T primary approach",
+        "Seizure: emergency protocol as above"
+      ],
+      "patient_facing_allowed": false,
+      "clinician_review_required": true,
+      "governance": {
+        "patient_export_allowed": false,
+        "requires_clinician_sign_off": true,
+        "off_label_acknowledgement_required": true,
+        "dual_review_required": true,
+        "notes": "EV-C investigational combined rTMS protocol. Dual clinician review required before protocol generation. Patient export blocked. Off-label acknowledgement mandatory. Neuronavigation required. Evidence base is very limited — use only in patients who have not responded to standard temporal rTMS (PRO-TMS-TIN-01) and only where neuronavigation is available. Explicit discussion of investigational status required."
+      },
+      "notes": "Investigational protocol. Only for patients who have completed standard 1 Hz temporal rTMS (PRO-TMS-TIN-01) with partial benefit and who understand and accept the highly experimental nature of the combined approach. Neuronavigation is a prerequisite. Dual clinician sign-off required."
+    }
+  ],
+
+  "device_options": [
+    {
+      "device_id": "DEV-TMS-TIN-001",
+      "name": "Magstim Rapid²",
+      "manufacturer": "Magstim",
+      "modality_slug": "tms",
+      "regulatory_status": "FDA-cleared (other indication)",
+      "cleared_indication": "FDA-cleared for MDD; off-label use for tinnitus",
+      "use_setting": "Clinic",
+      "compatible_protocols": ["PRO-TMS-TIN-01", "PRO-TMS-TIN-02"],
+      "constraints": [
+        "Clinic use only — specialised TMS suite required",
+        "Motor threshold mapping required before first session",
+        "Emergency seizure management equipment must be available in clinic",
+        "70 mm figure-8 coil required for temporal cortex targeting",
+        "Neuronavigation system strongly recommended for auditory cortex localisation"
+      ],
+      "notes": "Standard clinical-grade TMS device. Supports 1 Hz inhibitory and 10 Hz excitatory protocols. Compatible with major neuronavigation systems (Localite, BrainSight, Brainsight2) for auditory cortex targeting."
+    },
+    {
+      "device_id": "DEV-TMS-TIN-002",
+      "name": "MagVenture MagPro R30",
+      "manufacturer": "MagVenture",
+      "modality_slug": "tms",
+      "regulatory_status": "CE-marked",
+      "cleared_indication": "CE-marked for depression; off-label for tinnitus",
+      "use_setting": "Clinic",
+      "compatible_protocols": ["PRO-TMS-TIN-01", "PRO-TMS-TIN-02"],
+      "constraints": [
+        "Clinic use only",
+        "Motor threshold determination required",
+        "Coil cooling for long sessions (45 min combined protocol) — confirm device thermal capacity"
+      ],
+      "notes": "CE-marked alternative to Magstim. Suitable for tinnitus inhibitory protocols. Confirm coil cooling capacity for combined 45-minute protocol (PRO-TMS-TIN-02)."
+    }
+  ],
+
+  "brain_targets": [
+    {
+      "region": "Left Auditory Cortex / Superior Temporal Gyrus",
+      "abbreviation": "L-STG / A1",
+      "laterality": "Left",
+      "rationale": "The primary auditory cortex (A1) and superior temporal gyrus (STG, BA41/42) become pathologically hyperactive following cochlear deafferentation, generating tinnitus phantom percept. Low-frequency (1 Hz) inhibitory rTMS targets this hyperactivity to suppress the aberrant neural activity generating tinnitus. The left temporal cortex is targeted for bilateral tinnitus (dominant hemisphere) or right-ear-predominant tinnitus. For clearly unilateral left-ear tinnitus, the right temporal cortex may be considered.",
+      "effect_direction": "Inhibitory",
+      "modalities": ["tms"],
+      "eeg_position_10_20": "T3 / TP3",
+      "brodmann_area": "BA41 / BA42 / BA22",
+      "network": "Auditory Network / Default Mode Network",
+      "qeeg_target": "Increase alpha (8–12 Hz) in left temporal region; reduce gamma (30–80 Hz) hyperactivity in auditory cortex",
+      "evidence_note": "EV-C: Meta-analyses show short-term benefit (SMD ~0.7) for 1 Hz inhibitory rTMS to left STG. Cochrane review finds insufficient evidence for reliable clinical benefit at 6 months. Short-term effect demonstrated; durability not established."
+    },
+    {
+      "region": "Left Temporoparietal Junction",
+      "abbreviation": "L-TPJ",
+      "laterality": "Left",
+      "rationale": "The temporoparietal junction integrates auditory, somatosensory, and attentional processing and is implicated in the attentional evaluation and salience of tinnitus — particularly the distress component. Excitatory stimulation of the TPJ is proposed to modulate attention networks in a way that reduces the brain's attentional 'locking onto' tinnitus, potentially reducing distress even if loudness remains unchanged.",
+      "effect_direction": "Excitatory",
+      "modalities": ["tms"],
+      "eeg_position_10_20": "CP3 / P3",
+      "brodmann_area": "BA39 / BA40",
+      "network": "Salience Network / Attentional Network",
+      "qeeg_target": "Normalise gamma/alpha ratio at CP3/P3; modulate attentional network activity",
+      "evidence_note": "Investigational target (EV-C). Used in combined temporal-parietal protocol only (PRO-TMS-TIN-02). Evidence base limited to small uncontrolled studies. Requires neuronavigation."
+    }
+  ],
+
+  "handbook_outputs": {
+    "clinician_handbook": {
+      "title": "Clinician Handbook: Tinnitus Neuromodulation Protocols",
+      "audience": "Licensed clinician or supervised trainee",
+      "sections": [
+        {
+          "section_id": "ch-01",
+          "title": "Condition Summary and Evidence Context",
+          "content": [
+            "Tinnitus: phantom auditory perception due to maladaptive central auditory cortex hyperactivity following peripheral deafferentation. Prevalence: 10–15% adults; 1–3% severely affected.",
+            "Key safety point: exclude treatable causes before neuromodulation — acoustic neuroma (MRI), vascular causes (imaging for pulsatile tinnitus), otosclerosis, cerumen impaction, medication-induced.",
+            "EVIDENCE LIMITATION WARNING: rTMS for tinnitus is EV-C. Meta-analyses show short-term benefit (SMD ~0.7) but Cochrane review (Hilton 2013) finds insufficient evidence for reliable clinical benefit at 6 months. Evidence of durability is limited. Patient must be clearly informed of this before proceeding.",
+            "No FDA clearance for tinnitus neuromodulation. All protocols are off-label.",
+            "First-line recommended: Sound therapy, tinnitus retraining therapy (TRT), cognitive behavioural therapy for tinnitus (CBT-T), hearing aids for hearing loss. Neuromodulation is adjunctive for patients who have not responded to first-line approaches."
+          ]
+        },
+        {
+          "section_id": "ch-02",
+          "title": "Patient Selection and Investigations Required",
+          "content": [
+            "Mandatory before any neuromodulation: Audiogram (within 12 months), hearing aid fitting if hearing loss present, acoustic neuroma exclusion for unilateral/asymmetric tinnitus (MRI with gadolinium or ABR), pulsatile tinnitus imaging if applicable.",
+            "Tinnitus duration: chronic only (>6 months). Acute tinnitus (<3 months): watchful waiting and conservative management first.",
+            "THI ≥38 (moderate severity) or TFI ≥40 typical threshold for neuromodulation consideration.",
+            "Document prior TRT/CBT-T history — neuromodulation is adjunctive, not a first-line replacement.",
+            "Screen PHQ-9 and ISI: comorbid depression and insomnia require concurrent treatment.",
+            "TMS Safety Screening Questionnaire and motor threshold determination mandatory before rTMS."
+          ]
+        },
+        {
+          "section_id": "ch-03",
+          "title": "Protocol Selection",
+          "content": [
+            "Standard first-line rTMS: PRO-TMS-TIN-01 (1 Hz left temporal, 10 sessions). For bilateral or right-dominant tinnitus — left temporal cortex target. For clearly left-dominant unilateral tinnitus — consider right temporal cortex (modify protocol accordingly).",
+            "Combined temporal-parietal (PRO-TMS-TIN-02): Only after PRO-TMS-TIN-01 has been completed with partial benefit. Investigational — neuronavigation required; dual clinician sign-off required.",
+            "Neither protocol generates durable 6-month benefit in most patients — maintenance sessions should be factored into the treatment plan from the outset.",
+            "Do not generate either protocol for patient with pulsatile tinnitus until vascular imaging is completed."
+          ]
+        },
+        {
+          "section_id": "ch-04",
+          "title": "Evidence Summary and Limitations",
+          "content": [
+            "rTMS 1 Hz left temporal: EV-C. Short-term benefit demonstrated in meta-analyses (SMD ~0.7). Cochrane 2013 review: insufficient evidence for reliable benefit at 6 months. No FDA clearance.",
+            "Combined temporal-parietal: EV-C investigational. Preliminary data only. Very small sample sizes. Neuronavigation required.",
+            "Patient must be informed explicitly and in writing: short-term benefit likely in some patients; durability beyond 6 months limited for most. Off-label acknowledgement required.",
+            "CBT-T and TRT have comparable or better evidence for distress reduction and are first-line — ensure these are offered before or alongside rTMS."
+          ]
+        },
+        {
+          "section_id": "ch-05",
+          "title": "Safety, Governance, and Evidence Disclosure",
+          "content": [
+            "All tinnitus rTMS protocols require clinician sign-off before generation and patient export is blocked.",
+            "Off-label acknowledgement form must be signed before protocol generation.",
+            "Evidence limitations must be disclosed verbally and documented before any session.",
+            "TMS Safety Screening Questionnaire mandatory. Emergency seizure protocol in clinic before first session.",
+            "Monitor VAS tinnitus before and after every session. Persistent worsening (>20 VAS points) for 2+ sessions: suspend protocol, clinician review within 24 hours.",
+            "Tinnitus worsening post-TMS: documented in a minority of patients — transient in most; persistent worsening requires immediate protocol suspension."
+          ]
+        },
+        {
+          "section_id": "ch-06",
+          "title": "Monitoring, Response Thresholds, and Escalation",
+          "content": [
+            "Primary response threshold: ≥7-point THI reduction (MCID). Clinically meaningful: ≥20-point THI reduction (one grade improvement).",
+            "TFI response: ≥13-point reduction.",
+            "Non-response: THI reduction <7 points at end of course — discuss evidence limitations; do not automatically recommend repeat course; transition to CBT-T primary approach.",
+            "6-month follow-up assessment is clinically important — document whether end-of-course benefit has been maintained.",
+            "Adherence threshold: ≥80% session completion. For the short 10-session acute course, missing >2 sessions significantly reduces treatment dose."
+          ]
+        }
+      ]
+    },
+    "patient_guide": {
+      "title": "Patient Guide: Brain Stimulation for Tinnitus",
+      "audience": "Patient (reading level: Grade 8)",
+      "sections": [
+        {
+          "section_id": "pg-01",
+          "title": "What is Tinnitus?",
+          "content": [
+            "Tinnitus is when you hear sounds — like ringing, buzzing, or hissing — that are not coming from outside. It is caused by changes in how your brain processes sound after your hearing system has been affected.",
+            "You are not imagining it. Tinnitus is real, and it can have a big impact on your life. But it is also very treatable — not always curable, but manageable."
+          ]
+        },
+        {
+          "section_id": "pg-02",
+          "title": "What You Need to Know About Brain Stimulation for Tinnitus",
+          "content": [
+            "rTMS (repetitive transcranial magnetic stimulation) uses gentle magnetic pulses to try to calm down the overactive part of the brain that is producing the tinnitus sound.",
+            "The research shows that rTMS can reduce tinnitus loudness or distress for some people in the short term. However, it is very important that you know: for most people, the benefit fades within 6 months of finishing treatment.",
+            "This means rTMS is not a cure. It may give you temporary relief, and it works best when combined with other tinnitus management strategies like sound therapy and tinnitus-focused therapy (CBT-T).",
+            "Your clinician will discuss all of this with you before you decide whether to go ahead."
+          ]
+        },
+        {
+          "section_id": "pg-03",
+          "title": "What to Expect at Sessions",
+          "content": [
+            "Sessions last about 30–35 minutes. You sit comfortably in a chair. A device held near the left side of your head delivers gentle magnetic pulses.",
+            "You will hear a clicking sound — like a woodpecker tapping — and feel a light tapping on your scalp. This is normal.",
+            "You will be given ear protection to wear. Please tell your clinician if the sound is uncomfortable.",
+            "You rate your tinnitus loudness and distress before and after each session. Your clinician will use this to track your response."
+          ]
+        },
+        {
+          "section_id": "pg-04",
+          "title": "What to Tell Your Clinician",
+          "content": [
+            "Tell your clinician immediately if your tinnitus loudness gets significantly worse during or after a session — this sometimes happens and needs to be checked.",
+            "Tell your clinician about any headache, scalp discomfort, or unusual feelings.",
+            "Keep attending your tinnitus therapy sessions (TRT or CBT-T) alongside your brain stimulation treatment.",
+            "Let your clinician know if your mood is low or if you are struggling to cope with the tinnitus — support is available."
+          ]
+        }
+      ]
+    },
+    "technician_sop": {
+      "title": "Technician Standard Operating Procedure: Tinnitus rTMS Protocol",
+      "audience": "Trained neuromodulation technician operating under clinician supervision",
+      "sections": [
+        {
+          "section_id": "sop-01",
+          "title": "Pre-Session Checklist",
+          "content": [
+            "Confirm patient identity (name + date of birth).",
+            "Review most recent session notes and AE log — particularly any reported tinnitus loudness changes.",
+            "Confirm TMS Safety Screening Questionnaire on file and current.",
+            "Confirm audiogram and acoustic neuroma exclusion documentation on file.",
+            "Inspect TMS device, coil, cooling system — confirm functional. Emergency equipment accessible.",
+            "Record pre-session VAS tinnitus loudness (0–100) and distress (0–100).",
+            "Provide ear protection. For patients with hyperacusis: confirm adapted ear protection is available."
+          ]
+        },
+        {
+          "section_id": "sop-02",
+          "title": "rTMS Coil Placement (Left Temporal Cortex)",
+          "content": [
+            "Identify T3 (left temporal) using 10-20 system: T3 is 40% of the nasion-inion distance from Cz, shifted left by half the distance between T3 and T4.",
+            "If neuronavigation available: set up system and target left auditory cortex (Heschl's gyrus/STG) using individual MRI or standard atlas.",
+            "Mark T3/TP3 position on scalp with washable marker for reproducible placement across sessions.",
+            "Position figure-8 coil at marked position, tangential to scalp. Coil handle posterior or at 45 degrees.",
+            "Session 1 only: determine rMT over left motor cortex hand area before therapeutic stimulation.",
+            "Confirm ear protection fitted. Confirm patient comfort and understanding."
+          ]
+        },
+        {
+          "section_id": "sop-03",
+          "title": "During Session Monitoring",
+          "content": [
+            "Remain in room throughout rTMS session.",
+            "Ask tinnitus loudness VAS check at 10 minutes and 20 minutes (mid-session): 'On the scale of 0–100, how loud does your tinnitus seem right now?'",
+            "If tinnitus VAS loudness increases ≥20 points mid-session: pause session, note time and rating, inform supervising clinician.",
+            "Ask comfort check (scalp, ear) at 10 minutes. Log any reported headache or scalp pain.",
+            "Do not leave patient unattended during rTMS. Remain in room or immediately accessible."
+          ]
+        },
+        {
+          "section_id": "sop-04",
+          "title": "Post-Session Documentation",
+          "content": [
+            "Immediately post-session: record VAS tinnitus loudness and distress (same 0–100 scale as pre-session).",
+            "Calculate session change: post minus pre VAS. Document in session record.",
+            "Ask patient: 'How does your tinnitus seem compared to before the session? Any headache? Any scalp discomfort?'",
+            "Inspect scalp at coil site for any redness or marks.",
+            "Log all session parameters, duration, VAS pre/post, and any AEs.",
+            "Flag any AEs or tinnitus loudness increase to supervising clinician within 1 hour."
+          ]
+        },
+        {
+          "section_id": "sop-05",
+          "title": "Escalation Procedure for Tinnitus Worsening",
+          "content": [
+            "If post-session VAS loudness is ≥20 points above pre-session: document time of measurement, exact scores, and any other symptoms.",
+            "Contact supervising clinician within 30 minutes — do not schedule next session until clinician has reviewed.",
+            "If tinnitus worsening persists >2 hours post-session: clinician must review before any further sessions are delivered.",
+            "If persistent worsening confirmed across 2+ sessions: suspend protocol and arrange clinician-patient review."
+          ]
+        }
+      ]
+    }
+  },
+
+  "monitoring_rules": {
+    "assessment_schedule": [
+      {
+        "assessment_id": "ASS-VAS-TIN-001",
+        "assessment_name": "VAS Tinnitus",
+        "timing": "Before and after every rTMS session throughout the treatment course",
+        "frequency": "Every session (pre and post)",
+        "administered_by": "Patient self-report"
+      },
+      {
+        "assessment_id": "ASS-THI-001",
+        "assessment_name": "THI",
+        "timing": "Before session 1 (baseline); after session 5; end of course; 6-month follow-up",
+        "frequency": "Every 5 sessions and at 6-month follow-up",
+        "administered_by": "Patient self-report"
+      },
+      {
+        "assessment_id": "ASS-TFI-001",
+        "assessment_name": "TFI",
+        "timing": "Baseline and end of course",
+        "frequency": "Once at baseline and once at course completion",
+        "administered_by": "Patient self-report"
+      },
+      {
+        "assessment_id": "ASS-PHQ9-001",
+        "assessment_name": "PHQ-9",
+        "timing": "Baseline and end of course",
+        "frequency": "Once at baseline and once at course completion",
+        "administered_by": "Patient self-report"
+      }
+    ],
+    "response_thresholds": [
+      {
+        "assessment_id": "ASS-THI-001",
+        "assessment_name": "THI",
+        "lower_is_better": true,
+        "response_threshold": "≥7-point THI reduction from baseline (MCID for THI per Zeman et al. 2011). Clinically meaningful: ≥20-point reduction (one severity grade improvement)",
+        "remission_threshold": "THI total score <18 (slight handicap range)",
+        "non_response_threshold": "THI reduction <7 points at end of 10-session course — discuss evidence limitations; do not automatically recommend repeat course",
+        "deterioration_threshold": "THI increase ≥10 points from baseline — clinician review within 2 working days; assess for tinnitus worsening due to protocol or other cause"
+      },
+      {
+        "assessment_id": "ASS-TFI-001",
+        "assessment_name": "TFI",
+        "lower_is_better": true,
+        "response_threshold": "≥13-point TFI reduction from baseline (MCID for TFI per Meikle et al. 2012)",
+        "remission_threshold": "TFI score <25 (mild severity range)",
+        "non_response_threshold": "No TFI improvement at end of course — clinician review and plan transition to CBT-T",
+        "deterioration_threshold": "TFI increase ≥13 points from baseline — clinician review required"
+      }
+    ],
+    "adverse_event_triggers": [
+      {
+        "event_type": "Tinnitus loudness VAS increase ≥20 points persisting >2 hours post-session",
+        "severity": "Moderate",
+        "action": "Suspend protocol. Clinician review within 24 hours. Do not resume without documented risk-benefit reassessment. Reduce intensity to 100% rMT if resuming.",
+        "suspend_treatment": true
+      },
+      {
+        "event_type": "Seizure during or within 1 hour of session",
+        "severity": "Serious",
+        "action": "Emergency protocol. Call emergency services. Suspend all TMS. Incident report within 24 hours. Do not resume without neurology clearance.",
+        "suspend_treatment": true
+      },
+      {
+        "event_type": "New or worsening suicidal ideation",
+        "severity": "Serious",
+        "action": "Same-day clinician review. Complete suicide risk assessment. Suspend treatment until safety review complete. Note: tinnitus is associated with elevated suicide risk — take very seriously.",
+        "suspend_treatment": true
+      },
+      {
+        "event_type": "Persistent headache post-rTMS (>4 hours)",
+        "severity": "Moderate",
+        "action": "Reduce rTMS intensity to 100% rMT. Reduce pulse count if persisting. Clinician review if persists after 2 consecutive sessions.",
+        "suspend_treatment": false
+      },
+      {
+        "event_type": "Severe hyperacusis reaction to coil click sound",
+        "severity": "Moderate",
+        "action": "Stop session. Adapt ear protection. Consider whether rTMS is appropriate for this patient given hyperacusis severity. Clinician review before next session.",
+        "suspend_treatment": true
+      },
+      {
+        "event_type": "Scalp discomfort or pain at coil site rated >5/10",
+        "severity": "Mild",
+        "action": "Pause session. Adjust coil position slightly. Reduce intensity to minimum tolerable. Resume if patient comfortable. Log in AE record.",
+        "suspend_treatment": false
+      }
+    ],
+    "escalation_rules": [
+      {
+        "trigger": "Tinnitus loudness VAS increase ≥20 points persisting >2 hours on 2+ consecutive sessions",
+        "action": "Suspend protocol. Clinician review within 24 hours. Full risk-benefit reassessment. Discuss with patient whether to discontinue. Consider transition to CBT-T as primary approach.",
+        "urgency": "Urgent"
+      },
+      {
+        "trigger": "THI reduction <7 points at end of 10-session course",
+        "action": "Clinician review. Discuss evidence limitations explicitly with patient. Do not automatically recommend repeat course. Transition to or intensify CBT-T/TRT. Document discussion in record.",
+        "urgency": "Routine"
+      },
+      {
+        "trigger": "Any Serious Adverse Event (seizure, hospitalisation, suicidal act)",
+        "action": "Immediate treatment suspension. Clinical lead notification within 2 hours. Incident report within 24 hours.",
+        "urgency": "Emergency"
+      },
+      {
+        "trigger": "PHQ-9 increases ≥5 points from baseline",
+        "action": "Concurrent psychiatric review within 2 working days. Assess for tinnitus-depression spiral. Add concurrent depression treatment.",
+        "urgency": "Urgent"
+      },
+      {
+        "trigger": "Patient has not completed TRT or CBT-T alongside neuromodulation",
+        "action": "Reinforce referral and remind patient that neuromodulation works best alongside psychological/sound therapy. Document in session note.",
+        "urgency": "Routine"
+      }
+    ],
+    "adherence_rules": {
+      "minimum_session_adherence_pct": 80,
+      "consecutive_missed_sessions_flag": 2,
+      "action_on_low_adherence": "Clinic contact within 24 hours for a short 10-session course — missing >2 sessions in a 10-session course significantly reduces treatment dose. Clinician review if adherence <80%. Reassess whether extending the course is appropriate."
+    }
+  },
+
+  "report_templates": [
+    {
+      "id": "RPT-TIN-INTAKE",
+      "name": "Tinnitus Neuromodulation Intake Summary",
+      "report_type": "intake-summary",
+      "audience": "Clinician",
+      "frequency": "Once — at intake before first session",
+      "sections": [
+        {
+          "section_id": "rpt-01",
+          "title": "Patient and Diagnosis Summary",
+          "auto_populate_from": ["patient.name", "patient.dob", "patient.diagnosis", "patient.diagnosis_date", "patient.referrer"],
+          "clinician_narrative_prompt": "Confirm tinnitus diagnosis, laterality (unilateral/bilateral), character (tonal/noise-like/pulsatile), and duration. Document ICD-10 code. Note phenotype and severity grade (THI).",
+          "required": true
+        },
+        {
+          "section_id": "rpt-02",
+          "title": "Mandatory Investigations Completed",
+          "auto_populate_from": ["intake.audiogram_date", "intake.mri_result", "intake.vascular_imaging_result"],
+          "clinician_narrative_prompt": "Confirm audiogram completed and date. Confirm acoustic neuroma exclusion if unilateral tinnitus. Confirm pulsatile tinnitus vascular imaging if applicable. Document hearing aid fitting status.",
+          "required": true
+        },
+        {
+          "section_id": "rpt-03",
+          "title": "Baseline Tinnitus Scores",
+          "auto_populate_from": ["assessment.THI.baseline", "assessment.TFI.baseline", "assessment.VAS_loudness.baseline", "assessment.VAS_distress.baseline", "assessment.PHQ9.baseline", "assessment.ISI.baseline"],
+          "clinician_narrative_prompt": "Comment on baseline THI grade, functional impact, and comorbid mood/sleep scores. State rationale for neuromodulation at this severity level.",
+          "required": true
+        },
+        {
+          "section_id": "rpt-04",
+          "title": "Evidence Limitations Disclosure and Prior Treatment History",
+          "auto_populate_from": ["medical_history.prior_tinnitus_treatment", "intake.evidence_discussion_documented"],
+          "clinician_narrative_prompt": "Document that evidence limitations of rTMS for tinnitus (short-term benefit, limited durability at 6 months, EV-C) have been discussed with patient and acknowledged. Document prior TRT/CBT-T/sound therapy history.",
+          "required": true
+        },
+        {
+          "section_id": "rpt-05",
+          "title": "Contraindication Review and Protocol Selection",
+          "auto_populate_from": ["intake.contraindication_screening_json", "intake.tms_safety_screen", "course.protocol_id"],
+          "clinician_narrative_prompt": "Confirm contraindications excluded. State selected protocol and laterality. Confirm off-label status disclosed and off-label acknowledgement signed. Note combined TRT/CBT-T plan.",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "RPT-TIN-PROGRESS",
+      "name": "Tinnitus Treatment Progress Report",
+      "report_type": "progress-report",
+      "audience": "Clinician",
+      "frequency": "Every 5 sessions",
+      "sections": [
+        {
+          "section_id": "prg-01",
+          "title": "Session Adherence",
+          "auto_populate_from": ["course.sessions_completed", "course.sessions_planned", "course.adherence_pct"],
+          "clinician_narrative_prompt": "Comment on attendance. Note any missed sessions — critical given short 10-session course.",
+          "required": true
+        },
+        {
+          "section_id": "prg-02",
+          "title": "Tinnitus Score Trajectory and VAS Data",
+          "auto_populate_from": ["assessment.THI.trend", "assessment.VAS_loudness.session_trend", "assessment.VAS_distress.session_trend"],
+          "clinician_narrative_prompt": "Describe THI and VAS trajectory. Note any session-level tinnitus loudness changes. Assess whether response threshold is being reached. Flag any tinnitus worsening events.",
+          "required": true
+        },
+        {
+          "section_id": "prg-03",
+          "title": "Adverse Events Since Last Review",
+          "auto_populate_from": ["adverse_events.since_last_review"],
+          "clinician_narrative_prompt": "Summarise any AEs including tinnitus loudness changes, headaches, or scalp discomfort. State actions taken.",
+          "required": true
+        },
+        {
+          "section_id": "prg-04",
+          "title": "Protocol Adjustments",
+          "auto_populate_from": ["course.protocol_version_history"],
+          "clinician_narrative_prompt": "Document any intensity or positioning adjustments and rationale.",
+          "required": false
+        }
+      ]
+    },
+    {
+      "id": "RPT-TIN-EOC",
+      "name": "Tinnitus End-of-Course Outcome Report",
+      "report_type": "end-of-course-report",
+      "audience": "Referring Physician",
+      "frequency": "Once — at course completion",
+      "sections": [
+        {
+          "section_id": "eoc-01",
+          "title": "Treatment Summary",
+          "auto_populate_from": ["course.start_date", "course.end_date", "course.sessions_completed", "course.protocol_id", "course.modality"],
+          "clinician_narrative_prompt": "Summarise treatment course including protocol, sessions completed, and adherence.",
+          "required": true
+        },
+        {
+          "section_id": "eoc-02",
+          "title": "Outcome Scores and Evidence Context",
+          "auto_populate_from": ["assessment.THI.baseline", "assessment.THI.endpoint", "assessment.TFI.baseline", "assessment.TFI.endpoint"],
+          "clinician_narrative_prompt": "Interpret outcome data in context of MCID thresholds. State whether THI or TFI response achieved. Note evidence limitation — advise patient that 6-month follow-up assessment is important to assess durability. Document CBT-T/TRT plan going forward.",
+          "required": true
+        },
+        {
+          "section_id": "eoc-03",
+          "title": "Safety and Adverse Events",
+          "auto_populate_from": ["adverse_events.all_course"],
+          "clinician_narrative_prompt": "Confirm all AEs documented and resolved. Note any persistent concerns including tinnitus loudness changes.",
+          "required": true
+        },
+        {
+          "section_id": "eoc-04",
+          "title": "Recommendations and Follow-Up Plan",
+          "auto_populate_from": [],
+          "clinician_narrative_prompt": "State recommendation: maintenance sessions if response achieved, referral for intensified CBT-T if non-responder, hearing aid review, 6-month follow-up THI assessment date. Do not recommend repeat course if no THI response achieved without further clinical review.",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "RPT-TIN-SOAP",
+      "name": "Tinnitus Session SOAP Note",
+      "report_type": "soap-note",
+      "audience": "Internal",
+      "frequency": "Every session",
+      "sections": [
+        {
+          "section_id": "soap-s",
+          "title": "Subjective",
+          "auto_populate_from": ["session.patient_report"],
+          "clinician_narrative_prompt": "Document patient-reported tinnitus loudness and distress (VAS), sleep, mood, any tinnitus changes since last session, and medication adherence.",
+          "required": true
+        },
+        {
+          "section_id": "soap-o",
+          "title": "Objective",
+          "auto_populate_from": ["session.protocol_id", "session.parameters", "session.duration", "session.adverse_events"],
+          "clinician_narrative_prompt": "Record protocol delivered, parameters (intensity % rMT, pulse count, coil position), session duration, VAS pre/post, and technician observations.",
+          "required": true
+        },
+        {
+          "section_id": "soap-a",
+          "title": "Assessment",
+          "auto_populate_from": ["assessment.latest_scores"],
+          "clinician_narrative_prompt": "Clinical impression of tinnitus trajectory. Note any acute tinnitus loudness changes and response to session. Assess mood and comorbidities.",
+          "required": true
+        },
+        {
+          "section_id": "soap-p",
+          "title": "Plan",
+          "auto_populate_from": ["course.next_session", "course.protocol_adjustments_pending"],
+          "clinician_narrative_prompt": "State plan for next session. Note any intensity adjustments, additional TRT/CBT-T contact, or referral actions.",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "RPT-TIN-AE",
+      "name": "Tinnitus Adverse Event Report — Tinnitus Worsening",
+      "report_type": "adverse-event-report",
+      "audience": "Internal",
+      "frequency": "As required — when tinnitus worsening adverse event occurs",
+      "sections": [
+        {
+          "section_id": "ae-01",
+          "title": "Adverse Event Description",
+          "auto_populate_from": ["adverse_event.type", "adverse_event.date", "adverse_event.session_number", "adverse_event.severity"],
+          "clinician_narrative_prompt": "Describe the adverse event: tinnitus loudness change (VAS pre/post), timing, duration, and patient's subjective description. Note protocol parameters at the time.",
+          "required": true
+        },
+        {
+          "section_id": "ae-02",
+          "title": "Actions Taken",
+          "auto_populate_from": ["adverse_event.action_taken", "adverse_event.treatment_suspended"],
+          "clinician_narrative_prompt": "Document immediate actions taken, treatment suspension decision, and communication with patient. State whether intensity was reduced or protocol suspended.",
+          "required": true
+        },
+        {
+          "section_id": "ae-03",
+          "title": "Resolution and Follow-Up",
+          "auto_populate_from": ["adverse_event.resolution_date", "adverse_event.outcome"],
+          "clinician_narrative_prompt": "Document resolution of tinnitus worsening event, timeframe, and any permanent change in tinnitus loudness. State plan for next steps.",
+          "required": true
+        }
+      ]
+    }
+  ],
+
+  "home_program_templates": [
+    {
+      "id": "HP-TIN-SOUND-01",
+      "name": "Tinnitus Home Sound Enrichment and Relaxation Programme",
+      "modality_slug": "neurofeedback",
+      "device_required": "Sound enrichment device or smartphone with tinnitus management app (e.g. Resound Relief, Oticon Tinnitus Sound); optional: white noise machine",
+      "prerequisite_clinic_sessions": 0,
+      "sessions_per_week": 7,
+      "session_duration_minutes": 30,
+      "total_weeks": 12,
+      "patient_instructions": [
+        "Use your sound enrichment device each evening, particularly in quiet environments where tinnitus is most noticeable.",
+        "Set the volume of the sound enrichment to just below the level of your tinnitus — it should be audible but not mask it completely. This is called 'partial masking' or 'mixing point'.",
+        "You can use nature sounds, white noise, pink noise, or relaxing music — choose whatever feels most soothing and reduces your tinnitus awareness.",
+        "Practise slow, diaphragmatic breathing or a mindfulness exercise during your sound enrichment session.",
+        "If you have been referred for CBT-T or TRT, use any techniques or exercises from those sessions daily.",
+        "Rate your tinnitus distress (0–10) before and after each home session in your tinnitus diary.",
+        "Keep attending your clinic rTMS sessions as scheduled — this home programme supports (not replaces) your clinic treatment."
+      ],
+      "safety_checklist": [
+        "My sound enrichment device is set at a safe volume — below 70 dB (if using earphones, comfortable conversation level).",
+        "I am not using earphones at high volumes that could worsen my hearing.",
+        "I feel well enough to engage in the programme today.",
+        "I have completed my tinnitus diary entry from yesterday."
+      ],
+      "reporting_requirements": [
+        "Record tinnitus distress rating (0–10) before and after each home session in your tinnitus diary.",
+        "Note which sound type you used and how helpful you found it.",
+        "Bring your tinnitus diary to every clinic appointment.",
+        "Contact the clinic if your tinnitus significantly worsens or if your mood is very low."
+      ],
+      "contraindications_for_home": [
+        "Do not use headphones or earphones at volumes that cause discomfort or pain",
+        "If you have hyperacusis (very sensitive hearing), use speaker-based sound rather than earphones and keep volume very low",
+        "Stop sound enrichment if it causes significant distress or worsening of tinnitus symptoms",
+        "Contact the clinic if you experience any sudden change in hearing or tinnitus character"
+      ],
+      "evidence_note": "Sound enrichment is a component of TRT and is first-line tinnitus management. This home programme supports rTMS treatment and is recommended regardless of neuromodulation response. No direct neuromodulation device is involved — this is a supportive behavioural and sound therapy programme."
+    }
+  ],
+
+  "consent_documents": [
+    {
+      "id": "CONS-TIN-GEN-01",
+      "name": "Tinnitus Neuromodulation — General Informed Consent with Evidence Limitations Disclosure",
+      "document_type": "informed-consent",
+      "modality_slug": null,
+      "when_required": "Before first session of any neuromodulation treatment for tinnitus",
+      "key_disclosures": [
+        "rTMS for tinnitus is off-label — not approved by the FDA or equivalent regulatory authority for tinnitus treatment.",
+        "IMPORTANT EVIDENCE LIMITATION: Research shows that rTMS may reduce tinnitus loudness or distress in the short term for some patients. However, for most patients, the benefit fades within 6 months of finishing treatment. A Cochrane systematic review concluded that there is currently insufficient evidence to determine whether rTMS provides reliable clinical benefit for tinnitus.",
+        "Results are not guaranteed and vary between individuals. Some patients experience no benefit. A small number of patients report temporary worsening of tinnitus loudness after sessions.",
+        "Common side effects include scalp discomfort and mild headache. Serious but rare risks include seizure and temporary tinnitus worsening.",
+        "I understand that sound therapy (TRT), CBT-T, and hearing aids (if applicable) are first-line treatments with comparable or better evidence for long-term tinnitus management — these have been discussed with me.",
+        "I understand this is an off-label treatment with modest and short-lived evidence of benefit and I consent to proceed with this understanding.",
+        "I understand I may withdraw from treatment at any time without penalty.",
+        "My treatment data will be stored securely and used to monitor my response."
+      ],
+      "signature_required": true,
+      "witness_required": false,
+      "clinician_co_sign_required": true,
+      "review_frequency": "Each new treatment course"
+    },
+    {
+      "id": "CONS-TIN-OFL-01",
+      "name": "Tinnitus Off-Label Treatment Acknowledgement",
+      "document_type": "off-label-acknowledgement",
+      "modality_slug": "tms",
+      "when_required": "Before protocol generation for any tinnitus rTMS protocol",
+      "key_disclosures": [
+        "The proposed rTMS treatment for tinnitus is off-label — not specifically approved by the FDA or equivalent authority for tinnitus.",
+        "My clinician has explained the current evidence base: EV-C — short-term benefit in some patients; limited durability at 6 months in most patients; Cochrane review finds insufficient evidence for reliable benefit.",
+        "I understand I am consenting to a treatment with modest and potentially short-lived evidence of benefit.",
+        "I have been offered or referred for TRT and/or CBT-T as first-line or concurrent treatment.",
+        "I consent to proceeding with this off-label treatment with full understanding of the evidence limitations.",
+        "My clinician will monitor my response and discuss stopping treatment if it is not beneficial or risks emerge."
+      ],
+      "signature_required": true,
+      "witness_required": false,
+      "clinician_co_sign_required": true,
+      "review_frequency": "Once per treatment course; re-consent if repeat course is planned after non-response"
+    },
+    {
+      "id": "CONS-TIN-TMS-01",
+      "name": "Tinnitus TMS Safety Screening and Consent",
+      "document_type": "contraindication-screening",
+      "modality_slug": "tms",
+      "when_required": "Before first rTMS session and at start of any new rTMS course",
+      "key_disclosures": [
+        "TMS delivers magnetic pulses to the brain. It is contraindicated in patients with metal implants in the head or neck or with cardiac pacemakers.",
+        "Seizure is a rare but known risk of rTMS, even with 1 Hz inhibitory protocols.",
+        "Cochlear implants on the stimulation side are a contraindication for TMS on that side.",
+        "I have disclosed all implants, devices, medications, and medical conditions including any cochlear implants.",
+        "I understand that a temporary worsening of tinnitus loudness has been reported in a small number of patients and I agree to report this immediately.",
+        "Emergency seizure management procedures are available at the clinic.",
+        "I understand that if my medical status changes, I must inform the clinic before the next session."
+      ],
+      "signature_required": true,
+      "witness_required": false,
+      "clinician_co_sign_required": true,
+      "review_frequency": "Before each new rTMS course and annually for ongoing maintenance treatment"
+    },
+    {
+      "id": "CONS-TIN-INVEST-01",
+      "name": "Tinnitus Investigational Protocol Acknowledgement (Combined Temporal-Parietal rTMS)",
+      "document_type": "research-participation",
+      "modality_slug": "tms",
+      "when_required": "Before generation of PRO-TMS-TIN-02 (combined temporal-parietal protocol)",
+      "key_disclosures": [
+        "The combined temporal-parietal rTMS protocol (PRO-TMS-TIN-02) is an investigational treatment — it is based on very limited preliminary evidence from small uncontrolled studies.",
+        "This protocol is not a standard clinical treatment and has not been validated in large randomised controlled trials.",
+        "I understand that the evidence for this combined protocol is weaker than for the standard temporal-only protocol, and that results are highly uncertain.",
+        "I have already completed a standard temporal rTMS course with partial benefit, and my clinician has explained why this investigational approach is being proposed.",
+        "I understand that neuronavigation-guided coil placement is required for this protocol and will be used.",
+        "I consent to this investigational approach with full awareness of its highly uncertain evidence base.",
+        "My data may contribute to clinical audit to improve future tinnitus care."
+      ],
+      "signature_required": true,
+      "witness_required": true,
+      "clinician_co_sign_required": true,
+      "review_frequency": "Each new course of investigational protocol"
+    }
+  ]
+}

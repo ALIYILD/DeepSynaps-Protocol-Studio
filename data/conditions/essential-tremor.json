@@ -1,0 +1,952 @@
+{
+  "$schema": "../schemas/condition-package.schema.json",
+  "schema_version": "1.0.0",
+  "id": "CON-013",
+  "slug": "essential-tremor",
+  "name": "Essential Tremor (ET)",
+  "category": "Neurological \u2014 Movement",
+  "icd_10": ["G25.0"],
+  "created_at": "2026-04-12",
+  "updated_at": "2026-04-12",
+  "review_status": "reviewed",
+  "reviewed_by": "DeepSynaps Clinical Team",
+
+  "condition_overview": {
+    "summary": "Essential tremor (ET) is the most common movement disorder in adults, characterised by bilateral, largely symmetric postural and kinetic tremor predominantly affecting the upper extremities. Unlike the resting tremor of Parkinson's disease, ET tremor is action-dependent (occurring with posture and voluntary movement) and is not associated with bradykinesia or rigidity. Head tremor and voice tremor occur in a significant minority. ET is frequently functionally disabling, impairing handwriting, feeding, and fine motor tasks. When pharmacotherapy (propranolol, primidone) is inadequate, deep brain stimulation (DBS) of the ventral intermediate nucleus (VIM) of the thalamus and MRI-guided focused ultrasound (MRgFUS) thalamotomy are guideline-supported, FDA-approved interventions.",
+    "prevalence": "ET affects approximately 0.4-5% of the general population worldwide, with prevalence increasing significantly with age to approximately 5-14% of adults over 65. In the USA, an estimated 7 million people are affected. ET is the most common movement disorder referred for neuromodulation. Functional disability requiring treatment affects the majority of those with moderate-to-severe ET.",
+    "phenotype_clusters": [
+      {
+        "id": "PHE-049",
+        "name": "Upper Extremity Dominant ET",
+        "description": "Bilateral postural and kinetic tremor predominantly of the hands and arms. Classic presentation with functional disability in writing, eating, drinking, and fine motor tasks. Most studied phenotype for DBS VIM and MRgFUS. Unilateral treatment typically targets the dominant hand side first.",
+        "primary_modality": "dbs",
+        "qeeg_signature": "Tremor-frequency oscillations 4-12 Hz in contralateral motor cortex (C3/C4); thalamo-cortical tremor loops"
+      },
+      {
+        "id": "PHE-050",
+        "name": "Head Tremor Subtype",
+        "description": "Predominant or significant head tremor (yes-yes or no-no pattern) with or without upper extremity involvement. Often accompanied by voice tremor. Bilateral VIM DBS may be required; unilateral VIM DBS often insufficient for head tremor alone. MRgFUS bilateral staged thalamotomy is an option.",
+        "primary_modality": "dbs",
+        "qeeg_signature": "Tremor-frequency oscillations in bilateral motor cortex; neck EMG synchronised with tremor frequency"
+      },
+      {
+        "id": "PHE-051",
+        "name": "Voice Tremor Subtype",
+        "description": "Tremulous voice quality (oscillating pitch and intensity) as a primary or significant feature. Often resistant to unilateral procedures. Bilateral treatment or alternative surgical targets (e.g. ventral oral posterior thalamus) may be needed. Voice tremor is excluded from MRgFUS unilateral indications.",
+        "primary_modality": "dbs",
+        "qeeg_signature": "Bilateral motor cortex tremor-frequency oscillations; laryngeal EMG correlation"
+      },
+      {
+        "id": "PHE-052",
+        "name": "Medication-Refractory ET",
+        "description": "ET inadequately controlled despite adequate trials of first-line (propranolol, primidone) and second-line medications. The primary indication for VIM DBS or MRgFUS. Defined as: failure of ≥2 adequate pharmacological trials at maximum tolerated doses.",
+        "primary_modality": "dbs",
+        "qeeg_signature": "Persistent tremor-frequency power at 4-12 Hz in motor cortex despite pharmacotherapy"
+      }
+    ],
+    "severity_levels": [
+      "Mild — Tremor visible but not disabling; no significant ADL impact",
+      "Moderate — Tremor disabling for some tasks (writing, drinking from cup); Fahn-Tolosa-Marin score 21-40",
+      "Severe — Tremor markedly disabling; unable to perform most fine motor tasks; FTM score >40",
+      "Functionally catastrophic — All upper limb function severely compromised; may include head or voice tremor"
+    ],
+    "population": ["Adult (most common in adults >40 years)", "Older Adult (highest prevalence >65 years)"],
+    "symptom_clusters": [
+      "Action tremor: postural tremor (trembling when arms held outstretched) and kinetic tremor (during movement)",
+      "Upper extremity predominant — bilateral but often asymmetric",
+      "Head tremor: yes-yes (anterior-posterior) or no-no (rotational) oscillation",
+      "Voice tremor: oscillating vocal quality",
+      "Functional disability: handwriting impairment, difficulty with utensils, spillage when drinking, ADL limitation",
+      "Social embarrassment and withdrawal",
+      "Resting tremor can occur in severe or longstanding ET (distinguished from PD by absence of bradykinesia)"
+    ],
+    "highest_evidence_level": "EV-A",
+    "relevant_modalities": ["dbs", "mrgfus"],
+    "neurobiology": "ET pathophysiology involves abnormal oscillatory activity within the cerebello-thalamo-cortical (CTC) circuit. The dentate nucleus of the cerebellum projects via the superior cerebellar peduncle to the ventral intermediate nucleus (VIM) of the thalamus, which then projects to the primary motor cortex. Pathological rhythmic firing in this circuit — particularly in the inferior olive (harmaline model) and VIM — drives the peripheral tremor. Both VIM DBS and VIM MRgFUS thalamotomy interrupt this oscillatory circuit, with DBS providing reversible modulation and MRgFUS creating an irreversible lesion at the VIM. GABA interneuron dysfunction and Purkinje cell loss are consistently found pathologically.",
+    "comorbidities": [
+      "Depression and anxiety (elevated in ET — social withdrawal and disability contribute)",
+      "Parkinson's disease (ET can co-occur with or precede PD — DaTSCAN helpful if diagnostic uncertainty)",
+      "Dystonia (task-specific hand dystonia can co-occur with ET)",
+      "Sleep disturbance",
+      "Cognitive complaints (mild cognitive impairment reported in some ET series — may be a distinct phenotype)"
+    ],
+    "differential_diagnoses": [
+      "Parkinson's disease tremor (resting tremor; bradykinesia; rigidity; DaTSCAN abnormal)",
+      "Enhanced physiological tremor (thyrotoxicosis, anxiety, caffeine, medication-induced — exclude with history and bloods)",
+      "Dystonic tremor (associated with dystonic posturing; irregular; position-specific)",
+      "Cerebellar tremor (intention tremor; ataxia; dysmetria — distinguish from ET kinetic tremor)",
+      "Drug-induced tremor (lithium, valproate, beta-agonists, amiodarone — review medication history)",
+      "Wilson's disease (in young patients — wing-beating tremor; Kayser-Fleischer rings; copper studies)",
+      "Functional (psychogenic) tremor (distractibility, entrainment, variable frequency)"
+    ]
+  },
+
+  "patient_friendly_explanation": {
+    "what_is_it": "Essential tremor is the most common tremor condition in adults. It causes an involuntary shaking or trembling — usually in the hands and arms — that happens when you are trying to use them, not when they are at rest. Unlike Parkinson's disease, essential tremor does not cause slowness of movement and is not caused by a problem with dopamine. It is a condition of abnormal rhythmic signalling in the brain circuit that controls movement.",
+    "how_it_affects_you": "Essential tremor most often affects the hands and arms, making it difficult to write, eat, drink from a cup, or do fine motor tasks like buttoning clothes. Some people also have head shaking or a trembling voice. The tremor tends to get worse with fatigue, caffeine, stress, and strong emotions. It can cause significant social embarrassment and can restrict activities and independence as it progresses.",
+    "treatment_options_overview": "Medications (propranolol and primidone) help reduce tremor for many people. If medication is not enough, two types of brain procedures are available. Deep Brain Stimulation (DBS) involves implanting a small device that sends controlled electrical signals to a specific area of the brain (the VIM of the thalamus) to stop the tremor circuits. Focused Ultrasound (MRgFUS) uses focused sound waves — delivered through an MRI scanner — to create a small, precise area in the brain that permanently interrupts the tremor circuit. DBS can be adjusted and switched off; focused ultrasound creates a permanent change.",
+    "what_to_expect": "For DBS, the process involves a surgical procedure to place the electrodes, followed by regular clinic visits to find the best settings. Tremor improvement is usually immediate when the device is switched on. For MRgFUS, the procedure is done in a single session inside an MRI scanner under local anaesthesia and takes 2-3 hours. Tremor often stops immediately. Because MRgFUS is permanent, it is currently only approved for one side of the brain at a time.",
+    "faq": [
+      {
+        "question": "What is the difference between DBS and focused ultrasound for tremor?",
+        "answer": "DBS implants a device that can be adjusted, turned off, or reprogrammed at any time — it is reversible. Focused ultrasound (MRgFUS) makes a permanent small change in the brain — it cannot be undone. Both treatments can reduce tremor by 50-70% on the treated side. DBS is preferred for people who may want to treat the other side later (bilateral), who may have disease progression, or who want an adjustable treatment."
+      },
+      {
+        "question": "Will these treatments cure my tremor?",
+        "answer": "Both DBS and MRgFUS can dramatically reduce tremor — often by 50-70% or more. Many people regain the ability to write, eat, and perform tasks they had lost. However, tremor may not completely disappear, and the underlying condition does not change. DBS benefits can be sustained with ongoing programming."
+      },
+      {
+        "question": "Can both sides of the brain be treated?",
+        "answer": "DBS can be done on both sides (bilateral), though this increases the risk of speech and swallowing side effects and is usually done in stages. Focused ultrasound was approved for one side only until 2023 when bilateral staged MRgFUS was also approved. However, bilateral treatments carry higher risks for speech and swallowing, and your medical team will carefully discuss whether bilateral treatment is appropriate for you."
+      },
+      {
+        "question": "Will I still need medication after DBS or MRgFUS?",
+        "answer": "Many people are able to reduce or stop their tremor medications after successful DBS or MRgFUS treatment. This is discussed with your neurologist based on your individual response."
+      },
+      {
+        "question": "Am I suitable for focused ultrasound (MRgFUS)?",
+        "answer": "MRgFUS suitability depends on your skull anatomy. An assessment called skull density ratio (SDR) measures whether sound waves can pass through your skull adequately. Approximately 20-25% of patients have skull geometry that makes MRgFUS less effective or unsuitable. Your team will assess this before recommending the procedure."
+      }
+    ]
+  },
+
+  "medical_history_requirements": {
+    "required_fields": [
+      {
+        "field": "Confirmed essential tremor diagnosis (clinical — action tremor without PD features; ILAE or MDS criteria)",
+        "reason": "VIM DBS and MRgFUS are specific to ET and tremor-dominant conditions. PD, dystonic tremor, and cerebellar tremor must be excluded.",
+        "blocks_protocol": true
+      },
+      {
+        "field": "Documentation of ≥2 failed adequate pharmacological trials (propranolol, primidone at maximum tolerated doses)",
+        "reason": "Device therapy is indicated only for medication-refractory ET. FDA indications and clinical guidelines require pharmacotherapy failure before surgical intervention.",
+        "blocks_protocol": true
+      },
+      {
+        "field": "Fahn-Tolosa-Marin (FTM) Tremor Rating Scale — baseline score",
+        "reason": "FTM is the primary outcome measure for ET device trials. Baseline score required for response assessment.",
+        "blocks_protocol": true
+      },
+      {
+        "field": "MRI brain (1.5T or 3T) within 12 months",
+        "reason": "Required for surgical planning (DBS VIM targeting), MRgFUS skull density ratio assessment and targeting, and exclusion of structural causes of tremor.",
+        "blocks_protocol": true
+      },
+      {
+        "field": "Skull density ratio (SDR) assessment on CT head (for MRgFUS candidates)",
+        "reason": "SDR <0.45 is a contraindication for MRgFUS — insufficient ultrasound skull transmission. CT analysis required before MRgFUS can proceed.",
+        "blocks_protocol": true
+      },
+      {
+        "field": "Dominant hand documentation",
+        "reason": "Unilateral treatment (MRgFUS or first DBS lead) targets the VIM contralateral to the dominant hand. Dominant hand must be confirmed before laterality decision.",
+        "blocks_protocol": true
+      },
+      {
+        "field": "Cardiac and anaesthesia assessment (for DBS surgical candidates)",
+        "reason": "DBS requires general anaesthesia. MRgFUS requires prolonged MRI compatibility and local anaesthesia tolerance. Cardiac fitness confirmed pre-operatively.",
+        "blocks_protocol": false
+      },
+      {
+        "field": "Neuropsychological assessment (cognitive baseline — MoCA minimum)",
+        "reason": "Cognitive baseline required for DBS candidacy and post-procedure monitoring. Dementia is a relative contraindication for DBS in ET.",
+        "blocks_protocol": false
+      }
+    ],
+    "clinical_interview_checklist": [
+      "Tremor onset age and progression rate",
+      "Body parts affected: hands, head, voice, legs, trunk",
+      "Tremor type: postural, kinetic, task-specific, resting (all action unless advanced)",
+      "Dominant hand and specific functional disability: writing, drinking, eating, dressing",
+      "Family history of tremor (positive in 50-70% of ET cases — autosomal dominant with variable penetrance)",
+      "Alcohol response (tremor improves with alcohol in approximately 70% of ET — ethanol-responsive ET is a positive predictor of VIM DBS response)",
+      "Current medications for tremor: propranolol dose and tolerability; primidone dose and tolerability; other agents tried",
+      "Social and occupational disability from tremor (TETRAS ADL subscale domains)",
+      "Psychiatric history: depression, anxiety",
+      "MRI contraindications review (for MRgFUS: pacemaker, cochlear implants, metallic implants)",
+      "Prior neurosurgical procedures (relevant to anatomy for DBS)",
+      "Patient preference: reversible vs irreversible treatment; bilateral vs unilateral"
+    ],
+    "rule_out_differentials": [
+      "Parkinson's disease tremor: check for bradykinesia, rigidity, postural instability — DaTSCAN if uncertain",
+      "Enhanced physiological tremor: thyroid function tests, caffeine history, medication review (beta-agonists, lithium, valproate, amiodarone)",
+      "Dystonic tremor: look for dystonic posturing, head tilt, task-specificity beyond writing",
+      "Cerebellar ataxia tremor: intention tremor, ataxia, dysmetria — distinguish from kinetic ET",
+      "Drug-induced tremor: full medication review",
+      "Wilson's disease in young patients: serum caeruloplasmin, copper, slit-lamp eye exam",
+      "Functional tremor: distractibility, entrainment, suggestibility — video review helpful"
+    ],
+    "comorbidity_screen": [
+      "Depression: PHQ-9 (elevated rates in ET patients due to social withdrawal and disability)",
+      "Anxiety: GAD-7",
+      "Cognitive function: MoCA (dementia is a relative contraindication for VIM DBS)",
+      "Thyroid function: TSH (hyperthyroidism amplifies physiological tremor)",
+      "Parkinson's features screen: if any features present, DaTSCAN before proceeding"
+    ],
+    "prior_treatment_required": [
+      "Propranolol (60-320 mg/day) — adequate trial at maximum tolerated dose",
+      "Primidone (62.5-750 mg/day) — adequate trial at maximum tolerated dose",
+      "Second-line agents tried where appropriate: topiramate, gabapentin, clonazepam, atenolol",
+      "Alcohol history documented (ethanol response is prognostically relevant)",
+      "Occupational therapy for adaptive equipment (weighted utensils, large-handled cutlery) trialled where appropriate"
+    ],
+    "special_population_flags": [
+      {
+        "population": "Older adults (≥70 years)",
+        "additional_requirements": [
+          "Comprehensive pre-surgical frailty and cognitive assessment before DBS",
+          "MRgFUS may be preferred over DBS in frailer elderly patients due to lower procedural risk",
+          "Increased risk of speech and swallowing side effects with bilateral procedures",
+          "Falls risk assessment mandatory"
+        ]
+      },
+      {
+        "population": "Patients with MRI contraindications",
+        "additional_requirements": [
+          "MRgFUS requires MRI compatibility — pacemakers, cochlear implants, and most metallic implants are absolute contraindications",
+          "DBS is MRI-conditional after implantation — consider device model MRI compatibility before proceeding",
+          "Clarify all implants and devices before MRgFUS assessment"
+        ]
+      }
+    ]
+  },
+
+  "contraindications": {
+    "absolute": [
+      {
+        "condition": "Skull density ratio (SDR) <0.45 on CT skull analysis (for MRgFUS only)",
+        "rationale": "Insufficient ultrasound energy transmission through the skull renders MRgFUS technically unable to reach therapeutic temperature at the VIM target. Absolute contraindication for MRgFUS; DBS is unaffected by SDR."
+      },
+      {
+        "condition": "MRI-incompatible implant (cardiac pacemaker, cochlear implant, non-MRI-conditional metallic clip) — for MRgFUS",
+        "rationale": "MRgFUS is performed inside a 1.5T MRI scanner. Any MRI-incompatible device is an absolute contraindication for MRgFUS. DBS is not affected by this contraindication."
+      },
+      {
+        "condition": "Significant brain atrophy precluding safe VIM targeting",
+        "rationale": "Severe cortical and subcortical atrophy affects ultrasound beam focusing accuracy (MRgFUS) and VIM lead placement precision (DBS)."
+      },
+      {
+        "condition": "No adequate pharmacotherapy trial documented",
+        "rationale": "Device therapy is a second-line intervention for medication-refractory ET. Proceeding without documented pharmacotherapy failure is not clinically appropriate."
+      }
+    ],
+    "relative": [
+      {
+        "condition": "Significant cognitive impairment (MoCA <21)",
+        "rationale": "Cognitive impairment affects DBS management, patient compliance, and programming visits. Also affects MRgFUS procedural tolerability.",
+        "mitigation": "Full neuropsychological assessment. MRgFUS may be considered if patient can tolerate the procedure and family/carer support is robust. DBS requires MDT discussion."
+      },
+      {
+        "condition": "Skull density ratio 0.45-0.55 (borderline for MRgFUS)",
+        "rationale": "Borderline SDR may result in incomplete lesion formation or inadequate tremor control with MRgFUS.",
+        "mitigation": "Detailed skull CT analysis. Neurosurgical team review. Patient counselled on reduced efficacy likelihood. DBS may be preferable."
+      },
+      {
+        "condition": "Bilateral tremor requiring bilateral treatment (MRgFUS)",
+        "rationale": "Bilateral MRgFUS thalamotomy is associated with higher risk of speech and swallowing complications than unilateral.",
+        "mitigation": "Stage bilateral MRgFUS with minimum 6-12 month interval. Detailed speech and swallowing baseline assessment. SLT involvement mandatory. Consider bilateral DBS as lower speech risk alternative."
+      },
+      {
+        "condition": "Active severe depression or active psychiatric illness",
+        "rationale": "Unstabilised psychiatric illness may affect recovery and outcomes.",
+        "mitigation": "Psychiatry co-management. Stabilise before proceeding. Document risk-benefit discussion."
+      }
+    ],
+    "special_populations": [
+      {
+        "population": "Patients with cardiac pacemaker or ICD (for MRgFUS)",
+        "flag": "Absolute MRgFUS contraindication. DBS (with appropriate MRI-conditional device selection) is the alternative."
+      },
+      {
+        "population": "Patients with voice tremor as primary symptom",
+        "flag": "Unilateral VIM DBS or MRgFUS is often insufficient for voice tremor. Bilateral treatment or alternative thalamic targets may be needed. Specialist voice assessment required."
+      }
+    ],
+    "modality_specific": {
+      "dbs": [
+        "Significant brain atrophy — affects lead placement precision and VIM targeting",
+        "Active psychiatric illness — relative contraindication; stabilise first",
+        "Anticoagulation that cannot be safely bridged — absolute surgical contraindication",
+        "MRI-incompatible implants (check specific DBS device MRI compatibility before any post-operative MRI)"
+      ],
+      "mrgfus": [
+        "SDR <0.45 — absolute contraindication",
+        "Any MRI-incompatible implant — absolute contraindication",
+        "Significant brain atrophy — affects focusing accuracy and increases risk of off-target lesion",
+        "Bilateral thalamotomy in single session — not permitted; staged approach required with minimum 6-month interval",
+        "Pacemaker or ICD — absolute contraindication",
+        "Claustrophobia preventing MRI tolerance (consider anxiolytic pre-medication for mild cases)"
+      ]
+    }
+  },
+
+  "assessment_bundle": {
+    "screening": [
+      {
+        "assessment_id": "ASS-ET-001",
+        "name": "TETRAS (Screening)",
+        "full_name": "The Essential Tremor Rating Assessment Scale — Performance Subscale Screening",
+        "clinician_vs_patient": "Clinician-rated",
+        "rationale": "TETRAS is the recommended ET screening and outcome tool. Performance subscale measures tremor in standardised tasks (Archimedes spiral, pouring water, writing). Quick screening version usable at intake for severity categorisation.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 10,
+        "access": "Free — International Essential Tremor Foundation",
+        "population": "Adult with ET"
+      }
+    ],
+    "diagnostic": [
+      {
+        "assessment_id": "ASS-ET-002",
+        "name": "Fahn-Tolosa-Marin TRS (FTM)",
+        "full_name": "Fahn-Tolosa-Marin Tremor Rating Scale",
+        "clinician_vs_patient": "Clinician-rated",
+        "rationale": "Historical gold standard ET rating scale used in most DBS and MRgFUS trials. Three parts: tremor location and amplitude, specific motor tasks (writing, drawing, pouring), and functional disability. Primary outcome measure in VIM DBS and MRgFUS clinical trials. Required at baseline before any device therapy.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 20,
+        "access": "Free (public domain)",
+        "population": "Adult with ET"
+      }
+    ],
+    "baseline": [
+      {
+        "assessment_id": "ASS-ET-002",
+        "name": "FTM — Baseline",
+        "full_name": "Fahn-Tolosa-Marin Tremor Rating Scale — Baseline Assessment",
+        "clinician_vs_patient": "Clinician-rated",
+        "rationale": "Baseline FTM total score and subscale scores are the primary outcome reference point for device therapy. Must be documented before any intervention. MCID for FTM Part A (tremor): 3 points. MCID for FTM Part C (disability): 2 points.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 20,
+        "access": "Free",
+        "population": "Adult with ET"
+      },
+      {
+        "assessment_id": "ASS-ET-001",
+        "name": "TETRAS — Baseline",
+        "full_name": "The Essential Tremor Rating Assessment Scale — Full Baseline",
+        "clinician_vs_patient": "Clinician-rated",
+        "rationale": "TETRAS is increasingly preferred over FTM in contemporary ET trials as it has better psychometric properties. Baseline required for outcome tracking. ADL subscale captures functional disability.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 20,
+        "access": "Free",
+        "population": "Adult with ET"
+      },
+      {
+        "assessment_id": "ASS-ET-003",
+        "name": "Clinical Tremor Rating Scale (Baseline)",
+        "full_name": "Washington Heights-Inwood Genetic Study of Essential Tremor (WHIGET) — Clinical Rating Scale",
+        "clinician_vs_patient": "Clinician-rated",
+        "rationale": "Supplementary tremor rating used in some ET trials. Captures head tremor and voice tremor specifically — useful when these are prominent features.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 15,
+        "access": "Free (research use)",
+        "population": "Adult with ET"
+      }
+    ],
+    "monitoring": [
+      {
+        "assessment_id": "ASS-ET-002",
+        "name": "FTM (Monitoring)",
+        "full_name": "Fahn-Tolosa-Marin TRS — Repeated Assessment",
+        "clinician_vs_patient": "Clinician-rated",
+        "rationale": "Primary monitoring measure. Administered at each programming visit (DBS) or post-procedure visit (MRgFUS). Primary outcome is FTM Part A (tremor rating) reduction from baseline.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 20,
+        "access": "Free",
+        "population": "Adult with ET"
+      },
+      {
+        "assessment_id": "ASS-ET-004",
+        "name": "DBS Parameter Log",
+        "full_name": "VIM DBS Parameter Settings and Telemetry Review",
+        "clinician_vs_patient": "Clinician-rated",
+        "rationale": "Complete DBS parameter record (frequency, pulse width, amplitude, contact configuration, impedance, battery) at every programming visit. Essential for tracking titration and troubleshooting.",
+        "lower_is_better": false,
+        "admin_duration_minutes": 20,
+        "access": "Device programmer (manufacturer-specific)",
+        "population": "ET DBS patients"
+      }
+    ],
+    "outcome": [
+      {
+        "assessment_id": "ASS-ET-002",
+        "name": "FTM (12-Month Outcome)",
+        "full_name": "Fahn-Tolosa-Marin TRS — 12-Month Primary Outcome",
+        "clinician_vs_patient": "Clinician-rated",
+        "rationale": "Primary outcome at 12 months. VIM DBS typically reduces FTM contralateral hand tremor by 60-80%. MRgFUS: similar magnitude in published trials. Responder = ≥50% improvement in FTM Part A hand tremor score.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 20,
+        "access": "Free",
+        "population": "Adult with ET"
+      },
+      {
+        "assessment_id": "ASS-ET-001",
+        "name": "TETRAS (12-Month Outcome)",
+        "full_name": "TETRAS — 12-Month Secondary Outcome",
+        "clinician_vs_patient": "Clinician-rated",
+        "rationale": "Secondary outcome. TETRAS ADL subscale captures functional recovery. Preferred measure in contemporary ET research.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 20,
+        "access": "Free",
+        "population": "Adult with ET"
+      }
+    ],
+    "functional": [
+      {
+        "assessment_id": "ASS-ET-005",
+        "name": "TETRAS ADL Subscale",
+        "full_name": "TETRAS Activities of Daily Living Subscale",
+        "clinician_vs_patient": "Patient self-report",
+        "rationale": "Patient-reported functional disability across 12 ADL tasks (dressing, eating, drinking, writing, telephoning, hygiene). Captures the real-world impact of tremor treatment on daily function. Key secondary outcome for device therapy.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 10,
+        "access": "Free",
+        "population": "Adult with ET"
+      }
+    ]
+  },
+
+  "protocol_bundle": [
+    {
+      "protocol_id": "PRO-DBS-ET-01",
+      "name": "VIM Thalamic DBS for Essential Tremor",
+      "modality_slug": "dbs",
+      "phenotype_id": "PHE-052",
+      "device_id": "DEV-DBS-ET-001",
+      "on_label_vs_off_label": "On-label",
+      "evidence_grade": "EV-A",
+      "evidence_summary": "VIM DBS for ET has FDA approval since 1997 (Medtronic Activa). Multiple controlled trials demonstrate 60-80% reduction in contralateral hand tremor on FTM and TETRAS. Long-term follow-up (5-10 years) shows sustained benefit with ongoing programming, though stimulation tolerance may develop requiring parameter adjustment over time. Bilateral VIM DBS is approved and effective for bilateral tremor, head tremor, and voice tremor, at higher risk of speech and swallowing side effects than unilateral. Preferred over MRgFUS when: bilateral treatment needed, tremor may progress, bilateral disease, younger age, reversibility desired.",
+      "references": [
+        "Benabid AL et al. (1991). Long-Term Suppression of Tremor by Chronic Stimulation of the Ventral Intermediate Thalamic Nucleus. Lancet, 337(8738), 403-406.",
+        "Limousin P et al. (1999). Electrical Stimulation of the Subthalamic Nucleus in Advanced Parkinson's Disease. NEJM, 339(16), 1105-1111.",
+        "Sydow O et al. (2003). Multicentre European Study of Thalamic Stimulation in ET. Journal of Neurology Neurosurgery Psychiatry, 74(10), 1387-1391."
+      ],
+      "brain_target": {
+        "region": "Ventral Intermediate Nucleus of Thalamus",
+        "laterality": "Bilateral",
+        "eeg_position": "N/A",
+        "effect_direction": "Inhibitory"
+      },
+      "parameters": {
+        "frequency_hz": "130-180 Hz (standard 130-160 Hz for ET; higher frequencies for tremor-predominant)",
+        "intensity": "2-4V or mA equivalent",
+        "additional_params": {
+          "pulse_width": "60-90 µs",
+          "stimulation_mode": "Continuous; some patients benefit from cycling (day use only) to reduce tolerance development",
+          "electrode_configuration": "Unilateral first (contralateral to dominant hand); bilateral staged if needed",
+          "vim_coordinates": "Approximately 14-15 mm lateral to midline, 5-6 mm anterior to PC, at level of AC-PC plane — varies by individual thalamic anatomy",
+          "programming_timeline": "Activation 4 weeks post-surgery; titration over 3-6 months"
+        }
+      },
+      "session_structure": {
+        "sessions_per_week": 1,
+        "session_duration_minutes": 60,
+        "total_sessions": 10,
+        "total_weeks": 52,
+        "maintenance_sessions": "Lifelong — 3-6 monthly programming; battery replacement every 3-5 years; annual tremor assessment",
+        "steps": [
+          { "order": 1, "title": "Pre-surgical evaluation — MDT", "duration_minutes": 240, "detail": "Neurological assessment (tremor characterisation, FTM, TETRAS, dominant hand confirmation), MRI brain, neuropsychological assessment, psychiatric review, anaesthesia assessment. MDT confirms candidacy, laterality (unilateral dominant hand first vs bilateral), and target selection." },
+          { "order": 2, "title": "Stereotactic VIM DBS implantation", "duration_minutes": 300, "detail": "Typically awake (for intraoperative tremor mapping) or asleep with MRI guidance. Frame-based or frameless stereotaxy. VIM targeting with microelectrode recording (MER) and macrostimulation to identify tremor suppression and check for side effects. Lead placement and IPG implantation. Post-op imaging to confirm placement." },
+          { "order": 3, "title": "Post-operative recovery (4 weeks inactive)", "duration_minutes": 0, "detail": "Device inactive for 4 weeks. Wound healing. Continue any tremor medications unchanged. Post-operative MRI to confirm lead position." },
+          { "order": 4, "title": "Initial VIM DBS activation (Week 4)", "duration_minutes": 60, "detail": "Activate at conservative parameters (1.5V, 130 Hz, 60 µs). Systematic contact mapping for tremor suppression vs side effects (paraesthesia, ataxia, dysarthria, tinnitus). Identify optimal contact. Provide written programme record." },
+          { "order": 5, "title": "Titration programming visits (every 4-8 weeks)", "duration_minutes": 60, "detail": "FTM assessment. Adjust voltage and contact configuration. VIM DBS titration is often simpler than STN/GPi DBS. Tremor suppression should be evident immediately with adequate parameters. Monitor for speech changes or ataxia (over-stimulation)." },
+          { "order": 6, "title": "Maintenance (3-6 monthly)", "duration_minutes": 60, "detail": "Annual FTM and TETRAS. Battery check. Impedance. Stimulation tolerance assessment (if efficacy declining, try parameter changes: increase frequency, change contact, short holiday). Medication review." }
+        ]
+      },
+      "monitoring_required": [
+        "FTM (all three parts) at every programming visit",
+        "TETRAS ADL subscale at 6 and 12 months",
+        "DBS parameter log and impedance at every visit",
+        "Battery voltage at every visit",
+        "Speech and swallowing assessment at baseline, 6 months, and 12 months (especially bilateral DBS)",
+        "MoCA annually",
+        "PHQ-9 at 6 and 12 months"
+      ],
+      "contraindication_check_required": true,
+      "adverse_event_monitoring": "Stimulation side effects: paraesthesia (most common, usually well tolerated), ataxia (gait unsteadiness — reduce amplitude), dysarthria (especially bilateral — monitor closely), tinnitus (reduce amplitude or change contact). Surgical: haemorrhage (1%), infection (2%), lead displacement. Hardware: lead fracture, battery depletion, IPG malfunction. Stimulation tolerance: gradual reduction of tremor suppression over time — managed by parameter adjustment or stimulation holiday.",
+      "escalation_rules": [
+        "Significant ataxia or new dysarthria after programming: reduce amplitude immediately; reassess contact; consider unipolar to multipolar configuration change",
+        "Stimulation tolerance (reduced efficacy over time): systematic contact mapping; increase frequency; 1-2 week stimulation holiday then reprogram",
+        "Device infection: surgical team assessment; antibiotics; explantation if hardware infection confirmed",
+        "Speech deterioration in bilateral DBS: reduce amplitude bilaterally; consider stimulation only during daytime; SLT referral"
+      ],
+      "patient_facing_allowed": true,
+      "clinician_review_required": true,
+      "governance": {
+        "patient_export_allowed": true,
+        "requires_clinician_sign_off": true,
+        "off_label_acknowledgement_required": false,
+        "dual_review_required": true,
+        "notes": "EV-A, FDA approved since 1997. On-label. Surgical procedure — MDT sign-off required. Dual review required for protocol generation."
+      },
+      "notes": "VIM DBS is the gold standard reversible treatment for medication-refractory ET. Unilateral VIM DBS (contralateral to dominant hand) is the standard initial approach. Bilateral staged DBS is appropriate for bilateral tremor, head tremor, and voice tremor, but carries higher speech and swallowing risk. Stimulation tolerance (tachyphylaxis) can develop over years — managed by parameter changes or structured stimulation holidays."
+    },
+    {
+      "protocol_id": "PRO-FUS-ET-01",
+      "name": "MRgFUS VIM Thalamotomy for Essential Tremor (Focused Ultrasound)",
+      "modality_slug": "mrgfus",
+      "phenotype_id": "PHE-052",
+      "device_id": "DEV-FUS-ET-001",
+      "on_label_vs_off_label": "On-label",
+      "evidence_grade": "EV-A",
+      "evidence_summary": "MRI-guided focused ultrasound (MRgFUS) unilateral VIM thalamotomy received FDA clearance in 2016 for medication-refractory essential tremor. FDA bilateral staged clearance received in 2023. The pivotal trial (Elias et al., NEJM 2016) showed 47% improvement in hand tremor score (FTM Part A) vs 0.1% in sham at 3 months, and 56% at 12 months. Multiple confirmatory studies consistently show 50-70% improvement in contralateral hand tremor. InSightec Exablate Neuro 4000 is the FDA-cleared system. The procedure is performed inside an MRI scanner under local anaesthesia with no incision. The lesion is irreversible. Skull density ratio (SDR) ≥0.45 is required for adequate ultrasound skull penetration.",
+      "references": [
+        "Elias WJ et al. (2016). A Randomized Trial of Focused Ultrasound Thalamotomy for Essential Tremor. NEJM, 375(8), 730-739.",
+        "Halpern CH et al. (2019). Magnetic Resonance-Guided Focused Ultrasound for the Treatment of Essential Tremor. Annals of Neurology, 85(1), 75-84.",
+        "Zaaroor M et al. (2018). Magnetic Resonance-Guided Focused Ultrasound Thalamotomy for Tremor. Journal of Neurosurgery, 128(1), 202-210."
+      ],
+      "brain_target": {
+        "region": "Ventral Intermediate Nucleus of Thalamus (VIM Thalamotomy)",
+        "laterality": "Left",
+        "eeg_position": "N/A",
+        "effect_direction": "Inhibitory"
+      },
+      "parameters": {
+        "frequency_hz": "220 kHz ultrasound frequency (InSightec Exablate Neuro 4000 transducer)",
+        "intensity": "Target temperature 55-60°C at VIM target (thermal lesion); sonication energy escalated in multiple test sonications before therapeutic dose",
+        "additional_params": {
+          "skull_density_ratio": "SDR ≥0.45 required — assessed on CT head prior to procedure",
+          "target_coordinates": "VIM thalamus — contralateral to dominant hand; MRI-based stereotactic targeting within the Exablate system",
+          "lesion_size": "Thermal ablation lesion approximately 3-4 mm diameter at VIM",
+          "procedure_duration": "1-3 hours total in MRI scanner; multiple test and therapeutic sonications",
+          "anaesthesia": "Local anaesthesia and mild sedation; patient awake for tremor monitoring during sonications",
+          "mri_requirement": "1.5T MRI scanner inside dedicated MRgFUS suite (InSightec Exablate Neuro)"
+        }
+      },
+      "session_structure": {
+        "sessions_per_week": 1,
+        "session_duration_minutes": 180,
+        "total_sessions": 1,
+        "total_weeks": 1,
+        "maintenance_sessions": "No ongoing sessions required. Follow-up visits at 1 month, 3 months, 6 months, and 12 months post-procedure. Bilateral staged procedure (second side) at minimum 6-12 months after first if indicated.",
+        "steps": [
+          { "order": 1, "title": "Pre-procedure assessment and skull SDR confirmation", "duration_minutes": 60, "detail": "CT head for SDR calculation. Confirm SDR ≥0.45. MRI brain for VIM targeting plan. Review all MRI contraindications (pacemakers, implants). Blood tests (FBC, coagulation). Anaesthesia review. Written consent obtained." },
+          { "order": 2, "title": "Head frame and stereotactic planning", "duration_minutes": 60, "detail": "Patient fitted with stereotactic head frame and ultrasound transducer helmet in MRgFUS suite. MRI acquired for VIM targeting within Exablate planning software. Skull segmentation for acoustic modelling." },
+          { "order": 3, "title": "Test sonications (low energy)", "duration_minutes": 30, "detail": "Multiple low-energy test sonications to confirm targeting and skull penetration. Patient responds verbally to confirm tremor response and check for side effects (paraesthesia, ataxia, dysarthria). Sonication energy incrementally increased." },
+          { "order": 4, "title": "Therapeutic sonication (VIM lesioning)", "duration_minutes": 30, "detail": "Therapeutic sonication(s) at target temperature 55-60°C. Tremorographic monitoring confirms tremor suppression in real-time. MRI thermometry confirms thermal distribution. Patient verbal reports side effects throughout." },
+          { "order": 5, "title": "Post-procedure MRI and recovery", "duration_minutes": 60, "detail": "MRI confirms lesion at VIM. Frame removal. Patient rests 2-4 hours. Neurological examination. Discharge criteria: stable neurological exam, patient ambulatory with assistance, responsible adult available. Tremor assessment before discharge (FTM)." }
+        ]
+      },
+      "monitoring_required": [
+        "FTM (all parts) at 1 month, 3 months, 6 months, and 12 months post-procedure",
+        "TETRAS ADL subscale at 3 and 12 months",
+        "Neurological examination at each follow-up (gait, speech, swallowing, coordination)",
+        "MRI brain at 3 months post-procedure to assess lesion characteristics",
+        "PHQ-9 at 6 months (depression screening)",
+        "Speech and swallowing review at 3 months (especially if any peri-procedural changes)"
+      ],
+      "contraindication_check_required": true,
+      "adverse_event_monitoring": "Immediate peri-procedural: paraesthesia (30-40% — often transient), gait ataxia (15-20% — usually improves), dizziness, headache. Persistent (lasting >3 months): gait imbalance (10%), persistent paraesthesia (10%), speech changes (5%). Serious but rare: non-target brain heating, cerebral oedema, haemorrhage (very rare). Bilateral complications: higher rate of persistent gait and speech effects than unilateral. Lesion is permanent — irreversible side effects must be accepted as a risk and discussed in consent.",
+      "escalation_rules": [
+        "Significant ataxia or dysarthria immediately post-procedure: neurological assessment; MRI brain; neurosurgical review; steroid treatment for oedema if indicated",
+        "Tremor recurrence at 12 months: repeat FTM and MRI; assess lesion adequacy; consider repeat procedure or transition to VIM DBS (only at specialist centres with both capabilities)",
+        "Any new neurological deficit post-procedure: emergency MRI; neurosurgical review"
+      ],
+      "patient_facing_allowed": true,
+      "clinician_review_required": true,
+      "governance": {
+        "patient_export_allowed": true,
+        "requires_clinician_sign_off": true,
+        "off_label_acknowledgement_required": false,
+        "dual_review_required": true,
+        "notes": "EV-A, FDA cleared 2016 (unilateral) and 2023 (bilateral staged). On-label. InSightec Exablate Neuro 4000 is the only FDA-cleared system. Specialist MRgFUS centre with dedicated 1.5T MRI and trained neurosurgical team required. Dual review and MDT sign-off required."
+      },
+      "notes": "MRgFUS VIM thalamotomy is an important alternative to VIM DBS for ET. Key advantages: no surgery, no implant, immediate tremor reduction, no anaesthesia risk, no device maintenance. Key disadvantages: irreversible lesion (cannot be adjusted or reversed), currently unilateral (bilateral staged carries higher speech/gait risk), requires specific skull anatomy (SDR ≥0.45), and tremor may recur over years as lesion evolves. Ideal for: older patients, those preferring no implant, adequate skull anatomy (SDR ≥0.45), predominantly unilateral dominant hand tremor."
+    }
+  ],
+
+  "device_options": [
+    {
+      "device_id": "DEV-DBS-ET-001",
+      "name": "Medtronic Activa SC / PC (VIM DBS)",
+      "manufacturer": "Medtronic",
+      "modality_slug": "dbs",
+      "regulatory_status": "FDA-cleared",
+      "cleared_indication": "FDA approved for VIM thalamic DBS for essential tremor since 1997",
+      "use_setting": "Clinic",
+      "compatible_protocols": ["PRO-DBS-ET-01"],
+      "constraints": [
+        "Requires specialist neurosurgical centre with DBS experience",
+        "MRI conditional — follow Medtronic MRI guidelines; 1.5T body and 3T head conditional",
+        "Battery replacement surgery required every 3-5 years or device charging (rechargeable models)"
+      ],
+      "notes": "Medtronic has the longest-established FDA approval for VIM DBS in ET. Activa SC (single channel) or PC (dual channel for bilateral) are the standard devices."
+    },
+    {
+      "device_id": "DEV-DBS-ET-002",
+      "name": "Abbott Infinity DBS System (VIM)",
+      "manufacturer": "Abbott",
+      "modality_slug": "dbs",
+      "regulatory_status": "FDA-cleared",
+      "cleared_indication": "FDA approved for VIM DBS in essential tremor",
+      "use_setting": "Clinic",
+      "compatible_protocols": ["PRO-DBS-ET-01"],
+      "constraints": [
+        "Directional stimulation capability may improve therapeutic window in VIM DBS",
+        "MRI full-body conditional",
+        "Patient controller app for within-range amplitude adjustment"
+      ],
+      "notes": "Abbott Infinity directional stimulation may be particularly useful in VIM DBS to steer current away from internal capsule while maintaining tremor suppression."
+    },
+    {
+      "device_id": "DEV-FUS-ET-001",
+      "name": "InSightec Exablate Neuro 4000",
+      "manufacturer": "InSightec",
+      "modality_slug": "mrgfus",
+      "regulatory_status": "FDA-cleared",
+      "cleared_indication": "FDA cleared for unilateral VIM thalamotomy for medication-refractory ET (2016); bilateral staged (2023)",
+      "use_setting": "Clinic",
+      "compatible_protocols": ["PRO-FUS-ET-01"],
+      "constraints": [
+        "Requires dedicated 1.5T MRI scanner with Exablate Neuro integration — cannot be used with standard clinical MRI",
+        "Patient must have SDR ≥0.45 on pre-procedure CT skull analysis",
+        "Specialist MRgFUS programme required — trained neurosurgeon, radiologist, and physicist team",
+        "Bilateral procedure requires separate staged session minimum 6-12 months apart"
+      ],
+      "notes": "The only FDA-cleared focused ultrasound system for VIM thalamotomy in ET. Available at specialist MRgFUS centres. Procedure is outpatient or short inpatient. No implant, no incision."
+    }
+  ],
+
+  "brain_targets": [
+    {
+      "region": "Ventral Intermediate Nucleus of Thalamus",
+      "abbreviation": "VIM",
+      "laterality": "Bilateral",
+      "rationale": "The VIM is the primary thalamic relay for proprioceptive and motor cerebellar inputs via the dentato-rubro-thalamic tract. It is a critical node in the cerebello-thalamo-cortical (CTC) tremor circuit. High-frequency VIM DBS suppresses pathological tremor-frequency oscillations (4-12 Hz) passing through this nucleus, interrupting the tremor loop without damaging surrounding structures. MRgFUS VIM thalamotomy creates an irreversible thermal lesion that permanently disrupts this oscillatory circuit. VIM is targeted contralateral to the trembling limb.",
+      "effect_direction": "Inhibitory",
+      "modalities": ["dbs", "mrgfus"],
+      "eeg_position_10_20": "N/A",
+      "network": "Cerebello-Thalamo-Cortical Tremor Circuit",
+      "evidence_note": "Primary and only target for ET device therapy. FDA approved for both DBS (1997) and MRgFUS (2016/2023)."
+    }
+  ],
+
+  "handbook_outputs": {
+    "clinician_handbook": {
+      "title": "Essential Tremor — Clinician Handbook for Neuromodulation",
+      "audience": "Clinician",
+      "sections": [
+        {
+          "section_id": "CH-ET-01",
+          "title": "Device Candidacy and Modality Selection",
+          "content": [
+            "Confirm ET diagnosis: action tremor (postural and kinetic) without bradykinesia or rigidity; DaTSCAN if PD cannot be excluded clinically",
+            "Drug-refractory definition: failure of ≥2 adequate pharmacological trials (propranolol to 320 mg/day; primidone to 750 mg/day) at maximum tolerated doses",
+            "SDR assessment (CT skull): mandatory before offering MRgFUS — SDR <0.45 redirects to DBS",
+            "MRgFUS preferred if: unilateral dominant hand tremor, adequate SDR, older patient preferring no implant, low surgical risk",
+            "DBS preferred if: bilateral tremor anticipated, head or voice tremor requiring bilateral treatment, younger patient, desire for reversibility, SDR borderline or low"
+          ]
+        },
+        {
+          "section_id": "CH-ET-02",
+          "title": "VIM DBS Programming Guide",
+          "content": [
+            "Activate at conservative settings (1.5V, 130 Hz, 60 µs); systematically assess each contact for tremor suppression vs side effects",
+            "Titrate voltage to find therapeutic window: tremor suppression without ataxia, paraesthesia, or dysarthria",
+            "For bilateral VIM DBS: start at lower amplitudes bilaterally; monitor speech and gait carefully",
+            "Stimulation tolerance (tachyphylaxis): increase frequency (up to 180 Hz), change contact, or implement 1-2 week stimulation holiday then reprogram",
+            "Cycling mode (on during waking hours, off during sleep): reduces tolerance development in some patients"
+          ]
+        },
+        {
+          "section_id": "CH-ET-03",
+          "title": "MRgFUS Pre-Procedure Planning",
+          "content": [
+            "Skull density ratio (SDR) assessed from CT head with Exablate planning software — minimum SDR 0.45",
+            "MRI brain acquired for VIM targeting using InSightec Exablate planning workstation",
+            "All MRI-incompatible implants must be identified and assessed — pacemaker or cochlear implant = absolute MRgFUS contraindication",
+            "Anticoagulants: aspirin held 7 days; warfarin held and bridged; DOACs held per local protocol",
+            "Patient must be able to tolerate 1.5-3 hours in MRI with head frame — assess for claustrophobia"
+          ]
+        }
+      ]
+    },
+    "patient_guide": {
+      "title": "Essential Tremor Treatment — Patient Guide",
+      "audience": "Patient",
+      "sections": [
+        {
+          "section_id": "PG-ET-01",
+          "title": "Understanding Your Tremor",
+          "content": [
+            "Essential tremor is a condition where brain circuits that control movement produce unwanted rhythmic shaking when you try to use your hands or arms",
+            "It is the most common tremor condition in adults and is not the same as Parkinson's disease",
+            "It often runs in families and tends to gradually worsen over time"
+          ]
+        },
+        {
+          "section_id": "PG-ET-02",
+          "title": "Your Treatment Options",
+          "content": [
+            "DBS places a small device under your skin that sends gentle electrical pulses to the tremor-controlling part of the brain (called the VIM) — this can be adjusted and switched off",
+            "Focused Ultrasound (MRgFUS) uses sound waves from inside an MRI scanner to create a tiny precise area of change in the brain that stops the tremor — this is permanent and cannot be undone",
+            "Both treatments typically reduce the tremor in the treated hand by 50-70% or more",
+            "Your doctor will advise which option is most suitable based on your skull anatomy, health, and preferences"
+          ]
+        }
+      ]
+    },
+    "technician_sop": {
+      "title": "ET DBS Programming — Technician SOP",
+      "audience": "Clinician",
+      "sections": [
+        {
+          "section_id": "SOP-ET-01",
+          "title": "VIM DBS Programming Session",
+          "content": [
+            "Confirm patient identity and DBS device manufacturer and model",
+            "Connect programmer and perform telemetry: impedance all contacts, battery voltage, current settings",
+            "Perform FTM hand tremor assessment before any parameter changes",
+            "Programme each contact systematically: document tremor suppression and any side effects (paraesthesia, ataxia, dysarthria, tinnitus)",
+            "Identify optimal contact and document in record",
+            "All parameter changes require supervising neurologist sign-off",
+            "FTM re-assessment after programming to document tremor change",
+            "Provide written parameter record to patient"
+          ]
+        }
+      ]
+    }
+  },
+
+  "monitoring_rules": {
+    "assessment_schedule": [
+      {
+        "assessment_id": "ASS-ET-002",
+        "assessment_name": "Fahn-Tolosa-Marin TRS",
+        "timing": "Every programming visit (DBS); post-procedure visits 1, 3, 6, 12 months (MRgFUS)",
+        "frequency": "Every 4-8 weeks during DBS titration; 3-6 monthly maintenance; post-MRgFUS follow-up schedule",
+        "administered_by": "Clinician-rated"
+      },
+      {
+        "assessment_id": "ASS-ET-001",
+        "assessment_name": "TETRAS",
+        "timing": "Baseline, 6 months, and 12 months",
+        "frequency": "6-monthly in first year; annually thereafter",
+        "administered_by": "Clinician-rated"
+      },
+      {
+        "assessment_id": "ASS-ET-004",
+        "assessment_name": "DBS Parameter Log",
+        "timing": "Every programming visit (DBS patients only)",
+        "frequency": "Every 4-8 weeks during titration; 3-6 monthly maintenance",
+        "administered_by": "Clinician-rated"
+      }
+    ],
+    "response_thresholds": [
+      {
+        "assessment_id": "ASS-ET-002",
+        "assessment_name": "FTM Tremor Rating Scale",
+        "lower_is_better": true,
+        "response_threshold": "≥50% reduction in FTM Part A (tremor score) for the treated side from baseline",
+        "remission_threshold": "FTM Part A treated side score ≤4 (near-complete tremor suppression)",
+        "non_response_threshold": "<30% improvement at 6 months — review DBS parameters or MRgFUS adequacy",
+        "deterioration_threshold": "FTM increase ≥10 points from best score — investigate stimulation tolerance, device fault, or disease progression"
+      },
+      {
+        "assessment_id": "ASS-ET-005",
+        "assessment_name": "TETRAS ADL Subscale",
+        "lower_is_better": true,
+        "response_threshold": "≥4 point improvement from baseline TETRAS ADL score",
+        "remission_threshold": "TETRAS ADL ≤8 (minimal functional disability)",
+        "non_response_threshold": "<3 point improvement at 12 months — assess patient-reported barriers and reassess clinical response",
+        "deterioration_threshold": "≥6 point increase from best score — assess for disease progression, tolerance, or device issue"
+      }
+    ],
+    "adverse_event_triggers": [
+      {
+        "event_type": "Acute gait ataxia post-DBS programming or post-MRgFUS",
+        "severity": "Moderate",
+        "action": "For DBS: immediately reduce amplitude; reassess contact. For MRgFUS: neurological assessment; MRI if persistent beyond 24 hours; steroid treatment if oedema suspected",
+        "suspend_treatment": false
+      },
+      {
+        "event_type": "Significant dysarthria (speech change) — bilateral DBS or post-MRgFUS",
+        "severity": "Moderate",
+        "action": "For DBS: reduce bilateral amplitudes; consider alternating side stimulation. For MRgFUS: urgent SLT assessment; MRI brain for lesion review",
+        "suspend_treatment": false
+      },
+      {
+        "event_type": "Device infection",
+        "severity": "Serious",
+        "action": "Antibiotics; surgical team assessment within 24 hours; explantation if hardware infection confirmed",
+        "suspend_treatment": true
+      },
+      {
+        "event_type": "Post-MRgFUS neurological deficit (motor weakness, visual change)",
+        "severity": "Serious",
+        "action": "Emergency MRI brain; neurosurgical review; steroid treatment for oedema; report to InSightec and regulatory authority",
+        "suspend_treatment": true
+      }
+    ],
+    "escalation_rules": [
+      {
+        "trigger": "Significant ataxia or dysarthria immediately post-programming or post-procedure",
+        "action": "Immediate assessment; DBS amplitude reduction; MRgFUS — MRI and neurosurgical review",
+        "urgency": "Urgent"
+      },
+      {
+        "trigger": "FTM response <30% at 6 months",
+        "action": "Review DBS programming systematically; post-operative imaging to confirm lead position; consider MRgFUS repeat assessment for inadequate lesion",
+        "urgency": "Routine"
+      },
+      {
+        "trigger": "Any post-MRgFUS neurological deficit beyond expected transient peri-procedural effects",
+        "action": "Emergency MRI; neurosurgical review; regulatory AE reporting",
+        "urgency": "Emergency"
+      }
+    ],
+    "adherence_rules": {
+      "minimum_session_adherence_pct": 80,
+      "consecutive_missed_sessions_flag": 2,
+      "action_on_low_adherence": "Contact patient; facilitate transport or remote consultation for stable DBS patients; document barriers"
+    }
+  },
+
+  "report_templates": [
+    {
+      "id": "RPT-ET-01",
+      "name": "ET Device Therapy — Intake and Candidacy Summary",
+      "report_type": "intake-summary",
+      "audience": "Referring Physician",
+      "frequency": "Once — at candidacy decision",
+      "sections": [
+        {
+          "section_id": "RPT-ET-01-A",
+          "title": "Tremor Characterisation and Drug-Refractory Status",
+          "auto_populate_from": ["diagnosis", "tremor_type", "dominant_hand", "failed_medications", "ftm_baseline"],
+          "clinician_narrative_prompt": "Describe tremor characterisation (body parts, action vs rest, dominant hand), FTM baseline scores, and document the failed pharmacological trials establishing drug-refractory status.",
+          "required": true
+        },
+        {
+          "section_id": "RPT-ET-01-B",
+          "title": "Device Selection and Rationale",
+          "auto_populate_from": ["sdr_value", "mri_contraindications", "recommended_device", "protocol_id"],
+          "clinician_narrative_prompt": "State the recommended intervention (VIM DBS or MRgFUS), skull density ratio (if MRgFUS assessed), and clinical rationale for the selection. Document bilateral vs unilateral approach.",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "RPT-ET-02",
+      "name": "ET Device Therapy — 12-Month Outcome Report",
+      "report_type": "end-of-course-report",
+      "audience": "Referring Physician",
+      "frequency": "At 12 months post-procedure or post-activation",
+      "sections": [
+        {
+          "section_id": "RPT-ET-02-A",
+          "title": "Tremor Outcome",
+          "auto_populate_from": ["ftm_baseline", "ftm_current", "tetras_baseline", "tetras_current"],
+          "clinician_narrative_prompt": "Compare FTM and TETRAS scores from baseline to 12 months. State responder status (≥50% FTM Part A improvement). Describe functional recovery.",
+          "required": true
+        },
+        {
+          "section_id": "RPT-ET-02-B",
+          "title": "Device Status or Lesion Assessment",
+          "auto_populate_from": ["device_parameters", "battery_status", "mri_lesion_report"],
+          "clinician_narrative_prompt": "For DBS: document current parameters, battery status, any programming changes. For MRgFUS: describe lesion appearance on 3-month MRI and clinical stability.",
+          "required": true
+        }
+      ]
+    }
+  ],
+
+  "home_program_templates": [
+    {
+      "id": "HPT-ET-01",
+      "name": "ET DBS — Home Device Monitoring Programme",
+      "modality_slug": "dbs",
+      "device_required": "DBS patient controller (manufacturer-specific)",
+      "prerequisite_clinic_sessions": 3,
+      "sessions_per_week": 7,
+      "session_duration_minutes": 5,
+      "total_weeks": 0,
+      "patient_instructions": [
+        "Check that your DBS device is on each morning using your patient controller",
+        "Monitor battery level — recharge as directed (rechargeable devices) or note battery level on controller",
+        "If you notice your tremor is returning or worsening, check that the device is still on",
+        "You may turn the device off at night if your clinical team has agreed to this — this can reduce stimulation tolerance over time",
+        "Tell all medical teams (including dentist, A&E, MRI department) that you have a DBS device before any procedure",
+        "Contact your DBS clinic if: tremor significantly worsens, the device appears to have stopped, you notice swelling or pain near the device"
+      ],
+      "safety_checklist": [
+        "DBS device is confirmed ON via patient controller",
+        "Battery is at adequate level",
+        "No signs of infection at device or wound sites",
+        "Clinic emergency contact number available"
+      ],
+      "reporting_requirements": [
+        "Note any significant change in tremor control",
+        "Record any device alerts from patient controller",
+        "Bring notes and any concerns to programming visits"
+      ],
+      "contraindications_for_home": [
+        "Do not change DBS parameters at home — all programming at clinic only",
+        "Do not have MRI without checking with your DBS team first",
+        "Avoid strong magnetic fields near the device"
+      ],
+      "evidence_note": "Home monitoring for ET DBS patients. No active stimulation parameter changes at home. Some DBS patient controllers allow within-range amplitude self-adjustment — confirm with clinical team whether this is enabled."
+    }
+  ],
+
+  "consent_documents": [
+    {
+      "id": "CON-ET-01",
+      "name": "Essential Tremor — Condition-Level Informed Consent",
+      "document_type": "informed-consent",
+      "when_required": "Before protocol generation and device referral",
+      "key_disclosures": [
+        "Essential tremor has been confirmed and medication-refractory status documented",
+        "Device therapy (DBS or MRgFUS) can reduce tremor by 50-70% but may not completely eliminate it",
+        "Bilateral treatment carries higher risk of speech and swallowing side effects than unilateral",
+        "DBS is reversible and adjustable; MRgFUS is permanent and cannot be undone",
+        "Long-term follow-up is required for all device therapy"
+      ],
+      "signature_required": true,
+      "witness_required": false,
+      "clinician_co_sign_required": true,
+      "review_frequency": "Annually"
+    },
+    {
+      "id": "CON-ET-02",
+      "name": "VIM DBS — Surgical Informed Consent for ET",
+      "document_type": "informed-consent",
+      "modality_slug": "dbs",
+      "when_required": "Before VIM DBS implantation surgery",
+      "key_disclosures": [
+        "VIM DBS requires stereotactic neurosurgery under general or local anaesthesia",
+        "Surgical risks: intracranial haemorrhage (~1%), infection (~2%), lead displacement",
+        "Stimulation side effects: paraesthesia, gait unsteadiness (ataxia), speech changes — usually manageable by programming adjustment",
+        "Bilateral DBS carries higher risk of speech and gait side effects than unilateral",
+        "Stimulation tolerance can develop over years — managed by parameter adjustment",
+        "Battery replacement surgery required every 3-5 years",
+        "MRI restrictions apply after DBS implantation",
+        "Right to withdraw: device can be switched off at any time"
+      ],
+      "signature_required": true,
+      "witness_required": true,
+      "clinician_co_sign_required": true,
+      "review_frequency": "Once (before surgery)"
+    },
+    {
+      "id": "CON-ET-03",
+      "name": "MRgFUS VIM Thalamotomy — Informed Consent for ET",
+      "document_type": "informed-consent",
+      "modality_slug": "mrgfus",
+      "when_required": "Before MRgFUS thalamotomy procedure",
+      "key_disclosures": [
+        "MRgFUS creates a permanent irreversible lesion in the brain — it cannot be undone",
+        "The procedure is done inside an MRI scanner and takes 1-3 hours; no incision is made",
+        "Skull density ratio has been assessed and the procedure is technically feasible for this patient",
+        "Side effects: paraesthesia (30-40% — usually transient), gait unsteadiness (15-20%), speech changes (5-10%) — some may be permanent",
+        "Bilateral MRgFUS (if needed) carries higher risk of speech and gait effects — staged with minimum 6-12 month interval",
+        "Tremor may recur over years as the brain adapts — further treatment (repeat MRgFUS or DBS) may be considered",
+        "No device implanted — no battery, no programming visits required after healing period",
+        "All MRI-incompatible implants have been reviewed and the patient is confirmed MRI compatible"
+      ],
+      "signature_required": true,
+      "witness_required": true,
+      "clinician_co_sign_required": true,
+      "review_frequency": "Once (before procedure)"
+    }
+  ]
+}

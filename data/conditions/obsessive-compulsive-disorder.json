@@ -1,0 +1,1570 @@
+{
+  "$schema": "../schemas/condition-package.schema.json",
+  "schema_version": "1.0.0",
+  "id": "CON-003",
+  "slug": "obsessive-compulsive-disorder",
+  "name": "Obsessive-Compulsive Disorder (OCD)",
+  "category": "Psychiatric — OCD-Spectrum",
+  "icd_10": [
+    "F42",
+    "F42.0",
+    "F42.1",
+    "F42.2",
+    "F42.8",
+    "F42.9"
+  ],
+  "dsm_5_code": "300.3",
+  "created_at": "2026-04-12",
+  "updated_at": "2026-04-12",
+  "review_status": "reviewed",
+  "reviewed_by": "DeepSynaps Clinical Team",
+  "condition_overview": {
+    "summary": "Obsessive-Compulsive Disorder (OCD) is a debilitating psychiatric condition characterised by recurrent, intrusive obsessional thoughts and/or repetitive compulsive behaviours that are time-consuming and cause significant distress or functional impairment. OCD arises from dysregulation of cortico-striato-thalamo-cortical (CSTC) circuits and involves hyperactivation of the orbitofrontal cortex (OFC), anterior cingulate cortex (ACC), and supplementary motor area (SMA). It is classified as a chronic condition requiring long-term management with response rates to first-line treatment (SSRIs + ERP) of only 40â€“60%.",
+    "prevalence": "OCD affects approximately 2â€“3% of the population globally, with a bimodal onset in early adolescence and young adulthood. It is equally prevalent in males and females, though males tend to have earlier onset. OCD is ranked among the top 10 most disabling conditions by the World Health Organization.",
+    "phenotype_clusters": [
+      {
+        "id": "PHE-015",
+        "name": "Contamination/Washing",
+        "description": "Obsessive fear of contamination by germs, chemicals, or disease, leading to excessive handwashing, cleaning rituals, and avoidance of perceived contaminants. Most responsive to ERP-based approaches combined with Deep TMS.",
+        "primary_modality": "deep-tms",
+        "qeeg_signature": "Elevated OFC-ACC theta; hypercoherence in CSTC circuits"
+      },
+      {
+        "id": "PHE-016",
+        "name": "Symmetry/Ordering",
+        "description": "Obsessive need for symmetry, exactness, or things to feel 'just right', resulting in ordering, arranging, and repeating compulsions. Often associated with magical thinking.",
+        "primary_modality": "deep-tms",
+        "qeeg_signature": "SMA hyperactivation; bilateral frontal hypercoherence"
+      },
+      {
+        "id": "PHE-017",
+        "name": "Harm/Checking",
+        "description": "Intrusive thoughts about causing harm to self or others (ego-dystonic), leading to checking compulsions (doors, stoves, locks) and reassurance-seeking. Significant distress and functional avoidance.",
+        "primary_modality": "deep-tms",
+        "qeeg_signature": "Right frontal hyperactivation; elevated DLPFC-OFC connectivity"
+      },
+      {
+        "id": "PHE-018",
+        "name": "Hoarding",
+        "description": "Persistent difficulty discarding possessions regardless of actual value, due to perceived need to save items and distress at discarding. Often considered a distinct neurobiological subtype with different CSTC involvement.",
+        "primary_modality": "tms",
+        "qeeg_signature": "Reduced right DLPFC activation; atypical SMA engagement"
+      },
+      {
+        "id": "PHE-019",
+        "name": "Pure Obsessional (Pure-O)",
+        "description": "Predominantly intrusive obsessional thoughts (often taboo, sexual, aggressive, or religious) with minimal overt compulsions. Covert mental compulsions (neutralising, praying, counting) are present. Often misdiagnosed.",
+        "primary_modality": "tms",
+        "qeeg_signature": "Elevated resting anterior cingulate theta; reduced frontal alpha"
+      }
+    ],
+    "severity_levels": [
+      "Mild",
+      "Moderate",
+      "Severe",
+      "Treatment-resistant"
+    ],
+    "population": [
+      "Adolescent (12+, Deep TMS label)",
+      "Adult (18+)"
+    ],
+    "symptom_clusters": [
+      "Obsessions (intrusive, unwanted, recurrent thoughts, urges, or images)",
+      "Compulsions (repetitive mental or behavioural acts performed to neutralise obsessions)",
+      "Significant distress and anxiety",
+      "Functional impairment (occupational, academic, relational)",
+      "Avoidance of obsession-triggering situations",
+      "Insight variability (good/fair vs. poor/absent insight specifiers)"
+    ],
+    "highest_evidence_level": "EV-A",
+    "relevant_modalities": [
+      "deep-tms",
+      "tms",
+      "dbs",
+      "tdcs"
+    ],
+    "neurobiology": "OCD involves hyperactivation of the cortico-striato-thalamo-cortical (CSTC) circuit, particularly the orbitofrontal cortex (OFC), anterior cingulate cortex (ACC), caudate nucleus, and thalamus. The SMA is implicated in the urge-to-act phenomenology. BrainsWay H7-coil Deep TMS targets the medial prefrontal cortex and ACC, normalising the hyperactive CSTC loop. DBS targets the anterior limb of the internal capsule (ALIC) or bed nucleus of the stria terminalis (BNST) for severe refractory cases. Serotonergic and glutamatergic dysregulation are key neurochemical substrates.",
+    "comorbidities": [
+      "Major depressive disorder (up to 67% lifetime comorbidity)",
+      "Generalised anxiety disorder (up to 37%)",
+      "Specific phobias (up to 22%)",
+      "Tic disorders and Tourette syndrome (20â€“30%, especially in males)",
+      "Body dysmorphic disorder (BDD, OCD-spectrum comorbidity)",
+      "Eating disorders",
+      "Autism spectrum disorder",
+      "ADHD",
+      "Substance use disorders"
+    ],
+    "differential_diagnoses": [
+      "Generalised anxiety disorder (excessive worry vs. ego-dystonic obsessions)",
+      "Body dysmorphic disorder (obsessional focus on physical appearance)",
+      "Health anxiety/illness anxiety disorder",
+      "PTSD (intrusive trauma memories vs. OCD obsessions)",
+      "Eating disorders (food-related obsessions/rituals)",
+      "Tic disorders (complex tics vs. compulsions â€” tics are premonitory urge-driven, less anxiety-reducing)",
+      "Schizophrenia (delusions vs. poor-insight OCD â€” assess ego-dystonicity)",
+      "Autism spectrum disorder (rigid/repetitive behaviours, but not anxiety-driven)",
+      "Hoarding disorder (distinct from OCD hoarding subtype)",
+      "Obsessive-compulsive personality disorder (OCPD â€” egosyntonic)"
+    ]
+  },
+  "patient_friendly_explanation": {
+    "what_is_it": "Obsessive-Compulsive Disorder (OCD) is a brain condition where your mind becomes stuck in a loop of unwanted, distressing thoughts (obsessions) and repetitive actions or mental rituals (compulsions) that feel necessary to reduce the anxiety. OCD is not a sign of weakness or a character flaw â€” it results from specific circuits in the brain being overactive.",
+    "how_it_affects_you": "OCD can take over many hours of your day. You might feel compelled to wash your hands repeatedly, check locks or switches, count, arrange objects, or mentally repeat phrases â€” even though you know these actions do not make logical sense. The thoughts that drive these behaviours are intrusive, unwanted, and cause significant distress. OCD often affects work, relationships, and quality of life.",
+    "treatment_options_overview": "The most effective treatments for OCD combine medication (usually an SSRI) and a specific type of therapy called Exposure and Response Prevention (ERP). When these are not enough, brain stimulation treatments can help. Deep TMS (Transcranial Magnetic Stimulation) using a specialised H7 coil is FDA-cleared for OCD â€” it uses magnetic pulses to calm the overactive brain circuits driving OCD symptoms. Severe treatment-resistant cases may be considered for Deep Brain Stimulation (DBS).",
+    "what_to_expect": "If you receive Deep TMS for OCD, you will attend sessions 5 days per week for approximately 6 weeks (29 sessions total). Each session lasts about 29 minutes and is painless â€” you sit in a chair while a padded coil rests gently on your head. Before each session, your clinician will briefly expose you to something related to your OCD triggers (a brief provocation) to activate the relevant brain circuits and maximise the treatment effect. Your clinician will monitor your progress using a questionnaire (Y-BOCS) throughout the course.",
+    "faq": [
+      {
+        "question": "Is Deep TMS for OCD safe?",
+        "answer": "Deep TMS is FDA-cleared for OCD and has been through rigorous clinical trials. The most common side effect is a mild headache, which usually resolves within an hour. Seizure is an extremely rare risk; this is why your doctor will carefully review your medical history beforehand. The treatment is non-invasive and does not require surgery, anaesthesia, or recovery time."
+      },
+      {
+        "question": "Why do I need the 'symptom provocation' before each Deep TMS session?",
+        "answer": "Research shows that briefly activating your OCD triggers before treatment (for example, touching a doorknob if contamination is your trigger) makes the brain circuits that drive OCD more responsive to the magnetic stimulation. This is an important part of how the Deep TMS H7 protocol was designed and tested â€” it is expected and safe."
+      },
+      {
+        "question": "Will neuromodulation replace my medication or therapy?",
+        "answer": "No. Brain stimulation works best as an add-on to your existing treatment. Most people continue their SSRI medication during Deep TMS. If you are not already doing ERP therapy, your treatment team may recommend starting it alongside the TMS course."
+      },
+      {
+        "question": "How soon will I feel better?",
+        "answer": "Some people notice a reduction in obsessive thoughts and compulsive urges within the first two weeks. Clinical trial data shows the greatest improvements occur by the end of the 6-week course and continue for several weeks after. Your Y-BOCS score will be tracked throughout so your clinician can see your progress."
+      },
+      {
+        "question": "What if I have tried everything and nothing has worked?",
+        "answer": "For severe, treatment-resistant OCD that has not responded to multiple medications and therapy, Deep Brain Stimulation (DBS) may be an option. DBS is a surgical procedure and is only considered in exceptional cases through a specialist neurosurgical team. Your clinician can discuss whether a referral for DBS assessment is appropriate."
+      }
+    ]
+  },
+  "medical_history_requirements": {
+    "required_fields": [
+      {
+        "field": "Confirmed OCD diagnosis (DSM-5 criteria documented by qualified clinician)",
+        "reason": "Protocol generation requires a confirmed OCD diagnosis; all protocols are diagnosis-specific.",
+        "blocks_protocol": true
+      },
+      {
+        "field": "Y-BOCS baseline score",
+        "reason": "Primary outcome measure; required to establish severity and track treatment response.",
+        "blocks_protocol": true
+      },
+      {
+        "field": "Seizure history (including febrile seizures, epilepsy diagnosis, family history of epilepsy)",
+        "reason": "Seizure history is an absolute contraindication for TMS and Deep TMS. Must be documented before any protocol.",
+        "blocks_protocol": true
+      },
+      {
+        "field": "Metal implants in head, neck, or upper chest",
+        "reason": "Metallic implants are an absolute contraindication for Deep TMS and TMS; includes cochlear implants, aneurysm clips, deep brain stimulators.",
+        "blocks_protocol": true
+      },
+      {
+        "field": "Current SSRI or clomipramine status (name, dose, duration, response)",
+        "reason": "SSRI and clomipramine interactions lower seizure threshold; required for safety screening. Medication optimisation should precede or parallel neuromodulation.",
+        "blocks_protocol": false
+      },
+      {
+        "field": "Prior OCD treatment history (SSRIs tried, ERP therapy, augmentation agents)",
+        "reason": "Treatment-resistance classification requires documentation of failed prior treatments. Minimum two adequate SSRI trials required for DBS eligibility.",
+        "blocks_protocol": false
+      },
+      {
+        "field": "Comorbid tic disorder or Tourette syndrome",
+        "reason": "Tic disorders alter protocol target selection; SMA deep TMS may worsen tics in some patients.",
+        "blocks_protocol": false
+      },
+      {
+        "field": "Cardiac pacemaker or implanted electronic device",
+        "reason": "Absolute contraindication for all TMS modalities.",
+        "blocks_protocol": true
+      },
+      {
+        "field": "Current psychiatric medications (full list including antipsychotics, mood stabilisers)",
+        "reason": "Multiple agents lower seizure threshold; required for TMS safety screening.",
+        "blocks_protocol": false
+      },
+      {
+        "field": "Pregnancy status (females of reproductive age)",
+        "reason": "Deep TMS and TMS have insufficient safety data in pregnancy; protocol must be modified or deferred.",
+        "blocks_protocol": false
+      }
+    ],
+    "clinical_interview_checklist": [
+      "OCD symptom dimensions present (contamination, symmetry, harm, hoarding, pure-O)",
+      "Y-BOCS interview to establish obsession and compulsion severity subscales",
+      "Duration per day spent on obsessions and compulsions",
+      "Degree of insight (good/fair, poor, absent/delusional)",
+      "Presence of reassurance-seeking behaviours and avoidance",
+      "Impact on work, relationships, daily activities, and self-care",
+      "Prior ERP therapy attempts and response (number of sessions, adherence)",
+      "Suicide and self-harm risk assessment (OCD is associated with elevated suicidality)",
+      "Comorbid depression severity (PHQ-9 at intake)",
+      "Comorbid anxiety assessment (GAD-7)",
+      "Tic disorder screening (Yale Global Tic Severity Scale if indicated)",
+      "Substance use history",
+      "Family history of OCD or OCD-spectrum conditions",
+      "Previous neuromodulation or neurosurgical history"
+    ],
+    "rule_out_differentials": [
+      "OCPD (Obsessive-Compulsive Personality Disorder â€” egosyntonic, no obsessions/compulsions in OCD sense)",
+      "GAD (free-floating worry vs. ego-dystonic intrusive thoughts)",
+      "Body dysmorphic disorder (overlapping but separate diagnosis)",
+      "Health anxiety disorder (medically-focused rumination without compulsions)",
+      "PTSD (trauma intrusions vs. OCD obsessions â€” content, trigger, and treatment differ)",
+      "Tic disorder alone (without OCD features)",
+      "Schizophrenia (delusions â€” assess ego-dystonicity and insight)",
+      "Autism spectrum disorder (rigid/repetitive routines â€” not anxiety-driven)"
+    ],
+    "comorbidity_screen": [
+      "Depression (PHQ-9 â€” comorbid MDD in up to 67% of OCD; affects protocol scheduling)",
+      "Anxiety disorders (GAD-7 â€” secondary anxiety distinct from OCD must be addressed)",
+      "Tic disorders (YGTSS â€” influences protocol target selection for Deep TMS)",
+      "Body dysmorphic disorder (BDD screening â€” shares CSTC circuitry, affects treatment goals)",
+      "Eating disorders (EDE-Q â€” if suspected overlap with OCD symptom content)",
+      "Suicidal ideation (C-SSRS â€” OCD associated with 10â€“27x elevated suicidality)"
+    ],
+    "prior_treatment_required": [
+      "Minimum two adequate SSRI trials (adequate = therapeutic dose for â‰¥12 weeks) for standard protocol eligibility",
+      "At least one course of ERP therapy (minimum 10 sessions) documented",
+      "Clomipramine trial documented if SSRI resistance present",
+      "Augmentation trials documented (antipsychotics: risperidone, aripiprazole) for treatment-resistant cases",
+      "Neurological clearance for DBS protocol (minimum 4 failed adequate treatment trials required)"
+    ],
+    "special_population_flags": [
+      {
+        "population": "Adolescent (12â€“17)",
+        "additional_requirements": [
+          "Parent/caregiver co-signature on all consent documents",
+          "Paediatric psychiatrist diagnosis confirmation",
+          "Adolescent assent form completed",
+          "Parental engagement in ERP therapy process confirmed",
+          "School impact assessment documented"
+        ]
+      },
+      {
+        "population": "Severe/treatment-resistant (DBS candidates)",
+        "additional_requirements": [
+          "Minimum 5 years of documented treatment resistance",
+          "Multidisciplinary team review and dual clinician sign-off",
+          "Neurosurgical assessment completed",
+          "Independent ethics/governance board review where applicable",
+          "Patient capacity assessment documented"
+        ]
+      }
+    ]
+  },
+  "contraindications": {
+    "absolute": [
+      {
+        "condition": "Active epilepsy or uncontrolled seizure disorder",
+        "rationale": "Deep TMS and rTMS can provoke seizures; absolute contraindication for all TMS-based protocols."
+      },
+      {
+        "condition": "Metallic implant in head, neck, or upper chest (cochlear implant, aneurysm clip, DBS lead not compatible with TMS)",
+        "rationale": "TMS electromagnetic field can heat, displace, or damage metallic implants and implanted electronics."
+      },
+      {
+        "condition": "Implanted cardiac pacemaker or defibrillator",
+        "rationale": "Electromagnetic interference risk with TMS. Absolute contraindication for all TMS-based protocols."
+      },
+      {
+        "condition": "Active psychosis or severe mania not stabilised",
+        "rationale": "Neuromodulation may exacerbate psychotic symptoms. Psychiatric stabilisation required before any protocol."
+      }
+    ],
+    "relative": [
+      {
+        "condition": "Concurrent SSRI dose changes within 4 weeks",
+        "rationale": "Rapid SSRI dose escalation transiently lowers seizure threshold; interacts with TMS safety margins.",
+        "mitigation": "Delay TMS protocol until SSRI dose is stable for â‰¥4 weeks, or obtain psychiatrist clearance with documented review."
+      },
+      {
+        "condition": "Comorbid tic disorder (Tourette syndrome)",
+        "rationale": "SMA-targeting Deep TMS may transiently worsen tic frequency in some patients.",
+        "mitigation": "Baseline YGTSS assessment. Monitor tic frequency across treatment course. Discuss with patient before commencing."
+      },
+      {
+        "condition": "Pregnancy",
+        "rationale": "Insufficient safety data for Deep TMS and TMS in pregnancy.",
+        "mitigation": "Defer TMS protocols until post-partum if possible. Obstetrician clearance required if proceeding. Neurofeedback and ERP remain options."
+      },
+      {
+        "condition": "Active suicidal ideation (moderate-high risk)",
+        "rationale": "OCD patients have elevated suicidality; treatment distress during ERP provocation may temporarily increase risk.",
+        "mitigation": "Comprehensive safety plan before treatment. C-SSRS at every session. Clinician review before each session block. Adjust provocation intensity."
+      },
+      {
+        "condition": "History of TMS-induced seizure",
+        "rationale": "Prior TMS-induced seizure indicates elevated individual seizure susceptibility.",
+        "mitigation": "Requires neurological review and documented risk-benefit discussion. Only proceed under specialist supervision."
+      }
+    ],
+    "special_populations": [
+      {
+        "population": "Under 12 years",
+        "flag": "Deep TMS H7 FDA De Novo cleared for age 22+; literature supports cautious use in adolescents 12+. Under 12: research protocol only."
+      },
+      {
+        "population": "DBS candidates â€” severe treatment-resistant OCD",
+        "flag": "HDE H050003 (Medtronic Reclaim) requires multidisciplinary review, ethics board approval, and dual clinician sign-off. Not available as a standard protocol."
+      }
+    ],
+    "modality_specific": {
+      "deep-tms": [
+        "Completed BrainsWay TMS Safety Screening Questionnaire before first session",
+        "H7-coil specific contraindication: no cochlear implants within 30 cm of coil",
+        "Symptomatic provocation session required â€” patient must consent to brief trigger exposure",
+        "Hearing protection required during each session (H7 coil is louder than standard TMS coils)"
+      ],
+      "tms": [
+        "No metal skull plates, pins, or clips",
+        "No deep brain stimulator leads active during TMS",
+        "Standard TMS Safety Screening Questionnaire completed"
+      ],
+      "dbs": [
+        "Neurosurgical assessment and implant suitability confirmed",
+        "HDE exemption pathway documentation complete",
+        "Informed consent must include discussion of surgical risks (infection, haemorrhage, device malfunction)",
+        "Dual clinician sign-off mandatory before any DBS protocol generation"
+      ],
+      "tdcs": [
+        "No open wounds or active skin conditions at electrode placement sites",
+        "Avoid over metallic skull implants"
+      ]
+    }
+  },
+  "assessment_bundle": {
+    "screening": [
+      {
+        "assessment_id": "ASS-020",
+        "name": "OCI-R",
+        "full_name": "Obsessive-Compulsive Inventory â€” Revised",
+        "clinician_vs_patient": "Patient self-report",
+        "rationale": "18-item validated OCD screener covering six symptom dimensions (washing, obsessing, hoarding, ordering, checking, neutralising). Score â‰¥21 suggests clinically significant OCD. Free and rapid; suitable for primary care and specialist screening.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 5,
+        "access": "Free",
+        "population": "Adult 18+"
+      },
+      {
+        "assessment_id": "ASS-021",
+        "name": "CGI-S (OCD)",
+        "full_name": "Clinical Global Impression â€” Severity (OCD)",
+        "clinician_vs_patient": "Clinician-rated",
+        "rationale": "Clinician-rated global severity (1â€“7 scale). Provides dimensional severity index independent of specific self-report tools. Required for governance reporting and eligibility determination.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 5,
+        "access": "Free (public domain)",
+        "population": "All"
+      }
+    ],
+    "diagnostic": [
+      {
+        "assessment_id": "ASS-022",
+        "name": "Y-BOCS",
+        "full_name": "Yale-Brown Obsessive Compulsive Scale",
+        "clinician_vs_patient": "Clinician-rated",
+        "rationale": "Gold-standard OCD severity instrument. 10-item semi-structured clinician interview measuring obsession and compulsion severity across 5 dimensions each (time, distress, interference, resistance, control). Required as primary outcome measure for all OCD protocols. Severity: Mild 8â€“15; Moderate 16â€“23; Severe 24â€“31; Extreme 32â€“40.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 30,
+        "access": "Free â€” requires clinician training",
+        "population": "Adult 18+ (CY-BOCS for paediatric)"
+      }
+    ],
+    "baseline": [
+      {
+        "assessment_id": "ASS-022",
+        "name": "Y-BOCS (Baseline)",
+        "full_name": "Yale-Brown Obsessive Compulsive Scale â€” Baseline Administration",
+        "clinician_vs_patient": "Clinician-rated",
+        "rationale": "Primary outcome measure baseline administration. Score establishes severity tier and is the reference for monitoring response thresholds (â‰¥35% reduction = response; â‰¤12 = remission).",
+        "lower_is_better": true,
+        "admin_duration_minutes": 30,
+        "access": "Free â€” requires clinician training",
+        "population": "Adult 18+"
+      },
+      {
+        "assessment_id": "ASS-020",
+        "name": "OCI-R (Baseline)",
+        "full_name": "Obsessive-Compulsive Inventory â€” Revised â€” Baseline",
+        "clinician_vs_patient": "Patient self-report",
+        "rationale": "Secondary self-report baseline. Captures patient-reported symptom burden across six OCD dimensions. Subscale profile informs phenotype classification.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 5,
+        "access": "Free",
+        "population": "Adult 18+"
+      },
+      {
+        "assessment_id": "ASS-023",
+        "name": "PHQ-9",
+        "full_name": "Patient Health Questionnaire â€” 9-item",
+        "clinician_vs_patient": "Patient self-report",
+        "rationale": "OCD has up to 67% comorbid MDD. PHQ-9 baseline establishes depression severity which influences protocol selection and monitoring intensity.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 5,
+        "access": "Free",
+        "population": "Adult 18+"
+      },
+      {
+        "assessment_id": "ASS-024",
+        "name": "GAD-7",
+        "full_name": "Generalised Anxiety Disorder â€” 7-item",
+        "clinician_vs_patient": "Patient self-report",
+        "rationale": "Baseline anxiety screen; distinguishes OCD-related anxiety from comorbid GAD. Score â‰¥10 indicates comorbid GAD requiring parallel management.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 3,
+        "access": "Free",
+        "population": "Adult 18+"
+      }
+    ],
+    "monitoring": [
+      {
+        "assessment_id": "ASS-022",
+        "name": "Y-BOCS (Monitoring)",
+        "full_name": "Yale-Brown Obsessive Compulsive Scale â€” Repeated Measure",
+        "clinician_vs_patient": "Clinician-rated",
+        "rationale": "Primary monitoring tool during treatment. Administer every 5â€“6 sessions. Response flag: â‰¥35% reduction from baseline. Non-response flag: <20% reduction by session 15.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 30,
+        "access": "Free â€” requires clinician training",
+        "population": "Adult 18+"
+      },
+      {
+        "assessment_id": "ASS-021",
+        "name": "CGI-I (OCD)",
+        "full_name": "Clinical Global Impression â€” Improvement (OCD)",
+        "clinician_vs_patient": "Clinician-rated",
+        "rationale": "Complements Y-BOCS with global clinician impression of improvement. Score 1â€“2 = responder. Score â‰¥4 at session 15 triggers escalation review.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 5,
+        "access": "Free (public domain)",
+        "population": "All"
+      }
+    ],
+    "outcome": [
+      {
+        "assessment_id": "ASS-022",
+        "name": "Y-BOCS (End of Course)",
+        "full_name": "Yale-Brown Obsessive Compulsive Scale â€” End of Course",
+        "clinician_vs_patient": "Clinician-rated",
+        "rationale": "Primary endpoint. Response = â‰¥35% reduction from baseline. Remission = total score â‰¤12. Partial response = 25â€“34% reduction. Non-response = <25% reduction.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 30,
+        "access": "Free â€” requires clinician training",
+        "population": "Adult 18+"
+      },
+      {
+        "assessment_id": "ASS-020",
+        "name": "OCI-R (End of Course)",
+        "full_name": "Obsessive-Compulsive Inventory â€” Revised â€” Endpoint",
+        "clinician_vs_patient": "Patient self-report",
+        "rationale": "Secondary outcome measure. Captures patient-experienced symptom change across OCD dimensions. Clinically meaningful change: â‰¥11 point reduction from baseline.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 5,
+        "access": "Free",
+        "population": "Adult 18+"
+      },
+      {
+        "assessment_id": "ASS-023",
+        "name": "PHQ-9 (End of Course)",
+        "full_name": "Patient Health Questionnaire â€” 9-item â€” Endpoint",
+        "clinician_vs_patient": "Patient self-report",
+        "rationale": "Track change in comorbid depression across OCD treatment course.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 5,
+        "access": "Free",
+        "population": "Adult 18+"
+      }
+    ],
+    "neurophysiological": [
+      {
+        "assessment_id": "ASS-034",
+        "name": "qEEG (OCD Protocol)",
+        "full_name": "Quantitative EEG â€” OCD Circuit Assessment",
+        "clinician_vs_patient": "Clinician-rated",
+        "rationale": "Optional qEEG to assess CSTC circuit dysregulation. OCD biomarkers: elevated theta at OFC/ACC (Fz, AFz), hypercoherence in frontal-parietal networks. Guides protocol customisation and tracks normalisation.",
+        "lower_is_better": false,
+        "admin_duration_minutes": 45,
+        "access": "Requires qEEG system and certified interpreter",
+        "population": "All (optional)"
+      }
+    ],
+    "functional": [
+      {
+        "assessment_id": "ASS-F05",
+        "name": "WHODAS 2.0",
+        "full_name": "World Health Organization Disability Assessment Schedule 2.0",
+        "clinician_vs_patient": "Either",
+        "rationale": "Measures functional impairment across 6 life domains (cognition, mobility, self-care, getting along, life activities, participation). Captures OCD's broad functional impact beyond symptom scores. 12-item version recommended.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 10,
+        "access": "Free â€” WHO",
+        "population": "Adult 18+"
+      }
+    ]
+  },
+  "protocol_bundle": [
+    {
+      "protocol_id": "PRO-DTMS-OCD-01",
+      "name": "Deep TMS H7-Coil â€” BrainsWay OCD Protocol (FDA De Novo)",
+      "modality_slug": "deep-tms",
+      "phenotype_id": "PHE-015",
+      "device_id": "DEV-DTMS-001",
+      "on_label_vs_off_label": "On-label",
+      "evidence_grade": "EV-A",
+      "evidence_summary": "BrainsWay H7-coil Deep TMS received FDA De Novo clearance in August 2018 for adjunctive treatment of OCD in adults â€” the first neuromodulation clearance specifically for OCD. The pivotal trial (Carmi et al., 2019, Am J Psychiatry) was a sham-controlled RCT (N=94). Active arm: 38% responder rate (â‰¥30% Y-BOCS reduction) vs. 11% sham at 6 weeks. Response maintained at 1-month follow-up. Symptom provocation prior to each session is an essential protocol element that meaningfully increases efficacy. Protocol parameters: 20 Hz, 100% MT, 2-second trains every 20 seconds, 60 trains = 2,400 pulses per session.",
+      "references": [
+        "Carmi L et al. (2019). Efficacy and Safety of Deep Transcranial Magnetic Stimulation for Obsessive-Compulsive Disorder: A Prospective Multicenter Randomized Double-Blind Placebo-Controlled Trial. Am J Psychiatry, 176(11), 931â€“938.",
+        "Carmi L et al. (2018). Clinical and Neural Effects of Short Intensive cTBS in Patients with OCD Comorbid with MDD. Brain Stimul, 11(5), 1064â€“1070.",
+        "US FDA De Novo DEN170087 â€” BrainsWay Ltd. H7-coil OCD clearance (2018)."
+      ],
+      "brain_target": {
+        "region": "Medial Prefrontal Cortex / Anterior Cingulate Cortex (via H7-coil bilateral SMA + medial PFC coverage)",
+        "laterality": "Bilateral",
+        "eeg_position": "Fz/AFz (medial prefrontal); supplementary motor area (Czâ€“SMA)",
+        "effect_direction": "Inhibitory"
+      },
+      "parameters": {
+        "frequency_hz": "20 Hz",
+        "intensity": "100% Motor Threshold (MT)",
+        "pulse_count": "2,400 pulses per session (60 trains Ã— 2-second train duration = 40 pulses/train)",
+        "coil_type": "BrainsWay H7-coil (Deep TMS â€” bilateral prefrontal/SMA coverage)",
+        "additional_params": {
+          "train_duration": "2 seconds",
+          "inter_train_interval": "20 seconds",
+          "trains_per_session": "60",
+          "session_duration_active": "29 minutes",
+          "symptom_provocation_required": "Yes â€” 30-second personalised trigger exposure immediately prior to TMS",
+          "hearing_protection": "Required â€” foam earplugs (H7 coil produces ~100 dB)"
+        }
+      },
+      "session_structure": {
+        "sessions_per_week": 5,
+        "session_duration_minutes": 40,
+        "total_sessions": 29,
+        "total_weeks": 6,
+        "maintenance_sessions": "Optional maintenance sessions at 1x/week or bi-weekly for 4â€“8 weeks post-course; reschedule course if Y-BOCS regresses to â‰¥80% of baseline",
+        "steps": [
+          {
+            "order": 1,
+            "title": "Pre-session screening and safety check",
+            "duration_minutes": 5,
+            "detail": "Confirm no new contraindications since last session. Review current medication status. Check hearing protection is available. Confirm patient has not taken any new anticonvulsant or proconvulsant agents."
+          },
+          {
+            "order": 2,
+            "title": "Symptom provocation (personalised OCD trigger exposure)",
+            "duration_minutes": 3,
+            "detail": "Clinician administers brief 30-second provocation specific to patient's OCD phenotype (e.g. touching a 'contaminated' object for washing subtype; briefly not checking for checking subtype). Provocation intensity: sufficient to generate moderate distress (SUD 40â€“70/100) without being overwhelming. Patient does NOT perform compulsion. Document SUD rating."
+          },
+          {
+            "order": 3,
+            "title": "H7-coil placement and positioning",
+            "duration_minutes": 3,
+            "detail": "Position H7-coil over medial prefrontal cortex / SMA region using standardised 10-20 EEG-based Fz positioning. Confirm coil contact with scalp. Apply hearing protection (foam earplugs). Patient seated comfortably."
+          },
+          {
+            "order": 4,
+            "title": "Motor threshold determination (sessions 1, 8, 15, 22, 29)",
+            "duration_minutes": 5,
+            "detail": "Single-pulse TMS over M1 to establish resting motor threshold (rMT). Document threshold. Set treatment intensity to 100% rMT. Recheck if >1 week gap since last session or medication change."
+          },
+          {
+            "order": 5,
+            "title": "Deep TMS stimulation",
+            "duration_minutes": 29,
+            "detail": "60 trains of 20 Hz at 100% MT. 2-second ON / 20-second OFF duty cycle. Patient remains still and seated. Clinician monitors for adverse effects (headache, muscle twitching, discomfort). Session terminates automatically at train 60."
+          },
+          {
+            "order": 6,
+            "title": "Post-session review and documentation",
+            "duration_minutes": 5,
+            "detail": "Assess for headache, scalp discomfort, or mood change. Ask patient to refrain from compulsions for 1 hour post-session if possible (synergy with ERP). Log session in treatment record. Y-BOCS administered every 5 sessions."
+          }
+        ]
+      },
+      "monitoring_required": [
+        "Y-BOCS at baseline, session 6, session 12, session 18, session 24, and session 29 (end of course)",
+        "OCI-R every 10 sessions",
+        "PHQ-9 and GAD-7 at baseline and end of course",
+        "CGI-I at session 15 and end of course",
+        "Subjective Units of Distress (SUD) rating recorded at each provocation",
+        "Motor threshold rechecked at sessions 1, 8, 15, 22, 29 or after any â‰¥1-week gap",
+        "Adverse event log every session (headache, scalp discomfort, mood)"
+      ],
+      "contraindication_check_required": true,
+      "adverse_event_monitoring": "Common: headache (20â€“30%, usually mild and resolving within 1 hour), scalp discomfort at coil site, mild transient anxiety post-provocation. Rare: seizure (<0.1% with appropriate screening), syncope, muscle twitching. Monitor: sustained headache >2 hours, hearing changes, significant mood elevation or dysphoria.",
+      "escalation_rules": [
+        "Y-BOCS reduction <20% by session 15: clinician review; consider motor threshold adjustment, provocation optimisation, or parallel ERP intensification",
+        "Sustained headache >2 hours post-session: reduce intensity to 90% MT; if persists, hold session and obtain medical review",
+        "SUD during provocation >85/100 (overwhelming distress): reduce provocation intensity; involve ERP therapist",
+        "Seizure during or within 2 hours of session: stop immediately, call emergency services, complete AE form, suspend protocol pending neurological clearance",
+        "PHQ-9 increase â‰¥5 points from baseline at any monitoring point: urgent psychiatrist review"
+      ],
+      "patient_facing_allowed": true,
+      "clinician_review_required": true,
+      "governance": {
+        "patient_export_allowed": true,
+        "requires_clinician_sign_off": true,
+        "off_label_acknowledgement_required": false,
+        "dual_review_required": false,
+        "notes": "On-label FDA De Novo DEN170087 cleared for OCD in adults. First-line neuromodulation for OCD. Patient export permitted. Clinician sign-off required before protocol activation. Symptom provocation is a mandatory protocol element â€” document consent to provocation."
+      },
+      "notes": "FDA De Novo clearance is specifically for the BrainsWay H7-coil system. Do not substitute with standard figure-of-eight coils â€” deep TMS coil geometry and depth of penetration are materially different. Efficacy data is for adjunctive use with ongoing pharmacotherapy (SSRI). Maximum benefit seen when protocol is combined with concurrent ERP therapy."
+    },
+    {
+      "protocol_id": "PRO-TMS-OCD-02",
+      "name": "rTMS â€” Low-Frequency Right/Bilateral SMA for OCD",
+      "modality_slug": "tms",
+      "phenotype_id": "PHE-016",
+      "on_label_vs_off_label": "Off-label",
+      "evidence_grade": "EV-B",
+      "evidence_summary": "Multiple open-label studies and RCTs support low-frequency (1 Hz) rTMS targeting the supplementary motor area (SMA) bilaterally or the right SMA for OCD. Ma et al. (2014) and Mantovani et al. (2010) demonstrated significant Y-BOCS reductions (25â€“35%) in treatment-resistant OCD. Meta-analyses (Berlim et al., 2013; Zhou et al., 2017) confirm significant efficacy over sham for Y-BOCS total score (SMD = -0.80 to -1.1). Not FDA-cleared for OCD specifically. Particularly effective for symmetry/ordering and harm/checking phenotypes.",
+      "references": [
+        "Mantovani A et al. (2010). Randomized Sham Controlled Trial of Repetitive TMS to the SMA in Treatment-Resistant OCD. Int J Neuropsychopharmacol, 13(2), 217â€“227.",
+        "Ma Z et al. (2014). Bilateral Low-Frequency rTMS of the Supplementary Motor Area in Treatment-Resistant OCD. Neuroreport, 25(14), 1122â€“1126.",
+        "Berlim MT et al. (2013). Repetitive Transcranial Magnetic Stimulation for Obsessive-Compulsive Disorder: A Systematic Review and Meta-Analysis. Psychol Med, 43(12), 2441â€“2451."
+      ],
+      "brain_target": {
+        "region": "Supplementary Motor Area",
+        "laterality": "Bilateral",
+        "eeg_position": "Cz (SMA approximation); 2 cm anterior to standard Cz",
+        "effect_direction": "Inhibitory"
+      },
+      "parameters": {
+        "frequency_hz": "1 Hz",
+        "intensity": "100% Motor Threshold (rMT)",
+        "pulse_count": "1,200 pulses per session",
+        "coil_type": "Figure-of-eight coil (70 mm)",
+        "additional_params": {
+          "train_duration": "60 seconds continuous at 1 Hz",
+          "inter_train_interval": "30 seconds",
+          "trains_per_session": "20",
+          "session_protocol": "Bilateral: right SMA 600 pulses then left SMA 600 pulses; or right SMA 1,200 pulses (unilateral variant)"
+        }
+      },
+      "session_structure": {
+        "sessions_per_week": 5,
+        "session_duration_minutes": 25,
+        "total_sessions": 20,
+        "total_weeks": 4,
+        "maintenance_sessions": "Booster course of 10 sessions at 4â€“8 weeks post-course if Y-BOCS regresses >50% of gained improvement",
+        "steps": [
+          {
+            "order": 1,
+            "title": "Safety screening and MT determination",
+            "duration_minutes": 5,
+            "detail": "Confirm safety screen. Establish resting MT over left M1. Record and use 100% rMT for stimulation intensity."
+          },
+          {
+            "order": 2,
+            "title": "Coil placement â€” right SMA",
+            "duration_minutes": 2,
+            "detail": "Position figure-of-eight coil over right SMA (2 cm anterior to hand motor cortex on right hemisphere). Confirm via neuronavigation or 10-20 positioning (posterior to F4/C4 midpoint)."
+          },
+          {
+            "order": 3,
+            "title": "Right SMA stimulation",
+            "duration_minutes": 11,
+            "detail": "20 trains of 1 Hz Ã— 60 seconds = 1,200 pulses (bilateral protocol: 600 right SMA). Monitor for comfort and scalp sensation. Patient to remain still."
+          },
+          {
+            "order": 4,
+            "title": "Left SMA stimulation (bilateral variant)",
+            "duration_minutes": 11,
+            "detail": "Reposition coil to left SMA. 600 additional pulses at 1 Hz. 30-second rest between hemispheres."
+          },
+          {
+            "order": 5,
+            "title": "Post-session assessment and logging",
+            "duration_minutes": 2,
+            "detail": "Log adverse events. Brief check-in on OCD symptom level since last session. Y-BOCS every 5 sessions."
+          }
+        ]
+      },
+      "monitoring_required": [
+        "Y-BOCS at baseline, session 5, 10, 15, 20",
+        "OCI-R at baseline and end of course",
+        "CGI-I at session 10 and end of course",
+        "Session-level AE log (headache, scalp discomfort, mood)"
+      ],
+      "contraindication_check_required": true,
+      "adverse_event_monitoring": "Common: transient headache post-session, scalp discomfort. Rare: seizure (risk minimised by 1 Hz low-frequency protocol). Monitor for any mood change or anxiety exacerbation.",
+      "escalation_rules": [
+        "Y-BOCS reduction <15% by session 10: review coil placement accuracy; consider neuronavigation-guided targeting; discuss switching to Deep TMS H7-coil protocol",
+        "Headache persisting >2 hours: reduce intensity to 90% rMT",
+        "Seizure: stop immediately, emergency services, suspend protocol, neurological review"
+      ],
+      "patient_facing_allowed": false,
+      "clinician_review_required": true,
+      "governance": {
+        "patient_export_allowed": false,
+        "requires_clinician_sign_off": true,
+        "off_label_acknowledgement_required": true,
+        "dual_review_required": false,
+        "notes": "EV-B: Off-label use. Off-label acknowledgement required. Clinician sign-off mandatory. Patient export blocked pending clinician approval."
+      },
+      "notes": "This protocol is appropriate when BrainsWay H7-coil equipment is unavailable. Evidence base supports efficacy particularly for symmetry/ordering and checking phenotypes. Consider neuronavigation for precise SMA localisation."
+    },
+    {
+      "protocol_id": "PRO-DBS-OCD-01",
+      "name": "Deep Brain Stimulation â€” ALIC/BNST for Severe Treatment-Resistant OCD",
+      "modality_slug": "dbs",
+      "phenotype_id": "PHE-017",
+      "device_id": "DEV-DBS-001",
+      "on_label_vs_off_label": "Off-label",
+      "evidence_grade": "EV-B",
+      "evidence_summary": "Medtronic Reclaim DBS system received FDA Humanitarian Device Exemption (HDE H050003) in 2009 for chronic, severe, treatment-resistant OCD in adults â€” a non-significant risk pathway indicating efficacy is reasonably presumed but not proven to FDA standard. Multiple case series and RCTs (Greenberg et al., 2010; Denys et al., 2010; Luyten et al., 2016) demonstrate 40â€“60% responder rates (â‰¥35% Y-BOCS reduction) at 12 months in carefully selected patients. Primary target: anterior limb of internal capsule (ALIC) and/or bed nucleus of the stria terminalis (BNST).",
+      "references": [
+        "Greenberg BD et al. (2010). Deep Brain Stimulation of the Ventral Internal Capsule/Ventral Striatum for Obsessive-Compulsive Disorder: Worldwide Experience. Mol Psychiatry, 15(1), 64â€“79.",
+        "Denys D et al. (2010). Deep Brain Stimulation of the Nucleus Accumbens for Treatment-Refractory OCD. Arch Gen Psychiatry, 67(10), 1061â€“1068.",
+        "US FDA HDE H050003 â€” Medtronic Reclaim DBS for OCD (2009).",
+        "Luyten L et al. (2016). Electrical Stimulation in the Bed Nucleus of the Stria Terminalis Alleviates Severe OCD. Mol Psychiatry, 21(9), 1272â€“1280."
+      ],
+      "brain_target": {
+        "region": "Anterior Limb of Internal Capsule / Bed Nucleus of Stria Terminalis (ALIC/BNST)",
+        "laterality": "Bilateral",
+        "eeg_position": "N/A (subcortical target â€” surgical implant)",
+        "effect_direction": "Normalise"
+      },
+      "parameters": {
+        "frequency_hz": "130â€“185 Hz (high-frequency continuous stimulation)",
+        "intensity": "Individualised â€” titrated post-implant (typically 2â€“6 V or 2â€“6 mA depending on device mode)",
+        "electrode_placement": "Bilateral ALIC/BNST â€” surgical stereotactic implantation",
+        "coil_type": "N/A â€” DBS lead (quadripolar electrode)",
+        "additional_params": {
+          "device": "Medtronic Reclaim DBS (HDE H050003) or equivalent ALIC/BNST-approved system",
+          "programming": "Post-operative parameter titration by neurosurgeon + psychiatrist team over 6â€“12 months",
+          "pulse_width": "60â€“210 microseconds",
+          "continuous_vs_cycling": "Continuous stimulation standard; cycling may be trialled"
+        }
+      },
+      "session_structure": {
+        "sessions_per_week": 1,
+        "session_duration_minutes": 60,
+        "total_sessions": 24,
+        "total_weeks": 24,
+        "maintenance_sessions": "Indefinite â€” battery monitoring and programming adjustment every 3â€“6 months; device battery replacement every 3â€“7 years depending on settings",
+        "steps": [
+          {
+            "order": 1,
+            "title": "Pre-operative multidisciplinary assessment",
+            "duration_minutes": 60,
+            "detail": "MDT review: psychiatrist, neurosurgeon, neuropsychologist, ethicist. Confirm â‰¥5 years of documented treatment resistance, â‰¥2 SSRI trials at maximum tolerated dose, â‰¥2 ERP courses. Y-BOCS â‰¥28 at assessment."
+          },
+          {
+            "order": 2,
+            "title": "Neurosurgical implantation (surgical theatre)",
+            "duration_minutes": 60,
+            "detail": "Stereotactic DBS electrode implantation to bilateral ALIC/BNST under general or local anaesthesia. MRI-guided or frame-based targeting. Intraoperative electrophysiology confirmation."
+          },
+          {
+            "order": 3,
+            "title": "Post-operative recovery and programming initiation",
+            "duration_minutes": 60,
+            "detail": "Post-operative monitoring 48â€“72 hours. Initial programming 2â€“4 weeks post-surgery. Titration to optimal parameters over 6â€“12 months. Weekly psychiatric monitoring during titration phase."
+          },
+          {
+            "order": 4,
+            "title": "Ongoing maintenance programming sessions",
+            "duration_minutes": 60,
+            "detail": "Regular programming reviews every 3 months. Y-BOCS assessment at each review. Battery status check. Adjustment of stimulation parameters as needed."
+          }
+        ]
+      },
+      "monitoring_required": [
+        "Y-BOCS at baseline, 1, 3, 6, 9, 12 months post-implant, then every 6 months",
+        "PHQ-9 and GAD-7 monthly for first 6 months",
+        "C-SSRS (Columbia Suicide Severity Rating Scale) monthly",
+        "CGI-I at every programming session",
+        "Device battery status check at every visit",
+        "Neurological status assessment (speech, gait, cognitive function) every 3 months"
+      ],
+      "contraindication_check_required": true,
+      "adverse_event_monitoring": "Surgical risks: haemorrhage, infection, hardware failure. Stimulation-related: hypomania, anxiety exacerbation, mood shifts with parameter changes. Serious: device-related infection requiring removal, stimulation-induced mood crisis. Monitor for suicidal ideation monthly given severe OCD population risk.",
+      "escalation_rules": [
+        "Y-BOCS increase â‰¥10 points at any review: urgent MDT review; adjust stimulation parameters",
+        "New-onset hypomania or mania: reduce stimulation intensity; urgent psychiatric review; do not increase parameters until resolved",
+        "Device infection signs (redness, swelling, fever): urgent neurosurgical review; antibiotic protocol",
+        "Suicidal ideation (C-SSRS â‰¥3): emergency psychiatric review; safety plan activation; consider hospitalisation"
+      ],
+      "patient_facing_allowed": false,
+      "clinician_review_required": true,
+      "governance": {
+        "patient_export_allowed": false,
+        "requires_clinician_sign_off": true,
+        "off_label_acknowledgement_required": true,
+        "dual_review_required": true,
+        "notes": "HDE H050003 pathway â€” dual clinician sign-off mandatory before protocol generation. Ethics board review required. Patient capacity assessment must be documented. Not available as a standard clinic protocol â€” specialist neurosurgical centre only."
+      },
+      "notes": "DBS for OCD is reserved exclusively for severe, treatment-refractory cases meeting strict eligibility criteria. This protocol template is for documentation and planning purposes. Actual implantation occurs in specialist neurosurgical centres. The DeepSynaps Protocol Studio role is pre-assessment documentation and post-implant monitoring support."
+    }
+  ],
+  "device_options": [
+    {
+      "device_id": "DEV-DTMS-001",
+      "name": "BrainsWay Deep TMS System with H7-Coil",
+      "manufacturer": "BrainsWay Ltd. (Israel)",
+      "modality_slug": "deep-tms",
+      "regulatory_status": "FDA-cleared",
+      "cleared_indication": "Adjunctive treatment of OCD in adults (FDA De Novo DEN170087, 2018). Also cleared for MDD (2013) and smoking cessation (2020).",
+      "use_setting": "Clinic",
+      "compatible_protocols": [
+        "PRO-DTMS-OCD-01"
+      ],
+      "constraints": [
+        "H7-coil is the specific coil type cleared for OCD; do not substitute with H1 (depression) coil for OCD protocol",
+        "Requires CE-calibrated motor threshold determination at first session and after gaps >1 week",
+        "Hearing protection mandatory for patient (H7 coil sound level ~100 dB)",
+        "Symptom provocation must occur immediately before stimulation (within 5 minutes)"
+      ],
+      "notes": "Only neuromodulation device with FDA clearance specifically for OCD. First-line device choice when available."
+    },
+    {
+      "device_id": "DEV-TMS-002",
+      "name": "MagStim Rapid2 / Magventure MagPro TMS System",
+      "manufacturer": "MagStim / Magventure (various)",
+      "modality_slug": "tms",
+      "regulatory_status": "FDA-cleared (other indication)",
+      "cleared_indication": "FDA-cleared for MDD. OCD use is off-label.",
+      "use_setting": "Clinic",
+      "compatible_protocols": [
+        "PRO-TMS-OCD-02"
+      ],
+      "constraints": [
+        "Figure-of-eight 70 mm coil required for SMA targeting",
+        "Standard TMS safety screening required before each course",
+        "Neuronavigation recommended for precise SMA localisation"
+      ],
+      "notes": "Standard clinic TMS device for off-label OCD SMA protocol. Appropriate when BrainsWay H7 system is unavailable."
+    },
+    {
+      "device_id": "DEV-DBS-001",
+      "name": "Medtronic Reclaim DBS System",
+      "manufacturer": "Medtronic (USA)",
+      "modality_slug": "dbs",
+      "regulatory_status": "FDA-cleared",
+      "cleared_indication": "Humanitarian Device Exemption (HDE H050003) for chronic, severe, treatment-resistant OCD in adults (2009).",
+      "use_setting": "Clinic",
+      "compatible_protocols": [
+        "PRO-DBS-OCD-01"
+      ],
+      "constraints": [
+        "Requires neurosurgical implantation â€” not a clinic outpatient procedure",
+        "HDE pathway requires IRB/ethics approval for each patient",
+        "Mandatory MDT pre-operative assessment",
+        "MRI-conditional â€” follow Medtronic MRI guidelines post-implant"
+      ],
+      "notes": "Reserved for severe treatment-refractory OCD only. HDE indicates use is humanitarian/compassionate use, not standard of care."
+    },
+    {
+      "device_id": "DEV-TDCS-003",
+      "name": "Soterix Medical 1Ã—1 tDCS or Equivalent Research tDCS Device",
+      "manufacturer": "Soterix Medical / Neuroelectrics (various)",
+      "modality_slug": "tdcs",
+      "regulatory_status": "Investigational",
+      "cleared_indication": "No FDA clearance for OCD. Investigational use only.",
+      "use_setting": "Clinic",
+      "compatible_protocols": [],
+      "constraints": [
+        "Research/investigational use only for OCD",
+        "Requires IRB approval if used outside registered clinical trial",
+        "Current density must not exceed 0.06 mA/cmÂ²"
+      ],
+      "notes": "tDCS for OCD is emerging and does not yet have adequate RCT evidence. Not included in primary protocol bundle. May be used in research context."
+    }
+  ],
+  "brain_targets": [
+    {
+      "region": "Medial Prefrontal Cortex / Anterior Cingulate Cortex",
+      "abbreviation": "mPFC/ACC",
+      "laterality": "Bilateral",
+      "rationale": "The OFC-ACC-caudate hyperactivation loop is the core neurobiological substrate of OCD. H7-coil Deep TMS suppresses this hyperactivation via the medial prefrontal cortex, directly targeting the CSTC circuit dysfunction that drives obsessional thoughts and compulsive urges.",
+      "effect_direction": "Inhibitory",
+      "modalities": [
+        "deep-tms"
+      ],
+      "eeg_position_10_20": "Fz / AFz",
+      "brodmann_area": "BA 24, 32 (ACC); BA 10, 11 (mPFC)",
+      "network": "Salience Network / Default Mode Network",
+      "qeeg_target": "Normalise elevated theta power at Fz/AFz; reduce CSTC hypercoherence",
+      "evidence_note": "Primary target for FDA-cleared BrainsWay H7-coil OCD protocol. Supported by fMRI and PET evidence of OFC-ACC hyperactivity in OCD."
+    },
+    {
+      "region": "Supplementary Motor Area",
+      "abbreviation": "SMA",
+      "laterality": "Bilateral",
+      "rationale": "The SMA is implicated in the 'urge-to-act' phenomenology of OCD compulsions. Hyperactivation of SMA contributes to the irresistible compulsive drive. Low-frequency rTMS (1 Hz) to bilateral SMA reduces this hyperactivation, diminishing compulsive urges particularly for symmetry/ordering and checking phenotypes.",
+      "effect_direction": "Inhibitory",
+      "modalities": [
+        "tms",
+        "deep-tms"
+      ],
+      "eeg_position_10_20": "Cz (2 cm anterior)",
+      "brodmann_area": "BA 6",
+      "network": "Motor Network / Salience Network",
+      "qeeg_target": "Reduce SMA hyperactivation; normalise frontal motor preparatory activity",
+      "evidence_note": "Multiple RCTs support SMA as primary target for rTMS in OCD. H7-coil field encompasses SMA bilaterally."
+    },
+    {
+      "region": "Orbitofrontal Cortex",
+      "abbreviation": "OFC",
+      "laterality": "Bilateral",
+      "rationale": "The OFC is the most consistently hyperactivated region in OCD neuroimaging. OFC hyperactivity drives the 'error signal' that fuels obsessional thoughts and compulsive drive. Deep TMS H7-coil reaches OFC via its extended medial prefrontal field.",
+      "effect_direction": "Inhibitory",
+      "modalities": [
+        "deep-tms",
+        "tdcs"
+      ],
+      "eeg_position_10_20": "AFz / AF3 / AF4",
+      "brodmann_area": "BA 11, 47",
+      "network": "Salience Network / CSTC Circuit",
+      "qeeg_target": "Reduce OFC theta and high beta; normalise OFC-caudate coherence",
+      "evidence_note": "OFC hyperactivity is the most replicated finding in OCD neuroimaging (Saxena & Rauch, 2002; Rotge et al., 2008 meta-analysis)."
+    },
+    {
+      "region": "Anterior Limb of Internal Capsule / Bed Nucleus of Stria Terminalis",
+      "abbreviation": "ALIC/BNST",
+      "laterality": "Bilateral",
+      "rationale": "DBS targets the white matter tracts of the ALIC that connect the OFC, ACC, and thalamus, disrupting the hyperactive CSTC loop at the level of the internal capsule. The adjacent BNST modulates anxiety and threat processing relevant to OCD.",
+      "effect_direction": "Normalise",
+      "modalities": [
+        "dbs"
+      ],
+      "eeg_position_10_20": "N/A",
+      "brodmann_area": "N/A (subcortical white matter)",
+      "network": "CSTC Circuit / Limbic System",
+      "qeeg_target": "N/A (subcortical implant; qEEG monitoring can track cortical correlates)",
+      "evidence_note": "FDA HDE H050003 target. Supported by multiple case series and open-label trials. Bilateral stimulation consistently more effective than unilateral."
+    }
+  ],
+  "handbook_outputs": {
+    "clinician_handbook": {
+      "title": "OCD Neuromodulation â€” Clinician Handbook",
+      "audience": "Clinician",
+      "sections": [
+        {
+          "section_id": "CH-OCD-01",
+          "title": "Condition Overview and Neurobiological Rationale",
+          "content": [
+            "OCD involves hyperactivation of the CSTC circuit (OFC â†’ caudate â†’ thalamus â†’ OFC loop). Neuromodulation targets this circuit via mPFC/SMA suppression (Deep TMS H7) or subcortical modulation (DBS).",
+            "Evidence hierarchy: Deep TMS H7-coil (EV-A, FDA De Novo); rTMS SMA (EV-B, off-label); DBS ALIC (EV-B, HDE).",
+            "First-line neuromodulation: BrainsWay H7-coil Deep TMS. Prerequisite: â‰¥2 failed adequate SSRI trials + â‰¥1 ERP course.",
+            "Symptom provocation (brief trigger exposure) immediately prior to each Deep TMS session is mandatory â€” clinical trial data demonstrate significantly greater Y-BOCS response with provocation."
+          ]
+        },
+        {
+          "section_id": "CH-OCD-02",
+          "title": "Protocol Selection Guide",
+          "content": [
+            "Step 1: Confirm OCD diagnosis, Y-BOCS â‰¥16 (moderate+), and failed â‰¥2 SSRI trials.",
+            "Step 2: Safety screening â€” seizure history, implants, pregnancy, current medications.",
+            "Step 3: If BrainsWay H7-coil available â†’ PRO-DTMS-OCD-01 (On-label, preferred).",
+            "Step 4: If H7 unavailable â†’ PRO-TMS-OCD-02 (rTMS SMA, off-label, EV-B).",
+            "Step 5: Treatment-resistant (Y-BOCS â‰¥28, â‰¥5 failed treatments) â†’ refer for DBS assessment (PRO-DBS-OCD-01).",
+            "Phenotype considerations: Contamination/washing and symmetry/ordering respond best to SMA-targeting protocols. Pure-O phenotype may require modified provocation approach."
+          ]
+        },
+        {
+          "section_id": "CH-OCD-03",
+          "title": "Monitoring and Response Criteria",
+          "content": [
+            "Primary outcome: Y-BOCS. Response = â‰¥35% reduction from baseline. Remission = Y-BOCS â‰¤12.",
+            "Administer Y-BOCS every 5â€“6 sessions throughout course.",
+            "Non-response flag: <20% Y-BOCS reduction by session 15 â†’ clinical review and protocol adjustment.",
+            "Monitor comorbid depression (PHQ-9) at baseline and end of course â€” treatment of OCD frequently improves comorbid MDD.",
+            "Suicidal ideation screening at every visit â€” OCD population has significantly elevated suicide risk."
+          ]
+        },
+        {
+          "section_id": "CH-OCD-04",
+          "title": "Adverse Events and Safety Management",
+          "content": [
+            "Deep TMS common AEs: headache (20â€“30%), scalp tingling, transient anxiety post-provocation. Usually mild and resolving within 1 hour.",
+            "Rare serious AE: seizure (<0.1%). Mandatory response: stop session, call emergency services, AE documentation, protocol suspension.",
+            "DBS AEs: surgical infection, hardware failure, stimulation-induced hypomania or mood crisis.",
+            "All AEs must be documented in the session log. Serious AEs require incident form and clinician review."
+          ]
+        }
+      ]
+    },
+    "patient_guide": {
+      "title": "Your OCD Treatment Guide â€” Deep TMS",
+      "audience": "Patient",
+      "sections": [
+        {
+          "section_id": "PG-OCD-01",
+          "title": "What Is Deep TMS and How Does It Help OCD?",
+          "content": [
+            "Deep TMS uses gentle magnetic pulses to reach deeper into your brain than regular brain stimulation. For OCD, it targets the circuits that get 'stuck in a loop' and drive your obsessive thoughts and compulsive actions.",
+            "It is FDA-cleared specifically for OCD â€” this means the US Food and Drug Administration has reviewed the clinical evidence and approved it as a treatment.",
+            "The treatment does not require surgery, anaesthesia, or any recovery time. You sit in a chair with a padded coil resting on your head."
+          ]
+        },
+        {
+          "section_id": "PG-OCD-02",
+          "title": "What Happens in Each Session?",
+          "content": [
+            "Before each session, your clinician will briefly expose you to one of your OCD triggers (for example, touching a door handle if you have contamination concerns). You will not be asked to perform your compulsion. This 30-second step activates the brain circuits that need to be treated.",
+            "The magnetic stimulation then runs for 29 minutes. You will hear clicking sounds â€” please wear the earplugs provided.",
+            "You can go home immediately after. There is no sedation and no recovery time required.",
+            "You will attend 5 days per week for approximately 6 weeks (29 sessions in total)."
+          ]
+        },
+        {
+          "section_id": "PG-OCD-03",
+          "title": "What Side Effects Should I Know About?",
+          "content": [
+            "The most common side effect is a mild headache after the session, affecting about 1 in 4 people. This usually goes away within an hour and can be managed with a standard over-the-counter painkiller if needed.",
+            "Some people feel mild scalp tingling or discomfort where the coil sits. Tell your technician â€” adjustments can be made.",
+            "Seizure is very rare (less than 1 in 1,000 with proper screening). Your medical history is carefully reviewed beforehand to ensure you are not at increased risk.",
+            "Tell your clinician straight away if you feel significantly more anxious, low, or unwell after any session."
+          ]
+        },
+        {
+          "section_id": "PG-OCD-04",
+          "title": "Tips to Get the Most from Treatment",
+          "content": [
+            "Continue your medication as prescribed â€” Deep TMS works best alongside your SSRI, not as a replacement.",
+            "If you are doing ERP therapy, try to continue sessions during your TMS course â€” they complement each other.",
+            "After each TMS session, your clinician may encourage you to resist performing compulsions for a short period. This is not mandatory but can enhance results.",
+            "Keep your appointments â€” missing sessions reduces the effectiveness of the course.",
+            "Track your daily OCD symptom level in a diary or app â€” this helps your clinician see your progress and adjust the plan if needed."
+          ]
+        }
+      ]
+    },
+    "technician_sop": {
+      "title": "OCD Deep TMS â€” Technician Standard Operating Procedure",
+      "audience": "Technician",
+      "sections": [
+        {
+          "section_id": "SOP-OCD-01",
+          "title": "Pre-Session Checklist",
+          "content": [
+            "1. Confirm patient identity (two identifiers).",
+            "2. Review contraindication screen â€” check for any new medications, new metal implants, changes in seizure history, or pregnancy status since last session.",
+            "3. Confirm H7-coil is clean, in good condition, and properly connected to BrainsWay console.",
+            "4. Prepare hearing protection (foam earplugs) for patient.",
+            "5. Confirm motor threshold (rMT) from last session. Recalculate if â‰¥1-week gap or medication change.",
+            "6. Log date, time, and patient ID in session record."
+          ]
+        },
+        {
+          "section_id": "SOP-OCD-02",
+          "title": "Symptom Provocation Procedure",
+          "content": [
+            "1. Clinician-led: technician must NOT conduct provocation independently â€” this step requires the supervising clinician.",
+            "2. Brief 30-second personalised provocation is administered immediately before stimulation.",
+            "3. Record patient's Subjective Units of Distress (SUD) rating (0â€“100) post-provocation. Document in session record.",
+            "4. If SUD >85: inform supervising clinician before proceeding. Consider adjusting provocation intensity.",
+            "5. Patient must NOT perform compulsion between provocation and stimulation onset."
+          ]
+        },
+        {
+          "section_id": "SOP-OCD-03",
+          "title": "Stimulation Delivery and Monitoring",
+          "content": [
+            "1. Position H7-coil at standardised Fz/medial prefrontal position per BrainsWay training protocol.",
+            "2. Confirm coil-to-scalp contact. Apply hearing protection.",
+            "3. Set parameters: 20 Hz, 100% rMT, 2-second trains, 20-second ITI, 60 trains.",
+            "4. Start session. Remain present throughout. Monitor patient for discomfort, twitching, or distress.",
+            "5. If patient reports headache >7/10 severity, scalp pain, or shows signs of seizure (tonic-clonic movements, loss of consciousness): STOP SESSION IMMEDIATELY. Follow emergency protocol.",
+            "6. At session end: document completion, any AEs, patient-reported experience."
+          ]
+        },
+        {
+          "section_id": "SOP-OCD-04",
+          "title": "Emergency Protocol â€” Seizure Response",
+          "content": [
+            "1. Stop stimulation immediately.",
+            "2. Ensure patient airway is clear; turn onto recovery position if possible.",
+            "3. Call emergency services (ambulance).",
+            "4. Do NOT leave the patient unattended.",
+            "5. Call supervising clinician immediately.",
+            "6. Do not administer any medication unless trained and authorised.",
+            "7. Complete AE form same day. All subsequent sessions suspended pending neurological review."
+          ]
+        }
+      ]
+    }
+  },
+  "monitoring_rules": {
+    "assessment_schedule": [
+      {
+        "assessment_id": "ASS-022",
+        "assessment_name": "Y-BOCS",
+        "timing": "Before session 1 (baseline); sessions 6, 12, 18, 24, 29 (end of course)",
+        "frequency": "Every 5â€“6 sessions",
+        "administered_by": "Clinician-rated"
+      },
+      {
+        "assessment_id": "ASS-020",
+        "assessment_name": "OCI-R",
+        "timing": "Baseline and end of course",
+        "frequency": "Once at start, once at end",
+        "administered_by": "Patient self-report"
+      },
+      {
+        "assessment_id": "ASS-023",
+        "assessment_name": "PHQ-9",
+        "timing": "Baseline and end of course",
+        "frequency": "Once at start, once at end",
+        "administered_by": "Patient self-report"
+      },
+      {
+        "assessment_id": "ASS-024",
+        "assessment_name": "GAD-7",
+        "timing": "Baseline and end of course",
+        "frequency": "Once at start, once at end",
+        "administered_by": "Patient self-report"
+      },
+      {
+        "assessment_id": "ASS-021",
+        "assessment_name": "CGI-I",
+        "timing": "Session 15 and end of course",
+        "frequency": "Twice during course",
+        "administered_by": "Clinician-rated"
+      }
+    ],
+    "response_thresholds": [
+      {
+        "assessment_id": "ASS-022",
+        "assessment_name": "Y-BOCS",
+        "lower_is_better": true,
+        "response_threshold": "â‰¥35% reduction from baseline score",
+        "remission_threshold": "Total score â‰¤12",
+        "non_response_threshold": "<20% reduction from baseline at session 15",
+        "deterioration_threshold": "Increase of â‰¥5 points from any prior score"
+      },
+      {
+        "assessment_id": "ASS-020",
+        "assessment_name": "OCI-R",
+        "lower_is_better": true,
+        "response_threshold": "â‰¥11 point reduction from baseline (MCID)",
+        "remission_threshold": "Total score <21",
+        "non_response_threshold": "<6 point reduction at end of course",
+        "deterioration_threshold": "Increase of â‰¥8 points from baseline"
+      },
+      {
+        "assessment_id": "ASS-023",
+        "assessment_name": "PHQ-9",
+        "lower_is_better": true,
+        "response_threshold": "â‰¥50% reduction from baseline",
+        "remission_threshold": "Score â‰¤4",
+        "non_response_threshold": "<30% reduction at end of course",
+        "deterioration_threshold": "Increase of â‰¥5 points from baseline"
+      }
+    ],
+    "adverse_event_triggers": [
+      {
+        "event_type": "Seizure during or within 2 hours of session",
+        "severity": "Serious",
+        "action": "Stop session immediately. Emergency services. AE documentation. Suspend all sessions pending neurological clearance.",
+        "suspend_treatment": true
+      },
+      {
+        "event_type": "Headache lasting >2 hours post-session",
+        "severity": "Moderate",
+        "action": "Reduce intensity to 90% rMT at next session. Medical review if persists across 3 consecutive sessions.",
+        "suspend_treatment": false
+      },
+      {
+        "event_type": "Significant mood change (mania, severe dysphoria) post-session",
+        "severity": "Severe",
+        "action": "Same-day clinician review. Suspend session until psychiatric assessment completed.",
+        "suspend_treatment": true
+      },
+      {
+        "event_type": "Syncope (fainting) during or after session",
+        "severity": "Moderate",
+        "action": "Place patient supine. Monitor vitals. Medical review before next session. Exclude cardiac cause.",
+        "suspend_treatment": true
+      },
+      {
+        "event_type": "Active suicidal ideation disclosed during session",
+        "severity": "Serious",
+        "action": "Immediate clinician involvement. Safety planning. Emergency services if imminent risk. Do not allow patient to leave unsupported.",
+        "suspend_treatment": true
+      }
+    ],
+    "escalation_rules": [
+      {
+        "trigger": "Y-BOCS reduction <20% by session 15",
+        "action": "Clinician review. Reassess provocation adequacy. Consider neuronavigation for coil repositioning. Discuss adjunct ERP intensification or medication optimisation.",
+        "urgency": "Routine"
+      },
+      {
+        "trigger": "Y-BOCS deterioration â‰¥5 points from best score during course",
+        "action": "Clinician review within 48 hours. Assess for life stressors, medication non-compliance, or comorbidity flare. Consider protocol pause.",
+        "urgency": "Urgent"
+      },
+      {
+        "trigger": "Active suicidal ideation (C-SSRS â‰¥3) at any point",
+        "action": "Emergency clinician review. Safety plan. Consider psychiatric hospitalisation. Suspend TMS sessions.",
+        "urgency": "Emergency"
+      },
+      {
+        "trigger": "Seizure during treatment",
+        "action": "Emergency services. Full protocol suspension. Neurological evaluation before any reinstatement.",
+        "urgency": "Emergency"
+      },
+      {
+        "trigger": "Patient misses 3 or more consecutive sessions",
+        "action": "Clinician outreach within 24 hours. Assess barriers and motivation. Reconfirm consent and treatment plan.",
+        "urgency": "Routine"
+      }
+    ],
+    "adherence_rules": {
+      "minimum_session_adherence_pct": 80,
+      "consecutive_missed_sessions_flag": 3,
+      "action_on_low_adherence": "Clinical review. Explore barriers (transport, work, anxiety about provocation). Offer schedule flexibility. Reconfirm informed consent and treatment goals. Consider whether course should be extended by missed-session count."
+    }
+  },
+  "report_templates": [
+    {
+      "id": "RPT-OCD-01",
+      "name": "OCD Neuromodulation â€” Intake Summary",
+      "report_type": "intake-summary",
+      "audience": "Clinician",
+      "frequency": "Once â€” at intake",
+      "sections": [
+        {
+          "section_id": "RPT-OCD-01-A",
+          "title": "Diagnosis and Severity",
+          "auto_populate_from": [
+            "diagnosis",
+            "icd_10",
+            "dsm_5_code",
+            "y_bocs_baseline",
+            "oci_r_baseline",
+            "cgi_s_baseline"
+          ],
+          "clinician_narrative_prompt": "Summarise OCD diagnosis, primary symptom dimensions, severity tier (Y-BOCS score), and duration of illness.",
+          "required": true
+        },
+        {
+          "section_id": "RPT-OCD-01-B",
+          "title": "Treatment History",
+          "auto_populate_from": [
+            "prior_medications",
+            "prior_therapy",
+            "number_of_ssri_trials",
+            "erp_courses"
+          ],
+          "clinician_narrative_prompt": "Document all prior SSRI trials (agent, dose, duration, reason for discontinuation), ERP therapy attempts, and augmentation strategies. Classify treatment resistance level.",
+          "required": true
+        },
+        {
+          "section_id": "RPT-OCD-01-C",
+          "title": "Safety Screening",
+          "auto_populate_from": [
+            "seizure_history",
+            "implant_status",
+            "current_medications",
+            "contraindications_screened"
+          ],
+          "clinician_narrative_prompt": "Confirm safety screening completed. Document any relative contraindications and mitigation plan.",
+          "required": true
+        },
+        {
+          "section_id": "RPT-OCD-01-D",
+          "title": "Protocol Selection and Rationale",
+          "auto_populate_from": [
+            "selected_protocol",
+            "protocol_id",
+            "evidence_grade",
+            "on_label_vs_off_label"
+          ],
+          "clinician_narrative_prompt": "State selected protocol, rationale for selection (phenotype, device availability, treatment history), and evidence level. Note if off-label acknowledgement obtained.",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "RPT-OCD-02",
+      "name": "OCD Treatment â€” Progress Report",
+      "report_type": "progress-report",
+      "audience": "Referring Physician",
+      "frequency": "Every 10 sessions",
+      "sections": [
+        {
+          "section_id": "RPT-OCD-02-A",
+          "title": "Sessions Completed and Adherence",
+          "auto_populate_from": [
+            "sessions_completed",
+            "sessions_attended",
+            "adherence_pct",
+            "missed_sessions"
+          ],
+          "clinician_narrative_prompt": "Report sessions completed to date, adherence percentage, and any missed sessions with reasons.",
+          "required": true
+        },
+        {
+          "section_id": "RPT-OCD-02-B",
+          "title": "Y-BOCS Score Trajectory",
+          "auto_populate_from": [
+            "y_bocs_baseline",
+            "y_bocs_current",
+            "y_bocs_pct_change",
+            "response_status"
+          ],
+          "clinician_narrative_prompt": "Report current Y-BOCS score, percentage change from baseline, and clinical response classification. Note if patient is on-track, partial responder, or non-responder.",
+          "required": true
+        },
+        {
+          "section_id": "RPT-OCD-02-C",
+          "title": "Tolerability and Adverse Events",
+          "auto_populate_from": [
+            "adverse_events_logged",
+            "sessions_modified",
+            "treatment_pauses"
+          ],
+          "clinician_narrative_prompt": "Summarise any adverse events, protocol modifications made, and current tolerability status.",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "RPT-OCD-03",
+      "name": "OCD Treatment â€” End of Course Report",
+      "report_type": "end-of-course-report",
+      "audience": "Referring Physician",
+      "frequency": "Once â€” end of course",
+      "sections": [
+        {
+          "section_id": "RPT-OCD-03-A",
+          "title": "Treatment Summary",
+          "auto_populate_from": [
+            "protocol_id",
+            "total_sessions",
+            "sessions_completed",
+            "course_dates"
+          ],
+          "clinician_narrative_prompt": "Summarise the protocol delivered, total sessions completed, dates of treatment course, and any significant protocol modifications.",
+          "required": true
+        },
+        {
+          "section_id": "RPT-OCD-03-B",
+          "title": "Outcome Measures",
+          "auto_populate_from": [
+            "y_bocs_baseline",
+            "y_bocs_eoc",
+            "y_bocs_pct_change",
+            "oci_r_baseline",
+            "oci_r_eoc",
+            "phq9_baseline",
+            "phq9_eoc",
+            "cgi_i_eoc"
+          ],
+          "clinician_narrative_prompt": "Report all end-of-course assessment scores. Classify overall treatment response (Responder/Partial Responder/Non-Responder). Note clinically meaningful changes in comorbid depression and anxiety.",
+          "required": true
+        },
+        {
+          "section_id": "RPT-OCD-03-C",
+          "title": "Recommendations and Follow-up Plan",
+          "auto_populate_from": [
+            "maintenance_plan",
+            "medication_status",
+            "erp_continuation"
+          ],
+          "clinician_narrative_prompt": "Provide clinical recommendations: maintenance TMS schedule, medication continuation, ERP therapy continuation, and follow-up Y-BOCS reassessment timeline.",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "RPT-OCD-04",
+      "name": "OCD â€” SOAP Note",
+      "report_type": "soap-note",
+      "audience": "Clinician",
+      "frequency": "Every session",
+      "sections": [
+        {
+          "section_id": "RPT-OCD-04-S",
+          "title": "Subjective",
+          "auto_populate_from": [
+            "patient_reported_symptoms",
+            "sud_rating",
+            "sleep",
+            "medication_compliance"
+          ],
+          "clinician_narrative_prompt": "Patient's self-reported OCD symptom level today, SUD rating at provocation, sleep quality, and medication compliance.",
+          "required": true
+        },
+        {
+          "section_id": "RPT-OCD-04-O",
+          "title": "Objective",
+          "auto_populate_from": [
+            "session_number",
+            "parameters_delivered",
+            "mt_value",
+            "pulses_delivered"
+          ],
+          "clinician_narrative_prompt": "Session number, motor threshold, treatment parameters delivered (frequency, intensity, pulses), and any parameter modifications.",
+          "required": true
+        },
+        {
+          "section_id": "RPT-OCD-04-A",
+          "title": "Assessment",
+          "auto_populate_from": [
+            "y_bocs_if_administered",
+            "cgi_i_if_administered",
+            "ae_log"
+          ],
+          "clinician_narrative_prompt": "Clinical assessment of session tolerance, any adverse events, and progress assessment if Y-BOCS administered today.",
+          "required": true
+        },
+        {
+          "section_id": "RPT-OCD-04-P",
+          "title": "Plan",
+          "auto_populate_from": [
+            "next_session_date",
+            "protocol_modifications"
+          ],
+          "clinician_narrative_prompt": "Next session plan, any parameter adjustments planned, escalation actions if applicable, and any referrals or clinical contacts needed.",
+          "required": true
+        }
+      ]
+    }
+  ],
+  "home_program_templates": [
+    {
+      "id": "HP-OCD-01",
+      "name": "OCD Home ERP Support Program",
+      "modality_slug": "erp-home-support",
+      "device_required": "None â€” behavioural program",
+      "prerequisite_clinic_sessions": 5,
+      "sessions_per_week": 5,
+      "session_duration_minutes": 30,
+      "total_weeks": 6,
+      "patient_instructions": [
+        "Practice one ERP exercise at home each day during the treatment course. Your therapist or clinician will provide your personalised exposure hierarchy.",
+        "Choose a trigger from your hierarchy that produces moderate anxiety (SUD 40â€“60/100). Do not start with your most feared triggers.",
+        "Expose yourself to the trigger without performing the associated compulsion. Stay in the situation until your anxiety naturally reduces by at least 50%.",
+        "Record your SUD rating at the start, peak, and end of each exposure in your OCD diary.",
+        "Do not perform compulsions (physical or mental) after the exposure. If urges arise, delay the compulsion as long as possible.",
+        "Bring your diary to each clinic session. Your clinician will review your home ERP progress and adjust the hierarchy as needed."
+      ],
+      "safety_checklist": [
+        "I am not in a crisis or feeling actively suicidal today",
+        "My SUD rating for today's planned exposure is â‰¤70/100 (not overwhelming)",
+        "I have my clinician's emergency contact details available",
+        "I have completed at least 5 clinic TMS sessions before starting home ERP"
+      ],
+      "reporting_requirements": [
+        "Record exposure trigger, SUD start/peak/end, duration in session diary",
+        "Note any compulsions performed and duration of compulsion delay",
+        "Report any overwhelming distress or inability to tolerate exposure to clinician at next visit"
+      ],
+      "contraindications_for_home": [
+        "Active suicidal ideation â€” contact clinician or crisis service instead",
+        "Overwhelming distress (SUD >90) that does not reduce â€” call clinic",
+        "Recent significant life stressor or trauma disclosure â€” pause home ERP, contact clinician"
+      ],
+      "evidence_note": "Home ERP is an evidence-based component of OCD treatment (NICE, APA guidelines). Combining TMS with ERP during the treatment course has theoretical and emerging empirical support for enhanced response. This home program is a behavioural support component, not a device-based home program."
+    }
+  ],
+  "consent_documents": [
+    {
+      "id": "CON-OCD-001",
+      "name": "OCD Neuromodulation â€” General Informed Consent",
+      "document_type": "informed-consent",
+      "when_required": "Before first session â€” must be signed before any protocol commences",
+      "key_disclosures": [
+        "OCD diagnosis confirmed and neuromodulation treatment plan discussed",
+        "Deep TMS H7-coil is FDA De Novo cleared specifically for OCD (DEN170087, 2018)",
+        "Treatment involves 29 sessions over 6 weeks, attending 5 days per week",
+        "Symptom provocation (brief exposure to OCD triggers) is a required element of every session",
+        "Common side effects: headache (20â€“30%), scalp discomfort, mild tingling",
+        "Rare serious risk: seizure (<0.1% with appropriate safety screening)",
+        "I understand treatment is most effective when continued alongside my SSRI medication",
+        "I understand ERP therapy is recommended alongside TMS for best outcomes",
+        "I can withdraw consent and stop treatment at any time without affecting my ongoing care"
+      ],
+      "signature_required": true,
+      "witness_required": false,
+      "clinician_co_sign_required": true,
+      "review_frequency": "Each new course"
+    },
+    {
+      "id": "CON-OCD-002",
+      "name": "TMS/Deep TMS Safety Screening and Contraindication Questionnaire",
+      "document_type": "contraindication-screening",
+      "modality_slug": "deep-tms",
+      "when_required": "Before first session and at start of each new course",
+      "key_disclosures": [
+        "Seizure history or epilepsy diagnosis disclosed",
+        "Metal implants in head, neck, or upper chest confirmed absent",
+        "Cardiac pacemaker or implanted defibrillator confirmed absent",
+        "Current medications including all prescription, OTC, and supplements reviewed",
+        "Pregnancy status confirmed (females of reproductive age)",
+        "Previous TMS experience and any adverse reactions documented"
+      ],
+      "signature_required": true,
+      "witness_required": false,
+      "clinician_co_sign_required": true,
+      "review_frequency": "Each new course, and whenever new medications or medical events occur"
+    },
+    {
+      "id": "CON-OCD-003",
+      "name": "Symptom Provocation Consent â€” Deep TMS OCD Protocol",
+      "document_type": "informed-consent",
+      "modality_slug": "deep-tms",
+      "when_required": "Before first session",
+      "key_disclosures": [
+        "I understand that before each Deep TMS session I will be briefly exposed to my OCD trigger(s) for approximately 30 seconds",
+        "This provocation is a required part of the FDA-cleared protocol and significantly improves treatment outcomes",
+        "The provocation will be personalised to my OCD symptom type and calibrated to cause moderate distress (not overwhelming distress)",
+        "I will NOT be required to perform my compulsions during or after provocation",
+        "I can indicate distress using the SUD scale and the provocation will be adjusted if I am overwhelmed",
+        "I understand I may feel temporarily anxious after provocation and that this is expected and will subside"
+      ],
+      "signature_required": true,
+      "witness_required": false,
+      "clinician_co_sign_required": true,
+      "review_frequency": "Once per treatment course; re-signed if provocation targets change significantly"
+    },
+    {
+      "id": "CON-OCD-004",
+      "name": "Off-Label TMS Acknowledgement â€” rTMS SMA Protocol",
+      "document_type": "off-label-acknowledgement",
+      "modality_slug": "tms",
+      "when_required": "Before first session of PRO-TMS-OCD-02",
+      "key_disclosures": [
+        "This rTMS protocol (low-frequency SMA stimulation) is not FDA-cleared specifically for OCD",
+        "It is used off-label based on published scientific evidence (EV-B level)",
+        "The evidence includes multiple RCTs and meta-analyses showing significant Y-BOCS reductions",
+        "Off-label use is legal and common in neuromodulation practice",
+        "A clinician has discussed the evidence base, alternatives, and risks with me",
+        "I understand that an FDA-cleared Deep TMS option exists (BrainsWay H7) and understand why this alternative has been selected"
+      ],
+      "signature_required": true,
+      "witness_required": false,
+      "clinician_co_sign_required": true,
+      "review_frequency": "Each new course"
+    },
+    {
+      "id": "CON-OCD-005",
+      "name": "DBS Surgical Consent â€” Severe Treatment-Resistant OCD",
+      "document_type": "informed-consent",
+      "modality_slug": "dbs",
+      "when_required": "Before surgical implantation â€” DBS pathway only",
+      "key_disclosures": [
+        "Deep Brain Stimulation for OCD is a surgical procedure requiring general anaesthesia",
+        "FDA approval is via Humanitarian Device Exemption (HDE H050003) â€” indicating presumed but not proven efficacy",
+        "Surgical risks include: bleeding in the brain (haemorrhage ~1â€“3%), infection, hardware malfunction, and neurological side effects",
+        "Stimulation-related side effects may include mood changes, hypomania, or worsening anxiety during parameter titration",
+        "The device requires battery replacement surgery every 3â€“7 years",
+        "DBS is a last resort after â‰¥5 years of documented treatment resistance",
+        "Multidisciplinary team (psychiatrist, neurosurgeon, ethicist, neuropsychologist) has reviewed my case",
+        "I have capacity to consent to this procedure and this has been independently assessed",
+        "I can decline or request device deactivation at any time after implantation"
+      ],
+      "signature_required": true,
+      "witness_required": true,
+      "clinician_co_sign_required": true,
+      "review_frequency": "Once per surgical procedure; annual review of ongoing consent"
+    }
+  ]
+}

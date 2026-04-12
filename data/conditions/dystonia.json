@@ -1,0 +1,1038 @@
+{
+  "$schema": "../schemas/condition-package.schema.json",
+  "schema_version": "1.0.0",
+  "id": "CON-014",
+  "slug": "dystonia",
+  "name": "Dystonia",
+  "category": "Neurological \u2014 Movement",
+  "icd_10": ["G24.0", "G24.1", "G24.2", "G24.3", "G24.4", "G24.5", "G24.8", "G24.9"],
+  "created_at": "2026-04-12",
+  "updated_at": "2026-04-12",
+  "review_status": "reviewed",
+  "reviewed_by": "DeepSynaps Clinical Team",
+
+  "condition_overview": {
+    "summary": "Dystonia is a movement disorder characterised by sustained or intermittent muscle contractions causing abnormal, often repetitive, movements and postures. It can be focal (affecting one body part), segmental (contiguous regions), multifocal, hemidystonia, or generalised. Dystonia may be primary (idiopathic or genetic), secondary (acquired from structural lesions, drugs, metabolic causes), or combined with other movement disorders. When medical therapy is inadequate, GPi deep brain stimulation (DBS) is FDA-approved for primary drug-refractory dystonia and provides clinically significant improvement, particularly in DYT1-associated generalised dystonia. Response is typically slower than in PD or ET — weeks to months.",
+    "prevalence": "Dystonia is the third most common movement disorder after Parkinson's disease and essential tremor. Estimated prevalence is approximately 16 per 100,000 for primary generalised dystonia and higher for focal dystonias. Cervical dystonia (torticollis) is the most common focal dystonia, affecting approximately 57 per 100,000. Blepharospasm affects approximately 36 per 100,000. DYT1 (TOR1A) generalised torsion dystonia is the most common inherited form.",
+    "phenotype_clusters": [
+      {
+        "id": "PHE-053",
+        "name": "Primary Generalised Dystonia (DYT1 and Non-DYT1)",
+        "description": "Dystonic movements involving multiple body regions including trunk and limbs, typically onset in childhood or adolescence. DYT1 (TOR1A GAG deletion) is the most common inherited form; DYT1 carriers respond particularly well to GPi DBS. Non-DYT1 generalised dystonia is more heterogeneous. Primary target for GPi DBS.",
+        "primary_modality": "dbs",
+        "qeeg_signature": "Abnormal cortical synchronisation; loss of surround inhibition; impaired LTP/LTD in motor cortex"
+      },
+      {
+        "id": "PHE-054",
+        "name": "Cervical Dystonia (Spasmodic Torticollis)",
+        "description": "Focal dystonia of the neck causing abnormal head position (rotational, laterocollis, anterocollis, or retrocollis). The most common focal dystonia. First-line treatment is botulinum toxin injection; GPi DBS or STN DBS is considered for severe refractory cases or those with associated generalised involvement. TWSTRS is the primary outcome scale.",
+        "primary_modality": "dbs",
+        "qeeg_signature": "Abnormal neck muscle EMG co-contraction patterns; dystonic motor unit firing"
+      },
+      {
+        "id": "PHE-055",
+        "name": "Segmental and Multifocal Dystonia",
+        "description": "Dystonia affecting two or more contiguous (segmental) or non-contiguous (multifocal) body regions. Includes cranio-cervical (Meige syndrome: blepharospasm + oromandibular), upper limb + neck, etc. GPi DBS is the primary surgical option when disability is significant and medical treatment is inadequate.",
+        "primary_modality": "dbs",
+        "qeeg_signature": "Bilateral motor cortex abnormalities; abnormal somatosensory processing"
+      },
+      {
+        "id": "PHE-056",
+        "name": "Focal Limb Dystonia (Task-Specific, Writer's Cramp)",
+        "description": "Task-specific dystonia of the hand or arm triggered exclusively during skilled movements (writing, playing a musical instrument). Often initially task-specific but may generalise. Botulinum toxin is first-line; DBS not typically indicated for purely task-specific focal dystonia. rTMS adjunct may have a role.",
+        "primary_modality": "tms",
+        "qeeg_signature": "Abnormal sensorimotor cortex activity; impaired inhibitory circuits in contralateral motor cortex"
+      }
+    ],
+    "severity_levels": [
+      "Mild — Focal dystonia; minimal functional impact; Burke-Fahn-Marsden BFMDRS movement score <10",
+      "Moderate — Segmental or multifocal; functional disability; BFMDRS 10-30",
+      "Severe — Generalised; significant disability in ADLs; BFMDRS >30",
+      "Catastrophic — Severe generalised; status dystonicus; life-threatening; emergency GPi DBS may be needed"
+    ],
+    "population": ["Adult", "Paediatric ≥7 years (GPi DBS)"],
+    "symptom_clusters": [
+      "Sustained or intermittent muscle contractions causing abnormal postures",
+      "Twisting, repetitive movements (dystonic movements)",
+      "Pain — particularly in cervical dystonia and limb dystonia",
+      "Task-specific triggering in some forms (writer's cramp, embouchure dystonia)",
+      "Overflow movements (spread to adjacent muscles during voluntary movement)",
+      "Geste antagoniste (sensory trick) in some focal dystonias — touching face relieves cervical dystonia",
+      "Fatigue worsening throughout the day (common in generalised dystonia)",
+      "Psychiatric comorbidity: depression, anxiety, social withdrawal",
+      "Sleep disturbance (nocturnal dystonia)"
+    ],
+    "highest_evidence_level": "EV-A",
+    "relevant_modalities": ["dbs", "tms"],
+    "neurobiology": "Dystonia involves dysfunction of basal ganglia-thalamo-cortical circuits with characteristic loss of surround inhibition — the normal mechanism that suppresses unwanted muscle activation during voluntary movement. Key pathophysiological features include: abnormal striatal dopamine signalling, impaired cortical plasticity (abnormal LTP/LTD), sensorimotor integration deficits, and abnormal co-contraction of agonist and antagonist muscles. GPi DBS achieves benefit by modulating the disordered GPi output in the indirect pathway, restoring inhibitory thalamo-cortical control. The slower response compared to PD likely reflects the need for GPi DBS to reverse maladaptive cortical plasticity over weeks to months rather than immediately suppressing oscillations.",
+    "comorbidities": [
+      "Depression (20-40% of dystonia patients — particularly cervical dystonia)",
+      "Anxiety disorders",
+      "Pain — chronic musculoskeletal pain in cervical dystonia and limb dystonias",
+      "Cervical myelopathy (in longstanding severe cervical dystonia)",
+      "Psychiatric disorders in genetic forms (DYT5 dopa-responsive dystonia — mimics PD)",
+      "Intellectual disability in some genetic dystonias"
+    ],
+    "differential_diagnoses": [
+      "Parkinson's disease (early PD can present with focal dystonia — DaTSCAN differentiates)",
+      "Dopa-responsive dystonia (DRD/DYT5 — dramatic response to low-dose levodopa; trial before DBS)",
+      "Wilson's disease — treatable genetic cause; copper studies mandatory in onset <40 years",
+      "Drug-induced dystonia (acute dystonic reaction — antipsychotics, antiemetics; treat with anticholinergics)",
+      "Tardive dystonia (late-onset from chronic dopamine antagonist exposure)",
+      "Secondary dystonia from structural brain lesion (stroke, tumour, injury — MRI required)",
+      "Spasticity (pyramidal tract sign; velocity-dependent; differs from dystonia clinically)",
+      "Functional dystonia (psychogenic — distractibility, rapid onset, inconsistency)"
+    ]
+  },
+
+  "patient_friendly_explanation": {
+    "what_is_it": "Dystonia is a condition where muscles in the body contract involuntarily — that means they tighten up without you choosing to move them. This can cause parts of your body to twist into abnormal positions or make repetitive movements you cannot control. Dystonia can affect one part of the body (like the neck or hand) or multiple areas. It is caused by a problem with how the brain controls and coordinates muscle activity.",
+    "how_it_affects_you": "Depending on where dystonia affects you, it can make writing, working, walking, or holding your head normally very difficult. Many people with dystonia also experience significant pain, particularly in the neck. The uncontrolled movements or postures can cause embarrassment and restrict social activities. Fatigue is common — symptoms often get worse as the day progresses.",
+    "treatment_options_overview": "For focal dystonias like neck dystonia, regular botulinum toxin injections (Botox) are the most effective medical treatment. For severe or generalised dystonia that does not respond well to medications or injections, Deep Brain Stimulation (DBS) targeting a specific area of the brain called the GPi (globus pallidus internus) is FDA-approved and can significantly reduce dystonic movements and improve posture over time. The improvement from DBS in dystonia tends to happen slowly — over weeks to months — which is different from other conditions like Parkinson's where the effect can be immediate.",
+    "what_to_expect": "If DBS is recommended, you will have detailed assessments including brain scans and movement disorder evaluations. Surgery places electrodes in the GPi on both sides of the brain. After surgery, the device is activated and gradually adjusted. Unlike DBS for tremor where tremor often stops quickly, dystonia improvement builds gradually over 3-12 months as the brain re-learns normal movement patterns. You will need regular programming visits throughout this period.",
+    "faq": [
+      {
+        "question": "How quickly will DBS work for my dystonia?",
+        "answer": "Dystonia responds more slowly to DBS than Parkinson's disease or essential tremor. You may not notice significant improvement for 3-6 months, and the full benefit can take up to 12 months to develop. This is normal and expected. It is believed that DBS needs time to reverse abnormal patterns that have built up in the brain. Do not be discouraged if you do not see immediate results."
+      },
+      {
+        "question": "Who responds best to DBS for dystonia?",
+        "answer": "People with primary (genetic) dystonia — particularly those with DYT1 gene mutations causing generalised dystonia — tend to have the best responses to GPi DBS, with up to 70-90% improvement in some cases. Secondary dystonias (caused by brain injury) tend to respond less predictably. Your neurologist will advise on likely outcomes based on your specific diagnosis."
+      },
+      {
+        "question": "Will I still need botulinum toxin injections after DBS?",
+        "answer": "Some people can reduce or stop their botulinum toxin injections after successful DBS. Others continue with both treatments as they work through different mechanisms. Your neurologist will advise based on your response."
+      },
+      {
+        "question": "Is there genetic testing for dystonia?",
+        "answer": "Yes. Genetic testing is important particularly for generalised dystonia starting in childhood or adolescence, or if there is a family history. The DYT1 gene test is the most important — DYT1-positive patients have particularly good outcomes with GPi DBS. Your neurologist will discuss whether genetic testing is appropriate for you."
+      },
+      {
+        "question": "Can DBS help with the pain from my dystonia?",
+        "answer": "Yes — in many cases, successful GPi DBS reduces not only the abnormal movements and postures but also the associated pain. This is often one of the most valued benefits reported by patients with cervical and generalised dystonia after DBS."
+      }
+    ]
+  },
+
+  "medical_history_requirements": {
+    "required_fields": [
+      {
+        "field": "Confirmed dystonia diagnosis (clinical — movement disorder specialist assessment)",
+        "reason": "GPi DBS is specific to dystonia. Spasticity, stereotypies, and functional movement disorders must be excluded.",
+        "blocks_protocol": true
+      },
+      {
+        "field": "Dystonia classification (aetiology: primary/genetic, secondary/acquired; distribution: focal, segmental, generalised)",
+        "reason": "Aetiology and distribution determine DBS candidacy, expected response, and protocol selection. DYT1 generalised dystonia has the best DBS evidence.",
+        "blocks_protocol": true
+      },
+      {
+        "field": "Documentation of inadequate response to ≥2 pharmacological and botulinum toxin treatments",
+        "reason": "GPi DBS is for drug-refractory dystonia. Medical treatments must be optimised before surgical referral.",
+        "blocks_protocol": true
+      },
+      {
+        "field": "Burke-Fahn-Marsden Dystonia Rating Scale (BFMDRS) — movement and disability subscales",
+        "reason": "BFMDRS is the primary outcome measure for DBS trials in dystonia. Baseline score required for response assessment. Movement score must document objective severity.",
+        "blocks_protocol": true
+      },
+      {
+        "field": "MRI brain (1.5T or 3T) within 12 months — including structural and targeting sequences",
+        "reason": "Required to exclude secondary causes of dystonia, confirm suitable GPi anatomy for lead placement, and exclude brain atrophy as contraindication.",
+        "blocks_protocol": true
+      },
+      {
+        "field": "Genetic testing (DYT1 and relevant gene panel) for appropriate cases",
+        "reason": "DYT1 (TOR1A) gene status is the strongest predictor of GPi DBS response in generalised dystonia. Required before DBS in childhood/adolescent onset generalised dystonia or positive family history.",
+        "blocks_protocol": false
+      },
+      {
+        "field": "Psychiatric assessment (depression screen — PHQ-9; psychosis screen)",
+        "reason": "Active psychiatric illness is a relative contraindication. Depression is common in dystonia and must be documented and managed before surgery.",
+        "blocks_protocol": false
+      },
+      {
+        "field": "Neuropsychological assessment (cognitive baseline)",
+        "reason": "Significant cognitive impairment is a relative contraindication. Baseline required for post-operative monitoring.",
+        "blocks_protocol": false
+      },
+      {
+        "field": "Cervical dystonia patients: TWSTRS at baseline",
+        "reason": "Toronto Western Spasmodic Torticollis Rating Scale (TWSTRS) is the primary outcome measure for cervical dystonia. Required as baseline alongside BFMDRS.",
+        "blocks_protocol": false
+      }
+    ],
+    "clinical_interview_checklist": [
+      "Age of onset and initial body part affected (early-onset childhood generalised vs adult-onset focal)",
+      "Dystonia distribution: focal, segmental, hemidystonia, generalised — progression pattern",
+      "Aetiology history: family history (genetic forms), drug exposure (antipsychotics — tardive), perinatal history (secondary), brain injury or lesion",
+      "Previous treatments: anticholinergics (trihexyphenidyl), baclofen, clonazepam, botulinum toxin (type A and B) — response, dose, duration",
+      "Pain assessment: location, severity (NRS), impact on function",
+      "Sensory tricks (geste antagoniste) — presence suggests primary dystonia",
+      "Task-specific features (worse with particular tasks — writing, typing, playing instrument)",
+      "Diurnal variation (worse in evening — typical primary dystonia)",
+      "Psychiatric symptoms: depression, anxiety, social withdrawal",
+      "Sleep quality: nocturnal dystonia, sleep disruption",
+      "Swallowing or breathing involvement (critical for prioritisation — life-threatening involvement requires urgent referral)",
+      "Social and occupational impact and goals for treatment"
+    ],
+    "rule_out_differentials": [
+      "Dopa-responsive dystonia (DRD/DYT5) — test levodopa response before any DBS; dramatic response to small doses",
+      "Wilson's disease (onset <40) — serum caeruloplasmin, urine copper, slit-lamp; treatable",
+      "Secondary dystonia from structural lesion — MRI brain mandatory in all cases",
+      "Drug-induced acute dystonia or tardive dystonia — full medication review including antipsychotic history",
+      "Spasticity (pyramidal signs — hyperreflexia, Babinski — distinct from dystonia)",
+      "Functional (psychogenic) dystonia — rapid onset, distractibility, response to suggestion"
+    ],
+    "comorbidity_screen": [
+      "Depression: PHQ-9 (20-40% in dystonia — particularly cervical)",
+      "Anxiety: GAD-7",
+      "Pain: NRS (0-10) and site-specific pain assessment",
+      "Cognitive function: MoCA",
+      "Sleep quality: ESS, PSQI"
+    ],
+    "prior_treatment_required": [
+      "Adequate anticholinergic trial (trihexyphenidyl — titrated to maximum tolerated dose)",
+      "Botulinum toxin injections (cervical and focal dystonia) — minimum 3 treatment cycles at adequate dose",
+      "Baclofen or clonazepam trial (as adjunct for generalised dystonia)",
+      "Levodopa trial to exclude dopa-responsive dystonia (DRD) — mandatory before DBS for all dystonia presentations",
+      "Occupational therapy and physiotherapy optimisation"
+    ],
+    "special_population_flags": [
+      {
+        "population": "Paediatric patients (7-17 years)",
+        "additional_requirements": [
+          "GPi DBS approved from age 7 for primary generalised dystonia (FDA HDE H020007)",
+          "Paediatric neurology and paediatric neurosurgery in MDT",
+          "Caregiver authorisation required for all decisions",
+          "Genetic testing (DYT1 and panel) required in all paediatric generalised dystonia cases",
+          "Developmental and cognitive assessment at baseline",
+          "Paediatric consent and assent documentation"
+        ]
+      },
+      {
+        "population": "Secondary dystonia (acquired — stroke, brain injury, metabolic)",
+        "additional_requirements": [
+          "Secondary dystonia requires MRI to document structural cause",
+          "Response to GPi DBS is less predictable in secondary dystonia — MDT must carefully counsel on realistic expectations",
+          "Underlying cause must be treated and stable before DBS",
+          "Neuropsychiatric assessment particularly important in acquired dystonia"
+        ]
+      }
+    ]
+  },
+
+  "contraindications": {
+    "absolute": [
+      {
+        "condition": "No documented failure of adequate conservative therapy (pharmacological and botulinum toxin)",
+        "rationale": "GPi DBS is indicated for drug-refractory dystonia. Conservative options must be optimised before surgery."
+      },
+      {
+        "condition": "Undiagnosed or untreated secondary cause (Wilson's disease, dopa-responsive dystonia, structural lesion)",
+        "rationale": "Secondary dystonias with treatable causes must be identified and treated before DBS is considered. DRD responds to levodopa — surgery is not needed."
+      },
+      {
+        "condition": "Active psychiatric illness — active psychosis or severe suicidality",
+        "rationale": "Active psychiatric illness precludes safe DBS surgery and post-operative management."
+      },
+      {
+        "condition": "Significant brain atrophy precluding safe GPi lead placement",
+        "rationale": "Significant atrophy increases haemorrhage risk and affects targeting precision for GPi DBS."
+      },
+      {
+        "condition": "Uncorrectable coagulopathy or anticoagulation that cannot be bridged",
+        "rationale": "Intracranial haemorrhage is the most serious DBS surgical complication. Haemostasis is mandatory."
+      }
+    ],
+    "relative": [
+      {
+        "condition": "Secondary dystonia (acquired causes)",
+        "rationale": "DBS response is less predictable and generally less complete in secondary dystonia than primary genetic dystonia.",
+        "mitigation": "MDT discussion. Realistic outcome counselling. Detailed imaging to confirm structural target anatomy. Consider lower benefit expectations and higher risk."
+      },
+      {
+        "condition": "Active moderate depression (PHQ-9 ≥10)",
+        "rationale": "Untreated depression associated with worse surgical outcomes.",
+        "mitigation": "Psychiatry co-management. Optimise antidepressant treatment before DBS. Ongoing psychiatric monitoring."
+      },
+      {
+        "condition": "Cognitive impairment (MoCA <21)",
+        "rationale": "Cognitive impairment affects DBS management, device programming compliance, and safety monitoring.",
+        "mitigation": "Full neuropsychological assessment. Individual MDT risk-benefit discussion. Enhanced carer support plan required."
+      },
+      {
+        "condition": "Tardive dystonia (from chronic dopamine antagonist use)",
+        "rationale": "Tardive dystonia may respond to GPi DBS but outcomes are more variable than primary dystonia.",
+        "mitigation": "Confirm dopamine antagonist discontinuation where safe. Discuss realistic outcome expectations. MDT review."
+      }
+    ],
+    "special_populations": [
+      {
+        "population": "Children under 7 years",
+        "flag": "GPi DBS is approved from age 7 via FDA HDE H020007. Under-7s require research ethics approval and specialist paediatric movement disorder centre."
+      },
+      {
+        "population": "Patients with cardiac pacemaker or ICD",
+        "flag": "DBS may interact with cardiac devices. Cardiology and device manufacturer consultation mandatory before proceeding."
+      }
+    ],
+    "modality_specific": {
+      "dbs": [
+        "Dopa-responsive dystonia (DRD) not excluded — levodopa trial mandatory before DBS",
+        "Wilson's disease not excluded in patients with onset <40 years — copper studies required",
+        "Secondary dystonia from active/progressive structural cause — underlying pathology must be stable",
+        "Active psychiatric illness — stabilise before proceeding",
+        "Significant brain atrophy on MRI — increased haemorrhage risk and targeting challenge"
+      ],
+      "tms": [
+        "Metallic cranial implants — contraindicated",
+        "Active seizure disorder — contraindicated",
+        "DBS leads in situ — consult DBS manufacturer before any TMS near implanted hardware"
+      ]
+    }
+  },
+
+  "assessment_bundle": {
+    "screening": [
+      {
+        "assessment_id": "ASS-DYS-001",
+        "name": "BFMDRS — Screening",
+        "full_name": "Burke-Fahn-Marsden Dystonia Rating Scale — Screening Assessment",
+        "clinician_vs_patient": "Clinician-rated",
+        "rationale": "BFMDRS is the standard severity rating for generalised and segmental dystonia. Movement subscale (Part A, 0-120) and disability subscale (Part B, 0-30) are both required. Primary outcome measure in GPi DBS trials for dystonia. Baseline screening score required.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 20,
+        "access": "Free (public domain)",
+        "population": "Adult and paediatric with dystonia"
+      }
+    ],
+    "diagnostic": [
+      {
+        "assessment_id": "ASS-DYS-002",
+        "name": "TWSTRS (Cervical Dystonia)",
+        "full_name": "Toronto Western Spasmodic Torticollis Rating Scale",
+        "clinician_vs_patient": "Clinician-rated",
+        "rationale": "Disease-specific outcome scale for cervical dystonia. Three subscales: severity (0-35), disability (0-30), and pain (0-20). Total score 0-85. Primary outcome measure for cervical dystonia clinical trials including botulinum toxin and DBS studies.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 20,
+        "access": "Free (public domain)",
+        "population": "Adults with cervical dystonia"
+      },
+      {
+        "assessment_id": "ASS-DYS-003",
+        "name": "UDRS",
+        "full_name": "Unified Dystonia Rating Scale",
+        "clinician_vs_patient": "Clinician-rated",
+        "rationale": "Comprehensive dystonia rating covering all body regions (112 maximum score). Used as a supplementary measure to BFMDRS in DBS trials. More granular than BFMDRS for segmental and multifocal dystonia.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 25,
+        "access": "Free — Dystonia Society",
+        "population": "Adult and paediatric with dystonia"
+      }
+    ],
+    "baseline": [
+      {
+        "assessment_id": "ASS-DYS-001",
+        "name": "BFMDRS — Baseline",
+        "full_name": "Burke-Fahn-Marsden Dystonia Rating Scale — Baseline",
+        "clinician_vs_patient": "Clinician-rated",
+        "rationale": "Formal baseline score across Movement (A) and Disability (B) subscales. The primary reference point for all DBS outcome assessment. Must be recorded at baseline with video documentation where possible.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 20,
+        "access": "Free",
+        "population": "All dystonia"
+      },
+      {
+        "assessment_id": "ASS-DYS-004",
+        "name": "PHQ-9 (Dystonia Baseline)",
+        "full_name": "Patient Health Questionnaire-9 — Baseline",
+        "clinician_vs_patient": "Patient self-report",
+        "rationale": "Depression is highly prevalent in dystonia (20-40%). Baseline required for surgical candidacy assessment and post-DBS monitoring. PHQ-9 ≥10 triggers psychiatric referral before surgery.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 5,
+        "access": "Free",
+        "population": "Adult"
+      }
+    ],
+    "monitoring": [
+      {
+        "assessment_id": "ASS-DYS-001",
+        "name": "BFMDRS (Monitoring)",
+        "full_name": "Burke-Fahn-Marsden DRS — Repeated Assessment",
+        "clinician_vs_patient": "Clinician-rated",
+        "rationale": "Primary monitoring outcome for GPi DBS in dystonia. Administered at every programming visit. Dystonia improvement builds over months — expect gradual BFMDRS Movement score reduction over 3-12 months.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 20,
+        "access": "Free",
+        "population": "All dystonia"
+      },
+      {
+        "assessment_id": "ASS-DYS-005",
+        "name": "DBS Parameter Log",
+        "full_name": "GPi DBS Parameter Settings and Telemetry Review",
+        "clinician_vs_patient": "Clinician-rated",
+        "rationale": "Complete DBS parameter log (frequency, pulse width, amplitude, contact configuration, impedance, battery) at every programming visit. GPi DBS for dystonia uses lower frequencies (60-80 Hz) and higher pulse widths (200-450 µs) than PD DBS — parameters must be carefully documented.",
+        "lower_is_better": false,
+        "admin_duration_minutes": 30,
+        "access": "Device programmer (manufacturer-specific)",
+        "population": "Dystonia DBS patients"
+      }
+    ],
+    "outcome": [
+      {
+        "assessment_id": "ASS-DYS-001",
+        "name": "BFMDRS (12-Month Outcome)",
+        "full_name": "Burke-Fahn-Marsden DRS — 12-Month Primary Outcome",
+        "clinician_vs_patient": "Clinician-rated",
+        "rationale": "Primary outcome at 12 months. GPi DBS typically achieves 50-70% reduction in BFMDRS Movement score in DYT1 generalised dystonia. Non-DYT1 and secondary dystonia may show lower response rates. MCID = 10 points on BFMDRS Movement subscale.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 20,
+        "access": "Free",
+        "population": "All dystonia"
+      },
+      {
+        "assessment_id": "ASS-DYS-002",
+        "name": "TWSTRS (12-Month Outcome — Cervical Dystonia)",
+        "full_name": "TWSTRS — 12-Month Outcome for Cervical Dystonia",
+        "clinician_vs_patient": "Clinician-rated",
+        "rationale": "Primary outcome for cervical dystonia at 12 months. MCID for TWSTRS total = 15%. GPi DBS improves all three subscales (severity, disability, pain).",
+        "lower_is_better": true,
+        "admin_duration_minutes": 20,
+        "access": "Free",
+        "population": "Cervical dystonia"
+      }
+    ],
+    "functional": [
+      {
+        "assessment_id": "ASS-DYS-006",
+        "name": "BFMDRS Disability Subscale",
+        "full_name": "Burke-Fahn-Marsden Dystonia Rating Scale — Disability Subscale (Part B)",
+        "clinician_vs_patient": "Patient self-report",
+        "rationale": "Captures functional disability across speech, handwriting, feeding, hygiene, dressing, and walking. Key secondary outcome documenting real-world functional recovery from GPi DBS. Score 0-30 (lower is better).",
+        "lower_is_better": true,
+        "admin_duration_minutes": 10,
+        "access": "Free",
+        "population": "All dystonia"
+      }
+    ]
+  },
+
+  "protocol_bundle": [
+    {
+      "protocol_id": "PRO-DBS-DYS-01",
+      "name": "Bilateral GPi-DBS for Primary Drug-Refractory Dystonia",
+      "modality_slug": "dbs",
+      "phenotype_id": "PHE-053",
+      "device_id": "DEV-DBS-DYS-001",
+      "on_label_vs_off_label": "On-label",
+      "evidence_grade": "EV-A",
+      "evidence_summary": "GPi DBS for primary drug-refractory dystonia was approved via FDA Humanitarian Device Exemption (HDE) H020007 in 2003 (Medtronic Activa), subsequently converted to full PMA approval in 2025. Major evidence comes from the German Dystonia Study Group RCT (Vidailhet et al., NEJM 2005) — bilateral GPi DBS achieved 51% median improvement in BFMDRS Movement score at 12 months vs 5% sham. A double-blind RCT (Kupsch et al., NEJM 2006) confirmed 39.3% improvement in BFMDRS vs 4.9% sham. DYT1 gene carriers respond particularly well (up to 70-90% improvement in some series). Typical parameters: lower frequency than PD (60-80 Hz), higher pulse width (200-450 µs), 2-4V or mA, continuous. Response is slow — peak improvement at 6-12 months.",
+      "references": [
+        "Vidailhet M et al. (2005). Bilateral Deep-Brain Stimulation of the Globus Pallidus in Primary Generalized Dystonia. NEJM, 352(5), 459-467.",
+        "Kupsch A et al. (2006). Pallidal Deep-Brain Stimulation in Primary Generalized or Segmental Dystonia. NEJM, 355(19), 1978-1990.",
+        "Volkmann J et al. (2012). Pallidal Neurostimulation in Patients with Medication-Refractory Cervical Dystonia. Lancet Neurology, 11(12), 1029-1037."
+      ],
+      "brain_target": {
+        "region": "Globus Pallidus Internus (Posteroventral)",
+        "laterality": "Bilateral",
+        "eeg_position": "N/A",
+        "effect_direction": "Inhibitory"
+      },
+      "parameters": {
+        "frequency_hz": "60-80 Hz (lower frequency than PD DBS — standard for dystonia is 60-80 Hz; some patients respond to higher 130 Hz)",
+        "intensity": "2-4V or mA equivalent",
+        "additional_params": {
+          "pulse_width": "200-450 µs — significantly higher than PD DBS; wider pulses required for effective dystonia treatment",
+          "stimulation_mode": "Continuous 24 hours per day",
+          "gpi_target": "Posteroventral GPi (motor territory) — different contact configuration from PD GPi DBS",
+          "response_timeline": "Warn patient: response to GPi DBS in dystonia is slow — 3-12 months to maximum benefit; do not assess response at <3 months",
+          "programming_timeline": "Activation 4 weeks post-surgery; titration every 4-12 weeks; patience required as slow response is expected"
+        }
+      },
+      "session_structure": {
+        "sessions_per_week": 1,
+        "session_duration_minutes": 60,
+        "total_sessions": 10,
+        "total_weeks": 52,
+        "maintenance_sessions": "Lifelong — 3-6 monthly programming visits; annual comprehensive review; battery replacement every 3-5 years",
+        "steps": [
+          { "order": 1, "title": "Pre-surgical MDT evaluation", "duration_minutes": 480, "detail": "Movement disorder specialist, neurosurgeon, neuropsychologist, and psychiatrist assessment. BFMDRS (video-documented), TWSTRS if cervical, neuropsychological battery, MoCA, PHQ-9, MRI brain, DYT1 and relevant genetic testing. Levodopa challenge completed. MDT confirms primary dystonia and GPi candidacy." },
+          { "order": 2, "title": "Stereotactic bilateral GPi DBS surgery", "duration_minutes": 420, "detail": "Typically asleep (general anaesthesia) for dystonia DBS — intraoperative movement may make awake approach impractical. MRI/CT-guided stereotaxy. Bilateral posteroventral GPi targeting. MER or semi-microelectrode recording to confirm target. Lead placement and IPG implantation. Post-op CT/MRI to confirm lead position." },
+          { "order": 3, "title": "Post-operative recovery (4 weeks inactive)", "duration_minutes": 0, "detail": "Device inactive. Continue all current dystonia medications unchanged. Post-operative MRI for lead position confirmation. Wound healing and neurological review at 2 weeks." },
+          { "order": 4, "title": "Initial GPi DBS activation (Week 4)", "duration_minutes": 60, "detail": "Activate at conservative parameters (1.5V, 60 Hz, 200 µs). Systematic contact testing. Assess for immediate clinical effects (unlikely in dystonia). Assess for side effects. Provide written programme record. CRITICAL: Counsel patient and family that improvement will be gradual over months." },
+          { "order": 5, "title": "Titration programming visits (every 4-12 weeks)", "duration_minutes": 60, "detail": "BFMDRS assessment. Adjust parameters gradually. Increase pulse width to 300-450 µs if response inadequate. Assess for phosphenes (GPi/optic tract proximity). Consider frequency increase to 130 Hz if 60-80 Hz inadequate. Coordinate medication tapering with neurology." },
+          { "order": 6, "title": "6-month and 12-month outcome review", "duration_minutes": 60, "detail": "BFMDRS full assessment with video documentation. PDQ-39 equivalent (if available for dystonia) or functional disability scale. Battery check. Impedance. Compare to baseline scores. MDT review if inadequate response at 12 months." }
+        ]
+      },
+      "monitoring_required": [
+        "BFMDRS (Movement and Disability subscales) at every programming visit — video documentation recommended",
+        "TWSTRS at every visit if cervical dystonia component",
+        "DBS parameter log and impedance at every visit",
+        "Battery voltage at every visit — alert at 6 months before depletion",
+        "PHQ-9 at 6 months and 12 months",
+        "MoCA annually",
+        "Medication review at 6 months (consider taper of anticholinergics as DBS response develops)",
+        "Speech and swallowing assessment if oromandibular or laryngeal involvement"
+      ],
+      "contraindication_check_required": true,
+      "adverse_event_monitoring": "Surgical: intracranial haemorrhage (~1%), infection (~2%), lead displacement. Stimulation: phosphenes (GPi/optic tract — adjust contact immediately), paraesthesia, dysarthria (particularly if oromandibular dystonia). Hardware: lead fracture, IPG malfunction, battery depletion. Psychiatric: post-operative depression — monitor PHQ-9. Stimulation-induced dystonic crises (rare — adjust parameters). All serious AEs reported to manufacturer and regulatory authority.",
+      "escalation_rules": [
+        "Visual phosphenes during programming: immediately reduce amplitude and adjust contact configuration to avoid optic tract",
+        "No BFMDRS improvement at 6 months: review lead position on post-operative imaging; systematic contact reprogramming; consider frequency adjustment (try 130 Hz if 60-80 Hz insufficient); MDT review",
+        "Dystonic crisis or status dystonicus: emergency neurology; ICU; anaesthesia team; consider emergency GPi DBS parameter escalation or ketamine infusion; contact device manufacturer",
+        "Device infection: surgical team assessment; antibiotics; explantation if hardware infection confirmed",
+        "Post-operative psychiatric deterioration: psychiatry referral; medication review; programming review"
+      ],
+      "patient_facing_allowed": true,
+      "clinician_review_required": true,
+      "governance": {
+        "patient_export_allowed": true,
+        "requires_clinician_sign_off": true,
+        "off_label_acknowledgement_required": false,
+        "dual_review_required": true,
+        "notes": "EV-A, FDA approved. HDE H020007 (2003) converted to full PMA (2025). On-label for primary drug-refractory generalised or segmental dystonia. MDT sign-off (movement disorder neurology, neurosurgery, neuropsychology, psychiatry) required. Dual review required for protocol generation."
+      },
+      "notes": "GPi DBS for dystonia has unique features versus other DBS conditions: (1) response is delayed 3-12 months; (2) lower stimulation frequencies (60-80 Hz) are standard; (3) higher pulse widths (200-450 µs) required; (4) DYT1 carriers respond best; (5) secondary dystonias respond less predictably. Patient and carer counselling about the slow response timeline is essential to maintain realistic expectations and treatment adherence."
+    },
+    {
+      "protocol_id": "PRO-TMS-DYS-01",
+      "name": "Low-Frequency rTMS for Cervical Dystonia (Off-label Adjunct)",
+      "modality_slug": "tms",
+      "phenotype_id": "PHE-054",
+      "on_label_vs_off_label": "Off-label",
+      "evidence_grade": "EV-C",
+      "evidence_summary": "Low-frequency (1 Hz) inhibitory rTMS over the motor cortex contralateral to the cervical dystonia has been explored as a non-invasive adjunct to botulinum toxin. Small studies (Siebner et al., 1999; Murase et al., 2005) report short-term reductions in cervical dystonia severity and co-contraction. Effect sizes are small and durability is limited (days to weeks). No FDA clearance for dystonia. EV-C evidence only. Considered an investigational adjunct at specialist centres, typically combined with botulinum toxin.",
+      "references": [
+        "Siebner HR et al. (1999). Low-Frequency Repetitive Transcranial Magnetic Stimulation of the Motor Cortex in Writer's Cramp. Neurology, 52(3), 529-537.",
+        "Murase N et al. (2005). Influence of Transcranial Magnetic Stimulation on the Progression of Writer's Cramp. Annals of Neurology, 58(3), 407-415."
+      ],
+      "brain_target": {
+        "region": "Motor Cortex (contralateral to predominant dystonia side)",
+        "laterality": "Left",
+        "eeg_position": "C3",
+        "effect_direction": "Inhibitory"
+      },
+      "parameters": {
+        "frequency_hz": "1 Hz inhibitory rTMS",
+        "intensity": "90-100% resting motor threshold (rMT)",
+        "pulse_count": "900-1200 pulses per session",
+        "coil_type": "Figure-8 coil 70 mm",
+        "electrode_placement": "Contralateral motor cortex hand area (C3 or C4) to predominant dystonic limb; sternocleidomastoid motor representation for cervical dystonia"
+      },
+      "session_structure": {
+        "sessions_per_week": 5,
+        "session_duration_minutes": 25,
+        "total_sessions": 15,
+        "total_weeks": 3,
+        "maintenance_sessions": "Not established — repeat courses only in confirmed responders with documented benefit; combine with botulinum toxin schedule",
+        "steps": [
+          { "order": 1, "title": "Safety screening and motor threshold", "duration_minutes": 15, "detail": "TMS Safety Questionnaire. Confirm no DBS leads in situ (check manufacturer guidance if present). Motor threshold determination over contralateral M1. Document rMT." },
+          { "order": 2, "title": "rTMS delivery (1 Hz inhibitory)", "duration_minutes": 20, "detail": "Position figure-8 coil at contralateral motor cortex. Deliver 1 Hz at 90-100% rMT for 15-20 minutes (900-1200 pulses). Patient reports discomfort and any side effects." },
+          { "order": 3, "title": "Post-session BFMDRS or TWSTRS assessment", "duration_minutes": 10, "detail": "Brief dystonia severity assessment post-rTMS for monitoring. Log adverse events." }
+        ]
+      },
+      "monitoring_required": [
+        "BFMDRS (Movement) or TWSTRS at baseline and end of treatment block",
+        "TMS Safety Questionnaire before first session",
+        "Motor threshold re-determination if any medication change or break ≥2 weeks",
+        "AE log every session",
+        "Botulinum toxin timing: coordinate rTMS block with post-botulinum toxin window (2-6 weeks after injection when effect is partially established)"
+      ],
+      "contraindication_check_required": true,
+      "adverse_event_monitoring": "Headache at stimulation site (most common, transient). Scalp discomfort. Syncope (rare). Seizure (rare with 1 Hz inhibitory TMS). For DBS patients: TMS near DBS leads carries device interaction risk — manufacturer consultation mandatory.",
+      "escalation_rules": [
+        "Seizure during or within 1 hour of rTMS: emergency assessment; suspend treatment; neurology review before resuming",
+        "No BFMDRS or TWSTRS improvement after 10 sessions: consider discontinuation; refer to DBS evaluation if not already done",
+        "Worsening dystonia during treatment course: suspend; clinical review"
+      ],
+      "patient_facing_allowed": false,
+      "clinician_review_required": true,
+      "governance": {
+        "patient_export_allowed": false,
+        "requires_clinician_sign_off": true,
+        "off_label_acknowledgement_required": true,
+        "dual_review_required": false,
+        "notes": "EV-C, off-label adjunct. Limited evidence — use only at specialist centres as adjunct to botulinum toxin or while awaiting DBS. Clinician sign-off and off-label acknowledgement required."
+      },
+      "notes": "rTMS for dystonia is a third-line investigational adjunct with limited evidence. It should not delay referral to DBS evaluation in patients with significant generalised or segmental dystonia. Most appropriately used as a temporary adjunct between botulinum toxin treatment cycles in cervical or focal limb dystonia."
+    }
+  ],
+
+  "device_options": [
+    {
+      "device_id": "DEV-DBS-DYS-001",
+      "name": "Medtronic Activa PC / Percept PC (GPi DBS for Dystonia)",
+      "manufacturer": "Medtronic",
+      "modality_slug": "dbs",
+      "regulatory_status": "FDA-cleared",
+      "cleared_indication": "FDA approved via HDE H020007 (2003) and PMA (2025) for GPi DBS in primary drug-refractory generalised or segmental dystonia in patients ≥7 years",
+      "use_setting": "Clinic",
+      "compatible_protocols": ["PRO-DBS-DYS-01"],
+      "constraints": [
+        "Requires specialist movement disorder and neurosurgical centre with dystonia DBS expertise",
+        "MRI conditional — follow Medtronic MRI guidelines",
+        "Higher pulse width requirements (200-450 µs) have greater battery drain — rechargeable devices preferred in dystonia",
+        "Battery replacement required more frequently than PD DBS due to higher charge per pulse"
+      ],
+      "notes": "The original FDA-approved device for GPi DBS in dystonia (HDE H020007, 2003). Percept PC includes BrainSense sensing — not currently a clinical requirement for dystonia but available. Activa PC remains widely used in dystonia programmes."
+    },
+    {
+      "device_id": "DEV-DBS-DYS-002",
+      "name": "Abbott Infinity DBS (GPi for Dystonia)",
+      "manufacturer": "Abbott",
+      "modality_slug": "dbs",
+      "regulatory_status": "FDA-cleared",
+      "cleared_indication": "FDA approved for GPi DBS in dystonia",
+      "use_setting": "Clinic",
+      "compatible_protocols": ["PRO-DBS-DYS-01"],
+      "constraints": [
+        "Directional stimulation may allow more precise GPi targeting to maximise motor territory benefit while minimising optic tract effects",
+        "MRI full-body conditional",
+        "Higher pulse width requirements in dystonia — rechargeable preferred"
+      ],
+      "notes": "Abbott directional stimulation is potentially useful in dystonia GPi DBS to steer current towards posteroventral motor territory."
+    },
+    {
+      "device_id": "DEV-TMS-DYS-001",
+      "name": "Magstim Rapid2 (rTMS for Dystonia adjunct)",
+      "manufacturer": "Magstim",
+      "modality_slug": "tms",
+      "regulatory_status": "FDA-cleared (other indication)",
+      "cleared_indication": "FDA cleared for MDD; off-label adjunct use for cervical dystonia",
+      "use_setting": "Clinic",
+      "compatible_protocols": ["PRO-TMS-DYS-01"],
+      "constraints": [
+        "Cannot be used near DBS leads without manufacturer TMS-DBS compatibility confirmation",
+        "Trained TMS operator required",
+        "Off-label use for dystonia — off-label consent required"
+      ],
+      "notes": "Standard clinical TMS device for off-label adjunct use in cervical dystonia. Limited evidence supports this application — EV-C only."
+    }
+  ],
+
+  "brain_targets": [
+    {
+      "region": "Globus Pallidus Internus — Posteroventral Motor Territory",
+      "abbreviation": "GPi",
+      "laterality": "Bilateral",
+      "rationale": "The posteroventral GPi is the primary DBS target for dystonia. In dystonia, disordered basal ganglia output from the GPi fails to provide adequate inhibitory control of thalamocortical motor circuits, resulting in the excessive, involuntary co-contraction patterns. GPi DBS modulates this disordered output, gradually restoring normal inhibitory thalamocortical control. The posteroventral motor territory of GPi is targeted rather than the dorsal sensory territory. Lower stimulation frequencies (60-80 Hz) and higher pulse widths (200-450 µs) than PD are characteristic of dystonia GPi DBS.",
+      "effect_direction": "Inhibitory",
+      "modalities": ["dbs"],
+      "eeg_position_10_20": "N/A",
+      "network": "Basal Ganglia-Thalamo-Cortical Motor Circuit — GPi Output Pathway",
+      "evidence_note": "Only FDA-approved DBS target for primary dystonia. HDE H020007 (2003) — PMA (2025). GPi is primary target; STN used in selected cases at specialist centres."
+    },
+    {
+      "region": "Contralateral Motor Cortex",
+      "abbreviation": "M1",
+      "laterality": "Left",
+      "rationale": "Inhibitory low-frequency rTMS (1 Hz) over the motor cortex contralateral to the dystonic region reduces abnormal cortical excitability and maladaptive motor cortex plasticity that characterise focal and cervical dystonia. The goal is to normalise loss of surround inhibition in motor cortex.",
+      "effect_direction": "Inhibitory",
+      "modalities": ["tms"],
+      "eeg_position_10_20": "C3",
+      "brodmann_area": "BA4",
+      "network": "Motor Network",
+      "evidence_note": "Investigational rTMS target for cervical and focal dystonia. EV-C evidence only. Adjunct use alongside botulinum toxin."
+    }
+  ],
+
+  "handbook_outputs": {
+    "clinician_handbook": {
+      "title": "Dystonia — Clinician Handbook for Neuromodulation",
+      "audience": "Clinician",
+      "sections": [
+        {
+          "section_id": "CH-DYS-01",
+          "title": "DBS Candidacy and Classification",
+          "content": [
+            "Confirm primary dystonia: exclude secondary causes (Wilson's disease — copper studies mandatory in onset <40; dopa-responsive dystonia — levodopa trial mandatory; drug-induced; structural on MRI)",
+            "Classification: primary generalised (DYT1 or non-DYT1), cervical, segmental, multifocal — distribution determines target selection",
+            "DYT1 testing mandatory for generalised dystonia with childhood-adolescent onset or positive family history — DYT1+ predicts excellent GPi DBS response",
+            "Drug-refractory criteria: failure of ≥2 adequate medical treatments (anticholinergics, baclofen, clonazepam) and botulinum toxin (≥3 cycles for focal/cervical) at maximum tolerated doses",
+            "Levodopa trial: ALL dystonia patients should have a levodopa trial before DBS to exclude dopa-responsive dystonia"
+          ]
+        },
+        {
+          "section_id": "CH-DYS-02",
+          "title": "GPi DBS Programming for Dystonia",
+          "content": [
+            "Dystonia GPi DBS parameters differ significantly from PD: lower frequency (60-80 Hz standard), higher pulse width (200-450 µs), similar voltage (2-4V)",
+            "Activate conservatively at Week 4: 60 Hz, 200 µs, 1.5V; systematic contact mapping",
+            "CRITICAL: Counsel patient and family that improvement will be gradual — weeks to months — not immediate as in PD or ET tremor",
+            "Optic tract is adjacent to GPi posteroventrally — phosphenes (flashing lights) indicate proximity; immediately reduce amplitude and adjust contact",
+            "Consider frequency escalation to 130 Hz if 60-80 Hz inadequate at 6 months — some patients respond better to higher frequencies",
+            "Medication review at 6 months: consider gradual taper of anticholinergics and other medications as DBS effect emerges"
+          ]
+        },
+        {
+          "section_id": "CH-DYS-03",
+          "title": "Managing Expectations and Response Assessment",
+          "content": [
+            "Response timeline: DYT1 primary generalised — peak improvement 6-12 months; non-DYT1 — may take 12-18 months; cervical dystonia — 3-6 months typically",
+            "Assess with video-documented BFMDRS at baseline, 6 months, and 12 months for objective comparison",
+            "Non-response at 12 months (BFMDRS Movement improvement <20%): review lead position on imaging; systematic contact reprogramming; consider STN as alternative target at specialist centres",
+            "Secondary dystonia: counsel on less predictable response — realistic expectation setting essential; consider MDT case review",
+            "Status dystonicus is a medical emergency — requires ICU, anaesthesia, emergency parameter adjustments and is a reason for urgent DBS in refractory cases"
+          ]
+        }
+      ]
+    },
+    "patient_guide": {
+      "title": "Dystonia Treatment with Deep Brain Stimulation — Patient Guide",
+      "audience": "Patient",
+      "sections": [
+        {
+          "section_id": "PG-DYS-01",
+          "title": "What Is Dystonia?",
+          "content": [
+            "Dystonia is a condition where muscles in your body contract involuntarily — tightening up without you choosing to move them",
+            "This can cause twisting, repetitive movements or parts of your body being held in abnormal positions",
+            "Dystonia is caused by a communication problem between the brain's movement control circuits and your muscles"
+          ]
+        },
+        {
+          "section_id": "PG-DYS-02",
+          "title": "How DBS Helps Dystonia",
+          "content": [
+            "DBS places small electrodes in a specific area of the brain called the globus pallidus internus (GPi) that helps control movement",
+            "Gentle electrical pulses from the DBS device gradually help reset the disordered brain signals causing your dystonia",
+            "Unlike some other brain stimulation treatments, DBS for dystonia does not work immediately — improvement happens slowly over weeks to months as the brain relearns normal patterns",
+            "Please do not be discouraged if you do not feel better in the first few weeks — this is completely normal for dystonia treatment"
+          ]
+        },
+        {
+          "section_id": "PG-DYS-03",
+          "title": "What to Expect",
+          "content": [
+            "Before surgery: brain scans, movement assessments, memory tests, and a review of previous treatments",
+            "Surgery places electrodes in both sides of the brain while you are under general anaesthesia",
+            "After 4 weeks of healing, the device is switched on and gradually adjusted at clinic visits",
+            "Most people see meaningful improvement by 3-6 months; full benefit may take up to 12 months",
+            "You will need regular clinic visits for programming and check-ups — these are important for optimising your treatment"
+          ]
+        }
+      ]
+    },
+    "technician_sop": {
+      "title": "Dystonia GPi DBS Programming — Technician SOP",
+      "audience": "Clinician",
+      "sections": [
+        {
+          "section_id": "SOP-DYS-01",
+          "title": "GPi DBS Programming Session — Dystonia Specific",
+          "content": [
+            "Confirm patient identity and DBS device manufacturer and model",
+            "Dystonia DBS uses different parameters than PD DBS — lower frequency (60-80 Hz) and higher pulse width (200-450 µs); do not apply PD default parameters",
+            "Perform telemetry: impedance all contacts, battery voltage, current settings",
+            "BFMDRS (Movement and Disability) assessment before any parameter changes — video documentation if possible",
+            "Map contacts systematically: identify posteroventral GPi contacts providing dystonia benefit vs dorsal contacts causing side effects",
+            "Check specifically for phosphenes (optic tract proximity) at each contact — if reported, immediately reduce amplitude and document",
+            "All parameter changes require supervising movement disorder neurologist sign-off",
+            "BFMDRS re-assessment after programming session",
+            "Provide written parameter record to patient; remind patient improvement is gradual over months"
+          ]
+        }
+      ]
+    }
+  },
+
+  "monitoring_rules": {
+    "assessment_schedule": [
+      {
+        "assessment_id": "ASS-DYS-001",
+        "assessment_name": "BFMDRS",
+        "timing": "Baseline; every programming visit; 6 months; 12 months; annually thereafter",
+        "frequency": "Every 4-12 weeks during titration; 3-6 monthly maintenance; video documentation recommended",
+        "administered_by": "Clinician-rated"
+      },
+      {
+        "assessment_id": "ASS-DYS-002",
+        "assessment_name": "TWSTRS",
+        "timing": "Baseline and every visit for cervical dystonia patients",
+        "frequency": "Same as BFMDRS",
+        "administered_by": "Clinician-rated"
+      },
+      {
+        "assessment_id": "ASS-DYS-005",
+        "assessment_name": "DBS Parameter Log",
+        "timing": "Every programming visit",
+        "frequency": "Every 4-12 weeks during titration; 3-6 monthly maintenance",
+        "administered_by": "Clinician-rated"
+      },
+      {
+        "assessment_id": "ASS-DYS-004",
+        "assessment_name": "PHQ-9",
+        "timing": "Baseline, 6 months, 12 months, then annually",
+        "frequency": "6-monthly in first year; annually thereafter",
+        "administered_by": "Patient self-report"
+      }
+    ],
+    "response_thresholds": [
+      {
+        "assessment_id": "ASS-DYS-001",
+        "assessment_name": "BFMDRS Movement Subscale",
+        "lower_is_better": true,
+        "response_threshold": "≥25% reduction from baseline BFMDRS Movement score at 6 months; ≥50% reduction at 12 months is excellent response",
+        "remission_threshold": "BFMDRS Movement score ≤10 (near-normal function)",
+        "non_response_threshold": "<20% improvement at 12 months — review lead position, programming, and diagnosis; MDT review",
+        "deterioration_threshold": "≥10 point increase from best BFMDRS score — review for lead displacement, battery depletion, or disease progression"
+      },
+      {
+        "assessment_id": "ASS-DYS-002",
+        "assessment_name": "TWSTRS Total Score",
+        "lower_is_better": true,
+        "response_threshold": "≥25% reduction from baseline TWSTRS total at 6 months",
+        "remission_threshold": "TWSTRS total ≤20 (minimal cervical dystonia)",
+        "non_response_threshold": "<15% improvement at 12 months — review programming and target selection",
+        "deterioration_threshold": "≥15 point increase from best score — investigate device or disease progression"
+      }
+    ],
+    "adverse_event_triggers": [
+      {
+        "event_type": "Status dystonicus (severe dystonic crisis — potentially life-threatening)",
+        "severity": "Serious",
+        "action": "Emergency services; ICU admission; anaesthesia team; intravenous midazolam or propofol; emergency GPi DBS parameter review and potential acute amplitude escalation; contact DBS manufacturer; report serious AE",
+        "suspend_treatment": false
+      },
+      {
+        "event_type": "Visual phosphenes during GPi DBS programming",
+        "severity": "Mild",
+        "action": "Immediately reduce amplitude on active contact; reassess contact configuration to avoid posteroventral optic tract proximity; document contact avoided",
+        "suspend_treatment": false
+      },
+      {
+        "event_type": "Device infection",
+        "severity": "Serious",
+        "action": "Antibiotics immediately; surgical team assessment within 24 hours; explantation if hardware-related infection confirmed; report to manufacturer",
+        "suspend_treatment": true
+      },
+      {
+        "event_type": "Post-operative worsening of dystonia (beyond expected adjustment period)",
+        "severity": "Moderate",
+        "action": "Urgent DBS programming review; imaging to confirm lead position; medication review; neurology consultation",
+        "suspend_treatment": false
+      }
+    ],
+    "escalation_rules": [
+      {
+        "trigger": "Status dystonicus or severe dystonic crisis",
+        "action": "Emergency hospitalisation; ICU; anaesthesia; emergency DBS parameter review; contact movement disorder neurologist on call",
+        "urgency": "Emergency"
+      },
+      {
+        "trigger": "BFMDRS improvement <20% at 12 months",
+        "action": "Review post-operative imaging for GPi lead position; systematic contact reprogramming; MDT review; consider imaging-guided lead revision or STN target at specialist centre",
+        "urgency": "Urgent"
+      },
+      {
+        "trigger": "Visual phosphenes persisting on multiple contacts",
+        "action": "Urgent reprogramming; reduce amplitude; review GPi lead position on post-operative imaging — may indicate dorsoventral lead misplacement",
+        "urgency": "Urgent"
+      },
+      {
+        "trigger": "Battery depletion warning",
+        "action": "Schedule replacement surgery; counsel on importance of timely replacement — sudden cessation may precipitate rebound dystonia",
+        "urgency": "Routine"
+      }
+    ],
+    "adherence_rules": {
+      "minimum_session_adherence_pct": 80,
+      "consecutive_missed_sessions_flag": 2,
+      "action_on_low_adherence": "Contact patient and carer; identify barriers to attendance; document in record; arrange telehealth where feasible"
+    }
+  },
+
+  "report_templates": [
+    {
+      "id": "RPT-DYS-01",
+      "name": "Dystonia DBS — Pre-Surgical MDT Candidacy Report",
+      "report_type": "intake-summary",
+      "audience": "Referring Physician",
+      "frequency": "Once — at MDT candidacy decision",
+      "sections": [
+        {
+          "section_id": "RPT-DYS-01-A",
+          "title": "Dystonia Classification and Drug-Refractory Status",
+          "auto_populate_from": ["diagnosis", "dystonia_type", "aetiology", "failed_treatments", "bfmdrs_baseline"],
+          "clinician_narrative_prompt": "Describe dystonia classification (primary vs secondary, distribution, genetic status if known), baseline BFMDRS scores, and document the failed pharmacological and botulinum toxin trials establishing drug-refractory status.",
+          "required": true
+        },
+        {
+          "section_id": "RPT-DYS-01-B",
+          "title": "Genetic and Secondary Cause Workup",
+          "auto_populate_from": ["genetic_results", "mri_report", "levodopa_trial_result"],
+          "clinician_narrative_prompt": "Document genetic testing results (DYT1 and panel where indicated), MRI findings excluding structural cause, and levodopa trial result confirming DRD has been excluded.",
+          "required": true
+        },
+        {
+          "section_id": "RPT-DYS-01-C",
+          "title": "MDT Recommendation",
+          "auto_populate_from": ["mdt_members", "recommended_target", "recommended_device", "expected_response"],
+          "clinician_narrative_prompt": "State MDT recommendation for bilateral GPi DBS, target selection rationale, and include realistic response timeline counselling — emphasise slow response over 3-12 months.",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "RPT-DYS-02",
+      "name": "Dystonia DBS — 12-Month Outcome Report",
+      "report_type": "end-of-course-report",
+      "audience": "Referring Physician",
+      "frequency": "At 12 months post-DBS activation",
+      "sections": [
+        {
+          "section_id": "RPT-DYS-02-A",
+          "title": "Dystonia Outcome",
+          "auto_populate_from": ["bfmdrs_baseline", "bfmdrs_current", "twstrs_baseline", "twstrs_current"],
+          "clinician_narrative_prompt": "Compare BFMDRS (Movement and Disability) from baseline to 12 months. State response status (≥50% Movement score improvement = excellent; ≥25% = response). For cervical dystonia, report TWSTRS change.",
+          "required": true
+        },
+        {
+          "section_id": "RPT-DYS-02-B",
+          "title": "Device Status and Programming",
+          "auto_populate_from": ["dbs_parameters", "battery_status", "impedance"],
+          "clinician_narrative_prompt": "Document current GPi DBS parameters, battery status, and any programming changes made in the past 12 months.",
+          "required": true
+        }
+      ]
+    }
+  ],
+
+  "home_program_templates": [
+    {
+      "id": "HPT-DYS-01",
+      "name": "Dystonia DBS — Home Device Monitoring Programme",
+      "modality_slug": "dbs",
+      "device_required": "DBS patient controller (manufacturer-specific)",
+      "prerequisite_clinic_sessions": 4,
+      "sessions_per_week": 7,
+      "session_duration_minutes": 5,
+      "total_weeks": 0,
+      "patient_instructions": [
+        "Check that your DBS device is on every morning using your patient controller",
+        "Monitor battery level — charge as directed (rechargeable) or check battery status on controller",
+        "Keep a daily dystonia diary: note any changes in posture, movements, pain, or function",
+        "Remember: DBS improvement in dystonia is slow and gradual — do not be worried if you do not notice change day-to-day in the first few months",
+        "Take all your other dystonia medications as prescribed — do not stop without medical advice",
+        "Tell all medical teams that you have a DBS device before any scan or procedure",
+        "Contact the DBS clinic if: dystonia suddenly gets much worse, the device appears to have stopped, or you notice swelling or pain near the device"
+      ],
+      "safety_checklist": [
+        "DBS device is confirmed ON via patient controller",
+        "Battery is at adequate level",
+        "No signs of infection at device or wound sites",
+        "Clinic emergency contact number is available",
+        "I have taken all dystonia medications as prescribed"
+      ],
+      "reporting_requirements": [
+        "Daily diary: changes in dystonic posture, movements, pain, and functional activities",
+        "Note any device controller alerts",
+        "Bring diary to all programming visits"
+      ],
+      "contraindications_for_home": [
+        "Do not adjust DBS parameters at home — all programming is done at the clinic only",
+        "Do not have an MRI without contacting your DBS team to confirm MRI safety for your device",
+        "Avoid strong magnetic fields near the device",
+        "Seek emergency care if: severe worsening of dystonia (status dystonicus), difficulty breathing due to dystonia, or high fever with worsening dystonia"
+      ],
+      "evidence_note": "Home monitoring programme for dystonia DBS patients. No active parameter changes at home. Emphasis on realistic expectation-setting: improvement is gradual over months in dystonia DBS — diary keeping supports objective review at programming visits."
+    }
+  ],
+
+  "consent_documents": [
+    {
+      "id": "CON-DYS-01",
+      "name": "Dystonia — Condition-Level Informed Consent",
+      "document_type": "informed-consent",
+      "when_required": "Before protocol generation and DBS referral",
+      "key_disclosures": [
+        "Dystonia diagnosis and drug-refractory status have been confirmed",
+        "GPi DBS improvement in dystonia is slow — weeks to months — not immediate; realistic expectations discussed",
+        "Secondary causes of dystonia (Wilson's disease, DRD) have been excluded",
+        "DBS does not cure dystonia — it reduces severity and improves function",
+        "Long-term follow-up and programming visits are required"
+      ],
+      "signature_required": true,
+      "witness_required": false,
+      "clinician_co_sign_required": true,
+      "review_frequency": "Annually"
+    },
+    {
+      "id": "CON-DYS-02",
+      "name": "GPi DBS — Surgical Informed Consent for Dystonia",
+      "document_type": "informed-consent",
+      "modality_slug": "dbs",
+      "when_required": "Before GPi DBS implantation surgery",
+      "key_disclosures": [
+        "GPi DBS requires stereotactic neurosurgery under general anaesthesia",
+        "Surgical risks: intracranial haemorrhage (~1%), infection (~2%), lead displacement",
+        "Stimulation side effects: visual phosphenes (optic tract proximity — managed by programming), paraesthesia, speech changes",
+        "DBS improvement in dystonia is slow — weeks to months; patient counselled not to expect immediate results",
+        "DYT1 gene status and its implications for expected DBS response have been discussed",
+        "Battery replacement surgery required every 3-5 years (higher energy use in dystonia may require more frequent replacement)",
+        "MRI restrictions apply after DBS implantation",
+        "Lifelong device monitoring and programming attendance required",
+        "Right to withdraw: device can be switched off at any time"
+      ],
+      "signature_required": true,
+      "witness_required": true,
+      "clinician_co_sign_required": true,
+      "review_frequency": "Once (before surgery)"
+    },
+    {
+      "id": "CON-DYS-03",
+      "name": "rTMS for Dystonia — Off-Label Acknowledgement",
+      "document_type": "off-label-acknowledgement",
+      "modality_slug": "tms",
+      "when_required": "Before first rTMS session for dystonia",
+      "key_disclosures": [
+        "rTMS is not FDA approved for dystonia — this is an off-label use",
+        "Evidence for benefit is limited (EV-C) — modest short-term effect only",
+        "rTMS is an adjunct to botulinum toxin; it does not replace it",
+        "For patients with DBS: TMS near DBS leads carries specific risks — safety confirmed with DBS manufacturer"
+      ],
+      "signature_required": true,
+      "witness_required": false,
+      "clinician_co_sign_required": true,
+      "review_frequency": "Each treatment block"
+    },
+    {
+      "id": "CON-DYS-04",
+      "name": "Caregiver Authorisation — Paediatric Dystonia DBS",
+      "document_type": "caregiver-authorisation",
+      "when_required": "Before any DBS therapy in patients under 18 years",
+      "key_disclosures": [
+        "GPi DBS is FDA approved from age 7 for primary drug-refractory dystonia (HDE H020007)",
+        "Parent or legal guardian authorisation required for all surgical and device decisions",
+        "Genetic testing results (DYT1 and panel) and their implications for expected DBS response have been discussed",
+        "Carer must be trained on patient controller operation and device monitoring before discharge",
+        "Carer commitment to regular programming attendance and home diary keeping is required"
+      ],
+      "signature_required": true,
+      "witness_required": false,
+      "clinician_co_sign_required": true,
+      "review_frequency": "Annually"
+    },
+    {
+      "id": "CON-DYS-05",
+      "name": "Dystonia DBS — Home Device Agreement",
+      "document_type": "home-device-agreement",
+      "modality_slug": "dbs",
+      "when_required": "Before patient discharge with DBS device active",
+      "key_disclosures": [
+        "Patient and carer trained on patient controller and battery monitoring",
+        "MRI restrictions understood — all medical teams to be informed of DBS before any scan",
+        "Agreement to attend all programming and monitoring visits",
+        "Home diary keeping agreed",
+        "Understanding that DBS parameters are adjusted at clinic only",
+        "Emergency contact information provided for status dystonicus",
+        "Knowledge that sudden worsening of dystonia or breathing difficulty requires emergency services"
+      ],
+      "signature_required": true,
+      "witness_required": false,
+      "clinician_co_sign_required": true,
+      "review_frequency": "Annually"
+    }
+  ]
+}

@@ -1,0 +1,1440 @@
+{
+  "$schema": "../schemas/condition-package.schema.json",
+  "schema_version": "1.0.0",
+  "id": "CON-017",
+  "slug": "cognitive-impairment-tbi",
+  "name": "Cognitive Impairment / Traumatic Brain Injury (TBI)",
+  "category": "Neurological — Cognitive",
+  "icd_10": ["F06.7", "S09.90XA", "G31.84"],
+  "created_at": "2026-04-12",
+  "updated_at": "2026-04-12",
+  "review_status": "reviewed",
+  "reviewed_by": "DeepSynaps Clinical Team",
+
+  "condition_overview": {
+    "summary": "Cognitive impairment following traumatic brain injury (TBI) encompasses deficits in attention, processing speed, working memory, and executive function arising from direct neuronal injury, diffuse axonal damage, and secondary neuroinflammatory cascades. Mild cognitive disorder (MCI) may also arise from non-traumatic causes including vascular and neurodegenerative processes. Neuromodulation approaches (rTMS, tDCS, neurofeedback) for TBI-related cognitive enhancement are all experimental, with no RCT-level evidence. All protocols are investigational and must be presented as such to patients.",
+    "prevalence": "TBI affects approximately 69 million individuals globally per year (Dewan et al., 2018). In the UK, approximately 350,000 people attend emergency departments annually with TBI. Persistent post-concussive symptoms affect 10–20% of those with mild TBI; moderate-severe TBI survivors have higher rates of long-term cognitive impairment (50–80%).",
+    "phenotype_clusters": [
+      {
+        "id": "PHE-TBI-01",
+        "name": "Attention-Dominant Post-TBI",
+        "description": "Predominant difficulty with sustained attention, selective attention, and dual-task performance. Processing speed is commonly reduced. Most amenable to rTMS and tDCS targeting left DLPFC. Most studied phenotype in small TBI neuromodulation trials.",
+        "primary_modality": "tms",
+        "qeeg_signature": "Increased frontal theta, reduced beta, slowed P300 event-related potential latency"
+      },
+      {
+        "id": "PHE-TBI-02",
+        "name": "Memory-Dominant Post-TBI",
+        "description": "Predominant episodic and working memory deficits. Often associated with hippocampal and frontoparietal network disruption. Working memory targets (DLPFC) are the proposed stimulation sites; evidence is limited.",
+        "primary_modality": "tdcs",
+        "qeeg_signature": "Reduced theta coherence in frontoparietal networks; impaired mismatch negativity (MMN)"
+      },
+      {
+        "id": "PHE-TBI-03",
+        "name": "Executive Dysfunction Post-TBI",
+        "description": "Deficits in planning, cognitive flexibility, inhibition, and goal-directed behaviour. Associated with frontal lobe contusions and diffuse axonal injury affecting prefrontal white matter. BRIEF-A scores elevated across multiple indices.",
+        "primary_modality": "neurofeedback",
+        "qeeg_signature": "Elevated frontal theta, slowed cortical potentials, disrupted fronto-striatal connectivity"
+      },
+      {
+        "id": "PHE-TBI-04",
+        "name": "Processing Speed Deficit",
+        "description": "Slowed cognitive processing speed affecting all cognitive domains. Characterised by significantly prolonged Trail Making Test Part A and Part B times and reduced Digit Symbol Coding performance. Often the most sensitive marker of TBI severity.",
+        "primary_modality": "tdcs",
+        "qeeg_signature": "Generalised cortical slowing; increased delta/theta ratio; slowed alpha peak frequency"
+      },
+      {
+        "id": "PHE-TBI-05",
+        "name": "Mixed Post-Concussive Syndrome",
+        "description": "Combination of cognitive, vestibular, ocular, and somatic symptoms (headache, dizziness, fatigue, sleep disruption) following mild TBI/concussion. Cognitive symptoms are embedded within a broader symptom complex. Most common presentation in sports medicine and military TBI populations.",
+        "primary_modality": "neurofeedback",
+        "qeeg_signature": "Heterogeneous — variable by individual injury pattern; qEEG-guided protocol required"
+      }
+    ],
+    "severity_levels": [
+      "Mild TBI (GCS 13–15, LOC <30 min, PTA <24 hours)",
+      "Moderate TBI (GCS 9–12, LOC 30 min–24 hours, PTA 1–7 days)",
+      "Severe TBI (GCS 3–8, LOC >24 hours, PTA >7 days)",
+      "Chronic post-concussive syndrome (symptom persistence >3 months post-mild TBI)"
+    ],
+    "population": ["Adult (18+)", "Older Adult (65+, higher risk of chronic sequelae)"],
+    "symptom_clusters": [
+      "Memory impairment (episodic, working, prospective memory)",
+      "Attention deficits (sustained, selective, divided attention)",
+      "Processing speed reduction (slowed information processing across all domains)",
+      "Executive dysfunction (planning, cognitive flexibility, inhibition, initiation)",
+      "Mental fatigue (disproportionate cognitive fatigue with modest effort)",
+      "Headache (post-traumatic, tension-type, migraine-type)",
+      "Sleep disruption (insomnia, hypersomnia, disrupted circadian rhythm post-TBI)"
+    ],
+    "highest_evidence_level": "EV-C",
+    "relevant_modalities": ["tms", "tdcs", "neurofeedback"],
+    "neurobiology": "TBI causes primary neuronal injury via mechanical forces (contusion, shear stress, diffuse axonal injury) and secondary injury via neuroinflammation, excitotoxicity, and mitochondrial dysfunction. Prefrontal-thalamic-striatal circuits mediating attention and working memory are particularly vulnerable. Neuromodulation targets DLPFC to modulate top-down attentional control circuits. Neurofeedback addresses EEG biomarkers of cortical dysfunction (elevated theta, slowed alpha peak frequency, disrupted connectivity). Evidence is preliminary — no established neurobiological model for neuromodulation in TBI comparable to depression or stroke.",
+    "comorbidities": [
+      "Post-traumatic stress disorder (PTSD — significant overlap, especially military TBI; PCL-5 required)",
+      "Depression post-TBI (30–50% prevalence)",
+      "Anxiety disorders post-TBI",
+      "Sleep disorders (insomnia, hypersomnia — nearly universal acutely)",
+      "Chronic pain (headache, musculoskeletal from injury mechanism)",
+      "Substance use disorder (increased risk post-TBI; also a risk factor for TBI)",
+      "Epilepsy post-TBI (risk increases with severity; ~1–2% mild, ~4–7% moderate-severe at 5 years)"
+    ],
+    "differential_diagnoses": [
+      "PTSD with cognitive symptoms (hyperarousal mimicking attention deficit; dissociation affecting memory)",
+      "Major depressive disorder (psychomotor slowing, concentration deficit, memory complaints)",
+      "ADHD pre-existing or uncovered by TBI (comorbid in 20–30% of TBI patients)",
+      "Neurodegenerative disease (especially in older adults with prior TBI and new cognitive decline)",
+      "Sleep disorder (OSA, insomnia — cognitive symptoms resolve with sleep treatment)",
+      "Medication side effects (analgesics, anticonvulsants, psychotropics post-TBI affecting cognition)"
+    ]
+  },
+
+  "patient_friendly_explanation": {
+    "what_is_it": "A traumatic brain injury (TBI) happens when a sudden force — such as a blow to the head, a fall, or a car accident — damages the brain. Even a mild TBI (concussion) can cause lasting problems with thinking, memory, and concentration in some people.",
+    "how_it_affects_you": "You might find it hard to concentrate on tasks, remember things you just read or heard, think clearly under pressure, or keep up with conversations. You may feel mentally exhausted very quickly. These difficulties are real — they reflect changes in how your brain processes information — not a sign of weakness.",
+    "treatment_options_overview": "Brain stimulation and brain training techniques are being researched as ways to help the brain recover its thinking abilities after injury. These include TMS (which uses magnetic pulses), tDCS (which uses gentle electrical current), and neurofeedback (which trains your brain to produce healthier brainwave patterns). It is important to know that all of these approaches are still experimental for TBI — there is no large-scale proof yet that they work. Your clinician will be transparent about this.",
+    "what_to_expect": "Treatment sessions typically last 20–40 minutes and are delivered 2–5 times per week over several weeks. For neurofeedback, you will wear a cap with sensors and respond to sounds or images on a screen. For tDCS, you will wear small electrode pads on your head. Most sessions are not painful, though TMS produces a tapping sensation. You will be asked to complete cognitive tests before and during treatment to track any changes.",
+    "faq": [
+      {
+        "question": "Is this treatment proven to work for TBI?",
+        "answer": "Not yet. The research is at an early stage — we have small studies suggesting possible benefits for attention and thinking speed, but no large clinical trials have confirmed these findings for TBI. Your clinician will explain this clearly before you start. Participating in this treatment means you are contributing to the evidence base as well as potentially benefiting yourself."
+      },
+      {
+        "question": "Is it safe?",
+        "answer": "These techniques have generally acceptable safety profiles when used carefully. The main risks include headache (TMS), mild scalp tingling (tDCS), and temporary fatigue (all). There are also some medical situations — such as metal in the head, certain medications, or seizure history — where these treatments are not appropriate. Your medical history will be reviewed carefully."
+      },
+      {
+        "question": "How many sessions will I need?",
+        "answer": "Typically 10–40 sessions depending on the treatment type. Neurofeedback usually requires the most sessions (30–40). Your clinician will review your progress at regular intervals and adjust or stop treatment if it is not helping."
+      },
+      {
+        "question": "Will I need to do cognitive exercises too?",
+        "answer": "Yes. tDCS is typically paired with active cognitive training tasks during the session (such as working memory exercises), as the combination appears to work better than stimulation alone. Neurofeedback involves active engagement with the feedback task during each session."
+      },
+      {
+        "question": "Can I combine this with my other treatments?",
+        "answer": "These treatments can generally be combined with psychological therapy, occupational therapy, and most medications — but your full medication list must be reviewed by your clinician first, as some medications affect how the brain responds to stimulation."
+      }
+    ]
+  },
+
+  "medical_history_requirements": {
+    "required_fields": [
+      {
+        "field": "Confirmed TBI diagnosis with mechanism of injury documented",
+        "reason": "Mechanism (blunt force, blast, acceleration-deceleration) affects injury pattern and neuromodulation target rationale. Required for protocol generation.",
+        "blocks_protocol": true
+      },
+      {
+        "field": "Injury date and time since injury",
+        "reason": "Within 3 months of acute TBI is a relative contraindication — brain is in active recovery phase. Timing determines phase of recovery and protocol eligibility.",
+        "blocks_protocol": true
+      },
+      {
+        "field": "TBI severity (GCS at time of injury, LOC duration, PTA duration, imaging results)",
+        "reason": "Severity determines expected degree of neurological disruption and informs stimulation parameter selection and prognosis.",
+        "blocks_protocol": false
+      },
+      {
+        "field": "Post-TBI seizure history",
+        "reason": "Post-traumatic epilepsy is a risk factor for TMS-related seizure. Active post-TBI seizures are an absolute contraindication for TMS.",
+        "blocks_protocol": true
+      },
+      {
+        "field": "Skull integrity and neurosurgical history",
+        "reason": "Skull fractures, metallic fragments from neurosurgery, or cranial fixation hardware are absolute contraindications for TMS.",
+        "blocks_protocol": true
+      },
+      {
+        "field": "Neuroimaging results (CT and/or MRI)",
+        "reason": "Identifies lesion locations, haemorrhagic contusions, and structural abnormalities that affect target selection and safety.",
+        "blocks_protocol": false
+      },
+      {
+        "field": "Current medications (full list including analgesics, anticonvulsants, psychotropics)",
+        "reason": "Multiple TBI medications lower seizure threshold (tramadol, buproprion, antipsychotics). Required for TMS safety screening.",
+        "blocks_protocol": false
+      },
+      {
+        "field": "PTSD screen result (PCL-5 or equivalent)",
+        "reason": "PTSD is highly comorbid with TBI and must be distinguished — significantly affects treatment planning and protocol selection.",
+        "blocks_protocol": false
+      },
+      {
+        "field": "Baseline cognitive assessment (MoCA at minimum)",
+        "reason": "Required to establish baseline cognitive function and define outcome targets. Cannot generate protocol without baseline cognitive data.",
+        "blocks_protocol": true
+      }
+    ],
+    "clinical_interview_checklist": [
+      "Mechanism and date of injury",
+      "Loss of consciousness — duration and quality",
+      "Post-traumatic amnesia — duration",
+      "Acute treatment received and hospitalisation history",
+      "Current cognitive complaints — specific domains (memory, attention, processing speed, executive function)",
+      "Work or academic functioning impact",
+      "Sleep quality and pattern since injury",
+      "Headache frequency, character, and severity (post-traumatic headache is common comorbidity)",
+      "Mood since injury — depression, anxiety, irritability",
+      "PTSD symptoms if applicable (trauma exposure, intrusions, avoidance, hyperarousal)",
+      "Substance use before and after injury",
+      "Seizure history pre- and post-injury",
+      "All metal implants, fragments, or neurosurgical hardware",
+      "Sport or military context if applicable (return-to-play or duty considerations)"
+    ],
+    "rule_out_differentials": [
+      "PTSD (overlapping cognitive symptoms — separate instruments required; PCL-5 mandatory if trauma mechanism)",
+      "ADHD pre-dating TBI (document childhood attention history to differentiate)",
+      "Major depressive disorder (cognitive symptoms may resolve with antidepressant treatment alone)",
+      "Sleep disorder (OSA or insomnia driving cognitive impairment — treat sleep first)",
+      "Medication-induced cognitive impairment (opioids, benzodiazepines, anticonvulsants — review medications)",
+      "Neurodegenerative disease (especially in older adults; MoCA trajectory over time)"
+    ],
+    "comorbidity_screen": [
+      "Depression (PHQ-9 — present in 30–50% post-TBI)",
+      "PTSD (PCL-5 — required if traumatic mechanism)",
+      "Sleep quality (ISI or PSQI — insomnia affects all cognitive domains; treat concurrently)",
+      "Chronic pain / headache (PainDETECT or MIDAS — post-traumatic headache affects engagement)",
+      "Anxiety (GAD-7)",
+      "Substance use (AUDIT-C for alcohol — major TBI risk factor and complicates recovery)"
+    ],
+    "prior_treatment_required": [
+      "Neuropsychological assessment (recommended before neuromodulation — establishes cognitive profile)",
+      "Occupational therapy or cognitive rehabilitation assessment",
+      "Sleep management (insomnia treatment initiated or in progress)",
+      "Psychiatric review if depression or PTSD present"
+    ],
+    "special_population_flags": [
+      {
+        "population": "Sports-related concussion (athlete)",
+        "additional_requirements": [
+          "SCAT5 (Sport Concussion Assessment Tool 5) administered by trained assessor",
+          "Current return-to-play protocol stage documented",
+          "Sport physician or neurologist co-sign required before neuromodulation",
+          "Clearance from return-to-sport protocol (neuromodulation should not replace return-to-play clinical decision)"
+        ]
+      },
+      {
+        "population": "Military TBI (blast exposure)",
+        "additional_requirements": [
+          "Blast mechanism documented (primary, secondary, tertiary blast injury)",
+          "PCL-5 mandatory — blast TBI has very high PTSD comorbidity",
+          "Audiological assessment if blast-related hearing loss suspected",
+          "Rule out tympanic membrane perforation before any hearing-proximity equipment use"
+        ]
+      },
+      {
+        "population": "Older adult (65+)",
+        "additional_requirements": [
+          "Neuropsychological testing to distinguish TBI-related impairment from age-related decline or early neurodegeneration",
+          "Fall risk assessment — TBI in older adults commonly from falls; high re-injury risk",
+          "Polypharmacy review — multiple medications common in this group lower seizure threshold"
+        ]
+      }
+    ]
+  },
+
+  "contraindications": {
+    "absolute": [
+      {
+        "condition": "Active seizure disorder or uncontrolled post-traumatic epilepsy",
+        "rationale": "TMS in the presence of active epilepsy significantly increases seizure risk. No TMS protocol may proceed until epilepsy is controlled and neurology clearance obtained."
+      },
+      {
+        "condition": "Metallic fragments in skull or brain from injury or neurosurgery",
+        "rationale": "Ferromagnetic metallic fragments in the head may be displaced or heated by TMS electromagnetic fields, causing catastrophic injury."
+      },
+      {
+        "condition": "Cranial fixation hardware or cranioplasty with metallic implants at stimulation site",
+        "rationale": "Metallic hardware from neurosurgical reconstruction is an absolute contraindication for TMS at or near the implant site."
+      },
+      {
+        "condition": "Implanted cardiac pacemaker or defibrillator",
+        "rationale": "TMS may interfere with device function. Absolute contraindication for all TMS protocols."
+      },
+      {
+        "condition": "Within 3 months of acute moderate-severe TBI",
+        "rationale": "Brain is in active recovery and may be hyperexcitable in the early post-injury period. Neuromodulation in this window is not evidence-based and may interfere with natural recovery."
+      }
+    ],
+    "relative": [
+      {
+        "condition": "Mild TBI within 3 months (stable but <12 weeks post-injury)",
+        "rationale": "Evidence for benefit within 12 weeks of mild TBI is absent. Brain may still be in active neuroplastic recovery phase.",
+        "mitigation": "Wait for symptom stabilisation (minimum 4–6 weeks for sport concussion; 12 weeks preferred for first neuromodulation trial). Obtain sport physician or neurologist clearance. Start with lowest effective parameters."
+      },
+      {
+        "condition": "Well-controlled post-traumatic epilepsy (seizure-free >12 months)",
+        "rationale": "Prior post-traumatic seizure increases TMS risk even if currently controlled. Low-frequency protocols carry lower risk than high-frequency.",
+        "mitigation": "Neurology clearance required. Prefer low-frequency rTMS (1 Hz) or tDCS over high-frequency TMS. Emergency seizure protocol in place. Inform patient of residual risk."
+      },
+      {
+        "condition": "Active moderate-severe depression (PHQ-9 ≥15)",
+        "rationale": "Depression significantly impairs cognitive rehabilitation engagement and may confound cognitive outcomes. Suicidal ideation requires management.",
+        "mitigation": "Prioritise antidepressant treatment. Complete safety planning. Psychiatric review before starting investigational cognitive neuromodulation."
+      },
+      {
+        "condition": "Active PTSD with significant hyperarousal or dissociation",
+        "rationale": "Hyperarousal and dissociation can be exacerbated by neuromodulation procedures; dissociation impairs valid AE reporting.",
+        "mitigation": "Stabilise PTSD with first-line treatment (EMDR, CPT, pharmacotherapy) before adding investigational neuromodulation. Ensure trauma-informed approach throughout."
+      },
+      {
+        "condition": "Active post-traumatic headache rated ≥7/10 on session day",
+        "rationale": "Active severe headache may be exacerbated by TMS and interferes with cognitive task performance during tDCS or neurofeedback.",
+        "mitigation": "Defer session until headache is managed. Review analgesic strategy with pain management team."
+      }
+    ],
+    "special_populations": [
+      {
+        "population": "Sports concussion athlete",
+        "flag": "Do not commence neuromodulation as a substitute for standard return-to-play protocol. Neuromodulation is adjunctive to, not a replacement for, graded return-to-activity guidelines."
+      },
+      {
+        "population": "Military TBI with blast exposure",
+        "flag": "High PTSD comorbidity — PCL-5 mandatory. Consider joint TBI-PTSD clinical pathway. TMS for PTSD may be prioritised over cognitive TMS if PTSD symptoms dominate."
+      }
+    ],
+    "modality_specific": {
+      "tms": [
+        "No metal in skull (fragments, pins, plates, clips)",
+        "No cochlear implants or deep brain stimulator",
+        "Completed TMS Safety Screening Questionnaire before each course",
+        "Emergency seizure management equipment in clinic",
+        "Neuronavigation recommended — lesion location affects coil placement accuracy",
+        "Avoid in active TBI within 3 months"
+      ],
+      "tdcs": [
+        "No open wounds or skin lesions at electrode placement sites",
+        "No metal skull implants at F3/Fp2 electrode sites",
+        "Remove all metal jewellery before session",
+        "Confirm no active scalp infections or dermatitis at electrode sites"
+      ],
+      "neurofeedback": [
+        "qEEG assessment required before commencing LORETA neurofeedback — do not proceed without qEEG-mapped protocol",
+        "Ensure adequate scalp/hair condition for gel electrode contact",
+        "Active severe headache is a session-level contraindication — defer session"
+      ]
+    }
+  },
+
+  "assessment_bundle": {
+    "screening": [
+      {
+        "assessment_id": "ASS-TBI-01",
+        "name": "MoCA",
+        "full_name": "Montreal Cognitive Assessment",
+        "clinician_vs_patient": "Clinician-rated",
+        "rationale": "Rapid 30-point cognitive screen validated for detecting cognitive impairment across multiple domains. Score <26 indicates possible cognitive impairment. Widely used in TBI research as screening tool. Free for clinical use.",
+        "lower_is_better": false,
+        "admin_duration_minutes": 15,
+        "access": "Free (licensed at mocatest.org)",
+        "population": "Adult 18+"
+      },
+      {
+        "assessment_id": "ASS-TBI-02",
+        "name": "SCAT5",
+        "full_name": "Sport Concussion Assessment Tool 5",
+        "clinician_vs_patient": "Clinician-rated",
+        "rationale": "Standard concussion assessment for sport-related TBI. Includes symptom evaluation, cognitive assessment (SAC), and balance testing. Required for athlete population. Not applicable to non-sport TBI.",
+        "lower_is_better": false,
+        "admin_duration_minutes": 20,
+        "access": "Free (BJSM/IOC)",
+        "population": "Adult athlete 18+"
+      }
+    ],
+    "diagnostic": [
+      {
+        "assessment_id": "ASS-TBI-03",
+        "name": "Trail Making Test A and B",
+        "full_name": "Trail Making Test Parts A and B",
+        "clinician_vs_patient": "Clinician-rated",
+        "rationale": "TMT-A measures processing speed and visual scanning; TMT-B measures cognitive flexibility and executive control. B/A ratio is a sensitive index of frontal executive function. Highly sensitive to TBI-related cognitive impairment. Required at baseline.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 10,
+        "access": "Free (public domain)",
+        "population": "Adult 18+"
+      },
+      {
+        "assessment_id": "ASS-TBI-04",
+        "name": "Digit Span",
+        "full_name": "Digit Span Forward and Backward (WAIS-IV subtest)",
+        "clinician_vs_patient": "Clinician-rated",
+        "rationale": "Measures verbal working memory capacity and attention span. Backward digit span is sensitive to prefrontal working memory impairment post-TBI. Used as a primary baseline and outcome measure for memory-dominant TBI.",
+        "lower_is_better": false,
+        "admin_duration_minutes": 10,
+        "access": "Licensed — Pearson (as part of WAIS-IV)",
+        "population": "Adult 16+"
+      }
+    ],
+    "baseline": [
+      {
+        "assessment_id": "ASS-TBI-01",
+        "name": "MoCA (Baseline)",
+        "full_name": "Montreal Cognitive Assessment — Baseline",
+        "clinician_vs_patient": "Clinician-rated",
+        "rationale": "Primary baseline cognitive screen. Establishes global cognitive severity and tracks change across treatment. Also screens for consent capacity.",
+        "lower_is_better": false,
+        "admin_duration_minutes": 15,
+        "access": "Free (licensed at mocatest.org)",
+        "population": "Adult 18+"
+      },
+      {
+        "assessment_id": "ASS-TBI-05",
+        "name": "Stroop Colour Word Test",
+        "full_name": "Stroop Colour and Word Test",
+        "clinician_vs_patient": "Clinician-rated",
+        "rationale": "Measures selective attention and cognitive inhibition. Interference score is sensitive to prefrontal impairment. Commonly used in TBI cognitive rehabilitation research as a baseline and outcome measure.",
+        "lower_is_better": false,
+        "admin_duration_minutes": 10,
+        "access": "Licensed — PAR Inc.",
+        "population": "Adult 18+"
+      },
+      {
+        "assessment_id": "ASS-TBI-06",
+        "name": "BRIEF-A",
+        "full_name": "Behavior Rating Inventory of Executive Function — Adult Version",
+        "clinician_vs_patient": "Either",
+        "rationale": "Captures real-world executive function impairment across 9 scales. Essential for TBI cognitive baseline as it documents functional impact of executive deficits beyond standardised test performance.",
+        "lower_is_better": false,
+        "admin_duration_minutes": 20,
+        "access": "Licensed — PAR Inc.",
+        "population": "Adult 18–90"
+      },
+      {
+        "assessment_id": "ASS-TBI-07",
+        "name": "PHQ-9",
+        "full_name": "Patient Health Questionnaire — 9 item",
+        "clinician_vs_patient": "Patient self-report",
+        "rationale": "Depression baseline essential — post-TBI depression confounds cognitive outcomes and requires monitoring throughout neuromodulation course.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 5,
+        "access": "Free (public domain)",
+        "population": "Adult 18+"
+      },
+      {
+        "assessment_id": "ASS-TBI-08",
+        "name": "PCL-5",
+        "full_name": "PTSD Checklist for DSM-5",
+        "clinician_vs_patient": "Patient self-report",
+        "rationale": "PTSD baseline for all TBI patients with traumatic injury mechanism. Score ≥33 indicates probable PTSD requiring dedicated management. High comorbidity with military and assault-related TBI.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 10,
+        "access": "Free (public domain, US Department of Veterans Affairs)",
+        "population": "Adult 18+"
+      }
+    ],
+    "monitoring": [
+      {
+        "assessment_id": "ASS-TBI-01",
+        "name": "MoCA (Monitoring)",
+        "full_name": "Montreal Cognitive Assessment — Monitoring",
+        "clinician_vs_patient": "Clinician-rated",
+        "rationale": "Primary cognitive monitoring tool. Administered every 10 sessions to track global cognitive change from baseline.",
+        "lower_is_better": false,
+        "admin_duration_minutes": 15,
+        "access": "Free (licensed at mocatest.org)",
+        "population": "Adult 18+"
+      },
+      {
+        "assessment_id": "ASS-TBI-07",
+        "name": "PHQ-9 (Monitoring)",
+        "full_name": "Patient Health Questionnaire — 9 item — Monitoring",
+        "clinician_vs_patient": "Patient self-report",
+        "rationale": "Monitor for depression emergence or worsening. Score ≥15 triggers clinical review and possible protocol pause.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 5,
+        "access": "Free (public domain)",
+        "population": "Adult 18+"
+      }
+    ],
+    "outcome": [
+      {
+        "assessment_id": "ASS-TBI-01",
+        "name": "MoCA (End of Course)",
+        "full_name": "Montreal Cognitive Assessment — Endpoint",
+        "clinician_vs_patient": "Clinician-rated",
+        "rationale": "Primary cognitive outcome. MCID for MoCA = 2 points. Report absolute score and change from baseline.",
+        "lower_is_better": false,
+        "admin_duration_minutes": 15,
+        "access": "Free (licensed at mocatest.org)",
+        "population": "Adult 18+"
+      },
+      {
+        "assessment_id": "ASS-TBI-03",
+        "name": "Trail Making Test (End of Course)",
+        "full_name": "Trail Making Test Parts A and B — Endpoint",
+        "clinician_vs_patient": "Clinician-rated",
+        "rationale": "Secondary cognitive outcome for processing speed (TMT-A) and executive flexibility (TMT-B). Improvement = reduced completion time in seconds.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 10,
+        "access": "Free (public domain)",
+        "population": "Adult 18+"
+      },
+      {
+        "assessment_id": "ASS-TBI-06",
+        "name": "BRIEF-A (End of Course)",
+        "full_name": "Behavior Rating Inventory of Executive Function — Endpoint",
+        "clinician_vs_patient": "Either",
+        "rationale": "Secondary real-world executive function outcome. T-score reduction ≥10 points on Global Executive Composite = meaningful functional improvement.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 20,
+        "access": "Licensed — PAR Inc.",
+        "population": "Adult 18+"
+      }
+    ],
+    "neurophysiological": [
+      {
+        "assessment_id": "ASS-TBI-09",
+        "name": "qEEG (TBI Protocol)",
+        "full_name": "Quantitative EEG — TBI Cognitive Biomarker Assessment",
+        "clinician_vs_patient": "Clinician-rated",
+        "rationale": "Required baseline for neurofeedback protocol (PRO-NF-TBI-01). Identifies individualised EEG abnormalities (slow waves, connectivity disruption, alpha peak frequency shift) that guide LORETA neurofeedback target selection. Not optional for neurofeedback — protocol cannot be individualised without qEEG.",
+        "lower_is_better": false,
+        "admin_duration_minutes": 60,
+        "access": "Requires qEEG system (19+ channels), software (e.g. Neuroguide, LORETA), and certified interpreter",
+        "population": "Adult 18+"
+      }
+    ],
+    "functional": [
+      {
+        "assessment_id": "ASS-TBI-06",
+        "name": "BRIEF-A (Functional)",
+        "full_name": "Behavior Rating Inventory of Executive Function — Functional Baseline",
+        "clinician_vs_patient": "Either",
+        "rationale": "Documents real-world executive function and day-to-day cognitive functioning beyond standardised testing. Captures impact on work, domestic activities, and social function.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 20,
+        "access": "Licensed — PAR Inc.",
+        "population": "Adult 18+"
+      }
+    ]
+  },
+
+  "protocol_bundle": [
+    {
+      "protocol_id": "PRO-TMS-TBI-01",
+      "name": "rTMS Left DLPFC — Attention and Cognitive Enhancement Post-TBI (Investigational)",
+      "modality_slug": "tms",
+      "phenotype_id": "PHE-TBI-01",
+      "on_label_vs_off_label": "Investigational",
+      "evidence_grade": "EV-C",
+      "evidence_summary": "Small open-label studies and a limited number of pilot RCTs suggest high-frequency rTMS to left DLPFC may improve attention and processing speed in TBI populations. Huang et al. (2017) and Kang et al. (2020) showed improvements in cognitive testing post-rTMS, but samples are very small (<30 participants) and no large RCT has been completed. Evidence does not meet standards for clinical recommendation — classified EV-C. All patients must be informed this is investigational.",
+      "references": [
+        "Huang MX et al. (2017). Resting-state magnetoencephalography reveals different patterns of aberrant functional connectivity in combat-related mild traumatic brain injury. Journal of Neurotrauma, 34(7), 1412–1426.",
+        "Kang EK et al. (2020). Repetitive transcranial magnetic stimulation of the left dorsolateral prefrontal cortex to treat attention deficits after TBI: A pilot study. Neurorehabilitation and Neural Repair, 25(1), 68–74.",
+        "Dhaliwal SK et al. (2015). Repetitive transcranial magnetic stimulation for the treatment of Alzheimer disease and other dementias. Journal of Alzheimer's Disease, 44(4), 1209–1222."
+      ],
+      "brain_target": {
+        "region": "Left Dorsolateral Prefrontal Cortex",
+        "laterality": "Left",
+        "eeg_position": "F3",
+        "effect_direction": "Excitatory"
+      },
+      "parameters": {
+        "frequency_hz": "10 Hz (high-frequency excitatory)",
+        "intensity": "110% resting motor threshold (rMT) — individualised via motor mapping",
+        "pulse_count": "2000 pulses per session (10 Hz × 5 s trains, 25 s inter-train interval, 20 minutes total)",
+        "coil_type": "Figure-8 coil (70 mm)",
+        "electrode_placement": "F3 (left DLPFC) — MRI-guided neuronavigation recommended due to TBI lesion variability"
+      },
+      "session_structure": {
+        "sessions_per_week": 5,
+        "session_duration_minutes": 30,
+        "total_sessions": 20,
+        "total_weeks": 4,
+        "maintenance_sessions": "No established maintenance protocol — reassess at 4 weeks post-course",
+        "steps": [
+          {
+            "order": 1,
+            "title": "Safety review and pre-session cognitive check",
+            "duration_minutes": 5,
+            "detail": "Confirm no new contraindications. Review medication changes. Assess headache severity (defer if ≥7/10). Review previous session AE log. Confirm patient understands investigational status."
+          },
+          {
+            "order": 2,
+            "title": "Motor threshold determination (first session; re-check if >2-week gap)",
+            "duration_minutes": 10,
+            "detail": "Determine rMT over left motor cortex (hand area). In TBI patients with frontal lesions, rMT may be altered — document carefully. If rMT cannot be reliably determined, consult clinician before proceeding."
+          },
+          {
+            "order": 3,
+            "title": "Neuronavigation setup and coil positioning",
+            "duration_minutes": 5,
+            "detail": "Use MRI-guided neuronavigation to position coil accurately over left DLPFC (F3). If neuronavigation not available, use 10-20 EEG landmark method and document deviation from optimal target. Note any lesion proximity."
+          },
+          {
+            "order": 4,
+            "title": "rTMS delivery",
+            "duration_minutes": 20,
+            "detail": "Deliver 2000 pulses at 10 Hz, 110% rMT, in standard 5-second trains with 25-second rest intervals. Patient seated. Monitor continuously. Do not leave patient unattended. Ask about comfort every 5 minutes."
+          },
+          {
+            "order": 5,
+            "title": "Post-session AE check and logging",
+            "duration_minutes": 5,
+            "detail": "Check for headache, scalp discomfort, fatigue, or mood change. Log all parameters and AEs. Remind patient of seizure awareness and who to contact if symptoms develop at home."
+          }
+        ]
+      },
+      "monitoring_required": [
+        "TMS Safety Screening Questionnaire before first session",
+        "MoCA at baseline and every 10 sessions",
+        "Trail Making Test A and B at baseline and end of course",
+        "PHQ-9 at baseline and every 10 sessions",
+        "AE log every session",
+        "Research participation consent documented before first session"
+      ],
+      "contraindication_check_required": true,
+      "adverse_event_monitoring": "Headache (most common — monitor severity and duration). Scalp discomfort at coil site. Fatigue. Seizure (rare but risk is elevated in TBI population with history of post-traumatic epilepsy — emergency protocol mandatory). Any worsening of baseline neurological symptoms requires immediate clinical assessment.",
+      "escalation_rules": [
+        "Seizure during or within 2 hours of session: emergency protocol, suspend all TMS, neurology clearance required before any resumption",
+        "No MoCA improvement ≥2 points after 10 sessions: clinician review — reassess diagnosis, check PTSD and depression status, consider discontinuation of investigational protocol",
+        "PHQ-9 increases ≥5 points from baseline: psychiatric review within 2 working days, consider protocol pause"
+      ],
+      "patient_facing_allowed": false,
+      "clinician_review_required": true,
+      "governance": {
+        "patient_export_allowed": false,
+        "requires_clinician_sign_off": true,
+        "off_label_acknowledgement_required": true,
+        "dual_review_required": false,
+        "notes": "Investigational EV-C protocol. Patient export blocked — clinician eyes only. Clinician sign-off required. Research participation consent mandatory. Inform patient clearly of investigational status before treatment."
+      },
+      "notes": "This is an investigational protocol with very limited evidence. Only appropriate where patient is fully informed, alternative evidence-based cognitive rehabilitation has been considered, and the clinical team has specific TBI neuromodulation experience. Neuronavigation strongly recommended due to variable TBI lesion locations."
+    },
+    {
+      "protocol_id": "PRO-TDCS-TBI-01",
+      "name": "tDCS Left DLPFC with Cognitive Training — Working Memory Post-TBI (Investigational)",
+      "modality_slug": "tdcs",
+      "phenotype_id": "PHE-TBI-02",
+      "on_label_vs_off_label": "Investigational",
+      "evidence_grade": "EV-C",
+      "evidence_summary": "Small RCTs and pilot studies (Villamar et al., 2013; Middleton et al., 2020) suggest anodal tDCS to left DLPFC paired with cognitive training (dual n-back or working memory tasks) may improve working memory performance in TBI populations. Effect sizes are small and not consistently replicated. No large multicentre trial available as of 2026. All patients must be informed of investigational status. Best candidate: attention-dominant or memory-dominant TBI phenotype with sufficient baseline function to engage in cognitive training.",
+      "references": [
+        "Villamar MF et al. (2013). Noninvasive brain stimulation to modulate neuroplasticity in traumatic brain injury. Neuromodulation, 15(4), 326–338.",
+        "Middleton A et al. (2020). Transcranial direct current stimulation following traumatic brain injury. Brain Sciences, 10(3), 126.",
+        "Plow EB et al. (2018). Brain stimulation in the rehabilitation of patients with subacute and chronic stroke. Archives of Physical Medicine and Rehabilitation, 99(10), 1979–1986."
+      ],
+      "brain_target": {
+        "region": "Left Dorsolateral Prefrontal Cortex",
+        "laterality": "Left",
+        "eeg_position": "F3",
+        "effect_direction": "Excitatory"
+      },
+      "parameters": {
+        "current_ma": "2 mA",
+        "current_density": "0.057 mA/cm² (35 cm² electrodes)",
+        "electrode_placement": "Anode: F3 (left DLPFC); Cathode: Fp2 (right supraorbital)",
+        "ramp_up_seconds": 30,
+        "ramp_down_seconds": 30,
+        "additional_params": {
+          "session_duration": "20 minutes at 2 mA concurrent with cognitive training task",
+          "cognitive_task": "Dual n-back task or validated working memory training software (e.g. Cogmed) delivered simultaneously with tDCS"
+        }
+      },
+      "session_structure": {
+        "sessions_per_week": 5,
+        "session_duration_minutes": 30,
+        "total_sessions": 15,
+        "total_weeks": 3,
+        "maintenance_sessions": "No established maintenance; cognitive training may continue independently post-course",
+        "steps": [
+          {
+            "order": 1,
+            "title": "Skin inspection and pre-session check",
+            "duration_minutes": 5,
+            "detail": "Inspect scalp at F3 and Fp2 for cuts, redness, or lesions. Review headache level — defer if ≥7/10. Confirm patient is ready to engage with cognitive training task. Log medication changes since last session."
+          },
+          {
+            "order": 2,
+            "title": "Electrode placement",
+            "duration_minutes": 5,
+            "detail": "Position anode (red) at F3 (left DLPFC). Position cathode (black) at Fp2 (right supraorbital). Use 35 cm² saline-soaked sponge electrodes — damp, not dripping. Secure with head strap. Set device: 2 mA, 20 minutes, 30-second ramp-up."
+          },
+          {
+            "order": 3,
+            "title": "Concurrent cognitive training with tDCS",
+            "duration_minutes": 20,
+            "detail": "Start tDCS simultaneously with cognitive training task. Patient performs dual n-back or validated working memory training software for the full 20-minute stimulation period. Technician monitors signal and patient engagement. Mild scalp tingling is expected during ramp-up — reassure patient."
+          },
+          {
+            "order": 4,
+            "title": "Post-session check and AE logging",
+            "duration_minutes": 5,
+            "detail": "Remove electrodes. Inspect scalp. Ask about headache, unusual sensations, fatigue, mood change. Log session parameters, task performance metrics, and AEs."
+          }
+        ]
+      },
+      "monitoring_required": [
+        "MoCA at baseline and every 10 sessions",
+        "Digit Span (forward and backward) at baseline and every 5 sessions",
+        "PHQ-9 at baseline and every 10 sessions",
+        "Skin inspection before every session",
+        "AE log every session",
+        "Research participation consent documented before first session"
+      ],
+      "contraindication_check_required": true,
+      "adverse_event_monitoring": "Scalp tingling or mild itching during ramp-up is expected and usually passes. Burning, pain, or skin redness: stop session, inspect skin. Headache: document severity; if ≥6/10, defer next session and notify clinician. Fatigue is common — may need to reduce session frequency if severe.",
+      "escalation_rules": [
+        "Skin burn or blister at electrode site: suspend tDCS, document, medical review if skin broken",
+        "No Digit Span improvement after 10 sessions: clinician review; reassess cognitive training task difficulty and engagement level",
+        "PHQ-9 worsens ≥5 points from baseline: psychiatric review; consider pausing investigational protocol"
+      ],
+      "patient_facing_allowed": false,
+      "clinician_review_required": true,
+      "governance": {
+        "patient_export_allowed": false,
+        "requires_clinician_sign_off": true,
+        "off_label_acknowledgement_required": true,
+        "dual_review_required": false,
+        "notes": "Investigational EV-C protocol. Patient export blocked. Clinician sign-off required. Research participation consent mandatory. Cognitive training task must be delivered concurrently — tDCS alone without cognitive training is not indicated."
+      },
+      "notes": "The concurrent cognitive training component is mechanistically essential — stimulation during active working memory practice targets use-dependent plasticity. Clinicians should select cognitive training tasks matched to patient's functional working memory level. Too easy or too difficult tasks reduce efficacy."
+    },
+    {
+      "protocol_id": "PRO-NF-TBI-01",
+      "name": "LORETA Neurofeedback qEEG-Guided — Cognitive Rehabilitation Post-TBI (Investigational)",
+      "modality_slug": "neurofeedback",
+      "phenotype_id": "PHE-TBI-05",
+      "on_label_vs_off_label": "Investigational",
+      "evidence_grade": "EV-C",
+      "evidence_summary": "QEEG-guided neurofeedback, including LORETA (Low Resolution Electromagnetic Tomography) source-localised neurofeedback, has been studied in small uncontrolled and controlled studies in TBI (Surmeli et al., 2015; Ros et al., 2014). Studies report improvements in cognitive performance, symptom burden, and EEG normalisation, but evidence is limited by small samples, lack of sham controls, and heterogeneous outcome measures. The highly individualised nature of QEEG-guided protocols limits standardisation. Classified EV-C. All patients must be informed of investigational status.",
+      "references": [
+        "Surmeli T et al. (2015). Quantitative EEG neurometric analysis-guided neurofeedback treatment in postconcussion syndrome: 32 cases. Clinical EEG and Neuroscience, 48(3), 217–230.",
+        "Ros T et al. (2014). Mind over chatter: Plastic up-regulation of the fMRI salience network directly after EEG neurofeedback. Neuroimage, 65, 324–335.",
+        "Walker JE (2008). Power spectral frequency and coherence abnormalities in patients with intractable epilepsy and their usefulness in long-term remediation of seizures using neurofeedback. Clinical EEG and Neuroscience, 39(4), 203–212."
+      ],
+      "brain_target": {
+        "region": "Individualised based on qEEG assessment — typically targets regions of excess slow waves or connectivity disruption",
+        "laterality": "Bilateral",
+        "eeg_position": "Individualised — determined by qEEG mapping (commonly frontal, parietal, or temporal sites)",
+        "effect_direction": "Normalise"
+      },
+      "parameters": {
+        "reward_band": "Individualised based on qEEG — typically reward alpha or beta normalisation at target site",
+        "inhibit_band": "Individualised based on qEEG — typically inhibit excess delta or theta at slow-wave sites",
+        "threshold_type": "Auto-adaptive threshold updated every session based on prior session performance",
+        "feedback_modality": "Audio and visual (game or animation)",
+        "electrode_sites": "Individualised — determined by qEEG source localisation (LORETA); typically 1–4 active channels at identified dysregulated regions"
+      },
+      "session_structure": {
+        "sessions_per_week": 3,
+        "session_duration_minutes": 45,
+        "total_sessions": 40,
+        "total_weeks": 14,
+        "maintenance_sessions": "Booster sessions (5–10) at monthly intervals post-course if qEEG re-assessment shows regression",
+        "steps": [
+          {
+            "order": 1,
+            "title": "qEEG pre-treatment assessment (before first session only)",
+            "duration_minutes": 60,
+            "detail": "Perform full 19-channel qEEG recording (eyes open and closed, 10 minutes each). Process through normative database (e.g. Neuroguide). Generate LORETA source localisation maps. Identify primary target regions (excess slow waves, delta, theta; reduced alpha or beta; connectivity abnormalities). Clinician reviews qEEG report and approves personalised protocol before first neurofeedback session."
+          },
+          {
+            "order": 2,
+            "title": "Scalp preparation and electrode placement",
+            "duration_minutes": 10,
+            "detail": "Prepare electrode sites with NuPrep gel. Apply conductive paste or active electrode gel. Check impedance — all channels <5 kΩ before beginning. Apply electrode cap or individual electrodes at qEEG-determined sites."
+          },
+          {
+            "order": 3,
+            "title": "Neurofeedback training",
+            "duration_minutes": 30,
+            "detail": "Deliver 4–5 training runs of 5–6 minutes each with 60-second rest breaks. Apply reward and inhibit parameters determined by qEEG protocol. Real-time feedback (audio and visual). Patient actively engages with feedback task. Technician monitors signal quality and patient engagement. Log reward rate and threshold crossings each run."
+          },
+          {
+            "order": 4,
+            "title": "Post-session review",
+            "duration_minutes": 5,
+            "detail": "Review session metrics. Ask patient about headache, fatigue, cognitive clarity, and any unusual sensations. Log in session record. Update threshold if clinician indicates adjustment needed."
+          }
+        ]
+      },
+      "monitoring_required": [
+        "qEEG assessment completed and approved by clinician before first session (mandatory)",
+        "MoCA at baseline and every 10 sessions",
+        "Trail Making Test A and B at baseline and every 10 sessions",
+        "Repeat qEEG at session 20 to assess EEG normalisation progress",
+        "AE log every session",
+        "Research participation consent documented before first session"
+      ],
+      "contraindication_check_required": true,
+      "adverse_event_monitoring": "Fatigue post-session (common — typically resolves within 1–2 hours). Headache (document severity). Transient mood changes. Any increase in TBI-related symptoms (dizziness, visual disturbance, cognitive worsening) requires session deferral and clinician review.",
+      "escalation_rules": [
+        "No MoCA improvement ≥2 points and no change in TMT scores after 20 sessions: clinician review; consider revising qEEG protocol or discontinuing investigational approach",
+        "Patient reports worsening of TBI symptoms across 3+ consecutive sessions: clinician review, consider reducing session frequency or pausing",
+        "qEEG at session 20 shows no normalisation trend: revise neurofeedback targets with clinician; document rationale for continuation or discontinuation"
+      ],
+      "patient_facing_allowed": false,
+      "clinician_review_required": true,
+      "governance": {
+        "patient_export_allowed": false,
+        "requires_clinician_sign_off": true,
+        "off_label_acknowledgement_required": true,
+        "dual_review_required": false,
+        "notes": "Investigational EV-C protocol. Highly individualised — qEEG mandatory before commencing. Patient export blocked. Clinician sign-off required. Research participation consent mandatory. Do not begin without approved qEEG-based protocol."
+      },
+      "notes": "This protocol is the most individualised and technically demanding of the TBI options. The qEEG assessment is not optional — it is the mechanistic basis for target selection. Practitioners must have specific LORETA neurofeedback training and qEEG interpretation capability. Expect 30–40 sessions minimum for measurable change."
+    }
+  ],
+
+  "device_options": [
+    {
+      "device_id": "DEV-TMS-001",
+      "name": "Magstim Rapid²",
+      "manufacturer": "Magstim",
+      "modality_slug": "tms",
+      "regulatory_status": "FDA-cleared (other indication)",
+      "cleared_indication": "FDA-cleared for MDD; off-label/investigational use for TBI cognitive impairment",
+      "use_setting": "Clinic",
+      "compatible_protocols": ["PRO-TMS-TBI-01"],
+      "constraints": [
+        "Clinic use only",
+        "Motor threshold mapping required before first session",
+        "Neuronavigation strongly recommended given TBI lesion variability",
+        "Emergency seizure management equipment must be available"
+      ],
+      "notes": "Standard TMS device suitable for 10 Hz DLPFC protocol. Ensure neuronavigation is available given the variability of TBI lesion locations affecting optimal coil placement."
+    },
+    {
+      "device_id": "DEV-TDCS-001",
+      "name": "Soterix Medical 1×1 tDCS Clinical Trials Device (CT)",
+      "manufacturer": "Soterix Medical",
+      "modality_slug": "tdcs",
+      "regulatory_status": "FDA-cleared (other indication)",
+      "cleared_indication": "FDA-cleared for clinical research use; investigational for TBI",
+      "use_setting": "Clinic",
+      "compatible_protocols": ["PRO-TDCS-TBI-01"],
+      "constraints": [
+        "Clinic use only",
+        "Requires trained operator",
+        "Cognitive training software (dual n-back or Cogmed) must run simultaneously on separate device"
+      ],
+      "notes": "Research-grade tDCS device. Suitable for F3 anodal protocol with cognitive training task. Precise current control required for consistent investigational protocol delivery."
+    },
+    {
+      "device_id": "DEV-NF-001",
+      "name": "BrainMaster Atlantis II",
+      "manufacturer": "BrainMaster Technologies",
+      "modality_slug": "neurofeedback",
+      "regulatory_status": "FDA-cleared (other indication)",
+      "cleared_indication": "FDA 510(k) cleared as biofeedback device; investigational use for TBI cognitive rehabilitation",
+      "use_setting": "Clinic",
+      "compatible_protocols": ["PRO-NF-TBI-01"],
+      "constraints": [
+        "Requires certified neurofeedback practitioner (BCIA certification recommended)",
+        "qEEG analysis software (Neuroguide or equivalent) required for LORETA protocol setup",
+        "19-channel recording capability required for full qEEG — confirm system configuration"
+      ],
+      "notes": "Industry-standard clinical neurofeedback system. Supports LORETA source-based protocols with appropriate software configuration. qEEG analysis must be performed before first protocol session."
+    },
+    {
+      "device_id": "DEV-NF-003",
+      "name": "Brainmaster Neuronavigator (19-ch qEEG)",
+      "manufacturer": "BrainMaster Technologies",
+      "modality_slug": "neurofeedback",
+      "regulatory_status": "FDA-cleared (other indication)",
+      "cleared_indication": "Biofeedback device — qEEG diagnostic and neurofeedback training",
+      "use_setting": "Clinic",
+      "compatible_protocols": ["PRO-NF-TBI-01"],
+      "constraints": [
+        "19-channel cap required for full qEEG protocol",
+        "LORETA analysis requires Neuroguide or equivalent normative database software (licensed separately)",
+        "Requires experienced qEEG practitioner for interpretation"
+      ],
+      "notes": "Full 19-channel system enabling both qEEG assessment and LORETA neurofeedback delivery in a single clinical setup."
+    }
+  ],
+
+  "brain_targets": [
+    {
+      "region": "Left Dorsolateral Prefrontal Cortex",
+      "abbreviation": "L-DLPFC",
+      "laterality": "Left",
+      "rationale": "The left DLPFC is central to working memory, attentional control, and executive function — the domains most commonly impaired in TBI. Excitatory stimulation (10 Hz TMS, anodal tDCS) targets the prefrontal-parietal working memory network. Left DLPFC is chosen by analogy with its role in MDD and ADHD where evidence is stronger; TBI-specific evidence is preliminary.",
+      "effect_direction": "Excitatory",
+      "modalities": ["tms", "tdcs"],
+      "eeg_position_10_20": "F3",
+      "brodmann_area": "BA46 / BA9",
+      "network": "Central Executive Network (CEN)",
+      "qeeg_target": "Increase left frontal beta; normalise theta/beta ratio at F3",
+      "evidence_note": "Most studied target for TBI cognitive neuromodulation. Evidence is preliminary (EV-C). Neuronavigation recommended due to variable TBI lesion locations near DLPFC."
+    },
+    {
+      "region": "Individualised qEEG-Mapped Target Regions",
+      "abbreviation": "qEEG-Ind",
+      "laterality": "Bilateral",
+      "rationale": "Neurofeedback for TBI requires individualised target selection based on qEEG findings. TBI causes heterogeneous EEG abnormalities — excess delta/theta at contusion sites, reduced coherence in frontoparietal networks, slowed alpha peak frequency — that vary by individual. LORETA source localisation identifies the specific regions driving abnormal activity for each patient.",
+      "effect_direction": "Normalise",
+      "modalities": ["neurofeedback"],
+      "eeg_position_10_20": "Individualised — determined by qEEG (commonly Fz, F3, P3, Cz)",
+      "brodmann_area": "Varies by individual",
+      "network": "Varies — typically Default Mode Network, Salience Network, or Central Executive Network depending on lesion location",
+      "qeeg_target": "Normalise excess slow wave activity (delta/theta) and restore appropriate beta/alpha ratios at dysregulated regions",
+      "evidence_note": "qEEG-guided personalised targeting is the mechanistic rationale for neurofeedback in TBI. Generic electrode placement (without qEEG) is not recommended for this population."
+    }
+  ],
+
+  "handbook_outputs": {
+    "clinician_handbook": {
+      "title": "Clinician Handbook: TBI Cognitive Impairment — Investigational Neuromodulation Protocols",
+      "audience": "Licensed clinician or neuropsychologist with TBI neuromodulation experience",
+      "sections": [
+        {
+          "section_id": "ch-01",
+          "title": "Condition and Evidence Context",
+          "content": [
+            "TBI-related cognitive impairment affects attention, processing speed, working memory, and executive function following traumatic brain injury of any severity.",
+            "All neuromodulation protocols for TBI cognitive impairment are classified EV-C (investigational) — small studies only, no RCT-level evidence. Protocols must be presented to patients as experimental.",
+            "PTSD and depression are highly comorbid with TBI — both must be assessed (PCL-5, PHQ-9) and managed before or alongside neuromodulation. These comorbidities significantly confound cognitive outcomes.",
+            "The minimum waiting period after acute TBI before commencing neuromodulation is 3 months for moderate-severe TBI; 4–12 weeks for mild TBI depending on symptom stabilisation."
+          ]
+        },
+        {
+          "section_id": "ch-02",
+          "title": "Patient Selection",
+          "content": [
+            "Suitable candidates: TBI at minimum 3 months post-injury, stable cognitive complaints, engaged in cognitive rehabilitation, no active uncontrolled seizures.",
+            "Required before starting: MoCA baseline, PHQ-9, PCL-5, full TMS safety screening (for rTMS), qEEG (for neurofeedback).",
+            "Not suitable: Active post-traumatic epilepsy (TMS), metallic skull fragments (TMS), <3 months post-injury, active PTSD with dissociation requiring immediate treatment.",
+            "Research participation consent is mandatory for all TBI neuromodulation protocols — do not commence without signed research consent."
+          ]
+        },
+        {
+          "section_id": "ch-03",
+          "title": "Protocol Selection Guide",
+          "content": [
+            "Attention-dominant TBI: PRO-TMS-TBI-01 (rTMS left DLPFC) — 10 Hz, 20 sessions. Neuronavigation required.",
+            "Memory-dominant TBI: PRO-TDCS-TBI-01 (anodal tDCS F3 with working memory training) — must pair with active cognitive training task.",
+            "Mixed or processing speed-dominant TBI: PRO-NF-TBI-01 (LORETA neurofeedback qEEG-guided) — requires full qEEG assessment before starting. Most individualised approach.",
+            "All protocols are investigational. Document rationale for protocol selection based on individual cognitive profile. Combination approaches (TMS + neurofeedback) are not recommended outside formal research protocols."
+          ]
+        },
+        {
+          "section_id": "ch-04",
+          "title": "Governance and Consent Requirements",
+          "content": [
+            "Research participation consent is required before any TBI neuromodulation protocol — this is not optional.",
+            "Off-label/investigational acknowledgement must be signed before protocol generation.",
+            "Patient records must not be exported without clinician review — all TBI neuromodulation records are clinician-controlled.",
+            "Dual review is not mandated for TBI protocols but is strongly encouraged for complex cases.",
+            "Any serious adverse event must be reported to clinical governance lead and documented within 24 hours."
+          ]
+        },
+        {
+          "section_id": "ch-05",
+          "title": "Monitoring and Escalation",
+          "content": [
+            "Primary cognitive outcome: MoCA (MCID = 2 points). Administer at baseline and every 10 sessions.",
+            "Secondary outcomes: Trail Making Test A and B; Digit Span; BRIEF-A.",
+            "Non-response: No MoCA improvement ≥2 points after 10–20 sessions — clinician review, consider discontinuation.",
+            "Depression monitoring: PHQ-9 every 10 sessions — worsening ≥5 points triggers psychiatric review.",
+            "Seizure: Emergency protocol. Suspend all neuromodulation. Neurology clearance required before resumption."
+          ]
+        }
+      ]
+    },
+    "patient_guide": {
+      "title": "Patient Guide: Experimental Brain Training for TBI Cognitive Recovery",
+      "audience": "Patient (reading level: Grade 8) — must include explicit statement that all treatments are experimental",
+      "sections": [
+        {
+          "section_id": "pg-01",
+          "title": "Understanding Your Cognitive Difficulties After TBI",
+          "content": [
+            "A brain injury can affect how you think, remember, concentrate, and process information. These difficulties are caused by physical changes in your brain from the injury — not a sign of weakness.",
+            "Many people find that their thinking improves over time with rehabilitation and lifestyle changes. The treatments described here are being researched as possible ways to help speed up or extend that recovery."
+          ]
+        },
+        {
+          "section_id": "pg-02",
+          "title": "IMPORTANT: These Treatments Are Experimental",
+          "content": [
+            "The brain stimulation and brain training treatments offered here are experimental. This means they have been tested in small studies but have NOT been proven to work in large clinical trials.",
+            "We cannot guarantee that you will benefit. You may receive treatment and notice no change. You may also experience side effects.",
+            "Your clinician will explain the current evidence, what we know and do not know, and will check in with you regularly throughout your course."
+          ]
+        },
+        {
+          "section_id": "pg-03",
+          "title": "What to Expect at Sessions",
+          "content": [
+            "Sessions are painless or mildly uncomfortable. TMS produces a tapping sensation on your scalp. tDCS causes a mild tingling. Neurofeedback involves wearing a cap with sensors and watching a screen.",
+            "You will be asked to do cognitive exercises during or alongside some sessions — these are an important part of the treatment.",
+            "After some sessions, you may feel briefly tired. This usually passes within an hour or two."
+          ]
+        },
+        {
+          "section_id": "pg-04",
+          "title": "What to Tell Your Team",
+          "content": [
+            "Tell your clinician immediately if you develop a headache rated 7 or more out of 10.",
+            "Tell your team if you feel your thinking is getting worse — not just unchanged, but actually worse than before treatment started.",
+            "Tell the clinic if you experience anything unusual: muscle twitching, vision changes, dizziness, or feelings of confusion during or after a session.",
+            "Your feedback matters — you are helping us understand what works for people with TBI."
+          ]
+        }
+      ]
+    },
+    "technician_sop": {
+      "title": "Technician SOP: TBI Cognitive Impairment Investigational Protocols",
+      "audience": "Trained neuromodulation technician under clinician supervision",
+      "sections": [
+        {
+          "section_id": "sop-01",
+          "title": "Pre-Session Checklist",
+          "content": [
+            "Confirm patient identity. Check protocol assigned and qEEG-derived parameters (for neurofeedback).",
+            "Ask about headache — if ≥7/10, defer session and notify clinician.",
+            "Confirm no new medications or medical changes since last session.",
+            "Confirm research participation consent is on file.",
+            "Confirm emergency seizure equipment accessible before any TMS session."
+          ]
+        },
+        {
+          "section_id": "sop-02",
+          "title": "TMS Setup (PRO-TMS-TBI-01)",
+          "content": [
+            "Confirm neuronavigation is set up if available. Load patient MRI into system.",
+            "Confirm coil: figure-8, 70 mm. Position over F3 (left DLPFC) per neuronavigation or 10-20 landmarks.",
+            "Set parameters: 10 Hz, 110% rMT, 2000 pulses. Cross-check with clinician prescription before starting.",
+            "Monitor patient throughout. Do not leave unattended. Ask about comfort every 5 minutes."
+          ]
+        },
+        {
+          "section_id": "sop-03",
+          "title": "tDCS Setup (PRO-TDCS-TBI-01)",
+          "content": [
+            "Inspect scalp at F3 (anode) and Fp2 (cathode) for skin integrity.",
+            "Prepare saline sponge electrodes (35 cm²). Position anode at F3; cathode at Fp2.",
+            "Set device: 2 mA, 20 minutes, 30-second ramp-up. Start cognitive training software simultaneously.",
+            "Monitor patient engagement with cognitive task and electrode comfort throughout."
+          ]
+        },
+        {
+          "section_id": "sop-04",
+          "title": "Neurofeedback Setup (PRO-NF-TBI-01)",
+          "content": [
+            "Confirm qEEG protocol has been approved by clinician before first session — do not proceed without this.",
+            "Set electrode sites per qEEG-derived protocol. Check impedance: <5 kΩ at all channels.",
+            "Configure reward and inhibit bands per qEEG protocol. Set adaptive threshold.",
+            "Monitor signal quality, reward rate, and patient engagement throughout session."
+          ]
+        },
+        {
+          "section_id": "sop-05",
+          "title": "Post-Session Documentation",
+          "content": [
+            "Remove electrodes. Inspect scalp.",
+            "Ask about headache, fatigue, unusual sensations, cognitive clarity.",
+            "Log all parameters and AEs. Flag any AE rated moderate or above to clinician within 1 hour.",
+            "Log cognitive training task performance metrics (tDCS sessions) in session record."
+          ]
+        }
+      ]
+    }
+  },
+
+  "monitoring_rules": {
+    "assessment_schedule": [
+      {
+        "assessment_id": "ASS-TBI-01",
+        "assessment_name": "MoCA",
+        "timing": "Before session 1 (baseline); after session 10; after session 20; end of course",
+        "frequency": "Every 10 sessions",
+        "administered_by": "Clinician-rated"
+      },
+      {
+        "assessment_id": "ASS-TBI-03",
+        "assessment_name": "Trail Making Test A and B",
+        "timing": "Baseline and end of course",
+        "frequency": "Once at baseline and once at course completion",
+        "administered_by": "Clinician-rated"
+      },
+      {
+        "assessment_id": "ASS-TBI-04",
+        "assessment_name": "Digit Span",
+        "timing": "Baseline and every 5 sessions (for memory-dominant TBI on tDCS protocol)",
+        "frequency": "Every 5 sessions for PRO-TDCS-TBI-01; baseline and endpoint otherwise",
+        "administered_by": "Clinician-rated"
+      },
+      {
+        "assessment_id": "ASS-TBI-07",
+        "assessment_name": "PHQ-9",
+        "timing": "Baseline; session 10; session 20; end of course",
+        "frequency": "Every 10 sessions",
+        "administered_by": "Patient self-report"
+      }
+    ],
+    "response_thresholds": [
+      {
+        "assessment_id": "ASS-TBI-01",
+        "assessment_name": "MoCA",
+        "lower_is_better": false,
+        "response_threshold": "≥2-point increase from baseline MoCA score (MCID for MoCA)",
+        "remission_threshold": "MoCA score ≥26 (normal range)",
+        "non_response_threshold": "No MoCA improvement after 10–20 sessions — clinician review and consider discontinuation",
+        "deterioration_threshold": "MoCA decrease ≥2 points from baseline — urgent clinician review"
+      },
+      {
+        "assessment_id": "ASS-TBI-07",
+        "assessment_name": "PHQ-9",
+        "lower_is_better": true,
+        "response_threshold": "≥5-point reduction from baseline PHQ-9",
+        "remission_threshold": "PHQ-9 total ≤4",
+        "non_response_threshold": "PHQ-9 ≥15 at session 10 — psychiatric referral",
+        "deterioration_threshold": "PHQ-9 increases ≥5 points from baseline — clinician review within 2 working days"
+      }
+    ],
+    "adverse_event_triggers": [
+      {
+        "event_type": "Seizure",
+        "severity": "Serious",
+        "action": "Emergency protocol. Stop treatment immediately. Emergency services. Suspend all neuromodulation. Neurology review before any resumption.",
+        "suspend_treatment": true
+      },
+      {
+        "event_type": "Worsening of baseline neurological symptoms (new weakness, vision change, dizziness)",
+        "severity": "Severe",
+        "action": "Defer session. Same-day clinician assessment. If new neurological deficit suspected — emergency services. Document as serious AE if confirmed.",
+        "suspend_treatment": true
+      },
+      {
+        "event_type": "Skin burn at tDCS electrode site",
+        "severity": "Moderate",
+        "action": "Suspend tDCS. Photograph and document lesion. Medical review. Reassess electrode technique before resumption.",
+        "suspend_treatment": true
+      },
+      {
+        "event_type": "Moderate headache (≥6/10) during or after session",
+        "severity": "Moderate",
+        "action": "Defer next session until resolved. Reduce TMS intensity or tDCS current for subsequent session. Notify clinician if recurrent across 2+ sessions.",
+        "suspend_treatment": false
+      },
+      {
+        "event_type": "Significant cognitive worsening (patient report or MoCA decrease ≥2 points)",
+        "severity": "Moderate",
+        "action": "Pause treatment. Clinician review. Assess for confounding factors (new medication, sleep disruption, PTSD exacerbation). Document.",
+        "suspend_treatment": true
+      },
+      {
+        "event_type": "Mild scalp tingling or fatigue post-session",
+        "severity": "Mild",
+        "action": "Reassure patient (expected). Log. If fatigue is marked (>2 hours post-session), reduce session frequency to 3x/week.",
+        "suspend_treatment": false
+      }
+    ],
+    "escalation_rules": [
+      {
+        "trigger": "No MoCA improvement ≥2 points after 20 sessions",
+        "action": "Clinician review: reassess diagnosis, check PTSD/depression confounders, consider protocol discontinuation and referral for formal neuropsychological rehabilitation.",
+        "urgency": "Routine"
+      },
+      {
+        "trigger": "PHQ-9 score ≥15 at any monitoring point",
+        "action": "Psychiatric review. Consider dedicated depression treatment (antidepressant or dedicated TMS-MDD protocol) as priority over investigational cognitive protocol.",
+        "urgency": "Routine"
+      },
+      {
+        "trigger": "Any serious adverse event (seizure, new neurological deficit)",
+        "action": "Emergency suspension of treatment. Clinical lead notification within 1 hour. Incident report within 24 hours.",
+        "urgency": "Emergency"
+      },
+      {
+        "trigger": "Three or more consecutive missed sessions without contact",
+        "action": "Patient welfare check. Review barriers. Clinician review if mental health concerns raised or patient unreachable.",
+        "urgency": "Routine"
+      },
+      {
+        "trigger": "qEEG re-assessment at session 20 shows no normalisation trend (neurofeedback protocol)",
+        "action": "Clinician review with qEEG practitioner. Consider revising neurofeedback targets or discontinuing protocol.",
+        "urgency": "Routine"
+      }
+    ],
+    "adherence_rules": {
+      "minimum_session_adherence_pct": 75,
+      "consecutive_missed_sessions_flag": 3,
+      "action_on_low_adherence": "Patient contact within 48 hours of third missed session. Review fatigue, headache, transport, or motivational barriers. Clinician review if adherence <60% — consider reducing session frequency rather than abandoning treatment."
+    }
+  },
+
+  "report_templates": [
+    {
+      "id": "RPT-TBI-INTAKE",
+      "name": "TBI Cognitive Impairment Investigational Protocol — Intake Summary",
+      "report_type": "intake-summary",
+      "audience": "Clinician",
+      "frequency": "Once — at intake before first session",
+      "sections": [
+        {
+          "section_id": "rpt-01",
+          "title": "TBI History and Cognitive Profile",
+          "auto_populate_from": ["patient.name", "patient.dob", "patient.tbi_date", "patient.tbi_severity", "patient.mechanism"],
+          "clinician_narrative_prompt": "Describe TBI mechanism, severity, acute treatment, and current cognitive profile. Note time since injury and phase of recovery.",
+          "required": true
+        },
+        {
+          "section_id": "rpt-02",
+          "title": "Baseline Cognitive Assessments",
+          "auto_populate_from": ["assessment.MoCA.baseline", "assessment.TMT-A.baseline", "assessment.TMT-B.baseline", "assessment.DigitSpan.baseline", "assessment.BRIEF-A.baseline"],
+          "clinician_narrative_prompt": "Summarise cognitive profile across domains. Identify primary phenotype (attention-dominant, memory-dominant, executive, mixed). Note severity of each domain impairment.",
+          "required": true
+        },
+        {
+          "section_id": "rpt-03",
+          "title": "Comorbidity Screen",
+          "auto_populate_from": ["assessment.PHQ-9.baseline", "assessment.PCL-5.baseline"],
+          "clinician_narrative_prompt": "Document depression and PTSD status. State whether these comorbidities have been managed or referred before commencing neuromodulation.",
+          "required": true
+        },
+        {
+          "section_id": "rpt-04",
+          "title": "Contraindication and Safety Review",
+          "auto_populate_from": ["intake.contraindication_screening_json", "intake.seizure_history", "intake.neurosurgical_history"],
+          "clinician_narrative_prompt": "Confirm seizure history, metallic implant status, neurosurgical history, and minimum time since injury. Document any relative contraindications and mitigation plan.",
+          "required": true
+        },
+        {
+          "section_id": "rpt-05",
+          "title": "Protocol Selection and Investigational Status",
+          "auto_populate_from": ["course.protocol_id", "course.modality", "course.phenotype"],
+          "clinician_narrative_prompt": "State selected protocol, cognitive phenotype rationale, evidence grade (EV-C), and confirm research participation consent obtained. Explicitly state that treatment is investigational.",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "RPT-TBI-PROGRESS",
+      "name": "TBI Cognitive Progress Report",
+      "report_type": "progress-report",
+      "audience": "Clinician",
+      "frequency": "Every 10 sessions",
+      "sections": [
+        {
+          "section_id": "prg-01",
+          "title": "Session Adherence",
+          "auto_populate_from": ["course.sessions_completed", "course.sessions_planned", "course.adherence_pct"],
+          "clinician_narrative_prompt": "Comment on attendance, reasons for any missed sessions, and patient engagement with cognitive training tasks.",
+          "required": true
+        },
+        {
+          "section_id": "prg-02",
+          "title": "Cognitive Score Trajectory",
+          "auto_populate_from": ["assessment.MoCA.trend", "assessment.DigitSpan.latest"],
+          "clinician_narrative_prompt": "Report MoCA and domain-specific score trajectory. State whether ≥2-point MoCA improvement has been achieved. Flag non-response if applicable.",
+          "required": true
+        },
+        {
+          "section_id": "prg-03",
+          "title": "Safety and Adverse Events",
+          "auto_populate_from": ["adverse_events.since_last_review"],
+          "clinician_narrative_prompt": "Summarise AEs. Note headache frequency and severity. State any sessions deferred and reason.",
+          "required": true
+        },
+        {
+          "section_id": "prg-04",
+          "title": "Comorbidity Status Update",
+          "auto_populate_from": ["assessment.PHQ-9.latest"],
+          "clinician_narrative_prompt": "Comment on depression (PHQ-9) and PTSD status since last review. Note any clinical actions taken.",
+          "required": false
+        }
+      ]
+    },
+    {
+      "id": "RPT-TBI-EOC",
+      "name": "TBI Cognitive End-of-Course Outcome Report",
+      "report_type": "end-of-course-report",
+      "audience": "Clinician",
+      "frequency": "Once — at course completion",
+      "sections": [
+        {
+          "section_id": "eoc-01",
+          "title": "Treatment Course Summary",
+          "auto_populate_from": ["course.start_date", "course.end_date", "course.sessions_completed", "course.protocol_id"],
+          "clinician_narrative_prompt": "Summarise investigational protocol delivered, total sessions completed, and any modifications during course.",
+          "required": true
+        },
+        {
+          "section_id": "eoc-02",
+          "title": "Cognitive Outcome — Baseline to Endpoint",
+          "auto_populate_from": ["assessment.MoCA.baseline", "assessment.MoCA.endpoint", "assessment.MoCA.change", "assessment.TMT-A.endpoint", "assessment.TMT-B.endpoint", "assessment.BRIEF-A.endpoint"],
+          "clinician_narrative_prompt": "Interpret cognitive outcome data across all assessed domains. State response status. Acknowledge investigational status and uncertainty in attributing change to treatment vs natural recovery.",
+          "required": true
+        },
+        {
+          "section_id": "eoc-03",
+          "title": "Safety Summary",
+          "auto_populate_from": ["adverse_events.all_course"],
+          "clinician_narrative_prompt": "Confirm all AEs documented and resolved. State any ongoing concerns.",
+          "required": true
+        },
+        {
+          "section_id": "eoc-04",
+          "title": "Recommendations",
+          "auto_populate_from": [],
+          "clinician_narrative_prompt": "State recommendation: continued cognitive rehabilitation, repeat investigational course, referral for neuropsychological services, or discharge. Note any contribution to clinical research database.",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "RPT-TBI-SOAP",
+      "name": "TBI Session SOAP Note",
+      "report_type": "soap-note",
+      "audience": "Internal",
+      "frequency": "Every session",
+      "sections": [
+        {
+          "section_id": "soap-s",
+          "title": "Subjective",
+          "auto_populate_from": ["session.patient_report"],
+          "clinician_narrative_prompt": "Document patient-reported cognitive state today, headache level, sleep, mood, and any concerns since last session.",
+          "required": true
+        },
+        {
+          "section_id": "soap-o",
+          "title": "Objective",
+          "auto_populate_from": ["session.protocol_id", "session.parameters", "session.duration", "session.adverse_events"],
+          "clinician_narrative_prompt": "Record protocol and parameters delivered. For tDCS, note cognitive task performance metrics. For neurofeedback, note reward rate and session quality.",
+          "required": true
+        },
+        {
+          "section_id": "soap-a",
+          "title": "Assessment",
+          "auto_populate_from": ["assessment.latest_scores"],
+          "clinician_narrative_prompt": "Clinical impression of cognitive trajectory. Note changes in headache, mood, or safety risk since last session.",
+          "required": true
+        },
+        {
+          "section_id": "soap-p",
+          "title": "Plan",
+          "auto_populate_from": ["course.next_session", "course.protocol_adjustments_pending"],
+          "clinician_narrative_prompt": "Plan for next session: parameter adjustments, assessment due, referral actions. Note any need for qEEG re-assessment (neurofeedback).",
+          "required": true
+        }
+      ]
+    }
+  ],
+
+  "home_program_templates": [
+    {
+      "id": "HP-TBI-01",
+      "name": "TBI Cognitive Home Exercise Programme",
+      "modality_slug": "neurofeedback",
+      "device_required": "No home neuromodulation device — home programme consists of cognitive training software only",
+      "prerequisite_clinic_sessions": 10,
+      "sessions_per_week": 3,
+      "session_duration_minutes": 20,
+      "total_weeks": 6,
+      "patient_instructions": [
+        "Complete your cognitive training exercises on the prescribed app or software at the same time each day.",
+        "Sit in a quiet, distraction-free space. Turn off TV and mobile phone notifications.",
+        "Start each session with 2 minutes of slow, deep breathing to calm your nervous system before beginning.",
+        "Complete the exercises at the level your therapist has set — do not change the difficulty level yourself.",
+        "If you get a headache rated 6 or more out of 10 during the session, stop and rest.",
+        "Log your session completion in the app or diary provided by your clinic.",
+        "Do not use the home programme on days when you are ill, have severe headache, or feel significantly worse than usual."
+      ],
+      "safety_checklist": [
+        "I do not have a headache rated ≥6/10 right now.",
+        "I have not had a seizure or unusual neurological event since my last clinic session.",
+        "I am sitting safely in a stable, supported position.",
+        "I am not feeling acutely distressed or in mental health crisis.",
+        "I have my clinic contact number available."
+      ],
+      "reporting_requirements": [
+        "Log session in app or diary: date, duration, exercises completed, difficulty level.",
+        "Rate mental fatigue before and after session (0–10).",
+        "Report to clinic at next session: any missed home sessions, headaches, or worsening cognitive symptoms.",
+        "Contact clinic immediately if you experience any new neurological symptoms."
+      ],
+      "contraindications_for_home": [
+        "Headache rated ≥6/10",
+        "New neurological symptoms (new weakness, vision change, confusion)",
+        "Acute illness or fever",
+        "Severe anxiety, dissociation, or PTSD crisis state",
+        "Significant cognitive worsening that you feel is not normal for you"
+      ],
+      "evidence_note": "Home cognitive training (without neuromodulation) has growing evidence for TBI cognitive rehabilitation. Home neuromodulation devices are not recommended for TBI at present — clinic delivery only. Home programme supplements clinic sessions."
+    }
+  ],
+
+  "consent_documents": [
+    {
+      "id": "CONS-TBI-GEN-01",
+      "name": "TBI Cognitive Impairment — Investigational Neuromodulation Informed Consent",
+      "document_type": "informed-consent",
+      "modality_slug": null,
+      "when_required": "Before first session of any neuromodulation treatment for TBI cognitive impairment",
+      "key_disclosures": [
+        "All neuromodulation treatments for TBI cognitive impairment (rTMS, tDCS, neurofeedback) are investigational — they do not have regulatory approval for this condition.",
+        "The evidence base for these treatments in TBI is preliminary (EV-C) — small studies only. No large clinical trial has confirmed that these treatments are effective for TBI cognitive impairment.",
+        "Results are not guaranteed. You may receive a full course of treatment and experience no benefit.",
+        "Common side effects include headache (TMS — mild and transient), scalp tingling (tDCS), and post-session fatigue.",
+        "Serious but rare risks include seizure (TMS — risk is higher in TBI population with history of post-traumatic epilepsy), skin irritation or burn (tDCS), and worsening of cognitive symptoms.",
+        "Your participation helps develop the evidence base for these treatments. Your outcomes may be included in anonymised research data.",
+        "I may withdraw from treatment at any time without penalty and without affecting my access to other care.",
+        "My treatment data will be stored securely and used to monitor my response and contribute to research. It will not be shared without my consent except where legally required.",
+        "I have been informed of alternative approaches (cognitive rehabilitation, occupational therapy) and have had the opportunity to ask questions."
+      ],
+      "signature_required": true,
+      "witness_required": false,
+      "clinician_co_sign_required": true,
+      "review_frequency": "Each new treatment course"
+    },
+    {
+      "id": "CONS-TBI-RES-01",
+      "name": "TBI Neuromodulation Research Participation Consent",
+      "document_type": "research-participation",
+      "modality_slug": null,
+      "when_required": "Before any TBI neuromodulation protocol commences — mandatory",
+      "key_disclosures": [
+        "I understand that the treatment I am receiving is experimental and that the clinic may use my anonymised outcome data to contribute to the evidence base for TBI neuromodulation.",
+        "My data will be de-identified before any research use. I will not be identifiable in any research outputs.",
+        "Participation in the data collection component is voluntary and separate from my treatment decisions.",
+        "I may withdraw my data consent at any time without affecting my care.",
+        "I will be informed of any significant findings from research that may affect my treatment."
+      ],
+      "signature_required": true,
+      "witness_required": false,
+      "clinician_co_sign_required": true,
+      "review_frequency": "Once; updated if research use changes"
+    },
+    {
+      "id": "CONS-TBI-OFL-01",
+      "name": "TBI Investigational Treatment Acknowledgement",
+      "document_type": "off-label-acknowledgement",
+      "modality_slug": null,
+      "when_required": "Before protocol generation for any TBI neuromodulation protocol",
+      "key_disclosures": [
+        "The treatment proposed is investigational — not approved by any regulatory authority specifically for TBI cognitive impairment.",
+        "My clinician has explained the current evidence base, including evidence grade (EV-C — small studies only, no RCT-level evidence for TBI).",
+        "I understand that this is not a standard clinical treatment and that I am participating in an early-phase clinical application of experimental techniques.",
+        "I consent to proceeding after full consideration of the evidence and available alternatives.",
+        "My clinician will monitor my cognitive performance and will stop treatment if it is not beneficial or if risks emerge."
+      ],
+      "signature_required": true,
+      "witness_required": false,
+      "clinician_co_sign_required": true,
+      "review_frequency": "Once per modality per course"
+    },
+    {
+      "id": "CONS-TBI-TMS-01",
+      "name": "TMS Safety Screening — TBI",
+      "document_type": "contraindication-screening",
+      "modality_slug": "tms",
+      "when_required": "Before first TMS session and at start of each new TMS course",
+      "key_disclosures": [
+        "TMS is contraindicated if I have metal in my skull (fragments, surgical hardware, clips) from the injury or any surgery.",
+        "Seizure is a known risk of TMS. My post-traumatic seizure history has been fully disclosed.",
+        "I am at minimum 3 months post-injury before commencing TMS.",
+        "Emergency seizure management is available at the clinic.",
+        "I must inform the clinic if my medical status changes between sessions."
+      ],
+      "signature_required": true,
+      "witness_required": false,
+      "clinician_co_sign_required": true,
+      "review_frequency": "Before each new TMS course and annually for ongoing treatment"
+    }
+  ]
+}

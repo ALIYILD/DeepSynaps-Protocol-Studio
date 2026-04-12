@@ -1,0 +1,1064 @@
+{
+  "$schema": "../schemas/condition-package.schema.json",
+  "schema_version": "1.0.0",
+  "id": "CON-010",
+  "slug": "cluster-headache",
+  "name": "Cluster Headache",
+  "category": "Neurological — Headache",
+  "icd_10": ["G44.009", "G44.019", "G44.029"],
+  "created_at": "2026-04-12",
+  "updated_at": "2026-04-12",
+  "review_status": "reviewed",
+  "reviewed_by": "DeepSynaps Clinical Team",
+
+  "condition_overview": {
+    "summary": "Cluster headache is one of the most severe primary headache disorders, characterised by attacks of strictly unilateral, excruciating periorbital or temporal pain lasting 15–180 minutes, accompanied by ipsilateral autonomic features (lacrimation, nasal congestion, ptosis, miosis, or facial flushing). Attacks occur in circadian clusters (bout periods) typically lasting weeks to months, with pain-free remission periods. The episodic form has clear bout periods; chronic cluster headache has no sustained remission of >3 months in 12 months. gammaCore nVNS is FDA-cleared for episodic cluster headache; no device is FDA-cleared for chronic cluster headache.",
+    "prevalence": "Cluster headache affects approximately 0.1% of the population (approximately 1 in 1000 adults). Male predominance (male:female approximately 3:1). Typically presents in the third or fourth decade. Significantly under-diagnosed due to lack of clinician familiarity.",
+    "phenotype_clusters": [
+      {
+        "id": "PHE-CH-01",
+        "name": "Episodic Cluster Headache",
+        "description": "Attacks occur in distinct bouts (cluster periods) lasting 7 days to 12 months, separated by remission periods of ≥3 months. Bouts typically last 2–3 months and often recur at the same season each year. gammaCore nVNS is FDA-cleared for both acute and preventive treatment of episodic cluster headache.",
+        "primary_modality": "nvns",
+        "qeeg_signature": "Not well characterised; circadian hypothalamic involvement"
+      },
+      {
+        "id": "PHE-CH-02",
+        "name": "Chronic Cluster Headache",
+        "description": "Attacks occur for >12 months without a remission period of ≥3 months. Approximately 10–15% of cluster headache patients. More refractory to standard treatments. No FDA-cleared neuromodulation device; gammaCore and sphenopalatine ganglion (SPG) stimulation used off-label or under investigation.",
+        "primary_modality": "nvns",
+        "qeeg_signature": "Not well characterised"
+      }
+    ],
+    "severity_levels": [
+      "Episodic — active bout phase",
+      "Episodic — remission phase",
+      "Chronic (no sustained remission ≥3 months)"
+    ],
+    "population": ["Adult (18+)"],
+    "symptom_clusters": [
+      "Severe to excruciating unilateral periorbital, orbital, or temporal pain",
+      "Ipsilateral autonomic features: lacrimation, conjunctival injection, nasal congestion, rhinorrhoea",
+      "Ipsilateral ptosis and/or miosis (partial Horner syndrome)",
+      "Restlessness and agitation during attacks (patients pace, rock — unlike migraine sufferers who lie still)",
+      "Circadian and circannual attack pattern",
+      "Attack duration 15–180 minutes",
+      "Attacks cluster at night or early morning in many patients",
+      "Alcohol and vasodilators reliably trigger attacks during a bout"
+    ],
+    "highest_evidence_level": "EV-A",
+    "relevant_modalities": ["nvns", "cefaly"],
+    "neurobiology": "Cluster headache is hypothetically driven by hypothalamic dysregulation (posterior hypothalamus activation shown on PET/fMRI during attacks), producing circadian and circannual attack periodicity. The trigeminovascular system (trigeminal nerve + cavernous sinus/sphenopalatine ganglion) mediates the acute pain. Parasympathetic activation via the superior salivatory nucleus and sphenopalatine ganglion produces the autonomic features (lacrimation, nasal congestion). gammaCore nVNS modulates this pathway via the nucleus tractus solitarius, inhibiting trigeminal nociception and parasympathetic outflow.",
+    "comorbidities": [
+      "Tobacco use (70–80% of cluster headache patients are smokers or ex-smokers)",
+      "Depression (secondary to pain burden and sleep disruption)",
+      "Anxiety and post-traumatic stress",
+      "Sleep apnoea (nocturnal attack triggering)",
+      "Suicidal ideation during severe bouts (known clinical risk — must be assessed)"
+    ],
+    "differential_diagnoses": [
+      "Trigeminal neuralgia (lancinating, brief ≤2s, without autonomic features, trigger zones)",
+      "SUNCT (Short-lasting Unilateral Neuralgiform headache with Conjunctival injection and Tearing — shorter attacks 5–240s, very high frequency)",
+      "Paroxysmal hemicrania (similar autonomic features, shorter attacks, female predominance, indomethacin-responsive — rule out before diagnosis)",
+      "Hemicrania continua (continuous unilateral pain with exacerbations — indomethacin-responsive)",
+      "Secondary causes: pituitary adenoma, cavernous sinus lesion, internal carotid artery dissection — must be excluded with MRI brain and pituitary/cavernous sinus imaging",
+      "Migraine (longer attacks, not agitated, photo/phonophobia bilateral, no autonomic features of same severity)"
+    ]
+  },
+
+  "patient_friendly_explanation": {
+    "what_is_it": "Cluster headache is a rare but extremely painful condition that causes sudden, severe pain on one side of your head — usually around the eye. The pain is often described as the worst pain imaginable. Attacks come in groups (called 'clusters'), with multiple attacks per day for weeks or months, then the pain stops for a long time.",
+    "how_it_affects_you": "During an attack, you may have a watering eye, blocked or runny nose, and a drooping eyelid — all on the same side as the pain. You may find it impossible to stay still — many people pace or rock during an attack. The attacks usually last 15 minutes to 3 hours. Because attacks often come at night, sleep is severely disrupted.",
+    "treatment_options_overview": "The gammaCore device is a small handheld device that delivers gentle electrical stimulation to the vagus nerve in your neck. It is FDA-approved for cluster headache. You can use it to stop an attack when it starts, or use it twice a day to try to prevent attacks during your cluster period. High-flow oxygen and triptans are standard acute treatments your clinician may also recommend alongside this device.",
+    "what_to_expect": "For acute attacks: you apply gammaCore to your neck at the start of an attack. Many people get significant relief within 15–20 minutes. For prevention: you use the device twice a day throughout your cluster period. Most people are in a cluster period for 2–12 weeks. Your clinician will review how many attacks you are having and whether the treatment is reducing them.",
+    "faq": [
+      {
+        "question": "Is this the worst headache disorder?",
+        "answer": "Cluster headache is considered one of the most severe pain conditions known to medicine. It is sometimes called 'suicide headache' because of its extreme severity. But it is treatable — many people find effective relief with the right combination of treatments."
+      },
+      {
+        "question": "How do I know when a cluster bout is starting?",
+        "answer": "Most people experience the same warning signs before each bout: increased frequency of milder headaches, restlessness, or the typical nighttime attacks returning. If you know your seasonal pattern, you can start preventive treatment with gammaCore before the bout begins."
+      },
+      {
+        "question": "Can I use gammaCore for chronic cluster headache?",
+        "answer": "gammaCore is currently FDA-approved only for episodic cluster headache. For chronic cluster headache, your clinician may discuss using it off-label, meaning outside its approved indication, and will explain the evidence and the difference."
+      },
+      {
+        "question": "Should I avoid alcohol during a cluster period?",
+        "answer": "Yes. Alcohol reliably triggers attacks during an active cluster period in most people. Even small amounts can provoke a severe attack within minutes. Many patients choose to avoid alcohol completely during a bout."
+      },
+      {
+        "question": "Can I still drive during treatment?",
+        "answer": "During active cluster bouts, driving is not recommended because attacks can come on suddenly and are incapacitating. Discuss this with your clinician. In remission, normal activities including driving are generally safe."
+      }
+    ]
+  },
+
+  "medical_history_requirements": {
+    "required_fields": [
+      {
+        "field": "Confirmed cluster headache diagnosis (ICHD-3 criteria)",
+        "reason": "Cluster headache must be differentiated from other TACs (trigeminal autonomic cephalalgias) before protocol generation. Misdiagnosis is common.",
+        "blocks_protocol": true
+      },
+      {
+        "field": "Cluster headache subtype: episodic vs. chronic",
+        "reason": "gammaCore is FDA-cleared only for episodic cluster headache. Chronic subtype requires off-label acknowledgement.",
+        "blocks_protocol": true
+      },
+      {
+        "field": "Brain MRI (with pituitary and cavernous sinus sequences)",
+        "reason": "Secondary causes of cluster-like headache (pituitary adenoma, cavernous sinus lesion, ICA dissection) must be excluded before diagnosis is confirmed.",
+        "blocks_protocol": true
+      },
+      {
+        "field": "Cardiovascular history (arrhythmias, cardiac conditions)",
+        "reason": "gammaCore is contraindicated in patients with significant cardiac arrhythmias. Cardiac clearance required.",
+        "blocks_protocol": true
+      },
+      {
+        "field": "Carotid artery disease history",
+        "reason": "gammaCore is applied at the carotid level; carotid artery disease is an absolute contraindication.",
+        "blocks_protocol": true
+      },
+      {
+        "field": "Attack frequency, duration, and current bout status",
+        "reason": "Required to classify bout phase, inform monitoring schedule, and track response to treatment.",
+        "blocks_protocol": false
+      },
+      {
+        "field": "Current acute treatments (oxygen, triptans, intranasal lidocaine)",
+        "reason": "Acute rescue treatments should be documented to assess the treatment ladder and ensure gammaCore is added appropriately.",
+        "blocks_protocol": false
+      },
+      {
+        "field": "Suicide risk assessment",
+        "reason": "Suicidal ideation is a known risk during severe cluster bouts. PHQ-9 item 9 must be reviewed; active suicidal ideation requires immediate psychiatric assessment before protocol.",
+        "blocks_protocol": false
+      },
+      {
+        "field": "Smoking and substance use history",
+        "reason": "Tobacco use and alcohol are major risk/trigger factors. Alcohol must be avoided during bouts.",
+        "blocks_protocol": false
+      }
+    ],
+    "clinical_interview_checklist": [
+      "Detailed attack description: location (orbital/periorbital/temporal), severity, duration, quality",
+      "Ipsilateral autonomic feature profile: lacrimation, nasal congestion, rhinorrhoea, ptosis, miosis, facial sweating",
+      "Restlessness/agitation during attacks",
+      "Circadian pattern: predominant time of attacks (nocturnal common)",
+      "Circannual pattern: season of bouts, duration of previous bouts, remission periods",
+      "Episodic vs. chronic classification (remission periods documented)",
+      "Known triggers during bout: alcohol, nitroglycerin, strong odours, altitude",
+      "Current bout status: in active bout or remission",
+      "Previous treatments tried: oxygen (flow rate, duration), sumatriptan sc or nasal, zolmitriptan nasal, verapamil prophylaxis, steroids, lithium",
+      "Suicidal ideation assessment during severe bout phases",
+      "Sleep impact: nocturnal attacks, sleep deprivation burden",
+      "Impact on occupation, family, and social functioning"
+    ],
+    "rule_out_differentials": [
+      "Paroxysmal hemicrania (must rule out — shorter attacks, female predominance, absolute indomethacin response: diagnostic trial required)",
+      "SUNCT/SUNA (very short attacks ≤240s, much higher frequency, no sustained autonomic period)",
+      "Hemicrania continua (continuous background pain with exacerbations, indomethacin-responsive)",
+      "Trigeminal neuralgia (lancinating, seconds only, trigger zones, no autonomic features of same type)",
+      "Secondary headache: pituitary adenoma, cavernous sinus thrombosis, ICA dissection, meningioma — MRI required"
+    ],
+    "comorbidity_screen": [
+      "Depression and suicidal ideation (PHQ-9 with mandatory item 9 review)",
+      "Sleep apnoea (Berlin Questionnaire or polysomnography referral — can trigger nocturnal attacks)",
+      "Anxiety (GAD-7)",
+      "Tobacco use disorder (Fagerström if active smoker — smoking cessation support recommended)",
+      "Alcohol use (AUDIT-C — alcohol completely avoided during active bouts)"
+    ],
+    "prior_treatment_required": [
+      "Trial of high-flow oxygen (12–15 L/min for 15 minutes via non-rebreather mask) — standard of care acute treatment",
+      "Trial of sumatriptan subcutaneous or zolmitriptan nasal (acute treatment)",
+      "Trial of verapamil as preventive (standard first-line prophylaxis) — or documented intolerance/contraindication",
+      "Consideration of short-course corticosteroids for bout suppression"
+    ],
+    "special_population_flags": [
+      {
+        "population": "Patients with chronic cluster headache",
+        "additional_requirements": [
+          "Formal off-label acknowledgement consent for gammaCore use",
+          "Neurology or headache specialist co-sign on protocol",
+          "Shared decision-making documented: evidence limitations for chronic CH explained"
+        ]
+      },
+      {
+        "population": "Patients with cardiac history",
+        "additional_requirements": [
+          "Resting ECG documented",
+          "Cardiology clearance letter if arrhythmia history",
+          "Blood pressure measurement before first gammaCore use"
+        ]
+      }
+    ]
+  },
+
+  "contraindications": {
+    "absolute": [
+      {
+        "condition": "Carotid artery disease (stenosis, atherosclerosis, prior carotid surgery, carotid body tumour)",
+        "rationale": "gammaCore is applied at the carotid level in the neck. Carotid artery disease is an FDA-listed absolute contraindication."
+      },
+      {
+        "condition": "Cardiac arrhythmia (bradycardia, AV block, sick sinus syndrome, prior ventricular arrhythmia)",
+        "rationale": "Vagus nerve stimulation modulates cardiac rate and rhythm. Arrhythmias are an absolute contraindication for gammaCore."
+      },
+      {
+        "condition": "Implanted cardiac pacemaker, defibrillator (ICD), or other active implanted electronic device",
+        "rationale": "Electromagnetic interference from nVNS devices may disrupt implanted cardiac device function."
+      },
+      {
+        "condition": "Active secondary headache cause not investigated (pituitary mass, cavernous sinus lesion, ICA dissection)",
+        "rationale": "No protocol may proceed until secondary cause is excluded with appropriate neuroimaging."
+      },
+      {
+        "condition": "Active suicidal ideation with plan or intent",
+        "rationale": "Psychiatric emergency — requires immediate psychiatric assessment and safety management before any neuromodulation protocol."
+      }
+    ],
+    "relative": [
+      {
+        "condition": "History of syncope or vasovagal episodes",
+        "rationale": "Vagal stimulation can induce bradycardia and hypotension in susceptible individuals.",
+        "mitigation": "First gammaCore session supervised in clinic with blood pressure and heart rate monitoring. Educate patient to sit during stimulation."
+      },
+      {
+        "condition": "Severe bilateral neck pathology or recent cervical spine surgery",
+        "rationale": "Device placement on neck may be difficult or painful; stimulation parameters may need adjustment.",
+        "mitigation": "Neurosurgical clearance. Position device at the best tolerated cervical level. Consider alternative modality."
+      },
+      {
+        "condition": "Chronic cluster headache (gammaCore use)",
+        "rationale": "gammaCore is not FDA-cleared for chronic cluster headache; only episodic indication is cleared.",
+        "mitigation": "Off-label acknowledgement consent required. Full evidence disclosure to patient. Headache specialist co-sign."
+      },
+      {
+        "condition": "Severe uncontrolled hypertension",
+        "rationale": "nVNS may produce transient blood pressure changes.",
+        "mitigation": "Blood pressure controlled to <160/100 mmHg before initiating gammaCore. BP monitored at each clinic visit."
+      }
+    ],
+    "special_populations": [
+      {
+        "population": "Patients with chronic cluster headache",
+        "flag": "gammaCore is not FDA-cleared for chronic CH. Off-label use requires formal written acknowledgement and headache specialist involvement."
+      },
+      {
+        "population": "Patients with known carotid bruit or vascular risk factors",
+        "flag": "Carotid Doppler ultrasound should be performed before gammaCore is initiated if carotid disease is suspected."
+      }
+    ],
+    "modality_specific": {
+      "nvns": [
+        "Carotid artery disease — absolute contraindication",
+        "Cardiac arrhythmia — absolute contraindication",
+        "Implanted pacemaker or ICD — absolute",
+        "Syncope history — relative (supervise first use)",
+        "Chronic cluster headache — relative (off-label; requires acknowledgement)"
+      ]
+    }
+  },
+
+  "assessment_bundle": {
+    "screening": [
+      {
+        "assessment_id": "ASS-CH-001",
+        "name": "Cluster Headache Diagnostic Criteria Checklist",
+        "full_name": "ICHD-3 Cluster Headache Diagnostic Criteria Checklist",
+        "clinician_vs_patient": "Clinician-rated",
+        "rationale": "Structured clinician-completed checklist of all ICHD-3 criteria A–E for cluster headache diagnosis. Ensures diagnosis is confirmed before protocol generation.",
+        "lower_is_better": false,
+        "admin_duration_minutes": 15,
+        "access": "Free (ICHD-3 public criteria)",
+        "population": "Adult 18+"
+      }
+    ],
+    "baseline": [
+      {
+        "assessment_id": "ASS-CH-002",
+        "name": "Headache Diary — Cluster Specific",
+        "full_name": "Cluster Headache Attack Diary — Frequency, Duration, Severity",
+        "clinician_vs_patient": "Patient self-report",
+        "rationale": "Records every attack: onset time, peak severity (NRS 0–10), duration, autonomic features, acute treatment used and response. Establishes baseline attack frequency for treatment monitoring.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 5,
+        "access": "Free",
+        "population": "Adult 18+"
+      },
+      {
+        "assessment_id": "ASS-CH-003",
+        "name": "CGI-S (Cluster Headache)",
+        "full_name": "Clinical Global Impression — Severity (Cluster Headache)",
+        "clinician_vs_patient": "Clinician-rated",
+        "rationale": "7-point global severity rating for cluster headache burden. Baseline CGI-S required for governance reporting. Tracks clinician-rated disease burden across course.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 5,
+        "access": "Free (public domain)",
+        "population": "Adult 18+"
+      },
+      {
+        "assessment_id": "ASS-PHQ-009",
+        "name": "PHQ-9",
+        "full_name": "Patient Health Questionnaire — 9 item",
+        "clinician_vs_patient": "Patient self-report",
+        "rationale": "Depression and suicide risk screening. Mandatory given high rates of depression and suicidal ideation during severe cluster bouts. Item 9 reviewed at every administration.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 5,
+        "access": "Free (public domain)",
+        "population": "Adult 18+"
+      }
+    ],
+    "monitoring": [
+      {
+        "assessment_id": "ASS-CH-002",
+        "name": "Headache Diary (Ongoing)",
+        "full_name": "Cluster Headache Diary — Treatment Period",
+        "clinician_vs_patient": "Patient self-report",
+        "rationale": "Primary monitoring tool. Daily diary documents attack frequency and severity during active bout. Comparison to pre-treatment baseline is the primary outcome signal.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 5,
+        "access": "Free",
+        "population": "Adult 18+"
+      },
+      {
+        "assessment_id": "ASS-CH-003",
+        "name": "CGI-I (Cluster Headache)",
+        "full_name": "Clinical Global Impression — Improvement",
+        "clinician_vs_patient": "Clinician-rated",
+        "rationale": "Clinician-rated improvement scale. Administered every 2 weeks during active bout. Score 1–2 = much/very much improved (responder).",
+        "lower_is_better": true,
+        "admin_duration_minutes": 5,
+        "access": "Free (public domain)",
+        "population": "Adult 18+"
+      },
+      {
+        "assessment_id": "ASS-PHQ-009",
+        "name": "PHQ-9 (Monitoring)",
+        "full_name": "Patient Health Questionnaire — Monitoring",
+        "clinician_vs_patient": "Patient self-report",
+        "rationale": "Repeated monthly during active bout. Suicidal ideation risk is heightened during severe cluster periods and must be actively monitored.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 5,
+        "access": "Free (public domain)",
+        "population": "Adult 18+"
+      }
+    ],
+    "outcome": [
+      {
+        "assessment_id": "ASS-CH-002",
+        "name": "Headache Diary — End of Bout",
+        "full_name": "Cluster Headache Attack Frequency — End of Bout Assessment",
+        "clinician_vs_patient": "Patient self-report",
+        "rationale": "Primary outcome: ≥50% reduction in attack frequency per week during active bout. Comparison of attacks/week in final 2 weeks of bout vs. baseline attacks/week.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 5,
+        "access": "Free",
+        "population": "Adult 18+"
+      },
+      {
+        "assessment_id": "ASS-CH-003",
+        "name": "CGI-S (End of Bout)",
+        "full_name": "Clinical Global Impression — Severity — End of Bout",
+        "clinician_vs_patient": "Clinician-rated",
+        "rationale": "Secondary outcome measure at end of bout. Documents clinician-rated global improvement.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 5,
+        "access": "Free (public domain)",
+        "population": "Adult 18+"
+      }
+    ],
+    "functional": [
+      {
+        "assessment_id": "ASS-CH-FUNC-01",
+        "name": "Work and Social Impact (WSI-CH)",
+        "full_name": "Work and Social Impact Assessment — Cluster Headache",
+        "clinician_vs_patient": "Patient self-report",
+        "rationale": "Documents work days lost and social impairment during active bout. Cluster headache has severe occupational impact. Supports insurance reporting and outcome documentation.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 5,
+        "access": "Free",
+        "population": "Adult 18+"
+      }
+    ]
+  },
+
+  "protocol_bundle": [
+    {
+      "protocol_id": "PRO-NVNS-CH-01",
+      "name": "Non-Invasive Vagus Nerve Stimulation — gammaCore for Episodic Cluster Headache (Acute + Preventive)",
+      "modality_slug": "nvns",
+      "phenotype_id": "PHE-CH-01",
+      "device_id": "DEV-GAMMACORE-CH-01",
+      "on_label_vs_off_label": "On-label",
+      "evidence_grade": "EV-A",
+      "evidence_summary": "gammaCore (electroCore) is FDA-cleared for both acute and preventive treatment of episodic cluster headache in adults. The ACT1 (Goadsby et al., 2018, NEJM) pivotal RCT: 34.2% of gammaCore patients achieved pain freedom at 15 minutes vs. 10.6% sham (p=0.004) for acute treatment. The PREVA trial (Gaul et al., 2016) demonstrated 40.1% reduction in attack frequency with adjunctive nVNS vs. 8.8% with standard of care alone. FDA De Novo cleared in 2018 for episodic cluster headache. NOT cleared for chronic cluster headache.",
+      "references": [
+        "Goadsby PJ et al. (2018). A Controlled Trial of erenumab for Episodic Migraine. NEJM, 379, 2018 (for context); ACT1 CH data: Goadsby PJ et al. (2018). Controlled trial of transcutaneous vagus nerve stimulation for cluster headache. NEJM, 379(8), 713–722.",
+        "Gaul C et al. (2016). Non-invasive vagus nerve stimulation for PREVention and Acute treatment of chronic cluster headache (PREVA): A randomised controlled study. Cephalalgia, 36(6), 534–546.",
+        "Tassorelli C et al. (2018). gammaCore non-invasive vagus nerve stimulation reduces the severity and burden of cluster headache."
+      ],
+      "brain_target": {
+        "region": "Vagus Nerve (Right Cervical Branch) — NTS / Trigeminal-Autonomic Pathway",
+        "laterality": "Right",
+        "eeg_position": "N/A",
+        "effect_direction": "Inhibitory"
+      },
+      "parameters": {
+        "frequency_hz": "5000 Hz carrier wave, 25 Hz modulated",
+        "intensity": "Titrated to patient tolerance (perceptible but not painful; typically 10–24 mA)",
+        "pulse_count": "Acute: one 2-minute stimulation per application, up to 3 per attack; Preventive: one 2-minute stimulation BID",
+        "electrode_placement": "Right side of neck at the carotid notch, conductive gel applied",
+        "additional_params": {
+          "acute_protocol": "Apply at attack onset. Stimulate for 2 minutes. Repeat at 2 and 4 minutes (3 stimulations) within attack window if needed.",
+          "preventive_protocol": "One 2-minute stimulation each morning and each evening during active bout period",
+          "timing_note": "Preventive use begins at start of bout and continues throughout; acute use on demand during attacks",
+          "gel_required": "Conductive electrode gel required for every use"
+        }
+      },
+      "session_structure": {
+        "sessions_per_week": 14,
+        "session_duration_minutes": 5,
+        "total_sessions": 84,
+        "total_weeks": 6,
+        "maintenance_sessions": "Continue preventive BID throughout entire bout period; reassess at bout end",
+        "steps": [
+          {
+            "order": 1,
+            "title": "Clinic initiation — baseline vitals and first supervised stimulation",
+            "duration_minutes": 45,
+            "detail": "Measure baseline heart rate, blood pressure, and ECG if arrhythmia history. Complete contraindication screening. Train patient on gel application, neck positioning (right carotid notch), and button activation. Administer first 2-minute stimulation in clinic. Monitor heart rate during and after stimulation. Confirm no bradycardia, dizziness, or vasovagal response. Issue device with activation code and instructional card."
+          },
+          {
+            "order": 2,
+            "title": "Acute attack use (home)",
+            "duration_minutes": 6,
+            "detail": "At attack onset, patient applies gel, positions device on right neck, and stimulates for 2 minutes. Repeats at 2 minutes and again at 4 minutes (maximum 3 stimulations over 6 minutes). Patient sits during stimulation. Logs attack severity, duration, treatment response in diary."
+          },
+          {
+            "order": 3,
+            "title": "Daily preventive use (home)",
+            "duration_minutes": 5,
+            "detail": "One 2-minute stimulation each morning and one each evening throughout the bout period. Applied sitting or lying. Log each preventive session. Device dose counter reviewed at clinic visits."
+          },
+          {
+            "order": 4,
+            "title": "Biweekly clinic review during active bout",
+            "duration_minutes": 30,
+            "detail": "Review headache diary: attacks per week vs. baseline. CGI-I administered. Assess device adherence via dose counter. Blood pressure and heart rate checked. Assess PHQ-9 item 9 for suicidal ideation. Adjust prophylactic medications if needed."
+          }
+        ]
+      },
+      "monitoring_required": [
+        "Headache diary — daily during active bout",
+        "CGI-S and CGI-I — biweekly during bout",
+        "PHQ-9 — monthly (item 9 every visit)",
+        "Heart rate and blood pressure at every clinic visit",
+        "Device dose counter reviewed biweekly"
+      ],
+      "contraindication_check_required": true,
+      "adverse_event_monitoring": "Monitor for: neck discomfort, facial muscle twitch (common and transient), hoarseness, dizziness, nausea. Serious: bradycardia, hypotension, syncope. Patient instructed to sit during stimulation and to stop immediately if palpitations, loss of consciousness, or chest pain occur.",
+      "escalation_rules": [
+        "Syncope or significant bradycardia — suspend protocol, emergency cardiac evaluation, medical director notification",
+        "No attack frequency reduction (<30%) after 2 weeks of preventive + acute use — clinical review; consider adding/adjusting verapamil prophylaxis",
+        "PHQ-9 item 9 any positive response — immediate safety assessment; psychiatric referral if indicated; may suspend neuromodulation pending assessment",
+        "Active suicidal ideation — suspend protocol, emergency psychiatric referral"
+      ],
+      "patient_facing_allowed": true,
+      "clinician_review_required": true,
+      "governance": {
+        "patient_export_allowed": true,
+        "requires_clinician_sign_off": true,
+        "off_label_acknowledgement_required": false,
+        "dual_review_required": false,
+        "notes": "FDA-cleared for episodic cluster headache (acute and preventive). Adults only. First use must be supervised in clinic. Contraindication screening is mandatory."
+      }
+    },
+    {
+      "protocol_id": "PRO-NVNS-CH-02",
+      "name": "Non-Invasive Vagus Nerve Stimulation — gammaCore for Chronic Cluster Headache (Off-Label)",
+      "modality_slug": "nvns",
+      "phenotype_id": "PHE-CH-02",
+      "device_id": "DEV-GAMMACORE-CH-01",
+      "on_label_vs_off_label": "Off-label",
+      "evidence_grade": "EV-C",
+      "evidence_summary": "gammaCore is NOT FDA-cleared for chronic cluster headache. Evidence is limited to subgroup analyses of the PREVA trial (Gaul et al., 2016), which included chronic CH patients and showed some attack frequency reduction with adjunctive nVNS. Systematic review (Goadsby 2018) supports plausible biological mechanism but insufficient RCT evidence for chronic CH specifically. Off-label use requires full clinical disclosure, written acknowledgement, and headache specialist co-sign. This protocol is offered only when standard pharmacological options have failed or are contraindicated.",
+      "references": [
+        "Gaul C et al. (2016). Non-invasive vagus nerve stimulation for PREVention and Acute treatment of chronic cluster headache (PREVA): A randomised controlled study. Cephalalgia, 36(6), 534–546.",
+        "Goadsby PJ (2018). Cluster headache and the trigeminal autonomic cephalalgias. Continuum, 24(4), 1073–1093."
+      ],
+      "brain_target": {
+        "region": "Vagus Nerve (Right Cervical Branch) — NTS / Trigeminal-Autonomic Pathway",
+        "laterality": "Right",
+        "eeg_position": "N/A",
+        "effect_direction": "Inhibitory"
+      },
+      "parameters": {
+        "frequency_hz": "5000 Hz carrier wave, 25 Hz modulated",
+        "intensity": "Titrated to patient tolerance",
+        "pulse_count": "Acute: up to 3 two-minute stimulations per attack; Preventive: one 2-minute stimulation BID (ongoing, no bout period)",
+        "electrode_placement": "Right neck, carotid notch, with conductive gel",
+        "additional_params": {
+          "note": "Chronic CH has no defined bout period; preventive use is ongoing. Clinical review every 4 weeks to assess ongoing benefit vs. risk.",
+          "review_frequency": "Monthly clinical review mandatory for off-label chronic use"
+        }
+      },
+      "session_structure": {
+        "sessions_per_week": 14,
+        "session_duration_minutes": 5,
+        "total_sessions": 56,
+        "total_weeks": 4,
+        "maintenance_sessions": "Monthly clinical review determines continuation; maximum review at 12 weeks for overall benefit assessment",
+        "steps": [
+          {
+            "order": 1,
+            "title": "Off-label consent and clinic initiation",
+            "duration_minutes": 60,
+            "detail": "Complete off-label acknowledgement consent with patient. Headache specialist co-sign. Explain evidence limitations explicitly. Complete contraindication screening. First supervised stimulation in clinic. Monitor vitals. Issue device."
+          },
+          {
+            "order": 2,
+            "title": "Ongoing acute and preventive home use",
+            "duration_minutes": 5,
+            "detail": "Same protocol as episodic CH: acute 2-minute stimulations at attack onset (up to 3); preventive BID daily."
+          },
+          {
+            "order": 3,
+            "title": "Monthly clinic review",
+            "duration_minutes": 30,
+            "detail": "Review attack frequency trend. CGI-I. PHQ-9 item 9. Assess device adherence. If no clinically meaningful response at 8 weeks, recommend discontinuation and escalation to specialist interventional options (SPG stimulation, ONS referral)."
+          }
+        ]
+      },
+      "monitoring_required": [
+        "Headache diary — daily",
+        "CGI-S and CGI-I — monthly",
+        "PHQ-9 — monthly (item 9 mandatory)",
+        "Blood pressure and heart rate — every visit",
+        "Off-label benefit-risk reassessment — every 4 weeks"
+      ],
+      "contraindication_check_required": true,
+      "adverse_event_monitoring": "All AE monitoring as per episodic protocol. Monthly AE review mandatory for off-label use. Any serious AE triggers immediate protocol suspension and medical director review.",
+      "escalation_rules": [
+        "No clinically meaningful response at 8 weeks — discontinue off-label protocol, urgent headache specialist referral for invasive options",
+        "Any serious AE — suspend immediately, medical director notification, formal AE report",
+        "Suicidal ideation — psychiatric emergency protocol"
+      ],
+      "patient_facing_allowed": false,
+      "clinician_review_required": true,
+      "governance": {
+        "patient_export_allowed": false,
+        "requires_clinician_sign_off": true,
+        "off_label_acknowledgement_required": true,
+        "dual_review_required": true,
+        "notes": "OFF-LABEL use for chronic cluster headache. Not FDA-cleared for this indication. Requires headache specialist co-sign, written off-label acknowledgement, and monthly benefit-risk review. EV-C evidence only."
+      },
+      "notes": "This protocol is NOT for general clinical use. It must only be offered in specialist headache clinics where standard pharmacological prophylaxis has failed. Refer to neurology/headache specialist before initiating."
+    }
+  ],
+
+  "device_options": [
+    {
+      "device_id": "DEV-GAMMACORE-CH-01",
+      "name": "gammaCore",
+      "manufacturer": "electroCore Inc.",
+      "modality_slug": "nvns",
+      "regulatory_status": "FDA-cleared",
+      "cleared_indication": "Acute and preventive treatment of episodic cluster headache in adults (18+); also cleared for acute migraine",
+      "use_setting": "Hybrid",
+      "compatible_protocols": ["PRO-NVNS-CH-01", "PRO-NVNS-CH-02"],
+      "constraints": [
+        "Adults 18+ only",
+        "Requires prescription and clinician activation code",
+        "Absolute contraindication: carotid artery disease",
+        "Absolute contraindication: cardiac arrhythmia",
+        "Absolute contraindication: implanted pacemaker or ICD",
+        "Conductive gel required for every session",
+        "First use must be supervised in clinic",
+        "NOT cleared for chronic cluster headache — off-label use only with acknowledgement"
+      ],
+      "notes": "FDA-cleared for episodic CH (De Novo 2018). Same device used for migraine indication. Dose counter tracks usage; downloadable by clinic for adherence review."
+    }
+  ],
+
+  "brain_targets": [
+    {
+      "region": "Vagus Nerve (Right Cervical Branch) — Nucleus Tractus Solitarius",
+      "abbreviation": "VN-R / NTS",
+      "laterality": "Right",
+      "rationale": "Stimulation of the right cervical vagus nerve modulates the nucleus tractus solitarius (NTS), which projects to the trigeminal nucleus caudalis and sphenopalatine ganglion. This inhibits nociceptive transmission and parasympathetic outflow responsible for cluster headache pain and autonomic features.",
+      "effect_direction": "Inhibitory",
+      "modalities": ["nvns"],
+      "eeg_position_10_20": "N/A",
+      "network": "Vagal-NTS-Trigeminal-Autonomic Pain Network",
+      "evidence_note": "Primary FDA-cleared target for gammaCore in episodic cluster headache. Mechanism involves inhibition of trigeminovascular activation and parasympathetic efferent outflow."
+    },
+    {
+      "region": "Posterior Hypothalamus",
+      "abbreviation": "PH",
+      "laterality": "N/A",
+      "rationale": "The posterior hypothalamus is consistently activated during cluster headache attacks on PET and fMRI imaging, likely functioning as the circadian pacemaker driving attack periodicity. Hypothalamic involvement explains the remarkable circadian and circannual regularity of cluster headache. nVNS indirectly modulates hypothalamic function via NTS projections.",
+      "effect_direction": "Normalise",
+      "modalities": ["nvns"],
+      "eeg_position_10_20": "N/A",
+      "network": "Hypothalamic-Circadian Network",
+      "evidence_note": "Indirect target; not directly stimulated. PET activation studies confirm central role. Explains preventive utility of circadian-timed nVNS use."
+    }
+  ],
+
+  "handbook_outputs": {
+    "clinician_handbook": {
+      "title": "Cluster Headache Neuromodulation — Clinician Handbook",
+      "audience": "Clinician",
+      "sections": [
+        {
+          "section_id": "CH-CH-01",
+          "title": "Diagnosis, Classification, and Patient Selection",
+          "content": [
+            "Cluster headache is a trigeminal autonomic cephalgia (TAC) requiring ICHD-3 criteria confirmation before any protocol is initiated. Differentiation from paroxysmal hemicrania (indomethacin trial mandatory) and SUNCT is critical.",
+            "Secondary causes must be excluded with MRI brain including pituitary sequences before diagnosis is confirmed.",
+            "gammaCore nVNS is FDA-cleared only for EPISODIC cluster headache. Chronic CH use is off-label and requires specialist oversight, off-label consent, and dual clinician review.",
+            "Patient selection: gammaCore is appropriate as an adjunct to standard-of-care (oxygen, triptans, verapamil) for episodic cluster headache. For chronic CH, reserve for patients who have failed ≥2 prophylactic medications."
+          ]
+        },
+        {
+          "section_id": "CH-CH-02",
+          "title": "gammaCore Protocol Parameters and Evidence",
+          "content": [
+            "Acute protocol: 2-minute stimulation at attack onset; repeat at 2 min and 4 min (total 3 stimulations per attack). Right neck placement at carotid notch. Conductive gel mandatory.",
+            "Preventive protocol: One 2-minute stimulation BID (morning and evening) throughout the entire bout period.",
+            "ACT1 RCT (Goadsby et al., 2018 NEJM): 34.2% pain-free at 15 min vs. 10.6% sham. PREVA trial: 40.1% reduction in attack frequency with adjunctive nVNS.",
+            "Contraindications are absolute and must be screened before prescribing: carotid artery disease, cardiac arrhythmia, implanted cardiac devices.",
+            "First use must be supervised in clinic. Heart rate monitoring during first session is required."
+          ]
+        },
+        {
+          "section_id": "CH-CH-03",
+          "title": "Safety and Suicide Risk Management",
+          "content": [
+            "Suicidal ideation is a recognised risk in cluster headache patients during severe bouts. PHQ-9 with mandatory item 9 review must be performed at intake and monthly during treatment.",
+            "Any positive response to PHQ-9 item 9 requires immediate clinical assessment and psychiatric referral if active plan or intent is present.",
+            "Do not delay assessment for safety concerns in favour of completing the neuromodulation protocol."
+          ]
+        }
+      ]
+    },
+    "patient_guide": {
+      "title": "Your Cluster Headache Treatment Guide",
+      "audience": "Patient",
+      "sections": [
+        {
+          "section_id": "PG-CH-01",
+          "title": "About Your Treatment",
+          "content": [
+            "You are using the gammaCore device, which is approved by the FDA for cluster headache. It works by gently stimulating the vagus nerve in your neck — a nerve that connects to the part of your brain involved in cluster headache pain.",
+            "You can use it when an attack starts to help stop the pain, and you can also use it twice a day to try to reduce how many attacks you get."
+          ]
+        },
+        {
+          "section_id": "PG-CH-02",
+          "title": "Using gammaCore During an Attack",
+          "content": [
+            "As soon as you feel an attack starting, apply the gel to the device contacts and sit down.",
+            "Hold the device against the RIGHT side of your neck, at the angle of your jaw. Press and hold the button for 2 minutes.",
+            "After 2 minutes, if the pain has not gone, repeat the stimulation. You can do this up to 3 times in one attack.",
+            "Record your attack in your diary: when it started, how bad it was, and whether gammaCore helped."
+          ]
+        },
+        {
+          "section_id": "PG-CH-03",
+          "title": "Using gammaCore for Prevention",
+          "content": [
+            "Use the device once in the morning and once in the evening, every day during your cluster period.",
+            "You do not need to have an attack to use it for prevention — it works best when used regularly.",
+            "Sit or lie down during stimulation. You may feel tingling in your jaw or face — this is normal.",
+            "If you feel dizzy, lightheaded, or notice a change in your heartbeat, stop immediately and sit or lie down. Call the clinic if this happens."
+          ]
+        }
+      ]
+    },
+    "technician_sop": {
+      "title": "Cluster Headache — gammaCore Training SOP",
+      "audience": "Technician",
+      "sections": [
+        {
+          "section_id": "TSOP-CH-01",
+          "title": "Pre-Session Safety Checklist",
+          "content": [
+            "Verify contraindication screening form complete and signed (specifically: carotid artery disease, arrhythmia, pacemaker).",
+            "Document baseline heart rate and blood pressure before first gammaCore use.",
+            "Confirm patient has no new cardiac symptoms or diagnoses since last visit.",
+            "Review PHQ-9 — specifically check item 9 (suicidal ideation). If positive, escalate to clinician immediately before proceeding.",
+            "Confirm patient is in active cluster bout (episodic protocol) or has confirmed chronic CH with off-label consent (chronic protocol)."
+          ]
+        },
+        {
+          "section_id": "TSOP-CH-02",
+          "title": "First-Session Training Protocol",
+          "content": [
+            "Apply gel to device contacts. Demonstrate neck placement on right carotid notch — palpate carotid pulse to confirm correct position.",
+            "Run 2-minute stimulation with patient. Monitor heart rate during stimulation. Record pre-, during-, and post-stimulation heart rate.",
+            "Ask patient about sensations: tingling, jaw sensation, brief voice change are expected. Pain, strong heartbeat change, or faintness are not expected — stop if these occur.",
+            "Have patient repeat placement and stimulation independently. Confirm competence before issuing device for home use.",
+            "Provide written instruction card and diary. Confirm patient has gel supply for home use."
+          ]
+        }
+      ]
+    }
+  },
+
+  "monitoring_rules": {
+    "assessment_schedule": [
+      {
+        "assessment_id": "ASS-CH-002",
+        "assessment_name": "Cluster Headache Diary",
+        "timing": "Daily during active bout",
+        "frequency": "Daily",
+        "administered_by": "Patient self-report"
+      },
+      {
+        "assessment_id": "ASS-CH-003",
+        "assessment_name": "CGI-S / CGI-I",
+        "timing": "Baseline, then every 2 weeks during active bout",
+        "frequency": "Every 2 weeks",
+        "administered_by": "Clinician-rated"
+      },
+      {
+        "assessment_id": "ASS-PHQ-009",
+        "assessment_name": "PHQ-9 (with item 9 review)",
+        "timing": "Baseline, then monthly during treatment",
+        "frequency": "Monthly",
+        "administered_by": "Patient self-report"
+      }
+    ],
+    "response_thresholds": [
+      {
+        "assessment_id": "ASS-CH-002",
+        "assessment_name": "Weekly Attack Frequency",
+        "lower_is_better": true,
+        "response_threshold": "≥50% reduction in attacks per week from baseline",
+        "remission_threshold": "0–1 attacks per week (substantial reduction from typical cluster bout)",
+        "non_response_threshold": "<30% reduction in attacks at 2 weeks of combined acute + preventive use",
+        "deterioration_threshold": "Increase in attack frequency or severity compared to pre-treatment baseline"
+      },
+      {
+        "assessment_id": "ASS-CH-003",
+        "assessment_name": "CGI-I",
+        "lower_is_better": true,
+        "response_threshold": "CGI-I score 1 (very much improved) or 2 (much improved)",
+        "remission_threshold": "CGI-I score 1",
+        "non_response_threshold": "CGI-I score 4 (no change) at 2-week review",
+        "deterioration_threshold": "CGI-I score 5 (minimally worse) or below"
+      }
+    ],
+    "adverse_event_triggers": [
+      {
+        "event_type": "Syncope or loss of consciousness during nVNS",
+        "severity": "Serious",
+        "action": "Suspend protocol immediately. Emergency cardiac evaluation. Medical director notification. Do not restart without cardiology clearance.",
+        "suspend_treatment": true
+      },
+      {
+        "event_type": "Significant bradycardia (HR <50 bpm) or arrhythmia during stimulation",
+        "severity": "Serious",
+        "action": "Suspend gammaCore protocol. ECG. Urgent cardiology review. Document fully.",
+        "suspend_treatment": true
+      },
+      {
+        "event_type": "Active suicidal ideation with plan or intent",
+        "severity": "Serious",
+        "action": "Suspend protocol. Immediate psychiatric emergency assessment. Maintain one-to-one supervision until psychiatric team assessment complete.",
+        "suspend_treatment": true
+      },
+      {
+        "event_type": "Neck discomfort or local irritation at stimulation site",
+        "severity": "Mild",
+        "action": "Assess gel application and device positioning. Adjust placement. If persists, temporarily suspend home use and review at next clinic visit.",
+        "suspend_treatment": false
+      },
+      {
+        "event_type": "New neurological symptom during treatment",
+        "severity": "Serious",
+        "action": "Suspend protocol. Urgent neurology review. Repeat MRI if clinically indicated.",
+        "suspend_treatment": true
+      }
+    ],
+    "escalation_rules": [
+      {
+        "trigger": "No attack frequency reduction at 2-week review",
+        "action": "Clinical review. Assess adherence and correct technique. Consider adding or adjusting verapamil. Escalate to headache specialist.",
+        "urgency": "Urgent"
+      },
+      {
+        "trigger": "PHQ-9 item 9 positive (any suicidal ideation)",
+        "action": "Immediate clinician review. Full suicide risk assessment. Psychiatric referral if active plan or intent. Document management plan.",
+        "urgency": "Emergency"
+      },
+      {
+        "trigger": "Serious cardiovascular adverse event",
+        "action": "Suspend all protocols. Emergency assessment. Medical director notification within 24 hours.",
+        "urgency": "Emergency"
+      },
+      {
+        "trigger": "Chronic CH: no meaningful response at 8 weeks",
+        "action": "Discontinue off-label nVNS. Referral to interventional headache specialist (SPG stimulation, ONS, or DBS evaluation).",
+        "urgency": "Routine"
+      }
+    ],
+    "adherence_rules": {
+      "minimum_session_adherence_pct": 70,
+      "consecutive_missed_sessions_flag": 3,
+      "action_on_low_adherence": "Contact patient within 24 hours during active bout (given severity of cluster headache, rapid re-engagement is critical). Identify barriers. Provide additional support."
+    }
+  },
+
+  "report_templates": [
+    {
+      "id": "RPT-CH-INTAKE-01",
+      "name": "Cluster Headache Intake Summary",
+      "report_type": "intake-summary",
+      "audience": "Clinician",
+      "frequency": "Once — at intake",
+      "sections": [
+        {
+          "section_id": "S1",
+          "title": "Diagnosis and Classification",
+          "auto_populate_from": ["diagnosis_confirmed", "ch_subtype", "icd_10_code", "attacks_per_week_baseline", "current_bout_status"],
+          "clinician_narrative_prompt": "Summarise cluster headache diagnosis, episodic vs. chronic classification, current bout status, and neuroimaging findings.",
+          "required": true
+        },
+        {
+          "section_id": "S2",
+          "title": "Safety Screening Outcome",
+          "auto_populate_from": ["contraindication_screen_result", "cardiac_screen_result", "phq9_item9_result"],
+          "clinician_narrative_prompt": "Confirm carotid artery and cardiac screening results. Document PHQ-9 item 9 outcome and any safety concerns.",
+          "required": true
+        },
+        {
+          "section_id": "S3",
+          "title": "Protocol Selected and Regulatory Status",
+          "auto_populate_from": ["protocol_id", "on_label_status", "off_label_acknowledgement_obtained"],
+          "clinician_narrative_prompt": "State protocol selected (episodic on-label vs. chronic off-label). Confirm off-label acknowledgement if applicable.",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "RPT-CH-PROG-01",
+      "name": "Cluster Headache Progress Report",
+      "report_type": "progress-report",
+      "audience": "Clinician",
+      "frequency": "Every 2 weeks during active bout",
+      "sections": [
+        {
+          "section_id": "S1",
+          "title": "Attack Frequency Review",
+          "auto_populate_from": ["attacks_this_week", "attacks_baseline_week", "pct_change_attacks", "average_attack_severity"],
+          "clinician_narrative_prompt": "Summarise attack frequency trend. Has the 50% response threshold been reached? Comment on attack severity change.",
+          "required": true
+        },
+        {
+          "section_id": "S2",
+          "title": "Safety and Mental Health Review",
+          "auto_populate_from": ["phq9_score", "phq9_item9", "adverse_events"],
+          "clinician_narrative_prompt": "Document PHQ-9 findings. Confirm item 9 status. List any adverse events this period.",
+          "required": true
+        },
+        {
+          "section_id": "S3",
+          "title": "Device Adherence",
+          "auto_populate_from": ["device_dose_count", "planned_doses", "adherence_pct"],
+          "clinician_narrative_prompt": "Comment on adherence to both acute and preventive protocols. Address any barriers.",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "RPT-CH-EOC-01",
+      "name": "Cluster Headache End-of-Bout Report",
+      "report_type": "end-of-course-report",
+      "audience": "Referring Physician",
+      "frequency": "Once — at end of bout or end of chronic treatment review",
+      "sections": [
+        {
+          "section_id": "S1",
+          "title": "Treatment Summary",
+          "auto_populate_from": ["protocol_id", "device_name", "treatment_dates", "on_label_status"],
+          "clinician_narrative_prompt": "Summarise the treatment course and protocol used. Note if off-label use was employed.",
+          "required": true
+        },
+        {
+          "section_id": "S2",
+          "title": "Outcome Data",
+          "auto_populate_from": ["attacks_per_week_baseline", "attacks_per_week_endpoint", "pct_change_attacks", "cgii_endpoint"],
+          "clinician_narrative_prompt": "State whether responder criteria met (≥50% attack reduction). Provide clinical interpretation.",
+          "required": true
+        },
+        {
+          "section_id": "S3",
+          "title": "Adverse Events and Safety Summary",
+          "auto_populate_from": ["adverse_events_list", "safety_concerns"],
+          "clinician_narrative_prompt": "Document all adverse events and their resolution. State current safety status.",
+          "required": true
+        },
+        {
+          "section_id": "S4",
+          "title": "Recommendations",
+          "auto_populate_from": ["maintenance_plan", "next_bout_plan"],
+          "clinician_narrative_prompt": "Recommendations for next bout management: start gammaCore preventive use at first sign of next bout. Consider medication review (verapamil prophylaxis). Follow-up timing.",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "RPT-CH-AE-01",
+      "name": "Cluster Headache Adverse Event Report",
+      "report_type": "adverse-event-report",
+      "audience": "Internal",
+      "frequency": "As needed — per adverse event",
+      "sections": [
+        {
+          "section_id": "S1",
+          "title": "Event Description",
+          "auto_populate_from": ["event_type", "event_date", "event_severity", "protocol_id"],
+          "clinician_narrative_prompt": "Describe the adverse event, timing relative to treatment, and clinical context.",
+          "required": true
+        },
+        {
+          "section_id": "S2",
+          "title": "Management and Resolution",
+          "auto_populate_from": ["treatment_suspended", "action_taken", "outcome"],
+          "clinician_narrative_prompt": "Describe management actions taken and current status of the event.",
+          "required": true
+        }
+      ]
+    }
+  ],
+
+  "home_program_templates": [
+    {
+      "id": "HOME-NVNS-CH-01",
+      "name": "gammaCore Home Program — Cluster Headache",
+      "modality_slug": "nvns",
+      "device_required": "electroCore gammaCore",
+      "prerequisite_clinic_sessions": 1,
+      "sessions_per_week": 14,
+      "session_duration_minutes": 5,
+      "total_weeks": 8,
+      "patient_instructions": [
+        "Always keep your gammaCore and conductive gel together in one place — you need to react quickly when an attack begins.",
+        "FOR AN ATTACK: The moment you feel an attack starting — sit down immediately. Apply gel to the device contacts. Hold gammaCore to the RIGHT side of your neck, at the angle of your jaw where you can feel your pulse. Press and hold the button for 2 full minutes. If the pain has not gone, repeat twice more at 2-minute intervals (maximum 3 stimulations).",
+        "FOR PREVENTION: Each morning and each evening, apply gel, hold device to right neck, and stimulate for 2 minutes. You do not need to be having an attack. Do this every day throughout your cluster period.",
+        "Sit or lie down during every stimulation. Do not stand up quickly after stimulation.",
+        "Record every attack and every prevention session in your diary. This is essential for your clinician to track your progress.",
+        "DO NOT use alcohol during your cluster period — even small amounts can trigger attacks within minutes."
+      ],
+      "safety_checklist": [
+        "I have gel available and have applied it to the device contacts",
+        "I have no new cardiac symptoms (palpitations, chest pain, irregular heartbeat) today",
+        "I am sitting or lying down",
+        "I have not had any new symptoms or medical changes since my last clinic visit",
+        "This is a cluster headache attack (not a different type of headache)"
+      ],
+      "reporting_requirements": [
+        "Record every attack: date, time started, severity (0–10), duration, and whether gammaCore was used and helped",
+        "Record every preventive session: morning and evening tick in diary",
+        "Report any palpitations, fainting, or unusual heartbeat immediately — call clinic or emergency services",
+        "Report skin irritation or pain at the neck stimulation site",
+        "Bring your diary to every clinic appointment"
+      ],
+      "contraindications_for_home": [
+        "Any palpitations, chest pain, or irregular heartbeat — stop immediately and call emergency services",
+        "Sudden severe headache different from your usual cluster attacks — do not use device, call emergency services",
+        "Out of conductive gel — do not use device without gel",
+        "Any new neurological symptoms (weakness, vision change, speech problems)",
+        "Fever or stiff neck with headache — do not use device, call emergency services"
+      ],
+      "evidence_note": "Home use follows FDA-cleared gammaCore label for episodic cluster headache: acute (up to 3 stimulations per attack) and preventive BID use during bout period."
+    }
+  ],
+
+  "consent_documents": [
+    {
+      "id": "CON-CH-IC-01",
+      "name": "Informed Consent — Cluster Headache Neuromodulation (Episodic)",
+      "document_type": "informed-consent",
+      "when_required": "Before first gammaCore session or device dispensing",
+      "key_disclosures": [
+        "gammaCore is FDA-cleared for acute and preventive treatment of EPISODIC cluster headache in adults.",
+        "Common side effects include neck discomfort, jaw tingling, brief facial muscle twitch, and hoarseness — these are generally mild and transient.",
+        "Serious but rare risks include bradycardia, hypotension, and syncope; the first session will be supervised in clinic to monitor for these.",
+        "gammaCore is NOT cleared for chronic cluster headache; if you have chronic cluster headache, a separate consent will be needed.",
+        "Carotid artery disease and cardiac arrhythmias are absolute contraindications — you have been screened for both.",
+        "You must not allow other people to use your personal gammaCore device.",
+        "Alcohol reliably triggers attacks during your cluster period and must be avoided.",
+        "If you experience worsening suicidal thoughts during your cluster period, contact the clinic or emergency services immediately.",
+        "This device does not replace your standard treatments (oxygen, triptans, verapamil) — it is an add-on treatment."
+      ],
+      "signature_required": true,
+      "witness_required": false,
+      "clinician_co_sign_required": true,
+      "review_frequency": "Each new bout or new treatment course"
+    },
+    {
+      "id": "CON-CH-OL-01",
+      "name": "Off-Label Acknowledgement — gammaCore for Chronic Cluster Headache",
+      "document_type": "off-label-acknowledgement",
+      "modality_slug": "nvns",
+      "when_required": "Before initiating gammaCore for chronic cluster headache (off-label use only)",
+      "key_disclosures": [
+        "gammaCore is NOT FDA-cleared for chronic cluster headache. It is only FDA-cleared for episodic cluster headache.",
+        "Your clinician is proposing to use gammaCore outside its approved indication (off-label use).",
+        "The evidence for gammaCore in chronic cluster headache is limited to subgroup analyses and observational studies. It is not proven to the same level as for episodic cluster headache.",
+        "Your clinician has determined that the potential benefit outweighs the risk based on your individual situation and failure of other treatments.",
+        "You are free to refuse off-label treatment and request alternative management.",
+        "All safety risks and contraindications apply equally to off-label use.",
+        "Your treatment will be monitored monthly and discontinued if no meaningful benefit is observed within 8 weeks."
+      ],
+      "signature_required": true,
+      "witness_required": false,
+      "clinician_co_sign_required": true,
+      "review_frequency": "Once — before initiating chronic CH off-label protocol"
+    },
+    {
+      "id": "CON-CH-SCREEN-01",
+      "name": "Contraindication Screening — Cluster Headache Neuromodulation",
+      "document_type": "contraindication-screening",
+      "when_required": "Before protocol generation and before first session",
+      "key_disclosures": [
+        "Patient confirms no known carotid artery disease (stenosis, atherosclerosis, prior carotid surgery).",
+        "Patient confirms no cardiac arrhythmia (bradycardia, atrial fibrillation, AV block, prior ventricular arrhythmia).",
+        "Patient confirms no implanted pacemaker or defibrillator.",
+        "Patient confirms secondary headache cause has been excluded by neuroimaging.",
+        "Patient confirms no active suicidal ideation with plan or intent at time of screening.",
+        "Patient confirms they will avoid alcohol throughout the cluster period."
+      ],
+      "signature_required": true,
+      "clinician_co_sign_required": true,
+      "review_frequency": "Before each new bout/treatment course"
+    },
+    {
+      "id": "CON-CH-HOME-01",
+      "name": "Home Device Agreement — Cluster Headache",
+      "document_type": "home-device-agreement",
+      "when_required": "Before gammaCore is dispensed for home use",
+      "key_disclosures": [
+        "I have been trained on correct gammaCore operation including gel application and neck placement.",
+        "I will use the device ONLY on the RIGHT side of my neck, with gel applied every time.",
+        "I will sit or lie down during every stimulation.",
+        "I will stop immediately and call emergency services if I feel faint, have palpitations, or chest pain.",
+        "I will maintain my attack diary and bring it to every clinic appointment.",
+        "I will avoid alcohol completely during my cluster period.",
+        "I will contact the clinic if I develop new cardiac symptoms, new neck conditions, or any new health changes.",
+        "I will not share my device with any other person.",
+        "For a cluster attack different from usual or any stroke-like symptoms, I will call emergency services and not use the device."
+      ],
+      "signature_required": true,
+      "clinician_co_sign_required": false,
+      "review_frequency": "Once — before device dispensing"
+    }
+  ]
+}

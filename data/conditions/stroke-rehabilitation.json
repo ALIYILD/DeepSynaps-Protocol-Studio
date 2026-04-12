@@ -1,0 +1,1400 @@
+{
+  "$schema": "../schemas/condition-package.schema.json",
+  "schema_version": "1.0.0",
+  "id": "CON-015",
+  "slug": "stroke-rehabilitation",
+  "name": "Stroke Rehabilitation (Post-Stroke Neurological Sequelae)",
+  "category": "Neurological — Rehabilitation",
+  "icd_10": ["I69.0", "I69.1", "I69.2", "I69.3", "I69.8", "I69.9"],
+  "created_at": "2026-04-12",
+  "updated_at": "2026-04-12",
+  "review_status": "reviewed",
+  "reviewed_by": "DeepSynaps Clinical Team",
+
+  "condition_overview": {
+    "summary": "Stroke rehabilitation addresses the functional, motor, language, and cognitive sequelae arising after ischaemic or haemorrhagic stroke. Neuromodulation is applied as an adjunct to intensive physiotherapy and occupational therapy to enhance neuroplasticity during the critical recovery window. The strongest evidence exists for rTMS in upper limb motor recovery during the acute and subacute phases (<6 months post-stroke), with tDCS emerging as a complementary approach.",
+    "prevalence": "Stroke affects approximately 13.7 million people annually worldwide. Of survivors, 60–80% experience motor deficits; 30–40% have aphasia; 20–50% develop post-stroke depression. The UK alone sees ~100,000 strokes per year (Stroke Association, 2023).",
+    "phenotype_clusters": [
+      {
+        "id": "PHE-STR-01",
+        "name": "Upper Limb Motor Impairment",
+        "description": "Partial or complete paresis of the upper extremity contralateral to the lesion. Ranges from minimal weakness to complete plegia. Primary target for rTMS and tDCS neuromodulation protocols combined with physiotherapy.",
+        "primary_modality": "tms",
+        "qeeg_signature": "Ipsilesional cortical hypoactivity; contralesional hyperactivity; disrupted corticospinal tract integrity on TMS motor mapping"
+      },
+      {
+        "id": "PHE-STR-02",
+        "name": "Lower Limb and Gait Impairment",
+        "description": "Hemiplegia or hemiparesis affecting gait, balance, and lower extremity function. Associated with falls risk and functional dependency. Neuromodulation evidence is less robust than for upper limb.",
+        "primary_modality": "tdcs",
+        "qeeg_signature": "Bilateral M1 lower-limb representation disruption; reduced coherence in sensorimotor networks"
+      },
+      {
+        "id": "PHE-STR-03",
+        "name": "Aphasia (Post-Stroke Language Impairment)",
+        "description": "Expressive, receptive, or mixed aphasia arising from lesions in the left perisylvian language network. Includes Broca's, Wernicke's, and global aphasia. rTMS to right Broca's area (inhibitory) is the primary investigational target.",
+        "primary_modality": "tms",
+        "qeeg_signature": "Left temporal-frontal hypoactivation; right hemisphere compensatory overactivation"
+      },
+      {
+        "id": "PHE-STR-04",
+        "name": "Cognitive Post-Stroke Impairment",
+        "description": "Attention, memory, and executive function deficits arising from vascular disruption. May include vascular cognitive impairment (VCI). Frequently co-occurs with motor deficits.",
+        "primary_modality": "tdcs",
+        "qeeg_signature": "Slowed EEG rhythms; increased delta/theta ratio; prefrontal hypoactivation"
+      },
+      {
+        "id": "PHE-STR-05",
+        "name": "Post-Stroke Depression (PSD)",
+        "description": "Depressive disorder occurring within 12 months of stroke, affecting up to 33% of survivors. Associated with poorer rehabilitation outcomes and increased mortality. Ipsilesional DLPFC excitatory rTMS is a proposed adjunctive target.",
+        "primary_modality": "tms",
+        "qeeg_signature": "Left frontal alpha asymmetry; reduced left DLPFC activation"
+      }
+    ],
+    "severity_levels": [
+      "Acute (<3 months post-stroke)",
+      "Subacute (3–6 months post-stroke)",
+      "Chronic (>6 months post-stroke)"
+    ],
+    "population": ["Adult (18+)", "Older Adult (65+, majority of stroke population)"],
+    "symptom_clusters": [
+      "Motor deficit (upper limb weakness, spasticity, reduced dexterity)",
+      "Spasticity (increased muscle tone, clonus, contracture risk)",
+      "Aphasia (expressive and/or receptive language impairment)",
+      "Hemispatial neglect (visuospatial inattention to contralesional space)",
+      "Cognitive impairment (attention, memory, executive function)",
+      "Post-stroke depression (low mood, anhedonia, fatigue)",
+      "Dysphagia (swallowing difficulty — affects up to 50% acutely)"
+    ],
+    "highest_evidence_level": "EV-B",
+    "relevant_modalities": ["tms", "tdcs"],
+    "neurobiology": "Stroke disrupts corticospinal and cortico-cortical circuits, resulting in ipsilesional cortical hypoexcitability and pathological contralesional overactivation (interhemispheric imbalance model). Neuromodulation exploits Hebbian plasticity and LTP/LTD mechanisms: excitatory stimulation of the ipsilesional hemisphere (high-frequency TMS, tDCS anode) or inhibitory stimulation of the contralesional hemisphere (low-frequency TMS, tDCS cathode) restores interhemispheric balance. Pairing stimulation with active motor practice capitalises on the Hebbian principle of simultaneous activation to consolidate synaptic potentiation within the motor cortex.",
+    "comorbidities": [
+      "Post-stroke depression (20–33%)",
+      "Post-stroke cognitive impairment / vascular dementia",
+      "Epilepsy — post-stroke seizures (5–10% within first year)",
+      "Atrial fibrillation (major stroke risk factor; anticoagulation interactions)",
+      "Hypertension",
+      "Diabetes mellitus",
+      "Spasticity requiring pharmacological management (baclofen, botulinum toxin)"
+    ],
+    "differential_diagnoses": [
+      "Transient ischaemic attack (TIA) — resolving deficits within 24 hours",
+      "Functional neurological disorder (non-organic motor deficit post-stroke anxiety)",
+      "Brain tumour causing progressive hemiparesis",
+      "Multiple sclerosis (demyelinating lesion mimicking stroke)",
+      "Epilepsy with Todd's paralysis (post-ictal focal weakness)"
+    ]
+  },
+
+  "patient_friendly_explanation": {
+    "what_is_it": "A stroke happens when blood flow to part of the brain is blocked or a blood vessel bursts. This damages brain cells and can affect movement, speech, thinking, and mood. Stroke rehabilitation uses therapies to help your brain find new ways to control your body.",
+    "how_it_affects_you": "Depending on which part of the brain was affected, you may have weakness or stiffness on one side of your body, difficulty speaking or understanding language, trouble concentrating, or low mood. These problems often improve with the right rehabilitation, especially in the weeks and months after stroke.",
+    "treatment_options_overview": "Brain stimulation techniques like TMS (Transcranial Magnetic Stimulation) and tDCS (transcranial direct current stimulation) are used alongside physiotherapy and occupational therapy to help your brain relearn movement. They work by gently activating the affected side of the brain or calming the unaffected side, which helps re-balance how the two sides communicate. These treatments are always used together with your regular rehabilitation — not instead of it.",
+    "what_to_expect": "Each session typically lasts 20–30 minutes for the brain stimulation part, followed immediately by physiotherapy exercises. Most treatment courses involve daily sessions (5 days per week) for 2–4 weeks. The stimulation is not painful — TMS produces a tapping or clicking sensation on the scalp, and tDCS causes a mild tingling. Your physiotherapist and clinician will work together throughout your course.",
+    "faq": [
+      {
+        "question": "Will this cure my stroke?",
+        "answer": "No treatment can undo stroke damage completely. However, brain stimulation combined with physiotherapy can meaningfully improve movement and function, especially if started in the first 6 months after stroke when the brain is most able to adapt."
+      },
+      {
+        "question": "Is it safe after a stroke?",
+        "answer": "Yes, when delivered by trained specialists and after careful screening. There are some situations where brain stimulation is not suitable — for example, if you had a bleed in the brain, have metal clips from surgery, or have had seizures. Your clinician will review your medical history carefully before treatment starts."
+      },
+      {
+        "question": "How soon after my stroke can I start?",
+        "answer": "The evidence is strongest for starting in the first 3–6 months after stroke. However, people in the chronic phase (more than 6 months post-stroke) can still benefit. Your clinical team will advise the best timing for your situation."
+      },
+      {
+        "question": "Do I still need physiotherapy?",
+        "answer": "Yes — brain stimulation is most effective when delivered immediately before or during active physiotherapy or occupational therapy. The combination is what drives the neuroplasticity. Brain stimulation alone, without rehabilitation exercises, is not recommended."
+      },
+      {
+        "question": "What does TMS feel like?",
+        "answer": "TMS produces a rhythmic tapping or clicking sensation on the scalp where the coil is placed. Most people find it mildly uncomfortable at first but tolerable. Some people get a brief mild headache. It is not painful in the way an injection is."
+      }
+    ]
+  },
+
+  "medical_history_requirements": {
+    "required_fields": [
+      {
+        "field": "Stroke type confirmed (ischaemic vs haemorrhagic) with neuroimaging report",
+        "reason": "Haemorrhagic stroke requires minimum 3-month wait before any excitatory neuromodulation. Ischaemic stroke has different timing considerations. Protocol cannot be generated without confirmed stroke type.",
+        "blocks_protocol": true
+      },
+      {
+        "field": "Date of stroke onset",
+        "reason": "Phase of recovery (acute, subacute, chronic) determines protocol selection and expected response. Determines minimum waiting period compliance.",
+        "blocks_protocol": true
+      },
+      {
+        "field": "Lesion location and hemisphere (from MRI/CT report)",
+        "reason": "Determines laterality of stimulation targets — ipsilesional vs contralesional hemisphere. Essential for safe and accurate protocol targeting.",
+        "blocks_protocol": true
+      },
+      {
+        "field": "Post-stroke seizure history",
+        "reason": "Post-stroke seizures are an absolute contraindication for excitatory TMS. Must be documented before any rTMS protocol.",
+        "blocks_protocol": true
+      },
+      {
+        "field": "Neurosurgical history (decompressive craniectomy, aneurysm repair with clips)",
+        "reason": "Skull defects from craniectomy and metallic aneurysm clips are absolute contraindications for TMS. Must be excluded before any TMS.",
+        "blocks_protocol": true
+      },
+      {
+        "field": "Current rehabilitation programme (physiotherapy/occupational therapy schedule)",
+        "reason": "All stroke neuromodulation protocols require concurrent rehabilitation. Must confirm PT/OT is available and co-scheduled.",
+        "blocks_protocol": true
+      },
+      {
+        "field": "Functional baseline (FMA-UE score or Barthel Index)",
+        "reason": "Baseline motor function score is required to set realistic treatment goals and define response thresholds.",
+        "blocks_protocol": false
+      },
+      {
+        "field": "Spasticity assessment (modified Ashworth Scale)",
+        "reason": "Significant spasticity may require botulinum toxin management before or alongside neuromodulation; affects safety of motor cortex excitatory protocols.",
+        "blocks_protocol": false
+      },
+      {
+        "field": "Current anticoagulant or antiplatelet medications",
+        "reason": "Relevant for scalp electrode safety; also indicates ischaemic stroke aetiology and secondary prevention status.",
+        "blocks_protocol": false
+      },
+      {
+        "field": "Cardiac pacemaker or implanted cardiac device",
+        "reason": "Absolute contraindication for TMS. Must be excluded before protocol generation.",
+        "blocks_protocol": true
+      }
+    ],
+    "clinical_interview_checklist": [
+      "Stroke date, type (ischaemic/haemorrhagic), and territory affected",
+      "Acute treatment received (thrombolysis, thrombectomy, surgical intervention)",
+      "Current neurological deficits — detailed motor, language, cognitive, and mood assessment",
+      "Current rehabilitation programme — type, frequency, provider, goals",
+      "Seizure history before and after stroke",
+      "Any metal implants, surgical clips, or skull defects",
+      "Post-stroke mood and depression screening (PHQ-9)",
+      "Cognitive status screening (MoCA)",
+      "Carer involvement and home support available",
+      "Patient's own rehabilitation goals (motor function, return to work, independence)"
+    ],
+    "rule_out_differentials": [
+      "Brain tumour causing motor deficits (must have MRI confirmation of stroke aetiology)",
+      "Functional neurological disorder (non-organic weakness — different management pathway)",
+      "Demyelinating disease (MS) — different lesion pattern on MRI",
+      "TIA with full motor recovery — ensure persistent deficit requiring rehabilitation"
+    ],
+    "comorbidity_screen": [
+      "Post-stroke depression (PHQ-9 — affects rehabilitation engagement and outcome)",
+      "Cognitive impairment (MoCA — affects consent capacity and protocol adherence)",
+      "Epilepsy / post-stroke seizures (PHQ-9 not applicable; dedicated seizure history required)",
+      "Spasticity (modified Ashworth Scale — may require concurrent botulinum toxin management)",
+      "Dysphagia (impacts positioning and session logistics)"
+    ],
+    "prior_treatment_required": [
+      "Current enrolment in or recent completion of physiotherapy and/or occupational therapy programme",
+      "Medical management of stroke risk factors (antiplatelet/anticoagulant therapy as indicated)",
+      "Neurological review post-stroke (ideally neurology or rehabilitation medicine specialist)"
+    ],
+    "special_population_flags": [
+      {
+        "population": "Older adult (65+)",
+        "additional_requirements": [
+          "Formal cognitive assessment (MoCA) to confirm consent capacity",
+          "Falls risk assessment before mobilisation for PT concurrent sessions",
+          "Carer or family member engagement for home programme compliance",
+          "Review of polypharmacy for drug interactions with neuromodulation parameters"
+        ]
+      },
+      {
+        "population": "Haemorrhagic stroke survivor",
+        "additional_requirements": [
+          "Minimum 3-month post-stroke wait confirmed before any excitatory TMS",
+          "Neurosurgical clearance if decompressive craniectomy or aneurysm clipping performed",
+          "Written neurology clearance on file before protocol generation"
+        ]
+      }
+    ]
+  },
+
+  "contraindications": {
+    "absolute": [
+      {
+        "condition": "Haemorrhagic stroke within preceding 3 months",
+        "rationale": "Excitatory neuromodulation in the acute post-haemorrhagic period carries significant risk of re-bleeding and exacerbating haematoma expansion. Minimum 3-month wait is required."
+      },
+      {
+        "condition": "Post-stroke seizure disorder (active, uncontrolled)",
+        "rationale": "Excitatory TMS significantly increases seizure threshold and is absolutely contraindicated in patients with active post-stroke epilepsy."
+      },
+      {
+        "condition": "Metallic aneurysm clips in situ (from neurosurgical repair)",
+        "rationale": "TMS electromagnetic fields can heat or displace ferromagnetic clips, causing catastrophic vascular injury. Absolute contraindication for all TMS protocols."
+      },
+      {
+        "condition": "Skull defect from decompressive craniectomy (before cranioplasty)",
+        "rationale": "Focal TMS stimulation through a skull defect delivers unpredictable and potentially harmful current densities to underlying brain tissue."
+      },
+      {
+        "condition": "Implanted cardiac pacemaker or defibrillator",
+        "rationale": "TMS electromagnetic fields may interfere with device function. Absolute contraindication for all TMS protocols."
+      },
+      {
+        "condition": "Active elevated intracranial pressure",
+        "rationale": "Neuromodulation may exacerbate ICP in the acute setting. Requires neurosurgical clearance."
+      }
+    ],
+    "relative": [
+      {
+        "condition": "Haemorrhagic stroke 3–6 months prior (subacute post-haemorrhagic)",
+        "rationale": "Some increased vascular risk remains beyond 3 months in haemorrhagic survivors, particularly those with uncontrolled hypertension.",
+        "mitigation": "Obtain written neurology clearance. Start at lowest effective stimulation intensity. Monitor blood pressure before each session. Avoid excitatory protocols if blood pressure uncontrolled (>160/100 mmHg at session time)."
+      },
+      {
+        "condition": "Well-controlled post-stroke epilepsy (>6 months seizure-free on medication)",
+        "rationale": "History of post-stroke seizure increases risk even if currently controlled. Low-frequency (inhibitory) TMS carries lower seizure risk than high-frequency excitatory protocols.",
+        "mitigation": "Prefer low-frequency (1 Hz) contralesional inhibitory protocol. Obtain neurology clearance. Emergency seizure protocol in place. Avoid high-frequency ipsilesional excitatory TMS."
+      },
+      {
+        "condition": "Severe post-stroke depression with suicidal ideation",
+        "rationale": "Depressive episodes can worsen acutely during intensive rehabilitation programmes. Suicidal ideation requires management before adding neuromodulation.",
+        "mitigation": "PHQ-9 screen before each session block. Psychiatric/psychology review if PHQ-9 ≥15. Complete safety planning. Prioritise antidepressant management before or concurrent with TMS."
+      },
+      {
+        "condition": "Significant cognitive impairment (MoCA <18) affecting consent capacity",
+        "rationale": "Patient may not be able to provide valid informed consent or report adverse events reliably.",
+        "mitigation": "Assess consent capacity formally. Obtain caregiver/next-of-kin involvement. Capacity assessment on file. Use simplified session monitoring."
+      },
+      {
+        "condition": "Significant spasticity at target limb (modified Ashworth ≥3)",
+        "rationale": "Severe spasticity may prevent adequate motor practice during concurrent physiotherapy, reducing the therapeutic benefit of paired neuromodulation-rehab protocols.",
+        "mitigation": "Consider botulinum toxin injection 4–6 weeks before starting neuromodulation course to reduce spasticity. Liaise with rehabilitation team."
+      }
+    ],
+    "special_populations": [
+      {
+        "population": "Older adult (75+)",
+        "flag": "Cortical atrophy increases effective current spread; coil-to-cortex distance may reduce TMS field strength. Consider neuronavigation for accurate targeting. Reduce stimulation intensity if scalp-to-cortex distance >20 mm on MRI."
+      },
+      {
+        "population": "Patient with aphasia",
+        "flag": "Consent capacity and AE reporting may be impaired by language deficits. Use validated aphasia-friendly consent procedures. Carer involvement essential for AE monitoring."
+      }
+    ],
+    "modality_specific": {
+      "tms": [
+        "No metal skull implants, pins, or plates at or near stimulation site",
+        "No cochlear implants",
+        "No deep brain stimulator",
+        "Completed standardised TMS Safety Screening Questionnaire before each course",
+        "Emergency seizure management equipment available in clinic",
+        "Motor threshold determination mandatory before first session (may be affected by stroke — document carefully)",
+        "Avoid high-frequency (10 Hz) excitatory TMS if any history of post-stroke seizure"
+      ],
+      "tdcs": [
+        "No open wounds, skin lesions, or surgical scars at anode/cathode placement sites",
+        "No metal skull implants at electrode placement sites",
+        "Remove all metal jewellery from head and neck before each session",
+        "Confirm skin integrity at M1 electrode sites before each tDCS session"
+      ]
+    }
+  },
+
+  "assessment_bundle": {
+    "screening": [
+      {
+        "assessment_id": "ASS-STR-01",
+        "name": "NIHSS",
+        "full_name": "National Institutes of Health Stroke Scale",
+        "clinician_vs_patient": "Clinician-rated",
+        "rationale": "Standardised stroke severity scale assessing 15 neurological domains. Establishes acute severity and is used in stroke unit settings. Score ≥1 indicates persistent deficit eligible for rehabilitation assessment.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 10,
+        "access": "Free (public domain)",
+        "population": "Adult 18+"
+      },
+      {
+        "assessment_id": "ASS-STR-02",
+        "name": "mRS",
+        "full_name": "Modified Rankin Scale",
+        "clinician_vs_patient": "Clinician-rated",
+        "rationale": "7-point global disability scale (0 = no symptoms, 6 = death). mRS 1–4 identifies patients with significant but not total disability who may benefit from neuromodulation-augmented rehabilitation.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 5,
+        "access": "Free (public domain)",
+        "population": "Adult 18+"
+      }
+    ],
+    "diagnostic": [
+      {
+        "assessment_id": "ASS-STR-03",
+        "name": "FMA-UE",
+        "full_name": "Fugl-Meyer Assessment — Upper Extremity",
+        "clinician_vs_patient": "Clinician-rated",
+        "rationale": "Gold-standard 33-item upper extremity motor assessment post-stroke (max 66 points). Scores 0–66; lower scores indicate more severe impairment. Responsive to change in TMS and tDCS rehabilitation trials. Primary outcome for upper limb protocols.",
+        "lower_is_better": false,
+        "admin_duration_minutes": 30,
+        "access": "Free (public domain)",
+        "population": "Adult 18+"
+      },
+      {
+        "assessment_id": "ASS-STR-04",
+        "name": "ARAT",
+        "full_name": "Action Research Arm Test",
+        "clinician_vs_patient": "Clinician-rated",
+        "rationale": "19-item functional arm and hand activity test assessing grasp, grip, pinch, and gross movement (max 57 points). Complements FMA-UE with task-based functional assessment. Sensitive to upper limb motor recovery.",
+        "lower_is_better": false,
+        "admin_duration_minutes": 20,
+        "access": "Free (public domain)",
+        "population": "Adult 18+"
+      }
+    ],
+    "baseline": [
+      {
+        "assessment_id": "ASS-STR-03",
+        "name": "FMA-UE (Baseline)",
+        "full_name": "Fugl-Meyer Assessment — Upper Extremity — Baseline",
+        "clinician_vs_patient": "Clinician-rated",
+        "rationale": "Primary baseline motor outcome measure for upper limb protocols. Score determines severity category and informs realistic goal-setting.",
+        "lower_is_better": false,
+        "admin_duration_minutes": 30,
+        "access": "Free (public domain)",
+        "population": "Adult 18+"
+      },
+      {
+        "assessment_id": "ASS-STR-05",
+        "name": "Barthel Index",
+        "full_name": "Barthel Activities of Daily Living Index",
+        "clinician_vs_patient": "Clinician-rated",
+        "rationale": "10-item functional independence measure covering ADLs (max 100). Captures overall functional status. Widely used in stroke rehabilitation. Score <60 indicates significant dependency.",
+        "lower_is_better": false,
+        "admin_duration_minutes": 10,
+        "access": "Free (public domain)",
+        "population": "Adult 18+"
+      },
+      {
+        "assessment_id": "ASS-STR-06",
+        "name": "MoCA",
+        "full_name": "Montreal Cognitive Assessment",
+        "clinician_vs_patient": "Clinician-rated",
+        "rationale": "30-point cognitive screen covering visuospatial, naming, memory, attention, language, and orientation. Essential baseline for post-stroke cognitive impairment and consent capacity assessment.",
+        "lower_is_better": false,
+        "admin_duration_minutes": 15,
+        "access": "Free (licensed for clinical use at mocatest.org)",
+        "population": "Adult 18+"
+      },
+      {
+        "assessment_id": "ASS-STR-07",
+        "name": "PHQ-9",
+        "full_name": "Patient Health Questionnaire — 9 item",
+        "clinician_vs_patient": "Patient self-report",
+        "rationale": "9-item depression screen; validated for post-stroke depression. Score ≥10 indicates moderate depression requiring management before or alongside neuromodulation.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 5,
+        "access": "Free (public domain)",
+        "population": "Adult 18+"
+      }
+    ],
+    "monitoring": [
+      {
+        "assessment_id": "ASS-STR-03",
+        "name": "FMA-UE (Monitoring)",
+        "full_name": "Fugl-Meyer Assessment — Upper Extremity — Repeated Measure",
+        "clinician_vs_patient": "Clinician-rated",
+        "rationale": "Primary monitoring tool for upper limb motor protocols. Administered every 5 sessions. MCID = 5.25 points (FMA-UE); change from baseline guides continuation decision.",
+        "lower_is_better": false,
+        "admin_duration_minutes": 30,
+        "access": "Free (public domain)",
+        "population": "Adult 18+"
+      },
+      {
+        "assessment_id": "ASS-STR-07",
+        "name": "PHQ-9 (Monitoring)",
+        "full_name": "Patient Health Questionnaire — 9 item — Monitoring",
+        "clinician_vs_patient": "Patient self-report",
+        "rationale": "Monitor for post-stroke depression emergence or worsening during rehabilitation course. Score ≥15 triggers clinical review.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 5,
+        "access": "Free (public domain)",
+        "population": "Adult 18+"
+      }
+    ],
+    "outcome": [
+      {
+        "assessment_id": "ASS-STR-03",
+        "name": "FMA-UE (End of Course)",
+        "full_name": "Fugl-Meyer Assessment — Upper Extremity — Endpoint",
+        "clinician_vs_patient": "Clinician-rated",
+        "rationale": "Primary outcome. MCID 5.25 points. Response = ≥5.25-point improvement from baseline. Report absolute score and change from baseline.",
+        "lower_is_better": false,
+        "admin_duration_minutes": 30,
+        "access": "Free (public domain)",
+        "population": "Adult 18+"
+      },
+      {
+        "assessment_id": "ASS-STR-05",
+        "name": "Barthel Index (End of Course)",
+        "full_name": "Barthel Activities of Daily Living Index — Endpoint",
+        "clinician_vs_patient": "Clinician-rated",
+        "rationale": "Secondary outcome for functional independence. MCID = 1.85 points; meaningful functional improvement defined as Barthel score improvement ≥5 points.",
+        "lower_is_better": false,
+        "admin_duration_minutes": 10,
+        "access": "Free (public domain)",
+        "population": "Adult 18+"
+      },
+      {
+        "assessment_id": "ASS-STR-02",
+        "name": "mRS (End of Course)",
+        "full_name": "Modified Rankin Scale — Endpoint",
+        "clinician_vs_patient": "Clinician-rated",
+        "rationale": "Global disability endpoint. Shift of 1 point on mRS is clinically meaningful. Documents overall disability level at course completion.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 5,
+        "access": "Free (public domain)",
+        "population": "Adult 18+"
+      }
+    ],
+    "neurophysiological": [
+      {
+        "assessment_id": "ASS-STR-08",
+        "name": "TMS Motor Mapping",
+        "full_name": "Single-Pulse TMS Cortical Motor Mapping and MEP Assessment",
+        "clinician_vs_patient": "Clinician-rated",
+        "rationale": "Determines resting motor threshold (rMT), cortical silent period, and motor evoked potential (MEP) from affected limb. MEP presence in affected limb predicts better prognosis and guides protocol intensity. Required before first rTMS session for rMT calibration.",
+        "lower_is_better": false,
+        "admin_duration_minutes": 30,
+        "access": "Requires TMS device and trained operator",
+        "population": "Adult 18+"
+      }
+    ],
+    "functional": [
+      {
+        "assessment_id": "ASS-STR-04",
+        "name": "ARAT (Functional)",
+        "full_name": "Action Research Arm Test — Functional Measure",
+        "clinician_vs_patient": "Clinician-rated",
+        "rationale": "Task-based functional arm assessment. Captures real-world dexterity improvements in grasp, grip, and pinch. MCID = 5.7 points.",
+        "lower_is_better": false,
+        "admin_duration_minutes": 20,
+        "access": "Free (public domain)",
+        "population": "Adult 18+"
+      }
+    ]
+  },
+
+  "protocol_bundle": [
+    {
+      "protocol_id": "PRO-TMS-STR-01",
+      "name": "rTMS Ipsilesional Excitatory — Upper Limb Motor Recovery (High-Frequency)",
+      "modality_slug": "tms",
+      "phenotype_id": "PHE-STR-01",
+      "on_label_vs_off_label": "Off-label",
+      "evidence_grade": "EV-B",
+      "evidence_summary": "Multiple meta-analyses support high-frequency (10 Hz) rTMS over ipsilesional M1 for upper limb motor recovery post-stroke. Khedr et al. (2005) demonstrated significant motor improvement with 10 Hz ipsilesional rTMS combined with rehabilitation. Hsu et al. (2012) Cochrane review and Feng et al. (2013) meta-analysis both show statistically significant FMA-UE improvements vs sham. Effect sizes are moderate (SMD 0.5–0.8) and strongest in subacute phase. Mechanism: enhancing ipsilesional cortical excitability and promoting LTP-like neuroplasticity when paired with active physiotherapy.",
+      "references": [
+        "Khedr EM et al. (2005). Therapeutic trial of repetitive transcranial magnetic stimulation after acute ischemic stroke. Neurology, 65(3), 466–468.",
+        "Hsu WY et al. (2012). Effects of repetitive transcranial magnetic stimulation on motor functions in patients with stroke. Stroke, 43(7), 1849–1857.",
+        "Feng W et al. (2013). Transcranial magnetic stimulation and rehabilitation of upper extremity after stroke. Neurology, 80(24), 2212–2219.",
+        "Lefaucheur JP et al. (2020). Evidence-based guidelines on the therapeutic use of repetitive transcranial magnetic stimulation. Clinical Neurophysiology, 131(2), 474–528."
+      ],
+      "brain_target": {
+        "region": "Ipsilesional Primary Motor Cortex",
+        "laterality": "Left",
+        "eeg_position": "C3 (for right hemisphere stroke — ipsilesional = left M1)",
+        "effect_direction": "Excitatory"
+      },
+      "parameters": {
+        "frequency_hz": "10 Hz (high-frequency excitatory)",
+        "intensity": "80–90% resting motor threshold (rMT) — individualised via motor threshold mapping",
+        "pulse_count": "1000–2000 pulses per session (typically 1500)",
+        "coil_type": "Figure-8 coil (70 mm)",
+        "electrode_placement": "Ipsilesional M1 hand area — confirmed via TMS motor mapping or MRI-guided neuronavigation"
+      },
+      "session_structure": {
+        "sessions_per_week": 5,
+        "session_duration_minutes": 30,
+        "total_sessions": 20,
+        "total_weeks": 4,
+        "maintenance_sessions": "5–10 maintenance sessions at monthly intervals if significant benefit achieved and plateau reached",
+        "steps": [
+          {
+            "order": 1,
+            "title": "Safety screening and pre-session check",
+            "duration_minutes": 5,
+            "detail": "Confirm no new contraindications (new medications, seizure, metallic implants). Review blood pressure (must be <160/100 mmHg to proceed). Confirm physiotherapy session is scheduled within 30 minutes of TMS completion."
+          },
+          {
+            "order": 2,
+            "title": "Motor threshold determination (first session; repeat if >2 week gap)",
+            "duration_minutes": 10,
+            "detail": "Determine resting motor threshold (rMT) via single-pulse TMS over ipsilesional M1 hand area. Affected limb MEP may be absent or elevated threshold — document. If no MEP in affected limb, use contralesional M1 rMT and apply same percentage. Calculate 80–90% rMT working intensity."
+          },
+          {
+            "order": 3,
+            "title": "Coil positioning and stimulation delivery",
+            "duration_minutes": 15,
+            "detail": "Position figure-8 coil over ipsilesional M1 hand area. Use neuronavigation if available; otherwise use 10-20 EEG landmark (C3 for right hemiplegia; C4 for left hemiplegia). Deliver 1500 pulses in trains: 10 Hz × 5 seconds ON, 25 seconds OFF (modified iTBS-like structure or standard 10 Hz trains). Patient seated, arm relaxed. Monitor for discomfort."
+          },
+          {
+            "order": 4,
+            "title": "Immediate physiotherapy coupling (within 30 minutes)",
+            "duration_minutes": 0,
+            "detail": "Patient transfers immediately to physiotherapy for upper limb motor training session (≥30 minutes). The physiotherapy session must occur within 30 minutes of TMS completion to capitalise on the LTP window. Document physiotherapy session details in combined treatment record."
+          },
+          {
+            "order": 5,
+            "title": "Post-session review and AE logging",
+            "duration_minutes": 5,
+            "detail": "Check for headache, scalp discomfort, mood change, or unusual neurological symptoms. Log session parameters, pulse count, and any AEs. Remind patient to report any seizure-like symptoms immediately."
+          }
+        ]
+      },
+      "monitoring_required": [
+        "FMA-UE at baseline and every 5 sessions",
+        "ARAT at baseline and end of course",
+        "TMS Safety Screening Questionnaire completed before first session",
+        "Blood pressure check before every session",
+        "AE log every session",
+        "PHQ-9 at baseline and every 10 sessions"
+      ],
+      "contraindication_check_required": true,
+      "adverse_event_monitoring": "Monitor for: headache (most common, typically mild and transient), scalp discomfort at coil site, fatigue, and transient mood change. Seizure is rare with excitatory protocols in post-stroke patients with no seizure history but remains a risk — emergency protocol must be in place. Any new neurological symptoms (weakness, sensory change, speech difficulty) require immediate clinical assessment.",
+      "escalation_rules": [
+        "No FMA-UE improvement ≥5 points after 10 sessions: clinician review; assess PT engagement, consider switching to contralesional inhibitory protocol (PRO-TMS-STR-02)",
+        "Seizure during or within 2 hours of session: emergency protocol, stop treatment, do not resume without neurology clearance",
+        "Blood pressure ≥160/100 mmHg at pre-session check: defer session, refer to GP or stroke physician same day",
+        "Moderate to severe headache on 2+ consecutive sessions: reduce intensity to 80% rMT; if persists reduce pulse count to 1000 or discontinue"
+      ],
+      "patient_facing_allowed": false,
+      "clinician_review_required": true,
+      "governance": {
+        "patient_export_allowed": true,
+        "requires_clinician_sign_off": true,
+        "off_label_acknowledgement_required": true,
+        "dual_review_required": false,
+        "notes": "EV-B off-label rTMS. Clinician sign-off required before each treatment course. Combined with physiotherapy is mandatory — TMS alone is not recommended. Off-label acknowledgement required."
+      },
+      "notes": "Strongest evidence base for stroke neuromodulation. Optimal in subacute phase (3–6 months). Must pair with active physiotherapy immediately after stimulation. Neuronavigation strongly recommended for accurate M1 targeting. MEP presence in affected limb at baseline predicts better motor prognosis."
+    },
+    {
+      "protocol_id": "PRO-TMS-STR-02",
+      "name": "rTMS Contralesional Inhibitory — Upper Limb Motor Recovery (Low-Frequency)",
+      "modality_slug": "tms",
+      "phenotype_id": "PHE-STR-01",
+      "on_label_vs_off_label": "Off-label",
+      "evidence_grade": "EV-B",
+      "evidence_summary": "Low-frequency (1 Hz) inhibitory rTMS over contralesional M1 reduces pathological interhemispheric inhibition from the unaffected hemisphere to the affected hemisphere, thereby disinhibiting ipsilesional motor output. Multiple RCTs (Takeuchi et al., 2005; Talelli et al., 2007) and meta-analyses confirm significant FMA-UE improvement vs sham. Non-inferior to high-frequency ipsilesional approach; some meta-analyses suggest marginally greater effect for moderate-severity impairment. Classified EV-B. Carries lower seizure risk than high-frequency protocols — preferred in patients with mild seizure risk history.",
+      "references": [
+        "Takeuchi N et al. (2005). Inhibition of the unaffected motor cortex by 1 Hz repetitive transcranial magnetic stimulation enhances motor performance and training effect. Journal of Rehabilitation Medicine, 37(5), 298–303.",
+        "Talelli P et al. (2007). rTMS and motor recovery in stroke. Brain Stimulation, 1(2), 120–132.",
+        "Lefaucheur JP et al. (2020). Evidence-based guidelines on the therapeutic use of repetitive transcranial magnetic stimulation. Clinical Neurophysiology, 131(2), 474–528."
+      ],
+      "brain_target": {
+        "region": "Contralesional Primary Motor Cortex",
+        "laterality": "Right",
+        "eeg_position": "C4 (for right hemisphere stroke — contralesional = right M1; reverse for left hemisphere stroke)",
+        "effect_direction": "Inhibitory"
+      },
+      "parameters": {
+        "frequency_hz": "1 Hz (low-frequency inhibitory)",
+        "intensity": "110% resting motor threshold (rMT) — contralesional hemisphere",
+        "pulse_count": "1200 pulses per session (20 minutes at 1 Hz)",
+        "coil_type": "Figure-8 coil (70 mm)",
+        "electrode_placement": "Contralesional M1 hand area — confirmed via TMS motor mapping (use contralesional hemisphere which typically has preserved MEP)"
+      },
+      "session_structure": {
+        "sessions_per_week": 5,
+        "session_duration_minutes": 30,
+        "total_sessions": 20,
+        "total_weeks": 4,
+        "maintenance_sessions": "Monthly maintenance (5 sessions) if benefit plateaus after initial course",
+        "steps": [
+          {
+            "order": 1,
+            "title": "Safety screening and pre-session check",
+            "duration_minutes": 5,
+            "detail": "Confirm no new contraindications. Check blood pressure. Confirm PT session scheduled. Review previous session AE log."
+          },
+          {
+            "order": 2,
+            "title": "Motor threshold determination (first session)",
+            "duration_minutes": 10,
+            "detail": "Determine rMT from contralesional (unaffected) hemisphere — typically easier as MEP is preserved. Calculate 110% rMT working intensity. Document both ipsilesional and contralesional rMT if assessable."
+          },
+          {
+            "order": 3,
+            "title": "Coil placement and stimulation delivery",
+            "duration_minutes": 20,
+            "detail": "Position figure-8 coil over contralesional M1 hand area. Deliver 1200 pulses continuously at 1 Hz (20 minutes). Patient seated, arm relaxed. Continuous monitoring. Ear protection in place. Ensure patient can communicate discomfort."
+          },
+          {
+            "order": 4,
+            "title": "Immediate physiotherapy coupling",
+            "duration_minutes": 0,
+            "detail": "Transfer to physiotherapy within 30 minutes. Upper limb rehabilitation exercises during window of reduced contralesional inhibition. Document combined session."
+          },
+          {
+            "order": 5,
+            "title": "Post-session review",
+            "duration_minutes": 5,
+            "detail": "AE check: headache, scalp discomfort, fatigue, mood change. Log session. Seizure awareness reminder to patient."
+          }
+        ]
+      },
+      "monitoring_required": [
+        "FMA-UE at baseline and every 5 sessions",
+        "ARAT at baseline and end of course",
+        "TMS Safety Screening Questionnaire before first session",
+        "Blood pressure check before every session",
+        "AE log every session"
+      ],
+      "contraindication_check_required": true,
+      "adverse_event_monitoring": "Headache at coil site (mild-moderate, transient — most common). Scalp discomfort. Fatigue. Seizure risk is lower at 1 Hz than high-frequency protocols but remains non-zero — emergency protocol must be in place. Monitor for any new neurological symptoms post-session.",
+      "escalation_rules": [
+        "No FMA-UE improvement ≥5 points after 10 sessions: consider switching to ipsilesional excitatory protocol or combined approach with tDCS",
+        "Seizure during or within 2 hours of session: emergency protocol, immediate suspension, neurology review required before resumption",
+        "Persistent scalp pain at coil site (≥3/10 on 2 consecutive sessions): recheck coil angle and intensity; reduce to 100% rMT if needed"
+      ],
+      "patient_facing_allowed": false,
+      "clinician_review_required": true,
+      "governance": {
+        "patient_export_allowed": true,
+        "requires_clinician_sign_off": true,
+        "off_label_acknowledgement_required": true,
+        "dual_review_required": false,
+        "notes": "EV-B off-label rTMS. Preferred over high-frequency when seizure risk history exists. Clinician sign-off required. Must combine with physiotherapy."
+      },
+      "notes": "Considered equivalent to high-frequency ipsilesional approach for moderate upper limb impairment. Mechanistically distinct — disinhibition of affected hemisphere via contralesional suppression. Lower seizure risk than 10 Hz protocol. Some centres use in sequence with ipsilesional excitatory (bilateral approach) in research settings."
+    },
+    {
+      "protocol_id": "PRO-TDCS-STR-01",
+      "name": "Dual-Site tDCS Combined with Physiotherapy — Upper Limb Motor Recovery",
+      "modality_slug": "tdcs",
+      "phenotype_id": "PHE-STR-01",
+      "on_label_vs_off_label": "Off-label",
+      "evidence_grade": "EV-C",
+      "evidence_summary": "Dual-site tDCS (anode ipsilesional M1, cathode contralesional M1) applied concurrently with physiotherapy has emerging evidence from multiple small RCTs and meta-analyses. Bolognini et al. (2011), Lindenberg et al. (2010), and subsequent reviews suggest significant motor improvement beyond sham when tDCS is delivered during active physiotherapy practice. The simultaneous delivery during motor practice is a key mechanistic requirement. Evidence is growing but remains EV-C due to small sample sizes and heterogeneous protocols. tDCS is less technically demanding than TMS and can be applied during motor practice tasks.",
+      "references": [
+        "Lindenberg R et al. (2010). Bihemispheric brain stimulation facilitates motor recovery in chronic stroke survivors. Neurology, 75(24), 2176–2184.",
+        "Bolognini N et al. (2011). Neurophysiological and behavioral effects of tDCS combined with constraint-induced movement therapy in poststroke patients. Neurorehabilitation and Neural Repair, 25(9), 819–829.",
+        "Elsner B et al. (2016). Transcranial direct current stimulation (tDCS) for improving activities of daily living, and physical and cognitive functioning, in people after stroke. Cochrane Database Systematic Reviews."
+      ],
+      "brain_target": {
+        "region": "Ipsilesional Primary Motor Cortex (anode) and Contralesional Primary Motor Cortex (cathode)",
+        "laterality": "Bilateral",
+        "eeg_position": "Anode: C3 (ipsilesional); Cathode: C4 (contralesional) — reverse for left hemisphere stroke",
+        "effect_direction": "Excitatory"
+      },
+      "parameters": {
+        "current_ma": "2 mA",
+        "current_density": "0.057 mA/cm² (35 cm² electrodes)",
+        "electrode_placement": "Anode: ipsilesional M1 (C3 or C4 per stroke side); Cathode: contralesional M1 (C4 or C3 per stroke side)",
+        "ramp_up_seconds": 30,
+        "ramp_down_seconds": 30,
+        "additional_params": {
+          "electrode_size": "35 cm² saline-soaked sponge or hydrogel electrodes",
+          "session_duration": "20 minutes active stimulation at 2 mA, applied concurrently with physiotherapy"
+        }
+      },
+      "session_structure": {
+        "sessions_per_week": 5,
+        "session_duration_minutes": 30,
+        "total_sessions": 15,
+        "total_weeks": 3,
+        "maintenance_sessions": "No established maintenance protocol; repeat course if benefit is lost",
+        "steps": [
+          {
+            "order": 1,
+            "title": "Skin and scalp inspection",
+            "duration_minutes": 5,
+            "detail": "Inspect scalp at both electrode sites (ipsilesional M1 and contralesional M1) for cuts, redness, or lesions. Do not proceed if skin integrity compromised. Check electrodes and cables are intact."
+          },
+          {
+            "order": 2,
+            "title": "Electrode placement",
+            "duration_minutes": 5,
+            "detail": "Position anode (red) over ipsilesional M1 (affected hemisphere hand area). Position cathode (black) over contralesional M1. Use 10-20 landmarks. Secure with head strap. Confirm electrodes lie flat. Saline sponges must be damp (not dripping). Set device: 2 mA, 20 minutes, 30-second ramp-up."
+          },
+          {
+            "order": 3,
+            "title": "Concurrent physiotherapy (tDCS on during PT)",
+            "duration_minutes": 20,
+            "detail": "Start tDCS stimulation simultaneously with physiotherapy session. Patient performs active or active-assisted upper limb exercises during stimulation (e.g. reaching, grasping, constraint-induced movement). Physiotherapist leads motor practice while tDCS is running. Monitor patient for comfort. Tingling or mild itching under electrodes is expected."
+          },
+          {
+            "order": 4,
+            "title": "Post-session check and documentation",
+            "duration_minutes": 5,
+            "detail": "Remove electrodes. Inspect scalp for any redness, marks, or burns. Ask patient about comfort, unusual sensations, or headache. Log session in combined tDCS-PT record."
+          }
+        ]
+      },
+      "monitoring_required": [
+        "FMA-UE at baseline and every 5 sessions",
+        "Barthel Index at baseline and end of course",
+        "Skin inspection at electrode sites before every session",
+        "AE log every session"
+      ],
+      "contraindication_check_required": true,
+      "adverse_event_monitoring": "Tingling, itching, or mild warmth under electrodes during ramp-up is expected and usually resolves. Burning sensation or pain: stop session immediately, inspect skin. Headache: reduce to 1.5 mA for subsequent sessions. Redness at electrode site: document and inspect at next session; if persists or blistering occurs, suspend tDCS.",
+      "escalation_rules": [
+        "No FMA-UE improvement ≥5 points after 10 sessions: clinician review; assess PT programme quality and session coupling; consider switching to rTMS protocol",
+        "Skin burn or blister at electrode site: suspend tDCS, photograph, medical review, document AE",
+        "Persistent moderate headache (>4 hours) on 2+ consecutive sessions: reduce current to 1.5 mA; if persists, discontinue"
+      ],
+      "patient_facing_allowed": true,
+      "clinician_review_required": false,
+      "governance": {
+        "patient_export_allowed": true,
+        "requires_clinician_sign_off": false,
+        "off_label_acknowledgement_required": true,
+        "dual_review_required": false,
+        "notes": "EV-C emerging evidence. Off-label use. Patient export permitted. Off-label acknowledgement required. Must always be paired with concurrent physiotherapy — tDCS alone is not indicated."
+      },
+      "notes": "Dual-site montage (bihemispheric) is preferred over single-site based on the interhemispheric imbalance model. Key requirement: tDCS must be delivered concurrently with active motor practice, not before or after. Physiotherapy quality during stimulation directly affects outcomes. Less technically demanding than TMS and can be administered by trained technicians."
+    }
+  ],
+
+  "device_options": [
+    {
+      "device_id": "DEV-TMS-001",
+      "name": "Magstim Rapid²",
+      "manufacturer": "Magstim",
+      "modality_slug": "tms",
+      "regulatory_status": "FDA-cleared (other indication)",
+      "cleared_indication": "FDA-cleared for MDD; off-label use for stroke motor rehabilitation",
+      "use_setting": "Clinic",
+      "compatible_protocols": ["PRO-TMS-STR-01", "PRO-TMS-STR-02"],
+      "constraints": [
+        "Clinic use only — requires TMS-equipped treatment room",
+        "Motor threshold mapping required before first session",
+        "Emergency seizure management equipment must be immediately available",
+        "Requires trained TMS operator and supervising clinician"
+      ],
+      "notes": "Standard clinic-grade TMS device. Suitable for both 10 Hz and 1 Hz protocols. Ensure figure-8 70 mm coil used for M1 targeting."
+    },
+    {
+      "device_id": "DEV-TMS-002",
+      "name": "Neurosoft Neuro-MS/D Advanced",
+      "manufacturer": "Neurosoft",
+      "modality_slug": "tms",
+      "regulatory_status": "CE-marked",
+      "cleared_indication": "CE-marked medical device for diagnostic and therapeutic TMS",
+      "use_setting": "Clinic",
+      "compatible_protocols": ["PRO-TMS-STR-01", "PRO-TMS-STR-02"],
+      "constraints": [
+        "Clinic use only",
+        "CE-marked but not FDA-cleared — availability depends on jurisdiction",
+        "Requires specialist operator"
+      ],
+      "notes": "Used in European stroke rehabilitation research settings. Supports full rTMS protocol range."
+    },
+    {
+      "device_id": "DEV-TDCS-001",
+      "name": "Soterix Medical 1×1 tDCS Clinical Trials Device (CT)",
+      "manufacturer": "Soterix Medical",
+      "modality_slug": "tdcs",
+      "regulatory_status": "FDA-cleared (other indication)",
+      "cleared_indication": "FDA-cleared for clinical research; off-label for stroke rehabilitation",
+      "use_setting": "Clinic",
+      "compatible_protocols": ["PRO-TDCS-STR-01"],
+      "constraints": [
+        "Clinic use only",
+        "Requires trained operator",
+        "Dual-site setup requires careful electrode positioning and impedance check"
+      ],
+      "notes": "Research-grade tDCS with accurate current delivery. Widely used in stroke tDCS trials. Supports dual-site (bihemispheric) montage."
+    },
+    {
+      "device_id": "DEV-TDCS-003",
+      "name": "Neuroelectrics Starstim",
+      "manufacturer": "Neuroelectrics",
+      "modality_slug": "tdcs",
+      "regulatory_status": "CE-marked",
+      "cleared_indication": "CE-marked for tDCS; used in stroke research trials",
+      "use_setting": "Clinic",
+      "compatible_protocols": ["PRO-TDCS-STR-01"],
+      "constraints": [
+        "CE-marked only (not FDA-cleared for stroke rehabilitation)",
+        "Multielectrode system allows precise montage but requires technical expertise",
+        "Available in select markets"
+      ],
+      "notes": "Multielectrode tDCS system suitable for bihemispheric stroke protocols. Used in published stroke tDCS research."
+    }
+  ],
+
+  "brain_targets": [
+    {
+      "region": "Ipsilesional Primary Motor Cortex",
+      "abbreviation": "IL-M1",
+      "laterality": "Left",
+      "rationale": "The primary motor cortex (M1) of the lesioned hemisphere is the direct driver of voluntary motor output to the affected limb. Post-stroke, ipsilesional M1 is hypoexcitable due to direct damage and contralesional interhemispheric inhibition. Excitatory stimulation (high-frequency TMS, tDCS anode) promotes LTP-like neuroplasticity and enhances corticospinal drive when paired with active rehabilitation.",
+      "effect_direction": "Excitatory",
+      "modalities": ["tms", "tdcs"],
+      "eeg_position_10_20": "C3 (for right hemisphere lesion stroke; C4 for left hemisphere lesion stroke)",
+      "brodmann_area": "BA4",
+      "network": "Sensorimotor Network — Corticospinal Tract",
+      "qeeg_target": "Increase ipsilesional cortical excitability; restore lateralisation index toward pre-stroke asymmetry",
+      "evidence_note": "Primary target for both excitatory TMS (10 Hz) and tDCS anode in stroke motor rehabilitation. Best evidence for hand/arm recovery in subacute phase."
+    },
+    {
+      "region": "Contralesional Primary Motor Cortex",
+      "abbreviation": "CL-M1",
+      "laterality": "Right",
+      "rationale": "After stroke, the unaffected (contralesional) hemisphere exerts pathological inhibition over the affected hemisphere through transcallosal pathways, suppressing ipsilesional motor output. Inhibitory stimulation (1 Hz TMS, tDCS cathode) reduces this maladaptive interhemispheric inhibition, disinhibiting the affected motor cortex and restoring interhemispheric balance.",
+      "effect_direction": "Inhibitory",
+      "modalities": ["tms", "tdcs"],
+      "eeg_position_10_20": "C4 (for right hemisphere lesion stroke; C3 for left hemisphere lesion stroke)",
+      "brodmann_area": "BA4",
+      "network": "Sensorimotor Network — Interhemispheric Inhibitory Circuit",
+      "qeeg_target": "Reduce contralesional cortical hyperactivation; normalise interhemispheric coherence",
+      "evidence_note": "Target for 1 Hz inhibitory rTMS and tDCS cathode. Supported by multiple RCTs. Preferred approach when excitatory ipsilesional stimulation is contraindicated or poorly tolerated."
+    },
+    {
+      "region": "Ipsilesional Dorsolateral Prefrontal Cortex",
+      "abbreviation": "IL-DLPFC",
+      "laterality": "Left",
+      "rationale": "Targeted for post-stroke depression (PSD). Post-stroke, ipsilesional DLPFC may be hypoexcitable due to lesion proximity or diaschisis. Excitatory rTMS to left DLPFC follows the same mechanism as for MDD treatment — increasing prefrontal serotonergic and dopaminergic tone to address depressive symptoms.",
+      "effect_direction": "Excitatory",
+      "modalities": ["tms"],
+      "eeg_position_10_20": "F3",
+      "brodmann_area": "BA46 / BA9",
+      "network": "Central Executive Network — Mood Regulation Circuit",
+      "qeeg_target": "Normalise left frontal alpha asymmetry; increase left DLPFC activation",
+      "evidence_note": "Post-stroke depression target. Evidence extrapolated from MDD rTMS trials. Specific PSD rTMS protocols are at EV-C level."
+    }
+  ],
+
+  "handbook_outputs": {
+    "clinician_handbook": {
+      "title": "Clinician Handbook: Stroke Rehabilitation Neuromodulation Protocols",
+      "audience": "Licensed clinician or rehabilitation specialist",
+      "sections": [
+        {
+          "section_id": "ch-01",
+          "title": "Condition and Neuromodulation Rationale",
+          "content": [
+            "Post-stroke neuromodulation targets the interhemispheric imbalance that develops after ischaemic stroke: ipsilesional cortical hypoexcitability coupled with pathological contralesional overactivation.",
+            "Two complementary TMS strategies: (1) Excitatory ipsilesional (10 Hz rTMS over affected M1) — directly enhances affected hemisphere output; (2) Inhibitory contralesional (1 Hz rTMS over unaffected M1) — reduces transcallosal inhibition suppressing the affected hemisphere.",
+            "tDCS dual-site approach applies both mechanisms simultaneously using anode (ipsilesional) and cathode (contralesional) during active motor practice.",
+            "The plasticity window is greatest in acute/subacute phase (<6 months). All protocols must be paired with concurrent intensive physiotherapy or occupational therapy."
+          ]
+        },
+        {
+          "section_id": "ch-02",
+          "title": "Patient Selection and Phase of Recovery",
+          "content": [
+            "Optimal candidates: subacute stroke (3–6 weeks to 6 months), some residual voluntary movement in affected limb, able to engage in concurrent physiotherapy.",
+            "FMA-UE 10–50 (moderate impairment) predicts best response. Patients with complete plegia (FMA-UE 0) have limited evidence base.",
+            "MEP presence in affected limb at baseline (on TMS mapping) is a positive prognostic biomarker.",
+            "Haemorrhagic stroke: minimum 3-month wait. Obtain neurology clearance. Prefer lower intensity protocols initially.",
+            "Chronic phase (>6 months): neuroplasticity window is reduced but not closed. Evidence supports modest benefits. Realistic expectation-setting essential."
+          ]
+        },
+        {
+          "section_id": "ch-03",
+          "title": "Protocol Selection Guide",
+          "content": [
+            "Upper limb motor impairment (primary): First choice — PRO-TMS-STR-01 (10 Hz ipsilesional excitatory) in subacute phase. Alternative — PRO-TMS-STR-02 (1 Hz contralesional inhibitory) if seizure risk or patient preference for lower seizure risk protocol.",
+            "If TMS is contraindicated or unavailable: PRO-TDCS-STR-01 (dual-site tDCS during PT) — less technically demanding and lower seizure risk.",
+            "Post-stroke depression: Refer to MDD protocol (PRO-TMS-MDD) using left DLPFC excitatory approach. Document stroke aetiology and check TMS safety for PSD separately.",
+            "Combined upper limb + cognition deficit: Prioritise motor protocol; add cognitive assessment battery (MoCA, TMT) and consider referral for cognitive rehabilitation."
+          ]
+        },
+        {
+          "section_id": "ch-04",
+          "title": "Evidence Summary and Governance",
+          "content": [
+            "rTMS for upper limb motor recovery: EV-B — supported by multiple meta-analyses and Cochrane reviews. Effect size SMD 0.5–0.8 in subacute phase.",
+            "tDCS for motor recovery: EV-C — emerging evidence from small RCTs. Effect sizes smaller than TMS; benefit most evident when delivered concurrently with active PT.",
+            "Both approaches are off-label. Off-label acknowledgement and clinician sign-off required before protocol generation.",
+            "TMS requires emergency seizure protocol in clinic. Neurology clearance required for post-haemorrhagic stroke patients.",
+            "All protocols must be paired with active physiotherapy — standalone neuromodulation is not evidence-based for stroke motor recovery."
+          ]
+        },
+        {
+          "section_id": "ch-05",
+          "title": "Monitoring and Escalation",
+          "content": [
+            "Primary outcome: FMA-UE (MCID ≥5.25 points). Administer at baseline, every 5 sessions, and end of course.",
+            "Response definition: ≥5.25-point FMA-UE improvement from baseline.",
+            "Non-response flag: <5-point FMA-UE improvement after 10 sessions — clinician review. Consider protocol switch or intensification of PT.",
+            "BP check before every TMS session. Do not proceed if >160/100 mmHg without medical review.",
+            "Any new neurological symptom post-session: immediate clinical assessment. Seizure: emergency protocol, suspend treatment, neurology review."
+          ]
+        }
+      ]
+    },
+    "patient_guide": {
+      "title": "Patient Guide: Brain Stimulation for Stroke Recovery",
+      "audience": "Patient or family member (reading level: Grade 8)",
+      "sections": [
+        {
+          "section_id": "pg-01",
+          "title": "How Does Brain Stimulation Help After Stroke?",
+          "content": [
+            "After a stroke, the brain tries to heal itself and find new ways to control movement. Brain stimulation treatments help speed up this process by activating the damaged side of the brain or calming the healthy side so the two sides work better together.",
+            "The treatments work best when used alongside your normal physiotherapy sessions — the combination is what makes the difference."
+          ]
+        },
+        {
+          "section_id": "pg-02",
+          "title": "What Is TMS?",
+          "content": [
+            "TMS (Transcranial Magnetic Stimulation) uses a coil held near your head to send short magnetic pulses into your brain. You will hear a clicking sound and feel a tapping sensation on your scalp. It is not painful.",
+            "Sessions take about 20–30 minutes, followed immediately by your physiotherapy exercises."
+          ]
+        },
+        {
+          "section_id": "pg-03",
+          "title": "What Is tDCS?",
+          "content": [
+            "tDCS (transcranial direct current stimulation) uses two small sponge pads placed on your scalp, connected to a device that delivers a very gentle electrical current — far weaker than a 9-volt battery.",
+            "The stimulation is applied while you do your physiotherapy exercises at the same time, which helps your brain learn movement patterns more effectively.",
+            "You may feel a mild tingling or warmth under the pads during the session. This is normal."
+          ]
+        },
+        {
+          "section_id": "pg-04",
+          "title": "What to Tell Your Team",
+          "content": [
+            "Tell your clinician if you develop headaches during or after sessions.",
+            "Tell your team if you notice any new weakness, vision changes, or unusual sensations after a session.",
+            "Inform the clinic immediately if you experience anything that might be a seizure.",
+            "Keep attending your physiotherapy sessions — the combination of both treatments is essential for the best results."
+          ]
+        }
+      ]
+    },
+    "technician_sop": {
+      "title": "Technician SOP: Stroke Rehabilitation TMS and tDCS",
+      "audience": "Trained neuromodulation technician under clinician supervision",
+      "sections": [
+        {
+          "section_id": "sop-01",
+          "title": "Pre-Session Checklist",
+          "content": [
+            "Confirm patient identity (name + DOB). Check which stroke hemisphere is affected (ipsilesional side confirmed from notes).",
+            "Review blood pressure at start of session — do not proceed if >160/100 mmHg without clinician authorisation.",
+            "Confirm physiotherapy session is booked immediately after TMS (within 30 minutes).",
+            "Check TMS Safety Screening Questionnaire is current and signed.",
+            "Confirm emergency seizure equipment is accessible (oxygen, call button, seizure protocol posted)."
+          ]
+        },
+        {
+          "section_id": "sop-02",
+          "title": "TMS Setup and Delivery",
+          "content": [
+            "Confirm coil type: figure-8, 70 mm. Check coil cable integrity.",
+            "Confirm stimulation site from protocol (ipsilesional M1 for PRO-TMS-STR-01; contralesional M1 for PRO-TMS-STR-02). Verify against patient notes.",
+            "Attach EEG cap or mark scalp using 10-20 system. Use neuronavigation if available.",
+            "Set parameters per protocol: frequency, intensity, pulse count. Cross-check with clinician prescription before starting.",
+            "Monitor patient throughout. Do not leave unattended. Ask about comfort at 5-minute intervals."
+          ]
+        },
+        {
+          "section_id": "sop-03",
+          "title": "tDCS Setup (PRO-TDCS-STR-01)",
+          "content": [
+            "Inspect scalp at both electrode sites for skin integrity. Document any redness before session.",
+            "Prepare saline sponge electrodes (35 cm²): damp but not dripping.",
+            "Position anode over ipsilesional M1 (confirm from patient notes). Position cathode over contralesional M1.",
+            "Secure with head strap. Confirm flat contact. Set device: 2 mA, 20 minutes, 30-second ramp-up.",
+            "Start tDCS simultaneously with the physiotherapy session. Remain available during stimulation."
+          ]
+        },
+        {
+          "section_id": "sop-04",
+          "title": "Post-Session Documentation",
+          "content": [
+            "Remove electrodes or coil. Inspect scalp for redness, marks, or burns.",
+            "Ask patient: headache, tingling, unusual sensation, mood change.",
+            "Log: protocol ID, parameters used, pulse count/current, duration, patient-reported experience, any AEs.",
+            "Notify clinician immediately of any AE rated moderate or above.",
+            "Confirm physiotherapy session occurred and note in combined session record."
+          ]
+        }
+      ]
+    }
+  },
+
+  "monitoring_rules": {
+    "assessment_schedule": [
+      {
+        "assessment_id": "ASS-STR-03",
+        "assessment_name": "FMA-UE",
+        "timing": "Before session 1 (baseline); after session 5; after session 10; after session 15; end of course",
+        "frequency": "Every 5 sessions",
+        "administered_by": "Clinician-rated"
+      },
+      {
+        "assessment_id": "ASS-STR-05",
+        "assessment_name": "Barthel Index",
+        "timing": "Baseline and end of course",
+        "frequency": "Once at baseline and once at course completion",
+        "administered_by": "Clinician-rated"
+      },
+      {
+        "assessment_id": "ASS-STR-07",
+        "assessment_name": "PHQ-9",
+        "timing": "Baseline; session 10; end of course",
+        "frequency": "Every 10 sessions",
+        "administered_by": "Patient self-report"
+      },
+      {
+        "assessment_id": "ASS-STR-04",
+        "assessment_name": "ARAT",
+        "timing": "Baseline and end of course",
+        "frequency": "Once at baseline and once at course completion",
+        "administered_by": "Clinician-rated"
+      }
+    ],
+    "response_thresholds": [
+      {
+        "assessment_id": "ASS-STR-03",
+        "assessment_name": "FMA-UE",
+        "lower_is_better": false,
+        "response_threshold": "≥5.25-point increase from baseline (MCID for FMA-UE)",
+        "remission_threshold": "FMA-UE score >55 (minimal impairment category)",
+        "non_response_threshold": "Fewer than 5-point improvement from baseline after 10 sessions — triggers clinician review",
+        "deterioration_threshold": "Decrease ≥5 points from baseline at any monitoring point — urgent clinician review"
+      },
+      {
+        "assessment_id": "ASS-STR-07",
+        "assessment_name": "PHQ-9",
+        "lower_is_better": true,
+        "response_threshold": "≥5-point reduction from baseline PHQ-9 score",
+        "remission_threshold": "PHQ-9 total score ≤4",
+        "non_response_threshold": "PHQ-9 remains ≥15 at session 10 — psychiatric review",
+        "deterioration_threshold": "PHQ-9 increases ≥5 points from baseline — clinician review within 2 working days"
+      }
+    ],
+    "adverse_event_triggers": [
+      {
+        "event_type": "Seizure",
+        "severity": "Serious",
+        "action": "Activate emergency protocol immediately. Lay patient safely. Call emergency services. Do not resume any neuromodulation without written neurology clearance.",
+        "suspend_treatment": true
+      },
+      {
+        "event_type": "New neurological deficit post-session (weakness, speech change, visual disturbance)",
+        "severity": "Serious",
+        "action": "Treat as potential TIA or stroke event. Call emergency services immediately. Document as serious AE. Suspend all neuromodulation.",
+        "suspend_treatment": true
+      },
+      {
+        "event_type": "Skin burn or blister at tDCS electrode site",
+        "severity": "Moderate",
+        "action": "Suspend tDCS sessions. Photograph and document lesion. Medical review if skin broken. Reassess electrode technique and contact quality before considering resumption.",
+        "suspend_treatment": true
+      },
+      {
+        "event_type": "Persistent headache (>4 hours post-session)",
+        "severity": "Moderate",
+        "action": "Reduce TMS intensity to 80% rMT or tDCS current to 1.5 mA. Clinician review if headache persists after two consecutive sessions at reduced intensity.",
+        "suspend_treatment": false
+      },
+      {
+        "event_type": "Blood pressure >180/110 mmHg at pre-session check",
+        "severity": "Moderate",
+        "action": "Defer session. Refer to GP or stroke physician same day. Do not resume until blood pressure controlled.",
+        "suspend_treatment": true
+      },
+      {
+        "event_type": "Mild scalp discomfort or tingling at electrode/coil site",
+        "severity": "Mild",
+        "action": "Reassure patient (expected). Log intensity. If rated >5/10 comfort: adjust electrode contact (tDCS) or reduce intensity. Document.",
+        "suspend_treatment": false
+      }
+    ],
+    "escalation_rules": [
+      {
+        "trigger": "FMA-UE improvement <5 points after 10 sessions",
+        "action": "Clinician review: assess PT engagement quality, protocol adherence, re-check laterality of stimulation. Consider switching protocol (e.g. from excitatory to inhibitory or vice versa) or adding tDCS alongside TMS.",
+        "urgency": "Routine"
+      },
+      {
+        "trigger": "PHQ-9 score ≥15 at any monitoring point",
+        "action": "Psychiatric or psychology referral. Consider dedicated PSD rTMS protocol. Do not suspend motor rehabilitation without clinical reason.",
+        "urgency": "Routine"
+      },
+      {
+        "trigger": "Any serious adverse event (seizure, stroke recurrence, new neurological deficit)",
+        "action": "Immediate suspension of all neuromodulation. Emergency services called. Clinical lead notified within 1 hour. Incident report within 24 hours.",
+        "urgency": "Emergency"
+      },
+      {
+        "trigger": "Three or more consecutive missed sessions without contact",
+        "action": "Patient welfare check. Review barriers to attendance. Clinician review if patient unreachable or rehabilitation risk identified.",
+        "urgency": "Routine"
+      },
+      {
+        "trigger": "Blood pressure persistently >160/100 mmHg across 3+ pre-session checks",
+        "action": "Urgent referral to stroke physician or GP. Suspend neuromodulation until blood pressure managed. Document all deferred sessions.",
+        "urgency": "Urgent"
+      }
+    ],
+    "adherence_rules": {
+      "minimum_session_adherence_pct": 80,
+      "consecutive_missed_sessions_flag": 2,
+      "action_on_low_adherence": "Patient contact within 24 hours of second missed session. Review transport, fatigue, or medical barriers. Clinician review if <70% adherence without clear justification — consider modified schedule."
+    }
+  },
+
+  "report_templates": [
+    {
+      "id": "RPT-STR-INTAKE",
+      "name": "Stroke Rehabilitation Neuromodulation Intake Summary",
+      "report_type": "intake-summary",
+      "audience": "Clinician",
+      "frequency": "Once — at intake before first session",
+      "sections": [
+        {
+          "section_id": "rpt-01",
+          "title": "Patient and Stroke Summary",
+          "auto_populate_from": ["patient.name", "patient.dob", "patient.stroke_date", "patient.stroke_type", "patient.lesion_side", "patient.nihss_acute"],
+          "clinician_narrative_prompt": "Confirm stroke type, hemisphere affected, date of stroke, and acute severity. Note any neurosurgical interventions and their timing.",
+          "required": true
+        },
+        {
+          "section_id": "rpt-02",
+          "title": "Current Motor and Functional Status",
+          "auto_populate_from": ["assessment.FMA-UE.baseline", "assessment.ARAT.baseline", "assessment.Barthel.baseline", "assessment.mRS.baseline"],
+          "clinician_narrative_prompt": "Describe current motor impairment severity and functional independence level. Comment on MEP status from TMS mapping if performed.",
+          "required": true
+        },
+        {
+          "section_id": "rpt-03",
+          "title": "Rehabilitation Programme",
+          "auto_populate_from": ["medical_history.rehabilitation_schedule", "medical_history.pt_ot_provider"],
+          "clinician_narrative_prompt": "Document current physiotherapy and occupational therapy programme. Confirm concurrent PT availability for protocol pairing.",
+          "required": true
+        },
+        {
+          "section_id": "rpt-04",
+          "title": "Contraindication Review",
+          "auto_populate_from": ["intake.contraindication_screening_json", "intake.neurosurgical_history", "intake.seizure_history"],
+          "clinician_narrative_prompt": "Confirm haemorrhagic stroke timing, seizure history, and metallic implant status. Document any neurosurgery and clearance obtained.",
+          "required": true
+        },
+        {
+          "section_id": "rpt-05",
+          "title": "Selected Protocol and Rationale",
+          "auto_populate_from": ["course.protocol_id", "course.modality", "course.stroke_phase"],
+          "clinician_narrative_prompt": "State selected protocol and rationale — phenotype match (upper limb motor), evidence grade, stroke phase, and off-label acknowledgement obtained.",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "RPT-STR-PROGRESS",
+      "name": "Stroke Rehabilitation Progress Report",
+      "report_type": "progress-report",
+      "audience": "Referring Physician",
+      "frequency": "Every 5 sessions",
+      "sections": [
+        {
+          "section_id": "prg-01",
+          "title": "Session Adherence and Physiotherapy Coupling",
+          "auto_populate_from": ["course.sessions_completed", "course.sessions_planned", "course.pt_sessions_coupled"],
+          "clinician_narrative_prompt": "Comment on attendance and whether physiotherapy was successfully coupled after each TMS/tDCS session.",
+          "required": true
+        },
+        {
+          "section_id": "prg-02",
+          "title": "Motor Recovery Trajectory",
+          "auto_populate_from": ["assessment.FMA-UE.trend", "assessment.ARAT.latest"],
+          "clinician_narrative_prompt": "Report FMA-UE score trajectory from baseline. State whether MCID threshold (≥5.25 points) has been met. Comment on functional motor changes observed in PT.",
+          "required": true
+        },
+        {
+          "section_id": "prg-03",
+          "title": "Safety and Adverse Events",
+          "auto_populate_from": ["adverse_events.since_last_review", "session.bp_readings"],
+          "clinician_narrative_prompt": "Summarise any AEs. Note blood pressure readings if consistently elevated. State any sessions deferred and reason.",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "RPT-STR-EOC",
+      "name": "Stroke Rehabilitation End-of-Course Report",
+      "report_type": "end-of-course-report",
+      "audience": "Referring Physician",
+      "frequency": "Once — at course completion",
+      "sections": [
+        {
+          "section_id": "eoc-01",
+          "title": "Treatment Course Summary",
+          "auto_populate_from": ["course.start_date", "course.end_date", "course.sessions_completed", "course.protocol_id"],
+          "clinician_narrative_prompt": "Summarise the protocol delivered, sessions completed, and any protocol modifications during the course.",
+          "required": true
+        },
+        {
+          "section_id": "eoc-02",
+          "title": "Motor Outcome — Baseline to Endpoint",
+          "auto_populate_from": ["assessment.FMA-UE.baseline", "assessment.FMA-UE.endpoint", "assessment.FMA-UE.change", "assessment.Barthel.baseline", "assessment.Barthel.endpoint", "assessment.ARAT.endpoint"],
+          "clinician_narrative_prompt": "Interpret motor outcome data. State response status (responder/non-responder). Comment on functional independence change.",
+          "required": true
+        },
+        {
+          "section_id": "eoc-03",
+          "title": "Safety Summary",
+          "auto_populate_from": ["adverse_events.all_course"],
+          "clinician_narrative_prompt": "Confirm all AEs documented and resolved. State any ongoing safety concerns.",
+          "required": true
+        },
+        {
+          "section_id": "eoc-04",
+          "title": "Recommendations",
+          "auto_populate_from": [],
+          "clinician_narrative_prompt": "State recommendation: maintenance TMS, repeat course, continued physiotherapy, secondary prevention review, or discharge. Specify follow-up timing.",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "RPT-STR-SOAP",
+      "name": "Stroke Rehabilitation Session SOAP Note",
+      "report_type": "soap-note",
+      "audience": "Internal",
+      "frequency": "Every session",
+      "sections": [
+        {
+          "section_id": "soap-s",
+          "title": "Subjective",
+          "auto_populate_from": ["session.patient_report", "session.bp_pre"],
+          "clinician_narrative_prompt": "Document patient-reported changes since last session, pain levels, mood, fatigue, and blood pressure at session start.",
+          "required": true
+        },
+        {
+          "section_id": "soap-o",
+          "title": "Objective",
+          "auto_populate_from": ["session.protocol_id", "session.parameters", "session.pulse_count", "session.duration", "session.adverse_events"],
+          "clinician_narrative_prompt": "Record protocol delivered, exact parameters, pulse count or current delivered, and concurrent PT session details.",
+          "required": true
+        },
+        {
+          "section_id": "soap-a",
+          "title": "Assessment",
+          "auto_populate_from": ["assessment.latest_scores"],
+          "clinician_narrative_prompt": "Clinical impression of motor response trajectory. Note any changes in function, safety concerns, or risk factors.",
+          "required": true
+        },
+        {
+          "section_id": "soap-p",
+          "title": "Plan",
+          "auto_populate_from": ["course.next_session", "course.protocol_adjustments_pending"],
+          "clinician_narrative_prompt": "State plan for next session: parameter adjustments, assessment due, PT coordination, or clinical review actions.",
+          "required": true
+        }
+      ]
+    }
+  ],
+
+  "home_program_templates": [
+    {
+      "id": "HP-STR-01",
+      "name": "Stroke Rehabilitation Home Exercise Programme",
+      "modality_slug": "tdcs",
+      "device_required": "No home neuromodulation device — home programme consists of physiotherapy exercises only",
+      "prerequisite_clinic_sessions": 5,
+      "sessions_per_week": 5,
+      "session_duration_minutes": 30,
+      "total_weeks": 4,
+      "patient_instructions": [
+        "Perform your upper limb exercises at the same time each day — consistency is important for brain learning.",
+        "Focus on the specific exercises your physiotherapist has taught you — quality of movement matters more than speed.",
+        "If you have a mirror box or exercise bands prescribed, use them as directed.",
+        "Do the exercises sitting safely in a stable chair with good support.",
+        "Stop if you feel pain, sudden weakness, or any unusual symptoms — contact the clinic.",
+        "Log your home exercise session in your rehabilitation diary (date, duration, exercises completed, any difficulty or discomfort)."
+      ],
+      "safety_checklist": [
+        "I do not have a headache or feel unwell today.",
+        "I have not had any seizure or unusual neurological event since my last clinic session.",
+        "My blood pressure medication has been taken as prescribed.",
+        "I am sitting safely and have cleared the space around me to prevent falls.",
+        "I have my clinic contact number available if I need to report a concern."
+      ],
+      "reporting_requirements": [
+        "Log exercise session in rehabilitation diary (date, duration, exercises completed).",
+        "Rate arm fatigue and pain (0–10) after each session.",
+        "Report to clinic at next session: any missed home sessions, new symptoms, or functional changes observed.",
+        "Contact clinic immediately if any new neurological symptoms develop."
+      ],
+      "contraindications_for_home": [
+        "New weakness, numbness, or speech difficulty — call emergency services (potential TIA/stroke recurrence)",
+        "Headache rated ≥7/10",
+        "Blood pressure >180/110 mmHg if self-monitoring",
+        "Acute illness or fever",
+        "Feeling unsafe mobilising without assistance"
+      ],
+      "evidence_note": "Home exercise component of stroke rehabilitation (without home neuromodulation) has established evidence. Home tDCS devices are not recommended for stroke rehabilitation at present — clinic delivery only. Home programme complements clinic sessions."
+    }
+  ],
+
+  "consent_documents": [
+    {
+      "id": "CONS-STR-GEN-01",
+      "name": "Stroke Rehabilitation Neuromodulation — General Informed Consent",
+      "document_type": "informed-consent",
+      "modality_slug": null,
+      "when_required": "Before first session of any neuromodulation treatment for stroke rehabilitation",
+      "key_disclosures": [
+        "All neuromodulation treatments for stroke rehabilitation (TMS, tDCS) are off-label — they do not have specific regulatory approval for stroke rehabilitation.",
+        "Evidence for rTMS is EV-B (literature-supported, multiple meta-analyses); tDCS is EV-C (emerging, smaller studies). Results are not guaranteed and vary between individuals.",
+        "Common side effects include headache (TMS — typically mild and transient), scalp tingling or discomfort at the coil site, and post-session fatigue.",
+        "Serious but rare risks include seizure (TMS), skin irritation or burn under tDCS electrodes, and transient worsening of neurological symptoms.",
+        "These treatments must be used alongside (not instead of) physiotherapy and occupational therapy — they are not standalone stroke treatments.",
+        "Certain medical conditions (metal skull implants, uncontrolled seizures, recent haemorrhagic stroke) may make brain stimulation unsuitable.",
+        "I may withdraw from treatment at any time without penalty.",
+        "My treatment data will be stored securely. It will not be shared without my consent except where legally required.",
+        "I have been informed of alternative treatment options and have had the opportunity to ask questions."
+      ],
+      "signature_required": true,
+      "witness_required": false,
+      "clinician_co_sign_required": true,
+      "review_frequency": "Each new treatment course"
+    },
+    {
+      "id": "CONS-STR-OFL-01",
+      "name": "Stroke Rehabilitation Off-Label Treatment Acknowledgement",
+      "document_type": "off-label-acknowledgement",
+      "modality_slug": null,
+      "when_required": "Before protocol generation for any stroke neuromodulation protocol",
+      "key_disclosures": [
+        "The treatment proposed is off-label — it is not specifically approved for stroke rehabilitation by the relevant regulatory authority.",
+        "My clinician has explained the current evidence base, including evidence grade (EV-B for rTMS; EV-C for tDCS).",
+        "I understand this treatment is used in addition to my rehabilitation programme, not as a replacement.",
+        "I consent to proceeding with this off-label treatment after consideration of the evidence and alternatives.",
+        "My clinician will monitor my response using standardised assessments and adjust or stop treatment if needed."
+      ],
+      "signature_required": true,
+      "witness_required": false,
+      "clinician_co_sign_required": true,
+      "review_frequency": "Once per modality per course"
+    },
+    {
+      "id": "CONS-STR-TMS-01",
+      "name": "TMS Safety Screening — Stroke Rehabilitation",
+      "document_type": "contraindication-screening",
+      "modality_slug": "tms",
+      "when_required": "Before first TMS session and at start of each new TMS course",
+      "key_disclosures": [
+        "TMS is contraindicated if I have metal skull implants, aneurysm clips, cochlear implants, or a cardiac pacemaker.",
+        "Seizure is a known risk of TMS. I have disclosed my full seizure history and post-stroke seizure status.",
+        "I have confirmed whether my stroke was ischaemic or haemorrhagic, and the date of stroke (haemorrhagic stroke <3 months is a contraindication).",
+        "Emergency seizure management is available in the clinic.",
+        "I must inform the clinic if my medical status changes (new implant, new seizure, new medication) before my next session."
+      ],
+      "signature_required": true,
+      "witness_required": false,
+      "clinician_co_sign_required": true,
+      "review_frequency": "Before each new TMS course and annually for ongoing treatment"
+    }
+  ]
+}

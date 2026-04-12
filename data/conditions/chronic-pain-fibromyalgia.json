@@ -1,0 +1,1487 @@
+{
+  "$schema": "../schemas/condition-package.schema.json",
+  "schema_version": "1.0.0",
+  "id": "CON-008",
+  "slug": "chronic-pain-fibromyalgia",
+  "name": "Chronic Pain / Fibromyalgia",
+  "category": "Neurological \u2014 Pain",
+  "icd_10": ["G89.29", "M79.7"],
+  "created_at": "2026-04-12",
+  "updated_at": "2026-04-12",
+  "review_status": "reviewed",
+  "reviewed_by": "DeepSynaps Clinical Team",
+
+  "condition_overview": {
+    "summary": "Chronic pain is pain persisting beyond normal tissue healing time (typically >3 months) without clear nociceptive cause, often involving central sensitisation of pain processing pathways. Fibromyalgia is a prototype central sensitisation disorder characterised by widespread musculoskeletal pain, fatigue, cognitive difficulties, sleep disturbance, and mood symptoms in the absence of inflammatory or structural pathology. Neuromodulation targeting the primary motor cortex (M1) and DLPFC has IFCN Level B evidence for fibromyalgia — the highest current recommendation for non-pharmacological brain stimulation in this condition.",
+    "prevalence": "Chronic pain affects approximately 20–30% of adults globally. Fibromyalgia affects 2–4% of the general population (higher in women: 7:1 female-to-male ratio) and is one of the most common causes of widespread pain seen in rheumatology and pain clinics.",
+    "phenotype_clusters": [
+      {
+        "id": "PHE-PAIN-01",
+        "name": "Central Sensitisation",
+        "description": "Amplified pain signalling arising from abnormal central nervous system pain processing rather than peripheral nociceptive input. Characterised by allodynia (pain from non-painful stimuli), hyperalgesia, and widespread body pain with normal peripheral and inflammatory markers.",
+        "primary_modality": "tms",
+        "qeeg_signature": "Reduced mu rhythm (8–12 Hz) at C3/C4; elevated gamma activity; disrupted thalamocortical connectivity"
+      },
+      {
+        "id": "PHE-PAIN-02",
+        "name": "Neuropathic Component",
+        "description": "Pain with burning, electric shock, tingling, or numbness quality suggesting peripheral or central nervous system nerve pathway involvement. May overlap with central sensitisation but has additional neuropathic mechanisms.",
+        "primary_modality": "tms",
+        "qeeg_signature": "Disrupted somatosensory cortex responses; altered P300 latency; abnormal pain-evoked potentials"
+      },
+      {
+        "id": "PHE-PAIN-03",
+        "name": "Fatigue-Dominant",
+        "description": "Fibromyalgia presentation where profound fatigue and post-exertional malaise are the dominant complaints alongside widespread pain. Associated with disrupted sleep architecture, reduced activity, and deconditioning. Pain threshold may be lower than in pain-dominant presentations.",
+        "primary_modality": "tdcs",
+        "qeeg_signature": "Elevated frontal theta; reduced alpha; sleep-related EEG abnormalities"
+      },
+      {
+        "id": "PHE-PAIN-04",
+        "name": "Cognitive-Dominant (Fibro Fog)",
+        "description": "Prominent cognitive dysfunction including memory difficulties, attention deficits, mental slowing, and word-finding problems ('fibro fog'). Significant impact on occupational and daily functioning. Often under-recognised and under-treated in standard fibromyalgia management.",
+        "primary_modality": "tdcs",
+        "qeeg_signature": "Elevated frontal theta; reduced frontal beta; working memory network disruption on cognitive EEG tasks"
+      }
+    ],
+    "severity_levels": ["Mild", "Moderate", "Severe"],
+    "population": ["Adult (18+)"],
+    "symptom_clusters": [
+      "Widespread musculoskeletal pain (bilateral, above and below waist, axial)",
+      "Fatigue and low energy (often severe, disproportionate to activity)",
+      "Cognitive difficulties — 'fibro fog' (memory, attention, mental slowing, word-finding)",
+      "Sleep disturbance (non-restorative sleep, insomnia, fragmented sleep architecture)",
+      "Mood symptoms (depression, anxiety — high comorbidity)",
+      "Tenderness at multiple body sites (including former tender point locations)",
+      "Somatic sensitivities (light, noise, smell, temperature)"
+    ],
+    "highest_evidence_level": "EV-B",
+    "relevant_modalities": [
+      "tms",
+      "tdcs",
+      "ces",
+      "neurofeedback"
+    ],
+    "neurobiology": "Fibromyalgia and chronic central sensitisation involve dysregulation of descending pain modulatory pathways originating in the primary motor cortex (M1) and transmitted through corticospinal tracts to the spinal dorsal horn. Excitatory stimulation of the left M1 (rTMS, tDCS anode) activates these descending inhibitory pathways, reducing central sensitisation and upward pain signal transmission. Concurrently, the DLPFC modulates the affective and cognitive dimensions of pain via cortico-limbic connections to the anterior cingulate cortex (ACC) and insula. Neuroimaging consistently shows altered default mode network, increased insula activity, and reduced descending pain inhibition in fibromyalgia.",
+    "comorbidities": [
+      "Major depressive disorder (30–50% in fibromyalgia)",
+      "Generalised anxiety disorder (30–40%)",
+      "Insomnia and non-restorative sleep (nearly universal in fibromyalgia)",
+      "Irritable bowel syndrome (30–50%)",
+      "Chronic fatigue syndrome / myalgic encephalomyelitis (substantial overlap)",
+      "Migraine and tension-type headache (25–35%)",
+      "Temporomandibular disorder",
+      "PTSD (elevated prevalence in fibromyalgia cohorts)",
+      "Restless legs syndrome"
+    ],
+    "differential_diagnoses": [
+      "Inflammatory arthritis (rheumatoid arthritis, seronegative arthritis — check ESR, CRP, RF, anti-CCP)",
+      "Polymyalgia rheumatica (proximal muscle pain in >50 years — elevated ESR, responds to steroids)",
+      "Systemic lupus erythematosus (multi-organ involvement, ANA positive)",
+      "Hypothyroidism (fatigue, pain, cognitive slowing — TSH screen required)",
+      "Ankylosing spondylitis / axial spondyloarthropathy (sacroiliac joint involvement — HLA-B27)",
+      "Multiple sclerosis (neurological symptoms, demyelinating lesions on MRI)",
+      "Inflammatory myopathy (proximal muscle weakness, elevated CK)",
+      "Malignancy-related pain (constitutional symptoms, localising features)",
+      "Somatoform/functional pain disorders (diagnosis of exclusion — overlap with fibromyalgia framework)",
+      "Small fibre neuropathy (skin biopsy, autonomic testing)"
+    ]
+  },
+
+  "patient_friendly_explanation": {
+    "what_is_it": "Fibromyalgia is a condition where the brain and nervous system process pain signals differently — the pain 'volume' is turned up too high throughout the body, even when there is no injury or tissue damage. This is not 'imagined' pain — it is very real, caused by changes in how the brain handles pain signals.",
+    "how_it_affects_you": "Fibromyalgia causes widespread pain, extreme tiredness, difficulty sleeping, and often a 'foggy' feeling in the mind that makes it hard to concentrate and remember things. These symptoms together can make everyday activities — work, socialising, household tasks — very difficult. The unpredictable nature of the condition can also cause anxiety and low mood.",
+    "treatment_options_overview": "Treatment for fibromyalgia usually involves a combination of approaches including exercise, pain psychology, medication if appropriate, and pacing strategies. Brain stimulation is an additional option for people who have not had enough benefit from standard treatments. rTMS (repetitive transcranial magnetic stimulation) and tDCS (transcranial direct current stimulation) use safe, gentle brain stimulation to activate the brain's own pain-control systems. These treatments have European medical guideline support for fibromyalgia.",
+    "what_to_expect": "rTMS sessions take about 20–30 minutes and involve sitting comfortably in a chair while a coil placed near your head delivers magnetic pulses. You will hear a clicking sound and may feel a gentle tapping sensation on your scalp. tDCS sessions involve comfortable sponge pads placed on your head through which a very mild, barely perceptible current flows for 20–30 minutes. Both treatments are typically delivered 5 days a week for 3 weeks as an initial course. Your clinician will monitor your pain scores throughout.",
+    "faq": [
+      {
+        "question": "Will this cure my fibromyalgia?",
+        "answer": "Brain stimulation is not a cure, but it can meaningfully reduce pain intensity and improve quality of life. Many patients in research studies have experienced significant pain reduction during and after a course of treatment. Results vary between individuals."
+      },
+      {
+        "question": "Is rTMS painful?",
+        "answer": "Most people describe rTMS as a gentle tapping or knocking sensation on their scalp. It is not painful for most people, though some find the first few sessions uncomfortable. Your clinician will adjust the settings to a level that is tolerable for you."
+      },
+      {
+        "question": "How long do the benefits last?",
+        "answer": "Research suggests that pain benefits from rTMS can last 2–6 weeks after a course of treatment. Maintenance sessions every 1–4 weeks can help sustain benefits. Your clinician will discuss a maintenance plan based on your response."
+      },
+      {
+        "question": "Can I continue my pain medications?",
+        "answer": "Yes — brain stimulation does not replace medications. Your pain specialist or GP will advise you on how to manage your medications alongside brain stimulation. Never stop medications without medical advice."
+      },
+      {
+        "question": "Are there side effects?",
+        "answer": "rTMS commonly causes mild headache or scalp discomfort, which usually resolves within a few hours. tDCS commonly causes a mild tingling sensation under the pads. Serious side effects are rare. Your clinician will discuss the full risk profile with you before treatment."
+      }
+    ]
+  },
+
+  "medical_history_requirements": {
+    "required_fields": [
+      {
+        "field": "Confirmed chronic pain or fibromyalgia diagnosis (ICD-10 G89.29 or M79.7)",
+        "reason": "Protocol generation is diagnosis-specific. For fibromyalgia, ACR 2010/2016 diagnostic criteria must be documented. For chronic pain, duration >3 months and central sensitisation assessment must be noted.",
+        "blocks_protocol": true
+      },
+      {
+        "field": "Pain phenotype identification (central sensitisation, neuropathic, fatigue-dominant, cognitive-dominant)",
+        "reason": "Phenotype determines primary brain target selection and protocol choice.",
+        "blocks_protocol": true
+      },
+      {
+        "field": "Rheumatological and inflammatory workup (ESR, CRP, RF, ANA, anti-CCP, FBC)",
+        "reason": "Inflammatory arthritis and autoimmune conditions must be excluded before fibromyalgia-specific neuromodulation. Inflammatory pathology requires different treatment.",
+        "blocks_protocol": true
+      },
+      {
+        "field": "Opioid use history (current and past, doses, duration)",
+        "reason": "Chronic opioid use alters central pain processing and neural excitability. High-dose opioids may reduce rTMS efficacy. Opioid dependence requires addiction medicine co-management.",
+        "blocks_protocol": false
+      },
+      {
+        "field": "Current pain medications (full list with doses)",
+        "reason": "Certain medications lower seizure threshold (tramadol, tricyclics, SNRIs at high doses) and are relevant to TMS safety screening.",
+        "blocks_protocol": false
+      },
+      {
+        "field": "Psychiatric comorbidity screen (depression, anxiety, PTSD)",
+        "reason": "Comorbid depression occurs in 30–50% of fibromyalgia and affects protocol selection (may require DLPFC targeting) and concurrent psychiatric treatment planning.",
+        "blocks_protocol": false
+      },
+      {
+        "field": "Seizure history",
+        "reason": "Seizure history is an absolute contraindication for rTMS. Must be documented before any TMS protocol.",
+        "blocks_protocol": true
+      },
+      {
+        "field": "Metal implants in head/neck/upper body",
+        "reason": "Metallic implants are an absolute contraindication for rTMS.",
+        "blocks_protocol": true
+      },
+      {
+        "field": "Cardiac pacemaker or implanted electronic device",
+        "reason": "Absolute contraindication for rTMS. Relative for tDCS — discuss with cardiologist.",
+        "blocks_protocol": true
+      },
+      {
+        "field": "Scalp and skin integrity at electrode sites",
+        "reason": "Open wounds or active dermatitis at electrode sites contraindicate tDCS at those sites.",
+        "blocks_protocol": false
+      },
+      {
+        "field": "Prior pain treatments and response (physiotherapy, CBT-pain, medication trials)",
+        "reason": "Must document prior treatment history to establish that appropriate conservative treatments have been trialled before adding neuromodulation.",
+        "blocks_protocol": false
+      }
+    ],
+    "clinical_interview_checklist": [
+      "Pain onset, duration, and progression (acute vs chronic; fibromyalgia onset and trigger events)",
+      "Pain distribution (widespread vs regional; bilateral; above and below waist; axial)",
+      "Pain quality: burning, electric, aching, pressure, stabbing, or throbbing",
+      "Pain intensity (NRS/VAS): average, worst, and best in last week",
+      "Fatigue severity and impact on daily functioning",
+      "Cognitive symptoms ('fibro fog'): memory, concentration, word-finding, mental speed",
+      "Sleep quality and pattern (insomnia comorbidity screen)",
+      "Mood: depression and anxiety screening (PHQ-9, GAD-7 required)",
+      "Functional impairment: work capacity, activities of daily living, social functioning",
+      "Current and past analgesic use: effectiveness, side effects, opioid use history",
+      "Exercise tolerance and physical activity level",
+      "Central sensitisation features: allodynia, hyperalgesia, sensory sensitivities",
+      "History of trauma, adverse childhood experiences (relevant to pain chronification)",
+      "Social support and work/disability status",
+      "Goals and expectations for neuromodulation treatment"
+    ],
+    "rule_out_differentials": [
+      "Rheumatoid arthritis and inflammatory arthritis (synovitis, elevated CRP/ESR, positive autoantibodies)",
+      "Polymyalgia rheumatica (age >50, proximal girdle pain, very elevated ESR — steroid responsive)",
+      "Systemic lupus erythematosus (multisystem involvement, ANA/anti-dsDNA positive)",
+      "Hypothyroidism (TSH elevated — produces pain, fatigue, cognitive slowing mimicking fibromyalgia)",
+      "Multiple sclerosis (focal neurological signs, demyelinating lesions on MRI)",
+      "Inflammatory myopathy (dermatomyositis/polymyositis — elevated CK, muscle weakness)",
+      "Malignancy-related pain (red flags: weight loss, night sweats, lymphadenopathy)",
+      "Small fibre neuropathy (burning pain, autonomic symptoms — skin punch biopsy, autonomic testing)"
+    ],
+    "comorbidity_screen": [
+      "Depression (PHQ-9 — scores ≥10 require concurrent antidepressant treatment or psychological therapy)",
+      "Anxiety (GAD-7)",
+      "Sleep quality (ISI, PSQI — insomnia comorbidity is nearly universal in fibromyalgia; treat concurrently)",
+      "Opioid risk (ORT — Opioid Risk Tool; AUDIT-C for alcohol use)",
+      "PTSD (PCL-5 — elevated prevalence in fibromyalgia; pain catastrophising linked to trauma history)"
+    ],
+    "prior_treatment_required": [
+      "Trial of aerobic exercise programme (graded exercise therapy or aquatic therapy)",
+      "Pain psychology or CBT-pain programme",
+      "Medication trials: duloxetine, pregabalin, or amitriptyline (first-line fibromyalgia pharmacotherapy)",
+      "Physiotherapy and pacing strategies",
+      "Multidisciplinary pain clinic assessment if available"
+    ],
+    "special_population_flags": [
+      {
+        "population": "Patients on high-dose opioids (>90 morphine milligram equivalents/day)",
+        "additional_requirements": [
+          "Addiction medicine review if opioid dependence suspected",
+          "Coordinate tapering plan with prescriber alongside neuromodulation — neuromodulation may facilitate opioid reduction",
+          "Document baseline opioid dose for outcome tracking (reduction in opioid use as secondary outcome)"
+        ]
+      },
+      {
+        "population": "Patients with significant psychiatric comorbidity (MDD, PTSD)",
+        "additional_requirements": [
+          "Psychiatric review required before neuromodulation initiation",
+          "Concurrent psychological or pharmacological treatment for psychiatric comorbidity must be in place",
+          "Consider DLPFC protocol (PRO-TDCS-PAIN-02) to address pain-depression comorbidity"
+        ]
+      }
+    ]
+  },
+
+  "contraindications": {
+    "absolute": [
+      {
+        "condition": "Active epilepsy or uncontrolled seizure disorder",
+        "rationale": "rTMS significantly increases seizure risk. No rTMS protocol may proceed. tDCS may be considered with neurologist clearance."
+      },
+      {
+        "condition": "Metallic implant in the head, neck, or upper chest",
+        "rationale": "TMS electromagnetic field can heat or displace metallic implants. Absolute contraindication for all TMS protocols."
+      },
+      {
+        "condition": "Implanted cardiac pacemaker or defibrillator",
+        "rationale": "Electromagnetic fields from TMS may interfere with pacemaker function. Absolute for TMS; relative for tDCS — cardiologist review required."
+      },
+      {
+        "condition": "Active psychosis or acute manic episode",
+        "rationale": "Neuromodulation must not proceed during active psychosis or acute mania until psychiatric stabilisation."
+      },
+      {
+        "condition": "Undiagnosed neurological condition (new-onset symptoms)",
+        "rationale": "New neurological symptoms require investigation before neuromodulation. Neuromodulation in undiagnosed CNS pathology carries risk of adverse effects."
+      }
+    ],
+    "relative": [
+      {
+        "condition": "High-dose opioid therapy (>90 MME/day)",
+        "rationale": "Opioids lower seizure threshold and may interact with rTMS excitatory effects. May also reduce cortical plasticity and treatment response.",
+        "mitigation": "Document opioid dose. Liaise with prescribing physician. Reduce intensity to 80% rMT initially. Increase monitoring frequency. Consider gradual opioid tapering alongside neuromodulation."
+      },
+      {
+        "condition": "Active suicidal ideation",
+        "rationale": "Comorbid depression with suicidality requires primary psychiatric treatment. Treatment distress may temporarily worsen mood in vulnerable patients.",
+        "mitigation": "Complete psychiatric safety assessment before treatment. Safety plan in place. Weekly suicide risk screening throughout course."
+      },
+      {
+        "condition": "Pregnancy",
+        "rationale": "rTMS and tDCS have insufficient safety data in pregnancy. Insufficient evidence for foetal safety.",
+        "mitigation": "Defer TMS/tDCS until post-partum. Discuss with obstetrician. Non-pharmacological pain management strategies prioritised."
+      },
+      {
+        "condition": "Severe depression (PHQ-9 ≥20) without active psychiatric treatment",
+        "rationale": "Severe untreated depression may prevent engagement with treatment and worsen under stimulation.",
+        "mitigation": "Initiate psychiatric treatment concurrently. Consider DLPFC protocol addressing both pain and depression (PRO-TDCS-PAIN-02)."
+      },
+      {
+        "condition": "Traumatic brain injury (within 12 months)",
+        "rationale": "Post-acute TBI increases sensitivity to neural stimulation. Injury-specific cortical mapping required.",
+        "mitigation": "Neurologist clearance required. Wait until at least 6 months post-injury. Start at minimum effective intensity."
+      },
+      {
+        "condition": "Skin lesion, eczema, or wound at electrode placement site",
+        "rationale": "Active skin conditions at tDCS electrode sites increase risk of skin irritation or chemical burn.",
+        "mitigation": "Delay tDCS until skin healed. Document skin condition. Consider alternative electrode placement."
+      }
+    ],
+    "special_populations": [
+      {
+        "population": "Patients with opioid use disorder",
+        "flag": "Opioid use disorder requires addiction medicine co-management. rTMS may be continued with increased monitoring but must not be used as a substitute for addiction treatment."
+      },
+      {
+        "population": "Adults over 65",
+        "flag": "Start rTMS at lower intensity (80% rMT). Monitor closely for headache and fatigue. Ensure adequate skin hydration for tDCS electrode contact."
+      }
+    ],
+    "modality_specific": {
+      "tms": [
+        "No metal in skull (surgical pins, plates, clips from neurosurgery)",
+        "No cochlear implants or deep brain stimulator",
+        "No history of TMS-induced seizure",
+        "Completed standardised TMS Safety Screening Questionnaire before first session",
+        "Tramadol use: relative contraindication — tramadol lowers seizure threshold; document and use minimum effective intensity",
+        "Emergency seizure management equipment must be available in clinic before any session"
+      ],
+      "tdcs": [
+        "No open wounds or skin lesions at C3 (left M1) or reference electrode sites",
+        "No metal skull implants at stimulation site",
+        "Remove all metal jewellery from head and neck before session",
+        "Check skin integrity before every session"
+      ]
+    }
+  },
+
+  "assessment_bundle": {
+    "screening": [
+      {
+        "assessment_id": "ASS-NRS-001",
+        "name": "NRS Pain",
+        "full_name": "Numerical Rating Scale — Pain Intensity (0–10)",
+        "clinician_vs_patient": "Patient self-report",
+        "rationale": "Universal validated pain intensity screen. Single item: 0 = no pain, 10 = worst imaginable pain. Minimal clinically important difference (MCID) = 2-point reduction or 30% reduction. Primary screening and monitoring instrument.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 1,
+        "access": "Free",
+        "population": "Adult 18+"
+      },
+      {
+        "assessment_id": "ASS-FIQR-001",
+        "name": "FIQR",
+        "full_name": "Fibromyalgia Impact Questionnaire — Revised",
+        "clinician_vs_patient": "Patient self-report",
+        "rationale": "20-item validated fibromyalgia-specific outcome measure covering function, overall impact, and symptom severity (pain, fatigue, stiffness, sleep, depression, anxiety, cognitive, well-being, tenderness). Total score 0–100. Primary disease-specific outcome measure for fibromyalgia.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 10,
+        "access": "Free",
+        "population": "Adult 18+ (fibromyalgia)"
+      }
+    ],
+    "diagnostic": [
+      {
+        "assessment_id": "ASS-BPI-001",
+        "name": "BPI",
+        "full_name": "Brief Pain Inventory — Short Form",
+        "clinician_vs_patient": "Patient self-report",
+        "rationale": "9-item validated multidimensional pain measure assessing pain severity (worst, least, average, current) and pain interference with function (activity, mood, walking, work, relationships, sleep, enjoyment). Widely used in chronic pain trials. Separates pain intensity from pain-related functional interference.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 10,
+        "access": "Free",
+        "population": "Adult 18+"
+      },
+      {
+        "assessment_id": "ASS-SFMPQ-001",
+        "name": "SF-MPQ-2",
+        "full_name": "Short-Form McGill Pain Questionnaire — Version 2",
+        "clinician_vs_patient": "Patient self-report",
+        "rationale": "22-item validated pain quality measure covering continuous pain, intermittent pain, neuropathic pain, and affective descriptors. SF-MPQ-2 includes neuropathic pain items absent from original MPQ. Useful for identifying neuropathic component in fibromyalgia.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 10,
+        "access": "Free (public domain)",
+        "population": "Adult 18+"
+      }
+    ],
+    "baseline": [
+      {
+        "assessment_id": "ASS-NRS-001",
+        "name": "NRS (Baseline)",
+        "full_name": "Numerical Rating Scale — Pain Intensity Baseline",
+        "clinician_vs_patient": "Patient self-report",
+        "rationale": "Establishes primary pain intensity baseline. All response thresholds referenced against this score.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 1,
+        "access": "Free",
+        "population": "Adult 18+"
+      },
+      {
+        "assessment_id": "ASS-FIQR-001",
+        "name": "FIQR (Baseline)",
+        "full_name": "Fibromyalgia Impact Questionnaire — Revised Baseline",
+        "clinician_vs_patient": "Patient self-report",
+        "rationale": "Fibromyalgia-specific baseline for multidimensional impact. Primary disease-specific outcome measure.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 10,
+        "access": "Free",
+        "population": "Adult 18+"
+      },
+      {
+        "assessment_id": "ASS-PHQ9-001",
+        "name": "PHQ-9",
+        "full_name": "Patient Health Questionnaire-9",
+        "clinician_vs_patient": "Patient self-report",
+        "rationale": "Comorbid depression screening — mandatory given 30–50% comorbidity in fibromyalgia. Scores ≥10 require concurrent treatment. PHQ-9 score guides protocol selection (DLPFC protocol for significant depression).",
+        "lower_is_better": true,
+        "admin_duration_minutes": 5,
+        "access": "Free",
+        "population": "Adult 18+"
+      },
+      {
+        "assessment_id": "ASS-ISI-001",
+        "name": "ISI",
+        "full_name": "Insomnia Severity Index",
+        "clinician_vs_patient": "Patient self-report",
+        "rationale": "Sleep disturbance is near-universal in fibromyalgia. ISI documents baseline insomnia severity for co-management planning. Severe insomnia (ISI >21) may require concurrent insomnia protocol.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 5,
+        "access": "Free",
+        "population": "Adult 18+"
+      }
+    ],
+    "monitoring": [
+      {
+        "assessment_id": "ASS-NRS-001",
+        "name": "NRS (Monitoring)",
+        "full_name": "Numerical Rating Scale — Repeated Monitoring",
+        "clinician_vs_patient": "Patient self-report",
+        "rationale": "Primary monitoring instrument — administered before every session. Session-level pain tracking allows early detection of response and adverse changes.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 1,
+        "access": "Free",
+        "population": "Adult 18+"
+      },
+      {
+        "assessment_id": "ASS-FIQR-001",
+        "name": "FIQR (Monitoring)",
+        "full_name": "Fibromyalgia Impact Questionnaire — Repeated Measure",
+        "clinician_vs_patient": "Patient self-report",
+        "rationale": "Administered every 5 sessions. Tracks multi-domain fibromyalgia impact across treatment course.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 10,
+        "access": "Free",
+        "population": "Adult 18+"
+      }
+    ],
+    "outcome": [
+      {
+        "assessment_id": "ASS-NRS-001",
+        "name": "NRS (End of Course)",
+        "full_name": "Numerical Rating Scale — Endpoint",
+        "clinician_vs_patient": "Patient self-report",
+        "rationale": "Primary outcome: ≥30% NRS reduction or ≥2-point reduction from baseline. Response definition consistent with IMMPACT consensus recommendations for chronic pain trials.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 1,
+        "access": "Free",
+        "population": "Adult 18+"
+      },
+      {
+        "assessment_id": "ASS-FIQR-001",
+        "name": "FIQR (End of Course)",
+        "full_name": "Fibromyalgia Impact Questionnaire — Endpoint",
+        "clinician_vs_patient": "Patient self-report",
+        "rationale": "Primary fibromyalgia-specific outcome. Minimum clinically important difference (MCID) = 14% improvement in FIQR total score.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 10,
+        "access": "Free",
+        "population": "Adult 18+"
+      },
+      {
+        "assessment_id": "ASS-BPI-001",
+        "name": "BPI (End of Course)",
+        "full_name": "Brief Pain Inventory — Endpoint",
+        "clinician_vs_patient": "Patient self-report",
+        "rationale": "Secondary outcome capturing pain interference with function. Improvement in pain interference subscale demonstrates functional benefit beyond pain intensity reduction.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 10,
+        "access": "Free",
+        "population": "Adult 18+"
+      }
+    ],
+    "neurophysiological": [
+      {
+        "assessment_id": "ASS-MOTOR-THRESH-001",
+        "name": "Motor Threshold (rMT)",
+        "full_name": "Resting Motor Threshold Determination — TMS",
+        "clinician_vs_patient": "Clinician-rated",
+        "rationale": "Mandatory before all rTMS protocols. rMT is determined by single-pulse TMS over left motor cortex hand representation area. Protocol intensity set as percentage of individually determined rMT (80–90%). Required for protocol calibration and safety.",
+        "lower_is_better": false,
+        "admin_duration_minutes": 15,
+        "access": "Requires TMS device and trained clinician",
+        "population": "Adult 18+ (required for all TMS protocols)"
+      }
+    ],
+    "functional": [
+      {
+        "assessment_id": "ASS-PGIC-001",
+        "name": "PGIC",
+        "full_name": "Patient Global Impression of Change",
+        "clinician_vs_patient": "Patient self-report",
+        "rationale": "Single 7-point scale of overall treatment response. 'Much improved' or 'very much improved' = responder. Simple anchor for patient-relevant treatment benefit. Recommended by IMMPACT as mandatory outcome in chronic pain trials.",
+        "lower_is_better": false,
+        "admin_duration_minutes": 1,
+        "access": "Free",
+        "population": "Adult 18+"
+      }
+    ]
+  },
+
+  "protocol_bundle": [
+    {
+      "protocol_id": "PRO-TMS-PAIN-01",
+      "name": "rTMS High-Frequency Left M1 for Fibromyalgia / Chronic Pain (IFCN Level B)",
+      "modality_slug": "tms",
+      "phenotype_id": "PHE-PAIN-01",
+      "on_label_vs_off_label": "Off-label",
+      "evidence_grade": "EV-B",
+      "evidence_summary": "European IFCN (International Federation of Clinical Neurophysiology) assigns Level B recommendation for high-frequency rTMS of the primary motor cortex (M1) for fibromyalgia and chronic central pain. Meta-analyses (Hou et al., 2016; Marlow et al., 2013; O'Connell et al., 2018) demonstrate NRS reduction of 1.5–2.5 points with 10 Hz left M1 rTMS. Effect size moderate (SMD ~0.5–0.7). Benefits typically last 2–4 weeks post-course, supporting monthly maintenance. No FDA clearance for pain-specific brain stimulation in fibromyalgia.",
+      "references": [
+        "Hou WH et al. (2016). Efficacy and Safety of Repetitive Transcranial Magnetic Stimulation on Pain Relief in Fibromyalgia. Pain Physician, 19(8), E1105–E1120.",
+        "O'Connell NE et al. (2018). Non-invasive Brain Stimulation Techniques for Chronic Pain. Cochrane Database of Systematic Reviews, Issue 4, CD008208.",
+        "Marlow NM et al. (2013). Transcranial Magnetic Stimulation as Treatment for Fibromyalgia. Pain Practice, 13(5), 380–395.",
+        "Lefaucheur JP et al. (2020). Evidence-based Guidelines on the Therapeutic Use of Repetitive Transcranial Magnetic Stimulation (rTMS). Clinical Neurophysiology, 131(2), 474–528."
+      ],
+      "brain_target": {
+        "region": "Left Primary Motor Cortex (M1)",
+        "laterality": "Left",
+        "eeg_position": "C3",
+        "effect_direction": "Excitatory"
+      },
+      "parameters": {
+        "frequency_hz": "10 Hz (high-frequency, excitatory)",
+        "intensity": "80–90% resting motor threshold (rMT) — individualised via motor threshold mapping",
+        "pulse_count": "3000 pulses per session (train structure: 10 Hz in 10-second trains, 30-second inter-train interval, 20 trains per session)",
+        "coil_type": "Figure-8 coil (70 mm)",
+        "electrode_placement": "Left M1 (C3 position, 10-20 system) or MRI-guided neuronavigation to hand motor area"
+      },
+      "session_structure": {
+        "sessions_per_week": 5,
+        "session_duration_minutes": 25,
+        "total_sessions": 15,
+        "total_weeks": 3,
+        "maintenance_sessions": "Monthly maintenance: 5 sessions over 1 week every 4–8 weeks to sustain analgesic benefit; based on NRS re-assessment",
+        "steps": [
+          { "order": 1, "title": "Safety screening review", "duration_minutes": 5, "detail": "Confirm no new contraindications since last session. Review AE log. Confirm no new metal implants, medications, or neurological events. Current NRS pain score recorded before session." },
+          { "order": 2, "title": "Motor threshold determination (first session only)", "duration_minutes": 10, "detail": "Determine resting motor threshold (rMT) via single-pulse TMS over left motor cortex (hand representation, C3 area). Target: ≥5 of 10 pulses produce visible hand or finger twitch at minimum intensity. Document rMT for all subsequent sessions." },
+          { "order": 3, "title": "Coil positioning", "duration_minutes": 5, "detail": "Position figure-8 coil at C3 (left M1). Confirm scalp contact and coil angle. Patient seated comfortably with head supported. Ear protection provided. Mark scalp position for reproducible placement across sessions." },
+          { "order": 4, "title": "Active rTMS stimulation", "duration_minutes": 15, "detail": "Deliver 3000 pulses at 10 Hz in 10-second trains (30-second rest). 80–90% rMT. Monitor patient continuously — ask about pain level mid-session. Note any headache, scalp discomfort, or unusual sensations." },
+          { "order": 5, "title": "Post-session review", "duration_minutes": 5, "detail": "Record post-session NRS pain score. Ask about headache, scalp discomfort, mood, fatigue. Log AEs. Patient rests 5 minutes before leaving if any dizziness noted." }
+        ]
+      },
+      "monitoring_required": [
+        "NRS pain score before and after every session",
+        "FIQR every 5 sessions",
+        "PHQ-9 at baseline, session 7, and end of course",
+        "Completed TMS Safety Screening Questionnaire before first session",
+        "Motor threshold documented at session 1 and re-assessed if >4-week gap between sessions",
+        "Session AE log every session"
+      ],
+      "contraindication_check_required": true,
+      "adverse_event_monitoring": "Headache (most common, typically mild, resolves within hours). Scalp discomfort or pain at coil site. Tinnitus (transient, with coil near temporal area). Syncope (rare — keep patient seated). Seizure (rare with 10 Hz at ≤90% rMT but risk not zero — emergency protocol must be in place). Mood changes (transient elevation or sadness). Any new neurological symptom requires immediate assessment.",
+      "escalation_rules": [
+        "NRS reduction <1 point after session 10: clinician review; consider neuronavigation-guided coil placement, increase to 90% rMT if <90%, assess phenotype — may indicate non-central-sensitisation mechanism",
+        "Moderate or severe headache on 2+ consecutive sessions: reduce intensity to 80% rMT; reduce train duration; clinician review if persists",
+        "Seizure during or within 1 hour of session: emergency protocol, stop all TMS, call emergency services, do not resume without neurology clearance",
+        "PHQ-9 increase ≥5 points from baseline: concurrent depression treatment review; consider adding DLPFC tDCS protocol"
+      ],
+      "patient_facing_allowed": false,
+      "clinician_review_required": true,
+      "governance": {
+        "patient_export_allowed": false,
+        "requires_clinician_sign_off": true,
+        "off_label_acknowledgement_required": true,
+        "dual_review_required": false,
+        "notes": "EV-B off-label rTMS. IFCN Level B recommendation for fibromyalgia. Clinician sign-off required before protocol generation. Patient export blocked. Off-label acknowledgement mandatory. Emergency seizure protocol must be in clinic before first session."
+      },
+      "notes": "IFCN Level B — highest recommendation for rTMS in fibromyalgia. Analgesic effect is real but requires maintenance sessions to sustain. Optimal patient: fibromyalgia or central sensitisation chronic pain with predominant pain phenotype (PHE-PAIN-01 or PHE-PAIN-02). Neuronavigation-guided coil placement improves M1 targeting accuracy and is strongly recommended where available. No FDA clearance for pain-specific indication."
+    },
+    {
+      "protocol_id": "PRO-TDCS-PAIN-01",
+      "name": "tDCS Anodal Left M1 for Chronic Pain / Fibromyalgia (IFCN Level B)",
+      "modality_slug": "tdcs",
+      "phenotype_id": "PHE-PAIN-01",
+      "on_label_vs_off_label": "Off-label",
+      "evidence_grade": "EV-B",
+      "evidence_summary": "European IFCN assigns Level B recommendation for anodal tDCS to the primary motor cortex (M1) for fibromyalgia and chronic pain. Multiple RCTs (Fregni et al., 2006; Antal et al., 2010; Valle et al., 2009) demonstrate analgesic effects with left M1 anodal tDCS. Effect size is moderate (SMD ~0.5) for pain reduction. Key advantages over rTMS: lower cost, simpler equipment, potential for home use after clinic training. No FDA clearance for pain-specific indication.",
+      "references": [
+        "Fregni F et al. (2006). A Randomized, Sham-Controlled, Proof of Concept Study of Transcranial Direct Current Stimulation for the Treatment of Pain in Fibromyalgia. Arthritis Rheum, 54(12), 3988–3998.",
+        "Antal A et al. (2010). Transcranial Direct Current Stimulation over Somatosensory Cortex Decreases Experimentally Induced Acute Pain Perception. Clinical Journal of Pain, 26(8), 683–688.",
+        "Valle A et al. (2009). Fibromyalgia is Associated with Decreased Thalamic Glutamate-Glutamine Levels and Abnormal Cortical Excitability. Arthritis Rheum, 60(4), 1271–1280.",
+        "Lefaucheur JP et al. (2017). Evidence-based Guidelines on the Therapeutic Use of Transcranial Direct Current Stimulation. Clinical Neurophysiology, 128(1), 56–92."
+      ],
+      "brain_target": {
+        "region": "Left Primary Motor Cortex (M1)",
+        "laterality": "Left",
+        "eeg_position": "C3",
+        "effect_direction": "Excitatory"
+      },
+      "parameters": {
+        "electrode_placement": "Anode: C3 (left M1); Cathode: right supraorbital (FP2) or right deltoid (extra-cephalic option)",
+        "current_ma": "2 mA",
+        "current_density": "0.08 mA/cm² (electrode size 25 cm²)",
+        "ramp_up_seconds": 30,
+        "ramp_down_seconds": 30,
+        "additional_params": {
+          "session_duration_active": "20–30 minutes at target current",
+          "electrode_size": "25–35 cm² saline-soaked sponge electrode",
+          "skin_prep": "Clean with isopropyl alcohol; assess skin integrity at C3 before each session"
+        }
+      },
+      "session_structure": {
+        "sessions_per_week": 5,
+        "session_duration_minutes": 35,
+        "total_sessions": 10,
+        "total_weeks": 2,
+        "maintenance_sessions": "10 maintenance sessions (5x/week, 2 weeks) every 4–8 weeks based on NRS re-assessment",
+        "steps": [
+          { "order": 1, "title": "Pre-session checks", "duration_minutes": 5, "detail": "Confirm skin integrity at C3 and FP2 (or right deltoid). Remove metal jewellery from head and neck. Screen for new contraindications. Record pre-session NRS pain score." },
+          { "order": 2, "title": "Electrode placement", "duration_minutes": 5, "detail": "Saline-soak sponge anode (red lead) and position at C3 (left M1 per 10-20). Position cathode sponge at right supraorbital FP2 or right deltoid (preferred for reduced eye discomfort). Secure with elastic head strap. Confirm flat contact." },
+          { "order": 3, "title": "Active stimulation", "duration_minutes": 25, "detail": "30-second ramp-up to 2 mA. Patient rests quietly or may engage in gentle cognitive activity during stimulation. Monitor for tingling, headache, visual disturbance, or skin discomfort. Ask comfort check at 10 minutes." },
+          { "order": 4, "title": "Ramp-down and post-session review", "duration_minutes": 5, "detail": "30-second ramp-down. Inspect electrode sites. Record post-session NRS pain score. Log tingling, headache, skin reaction, or mood change. Patient rests 5 minutes." }
+        ]
+      },
+      "monitoring_required": [
+        "NRS pain score before and after every session",
+        "FIQR every 5 sessions",
+        "Skin integrity check at C3 and reference electrode site before every session",
+        "PHQ-9 at baseline and end of course",
+        "Adverse event log every session"
+      ],
+      "contraindication_check_required": true,
+      "adverse_event_monitoring": "Common: mild tingling or itching at electrode sites (expected — transient). Occasional: scalp redness lasting <1 hour (normal). Rare: headache, flash phosphenes (cathode near eye — use extra-cephalic placement to reduce). Serious: skin burn (incorrect electrode contact or high electrode impedance — inspect after every session).",
+      "escalation_rules": [
+        "NRS reduction <1 point after 10 sessions: clinician review; reassess phenotype; consider switching to rTMS protocol (PRO-TMS-PAIN-01) or adding DLPFC component",
+        "Persistent skin redness >1 hour post-session at C3: reduce to 1.5 mA; reassess electrode-to-skin contact; switch to gel electrode if sponge used",
+        "PHQ-9 increase ≥5 from baseline: concurrent depression treatment review; consider DLPFC protocol adjunct"
+      ],
+      "patient_facing_allowed": false,
+      "clinician_review_required": true,
+      "governance": {
+        "patient_export_allowed": false,
+        "requires_clinician_sign_off": true,
+        "off_label_acknowledgement_required": true,
+        "dual_review_required": false,
+        "notes": "EV-B off-label tDCS. IFCN Level B recommendation. Clinician sign-off required. Patient export blocked. Off-label acknowledgement mandatory."
+      },
+      "notes": "IFCN Level B for M1 anodal tDCS in fibromyalgia. Lower cost and simpler than rTMS. Can be combined with rTMS course for enhanced analgesic effect in severe cases — use sequentially (rTMS course followed by tDCS maintenance). May be more feasible for home use after clinic training if patient compliance and device safety criteria met."
+    },
+    {
+      "protocol_id": "PRO-TDCS-PAIN-02",
+      "name": "tDCS Anodal Left DLPFC for Pain-Related Depression (Off-label, Emerging)",
+      "modality_slug": "tdcs",
+      "phenotype_id": "PHE-PAIN-04",
+      "on_label_vs_off_label": "Off-label",
+      "evidence_grade": "EV-C",
+      "evidence_summary": "Anodal tDCS to the left DLPFC targets the cognitive-affective dimension of chronic pain and comorbid depression. Evidence is EV-C for the specific fibromyalgia-with-depression indication. Left DLPFC tDCS has EV-B evidence for major depression and emerging evidence for pain catastrophising and pain-related affective burden. Use when PHQ-9 ≥10 or significant cognitive-dominant pain (fibro fog, PHE-PAIN-04) is present alongside primary M1 protocol or when M1 protocol alone is insufficient.",
+      "references": [
+        "Brunoni AR et al. (2013). Clinical Research with Transcranial Direct Current Stimulation (tDCS): Challenges and Future Directions. Brain Stimulation, 6(1), 175–185.",
+        "Lefaucheur JP et al. (2017). Evidence-based Guidelines on the Therapeutic Use of tDCS. Clinical Neurophysiology, 128(1), 56–92.",
+        "Marlow NM et al. (2013). Efficacy of Transcranial Magnetic Stimulation (TMS) for Fibromyalgia. Pain Practice, 13(5), 380–395."
+      ],
+      "brain_target": {
+        "region": "Left Dorsolateral Prefrontal Cortex",
+        "laterality": "Left",
+        "eeg_position": "F3",
+        "effect_direction": "Excitatory"
+      },
+      "parameters": {
+        "electrode_placement": "Anode: F3 (left DLPFC); Cathode: right supraorbital (Fp2) or right shoulder (extra-cephalic)",
+        "current_ma": "2 mA",
+        "current_density": "0.08 mA/cm² (electrode size 25 cm²)",
+        "ramp_up_seconds": 30,
+        "ramp_down_seconds": 30,
+        "additional_params": {
+          "session_duration_active": "20 minutes at target current",
+          "electrode_size": "25 cm² saline-soaked sponge electrode",
+          "indication": "Use when PHQ-9 ≥10 or significant cognitive-affective pain burden is documented alongside fibromyalgia",
+          "skin_prep": "Clean F3 and Fp2 with isopropyl alcohol before each session"
+        }
+      },
+      "session_structure": {
+        "sessions_per_week": 5,
+        "session_duration_minutes": 30,
+        "total_sessions": 20,
+        "total_weeks": 4,
+        "maintenance_sessions": "Monthly review; repeat course if PHQ-9 or FIQR cognitive subscale deteriorates",
+        "steps": [
+          { "order": 1, "title": "Pre-session checks", "duration_minutes": 5, "detail": "Confirm skin integrity at F3 and Fp2. Remove metal jewellery. Record pre-session NRS and mood rating. Screen for new contraindications." },
+          { "order": 2, "title": "Electrode placement", "duration_minutes": 5, "detail": "Saline-soak sponge anode (red lead) at F3 (left DLPFC). Cathode at Fp2 or right deltoid. Secure with head strap. Confirm flat contact." },
+          { "order": 3, "title": "Active stimulation", "duration_minutes": 20, "detail": "30-second ramp-up to 2 mA. Patient may engage in cognitive task (memory game, reading) during stimulation to enhance cortical engagement. Monitor for tingling, headache, or mood change." },
+          { "order": 4, "title": "Post-session review", "duration_minutes": 5, "detail": "Ramp-down. Inspect electrode sites. Record post-session NRS and mood rating. Log AEs." }
+        ]
+      },
+      "monitoring_required": [
+        "NRS pain score before every session",
+        "PHQ-9 every 5 sessions",
+        "FIQR cognitive subscale every 5 sessions",
+        "Skin integrity check at F3 and reference site before every session",
+        "Mood rating (0–10 subjective) before and after every session"
+      ],
+      "contraindication_check_required": true,
+      "adverse_event_monitoring": "Common: tingling and mild itching at electrode sites. Occasional: headache (transient). Rare: mood lability (monitor mood rating closely). Serious: worsening suicidality (PHQ-9 item 9 — immediate clinician review). Skin burn (impedance failure — inspect electrode sites after every session).",
+      "escalation_rules": [
+        "PHQ-9 reduction <4 points after 10 sessions: concurrent psychiatric review; consider antidepressant medication or psychological therapy adjunct",
+        "New or worsened suicidal ideation (PHQ-9 item 9 ≥1): same-day clinician review; complete suicide risk assessment; suspend tDCS until review",
+        "NRS pain unchanged at end of course: reassess primary protocol; consider switching to rTMS M1 or combination approach"
+      ],
+      "patient_facing_allowed": false,
+      "clinician_review_required": true,
+      "governance": {
+        "patient_export_allowed": false,
+        "requires_clinician_sign_off": true,
+        "off_label_acknowledgement_required": true,
+        "dual_review_required": false,
+        "notes": "EV-C off-label tDCS for pain-depression comorbidity. Clinician sign-off required. Patient export blocked. Off-label acknowledgement mandatory. Indicated only when significant depressive or cognitive-affective comorbidity is documented."
+      },
+      "notes": "Use as adjunct to M1 protocol (PRO-TDCS-PAIN-01 or PRO-TMS-PAIN-01) rather than as standalone when cognitive-affective dimensions of pain are dominant. If patient's PHQ-9 ≥15, refer to dedicated depression protocol and treat depression concurrently — DLPFC tDCS for depression has EV-B evidence in MDD context."
+    },
+    {
+      "protocol_id": "PRO-CES-PAIN-01",
+      "name": "CES Alpha-Stim for Chronic Pain — Adjunct (On-label)",
+      "modality_slug": "ces",
+      "phenotype_id": "PHE-PAIN-03",
+      "device_id": "DEV-CES-PAIN-001",
+      "on_label_vs_off_label": "On-label",
+      "evidence_grade": "EV-B",
+      "evidence_summary": "Alpha-Stim CES is FDA-cleared for pain (as well as anxiety and insomnia). Multiple controlled trials support CES for chronic pain reduction including fibromyalgia-related pain. Lichtbroun et al. (2001) demonstrated significant pain reduction in fibromyalgia patients. CES appears to act via modulation of serotonin, noradrenaline, and endorphin systems. Best used as an adjunct to M1-targeted rTMS or tDCS rather than as standalone for fibromyalgia. Suitable for home use and fatigue-dominant presentations.",
+      "references": [
+        "Lichtbroun AS et al. (2001). The Treatment of Fibromyalgia with Cranial Electrotherapy Stimulation. Journal of Clinical Rheumatology, 7(2), 72–78.",
+        "Kirsch DL & Nichols F (2014). Cranial Electrotherapy Stimulation for Treatment of Anxiety, Depression, and Insomnia. Psychiatric Clinics of North America, 37(1), 131–168."
+      ],
+      "brain_target": {
+        "region": "Bilateral cortical and subcortical networks via transcranial low-level current",
+        "laterality": "Bilateral",
+        "eeg_position": "N/A",
+        "effect_direction": "Inhibitory"
+      },
+      "parameters": {
+        "frequency_hz": "0.5 Hz biphasic",
+        "intensity": "100–500 µA (start at 100 µA; adjust to patient tolerance)",
+        "electrode_placement": "Bilateral ear clip electrodes on ear lobes",
+        "additional_params": {
+          "waveform": "Biphasic asymmetric square wave",
+          "session_timing": "60 minutes daily — morning or midday preferred to address fatigue and daytime pain",
+          "home_use": "Yes — patient-operated after clinic training"
+        }
+      },
+      "session_structure": {
+        "sessions_per_week": 5,
+        "session_duration_minutes": 60,
+        "total_sessions": 20,
+        "total_weeks": 4,
+        "maintenance_sessions": "Ongoing 3–5x per week if patient reports sustained benefit",
+        "steps": [
+          { "order": 1, "title": "Device setup", "duration_minutes": 5, "detail": "Moisten ear clip felt pads. Clip to ear lobes. Connect to device. Set 0.5 Hz. Start at 100 µA." },
+          { "order": 2, "title": "Active session", "duration_minutes": 55, "detail": "Patient rests comfortably. May practise pacing strategies, mindfulness, or gentle relaxation during session. Record pre and post NRS pain rating." },
+          { "order": 3, "title": "Post-session log", "duration_minutes": 5, "detail": "Record NRS pain score, fatigue rating, and any side effects." }
+        ]
+      },
+      "monitoring_required": [
+        "NRS pain score before and after every session",
+        "FIQR every 5 sessions",
+        "Weekly skin check at ear clip sites (patient self-report at home)"
+      ],
+      "contraindication_check_required": true,
+      "adverse_event_monitoring": "Common: mild tingling at ear clip sites. Rare: headache, dizziness, nausea (reduce intensity). Very rare: phosphene (reduce intensity). Do not use with implanted cardiac devices.",
+      "escalation_rules": [
+        "NRS reduction <1 point after 20 sessions: clinician review; reassess role of CES as adjunct vs standalone; add or switch to M1 rTMS if not yet trialled",
+        "Skin irritation at ear clips: check electrode pad hydration; reduce current; cease if skin breaks"
+      ],
+      "patient_facing_allowed": true,
+      "clinician_review_required": false,
+      "governance": {
+        "patient_export_allowed": true,
+        "requires_clinician_sign_off": false,
+        "off_label_acknowledgement_required": false,
+        "dual_review_required": false,
+        "notes": "EV-B, FDA-cleared on-label for pain. Patient export permitted. No off-label acknowledgement required. Home use after training session confirmed."
+      },
+      "notes": "Best used as adjunct to M1-targeted protocols (rTMS or tDCS) rather than standalone for fibromyalgia. Suitable for fatigue-dominant phenotype (PHE-PAIN-03) due to home-use potential and impact on fatigue and pain. Combine with pacing, graded activity, and pain psychology."
+    }
+  ],
+
+  "device_options": [
+    {
+      "device_id": "DEV-TMS-PAIN-001",
+      "name": "Magstim Rapid²",
+      "manufacturer": "Magstim",
+      "modality_slug": "tms",
+      "regulatory_status": "FDA-cleared (other indication)",
+      "cleared_indication": "FDA-cleared for MDD; off-label use for fibromyalgia / chronic pain",
+      "use_setting": "Clinic",
+      "compatible_protocols": ["PRO-TMS-PAIN-01"],
+      "constraints": [
+        "Clinic use only — specialised TMS suite required",
+        "Motor threshold mapping required before first session",
+        "Emergency seizure management equipment must be available in clinic",
+        "70 mm figure-8 coil required for M1 targeting"
+      ],
+      "notes": "Standard research and clinical-grade TMS device. Suitable for 10 Hz excitatory M1 protocol. Neuronavigation integration available with compatible software."
+    },
+    {
+      "device_id": "DEV-TMS-PAIN-002",
+      "name": "BrainsWay Deep TMS (H-coil)",
+      "manufacturer": "BrainsWay",
+      "modality_slug": "tms",
+      "regulatory_status": "FDA-cleared (other indication)",
+      "cleared_indication": "FDA-cleared for MDD and OCD; off-label for chronic pain",
+      "use_setting": "Clinic",
+      "compatible_protocols": ["PRO-TMS-PAIN-01"],
+      "constraints": [
+        "Clinic use only",
+        "H-coil provides deeper and broader stimulation than figure-8 — confirm M1 targeting with H1 coil configuration",
+        "Motor threshold determination required with H-coil specifically"
+      ],
+      "notes": "Deep TMS alternative. May offer deeper M1 stimulation but figure-8 coil provides more focal M1 targeting. Consult manufacturer for H1 coil M1 pain protocol settings."
+    },
+    {
+      "device_id": "DEV-TDCS-PAIN-001",
+      "name": "Soterix Medical 1×1 tDCS Device",
+      "manufacturer": "Soterix Medical",
+      "modality_slug": "tdcs",
+      "regulatory_status": "FDA-cleared (other indication)",
+      "cleared_indication": "FDA-cleared for clinical research; no pain clearance",
+      "use_setting": "Clinic",
+      "compatible_protocols": ["PRO-TDCS-PAIN-01", "PRO-TDCS-PAIN-02"],
+      "constraints": [
+        "Clinic use only",
+        "Requires trained clinician operator",
+        "Protocol uses maximum 2 mA — device supports up to 4 mA"
+      ],
+      "notes": "Research-grade tDCS for M1 and DLPFC pain protocols. Consistent 2 mA delivery with reliable ramp control."
+    },
+    {
+      "device_id": "DEV-CES-PAIN-001",
+      "name": "Alpha-Stim AID",
+      "manufacturer": "Electromedical Products International (EPI)",
+      "modality_slug": "ces",
+      "regulatory_status": "FDA-cleared",
+      "cleared_indication": "FDA 510(k) cleared for anxiety, depression, and pain",
+      "use_setting": "Hybrid",
+      "compatible_protocols": ["PRO-CES-PAIN-01"],
+      "constraints": [
+        "Patient training session required before home use",
+        "Do not use with implanted cardiac devices",
+        "Ear clip electrode pads require periodic replacement"
+      ],
+      "notes": "FDA-cleared for pain. On-label for chronic pain including fibromyalgia-related pain. Home use after clinic training. Suitable as adjunct to clinic-based rTMS/tDCS course."
+    }
+  ],
+
+  "brain_targets": [
+    {
+      "region": "Left Primary Motor Cortex",
+      "abbreviation": "L-M1",
+      "laterality": "Left",
+      "rationale": "The left primary motor cortex (M1) is the primary target for pain neuromodulation. Excitatory stimulation of M1 activates descending corticospinal pain inhibitory pathways that suppress spinal dorsal horn nociceptive transmission via cortico-subcortical circuits including thalamus, periaqueductal grey (PAG), and rostral ventromedial medulla (RVM). This is the mechanism of IFCN Level B rTMS and tDCS protocols for fibromyalgia and chronic central pain.",
+      "effect_direction": "Excitatory",
+      "modalities": ["tms", "tdcs"],
+      "eeg_position_10_20": "C3",
+      "brodmann_area": "BA4",
+      "network": "Sensorimotor Network / Descending Pain Modulation Pathway",
+      "qeeg_target": "Increase mu rhythm (8–12 Hz) normalisation; enhance corticospinal drive to descending pain inhibitory system",
+      "evidence_note": "IFCN Level B (EV-B) for both 10 Hz rTMS and anodal tDCS to left M1 in fibromyalgia and central chronic pain. Most studied and best-supported neuromodulation target for chronic pain."
+    },
+    {
+      "region": "Left Dorsolateral Prefrontal Cortex",
+      "abbreviation": "L-DLPFC",
+      "laterality": "Left",
+      "rationale": "The left DLPFC modulates the affective and cognitive dimensions of chronic pain via cortico-limbic projections to the anterior cingulate cortex (ACC), insula, and amygdala. Anodal tDCS to left DLPFC reduces pain catastrophising, improves pain-related cognitive function (addressing fibro fog), and treats comorbid depression — a key comorbidity in fibromyalgia (30–50%). Target selected when cognitive-dominant phenotype (PHE-PAIN-04) or significant depressive comorbidity (PHQ-9 ≥10) is present.",
+      "effect_direction": "Excitatory",
+      "modalities": ["tdcs"],
+      "eeg_position_10_20": "F3",
+      "brodmann_area": "BA46 / BA9",
+      "network": "Central Executive Network / Cortico-Limbic Pain Affective Network",
+      "qeeg_target": "Reduce frontal alpha asymmetry; increase left frontal activation relative to right",
+      "evidence_note": "EV-C for fibromyalgia-specific DLPFC targeting. EV-B evidence for left DLPFC tDCS in major depression — supports use for pain-depression comorbidity."
+    },
+    {
+      "region": "Anterior Cingulate Cortex",
+      "abbreviation": "ACC",
+      "laterality": "Midline",
+      "rationale": "The ACC is central to the affective component of pain ('suffering') and is consistently hyperactive in fibromyalgia neuroimaging studies. While not a direct stimulation target with surface rTMS or tDCS, M1 and DLPFC stimulation indirectly modulate ACC activity through network-level effects.",
+      "effect_direction": "Inhibitory",
+      "modalities": ["tms", "tdcs"],
+      "eeg_position_10_20": "Fz",
+      "brodmann_area": "BA24 / BA32",
+      "network": "Salience Network / Pain Matrix",
+      "qeeg_target": "Indirect reduction of ACC hyperactivation via M1 and DLPFC stimulation effects",
+      "evidence_note": "Indirect target. Hyperactivity in fibromyalgia well-documented on fMRI. Direct TMS stimulation of ACC is experimental and not included in current protocols."
+    }
+  ],
+
+  "handbook_outputs": {
+    "clinician_handbook": {
+      "title": "Clinician Handbook: Chronic Pain / Fibromyalgia Neuromodulation Protocols",
+      "audience": "Licensed clinician or supervised trainee",
+      "sections": [
+        {
+          "section_id": "ch-01",
+          "title": "Condition Summary",
+          "content": [
+            "Fibromyalgia: central sensitisation disorder characterised by widespread musculoskeletal pain, fatigue, cognitive difficulties ('fibro fog'), non-restorative sleep, and mood symptoms. ACR 2010/2016 criteria required for diagnosis.",
+            "Chronic pain (G89.29): pain persisting beyond 3 months with central sensitisation mechanisms — allodynia, hyperalgesia, and widespread pain without clear nociceptive cause.",
+            "Neurobiology: dysregulated descending pain inhibitory pathways; M1 → corticospinal → PAG → spinal dorsal horn inhibition is impaired. Neuroimaging: hyperactive insula, ACC, and altered default mode network.",
+            "IFCN Level B evidence for rTMS 10 Hz left M1 and anodal tDCS left M1 — highest current neuromodulation evidence for fibromyalgia.",
+            "No FDA clearance for pain-specific brain stimulation. All protocols are off-label (except CES for pain — FDA-cleared)."
+          ]
+        },
+        {
+          "section_id": "ch-02",
+          "title": "Patient Selection and Protocol Matching",
+          "content": [
+            "Confirm fibromyalgia or chronic pain diagnosis with ICD-10 coding. Exclude inflammatory and structural pathology (bloods, imaging as indicated).",
+            "Identify phenotype: Central sensitisation (PHE-PAIN-01) → rTMS M1 or tDCS M1 first-line; Fatigue-dominant (PHE-PAIN-03) → CES adjunct; Cognitive-dominant (PHE-PAIN-04) → DLPFC tDCS.",
+            "Document prior treatments: exercise, pain psychology, medication trials (duloxetine, pregabalin, amitriptyline). Neuromodulation is adjunctive — confirm multidisciplinary pain management is in place.",
+            "Screen PHQ-9 ≥10: add DLPFC protocol or refer to depression protocols. ISI ≥15: address insomnia concurrently with insomnia protocols.",
+            "TMS Safety Screening Questionnaire mandatory before rTMS. Motor threshold determination at session 1."
+          ]
+        },
+        {
+          "section_id": "ch-03",
+          "title": "Protocol Selection Guide",
+          "content": [
+            "Central sensitisation / widespread pain (PHE-PAIN-01, PHE-PAIN-02): First-line — rTMS 10 Hz left M1 (PRO-TMS-PAIN-01, EV-B). Equivalent alternative — anodal tDCS left M1 (PRO-TDCS-PAIN-01, EV-B).",
+            "Fatigue-dominant (PHE-PAIN-03): Add CES Alpha-Stim (PRO-CES-PAIN-01, EV-B, on-label) as adjunct to M1 stimulation course.",
+            "Cognitive-dominant / pain-depression (PHE-PAIN-04): Add anodal tDCS left DLPFC (PRO-TDCS-PAIN-02, EV-C) when PHQ-9 ≥10 or significant fibro fog documented.",
+            "Sequential strategy: rTMS course (3 weeks) → tDCS maintenance (monthly) → CES home (ongoing adjunct)."
+          ]
+        },
+        {
+          "section_id": "ch-04",
+          "title": "Evidence Summary",
+          "content": [
+            "rTMS 10 Hz left M1: EV-B — IFCN Level B. Multiple RCTs. NRS reduction 1.5–2.5 points. Effect duration 2–4 weeks post-course; requires maintenance.",
+            "tDCS anodal left M1: EV-B — IFCN Level B. Multiple RCTs. Comparable effect size to rTMS; lower cost and simpler delivery.",
+            "tDCS left DLPFC: EV-C — emerging evidence for pain-depression comorbidity. Use as adjunct only.",
+            "CES Alpha-Stim: EV-B — FDA-cleared for pain. Adjunct use; supported by fibromyalgia RCT (Lichtbroun 2001).",
+            "All brain stimulation protocols are off-label for fibromyalgia except CES (FDA-cleared for pain). Informed consent and off-label acknowledgement required for all non-CES protocols."
+          ]
+        },
+        {
+          "section_id": "ch-05",
+          "title": "Safety and Governance",
+          "content": [
+            "TMS Safety Screening Questionnaire mandatory before first rTMS session. Motor threshold determination at session 1.",
+            "Emergency seizure protocol must be in place and all staff trained before any rTMS session.",
+            "Off-label acknowledgement required for all rTMS and tDCS protocols before protocol generation.",
+            "Monitor NRS before every session. FIQR every 5 sessions. PHQ-9 every 5 sessions.",
+            "Any TMS-related seizure: emergency protocol, suspend all TMS, report to clinical governance within 24 hours."
+          ]
+        },
+        {
+          "section_id": "ch-06",
+          "title": "Monitoring and Escalation",
+          "content": [
+            "Primary outcome response: ≥30% NRS reduction or ≥2-point NRS reduction from baseline.",
+            "FIQR response: ≥14% total score improvement.",
+            "Non-response flag: NRS reduction <1 point after session 10 — clinician review; reassess phenotype; consider neuronavigation, intensity increase, or protocol change.",
+            "Adherence threshold: ≥80% session completion for acute rTMS course (5x/week intensity requires strong adherence for IFCN Level B outcomes).",
+            "Deterioration: NRS increase ≥2 points from baseline at mid-course — clinician review within 48 hours."
+          ]
+        }
+      ]
+    },
+    "patient_guide": {
+      "title": "Patient Guide: Brain Stimulation for Fibromyalgia and Chronic Pain",
+      "audience": "Patient (reading level: Grade 8)",
+      "sections": [
+        {
+          "section_id": "pg-01",
+          "title": "What is Fibromyalgia?",
+          "content": [
+            "Fibromyalgia is a condition where your brain processes pain signals differently. Imagine the pain 'volume dial' is stuck too high throughout your body. This is not your imagination — it is a real change in how your nervous system works.",
+            "It causes widespread pain, extreme tiredness, difficulty sleeping, and a foggy feeling in the mind. These are all recognised symptoms, and there are treatments that can help."
+          ]
+        },
+        {
+          "section_id": "pg-02",
+          "title": "How Brain Stimulation Works for Pain",
+          "content": [
+            "Your brain has natural pain control systems. In fibromyalgia, these systems are not working as well as they should. Brain stimulation treatments — rTMS and tDCS — aim to gently activate these natural pain control circuits.",
+            "rTMS uses a device held near your head that sends gentle magnetic pulses. You may feel a soft tapping on your scalp. It is not painful.",
+            "tDCS uses very small sponge pads placed on your head and a tiny, barely noticeable electrical current. It is gentle and usually very comfortable.",
+            "European medical guidelines recommend these treatments for fibromyalgia. They do not replace your other treatments — they add to them."
+          ]
+        },
+        {
+          "section_id": "pg-03",
+          "title": "What to Expect at Sessions",
+          "content": [
+            "rTMS sessions: You sit in a comfortable chair. A technician places a coil near your head. You hear clicking sounds and feel a light tapping. Sessions last about 20–25 minutes. You can go home straight after.",
+            "tDCS sessions: Damp sponge pads are placed on your scalp, secured by a head strap. You feel a mild tingling. Sessions last about 30 minutes. Most people find it very comfortable.",
+            "Both treatments are given 5 days per week for 3 weeks for the initial course.",
+            "You will rate your pain before and after each session so we can track your progress."
+          ]
+        },
+        {
+          "section_id": "pg-04",
+          "title": "What to Tell Your Clinician",
+          "content": [
+            "Tell your clinician about any headache, unusual feelings, or mood changes during or after sessions.",
+            "Tell your clinician if your pain gets worse during the treatment course — this is important information.",
+            "Keep taking all prescribed medications unless your doctor tells you otherwise.",
+            "Tell your clinician about any new medications, supplements, or changes in your health at each visit."
+          ]
+        }
+      ]
+    },
+    "technician_sop": {
+      "title": "Technician Standard Operating Procedure: Chronic Pain rTMS and tDCS Protocols",
+      "audience": "Trained neuromodulation technician operating under clinician supervision",
+      "sections": [
+        {
+          "section_id": "sop-01",
+          "title": "Pre-Session Checklist",
+          "content": [
+            "Confirm patient identity (name + date of birth).",
+            "Review most recent session notes and AE log.",
+            "Confirm TMS Safety Screening Questionnaire on file and current (rTMS sessions).",
+            "Confirm no new contraindications since last session (ask: any new implants, medications, or neurological symptoms?).",
+            "Inspect equipment: TMS device, coil, cooling system, tDCS device, electrodes — no damage.",
+            "Confirm emergency equipment accessible and seizure protocol posted (rTMS sessions).",
+            "Record pre-session NRS pain score."
+          ]
+        },
+        {
+          "section_id": "sop-02",
+          "title": "rTMS Coil Placement (Left M1)",
+          "content": [
+            "Identify C3 (left M1) using 10-20 system: measure from nasion to inion and from ear to ear. C3 is at the 30% mark toward the left from Cz.",
+            "Mark C3 on scalp with washable marker for reproducible placement.",
+            "Position 70 mm figure-8 coil at C3 at 45 degrees to the sagittal plane (optimal for motor cortex stimulation).",
+            "Confirm coil-scalp contact: coil should be tangential, not tilted.",
+            "Session 1 only: determine rMT over left motor cortex hand area before beginning therapeutic stimulation.",
+            "Provide ear protection to patient. Confirm patient comfort and understanding of procedure."
+          ]
+        },
+        {
+          "section_id": "sop-03",
+          "title": "tDCS Electrode Placement (Left M1 / Left DLPFC)",
+          "content": [
+            "M1 protocol (PRO-TDCS-PAIN-01): Inspect C3 and Fp2 or right deltoid for skin integrity. Saline-soak sponge anode at C3; cathode at Fp2 or right deltoid. Secure with head strap.",
+            "DLPFC protocol (PRO-TDCS-PAIN-02): Inspect F3 and Fp2 for skin integrity. Saline-soak sponge anode at F3; cathode at Fp2 or right deltoid.",
+            "For both: confirm flat electrode contact. Set device to 2 mA with 30-second ramp. Confirm session duration: 25 min (M1) or 20 min (DLPFC).",
+            "Remove all metal jewellery from head and neck before placement."
+          ]
+        },
+        {
+          "section_id": "sop-04",
+          "title": "During Session Monitoring",
+          "content": [
+            "rTMS: remain in room throughout session. Ask patient comfort check at 5 minutes and midpoint.",
+            "tDCS: check patient comfort at 5 minutes and 15 minutes. Monitor current display for stability.",
+            "Log any patient-reported sensations in real time: pain, headache, tingling, mood change.",
+            "If patient reports pain rated >5/10 at coil/electrode site: pause session, inspect, contact clinician."
+          ]
+        },
+        {
+          "section_id": "sop-05",
+          "title": "Post-Session Documentation",
+          "content": [
+            "Record post-session NRS pain score. Calculate session change (post minus pre).",
+            "Inspect scalp at coil/electrode sites for redness, marks, or skin reaction.",
+            "Ask patient: 'Any headache, unusual sensations, or mood changes?'",
+            "Log all parameters, session duration, NRS change, and AEs.",
+            "Flag any AEs to supervising clinician within 1 hour of session."
+          ]
+        }
+      ]
+    }
+  },
+
+  "monitoring_rules": {
+    "assessment_schedule": [
+      {
+        "assessment_id": "ASS-NRS-001",
+        "assessment_name": "NRS Pain",
+        "timing": "Before and after every session throughout the treatment course",
+        "frequency": "Every session (pre and post)",
+        "administered_by": "Patient self-report"
+      },
+      {
+        "assessment_id": "ASS-FIQR-001",
+        "assessment_name": "FIQR",
+        "timing": "Before session 1 (baseline); after session 5; after session 10 (end of acute course); and at each maintenance block",
+        "frequency": "Every 5 sessions",
+        "administered_by": "Patient self-report"
+      },
+      {
+        "assessment_id": "ASS-PHQ9-001",
+        "assessment_name": "PHQ-9",
+        "timing": "Baseline, mid-course (session 7–8), end of course, and each maintenance assessment",
+        "frequency": "Every 5 sessions",
+        "administered_by": "Patient self-report"
+      },
+      {
+        "assessment_id": "ASS-PGIC-001",
+        "assessment_name": "PGIC",
+        "timing": "End of acute course and after each maintenance block",
+        "frequency": "Once at course completion and after each maintenance period",
+        "administered_by": "Patient self-report"
+      },
+      {
+        "assessment_id": "ASS-BPI-001",
+        "assessment_name": "BPI",
+        "timing": "Baseline and end of course",
+        "frequency": "Once at baseline and once at course completion",
+        "administered_by": "Patient self-report"
+      }
+    ],
+    "response_thresholds": [
+      {
+        "assessment_id": "ASS-NRS-001",
+        "assessment_name": "NRS Pain",
+        "lower_is_better": true,
+        "response_threshold": "≥2-point NRS reduction from baseline or ≥30% reduction — consistent with IMMPACT consensus for chronic pain response",
+        "remission_threshold": "NRS ≤3 (mild pain range) sustained across ≥3 consecutive sessions",
+        "non_response_threshold": "NRS reduction <1 point after 10 sessions — triggers clinician review and protocol reassessment",
+        "deterioration_threshold": "NRS increase ≥2 points from baseline at any monitoring point — clinician review within 48 hours"
+      },
+      {
+        "assessment_id": "ASS-FIQR-001",
+        "assessment_name": "FIQR",
+        "lower_is_better": true,
+        "response_threshold": "≥14% reduction in FIQR total score from baseline (MCID for FIQR)",
+        "remission_threshold": "FIQR total score <39 (within mild severity range)",
+        "non_response_threshold": "No FIQR improvement at end of acute course — trigger clinician review",
+        "deterioration_threshold": "FIQR increase ≥10 points from baseline — urgent clinician review"
+      }
+    ],
+    "adverse_event_triggers": [
+      {
+        "event_type": "Seizure during or within 1 hour of rTMS session",
+        "severity": "Serious",
+        "action": "Emergency protocol. Call emergency services. Suspend all rTMS. Do not resume without neurology clearance. Incident report within 24 hours.",
+        "suspend_treatment": true
+      },
+      {
+        "event_type": "New or worsening suicidal ideation",
+        "severity": "Serious",
+        "action": "Same-day clinician review. Complete suicide risk assessment. Suspend treatment until clinical safety review complete.",
+        "suspend_treatment": true
+      },
+      {
+        "event_type": "Skin burn at tDCS electrode site",
+        "severity": "Serious",
+        "action": "Cease tDCS. Photograph and document lesion. Medical review if wound breaks skin. Assess electrode technique before considering resumption.",
+        "suspend_treatment": true
+      },
+      {
+        "event_type": "Worsening pain — NRS increase ≥2 points from baseline",
+        "severity": "Moderate",
+        "action": "Clinician review within 48 hours. Assess for new pathology, medication change, or protocol mismatch. Consider protocol modification.",
+        "suspend_treatment": false
+      },
+      {
+        "event_type": "Persistent headache post-rTMS (>4 hours)",
+        "severity": "Moderate",
+        "action": "Reduce rTMS intensity to 80% rMT. Reduce pulse count if persisting. Clinician review if headache persists after 2 consecutive sessions.",
+        "suspend_treatment": false
+      },
+      {
+        "event_type": "Syncope during session",
+        "severity": "Moderate",
+        "action": "Stop session immediately. Ensure patient safety (prevent fall). Monitor vital signs. Clinician review before next session. Document and assess for cardiac cause.",
+        "suspend_treatment": true
+      },
+      {
+        "event_type": "Transient scalp discomfort or tingling at electrode site",
+        "severity": "Mild",
+        "action": "Reassure patient (expected). Log intensity. If rated >5/10: reduce tDCS current to 1.5 mA or reduce rTMS intensity.",
+        "suspend_treatment": false
+      }
+    ],
+    "escalation_rules": [
+      {
+        "trigger": "NRS reduction <1 point after 10 rTMS or tDCS sessions",
+        "action": "Clinician review: consider neuronavigation-guided coil placement for rTMS; increase to 90% rMT if <90%; reassess diagnosis and phenotype; consider DLPFC adjunct if depression component present",
+        "urgency": "Routine"
+      },
+      {
+        "trigger": "NRS increases ≥2 points from baseline at any monitoring point",
+        "action": "Clinician review within 48 hours. Exclude new pathology. Assess for medication change. Consider protocol pause and reassessment",
+        "urgency": "Urgent"
+      },
+      {
+        "trigger": "Any Serious Adverse Event (seizure, hospitalisation, suicidal act)",
+        "action": "Immediate treatment suspension. Clinical lead notification within 2 hours. Incident report within 24 hours",
+        "urgency": "Emergency"
+      },
+      {
+        "trigger": "PHQ-9 increases ≥5 points from baseline",
+        "action": "Clinician review within 2 working days. Add concurrent depression treatment. Consider DLPFC protocol if not already included",
+        "urgency": "Urgent"
+      },
+      {
+        "trigger": "Three or more consecutive missed sessions",
+        "action": "Patient contact within 48 hours. Discuss adherence barriers. Clinician review if pattern continues. For rTMS: missing >4 sessions may require restart of motor threshold determination",
+        "urgency": "Routine"
+      }
+    ],
+    "adherence_rules": {
+      "minimum_session_adherence_pct": 80,
+      "consecutive_missed_sessions_flag": 3,
+      "action_on_low_adherence": "Patient contact within 48 hours. Document reason for missed sessions. For rTMS: >4 missed consecutive sessions may require re-determination of motor threshold at next session. Clinician review if adherence <70% without clear justification."
+    }
+  },
+
+  "report_templates": [
+    {
+      "id": "RPT-PAIN-INTAKE",
+      "name": "Chronic Pain / Fibromyalgia Neuromodulation Intake Summary",
+      "report_type": "intake-summary",
+      "audience": "Clinician",
+      "frequency": "Once — at intake before first session",
+      "sections": [
+        {
+          "section_id": "rpt-01",
+          "title": "Patient and Diagnosis Summary",
+          "auto_populate_from": ["patient.name", "patient.dob", "patient.diagnosis", "patient.diagnosis_date", "patient.referrer"],
+          "clinician_narrative_prompt": "Confirm fibromyalgia or chronic pain diagnosis, duration, and phenotype. Note ACR 2010/2016 criteria met. Document ICD-10 code (G89.29 or M79.7).",
+          "required": true
+        },
+        {
+          "section_id": "rpt-02",
+          "title": "Baseline Pain Scores",
+          "auto_populate_from": ["assessment.NRS.baseline", "assessment.FIQR.baseline", "assessment.BPI.baseline", "assessment.PHQ9.baseline", "assessment.ISI.baseline"],
+          "clinician_narrative_prompt": "Comment on baseline pain severity, functional impact, and comorbid mood/sleep scores. Note phenotype-driving features (widespread pain, fatigue, fibro fog, depression).",
+          "required": true
+        },
+        {
+          "section_id": "rpt-03",
+          "title": "Prior Treatment History",
+          "auto_populate_from": ["medical_history.prior_treatment", "medical_history.medications", "medical_history.opioid_history"],
+          "clinician_narrative_prompt": "Summarise prior fibromyalgia/chronic pain treatment: medication trials (duloxetine, pregabalin, amitriptyline), physiotherapy, pain psychology, exercise programmes. State reason for adding neuromodulation.",
+          "required": true
+        },
+        {
+          "section_id": "rpt-04",
+          "title": "Contraindication Review",
+          "auto_populate_from": ["intake.contraindication_screening_json", "intake.tms_safety_screen"],
+          "clinician_narrative_prompt": "Confirm all absolute contraindications excluded. Note any relative contraindications and mitigation plan. Confirm TMS Safety Screening completed for rTMS protocols.",
+          "required": true
+        },
+        {
+          "section_id": "rpt-05",
+          "title": "Selected Protocol and Rationale",
+          "auto_populate_from": ["course.protocol_id", "course.modality", "course.phenotype"],
+          "clinician_narrative_prompt": "State which protocol has been selected and why, including phenotype match and IFCN evidence level. Note off-label status and acknowledgement obtained. Document multidisciplinary pain management plan.",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "RPT-PAIN-PROGRESS",
+      "name": "Chronic Pain / Fibromyalgia Treatment Progress Report",
+      "report_type": "progress-report",
+      "audience": "Clinician",
+      "frequency": "Every 5 sessions",
+      "sections": [
+        {
+          "section_id": "prg-01",
+          "title": "Session Adherence",
+          "auto_populate_from": ["course.sessions_completed", "course.sessions_planned", "course.adherence_pct"],
+          "clinician_narrative_prompt": "Comment on attendance pattern. Note any missed sessions and re-engagement plan if applicable.",
+          "required": true
+        },
+        {
+          "section_id": "prg-02",
+          "title": "Pain Score Trajectory",
+          "auto_populate_from": ["assessment.NRS.trend", "assessment.FIQR.latest", "assessment.PHQ9.latest"],
+          "clinician_narrative_prompt": "Describe NRS and FIQR trajectory from baseline. State whether response threshold is on track. Flag if non-response criteria are approaching.",
+          "required": true
+        },
+        {
+          "section_id": "prg-03",
+          "title": "Adverse Events Since Last Review",
+          "auto_populate_from": ["adverse_events.since_last_review"],
+          "clinician_narrative_prompt": "Summarise AEs logged. State actions taken and current status.",
+          "required": true
+        },
+        {
+          "section_id": "prg-04",
+          "title": "Protocol Adjustments",
+          "auto_populate_from": ["course.protocol_version_history"],
+          "clinician_narrative_prompt": "Document any parameter changes (intensity, pulse count, electrode placement) and rationale.",
+          "required": false
+        }
+      ]
+    },
+    {
+      "id": "RPT-PAIN-EOC",
+      "name": "Chronic Pain / Fibromyalgia End-of-Course Outcome Report",
+      "report_type": "end-of-course-report",
+      "audience": "Referring Physician",
+      "frequency": "Once — at course completion",
+      "sections": [
+        {
+          "section_id": "eoc-01",
+          "title": "Treatment Summary",
+          "auto_populate_from": ["course.start_date", "course.end_date", "course.sessions_completed", "course.protocol_id", "course.modality"],
+          "clinician_narrative_prompt": "Summarise treatment course delivered, including modality, protocol, sessions completed, and adherence.",
+          "required": true
+        },
+        {
+          "section_id": "eoc-02",
+          "title": "Outcome Scores — Baseline to Endpoint",
+          "auto_populate_from": ["assessment.NRS.baseline", "assessment.NRS.endpoint", "assessment.NRS.change_pct", "assessment.FIQR.baseline", "assessment.FIQR.endpoint", "assessment.PGIC.endpoint"],
+          "clinician_narrative_prompt": "Interpret outcome data. State response status (responder/non-responder). Comment on PGIC. Describe any changes in functional capacity or medication use.",
+          "required": true
+        },
+        {
+          "section_id": "eoc-03",
+          "title": "Safety and Adverse Events",
+          "auto_populate_from": ["adverse_events.all_course"],
+          "clinician_narrative_prompt": "Confirm all AEs documented and resolved. Note any ongoing concerns.",
+          "required": true
+        },
+        {
+          "section_id": "eoc-04",
+          "title": "Maintenance Plan and Recommendations",
+          "auto_populate_from": [],
+          "clinician_narrative_prompt": "State maintenance plan: monthly rTMS/tDCS booster sessions if response achieved, CES home adjunct, pain psychology continuation, medication review, or discharge with follow-up. Specify next assessment timing.",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "RPT-PAIN-SOAP",
+      "name": "Chronic Pain Session SOAP Note",
+      "report_type": "soap-note",
+      "audience": "Internal",
+      "frequency": "Every session",
+      "sections": [
+        {
+          "section_id": "soap-s",
+          "title": "Subjective",
+          "auto_populate_from": ["session.patient_report"],
+          "clinician_narrative_prompt": "Document patient-reported pain level (NRS), fatigue, sleep, mood, medication adherence, and any changes since last session.",
+          "required": true
+        },
+        {
+          "section_id": "soap-o",
+          "title": "Objective",
+          "auto_populate_from": ["session.protocol_id", "session.parameters", "session.duration", "session.adverse_events"],
+          "clinician_narrative_prompt": "Record protocol delivered, parameters used (intensity, pulse count, electrode placement), session duration, and technician observations.",
+          "required": true
+        },
+        {
+          "section_id": "soap-a",
+          "title": "Assessment",
+          "auto_populate_from": ["assessment.latest_scores"],
+          "clinician_narrative_prompt": "Clinical impression of pain and functional trajectory. Note any changes in presentation, comorbidities, or risk factors.",
+          "required": true
+        },
+        {
+          "section_id": "soap-p",
+          "title": "Plan",
+          "auto_populate_from": ["course.next_session", "course.protocol_adjustments_pending"],
+          "clinician_narrative_prompt": "State plan for next session: parameter adjustments, additional assessment, referral actions, or patient instructions.",
+          "required": true
+        }
+      ]
+    }
+  ],
+
+  "home_program_templates": [
+    {
+      "id": "HP-CES-PAIN-01",
+      "name": "Chronic Pain Home CES Programme — Alpha-Stim",
+      "modality_slug": "ces",
+      "device_required": "Alpha-Stim AID (prescription device)",
+      "prerequisite_clinic_sessions": 1,
+      "sessions_per_week": 5,
+      "session_duration_minutes": 60,
+      "total_weeks": 4,
+      "patient_instructions": [
+        "Use the Alpha-Stim device each day, ideally in the morning or midday to help manage pain and fatigue throughout the day.",
+        "Find a comfortable, quiet place to sit or lie. Moisten the felt pads on the ear clip electrodes with the conductive solution.",
+        "Clip both ear clips to your ear lobes and connect the leads to the device.",
+        "Turn the device on and set to 0.5 Hz. Start at the lowest current setting.",
+        "You may feel a mild, gentle tingling — this is normal. Sit or rest quietly for 60 minutes.",
+        "After each session, rate your pain (0–10) before and after the session in your pain diary.",
+        "You may also practise gentle relaxation, pacing exercises, or pain psychology techniques during the session.",
+        "Do not use the device if you feel acutely unwell or have any new symptoms you have not discussed with your clinician."
+      ],
+      "safety_checklist": [
+        "My ear lobes are free from cuts, sores, or active skin conditions.",
+        "I do not have a pacemaker or implanted cardiac device.",
+        "I have removed all metal ear jewellery.",
+        "I am not planning to drive or operate machinery immediately after my session.",
+        "I feel well enough to use the device today."
+      ],
+      "reporting_requirements": [
+        "Record pre and post-session NRS pain score in your pain diary every session day.",
+        "Note any unusual sensations, skin redness at ear sites, or headache in your diary.",
+        "Bring your pain diary to every clinic appointment for review.",
+        "Contact the clinic if you miss 5 or more consecutive home sessions.",
+        "Contact the clinic promptly if you notice skin redness or discomfort at the ear clip sites."
+      ],
+      "contraindications_for_home": [
+        "Active ear infection or open wound at ear lobe site",
+        "Feeling acutely unwell, feverish, or in a medical emergency",
+        "After consuming alcohol (>1 unit) — postpone session",
+        "If your doctor has added a new medication that may interact with electrical stimulation — contact clinic first",
+        "Any new neurological symptoms (weakness, vision changes, speech difficulty) — contact clinic before using"
+      ],
+      "evidence_note": "CES home use for pain is on-label (FDA-cleared Alpha-Stim AID). Home programme after clinic training session is appropriate. Pain diary tracking provides session-level monitoring data for clinic review."
+    }
+  ],
+
+  "consent_documents": [
+    {
+      "id": "CONS-PAIN-GEN-01",
+      "name": "Chronic Pain / Fibromyalgia Neuromodulation — General Informed Consent",
+      "document_type": "informed-consent",
+      "modality_slug": null,
+      "when_required": "Before first session of any neuromodulation treatment for chronic pain or fibromyalgia",
+      "key_disclosures": [
+        "rTMS and tDCS for fibromyalgia and chronic pain are off-label — not specifically approved by the FDA for this indication. European IFCN guidelines recommend these treatments at Level B (moderate evidence).",
+        "CES (Alpha-Stim) is FDA-cleared for pain and is an on-label treatment.",
+        "Results are not guaranteed and vary between individuals. Some patients experience no meaningful benefit.",
+        "Benefits of rTMS for pain typically last 2–4 weeks post-course and require maintenance sessions to sustain.",
+        "Common side effects of rTMS include scalp discomfort and mild headache. tDCS may cause tingling or skin redness. CES may cause mild ear tingling.",
+        "Serious but rare risks include seizure (rTMS), skin burn at electrode sites (tDCS/CES), and transient mood changes.",
+        "No FDA clearance exists for pain-specific brain stimulation (except CES). I understand this is off-label use.",
+        "Neuromodulation is adjunctive to my overall pain management plan — it does not replace medication, physiotherapy, or pain psychology.",
+        "I understand I may withdraw from treatment at any time without penalty.",
+        "My treatment data will be stored securely and used to monitor my response."
+      ],
+      "signature_required": true,
+      "witness_required": false,
+      "clinician_co_sign_required": true,
+      "review_frequency": "Each new treatment course"
+    },
+    {
+      "id": "CONS-PAIN-OFL-01",
+      "name": "Chronic Pain Off-Label Treatment Acknowledgement (rTMS / tDCS)",
+      "document_type": "off-label-acknowledgement",
+      "modality_slug": null,
+      "when_required": "Before protocol generation for any rTMS or tDCS chronic pain protocol",
+      "key_disclosures": [
+        "The proposed brain stimulation treatment (rTMS or tDCS) is being used off-label for chronic pain / fibromyalgia.",
+        "My clinician has explained the current evidence base including European IFCN Level B guidelines for this treatment.",
+        "I understand the evidence grade applicable to my proposed protocol (EV-B for rTMS M1 and tDCS M1; EV-C for tDCS DLPFC).",
+        "I consent to proceeding with this off-label treatment after consideration of available evidence and alternatives.",
+        "My clinician will monitor my response and adjust or discontinue treatment if it is not beneficial or risks emerge."
+      ],
+      "signature_required": true,
+      "witness_required": false,
+      "clinician_co_sign_required": true,
+      "review_frequency": "Once per modality per treatment course"
+    },
+    {
+      "id": "CONS-PAIN-TMS-01",
+      "name": "TMS Safety Screening and Consent — Chronic Pain",
+      "document_type": "contraindication-screening",
+      "modality_slug": "tms",
+      "when_required": "Before first rTMS session and at start of any new rTMS course",
+      "key_disclosures": [
+        "TMS delivers magnetic pulses to the brain. It is contraindicated in patients with metal implants in the head or neck.",
+        "Seizure is a known but rare risk of rTMS. Risk is low with standard 10 Hz M1 protocols at ≤90% rMT but is not zero.",
+        "I have disclosed all implants, devices, medications (including tramadol and other seizure-threshold-lowering medications), and medical conditions.",
+        "I understand that if my medical status changes (new implant, new medication, new neurological event) I must inform the clinic before the next session.",
+        "Emergency seizure management procedures are available at the clinic."
+      ],
+      "signature_required": true,
+      "witness_required": false,
+      "clinician_co_sign_required": true,
+      "review_frequency": "Before each new rTMS course and annually for ongoing maintenance treatment"
+    },
+    {
+      "id": "CONS-PAIN-CES-HOME-01",
+      "name": "Chronic Pain CES Home Device Agreement — Alpha-Stim",
+      "document_type": "home-device-agreement",
+      "modality_slug": "ces",
+      "when_required": "Before Alpha-Stim device is prescribed or loaned for home pain management",
+      "key_disclosures": [
+        "The Alpha-Stim AID device is FDA-cleared for pain and I have been trained in its safe use.",
+        "I will use the device only as prescribed — 60 minutes daily at 0.5 Hz.",
+        "I will not use the device if I have an active ear infection, cardiac device, or feel acutely unwell.",
+        "I will complete my pain diary every session day and report any side effects to the clinic.",
+        "If the device is loaned by the clinic, it remains clinic property and must be returned in good condition.",
+        "I will not lend the device to others or use it for purposes other than my prescribed pain management programme."
+      ],
+      "signature_required": true,
+      "witness_required": false,
+      "clinician_co_sign_required": false,
+      "review_frequency": "Once; updated if device is changed"
+    }
+  ]
+}

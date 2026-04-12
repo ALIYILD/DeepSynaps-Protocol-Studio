@@ -1,0 +1,1276 @@
+{
+  "$schema": "../schemas/condition-package.schema.json",
+  "schema_version": "1.0.0",
+  "id": "CON-018",
+  "slug": "autism-spectrum-disorder",
+  "name": "Autism Spectrum Disorder (ASD)",
+  "category": "Neurodevelopmental",
+  "icd_10": ["F84.0"],
+  "dsm_5_code": "299.00",
+  "created_at": "2026-04-12",
+  "updated_at": "2026-04-12",
+  "review_status": "reviewed",
+  "reviewed_by": "DeepSynaps Clinical Team",
+
+  "condition_overview": {
+    "summary": "Autism Spectrum Disorder (ASD) is a neurodevelopmental condition characterised by persistent deficits in social communication and interaction, alongside restricted, repetitive patterns of behaviour, interests, or activities. ASD is a spectrum condition with wide variability in cognitive, language, and functional profiles. CRITICAL GOVERNANCE NOTE: All neuromodulation evidence in ASD comes from small, often uncontrolled studies. There is no FDA clearance, no guideline endorsement, and no established clinical standard for any neuromodulation approach in ASD. These protocols are strictly experimental and must be presented to patients and caregivers as such, in a specialist research or clinical trial context only.",
+    "prevalence": "CDC surveillance data (2023) estimates ASD prevalence at approximately 1 in 36 children in the United States. Global estimates range from 1–2% of the population. ASD is diagnosed approximately 4 times more frequently in males than females, though this ratio narrows with improved identification of females and those with lower support needs.",
+    "phenotype_clusters": [
+      {
+        "id": "PHE-ASD-01",
+        "name": "High-Functioning Verbal ASD (DSM-5 Level 1)",
+        "description": "Requires some support. Verbal communicators with social communication difficulties, restricted interests, and sensory sensitivities. Average or above-average intellectual function. Most studied phenotype in neuromodulation research. May have ADHD comorbidity.",
+        "primary_modality": "tms",
+        "qeeg_signature": "Excess gamma activity; reduced mu suppression at C3/C4; atypical alpha lateralisation"
+      },
+      {
+        "id": "PHE-ASD-02",
+        "name": "ASD Level 2 — Requiring Substantial Support",
+        "description": "Marked deficits in social communication, evident rigidity in behaviour or coping with change. May have limited verbal communication. Greater support needs in daily life. Limited representation in neuromodulation research.",
+        "primary_modality": "neurofeedback",
+        "qeeg_signature": "Variable — elevated theta, altered gamma, disrupted frontoparietal connectivity"
+      },
+      {
+        "id": "PHE-ASD-03",
+        "name": "ASD Level 3 — Requiring Very Substantial Support",
+        "description": "Severe deficits in social communication; very limited functional verbal communication. Significant behavioural rigidity impacting all daily activities. Neuromodulation is generally not appropriate due to tolerance and consent limitations.",
+        "primary_modality": "neurofeedback",
+        "qeeg_signature": "Severely disrupted EEG — high prevalence of paroxysmal activity; seizure comorbidity common"
+      },
+      {
+        "id": "PHE-ASD-04",
+        "name": "Sensory-Dominant ASD",
+        "description": "Marked sensory processing differences as the primary functional challenge — hypersensitivity to sounds, textures, lights; vestibular and proprioceptive differences. May refuse electrode or equipment placement. Occupational therapy sensory desensitisation required before neuromodulation consideration.",
+        "primary_modality": "neurofeedback",
+        "qeeg_signature": "Elevated sensory cortex reactivity; excess gamma at occipital and temporal regions"
+      },
+      {
+        "id": "PHE-ASD-05",
+        "name": "Anxiety-Comorbid ASD",
+        "description": "ASD with significant co-occurring anxiety disorder (social anxiety, GAD, OCD-spectrum). Anxiety may dominate clinical presentation. Anxiety management should precede or parallel any neuromodulation consideration.",
+        "primary_modality": "neurofeedback",
+        "qeeg_signature": "Elevated frontal beta, reduced frontal alpha, anxiety-related EEG asymmetry"
+      },
+      {
+        "id": "PHE-ASD-06",
+        "name": "ADHD-Comorbid ASD",
+        "description": "ASD with co-occurring ADHD (50–70% comorbidity rate). Shared executive dysfunction, inattention, and hyperactivity. Neuromodulation approach needs to account for both conditions. Stimulant medication effects must be documented.",
+        "primary_modality": "neurofeedback",
+        "qeeg_signature": "Combined ASD and ADHD signatures: excess theta at Fz/Cz, altered mu, reduced beta"
+      }
+    ],
+    "severity_levels": [
+      "DSM-5 Level 1 — Requires support",
+      "DSM-5 Level 2 — Requires substantial support",
+      "DSM-5 Level 3 — Requires very substantial support"
+    ],
+    "population": ["Paediatric (children and adolescents)", "Adult (18+)"],
+    "symptom_clusters": [
+      "Social communication deficits (reduced initiation, difficulty interpreting social cues, limited eye contact)",
+      "Restricted and repetitive behaviours (insistence on sameness, repetitive motor movements, stereotypies)",
+      "Sensory sensitivities (hyper- or hypo-reactivity to sensory input across modalities)",
+      "Executive dysfunction (rigidity, planning difficulties, cognitive inflexibility)",
+      "Language differences (ranging from non-verbal to advanced vocabulary with pragmatic difficulties)",
+      "Emotional regulation difficulties (meltdowns, shutdown states, difficulty identifying emotions)"
+    ],
+    "highest_evidence_level": "EV-D",
+    "relevant_modalities": ["tms", "tdcs", "neurofeedback"],
+    "neurobiology": "ASD involves atypical development of neural circuits supporting social cognition, language, and sensory processing. Key implicated circuits include the mirror neuron system (MNS — reduced mu suppression suggesting atypical sensorimotor mirroring), the default mode network (DMN — altered connectivity affecting social cognition and self-referential processing), and the frontoparietal network (executive function). Elevated excitatory/inhibitory (E/I) imbalance — particularly excess gamma-band activity — has been proposed as a neurophysiological signature. However, neurobiological targets for neuromodulation in ASD are not established and remain actively debated. No validated neuromodulation biomarker for ASD has been confirmed in clinical settings.",
+    "comorbidities": [
+      "ADHD (50–70% comorbidity — most common)",
+      "Anxiety disorders (40–60% — social anxiety, GAD, OCD-spectrum)",
+      "Epilepsy (10–30% — significant safety implication for neuromodulation)",
+      "Intellectual disability (present in approximately 30% of ASD; affects protocol eligibility)",
+      "Sleep disorders (50–80% — insomnia, sleep-phase disruption)",
+      "Depression (particularly in adolescent and adult ASD)",
+      "Gastrointestinal disorders (common, may affect wellbeing during sessions)"
+    ],
+    "differential_diagnoses": [
+      "ADHD without ASD (executive dysfunction and social difficulties without ASD-specific social communication pattern)",
+      "Social anxiety disorder (social avoidance without restrictive/repetitive behaviours or sensory profile)",
+      "Intellectual disability without ASD (cognitive impairment without social communication deficit characteristic of ASD)",
+      "Pathological demand avoidance (PDA) profile — distinct from ASD Level 3 though often co-occurring",
+      "Rett syndrome (distinct neurodevelopmental disorder with ASD-like features in early childhood)",
+      "Selective mutism (language ability present but not used in social contexts)",
+      "Language disorder (pragmatic language impairment without core ASD features)"
+    ]
+  },
+
+  "patient_friendly_explanation": {
+    "what_is_it": "Autism Spectrum Disorder (ASD) is a lifelong neurodevelopmental condition that affects how a person communicates, relates to others, and experiences the world around them. It is not a disease to be cured — it is a different way of thinking and experiencing the world. Many autistic people live full, rich lives and make unique contributions to society.",
+    "how_it_affects_you": "Autism can make social situations harder to navigate, make some sensory experiences overwhelming, and lead to strong preferences for routines and predictability. It can also be associated with exceptional focus, attention to detail, and deep interests. The challenges and strengths are unique to each person.",
+    "treatment_options_overview": "Some researchers are exploring whether brain stimulation or brain training techniques might help with specific difficulties in autism, such as attention, repetitive behaviours, or social communication. It is extremely important to know that these are experimental approaches — they are not proven treatments for autism, and they are not intended to change who you are or make you 'less autistic'. They are only appropriate in a specialist research or clinical trial setting, with full understanding of what is and is not known.",
+    "what_to_expect": "If you or your child is being considered for one of these experimental approaches, there will be a thorough assessment first. Sessions are typically painless. Neurofeedback involves wearing a cap with sensors and responding to audio or visual feedback. TMS produces a tapping sensation on the scalp. Tolerability of equipment and procedures will always be assessed carefully first — if the equipment is distressing, the session will stop.",
+    "faq": [
+      {
+        "question": "Is this a cure for autism?",
+        "answer": "No. These treatments are not intended to cure or change autism. The research is exploring whether specific challenges — like attention or repetitive movements — might be affected by brain stimulation. The scientific evidence is very early-stage. Autism is a part of who you are, not a disease to be treated away."
+      },
+      {
+        "question": "Is this safe?",
+        "answer": "The treatments have generally been tolerable in the small studies conducted so far. The main risks include headache, fatigue, and in rare cases, seizure (TMS only). However, autism is associated with a higher rate of epilepsy (10–30%), which is an important safety consideration. Every person's medical history will be reviewed very carefully. If there is any history of seizures, TMS is not appropriate."
+      },
+      {
+        "question": "Does my child have to do this?",
+        "answer": "Absolutely not. These are voluntary experimental treatments. Your child has a right to say no (or to stop at any time). For children, both parent/caregiver consent and age-appropriate child assent are required. Participation is never compulsory."
+      },
+      {
+        "question": "Will the equipment be distressing for my autistic child?",
+        "answer": "This is a very important question. Many autistic people have significant sensory sensitivities. Before any session, we will work with you and your child to assess tolerance of the equipment and the clinic environment. If the equipment is distressing, we will not proceed. Sensory desensitisation preparation (e.g. with an occupational therapist) may be recommended first."
+      },
+      {
+        "question": "Who is paying for this?",
+        "answer": "As these are experimental treatments without insurance or NHS coverage in most settings, you should discuss funding carefully with the clinic. Some research programmes may offer treatments at reduced or no cost in exchange for participation in data collection."
+      }
+    ]
+  },
+
+  "medical_history_requirements": {
+    "required_fields": [
+      {
+        "field": "Confirmed ASD diagnosis (ADOS-2 or equivalent gold-standard diagnostic assessment documented)",
+        "reason": "ASD diagnosis must be confirmed by validated gold-standard assessment. Screening tool results alone are insufficient for protocol generation.",
+        "blocks_protocol": true
+      },
+      {
+        "field": "DSM-5 Level (1, 2, or 3) and verbal/non-verbal status",
+        "reason": "Level determines protocol eligibility and consent capacity. Level 3 ASD is generally not appropriate for neuromodulation outside highly adapted protocols. Verbal status affects informed consent process.",
+        "blocks_protocol": true
+      },
+      {
+        "field": "Seizure history and current epilepsy status",
+        "reason": "10–30% of ASD individuals have epilepsy — highest seizure comorbidity of any neurodevelopmental condition. Active epilepsy is an absolute contraindication for TMS. Must be documented before any protocol.",
+        "blocks_protocol": true
+      },
+      {
+        "field": "Intellectual disability assessment (IQ or adaptive behaviour)",
+        "reason": "Intellectual disability affects consent capacity and protocol eligibility. Must be documented to plan appropriate consent process (caregiver authorisation, minor assent).",
+        "blocks_protocol": true
+      },
+      {
+        "field": "Tolerance assessment for electrode/equipment placement",
+        "reason": "Sensory sensitivities may make electrode cap or TMS coil application intolerable. Equipment tolerance must be assessed before protocol generation.",
+        "blocks_protocol": true
+      },
+      {
+        "field": "ADHD comorbidity status (diagnosis, current medication)",
+        "reason": "ADHD is present in 50–70% of ASD. ADHD medications (stimulants) affect cortical excitability. Must be documented for TMS safety screening and protocol parameter selection.",
+        "blocks_protocol": false
+      },
+      {
+        "field": "Current and past medications (full list including anticonvulsants, antipsychotics, stimulants)",
+        "reason": "Multiple ASD medications lower seizure threshold. Antipsychotics and anticonvulsants interact with neuromodulation effects. Required for safety screening.",
+        "blocks_protocol": false
+      },
+      {
+        "field": "Anxiety comorbidity (formal assessment — MASC-2 or equivalent)",
+        "reason": "High anxiety comorbidity in ASD affects tolerance of procedures and may be exacerbated by neuromodulation. Anxiety management plan must be in place.",
+        "blocks_protocol": false
+      }
+    ],
+    "clinical_interview_checklist": [
+      "ASD diagnosis history — who diagnosed, when, using what tools",
+      "Current support needs and level of independence",
+      "Communication style — verbal/non-verbal; AAC use",
+      "Sensory profile — specific sensory triggers and tolerances (relevant to equipment and clinic environment)",
+      "Seizure history — any type; family history of epilepsy",
+      "Behaviour during medical and dental appointments (indicator of procedure tolerance)",
+      "Sleep quality and pattern",
+      "ADHD symptoms and medication",
+      "Anxiety profile and current management",
+      "Family/caregiver understanding of experimental nature of proposed protocols",
+      "Patient/family goals and motivations — what specific difficulty they hope to address",
+      "Cultural and family context around autism and medical interventions"
+    ],
+    "rule_out_differentials": [
+      "ADHD without ASD (confirm both conditions present if diagnosing comorbidity)",
+      "Social anxiety disorder (social difficulties without core ASD features — different intervention pathway)",
+      "Language disorder without ASD (pragmatic language impairment — speech therapy primary pathway)",
+      "Intellectual disability without ASD (cognitive impairment without social communication deficit profile)"
+    ],
+    "comorbidity_screen": [
+      "Epilepsy / seizure disorder (dedicated seizure history — mandatory before any neuromodulation consideration)",
+      "ADHD (SNAP-IV or Conners — affects protocol selection and safety)",
+      "Anxiety (MASC-2 or parent-reported anxiety screen — affects procedure tolerance and clinical trajectory)",
+      "Depression (PHQ-9 for older adolescents and adults with ASD)",
+      "Sleep disorder (insomnia screen — affects cognitive baseline and session engagement)"
+    ],
+    "prior_treatment_required": [
+      "Applied Behaviour Analysis (ABA) or other evidence-based behavioural intervention history",
+      "Speech-Language Therapy history and current status",
+      "Occupational Therapy assessment including sensory profile",
+      "Psychology or psychiatry involvement for comorbid anxiety, ADHD, or depression",
+      "School or educational support plan (for children)"
+    ],
+    "special_population_flags": [
+      {
+        "population": "Paediatric (under 18)",
+        "additional_requirements": [
+          "Legal guardian consent required — caregiver-authorisation form mandatory",
+          "Child assent required where developmentally appropriate (capacity varies widely in ASD)",
+          "Minor assent form adapted for cognitive and communication level of child",
+          "Paediatric neurologist or psychiatrist co-sign on safety review for TMS",
+          "School/educational team informed if relevant to treatment goals"
+        ]
+      },
+      {
+        "population": "Non-verbal or minimally verbal ASD",
+        "additional_requirements": [
+          "Formal consent capacity assessment by qualified professional",
+          "Alternative communication assessment (AAC device or communication support) for valid assent process",
+          "Heightened AE monitoring relying on observable behaviour and caregiver report (patient cannot self-report)",
+          "Dedicated behaviour management plan for session tolerance"
+        ]
+      },
+      {
+        "population": "ASD with intellectual disability",
+        "additional_requirements": [
+          "Formal capacity assessment mandatory — written opinion from treating clinician or psychologist",
+          "All consent through qualified caregiver/guardian",
+          "Simplified written and visual consent materials in accessible formats",
+          "Independent advocate involvement recommended where available"
+        ]
+      },
+      {
+        "population": "ASD with epilepsy comorbidity",
+        "additional_requirements": [
+          "Active epilepsy is an absolute TMS contraindication — no TMS protocol may proceed",
+          "Well-controlled epilepsy (>12 months seizure-free on stable medication): neurology written clearance mandatory",
+          "Prefer neurofeedback (no known seizure risk) over TMS in this population",
+          "Enhanced seizure monitoring protocol at every session"
+        ]
+      }
+    ]
+  },
+
+  "contraindications": {
+    "absolute": [
+      {
+        "condition": "Active epilepsy or uncontrolled seizure disorder",
+        "rationale": "10–30% of ASD individuals have epilepsy. TMS is absolutely contraindicated with active, uncontrolled seizures. Given ASD's elevated epilepsy rate, this contraindication applies to a substantial proportion of ASD patients."
+      },
+      {
+        "condition": "Metallic implant in head or neck (aneurysm clips, cochlear implants, DBS device)",
+        "rationale": "TMS electromagnetic fields may heat or displace metallic implants. Absolute contraindication for all TMS protocols."
+      },
+      {
+        "condition": "Implanted cardiac pacemaker or defibrillator",
+        "rationale": "TMS may interfere with device function. Absolute contraindication."
+      },
+      {
+        "condition": "Inability to tolerate electrode/equipment placement causing significant distress",
+        "rationale": "Sensory overload and distress from equipment is a significant ASD-specific contraindication. Any protocol that cannot be delivered without causing significant behavioural distress must not proceed. Patient wellbeing takes absolute priority."
+      },
+      {
+        "condition": "Absence of valid consent or assent (patient lacks capacity AND no qualified decision-maker available)",
+        "rationale": "Experimental treatments require valid consent. If the patient lacks capacity and there is no qualified caregiver or guardian to provide proxy consent, no experimental protocol may proceed."
+      }
+    ],
+    "relative": [
+      {
+        "condition": "Well-controlled epilepsy (>12 months seizure-free on stable anti-epileptic medication)",
+        "rationale": "Epilepsy history in ASD significantly elevates TMS seizure risk even if currently controlled. Low-frequency or inhibitory TMS carries lower risk; high-frequency excitatory TMS is particularly risky.",
+        "mitigation": "Written neurology clearance mandatory. Prefer neurofeedback or tDCS over TMS. If TMS required, prefer 1 Hz inhibitory protocol. Emergency seizure protocol in place. Caregiver present at all sessions. Enhanced post-session monitoring period."
+      },
+      {
+        "condition": "Significant anxiety comorbidity with procedure-related distress",
+        "rationale": "Anxiety is common in ASD and may be exacerbated by clinic procedures, equipment, and the novel clinical environment. Distress reduces validity of any outcome assessment.",
+        "mitigation": "OT-guided sensory desensitisation programme before starting. Gradual exposure to equipment outside of active sessions. Anxiety management (pharmacological or behavioural) in place before commencing neuromodulation."
+      },
+      {
+        "condition": "ASD Level 3 (very substantial support needs)",
+        "rationale": "Level 3 ASD typically involves significant challenges with procedure tolerance, valid assent, and reliable AE self-reporting. Risk-benefit ratio for experimental neuromodulation is unfavourable.",
+        "mitigation": "Only proceed in highly specialist research context with specific ethics approval. Extensive sensory preparation. Caregiver present throughout all sessions. Heightened behaviour monitoring. Legal and ethical review before protocol generation."
+      },
+      {
+        "condition": "Non-verbal or minimally verbal patient without reliable AE communication method",
+        "rationale": "AE reporting relies on patient communication. Non-verbal patients cannot self-report headache, discomfort, or unusual sensations, increasing safety monitoring burden.",
+        "mitigation": "Develop validated behaviour-based AE monitoring protocol with caregiver and behaviourist. Caregiver present at all sessions and trained in ASD-specific AE recognition. Use pain behaviour observation scales."
+      }
+    ],
+    "special_populations": [
+      {
+        "population": "Children under 12 with ASD",
+        "flag": "Evidence base for TMS and tDCS in ASD is almost entirely in adults and older adolescents. Under-12 TMS is particularly under-studied and not recommended outside formal RCT with ethics board approval."
+      },
+      {
+        "population": "ASD with self-injurious behaviour",
+        "flag": "Self-injurious behaviour may be exacerbated by distress or discomfort from procedures. Safety planning must include specific risk assessment and management plan for self-injury in the clinic setting. Behavioural support must be available."
+      }
+    ],
+    "modality_specific": {
+      "tms": [
+        "No metallic implants in head or neck",
+        "No active epilepsy — epilepsy in ASD population is a major TMS safety concern",
+        "Completed ASD-adapted TMS Safety Screening Questionnaire (completed with caregiver assistance where needed)",
+        "Emergency seizure management in clinic",
+        "Patient must be able to remain still during TMS coil positioning",
+        "Caregiver or support person present at all TMS sessions for ASD patients"
+      ],
+      "tdcs": [
+        "No open wounds or skin lesions at electrode sites",
+        "Patient must tolerate sponge electrode contact without significant distress",
+        "Remove metal jewellery before session",
+        "OT sensory desensitisation to electrode materials recommended before first session"
+      ],
+      "neurofeedback": [
+        "Patient must tolerate EEG cap or individual electrode placement — sensory profile assessment required first",
+        "Active and very severe self-injurious behaviour is a session-level contraindication",
+        "Active epilepsy: relative contraindication — consult neurologist if paroxysmal EEG activity observed during recording"
+      ]
+    }
+  },
+
+  "assessment_bundle": {
+    "screening": [
+      {
+        "assessment_id": "ASS-ASD-01",
+        "name": "AQ-10",
+        "full_name": "Autism Spectrum Quotient — 10 item",
+        "clinician_vs_patient": "Patient self-report",
+        "rationale": "10-item ASD screening tool for adults. Score ≥6 suggests possible ASD requiring formal diagnostic assessment. Cannot be used for diagnostic confirmation. Not applicable for children or non-verbal individuals.",
+        "lower_is_better": false,
+        "admin_duration_minutes": 5,
+        "access": "Free (public domain)",
+        "population": "Adult 18+"
+      }
+    ],
+    "diagnostic": [
+      {
+        "assessment_id": "ASS-ASD-02",
+        "name": "ADOS-2",
+        "full_name": "Autism Diagnostic Observation Schedule — 2nd Edition",
+        "clinician_vs_patient": "Clinician-rated",
+        "rationale": "Gold-standard semi-structured standardised diagnostic assessment for ASD across all ages and language levels. Comprises 5 modules selected by language level. Required for confirmed ASD diagnosis. Must be conducted by ADOS-2 trained and reliability-established assessor.",
+        "lower_is_better": false,
+        "admin_duration_minutes": 45,
+        "access": "Licensed — Western Psychological Services; requires ADOS-2 training and reliability establishment",
+        "population": "All ages (module selected by language level)"
+      },
+      {
+        "assessment_id": "ASS-ASD-03",
+        "name": "SRS-2",
+        "full_name": "Social Responsiveness Scale — 2nd Edition",
+        "clinician_vs_patient": "Observer-rated",
+        "rationale": "65-item observational measure of ASD social symptom severity across five subscales: Social Awareness, Social Cognition, Social Communication, Social Motivation, and Restricted Interests and Repetitive Behaviour. Parent, teacher, and self-report forms available. Captures real-world social symptom severity and is used as a treatment outcome measure in ASD neuromodulation trials.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 15,
+        "access": "Licensed — Western Psychological Services",
+        "population": "Child (2.5–18); Adult (18+)"
+      }
+    ],
+    "baseline": [
+      {
+        "assessment_id": "ASS-ASD-03",
+        "name": "SRS-2 (Baseline)",
+        "full_name": "Social Responsiveness Scale — 2nd Edition — Baseline",
+        "clinician_vs_patient": "Observer-rated",
+        "rationale": "Primary baseline for social symptom severity. T-score ≥75 indicates severe impairment. Used as primary outcome in multiple ASD neuromodulation pilot studies.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 15,
+        "access": "Licensed — Western Psychological Services",
+        "population": "Child (2.5–18); Adult (18+)"
+      },
+      {
+        "assessment_id": "ASS-ASD-04",
+        "name": "BRIEF-2 / BRIEF-A",
+        "full_name": "Behavior Rating Inventory of Executive Function — 2nd Edition (Child) or Adult Version",
+        "clinician_vs_patient": "Either",
+        "rationale": "Captures real-world executive function across multiple scales. Particularly relevant for ADHD-comorbid ASD phenotype and executive dysfunction phenotype. Baseline required before any executive-targeting protocol.",
+        "lower_is_better": false,
+        "admin_duration_minutes": 20,
+        "access": "Licensed — PAR Inc.",
+        "population": "Child 5–18 (BRIEF-2); Adult 18+ (BRIEF-A)"
+      },
+      {
+        "assessment_id": "ASS-ASD-05",
+        "name": "MASC-2",
+        "full_name": "Multidimensional Anxiety Scale for Children — 2nd Edition",
+        "clinician_vs_patient": "Patient self-report",
+        "rationale": "Validated anxiety measure for youth with ASD and anxiety comorbidity. Score provides baseline for anxiety monitoring during experimental neuromodulation course.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 15,
+        "access": "Licensed — MHS Publishing",
+        "population": "Child / Adolescent 8–19"
+      },
+      {
+        "assessment_id": "ASS-ASD-06",
+        "name": "SNAP-IV",
+        "full_name": "Swanson, Nolan, and Pelham Rating Scale — Version IV",
+        "clinician_vs_patient": "Parent/caregiver report",
+        "rationale": "ADHD comorbidity baseline for ASD patients with suspected or confirmed ADHD. Required for ADHD-comorbid phenotype protocol — affects protocol target and parameter selection.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 10,
+        "access": "Free",
+        "population": "Child / Adolescent 6–18"
+      }
+    ],
+    "monitoring": [
+      {
+        "assessment_id": "ASS-ASD-03",
+        "name": "SRS-2 (Monitoring)",
+        "full_name": "Social Responsiveness Scale — 2nd Edition — Repeated Measure",
+        "clinician_vs_patient": "Observer-rated",
+        "rationale": "Primary monitoring tool for social symptom severity. Administered every 10 sessions. T-score change from baseline is the primary outcome signal in experimental ASD protocols.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 15,
+        "access": "Licensed — Western Psychological Services",
+        "population": "Child (2.5–18); Adult (18+)"
+      }
+    ],
+    "outcome": [
+      {
+        "assessment_id": "ASS-ASD-03",
+        "name": "SRS-2 (End of Course)",
+        "full_name": "Social Responsiveness Scale — 2nd Edition — Endpoint",
+        "clinician_vs_patient": "Observer-rated",
+        "rationale": "Primary outcome measure for experimental ASD neuromodulation. Clinically meaningful response defined as ≥10 T-score point reduction from baseline. Report absolute score and change from baseline.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 15,
+        "access": "Licensed — Western Psychological Services",
+        "population": "Child (2.5–18); Adult (18+)"
+      },
+      {
+        "assessment_id": "ASS-ASD-04",
+        "name": "BRIEF-2 / BRIEF-A (End of Course)",
+        "full_name": "BRIEF End of Course — Executive Function Endpoint",
+        "clinician_vs_patient": "Either",
+        "rationale": "Secondary outcome for executive function. T-score reduction ≥10 on Global Executive Composite = meaningful functional change.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 20,
+        "access": "Licensed — PAR Inc.",
+        "population": "Child 5–18 (BRIEF-2); Adult 18+ (BRIEF-A)"
+      }
+    ],
+    "neurophysiological": [
+      {
+        "assessment_id": "ASS-ASD-07",
+        "name": "qEEG — ASD Protocol",
+        "full_name": "Quantitative EEG — ASD Biomarker and Mu Suppression Assessment",
+        "clinician_vs_patient": "Clinician-rated",
+        "rationale": "Required before neurofeedback protocols — identifies individualised EEG biomarkers (mu suppression at C3/C4, gamma abnormalities, connectivity disruption). Tolerance of qEEG cap must be assessed first. Note: ASD-specific qEEG biomarkers are not validated for clinical use — used only to guide experimental protocol design.",
+        "lower_is_better": false,
+        "admin_duration_minutes": 60,
+        "access": "Requires full 19-channel qEEG system, normative database, and ASD-experienced interpreter",
+        "population": "Child (with tolerance assessment) and Adult"
+      }
+    ],
+    "functional": [
+      {
+        "assessment_id": "ASS-ASD-08",
+        "name": "Sensory Profile 2",
+        "full_name": "Sensory Profile 2 — Caregiver Questionnaire",
+        "clinician_vs_patient": "Parent/caregiver report",
+        "rationale": "Standardised sensory processing assessment. Documents sensory sensitivity across multiple modalities. Essential for planning electrode/equipment tolerance and designing a sensory-informed neuromodulation approach.",
+        "lower_is_better": false,
+        "admin_duration_minutes": 20,
+        "access": "Licensed — Pearson",
+        "population": "Child 3–14 (Caregiver); available for adults"
+      }
+    ]
+  },
+
+  "protocol_bundle": [
+    {
+      "protocol_id": "PRO-TMS-ASD-01",
+      "name": "rTMS Right DLPFC — Social Communication in ASD (Experimental Only)",
+      "modality_slug": "tms",
+      "phenotype_id": "PHE-ASD-01",
+      "on_label_vs_off_label": "Investigational",
+      "evidence_grade": "EV-D",
+      "evidence_summary": "CRITICAL: All TMS evidence in ASD consists of small, often uncontrolled studies with inconsistent targets, parameters, and outcome measures. No consensus protocol exists. Enticott et al. (2012, 2014) conducted small sham-controlled trials of 1 Hz TMS to right DLPFC/STS reporting marginal improvements in social awareness. Subsequent replication attempts have been inconsistent. No agreed stimulation target has emerged. Effect sizes are small and uncertain. No guideline body endorses TMS for ASD. Evidence classified EV-D. This protocol may only be delivered in a specialist research or clinical trial context.",
+      "references": [
+        "Enticott PG et al. (2012). Repetitive transcranial magnetic stimulation (rTMS) improves movement-related cortical potentials and reaction time in the upper limb of children with autism. Journal of Child Psychology and Psychiatry, 53(5), 494–498.",
+        "Enticott PG et al. (2014). A double-blind, randomized trial of deep repetitive transcranial magnetic stimulation (rTMS) for autism spectrum disorder. Brain Stimulation, 7(2), 206–211.",
+        "Oberman L et al. (2016). Abnormal modulation of corticospinal excitability in adults with Asperger's syndrome. European Journal of Neuroscience, 43(6), 893–900."
+      ],
+      "brain_target": {
+        "region": "Right Dorsolateral Prefrontal Cortex or Right Superior Temporal Sulcus",
+        "laterality": "Right",
+        "eeg_position": "F4 (DLPFC) or T8 (STS approximation)",
+        "effect_direction": "Inhibitory"
+      },
+      "parameters": {
+        "frequency_hz": "1 Hz (low-frequency inhibitory — most studied; no consensus on optimal frequency)",
+        "intensity": "90–100% resting motor threshold (rMT) — individualised",
+        "pulse_count": "600–1200 pulses per session (varied across published studies — no consensus)",
+        "coil_type": "Figure-8 coil (70 mm) or Deep TMS H-coil (in some published studies)",
+        "electrode_placement": "Right DLPFC (F4) or right STS — target varies significantly across studies; no established consensus site"
+      },
+      "session_structure": {
+        "sessions_per_week": 3,
+        "session_duration_minutes": 25,
+        "total_sessions": 18,
+        "total_weeks": 6,
+        "maintenance_sessions": "No established maintenance protocol",
+        "steps": [
+          {
+            "order": 1,
+            "title": "Sensory preparation and safety review",
+            "duration_minutes": 10,
+            "detail": "Conduct sensory readiness check with patient and caregiver. Review any changes in medications, seizures, or health since last session. Confirm caregiver is present. Review ASD-specific TMS safety screening. Ask patient about comfort and readiness."
+          },
+          {
+            "order": 2,
+            "title": "Motor threshold determination (first session; repeat if >1-week gap)",
+            "duration_minutes": 10,
+            "detail": "Determine rMT over left motor cortex. For ASD patients, ensure adequate explanation (verbal or visual supports) before starting. Ensure ear protection is tolerated (consider alternative hearing protection if standard is not). Document rMT and any deviations from standard procedure."
+          },
+          {
+            "order": 3,
+            "title": "Coil positioning and TMS delivery",
+            "duration_minutes": 15,
+            "detail": "Position coil at F4 (right DLPFC). Confirm patient is seated comfortably with minimal movement. Deliver 600–1200 pulses at 1 Hz per protocol specification. Monitor continuously. Caregiver present. Ask patient about comfort using preferred communication method every 5 minutes. Stop immediately if patient signals distress."
+          },
+          {
+            "order": 4,
+            "title": "Post-session review and AE check",
+            "duration_minutes": 5,
+            "detail": "Check for headache, unusual behaviour change, or distress. Use behaviour-based AE check if patient is non-verbal. Log all AEs. Caregiver debrief. Remind of contact information if concerns arise at home."
+          }
+        ]
+      },
+      "monitoring_required": [
+        "ASD-adapted TMS Safety Screening Questionnaire before first session (completed with caregiver)",
+        "SRS-2 at baseline and every 10 sessions (caregiver-completed)",
+        "Seizure monitoring log every session (patient and caregiver)",
+        "Behaviour observation log every session (caregiver)",
+        "Research participation consent documented before first session",
+        "Caregiver authorisation documented (if patient under 18)",
+        "Minor assent documented (if patient under 18 and age-appropriate)"
+      ],
+      "contraindication_check_required": true,
+      "adverse_event_monitoring": "Behaviour change post-session (increased irritability, withdrawal, stimming — may signal distress). Headache (verbal patients). Seizure (elevated risk in ASD population — emergency protocol mandatory). Any report of pain or distress from patient or caregiver. Post-session monitoring period of 30 minutes minimum for patients with epilepsy risk.",
+      "escalation_rules": [
+        "Seizure during or within 2 hours of session: emergency protocol, stop all TMS, neurology review mandatory before any resumption",
+        "Significant behaviour change post-session (increased aggression, SIB, withdrawal) on 2+ consecutive sessions: suspend protocol, clinician and caregiver review",
+        "No SRS-2 improvement after 10 sessions: clinician review — consider protocol discontinuation given very limited evidence base"
+      ],
+      "patient_facing_allowed": false,
+      "clinician_review_required": true,
+      "governance": {
+        "patient_export_allowed": false,
+        "requires_clinician_sign_off": true,
+        "off_label_acknowledgement_required": true,
+        "dual_review_required": true,
+        "notes": "EV-D experimental ASD TMS protocol. Dual review required. Patient export blocked. Clinician sign-off mandatory. Research participation consent required. Caregiver authorisation required for minors. This protocol must only be delivered in a specialist research/clinical trial context. Do not present as established treatment."
+      },
+      "notes": "CRITICAL: This protocol has no consensus target, no agreed parameters, and no RCT-level evidence. Published studies are small, inconsistent, and do not establish efficacy. The only appropriate context is a structured research programme with ethics board approval, clearly defined research question, and explicit patient and caregiver understanding of experimental status. Clinical team must have specific ASD neuromodulation research experience."
+    },
+    {
+      "protocol_id": "PRO-NF-ASD-01",
+      "name": "Neurofeedback — Mu Suppression and EEG Biomarker Training for ASD (Experimental Only)",
+      "modality_slug": "neurofeedback",
+      "phenotype_id": "PHE-ASD-01",
+      "on_label_vs_off_label": "Investigational",
+      "evidence_grade": "EV-D",
+      "evidence_summary": "CRITICAL: Neurofeedback evidence in ASD is extremely preliminary, from very small and mostly uncontrolled studies. The theoretical target — mu rhythm suppression (8–13 Hz reduction at C3/C4) as a proxy for mirror neuron system activity — has been studied in a handful of pilot studies (Jaime et al., 2014; Friedrich et al., 2015). Results are inconsistent and the mu-MNS link itself remains debated. Gamma and theta training variants have also been explored with similarly limited evidence. No guideline body endorses neurofeedback for ASD. Evidence classified EV-D.",
+      "references": [
+        "Jaime M et al. (2014). Social and nonsocial reward learning and the role of reward expectation in neurofeedback training. Social Neuroscience, 9(3), 284–295.",
+        "Friedrich EVC et al. (2015). Brain-computer interface based neurofeedback training in locked-in syndrome: case studies and clinical perspective. Annals of Physical and Rehabilitation Medicine, 58(1), 5–14.",
+        "Pineda JA et al. (2014). Noninvasive brain stimulation as a therapeutic approach for autism spectrum disorders. Frontiers in Human Neuroscience, 8, 760."
+      ],
+      "brain_target": {
+        "region": "Sensorimotor Cortex — Mirror Neuron System Region",
+        "laterality": "Bilateral",
+        "eeg_position": "C3 and C4 (bilateral central — sensorimotor cortex)",
+        "effect_direction": "Normalise"
+      },
+      "parameters": {
+        "reward_band": "Mu suppression: inhibit 8–13 Hz at C3/C4 during social stimuli presentation (or gamma/theta per qEEG-determined individual protocol)",
+        "inhibit_band": "Individualised based on qEEG — excess slow waves or connectivity abnormalities",
+        "threshold_type": "Auto-adaptive threshold — adjusted every session",
+        "feedback_modality": "Audio and visual — adapted for sensory profile of individual patient",
+        "electrode_sites": "Primary: C3 and C4 (bilateral mu suppression protocol); individualised per qEEG if LORETA-based variant used"
+      },
+      "session_structure": {
+        "sessions_per_week": 2,
+        "session_duration_minutes": 40,
+        "total_sessions": 30,
+        "total_weeks": 15,
+        "maintenance_sessions": "Monthly booster sessions if any measurable response achieved",
+        "steps": [
+          {
+            "order": 1,
+            "title": "Sensory preparation and pre-session check",
+            "duration_minutes": 10,
+            "detail": "Conduct sensory readiness assessment with patient and caregiver. Check electrode cap tolerance — use gradual desensitisation approach if needed. Confirm caregiver is present. Review previous session AE log and behaviour report."
+          },
+          {
+            "order": 2,
+            "title": "Scalp preparation and electrode placement",
+            "duration_minutes": 10,
+            "detail": "Clean electrode sites (C3, C4, reference, ground). Apply gel and electrodes with care for sensory sensitivity. Allow patient to handle electrode cap or electrodes before placement if helpful. Check impedance: <5 kΩ. If patient is distressed by cap placement after 2 minutes of preparation: defer session, escalate to OT for desensitisation plan."
+          },
+          {
+            "order": 3,
+            "title": "Neurofeedback training",
+            "duration_minutes": 20,
+            "detail": "Deliver 3–4 training runs with rest breaks. Present social stimuli (videos or images per protocol specification if mu suppression paradigm). Provide real-time audio/visual feedback calibrated to patient's sensory preferences (not too loud; low-arousal visual feedback preferred for sensory-sensitive patients). Caregiver may be seated alongside to support engagement. Monitor signal quality and patient engagement throughout."
+          },
+          {
+            "order": 4,
+            "title": "Post-session review",
+            "duration_minutes": 10,
+            "detail": "Remove equipment carefully. Observe patient's post-session behaviour and mood. Ask caregiver about any observed changes. Log session metrics, behaviour observations, and any AEs. Caregiver debrief on what to monitor at home."
+          }
+        ]
+      },
+      "monitoring_required": [
+        "qEEG baseline assessment completed and approved by clinician before first session",
+        "SRS-2 at baseline and every 10 sessions (caregiver-completed)",
+        "Behaviour log every session (caregiver and technician observations)",
+        "Equipment tolerance log every session",
+        "Research participation consent documented before first session",
+        "Caregiver authorisation documented (if patient under 18)",
+        "Minor assent documented (if patient under 18 and age-appropriate)"
+      ],
+      "contraindication_check_required": true,
+      "adverse_event_monitoring": "Behaviour change post-session (increased irritability, stereotypies, withdrawal, SIB — may signal distress or fatigue). For verbal patients: headache, fatigue. Equipment-related sensory distress. Monitor for any paroxysmal EEG activity during recording — flag to clinician for neurological review if observed.",
+      "escalation_rules": [
+        "Significant behaviour change (increased SIB, meltdown, prolonged withdrawal) on 2+ consecutive sessions: suspend protocol, clinician and caregiver review, OT consultation",
+        "Paroxysmal EEG activity observed during neurofeedback session: suspend session, refer to neurology, do not resume without neurological review",
+        "No SRS-2 improvement after 15 sessions: clinician review — given EV-D evidence, strong consideration of protocol discontinuation"
+      ],
+      "patient_facing_allowed": false,
+      "clinician_review_required": true,
+      "governance": {
+        "patient_export_allowed": false,
+        "requires_clinician_sign_off": true,
+        "off_label_acknowledgement_required": true,
+        "dual_review_required": true,
+        "notes": "EV-D experimental ASD neurofeedback protocol. Dual review required. Patient export blocked. Clinician sign-off mandatory. Research participation consent required. Caregiver authorisation required for minors. qEEG mandatory before commencing. Do not present as established treatment."
+      },
+      "notes": "CRITICAL: This protocol is based on extremely preliminary evidence. The mu-mirror neuron system hypothesis itself remains scientifically debated. Clinical teams must have specific ASD neurofeedback research experience and should operate within a structured research framework. Sensory preparation by an occupational therapist is strongly recommended before commencing. Tolerance of equipment must be established before any training begins."
+    }
+  ],
+
+  "device_options": [
+    {
+      "device_id": "DEV-TMS-001",
+      "name": "Magstim Rapid²",
+      "manufacturer": "Magstim",
+      "modality_slug": "tms",
+      "regulatory_status": "FDA-cleared (other indication)",
+      "cleared_indication": "FDA-cleared for MDD; experimental/investigational for ASD — no clearance for this indication",
+      "use_setting": "Clinic",
+      "compatible_protocols": ["PRO-TMS-ASD-01"],
+      "constraints": [
+        "Clinic use only",
+        "ASD-specific adaptations required: sensory preparation, caregiver present, noise level management",
+        "Motor threshold mapping required before first session",
+        "Emergency seizure equipment immediately available given elevated epilepsy risk in ASD"
+      ],
+      "notes": "Standard TMS device. ASD-specific adaptations to procedure and environment are essential. Ear protection must be tolerated — sensory assessment prior to TMS is mandatory."
+    },
+    {
+      "device_id": "DEV-NF-001",
+      "name": "BrainMaster Atlantis II",
+      "manufacturer": "BrainMaster Technologies",
+      "modality_slug": "neurofeedback",
+      "regulatory_status": "FDA-cleared (other indication)",
+      "cleared_indication": "FDA 510(k) biofeedback device; experimental investigational use for ASD — no clearance for this indication",
+      "use_setting": "Clinic",
+      "compatible_protocols": ["PRO-NF-ASD-01"],
+      "constraints": [
+        "Clinic use only",
+        "qEEG capability (19-channel) and LORETA software required for qEEG-guided ASD protocol",
+        "ASD-adapted sensory environment and gradual electrode desensitisation approach required",
+        "Caregiver must be present during all sessions",
+        "BCIA-certified neurofeedback practitioner required"
+      ],
+      "notes": "Standard clinical neurofeedback system. ASD-specific environmental modifications and sensory preparation protocols are essential prerequisites. Feedback modality (audio/visual) must be calibrated to individual patient sensory preferences."
+    }
+  ],
+
+  "brain_targets": [
+    {
+      "region": "Right Dorsolateral Prefrontal Cortex",
+      "abbreviation": "R-DLPFC",
+      "laterality": "Right",
+      "rationale": "Targeted by inhibitory rTMS in ASD for social communication. Theoretical rationale: reducing right frontal hyperactivation to improve social-cognitive processing. Evidence basis is very weak (EV-D) — target selection across published ASD TMS studies is highly inconsistent, with some studies targeting STS, others DLPFC, and others bilateral regions.",
+      "effect_direction": "Inhibitory",
+      "modalities": ["tms"],
+      "eeg_position_10_20": "F4",
+      "brodmann_area": "BA46 / BA9",
+      "network": "Central Executive Network",
+      "qeeg_target": "No validated qEEG target for this region in ASD",
+      "evidence_note": "EV-D — experimental target only. No consensus on optimal TMS site for ASD. Some studies use STS (superior temporal sulcus — T8 approximation) as alternative. Target selection must be justified in individual research protocol documentation."
+    },
+    {
+      "region": "Sensorimotor Cortex — Central Sites Bilateral",
+      "abbreviation": "C3/C4 — SMC",
+      "laterality": "Bilateral",
+      "rationale": "Primary neurofeedback target for mu suppression protocol. The mu rhythm (8–13 Hz) recorded over central sensorimotor cortex is thought to reflect mirror neuron system activity in the underlying cortex. The hypothesis that reduced mu suppression in ASD reflects MNS dysfunction underpins the neurofeedback target, though this link remains scientifically debated.",
+      "effect_direction": "Normalise",
+      "modalities": ["neurofeedback"],
+      "eeg_position_10_20": "C3 (left sensorimotor); C4 (right sensorimotor)",
+      "brodmann_area": "BA1/BA2/BA3/BA4 (sensorimotor cortex)",
+      "network": "Sensorimotor Network — Mirror Neuron System (theoretical)",
+      "qeeg_target": "Reduce mu power (8–13 Hz) at C3/C4 during social stimulus presentation; normalise mu suppression response",
+      "evidence_note": "EV-D — experimental target. The mu-MNS-ASD connection is theoretically motivated but not clinically validated. qEEG-guided individualisation is recommended over generic mu protocol."
+    }
+  ],
+
+  "handbook_outputs": {
+    "clinician_handbook": {
+      "title": "Clinician Handbook: ASD — Experimental Neuromodulation (Specialist Research Context Only)",
+      "audience": "Licensed clinician with ASD and neuromodulation research experience",
+      "sections": [
+        {
+          "section_id": "ch-01",
+          "title": "CRITICAL GOVERNANCE NOTICE",
+          "content": [
+            "ALL neuromodulation evidence in ASD is from small, often uncontrolled studies. There is no FDA clearance, no guideline endorsement, and no established clinical standard for neuromodulation in ASD.",
+            "These protocols are STRICTLY EXPERIMENTAL and must only be delivered in a specialist research or clinical trial context, with full ethics board approval where required.",
+            "Do NOT present these protocols to patients or caregivers as established or evidence-based treatments. Present them as experimental research procedures with unknown efficacy and uncertain risk profile.",
+            "Dual clinician review is required before initiating any ASD neuromodulation protocol. Both reviews must be documented."
+          ]
+        },
+        {
+          "section_id": "ch-02",
+          "title": "Patient Selection and Eligibility",
+          "content": [
+            "Eligible candidates: ASD Level 1 or Level 2 (DSM-5), confirmed by ADOS-2 or equivalent gold-standard assessment, age 12+ (adults preferred given thinner evidence base in children), no active epilepsy, able to tolerate electrode or coil placement.",
+            "Level 3 ASD: generally not appropriate for experimental neuromodulation due to tolerance, consent, and AE monitoring challenges. Only in highly specialist adapted research context.",
+            "Epilepsy comorbidity: 10–30% of ASD patients — MANDATORY seizure history screen before any protocol. Active epilepsy = absolute TMS contraindication.",
+            "Consent: Research participation consent is mandatory. Caregiver authorisation required for all minors. Age-appropriate assent required where feasible."
+          ]
+        },
+        {
+          "section_id": "ch-03",
+          "title": "Sensory and Environmental Preparation",
+          "content": [
+            "Before any neuromodulation session: complete OT sensory profile assessment (Sensory Profile 2 or equivalent).",
+            "Clinic environment must be adapted: low arousal (quiet, reduced visual clutter, adjustable lighting), predictable routine (same room, same staff, visual schedule).",
+            "Gradual equipment desensitisation before first session: allow patient to handle and explore cap, electrodes, or coil outside of active protocol. Do not rush this phase.",
+            "Ear protection for TMS must be tolerated — assess alternatives (e.g. custom ear defenders) if standard foam plugs are refused.",
+            "Caregiver must be present at all sessions for support and AE monitoring."
+          ]
+        },
+        {
+          "section_id": "ch-04",
+          "title": "Evidence Summary and Clinical Limitations",
+          "content": [
+            "TMS in ASD: EV-D — small, often uncontrolled studies. No consensus protocol, no agreed stimulation site, no replicated positive finding from adequately powered RCT.",
+            "Neurofeedback in ASD: EV-D — very small pilot studies only. Mu suppression target is theoretically motivated but not clinically validated.",
+            "Both approaches are investigational. Benefit is not established. Risk profile in ASD (elevated epilepsy, sensory challenges) requires enhanced monitoring.",
+            "Report outcomes to clinical research database. All ASD neuromodulation data should contribute to the evidence base."
+          ]
+        },
+        {
+          "section_id": "ch-05",
+          "title": "Safety, Monitoring, and Escalation",
+          "content": [
+            "Seizure monitoring is paramount — document seizure history before every course and ask at every session.",
+            "Behaviour-based AE monitoring: for non-verbal or minimally verbal patients, train caregivers to recognise and report ASD-specific AE indicators (increased stimming, irritability, withdrawal, sleep disruption).",
+            "SRS-2 administered every 10 sessions (caregiver-completed). Non-response after 10–15 sessions triggers review and likely discontinuation.",
+            "Any serious AE: suspend protocol, dual clinician review, document as serious AE, notify clinical governance lead within 1 hour.",
+            "Dual review required before commencing and at mid-course review point."
+          ]
+        }
+      ]
+    },
+    "patient_guide": {
+      "title": "Patient and Family Guide: Experimental Brain Training for Autism — What You Need to Know",
+      "audience": "Patient and family/caregiver — plain language; must include explicit experimental statement",
+      "sections": [
+        {
+          "section_id": "pg-01",
+          "title": "IMPORTANT: This Treatment Is Experimental",
+          "content": [
+            "The brain stimulation or brain training approaches your clinician is discussing with you are experimental. This means they have been tried in small studies, but there is no large-scale proof that they work for autism.",
+            "They are not approved by any regulatory authority (such as the FDA in the USA or the MHRA in the UK) for autism.",
+            "Your clinician is being transparent with you because we believe you deserve to know exactly where the science stands. You are not receiving a well-established treatment — you are participating in early-stage clinical research."
+          ]
+        },
+        {
+          "section_id": "pg-02",
+          "title": "These Treatments Are Not About Changing Who You Are",
+          "content": [
+            "These approaches are exploring whether specific challenges — such as attention or repetitive thoughts — might be affected by brain stimulation or brain training.",
+            "They are not about 'curing' autism or making you less autistic. Your identity and the way your brain works are respected throughout."
+          ]
+        },
+        {
+          "section_id": "pg-03",
+          "title": "What Will Happen at Sessions?",
+          "content": [
+            "Before anything starts, we will spend time getting you comfortable with the equipment. You do not have to proceed if you do not want to.",
+            "Sessions may involve wearing a cap with sensors (neurofeedback), small pads on your scalp (tDCS), or having a coil held near your head (TMS). Your clinical team will explain each step using your preferred communication method.",
+            "You or your caregiver can stop the session at any time by asking or by using an agreed signal."
+          ]
+        },
+        {
+          "section_id": "pg-04",
+          "title": "Your Rights",
+          "content": [
+            "Participation is completely voluntary. You will never be pressured to continue.",
+            "You can stop at any time — during a session or between sessions — without any negative consequences for your other care.",
+            "Your caregiver will be involved in all decisions and will be present at sessions.",
+            "If you have any concerns about how the sessions are being run, you have the right to raise these with the clinic manager or an independent person."
+          ]
+        }
+      ]
+    },
+    "technician_sop": {
+      "title": "Technician SOP: ASD Experimental Neuromodulation — Sensory-Informed Protocol",
+      "audience": "Trained neuromodulation technician, under clinician supervision, with ASD-specific training",
+      "sections": [
+        {
+          "section_id": "sop-01",
+          "title": "Pre-Session Environment and Readiness Check",
+          "content": [
+            "Check clinic room: quiet, low arousal, familiar layout, visual schedule posted.",
+            "Confirm caregiver is present and has reviewed session plan.",
+            "Review sensory profile from last session — any new sensory triggers to accommodate.",
+            "Confirm ASD-adapted TMS safety screening and research consents are on file.",
+            "Confirm emergency seizure equipment is accessible and staff trained."
+          ]
+        },
+        {
+          "section_id": "sop-02",
+          "title": "Equipment Desensitisation and Placement",
+          "content": [
+            "Allow patient to see and handle electrode cap, sponges, or coil before placement — 2–5 minutes exploration time.",
+            "Explain each step using preferred communication method (verbal, visual supports, AAC).",
+            "Proceed to placement only when patient has indicated comfort (verbal, gesture, or calm behaviour).",
+            "If patient shows distress during placement: pause, reassure, allow break. If distress persists after 5 minutes: defer session. Log and notify clinician.",
+            "Impedance check after placement — communicate any re-preparation steps simply."
+          ]
+        },
+        {
+          "section_id": "sop-03",
+          "title": "During Session Monitoring",
+          "content": [
+            "Monitor behaviour and facial expression throughout — verbal check-ins using patient's preferred method every 5 minutes.",
+            "Caregiver may be seated alongside for support.",
+            "If patient signals distress (verbal, physical, or via agreed signal): stop session immediately.",
+            "Log behaviour observations, signal quality, and reward rate (neurofeedback) or pulse count and tolerance (TMS) in real time."
+          ]
+        },
+        {
+          "section_id": "sop-04",
+          "title": "Post-Session Debrief",
+          "content": [
+            "Remove equipment carefully and slowly — narrate each step.",
+            "Allow quiet time post-session (2–5 minutes) before caregiver debrief.",
+            "Ask caregiver: any behaviour changes, distress, or changes since last session?",
+            "Log all observations and AEs. Flag any AEs rated moderate or above to clinician immediately.",
+            "Complete behaviour observation log and equipment tolerance log before end of session."
+          ]
+        }
+      ]
+    }
+  },
+
+  "monitoring_rules": {
+    "assessment_schedule": [
+      {
+        "assessment_id": "ASS-ASD-03",
+        "assessment_name": "SRS-2",
+        "timing": "Before session 1 (baseline); after session 10; after session 20; end of course",
+        "frequency": "Every 10 sessions",
+        "administered_by": "Either"
+      },
+      {
+        "assessment_id": "ASS-ASD-04",
+        "assessment_name": "BRIEF-2 / BRIEF-A",
+        "timing": "Baseline and end of course",
+        "frequency": "Once at baseline and once at course completion",
+        "administered_by": "Either"
+      },
+      {
+        "assessment_id": "ASS-ASD-05",
+        "assessment_name": "MASC-2",
+        "timing": "Baseline; session 10; end of course",
+        "frequency": "Every 10 sessions",
+        "administered_by": "Patient self-report"
+      }
+    ],
+    "response_thresholds": [
+      {
+        "assessment_id": "ASS-ASD-03",
+        "assessment_name": "SRS-2",
+        "lower_is_better": true,
+        "response_threshold": "≥10 T-score point reduction from baseline SRS-2 total score",
+        "remission_threshold": "SRS-2 T-score <60 (within normal limits range)",
+        "non_response_threshold": "No T-score reduction after 10 sessions — clinician review and strong consideration of discontinuation given EV-D evidence base",
+        "deterioration_threshold": "T-score increase ≥10 points from baseline — immediate clinician review; consider protocol suspension"
+      }
+    ],
+    "adverse_event_triggers": [
+      {
+        "event_type": "Seizure",
+        "severity": "Serious",
+        "action": "Emergency protocol. Stop all neuromodulation immediately. Emergency services. Suspend all TMS and neuromodulation. Neurology review required before any resumption. File serious AE report within 24 hours.",
+        "suspend_treatment": true
+      },
+      {
+        "event_type": "Significant behaviour change post-session (increased SIB, aggression, prolonged meltdown)",
+        "severity": "Severe",
+        "action": "Suspend protocol. Clinical review with caregiver and clinical team. OT consultation. Do not resume without documented clinical review and agreement from caregiver and clinical lead.",
+        "suspend_treatment": true
+      },
+      {
+        "event_type": "Equipment-related sensory distress (prolonged distress, refusal, behavioural crisis)",
+        "severity": "Moderate",
+        "action": "Stop session. Caregiver support. Refer to OT for enhanced desensitisation plan. Defer subsequent sessions until OT clearance. Document.",
+        "suspend_treatment": true
+      },
+      {
+        "event_type": "Paroxysmal EEG activity observed during neurofeedback",
+        "severity": "Moderate",
+        "action": "Suspend neurofeedback session. Refer to neurology for EEG review. Do not resume neurofeedback until neurological clearance obtained.",
+        "suspend_treatment": true
+      },
+      {
+        "event_type": "Mild transient behaviour change post-session (slight irritability, 30-60 minutes)",
+        "severity": "Mild",
+        "action": "Log and monitor. Caregiver debrief on what to observe at home. Report at next session. If recurrent across 3+ sessions, escalate to clinician review.",
+        "suspend_treatment": false
+      }
+    ],
+    "escalation_rules": [
+      {
+        "trigger": "No SRS-2 improvement after 10 sessions",
+        "action": "Clinician review with caregiver. Given EV-D evidence, strong consideration of protocol discontinuation. If continuing, document rationale clearly. Dual review required.",
+        "urgency": "Routine"
+      },
+      {
+        "trigger": "Any seizure event",
+        "action": "Emergency suspension of all neuromodulation. Clinical lead notification within 1 hour. Neurology review. File incident report within 24 hours. Dual clinician review before any resumption consideration.",
+        "urgency": "Emergency"
+      },
+      {
+        "trigger": "Significant behaviour deterioration across 3+ consecutive sessions",
+        "action": "Protocol suspension. Clinical review with caregiver and clinical lead. OT consultation. Consider whether treatment is causing net harm — discontinue if no clear benefit and behaviour concern persists.",
+        "urgency": "Urgent"
+      },
+      {
+        "trigger": "Paroxysmal EEG activity observed during neurofeedback",
+        "action": "Immediate session suspension. Neurology referral. Do not resume without written neurological clearance.",
+        "urgency": "Urgent"
+      },
+      {
+        "trigger": "Caregiver withdraws consent or child/patient withdraws assent",
+        "action": "Immediately stop all treatment. No clinical pressure to continue. Document withdrawal. Offer continued support through non-experimental care pathway.",
+        "urgency": "Routine"
+      }
+    ],
+    "adherence_rules": {
+      "minimum_session_adherence_pct": 70,
+      "consecutive_missed_sessions_flag": 2,
+      "action_on_low_adherence": "Contact caregiver within 48 hours of second missed session. Review barriers (sensory, scheduling, transport, motivation). Clinician review if adherence <60% — consider whether experimental protocol remains appropriate."
+    }
+  },
+
+  "report_templates": [
+    {
+      "id": "RPT-ASD-INTAKE",
+      "name": "ASD Experimental Neuromodulation — Intake Summary",
+      "report_type": "intake-summary",
+      "audience": "Clinician",
+      "frequency": "Once — at intake before first session",
+      "sections": [
+        {
+          "section_id": "rpt-01",
+          "title": "ASD Diagnosis and Profile",
+          "auto_populate_from": ["patient.name", "patient.dob", "patient.asd_level", "patient.diagnosis_source", "patient.verbal_status"],
+          "clinician_narrative_prompt": "Confirm ASD diagnosis source (ADOS-2 or equivalent), DSM-5 level, verbal/non-verbal status, and key presenting challenges motivating the experimental protocol referral.",
+          "required": true
+        },
+        {
+          "section_id": "rpt-02",
+          "title": "Baseline Assessments",
+          "auto_populate_from": ["assessment.SRS-2.baseline", "assessment.BRIEF.baseline", "assessment.MASC-2.baseline"],
+          "clinician_narrative_prompt": "Summarise baseline social symptom severity, executive function, and anxiety levels. Document sensory profile findings.",
+          "required": true
+        },
+        {
+          "section_id": "rpt-03",
+          "title": "Epilepsy and Safety Review",
+          "auto_populate_from": ["intake.seizure_history", "intake.medications", "intake.contraindication_screening_json"],
+          "clinician_narrative_prompt": "Document seizure history in detail. Confirm no active epilepsy for TMS. If epilepsy present, document neurology clearance for non-TMS approaches.",
+          "required": true
+        },
+        {
+          "section_id": "rpt-04",
+          "title": "Consent and Governance Documentation",
+          "auto_populate_from": ["consent.informed_consent_signed", "consent.research_participation_signed", "consent.caregiver_authorisation_signed", "consent.minor_assent_signed"],
+          "clinician_narrative_prompt": "Confirm all required consent documents obtained and signed. Document dual review completion and who reviewed. State that experimental status has been explicitly communicated to patient and caregiver.",
+          "required": true
+        },
+        {
+          "section_id": "rpt-05",
+          "title": "Protocol Rationale and Experimental Status",
+          "auto_populate_from": ["course.protocol_id", "course.modality"],
+          "clinician_narrative_prompt": "State selected experimental protocol, phenotype rationale, evidence grade (EV-D), and explicit acknowledgement that this is an experimental procedure with no established efficacy in ASD. Confirm clinical trial or research context documentation is on file.",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "RPT-ASD-PROGRESS",
+      "name": "ASD Experimental Protocol Progress Report",
+      "report_type": "progress-report",
+      "audience": "Clinician",
+      "frequency": "Every 10 sessions",
+      "sections": [
+        {
+          "section_id": "prg-01",
+          "title": "Session Adherence and Tolerability",
+          "auto_populate_from": ["course.sessions_completed", "course.sessions_planned", "course.adherence_pct"],
+          "clinician_narrative_prompt": "Comment on attendance and tolerability of equipment and procedures. Note any sensory-related session adjustments. Describe caregiver engagement.",
+          "required": true
+        },
+        {
+          "section_id": "prg-02",
+          "title": "Outcome Score Trajectory",
+          "auto_populate_from": ["assessment.SRS-2.trend"],
+          "clinician_narrative_prompt": "Report SRS-2 trajectory from baseline. State whether ≥10 T-score improvement has been achieved. If no improvement after 10 sessions, document dual clinician review decision regarding continuation.",
+          "required": true
+        },
+        {
+          "section_id": "prg-03",
+          "title": "Safety and Behaviour Observations",
+          "auto_populate_from": ["adverse_events.since_last_review", "behaviour_log.since_last_review"],
+          "clinician_narrative_prompt": "Summarise any AEs and behaviour observations. Specifically note any seizure events, significant behaviour changes, or sensory distress incidents.",
+          "required": true
+        },
+        {
+          "section_id": "prg-04",
+          "title": "Caregiver Feedback",
+          "auto_populate_from": [],
+          "clinician_narrative_prompt": "Document caregiver's overall impression of treatment tolerance and any observed changes (positive or negative) in daily life. Note any caregiver concerns.",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "RPT-ASD-EOC",
+      "name": "ASD Experimental Protocol End-of-Course Report",
+      "report_type": "end-of-course-report",
+      "audience": "Clinician",
+      "frequency": "Once — at course completion",
+      "sections": [
+        {
+          "section_id": "eoc-01",
+          "title": "Treatment Course Summary",
+          "auto_populate_from": ["course.start_date", "course.end_date", "course.sessions_completed", "course.protocol_id"],
+          "clinician_narrative_prompt": "Summarise the experimental protocol delivered, sessions completed, and any modifications made.",
+          "required": true
+        },
+        {
+          "section_id": "eoc-02",
+          "title": "Outcome — Baseline to Endpoint",
+          "auto_populate_from": ["assessment.SRS-2.baseline", "assessment.SRS-2.endpoint", "assessment.SRS-2.change"],
+          "clinician_narrative_prompt": "Interpret SRS-2 outcome. Report change from baseline. Clearly acknowledge that natural developmental changes, placebo effect, or other concurrent interventions may account for observed changes — not only the experimental protocol.",
+          "required": true
+        },
+        {
+          "section_id": "eoc-03",
+          "title": "Safety and Tolerability Summary",
+          "auto_populate_from": ["adverse_events.all_course"],
+          "clinician_narrative_prompt": "Confirm all AEs documented. Summarise tolerability profile. Note any significant challenges with equipment or procedures.",
+          "required": true
+        },
+        {
+          "section_id": "eoc-04",
+          "title": "Recommendations",
+          "auto_populate_from": [],
+          "clinician_narrative_prompt": "State recommendation: continued evidence-based ASD support, referral for specialist services, repeat experimental protocol (document rationale carefully), or discharge. Do NOT recommend repeat protocol without explicit discussion of EV-D evidence status with caregiver.",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "RPT-ASD-AE",
+      "name": "ASD Serious Adverse Event Report",
+      "report_type": "adverse-event-report",
+      "audience": "Internal",
+      "frequency": "Whenever a serious AE occurs",
+      "sections": [
+        {
+          "section_id": "ae-01",
+          "title": "Event Description",
+          "auto_populate_from": ["adverse_event.date", "adverse_event.type", "adverse_event.severity", "session.protocol_id"],
+          "clinician_narrative_prompt": "Describe the adverse event in detail: what happened, when, during which session/protocol, and immediate response taken.",
+          "required": true
+        },
+        {
+          "section_id": "ae-02",
+          "title": "Patient Status and Outcome",
+          "auto_populate_from": ["patient.current_status"],
+          "clinician_narrative_prompt": "Describe patient's current status. State whether treatment has been suspended. Describe any medical interventions taken.",
+          "required": true
+        },
+        {
+          "section_id": "ae-03",
+          "title": "Governance Actions",
+          "auto_populate_from": [],
+          "clinician_narrative_prompt": "Confirm: clinical lead notified (time), dual review completed, incident report filed, patient/caregiver informed, regulatory body notification if required. State decision on treatment resumption.",
+          "required": true
+        }
+      ]
+    }
+  ],
+
+  "home_program_templates": [
+    {
+      "id": "HP-ASD-01",
+      "name": "ASD Experimental Programme — Caregiver Home Support Guide",
+      "modality_slug": "neurofeedback",
+      "device_required": "No home neuromodulation device — home programme consists of caregiver-supported generalisation activities only",
+      "prerequisite_clinic_sessions": 10,
+      "sessions_per_week": 3,
+      "session_duration_minutes": 20,
+      "total_weeks": 8,
+      "patient_instructions": [
+        "Follow the specific activities your occupational therapist and clinical team have recommended for home practice.",
+        "Keep the home environment calm and predictable during practice sessions — same time, same place where possible.",
+        "Allow your child or family member to have a say in when and how home activities take place — their comfort and willingness matter.",
+        "Stop any activity immediately if the person becomes distressed or clearly does not want to continue.",
+        "Praise effort and engagement, not just outcomes.",
+        "Log home practice in the diary provided by the clinic: date, duration, what was done, how it went, any concerns."
+      ],
+      "safety_checklist": [
+        "The person is calm and willing to participate today.",
+        "There have been no seizures or unusual health events since the last clinic session.",
+        "The home environment is calm and free from known sensory triggers.",
+        "I have my clinic contact number available if I need to report a concern.",
+        "I understand that home practice is a support activity only — not a replacement for clinic sessions."
+      ],
+      "reporting_requirements": [
+        "Log home practice sessions in the clinic diary (date, duration, activities, how it went).",
+        "Note any behaviour changes or concerns after home sessions.",
+        "Report to clinic at next session: any missed home sessions, new health concerns, or changes in behaviour.",
+        "Contact clinic immediately if a seizure or significant behaviour change occurs."
+      ],
+      "contraindications_for_home": [
+        "Recent seizure since last clinic visit — contact clinic before any home session",
+        "Significant behaviour change or distress since last clinic session",
+        "Acute illness or fever",
+        "Home environment is too unpredictable or chaotic for calm practice",
+        "Person does not want to participate — do not proceed"
+      ],
+      "evidence_note": "Home neuromodulation devices are not appropriate for ASD experimental protocols. Home programme consists only of caregiver-supported generalisation activities recommended by the clinical team. No evidence base for home neuromodulation in ASD exists."
+    }
+  ],
+
+  "consent_documents": [
+    {
+      "id": "CONS-ASD-GEN-01",
+      "name": "ASD Experimental Neuromodulation — Informed Consent",
+      "document_type": "informed-consent",
+      "modality_slug": null,
+      "when_required": "Before first session of any experimental neuromodulation for ASD",
+      "key_disclosures": [
+        "ALL neuromodulation treatments for ASD (TMS, tDCS, neurofeedback) are experimental. They have not been approved by any regulatory authority (FDA, MHRA, TGA or equivalent) for autism.",
+        "The evidence base consists entirely of small, often uncontrolled studies. No large clinical trial has established that these treatments are effective for ASD. Evidence is graded EV-D — experimental only.",
+        "These treatments are not intended to change or cure autism. The specific targets are aspects of functioning (e.g. attention, repetitive behaviour) that some small studies have tentatively suggested may be affected.",
+        "There is no guarantee of benefit. The patient/child may undergo a full course of treatment and experience no change.",
+        "Known risks include: headache and scalp discomfort (TMS), seizure (TMS — risk is elevated in ASD due to epilepsy comorbidity), skin tingling or irritation (tDCS), equipment-related sensory distress.",
+        "I / my child may withdraw from treatment at any time without penalty or any negative effect on other care.",
+        "My / my child's treatment data will be stored securely and used to monitor response and contribute to anonymised research. It will not be shared without specific consent.",
+        "I have been given adequate time to consider this decision and to seek independent advice.",
+        "I have been informed about alternative evidence-based supports for ASD."
+      ],
+      "signature_required": true,
+      "witness_required": true,
+      "clinician_co_sign_required": true,
+      "review_frequency": "Each new treatment course"
+    },
+    {
+      "id": "CONS-ASD-RES-01",
+      "name": "ASD Experimental Treatment — Research Participation Consent",
+      "document_type": "research-participation",
+      "modality_slug": null,
+      "when_required": "Before any ASD neuromodulation protocol commences — mandatory",
+      "key_disclosures": [
+        "I understand that the experimental treatment is being delivered in a research context and that my / my child's outcome data may contribute to the evidence base for ASD neuromodulation.",
+        "All research data will be de-identified before any research use. I / my child will not be identifiable in research outputs.",
+        "Participation in data collection is separate from treatment decisions. Declining data sharing does not affect access to experimental treatment (where offered).",
+        "I may withdraw data consent at any time.",
+        "I will be informed of any significant research findings that may affect decisions about treatment."
+      ],
+      "signature_required": true,
+      "witness_required": false,
+      "clinician_co_sign_required": true,
+      "review_frequency": "Once; updated if research scope changes"
+    },
+    {
+      "id": "CONS-ASD-OFL-01",
+      "name": "ASD Experimental Treatment Acknowledgement",
+      "document_type": "off-label-acknowledgement",
+      "modality_slug": null,
+      "when_required": "Before protocol generation for any ASD neuromodulation protocol",
+      "key_disclosures": [
+        "The treatment proposed is investigational — not approved by any regulatory authority for ASD.",
+        "My clinician has explained the very limited evidence base (EV-D — experimental, small uncontrolled studies only).",
+        "I understand there is no established clinical standard for neuromodulation in ASD and that benefit is not proven.",
+        "I consent to the experimental treatment being explored, with full understanding of its experimental status.",
+        "My clinician will monitor response and stop treatment if it is not beneficial or if concerns arise."
+      ],
+      "signature_required": true,
+      "witness_required": false,
+      "clinician_co_sign_required": true,
+      "review_frequency": "Once per modality per course"
+    },
+    {
+      "id": "CONS-ASD-CAR-01",
+      "name": "Caregiver Authorisation — ASD Experimental Neuromodulation (Minor)",
+      "document_type": "caregiver-authorisation",
+      "modality_slug": null,
+      "when_required": "For all patients under 18 years before any experimental ASD neuromodulation",
+      "key_disclosures": [
+        "I am the legal parent or guardian of the minor patient named above.",
+        "I have been fully informed about the proposed experimental neuromodulation, its investigational status, evidence grade (EV-D), potential risks, and absence of proven efficacy.",
+        "I understand that all neuromodulation for ASD is experimental and not approved by regulatory authorities.",
+        "I consent on behalf of my child to the proposed experimental protocol.",
+        "My child's willingness to participate has been assessed and respected. If my child clearly refuses or becomes distressed, the session will stop.",
+        "I understand I may withdraw my consent at any time without penalty."
+      ],
+      "signature_required": true,
+      "witness_required": true,
+      "clinician_co_sign_required": true,
+      "review_frequency": "Each new treatment course"
+    },
+    {
+      "id": "CONS-ASD-MIN-01",
+      "name": "Minor Assent — ASD Experimental Neuromodulation",
+      "document_type": "minor-assent",
+      "modality_slug": null,
+      "when_required": "For all patients under 18 years where developmental capacity allows meaningful assent",
+      "key_disclosures": [
+        "I have been told about the brain training / brain stimulation sessions in a way I understand.",
+        "I know that these sessions are experiments — nobody knows for sure if they will help.",
+        "I can say no before a session or ask to stop at any time.",
+        "I know what will happen at each session and what I might feel.",
+        "My parent or guardian has also agreed that I can try this."
+      ],
+      "signature_required": false,
+      "witness_required": false,
+      "clinician_co_sign_required": false,
+      "review_frequency": "Each new treatment course (assent may be re-confirmed verbally each session)"
+    },
+    {
+      "id": "CONS-ASD-TMS-01",
+      "name": "ASD TMS Safety Screening — Including Epilepsy Assessment",
+      "document_type": "contraindication-screening",
+      "modality_slug": "tms",
+      "when_required": "Before first TMS session and at start of each new TMS course",
+      "key_disclosures": [
+        "ASD is associated with a 10–30% rate of epilepsy. TMS is absolutely contraindicated with active, uncontrolled seizures.",
+        "I / my child's full seizure history has been disclosed, including any febrile seizures, absence episodes, or previously undiagnosed events.",
+        "TMS is contraindicated if there are metal implants in the head (aneurysm clips, cochlear implants, DBS device).",
+        "Emergency seizure management is available in the clinic.",
+        "I will inform the clinic immediately if there is any new seizure, new medication, or new health concern before the next session."
+      ],
+      "signature_required": true,
+      "witness_required": false,
+      "clinician_co_sign_required": true,
+      "review_frequency": "Before each new TMS course and at each annual review for ongoing treatment"
+    }
+  ]
+}

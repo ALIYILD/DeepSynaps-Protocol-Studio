@@ -1,0 +1,1540 @@
+{
+  "$schema": "../schemas/condition-package.schema.json",
+  "schema_version": "1.0.0",
+  "id": "CON-007",
+  "slug": "ptsd",
+  "name": "Post-Traumatic Stress Disorder (PTSD)",
+  "category": "Psychiatric — Trauma",
+  "icd_10": [
+    "F43.1"
+  ],
+  "dsm_5_code": "309.81",
+  "created_at": "2026-04-12",
+  "updated_at": "2026-04-12",
+  "review_status": "reviewed",
+  "reviewed_by": "DeepSynaps Clinical Team",
+  "condition_overview": {
+    "summary": "Post-Traumatic Stress Disorder (PTSD) is a severe and potentially chronic psychiatric condition arising following exposure to actual or threatened death, serious injury, or sexual violence. PTSD is characterised by four symptom clusters: intrusive re-experiencing (flashbacks, nightmares), persistent avoidance, negative alterations in cognition and mood, and marked alterations in arousal and reactivity (hyperarousal). Neurobiologically, PTSD involves amygdala hyperactivation, hippocampal atrophy, and reduced medial prefrontal cortical inhibitory control. Neuromodulation targets these circuits to reduce hyperarousal, improve emotion regulation, and facilitate trauma processing.",
+    "prevalence": "Lifetime prevalence is 6.8% in the general population; up to 30% in combat veterans, 49% in survivors of sexual assault, and 15–25% in disaster survivors. PTSD is significantly more prevalent in females (risk approximately twice that of males following equivalent trauma exposure). Approximately 40% of PTSD cases are chronic and treatment-resistant to first-line pharmacotherapy and psychotherapy.",
+    "phenotype_clusters": [
+      {
+        "id": "PHE-024",
+        "name": "Hyperarousal-Dominant",
+        "description": "Presenting predominantly with hypervigilance, exaggerated startle response, sleep disturbance, irritability/anger outbursts, and concentration difficulties. Amygdala hyperactivation and ANS sympathetic dominance are prominent. Best targeted by right DLPFC inhibitory TMS.",
+        "primary_modality": "tms",
+        "qeeg_signature": "Elevated frontal and central beta; reduced alpha; low HRV; elevated right frontal activation"
+      },
+      {
+        "id": "PHE-025",
+        "name": "Dissociative Subtype",
+        "description": "Prominent depersonalisation and derealisation alongside core PTSD symptoms. Associated with structural and functional differences in medial prefrontal cortex and hippocampus. Requires modified provocation approach; standard TMS may require adaptation.",
+        "primary_modality": "neurofeedback",
+        "qeeg_signature": "Atypical alpha distribution; reduced theta-alpha transition; increased high-beta in prefrontal areas"
+      },
+      {
+        "id": "PHE-026",
+        "name": "Comorbid Depression-PTSD",
+        "description": "PTSD co-occurring with significant major depressive episodes. Anhedonia, low mood, cognitive slowing, and hopelessness are prominent alongside PTSD core symptoms. Left DLPFC excitatory TMS targets the depression component while concurrent monitoring addresses trauma symptoms.",
+        "primary_modality": "tms",
+        "qeeg_signature": "Left frontal alpha asymmetry; elevated frontal midline theta; reduced frontal beta"
+      },
+      {
+        "id": "PHE-027",
+        "name": "Complex PTSD (cPTSD)",
+        "description": "PTSD arising from repeated or prolonged trauma (childhood abuse, domestic violence, prolonged captivity). Additional features: severe affect dysregulation, persistent negative self-concept, and disturbances in relationships. ICD-11 distinguishes cPTSD as a separate diagnosis. Requires trauma-informed approach throughout treatment.",
+        "primary_modality": "neurofeedback",
+        "qeeg_signature": "Broad dysregulation across frontal, temporal, and parietal networks; elevated theta/alpha ratio; reduced hemispheric coherence"
+      }
+    ],
+    "severity_levels": [
+      "Mild",
+      "Moderate",
+      "Severe",
+      "Complex PTSD"
+    ],
+    "population": [
+      "Adult (18+)"
+    ],
+    "symptom_clusters": [
+      "Intrusive memories and flashbacks (involuntary, distressing recollection of trauma)",
+      "Nightmares related to the traumatic event",
+      "Avoidance of trauma-related stimuli (internal and external)",
+      "Negative alterations in cognition and mood (distorted blame, persistent negative emotions, detachment, anhedonia)",
+      "Hyperarousal and hypervigilance (exaggerated startle, sleep disturbance, concentration impairment)",
+      "Irritability and anger outbursts",
+      "Dissociation (depersonalisation, derealisation — dissociative subtype)"
+    ],
+    "highest_evidence_level": "EV-B",
+    "relevant_modalities": [
+      "tms",
+      "neurofeedback",
+      "tdcs"
+    ],
+    "neurobiology": "PTSD is characterised by a tripartite neurobiological dysfunction: (1) amygdala hyperactivation producing exaggerated fear responses and intrusive re-experiencing; (2) hippocampal volume reduction and dysfunction impairing contextual memory and extinction of fear conditioning; (3) reduced medial prefrontal cortex (mPFC) and ventromedial PFC (vmPFC) activity impairing top-down inhibition of the amygdala. Right hemisphere dominance in threat processing contributes to hyperarousal; left DLPFC hypoactivity contributes to the depressive-anhedonic component. HPA axis dysregulation (often cortisol hyporeactivity) and ANS hyperactivation with low HRV are peripheral correlates. TMS targets the DLPFC to modulate the prefrontal-amygdala circuit: right DLPFC inhibition (1 Hz) reduces hyperarousal; left DLPFC excitation (10 Hz) targets comorbid depression. Neurofeedback alpha/theta training promotes hippocampal theta oscillations associated with extinction learning.",
+    "comorbidities": [
+      "Major depressive disorder (up to 50% comorbidity)",
+      "Generalised anxiety disorder (up to 37%)",
+      "Substance use disorders (up to 50% — alcohol self-medication)",
+      "Panic disorder",
+      "Borderline personality disorder (particularly with cPTSD/complex trauma)",
+      "Dissociative disorders",
+      "Suicidal ideation and suicide attempts (significantly elevated risk)",
+      "Traumatic brain injury (TBI) — particularly in veterans",
+      "Chronic pain",
+      "Sleep disorders (insomnia, nightmares)"
+    ],
+    "differential_diagnoses": [
+      "Acute stress disorder (onset within 3 days to 1 month post-trauma — differs from PTSD by duration)",
+      "Adjustment disorder (less severe, broader trigger range, shorter duration)",
+      "Borderline personality disorder (trauma history common but distinct diagnostic features)",
+      "Major depressive disorder (overlapping negative cognition/mood symptoms — requires trauma criterion for PTSD)",
+      "Generalised anxiety disorder (chronic worry vs. trauma-specific hyperarousal)",
+      "OCD (intrusive thoughts ego-dystonic — vs. PTSD trauma-specific intrusions)",
+      "Traumatic brain injury-related cognitive symptoms",
+      "Psychotic disorders (trauma-related paranoia vs. psychosis)",
+      "Depersonalisation-derealisation disorder (vs. PTSD dissociative subtype)"
+    ]
+  },
+  "patient_friendly_explanation": {
+    "what_is_it": "Post-Traumatic Stress Disorder (PTSD) is a condition that can develop after experiencing or witnessing a deeply threatening event. It is not a sign of weakness — it is the brain and nervous system getting 'stuck' in survival mode long after the danger has passed. PTSD affects about 1 in 15 people in the general population and is very common after experiences like assault, combat, accidents, or childhood trauma.",
+    "how_it_affects_you": "PTSD can make it feel as though the trauma is still happening. You may have unwanted memories or flashbacks that feel very real, nightmares, and feel on edge or jumpy most of the time. You might avoid places, people, or thoughts that remind you of what happened. Many people with PTSD also feel numb, disconnected, or unable to experience positive emotions. These symptoms can make it very hard to work, maintain relationships, and feel safe.",
+    "treatment_options_overview": "The most effective treatments for PTSD are trauma-focused talking therapies (Prolonged Exposure, EMDR, CPT) and medication (SSRIs, SNRIs). When these are not enough, brain stimulation treatments may help. Transcranial Magnetic Stimulation (TMS) is a non-invasive treatment that uses magnetic pulses to target the areas of the brain affected by PTSD. TMS for PTSD is currently off-label (not FDA-cleared specifically for PTSD), but research shows it can significantly reduce hyperarousal, flashbacks, and depression related to trauma. Neurofeedback is another option that teaches your brain to shift into calmer states using real-time brainwave feedback.",
+    "what_to_expect": "If you receive TMS for PTSD, you will typically attend 20–30 sessions over 4–6 weeks, each lasting approximately 20–37 minutes. The treatment is non-invasive — you sit in a chair while a coil rests on the side of your head. You will feel a tapping sensation and hear clicking sounds. Sessions are not painful. Your clinician will carefully select whether to target the right or left side of your brain based on your symptom profile. They will monitor your PTSD symptom scores (PCL-5) throughout the course.",
+    "faq": [
+      {
+        "question": "Is TMS for PTSD safe?",
+        "answer": "Yes. TMS has been used clinically for over 20 years and has an established safety record. Your clinician will carefully screen your medical history to ensure TMS is appropriate for you. The most common side effect is a mild headache after sessions, which usually resolves within an hour. The risk of seizure is very rare (<0.1%) with proper safety screening."
+      },
+      {
+        "question": "Will TMS make my flashbacks worse?",
+        "answer": "TMS does not deliberately trigger or discuss traumatic memories — it is not a form of trauma therapy. Some patients find that as their nervous system becomes less hyperactivated through treatment, trauma memories feel less overwhelming. However, it is possible to experience temporary emotional shifts as your brain changes. Your clinical team is trained to support you through this and will check in with you regularly."
+      },
+      {
+        "question": "Do I need to stop my PTSD medication for TMS?",
+        "answer": "No. TMS for PTSD is typically given alongside existing medication. Never change or stop your medication without discussing it with your prescribing clinician first."
+      },
+      {
+        "question": "Can TMS be combined with trauma therapy (EMDR, Prolonged Exposure)?",
+        "answer": "Yes — and this combination may be more effective than either treatment alone, though research on combined approaches is ongoing. TMS may help reduce hyperarousal enough that trauma-focused therapy becomes more tolerable and effective. Discuss the timing of TMS and therapy with your clinicians."
+      },
+      {
+        "question": "What if I have suicidal thoughts?",
+        "answer": "PTSD is associated with a higher risk of suicidal thoughts, and your clinical team takes this very seriously. Before and during treatment, you will be asked about suicidal thoughts at every appointment. If you are having thoughts of harming yourself at any point, tell your clinician immediately or call an emergency service. There is no shame in disclosing these thoughts — it helps your team keep you safe."
+      }
+    ]
+  },
+  "medical_history_requirements": {
+    "required_fields": [
+      {
+        "field": "Confirmed PTSD diagnosis (DSM-5 criteria: identified traumatic event(s), all four symptom clusters present for ≥1 month, significant distress or functional impairment)",
+        "reason": "All protocols are diagnosis-specific. Diagnosis must be documented by a qualified clinician.",
+        "blocks_protocol": true
+      },
+      {
+        "field": "PCL-5 baseline score",
+        "reason": "Primary outcome measure for PTSD. Must be established before treatment for response tracking.",
+        "blocks_protocol": true
+      },
+      {
+        "field": "Suicidal ideation assessment (C-SSRS at intake)",
+        "reason": "PTSD is associated with markedly elevated suicide risk. C-SSRS must be administered before any treatment commences and at every session for moderate-severe cases.",
+        "blocks_protocol": true
+      },
+      {
+        "field": "Seizure history",
+        "reason": "Seizure history is an absolute contraindication for TMS. Must be documented before any TMS protocol.",
+        "blocks_protocol": true
+      },
+      {
+        "field": "Metal implants in head, neck, or upper chest",
+        "reason": "Absolute contraindication for TMS.",
+        "blocks_protocol": true
+      },
+      {
+        "field": "Cardiac pacemaker or implanted electronic device",
+        "reason": "Absolute contraindication for TMS.",
+        "blocks_protocol": true
+      },
+      {
+        "field": "Dissociation screening (DES-II or clinical assessment)",
+        "reason": "Dissociative subtype has specific protocol implications. Severe dissociation during TMS sessions requires protocol pause. Must be documented before commencing.",
+        "blocks_protocol": false
+      },
+      {
+        "field": "Current medications including SSRIs, prazosin, antipsychotics, mood stabilisers",
+        "reason": "Multiple psychiatric medications lower seizure threshold. Full medication list required for TMS safety screening.",
+        "blocks_protocol": false
+      },
+      {
+        "field": "Substance use history and current status (particularly alcohol and benzodiazepines)",
+        "reason": "Active substance use affects TMS safety and treatment response. Benzodiazepines reduce TMS cortical excitability.",
+        "blocks_protocol": false
+      },
+      {
+        "field": "Traumatic brain injury history",
+        "reason": "TBI significantly common in PTSD populations (particularly veterans). TBI-related cortical changes affect TMS parameters and safety.",
+        "blocks_protocol": false
+      },
+      {
+        "field": "Trauma-informed clinician assignment confirmed",
+        "reason": "PTSD treatment requires a trauma-informed clinician available throughout the course for clinical support. Not appropriate for unsupervised protocols.",
+        "blocks_protocol": true
+      }
+    ],
+    "clinical_interview_checklist": [
+      "Nature of traumatic event(s) — type, duration, number (single-incident vs. complex/repeated)",
+      "Age of trauma onset (childhood vs. adult-onset — affects treatment complexity)",
+      "Time since trauma and PTSD onset (acute, chronic, delayed-onset)",
+      "All four DSM-5 PTSD symptom clusters assessed and documented",
+      "Dissociation frequency and severity (dissociative subtype identification)",
+      "Current and historical suicidal ideation, plans, and attempts (C-SSRS full assessment)",
+      "Current functional impairment (work, relationships, self-care, social)",
+      "Substance use — type, quantity, frequency, dependence screening",
+      "Prior trauma-focused therapy (PE, EMDR, CPT) — engagement and response",
+      "Safety status in current living environment (ongoing danger/domestic abuse screening)",
+      "Support system — social support, carer involvement",
+      "Combat exposure history / occupational trauma (for veterans and first responders — specific phenotype considerations)",
+      "Comorbid psychiatric history (MDD, anxiety disorders, personality disorders, psychosis)"
+    ],
+    "rule_out_differentials": [
+      "Acute stress disorder (must be ≥1 month post-trauma for PTSD diagnosis)",
+      "Adjustment disorder (less severe, shorter duration, broader trigger)",
+      "Major depressive disorder (primary MDD without trauma criterion)",
+      "Borderline personality disorder (if trauma history present, assess for both — may be comorbid)",
+      "Psychosis (trauma-related paranoia vs. psychotic disorder)",
+      "Substance-induced mental disorder (symptoms driven by current substance use)",
+      "Traumatic brain injury-related cognitive symptoms (neurological vs. psychiatric)"
+    ],
+    "comorbidity_screen": [
+      "Depression (PHQ-9 — comorbid MDD in up to 50%; influences left vs. right DLPFC protocol selection)",
+      "Anxiety (GAD-7 — comorbid GAD affects monitoring frequency)",
+      "Insomnia (ISI — sleep disturbance is a core PTSD symptom and common comorbidity)",
+      "Alcohol and substance use (AUDIT-C, DAST-10 — active dependence may require detox before TMS)",
+      "Dissociation (DES-II — dissociative subtype identification; high scores modify protocol approach)",
+      "Suicidal ideation (C-SSRS at every session for moderate-severe PTSD)",
+      "TBI screening (if veterans or occupational trauma — history and neurological assessment)"
+    ],
+    "prior_treatment_required": [
+      "At least one adequate SSRI or SNRI trial documented (for moderate-severe PTSD before TMS referral)",
+      "Trauma-focused therapy engagement documented (PE, EMDR, or CPT) or documented barriers to access",
+      "Current safety plan if active suicidal ideation history"
+    ],
+    "special_population_flags": [
+      {
+        "population": "Veterans and military personnel",
+        "additional_requirements": [
+          "TBI screening (MACE or equivalent) — high prevalence of comorbid TBI",
+          "Military sexual trauma screening (MST) where relevant",
+          "Review of current VA/MoD care coordination if applicable",
+          "Note: alcohol use disorder comorbidity rates very high — assess carefully"
+        ]
+      },
+      {
+        "population": "Survivors of sexual assault or domestic violence",
+        "additional_requirements": [
+          "Ongoing safety assessment — confirm patient is currently safe from perpetrator",
+          "Female-specific trauma history — menstrual cycle phase documented if hormonal fluctuations affect symptom severity",
+          "Trauma-informed female clinician option offered where available"
+        ]
+      },
+      {
+        "population": "Complex PTSD (childhood abuse/neglect)",
+        "additional_requirements": [
+          "Personality disorder screening (borderline PD — SCID-II or clinical assessment)",
+          "Affect regulation assessment before commencing TMS — severe affect dysregulation may require stabilisation phase first",
+          "Trauma-informed care model with clear crisis protocol before commencing"
+        ]
+      }
+    ]
+  },
+  "contraindications": {
+    "absolute": [
+      {
+        "condition": "Active suicidal ideation with intent or plan (C-SSRS active ideation with plan ≥5)",
+        "rationale": "TMS treatment distress in the context of acute suicidality poses unacceptable risk. Stabilisation and crisis management take priority over neuromodulation."
+      },
+      {
+        "condition": "Active epilepsy or uncontrolled seizure disorder",
+        "rationale": "TMS significantly increases seizure risk. No TMS protocol may proceed."
+      },
+      {
+        "condition": "Metallic implant in head, neck, or upper chest",
+        "rationale": "TMS electromagnetic field can heat, displace, or damage metallic implants. Absolute contraindication for all TMS protocols."
+      },
+      {
+        "condition": "Implanted cardiac pacemaker or defibrillator",
+        "rationale": "Absolute contraindication for TMS."
+      },
+      {
+        "condition": "Active psychosis not stabilised",
+        "rationale": "TMS may exacerbate psychotic symptoms. Psychiatric stabilisation required."
+      }
+    ],
+    "relative": [
+      {
+        "condition": "Severe dissociation episodes during sessions",
+        "rationale": "Dissociative episodes during TMS sessions require protocol pause — patient unable to maintain safety and cooperation. Risk of incomplete sessions reducing efficacy.",
+        "mitigation": "Baseline DES-II score. Grounding protocol before each session. Trauma-informed clinician present. Protocol pause and grounding exercises if dissociation occurs. Consider neurofeedback or grounding-based approach first for severe dissociative subtype."
+      },
+      {
+        "condition": "Active substance use disorder (alcohol, benzodiazepines, illicit substances)",
+        "rationale": "Active substance use reduces TMS cortical excitability, increases seizure risk (particularly withdrawal), and reduces treatment engagement.",
+        "mitigation": "Minimum 4-week sobriety before TMS where possible. Benzodiazepine dose stable for ≥4 weeks. Coordinate with addiction services. Document substance use status at every session."
+      },
+      {
+        "condition": "Recent suicide attempt (within 3 months)",
+        "rationale": "Elevated ongoing suicide risk. TMS treatment stress may temporarily increase distress.",
+        "mitigation": "Psychiatric clearance. Comprehensive safety plan in place. Clinician review before each session block. C-SSRS every session. Consider inpatient stabilisation before outpatient TMS."
+      },
+      {
+        "condition": "Pregnancy",
+        "rationale": "Insufficient safety data for TMS in pregnancy.",
+        "mitigation": "Obstetrician clearance required. Neurofeedback preferred if pregnancy confirmed — no known foetal risk. TMS only with documented risk-benefit discussion and obstetrician clearance."
+      },
+      {
+        "condition": "Traumatic brain injury (within 12 months or with significant sequelae)",
+        "rationale": "Post-acute TBI increases seizure susceptibility and alters cortical excitability — TMS parameters may need significant adjustment.",
+        "mitigation": "Neurologist clearance. Consider 12-month wait post-acute TBI. Reduce TMS intensity by 10–20%. Neuronavigation guidance recommended."
+      },
+      {
+        "condition": "Active domestic violence or ongoing trauma exposure",
+        "rationale": "Ongoing trauma exposure perpetuates PTSD and reduces treatment response. Safety must be addressed before or alongside neuromodulation.",
+        "mitigation": "Safety planning. Social work referral. Coordinate with trauma support services. Document ongoing threat assessment at each visit."
+      }
+    ],
+    "special_populations": [
+      {
+        "population": "Veterans with comorbid TBI",
+        "flag": "TBI alters cortical topography and excitability. Standard TMS positioning may be inaccurate without neuronavigation. Seizure threshold may be lowered. Neurologist review strongly recommended."
+      },
+      {
+        "population": "Dissociative subtype PTSD",
+        "flag": "Standard TMS provocation approaches used in some protocols are contraindicated for severe dissociative subtype. Modified grounding-based approach required. Neurofeedback may be safer first-line."
+      }
+    ],
+    "modality_specific": {
+      "tms": [
+        "Standard TMS Safety Screening Questionnaire required",
+        "No metal skull implants, plates, or pins",
+        "No cochlear implants within coil field",
+        "C-SSRS required at baseline and every session for moderate-severe PTSD",
+        "Trauma-informed clinician must be contactable/available throughout each session",
+        "Dissociation monitoring required — grounding protocol ready"
+      ],
+      "neurofeedback": [
+        "Active psychosis is a relative contraindication",
+        "For alpha/theta protocol: discuss with patient that theta training may occasionally trigger emotional memories — trauma-informed clinician must be present",
+        "Scalp integrity check for electrode placement"
+      ],
+      "tdcs": [
+        "No metal skull implants at stimulation site",
+        "No open wounds at electrode placement sites"
+      ]
+    }
+  },
+  "assessment_bundle": {
+    "screening": [
+      {
+        "assessment_id": "ASS-036",
+        "name": "PC-PTSD-5",
+        "full_name": "Primary Care PTSD Screen for DSM-5",
+        "clinician_vs_patient": "Patient self-report",
+        "rationale": "5-item validated PTSD screener for primary care and initial triage. Score ≥3 indicates probable PTSD and triggers full PCL-5 and CAPS-5 assessment. Sensitivity 95%, specificity 65% for PTSD.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 2,
+        "access": "Free",
+        "population": "Adult 18+"
+      },
+      {
+        "assessment_id": "ASS-023",
+        "name": "PHQ-9 (PTSD Screening)",
+        "full_name": "Patient Health Questionnaire — 9-item — PTSD Context",
+        "clinician_vs_patient": "Patient self-report",
+        "rationale": "Screens for comorbid major depression — present in up to 50% of PTSD. Score ≥10 indicates comorbid MDD requiring parallel management and influences protocol selection (left DLPFC excitatory TMS for depression component).",
+        "lower_is_better": true,
+        "admin_duration_minutes": 5,
+        "access": "Free",
+        "population": "Adult 18+"
+      }
+    ],
+    "diagnostic": [
+      {
+        "assessment_id": "ASS-037",
+        "name": "CAPS-5",
+        "full_name": "Clinician-Administered PTSD Scale for DSM-5",
+        "clinician_vs_patient": "Clinician-rated",
+        "rationale": "Gold-standard diagnostic interview for PTSD. 30-item structured interview covering all DSM-5 PTSD criteria. Provides dimensional severity scores across four symptom clusters. Required for research-grade outcome documentation and baseline severity assessment before intensive protocols. Gold standard for diagnosis confirmation.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 60,
+        "access": "Free — requires clinician training (2-day training recommended)",
+        "population": "Adult 18+"
+      },
+      {
+        "assessment_id": "ASS-038",
+        "name": "DES-II",
+        "full_name": "Dissociative Experiences Scale — II",
+        "clinician_vs_patient": "Patient self-report",
+        "rationale": "28-item validated dissociation screen. Score ≥30 indicates high dissociation consistent with dissociative subtype PTSD. Critical for protocol selection — high DES-II scores modify TMS protocol approach and trigger enhanced monitoring. Taxon score used for dissociative subtype classification.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 10,
+        "access": "Free",
+        "population": "Adult 18+"
+      }
+    ],
+    "baseline": [
+      {
+        "assessment_id": "ASS-039",
+        "name": "PCL-5",
+        "full_name": "PTSD Checklist for DSM-5",
+        "clinician_vs_patient": "Patient self-report",
+        "rationale": "20-item self-report PTSD symptom measure aligned with DSM-5. Score range 0–80. Probable PTSD ≥33. Primary monitoring and outcome measure for all PTSD protocols. Minimum clinically important difference (MCID) = 10 points. Response = ≥20 point reduction. Remission = <33.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 10,
+        "access": "Free (public domain — US National Center for PTSD)",
+        "population": "Adult 18+"
+      },
+      {
+        "assessment_id": "ASS-040",
+        "name": "C-SSRS (Baseline)",
+        "full_name": "Columbia Suicide Severity Rating Scale — Baseline",
+        "clinician_vs_patient": "Clinician-rated",
+        "rationale": "Mandatory baseline suicide risk assessment for all PTSD protocols. PTSD is associated with significantly elevated suicidality. C-SSRS active ideation items must be ≤2 (ideation without intent or plan) before TMS commences. Higher ratings require urgent psychiatric review.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 10,
+        "access": "Free — Columbia University",
+        "population": "Adult 18+"
+      },
+      {
+        "assessment_id": "ASS-023",
+        "name": "PHQ-9 (Baseline)",
+        "full_name": "Patient Health Questionnaire — 9-item — PTSD Baseline",
+        "clinician_vs_patient": "Patient self-report",
+        "rationale": "Baseline depression severity for PTSD comorbidity. Score informs protocol selection: PHQ-9 ≥15 with PTSD → consider left DLPFC excitatory TMS for depression component alongside right DLPFC inhibitory for hyperarousal.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 5,
+        "access": "Free",
+        "population": "Adult 18+"
+      },
+      {
+        "assessment_id": "ASS-024",
+        "name": "GAD-7 (Baseline)",
+        "full_name": "Generalised Anxiety Disorder — 7-item — PTSD Baseline",
+        "clinician_vs_patient": "Patient self-report",
+        "rationale": "Comorbid GAD screening at baseline. Elevated GAD-7 alongside PTSD indicates broader anxiety requiring monitoring.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 3,
+        "access": "Free",
+        "population": "Adult 18+"
+      },
+      {
+        "assessment_id": "ASS-029",
+        "name": "ISI (Baseline)",
+        "full_name": "Insomnia Severity Index — PTSD Baseline",
+        "clinician_vs_patient": "Patient self-report",
+        "rationale": "Sleep disturbance (insomnia and nightmares) is a core PTSD symptom cluster. ISI baseline documents sleep severity. TMS frequently improves PTSD-related sleep disturbance as a secondary outcome.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 5,
+        "access": "Free",
+        "population": "Adult 18+"
+      }
+    ],
+    "monitoring": [
+      {
+        "assessment_id": "ASS-039",
+        "name": "PCL-5 (Monitoring)",
+        "full_name": "PTSD Checklist for DSM-5 — Repeated Measure",
+        "clinician_vs_patient": "Patient self-report",
+        "rationale": "Primary monitoring tool. Administer every 5 sessions. Non-response flag: <10 point reduction by session 10. Deterioration flag: ≥10 point increase from best score.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 10,
+        "access": "Free",
+        "population": "Adult 18+"
+      },
+      {
+        "assessment_id": "ASS-040",
+        "name": "C-SSRS (Session)",
+        "full_name": "Columbia Suicide Severity Rating Scale — Session Monitoring",
+        "clinician_vs_patient": "Clinician-rated",
+        "rationale": "Mandatory at every session for moderate-severe PTSD (PCL-5 ≥33). Brief version (since-last-visit) used for ongoing monitoring. Any active ideation with intent triggers emergency protocol.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 5,
+        "access": "Free — Columbia University",
+        "population": "Adult 18+"
+      }
+    ],
+    "outcome": [
+      {
+        "assessment_id": "ASS-039",
+        "name": "PCL-5 (End of Course)",
+        "full_name": "PTSD Checklist for DSM-5 — End of Course",
+        "clinician_vs_patient": "Patient self-report",
+        "rationale": "Primary endpoint. Response = ≥20 point reduction from baseline. Remission = score <33. MCID = 10 points.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 10,
+        "access": "Free",
+        "population": "Adult 18+"
+      },
+      {
+        "assessment_id": "ASS-037",
+        "name": "CAPS-5 (End of Course)",
+        "full_name": "Clinician-Administered PTSD Scale for DSM-5 — Endpoint",
+        "clinician_vs_patient": "Clinician-rated",
+        "rationale": "Clinician-rated endpoint assessment. CAPS-5 total score reduction ≥15 = clinically significant improvement. Gold-standard outcome documentation for research and governance.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 60,
+        "access": "Free — requires clinician training",
+        "population": "Adult 18+"
+      },
+      {
+        "assessment_id": "ASS-023",
+        "name": "PHQ-9 (End of Course)",
+        "full_name": "Patient Health Questionnaire — 9-item — PTSD Endpoint",
+        "clinician_vs_patient": "Patient self-report",
+        "rationale": "Track change in comorbid depression. Expected secondary improvement when PTSD improves.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 5,
+        "access": "Free",
+        "population": "Adult 18+"
+      }
+    ],
+    "neurophysiological": [
+      {
+        "assessment_id": "ASS-036",
+        "name": "qEEG (PTSD Protocol)",
+        "full_name": "Quantitative EEG — PTSD Biomarker Assessment",
+        "clinician_vs_patient": "Clinician-rated",
+        "rationale": "Optional qEEG documents PTSD neurophysiological profile: elevated frontal beta (hyperarousal marker), right frontal hyperactivation, reduced alpha, and alpha/theta ratio. Guides neurofeedback protocol customisation and tracks normalisation across treatment.",
+        "lower_is_better": false,
+        "admin_duration_minutes": 45,
+        "access": "Requires qEEG system and certified interpreter",
+        "population": "All (optional)"
+      }
+    ],
+    "functional": [
+      {
+        "assessment_id": "ASS-F07",
+        "name": "WHODAS 2.0",
+        "full_name": "World Health Organization Disability Assessment Schedule 2.0",
+        "clinician_vs_patient": "Either",
+        "rationale": "Measures functional impairment across 6 domains. PTSD severely impairs work, social, and daily function. WHODAS 2.0 captures the breadth of functional impact beyond symptom scores and tracks rehabilitation progress.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 10,
+        "access": "Free — WHO",
+        "population": "Adult 18+"
+      }
+    ]
+  },
+  "protocol_bundle": [
+    {
+      "protocol_id": "PRO-TMS-PTSD-01",
+      "name": "rTMS — Right DLPFC Inhibitory Protocol for PTSD Hyperarousal",
+      "modality_slug": "tms",
+      "phenotype_id": "PHE-024",
+      "on_label_vs_off_label": "Off-label",
+      "evidence_grade": "EV-B",
+      "evidence_summary": "Low-frequency (1 Hz) rTMS to the right DLPFC for PTSD has been studied in multiple RCTs and meta-analyses. Phillip et al. (2019) and Isserles et al. (2013) demonstrated significant PCL reductions. Meta-analyses (Zhang et al., 2021 — 21 studies; Karsen et al., 2014) show large pooled effect sizes (SMD = -1.0 to -1.5) for PTSD symptom reduction, particularly for hyperarousal and re-experiencing clusters. Rationale: inhibitory 1 Hz rTMS to right DLPFC reduces right-hemisphere threat hyperactivation and amygdala hyperexcitability via top-down inhibition enhancement. No FDA clearance specifically for PTSD.",
+      "references": [
+        "Zhang R & Lam CLM et al. (2021). Efficacy and Neural Mechanisms of Repetitive Transcranial Magnetic Stimulation for PTSD. Neurosci Biobehav Rev, 128, 683–693.",
+        "Karsen EF et al. (2014). Review of the Effectiveness of Transcranial Magnetic Stimulation for Post-Traumatic Stress Disorder. Brain Stimul, 7(2), 151–157.",
+        "Philip NS et al. (2019). Low-Intensity Focused Ultrasound for Post-Traumatic Stress Disorder. Chronic Stress, 3, 2470547019856038."
+      ],
+      "brain_target": {
+        "region": "Right Dorsolateral Prefrontal Cortex",
+        "laterality": "Right",
+        "eeg_position": "F4",
+        "effect_direction": "Inhibitory"
+      },
+      "parameters": {
+        "frequency_hz": "1 Hz",
+        "intensity": "110% resting Motor Threshold (rMT)",
+        "pulse_count": "1,200 pulses per session",
+        "coil_type": "Figure-of-eight coil (70 mm)",
+        "additional_params": {
+          "train_duration": "60 seconds continuous at 1 Hz",
+          "inter_train_interval": "30 seconds",
+          "trains_per_session": "20",
+          "session_duration_active": "approximately 20 minutes",
+          "target_site": "Right DLPFC — F4 position (10-20 system)"
+        }
+      },
+      "session_structure": {
+        "sessions_per_week": 5,
+        "session_duration_minutes": 30,
+        "total_sessions": 20,
+        "total_weeks": 4,
+        "maintenance_sessions": "Booster course of 10 sessions at 4–8 weeks post-course if PCL-5 regression >50% of treatment gain",
+        "steps": [
+          {
+            "order": 1,
+            "title": "Pre-session safety and wellbeing check",
+            "duration_minutes": 5,
+            "detail": "C-SSRS since-last-visit administered. Assess current distress level. Confirm no new contraindications. Check dissociation status — grounding exercise if patient is dissociated before proceeding. Confirm trauma-informed clinician is contactable."
+          },
+          {
+            "order": 2,
+            "title": "Motor threshold determination",
+            "duration_minutes": 5,
+            "detail": "Resting MT established over left M1 (contralateral hand motor cortex). Set stimulation to 110% rMT for right DLPFC. Recheck if ≥1-week gap or medication change. Document rMT value."
+          },
+          {
+            "order": 3,
+            "title": "Coil placement — right DLPFC",
+            "duration_minutes": 2,
+            "detail": "Position figure-of-eight coil over right DLPFC at F4 (10-20 system). Neuronavigation guidance preferred if available — increases targeting accuracy. Confirm coil-to-scalp contact."
+          },
+          {
+            "order": 4,
+            "title": "Stimulation delivery — 1 Hz right DLPFC",
+            "duration_minutes": 20,
+            "detail": "20 trains of 1 Hz × 60 seconds = 1,200 pulses at 110% rMT. 30-second inter-train interval. Clinician present throughout. Monitor for discomfort. Patient may feel scalp tapping sensation."
+          },
+          {
+            "order": 5,
+            "title": "Post-session grounding and documentation",
+            "duration_minutes": 3,
+            "detail": "Grounding check: 5-4-3-2-1 sensory grounding technique. Confirm patient is oriented and not dissociated. Log adverse events, current distress (0–10), and session metrics. PCL-5 every 5 sessions."
+          }
+        ]
+      },
+      "monitoring_required": [
+        "C-SSRS (since-last-visit) every session",
+        "PCL-5 at baseline, session 5, session 10, session 15, session 20 (end of course)",
+        "PHQ-9 at baseline and end of course",
+        "Dissociation check at start of every session",
+        "Session adverse event log (headache, scalp discomfort, dissociation, emotional distress)",
+        "Motor threshold rechecked at session 1, session 10, session 20, or after ≥1-week gap"
+      ],
+      "contraindication_check_required": true,
+      "adverse_event_monitoring": "Common: mild headache post-session (transient), scalp discomfort at coil site. Monitor for: dissociative episodes during session (pause and ground), significant emotional distress or flashback triggered by procedure. Rare: seizure (<0.1%). Note: transient emotional shifts post-session are not uncommon in PTSD patients as treatment normalises amygdala reactivity — document and reassure.",
+      "escalation_rules": [
+        "C-SSRS active ideation with intent or plan at any session: stop session, emergency psychiatric review, safety plan activation",
+        "Dissociative episode during stimulation: pause stimulation, grounding exercises, reassess before resuming; document in AE log",
+        "PCL-5 no improvement (<10 points) by session 10: clinician review; consider motor threshold adjustment, neuronavigation for F4 targeting, or switching to bilateral protocol",
+        "PCL-5 deterioration (increase ≥15 points from baseline): urgent clinician review; consider protocol pause; assess for acute trauma re-exposure",
+        "Seizure: stop immediately, emergency services, full protocol suspension pending neurological clearance"
+      ],
+      "patient_facing_allowed": false,
+      "clinician_review_required": true,
+      "governance": {
+        "patient_export_allowed": false,
+        "requires_clinician_sign_off": true,
+        "off_label_acknowledgement_required": true,
+        "dual_review_required": false,
+        "notes": "EV-B: Off-label use. Off-label acknowledgement mandatory. Clinician sign-off required. Trauma-informed clinician assignment is a protocol prerequisite — must be documented. C-SSRS every session is mandatory for moderate-severe PTSD."
+      },
+      "notes": "Meta-analysis effect sizes for this protocol are among the largest reported for any neuromodulation intervention in PTSD (SMD -1.0 to -1.5). Protocol is specifically targeted at the hyperarousal-dominant phenotype. Maximum benefit seen when combined with concurrent trauma-focused therapy (PE or EMDR) — TMS reduces hyperarousal enough to improve therapy engagement."
+    },
+    {
+      "protocol_id": "PRO-TMS-PTSD-02",
+      "name": "rTMS — Left DLPFC Excitatory Protocol for PTSD with Comorbid Depression",
+      "modality_slug": "tms",
+      "phenotype_id": "PHE-026",
+      "on_label_vs_off_label": "Off-label",
+      "evidence_grade": "EV-B",
+      "evidence_summary": "High-frequency (10 Hz) rTMS to the left DLPFC has demonstrated efficacy for the depression and anhedonia component of PTSD comorbid with MDD. Oznur et al. (2014) and Boggio et al. (2010) showed significant improvement in both PTSD and depressive symptoms with left DLPFC excitatory TMS. Left DLPFC excitatory TMS is FDA-cleared for MDD — this is off-label application to PTSD comorbid depression. Established evidence base for MDD component makes this protocol particularly appropriate for PHE-026 phenotype with PHQ-9 ≥15.",
+      "references": [
+        "Oznur T et al. (2014). Is Transcranial Magnetic Stimulation Effective in Treatment-Resistant Combat Related Posttraumatic Stress Disorder? Neurosciences (Riyadh), 19(1), 29–32.",
+        "Boggio PS et al. (2010). Noninvasive Brain Stimulation with High-Frequency and Low-Intensity rTMS at the Right Prefrontal Cortex for Post-Traumatic Stress Disorder. J Clin Psychiatry, 71(8), 992–999.",
+        "Zhang R & Lam CLM et al. (2021). Efficacy and Neural Mechanisms of Repetitive Transcranial Magnetic Stimulation for PTSD. Neurosci Biobehav Rev, 128, 683–693."
+      ],
+      "brain_target": {
+        "region": "Left Dorsolateral Prefrontal Cortex",
+        "laterality": "Left",
+        "eeg_position": "F3",
+        "effect_direction": "Excitatory"
+      },
+      "parameters": {
+        "frequency_hz": "10 Hz",
+        "intensity": "120% resting Motor Threshold (rMT)",
+        "pulse_count": "3,000 pulses per session",
+        "coil_type": "Figure-of-eight coil (70 mm)",
+        "additional_params": {
+          "train_duration": "4 seconds",
+          "inter_train_interval": "26 seconds",
+          "trains_per_session": "75",
+          "session_duration_active": "37.5 minutes",
+          "target_site": "Left DLPFC — F3 position (10-20 system)"
+        }
+      },
+      "session_structure": {
+        "sessions_per_week": 5,
+        "session_duration_minutes": 50,
+        "total_sessions": 25,
+        "total_weeks": 5,
+        "maintenance_sessions": "Maintenance schedule: 1x/week for 4 weeks post-course if significant benefit; reschedule full course if PCL-5 or PHQ-9 return to baseline within 3 months",
+        "steps": [
+          {
+            "order": 1,
+            "title": "Pre-session safety check",
+            "duration_minutes": 5,
+            "detail": "C-SSRS since-last-visit. Dissociation check. Confirm no new contraindications. Assess current mood and anxiety (0–10). Brief mood stabilisation if patient significantly distressed."
+          },
+          {
+            "order": 2,
+            "title": "Motor threshold and coil placement",
+            "duration_minutes": 7,
+            "detail": "Establish rMT over right M1. Set intensity to 120% rMT for left DLPFC. Position coil at left DLPFC (F3, 10-20 system). Neuronavigation recommended. Confirm contact."
+          },
+          {
+            "order": 3,
+            "title": "Left DLPFC stimulation — 10 Hz excitatory",
+            "duration_minutes": 37,
+            "detail": "75 trains of 10 Hz × 4 seconds (40 pulses per train) = 3,000 pulses at 120% rMT. 26-second inter-train interval. Clinician present throughout. Monitor for headache or scalp discomfort. Patient may hear clicking and feel tapping."
+          },
+          {
+            "order": 4,
+            "title": "Post-session assessment and grounding",
+            "duration_minutes": 6,
+            "detail": "Grounding check. Mood rating (0–10) post-session. Log AEs. Note any flashbacks or emotional arousal triggered by procedure. PCL-5 and PHQ-9 every 5 sessions."
+          }
+        ]
+      },
+      "monitoring_required": [
+        "C-SSRS every session",
+        "PCL-5 every 5 sessions",
+        "PHQ-9 every 5 sessions (primary outcome for depression component)",
+        "Dissociation check at start of every session",
+        "Adverse event log every session",
+        "Motor threshold recheck at session 1, session 12, session 25"
+      ],
+      "contraindication_check_required": true,
+      "adverse_event_monitoring": "Common: headache (higher frequency with 10 Hz protocol), scalp discomfort, transient mood lability. Monitor for: hypomania signs (with bipolar history — exclude before starting excitatory protocol), dissociation, significant anxiety increase. Rare: seizure.",
+      "escalation_rules": [
+        "C-SSRS active ideation with intent: emergency protocol",
+        "Signs of hypomania or mania at any session: stop protocol, urgent psychiatric review — undiagnosed bipolar must be excluded before resuming excitatory TMS",
+        "PHQ-9 no improvement (<30% reduction) at session 15: review electrode placement; consider switching to PRO-TMS-PTSD-01 (right DLPFC inhibitory) or sequential bilateral protocol",
+        "PCL-5 deterioration ≥15 points: urgent clinician review"
+      ],
+      "patient_facing_allowed": false,
+      "clinician_review_required": true,
+      "governance": {
+        "patient_export_allowed": false,
+        "requires_clinician_sign_off": true,
+        "off_label_acknowledgement_required": true,
+        "dual_review_required": false,
+        "notes": "EV-B: Off-label for PTSD. Left DLPFC excitatory TMS is FDA-cleared for MDD — this protocol applies MDD-cleared protocol to PTSD-MDD comorbidity. Off-label acknowledgement required. Clinician sign-off mandatory. Bipolar disorder must be excluded before commencing — excitatory left DLPFC TMS carries hypomania/mania risk in undiagnosed bipolar."
+      },
+      "notes": "Optimal for the comorbid depression-PTSD phenotype (PHE-026) with PHQ-9 ≥15. Some clinicians use sequential bilateral protocol: left DLPFC excitatory AM session + right DLPFC inhibitory PM session — emerging evidence supports this approach but requires specialist oversight."
+    },
+    {
+      "protocol_id": "PRO-NF-PTSD-01",
+      "name": "Neurofeedback — Alpha/Theta Training for PTSD (Peniston-Kulkosky Variant)",
+      "modality_slug": "neurofeedback",
+      "phenotype_id": "PHE-027",
+      "on_label_vs_off_label": "Off-label",
+      "evidence_grade": "EV-C",
+      "evidence_summary": "The Peniston-Kulkosky alpha/theta neurofeedback protocol was originally developed for combat veterans with PTSD and alcohol use disorder. The protocol targets the alpha/theta crossover state (theta > alpha) associated with hypnagogic imagery and deeper relaxation conducive to emotional processing. Multiple case series and open-label studies (Peniston & Kulkosky, 1991; Scott et al., 2005) report significant PTSD symptom reduction. Controlled RCT evidence is limited. EV-C: Emerging evidence. The protocol requires a specially trained clinician and careful monitoring given the depth of altered states induced.",
+      "references": [
+        "Peniston EG & Kulkosky PJ (1991). Alpha-Theta Brainwave Neurofeedback for Vietnam Veterans with Combat-Related Post-Traumatic Stress Disorder. Med Psychother, 4, 47–60.",
+        "Scott WC et al. (2005). Effects of an EEG Biofeedback Protocol on a Mixed Substance Abusing Population with Post-Traumatic Stress Disorder. Am J Drug Alcohol Abuse, 31(3), 455–469."
+      ],
+      "brain_target": {
+        "region": "Posterior Cortex (Parieto-Occipital — alpha/theta crossover state)",
+        "laterality": "Midline",
+        "eeg_position": "Pz / Oz",
+        "effect_direction": "Normalise"
+      },
+      "parameters": {
+        "reward_band": "Theta 4–8 Hz (when theta amplitude exceeds alpha — alpha/theta crossover state)",
+        "inhibit_band": "High Beta 20–30 Hz (reduce hyperarousal marker)",
+        "threshold_type": "Dynamic — threshold adjusts so reward occurs when theta > alpha amplitude",
+        "feedback_modality": "Auditory tones (alpha = one tone; theta = lower-pitched tone; patient learns to produce theta-dominant state)",
+        "electrode_sites": "Active: Pz (primary); Oz (variant); Reference: linked mastoid (A1+A2); Ground: Fpz"
+      },
+      "session_structure": {
+        "sessions_per_week": 2,
+        "session_duration_minutes": 40,
+        "total_sessions": 35,
+        "total_weeks": 18,
+        "maintenance_sessions": "Booster sessions 1x/week for 4 weeks post-course if symptom regression. Long-term maintenance 1–2x/month available",
+        "steps": [
+          {
+            "order": 1,
+            "title": "Pre-session grounding and safety check",
+            "duration_minutes": 10,
+            "detail": "C-SSRS since-last-visit. Confirm patient not acutely distressed or dissociated before commencing. Grounding exercise (5-4-3-2-1 technique). Brief body scan. Trauma-informed clinician must be present or immediately available throughout session."
+          },
+          {
+            "order": 2,
+            "title": "Electrode placement and baseline EEG",
+            "duration_minutes": 10,
+            "detail": "Apply conductive paste at Pz. Impedance <5 kΩ. Record 3-minute baseline EEG eyes-closed to confirm alpha/theta amplitudes at rest. Document baseline alpha/theta ratio. Set threshold so patient must produce theta > alpha to receive reward tone."
+          },
+          {
+            "order": 3,
+            "title": "Alpha/theta neurofeedback training",
+            "duration_minutes": 20,
+            "detail": "Patient reclines with eyes closed. Audio feedback: alpha tone and theta tone. Patient encouraged to follow mind to relaxed, hypnagogic state where theta exceeds alpha. Clinician observes EEG in real time. If patient shows signs of distress or full dissociation: prompt grounding, reduce session length. Target: sustained theta > alpha for >50% of session time by session 15."
+          },
+          {
+            "order": 4,
+            "title": "Post-session integration",
+            "duration_minutes": 10,
+            "detail": "Slow transition back to full alertness — do not rush. Allow patient to orient. Brief check for emotional content that arose during session (voluntary disclosure — do not probe trauma). Log any imagery or emotional experiences in session record. Confirm grounding before patient leaves. PCL-5 every 5 sessions."
+          }
+        ]
+      },
+      "monitoring_required": [
+        "C-SSRS every session",
+        "PCL-5 at baseline, session 5, 10, 15, 20, 25, 30, 35 (end of course)",
+        "PHQ-9 at baseline and every 10 sessions",
+        "Dissociation check before and after every session",
+        "Session EEG metrics: alpha/theta ratio, crossover events per session",
+        "Adverse event log every session"
+      ],
+      "contraindication_check_required": true,
+      "adverse_event_monitoring": "Monitor for: session-triggered emotional distress or trauma imagery emerging (common with theta training — normalise but document and have trauma clinician available); excessive drowsiness or sleep (theta training promotes sleepiness — reduce session length); dissociative episodes; increased nightmare frequency in first weeks of treatment (may temporarily increase before improving — prepare patient).",
+      "escalation_rules": [
+        "C-SSRS active ideation with intent: emergency protocol — stop session",
+        "Severe dissociative episode during training: stop session, grounding protocol, document; reduce session length; consider whether protocol is appropriate for this patient",
+        "Significant increase in nightmares or intrusions in first 2 weeks: normalise if mild; clinician review if severe — may indicate need for concurrent trauma-focused therapy",
+        "PCL-5 no improvement after 15 sessions: clinician review; consider switching to TMS-based protocol"
+      ],
+      "patient_facing_allowed": false,
+      "clinician_review_required": true,
+      "governance": {
+        "patient_export_allowed": false,
+        "requires_clinician_sign_off": true,
+        "off_label_acknowledgement_required": true,
+        "dual_review_required": false,
+        "notes": "EV-C: Clinician sign-off required. Off-label acknowledgement mandatory. Requires trauma-specialist trained neurofeedback clinician. Not suitable as first-line protocol for patients with active suicidality or severe dissociative disorder. Consider after stabilisation phase."
+      },
+      "notes": "The Peniston-Kulkosky protocol was developed specifically for veterans with PTSD and comorbid alcohol use disorder. Best suited to the complex/cPTSD phenotype (PHE-027) where the deeper altered-state learning may support emotional integration. Not suitable for patients with severe dissociation or active psychosis. Requires 30–40 sessions for full benefit — longer course than TMS protocols."
+    }
+  ],
+  "device_options": [
+    {
+      "device_id": "DEV-TMS-003",
+      "name": "MagStim Rapid2 / Magventure MagPro TMS System (Figure-of-Eight Coil)",
+      "manufacturer": "MagStim / Magventure",
+      "modality_slug": "tms",
+      "regulatory_status": "FDA-cleared (other indication)",
+      "cleared_indication": "FDA-cleared for MDD (left DLPFC excitatory protocol) — PTSD use is off-label.",
+      "use_setting": "Clinic",
+      "compatible_protocols": [
+        "PRO-TMS-PTSD-01",
+        "PRO-TMS-PTSD-02"
+      ],
+      "constraints": [
+        "Standard TMS Safety Screening required before each course",
+        "Neuronavigation strongly recommended for precise DLPFC targeting",
+        "Figure-of-eight 70 mm coil required for DLPFC specificity",
+        "Clinician trained in trauma-informed care must be present or immediately available"
+      ],
+      "notes": "Standard clinic TMS device for off-label PTSD protocols. Same device class used for FDA-cleared MDD TMS. PTSD protocol use is off-label."
+    },
+    {
+      "device_id": "DEV-TMS-004",
+      "name": "NeuroStar TMS Therapy System",
+      "manufacturer": "Neuronetics (USA)",
+      "modality_slug": "tms",
+      "regulatory_status": "FDA-cleared (other indication)",
+      "cleared_indication": "FDA 510(k) cleared for MDD. PTSD use is off-label.",
+      "use_setting": "Clinic",
+      "compatible_protocols": [
+        "PRO-TMS-PTSD-02"
+      ],
+      "constraints": [
+        "NeuroStar figure-of-eight coil supports standard left DLPFC excitatory protocols",
+        "For right DLPFC inhibitory protocol, confirm device supports 1 Hz continuous train delivery"
+      ],
+      "notes": "NeuroStar is the original FDA-cleared TMS device for MDD. Suitable for PTSD off-label use within standard parameter ranges."
+    },
+    {
+      "device_id": "DEV-NF-002",
+      "name": "Neurofeedback System — Alpha/Theta Capable (BrainMaster / Thought Technology / EEGer)",
+      "manufacturer": "Various clinical neurofeedback platform providers",
+      "modality_slug": "neurofeedback",
+      "regulatory_status": "FDA-cleared (other indication)",
+      "cleared_indication": "Class II biofeedback device. Cleared for stress and relaxation biofeedback. Neurofeedback for PTSD is off-label.",
+      "use_setting": "Clinic",
+      "compatible_protocols": [
+        "PRO-NF-PTSD-01"
+      ],
+      "constraints": [
+        "Must support alpha (8–12 Hz) and theta (4–8 Hz) band separation with crossover detection",
+        "Audio feedback capability required (Peniston-Kulkosky protocol uses auditory tones)",
+        "Real-time EEG display required for clinician monitoring during session",
+        "BCIA-certified neurofeedback practitioner recommended"
+      ],
+      "notes": "Any clinical-grade neurofeedback platform supporting alpha/theta protocol parameters is suitable. Operator certification (BCIA or equivalent) is strongly recommended for trauma population neurofeedback given the depth of altered states induced."
+    }
+  ],
+  "brain_targets": [
+    {
+      "region": "Right Dorsolateral Prefrontal Cortex",
+      "abbreviation": "Right DLPFC",
+      "laterality": "Right",
+      "rationale": "Right hemisphere dominance in threat processing and fear conditioning underlies PTSD hyperarousal. Inhibitory 1 Hz rTMS to right DLPFC reduces right-hemisphere hyperactivation, dampens amygdala hyperexcitability via decreased top-down excitation, and reduces hyperarousal symptoms including startle, hypervigilance, and intrusions.",
+      "effect_direction": "Inhibitory",
+      "modalities": [
+        "tms"
+      ],
+      "eeg_position_10_20": "F4",
+      "brodmann_area": "BA 9, 46",
+      "network": "Central Executive Network / Fronto-Parietal Network",
+      "qeeg_target": "Reduce right frontal beta hyperactivation; improve right-left frontal alpha symmetry",
+      "evidence_note": "Multiple meta-analyses support right DLPFC inhibitory TMS for PTSD (Zhang et al., 2021; Karsen et al., 2014). Effect sizes SMD -1.0 to -1.5."
+    },
+    {
+      "region": "Left Dorsolateral Prefrontal Cortex",
+      "abbreviation": "Left DLPFC",
+      "laterality": "Left",
+      "rationale": "Left DLPFC hypoactivity is associated with anhedonia, depression, and reduced positive affect — features of the PTSD negative cognition/mood cluster. Excitatory 10 Hz rTMS to left DLPFC enhances prefrontal activity and dopaminergic-serotonergic regulation, targeting the comorbid depressive component of PTSD.",
+      "effect_direction": "Excitatory",
+      "modalities": [
+        "tms"
+      ],
+      "eeg_position_10_20": "F3",
+      "brodmann_area": "BA 9, 46",
+      "network": "Central Executive Network / Fronto-Parietal Network",
+      "qeeg_target": "Reduce left frontal alpha asymmetry; increase left frontal beta; normalise frontal asymmetry index",
+      "evidence_note": "FDA-cleared for MDD at this target. Off-label application to PTSD-MDD comorbidity supported by multiple RCTs."
+    },
+    {
+      "region": "Posterior Parietal Cortex (Alpha/Theta Training Target)",
+      "abbreviation": "Parieto-Occipital",
+      "laterality": "Midline",
+      "rationale": "The alpha/theta crossover state at Pz is associated with hypnagogic imagery, emotional memory processing, and hippocampal theta oscillations linked to fear extinction learning. Neurofeedback training to increase theta at Pz promotes the relaxed, open state facilitating implicit trauma memory integration without re-traumatisation.",
+      "effect_direction": "Normalise",
+      "modalities": [
+        "neurofeedback"
+      ],
+      "eeg_position_10_20": "Pz / Oz",
+      "brodmann_area": "BA 7, 19",
+      "network": "Default Mode Network / Limbic System",
+      "qeeg_target": "Achieve theta > alpha amplitude ratio at Pz; reduce high-beta (>20 Hz) across scalp",
+      "evidence_note": "Peniston-Kulkosky protocol target. Hippocampal theta (4–8 Hz) is the neurophysiological substrate of extinction learning — the mechanism underlying fear habituation in trauma therapy."
+    },
+    {
+      "region": "Medial Prefrontal Cortex / Ventromedial PFC",
+      "abbreviation": "mPFC/vmPFC",
+      "laterality": "Bilateral",
+      "rationale": "The vmPFC provides top-down inhibitory control over the amygdala. In PTSD, vmPFC-amygdala connectivity is reduced, resulting in failure to inhibit fear responses. All neuromodulation approaches for PTSD ultimately aim to restore this top-down regulatory circuit.",
+      "effect_direction": "Excitatory",
+      "modalities": [
+        "tms",
+        "tdcs"
+      ],
+      "eeg_position_10_20": "Fz / AFz",
+      "brodmann_area": "BA 10, 11, 32",
+      "network": "Default Mode Network / Salience Network",
+      "qeeg_target": "Restore vmPFC-amygdala connectivity; reduce threat network hypercoherence",
+      "evidence_note": "vmPFC hypoactivation is the most replicated neuroimaging finding in PTSD (Shin et al., 2005; Pitman et al., 2012). Indirect target via DLPFC protocols."
+    }
+  ],
+  "handbook_outputs": {
+    "clinician_handbook": {
+      "title": "PTSD Neuromodulation — Clinician Handbook",
+      "audience": "Clinician",
+      "sections": [
+        {
+          "section_id": "CH-PTSD-01",
+          "title": "Condition Overview and Neurobiological Rationale",
+          "content": [
+            "PTSD involves amygdala hyperactivation, reduced vmPFC inhibitory control, and hippocampal atrophy. Neuromodulation targets the prefrontal-amygdala circuit to restore top-down emotional regulation.",
+            "Evidence hierarchy: rTMS (EV-B, off-label — meta-analysis SMD -1.0 to -1.5); Neurofeedback alpha/theta (EV-C, off-label — Peniston-Kulkosky protocol). No FDA clearance specifically for PTSD exists.",
+            "Protocol selection is phenotype-driven: Hyperarousal-dominant → right DLPFC inhibitory TMS (PRO-TMS-PTSD-01); Comorbid depression-PTSD → left DLPFC excitatory TMS (PRO-TMS-PTSD-02); Complex/cPTSD → neurofeedback alpha/theta (PRO-NF-PTSD-01).",
+            "CRITICAL: C-SSRS every session mandatory for all moderate-severe PTSD. Trauma-informed clinician must be assigned before any protocol commences."
+          ]
+        },
+        {
+          "section_id": "CH-PTSD-02",
+          "title": "Safety Framework for PTSD Neuromodulation",
+          "content": [
+            "PTSD is a high-risk psychiatric condition for neuromodulation due to: elevated suicidality, dissociation risk, and emotional lability during treatment.",
+            "Pre-treatment requirements: confirmed safety plan, C-SSRS baseline, DES-II dissociation screen, trauma-informed clinician assignment, emergency contact protocol.",
+            "Session-level safety: C-SSRS every session; pre-session dissociation check and grounding; trauma-informed clinician contactable throughout; post-session grounding protocol.",
+            "Dissociation during session: pause stimulation immediately; administer grounding exercises (5-4-3-2-1); reassess before resuming; document in AE log.",
+            "Suicidal ideation with intent at any session: stop session; emergency psychiatric review; safety plan activation; do not allow patient to leave unsupported."
+          ]
+        },
+        {
+          "section_id": "CH-PTSD-03",
+          "title": "Monitoring and Response Criteria",
+          "content": [
+            "Primary outcome: PCL-5. Response = ≥20 point reduction from baseline. Remission = score <33. MCID = 10 points.",
+            "Administer PCL-5 every 5 sessions. Non-response: <10 points at session 10 → clinical review.",
+            "PHQ-9 monitored every 5 sessions for protocols targeting comorbid depression. Monitor for hypomania with left DLPFC excitatory protocols (bipolar exclusion required).",
+            "C-SSRS every session — brief since-last-visit version. Any active ideation with plan ≥ C-SSRS item 4 triggers emergency protocol.",
+            "Expected trajectory: hyperarousal symptoms often improve earliest (sessions 5–10); intrusive symptoms and avoidance improve later. Depression component may lag — PHQ-9 tracks this separately."
+          ]
+        },
+        {
+          "section_id": "CH-PTSD-04",
+          "title": "Combining TMS with Trauma-Focused Therapy",
+          "content": [
+            "TMS for PTSD is most effective as an adjunct to trauma-focused psychotherapy (Prolonged Exposure, EMDR, CPT).",
+            "Optimal sequencing: TMS to reduce hyperarousal first (sessions 1–10), then begin trauma-focused therapy when hyperarousal is reduced — allows for better therapy engagement.",
+            "Avoid scheduling trauma-focused therapy sessions on same day as TMS sessions unless evidence-based combined protocol is being followed.",
+            "Coordinate closely with the patient's trauma therapist throughout TMS course. Share PCL-5 score trajectory with both clinicians."
+          ]
+        }
+      ]
+    },
+    "patient_guide": {
+      "title": "Your PTSD Treatment Guide — Brain Stimulation",
+      "audience": "Patient",
+      "sections": [
+        {
+          "section_id": "PG-PTSD-01",
+          "title": "How Brain Stimulation Can Help PTSD",
+          "content": [
+            "PTSD keeps your brain's alarm system (the amygdala) stuck in overdrive — reacting as if the trauma is still happening. TMS uses gentle magnetic pulses to help reset the parts of your brain that control this alarm, reducing hyperarousal, flashbacks, and emotional reactivity.",
+            "TMS does not access your memories or ask you to talk about your trauma. It works directly on brain circuits.",
+            "Research shows TMS can significantly reduce PTSD symptoms — often with large effect sizes — even in people who have not fully responded to medication or therapy."
+          ]
+        },
+        {
+          "section_id": "PG-PTSD-02",
+          "title": "What Happens in Your Sessions?",
+          "content": [
+            "Before every session, your clinician will do a brief check-in to ask how you are feeling and whether you have had any thoughts of self-harm. This is routine — it helps keep you safe.",
+            "You will sit in a chair. A coil is placed against the side of your head. You will hear clicking sounds and feel a gentle tapping. Sessions are not painful.",
+            "If you feel overwhelmed, dissociated, or need to stop at any time, tell your clinician immediately. You are in control of the session.",
+            "After each session, your clinician will do a brief grounding exercise with you before you leave."
+          ]
+        },
+        {
+          "section_id": "PG-PTSD-03",
+          "title": "Managing Difficult Moments During Treatment",
+          "content": [
+            "Some patients notice emotional shifts during the treatment course as their nervous system begins to change. This is a sign the treatment is working, but it can feel unsettling.",
+            "If you notice increased emotional sensitivity, more vivid memories, or stronger feelings between sessions, tell your clinician. This is common and your team can adjust the plan.",
+            "A grounding technique that may help: Name 5 things you can see, 4 you can hear, 3 you can touch, 2 you can smell, 1 you can taste. This brings you back to the present moment.",
+            "Emergency contacts are provided on your treatment plan card. Do not hesitate to use them."
+          ]
+        },
+        {
+          "section_id": "PG-PTSD-04",
+          "title": "Getting the Most from Treatment",
+          "content": [
+            "Continue your medication and any therapy you are doing — TMS works best alongside these.",
+            "Attend every session if possible — missing sessions reduces the effectiveness of the course.",
+            "Let your clinician know about any changes in your mood, sleep, or life circumstances — these affect how your brain responds to treatment.",
+            "Many people find their PTSD symptoms continue to improve for several weeks after the course finishes, as the brain continues to consolidate the changes."
+          ]
+        }
+      ]
+    },
+    "technician_sop": {
+      "title": "PTSD TMS — Technician Standard Operating Procedure",
+      "audience": "Technician",
+      "sections": [
+        {
+          "section_id": "SOP-PTSD-01",
+          "title": "Pre-Session Protocol — PTSD Specific",
+          "content": [
+            "1. Confirm patient identity (two identifiers).",
+            "2. Confirm trauma-informed supervising clinician is present or immediately contactable before session starts.",
+            "3. Administer C-SSRS since-last-visit (brief version). If ANY active ideation item endorsed with intent or plan: do not proceed — immediately contact supervising clinician.",
+            "4. Dissociation check: Ask patient 'How grounded are you feeling right now on a scale of 0–10?' Score <6: administer grounding exercise before proceeding.",
+            "5. Review safety contraindications since last session: new medications, implants, pregnancy.",
+            "6. Confirm rMT from previous session. Recalculate if ≥1-week gap."
+          ]
+        },
+        {
+          "section_id": "SOP-PTSD-02",
+          "title": "Stimulation Delivery",
+          "content": [
+            "1. Position coil at prescribed site (F4 for right DLPFC; F3 for left DLPFC) using 10-20 system or neuronavigation.",
+            "2. Set parameters as per protocol: PRO-TMS-PTSD-01: 1 Hz, 110% rMT, 1,200 pulses; PRO-TMS-PTSD-02: 10 Hz, 120% rMT, 3,000 pulses.",
+            "3. Remain present throughout the session. Monitor patient continuously.",
+            "4. If patient becomes distressed: pause stimulation, check in, allow them to regulate; resume only if able to do so safely.",
+            "5. If patient dissociates: STOP stimulation. Grounding protocol (5-4-3-2-1 technique). Alert supervising clinician.",
+            "6. If signs of seizure: STOP immediately. Emergency services. Emergency protocol."
+          ]
+        },
+        {
+          "section_id": "SOP-PTSD-03",
+          "title": "Post-Session Grounding Protocol",
+          "content": [
+            "1. After session ends: do not rush patient out of chair.",
+            "2. Ask: 'How are you feeling right now?' Allow patient to orient.",
+            "3. Administer brief grounding exercise if needed (5-4-3-2-1 sensory grounding).",
+            "4. Confirm patient is grounded, oriented, and safe before discharging.",
+            "5. Do not discharge if patient endorses suicidal ideation — contact supervising clinician immediately.",
+            "6. Log session: parameters delivered, patient distress rating pre/post (0–10), any AEs, grounding needed (yes/no)."
+          ]
+        },
+        {
+          "section_id": "SOP-PTSD-04",
+          "title": "Emergency Protocols",
+          "content": [
+            "Seizure: Stop stimulation. Recovery position. Emergency services. Do not leave patient. Alert supervising clinician. Complete AE form same day.",
+            "Active suicidal crisis: Do not leave patient alone. Alert supervising clinician immediately. Safety plan review. If imminent risk: emergency services. Document incident.",
+            "Severe dissociation/derealization (patient unable to respond): Stop stimulation. Grounding technique. Alert supervising clinician. Do not discharge until patient is fully oriented.",
+            "All serious AEs reported same day to supervising clinician and documented in AE log."
+          ]
+        }
+      ]
+    }
+  },
+  "monitoring_rules": {
+    "assessment_schedule": [
+      {
+        "assessment_id": "ASS-039",
+        "assessment_name": "PCL-5",
+        "timing": "Baseline; every 5 sessions; end of course",
+        "frequency": "Every 5 sessions",
+        "administered_by": "Patient self-report"
+      },
+      {
+        "assessment_id": "ASS-040",
+        "assessment_name": "C-SSRS",
+        "timing": "Baseline and every session (since-last-visit brief version)",
+        "frequency": "Every session",
+        "administered_by": "Clinician-rated"
+      },
+      {
+        "assessment_id": "ASS-023",
+        "assessment_name": "PHQ-9",
+        "timing": "Baseline; every 5 sessions; end of course",
+        "frequency": "Every 5 sessions",
+        "administered_by": "Patient self-report"
+      },
+      {
+        "assessment_id": "ASS-038",
+        "assessment_name": "DES-II",
+        "timing": "Baseline and if clinical dissociation suspected",
+        "frequency": "Once at baseline; repeat if dissociation increases",
+        "administered_by": "Patient self-report"
+      },
+      {
+        "assessment_id": "ASS-037",
+        "assessment_name": "CAPS-5",
+        "timing": "Baseline and end of course",
+        "frequency": "Once at start, once at end",
+        "administered_by": "Clinician-rated"
+      }
+    ],
+    "response_thresholds": [
+      {
+        "assessment_id": "ASS-039",
+        "assessment_name": "PCL-5",
+        "lower_is_better": true,
+        "response_threshold": "≥20 point reduction from baseline",
+        "remission_threshold": "Score <33",
+        "non_response_threshold": "<10 point reduction by session 10",
+        "deterioration_threshold": "Increase of ≥15 points from any prior score"
+      },
+      {
+        "assessment_id": "ASS-023",
+        "assessment_name": "PHQ-9",
+        "lower_is_better": true,
+        "response_threshold": "≥50% reduction from baseline",
+        "remission_threshold": "Score ≤4",
+        "non_response_threshold": "<30% reduction at session 15",
+        "deterioration_threshold": "Increase of ≥5 points from baseline"
+      }
+    ],
+    "adverse_event_triggers": [
+      {
+        "event_type": "Suicidal ideation with intent or plan (C-SSRS active ideation items 4–5)",
+        "severity": "Serious",
+        "action": "Stop session immediately. Do not leave patient alone. Alert supervising clinician. Safety plan activation. Emergency services if imminent risk. Document incident.",
+        "suspend_treatment": true
+      },
+      {
+        "event_type": "Severe dissociative episode during TMS session",
+        "severity": "Moderate",
+        "action": "Pause stimulation. Grounding protocol. Alert supervising clinician. Document in AE log. Reassess before any further stimulation. Review dissociation management plan.",
+        "suspend_treatment": true
+      },
+      {
+        "event_type": "Seizure during or within 2 hours of session",
+        "severity": "Serious",
+        "action": "Stop stimulation. Emergency services. Recovery position. AE documentation. Full protocol suspension pending neurological clearance.",
+        "suspend_treatment": true
+      },
+      {
+        "event_type": "Significant mood elevation or hypomania signs post-session",
+        "severity": "Severe",
+        "action": "Stop session. Urgent psychiatric review to exclude bipolar disorder. Suspend left DLPFC excitatory protocol until bipolar excluded.",
+        "suspend_treatment": true
+      },
+      {
+        "event_type": "Significant increase in trauma nightmares or intrusive symptoms post-session",
+        "severity": "Moderate",
+        "action": "Clinician review. Normalise if mild (expected in early alpha/theta neurofeedback). If severe: reduce session intensity. Consider concurrent trauma-focused therapy support.",
+        "suspend_treatment": false
+      }
+    ],
+    "escalation_rules": [
+      {
+        "trigger": "C-SSRS active ideation with intent (items 4–5) at any session",
+        "action": "Emergency psychiatric review. Safety plan activation. Consider inpatient assessment. Suspend TMS sessions.",
+        "urgency": "Emergency"
+      },
+      {
+        "trigger": "PCL-5 deterioration ≥15 points from baseline at any monitoring point",
+        "action": "Urgent clinician review within 24 hours. Assess for re-traumatisation events, acute life stressors, or medication changes. Consider protocol pause.",
+        "urgency": "Urgent"
+      },
+      {
+        "trigger": "PCL-5 no improvement <10 points by session 10",
+        "action": "Clinician review. Reassess target site accuracy (consider neuronavigation). Assess protocol phenotype match. Consider switching protocol.",
+        "urgency": "Routine"
+      },
+      {
+        "trigger": "Three or more consecutive dissociative episodes during sessions",
+        "action": "Clinician review. Enhanced grounding protocol. Consider whether TMS is appropriate — may need to stabilise with neurofeedback or therapy first.",
+        "urgency": "Urgent"
+      },
+      {
+        "trigger": "PHQ-9 ≥20 (severe depression) at any monitoring point",
+        "action": "Urgent psychiatric review. Consider inpatient assessment if safety concern. Ensure adequate antidepressant pharmacotherapy.",
+        "urgency": "Urgent"
+      }
+    ],
+    "adherence_rules": {
+      "minimum_session_adherence_pct": 80,
+      "consecutive_missed_sessions_flag": 2,
+      "action_on_low_adherence": "Clinician outreach within 24 hours for any missed session in PTSD population (elevated risk of deterioration and disengagement). Explore barriers: transport, work, symptom severity preventing attendance, avoidance of clinical setting. Offer schedule flexibility. Safety check by phone if patient cannot be reached in person."
+    }
+  },
+  "report_templates": [
+    {
+      "id": "RPT-PTSD-01",
+      "name": "PTSD Neuromodulation — Intake Summary",
+      "report_type": "intake-summary",
+      "audience": "Clinician",
+      "frequency": "Once — at intake",
+      "sections": [
+        {
+          "section_id": "RPT-PTSD-01-A",
+          "title": "Diagnosis and Severity",
+          "auto_populate_from": [
+            "diagnosis",
+            "icd_10",
+            "dsm_5_code",
+            "pcl5_baseline",
+            "caps5_baseline",
+            "phq9_baseline",
+            "cgi_s_baseline"
+          ],
+          "clinician_narrative_prompt": "Summarise PTSD diagnosis, trauma type and duration, phenotype (hyperarousal, dissociative, comorbid depression, complex PTSD), severity tier (PCL-5 score), and duration of illness.",
+          "required": true
+        },
+        {
+          "section_id": "RPT-PTSD-01-B",
+          "title": "Safety Assessment",
+          "auto_populate_from": [
+            "cssrs_baseline",
+            "safety_plan_in_place",
+            "des_ii_score",
+            "substance_use_status"
+          ],
+          "clinician_narrative_prompt": "Document C-SSRS baseline (active ideation status), DES-II score and dissociation classification, substance use status, and safety plan details. Confirm trauma-informed clinician assignment.",
+          "required": true
+        },
+        {
+          "section_id": "RPT-PTSD-01-C",
+          "title": "Treatment History",
+          "auto_populate_from": [
+            "prior_medications",
+            "prior_therapy",
+            "trauma_therapy_history"
+          ],
+          "clinician_narrative_prompt": "Document prior SSRI/SNRI trials, trauma-focused therapy engagement (PE, EMDR, CPT), and any prior neuromodulation. Note treatment resistance level.",
+          "required": true
+        },
+        {
+          "section_id": "RPT-PTSD-01-D",
+          "title": "Protocol Selection and Safety Plan",
+          "auto_populate_from": [
+            "selected_protocol",
+            "protocol_id",
+            "evidence_grade",
+            "trauma_informed_clinician"
+          ],
+          "clinician_narrative_prompt": "State selected protocol with rationale (phenotype-match, evidence level). Confirm all safety prerequisites met. Document off-label acknowledgement and emergency contact protocol.",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "RPT-PTSD-02",
+      "name": "PTSD Treatment — Progress Report",
+      "report_type": "progress-report",
+      "audience": "Referring Physician",
+      "frequency": "Every 5 sessions",
+      "sections": [
+        {
+          "section_id": "RPT-PTSD-02-A",
+          "title": "Sessions Completed and Safety Summary",
+          "auto_populate_from": [
+            "sessions_completed",
+            "adherence_pct",
+            "cssrs_status",
+            "dissociation_events"
+          ],
+          "clinician_narrative_prompt": "Report sessions completed, adherence rate, C-SSRS status across the period, and any dissociation events or safety escalations.",
+          "required": true
+        },
+        {
+          "section_id": "RPT-PTSD-02-B",
+          "title": "PCL-5 Score Trajectory",
+          "auto_populate_from": [
+            "pcl5_baseline",
+            "pcl5_current",
+            "pcl5_pct_change",
+            "phq9_current"
+          ],
+          "clinician_narrative_prompt": "Report current PCL-5 score, percentage change from baseline, and PHQ-9 if comorbid depression is being targeted. Classify as response/partial/non-response.",
+          "required": true
+        },
+        {
+          "section_id": "RPT-PTSD-02-C",
+          "title": "Tolerability and Adverse Events",
+          "auto_populate_from": [
+            "adverse_events_logged",
+            "sessions_modified"
+          ],
+          "clinician_narrative_prompt": "Summarise adverse events, protocol modifications, and current tolerability status. Note any dissociative episodes or safety escalations.",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "RPT-PTSD-03",
+      "name": "PTSD Treatment — End of Course Report",
+      "report_type": "end-of-course-report",
+      "audience": "Referring Physician",
+      "frequency": "Once — end of course",
+      "sections": [
+        {
+          "section_id": "RPT-PTSD-03-A",
+          "title": "Treatment Summary",
+          "auto_populate_from": [
+            "protocol_id",
+            "total_sessions",
+            "sessions_completed",
+            "course_dates"
+          ],
+          "clinician_narrative_prompt": "Summarise protocol delivered, sessions completed, and any significant protocol modifications during course.",
+          "required": true
+        },
+        {
+          "section_id": "RPT-PTSD-03-B",
+          "title": "Outcome Measures",
+          "auto_populate_from": [
+            "pcl5_baseline",
+            "pcl5_eoc",
+            "pcl5_pct_change",
+            "caps5_eoc",
+            "phq9_eoc",
+            "isi_eoc",
+            "cssrs_eoc"
+          ],
+          "clinician_narrative_prompt": "Report all end-of-course scores and response classification. Note improvement across PTSD symptom clusters (intrusions, avoidance, negative cognition/mood, hyperarousal). Document safety status at end of course.",
+          "required": true
+        },
+        {
+          "section_id": "RPT-PTSD-03-C",
+          "title": "Recommendations and Follow-up",
+          "auto_populate_from": [
+            "maintenance_plan",
+            "therapy_continuation",
+            "medication_status"
+          ],
+          "clinician_narrative_prompt": "State recommendations for maintenance TMS, trauma-focused therapy continuation, medication review, safety plan continuation, and follow-up PCL-5 timeline.",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "RPT-PTSD-04",
+      "name": "PTSD — SOAP Note",
+      "report_type": "soap-note",
+      "audience": "Clinician",
+      "frequency": "Every session",
+      "sections": [
+        {
+          "section_id": "RPT-PTSD-04-S",
+          "title": "Subjective",
+          "auto_populate_from": [
+            "patient_distress_rating",
+            "sleep_quality",
+            "medication_compliance",
+            "cssrs_since_last_visit"
+          ],
+          "clinician_narrative_prompt": "Patient-reported distress level today (0–10), sleep quality and nightmare frequency, medication compliance, and C-SSRS since last visit result.",
+          "required": true
+        },
+        {
+          "section_id": "RPT-PTSD-04-O",
+          "title": "Objective",
+          "auto_populate_from": [
+            "session_number",
+            "parameters_delivered",
+            "mt_value",
+            "dissociation_check_result"
+          ],
+          "clinician_narrative_prompt": "Session number, rMT value, parameters delivered, dissociation check result, and grounding exercise administered (yes/no).",
+          "required": true
+        },
+        {
+          "section_id": "RPT-PTSD-04-A",
+          "title": "Assessment",
+          "auto_populate_from": [
+            "pcl5_if_administered",
+            "ae_log",
+            "dissociation_events"
+          ],
+          "clinician_narrative_prompt": "Session tolerance, adverse events, dissociative episodes, and PCL-5 score if administered today. Clinical assessment of safety and treatment progress.",
+          "required": true
+        },
+        {
+          "section_id": "RPT-PTSD-04-P",
+          "title": "Plan",
+          "auto_populate_from": [
+            "next_session_date",
+            "protocol_modifications",
+            "escalation_actions"
+          ],
+          "clinician_narrative_prompt": "Next session plan, any parameter adjustments, escalation actions taken (if any), therapy coordination notes, and safety plan review if indicated.",
+          "required": true
+        }
+      ]
+    }
+  ],
+  "home_program_templates": [
+    {
+      "id": "HP-PTSD-01",
+      "name": "PTSD Home Grounding and Wellbeing Support Program",
+      "modality_slug": "self-regulation",
+      "device_required": "None — behavioural and self-regulation program",
+      "prerequisite_clinic_sessions": 5,
+      "sessions_per_week": 7,
+      "session_duration_minutes": 15,
+      "total_weeks": 6,
+      "patient_instructions": [
+        "Practice the 5-4-3-2-1 grounding technique once daily, especially if you feel triggered or dissociated. Name 5 things you can see, 4 you can hear, 3 you can touch, 2 you can smell, 1 you can taste.",
+        "Practice slow diaphragmatic breathing (4 seconds in, hold 2, 6 seconds out) for 5 minutes each morning. This activates your calming nervous system.",
+        "Keep a brief daily symptom diary: note your anxiety level (0–10), sleep quality, any nightmares, and your overall mood. Bring this to every clinic session.",
+        "Avoid alcohol — alcohol temporarily reduces anxiety but worsens PTSD symptoms the next day and reduces TMS effectiveness.",
+        "Maintain a consistent sleep schedule — same bedtime and wake time every day. Sleep disturbance is a core PTSD symptom that worsens all other symptoms.",
+        "Your clinician will provide a personalised list of grounding activities and coping strategies tailored to your specific triggers and needs."
+      ],
+      "safety_checklist": [
+        "I am not in a mental health crisis today",
+        "I am not having thoughts of harming myself or others",
+        "My emergency contact details are available to me",
+        "I have completed at least 5 clinic TMS sessions before beginning this home program"
+      ],
+      "reporting_requirements": [
+        "Daily anxiety rating (0–10)",
+        "Sleep quality and nightmare frequency",
+        "Grounding technique used (yes/no) and effectiveness (0–10)",
+        "Substance use (if applicable)",
+        "Any triggers encountered and how managed"
+      ],
+      "contraindications_for_home": [
+        "Active suicidal ideation — call emergency services or crisis line immediately, do not attempt home program",
+        "Severe dissociation episode — do not practice alone; call clinic",
+        "Active substance intoxication — postpone home program and contact clinic"
+      ],
+      "evidence_note": "This home program is a behavioural support component — not a device-based home program. Grounding techniques and breathing regulation are evidence-based self-regulation skills validated in PTSD treatment guidelines (APA, NICE, VA/DoD PTSD Practice Guidelines). These skills complement and enhance TMS treatment outcomes."
+    }
+  ],
+  "consent_documents": [
+    {
+      "id": "CON-PTSD-001",
+      "name": "PTSD Neuromodulation — General Informed Consent",
+      "document_type": "informed-consent",
+      "when_required": "Before first session",
+      "key_disclosures": [
+        "PTSD diagnosis confirmed and neuromodulation treatment plan discussed",
+        "TMS for PTSD is not FDA-cleared specifically for PTSD — it is used off-label based on published research",
+        "Research evidence shows TMS can significantly reduce PTSD symptoms (meta-analysis SMD -1.0 to -1.5)",
+        "Common side effects: mild headache post-session, scalp discomfort",
+        "Rare serious risk: seizure (<0.1% with appropriate safety screening)",
+        "A trauma-informed clinician will be assigned and available throughout my treatment course",
+        "I will be asked about suicidal thoughts before every session — I understand this is for my safety",
+        "I can stop any session if I feel overwhelmed or unsafe — I remain in control at all times",
+        "I will continue my trauma medication and therapy alongside TMS",
+        "I can withdraw consent at any time without affecting my ongoing mental health care"
+      ],
+      "signature_required": true,
+      "witness_required": false,
+      "clinician_co_sign_required": true,
+      "review_frequency": "Each new course"
+    },
+    {
+      "id": "CON-PTSD-002",
+      "name": "TMS Safety Screening — PTSD Context",
+      "document_type": "contraindication-screening",
+      "modality_slug": "tms",
+      "when_required": "Before first TMS session",
+      "key_disclosures": [
+        "Seizure history or epilepsy: disclosed and assessed",
+        "Metal implants in head, neck, or upper chest: confirmed absent",
+        "Cardiac pacemaker or implanted electronic device: confirmed absent",
+        "Current medications including SSRIs, antipsychotics, mood stabilisers, benzodiazepines: reviewed",
+        "Substance use status: assessed and documented",
+        "Traumatic brain injury history: documented and neurological clearance confirmed if applicable",
+        "Pregnancy status: confirmed"
+      ],
+      "signature_required": true,
+      "witness_required": false,
+      "clinician_co_sign_required": true,
+      "review_frequency": "Each new course; and when new medications, medical events, or substance use changes occur"
+    },
+    {
+      "id": "CON-PTSD-003",
+      "name": "Off-Label TMS Acknowledgement — PTSD",
+      "document_type": "off-label-acknowledgement",
+      "modality_slug": "tms",
+      "when_required": "Before first TMS session",
+      "key_disclosures": [
+        "TMS is not FDA-cleared specifically for the treatment of PTSD",
+        "TMS is FDA-cleared for MDD — the left DLPFC excitatory protocol applies this clearance off-label to PTSD",
+        "Off-label use is legal and commonly practised in neuromodulation",
+        "The evidence base for TMS in PTSD includes multiple RCTs and meta-analyses (EV-B level evidence)",
+        "A clinician has discussed the evidence, alternatives, risks, and benefits with me in full",
+        "I understand that no FDA-cleared neuromodulation exists specifically for PTSD at this time"
+      ],
+      "signature_required": true,
+      "witness_required": false,
+      "clinician_co_sign_required": true,
+      "review_frequency": "Each new course"
+    },
+    {
+      "id": "CON-PTSD-004",
+      "name": "Safety Plan — PTSD Neuromodulation",
+      "document_type": "informed-consent",
+      "when_required": "Before first session — mandatory for all PTSD patients",
+      "key_disclosures": [
+        "I understand that PTSD is associated with an elevated risk of suicidal thoughts and I agree to tell my clinical team if these thoughts arise",
+        "I have completed the safety plan with my clinician, including crisis contacts and warning signs",
+        "I understand that suicidal thoughts will be asked about at every session using a standardised scale (C-SSRS)",
+        "I agree to contact my clinician or emergency services if I have thoughts of harming myself between sessions",
+        "I understand that if I am in immediate danger my clinical team will involve emergency services",
+        "My emergency contacts are documented on my plan: [clinic number, out-of-hours number, crisis line]"
+      ],
+      "signature_required": true,
+      "witness_required": false,
+      "clinician_co_sign_required": true,
+      "review_frequency": "Reviewed at start of each new treatment course and whenever suicidal ideation status changes"
+    },
+    {
+      "id": "CON-PTSD-005",
+      "name": "Data Sharing Consent — PTSD Research Registry",
+      "document_type": "data-sharing-consent",
+      "when_required": "Before first session — optional",
+      "key_disclosures": [
+        "I am invited to share de-identified treatment data with the DeepSynaps PTSD research registry",
+        "Participation is entirely voluntary — declining will not affect my treatment",
+        "Data shared includes: PCL-5 scores, session attendance, adverse events, and treatment response",
+        "All data is de-identified before sharing — no personal identifying information is shared",
+        "I can withdraw data consent at any time",
+        "The purpose is to improve PTSD neuromodulation outcomes for future patients"
+      ],
+      "signature_required": true,
+      "witness_required": false,
+      "clinician_co_sign_required": false,
+      "review_frequency": "Once — or when data sharing scope changes"
+    }
+  ]
+}

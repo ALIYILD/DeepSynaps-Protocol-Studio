@@ -1,0 +1,1717 @@
+{
+  "$schema": "../schemas/condition-package.schema.json",
+  "schema_version": "1.0.0",
+  "id": "CON-001",
+  "slug": "major-depressive-disorder",
+  "name": "Major Depressive Disorder (MDD)",
+  "category": "Psychiatric \u2014 Mood",
+  "icd_10": ["F32.0", "F32.1", "F32.2", "F32.3", "F32.8", "F32.9", "F33.0", "F33.1", "F33.2", "F33.3", "F33.8", "F33.9"],
+  "dsm_5_code": "296.xx",
+  "created_at": "2026-04-12",
+  "updated_at": "2026-04-12",
+  "review_status": "reviewed",
+  "reviewed_by": "DeepSynaps Clinical Team",
+
+  "condition_overview": {
+    "summary": "Major Depressive Disorder (MDD) is a common and disabling psychiatric condition characterised by persistent depressed mood, anhedonia, cognitive impairment, neurovegetative symptoms, and — in severe cases — suicidal ideation. The pathophysiology involves dysregulation of monoaminergic neurotransmission and prefrontal–limbic circuit connectivity, particularly left frontal hypoactivation relative to right. Neuromodulation therapies — especially rTMS and iTBS targeting the left dorsolateral prefrontal cortex — are guideline-recommended adjunct or primary treatments.",
+    "prevalence": "Lifetime prevalence is approximately 15–20% globally; 12-month prevalence ~8%. MDD is the leading cause of disability worldwide. It affects all age groups, with peak onset in early adulthood (25–44 years). Women are affected at approximately twice the rate of men.",
+    "phenotype_clusters": [
+      {
+        "id": "PHE-001",
+        "name": "Left Frontal Hypoactivity",
+        "description": "Reduced activation of the left DLPFC relative to right, associated with anhedonia, motivational deficits, and negative cognitive bias. This is the primary target for excitatory rTMS/iTBS.",
+        "primary_modality": "rtms",
+        "qeeg_signature": "Relative left frontal alpha excess (F3 > F4 alpha power), reduced left frontal beta, frontal alpha asymmetry index"
+      },
+      {
+        "id": "PHE-002",
+        "name": "Rumination-Dominant",
+        "description": "Persistent negative self-referential thought, overactivation of the default mode network (DMN) and subgenual ACC. Associated with elevated midline theta and poor response to standard antidepressants.",
+        "primary_modality": "rtms",
+        "qeeg_signature": "Elevated midline theta (Fz/Cz), elevated right frontal alpha, DMN hyperconnectivity"
+      },
+      {
+        "id": "PHE-003",
+        "name": "Anhedonic",
+        "description": "Profound loss of pleasure and reward responsiveness, implicating the mesolimbic dopamine system and ventral striatum. Often associated with poor response to standard SSRI monotherapy.",
+        "primary_modality": "rtms",
+        "qeeg_signature": "Reduced frontal beta, low alpha variability, attenuated reward-related P300 amplitude"
+      },
+      {
+        "id": "PHE-004",
+        "name": "Anxious-Depressive",
+        "description": "Co-occurring significant anxiety symptoms alongside depression; associated with elevated right frontal activity, physiological hyperarousal, and treatment complexity. Requires comorbid anxiety management.",
+        "primary_modality": "rtms",
+        "qeeg_signature": "Elevated right frontal beta, reduced alpha, elevated EMG artifact at temporal sites"
+      },
+      {
+        "id": "PHE-005",
+        "name": "Melancholic",
+        "description": "Characterised by pervasive loss of pleasure, early morning awakening, psychomotor retardation or agitation, excessive guilt, and marked diurnal mood variation. Often responds better to higher-intensity treatments.",
+        "primary_modality": "rtms",
+        "qeeg_signature": "Widespread delta/theta slowing, disrupted sleep spindles, reduced frontal asymmetry"
+      },
+      {
+        "id": "PHE-006",
+        "name": "Atypical",
+        "description": "Mood reactivity preserved; characterised by hypersomnia, hyperphagia, leaden paralysis, and interpersonal rejection sensitivity. Associated with reversed neurovegetative symptoms relative to melancholic subtype.",
+        "primary_modality": "tdcs",
+        "qeeg_signature": "Variable; often elevated right frontal alpha, preserved posterior alpha reactivity"
+      }
+    ],
+    "severity_levels": ["Mild", "Moderate", "Severe", "Treatment-resistant (≥2 adequate trials)"],
+    "population": ["Adult (18+)", "Adolescent (13–17, limited evidence for neuromodulation)"],
+    "symptom_clusters": [
+      "Depressed mood (persistent sadness, hopelessness, emptiness)",
+      "Anhedonia (loss of interest or pleasure in previously enjoyed activities)",
+      "Sleep disturbance (insomnia or hypersomnia)",
+      "Fatigue and loss of energy",
+      "Cognitive impairment (concentration, memory, decision-making)",
+      "Appetite and weight changes (increase or decrease)",
+      "Psychomotor retardation or agitation",
+      "Feelings of worthlessness or excessive guilt",
+      "Suicidal ideation or recurrent thoughts of death"
+    ],
+    "highest_evidence_level": "EV-A",
+    "relevant_modalities": [
+      "rtms",
+      "itbs",
+      "tdcs",
+      "ces",
+      "tavns",
+      "vns",
+      "neurofeedback"
+    ],
+    "neurobiology": "MDD involves hypofunctionality of the left dorsolateral prefrontal cortex (DLPFC) and hyperactivation of limbic structures (amygdala, subgenual ACC, sgACC). The sgACC (Brodmann Area 25) is a key hub in the depression circuit — its overactivity drives rumination, negative affect, and autonomic dysregulation. The left DLPFC maintains top-down inhibitory control over the sgACC via indirect cortico-limbic pathways. Excitatory rTMS/iTBS to the left DLPFC upregulates this circuit and secondarily inhibits sgACC overactivity. Frontal alpha asymmetry (left > right alpha power = less left activity) is a validated qEEG biomarker. Monoaminergic dysregulation (serotonin, dopamine, noradrenaline) underpins both pharmacological and neuromodulatory response mechanisms.",
+    "comorbidities": [
+      "Anxiety disorders (GAD, panic disorder, social anxiety — 50–60% comorbidity)",
+      "ADHD (30–40% overlap in adults)",
+      "Chronic pain and somatic disorders",
+      "Substance use disorders (alcohol, cannabis)",
+      "Sleep disorders (insomnia most common)",
+      "Personality disorders (borderline, avoidant)",
+      "Cardiovascular disease",
+      "Thyroid dysfunction",
+      "Obesity and metabolic syndrome"
+    ],
+    "differential_diagnoses": [
+      "Bipolar disorder I or II (must be excluded before any excitatory neuromodulation)",
+      "Persistent depressive disorder / dysthymia (chronic but less severe — different treatment trajectory)",
+      "Adjustment disorder with depressed mood (stressor-linked, shorter duration)",
+      "PTSD (trauma-related depression — treatment order matters)",
+      "Grief / bereavement (normal versus complicated grief)",
+      "Primary hypothyroidism (TSH must be checked — mimics depression)",
+      "Substance/medication-induced depressive disorder",
+      "ADHD (executive dysfunction and anhedonia overlap)",
+      "Dementia or mild cognitive impairment in older adults",
+      "Schizoaffective disorder"
+    ]
+  },
+
+  "patient_friendly_explanation": {
+    "what_is_it": "Major Depression (MDD) is a medical condition that affects the brain, causing persistent low mood, loss of enjoyment, low energy, and other symptoms that last at least two weeks and interfere with daily life. It is not a sign of weakness or a personal failing — it is a recognised illness with effective treatments.",
+    "how_it_affects_you": "Depression can make even simple daily tasks feel exhausting. You may notice that things you once enjoyed no longer bring pleasure, that your sleep is disturbed, that your concentration is poor, or that you feel hopeless about the future. Some people experience physical symptoms like pain, changes in appetite, or slowed movements. Depression affects relationships, work performance, and overall quality of life.",
+    "treatment_options_overview": "Alongside talking therapies and medication, there are brain stimulation treatments that can help lift depression by gently restoring the balance of activity in specific brain areas. The most established option is TMS (Transcranial Magnetic Stimulation), which uses a magnetic coil placed on the scalp to stimulate the part of the brain linked to mood. It is non-invasive, does not require anaesthesia, and is performed in a clinic setting. Other options include tDCS (a very mild electrical brain stimulation) and Alpha-Stim (a gentle ear-clip device for home use).",
+    "what_to_expect": "A standard TMS course for depression involves attending the clinic five days per week for four to six weeks — about 20 to 30 sessions in total. Each session lasts around 20 to 40 minutes. The treatment is painless for most people, though some feel a tapping sensation on the scalp. You remain fully awake and can return to normal activities immediately afterwards. Many people begin to notice improvement in mood, energy, and sleep quality from around the second or third week, with continued improvement after the course ends.",
+    "faq": [
+      {
+        "question": "Is TMS the same as ECT (electroconvulsive therapy)?",
+        "answer": "No. TMS is completely different from ECT. TMS uses magnetic pulses to gently stimulate the brain through the scalp — you are awake, no anaesthesia is needed, and no seizure is induced. ECT involves passing an electrical current through the brain under general anaesthesia to deliberately induce a controlled seizure. TMS is much gentler and has fewer side effects."
+      },
+      {
+        "question": "Can I still take my antidepressants during TMS?",
+        "answer": "Usually yes. Most patients continue their medications during TMS. Your prescribing clinician and TMS doctor will review your medications to ensure they are safe to combine. Never stop or reduce your medication without medical advice."
+      },
+      {
+        "question": "What side effects can I expect?",
+        "answer": "The most common side effects of TMS are a mild headache or scalp discomfort during or just after the session, which usually resolves within an hour. Serious side effects such as seizures are extremely rare (less than 1 in 1,000 treatment courses). You will be assessed for risk factors before starting."
+      },
+      {
+        "question": "How many sessions will I need?",
+        "answer": "A standard course is 20 to 30 sessions, typically five days per week for four to six weeks. Some people benefit from a maintenance session once every few weeks after the initial course."
+      },
+      {
+        "question": "What if I have tried antidepressants before and they did not work?",
+        "answer": "TMS is particularly helpful for people whose depression has not fully responded to antidepressant medications. Studies show that around 50–60% of people who have not responded to medication experience a significant improvement with TMS, and about 30–35% achieve full remission."
+      }
+    ]
+  },
+
+  "medical_history_requirements": {
+    "required_fields": [
+      {
+        "field": "Confirmed MDD diagnosis (DSM-5 criteria documented)",
+        "reason": "All protocols are diagnosis-specific; a confirmed diagnosis is required before protocol generation.",
+        "blocks_protocol": true
+      },
+      {
+        "field": "Bipolar disorder screening (Mood Disorder Questionnaire or structured clinical interview)",
+        "reason": "Bipolar disorder is a contraindication for excitatory left DLPFC stimulation due to risk of manic switch. Must be excluded before rTMS or iTBS.",
+        "blocks_protocol": true
+      },
+      {
+        "field": "Seizure history (any lifetime seizure, febrile convulsion, or epilepsy diagnosis)",
+        "reason": "Seizure history is an absolute contraindication for TMS-based protocols.",
+        "blocks_protocol": true
+      },
+      {
+        "field": "Metal implants in head, neck, or upper body (cochlear implants, aneurysm clips, DBS leads, pacemaker)",
+        "reason": "Ferromagnetic implants near the TMS coil are an absolute contraindication.",
+        "blocks_protocol": true
+      },
+      {
+        "field": "Current and past antidepressant trials (name, dose, duration, response, reason for discontinuation)",
+        "reason": "Documents treatment history; required for severity classification (treatment-resistant specifier) and medication interaction screening.",
+        "blocks_protocol": false
+      },
+      {
+        "field": "Current psychiatric medications (full list including dose and prescriber)",
+        "reason": "Some medications lower seizure threshold and require parameter adjustment or safety discussion.",
+        "blocks_protocol": false
+      },
+      {
+        "field": "Suicidal ideation assessment (current and recent history — C-SSRS or equivalent)",
+        "reason": "Active suicidal ideation with a plan is a clinical safety consideration requiring risk management before proceeding with outpatient treatment.",
+        "blocks_protocol": true
+      },
+      {
+        "field": "Current depressive episode duration and number of prior episodes",
+        "reason": "Informs prognosis, maintenance planning, and protocol intensity decisions.",
+        "blocks_protocol": false
+      },
+      {
+        "field": "Prior ECT history (dates, response, complications)",
+        "reason": "Prior ECT may lower seizure threshold and affects rTMS motor threshold determination.",
+        "blocks_protocol": false
+      },
+      {
+        "field": "Pregnancy status (females of childbearing age)",
+        "reason": "TMS safety in pregnancy is not fully established; requires risk-benefit discussion and clinician sign-off.",
+        "blocks_protocol": false
+      },
+      {
+        "field": "Skin integrity at scalp electrode sites",
+        "reason": "Open wounds, active dermatitis, or recent scalp surgery contraindicate tDCS electrode placement.",
+        "blocks_protocol": false
+      }
+    ],
+    "clinical_interview_checklist": [
+      "Onset, duration, and course of current depressive episode",
+      "Number and duration of prior depressive episodes",
+      "Psychiatric hospitalisation history",
+      "Full medication history including adequate trials (minimum dose, minimum duration)",
+      "Psychotherapy history (CBT, IPT, psychodynamic) and response",
+      "Suicidality assessment — ideation, plan, intent, means access, prior attempts",
+      "Substance use history (alcohol, cannabis, opioids, stimulants) — active use screens",
+      "Sleep pattern characterisation (onset, maintenance, duration, quality)",
+      "Functional impairment domains (work, social, self-care, parenting)",
+      "Symptom phenotype characterisation (melancholic, atypical, anxious, anhedonic features)",
+      "Comorbid anxiety symptoms (panic, social anxiety, OCD, PTSD screening)",
+      "Bipolar spectrum features (hypomania, mania, family history of bipolar)",
+      "Family psychiatric history (depression, bipolar, suicide)",
+      "Motivation for treatment and treatment goals"
+    ],
+    "rule_out_differentials": [
+      "Bipolar I or II disorder (hypomanic or manic episodes must be excluded — critical safety gate for rTMS)",
+      "Persistent depressive disorder / dysthymia (chronic, lower severity, different prognosis)",
+      "Adjustment disorder with depressed mood (stressor-linked, shorter timeline)",
+      "Primary hypothyroidism (TSH level required — hypothyroidism mimics depression)",
+      "Substance-induced depressive disorder (active alcohol or substance use confounds diagnosis)",
+      "PTSD (trauma-driven depression requires different first-line intervention priority)",
+      "Grief and bereavement (requires clinical judgement for threshold determination)",
+      "Dementia with behavioural disturbance (in older adults — cognitive screening required)"
+    ],
+    "comorbidity_screen": [
+      "Anxiety disorders (GAD-7 at intake — affects target selection and protocol pairing)",
+      "PTSD (PCL-5 if trauma history present)",
+      "Alcohol use disorder (AUDIT-C)",
+      "Sleep disorder (ISI — insomnia comorbidity is near-universal in MDD)",
+      "ADHD (ASRS if symptoms suggest — common adult comorbidity)",
+      "Chronic pain conditions (affects treatment engagement and outcome expectations)",
+      "Eating disorders (body image, appetite disturbance context)"
+    ],
+    "prior_treatment_required": [
+      "Antidepressant medication history (name, dose, duration, adherence, response for each trial)",
+      "Psychotherapy type and duration",
+      "Prior neuromodulation (TMS, ECT, tDCS — dates, protocol, response)",
+      "Hospitalisation history for depression or suicidality",
+      "For TRD classification: documentation of ≥2 adequate antidepressant trials (therapeutic dose, ≥4 weeks each)"
+    ],
+    "special_population_flags": [
+      {
+        "population": "Adolescent (13–17)",
+        "additional_requirements": [
+          "Parental or guardian consent required",
+          "Minor assent documented separately",
+          "TMS in adolescents is off-label — off-label acknowledgement required",
+          "Paediatric psychiatrist review recommended before protocol initiation",
+          "rMT determination adapted for developing cortex"
+        ]
+      },
+      {
+        "population": "Pregnancy or postpartum",
+        "additional_requirements": [
+          "Obstetric physician consultation required",
+          "Risk-benefit discussion documented in record",
+          "TMS regarded as relatively safe in pregnancy — individual clinical decision required",
+          "CES (Alpha-Stim) not recommended in pregnancy without obstetric clearance"
+        ]
+      },
+      {
+        "population": "Older Adult (60+)",
+        "additional_requirements": [
+          "Cognitive screening (MoCA or equivalent) to exclude dementia",
+          "Review of polypharmacy for seizure threshold lowering agents",
+          "Higher rMT may require parameter adjustment",
+          "Enhanced fall risk and vasovagal assessment prior to first session"
+        ]
+      }
+    ]
+  },
+
+  "contraindications": {
+    "absolute": [
+      {
+        "condition": "Ferromagnetic or electronically active implants in or near the head (cochlear implants, aneurysm clips, DBS electrodes, spinal cord stimulators within the field)",
+        "rationale": "TMS magnetic field can displace metal implants or interfere with implanted electronic devices, causing serious injury."
+      },
+      {
+        "condition": "Active seizure disorder or documented seizure within the past 12 months (for rTMS/iTBS)",
+        "rationale": "TMS lowers the seizure threshold; active epilepsy significantly elevates risk of seizure induction."
+      },
+      {
+        "condition": "Confirmed bipolar I or II disorder (without specialist authorisation for rTMS)",
+        "rationale": "Excitatory left DLPFC stimulation can precipitate manic or hypomanic episodes in bipolar disorder."
+      },
+      {
+        "condition": "Implanted cardiac pacemaker or cardiac defibrillator (for TMS protocols)",
+        "rationale": "TMS electromagnetic fields may interfere with device function."
+      },
+      {
+        "condition": "Active suicidal ideation with specific plan and intent (before adequate safety management is in place)",
+        "rationale": "Outpatient neuromodulation requires sufficient patient safety infrastructure; active suicidal crisis requires inpatient or crisis-level care first."
+      }
+    ],
+    "relative": [
+      {
+        "condition": "History of seizure or epilepsy (resolved, >12 months seizure-free on stable medication)",
+        "rationale": "Residual seizure risk remains even if controlled.",
+        "mitigation": "Neurologist clearance required; reduce stimulus intensity and use conservative protocol parameters; emergency equipment on-site."
+      },
+      {
+        "condition": "Medications that lower seizure threshold (bupropion, clozapine, tricyclics at high doses, tramadol)",
+        "rationale": "Pharmacological lowering of seizure threshold increases TMS-related seizure risk.",
+        "mitigation": "Document medications; clinician sign-off on risk-benefit; consider reducing dose before starting or choosing lower-frequency protocol."
+      },
+      {
+        "condition": "Pregnancy",
+        "rationale": "TMS safety data in pregnancy is limited; theoretical risk of foetal electromagnetic exposure.",
+        "mitigation": "Obstetric physician consultation required; informed consent with explicit disclosure of limited safety data; CES preferred if treatment during pregnancy is deemed necessary."
+      },
+      {
+        "condition": "Active alcohol or substance use disorder",
+        "rationale": "Substance use lowers seizure threshold and confounds treatment outcome.",
+        "mitigation": "Substance use assessment and management plan required; sobriety monitoring throughout course."
+      },
+      {
+        "condition": "Previous non-response to rTMS (same protocol)",
+        "rationale": "Retreatment may have diminishing returns with identical parameters.",
+        "mitigation": "Document prior TMS history; consider protocol modification (accelerated, bilateral, or different target); clinician review of rationale for retreatment."
+      },
+      {
+        "condition": "Implanted neurostimulation devices (VNS, not pacemaker-type)",
+        "rationale": "Interaction between TMS field and implanted leads may cause unintended stimulation.",
+        "mitigation": "Device manufacturer consultation and neurology clearance required before any TMS."
+      },
+      {
+        "condition": "Severe anxiety or claustrophobia that prevents sitting still for 20–40 minutes",
+        "rationale": "Movement during TMS displaces coil and reduces efficacy; excessive anxiety may cause vasovagal response.",
+        "mitigation": "Anxiolytic pre-treatment (low-dose benzodiazepine, clinician-prescribed) or behavioural preparation; patient acclimatisation session recommended."
+      }
+    ],
+    "special_populations": [
+      {
+        "population": "Adolescents under 18",
+        "flag": "TMS is off-label in adolescents; parental consent and off-label acknowledgement required. Paediatric psychiatry review recommended."
+      },
+      {
+        "population": "Older adults with cognitive impairment",
+        "flag": "Dementia must be ruled out. Assess for falls risk and cardiovascular stability prior to first session."
+      }
+    ],
+    "modality_specific": {
+      "tdcs": [
+        "Active scalp skin conditions (eczema, psoriasis, open wounds) at electrode sites",
+        "Recent scalp surgery within 3 months",
+        "Uncontrolled migraine — tDCS may trigger headache in susceptible individuals"
+      ],
+      "ces": [
+        "Active ear infection or otitis externa (ear clip electrodes)",
+        "Damaged skin or open wounds at ear lobe contact sites"
+      ],
+      "neurofeedback": [
+        "Severe personality disorder with inability to engage in self-regulation training may limit efficacy but is not an absolute contraindication"
+      ]
+    }
+  },
+
+  "assessment_bundle": {
+    "screening": [
+      {
+        "assessment_id": "ASS-001",
+        "name": "PHQ-2",
+        "full_name": "Patient Health Questionnaire-2",
+        "clinician_vs_patient": "Patient self-report",
+        "rationale": "Ultra-brief 2-item screen for core depressive symptoms (low mood, anhedonia). Score ≥3 indicates need for full PHQ-9.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 2,
+        "access": "Free",
+        "population": "Adult 18+"
+      },
+      {
+        "assessment_id": "ASS-002",
+        "name": "MDQ",
+        "full_name": "Mood Disorder Questionnaire",
+        "clinician_vs_patient": "Patient self-report",
+        "rationale": "Screens for bipolar spectrum features — must be negative before initiating excitatory left DLPFC stimulation.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 5,
+        "access": "Free",
+        "population": "Adult 18+"
+      }
+    ],
+    "diagnostic": [
+      {
+        "assessment_id": "ASS-003",
+        "name": "HAM-D17",
+        "full_name": "Hamilton Depression Rating Scale (17-item)",
+        "clinician_vs_patient": "Clinician-rated",
+        "rationale": "Gold-standard clinician-rated severity scale for MDD. Used in most TMS clinical trials as primary outcome measure. Remission defined as HAM-D ≤7.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 20,
+        "access": "Free",
+        "population": "Adult 18+"
+      },
+      {
+        "assessment_id": "ASS-004",
+        "name": "MADRS",
+        "full_name": "Montgomery–Åsberg Depression Rating Scale",
+        "clinician_vs_patient": "Clinician-rated",
+        "rationale": "Sensitive to change; frequently used as primary outcome in TMS studies. Remission defined as MADRS ≤10.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 15,
+        "access": "Free",
+        "population": "Adult 18+"
+      }
+    ],
+    "baseline": [
+      {
+        "assessment_id": "ASS-005",
+        "name": "PHQ-9",
+        "full_name": "Patient Health Questionnaire-9",
+        "clinician_vs_patient": "Patient self-report",
+        "rationale": "Primary self-report outcome measure for MDD severity and treatment response. Response = ≥50% reduction; remission = score ≤4.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 5,
+        "access": "Free",
+        "population": "Adult 18+"
+      },
+      {
+        "assessment_id": "ASS-006",
+        "name": "QIDS-SR",
+        "full_name": "Quick Inventory of Depressive Symptomatology — Self-Report",
+        "clinician_vs_patient": "Patient self-report",
+        "rationale": "16-item self-report capturing all DSM-5 MDD symptom domains. Sensitive to symptom change during treatment. Remission = QIDS-SR ≤5.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 5,
+        "access": "Free",
+        "population": "Adult 18+"
+      },
+      {
+        "assessment_id": "ASS-007",
+        "name": "GAD-7",
+        "full_name": "Generalised Anxiety Disorder Scale-7",
+        "clinician_vs_patient": "Patient self-report",
+        "rationale": "Comorbid anxiety is present in up to 60% of MDD patients and affects treatment response; baseline GAD-7 informs protocol selection.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 3,
+        "access": "Free",
+        "population": "Adult 18+"
+      },
+      {
+        "assessment_id": "ASS-008",
+        "name": "ISI",
+        "full_name": "Insomnia Severity Index",
+        "clinician_vs_patient": "Patient self-report",
+        "rationale": "Sleep disturbance is a core MDD symptom and independent predictor of TMS response; baseline sleep profile required.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 5,
+        "access": "Free",
+        "population": "Adult 18+"
+      },
+      {
+        "assessment_id": "ASS-009",
+        "name": "C-SSRS",
+        "full_name": "Columbia Suicide Severity Rating Scale",
+        "clinician_vs_patient": "Clinician-rated",
+        "rationale": "Standardised suicidality assessment required at intake and repeated throughout treatment. FDA-recognised instrument for suicidality monitoring.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 10,
+        "access": "Free",
+        "population": "Adult 18+"
+      }
+    ],
+    "monitoring": [
+      {
+        "assessment_id": "ASS-005",
+        "name": "PHQ-9",
+        "full_name": "Patient Health Questionnaire-9",
+        "clinician_vs_patient": "Patient self-report",
+        "rationale": "Repeated every 5 sessions to track response trajectory during TMS course.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 5,
+        "access": "Free",
+        "population": "Adult 18+"
+      },
+      {
+        "assessment_id": "ASS-009",
+        "name": "C-SSRS",
+        "full_name": "Columbia Suicide Severity Rating Scale",
+        "clinician_vs_patient": "Clinician-rated",
+        "rationale": "Weekly suicidality monitoring required throughout TMS course; any new ideation requires immediate clinical review.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 10,
+        "access": "Free",
+        "population": "Adult 18+"
+      },
+      {
+        "assessment_id": "ASS-008",
+        "name": "ISI",
+        "full_name": "Insomnia Severity Index",
+        "clinician_vs_patient": "Patient self-report",
+        "rationale": "Sleep improvement often precedes mood improvement in TMS; tracking ISI helps predict and confirm response.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 5,
+        "access": "Free",
+        "population": "Adult 18+"
+      }
+    ],
+    "outcome": [
+      {
+        "assessment_id": "ASS-005",
+        "name": "PHQ-9",
+        "full_name": "Patient Health Questionnaire-9",
+        "clinician_vs_patient": "Patient self-report",
+        "rationale": "End-of-course primary outcome: compare to baseline to determine response or remission.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 5,
+        "access": "Free",
+        "population": "Adult 18+"
+      },
+      {
+        "assessment_id": "ASS-003",
+        "name": "HAM-D17",
+        "full_name": "Hamilton Depression Rating Scale (17-item)",
+        "clinician_vs_patient": "Clinician-rated",
+        "rationale": "Clinician-rated end-of-course outcome; HAM-D ≤7 = remission.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 20,
+        "access": "Free",
+        "population": "Adult 18+"
+      },
+      {
+        "assessment_id": "ASS-004",
+        "name": "MADRS",
+        "full_name": "Montgomery–Åsberg Depression Rating Scale",
+        "clinician_vs_patient": "Clinician-rated",
+        "rationale": "End-of-course and 4-week follow-up outcome; MADRS ≤10 = remission.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 15,
+        "access": "Free",
+        "population": "Adult 18+"
+      }
+    ],
+    "neurophysiological": [
+      {
+        "assessment_id": "ASS-010",
+        "name": "qEEG Frontal Asymmetry Index",
+        "full_name": "Quantitative EEG Frontal Alpha Asymmetry",
+        "clinician_vs_patient": "Clinician-rated",
+        "rationale": "Alpha asymmetry (F3/F4 ratio) is a biomarker of left frontal hypoactivity; guides target selection and monitors neurophysiological response to rTMS.",
+        "lower_is_better": false,
+        "admin_duration_minutes": 45,
+        "access": "Requires training",
+        "population": "Adult 18+"
+      }
+    ],
+    "functional": [
+      {
+        "assessment_id": "ASS-011",
+        "name": "SDS",
+        "full_name": "Sheehan Disability Scale",
+        "clinician_vs_patient": "Patient self-report",
+        "rationale": "3-item functional impairment measure across work, social, and family domains; captures functional outcomes beyond symptom reduction.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 3,
+        "access": "Free",
+        "population": "Adult 18+"
+      }
+    ]
+  },
+
+  "protocol_bundle": [
+    {
+      "protocol_id": "PRO-TMS-MDD-01",
+      "name": "rTMS 10 Hz Left DLPFC — Standard MDD Protocol",
+      "modality_slug": "rtms",
+      "phenotype_id": "PHE-001",
+      "on_label_vs_off_label": "On-label",
+      "evidence_grade": "EV-A",
+      "evidence_summary": "FDA-cleared for MDD since 2008 (NeuroStar). Supported by APA, CANMAT, and NICE guidelines. Multiple RCTs and meta-analyses (n>10,000) demonstrate 50–60% response rate and 30–35% remission rate in medication-resistant MDD. O'Reardon et al. (2007) pivotal trial; Carpenter et al. (2012) open-label; multiple meta-analyses confirm superiority over sham.",
+      "references": [
+        "O'Reardon JP et al. (2007). Efficacy and safety of transcranial magnetic stimulation in the acute treatment of major depression. Biol Psychiatry 62(11):1208-16.",
+        "FDA 510(k) clearance K061053 — NeuroStar TMS Therapy System (2008).",
+        "APA Practice Guidelines for MDD (2010, 2019 update).",
+        "CANMAT Clinical Guidelines 2016 — TMS as Level 1 evidence for MDD.",
+        "Carpenter LL et al. (2012). Transcranial magnetic stimulation (TMS) for major depression. J Affect Disord 141(2-3):152-9."
+      ],
+      "brain_target": {
+        "region": "Left Dorsolateral Prefrontal Cortex",
+        "laterality": "Left",
+        "eeg_position": "F3",
+        "effect_direction": "Excitatory"
+      },
+      "parameters": {
+        "frequency_hz": "10 Hz",
+        "intensity": "120% of resting motor threshold (rMT)",
+        "pulse_count": "3000 pulses per session",
+        "coil_type": "Figure-8 coil (70mm)",
+        "electrode_placement": "Left DLPFC — F3 position (10-20 system) or 5.5 cm anterior to motor hand area",
+        "additional_params": {
+          "train_duration": "4 seconds",
+          "inter_train_interval": "26 seconds",
+          "number_of_trains": "75",
+          "total_session_duration": "37.5 minutes active stimulation"
+        }
+      },
+      "session_structure": {
+        "sessions_per_week": 5,
+        "session_duration_minutes": 45,
+        "total_sessions": 30,
+        "total_weeks": 6,
+        "maintenance_sessions": "Optional: 1–2 sessions/week for 4 weeks post-acute course; or as-needed retreatment at relapse",
+        "steps": [
+          {
+            "order": 1,
+            "title": "Pre-session check",
+            "duration_minutes": 3,
+            "detail": "Verify patient ID, review adverse events since last session, confirm no new contraindications (new medications, seizure activity, or suicidality changes). Administer PHQ-9 every 5th session."
+          },
+          {
+            "order": 2,
+            "title": "Patient positioning and coil placement",
+            "duration_minutes": 5,
+            "detail": "Patient seated comfortably in TMS chair. Remove metal jewellery. Position figure-8 coil at F3 (or measured DLPFC position). Confirm coil angle (45° to midline, tangential to scalp)."
+          },
+          {
+            "order": 3,
+            "title": "rMT determination (session 1 and PRN)",
+            "duration_minutes": 5,
+            "detail": "Identify primary motor cortex (M1) hotspot for contralateral hand. Determine rMT as lowest intensity producing 5/10 MEPs ≥50µV in contralateral FDI muscle. Confirm rMT before starting and after any session gap >2 weeks."
+          },
+          {
+            "order": 4,
+            "title": "Active stimulation",
+            "duration_minutes": 38,
+            "detail": "10 Hz, 120% rMT, 75 trains of 4 seconds (3000 pulses total), 26-second inter-train interval. Patient remains awake. Staff observes for seizure signs, vasovagal response, or discomfort. Scalp discomfort managed by reducing intensity by 5–10% if needed."
+          },
+          {
+            "order": 5,
+            "title": "Post-session debrief",
+            "duration_minutes": 5,
+            "detail": "Ask patient to report headache, scalp pain, mood changes, or any unusual sensations. Document in session log. Patient may leave immediately; no recovery period required."
+          }
+        ]
+      },
+      "monitoring_required": [
+        "PHQ-9 every 5 sessions",
+        "C-SSRS weekly (clinician-rated)",
+        "rMT re-check after any break >2 weeks",
+        "Seizure observation during every session",
+        "Headache and scalp comfort rating after each session"
+      ],
+      "contraindication_check_required": true,
+      "adverse_event_monitoring": "Monitor for seizure (immediate suspension and emergency protocol), headache (mild — manage with paracetamol, reduce intensity if severe), scalp discomfort (coil repositioning), syncope (vasovagal — recline patient, monitor), and hearing changes (ear protection if desired). Report any seizure to FDA MedWatch.",
+      "escalation_rules": [
+        "Seizure during session: stop immediately, emergency protocol, do not resume without neurologist clearance",
+        "PHQ-9 increases ≥5 points from baseline at any monitoring point: clinician review within 24 hours",
+        "New suicidal ideation with plan at any session: suspend outpatient treatment; initiate crisis protocol",
+        "No response (PHQ-9 <20% improvement) at session 15: clinician review — consider protocol modification or referral for augmentation"
+      ],
+      "patient_facing_allowed": true,
+      "clinician_review_required": true,
+      "governance": {
+        "patient_export_allowed": true,
+        "requires_clinician_sign_off": true,
+        "off_label_acknowledgement_required": false,
+        "dual_review_required": false,
+        "notes": "FDA-cleared for MDD. Standard institutional consent for TMS required. No off-label acknowledgement needed for adult MDD."
+      },
+      "notes": "This is the reference standard protocol. NeuroStar and BrainsWay H1 coil both cleared for this indication. Bilateral protocol (right-sided 1Hz inhibitory + left-sided excitatory) may be considered for non-responders at clinician discretion."
+    },
+    {
+      "protocol_id": "PRO-ITBS-MDD-01",
+      "name": "Intermittent Theta-Burst Stimulation (iTBS) Left DLPFC — MDD",
+      "modality_slug": "itbs",
+      "phenotype_id": "PHE-001",
+      "on_label_vs_off_label": "On-label",
+      "evidence_grade": "EV-A",
+      "evidence_summary": "FDA-cleared for MDD (MagVenture and BrainsWay). Non-inferior to standard 10 Hz rTMS in the landmark THREE-D trial (Blumberger et al., 2018; n=414). Delivers 600 pulses in 3.5 minutes versus 37.5 minutes, enabling higher patient throughput and reduced treatment burden. Remission rates equivalent to 10 Hz protocol.",
+      "references": [
+        "Blumberger DM et al. (2018). Effectiveness of theta burst versus high-frequency repetitive transcranial magnetic stimulation in patients with depression (THREE-D). Lancet 391(10131):1683-92.",
+        "FDA 510(k) clearance — MagVenture MagPro (iTBS cleared for MDD, 2018).",
+        "Li CT et al. (2014). Efficacy of prefrontal theta-burst stimulation in refractory depression. Brain 137(7):2088-98."
+      ],
+      "brain_target": {
+        "region": "Left Dorsolateral Prefrontal Cortex",
+        "laterality": "Left",
+        "eeg_position": "F3",
+        "effect_direction": "Excitatory"
+      },
+      "parameters": {
+        "frequency_hz": "Theta burst: 50 Hz bursts of 3 pulses at 5 Hz repetition rate (intermittent: 2s ON, 8s OFF)",
+        "intensity": "80% of active motor threshold (AMT)",
+        "pulse_count": "600 pulses per session",
+        "coil_type": "Figure-8 coil (70mm) or Cool-B65 A/P coil",
+        "electrode_placement": "Left DLPFC — F3 position",
+        "additional_params": {
+          "burst_frequency": "50 Hz",
+          "inter_burst_frequency": "5 Hz",
+          "on_time": "2 seconds (10 bursts of 30 pulses)",
+          "off_time": "8 seconds",
+          "total_trains": "20 trains",
+          "session_duration": "3.5 minutes active stimulation"
+        }
+      },
+      "session_structure": {
+        "sessions_per_week": 5,
+        "session_duration_minutes": 15,
+        "total_sessions": 30,
+        "total_weeks": 6,
+        "maintenance_sessions": "Same as PRO-TMS-MDD-01; can be offered as ongoing maintenance at 1-2x/week",
+        "steps": [
+          {
+            "order": 1,
+            "title": "Pre-session check",
+            "duration_minutes": 3,
+            "detail": "Review adverse events, confirm medications unchanged, suicidality screen. Administer PHQ-9 every 5th session."
+          },
+          {
+            "order": 2,
+            "title": "Patient positioning and coil placement",
+            "duration_minutes": 4,
+            "detail": "Patient seated, coil positioned at left DLPFC (F3). AMT determined at session 1 and after any break >2 weeks."
+          },
+          {
+            "order": 3,
+            "title": "Active iTBS stimulation",
+            "duration_minutes": 4,
+            "detail": "Deliver 600 pulses iTBS protocol: 80% AMT. 20 trains of 2s ON / 8s OFF. Total active time 3.5 minutes. Observe for seizure or discomfort throughout."
+          },
+          {
+            "order": 4,
+            "title": "Post-session debrief",
+            "duration_minutes": 5,
+            "detail": "Brief check for scalp discomfort, headache, or mood changes. Document. Patient discharged immediately."
+          }
+        ]
+      },
+      "monitoring_required": [
+        "PHQ-9 every 5 sessions",
+        "C-SSRS weekly",
+        "AMT re-check after breaks >2 weeks",
+        "Seizure observation during every session"
+      ],
+      "contraindication_check_required": true,
+      "adverse_event_monitoring": "Same adverse event profile as standard rTMS. iTBS may cause slightly more scalp discomfort in some patients due to higher peak frequency. Seizure risk equivalent to standard rTMS (very low, <0.1%).",
+      "escalation_rules": [
+        "Seizure during session: stop immediately, emergency protocol",
+        "PHQ-9 increase ≥5 points: clinician review within 24 hours",
+        "No response at session 15: clinical review and protocol modification discussion",
+        "New suicidal ideation with plan: suspend outpatient treatment, crisis protocol"
+      ],
+      "patient_facing_allowed": true,
+      "clinician_review_required": true,
+      "governance": {
+        "patient_export_allowed": true,
+        "requires_clinician_sign_off": true,
+        "off_label_acknowledgement_required": false,
+        "notes": "FDA-cleared for MDD. Preferred when time efficiency is a priority or patient preference."
+      }
+    },
+    {
+      "protocol_id": "PRO-TDCS-MDD-01",
+      "name": "tDCS Anodal Left DLPFC — MDD",
+      "modality_slug": "tdcs",
+      "phenotype_id": "PHE-001",
+      "on_label_vs_off_label": "Off-label",
+      "evidence_grade": "EV-B",
+      "evidence_summary": "Multiple RCTs and meta-analyses support tDCS efficacy for MDD. The ELECT-TDCS trial (Brunoni et al., 2017; n=245) showed tDCS non-inferior to escitalopram for mild-moderate MDD. IFCN 2017 guidelines rate tDCS as Level A evidence for MDD. Not FDA-cleared for MDD in the US; CE-marked in Europe. Appropriate for patients unable to tolerate TMS or as augmentation to pharmacotherapy.",
+      "references": [
+        "Brunoni AR et al. (2017). Transcranial direct current stimulation for the treatment of major depressive disorder. JAMA Psychiatry 74(12):1218-26.",
+        "Meron D et al. (2015). Transcranial direct current stimulation (tDCS) in the treatment of depression: systematic review and meta-analysis. Neurosci Biobehav Rev 57:46-62.",
+        "Lefaucheur JP et al. (2017). IFCN guidelines on tDCS — Level A recommendation for MDD."
+      ],
+      "brain_target": {
+        "region": "Left Dorsolateral Prefrontal Cortex",
+        "laterality": "Left",
+        "eeg_position": "F3",
+        "effect_direction": "Excitatory"
+      },
+      "parameters": {
+        "frequency_hz": "DC (0 Hz)",
+        "intensity": "2 mA",
+        "current_ma": "2 mA",
+        "current_density": "0.057 mA/cm² (anode 35 cm²)",
+        "electrode_placement": "Anode: F3 (left DLPFC); Cathode: F4 (right DLPFC) or right supraorbital",
+        "ramp_up_seconds": 30,
+        "ramp_down_seconds": 30,
+        "additional_params": {
+          "electrode_size": "35 cm² sponge electrodes",
+          "session_duration_active": "30 minutes",
+          "montage": "F3 anodal / F4 cathodal (bifrontal) or F3 anodal / right supraorbital cathodal"
+        }
+      },
+      "session_structure": {
+        "sessions_per_week": 5,
+        "session_duration_minutes": 40,
+        "total_sessions": 20,
+        "total_weeks": 4,
+        "maintenance_sessions": "Home tDCS protocol (see home_program_templates) may follow acute clinic course",
+        "steps": [
+          {
+            "order": 1,
+            "title": "Pre-session safety check",
+            "duration_minutes": 5,
+            "detail": "Check scalp skin integrity at electrode sites. Review adverse events. Confirm medications unchanged. Administer PHQ-9 every 5 sessions."
+          },
+          {
+            "order": 2,
+            "title": "Electrode preparation and placement",
+            "duration_minutes": 5,
+            "detail": "Saturate sponge electrodes with saline. Position anode at F3 (left DLPFC) and cathode at F4 or right supraorbital. Secure with headband. Confirm impedance within range."
+          },
+          {
+            "order": 3,
+            "title": "Active tDCS stimulation",
+            "duration_minutes": 30,
+            "detail": "Ramp up to 2mA over 30 seconds. Maintain 2mA for 30 minutes. Ramp down over 30 seconds. Patient may experience mild tingling or itching under electrodes — this is normal and usually fades within 1 minute of ramp-up."
+          },
+          {
+            "order": 4,
+            "title": "Post-session review",
+            "duration_minutes": 5,
+            "detail": "Check skin for redness or burns under electrodes. Document any adverse effects. Patient discharged immediately."
+          }
+        ]
+      },
+      "monitoring_required": [
+        "PHQ-9 every 5 sessions",
+        "C-SSRS weekly",
+        "Skin integrity check before and after each session",
+        "Adverse event log after every session"
+      ],
+      "contraindication_check_required": true,
+      "adverse_event_monitoring": "Common: mild tingling, itching, or erythema under electrodes (resolves promptly). Uncommon: skin burns if electrodes dry during stimulation — ensure electrodes remain moist. Rare: headache, phosphenes if cathode near eye. No seizure risk at standard parameters. Monitor for mood destabilisation.",
+      "escalation_rules": [
+        "Skin burn at electrode site: suspend tDCS; wound care referral",
+        "PHQ-9 increase ≥5 points: clinician review",
+        "New suicidal ideation: suspend outpatient treatment; crisis protocol",
+        "No response at session 10: consider switching to rTMS or augmentation"
+      ],
+      "patient_facing_allowed": true,
+      "clinician_review_required": true,
+      "governance": {
+        "patient_export_allowed": true,
+        "requires_clinician_sign_off": true,
+        "off_label_acknowledgement_required": true,
+        "notes": "Off-label in the US (not FDA-cleared for MDD). CE-marked devices available in Europe. Off-label acknowledgement required before initiation."
+      }
+    },
+    {
+      "protocol_id": "PRO-CES-MDD-01",
+      "name": "CES (Alpha-Stim) — MDD Adjunct",
+      "modality_slug": "ces",
+      "phenotype_id": "PHE-004",
+      "on_label_vs_off_label": "On-label",
+      "evidence_grade": "EV-B",
+      "evidence_summary": "Alpha-Stim M is FDA-cleared for anxiety, depression, insomnia, and pain. Multiple RCTs demonstrate efficacy for depression and anxiety symptoms as a standalone or adjunct treatment. Particularly appropriate for the anxious-depressive phenotype or patients seeking a home-use option alongside clinic treatment. Kirsch (2002) and multiple subsequent trials support CES for depression with a favourable safety profile.",
+      "references": [
+        "Kirsch DL & Nichols F (2013). Cranial electrotherapy stimulation for treatment of anxiety, depression, and insomnia. Psychiatr Clin North Am 36(1):169-76.",
+        "Barclay TH & Barclay RD (2014). A clinical trial of cranial electrotherapy stimulation for anxiety and comorbid depression. J Affect Disord 164:171-7.",
+        "FDA 510(k) clearance — Alpha-Stim M (depression, anxiety, insomnia, pain)."
+      ],
+      "brain_target": {
+        "region": "Cranial/cortical — generalised via ear clip electrodes",
+        "laterality": "Bilateral",
+        "eeg_position": "N/A",
+        "effect_direction": "Normalise"
+      },
+      "parameters": {
+        "frequency_hz": "0.5 Hz",
+        "intensity": "100 µA (adjustable 10–500 µA)",
+        "current_ma": "0.1 mA",
+        "electrode_placement": "Bilateral ear clip electrodes (earlobes)",
+        "additional_params": {
+          "waveform": "Biphasic asymmetric rectangular pulse",
+          "pulse_width": "2ms positive / 2ms zero / 2ms negative",
+          "session_duration": "60 minutes"
+        }
+      },
+      "session_structure": {
+        "sessions_per_week": 5,
+        "session_duration_minutes": 60,
+        "total_sessions": 25,
+        "total_weeks": 5,
+        "maintenance_sessions": "May continue daily or as-needed at home after acute course",
+        "steps": [
+          {
+            "order": 1,
+            "title": "Device setup",
+            "duration_minutes": 5,
+            "detail": "Attach conducting pads to ear clip electrodes with supplied electrode gel. Clip to earlobes. Start device at lowest comfortable current (typically 100 µA). Adjust upward as tolerated."
+          },
+          {
+            "order": 2,
+            "title": "Active CES session",
+            "duration_minutes": 60,
+            "detail": "Patient may read, listen to music, or rest during treatment. Mild tingling at earlobes is normal. Dizziness or discomfort: reduce current or stop."
+          },
+          {
+            "order": 3,
+            "title": "Post-session log",
+            "duration_minutes": 5,
+            "detail": "Patient records mood (0–10 scale), sleep quality (prior night), and any adverse effects in session diary."
+          }
+        ]
+      },
+      "monitoring_required": [
+        "PHQ-9 every 5 sessions",
+        "ISI weekly (sleep tracking)",
+        "Patient session diary (mood and adverse effects)"
+      ],
+      "contraindication_check_required": true,
+      "adverse_event_monitoring": "Very mild profile: occasionally dizziness or headache at higher currents (reduce current). Skin irritation at ear lobe contact sites. No seizure risk. Do not use with active ear infection.",
+      "escalation_rules": [
+        "PHQ-9 increase ≥5 points: clinician review",
+        "New suicidal ideation: clinical review immediately",
+        "No response at week 3: clinical review; consider escalation to TMS"
+      ],
+      "patient_facing_allowed": true,
+      "clinician_review_required": false,
+      "governance": {
+        "patient_export_allowed": true,
+        "requires_clinician_sign_off": false,
+        "off_label_acknowledgement_required": false,
+        "notes": "FDA-cleared for depression. Home-use device. Suitable for patients not able to attend clinic-based TMS."
+      }
+    },
+    {
+      "protocol_id": "PRO-NF-MDD-01",
+      "name": "Neurofeedback Alpha Asymmetry Training — MDD",
+      "modality_slug": "neurofeedback",
+      "phenotype_id": "PHE-001",
+      "on_label_vs_off_label": "Off-label",
+      "evidence_grade": "EV-C",
+      "evidence_summary": "Alpha asymmetry neurofeedback targets the left frontal hypoactivity biomarker of depression by training the patient to increase left frontal alpha relative to right. Controlled studies by Mennella et al. (2017), Peeters et al. (2014), and Hammond (2005) show significant mood improvements. Evidence is promising but limited by small samples and methodological heterogeneity. Best used as adjunct to rTMS or medication, not as sole treatment for moderate-severe MDD.",
+      "references": [
+        "Mennella R et al. (2017). Frontal alpha asymmetry neurofeedback for the reduction of negative affect and anxiety. Behav Brain Res 318:84-90.",
+        "Peeters F et al. (2014). Neurofeedback as a treatment for major depressive disorder. PLOS ONE 9(2):e91837.",
+        "Hammond DC (2005). Neurofeedback treatment of depression and anxiety. J Adult Dev 12(2-3):131-37."
+      ],
+      "brain_target": {
+        "region": "Left Dorsolateral Prefrontal Cortex / Right Frontal Alpha",
+        "laterality": "Bilateral",
+        "eeg_position": "F3/F4",
+        "effect_direction": "Normalise"
+      },
+      "parameters": {
+        "reward_band": "Increase left frontal alpha (8–12 Hz at F3)",
+        "inhibit_band": "Decrease right frontal alpha (8–12 Hz at F4); suppress frontal theta (4–8 Hz at Fz)",
+        "electrode_sites": "F3 (active), F4 (active), Fz (reference option), A1/A2 (ear reference)",
+        "feedback_modality": "Visual (video or game) and/or auditory (tone reward)",
+        "additional_params": {
+          "session_type": "Asymmetry training — upregulate F3 alpha, downregulate F4 alpha",
+          "threshold_type": "Dynamic threshold (auto-adjusting to maintain 70% reward rate)",
+          "training_protocol": "Increase left/right alpha power ratio — target frontal alpha asymmetry score toward positive (left > right)"
+        }
+      },
+      "session_structure": {
+        "sessions_per_week": 2,
+        "session_duration_minutes": 50,
+        "total_sessions": 20,
+        "total_weeks": 10,
+        "maintenance_sessions": "Optional monthly booster sessions if symptoms recur",
+        "steps": [
+          {
+            "order": 1,
+            "title": "EEG setup and baseline recording",
+            "duration_minutes": 15,
+            "detail": "Apply electrodes at F3, F4, Fz (10-20 system). Record 3-minute resting EEG baseline (eyes open, eyes closed). Calculate frontal alpha asymmetry index. Confirm impedances <5kΩ."
+          },
+          {
+            "order": 2,
+            "title": "Psychoeducation (session 1 only)",
+            "duration_minutes": 10,
+            "detail": "Explain neurofeedback rationale, the frontal asymmetry model of depression, and how to engage with feedback signals. Set session goals."
+          },
+          {
+            "order": 3,
+            "title": "Alpha asymmetry neurofeedback training",
+            "duration_minutes": 30,
+            "detail": "Run 3 x 10-minute feedback runs with 2-minute breaks. Patient receives reward signal when F3 alpha exceeds F4 alpha by defined threshold. Clinician adjusts thresholds to maintain 65–75% reward rate."
+          },
+          {
+            "order": 4,
+            "title": "Post-session review and homework",
+            "duration_minutes": 5,
+            "detail": "Review session performance (reward rate, asymmetry shift). Assign relaxation or mindfulness home practice to reinforce frontal alpha. Document mood rating (0–10)."
+          }
+        ]
+      },
+      "monitoring_required": [
+        "PHQ-9 every 5 sessions",
+        "qEEG alpha asymmetry index every 5 sessions",
+        "Session mood rating (0–10) each session"
+      ],
+      "contraindication_check_required": false,
+      "adverse_event_monitoring": "Neurofeedback is non-invasive and generally well-tolerated. Occasional reports of temporary fatigue or mild headache after sessions. Rare: paradoxical worsening (if brain dysregulation occurs) — monitor PHQ-9 trend carefully.",
+      "escalation_rules": [
+        "PHQ-9 increase ≥5 points over 5 sessions: pause neurofeedback; clinical review",
+        "Suicidal ideation at any session: escalate to clinician review immediately",
+        "No improvement in alpha asymmetry or PHQ-9 at session 10: reassess protocol and consider switching to or combining with rTMS"
+      ],
+      "patient_facing_allowed": true,
+      "clinician_review_required": true,
+      "governance": {
+        "patient_export_allowed": true,
+        "requires_clinician_sign_off": true,
+        "off_label_acknowledgement_required": true,
+        "notes": "Off-label for MDD. Best evidence as adjunct. Off-label acknowledgement required. qEEG strongly recommended before commencing."
+      }
+    }
+  ],
+
+  "device_options": [
+    {
+      "device_id": "DEV-001",
+      "name": "NeuroStar Advanced Therapy System",
+      "manufacturer": "Neuronetics Inc.",
+      "modality_slug": "rtms",
+      "regulatory_status": "FDA-cleared",
+      "cleared_indication": "Major Depressive Disorder (adult, unipolar, medication-inadequate response)",
+      "use_setting": "Clinic",
+      "compatible_protocols": ["PRO-TMS-MDD-01"],
+      "constraints": [
+        "Requires physician-supervised operation",
+        "Motor threshold determination required at first session",
+        "Not compatible with metallic implants in TMS field"
+      ],
+      "notes": "First device FDA-cleared for MDD TMS (2008). The NeuroStar proprietary Contact Sensing Technology automates coil positioning and contact verification."
+    },
+    {
+      "device_id": "DEV-002",
+      "name": "BrainsWay Deep TMS H1 Coil System",
+      "manufacturer": "BrainsWay Ltd.",
+      "modality_slug": "rtms",
+      "regulatory_status": "FDA-cleared",
+      "cleared_indication": "Major Depressive Disorder — Deep TMS with H1 coil",
+      "use_setting": "Clinic",
+      "compatible_protocols": ["PRO-TMS-MDD-01", "PRO-ITBS-MDD-01"],
+      "constraints": [
+        "H1 coil stimulates deeper cortical regions than standard figure-8",
+        "Higher tolerance variability — begin at lower intensity if patient sensitive",
+        "Helmet-based positioning system used instead of neuronavigation"
+      ],
+      "notes": "FDA-cleared for MDD. Stimulates a broader and deeper DLPFC volume. Also cleared for OCD and smoking cessation with other coil types."
+    },
+    {
+      "device_id": "DEV-003",
+      "name": "MagVenture MagPro X100",
+      "manufacturer": "MagVenture A/S",
+      "modality_slug": "itbs",
+      "regulatory_status": "FDA-cleared",
+      "cleared_indication": "Major Depressive Disorder (iTBS cleared)",
+      "use_setting": "Clinic",
+      "compatible_protocols": ["PRO-TMS-MDD-01", "PRO-ITBS-MDD-01"],
+      "constraints": [
+        "Compatible with multiple coil types including Cool-B65 A/P",
+        "Requires trained TMS technician or physician operator"
+      ],
+      "notes": "FDA-cleared for MDD rTMS and iTBS. The Cool-B65 A/P coil is used for angled positioning to improve DLPFC targeting."
+    },
+    {
+      "device_id": "DEV-004",
+      "name": "Soterix Medical 1x1 tDCS Clinical Trial Stimulator",
+      "manufacturer": "Soterix Medical",
+      "modality_slug": "tdcs",
+      "regulatory_status": "FDA-cleared (other indication)",
+      "cleared_indication": "FDA-cleared as investigational device; CE-marked for clinical use in EU",
+      "use_setting": "Clinic",
+      "compatible_protocols": ["PRO-TDCS-MDD-01"],
+      "constraints": [
+        "Off-label for MDD in the US",
+        "Requires clinician-supervised administration",
+        "Impedance monitoring required throughout session"
+      ],
+      "notes": "Research-grade tDCS device widely used in MDD clinical trials. CE-marked in Europe."
+    },
+    {
+      "device_id": "DEV-005",
+      "name": "Alpha-Stim M",
+      "manufacturer": "Electromedical Products International (EPI)",
+      "modality_slug": "ces",
+      "regulatory_status": "FDA-cleared",
+      "cleared_indication": "Anxiety, depression, insomnia, and pain",
+      "use_setting": "Hybrid",
+      "compatible_protocols": ["PRO-CES-MDD-01"],
+      "constraints": [
+        "Ear clip electrodes require intact ear lobes",
+        "Do not use with active ear infection",
+        "Prescription required in some jurisdictions"
+      ],
+      "notes": "FDA-cleared for depression. Suitable for home use following clinician prescription and training. Particularly useful for anxious-depressive phenotype."
+    }
+  ],
+
+  "brain_targets": [
+    {
+      "region": "Left Dorsolateral Prefrontal Cortex",
+      "abbreviation": "L-DLPFC",
+      "laterality": "Left",
+      "rationale": "The left DLPFC is consistently hypoactive in MDD and drives top-down inhibitory regulation of the limbic system. Excitatory stimulation (rTMS, iTBS, tDCS anode) upregulates this region, restoring frontal–limbic balance and reducing depressive symptomatology.",
+      "effect_direction": "Excitatory",
+      "modalities": ["rtms", "itbs", "tdcs", "neurofeedback"],
+      "eeg_position_10_20": "F3",
+      "brodmann_area": "BA46/9",
+      "network": "Central Executive Network",
+      "qeeg_target": "Reduce left frontal alpha power at F3; improve frontal alpha asymmetry score",
+      "evidence_note": "Primary target for all guideline-supported MDD neuromodulation. 5.5 cm anterior to the motor hand area localisation is the clinical standard."
+    },
+    {
+      "region": "Right Dorsolateral Prefrontal Cortex",
+      "abbreviation": "R-DLPFC",
+      "laterality": "Right",
+      "rationale": "Inhibitory low-frequency rTMS (1 Hz) to the right DLPFC reduces relative hyperactivity of the right hemisphere, restoring frontal asymmetry balance as an alternative or adjunct to left-sided excitatory protocols.",
+      "effect_direction": "Inhibitory",
+      "modalities": ["rtms"],
+      "eeg_position_10_20": "F4",
+      "brodmann_area": "BA46/9",
+      "network": "Central Executive Network",
+      "qeeg_target": "Reduce right frontal alpha excess (paradoxically via inhibitory stimulation increasing right alpha)",
+      "evidence_note": "Used in bilateral protocols; some evidence for right-sided 1 Hz rTMS as alternative target. Less frequently used as standalone."
+    },
+    {
+      "region": "Subgenual Anterior Cingulate Cortex",
+      "abbreviation": "sgACC",
+      "laterality": "Midline",
+      "rationale": "The sgACC (Brodmann Area 25) is a critical node in the depression circuit — chronically hyperactive in MDD and driving negative affect, rumination, and autonomic dysregulation. It is indirectly inhibited by excitatory L-DLPFC stimulation via cortico-limbic pathways and is the target of DBS for TRD.",
+      "effect_direction": "Inhibitory",
+      "modalities": ["rtms", "itbs"],
+      "eeg_position_10_20": "Fz",
+      "brodmann_area": "BA25",
+      "network": "Default Mode Network / Limbic Network",
+      "qeeg_target": "Reduce midline theta power at Fz (indirect marker of sgACC hyperactivity)",
+      "evidence_note": "Not directly accessible via TMS; targeted indirectly. MRI-guided TMS targeting sgACC-connected DLPFC (Fox et al., 2012) improves response rates."
+    }
+  ],
+
+  "handbook_outputs": {
+    "clinician_handbook": {
+      "title": "Major Depressive Disorder — Clinician Handbook",
+      "audience": "Clinician",
+      "sections": [
+        {
+          "section_id": "CH-MDD-01",
+          "title": "Condition Overview and Neurobiology",
+          "content": [
+            "MDD is a syndromic mood disorder defined by ≥5 DSM-5 criteria symptoms for ≥2 weeks with functional impairment. Core pathophysiology involves left DLPFC hypoactivity, sgACC hyperactivity, and frontal–limbic circuit dysregulation.",
+            "Frontal alpha asymmetry (left > right alpha power at F3/F4) is a validated qEEG biomarker of left frontal hypoactivity and guides target selection.",
+            "Phenotype characterisation (melancholic, atypical, anxious, anhedonic) is clinically relevant for protocol selection and prognosis.",
+            "Bipolar disorder must be formally excluded before initiating excitatory left DLPFC stimulation — use MDQ and structured clinical interview."
+          ]
+        },
+        {
+          "section_id": "CH-MDD-02",
+          "title": "Protocol Selection Guide",
+          "content": [
+            "First-line: PRO-TMS-MDD-01 (10 Hz rTMS) or PRO-ITBS-MDD-01 (iTBS) for adult MDD with inadequate medication response — FDA cleared, EV-A.",
+            "iTBS (PRO-ITBS-MDD-01) preferred when patient throughput is high or session duration is a barrier — non-inferior to 10 Hz (THREE-D trial).",
+            "tDCS (PRO-TDCS-MDD-01) for patients unable to access or tolerate TMS, or as augmentation — off-label in US, EV-B.",
+            "CES (PRO-CES-MDD-01) as adjunct or for mild-moderate MDD or anxious-depressive phenotype — FDA cleared, EV-B.",
+            "Neurofeedback (PRO-NF-MDD-01) as adjunct or when patient preference for non-invasive biofeedback — off-label, EV-C.",
+            "For treatment-resistant cases (≥2 failures): consider referral to CON-002 TRD pathway or accelerated TMS."
+          ]
+        },
+        {
+          "section_id": "CH-MDD-03",
+          "title": "Safety and Monitoring Requirements",
+          "content": [
+            "Motor threshold must be determined at session 1 and after any treatment gap >2 weeks.",
+            "C-SSRS must be administered weekly throughout the course — any new ideation with plan or intent requires immediate clinical review and suspension of outpatient treatment.",
+            "PHQ-9 every 5 sessions — compare to baseline. Non-response (<20% improvement) at session 15 triggers mandatory clinical review.",
+            "Seizure is the most serious adverse event of TMS (incidence <0.1%). Emergency protocol must be established before first session.",
+            "Medications that lower seizure threshold must be documented and considered in risk assessment."
+          ]
+        },
+        {
+          "section_id": "CH-MDD-04",
+          "title": "Evidence Summary",
+          "content": [
+            "rTMS/iTBS for MDD: EV-A. FDA cleared. APA, CANMAT, NICE, and IFCN guideline recommended. Response rate ~50–60%; remission ~30–35%.",
+            "tDCS for MDD: EV-B. ELECT-TDCS trial non-inferior to escitalopram for mild-moderate MDD. IFCN Level A evidence.",
+            "CES for MDD: EV-B. Multiple RCTs. FDA cleared for depression/anxiety/insomnia.",
+            "Neurofeedback alpha asymmetry: EV-C. Promising pilot data; insufficient large-scale RCTs. Best as adjunct."
+          ]
+        }
+      ]
+    },
+    "patient_guide": {
+      "title": "Your Guide to Brain Stimulation Treatment for Depression",
+      "audience": "Patient",
+      "sections": [
+        {
+          "section_id": "PG-MDD-01",
+          "title": "Understanding Your Treatment",
+          "content": [
+            "You have been recommended a brain stimulation treatment for depression. This guide explains what to expect and how to get the most from your treatment.",
+            "TMS (Transcranial Magnetic Stimulation) uses a magnetic coil placed gently on your scalp to stimulate the part of your brain that controls mood. The treatment is painless for most people and takes about 20–40 minutes per session.",
+            "You do not need anaesthesia. You remain fully awake throughout. You can drive, work, and carry on normal activities immediately after each session."
+          ]
+        },
+        {
+          "section_id": "PG-MDD-02",
+          "title": "What to Expect During Treatment",
+          "content": [
+            "Most people attend the clinic 5 days per week for 4–6 weeks (20–30 sessions total).",
+            "During TMS, you will hear a clicking sound and feel a light tapping sensation on your scalp. This is normal.",
+            "Some people experience a mild headache or scalp discomfort at first — this usually improves after the first few sessions. Let the technician know if discomfort is significant.",
+            "Mood improvements typically begin in the second or third week, with continued improvement after the course ends. Keep attending even if you don't notice immediate changes.",
+            "Your clinical team will ask you to complete short questionnaires every 5 sessions to track your progress."
+          ]
+        },
+        {
+          "section_id": "PG-MDD-03",
+          "title": "Important Safety Information",
+          "content": [
+            "Tell your clinical team immediately if you experience any of the following: new or worsening thoughts of harming yourself, a seizure or fit, a sudden severe headache, or any new medical conditions or medications.",
+            "Do not stop your antidepressant medication without talking to your prescribing doctor first — even if your mood improves during TMS.",
+            "Keep all scheduled appointments. Missing sessions can reduce the effectiveness of treatment."
+          ]
+        }
+      ]
+    },
+    "technician_sop": {
+      "title": "TMS for MDD — Technician Standard Operating Procedure",
+      "audience": "Technician",
+      "sections": [
+        {
+          "section_id": "SOP-MDD-01",
+          "title": "Pre-Session Preparation",
+          "content": [
+            "Confirm patient identity with two identifiers (name + date of birth).",
+            "Review patient record for new medications, seizures, or adverse events since last session.",
+            "Confirm PHQ-9 and C-SSRS are up to date (PHQ-9 every 5 sessions; C-SSRS weekly).",
+            "Ensure emergency equipment is accessible: oxygen, resuscitation kit, phone for emergency services.",
+            "Position TMS chair, prepare coil and cooling system, verify device is calibrated."
+          ]
+        },
+        {
+          "section_id": "SOP-MDD-02",
+          "title": "Motor Threshold Determination",
+          "content": [
+            "Identify M1 hotspot: place coil over C3 and locate optimal hand representation area producing maximum MEP in contralateral FDI muscle.",
+            "Determine rMT: find lowest stimulus intensity producing ≥5 visible or EMG-confirmed MEPs (≥50 µV) out of 10 consecutive pulses.",
+            "Record rMT as percentage of maximum device output. Set treatment intensity to 120% rMT for standard 10 Hz protocol or 80% AMT for iTBS.",
+            "Re-determine rMT after any gap >2 weeks or significant medication change."
+          ]
+        },
+        {
+          "section_id": "SOP-MDD-03",
+          "title": "During-Session Monitoring",
+          "content": [
+            "Observe patient continuously during stimulation. Do not leave the room.",
+            "Watch for seizure signs: tonic–clonic movements, loss of consciousness, or rhythmic eye movements. If seizure: stop stimulation immediately, position patient safely, call emergency services, do not restrain, document and report.",
+            "Monitor for vasovagal response (pallor, sweating, loss of consciousness): recline patient, elevate legs, monitor vital signs.",
+            "Document any adverse events, pulse count delivered, and any protocol modifications in session log."
+          ]
+        },
+        {
+          "section_id": "SOP-MDD-04",
+          "title": "Post-Session Procedures",
+          "content": [
+            "Ask patient to rate scalp discomfort and headache (0–10 scale). Document.",
+            "If headache ≥5/10: notify clinician; patient may take paracetamol if no contraindication; reduce intensity by 5% next session if recurs.",
+            "Complete session log including pulses delivered, intensity used, patient tolerance, and any incidents.",
+            "If patient reports new suicidal thoughts: do not allow patient to leave unaccompanied; notify supervising clinician immediately."
+          ]
+        }
+      ]
+    }
+  },
+
+  "monitoring_rules": {
+    "assessment_schedule": [
+      {
+        "assessment_id": "ASS-005",
+        "assessment_name": "PHQ-9",
+        "timing": "Before session 1 (baseline), then every 5 sessions, and end of course",
+        "frequency": "Every 5 sessions",
+        "administered_by": "Patient self-report"
+      },
+      {
+        "assessment_id": "ASS-009",
+        "assessment_name": "C-SSRS",
+        "timing": "Before session 1 (baseline), then weekly throughout course",
+        "frequency": "Weekly",
+        "administered_by": "Clinician-rated"
+      },
+      {
+        "assessment_id": "ASS-003",
+        "assessment_name": "HAM-D17",
+        "timing": "Before session 1 (baseline), session 15, and end of course",
+        "frequency": "At session 1, 15, and end of course",
+        "administered_by": "Clinician-rated"
+      },
+      {
+        "assessment_id": "ASS-008",
+        "assessment_name": "ISI",
+        "timing": "Before session 1 (baseline), every 10 sessions, and end of course",
+        "frequency": "Every 10 sessions",
+        "administered_by": "Patient self-report"
+      },
+      {
+        "assessment_id": "ASS-007",
+        "assessment_name": "GAD-7",
+        "timing": "Before session 1 (baseline) and end of course",
+        "frequency": "Baseline and end of course",
+        "administered_by": "Patient self-report"
+      }
+    ],
+    "response_thresholds": [
+      {
+        "assessment_id": "ASS-005",
+        "assessment_name": "PHQ-9",
+        "lower_is_better": true,
+        "response_threshold": "≥50% reduction from baseline PHQ-9 score",
+        "remission_threshold": "PHQ-9 ≤4",
+        "non_response_threshold": "<20% improvement from baseline at session 15",
+        "deterioration_threshold": "Increase of ≥5 points from any prior monitoring point"
+      },
+      {
+        "assessment_id": "ASS-003",
+        "assessment_name": "HAM-D17",
+        "lower_is_better": true,
+        "response_threshold": "≥50% reduction from baseline HAM-D score",
+        "remission_threshold": "HAM-D17 ≤7",
+        "non_response_threshold": "<25% reduction at session 15",
+        "deterioration_threshold": "Increase of ≥4 points from any prior monitoring point"
+      },
+      {
+        "assessment_id": "ASS-004",
+        "assessment_name": "MADRS",
+        "lower_is_better": true,
+        "response_threshold": "≥50% reduction from baseline MADRS score",
+        "remission_threshold": "MADRS ≤10",
+        "non_response_threshold": "<25% reduction at session 15",
+        "deterioration_threshold": "Increase of ≥7 points from any prior monitoring point"
+      }
+    ],
+    "adverse_event_triggers": [
+      {
+        "event_type": "Seizure during TMS session",
+        "severity": "Serious",
+        "action": "Stop stimulation immediately. Place patient safely. Call emergency services. Do not restrain. Monitor consciousness. Complete incident report. Report to regulatory authority. Do not resume TMS without neurologist clearance.",
+        "suspend_treatment": true
+      },
+      {
+        "event_type": "New suicidal ideation with plan or intent",
+        "severity": "Serious",
+        "action": "Do not allow patient to leave unaccompanied. Notify supervising clinician immediately. Initiate crisis protocol. Consider emergency referral. Suspend outpatient treatment until safe to continue.",
+        "suspend_treatment": true
+      },
+      {
+        "event_type": "Severe headache (≥8/10) or persistent headache not responding to analgesia",
+        "severity": "Moderate",
+        "action": "Stop current session. Notify clinician. Reduce intensity by 10% for subsequent sessions. If persistent, consider medical review to rule out other causes.",
+        "suspend_treatment": false
+      },
+      {
+        "event_type": "Vasovagal syncope",
+        "severity": "Moderate",
+        "action": "Recline patient, elevate legs, monitor vital signs. Do not resume session. Notify clinician. Patient must not drive. Consider standing protocol modification or shorter sessions.",
+        "suspend_treatment": true
+      },
+      {
+        "event_type": "Skin burn at tDCS electrode site",
+        "severity": "Moderate",
+        "action": "Stop tDCS immediately. Assess burn severity. Wound care. Document. Suspend tDCS until healed. Review electrode preparation protocol.",
+        "suspend_treatment": true
+      },
+      {
+        "event_type": "New onset mania or hypomania",
+        "severity": "Serious",
+        "action": "Suspend all excitatory neuromodulation immediately. Refer to psychiatrist for bipolar evaluation. Do not resume until bipolar disorder excluded or specialist authorises.",
+        "suspend_treatment": true
+      }
+    ],
+    "escalation_rules": [
+      {
+        "trigger": "PHQ-9 non-response (<20% improvement) at session 15",
+        "action": "Clinician review within 48 hours. Consider: protocol intensification (accelerated TMS), bilateral protocol, switching to iTBS, or referral to TRD pathway.",
+        "urgency": "Routine"
+      },
+      {
+        "trigger": "PHQ-9 deterioration (≥5 points increase from any monitoring point)",
+        "action": "Clinician review within 24 hours. Assess for new stressors, medication changes, or emerging bipolar features. Consider protocol modification.",
+        "urgency": "Urgent"
+      },
+      {
+        "trigger": "New suicidal ideation with plan or intent at any session",
+        "action": "Immediate clinician review. Crisis protocol activation. Suspend outpatient TMS. Safety planning and possible inpatient referral.",
+        "urgency": "Emergency"
+      },
+      {
+        "trigger": "Seizure during stimulation",
+        "action": "Emergency services activation. Neurologist referral. Incident reporting. Do not resume without specialist clearance.",
+        "urgency": "Emergency"
+      },
+      {
+        "trigger": "Missed 3 or more consecutive sessions",
+        "action": "Clinical team contact patient within 24 hours. Re-engage or discharge. Re-determine motor threshold at return.",
+        "urgency": "Routine"
+      },
+      {
+        "trigger": "Manic or hypomanic symptoms at any point during treatment",
+        "action": "Suspend excitatory protocols immediately. Psychiatric review within 24 hours. Rule out bipolar disorder.",
+        "urgency": "Urgent"
+      }
+    ],
+    "adherence_rules": {
+      "minimum_session_adherence_pct": 80,
+      "consecutive_missed_sessions_flag": 3,
+      "action_on_low_adherence": "Clinical team contact within 24 hours of third consecutive missed session. Assess barriers. Offer reschedule. Document discussion. Re-determination of rMT required if gap >2 weeks."
+    }
+  },
+
+  "report_templates": [
+    {
+      "id": "RPT-MDD-01",
+      "name": "MDD TMS Intake Summary",
+      "report_type": "intake-summary",
+      "audience": "Clinician",
+      "frequency": "Once — at intake",
+      "sections": [
+        {
+          "section_id": "RPT-MDD-01-S01",
+          "title": "Referral and Diagnosis",
+          "auto_populate_from": ["patient.name", "patient.dob", "patient.referrer", "diagnosis.code", "diagnosis.confirmed_date"],
+          "clinician_narrative_prompt": "Summarise the referring clinician's reason for referral, diagnostic history, and any specific treatment goals communicated at referral.",
+          "required": true
+        },
+        {
+          "section_id": "RPT-MDD-01-S02",
+          "title": "Depression Severity and Baseline Scores",
+          "auto_populate_from": ["assessment.PHQ-9.baseline", "assessment.HAM-D17.baseline", "assessment.MADRS.baseline", "assessment.QIDS-SR.baseline"],
+          "clinician_narrative_prompt": "Comment on baseline severity classification (mild/moderate/severe/TRD) and clinical phenotype characterisation.",
+          "required": true
+        },
+        {
+          "section_id": "RPT-MDD-01-S03",
+          "title": "Prior Treatment History",
+          "auto_populate_from": ["history.antidepressant_trials", "history.psychotherapy", "history.prior_neuromodulation", "history.ect"],
+          "clinician_narrative_prompt": "Document all prior antidepressant trials (drug, dose, duration, response, reason for discontinuation). Note if patient meets TRD criteria (≥2 adequate trials).",
+          "required": true
+        },
+        {
+          "section_id": "RPT-MDD-01-S04",
+          "title": "Suicidality Assessment",
+          "auto_populate_from": ["assessment.C-SSRS.baseline", "history.suicide_attempts"],
+          "clinician_narrative_prompt": "Document current C-SSRS scores and category, history of suicidal behaviour, and risk management plan in place.",
+          "required": true
+        },
+        {
+          "section_id": "RPT-MDD-01-S05",
+          "title": "Selected Protocol and Rationale",
+          "auto_populate_from": ["protocol.selected_id", "protocol.name", "protocol.evidence_grade", "protocol.on_label_vs_off_label"],
+          "clinician_narrative_prompt": "Justify the selected protocol based on patient phenotype, prior treatment history, contraindications, and patient preference. Note any off-label decisions.",
+          "required": true
+        },
+        {
+          "section_id": "RPT-MDD-01-S06",
+          "title": "Contraindication Screening and Consent",
+          "auto_populate_from": ["contraindications.screened", "consent.informed_consent.signed", "consent.off_label.signed"],
+          "clinician_narrative_prompt": "Confirm contraindication screening completed. Document consent discussion and any specific disclosures made.",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "RPT-MDD-02",
+      "name": "MDD Progress Report",
+      "report_type": "progress-report",
+      "audience": "Referring Physician",
+      "frequency": "Every 10 sessions (or as requested)",
+      "sections": [
+        {
+          "section_id": "RPT-MDD-02-S01",
+          "title": "Treatment Progress Summary",
+          "auto_populate_from": ["treatment.sessions_completed", "treatment.sessions_remaining", "protocol.id"],
+          "clinician_narrative_prompt": "Describe overall treatment trajectory. Note any protocol modifications made and rationale.",
+          "required": true
+        },
+        {
+          "section_id": "RPT-MDD-02-S02",
+          "title": "Response Tracking",
+          "auto_populate_from": ["assessment.PHQ-9.current", "assessment.PHQ-9.baseline", "assessment.PHQ-9.pct_change"],
+          "clinician_narrative_prompt": "Comment on clinical response classification (responder/partial/non-responder) and next steps if non-response flagged.",
+          "required": true
+        },
+        {
+          "section_id": "RPT-MDD-02-S03",
+          "title": "Adverse Events",
+          "auto_populate_from": ["adverse_events.log"],
+          "clinician_narrative_prompt": "Report any adverse events, their severity, management, and current status.",
+          "required": true
+        },
+        {
+          "section_id": "RPT-MDD-02-S04",
+          "title": "Suicidality Update",
+          "auto_populate_from": ["assessment.C-SSRS.current"],
+          "clinician_narrative_prompt": "Document current C-SSRS category and any changes from baseline. Note any safety interventions taken.",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "RPT-MDD-03",
+      "name": "MDD End-of-Course Report",
+      "report_type": "end-of-course-report",
+      "audience": "Referring Physician",
+      "frequency": "Once — at end of treatment course",
+      "sections": [
+        {
+          "section_id": "RPT-MDD-03-S01",
+          "title": "Course Summary",
+          "auto_populate_from": ["treatment.total_sessions_delivered", "treatment.protocol_id", "treatment.start_date", "treatment.end_date"],
+          "clinician_narrative_prompt": "Summarise the treatment course: protocol used, sessions delivered vs planned, any protocol modifications.",
+          "required": true
+        },
+        {
+          "section_id": "RPT-MDD-03-S02",
+          "title": "Outcome Measures",
+          "auto_populate_from": ["assessment.PHQ-9.baseline", "assessment.PHQ-9.end", "assessment.HAM-D17.baseline", "assessment.HAM-D17.end", "assessment.MADRS.end"],
+          "clinician_narrative_prompt": "Classify outcome: full remission, response, partial response, or non-response. Discuss clinical significance of score changes.",
+          "required": true
+        },
+        {
+          "section_id": "RPT-MDD-03-S03",
+          "title": "Recommendations",
+          "auto_populate_from": ["treatment.maintenance_plan", "treatment.next_steps"],
+          "clinician_narrative_prompt": "Provide recommendations for continuation treatment, maintenance TMS, medication adjustments, or referral to TRD pathway if applicable.",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "RPT-MDD-04",
+      "name": "MDD SOAP Note",
+      "report_type": "soap-note",
+      "audience": "Internal",
+      "frequency": "Each session (abbreviated) or weekly (full)",
+      "sections": [
+        {
+          "section_id": "RPT-MDD-04-S01",
+          "title": "Subjective",
+          "auto_populate_from": ["session.patient_reported_mood", "session.adverse_events_reported"],
+          "clinician_narrative_prompt": "Document patient's self-reported mood, sleep, energy, and any symptoms or concerns reported at today's session.",
+          "required": true
+        },
+        {
+          "section_id": "RPT-MDD-04-S02",
+          "title": "Objective",
+          "auto_populate_from": ["session.pulses_delivered", "session.intensity_pct_rmt", "assessment.PHQ-9.current"],
+          "clinician_narrative_prompt": "Record TMS parameters delivered (intensity, pulses, coil placement). Include any assessment scores collected today.",
+          "required": true
+        },
+        {
+          "section_id": "RPT-MDD-04-S03",
+          "title": "Assessment",
+          "auto_populate_from": ["assessment.PHQ-9.pct_change", "treatment.response_status"],
+          "clinician_narrative_prompt": "Clinical interpretation of progress. Response classification if applicable. Adverse events noted.",
+          "required": true
+        },
+        {
+          "section_id": "RPT-MDD-04-S04",
+          "title": "Plan",
+          "auto_populate_from": ["session.next_session_date", "protocol.modifications"],
+          "clinician_narrative_prompt": "State any protocol modifications for next session, escalation actions if triggered, or clinical follow-up required.",
+          "required": true
+        }
+      ]
+    }
+  ],
+
+  "home_program_templates": [
+    {
+      "id": "HPT-CES-MDD-01",
+      "name": "Alpha-Stim CES Home Program for MDD",
+      "modality_slug": "ces",
+      "device_required": "Alpha-Stim M",
+      "prerequisite_clinic_sessions": 0,
+      "sessions_per_week": 5,
+      "session_duration_minutes": 60,
+      "total_weeks": 5,
+      "patient_instructions": [
+        "Wash your earlobes with a damp cloth before each session.",
+        "Apply the supplied electrode gel to both conducting pads on the ear clip electrodes.",
+        "Clip the electrodes to your earlobes — one on each side.",
+        "Turn on the Alpha-Stim M device and start at the lowest current setting (100 µA).",
+        "You may feel a mild tingling at your earlobes — this is normal and indicates the device is working.",
+        "Increase the current gently if tolerated, up to a maximum of 300 µA or whatever level feels comfortable.",
+        "Sit or lie down comfortably during the 60-minute session. You may read, listen to music, or rest.",
+        "After the session, turn off the device and remove the ear clips. Rinse ear clips with water and store.",
+        "Record your session in the mood diary provided: rate your mood (0–10), note sleep quality from the night before, and record any discomfort."
+      ],
+      "safety_checklist": [
+        "I do not have an active ear infection or open sores on my earlobes.",
+        "I have not consumed alcohol in the last 4 hours.",
+        "I am not experiencing a severe headache or dizziness right now.",
+        "My clinician has not instructed me to pause my home sessions.",
+        "I am not pregnant (or I have confirmed it is safe to use with my doctor)."
+      ],
+      "reporting_requirements": [
+        "Mood rating (0–10) before and after each session",
+        "Sleep quality from the previous night (1–5 scale)",
+        "Duration of session completed",
+        "Current level used (µA)",
+        "Any discomfort, dizziness, or side effects experienced"
+      ],
+      "contraindications_for_home": [
+        "Active ear infection, otitis externa, or broken skin at ear lobes — call the clinic",
+        "New onset of suicidal thoughts — call your clinician or crisis line immediately",
+        "Severe headache or dizziness before starting a session — do not start; call the clinic if it persists",
+        "Any new medical diagnosis or new prescription medications — contact the clinic before resuming"
+      ],
+      "evidence_note": "Alpha-Stim M is FDA-cleared for anxiety, depression, insomnia, and pain. Home use is supported by clinical trials and manufacturer guidelines. Suitable as standalone or adjunct to clinic-based TMS."
+    }
+  ],
+
+  "consent_documents": [
+    {
+      "id": "CON-MDD-01",
+      "name": "Informed Consent for TMS Treatment — MDD",
+      "document_type": "informed-consent",
+      "modality_slug": "rtms",
+      "when_required": "Before first TMS session (session 1)",
+      "key_disclosures": [
+        "TMS uses magnetic pulses to stimulate areas of the brain involved in mood regulation.",
+        "TMS is FDA-cleared for Major Depressive Disorder in adults who have not benefited adequately from antidepressant medication.",
+        "The most common side effects are scalp discomfort and headache, which are usually mild and temporary.",
+        "The most serious risk is seizure, which occurs in approximately 1 in 1,000 to 10,000 treatment courses. Risk factors will be carefully screened.",
+        "You will remain fully awake and can resume normal activities immediately after each session.",
+        "The standard treatment course involves daily sessions (5 days per week) for 4–6 weeks.",
+        "TMS does not guarantee remission. Approximately 50–60% of patients achieve significant response, and 30–35% achieve full remission.",
+        "You should not stop your antidepressant medication without consulting your prescribing clinician.",
+        "You may withdraw consent at any time without affecting your future care.",
+        "Side effects will be monitored throughout and you should report any unusual symptoms immediately."
+      ],
+      "signature_required": true,
+      "witness_required": false,
+      "clinician_co_sign_required": true,
+      "review_frequency": "Each new treatment course"
+    },
+    {
+      "id": "CON-MDD-02",
+      "name": "TMS Contraindication Screening Checklist",
+      "document_type": "contraindication-screening",
+      "modality_slug": "rtms",
+      "when_required": "Before first TMS session, and repeated at any significant change in medical status",
+      "key_disclosures": [
+        "History of seizures or epilepsy — any lifetime seizure must be disclosed.",
+        "Metal implants in the head or neck: cochlear implants, aneurysm clips, DBS leads, skull plates.",
+        "Implanted cardiac pacemaker or defibrillator.",
+        "History of bipolar disorder or manic episodes.",
+        "Current medications that lower seizure threshold (bupropion, clozapine, tramadol, lithium).",
+        "Pregnancy or breastfeeding.",
+        "Previous TMS treatment (device, protocol, response, adverse events).",
+        "Prior ECT (electroconvulsive therapy).",
+        "History of brain injury, brain surgery, or brain tumour.",
+        "Any significant medical change since last session."
+      ],
+      "signature_required": true,
+      "witness_required": false,
+      "clinician_co_sign_required": true,
+      "review_frequency": "Before each new course; reviewed at each session for new medications or symptoms"
+    },
+    {
+      "id": "CON-MDD-03",
+      "name": "Off-Label Treatment Acknowledgement — tDCS for MDD",
+      "document_type": "off-label-acknowledgement",
+      "modality_slug": "tdcs",
+      "when_required": "Before initiating tDCS treatment for MDD",
+      "key_disclosures": [
+        "tDCS is not FDA-cleared for the treatment of Major Depressive Disorder in the United States.",
+        "tDCS is CE-marked in Europe and is used in clinical practice and research settings for MDD.",
+        "Multiple randomised controlled trials support the use of tDCS for MDD, and it is rated as Level A evidence by international clinical guidelines (IFCN).",
+        "Using tDCS for MDD constitutes off-label use, meaning its safety and efficacy for this specific indication have not been formally evaluated by the FDA.",
+        "Your clinician has recommended tDCS for you based on your individual clinical situation, evidence available, and your treatment preferences.",
+        "You have the right to refuse off-label treatment and to ask about alternative on-label options.",
+        "You can withdraw consent at any time without affecting your standard care."
+      ],
+      "signature_required": true,
+      "witness_required": false,
+      "clinician_co_sign_required": true,
+      "review_frequency": "Once per treatment course"
+    },
+    {
+      "id": "CON-MDD-04",
+      "name": "Home Device Agreement — Alpha-Stim CES",
+      "document_type": "home-device-agreement",
+      "modality_slug": "ces",
+      "when_required": "Before Alpha-Stim device is issued for home use",
+      "key_disclosures": [
+        "The Alpha-Stim M device is FDA-cleared for use in anxiety, depression, insomnia, and pain.",
+        "You are being provided the Alpha-Stim M for home use as part of your treatment plan.",
+        "You agree to use the device only as instructed by your clinician.",
+        "You will not share the device with any other person.",
+        "You agree to keep a session diary and report it to your clinical team at each appointment.",
+        "You will contact the clinic before using the device if you have any new medical conditions, new medications, or pregnancy.",
+        "You will contact the clinic or emergency services immediately if you experience new or worsening suicidal thoughts.",
+        "You agree to return the device if your treatment is discontinued or completed.",
+        "You will not use the device if you have an active ear infection or open skin at the electrode contact sites."
+      ],
+      "signature_required": true,
+      "witness_required": false,
+      "clinician_co_sign_required": false,
+      "review_frequency": "Once; reviewed if home protocol changes"
+    },
+    {
+      "id": "CON-MDD-05",
+      "name": "Data Sharing Consent — MDD Treatment Outcomes",
+      "document_type": "data-sharing-consent",
+      "when_required": "At intake, before first session",
+      "key_disclosures": [
+        "Your de-identified treatment data (assessment scores, protocol parameters, response outcomes) may be used to improve clinical protocols and outcomes research.",
+        "Your data will never be shared in an identifiable form without separate specific consent.",
+        "Participation in data sharing is voluntary and will not affect your clinical care.",
+        "You may withdraw consent to data sharing at any time by notifying the clinic.",
+        "Data is stored securely in compliance with applicable data protection regulations."
+      ],
+      "signature_required": true,
+      "witness_required": false,
+      "clinician_co_sign_required": false,
+      "review_frequency": "Annually"
+    }
+  ]
+}

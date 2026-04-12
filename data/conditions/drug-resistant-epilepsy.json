@@ -1,0 +1,1318 @@
+{
+  "$schema": "../schemas/condition-package.schema.json",
+  "schema_version": "1.0.0",
+  "id": "CON-011",
+  "slug": "drug-resistant-epilepsy",
+  "name": "Drug-Resistant Epilepsy (DRE)",
+  "category": "Neurological \u2014 Epilepsy",
+  "icd_10": ["G40.0", "G40.1", "G40.2", "G40.3", "G40.4", "G40.5", "G40.8", "G40.9"],
+  "created_at": "2026-04-12",
+  "updated_at": "2026-04-12",
+  "review_status": "reviewed",
+  "reviewed_by": "DeepSynaps Clinical Team",
+
+  "condition_overview": {
+    "summary": "Drug-resistant epilepsy (DRE), also called refractory epilepsy, is defined by the failure of adequate trials of two tolerated, appropriately chosen and used antiepileptic drug (AED) schedules (whether as monotherapies or in combination) to achieve sustained seizure freedom. It represents approximately one-third of all epilepsy cases and carries significant risks including SUDEP, cognitive decline, injury, and severe quality-of-life impairment. Device-based neuromodulation offers meaningful seizure reduction for patients who are not candidates for curative resective surgery or for whom surgery has failed.",
+    "prevalence": "Epilepsy affects approximately 50 million people worldwide (WHO, 2019); approximately 30–40% develop drug-resistant epilepsy despite optimal pharmacotherapy. In the UK, approximately 87,000 people live with drug-resistant epilepsy. Annual SUDEP risk is 1 in 1,000 in epilepsy overall and up to 1 in 150 in DRE.",
+    "phenotype_clusters": [
+      {
+        "id": "PHE-040",
+        "name": "Focal-Onset Drug-Resistant Epilepsy",
+        "description": "Seizures arising from a defined cortical focus. Includes temporal lobe, frontal lobe, parietal, and occipital lobe epilepsies. Focal onset may or may not evolve to bilateral tonic-clonic seizures. Most common DRE phenotype. Best candidates for VNS and ANT-DBS.",
+        "primary_modality": "vns",
+        "qeeg_signature": "Focal interictal epileptiform discharges (IEDs) on EEG; focal ictal onset pattern"
+      },
+      {
+        "id": "PHE-041",
+        "name": "Temporal Lobe Epilepsy (TLE)",
+        "description": "The most prevalent focal epilepsy syndrome. Characterised by complex focal seizures with aura (epigastric, déjà vu, fear), automatisms, and postictal confusion. Hippocampal sclerosis is the most common structural cause. Particularly amenable to ANT-DBS (SANTE trial included predominantly TLE).",
+        "primary_modality": "dbs",
+        "qeeg_signature": "Anterior-temporal IEDs; ictal onset at T3/T4 or sphenoidal leads; mesial temporal SEEG pattern"
+      },
+      {
+        "id": "PHE-042",
+        "name": "Frontal Lobe Epilepsy (FLE)",
+        "description": "Short-duration nocturnal seizures with hypermotor features, bipedal automatisms, and rapid generalisation. Often misdiagnosed. Frontal foci respond to both VNS and selected DBS targets. May involve supplementary motor area or frontal operculum.",
+        "primary_modality": "vns",
+        "qeeg_signature": "Frontal IEDs; nocturnal EEG changes at F3/F4/Fz; rapid bilateral spread"
+      },
+      {
+        "id": "PHE-043",
+        "name": "Generalised Drug-Resistant Epilepsy",
+        "description": "Epilepsy with bilateral-onset seizures from first clinical manifestation. Includes juvenile myoclonic epilepsy (JME), Lennox-Gastaut syndrome (LGS), and other genetic generalised epilepsies that are resistant to multiple AEDs. VNS is effective across focal and generalised phenotypes.",
+        "primary_modality": "vns",
+        "qeeg_signature": "Generalised spike-wave discharges (2.5–3.5 Hz); polyspike-wave; generalised ictal pattern"
+      }
+    ],
+    "severity_levels": [
+      "Mild drug-resistant (1–5 seizures/month, minimal functional impact)",
+      "Moderate drug-resistant (5–20 seizures/month, significant functional impact, QOLIE-31 moderate impairment)",
+      "Severe drug-resistant (>20 seizures/month or status epilepticus episodes, SUDEP risk counselling required)",
+      "Catastrophic drug-resistant (daily seizures, Lennox-Gastaut or similar — comprehensive epilepsy programme required)"
+    ],
+    "population": ["Paediatric (≥4 years — VNS FDA approved)", "Adolescent", "Adult"],
+    "symptom_clusters": [
+      "Recurrent seizures despite ≥2 adequate AED trials (focal or generalised)",
+      "Ictal symptoms: aura, motor signs, automatisms, loss of awareness, tonic-clonic activity",
+      "Postictal symptoms: confusion, fatigue, headache, Todd's paralysis, aphasia",
+      "Seizure-related injury risk (falls, burns, drowning)",
+      "Cognitive impact: memory impairment, attention deficits, processing speed reduction",
+      "Psychiatric comorbidity: depression (NDDI-E screen required), anxiety, psychosis",
+      "SUDEP (Sudden Unexpected Death in Epilepsy) — highest risk in generalised tonic-clonic seizures"
+    ],
+    "highest_evidence_level": "EV-A",
+    "relevant_modalities": ["vns", "dbs", "tms"],
+    "neurobiology": "Drug-resistant epilepsy results from failure of both pharmacokinetic (inadequate drug delivery) and pharmacodynamic (target insensitivity, MDR1/P-glycoprotein overexpression) mechanisms. The thalamocortical network — particularly the anterior nucleus of the thalamus (ANT) — plays a critical role in seizure propagation and synchronisation. The ANT has extensive bidirectional connections with the limbic system (hippocampus, cingulate cortex) via the Papez circuit, making it an ideal DBS target. Vagus nerve stimulation acts via the nucleus tractus solitarius → thalamus/cortex pathway to desynchronise epileptic activity and activate noradrenergic, serotonergic, and GABAergic systems.",
+    "comorbidities": [
+      "Major depressive disorder (20–60% of DRE patients — NDDI-E screening mandatory)",
+      "Anxiety disorders",
+      "Psychogenic non-epileptic seizures (PNES — must be excluded)",
+      "Cognitive impairment and intellectual disability",
+      "Sleep disorders (particularly in nocturnal epilepsies)",
+      "Migraine headaches",
+      "Autism spectrum disorder (particularly in paediatric DRE)"
+    ],
+    "differential_diagnoses": [
+      "Psychogenic non-epileptic seizures (PNES) — video-EEG telemetry required to differentiate",
+      "Syncope and neurocardiogenic events",
+      "Transient ischaemic attacks (TIA)",
+      "Non-epileptic movement disorders (paroxysmal dyskinesias)",
+      "Parasomnias (NREM arousal disorders, REM sleep behaviour disorder)",
+      "Metabolic disturbances (hypoglycaemia, hyponatraemia) causing seizure-like episodes",
+      "Panic attacks with dissociation"
+    ]
+  },
+
+  "patient_friendly_explanation": {
+    "what_is_it": "Drug-resistant epilepsy means that your seizures have not been controlled despite trying at least two different epilepsy medications at the right doses. This happens in about 1 in 3 people with epilepsy and is not caused by anything you did wrong. It means your brain's electrical activity is difficult to control with medication alone, and other treatments may be needed.",
+    "how_it_affects_you": "Uncontrolled seizures can affect nearly every area of life — driving, work, relationships, and safety. Many people with drug-resistant epilepsy also experience memory difficulties, mood changes such as depression or anxiety, and fatigue. The unpredictability of seizures can cause significant distress and restrict independence.",
+    "treatment_options_overview": "When medication has not controlled your seizures, brain stimulation devices offer an important option. Vagus Nerve Stimulation (VNS) is a small implanted device — a bit like a pacemaker — that sends gentle electrical pulses through the vagus nerve in your neck to reduce seizure frequency. Deep Brain Stimulation (DBS) targeting the anterior nucleus of the thalamus uses implanted electrodes to interrupt the brain circuits responsible for seizure spread. Both are FDA-approved and have helped thousands of people reduce their seizure frequency.",
+    "what_to_expect": "VNS is set up in two stages: first, a minor surgical procedure to implant the device, then regular outpatient programming visits every 2–4 weeks to gradually increase the stimulation. Most people notice a gradual reduction in seizures over 6–24 months, with approximately half of patients achieving a 50% or greater reduction. ANT-DBS requires a more involved neurosurgical procedure and programming process, but can also deliver meaningful seizure reduction. Your neurologist will guide you through which option is most suitable.",
+    "faq": [
+      {
+        "question": "Will this cure my epilepsy?",
+        "answer": "These devices are seizure-reducing treatments, not cures. The goal is to reduce the number and/or severity of your seizures. About half of people with VNS experience a 50% or greater reduction in seizures. Some people become seizure-free, but this is less common. You will generally continue taking your epilepsy medications alongside the device."
+      },
+      {
+        "question": "Is the VNS surgery dangerous?",
+        "answer": "VNS implantation is a minor surgical procedure performed under general anaesthesia, usually taking about 1–2 hours. Serious complications are rare. The most common side effects are voice hoarseness or a change in voice quality during stimulation pulses, a cough, and tingling in the neck — these usually improve over time as your body adapts."
+      },
+      {
+        "question": "Can I use a magnet with VNS?",
+        "answer": "Yes — you will be given a small magnet to wear or carry. Swiping it over the device can deliver an extra stimulation burst if you feel a seizure starting. This is called on-demand or magnet-triggered therapy. Your neurologist will show you and your carers how to use it."
+      },
+      {
+        "question": "What is SUDEP and am I at risk?",
+        "answer": "SUDEP stands for Sudden Unexpected Death in Epilepsy. It is a rare but serious complication of uncontrolled epilepsy, most often linked to generalised tonic-clonic seizures at night. Reducing your seizure frequency with VNS or DBS may lower your SUDEP risk. Your doctor will discuss SUDEP risk with you as part of your care plan."
+      },
+      {
+        "question": "Will I still need my epilepsy medications?",
+        "answer": "In most cases, yes. VNS and DBS work alongside your medications — they are add-on therapies. Some people find their seizures become controlled enough that their neurologist can reduce medications over time, but this is done gradually and carefully."
+      }
+    ]
+  },
+
+  "medical_history_requirements": {
+    "required_fields": [
+      {
+        "field": "Confirmed epilepsy diagnosis with seizure type classification (ILAE 2017)",
+        "reason": "Protocol selection depends on seizure type (focal vs generalised) and syndrome classification.",
+        "blocks_protocol": true
+      },
+      {
+        "field": "Documentation of ≥2 failed adequate AED trials (drug, dose, duration, reason for failure)",
+        "reason": "ILAE definition of drug-resistant epilepsy requires documented failure of ≥2 appropriate AED trials. Required to confirm DRE status and unlock device protocols.",
+        "blocks_protocol": true
+      },
+      {
+        "field": "Current AED regimen (names, doses, blood levels where relevant)",
+        "reason": "AED interactions and therapeutic levels must be documented before implant surgery is planned. Phenytoin and carbamazepine levels are critical.",
+        "blocks_protocol": false
+      },
+      {
+        "field": "Video-EEG telemetry report (or most recent EEG with ictal recording)",
+        "reason": "Required to confirm epileptic seizure type, localise focus (if focal), and exclude PNES. Mandatory for ANT-DBS candidacy.",
+        "blocks_protocol": true
+      },
+      {
+        "field": "MRI brain (minimum 3T epilepsy protocol) — within 12 months",
+        "reason": "Structural MRI is required to identify lesional causes, confirm surgical anatomy for implantation, and assess for atrophy or contraindications.",
+        "blocks_protocol": true
+      },
+      {
+        "field": "Pre-surgical evaluation outcome (if applicable — is patient a resective surgery candidate?)",
+        "reason": "Device therapy is considered after surgical evaluation. If resective surgery is possible, it takes precedence. Device therapy is for non-surgical candidates or post-surgical failures.",
+        "blocks_protocol": true
+      },
+      {
+        "field": "Cardiac assessment (ECG, cardiology clearance for VNS)",
+        "reason": "VNS stimulates the left vagus nerve which has cardiac innervation. Cardiac arrhythmias and AV block are contraindications for VNS.",
+        "blocks_protocol": true
+      },
+      {
+        "field": "Psychiatric assessment (depression — NDDI-E; psychosis screen)",
+        "reason": "Depression is highly comorbid with DRE and must be identified before implant. Active psychosis is a contraindication. NDDI-E ≥15 triggers psychiatry referral.",
+        "blocks_protocol": false
+      },
+      {
+        "field": "SUDEP risk counselling documentation",
+        "reason": "Clinical governance requires documented SUDEP risk discussion for all DRE patients before device implantation.",
+        "blocks_protocol": true
+      },
+      {
+        "field": "Seizure diary (minimum 3 months prospective) with seizure frequency baseline",
+        "reason": "Baseline seizure frequency is the primary outcome measure. A 3-month baseline diary is required before and after device activation for response assessment.",
+        "blocks_protocol": true
+      }
+    ],
+    "clinical_interview_checklist": [
+      "Full seizure history: age of onset, seizure types, frequency, duration, postictal pattern",
+      "AED trial history: all drugs tried, doses achieved, reasons for failure (inefficacy, intolerance, toxicity)",
+      "Seizure triggers: sleep deprivation, stress, menstrual cycle (catamenial epilepsy), alcohol, missed medication",
+      "Seizure-related injuries: falls, burns, fractures, road traffic incidents",
+      "Driving status and legal implications",
+      "Employment and social functioning impact",
+      "Psychiatric history and current mood symptoms (depression, anxiety, psychosis)",
+      "Family history of epilepsy (genetic syndrome implications — genetic testing referral if appropriate)",
+      "Sleep pattern and nocturnal seizure frequency",
+      "Supervision and carer support at home",
+      "Prior surgical evaluation or epilepsy surgery outcome",
+      "Pregnancy plans (VNS is not contraindicated in pregnancy; DBS — discuss with neurologist)",
+      "Swallowing and voice concerns (pre-VNS baseline)"
+    ],
+    "rule_out_differentials": [
+      "Psychogenic non-epileptic seizures (PNES) — must be excluded by video-EEG telemetry before implant",
+      "Syncope and cardiac arrhythmia (Holter monitor if indicated)",
+      "Non-epileptic movement disorders (paroxysmal dyskinesias, tremor)",
+      "Parasomnias (NREM arousal disorders in nocturnal presentations)",
+      "Metabolic seizures (hypoglycaemia — check HbA1c and glucose in all patients)"
+    ],
+    "comorbidity_screen": [
+      "Depression: NDDI-E (Neurological Disorders Depression Inventory for Epilepsy) — validated screening tool for epilepsy patients",
+      "Anxiety: GAD-7",
+      "Cognitive function: MoCA or neuropsychological testing battery",
+      "Sleep quality: PSQI or Epworth Sleepiness Scale",
+      "Quality of life: QOLIE-31 (Quality of Life in Epilepsy — 31 item)"
+    ],
+    "prior_treatment_required": [
+      "Failure of ≥2 AEDs (ILAE definition — must be documented)",
+      "Referral to comprehensive epilepsy programme or epilepsy surgery evaluation",
+      "Surgical evaluation outcome (resection/ablation considered and either rejected or failed)",
+      "Dietary therapy considered (ketogenic diet where appropriate, particularly paediatric)"
+    ],
+    "special_population_flags": [
+      {
+        "population": "Paediatric (4–17 years)",
+        "additional_requirements": [
+          "VNS FDA-approved for ≥4 years; ANT-DBS approved for adults — paediatric DBS requires specialist centre ethics review",
+          "Paediatric epileptologist and paediatric neurosurgeon in multidisciplinary team",
+          "Caregiver authorisation required for all procedures and programming",
+          "Developmental and cognitive assessment at baseline",
+          "School liaison and educational support plan documentation"
+        ]
+      },
+      {
+        "population": "Female patients of childbearing age",
+        "additional_requirements": [
+          "Pregnancy planning discussion — teratogenic risk of AEDs; VNS is not a contraindication in pregnancy",
+          "Catamenial epilepsy assessment (perimenstrual seizure exacerbation pattern)",
+          "Contraception documentation if on teratogenic AEDs (valproate, phenytoin)"
+        ]
+      },
+      {
+        "population": "Patients with intellectual disability",
+        "additional_requirements": [
+          "Capacity assessment for consent (supported decision-making or caregiver/legal proxy)",
+          "Simplified seizure monitoring tools for carers",
+          "Additional behavioural monitoring post-device activation"
+        ]
+      }
+    ]
+  },
+
+  "contraindications": {
+    "absolute": [
+      {
+        "condition": "Active cardiac arrhythmia or significant bradycardia (for VNS)",
+        "rationale": "VNS stimulates the left vagus nerve which has direct cardiac innervation. Can precipitate asystole, heart block, or VF in patients with pre-existing arrhythmias."
+      },
+      {
+        "condition": "Bilateral or left vagotomy (for VNS)",
+        "rationale": "VNS relies on intact left vagus nerve. Prior vagotomy renders the procedure ineffective and surgical anatomy is altered."
+      },
+      {
+        "condition": "Confirmed psychogenic non-epileptic seizures (PNES) without comorbid epilepsy",
+        "rationale": "Implantation of a device for non-epileptic events will not reduce events and exposes the patient to unnecessary surgical risk."
+      },
+      {
+        "condition": "Active haemostatic disorder or anticoagulation that cannot be bridged for surgery",
+        "rationale": "Implant surgery requires adequate haemostasis. Uncorrectable coagulopathy is an absolute surgical contraindication."
+      },
+      {
+        "condition": "No documented failure of ≥2 adequate AED trials (drug-resistance not established)",
+        "rationale": "Device therapy is indicated only when drug resistance is confirmed by ILAE criteria. Premature device implantation before adequate pharmacotherapy trials is not indicated."
+      }
+    ],
+    "relative": [
+      {
+        "condition": "Active major depression (NDDI-E ≥15 or PHQ-9 ≥15) without psychiatric treatment",
+        "rationale": "Severe untreated depression is associated with worse outcomes and increased suicide risk perioperatively.",
+        "mitigation": "Psychiatry referral and stabilisation of depression required before implant scheduling. Document risk-benefit discussion."
+      },
+      {
+        "condition": "Active psychosis",
+        "rationale": "Active psychotic symptoms complicate perioperative care and consent process. Some AEDs can worsen psychosis.",
+        "mitigation": "Psychiatry co-management required. Stabilise psychosis before proceeding. Document capacity assessment."
+      },
+      {
+        "condition": "Significant brain atrophy (MRI-confirmed generalised cortical atrophy)",
+        "rationale": "Significant atrophy may affect DBS lead placement precision and long-term efficacy.",
+        "mitigation": "Neurosurgical review of imaging. Consider VNS as alternative if DBS anatomy unfavourable."
+      },
+      {
+        "condition": "Prior neck surgery or radiation to left cervical region (for VNS)",
+        "rationale": "Scarring, altered anatomy, or radiation damage may complicate VNS electrode placement around left vagus nerve.",
+        "mitigation": "ENT/neurosurgery pre-operative assessment of neck anatomy. May require modified surgical approach."
+      },
+      {
+        "condition": "Obstructive sleep apnoea (moderate-severe)",
+        "rationale": "VNS stimulation during sleep can worsen upper airway obstruction in some patients.",
+        "mitigation": "Sleep study required. Consider CPAP treatment before VNS. Nocturnal VNS parameters may need adjustment."
+      }
+    ],
+    "special_populations": [
+      {
+        "population": "Children under 4 years",
+        "flag": "VNS FDA-approved from age 4; no approved device therapy for under-4s outside research protocols."
+      },
+      {
+        "population": "Patients with cardiac implantable devices (pacemaker, ICD)",
+        "flag": "VNS and DBS may interact with pacemakers and ICDs. Requires cardiology and device manufacturer consultation before implant."
+      }
+    ],
+    "modality_specific": {
+      "vns": [
+        "Cardiac arrhythmia requiring pacemaker or ICD — device interaction assessment required",
+        "Dysphagia or vocal cord paralysis — VNS can worsen symptoms; baseline ENT assessment required",
+        "Sleep apnoea — nocturnal stimulation may worsen upper airway obstruction; sleep study mandatory",
+        "Left cervical prior surgery or irradiation — altered anatomy; neurosurgical pre-assessment required"
+      ],
+      "dbs": [
+        "Significant brain atrophy — affects lead placement precision and DBS outcomes",
+        "Active psychiatric illness (psychosis, severe depression) — relative contraindication; stabilise first",
+        "Active anticoagulation — must be safely bridged for neurosurgery",
+        "Inability to tolerate MRI safety screening (MRI-conditional DBS systems are available; verify compatibility)",
+        "Lack of social support for post-operative care and programming attendance"
+      ],
+      "tms": [
+        "Any metallic cranial implant including DBS electrodes — absolute contraindication for rTMS",
+        "VNS device — check with device manufacturer before any rTMS near cervical/upper chest region",
+        "Active seizures without adequate safety monitoring — rTMS is experimental in epilepsy and carries seizure risk",
+        "Only at specialist centres with continuous EEG monitoring during rTMS sessions"
+      ]
+    }
+  },
+
+  "assessment_bundle": {
+    "screening": [
+      {
+        "assessment_id": "ASS-EPI-001",
+        "name": "NDDI-E",
+        "full_name": "Neurological Disorders Depression Inventory for Epilepsy",
+        "clinician_vs_patient": "Patient self-report",
+        "rationale": "6-item validated depression screener specifically designed for epilepsy patients. Score ≥15 suggests major depressive disorder with high sensitivity and specificity in epilepsy. Preferred over PHQ-9 in epilepsy as it controls for AED side effects that mimic depression.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 5,
+        "access": "Free",
+        "population": "Adult with epilepsy"
+      },
+      {
+        "assessment_id": "ASS-EPI-002",
+        "name": "QOLIE-31 (Screening)",
+        "full_name": "Quality of Life in Epilepsy — 31 Item Scale",
+        "clinician_vs_patient": "Patient self-report",
+        "rationale": "31-item validated QoL tool specific to epilepsy. Captures seizure worry, overall QoL, emotional wellbeing, energy, cognitive function, medication effects, and social function. Used at screening and as primary quality-of-life outcome.",
+        "lower_is_better": false,
+        "admin_duration_minutes": 15,
+        "access": "Free — RAND Corporation",
+        "population": "Adult with epilepsy"
+      }
+    ],
+    "diagnostic": [
+      {
+        "assessment_id": "ASS-EPI-003",
+        "name": "Seizure Diary (3-month prospective)",
+        "full_name": "Prospective Seizure Frequency and Severity Diary",
+        "clinician_vs_patient": "Patient self-report",
+        "rationale": "3-month prospective seizure diary establishes the primary outcome baseline (seizure frequency per 28 days). Required by ILAE guidelines and FDA for device trial endpoints. Captures seizure type, duration, time of day, postictal features, and precipitants.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 5,
+        "access": "Free (paper or app)",
+        "population": "All epilepsy"
+      },
+      {
+        "assessment_id": "ASS-EPI-004",
+        "name": "Video-EEG Telemetry Report",
+        "full_name": "Inpatient or Ambulatory Video-EEG Telemetry with Seizure Classification",
+        "clinician_vs_patient": "Clinician-rated",
+        "rationale": "Gold standard for confirming epileptic seizure type, excluding PNES, and localising epileptic focus for device therapy planning. Mandatory before ANT-DBS candidacy assessment. Ictal EEG pattern guides ANT-DBS vs VNS selection.",
+        "lower_is_better": false,
+        "admin_duration_minutes": 1440,
+        "access": "Specialist epilepsy centre",
+        "population": "All DRE candidates for device therapy"
+      }
+    ],
+    "baseline": [
+      {
+        "assessment_id": "ASS-EPI-003",
+        "name": "Seizure Frequency Baseline (28-day)",
+        "full_name": "Seizure Frequency per 28-Day Period — Baseline",
+        "clinician_vs_patient": "Patient self-report",
+        "rationale": "Primary outcome metric for device therapy in DRE. Expressed as number of seizures per 28-day period. Calculated from prospective diary. 50% reduction from baseline = responder status.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 5,
+        "access": "Free",
+        "population": "All"
+      },
+      {
+        "assessment_id": "ASS-EPI-002",
+        "name": "QOLIE-31 (Baseline)",
+        "full_name": "Quality of Life in Epilepsy — 31 Item — Baseline",
+        "clinician_vs_patient": "Patient self-report",
+        "rationale": "Secondary outcome baseline. Overall score 0–100 (higher = better QoL). Minimum clinically important difference (MCID) = 11 points total score.",
+        "lower_is_better": false,
+        "admin_duration_minutes": 15,
+        "access": "Free",
+        "population": "Adult"
+      },
+      {
+        "assessment_id": "ASS-EPI-001",
+        "name": "NDDI-E (Baseline)",
+        "full_name": "Neurological Disorders Depression Inventory for Epilepsy — Baseline",
+        "clinician_vs_patient": "Patient self-report",
+        "rationale": "Baseline depression status. Score ≥15 triggers psychiatry referral before implant. NDDI-E is also a secondary outcome measure as device therapy often improves mood.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 5,
+        "access": "Free",
+        "population": "Adult"
+      }
+    ],
+    "monitoring": [
+      {
+        "assessment_id": "ASS-EPI-003",
+        "name": "Seizure Diary (Ongoing — 28-day tallies)",
+        "full_name": "Ongoing Seizure Frequency Monitoring — 28-Day Counts",
+        "clinician_vs_patient": "Patient self-report",
+        "rationale": "Primary monitoring metric throughout device therapy. Seizure counts per 28-day period compared to baseline to calculate responder status. Reviewed at every programming visit.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 5,
+        "access": "Free",
+        "population": "All"
+      },
+      {
+        "assessment_id": "ASS-EPI-005",
+        "name": "AED Level Monitoring",
+        "full_name": "Antiepileptic Drug Serum Level Monitoring",
+        "clinician_vs_patient": "Clinician-rated",
+        "rationale": "AED blood levels must be monitored throughout device therapy to ensure therapeutic ranges are maintained and to detect drug-device interactions. Changes in seizure control should prompt AED level check.",
+        "lower_is_better": false,
+        "admin_duration_minutes": 10,
+        "access": "Clinical laboratory",
+        "population": "All"
+      },
+      {
+        "assessment_id": "ASS-EPI-006",
+        "name": "Device Programming Parameters Log",
+        "full_name": "Device Programming and Telemetry Review",
+        "clinician_vs_patient": "Clinician-rated",
+        "rationale": "VNS and DBS programming parameters must be logged at every visit. Includes current settings, impedance check, battery status, detected/treated events (AspireSR auto-stimulation log for VNS).",
+        "lower_is_better": false,
+        "admin_duration_minutes": 30,
+        "access": "Device programmer — manufacturer",
+        "population": "All device patients"
+      }
+    ],
+    "outcome": [
+      {
+        "assessment_id": "ASS-EPI-003",
+        "name": "Seizure Frequency (12-month outcome)",
+        "full_name": "Seizure Frequency Per 28-Day Period — 12-Month Outcome",
+        "clinician_vs_patient": "Patient self-report",
+        "rationale": "Primary outcome measure at 12 months. Responder = ≥50% reduction from baseline seizure frequency. SANTE trial used this metric at 12 months (responder rate 69%). VNS responder rates: ~50% at 1 year, ~70% at 5 years.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 5,
+        "access": "Free",
+        "population": "All"
+      },
+      {
+        "assessment_id": "ASS-EPI-002",
+        "name": "QOLIE-31 (End of Year 1)",
+        "full_name": "Quality of Life in Epilepsy — 12-Month Outcome",
+        "clinician_vs_patient": "Patient self-report",
+        "rationale": "Secondary outcome. Clinically meaningful improvement = ≥11 point increase. QoL improvement often lags seizure reduction by 6–12 months.",
+        "lower_is_better": false,
+        "admin_duration_minutes": 15,
+        "access": "Free",
+        "population": "Adult"
+      }
+    ],
+    "neurophysiological": [
+      {
+        "assessment_id": "ASS-EPI-007",
+        "name": "Routine EEG (post-implant)",
+        "full_name": "Routine Interictal EEG — Post-Device Activation",
+        "clinician_vs_patient": "Clinician-rated",
+        "rationale": "Interictal EEG at 3 months post-activation provides objective measure of epileptiform discharge frequency and may predict long-term seizure control. Device artefact management required for ANT-DBS EEG acquisition.",
+        "lower_is_better": false,
+        "admin_duration_minutes": 30,
+        "access": "Specialist EEG laboratory",
+        "population": "All"
+      }
+    ],
+    "functional": [
+      {
+        "assessment_id": "ASS-EPI-002",
+        "name": "QOLIE-31 (Functional)",
+        "full_name": "Quality of Life in Epilepsy — 31 Item",
+        "clinician_vs_patient": "Patient self-report",
+        "rationale": "Captures the functional, social, and emotional impact of epilepsy and treatment. QOLIE-31 subscales include seizure worry, emotional wellbeing, energy/fatigue, cognitive function, medication effects, social function, and overall QoL.",
+        "lower_is_better": false,
+        "admin_duration_minutes": 15,
+        "access": "Free",
+        "population": "Adult"
+      }
+    ]
+  },
+
+  "protocol_bundle": [
+    {
+      "protocol_id": "PRO-VNS-EPI-01",
+      "name": "Implanted Vagus Nerve Stimulation (VNS) for Drug-Resistant Epilepsy",
+      "modality_slug": "vns",
+      "phenotype_id": "PHE-040",
+      "device_id": "DEV-VNS-001",
+      "on_label_vs_off_label": "On-label",
+      "evidence_grade": "EV-A",
+      "evidence_summary": "VNS therapy for drug-resistant epilepsy has FDA Pre-Market Approval (PMA) since 1997. Approved for adjunctive treatment of refractory partial-onset seizures in patients ≥4 years of age. Over 125,000 devices implanted worldwide. Meta-analyses report 50% seizure reduction in approximately 50% of patients at 1 year, increasing to ~70% at 3–5 years. VNS also reduces seizure severity and SUDEP risk. AspireSR and SenTiva models include closed-loop auto-stimulation triggered by heart rate increase during seizures. No seizure type exclusion — effective across focal and generalised DRE.",
+      "references": [
+        "Ben-Menachem E et al. (1994). VNS Study Group. Vagus Nerve Stimulation for Treatment of Partial Seizures. Epilepsia, 35(3), 616–626.",
+        "Englot DJ et al. (2016). Rates and Predictors of Seizure Freedom With Vagus Nerve Stimulation for Intractable Epilepsy. Neurosurgery, 79(3), 345–353.",
+        "Ryvlin P et al. (2014). Long-term Outcomes of Vagus Nerve Stimulation. Epilepsia, 55(S1), 1–10."
+      ],
+      "brain_target": {
+        "region": "Left Vagus Nerve → Nucleus Tractus Solitarius → Thalamus / Cortex",
+        "laterality": "Left",
+        "eeg_position": "N/A",
+        "effect_direction": "Inhibitory"
+      },
+      "parameters": {
+        "frequency_hz": "30 Hz (standard cycling); 100 Hz (AspireSR auto-stimulation burst)",
+        "intensity": "1.5 mA starting dose; titrate by 0.25 mA every 2–4 weeks to target 2.0–3.5 mA",
+        "additional_params": {
+          "pulse_width": "500 µs",
+          "duty_cycle": "30 seconds ON / 5 minutes OFF (standard cycling)",
+          "magnet_mode": "60 seconds ON at 1.5× normal current — patient/carer activated for acute seizure",
+          "auto_stimulation": "AspireSR/SenTiva: triggered by ≥20% heart rate increase (ictal tachycardia detection)",
+          "titration_schedule": "Start 1.5 mA; increase 0.25 mA at each programming visit; target therapeutic range 2.0–3.5 mA over 6–12 months"
+        }
+      },
+      "session_structure": {
+        "sessions_per_week": 1,
+        "session_duration_minutes": 30,
+        "total_sessions": 24,
+        "total_weeks": 104,
+        "maintenance_sessions": "Lifelong device monitoring — 3–6 monthly programming visits once optimal settings achieved; battery replacement every 5–10 years",
+        "steps": [
+          { "order": 1, "title": "Surgical implantation (Stage 1 — neurosurgery/ENT)", "duration_minutes": 90, "detail": "General anaesthesia. Left cervical incision for vagus nerve electrode placement. Subclavicular pocket for pulse generator (IPG). Left helical electrode coiled around left vagus nerve in carotid sheath. IPG connected via subcutaneous lead. Wound closure. Post-operative overnight observation." },
+          { "order": 2, "title": "Post-implant healing period (2 weeks)", "duration_minutes": 0, "detail": "Device inactive for 2 weeks post-surgery to allow wound healing and reduce infection risk. Patient discharged with wound care instructions." },
+          { "order": 3, "title": "Initial programming visit (Week 2)", "duration_minutes": 30, "detail": "Device activation at conservative initial settings (0.25 mA, 30 Hz, 500 µs, 30s ON/5 min OFF). Impedance check of electrodes. Patient and carer magnet training. Written stimulation schedule provided." },
+          { "order": 4, "title": "Titration programming visit (every 2–4 weeks)", "duration_minutes": 30, "detail": "Review seizure diary. Check device telemetry (impedance, battery, auto-stimulation events on AspireSR). Increase current by 0.25 mA if tolerated. Assess voice changes, cough, dysphagia. Adjust duty cycle if needed. Provide updated programme record." },
+          { "order": 5, "title": "Maintenance programming visit (every 3–6 months once optimal)", "duration_minutes": 30, "detail": "Review 28-day seizure counts, QOLIE-31, NDDI-E. Battery status check. Impedance check. AED review with neurology. Log device data download." }
+        ]
+      },
+      "monitoring_required": [
+        "Seizure diary (28-day counts) at every visit",
+        "Device telemetry download at every programming visit",
+        "Electrode impedance check at every visit",
+        "Battery voltage monitoring — alert at 6 months before depletion",
+        "QOLIE-31 at 6 months and 12 months",
+        "NDDI-E at baseline and 6 months",
+        "Voice and swallowing assessment at each visit (VNS side effects)",
+        "AED serum levels at 3 months post-activation and annually"
+      ],
+      "contraindication_check_required": true,
+      "adverse_event_monitoring": "Common (expected): Voice alteration/hoarseness during stimulation pulse (50–60% — usually resolves), cough, throat tingling, dysphagia during ON cycle (usually transient). Uncommon: worsening sleep apnoea (refer to sleep study), Horner's syndrome (rare — surgical complication). Serious: infection at wound site (requires antibiotics or revision surgery), lead fracture (device malfunction alert), asystole during implantation (rare — anaesthesia team prepared). All AEs logged in device and clinical record.",
+      "escalation_rules": [
+        "Seizure frequency increase >50% over 2 consecutive 28-day periods: urgent neurology review; consider AED optimisation and programming adjustment",
+        "Status epilepticus or increased SUDEP risk indicators: emergency neurology referral; consider magnet mode optimisation",
+        "Voice changes persisting >3 months or severe dysphagia: reduce stimulation current or widen OFF cycle; ENT referral",
+        "Device malfunction alert (lead fracture, IPG fault): urgent reprogramming; manufacturer escalation; surgical revision if required",
+        "Wound infection (redness, swelling, fever): antibiotics; surgical team assessment; explantation if device-related infection confirmed",
+        "NDDI-E ≥15 at any monitoring visit: urgent psychiatry referral; do not delay implant unnecessarily but ensure psychiatric co-management"
+      ],
+      "patient_facing_allowed": true,
+      "clinician_review_required": true,
+      "governance": {
+        "patient_export_allowed": true,
+        "requires_clinician_sign_off": true,
+        "off_label_acknowledgement_required": false,
+        "dual_review_required": true,
+        "notes": "EV-A, FDA PMA approved since 1997. On-label. Clinician sign-off and dual review required due to surgical nature. Multidisciplinary team (neurology, neurosurgery/ENT, neuropsychology) sign-off required before proceeding."
+      },
+      "notes": "VNS is the most widely used device therapy for DRE. Over 125,000 implants worldwide. Best evidence for focal-onset epilepsy but effective across seizure types. Response is gradual — patients should be counselled that maximum benefit may not be seen until 2–3 years post-implantation. Magnet therapy provides important on-demand acute seizure management. AspireSR closed-loop auto-stimulation on heart rate rise is the current standard of care device."
+    },
+    {
+      "protocol_id": "PRO-DBS-EPI-01",
+      "name": "Anterior Nucleus of Thalamus DBS (ANT-DBS) for Drug-Resistant Focal Epilepsy",
+      "modality_slug": "dbs",
+      "phenotype_id": "PHE-040",
+      "device_id": "DEV-DBS-EPI-001",
+      "on_label_vs_off_label": "On-label",
+      "evidence_grade": "EV-A",
+      "evidence_summary": "ANT-DBS FDA approved November 2018 for adjunctive therapy in adults (≥18 years) with drug-resistant focal epilepsy. Approval based on the SANTE (Stimulation of the Anterior Nucleus of the Thalamus for Epilepsy) randomised controlled trial. SANTE: 110 patients, double-blind phase showed 40.4% median seizure reduction in the stimulated group vs 14.5% in controls (p=0.002). At 5 years, 68% responder rate (≥50% reduction), 16% seizure-free. Most effective for temporal lobe and frontal lobe epilepsy. Medtronic Percept RC is the approved system with LFP sensing capability.",
+      "references": [
+        "Fisher R et al. (2010). Electrical Stimulation of the Anterior Nucleus of Thalamus for Treatment of Refractory Epilepsy. Epilepsia, 51(5), 899–908. [SANTE Trial]",
+        "Salanova V et al. (2015). Long-term Efficacy and Safety of Thalamic Stimulation for Drug-Resistant Partial Epilepsy. Neurology, 84(10), 1017–1025. [SANTE 5-year]"
+      ],
+      "brain_target": {
+        "region": "Anterior Nucleus of Thalamus (ANT)",
+        "laterality": "Bilateral",
+        "eeg_position": "N/A",
+        "effect_direction": "Inhibitory"
+      },
+      "parameters": {
+        "frequency_hz": "145 Hz",
+        "intensity": "5V (typical starting; adjust 3–8V range based on response and tolerance)",
+        "additional_params": {
+          "pulse_width": "90 µs",
+          "stimulation_mode": "Cyclic: 1 minute ON / 5 minutes OFF (SANTE protocol)",
+          "electrode_configuration": "Bilateral ANT leads — Medtronic Percept RC; MRI-guided stereotactic placement",
+          "sensing": "LFP sensing enabled on Percept RC; beta/theta band monitoring for future adaptive capability",
+          "programming_timeline": "Initial activation 4 weeks post-surgery; titration every 4–12 weeks as needed"
+        }
+      },
+      "session_structure": {
+        "sessions_per_week": 1,
+        "session_duration_minutes": 60,
+        "total_sessions": 16,
+        "total_weeks": 104,
+        "maintenance_sessions": "Lifelong — 3–6 monthly programming and neurological review visits; battery replacement every 3–5 years (rechargeable options available)",
+        "steps": [
+          { "order": 1, "title": "Pre-surgical evaluation (MDT)", "duration_minutes": 480, "detail": "Multi-day epilepsy surgery evaluation including: neuroimaging (MRI brain, FDG-PET, ictal SPECT if indicated), video-EEG telemetry for seizure mapping, neuropsychological testing, psychiatry assessment, anaesthesia review. MDT meeting to confirm candidacy." },
+          { "order": 2, "title": "Stereotactic ANT-DBS implantation (neurosurgery)", "duration_minutes": 360, "detail": "General anaesthesia. Stereotactic frame or frameless navigation. MRI or CT-guided bilateral ANT targeting using coordinates (AC-PC based). Bilateral burr holes. Lead insertion under neurophysiological monitoring. IPG implantation (subclavicular or abdominal). Intraoperative X-ray confirmation. Typically 2–3 night hospital stay." },
+          { "order": 3, "title": "Post-operative recovery (4 weeks inactive)", "duration_minutes": 0, "detail": "Device inactive for 4 weeks post-surgery. Wound healing. Perioperative AEDs continued. Post-operative MRI to confirm lead position." },
+          { "order": 4, "title": "Initial DBS programming (Week 4)", "duration_minutes": 60, "detail": "Device activation at conservative parameters (3V, 145 Hz, 90 µs, cyclic). Impedance check all contacts. Assess for stimulation-related side effects (paraesthesia, light flashes — titrate to avoid). Provide seizure diary instructions. Written programming record." },
+          { "order": 5, "title": "Titration programming visits (every 4–12 weeks)", "duration_minutes": 60, "detail": "Review 28-day seizure diary. Device telemetry download (Percept LFP data). Adjust voltage/contact configuration based on response. Target therapeutic window with minimal side effects. Coordinate with AED adjustments if indicated." },
+          { "order": 6, "title": "Maintenance review (3–6 monthly)", "duration_minutes": 60, "detail": "Annual neurological and neuropsychological review. QOLIE-31 and NDDI-E. Battery status. EEG if clinically indicated. Long-term AED management with neurology." }
+        ]
+      },
+      "monitoring_required": [
+        "Seizure diary (28-day counts) at every visit",
+        "Device telemetry and LFP data download (Percept RC) at every programming visit",
+        "Post-operative MRI to confirm bilateral ANT lead placement",
+        "Neuropsychological assessment at 12 months (SANTE protocol standard)",
+        "QOLIE-31 at 6 and 12 months",
+        "NDDI-E at baseline, 6 months, and annually",
+        "Depression monitoring — ANT-DBS has association with depression and memory effects",
+        "Battery voltage and impedance at every visit"
+      ],
+      "contraindication_check_required": true,
+      "adverse_event_monitoring": "Surgical risks: infection, haemorrhage (~1%), lead displacement. Stimulation side effects: subjective memory impairment (reported in SANTE — typically manageable), paraesthesia, visual phosphenes at high voltages, depression risk (monitor NDDI-E). Hardware: lead fracture, IPG malfunction, battery depletion. Psychiatric: SANTE trial reported increased depression and memory complaints in DBS arm — psychiatric co-monitoring required. Report all serious AEs to Medtronic and regulatory authority.",
+      "escalation_rules": [
+        "Seizure frequency increase >50% or new seizure type: urgent reprogramming and neurology review; consider AED optimisation",
+        "New-onset depression (NDDI-E ≥15): urgent psychiatry co-management; programming review",
+        "Neuropsychological decline >1.5 SD on memory measures at 12 months: programming review; consider voltage reduction",
+        "Device infection (erythema, warmth, discharge): surgical team assessment; antibiotics; explantation if confirmed hardware infection",
+        "Status epilepticus: emergency neurology and ICU; consider temporary DBS parameter change"
+      ],
+      "patient_facing_allowed": true,
+      "clinician_review_required": true,
+      "governance": {
+        "patient_export_allowed": true,
+        "requires_clinician_sign_off": true,
+        "off_label_acknowledgement_required": false,
+        "dual_review_required": true,
+        "notes": "EV-A, FDA approved November 2018. On-label for adults ≥18 with drug-resistant focal epilepsy. Medtronic Percept RC approved system. Multidisciplinary epilepsy surgery team sign-off required. SANTE protocol parameters apply."
+      },
+      "notes": "ANT-DBS is the second FDA-approved device for DRE after VNS. Best evidence for temporal and frontal lobe epilepsy. Requires comprehensive epilepsy programme with video-EEG telemetry capability. Device programming is highly specialised — requires trained DBS neurologist/neurosurgeon. Long-term psychiatric monitoring (depression) is a clinical requirement based on SANTE data."
+    },
+    {
+      "protocol_id": "PRO-TMS-EPI-01",
+      "name": "Low-Frequency rTMS over Epileptic Focus (Investigational — Specialist Centres Only)",
+      "modality_slug": "tms",
+      "phenotype_id": "PHE-040",
+      "on_label_vs_off_label": "Investigational",
+      "evidence_grade": "EV-C",
+      "evidence_summary": "Low-frequency (0.5–1 Hz) rTMS applied over the epileptic focus has been investigated as a non-invasive seizure-reducing intervention. Multiple small studies (Cantello et al., 2007; Sun et al., 2011; Misawa et al., 2005) report short-term reductions in seizure frequency and interictal epileptiform discharge (IED) frequency. Effect sizes are small and durability is limited (weeks). No FDA clearance or guideline recommendation. Considered experimental. Must be performed with continuous EEG monitoring at specialist epilepsy centres only. Not for routine clinical use.",
+      "references": [
+        "Cantello R et al. (2007). Slow Repetitive TMS and Drug-Resistant Epilepsy. Epilepsia, 48(2), 366–374.",
+        "Sun W et al. (2011). Low-Frequency Repetitive Transcranial Magnetic Stimulation for the Treatment of Refractory Partial Epilepsy. Clinical EEG and Neuroscience, 42(3), 190–195.",
+        "Bae EH et al. (2007). Evaluation of Efficacy and Safety of Repetitive Transcranial Magnetic Stimulation in Patients with Refractory Epilepsy. Seizure, 16(4), 309–316."
+      ],
+      "brain_target": {
+        "region": "Cortical Epileptic Focus (neuronavigation-guided)",
+        "laterality": "Left",
+        "eeg_position": "Variable — guided by ictal EEG/imaging",
+        "effect_direction": "Inhibitory"
+      },
+      "parameters": {
+        "frequency_hz": "0.5–1 Hz (inhibitory low-frequency rTMS)",
+        "intensity": "90–100% resting motor threshold (rMT)",
+        "pulse_count": "500–1000 pulses per session",
+        "coil_type": "Figure-8 coil (70 mm); neuronavigation-guided targeting",
+        "electrode_placement": "Over epileptic cortical focus — guided by MRI/ictal EEG co-registration and neuronavigation"
+      },
+      "session_structure": {
+        "sessions_per_week": 5,
+        "session_duration_minutes": 30,
+        "total_sessions": 10,
+        "total_weeks": 2,
+        "maintenance_sessions": "Not established — repeat course only in confirmed responders with approved research protocol",
+        "steps": [
+          { "order": 1, "title": "Full safety screening and EEG setup", "duration_minutes": 20, "detail": "TMS Safety Questionnaire. Confirm no metallic implants. EEG cap placement for continuous monitoring (minimum 21 channels). Baseline EEG recording with IED frequency count." },
+          { "order": 2, "title": "Motor threshold determination", "duration_minutes": 10, "detail": "Resting motor threshold via single-pulse TMS over contralateral motor cortex. Document rMT. Calculate treatment intensity." },
+          { "order": 3, "title": "Neuronavigation setup", "duration_minutes": 10, "detail": "Co-register patient MRI with navigation system. Identify epileptic focus from ictal EEG and imaging. Mark target. Confirm coil positioning." },
+          { "order": 4, "title": "rTMS delivery with continuous EEG monitoring", "duration_minutes": 20, "detail": "Deliver 0.5–1 Hz pulses at 90–100% rMT. EEG technician monitors continuously for ictal changes. Stop immediately if ictal pattern detected. Count IEDs during and post-stimulation." },
+          { "order": 5, "title": "Post-session monitoring", "duration_minutes": 20, "detail": "Continue EEG recording for 15 minutes post-stimulation. Patient observation for seizure occurrence. Record IED count post-stimulation vs pre-stimulation. Log any adverse events." }
+        ]
+      },
+      "monitoring_required": [
+        "Continuous EEG monitoring during every rTMS session (mandatory — 21-channel minimum)",
+        "Seizure diary for 7 days before and after each treatment block",
+        "Motor threshold re-determination if any AED change or ≥2 week break",
+        "AED serum levels at baseline and end of treatment block",
+        "Research ethics committee approval and informed research consent"
+      ],
+      "contraindication_check_required": true,
+      "adverse_event_monitoring": "Risk of seizure provocation is present with any TMS in epilepsy — continuous EEG monitoring is mandatory and non-negotiable. Headache at stimulation site (common). Syncope (rare). Any seizure during rTMS requires immediate cessation and emergency management. This protocol carries higher risk than standard TMS applications and must only be delivered by trained epilepsy/TMS specialists with full emergency protocols in place.",
+      "escalation_rules": [
+        "Seizure during or within 30 minutes of rTMS: immediately stop; emergency assessment; protocol suspended pending neurology review",
+        "Increased IED frequency on post-session EEG: stop protocol; review with neurologist; do not continue",
+        "Any new neurological symptom post-session: emergency assessment",
+        "No IED reduction after 5 sessions: consider discontinuation; discuss with research team"
+      ],
+      "patient_facing_allowed": false,
+      "clinician_review_required": true,
+      "governance": {
+        "patient_export_allowed": false,
+        "requires_clinician_sign_off": true,
+        "off_label_acknowledgement_required": true,
+        "dual_review_required": true,
+        "notes": "Investigational. EV-C. Not for routine clinical use. Requires ethics approval, research consent, and specialist epilepsy TMS programme. Continuous EEG monitoring is non-negotiable. This protocol should only be delivered as part of a formal clinical trial or approved specialist programme."
+      },
+      "notes": "This protocol is provided for specialist epilepsy centres running research programmes. It should not be used outside a formal research or approved specialist clinical framework. Evidence base is insufficient for routine clinical recommendation."
+    }
+  ],
+
+  "device_options": [
+    {
+      "device_id": "DEV-VNS-001",
+      "name": "LivaNova SenTiva (Model 1000)",
+      "manufacturer": "LivaNova (formerly Cyberonics)",
+      "modality_slug": "vns",
+      "regulatory_status": "FDA-cleared",
+      "cleared_indication": "Adjunctive therapy for reducing seizure frequency in patients ≥4 years with partial-onset seizures refractory to antiepileptic medications (FDA PMA P970003, 1997 — updated for SenTiva 2017)",
+      "use_setting": "Clinic",
+      "compatible_protocols": ["PRO-VNS-EPI-01"],
+      "constraints": [
+        "Implantable device — requires surgical implantation by trained neurosurgeon or ENT surgeon",
+        "MRI conditional: 1.5T whole body, 3T head only with specific conditions — review MRI guidelines before any MRI",
+        "Battery life approximately 5–10 years depending on settings; replacement surgery required",
+        "Magnet therapy requires patient/carer training before discharge"
+      ],
+      "notes": "Current generation VNS device with day/night mode, auto-stimulation (ictal tachycardia detection), and app connectivity. SenTiva is the most advanced LivaNova VNS model as of 2026."
+    },
+    {
+      "device_id": "DEV-VNS-002",
+      "name": "LivaNova AspireSR (Model 106)",
+      "manufacturer": "LivaNova",
+      "modality_slug": "vns",
+      "regulatory_status": "FDA-cleared",
+      "cleared_indication": "FDA PMA for DRE — closed-loop auto-stimulation on heart rate increase",
+      "use_setting": "Clinic",
+      "compatible_protocols": ["PRO-VNS-EPI-01"],
+      "constraints": [
+        "Auto-stimulation requires calibration of patient's ictal heart rate signature",
+        "MRI conditional — follow LivaNova MRI guidelines strictly",
+        "Older model than SenTiva; programming app differs"
+      ],
+      "notes": "AspireSR was first closed-loop VNS device. Still in wide use. Auto-stimulation based on ≥20% ictal heart rate rise is the key differentiator."
+    },
+    {
+      "device_id": "DEV-DBS-EPI-001",
+      "name": "Medtronic Percept RC with BrainSense",
+      "manufacturer": "Medtronic",
+      "modality_slug": "dbs",
+      "regulatory_status": "FDA-cleared",
+      "cleared_indication": "FDA approved for bilateral ANT-DBS in adults (≥18) with drug-resistant focal epilepsy (P150031, approved 2018)",
+      "use_setting": "Clinic",
+      "compatible_protocols": ["PRO-DBS-EPI-01"],
+      "constraints": [
+        "Requires stereotactic neurosurgical implantation at comprehensive epilepsy centre",
+        "Multidisciplinary team (epileptologist, neurosurgeon, neuropsychologist) required",
+        "Rechargeable IPG — patient must charge device regularly (approximately every 15 days)",
+        "MRI conditional — 1.5T only with specific MRI conditions; check before any MRI"
+      ],
+      "notes": "Percept RC is the only FDA-approved DBS system for ANT-DBS in epilepsy. Includes LFP sensing (BrainSense) for future adaptive DBS capability. Programming requires Medtronic trained clinician programmer."
+    },
+    {
+      "device_id": "DEV-TMS-EPI-001",
+      "name": "Magstim Rapid² (with Neuronavigation)",
+      "manufacturer": "Magstim / Localite Neuronavigation",
+      "modality_slug": "tms",
+      "regulatory_status": "Investigational",
+      "cleared_indication": "TMS device FDA-cleared for MDD; epilepsy rTMS application is investigational",
+      "use_setting": "Clinic",
+      "compatible_protocols": ["PRO-TMS-EPI-01"],
+      "constraints": [
+        "Investigational use only — not cleared for epilepsy",
+        "Must be used with continuous EEG monitoring capability in the same room",
+        "Neuronavigation required for accurate targeting of epileptic focus",
+        "Emergency seizure management equipment must be present and functional",
+        "Specialist epilepsy TMS operator required (not standard TMS operator)"
+      ],
+      "notes": "Standard TMS device used in research settings for low-frequency epilepsy protocols. Continuous EEG monitoring is mandatory and non-negotiable for any epilepsy rTMS application."
+    }
+  ],
+
+  "brain_targets": [
+    {
+      "region": "Anterior Nucleus of Thalamus",
+      "abbreviation": "ANT",
+      "laterality": "Bilateral",
+      "rationale": "The ANT is the primary DBS target for DRE. It is a key node in the Papez circuit (hippocampus → fornix → mammillary bodies → ANT → cingulate cortex → entorhinal cortex → hippocampus), which is critical for seizure propagation in temporal lobe epilepsy. High-frequency cyclic ANT stimulation desynchronises this circuit and reduces seizure propagation. SANTE trial demonstrated efficacy across focal epilepsy types.",
+      "effect_direction": "Inhibitory",
+      "modalities": ["dbs"],
+      "eeg_position_10_20": "N/A",
+      "network": "Papez Circuit / Limbic Network",
+      "evidence_note": "Primary DBS target for DRE. FDA approved via SANTE trial. Bilateral implantation standard."
+    },
+    {
+      "region": "Left Vagus Nerve (Cervical)",
+      "abbreviation": "VN-L",
+      "laterality": "Left",
+      "rationale": "Left vagus nerve stimulation activates the nucleus tractus solitarius (NTS) in the brainstem, which projects to the thalamus, cortex, and limbic structures via the parabrachial nucleus and locus coeruleus. This pathway desynchronises cortical activity via noradrenergic, serotonergic, and GABAergic neurotransmission. The left vagus is targeted to minimise cardiac side effects (right vagus has greater cardiac innervation).",
+      "effect_direction": "Inhibitory",
+      "modalities": ["vns"],
+      "eeg_position_10_20": "N/A",
+      "network": "Brainstem-Thalamo-Cortical Desynchronisation Network",
+      "evidence_note": "VNS target. FDA PMA approved 1997. Over 125,000 implants worldwide."
+    },
+    {
+      "region": "Cortical Epileptic Focus (variable)",
+      "abbreviation": "EF",
+      "laterality": "Left",
+      "rationale": "For rTMS experimental protocols, the cortical epileptic focus identified by ictal EEG and neuroimaging is targeted with inhibitory low-frequency stimulation. The goal is to reduce cortical excitability at the seizure onset zone without altering healthy surrounding tissue. Neuronavigation is required to accurately target this anatomically variable region.",
+      "effect_direction": "Inhibitory",
+      "modalities": ["tms"],
+      "eeg_position_10_20": "Variable",
+      "network": "Epileptic Network (patient-specific)",
+      "evidence_note": "Investigational rTMS target. EV-C evidence only. Not for routine clinical use."
+    }
+  ],
+
+  "handbook_outputs": {
+    "clinician_handbook": {
+      "title": "Drug-Resistant Epilepsy — Clinician Handbook",
+      "audience": "Clinician",
+      "sections": [
+        {
+          "section_id": "CH-DRE-01",
+          "title": "Diagnostic Criteria and Candidacy Assessment",
+          "content": [
+            "DRE diagnosis requires documented failure of ≥2 adequate AED trials per ILAE 2010 definition (Kwan et al., Epilepsia 2010)",
+            "All patients require video-EEG telemetry, MRI brain (≥1.5T epilepsy protocol), and neuropsychological assessment before device therapy",
+            "Pre-surgical evaluation is mandatory — patients must be assessed for resective surgery before device therapy is offered",
+            "VNS is appropriate for focal or generalised DRE (≥4 years). ANT-DBS is approved for focal DRE in adults (≥18 years) only",
+            "Exclude PNES via video-EEG telemetry before any device implantation"
+          ]
+        },
+        {
+          "section_id": "CH-DRE-02",
+          "title": "Device Selection: VNS vs ANT-DBS",
+          "content": [
+            "VNS: suitable for focal and generalised epilepsy; lower surgical risk; approved from age 4; first-line device option in most centres",
+            "ANT-DBS: adults ≥18 with predominantly focal (temporal/frontal) DRE; superior responder rate at 5 years vs VNS in RCT data; higher surgical risk",
+            "Considerations for VNS: younger patients, generalised epilepsy, patient preference for less invasive approach, contraindication to intracranial surgery",
+            "Considerations for ANT-DBS: focal epilepsy localised to temporal/frontal network, failed VNS, patient can tolerate intracranial neurosurgery, comprehensive epilepsy programme available"
+          ]
+        },
+        {
+          "section_id": "CH-DRE-03",
+          "title": "VNS Programming Protocol",
+          "content": [
+            "Initial activation at 0.25 mA, 30 Hz, 500 µs, 30s ON / 5 min OFF",
+            "Increase current by 0.25 mA at each visit (every 2–4 weeks) targeting therapeutic range 2.0–3.5 mA",
+            "Magnet mode: 60 seconds at 1.5× cycling current for acute seizure — train patient and carers on magnet technique",
+            "AspireSR/SenTiva auto-stimulation: calibrate heart rate threshold; review auto-stimulation log at each visit",
+            "Voice alteration during ON cycle is expected and usually improves with time; reassure patient",
+            "Consider duty cycle adjustment if sleep apnoea worsens (day/night programming)"
+          ]
+        },
+        {
+          "section_id": "CH-DRE-04",
+          "title": "Outcome Assessment and Response Criteria",
+          "content": [
+            "Primary outcome: seizure frequency per 28-day period vs pre-implant baseline (from prospective diary)",
+            "Responder definition: ≥50% reduction in seizure frequency from baseline",
+            "Assess at 6, 12, and 24 months post-activation",
+            "QOLIE-31 and NDDI-E at 6 and 12 months",
+            "VNS non-responder at 12 months: review programming, consider parameter optimisation, discuss ANT-DBS if not previously implanted",
+            "ANT-DBS non-responder at 12 months: review lead position (post-operative imaging), optimise contact configuration, consider additional epilepsy surgery options"
+          ]
+        }
+      ]
+    },
+    "patient_guide": {
+      "title": "Understanding Your Epilepsy Device Therapy — Patient Guide",
+      "audience": "Patient",
+      "sections": [
+        {
+          "section_id": "PG-DRE-01",
+          "title": "What Is Drug-Resistant Epilepsy?",
+          "content": [
+            "Drug-resistant epilepsy means that seizures have not been controlled by medication alone despite trying at least two different epilepsy medicines at the right doses",
+            "This happens to about 1 in 3 people with epilepsy — it is not caused by anything you did wrong",
+            "Special brain devices can be implanted to help reduce your seizures when medicines have not worked well enough"
+          ]
+        },
+        {
+          "section_id": "PG-DRE-02",
+          "title": "How VNS Works",
+          "content": [
+            "VNS (Vagus Nerve Stimulation) is a small device — about the size of a matchbox — implanted under the skin near your collarbone",
+            "It sends gentle electrical pulses through a wire attached to the vagus nerve in your neck, up to your brain",
+            "These pulses help calm the electrical activity in your brain and reduce seizures",
+            "The device works automatically — you do not need to switch it on",
+            "You will be given a small magnet: if you feel a seizure starting, swiping the magnet over the device sends an extra pulse that may stop or shorten the seizure"
+          ]
+        },
+        {
+          "section_id": "PG-DRE-03",
+          "title": "What to Expect After Implantation",
+          "content": [
+            "The device is not switched on immediately — your team will activate it at your first programming appointment, usually 2 weeks after surgery",
+            "You will have regular visits every 2–4 weeks to gradually increase the stimulation — this is called titration",
+            "Most people notice a gradual reduction in seizures over 6–18 months",
+            "Common side effects: your voice may sound different or hoarse during the stimulation pulse (usually only during the 30-second ON cycle), a mild cough or tingling in the throat",
+            "Continue taking all your epilepsy medicines as prescribed unless your neurologist tells you otherwise"
+          ]
+        }
+      ]
+    },
+    "technician_sop": {
+      "title": "VNS and ANT-DBS Programming — Technician SOP",
+      "audience": "Clinician",
+      "sections": [
+        {
+          "section_id": "SOP-DRE-01",
+          "title": "VNS Programming Session — Technician Checklist",
+          "content": [
+            "Confirm patient identity and device type (LivaNova SenTiva or AspireSR) using device identification card",
+            "Connect programming wand (VNS Therapy Programming System) to patient's device",
+            "Download device telemetry: impedance measurements, auto-stimulation event log (AspireSR), battery level",
+            "Review previous seizure diary with patient before any parameter changes",
+            "Any parameter change requires supervising neurologist sign-off",
+            "After programming, confirm new parameters are active by interrogating device",
+            "Provide written record of new settings to patient",
+            "Record all changes and device data in clinic notes"
+          ]
+        },
+        {
+          "section_id": "SOP-DRE-02",
+          "title": "Emergency Procedures — Seizure During Clinic Visit",
+          "content": [
+            "If patient has a seizure during VNS programming: apply magnet to device to deliver extra stimulation burst",
+            "Position patient safely — do not restrain; protect head from injury",
+            "Time the seizure",
+            "Call emergency services if seizure exceeds 5 minutes (status epilepticus threshold) or patient does not recover",
+            "Do not insert anything into the patient's mouth",
+            "Document seizure type, duration, and postictal state in clinical record",
+            "Notify neurologist before patient leaves clinic"
+          ]
+        }
+      ]
+    }
+  },
+
+  "monitoring_rules": {
+    "assessment_schedule": [
+      {
+        "assessment_id": "ASS-EPI-003",
+        "assessment_name": "Seizure Diary (28-day)",
+        "timing": "Every programming visit (from 2 weeks post-activation)",
+        "frequency": "Continuous patient diary; reviewed at every visit",
+        "administered_by": "Patient self-report"
+      },
+      {
+        "assessment_id": "ASS-EPI-006",
+        "assessment_name": "Device Programming and Telemetry Review",
+        "timing": "Every programming/monitoring visit",
+        "frequency": "Every 2–4 weeks during titration; every 3–6 months maintenance",
+        "administered_by": "Clinician-rated"
+      },
+      {
+        "assessment_id": "ASS-EPI-002",
+        "assessment_name": "QOLIE-31",
+        "timing": "6 months and 12 months post-activation",
+        "frequency": "6-monthly",
+        "administered_by": "Patient self-report"
+      },
+      {
+        "assessment_id": "ASS-EPI-001",
+        "assessment_name": "NDDI-E",
+        "timing": "Baseline, 6 months, 12 months, and annually thereafter",
+        "frequency": "6-monthly in first year; annually thereafter",
+        "administered_by": "Patient self-report"
+      },
+      {
+        "assessment_id": "ASS-EPI-005",
+        "assessment_name": "AED Serum Levels",
+        "timing": "3 months post-activation and annually (or with any seizure control change)",
+        "frequency": "Annually minimum; more often if seizure control changes",
+        "administered_by": "Clinician-rated"
+      }
+    ],
+    "response_thresholds": [
+      {
+        "assessment_id": "ASS-EPI-003",
+        "assessment_name": "Seizure Frequency (28-day count)",
+        "lower_is_better": true,
+        "response_threshold": "≥50% reduction from baseline 28-day count (responder definition — standard for DRE device trials)",
+        "remission_threshold": "Zero seizures for ≥12 consecutive months",
+        "non_response_threshold": "<25% reduction from baseline at 12 months — review programming and AED management",
+        "deterioration_threshold": ">50% increase from baseline seizure frequency or new seizure type — urgent neurology review"
+      },
+      {
+        "assessment_id": "ASS-EPI-002",
+        "assessment_name": "QOLIE-31",
+        "lower_is_better": false,
+        "response_threshold": "≥11 point increase in total score from baseline (MCID)",
+        "remission_threshold": "Total score ≥75 (high QoL)",
+        "non_response_threshold": "<5 point improvement at 12 months despite seizure reduction — assess for mood or cognitive contributors",
+        "deterioration_threshold": "≥10 point decrease from best score — urgent review for depression, cognitive decline, or device issues"
+      },
+      {
+        "assessment_id": "ASS-EPI-001",
+        "assessment_name": "NDDI-E",
+        "lower_is_better": true,
+        "response_threshold": "Score reduction below threshold (<15) with treatment",
+        "remission_threshold": "Score <7 (no significant depressive symptoms)",
+        "non_response_threshold": "Score remains ≥15 at 6 months — escalate psychiatry involvement",
+        "deterioration_threshold": "Score ≥15 at any visit if previously controlled — urgent psychiatry referral"
+      }
+    ],
+    "adverse_event_triggers": [
+      {
+        "event_type": "Status epilepticus",
+        "severity": "Serious",
+        "action": "Emergency — activate emergency services; administer rescue medication (midazolam per patient's emergency plan); contact on-call neurologist; document and report serious AE to device manufacturer and regulatory authority",
+        "suspend_treatment": false
+      },
+      {
+        "event_type": "Device infection (surgical site or hardware)",
+        "severity": "Serious",
+        "action": "Antibiotics immediately; surgical team assessment within 24 hours; explantation if hardware infection confirmed; report to manufacturer",
+        "suspend_treatment": true
+      },
+      {
+        "event_type": "Cardiac arrhythmia during VNS (asystole, VF)",
+        "severity": "Serious",
+        "action": "Immediately deactivate VNS (wand or magnet to cycle off); call emergency services; cardiology emergency; report to LivaNova; permanent programming review",
+        "suspend_treatment": true
+      },
+      {
+        "event_type": "Voice change or severe hoarseness (persisting >3 months)",
+        "severity": "Moderate",
+        "action": "Reduce stimulation current by 0.25 mA; widen OFF cycle; ENT assessment; do not increase until resolved",
+        "suspend_treatment": false
+      },
+      {
+        "event_type": "New onset depression (NDDI-E ≥15)",
+        "severity": "Moderate",
+        "action": "Urgent psychiatry referral; antidepressant consideration; DBS programming review if ANT-DBS patient; do not delay psychiatric treatment",
+        "suspend_treatment": false
+      }
+    ],
+    "escalation_rules": [
+      {
+        "trigger": "Seizure frequency increase >50% over 2 consecutive 28-day periods",
+        "action": "Urgent neurology review; device telemetry check; AED level review; programming adjustment",
+        "urgency": "Urgent"
+      },
+      {
+        "trigger": "Status epilepticus or prolonged seizure cluster",
+        "action": "Emergency services; ICU neurology; emergency programming if DBS; VNS magnet activation",
+        "urgency": "Emergency"
+      },
+      {
+        "trigger": "Device malfunction alert (impedance out of range, lead fault)",
+        "action": "Urgent device manufacturer contact; neurosurgical assessment; imaging to check lead position",
+        "urgency": "Urgent"
+      },
+      {
+        "trigger": "NDDI-E ≥15 or active suicidal ideation",
+        "action": "Same-day psychiatry referral; safety planning; contact neurologist",
+        "urgency": "Urgent"
+      },
+      {
+        "trigger": "Battery depletion warning (<6 months remaining)",
+        "action": "Schedule battery replacement surgery; patient counselled on importance of timely replacement",
+        "urgency": "Routine"
+      }
+    ],
+    "adherence_rules": {
+      "minimum_session_adherence_pct": 80,
+      "consecutive_missed_sessions_flag": 2,
+      "action_on_low_adherence": "Contact patient to identify barriers; facilitate transport or telehealth programming where possible; document in record"
+    }
+  },
+
+  "report_templates": [
+    {
+      "id": "RPT-DRE-01",
+      "name": "DRE Device Therapy — Intake and Candidacy Summary",
+      "report_type": "intake-summary",
+      "audience": "Referring Physician",
+      "frequency": "Once — at candidacy assessment",
+      "sections": [
+        {
+          "section_id": "RPT-DRE-01-A",
+          "title": "Epilepsy Diagnosis and Drug-Resistance Confirmation",
+          "auto_populate_from": ["diagnosis", "seizure_type", "aed_trial_history", "ilae_dr_status"],
+          "clinician_narrative_prompt": "Summarise the patient's epilepsy history, seizure type classification, and document the AED trials that establish drug-resistant status per ILAE 2010 criteria.",
+          "required": true
+        },
+        {
+          "section_id": "RPT-DRE-01-B",
+          "title": "Pre-Surgical Evaluation Outcome",
+          "auto_populate_from": ["video_eeg_report", "mri_report", "surgical_evaluation_outcome"],
+          "clinician_narrative_prompt": "Describe the outcome of the presurgical evaluation — was resective surgery offered? If rejected or not applicable, document the reasoning. Confirm exclusion of PNES.",
+          "required": true
+        },
+        {
+          "section_id": "RPT-DRE-01-C",
+          "title": "Device Recommendation and Rationale",
+          "auto_populate_from": ["recommended_device", "protocol_id", "contraindications_screened"],
+          "clinician_narrative_prompt": "State the recommended device (VNS or ANT-DBS), the clinical rationale for selection, and confirm all contraindications have been screened and cleared.",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "RPT-DRE-02",
+      "name": "DRE Device Therapy — 12-Month Progress Report",
+      "report_type": "progress-report",
+      "audience": "Referring Physician",
+      "frequency": "Annually from device activation",
+      "sections": [
+        {
+          "section_id": "RPT-DRE-02-A",
+          "title": "Seizure Frequency Response",
+          "auto_populate_from": ["seizure_diary_baseline", "seizure_diary_current_period", "responder_status"],
+          "clinician_narrative_prompt": "Compare current 28-day seizure frequency to pre-implant baseline. State responder status (≥50% reduction). Describe any changes in seizure type or severity.",
+          "required": true
+        },
+        {
+          "section_id": "RPT-DRE-02-B",
+          "title": "Device Status and Current Settings",
+          "auto_populate_from": ["device_id", "current_programming_parameters", "battery_status", "impedance"],
+          "clinician_narrative_prompt": "Document current device parameters, battery status, impedance readings, and any programming changes made in the reporting period.",
+          "required": true
+        },
+        {
+          "section_id": "RPT-DRE-02-C",
+          "title": "Quality of Life and Mood",
+          "auto_populate_from": ["qolie_31_score", "nddi_e_score"],
+          "clinician_narrative_prompt": "Report QOLIE-31 and NDDI-E scores vs baseline. Describe any ongoing mood or cognitive concerns and current management.",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "RPT-DRE-03",
+      "name": "Adverse Event Report — DRE Device Complication",
+      "report_type": "adverse-event-report",
+      "audience": "Internal",
+      "frequency": "As required — immediately on serious AE",
+      "sections": [
+        {
+          "section_id": "RPT-DRE-03-A",
+          "title": "Adverse Event Description",
+          "auto_populate_from": ["event_date", "event_type", "severity", "device_id", "current_parameters"],
+          "clinician_narrative_prompt": "Describe the adverse event in full — onset, nature, severity, relationship to device therapy, and immediate actions taken.",
+          "required": true
+        },
+        {
+          "section_id": "RPT-DRE-03-B",
+          "title": "Management and Outcome",
+          "auto_populate_from": ["treatment_given", "device_status_after_event"],
+          "clinician_narrative_prompt": "Describe the management steps taken, device status post-event, and patient outcome. State whether device was suspended and any further actions planned.",
+          "required": true
+        }
+      ]
+    }
+  ],
+
+  "home_program_templates": [
+    {
+      "id": "HPT-DRE-01",
+      "name": "VNS Magnet Therapy — Patient Home Protocol",
+      "modality_slug": "vns",
+      "device_required": "LivaNova VNS magnet (provided at discharge)",
+      "prerequisite_clinic_sessions": 1,
+      "sessions_per_week": 0,
+      "session_duration_minutes": 1,
+      "total_weeks": 0,
+      "patient_instructions": [
+        "Carry your VNS magnet with you at all times (wrist band, keyring, or pocket)",
+        "If you feel a seizure starting, or a carer notices signs of a seizure, immediately swipe the magnet slowly over your device (left collarbone area)",
+        "A slow swipe (taking about 1 second) activates the magnet mode — an extra stimulation burst",
+        "You can swipe again after 60 seconds if the seizure has not stopped",
+        "Do not hold the magnet over the device continuously — this will turn it off",
+        "Carers should know where the magnet is kept and how to use it at all times",
+        "Keep a seizure diary — record every seizure including date, time, type, and duration",
+        "Continue all prescribed epilepsy medications exactly as directed"
+      ],
+      "safety_checklist": [
+        "I have my VNS magnet with me",
+        "My emergency contacts and carers know how to use the magnet",
+        "I have my seizure diary available",
+        "I have taken my epilepsy medications as prescribed",
+        "I know to call emergency services if a seizure lasts more than 5 minutes"
+      ],
+      "reporting_requirements": [
+        "Record every seizure in the diary: date, time, type, duration, postictal features",
+        "Note each magnet use — did it appear to help?",
+        "Bring the diary to every clinic visit",
+        "Contact the clinic if seizure frequency increases significantly or a new seizure type occurs"
+      ],
+      "contraindications_for_home": [
+        "Do not attempt to adjust device settings at home — programming is done at the clinic only",
+        "Do not apply the magnet over the device if you are not sure whether you have a VNS or pacemaker",
+        "Contact the clinic immediately if you notice wound redness, pain, or swelling over the device",
+        "Do not have an MRI without first checking with your epilepsy team"
+      ],
+      "evidence_note": "Magnet-triggered VNS is a standard on-demand intervention included in all VNS FDA-approved device labelling. Patient and carer training on magnet use is a regulatory requirement before discharge."
+    }
+  ],
+
+  "consent_documents": [
+    {
+      "id": "CON-DRE-01",
+      "name": "Drug-Resistant Epilepsy — Condition-Level Informed Consent",
+      "document_type": "informed-consent",
+      "when_required": "Before protocol generation and device referral",
+      "key_disclosures": [
+        "Drug-resistant epilepsy diagnosis and what it means for treatment options",
+        "SUDEP (Sudden Unexpected Death in Epilepsy) risk and how device therapy may reduce this risk",
+        "Device therapy reduces but does not always eliminate seizures — goals are seizure reduction, not guaranteed cure",
+        "Lifelong device monitoring and programming visits are required",
+        "All ongoing medications must continue alongside device therapy",
+        "Data from the device (seizure logs, device parameters) will be used to optimise treatment"
+      ],
+      "signature_required": true,
+      "witness_required": false,
+      "clinician_co_sign_required": true,
+      "review_frequency": "Annually"
+    },
+    {
+      "id": "CON-DRE-02",
+      "name": "VNS Surgical Informed Consent",
+      "document_type": "informed-consent",
+      "modality_slug": "vns",
+      "when_required": "Before VNS implantation surgery — signed with ENT/neurosurgery team",
+      "key_disclosures": [
+        "VNS is an implanted device requiring minor surgical procedure under general anaesthesia",
+        "Surgical risks include: infection (1–2%), wound complications, lead displacement, nerve damage, hoarseness",
+        "Device is permanently implanted — removal requires a further surgical procedure",
+        "Battery life 5–10 years — replacement surgery will be required",
+        "MRI restrictions apply — always inform any medical team of the VNS before MRI or medical procedures",
+        "Voice alteration during stimulation is common and usually temporary",
+        "Worsening of sleep apnoea is possible — sleep assessment will be arranged if applicable",
+        "On-demand magnet therapy and its correct use explained",
+        "Right to withdraw: device can be switched off (but not dissolved) at any time"
+      ],
+      "signature_required": true,
+      "witness_required": true,
+      "clinician_co_sign_required": true,
+      "review_frequency": "Once (before surgery)"
+    },
+    {
+      "id": "CON-DRE-03",
+      "name": "ANT-DBS Surgical Informed Consent",
+      "document_type": "informed-consent",
+      "modality_slug": "dbs",
+      "when_required": "Before ANT-DBS implantation surgery — signed with neurosurgery team",
+      "key_disclosures": [
+        "ANT-DBS requires stereotactic neurosurgery under general anaesthesia — higher risk than VNS",
+        "Surgical risks: intracranial haemorrhage (~1%), infection (~2%), lead displacement, stroke",
+        "Bilateral brain lead implantation — permanent hardware unless surgically removed",
+        "Memory and mood effects are possible (reported in SANTE trial) — neuropsychological monitoring required",
+        "Battery replacement surgery every 3–5 years (or more frequently depending on settings)",
+        "MRI conditional — strict MRI guidelines apply; must inform all medical teams",
+        "Anaesthesia risks — full pre-surgical assessment required",
+        "Seizures may not be eliminated — realistic expectation of 50–70% reduction",
+        "Long-term follow-up and programming attendance is required for the rest of the patient's life"
+      ],
+      "signature_required": true,
+      "witness_required": true,
+      "clinician_co_sign_required": true,
+      "review_frequency": "Once (before surgery)"
+    },
+    {
+      "id": "CON-DRE-04",
+      "name": "rTMS Epilepsy — Off-Label / Investigational Acknowledgement",
+      "document_type": "off-label-acknowledgement",
+      "modality_slug": "tms",
+      "when_required": "Before any rTMS session in a DRE patient — research consent also required",
+      "key_disclosures": [
+        "rTMS for epilepsy is NOT FDA approved and is considered investigational",
+        "There is a risk of seizure provocation during or after TMS in epilepsy patients — continuous EEG monitoring is in place",
+        "Evidence for benefit is limited (EV-C) and may not apply to individual patient",
+        "This treatment is only available at specialist epilepsy centres as part of a research protocol",
+        "Research ethics committee approval is in place for this treatment",
+        "Participation is voluntary and can be withdrawn at any time without affecting other care",
+        "Emergency protocols are in place if a seizure occurs during treatment"
+      ],
+      "signature_required": true,
+      "witness_required": true,
+      "clinician_co_sign_required": true,
+      "review_frequency": "Each treatment block"
+    },
+    {
+      "id": "CON-DRE-05",
+      "name": "Caregiver Authorisation — Paediatric DRE",
+      "document_type": "caregiver-authorisation",
+      "when_required": "Before any device therapy in patients under 18 years",
+      "key_disclosures": [
+        "Parent or legal guardian authorisation is required for all device therapy decisions in patients under 18",
+        "VNS is approved from age 4 — paediatric risks and benefits discussed",
+        "ANT-DBS is not FDA approved for under-18s — paediatric DBS requires specialist ethics review",
+        "Caregiver must be trained on magnet use and emergency seizure management before discharge",
+        "Caregiver commitment to clinic attendance and diary keeping is required for device optimisation"
+      ],
+      "signature_required": true,
+      "witness_required": false,
+      "clinician_co_sign_required": true,
+      "review_frequency": "Annually"
+    },
+    {
+      "id": "CON-DRE-06",
+      "name": "SUDEP Risk Counselling Documentation",
+      "document_type": "informed-consent",
+      "when_required": "Before first treatment planning visit — required for all DRE patients",
+      "key_disclosures": [
+        "SUDEP (Sudden Unexpected Death in Epilepsy) is a rare but serious complication of uncontrolled epilepsy",
+        "SUDEP risk is highest in those with frequent generalised tonic-clonic seizures, young adults, and those who sleep alone",
+        "Reducing seizure frequency through device therapy may reduce SUDEP risk",
+        "Supervised sleep and nocturnal seizure monitoring devices (e.g. Emfit, SAMi) may be recommended",
+        "Safety measures including night monitors and seizure alert devices have been discussed"
+      ],
+      "signature_required": true,
+      "witness_required": false,
+      "clinician_co_sign_required": true,
+      "review_frequency": "Annually"
+    }
+  ]
+}

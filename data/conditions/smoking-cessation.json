@@ -1,0 +1,961 @@
+{
+  "$schema": "../schemas/condition-package.schema.json",
+  "schema_version": "1.0.0",
+  "id": "CON-019",
+  "slug": "smoking-cessation",
+  "name": "Smoking Cessation (Tobacco Use Disorder)",
+  "category": "Addiction",
+  "icd_10": ["F17.210", "F17.200", "F17.290"],
+  "created_at": "2026-04-12",
+  "updated_at": "2026-04-12",
+  "review_status": "reviewed",
+  "reviewed_by": "DeepSynaps Clinical Team",
+
+  "condition_overview": {
+    "summary": "Tobacco use disorder (nicotine dependence) is a chronic relapsing addiction characterised by compulsive nicotine use, craving, withdrawal symptoms upon cessation, and difficulty maintaining abstinence. Nicotine acts on mesolimbic dopamine pathways, creating strong associative learning between smoking cues, craving, and reward. BrainsWay Deep TMS using the H4-coil is FDA-cleared (De Novo 2020) for smoking cessation — the first TMS clearance for an addiction indication in the United States. Treatment protocol requires 18 sessions over 6 weeks with brief smoking cue provocation immediately before each session per the FDA label.",
+    "prevalence": "Approximately 14% of US adults smoke (CDC 2022); smoking remains the leading preventable cause of death globally (8 million deaths per year — WHO). Only 6–10% of unaided quit attempts succeed; evidence-based treatments approximately double quit rates.",
+    "phenotype_clusters": [
+      {
+        "id": "PHE-SMK-01",
+        "name": "High-Craving Phenotype",
+        "description": "Characterised by intense nicotine craving, high FTND scores (≥5), and strong cue-reactivity. Most likely to benefit from the insula/PFC-targeted H4-coil protocol. Craving reduction is the primary mechanism of action.",
+        "primary_modality": "dtms",
+        "qeeg_signature": "Elevated insular and prefrontal cortex activation on cue exposure; hyperactive salience network"
+      },
+      {
+        "id": "PHE-SMK-02",
+        "name": "Stress-Triggered Smoker",
+        "description": "Smoking primarily driven by stress and negative affect relief. High comorbidity with anxiety and depression. Prefrontal targeting may improve affect regulation and reduce stress-triggered smoking.",
+        "primary_modality": "dtms",
+        "qeeg_signature": "Prefrontal hypoactivation; elevated anterior cingulate cortex theta"
+      },
+      {
+        "id": "PHE-SMK-03",
+        "name": "Social and Habitual Smoker",
+        "description": "Smoking heavily embedded in social and daily routines. Moderate FTND score. Cue provocation protocol particularly relevant for breaking habitual cue-response associations.",
+        "primary_modality": "dtms",
+        "qeeg_signature": "Heightened cue-induced activation of prefrontal-insular circuit"
+      },
+      {
+        "id": "PHE-SMK-04",
+        "name": "Very Heavy/Dependent Smoker",
+        "description": "FTND score 8–10, ≥20 cigarettes per day, severe withdrawal symptoms, multiple failed quit attempts. May require combination of pharmacotherapy (varenicline or NRT) and Deep TMS. This phenotype drives the strongest case for FDA-cleared device intervention.",
+        "primary_modality": "dtms",
+        "qeeg_signature": "Chronic insula hyperactivation; disrupted prefrontal inhibitory control"
+      }
+    ],
+    "severity_levels": [
+      "Low dependence — FTND 0–2",
+      "Moderate dependence — FTND 3–4",
+      "High dependence — FTND 5–7",
+      "Very high dependence — FTND 8–10"
+    ],
+    "population": ["Adult (18+)"],
+    "symptom_clusters": [
+      "Nicotine craving (strong urge to smoke)",
+      "Withdrawal symptoms: irritability, anxiety, restlessness, concentration difficulty",
+      "Increased appetite and weight gain after cessation",
+      "Depressed mood during withdrawal",
+      "Insomnia and sleep disturbance",
+      "Strong behavioural and cue-associated smoking triggers",
+      "Habitual smoking patterns (morning cigarette, after meals, with coffee)"
+    ],
+    "highest_evidence_level": "EV-A",
+    "relevant_modalities": ["dtms"],
+    "neurobiology": "Nicotine binds to alpha4-beta2 nicotinic acetylcholine receptors in the ventral tegmental area (VTA), stimulating dopamine release in the nucleus accumbens (NAcc). Repeated exposure creates synaptic potentiation of the mesolimbic reward circuit and associative learning linking smoking cues to craving. The insula plays a critical role in interoceptive awareness of craving and in cue-triggered nicotine seeking. Patients with insular lesions lose the urge to smoke. The lateral prefrontal cortex (LPFC) exerts inhibitory control over impulse-driven behaviour. Deep TMS H4-coil targets bilateral insula and LPFC simultaneously, modulating both the craving-generating and inhibitory-control circuits. The cue-provocation procedure before each session activates these circuits immediately before stimulation, enhancing the therapeutic effect (provocation + stimulation model).",
+    "comorbidities": [
+      "Major depressive disorder (up to 2x increased prevalence in smokers)",
+      "Anxiety disorders (nicotine has anxiolytic and anxiogenic effects)",
+      "Alcohol use disorder (smoking and alcohol co-occur in >60% of heavy drinkers)",
+      "COPD and asthma (from tobacco damage — affect treatment urgency)",
+      "Cardiovascular disease (primary motivation for cessation in many patients)",
+      "Other substance use disorders"
+    ],
+    "differential_diagnoses": [
+      "Non-nicotine tobacco product dependence (e.g. smokeless tobacco, waterpipe — different ICD codes)",
+      "Electronic cigarette/vaping nicotine dependence (same neurobiological mechanism; Deep TMS evidence limited to combustible tobacco)",
+      "Secondary anxiety or depression not attributable to nicotine withdrawal"
+    ]
+  },
+
+  "patient_friendly_explanation": {
+    "what_is_it": "Smoking addiction is a real brain condition, not just a habit. Nicotine changes the way your brain's reward system works, making quitting very difficult. This treatment uses a device called Deep TMS (Deep Transcranial Magnetic Stimulation) to target the brain areas that drive craving — helping to reduce the urge to smoke.",
+    "how_it_affects_you": "When you try to quit smoking, your brain produces strong urges (cravings) and withdrawal symptoms like irritability, anxiety, and difficulty concentrating. These feelings make it very hard to stay quit. The good news is that treatment can help change these brain patterns.",
+    "treatment_options_overview": "BrainsWay Deep TMS has been approved by the FDA for smoking cessation. It is a non-invasive treatment that uses magnetic pulses to stimulate areas of the brain involved in craving and self-control. You sit in a chair and wear a special helmet for each session. Before each session, you briefly smell a cigarette to activate the craving circuits in your brain — then the TMS stimulation targets those circuits. This approach has been shown in clinical trials to significantly increase quit rates.",
+    "what_to_expect": "You will have 18 treatment sessions over 6 weeks (3 sessions per week). Each session takes about 20–30 minutes including the preparation steps. Before each session, you will briefly smell a cigarette (or similar cue) to activate the brain's craving response — this is an important part of the treatment. The magnetic pulses feel like a light tapping on the head. Most people continue their normal daily activities immediately after sessions. Your clinician will check in with you at each visit using breath tests and questionnaires.",
+    "faq": [
+      {
+        "question": "Do I need to stop smoking before I start treatment?",
+        "answer": "You are encouraged to set a quit date around the start of treatment. Some people reduce their smoking during the treatment course before stopping completely. Your clinician will advise on the best approach for your situation."
+      },
+      {
+        "question": "Why do I have to smell a cigarette before each session?",
+        "answer": "Briefly smelling or imagining smoking activates the craving areas of your brain. The Deep TMS treatment then targets exactly those activated areas. This combination — activating the craving circuits and then stimulating them — is how the treatment is designed to work, and it is part of the FDA-approved protocol."
+      },
+      {
+        "question": "Can I use nicotine patches or other quit aids alongside this treatment?",
+        "answer": "Yes. Deep TMS can be combined with nicotine replacement therapy (patches, gum) and stop-smoking counselling. Your clinician will advise on the best combination. The FDA approval requires brief counselling at each session."
+      },
+      {
+        "question": "Is the treatment painful?",
+        "answer": "No. You may feel a light tapping or knocking sensation on your head during the magnetic pulses — this is not painful for most people. Some people find the first session slightly uncomfortable but usually adapt quickly."
+      },
+      {
+        "question": "How effective is it?",
+        "answer": "In the clinical trial that led to FDA approval, more than twice as many people who received real Deep TMS quit smoking compared to those who received sham treatment at 18 weeks. Results vary between individuals, and quitting smoking is always challenging — this treatment significantly increases your chances of success."
+      }
+    ]
+  },
+
+  "medical_history_requirements": {
+    "required_fields": [
+      {
+        "field": "Current smoking status and cigarette quantity per day",
+        "reason": "Baseline cigarette use required to classify dependence severity and track cessation progress.",
+        "blocks_protocol": true
+      },
+      {
+        "field": "Fagerström Test for Nicotine Dependence (FTND) score",
+        "reason": "FTND score classifies dependence severity and is a primary baseline measure required for protocol documentation and monitoring.",
+        "blocks_protocol": true
+      },
+      {
+        "field": "Seizure or epilepsy history",
+        "reason": "Seizure history is an absolute contraindication for TMS. Must be documented and evaluated before any TMS protocol.",
+        "blocks_protocol": true
+      },
+      {
+        "field": "Metal implants in head or neck (cochlear implants, aneurysm clips, neurostimulators)",
+        "reason": "Absolute contraindication for TMS — metallic implants in the head or neck are incompatible with TMS magnetic fields.",
+        "blocks_protocol": true
+      },
+      {
+        "field": "Implanted cardiac pacemaker or defibrillator",
+        "reason": "Absolute contraindication for TMS.",
+        "blocks_protocol": true
+      },
+      {
+        "field": "Psychiatric history (bipolar disorder, psychosis, current major depressive episode)",
+        "reason": "High-frequency TMS carries risk of inducing mania in bipolar disorder. Active psychosis is a contraindication. Comorbid depression affects protocol safety and must be evaluated.",
+        "blocks_protocol": false
+      },
+      {
+        "field": "Medications that lower seizure threshold (bupropion, clomipramine, antipsychotics, tramadol)",
+        "reason": "Multiple seizure-threshold-lowering medications significantly increase TMS seizure risk. Full medication reconciliation required.",
+        "blocks_protocol": false
+      },
+      {
+        "field": "Current or planned use of pharmacotherapy for smoking cessation (varenicline, bupropion, NRT)",
+        "reason": "Bupropion lowers seizure threshold — requires specific safety review if combined with TMS. Varenicline is safe with TMS.",
+        "blocks_protocol": false
+      },
+      {
+        "field": "Pregnancy status",
+        "reason": "TMS in pregnancy: limited safety data. Individual risk-benefit assessment required.",
+        "blocks_protocol": false
+      },
+      {
+        "field": "Prior quit attempts and methods used",
+        "reason": "Establishes treatment history. Protocol may be enhanced by understanding which interventions have already been tried.",
+        "blocks_protocol": false
+      }
+    ],
+    "clinical_interview_checklist": [
+      "Smoking history: age started, current CPD, years smoking",
+      "Previous quit attempts: methods used, duration of abstinence achieved, reasons for relapse",
+      "Nicotine dependence profile (FTND items reviewed item-by-item)",
+      "Exhaled CO measurement at intake",
+      "Craving patterns: time-of-day, situational (stress, after meals, with alcohol)",
+      "Social and environmental smoking triggers",
+      "Motivations and readiness to quit (contemplation stage assessment)",
+      "Alcohol and other substance use (alcohol and cannabis interact with tobacco cessation outcomes)",
+      "Psychiatric history (depression, anxiety, bipolar, psychosis)",
+      "Current medication list with particular attention to bupropion and seizure-threshold-lowering agents",
+      "Sleep quality (withdrawal insomnia common)",
+      "Support system (partner, family attitude to cessation)"
+    ],
+    "rule_out_differentials": [
+      "Non-tobacco nicotine dependence (vaping/e-cigarettes — different product; TMS evidence specific to combustible tobacco)",
+      "Psychiatric conditions requiring treatment before smoking cessation can be addressed (active psychosis, acute mania — must stabilise first)",
+      "Medical contraindications requiring full TMS safety review (epilepsy, brain tumour, recent head surgery)"
+    ],
+    "comorbidity_screen": [
+      "Depression (PHQ-9) — smoking cessation can trigger or worsen depression; monitor throughout",
+      "Anxiety (GAD-7) — withdrawal exacerbates anxiety",
+      "Alcohol use (AUDIT-C) — alcohol is a major smoking relapse trigger; concurrent alcohol use disorder affects cessation success",
+      "Bipolar disorder history (MDQ screener if clinical concern) — relevant to TMS safety"
+    ],
+    "prior_treatment_required": [
+      "At least one prior quit attempt documented (most patients referred for Deep TMS have previously tried behavioural or pharmacological approaches)",
+      "NRT, varenicline, or bupropion trial history documented (or documented reason not used)",
+      "Brief cessation counselling confirmed as part of treatment (per FDA label — mandatory alongside TMS)"
+    ],
+    "special_population_flags": [
+      {
+        "population": "Patients currently prescribed bupropion (Wellbutrin/Zyban)",
+        "additional_requirements": [
+          "Bupropion lowers seizure threshold — combined use with TMS requires documented risk-benefit assessment",
+          "Dose review: bupropion >300 mg/day + TMS should trigger neurologist consultation",
+          "Consider switching to varenicline (safer TMS combination) if clinically appropriate"
+        ]
+      },
+      {
+        "population": "Patients with comorbid major depression",
+        "additional_requirements": [
+          "PHQ-9 must be stabilised at moderate or below before initiating smoking cessation TMS",
+          "Depression may worsen in early cessation — monitor PHQ-9 every 2 weeks",
+          "Coordinate with prescriber regarding antidepressant optimisation"
+        ]
+      }
+    ]
+  },
+
+  "contraindications": {
+    "absolute": [
+      {
+        "condition": "Active epilepsy or history of unprovoked seizures",
+        "rationale": "High-frequency repetitive TMS (18 Hz, 120% MT) significantly increases seizure risk. Absolute contraindication for all rTMS/Deep TMS protocols."
+      },
+      {
+        "condition": "Metal implants in the head or neck (cochlear implants, aneurysm clips, intracranial metal fragments, DBS electrodes)",
+        "rationale": "TMS electromagnetic field can heat, displace, or malfunction metallic implants in proximity to the coil. Absolute for all TMS protocols."
+      },
+      {
+        "condition": "Implanted cardiac pacemaker, defibrillator (ICD), or other active implanted electronic device",
+        "rationale": "TMS electromagnetic fields may interfere with implanted electronic device function."
+      },
+      {
+        "condition": "Active psychosis or current manic episode",
+        "rationale": "High-frequency TMS may exacerbate psychotic symptoms or precipitate mania. Psychiatric stabilisation is required before any TMS protocol."
+      },
+      {
+        "condition": "Diagnosed bipolar I disorder currently off mood stabiliser",
+        "rationale": "High-frequency TMS has a small but documented risk of inducing manic switch in bipolar disorder without mood stabiliser cover."
+      }
+    ],
+    "relative": [
+      {
+        "condition": "Medications significantly lowering seizure threshold (bupropion, clomipramine, tramadol, antipsychotics at high dose)",
+        "rationale": "Combination with high-frequency TMS increases seizure risk meaningfully.",
+        "mitigation": "Neurologist review. Document medication list. If bupropion is for smoking cessation: consider switching to varenicline or reducing bupropion dose. Proceed only with documented risk-benefit discussion."
+      },
+      {
+        "condition": "Bipolar II disorder on stable mood stabiliser",
+        "rationale": "Risk of hypomanic switch with high-frequency TMS, though lower risk than bipolar I.",
+        "mitigation": "Psychiatrist co-sign. Monitor mood at every session (mood diary or brief scale). Suspend protocol at first sign of hypomania."
+      },
+      {
+        "condition": "Recent head trauma or neurosurgery (within 6 months)",
+        "rationale": "Altered cranial anatomy and healing tissue may affect TMS safety.",
+        "mitigation": "Neurosurgical clearance required. Delay TMS until at least 6 months post-surgery unless neurosurgeon approves earlier."
+      },
+      {
+        "condition": "Pregnancy",
+        "rationale": "Limited human safety data for Deep TMS in pregnancy.",
+        "mitigation": "Obstetric clearance required. Document individualised risk-benefit decision. Consider NRT/varenicline as lower-risk alternatives during pregnancy."
+      },
+      {
+        "condition": "Clinically significant alcohol use disorder (AUDIT-C ≥9)",
+        "rationale": "Active heavy alcohol use affects cortical excitability and can interact with TMS seizure threshold.",
+        "mitigation": "Address alcohol use disorder first or in parallel. Abstinence from alcohol on treatment days strongly recommended. Document."
+      }
+    ],
+    "special_populations": [
+      {
+        "population": "Patients with prior TMS-induced seizure",
+        "flag": "Absolute contraindication for any further TMS protocol."
+      },
+      {
+        "population": "Patients currently taking bupropion for depression or cessation",
+        "flag": "Requires documented risk-benefit discussion and medication review before proceeding. Consider switching to varenicline."
+      }
+    ],
+    "modality_specific": {
+      "dtms": [
+        "Epilepsy or seizure history — absolute",
+        "Metal in head or neck — absolute",
+        "Active psychosis or mania — absolute",
+        "Bupropion co-administration — relative (requires documented risk-benefit review)",
+        "Pregnancy — relative (requires obstetric clearance)"
+      ]
+    }
+  },
+
+  "assessment_bundle": {
+    "screening": [
+      {
+        "assessment_id": "ASS-SMK-001",
+        "name": "FTND Screener",
+        "full_name": "Fagerström Test for Nicotine Dependence — 6 item",
+        "clinician_vs_patient": "Patient self-report",
+        "rationale": "Gold-standard 6-item nicotine dependence scale (score 0–10). Classifies dependence as low (0–2), moderate (3–4), high (5–7), or very high (8–10). Required at baseline for all smoking cessation protocols. Primary dependence severity measure.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 5,
+        "access": "Free (public domain)",
+        "population": "Adult 18+"
+      }
+    ],
+    "baseline": [
+      {
+        "assessment_id": "ASS-SMK-001",
+        "name": "FTND (Baseline)",
+        "full_name": "Fagerström Test for Nicotine Dependence — Baseline",
+        "clinician_vs_patient": "Patient self-report",
+        "rationale": "Primary dependence classification. Baseline score required for protocol documentation, monitoring, and outcome reporting.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 5,
+        "access": "Free (public domain)",
+        "population": "Adult 18+"
+      },
+      {
+        "assessment_id": "ASS-SMK-002",
+        "name": "Craving VAS",
+        "full_name": "Nicotine Craving — Visual Analogue Scale (0–100 mm)",
+        "clinician_vs_patient": "Patient self-report",
+        "rationale": "Immediate craving intensity measure. Administered before and after each TMS session to demonstrate acute craving reduction effect of stimulation. Primary within-session monitoring tool.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 2,
+        "access": "Free",
+        "population": "Adult 18+"
+      },
+      {
+        "assessment_id": "ASS-SMK-003",
+        "name": "Exhaled CO",
+        "full_name": "Exhaled Carbon Monoxide (CO) Measurement",
+        "clinician_vs_patient": "Clinician-rated",
+        "rationale": "Objective biological marker of smoking status. CO >9 ppm confirms recent smoking. Used at baseline and at follow-up to objectively verify self-reported abstinence. Required for outcome documentation.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 5,
+        "access": "Requires CO breathalyser device",
+        "population": "Adult 18+"
+      },
+      {
+        "assessment_id": "ASS-PHQ-009",
+        "name": "PHQ-9",
+        "full_name": "Patient Health Questionnaire — 9 item",
+        "clinician_vs_patient": "Patient self-report",
+        "rationale": "Depression comorbidity baseline and safety monitoring. Depression is a major predictor of smoking relapse. Cessation-emergent depression can emerge within the first 2 weeks of stopping.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 5,
+        "access": "Free (public domain)",
+        "population": "Adult 18+"
+      }
+    ],
+    "monitoring": [
+      {
+        "assessment_id": "ASS-SMK-002",
+        "name": "Craving VAS (Pre/Post Session)",
+        "full_name": "Nicotine Craving VAS — Pre and Post TMS Session",
+        "clinician_vs_patient": "Patient self-report",
+        "rationale": "Administered before and after every TMS session. Pre-session craving (after cue provocation) and post-session craving should demonstrate within-session reduction, confirming biological activity of stimulation.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 2,
+        "access": "Free",
+        "population": "Adult 18+"
+      },
+      {
+        "assessment_id": "ASS-SMK-003",
+        "name": "Exhaled CO (Session Monitoring)",
+        "full_name": "Exhaled CO — Weekly Monitoring",
+        "clinician_vs_patient": "Clinician-rated",
+        "rationale": "Measured weekly throughout treatment to track smoking reduction. CO ≤9 ppm at multiple consecutive time points supports abstinence claim. Administered by clinic technician or clinician using CO breathalyser device.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 3,
+        "access": "Requires CO breathalyser",
+        "population": "Adult 18+"
+      },
+      {
+        "assessment_id": "ASS-PHQ-009",
+        "name": "PHQ-9 (Monitoring)",
+        "full_name": "PHQ-9 — Monitoring During Cessation",
+        "clinician_vs_patient": "Patient self-report",
+        "rationale": "Cessation-emergent depression is a documented risk in the first 4 weeks of stopping smoking. PHQ-9 monitored every 2 weeks throughout treatment course.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 5,
+        "access": "Free (public domain)",
+        "population": "Adult 18+"
+      },
+      {
+        "assessment_id": "ASS-SMK-004",
+        "name": "Cigarettes Per Day (CPD) Log",
+        "full_name": "Daily Cigarette Count — Treatment Period",
+        "clinician_vs_patient": "Patient self-report",
+        "rationale": "Self-reported daily cigarette count throughout treatment. Enables tracking of smoking reduction trajectory toward abstinence. Reviewed at each clinic session.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 2,
+        "access": "Free",
+        "population": "Adult 18+"
+      }
+    ],
+    "outcome": [
+      {
+        "assessment_id": "ASS-SMK-003",
+        "name": "Exhaled CO (End of Course)",
+        "full_name": "Exhaled Carbon Monoxide — Biochemically Verified Abstinence",
+        "clinician_vs_patient": "Clinician-rated",
+        "rationale": "Primary outcome measure at end of course (Week 6) and follow-up (Week 18). CO ≤9 ppm = verified abstinence. Continuous abstinence from Week 4 to Week 18 is the FDA trial primary endpoint. Administered by clinic staff using CO breathalyser.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 5,
+        "access": "Requires CO breathalyser",
+        "population": "Adult 18+"
+      },
+      {
+        "assessment_id": "ASS-SMK-001",
+        "name": "FTND (End of Course)",
+        "full_name": "Fagerström Test for Nicotine Dependence — Endpoint",
+        "clinician_vs_patient": "Patient self-report",
+        "rationale": "End-of-course dependence score. Comparison to baseline assesses shift in dependence severity for patients who have not achieved full abstinence.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 5,
+        "access": "Free (public domain)",
+        "population": "Adult 18+"
+      }
+    ],
+    "functional": [
+      {
+        "assessment_id": "ASS-SMK-FUNC-01",
+        "name": "Withdrawal Symptom Scale",
+        "full_name": "Minnesota Nicotine Withdrawal Scale (MNWS)",
+        "clinician_vs_patient": "Patient self-report",
+        "rationale": "Eight-item validated withdrawal symptom measure: craving, irritability, anxiety, difficulty concentrating, restlessness, hunger, depressed mood, insomnia. Tracks withdrawal burden across the cessation course.",
+        "lower_is_better": true,
+        "admin_duration_minutes": 5,
+        "access": "Free (public domain)",
+        "population": "Adult 18+"
+      }
+    ]
+  },
+
+  "protocol_bundle": [
+    {
+      "protocol_id": "PRO-DTMS-SMK-01",
+      "name": "Deep TMS H4-Coil — BrainsWay for Smoking Cessation",
+      "modality_slug": "dtms",
+      "phenotype_id": "PHE-SMK-01",
+      "device_id": "DEV-BRAINSWAY-H4-01",
+      "on_label_vs_off_label": "On-label",
+      "evidence_grade": "EV-A",
+      "evidence_summary": "BrainsWay Deep TMS using the H4-coil received FDA De Novo clearance in 2020 — the first TMS clearance for a smoking cessation indication and the first TMS clearance for any addiction. Pivotal multicenter RCT (Dinur-Klein et al., 2014; Zangen et al., 2021): 28.0% abstinence rate (biochemically confirmed at 18 weeks) vs. 11.5% sham (p<0.001). The protocol uses 18 Hz stimulation at 120% MT, bilateral insula and lateral PFC target, with cue-provocation immediately before each session. Per FDA label, brief smoking-cessation counselling is required before each TMS session.",
+      "references": [
+        "Dinur-Klein L et al. (2014). Smoking cessation induced by deep repetitive transcranial magnetic stimulation of the prefrontal and insular cortices. Biological Psychiatry, 76(9), 742–749.",
+        "Zangen A et al. (2021). Deep transcranial magnetic stimulation of the prefrontal and insular cortices for smoking cessation. Biological Psychiatry, 90(11), e23–e24.",
+        "FDA De Novo Decision DEN200028 (2020). BrainsWay Deep TMS H4-Coil Smoking Cessation."
+      ],
+      "brain_target": {
+        "region": "Bilateral Insula and Lateral Prefrontal Cortex",
+        "laterality": "Bilateral",
+        "eeg_position": "F3/F4 (prefrontal); insular cortex reached via deep H4-coil penetration",
+        "effect_direction": "Excitatory"
+      },
+      "parameters": {
+        "frequency_hz": "18 Hz",
+        "intensity": "120% motor threshold (MT)",
+        "pulse_count": "2160 pulses per session (60 trains × 2 seconds on × 20 seconds inter-train interval)",
+        "coil_type": "BrainsWay H4-coil (bilateral insula + lateral PFC targeting)",
+        "electrode_placement": "H4-coil helmet positioned bilaterally over prefrontal and insular cortex",
+        "additional_params": {
+          "train_duration_s": "2 seconds",
+          "inter_train_interval_s": "20 seconds",
+          "trains_per_session": "60",
+          "cue_provocation": "MANDATORY per FDA label: brief smoking-related cue exposure (patient inhales cigarette scent from unlit cigarette) immediately before each TMS session — minimum 30 seconds of cue exposure",
+          "counselling": "MANDATORY per FDA label: brief smoking cessation counselling (minimum 3–5 minutes) must be provided before each TMS session",
+          "mt_determination": "Resting motor threshold determined at session 1 using standard figure-of-eight coil over left M1. H4-coil intensity set to 120% of determined MT.",
+          "session_duration_total": "Approximately 20 minutes of stimulation + counselling and preparation time"
+        }
+      },
+      "session_structure": {
+        "sessions_per_week": 3,
+        "session_duration_minutes": 30,
+        "total_sessions": 18,
+        "total_weeks": 6,
+        "maintenance_sessions": "Optional follow-up sessions at clinician discretion if partial response; not part of FDA-cleared protocol",
+        "steps": [
+          {
+            "order": 1,
+            "title": "Session 1 — Motor threshold determination",
+            "duration_minutes": 45,
+            "detail": "Complete TMS safety screening form. Determine resting motor threshold (MT) using standard figure-of-eight coil over left motor cortex (APB/FDI muscle). Use conventional threshold hunt (at least 5 of 10 trials with visible MEP). Document MT in mA or % MSO. Fit H4-coil helmet and confirm positioning over bilateral PFC/insular target. Explain cue-provocation and counselling components to patient. First full session may follow MT determination."
+          },
+          {
+            "order": 2,
+            "title": "Brief smoking cessation counselling (mandatory before every session)",
+            "duration_minutes": 5,
+            "detail": "Administer structured brief cessation counselling per FDA label. Address readiness to quit, quit date, coping strategies, relapse prevention. Minimum 3–5 minutes per session. Document counselling delivered in session notes. This is a mandatory FDA-label requirement — TMS must not proceed without this step."
+          },
+          {
+            "order": 3,
+            "title": "Cue provocation (mandatory before every session)",
+            "duration_minutes": 2,
+            "detail": "Patient briefly inhales from an unlit cigarette or is exposed to smoking-related cues (cigarette scent) for minimum 30 seconds. This activates the insular/PFC craving circuitry immediately before TMS. Document craving VAS before provocation and after cue exposure. This step is mandatory per FDA label — TMS without cue provocation does not follow the cleared protocol."
+          },
+          {
+            "order": 4,
+            "title": "Deep TMS — H4-coil session",
+            "duration_minutes": 20,
+            "detail": "Patient seated with H4-coil helmet fitted. Confirm correct positioning. Deliver 60 trains of 18 Hz stimulation at 120% MT, each train 2 seconds on / 20 seconds off. Monitor patient throughout for discomfort, seizure signs, or adverse effects. Document post-stimulation craving VAS. Record CPD since last session and exhaled CO (weekly)."
+          },
+          {
+            "order": 5,
+            "title": "Post-session review and logging",
+            "duration_minutes": 5,
+            "detail": "Post-stimulation craving VAS. Brief safety check (headache, dizziness, any scalp discomfort). Log session completion, any adverse events, and current smoking status. Schedule next session."
+          }
+        ]
+      },
+      "monitoring_required": [
+        "Craving VAS — before and after every session",
+        "Exhaled CO — weekly (every first session of each week)",
+        "CPD (cigarettes per day) — reported at every session",
+        "PHQ-9 — every 2 weeks throughout treatment",
+        "FTND — baseline and end of course (Week 6)",
+        "Adverse event log — every session",
+        "Motor threshold — verified at Session 1; re-determined if >2 week treatment gap"
+      ],
+      "contraindication_check_required": true,
+      "adverse_event_monitoring": "Monitor every session for: scalp discomfort (common, mild), headache (common, usually mild), neck discomfort, jaw pain. Rare but serious: seizure (immediately suspend, emergency response). Hearing: earplugs recommended. Monitor mood for cessation-emergent depression or mania (bipolar history).",
+      "escalation_rules": [
+        "Seizure — suspend immediately, emergency response, do not restart without neurologist clearance. File incident report.",
+        "PHQ-9 increase ≥5 points or PHQ-9 item 9 positive — urgent mental health assessment before next session",
+        "Signs of hypomania or mania in patients with bipolar history — suspend immediately, urgent psychiatric review",
+        "No reduction in CPD or CO at Week 3 (midpoint) — clinical review; assess adherence, cue provocation quality, and counselling delivery; consider intensifying cessation support",
+        "Patient has returned to baseline smoking at Week 6 — end-of-course review; no protocol extension indicated under FDA cleared parameters"
+      ],
+      "patient_facing_allowed": true,
+      "clinician_review_required": true,
+      "governance": {
+        "patient_export_allowed": true,
+        "requires_clinician_sign_off": true,
+        "off_label_acknowledgement_required": false,
+        "dual_review_required": false,
+        "notes": "FDA De Novo cleared 2020 for smoking cessation. First TMS clearance for an addiction. Per FDA label: (1) brief smoking cessation counselling MUST be provided before each session; (2) smoking cue provocation MUST precede each stimulation session. Both components are mandatory — omitting either makes the session non-compliant with the cleared protocol. MT must be determined at Session 1."
+      },
+      "notes": "The cue-provocation + stimulation protocol is a key distinguishing feature of this indication. The H4-coil is specifically designed to reach the insula bilaterally at sufficient depth — this coil is not interchangeable with other TMS coils for this indication. Verify patient has not consumed alcohol in past 12 hours before each session."
+    }
+  ],
+
+  "device_options": [
+    {
+      "device_id": "DEV-BRAINSWAY-H4-01",
+      "name": "BrainsWay Deep TMS System — H4-Coil",
+      "manufacturer": "BrainsWay Ltd.",
+      "modality_slug": "dtms",
+      "regulatory_status": "FDA-cleared",
+      "cleared_indication": "Smoking cessation in adults (18+); also cleared for MDD and OCD with different coil configurations",
+      "use_setting": "Clinic",
+      "compatible_protocols": ["PRO-DTMS-SMK-01"],
+      "constraints": [
+        "H4-coil specifically cleared for smoking cessation — other BrainsWay coils are NOT cleared for this indication",
+        "Clinic-only use — not available for home use",
+        "Motor threshold must be determined at first session",
+        "Standard TMS safety screening mandatory",
+        "Cue provocation and brief counselling are mandatory per FDA label",
+        "18 sessions over 6 weeks is the FDA-cleared protocol — extensions are off-label"
+      ],
+      "notes": "BrainsWay H4-coil reaches bilateral insula and lateral PFC simultaneously at depths not achievable with standard figure-of-eight coils. FDA De Novo cleared 2020 (DEN200028). The device control system guides train delivery with built-in inter-train interval timer."
+    }
+  ],
+
+  "brain_targets": [
+    {
+      "region": "Bilateral Insula",
+      "abbreviation": "INS-B",
+      "laterality": "Bilateral",
+      "rationale": "The insula is the primary interoceptive cortex mediating awareness of bodily craving states and cue-triggered nicotine urges. Patients with insular lesions characteristically lose the desire to smoke, demonstrating the insula's critical role in addiction maintenance. Deep TMS H4-coil reaches the insula bilaterally at sufficient depth to produce meaningful neuromodulation.",
+      "effect_direction": "Excitatory",
+      "modalities": ["dtms"],
+      "eeg_position_10_20": "T3/T4 (nearest surface position; insula is deeper)",
+      "brodmann_area": "BA13",
+      "network": "Salience Network; Interoceptive Network",
+      "evidence_note": "Primary target of FDA-cleared H4-coil protocol. Insular lesion studies (Naqvi et al., 2007 Science) established causal role in nicotine craving."
+    },
+    {
+      "region": "Lateral Prefrontal Cortex (Bilateral)",
+      "abbreviation": "LPFC-B",
+      "laterality": "Bilateral",
+      "rationale": "The lateral PFC exerts top-down inhibitory control over impulsive behaviour, including suppression of craving-driven smoking behaviour. Stimulating LPFC alongside the insula simultaneously activates and modulates the craving circuit and its inhibitory control, reinforcing abstinence-supporting executive function.",
+      "effect_direction": "Excitatory",
+      "modalities": ["dtms"],
+      "eeg_position_10_20": "F3/F4",
+      "brodmann_area": "BA46 / BA9",
+      "network": "Executive Control Network; Frontoparietal Network",
+      "evidence_note": "Secondary target in H4-coil configuration. Prefrontal stimulation contributes to craving reduction by enhancing inhibitory control."
+    }
+  ],
+
+  "handbook_outputs": {
+    "clinician_handbook": {
+      "title": "Smoking Cessation Deep TMS — Clinician Handbook",
+      "audience": "Clinician",
+      "sections": [
+        {
+          "section_id": "CH-SMK-01",
+          "title": "FDA-Cleared Protocol Requirements",
+          "content": [
+            "BrainsWay Deep TMS H4-coil is FDA De Novo cleared (2020) for smoking cessation. This is the first TMS clearance for any addiction indication in the US.",
+            "The cleared protocol is 18 sessions over 6 weeks (3 sessions per week) at 18 Hz, 120% MT, 2160 pulses per session using the H4-coil.",
+            "Two components are MANDATORY per the FDA label and must be documented at every session: (1) brief smoking cessation counselling (3–5 min) before stimulation; (2) smoking cue provocation (≥30 seconds cigarette scent exposure) immediately before TMS.",
+            "Motor threshold must be determined at Session 1 using standard TMS threshold hunt over left M1. H4-coil intensity is set to 120% of the determined MT.",
+            "H4-coil is the only coil cleared for this indication. Standard figure-of-eight or other coils may not be substituted."
+          ]
+        },
+        {
+          "section_id": "CH-SMK-02",
+          "title": "Safety and Contraindication Screening",
+          "content": [
+            "Standard TMS safety screening is required at intake. Key contraindications: epilepsy/seizures (absolute), metal implants in head/neck (absolute), implanted cardiac devices (absolute), active psychosis or mania (absolute).",
+            "Bupropion is a relative contraindication when combined with TMS (lowers seizure threshold). Review medications carefully. Document risk-benefit decision if bupropion is continued.",
+            "Alcohol consumption on the day of a TMS session should be avoided. Alcohol lowers seizure threshold.",
+            "PHQ-9 must be monitored every 2 weeks — cessation-emergent depression can occur in the first 4 weeks of stopping smoking."
+          ]
+        },
+        {
+          "section_id": "CH-SMK-03",
+          "title": "Monitoring Abstinence Outcomes",
+          "content": [
+            "Primary abstinence outcome: biochemically verified continuous abstinence (exhaled CO ≤9 ppm) from Week 4 through Week 18 (as per FDA trial primary endpoint).",
+            "Craving VAS before and after every session tracks within-session craving reduction — the expected acute effect of each stimulation.",
+            "Exhaled CO measured weekly. Self-reported CPD tracked at every session.",
+            "At end of course (Week 6), full outcome assessment: FTND, CO, craving VAS. Schedule Week 18 follow-up for abstinence verification.",
+            "Responder definition: continuous point abstinence from Week 4 to Week 18 (CO-verified)."
+          ]
+        }
+      ]
+    },
+    "patient_guide": {
+      "title": "Your Smoking Cessation Deep TMS Guide",
+      "audience": "Patient",
+      "sections": [
+        {
+          "section_id": "PG-SMK-01",
+          "title": "What is Deep TMS for Smoking?",
+          "content": [
+            "Deep TMS is a treatment that uses gentle magnetic pulses to stimulate areas of your brain involved in craving and self-control. It is approved by the FDA for smoking cessation.",
+            "The treatment is not painful. You sit in a chair wearing a helmet and feel a light tapping sensation during each session.",
+            "You will have 18 sessions over 6 weeks — 3 sessions per week."
+          ]
+        },
+        {
+          "section_id": "PG-SMK-02",
+          "title": "What Happens at Each Session",
+          "content": [
+            "Each session starts with a brief chat with your clinician about your progress with quitting and strategies for staying smoke-free.",
+            "Before the TMS, you will briefly smell a cigarette (without lighting it). This activates the brain areas we want to target — so the treatment works on the right circuits.",
+            "Then the TMS helmet is fitted and the 20-minute treatment begins. You will feel a rhythmic tapping. Most people read or rest during the session.",
+            "After the session, we will ask you to rate your craving level again. Many people notice their craving has reduced."
+          ]
+        },
+        {
+          "section_id": "PG-SMK-03",
+          "title": "Tips for Success",
+          "content": [
+            "Set a quit date before or early in your treatment — ideally in the first week.",
+            "Tell your family and friends you are quitting so they can support you.",
+            "Identify your main smoking triggers (after meals, with coffee, stress) and plan alternatives.",
+            "Attend all 18 sessions — completing the full course significantly improves your chances of quitting.",
+            "If you slip and have a cigarette, do not give up. One cigarette does not mean failure. Contact your clinician and continue with your sessions."
+          ]
+        }
+      ]
+    },
+    "technician_sop": {
+      "title": "Smoking Cessation Deep TMS — Technician SOP",
+      "audience": "Technician",
+      "sections": [
+        {
+          "section_id": "TSOP-SMK-01",
+          "title": "Session Setup and Safety Checklist",
+          "content": [
+            "Verify TMS safety screening form is completed and signed. Check for new medications, new metal, or new medical changes since last session.",
+            "Confirm motor threshold from Session 1 record. If >2 weeks since last session, re-determine MT before proceeding.",
+            "Prepare craving VAS form (pre-cue and post-stimulation).",
+            "Prepare cue provocation materials (unlit cigarette or cigarette scent vial). Ensure smoking-related cues are available.",
+            "Confirm clinician has completed brief cessation counselling before proceeding to cue provocation or TMS.",
+            "Position H4-coil helmet — verify correct bilateral PFC/insular placement per device positioning guide."
+          ]
+        },
+        {
+          "section_id": "TSOP-SMK-02",
+          "title": "Session Execution Protocol",
+          "content": [
+            "Document: date, session number (1–18), pre-cue craving VAS score.",
+            "Administer cue provocation (≥30 seconds). Document post-cue craving VAS.",
+            "Start TMS: 60 trains × 2s at 18 Hz, 120% MT, 20s inter-train interval. Monitor patient continuously.",
+            "If patient reports severe headache, seizure-like activity, or extreme distress: STOP immediately, press emergency stop, call clinician.",
+            "Post-session: document post-stimulation craving VAS, adverse events, current smoking status (CPD today). If first session of week: administer exhaled CO test."
+          ]
+        }
+      ]
+    }
+  },
+
+  "monitoring_rules": {
+    "assessment_schedule": [
+      {
+        "assessment_id": "ASS-SMK-002",
+        "assessment_name": "Craving VAS",
+        "timing": "Before and after every TMS session",
+        "frequency": "Every session (twice per session)",
+        "administered_by": "Patient self-report"
+      },
+      {
+        "assessment_id": "ASS-SMK-003",
+        "assessment_name": "Exhaled CO",
+        "timing": "Weekly (first session of each week)",
+        "frequency": "Weekly",
+        "administered_by": "Technician-guided"
+      },
+      {
+        "assessment_id": "ASS-SMK-004",
+        "assessment_name": "Cigarettes Per Day",
+        "timing": "Every session",
+        "frequency": "Every session",
+        "administered_by": "Patient self-report"
+      },
+      {
+        "assessment_id": "ASS-PHQ-009",
+        "assessment_name": "PHQ-9",
+        "timing": "Baseline, every 2 weeks during treatment, end of course",
+        "frequency": "Every 2 weeks",
+        "administered_by": "Patient self-report"
+      },
+      {
+        "assessment_id": "ASS-SMK-001",
+        "assessment_name": "FTND",
+        "timing": "Baseline and end of course",
+        "frequency": "Once (repeat at Week 6)",
+        "administered_by": "Patient self-report"
+      }
+    ],
+    "response_thresholds": [
+      {
+        "assessment_id": "ASS-SMK-003",
+        "assessment_name": "Exhaled CO",
+        "lower_is_better": true,
+        "response_threshold": "CO ≤9 ppm (verified abstinence) from Week 4 and maintained through Week 18",
+        "remission_threshold": "CO ≤6 ppm at Week 18 follow-up",
+        "non_response_threshold": "No reduction from baseline CO at Week 3 (midpoint clinical review triggered)",
+        "deterioration_threshold": "Return to baseline CO after achieving ≤9 ppm (relapse event)"
+      },
+      {
+        "assessment_id": "ASS-SMK-002",
+        "assessment_name": "Craving VAS",
+        "lower_is_better": true,
+        "response_threshold": "≥20% reduction in craving VAS from pre-session to post-session",
+        "remission_threshold": "Post-session craving VAS <20 mm",
+        "non_response_threshold": "No within-session craving reduction across 3 consecutive sessions",
+        "deterioration_threshold": "Post-session craving VAS consistently higher than pre-session VAS"
+      }
+    ],
+    "adverse_event_triggers": [
+      {
+        "event_type": "Seizure or seizure-like event during or after TMS",
+        "severity": "Serious",
+        "action": "STOP TMS immediately. Emergency response protocol. Call emergency services if prolonged. Neurological evaluation before any further TMS. File device incident report. Do not restart without neurologist sign-off.",
+        "suspend_treatment": true
+      },
+      {
+        "event_type": "Severe headache (NRS ≥8) during or immediately after session",
+        "severity": "Moderate",
+        "action": "Stop session. Clinician review. Assess for tension headache vs. TMS-related effect. Reduce intensity if appropriate. Document fully.",
+        "suspend_treatment": false
+      },
+      {
+        "event_type": "PHQ-9 increase of ≥5 points or new suicidal ideation",
+        "severity": "Severe",
+        "action": "Suspend TMS pending urgent mental health review. Psychiatric assessment. Resume only with psychiatric clearance.",
+        "suspend_treatment": true
+      },
+      {
+        "event_type": "Signs of hypomania or mania (increased energy, decreased sleep, grandiosity, pressured speech)",
+        "severity": "Serious",
+        "action": "Suspend TMS immediately. Urgent psychiatric assessment. Do not restart without mood stabiliser adjustment and psychiatrist clearance.",
+        "suspend_treatment": true
+      },
+      {
+        "event_type": "Scalp discomfort or local skin irritation at coil contact site",
+        "severity": "Mild",
+        "action": "Check coil positioning and padding. Adjust H4-coil position slightly. Document. If persistent, clinician review.",
+        "suspend_treatment": false
+      }
+    ],
+    "escalation_rules": [
+      {
+        "trigger": "No reduction in CPD or CO at Week 3 midpoint assessment",
+        "action": "Clinical review. Assess: cue provocation quality, counselling content, patient motivation and quit date. Intensify cessation support. Consider adding NRT if not already prescribed.",
+        "urgency": "Routine"
+      },
+      {
+        "trigger": "PHQ-9 item 9 positive (suicidal ideation)",
+        "action": "Suspend TMS. Immediate mental health assessment. Emergency psychiatric referral if active plan.",
+        "urgency": "Emergency"
+      },
+      {
+        "trigger": "TMS-induced seizure",
+        "action": "Emergency response. Medical director notification within 24 hours. Incident report filed. FDA MDR reporting per device manufacturer protocol.",
+        "urgency": "Emergency"
+      },
+      {
+        "trigger": "Relapse to baseline smoking after confirmed abstinence at Week 6",
+        "action": "Non-emergency clinical review. Discuss relapse prevention strategies. No protocol repeat within cleared parameters; consider referral for intensive addiction support.",
+        "urgency": "Routine"
+      }
+    ],
+    "adherence_rules": {
+      "minimum_session_adherence_pct": 80,
+      "consecutive_missed_sessions_flag": 2,
+      "action_on_low_adherence": "Contact patient within 48 hours. Identify barriers. Reschedule missed sessions where possible. Note: 18-session protocol is the FDA-cleared treatment course — significant missed sessions may compromise outcome."
+    }
+  },
+
+  "report_templates": [
+    {
+      "id": "RPT-SMK-INTAKE-01",
+      "name": "Smoking Cessation Intake Summary",
+      "report_type": "intake-summary",
+      "audience": "Clinician",
+      "frequency": "Once — at intake",
+      "sections": [
+        {
+          "section_id": "S1",
+          "title": "Tobacco Use Profile",
+          "auto_populate_from": ["ftnd_score", "cpd_baseline", "years_smoking", "quit_attempts_history", "exhaled_co_baseline"],
+          "clinician_narrative_prompt": "Summarise tobacco use history, dependence severity (FTND grade), and prior cessation attempts.",
+          "required": true
+        },
+        {
+          "section_id": "S2",
+          "title": "Safety Screening and Contraindication Review",
+          "auto_populate_from": ["tms_screening_result", "seizure_history", "medication_list", "bupropion_use"],
+          "clinician_narrative_prompt": "Confirm TMS safety screening completed. Document any relative contraindications and mitigations. Note bupropion status if applicable.",
+          "required": true
+        },
+        {
+          "section_id": "S3",
+          "title": "Baseline Assessments",
+          "auto_populate_from": ["ftnd_score", "phq9_score", "craving_vas_baseline"],
+          "clinician_narrative_prompt": "Summarise baseline FTND, PHQ-9, and craving VAS. Note any comorbid depression requiring monitoring.",
+          "required": true
+        },
+        {
+          "section_id": "S4",
+          "title": "Protocol and Quit Date",
+          "auto_populate_from": ["protocol_id", "quit_date", "treatment_start_date"],
+          "clinician_narrative_prompt": "State FDA-cleared protocol (PRO-DTMS-SMK-01), scheduled quit date, and treatment timeline. Confirm counselling and cue provocation components will be delivered at every session.",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "RPT-SMK-PROG-01",
+      "name": "Smoking Cessation Progress Report",
+      "report_type": "progress-report",
+      "audience": "Clinician",
+      "frequency": "Every 3 sessions (approximately every 2 weeks)",
+      "sections": [
+        {
+          "section_id": "S1",
+          "title": "Abstinence and Reduction Status",
+          "auto_populate_from": ["cpd_current", "cpd_baseline", "co_current", "co_baseline", "abstinence_status"],
+          "clinician_narrative_prompt": "Summarise smoking reduction or abstinence achieved. Note CO verification status.",
+          "required": true
+        },
+        {
+          "section_id": "S2",
+          "title": "Craving and Withdrawal",
+          "auto_populate_from": ["craving_vas_pre_session", "craving_vas_post_session", "mnws_score"],
+          "clinician_narrative_prompt": "Comment on craving trend (pre/post session). Note any withdrawal symptoms and management.",
+          "required": true
+        },
+        {
+          "section_id": "S3",
+          "title": "Mental Health Monitoring",
+          "auto_populate_from": ["phq9_score", "phq9_change_from_baseline"],
+          "clinician_narrative_prompt": "Document PHQ-9 findings. Note any cessation-emergent mood symptoms.",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "RPT-SMK-EOC-01",
+      "name": "Smoking Cessation End-of-Course Report",
+      "report_type": "end-of-course-report",
+      "audience": "Referring Physician",
+      "frequency": "Once — at end of 18-session course",
+      "sections": [
+        {
+          "section_id": "S1",
+          "title": "Treatment Summary",
+          "auto_populate_from": ["protocol_id", "sessions_completed", "sessions_planned", "treatment_dates", "on_label_status"],
+          "clinician_narrative_prompt": "Summarise treatment course: 18-session H4-coil Deep TMS protocol. Sessions attended vs. planned.",
+          "required": true
+        },
+        {
+          "section_id": "S2",
+          "title": "Cessation Outcome",
+          "auto_populate_from": ["co_end_of_course", "abstinence_status_week6", "cpd_end_of_course", "ftnd_endpoint"],
+          "clinician_narrative_prompt": "State whether biochemically verified abstinence (CO ≤9 ppm) was achieved at Week 6. Compare FTND scores. Describe smoking reduction trajectory.",
+          "required": true
+        },
+        {
+          "section_id": "S3",
+          "title": "Adverse Events",
+          "auto_populate_from": ["adverse_events_list"],
+          "clinician_narrative_prompt": "Document any adverse events and their resolution.",
+          "required": true
+        },
+        {
+          "section_id": "S4",
+          "title": "Follow-Up Plan",
+          "auto_populate_from": ["followup_date_week18", "relapse_prevention_plan"],
+          "clinician_narrative_prompt": "State Week 18 follow-up plan for abstinence verification. Relapse prevention recommendations.",
+          "required": true
+        }
+      ]
+    }
+  ],
+
+  "home_program_templates": [],
+
+  "consent_documents": [
+    {
+      "id": "CON-SMK-IC-01",
+      "name": "Informed Consent — Deep TMS for Smoking Cessation",
+      "document_type": "informed-consent",
+      "when_required": "Before Session 1 (before motor threshold determination)",
+      "key_disclosures": [
+        "BrainsWay Deep TMS H4-coil is FDA-cleared for smoking cessation — this is an approved medical treatment, not investigational.",
+        "The treatment involves 18 sessions over 6 weeks. Each session includes brief counselling and a cigarette scent exposure step before the magnetic stimulation.",
+        "Common side effects include scalp discomfort, headache, and neck or jaw discomfort — these are generally mild and transient.",
+        "The rare but serious risk of seizure exists with all TMS treatments. Standard safety screening has been completed to minimise this risk.",
+        "You must inform the clinic of any new medications, especially bupropion (Wellbutrin/Zyban), as this can increase seizure risk when combined with TMS.",
+        "Exhaled CO monitoring and self-reported cigarette counts will be used to track your progress. These records form part of your clinical file.",
+        "In the FDA clinical trial, approximately 28% of patients who received the treatment were abstinent at 18 weeks versus 11.5% with sham stimulation. Results vary between individuals.",
+        "Brief smoking cessation counselling will be provided at every session — this is part of the FDA-approved treatment.",
+        "You should not consume alcohol on the day of any TMS session."
+      ],
+      "signature_required": true,
+      "witness_required": false,
+      "clinician_co_sign_required": true,
+      "review_frequency": "Once — before Session 1; repeat if significant break (>4 weeks) in treatment"
+    },
+    {
+      "id": "CON-SMK-SCREEN-01",
+      "name": "TMS Safety Screening — Smoking Cessation",
+      "document_type": "contraindication-screening",
+      "when_required": "Before Session 1 (before motor threshold determination)",
+      "key_disclosures": [
+        "Patient confirms no history of epilepsy or unprovoked seizures.",
+        "Patient confirms no metal implants in the head or neck (cochlear implants, aneurysm clips, neurostimulators, metal fragments).",
+        "Patient confirms no implanted cardiac pacemaker or defibrillator.",
+        "Patient confirms no current active psychosis or manic episode.",
+        "Patient confirms no current use of bupropion above 300 mg/day (or risk-benefit documented if continuing).",
+        "Patient confirms not pregnant (or risk-benefit discussed with obstetric physician if pregnant).",
+        "Patient confirms no history of TMS-induced seizure.",
+        "Patient confirms they will avoid alcohol on treatment days."
+      ],
+      "signature_required": true,
+      "clinician_co_sign_required": true,
+      "review_frequency": "Before Session 1; re-screened if >4 week treatment break or new medical history"
+    }
+  ]
+}
