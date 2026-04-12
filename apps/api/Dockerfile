@@ -29,6 +29,14 @@ COPY apps/api ./apps/api
 COPY pyproject.toml ./
 COPY data ./data
 
+# Evidence pipeline code (source of truth — pure Python stdlib, no extra deps).
+# The SQLite evidence.db itself is gitignored and NOT baked in — mount it as
+# a volume at /data/evidence.db in deployment, or run ingest once on boot:
+#   python3 /app/services/evidence-pipeline/ingest.py --all --unpaywall
+# The evidence_router serves 503 with a clear message until the DB exists.
+COPY services/evidence-pipeline ./services/evidence-pipeline
+ENV EVIDENCE_DB_PATH=/data/evidence.db
+
 RUN pip install --no-cache-dir \
     -e ./packages/core-schema \
     -e ./packages/condition-registry \

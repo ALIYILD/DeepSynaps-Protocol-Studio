@@ -1,6 +1,7 @@
 import { api, downloadBlob } from './api.js';
 import { cardWrap, fr, evBar, pillSt, tag, spinner, emptyState } from './helpers.js';
 import { FALLBACK_CONDITIONS, FALLBACK_MODALITIES } from './constants.js';
+import { renderLiveEvidencePanel } from './live-evidence.js';
 
 // ── Evidence Library ──────────────────────────────────────────────────────────
 export async function pgEvidence(setTopbar) {
@@ -13,14 +14,15 @@ export async function pgEvidence(setTopbar) {
     const res = await api.listEvidence();
     items = res?.items || [];
   } catch (e) {
-    el.innerHTML = `<div class="notice notice-warn">Could not load evidence library: ${e.message}</div>`;
-    return;
+    // Don't abort — the live-evidence panel still works without the curated library.
+    items = [];
   }
 
   // Build modality options from data
   const modalitySet = new Set(items.map(e => e.modality).filter(Boolean));
 
   el.innerHTML = `
+  <div id="live-evidence-host"></div>
   <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap">
     <input class="form-control" id="ev-search" placeholder="Search conditions, modalities, summaries…" style="flex:1;min-width:200px" oninput="window.filterEvidence()">
     <select class="form-control" id="ev-level" style="width:auto" onchange="window.filterEvidence()">
@@ -41,6 +43,12 @@ export async function pgEvidence(setTopbar) {
       ? emptyState('◈', 'No evidence records loaded. Start the backend to load clinical data.')
       : renderEvidenceTable(items)}
   </div>`;
+
+  // Mount the live-evidence panel (PubMed / OpenAlex / CT.gov / FDA via our
+  // evidence pipeline). Non-fatal: if the evidence DB isn't ingested yet,
+  // the panel shows its own clear "not ready" message and the rest of the
+  // Evidence Library page continues to work.
+  renderLiveEvidencePanel(document.getElementById('live-evidence-host'));
 
   window._evidenceData = items;
 
