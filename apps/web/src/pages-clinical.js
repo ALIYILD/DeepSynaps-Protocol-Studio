@@ -595,6 +595,42 @@ export async function pgDash(setTopbar, navigate) {
     <div class="${mediaNeedsAttention.length > 0 ? 'stat-card--violet' : ''}">${_dStatCard('Media Queue', mediaNeedsAttention.length, mediaQueueSub, mediaQueueColor, 'media-queue', mediaNeedsAttention.length > 0)}</div>
   </div>`;
 
+  // ── 4-Engine Command Hub ─────────────────────────────────────────────────
+  const engineHub = `<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px">
+  <div class="card card--interactive" onclick="window._nav('assessments-hub')" style="padding:14px 16px;cursor:pointer;display:flex;align-items:center;gap:12px;transition:border-color 0.15s" onmouseover="this.style.borderColor='var(--teal)'" onmouseout="this.style.borderColor='var(--border)'">
+    <div style="width:36px;height:36px;border-radius:8px;background:rgba(0,212,188,0.1);display:flex;align-items:center;justify-content:center;font-size:18px;color:var(--teal);flex-shrink:0">◈</div>
+    <div style="flex:1;min-width:0">
+      <div style="font-size:12.5px;font-weight:700;color:var(--text-primary);margin-bottom:2px">Assessments Engine</div>
+      <div style="font-size:10.5px;color:var(--text-tertiary)">38 validated scales · 53 conditions</div>
+    </div>
+    <div style="font-size:10.5px;font-weight:600;color:var(--teal);flex-shrink:0">Open →</div>
+  </div>
+  <div class="card card--interactive" onclick="window._nav('protocols-registry')" style="padding:14px 16px;cursor:pointer;display:flex;align-items:center;gap:12px;transition:border-color 0.15s" onmouseover="this.style.borderColor='var(--violet)'" onmouseout="this.style.borderColor='var(--border)'">
+    <div style="width:36px;height:36px;border-radius:8px;background:rgba(99,102,241,0.1);display:flex;align-items:center;justify-content:center;font-size:18px;color:var(--violet);flex-shrink:0">◇</div>
+    <div style="flex:1;min-width:0">
+      <div style="font-size:12.5px;font-weight:700;color:var(--text-primary);margin-bottom:2px">Protocol Intelligence</div>
+      <div style="font-size:10.5px;color:var(--text-tertiary)">${allProtocols.length || 0} protocols · On-label · Off-label · AI</div>
+    </div>
+    <div style="font-size:10.5px;font-weight:600;color:var(--violet);flex-shrink:0">Browse →</div>
+  </div>
+  <div class="card card--interactive" onclick="window._nav('session-execution')" style="padding:14px 16px;cursor:pointer;display:flex;align-items:center;gap:12px;transition:border-color 0.15s" onmouseover="this.style.borderColor='var(--blue)'" onmouseout="this.style.borderColor='var(--border)'">
+    <div style="width:36px;height:36px;border-radius:8px;background:rgba(74,158,255,0.1);display:flex;align-items:center;justify-content:center;font-size:18px;color:var(--blue);flex-shrink:0">◧</div>
+    <div style="flex:1;min-width:0">
+      <div style="font-size:12.5px;font-weight:700;color:var(--text-primary);margin-bottom:2px">Clinical Execution</div>
+      <div style="font-size:10.5px;color:var(--text-tertiary)">${activeCourses.length} active courses · ${sessionsPerWeek} sessions/week</div>
+    </div>
+    <div style="font-size:10.5px;font-weight:600;color:var(--blue);flex-shrink:0">Start →</div>
+  </div>
+  <div class="card card--interactive" onclick="window._nav('notes-dictation')" style="padding:14px 16px;cursor:pointer;display:flex;align-items:center;gap:12px;transition:border-color 0.15s" onmouseover="this.style.borderColor='var(--amber)'" onmouseout="this.style.borderColor='var(--border)'">
+    <div style="width:36px;height:36px;border-radius:8px;background:rgba(255,181,71,0.1);display:flex;align-items:center;justify-content:center;font-size:18px;color:var(--amber);flex-shrink:0">◎</div>
+    <div style="flex:1;min-width:0">
+      <div style="font-size:12.5px;font-weight:700;color:var(--text-primary);margin-bottom:2px">Documentation + AI</div>
+      <div style="font-size:10.5px;color:var(--text-tertiary)">Notes · Dictation · AI-assisted learning</div>
+    </div>
+    <div style="font-size:10.5px;font-weight:600;color:var(--amber);flex-shrink:0">Open →</div>
+  </div>
+</div>`;
+
   // ── Today's Schedule + Action Items ──────────────────────────────────────
   const actionItems = [
     { show: openAEs.length > 0,       icon: '⚡', label: 'Open Adverse Events',  count: openAEs.length,       color: 'var(--red)',   nav: 'adverse-events' },
@@ -635,13 +671,15 @@ export async function pgDash(setTopbar, navigate) {
 
   // ── Row A: Quick Actions + Clinic Queue ────────────────────────────────────
   const quickActions = [
-    { icon: '◧', label: 'Start Session',  sub: 'Execute a treatment session',     page: 'session-execution', color: 'var(--teal)' },
-    { icon: '◉', label: 'Add Patient',    sub: 'Register a new patient',           page: 'patients',          color: 'var(--blue)' },
-    { icon: '◎', label: 'New Course',     sub: 'Create a treatment course',        page: 'protocol-wizard',   color: 'var(--violet)' },
-    { icon: '◱', label: 'Review Queue',   sub: `${pendingQueue.length} pending`,   page: 'review-queue',      color: pendingQueue.length > 0 ? 'var(--amber)' : 'var(--text-secondary)' },
-    { icon: '◫', label: 'Outcomes',       sub: `Responder rate: ${responderRate}`, page: 'outcomes',          color: 'var(--green)' },
-    { icon: '⚡', label: 'Adverse Events', sub: `${openAEs.length} open`,          page: 'adverse-events',    color: openAEs.length > 0 ? 'var(--red)' : 'var(--text-secondary)' },
-    { icon: '◌', label: 'Wearable Alerts', sub: wearableAlertCount > 0 ? `${wearableAlertCount} active · ${wearableUrgentCount} urgent` : 'All clear', page: 'wearables', color: wearableUrgentCount > 0 ? 'var(--red)' : wearableAlertCount > 0 ? 'var(--amber)' : 'var(--text-secondary)' },
+    { icon: '◧', label: 'Start Session',      sub: 'Execute a treatment session',          page: 'session-execution', color: 'var(--teal)' },
+    { icon: '◈', label: 'Assessments Hub',    sub: '38 scales · condition bundles',        page: 'assessments-hub',   color: 'var(--teal)' },
+    { icon: '◉', label: 'Add Patient',        sub: 'Register a new patient',               page: 'patients',          color: 'var(--blue)' },
+    { icon: '◎', label: 'New Course',         sub: 'Create a treatment course',            page: 'protocol-wizard',   color: 'var(--violet)' },
+    { icon: '◇', label: 'Brain Map Planner',  sub: '10-20 EEG map · stimulation sites',    page: 'brain-map-planner', color: 'var(--violet)' },
+    { icon: '◱', label: 'Review Queue',       sub: `${pendingQueue.length} pending`,       page: 'review-queue',      color: pendingQueue.length > 0 ? 'var(--amber)' : 'var(--text-secondary)' },
+    { icon: '◫', label: 'Outcomes',           sub: `Responder rate: ${responderRate}`,     page: 'outcomes',          color: 'var(--green)' },
+    { icon: '⚡', label: 'Adverse Events',    sub: `${openAEs.length} open`,              page: 'adverse-events',    color: openAEs.length > 0 ? 'var(--red)' : 'var(--text-secondary)' },
+    { icon: '◌', label: 'Notes & Dictation', sub: 'Text · Voice · AI transcription',      page: 'notes-dictation',   color: 'var(--amber)' },
   ];
 
   const clinicQueueRows = [
@@ -1083,7 +1121,7 @@ export async function pgDash(setTopbar, navigate) {
   </div>
 </div>` : '';
 
-  el.innerHTML = getStartedCard + statBar + rowToday + rowA + rowB + rowC + rowEnrollment + rowMedia + rowRecommend + rowD;
+  el.innerHTML = getStartedCard + statBar + engineHub + rowToday + rowA + rowB + rowC + rowEnrollment + rowMedia + rowRecommend + rowD;
 }
 
 // ── Enriched course row (dashboard clinic queue, includes patient name) ────
