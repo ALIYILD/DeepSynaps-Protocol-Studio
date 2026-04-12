@@ -1066,16 +1066,18 @@ export async function pgPatients(setTopbar, navigate) {
   const el = document.getElementById('content');
   el.innerHTML = spinner();
 
-  let items = [], conditions = [], modalities = [];
+  let items = [], conditions = [], modalities = [], allCourses = [];
   try {
-    const [patientsRes, condRes, modRes] = await Promise.all([
+    const [patientsRes, condRes, modRes, coursesRes] = await Promise.all([
       api.listPatients().catch(() => null),
       api.conditions().catch(() => null),
       api.modalities().catch(() => null),
+      (api.listCourses ? api.listCourses({}) : Promise.resolve(null)).catch(() => null),
     ]);
     items      = patientsRes?.items || [];
     conditions = condRes?.items     || [];
     modalities = modRes?.items      || [];
+    allCourses = coursesRes?.items  || [];
     if (!patientsRes) {
       el.innerHTML = `<div class="notice notice-warn">Could not load patients.</div>`;
       return;
@@ -1084,6 +1086,41 @@ export async function pgPatients(setTopbar, navigate) {
     el.innerHTML = `<div class="notice notice-warn">Could not load patients: ${e.message}</div>`;
     return;
   }
+
+  // ── Enrich patients with course data + attention signals ─────────────────
+  const _coursesByPat = {};
+  for (const c of allCourses) {
+    if (!c.patient_id) continue;
+    (_coursesByPat[c.patient_id] = _coursesByPat[c.patient_id] || []).push(c);
+  }
+  function _patCourseStats(p) {
+    const cs = _coursesByPat[p.id] || [];
+    return {
+      activeCourses: cs.filter(c => c.status === 'active' || c.status === 'in_progress'),
+      sessTotal: cs.reduce((n, c) => n + (c.total_sessions || c.session_count || 0), 0),
+      sessDone:  cs.reduce((n, c) => n + (c.completed_sessions || c.sessions_done || 0), 0),
+    };
+  }
+  function _patAttention(p) {
+    const { activeCourses } = _patCourseStats(p);
+    if (p.outcome_trend === 'worsened')               return { type:'outcome',    label:'\u2B07 Worsened',        color:'var(--red)'           };
+    if (p.has_adverse_event || p.adverse_event_flag)  return { type:'ae',         label:'\u26A0 Side Effect',      color:'var(--red)'           };
+    if (p.needs_review || p.review_overdue)           return { type:'review',     label:'\u25C9 Needs Review',     color:'var(--amber)'         };
+    if (p.assessment_overdue || p.missing_assessment) return { type:'assessment', label:'\u270E Assessment Due',   color:'var(--amber)'         };
+    if (activeCourses.length && p.last_session_date) {
+      const d = Math.floor((Date.now() - new Date(p.last_session_date)) / 86400000);
+      if (d >= 14) return { type:'missed', label: d + 'd no session', color:'var(--amber)' };
+    }
+    if (p.wearable_disconnected)                      return { type:'wearable',   label:'\u25CC Wearable Off',     color:'var(--text-tertiary)' };
+    if (p.home_adherence != null && p.home_adherence < 0.5) return { type:'adherence', label: Math.round(p.home_adherence * 100) + '% adherence', color:'var(--amber)' };
+    if (p.call_requested)                             return { type:'call',       label:'\u260F Call Req.',        color:'var(--blue)'          };
+    return null;
+  }
+  const _statActive = items.filter(p => p.status === 'active').length;
+  const _statReview = items.filter(p => p.needs_review || p.review_overdue).length;
+  const _statAlerts = items.filter(p => { const a = _patAttention(p); return a && (a.type === 'outcome' || a.type === 'ae'); }).length;
+  const _statAssess = items.filter(p => p.assessment_overdue || p.missing_assessment).length;
+  const _statToday  = items.reduce((n, p) => n + (p.sessions_today || 0), 0);
 
   // Build registry-backed option lists; fall back to static if registry unavailable
   const conditionOptions = conditions.length
@@ -1204,59 +1241,45 @@ export async function pgPatients(setTopbar, navigate) {
     `)}
   </div>
 
-  <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;align-items:center">
-    <input class="form-control" id="pt-search" placeholder="Search patients by name or condition…" style="flex:1;min-width:200px" oninput="window.filterPatients()">
-    <select class="form-control" id="pt-status-filter" style="width:auto" onchange="window.filterPatients()">
+  <!-- Summary Chips -->
+  <div class="pat-summary-chips" id="pat-summary-chips">
+    <div class="pat-chip pat-chip--active" onclick="window._patSetQuick('active')" style="cursor:pointer"><span class="pat-chip-val">${_statActive}</span><span class="pat-chip-lbl">Active Patients</span></div>
+    <div class="pat-chip pat-chip--review" onclick="window._patSetQuick('review')" style="cursor:pointer"><span class="pat-chip-val">${_statReview}</span><span class="pat-chip-lbl">Needs Review</span></div>
+    <div class="pat-chip pat-chip--alert"  onclick="window._patSetQuick('alert')"  style="cursor:pointer"><span class="pat-chip-val">${_statAlerts}</span><span class="pat-chip-lbl">Active Alerts</span></div>
+    <div class="pat-chip pat-chip--assess"><span class="pat-chip-val">${_statAssess}</span><span class="pat-chip-lbl">Overdue Assess.</span></div>
+    <div class="pat-chip"><span class="pat-chip-val">${_statToday}</span><span class="pat-chip-lbl">Sessions Today</span></div>
+    <div class="pat-chip" style="margin-left:auto"><span class="pat-chip-val">${items.length}</span><span class="pat-chip-lbl">Total</span></div>
+  </div>
+
+  <!-- Enhanced Filter Bar -->
+  <div class="pat-filter-bar">
+    <input class="form-control" id="pt-search" placeholder="Search name, condition, email…" style="flex:1;min-width:180px" oninput="window.filterPatients()">
+    <div class="pat-quick-chips">
+      <button class="pat-qchip pat-qchip--on" id="ptq-all"    onclick="window._patSetQuick('all')">All <span>${items.length}</span></button>
+      <button class="pat-qchip" id="ptq-review" onclick="window._patSetQuick('review')">Review <span>${_statReview}</span></button>
+      <button class="pat-qchip" id="ptq-alert"  onclick="window._patSetQuick('alert')">Alerts <span>${_statAlerts}</span></button>
+      <button class="pat-qchip" id="ptq-active" onclick="window._patSetQuick('active')">Active <span>${_statActive}</span></button>
+    </div>
+    <select class="form-control" id="pt-status-filter" style="width:130px;flex-shrink:0" onchange="window.filterPatients()">
       <option value="">All Status</option>
       <option value="active">Active</option>
       <option value="pending">Pending</option>
       <option value="inactive">Inactive</option>
+      <option value="completed">Completed</option>
     </select>
-    <select class="form-control" id="pt-modality-filter" style="width:auto" onchange="window.filterPatients()">
+    <select class="form-control" id="pt-modality-filter" style="width:150px;flex-shrink:0" onchange="window.filterPatients()">
       <option value="">All Modalities</option>
       ${FALLBACK_MODALITIES.map(m => `<option>${m}</option>`).join('')}
     </select>
     <span id="pt-count" style="font-size:11px;color:var(--text-tertiary);white-space:nowrap">${items.length} patients</span>
   </div>
 
-  <div class="card" style="overflow-x:auto">
-    ${items.length === 0
-      ? emptyState('👥', 'No patients yet', 'Add your first patient to get started with protocol planning and treatment courses.' + (canAddPatient ? '' : ''), canAddPatient ? '+ Add Patient' : null, canAddPatient ? 'window.showAddPatient()' : null)
-      : `<table class="ds-table" id="patients-table">
-          <thead><tr>
-            <th>Patient</th><th>Condition</th><th>Modality</th><th>Status</th><th>Courses</th><th>Consent</th><th></th>
-          </tr></thead>
-          <tbody id="patients-body">
-            ${items.map(p => {
-              const statusDot = p.status === 'active'
-                ? '<span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--green);margin-right:5px;flex-shrink:0"></span>'
-                : '<span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--text-tertiary);margin-right:5px;flex-shrink:0"></span>';
-              return `<tr onclick="window.openPatient('${p.id}')">
-                <td><div style="display:flex;align-items:center;gap:10px">
-                  ${statusDot}
-                  <div class="avatar" style="width:30px;height:30px;font-size:10.5px;flex-shrink:0">${initials((p.first_name || '') + ' ' + (p.last_name || ''))}</div>
-                  <div>
-                    <div style="font-weight:500">${p.first_name || ''} ${p.last_name || ''}</div>
-                    <div style="font-size:10.5px;color:var(--text-tertiary)">${p.dob ? p.dob : 'DOB unknown'}</div>
-                  </div>
-                </div></td>
-                <td style="color:var(--text-secondary)">${p.primary_condition || '—'}</td>
-                <td><span class="tag">${p.primary_modality || '—'}</span></td>
-                <td>${pillSt(p.status || 'pending')}</td>
-                <td style="font-size:12px;color:var(--text-tertiary)">${p._activeCourseCount != null ? `<span style="color:var(--teal);font-weight:600">${p._activeCourseCount}</span> active` : '—'}</td>
-                <td><span style="color:var(--text-tertiary);font-size:13px" title="Consent status — open patient profile to verify">&#9673;</span> ${p.consent_signed ? '<span style="color:var(--green);font-size:12px">&#10003; Signed</span>' : '<span style="color:var(--amber);font-size:12px">Pending</span>'}</td>
-                <td style="display:flex;gap:4px">
-                  <button class="btn btn-sm" onclick="event.stopPropagation();window.openPatient('${p.id}')">Open &#8594;</button>
-                  <button class="btn btn-sm" style="color:var(--accent-teal,#00d4bc);border-color:rgba(0,212,188,0.3)" onclick="event.stopPropagation();window._profilePatientId='${p.id}';window._nav('patient-profile')">Profile &#8594;</button>
-                  ${canTransfer ? `<button class="btn btn-sm" style="color:var(--violet);border-color:rgba(155,127,255,0.3)" onclick="event.stopPropagation();window._transferPatient('${p.id}','${((p.first_name || '') + ' ' + (p.last_name || '')).replace(/'/g,"\\'")}')">Transfer</button>` : ''}
-                  <button class="btn btn-sm btn-danger" onclick="event.stopPropagation();window.deletePatient('${p.id}')">&#10005;</button>
-                </td>
-              </tr>`;
-            }).join('')}
-          </tbody>
-        </table>`
-    }
-  </div>
+  <!-- Patient Roster -->
+  <div id="pat-roster">${
+    items.length === 0
+      ? emptyState('\u{1F465}', 'No patients yet', canAddPatient ? 'Add your first patient to get started.' : '', canAddPatient ? '+ Add Patient' : null, canAddPatient ? 'window.showAddPatient()' : null)
+      : items.map(p => _patCard(p, _patAttention(p), _patCourseStats(p), canTransfer)).join('')
+  }</div>
 
   <!-- AI Intake Parser -->
   <div style="margin-top:16px">
@@ -1288,49 +1311,104 @@ export async function pgPatients(setTopbar, navigate) {
     </div>
   </div>`;
 
-  window._patientsData = items;
+  window._patientsData    = items;
+  window._patQuickFilter  = 'all';
 
-  window.filterPatients = function() {
-    const q = document.getElementById('pt-search').value.toLowerCase();
-    const st = document.getElementById('pt-status-filter').value;
-    const mod = document.getElementById('pt-modality-filter')?.value || '';
-    const filtered = (window._patientsData || []).filter(p => {
-      const name = `${p.first_name} ${p.last_name}`.toLowerCase();
-      const matchQ = !q || name.includes(q) || (p.primary_condition || '').toLowerCase().includes(q) || (p.email || '').toLowerCase().includes(q);
-      const matchSt = !st || p.status === st;
-      const matchMod = !mod || (p.primary_modality || '') === mod;
-      return matchQ && matchSt && matchMod;
-    });
-    const countEl = document.getElementById('pt-count');
-    if (countEl) countEl.textContent = filtered.length + ' patient' + (filtered.length !== 1 ? 's' : '');
-    const tbody = document.getElementById('patients-body');
-    if (!tbody) return;
-    tbody.innerHTML = filtered.length === 0
-      ? `<tr><td colspan="7" style="text-align:center;padding:32px;color:var(--text-tertiary)">No patients match filter.</td></tr>`
-      : filtered.map(p => {
-          const statusDot = p.status === 'active'
-            ? '<span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--green);margin-right:5px;flex-shrink:0"></span>'
-            : '<span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--text-tertiary);margin-right:5px;flex-shrink:0"></span>';
-          return `<tr onclick="window.openPatient('${p.id}')">
-            <td><div style="display:flex;align-items:center;gap:10px">
-              ${statusDot}
-              <div class="avatar" style="width:30px;height:30px;font-size:10.5px">${initials((p.first_name || '') + ' ' + (p.last_name || ''))}</div>
-              <div><div style="font-weight:500">${p.first_name} ${p.last_name}</div><div style="font-size:10.5px;color:var(--text-tertiary)">${p.dob || ''}</div></div>
-            </div></td>
-            <td style="color:var(--text-secondary)">${p.primary_condition || '—'}</td>
-            <td><span class="tag">${p.primary_modality || '—'}</span></td>
-            <td>${pillSt(p.status || 'pending')}</td>
-            <td style="font-size:12px;color:var(--text-tertiary)">${p._activeCourseCount != null ? `<span style="color:var(--teal);font-weight:600">${p._activeCourseCount}</span> active` : '—'}</td>
-            <td><span style="color:var(--text-tertiary);font-size:13px" title="Consent status — open patient profile to verify">&#9673;</span> ${p.consent_signed ? '<span style="color:var(--green)">&#10003;</span>' : '<span style="color:var(--amber)">Pending</span>'}</td>
-            <td style="display:flex;gap:4px">
-              <button class="btn btn-sm" onclick="event.stopPropagation();window.openPatient('${p.id}')">Open &#8594;</button>
-              ${canTransfer ? `<button class="btn btn-sm" style="color:var(--violet);border-color:rgba(155,127,255,0.3)" onclick="event.stopPropagation();window._transferPatient('${p.id}','${((p.first_name || '') + ' ' + (p.last_name || '')).replace(/'/g,"\\'")}')">Transfer</button>` : ''}
-            </td>
-          </tr>`;
-        }).join('');
+  // ── Patient card renderer ─────────────────────────────────────────────────
+  function _patCard(p, att, cs, canTransferFlag) {
+    att = att || _patAttention(p);
+    cs  = cs  || _patCourseStats(p);
+    const name    = (p.first_name || '') + ' ' + (p.last_name || '');
+    const age     = p.dob ? Math.floor((Date.now() - new Date(p.dob)) / 31557600000) + 'y' : '';
+    const progPct = cs.sessTotal ? Math.round((cs.sessDone / cs.sessTotal) * 100) : 0;
+    const attBadge = att
+      ? '<span class="pat-att-badge" style="color:' + att.color + ';border-color:' + att.color + '33;background:' + att.color + '0d">' + att.label + '</span>'
+      : '<span class="pat-att-badge pat-att-badge--ok">✓ On Track</span>';
+    const courseInfo = cs.activeCourses.length
+      ? '<span class="pat-course-info">' + cs.activeCourses.length + ' active course' + (cs.activeCourses.length > 1 ? 's' : '') + '</span>'
+      : '<span class="pat-course-info pat-course-info--none">No active course</span>';
+    const progressBar = cs.sessTotal
+      ? '<div class="pat-prog-row"><div class="pat-prog-track"><div class="pat-prog-fill" style="width:' + progPct + '%"></div></div><span class="pat-prog-lbl">' + cs.sessDone + '/' + cs.sessTotal + ' sessions</span></div>'
+      : '';
+    const lastSess = p.last_session_date ? '<span class="pat-last-sess">Last: ' + p.last_session_date + '</span>' : '';
+    const statusColor = { active: 'var(--green)', pending: 'var(--amber)', inactive: 'var(--text-tertiary)', completed: 'var(--blue)' }[p.status] || 'var(--text-tertiary)';
+    const condTag  = p.primary_condition ? '<span class="tag" style="font-size:10.5px">' + p.primary_condition + '</span>' : '';
+    const modTag   = p.primary_modality  ? '<span class="tag" style="font-size:10.5px">' + p.primary_modality  + '</span>' : '';
+    const ageSpan  = age ? ' <span class="pat-card-age">' + age + '</span>' : '';
+    const transferBtn = canTransferFlag
+      ? '<button class="pat-act-btn" onclick="window._transferPatient('' + p.id + '','' + name.replace(/'/g, "\'") + '')">Transfer</button>'
+      : '';
+    return '<div class="pat-roster-card" data-id="' + p.id + '" data-status="' + p.status + '" data-attention="' + (att ? att.type : 'ok') + '" onclick="window.openPatient('' + p.id + '')">'
+      + '<div class="pat-card-left">'
+      +   '<div class="pat-card-avatar">'
+      +     '<span class="pat-status-dot" style="background:' + statusColor + '"></span>'
+      +     initials(name)
+      +   '</div>'
+      + '</div>'
+      + '<div class="pat-card-main">'
+      +   '<div class="pat-card-name">' + name + ageSpan + '</div>'
+      +   '<div class="pat-card-meta">' + condTag + modTag + ' ' + courseInfo + '</div>'
+      +   progressBar
+      +   lastSess
+      + '</div>'
+      + '<div class="pat-card-signals">' + attBadge + '</div>'
+      + '<div class="pat-card-actions" onclick="event.stopPropagation()">'
+      +   '<button class="pat-act-btn pat-act-btn--primary" onclick="window.openPatient('' + p.id + '')">Open Chart</button>'
+      +   '<button class="pat-act-btn" onclick="window._patStartSession('' + p.id + '')">Start Session</button>'
+      +   '<button class="pat-act-btn" onclick="window._nav('virtual-care')">Virtual Care</button>'
+      +   '<button class="pat-act-btn" onclick="window._patAddNote('' + p.id + '')">Add Note</button>'
+      +   transferBtn
+      + '</div>'
+      + '</div>';
+  }
+  window._patCard = _patCard;
+
+  window._patSetQuick = function(type) {
+    window._patQuickFilter = type;
+    document.querySelectorAll('.pat-qchip').forEach(b => b.classList.toggle('pat-qchip--on', b.id === 'ptq-' + type));
+    window.filterPatients();
   };
 
-  window.showAddPatient = function() {
+  window._patStartSession = function(id) {
+    window._selectedPatientId = id;
+    window._profilePatientId  = id;
+    window._nav('patient-profile');
+  };
+
+  window._patAddNote = function(id) {
+    window._selectedPatientId = id;
+    window._profilePatientId  = id;
+    window._nav('patient-profile');
+  };
+
+  window.filterPatients = function() {
+    const q     = (document.getElementById('pt-search')?.value || '').toLowerCase();
+    const st    = document.getElementById('pt-status-filter')?.value  || '';
+    const mod   = document.getElementById('pt-modality-filter')?.value || '';
+    const quick = window._patQuickFilter || 'all';
+    const all   = window._patientsData || [];
+
+    const vis = all.filter(p => {
+      const name  = ((p.first_name || '') + ' ' + (p.last_name || '')).toLowerCase();
+      const matchQ   = !q   || name.includes(q) || (p.primary_condition || '').toLowerCase().includes(q) || (p.email || '').toLowerCase().includes(q);
+      const matchSt  = !st  || p.status === st;
+      const matchMod = !mod || (p.primary_modality || '') === mod;
+      let   matchQ2  = true;
+      if (quick === 'active') matchQ2 = p.status === 'active';
+      if (quick === 'review') matchQ2 = !!(p.needs_review || p.review_overdue);
+      if (quick === 'alert')  { const a = _patAttention(p); matchQ2 = !!(a && (a.type === 'outcome' || a.type === 'ae')); }
+      return matchQ && matchSt && matchMod && matchQ2;
+    });
+
+    const countEl  = document.getElementById('pt-count');
+    const rosterEl = document.getElementById('pat-roster');
+    if (countEl)  countEl.textContent = vis.length + ' of ' + all.length + ' patients';
+    if (rosterEl) rosterEl.innerHTML  = vis.length
+      ? vis.map(p => _patCard(p, _patAttention(p), _patCourseStats(p), canTransfer)).join('')
+      : `<div style="text-align:center;padding:48px 24px;color:var(--text-tertiary)"><div style="font-size:28px;margin-bottom:8px">&#9670;</div>No patients match the current filters.</div>`;
+  };
+
+    window.showAddPatient = function() {
     document.getElementById('add-patient-panel').style.display = '';
   };
 
@@ -14112,3 +14190,320 @@ export async function pgReportsHub(setTopbar) {
   };
 }
 
+
+// ─────────────────────────────────────────────────────────────────────────────
+// pgMonitoring — Clinic-wide Patient Monitoring & Remote Follow-Up
+// ─────────────────────────────────────────────────────────────────────────────
+export async function pgMonitoring(setTopbar, navigate) {
+  setTopbar({ title: 'Patient Monitoring & Remote Follow-Up', subtitle: 'Remote follow-up · risk detection · adherence oversight' });
+
+  const el = document.getElementById('main-content');
+  if (!el) return;
+  el.innerHTML = '<div class="pm-loading">Loading monitoring data…</div>';
+
+  // ── Data fetch ────────────────────────────────────────────────────────────
+  const api = window._api || {};
+  const [patients, courses, alertSummary, homeAdherence, homeFlags, mediaQueue, adverseEvents] = await Promise.all([
+    api.listPatients?.().catch(() => []) ?? [],
+    api.listCourses?.().catch(() => []) ?? [],
+    api.getClinicAlertSummary?.().catch(() => ({})) ?? {},
+    api.listHomeAdherenceEvents?.().catch(() => []) ?? [],
+    api.listHomeReviewFlags?.().catch(() => []) ?? [],
+    api.listMediaQueue?.().catch(() => []) ?? [],
+    api.listAdverseEvents?.().catch(() => []) ?? [],
+  ]);
+
+  const patientMap = {};
+  (patients || []).forEach(p => { patientMap[p.id] = p; });
+
+  const coursesByPatient = {};
+  (courses || []).forEach(c => {
+    if (!coursesByPatient[c.patient_id]) coursesByPatient[c.patient_id] = [];
+    coursesByPatient[c.patient_id].push(c);
+  });
+
+  const activeCourses = (courses || []).filter(c => ['active','in_progress'].includes(c.status));
+  const openAEs = (adverseEvents || []).filter(a => a.status === 'open' || a.status === 'active');
+  const seriousAEs = openAEs.filter(a => ['serious','severe'].includes(a.severity));
+
+  // ── Signal scoring per patient ───────────────────────────────────────────
+  const _signalScore = patId => {
+    let score = 0;
+    const ptAEs = openAEs.filter(a => a.patient_id === patId);
+    const ptCourses = (coursesByPatient[patId] || []);
+    const ptAdherence = (homeAdherence || []).filter(e => e.patient_id === patId);
+    const ptFlags = (homeFlags || []).filter(f => f.patient_id === patId);
+    if (ptAEs.some(a => ['serious','severe'].includes(a.severity))) score += 100;
+    if (ptAEs.length) score += 40;
+    if (ptCourses.some(c => c.status === 'paused')) score += 60;
+    if (ptFlags.some(f => f.severity === 'high')) score += 50;
+    if (ptAdherence.some(e => e.missed_sessions >= 3)) score += 30;
+    if (ptCourses.some(c => (c.last_checkin_days_ago || 0) > 7)) score += 25;
+    return score;
+  };
+
+  const _statusBadge = score => {
+    if (score >= 80) return { label: 'Needs Review', cls: 'pm-badge-red' };
+    if (score >= 30) return { label: 'Watch', cls: 'pm-badge-amber' };
+    return { label: 'Stable', cls: 'pm-badge-green' };
+  };
+
+  const _monitoringReason = patId => {
+    const ptAEs = openAEs.filter(a => a.patient_id === patId);
+    const ptFlags = (homeFlags || []).filter(f => f.patient_id === patId);
+    const ptAdherence = (homeAdherence || []).filter(e => e.patient_id === patId);
+    const ptCourses = (coursesByPatient[patId] || []);
+    if (ptAEs.some(a => ['serious','severe'].includes(a.severity))) return 'Serious adverse event';
+    if (ptAEs.length) return 'Open adverse event';
+    if (ptCourses.some(c => c.status === 'paused')) return 'Course paused';
+    if (ptFlags.some(f => f.severity === 'high')) return 'High severity flag';
+    if (ptAdherence.some(e => e.missed_sessions >= 3)) return 'Low adherence';
+    if (ptCourses.some(c => (c.last_checkin_days_ago || 0) > 7)) return 'No recent check-in';
+    return 'Routine monitoring';
+  };
+
+  const _latestSignal = patId => {
+    const ptFlags = (homeFlags || []).filter(f => f.patient_id === patId).sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
+    if (ptFlags.length) return ptFlags[0].description || 'Flag raised';
+    const ptAEs = openAEs.filter(a => a.patient_id === patId);
+    if (ptAEs.length) return `AE: ${ptAEs[0].description || ptAEs[0].type || 'Adverse event'}`;
+    return 'No new signals';
+  };
+
+  // ── Build monitored patient list ─────────────────────────────────────────
+  const monitoredPatientIds = [...new Set([
+    ...activeCourses.map(c => c.patient_id),
+    ...openAEs.map(a => a.patient_id),
+    ...(homeAdherence || []).map(e => e.patient_id),
+    ...(homeFlags || []).map(f => f.patient_id),
+  ].filter(Boolean))];
+
+  const monitoredPatients = monitoredPatientIds
+    .map(id => {
+      const pt = patientMap[id];
+      if (!pt) return null;
+      const score = _signalScore(id);
+      const status = _statusBadge(score);
+      const ptCourses = coursesByPatient[id] || [];
+      const activeCourse = ptCourses.find(c => ['active','in_progress'].includes(c.status));
+      return {
+        id, pt, score, status,
+        reason: _monitoringReason(id),
+        signal: _latestSignal(id),
+        modality: activeCourse?.modality || activeCourse?.protocol_name || '—',
+        condition: activeCourse?.condition || pt.primary_condition || '—',
+        ptAEs: openAEs.filter(a => a.patient_id === id),
+        ptFlags: (homeFlags || []).filter(f => f.patient_id === id),
+        ptAdherence: (homeAdherence || []).filter(e => e.patient_id === id),
+      };
+    })
+    .filter(Boolean)
+    .sort((a, b) => b.score - a.score);
+
+  // ── Summary counts ───────────────────────────────────────────────────────
+  const totalMonitored = monitoredPatients.length;
+  const totalStable = monitoredPatients.filter(x => x.status.label === 'Stable').length;
+  const totalNeedsReview = monitoredPatients.filter(x => x.status.label === 'Needs Review').length;
+  const missingCheckins = monitoredPatients.filter(x => (coursesByPatient[x.id] || []).some(c => (c.last_checkin_days_ago || 0) > 7)).length;
+  const deviceIssues = monitoredPatients.filter(x => x.ptFlags.some(f => f.type === 'device_sync' || f.type === 'wearable_disconnect')).length;
+  const sideEffectFlags = monitoredPatients.filter(x => x.ptFlags.some(f => f.type === 'side_effect') || x.ptAEs.length > 0).length;
+
+  // ── Action buttons ───────────────────────────────────────────────────────
+  const _actionBtns = (pid, cid) => {
+    const _cid = (cid || '').replace(/['"]/g, '');
+    return `
+      <button class="pm-act-btn pm-act-primary" onclick="window.openPatient('${pid}');window._nav('patient-profile')" title="Open Patient">Open</button>
+      <button class="pm-act-btn" onclick="window.openPatient('${pid}');window._nav('messaging')" title="Message Patient">Message</button>
+      <button class="pm-act-btn" onclick="window.openPatient('${pid}');window._nav('patient-profile')" title="Review Update">Review</button>
+      <div class="pm-act-more" onclick="event.stopPropagation();this.nextElementSibling.classList.toggle('pm-act-open')">⋯</div>
+      <div class="pm-act-dropdown">
+        <div onclick="window.openPatient('${pid}');window._nav('outcomes')">Log Outcome</div>
+        <div onclick="window.openPatient('${pid}');window._nav('assessments-hub')">Request Assessment</div>
+        <div onclick="window.openPatient('${pid}');window._nav('home-task-manager')">Assign Task</div>
+        <div onclick="window.openPatient('${pid}');window._nav('telehealth-recorder')">Schedule Call</div>
+        <div onclick="window.openPatient('${pid}');window._nav('adverse-events')">Flag Review</div>
+        ${_cid ? `<div onclick="window._nav('wearables')">Open Device Detail</div>` : ''}
+      </div>`;
+  };
+
+  // ── Patient row ──────────────────────────────────────────────────────────
+  const _patRow = (entry) => {
+    const { id, pt, status, reason, signal, modality, condition } = entry;
+    const ptCourses = coursesByPatient[id] || [];
+    const activeCourse = ptCourses.find(c => ['active','in_progress'].includes(c.status));
+    const cid = activeCourse?.id || '';
+    const name = [pt.first_name, pt.last_name].filter(Boolean).join(' ') || pt.name || 'Unknown';
+    return `
+      <div class="pm-pat-row" onclick="window.openPatient('${id}');window._nav('patient-profile')">
+        <div class="pm-pat-name">${name}</div>
+        <div class="pm-pat-condition">${condition}</div>
+        <div class="pm-pat-modality">${modality}</div>
+        <div class="pm-pat-reason">${reason}</div>
+        <div class="pm-pat-signal pm-signal-text">${signal}</div>
+        <div class="pm-pat-status"><span class="pm-badge ${status.cls}">${status.label}</span></div>
+        <div class="pm-pat-actions" onclick="event.stopPropagation()">${_actionBtns(id, cid)}</div>
+      </div>`;
+  };
+
+  // ── Domain section helpers ───────────────────────────────────────────────
+  const _domainSection = (title, icon, rows, emptyMsg) => `
+    <div class="pm-domain">
+      <div class="pm-domain-header"><span class="pm-domain-icon">${icon}</span> ${title}</div>
+      ${rows.length ? rows.join('') : `<div class="pm-domain-empty">${emptyMsg}</div>`}
+    </div>`;
+
+  const symptomsPatients = monitoredPatients.filter(x => x.ptFlags.some(f => f.type === 'symptom' || f.type === 'side_effect') || x.ptAEs.length > 0);
+  const assessmentPatients = monitoredPatients.filter(x => (coursesByPatient[x.id] || []).some(c => c.pending_assessment || c.outcome_due));
+  const homeProgramPatients = monitoredPatients.filter(x => x.ptAdherence.some(e => e.missed_sessions >= 1));
+  const wearablePatients = monitoredPatients.filter(x => x.ptFlags.some(f => f.type === 'wearable_disconnect' || f.type === 'device_sync'));
+  const homeNeuroPatients = monitoredPatients.filter(x => x.ptFlags.some(f => f.type === 'home_device_non_use' || f.type === 'home_neuro'));
+
+  const _domainRow = (entry, signal) => {
+    const { id, pt, status } = entry;
+    const name = [pt.first_name, pt.last_name].filter(Boolean).join(' ') || pt.name || 'Unknown';
+    return `<div class="pm-domain-row" onclick="window.openPatient('${id}');window._nav('patient-profile')">
+      <span class="pm-domain-name">${name}</span>
+      <span class="pm-domain-signal">${signal}</span>
+      <span class="pm-badge ${status.cls}">${status.label}</span>
+    </div>`;
+  };
+
+  // ── Needs Review panel ───────────────────────────────────────────────────
+  const needsReviewPatients = monitoredPatients.filter(x => x.status.label === 'Needs Review');
+  const _reviewRow = (entry) => {
+    const { id, pt, reason, ptAEs, ptFlags, ptAdherence } = entry;
+    const name = [pt.first_name, pt.last_name].filter(Boolean).join(' ') || pt.name || 'Unknown';
+    const tags = [];
+    if (ptAEs.some(a => ['serious','severe'].includes(a.severity))) tags.push('<span class="pm-tag pm-tag-red">Serious AE</span>');
+    else if (ptAEs.length) tags.push('<span class="pm-tag pm-tag-amber">Open AE</span>');
+    if (ptFlags.some(f => f.type === 'side_effect')) tags.push('<span class="pm-tag pm-tag-amber">Side Effects</span>');
+    if (ptFlags.some(f => f.type === 'wearable_disconnect')) tags.push('<span class="pm-tag pm-tag-grey">Wearable Offline</span>');
+    if (ptFlags.some(f => f.type === 'home_device_non_use')) tags.push('<span class="pm-tag pm-tag-grey">Device Non-Use</span>');
+    if (ptAdherence.some(e => e.missed_sessions >= 3)) tags.push('<span class="pm-tag pm-tag-amber">Low Adherence</span>');
+    if (ptFlags.some(f => f.severity === 'high')) tags.push('<span class="pm-tag pm-tag-red">High Flag</span>');
+    return `<div class="pm-review-row">
+      <div class="pm-review-name">${name}</div>
+      <div class="pm-review-reason">${reason}</div>
+      <div class="pm-review-tags">${tags.join('')}</div>
+      <div class="pm-review-actions" onclick="event.stopPropagation()">
+        <button class="pm-act-btn pm-act-primary" onclick="window.openPatient('${id}');window._nav('patient-profile')">Open</button>
+        <button class="pm-act-btn" onclick="window.openPatient('${id}');window._nav('messaging')">Message</button>
+      </div>
+    </div>`;
+  };
+
+  // ── Filter state ─────────────────────────────────────────────────────────
+  let _pmFilter = { search: '', status: 'all', type: 'all' };
+
+  const _filteredPatients = () => {
+    let list = monitoredPatients;
+    if (_pmFilter.status !== 'all') list = list.filter(x => x.status.label.toLowerCase().replace(' ', '-') === _pmFilter.status);
+    if (_pmFilter.type === 'no-checkin') list = list.filter(x => (coursesByPatient[x.id] || []).some(c => (c.last_checkin_days_ago || 0) > 7));
+    if (_pmFilter.type === 'low-adherence') list = list.filter(x => x.ptAdherence.some(e => e.missed_sessions >= 2));
+    if (_pmFilter.type === 'wearable-issue') list = list.filter(x => x.ptFlags.some(f => f.type === 'wearable_disconnect'));
+    if (_pmFilter.type === 'side-effects') list = list.filter(x => x.ptFlags.some(f => f.type === 'side_effect') || x.ptAEs.length > 0);
+    if (_pmFilter.type === 'home-device') list = list.filter(x => x.ptFlags.some(f => f.type === 'home_device_non_use'));
+    if (_pmFilter.search) {
+      const q = _pmFilter.search.toLowerCase();
+      list = list.filter(x => {
+        const name = [x.pt.first_name, x.pt.last_name, x.pt.name].filter(Boolean).join(' ').toLowerCase();
+        return name.includes(q) || (x.condition || '').toLowerCase().includes(q) || (x.modality || '').toLowerCase().includes(q);
+      });
+    }
+    return list;
+  };
+
+  // ── Render ───────────────────────────────────────────────────────────────
+  const renderPage = () => {
+    const filtered = _filteredPatients();
+
+    const summaryStrip = `
+      <div class="pm-summary-strip">
+        <div class="pm-chip"><span class="pm-chip-val">${totalMonitored}</span><span class="pm-chip-lbl">Monitored</span></div>
+        <div class="pm-chip pm-chip-green"><span class="pm-chip-val">${totalStable}</span><span class="pm-chip-lbl">Stable</span></div>
+        <div class="pm-chip pm-chip-red"><span class="pm-chip-val">${totalNeedsReview}</span><span class="pm-chip-lbl">Needs Review</span></div>
+        <div class="pm-chip pm-chip-amber"><span class="pm-chip-val">${missingCheckins}</span><span class="pm-chip-lbl">Missing Check-ins</span></div>
+        <div class="pm-chip pm-chip-grey"><span class="pm-chip-val">${deviceIssues}</span><span class="pm-chip-lbl">Device Issues</span></div>
+        <div class="pm-chip pm-chip-amber"><span class="pm-chip-val">${sideEffectFlags}</span><span class="pm-chip-lbl">Side Effect Flags</span></div>
+      </div>`;
+
+    const filterBar = `
+      <div class="pm-filter-bar">
+        <input class="pm-search" type="text" placeholder="Search patient, condition, modality…" value="${_pmFilter.search}" oninput="window._pmSearch(this.value)">
+        <select class="pm-filter-sel" onchange="window._pmFilterStatus(this.value)">
+          <option value="all" ${_pmFilter.status==='all'?'selected':''}>All Status</option>
+          <option value="needs-review" ${_pmFilter.status==='needs-review'?'selected':''}>Needs Review</option>
+          <option value="watch" ${_pmFilter.status==='watch'?'selected':''}>Watch</option>
+          <option value="stable" ${_pmFilter.status==='stable'?'selected':''}>Stable</option>
+        </select>
+        <select class="pm-filter-sel" onchange="window._pmFilterType(this.value)">
+          <option value="all" ${_pmFilter.type==='all'?'selected':''}>All Types</option>
+          <option value="no-checkin" ${_pmFilter.type==='no-checkin'?'selected':''}>No Recent Check-in</option>
+          <option value="low-adherence" ${_pmFilter.type==='low-adherence'?'selected':''}>Low Adherence</option>
+          <option value="wearable-issue" ${_pmFilter.type==='wearable-issue'?'selected':''}>Wearable Issue</option>
+          <option value="side-effects" ${_pmFilter.type==='side-effects'?'selected':''}>Side Effects / AE</option>
+          <option value="home-device" ${_pmFilter.type==='home-device'?'selected':''}>Home Device Non-Use</option>
+        </select>
+      </div>`;
+
+    const queueHeader = `
+      <div class="pm-queue-header">
+        <span>Patient</span><span>Condition</span><span>Modality</span><span>Reason</span><span>Latest Signal</span><span>Status</span><span>Actions</span>
+      </div>`;
+
+    const queueRows = filtered.length
+      ? filtered.map(_patRow).join('')
+      : '<div class="pm-empty-queue">No patients match current filters.</div>';
+
+    const queueCard = `
+      <div class="pm-card pm-queue-card">
+        <div class="pm-card-title">Monitoring Queue <span class="pm-queue-count">${filtered.length}</span></div>
+        ${filterBar}
+        ${queueHeader}
+        <div class="pm-queue-rows">${queueRows}</div>
+      </div>`;
+
+    const domainsCard = `
+      <div class="pm-card pm-domains-card">
+        <div class="pm-card-title">Signal Domains</div>
+        ${_domainSection('Symptoms & Check-ins', '⚡',
+          symptomsPatients.map(x => _domainRow(x, x.ptFlags.find(f=>f.type==='symptom'||f.type==='side_effect')?.description || (x.ptAEs[0]?.type || 'Symptom flag'))),
+          'No symptom flags')}
+        ${_domainSection('Assessments & Outcomes', '📋',
+          assessmentPatients.map(x => _domainRow(x, 'Assessment pending or outcome due')),
+          'All assessments current')}
+        ${_domainSection('Home Programs', '🏠',
+          homeProgramPatients.map(x => _domainRow(x, `${x.ptAdherence.find(e=>e.missed_sessions>=1)?.missed_sessions || 1} session(s) missed`)),
+          'Full adherence')}
+        ${_domainSection('Wearables & Devices', '⌚',
+          wearablePatients.map(x => _domainRow(x, x.ptFlags.find(f=>f.type==='wearable_disconnect'||f.type==='device_sync')?.description || 'Device offline')),
+          'All wearables synced')}
+        ${_domainSection('Home Neuromodulation Devices', '🧠',
+          homeNeuroPatients.map(x => _domainRow(x, x.ptFlags.find(f=>f.type==='home_device_non_use'||f.type==='home_neuro')?.description || 'Non-use detected')),
+          'All devices in use')}
+      </div>`;
+
+    const reviewCard = needsReviewPatients.length ? `
+      <div class="pm-card pm-review-card">
+        <div class="pm-card-title pm-review-title">Needs Review <span class="pm-badge pm-badge-red">${needsReviewPatients.length}</span></div>
+        <div class="pm-review-rows">${needsReviewPatients.map(_reviewRow).join('')}</div>
+      </div>` : '';
+
+    el.innerHTML = `
+      <div class="pm-page">
+        ${summaryStrip}
+        ${queueCard}
+        <div class="pm-lower-grid">
+          ${domainsCard}
+          ${reviewCard}
+        </div>
+      </div>`;
+  };
+
+  // ── Global handlers ───────────────────────────────────────────────────────
+  window._pmSearch = (val) => { _pmFilter.search = val; renderPage(); };
+  window._pmFilterStatus = (val) => { _pmFilter.status = val; renderPage(); };
+  window._pmFilterType = (val) => { _pmFilter.type = val; renderPage(); };
+
+  renderPage();
+}

@@ -445,7 +445,8 @@ const NAV = [
   { id: 'assessments-hub',    label: 'Assessments',        icon: '◈' },
   { id: 'reports',            label: 'Reports',            icon: '◫' },
   { id: 'outcomes',           label: 'Outcomes',           icon: '◫' },
-  { id: 'wearables',          label: 'Patient Monitoring', icon: '◌' },
+  { id: 'monitoring',         label: 'Monitoring',         icon: '◌' },
+  { id: 'wearables',          label: 'Wearable Integrations', icon: '⌚' },
   { id: 'home-task-manager',  label: 'Home Programs',      icon: '◩' },
 
   // ── PROTOCOLS ────────────────────────────────────────────────────────────────
@@ -1123,6 +1124,7 @@ async function renderPage() {
       break;
     }
     case 'telehealth-recorder': { const m = await loadPractice(); await m.pgTelehealthRecorder(setTopbar); break; }
+    case 'monitoring': { const m = await loadClinical(); await m.pgMonitoring(setTopbar, navigate); break; }
     case 'wearables': { const m = await loadPractice(); await m.pgWearableIntegration(setTopbar); break; }
     case 'home-task-manager': { const m = await loadPractice(); await m.pgHomeTaskManager(setTopbar); break; }
     case 'messaging': {
