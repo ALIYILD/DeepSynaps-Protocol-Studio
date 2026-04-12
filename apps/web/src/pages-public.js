@@ -293,8 +293,36 @@ export function pgHome() {
         <button class="phome-cta-primary" onclick="window._startDemoTour()">Start Demo Tour &rarr;</button>
         <button class="phome-cta-secondary" onclick="window._nav('pricing')">View Pricing &rarr;</button>
       </div>
-      <div class="phome-trust-strip">Used by neuromodulation clinics &nbsp;&middot;&nbsp; HIPAA-aligned &nbsp;&middot;&nbsp; Evidence-mapped protocols</div>
+      <div class="phome-trust-strip">
+        <span class="phome-trust-badge"><span class="phome-trust-badge-icon">🔒</span>HIPAA-Aligned</span>
+        <span class="phome-trust-badge"><span class="phome-trust-badge-icon">🇪🇺</span>GDPR-Conscious</span>
+        <span class="phome-trust-badge"><span class="phome-trust-badge-icon">🔐</span>TLS&nbsp;1.3 Encrypted</span>
+        <span class="phome-trust-badge"><span class="phome-trust-badge-icon">★</span>Evidence-Graded Protocols</span>
+      </div>
     </section>
+
+    <!-- ─── Stats strip ────────────────────────────────────────────────────── -->
+    <div class="phome-stats-strip">
+      <div class="phome-stat-item">
+        <span class="phome-stat-num">53</span>
+        <span class="phome-stat-label">Clinical Conditions</span>
+      </div>
+      <div class="phome-stat-sep"></div>
+      <div class="phome-stat-item">
+        <span class="phome-stat-num">11</span>
+        <span class="phome-stat-label">Neuromodulation Modalities</span>
+      </div>
+      <div class="phome-stat-sep"></div>
+      <div class="phome-stat-item">
+        <span class="phome-stat-num">2,400+</span>
+        <span class="phome-stat-label">Evidence-Mapped Protocols</span>
+      </div>
+      <div class="phome-stat-sep"></div>
+      <div class="phome-stat-item">
+        <span class="phome-stat-num">12</span>
+        <span class="phome-stat-label">Compatible Devices</span>
+      </div>
+    </div>
 
     <!-- ─── 3 FEATURE CARDS ───────────────────────────────────────────────── -->
     <section class="phome-features-section">
@@ -311,6 +339,15 @@ export function pgHome() {
             <li>Walk-in patients added in seconds</li>
           </ul>
           <button class="phome-feature-link" onclick="window._nav('patient-queue')">Open Queue &rarr;</button>
+          <div class="phome-feature-mockup queue-mock">
+            <div class="mock-bar">
+              <span class="mock-dot green"></span><span class="mock-label">3 Waiting</span>
+              <span class="mock-dot amber" style="margin-left:auto"></span><span class="mock-label">1 Overdue</span>
+            </div>
+            <div class="mock-row"><span class="mock-avatar">JD</span><span class="mock-name">J. Doe</span><span class="mock-tag tms">TMS</span><span class="mock-status waiting">Waiting</span></div>
+            <div class="mock-row"><span class="mock-avatar">SM</span><span class="mock-name">S. Miller</span><span class="mock-tag nf">NF</span><span class="mock-status session">In Session</span></div>
+            <div class="mock-row"><span class="mock-avatar">AK</span><span class="mock-name">A. Khan</span><span class="mock-tag tdcs">tDCS</span><span class="mock-status done">Done</span></div>
+          </div>
         </div>
 
         <div class="phome-feature-card">
@@ -323,6 +360,16 @@ export function pgHome() {
             <li>Export PDF for insurance and EMR documentation</li>
           </ul>
           <button class="phome-feature-link" onclick="window._nav('outcomes')">View Outcome Reports &rarr;</button>
+          <div class="phome-feature-mockup outcome-mock">
+            <div class="mock-bar"><span class="mock-label" style="font-weight:600;color:var(--teal)">PHQ-9 Trend</span><span class="mock-label" style="margin-left:auto;color:#22c55e;font-weight:700">Responder ✓</span></div>
+            <div class="mock-trend-line">
+              <svg viewBox="0 0 160 48" fill="none" style="width:100%;height:48px">
+                <polyline points="8,40 28,36 48,30 68,22 88,18 108,12 128,8 148,6" stroke="var(--teal)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                <polyline points="8,40 28,36 48,30 68,22 88,18 108,12 128,8 148,6" stroke="rgba(0,212,188,0.15)" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+            </div>
+            <div class="mock-bar" style="margin-top:4px"><span class="mock-label" style="color:var(--text-tertiary)">Baseline: 18</span><span class="mock-label" style="margin-left:auto;color:var(--text-tertiary)">Session 20: 6</span></div>
+          </div>
         </div>
 
         <div class="phome-feature-card">
@@ -335,6 +382,13 @@ export function pgHome() {
             <li>Decision support &mdash; not autonomous diagnosis</li>
           </ul>
           <button class="phome-feature-link" onclick="window._nav('scoring-calc')">Open Calculator &rarr;</button>
+          <div class="phome-feature-mockup calc-mock">
+            <div class="mock-bar"><span class="mock-label" style="font-weight:600;">PHQ-9</span><span class="mock-label mock-score severe" style="margin-left:auto;">Score: 18 · Severe</span></div>
+            <div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:8px;">
+              ${[2,3,2,1,2,3,2,1,2].map((v,i) => `<div class="mock-item-chip">${i+1}<span>${v}</span></div>`).join('')}
+            </div>
+            <div class="mock-bar" style="margin-top:8px;"><span class="mock-crisis">⚠ Item 9 flagged — crisis screening prompted</span></div>
+          </div>
         </div>
 
       </div>
@@ -360,6 +414,16 @@ export function pgHome() {
       </div>
       ${_buildEvMatrix()}
     </section>
+
+    <!-- ─── Mid-page CTA band ──────────────────────────────────────────────── -->
+    <div class="phome-mid-cta-band">
+      <div class="phome-mid-cta-text">Built on the same evidence base you just reviewed.</div>
+      <div class="phome-mid-cta-actions">
+        <button class="phome-cta-primary" onclick="window._navPublic('signup-professional')">Start Free Trial &rarr;</button>
+        <button class="phome-cta-secondary" onclick="window._nav('pricing')">See Pricing &rarr;</button>
+      </div>
+      <div style="font-size:11px;color:var(--text-tertiary);margin-top:8px;">No credit card required &middot; 14-day free trial</div>
+    </div>
 
     <!-- ─── PAGE FOOTER STRIP ─────────────────────────────────────────────── -->
     <div class="phome-footer-strip">
@@ -507,13 +571,31 @@ export function pgHome() {
 
   el.insertAdjacentHTML('beforeend', `
 
-    <!-- ─── Specialty trust bar ───────────────────────────────────────────── -->
-    <div class="pub-specialties-bar">
-      <span class="pub-specialties-label">Built for</span>
-      ${['Neurologists','Psychiatrists','Psychologists','Neuropsychologists','Neuromodulation Technicians','Clinical Researchers','Clinic Administrators','Neurofeedback Practitioners'].map(s =>
-        `<span class="pub-specialty-tag">${s}</span>`
-      ).join('')}
-    </div>
+    <!-- ─── Who we serve ──────────────────────────────────────────────────── -->
+    <section class="pub-section" style="padding-bottom:24px">
+      <div style="text-align:center;margin-bottom:32px">
+        <div class="pub-eyebrow">Who we serve</div>
+        <div class="pub-section-title" style="text-align:center;font-size:26px;margin-bottom:8px">
+          Built for every role in a neuromodulation practice
+        </div>
+      </div>
+      <div class="pub-roles-grid">
+        ${[
+          { icon:'⚕', role:'Neurologists &amp; Psychiatrists', desc:'Evidence-graded protocol design, approval workflows, off-label governance, and audit trail. Clinical leadership tools.' },
+          { icon:'◉', role:'Psychologists &amp; Therapists', desc:'Neurofeedback and TMS protocol management, session execution, outcome tracking with validated scales.' },
+          { icon:'◧', role:'Neuromodulation Technicians', desc:'Device-aware session runner, real-time deviation flagging, step-by-step session SOPs. Scoped to clinical assignments.' },
+          { icon:'⬡', role:'Clinical Researchers', desc:'Investigational protocol support, full audit trail per course, IRB document attachment, cohort outcome analytics.' },
+          { icon:'◱', role:'Clinic Administrators', desc:'Multi-user role management, site governance, billing integration, reporting dashboards, and compliance records.' },
+          { icon:'◈', role:'Neurofeedback Practitioners', desc:'qEEG integration, band analysis, electrode placement mapping, neurofeedback protocol templates across ADHD, anxiety, and sleep.' },
+        ].map(r => `
+          <div class="pub-role-card">
+            <div class="pub-role-icon">${r.icon}</div>
+            <div class="pub-role-title">${r.role}</div>
+            <div class="pub-role-desc">${r.desc}</div>
+          </div>
+        `).join('')}
+      </div>
+    </section>
 
     <div class="pub-divider"></div>
 
@@ -832,6 +914,32 @@ export function pgHome() {
               <div class="pub-testimonial-role">${t.role}</div>
               <div class="pub-testimonial-specialty">${t.specialty}</div>
             </div>
+          </div>
+        `).join('')}
+      </div>
+    </section>
+
+    <div class="pub-divider"></div>
+
+    <!-- ─── Resources strip ──────────────────────────────────────────────── -->
+    <section class="pub-section" style="padding-bottom:56px">
+      <div style="text-align:center;margin-bottom:40px">
+        <div class="pub-eyebrow">Resources</div>
+        <div class="pub-section-title" style="text-align:center;font-size:26px;margin-bottom:8px">
+          Get up and running quickly
+        </div>
+      </div>
+      <div class="pub-resources-grid">
+        ${[
+          { icon:'📋', title:'Protocol Template Library', desc:'Pre-built evidence-graded protocol templates for TMS, tDCS, neurofeedback, and 8 more modalities. Ready to customise.' },
+          { icon:'🎓', title:'Onboarding Guide', desc:'Step-by-step setup for solo practitioners and clinic teams. Most practices are live within half a day.' },
+          { icon:'🔬', title:'Evidence Reference', desc:'Interactive matrix of 53 conditions × 11 modalities, with study counts and evidence grades drawn from published meta-analyses.' },
+          { icon:'📞', title:'Direct Support', desc:'Email and live support during your trial. Access our clinical team for protocol configuration questions and governance setup.' },
+        ].map(r => `
+          <div class="pub-resource-card">
+            <div class="pub-resource-icon">${r.icon}</div>
+            <div class="pub-resource-title">${r.title}</div>
+            <div class="pub-resource-desc">${r.desc}</div>
           </div>
         `).join('')}
       </div>
