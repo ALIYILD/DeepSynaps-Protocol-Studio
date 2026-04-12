@@ -794,6 +794,14 @@ async function navigate(id, params = {}) {
     window._recentPages = window._recentPages.slice(0, 5);
   }
   currentPage = id;
+  // Track recent pages for search (localStorage-backed, richer metadata)
+  const _rp = JSON.parse(localStorage.getItem('ds_recent_pages') || '[]');
+  const _navEntry = NAV.find(n => n.id === id);
+  if (_navEntry) {
+    const filtered = _rp.filter(r => r.id !== id);
+    filtered.unshift({ id, label: _navEntry.label, icon: _navEntry.icon, ts: Date.now() });
+    localStorage.setItem('ds_recent_pages', JSON.stringify(filtered.slice(0, 10)));
+  }
   _setProStep(0);
   if (id !== 'profile') _setPtab('courses');
   if (id !== 'protocol-wizard') window._wizardProtocolId = null;
@@ -2260,6 +2268,27 @@ window.addEventListener('popstate', (e) => {
     }
   }
 
+  // Quick Actions — fixed items always available
+  const QUICK_ACTIONS = [
+    { type: 'action', icon: '➕', title: 'New Patient',          action: () => { window._closePaletteForce(); window._nav('patients'); } },
+    { type: 'action', icon: '▶',  title: 'Start Session',        action: () => { window._closePaletteForce(); window._nav('session-execution'); } },
+    { type: 'action', icon: '📊', title: 'Log Outcome',          action: () => { window._closePaletteForce(); window._nav('outcomes'); } },
+    { type: 'action', icon: '📅', title: 'Schedule Assessment',  action: () => { window._closePaletteForce(); window._nav('assessments-hub'); } },
+  ];
+
+  function _getRecentFromStorage() {
+    try {
+      const stored = JSON.parse(localStorage.getItem('ds_recent_pages') || '[]');
+      return stored.slice(0, 5).map(r => ({
+        type: 'recent',
+        icon: r.icon || '◈',
+        title: r.label || r.id,
+        page: r.id,
+        subtitle: 'Recent',
+      }));
+    } catch { return []; }
+  }
+
   window._openPalette = function() {
     const overlay = document.getElementById('cmd-palette');
     if (!overlay) return;
@@ -2269,15 +2298,13 @@ window.addEventListener('popstate', (e) => {
     input.value = '';
     setTimeout(() => input.focus(), 50);
 
-    // Show recent pages as a "Recent" group when palette opens
-    const recents = (window._recentPages || []).map(page => {
-      const cmd = NAV_COMMANDS.find(c => c.page === page);
-      return cmd ? { ...cmd, type: 'recent' } : null;
-    }).filter(Boolean);
-    const defaultItems = recents.length
-      ? [...recents.slice(0, 3), ...NAV_COMMANDS.slice(0, 5)]
-      : NAV_COMMANDS.slice(0, 8);
-    _renderResults('', defaultItems.slice(0, 8));
+    // Default view: Recent + Quick Actions
+    const recents = _getRecentFromStorage();
+    const defaultItems = [
+      ...recents.slice(0, 5),
+      ...QUICK_ACTIONS,
+    ];
+    _renderResults('', defaultItems);
 
     _loadData(); // Warm cache in background
   };
@@ -2298,58 +2325,87 @@ window.addEventListener('popstate', (e) => {
   window._paletteSearch = async function(query) {
     _activeIndex = 0;
     if (!query.trim()) {
-      const recents = (window._recentPages || []).map(page => {
-        const cmd = NAV_COMMANDS.find(c => c.page === page);
-        return cmd ? { ...cmd, type: 'recent' } : null;
-      }).filter(Boolean);
-      const defaultItems = recents.length
-        ? [...recents.slice(0, 3), ...NAV_COMMANDS.slice(0, 5)]
-        : NAV_COMMANDS.slice(0, 8);
-      _renderResults('', defaultItems.slice(0, 8));
+      const recents = _getRecentFromStorage();
+      const defaultItems = [...recents.slice(0, 5), ...QUICK_ACTIONS];
+      _renderResults('', defaultItems);
       return;
     }
-    const q = query.trim();
+    const q = query.trim().toLowerCase();
     await _loadData();
 
-    const scored = [];
+    const navScored = [];
+    const patientScored = [];
+    const recentScored = [];
+    const actionScored = [];
 
-    // Nav commands
+    // Navigation category
     NAV_COMMANDS.forEach(cmd => {
       const score = _fuzzy(q, cmd.title);
-      if (score > 0) scored.push({ ...cmd, _score: score });
+      if (score > 0) navScored.push({ ...cmd, _score: score });
     });
+    navScored.sort((a, b) => b._score - a._score);
 
-    // Patients
-    (_cachedPatients || []).forEach(p => {
-      const name = `${p.first_name || ''} ${p.last_name || ''}`.trim();
+    // Patients category — API cache + window._patientRoster + localStorage
+    const allPatients = [
+      ...(_cachedPatients || []),
+      ...(Array.isArray(window._patientRoster) ? window._patientRoster : []),
+    ];
+    const seenPatientIds = new Set();
+    allPatients.forEach(p => {
+      if (!p || seenPatientIds.has(p.id)) return;
+      seenPatientIds.add(p.id);
+      const name = `${p.first_name || p.name || ''} ${p.last_name || ''}`.trim();
       const score = Math.max(_fuzzy(q, name), _fuzzy(q, p.primary_condition || ''));
-      if (score > 0) scored.push({ type: 'patient', icon: '👤', title: name, subtitle: p.primary_condition || 'Patient', id: p.id, _score: score });
+      if (score > 0) patientScored.push({ type: 'patient', icon: '👤', title: name, subtitle: p.primary_condition || 'Patient', id: p.id, _score: score });
     });
-
-    // Courses
-    (_cachedCourses || []).forEach(c => {
-      const score = Math.max(_fuzzy(q, c.title || c.name || ''), _fuzzy(q, c.condition || ''));
-      if (score > 0) scored.push({ type: 'course', icon: '📋', title: c.title || c.name || `Course #${c.id}`, subtitle: c.condition || '', id: c.id, _score: score });
-    });
-
-    // Protocols
-    (_cachedProtocols || []).forEach(p => {
-      const score = Math.max(_fuzzy(q, p.name || p.title || ''), _fuzzy(q, p.condition || ''));
-      if (score > 0) scored.push({ type: 'protocol', icon: '🧠', title: p.name || p.title || `Protocol #${p.id}`, subtitle: p.condition || p.modality || '', id: p.id, _score: score });
-    });
-
-    // Deep search results from localStorage (patients, notes)
+    // localStorage patient cache
     try {
-      const patients = JSON.parse(localStorage.getItem('ds_patients') || '[]');
-      patients.slice(0, 20).forEach(p => {
-        if (p.name?.toLowerCase().includes(q)) {
-          scored.push({ type: 'patient', icon: '👤', title: p.name, subtitle: 'Patient · ' + (p.condition || ''), id: p.id, _score: 60, action: () => { window._profilePatientId = p.id; window._nav('patient-profile'); } });
+      const lsPts = JSON.parse(localStorage.getItem('ds_patients') || '[]');
+      lsPts.slice(0, 20).forEach(p => {
+        if (!p || seenPatientIds.has(p.id)) return;
+        seenPatientIds.add(p.id);
+        const name = p.name || '';
+        const score = Math.max(_fuzzy(q, name), _fuzzy(q, p.condition || ''));
+        if (score > 0) {
+          patientScored.push({ type: 'patient', icon: '👤', title: name, subtitle: 'Patient · ' + (p.condition || ''), id: p.id, _score: score,
+            action: () => { window._profilePatientId = p.id; window._nav('patient-profile'); } });
         }
       });
     } catch(e) {}
+    patientScored.sort((a, b) => b._score - a._score);
 
-    scored.sort((a, b) => b._score - a._score);
-    _renderResults(q, scored.slice(0, 12));
+    // Recent category — search localStorage recents
+    _getRecentFromStorage().forEach(r => {
+      const score = _fuzzy(q, r.title);
+      if (score > 0) recentScored.push({ ...r, _score: score });
+    });
+    recentScored.sort((a, b) => b._score - a._score);
+
+    // Quick Actions category — filter by query
+    QUICK_ACTIONS.forEach(a => {
+      const score = _fuzzy(q, a.title);
+      if (score > 0) actionScored.push({ ...a, _score: score });
+    });
+
+    // Courses + Protocols (keep existing behaviour, add to nav bucket)
+    (_cachedCourses || []).forEach(c => {
+      const score = Math.max(_fuzzy(q, c.title || c.name || ''), _fuzzy(q, c.condition || ''));
+      if (score > 0) navScored.push({ type: 'course', icon: '📋', title: c.title || c.name || `Course #${c.id}`, subtitle: c.condition || '', id: c.id, _score: score });
+    });
+    (_cachedProtocols || []).forEach(p => {
+      const score = Math.max(_fuzzy(q, p.name || p.title || ''), _fuzzy(q, p.condition || ''));
+      if (score > 0) navScored.push({ type: 'protocol', icon: '🧠', title: p.name || p.title || `Protocol #${p.id}`, subtitle: p.condition || p.modality || '', id: p.id, _score: score });
+    });
+    navScored.sort((a, b) => b._score - a._score);
+
+    // Build ordered grouped result set
+    const grouped = [
+      ...patientScored.slice(0, 5),
+      ...navScored.slice(0, 6),
+      ...recentScored.slice(0, 3),
+      ...actionScored.slice(0, 4),
+    ];
+    _renderResults(q, grouped.slice(0, 16));
   };
 
   function _renderResults(query, items) {
@@ -2368,7 +2424,7 @@ window.addEventListener('popstate', (e) => {
       groups[g].push({ ...item, _i: i });
     });
 
-    const groupLabels = { nav: 'Navigation', recent: 'Recent', patient: 'Patients', course: 'Courses', protocol: 'Protocols', knowledge: 'Knowledge' };
+    const groupLabels = { nav: 'Navigation', recent: 'Recent', patient: 'Patients', course: 'Courses', protocol: 'Protocols', knowledge: 'Knowledge', action: 'Quick Actions' };
     let html = '';
     Object.entries(groups).forEach(([type, groupItems]) => {
       html += `<div class="cmd-group-label">${groupLabels[type] || type}</div>`;
