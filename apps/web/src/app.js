@@ -433,8 +433,8 @@ const NAV = [
   { id: 'dashboard',          label: 'Dashboard',          icon: '◈' },
   { id: 'patient-queue',      label: 'Today\'s Queue',     icon: '◉' },
   { id: 'session-execution',  label: 'Start Session',      icon: '◧' },
-  { id: 'messaging',          label: 'Messages',           icon: '◎' },
-  { id: 'review-queue',       label: 'Review Queue',       icon: '◱', badge: null },
+  { id: 'messaging',          label: 'Virtual Care',       icon: '▫' },
+  { id: 'review-queue',       label: 'Review & Approvals', icon: '◱', badge: null },
 
   // ── PATIENT CARE ─────────────────────────────────────────────────────────────
   { section: 'PATIENT CARE' },
@@ -685,7 +685,7 @@ function loadingDone() {
 const PAGE_TITLES = {
   dashboard: 'Dashboard', patients: 'Patients', profile: 'Profile',
   courses: 'Treatment Courses', 'course-detail': 'Course Detail',
-  'session-execution': 'Session Execution', 'review-queue': 'Review Queue',
+  'session-execution': 'Session Execution', 'review-queue': 'Clinical Review & Approvals',
   'protocol-wizard': 'Protocol Intelligence', 'protocols-registry': 'Protocol Registry',
   outcomes: 'Outcomes and Trends', 'ai-assistant': 'AI Clinical Assistant', 'ai-agents': 'AI Practice Agent',
   braindata: 'qEEG / Brain Data', qeegmaps: 'qEEG Maps', assessments: 'Assessments',
@@ -699,7 +699,7 @@ const PAGE_TITLES = {
   reports: 'Reports', admin: 'Admin Panel', 'clinic-settings': 'Clinic Settings & Branding', settings: 'Settings',
   permissions: 'Permissions & Security Admin',
   calendar: 'Schedule & Calendar',
-  scheduling: 'Scheduling', telehealth: 'Telehealth', 'telehealth-recorder': 'Telehealth Session Recorder', messaging: 'Messaging',
+  scheduling: 'Scheduling', telehealth: 'Telehealth', 'telehealth-recorder': 'Telehealth Session Recorder', messaging: 'Virtual Care',
   billing: 'Billing & Superbills', pricing: 'Pricing', onboarding: 'Onboarding', 'onboarding-wizard': 'Setup Wizard',
   insurance: 'Insurance Verification & Eligibility',
   referrals: 'Referrals & Care Coordination',
@@ -1124,7 +1124,7 @@ async function renderPage() {
     case 'home-task-manager': { const m = await loadPractice(); await m.pgHomeTaskManager(setTopbar); break; }
     case 'messaging': {
       const m = await loadClinical();
-      await m.pgMessaging(setTopbar);
+      await m.pgVirtualCare(setTopbar);
       break;
     }
     case 'advanced-search': { const m = await loadClinical(); await m.pgAdvancedSearch(setTopbar); break; }
@@ -2129,7 +2129,7 @@ window.addEventListener('popstate', (e) => {
     { type: 'nav', icon: '🧠', title: 'Protocol Intelligence', page: 'protocol-wizard' },
     { type: 'nav', icon: '◇',  title: 'Protocol Registry',   page: 'protocols-registry' },
     { type: 'nav', icon: '📊', title: 'Outcomes & Trends',    page: 'outcomes' },
-    { type: 'nav', icon: '⚠️', title: 'Review Queue',         page: 'review-queue',     shortcut: 'Alt+R' },
+    { type: 'nav', icon: '⚠️', title: 'Review & Approvals',    page: 'review-queue',     shortcut: 'Alt+R' },
     { type: 'nav', icon: '◧',  title: 'Session Execution',   page: 'session-execution', shortcut: 'Alt+S' },
     { type: 'nav', icon: '📁', title: 'Evidence Library',    page: 'evidence' },
     { type: 'nav', icon: '🔬', title: 'Devices',             page: 'devices' },

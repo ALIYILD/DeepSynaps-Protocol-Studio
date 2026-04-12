@@ -2231,7 +2231,7 @@ export async function pgSessionExecution(setTopbar, navigate) {
 // ── pgReviewQueue — Protocol & course approvals ───────────────────────────────
 export async function pgReviewQueue(setTopbar, navigate) {
   // ── Topbar ─────────────────────────────────────────────────────────────────
-  setTopbar('Review Queue', `
+  setTopbar('Clinical Review & Approvals', `
     <div style="display:flex;align-items:center;gap:8px">
       <select id="rq-status-filter" class="form-control" style="height:30px;padding:0 28px 0 10px;font-size:12px;width:160px"
         onchange="window._rqFilterStatus(this.value)">
@@ -2489,19 +2489,19 @@ export async function pgReviewQueue(setTopbar, navigate) {
   // ── Full page render ───────────────────────────────────────────────────────
   el.innerHTML =
     '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:18px">'
-    + statCard('Awaiting Review',      pendingItems.length,  pendingItems.length  > 0 ? 'var(--amber)' : 'var(--green)', pendingItems.length  > 0 ? 'Awaiting action' : 'Queue clear')
-    + statCard('Overdue (&gt;48h)',  overdueItems.length,  'var(--red)',   overdueItems.length > 0 ? 'Past SLA threshold' : 'All within SLA', overdueItems.length > 0)
+    + statCard('Pending Decisions',    pendingItems.length,  pendingItems.length  > 0 ? 'var(--amber)' : 'var(--green)', pendingItems.length  > 0 ? 'Awaiting clinician action' : 'Decision desk clear')
+    + statCard('Overdue (&gt;48h)',   overdueItems.length,  'var(--red)',   overdueItems.length > 0 ? 'Past SLA threshold' : 'All within SLA', overdueItems.length > 0)
     + statCard('Approved Today',      approvedToday,        'var(--green)', approvedToday > 0 ? 'This calendar day' : 'None yet today')
     + statCard('Open Adverse Events', openAEs.length,       openAEs.length > 0 ? 'var(--red)' : 'var(--teal)', openAEs.length > 0 ? seriousAECount + ' serious' : 'No open AEs')
     + '</div>'
     + '<div style="margin-bottom:18px">'
     +   '<div style="display:flex;align-items:center;margin-bottom:10px">'
     +     '<div style="font-size:12px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.8px">'
-    +       'Review Queue <span style="font-weight:400;color:var(--text-tertiary)">(' + items.length + ')</span>'
+    +       'Pending Decisions <span style="font-weight:400;color:var(--text-tertiary)">(' + items.length + ')</span>'
     +     '</div>'
     +   '</div>'
     +   '<div id="rq-list">'
-    +   (items.length ? items.map(item => rqCard(item)).join('') : emptyState('✅', 'Review queue is clear', 'All protocol reviews are up to date.'))
+    +   (items.length ? items.map(item => rqCard(item)).join('') : emptyState('✅', 'Decision desk is clear', 'No pending approvals, escalations, or governance items.'))
     +   '</div>'
     + '</div>'
     + '<div class="card" style="overflow:hidden">'
