@@ -14239,3 +14239,34 @@ details[open] .pgp-accordion-sum::before { transform: rotate(90deg); }
   .sex-tol-row { flex-direction: column; }
   .sex-actions-row { flex-direction: column; }
 }
+
+/* ── Treatment Courses (tc-*) ─────────────────────────────────────────────── */
+.tc-summary-card { padding: 16px 18px; border-radius: var(--radius-lg); background: var(--bg-card); border: 1px solid var(--border); cursor: pointer; transition: border-color 0.15s, transform 0.12s; }
+.tc-summary-card:hover { transform: translateY(-1px); }
+
+.tc-row { display: flex; align-items: center; gap: 12px; padding: 11px 16px; border-bottom: 1px solid var(--border); cursor: pointer; transition: background 0.12s; }
+.tc-row:hover { background: var(--bg-card-hover); }
+.tc-row:last-child { border-bottom: none; }
+
+.tc-filter-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 16px; }
+.tc-filter-bar .form-control { height: 34px; }
+
+.tc-view-toggle { display: flex; border: 1px solid var(--border); border-radius: var(--radius-md); overflow: hidden; }
+.tc-view-btn { padding: 6px 14px; font-size: 12px; border: none; cursor: pointer; font-family: var(--font-body); transition: background 0.15s, color 0.15s; }
+.tc-view-btn.active { background: var(--teal); color: #000; font-weight: 700; }
+.tc-view-btn:not(.active) { background: transparent; color: var(--text-secondary); }
+
+.tc-signal-chip { display: inline-flex; align-items: center; gap: 3px; font-size: 9.5px; font-weight: 600; padding: 2px 7px; border-radius: 8px; white-space: nowrap; }
+
+.tc-progress-bar { height: 4px; border-radius: 2px; background: var(--border); overflow: hidden; }
+.tc-progress-fill { height: 4px; border-radius: 2px; transition: width 0.3s ease; }
+
+.tc-card-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; padding: 16px; }
+
+@media (max-width: 900px) {
+  .tc-summary-strip { grid-template-columns: repeat(3, 1fr) !important; }
+}
+@media (max-width: 600px) {
+  .tc-summary-strip { grid-template-columns: repeat(2, 1fr) !important; }
+  .tc-filter-bar { flex-direction: column; align-items: stretch; }
+}

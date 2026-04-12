@@ -902,12 +902,15 @@ export async function pgCourseDetail(setTopbar, navigate) {
     </div>
 
     <div class="tab-bar" style="margin-bottom:20px">
-      ${['overview','sessions','outcomes','protocol','adverse-events','governance','notes'].map(t =>
+      ${['overview','sessions','outcomes','protocol','adverse-events','governance','assessments','home-programs','reports','notes'].map(t =>
         `<button class="tab-btn ${tab === t ? 'active' : ''}" onclick="window._cdSwitchTab('${t}')">${
           t === 'adverse-events' ? `Adverse Events${adverseEvents.length ? ` (${adverseEvents.length})` : ''}`
-          : t === 'sessions' ? `Sessions (${sessions.length})`
-          : t === 'outcomes' ? `Outcomes${outcomes.length ? ` (${outcomes.length})` : ''}`
-          : t === 'notes' ? `📝 Notes${getPatientNotes(course.id).length ? ` (${getPatientNotes(course.id).length})` : ''}`
+          : t === 'sessions'      ? `Sessions (${sessions.length})`
+          : t === 'outcomes'      ? `Outcomes${outcomes.length ? ` (${outcomes.length})` : ''}`
+          : t === 'notes'         ? `📝 Notes${getPatientNotes(course.id).length ? ` (${getPatientNotes(course.id).length})` : ''}`
+          : t === 'assessments'   ? '📊 Assessments'
+          : t === 'home-programs' ? '🏠 Home Programs'
+          : t === 'reports'       ? '📄 Reports'
           : t.charAt(0).toUpperCase() + t.slice(1)
         }</button>`
       ).join('')}
@@ -1709,7 +1712,193 @@ function renderCourseTab(course, sessions, adverseEvents, protocolDetail, tab, o
     return renderNotesTab(course, sessions);
   }
 
+  if (tab === 'assessments') {
+    return renderCourseAssessmentsTab(course);
+  }
+
+  if (tab === 'home-programs') {
+    return renderCourseHomeProgramsTab(course);
+  }
+
+  if (tab === 'reports') {
+    return renderCourseReportsTab(course, sessions, outcomes);
+  }
+
   return '';
+}
+
+// ── Course detail tab: Assessments ───────────────────────────────────────────
+function renderCourseAssessmentsTab(course) {
+  const assigned = course.assessments || [];
+  const hasDue   = assigned.some(a => a.status === 'due' || a.status === 'overdue');
+  return `<div>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+      <div>
+        <h3 style="margin:0 0 2px">Assessments</h3>
+        <div style="font-size:11.5px;color:var(--text-secondary)">Outcome tracking for this course · ${assigned.length} assigned</div>
+      </div>
+      <button class="btn btn-primary btn-sm" onclick="window._nav('assessments-hub')">+ Assign Assessment</button>
+    </div>
+    ${hasDue ? `<div style="padding:10px 14px;background:rgba(245,158,11,0.1);border:1px solid rgba(245,158,11,0.25);border-radius:var(--radius-md);margin-bottom:16px;font-size:12px;color:var(--amber)">
+      ⚠ One or more assessments are due or overdue for this course.
+    </div>` : ''}
+    ${assigned.length === 0
+      ? `<div style="text-align:center;padding:40px;color:var(--text-secondary)">
+          <div style="font-size:32px;margin-bottom:10px">📊</div>
+          <div style="font-weight:600;margin-bottom:4px">No assessments assigned</div>
+          <div style="font-size:12px;color:var(--text-tertiary);margin-bottom:16px">Assign standardized assessments to track outcomes objectively.</div>
+          <button class="btn btn-primary btn-sm" onclick="window._nav('assessments-hub')">Browse Assessment Library</button>
+        </div>`
+      : `<div class="card" style="padding:0;overflow:hidden">
+          ${assigned.map(a => {
+            const statusColor = a.status === 'completed' ? 'var(--green)' : a.status === 'overdue' ? 'var(--red)' : a.status === 'due' ? 'var(--amber)' : 'var(--text-tertiary)';
+            const statusLabel = a.status === 'completed' ? 'Completed' : a.status === 'overdue' ? 'Overdue' : a.status === 'due' ? 'Due' : 'Scheduled';
+            return `<div style="display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid var(--border)">
+              <div style="flex:1;min-width:0">
+                <div style="font-size:13px;font-weight:600;color:var(--text-primary)">${a.name || a.template_name || '—'}</div>
+                <div style="font-size:11px;color:var(--text-secondary);margin-top:2px">${a.frequency || 'Once'} · ${a.due_date ? `Due ${new Date(a.due_date).toLocaleDateString()}` : 'No due date'}</div>
+              </div>
+              ${a.score != null ? `<div style="font-size:13px;font-weight:700;color:var(--teal)">Score: ${a.score}</div>` : ''}
+              <span style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:8px;background:${statusColor}18;color:${statusColor}">${statusLabel}</span>
+              <button style="font-size:11px;padding:5px 11px;border-radius:var(--radius-md);background:transparent;color:var(--teal);border:1px solid rgba(0,212,188,0.3);cursor:pointer;font-family:var(--font-body)"
+                onclick="window._nav('assessments-hub')">${a.status === 'completed' ? 'View' : 'Complete'}</button>
+            </div>`;
+          }).join('')}
+        </div>`
+    }
+    <div style="margin-top:20px">
+      <div style="font-size:12px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.6px;margin-bottom:10px">Outcome Trend</div>
+      <div style="padding:20px;background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius-md);color:var(--text-tertiary);font-size:12px;text-align:center">
+        Outcome chart renders when 2+ assessments are completed.<br>
+        <a style="color:var(--teal);cursor:pointer" onclick="window._cdSwitchTab('outcomes')">View Outcomes tab →</a>
+      </div>
+    </div>
+  </div>`;
+}
+
+// ── Course detail tab: Home Programs ─────────────────────────────────────────
+function renderCourseHomeProgramsTab(course) {
+  const programs = course.home_programs || [];
+  const PROGRAM_TYPES = [
+    { id: 'mindfulness', icon: '🧘', label: 'Mindfulness' },
+    { id: 'breathing',   icon: '💨', label: 'Breathing Exercises' },
+    { id: 'cognitive',   icon: '🧠', label: 'Cognitive Tasks' },
+    { id: 'exercise',    icon: '🏃', label: 'Physical Exercise' },
+    { id: 'sleep',       icon: '🌙', label: 'Sleep Hygiene' },
+    { id: 'diet',        icon: '🥗', label: 'Nutritional Guidance' },
+  ];
+  return `<div>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+      <div>
+        <h3 style="margin:0 0 2px">Home Programs</h3>
+        <div style="font-size:11.5px;color:var(--text-secondary)">Between-session activities for this patient · ${programs.length} active</div>
+      </div>
+      <button class="btn btn-primary btn-sm" onclick="alert('Home program builder coming soon.')">+ Add Program</button>
+    </div>
+    ${programs.length === 0
+      ? `<div>
+          <div style="text-align:center;padding:32px 20px;background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius-lg);margin-bottom:20px">
+            <div style="font-size:32px;margin-bottom:10px">🏠</div>
+            <div style="font-weight:600;margin-bottom:4px;color:var(--text-primary)">No home programs assigned</div>
+            <div style="font-size:12px;color:var(--text-tertiary);margin-bottom:16px">Add between-session activities to reinforce in-clinic treatment.</div>
+          </div>
+          <div style="font-size:12px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.6px;margin-bottom:10px">Quick Add</div>
+          <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px">
+            ${PROGRAM_TYPES.map(pt => `
+              <div style="padding:14px;border:1px solid var(--border);border-radius:var(--radius-md);cursor:pointer;text-align:center;transition:border-color 0.15s;background:var(--bg-card)"
+                onmouseover="this.style.borderColor='rgba(0,212,188,0.4)'" onmouseout="this.style.borderColor='var(--border)'"
+                onclick="alert('Program template: ${pt.label}')">
+                <div style="font-size:24px;margin-bottom:6px">${pt.icon}</div>
+                <div style="font-size:12px;font-weight:600;color:var(--text-primary)">${pt.label}</div>
+              </div>
+            `).join('')}
+          </div>
+        </div>`
+      : `<div class="card" style="padding:0;overflow:hidden">
+          ${programs.map(p => `
+            <div style="padding:14px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:12px">
+              <div style="flex:1">
+                <div style="font-size:13px;font-weight:600;color:var(--text-primary)">${p.name || '—'}</div>
+                <div style="font-size:11px;color:var(--text-secondary);margin-top:2px">${p.frequency || 'As needed'} · ${p.type || ''}</div>
+              </div>
+              <span style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:8px;background:rgba(0,212,188,0.1);color:var(--teal)">${p.status || 'Active'}</span>
+              <button style="font-size:11px;padding:5px 11px;border-radius:var(--radius-md);background:transparent;color:var(--text-secondary);border:1px solid var(--border);cursor:pointer;font-family:var(--font-body)">Edit</button>
+            </div>
+          `).join('')}
+        </div>`
+    }
+  </div>`;
+}
+
+// ── Course detail tab: Reports ────────────────────────────────────────────────
+function renderCourseReportsTab(course, sessions, outcomes) {
+  const delivered  = course.sessions_delivered || sessions.length;
+  const total      = course.planned_sessions_total || 0;
+  const pct        = total > 0 ? Math.round(delivered / total * 100) : 0;
+  const startDate  = course.start_date ? new Date(course.start_date).toLocaleDateString() : '—';
+  const lastSess   = sessions.length ? new Date(sessions[sessions.length - 1]?.session_date || sessions[sessions.length - 1]?.created_at).toLocaleDateString() : '—';
+  const riskScore  = computeRiskScore(course);
+  const rl         = riskLevel(riskScore);
+
+  return `<div>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
+      <div>
+        <h3 style="margin:0 0 2px">Course Report</h3>
+        <div style="font-size:11.5px;color:var(--text-secondary)">Auto-generated summary for this treatment course</div>
+      </div>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-sm" style="font-size:12px" onclick="window.print()">🖨 Print</button>
+        <button class="btn btn-sm" style="font-size:12px" onclick="alert('PDF export coming soon.')">⬇ Export PDF</button>
+      </div>
+    </div>
+
+    <!-- Course header -->
+    <div class="card" style="padding:18px;margin-bottom:16px">
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:16px">
+        ${metricCard('Sessions Delivered', `${delivered}/${total || '?'}`, 'var(--teal)', `${pct}% complete`)}
+        ${metricCard('Started', startDate, 'var(--blue)', 'Course start date')}
+        ${metricCard('Last Session', lastSess, 'var(--text-secondary)', 'Most recent')}
+        ${metricCard('Risk Score', riskScore, rl.color, `${rl.label} risk`)}
+      </div>
+      <div style="height:6px;border-radius:3px;background:var(--border)">
+        <div style="height:6px;border-radius:3px;background:var(--teal);width:${pct}%;transition:width 0.4s ease"></div>
+      </div>
+      <div style="font-size:10.5px;color:var(--text-tertiary);margin-top:6px">${pct}% of course complete</div>
+    </div>
+
+    <!-- Outcome summary -->
+    ${outcomes.length >= 2
+      ? (() => {
+          const sorted   = [...outcomes].sort((a, b) => (a.recorded_at||'') < (b.recorded_at||'') ? -1 : 1);
+          const baseline = sorted[0];
+          const latest   = sorted[sorted.length - 1];
+          const change   = latest.score != null && baseline.score != null ? latest.score - baseline.score : null;
+          return `<div class="card" style="padding:18px;margin-bottom:16px">
+            <div style="font-size:13px;font-weight:600;margin-bottom:14px">Outcome Measurements</div>
+            <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px">
+              ${metricCard('Baseline Score', baseline.score ?? '—', 'var(--text-secondary)', `${baseline.template_name || 'Assessment'} at start`)}
+              ${metricCard('Latest Score', latest.score ?? '—', 'var(--teal)', `${latest.template_name || 'Assessment'} · ${new Date(latest.recorded_at).toLocaleDateString()}`)}
+              ${change != null ? metricCard('Change', `${change > 0 ? '+' : ''}${Math.round(change)}`, change < 0 ? 'var(--teal)' : change > 0 ? 'var(--red)' : 'var(--text-secondary)', 'From baseline') : ''}
+            </div>
+          </div>`;
+        })()
+      : `<div class="card" style="padding:18px;margin-bottom:16px;text-align:center;color:var(--text-tertiary);font-size:12px">
+          Not enough outcome data yet. Complete at least 2 assessments to see outcome trends.
+        </div>`
+    }
+
+    <!-- Risk factors -->
+    <div class="card" style="padding:18px;margin-bottom:16px">
+      <div style="font-size:13px;font-weight:600;margin-bottom:12px">Risk Factors</div>
+      ${renderRiskFactors(course)}
+    </div>
+
+    <!-- Governance warnings -->
+    ${(course.governance_warnings||[]).length ? `<div class="card" style="padding:18px;border-left:3px solid var(--red)">
+      <div style="font-size:13px;font-weight:600;color:var(--red);margin-bottom:10px">⚠ Governance Flags</div>
+      ${(course.governance_warnings||[]).map(w => `<div style="font-size:12px;color:var(--text-secondary);margin-bottom:6px">• ${w}</div>`).join('')}
+    </div>` : ''}
+  </div>`;
 }
 
 function renderNotesTab(course, sessions) {
