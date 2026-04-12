@@ -4272,6 +4272,34 @@ function _stimMapSVG(targetRegion, laterality, modality) {
   </div>`;
 }
 
+
+// ── Protocol Intelligence: classification helper ─────────────────────────────
+
+function _pilGetClassification(p) {
+  if (p.classification === 'ai-personalized' || p.ai_generated === true) return 'ai';
+  if (p.brain_scan_required === true || p.classification === 'brain-scan') return 'brain-scan';
+  if (p.on_label === true || p.classification === 'on-label') return 'on-label';
+  if (p.on_label === false || p.classification === 'off-label') return 'off-label';
+  // Fallback: use legacy on_label_vs_off_label field
+  const lv = String(p.on_label_vs_off_label || '').toLowerCase();
+  if (lv.startsWith('on')) return 'on-label';
+  if (lv.startsWith('off')) return 'off-label';
+  return null;
+}
+
+function _pilClassBadge(cls) {
+  if (!cls) return '';
+  const map = {
+    'on-label':   { label: 'On-Label',       color: 'var(--green,#4ade80)',   bg: 'rgba(74,222,128,0.12)'  },
+    'off-label':  { label: 'Off-Label',       color: 'var(--amber,#ffb547)',   bg: 'rgba(255,181,71,0.12)'  },
+    'ai':         { label: 'AI-Personalized', color: 'var(--violet,#9b7fff)',  bg: 'rgba(155,127,255,0.12)' },
+    'brain-scan': { label: 'Brain Scan',      color: 'var(--blue,#4a9eff)',    bg: 'rgba(74,158,255,0.12)'  },
+  };
+  const m = map[cls];
+  if (!m) return '';
+  return `<span class="pil-class-badge" style="color:${m.color};background:${m.bg};border-color:${m.color}25">${m.label}</span>`;
+}
+
 // ── Protocol Intelligence: Library tab ───────────────────────────────────────
 
 function _pilProtoCard(p, condMap) {
@@ -4302,7 +4330,7 @@ function _pilProtoCard(p, condMap) {
     <div class="pil-proto-header" onclick="window._pilToggle('${pid}')">
       <div class="pil-proto-badges">
         ${evidenceBadge(p.evidence_grade)}
-        ${labelBadge(isOn)}
+        ${_pilClassBadge(_pilGetClassification(p))}
         ${(p.governance_flags || []).length ? `<span class="pil-gov-pill">⚠ ${p.governance_flags.length}</span>` : ''}
       </div>
       <div class="pil-proto-meta">
@@ -4400,8 +4428,20 @@ async function _pilRenderLibrary() {
       `<option value="${m.id || m.name || m.Modality_Name}">${m.name || m.Modality_Name || m.id}</option>`
     ).join('');
 
+    // Compute classification counts
+    const _clsCounts = { 'on-label': 0, 'off-label': 0, 'ai': 0, 'brain-scan': 0 };
+    items.forEach(p => { const c = _pilGetClassification(p); if (c) _clsCounts[c]++; });
+    window._pilClassFilter = window._pilClassFilter || 'all';
+
     body.innerHTML = `
       <div class="pil-library">
+        <div class="pil-class-tabs" role="tablist">
+          <button class="pil-class-tab${window._pilClassFilter==='all'?' pil-class-tab--active':''}" onclick="window._pilSetFilter('all')" data-cls="all">All <span class="pil-class-count">${items.length}</span></button>
+          <button class="pil-class-tab${window._pilClassFilter==='on-label'?' pil-class-tab--active':''}" onclick="window._pilSetFilter('on-label')" data-cls="on-label">On-Label <span class="pil-class-count">${_clsCounts['on-label']}</span></button>
+          <button class="pil-class-tab${window._pilClassFilter==='off-label'?' pil-class-tab--active':''}" onclick="window._pilSetFilter('off-label')" data-cls="off-label">Off-Label <span class="pil-class-count">${_clsCounts['off-label']}</span></button>
+          <button class="pil-class-tab${window._pilClassFilter==='ai'?' pil-class-tab--active':''}" onclick="window._pilSetFilter('ai')" data-cls="ai">AI-Personalized <span class="pil-class-count">${_clsCounts['ai']}</span></button>
+          <button class="pil-class-tab${window._pilClassFilter==='brain-scan'?' pil-class-tab--active':''}" onclick="window._pilSetFilter('brain-scan')" data-cls="brain-scan">Brain Scan <span class="pil-class-count">${_clsCounts['brain-scan']}</span></button>
+        </div>
         <div class="pil-filter-bar">
           <input id="pil-search" class="form-control" placeholder="Search by name, condition, modality…"
             oninput="window._pilFilter()" style="flex:1;min-width:160px;font-size:12.5px">
@@ -4436,6 +4476,7 @@ async function _pilRenderLibrary() {
       const mod  = document.getElementById('pil-mod')?.value   || '';
       const grade= document.getElementById('pil-grade')?.value || '';
       const onl  = document.getElementById('pil-onlabel')?.checked || false;
+      const cls  = window._pilClassFilter || 'all';
       const all  = window._pilAllProtos || [];
       const cm   = window._pilCondMap  || {};
 
@@ -4443,11 +4484,13 @@ async function _pilRenderLibrary() {
         const cn  = cm[p.condition_id] || p.condition_id || '';
         const txt = `${p.name||''} ${cn} ${p.modality_id||''} ${p.target_region||''}`.toLowerCase();
         const isOn = String(p.on_label_vs_off_label || '').toLowerCase().startsWith('on');
+        const pCls = _pilGetClassification(p);
         return (!q    || txt.includes(q))
           && (!grade || p.evidence_grade === grade)
           && (!onl   || isOn)
           && (!cond  || (p.condition_id||'').includes(cond) || cn.toLowerCase().includes(cond.toLowerCase()))
-          && (!mod   || (p.modality_id||'').toLowerCase().includes(mod.toLowerCase()));
+          && (!mod   || (p.modality_id||'').toLowerCase().includes(mod.toLowerCase()))
+          && (cls === 'all' || pCls === cls);
       });
 
       const countEl = document.getElementById('pil-count');
@@ -4457,6 +4500,14 @@ async function _pilRenderLibrary() {
         ? vis.map(p => _pilProtoCard(p, window._pilCondMap || {})).join('')
         : emptyState('◇', 'No protocols match your filters.', 'Try removing a filter.');
       _pilBindCards();
+    };
+
+    window._pilSetFilter = function(cls) {
+      window._pilClassFilter = cls;
+      document.querySelectorAll('.pil-class-tab').forEach(btn => {
+        btn.classList.toggle('pil-class-tab--active', btn.dataset.cls === cls);
+      });
+      window._pilFilter();
     };
 
     _pilBindCards();
