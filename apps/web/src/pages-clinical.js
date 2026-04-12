@@ -758,7 +758,7 @@ export async function pgDash(setTopbar, navigate) {
     { icon: '◉', label: 'Add Patient',        sub: 'Register a new patient',               page: 'patients',          color: 'var(--blue)' },
     { icon: '◎', label: 'New Course',         sub: 'Create a treatment course',            page: 'protocol-wizard',   color: 'var(--violet)' },
     { icon: '◇', label: 'Brain Map Planner',  sub: '10-20 EEG map · stimulation sites',    page: 'brain-map-planner', color: 'var(--violet)' },
-    { icon: '◱', label: 'Review Queue',       sub: `${pendingQueue.length} pending`,       page: 'review-queue',      color: pendingQueue.length > 0 ? 'var(--amber)' : 'var(--text-secondary)' },
+    { icon: '◱', label: 'Review & Approvals', sub: `${pendingQueue.length} pending`,       page: 'review-queue',      color: pendingQueue.length > 0 ? 'var(--amber)' : 'var(--text-secondary)' },
     { icon: '◫', label: 'Outcomes',           sub: `Responder rate: ${responderRate}`,     page: 'outcomes',          color: 'var(--green)' },
     { icon: '⚡', label: 'Adverse Events',    sub: `${openAEs.length} open`,              page: 'adverse-events',    color: openAEs.length > 0 ? 'var(--red)' : 'var(--text-secondary)' },
     { icon: '◌', label: 'Notes & Dictation', sub: 'Text · Voice · AI transcription',      page: 'notes-dictation',   color: 'var(--amber)' },
