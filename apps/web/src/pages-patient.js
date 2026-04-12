@@ -3838,6 +3838,23 @@ export async function pgPatientMessages() {
       ${careTeamHTML()}
     </div>`;
 
+  // ── Pre-fill compose from "Ask about this" CTA on Reports page ─────────
+  if (window._ptPendingAsk) {
+    const pendingPrompt = window._ptPendingAsk;
+    window._ptPendingAsk = null;
+    // Give the DOM a tick to settle before filling + scrolling
+    setTimeout(() => {
+      const catSel  = el.querySelector('#pt-msg-category');
+      const subjInp = el.querySelector('#pt-msg-subject');
+      const bodyTA  = el.querySelector('#pt-msg-body');
+      const compose = el.querySelector('#pt-msg-compose');
+      if (catSel)  catSel.value  = 'documents';
+      if (subjInp && !subjInp.value) subjInp.value = 'Question about my report';
+      if (bodyTA)  { bodyTA.value = pendingPrompt; bodyTA.focus(); }
+      if (compose) compose.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 80);
+  }
+
   // ── Handlers ─────────────────────────────────────────────────────────────
 
   // Open a thread and show detail view
