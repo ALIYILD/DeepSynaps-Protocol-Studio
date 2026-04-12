@@ -143,6 +143,8 @@ let _modPractice  = null;
 let _modCourses   = null;
 let _modOnboarding = null;
 let _modAgents    = null;
+let _modRegistries = null;
+let _modProtocols  = null;
 
 async function loadPublic()     { return (_modPublic    ??= await import('./pages-public.js')); }
 async function loadPatient()    { return (_modPatient   ??= await import('./pages-patient.js')); }
@@ -152,6 +154,8 @@ async function loadPractice()   { return (_modPractice  ??= await import('./page
 async function loadCourses()    { return (_modCourses   ??= await import('./pages-courses.js')); }
 async function loadOnboarding() { return (_modOnboarding ??= await import('./pages-onboarding.js')); }
 async function loadAgents()     { return (_modAgents    ??= await import('./pages-agents.js')); }
+async function loadRegistries() { return (_modRegistries ??= await import('./pages-registries.js')); }
+async function loadProtocols()  { return (_modProtocols  ??= await import('./pages-protocols.js')); }
 
 // ── Helpers that delegate to the clinical module once loaded ──────────────────
 // Called synchronously in navigate() before renderPage(); safe to no-op until
@@ -422,7 +426,7 @@ let currentPage = 'dashboard';
 const ROLE_NAV_HIDE = {
   technician: ['protocol-wizard', 'patients', 'evidence', 'handbooks', 'billing', 'pricing', 'audittrail', 'brainregions', 'qeegmaps', 'protocols-registry', 'outcomes', 'adverse-events', 'population-analytics', 'brain-map-planner', 'handbook-generator', 'notes-dictation', 'assessments-hub'],
   reviewer:   ['session-execution', 'protocol-wizard', 'billing', 'pricing', 'population-analytics', 'brain-map-planner'],
-  guest:      ['session-execution', 'protocol-wizard', 'patients', 'courses', 'review-queue', 'braindata', 'assessments', 'assessments-hub', 'medical-history', 'documents', 'reports', 'outcomes', 'adverse-events', 'audittrail', 'billing', 'population-analytics', 'brain-map-planner', 'notes-dictation'],
+  guest:      ['session-execution', 'protocol-wizard', 'patients', 'courses', 'review-queue', 'braindata', 'assessments', 'assessments-hub', 'medical-history', 'documents', 'reports', 'outcomes', 'adverse-events', 'audittrail', 'billing', 'population-analytics', 'brain-map-planner', 'notes-dictation', 'reg-conditions', 'reg-assessments', 'reg-protocols', 'reg-devices', 'reg-targets', 'reg-consent', 'reg-reports', 'reg-handbooks', 'reg-home-programs', 'reg-virtual-care'],
   clinician:  ['population-analytics'],
 };
 
@@ -454,11 +458,25 @@ const NAV = [
   { id: 'protocol-builder',   label: 'Protocol Builder',   icon: '◇' },
   { id: 'brain-map-planner',  label: 'Brain Map Planner',  icon: '◎' },
   { id: 'handbooks',          label: 'Handbooks',          icon: '◩' },
+  { id: 'prescriptions',      label: 'Prescriptions',      icon: '◧' },
+  { id: 'protocols-registry', label: 'Protocol Registry',  icon: '◫' },
+
+  // ── REGISTRIES ───────────────────────────────────────────────────────────────
+  { section: 'REGISTRIES', sectionId: 'registries', collapsed: true },
+  { id: 'reg-conditions',   label: 'Condition Registry',       icon: '◈' },
+  { id: 'reg-assessments',  label: 'Assessment Registry',      icon: '◇' },
+  { id: 'reg-protocols',    label: 'Protocol Templates',       icon: '◫' },
+  { id: 'reg-devices',      label: 'Device Registry',          icon: '◎' },
+  { id: 'reg-targets',      label: 'Brain Targets',            icon: '◉' },
+  { id: 'reg-consent',      label: 'Consent & Documents',      icon: '◩' },
+  { id: 'reg-reports',      label: 'Report Templates',         icon: '◧' },
+  { id: 'reg-handbooks',    label: 'Handbook Templates',       icon: '◩' },
+  { id: 'reg-home-programs',label: 'Home Program Templates',   icon: '◌' },
+  { id: 'reg-virtual-care', label: 'Virtual Care Templates',   icon: '▫' },
 
   // ── CLINICAL TOOLS ───────────────────────────────────────────────────────────
   { section: 'CLINICAL TOOLS', sectionId: 'clinical-tools', collapsed: true },
   { id: 'scoring-calc',       label: 'Scales & Scores',    icon: '◇' },
-  { id: 'protocols-registry', label: 'Protocol Registry',  icon: '◫' },
   { id: 'adverse-events',     label: 'Adverse Events',     icon: '⚠' },
   { id: 'notes-dictation',    label: 'Notes & Dictation',  icon: '◧', ai: true },
 
@@ -485,6 +503,7 @@ const SECTION_LABELS = {
   research:       'Research',
   more:           'More',
   clinic:         'Clinic',
+  registries:     'Registries',
 };
 
 // ── Nav collapse state ────────────────────────────────────────────────────────
@@ -1017,14 +1036,18 @@ async function renderPage() {
     // ── Protocol Intelligence ────────────────────────────────────────────
     case 'protocol-wizard':
     case 'protocols': {
-      const m = await loadClinical();
-      await m.pgProtocols(setTopbar);
-      m.bindProtoPage();
+      const m = await loadProtocols();
+      await m.pgProtocolSearch(setTopbar, navigate);
+      break;
+    }
+    case 'protocol-detail': {
+      const m = await loadProtocols();
+      await m.pgProtocolDetail(setTopbar, navigate);
       break;
     }
     case 'protocol-builder': {
-      const m = await loadClinical();
-      await m.pgProtocolBuilder(setTopbar);
+      const m = await loadProtocols();
+      await m.pgProtocolBuilderV2(setTopbar, navigate);
       break;
     }
     case 'decision-support': {
@@ -1222,8 +1245,21 @@ async function renderPage() {
     case 'documents':       { const { pgDocumentsHub }   = await loadClinical(); await pgDocumentsHub(setTopbar);   break; }
     case 'assessments-hub': { const { pgAssessmentsHub } = await loadClinical(); await pgAssessmentsHub(setTopbar); break; }
     case 'brain-map-planner': { const { pgBrainMapPlanner } = await loadClinical(); await pgBrainMapPlanner(setTopbar); break; }
+    case 'prescriptions':     { const { pgPrescriptions }  = await loadClinical(); await pgPrescriptions(setTopbar);  break; }
+    case 'protocol-detail':   { const { pgProtocolDetail } = await loadClinical(); await pgProtocolDetail(setTopbar, navigate); break; }
     case 'notes-dictation': { const { pgNotesDictation } = await loadClinical(); await pgNotesDictation(setTopbar); break; }
     case 'wearable-integration': { const m = await loadPractice(); await m.pgWearableIntegration(setTopbar); break; }
+    // ── Registries ─────────────────────────────────────────────────────────
+    case 'reg-conditions':    { const m = await loadRegistries(); await m.pgConditionRegistry(setTopbar);      break; }
+    case 'reg-assessments':   { const m = await loadRegistries(); await m.pgAssessmentRegistry(setTopbar);     break; }
+    case 'reg-protocols':     { const m = await loadRegistries(); await m.pgProtocolRegistryPage(setTopbar);   break; }
+    case 'reg-devices':       { const m = await loadRegistries(); await m.pgDeviceRegistry(setTopbar);         break; }
+    case 'reg-targets':       { const m = await loadRegistries(); await m.pgBrainTargetRegistry(setTopbar);    break; }
+    case 'reg-consent':       { const m = await loadRegistries(); await m.pgConsentRegistry(setTopbar);        break; }
+    case 'reg-reports':       { const m = await loadRegistries(); await m.pgReportTemplateRegistry(setTopbar); break; }
+    case 'reg-handbooks':     { const m = await loadRegistries(); await m.pgHandbookRegistry(setTopbar);       break; }
+    case 'reg-home-programs': { const m = await loadRegistries(); await m.pgHomeProgramRegistry(setTopbar);    break; }
+    case 'reg-virtual-care':  { const m = await loadRegistries(); await m.pgVirtualCareRegistry(setTopbar);    break; }
     default:
       el.innerHTML = `<div style="text-align:center;padding:48px;color:var(--text-tertiary)">Page not found.</div>`;
   }
