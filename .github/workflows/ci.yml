@@ -16,13 +16,11 @@ jobs:
         with:
           node-version: '20'
           cache: 'npm'
-          cache-dependency-path: apps/web/package-lock.json
+          cache-dependency-path: package-lock.json
       - name: Install dependencies
-        working-directory: apps/web
         run: npm ci
       - name: Build
-        working-directory: apps/web
-        run: npm run build
+        run: npm run build:web
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
@@ -39,16 +37,14 @@ jobs:
         with:
           node-version: '20'
           cache: 'npm'
-          cache-dependency-path: apps/web/package-lock.json
+          cache-dependency-path: package-lock.json
       - name: Install dependencies
-        working-directory: apps/web
         run: npm ci
       - name: Install Playwright browsers
         working-directory: apps/web
         run: npx playwright install --with-deps chromium
       - name: Run E2E tests
-        working-directory: apps/web
-        run: npm run test:e2e
+        run: npm run test:e2e --workspace @deepsynaps/web
         env:
           CI: true
       - name: Upload test report
@@ -69,8 +65,18 @@ jobs:
           cache: 'pip'
           cache-dependency-path: apps/api/pyproject.toml
       - name: Install dependencies
-        working-directory: apps/api
-        run: pip install -e .
+        run: |
+          python -m pip install --upgrade pip
+          pip install pytest httpx
+          pip install \
+            -e packages/core-schema \
+            -e packages/condition-registry \
+            -e packages/modality-registry \
+            -e packages/device-registry \
+            -e packages/safety-engine \
+            -e packages/generation-engine \
+            -e packages/render-engine \
+            -e apps/api
       - name: Run tests
         working-directory: apps/api
-        run: python -m pytest tests/ -v --tb=short 2>/dev/null || echo "No tests yet — backend test step ready"
+        run: python -m pytest tests/ -v --tb=short

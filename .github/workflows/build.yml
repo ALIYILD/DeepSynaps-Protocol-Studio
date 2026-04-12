@@ -15,11 +15,11 @@ jobs:
         with:
           node-version: '20'
           cache: 'npm'
-          cache-dependency-path: apps/web/package-lock.json
-      - run: npm ci
-        working-directory: apps/web
-      - run: npm run build
-        working-directory: apps/web
+          cache-dependency-path: package-lock.json
+      - name: Install dependencies
+        run: npm ci
+      - name: Build web
+        run: npm run build:web
 
   build-api:
     runs-on: ubuntu-latest
@@ -28,9 +28,19 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - name: Install API dependencies
-        working-directory: apps/api
-        run: pip install -r requirements.txt
+          cache: 'pip'
+          cache-dependency-path: apps/api/pyproject.toml
+      - name: Install API and packages (editable)
+        run: |
+          python -m pip install --upgrade pip
+          pip install \
+            -e packages/core-schema \
+            -e packages/condition-registry \
+            -e packages/modality-registry \
+            -e packages/device-registry \
+            -e packages/safety-engine \
+            -e packages/generation-engine \
+            -e packages/render-engine \
+            -e apps/api
       - name: Check API syntax
-        working-directory: apps/api
-        run: python -m py_compile app/main.py
+        run: python -m py_compile apps/api/app/main.py
