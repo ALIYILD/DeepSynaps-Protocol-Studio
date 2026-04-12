@@ -443,6 +443,44 @@ export const PROTOCOL_LIBRARY = [
   tags:['ADHD','TMS','right-DLPFC','limited-evidence'],
 },
 
+// ── ADHD Inattentive (dedicated protocols) ─────────────────────────────────
+{
+  id:'p-adhi-001', conditionId:'adhd-inattentive', type:'off-label', device:'tdcs', subtype:'Anodal',
+  name:'Anodal tDCS Left DLPFC for ADHD-Inattentive', target:'Left DLPFC (F3) anode / right shoulder cathode',
+  parameters:{ current_ma:1.5, session_duration_min:20, sessions_total:15, sessions_per_week:5 },
+  evidenceGrade:'B', governance:['off-label','reviewed'],
+  references:['Sotnikova et al. 2017 – Eur Neuropsychopharmacol','Breitling et al. 2020 – Neuropsychologia'],
+  notes:'Excitatory left DLPFC tDCS targets attention and working memory deficits characteristic of inattentive subtype. Combine with cognitive training tasks during stimulation.',
+  contraindications:['implanted devices','skull defects','active seizure disorder'],
+  sideEffects:['tingling at electrode sites','mild headache','occasional fatigue'],
+  aiPersonalization:null, scanGuidedNotes:null,
+  tags:['ADHD-inattentive','tDCS','left-DLPFC','attention','working-memory'],
+},
+{
+  id:'p-adhi-002', conditionId:'adhd-inattentive', type:'off-label', device:'nf', subtype:'Theta/Beta NF',
+  name:'Theta/Beta Neurofeedback for ADHD-Inattentive', target:'Fz (frontal midline) / Cz',
+  parameters:{ session_duration_min:45, sessions_total:40, sessions_per_week:2, theta_downtraining_hz:'4-8', beta_uptraining_hz:'15-18', site_priority:'Fz' },
+  evidenceGrade:'B', governance:['off-label','reviewed'],
+  references:['Arns et al. 2014 – Appl Psychophysiol Biofeedback','Lubar & Shouse 1976 (foundational)','Monastra et al. 2002 – Appl Psychophysiol Biofeedback'],
+  notes:'Fz-prioritised theta/beta targeting suits predominantly inattentive presentation; reduces frontal midline theta excess and trains attentional beta. 40 sessions for sustained effect.',
+  contraindications:['active seizure disorder'],
+  sideEffects:['temporary fatigue','frustration during early sessions'],
+  aiPersonalization:null, scanGuidedNotes:null,
+  tags:['ADHD-inattentive','neurofeedback','theta-beta','Fz','attention'],
+},
+{
+  id:'p-adhi-003', conditionId:'adhd-inattentive', type:'off-label', device:'tavns', subtype:'Standard taVNS',
+  name:'taVNS for ADHD-Inattentive', target:'Left cymba conchae (auricular vagal branch)',
+  parameters:{ frequency_hz:25, pulse_width_us:250, intensity_ma:0.5, session_duration_min:30, sessions_total:20, sessions_per_week:5 },
+  evidenceGrade:'C', governance:['off-label','investigational'],
+  references:['Steenbergen et al. 2021 – J Neural Transm','Bauer et al. 2020 – Brain Stimul (review)'],
+  notes:'Emerging evidence for taVNS in attention modulation via LC-NE pathway. May improve sustained attention with lower side-effect burden than stimulant medication. Investigational — use with informed consent.',
+  contraindications:['vagal hypersensitivity','cardiac arrhythmia','implanted devices'],
+  sideEffects:['mild ear discomfort','occasional dizziness','rare vasovagal response'],
+  aiPersonalization:null, scanGuidedNotes:null,
+  tags:['ADHD-inattentive','taVNS','auricular','attention','investigational'],
+},
+
 // ══════════════════════════════════════════════════════════════════════════════
 // CHRONIC PAIN
 // ══════════════════════════════════════════════════════════════════════════════

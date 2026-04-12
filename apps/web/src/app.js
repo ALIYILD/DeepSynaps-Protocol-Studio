@@ -145,7 +145,8 @@ let _modOnboarding = null;
 let _modAgents    = null;
 let _modRegistries = null;
 let _modProtocols  = null;
-let _modVirtualCare = null;
+let _modVirtualCare   = null;
+let _modConditions    = null;
 
 async function loadPublic()     { return (_modPublic    ??= await import('./pages-public.js')); }
 async function loadPatient()    { return (_modPatient   ??= await import('./pages-patient.js')); }
@@ -157,7 +158,8 @@ async function loadOnboarding() { return (_modOnboarding ??= await import('./pag
 async function loadAgents()     { return (_modAgents    ??= await import('./pages-agents.js')); }
 async function loadRegistries() { return (_modRegistries ??= await import('./pages-registries.js')); }
 async function loadProtocols()   { return (_modProtocols   ??= await import('./pages-protocols.js')); }
-async function loadVirtualCare() { return (_modVirtualCare ??= await import('./pages-virtualcare.js')); }
+async function loadVirtualCare()  { return (_modVirtualCare  ??= await import('./pages-virtualcare.js')); }
+async function loadConditions()   { return (_modConditions   ??= await import('./pages-conditions.js')); }
 
 // ── Helpers that delegate to the clinical module once loaded ──────────────────
 // Called synchronously in navigate() before renderPage(); safe to no-op until
@@ -458,6 +460,7 @@ const NAV = [
   { section: 'PROTOCOLS', sectionId: 'protocols' },
   { id: 'protocol-wizard',    label: 'Protocol Search',    icon: '⬡', ai: true },
   { id: 'protocol-builder',   label: 'Protocol Builder',   icon: '◇' },
+  { id: 'condition-backlog',  label: 'Condition Backlog',  icon: '◈' },
   { id: 'brain-map-planner',  label: 'Brain Map Planner',  icon: '◎' },
   { id: 'handbooks',          label: 'Handbooks',          icon: '◩' },
   { id: 'prescriptions',      label: 'Prescriptions',      icon: '◧' },
@@ -1050,6 +1053,11 @@ async function renderPage() {
     case 'protocol-builder': {
       const m = await loadProtocols();
       await m.pgProtocolBuilderV2(setTopbar, navigate);
+      break;
+    }
+    case 'condition-backlog': {
+      const m = await loadConditions();
+      await m.pgConditionBacklog(setTopbar, navigate);
       break;
     }
     case 'decision-support': {
