@@ -145,6 +145,7 @@ let _modOnboarding = null;
 let _modAgents    = null;
 let _modRegistries = null;
 let _modProtocols  = null;
+let _modVirtualCare = null;
 
 async function loadPublic()     { return (_modPublic    ??= await import('./pages-public.js')); }
 async function loadPatient()    { return (_modPatient   ??= await import('./pages-patient.js')); }
@@ -155,7 +156,8 @@ async function loadCourses()    { return (_modCourses   ??= await import('./page
 async function loadOnboarding() { return (_modOnboarding ??= await import('./pages-onboarding.js')); }
 async function loadAgents()     { return (_modAgents    ??= await import('./pages-agents.js')); }
 async function loadRegistries() { return (_modRegistries ??= await import('./pages-registries.js')); }
-async function loadProtocols()  { return (_modProtocols  ??= await import('./pages-protocols.js')); }
+async function loadProtocols()   { return (_modProtocols   ??= await import('./pages-protocols.js')); }
+async function loadVirtualCare() { return (_modVirtualCare ??= await import('./pages-virtualcare.js')); }
 
 // ── Helpers that delegate to the clinical module once loaded ──────────────────
 // Called synchronously in navigate() before renderPage(); safe to no-op until
@@ -1154,8 +1156,8 @@ async function renderPage() {
     case 'wearables': { const m = await loadPractice(); await m.pgWearableIntegration(setTopbar); break; }
     case 'home-task-manager': { const m = await loadClinical(); await m.pgHomePrograms(setTopbar, navigate); break; }
     case 'messaging': {
-      const m = await loadClinical();
-      await m.pgVirtualCare(setTopbar);
+      const m = await loadVirtualCare();
+      await m.pgVirtualCare(setTopbar, navigate);
       break;
     }
     case 'advanced-search': { const m = await loadClinical(); await m.pgAdvancedSearch(setTopbar); break; }
@@ -1245,8 +1247,9 @@ async function renderPage() {
     case 'documents':       { const { pgDocumentsHub }   = await loadClinical(); await pgDocumentsHub(setTopbar);   break; }
     case 'assessments-hub': { const { pgAssessmentsHub } = await loadClinical(); await pgAssessmentsHub(setTopbar); break; }
     case 'brain-map-planner': { const { pgBrainMapPlanner } = await loadClinical(); await pgBrainMapPlanner(setTopbar); break; }
-    case 'prescriptions':     { const { pgPrescriptions }  = await loadClinical(); await pgPrescriptions(setTopbar);  break; }
-    case 'protocol-detail':   { const { pgProtocolDetail } = await loadClinical(); await pgProtocolDetail(setTopbar, navigate); break; }
+    case 'prescriptions':     { const { pgPrescriptions }        = await loadClinical(); await pgPrescriptions(setTopbar);        break; }
+    case 'patient-protocol':  { const { pgPatientProtocolView }  = await loadClinical(); await pgPatientProtocolView(setTopbar); break; }
+    case 'protocol-detail':   { const { pgProtocolDetail }       = await loadClinical(); await pgProtocolDetail(setTopbar, navigate); break; }
     case 'notes-dictation': { const { pgNotesDictation } = await loadClinical(); await pgNotesDictation(setTopbar); break; }
     case 'wearable-integration': { const m = await loadPractice(); await m.pgWearableIntegration(setTopbar); break; }
     // ── Registries ─────────────────────────────────────────────────────────

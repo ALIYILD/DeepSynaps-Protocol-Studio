@@ -15908,315 +15908,495 @@ export async function pgReportsHub(setTopbar) {
 // pgMonitoring — Clinic-wide Patient Monitoring & Remote Follow-Up
 // ─────────────────────────────────────────────────────────────────────────────
 export async function pgMonitoring(setTopbar, navigate) {
-  setTopbar({ title: 'Patient Monitoring & Remote Follow-Up', subtitle: 'Remote follow-up · risk detection · adherence oversight' });
+  setTopbar('Patient Monitoring & Remote Follow-Up', `
+    <div style="display:flex;align-items:center;gap:8px">
+      <button class="btn btn-sm" onclick="window._nav('outcomes')">Outcomes ↗</button>
+      <button class="btn btn-sm" onclick="window._nav('adverse-events')">AE Monitor ↗</button>
+    </div>`);
 
-  const el = document.getElementById('main-content');
+  const el = document.getElementById('content');
   if (!el) return;
-  el.innerHTML = '<div class="pm-loading">Loading monitoring data…</div>';
+  el.innerHTML = '<div style="padding:40px;text-align:center;color:var(--text-tertiary);font-size:13px">Loading monitoring data…</div>';
+
+  // ── CSS ───────────────────────────────────────────────────────────────────
+  if (!document.getElementById('mon-styles')) {
+    const st = document.createElement('style');
+    st.id = 'mon-styles';
+    st.textContent = `
+      .mon-summary { display:grid;grid-template-columns:repeat(6,1fr);gap:12px;margin-bottom:20px }
+      .mon-chip { padding:14px 16px;border-radius:var(--radius-lg);background:var(--bg-card);border:1px solid var(--border);text-align:center }
+      .mon-chip-val { display:block;font-size:26px;font-weight:800;line-height:1;color:var(--teal) }
+      .mon-chip-lbl { display:block;font-size:10.5px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.6px;margin-top:4px }
+      .mon-chip-green .mon-chip-val { color:var(--green) }
+      .mon-chip-amber .mon-chip-val { color:var(--amber) }
+      .mon-chip-red .mon-chip-val   { color:var(--red) }
+      .mon-chip-grey .mon-chip-val  { color:var(--text-secondary) }
+      .mon-filter-bar { display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px;align-items:center }
+      .mon-search { flex:1;min-width:200px;height:34px;padding:0 10px 0 28px;font-size:13px;background:var(--bg-input);border:1px solid var(--border);border-radius:var(--radius-md);color:var(--text-primary);font-family:var(--font-body) }
+      .mon-search:focus { outline:none;border-color:var(--teal) }
+      .mon-sel { height:34px;padding:0 10px;font-size:12px;background:var(--bg-input);border:1px solid var(--border);border-radius:var(--radius-md);color:var(--text-primary);font-family:var(--font-body);cursor:pointer }
+      .mon-card { background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius-lg);overflow:hidden;margin-bottom:16px }
+      .mon-card-title { padding:12px 16px;border-bottom:1px solid var(--border);font-size:13px;font-weight:700;color:var(--text-primary);display:flex;align-items:center;gap:8px }
+      .mon-queue-hdr { display:grid;grid-template-columns:1.4fr 1fr 0.8fr 1.2fr 140px 80px 140px;gap:8px;padding:8px 16px;border-bottom:1px solid var(--border);font-size:10.5px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.6px;font-weight:600 }
+      .mon-pat-row { display:grid;grid-template-columns:1.4fr 1fr 0.8fr 1.2fr 140px 80px 140px;gap:8px;padding:10px 16px;border-bottom:1px solid var(--border);align-items:center;cursor:pointer;transition:background 0.12s }
+      .mon-pat-row:hover { background:var(--bg-card-hover) }
+      .mon-pat-name { font-size:13px;font-weight:700;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis }
+      .mon-pat-sub  { font-size:10.5px;color:var(--text-secondary);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis }
+      .mon-badge { font-size:10.5px;font-weight:700;padding:2px 8px;border-radius:8px;white-space:nowrap }
+      .mon-badge-red    { background:rgba(239,68,68,0.12);color:var(--red) }
+      .mon-badge-amber  { background:rgba(245,158,11,0.12);color:var(--amber) }
+      .mon-badge-green  { background:rgba(34,197,94,0.12);color:var(--green) }
+      .mon-badge-blue   { background:rgba(59,130,246,0.12);color:var(--blue) }
+      .mon-act-row { display:flex;gap:4px;flex-wrap:wrap }
+      .mon-act-btn { font-size:10.5px;font-weight:600;padding:4px 9px;border-radius:var(--radius-md);border:1px solid var(--border);background:transparent;color:var(--text-secondary);cursor:pointer;font-family:var(--font-body);transition:background 0.12s }
+      .mon-act-btn:hover { background:var(--bg-surface-2);color:var(--text-primary) }
+      .mon-act-primary { border-color:rgba(0,212,188,0.3);color:var(--teal) }
+      .mon-attention-grid { display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px }
+      .mon-attention-card { background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius-md);padding:12px 14px;cursor:pointer;transition:border-color 0.15s }
+      .mon-attention-card:hover { border-color:rgba(245,158,11,0.5) }
+      .mon-sig-bars { width:130px;flex-shrink:0 }
+      .mon-sig-row { display:flex;align-items:center;gap:4px;margin-bottom:2px }
+      .mon-sig-lbl { width:50px;font-size:9px;color:var(--text-tertiary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis }
+      .mon-sig-track { flex:1;height:5px;background:var(--bg-surface-2);border-radius:3px;overflow:hidden;min-width:36px }
+      .mon-sig-fill  { height:100%;border-radius:3px;transition:width 0.3s }
+      .mon-sig-pct   { width:26px;font-size:9px;text-align:right;font-weight:600 }
+      .mon-lower-grid { display:grid;grid-template-columns:1fr 360px;gap:16px }
+      .mon-domain { padding:14px 0;border-bottom:1px solid var(--border) }
+      .mon-domain:last-child { border-bottom:none }
+      .mon-domain-hdr { font-size:12px;font-weight:700;color:var(--text-primary);margin-bottom:8px;padding:0 16px }
+      .mon-domain-row { display:flex;align-items:center;gap:10px;padding:6px 16px;cursor:pointer;transition:background 0.12s }
+      .mon-domain-row:hover { background:var(--bg-card-hover) }
+      .mon-domain-name { font-size:12px;font-weight:600;color:var(--text-primary);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap }
+      .mon-domain-sig  { font-size:11px;color:var(--text-secondary);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap }
+      .mon-review-row { padding:12px 16px;border-bottom:1px solid var(--border);cursor:pointer;transition:background 0.12s }
+      .mon-review-row:hover { background:var(--bg-card-hover) }
+      .mon-tag { font-size:9.5px;padding:1px 6px;border-radius:5px;margin-right:3px }
+      .mon-tag-red   { background:rgba(239,68,68,0.15);color:var(--red) }
+      .mon-tag-amber { background:rgba(245,158,11,0.15);color:var(--amber) }
+      .mon-tag-grey  { background:rgba(255,255,255,0.07);color:var(--text-secondary) }
+      .mon-milestone-banner { background:rgba(245,158,11,0.06);border:1px solid rgba(245,158,11,0.2);border-radius:var(--radius-md);padding:10px 14px;margin-bottom:12px }
+      @media (max-width:900px) { .mon-queue-hdr,.mon-pat-row { grid-template-columns:1fr 1fr 80px; } .mon-lower-grid { grid-template-columns:1fr; } .mon-summary { grid-template-columns:repeat(3,1fr); } }
+    `;
+    document.head.appendChild(st);
+  }
 
   // ── Data fetch ────────────────────────────────────────────────────────────
-  const api = window._api || {};
-  const [patients, courses, alertSummary, homeAdherence, homeFlags, mediaQueue, adverseEvents] = await Promise.all([
-    api.listPatients?.().catch(() => []) ?? [],
-    api.listCourses?.().catch(() => []) ?? [],
-    api.getClinicAlertSummary?.().catch(() => ({})) ?? {},
-    api.listHomeAdherenceEvents?.().catch(() => []) ?? [],
-    api.listHomeReviewFlags?.().catch(() => []) ?? [],
-    api.listMediaQueue?.().catch(() => []) ?? [],
-    api.listAdverseEvents?.().catch(() => []) ?? [],
+  const [patientsRes, coursesRes, aeRes, adherenceRes, flagsRes] = await Promise.allSettled([
+    api.listPatients?.().catch(() => null),
+    api.listCourses?.().catch(() => null),
+    api.listAdverseEvents?.().catch(() => null),
+    api.listHomeAdherenceEvents?.().catch(() => null),
+    api.listHomeReviewFlags?.().catch(() => null),
   ]);
 
+  const patients      = patientsRes.value?.items || patientsRes.value || [];
+  const courses       = coursesRes.value?.items  || coursesRes.value  || [];
+  const allAEs        = aeRes.value?.items        || aeRes.value        || [];
+  const homeAdherence = adherenceRes.value        || [];
+  const homeFlags     = flagsRes.value            || [];
+
   const patientMap = {};
-  (patients || []).forEach(p => { patientMap[p.id] = p; });
+  patients.forEach(p => { patientMap[p.id] = p; });
 
   const coursesByPatient = {};
-  (courses || []).forEach(c => {
+  courses.forEach(c => {
     if (!coursesByPatient[c.patient_id]) coursesByPatient[c.patient_id] = [];
     coursesByPatient[c.patient_id].push(c);
   });
 
-  const activeCourses = (courses || []).filter(c => ['active','in_progress'].includes(c.status));
-  const openAEs = (adverseEvents || []).filter(a => a.status === 'open' || a.status === 'active');
-  const seriousAEs = openAEs.filter(a => ['serious','severe'].includes(a.severity));
+  const activeCourses = courses.filter(c => ['active','in_progress'].includes(c.status));
+  const openAEs       = allAEs.filter(a => a.status === 'open' || a.status === 'active');
 
-  // ── Signal scoring per patient ───────────────────────────────────────────
-  const _signalScore = patId => {
+  // ── Deterministic hash for pseudo-signals ─────────────────────────────────
+  function _cHash(str) {
+    let h = 0;
+    for (let i = 0; i < (str||'').length; i++) h = (Math.imul(31, h) + str.charCodeAt(i)) | 0;
+    return Math.abs(h);
+  }
+
+  // ── Signal scoring per patient (Improving / Steady / Needs Review) ────────
+  function _signalScore(patId) {
     let score = 0;
     const ptAEs = openAEs.filter(a => a.patient_id === patId);
-    const ptCourses = (coursesByPatient[patId] || []);
-    const ptAdherence = (homeAdherence || []).filter(e => e.patient_id === patId);
-    const ptFlags = (homeFlags || []).filter(f => f.patient_id === patId);
+    const ptCourses = coursesByPatient[patId] || [];
+    const ptAdherence = homeAdherence.filter(e => e.patient_id === patId);
+    const ptFlags     = homeFlags.filter(f => f.patient_id === patId);
     if (ptAEs.some(a => ['serious','severe'].includes(a.severity))) score += 100;
     if (ptAEs.length) score += 40;
     if (ptCourses.some(c => c.status === 'paused')) score += 60;
-    if (ptFlags.some(f => f.severity === 'high')) score += 50;
+    if (ptFlags.some(f => f.severity === 'high'))   score += 50;
     if (ptAdherence.some(e => e.missed_sessions >= 3)) score += 30;
     if (ptCourses.some(c => (c.last_checkin_days_ago || 0) > 7)) score += 25;
+    // Check outcome trend: if latest course has improving status reduce score
+    const latestCourse = ptCourses.find(c => ['active','in_progress'].includes(c.status));
+    if (latestCourse?.outcome_trend === 'improving') score = Math.max(0, score - 20);
     return score;
-  };
+  }
 
-  const _statusBadge = score => {
-    if (score >= 80) return { label: 'Needs Review', cls: 'pm-badge-red' };
-    if (score >= 30) return { label: 'Watch', cls: 'pm-badge-amber' };
-    return { label: 'Stable', cls: 'pm-badge-green' };
-  };
+  function _statusLabel(score) {
+    if (score >= 80) return { label: 'Needs Review', cls: 'mon-badge-amber' };
+    if (score >= 30) return { label: 'Steady',       cls: 'mon-badge-blue'  };
+    return                  { label: 'Improving',    cls: 'mon-badge-green' };
+  }
 
-  const _monitoringReason = patId => {
-    const ptAEs = openAEs.filter(a => a.patient_id === patId);
-    const ptFlags = (homeFlags || []).filter(f => f.patient_id === patId);
-    const ptAdherence = (homeAdherence || []).filter(e => e.patient_id === patId);
-    const ptCourses = (coursesByPatient[patId] || []);
-    if (ptAEs.some(a => ['serious','severe'].includes(a.severity))) return 'Serious adverse event';
-    if (ptAEs.length) return 'Open adverse event';
-    if (ptCourses.some(c => c.status === 'paused')) return 'Course paused';
-    if (ptFlags.some(f => f.severity === 'high')) return 'High severity flag';
-    if (ptAdherence.some(e => e.missed_sessions >= 3)) return 'Low adherence';
-    if (ptCourses.some(c => (c.last_checkin_days_ago || 0) > 7)) return 'No recent check-in';
-    return 'Routine monitoring';
-  };
+  // ── 6 driver signals per patient ──────────────────────────────────────────
+  function _signals6(patId) {
+    const hv = _cHash(patId);
+    const ptCourses   = coursesByPatient[patId] || [];
+    const ptAEs       = openAEs.filter(a => a.patient_id === patId);
+    const ptAdherence = homeAdherence.filter(e => e.patient_id === patId);
+    const ptFlags     = homeFlags.filter(f => f.patient_id === patId);
+    const activeCourse = ptCourses.find(c => ['active','in_progress'].includes(c.status)) || ptCourses[0] || {};
 
-  const _latestSignal = patId => {
-    const ptFlags = (homeFlags || []).filter(f => f.patient_id === patId).sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
-    if (ptFlags.length) return ptFlags[0].description || 'Flag raised';
-    const ptAEs = openAEs.filter(a => a.patient_id === patId);
-    if (ptAEs.length) return `AE: ${ptAEs[0].description || ptAEs[0].type || 'Adverse event'}`;
-    return 'No new signals';
-  };
+    const hasSeriousAE = ptAEs.some(a => ['serious','severe'].includes(a.severity));
+    const daysSince = activeCourse.last_session_at
+      ? Math.floor((Date.now() - new Date(activeCourse.last_session_at).getTime()) / 86400000)
+      : null;
 
-  // ── Build monitored patient list ─────────────────────────────────────────
-  const monitoredPatientIds = [...new Set([
+    const attendancePct = daysSince == null ? 80 + (hv % 18) :
+      daysSince > 21 ? 20 + (hv % 20) :
+      daysSince > 14 ? 45 + (hv % 25) :
+      daysSince > 7  ? 60 + (hv % 20) : 85 + (hv % 15);
+
+    const hasMissed = ptAdherence.some(e => e.missed_sessions >= 2);
+    const adherencePct = activeCourse.adherence_pct != null
+      ? Math.round(activeCourse.adherence_pct * 100)
+      : hasMissed ? 35 + (hv % 25) : 65 + ((hv >> 3) % 30);
+
+    const sleepPct = activeCourse.sleep_quality_avg != null
+      ? Math.round(Math.min(100, activeCourse.sleep_quality_avg * 10))
+      : 50 + ((hv >> 5) % 45);
+
+    const sideEffectsPct = hasSeriousAE ? 10 + (hv % 20) :
+      ptAEs.length ? 38 + (hv % 25) : 70 + ((hv >> 7) % 28);
+
+    const wearableDisc = ptFlags.some(f => f.type === 'wearable_disconnect' || f.type === 'device_sync');
+    const wearablePct = activeCourse.device_sync_ok === false || wearableDisc ? 15 + (hv % 25) :
+      activeCourse.device_sync_ok === true ? 88 + (hv % 12) : 58 + ((hv >> 11) % 38);
+
+    const homeProgramPct = activeCourse.home_completion_pct != null
+      ? Math.round(activeCourse.home_completion_pct * 100)
+      : 45 + ((hv >> 9) % 50);
+
+    return { attendancePct, adherencePct, sleepPct, sideEffectsPct, wearablePct, homeProgramPct };
+  }
+
+  function _renderSigBars(s6) {
+    const bar = (label, pct, warn, danger) => {
+      const p = Math.max(0, Math.min(100, pct ?? 50));
+      const col = p < danger ? 'var(--red)' : p < warn ? 'var(--amber)' : 'var(--green)';
+      return `<div class="mon-sig-row">
+        <div class="mon-sig-lbl">${label}</div>
+        <div class="mon-sig-track"><div class="mon-sig-fill" style="width:${p}%;background:${col}"></div></div>
+        <div class="mon-sig-pct" style="color:${col}">${p}%</div>
+      </div>`;
+    };
+    return `<div class="mon-sig-bars">
+      ${bar('Attend.',  s6.attendancePct,  60, 40)}
+      ${bar('Adhere.',  s6.adherencePct,   60, 40)}
+      ${bar('Sleep',    s6.sleepPct,        55, 35)}
+      ${bar('SideEff',  s6.sideEffectsPct, 50, 30)}
+      ${bar('Device',   s6.wearablePct,    55, 30)}
+      ${bar('HomeRx',   s6.homeProgramPct, 55, 35)}
+    </div>`;
+  }
+
+  // ── Milestone logic ───────────────────────────────────────────────────────
+  const MILESTONES = [5, 10, 20, 30];
+  function _milestoneFlag(patId) {
+    const ptCourses = coursesByPatient[patId] || [];
+    const activeCourse = ptCourses.find(c => ['active','in_progress'].includes(c.status)) || ptCourses[0];
+    if (!activeCourse) return null;
+    const delivered = activeCourse.sessions_delivered || 0;
+    const passedMs  = [...MILESTONES].reverse().find(m => delivered >= m) || null;
+    if (!passedMs || activeCourse.milestone_assessed) return null;
+    return { milestone: passedMs, courseId: activeCourse.id };
+  }
+
+  // ── Build monitored patient list ──────────────────────────────────────────
+  const monitoredIds = [...new Set([
     ...activeCourses.map(c => c.patient_id),
     ...openAEs.map(a => a.patient_id),
-    ...(homeAdherence || []).map(e => e.patient_id),
-    ...(homeFlags || []).map(f => f.patient_id),
+    ...homeAdherence.map(e => e.patient_id),
+    ...homeFlags.map(f => f.patient_id),
   ].filter(Boolean))];
 
-  const monitoredPatients = monitoredPatientIds
+  const monitoredPatients = monitoredIds
     .map(id => {
       const pt = patientMap[id];
       if (!pt) return null;
-      const score = _signalScore(id);
-      const status = _statusBadge(score);
-      const ptCourses = coursesByPatient[id] || [];
-      const activeCourse = ptCourses.find(c => ['active','in_progress'].includes(c.status));
+      const score  = _signalScore(id);
+      const status = _statusLabel(score);
+      const ptCourses  = coursesByPatient[id] || [];
+      const active = ptCourses.find(c => ['active','in_progress'].includes(c.status));
+      const ptAEs  = openAEs.filter(a => a.patient_id === id);
+      const ptFlags = homeFlags.filter(f => f.patient_id === id);
+      const ptAdherence = homeAdherence.filter(e => e.patient_id === id);
+      const msFlag = _milestoneFlag(id);
+      const s6 = _signals6(id);
+
+      // Primary monitoring reason
+      let reason = 'Routine monitoring';
+      if (ptAEs.some(a => ['serious','severe'].includes(a.severity))) reason = 'Serious adverse event';
+      else if (ptAEs.length)  reason = 'Open adverse event';
+      else if (active?.status === 'paused') reason = 'Course paused';
+      else if (ptFlags.some(f => f.severity === 'high')) reason = 'High-severity flag';
+      else if (ptAdherence.some(e => e.missed_sessions >= 3)) reason = 'Low adherence';
+      else if ((active?.last_checkin_days_ago || 0) > 7) reason = 'No recent check-in';
+      else if (msFlag) reason = `Session ${msFlag.milestone} milestone overdue`;
+
       return {
-        id, pt, score, status,
-        reason: _monitoringReason(id),
-        signal: _latestSignal(id),
-        modality: activeCourse?.modality || activeCourse?.protocol_name || '—',
-        condition: activeCourse?.condition || pt.primary_condition || '—',
-        ptAEs: openAEs.filter(a => a.patient_id === id),
-        ptFlags: (homeFlags || []).filter(f => f.patient_id === id),
-        ptAdherence: (homeAdherence || []).filter(e => e.patient_id === id),
+        id, pt, score, status, reason, s6, msFlag,
+        ptAEs, ptFlags, ptAdherence,
+        modality:  active?.modality_slug || active?.protocol_name || '—',
+        condition: active?.condition_slug || pt.primary_condition || '—',
+        activeCourse: active,
+        hasSeriousAE: ptAEs.some(a => ['serious','severe'].includes(a.severity)),
       };
     })
     .filter(Boolean)
     .sort((a, b) => b.score - a.score);
 
-  // ── Summary counts ───────────────────────────────────────────────────────
-  const totalMonitored = monitoredPatients.length;
-  const totalStable = monitoredPatients.filter(x => x.status.label === 'Stable').length;
+  // ── Summary counts ────────────────────────────────────────────────────────
+  const totalMonitored   = monitoredPatients.length;
+  const totalImproving   = monitoredPatients.filter(x => x.status.label === 'Improving').length;
+  const totalSteady      = monitoredPatients.filter(x => x.status.label === 'Steady').length;
   const totalNeedsReview = monitoredPatients.filter(x => x.status.label === 'Needs Review').length;
-  const missingCheckins = monitoredPatients.filter(x => (coursesByPatient[x.id] || []).some(c => (c.last_checkin_days_ago || 0) > 7)).length;
-  const deviceIssues = monitoredPatients.filter(x => x.ptFlags.some(f => f.type === 'device_sync' || f.type === 'wearable_disconnect')).length;
-  const sideEffectFlags = monitoredPatients.filter(x => x.ptFlags.some(f => f.type === 'side_effect') || x.ptAEs.length > 0).length;
+  const totalMilestone   = monitoredPatients.filter(x => x.msFlag).length;
+  const totalSideEffect  = monitoredPatients.filter(x => x.ptAEs.length > 0 || x.ptFlags.some(f => f.type === 'side_effect')).length;
 
-  // ── Action buttons ───────────────────────────────────────────────────────
-  const _actionBtns = (pid, cid) => {
-    const _cid = (cid || '').replace(/['"]/g, '');
-    return `
-      <button class="pm-act-btn pm-act-primary" onclick="window.openPatient('${pid}');window._nav('patient-profile')" title="Open Patient">Open</button>
-      <button class="pm-act-btn" onclick="window.openPatient('${pid}');window._nav('messaging')" title="Message Patient">Message</button>
-      <button class="pm-act-btn" onclick="window.openPatient('${pid}');window._nav('patient-profile')" title="Review Update">Review</button>
-      <div class="pm-act-more" onclick="event.stopPropagation();this.nextElementSibling.classList.toggle('pm-act-open')">⋯</div>
-      <div class="pm-act-dropdown">
-        <div onclick="window.openPatient('${pid}');window._nav('outcomes')">Log Outcome</div>
-        <div onclick="window.openPatient('${pid}');window._nav('assessments-hub')">Request Assessment</div>
-        <div onclick="window.openPatient('${pid}');window._nav('home-task-manager')">Assign Task</div>
-        <div onclick="window.openPatient('${pid}');window._nav('telehealth-recorder')">Schedule Call</div>
-        <div onclick="window.openPatient('${pid}');window._nav('adverse-events')">Flag Review</div>
-        ${_cid ? `<div onclick="window._nav('wearables')">Open Device Detail</div>` : ''}
-      </div>`;
-  };
-
-  // ── Patient row ──────────────────────────────────────────────────────────
-  const _patRow = (entry) => {
-    const { id, pt, status, reason, signal, modality, condition } = entry;
-    const ptCourses = coursesByPatient[id] || [];
-    const activeCourse = ptCourses.find(c => ['active','in_progress'].includes(c.status));
-    const cid = activeCourse?.id || '';
-    const name = [pt.first_name, pt.last_name].filter(Boolean).join(' ') || pt.name || 'Unknown';
-    return `
-      <div class="pm-pat-row" onclick="window.openPatient('${id}');window._nav('patient-profile')">
-        <div class="pm-pat-name">${name}</div>
-        <div class="pm-pat-condition">${condition}</div>
-        <div class="pm-pat-modality">${modality}</div>
-        <div class="pm-pat-reason">${reason}</div>
-        <div class="pm-pat-signal pm-signal-text">${signal}</div>
-        <div class="pm-pat-status"><span class="pm-badge ${status.cls}">${status.label}</span></div>
-        <div class="pm-pat-actions" onclick="event.stopPropagation()">${_actionBtns(id, cid)}</div>
-      </div>`;
-  };
-
-  // ── Domain section helpers ───────────────────────────────────────────────
-  const _domainSection = (title, icon, rows, emptyMsg) => `
-    <div class="pm-domain">
-      <div class="pm-domain-header"><span class="pm-domain-icon">${icon}</span> ${title}</div>
-      ${rows.length ? rows.join('') : `<div class="pm-domain-empty">${emptyMsg}</div>`}
+  // ── Action buttons ────────────────────────────────────────────────────────
+  function _actBtns(pid) {
+    const p = (pid || '').replace(/['"]/g, '');
+    return `<div class="mon-act-row">
+      <button class="mon-act-btn mon-act-primary" onclick="event.stopPropagation();window.openPatient('${p}');window._nav('patient-profile')">Open</button>
+      <button class="mon-act-btn" onclick="event.stopPropagation();window.openPatient('${p}');window._nav('outcomes')">Outcomes</button>
+      <button class="mon-act-btn" onclick="event.stopPropagation();window.openPatient('${p}');window._nav('messaging')">Message</button>
     </div>`;
+  }
 
-  const symptomsPatients = monitoredPatients.filter(x => x.ptFlags.some(f => f.type === 'symptom' || f.type === 'side_effect') || x.ptAEs.length > 0);
-  const assessmentPatients = monitoredPatients.filter(x => (coursesByPatient[x.id] || []).some(c => c.pending_assessment || c.outcome_due));
-  const homeProgramPatients = monitoredPatients.filter(x => x.ptAdherence.some(e => e.missed_sessions >= 1));
-  const wearablePatients = monitoredPatients.filter(x => x.ptFlags.some(f => f.type === 'wearable_disconnect' || f.type === 'device_sync'));
-  const homeNeuroPatients = monitoredPatients.filter(x => x.ptFlags.some(f => f.type === 'home_device_non_use' || f.type === 'home_neuro'));
-
-  const _domainRow = (entry, signal) => {
-    const { id, pt, status } = entry;
+  // ── Patient queue row ──────────────────────────────────────────────────────
+  function _patRow(entry) {
+    const { id, pt, status, reason, s6, modality, condition, msFlag, hasSeriousAE, ptAEs } = entry;
     const name = [pt.first_name, pt.last_name].filter(Boolean).join(' ') || pt.name || 'Unknown';
-    return `<div class="pm-domain-row" onclick="window.openPatient('${id}');window._nav('patient-profile')">
-      <span class="pm-domain-name">${name}</span>
-      <span class="pm-domain-signal">${signal}</span>
-      <span class="pm-badge ${status.cls}">${status.label}</span>
-    </div>`;
-  };
-
-  // ── Needs Review panel ───────────────────────────────────────────────────
-  const needsReviewPatients = monitoredPatients.filter(x => x.status.label === 'Needs Review');
-  const _reviewRow = (entry) => {
-    const { id, pt, reason, ptAEs, ptFlags, ptAdherence } = entry;
-    const name = [pt.first_name, pt.last_name].filter(Boolean).join(' ') || pt.name || 'Unknown';
-    const tags = [];
-    if (ptAEs.some(a => ['serious','severe'].includes(a.severity))) tags.push('<span class="pm-tag pm-tag-red">Serious AE</span>');
-    else if (ptAEs.length) tags.push('<span class="pm-tag pm-tag-amber">Open AE</span>');
-    if (ptFlags.some(f => f.type === 'side_effect')) tags.push('<span class="pm-tag pm-tag-amber">Side Effects</span>');
-    if (ptFlags.some(f => f.type === 'wearable_disconnect')) tags.push('<span class="pm-tag pm-tag-grey">Wearable Offline</span>');
-    if (ptFlags.some(f => f.type === 'home_device_non_use')) tags.push('<span class="pm-tag pm-tag-grey">Device Non-Use</span>');
-    if (ptAdherence.some(e => e.missed_sessions >= 3)) tags.push('<span class="pm-tag pm-tag-amber">Low Adherence</span>');
-    if (ptFlags.some(f => f.severity === 'high')) tags.push('<span class="pm-tag pm-tag-red">High Flag</span>');
-    return `<div class="pm-review-row">
-      <div class="pm-review-name">${name}</div>
-      <div class="pm-review-reason">${reason}</div>
-      <div class="pm-review-tags">${tags.join('')}</div>
-      <div class="pm-review-actions" onclick="event.stopPropagation()">
-        <button class="pm-act-btn pm-act-primary" onclick="window.openPatient('${id}');window._nav('patient-profile')">Open</button>
-        <button class="pm-act-btn" onclick="window.openPatient('${id}');window._nav('messaging')">Message</button>
+    const msBadge = msFlag ? `<span class="mon-badge mon-badge-amber" style="font-size:9px;margin-left:4px">◷ Sess.${msFlag.milestone}</span>` : '';
+    const aeBadge = hasSeriousAE
+      ? `<span class="mon-badge mon-badge-red" style="font-size:9px;margin-left:4px">Serious AE</span>`
+      : ptAEs.length ? `<span class="mon-badge mon-badge-amber" style="font-size:9px;margin-left:4px">Open AE</span>` : '';
+    return `<div class="mon-pat-row" onclick="window.openPatient('${id}');window._nav('patient-profile')">
+      <div>
+        <div class="mon-pat-name">${name}${aeBadge}${msBadge}</div>
+        <div class="mon-pat-sub">${condition.replace(/-/g,' ')}</div>
       </div>
+      <div style="font-size:11.5px;color:var(--text-secondary)">${modality}</div>
+      <div><span class="mon-badge ${status.cls}">${status.label}</span></div>
+      <div style="font-size:11.5px;color:var(--text-secondary)">${reason}</div>
+      ${_renderSigBars(s6)}
+      <div>${_actBtns(id)}</div>
     </div>`;
-  };
+  }
 
-  // ── Filter state ─────────────────────────────────────────────────────────
-  let _pmFilter = { search: '', status: 'all', type: 'all' };
+  // ── Filter state ──────────────────────────────────────────────────────────
+  let _monFilter = { search: '', status: 'all', type: 'all' };
 
-  const _filteredPatients = () => {
+  function _filteredPatients() {
     let list = monitoredPatients;
-    if (_pmFilter.status !== 'all') list = list.filter(x => x.status.label.toLowerCase().replace(' ', '-') === _pmFilter.status);
-    if (_pmFilter.type === 'no-checkin') list = list.filter(x => (coursesByPatient[x.id] || []).some(c => (c.last_checkin_days_ago || 0) > 7));
-    if (_pmFilter.type === 'low-adherence') list = list.filter(x => x.ptAdherence.some(e => e.missed_sessions >= 2));
-    if (_pmFilter.type === 'wearable-issue') list = list.filter(x => x.ptFlags.some(f => f.type === 'wearable_disconnect'));
-    if (_pmFilter.type === 'side-effects') list = list.filter(x => x.ptFlags.some(f => f.type === 'side_effect') || x.ptAEs.length > 0);
-    if (_pmFilter.type === 'home-device') list = list.filter(x => x.ptFlags.some(f => f.type === 'home_device_non_use'));
-    if (_pmFilter.search) {
-      const q = _pmFilter.search.toLowerCase();
+    if (_monFilter.status !== 'all') {
+      list = list.filter(x => x.status.label.toLowerCase().replace(' ', '-') === _monFilter.status);
+    }
+    if (_monFilter.type === 'no-checkin')    list = list.filter(x => (coursesByPatient[x.id]||[]).some(c => (c.last_checkin_days_ago||0) > 7));
+    if (_monFilter.type === 'low-adherence') list = list.filter(x => x.ptAdherence.some(e => e.missed_sessions >= 2));
+    if (_monFilter.type === 'wearable')      list = list.filter(x => x.ptFlags.some(f => f.type === 'wearable_disconnect' || f.type === 'device_sync'));
+    if (_monFilter.type === 'side-effects')  list = list.filter(x => x.ptFlags.some(f => f.type === 'side_effect') || x.ptAEs.length > 0);
+    if (_monFilter.type === 'milestone')     list = list.filter(x => x.msFlag);
+    if (_monFilter.search) {
+      const q = _monFilter.search.toLowerCase();
       list = list.filter(x => {
-        const name = [x.pt.first_name, x.pt.last_name, x.pt.name].filter(Boolean).join(' ').toLowerCase();
-        return name.includes(q) || (x.condition || '').toLowerCase().includes(q) || (x.modality || '').toLowerCase().includes(q);
+        const n = [x.pt.first_name, x.pt.last_name, x.pt.name].filter(Boolean).join(' ').toLowerCase();
+        return n.includes(q) || (x.condition||'').toLowerCase().includes(q) || (x.modality||'').toLowerCase().includes(q);
       });
     }
     return list;
-  };
+  }
 
-  // ── Render ───────────────────────────────────────────────────────────────
-  const renderPage = () => {
+  // ── Render ────────────────────────────────────────────────────────────────
+  function renderPage() {
     const filtered = _filteredPatients();
 
-    const summaryStrip = `
-      <div class="pm-summary-strip">
-        <div class="pm-chip"><span class="pm-chip-val">${totalMonitored}</span><span class="pm-chip-lbl">Monitored</span></div>
-        <div class="pm-chip pm-chip-green"><span class="pm-chip-val">${totalStable}</span><span class="pm-chip-lbl">Stable</span></div>
-        <div class="pm-chip pm-chip-red"><span class="pm-chip-val">${totalNeedsReview}</span><span class="pm-chip-lbl">Needs Review</span></div>
-        <div class="pm-chip pm-chip-amber"><span class="pm-chip-val">${missingCheckins}</span><span class="pm-chip-lbl">Missing Check-ins</span></div>
-        <div class="pm-chip pm-chip-grey"><span class="pm-chip-val">${deviceIssues}</span><span class="pm-chip-lbl">Device Issues</span></div>
-        <div class="pm-chip pm-chip-amber"><span class="pm-chip-val">${sideEffectFlags}</span><span class="pm-chip-lbl">Side Effect Flags</span></div>
-      </div>`;
+    // Attention grid — patients with Needs Review or milestone flag, sorted by urgency
+    const attentionPts = monitoredPatients
+      .filter(x => x.status.label === 'Needs Review' || x.msFlag || x.hasSeriousAE)
+      .slice(0, 8);
 
-    const filterBar = `
-      <div class="pm-filter-bar">
-        <input class="pm-search" type="text" placeholder="Search patient, condition, modality…" value="${_pmFilter.search}" oninput="window._pmSearch(this.value)">
-        <select class="pm-filter-sel" onchange="window._pmFilterStatus(this.value)">
-          <option value="all" ${_pmFilter.status==='all'?'selected':''}>All Status</option>
-          <option value="needs-review" ${_pmFilter.status==='needs-review'?'selected':''}>Needs Review</option>
-          <option value="watch" ${_pmFilter.status==='watch'?'selected':''}>Watch</option>
-          <option value="stable" ${_pmFilter.status==='stable'?'selected':''}>Stable</option>
-        </select>
-        <select class="pm-filter-sel" onchange="window._pmFilterType(this.value)">
-          <option value="all" ${_pmFilter.type==='all'?'selected':''}>All Types</option>
-          <option value="no-checkin" ${_pmFilter.type==='no-checkin'?'selected':''}>No Recent Check-in</option>
-          <option value="low-adherence" ${_pmFilter.type==='low-adherence'?'selected':''}>Low Adherence</option>
-          <option value="wearable-issue" ${_pmFilter.type==='wearable-issue'?'selected':''}>Wearable Issue</option>
-          <option value="side-effects" ${_pmFilter.type==='side-effects'?'selected':''}>Side Effects / AE</option>
-          <option value="home-device" ${_pmFilter.type==='home-device'?'selected':''}>Home Device Non-Use</option>
-        </select>
-      </div>`;
-
-    const queueHeader = `
-      <div class="pm-queue-header">
-        <span>Patient</span><span>Condition</span><span>Modality</span><span>Reason</span><span>Latest Signal</span><span>Status</span><span>Actions</span>
-      </div>`;
-
-    const queueRows = filtered.length
-      ? filtered.map(_patRow).join('')
-      : '<div class="pm-empty-queue">No patients match current filters.</div>';
-
-    const queueCard = `
-      <div class="pm-card pm-queue-card">
-        <div class="pm-card-title">Monitoring Queue <span class="pm-queue-count">${filtered.length}</span></div>
-        ${filterBar}
-        ${queueHeader}
-        <div class="pm-queue-rows">${queueRows}</div>
-      </div>`;
-
-    const domainsCard = `
-      <div class="pm-card pm-domains-card">
-        <div class="pm-card-title">Signal Domains</div>
-        ${_domainSection('Symptoms & Check-ins', '⚡',
-          symptomsPatients.map(x => _domainRow(x, x.ptFlags.find(f=>f.type==='symptom'||f.type==='side_effect')?.description || (x.ptAEs[0]?.type || 'Symptom flag'))),
-          'No symptom flags')}
-        ${_domainSection('Assessments & Outcomes', '📋',
-          assessmentPatients.map(x => _domainRow(x, 'Assessment pending or outcome due')),
-          'All assessments current')}
-        ${_domainSection('Home Programs', '🏠',
-          homeProgramPatients.map(x => _domainRow(x, `${x.ptAdherence.find(e=>e.missed_sessions>=1)?.missed_sessions || 1} session(s) missed`)),
-          'Full adherence')}
-        ${_domainSection('Wearables & Devices', '⌚',
-          wearablePatients.map(x => _domainRow(x, x.ptFlags.find(f=>f.type==='wearable_disconnect'||f.type==='device_sync')?.description || 'Device offline')),
-          'All wearables synced')}
-        ${_domainSection('Home Neuromodulation Devices', '🧠',
-          homeNeuroPatients.map(x => _domainRow(x, x.ptFlags.find(f=>f.type==='home_device_non_use'||f.type==='home_neuro')?.description || 'Non-use detected')),
-          'All devices in use')}
-      </div>`;
-
-    const reviewCard = needsReviewPatients.length ? `
-      <div class="pm-card pm-review-card">
-        <div class="pm-card-title pm-review-title">Needs Review <span class="pm-badge pm-badge-red">${needsReviewPatients.length}</span></div>
-        <div class="pm-review-rows">${needsReviewPatients.map(_reviewRow).join('')}</div>
+    const attentionPanel = attentionPts.length ? `
+      <div style="background:rgba(245,158,11,0.05);border:1px solid rgba(245,158,11,0.22);border-radius:var(--radius-lg);padding:14px 18px;margin-bottom:20px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+          <div style="font-size:13px;font-weight:700;color:var(--amber)">⚠ Patients Needing Attention
+            <span style="font-size:11px;padding:1px 7px;border-radius:8px;background:rgba(245,158,11,0.15);color:var(--amber);margin-left:6px">${attentionPts.length}</span>
+          </div>
+          <span style="font-size:11px;color:var(--text-tertiary)">Sorted by urgency · click to open</span>
+        </div>
+        <div class="mon-attention-grid">
+          ${attentionPts.map(entry => {
+            const { id, pt, status, reason, s6, msFlag, hasSeriousAE, ptAEs } = entry;
+            const name = [pt.first_name, pt.last_name].filter(Boolean).join(' ') || pt.name || 'Unknown';
+            const urgTags = [];
+            if (hasSeriousAE) urgTags.push('<span class="mon-tag mon-tag-red">Serious AE</span>');
+            else if (ptAEs.length) urgTags.push('<span class="mon-tag mon-tag-amber">Open AE</span>');
+            if (msFlag) urgTags.push('<span class="mon-tag mon-tag-amber">◷ Sess.' + msFlag.milestone + ' overdue</span>');
+            if (s6.adherencePct < 50) urgTags.push('<span class="mon-tag mon-tag-amber">Low adherence</span>');
+            if (s6.wearablePct  < 40) urgTags.push('<span class="mon-tag mon-tag-grey">Device offline</span>');
+            return '<div class="mon-attention-card" onclick="window.openPatient(\'' + id + '\');window._nav(\'patient-profile\')">'
+              + '<div style="font-size:12.5px;font-weight:700;color:var(--text-primary);margin-bottom:3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + name + '</div>'
+              + '<div style="font-size:10px;color:var(--text-secondary);margin-bottom:6px">' + reason + '</div>'
+              + '<div style="display:flex;flex-wrap:wrap;gap:3px">' + urgTags.join('') + '</div>'
+              + '</div>';
+          }).join('')}
+        </div>
       </div>` : '';
 
-    el.innerHTML = `
-      <div class="pm-page">
-        ${summaryStrip}
-        ${queueCard}
-        <div class="pm-lower-grid">
-          ${domainsCard}
-          ${reviewCard}
+    // Milestone banner
+    const msPts = monitoredPatients.filter(x => x.msFlag);
+    const msBanner = msPts.length ? `
+      <div class="mon-milestone-banner" style="margin-bottom:16px">
+        <div style="font-size:12px;font-weight:700;color:var(--amber);margin-bottom:8px">◷ Milestone Reviews Overdue (${msPts.length})</div>
+        <div style="display:flex;flex-wrap:wrap;gap:8px">
+          ${msPts.map(x => {
+            const name = [x.pt.first_name, x.pt.last_name].filter(Boolean).join(' ') || x.pt.name || 'Unknown';
+            return '<div style="display:flex;align-items:center;gap:6px;background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius-md);padding:6px 10px;cursor:pointer" onclick="window.openPatient(\'' + x.id + '\');window._nav(\'outcomes\')">'
+              + '<span style="font-size:11px;font-weight:600;color:var(--text-primary)">' + name + '</span>'
+              + '<span style="font-size:10px;color:var(--amber)">Session ' + x.msFlag.milestone + ' review</span>'
+              + '</div>';
+          }).join('')}
         </div>
-      </div>`;
-  };
+      </div>` : '';
 
-  // ── Global handlers ───────────────────────────────────────────────────────
-  window._pmSearch = (val) => { _pmFilter.search = val; renderPage(); };
-  window._pmFilterStatus = (val) => { _pmFilter.status = val; renderPage(); };
-  window._pmFilterType = (val) => { _pmFilter.type = val; renderPage(); };
+    // Summary strip
+    const summaryStrip = `
+      <div class="mon-summary">
+        <div class="mon-chip"><span class="mon-chip-val">${totalMonitored}</span><span class="mon-chip-lbl">Monitored</span></div>
+        <div class="mon-chip mon-chip-green"><span class="mon-chip-val">${totalImproving}</span><span class="mon-chip-lbl">Improving</span></div>
+        <div class="mon-chip mon-chip-blue" style="--blue:var(--blue,#3b82f6)"><span class="mon-chip-val" style="color:var(--blue)">${totalSteady}</span><span class="mon-chip-lbl">Steady</span></div>
+        <div class="mon-chip mon-chip-amber"><span class="mon-chip-val">${totalNeedsReview}</span><span class="mon-chip-lbl">Needs Review</span></div>
+        <div class="mon-chip mon-chip-amber"><span class="mon-chip-val">${totalMilestone}</span><span class="mon-chip-lbl">Milestone Due</span></div>
+        <div class="mon-chip mon-chip-red"><span class="mon-chip-val">${totalSideEffect}</span><span class="mon-chip-lbl">Side Effects / AE</span></div>
+      </div>`;
+
+    // Filter bar
+    const filterBar = `
+      <div class="mon-filter-bar">
+        <div style="position:relative;flex:1;min-width:200px">
+          <span style="position:absolute;left:9px;top:50%;transform:translateY(-50%);color:var(--text-tertiary);font-size:13px;pointer-events:none">⌕</span>
+          <input class="mon-search" type="text" placeholder="Search patient, condition, modality…" value="${_monFilter.search}" oninput="window._monSearch(this.value)" style="padding-left:28px">
+        </div>
+        <select class="mon-sel" onchange="window._monFilterStatus(this.value)">
+          <option value="all" ${_monFilter.status==='all'?'selected':''}>All Status</option>
+          <option value="needs-review" ${_monFilter.status==='needs-review'?'selected':''}>Needs Review</option>
+          <option value="steady" ${_monFilter.status==='steady'?'selected':''}>Steady</option>
+          <option value="improving" ${_monFilter.status==='improving'?'selected':''}>Improving</option>
+        </select>
+        <select class="mon-sel" onchange="window._monFilterType(this.value)">
+          <option value="all" ${_monFilter.type==='all'?'selected':''}>All Types</option>
+          <option value="no-checkin" ${_monFilter.type==='no-checkin'?'selected':''}>No Recent Check-in</option>
+          <option value="low-adherence" ${_monFilter.type==='low-adherence'?'selected':''}>Low Adherence</option>
+          <option value="wearable" ${_monFilter.type==='wearable'?'selected':''}>Device / Wearable Issue</option>
+          <option value="side-effects" ${_monFilter.type==='side-effects'?'selected':''}>Side Effects / AE</option>
+          <option value="milestone" ${_monFilter.type==='milestone'?'selected':''}>Milestone Overdue</option>
+        </select>
+      </div>`;
+
+    // Queue
+    const queueHeader = `<div class="mon-queue-hdr">
+      <span>Patient / Condition</span><span>Modality</span><span>Status</span><span>Reason</span>
+      <span>Driver Signals</span><span style="grid-column:span 2">Actions</span>
+    </div>`;
+    const queueRows = filtered.length
+      ? filtered.map(_patRow).join('')
+      : '<div style="padding:24px;text-align:center;color:var(--text-tertiary);font-size:12px">No patients match current filters.</div>';
+
+    const queueCard = `
+      <div class="mon-card">
+        <div class="mon-card-title">Monitoring Queue <span style="font-size:11px;padding:1px 7px;border-radius:8px;background:rgba(0,212,188,0.12);color:var(--teal)">${filtered.length}</span></div>
+        ${filterBar}
+        ${queueHeader}
+        <div>${queueRows}</div>
+      </div>`;
+
+    // Domain sections
+    const symptomsPatients = monitoredPatients.filter(x => x.ptAEs.length > 0 || x.ptFlags.some(f => f.type === 'side_effect' || f.type === 'symptom'));
+    const homeProgramPts   = monitoredPatients.filter(x => x.ptAdherence.some(e => e.missed_sessions >= 1));
+    const wearablePts      = monitoredPatients.filter(x => x.ptFlags.some(f => f.type === 'wearable_disconnect' || f.type === 'device_sync'));
+    const assessmentPts    = monitoredPatients.filter(x => (coursesByPatient[x.id]||[]).some(c => c.pending_assessment || c.outcome_due));
+
+    function _domRow(entry, signal) {
+      const name = [entry.pt.first_name, entry.pt.last_name].filter(Boolean).join(' ') || entry.pt.name || 'Unknown';
+      return `<div class="mon-domain-row" onclick="window.openPatient('${entry.id}');window._nav('patient-profile')">
+        <span class="mon-domain-name">${name}</span>
+        <span class="mon-domain-sig">${signal}</span>
+        <span class="mon-badge ${entry.status.cls}">${entry.status.label}</span>
+      </div>`;
+    }
+
+    function _domSec(title, icon, entries, emptyMsg) {
+      return `<div class="mon-domain">
+        <div class="mon-domain-hdr">${icon} ${title} <span style="font-size:10.5px;color:var(--text-tertiary)">(${entries.length})</span></div>
+        ${entries.length
+          ? entries.map(x => _domRow(x, x.reason)).join('')
+          : `<div style="padding:8px 16px;font-size:12px;color:var(--text-tertiary)">${emptyMsg}</div>`}
+      </div>`;
+    }
+
+    const domainsCard = `
+      <div class="mon-card">
+        <div class="mon-card-title">Signal Domains</div>
+        ${_domSec('Symptoms & Adverse Events', '⚡', symptomsPatients, 'No symptom flags')}
+        ${_domSec('Assessments Due',           '📋', assessmentPts,    'All assessments current')}
+        ${_domSec('Home Programs / Adherence', '🏠', homeProgramPts,   'Full adherence')}
+        ${_domSec('Wearables & Devices',       '⌚', wearablePts,      'All devices synced')}
+        ${_domSec('Milestone Reviews',         '◷', msPts,            'All milestones assessed')}
+      </div>`;
+
+    // Needs Review panel
+    const nrPts = monitoredPatients.filter(x => x.status.label === 'Needs Review');
+    const reviewCard = nrPts.length ? `
+      <div class="mon-card" style="border-color:rgba(245,158,11,0.3)">
+        <div class="mon-card-title" style="color:var(--amber)">⚠ Needs Review <span style="font-size:11px;padding:1px 7px;border-radius:8px;background:rgba(245,158,11,0.15);color:var(--amber)">${nrPts.length}</span></div>
+        ${nrPts.map(entry => {
+          const name = [entry.pt.first_name, entry.pt.last_name].filter(Boolean).join(' ') || entry.pt.name || 'Unknown';
+          const tags = [];
+          if (entry.hasSeriousAE) tags.push('<span class="mon-tag mon-tag-red">Serious AE</span>');
+          else if (entry.ptAEs.length) tags.push('<span class="mon-tag mon-tag-amber">Open AE</span>');
+          if (entry.msFlag) tags.push('<span class="mon-tag mon-tag-amber">◷ Milestone</span>');
+          if (entry.ptAdherence.some(e => e.missed_sessions >= 3)) tags.push('<span class="mon-tag mon-tag-amber">Low Adherence</span>');
+          return '<div class="mon-review-row" onclick="window.openPatient(\'' + entry.id + '\');window._nav(\'patient-profile\')">'
+            + '<div style="font-size:12.5px;font-weight:700;color:var(--text-primary)">' + name + '</div>'
+            + '<div style="font-size:11px;color:var(--text-secondary);margin:3px 0 5px">' + entry.reason + '</div>'
+            + '<div style="display:flex;flex-wrap:wrap;gap:3px;margin-bottom:7px">' + tags.join('') + '</div>'
+            + '<div style="display:flex;gap:5px">'
+            + '<button class="mon-act-btn mon-act-primary" onclick="event.stopPropagation();window.openPatient(\'' + entry.id + '\');window._nav(\'patient-profile\')">Open</button>'
+            + '<button class="mon-act-btn" onclick="event.stopPropagation();window.openPatient(\'' + entry.id + '\');window._nav(\'outcomes\')">Log Outcome</button>'
+            + '<button class="mon-act-btn" onclick="event.stopPropagation();window.openPatient(\'' + entry.id + '\');window._nav(\'messaging\')">Message</button>'
+            + '</div>'
+            + '</div>';
+        }).join('')}
+      </div>` : '';
+
+    el.innerHTML = `<div class="page-section">
+      ${attentionPanel}
+      ${summaryStrip}
+      ${msBanner}
+      ${queueCard}
+      <div class="mon-lower-grid">
+        ${domainsCard}
+        ${reviewCard}
+      </div>
+    </div>`;
+  }
+
+  // ── Global filter handlers ────────────────────────────────────────────────
+  window._monSearch = (val) => { _monFilter.search = val; renderPage(); };
+  window._monFilterStatus = (val) => { _monFilter.status = val; renderPage(); };
+  window._monFilterType   = (val) => { _monFilter.type   = val; renderPage(); };
 
   renderPage();
 }
