@@ -639,752 +639,7 @@ export async function pgDash(setTopbar, navigate) {
     ...approvedCourses.map(c => ({ ...c, _qStatus: 'approved' })),
   ].sort((a, b) => _courseUrgency(b) - _courseUrgency(a)).slice(0, 12);
 
-  // ── KPI stat bar ──────────────────────────────────────────────────────────
-  const statBar = `<div style="display:grid;grid-template-columns:repeat(6,1fr);gap:10px;margin-bottom:16px">
-    <div class="stat-card--teal">${_dStatCard('Total Patients', patCount, `${activePatientIds.length} in active treatment`, 'var(--teal)', 'patients')}</div>
-    <div class="stat-card--blue">${_dStatCard('Active Courses', activeCourses.length, `${sessionsPerWeek} sessions/week planned`, 'var(--blue)', 'courses')}</div>
-    <div class="stat-card--blue">${_dStatCard('Sessions Delivered', totalDelivered, `${completedCourses.length} courses completed`, 'var(--blue)', 'courses')}</div>
-    <div class="${pendingQueue.length > 0 ? 'stat-card--amber' : ''}">${_dStatCard('Pending Reviews', pendingQueue.length || 0, pendingQueue.length > 0 ? 'Action required' : 'Queue clear', pendingQueue.length > 0 ? 'var(--amber)' : 'var(--green)', 'review-queue', pendingQueue.length > 0)}</div>
-    <div class="${(alertFlags > 0 || wearableUrgentCount > 0) ? 'stat-card--amber' : ''}">${_dStatCard('Safety Flags', (alertFlags || 0) + (wearableUrgentCount || 0), (() => { const parts = []; if (flaggedCourses.length) parts.push(flaggedCourses.length + ' gov'); if (seriousAEs.length) parts.push(seriousAEs.length + ' AE'); if (wearableUrgentCount) parts.push(wearableUrgentCount + ' wearable'); return parts.length ? parts.join(' · ') : 'No active flags'; })(), (alertFlags > 0 || wearableUrgentCount > 0) ? 'var(--red)' : 'var(--green)', 'adverse-events', alertFlags > 0 || wearableUrgentCount > 0)}</div>
-    <div class="${mediaNeedsAttention.length > 0 ? 'stat-card--violet' : ''}">${_dStatCard('Media Queue', mediaNeedsAttention.length, mediaQueueSub, mediaQueueColor, 'media-queue', mediaNeedsAttention.length > 0)}</div>
-  </div>`;
-
-  // ── 4-Engine Command Hub ─────────────────────────────────────────────────
-  const engineHub = `<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px">
-  <div class="card card--interactive" onclick="window._nav('assessments-hub')" style="padding:14px 16px;cursor:pointer;display:flex;align-items:center;gap:12px;transition:border-color 0.15s" onmouseover="this.style.borderColor='var(--teal)'" onmouseout="this.style.borderColor='var(--border)'">
-    <div style="width:36px;height:36px;border-radius:8px;background:rgba(0,212,188,0.1);display:flex;align-items:center;justify-content:center;font-size:18px;color:var(--teal);flex-shrink:0">◈</div>
-    <div style="flex:1;min-width:0">
-      <div style="font-size:12.5px;font-weight:700;color:var(--text-primary);margin-bottom:2px">Assessments Engine</div>
-      <div style="font-size:10.5px;color:var(--text-tertiary)">38 validated scales · 53 conditions</div>
-    </div>
-    <div style="font-size:10.5px;font-weight:600;color:var(--teal);flex-shrink:0">Open →</div>
-  </div>
-  <div class="card card--interactive" onclick="window._nav('protocols-registry')" style="padding:14px 16px;cursor:pointer;display:flex;align-items:center;gap:12px;transition:border-color 0.15s" onmouseover="this.style.borderColor='var(--violet)'" onmouseout="this.style.borderColor='var(--border)'">
-    <div style="width:36px;height:36px;border-radius:8px;background:rgba(99,102,241,0.1);display:flex;align-items:center;justify-content:center;font-size:18px;color:var(--violet);flex-shrink:0">◇</div>
-    <div style="flex:1;min-width:0">
-      <div style="font-size:12.5px;font-weight:700;color:var(--text-primary);margin-bottom:2px">Protocol Intelligence</div>
-      <div style="font-size:10.5px;color:var(--text-tertiary)">${allProtocols.length || 0} protocols · On-label · Off-label · AI</div>
-    </div>
-    <div style="font-size:10.5px;font-weight:600;color:var(--violet);flex-shrink:0">Browse →</div>
-  </div>
-  <div class="card card--interactive" onclick="window._nav('session-execution')" style="padding:14px 16px;cursor:pointer;display:flex;align-items:center;gap:12px;transition:border-color 0.15s" onmouseover="this.style.borderColor='var(--blue)'" onmouseout="this.style.borderColor='var(--border)'">
-    <div style="width:36px;height:36px;border-radius:8px;background:rgba(74,158,255,0.1);display:flex;align-items:center;justify-content:center;font-size:18px;color:var(--blue);flex-shrink:0">◧</div>
-    <div style="flex:1;min-width:0">
-      <div style="font-size:12.5px;font-weight:700;color:var(--text-primary);margin-bottom:2px">Clinical Execution</div>
-      <div style="font-size:10.5px;color:var(--text-tertiary)">${activeCourses.length} active courses · ${sessionsPerWeek} sessions/week</div>
-    </div>
-    <div style="font-size:10.5px;font-weight:600;color:var(--blue);flex-shrink:0">Start →</div>
-  </div>
-  <div class="card card--interactive" onclick="window._nav('notes-dictation')" style="padding:14px 16px;cursor:pointer;display:flex;align-items:center;gap:12px;transition:border-color 0.15s" onmouseover="this.style.borderColor='var(--amber)'" onmouseout="this.style.borderColor='var(--border)'">
-    <div style="width:36px;height:36px;border-radius:8px;background:rgba(255,181,71,0.1);display:flex;align-items:center;justify-content:center;font-size:18px;color:var(--amber);flex-shrink:0">◎</div>
-    <div style="flex:1;min-width:0">
-      <div style="font-size:12.5px;font-weight:700;color:var(--text-primary);margin-bottom:2px">Documentation + AI</div>
-      <div style="font-size:10.5px;color:var(--text-tertiary)">Notes · Dictation · AI-assisted learning</div>
-    </div>
-    <div style="font-size:10.5px;font-weight:600;color:var(--amber);flex-shrink:0">Open →</div>
-  </div>
-</div>`;
-
-  // ── Today's Schedule + Action Items ──────────────────────────────────────
-  const actionItems = [
-    { show: openAEs.length > 0,       icon: '⚡', label: 'Open Adverse Events',  count: openAEs.length,       color: 'var(--red)',   nav: 'adverse-events' },
-    { show: pendingQueue.length > 0,  icon: '◱', label: 'Pending Approvals',     count: pendingQueue.length,  color: 'var(--amber)', nav: 'review-queue' },
-    { show: mediaUrgent > 0,          icon: '⚑', label: 'Urgent Media',          count: mediaUrgent,          color: 'var(--red)',   nav: 'media-queue' },
-    { show: wearableUrgentCount > 0,  icon: '◌', label: 'Wearable Alerts',       count: wearableUrgentCount,  color: 'var(--red)',   nav: 'wearables' },
-    { show: consentAlertCount > 0,    icon: '◎', label: 'Consent Alerts',        count: consentAlertCount,    color: 'var(--amber)', nav: 'patients' },
-    { show: assessmentsDueCount > 0,  icon: '◈', label: 'Assessments Due',        count: assessmentsDueCount,  color: 'var(--teal)',  nav: 'assessments-hub' },
-  ].filter(i => i.show);
-
-  const rowToday = `<div class="g2" style="margin-bottom:14px;align-items:start">
-  <div class="card card--interactive" style="overflow:hidden">
-    <div style="padding:13px 16px 11px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--border)">
-      <span class="card-section-label">Today's Schedule</span>
-      <button class="btn btn-sm" style="font-size:10.5px" onclick="window._nav('session-execution')">Start Session →</button>
-    </div>
-    ${activeCourses.length === 0
-      ? `<div style="padding:20px 16px;text-align:center">
-          <div style="font-size:22px;margin-bottom:8px">📅</div>
-          <div style="font-size:13px;font-weight:600;color:var(--text-primary);margin-bottom:4px">No sessions scheduled.</div>
-          <div style="font-size:11.5px;color:var(--text-tertiary);margin-bottom:12px">Add a patient and create a treatment course to get started.</div>
-          <div style="display:flex;gap:8px;justify-content:center">
-            <button class="btn btn-sm" onclick="event.stopPropagation();window._nav('patients')">Add Patient</button>
-            <button class="btn btn-sm" onclick="event.stopPropagation();window._nav('protocols-registry')">Browse Protocols</button>
-          </div>
-        </div>`
-      : activeCourses.slice(0, 4).map(c => {
-          const _sp = patientMap[c.patient_id];
-          if (!_sp) return '';
-          const _sn = (`${_sp.first_name || ''} ${_sp.last_name || ''}`).trim();
-          const _sa = initials(_sn);
-          return `<div style="display:flex;align-items:center;gap:10px;padding:9px 16px;border-bottom:1px solid var(--border);cursor:pointer"
-                       onclick="window._nav('session-execution')"
-                       onmouseover="this.style.background='var(--bg-card-hover)'" onmouseout="this.style.background=''">
-            <div class="avatar" style="width:28px;height:28px;font-size:10px;flex-shrink:0">${_sa}</div>
-            <div style="flex:1;min-width:0">
-              <div style="font-size:12.5px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${_sn}</div>
-              <div style="font-size:10.5px;color:var(--text-tertiary)">${(c.condition_slug||'—').replace(/-/g,' ')} · <span style="color:var(--teal)">${c.modality_slug||'—'}</span></div>
-            </div>
-            <div style="font-size:10px;color:var(--text-tertiary);flex-shrink:0">Ses. ${c.sessions_delivered||0}/${c.planned_sessions_total||'?'}</div>
-            <button class="btn btn-sm" style="font-size:10px;padding:2px 7px;flex-shrink:0" onclick="event.stopPropagation();window._nav('session-execution')">Execute →</button>
-          </div>`;
-        }).join('')
-    }
-    <div style="padding:8px 16px 10px;font-size:10.5px;color:var(--text-tertiary)">Connect calendar sync to see real-time session schedule</div>
-  </div>
-  <div class="card card--interactive" style="overflow:hidden">
-    <div style="padding:13px 16px 11px;border-bottom:1px solid var(--border)">
-      <span class="card-section-label">Action Items</span>
-      ${actionItems.length > 0
-        ? `<span style="font-size:11px;font-weight:700;color:var(--red);font-family:var(--font-mono);margin-left:8px">${actionItems.length} urgent</span>`
-        : `<span style="font-size:11px;color:var(--green);margin-left:8px">✓ Clear</span>`}
-    </div>
-    ${actionItems.length > 0
-      ? actionItems.map(i => `<div style="display:flex;align-items:center;gap:10px;padding:9px 16px;border-bottom:1px solid var(--border);cursor:pointer"
-          onclick="window._nav('${i.nav}')"
-          onmouseover="this.style.background='rgba(255,255,255,0.02)'" onmouseout="this.style.background=''">
-        <span style="font-size:14px;flex-shrink:0">${i.icon}</span>
-        <span style="flex:1;font-size:12.5px;font-weight:500;color:var(--text-primary)">${i.label}</span>
-        <span style="font-size:12px;font-weight:700;color:${i.color};font-family:var(--font-mono)">${i.count}</span>
-        <span style="color:var(--text-tertiary);font-size:12px">→</span>
-      </div>`).join('')
-      : _emptyState('✓', 'All clear', 'No pending tasks or alerts', null, null)}
-  </div>
-</div>`;
-
-  // ── Row A: Quick Actions + Clinic Queue ────────────────────────────────────
-  const quickActions = [
-    { icon: '◧', label: 'Start Session',      sub: 'Execute a treatment session',          page: 'session-execution', color: 'var(--teal)' },
-    { icon: '◈', label: 'Assessments Hub',    sub: '38 scales · condition bundles',        page: 'assessments-hub',   color: 'var(--teal)' },
-    { icon: '◉', label: 'Add Patient',        sub: 'Register a new patient',               page: 'patients',          color: 'var(--blue)' },
-    { icon: '◎', label: 'New Course',         sub: 'Create a treatment course',            page: 'protocol-wizard',   color: 'var(--violet)' },
-    { icon: '◇', label: 'Brain Map Planner',  sub: '10-20 EEG map · stimulation sites',    page: 'brain-map-planner', color: 'var(--violet)' },
-    { icon: '◱', label: 'Review & Approvals', sub: `${pendingQueue.length} pending`,       page: 'review-queue',      color: pendingQueue.length > 0 ? 'var(--amber)' : 'var(--text-secondary)' },
-    { icon: '◫', label: 'Outcomes',           sub: `Responder rate: ${responderRate}`,     page: 'outcomes',          color: 'var(--green)' },
-    { icon: '⚡', label: 'Adverse Events',    sub: `${openAEs.length} open`,              page: 'adverse-events',    color: openAEs.length > 0 ? 'var(--red)' : 'var(--text-secondary)' },
-    { icon: '◌', label: 'Notes & Dictation', sub: 'Text · Voice · AI transcription',      page: 'notes-dictation',   color: 'var(--amber)' },
-  ];
-
-  // ── Today's Queue — build prioritized action items ───────────────────────
-  const _todayISO = new Date().toISOString().slice(0, 10);
-  const _dqItems  = [];
-
-  // Helper: resolve patient name from a course object
-  const _dqPatName = c => c._patientName || (() => { const p = patientMap[c.patient_id]; return p ? `${p.first_name||''} ${p.last_name||''}`.trim() : '—'; })();
-
-  // 1. Sessions scheduled today → "Start Session"  [urgent]
-  activeCourses.forEach(c => {
-    if ((c.next_session_date || '').slice(0, 10) === _todayISO) {
-      _dqItems.push({ name: _dqPatName(c), patientId: c.patient_id,
-        condition: c.condition_slug?.replace(/-/g,' ') || '—', modality: c.modality_slug || '—',
-        reason: 'Session scheduled today', reasonKey: 'session-today', urgency: 'urgent',
-        filters: 'all today',
-        action: { label: 'Start Session', onclick: "window._nav('session-execution')" } });
-    }
-  });
-
-  // 2. Open adverse events → "Open Chart"  [critical / high]
-  openAEs.slice(0, 5).forEach(ae => {
-    const c  = allCourses.find(x => x.id === ae.course_id);
-    const pt = patientMap[ae.patient_id || c?.patient_id];
-    const name = pt ? `${pt.first_name||''} ${pt.last_name||''}`.trim() : (c?._patientName || '—');
-    _dqItems.push({ name, patientId: ae.patient_id || c?.patient_id,
-      condition: c?.condition_slug?.replace(/-/g,' ') || (ae.event_type||'Event').replace(/_/g,' '),
-      modality: c?.modality_slug || '—',
-      reason: `Side effect: ${(ae.event_type||'event').replace(/_/g,' ')}`,
-      reasonKey: 'side-effect',
-      urgency: (ae.severity === 'serious' || ae.severity === 'severe') ? 'critical' : 'high',
-      filters: 'all alerts',
-      action: { label: 'Open Chart', onclick: "window._nav('adverse-events')" } });
-  });
-
-  // 3. Pending review queue → "Complete Review"  [high]
-  pendingQueue.slice(0, 5).forEach(item => {
-    const c    = allCourses.find(x => x.id === item.course_id) || {};
-    const ptId = item.patient_id || c.patient_id;
-    const pt   = patientMap[ptId];
-    const name = c._patientName || (pt ? `${pt.first_name||''} ${pt.last_name||''}`.trim() : '—');
-    _dqItems.push({ name, patientId: ptId,
-      condition: c.condition_slug?.replace(/-/g,' ') || '—', modality: c.modality_slug || '—',
-      reason: 'Overdue — approval pending', reasonKey: 'overdue-review', urgency: 'high',
-      filters: 'all needs-review',
-      action: { label: 'Complete Review', onclick: "window._nav('review-queue')" } });
-  });
-
-  // 4. Governance-flagged courses → "Open Chart"  [high]
-  flaggedCourses.slice(0, 3).forEach(c => {
-    const wc = (c.governance_warnings || []).length;
-    _dqItems.push({ name: _dqPatName(c), patientId: c.patient_id,
-      condition: c.condition_slug?.replace(/-/g,' ') || '—', modality: c.modality_slug || '—',
-      reason: `Protocol deviation · ${wc} flag${wc > 1 ? 's' : ''}`, reasonKey: 'deviation', urgency: 'high',
-      filters: 'all needs-review alerts',
-      action: { label: 'Open Chart', onclick: `window._openCourse('${c.id}')` } });
-  });
-
-  // 5. Worsened outcome proxy: paused courses with governance warnings → "Log Outcome"  [high]
-  allCourses.filter(c => c.status === 'paused' && (c.governance_warnings||[]).length).slice(0,2).forEach(c => {
-    _dqItems.push({ name: _dqPatName(c), patientId: c.patient_id,
-      condition: c.condition_slug?.replace(/-/g,' ') || '—', modality: c.modality_slug || '—',
-      reason: 'Worsened outcome — review flagged', reasonKey: 'worsened', urgency: 'high',
-      filters: 'all alerts needs-review',
-      action: { label: 'Log Outcome', onclick: "window._nav('outcomes')" } });
-  });
-
-  // 6. Media / voice / video needing review → "Review Update"  [normal / high]
-  mediaNeedsAttention.slice(0, 4).forEach(item => {
-    const pt = patientMap[item.patient_id];
-    const name = pt ? `${pt.first_name||''} ${pt.last_name||''}`.trim() : (item.patient_name || 'Patient');
-    _dqItems.push({ name, patientId: item.patient_id,
-      condition: item.condition || '—', modality: item.media_type || 'Media',
-      reason: item.flagged_urgent ? 'Urgent media flagged' : 'New voice / video update',
-      reasonKey: 'media-update', urgency: item.flagged_urgent ? 'high' : 'normal',
-      filters: 'all needs-review',
-      action: { label: 'Review Update', onclick: "window._nav('media-queue')" } });
-  });
-
-  // 7. Wearable alerts → "View Alert"  [urgent / normal]
-  if (wearableAlertCount > 0) {
-    _dqItems.push({ name: `${wearableAlertCount} patient${wearableAlertCount > 1 ? 's' : ''}`, patientId: null,
-      condition: '—', modality: 'Wearable',
-      reason: `${wearableUrgentCount > 0 ? wearableUrgentCount + ' urgent · ' : ''}${wearableAlertCount} active alert${wearableAlertCount > 1 ? 's' : ''}`,
-      reasonKey: 'wearable-alert', urgency: wearableUrgentCount > 0 ? 'urgent' : 'normal',
-      filters: 'all alerts',
-      action: { label: 'View Alert', onclick: "window._nav('wearables')" } });
-  }
-
-  // 8. Missing assessments proxy: active courses with no recent outcome data → "Log Outcome"  [normal]
-  activeCourses.filter(c => !c.last_assessment_date && (c.sessions_delivered || 0) >= 3).slice(0, 2).forEach(c => {
-    _dqItems.push({ name: _dqPatName(c), patientId: c.patient_id,
-      condition: c.condition_slug?.replace(/-/g,' ') || '—', modality: c.modality_slug || '—',
-      reason: 'Missing assessment data', reasonKey: 'missing-assess', urgency: 'normal',
-      filters: 'all needs-review',
-      action: { label: 'Log Outcome', onclick: "window._nav('outcomes')" } });
-  });
-
-  // 9. Home task non-adherence: paused courses without governance flag → "Message Patient"  [normal]
-  pausedCourses.filter(c => !(c.governance_warnings||[]).length).slice(0, 3).forEach(c => {
-    _dqItems.push({ name: _dqPatName(c), patientId: c.patient_id,
-      condition: c.condition_slug?.replace(/-/g,' ') || '—', modality: c.modality_slug || '—',
-      reason: 'Paused — home task follow-up needed', reasonKey: 'paused', urgency: 'normal',
-      filters: 'all needs-review',
-      action: { label: 'Message Patient', onclick: "window._nav('messaging')" } });
-  });
-
-  // Sort by urgency and deduplicate patient+reason
-  const _urgOrd = { critical: 0, urgent: 1, high: 2, normal: 3 };
-  _dqItems.sort((a, b) => (_urgOrd[a.urgency] ?? 9) - (_urgOrd[b.urgency] ?? 9));
-  const _dqSeen = new Set();
-  const _dqFinal = _dqItems.filter(item => {
-    const key = `${item.patientId || item.name}|${item.reasonKey}`;
-    if (_dqSeen.has(key)) return false;
-    _dqSeen.add(key); return true;
-  }).slice(0, 12);
-
-  // Render a single queue row
-  const _dqRowHTML = item => {
-    const urgConf = {
-      critical: { label: 'Critical', bg: 'rgba(239,68,68,0.12)',  border: 'rgba(239,68,68,0.35)',  color: 'var(--red)',   avBg: 'rgba(239,68,68,0.15)'  },
-      urgent:   { label: 'Urgent',   bg: 'rgba(249,115,22,0.1)',  border: 'rgba(249,115,22,0.3)',  color: '#f97316',     avBg: 'rgba(249,115,22,0.12)' },
-      high:     { label: 'High',     bg: 'rgba(245,158,11,0.1)',  border: 'rgba(245,158,11,0.3)',  color: 'var(--amber)', avBg: 'rgba(245,158,11,0.12)' },
-      normal:   { label: '',         bg: '',                       border: 'var(--border)',          color: 'var(--text-tertiary)', avBg: 'rgba(255,255,255,0.06)' },
-    };
-    const reasonConf = {
-      'session-today':  { icon: '◧', cls: 'dq-r-session'  },
-      'side-effect':    { icon: '⚡', cls: 'dq-r-ae'       },
-      'overdue-review': { icon: '◱', cls: 'dq-r-review'   },
-      'deviation':      { icon: '⚠', cls: 'dq-r-dev'      },
-      'worsened':       { icon: '↘', cls: 'dq-r-worsened' },
-      'media-update':   { icon: '◎', cls: 'dq-r-media'    },
-      'wearable-alert': { icon: '◌', cls: 'dq-r-wearable' },
-      'missing-assess': { icon: '◻', cls: 'dq-r-assess'   },
-      'paused':         { icon: '⏸', cls: 'dq-r-paused'   },
-    };
-    const uc = urgConf[item.urgency] || urgConf.normal;
-    const rc = reasonConf[item.reasonKey] || { icon: '●', cls: '' };
-    const av = initials(item.name);
-    const urgBadge = uc.label
-      ? `<span style="flex-shrink:0;font-size:9.5px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;padding:2px 6px;border-radius:4px;background:${uc.bg};border:1px solid ${uc.border};color:${uc.color}">${uc.label}</span>`
-      : '';
-    return `<div class="dq-row" data-dqf="${item.filters}"
-        style="display:flex;align-items:center;gap:10px;padding:9px 14px;border-bottom:1px solid var(--border);cursor:pointer;transition:background 0.12s"
-        onmouseover="this.style.background='var(--bg-card-hover)'" onmouseout="this.style.background=''"
-        onclick="${item.action.onclick}">
-      <div style="width:30px;height:30px;border-radius:50%;background:${uc.avBg};border:1px solid ${uc.border};display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:${uc.color};flex-shrink:0">${av}</div>
-      <div style="flex:1;min-width:0;overflow:hidden">
-        <div style="display:flex;align-items:center;gap:5px;margin-bottom:1px">
-          <span style="font-size:12.5px;font-weight:600;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:110px">${item.name}</span>
-          ${urgBadge}
-        </div>
-        <div style="font-size:10.5px;color:var(--text-tertiary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">
-          ${item.condition} · <span style="color:var(--teal)">${item.modality}</span>
-        </div>
-      </div>
-      <div style="flex-shrink:0;max-width:130px">
-        <span class="dq-reason-chip ${rc.cls}" title="${item.reason}">${rc.icon} ${item.reason}</span>
-      </div>
-      <button class="dq-action-btn" onclick="event.stopPropagation();${item.action.onclick}">${item.action.label}</button>
-    </div>`;
-  };
-
-  // Filter tab keys
-  const _dqTabs = [
-    { key: 'all',          label: 'All',              count: _dqFinal.length },
-    { key: 'today',        label: 'Today',            count: _dqFinal.filter(i => i.filters.includes('today')).length },
-    { key: 'needs-review', label: 'Needs Review',     count: _dqFinal.filter(i => i.filters.includes('needs-review')).length },
-    { key: 'alerts',       label: 'Alerts',           count: _dqFinal.filter(i => i.filters.includes('alerts')).length },
-    { key: 'waiting',      label: 'Waiting for Response', count: 0 },
-  ];
-  const _dqUrgent = _dqFinal.filter(i => i.urgency === 'critical' || i.urgency === 'urgent').length;
-
-  const _dqEmptyState = `<div style="padding:32px 16px;text-align:center">
-    <div style="font-size:28px;margin-bottom:10px">✓</div>
-    <div style="font-size:14px;font-weight:600;color:var(--text-primary);margin-bottom:4px">All clear for now</div>
-    <div style="font-size:12px;color:var(--text-tertiary);margin-bottom:14px">No patients need immediate attention</div>
-    <button class="btn btn-sm" onclick="window._nav('scheduling')" style="font-size:11.5px">View today's schedule →</button>
-  </div>`;
-
-  const _dqQueueCard = `<div class="card" style="overflow:hidden">
-    <div style="padding:11px 14px 0;border-bottom:1px solid var(--border)">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
-        <div style="display:flex;align-items:center;gap:8px">
-          <span class="card-section-label">Today's Queue</span>
-          ${_dqUrgent > 0 ? `<span style="font-size:10.5px;font-weight:700;color:var(--red);background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.25);border-radius:4px;padding:1px 7px;font-family:var(--font-mono)">${_dqUrgent} urgent</span>` : `<span style="font-size:10.5px;color:var(--green)">✓</span>`}
-        </div>
-        <button class="btn btn-sm" style="font-size:10px" onclick="window._nav('patient-queue')">Full Queue →</button>
-      </div>
-      <div id="dq-tabs" style="display:flex;gap:0;margin-bottom:-1px">
-        ${_dqTabs.map((t, i) => `<button id="dq-tab-${t.key}" onclick="window._dqFilter('${t.key}')"
-          style="font-size:11px;font-weight:600;padding:5px 10px;border:none;border-bottom:2px solid ${i === 0 ? 'var(--teal)' : 'transparent'};background:transparent;color:${i === 0 ? 'var(--teal)' : 'var(--text-tertiary)'};cursor:pointer;font-family:var(--font-body);transition:color 0.12s,border-color 0.12s;white-space:nowrap">
-          ${t.label}${t.count > 0 ? ` <span style="font-size:10px;font-family:var(--font-mono)">(${t.count})</span>` : ''}
-        </button>`).join('')}
-      </div>
-    </div>
-    <div id="dq-list">
-      ${_dqFinal.length ? _dqFinal.map(_dqRowHTML).join('') : _dqEmptyState}
-    </div>
-  </div>`;
-
-  const rowA = `<div class="g2" style="margin-bottom:14px;align-items:start">
-    <div class="card card--interactive" style="overflow:hidden">
-      <div style="padding:13px 16px 11px;border-bottom:1px solid var(--border)">
-        <span class="card-section-label">Quick Actions</span>
-      </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:1px;background:var(--border)">
-        ${quickActions.map(a => `
-          <div onclick="window._nav('${a.page}')" style="padding:14px 16px;background:var(--bg-card);cursor:pointer;transition:background 0.15s"
-               onmouseover="this.style.background='var(--bg-card-hover)'" onmouseout="this.style.background='var(--bg-card)'">
-            <div style="font-size:20px;color:${a.color};margin-bottom:6px">${a.icon}</div>
-            <div style="font-size:12.5px;font-weight:600;color:var(--text-primary);margin-bottom:2px">${a.label}</div>
-            <div style="font-size:10.5px;color:var(--text-tertiary)">${a.sub}</div>
-          </div>`).join('')}
-      </div>
-    </div>
-    ${_dqQueueCard}
-  </div>`;
-
-  // ── Wire up queue filter interactivity (runs after render) ─────────────────
-  window._dqFilter = function(key) {
-    const rows = document.querySelectorAll('#dq-list .dq-row');
-    rows.forEach(row => {
-      const filters = row.getAttribute('data-dqf') || '';
-      row.style.display = (key === 'all' || filters.includes(key)) ? '' : 'none';
-    });
-    document.querySelectorAll('#dq-tabs button').forEach(btn => {
-      const isActive = btn.id === `dq-tab-${key}`;
-      btn.style.borderBottomColor = isActive ? 'var(--teal)' : 'transparent';
-      btn.style.color = isActive ? 'var(--teal)' : 'var(--text-tertiary)';
-    });
-    // Show empty state if no rows visible
-    const list = document.getElementById('dq-list');
-    if (list) {
-      const visible = [...rows].filter(r => r.style.display !== 'none');
-      const existingEmpty = list.querySelector('.dq-filter-empty');
-      if (existingEmpty) existingEmpty.remove();
-      if (!visible.length && rows.length) {
-        list.insertAdjacentHTML('beforeend', `<div class="dq-filter-empty" style="padding:24px 16px;text-align:center;font-size:12.5px;color:var(--text-tertiary)">No items in this category</div>`);
-      }
-    }
-  };
-
-  // ── Row B: Active Patients + Governance ────────────────────────────────────
-  const activePatientsHTML = activePatients.length === 0
-    ? _emptyState('👤', 'No patients yet', 'Import records or add your first patient', 'Add Patient', "window._nav('patients')")
-    : activePatients.map(({ pt, courses }) => {
-        const c0 = courses[0];
-        const pct = c0?.planned_sessions_total > 0
-          ? Math.min(100, Math.round((c0.sessions_delivered || 0) / c0.planned_sessions_total * 100)) : 0;
-        const dotColor = { active: 'var(--teal)', paused: 'var(--amber)', pending_approval: 'var(--blue)' }[c0?.status] || 'var(--text-tertiary)';
-        const av = initials(`${pt.first_name || ''} ${pt.last_name || ''}`);
-        return `<div style="display:flex;align-items:center;gap:10px;padding:10px 16px;border-bottom:1px solid var(--border);cursor:pointer"
-                     onclick="window.openPatient('${pt.id}')"
-                     onmouseover="this.style.background='var(--bg-card-hover)'" onmouseout="this.style.background=''">
-          <div class="avatar" style="width:32px;height:32px;font-size:11px;flex-shrink:0">${av}</div>
-          <div style="flex:1;min-width:0">
-            <div style="font-size:12.5px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${pt.first_name || ''} ${pt.last_name || ''}</div>
-            <div style="font-size:10.5px;color:var(--text-tertiary)">
-              ${c0?.condition_slug?.replace(/-/g, ' ') || pt.primary_condition || '—'} · <span style="color:var(--teal)">${c0?.modality_slug || '—'}</span>
-            </div>
-          </div>
-          <div style="flex-shrink:0;min-width:80px">
-            <div style="height:3px;border-radius:2px;background:var(--border);margin-bottom:3px">
-              <div style="height:3px;border-radius:2px;background:${dotColor};width:${pct}%"></div>
-            </div>
-            <div style="font-size:10px;color:var(--text-tertiary);text-align:right">${c0?.sessions_delivered || 0}/${c0?.planned_sessions_total || '?'}</div>
-          </div>
-          ${courses.length > 1 ? `<span style="font-size:10px;color:var(--text-tertiary);flex-shrink:0">+${courses.length - 1}</span>` : ''}
-          <span style="font-size:12px;color:var(--text-tertiary);flex-shrink:0">→</span>
-        </div>`;
-      }).join('');
-
-  const activePatientsPanel = `<div class="card card--interactive" style="overflow:hidden">
-    <div style="padding:13px 16px 11px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--border)">
-      <div>
-        <span class="card-section-label">Active Patients</span>
-        <span style="font-size:11px;color:var(--text-tertiary);margin-left:8px">${activePatients.length} in treatment</span>
-      </div>
-      <button class="btn btn-sm" style="font-size:10.5px" onclick="window._nav('patients')">All Patients →</button>
-    </div>
-    ${activePatientsHTML}
-  </div>`;
-
-  const governancePanel = `<div class="card card--interactive" style="overflow:hidden">
-    <div style="padding:13px 16px 11px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--border)">
-      <span class="card-section-label">Review &amp; Governance</span>
-      <button class="btn btn-sm" style="font-size:10.5px" onclick="window._nav('review-queue')">Queue →</button>
-    </div>
-    ${_dGovSection('Approvals Pending', pendingQueue.length,
-      pendingQueue.length
-        ? pendingQueue.slice(0, 5).map(item =>
-            _dGovRow(
-              item.condition_slug?.replace(/-/g, ' ') || `Course #${(item.course_id || item.id || '').slice(0, 8)}`,
-              item.modality_slug || item.notes?.slice(0, 30) || '—',
-              'pending',
-              `window._nav('review-queue')`
-            )).join('')
-        : _dNoItems('Queue clear — no pending approvals'),
-      'var(--amber)'
-    )}
-    ${_dGovSection('Open Adverse Events', openAEs.length,
-      openAEs.length
-        ? openAEs.slice(0, 4).map(ae =>
-            _dGovRow(
-              (ae.event_type || 'Event').replace(/_/g, ' '),
-              ae.severity || '—',
-              ae.severity === 'serious' || ae.severity === 'severe' ? ae.severity : (ae.severity || 'open'),
-              `window._nav('adverse-events')`
-            )).join('')
-        : _dNoItems('No open adverse events'),
-      openAEs.length > 0 ? 'var(--red)' : 'var(--green)'
-    )}
-    ${offLabelPending.length ? _dGovSection('Off-Label Requests', offLabelPending.length,
-      offLabelPending.slice(0, 3).map(c =>
-        _dGovRow(c.condition_slug?.replace(/-/g, ' ') || '—', c.modality_slug || '—', 'off-label', `window._openCourse('${c.id}')`)
-      ).join(''),
-      'var(--amber)'
-    ) : ''}
-    ${flaggedCourses.length ? _dGovSection('Safety Flags', flaggedCourses.length,
-      flaggedCourses.slice(0, 3).map(c =>
-        `<div style="display:flex;align-items:flex-start;gap:8px;padding:8px 16px;border-bottom:1px solid var(--border);cursor:pointer"
-             onclick="window._openCourse('${c.id}')"
-             onmouseover="this.style.background='rgba(255,107,107,0.04)'" onmouseout="this.style.background=''">
-          <span style="color:var(--red);font-size:12px;flex-shrink:0;margin-top:1px">&#9888;</span>
-          <div style="flex:1;min-width:0">
-            <div style="font-size:12px;font-weight:500">${c._patientName ? `<span style="color:var(--text-secondary)">${c._patientName} · </span>` : ''}${c.condition_slug?.replace(/-/g, ' ') || '—'}</div>
-            <div style="font-size:10.5px;color:var(--red);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${(c.governance_warnings || []).map(w => String(w).replace(/[<>&"]/g, '')).join(' · ')}</div>
-          </div>
-          <span style="font-size:10px;color:var(--text-tertiary)">→</span>
-        </div>`
-      ).join(''),
-      'var(--red)'
-    ) : ''}
-    ${_dGovSection('Consent Alerts', consentAlertCount,
-      consentAlertCount > 0
-        ? `<div style="display:flex;align-items:center;justify-content:space-between;padding:8px 16px">
-            <span style="font-size:12px;color:var(--amber)">${consentAlertCount} consent${consentAlertCount !== 1 ? 's' : ''} expiring or expired</span>
-            <button class="btn btn-sm" style="font-size:10.5px" onclick="window._nav('patients')">Manage →</button>
-          </div>`
-        : _dNoItems('All consents valid'),
-      consentAlertCount > 0 ? 'var(--amber)' : 'var(--green)'
-    )}
-    ${blindTreatments.length ? _dGovSection('Blind Treatment Risk', blindTreatments.length,
-      `<div style="padding:8px 16px;display:flex;align-items:center;justify-content:space-between">
-        <span style="font-size:11.5px;color:var(--amber)">&#9888; ${blindTreatments.length} course${blindTreatments.length !== 1 ? 's' : ''} with 10+ sessions &amp; no outcome data</span>
-        <button class="btn btn-sm" style="font-size:10.5px;margin-left:8px;flex-shrink:0" onclick="window._nav('outcomes')">Record →</button>
-      </div>`,
-      'var(--amber)'
-    ) : ''}
-  </div>`;
-
-  const rowB = `<div class="g2" style="margin-bottom:14px;align-items:start">${activePatientsPanel}${governancePanel}</div>`;
-
-  // ── Row C: Outcomes + Capacity ─────────────────────────────────────────────
-  const rowC = `<div class="g2" style="margin-bottom:14px;align-items:start">
-    <div class="card card--interactive" style="overflow:hidden">
-      <div style="padding:13px 16px 11px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--border)">
-        <span class="card-section-label">Outcomes Snapshot</span>
-        <button class="btn btn-sm" style="font-size:10.5px" onclick="window._nav('outcomes')">Full Outcomes →</button>
-      </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;border-bottom:1px solid var(--border)">
-        ${_dOutcomeCell('Responder Rate',     responderRate,              'var(--teal)',  '≥50% symptom reduction')}
-        ${_dOutcomeCell('Assess. Completion', assessCompletionPct,        'var(--blue)',  'Assessment fill rate')}
-        ${_dOutcomeCell('Courses Completed',  completedCourses.length,    'var(--green)', 'All time')}
-        ${_dOutcomeCell('Paused / At Risk',   pausedCourses.length + atRiskCourses.length, pausedCourses.length + atRiskCourses.length > 0 ? 'var(--amber)' : 'var(--text-secondary)', 'Paused + high-risk')}
-      </div>
-      ${allCourses.length ? `<div style="padding:12px 14px">
-        <div style="font-size:9.5px;text-transform:uppercase;letter-spacing:.9px;color:var(--text-tertiary);font-weight:600;margin-bottom:10px">Course Status Breakdown</div>
-        ${_dMiniBar('Active',    activeCourses.length,    allCourses.length, 'var(--teal)')}
-        ${_dMiniBar('Completed', completedCourses.length, allCourses.length, 'var(--green)')}
-        ${_dMiniBar('Pending',   pendingCourses.length,   allCourses.length, 'var(--amber)')}
-        ${_dMiniBar('Paused',    pausedCourses.length,    allCourses.length, 'var(--blue)')}
-      </div>` : ''}
-    </div>
-
-    <div class="card card--interactive" style="overflow:hidden">
-      <div style="padding:13px 16px 11px;border-bottom:1px solid var(--border)">
-        <span class="card-section-label">Capacity &amp; Modality Mix</span>
-      </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;border-bottom:1px solid var(--border)">
-        ${_dOutcomeCell('Sessions / Week', sessionsPerWeek || 0,    'var(--teal)',   'Planned across active')}
-        ${_dOutcomeCell('Total Delivered', totalDelivered,          'var(--blue)',   'All time')}
-        ${_dOutcomeCell('Panel Size',      patCount,                'var(--violet)', 'Total patients')}
-        ${_dOutcomeCell('In Active Tx',    activePatientIds.length, 'var(--teal)',   'Currently in treatment')}
-      </div>
-      ${topModalities.length
-        ? `<div style="padding:12px 14px">
-            <div style="font-size:9.5px;text-transform:uppercase;letter-spacing:.9px;color:var(--text-tertiary);font-weight:600;margin-bottom:10px">Modality Load (Active Courses)</div>
-            ${topModalities.map(([mod, count]) => _dMiniBar(mod, count, activeCourses.length, 'var(--teal)')).join('')}
-          </div>`
-        : `<div style="padding:14px 16px;font-size:11.5px;color:var(--text-tertiary)">No active courses yet.</div>`
-      }
-      ${approvedCourses.length > 0
-        ? `<div style="padding:10px 14px;border-top:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
-            <span style="font-size:11.5px;color:var(--text-secondary)">Approved, not yet started</span>
-            <button class="btn btn-sm" style="font-size:10.5px" onclick="window._nav('courses')">${approvedCourses.length} ready →</button>
-          </div>`
-        : ''
-      }
-    </div>
-  </div>`;
-
-  // ── Protocol Recommendations ───────────────────────────────────────────────
-  const recBlocks = uniqueConditions.map(condSlug => {
-    const condLabel = condSlug.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
-    const matchedProtocols = allProtocols.filter(p => {
-      const word = condSlug.toLowerCase().split('-')[0];
-      return (p.condition_id || '').toLowerCase().includes(word) || (p.name || '').toLowerCase().includes(word);
-    }).slice(0, 2);
-    const protoRows = matchedProtocols.length
-      ? matchedProtocols.map(p => {
-          const pid = (p.id || '').replace(/['"]/g, '');
-          return `<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border)">
-            ${evidenceBadge(p.evidence_grade)}
-            <span style="font-size:12px;color:var(--text-primary);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${p.name || p.id}</span>
-            <button class="btn btn-sm" style="font-size:10px;padding:2px 7px;flex-shrink:0" onclick="window._wizardProtocolId='${pid}';window._nav('protocol-wizard')">Use →</button>
-          </div>`;
-        }).join('')
-      : `<div style="font-size:11.5px;color:var(--text-tertiary);padding:6px 0">No protocols matched.</div>`;
-    return `<div style="flex:1;min-width:200px;padding:12px;background:rgba(255,255,255,0.02);border-radius:6px;border:1px solid var(--border)">
-      <div style="font-size:11px;font-weight:700;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.8px;margin-bottom:8px">${condLabel}</div>
-      ${protoRows}
-    </div>`;
-  }).join('');
-
-  const rowRecommend = uniqueConditions.length === 0
-    ? `<div class="card" style="overflow:hidden;margin-bottom:14px">
-      <div style="padding:13px 16px 11px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--border)">
-        <span style="font-weight:600;font-size:13px">Protocol Recommendations</span>
-        <button class="btn btn-sm" style="font-size:10.5px" onclick="window._nav('protocols-registry')">Browse Registry →</button>
-      </div>
-      <div style="padding:24px 16px;text-align:center">
-        <div style="font-size:11.5px;color:var(--text-tertiary)">Enroll patients in active treatment courses to see condition-matched protocol recommendations here.</div>
-      </div>
-    </div>`
-    : `<div class="card" style="overflow:hidden;margin-bottom:14px">
-    <div style="padding:13px 16px 11px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--border)">
-      <div>
-        <span style="font-weight:600;font-size:13px">Protocol Recommendations</span>
-        <span style="font-size:11px;color:var(--text-tertiary);margin-left:8px">Based on active conditions</span>
-      </div>
-      <button class="btn btn-sm" style="font-size:10.5px" onclick="window._nav('protocols-registry')">Browse Registry →</button>
-    </div>
-    <div style="padding:12px 14px;display:flex;gap:12px;flex-wrap:wrap">${recBlocks}</div>
-  </div>`;
-
-  // ── Enrollment Pipeline ────────────────────────────────────────────────────
-  const pipelineItems = [
-    ...approvedCourses.map(c => ({ ...c, _pipeStatus: 'approved', _pipeLabel: 'Ready to Start', _pipeColor: 'var(--green)', _pipeAction: `<button class="btn btn-sm" style="font-size:10px;padding:2px 8px" onclick="event.stopPropagation();window._nav('session-execution')">Start →</button>` })),
-    ...pendingCourses.map(c => ({ ...c, _pipeStatus: 'pending', _pipeLabel: 'Awaiting Approval', _pipeColor: 'var(--amber)', _pipeAction: `<button class="btn btn-sm" style="font-size:10px;padding:2px 8px" onclick="event.stopPropagation();window._nav('review-queue')">Review →</button>` })),
-  ].slice(0, 8);
-
-  const rowEnrollment = pipelineItems.length === 0 ? '' : `<div class="card" style="overflow:hidden;margin-bottom:14px">
-  <div style="padding:13px 16px 11px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--border)">
-    <div>
-      <span style="font-weight:600;font-size:13px">Enrollment Pipeline</span>
-      <span style="font-size:11px;color:var(--text-tertiary);margin-left:8px">${pipelineItems.length} course${pipelineItems.length !== 1 ? 's' : ''} in queue</span>
-    </div>
-    <button class="btn btn-sm" style="font-size:10.5px" onclick="window._nav('courses')">All Courses →</button>
-  </div>
-  ${pipelineItems.map(c => `<div style="display:flex;align-items:center;gap:10px;padding:9px 16px;border-bottom:1px solid var(--border);cursor:pointer"
-      onclick="window._openCourse('${c.id}')"
-      onmouseover="this.style.background='var(--bg-card-hover)'" onmouseout="this.style.background=''">
-    <div style="width:6px;height:6px;border-radius:50%;background:${c._pipeColor};flex-shrink:0"></div>
-    <div style="flex:1;min-width:0">
-      <div style="font-size:12.5px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">
-        ${c._patientName ? `<span style="color:var(--text-secondary)">${c._patientName} · </span>` : ''}${c.condition_slug?.replace(/-/g,' ') || '—'} <span style="color:var(--teal);font-size:11px">${c.modality_slug || ''}</span>
-      </div>
-      <div style="font-size:10.5px;color:${c._pipeColor};margin-top:1px">${c._pipeLabel}</div>
-    </div>
-    ${c._pipeAction}
-    <span style="font-size:12px;color:var(--text-tertiary)">→</span>
-  </div>`).join('')}
-</div>`;
-
-  // ── Recent Activity Table ──────────────────────────────────────────────────
-  const rowD = `<div class="card card--interactive" style="overflow:hidden">
-    <div style="padding:13px 16px 11px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--border)">
-      <span class="card-section-label">Recent Course Activity</span>
-      <button class="btn btn-sm" style="font-size:10.5px" onclick="window._nav('courses')">All Courses →</button>
-    </div>
-    ${recentCourses.length === 0
-      ? `<div style="padding:36px;text-align:center;color:var(--text-tertiary);font-size:12.5px">
-          No courses yet.
-          <button class="btn btn-sm" onclick="window._nav('protocol-wizard')" style="margin-left:6px">Create First Course →</button>
-        </div>`
-      : `<div style="overflow-x:auto"><table class="ds-table">
-          <thead><tr>
-            <th>Patient</th><th>Condition · Modality</th><th>Status</th><th>Evidence</th>
-            <th style="min-width:110px">Progress</th><th>Sessions</th><th>Signals</th><th></th>
-          </tr></thead>
-          <tbody>
-            ${recentCourses.map(c => {
-              const sc = COURSE_STATUS_COLORS[c.status] || 'var(--text-tertiary)';
-              const pct = c.planned_sessions_total > 0 ? Math.min(100, Math.round((c.sessions_delivered || 0) / c.planned_sessions_total * 100)) : 0;
-              return `<tr style="cursor:pointer" onclick="window._openCourse('${c.id}')">
-                <td style="white-space:nowrap">
-                  ${c._patientName
-                    ? `<div style="display:flex;align-items:center;gap:7px">
-                        <div class="avatar" style="width:24px;height:24px;font-size:9px;flex-shrink:0">${initials(c._patientName)}</div>
-                        <span style="font-size:12px;font-weight:500">${c._patientName}</span>
-                      </div>`
-                    : `<span style="font-size:11px;color:var(--text-tertiary)">—</span>`
-                  }
-                </td>
-                <td>
-                  <div style="font-size:12.5px;font-weight:500">${c.condition_slug?.replace(/-/g, ' ') || '—'}</div>
-                  <div style="font-size:11px;color:var(--teal)">${c.modality_slug || '—'}</div>
-                </td>
-                <td>${approvalBadge(c.status)}</td>
-                <td>${evidenceBadge(c.evidence_grade)}</td>
-                <td>
-                  <div style="height:4px;border-radius:2px;background:var(--border);margin-bottom:3px">
-                    <div style="height:4px;border-radius:2px;background:${sc};width:${pct}%"></div>
-                  </div>
-                  <div style="font-size:10px;color:var(--text-tertiary)">${pct}%</div>
-                </td>
-                <td class="mono" style="font-size:12px">${c.sessions_delivered || 0}/${c.planned_sessions_total || '?'}</td>
-                <td style="white-space:nowrap">
-                  ${safetyBadge(c.governance_warnings)}
-                  ${c.on_label === false ? labelBadge(false) : ''}
-                </td>
-                <td style="color:var(--text-tertiary);font-size:12px">→</td>
-              </tr>`;
-            }).join('')}
-          </tbody>
-        </table></div>`
-    }
-  </div>`;
-
-  // ── Media Updates Widget ──────────────────────────────────────────────────
-  const _mEsc = s => (s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-  const _mAge = ts => {
-    if (!ts) return '';
-    const diff = Date.now() - new Date(ts).getTime();
-    const m = Math.floor(diff / 60000);
-    if (m < 60) return m + 'm ago';
-    const h = Math.floor(m / 60);
-    if (h < 24) return h + 'h ago';
-    return Math.floor(h / 24) + 'd ago';
-  };
-  const _MSTATUS = {
-    pending_review:        { label: 'Awaiting Review',       color: 'var(--amber)',         bg: 'rgba(255,181,71,0.1)'   },
-    approved_for_analysis: { label: 'Approved for Analysis', color: 'var(--teal)',          bg: 'rgba(0,212,188,0.08)'  },
-    analyzing:             { label: 'AI Analysis Running',   color: 'var(--blue)',          bg: 'rgba(74,158,255,0.08)' },
-    analyzed:              { label: 'Analyzed',              color: 'var(--teal)',          bg: 'rgba(0,212,188,0.08)'  },
-    clinician_reviewed:    { label: 'Reviewed by Care Team', color: 'var(--green,#22c55e)', bg: 'rgba(34,197,94,0.08)'  },
-    reupload_requested:    { label: 'Re-upload Requested',   color: '#f97316',              bg: 'rgba(249,115,22,0.08)' },
-    rejected:              { label: 'Rejected',              color: 'var(--red)',           bg: 'rgba(255,107,107,0.08)' },
-  };
-  const _mRow = item => {
-    const typeIcon = (item.upload_type || item.media_type) === 'voice' ? '🎙' : '📝';
-    const st = _MSTATUS[item.status] || { label: item.status || '—', color: 'var(--text-tertiary)', bg: 'rgba(255,255,255,0.04)' };
-    const uid = (item.id || '').replace(/['"]/g,'');
-    const actionBtn = (item.status === 'pending_review' || item.status === 'reupload_requested')
-      ? `<button class="btn btn-sm" style="font-size:10px;padding:2px 8px;flex-shrink:0;color:var(--teal);border-color:rgba(0,212,188,0.3)" onclick="event.stopPropagation();window._mediaDetailUploadId='${uid}';window._nav('media-detail')">Review &#x2192;</button>`
-      : item.status === 'analyzed'
-      ? `<button class="btn btn-sm" style="font-size:10px;padding:2px 8px;flex-shrink:0" onclick="event.stopPropagation();window._mediaDetailUploadId='${uid}';window._nav('media-detail')">View &#x2192;</button>`
-      : '';
-    return `<div style="display:flex;align-items:center;gap:10px;padding:9px 14px;border-bottom:1px solid var(--border);cursor:pointer;transition:background 0.12s" onmouseover="this.style.background='rgba(255,255,255,0.025)'" onmouseout="this.style.background=''" onclick="window._mediaDetailUploadId='${uid}';window._nav('media-detail')"><span style="font-size:15px;flex-shrink:0">${typeIcon}</span><div style="flex:1;min-width:0"><div style="font-size:12.5px;font-weight:600;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${_mEsc(item.patient_name || '&#x2014;')}${item.flagged_urgent ? ' <span style="font-size:9px;font-weight:700;background:rgba(255,107,107,0.15);color:var(--red);border-radius:3px;padding:1px 5px">&#x2691; URGENT</span>' : ''}</div><div style="font-size:10.5px;color:var(--text-tertiary);margin-top:1px">${_mAge(item.created_at)}</div></div><span style="font-size:9.5px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;padding:2px 7px;border-radius:4px;color:${st.color};background:${st.bg};border:1px solid ${st.color}22;white-space:nowrap;flex-shrink:0">${st.label}</span>${actionBtn}</div>`;
-  };
-  const _mNeedsSort = arr => arr.slice().sort((a,b) => {
-    if (!!a.flagged_urgent !== !!b.flagged_urgent) return b.flagged_urgent ? 1 : -1;
-    const p = { reupload_requested: 0, pending_review: 1 };
-    if ((p[a.status]??9) !== (p[b.status]??9)) return (p[a.status]??9) - (p[b.status]??9);
-    return new Date(b.created_at||0) - new Date(a.created_at||0);
-  });
-  const needsAttnItems = _mNeedsSort(mediaNeedsAttention).slice(0, 5);
-  const recentAnalyzedItems = allMediaItems
-    .filter(i => i.status === 'analyzed')
-    .sort((a,b) => new Date(b.created_at||0) - new Date(a.created_at||0))
-    .slice(0, 5);
-  const needsAttnRows = needsAttnItems.length
-    ? needsAttnItems.map(_mRow).join('')
-    : `<div style="padding:24px 16px;text-align:center;font-size:12px;color:var(--text-tertiary)">No items need attention.</div>`;
-  const analyzedRows = recentAnalyzedItems.length
-    ? recentAnalyzedItems.map(_mRow).join('')
-    : `<div style="padding:24px 16px;text-align:center;font-size:12px;color:var(--text-tertiary)">No recently analyzed items.</div>`;
-
-  const rowMedia = allMediaItems.length === 0
-    ? `<div class="card" style="overflow:hidden;margin-bottom:14px">
-      <div style="padding:13px 16px 11px;border-bottom:1px solid var(--border)">
-        <span style="font-weight:600;font-size:13px">Patient Media Updates</span>
-      </div>
-      <div style="padding:36px 16px;text-align:center">
-        <div style="font-size:28px;margin-bottom:8px;opacity:0.3">📤</div>
-        <div style="font-size:12.5px;color:var(--text-tertiary);margin-bottom:12px">No media uploads yet</div>
-        <div style="font-size:11px;color:var(--text-tertiary);margin-bottom:14px">Patients can upload voice notes, videos, and text updates between sessions</div>
-        <button class="btn btn-sm" onclick="window._nav('media-queue')">Open Media Queue →</button>
-      </div>
-    </div>`
-  : `
-  <div class="card" style="overflow:hidden;margin-bottom:14px">
-    <div style="padding:13px 16px 11px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--border)">
-      <div style="display:flex;align-items:center;gap:8px">
-        <span style="font-weight:600;font-size:13px">Patient Media Updates</span>
-        ${mediaUrgent > 0 ? `<span style="font-size:10px;font-weight:700;color:var(--red);background:rgba(255,107,107,0.12);border:1px solid rgba(255,107,107,0.25);border-radius:4px;padding:1px 7px">&#x2691; ${mediaUrgent} urgent</span>` : ''}
-        ${mediaReupload > 0 ? `<span style="font-size:10px;font-weight:700;color:#f97316;background:rgba(249,115,22,0.1);border:1px solid rgba(249,115,22,0.25);border-radius:4px;padding:1px 7px">&#x21BA; ${mediaReupload} re-upload</span>` : ''}
-      </div>
-      <button class="btn btn-sm" style="font-size:10.5px" onclick="window._nav('media-queue')">Open Queue &#x2192;</button>
-    </div>
-    <div style="display:grid;grid-template-columns:1fr 1fr">
-      <div style="border-right:1px solid var(--border)">
-        <div style="padding:8px 14px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
-          <span style="font-size:10.5px;font-weight:600;text-transform:uppercase;letter-spacing:.7px;color:var(--text-tertiary)">Needs Attention</span>
-          <span style="font-size:11px;color:${mediaNeedsAttention.length > 0 ? 'var(--amber)' : 'var(--text-tertiary)'}">${mediaNeedsAttention.length} item${mediaNeedsAttention.length !== 1 ? 's' : ''}</span>
-        </div>
-        ${needsAttnRows}
-        ${mediaNeedsAttention.length > 5 ? `<div style="padding:8px 14px;border-top:1px solid var(--border);text-align:center"><button class="btn btn-sm" style="font-size:10.5px;width:100%" onclick="window._nav('media-queue')">View all ${mediaNeedsAttention.length} &#x2192;</button></div>` : ''}
-      </div>
-      <div>
-        <div style="padding:8px 14px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
-          <span style="font-size:10.5px;font-weight:600;text-transform:uppercase;letter-spacing:.7px;color:var(--text-tertiary)">Recently Analyzed</span>
-          <span style="font-size:11px;color:${mediaAnalyzed > 0 ? 'var(--teal)' : 'var(--text-tertiary)'}">${mediaAnalyzed} item${mediaAnalyzed !== 1 ? 's' : ''}</span>
-        </div>
-        ${analyzedRows}
-        ${mediaAnalyzed > 5 ? `<div style="padding:8px 14px;border-top:1px solid var(--border);text-align:center"><button class="btn btn-sm" style="font-size:10.5px;width:100%" onclick="window._nav('media-queue')">View all ${mediaAnalyzed} &#x2192;</button></div>` : ''}
-      </div>
-    </div>
-  </div>`;
-
-  // ── Get Started card (fresh install only) ──────────────────────────────────
+  // ── Fresh install card ─────────────────────────────────────────────────
   const _isFirstRun = patCount === 0 && allCourses.length === 0 && !localStorage.getItem('ds_setup_dismissed');
   const getStartedCard = _isFirstRun ? `
 <div data-setup-card style="background:linear-gradient(135deg,rgba(0,212,188,0.07),rgba(59,130,246,0.07));border:1px solid rgba(0,212,188,0.18);border-radius:12px;padding:20px 24px;margin-bottom:16px">
@@ -1394,14 +649,14 @@ export async function pgDash(setTopbar, navigate) {
       <div style="font-size:12px;color:var(--text-secondary)">Complete these steps to set up your clinic workflow</div>
     </div>
     <button onclick="localStorage.setItem('ds_setup_dismissed','1');document.querySelector('[data-setup-card]')?.remove()"
-            style="background:none;border:none;cursor:pointer;color:var(--text-tertiary);font-size:18px;padding:0;line-height:1;margin-left:16px" aria-label="Dismiss">✕</button>
+            style="background:none;border:none;cursor:pointer;color:var(--text-tertiary);font-size:18px;padding:0;line-height:1;margin-left:16px" aria-label="Dismiss">&#x2715;</button>
   </div>
   <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px">
     ${[
-      { icon: '◉', title: 'Add First Patient', sub: 'Register a patient to get started', nav: 'patients', color: 'var(--blue)' },
-      { icon: '◎', title: 'Create Treatment Course', sub: 'Set up an evidence-based treatment plan', nav: 'protocol-wizard', color: 'var(--teal)' },
-      { icon: '◇', title: 'Browse Protocols', sub: 'Explore the evidence registry', nav: 'protocols-registry', color: 'var(--violet)' },
-      { icon: '⚙', title: 'Configure Clinic', sub: 'Settings, branding, team members', nav: 'settings', color: 'var(--text-secondary)' },
+      { icon: '&#9673;', title: 'Add First Patient', sub: 'Register a patient to get started', nav: 'patients', color: 'var(--blue)' },
+      { icon: '&#9678;', title: 'Create Treatment Course', sub: 'Set up an evidence-based treatment plan', nav: 'protocol-wizard', color: 'var(--teal)' },
+      { icon: '&#9671;', title: 'Browse Protocols', sub: 'Explore the evidence registry', nav: 'protocols-registry', color: 'var(--violet)' },
+      { icon: '&#9881;', title: 'Configure Clinic', sub: 'Settings, branding, team members', nav: 'settings', color: 'var(--text-secondary)' },
     ].map(s => `<div onclick="window._nav('${s.nav}')" style="padding:14px;border:1px solid var(--border);border-radius:8px;background:var(--bg-card);cursor:pointer;transition:border-color 0.15s" onmouseover="this.style.borderColor='var(--teal)'" onmouseout="this.style.borderColor='var(--border)'">
       <div style="font-size:20px;color:${s.color};margin-bottom:8px">${s.icon}</div>
       <div style="font-size:12.5px;font-weight:600;color:var(--text-primary);margin-bottom:3px">${s.title}</div>
@@ -1410,8 +665,363 @@ export async function pgDash(setTopbar, navigate) {
   </div>
 </div>` : '';
 
-  el.innerHTML = getStartedCard + statBar + engineHub + rowToday + rowA + rowB + rowC + rowEnrollment + rowMedia + rowRecommend + rowD;
+  // ── ROW 1: Today at a Glance + Urgent Items + Quick Actions ─────────────────
+  const _todayStr = new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'short' });
+  const _totalUrgent = seriousAEs.length + (wearableUrgentCount || 0) + mediaNeedsAttention.filter(i => i.flagged_urgent).length;
+  const _totalActions = pendingQueue.length + openAEs.length + consentAlertCount + mediaNeedsAttention.length + patientsNeedingAttention.length;
+
+  const glanceCard = `<div class="card" style="overflow:hidden">
+    <div style="padding:13px 16px 10px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
+      <span class="card-section-label">Today at a Glance</span>
+      <span style="font-size:11px;color:var(--text-tertiary)">${_todayStr}</span>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:0;border-bottom:1px solid var(--border)">
+      ${_dOutcomeCell('Active Patients', activePatientIds.length, 'var(--teal)', 'In treatment')}
+      ${_dOutcomeCell('Active Courses', activeCourses.length, 'var(--blue)', sessionsPerWeek + ' sessions/wk')}
+      ${_dOutcomeCell('Pending Reviews', pendingQueue.length, pendingQueue.length > 0 ? 'var(--amber)' : 'var(--green)', pendingQueue.length > 0 ? 'Action required' : 'Queue clear')}
+    </div>
+    <div style="padding:10px 14px 6px">
+      <div style="font-size:11.5px;color:var(--text-secondary);line-height:1.6">
+        ${activeCourses.length === 0 && patCount === 0
+          ? 'No patients or courses yet. Add your first patient to get started.'
+          : _totalUrgent > 0
+          ? `<span style="color:var(--red);font-weight:600">${_totalUrgent} urgent item${_totalUrgent > 1 ? 's' : ''}</span> need immediate attention.${patientsNeedingAttention.length > 0 ? ` ${patientsNeedingAttention.length} patient${patientsNeedingAttention.length > 1 ? 's' : ''} flagged.` : ''}${pendingQueue.length > 0 ? ` ${pendingQueue.length} approval${pendingQueue.length > 1 ? 's' : ''} pending.` : ''}`
+          : _totalActions > 0
+          ? `${activeCourses.length} active course${activeCourses.length !== 1 ? 's' : ''} running. ${_totalActions} item${_totalActions > 1 ? 's' : ''} need attention today.`
+          : `${activeCourses.length} active course${activeCourses.length !== 1 ? 's' : ''}. Responder rate: ${responderRate}. All queues clear.`
+        }
+      </div>
+    </div>
+    ${_totalActions > 0 ? `<div style="padding:4px 14px 10px;display:flex;gap:6px;flex-wrap:wrap">
+      ${pendingQueue.length > 0 ? `<button class="btn btn-sm" style="font-size:10.5px;color:var(--amber);border-color:rgba(255,181,71,0.35)" onclick="window._nav('review-queue')">${pendingQueue.length} approval${pendingQueue.length > 1 ? 's' : ''} &#x2192;</button>` : ''}
+      ${seriousAEs.length > 0 ? `<button class="btn btn-sm" style="font-size:10.5px;color:var(--red);border-color:rgba(255,107,107,0.35)" onclick="window._nav('adverse-events')">${seriousAEs.length} serious AE${seriousAEs.length > 1 ? 's' : ''} &#x2192;</button>` : ''}
+      ${mediaNeedsAttention.length > 0 ? `<button class="btn btn-sm" style="font-size:10.5px" onclick="window._nav('media-queue')">${mediaNeedsAttention.length} media item${mediaNeedsAttention.length > 1 ? 's' : ''} &#x2192;</button>` : ''}
+      ${wearableUrgentCount > 0 ? `<button class="btn btn-sm" style="font-size:10.5px;color:var(--red);border-color:rgba(255,107,107,0.35)" onclick="window._nav('wearables')">${wearableUrgentCount} wearable alert${wearableUrgentCount > 1 ? 's' : ''} &#x2192;</button>` : ''}
+    </div>` : ''}
+  </div>`;
+
+  const _urgentItems = [
+    { show: seriousAEs.length > 0,              icon: '&#x26A1;', label: 'Serious Adverse Events', count: seriousAEs.length,              color: 'var(--red)',   nav: 'adverse-events' },
+    { show: wearableUrgentCount > 0,             icon: '&#9676;',  label: 'Urgent Wearable Alerts', count: wearableUrgentCount,            color: 'var(--red)',   nav: 'wearables' },
+    { show: mediaUrgent > 0,                     icon: '&#9873;',  label: 'Urgent Media',           count: mediaUrgent,                    color: 'var(--red)',   nav: 'media-queue' },
+    { show: pendingQueue.length > 0,             icon: '&#9649;',  label: 'Pending Approvals',      count: pendingQueue.length,            color: 'var(--amber)', nav: 'review-queue' },
+    { show: openAEs.length > 0,                  icon: '&#9888;',  label: 'Open Adverse Events',    count: openAEs.length,                 color: 'var(--amber)', nav: 'adverse-events' },
+    { show: consentAlertCount > 0,               icon: '&#9678;',  label: 'Consent Alerts',         count: consentAlertCount,              color: 'var(--amber)', nav: 'patients' },
+    { show: patientsNeedingAttention.length > 0, icon: '&#9888;',  label: 'Patients Flagged',       count: patientsNeedingAttention.length, color: 'var(--amber)', nav: 'patients' },
+    { show: flaggedCourses.length > 0,           icon: '&#9888;',  label: 'Safety Flags',           count: flaggedCourses.length,          color: 'var(--amber)', nav: 'review-queue' },
+  ].filter(i => i.show);
+
+  const urgentCard = `<div class="card" style="overflow:hidden">
+    <div style="padding:13px 16px 10px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px">
+      <span class="card-section-label">Urgent Items</span>
+      ${_urgentItems.length > 0
+        ? `<span style="font-size:10px;font-weight:700;color:var(--red);background:rgba(255,107,107,0.12);border:1px solid rgba(255,107,107,0.25);border-radius:4px;padding:1px 7px">${_urgentItems.length} active</span>`
+        : `<span style="font-size:11px;color:var(--green)">&#x2713; All clear</span>`
+      }
+    </div>
+    ${_urgentItems.length === 0
+      ? `<div style="padding:20px 16px;text-align:center;font-size:12px;color:var(--text-tertiary)">No urgent items. All queues clear.</div>`
+      : _urgentItems.map(i => `<div style="display:flex;align-items:center;gap:10px;padding:8px 16px;border-bottom:1px solid var(--border);cursor:pointer"
+          onclick="window._nav('${i.nav}')"
+          onmouseover="this.style.background='rgba(255,255,255,0.02)'" onmouseout="this.style.background=''">
+        <span style="font-size:13px;flex-shrink:0">${i.icon}</span>
+        <span style="flex:1;font-size:12px;font-weight:500;color:var(--text-primary)">${i.label}</span>
+        <span style="font-size:12px;font-weight:700;color:${i.color};font-family:var(--font-mono)">${i.count}</span>
+        <span style="color:var(--text-tertiary);font-size:11px">&#x2192;</span>
+      </div>`).join('')
+    }
+  </div>`;
+
+  const _quickActions6 = [
+    { icon: '&#9647;', label: 'Start Session',  page: 'session-execution', color: 'var(--teal)',   primary: true },
+    { icon: '&#9673;', label: 'Add Patient',    page: 'patients',          color: 'var(--blue)',   primary: false },
+    { icon: '&#9678;', label: 'Create Course',  page: 'protocol-wizard',   color: 'var(--violet)', primary: false },
+    { icon: '&#9649;', label: 'Review Queue',   page: 'review-queue',      color: pendingQueue.length > 0 ? 'var(--amber)' : 'var(--text-secondary)', primary: false },
+    { icon: '&#9643;', label: 'Record Outcome', page: 'outcomes',          color: 'var(--green)',  primary: false },
+    { icon: '&#9676;', label: 'Add Note',       page: 'notes-dictation',   color: 'var(--amber)',  primary: false },
+  ];
+
+  const quickActionsCard = `<div class="card" style="overflow:hidden">
+    <div style="padding:13px 16px 10px;border-bottom:1px solid var(--border)">
+      <span class="card-section-label">Quick Actions</span>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:1px;background:var(--border)">
+      ${_quickActions6.map(a => `<div onclick="window._nav('${a.page}')" style="padding:12px 14px;background:var(--bg-card);cursor:pointer;transition:background 0.15s;display:flex;align-items:center;gap:10px"
+           onmouseover="this.style.background='var(--bg-card-hover)'" onmouseout="this.style.background='var(--bg-card)'">
+        <span style="font-size:16px;color:${a.color};flex-shrink:0">${a.icon}</span>
+        <span style="font-size:12px;font-weight:${a.primary ? '700' : '500'};color:${a.primary ? 'var(--teal)' : 'var(--text-primary)'}">${a.label}</span>
+      </div>`).join('')}
+    </div>
+  </div>`;
+
+  const row1 = `<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:12px;align-items:start">${glanceCard}${urgentCard}${quickActionsCard}</div>`;
+
+  // ── ROW 2: Today's Clinic Queue (wide) + Upcoming Sessions ────────────────
+  const _queueRowItem = c => {
+    const dotColor = { active: 'var(--teal)', paused: 'var(--amber)', pending: 'var(--blue)', approved: 'var(--violet)' }[c._qStatus] || 'var(--text-tertiary)';
+    const hasFlag = (c.governance_warnings || []).length > 0;
+    const hasSeriousAE = seriousAEs.some(a => a.patient_id === c.patient_id);
+    const pct = c.planned_sessions_total > 0 ? Math.min(100, Math.round((c.sessions_delivered || 0) / c.planned_sessions_total * 100)) : 0;
+    const cid = (c.id || '').replace(/['"]/g, '');
+    const actionBtn = c._qStatus === 'active'
+      ? `<button class="btn btn-sm" style="font-size:10px;padding:2px 8px;flex-shrink:0;color:var(--teal);border-color:rgba(0,212,188,0.35)" onclick="event.stopPropagation();window._startCourseSession('${cid}')">Execute &#x2192;</button>`
+      : c._qStatus === 'pending'
+      ? `<button class="btn btn-sm" style="font-size:10px;padding:2px 8px;flex-shrink:0;color:var(--amber)" onclick="event.stopPropagation();window._nav('review-queue')">Review &#x2192;</button>`
+      : c._qStatus === 'approved'
+      ? `<button class="btn btn-sm" style="font-size:10px;padding:2px 8px;flex-shrink:0;color:var(--violet)" onclick="event.stopPropagation();window._startCourseSession('${cid}')">Start &#x2192;</button>`
+      : `<span style="font-size:10px;color:var(--amber);flex-shrink:0">Paused</span>`;
+    return `<div style="display:flex;align-items:center;gap:10px;padding:9px 16px;border-bottom:1px solid var(--border);cursor:pointer"
+        onclick="window._openCourse('${cid}')"
+        onmouseover="this.style.background='var(--bg-card-hover)'" onmouseout="this.style.background=''">
+      ${hasSeriousAE ? `<span style="color:var(--red);font-size:12px;flex-shrink:0">&#x26A1;</span>`
+        : hasFlag ? `<span style="color:var(--amber);font-size:12px;flex-shrink:0">&#9888;</span>`
+        : `<span style="width:6px;height:6px;border-radius:50%;background:${dotColor};flex-shrink:0;display:inline-block"></span>`
+      }
+      <div style="flex:1;min-width:0">
+        <div style="font-size:12.5px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">
+          ${c._patientName ? `<span style="color:var(--text-secondary)">${c._patientName}</span> &middot; ` : ''}${(c.condition_slug || '—').replace(/-/g, ' ')}
+        </div>
+        <div style="font-size:10.5px;color:var(--text-tertiary);display:flex;align-items:center;gap:5px;margin-top:1px">
+          <span style="color:var(--teal)">${c.modality_slug || '—'}</span>
+          <span>&middot; ${c.sessions_delivered || 0}/${c.planned_sessions_total || '?'}</span>
+          <div style="flex:1;max-width:60px;height:3px;border-radius:2px;background:var(--border)"><div style="height:3px;border-radius:2px;background:${dotColor};width:${pct}%"></div></div>
+          <span>${pct}%</span>
+        </div>
+      </div>
+      ${actionBtn}
+    </div>`;
+  };
+
+  const clinicQueueCard = `<div class="card" style="overflow:hidden">
+    <div style="padding:13px 16px 10px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--border)">
+      <div style="display:flex;align-items:center;gap:8px">
+        <span class="card-section-label">Today's Clinic Queue</span>
+        <span style="font-size:11px;color:var(--text-tertiary)">${clinicQueue.length} course${clinicQueue.length !== 1 ? 's' : ''}</span>
+      </div>
+      <button class="btn btn-sm" style="font-size:10.5px" onclick="window._nav('courses')">All Courses &#x2192;</button>
+    </div>
+    ${clinicQueue.length === 0
+      ? `<div style="padding:32px 16px;text-align:center">
+          <div style="font-size:11.5px;color:var(--text-tertiary);margin-bottom:10px">No active courses yet.</div>
+          <button class="btn btn-sm" onclick="window._nav('protocol-wizard')">Create Course &#x2192;</button>
+        </div>`
+      : clinicQueue.map(_queueRowItem).join('')
+    }
+  </div>`;
+
+  const _upcomingCourses = activeCourses
+    .filter(c => (c.planned_sessions_per_week || 0) > 0)
+    .sort((a, b) => (a.sessions_delivered || 0) - (b.sessions_delivered || 0))
+    .slice(0, 5);
+
+  const upcomingCard = `<div class="card" style="overflow:hidden">
+    <div style="padding:13px 16px 10px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--border)">
+      <span class="card-section-label">Upcoming Sessions</span>
+      <button class="btn btn-sm" style="font-size:10.5px" onclick="window._nav('session-execution')">Start &#x2192;</button>
+    </div>
+    ${_upcomingCourses.length === 0
+      ? `<div style="padding:24px 16px;text-align:center;font-size:12px;color:var(--text-tertiary)">No sessions scheduled.<br><button class="btn btn-sm" style="margin-top:8px" onclick="window._nav('protocol-wizard')">Create Course &#x2192;</button></div>`
+      : _upcomingCourses.map(c => {
+          const cid = (c.id || '').replace(/['"]/g, '');
+          const sessLeft = Math.max(0, (c.planned_sessions_total || 0) - (c.sessions_delivered || 0));
+          return `<div style="display:flex;align-items:center;gap:10px;padding:9px 14px;border-bottom:1px solid var(--border);cursor:pointer"
+              onclick="window._openCourse('${cid}')"
+              onmouseover="this.style.background='var(--bg-card-hover)'" onmouseout="this.style.background=''">
+            <div style="width:28px;height:28px;border-radius:6px;background:rgba(0,212,188,0.1);display:flex;align-items:center;justify-content:center;font-size:13px;color:var(--teal);flex-shrink:0">&#9647;</div>
+            <div style="flex:1;min-width:0">
+              <div style="font-size:12px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${c._patientName || '—'}</div>
+              <div style="font-size:10.5px;color:var(--text-tertiary)">${c.modality_slug || '—'} &middot; ${sessLeft} session${sessLeft !== 1 ? 's' : ''} left</div>
+            </div>
+            <button class="btn btn-sm" style="font-size:10px;padding:2px 8px;flex-shrink:0;color:var(--teal);border-color:rgba(0,212,188,0.35)" onclick="event.stopPropagation();window._startCourseSession('${cid}')">Start &#x2192;</button>
+          </div>`;
+        }).join('')
+    }
+  </div>`;
+
+  const row2 = `<div style="display:grid;grid-template-columns:2fr 1fr;gap:12px;margin-bottom:12px;align-items:start">${clinicQueueCard}${upcomingCard}</div>`;
+
+  // ── ROW 3: Patients Needing Attention + Review & Governance + Outcomes ────
+  const attentionCard = `<div class="card" style="overflow:hidden">
+    <div style="padding:13px 16px 10px;display:flex;align-items:center;gap:8px;border-bottom:1px solid var(--border)">
+      <span class="card-section-label">Patients Needing Attention</span>
+      ${patientsNeedingAttention.length > 0
+        ? `<span style="font-size:10px;font-weight:700;color:var(--amber);background:rgba(255,181,71,0.1);border:1px solid rgba(255,181,71,0.25);border-radius:4px;padding:1px 7px">${patientsNeedingAttention.length}</span>`
+        : ''}
+    </div>
+    ${patientsNeedingAttention.length === 0
+      ? `<div style="padding:20px 16px;text-align:center;font-size:12px;color:var(--text-tertiary)">All patients on track.</div>`
+      : patientsNeedingAttention.map(({ id, pt }) => {
+          const reason = _attentionReason(id);
+          const ptActiveCourse = activeCourses.find(c => c.patient_id === id);
+          const cid = ptActiveCourse ? (ptActiveCourse.id || '').replace(/['"]/g, '') : '';
+          return `<div style="display:flex;align-items:center;gap:10px;padding:9px 14px;border-bottom:1px solid var(--border);cursor:pointer"
+              onclick="window.openPatient('${id}')"
+              onmouseover="this.style.background='var(--bg-card-hover)'" onmouseout="this.style.background=''">
+            <div class="avatar" style="width:28px;height:28px;font-size:10px;flex-shrink:0">${initials((pt.first_name || '') + ' ' + (pt.last_name || ''))}</div>
+            <div style="flex:1;min-width:0">
+              <div style="font-size:12px;font-weight:500">${pt.first_name || ''} ${pt.last_name || ''}</div>
+              <div style="font-size:10px;color:${reason.color};font-weight:600">${reason.label}</div>
+            </div>
+            ${cid ? `<button class="btn btn-sm" style="font-size:10px;padding:2px 7px;flex-shrink:0" onclick="event.stopPropagation();window._openCourse('${cid}')">Course &#x2192;</button>` : ''}
+          </div>`;
+        }).join('')
+    }
+    ${patientsNeedingAttention.length > 0
+      ? `<div style="padding:8px 14px;border-top:1px solid var(--border)"><button class="btn btn-sm" style="font-size:10.5px;width:100%" onclick="window._nav('patients')">All Patients &#x2192;</button></div>`
+      : ''}
+  </div>`;
+
+  const governanceCard = `<div class="card" style="overflow:hidden">
+    <div style="padding:13px 16px 10px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--border)">
+      <span class="card-section-label">Review &amp; Governance</span>
+      <button class="btn btn-sm" style="font-size:10.5px" onclick="window._nav('review-queue')">Queue &#x2192;</button>
+    </div>
+    ${_dGovSection('Approvals Pending', pendingQueue.length,
+      pendingQueue.length
+        ? pendingQueue.slice(0, 4).map(item =>
+            _dGovRow(
+              (item.condition_slug || '').replace(/-/g, ' ') || ('Course #' + (item.course_id || item.id || '').slice(0, 8)),
+              item.modality_slug || (item.notes || '').slice(0, 30) || '—',
+              'pending',
+              "window._nav('review-queue')"
+            )).join('')
+        : _dNoItems('Queue clear'),
+      'var(--amber)'
+    )}
+    ${_dGovSection('Open Adverse Events', openAEs.length,
+      openAEs.length
+        ? openAEs.slice(0, 4).map(ae =>
+            _dGovRow(
+              (ae.event_type || 'Event').replace(/_/g, ' '),
+              ae.severity || '—',
+              ae.severity === 'serious' || ae.severity === 'severe' ? ae.severity : (ae.severity || 'open'),
+              "window._nav('adverse-events')"
+            )).join('')
+        : _dNoItems('No open events'),
+      openAEs.length > 0 ? 'var(--red)' : 'var(--green)'
+    )}
+    ${flaggedCourses.length ? _dGovSection('Safety Flags', flaggedCourses.length,
+      flaggedCourses.slice(0, 3).map(c => {
+        const cid2 = (c.id || '').replace(/['"]/g, '');
+        return `<div style="display:flex;align-items:flex-start;gap:8px;padding:8px 16px;border-bottom:1px solid var(--border);cursor:pointer"
+             onclick="window._openCourse('${cid2}')"
+             onmouseover="this.style.background='rgba(255,107,107,0.04)'" onmouseout="this.style.background=''">
+          <span style="color:var(--red);font-size:12px;flex-shrink:0;margin-top:1px">&#9888;</span>
+          <div style="flex:1;min-width:0">
+            <div style="font-size:12px;font-weight:500">${c._patientName ? `<span style="color:var(--text-secondary)">${c._patientName} &middot; </span>` : ''}${(c.condition_slug || '—').replace(/-/g, ' ')}</div>
+            <div style="font-size:10.5px;color:var(--red);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${(c.governance_warnings || []).map(w => String(w).replace(/[<>&"]/g, '')).join(' · ')}</div>
+          </div>
+        </div>`;
+      }).join(''),
+      'var(--red)'
+    ) : ''}
+    ${consentAlertCount > 0 ? _dGovSection('Consent Alerts', consentAlertCount,
+      `<div style="display:flex;align-items:center;justify-content:space-between;padding:8px 16px">
+        <span style="font-size:12px;color:var(--amber)">${consentAlertCount} expiring or expired</span>
+        <button class="btn btn-sm" style="font-size:10.5px" onclick="window._nav('patients')">Manage &#x2192;</button>
+      </div>`,
+      'var(--amber)'
+    ) : ''}
+  </div>`;
+
+  const outcomesCard = `<div class="card" style="overflow:hidden">
+    <div style="padding:13px 16px 10px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--border)">
+      <span class="card-section-label">Outcomes Snapshot</span>
+      <button class="btn btn-sm" style="font-size:10.5px" onclick="window._nav('outcomes')">Full Report &#x2192;</button>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;border-bottom:1px solid var(--border)">
+      ${_dOutcomeCell('Responder Rate', responderRate, 'var(--teal)', '≥50% reduction')}
+      ${_dOutcomeCell('Assess. Completion', assessCompletionPct, 'var(--blue)', 'Fill rate')}
+      ${_dOutcomeCell('Courses Completed', completedCourses.length, 'var(--green)', 'All time')}
+      ${_dOutcomeCell('Paused / Flagged', pausedCourses.length + flaggedCourses.length, pausedCourses.length + flaggedCourses.length > 0 ? 'var(--amber)' : 'var(--text-secondary)', 'Needs review')}
+    </div>
+    ${allCourses.length ? `<div style="padding:12px 14px">
+      <div style="font-size:9.5px;text-transform:uppercase;letter-spacing:.9px;color:var(--text-tertiary);font-weight:600;margin-bottom:8px">Course Status</div>
+      ${_dMiniBar('Active',    activeCourses.length,    allCourses.length, 'var(--teal)')}
+      ${_dMiniBar('Completed', completedCourses.length, allCourses.length, 'var(--green)')}
+      ${_dMiniBar('Pending',   pendingCourses.length,   allCourses.length, 'var(--amber)')}
+      ${_dMiniBar('Paused',    pausedCourses.length,    allCourses.length, 'var(--blue)')}
+      <div style="margin-top:10px;padding:8px 10px;background:rgba(255,255,255,0.03);border-radius:6px;font-size:11.5px;color:var(--text-secondary);line-height:1.5">
+        ${responderRate !== '—'
+          ? `${responderRate} of patients responding. ${completedCourses.length} course${completedCourses.length !== 1 ? 's' : ''} finished.`
+          : 'Record outcomes to see responder rate and treatment effectiveness.'
+        }
+      </div>
+    </div>` : `<div style="padding:16px;text-align:center;font-size:12px;color:var(--text-tertiary)">No outcome data yet. <button class="btn btn-sm" style="margin-left:4px" onclick="window._nav('outcomes')">Record &#x2192;</button></div>`}
+  </div>`;
+
+  const row3 = `<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:12px;align-items:start">${attentionCard}${governanceCard}${outcomesCard}</div>`;
+
+  // ── ROW 4: Remote Monitoring + Recent Notes / Media ───────────────────
+  const remoteCard = `<div class="card" style="overflow:hidden">
+    <div style="padding:13px 16px 10px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--border)">
+      <div style="display:flex;align-items:center;gap:8px">
+        <span class="card-section-label">Remote Monitoring</span>
+        ${wearableAlertCount > 0 ? `<span style="font-size:10px;color:${wearableUrgentCount > 0 ? 'var(--red)' : 'var(--amber)'};font-weight:700;background:rgba(255,107,107,0.1);border:1px solid rgba(255,107,107,0.2);border-radius:4px;padding:1px 7px">${wearableAlertCount} alert${wearableAlertCount > 1 ? 's' : ''}</span>` : ''}
+      </div>
+      <button class="btn btn-sm" style="font-size:10.5px" onclick="window._nav('wearables')">Wearables &#x2192;</button>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);border-bottom:1px solid var(--border)">
+      ${_dOutcomeCell('Wearable Alerts', wearableAlertCount || 0, wearableAlertCount > 0 ? 'var(--amber)' : 'var(--green)', wearableUrgentCount > 0 ? wearableUrgentCount + ' urgent' : 'No urgent')}
+      ${_dOutcomeCell('Media Needs Review', mediaNeedsAttention.length, mediaNeedsAttention.length > 0 ? 'var(--amber)' : 'var(--green)', mediaUrgent > 0 ? mediaUrgent + ' urgent' : 'No urgent')}
+      ${_dOutcomeCell('In Active Treatment', activePatientIds.length, 'var(--teal)', 'Patients in active tx')}
+    </div>
+    <div style="padding:10px 14px;display:flex;gap:8px;flex-wrap:wrap">
+      ${wearableAlertCount > 0 ? `<button class="btn btn-sm" style="font-size:10.5px" onclick="window._nav('wearables')">View Wearable Alerts &#x2192;</button>` : ''}
+      ${mediaNeedsAttention.length > 0 ? `<button class="btn btn-sm" style="font-size:10.5px" onclick="window._nav('media-queue')">Media Queue (${mediaNeedsAttention.length}) &#x2192;</button>` : ''}
+      ${wearableAlertCount === 0 && mediaNeedsAttention.length === 0 ? `<span style="font-size:12px;color:var(--text-tertiary)">All remote monitoring clear.</span>` : ''}
+    </div>
+  </div>`;
+
+  const _mAge2 = ts => {
+    if (!ts) return '';
+    const diff = Date.now() - new Date(ts).getTime();
+    const m2 = Math.floor(diff / 60000);
+    if (m2 < 60) return m2 + 'm ago';
+    const h2 = Math.floor(m2 / 60);
+    if (h2 < 24) return h2 + 'h ago';
+    return Math.floor(h2 / 24) + 'd ago';
+  };
+  const _recentMedia = allMediaItems
+    .filter(i => i.status === 'analyzed' || i.status === 'clinician_reviewed')
+    .sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0))
+    .slice(0, 5);
+
+  const notesMediaCard = `<div class="card" style="overflow:hidden">
+    <div style="padding:13px 16px 10px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--border)">
+      <span class="card-section-label">Recent Notes &amp; Media</span>
+      <div style="display:flex;gap:6px">
+        <button class="btn btn-sm" style="font-size:10.5px" onclick="window._nav('notes-dictation')">Add Note &#x2192;</button>
+        <button class="btn btn-sm" style="font-size:10.5px" onclick="window._nav('media-queue')">Media Queue &#x2192;</button>
+      </div>
+    </div>
+    ${_recentMedia.length === 0
+      ? `<div style="padding:20px 16px;text-align:center;font-size:12px;color:var(--text-tertiary)">No recent analyzed media.</div>`
+      : _recentMedia.map(item => {
+          const uid = (item.id || '').replace(/['"]/g, '');
+          const typeIcon = (item.upload_type || item.media_type) === 'voice' ? '&#127897;' : '&#128221;';
+          return `<div style="display:flex;align-items:center;gap:10px;padding:9px 14px;border-bottom:1px solid var(--border);cursor:pointer"
+              onclick="window._mediaDetailUploadId='${uid}';window._nav('media-detail')"
+              onmouseover="this.style.background='rgba(255,255,255,0.025)'" onmouseout="this.style.background=''">
+            <span style="font-size:15px;flex-shrink:0">${typeIcon}</span>
+            <div style="flex:1;min-width:0">
+              <div style="font-size:12px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${(item.patient_name || '—').replace(/[<>&"]/g, '')}</div>
+              <div style="font-size:10.5px;color:var(--text-tertiary)">${_mAge2(item.created_at)}</div>
+            </div>
+            <button class="btn btn-sm" style="font-size:10px;padding:2px 7px" onclick="event.stopPropagation();window._mediaDetailUploadId='${uid}';window._nav('media-detail')">View &#x2192;</button>
+          </div>`;
+        }).join('')
+    }
+    <div style="padding:8px 14px;border-top:1px solid var(--border)">
+      <button class="btn btn-sm" style="font-size:10.5px" onclick="window._nav('notes-dictation')">&#9676; Voice Dictation &#x2192;</button>
+    </div>
+  </div>`;
+
+  const row4 = `<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;align-items:start">${remoteCard}${notesMediaCard}</div>`;
+
+  el.innerHTML = getStartedCard + row1 + row2 + row3 + row4;
 }
+
 
 // ── Enriched course row (dashboard clinic queue, includes patient name) ────
 function _dCourseRowRich(c, statusKey) {
