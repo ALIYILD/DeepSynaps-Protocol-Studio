@@ -7540,8 +7540,8 @@ function _ppRenderHeader(profile, editMode) {
 }
 
 function _ppRenderTabs(activeTab) {
-  const tabs = ['demographics', 'insurance', 'medications', 'allergies', 'history', 'notes'];
-  const labels = { demographics: 'Demographics', insurance: 'Insurance', medications: 'Medications', allergies: 'Allergies', history: 'Treatment History', notes: 'Notes' };
+  const tabs = ['demographics', 'insurance', 'medications', 'allergies', 'history', 'notes', 'assessments'];
+  const labels = { demographics: 'Demographics', insurance: 'Insurance', medications: 'Medications', allergies: 'Allergies', history: 'Treatment History', notes: 'Notes', assessments: 'Assessments' };
   return `<div style="display:flex;gap:0;border-bottom:2px solid var(--border);margin-bottom:20px;overflow-x:auto" role="tablist">
     ${tabs.map(t => `<button role="tab" aria-selected="${t === activeTab}" class="btn" style="border-radius:0;border:none;border-bottom:${t === activeTab ? '2px solid var(--accent-teal)' : '2px solid transparent'};margin-bottom:-2px;padding:10px 18px;font-size:.875rem;font-weight:${t === activeTab ? '600' : '400'};color:${t === activeTab ? 'var(--accent-teal)' : 'var(--text-secondary)'};white-space:nowrap;background:none" onclick="window._profileTab('${t}')">${labels[t]}</button>`).join('')}
   </div>`;
@@ -7739,6 +7739,95 @@ function _ppRenderNotes(profile, editMode) {
     </div>`;
 }
 
+function _ppRenderAssessments(profile) {
+  let runs = [];
+  try { runs = JSON.parse(localStorage.getItem('ds_assessment_runs') || '[]'); } catch { runs = []; }
+  const patientRuns = runs.filter(r => r && String(r.patient_id) === String(profile.id));
+  const total = patientRuns.length;
+  const completed = patientRuns.filter(r => r.status === 'completed');
+  const overdue = patientRuns.filter(r => r.status === 'overdue');
+  const lastRun = completed.length
+    ? completed.slice().sort((a, b) => new Date(b.completed_at) - new Date(a.completed_at))[0]
+    : null;
+  const lastDate = lastRun ? new Date(lastRun.completed_at).toLocaleDateString() : '—';
+  const nextScheduled = patientRuns.find(r => r.status === 'scheduled');
+  const nextDate = nextScheduled ? new Date(nextScheduled.completed_at).toLocaleDateString() : '—';
+
+  const statsRow = `
+    <div class="pp-ass-stats">
+      <div class="pp-ass-stat-card">
+        <div class="pp-ass-stat-val">${total}</div>
+        <div class="pp-ass-stat-lbl">Total Assessments</div>
+      </div>
+      <div class="pp-ass-stat-card">
+        <div class="pp-ass-stat-val">${lastDate}</div>
+        <div class="pp-ass-stat-lbl">Last Assessment</div>
+      </div>
+      <div class="pp-ass-stat-card">
+        <div class="pp-ass-stat-val" style="color:${overdue.length > 0 ? 'var(--red)' : 'var(--text-primary)'}">${overdue.length}</div>
+        <div class="pp-ass-stat-lbl">Overdue</div>
+      </div>
+      <div class="pp-ass-stat-card">
+        <div class="pp-ass-stat-val">${nextDate}</div>
+        <div class="pp-ass-stat-lbl">Next Scheduled</div>
+      </div>
+    </div>`;
+
+  let tableHtml;
+  if (patientRuns.length === 0) {
+    tableHtml = `
+      <div class="pp-ass-empty">
+        <div class="pp-ass-empty-msg">No assessments recorded yet.</div>
+        <button class="btn btn-primary" onclick="window._nav('assessments-hub')">Run First Assessment &#8594;</button>
+      </div>`;
+  } else {
+    const sorted = patientRuns.slice().sort((a, b) => new Date(b.completed_at) - new Date(a.completed_at));
+    tableHtml = `
+      <div style="overflow-x:auto">
+        <table class="ds-table" style="width:100%">
+          <thead>
+            <tr>
+              <th>Scale</th>
+              <th>Date</th>
+              <th>Score</th>
+              <th>Timing Window</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${sorted.map(r => {
+              const dateStr = r.completed_at ? new Date(r.completed_at).toLocaleDateString() : '—';
+              const scoreStr = (r.score != null && r.score !== '') ? String(r.score) : '—';
+              const window_ = r.timing_window || '—';
+              const isOverdue = r.status === 'overdue';
+              const badgeStyle = isOverdue
+                ? 'background:var(--red);color:#fff;padding:2px 8px;border-radius:12px;font-size:.75rem;font-weight:600'
+                : 'background:var(--green);color:#fff;padding:2px 8px;border-radius:12px;font-size:.75rem;font-weight:600';
+              const badgeLabel = isOverdue ? 'Overdue' : (r.status === 'completed' ? 'Completed' : (r.status || '—'));
+              return `<tr>
+                <td style="font-weight:500">${r.scale_name || r.scale_id || '—'}</td>
+                <td style="color:var(--text-secondary)">${dateStr}</td>
+                <td style="font-weight:600;color:var(--teal)">${scoreStr}</td>
+                <td style="color:var(--text-tertiary);font-size:.85rem">${window_}</td>
+                <td><span style="${badgeStyle}">${badgeLabel}</span></td>
+              </tr>`;
+            }).join('')}
+          </tbody>
+        </table>
+      </div>`;
+  }
+
+  return `
+    <div>
+      ${statsRow}
+      <h3 style="font-size:.9rem;font-weight:600;color:var(--text-secondary);margin:20px 0 10px;text-transform:uppercase;letter-spacing:.04em">Scale History</h3>
+      ${tableHtml}
+      <div class="pp-ass-footer">
+        <button class="btn btn-primary" onclick="window._nav('assessments-hub')">Open Assessments Hub &#8594;</button>
+      </div>
+    </div>`;
+}
+
 function _ppRenderTab(profile, tab, editMode) {
   switch (tab) {
     case 'demographics': return _ppRenderDemographics(profile, editMode);
@@ -7747,6 +7836,7 @@ function _ppRenderTab(profile, tab, editMode) {
     case 'allergies':    return _ppRenderAllergies(profile, editMode);
     case 'history':      return _ppRenderHistory(profile, editMode);
     case 'notes':        return _ppRenderNotes(profile, editMode);
+    case 'assessments':  return _ppRenderAssessments(profile);
     default:             return _ppRenderDemographics(profile, editMode);
   }
 }
@@ -7811,7 +7901,8 @@ export async function pgPatientProfile(setTopbar) {
         (name === 'insurance' && btn.textContent === 'Insurance') ||
         (name === 'medications' && btn.textContent === 'Medications') ||
         (name === 'allergies' && btn.textContent === 'Allergies') ||
-        (name === 'notes' && btn.textContent === 'Notes');
+        (name === 'notes' && btn.textContent === 'Notes') ||
+        (name === 'assessments' && btn.textContent === 'Assessments');
       btn.style.borderBottomColor = active ? 'var(--accent-teal)' : 'transparent';
       btn.style.fontWeight        = active ? '600' : '400';
       btn.style.color             = active ? 'var(--accent-teal)' : 'var(--text-secondary)';

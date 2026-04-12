@@ -13464,3 +13464,49 @@ details[open] .pgp-accordion-sum::before { transform: rotate(90deg); }
   border: 1px solid transparent;
   vertical-align: middle;
 }
+
+/* ── Patient Profile: Assessments tab ──────────────────────────────────────── */
+.pp-ass-stats {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 1px;
+  background: var(--border);
+  border-bottom: 1px solid var(--border);
+}
+.pp-ass-stat-card {
+  background: var(--bg-card);
+  padding: 14px 16px;
+  text-align: center;
+}
+.pp-ass-stat-val {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  margin-bottom: 3px;
+}
+.pp-ass-stat-lbl {
+  font-size: 10.5px;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: .7px;
+  font-weight: 600;
+}
+.pp-ass-empty {
+  padding: 36px 16px;
+  text-align: center;
+}
+.pp-ass-empty-msg {
+  font-size: 13px;
+  color: var(--text-tertiary);
+  margin-bottom: 14px;
+}
+.pp-ass-footer {
+  padding: 14px 16px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  justify-content: flex-end;
+}
+@media (max-width: 640px) {
+  .pp-ass-stats { grid-template-columns: repeat(2, 1fr); }
+}
