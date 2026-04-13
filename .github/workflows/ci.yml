@@ -42,6 +42,12 @@ jobs:
           cache-dependency-path: package-lock.json
       - name: Install dependencies
         run: npm ci
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('apps/web/package-lock.json') }}
       - name: Install Playwright browsers
         working-directory: apps/web
         run: npx playwright install --with-deps chromium
@@ -82,3 +88,34 @@ jobs:
       - name: Run tests
         working-directory: apps/api
         run: python -m pytest -q -n auto --tb=short
+
+  backend-smoke:
+    name: Backend Smoke (fast)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+          cache-dependency-path: apps/api/pyproject.toml
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pytest pytest-xdist httpx
+          pip install \
+            -e packages/core-schema \
+            -e packages/condition-registry \
+            -e packages/modality-registry \
+            -e packages/device-registry \
+            -e packages/safety-engine \
+            -e packages/generation-engine \
+            -e packages/render-engine \
+            -e apps/api
+      - name: Run smoke tests
+        working-directory: apps/api
+        run: |
+          python -m pytest -q -n auto --tb=short \
+            tests/test_health.py \
+            tests/test_home_program_tasks.py \
+            tests/test_evidence_router.py
