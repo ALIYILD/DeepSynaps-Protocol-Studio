@@ -1,10 +1,10 @@
 import json
-from pathlib import Path
 
 from sqlalchemy import select
 
 from app.database import SessionLocal
 from app.persistence.models import ClinicalDatasetSnapshotRecord, ClinicalSeedRecord
+from app.settings import CLINICAL_SNAPSHOT_ROOT
 from app.services.clinical_data import (
     EXPECTED_COUNTS,
     EXPECTED_TOTAL_RECORDS,
@@ -40,7 +40,7 @@ def test_snapshot_manifest_is_written_for_loaded_dataset() -> None:
     session = SessionLocal()
     try:
         snapshot = seed_clinical_dataset(session)
-        manifest_path = Path(load_clinical_dataset().snapshot.source_root).parents[1] / "snapshots" / "clinical-database" / f"{snapshot.snapshot_id}.json"
+        manifest_path = CLINICAL_SNAPSHOT_ROOT / f"{snapshot.snapshot_id}.json"
         assert manifest_path.exists()
 
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))

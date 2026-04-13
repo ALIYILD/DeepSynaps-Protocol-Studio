@@ -11,6 +11,11 @@ TEST_DB_PATH = Path(__file__).resolve().parent / f".test_deepsynaps_{os.getpid()
 # Set environment BEFORE any app module is imported so cached settings reflect test values.
 os.environ["DEEPSYNAPS_APP_ENV"] = "test"
 os.environ["DEEPSYNAPS_DATABASE_URL"] = f"sqlite:///{TEST_DB_PATH.as_posix()}"
+# Avoid writing clinical snapshot manifest files into the repo during tests.
+os.environ["DEEPSYNAPS_CLINICAL_SNAPSHOT_ROOT"] = os.getenv(
+    "DEEPSYNAPS_CLINICAL_SNAPSHOT_ROOT",
+    str((Path(__file__).resolve().parent / ".test_artifacts" / "clinical-snapshots").as_posix()),
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 SOURCE_PATHS = [
@@ -62,6 +67,7 @@ def client() -> TestClient:
 def auth_headers() -> dict[str, dict[str, str]]:
     return {
         "guest": {"Authorization": "Bearer guest-demo-token"},
+        "patient": {"Authorization": "Bearer patient-demo-token"},
         "clinician": {"Authorization": "Bearer clinician-demo-token"},
         "admin": {"Authorization": "Bearer admin-demo-token"},
     }

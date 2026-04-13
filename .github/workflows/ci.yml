@@ -69,7 +69,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install pytest httpx
+          pip install pytest pytest-xdist httpx
           pip install \
             -e packages/core-schema \
             -e packages/condition-registry \
@@ -81,4 +81,4 @@ jobs:
             -e apps/api
       - name: Run tests
         working-directory: apps/api
-        run: python -m pytest -q --tb=short
+        run: python -m pytest -q -n auto --tb=short

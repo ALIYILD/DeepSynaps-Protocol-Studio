@@ -20,6 +20,7 @@ Thumbs.db
 .runtime/
 *.log
 *.tsbuildinfo
+.test_artifacts/
 
 # Playwright
 playwright-report/
