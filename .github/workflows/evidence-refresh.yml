@@ -1,0 +1,49 @@
+name: Weekly evidence refresh
+
+# Runs every Monday at 06:00 UTC. SSHes into the Fly app and re-runs the
+# evidence-pipeline ingest + protocol extractor. Ingest is idempotent (upsert
+# on PMID / DOI / NCT / FDA number) so re-running is safe.
+#
+# Required repo secrets:
+#   FLY_API_TOKEN  — create with `fly tokens create deploy -a deepsynaps-studio`
+#
+# Manual trigger supported via workflow_dispatch.
+
+on:
+  schedule:
+    - cron: '0 6 * * 1'      # 06:00 UTC Mondays
+  workflow_dispatch:
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Install flyctl
+        uses: superfly/flyctl-actions/setup-flyctl@master
+
+      - name: Run evidence ingest on Fly machine
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: |
+          echo "Starting ingest at $(date -u)"
+          flyctl ssh console -a deepsynaps-studio -C \
+            'python3 /app/services/evidence-pipeline/ingest.py --all --papers 200 --trials 150 --fda 200 --events 100 --unpaywall'
+          echo "Ingest finished at $(date -u)"
+
+      - name: Extract stim protocols
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: |
+          flyctl ssh console -a deepsynaps-studio -C \
+            'python3 /app/services/evidence-pipeline/extract_protocols.py'
+
+      - name: Verify post-refresh counts
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: |
+          curl -s https://deepsynaps-studio.fly.dev/api/v1/evidence/stats | tee stats.json
+          python3 -c "import json,sys; d=json.load(open('stats.json')); c=d.get('counts',{}); \
+            assert d.get('ok'), 'stats endpoint reported not ok'; \
+            assert c.get('papers',0) > 1000, f'papers too low: {c}'; \
+            print('post-refresh counts look healthy:', c)"

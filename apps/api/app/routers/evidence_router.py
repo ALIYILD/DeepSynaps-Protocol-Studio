@@ -40,7 +40,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from app.auth import AuthenticatedActor, get_authenticated_actor
+from app.auth import AuthenticatedActor, get_authenticated_actor, require_minimum_role
 from app.database import get_db_session
 from app.logging_setup import get_logger
 from app.persistence.models import LiteraturePaper
@@ -432,6 +432,73 @@ def search_devices(
     finally:
         conn.close()
     return [DeviceOut(**dict(r)) for r in rows]
+
+
+@router.post("/admin/refresh", status_code=202)
+def admin_refresh(
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> dict:
+    """Admin-only: kick off a full evidence ingest in the background.
+
+    Requires admin role. Returns 202 immediately; the subprocess runs
+    detached for ~45 min. Progress is visible via the structured logs
+    (`evidence.admin.refresh.*`). A concurrent run guard keeps only one
+    ingest in flight at a time via a lock file in /tmp.
+    """
+    import subprocess
+
+    require_minimum_role(actor, "admin", warnings=["Admin role is required to refresh the evidence pipeline."])
+
+    lock_path = Path("/tmp/deepsynaps_evidence_refresh.lock")
+    if lock_path.exists():
+        pid_text = lock_path.read_text().strip()
+        raise HTTPException(
+            status_code=409,
+            detail=f"Another evidence refresh is already running (pid {pid_text}). Wait for it to finish or delete the lock file.",
+        )
+
+    script = Path(__file__).resolve().parents[4] / "services" / "evidence-pipeline" / "ingest.py"
+    if not script.exists():
+        raise HTTPException(status_code=503, detail=f"Pipeline not present at {script}.")
+
+    logfile = Path("/tmp/deepsynaps_evidence_refresh.log")
+    # Detached subprocess so the HTTP request returns immediately.
+    proc = subprocess.Popen(
+        [
+            "python3", str(script),
+            "--all", "--papers", "200", "--trials", "150",
+            "--fda", "200", "--events", "100", "--unpaywall",
+        ],
+        stdout=open(logfile, "w"), stderr=subprocess.STDOUT,
+        start_new_session=True,
+    )
+    lock_path.write_text(f"{proc.pid}\n{datetime.now(timezone.utc).isoformat()}\n")
+    _audit("admin.refresh.started", actor, pid=proc.pid, logfile=str(logfile))
+    return {
+        "ok": True,
+        "pid": proc.pid,
+        "logfile": str(logfile),
+        "lockfile": str(lock_path),
+        "note": "Ingest running in background. Poll /api/v1/evidence/stats to watch counts.",
+    }
+
+
+@router.get("/admin/refresh/status")
+def admin_refresh_status(
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> dict:
+    """Admin-only: inspect the current refresh lock and log tail."""
+    require_minimum_role(actor, "admin")
+    lock_path = Path("/tmp/deepsynaps_evidence_refresh.lock")
+    logfile = Path("/tmp/deepsynaps_evidence_refresh.log")
+    if not lock_path.exists():
+        return {"running": False, "log_tail": logfile.read_text().splitlines()[-25:] if logfile.exists() else []}
+    pid_text = lock_path.read_text().strip()
+    return {
+        "running": True,
+        "lock": pid_text,
+        "log_tail": logfile.read_text().splitlines()[-25:] if logfile.exists() else [],
+    }
 
 
 @router.get("/export.xlsx")

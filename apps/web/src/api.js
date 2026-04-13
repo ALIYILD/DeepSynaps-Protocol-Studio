@@ -269,6 +269,13 @@ export const api = {
   // Promote an evidence paper to the doctor's personal Literature Library.
   promoteEvidencePaper: (id) =>
     apiFetch(`/api/v1/evidence/papers/${encodeURIComponent(id)}/promote-to-library`, { method: 'POST' }),
+
+  // Admin-only: trigger / inspect a full evidence refresh.
+  adminRefreshEvidence: () =>
+    apiFetch('/api/v1/evidence/admin/refresh', { method: 'POST' }),
+  adminRefreshEvidenceStatus: () =>
+    apiFetch('/api/v1/evidence/admin/refresh/status'),
+
   listBrainRegions: () => apiFetchWithRetry('/api/v1/brain-regions'),
   listQEEGBiomarkers: () => apiFetch('/api/v1/qeeg/biomarkers'),
   listQEEGConditionMap: () => apiFetch('/api/v1/qeeg/condition-map'),

@@ -34,6 +34,8 @@ export async function renderLiveEvidencePanel(host, opts = {}) {
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
         <div style="font-weight:600;font-size:13px;color:var(--text-primary,#e5edf5)">Live evidence</div>
         <div style="font-size:11px;color:var(--text-tertiary,#7a8aa5);flex:1">PubMed · OpenAlex · ClinicalTrials.gov · FDA</div>
+        <button class="btn btn-sm live-ev-refresh" style="display:none"
+           title="Re-ingest the full evidence pipeline (admin only, ~45 min)">↻ Refresh</button>
         <button class="btn btn-sm live-ev-export"
            title="Download the full evidence matrix (Excel, ~2 MB)">↓ Matrix (Excel)</button>
       </div>
@@ -68,6 +70,31 @@ export async function renderLiveEvidencePanel(host, opts = {}) {
   const status = $('.live-ev-status');
   const results = $('.live-ev-results');
   const exportBtn = $('.live-ev-export');
+  const refreshBtn = $('.live-ev-refresh');
+
+  // Admin "Refresh now" button — visible only when the signed-in user has
+  // admin role (stored in the session on login). Triggers a background
+  // re-ingest on the server; no payload.
+  try {
+    const role = localStorage.getItem('ds_role') || '';
+    if (refreshBtn && role === 'admin') {
+      refreshBtn.style.display = '';
+      refreshBtn.addEventListener('click', async () => {
+        if (!confirm('Re-ingest the full evidence pipeline? This takes ~45 min and runs in the background on the server.')) return;
+        const originalText = refreshBtn.textContent;
+        refreshBtn.disabled = true;
+        refreshBtn.textContent = 'Starting…';
+        try {
+          const r = await api.adminRefreshEvidence();
+          refreshBtn.textContent = `✓ Started (pid ${r.pid})`;
+          setTimeout(() => { refreshBtn.textContent = originalText; refreshBtn.disabled = false; }, 5000);
+        } catch (e) {
+          refreshBtn.textContent = `Failed: ${e.message || e}`;
+          setTimeout(() => { refreshBtn.textContent = originalText; refreshBtn.disabled = false; }, 5000);
+        }
+      });
+    }
+  } catch (_) { /* role gating is a UX nicety; server still enforces auth */ }
 
   // Export Excel via authenticated fetch + blob download (a simple <a download>
   // won't pass the Bearer token, so we go through fetch+downloadBlob).
