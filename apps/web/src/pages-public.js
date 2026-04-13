@@ -412,19 +412,19 @@ export function pgHome() {
         <div class="phome-ev-title">Evidence Base: What the research shows by modality</div>
         <div class="phome-ev-subtitle">Sourced from peer-reviewed RCTs and meta-analyses. For reference &mdash; not a clinical recommendation.</div>
       </div>
-      <!-- Live counts from /api/v1/evidence/health. Static fallback numbers
-           from the 2026-04-13 ingest if the endpoint is unreachable. -->
+      <!-- Live counts from /api/v1/evidence/stats (public endpoint). Static
+           fallback numbers from the 2026-04-13 ingest if the call fails. -->
       <div id="phome-ev-live-stats" class="phome-ev-live-stats" style="display:flex;gap:18px;flex-wrap:wrap;justify-content:center;margin:14px auto 22px;max-width:880px">
         <div class="phome-ev-stat" style="flex:1;min-width:180px;padding:14px 18px;border:1px solid var(--border,#1f2e4a);border-radius:10px;background:var(--surface-1,#0d1a2b);text-align:center">
-          <div class="phome-ev-stat-n" id="phome-ev-stat-papers" style="font-size:28px;font-weight:700;color:var(--teal,#00d4bc)">6,015</div>
+          <div class="phome-ev-stat-n" id="phome-ev-stat-papers" style="font-size:28px;font-weight:700;color:var(--teal,#00d4bc)">8,166</div>
           <div class="phome-ev-stat-l" style="font-size:12px;color:var(--text-secondary,#b7c4d9);margin-top:4px">peer-reviewed papers</div>
         </div>
         <div class="phome-ev-stat" style="flex:1;min-width:180px;padding:14px 18px;border:1px solid var(--border,#1f2e4a);border-radius:10px;background:var(--surface-1,#0d1a2b);text-align:center">
-          <div class="phome-ev-stat-n" id="phome-ev-stat-trials" style="font-size:28px;font-weight:700;color:var(--teal,#00d4bc)">1,471</div>
+          <div class="phome-ev-stat-n" id="phome-ev-stat-trials" style="font-size:28px;font-weight:700;color:var(--teal,#00d4bc)">1,766</div>
           <div class="phome-ev-stat-l" style="font-size:12px;color:var(--text-secondary,#b7c4d9);margin-top:4px">registered clinical trials</div>
         </div>
         <div class="phome-ev-stat" style="flex:1;min-width:180px;padding:14px 18px;border:1px solid var(--border,#1f2e4a);border-radius:10px;background:var(--surface-1,#0d1a2b);text-align:center">
-          <div class="phome-ev-stat-n" id="phome-ev-stat-indications" style="font-size:28px;font-weight:700;color:var(--teal,#00d4bc)">20</div>
+          <div class="phome-ev-stat-n" id="phome-ev-stat-indications" style="font-size:28px;font-weight:700;color:var(--teal,#00d4bc)">29</div>
           <div class="phome-ev-stat-l" style="font-size:12px;color:var(--text-secondary,#b7c4d9);margin-top:4px">indications indexed</div>
         </div>
       </div>

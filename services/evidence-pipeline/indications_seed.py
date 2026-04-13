@@ -292,4 +292,129 @@ SEED = [
         "trial_q": '"remote electrical neuromodulation" migraine',
         "fda_applicants": ["Theranica"],
     },
+
+    # ── Neurofeedback (EEG biofeedback) ─────────────────────────────────────
+    # FDA product code HCC = "Device, Biofeedback" (verified).
+    {
+        "slug": "nfb_adhd",
+        "label": "Neurofeedback for ADHD",
+        "modality": "NFB",
+        "condition": "Attention-deficit/hyperactivity disorder",
+        "grade": "B",
+        "regulatory": "Class II biofeedback devices; no specific FDA approval for ADHD",
+        "pubmed_q": '("neurofeedback"[Title/Abstract] OR "EEG biofeedback"[Title/Abstract]) AND (ADHD[Title/Abstract] OR "attention deficit"[Title/Abstract])',
+        "broad_q": 'neurofeedback ADHD',
+        "trial_q": 'neurofeedback ADHD',
+        "fda_applicants": [],  # biofeedback devices registered broadly; skip applicant sweep
+    },
+    {
+        "slug": "nfb_epilepsy",
+        "label": "Neurofeedback (SMR/SCP) for epilepsy",
+        "modality": "NFB",
+        "condition": "Drug-resistant epilepsy",
+        "grade": "B",
+        "regulatory": "Class II biofeedback; supporting RCTs and meta-analyses",
+        "pubmed_q": '("neurofeedback"[Title/Abstract] OR "EEG biofeedback"[Title/Abstract]) AND epilepsy[Title/Abstract]',
+        "broad_q": 'neurofeedback epilepsy',
+        "trial_q": 'neurofeedback epilepsy',
+        "fda_applicants": [],
+    },
+    {
+        "slug": "nfb_anxiety_ptsd",
+        "label": "Neurofeedback for anxiety / PTSD",
+        "modality": "NFB",
+        "condition": "Anxiety disorders and PTSD",
+        "grade": "C",
+        "regulatory": "Class II biofeedback; evidence mixed",
+        "pubmed_q": '("neurofeedback"[Title/Abstract] OR "EEG biofeedback"[Title/Abstract]) AND (PTSD[Title/Abstract] OR anxiety[Title/Abstract])',
+        "broad_q": 'neurofeedback PTSD anxiety',
+        "trial_q": 'neurofeedback PTSD',
+        "fda_applicants": [],
+    },
+
+    # ── Transcranial pulse stimulation (TPS) ────────────────────────────────
+    # Storz Medical Neurolith. CE-marked 2018 for Alzheimer's. Not FDA-approved
+    # for brain indications. Storz has other FDA clearances for MSK/urology ESWT
+    # devices so we skip applicant sweep to avoid confusion.
+    {
+        "slug": "tps_alzheimer",
+        "label": "Transcranial pulse stimulation for Alzheimer's disease",
+        "modality": "TPS",
+        "condition": "Alzheimer's disease / mild cognitive impairment",
+        "grade": "C",
+        "regulatory": "CE-marked 2018 (Storz Neurolith); investigational in US",
+        "pubmed_q": '("transcranial pulse stimulation"[Title/Abstract] OR "Neurolith"[Title/Abstract])',
+        "broad_q": '"transcranial pulse stimulation" Alzheimer',
+        "trial_q": '"transcranial pulse stimulation"',
+        "fda_applicants": [],
+    },
+
+    # ── Extracorporeal shockwave therapy (ESWT) — neuromod uses ─────────────
+    # ESWT is mostly MSK/urology; these slugs target its established neuro /
+    # pain-circuit uses. FDA product codes exist (e.g. NKJ) but vary by use;
+    # leave fda_applicants empty until per-indication codes are verified.
+    {
+        "slug": "eswt_spasticity",
+        "label": "Shockwave therapy for post-stroke / CP spasticity",
+        "modality": "ESWT",
+        "condition": "Upper-motor-neuron spasticity (stroke, cerebral palsy, MS)",
+        "grade": "B",
+        "regulatory": "CE-marked for spasticity in EU; off-label in US",
+        "pubmed_q": '("extracorporeal shock wave"[Title/Abstract] OR "extracorporeal shockwave"[Title/Abstract] OR ESWT[Title/Abstract]) AND spasticity[Title/Abstract]',
+        "broad_q": '"extracorporeal shockwave" spasticity',
+        "trial_q": '"extracorporeal shockwave" spasticity',
+        "fda_applicants": [],
+    },
+    {
+        "slug": "eswt_crps_chronic_pain",
+        "label": "Shockwave therapy for CRPS / chronic regional pain",
+        "modality": "ESWT",
+        "condition": "Complex regional pain syndrome, myofascial pain",
+        "grade": "C",
+        "regulatory": "Off-label; heterogeneous evidence",
+        "pubmed_q": '("extracorporeal shock wave"[Title/Abstract] OR "extracorporeal shockwave"[Title/Abstract] OR ESWT[Title/Abstract]) AND (CRPS[Title/Abstract] OR "myofascial pain"[Title/Abstract] OR "chronic pain"[Title/Abstract])',
+        "broad_q": '"extracorporeal shockwave" "chronic pain"',
+        "trial_q": '"extracorporeal shockwave" chronic pain',
+        "fda_applicants": [],
+    },
+
+    # ── Photobiomodulation (PBM) / transcranial PBM ─────────────────────────
+    # LLLT / infrared light. Broad FDA clearances exist for MSK pain relief but
+    # transcranial brain use is investigational.
+    {
+        "slug": "pbm_tbi",
+        "label": "Photobiomodulation for traumatic brain injury",
+        "modality": "PBM",
+        "condition": "Traumatic brain injury (acute and chronic)",
+        "grade": "C",
+        "regulatory": "Investigational for TBI; Class II LLLT devices FDA-cleared for MSK pain",
+        "pubmed_q": '("photobiomodulation"[Title/Abstract] OR "low level laser"[Title/Abstract] OR "transcranial LED"[Title/Abstract]) AND (TBI[Title/Abstract] OR "traumatic brain injury"[Title/Abstract] OR concussion[Title/Abstract])',
+        "broad_q": 'photobiomodulation "traumatic brain injury"',
+        "trial_q": 'photobiomodulation brain injury',
+        "fda_applicants": [],
+    },
+    {
+        "slug": "pbm_depression",
+        "label": "Transcranial photobiomodulation for depression",
+        "modality": "PBM",
+        "condition": "Major depressive disorder",
+        "grade": "C",
+        "regulatory": "Investigational for MDD",
+        "pubmed_q": '("photobiomodulation"[Title/Abstract] OR "low level laser"[Title/Abstract] OR "transcranial LED"[Title/Abstract] OR "transcranial infrared"[Title/Abstract]) AND depression[Title/Abstract]',
+        "broad_q": 'photobiomodulation depression',
+        "trial_q": 'photobiomodulation depression',
+        "fda_applicants": [],
+    },
+    {
+        "slug": "pbm_cognition_alzheimer",
+        "label": "Photobiomodulation for cognition / Alzheimer's",
+        "modality": "PBM",
+        "condition": "Alzheimer's disease and mild cognitive impairment",
+        "grade": "D",
+        "regulatory": "Investigational; small open-label and pilot RCTs",
+        "pubmed_q": '("photobiomodulation"[Title/Abstract] OR "low level laser"[Title/Abstract] OR "transcranial LED"[Title/Abstract]) AND (Alzheimer[Title/Abstract] OR "mild cognitive impairment"[Title/Abstract] OR dementia[Title/Abstract])',
+        "broad_q": 'photobiomodulation Alzheimer dementia',
+        "trial_q": 'photobiomodulation dementia',
+        "fda_applicants": [],
+    },
 ]
