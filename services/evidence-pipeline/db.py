@@ -4,9 +4,14 @@ import os
 import sqlite3
 from pathlib import Path
 
-DB_PATH = os.environ.get(
-    "DEEPSYNAPS_DB",
-    str(Path(__file__).parent / "evidence.db"),
+# Priority order:
+#   1. EVIDENCE_DB_PATH     — the production Studio uses this (set in fly.toml).
+#   2. DEEPSYNAPS_DB        — legacy / dev override.
+#   3. <pipeline_dir>/evidence.db — local developer default.
+DB_PATH = (
+    os.environ.get("EVIDENCE_DB_PATH")
+    or os.environ.get("DEEPSYNAPS_DB")
+    or str(Path(__file__).parent / "evidence.db")
 )
 SCHEMA_PATH = Path(__file__).parent / "schema.sql"
 
