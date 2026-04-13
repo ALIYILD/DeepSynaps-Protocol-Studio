@@ -198,7 +198,8 @@ def _paper_row_to_out(row: sqlite3.Row, include_abstract: bool = False) -> Paper
 # ── Routes ────────────────────────────────────────────────────────────────────
 
 @router.get("/health", response_model=HealthOut)
-def evidence_health(_: AuthenticatedActor = Depends(get_authenticated_actor)) -> HealthOut:
+def evidence_health(actor: AuthenticatedActor = Depends(get_authenticated_actor)) -> HealthOut:
+    require_minimum_role(actor, "clinician")
     conn = _evidence_conn()
     try:
         counts = {
@@ -232,7 +233,8 @@ def evidence_stats() -> dict:
 
 
 @router.get("/indications", response_model=list[IndicationOut])
-def list_indications(_: AuthenticatedActor = Depends(get_authenticated_actor)) -> list[IndicationOut]:
+def list_indications(actor: AuthenticatedActor = Depends(get_authenticated_actor)) -> list[IndicationOut]:
+    require_minimum_role(actor, "clinician")
     conn = _evidence_conn()
     try:
         rows = conn.execute(
@@ -248,11 +250,12 @@ def list_indications(_: AuthenticatedActor = Depends(get_authenticated_actor)) -
 def search_papers(
     q: Optional[str] = Query(None, description="FTS5 query over title/abstract."),
     indication: Optional[str] = Query(None, description="Indication slug."),
-    grade: Optional[str] = Query(None, regex="^[A-E]$", description="A-E evidence grade filter."),
+    grade: Optional[str] = Query(None, pattern="^[A-E]$", description="A-E evidence grade filter."),
     oa_only: bool = Query(False, description="Only papers with accessible open-access URLs."),
     limit: int = Query(20, ge=1, le=100),
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
 ) -> list[PaperOut]:
+    require_minimum_role(actor, "clinician")
     conn = _evidence_conn()
     try:
         where: list[str] = []
@@ -299,8 +302,9 @@ def search_papers(
 @router.get("/papers/{paper_id}", response_model=PaperOut)
 def get_paper(
     paper_id: int = PathParam(..., ge=1),
-    _: AuthenticatedActor = Depends(get_authenticated_actor),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
 ) -> PaperOut:
+    require_minimum_role(actor, "clinician")
     conn = _evidence_conn()
     try:
         row = conn.execute(
@@ -322,8 +326,9 @@ def search_trials(
     q: Optional[str] = Query(None),
     trial_status: Optional[str] = Query(None, alias="status"),
     limit: int = Query(20, ge=1, le=100),
-    _: AuthenticatedActor = Depends(get_authenticated_actor),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
 ) -> list[TrialOut]:
+    require_minimum_role(actor, "clinician")
     conn = _evidence_conn()
     try:
         where: list[str] = []
@@ -371,7 +376,8 @@ def search_trials(
 
 
 @router.get("/trials/{nct_id}", response_model=TrialOut)
-def get_trial(nct_id: str, _: AuthenticatedActor = Depends(get_authenticated_actor)) -> TrialOut:
+def get_trial(nct_id: str, actor: AuthenticatedActor = Depends(get_authenticated_actor)) -> TrialOut:
+    require_minimum_role(actor, "clinician")
     conn = _evidence_conn()
     try:
         r = conn.execute(
@@ -398,10 +404,11 @@ def get_trial(nct_id: str, _: AuthenticatedActor = Depends(get_authenticated_act
 def search_devices(
     indication: Optional[str] = Query(None),
     applicant: Optional[str] = Query(None),
-    kind: Optional[str] = Query(None, regex="^(pma|510k|hde|denovo)$"),
+    kind: Optional[str] = Query(None, pattern="^(pma|510k|hde|denovo)$"),
     limit: int = Query(30, ge=1, le=200),
-    _: AuthenticatedActor = Depends(get_authenticated_actor),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
 ) -> list[DeviceOut]:
+    require_minimum_role(actor, "clinician")
     conn = _evidence_conn()
     try:
         where: list[str] = []

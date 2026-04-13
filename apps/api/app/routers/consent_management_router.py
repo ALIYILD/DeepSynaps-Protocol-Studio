@@ -170,7 +170,7 @@ def _get_consent_or_404(db: Session, consent_id: str, actor: AuthenticatedActor)
 
 # ── Endpoints ──────────────────────────────────────────────────────────────────
 
-@router.get("/records", response_model=ConsentListResponse)
+@router.get("/records", response_model=ConsentListResponse, operation_id="consent_list_records")
 def list_consent_records(
     patient_id: Optional[str] = Query(default=None),
     status: Optional[str] = Query(default=None),
@@ -193,7 +193,7 @@ def list_consent_records(
     return ConsentListResponse(items=items, total=len(items))
 
 
-@router.post("/records", response_model=ConsentOut, status_code=201)
+@router.post("/records", response_model=ConsentOut, status_code=201, operation_id="consent_create_record")
 def create_consent_record(
     body: ConsentCreate,
     actor: AuthenticatedActor = Depends(get_authenticated_actor),

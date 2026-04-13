@@ -49,6 +49,11 @@ def _build_fixture_db(path: str) -> None:
         "VALUES ('NCT00000000', 'Test trial', 'PHASE3', 'COMPLETED', 100, "
         "'[\"Depression\"]', '[{\"name\":\"10Hz rTMS L-DLPFC\"}]', '[]', 'Summary', '{}')"
     )
+    trial_id = conn.execute("SELECT id FROM trials WHERE nct_id='NCT00000000'").fetchone()[0]
+    conn.execute(
+        "INSERT INTO trial_indications(trial_id, indication_id) VALUES (?, ?)",
+        (trial_id, ind_id),
+    )
     conn.commit()
     conn.close()
 

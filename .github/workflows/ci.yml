@@ -81,4 +81,4 @@ jobs:
             -e apps/api
       - name: Run tests
         working-directory: apps/api
-        run: python -m pytest tests/ -v --tb=short
+        run: python -m pytest -q --tb=short
