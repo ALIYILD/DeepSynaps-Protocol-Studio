@@ -10,7 +10,7 @@
 //   * DB built        → results render
 //   * DB missing      → 503 → shows "ingest not run yet" message, not an error
 //   * No auth         → 401 → falls through to existing session-expired flow
-import { api } from './api.js';
+import { api, downloadBlob } from './api.js';
 
 const GRADES = [
   { v: '',  label: 'Any grade' },
@@ -33,7 +33,9 @@ export async function renderLiveEvidencePanel(host, opts = {}) {
     <div class="live-ev" style="background:var(--surface-1,#0d1a2b);border:1px solid var(--border,#1f2e4a);border-radius:10px;padding:${compact ? '10px' : '14px'};margin-bottom:14px">
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
         <div style="font-weight:600;font-size:13px;color:var(--text-primary,#e5edf5)">Live evidence</div>
-        <div style="font-size:11px;color:var(--text-tertiary,#7a8aa5)">PubMed · OpenAlex · ClinicalTrials.gov · FDA</div>
+        <div style="font-size:11px;color:var(--text-tertiary,#7a8aa5);flex:1">PubMed · OpenAlex · ClinicalTrials.gov · FDA</div>
+        <button class="btn btn-sm live-ev-export"
+           title="Download the full evidence matrix (Excel, ~2 MB)">↓ Matrix (Excel)</button>
       </div>
       <div role="note" style="background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.35);color:#e5c47a;border-radius:6px;padding:7px 10px;margin-bottom:10px;font-size:11.5px;line-height:1.45">
         <strong>Decision support only</strong> — not a substitute for clinical judgement.
@@ -65,6 +67,31 @@ export async function renderLiveEvidencePanel(host, opts = {}) {
   const btn = $('.live-ev-go');
   const status = $('.live-ev-status');
   const results = $('.live-ev-results');
+  const exportBtn = $('.live-ev-export');
+
+  // Export Excel via authenticated fetch + blob download (a simple <a download>
+  // won't pass the Bearer token, so we go through fetch+downloadBlob).
+  if (exportBtn) {
+    exportBtn.addEventListener('click', async () => {
+      const originalText = exportBtn.textContent;
+      exportBtn.disabled = true;
+      exportBtn.textContent = 'Building…';
+      try {
+        const token = localStorage.getItem('ds_access_token');
+        const res = await fetch('/api/v1/evidence/export.xlsx', {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const blob = await res.blob();
+        downloadBlob(blob, `deepsynaps-evidence-${new Date().toISOString().slice(0,10)}.xlsx`);
+        exportBtn.textContent = '✓ Downloaded';
+        setTimeout(() => { exportBtn.textContent = originalText; exportBtn.disabled = false; }, 2500);
+      } catch (e) {
+        exportBtn.textContent = `Failed: ${e.message || e}`;
+        setTimeout(() => { exportBtn.textContent = originalText; exportBtn.disabled = false; }, 3500);
+      }
+    });
+  }
 
   // Load indications
   try {

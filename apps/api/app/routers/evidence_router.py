@@ -29,12 +29,14 @@ import json
 import math
 import os
 import sqlite3
+import sys
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Path as PathParam, Query, status
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -430,6 +432,56 @@ def search_devices(
     finally:
         conn.close()
     return [DeviceOut(**dict(r)) for r in rows]
+
+
+@router.get("/export.xlsx")
+def export_matrix_xlsx(
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> FileResponse:
+    """Stream an up-to-date Excel matrix of the entire evidence DB.
+
+    Generates fresh on each call by invoking
+    services/evidence-pipeline/scripts/export_matrix_xlsx.build(). Falls back
+    to the committed snapshot under data/evidence-matrix/ if the live DB is
+    missing or generation fails.
+    """
+    import tempfile
+
+    snapshot_dir = Path(__file__).resolve().parents[4] / "data" / "evidence-matrix"
+    snapshots = sorted(snapshot_dir.glob("deepsynaps-evidence-*.xlsx"))
+    fallback = snapshots[-1] if snapshots else None
+
+    db_path = _default_db_path()
+    if os.path.exists(db_path):
+        try:
+            pipeline_dir = Path(__file__).resolve().parents[4] / "services" / "evidence-pipeline"
+            sys.path.insert(0, str(pipeline_dir / "scripts"))
+            sys.path.insert(0, str(pipeline_dir))
+            import export_matrix_xlsx  # type: ignore
+            tmp = tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False)
+            tmp.close()
+            export_matrix_xlsx.build(tmp.name)
+            _audit("export.xlsx.live", actor, output_bytes=os.path.getsize(tmp.name))
+            return FileResponse(
+                tmp.name,
+                media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                filename="deepsynaps-evidence-live.xlsx",
+            )
+        except Exception as e:
+            _logger.warning(f"live xlsx build failed, falling back to snapshot: {e}")
+
+    if fallback is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Evidence DB not ingested yet and no snapshot committed. "
+                   "Run `python3 services/evidence-pipeline/ingest.py --all`.",
+        )
+    _audit("export.xlsx.snapshot", actor, snapshot=fallback.name)
+    return FileResponse(
+        str(fallback),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        filename=fallback.name,
+    )
 
 
 @router.post(
