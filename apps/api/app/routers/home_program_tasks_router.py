@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 from app.auth import AuthenticatedActor, get_authenticated_actor, require_minimum_role
 from app.database import get_db_session
 from app.errors import ApiServiceError
-from app.persistence.models import ClinicianHomeProgramTask
+from app.persistence.models import ClinicianHomeProgramTask, PatientHomeProgramTaskCompletion
 from app.services.home_program_task_audit import (
     ACTION_CREATE_REPLAY,
     ACTION_FORCE_OVERWRITE,
@@ -140,6 +140,45 @@ def list_home_program_tasks(
     rows = list_tasks_for_clinician(session, clinician_id=actor.actor_id, patient_id=patient_id)
     items = [_row_to_response_dict(r) for r in rows]
     return HomeProgramTaskListResponse(items=items, total=len(items))
+
+
+class ClinicianTaskCompletionOut(BaseModel):
+    server_task_id: str
+    patient_id: str
+    completed: bool
+    completed_at: str
+    rating: int | None = None
+    difficulty: int | None = None
+    feedback_text: str | None = None
+    media_upload_id: str | None = None
+
+
+@router.get("/completions", response_model=list[ClinicianTaskCompletionOut])
+def list_task_completions(
+    patient_id: str | None = None,
+    session: Session = Depends(get_db_session),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+) -> list[ClinicianTaskCompletionOut]:
+    require_minimum_role(actor, "clinician")
+    q = session.query(PatientHomeProgramTaskCompletion).filter(
+        PatientHomeProgramTaskCompletion.clinician_id == actor.actor_id
+    )
+    if patient_id:
+        q = q.filter(PatientHomeProgramTaskCompletion.patient_id == patient_id)
+    rows = q.order_by(PatientHomeProgramTaskCompletion.completed_at.desc()).all()
+    return [
+        ClinicianTaskCompletionOut(
+            server_task_id=r.server_task_id,
+            patient_id=r.patient_id,
+            completed=bool(r.completed),
+            completed_at=r.completed_at.isoformat() if isinstance(r.completed_at, datetime) else str(r.completed_at),
+            rating=r.rating,
+            difficulty=r.difficulty,
+            feedback_text=r.feedback_text,
+            media_upload_id=r.media_upload_id,
+        )
+        for r in rows
+    ]
 
 
 @router.post(

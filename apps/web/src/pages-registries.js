@@ -17,9 +17,27 @@ import {
   HOME_PROGRAM_REGISTRY,
   VIRTUAL_CARE_REGISTRY,
 } from './registries.js';
+import { renderRegistryInfoModal } from './registry-widget-info.js';
 
 function esc(s) {
   return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function mountRegistryInfoModal(kind) {
+  try { document.getElementById('ds-registry-info-modal-root')?.remove(); } catch {}
+  const root = document.createElement('div');
+  root.id = 'ds-registry-info-modal-root';
+  root.innerHTML = renderRegistryInfoModal(kind);
+  document.body.appendChild(root);
+  window._closeRegistryInfo = (fromBackdrop) => {
+    try { document.getElementById('ds-registry-info-modal-root')?.remove(); } catch {}
+    if (!fromBackdrop) return;
+  };
+  // ESC closes
+  const onKey = (e) => {
+    if (e.key === 'Escape') window._closeRegistryInfo?.(false);
+  };
+  window.addEventListener('keydown', onKey, { once: true });
 }
 
 // ── Shared UI helpers ─────────────────────────────────────────────────────────
@@ -82,10 +100,12 @@ export async function pgConditionRegistry(setTopbar) {
   setTopbar('Condition Registry', `
     <div style="display:flex;gap:8px">
       <span style="font-size:0.8rem;color:var(--text-secondary);align-self:center">53 conditions</span>
+      <button class="btn btn-sm" onclick="window._regAbout?.('conditions')">ℹ About</button>
     </div>
   `);
   const el = document.getElementById('content');
   if (!el) return;
+  window._regAbout = (k) => mountRegistryInfoModal(k);
 
   const cats = ['All', ...new Set(CONDITION_REGISTRY.map(c => c.cat))];
   let activeCat = 'All';
@@ -141,9 +161,11 @@ export async function pgConditionRegistry(setTopbar) {
 export async function pgAssessmentRegistry(setTopbar) {
   setTopbar('Assessment Registry', `
     <span style="font-size:0.8rem;color:var(--text-secondary);align-self:center">${ASSESSMENT_REGISTRY.length} instruments</span>
+    <button class="btn btn-sm" onclick="window._regAbout?.('assessments')">ℹ About</button>
   `);
   const el = document.getElementById('content');
   if (!el) return;
+  window._regAbout = (k) => mountRegistryInfoModal(k);
 
   const domains = ['All', ...new Set(ASSESSMENT_REGISTRY.map(a => a.domain))];
   const types   = ['All', 'Self-report', 'Clinician', 'Structured'];
@@ -206,9 +228,11 @@ export async function pgAssessmentRegistry(setTopbar) {
 export async function pgProtocolRegistryPage(setTopbar) {
   setTopbar('Protocol Registry', `
     <span style="font-size:0.8rem;color:var(--text-secondary);align-self:center">${PROTOCOL_REGISTRY.length} templates</span>
+    <button class="btn btn-sm" onclick="window._regAbout?.('protocols')">ℹ About</button>
   `);
   const el = document.getElementById('content');
   if (!el) return;
+  window._regAbout = (k) => mountRegistryInfoModal(k);
 
   const modalities = ['All', ...new Set(PROTOCOL_REGISTRY.map(p => p.modality))];
   let activeMod = 'All';
@@ -269,9 +293,11 @@ export async function pgProtocolRegistryPage(setTopbar) {
 export async function pgDeviceRegistry(setTopbar) {
   setTopbar('Device Registry', `
     <span style="font-size:0.8rem;color:var(--text-secondary);align-self:center">${DEVICE_REGISTRY.length} devices</span>
+    <button class="btn btn-sm" onclick="window._regAbout?.('devices')">ℹ About</button>
   `);
   const el = document.getElementById('content');
   if (!el) return;
+  window._regAbout = (k) => mountRegistryInfoModal(k);
 
   const modalities = ['All', ...new Set(DEVICE_REGISTRY.map(d => d.modality))];
   const settings   = ['All', 'Clinic', 'Home', 'Both'];
@@ -337,9 +363,11 @@ export async function pgDeviceRegistry(setTopbar) {
 export async function pgBrainTargetRegistry(setTopbar) {
   setTopbar('Brain Target Registry', `
     <span style="font-size:0.8rem;color:var(--text-secondary);align-self:center">${BRAIN_TARGET_REGISTRY.length} sites · 10–20 / 10–10 mapped</span>
+    <button class="btn btn-sm" onclick="window._regAbout?.('targets')">ℹ About</button>
   `);
   const el = document.getElementById('content');
   if (!el) return;
+  window._regAbout = (k) => mountRegistryInfoModal(k);
 
   const lobes = ['All', ...new Set(BRAIN_TARGET_REGISTRY.map(t => t.lobe))];
   let activeLobe = 'All';
@@ -404,9 +432,11 @@ export async function pgBrainTargetRegistry(setTopbar) {
 export async function pgConsentRegistry(setTopbar) {
   setTopbar('Consent & Document Registry', `
     <span style="font-size:0.8rem;color:var(--text-secondary);align-self:center">${CONSENT_REGISTRY.length} templates</span>
+    <button class="btn btn-sm" onclick="window._regAbout?.('consent')">ℹ About</button>
   `);
   const el = document.getElementById('content');
   if (!el) return;
+  window._regAbout = (k) => mountRegistryInfoModal(k);
 
   const cats = ['All', ...new Set(CONSENT_REGISTRY.map(c => c.cat))];
   let activeCat = 'All';
@@ -463,9 +493,11 @@ export async function pgConsentRegistry(setTopbar) {
 export async function pgReportTemplateRegistry(setTopbar) {
   setTopbar('Report Template Registry', `
     <span style="font-size:0.8rem;color:var(--text-secondary);align-self:center">${REPORT_TEMPLATE_REGISTRY.length} templates</span>
+    <button class="btn btn-sm" onclick="window._regAbout?.('reports')">ℹ About</button>
   `);
   const el = document.getElementById('content');
   if (!el) return;
+  window._regAbout = (k) => mountRegistryInfoModal(k);
 
   const cats = ['All', ...new Set(REPORT_TEMPLATE_REGISTRY.map(r => r.cat))];
   let activeCat = 'All';
@@ -520,9 +552,11 @@ export async function pgReportTemplateRegistry(setTopbar) {
 export async function pgHandbookRegistry(setTopbar) {
   setTopbar('Handbook Registry', `
     <span style="font-size:0.8rem;color:var(--text-secondary);align-self:center">${HANDBOOK_REGISTRY.length} handbooks</span>
+    <button class="btn btn-sm" onclick="window._regAbout?.('handbooks')">ℹ About</button>
   `);
   const el = document.getElementById('content');
   if (!el) return;
+  window._regAbout = (k) => mountRegistryInfoModal(k);
 
   const cats = ['All', ...new Set(HANDBOOK_REGISTRY.map(h => h.cat))];
   let activeCat = 'All';
@@ -578,9 +612,11 @@ export async function pgHandbookRegistry(setTopbar) {
 export async function pgHomeProgramRegistry(setTopbar) {
   setTopbar('Home Program Registry', `
     <span style="font-size:0.8rem;color:var(--text-secondary);align-self:center">${HOME_PROGRAM_REGISTRY.length} programs</span>
+    <button class="btn btn-sm" onclick="window._regAbout?.('home-programs')">ℹ About</button>
   `);
   const el = document.getElementById('content');
   if (!el) return;
+  window._regAbout = (k) => mountRegistryInfoModal(k);
 
   const cats = ['All', ...new Set(HOME_PROGRAM_REGISTRY.map(h => h.cat))];
   let activeCat = 'All';
@@ -638,9 +674,11 @@ export async function pgHomeProgramRegistry(setTopbar) {
 export async function pgVirtualCareRegistry(setTopbar) {
   setTopbar('Virtual Care Registry', `
     <span style="font-size:0.8rem;color:var(--text-secondary);align-self:center">${VIRTUAL_CARE_REGISTRY.length} templates</span>
+    <button class="btn btn-sm" onclick="window._regAbout?.('virtual-care')">ℹ About</button>
   `);
   const el = document.getElementById('content');
   if (!el) return;
+  window._regAbout = (k) => mountRegistryInfoModal(k);
 
   const cats = ['All', ...new Set(VIRTUAL_CARE_REGISTRY.map(v => v.cat))];
   let activeCat = 'All';

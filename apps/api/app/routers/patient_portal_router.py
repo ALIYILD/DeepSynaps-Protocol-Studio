@@ -18,11 +18,12 @@ POST /api/v1/patient-portal/wearable-sync         Submit daily summary from pati
 from __future__ import annotations
 
 import json
+import re
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Body, Depends, Path, Query
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -31,15 +32,18 @@ from app.database import get_db_session
 from app.errors import ApiServiceError
 from app.persistence.models import (
     AssessmentRecord,
+    ClinicianHomeProgramTask,
     DeliveredSessionParameters,
     DeviceConnection,
     Message,
     OutcomeSeries,
     Patient,
+    PatientHomeProgramTaskCompletion,
     TreatmentCourse,
     WearableDailySummary,
     WearableAlertFlag,
 )
+from deepsynaps_core_schema import patient_safe_home_program_selection
 
 router = APIRouter(prefix="/api/v1/patient-portal", tags=["Patient Portal"])
 
@@ -778,3 +782,205 @@ def patient_wearable_sync(
         db.commit()
 
     return {'ok': True, 'summary_id': summary_id}
+
+
+# ── Home program tasks (patient) ───────────────────────────────────────────────
+
+_UUID_RE = re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+    re.IGNORECASE,
+)
+
+
+class PortalHomeProgramTaskOut(BaseModel):
+    id: str
+    server_task_id: str
+    title: str | None = None
+    category: str | None = None
+    instructions: str | None = None
+    task: dict
+
+
+class PortalHomeProgramTaskCompletionIn(BaseModel):
+    completed: bool = True
+    rating: Optional[int] = None
+    difficulty: Optional[int] = None
+    feedback_text: Optional[str] = None
+    feedback_json: Optional[dict] = None
+    media_upload_id: Optional[str] = None
+
+
+class PortalHomeProgramTaskCompletionOut(BaseModel):
+    server_task_id: str
+    completed: bool
+    completed_at: str
+    rating: Optional[int] = None
+    difficulty: Optional[int] = None
+    feedback_text: Optional[str] = None
+    media_upload_id: Optional[str] = None
+
+
+def _validate_uuid(v: str) -> None:
+    if not v or not isinstance(v, str) or not _UUID_RE.match(v):
+        raise ApiServiceError(code="invalid_id", message="Invalid id format.", status_code=422)
+
+
+def _require_patient_role(actor: AuthenticatedActor) -> None:
+    if actor.role != "patient":
+        raise ApiServiceError(code="forbidden", message="Patient portal access only.", status_code=403)
+
+
+@router.get("/home-program-tasks", response_model=list[PortalHomeProgramTaskOut])
+def list_home_program_tasks(
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> list[PortalHomeProgramTaskOut]:
+    _require_patient_role(actor)
+    patient = _require_patient(actor, db)
+    rows = (
+        db.query(ClinicianHomeProgramTask)
+        .filter(ClinicianHomeProgramTask.patient_id == patient.id)
+        .order_by(ClinicianHomeProgramTask.updated_at.desc())
+        .all()
+    )
+    out: list[PortalHomeProgramTaskOut] = []
+    for r in rows:
+        try:
+            raw = json.loads(r.task_json) if r.task_json else {}
+        except Exception:
+            raw = {}
+        safe = dict(raw) if isinstance(raw, dict) else {}
+        try:
+            if isinstance(safe.get("homeProgramSelection"), dict):
+                safe["homeProgramSelection"] = patient_safe_home_program_selection(safe["homeProgramSelection"])
+        except Exception:
+            pass
+        out.append(
+            PortalHomeProgramTaskOut(
+                id=r.id,
+                server_task_id=r.server_task_id,
+                title=safe.get("title"),
+                category=safe.get("category") or safe.get("type"),
+                instructions=safe.get("instructions") or safe.get("notes"),
+                task=safe,
+            )
+        )
+    return out
+
+
+@router.post(
+    "/home-program-tasks/{server_task_id}/complete",
+    response_model=PortalHomeProgramTaskCompletionOut,
+)
+def complete_home_program_task(
+    server_task_id: str = Path(...),
+    body: PortalHomeProgramTaskCompletionIn = Body(...),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> PortalHomeProgramTaskCompletionOut:
+    _require_patient_role(actor)
+    _validate_uuid(server_task_id)
+    patient = _require_patient(actor, db)
+
+    task_row = (
+        db.query(ClinicianHomeProgramTask)
+        .filter(ClinicianHomeProgramTask.server_task_id == server_task_id)
+        .first()
+    )
+    if task_row is None or task_row.patient_id != patient.id:
+        raise ApiServiceError(code="not_found", message="Task not found.", status_code=404)
+
+    if body.rating is not None and not (1 <= body.rating <= 5):
+        raise ApiServiceError(code="invalid_rating", message="rating must be 1–5.", status_code=422)
+    if body.difficulty is not None and not (1 <= body.difficulty <= 5):
+        raise ApiServiceError(code="invalid_difficulty", message="difficulty must be 1–5.", status_code=422)
+
+    now = datetime.now(timezone.utc)
+    existing = (
+        db.query(PatientHomeProgramTaskCompletion)
+        .filter(
+            PatientHomeProgramTaskCompletion.patient_id == patient.id,
+            PatientHomeProgramTaskCompletion.server_task_id == server_task_id,
+        )
+        .first()
+    )
+    payload_json = "{}"
+    if body.feedback_json is not None:
+        try:
+            payload_json = json.dumps(body.feedback_json, ensure_ascii=False, separators=(",", ":"))
+        except Exception:
+            raise ApiServiceError(
+                code="invalid_feedback_json",
+                message="feedback_json must be valid JSON.",
+                status_code=422,
+            )
+
+    if existing:
+        existing.completed = bool(body.completed)
+        existing.completed_at = now
+        existing.rating = body.rating
+        existing.difficulty = body.difficulty
+        existing.feedback_text = body.feedback_text
+        existing.feedback_json = payload_json
+        existing.media_upload_id = body.media_upload_id
+        db.commit()
+        row = existing
+    else:
+        row = PatientHomeProgramTaskCompletion(
+            id=str(uuid.uuid4()),
+            server_task_id=server_task_id,
+            patient_id=patient.id,
+            clinician_id=task_row.clinician_id,
+            completed=bool(body.completed),
+            completed_at=now,
+            rating=body.rating,
+            difficulty=body.difficulty,
+            feedback_text=body.feedback_text,
+            feedback_json=payload_json,
+            media_upload_id=body.media_upload_id,
+        )
+        db.add(row)
+        db.commit()
+
+    return PortalHomeProgramTaskCompletionOut(
+        server_task_id=row.server_task_id,
+        completed=row.completed,
+        completed_at=_dt(row.completed_at),
+        rating=row.rating,
+        difficulty=row.difficulty,
+        feedback_text=row.feedback_text,
+        media_upload_id=row.media_upload_id,
+    )
+
+
+@router.get(
+    "/home-program-tasks/{server_task_id}/completion",
+    response_model=PortalHomeProgramTaskCompletionOut,
+)
+def get_home_program_task_completion(
+    server_task_id: str = Path(...),
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> PortalHomeProgramTaskCompletionOut:
+    _require_patient_role(actor)
+    _validate_uuid(server_task_id)
+    patient = _require_patient(actor, db)
+    row = (
+        db.query(PatientHomeProgramTaskCompletion)
+        .filter(
+            PatientHomeProgramTaskCompletion.patient_id == patient.id,
+            PatientHomeProgramTaskCompletion.server_task_id == server_task_id,
+        )
+        .first()
+    )
+    if row is None:
+        raise ApiServiceError(code="not_found", message="No completion recorded for this task.", status_code=404)
+    return PortalHomeProgramTaskCompletionOut(
+        server_task_id=row.server_task_id,
+        completed=row.completed,
+        completed_at=_dt(row.completed_at),
+        rating=row.rating,
+        difficulty=row.difficulty,
+        feedback_text=row.feedback_text,
+        media_upload_id=row.media_upload_id,
+    )

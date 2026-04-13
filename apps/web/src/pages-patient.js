@@ -4217,6 +4217,59 @@ function _tasksGetEnriched() {
   });
 }
 
+function _tasksGetEnrichedFromServer(serverTasks) {
+  const raw = Array.isArray(serverTasks) ? serverTasks : [];
+  const today = new Date().toISOString().slice(0, 10);
+  const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+
+  const checkinTask = {
+    id: 'pt-daily-checkin',
+    title: 'Daily Check-in',
+    category: 'assessment',
+    recurrence: 'daily',
+    dueDate: today,
+    notes: 'Mood, sleep and energy — takes about 3 minutes.',
+  };
+
+  const mapped = raw.map(function(t) {
+    const taskId = t.id || t.external_task_id || t.server_task_id;
+    return {
+      id: taskId,
+      server_task_id: t.server_task_id || null,
+      title: t.title || 'Home task',
+      category: t.category || t.type || 'home-practice',
+      type: t.category || t.type || null,
+      recurrence: t.frequency || t.recurrence || 'once',
+      dueDate: t.dueDate || today,
+      notes: t.instructions || t.notes || '',
+      why: t.reason || '',
+      assignedBy: 'Your clinician',
+    };
+  });
+
+  const allRaw = [checkinTask, ...mapped];
+  return allRaw.map(function(t) {
+    const enrich = _TASK_ENRICHMENT[t.id] || {};
+    const cat = _TASK_CAT_META[t.category] || _TASK_CAT_META['custom'];
+    const isDue = t.recurrence === 'daily' || t.dueDate <= today;
+    const isOverdue = !_pttIsComplete(t.id, today) && t.dueDate < today && t.recurrence !== 'daily';
+    let dueDateLabel = '';
+    if (t.dueDate === today)     dueDateLabel = 'Due today';
+    else if (t.dueDate === yesterday) dueDateLabel = 'Yesterday';
+    else if (t.dueDate < today)  dueDateLabel = 'Overdue';
+    else {
+      const d = new Date(t.dueDate + 'T00:00:00');
+      dueDateLabel = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    }
+    return Object.assign({}, t, enrich, {
+      cat: cat,
+      isDueToday: isDue,
+      isOverdue: isOverdue,
+      dueDateLabel: dueDateLabel,
+    });
+  });
+}
+
 function _taskRenderCard(task, today, opts) {
   opts = opts || {};
   const done = _pttIsComplete(task.id, today);
@@ -4277,10 +4330,18 @@ export async function pgPatientWellness() {
   const el = document.getElementById('patient-content');
   const todayStr  = new Date().toISOString().slice(0, 10);
   const todayFmt  = new Date().toLocaleDateString(getLocale() === 'tr' ? 'tr-TR' : 'en-US', { weekday: 'long', month: 'long', day: 'numeric' });
+  let _serverHomeProgramTasks = null;
+  try {
+    const { api } = await import('./api.js');
+    const items = await api.portalListHomeProgramTasks().catch(() => null);
+    _serverHomeProgramTasks = Array.isArray(items) ? items : null;
+  } catch { /* offline / no token */ }
 
   // ── Build page ──────────────────────────────────────────────────────────────
   function _tasksRenderPage() {
-    const tasks      = _tasksGetEnriched();
+    const tasks = _serverHomeProgramTasks
+      ? _tasksGetEnrichedFromServer(_serverHomeProgramTasks)
+      : _tasksGetEnriched();
     const today      = new Date().toISOString().slice(0, 10);
     const overdue    = tasks.filter(function(t) { return t.isOverdue && !_pttIsComplete(t.id, today); });
     const dueToday   = tasks.filter(function(t) { return t.isDueToday && !t.isOverdue; });
@@ -4832,6 +4893,23 @@ export async function pgPatientWellness() {
   window._tasksSubmitTask = async function(taskId, data) {
     const today = new Date().toISOString().slice(0, 10);
     _pttMarkComplete(taskId, today, data);
+
+    // If this is a server-backed home program task, persist completion + feedback durably.
+    try {
+      const task = (_serverHomeProgramTasks || []).find(t => (t.id === taskId));
+      const serverTaskId = task?.server_task_id;
+      if (serverTaskId) {
+        const payload = {
+          rating: (data && typeof data.rating === 'number') ? Math.max(1, Math.min(5, Math.round(data.rating))) : null,
+          difficulty: (data && typeof data.difficulty === 'number') ? Math.max(1, Math.min(5, Math.round(data.difficulty))) : null,
+          feedback_text: data?.notes || data?.thoughts || data?.observations || data?.feedback_text || null,
+          feedback_json: data || null,
+          media_upload_id: data?.media_upload_id || data?.mediaUploadId || null,
+        };
+        const { api } = await import('./api.js');
+        await api.portalCompleteHomeProgramTask(serverTaskId, payload);
+      }
+    } catch { /* non-fatal */ }
 
     // Bridge completion data to the clinician's completions key for adherence monitoring
     if (data) {

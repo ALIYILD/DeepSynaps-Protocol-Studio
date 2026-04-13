@@ -14836,11 +14836,93 @@ export async function pgBrainMapPlanner(setTopbar) {
     'taVNS':'#a78bfa','CES':'#34d399','PBM':'#fb923c','TPS':'#f472b6',
   };
 
+  const BMP_STORAGE_KEY = 'ds_brain_map_planner_state_v1';
+  const BMP_PRESETS_KEY = 'ds_brain_map_planner_presets_v1';
+
   let bmpState = {
     region:'', modality:'TMS/rTMS', lat:'left',
     freq:'', intensity:'', pulses:'', duration:'', sessions:'', notes:'',
     selectedSite:'', view:'clinical', protoId:'',
+    zoom: 1,
+    labelMode: 'smart', // smart | full | minimal
+    panX: 0, // in SVG coordinate units (viewBox space)
+    panY: 0,
   };
+
+  // Load persisted state (best-effort). Never trust shape fully.
+  try {
+    const raw = JSON.parse(localStorage.getItem(BMP_STORAGE_KEY) || 'null');
+    if (raw && typeof raw === 'object') {
+      bmpState = {
+        ...bmpState,
+        region:       typeof raw.region === 'string' ? raw.region : bmpState.region,
+        modality:     typeof raw.modality === 'string' ? raw.modality : bmpState.modality,
+        lat:          typeof raw.lat === 'string' ? raw.lat : bmpState.lat,
+        freq:         typeof raw.freq === 'string' ? raw.freq : bmpState.freq,
+        intensity:    typeof raw.intensity === 'string' ? raw.intensity : bmpState.intensity,
+        pulses:       typeof raw.pulses === 'string' ? raw.pulses : bmpState.pulses,
+        duration:     typeof raw.duration === 'string' ? raw.duration : bmpState.duration,
+        sessions:     typeof raw.sessions === 'string' ? raw.sessions : bmpState.sessions,
+        notes:        typeof raw.notes === 'string' ? raw.notes : bmpState.notes,
+        selectedSite: typeof raw.selectedSite === 'string' ? raw.selectedSite : bmpState.selectedSite,
+        view:         (raw.view === 'patient' || raw.view === 'clinical') ? raw.view : bmpState.view,
+        protoId:      typeof raw.protoId === 'string' ? raw.protoId : bmpState.protoId,
+        zoom:         Number.isFinite(raw.zoom) ? raw.zoom : bmpState.zoom,
+        labelMode:    (raw.labelMode === 'full' || raw.labelMode === 'minimal' || raw.labelMode === 'smart') ? raw.labelMode : bmpState.labelMode,
+        panX:         Number.isFinite(raw.panX) ? raw.panX : bmpState.panX,
+        panY:         Number.isFinite(raw.panY) ? raw.panY : bmpState.panY,
+      };
+    }
+  } catch (_) {}
+
+  function _persist() {
+    try {
+      localStorage.setItem(BMP_STORAGE_KEY, JSON.stringify({
+        region: bmpState.region,
+        modality: bmpState.modality,
+        lat: bmpState.lat,
+        freq: bmpState.freq,
+        intensity: bmpState.intensity,
+        pulses: bmpState.pulses,
+        duration: bmpState.duration,
+        sessions: bmpState.sessions,
+        notes: bmpState.notes,
+        selectedSite: bmpState.selectedSite,
+        view: bmpState.view,
+        protoId: bmpState.protoId,
+        zoom: bmpState.zoom,
+        labelMode: bmpState.labelMode,
+        panX: bmpState.panX,
+        panY: bmpState.panY,
+      }));
+    } catch (_) {}
+  }
+
+  function _loadPresets() {
+    try {
+      const raw = JSON.parse(localStorage.getItem(BMP_PRESETS_KEY) || '[]');
+      if (Array.isArray(raw)) return raw.filter(x => x && typeof x === 'object' && typeof x.name === 'string');
+    } catch (_) {}
+    return [];
+  }
+  function _savePresets(items) {
+    try { localStorage.setItem(BMP_PRESETS_KEY, JSON.stringify(items || [])); } catch (_) {}
+  }
+  function _planSummary() {
+    const s = bmpState;
+    const parts = [];
+    if (s.modality) parts.push(`Modality: ${s.modality}`);
+    if (s.region) parts.push(`Target region: ${s.region}`);
+    if (s.selectedSite) parts.push(`Primary site: ${s.selectedSite}`);
+    if (s.lat) parts.push(`Laterality: ${s.lat}`);
+    if (s.freq) parts.push(`Frequency: ${s.freq}`);
+    if (s.intensity) parts.push(`Intensity: ${s.intensity}`);
+    if (s.pulses) parts.push(`Pulses/session: ${s.pulses}`);
+    if (s.duration) parts.push(`Duration: ${s.duration}`);
+    if (s.sessions) parts.push(`Sessions: ${s.sessions}`);
+    if (s.notes) parts.push(`Notes: ${s.notes}`);
+    return parts.join('\n');
+  }
 
   let conds = [], protos = [];
   try {
@@ -14861,6 +14943,18 @@ export async function pgBrainMapPlanner(setTopbar) {
   }
 
   function _mc() { return MODALITY_COLORS[bmpState.modality] || '#00d4bc'; }
+
+  function _inferRegionFromSite(site) {
+    if (!site) return '';
+    const keys = Object.keys(BMP_REGION_SITES);
+    for (let i = 0; i < keys.length; i++) {
+      const k = keys[i];
+      const rs = BMP_REGION_SITES[k];
+      if (!rs) continue;
+      if (rs.primary.indexOf(site) !== -1) return k;
+    }
+    return '';
+  }
 
   function _siteRole(site) {
     if (!bmpState.region || !BMP_REGION_SITES[bmpState.region]) return 'inactive';
@@ -14885,12 +14979,19 @@ export async function pgBrainMapPlanner(setTopbar) {
     const pp = region.primary, rp = region.ref, ap = region.alt;
     const sp = [];
     const s = function(x) { sp.push(x); };
-    s('<svg id="bmp-svg" viewBox="0 0 300 310" width="280" height="290"'
-      + ' xmlns="http://www.w3.org/2000/svg" style="display:block;overflow:visible">');
+    const z = Number(bmpState.zoom || 1);
+    const panX = Number(bmpState.panX || 0);
+    const panY = Number(bmpState.panY || 0);
+    const zSafe = Number.isFinite(z) ? Math.max(1, Math.min(1.8, z)) : 1;
+    const panXS = Number.isFinite(panX) ? panX : 0;
+    const panYS = Number.isFinite(panY) ? panY : 0;
+    s('<svg id="bmp-svg" class="bmp-svg" viewBox="0 0 300 310" width="100%" height="420"'
+      + ' xmlns="http://www.w3.org/2000/svg" style="display:block;overflow:visible;max-width:520px">');
     s('<defs><filter id="bmp-glow" x="-50%" y="-50%" width="200%" height="200%">'
       + '<feGaussianBlur stdDeviation="3" result="blur"/>'
       + '<feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>'
       + '</filter></defs>');
+    s('<g id="bmp-vp" transform="translate(' + panXS + ' ' + panYS + ') scale(' + zSafe + ')">');
     s('<ellipse cx="150" cy="155" rx="128" ry="148" fill="#0f1623"'
       + ' stroke="rgba(148,163,184,0.25)" stroke-width="1.5"/>');
     s('<path d="M143,8 Q150,2 157,8" fill="none" stroke="rgba(148,163,184,0.25)"'
@@ -14913,29 +15014,32 @@ export async function pgBrainMapPlanner(setTopbar) {
           '<circle cx="' + sx + '" cy="' + sy + '" r="32" fill="' + mc + '" opacity="0.18"/>'
           + '<circle cx="' + sx + '" cy="' + sy + '" r="22" fill="' + mc + '" opacity="0.28"/>'
           + '<circle cx="' + sx + '" cy="' + sy + '" r="13" fill="' + mc + '" opacity="0.55"/>'
-          + '<text x="' + sx + '" y="' + (sy + 42) + '" text-anchor="middle" font-size="7.5"'
+          + '<text x="' + sx + '" y="' + (sy + 46) + '" text-anchor="middle" font-size="9"'
           + ' fill="rgba(255,255,255,0.7)" font-family="system-ui">' + _esc(lbl) + '</text>'
         ));
       });
     } else {
+      const showInactiveLabels = (bmpState.labelMode === 'full') || (bmpState.labelMode === 'smart' && (bmpState.zoom || 1) >= 1.35);
       Object.keys(BMP_SITES).forEach(function(name) {
         if (_siteRole(name) !== 'inactive') return;
         const pos = BMP_SITES[name];
         const sx = pos[0], sy = pos[1];
         s(_siteG(name, sx, sy,
-          '<circle cx="' + sx + '" cy="' + sy + '" r="5" fill="rgba(148,163,184,0.10)"'
-          + ' stroke="rgba(148,163,184,0.22)" stroke-width="0.8"/>'
-          + '<text x="' + (sx + 7) + '" y="' + (sy + 3) + '" font-size="6"'
-          + ' fill="rgba(148,163,184,0.35)" font-family="system-ui">' + _esc(name) + '</text>'
+          '<circle cx="' + sx + '" cy="' + sy + '" r="7" fill="rgba(148,163,184,0.10)"'
+          + ' stroke="rgba(148,163,184,0.24)" stroke-width="0.9"/>'
+          + (showInactiveLabels
+            ? ('<text x="' + (sx + 9) + '" y="' + (sy + 4) + '" font-size="8"'
+              + ' fill="rgba(148,163,184,0.35)" font-family="system-ui">' + _esc(name) + '</text>')
+            : '')
         ));
       });
       ap.forEach(function(name) {
         const pos = BMP_SITES[name]; if (!pos) return;
         const sx = pos[0], sy = pos[1];
         s(_siteG(name, sx, sy,
-          '<circle cx="' + sx + '" cy="' + sy + '" r="7" fill="rgba(74,158,255,0.15)"'
-          + ' stroke="#4a9eff" stroke-width="0.8" stroke-dasharray="3 2"/>'
-          + '<text x="' + (sx + 9) + '" y="' + (sy + 3) + '" font-size="7"'
+          '<circle cx="' + sx + '" cy="' + sy + '" r="9" fill="rgba(74,158,255,0.15)"'
+          + ' stroke="#4a9eff" stroke-width="1" stroke-dasharray="3 2"/>'
+          + '<text x="' + (sx + 11) + '" y="' + (sy + 4) + '" font-size="9"'
           + ' fill="rgba(74,158,255,0.7)" font-family="system-ui">' + _esc(name) + '</text>'
         ));
       });
@@ -14944,9 +15048,9 @@ export async function pgBrainMapPlanner(setTopbar) {
         const sx = pos[0], sy = pos[1];
         s(_siteG(name, sx, sy,
           '<circle cx="' + sx + '" cy="' + sy + '" r="13" fill="#ffb547" opacity="0.12"/>'
-          + '<circle cx="' + sx + '" cy="' + sy + '" r="8" fill="#ffb547" opacity="0.55"'
+          + '<circle cx="' + sx + '" cy="' + sy + '" r="9" fill="#ffb547" opacity="0.55"'
           + ' filter="url(#bmp-glow)"/>'
-          + '<text x="' + (sx + 10) + '" y="' + (sy + 3) + '" font-size="7.5" fill="#ffb547"'
+          + '<text x="' + (sx + 12) + '" y="' + (sy + 4) + '" font-size="9" fill="#ffb547"'
           + ' font-weight="600" font-family="system-ui">' + _esc(name)
           + (bmpState.modality === 'tDCS' ? ' \u2212' : '') + '</text>'
         ));
@@ -14980,7 +15084,7 @@ export async function pgBrainMapPlanner(setTopbar) {
         ));
       });
     }
-    s('</svg>');
+    s('</g></svg>');
     return sp.join('');
   }
 
@@ -15093,12 +15197,15 @@ export async function pgBrainMapPlanner(setTopbar) {
     bmpState.intensity = pm.intensity;
     bmpState.pulses    = pm.pulses;
     bmpState.sessions  = pm.sessions;
+    bmpState.duration  = pm.duration || bmpState.duration;
     const modSel = document.getElementById('bmp-mod-sel');
     if (modSel) modSel.value = pm.modality;
+    const regSel = document.getElementById('bmp-region-sel');
+    if (regSel) regSel.value = pm.region;
     document.querySelectorAll('.bmp-lat-btn').forEach(function(b) {
       b.classList.toggle('bmp-lat-active', b.dataset.lat === pm.lat);
     });
-    ['freq','intensity','pulses','sessions'].forEach(function(k) {
+    ['freq','intensity','pulses','duration','sessions'].forEach(function(k) {
       const inp = document.getElementById('bmp-param-' + k);
       if (inp) inp.value = pm[k] || '';
     });
@@ -15107,6 +15214,7 @@ export async function pgBrainMapPlanner(setTopbar) {
     const rs = BMP_REGION_SITES[pm.region];
     if (rs && rs.primary.length) bmpState.selectedSite = rs.primary[0];
     _updateMap(); _updateDetail(); _updateParams();
+    _persist();
   }
 
   const protoOptions = Object.keys(BMP_PROTO_LABELS).map(function(id) {
@@ -15116,6 +15224,11 @@ export async function pgBrainMapPlanner(setTopbar) {
   const condOptions = conds.map(function(c) {
     const n = c.name || c;
     return '<option value="' + _esc(n) + '">' + _esc(n) + '</option>';
+  }).join('');
+
+  const regionOptions = Object.keys(BMP_REGION_SITES).map(function(k) {
+    const pretty = k.replace(/[-_]/g, ' ');
+    return '<option value="' + _esc(k) + '">' + _esc(pretty) + '</option>';
   }).join('');
 
   const modalityOptions = ['TMS/rTMS','iTBS','cTBS','Deep TMS','tDCS','tACS',
@@ -15135,12 +15248,29 @@ export async function pgBrainMapPlanner(setTopbar) {
     '<div class="bmp-layout">'
     + '<div class="bmp-panel bmp-panel--left">'
       + '<div class="bmp-section-card">'
+        + '<div class="bmp-section-title">Quick actions</div>'
+        + '<div style="display:flex;flex-direction:column;gap:6px">'
+          + '<button class="btn btn-sm" style="border-color:var(--teal);color:var(--teal);font-size:12px" onclick="window._bmpCopySummary()">Copy plan summary</button>'
+          + '<button class="btn btn-sm" style="font-size:12px" onclick="window._bmpSavePreset()">Save as preset</button>'
+          + '<button class="btn btn-sm" style="font-size:12px" onclick="window._bmpReset()">Reset</button>'
+        + '</div>'
+      + '</div>'
+      + '<div class="bmp-section-card">'
         + '<div class="bmp-section-title">Load Protocol</div>'
         + '<select id="bmp-proto-sel" class="form-select" style="width:100%;font-size:12px"'
           + ' onchange="window._bmpLoadProto(this.value)">'
           + '<option value="">\u2014 select protocol \u2014</option>'
           + protoOptions
         + '</select>'
+      + '</div>'
+      + '<div class="bmp-section-card">'
+        + '<div class="bmp-section-title">Load preset</div>'
+        + '<select id="bmp-preset-sel" class="form-select" style="width:100%;font-size:12px" onchange="window._bmpLoadPreset(this.value)">'
+          + '<option value="">\u2014 select \u2014</option>'
+        + '</select>'
+        + '<div style="margin-top:6px;font-size:11px;color:var(--text-tertiary);line-height:1.4">'
+          + 'Saved locally in this browser.'
+        + '</div>'
       + '</div>'
       + '<div style="display:flex;align-items:center;gap:8px;margin:2px 0 4px">'
         + '<div style="flex:1;height:1px;background:var(--border)"></div>'
@@ -15159,6 +15289,17 @@ export async function pgBrainMapPlanner(setTopbar) {
           + ' onchange="window._bmpSetModality(this.value)">'
           + modalityOptions
         + '</select>'
+      + '</div>'
+      + '<div class="bmp-section-card">'
+        + '<div class="bmp-section-title">Target region</div>'
+        + '<select id="bmp-region-sel" class="form-select" style="width:100%;font-size:12px"'
+          + ' onchange="window._bmpSetRegion(this.value)">'
+          + '<option value="">\u2014 select \u2014</option>'
+          + regionOptions
+        + '</select>'
+        + '<div style="margin-top:6px;font-size:11px;color:var(--text-tertiary);line-height:1.4">'
+          + 'Tip: choose a region to highlight primary/reference electrodes on the map.'
+        + '</div>'
       + '</div>'
       + '<div class="bmp-section-card">'
         + '<div class="bmp-section-title">Laterality</div>'
@@ -15200,6 +15341,26 @@ export async function pgBrainMapPlanner(setTopbar) {
       + '<div class="bmp-map-wrap">'
         + '<div class="bmp-map-header">'
           + '<span style="font-size:13px;font-weight:700;color:var(--text-primary)">Electrode Map</span>'
+          + '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">'
+            + '<div class="bmp-map-ctrl">'
+              + '<span class="bmp-map-ctrl-lbl">Find</span>'
+              + '<input id="bmp-site-search" class="bmp-map-search" placeholder="e.g. F3, Cz, Pz" />'
+              + '<button class="btn btn-sm" style="font-size:11px;padding:4px 10px" onclick="window._bmpGoSite()">Go</button>'
+            + '</div>'
+            + '<div class="bmp-map-ctrl">'
+              + '<span class="bmp-map-ctrl-lbl">Zoom</span>'
+              + '<input id="bmp-zoom" type="range" min="1" max="1.8" step="0.05" value="' + (bmpState.zoom || 1) + '" />'
+            + '</div>'
+            + '<div class="bmp-map-ctrl">'
+              + '<span class="bmp-map-ctrl-lbl">Labels</span>'
+              + '<select id="bmp-label-mode" class="form-select" style="font-size:11px;padding:3px 8px" onchange="window._bmpSetLabelMode(this.value)">'
+                + '<option value="smart"' + (bmpState.labelMode === 'smart' ? ' selected' : '') + '>Smart</option>'
+                + '<option value="full"' + (bmpState.labelMode === 'full' ? ' selected' : '') + '>Full</option>'
+                + '<option value="minimal"' + (bmpState.labelMode === 'minimal' ? ' selected' : '') + '>Minimal</option>'
+              + '</select>'
+            + '</div>'
+            + '<button class="btn btn-sm" style="font-size:11px;padding:4px 10px" onclick="window._bmpResetView()">Reset view</button>'
+          + '</div>'
           + '<div class="bmp-view-toggle">'
             + '<button class="bmp-view-btn bmp-view-active" data-view="clinical">Clinical</button>'
             + '<button class="bmp-view-btn" data-view="patient">Patient</button>'
@@ -15227,6 +15388,43 @@ export async function pgBrainMapPlanner(setTopbar) {
   // Attach SVG events after initial render
   _attachSVGEvents(document.getElementById('bmp-svg-container'));
 
+  // Hydrate UI controls from state
+  try {
+    const rs = document.getElementById('bmp-region-sel');
+    if (rs && bmpState.region) rs.value = bmpState.region;
+    const ps = document.getElementById('bmp-proto-sel');
+    if (ps && bmpState.protoId) ps.value = bmpState.protoId;
+    const modSel = document.getElementById('bmp-mod-sel');
+    if (modSel && bmpState.modality) modSel.value = bmpState.modality;
+    const vb = el.querySelectorAll('.bmp-view-btn');
+    vb.forEach(function(btn) { btn.classList.toggle('bmp-view-active', btn.dataset.view === bmpState.view); });
+    const lt = el.querySelectorAll('.bmp-lat-btn');
+    lt.forEach(function(btn) { btn.classList.toggle('bmp-lat-active', btn.dataset.lat === bmpState.lat); });
+    const setVal = (id, v) => { const inp = document.getElementById(id); if (inp) inp.value = v || ''; };
+    setVal('bmp-param-freq', bmpState.freq);
+    setVal('bmp-param-intensity', bmpState.intensity);
+    setVal('bmp-param-pulses', bmpState.pulses);
+    setVal('bmp-param-duration', bmpState.duration);
+    setVal('bmp-param-sessions', bmpState.sessions);
+    setVal('bmp-param-notes', bmpState.notes);
+  } catch (_) {}
+
+  // Ensure param section visibility is correct on first load
+  _updateParams();
+  if (bmpState.selectedSite) { _updateDetail(); }
+  _updateMap();
+
+  // Populate presets dropdown
+  function _renderPresetSelect() {
+    const sel = document.getElementById('bmp-preset-sel');
+    if (!sel) return;
+    const items = _loadPresets();
+    const opts = ['<option value="">\u2014 select \u2014</option>']
+      .concat(items.map(p => '<option value="' + _esc(p.id) + '">' + _esc(p.name) + '</option>'));
+    sel.innerHTML = opts.join('');
+  }
+  _renderPresetSelect();
+
   // Delegated events for lat buttons
   const latToggle = el.querySelector('.bmp-lat-toggle');
   if (latToggle) {
@@ -15237,6 +15435,7 @@ export async function pgBrainMapPlanner(setTopbar) {
       el.querySelectorAll('.bmp-lat-btn').forEach(function(btn) {
         btn.classList.toggle('bmp-lat-active', btn.dataset.lat === bmpState.lat);
       });
+      _persist();
     });
   }
 
@@ -15251,8 +15450,241 @@ export async function pgBrainMapPlanner(setTopbar) {
         btn.classList.toggle('bmp-view-active', btn.dataset.view === bmpState.view);
       });
       _updateMap();
+      _persist();
     });
   }
+
+  // Zoom control
+  const zoomInp = document.getElementById('bmp-zoom');
+  if (zoomInp) {
+    zoomInp.addEventListener('input', function() {
+      const z = Number(zoomInp.value || 1);
+      bmpState.zoom = (Number.isFinite(z) ? Math.max(1, Math.min(1.8, z)) : 1);
+      _updateMap();
+      _persist();
+    });
+  }
+  window._bmpResetView = function() {
+    bmpState.zoom = 1;
+    bmpState.panX = 0;
+    bmpState.panY = 0;
+    const zi = document.getElementById('bmp-zoom');
+    if (zi) zi.value = '1';
+    _updateMap();
+    _persist();
+  };
+  window._bmpSetLabelMode = function(m) {
+    bmpState.labelMode = (m === 'full' || m === 'minimal' || m === 'smart') ? m : 'smart';
+    _updateMap();
+    _persist();
+  };
+
+  // Search / jump to electrode
+  function _baseScale() {
+    const svg = document.getElementById('bmp-svg');
+    if (!svg) return { sx: 1, sy: 1, el: null };
+    const r = svg.getBoundingClientRect();
+    return { sx: (r.width / 300) || 1, sy: (r.height / 310) || 1, el: svg };
+  }
+  function _centerOnSite(site) {
+    const pos = BMP_SITES[site];
+    if (!pos) return false;
+    const wrap = document.querySelector('.bmp-svg-wrap');
+    if (!wrap) return false;
+    const { sx, sy } = _baseScale();
+    const z = Number(bmpState.zoom || 1);
+    const zSafe = Number.isFinite(z) ? Math.max(1, Math.min(1.8, z)) : 1;
+    const cx = wrap.clientWidth / 2;
+    const cy = wrap.clientHeight / 2;
+    // Transform is: translate(panX panY) scale(z) in viewBox units.
+    // Screen px = ((x + panX) * z) * baseScale
+    bmpState.panX = (cx / (sx * zSafe)) - pos[0];
+    bmpState.panY = (cy / (sy * zSafe)) - pos[1];
+    bmpState.selectedSite = site;
+    if (!bmpState.region) {
+      const r = _inferRegionFromSite(site);
+      if (r) {
+        bmpState.region = r;
+        const rs = document.getElementById('bmp-region-sel');
+        if (rs) rs.value = r;
+      }
+    }
+    _updateDetail();
+    _updateMap();
+    _persist();
+    return true;
+  }
+  window._bmpGoSite = function() {
+    const inp = document.getElementById('bmp-site-search');
+    const raw = String(inp?.value || '').trim().toUpperCase();
+    if (!raw) return;
+    const site = raw.replace(/\s+/g, '');
+    if (!_centerOnSite(site)) {
+      window._showNotifToast?.({ title:'Not found', body:`Unknown site: ${site}`, severity:'warn' });
+    }
+  };
+  const siteInp = document.getElementById('bmp-site-search');
+  if (siteInp) {
+    siteInp.addEventListener('keydown', function(e) {
+      if (e.key === 'Enter') window._bmpGoSite();
+    });
+  }
+
+  // Wheel zoom (zoom to cursor)
+  const svgWrap = document.querySelector('.bmp-svg-wrap');
+  if (svgWrap) {
+    svgWrap.addEventListener('wheel', function(e) {
+      if (!e.ctrlKey && !e.metaKey) return; // prevents hijacking normal scroll; hold Ctrl for zoom
+      e.preventDefault();
+      const { sx, sy } = _baseScale();
+      const rect = svgWrap.getBoundingClientRect();
+      const px = e.clientX - rect.left;
+      const py = e.clientY - rect.top;
+      const z0 = Number(bmpState.zoom || 1);
+      const z1 = Math.max(1, Math.min(1.8, z0 + (e.deltaY < 0 ? 0.08 : -0.08)));
+      // World coords under cursor before zoom
+      const wx = (px / (sx * z0)) - Number(bmpState.panX || 0);
+      const wy = (py / (sy * z0)) - Number(bmpState.panY || 0);
+      // Solve for new pan to keep world point under cursor
+      bmpState.zoom = z1;
+      bmpState.panX = (px / (sx * z1)) - wx;
+      bmpState.panY = (py / (sy * z1)) - wy;
+      const zi = document.getElementById('bmp-zoom');
+      if (zi) zi.value = String(z1);
+      _updateMap();
+      _persist();
+    }, { passive: false });
+  }
+
+  // Click-drag pan (when zoomed)
+  if (svgWrap) {
+    let dragging = false;
+    let startX = 0, startY = 0;
+    let startPanX = 0, startPanY = 0;
+    svgWrap.addEventListener('mousedown', function(e) {
+      if (e.button !== 0) return;
+      if ((bmpState.zoom || 1) <= 1.01) return;
+      // Don't start drag from form controls
+      if (e.target.closest('button, input, select, textarea')) return;
+      dragging = true;
+      startX = e.clientX; startY = e.clientY;
+      startPanX = Number(bmpState.panX || 0);
+      startPanY = Number(bmpState.panY || 0);
+      svgWrap.classList.add('bmp-dragging');
+    });
+    window.addEventListener('mousemove', function(e) {
+      if (!dragging) return;
+      const { sx, sy } = _baseScale();
+      const z = Number(bmpState.zoom || 1);
+      const dx = (e.clientX - startX) / (sx * z);
+      const dy = (e.clientY - startY) / (sy * z);
+      bmpState.panX = startPanX + dx;
+      bmpState.panY = startPanY + dy;
+      _updateMap();
+    });
+    window.addEventListener('mouseup', function() {
+      if (!dragging) return;
+      dragging = false;
+      svgWrap.classList.remove('bmp-dragging');
+      _persist();
+    });
+  }
+
+  // Region select
+  window._bmpSetRegion = function(r) {
+    bmpState.region = r || '';
+    const rs = BMP_REGION_SITES[bmpState.region];
+    if (rs && rs.primary && rs.primary.length) bmpState.selectedSite = rs.primary[0];
+    _updateMap(); _updateDetail();
+    _persist();
+  };
+
+  // Quick actions
+  window._bmpCopySummary = async function() {
+    const txt = _planSummary();
+    if (!txt) return;
+    try {
+      await navigator.clipboard.writeText(txt);
+      window._showNotifToast?.({ title:'Copied', body:'Plan summary copied to clipboard.', severity:'info' });
+    } catch (_) {
+      // Fallback: prompt
+      window.prompt('Copy plan summary:', txt);
+    }
+  };
+  window._bmpReset = function() {
+    localStorage.removeItem(BMP_STORAGE_KEY);
+    bmpState.region = '';
+    bmpState.protoId = '';
+    bmpState.modality = 'TMS/rTMS';
+    bmpState.lat = 'left';
+    bmpState.freq = '';
+    bmpState.intensity = '';
+    bmpState.pulses = '';
+    bmpState.duration = '';
+    bmpState.sessions = '';
+    bmpState.notes = '';
+    bmpState.selectedSite = '';
+    bmpState.view = 'clinical';
+    const rs = document.getElementById('bmp-region-sel'); if (rs) rs.value = '';
+    const ps = document.getElementById('bmp-proto-sel'); if (ps) ps.value = '';
+    const ms = document.getElementById('bmp-mod-sel');   if (ms) ms.value = bmpState.modality;
+    el.querySelectorAll('.bmp-lat-btn').forEach(function(btn) { btn.classList.toggle('bmp-lat-active', btn.dataset.lat === bmpState.lat); });
+    el.querySelectorAll('.bmp-view-btn').forEach(function(btn) { btn.classList.toggle('bmp-view-active', btn.dataset.view === bmpState.view); });
+    ['freq','intensity','pulses','duration','sessions','notes'].forEach(function(k) {
+      const id = 'bmp-param-' + k;
+      const inp = document.getElementById(id);
+      if (inp) inp.value = '';
+    });
+    _updateParams(); _updateDetail(); _updateMap();
+    _persist();
+    window._showNotifToast?.({ title:'Reset', body:'Planner reset to defaults.', severity:'info' });
+  };
+  window._bmpSavePreset = function() {
+    const name = window.prompt('Preset name (e.g., "MDD rTMS F3")', '');
+    if (!name) return;
+    const id = 'bmp_' + Math.random().toString(16).slice(2, 10);
+    const items = _loadPresets();
+    items.unshift({ id, name, state: { ...bmpState } });
+    _savePresets(items.slice(0, 50));
+    _renderPresetSelect();
+    const sel = document.getElementById('bmp-preset-sel'); if (sel) sel.value = id;
+    window._showNotifToast?.({ title:'Saved', body:`Preset saved: ${name}`, severity:'info' });
+  };
+  window._bmpLoadPreset = function(id) {
+    if (!id) return;
+    const items = _loadPresets();
+    const p = items.find(x => x.id === id);
+    if (!p || !p.state) return;
+    const s = p.state;
+    bmpState = { ...bmpState, ...s };
+    // hydrate controls
+    const rs = document.getElementById('bmp-region-sel'); if (rs) rs.value = bmpState.region || '';
+    const ps = document.getElementById('bmp-proto-sel'); if (ps) ps.value = bmpState.protoId || '';
+    const ms = document.getElementById('bmp-mod-sel');   if (ms) ms.value = bmpState.modality || 'TMS/rTMS';
+    el.querySelectorAll('.bmp-lat-btn').forEach(function(btn) { btn.classList.toggle('bmp-lat-active', btn.dataset.lat === bmpState.lat); });
+    el.querySelectorAll('.bmp-view-btn').forEach(function(btn) { btn.classList.toggle('bmp-view-active', btn.dataset.view === bmpState.view); });
+    const setVal = (key) => { const inp = document.getElementById('bmp-param-' + key); if (inp) inp.value = bmpState[key] || ''; };
+    ['freq','intensity','pulses','duration','sessions','notes'].forEach(setVal);
+    _updateParams(); _updateDetail(); _updateMap();
+    _persist();
+    window._showNotifToast?.({ title:'Loaded', body:`Preset loaded: ${p.name}`, severity:'info' });
+  };
+
+  // Keep manual parameter edits in state + persist
+  function _wireParam(id, key) {
+    const elp = document.getElementById(id);
+    if (!elp) return;
+    elp.addEventListener('input', function() {
+      bmpState[key] = String(elp.value || '');
+      _persist();
+    });
+  }
+  _wireParam('bmp-param-freq', 'freq');
+  _wireParam('bmp-param-intensity', 'intensity');
+  _wireParam('bmp-param-pulses', 'pulses');
+  _wireParam('bmp-param-duration', 'duration');
+  _wireParam('bmp-param-sessions', 'sessions');
+  _wireParam('bmp-param-notes', 'notes');
 
   // Detail panel delegated events (alt targets + linked protocols)
   const detailPanel = document.getElementById('bmp-detail-panel');
@@ -15270,6 +15702,7 @@ export async function pgBrainMapPlanner(setTopbar) {
 
   window._bmpSetModality = function(m) {
     bmpState.modality = m; _updateMap(); _updateParams();
+    _persist();
   };
 
   window._bmpSetLat = function(lat) {
@@ -15311,8 +15744,17 @@ export async function pgBrainMapPlanner(setTopbar) {
   });
 
   window._bmpSiteClick = function(name) {
+    if (!bmpState.region) {
+      const r = _inferRegionFromSite(name);
+      if (r) {
+        bmpState.region = r;
+        const rs = document.getElementById('bmp-region-sel');
+        if (rs) rs.value = r;
+      }
+    }
     bmpState.selectedSite = name;
     _updateDetail(); _updateMap(); _updateParams();
+    _persist();
   };
 
   window._bmpPrescribe   = function() { window._nav('prescriptions'); };
@@ -17287,6 +17729,7 @@ export async function pgReportsHub(setTopbar) {
   };
 
   renderPage();
+  _refreshServerCompletions().then(() => { renderPage(); }).catch(() => {});
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -18492,6 +18935,45 @@ export async function pgHomePrograms(setTopbar, navigate) {
   };
 
   const _getCompletions = pid => _ls(_compKey(pid), {});
+
+  const _refreshServerCompletionsForPid = async (pid) => {
+    try {
+      const { api: sdk } = await import('./api.js');
+      if (typeof sdk.listHomeProgramTaskCompletions !== 'function') return;
+      const rows = await sdk.listHomeProgramTaskCompletions({ patient_id: pid }).catch(() => null);
+      if (!Array.isArray(rows) || rows.length === 0) return;
+
+      const tasks = _ls(_clinKey(pid), []);
+      const byServerId = Object.create(null);
+      rows.forEach((r) => {
+        if (r && typeof r === 'object' && r.server_task_id) byServerId[r.server_task_id] = r;
+      });
+      const comps = _ls(_compKey(pid), {});
+      let changed = false;
+      tasks.forEach((t) => {
+        const sid = t?.serverTaskId;
+        if (!sid) return;
+        const row = byServerId[sid];
+        if (!row) return;
+        comps[t.id] = {
+          done: !!row.completed,
+          completedAt: row.completed_at,
+          rating: row.rating ?? undefined,
+          difficulty: row.difficulty ?? undefined,
+          notes: row.feedback_text ?? undefined,
+          media_upload_id: row.media_upload_id ?? undefined,
+          _server: true,
+        };
+        changed = true;
+      });
+      if (changed) _lsSet(_compKey(pid), comps);
+    } catch { /* non-fatal */ }
+  };
+
+  const _refreshServerCompletions = async () => {
+    const pids = _getAllKnownPids();
+    await Promise.allSettled(pids.map((pid) => _refreshServerCompletionsForPid(pid)));
+  };
 
   // ── Task type config ─────────────────────────────────────────────────────
   const TASK_TYPES = [

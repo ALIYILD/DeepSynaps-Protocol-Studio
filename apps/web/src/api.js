@@ -365,6 +365,14 @@ export const api = {
     const q = new URLSearchParams(p).toString();
     return apiFetchWithRetry(`/api/v1/home-program-tasks${q ? '?' + q : ''}`);
   },
+  /** Clinician view of patient task completions (optional patient filter: `patient_id` or `patientId`). */
+  listHomeProgramTaskCompletions: (params = {}) => {
+    const p = { ...params };
+    if (p.patientId != null && p.patient_id == null) p.patient_id = p.patientId;
+    delete p.patientId;
+    const q = new URLSearchParams(p).toString();
+    return apiFetchWithRetry(`/api/v1/home-program-tasks/completions${q ? '?' + q : ''}`);
+  },
   /**
    * Server-authoritative create (POST). Use when the task has never been persisted (`serverTaskId` absent).
    * @param {object} task
@@ -585,6 +593,13 @@ export const api = {
   portalSubmitAdherenceEvent: (data) =>
     apiFetch('/api/v1/patient-portal/adherence-events', { method: 'POST', body: JSON.stringify(data) }),
   portalHomeAdherenceSummary: () => apiFetch('/api/v1/patient-portal/home-adherence-summary'),
+
+  // ── Home Program Tasks (patient portal) ───────────────────────────────────
+  portalListHomeProgramTasks: () => apiFetch('/api/v1/patient-portal/home-program-tasks'),
+  portalCompleteHomeProgramTask: (serverTaskId, data) =>
+    apiFetch(`/api/v1/patient-portal/home-program-tasks/${encodeURIComponent(serverTaskId)}/complete`, { method: 'POST', body: JSON.stringify(data || {}) }),
+  portalGetHomeProgramTaskCompletion: (serverTaskId) =>
+    apiFetch(`/api/v1/patient-portal/home-program-tasks/${encodeURIComponent(serverTaskId)}/completion`),
 
   // ── Forms & Assessments ───────────────────────────────────────────────────
   getForms: (params = {}) => {
