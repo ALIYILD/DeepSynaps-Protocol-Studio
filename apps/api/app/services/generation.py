@@ -70,6 +70,17 @@ def generate_protocol_draft(payload: ProtocolDraftRequest, actor: AuthenticatedA
     )
     extra_warnings.extend(governance_warnings)
 
+    dr = response.device_resolution
+    if dr is not None:
+        merged_safety = list(dr.safety_checks_applied)
+        merged_safety.append("safety_engine_governance")
+        merged_safety.append("contraindication_keyword_screen")
+        dr = dr.model_copy(
+            update={
+                "safety_checks_applied": merged_safety,
+            }
+        )
+
     if extra_warnings:
         # Append to patient_communication_notes so callers can surface them
         updated_notes = list(response.patient_communication_notes) + extra_warnings
@@ -86,9 +97,18 @@ def generate_protocol_draft(payload: ProtocolDraftRequest, actor: AuthenticatedA
             approval_status_badge=response.approval_status_badge,
             off_label_review_required=response.off_label_review_required,
             disclaimers=response.disclaimers,
+            device_resolution=dr,
+            ranking_factors_applied=response.ranking_factors_applied,
+            personalization_inputs_used=response.personalization_inputs_used,
+            protocol_ranking_rationale=response.protocol_ranking_rationale,
+            structured_rules_applied=response.structured_rules_applied,
+            structured_rule_labels_applied=response.structured_rule_labels_applied,
+            structured_rule_score_total=response.structured_rule_score_total,
+            structured_rule_matches_by_protocol=response.structured_rule_matches_by_protocol,
+            personalization_why_selected_debug=response.personalization_why_selected_debug,
         )
 
-    return response
+    return response.model_copy(update={"device_resolution": dr}) if dr is not None else response
 
 
 def generate_handbook(payload: HandbookGenerateRequest, actor: AuthenticatedActor) -> HandbookGenerateResponse:

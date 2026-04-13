@@ -1,6 +1,8 @@
 README.md
 pyproject.toml
 src/deepsynaps_core_schema/__init__.py
+src/deepsynaps_core_schema/condition_package.py
+src/deepsynaps_core_schema/home_program_provenance.py
 src/deepsynaps_core_schema/models.py
 src/deepsynaps_core_schema.egg-info/PKG-INFO
 src/deepsynaps_core_schema.egg-info/SOURCES.txt

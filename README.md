@@ -15,6 +15,12 @@ DeepSynaps Studio supports evidence-based assessments, protocols, clinician hand
 - `data/imports/clinical-database` imported clinical source files
 - `data/snapshots/clinical-database` generated snapshot manifests
 - `data/backups` database backups
+- `data/conditions` authoritative condition package JSON (one file per condition)
+- `docs` governance and contributor policy notes
+
+## Condition packages (evidence and governance)
+
+See [`docs/protocol-evidence-governance-policy.md`](docs/protocol-evidence-governance-policy.md) for repo-wide rules on protocol evidence levels, downgrade/remove decisions, and required wording for clinician-facing vs patient-facing content.
 
 ## Verified production-readiness baseline
 - backend health endpoints with database + snapshot status

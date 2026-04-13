@@ -1041,3 +1041,18 @@ class LiteratureReadingList(Base):
     notes: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
     read_at: Mapped[Optional[datetime]] = mapped_column(DateTime(), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
+
+
+class ClinicianHomeProgramTask(Base):
+    """Between-session home program task assigned by a clinician (full task JSON + validated provenance)."""
+
+    __tablename__ = "clinician_home_program_tasks"
+
+    id: Mapped[str] = mapped_column(String(96), primary_key=True)
+    server_task_id: Mapped[str] = mapped_column(String(36), nullable=False, unique=True, index=True)
+    patient_id: Mapped[str] = mapped_column(String(36), ForeignKey("patients.id", ondelete="CASCADE"), nullable=False, index=True)
+    clinician_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    task_json: Mapped[str] = mapped_column(Text(), nullable=False)
+    revision: Mapped[int] = mapped_column(Integer(), nullable=False, default=1)
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))

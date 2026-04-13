@@ -1,5 +1,5 @@
 {
-  "captured_at": "2026-04-07T09:30:35.325854+00:00",
+  "captured_at": "2026-04-12T20:15:00.000000+00:00",
   "counts": {
     "assessments": 42,
     "conditions": 20,
@@ -8,7 +8,7 @@
     "governance_rules": 12,
     "modalities": 12,
     "phenotypes": 30,
-    "protocols": 32,
+    "protocols": 33,
     "sources": 30
   },
   "datasets": [
@@ -23,9 +23,9 @@
     "sources"
   ],
   "environment": "development",
-  "persisted_snapshot_id": "clinical-f4c337a0562b",
-  "snapshot_id": "clinical-f4c337a0562b",
-  "source_hash": "f4c337a0562bf38677b5914382ae7f0edbabe0a1a0aafcd1b4f509525e4d865a",
+  "persisted_snapshot_id": "clinical-33dd6280f937",
+  "snapshot_id": "clinical-33dd6280f937",
+  "source_hash": "33dd6280f9371be148d0c100e50d601b974d2376ef85998b62b3cca43bdd9fda",
   "source_root": "C:\\Users\\yildi\\DeepSynaps-Protocol-Studio\\data\\imports\\clinical-database",
-  "total_records": 201
+  "total_records": 202
 }

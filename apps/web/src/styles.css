@@ -15634,6 +15634,56 @@ details > summary::marker { display: none; }
 .hp-tpl-title { font-weight: 600; font-size: .85rem; color: var(--text); }
 .hp-tpl-meta { font-size: .75rem; color: var(--text-muted); margin: 2px 0 4px; }
 .hp-tpl-desc { font-size: .78rem; color: var(--text-muted); line-height: 1.4; }
+.hp-tpl-card-wrap .hp-card-title { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.hp-tpl-count { font-size: .72rem; font-weight: 600; padding: 2px 8px; border-radius: 8px; background: rgba(20, 184, 166, 0.12); color: var(--teal, #14b8a6); }
+.hp-tpl-toolbar { padding: 0 18px 12px; border-bottom: 1px solid var(--border); margin-bottom: 0; }
+.hp-tpl-hint { font-size: .78rem; color: var(--text-muted); line-height: 1.45; margin: 0 0 10px; max-width: 56rem; }
+.hp-tpl-filters { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.hp-tpl-filters .hp-search { flex: 1; min-width: 180px; }
+.hp-tpl-cond { font-size: .68rem; margin-bottom: 4px; line-height: 1.35; }
+.hp-tpl-cid { font-weight: 700; color: var(--teal, #14b8a6); }
+.hp-tpl-cname { color: var(--text-secondary); }
+.hp-tpl-ccat { color: var(--text-muted); font-size: .65rem; }
+.hp-tpl-reason { font-size: .72rem; color: var(--text-muted); margin-top: 6px; font-style: italic; }
+
+/* Home Programs — modal course → template suggestions */
+.hp-modal-suggest-wrap { margin-bottom: 14px; padding-bottom: 12px; border-bottom: 1px solid var(--border); }
+.hp-modal-suggest-hint { font-size: .72rem; color: var(--text-muted); margin: 0 0 8px; line-height: 1.4; }
+.hp-modal-suggest { min-height: 0; }
+.hp-suggest-chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: stretch; }
+.hp-suggest-chip {
+  display: flex; flex-direction: column; align-items: stretch; gap: 4px; max-width: 100%;
+  text-align: left; padding: 8px 10px; border-radius: 8px;
+  border: 1px solid rgba(20, 184, 166, 0.35); background: rgba(20, 184, 166, 0.06);
+  color: var(--text); font-size: .75rem; line-height: 1.35; cursor: pointer;
+  transition: border-color .12s, background .12s;
+}
+.hp-suggest-chip:hover { border-color: var(--teal, #14b8a6); background: rgba(20, 184, 166, 0.1); }
+.hp-suggest-cid { flex-shrink: 0; font-weight: 700; font-size: .68rem; color: var(--teal, #14b8a6); }
+.hp-suggest-txt { min-width: 0; word-break: break-word; font-weight: 500; }
+.hp-suggest-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: .65rem; color: var(--text-muted); }
+.hp-suggest-conf { font-variant-numeric: tabular-nums; font-weight: 700; color: var(--violet, #9b7fff); }
+.hp-suggest-method { text-transform: lowercase; opacity: 0.9; }
+.hp-suggest-src { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hp-suggest-tier { font-size: .6rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; padding: 1px 5px; border-radius: 4px; }
+.hp-suggest-tier--high { background: rgba(34, 197, 94, 0.15); color: #22c55e; }
+.hp-suggest-tier--medium { background: rgba(245, 158, 11, 0.15); color: #f59e0b; }
+.hp-suggest-tier--low { background: rgba(148, 163, 184, 0.12); color: var(--text-muted); }
+.hp-suggest-tier--unknown { background: rgba(148, 163, 184, 0.08); color: var(--text-muted); }
+.hp-suggest-more { margin-top: 8px; padding: 6px 10px; font-size: .75rem; border-radius: 8px; border: 1px dashed var(--border); background: transparent; color: var(--teal, #14b8a6); cursor: pointer; width: 100%; }
+.hp-suggest-more:hover { border-color: var(--teal, #14b8a6); background: rgba(20, 184, 166, 0.06); }
+
+.hp-modal-prov { margin-bottom: 14px; padding: 12px 14px; border-radius: 10px; border: 1px solid rgba(155, 127, 255, 0.25); background: rgba(155, 127, 255, 0.06); }
+.hp-modal-prov-title { font-size: .72rem; font-weight: 700; color: var(--violet, #9b7fff); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 8px; }
+.hp-modal-prov-dl { display: grid; grid-template-columns: 100px 1fr; gap: 4px 10px; font-size: .75rem; margin: 0; }
+.hp-modal-prov-dl dt { color: var(--text-muted); margin: 0; }
+.hp-modal-prov-dl dd { margin: 0; color: var(--text); word-break: break-word; }
+.hp-modal-prov-note { font-size: .68rem; color: var(--text-muted); margin: 10px 0 0; line-height: 1.35; }
+
+.hp-task-prov { font-size: 10px; padding: 2px 6px; border-radius: 6px; background: rgba(155, 127, 255, 0.1); color: var(--violet, #9b7fff); font-weight: 600; }
+.hp-sync-badge { font-size: 10px; padding: 2px 6px; border-radius: 6px; font-weight: 600; margin-left: 6px; }
+.hp-sync-pending { background: rgba(245, 158, 11, 0.15); color: #d97706; }
+.hp-sync-conflict { background: rgba(239, 68, 68, 0.12); color: #dc2626; }
 
 /* Modal */
 .hp-modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: 1000; display: flex; align-items: center; justify-content: center; }
@@ -15929,6 +15979,19 @@ details > summary::marker { display: none; }
 .ah2-cond-name { font-size: 13px; font-weight: 600; color: var(--text-primary, #e2e8f0); }
 .ah2-phase-pills { display: flex; flex-wrap: wrap; gap: 4px; }
 .ah2-cond-scales { font-size: 11px; color: var(--text-secondary, #94a3b8); line-height: 1.5; }
+
+/* Scale status badges (registry-driven) */
+.ah2-sb-wrap { display: inline; white-space: normal; }
+.ah2-sb-abbr { font-weight: 600; color: var(--text-primary, #e2e8f0); }
+.ah2-sb { font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; padding: 1px 5px; border-radius: 4px; margin-left: 2px; vertical-align: middle; cursor: default; }
+.ah2-sb--inapp { background: rgba(20,184,166,0.18); color: var(--teal, #14b8a6); }
+.ah2-sb--num { background: rgba(148,163,184,0.12); color: var(--text-secondary, #94a3b8); }
+.ah2-sb--clin { background: rgba(96,165,250,0.15); color: #60a5fa; }
+.ah2-sb--unk { background: rgba(245,158,11,0.12); color: var(--amber, #f59e0b); }
+.ah2-sb--gap { background: rgba(245,158,11,0.2); color: var(--amber, #f59e0b); }
+.ah2-impl-gap-wrap { margin-bottom: 12px; }
+.ah2-impl-gap-note { font-size: 11.5px; line-height: 1.45; color: var(--amber, #f59e0b); background: rgba(245,158,11,0.08); border: 1px solid rgba(245,158,11,0.25); border-radius: 8px; padding: 8px 10px; margin-bottom: 8px; }
+.ah2-cond-scale-line { font-size: 11px; color: var(--text-secondary, #94a3b8); line-height: 1.65; }
 
 .ah2-scale-count { font-size: 13px; color: var(--text-secondary, #94a3b8); margin-bottom: 16px; }
 .ah2-scale-domain { margin-bottom: 24px; }

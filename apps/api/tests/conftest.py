@@ -28,7 +28,11 @@ for source_path in SOURCE_PATHS:
     sys.path.insert(0, str(source_path))
 
 from app.database import init_database, reset_database  # noqa: E402
+from app.limiter import limiter  # noqa: E402
 from app.main import app  # noqa: E402
+
+# Functional tests issue many requests in quick succession; disable SlowAPI in test runs.
+limiter.enabled = False
 
 
 @pytest.fixture(scope="session", autouse=True)

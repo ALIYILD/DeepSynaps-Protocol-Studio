@@ -19,6 +19,8 @@ jobs:
           cache-dependency-path: package-lock.json
       - name: Install dependencies
         run: npm ci
+      - name: Web unit tests (registries)
+        run: npm run test:unit --workspace @deepsynaps/web
       - name: Build
         run: npm run build:web
       - name: Upload build artifact

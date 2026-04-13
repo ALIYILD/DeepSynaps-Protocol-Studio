@@ -1,5 +1,7 @@
 from fastapi.testclient import TestClient
 
+from app.services.clinical_data import EXPECTED_TOTAL_RECORDS
+
 
 def test_health_endpoint_returns_runtime_status(client: TestClient) -> None:
     response = client.get("/health")
@@ -8,7 +10,7 @@ def test_health_endpoint_returns_runtime_status(client: TestClient) -> None:
     payload = response.json()
     assert payload["status"] == "ok"
     assert payload["database"] == "ok"
-    assert payload["clinical_snapshot"]["total_records"] == 201
+    assert payload["clinical_snapshot"]["total_records"] == EXPECTED_TOTAL_RECORDS
 
 
 def test_healthz_alias_returns_same_payload(client: TestClient) -> None:

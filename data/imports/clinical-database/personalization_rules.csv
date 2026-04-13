@@ -1,0 +1,4 @@
+Rule_ID,Condition_ID,Modality_ID,Device_ID,Phenotype_Tag,QEEG_Tag,Preferred_Protocol_ID,Score_Delta,Rationale_Label,Active,Notes,Comorbidity_Tag,Prior_Response_Tag
+PR-001,CON-001,MOD-001,,anxious_depression_mix,,PRO-031,250,structured_prefer_anxious_depression_rtms,Y,Phenotype tag anxious_depression_mix boosts bilateral anxious-depression protocol when eligible,,
+PR-002,CON-001,MOD-001,,,frontal_alpha_asymmetry,PRO-001,240,structured_prefer_standard_rtms_after_qeeg_frontal_asymmetry,Y,QEEG tag frontal_alpha_asymmetry boosts standard L-DLPFC rTMS when eligible,,
+PR-003,CON-001,MOD-001,,anhedonia_cluster,,PRO-001,120,structured_boost_anhedonia_standard_mdd_rtms,Y,Phenotype tag anhedonia_cluster boosts standard protocol when eligible,,

@@ -3,7 +3,9 @@ from __future__ import annotations
 import csv
 import hashlib
 import json
+import os
 import re
+import warnings
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from functools import lru_cache
@@ -19,14 +21,26 @@ from deepsynaps_core_schema import (
     HandbookDocument,
     HandbookGenerateRequest,
     HandbookGenerateResponse,
+    PersonalizationWhySelectedDebug,
     ProtocolDraftRequest,
     ProtocolDraftResponse,
+    StructuredRuleFire,
 )
 
 from app.auth import AuthenticatedActor, require_minimum_role
 from app.errors import ApiServiceError
 from app.registries.shared import standard_disclaimers
 from app.repositories.clinical import get_snapshot_by_hash, upsert_seed_records, upsert_snapshot
+from app.services.clinical_protocol_coverage import assert_critical_protocol_coverage
+from app.services.personalization_governance import build_why_selected_debug_projection
+from app.services.protocol_personalization import (
+    build_phenotypes_by_id,
+    build_protocol_file_index,
+    normalize_personalization_payload,
+    personalization_lists_non_empty,
+    resolve_failed_modality_ids,
+    select_protocol_among_eligible,
+)
 from app.settings import CLINICAL_DATA_ROOT, CLINICAL_SNAPSHOT_ROOT
 
 
@@ -38,9 +52,13 @@ EXPECTED_COUNTS = {
     "conditions": 20,
     "phenotypes": 30,
     "assessments": 42,
-    "protocols": 32,
+    "protocols": 33,
     "sources": 30,
+    "personalization_rules": 3,
 }
+
+# Single source of truth for snapshot.total_records — must match sum of per-table EXPECTED_COUNTS.
+EXPECTED_TOTAL_RECORDS: int = sum(EXPECTED_COUNTS.values())
 
 PRIMARY_KEYS = {
     "evidence_levels": "Evidence_Level_ID",
@@ -52,6 +70,7 @@ PRIMARY_KEYS = {
     "assessments": "Assessment_ID",
     "protocols": "Protocol_ID",
     "sources": "Source_ID",
+    "personalization_rules": "Rule_ID",
 }
 
 DATASET_FILES = {
@@ -64,6 +83,7 @@ DATASET_FILES = {
     "assessments": "assessments.csv",
     "protocols": "protocols.csv",
     "sources": "sources.csv",
+    "personalization_rules": "personalization_rules.csv",
 }
 
 TEXT_REPLACEMENTS = {
@@ -141,8 +161,15 @@ def _normalize_modality(value: str) -> str:
         return "PBM"
     if "neurofeedback" in lowered:
         return "Neurofeedback"
-    if "rtms" in lowered or "itbs" in lowered or "tms" in lowered:
-        return "TMS"
+    # iTBS vs rTMS must stay distinct — both used to collapse to "TMS" and collide in _modality_lookup.
+    if "itbs" in lowered:
+        return "iTBS"
+    if "theta burst" in lowered or "ibts" in lowered:
+        return "iTBS"
+    if "rtms" in lowered:
+        return "rTMS"
+    if "tms" in lowered:
+        return "rTMS"
     if "dbs" in lowered:
         return "DBS"
     if "vns" in lowered:
@@ -259,6 +286,59 @@ def _find_governance_rule(bundle: ClinicalDatasetBundle, rule_name: str) -> dict
     )
 
 
+def _protocol_row_eligible_for_device(
+    protocol: dict[str, str],
+    *,
+    condition: dict[str, str],
+    modality: dict[str, str],
+    devices_by_id: dict[str, dict[str, str]],
+    requested_device: dict[str, str] | None,
+) -> bool:
+    if protocol["Condition_ID"] != condition["Condition_ID"]:
+        return False
+    if protocol["Modality_ID"] != modality["Modality_ID"]:
+        return False
+    if not protocol["Device_ID_if_specific"]:
+        return True
+    device = devices_by_id.get(protocol["Device_ID_if_specific"])
+    return (
+        device is not None
+        and requested_device is not None
+        and device["Device_ID"] == requested_device["Device_ID"]
+    )
+
+
+def _collect_eligible_protocols(
+    bundle: ClinicalDatasetBundle,
+    *,
+    condition_name: str,
+    modality_name: str,
+    device_name: str,
+) -> list[dict[str, str]]:
+    """All protocol rows matching condition/modality/device rules (may be multiple)."""
+    conditions = _condition_lookup(bundle)
+    modalities = _modality_lookup(bundle)
+    devices_by_id = _table_index(bundle, "devices", "Device_ID")
+    condition = conditions.get(_condition_key(condition_name))
+    modality = modalities.get(_modality_key(modality_name))
+    if condition is None or modality is None:
+        return []
+
+    device_lookup = _device_name_lookup(bundle)
+    requested_device = device_lookup.get(_normalize_text_key(device_name)) if device_name else None
+    eligible: list[dict[str, str]] = []
+    for protocol in bundle.tables["protocols"]:
+        if _protocol_row_eligible_for_device(
+            protocol,
+            condition=condition,
+            modality=modality,
+            devices_by_id=devices_by_id,
+            requested_device=requested_device,
+        ):
+            eligible.append(protocol)
+    return eligible
+
+
 def _find_protocol_match(
     bundle: ClinicalDatasetBundle,
     *,
@@ -266,27 +346,17 @@ def _find_protocol_match(
     modality_name: str,
     device_name: str,
 ) -> dict[str, str] | None:
-    conditions = _condition_lookup(bundle)
-    modalities = _modality_lookup(bundle)
-    devices_by_id = _table_index(bundle, "devices", "Device_ID")
-    condition = conditions.get(_condition_key(condition_name))
-    modality = modalities.get(_modality_key(modality_name))
-    if condition is None or modality is None:
+    """Legacy first-match semantics: earliest eligible row in imported CSV order."""
+    eligible = _collect_eligible_protocols(
+        bundle,
+        condition_name=condition_name,
+        modality_name=modality_name,
+        device_name=device_name,
+    )
+    if not eligible:
         return None
-
-    device_lookup = _device_name_lookup(bundle)
-    requested_device = device_lookup.get(_normalize_text_key(device_name)) if device_name else None
-    for protocol in bundle.tables["protocols"]:
-        if protocol["Condition_ID"] != condition["Condition_ID"]:
-            continue
-        if protocol["Modality_ID"] != modality["Modality_ID"]:
-            continue
-        if not protocol["Device_ID_if_specific"]:
-            return protocol
-        device = devices_by_id.get(protocol["Device_ID_if_specific"])
-        if device is not None and requested_device is not None and device["Device_ID"] == requested_device["Device_ID"]:
-            return protocol
-    return None
+    order = {p["Protocol_ID"]: i for i, p in enumerate(bundle.tables["protocols"])}
+    return min(eligible, key=lambda p: order.get(p["Protocol_ID"], 999))
 
 
 def _validate_tables(tables: dict[str, list[dict[str, str]]]) -> None:
@@ -339,12 +409,64 @@ def _validate_tables(tables: dict[str, list[dict[str, str]]]) -> None:
                 f"Protocol {protocol['Protocol_ID']} references unknown evidence grade {protocol['Evidence_Grade']}."
             )
 
+    valid_protocol_ids = {row["Protocol_ID"] for row in tables["protocols"]}
+
+    def _active_rule_flag(raw: str) -> bool:
+        return raw.strip().lower() in ("y", "yes", "true", "1", "active")
+
+    for rule in tables["personalization_rules"]:
+        rid = rule.get("Rule_ID", "").strip()
+        if not rid:
+            raise ClinicalDataValidationError("personalization_rules contains a record without Rule_ID.")
+        cid = rule.get("Condition_ID", "").strip()
+        if cid not in valid_condition_ids:
+            raise ClinicalDataValidationError(
+                f"Personalization rule {rid} references unknown condition {cid}."
+            )
+        mid = (rule.get("Modality_ID") or "").strip()
+        if mid and mid not in valid_modality_ids:
+            raise ClinicalDataValidationError(
+                f"Personalization rule {rid} references unknown modality {mid}."
+            )
+        did = (rule.get("Device_ID") or "").strip()
+        if did and did not in valid_device_ids:
+            raise ClinicalDataValidationError(
+                f"Personalization rule {rid} references unknown device {did}."
+            )
+        pref = (rule.get("Preferred_Protocol_ID") or "").strip()
+        if not pref or pref not in valid_protocol_ids:
+            raise ClinicalDataValidationError(
+                f"Personalization rule {rid} must reference a valid Preferred_Protocol_ID."
+            )
+        pt = (rule.get("Phenotype_Tag") or "").strip()
+        qt = (rule.get("QEEG_Tag") or "").strip()
+        cmt = (rule.get("Comorbidity_Tag") or "").strip()
+        prt = (rule.get("Prior_Response_Tag") or "").strip()
+        if _active_rule_flag(rule.get("Active", "")) and not pt and not qt and not cmt and not prt:
+            raise ClinicalDataValidationError(
+                f"Personalization rule {rid} is active but has no Phenotype_Tag, QEEG_Tag, Comorbidity_Tag, "
+                "or Prior_Response_Tag."
+            )
+        try:
+            delta = int((rule.get("Score_Delta") or "0").strip())
+        except ValueError:
+            raise ClinicalDataValidationError(
+                f"Personalization rule {rid} has non-integer Score_Delta."
+            )
+        lbl = (rule.get("Rationale_Label") or "").strip()
+        if _active_rule_flag(rule.get("Active", "")) and delta != 0 and not lbl:
+            raise ClinicalDataValidationError(
+                f"Personalization rule {rid} has non-zero Score_Delta but empty Rationale_Label."
+            )
+
 
 def _build_snapshot(file_paths: list[Path], tables: dict[str, list[dict[str, str]]]) -> ClinicalSnapshot:
     source_hash = _build_source_hash(file_paths)
     total_records = sum(len(records) for records in tables.values())
-    if total_records != 201:
-        raise ClinicalDataValidationError(f"Expected 201 total records but found {total_records}.")
+    if total_records != EXPECTED_TOTAL_RECORDS:
+        raise ClinicalDataValidationError(
+            f"Expected {EXPECTED_TOTAL_RECORDS} total records (sum of EXPECTED_COUNTS) but found {total_records}."
+        )
     snapshot_id = f"clinical-{source_hash[:12]}"
     counts_json = json.dumps({name: len(records) for name, records in tables.items()}, sort_keys=True)
     return ClinicalSnapshot(
@@ -371,6 +493,26 @@ def load_clinical_dataset() -> ClinicalDatasetBundle:
         for dataset_name, filename in DATASET_FILES.items()
     }
     _validate_tables(tables)
+    assert_critical_protocol_coverage(tables)
+    if os.environ.get("DEEPSYNAPS_PERSONALIZATION_REGISTRY_WARN", "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    ):
+        from app.services.protocol_personalization import diagnose_personalization_rules
+
+        diag = diagnose_personalization_rules(tables["personalization_rules"])
+        flat: list[str] = []
+        for k in sorted(diag.keys()):
+            for msg in diag[k]:
+                flat.append(f"{k}: {msg}")
+        if flat:
+            warnings.warn(
+                "Personalization registry diagnostics (non-fatal): " + "; ".join(flat[:24]),
+                UserWarning,
+                stacklevel=2,
+            )
     snapshot = _build_snapshot(file_paths, tables)
     return ClinicalDatasetBundle(tables=tables, snapshot=snapshot)
 
@@ -555,13 +697,14 @@ def generate_protocol_draft_from_clinical_data(
     payload: ProtocolDraftRequest,
     actor: AuthenticatedActor,
 ) -> ProtocolDraftResponse:
+    from app.services.protocol_device_resolution import (
+        build_device_resolution_info,
+        resolve_device_for_protocol_draft,
+    )
+
     bundle = load_clinical_dataset()
     conditions = _condition_lookup(bundle)
     modalities = _modality_lookup(bundle)
-    devices = _device_name_lookup(bundle)
-    condition = conditions.get(_condition_key(payload.condition))
-    modality = modalities.get(_modality_key(payload.modality))
-    device = devices.get(_normalize_text_key(payload.device))
 
     if payload.off_label and actor.role == "guest":
         governance_rule = _find_governance_rule(bundle, "Off-label protocol requires clinician role")
@@ -576,26 +719,82 @@ def generate_protocol_draft_from_clinical_data(
             status_code=403,
         )
 
-    if condition is None or modality is None or device is None:
+    resolved = resolve_device_for_protocol_draft(bundle, payload)
+    effective_device = resolved.device_name
+    device = resolved.device_row
+    device_resolution = build_device_resolution_info(bundle, payload, resolved)
+
+    condition = conditions.get(_condition_key(payload.condition))
+    modality = modalities.get(_modality_key(payload.modality))
+    if condition is None or modality is None:
         raise ApiServiceError(
             code="unsupported_combination",
             message="The selected protocol inputs are not available in the imported clinical database.",
-            warnings=["Verify condition, modality, and device selections against the master clinical dataset."],
+            warnings=["Verify condition and modality labels against the master clinical dataset."],
         )
 
-    if _modality_key(device["Modality"]) != _modality_key(payload.modality):
-        raise ApiServiceError(
-            code="unsupported_combination",
-            message="The selected device does not match the selected modality in the imported clinical database.",
-            warnings=["Choose a device aligned to the requested modality."],
-        )
-
-    protocol = _find_protocol_match(
+    # Eligibility is established (condition/modality in DB, device resolved). Optional qEEG/phenotype
+    # hints must only filter/rank among protocol rows already allowed here — never replace registry checks.
+    eligible = _collect_eligible_protocols(
         bundle,
         condition_name=payload.condition,
         modality_name=payload.modality,
-        device_name=payload.device,
+        device_name=effective_device,
     )
+    norm = normalize_personalization_payload(payload)
+    personalization_inputs_used = personalization_lists_non_empty(norm)
+
+    structured_rules_applied: list[str] = []
+    structured_rule_labels_applied: list[str] = []
+    structured_rule_score_total = 0
+    structured_rule_matches_by_protocol: dict[str, list[StructuredRuleFire]] = {}
+    personalization_why_selected_debug: PersonalizationWhySelectedDebug | None = None
+
+    if not eligible:
+        protocol = None
+        ranking_factors_applied: list[str] = []
+        protocol_ranking_rationale = [
+            "No eligible protocol rows for this condition/modality/device in the imported registry "
+            "(draft falls back to modality-level defaults)."
+        ]
+    else:
+        failed_ids = resolve_failed_modality_ids(
+            list(norm.prior_failed_modalities_norm),
+            bundle.tables["modalities"],
+        )
+        rank_result = select_protocol_among_eligible(
+            eligible=eligible,
+            protocol_file_index=build_protocol_file_index(bundle.tables["protocols"]),
+            phenotypes_by_id=build_phenotypes_by_id(bundle.tables),
+            failed_modality_ids=failed_ids,
+            norm=norm,
+            personalization_rules=bundle.tables["personalization_rules"],
+            condition_id=condition["Condition_ID"],
+            modality_id=modality["Modality_ID"],
+            device_id=device["Device_ID"],
+        )
+        protocol = rank_result.chosen
+        ranking_factors_applied = rank_result.ranking_factors_applied
+        protocol_ranking_rationale = rank_result.protocol_ranking_rationale
+        structured_rules_applied = rank_result.structured_rules_applied
+        structured_rule_labels_applied = rank_result.structured_rule_labels_applied
+        structured_rule_score_total = rank_result.structured_rule_score_total
+        if payload.include_structured_rule_matches_detail:
+            structured_rule_matches_by_protocol = {
+                pid: [
+                    StructuredRuleFire(
+                        rule_id=f.rule_id,
+                        score_delta=f.score_delta,
+                        rationale_label=f.rationale_label,
+                    )
+                    for f in fires
+                ]
+                for pid, fires in rank_result.structured_rule_matches_by_protocol.items()
+            }
+        if payload.include_personalization_debug:
+            personalization_why_selected_debug = PersonalizationWhySelectedDebug.model_validate(
+                build_why_selected_debug_projection(rank_result)
+            )
     evidence_label = "Emerging"
     target_region = modality["Typical_Target"]
     session_frequency = "Condition-specific cadence requires clinician review."
@@ -665,7 +864,7 @@ def generate_protocol_draft_from_clinical_data(
 
     return ProtocolDraftResponse(
         rationale=(
-            f"{payload.condition} / {payload.modality} / {payload.device} is generated from the imported clinical "
+            f"{payload.condition} / {payload.modality} / {effective_device} is generated from the imported clinical "
             "database using condition, modality, device, protocol, and governance tables."
         ),
         target_region=target_region,
@@ -682,6 +881,15 @@ def generate_protocol_draft_from_clinical_data(
             include_draft=include_draft,
             include_off_label=include_off_label,
         ),
+        device_resolution=device_resolution,
+        ranking_factors_applied=ranking_factors_applied,
+        personalization_inputs_used=personalization_inputs_used,
+        protocol_ranking_rationale=protocol_ranking_rationale,
+        structured_rules_applied=structured_rules_applied,
+        structured_rule_labels_applied=structured_rule_labels_applied,
+        structured_rule_score_total=structured_rule_score_total,
+        structured_rule_matches_by_protocol=structured_rule_matches_by_protocol,
+        personalization_why_selected_debug=personalization_why_selected_debug,
     )
 
 

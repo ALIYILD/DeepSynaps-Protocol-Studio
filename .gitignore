@@ -24,3 +24,6 @@ Thumbs.db
 # Playwright
 playwright-report/
 test-results/
+
+# Local agent tooling / worktrees
+.claude/

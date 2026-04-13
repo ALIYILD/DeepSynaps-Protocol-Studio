@@ -11,11 +11,10 @@
   "dsm_5_code": "300.02",
   "created_at": "2026-04-12",
   "updated_at": "2026-04-12",
-  "review_status": "reviewed",
-  "reviewed_by": "DeepSynaps Clinical Team",
+  "review_status": "draft",
   "condition_overview": {
-    "summary": "Generalised Anxiety Disorder (GAD) is a chronic psychiatric condition characterised by persistent, excessive, and difficult-to-control worry about a wide range of topics, accompanied by physiological and cognitive symptoms including muscle tension, restlessness, fatigue, irritability, concentration difficulties, and sleep disturbance. GAD is neurobiologically linked to hyperactivation of the amygdala and reduced prefrontal inhibitory control of the limbic system. It represents one of the most prevalent anxiety disorders in primary care and is frequently underdiagnosed and undertreated.",
-    "prevalence": "GAD has a lifetime prevalence of approximately 5–9% in Western populations and a 12-month prevalence of 2–3%. It is twice as common in females as in males and often has a chronic relapsing course. GAD is one of the most common anxiety diagnoses in primary care, with high rates of comorbid depression and somatic symptom burden.",
+    "summary": "Generalised Anxiety Disorder (GAD) is a chronic psychiatric condition characterised by persistent, excessive, and difficult-to-control worry about a wide range of topics, accompanied by physiological and cognitive symptoms including muscle tension, restlessness, fatigue, irritability, concentration difficulties, and sleep disturbance. Neuroimaging and clinical neuroscience research commonly implicate altered threat processing and prefrontal–limbic interactions, but findings are not used diagnostically. GAD is common in clinical and community settings and often co-occurs with depression and sleep problems.",
+    "prevalence": "U.S. national survey data summarized by NIMH (NCS-R, DSM-IV diagnoses) report past-year prevalence of generalized anxiety disorder of about 2.7% in adults (females 3.4%, males 1.9%) and lifetime prevalence of about 5.7%. These figures describe the surveyed era and diagnostic instrument; DSM-5 prevalence estimates may differ slightly. GAD is associated with substantial role impairment in community samples.",
     "phenotype_clusters": [
       {
         "id": "PHE-020",
@@ -66,12 +65,11 @@
     "highest_evidence_level": "EV-B",
     "relevant_modalities": [
       "ces",
-      "tms",
       "tdcs",
       "neurofeedback",
       "hrv-biofeedback"
     ],
-    "neurobiology": "GAD is characterised by hyperactivation of the amygdala-prefrontal circuit, with reduced top-down regulatory control from the ventral/medial prefrontal cortex (vmPFC) and anterior cingulate cortex (ACC) over amygdalar threat processing. ANS dysregulation with sympathetic predominance is reflected in reduced heart rate variability (HRV) — a core biofeedback target. qEEG biomarkers include elevated frontal beta (high-arousal marker), reduced posterior alpha (reflecting tonic anxiety and reduced relaxation capacity), and elevated frontal midline theta (cognitive worry). CES (cranial electrotherapy stimulation) modulates brainstem reticular formation and hypothalamic-pituitary-axis activity, producing anxiolytic effects at sub-threshold current levels.",
+    "neurobiology": "Neuroimaging and cognitive neuroscience models (widely cited in anxiety disorder reviews) emphasise altered amygdala–prefrontal regulation and attention to threat; heart rate variability often is reduced in clinical anxiety samples and is a physiologic target for HRV biofeedback training. Quantitative EEG patterns (for example relative beta or alpha metrics) are heterogeneous across individuals and are not diagnostic of GAD. Mechanisms proposed for cranial electrotherapy stimulation (CES) devices are not fully established; clinical effects, where present, require independent replication in rigorously blinded trials.",
     "comorbidities": [
       "Major depressive disorder (up to 60% lifetime comorbidity)",
       "Panic disorder",
@@ -99,7 +97,7 @@
   "patient_friendly_explanation": {
     "what_is_it": "Generalised Anxiety Disorder (GAD) is a condition where your brain gets stuck in a pattern of excessive, difficult-to-control worrying about everyday things — work, health, family, finances — even when there is no immediate threat. It is a recognised medical condition involving how your brain and nervous system regulate threat responses, not a sign of weakness or over-sensitivity.",
     "how_it_affects_you": "GAD can affect you both mentally and physically. You may find yourself worrying for hours even when you want to stop, feeling constantly on edge or tense, struggling to sleep, having muscle aches and tension headaches, feeling tired most of the time, and finding it hard to concentrate. These symptoms can interfere with work, relationships, and your overall quality of life.",
-    "treatment_options_overview": "GAD can be treated with talking therapies (especially Cognitive Behavioural Therapy — CBT), medications (SSRIs, SNRIs, buspirone), or a combination. When these are not fully effective, neuromodulation treatments can help. Cranial Electrotherapy Stimulation (CES) using the Alpha-Stim device is FDA-cleared for anxiety. CES works by delivering a very gentle electrical current to your earlobes to calm the parts of your brain and nervous system that drive anxiety. HRV biofeedback teaches your body to regulate its nervous system through controlled breathing. Neurofeedback trains your brain to produce more relaxing brain waves.",
+    "treatment_options_overview": "Clinical guidelines typically recommend evidence-based psychotherapy (especially CBT adapted for anxiety) and/or medications such as SSRIs or SNRIs for GAD; your clinician will discuss what fits your situation. Some people explore adjunctive neuromodulation or physiologic training. Cranial electrotherapy stimulation (CES) devices are marketed in some countries with regulatory clearance for anxiety/insomnia indications; effects in research trials are mixed and should be discussed honestly, including uncertainty. Heart-rate variability (HRV) biofeedback uses paced breathing with feedback to modify autonomic tone. Neurofeedback is an adjunctive option with variable evidence depending on protocol and population.",
     "what_to_expect": "If you are using Alpha-Stim CES at home, you will attach small clips to your earlobes and run a 60-minute session once daily. The sensation is very mild — most people feel nothing, or a slight tingling. The device is small and portable. A full course runs for 3–5 weeks. HRV biofeedback involves attending clinic sessions or using a home device to practise slow breathing (about 6 breaths per minute) with real-time feedback from a sensor on your finger or ear. Your clinician will monitor your progress throughout the course.",
     "faq": [
       {
@@ -200,7 +198,7 @@
       "Somatic symptom disorder (PHQ-15 if significant physical symptom burden)"
     ],
     "prior_treatment_required": [
-      "At least one adequate SSRI or SNRI trial documented (for moderate-severe GAD before neuromodulation referral)",
+      "Documentation of prior first-line treatments where clinically appropriate (commonly CBT or other structured psychotherapy, and/or SSRI/SNRI pharmacotherapy per guideline-based care)",
       "CBT engagement or documented barriers to CBT access",
       "Benzodiazepine use history and current status (reduction plan if applicable)"
     ],
@@ -488,12 +486,11 @@
       "phenotype_id": "PHE-020",
       "device_id": "DEV-CES-001",
       "on_label_vs_off_label": "On-label",
-      "evidence_grade": "EV-B",
-      "evidence_summary": "Alpha-Stim CES is FDA-cleared for anxiety, insomnia, and pain. For anxiety, the pivotal evidence base includes multiple RCTs and meta-analyses. Feusner et al. (2012) demonstrated significant GAD-7 and HAM-A reductions in GAD. Bystritsky et al. (2008) JAMA Psychiatry study showed significant improvement in GAD symptoms vs. sham. Meta-analyses (Shekelle et al., 2018 — Agency for Healthcare Research and Quality systematic review) confirm efficacy for anxiety (effect size d=0.61). The mechanism involves sub-threshold 0.5 Hz biphasic current delivered via earlobe electrodes, modulating brainstem reticular formation, HPA axis, and serotonergic systems. FDA 510(k) K133079.",
+      "evidence_grade": "EV-C",
+      "evidence_summary": "A small pilot RCT in DSM-IV GAD reported anxiety-score reductions with CES versus sham using an Alpha-Stim device (Bystritsky et al., 2008, J Clin Psychiatry). A 2018 VA Evidence Synthesis Program systematic review (Shekelle et al., publicly archived on NCBI Bookshelf) concluded RCT evidence for CES was generally at high risk of bias; overall, evidence was insufficient for clinically important effects on several outcomes, with low-strength evidence for a possible modest benefit in patients with anxiety co-occurring with depression, and CES generally appeared free of serious adverse events in reported trials. Device regulatory status (U.S. FDA Class II CES devices) does not substitute for high-certainty efficacy evidence. Mechanistic claims should be treated as tentative.",
       "references": [
-        "Bystritsky A et al. (2008). A Pilot Study of CES for Generalized Anxiety Disorder. J Clin Psychiatry, 69(3), 412–417.",
-        "Feusner JD et al. (2012). Effects of Cranial Electrotherapy Stimulation on Resting State Brain Activity. Brain Behav, 2(3), 211–220.",
-        "Shekelle PG et al. (2018). Cranial Electrotherapy Stimulation for Anxiety and Insomnia: A Systematic Review. AHRQ Comparative Effectiveness Review No. 207."
+        "Bystritsky A, Kerwin L, Feusner JD, et al. A pilot study of cranial electrotherapy stimulation for generalized anxiety disorder. J Clin Psychiatry. 2008;69(3):412-417.",
+        "Shekelle PG, Cook I, Miake-Lye IM, et al. The Effectiveness and Risks of Cranial Electrical Stimulation for the Treatment of Pain, Depression, Anxiety, PTSD, and Insomnia: A Systematic Review. Washington (DC): Department of Veterans Affairs (US); 2018 Feb. https://www.ncbi.nlm.nih.gov/books/NBK493132/"
       ],
       "brain_target": {
         "region": "Brainstem Reticular Formation / Hypothalamic-Pituitary Axis (diffuse CNS modulation via transcranial/transspinal current)",
@@ -548,18 +545,18 @@
         "GAD-7 reduction <25% at week 2: review electrode placement, current level, and daily compliance; consider increasing to 200 µA if tolerated",
         "Skin irritation at electrode sites persisting >3 days: reassess electrode placement and pressure; consider gel-based electrode covers",
         "PHQ-9 increase ≥5 points at any monitoring point: urgent clinician review — consider parallel antidepressant treatment",
-        "No improvement (GAD-7 <4 point reduction) at end of 4-week course: consider adding HRV biofeedback or neurofeedback; TMS referral for refractory cases"
+        "No improvement (GAD-7 <4 point reduction) at end of 4-week course: consider adding HRV biofeedback or neurofeedback; reassess diagnosis, medications, and guideline-based psychotherapy; refer for specialist psychiatric care if indicated"
       ],
       "patient_facing_allowed": true,
-      "clinician_review_required": false,
+      "clinician_review_required": true,
       "governance": {
         "patient_export_allowed": true,
-        "requires_clinician_sign_off": false,
+        "requires_clinician_sign_off": true,
         "off_label_acknowledgement_required": false,
         "dual_review_required": false,
-        "notes": "On-label FDA-cleared for anxiety (510(k) K133079). First-line neuromodulation for GAD. Patient export permitted. Home use permitted after initial supervised clinic session."
+        "notes": "FDA device clearance confirms marketing status, not magnitude of clinical benefit. Clinician sign-off required given modest/uncertain trial evidence per VA 2018 systematic review. Home use only after training and documented screening."
       },
-      "notes": "Alpha-Stim is the most evidence-supported CES device for anxiety. The FDA clearance specifically includes anxiety as an indication. Distinguish from TENS devices — CES uses fundamentally different parameters (sub-perceptual biphasic current) and mechanism. Efficacy is enhanced with daily adherence — irregular use produces inferior outcomes."
+      "notes": "Distinguish CES devices from conventional TENS: waveform, intensity, and intended use differ. Adherence should be tracked; benefits, when present, should be evaluated with standardized anxiety measures. Patients with pure GAD without depression were underrepresented in some CES trial syntheses."
     },
     {
       "protocol_id": "PRO-HRV-GAD-01",
@@ -568,11 +565,11 @@
       "phenotype_id": "PHE-021",
       "on_label_vs_off_label": "Off-label",
       "evidence_grade": "EV-B",
-      "evidence_summary": "HRV biofeedback using resonance frequency breathing (approximately 6 breaths per minute for most adults) has been studied in multiple RCTs for anxiety disorders including GAD. Lehrer et al. (2020) meta-analysis (19 RCTs) demonstrated significant anxiety reduction (SMD = -0.83) and depression reduction. Zucker et al. (2009) demonstrated HRV biofeedback superior to sham for GAD. The mechanism involves stimulating the baroreflex via slow breathing, increasing HRV, reducing sympathetic tone, and strengthening prefrontal inhibition of the amygdala via vagal afferents.",
+      "evidence_summary": "Meta-analyses of heart rate variability biofeedback report medium-to-large within- and between-group effect sizes for self-reported stress and anxiety across heterogeneous RCTs (Goessl et al., 2017, Psychol Med). A broader systematic review/meta-analysis of HRV biofeedback RCTs (Lehrer et al., 2020, Appl Psychophysiol Biofeedback) reported benefits across outcomes, with caveats that inactive-control comparisons can inflate apparent effects. Evidence specific to DSM-defined GAD as the sole diagnosis is thinner than the general anxiety-symptoms literature. Mechanisms commonly invoked (baroreflex/resonance breathing) are biologically plausible but not fully proven in clinical trials.",
       "references": [
-        "Lehrer PM & Gevirtz R (2014). Heart Rate Variability Biofeedback: How and Why Does It Work? Front Psychol, 5, 756.",
-        "Zucker TL et al. (2009). The Effects of Respiratory Sinus Arrhythmia Biofeedback on Heart Rate Variability and Posttraumatic Stress Disorder Symptoms. Appl Psychophysiol Biofeedback, 34(2), 135–143.",
-        "Goessl VC et al. (2017). The Effect of Heart Rate Variability Biofeedback Training on Stress and Anxiety: A Meta-Analysis. Psychol Med, 47(15), 2578–2586."
+        "Goessl VC, Curtiss J, Hofmann SG. The effect of heart rate variability biofeedback training on stress and anxiety: a meta-analysis. Psychol Med. 2017;47(15):2578-2586.",
+        "Lehrer PM, Gevirtz R. Heart rate variability biofeedback: how and why does it work? Front Psychol. 2014;5:776.",
+        "Lehrer PM, Kaur K, Sharma A, Shah K, Huseby R, Bhavsar J, Sgobba P, Zhang Y. Heart Rate Variability Biofeedback Improves Emotional and Physical Health and Performance: A Systematic Review and Meta Analysis. Appl Psychophysiol Biofeedback. 2020;45(3):109-129."
       ],
       "brain_target": {
         "region": "Prefrontal Cortex — Amygdala Circuit (via vagal afferent stimulation)",
@@ -731,7 +728,7 @@
       "manufacturer": "Electromedical Products International (USA)",
       "modality_slug": "ces",
       "regulatory_status": "FDA-cleared",
-      "cleared_indication": "FDA 510(k) K133079 cleared for anxiety, insomnia, and pain. Also K871610 for earlier model.",
+      "cleared_indication": "U.S. FDA Class II cranial electrotherapy stimulator devices have been cleared via the 510(k) pathway (substantial equivalence to predicate devices). Exact indications, contraindications, and device identifiers are stated on manufacturer labeling and FDA device listings — verify for the specific model and software version in use.",
       "use_setting": "Hybrid",
       "compatible_protocols": [
         "PRO-CES-GAD-01"
@@ -742,7 +739,7 @@
         "Start at minimum current (50 µA) for first session; titrate upward",
         "Device should not be used while driving or operating machinery"
       ],
-      "notes": "Alpha-Stim M is a prescription device in some jurisdictions. The M model includes current range 50–500 µA and is the current FDA-cleared model for anxiety."
+      "notes": "Prescription status varies by jurisdiction. Confirm local regulatory labeling, indications, and contraindications before patient-facing claims."
     },
     {
       "device_id": "DEV-HRV-001",
@@ -786,14 +783,14 @@
       "region": "Brainstem Reticular Formation / Hypothalamic-Pituitary-Adrenal Axis",
       "abbreviation": "Reticular Formation / HPA",
       "laterality": "Bilateral",
-      "rationale": "CES at 0.5 Hz is postulated to modulate brainstem reticular formation activity and HPA axis function, reducing cortisol stress response and increasing serotonin availability. The sub-perceptual current delivered via earlobe clips may also modulate vagal nerve activity.",
+      "rationale": "CES devices deliver low-intensity currents via cranial/auricular electrodes; proposed mechanisms (brainstem/HPA/autonomic modulation) remain incompletely validated in humans and should not be overstated.",
       "effect_direction": "Inhibitory",
       "modalities": [
         "ces"
       ],
       "eeg_position_10_20": "N/A",
       "network": "Autonomic Nervous System / HPA Axis",
-      "evidence_note": "Mechanism hypothesised from animal studies and neuroimaging of CES effects. Feusner et al. (2012) demonstrated CES effects on resting-state functional connectivity in ACC and default mode network."
+      "evidence_note": "Mechanistic understanding of CES in humans is limited; imaging studies exist but do not establish clinical efficacy."
     },
     {
       "region": "Posterior Parieto-Occipital Cortex",
@@ -817,8 +814,7 @@
       "rationale": "GAD involves reduced vmPFC inhibitory control over the hyperactive amygdala. HRV biofeedback strengthens this top-down regulatory circuit via baroreflex stimulation and vagal afferent input to the vmPFC. The resonance frequency breathing optimises baroreflex gain and parasympathetic tone.",
       "effect_direction": "Normalise",
       "modalities": [
-        "hrv-biofeedback",
-        "tms"
+        "hrv-biofeedback"
       ],
       "eeg_position_10_20": "Fpz / F3 / F4 (approximate)",
       "brodmann_area": "BA 10, 11, 32",
@@ -837,9 +833,9 @@
           "title": "Condition Overview and Neurobiological Rationale",
           "content": [
             "GAD involves amygdala hyperactivation with reduced vmPFC inhibitory control, ANS dysregulation (low HRV, sympathetic dominance), and qEEG biomarkers of elevated frontal beta and reduced posterior alpha.",
-            "Evidence hierarchy: Alpha-Stim CES (EV-B, FDA-cleared for anxiety — first-line); HRV biofeedback (EV-B, off-label — excellent for somatic/hyperarousal phenotype); Neurofeedback alpha (EV-C, off-label — cognitive worry phenotype).",
-            "TMS evidence for GAD is limited and mostly derived from comorbid MDD/anxiety populations — not included as standard protocol.",
-            "Phenotype-informed protocol selection: High arousal → CES; Somatic anxiety → HRV biofeedback; Cognitive worry → Neurofeedback; Mixed → CES + HRV biofeedback combination."
+            "Evidence hierarchy (this package): HRV biofeedback meta-analytic support for anxiety symptoms is relatively stronger than CES trial evidence, but both are adjunctive and heterogeneous (see protocol evidence summaries). Alpha-Stim CES is FDA device-cleared in the U.S.; regulatory clearance is not the same as large-effect, low-bias RCT evidence (VA 2018 systematic review). Neurofeedback remains emerging/off-label.",
+            "No transcranial magnetic stimulation protocol is included here; evidence and labeling for GAD are not treated as established in this package.",
+            "Phenotype-informed protocol selection remains pragmatic: high arousal may suit CES or HRV; somatic emphasis may suit HRV; cognitive worry emphasis may suit neurofeedback adjuncts — all require clinician judgment."
           ]
         },
         {
@@ -849,7 +845,7 @@
             "Step 1: Confirm GAD-7 ≥10 (moderate+) and DSM-5 GAD diagnosis.",
             "Step 2: Safety screen — pacemaker (contraindication for CES), cardiac arrhythmia (relative for HRV biofeedback), seizure history.",
             "Step 3: Identify predominant phenotype using HAM-A subscales (psychic vs. somatic) and clinical interview.",
-            "Step 4: First-line → PRO-CES-GAD-01 (Alpha-Stim) for most GAD presentations.",
+            "Step 4: Discuss adjunct options — PRO-CES-GAD-01 (CES) and/or PRO-HRV-GAD-01 (HRV biofeedback) based on phenotype, safety screen, patient preference, and local access.",
             "Step 5: Add PRO-HRV-GAD-01 for somatic/hyperarousal phenotype or poor CES response.",
             "Step 6: PRO-NF-GAD-01 as adjunct when qEEG confirms posterior alpha deficit and cognitive worry is primary."
           ]
@@ -886,8 +882,8 @@
           "title": "Understanding Your Treatment",
           "content": [
             "Your treatment uses two complementary approaches to calm your nervous system: Alpha-Stim CES (a gentle electrical device you use at home) and/or HRV biofeedback (a breathing training technique).",
-            "Both are safe, non-invasive, and have been studied in people with anxiety disorders.",
-            "Alpha-Stim CES is cleared by the US FDA specifically for anxiety — it is not experimental."
+            "Both are generally non-invasive and have been evaluated in research, but benefits vary by person and study quality differs.",
+            "CES devices such as Alpha-Stim have U.S. FDA device clearance for certain indications; clearance means the device may be marketed for those indications — it does not guarantee that you will respond."
           ]
         },
         {
@@ -1302,7 +1298,7 @@
         "Active earlobe skin infection or wound — hold session, contact clinic",
         "Feeling significantly more depressed, anxious, or having thoughts of self-harm — call clinic or emergency services"
       ],
-      "evidence_note": "FDA-cleared for home use following initial clinic training. Daily CES adherence is strongly associated with better outcomes. Home use is a core element of the Alpha-Stim treatment model."
+      "evidence_note": "Home use should follow manufacturer instructions and clinic training. Trial evidence for CES is modest/uncertain overall; adherence should be paired with objective outcome tracking (e.g., GAD-7)."
     }
   ],
   "consent_documents": [
@@ -1313,7 +1309,7 @@
       "when_required": "Before first session",
       "key_disclosures": [
         "GAD diagnosis confirmed and neuromodulation treatment plan discussed",
-        "Alpha-Stim CES is FDA-cleared for anxiety (510(k) K133079)",
+        "CES devices used here are FDA-regulated cranial electrotherapy stimulators; verify the exact device labeling for indications and risks",
         "Treatment involves daily 60-minute CES sessions and/or clinic-based HRV biofeedback",
         "Common side effects of CES: mild tingling at electrode sites, rare dizziness",
         "CES is contraindicated with cardiac pacemakers — confirmed absent",
@@ -1370,10 +1366,10 @@
       "when_required": "Before first session of PRO-HRV-GAD-01 or PRO-NF-GAD-01",
       "key_disclosures": [
         "HRV biofeedback and neurofeedback are not FDA-cleared specifically for GAD treatment",
-        "These protocols are used off-label based on published scientific evidence (EV-B and EV-C level)",
-        "The evidence supports efficacy for anxiety symptoms but does not meet the standard of FDA-cleared treatments",
+        "These protocols are used off-label based on published scientific literature with heterogeneous quality (see protocol evidence grades)",
+        "Benefits are not guaranteed; evidence for GAD specifically may be weaker than for anxiety symptoms in general",
         "A clinician has discussed the evidence base, alternatives, and risks with me",
-        "An FDA-cleared option (Alpha-Stim CES) is available and has been discussed"
+        "Where applicable, FDA-cleared CES devices have been discussed as a separate adjunct option with their own evidence limitations"
       ],
       "signature_required": true,
       "witness_required": false,

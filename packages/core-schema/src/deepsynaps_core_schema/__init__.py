@@ -37,6 +37,12 @@ from .condition_package import (
     SpecialPopulationFlag,
     SpecialPopulationIntake,
 )
+from .home_program_provenance import (
+    HomeProgramSelection,
+    confidence_tier_from_score,
+    parse_home_program_selection,
+    patient_safe_home_program_selection,
+)
 from .models import (
     ApprovalBadge,
     AssessmentPlan,
@@ -51,6 +57,7 @@ from .models import (
     DeviceListResponse,
     DeviceProfile,
     DeviceRecord,
+    DeviceResolutionInfo,
     DisclaimerSet,
     ErrorResponse,
     EvidenceListResponse,
@@ -64,8 +71,15 @@ from .models import (
     IntakePreviewResponse,
     IntakeSummary,
     ModalityProfile,
+    PersistedPersonalizationExplainability,
+    PersonalizationRulesReviewResponse,
+    PersonalizationWhySelectedDebug,
+    PERSISTED_PERSONALIZATION_EXPLAINABILITY_MAX_TOP_PROTOCOLS,
     ProtocolDraftRequest,
     ProtocolDraftResponse,
+    RankedDeviceCandidate,
+    StructuredRuleFire,
+    TopProtocolStructuredScore,
     ProtocolPlan,
     QEEGBiomarker,
     QEEGBiomarkerListResponse,
@@ -82,6 +96,10 @@ from .models import (
 )
 
 __all__ = [
+    "HomeProgramSelection",
+    "confidence_tier_from_score",
+    "parse_home_program_selection",
+    "patient_safe_home_program_selection",
     # condition_package exports
     "AbsoluteContraindication",
     "AdherenceRules",
@@ -134,6 +152,7 @@ __all__ = [
     "DeviceListResponse",
     "DeviceProfile",
     "DeviceRecord",
+    "DeviceResolutionInfo",
     "DisclaimerSet",
     "ErrorResponse",
     "EvidenceListResponse",
@@ -147,9 +166,16 @@ __all__ = [
     "IntakePreviewResponse",
     "IntakeSummary",
     "ModalityProfile",
+    "PersistedPersonalizationExplainability",
+    "PERSISTED_PERSONALIZATION_EXPLAINABILITY_MAX_TOP_PROTOCOLS",
+    "PersonalizationRulesReviewResponse",
+    "PersonalizationWhySelectedDebug",
     "ProtocolDraftRequest",
     "ProtocolDraftResponse",
     "ProtocolPlan",
+    "RankedDeviceCandidate",
+    "StructuredRuleFire",
+    "TopProtocolStructuredScore",
     "QEEGBiomarker",
     "QEEGBiomarkerListResponse",
     "QEEGConditionMap",

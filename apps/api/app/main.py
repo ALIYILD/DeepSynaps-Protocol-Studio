@@ -50,6 +50,7 @@ from app.routers.chat_router import router as chat_router
 from app.routers.registries_router import router as registries_router
 from app.routers.telegram_router import router as telegram_router
 from app.routers.export_router import router as export_router
+from app.routers.personalization_router import router as personalization_router
 from app.routers.patients_router import router as patients_router
 from app.routers.payments_router import router as payments_router
 from app.routers.sessions_router import router as sessions_router
@@ -69,6 +70,7 @@ from app.routers.home_device_portal_router import router as home_device_portal_r
 from app.routers.forms_router import router as forms_router
 from app.routers.medications_router import router as medications_router
 from app.routers.consent_management_router import router as consent_management_router
+from app.routers.home_program_tasks_router import router as home_program_tasks_router
 from app.routers.reminders_router import router as reminders_router
 from app.routers.irb_router import router as irb_router
 from app.routers.evidence_router import router as evidence_router
@@ -117,6 +119,7 @@ app = FastAPI(title=settings.api_title, version=settings.api_version, lifespan=l
 app.include_router(auth_router)
 app.include_router(payments_router)
 app.include_router(export_router)
+app.include_router(personalization_router)
 app.include_router(patients_router)
 app.include_router(sessions_router)
 app.include_router(assessments_router)
@@ -139,6 +142,7 @@ app.include_router(home_device_portal_router)
 app.include_router(forms_router)
 app.include_router(medications_router)
 app.include_router(consent_management_router)
+app.include_router(home_program_tasks_router)
 app.include_router(reminders_router)
 app.include_router(irb_router)
 app.include_router(literature_router)
@@ -265,8 +269,13 @@ async def api_service_error_handler(
     _request: Request,
     exc: ApiServiceError,
 ) -> JSONResponse:
-    payload = ErrorResponse(code=exc.code, message=exc.message, warnings=exc.warnings)
-    return JSONResponse(status_code=exc.status_code, content=payload.model_dump())
+    payload = ErrorResponse(
+        code=exc.code,
+        message=exc.message,
+        warnings=exc.warnings,
+        details=exc.details,
+    )
+    return JSONResponse(status_code=exc.status_code, content=payload.model_dump(exclude_none=True))
 
 
 @app.exception_handler(RequestValidationError)
@@ -349,7 +358,11 @@ def case_summary(
 @app.post(
     "/api/v1/protocols/generate-draft",
     response_model=ProtocolDraftResponse,
-    responses={403: {"model": ErrorResponse}, 422: {"model": ErrorResponse}},
+    responses={
+        403: {"model": ErrorResponse},
+        409: {"model": ErrorResponse},
+        422: {"model": ErrorResponse},
+    },
 )
 @limiter.limit("10/minute")
 def protocol_draft(

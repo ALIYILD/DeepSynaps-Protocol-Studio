@@ -22,7 +22,8 @@ def test_protocol_draft_generation_valid_supported_combination(
     assert response.status_code == 200
     payload = response.json()
     assert payload["approval_status_badge"] == "clinician-reviewed draft"
-    assert "Parkinson's disease / TPS / NEUROLITH" in payload["rationale"]
+    assert "Parkinson's disease / TPS /" in payload["rationale"]
+    assert "Neurolith" in payload["rationale"]
     assert payload["off_label_review_required"] is True
 
 
@@ -93,7 +94,7 @@ def test_protocol_draft_unsupported_combination(
 
     assert response.status_code == 422
     payload = response.json()
-    assert payload["code"] == "unsupported_combination"
+    assert payload["code"] == "invalid_device"
 
 
 def test_handbook_generation_requires_clinician_or_admin(

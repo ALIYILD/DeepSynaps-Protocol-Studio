@@ -9,12 +9,11 @@
   "dsm_5_code": "307.42",
   "created_at": "2026-04-12",
   "updated_at": "2026-04-12",
-  "review_status": "reviewed",
-  "reviewed_by": "DeepSynaps Clinical Team",
+  "review_status": "draft",
 
   "condition_overview": {
     "summary": "Insomnia Disorder is characterised by persistent difficulty initiating or maintaining sleep, or early morning awakening with inability to return to sleep, occurring at least three nights per week for at least three months, causing clinically significant daytime impairment. It is classified as either primary or comorbid (secondary) and is strongly associated with hyperarousal of the central nervous system. Cognitive Behavioural Therapy for Insomnia (CBT-I) remains the first-line treatment; neuromodulation is adjunctive or for cases where CBT-I is insufficient.",
-    "prevalence": "Approximately 10–15% of adults meet criteria for chronic insomnia disorder; up to 30% report occasional insomnia symptoms. Higher prevalence in women, older adults, those with psychiatric or chronic medical conditions.",
+    "prevalence": "Epidemiologic estimates depend heavily on whether studies count insomnia symptoms versus insomnia disorder and which criteria are used. Narrative reviews and population surveys commonly report chronic insomnia disorder in roughly single-digit to low–double-digit percentages of adults, with higher rates of occasional symptoms; women, older adults, and people with psychiatric or medical comorbidity are often over-represented.",
     "phenotype_clusters": [
       {
         "id": "PHE-INS-01",
@@ -63,17 +62,16 @@
       "Cognitive difficulties related to poor sleep (attention, memory, decision-making)",
       "Emotional consequences of poor sleep (irritability, mood lability, anxiety about sleep)"
     ],
-    "highest_evidence_level": "EV-B",
+    "highest_evidence_level": "EV-C",
     "relevant_modalities": [
       "ces",
       "neurofeedback",
-      "tdcs",
-      "tavns"
+      "tdcs"
     ],
-    "neurobiology": "Insomnia is maintained by hyperarousal of the ascending arousal system — involving the locus coeruleus (noradrenaline), dorsal raphe (serotonin), and hypothalamic orexin circuits — that fails to adequately down-regulate at sleep onset. Cortically, elevated high-frequency EEG (beta, gamma) activity during NREM sleep reflects a failure of cortical inhibition. The sensorimotor rhythm (SMR, 12–15 Hz) generated at the sensorimotor cortex (Cz) correlates with sleep spindle production and is a key neurofeedback target for sleep architecture normalisation. The right DLPFC is implicated in hyperarousal and anxiety-driven insomnia, making it a tDCS target for hyperarousal subtypes.",
+    "neurobiology": "Contemporary models emphasise conditioned arousal, cognitive/hyperarousal, circadian and homeostatic dysregulation, and heterogeneity across individuals. Polysomnographic and EEG findings vary; elevated beta or altered sigma/spindle measures may be seen in some patients but are not diagnostic. Proposed brain targets for adjunctive neuromodulation (e.g., sensorimotor rhythm training at Cz; prefrontal tDCS montages) are mechanistic hypotheses supported by small trials at best — not established pathways like CBT-I.",
     "comorbidities": [
-      "Generalised anxiety disorder (40–60% comorbidity with insomnia)",
-      "Major depressive disorder (40–60% comorbidity)",
+      "Generalised anxiety disorder (commonly co-occurs with insomnia)",
+      "Major depressive disorder (commonly co-occurs with insomnia)",
       "Chronic pain conditions",
       "Obstructive sleep apnoea (frequently co-occurring; must be ruled out before neuromodulation)",
       "ADHD (delayed sleep phase, difficulty with sleep initiation)",
@@ -96,7 +94,7 @@
   "patient_friendly_explanation": {
     "what_is_it": "Insomnia is when you regularly have trouble falling asleep, staying asleep, or waking up too early and not being able to get back to sleep. This happens even when you have enough time and opportunity for sleep, and it leaves you feeling tired and not functioning well during the day.",
     "how_it_affects_you": "Poor sleep affects almost every part of life. You may feel exhausted but still unable to sleep. You might find it hard to concentrate at work, feel more irritable or low in mood, and worry more about your sleep as time goes on — which can make the problem worse. Over time, chronic insomnia can affect your physical health, memory, and emotional wellbeing.",
-    "treatment_options_overview": "The most effective treatment for insomnia is a type of talking therapy called CBT-I (Cognitive Behavioural Therapy for Insomnia). For people who need more help, certain brain stimulation and brain training techniques can be used alongside CBT-I. CES (Cranial Electrotherapy Stimulation) using the Alpha-Stim device is specifically approved for insomnia and involves very gentle electrical signals delivered through ear clips. Neurofeedback is a brain training approach that helps train your brain to produce sleep-promoting brain activity.",
+    "treatment_options_overview": "Clinical practice guidelines (for example the American Academy of Sleep Medicine) strongly recommend multicomponent CBT-I as a first-line treatment for chronic insomnia in adults. Some people also explore adjunctive devices. Cranial electrotherapy stimulation (CES) devices may be marketed with regulatory clearance in some regions; clinical trial evidence summarized in a 2018 VA systematic review was insufficient to conclude clinically important effects on insomnia specifically, despite device availability. Neurofeedback approaches are not first-line and remain adjunctive/experimental for many patients.",
     "what_to_expect": "CES treatment involves wearing small ear clip electrodes for about 60 minutes each evening before bed. It is painless and many people find it relaxing. Neurofeedback involves attending clinic sessions 2 times per week for several weeks, where sensors on your head provide real-time feedback about your brain activity. Your clinician will track your sleep quality using questionnaires throughout your treatment.",
     "faq": [
       {
@@ -117,7 +115,7 @@
       },
       {
         "question": "Are there any risks?",
-        "answer": "CES is very safe and has been FDA-cleared for insomnia. Side effects are uncommon and usually mild — some people notice a slight tingling or headache. Neurofeedback is completely non-invasive. Your clinician will review your medical history to confirm the best option for you."
+        "answer": "CES devices are generally considered low risk when used as directed, and many people only notice mild tingling. Regulatory clearance (for example FDA device clearance in the U.S.) reflects safety/marketing status for a device class; it does not guarantee you will benefit. Neurofeedback is non-invasive but requires sessions and training. Your clinician will review your history and discuss realistic expectations."
       }
     ]
   },
@@ -268,7 +266,7 @@
       {
         "condition": "Severe anxiety disorder not in treatment",
         "rationale": "Anxiety-driven hyperarousal is a primary driver of insomnia in this phenotype. Neuromodulation without anxiety treatment may have limited effectiveness.",
-        "mitigation": "Initiate anxiety treatment (pharmacological or CBT) before or concurrently. Consider CES which has FDA clearance for both anxiety and insomnia. Document joint treatment plan."
+        "mitigation": "Initiate anxiety treatment (pharmacological or CBT) before or concurrently. CES may be discussed as an adjunct; evidence quality should not be overstated. Document joint treatment plan."
       },
       {
         "condition": "Long-term benzodiazepine or Z-drug dependence",
@@ -497,12 +495,11 @@
       "phenotype_id": "PHE-INS-01",
       "device_id": "DEV-CES-001",
       "on_label_vs_off_label": "On-label",
-      "evidence_grade": "EV-B",
-      "evidence_summary": "Alpha-Stim CES is FDA-cleared for insomnia (and anxiety and depression). Multiple controlled trials and a 2014 meta-analysis (Kirsch & Nichols) support efficacy for insomnia — reducing sleep onset latency and improving sleep quality. A systematic review (Shekelle et al., 2018, AHRQ) found moderate-quality evidence for insomnia. CES appears to act via modulation of cortical alpha and serotonin/noradrenaline systems. Classified EV-B: multiple controlled trials support use; FDA clearance on-label for insomnia.",
+      "evidence_grade": "EV-C",
+      "evidence_summary": "U.S. FDA Class II cranial electrotherapy stimulator devices (including commonly used insomnia indications on labeling) are available, but regulatory clearance is not equivalent to large-effect, low-bias efficacy evidence. A 2018 VA Evidence Synthesis Program systematic review (Shekelle et al., NCBI Bookshelf) concluded evidence was insufficient to support conclusions that CES has clinically important effects on insomnia (and several other endpoints), with most RCTs at high risk of bias; it reported low-strength evidence for possible modest benefit mainly in anxiety with depression, and CES appeared largely free of serious adverse events in available reports. Narrative reviews (e.g., Kirsch & Nichols, 2014, Psychiatr Clin North Am) summarize manufacturer-associated and older trials — interpret cautiously. Mechanistic statements should remain tentative.",
       "references": [
-        "Kirsch DL & Nichols F (2014). Cranial Electrotherapy Stimulation for Treatment of Anxiety, Depression, and Insomnia. Psychiatric Clinics of North America, 37(1), 131–168.",
-        "Shekelle P et al. (2018). Cranial Electrotherapy Stimulation for Veterans with Anxiety, Depression, or Insomnia. Department of Veterans Affairs Evidence-based Synthesis Program (AHRQ).",
-        "Lichtbroun AS et al. (2001). The Treatment of Fibromyalgia with Cranial Electrotherapy Stimulation. J Clin Rheumatol, 7(2), 72–78."
+        "Shekelle PG, Cook I, Miake-Lye IM, et al. The Effectiveness and Risks of Cranial Electrical Stimulation for the Treatment of Pain, Depression, Anxiety, PTSD, and Insomnia: A Systematic Review. Washington (DC): Department of Veterans Affairs (US); 2018 Feb. https://www.ncbi.nlm.nih.gov/books/NBK493132/",
+        "Kirsch DL, Nichols F. Cranial electrotherapy stimulation for treatment of anxiety, depression, and insomnia. Psychiatr Clin North Am. 2014;37(1):131-168."
       ],
       "brain_target": {
         "region": "Bilateral cortical and subcortical networks via transcranial low-level current",
@@ -547,15 +544,15 @@
         "New onset of suicidal ideation (PHQ-9 item 9): immediate clinician review; treat depression concurrently"
       ],
       "patient_facing_allowed": true,
-      "clinician_review_required": false,
+      "clinician_review_required": true,
       "governance": {
         "patient_export_allowed": true,
-        "requires_clinician_sign_off": false,
+        "requires_clinician_sign_off": true,
         "off_label_acknowledgement_required": false,
         "dual_review_required": false,
-        "notes": "EV-B, FDA-cleared on-label for insomnia. Patient export permitted. No off-label acknowledgement required. Home use after training session confirmed."
+        "notes": "Device labeling (on-label vs off-label) differs from strength of clinical trial evidence. Clinician sign-off required given VA 2018 systematic review conclusions. Document CBT-I discussion/referral per AASM-style practice. Home use only after screening and training."
       },
-      "notes": "First-line neuromodulation for insomnia. Must be offered alongside or after CBT-I. Suitable for home use after one clinic training session. Alpha-Stim AID device has FDA 510(k) clearance for insomnia (and anxiety, depression). Simple patient operation with low adverse event profile. Best suited to sleep onset and maintenance phenotypes. Include CBT-I in treatment plan documentation."
+      "notes": "Use as an adjunct after documenting discussion of first-line CBT-I per contemporary sleep-medicine guidelines. Trial evidence for CES in insomnia is not robust in independent systematic review — track outcomes with ISI/sleep diary. Verify manufacturer IFU for device-specific parameters."
     },
     {
       "protocol_id": "PRO-NF-INS-01",
@@ -627,10 +624,9 @@
       "phenotype_id": "PHE-INS-03",
       "on_label_vs_off_label": "Off-label",
       "evidence_grade": "EV-C",
-      "evidence_summary": "Cathodal tDCS over the right DLPFC reduces cortical excitability and may attenuate hyperarousal-driven insomnia, particularly in the anxiety-insomnia phenotype. Emerging evidence from small proof-of-concept studies (Frase et al., 2016; Lustenberger et al., 2012) supports subjective and objective sleep improvement. The mechanism involves inhibitory modulation of right prefrontal hyperactivation associated with pre-sleep cognitive arousal. Evidence is EV-C — no large RCT completed as of 2026. Suitable for hyperarousal subtype only; not first-line for other insomnia phenotypes.",
+      "evidence_summary": "This protocol uses cathodal right DLPFC tDCS as a **hypothesis-based, off-label** approach for hyperarousal-predominant insomnia. Prior references embedded here were incorrect (unrelated animal/creativity studies) and have been removed. Human insomnia tDCS literature includes small pilots and newer trials using **different montages/stimulation types** (for example high-definition tDCS targeting medial prefrontal regions). Li et al. (2025, Sci Rep) reported a randomized sham-controlled trial of HD-tDCS in chronic insomnia with PSQI and PSG changes — **this does not validate the specific cathodal R-DLPFC conventional montage in this template.** Evidence grade remains EV-C: exploratory, clinician-directed, not standard care.",
       "references": [
-        "Frase L et al. (2016). Dose-dependent effects of transcranial alternating current stimulation on spike-wave discharges and motor function in genetic absence epilepsy rats from Strasbourg. Brain Stimulation, 9(6), 822–829.",
-        "Lustenberger C et al. (2012). Functional role of frontal alpha oscillations in creativity. Cortex, 67, 74–82."
+        "Li J, Li A, Jiao J, et al. Effects of high-definition transcranial direct current stimulation for the treatment of chronic insomnia: a randomized, double-blind, controlled trial. Sci Rep. 2025. https://doi.org/10.1038/s41598-025-09304-4"
       ],
       "brain_target": {
         "region": "Right Dorsolateral Prefrontal Cortex",
@@ -697,7 +693,7 @@
       "manufacturer": "Electromedical Products International (EPI)",
       "modality_slug": "ces",
       "regulatory_status": "FDA-cleared",
-      "cleared_indication": "FDA 510(k) cleared for anxiety, depression, and insomnia",
+      "cleared_indication": "U.S. FDA Class II cranial electrotherapy stimulator devices are typically cleared via 510(k) substantial equivalence; confirm insomnia/anxiety/depression indications and contraindications on the manufacturer labeling for the exact model issued.",
       "use_setting": "Hybrid",
       "compatible_protocols": ["PRO-CES-INS-01"],
       "constraints": [
@@ -706,7 +702,7 @@
         "Do not use with implanted cardiac devices",
         "Do not use while operating machinery or driving"
       ],
-      "notes": "Primary recommended device for insomnia CES protocol. FDA-cleared on-label for insomnia. Widely studied in published literature. Available by prescription in USA. Suitable for home use after clinic training."
+      "notes": "Confirm prescription/status and IFU for your jurisdiction. Efficacy evidence should be discussed using independent systematic reviews, not device marketing alone."
     },
     {
       "device_id": "DEV-NF-INS-001",
@@ -767,7 +763,7 @@
       "brodmann_area": "BA46 / BA9",
       "network": "Central Executive Network",
       "qeeg_target": "Reduce right frontal high-frequency beta (20–30 Hz) activity during pre-sleep period",
-      "evidence_note": "Emerging evidence (EV-C) for cathodal right DLPFC tDCS in hyperarousal insomnia. Mechanism well-grounded in hyperarousal neurobiological model of insomnia."
+      "evidence_note": "Montage-specific evidence for insomnia is limited; Li et al. 2025 uses HD-tDCS over DMPFC, not this sponge-montage protocol — treat as exploratory."
     },
     {
       "region": "Bilateral Cortex via Ear Clip Electrodes (CES Pathway)",
@@ -780,7 +776,7 @@
       "brodmann_area": "N/A",
       "network": "Ascending Arousal System / Thalamocortical Network",
       "qeeg_target": "Increase resting alpha (8–12 Hz); reduce pre-sleep beta (20–30 Hz)",
-      "evidence_note": "FDA-cleared for insomnia. Multiple controlled trials support Alpha-Stim CES for insomnia — EV-B."
+      "evidence_note": "Regulatory clearance ≠ robust efficacy evidence for insomnia; see Shekelle et al. 2018 VA systematic review (insufficient evidence for clinically important insomnia effects)."
     }
   ],
 
@@ -794,7 +790,7 @@
           "title": "Condition Summary",
           "content": [
             "Insomnia Disorder: persistent difficulty initiating or maintaining sleep (≥3 nights/week, ≥3 months) with clinically significant daytime impairment.",
-            "Prevalence: 10–15% adults with chronic insomnia. Higher in women, older adults, and those with psychiatric or chronic pain comorbidities.",
+            "Prevalence estimates vary by definition; chronic insomnia disorder is often in the single-digit to low–double-digit percent range in surveys — cite primary epidemiology sources when reporting statistics.",
             "Neurobiology: Central hyperarousal (cortical, cognitive, somatic) fails to down-regulate at sleep onset; elevated pre-sleep beta EEG; reduced NREM sleep spindles; disrupted slow-wave sleep.",
             "First-line treatment: CBT-I (Cognitive Behavioural Therapy for Insomnia). Neuromodulation is adjunctive — must document CBT-I offer or completion.",
             "CBT-I remains first-line and must be offered or documented as offered/completed before or alongside any neuromodulation protocol."
@@ -807,7 +803,7 @@
             "Confirm DSM-5 insomnia disorder diagnosis: ≥3 months, ≥3 nights/week, daytime impairment documented, primary sleep disorders excluded.",
             "Exclude OSA before treatment — ESS >10 or partner-reported apnoea events require polysomnography referral.",
             "Identify insomnia phenotype: Sleep onset (PHE-INS-01) → CES first-line; Maintenance (PHE-INS-02) → CES or neurofeedback; Hyperarousal (PHE-INS-03) → consider cathodal tDCS right DLPFC.",
-            "Screen for psychiatric comorbidities: PHQ-9 and GAD-7 mandatory at baseline. Comorbid anxiety-insomnia → CES preferred (FDA-cleared for both).",
+            "Screen for psychiatric comorbidities: PHQ-9 and GAD-7 mandatory at baseline. Comorbid anxiety-insomnia → consider adjunctive options with transparent evidence discussion (CES is not a substitute for anxiety treatment).",
             "Document CBT-I history: if not completed, refer for or initiate CBT-I concurrently."
           ]
         },
@@ -815,10 +811,10 @@
           "section_id": "ch-03",
           "title": "Protocol Selection Guide",
           "content": [
-            "Sleep onset difficulty (PHE-INS-01): CES Alpha-Stim (PRO-CES-INS-01) — first-line, on-label, EV-B, home use suitable.",
-            "Maintenance insomnia (PHE-INS-02): CES (PRO-CES-INS-01) first-line. Neurofeedback SMR at Cz (PRO-NF-INS-01) if CES insufficient or contraindicated — EV-C, off-label.",
-            "Hyperarousal insomnia (PHE-INS-03): CES (PRO-CES-INS-01) combined with tDCS cathodal right DLPFC (PRO-TDCS-INS-01) — EV-C, clinician sign-off required.",
-            "Comorbid anxiety-insomnia (PHE-INS-04): CES preferred — FDA-cleared for both insomnia and anxiety.",
+            "Sleep onset difficulty (PHE-INS-01): discuss PRO-CES-INS-01 as an adjunct only after CBT-I pathway addressed; EV-C evidence for CES per VA 2018 review; device may still be on-label depending on model/jurisdiction.",
+            "Maintenance insomnia (PHE-INS-02): CES adjunct may be considered; neurofeedback SMR at Cz (PRO-NF-INS-01) remains EV-C/off-label if CES insufficient or contraindicated.",
+            "Hyperarousal insomnia (PHE-INS-03): CES and/or exploratory cathodal R-DLPFC tDCS (PRO-TDCS-INS-01) only with explicit off-label consent and senior clinical judgment — tDCS montage evidence is not interchangeable across studies.",
+            "Comorbid anxiety-insomnia (PHE-INS-04): treat anxiety per guideline; neuromodulation adjuncts require dual-condition planning.",
             "Comorbid depression-insomnia (PHE-INS-05): Address depression concurrently. CES or neurofeedback for insomnia; refer to depression protocols for mood treatment."
           ]
         },
@@ -826,7 +822,7 @@
           "section_id": "ch-04",
           "title": "Evidence Summary",
           "content": [
-            "CES (Alpha-Stim): EV-B — FDA-cleared for insomnia. Multiple controlled trials demonstrate reduced sleep onset latency and improved sleep quality. On-label use.",
+            "CES: regulatory clearance exists for some devices; independent systematic review (Shekelle 2018) did not find sufficient evidence for clinically important insomnia effects — document shared decision-making.",
             "Neurofeedback (SMR at Cz): EV-C — Emerging evidence from small controlled studies. Well-grounded mechanistically (SMR-spindle coupling). Off-label. Clinician sign-off required.",
             "tDCS (cathodal right DLPFC): EV-C — Proof-of-concept studies only. Off-label. Restricted to hyperarousal phenotype. Clinician sign-off required.",
             "CBT-I remains the gold standard with the highest evidence grade for insomnia — recommend as first-line or concurrent treatment in all cases."
@@ -838,7 +834,7 @@
           "content": [
             "Document CBT-I offer or referral in every insomnia case before or at the time of neuromodulation protocol generation.",
             "Exclude OSA before initiating any insomnia neuromodulation — ESS screening mandatory.",
-            "CES is on-label (no off-label acknowledgement required); neurofeedback and tDCS require off-label acknowledgement before protocol generation.",
+            "CES may be on-label for specific devices yet still warrant evidence-informed consent (regulatory status ≠ effect size). Neurofeedback and tDCS require off-label acknowledgement before protocol generation.",
             "tDCS protocols require clinician sign-off and patient export is blocked until sign-off obtained.",
             "Monitor ISI every 5 sessions and sleep diary weekly. Any deterioration triggers clinician review within 48 hours."
           ]
@@ -873,7 +869,7 @@
           "title": "Your Treatment Options",
           "content": [
             "The most effective treatment for insomnia is CBT-I — a structured talking therapy that targets the thoughts and habits that keep insomnia going. Your clinician will discuss this with you.",
-            "CES (Cranial Electrotherapy Stimulation) using the Alpha-Stim device sends a gentle, safe current through ear clips worn like headphones. It is approved specifically for insomnia and can be used at home each evening.",
+            "Some cranial electrotherapy stimulation (CES) devices may be available with regulatory clearance for insomnia in certain countries. Evidence for benefit is mixed; your clinician should explain what is known and unknown before you start.",
             "Neurofeedback is a brain training therapy done in clinic where sensors on your scalp help you train your brain to produce the kind of brain activity associated with good sleep.",
             "These treatments work best together with good sleep habits and, where recommended, CBT-I."
           ]
@@ -1290,7 +1286,7 @@
         "After consuming alcohol (>1 unit) — postpone session",
         "If your doctor has added a new medication that may interact with electrical stimulation — contact clinic first"
       ],
-      "evidence_note": "CES home use for insomnia is on-label (FDA-cleared Alpha-Stim AID). Home programme after single clinic training session is standard of care for this device. Patient compliance tracking via sleep diary."
+      "evidence_note": "Home use must follow manufacturer IFU and local prescribing rules. Independent systematic review did not establish robust insomnia efficacy for CES — track outcomes with sleep diary/ISI."
     }
   ],
 
@@ -1302,7 +1298,7 @@
       "modality_slug": null,
       "when_required": "Before first session of any neuromodulation treatment for insomnia",
       "key_disclosures": [
-        "CES (Alpha-Stim) is FDA-cleared for insomnia — this is an on-label treatment. Neurofeedback and tDCS for insomnia are off-label — not specifically approved by regulatory authorities for this indication.",
+        "Some CES devices may carry regulatory clearance for insomnia where I live; clearance reflects device marketing authorization, not guaranteed benefit. Neurofeedback and tDCS for insomnia are typically off-label relative to specific device indications.",
         "CBT-I (Cognitive Behavioural Therapy for Insomnia) is the first-line evidence-based treatment. I have been informed of this option and it has been offered to me.",
         "Results are not guaranteed and vary between individuals. Some patients experience no meaningful benefit.",
         "Common side effects of CES include mild tingling at ear clip sites and occasional headache. Neurofeedback may cause brief post-session drowsiness. tDCS may cause tingling or skin redness.",
@@ -1327,7 +1323,7 @@
         "The proposed treatment (neurofeedback or tDCS) is being used off-label for insomnia — it is not specifically approved by the FDA or equivalent regulatory authority for this indication.",
         "My clinician has explained the current evidence base for this treatment in the context of my insomnia diagnosis.",
         "I understand the evidence grade applicable to my proposed protocol (EV-C — emerging evidence from controlled studies).",
-        "I consent to proceeding with this off-label treatment after consideration of the available evidence and alternatives (including CBT-I and on-label CES).",
+        "I consent to proceeding with this off-label treatment after consideration of the available evidence and alternatives (including CBT-I and, where discussed, adjunctive CES with transparent review of systematic evidence).",
         "My clinician will monitor my response and adjust or discontinue treatment if it is not beneficial or if risks emerge."
       ],
       "signature_required": true,

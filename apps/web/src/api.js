@@ -1,3 +1,5 @@
+import { parseHomeProgramTaskMutationResponse } from './home-program-task-sync.js';
+
 const API_BASE = (import.meta.env && import.meta.env.VITE_API_BASE_URL) || 'http://127.0.0.1:8000';
 const TOKEN_KEY = 'ds_access_token';
 const REFRESH_KEY = 'ds_refresh_token';
@@ -19,13 +21,23 @@ function _on401() {
   setTimeout(() => { _401InFlight = false; }, 5000);
 }
 
+function _extractTransport(res, extractor) {
+  if (typeof extractor !== 'function') return undefined;
+  try {
+    return extractor(res);
+  } catch {
+    return undefined;
+  }
+}
+
 async function apiFetch(path, opts = {}) {
   let res;
+  const fetchFn = opts._fetch || globalThis.fetch;
   try {
     const token = getToken();
     const headers = { 'Content-Type': 'application/json', ...(opts.headers || {}) };
     if (token) headers['Authorization'] = `Bearer ${token}`;
-    res = await fetch(`${API_BASE}${path}`, { ...opts, headers });
+    res = await fetchFn(`${API_BASE}${path}`, { ...opts, headers });
   } catch (networkErr) {
     const err = new Error('Network error');
     err.status = 0;
@@ -52,13 +64,16 @@ async function apiFetch(path, opts = {}) {
         retryHeaders['Authorization'] = `Bearer ${refreshResult.access_token}`;
         let retryRes;
         try {
-          retryRes = await fetch(`${API_BASE}${path}`, { ...opts, headers: retryHeaders });
+          retryRes = await fetchFn(`${API_BASE}${path}`, { ...opts, headers: retryHeaders });
         } catch (networkErr) {
           const err = new Error('Network error');
           err.status = 0;
           throw err;
         }
-        if (retryRes.status === 204) return null;
+        if (retryRes.status === 204) {
+          if (opts._transportExtractor) return { data: null, transport: _extractTransport(retryRes, opts._transportExtractor) };
+          return null;
+        }
         if (!retryRes.ok) {
           const retryErr = new Error(`API error ${retryRes.status}`);
           retryErr.status = retryRes.status;
@@ -66,7 +81,11 @@ async function apiFetch(path, opts = {}) {
           if (retryRes.status === 403) { console.warn('[api] 403 Forbidden:', path); }
           throw retryErr;
         }
-        return retryRes.json();
+        const retryData = await retryRes.json();
+        if (opts._transportExtractor) {
+          return { data: retryData, transport: _extractTransport(retryRes, opts._transportExtractor) };
+        }
+        return retryData;
       }
     }
     // Refresh failed or unavailable — session truly expired
@@ -76,15 +95,28 @@ async function apiFetch(path, opts = {}) {
     expiredErr.status = 401;
     return Promise.reject(expiredErr);
   }
-  if (res.status === 204) return null;
+  if (res.status === 204) {
+    if (opts._transportExtractor) return { data: null, transport: _extractTransport(res, opts._transportExtractor) };
+    return null;
+  }
   if (!res.ok) {
     const err = new Error(`API error ${res.status}`);
     err.status = res.status;
-    try { const e = await res.json(); err.message = e.detail || err.message; err.body = e; } catch {}
+    try {
+      const e = await res.json();
+      err.message = e.message || e.detail || err.message;
+      err.body = e;
+      if (e.code) err.code = e.code;
+      if (e.details != null) err.details = e.details;
+    } catch {}
     if (res.status === 403) { console.warn('[api] 403 Forbidden:', path); }
     throw err;
   }
-  return res.json();
+  const data = await res.json();
+  if (opts._transportExtractor) {
+    return { data, transport: _extractTransport(res, opts._transportExtractor) };
+  }
+  return data;
 }
 
 async function apiFetchWithRetry(path, opts = {}, maxRetries = 2) {
@@ -106,13 +138,44 @@ async function apiFetchWithRetry(path, opts = {}, maxRetries = 2) {
 
 async function apiFetchBlob(path, data) {
   const token = getToken();
-  const res = await fetch(`${API_BASE}${path}`, {
+  const res = await globalThis.fetch(`${API_BASE}${path}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
     body: JSON.stringify(data),
   });
   if (!res.ok) throw new Error(`Export error ${res.status}`);
   return res.blob();
+}
+
+/**
+ * Strip client-only fields; map `lastSyncedServerRevision` → `lastKnownServerRevision` for PUT.
+ * POST create omits revision hints.
+ * @param {object} task
+ * @param {{ forCreate?: boolean }} [opts]
+ */
+function prepareHomeProgramTaskRequestBody(task, opts = {}) {
+  const forCreate = opts.forCreate === true;
+  const body = { ...task };
+  delete body._syncStatus;
+  delete body._conflictServerTask;
+  delete body._syncConflictReason;
+  delete body.createDisposition;
+  delete body.lastSyncedServerRevision;
+  if (!forCreate) {
+    if (task.lastSyncedServerRevision != null && task.lastSyncedServerRevision !== '') {
+      body.lastKnownServerRevision = task.lastSyncedServerRevision;
+    }
+  } else {
+    delete body.lastKnownServerRevision;
+  }
+  return body;
+}
+
+function extractHomeProgramTaskTransport(res) {
+  return {
+    legacyPutCreateHeader: res?.headers?.get?.('X-DS-Home-Task-Legacy-Put-Create') ?? null,
+    deprecationHeader: res?.headers?.get?.('Deprecation') ?? null,
+  };
 }
 
 export const api = {
@@ -286,6 +349,99 @@ export const api = {
   logSession: (courseId, data) =>
     apiFetch(`/api/v1/treatment-courses/${courseId}/sessions`, { method: 'POST', body: JSON.stringify(data) }),
   listCourseSessions: (courseId) => apiFetch(`/api/v1/treatment-courses/${courseId}/sessions`),
+
+  /** List persisted home program tasks (optional patient filter: `patient_id` or `patientId`). */
+  listHomeProgramTasks: (params = {}) => {
+    const p = { ...params };
+    if (p.patientId != null && p.patient_id == null) p.patient_id = p.patientId;
+    delete p.patientId;
+    const q = new URLSearchParams(p).toString();
+    return apiFetchWithRetry(`/api/v1/home-program-tasks${q ? '?' + q : ''}`);
+  },
+  /**
+   * Server-authoritative create (POST). Use when the task has never been persisted (`serverTaskId` absent).
+   * @param {object} task
+   */
+  createHomeProgramTask: (task) =>
+    apiFetch('/api/v1/home-program-tasks', {
+      method: 'POST',
+      body: JSON.stringify(prepareHomeProgramTaskRequestBody(task, { forCreate: true })),
+    }),
+
+  /**
+   * Preferred mutation entrypoint for clients: POST for new tasks (no serverTaskId), PUT otherwise.
+   * Returns a normalized mutation result (task fields stripped of transport metadata).
+   *
+   * @param {object} task
+   * @param {{ force?: boolean }} [opts]
+   */
+  mutateHomeProgramTask: async (task, opts = {}) => {
+    if (!task?.serverTaskId) {
+      const { data, transport } = await api._homeProgramTaskMutationFetch('/api/v1/home-program-tasks', {
+        method: 'POST',
+        body: JSON.stringify(prepareHomeProgramTaskRequestBody(task, { forCreate: true })),
+      });
+      return parseHomeProgramTaskMutationResponse(data, transport);
+    }
+    const q = new URLSearchParams();
+    if (opts.force) q.set('force', 'true');
+    const qs = q.toString();
+    const { data, transport } = await api._homeProgramTaskMutationFetch(
+      `/api/v1/home-program-tasks/${encodeURIComponent(task.id)}${qs ? '?' + qs : ''}`,
+      {
+        method: 'PUT',
+        body: JSON.stringify(prepareHomeProgramTaskRequestBody(task, { forCreate: false })),
+      }
+    );
+    return parseHomeProgramTaskMutationResponse(data, transport);
+  },
+
+  /**
+   * Lookup by authoritative server UUID (exports, admin, audit drill-down).
+   * @param {string} serverTaskId
+   */
+  getHomeProgramTaskByServerId: (serverTaskId) =>
+    apiFetch(`/api/v1/home-program-tasks/by-server-id/${encodeURIComponent(serverTaskId)}`),
+
+  /**
+   * Create (legacy) or update a task by external id; server validates `homeProgramSelection`.
+   * Maps `lastSyncedServerRevision` → `lastKnownServerRevision` for optimistic locking.
+   * @param {object} task
+   * @param {{ force?: boolean }} [opts]
+   */
+  upsertHomeProgramTask: (task, opts = {}) => {
+    const q = new URLSearchParams();
+    if (opts.force) q.set('force', 'true');
+    const qs = q.toString();
+    const body = prepareHomeProgramTaskRequestBody(task, { forCreate: false });
+    return apiFetch(`/api/v1/home-program-tasks/${encodeURIComponent(task.id)}${qs ? '?' + qs : ''}`, {
+      method: 'PUT',
+      body: JSON.stringify(body),
+    });
+  },
+
+  /**
+   * Internal: mutation fetch that also captures relevant transport headers.
+   * @param {string} path
+   * @param {object} opts
+   */
+  _homeProgramTaskMutationFetch: (path, opts) =>
+    apiFetch(path, { ...opts, _transportExtractor: extractHomeProgramTaskTransport }),
+  deleteHomeProgramTask: (taskId) =>
+    apiFetch(`/api/v1/home-program-tasks/${encodeURIComponent(taskId)}`, { method: 'DELETE' }),
+  /** Record client-side conflict resolution (take server) or successful retry (for audit trail). */
+  postHomeProgramAuditAction: (body) =>
+    apiFetch('/api/v1/home-program-tasks/audit-actions', { method: 'POST', body: JSON.stringify(body) }),
+  /**
+   * Back-compat alias: full task upsert (keeps prior provenance server-side when the client omits it).
+   */
+  syncHomeProgramTaskProvenance: (task) => {
+    const run =
+      !task.serverTaskId && typeof api.createHomeProgramTask === 'function'
+        ? () => api.createHomeProgramTask(task)
+        : () => api.upsertHomeProgramTask(task);
+    return run().catch(() => null);
+  },
 
   // ── Adverse events ────────────────────────────────────────────────────────
   reportAdverseEvent: (data) =>
@@ -562,6 +718,14 @@ export const api = {
   // ── Patient outcomes (portal alias) ─────────────────────────────────────
   patientOutcomes: () => apiFetch('/api/v1/patient-portal/outcomes'),
 };
+
+// Home program task mutation helpers (for web + future mobile/other bundles importing from `api.js`).
+export {
+  parseHomeProgramTaskMutationResponse,
+  mergeParsedMutationIntoLocalTask,
+  applySuccessfulSync,
+  HOME_PROGRAM_MUTATION_OUTCOMES,
+} from './home-program-task-sync.js';
 
 // Helper: download a blob
 export function downloadBlob(blob, filename) {

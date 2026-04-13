@@ -2,14 +2,15 @@
 
 Endpoints
 ---------
-POST   /api/v1/treatment-courses                    Create a new treatment course
-GET    /api/v1/treatment-courses                    List courses (filter by patient, status)
-GET    /api/v1/treatment-courses/{id}               Get course detail
-PATCH  /api/v1/treatment-courses/{id}               Update notes / status
-PATCH  /api/v1/treatment-courses/{id}/activate      Governance gate → approve + activate
-POST   /api/v1/treatment-courses/{id}/sessions      Log a delivered session
-GET    /api/v1/treatment-courses/{id}/sessions      List delivered sessions for a course
-GET    /api/v1/review-queue                         List pending review queue items
+POST   /api/v1/treatment-courses                              Create a new treatment course
+GET    /api/v1/treatment-courses                              List courses (filter by patient, status)
+GET    /api/v1/treatment-courses/{id}/personalization-explainability   Stored personalization snapshot (if any)
+GET    /api/v1/treatment-courses/{id}                         Get course detail
+PATCH  /api/v1/treatment-courses/{id}                       Update notes / status
+PATCH  /api/v1/treatment-courses/{id}/activate              Governance gate → approve + activate
+POST   /api/v1/treatment-courses/{id}/sessions              Log a delivered session
+GET    /api/v1/treatment-courses/{id}/sessions              List delivered sessions for a course
+GET    /api/v1/review-queue                                 List pending review queue items
 """
 from __future__ import annotations
 
@@ -21,6 +22,8 @@ from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
+
+from deepsynaps_core_schema import PersistedPersonalizationExplainability
 
 from app.auth import AuthenticatedActor, get_authenticated_actor, require_minimum_role
 from app.database import get_db_session
@@ -47,6 +50,8 @@ class CourseCreate(BaseModel):
     device_slug: Optional[str] = None
     phenotype_id: Optional[str] = None
     clinician_notes: Optional[str] = None
+    # Optional compact snapshot from generate-draft when include_personalization_debug was true (never fabricated).
+    personalization_explainability: Optional[PersistedPersonalizationExplainability] = None
 
 
 class CourseUpdate(BaseModel):
@@ -85,11 +90,18 @@ class CourseOut(BaseModel):
     clinician_notes: Optional[str]
     review_required: bool
     governance_warnings: list[str]
+    personalization_explainability: Optional[PersistedPersonalizationExplainability] = None
     created_at: str
     updated_at: str
 
     @classmethod
-    def from_record(cls, r: TreatmentCourse, governance_warnings: list[str] | None = None) -> "CourseOut":
+    def from_record(
+        cls,
+        r: TreatmentCourse,
+        governance_warnings: list[str] | None = None,
+        *,
+        include_personalization_explainability: bool = False,
+    ) -> "CourseOut":
         def _dt(v) -> Optional[str]:
             return v.isoformat() if isinstance(v, datetime) else v
 
@@ -99,6 +111,15 @@ class CourseOut(BaseModel):
                 protocol_json = json.loads(r.protocol_json)
             except Exception:
                 pass
+
+        persisted: PersistedPersonalizationExplainability | None = None
+        if include_personalization_explainability:
+            raw_pe = protocol_json.get("personalization_explainability")
+            if raw_pe is not None:
+                try:
+                    persisted = PersistedPersonalizationExplainability.model_validate(raw_pe)
+                except Exception:
+                    persisted = None
 
         return cls(
             id=r.id,
@@ -127,6 +148,7 @@ class CourseOut(BaseModel):
             clinician_notes=r.clinician_notes,
             review_required=r.review_required,
             governance_warnings=governance_warnings or protocol_json.get("governance_warnings", []),
+            personalization_explainability=persisted,
             created_at=r.created_at.isoformat(),
             updated_at=r.updated_at.isoformat(),
         )
@@ -362,6 +384,16 @@ def create_course(
         "on_label": params.get("on_label", True),
     }
 
+    if body.personalization_explainability is not None:
+        snap = body.personalization_explainability
+        if snap.selected_protocol_id != body.protocol_id:
+            raise ApiServiceError(
+                code="personalization_explainability_mismatch",
+                message="personalization_explainability.selected_protocol_id must match protocol_id for this course.",
+                status_code=422,
+            )
+        protocol_meta["personalization_explainability"] = snap.model_dump(mode="json")
+
     course = TreatmentCourse(
         patient_id=body.patient_id,
         clinician_id=actor.actor_id,
@@ -392,7 +424,11 @@ def create_course(
 
     db.commit()
     db.refresh(course)
-    return CourseOut.from_record(course, gov_warnings)
+    return CourseOut.from_record(
+        course,
+        gov_warnings,
+        include_personalization_explainability=body.personalization_explainability is not None,
+    )
 
 
 @router.get("", response_model=CourseListResponse)
@@ -417,15 +453,51 @@ def list_courses(
     return CourseListResponse(items=items, total=len(items))
 
 
+@router.get("/{course_id}/personalization-explainability", response_model=PersistedPersonalizationExplainability)
+def get_course_personalization_explainability(
+    course_id: str,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> PersistedPersonalizationExplainability:
+    """Return the stored compact personalization snapshot (404 if none). Admin or owning clinician."""
+    require_minimum_role(actor, "clinician")
+    course = _get_course_or_404(db, course_id, actor)
+    protocol_json: dict = {}
+    if course.protocol_json:
+        try:
+            protocol_json = json.loads(course.protocol_json)
+        except Exception:
+            protocol_json = {}
+    raw = protocol_json.get("personalization_explainability")
+    if raw is None:
+        raise ApiServiceError(
+            code="personalization_explainability_not_found",
+            message="No personalization explainability snapshot was stored for this course.",
+            status_code=404,
+        )
+    try:
+        return PersistedPersonalizationExplainability.model_validate(raw)
+    except Exception:
+        raise ApiServiceError(
+            code="personalization_explainability_invalid",
+            message="Stored personalization explainability could not be read.",
+            status_code=422,
+        )
+
+
 @router.get("/{course_id}", response_model=CourseOut)
 def get_course(
     course_id: str,
+    include_personalization_explainability: bool = Query(
+        default=False,
+        description="When true, include personalization_explainability from protocol_json (if stored).",
+    ),
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
     db: Session = Depends(get_db_session),
 ) -> CourseOut:
     require_minimum_role(actor, "clinician")
     course = _get_course_or_404(db, course_id, actor)
-    return CourseOut.from_record(course)
+    return CourseOut.from_record(course, include_personalization_explainability=include_personalization_explainability)
 
 
 @router.patch("/{course_id}", response_model=CourseOut)

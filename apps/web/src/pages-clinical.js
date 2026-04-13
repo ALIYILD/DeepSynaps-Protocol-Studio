@@ -3,6 +3,55 @@ import { cardWrap, fr, evBar, pillSt, initials, tag, spinner, emptyState, spark,
 import { currentUser } from './auth.js';
 import { FALLBACK_CONDITIONS, FALLBACK_MODALITIES, FALLBACK_ASSESSMENT_TEMPLATES, COURSE_STATUS_COLORS } from './constants.js';
 import { renderHomeTherapyTab, bindHomeTherapyActions } from './pages-home-therapy.js';
+import {
+  CONDITION_HOME_TEMPLATES,
+  buildRankedHomeSuggestions,
+  confidenceTierFromScore,
+  resolveConIdsFromCourse,
+} from './home-program-condition-templates.js';
+import {
+  mergePatientTasksFromServer,
+  mergeParsedMutationIntoLocalTask,
+  parseHomeProgramTaskMutationResponse,
+  markSyncFailed,
+  SYNC_STATUS,
+} from './home-program-task-sync.js';
+import { COND_HUB_META } from './registries/condition-assessment-hub-meta.js';
+import {
+  resolveScaleCanonical,
+  getScaleMeta,
+  enumerateBundleScales,
+} from './registries/scale-assessment-registry.js';
+import {
+  getAssessmentImplementationStatus,
+  findAssessInstrumentRow,
+  formatScaleWithImplementationBadgeHtml,
+  partitionScalesByImplementationTruth,
+  checklistImplementationReport,
+  getLegacyRunScoreEntryNoticeHtml,
+  getLegacyRunAssessmentMode,
+  formatLegacyRunImplementationBadgeHtml,
+  routeLegacyRunAssessment,
+} from './registries/assessment-implementation-status.js';
+import { ASSESS_REGISTRY, ASSESS_TEMPLATES } from './registries/assess-instruments-registry.js';
+import { validateScaleRegistryAgainstAssess } from './registries/scale-registry-alignment.js';
+import {
+  toPersistedPersonalizationExplainability,
+  computeWizardDraftFingerprint,
+  shouldAttachPersonalizationExplainability,
+} from './personalization-explainability.js';
+
+if (import.meta.env?.DEV) {
+  const { errors } = validateScaleRegistryAgainstAssess(ASSESS_REGISTRY);
+  errors.forEach(e => console.warn('[assess alignment]', e));
+  const rep = checklistImplementationReport(ASSESS_REGISTRY);
+  if (rep.missingForm.length) {
+    console.warn('[assess implementation] SCALE_REGISTRY in-app checklists missing ASSESS inline form:', rep.missingForm.join(', '));
+  }
+  if (rep.inlineButNotDeclared.length) {
+    console.warn('[assess implementation] ASSESS inline UI without item_checklist + supported_in_app:', rep.inlineButNotDeclared.join(', '));
+  }
+}
 
 // ── Shared state for patient profile ────────────────────────────────────────
 export let ptab = 'courses';
@@ -3426,7 +3475,7 @@ window.exportProto = async function() {
       condition_name: pt.primary_condition || 'Unknown',
       modality_name: pt.primary_modality || 'Unknown',
       device_name: '',
-      setting: 'clinical',
+      setting: 'Clinic',
       evidence_threshold: 'A',
       off_label: false,
       symptom_cluster: '',
@@ -3450,9 +3499,29 @@ function renderAIZone(pt) {
     <div style="font-size:12.5px;color:var(--text-secondary)">Generating protocol from clinical data…</div>
   </div>`;
 
+  if (aiResult?.devicePickRequired) {
+    const rows = (aiResult.candidates || []).slice(0, 16).map(c => {
+      const enc = encodeURIComponent(c.device_name || '');
+      return `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:8px 10px;border:1px solid var(--border);border-radius:8px;margin-bottom:6px;font-size:12px">
+        <span><strong>#${c.rank}</strong> ${String(c.device_name || '').replace(/</g, '&lt;')}</span>
+        <button type="button" class="btn btn-sm btn-primary" onclick="window._pickProtocolDeviceFromEncoded('${enc}')">Use</button>
+      </div>`;
+    }).join('');
+    return `<div style="text-align:left;max-width:440px;margin:0 auto">
+      <div class="notice notice-warn" style="margin-bottom:12px;font-size:12px;line-height:1.5">${String(aiResult.pickMessage || '').replace(/</g, '&lt;')}</div>
+      ${rows}
+      <div style="font-size:11px;color:var(--text-tertiary);margin-top:10px">Choose a device to continue. Ranking is deterministic from the imported clinical snapshot (see API <code>candidate_devices</code> rationale).</div>
+    </div>`;
+  }
+
   if (aiResult) return `
-    <div style="font-family:var(--font-display);font-size:15px;font-weight:700;color:var(--text-primary);margin-bottom:2px">${aiResult.rationale?.split('.')[0] || 'Generated Protocol'}</div>
+    <div style="font-family:var(--font-display);font-size:15px;font-weight:700;color:var(--text-primary);margin-bottom:2px">${aiResult.rationale?.split('.')[0] || 'Evidence-based protocol draft'}</div>
     <div style="font-size:11.5px;color:var(--teal);margin-bottom:14px">Evidence Grade: ${aiResult.evidence_grade || '—'} · ${aiResult.approval_status_badge || ''}</div>
+    ${aiResult.device_resolution ? `<div style="font-size:11px;color:var(--text-tertiary);margin:-6px 0 10px;line-height:1.45">
+      Device: <strong style="color:var(--text-secondary)">${String(aiResult.device_resolution.resolved_device || '').replace(/</g, '&lt;')}</strong>
+      · ${String(aiResult.device_resolution.resolution_method || '').replace(/_/g, ' ')}
+      ${aiResult.device_resolution.clinical_evidence_snapshot_id ? ` · snapshot <code style="font-size:10px">${aiResult.device_resolution.clinical_evidence_snapshot_id}</code>` : ''}
+    </div>` : ''}
     <div style="background:rgba(0,212,188,0.05);border:1px solid var(--border-teal);border-radius:var(--radius-md);padding:12px;margin-bottom:12px;font-size:12px;color:var(--text-secondary);line-height:1.65">${aiResult.rationale || ''}</div>
     ${[
       ['Target Region', aiResult.target_region || '—'],
@@ -3469,8 +3538,8 @@ function renderAIZone(pt) {
   const name = pt ? `${pt.first_name} ${pt.last_name}` : 'this patient';
   return `<div style="text-align:center;padding:22px 0">
     <div style="width:48px;height:48px;background:var(--teal-ghost);border:1px solid var(--border-teal);border-radius:50%;display:flex;align-items:center;justify-content:center;margin:0 auto 14px;font-size:20px">🧬</div>
-    <div style="font-size:12.5px;color:var(--text-secondary);margin-bottom:18px;line-height:1.65;max-width:300px;margin-left:auto;margin-right:auto">
-      Generate an evidence-based protocol for <strong style="color:var(--text-primary)">${name}</strong> based on condition and modality.
+    <div style="font-size:12.5px;color:var(--text-secondary);margin-bottom:18px;line-height:1.65;max-width:320px;margin-left:auto;margin-right:auto">
+      Build a <strong>safety-checked, evidence-graded draft</strong> for <strong style="color:var(--text-primary)">${name}</strong> from the imported clinical registry (condition + modality). Device is auto-resolved when only one compatible option exists; otherwise choose from the ranked list.
     </div>
     <div class="g2" style="margin-bottom:16px;text-align:left">
       <div class="form-group"><label class="form-label">Condition</label>
@@ -3486,7 +3555,7 @@ function renderAIZone(pt) {
         </select>
       </div>
     </div>
-    <button class="btn btn-primary" onclick="window.runAI()" style="padding:10px 26px;font-size:13px">Generate Protocol ✦</button>
+    <button class="btn btn-primary" onclick="window.runAI()" style="padding:10px 26px;font-size:13px">Generate draft ✦</button>
   </div>`;
 }
 
@@ -3497,26 +3566,47 @@ function bindAI(pt) {
     if (z) z.innerHTML = renderAIZone(pt);
     const condition = document.getElementById('ai-condition')?.value || pt?.primary_condition || '';
     const modality = document.getElementById('ai-modality')?.value || pt?.primary_modality || '';
+    const deviceOverride = window._protocolGenDeviceOverride || '';
     try {
       const res = await api.generateProtocol({
         condition: condition,
-        symptom_cluster: '',
+        symptom_cluster: 'General',
         modality: modality,
-        device: '',
-        setting: 'clinical',
-        evidence_threshold: 'B',
+        device: deviceOverride,
+        setting: 'Clinic',
+        evidence_threshold: 'Systematic Review',
         off_label: false,
       });
+      window._protocolGenDeviceOverride = '';
       aiResult = res;
     } catch (e) {
-      aiResult = { rationale: `Error: ${e.message}`, target_region: '—', evidence_grade: '—', approval_status_badge: 'error' };
+      if (e.status === 409 && e.body?.code === 'device_candidates_required' && e.body?.details?.candidate_devices?.length) {
+        aiResult = {
+          devicePickRequired: true,
+          candidates: e.body.details.candidate_devices,
+          pickMessage: e.body.message || 'Multiple compatible devices match this condition and modality.',
+          _condition: condition,
+          _modality: modality,
+        };
+      } else {
+        aiResult = { rationale: `Error: ${e.body?.message || e.message}`, target_region: '—', evidence_grade: '—', approval_status_badge: 'error' };
+      }
     }
     aiLoading = false;
     const zz = document.getElementById('ai-gen-zone');
     if (zz) { zz.innerHTML = renderAIZone(pt); bindAI(pt); }
   };
+  window._pickProtocolDeviceAndGenerate = function(deviceName) {
+    window._protocolGenDeviceOverride = deviceName;
+    window.runAI();
+  };
+  window._pickProtocolDeviceFromEncoded = function(enc) {
+    try { window._protocolGenDeviceOverride = decodeURIComponent(enc); } catch { window._protocolGenDeviceOverride = ''; }
+    window.runAI();
+  };
   window.resetAI = function() {
     aiResult = null;
+    window._protocolGenDeviceOverride = '';
     const z = document.getElementById('ai-gen-zone');
     if (z) { z.innerHTML = renderAIZone(pt); bindAI(pt); }
   };
@@ -3532,7 +3622,7 @@ const WIZ_STEPS = [
   'Patient & Condition',
   'Phenotype & Modality',
   'Device & Parameters',
-  'AI Generation',
+  'Evidence draft',
   'Saved',
 ];
 
@@ -3702,8 +3792,8 @@ function renderWizStep4Loading() {
     <div class="card">
       <div class="card-body" style="text-align:center;padding:48px 24px">
         ${spinner()}
-        <div style="margin-top:16px;font-size:13px;color:var(--text-secondary)">Generating AI protocol…</div>
-        <div style="margin-top:6px;font-size:11px;color:var(--text-tertiary)">This may take a few seconds.</div>
+        <div style="margin-top:16px;font-size:13px;color:var(--text-secondary)">Generating evidence-based protocol draft…</div>
+        <div style="margin-top:6px;font-size:11px;color:var(--text-tertiary)">Deterministic registry match — this may take a few seconds.</div>
       </div>
     </div>
   </div>`;
@@ -3761,6 +3851,10 @@ function renderWizStep4Result(result) {
     ? warnings.map(w => govFlag(w)).join('')
     : '';
 
+  const explainabilityBanner = result?.personalization_why_selected_debug
+    ? `<div class="notice notice-info" style="margin-bottom:12px;font-size:11px;line-height:1.45">A compact personalization explainability snapshot will be stored with the course when you save (matches this generated protocol).</div>`
+    : `<div class="notice notice-info" style="margin-bottom:12px;font-size:11px;line-height:1.45;opacity:.92">No explainability snapshot will be attached — the server did not return personalization debug for this run (for example, no eligible protocol rows).</div>`;
+
   const versionBtn = prevCount > 0
     ? `<button class="btn btn-sm" style="border-color:var(--teal-400);color:var(--teal-400)" onclick="window._showProtoVersions()">&#x21BA; ${prevCount} previous version${prevCount > 1 ? 's' : ''}</button>`
     : '';
@@ -3776,7 +3870,13 @@ function renderWizStep4Result(result) {
         </div>
       </div>
       <div class="card-body">
+        ${explainabilityBanner}
         ${govHtml}
+        ${result?.device_resolution ? `<div class="notice notice-info" style="margin-bottom:12px;font-size:11px;line-height:1.55">
+          <strong>Registry trace</strong> — device <strong>${String(result.device_resolution.resolved_device || '').replace(/</g, '&lt;')}</strong>
+          · ${String(result.device_resolution.resolution_method || '').replace(/_/g, ' ')}
+          ${result.device_resolution.clinical_evidence_snapshot_id ? ` · snapshot <code style="font-size:10px">${result.device_resolution.clinical_evidence_snapshot_id}</code>` : ''}
+        </div>` : ''}
         <div style="background:rgba(0,212,188,0.04);border:1px solid var(--border);border-radius:var(--radius-md);padding:14px;margin-bottom:14px">
           ${paramsRows}
         </div>
@@ -4062,30 +4162,53 @@ function _wizBindActions() {
     ws.sessionDurationMin = document.getElementById('wiz-dur')?.value || ws.sessionDurationMin || 30;
     ws.laterality = document.getElementById('wiz-lat')?.value || ws.laterality || 'bilateral';
 
+    ws.generatedProtocolPersistedExplainability = null;
+    ws.draftGenContextFingerprint = null;
+    ws.generatedProtocolDebugPresent = false;
+
     ws.step = 3;
     ws._step4Html = renderWizStep4Loading();
     renderWizPage();
 
     try {
+      const modalitySlug = (ws.modalitySlugs || [])[0] || '';
+      let modalityName = modalitySlug;
+      if (modalitySlug) {
+        try {
+          const modData = await api.modalities();
+          const items = modData?.items || modData || [];
+          const found = items.find(
+            (x) => (x.slug || x.id || x.Modality_ID || x.name) === modalitySlug
+          );
+          if (found) modalityName = found.name || found.Modality_Name || modalityName;
+        } catch {
+          /* keep slug */
+        }
+      }
+      const conditionName =
+        (ws.conditionLabel || '').trim() || String(ws.conditionSlug || '').replace(/-/g, ' ');
+
       const payload = {
-        condition_slug: ws.conditionSlug || '',
-        modality_slug: (ws.modalitySlugs || [])[0] || '',
-        device_slug: ws.deviceSlug || '',
-        target_region: ws.targetRegion || '',
-        frequency_hz: ws.frequencyHz ? parseFloat(ws.frequencyHz) : undefined,
-        intensity_pct_rmt: ws.intensityPct ? parseFloat(ws.intensityPct) : undefined,
-        sessions_per_week: ws.sessionsPerWeek ? parseInt(ws.sessionsPerWeek) : undefined,
-        total_sessions: ws.totalSessions ? parseInt(ws.totalSessions) : undefined,
-        session_duration_min: ws.sessionDurationMin ? parseInt(ws.sessionDurationMin) : undefined,
-        laterality: ws.laterality || '',
-        phenotype_id: ws.phenotypeId || undefined,
-        patient_id: ws.patientId || undefined,
+        condition: conditionName,
+        symptom_cluster: ws.symptomCluster || 'General',
+        modality: modalityName,
+        device: ws.deviceSlug || '',
+        setting: 'Clinic',
+        evidence_threshold: 'Guideline',
+        off_label: false,
+        include_personalization_debug: true,
+        include_structured_rule_matches_detail: false,
       };
-      // Remove undefined keys
-      Object.keys(payload).forEach(k => payload[k] === undefined && delete payload[k]);
+      Object.keys(payload).forEach((k) => payload[k] === undefined && delete payload[k]);
 
       const result = await api.generateProtocol(payload);
       ws.generatedProtocol = result;
+      const dbg = result.personalization_why_selected_debug;
+      ws.generatedProtocolPersistedExplainability = dbg
+        ? toPersistedPersonalizationExplainability(dbg)
+        : null;
+      ws.generatedProtocolDebugPresent = !!dbg;
+      ws.draftGenContextFingerprint = computeWizardDraftFingerprint(ws);
       ws._step4Html = renderWizStep4Result(result);
     } catch (e) {
       ws._step4Html = renderWizStep4Error(e?.message || 'Generation failed.');
@@ -4097,6 +4220,9 @@ function _wizBindActions() {
   window._wizSkipAI = () => {
     const ws = wizState();
     ws.generatedProtocol = null;
+    ws.generatedProtocolPersistedExplainability = null;
+    ws.draftGenContextFingerprint = null;
+    ws.generatedProtocolDebugPresent = false;
     ws._step4Html = renderWizStep4Result({});
     const body = document.getElementById('wiz-body');
     if (body) body.innerHTML = ws._step4Html;
@@ -4129,12 +4255,22 @@ function _wizBindActions() {
         laterality: ws.laterality || undefined,
         patient_id: ws.patientId || undefined,
         phenotype_id: ws.phenotypeId || undefined,
-        protocol_id: result?.id || undefined,
         evidence_grade: result?.evidence_grade || undefined,
         on_label: result?.on_label_vs_off_label ? result.on_label_vs_off_label.toLowerCase().startsWith('on') : undefined,
         clinician_notes: ws.clinicianNotes || undefined,
       };
-      Object.keys(courseData).forEach(k => courseData[k] === undefined && delete courseData[k]);
+      const fp = computeWizardDraftFingerprint(ws);
+      const attach = shouldAttachPersonalizationExplainability(ws, result, fp);
+      let protocolId =
+        result?.personalization_why_selected_debug?.selected_protocol_id ||
+        result?.id ||
+        ws._fromProtocolId;
+      if (attach) {
+        protocolId = attach.selected_protocol_id;
+        courseData.personalization_explainability = attach;
+      }
+      if (protocolId) courseData.protocol_id = protocolId;
+      Object.keys(courseData).forEach((k) => courseData[k] === undefined && delete courseData[k]);
 
       const course = await api.createCourse(courseData);
 
@@ -4167,6 +4303,9 @@ function _wizBindActions() {
       sessionsPerWeek: 5, totalSessions: 20, sessionDurationMin: 30,
       laterality: 'bilateral', generatedProtocol: null, clinicianNotes: '',
       savedCourse: null, _step4Html: null,
+      generatedProtocolPersistedExplainability: null,
+      draftGenContextFingerprint: null,
+      generatedProtocolDebugPresent: false,
     };
     renderWizPage();
   };
@@ -4599,6 +4738,9 @@ function _pilRenderWizard() {
       _step4Html:        null,
       _fresh:            false,
       _fromProtocolId:   sel.id,
+      generatedProtocolPersistedExplainability: null,
+      draftGenContextFingerprint: null,
+      generatedProtocolDebugPresent: false,
     };
   } else if (!window._wizState || window._wizState._fresh) {
     window._wizState = {
@@ -4609,6 +4751,9 @@ function _pilRenderWizard() {
       sessionDurationMin: 30, laterality: 'bilateral',
       generatedProtocol: null, clinicianNotes: '', savedCourse: null,
       _step4Html: null, _fresh: false,
+      generatedProtocolPersistedExplainability: null,
+      draftGenContextFingerprint: null,
+      generatedProtocolDebugPresent: false,
     };
   }
 
@@ -4670,7 +4815,7 @@ function renderProStep_UNUSED() {
       ${[
         { t: 'evidence', l: 'Evidence-Based', s: 'Standard Clinical', d: 'Published RCT-derived protocols.', c: 'var(--blue)' },
         { t: 'offlabel', l: 'Off-Label', s: 'Extended Indication', d: 'Outside primary indication with case support.', c: 'var(--amber)' },
-        { t: 'personalized', l: 'Personalized AI', s: 'Brain-Data Driven', d: 'Uses patient data to generate a bespoke protocol.', c: 'var(--teal)' },
+        { t: 'personalized', l: 'Patient-context draft', s: 'When data is available', d: 'Uses charted patient context with the same registry-backed draft engine (not a separate AI model).', c: 'var(--teal)' },
       ].map(pt => `<div class="proto-type-card ${proType === pt.t ? 'selected' : ''}" onclick="window.selectProType('${pt.t}')">
         <div style="font-size:9.5px;letter-spacing:.8px;text-transform:uppercase;font-weight:600;margin-bottom:6px;color:${pt.c}">${pt.l}</div>
         <div class="proto-type-name">${pt.s}</div>
@@ -4881,69 +5026,73 @@ async function loadMatchingProtocols(conditionId, modalityLabel) {
 // bindProtoPage is a no-op — the new wizard manages its own DOM via pgProtocols
 export function bindProtoPage() {}
 
-// ── Assessments Hub ────────────────────────────────────────────────────────────
-const ASSESS_REGISTRY = [
-  // Inline questionnaires
-  { id: 'PHQ-9', t: 'PHQ-9 Depression Scale', abbr: 'PHQ-9', sub: 'Patient health questionnaire, 9-item', cat: 'Depression', tags: ['depression', 'outcome'], max: 27, inline: true,
-    questions: ['Little interest or pleasure in doing things','Feeling down, depressed, or hopeless','Trouble falling or staying asleep, or sleeping too much','Feeling tired or having little energy','Poor appetite or overeating','Feeling bad about yourself — or that you are a failure','Trouble concentrating on things','Moving or speaking so slowly that other people could notice (or the opposite)','Thoughts that you would be better off dead, or of hurting yourself'],
-    options: ['Not at all (0)','Several days (1)','More than half the days (2)','Nearly every day (3)'],
-    interpret: (s) => s<=4?{label:'Minimal',color:'var(--teal)'}:s<=9?{label:'Mild',color:'#60a5fa'}:s<=14?{label:'Moderate',color:'#f59e0b'}:s<=19?{label:'Moderately Severe',color:'#f97316'}:{label:'Severe',color:'var(--red)'},
-  },
-  { id: 'GAD-7', t: 'GAD-7 Anxiety Scale', abbr: 'GAD-7', sub: 'Generalised anxiety disorder, 7-item', cat: 'Anxiety', tags: ['anxiety', 'outcome'], max: 21, inline: true,
-    questions: ['Feeling nervous, anxious, or on edge','Not being able to stop or control worrying','Worrying too much about different things','Trouble relaxing','Being so restless that it is hard to sit still','Becoming easily annoyed or irritable','Feeling afraid as if something awful might happen'],
-    options: ['Not at all (0)','Several days (1)','More than half the days (2)','Nearly every day (3)'],
-    interpret: (s) => s<=4?{label:'Minimal',color:'var(--teal)'}:s<=9?{label:'Mild',color:'#60a5fa'}:s<=14?{label:'Moderate',color:'#f59e0b'}:{label:'Severe',color:'var(--red)'},
-  },
-  { id: 'ISI', t: 'Insomnia Severity Index', abbr: 'ISI', sub: 'Sleep quality assessment, 7-item', cat: 'Sleep', tags: ['insomnia', 'CES'], max: 28, inline: true,
-    questions: ['Severity of sleep onset problem','Severity of sleep maintenance problem','Problem waking up too early','How SATISFIED/dissatisfied are you with your current sleep pattern?','How NOTICEABLE to others is your sleep problem?','How WORRIED/distressed are you about your sleep problem?','To what extent does your sleep problem INTERFERE with your daily functioning?'],
-    options: ['None/Very satisfied (0)','Mild (1)','Moderate (2)','Severe (3)','Very severe/Dissatisfied (4)'],
-    interpret: (s) => s<=7?{label:'No clinically significant insomnia',color:'var(--teal)'}:s<=14?{label:'Subthreshold insomnia',color:'#60a5fa'}:s<=21?{label:'Moderate clinical insomnia',color:'#f59e0b'}:{label:'Severe clinical insomnia',color:'var(--red)'},
-  },
-  // Score-entry scales
-  { id: 'HAM-D17', t: 'Hamilton Depression Rating Scale', abbr: 'HAM-D', sub: 'Clinician-rated depression, 17-item', cat: 'Depression', tags: ['depression', 'clinician-rated'], max: 52, inline: false,
-    interpret: (s) => s<=7?{label:'Normal',color:'var(--teal)'}:s<=13?{label:'Mild',color:'#60a5fa'}:s<=18?{label:'Moderate',color:'#f59e0b'}:s<=22?{label:'Severe',color:'#f97316'}:{label:'Very Severe',color:'var(--red)'} },
-  { id: 'MADRS', t: 'Montgomery-Åsberg Depression Rating Scale', abbr: 'MADRS', sub: 'Clinician-rated depression, 10-item', cat: 'Depression', tags: ['depression', 'clinician-rated'], max: 60, inline: false,
-    interpret: (s) => s<=6?{label:'Normal',color:'var(--teal)'}:s<=19?{label:'Mild',color:'#60a5fa'}:s<=34?{label:'Moderate',color:'#f59e0b'}:{label:'Severe',color:'var(--red)'} },
-  { id: 'YMRS', t: 'Young Mania Rating Scale', abbr: 'YMRS', sub: 'Mania symptom severity, 11-item', cat: 'Mood', tags: ['bipolar', 'mania', 'clinician-rated'], max: 60, inline: false,
-    interpret: (s) => s<=12?{label:'Normal/Remission',color:'var(--teal)'}:s<=20?{label:'Mild',color:'#60a5fa'}:s<=30?{label:'Moderate',color:'#f59e0b'}:{label:'Severe',color:'var(--red)'} },
-  { id: 'PCL-5', t: 'PTSD Checklist (PCL-5)', abbr: 'PCL-5', sub: 'PTSD symptom scale, 20-item', cat: 'Trauma', tags: ['PTSD', 'taVNS'], max: 80, inline: false,
-    interpret: (s) => s<33?{label:'No probable PTSD',color:'var(--teal)'}:{label:'Probable PTSD',color:'var(--red)'} },
-  { id: 'Y-BOCS', t: 'Yale-Brown OC Scale', abbr: 'Y-BOCS', sub: 'OCD severity, 10-item', cat: 'OCD', tags: ['OCD', 'anxiety'], max: 40, inline: false,
-    interpret: (s) => s<=7?{label:'Subclinical',color:'var(--teal)'}:s<=15?{label:'Mild',color:'#60a5fa'}:s<=23?{label:'Moderate',color:'#f59e0b'}:s<=31?{label:'Severe',color:'#f97316'}:{label:'Extreme',color:'var(--red)'} },
-  { id: 'OCI-R', t: 'OCD Inventory-Revised', abbr: 'OCI-R', sub: 'OCD self-report, 18-item', cat: 'OCD', tags: ['OCD', 'anxiety'], max: 72, inline: false,
-    interpret: (s) => s<18?{label:'Below threshold',color:'var(--teal)'}:{label:'OCD likely',color:'var(--red)'} },
-  { id: 'PDSS', t: 'Panic Disorder Severity Scale', abbr: 'PDSS', sub: 'Panic disorder, 7-item clinician-rated', cat: 'Anxiety', tags: ['panic', 'anxiety'], max: 28, inline: false,
-    interpret: (s) => s<=5?{label:'Minimal',color:'var(--teal)'}:s<=10?{label:'Mild',color:'#60a5fa'}:s<=15?{label:'Moderate',color:'#f59e0b'}:{label:'Severe',color:'var(--red)'} },
-  { id: 'LSAS', t: 'Liebowitz Social Anxiety Scale', abbr: 'LSAS', sub: 'Social anxiety, 24-item', cat: 'Anxiety', tags: ['social-anxiety'], max: 144, inline: false,
-    interpret: (s) => s<30?{label:'None/Minimal',color:'var(--teal)'}:s<60?{label:'Moderate',color:'#f59e0b'}:{label:'Severe',color:'var(--red)'} },
-  { id: 'ADHD-RS-5', t: 'ADHD Rating Scale', abbr: 'ADHD-RS', sub: 'Executive function & attention, 18-item', cat: 'ADHD', tags: ['ADHD', 'NFB'], max: 54, inline: false,
-    interpret: (s) => s<=16?{label:'Normal',color:'var(--teal)'}:s<=32?{label:'Moderate',color:'#f59e0b'}:{label:'Severe',color:'var(--red)'} },
-  { id: 'DASS-21', t: 'DASS-21', abbr: 'DASS-21', sub: 'Depression, Anxiety & Stress Scales, 21-item', cat: 'Mood', tags: ['depression', 'anxiety', 'stress'], max: 63, inline: false,
-    interpret: (s) => s<=14?{label:'Normal',color:'var(--teal)'}:s<=28?{label:'Moderate',color:'#f59e0b'}:{label:'Severe',color:'var(--red)'} },
-  { id: 'UPDRS-III', t: 'UPDRS-III Motor Assessment', abbr: 'UPDRS-III', sub: "Parkinson's motor function, 27-item", cat: "Parkinson's", tags: ['PD', 'TPS', 'motor'], max: 108, inline: false,
-    interpret: (s) => s<=19?{label:'Mild',color:'#60a5fa'}:s<=39?{label:'Moderate',color:'#f59e0b'}:{label:'Severe',color:'var(--red)'} },
-  { id: 'NRS-Pain', t: 'Numeric Pain Rating Scale', abbr: 'NRS', sub: 'Pain intensity 0–10', cat: 'Pain', tags: ['pain', 'tDCS'], max: 10, inline: false,
-    interpret: (s) => s<=3?{label:'Mild pain',color:'#60a5fa'}:s<=6?{label:'Moderate pain',color:'#f59e0b'}:{label:'Severe pain',color:'var(--red)'} },
-  { id: 'NRS-SE', t: 'Side Effect Severity Rating', abbr: 'NRS-SE', sub: 'Neuromodulation side effects 0–10', cat: 'Safety', tags: ['side-effects', 'safety'], max: 10, inline: false,
-    interpret: (s) => s<=2?{label:'Minimal',color:'var(--teal)'}:s<=5?{label:'Moderate — monitor',color:'#f59e0b'}:{label:'Significant — review',color:'var(--red)'} },
-  { id: 'PSQI', t: 'Pittsburgh Sleep Quality Index', abbr: 'PSQI', sub: 'Sleep quality & disturbances, 7-component', cat: 'Sleep', tags: ['sleep', 'insomnia'], max: 21, inline: false,
-    interpret: (s) => s<=5?{label:'Good sleep',color:'var(--teal)'}:{label:'Poor sleep',color:'var(--red)'} },
-  { id: 'ESS', t: 'Epworth Sleepiness Scale', abbr: 'ESS', sub: 'Daytime sleepiness, 8-item', cat: 'Sleep', tags: ['sleep', 'fatigue'], max: 24, inline: false,
-    interpret: (s) => s<=10?{label:'Normal',color:'var(--teal)'}:s<=15?{label:'Excessive sleepiness',color:'#f59e0b'}:{label:'Severe — refer',color:'var(--red)'} },
-  { id: 'SF-12', t: 'Short Form Health Survey (SF-12)', abbr: 'SF-12', sub: 'Health-related quality of life, 12-item', cat: 'QoL', tags: ['quality-of-life', 'function'], max: 100, inline: false,
-    interpret: (s) => s>=50?{label:'Above average QoL',color:'var(--teal)'}:{label:'Below average QoL',color:'#f59e0b'} },
-  { id: 'THI', t: 'Tinnitus Handicap Inventory', abbr: 'THI', sub: 'Tinnitus severity & impact, 25-item', cat: 'Sensory', tags: ['tinnitus', 'TMS'], max: 100, inline: false,
-    interpret: (s) => s<=16?{label:'Slight',color:'var(--teal)'}:s<=36?{label:'Mild',color:'#60a5fa'}:s<=56?{label:'Moderate',color:'#f59e0b'}:{label:'Severe',color:'var(--red)'} },
-  { id: 'FSS', t: 'Fatigue Severity Scale', abbr: 'FSS', sub: 'Fatigue impact, 9-item', cat: 'Function', tags: ['fatigue', 'MS', 'TBI'], max: 63, inline: false,
-    interpret: (s) => s<36?{label:'Normal',color:'var(--teal)'}:{label:'Clinically significant fatigue',color:'#f59e0b'} },
-  { id: 'CGI-S', t: 'Clinical Global Impression — Severity', abbr: 'CGI-S', sub: 'Global severity rating 1–7', cat: 'Global', tags: ['global', 'clinician-rated'], max: 7, inline: false,
-    interpret: (s) => s<=2?{label:'Normal/Borderline',color:'var(--teal)'}:s<=4?{label:'Mild–Moderate',color:'#f59e0b'}:{label:'Severe',color:'var(--red)'} },
-  { id: 'AUDIT', t: 'Alcohol Use Disorders Identification Test', abbr: 'AUDIT', sub: 'Alcohol misuse screening, 10-item', cat: 'Substance', tags: ['alcohol', 'substance'], max: 40, inline: false,
-    interpret: (s) => s<=7?{label:'Low risk',color:'var(--teal)'}:s<=15?{label:'Medium risk',color:'#f59e0b'}:{label:'High risk',color:'var(--red)'} },
-];
+// ── Assessments Hub (instruments: registries/assess-instruments-registry.js) ───
 
-// Backward-compat alias (patient profile tab still references ASSESS_TEMPLATES)
-const ASSESS_TEMPLATES = ASSESS_REGISTRY;
+function _hubResolveRegistryScale(scaleId) {
+  const mapped = resolveScaleCanonical(scaleId);
+  return ASSESS_REGISTRY.find(r => r.id === mapped || r.id === scaleId) || null;
+}
+
+function _hubEscHtml(s) {
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/"/g, '&quot;');
+}
+
+function _hubInterpretScore(scaleId, score, extraScalesMap) {
+  if (score === null || score === undefined || Number.isNaN(Number(score))) return '';
+  const n = Number(score);
+  const reg = _hubResolveRegistryScale(scaleId);
+  if (reg?.interpret && typeof reg.interpret === 'function') {
+    const o = reg.interpret(n);
+    return o?.label || '';
+  }
+  const canon = resolveScaleCanonical(scaleId);
+  const ex = extraScalesMap[scaleId] || extraScalesMap[canon];
+  if (ex?.interpretation) {
+    for (const r of ex.interpretation) {
+      if (n <= r.max) return r.label;
+    }
+  }
+  return '';
+}
+
+/** Writes hub completion rows to ds_assessment_runs for dashboard + patient profile Assessments tab */
+function _syncAssessHubResultsToPlatform(assignment, results) {
+  if (!assignment?.patientId || !results?.length) return;
+  let runs = [];
+  try {
+    runs = JSON.parse(localStorage.getItem('ds_assessment_runs') || '[]');
+  } catch {
+    runs = [];
+  }
+  const ts = new Date().toISOString();
+  const phase = assignment.phase || '';
+  results.forEach(r => {
+    const tpl = _hubResolveRegistryScale(r.scale);
+    const sm = getScaleMeta(r.scale);
+    runs.push({
+      patient_id: assignment.patientId,
+      scale_id: r.scale,
+      scale_name: (!sm.unknown && sm.display_name) ? sm.display_name : (tpl?.abbr || tpl?.t || r.scale),
+      score: r.score,
+      interpretation: r.interp || '',
+      completed_at: ts,
+      status: 'completed',
+      timing_window: phase,
+      source: 'assessments-hub',
+      assignment_id: assignment.id,
+      condition_name: assignment.condName || '',
+    });
+  });
+  try {
+    localStorage.setItem('ds_assessment_runs', JSON.stringify(runs));
+  } catch {}
+  try {
+    window.dispatchEvent(new CustomEvent('ds-assessment-runs-updated', { detail: { patientId: assignment.patientId } }));
+  } catch {}
+}
 
 // Condition → phase → scale bundle map  (20 conditions × 5 phases)
 const CONDITION_BUNDLES = {
@@ -5028,7 +5177,9 @@ export async function pgAssess(setTopbar) {
     const s = registry.find(r => r.id === id);
     if (!s) return `<span class="ah-chip">${id}</span>`;
     const attrs = clickable ? `onclick="window._ahQuickRunScale('${id}')" title="${s.sub}"` : `title="${s.sub}"`;
-    return `<span class="ah-chip${clickable?' ah-chip-btn':''}" ${attrs}>${s.abbr||s.id}${s.inline?' ◉':''}</span>`;
+    const impl = getAssessmentImplementationStatus(id, ASSESS_REGISTRY);
+    const inlineMark = impl.status === 'implemented_item_checklist' ? ' ◉' : '';
+    return `<span class="ah-chip${clickable?' ah-chip-btn':''}" ${attrs}>${s.abbr||s.id}${inlineMark}</span>`;
   }
 
   function bundlePhaseRows(condId) {
@@ -5103,13 +5254,17 @@ export async function pgAssess(setTopbar) {
         <div class="card"><div class="card-body">
           <div class="ah-section-title">Scale Library <span style="font-size:10px;color:var(--text-tertiary);font-weight:400">(${registry.length} scales)</span></div>
           <div style="display:flex;flex-direction:column;gap:4px;max-height:270px;overflow-y:auto;margin-top:8px">
-            ${registry.map(s=>`
+            ${registry.map(s => {
+              const impl = getAssessmentImplementationStatus(s.id, ASSESS_REGISTRY);
+              const implBadge = formatLegacyRunImplementationBadgeHtml(impl.status);
+              return `
               <div class="ah-lib-row" onclick="window._ahQuickRunScale('${s.id}')">
                 <span class="ah-lib-abbr">${s.abbr||s.id}</span>
                 <span class="ah-lib-name">${s.t}</span>
-                ${s.inline?'<span class="ah-inline-badge">◉</span>':''}
+                ${implBadge ? `<span style="margin-left:6px">${implBadge}</span>` : ''}
                 <span class="ah-lib-cat">${s.cat}</span>
-              </div>`).join('')}
+              </div>`;
+            }).join('')}
           </div>
         </div></div>
       </div>
@@ -5141,18 +5296,31 @@ export async function pgAssess(setTopbar) {
         </div>
       </div></div>
       <div id="ah-run-scale-list" class="g3">
-        ${registry.map(s=>`
+        ${registry.map(s => {
+          const impl = getAssessmentImplementationStatus(s.id, ASSESS_REGISTRY);
+          const implBadge = formatLegacyRunImplementationBadgeHtml(impl.status);
+          const runPrimary =
+            impl.status === 'implemented_item_checklist'
+              ? `<button class="btn btn-primary btn-sm" onclick="window._ahRunScale('${s.id}')">Run Inline ◉</button>`
+              : impl.status === 'declared_item_checklist_but_missing_form'
+                ? `<button class="btn btn-sm" style="border-color:var(--amber, #f59e0b);color:var(--amber, #f59e0b)" onclick="window._ahRunScale('${s.id}')" title="In-app checklist not wired yet">Enter total (checklist pending)</button>`
+                : '';
+          return `
           <div class="card ah-scale-card" style="margin-bottom:0" id="ahsc-${s.id.replace(/[^a-z0-9]/gi,'_')}">
             <div class="card-body">
-              <div style="font-family:var(--font-display);font-size:13px;font-weight:600;margin-bottom:3px">${s.t}</div>
+              <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:3px">
+                <div style="font-family:var(--font-display);font-size:13px;font-weight:600;flex:1;min-width:220px">${s.t}</div>
+                ${implBadge || ''}
+              </div>
               <div style="font-size:11px;color:var(--text-secondary);margin-bottom:8px">${s.sub} · max ${s.max}</div>
               <div style="margin-bottom:10px">${s.tags.slice(0,3).map(t=>tag(t)).join('')}</div>
-              <div style="display:flex;gap:6px">
-                ${s.inline?`<button class="btn btn-primary btn-sm" onclick="window._ahRunScale('${s.id}')">Run Inline ◉</button>`:''}
+              <div style="display:flex;gap:6px;flex-wrap:wrap">
+                ${runPrimary}
                 <button class="btn btn-sm" onclick="window._ahScoreEntry('${s.id}')">Enter Score</button>
               </div>
             </div>
-          </div>`).join('')}
+          </div>`;
+        }).join('')}
       </div>
       <div id="ah-inline-panel" style="display:none;max-width:680px;margin-top:16px">
         <div class="card"><div class="card-body">
@@ -5175,6 +5343,7 @@ export async function pgAssess(setTopbar) {
             <button class="btn btn-sm" onclick="window._ahCloseScore()">← Back</button>
             <div id="ah-score-title" style="font-family:var(--font-display);font-size:14px;font-weight:600;flex:1"></div>
           </div>
+          <div id="ah-score-notice"></div>
           <div class="form-group"><label class="form-label">Score</label>
             <input id="ah-score-val" class="form-control" type="number" placeholder="e.g. 14" oninput="window._ahScorePreview()"></div>
           <div id="ah-score-interp" style="font-size:12px;font-weight:600;padding:6px 10px;border-radius:var(--radius-sm);margin-bottom:10px;display:none"></div>
@@ -5256,8 +5425,16 @@ export async function pgAssess(setTopbar) {
     window._ahCloseInline(); window._ahCloseScore();
   };
   window._ahRunScale = function(id) {
-    const tpl = registry.find(r => r.id === id);
-    if (!tpl?.inline) { window._ahScoreEntry(id); return; }
+    const routed = routeLegacyRunAssessment(id, ASSESS_REGISTRY);
+    if (routed.route !== 'inline_panel') {
+      window._ahScoreEntry(id, routed.status);
+      return;
+    }
+    const tpl = routed.instrument || findAssessInstrumentRow(id, ASSESS_REGISTRY) || registry.find(r => r.id === id);
+    if (!tpl || !Array.isArray(tpl.questions) || tpl.questions.length === 0) {
+      window._ahScoreEntry(id, 'declared_item_checklist_but_missing_form');
+      return;
+    }
     _ahInlineTpl = tpl; _ahInlineAnswers = new Array(tpl.questions.length).fill(0);
     document.getElementById('ah-score-panel').style.display = 'none';
     document.getElementById('ah-run-scale-list').style.display = 'none';
@@ -5287,8 +5464,14 @@ export async function pgAssess(setTopbar) {
     const p=document.getElementById('ah-inline-panel'); if(p) p.style.display='none';
     const l=document.getElementById('ah-run-scale-list'); if(l) l.style.display=''; _ahInlineTpl=null;
   };
-  window._ahScoreEntry = function(id) {
+  window._ahScoreEntry = function(id, implStatusOpt) {
     _ahScoreTpl = registry.find(r => r.id === id); if (!_ahScoreTpl) return;
+    const status =
+      implStatusOpt != null
+        ? implStatusOpt
+        : getAssessmentImplementationStatus(id, ASSESS_REGISTRY).status;
+    const noticeEl = document.getElementById('ah-score-notice');
+    if (noticeEl) noticeEl.innerHTML = getLegacyRunScoreEntryNoticeHtml(status);
     document.getElementById('ah-inline-panel').style.display='none';
     document.getElementById('ah-run-scale-list').style.display='none';
     document.getElementById('ah-score-panel').style.display='';
@@ -5306,7 +5489,9 @@ export async function pgAssess(setTopbar) {
   };
   window._ahCloseScore = function() {
     const p=document.getElementById('ah-score-panel'); if(p) p.style.display='none';
-    const l=document.getElementById('ah-run-scale-list'); if(l) l.style.display=''; _ahScoreTpl=null;
+    const l=document.getElementById('ah-run-scale-list'); if(l) l.style.display='';
+    const n=document.getElementById('ah-score-notice'); if(n) n.innerHTML='';
+    _ahScoreTpl=null;
   };
   async function _doSave(tpl, score, patientId, notes, phase) {
     const interp = tpl.interpret ? tpl.interpret(score) : null;
@@ -13823,10 +14008,106 @@ export async function pgAssessmentsHub(setTopbar) {
 
   const extraMap = Object.fromEntries(EXTRA_SCALES.map(s => [s.id, s]));
   function interpretScore(scaleId, score) {
-    const s = extraMap[scaleId];
-    if (!s || score === null || score === undefined || isNaN(score)) return '';
-    for (const r of s.interpretation) { if (score <= r.max) return r.label; }
-    return '';
+    return _hubInterpretScore(scaleId, score, extraMap);
+  }
+
+  function buildHubScaleBlock(sid, a) {
+    const existing = a.results.find(r => r.scale === sid);
+    const reg = _hubResolveRegistryScale(sid);
+    const routed = routeLegacyRunAssessment(sid, ASSESS_REGISTRY);
+    // Implementation-truth gating: do NOT branch on reg?.inline alone.
+    // If the checklist is implemented, render item-by-item; otherwise fall back to numeric entry
+    // with the same hub-aligned notice copy as the legacy Run panel.
+    if (
+      routed.route === 'inline_panel' &&
+      routed.status === 'implemented_item_checklist' &&
+      Array.isArray(reg?.questions) &&
+      reg.questions.length
+    ) {
+      const subId = 'ah2-subtot-' + sid.replace(/[^a-z0-9]/gi, '_');
+      const siId = 'ah2-si-' + sid.replace(/[^a-z0-9]/gi, '-');
+      const sm = getScaleMeta(sid);
+      let html = '<div class="ah2-inline-wrap" data-inline-scale="' + String(sid).replace(/"/g, '&quot;') + '" style="margin-bottom:16px;border:1px solid var(--border);border-radius:10px;padding:12px">';
+      html += '<div style="font-weight:700;margin-bottom:8px">' + _hubEscHtml(sid) + (reg.sub ? ' <span style="font-weight:400;color:var(--text-secondary);font-size:12px">' + _hubEscHtml(reg.sub) + '</span>' : '') + '</div>';
+      if (sm.scoring_note) {
+        html += '<p style="font-size:11px;color:var(--text-tertiary);margin:0 0 10px;line-height:1.45">' + _hubEscHtml(sm.scoring_note) + '</p>';
+      }
+      reg.questions.forEach((q, i) => {
+        html += '<div style="margin-bottom:10px"><span class="ah2-q-num">' + (i + 1) + '</span>';
+        html += '<label style="display:block;font-size:12.5px;margin:4px 0 6px;color:var(--text-primary)">' + _hubEscHtml(q) + '</label>';
+        html += '<select class="ah2-input ah2-q-select" style="width:100%;max-width:440px">';
+        html += '<option value="">—</option>';
+        (reg.options || []).forEach(opt => {
+          const m = String(opt).match(/\((\d+)\)\s*$/);
+          const nv = m ? m[1] : '';
+          html += '<option value="' + nv + '">' + _hubEscHtml(opt) + '</option>';
+        });
+        html += '</select></div>';
+      });
+      html += '<div style="margin-top:10px;font-weight:600">Total: <span id="' + subId + '">' + (existing ? String(existing.score) : '—') + '</span>';
+      html += ' <span class="ah2-score-interp" id="' + siId + '" style="margin-left:8px;font-weight:500;color:var(--text-secondary)">' + (existing ? _hubEscHtml(existing.interp) : '') + '</span></div>';
+      html += '</div>';
+      return html;
+    }
+    const es = extraMap[sid];
+    const rangeLabel = es ? sid + ' (' + es.min + '-' + es.max + ')' : sid + (reg?.max != null ? ' (0–' + reg.max + ')' : '');
+    const minmax = es ? ' min="' + es.min + '" max="' + es.max + '"' : (reg?.max != null ? ' min="0" max="' + reg.max + '"' : '');
+    const safeId = sid.replace(/[^a-z0-9]/gi, '-');
+    const noticeHtml = getLegacyRunScoreEntryNoticeHtml(routed.status);
+    const numericRow =
+      '<div class="ah2-score-row">' +
+      '<label class="ah2-score-label">' + _hubEscHtml(rangeLabel) + '</label>' +
+      '<input type="number" class="ah2-input ah2-score-input" data-scale="' + _hubEscHtml(sid) + '" placeholder="Score" value="' + (existing ? String(existing.score) : '') + '"' + minmax + '/>' +
+      '<span class="ah2-score-interp" id="ah2-si-' + safeId + '">' + (existing ? _hubEscHtml(existing.interp) : '') + '</span>' +
+    '</div>';
+    if (noticeHtml) {
+      return (
+        '<div class="ah2-impl-gap-wrap" data-impl-gap-scale="' +
+        String(sid).replace(/"/g, '&quot;') +
+        '">' +
+        noticeHtml +
+        numericRow +
+        '</div>'
+      );
+    }
+    return numericRow;
+  }
+
+  function wireHubChecklistListeners(modal) {
+    modal.querySelectorAll('.ah2-q-select').forEach(sel => {
+      sel.addEventListener('change', function hubQChange() {
+        const wrap = this.closest('.ah2-inline-wrap');
+        if (!wrap) return;
+        const sid = wrap.getAttribute('data-inline-scale');
+        if (!sid) return;
+        let sum = 0;
+        wrap.querySelectorAll('.ah2-q-select').forEach(s => {
+          if (s.value !== '') sum += parseInt(s.value, 10) || 0;
+        });
+        const subId = 'ah2-subtot-' + sid.replace(/[^a-z0-9]/gi, '_');
+        const el = document.getElementById(subId);
+        if (el) el.textContent = String(sum);
+        const interp = interpretScore(sid, sum);
+        const si = document.getElementById('ah2-si-' + sid.replace(/[^a-z0-9]/gi, '-'));
+        if (si) si.textContent = interp;
+      });
+    });
+  }
+
+  function collectAllScaleTokens(cond) {
+    const ids = [];
+    PHASES.forEach(ph => {
+      (cond.phases[ph] || []).forEach(sid => ids.push(sid));
+    });
+    return ids;
+  }
+
+  function inAppChecklistScaleIds(cond) {
+    const { implementedItemChecklist } = partitionScalesByImplementationTruth(
+      collectAllScaleTokens(cond),
+      ASSESS_REGISTRY,
+    );
+    return implementedItemChecklist;
   }
 
   function kpis() {
@@ -14018,14 +14299,23 @@ export async function pgAssessmentsHub(setTopbar) {
     const body = cats.map(cat => {
       const conds = COND_BUNDLES.filter(c => c.category === cat);
       return '<div class="ah2-cat-section"><h3 class="ah2-cat-heading">' + cat + ' <span class="ah2-cat-count">' + conds.length + '</span></h3>' +
-        '<div class="ah2-cond-grid">' + conds.map(cond =>
-          '<div class="ah2-cond-card">' +
+        '<div class="ah2-cond-grid">' + conds.map(cond => {
+          const inApp = inAppChecklistScaleIds(cond);
+          const inAppSummary = inApp.length ? (inApp.length + ' in-app screener' + (inApp.length === 1 ? '' : 's')) : 'No in-app item lists';
+          const baselineBadges = (cond.phases.baseline || [])
+            .map(s => formatScaleWithImplementationBadgeHtml(s, ASSESS_REGISTRY))
+            .join('<span style="opacity:0.35"> · </span>');
+          return '<div class="ah2-cond-card">' +
             '<div class="ah2-cond-header"><span class="ah2-cond-id">' + cond.id + '</span><span class="ah2-cond-name">' + cond.name + '</span></div>' +
             '<div class="ah2-phase-pills">' + PHASES.map(ph => '<span class="ah2-phase-pill ah2-phase-' + ph + '" title="' + PHASE_LABELS[ph] + ': ' + cond.phases[ph].join(', ') + '">' + PHASE_LABELS[ph] + '</span>').join('') + '</div>' +
-            '<div class="ah2-cond-scales">Baseline: ' + cond.phases.baseline.join(', ') + '</div>' +
+            '<div class="ah2-cond-scales ah2-cond-scale-line"><strong style="color:var(--text-primary)">Baseline</strong> · ' + baselineBadges + '</div>' +
+            '<div class="ah2-cond-checklists" style="font-size:11.5px;color:var(--text-secondary);margin:2px 0 8px;line-height:1.45">Bundle summary: ' + _hubEscHtml(inAppSummary) + '</div>' +
+            '<div style="display:flex;gap:6px;flex-wrap:wrap">' +
             '<button class="ah2-btn ah2-btn-sm" onclick="window._ah2AssignCond(\'' + cond.id + '\')">Assign Bundle</button>' +
-          '</div>'
-        ).join('') + '</div></div>';
+            '<button class="ah2-btn ah2-btn-sm ah2-btn-ghost" onclick="window._ah2CondInfo(\'' + cond.id + '\')">Info &amp; links</button>' +
+            '</div>' +
+          '</div>';
+        }).join('') + '</div></div>';
     }).join('');
     return '<div class="ah2-cond-toolbar">' + filterBtns + '</div>' + body;
   }
@@ -14132,27 +14422,17 @@ export async function pgAssessmentsHub(setTopbar) {
     const modal = document.getElementById('ah2-score-modal');
     modal.dataset.assignId = id;
     document.getElementById('ah2-score-body').innerHTML =
-      '<p class="ah2-score-info"><strong>' + a.condName + '</strong> &bull; ' + PHASE_LABELS[a.phase] + ' &bull; Patient ' + a.patientId + '</p>' +
-      '<p class="ah2-score-hint">Enter scores below. Leave blank to skip.</p>' +
-      a.scales.map(sid => {
-        const es = extraMap[sid];
-        const rangeLabel = es ? sid + ' (' + es.min + '-' + es.max + ')' : sid;
-        const minmax = es ? ' min="' + es.min + '" max="' + es.max + '"' : '';
-        const existing = a.results.find(r => r.scale === sid);
-        const safeId = sid.replace(/[^a-z0-9]/gi, '-');
-        return '<div class="ah2-score-row">' +
-          '<label class="ah2-score-label">' + rangeLabel + '</label>' +
-          '<input type="number" class="ah2-input ah2-score-input" data-scale="' + sid + '" placeholder="Score" value="' + (existing ? existing.score : '') + '"' + minmax + '/>' +
-          '<span class="ah2-score-interp" id="ah2-si-' + safeId + '">' + (existing ? existing.interp : '') + '</span>' +
-        '</div>';
-      }).join('');
+      '<p class="ah2-score-info"><strong>' + _hubEscHtml(a.condName) + '</strong> &bull; ' + _hubEscHtml(PHASE_LABELS[a.phase]) + ' &bull; Patient ' + _hubEscHtml(a.patientId) + '</p>' +
+      '<p class="ah2-score-hint">Use the item checklists for validated self-report scales (PHQ-9, GAD-7, ISI, PCL-5, etc.). Enter numeric totals for clinician-rated or extended scales.</p>' +
+      a.scales.map(sid => buildHubScaleBlock(sid, a)).join('');
     modal.querySelectorAll('.ah2-score-input').forEach(inp => {
       inp.addEventListener('input', function() {
-        const interp = interpretScore(this.dataset.scale, parseInt(this.value));
+        const interp = interpretScore(this.dataset.scale, parseInt(this.value, 10));
         const el = document.getElementById('ah2-si-' + this.dataset.scale.replace(/[^a-z0-9]/gi, '-'));
         if (el) el.textContent = interp;
       });
     });
+    wireHubChecklistListeners(modal);
     modal.classList.remove('ah2-hidden');
   };
 
@@ -14161,17 +14441,43 @@ export async function pgAssessmentsHub(setTopbar) {
     const a = DATA.assignments.find(x => x.id === modal.dataset.assignId);
     if (!a) return;
     const results = [];
+    const incomplete = [];
+    modal.querySelectorAll('.ah2-inline-wrap').forEach(wrap => {
+      const sid = wrap.getAttribute('data-inline-scale');
+      if (!sid) return;
+      const selects = [...wrap.querySelectorAll('.ah2-q-select')];
+      const vals = selects.map(s => s.value);
+      if (vals.every(v => v === '')) return;
+      if (vals.some(v => v === '')) {
+        incomplete.push(sid);
+        return;
+      }
+      const sum = vals.reduce((acc, v) => acc + parseInt(v, 10), 0);
+      results.push({ scale: sid, score: sum, interp: interpretScore(sid, sum) });
+    });
+    if (incomplete.length) {
+      window._showNotifToast?.({ title: 'Incomplete checklists', body: 'Finish every item for: ' + incomplete.join(', '), severity: 'warning' });
+      alert('Complete all items for each started checklist, or clear all dropdowns in that scale to skip it.\n\nIncomplete: ' + incomplete.join(', '));
+      return;
+    }
     modal.querySelectorAll('.ah2-score-input').forEach(inp => {
       if (inp.value !== '') {
-        const score = parseInt(inp.value);
+        const score = parseInt(inp.value, 10);
         results.push({ scale: inp.dataset.scale, score, interp: interpretScore(inp.dataset.scale, score) });
       }
     });
+    if (!results.length) {
+      window._showNotifToast?.({ title: 'No scores', body: 'Enter at least one scale score or checklist.', severity: 'warning' });
+      alert('Enter at least one score.');
+      return;
+    }
     a.results = results;
     a.status = 'completed';
-    a.completedDate = new Date().toISOString().slice(0,10);
+    a.completedDate = new Date().toISOString().slice(0, 10);
     saveData(DATA);
+    _syncAssessHubResultsToPlatform(a, results);
     modal.classList.add('ah2-hidden');
+    window._showNotifToast?.({ title: 'Scores saved', body: 'Totals synced to patient assessments and clinic metrics.', severity: 'success' });
     render();
   };
 
@@ -14248,9 +14554,86 @@ export async function pgAssessmentsHub(setTopbar) {
       '</div>' +
     '</div>';
 
+  const condInfoModalHtml =
+    '<div class="ah2-modal-overlay ah2-hidden" id="ah2-condinfo-modal">' +
+      '<div class="ah2-modal-box" style="max-width:520px">' +
+        '<div class="ah2-modal-header"><h2 id="ah2-condinfo-title">Condition</h2>' +
+        '<button class="ah2-modal-close" onclick="document.getElementById(\'ah2-condinfo-modal\').classList.add(\'ah2-hidden\')">&times;</button></div>' +
+        '<div class="ah2-modal-body" id="ah2-condinfo-body"></div>' +
+        '<div class="ah2-modal-footer"><button class="ah2-btn ah2-btn-ghost" onclick="document.getElementById(\'ah2-condinfo-modal\').classList.add(\'ah2-hidden\')">Close</button></div>' +
+      '</div>' +
+    '</div>';
+
+  window._ah2CondInfo = function(condId) {
+    const cond = COND_BUNDLES.find(c => c.id === condId);
+    if (!cond) return;
+    const hub = COND_HUB_META[condId];
+    const meta = hub && hub.links && hub.links.length ? hub : { links: [] };
+    const rawIds = collectAllScaleTokens(cond);
+    const truth = partitionScalesByImplementationTruth(rawIds, ASSESS_REGISTRY);
+    const rows = enumerateBundleScales(cond, PHASES);
+    let html = '<p style="font-size:12px;color:var(--text-tertiary);margin:0 0 12px">' + _hubEscHtml(cond.id) + ' — scale list is suggestive; align with your protocol and licensing.</p>';
+    html += '<h4 style="margin:0 0 8px;font-size:12.5px;font-weight:700">Scales in this bundle</h4>';
+    html += '<div style="font-size:12px;line-height:1.65;margin-bottom:14px">';
+    rows.forEach(({ raw, meta: sm }) => {
+      html += '<div style="margin-bottom:8px;border-bottom:1px solid rgba(255,255,255,0.06);padding-bottom:6px">';
+      html += formatScaleWithImplementationBadgeHtml(raw, ASSESS_REGISTRY);
+      if (sm.display_name && sm.display_name !== raw) {
+        html += '<div style="font-size:11px;color:var(--text-tertiary);margin-top:2px">' + _hubEscHtml(sm.display_name) + '</div>';
+      }
+      if (sm.scoring_note) {
+        html += '<div style="font-size:10.5px;color:var(--text-tertiary);margin-top:4px;line-height:1.45">' + _hubEscHtml(sm.scoring_note) + '</div>';
+      }
+      html += '</div>';
+    });
+    html += '</div>';
+    html += '<h4 style="margin:0 0 6px;font-size:12.5px;font-weight:700">Grouped by entry type</h4>';
+    html +=
+      '<p style="font-size:12px;margin:0 0 6px"><strong>In-app item lists (implemented):</strong> ' +
+      _hubEscHtml(truth.implementedItemChecklist.length ? truth.implementedItemChecklist.join(', ') : '—') +
+      '</p>';
+    if (truth.declaredMissingForm.length) {
+      html +=
+        '<p style="font-size:12px;color:var(--amber);margin:0 0 6px"><strong>Checklist pending wiring (enter total manually):</strong> ' +
+        _hubEscHtml(truth.declaredMissingForm.join(', ')) +
+        '</p>';
+    }
+    html +=
+      '<p style="font-size:12px;margin:0 0 6px"><strong>Numeric totals in this app:</strong> ' +
+      _hubEscHtml(truth.numericEntry.length ? truth.numericEntry.join(', ') : '—') +
+      '</p>';
+    html +=
+      '<p style="font-size:12px;margin:0 0 12px"><strong>Clinician-rated / not itemized here:</strong> ' +
+      _hubEscHtml(truth.clinicianEntry.length ? truth.clinicianEntry.join(', ') : '—') +
+      '</p>';
+    if (truth.unknown.length) {
+      html +=
+        '<p style="font-size:12px;color:var(--amber);margin:0 0 12px"><strong>Unlisted abbreviations:</strong> ' +
+        _hubEscHtml(truth.unknown.join(', ')) +
+        ' — confirm instrument and add registry metadata if needed.</p>';
+    }
+    html += '<h4 style="margin:0 0 6px;font-size:12.5px;font-weight:700">Condition references (education)</h4>';
+    if (meta.links && meta.links.length) {
+      html += '<ul style="margin:0;padding-left:18px;font-size:12.5px;line-height:1.55">';
+      meta.links.forEach(L => {
+        const u = String(L.url || '').replace(/[<>"']/g, '');
+        html += '<li style="margin-bottom:4px"><a href="' + u + '" target="_blank" rel="noopener noreferrer">' + _hubEscHtml(L.title) + '</a></li>';
+      });
+      html += '</ul>';
+    } else {
+      html += '<p style="font-size:12.5px;color:var(--text-tertiary)">No vetted links configured for this bundle.</p>';
+    }
+    html += '<p style="font-size:10.5px;color:var(--text-tertiary);margin-top:14px;line-height:1.45">Educational links only. This app does not grant rights to proprietary instruments. Follow licensing, training, and local policy. Not medical advice.</p>';
+    const ti = document.getElementById('ah2-condinfo-title');
+    const bd = document.getElementById('ah2-condinfo-body');
+    if (ti) ti.textContent = cond.name;
+    if (bd) bd.innerHTML = html;
+    document.getElementById('ah2-condinfo-modal')?.classList.remove('ah2-hidden');
+  };
+
   const el = document.getElementById('content');
   if (!el) return;
-  el.innerHTML = '<div class="ah2-wrap" id="ah2-root"></div>' + assignModalHtml + scoreModalHtml + detailModalHtml;
+  el.innerHTML = '<div class="ah2-wrap" id="ah2-root"></div>' + assignModalHtml + scoreModalHtml + detailModalHtml + condInfoModalHtml;
   render();
 }
 
@@ -17934,7 +18317,7 @@ export async function pgMonitoring(setTopbar, navigate) {
 // pgHomePrograms — Clinician Home Programs & Task Assignment Workflow
 // ─────────────────────────────────────────────────────────────────────────────
 export async function pgHomePrograms(setTopbar, navigate) {
-  setTopbar({ title: 'Home Programs', subtitle: 'Assign · monitor · review between-session patient tasks' });
+  setTopbar({ title: 'Home Programs', subtitle: 'Assign between-session tasks · 53 condition templates + general library' });
 
   const el = document.getElementById('main-content');
   if (!el) return;
@@ -17967,20 +18350,135 @@ export async function pgHomePrograms(setTopbar, navigate) {
       dueDate: task.dueDate || '', frequency: task.frequency || 'once',
       courseId: task.courseId || '', status: task.status || 'active',
       assignedAt: task.assignedAt, reason: task.reason || '',
+      homeProgramSelection: task.homeProgramSelection || undefined,
     };
     if (idx >= 0) patTasks[idx] = { ...patTasks[idx], ...patTask };
     else patTasks.push(patTask);
     _lsSet(_patKey(pid), patTasks);
   };
 
-  const _saveTask = (task) => {
+  /** Parse mutation response + merge into local task; keeps transport fields out of persisted state. */
+  const _hpApplyMutationSync = (localTask, resBody) => {
+    const mutation = parseHomeProgramTaskMutationResponse(resBody);
+    const merged = mergeParsedMutationIntoLocalTask(localTask, mutation);
+    return { merged, mutation };
+  };
+
+  const _saveTask = (task, useCreate = false) => {
     const pid = task.patientId;
+    const now = new Date().toISOString();
+    const withMeta = {
+      ...task,
+      clientUpdatedAt: task.clientUpdatedAt || now,
+      _syncStatus: SYNC_STATUS.SYNCING,
+    };
     const tasks = _ls(_clinKey(pid), []);
-    const idx = tasks.findIndex(t => t.id === task.id);
-    if (idx >= 0) tasks[idx] = task; else tasks.push(task);
+    const idx = tasks.findIndex(t => t.id === withMeta.id);
+    if (idx >= 0) tasks[idx] = withMeta; else tasks.push(withMeta);
     _lsSet(_clinKey(pid), tasks);
     _registerPid(pid);
-    _bridgeToPatient(pid, task);
+    _bridgeToPatient(pid, withMeta);
+    import('./api.js').then(({ api: sdk }) => {
+      const canUpsert = typeof sdk.upsertHomeProgramTask === 'function';
+      const canCreate = typeof sdk.createHomeProgramTask === 'function';
+      const canMutate = typeof sdk.mutateHomeProgramTask === 'function';
+      if (!canMutate && !canUpsert && !(useCreate && canCreate)) return null;
+      const syncPromise = canMutate
+        ? sdk.mutateHomeProgramTask(withMeta)
+        : (useCreate && canCreate ? sdk.createHomeProgramTask(withMeta) : sdk.upsertHomeProgramTask(withMeta));
+      return syncPromise.then(resOrMutation => {
+        const merged = canMutate
+          ? mergeParsedMutationIntoLocalTask(withMeta, resOrMutation)
+          : _hpApplyMutationSync(withMeta, resOrMutation).merged;
+        const arr = _ls(_clinKey(pid), []);
+        const j = arr.findIndex(t => t.id === merged.id);
+        if (j >= 0) arr[j] = merged; else arr.push(merged);
+        _lsSet(_clinKey(pid), arr);
+        _bridgeToPatient(pid, merged);
+        _allTasks = _loadAllTasks();
+        renderPage();
+      }).catch((err) => {
+        const body = err.body || {};
+        if (err.status === 409 && body.code === 'sync_conflict') {
+          const d = body.details || {};
+          const serverTask = d.serverTask;
+          const conflicted = {
+            ...withMeta,
+            _syncStatus: SYNC_STATUS.CONFLICT,
+            _conflictServerTask: serverTask || null,
+            _syncConflictReason: 'sync_conflict_response',
+            serverTaskId: d.serverTaskId || (serverTask && serverTask.serverTaskId),
+            lastSyncedServerRevision: d.serverRevision != null ? d.serverRevision : withMeta.lastSyncedServerRevision,
+          };
+          const arr = _ls(_clinKey(pid), []);
+          const j = arr.findIndex(t => t.id === conflicted.id);
+          if (j >= 0) arr[j] = conflicted; else arr.push(conflicted);
+          _lsSet(_clinKey(pid), arr);
+          _bridgeToPatient(pid, conflicted);
+          _allTasks = _loadAllTasks();
+          renderPage();
+          window._showNotifToast?.({
+            title: 'Sync conflict',
+            body: 'This task was updated elsewhere. Open the row menu to keep your edits or the server copy.',
+            severity: 'warn',
+          });
+          return;
+        }
+        const failed = markSyncFailed(withMeta);
+        const arr = _ls(_clinKey(pid), []);
+        const j = arr.findIndex(t => t.id === failed.id);
+        if (j >= 0) arr[j] = failed; else arr.push(failed);
+        _lsSet(_clinKey(pid), arr);
+        _bridgeToPatient(pid, failed);
+        _allTasks = _loadAllTasks();
+        renderPage();
+      });
+    }).catch(() => {});
+  };
+
+  const _retryPendingSyncs = async () => {
+    const { api: sdk } = await import('./api.js');
+    if (
+      typeof sdk.mutateHomeProgramTask !== 'function' &&
+      typeof sdk.upsertHomeProgramTask !== 'function' &&
+      typeof sdk.createHomeProgramTask !== 'function'
+    ) return;
+    const pids = _getAllKnownPids();
+    let any = false;
+    for (const pid of pids) {
+      const arr = _ls(_clinKey(pid), []);
+      let changed = false;
+      for (let i = 0; i < arr.length; i++) {
+        const t = arr[i];
+        if (t._syncStatus !== SYNC_STATUS.PENDING) continue;
+        try {
+          const mutation = typeof sdk.mutateHomeProgramTask === 'function'
+            ? await sdk.mutateHomeProgramTask(t)
+            : _hpApplyMutationSync(
+                t,
+                (!t.serverTaskId && typeof sdk.createHomeProgramTask === 'function')
+                  ? await sdk.createHomeProgramTask(t)
+                  : await sdk.upsertHomeProgramTask(t)
+              ).mutation;
+          arr[i] = mergeParsedMutationIntoLocalTask(t, mutation);
+          changed = true;
+          any = true;
+          _bridgeToPatient(pid, arr[i]);
+          if (typeof sdk.postHomeProgramAuditAction === 'function') {
+            sdk.postHomeProgramAuditAction({
+              external_task_id: t.id,
+              action: 'retry_success',
+              server_revision: mutation.revision.serverRevision,
+            }).catch(() => {});
+          }
+        } catch (_) { /* stay pending */ }
+      }
+      if (changed) _lsSet(_clinKey(pid), arr);
+    }
+    if (any) {
+      _allTasks = _loadAllTasks();
+      renderPage();
+    }
   };
 
   const _loadAllTasks = () => {
@@ -18024,9 +18522,35 @@ export async function pgHomePrograms(setTopbar, navigate) {
   ];
   const _getTemplates = () => {
     const saved = _ls(_tplKey, []);
-    const ids = new Set(saved.map(t => t.id));
-    DEFAULT_TEMPLATES.forEach(t => { if (!ids.has(t.id)) saved.unshift(t); });
-    return saved;
+    const savedById = Object.fromEntries(saved.map(t => [t.id, t]));
+    const merged = [];
+    const seen = new Set();
+    for (const t of [...CONDITION_HOME_TEMPLATES, ...DEFAULT_TEMPLATES]) {
+      const u = savedById[t.id] ? { ...t, ...savedById[t.id] } : t;
+      if (!seen.has(u.id)) { merged.push(u); seen.add(u.id); }
+    }
+    for (const t of saved) {
+      if (!seen.has(t.id)) { merged.push(t); seen.add(t.id); }
+    }
+    return merged;
+  };
+
+  let _tplFilter = { cond: 'all', q: '' };
+  const _filteredTemplates = () => {
+    let list = _getTemplates();
+    if (_tplFilter.cond === 'general') list = list.filter(t => !t.conditionId);
+    else if (_tplFilter.cond !== 'all') list = list.filter(t => t.conditionId === _tplFilter.cond);
+    if (_tplFilter.q) {
+      const q = _tplFilter.q.toLowerCase();
+      list = list.filter(t =>
+        (t.title || '').toLowerCase().includes(q) ||
+        (t.conditionName || '').toLowerCase().includes(q) ||
+        (t.conditionId || '').toLowerCase().includes(q) ||
+        (t.instructions || '').toLowerCase().includes(q) ||
+        (t.category || '').toLowerCase().includes(q)
+      );
+    }
+    return list;
   };
 
   // ── API ──────────────────────────────────────────────────────────────────
@@ -18055,12 +18579,41 @@ export async function pgHomePrograms(setTopbar, navigate) {
   };
   _migrateIfNeeded();
 
+  // Merge server-backed tasks into localStorage when authenticated (reload / multi-device).
+  try {
+    const { api: sdk } = await import('./api.js');
+    if (typeof sdk.listHomeProgramTasks === 'function') {
+      const res = await sdk.listHomeProgramTasks().catch(() => null);
+      const items = res && Array.isArray(res.items) ? res.items : [];
+      const byPid = {};
+      items.forEach(task => {
+        const pid = task.patientId;
+        if (!pid || !task.id) return;
+        if (!byPid[pid]) byPid[pid] = [];
+        byPid[pid].push(task);
+      });
+      const pids = new Set([..._getAllKnownPids(), ...Object.keys(byPid)]);
+      pids.forEach(pid => {
+        const local = _ls(_clinKey(pid), []);
+        const remote = byPid[pid] || [];
+        const merged = mergePatientTasksFromServer(local, remote);
+        _lsSet(_clinKey(pid), merged);
+        _registerPid(pid);
+        merged.forEach(t => _bridgeToPatient(pid, t));
+      });
+      await _retryPendingSyncs();
+    }
+  } catch (_) { /* offline or no token */ }
+
   // ── State ────────────────────────────────────────────────────────────────
   let _allTasks = _loadAllTasks();
   let _view = 'queue'; // 'queue' | 'adherence' | 'templates'
   let _filter = { search: '', status: 'all', type: 'all', pid: 'all' };
   let _editingTask = null;
   let _showModal = false;
+  let _hpSuggestionRowByTplId = new Map();
+  let _hpModalProvenance = null;
+  let _hpSuggestExpanded = false;
 
   // ── Date helpers ─────────────────────────────────────────────────────────
   const _today    = () => new Date().toISOString().slice(0, 10);
@@ -18133,12 +18686,15 @@ export async function pgHomePrograms(setTopbar, navigate) {
     return `
       <div class="hp-task-row${isDone ? ' hp-task-done' : ''}" data-tid="${task.id}">
         <div class="hp-task-type" title="${_typeName(task.type)}">${_typeIcon(task.type)}</div>
-        <div class="hp-task-main">
+          <div class="hp-task-main">
           <div class="hp-task-title">${task.title || 'Untitled'}</div>
           <div class="hp-task-meta">
             <span class="hp-task-pt" onclick="event.stopPropagation();window.openPatient('${task.patientId}');window._nav('patient-profile')">${ptName}</span>
             ${task.reason ? `<span class="hp-task-reason">${task.reason}</span>` : ''}
             ${course ? `<span class="hp-task-course">\uD83D\uDCCE ${course.condition || course.protocol_name || 'Course'}</span>` : ''}
+            ${task.homeProgramSelection?.conditionId ? `<span class="hp-task-prov" title="Home program selection on file">${_esc(task.homeProgramSelection.conditionId)} · ${_esc(confidenceTierFromScore(task.homeProgramSelection.confidenceScore))}</span>` : ''}
+            ${task._syncStatus === SYNC_STATUS.PENDING ? '<span class="hp-sync-badge hp-sync-pending" title="Will retry sync">Sync pending</span>' : ''}
+            ${task._syncStatus === SYNC_STATUS.CONFLICT ? '<span class="hp-sync-badge hp-sync-conflict" title="Server and local edits disagree">Sync conflict</span>' : ''}
           </div>
         </div>
         <div class="hp-task-freq">${task.frequency || '\u2014'}</div>
@@ -18149,6 +18705,8 @@ export async function pgHomePrograms(setTopbar, navigate) {
           <button class="hp-act-btn" onclick="window.openPatient('${task.patientId}');window._nav('messaging')">Virtual Care</button>
           <div class="hp-act-more" onclick="this.nextElementSibling.classList.toggle('hp-drop-open')">\u22EF</div>
           <div class="hp-act-dropdown">
+            ${task._syncStatus === SYNC_STATUS.CONFLICT ? `<div onclick="window._hpConflictTakeServer('${task.id}','${task.patientId}')">Use server version</div><div onclick="window._hpConflictForceLocal('${task.id}','${task.patientId}')">Keep my edits (overwrite)</div>` : ''}
+            ${task._syncStatus === SYNC_STATUS.PENDING ? `<div onclick="window._hpRetrySyncOne('${task.id}','${task.patientId}')">Retry sync now</div>` : ''}
             ${!isDone ? `<div onclick="window._hpMarkDone('${task.id}','${task.patientId}')">Mark Complete</div>` : ''}
             <div onclick="window._hpEditTask('${task.id}','${task.patientId}')">Reassign</div>
             <div onclick="window.openPatient('${task.patientId}');window._nav('patient-profile')">Open Patient</div>
@@ -18174,9 +18732,11 @@ export async function pgHomePrograms(setTopbar, navigate) {
     <div class="hp-tpl-card">
       <div class="hp-tpl-icon">${_typeIcon(tpl.type)}</div>
       <div class="hp-tpl-body">
-        <div class="hp-tpl-title">${tpl.title}</div>
+        ${tpl.conditionId ? `<div class="hp-tpl-cond"><span class="hp-tpl-cid">${tpl.conditionId}</span> <span class="hp-tpl-cname">${_esc(tpl.conditionName || '')}</span>${tpl.category ? ` <span class="hp-tpl-ccat">${_esc(tpl.category)}</span>` : ''}</div>` : ''}
+        <div class="hp-tpl-title">${_esc(tpl.title)}</div>
         <div class="hp-tpl-meta">${_typeName(tpl.type)} \u00B7 ${tpl.frequency || 'once'}</div>
-        <div class="hp-tpl-desc">${tpl.instructions || ''}</div>
+        <div class="hp-tpl-desc">${_esc(tpl.instructions || '')}</div>
+        ${tpl.reason ? `<div class="hp-tpl-reason">${_esc(tpl.reason)}</div>` : ''}
       </div>
       <button class="hp-act-btn hp-act-primary" onclick="window._hpUseTemplate('${tpl.id}')">Use</button>
     </div>`;
@@ -18254,6 +18814,29 @@ export async function pgHomePrograms(setTopbar, navigate) {
   };
 
   // ── Modal ────────────────────────────────────────────────────────────────
+  const _courseLabel = c =>
+    c.condition || c.condition_name || (c.condition_slug && String(c.condition_slug).replace(/-/g, ' ')) || c.protocol_name || c.name || c.id;
+
+  const _modalProvHtml = task => {
+    const p = task?.homeProgramSelection;
+    if (!p || !task?.id) return '';
+    const tier = confidenceTierFromScore(p.confidenceScore);
+    return `
+      <div class="hp-modal-prov" role="region" aria-label="Recorded home program selection">
+        <div class="hp-modal-prov-title">Recorded selection (read-only)</div>
+        <dl class="hp-modal-prov-dl">
+          ${p.conditionId ? `<dt>Bundle</dt><dd>${_esc(p.conditionId)}</dd>` : ''}
+          <dt>Confidence</dt><dd>${p.confidenceScore != null ? _esc(String(p.confidenceScore)) : '—'} · ${_esc(tier)}</dd>
+          <dt>Match method</dt><dd>${_esc(p.matchMethod || '—')}</dd>
+          ${p.matchedField ? `<dt>Matched field</dt><dd>${_esc(p.matchedField)}</dd>` : ''}
+          ${p.sourceCourseLabel ? `<dt>Source course</dt><dd>${_esc(String(p.sourceCourseLabel))}</dd>` : ''}
+          <dt>Course auto-linked</dt><dd>${p.courseLinkAutoSet ? 'Yes' : 'No'}</dd>
+          ${p.appliedAt ? `<dt>Applied at</dt><dd>${_esc(p.appliedAt)}</dd>` : ''}
+        </dl>
+        <p class="hp-modal-prov-note">Applying a suggestion below replaces this record when you save.</p>
+      </div>`;
+  };
+
   const _modalHtml = (task, prefillPid) => {
     const pid = task?.patientId || prefillPid || '';
     const patOpts = (apiPatients || []).map(p => {
@@ -18262,7 +18845,7 @@ export async function pgHomePrograms(setTopbar, navigate) {
     }).join('');
     const courseOpts = pid
       ? (coursesByPatient[pid] || []).map(c =>
-          `<option value="${c.id}" ${task?.courseId === c.id ? 'selected' : ''}>${c.condition || c.protocol_name || c.id}</option>`
+          `<option value="${c.id}" ${task?.courseId === c.id ? 'selected' : ''}>${_esc(_courseLabel(c))}</option>`
         ).join('')
       : '';
     const typeOpts = TASK_TYPES.map(t =>
@@ -18277,10 +18860,16 @@ export async function pgHomePrograms(setTopbar, navigate) {
             <button class="hp-modal-close" onclick="window._hpCloseModal()">\u2715</button>
           </div>
           <div class="hp-modal-body">
+            ${_modalProvHtml(task)}
             <label class="hp-lbl">Patient</label>
             <select id="hp-m-pid" class="hp-input" onchange="window._hpModalPatient(this.value)">
               <option value="">Select patient\u2026</option>${patOpts}
             </select>
+            <div id="hp-modal-suggest-wrap" class="hp-modal-suggest-wrap" style="display:none">
+              <label class="hp-lbl">Suggested from course (confidence-scored)</label>
+              <p class="hp-modal-suggest-hint">Ranked by match strength: explicit CON ids, then field tokens, slug, display name, then bounded text inference. Scoped course gets a sort bonus.</p>
+              <div id="hp-modal-suggest" class="hp-modal-suggest"></div>
+            </div>
             <label class="hp-lbl">Task Title</label>
             <input id="hp-m-title" class="hp-input" type="text" placeholder="e.g. Daily Mood Journal" value="${task?.title || ''}">
             <label class="hp-lbl">Task Type</label>
@@ -18288,7 +18877,7 @@ export async function pgHomePrograms(setTopbar, navigate) {
             <label class="hp-lbl">Reason / Clinical Rationale</label>
             <input id="hp-m-reason" class="hp-input" type="text" placeholder="Why this task?" value="${task?.reason || ''}">
             <label class="hp-lbl">Link to Course</label>
-            <select id="hp-m-course" class="hp-input">
+            <select id="hp-m-course" class="hp-input" onchange="window._hpModalCourseChange()">
               <option value="">None</option>${courseOpts}
             </select>
             <div class="hp-modal-row">
@@ -18365,7 +18954,28 @@ export async function pgHomePrograms(setTopbar, navigate) {
     if (_view === 'adherence') {
       mainContent = `<div class="hp-card"><div class="hp-card-title">Patient Adherence Overview</div>${_adherenceView()}</div>`;
     } else if (_view === 'templates') {
-      mainContent = `<div class="hp-card"><div class="hp-card-title">Task Templates &amp; Library</div><div class="hp-tpl-grid">${_getTemplates().map(_tplCard).join('')}</div></div>`;
+      const ft = _filteredTemplates();
+      const condOpts = CONDITION_HOME_TEMPLATES.slice()
+        .sort((a, b) => a.conditionId.localeCompare(b.conditionId))
+        .map(c => `<option value="${c.conditionId}"${_tplFilter.cond === c.conditionId ? ' selected' : ''}>${c.conditionId} — ${_esc(c.conditionName)}</option>`)
+        .join('');
+      const tplToolbar = `
+        <div class="hp-tpl-toolbar">
+          <p class="hp-tpl-hint">One suggested home task per condition (CON-001–CON-053), aligned with the Assessments Hub bundles. Use as a starting point and adapt to the individual.</p>
+          <div class="hp-tpl-filters">
+            <select class="hp-filter-sel" onchange="window._hpTplFilterCond(this.value)">
+              <option value="all"${_tplFilter.cond === 'all' ? ' selected' : ''}>All templates</option>
+              <option value="general"${_tplFilter.cond === 'general' ? ' selected' : ''}>General library only</option>
+              ${condOpts}
+            </select>
+            <input class="hp-search" type="text" placeholder="Search title, condition, instructions\u2026" value="${_esc(_tplFilter.q)}" oninput="window._hpTplSearch(this.value)">
+          </div>
+        </div>`;
+      mainContent = `<div class="hp-card hp-tpl-card-wrap">
+        <div class="hp-card-title">Task Templates &amp; Library <span class="hp-tpl-count">${ft.length}</span></div>
+        ${tplToolbar}
+        <div class="hp-tpl-grid">${ft.length ? ft.map(_tplCard).join('') : '<div class="hp-empty">No templates match filters.</div>'}</div>
+      </div>`;
     } else {
       const todayTasks   = filtered.filter(t => _isToday(t.dueDate) && t.status !== 'archived' && t.status !== 'completed');
       const overdueTasks = filtered.filter(t => _isOverdue(t.dueDate) && t.status !== 'archived' && t.status !== 'completed');
@@ -18391,25 +19001,130 @@ export async function pgHomePrograms(setTopbar, navigate) {
         ${mainContent}
         ${_showModal ? _modalHtml(_editingTask, '') : ''}
       </div>`;
+    if (_showModal) queueMicrotask(() => window._hpSyncSuggestPanel?.());
   };
 
   // ── Window handlers ──────────────────────────────────────────────────────
   window._hpOpenAssign = prefillPid => {
+    _hpModalProvenance = null;
+    _hpSuggestExpanded = false;
     _editingTask = null; _showModal = true; renderPage();
     if (prefillPid) { const s = document.getElementById('hp-m-pid'); if (s) { s.value = prefillPid; window._hpModalPatient(prefillPid); } }
   };
-  window._hpCloseModal  = () => { _showModal = false; _editingTask = null; renderPage(); };
+  window._hpCloseModal  = () => { _showModal = false; _editingTask = null; _hpModalProvenance = null; _hpSuggestExpanded = false; renderPage(); };
   window._hpSetView     = v  => { _view = v; renderPage(); };
   window._hpSearch      = v  => { _filter.search = v; renderPage(); };
   window._hpFilterPid   = v  => { _filter.pid = v; renderPage(); };
   window._hpFilterType  = v  => { _filter.type = v; renderPage(); };
   window._hpFilterStatus = v => { _filter.status = v; renderPage(); };
+  window._hpTplFilterCond = v => { _tplFilter.cond = v; renderPage(); };
+  window._hpTplSearch     = v => { _tplFilter.q = v; renderPage(); };
+
+  window._hpSyncSuggestPanel = () => {
+    const host = document.getElementById('hp-modal-suggest');
+    const wrap = document.getElementById('hp-modal-suggest-wrap');
+    if (!host || !wrap) return;
+    const pid = document.getElementById('hp-m-pid')?.value;
+    const cid = document.getElementById('hp-m-course')?.value || '';
+    _hpSuggestionRowByTplId = new Map();
+    if (!pid) {
+      wrap.style.display = 'none';
+      host.innerHTML = '';
+      return;
+    }
+    const allCourses = coursesByPatient[pid] || [];
+    const active = allCourses.filter(c => c.status !== 'completed' && c.status !== 'discontinued');
+    const pool = active.length ? active : allCourses;
+    const rankedFull = buildRankedHomeSuggestions(pool, {
+      selectedCourseId: cid || undefined,
+      courseLabel: _courseLabel,
+    });
+    const MAX_CHIPS = 8;
+    const ranked = _hpSuggestExpanded ? rankedFull : rankedFull.slice(0, MAX_CHIPS);
+    ranked.forEach(row => { _hpSuggestionRowByTplId.set(row.template.id, row); });
+    if (!rankedFull.length) {
+      wrap.style.display = 'none';
+      host.innerHTML = '';
+      return;
+    }
+    wrap.style.display = 'block';
+    const moreBtn = !_hpSuggestExpanded && rankedFull.length > MAX_CHIPS
+      ? `<button type="button" class="hp-suggest-more" onclick="window._hpExpandSuggestChips()">Show all (${rankedFull.length})</button>`
+      : '';
+    host.innerHTML = '<div class="hp-suggest-chips">' + ranked.map(row => {
+      const t = row.template;
+      const short = t.title.length > 56 ? t.title.slice(0, 56) + '\u2026' : t.title;
+      const src = row.sourceCourseLabel ? _esc(String(row.sourceCourseLabel)) : '';
+      const method = _esc(row.match.matchMethod);
+      const tier = _esc(confidenceTierFromScore(row.match.confidenceScore));
+      return `<button type="button" class="hp-suggest-chip" onclick="window._hpApplySuggestTemplate('${t.id}')">`
+        + `<span class="hp-suggest-cid">${t.conditionId}</span>`
+        + `<span class="hp-suggest-txt">${_esc(short)}</span>`
+        + `<span class="hp-suggest-meta">`
+        + `<span class="hp-suggest-conf" title="Confidence score">${row.match.confidenceScore}</span>`
+        + `<span class="hp-suggest-tier hp-suggest-tier--${confidenceTierFromScore(row.match.confidenceScore)}" title="Band">${tier}</span>`
+        + `<span class="hp-suggest-method" title="Match method">${method}</span>`
+        + (src ? `<span class="hp-suggest-src" title="Source course">${src}</span>` : '')
+        + `</span></button>`;
+    }).join('') + '</div>' + moreBtn;
+  };
+
+  window._hpExpandSuggestChips = () => { _hpSuggestExpanded = true; window._hpSyncSuggestPanel(); };
+
+  window._hpApplySuggestTemplate = tplId => {
+    const row = _hpSuggestionRowByTplId.get(tplId);
+    const tpl = _getTemplates().find(t => t.id === tplId);
+    if (!tpl) return;
+    const pid = document.getElementById('hp-m-pid')?.value;
+    if (!pid) {
+      window._showNotifToast?.({ title: 'Select a patient', body: 'Choose a patient before applying a template.', severity: 'warn' });
+      return;
+    }
+    const setVal = (id, v) => { const el = document.getElementById(id); if (el) el.value = v; };
+    setVal('hp-m-title', tpl.title);
+    setVal('hp-m-type', tpl.type);
+    setVal('hp-m-reason', tpl.reason || (tpl.conditionName ? `Home program — ${tpl.conditionName}` : ''));
+    setVal('hp-m-freq', tpl.frequency || 'once');
+    setVal('hp-m-instr', tpl.instructions || '');
+    let courseLinkAutoSet = false;
+    if (tpl.conditionId) {
+      const courses = coursesByPatient[pid] || [];
+      let pick = null;
+      if (row?.sourceCourseId) {
+        const sc = courses.find(c => c.id === row.sourceCourseId);
+        if (sc && resolveConIdsFromCourse(sc).includes(tpl.conditionId)) pick = sc;
+      }
+      if (!pick) pick = courses.find(c => resolveConIdsFromCourse(c).includes(tpl.conditionId));
+      if (pick) {
+        setVal('hp-m-course', pick.id);
+        courseLinkAutoSet = true;
+      }
+    }
+    _hpModalProvenance = {
+      templateId: tpl.id,
+      conditionId: tpl.conditionId || null,
+      matchMethod: row ? row.match.matchMethod : null,
+      confidenceScore: row ? row.match.confidenceScore : null,
+      matchedField: row ? row.match.matchedField : null,
+      matchedValue: row ? row.match.matchedValue : null,
+      sourceCourseId: row ? row.sourceCourseId : null,
+      sourceCourseLabel: row ? row.sourceCourseLabel : null,
+      courseLinkAutoSet,
+      sortScore: row ? row.sortScore : null,
+      appliedAt: new Date().toISOString(),
+    };
+    window._showNotifToast?.({ title: 'Template applied', body: tpl.title, severity: 'success' });
+  };
+
+  window._hpModalCourseChange = () => { window._hpSyncSuggestPanel(); };
 
   window._hpModalPatient = pid => {
+    _hpSuggestExpanded = false;
     const el2 = document.getElementById('hp-m-course');
     if (!el2) return;
     el2.innerHTML = '<option value="">None</option>' +
-      (coursesByPatient[pid] || []).map(c => `<option value="${c.id}">${c.condition || c.protocol_name || c.id}</option>`).join('');
+      (coursesByPatient[pid] || []).map(c => `<option value="${c.id}">${_esc(_courseLabel(c))}</option>`).join('');
+    window._hpSyncSuggestPanel();
   };
 
   window._hpSubmitTask = () => {
@@ -18423,15 +19138,32 @@ export async function pgHomePrograms(setTopbar, navigate) {
     const instr = document.getElementById('hp-m-instr')?.value?.trim();
     const existId = document.getElementById('hp-m-taskid')?.value;
     if (!pid || !title) { window._showNotifToast?.({ title:'Required', body:'Patient and task title required.', severity:'warn' }); return; }
-    const task = { id: existId || ('htask-' + Date.now()), patientId: pid, title, type, reason, courseId: course, dueDate: due, frequency: freq, instructions: instr, assignedBy: window._currentUser?.name || 'Clinician', assignedAt: new Date().toISOString(), status: 'active' };
-    _saveTask(task);
+    const prev = existId ? (_ls(_clinKey(pid), []).find(t => t.id === existId) || null) : null;
+    const useCreate = !prev?.serverTaskId;
+    const task = {
+      id: existId || ('htask-' + Date.now()),
+      patientId: pid, title, type, reason, courseId: course, dueDate: due, frequency: freq, instructions: instr,
+      assignedBy: prev?.assignedBy || window._currentUser?.name || 'Clinician',
+      assignedAt: existId ? (prev?.assignedAt || new Date().toISOString()) : new Date().toISOString(),
+      status: prev?.status || 'active',
+      homeProgramSelection: (_hpModalProvenance ?? prev?.homeProgramSelection) || undefined,
+      clientUpdatedAt: new Date().toISOString(),
+      lastSyncedServerRevision: prev?.lastSyncedServerRevision,
+    };
+    _hpModalProvenance = null;
+    _saveTask(task, useCreate);
     _allTasks = _loadAllTasks();
     _showModal = false; _editingTask = null;
     renderPage();
-    window._showNotifToast?.({ title:'Task Assigned', body:`"${title}" sent to patient.`, severity:'success' });
+    window._showNotifToast?.({
+      title: existId ? 'Task updated' : 'Task assigned',
+      body: existId ? `Saved changes to "${title}".` : `"${title}" sent to patient.`,
+      severity: 'success',
+    });
   };
 
   window._hpEditTask = (tid, pid) => {
+    _hpModalProvenance = null;
     const tasks = _ls(_clinKey(pid), []);
     _editingTask = tasks.find(t => t.id === tid) || null;
     _showModal = true; renderPage();
@@ -18457,10 +19189,118 @@ export async function pgHomePrograms(setTopbar, navigate) {
   };
 
   window._hpUseTemplate = tplId => {
+    _hpModalProvenance = null;
+    _hpSuggestExpanded = false;
     const tpl = _getTemplates().find(t => t.id === tplId);
     if (!tpl) return;
-    _editingTask = { ...tpl, id: null, patientId: '' };
+    _editingTask = {
+      title: tpl.title,
+      type: tpl.type,
+      frequency: tpl.frequency || 'once',
+      instructions: tpl.instructions || '',
+      reason: tpl.reason || (tpl.conditionName ? `Home program — ${tpl.conditionName}` : ''),
+      courseId: '',
+      dueDate: '',
+      id: null,
+      patientId: '',
+    };
     _showModal = true; _view = 'queue'; renderPage();
+  };
+
+  window._hpConflictTakeServer = (tid, pid) => {
+    const tasks = _ls(_clinKey(pid), []);
+    const t = tasks.find(x => x.id === tid);
+    if (!t || !t._conflictServerTask) return;
+    const server = t._conflictServerTask;
+    const cleaned = {
+      ...server,
+      _syncStatus: SYNC_STATUS.SYNCED,
+      _conflictServerTask: undefined,
+      _syncConflictReason: undefined,
+      lastSyncedServerRevision: server.serverRevision,
+      lastSyncedAt: server.serverUpdatedAt || server.lastSyncedAt,
+    };
+    const i = tasks.findIndex(x => x.id === tid);
+    if (i >= 0) tasks[i] = cleaned;
+    _lsSet(_clinKey(pid), tasks);
+    _bridgeToPatient(pid, cleaned);
+    _allTasks = _loadAllTasks();
+    renderPage();
+    import('./api.js').then(({ api: sdk }) => {
+      if (typeof sdk.postHomeProgramAuditAction === 'function') {
+        return sdk.postHomeProgramAuditAction({ external_task_id: tid, action: 'take_server' }).catch(() => {});
+      }
+    }).catch(() => {});
+    window._showNotifToast?.({ title: 'Using server copy', body: 'Local list updated to match the server.', severity: 'success' });
+  };
+
+  window._hpConflictForceLocal = async (tid, pid) => {
+    const tasks = _ls(_clinKey(pid), []);
+    const t = tasks.find(x => x.id === tid);
+    if (!t) return;
+    const local = { ...t, _conflictServerTask: undefined, _syncConflictReason: undefined, _syncStatus: SYNC_STATUS.SYNCING };
+    try {
+      const { api: apiSdk } = await import('./api.js');
+      if (typeof apiSdk.mutateHomeProgramTask !== 'function' && typeof apiSdk.upsertHomeProgramTask !== 'function') return;
+      const mutation = typeof apiSdk.mutateHomeProgramTask === 'function'
+        ? await apiSdk.mutateHomeProgramTask(local, { force: true })
+        : _hpApplyMutationSync(local, await apiSdk.upsertHomeProgramTask(local, { force: true })).mutation;
+      const merged = mergeParsedMutationIntoLocalTask(local, mutation);
+      const i = tasks.findIndex(x => x.id === tid);
+      if (i >= 0) tasks[i] = merged;
+      _lsSet(_clinKey(pid), tasks);
+      _bridgeToPatient(pid, merged);
+      _allTasks = _loadAllTasks();
+      renderPage();
+      window._showNotifToast?.({ title: 'Saved', body: 'Server overwritten with your copy.', severity: 'success' });
+    } catch (_) {
+      window._showNotifToast?.({ title: 'Sync failed', body: 'Could not overwrite server.', severity: 'warn' });
+    }
+  };
+
+  window._hpRetrySyncOne = async (tid, pid) => {
+    const arr = _ls(_clinKey(pid), []);
+    const t = arr.find(x => x.id === tid);
+    if (!t) return;
+    const { api: sdk } = await import('./api.js');
+    if (
+      typeof sdk.mutateHomeProgramTask !== 'function' &&
+      typeof sdk.upsertHomeProgramTask !== 'function' &&
+      typeof sdk.createHomeProgramTask !== 'function'
+    ) return;
+    try {
+      const payload = { ...t, _syncStatus: SYNC_STATUS.SYNCING };
+      const mutation = typeof sdk.mutateHomeProgramTask === 'function'
+        ? await sdk.mutateHomeProgramTask(payload)
+        : _hpApplyMutationSync(
+            payload,
+            (!payload.serverTaskId && typeof sdk.createHomeProgramTask === 'function')
+              ? await sdk.createHomeProgramTask(payload)
+              : await sdk.upsertHomeProgramTask(payload)
+          ).mutation;
+      const merged = mergeParsedMutationIntoLocalTask(t, mutation);
+      const i = arr.findIndex(x => x.id === tid);
+      if (i >= 0) arr[i] = merged;
+      _lsSet(_clinKey(pid), arr);
+      _bridgeToPatient(pid, merged);
+      _allTasks = _loadAllTasks();
+      renderPage();
+      if (typeof sdk.postHomeProgramAuditAction === 'function') {
+        sdk.postHomeProgramAuditAction({
+          external_task_id: tid,
+          action: 'retry_success',
+          server_revision: mutation.revision.serverRevision,
+        }).catch(() => {});
+      }
+    } catch (_) {
+      const failed = markSyncFailed(t);
+      const i = arr.findIndex(x => x.id === tid);
+      if (i >= 0) arr[i] = failed;
+      _lsSet(_clinKey(pid), arr);
+      _allTasks = _loadAllTasks();
+      renderPage();
+      window._showNotifToast?.({ title: 'Still offline', body: 'Sync will retry on reload.', severity: 'warn' });
+    }
   };
 
   renderPage();
