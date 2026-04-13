@@ -24,6 +24,13 @@ COPY apps/api ./apps/api
 COPY pyproject.toml ./
 COPY data ./data
 
+# Evidence pipeline (pure-Python stdlib). The SQLite evidence.db itself is
+# gitignored and lives on the persistent /data volume (EVIDENCE_DB_PATH).
+# To populate after first deploy:
+#   fly ssh console -C 'python3 /app/services/evidence-pipeline/ingest.py --all --unpaywall'
+COPY services/evidence-pipeline ./services/evidence-pipeline
+ENV EVIDENCE_DB_PATH=/data/evidence.db
+
 RUN pip install --no-cache-dir \
     -e ./packages/core-schema \
     -e ./packages/condition-registry \
