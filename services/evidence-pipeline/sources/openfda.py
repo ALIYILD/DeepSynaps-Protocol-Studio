@@ -12,8 +12,12 @@ BASE = "https://api.fda.gov"
 
 
 def _call(path: str, search_expr: str, limit: int = 100, skip: int = 0) -> dict:
+    # openFDA treats `+AND+` / `+OR+` in the raw URL as boolean operators; a
+    # plain urllib.parse.quote() percent-encodes the `+` to `%2B`, breaking
+    # the boolean. Preserve `+ : ( )` via the `safe` argument so filters work.
+    search_encoded = urllib.parse.quote(search_expr, safe='+:()"')
     url = (
-        f"{BASE}{path}?search={urllib.parse.quote(search_expr)}"
+        f"{BASE}{path}?search={search_encoded}"
         f"&limit={limit}&skip={skip}"
         + (f"&api_key={KEY}" if KEY else "")
     )

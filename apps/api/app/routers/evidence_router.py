@@ -208,6 +208,27 @@ def evidence_health(_: AuthenticatedActor = Depends(get_authenticated_actor)) ->
     return HealthOut(ok=True, db_path=_default_db_path(), counts=counts)
 
 
+@router.get("/stats")
+def evidence_stats() -> dict:
+    """PUBLIC endpoint — no auth. Returns only row counts (no titles, no PHI).
+    Used by the marketing landing page to show live evidence totals.
+    Returns {ok: false, counts: {}} if the DB isn't present, never raises."""
+    path = _default_db_path()
+    if not os.path.exists(path):
+        return {"ok": False, "counts": {}}
+    try:
+        conn = sqlite3.connect(path, timeout=5)
+        conn.execute("PRAGMA query_only = 1")
+        counts = {
+            t: conn.execute(f"SELECT count(*) FROM {t}").fetchone()[0]
+            for t in ("papers", "trials", "indications")
+        }
+        conn.close()
+    except Exception:
+        return {"ok": False, "counts": {}}
+    return {"ok": True, "counts": counts}
+
+
 @router.get("/indications", response_model=list[IndicationOut])
 def list_indications(_: AuthenticatedActor = Depends(get_authenticated_actor)) -> list[IndicationOut]:
     conn = _evidence_conn()
