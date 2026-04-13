@@ -34,7 +34,9 @@ COPY data ./data
 # a volume at /data/evidence.db in deployment, or run ingest once on boot:
 #   python3 /app/services/evidence-pipeline/ingest.py --all --unpaywall
 # The evidence_router serves 503 with a clear message until the DB exists.
-COPY services/evidence-pipeline ./services/evidence-pipeline
+RUN mkdir -p /app/services
+COPY services/evidence-pipeline /app/services/evidence-pipeline
+RUN ls -la /app/services /app/services/evidence-pipeline | head -20
 ENV EVIDENCE_DB_PATH=/data/evidence.db
 
 RUN pip install --no-cache-dir \
