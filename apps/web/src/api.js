@@ -320,12 +320,21 @@ export const api = {
   // ── Chat ────────────────────────────────────────────────────────────────
   chatPublic: (messages) =>
     fetch(`${API_BASE}/api/v1/chat/public`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ messages }) }).then(r => r.json()),
+  salesInquiry: (name, email, message, source = 'landing') =>
+    fetch(`${API_BASE}/api/v1/chat/sales`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, email, message, source }),
+    }).then(r => r.json()),
   chatAgent: (messages, provider = 'anthropic', openai_key = null, context = null) =>
     apiFetch('/api/v1/chat/agent', { method: 'POST', body: JSON.stringify({ messages, provider, openai_key, context }) }),
   chatClinician: (messages, patient_context) =>
     apiFetch('/api/v1/chat/clinician', { method: 'POST', body: JSON.stringify({ messages, patient_context }) }),
-  chatPatient: (messages, patient_context, language = 'en') =>
-    apiFetch('/api/v1/chat/patient', { method: 'POST', body: JSON.stringify({ messages, patient_context, language }) }),
+  chatPatient: (messages, patient_context, language = 'en', dashboard_context = null) =>
+    apiFetch('/api/v1/chat/patient', {
+      method: 'POST',
+      body: JSON.stringify({ messages, patient_context, language, dashboard_context }),
+    }),
 
   // ── Registry endpoints (public — no auth needed but token attached if present) ──
   conditions: () => apiFetchWithRetry('/api/v1/registry/conditions'),
@@ -708,7 +717,9 @@ export const api = {
     apiFetch(`/api/v1/literature/reading-list/${paperId}`, { method: 'DELETE' }),
 
   // ── Telegram ────────────────────────────────────────────────────────────
-  telegramLinkCode: () => apiFetch('/api/v1/telegram/link-code'),
+  /** @param {'patient'|'clinician'} [botKind] — which Telegram bot to link (default clinician for practice settings). */
+  telegramLinkCode: (botKind = 'clinician') =>
+    apiFetch(`/api/v1/telegram/link-code?bot_kind=${encodeURIComponent(botKind)}`),
 
   // ── Health ──────────────────────────────────────────────────────────────
   health: () => apiFetch('/health'),

@@ -846,6 +846,55 @@ export async function pgDash(setTopbar, navigate) {
   </div>
 </div>` : '';
 
+  window._dashAgentCtx = [
+    '[Clinic dashboard snapshot — use for operational context; not a substitute for chart review.]',
+    `Patients in system: ${patCount}`,
+    `Active courses: ${activeCourses.length}; pending approval: ${pendingCourses.length}; paused: ${pausedCourses.length}; completed: ${completedCourses.length}`,
+    `Pending review queue items: ${pendingQueue.length}`,
+    `Open adverse events: ${openAEs.length}; serious unresolved: ${seriousAEs.length}`,
+    `Responder rate (aggregate): ${responderRate}; assessment completion: ${assessCompletionPct}`,
+    `Sessions per week (planned sum): ${sessionsPerWeek}`,
+    `Wearable alerts: ${wearableAlertCount} (${wearableUrgentCount} urgent); media items needing attention: ${mediaNeedsAttention.length}`,
+    `Patients flagged for attention: ${patientsNeedingAttention.length}`,
+    `Today's clinic queue (courses): ${clinicQueue.length}`,
+  ].join('\n');
+
+  const _dashPrompts = [
+    { icon: '📋', q: 'What should I prioritize in the review queue today?' },
+    { icon: '&#9888;', q: 'Summarize open safety items I should know about' },
+    { icon: '📅', q: 'How should I plan sessions this week given the active caseload?' },
+    { icon: '📈', q: 'Explain responder rate and outcomes snapshot in plain language' },
+  ];
+  const dashAgentStrip = `<div class="dash-agent-strip card" style="margin-bottom:12px">
+  <div class="dash-agent-strip__inner">
+    <div class="dash-agent-strip__copy">
+      <div class="dash-agent-strip__title">Clinic specialist agents</div>
+      <div class="dash-agent-strip__sub">Ask about queue, protocols, and workflow. A snapshot of this dashboard is sent with each question — not a substitute for clinical judgment.</div>
+    </div>
+    <button type="button" class="btn btn-primary btn-sm" onclick="window._dashAgentOpen()">Open agents</button>
+  </div>
+</div>
+<div id="dash-agent-modal" class="dash-agent-modal" style="display:none" role="dialog" aria-label="Clinic specialist agents">
+  <div class="dash-agent-modal__backdrop" onclick="window._dashAgentClose()"></div>
+  <div class="dash-agent-modal__panel card">
+    <div class="dash-agent-modal__head">
+      <span class="dash-agent-modal__title">Clinic specialist agents</span>
+      <button type="button" class="dash-agent-modal__close" onclick="window._dashAgentClose()" aria-label="Close">&#x2715;</button>
+    </div>
+    <div class="dash-agent-modal__body">
+      <div class="dash-agent-modal__intro">Operational Q&amp;A for your practice. Answers use the dashboard snapshot below. For patient-specific decisions, use the chart.</div>
+      <div class="ptd-asst-prompts">
+        ${_dashPrompts.map(p => `<button type="button" class="ptd-asst-prompt" onclick="window._dashAgentAsk(${JSON.stringify(p.q)})">${p.icon} ${p.q}</button>`).join('')}
+      </div>
+      <div class="ptd-asst-input-row">
+        <input id="dash-agent-inp" class="ptd-asst-inp" type="text" placeholder="Type your question…" onkeydown="if(event.key==='Enter')window._dashAgentSend()">
+        <button type="button" class="ptd-asst-send" onclick="window._dashAgentSend()">&#x2192;</button>
+      </div>
+      <div id="dash-agent-resp" class="ptd-asst-resp" style="display:none"></div>
+    </div>
+  </div>
+</div>`;
+
   // ── ROW 1: Today at a Glance + Urgent Items + Quick Actions ─────────────────
   const _todayStr = new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'short' });
   const _totalUrgent = seriousAEs.length + (wearableUrgentCount || 0) + mediaNeedsAttention.filter(i => i.flagged_urgent).length;
@@ -1200,7 +1249,50 @@ export async function pgDash(setTopbar, navigate) {
 
   const row4 = `<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;align-items:start">${remoteCard}${notesMediaCard}</div>`;
 
-  el.innerHTML = getStartedCard + row1 + row2 + row3 + row4;
+  el.innerHTML = getStartedCard + dashAgentStrip + row1 + row2 + row3 + row4;
+
+  window._dashAgentOpen = function() {
+    const m = document.getElementById('dash-agent-modal');
+    if (m) {
+      m.style.display = 'flex';
+      requestAnimationFrame(() => m.classList.add('dash-agent-modal--open'));
+    }
+  };
+  window._dashAgentClose = function() {
+    const m = document.getElementById('dash-agent-modal');
+    if (m) {
+      m.classList.remove('dash-agent-modal--open');
+      setTimeout(() => { if (m) m.style.display = 'none'; }, 220);
+    }
+  };
+  window._dashAgentAsk = function(q) {
+    const inp = document.getElementById('dash-agent-inp');
+    if (inp) inp.value = typeof q === 'string' ? q : '';
+    window._dashAgentSend();
+  };
+  window._dashAgentSend = async function() {
+    const inp = document.getElementById('dash-agent-inp');
+    const q = (inp && inp.value ? inp.value : '').trim();
+    if (!q) return;
+    if (inp) inp.value = '';
+    const resp = document.getElementById('dash-agent-resp');
+    if (!resp) return;
+    resp.style.display = 'block';
+    resp.innerHTML = '<div class="ptd-asst-thinking">Thinking…</div>';
+    try {
+      const result = await api.chatAgent(
+        [{ role: 'user', content: q }],
+        'anthropic',
+        null,
+        window._dashAgentCtx || '',
+      );
+      const answer = result?.reply || 'No response.';
+      const safe = String(answer).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br>');
+      resp.innerHTML = '<div class="ptd-asst-answer">' + safe + '</div>';
+    } catch (_e) {
+      resp.innerHTML = '<div class="ptd-asst-answer">Assistant unavailable. Try again later.</div>';
+    }
+  };
 }
 
 

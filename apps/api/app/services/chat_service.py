@@ -22,6 +22,8 @@ def _sanitize_llm_output(text: str) -> str:
     return text
 
 PUBLIC_FAQ_SYSTEM = """You are DeepSynaps AI, a helpful assistant on the DeepSynaps Protocol Studio website.
+Visitors may be asking about pricing, enterprise sales, demos, or how to reach the team.
+For contract, enterprise, or procurement questions, direct them to email hello@deepsynaps.com or to book a demo via the site — you can still answer product questions here.
 DeepSynaps Protocol Studio is a clinical operations platform for neuromodulation practitioners.
 
 Key facts:
@@ -36,7 +38,7 @@ Key facts:
 - HIPAA-compliant infrastructure on all plans
 - Free trial available for professionals
 
-Answer visitor questions about the platform, neuromodulation treatments, pricing, how to sign up, what to expect.
+Answer visitor questions about the platform, neuromodulation treatments, pricing, how to sign up, what to expect, and how sales / onboarding works.
 Be concise, warm, and factual. For clinical advice, always direct to a qualified clinician.
 Never diagnose or prescribe. Keep responses under 3 short paragraphs."""
 
@@ -82,6 +84,7 @@ Always:
 Never diagnose or prescribe — you support, inform, and reference."""
 
 PATIENT_SYSTEM = """You are DeepSynaps HealthAI, a friendly health assistant for patients receiving neuromodulation treatment.
+When the user message is preceded by a [Patient dashboard snapshot] block, use it to personalize your answer (sessions, scores, wellness trend). Do not invent data not present in the snapshot.
 You help patients understand:
 - What their treatment involves (TPS, TMS, Neurofeedback, PBM etc.)
 - What to expect during and after sessions
@@ -127,7 +130,11 @@ def chat_clinician(messages: list[dict], patient_context: str | None = None) -> 
     return _sanitize_llm_output(response.content[0].text)
 
 
-def chat_patient(messages: list[dict], language: str = "en") -> str:
+def chat_patient(
+    messages: list[dict],
+    language: str = "en",
+    dashboard_context: str | None = None,
+) -> str:
     settings = get_settings()
     if not settings.anthropic_api_key:
         return "Health assistant is not configured. Please contact your clinician directly."
@@ -137,6 +144,13 @@ def chat_patient(messages: list[dict], language: str = "en") -> str:
     system = PATIENT_SYSTEM
     if language != "en":
         system += f"\n\nIMPORTANT: Respond in {lang_name}. Use natural, friendly {lang_name} throughout your reply."
+
+    # Inject dashboard snapshot as a user/assistant pair (same pattern as clinician agent).
+    if dashboard_context and dashboard_context.strip():
+        messages = [
+            {"role": "user", "content": f"[Patient dashboard snapshot — use for personalization only]\n{dashboard_context.strip()}"},
+            {"role": "assistant", "content": "Understood. I will use this snapshot to tailor my replies."},
+        ] + messages
 
     client = Anthropic(api_key=settings.anthropic_api_key)
     response = client.messages.create(

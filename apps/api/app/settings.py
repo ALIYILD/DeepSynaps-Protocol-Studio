@@ -69,9 +69,14 @@ class AppSettings(BaseModel):
     stripe_price_clinic_starter: str = Field(default="")
     stripe_price_clinic_pro: str = Field(default="")
 
-    # Telegram
+    # Telegram — optional second token for separate patient vs clinician bot webhooks
     telegram_bot_token: str = Field(default="")
+    telegram_bot_token_patient: str = Field(default="")
+    telegram_bot_token_clinician: str = Field(default="")
     telegram_webhook_secret: str = Field(default="")
+    telegram_bot_username_patient: str = Field(default="")
+    telegram_bot_username_clinician: str = Field(default="")
+    telegram_sales_chat_id: str = Field(default="")
 
     # Sentry
     sentry_dsn: str = Field(default="")
@@ -193,7 +198,12 @@ def load_settings() -> AppSettings:
                 "stripe_price_clinic_pro": os.getenv("STRIPE_PRICE_CLINIC_PRO", ""),
                 # Telegram
                 "telegram_bot_token": os.getenv("TELEGRAM_BOT_TOKEN", ""),
+                "telegram_bot_token_patient": os.getenv("TELEGRAM_BOT_TOKEN_PATIENT", ""),
+                "telegram_bot_token_clinician": os.getenv("TELEGRAM_BOT_TOKEN_CLINICIAN", ""),
                 "telegram_webhook_secret": os.getenv("TELEGRAM_WEBHOOK_SECRET", ""),
+                "telegram_bot_username_patient": os.getenv("TELEGRAM_BOT_USERNAME_PATIENT", ""),
+                "telegram_bot_username_clinician": os.getenv("TELEGRAM_BOT_USERNAME_CLINICIAN", ""),
+                "telegram_sales_chat_id": os.getenv("TELEGRAM_SALES_CHAT_ID", ""),
                 # Sentry
                 "sentry_dsn": os.getenv("SENTRY_DSN", ""),
                 # Anthropic

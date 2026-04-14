@@ -1,0 +1,205 @@
+import { api } from './api.js';
+import { currentUser } from './auth.js';
+
+function esc(v) {
+  if (v == null) return '';
+  return String(v)
+    .replace(/&/g,'&amp;')
+    .replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;')
+    .replace(/'/g,'&#x27;');
+}
+
+function _ensureRoot(id) {
+  let el = document.getElementById(id);
+  if (el) return el;
+  el = document.createElement('div');
+  el.id = id;
+  document.body.appendChild(el);
+  return el;
+}
+
+function _toggleVisible(el, v) {
+  el.classList.toggle('is-open', !!v);
+  el.setAttribute('aria-hidden', v ? 'false' : 'true');
+}
+
+export function mountSalesChatWidget() {
+  const root = _ensureRoot('ds-sales-chat');
+  root.innerHTML = `
+    <button class="ds-chat-fab" id="ds-sales-fab" type="button" aria-label="Message us">
+      <span class="ds-chat-fab__icon">✉</span>
+    </button>
+    <div class="ds-chat-panel" id="ds-sales-panel" aria-hidden="true">
+      <div class="ds-chat-panel__hd">
+        <div>
+          <div class="ds-chat-panel__title">Questions? Talk to our team</div>
+          <div class="ds-chat-panel__sub">We usually reply within 1 business day.</div>
+        </div>
+        <button class="ds-chat-x" id="ds-sales-close" type="button" aria-label="Close">×</button>
+      </div>
+      <div class="ds-chat-panel__body">
+        <div class="ds-chat-tabs">
+          <button class="ds-chat-tab active" data-tab="sales" type="button">Message</button>
+          <button class="ds-chat-tab" data-tab="faq" type="button">Ask AI</button>
+        </div>
+
+        <div class="ds-chat-tabpanel" data-tabpanel="sales">
+          <div class="ds-chat-form">
+            <input id="ds-sales-name" class="form-control" placeholder="Name (optional)">
+            <input id="ds-sales-email" class="form-control" placeholder="Email (optional)">
+            <textarea id="ds-sales-msg" class="form-control" rows="4" placeholder="How can we help?"></textarea>
+            <div id="ds-sales-status" class="ds-chat-status" style="display:none"></div>
+            <button id="ds-sales-send" class="btn btn-primary btn-sm" type="button" style="width:100%">Send</button>
+          </div>
+        </div>
+
+        <div class="ds-chat-tabpanel" data-tabpanel="faq" style="display:none">
+          <div class="ds-chat-log" id="ds-faq-log"></div>
+          <div class="ds-chat-compose">
+            <input id="ds-faq-input" class="form-control" placeholder="Ask about plans, pricing, modalities…">
+            <button id="ds-faq-send" class="btn btn-sm" type="button">Send</button>
+          </div>
+          <div class="ds-chat-footnote">AI answers are informational. For clinical questions, sign in as a clinician.</div>
+        </div>
+      </div>
+    </div>
+  `;
+
+  const fab = document.getElementById('ds-sales-fab');
+  const panel = document.getElementById('ds-sales-panel');
+  const close = document.getElementById('ds-sales-close');
+  if (!fab || !panel || !close) return;
+
+  fab.onclick = () => _toggleVisible(panel, !panel.classList.contains('is-open'));
+  close.onclick = () => _toggleVisible(panel, false);
+
+  root.querySelectorAll('.ds-chat-tab').forEach(btn => {
+    btn.addEventListener('click', () => {
+      root.querySelectorAll('.ds-chat-tab').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      const tab = btn.getAttribute('data-tab');
+      root.querySelectorAll('.ds-chat-tabpanel').forEach(p => {
+        p.style.display = p.getAttribute('data-tabpanel') === tab ? '' : 'none';
+      });
+    });
+  });
+
+  const statusEl = document.getElementById('ds-sales-status');
+  const setStatus = (text, kind) => {
+    if (!statusEl) return;
+    statusEl.style.display = '';
+    statusEl.className = 'ds-chat-status ' + (kind ? `ds-chat-status--${kind}` : '');
+    statusEl.textContent = text;
+  };
+
+  document.getElementById('ds-sales-send')?.addEventListener('click', async () => {
+    const name = document.getElementById('ds-sales-name')?.value || '';
+    const email = document.getElementById('ds-sales-email')?.value || '';
+    const msg = document.getElementById('ds-sales-msg')?.value || '';
+    if ((msg || '').trim().length < 5) {
+      setStatus('Please enter a bit more detail.', 'warn');
+      return;
+    }
+    setStatus('Sending…', 'info');
+    try {
+      const res = await api.salesInquiry(name, email, msg, 'landing');
+      if (res && res.ok !== false) {
+        setStatus('Sent. Thanks — we’ll get back to you soon.', 'ok');
+        const ta = document.getElementById('ds-sales-msg');
+        if (ta) ta.value = '';
+      } else {
+        setStatus('Could not send. Please try again.', 'warn');
+      }
+    } catch {
+      setStatus('Could not send. Please try again.', 'warn');
+    }
+  });
+
+  const faqLog = document.getElementById('ds-faq-log');
+  const append = (role, text) => {
+    if (!faqLog) return;
+    const div = document.createElement('div');
+    div.className = 'ds-chat-bubble ' + (role === 'user' ? 'me' : 'bot');
+    div.innerHTML = esc(text);
+    faqLog.appendChild(div);
+    faqLog.scrollTop = faqLog.scrollHeight;
+  };
+  document.getElementById('ds-faq-send')?.addEventListener('click', async () => {
+    const inp = document.getElementById('ds-faq-input');
+    const q = (inp?.value || '').trim();
+    if (!q) return;
+    if (inp) inp.value = '';
+    append('user', q);
+    try {
+      const res = await api.chatPublic([{ role: 'user', content: q }]);
+      append('assistant', res?.reply || 'Sorry — I could not answer that right now.');
+    } catch {
+      append('assistant', 'Sorry — I could not answer that right now.');
+    }
+  });
+}
+
+export function mountAppAgentWidget(kind) {
+  // kind: 'patient' | 'clinician'
+  const root = _ensureRoot('ds-app-agent');
+  root.innerHTML = `
+    <button class="ds-chat-fab ds-chat-fab--agent" id="ds-agent-fab" type="button" aria-label="AI agents">
+      <span class="ds-chat-fab__icon">🧠</span>
+    </button>
+    <div class="ds-chat-panel" id="ds-agent-panel" aria-hidden="true">
+      <div class="ds-chat-panel__hd">
+        <div>
+          <div class="ds-chat-panel__title">${kind === 'patient' ? 'Your support agents' : 'Clinic support agents'}</div>
+          <div class="ds-chat-panel__sub">${kind === 'patient' ? 'Ask about your progress, scores, and next steps.' : 'Ask about workflow, queue, and patients.'}</div>
+        </div>
+        <button class="ds-chat-x" id="ds-agent-close" type="button" aria-label="Close">×</button>
+      </div>
+      <div class="ds-chat-panel__body">
+        <div class="ds-chat-log" id="ds-agent-log"></div>
+        <div class="ds-chat-compose">
+          <input id="ds-agent-input" class="form-control" placeholder="Ask a question…">
+          <button id="ds-agent-send" class="btn btn-sm" type="button">Send</button>
+        </div>
+        <div class="ds-chat-footnote">${kind === 'patient' ? 'Not a substitute for your clinician.' : 'AI suggestions are advisory; verify clinically.'}</div>
+      </div>
+    </div>
+  `;
+  const fab = document.getElementById('ds-agent-fab');
+  const panel = document.getElementById('ds-agent-panel');
+  const close = document.getElementById('ds-agent-close');
+  const log = document.getElementById('ds-agent-log');
+  if (!fab || !panel || !close || !log) return;
+  fab.onclick = () => _toggleVisible(panel, !panel.classList.contains('is-open'));
+  close.onclick = () => _toggleVisible(panel, false);
+
+  const append = (role, text) => {
+    const div = document.createElement('div');
+    div.className = 'ds-chat-bubble ' + (role === 'user' ? 'me' : 'bot');
+    div.innerHTML = esc(text);
+    log.appendChild(div);
+    log.scrollTop = log.scrollHeight;
+  };
+
+  document.getElementById('ds-agent-send')?.addEventListener('click', async () => {
+    const inp = document.getElementById('ds-agent-input');
+    const q = (inp?.value || '').trim();
+    if (!q) return;
+    if (inp) inp.value = '';
+    append('user', q);
+    try {
+      if (kind === 'patient') {
+        const res = await api.chatPatient([{ role: 'user', content: q }], null, 'en', null);
+        append('assistant', res?.reply || 'Sorry — I could not answer that right now.');
+      } else {
+        const ctx = 'Clinician dashboard assistant (no patient selected).';
+        const res = await api.chatAgent([{ role: 'user', content: q }], 'anthropic', null, ctx);
+        append('assistant', res?.reply || 'Sorry — I could not answer that right now.');
+      }
+    } catch {
+      append('assistant', 'Sorry — I could not answer that right now.');
+    }
+  });
+}
+

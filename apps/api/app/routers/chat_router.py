@@ -12,7 +12,7 @@ from app.auth import AuthenticatedActor, get_authenticated_actor
 from app.database import get_db_session
 from app.errors import ApiServiceError
 from app.limiter import limiter
-from app.persistence.models import AiSummaryAudit, Patient, WearableDailySummary, WearableAlertFlag
+from app.persistence.models import AiSummaryAudit, Patient, WearableDailySummary, WearableAlertFlag, SalesInquiry
 from app.services.chat_service import (
     chat_clinician,
     chat_patient,
@@ -21,6 +21,8 @@ from app.services.chat_service import (
     chat_wearable_patient,
     chat_wearable_clinician,
 )
+from app.services import telegram_service as tg
+from app.settings import get_settings
 
 router = APIRouter(prefix="/api/v1/chat", tags=["chat"])
 _audit_logger = logging.getLogger(__name__)
@@ -40,6 +42,7 @@ class ChatMessage(BaseModel):
 class ChatRequest(BaseModel):
     messages: list[ChatMessage]
     patient_context: str | None = None  # optional patient info for clinician context
+    dashboard_context: str | None = None  # optional patient-portal dashboard snapshot for /patient
     language: str = "en"               # BCP-47 locale code for patient responses
 
 
@@ -55,12 +58,70 @@ class ChatResponse(BaseModel):
     role: str = "assistant"
 
 
+class SalesInquiryRequest(BaseModel):
+    name: str | None = None
+    email: str | None = None
+    message: str
+    source: str | None = "landing"
+
+
+class SalesInquiryResponse(BaseModel):
+    ok: bool = True
+    inquiry_id: str
+    forwarded_to_telegram: bool = False
+
+
 @router.post("/public", response_model=ChatResponse)
 def public_faq_chat(body: ChatRequest) -> ChatResponse:
     """No auth required — public FAQ bot for the landing page."""
     msgs = [{"role": m.role, "content": m.content} for m in body.messages]
     reply = chat_public_faq(msgs)
     return ChatResponse(reply=reply)
+
+
+@router.post("/sales", response_model=SalesInquiryResponse)
+@limiter.limit("10/minute")
+def sales_inquiry(
+    request: Request,
+    body: SalesInquiryRequest,
+    db: Session = Depends(get_db_session),
+) -> SalesInquiryResponse:
+    """Public sales/contact intake (landing page message icon).
+
+    Stores the inquiry in DB. Optionally forwards to Telegram (clinician bot) if
+    TELEGRAM_SALES_CHAT_ID is configured.
+    """
+    msg = (body.message or "").strip()
+    if len(msg) < 5:
+        raise ApiServiceError(code="invalid_request", message="Message is too short.", status_code=422)
+    if len(msg) > 8000:
+        raise ApiServiceError(code="invalid_request", message="Message is too long.", status_code=422)
+
+    row = SalesInquiry(
+        name=(body.name or "").strip() or None,
+        email=(body.email or "").strip().lower() or None,
+        message=msg,
+        source=(body.source or "").strip() or "landing",
+    )
+    db.add(row)
+    db.commit()
+
+    forwarded = False
+    try:
+        s = get_settings()
+        if s.telegram_sales_chat_id:
+            text = (
+                "🧠 New sales inquiry\n\n"
+                f"Name: {row.name or '—'}\n"
+                f"Email: {row.email or '—'}\n"
+                f"Source: {row.source or '—'}\n\n"
+                f"Message:\n{row.message}"
+            )
+            forwarded = tg.send_message(s.telegram_sales_chat_id, text, bot_kind="clinician", parse_mode=None)
+    except Exception:
+        forwarded = False
+
+    return SalesInquiryResponse(inquiry_id=row.id, forwarded_to_telegram=forwarded)
 
 
 @router.post("/agent", response_model=ChatResponse)
@@ -94,7 +155,11 @@ def patient_chat(
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
 ) -> ChatResponse:
     msgs = [{"role": m.role, "content": m.content} for m in body.messages]
-    reply = chat_patient(msgs, language=body.language)
+    reply = chat_patient(
+        msgs,
+        language=body.language,
+        dashboard_context=body.dashboard_context,
+    )
     return ChatResponse(reply=reply)
 
 

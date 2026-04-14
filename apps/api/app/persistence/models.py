@@ -1056,3 +1056,60 @@ class ClinicianHomeProgramTask(Base):
     revision: Mapped[int] = mapped_column(Integer(), nullable=False, default=1)
     created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
     updated_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+
+class PatientHomeProgramTaskCompletion(Base):
+    """Patient-reported completion / feedback for a home program task instance."""
+
+    __tablename__ = "patient_home_program_task_completions"
+    __table_args__ = (UniqueConstraint("patient_id", "server_task_id", name="uq_pt_task_completion_patient_server_task"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    server_task_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    patient_id: Mapped[str] = mapped_column(String(36), ForeignKey("patients.id", ondelete="CASCADE"), nullable=False, index=True)
+    clinician_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    completed: Mapped[bool] = mapped_column(Boolean(), nullable=False, default=True)
+    completed_at: Mapped[datetime] = mapped_column(DateTime(), nullable=False, index=True)
+    rating: Mapped[Optional[int]] = mapped_column(Integer(), nullable=True)
+    difficulty: Mapped[Optional[int]] = mapped_column(Integer(), nullable=True)
+    feedback_text: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    feedback_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    media_upload_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
+
+
+class TelegramPendingLink(Base):
+    """Short-lived code for linking Telegram to a web account (patient or clinician bot)."""
+
+    __tablename__ = "telegram_pending_links"
+
+    code: Mapped[str] = mapped_column(String(8), primary_key=True)
+    user_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    user_role: Mapped[str] = mapped_column(String(32), nullable=False)
+    bot_kind: Mapped[str] = mapped_column(String(16), nullable=False)  # patient | clinician
+    expires_at: Mapped[datetime] = mapped_column(DateTime(), nullable=False, index=True)
+
+
+class TelegramUserChat(Base):
+    """Maps a Telegram chat_id to a user for a specific bot (patient vs clinician)."""
+
+    __tablename__ = "telegram_user_chats"
+    __table_args__ = (UniqueConstraint("user_id", "bot_kind", name="uq_tg_user_bot_kind"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    chat_id: Mapped[str] = mapped_column(String(32), nullable=False)
+    bot_kind: Mapped[str] = mapped_column(String(16), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
+
+
+class SalesInquiry(Base):
+    """Landing page sales/contact form submission (optionally forwarded to Telegram)."""
+
+    __tablename__ = "sales_inquiries"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    name: Mapped[Optional[str]] = mapped_column(String(160), nullable=True)
+    email: Mapped[Optional[str]] = mapped_column(String(320), nullable=True, index=True)
+    message: Mapped[str] = mapped_column(Text(), nullable=False)
+    source: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)  # landing | dashboard | patient_portal | other
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc), index=True)

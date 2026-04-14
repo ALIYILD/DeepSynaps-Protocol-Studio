@@ -85,6 +85,22 @@ function regCard(header, body, footer) {
   `;
 }
 
+/** Clickable card: opens item detail modal (cross-registry context) via `window._openRegItemDetail`. */
+function regCardClickable(kind, index, header, body, footer) {
+  const foot = footer ? `<div style="margin-top:4px;display:flex;gap:6px;flex-wrap:wrap">${footer}</div>` : '';
+  const k = JSON.stringify(kind);
+  return `
+    <div class="reg-card-clickable" role="button" tabindex="0" aria-label="Open registry entry details"
+      onclick="window._openRegItemDetail(${k},${index})"
+      onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();window._openRegItemDetail(${k},${index});}"
+      style="background:var(--surface-1,rgba(255,255,255,.04));border:1px solid var(--border,rgba(255,255,255,.1));border-radius:12px;padding:16px;display:flex;flex-direction:column;gap:8px">
+      <div>${header}</div>
+      <div style="font-size:0.82rem;color:var(--text-secondary,#94a3b8);line-height:1.5">${body}</div>
+      ${foot}
+    </div>
+  `;
+}
+
 function searchBar(id, placeholder) {
   return `<input id="${id}" type="search" placeholder="${esc(placeholder)}" style="padding:7px 14px;border-radius:8px;border:1px solid var(--border,rgba(255,255,255,.12));background:var(--surface-1,rgba(255,255,255,.04));color:var(--text-primary,#e2e8f0);font-size:0.85rem;min-width:220px;flex:1;max-width:340px" oninput="window._regSearch(this.value)" />`;
 }
@@ -119,8 +135,9 @@ export async function pgConditionRegistry(setTopbar) {
       return matchCat && matchQ;
     });
 
+    window._regDetailItems = data;
     const cards = data.length
-      ? data.map(c => regCard(
+      ? data.map((c, i) => regCardClickable('conditions', i,
           `<div style="display:flex;align-items:flex-start;gap:8px;justify-content:space-between">
             <div>
               <div style="font-weight:600;font-size:0.9rem;color:var(--text-primary)">${esc(c.name)}</div>
@@ -130,7 +147,8 @@ export async function pgConditionRegistry(setTopbar) {
           </div>`,
           `<div><span style="color:var(--text-tertiary);font-size:0.75rem">Modalities:</span> ${c.modalities.map(esc).join(', ')}</div>
            <div><span style="color:var(--text-tertiary);font-size:0.75rem">Targets:</span> ${c.targets.map(esc).join(', ')}</div>
-           ${c.notes ? `<div style="margin-top:4px;color:var(--text-secondary)">${esc(c.notes)}</div>` : ''}`,
+           ${c.notes ? `<div style="margin-top:4px;color:var(--text-secondary)">${esc(c.notes)}</div>` : ''}
+           <div style="margin-top:8px;font-size:0.72rem;color:var(--text-tertiary)">Click for cross-registry context · references</div>`,
           `${labelBadge(c.onLabel)}${(c.flags||[]).map(f => `<span style="padding:1px 7px;border-radius:10px;font-size:0.68rem;font-weight:600;background:var(--red-500,#ef4444)20;color:#f87171;border:1px solid #ef444440">${esc(f)}</span>`).join('')}`
         )).join('')
       : emptyState('No conditions match your filter.');
@@ -182,8 +200,9 @@ export async function pgAssessmentRegistry(setTopbar) {
       return matchD && matchT && matchQ;
     });
 
+    window._regDetailItems = data;
     const cards = data.length
-      ? data.map(a => regCard(
+      ? data.map((a, i) => regCardClickable('assessments', i,
           `<div style="display:flex;align-items:flex-start;gap:8px;justify-content:space-between">
             <div>
               <div style="font-weight:600;font-size:0.9rem;color:var(--text-primary)">${esc(a.name)}</div>
@@ -193,7 +212,8 @@ export async function pgAssessmentRegistry(setTopbar) {
           </div>`,
           `<div>${esc(a.scoring)}</div>
            <div style="margin-top:4px"><span style="color:var(--text-tertiary);font-size:0.75rem">Items:</span> ${esc(a.items)} · <span style="color:var(--text-tertiary);font-size:0.75rem">~${esc(a.mins)} min</span></div>
-           <div style="margin-top:2px"><span style="color:var(--text-tertiary);font-size:0.75rem">Freq:</span> ${a.freq.map(esc).join(', ')}</div>`,
+           <div style="margin-top:2px"><span style="color:var(--text-tertiary);font-size:0.75rem">Freq:</span> ${a.freq.map(esc).join(', ')}</div>
+           <div style="margin-top:8px;font-size:0.72rem;color:var(--text-tertiary)">Click for cross-registry context · references</div>`,
           `<span style="padding:1px 7px;border-radius:10px;font-size:0.68rem;font-weight:600;background:var(--surface-2,rgba(255,255,255,.06));color:var(--text-secondary);border:1px solid var(--border)">${esc(a.type)}</span>`
         )).join('')
       : emptyState('No assessments match.');
@@ -246,8 +266,9 @@ export async function pgProtocolRegistryPage(setTopbar) {
       return matchM && matchQ;
     });
 
+    window._regDetailItems = data;
     const cards = data.length
-      ? data.map(p => regCard(
+      ? data.map((p, i) => regCardClickable('protocols', i,
           `<div style="display:flex;align-items:flex-start;gap:8px;justify-content:space-between">
             <div>
               <div style="font-weight:600;font-size:0.9rem;color:var(--text-primary)">${esc(p.name)}</div>
@@ -262,7 +283,8 @@ export async function pgProtocolRegistryPage(setTopbar) {
             <div><span style="color:var(--text-tertiary);font-size:0.72rem">Intensity</span><br>${esc(p.intensity)}</div>
             <div><span style="color:var(--text-tertiary);font-size:0.72rem">Sessions</span><br>${esc(p.sessions)} (${esc(p.sessPerWeek)}×/wk, ${esc(p.duration)})</div>
           </div>
-          ${p.notes ? `<div style="margin-top:6px;color:var(--text-secondary);font-size:0.8rem">${esc(p.notes)}</div>` : ''}`,
+          ${p.notes ? `<div style="margin-top:6px;color:var(--text-secondary);font-size:0.8rem">${esc(p.notes)}</div>` : ''}
+          <div style="margin-top:8px;font-size:0.72rem;color:var(--text-tertiary)">Click for cross-registry context · references</div>`,
           p.onLabel ? `<span style="padding:1px 7px;border-radius:10px;font-size:0.68rem;font-weight:700;background:#22c55e20;color:#4ade80;border:1px solid #22c55e40">On-Label</span>` : ''
         )).join('')
       : emptyState('No protocols match.');
@@ -316,8 +338,9 @@ export async function pgDeviceRegistry(setTopbar) {
 
     const settingColor = { Clinic:'#60a5fa', Home:'#4ade80', Both:'#c084fc' };
 
+    window._regDetailItems = data;
     const cards = data.length
-      ? data.map(d => regCard(
+      ? data.map((d, i) => regCardClickable('devices', i,
           `<div style="display:flex;align-items:flex-start;gap:8px;justify-content:space-between">
             <div>
               <div style="font-weight:600;font-size:0.9rem;color:var(--text-primary)">${esc(d.name)}</div>
@@ -328,7 +351,8 @@ export async function pgDeviceRegistry(setTopbar) {
           `<div><span style="color:var(--text-tertiary);font-size:0.72rem">Type:</span> ${esc(d.type)}</div>
            <div><span style="color:var(--text-tertiary);font-size:0.72rem">Clearance:</span> ${esc(d.clearance)}</div>
            <div><span style="color:var(--text-tertiary);font-size:0.72rem">Indication:</span> ${esc(d.indication)}</div>
-           ${d.notes ? `<div style="margin-top:4px;color:var(--text-secondary)">${esc(d.notes)}</div>` : ''}`,
+           ${d.notes ? `<div style="margin-top:4px;color:var(--text-secondary)">${esc(d.notes)}</div>` : ''}
+           <div style="margin-top:8px;font-size:0.72rem;color:var(--text-tertiary)">Click for cross-registry context · references</div>`,
           `<span style="padding:1px 7px;border-radius:10px;font-size:0.68rem;font-weight:600;background:var(--surface-2,rgba(255,255,255,.06));color:var(--text-secondary);border:1px solid var(--border)">${esc(d.channels)} ch</span>`
         )).join('')
       : emptyState('No devices match.');
@@ -386,8 +410,9 @@ export async function pgBrainTargetRegistry(setTopbar) {
       Occipital:'#f59e0b', Subcortical:'#f472b6', Cerebellar:'#a78bfa', Peripheral:'#94a3b8',
     };
 
+    window._regDetailItems = data;
     const cards = data.length
-      ? data.map(t => regCard(
+      ? data.map((t, i) => regCardClickable('targets', i,
           `<div style="display:flex;align-items:flex-start;gap:8px;justify-content:space-between">
             <div>
               <div style="font-weight:700;font-size:0.95rem;color:var(--text-primary)">${esc(t.label)}</div>
@@ -401,7 +426,8 @@ export async function pgBrainTargetRegistry(setTopbar) {
             <div><span style="color:var(--text-tertiary);font-size:0.72rem">BA</span><br>${esc(t.ba)}</div>
           </div>
           <div style="color:var(--text-secondary);font-size:0.79rem"><span style="color:var(--text-tertiary)">Function:</span> ${esc(t.function)}</div>
-          <div style="color:var(--text-secondary);font-size:0.79rem;margin-top:3px"><span style="color:var(--text-tertiary)">Clinical use:</span> ${esc(t.clinical)}</div>`,
+          <div style="color:var(--text-secondary);font-size:0.79rem;margin-top:3px"><span style="color:var(--text-tertiary)">Clinical use:</span> ${esc(t.clinical)}</div>
+          <div style="margin-top:8px;font-size:0.72rem;color:var(--text-tertiary)">Click for cross-registry context · references</div>`,
           ''
         )).join('')
       : emptyState('No targets match.');
@@ -452,8 +478,9 @@ export async function pgConsentRegistry(setTopbar) {
 
     const catColor = { Intake:'#60a5fa', Consent:'#f59e0b', Privacy:'#a78bfa', Caregiver:'#34d399', Clinical:'#f472b6' };
 
+    window._regDetailItems = data;
     const cards = data.length
-      ? data.map(c => regCard(
+      ? data.map((c, i) => regCardClickable('consent', i,
           `<div style="display:flex;align-items:flex-start;gap:8px;justify-content:space-between">
             <div>
               <div style="font-weight:600;font-size:0.9rem;color:var(--text-primary)">${esc(c.name)}</div>
@@ -462,7 +489,8 @@ export async function pgConsentRegistry(setTopbar) {
             <span style="padding:1px 8px;border-radius:10px;font-size:0.68rem;font-weight:700;white-space:nowrap;background:${catColor[c.cat]||'#94a3b8'}20;color:${catColor[c.cat]||'#94a3b8'};border:1px solid ${catColor[c.cat]||'#94a3b8'}40">${esc(c.cat)}</span>
           </div>`,
           `<div>${esc(c.desc)}</div>
-           <div style="margin-top:6px;font-size:0.75rem;color:var(--text-tertiary)">Fields: ${c.fields.map(esc).join(', ')}</div>`,
+           <div style="margin-top:6px;font-size:0.75rem;color:var(--text-tertiary)">Fields: ${c.fields.map(esc).join(', ')}</div>
+           <div style="margin-top:8px;font-size:0.72rem;color:var(--text-tertiary)">Click for cross-registry context · references</div>`,
           c.required ? `<span style="padding:1px 7px;border-radius:10px;font-size:0.68rem;font-weight:700;background:#ef444420;color:#f87171;border:1px solid #ef444440">Required</span>` : `<span style="padding:1px 7px;border-radius:10px;font-size:0.68rem;background:var(--surface-2,rgba(255,255,255,.06));color:var(--text-tertiary);border:1px solid var(--border)">Optional</span>`
         )).join('')
       : emptyState('No documents match.');
@@ -511,8 +539,9 @@ export async function pgReportTemplateRegistry(setTopbar) {
       return matchC && matchQ;
     });
 
+    window._regDetailItems = data;
     const cards = data.length
-      ? data.map(r => regCard(
+      ? data.map((r, i) => regCardClickable('reports', i,
           `<div style="display:flex;align-items:flex-start;gap:8px;justify-content:space-between">
             <div>
               <div style="font-weight:600;font-size:0.9rem;color:var(--text-primary)">${esc(r.name)}</div>
@@ -521,7 +550,8 @@ export async function pgReportTemplateRegistry(setTopbar) {
             ${r.auto ? `<span style="padding:1px 8px;border-radius:10px;font-size:0.68rem;font-weight:700;white-space:nowrap;background:#6366f120;color:#818cf8;border:1px solid #6366f140">Auto</span>` : ''}
           </div>`,
           `<div>${esc(r.desc)}</div>
-           <div style="margin-top:6px;font-size:0.75rem;color:var(--text-tertiary)">Sections: ${r.sections.map(esc).join(', ')}</div>`,
+           <div style="margin-top:6px;font-size:0.75rem;color:var(--text-tertiary)">Sections: ${r.sections.map(esc).join(', ')}</div>
+           <div style="margin-top:8px;font-size:0.72rem;color:var(--text-tertiary)">Click for cross-registry context · references</div>`,
           ''
         )).join('')
       : emptyState('No report templates match.');
@@ -572,8 +602,9 @@ export async function pgHandbookRegistry(setTopbar) {
 
     const catColor = { Patient:'#60a5fa', Clinician:'#f59e0b', Safety:'#f87171', Governance:'#a78bfa', Caregiver:'#34d399' };
 
+    window._regDetailItems = data;
     const cards = data.length
-      ? data.map(h => regCard(
+      ? data.map((h, i) => regCardClickable('handbooks', i,
           `<div style="display:flex;align-items:flex-start;gap:8px;justify-content:space-between">
             <div>
               <div style="font-weight:600;font-size:0.9rem;color:var(--text-primary)">${esc(h.name)}</div>
@@ -581,7 +612,8 @@ export async function pgHandbookRegistry(setTopbar) {
             </div>
             <span style="padding:1px 8px;border-radius:10px;font-size:0.68rem;font-weight:700;white-space:nowrap;background:${catColor[h.cat]||'#94a3b8'}20;color:${catColor[h.cat]||'#94a3b8'};border:1px solid ${catColor[h.cat]||'#94a3b8'}40">${esc(h.cat)}</span>
           </div>`,
-          `<div>${esc(h.desc)}</div>`,
+          `<div>${esc(h.desc)}</div>
+           <div style="margin-top:8px;font-size:0.72rem;color:var(--text-tertiary)">Click for cross-registry context · references</div>`,
           h.condition !== 'all' ? `<span style="padding:1px 7px;border-radius:10px;font-size:0.68rem;background:var(--surface-2,rgba(255,255,255,.06));color:var(--text-secondary);border:1px solid var(--border)">${esc(h.condition)}</span>` : ''
         )).join('')
       : emptyState('No handbooks match.');
@@ -632,8 +664,9 @@ export async function pgHomeProgramRegistry(setTopbar) {
 
     const catColor = { Device:'#60a5fa', Behavioural:'#34d399', Rehab:'#f59e0b' };
 
+    window._regDetailItems = data;
     const cards = data.length
-      ? data.map(h => regCard(
+      ? data.map((h, i) => regCardClickable('home-programs', i,
           `<div style="display:flex;align-items:flex-start;gap:8px;justify-content:space-between">
             <div>
               <div style="font-weight:600;font-size:0.9rem;color:var(--text-primary)">${esc(h.name)}</div>
@@ -643,7 +676,8 @@ export async function pgHomeProgramRegistry(setTopbar) {
           </div>`,
           `<div>${esc(h.desc)}</div>
            ${h.device && h.device !== 'None' ? `<div style="margin-top:4px;font-size:0.75rem;color:var(--text-tertiary)">Device: ${esc(h.device)}</div>` : ''}
-           <div style="margin-top:4px;font-size:0.75rem;color:var(--text-tertiary)">Tasks: ${h.tasks.map(esc).join(', ')}</div>`,
+           <div style="margin-top:4px;font-size:0.75rem;color:var(--text-tertiary)">Tasks: ${h.tasks.map(esc).join(', ')}</div>
+           <div style="margin-top:8px;font-size:0.72rem;color:var(--text-tertiary)">Click for cross-registry context · references</div>`,
           evBadge(h.ev)
         )).join('')
       : emptyState('No programs match.');
@@ -694,8 +728,9 @@ export async function pgVirtualCareRegistry(setTopbar) {
 
     const catColor = { Intake:'#60a5fa', 'Pre-Treatment':'#f59e0b', Progress:'#34d399', Discharge:'#a78bfa', Safety:'#f87171', Support:'#c084fc', Therapy:'#818cf8', Clinical:'#38bdf8', Education:'#fb923c', Monitoring:'#94a3b8' };
 
+    window._regDetailItems = data;
     const cards = data.length
-      ? data.map(v => regCard(
+      ? data.map((v, i) => regCardClickable('virtual-care', i,
           `<div style="display:flex;align-items:flex-start;gap:8px;justify-content:space-between">
             <div>
               <div style="font-weight:600;font-size:0.9rem;color:var(--text-primary)">${esc(v.name)}</div>
@@ -704,7 +739,8 @@ export async function pgVirtualCareRegistry(setTopbar) {
             <span style="padding:1px 8px;border-radius:10px;font-size:0.68rem;font-weight:700;white-space:nowrap;background:${catColor[v.cat]||'#94a3b8'}20;color:${catColor[v.cat]||'#94a3b8'};border:1px solid ${catColor[v.cat]||'#94a3b8'}40">${esc(v.cat)}</span>
           </div>`,
           `<div>${esc(v.desc)}</div>
-           <div style="margin-top:6px;font-size:0.75rem;color:var(--text-tertiary)">Tasks: ${v.tasks.map(esc).join(', ')}</div>`,
+           <div style="margin-top:6px;font-size:0.75rem;color:var(--text-tertiary)">Tasks: ${v.tasks.map(esc).join(', ')}</div>
+           <div style="margin-top:8px;font-size:0.72rem;color:var(--text-tertiary)">Click for cross-registry context · references</div>`,
           ''
         )).join('')
       : emptyState('No virtual care templates match.');

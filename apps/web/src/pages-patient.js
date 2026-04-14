@@ -499,15 +499,16 @@ export async function pgPatientDashboard(user) {
   el.innerHTML = `
     <div class="ptd-dashboard">
 
-      <!-- Greeting -->
+      <!-- Greeting + specialist agents -->
       <div class="ptd-greeting-row">
         <div>
           <div class="ptd-greeting-name">${greeting}, ${firstName}</div>
           <div class="ptd-greeting-date">${todayFmt}</div>
+          <div class="ptd-agent-hint">Specialist AI agents use your plan, scores, and check-ins to answer (not a substitute for your clinician).</div>
         </div>
         <button class="ptd-ca-trigger" onclick="window._ptdOpenAssistant()">
           <span style="font-size:16px">◎</span>
-          <span>Ask Your Care Assistant</span>
+          <span>Ask specialist agents</span>
         </button>
       </div>
 
@@ -707,11 +708,11 @@ export async function pgPatientDashboard(user) {
     <!-- Care Assistant panel -->
     <div id="ptd-asst-panel" class="ptd-asst-panel" style="display:none" role="dialog" aria-label="Care Assistant">
       <div class="ptd-asst-header">
-        <span class="ptd-asst-title">Care Assistant</span>
+        <span class="ptd-asst-title">Patient specialist agents</span>
         <button class="ptd-asst-close" onclick="window._ptdCloseAssistant()" aria-label="Close">\u2715</button>
       </div>
       <div class="ptd-asst-body">
-        <div class="ptd-asst-intro">Ask me anything about your progress, your sessions, or what to do next.</div>
+        <div class="ptd-asst-intro">Ask about your scores, next session, or wellbeing &mdash; answers use your dashboard snapshot. For medical decisions, contact your care team.</div>
         <div class="ptd-asst-prompts">
           ${[
             { icon: '📈', q: 'Explain my progress' },
@@ -747,31 +748,44 @@ export async function pgPatientDashboard(user) {
     if (!resp) return;
     resp.style.display = 'block';
     resp.innerHTML = '<div class="ptd-asst-thinking">Thinking\u2026</div>';
-    const q = question.trim().toLowerCase();
-    let answer = '';
-    if (q.includes('progress') || q.includes('improv')) {
-      answer = outcomeTrend
-        ? `Your ${outcomeTrend.name} has ${outcomeTrend.improving ? 'improved by ' + outcomeTrend.pct + '%' : 'stayed steady'} since baseline (${outcomeTrend.baseline} \u2192 ${outcomeTrend.current}). ${outcomeTrend.improving ? 'This is a positive response to treatment.' : 'Consistent attendance is helping build lasting results.'}`
-        : `You\u2019re ${sessDelivered ? sessDelivered + ' sessions into your treatment course' : 'just getting started'}. Complete your first assessment to start tracking scores over time.`;
-    } else if (q.includes('next session') || q.includes('before')) {
-      answer = nextSessDateLabel
-        ? `Your next session is ${nextSessDateLabel} at ${nextSessTime}. Before then: complete your daily check-in, drink plenty of water, and note any side effects or mood changes to share with your clinician.`
-        : `You don\u2019t have a session scheduled yet. Contact your clinic to book your next appointment.`;
-    } else if (q.includes('report') || q.includes('last report')) {
-      const lr = sortedOutcomes[sortedOutcomes.length - 1];
-      answer = lr
-        ? `Your most recent assessment is ${esc(lr.template_name || lr.template_title || 'your last report')} from ${new Date(lr.administered_at || 0).toLocaleDateString(loc, { month: 'long', day: 'numeric' })}${lr.score_numeric != null ? ' with a score of ' + lr.score_numeric : ''}. This is one of the ways your care team tracks how treatment is working.`
-        : `No assessments completed yet. Starting assessments helps your clinician track your progress precisely.`;
-    } else if (q.includes('check') || q.includes('week') || q.includes('biometric')) {
-      answer = hasCheckinData
-        ? `In your recent check-ins: average mood ${Math.round(recentCheckins.reduce((s, c) => s + (c.mood || 5), 0) / recentCheckins.length)}/10, sleep ${Math.round(recentCheckins.reduce((s, c) => s + (c.sleep || 5), 0) / recentCheckins.length)}/10, energy ${Math.round(recentCheckins.reduce((s, c) => s + (c.energy || 5), 0) / recentCheckins.length)}/10.`
-        : `No check-ins recorded yet. Start your daily check-in each morning to build a picture of how you\u2019re feeling over time.`;
-    } else if (q.includes('changed') || q.includes('since')) {
-      answer = `Since your last session your check-in data has been recorded${hasCheckinData ? ' and looks ' + wellnessTrend.label.toLowerCase() : '. Keep completing daily check-ins so your care team can monitor changes between sessions.'}.`;
-    } else {
-      answer = `I\u2019m here to help you understand your treatment journey. For medical questions, please contact your care team directly through the Messages tab.`;
+    const dashCtx = [
+      `Sessions delivered: ${sessDelivered}`,
+      totalPlanned != null ? `Planned sessions: ${totalPlanned}` : '',
+      progressPct != null ? `Course progress: ${progressPct}%` : '',
+      nextSessDateLabel ? `Next session: ${nextSessDateLabel} at ${nextSessTime || ''}` : 'Next session: not scheduled',
+      outcomeTrend
+        ? `Outcome (${outcomeTrend.name}): baseline ${outcomeTrend.baseline}, current ${outcomeTrend.current}, change ${outcomeTrend.improving ? 'improving' : 'steady'}`
+        : '',
+      `Wellness trend label: ${wellnessTrend.label}`,
+      hasCheckinData ? `Check-in days in view: ${recentCheckins.length}` : 'No check-ins yet',
+    ].filter(Boolean).join('\n');
+
+    const lang = getLocale() === 'tr' ? 'tr' : 'en';
+    try {
+      const result = await api.chatPatient(
+        [{ role: 'user', content: question.trim() }],
+        null,
+        lang,
+        dashCtx
+      );
+      const answer = result?.reply || 'No response. Please try again or message your care team.';
+      resp.innerHTML = '<div class="ptd-asst-answer">' + esc(answer).replace(/\n/g, '<br>') + '</div>';
+    } catch (_e) {
+      const q = question.trim().toLowerCase();
+      let answer = '';
+      if (q.includes('progress') || q.includes('improv')) {
+        answer = outcomeTrend
+          ? `Your ${outcomeTrend.name} has ${outcomeTrend.improving ? 'improved by ' + outcomeTrend.pct + '%' : 'stayed steady'} since baseline (${outcomeTrend.baseline} \u2192 ${outcomeTrend.current}). ${outcomeTrend.improving ? 'This is a positive response to treatment.' : 'Consistent attendance is helping build lasting results.'}`
+          : `You\u2019re ${sessDelivered ? sessDelivered + ' sessions into your treatment course' : 'just getting started'}. Complete your first assessment to start tracking scores over time.`;
+      } else if (q.includes('next session') || q.includes('before')) {
+        answer = nextSessDateLabel
+          ? `Your next session is ${nextSessDateLabel} at ${nextSessTime}. Before then: complete your daily check-in, drink plenty of water, and note any side effects or mood changes to share with your clinician.`
+          : `You don\u2019t have a session scheduled yet. Contact your clinic to book your next appointment.`;
+      } else {
+        answer = 'Assistant is offline. For help, use Messages to reach your care team.';
+      }
+      resp.innerHTML = '<div class="ptd-asst-answer">' + answer + '</div>';
     }
-    resp.innerHTML = '<div class="ptd-asst-answer">' + answer + '</div>';
   };
 
   // ── Quick check-in from dashboard ────────────────────────────────────────────

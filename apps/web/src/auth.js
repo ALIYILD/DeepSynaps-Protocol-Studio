@@ -1,4 +1,5 @@
 import { api } from './api.js';
+import { mountSalesChatWidget, mountAppAgentWidget } from './ui_chat_widget.js';
 
 export let currentUser = null;
 
@@ -20,6 +21,7 @@ export function showApp() {
   document.getElementById('patient-shell')?.classList.remove('visible');
   document.getElementById('sidebar').classList.add('visible');
   document.getElementById('app-shell').classList.add('visible');
+  try { mountAppAgentWidget('clinician'); } catch {}
 }
 
 export function showPublic() {
@@ -28,6 +30,7 @@ export function showPublic() {
   document.getElementById('app-shell').classList.remove('visible');
   document.getElementById('patient-shell')?.classList.remove('visible');
   document.getElementById('public-shell')?.classList.add('visible');
+  try { mountSalesChatWidget(); } catch {}
 }
 
 export function showPatient() {
@@ -36,6 +39,7 @@ export function showPatient() {
   document.getElementById('sidebar').classList.remove('visible');
   document.getElementById('app-shell').classList.remove('visible');
   document.getElementById('patient-shell')?.classList.add('visible');
+  try { mountAppAgentWidget('patient'); } catch {}
 }
 
 export function updatePatientBar() {
