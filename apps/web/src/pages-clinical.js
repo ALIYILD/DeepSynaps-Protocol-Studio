@@ -1007,15 +1007,18 @@ export async function pgDash(setTopbar, navigate) {
   // ── glanceCard removed (replaced by compact stats bar) ───────────────────────
 
   const _urgentItems = [
-    { show: seriousAEs.length > 0,              icon: '&#x26A1;', label: 'Serious Adverse Events', count: seriousAEs.length,              color: 'var(--red)',   nav: 'adverse-events' },
-    { show: wearableUrgentCount > 0,             icon: '&#9676;',  label: 'Urgent Wearable Alerts', count: wearableUrgentCount,            color: 'var(--red)',   nav: 'wearables' },
-    { show: mediaUrgent > 0,                     icon: '&#9873;',  label: 'Urgent Media',           count: mediaUrgent,                    color: 'var(--red)',   nav: 'media-queue' },
-    { show: pendingQueue.length > 0,             icon: '&#9649;',  label: 'Pending Approvals',      count: pendingQueue.length,            color: 'var(--amber)', nav: 'review-queue' },
-    { show: openAEs.length > 0,                  icon: '&#9888;',  label: 'Open Adverse Events',    count: openAEs.length,                 color: 'var(--amber)', nav: 'adverse-events' },
-    { show: consentAlertCount > 0,               icon: '&#9678;',  label: 'Consent Alerts',         count: consentAlertCount,              color: 'var(--amber)', nav: 'patients' },
-    { show: patientsNeedingAttention.length > 0, icon: '&#9888;',  label: 'Patients Flagged',       count: patientsNeedingAttention.length, color: 'var(--amber)', nav: 'patients' },
-    { show: flaggedCourses.length > 0,           icon: '&#9888;',  label: 'Safety Flags',           count: flaggedCourses.length,          color: 'var(--amber)', nav: 'review-queue' },
-  ].filter(i => i.show);
+    // Tier 1: CRITICAL (Red) — Stop-work items
+    { show: seriousAEs.length > 0,              icon: '&#x26A1;', label: 'Serious Adverse Events',  count: seriousAEs.length,              color: 'var(--red)',   nav: 'adverse-events', tier: 1 },
+    { show: wearableUrgentCount > 0,             icon: '&#9676;',  label: 'Urgent Wearable Alerts', count: wearableUrgentCount,            color: 'var(--red)',   nav: 'wearables', tier: 1 },
+    { show: mediaUrgent > 0,                     icon: '&#9873;',  label: 'Urgent Media',           count: mediaUrgent,                    color: 'var(--red)',   nav: 'media-queue', tier: 1 },
+    // Tier 2: HIGH (Amber) — Require attention today
+    { show: pendingQueue.length > 0,             icon: '&#9649;',  label: 'Pending Approvals',      count: pendingQueue.length,            color: 'var(--amber)', nav: 'review-queue', tier: 2 },
+    { show: flaggedCourses.length > 0,           icon: '&#9888;',  label: 'Safety Flags',           count: flaggedCourses.length,          color: 'var(--amber)', nav: 'review-queue', tier: 2 },
+    // Tier 3: MEDIUM (Blue) — Monitoring
+    { show: openAEs.length > 0,                  icon: '&#9888;',  label: 'Open Adverse Events',    count: openAEs.length,                 color: 'var(--blue)',  nav: 'adverse-events', tier: 3 },
+    { show: consentAlertCount > 0,               icon: '&#9678;',  label: 'Consent Expiring',       count: consentAlertCount,              color: 'var(--blue)',  nav: 'patients', tier: 3 },
+    { show: patientsNeedingAttention.length > 0, icon: '&#9888;',  label: 'Patients Flagged',       count: patientsNeedingAttention.length, color: 'var(--blue)',  nav: 'patients', tier: 3 },
+  ].filter(i => i.show).sort((a, b) => a.tier - b.tier);
 
   const urgentCard = `<div class="card" style="overflow:hidden">
     <div style="padding:13px 16px 10px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px">
@@ -1038,27 +1041,6 @@ export async function pgDash(setTopbar, navigate) {
     }
   </div>`;
 
-  const _quickActions6 = [
-    { icon: '&#9647;', label: 'Start Session',  page: 'session-execution', color: 'var(--teal)',   primary: true },
-    { icon: '&#9673;', label: 'Add Patient',    page: 'patients',          color: 'var(--blue)',   primary: false },
-    { icon: '&#9678;', label: 'Create Course',  page: 'protocol-wizard',   color: 'var(--violet)', primary: false },
-    { icon: '&#9649;', label: 'Review Queue',   page: 'review-queue',      color: pendingQueue.length > 0 ? 'var(--amber)' : 'var(--text-secondary)', primary: false },
-    { icon: '&#9643;', label: 'Record Outcome', page: 'outcomes',          color: 'var(--green)',  primary: false },
-    { icon: '&#9676;', label: 'Add Note',       page: 'notes-dictation',   color: 'var(--amber)',  primary: false },
-  ];
-
-  const quickActionsCard = `<div class="card" style="overflow:hidden">
-    <div style="padding:13px 16px 10px;border-bottom:1px solid var(--border)">
-      <span class="card-section-label">Quick Actions</span>
-    </div>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:1px;background:var(--border)">
-      ${_quickActions6.map(a => `<div onclick="window._nav('${a.page}')" style="padding:12px 14px;background:var(--bg-card);cursor:pointer;transition:background 0.15s;display:flex;align-items:center;gap:10px"
-           onmouseover="this.style.background='var(--bg-card-hover)'" onmouseout="this.style.background='var(--bg-card)'">
-        <span style="font-size:16px;color:${a.color};flex-shrink:0">${a.icon}</span>
-        <span style="font-size:12px;font-weight:${a.primary ? '700' : '500'};color:${a.primary ? 'var(--teal)' : 'var(--text-primary)'}">${a.label}</span>
-      </div>`).join('')}
-    </div>
-  </div>`;
 
   // ── row1/row2/row3/row4 — replaced by new dh layout below ───────────────────
   // ── OLD ROW 2 data still needed for govStrip ─────────────────────────────────
@@ -1401,16 +1383,19 @@ export async function pgDash(setTopbar, navigate) {
     </div>
     ${pendingQueue.length > 0 ? `<div class="dh-stat dh-stat--warn" onclick="window._nav('review-queue')">
       <div class="dh-stat-val">${pendingQueue.length}</div>
-      <div class="dh-stat-info"><div class="dh-stat-lbl">Pending Reviews</div><div class="dh-stat-sub">action required</div></div>
+      <div class="dh-stat-info"><div class="dh-stat-lbl">Pending Approvals</div><div class="dh-stat-sub">awaiting clinician</div></div>
     </div>` : ''}
     ${openAEs.length > 0 ? `<div class="dh-stat dh-stat--danger" onclick="window._nav('adverse-events')">
       <div class="dh-stat-val">${openAEs.length}</div>
       <div class="dh-stat-info"><div class="dh-stat-lbl">Open AEs</div><div class="dh-stat-sub">${seriousAEs.length > 0 ? seriousAEs.length + ' serious' : 'monitoring'}</div></div>
     </div>` : ''}
-    <div class="dh-stat" onclick="window._nav('outcomes')">
+    ${assessmentsDueCount > 0 ? `<div class="dh-stat dh-stat--warn" onclick="window._nav('assessments-hub')">
+      <div class="dh-stat-val">${assessmentsDueCount}</div>
+      <div class="dh-stat-info"><div class="dh-stat-lbl">Assessments Due</div><div class="dh-stat-sub">overdue or due soon</div></div>
+    </div>` : `<div class="dh-stat" onclick="window._nav('outcomes')">
       <div class="dh-stat-val" style="color:var(--teal)">${responderRate}</div>
       <div class="dh-stat-info"><div class="dh-stat-lbl">Responder Rate</div><div class="dh-stat-sub">≥50% improvement</div></div>
-    </div>
+    </div>`}
   </div>`;
 
   // Appointment table (primary left column)

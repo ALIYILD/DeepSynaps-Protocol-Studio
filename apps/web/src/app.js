@@ -428,23 +428,30 @@ const ROLE_NAV_HIDE = {
 
 // ── Nav definition — organised around neuromodulation clinic workflow ─────────
 const NAV = [
-  // ── Main navigation (flat, no section header) ─────────────────────────────
-  { id: 'home',               label: 'Home',               icon: '◈' },
-  { id: 'patients-hub',       label: 'Patients',           icon: '◉' },
-  { id: 'assessments',        label: 'Assessments',        icon: '◈' },
-  { id: 'protocol-hub',       label: 'Protocols',          icon: '⬡', ai: true },
-  { id: 'scheduling-hub',     label: 'Scheduling',         icon: '◎' },
-  { id: 'home-task-manager',  label: 'Home Programs',      icon: '◩' },
-  { id: 'library-hub',        label: 'Library',            icon: '◈' },
-  { id: 'documents-hub',      label: 'Documents',          icon: '◧' },
-  { id: 'reports-hub',        label: 'Reports',            icon: '◫' },
-  { id: 'monitor-hub',        label: 'Monitor',            icon: '◉' },
-  { id: 'virtual-care-hub',   label: 'Virtual Care',       icon: '◎', ai: true },
+  // ── PATIENT CARE — Primary clinical workflows ────────────────────────────────
+  { section: 'Patient Care', sectionId: 'patient-care', collapsed: false },
+  { id: 'home',               label: 'Dashboard',          icon: '🏠' },
+  { id: 'patients-hub',       label: 'Patients',           icon: '👥' },
+  { id: 'assessments',        label: 'Assessments',        icon: '◉' },
+  { id: 'library-hub',        label: 'Protocols',          icon: '🧠' },
+  { id: 'scheduling-hub',     label: 'Schedule',           icon: '🗓️' },
+  { id: 'monitor-hub',        label: 'Monitoring',         icon: '📊' },
 
-  // ── CLINIC — collapsed by default ────────────────────────────────────────────
-  { section: 'CLINIC', sectionId: 'clinic', collapsed: true },
-  { id: 'finance-hub',        label: 'Finance',            icon: '◩' },
-  { id: 'settings',           label: 'Settings',           icon: '◎' },
+  // ── CLINICAL TOOLS — Assessment & decision support ──────────────────────────
+  { section: 'Clinical Tools', sectionId: 'clinical-tools', collapsed: false },
+  { id: 'protocol-hub',       label: 'Protocol Library',   icon: '🧠', ai: true },
+  { id: 'home-task-manager',  label: 'Home Tasks',         icon: '🏠' },
+  { id: 'documents-hub',      label: 'Documents',          icon: '📄' },
+  { id: 'virtual-care-hub',   label: 'Virtual Care',       icon: '📹', ai: true },
+
+  // ── OPERATIONS & REPORTING — Clinic administration ──────────────────────────
+  { section: 'Operations', sectionId: 'operations', collapsed: false },
+  { id: 'reports-hub',        label: 'Reports',            icon: '📈' },
+  { id: 'finance-hub',        label: 'Finance',            icon: '💰' },
+
+  // ── ADMIN — System settings ───────────────────────────────────────────────────
+  { section: 'Admin', sectionId: 'admin', collapsed: true },
+  { id: 'settings',           label: 'Settings',           icon: '⚙️' },
 ];
 
 // ── Lucide-style SVG icons for nav items ──────────────────────────────────────
@@ -493,10 +500,12 @@ const NAV_ICONS = {
 
 // ── Section labels ────────────────────────────────────────────────────────────
 const SECTION_LABELS = {
+  'patient-care': 'Patient Care',
+  'clinical-tools': 'Clinical Tools',
+  operations:     'Operations',
+  admin:          'Admin',
   today:          'Today',
-  'patient-care': 'Patients',
   protocols:      'Protocols',
-  'clinical-tools': 'Tools',
   clinical:       'Clinical',
   courses:        'Sessions & Courses',
   practice:       'Practice',
