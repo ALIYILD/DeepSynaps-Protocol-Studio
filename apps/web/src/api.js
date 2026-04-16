@@ -1,6 +1,6 @@
 import { parseHomeProgramTaskMutationResponse } from './home-program-task-sync.js';
 
-const API_BASE = (import.meta.env && import.meta.env.VITE_API_BASE_URL) || 'http://127.0.0.1:8000';
+const API_BASE = import.meta.env?.VITE_API_BASE_URL ?? 'http://127.0.0.1:8000';
 const TOKEN_KEY = 'ds_access_token';
 const REFRESH_KEY = 'ds_refresh_token';
 
@@ -200,6 +200,7 @@ export const api = {
   resetPassword: (token, new_password) =>
     apiFetch('/api/v1/auth/reset-password', { method: 'POST', body: JSON.stringify({ token, new_password }) }),
   me: () => apiFetch('/api/v1/auth/me'),
+  demoLogin: (token) => apiFetch('/api/v1/auth/demo-login', { method: 'POST', body: JSON.stringify({ token }) }),
 
   // ── Patients ────────────────────────────────────────────────────────────
   listPatients: () => apiFetchWithRetry('/api/v1/patients'),
@@ -209,6 +210,8 @@ export const api = {
   deletePatient: (id) => apiFetch(`/api/v1/patients/${id}`, { method: 'DELETE' }),
   generateInviteCode: (patientData) =>
     apiFetch('/api/v1/patients/invite', { method: 'POST', body: JSON.stringify(patientData) }),
+  generatePatientInvite: (data) =>
+    apiFetch('/api/v1/patients/invite', { method: 'POST', body: JSON.stringify(data) }),
   getPatientSessions: (patientId) => apiFetch(`/api/v1/patients/${patientId}/sessions`),
   getPatientCourse: (patientId) => apiFetch(`/api/v1/patients/${patientId}/courses`),
   getPatientAssessments: (patientId) => apiFetch(`/api/v1/patients/${patientId}/assessments`),
@@ -231,6 +234,19 @@ export const api = {
   createAssessment: (data) => apiFetch('/api/v1/assessments', { method: 'POST', body: JSON.stringify(data) }),
   updateAssessment: (id, data) => apiFetch(`/api/v1/assessments/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   deleteAssessment: (id) => apiFetch(`/api/v1/assessments/${id}`, { method: 'DELETE' }),
+  assignAssessment: (patientId, data) => apiFetch('/api/v1/assessments/assign', { method: 'POST', body: JSON.stringify({ patient_id: patientId, ...data }) }),
+
+  // ── Medical History ─────────────────────────────────────────────────────
+  getPatientMedicalHistory: (patientId) => apiFetch(`/api/v1/patients/${patientId}/medical-history`).catch(() => null),
+  savePatientMedicalHistory: (patientId, historyData) => apiFetch(`/api/v1/patients/${patientId}/medical-history`, { method: 'PATCH', body: JSON.stringify({ medical_history: historyData }) }).catch(e => { console.warn('Medical history sync failed:', e?.message); }),
+
+  // ── Documents Hub ───────────────────────────────────────────────────────
+  listDocuments: (patientId) => apiFetchWithRetry(`/api/v1/documents${patientId ? '?patient_id=' + patientId : ''}`),
+  createDocument: (data) => apiFetch('/api/v1/documents', { method: 'POST', body: JSON.stringify(data) }),
+  updateDocument: (id, data) => apiFetch(`/api/v1/documents/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  getDocument: (id) => apiFetch(`/api/v1/documents/${id}`),
+  deleteDocument: (id) => apiFetch(`/api/v1/documents/${id}`, { method: 'DELETE' }),
+  listPatientDocuments: (patientId) => apiFetchWithRetry(`/api/v1/patients/${patientId}/documents`),
 
   // ── Clinical Knowledge ──────────────────────────────────────────────────
   listEvidence: () => apiFetchWithRetry('/api/v1/evidence'),
@@ -285,6 +301,11 @@ export const api = {
     apiFetch('/api/v1/intake/preview', { method: 'POST', body: JSON.stringify(data) }),
   generateProtocol: (data) =>
     apiFetch('/api/v1/protocols/generate-draft', { method: 'POST', body: JSON.stringify(data) }),
+
+  // ── Protocol Persistence ────────────────────────────────────────────────
+  saveProtocol: (data) => apiFetch('/api/v1/protocols/saved', { method: 'POST', body: JSON.stringify(data) }),
+  listSavedProtocols: (patientId) => apiFetchWithRetry(`/api/v1/protocols/saved${patientId ? '?patient_id=' + patientId : ''}`),
+  updateSavedProtocol: (id, data) => apiFetch(`/api/v1/protocols/saved/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   generateHandbook: (data) =>
     apiFetch('/api/v1/handbooks/generate', { method: 'POST', body: JSON.stringify(data) }),
   caseSummary: (data) =>

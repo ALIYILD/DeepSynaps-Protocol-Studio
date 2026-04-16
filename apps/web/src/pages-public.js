@@ -87,183 +87,249 @@ export function pgHome() {
   const el = document.getElementById('public-shell');
   el.scrollTop = 0;
 
-  // ── Evidence matrix data (sourced from Neuromodulation Master Database) ──────
+  // ── Evidence matrix data — sourced from DeepSynaps Evidence Pipeline (Excel 2026-04-15) ──
+  // Grades: S = Strong (Grade A: FDA-approved / multiple RCTs + meta-analysis)
+  //         M = Moderate (Grade B: RCT evidence)
+  //         E = Emerging (Grade C/D: open-label, pilot, or limited data)
   const _evMods = [
-    { id:'TMS',   label:'TMS',   color:'#00d4bc', full:'Transcranial Magnetic Stimulation',         papers:'1,000+', papersFull:'1,000+ published studies' },
-    { id:'tDCS',  label:'tDCS',  color:'#4a9eff', full:'Transcranial Direct Current Stimulation',   papers:'400+',   papersFull:'400+ published studies'    },
-    { id:'tACS',  label:'tACS',  color:'#7c3aed', full:'Transcranial Alternating Current Stim.',    papers:'150+',   papersFull:'150+ published studies'    },
-    { id:'CES',   label:'CES',   color:'#0284c7', full:'Cranial Electrotherapy Stimulation',         papers:'80+',    papersFull:'80+ published studies'     },
-    { id:'taVNS', label:'taVNS', color:'#d97706', full:'Transcranial Auricular Vagus Nerve Stim.',   papers:'60+',    papersFull:'60+ published studies'     },
-    { id:'TPS',   label:'TPS',   color:'#c026d3', full:'Transcranial Pulse Stimulation',             papers:'30+',    papersFull:'30+ published studies'     },
-    { id:'PBM',   label:'PBM',   color:'#fb923c', full:'Photobiomodulation (tPBM)',                  papers:'80+',    papersFull:'80+ published studies'     },
-    { id:'PEMF',  label:'PEMF',  color:'#f59e0b', full:'Pulsed Electromagnetic Field Therapy',       papers:'100+',   papersFull:'100+ published studies'    },
-    { id:'NF',    label:'NF',    color:'#059669', full:'Neurofeedback',                              papers:'300+',   papersFull:'300+ published studies'    },
-    { id:'LIFU',  label:'LIFU',  color:'#64748b', full:'Low-Intensity Focused Ultrasound',           papers:'40+',    papersFull:'40+ published studies'     },
-    { id:'tRNS',  label:'tRNS',  color:'#94a3b8', full:'Transcranial Random Noise Stimulation',      papers:'50+',    papersFull:'50+ published studies'     },
-  ];
-  // S = Strong (RCT + Meta-analysis) | M = Moderate (RCT) | E = Emerging (Open-label / Pilot)
-  const _evConds = [
-    { name:'Depression (MDD)',               cat:'Mood & Affective',      ev:{ TMS:'S', tDCS:'S', tACS:'E', CES:'S', taVNS:'M', TPS:'E', PBM:'M', PEMF:'E', NF:'M', LIFU:'E', tRNS:'E' } },
-    { name:'Treatment-Resistant Depression', cat:'Mood & Affective',      ev:{ TMS:'S', tDCS:'M', CES:'M', taVNS:'M', TPS:'E', LIFU:'E' } },
-    { name:'Bipolar Depression',             cat:'Mood & Affective',      ev:{ TMS:'M', tDCS:'E' } },
-    { name:'Postpartum Depression',          cat:'Mood & Affective',      ev:{ TMS:'M', tDCS:'E' } },
-    { name:'Persistent Depressive Disorder', cat:'Mood & Affective',      ev:{ TMS:'M', tDCS:'E', CES:'E' } },
-    { name:'Seasonal Affective Disorder',    cat:'Mood & Affective',      ev:{ tDCS:'E', PBM:'E' } },
-    { name:'PTSD',                           cat:'Anxiety & Trauma',      ev:{ TMS:'M', tDCS:'E', CES:'M', taVNS:'E', NF:'M' } },
-    { name:'Generalised Anxiety Disorder',   cat:'Anxiety & Trauma',      ev:{ tDCS:'M', CES:'S', taVNS:'M', NF:'M', PEMF:'E' } },
-    { name:'Social Anxiety Disorder',        cat:'Anxiety & Trauma',      ev:{ TMS:'M', tDCS:'E', CES:'E', NF:'E' } },
-    { name:'Panic Disorder',                 cat:'Anxiety & Trauma',      ev:{ tDCS:'E', CES:'E', NF:'E' } },
-    { name:'Complex PTSD',                   cat:'Anxiety & Trauma',      ev:{ TMS:'E', NF:'E' } },
-    { name:'OCD',                            cat:'OCD Spectrum',          ev:{ TMS:'S', tDCS:'E', LIFU:'E' } },
-    { name:'Body Dysmorphic Disorder',       cat:'OCD Spectrum',          ev:{ TMS:'E' } },
-    { name:'Trichotillomania',               cat:'OCD Spectrum',          ev:{ TMS:'E' } },
-    { name:'ADHD — Adult',                   cat:'Neurodevelopmental',    ev:{ TMS:'M', tDCS:'M', tACS:'E', TPS:'E', PEMF:'E', NF:'M', tRNS:'E' } },
-    { name:'ADHD — Paediatric',              cat:'Neurodevelopmental',    ev:{ tDCS:'M', NF:'M' } },
-    { name:'Autism Spectrum Disorder',       cat:'Neurodevelopmental',    ev:{ TMS:'M', tDCS:'E', TPS:'E', NF:'E' } },
-    { name:'Schizophrenia',                  cat:'Psychiatric',           ev:{ TMS:'S', tDCS:'M', tACS:'M', LIFU:'E', tRNS:'E' } },
-    { name:'Auditory Hallucinations',        cat:'Psychiatric',           ev:{ TMS:'S', tDCS:'M' } },
-    { name:'Alcohol Use Disorder',           cat:'Substance Use',         ev:{ TMS:'M', tDCS:'M' } },
-    { name:'Nicotine Addiction',             cat:'Substance Use',         ev:{ TMS:'M', tDCS:'E' } },
-    { name:'Cocaine / Opioid Addiction',     cat:'Substance Use',         ev:{ TMS:'M', tDCS:'M', LIFU:'E' } },
-    { name:'Cannabis Use Disorder',          cat:'Substance Use',         ev:{ TMS:'E', tDCS:'E' } },
-    { name:'Stroke Rehabilitation',          cat:'Neurological',          ev:{ TMS:'S', tDCS:'S', taVNS:'M', PEMF:'E' } },
-    { name:'Aphasia (post-stroke)',           cat:'Neurological',          ev:{ TMS:'M', tDCS:'M' } },
-    { name:'Parkinson\'s Disease',            cat:'Neurological',          ev:{ TMS:'S', tDCS:'E', tACS:'M', taVNS:'E', TPS:'E', PBM:'E', PEMF:'E', tRNS:'E' } },
-    { name:'Essential Tremor',               cat:'Neurological',          ev:{ TMS:'M', tACS:'M', LIFU:'E' } },
-    { name:'Epilepsy',                       cat:'Neurological',          ev:{ TMS:'M', tDCS:'M', taVNS:'M', PEMF:'E', LIFU:'E' } },
-    { name:'Multiple Sclerosis',             cat:'Neurological',          ev:{ tDCS:'M', PEMF:'M', tRNS:'M' } },
-    { name:'Dystonia',                       cat:'Neurological',          ev:{ TMS:'M', tDCS:'E' } },
-    { name:'Tourette Syndrome',              cat:'Neurological',          ev:{ TMS:'M', CES:'E' } },
-    { name:'Spinal Cord Injury Rehab',       cat:'Neurological',          ev:{ TMS:'E', tDCS:'E' } },
-    { name:'Alzheimer\'s Disease',            cat:'Cognitive & Memory',    ev:{ TMS:'M', tDCS:'M', tACS:'M', TPS:'M', PBM:'M', LIFU:'E' } },
-    { name:'Mild Cognitive Impairment',      cat:'Cognitive & Memory',    ev:{ TMS:'M', tDCS:'M', tACS:'E', TPS:'E', PBM:'E', PEMF:'E', tRNS:'E' } },
-    { name:'Traumatic Brain Injury',         cat:'Cognitive & Memory',    ev:{ TMS:'E', tDCS:'M', PBM:'M', PEMF:'E' } },
-    { name:'Vascular Dementia',              cat:'Cognitive & Memory',    ev:{ tDCS:'E', TPS:'E' } },
-    { name:'Post-COVID Brain Fog',           cat:'Cognitive & Memory',    ev:{ tDCS:'E', PBM:'E' } },
-    { name:'Chemo-Related Cognitive Impairment', cat:'Cognitive & Memory', ev:{ tDCS:'E', PBM:'E' } },
-    { name:'Chronic Pain',                   cat:'Pain',                  ev:{ TMS:'S', tDCS:'S', CES:'E', taVNS:'M', tACS:'E', PBM:'E', PEMF:'M', LIFU:'E' } },
-    { name:'Fibromyalgia',                   cat:'Pain',                  ev:{ TMS:'M', tDCS:'S', CES:'M', PEMF:'M', taVNS:'E' } },
-    { name:'Migraine / Headache',            cat:'Pain',                  ev:{ TMS:'M', tDCS:'E', taVNS:'M' } },
-    { name:'Neuropathic Pain',               cat:'Pain',                  ev:{ TMS:'M', tDCS:'M', PEMF:'M' } },
-    { name:'Complex Regional Pain Syndrome', cat:'Pain',                  ev:{ tDCS:'E', PEMF:'E' } },
-    { name:'Phantom Limb Pain',              cat:'Pain',                  ev:{ TMS:'E', tDCS:'E' } },
-    { name:'Low Back Pain',                  cat:'Pain',                  ev:{ PEMF:'M', tDCS:'E' } },
-    { name:'Tinnitus',                       cat:'Other & Emerging',      ev:{ TMS:'M', tDCS:'M', taVNS:'M', tACS:'E', tRNS:'M' } },
-    { name:'Insomnia',                       cat:'Other & Emerging',      ev:{ tDCS:'E', tACS:'M', CES:'S', taVNS:'M', PEMF:'E', NF:'E', tRNS:'E' } },
-    { name:'Chronic Fatigue / ME-CFS',       cat:'Other & Emerging',      ev:{ tDCS:'E', PBM:'E' } },
-    { name:'Eating Disorders',               cat:'Other & Emerging',      ev:{ TMS:'M', tDCS:'E' } },
-    { name:'Inflammatory / Rheumatoid Arthritis', cat:'Other & Emerging', ev:{ taVNS:'M', PEMF:'E' } },
-    { name:'Long COVID — Fatigue & Cognition', cat:'Other & Emerging',    ev:{ PBM:'E', tDCS:'E' } },
-    { name:'Disorders of Consciousness',     cat:'Other & Emerging',      ev:{ TMS:'E', tDCS:'E', TPS:'E' } },
-    { name:'Peak Performance / Cognitive Enhancement', cat:'Other & Emerging', ev:{ tDCS:'E', NF:'M', tRNS:'E', PBM:'E' } },
+    { id:'rTMS',   label:'rTMS',    color:'#00d4bc', full:'Repetitive Transcranial Magnetic Stimulation',  papers:'358', papersFull:'358 peer-reviewed papers' },
+    { id:'dTMS',   label:'dTMS',    color:'#0891b2', full:'Deep Transcranial Magnetic Stimulation',        papers:'348', papersFull:'348 peer-reviewed papers' },
+    { id:'tDCS',   label:'tDCS',    color:'#4a9eff', full:'Transcranial Direct Current Stimulation',       papers:'326', papersFull:'326 peer-reviewed papers' },
+    { id:'DBS',    label:'DBS',     color:'#7c3aed', full:'Deep Brain Stimulation',                        papers:'1,086',papersFull:'1,086 peer-reviewed papers'},
+    { id:'VNS',    label:'VNS',     color:'#d97706', full:'Vagus Nerve Stimulation',                       papers:'960', papersFull:'960 peer-reviewed papers'  },
+    { id:'SCS',    label:'SCS',     color:'#c026d3', full:'Spinal Cord Stimulation',                       papers:'606', papersFull:'606 peer-reviewed papers'  },
+    { id:'SNM',    label:'SNM',     color:'#0284c7', full:'Sacral Neuromodulation',                        papers:'380', papersFull:'380 peer-reviewed papers'  },
+    { id:'NFB',    label:'NFB',     color:'#059669', full:'Neurofeedback',                                 papers:'812', papersFull:'812 peer-reviewed papers'  },
+    { id:'PBM',    label:'PBM',     color:'#fb923c', full:'Photobiomodulation',                            papers:'862', papersFull:'862 peer-reviewed papers'  },
+    { id:'HNS',    label:'HNS',     color:'#64748b', full:'Hypoglossal Nerve Stimulation',                 papers:'322', papersFull:'322 peer-reviewed papers'  },
+    { id:'MRgFUS', label:'MRgFUS',  color:'#be185d', full:'MRI-guided Focused Ultrasound',                papers:'318', papersFull:'318 peer-reviewed papers'  },
+    { id:'RNS',    label:'RNS',     color:'#0e7490', full:'Responsive Neurostimulation',                   papers:'310', papersFull:'310 peer-reviewed papers'  },
+    { id:'DRG',    label:'DRG',     color:'#b45309', full:'Dorsal Root Ganglion Stimulation',              papers:'279', papersFull:'279 peer-reviewed papers'  },
+    { id:'ESWT',   label:'ESWT',    color:'#6d28d9', full:'Extracorporeal Shock Wave Therapy',             papers:'566', papersFull:'566 peer-reviewed papers'  },
+    { id:'TPS',    label:'TPS',     color:'#dc2626', full:'Transcranial Pulse Stimulation',                papers:'162', papersFull:'162 peer-reviewed papers'  },
+    { id:'BAT',    label:'BAT',     color:'#047857', full:'Baroreflex Activation Therapy',                 papers:'251', papersFull:'251 peer-reviewed papers'  },
+    { id:'PNS',    label:'PNS',     color:'#1d4ed8', full:'Phrenic Nerve Stimulation',                    papers:'221', papersFull:'221 peer-reviewed papers'  },
+    { id:'REN',    label:'REN',     color:'#9333ea', full:'Remote Electrical Neuromodulation',             papers:'182', papersFull:'182 peer-reviewed papers'  },
   ];
 
-  // ── Study counts — sourced from peer-reviewed meta-analyses & RCTs ──────────
-  // Format: 'Condition name|ModID' → 'N RCTs' or 'N studies' (cited from sources)
+  // S = Strong (Grade A) | M = Moderate (Grade B) | E = Emerging (Grade C/D)
+  // Source: DeepSynaps Evidence Pipeline — 8,699 papers, 1,922 trials, 29 indications
+  const _evConds = [
+    // ── Psychiatric ────────────────────────────────────────────────────────────
+    { name:'Major Depressive Disorder',              cat:'Psychiatric',      ev:{ rTMS:'S', VNS:'M', tDCS:'M', PBM:'E' } },
+    { name:'Treatment-Resistant Depression',         cat:'Psychiatric',      ev:{ VNS:'M', tDCS:'M' } },
+    { name:'Anxiety Disorders & PTSD',               cat:'Psychiatric',      ev:{ NFB:'E' } },
+    // ── OCD & Compulsive ───────────────────────────────────────────────────────
+    { name:'OCD',                                    cat:'OCD & Compulsive', ev:{ dTMS:'S', DBS:'M' } },
+    { name:'OCD (refractory)',                       cat:'OCD & Compulsive', ev:{ DBS:'M' } },
+    // ── Neurological ───────────────────────────────────────────────────────────
+    { name:'Parkinson\'s Disease',                   cat:'Neurological',     ev:{ DBS:'S' } },
+    { name:'Essential Tremor',                       cat:'Neurological',     ev:{ DBS:'S', MRgFUS:'S' } },
+    { name:'Refractory Epilepsy',                    cat:'Neurological',     ev:{ VNS:'S', DBS:'S' } },
+    { name:'Refractory Focal Epilepsy',              cat:'Neurological',     ev:{ DBS:'S', RNS:'S', NFB:'M' } },
+    { name:'Post-Stroke Motor Deficit',              cat:'Neurological',     ev:{ VNS:'S' } },
+    { name:'Migraine (acute)',                       cat:'Neurological',     ev:{ REN:'S' } },
+    // ── Pain ───────────────────────────────────────────────────────────────────
+    { name:'FBSS / Chronic Neuropathic Back Pain',   cat:'Pain',             ev:{ SCS:'S' } },
+    { name:'Painful Diabetic Neuropathy',            cat:'Pain',             ev:{ SCS:'S' } },
+    { name:'CRPS / Focal Neuropathic Pain',          cat:'Pain',             ev:{ DRG:'S' } },
+    { name:'CRPS / Myofascial Pain',                 cat:'Pain',             ev:{ ESWT:'E' } },
+    { name:'Spasticity (stroke, CP, MS)',            cat:'Pain',             ev:{ ESWT:'M' } },
+    // ── Cognitive & Memory ─────────────────────────────────────────────────────
+    { name:'Alzheimer\'s / MCI',                     cat:'Cognitive',        ev:{ TPS:'E', PBM:'E' } },
+    { name:'Traumatic Brain Injury',                 cat:'Cognitive',        ev:{ PBM:'E' } },
+    { name:'Depression (cognitive component)',       cat:'Cognitive',        ev:{ tDCS:'M', PBM:'E' } },
+    // ── Sleep & Autonomic ──────────────────────────────────────────────────────
+    { name:'Obstructive Sleep Apnea',                cat:'Sleep & Autonomic',ev:{ HNS:'S' } },
+    { name:'Central Sleep Apnea',                    cat:'Sleep & Autonomic',ev:{ PNS:'S' } },
+    // ── Neuro-developmental ────────────────────────────────────────────────────
+    { name:'ADHD',                                   cat:'Neurodevelopmental',ev:{ NFB:'M' } },
+    // ── Cardiovascular ─────────────────────────────────────────────────────────
+    { name:'Heart Failure (HFrEF)',                  cat:'Cardiovascular',   ev:{ BAT:'M' } },
+    // ── Urological ─────────────────────────────────────────────────────────────
+    { name:'Urge Incontinence / Urinary Retention',  cat:'Urological',       ev:{ SNM:'S' } },
+  ];
+
+  // ── Study counts — from DeepSynaps Evidence Pipeline (Excel 2026-04-15) ──────
+  // Format: 'Condition name|ModID' → count label shown in matrix cell tooltip
   const _evN = {
-    // TMS sources
-    'Depression (MDD)|TMS':                   '100+ RCTs',   // APA/CANMAT/NICE guidelines 2023
-    'Treatment-Resistant Depression|TMS':      '20+ RCTs',   // THREE-D trial + BRIGhTMIND + others
-    'OCD|TMS':                                 '8 RCTs',     // BrainsWay De Novo + SMA meta-analyses
-    'PTSD|TMS':                                '15 RCTs',    // PMC 2025 meta-analysis, n=760
-    'Parkinson\'s Disease|TMS':                '27 RCTs',    // JAMA Neurology 2015 meta-analysis
-    'Stroke Rehabilitation|TMS':               '22+ RCTs',   // PubMed 2024 meta-analysis (FMA-UE)
-    'Tinnitus|TMS':                            '16 RCTs',    // PMC 2025 meta-analysis, n=1105
-    'Chronic Pain|TMS':                        '12 RCTs',    // IFCN Level B (Lefaucheur 2020)
-    'Fibromyalgia|TMS':                        '10 RCTs',    // IFCN Level B meta-analysis
-    'Schizophrenia|TMS':                       '20 RCTs',    // auditory hallucinations meta-analyses
-    'Auditory Hallucinations|TMS':             '15 RCTs',    // IFCN Level A recommendation
-    // tDCS sources
-    'Depression (MDD)|tDCS':                   '32 studies', // Nature 2024 meta-analysis, SMD=−0.355
-    'Chronic Pain|tDCS':                       '11 RCTs',    // Sage 2024 home-based meta-analysis
-    'Fibromyalgia|tDCS':                       '10 RCTs',    // IFCN Level B, SMD=−0.95
-    'Stroke Rehabilitation|tDCS':              '14 RCTs',    // IFCN Level B motor recovery
-    // CES sources
-    'Generalised Anxiety Disorder|CES':        '11 RCTs',    // PubMed 2022 meta-analysis, n=794
-    'Insomnia|CES':                            '10 studies', // PMC 2021 critical review
-    'Fibromyalgia|CES':                        '6 RCTs',     // Cambridge meta-analysis
-    // taVNS sources
-    'Depression (MDD)|taVNS':                  '12 studies', // PubMed 2023 meta-analysis, n=838
-    'PTSD|taVNS':                              '5 RCTs',     // emerging evidence base
-    'Epilepsy|taVNS':                          '8 RCTs',     // VNS meta-analysis (PMC 2022)
-    // NF sources
-    'ADHD — Adult|NF':                         '38 RCTs',    // Cortese 2024 (JAMA Psychiatry), n=2,472
-    'ADHD — Paediatric|NF':                    '13 RCTs',    // Cortese 2016 original blinded analysis
-    'PTSD|NF':                                 '6 RCTs',     // emerging RCT base
-    // tDCS additional
-    'Alcohol Use Disorder|tDCS':               '8 RCTs',     // meta-analysis craving outcomes
-    'ADHD — Adult|tDCS':                       '8 RCTs',     // multiple RCTs
+    'Major Depressive Disorder|rTMS':              '358 papers · 150 trials',
+    'Major Depressive Disorder|VNS':               '333 papers · 150 trials',
+    'Major Depressive Disorder|tDCS':              '326 papers · 150 trials',
+    'Treatment-Resistant Depression|VNS':          '333 papers · 150 trials',
+    'Treatment-Resistant Depression|tDCS':         '326 papers',
+    'OCD|dTMS':                                    '348 papers · 65 trials · FDA cleared',
+    'OCD (refractory)|DBS':                        '348 papers · 84 trials',
+    'Parkinson\'s Disease|DBS':                    '397 papers · 150 trials · FDA approved',
+    'Essential Tremor|DBS':                        '344 papers · 115 trials · FDA approved',
+    'Essential Tremor|MRgFUS':                     '318 papers · 58 trials · FDA approved',
+    'Refractory Epilepsy|VNS':                     '361 papers · 85 trials · FDA approved',
+    'Refractory Focal Epilepsy|DBS':               '347 papers · 90 trials · FDA approved',
+    'Refractory Focal Epilepsy|RNS':               '310 papers · 17 trials · FDA approved',
+    'Refractory Focal Epilepsy|NFB':               '243 papers · 8 trials',
+    'Post-Stroke Motor Deficit|VNS':               '266 papers · 93 trials · FDA approved',
+    'Migraine (acute)|REN':                        '182 papers · 22 trials · FDA cleared',
+    'FBSS / Chronic Neuropathic Back Pain|SCS':    '324 papers · 80 trials · FDA approved',
+    'Painful Diabetic Neuropathy|SCS':             '282 papers · 14 trials · FDA approved',
+    'CRPS / Focal Neuropathic Pain|DRG':           '279 papers · 26 trials · FDA approved',
+    'CRPS / Myofascial Pain|ESWT':                 '281 papers · 78 trials',
+    'Spasticity (stroke, CP, MS)|ESWT':            '285 papers · 33 trials',
+    'Alzheimer\'s / MCI|TPS':                      '162 papers · 21 trials',
+    'Alzheimer\'s / MCI|PBM':                      '345 papers · 23 trials',
+    'Traumatic Brain Injury|PBM':                  '238 papers · 17 trials',
+    'Depression (cognitive component)|tDCS':       '326 papers',
+    'Depression (cognitive component)|PBM':        '279 papers · 60 trials',
+    'Obstructive Sleep Apnea|HNS':                 '322 papers · 44 trials · FDA approved',
+    'Central Sleep Apnea|PNS':                     '221 papers · 97 trials · FDA approved',
+    'ADHD|NFB':                                    '199 papers · 45 trials',
+    'Heart Failure (HFrEF)|BAT':                   '251 papers · 14 trials · FDA approved',
+    'Urge Incontinence / Urinary Retention|SNM':   '380 papers · 94 trials · FDA approved',
+    'Anxiety Disorders & PTSD|NFB':                '370 papers · 39 trials',
   };
 
   function _buildEvMatrix() {
-    const evLabel = { S:'Strong — RCT + Meta-analysis', M:'Moderate — RCT', E:'Emerging — Open-label / Pilot' };
-    const cats = [...new Set(_evConds.map(c => c.cat))];
-    const totalConds   = _evConds.length;
-    const totalEntries = _evConds.reduce((n, c) => n + Object.keys(c.ev).length, 0);
-    const strongCount  = _evConds.reduce((n, c) => n + Object.values(c.ev).filter(v => v === 'S').length, 0);
-    const withCounts   = Object.keys(_evN).length;
+    const cats       = [...new Set(_evConds.map(c => c.cat))];
+    const totalConds = _evConds.length;
+    const strongCount= _evConds.reduce((n,c) => n + Object.values(c.ev).filter(v=>v==='S').length, 0);
+    const fdaCount   = Object.values(_evN).filter(v => /fda/i.test(v)).length;
+    const totalLinks = _evConds.reduce((n,c) => n + Object.keys(c.ev).length, 0);
+    const _catColors = {
+      'Psychiatric':'#4a9eff','OCD & Compulsive':'#8b5cf6','Neurological':'#a855f7',
+      'Pain':'#f97316','Cognitive':'#06b6d4','Sleep & Autonomic':'#0ea5e9',
+      'Neurodevelopmental':'#ec4899','Cardiovascular':'#ef4444','Urological':'#84cc16',
+    };
 
-    const tabs = cats.map((cat, i) => {
-      const n = _evConds.filter(c => c.cat === cat).length;
-      return `<button class="pub-ev-tab${i===0?' active':''}" data-tab="${i}" onclick="window._evTab(${i})">
-        <span class="pub-ev-tab-name">${cat}</span>
-        <span class="pub-ev-tab-count">${n}</span>
-      </button>`;
-    }).join('');
+    // ── 1. CARDS VIEW (best — condition-first, scannable) ────────────────────
+    const cardFilterPills = [
+      `<button class="pub-ev3-pill active" data-cat="ALL" onclick="window._evCatFilter('ALL')">All conditions</button>`,
+      ...cats.map(cat => `<button class="pub-ev3-pill" data-cat="${cat}" style="--cat-col:${_catColors[cat]||'var(--teal)'}" onclick="window._evCatFilter('${cat}')">${cat}</button>`)
+    ].join('');
 
-    const panels = cats.map((cat, i) => {
-      const conds = _evConds.filter(c => c.cat === cat);
-      const rows = conds.map(c => `
-        <tr class="pub-ev-row">
-          <td class="pub-ev-cond-cell">${c.name}</td>
-          ${_evMods.map(m => {
-            const ev  = c.ev[m.id] || null;
-            const key = `${c.name}|${m.id}`;
-            const nStudies = _evN[key] || null;
-            const tip = ev
-              ? `${evLabel[ev]} · ${m.full}${nStudies ? ' · ' + nStudies : ''}`
-              : `No evidence · ${m.label}`;
-            return `<td class="pub-ev-cell" data-mod="${m.id}" data-ev="${ev||''}" title="${tip}">
-              ${ev
-                ? `<div class="pub-ev-cell-inner">
-                    <span class="pub-ev-dot pub-ev-${ev.toLowerCase()}" style="--ev-col:${m.color}"></span>
-                    ${nStudies ? `<span class="pub-ev-n">${nStudies.replace(/ ?(RCTs?|studies?)/i,'')}</span>` : ''}
-                  </div>`
-                : '<span class="pub-ev-none">—</span>'}
-            </td>`;
-          }).join('')}
-        </tr>`).join('');
-      return `<div class="pub-ev-panel${i===0?' active':''}" data-panel="${i}">
-        <table class="pub-ev-table">
-          <thead><tr>
-            <th class="pub-ev-cond-col">Condition</th>
-            ${_evMods.map(m => `<th class="pub-ev-mod-th" data-mod="${m.id}" style="--ev-col:${m.color}" title="${m.full}">${m.label}</th>`).join('')}
-          </tr></thead>
-          <tbody>${rows}</tbody>
-        </table>
+    const condCards = _evConds.map(c => {
+      const color = _catColors[c.cat] || '#00d4bc';
+      const evMods = _evMods.filter(m => c.ev[m.id]).map(m => ({
+        ...m, grade: c.ev[m.id], nStudies: _evN[`${c.name}|${m.id}`] || null,
+      })).sort((a,b) => ({S:0,M:1,E:2}[a.grade]-{S:0,M:1,E:2}[b.grade]));
+      const hasFda = evMods.some(m => m.nStudies && /fda/i.test(m.nStudies));
+      const totalEv = evMods.length;
+      const bars = evMods.slice(0,4).map(m => {
+        const w = m.grade==='S'?100:m.grade==='M'?62:30;
+        return `<div class="pub-ev3-bar-row">
+          <span class="pub-ev3-bar-mod" style="color:${m.color}">${m.label}</span>
+          <div class="pub-ev3-bar-track"><div class="pub-ev3-bar-fill" style="width:${w}%;background:${m.color}"></div></div>
+          <span class="pub-ev3-grade pub-ev3-g${m.grade.toLowerCase()}">${m.grade}</span>
+        </div>`;
+      }).join('');
+      return `<div class="pub-ev3-card" data-cat="${c.cat}" style="--cc:${color}">
+        <div class="pub-ev3-card-top">
+          <span class="pub-ev3-cond">${c.name}</span>
+          ${hasFda?'<span class="pub-ev3-fda">FDA</span>':''}
+        </div>
+        ${bars}
+        <div class="pub-ev3-card-foot">${totalEv} modalities with evidence</div>
       </div>`;
     }).join('');
 
+    const cardsView = `
+      <div class="pub-ev3-pills">${cardFilterPills}</div>
+      <div class="pub-ev3-grid" id="ev-cards">${condCards}</div>`;
+
+    // ── 2. TREEMAP VIEW ───────────────────────────────────────────────────────
+    const treeCols = cats.map(cat => {
+      const conds = _evConds.filter(c=>c.cat===cat);
+      const catEv = conds.reduce((n,c)=>n+Object.keys(c.ev).length,0);
+      const catPct = Math.max(Math.round((catEv/totalLinks)*100), 4);
+      const color = _catColors[cat]||'#00d4bc';
+      const tiles = conds.map(c => {
+        const condEv = Object.keys(c.ev).length;
+        const condPct = Math.max(Math.round((condEv/catEv)*100), 10);
+        const topG = Object.values(c.ev).includes('S')?'S':Object.values(c.ev).includes('M')?'M':'E';
+        const op = topG==='S'?1:topG==='M'?0.6:0.3;
+        const hasFda = Object.keys(_evN).some(k=>k.startsWith(c.name+'|')&&/fda/i.test(_evN[k]));
+        return `<div class="pub-tm-tile" style="flex:${condPct};background:${color};opacity:${op}" title="${c.name} · ${condEv} evidence links · Grade ${topG}${hasFda?' · FDA':''}" onclick="window._evCatFilter('${cat}');window._evPickView('cards')">
+          <span class="pub-tm-tile-name">${c.name}</span>
+          ${hasFda?'<span class="pub-tm-tile-fda">FDA</span>':''}
+        </div>`;
+      }).join('');
+      return `<div class="pub-tm-col" style="flex:${catPct}" onclick="window._evPickView('cards');window._evCatFilter('${cat}')">
+        <div class="pub-tm-col-head" style="background:${color}">${cat}<br><small>${conds.length}</small></div>
+        <div class="pub-tm-tiles">${tiles}</div>
+      </div>`;
+    }).join('');
+    const treemapView = `
+      <p style="font-size:11px;color:var(--text-tertiary);margin-bottom:8px">Column width = evidence count. Cell brightness = grade strength. Click any block → condition cards.</p>
+      <div class="pub-tm-wrap">${treeCols}</div>`;
+
+    // ── 3. RADIAL DONUT VIEW ──────────────────────────────────────────────────
+    const SVG=360, cx=180, cy=180, R1=148, R2=100, R3=96, R4=72;
+    function _pt(deg,r){const a=(deg-90)*Math.PI/180;return{x:cx+r*Math.cos(a),y:cy+r*Math.sin(a)};}
+    function _arc(s,e,r1,r2){
+      const p1=_pt(s,r1),p2=_pt(e,r1),p3=_pt(e,r2),p4=_pt(s,r2);
+      const lg=(e-s)>180?1:0;
+      return `M${p1.x} ${p1.y} A${r1} ${r1} 0 ${lg} 1 ${p2.x} ${p2.y} L${p3.x} ${p3.y} A${r2} ${r2} 0 ${lg} 0 ${p4.x} ${p4.y}Z`;
+    }
+    let ang=0;
+    const outerSlices=[], innerSlices=[];
+    cats.forEach((cat,i)=>{
+      const conds=_evConds.filter(c=>c.cat===cat);
+      const catEv=conds.reduce((n,c)=>n+Object.keys(c.ev).length,0);
+      const span=Math.max((catEv/totalLinks)*354, 2);
+      const color=_catColors[cat]||'#00d4bc';
+      const s=_catStats2(cat);
+      outerSlices.push(`<path d="${_arc(ang,ang+span,R1,R2)}" fill="${color}" class="pub-rd-slice" onclick="window._evPickView('cards');window._evCatFilter('${cat}')"><title>${cat}: ${catEv} evidence links\n${s.s} Strong · ${s.m} Moderate · ${s.e} Emerging</title></path>`);
+      // inner ring: S/M/E breakdown within category
+      let ia=ang;
+      [[s.s,'S'],[s.m,'M'],[s.e,'E']].forEach(([n,g])=>{
+        if(!n)return;
+        const ispan=(n/(s.s+s.m+s.e))*span;
+        const op=g==='S'?1:g==='M'?0.55:0.25;
+        innerSlices.push(`<path d="${_arc(ia,ia+ispan,R3,R4)}" fill="${color}" opacity="${op}"><title>${g === 'S'?'Strong':g==='M'?'Moderate':'Emerging'}: ${n}</title></path>`);
+        ia+=ispan;
+      });
+      ang+=span+0.8;
+    });
+    function _catStats2(cat){
+      const conds=_evConds.filter(c=>c.cat===cat);
+      return{s:conds.reduce((n,c)=>n+Object.values(c.ev).filter(v=>v==='S').length,0),m:conds.reduce((n,c)=>n+Object.values(c.ev).filter(v=>v==='M').length,0),e:conds.reduce((n,c)=>n+Object.values(c.ev).filter(v=>v==='E').length,0)};
+    }
+    const rdLegend=cats.map(cat=>{
+      const color=_catColors[cat]||'#00d4bc';
+      const n=_evConds.filter(c=>c.cat===cat).length;
+      const s=_catStats2(cat);
+      return`<div class="pub-rd-leg" onclick="window._evPickView('cards');window._evCatFilter('${cat}')">
+        <span class="pub-rd-dot" style="background:${color}"></span>
+        <span class="pub-rd-leg-name">${cat}</span>
+        <span class="pub-rd-leg-n">${n} cond · ${s.s}S/${s.m}M</span>
+      </div>`;
+    }).join('');
+    const radialView=`
+      <p style="font-size:11px;color:var(--text-tertiary);margin-bottom:8px">Outer ring = categories by evidence volume. Inner ring = grade mix (bright=Strong). Click a slice → condition cards.</p>
+      <div class="pub-rd-wrap">
+        <svg viewBox="0 0 ${SVG} ${SVG}" class="pub-rd-svg" xmlns="http://www.w3.org/2000/svg">
+          ${outerSlices.join('')}${innerSlices.join('')}
+          <circle cx="${cx}" cy="${cy}" r="68" fill="var(--bg-card)" stroke="var(--border)" stroke-width="1"/>
+          <text x="${cx}" y="${cy-10}" class="pub-rd-cn">${totalConds}</text>
+          <text x="${cx}" y="${cy+10}" class="pub-rd-cl">conditions</text>
+          <text x="${cx}" y="${cy+26}" class="pub-rd-cs">${strongCount} strong</text>
+          <text x="${cx}" y="${cy+40}" style="fill:#22c55e" class="pub-rd-cl">${fdaCount} FDA</text>
+        </svg>
+        <div class="pub-rd-legend">${rdLegend}</div>
+      </div>`;
+
+    // ── VIEW PICKER WRAPPER ───────────────────────────────────────────────────
     return `
-      <div class="pub-ev-topbar">
-        <div class="pub-ev-filters" id="ev-filters">
-          <button class="pub-ev-filter-btn active" data-mod="ALL" onclick="window._evFilter('ALL')">All</button>
-          ${_evMods.map(m => `<button class="pub-ev-filter-btn" data-mod="${m.id}" style="--ev-col:${m.color}" onclick="window._evFilter('${m.id}')" title="${m.full} · ${m.papersFull}">${m.label}<span class="pub-ev-filter-count">${m.papers}</span></button>`).join('')}
-        </div>
-        <div class="pub-ev-legend">
-          <span class="pub-ev-legend-item"><span class="pub-ev-dot pub-ev-s" style="--ev-col:#00d4bc"></span>Strong</span>
-          <span class="pub-ev-legend-item"><span class="pub-ev-dot pub-ev-m" style="--ev-col:#4a9eff"></span>Moderate</span>
-          <span class="pub-ev-legend-item"><span class="pub-ev-dot pub-ev-e" style="--ev-col:#94a3b8"></span>Emerging</span>
-          <span class="pub-ev-legend-divider"></span>
-          <span style="font-size:10.5px;color:var(--text-tertiary)">${totalConds} conditions · ${strongCount} strong findings · <span style="color:var(--teal)">${withCounts} cited</span></span>
-        </div>
+      <div class="pub-ev3-picker">
+        <span class="pub-ev3-picker-label">View as</span>
+        <button class="pub-ev3-pick active" onclick="window._evPickView('cards')">★ Condition Cards</button>
+        <button class="pub-ev3-pick" onclick="window._evPickView('treemap')">Treemap</button>
+        <button class="pub-ev3-pick" onclick="window._evPickView('radial')">Radial Chart</button>
+        <span style="margin-left:auto;font-size:10.5px;color:var(--text-tertiary)">${totalConds} conditions · ${strongCount} strong · <span style="color:#22c55e">${fdaCount} FDA</span></span>
       </div>
-      <div class="pub-ev-layout">
-        <nav class="pub-ev-tabs" id="ev-tabs" aria-label="Condition categories">${tabs}</nav>
-        <div class="pub-ev-panels" id="ev-panels">${panels}</div>
-      </div>
-      <div style="font-size:11px;color:var(--text-tertiary);margin-top:10px;text-align:right">
-        ${totalEntries} condition–modality associations · ${withCounts} entries cite specific trial counts · Sources: CANMAT 2023, IFCN 2020, JAMA Psychiatry 2024, and 26 additional meta-analyses
+      <div id="ev-view-cards" class="pub-ev3-view active">${cardsView}</div>
+      <div id="ev-view-treemap" class="pub-ev3-view">${treemapView}</div>
+      <div id="ev-view-radial" class="pub-ev3-view">${radialView}</div>
+      <div style="font-size:11px;color:var(--text-tertiary);margin-top:12px;text-align:right">
+        DeepSynaps Evidence Pipeline — 8,699 papers · 1,922 trials · 1,324 FDA device records
       </div>`;
   }
 
@@ -304,23 +370,23 @@ export function pgHome() {
     <!-- ─── Stats strip ────────────────────────────────────────────────────── -->
     <div class="phome-stats-strip">
       <div class="phome-stat-item">
-        <span class="phome-stat-num">53</span>
-        <span class="phome-stat-label">Clinical Conditions</span>
+        <span class="phome-stat-num" id="strip-stat-papers">8,699</span>
+        <span class="phome-stat-label">Peer-Reviewed Papers</span>
       </div>
       <div class="phome-stat-sep"></div>
       <div class="phome-stat-item">
-        <span class="phome-stat-num">11</span>
+        <span class="phome-stat-num" id="strip-stat-trials">1,922</span>
+        <span class="phome-stat-label">Clinical Trials Indexed</span>
+      </div>
+      <div class="phome-stat-sep"></div>
+      <div class="phome-stat-item">
+        <span class="phome-stat-num">1,324</span>
+        <span class="phome-stat-label">FDA Device Records</span>
+      </div>
+      <div class="phome-stat-sep"></div>
+      <div class="phome-stat-item">
+        <span class="phome-stat-num">18</span>
         <span class="phome-stat-label">Neuromodulation Modalities</span>
-      </div>
-      <div class="phome-stat-sep"></div>
-      <div class="phome-stat-item">
-        <span class="phome-stat-num">2,400+</span>
-        <span class="phome-stat-label">Evidence-Mapped Protocols</span>
-      </div>
-      <div class="phome-stat-sep"></div>
-      <div class="phome-stat-item">
-        <span class="phome-stat-num">12</span>
-        <span class="phome-stat-label">Compatible Devices</span>
       </div>
     </div>
 
@@ -416,16 +482,16 @@ export function pgHome() {
            fallback numbers from the 2026-04-13 ingest if the call fails. -->
       <div id="phome-ev-live-stats" class="phome-ev-live-stats" style="display:flex;gap:18px;flex-wrap:wrap;justify-content:center;margin:14px auto 22px;max-width:880px">
         <div class="phome-ev-stat" style="flex:1;min-width:180px;padding:14px 18px;border:1px solid var(--border,#1f2e4a);border-radius:10px;background:var(--surface-1,#0d1a2b);text-align:center">
-          <div class="phome-ev-stat-n" id="phome-ev-stat-papers" style="font-size:28px;font-weight:700;color:var(--teal,#00d4bc)">8,166</div>
+          <div class="phome-ev-stat-n" id="phome-ev-stat-papers" style="font-size:28px;font-weight:700;color:var(--teal,#00d4bc)">8,699</div>
           <div class="phome-ev-stat-l" style="font-size:12px;color:var(--text-secondary,#b7c4d9);margin-top:4px">peer-reviewed papers</div>
         </div>
         <div class="phome-ev-stat" style="flex:1;min-width:180px;padding:14px 18px;border:1px solid var(--border,#1f2e4a);border-radius:10px;background:var(--surface-1,#0d1a2b);text-align:center">
-          <div class="phome-ev-stat-n" id="phome-ev-stat-trials" style="font-size:28px;font-weight:700;color:var(--teal,#00d4bc)">1,766</div>
+          <div class="phome-ev-stat-n" id="phome-ev-stat-trials" style="font-size:28px;font-weight:700;color:var(--teal,#00d4bc)">1,922</div>
           <div class="phome-ev-stat-l" style="font-size:12px;color:var(--text-secondary,#b7c4d9);margin-top:4px">registered clinical trials</div>
         </div>
         <div class="phome-ev-stat" style="flex:1;min-width:180px;padding:14px 18px;border:1px solid var(--border,#1f2e4a);border-radius:10px;background:var(--surface-1,#0d1a2b);text-align:center">
-          <div class="phome-ev-stat-n" id="phome-ev-stat-indications" style="font-size:28px;font-weight:700;color:var(--teal,#00d4bc)">29</div>
-          <div class="phome-ev-stat-l" style="font-size:12px;color:var(--text-secondary,#b7c4d9);margin-top:4px">indications indexed</div>
+          <div class="phome-ev-stat-n" id="phome-ev-stat-indications" style="font-size:28px;font-weight:700;color:var(--teal,#00d4bc)">1,324</div>
+          <div class="phome-ev-stat-l" style="font-size:12px;color:var(--text-secondary,#b7c4d9);margin-top:4px">FDA device records</div>
         </div>
       </div>
       <div id="phome-ev-stat-note" style="text-align:center;font-size:10.5px;color:var(--text-tertiary,#7a8aa5);margin-bottom:6px">PubMed · OpenAlex · ClinicalTrials.gov · FDA · Unpaywall</div>
@@ -472,6 +538,13 @@ export function pgHome() {
       setN('phome-ev-stat-papers', c.papers);
       setN('phome-ev-stat-trials', c.trials);
       setN('phome-ev-stat-indications', c.indications);
+      // Also update the stats strip
+      const setStrip = (id, v, suffix) => {
+        const el = document.getElementById(id);
+        if (el && Number.isFinite(v)) el.textContent = fmt(v) + (suffix || '');
+      };
+      setStrip('strip-stat-papers', c.papers, '+');
+      setStrip('strip-stat-trials', c.trials, '');
     } catch (_) { /* keep fallback */ }
   })();
 
@@ -1562,28 +1635,19 @@ export function pgHome() {
     chev.style.color     = open ? '' : 'var(--teal)';
   };
 
-  // ── Evidence matrix interactivity ─────────────────────────────────────────
-  window._evTab = function(idx) {
-    document.querySelectorAll('.pub-ev-tab').forEach((t, i)   => t.classList.toggle('active', i === idx));
-    document.querySelectorAll('.pub-ev-panel').forEach((p, i) => p.classList.toggle('active', i === idx));
-    // re-apply active filter to newly visible panel
-    const activeBtn = document.querySelector('.pub-ev-filter-btn.active');
-    if (activeBtn && activeBtn.dataset.mod !== 'ALL') window._evFilter(activeBtn.dataset.mod);
+  // ── Evidence section interactivity ────────────────────────────────────────
+  window._evPickView = function(view) {
+    document.querySelectorAll('.pub-ev3-pick').forEach(b =>
+      b.classList.toggle('active', b.id === 'ev-pick-'+view || b.textContent.toLowerCase().includes(view.slice(0,4))));
+    document.querySelectorAll('.pub-ev3-view').forEach(v =>
+      v.classList.toggle('active', v.id === 'ev-view-'+view));
   };
 
-  window._evFilter = function(modId) {
-    document.querySelectorAll('.pub-ev-filter-btn').forEach(btn =>
-      btn.classList.toggle('active', btn.dataset.mod === modId));
-    const all = modId === 'ALL';
-    document.querySelectorAll('.pub-ev-mod-th').forEach(th =>
-      (th.style.opacity = all || th.dataset.mod === modId ? '1' : '0.2'));
-    document.querySelectorAll('.pub-ev-cell').forEach(td =>
-      (td.style.opacity = all || td.dataset.mod === modId ? '1' : '0.08'));
-    document.querySelectorAll('tr.pub-ev-row').forEach(tr => {
-      if (all) { tr.style.opacity = '1'; return; }
-      const cell = tr.querySelector(`.pub-ev-cell[data-mod="${modId}"]`);
-      tr.style.opacity = cell && cell.dataset.ev ? '1' : '0.25';
-    });
+  window._evCatFilter = function(cat) {
+    document.querySelectorAll('.pub-ev3-pill').forEach(b =>
+      b.classList.toggle('active', b.dataset.cat === cat));
+    document.querySelectorAll('.pub-ev3-card').forEach(c =>
+      (c.style.display = (cat==='ALL' || c.dataset.cat===cat) ? '' : 'none'));
   };
 
   // ── Inject unified contact launcher ───────────────────────────────────────
@@ -2056,35 +2120,25 @@ export function pgSignupProfessional() {
     const email    = document.getElementById('prof-email').value.trim();
     const password = document.getElementById('prof-password').value;
 
-    let user = null;
     try {
       const res = await api.register(email, name, password);
-      if (res?.access_token) {
-        api.setToken(res.access_token);
-        user = res.user || { email, display_name: name, role: 'clinician', package_id: 'clinician_pro' };
-      }
-    } catch (_) {}
+      if (!res?.access_token) throw new Error('Registration failed. Please try again.');
+      api.setToken(res.access_token);
+      if (res.refresh_token) api.setRefreshToken(res.refresh_token);
+      const user = res.user || { email, display_name: name, role: 'clinician', package_id: 'clinician_pro' };
 
-    // Offline demo fallback — dev only
-    if (!user && import.meta.env.DEV) {
-      api.setToken('clinician-demo-token');
-      user = { email, display_name: name, role: 'clinician', package_id: 'clinician_pro' };
-    }
+      document.getElementById('prof-step-3').style.display = 'none';
+      document.getElementById('prof-step-done').style.display = '';
+      document.getElementById('pip-3').className = 'step-pip done';
 
-    if (!user) {
-      err.textContent = 'Registration failed. Please try again or contact support.';
+      setCurrentUser(user);
+      setTimeout(() => { localStorage.removeItem('ds_onboarding_done'); showApp(); updateUserBar(); window._bootApp(); }, 1200);
+    } catch (e) {
+      err.textContent = e.message || 'Registration failed. Please check your details and try again.';
       err.style.display = '';
-      btn.textContent = 'Create Account \u2192';
+      btn.textContent = 'Create Account →';
       btn.disabled = false;
-      return;
     }
-
-    document.getElementById('prof-step-3').style.display = 'none';
-    document.getElementById('prof-step-done').style.display = '';
-    document.getElementById('pip-3').className = 'step-pip done';
-
-    setCurrentUser(user);
-    setTimeout(() => { localStorage.removeItem('ds_onboarding_done'); showApp(); updateUserBar(); window._bootApp(); }, 1200);
   };
 }
 

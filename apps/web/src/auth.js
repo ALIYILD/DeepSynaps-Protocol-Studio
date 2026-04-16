@@ -336,32 +336,37 @@ function bootUser(user) {
 window.demoLogin = async function(token) {
   const errEl = document.getElementById('demo-error');
   if (errEl) errEl.style.display = 'none';
-  api.setToken(token);
+
+  // Try real demo-login endpoint first (works in all environments)
   try {
-    const user = await api.me();
-    if (user) {
-      currentUser = user;
-      const _intendedDemo = sessionStorage.getItem('ds_intended_destination');
+    const res = await api.demoLogin(token);
+    if (res?.access_token) {
+      api.setToken(res.access_token);
+      if (res.refresh_token) api.setRefreshToken(res.refresh_token);
+      currentUser = res.user;
+      const dest = sessionStorage.getItem('ds_intended_destination');
       sessionStorage.removeItem('ds_intended_destination');
-      bootUser(user);
-      if (_intendedDemo) setTimeout(() => window._nav?.(_intendedDemo), 100);
+      bootUser(currentUser);
+      if (dest) setTimeout(() => window._nav?.(dest), 100);
       return;
     }
   } catch (_) {}
-  // Offline fallback only in dev — never leak hardcoded users to production
+
+  // Dev-only offline fallback
   if (import.meta.env.DEV) {
     const demoUser = DEMO_USERS[token];
     if (demoUser) {
+      api.setToken(token);
       currentUser = demoUser;
-      const _intendedDemo = sessionStorage.getItem('ds_intended_destination');
+      const dest = sessionStorage.getItem('ds_intended_destination');
       sessionStorage.removeItem('ds_intended_destination');
       bootUser(demoUser);
-      if (_intendedDemo) setTimeout(() => window._nav?.(_intendedDemo), 100);
+      if (dest) setTimeout(() => window._nav?.(dest), 100);
+    } else {
+      if (errEl) { errEl.textContent = 'Unknown demo token.'; errEl.style.display = ''; }
     }
-    else { api.clearToken(); if (errEl) { errEl.textContent = 'Unknown demo token.'; errEl.style.display = ''; } }
   } else {
-    api.clearToken();
-    if (errEl) { errEl.textContent = 'Demo login unavailable — backend not reachable.'; errEl.style.display = ''; }
+    if (errEl) { errEl.textContent = 'Demo access temporarily unavailable. Please try again.'; errEl.style.display = ''; }
   }
 };
 

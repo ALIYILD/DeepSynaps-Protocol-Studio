@@ -313,7 +313,22 @@ def me(
             status_code=401,
         )
 
-    user_id = payload.get("sub")
+    user_id = payload.get("sub", "")
+
+    # Demo actor JWTs (issued by /auth/demo-login) — no DB row needed.
+    if user_id in {a.actor_id for a in DEMO_ACTOR_TOKENS.values()}:
+        return UserProfile(
+            id=user_id,
+            email=payload.get("email", f"{user_id}@demo.local"),
+            display_name=next(
+                (a.display_name for a in DEMO_ACTOR_TOKENS.values() if a.actor_id == user_id),
+                "Demo User",
+            ),
+            role=payload.get("role", "guest"),
+            package_id=payload.get("package_id", "explorer"),
+            is_verified=True,
+        )
+
     user = get_user_by_id(db, user_id) if user_id else None
     if user is None:
         raise ApiServiceError(
@@ -337,6 +352,41 @@ def me(
 def logout() -> MessageResponse:
     # Token invalidation is client-side; server issues no-op acknowledgement.
     return MessageResponse(message="Successfully logged out.")
+
+
+class DemoLoginRequest(BaseModel):
+    token: str
+
+
+@router.post("/api/v1/auth/demo-login", response_model=TokenResponse)
+def demo_login(body: DemoLoginRequest) -> TokenResponse:
+    """Issue real JWTs for demo roles — works in all environments."""
+    demo = DEMO_ACTOR_TOKENS.get(body.token)
+    if demo is None:
+        raise ApiServiceError(
+            code="invalid_demo_token",
+            message="Unknown demo token.",
+            status_code=400,
+        )
+    access_token  = auth_service.create_access_token(
+        user_id=demo.actor_id,
+        email=f"{demo.actor_id}@demo.local",
+        role=demo.role,
+        package_id=demo.package_id,
+    )
+    refresh_token = auth_service.create_refresh_token(demo.actor_id)
+    return TokenResponse(
+        access_token=access_token,
+        refresh_token=refresh_token,
+        user=UserProfile(
+            id=demo.actor_id,
+            email=f"{demo.actor_id}@demo.local",
+            display_name=demo.display_name,
+            role=demo.role,
+            package_id=demo.package_id,
+            is_verified=True,
+        ),
+    )
 
 
 @limiter.limit("3/minute")

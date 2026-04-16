@@ -39,9 +39,9 @@ window._protFromCondition = window._protFromCondition || null;
 // pgProtocolSearch — Browse, filter, and launch all protocols
 // =============================================================================
 export async function pgProtocolSearch(setTopbar, navigate) {
-  setTopbar({ title: 'Protocol Intelligence', subtitle: 'Browse · search · compare clinical protocols across all conditions and devices' });
+  setTopbar('Protocol Intelligence', '');
 
-  const el = document.getElementById('main-content');
+  const el = document.getElementById('content');
   if (!el) return;
   el.innerHTML = '<div class="prot-loading">Loading protocol library\u2026</div>';
 
@@ -260,7 +260,7 @@ export async function pgProtocolSearch(setTopbar, navigate) {
 // pgProtocolDetail — Rich detail view for a single protocol
 // =============================================================================
 export async function pgProtocolDetail(setTopbar, navigate) {
-  const el = document.getElementById('main-content');
+  const el = document.getElementById('content');
   if (!el) return;
 
   const id = window._protDetailId;
@@ -273,7 +273,7 @@ export async function pgProtocolDetail(setTopbar, navigate) {
 
   const cond = getCondition(proto.conditionId);
   const dev = getDevice(proto.device);
-  setTopbar({ title: proto.name, subtitle: `${cond?.label || proto.conditionId} \u00B7 ${dev?.label || proto.device}` });
+  setTopbar(proto.name, '');
 
   // ── Related protocols ─────────────────────────────────────────────────────
   const related = PROTOCOL_LIBRARY.filter(p => p.conditionId === proto.conditionId && p.id !== proto.id).slice(0, 4);
@@ -430,9 +430,9 @@ export async function pgProtocolDetail(setTopbar, navigate) {
 // pgProtocolBuilderV2 — Enhanced protocol builder with 5 types + governance
 // =============================================================================
 export async function pgProtocolBuilderV2(setTopbar, navigate) {
-  setTopbar({ title: 'Protocol Builder', subtitle: 'Create · configure · submit for governance review' });
+  setTopbar('Protocol Builder', '');
 
-  const el = document.getElementById('main-content');
+  const el = document.getElementById('content');
   if (!el) return;
 
   // Load prefill from detail page if navigated via Edit

@@ -23,6 +23,7 @@ def _parse_cors_origins(value: str | None) -> list[str]:
             "http://127.0.0.1:5175", "http://localhost:5175",
             "http://127.0.0.1:5176", "http://localhost:5176",
             "http://127.0.0.1:5177", "http://localhost:5177",
+            "https://deepsynaps-web.fly.dev",
         ]
     return [item.strip() for item in value.split(",") if item.strip()]
 
@@ -42,6 +43,7 @@ class AppSettings(BaseModel):
             "http://127.0.0.1:5175", "http://localhost:5175",
             "http://127.0.0.1:5176", "http://localhost:5176",
             "http://127.0.0.1:5177", "http://localhost:5177",
+            "https://deepsynaps-web.fly.dev",
         ]
     )
     clinical_data_root: Path = REPO_ROOT / "data" / "imports" / "clinical-database"

@@ -2,20 +2,29 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional
 import secrets
 import hashlib
+import base64
+import bcrypt as _bcrypt_lib
 from jose import jwt, JWTError
-from passlib.context import CryptContext
 from ..settings import get_settings
 
 settings = get_settings()
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+
+def _prehash(plain: str) -> bytes:
+    """SHA-256 → base64 keeps bcrypt input ≤44 bytes, well under the 72-byte limit."""
+    digest = hashlib.sha256(plain.encode("utf-8")).digest()
+    return base64.b64encode(digest)
 
 
 def hash_password(plain: str) -> str:
-    return pwd_context.hash(plain)
+    return _bcrypt_lib.hashpw(_prehash(plain), _bcrypt_lib.gensalt()).decode("utf-8")
 
 
 def verify_password(plain: str, hashed: str) -> bool:
-    return pwd_context.verify(plain, hashed)
+    try:
+        return _bcrypt_lib.checkpw(_prehash(plain), hashed.encode("utf-8"))
+    except Exception:
+        return False
 
 
 def create_access_token(user_id: str, email: str, role: str, package_id: str) -> str:

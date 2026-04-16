@@ -3,3 +3,4 @@ Name: deepsynaps-render-engine
 Version: 0.1.0
 Requires-Python: >=3.11
 Requires-Dist: deepsynaps-core-schema
+Requires-Dist: python-docx>=1.1.0

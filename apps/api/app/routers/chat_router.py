@@ -154,6 +154,8 @@ def patient_chat(
     body: ChatRequest,
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
 ) -> ChatResponse:
+    from app.auth import require_minimum_role
+    require_minimum_role(actor, "patient")
     msgs = [{"role": m.role, "content": m.content} for m in body.messages]
     reply = chat_patient(
         msgs,

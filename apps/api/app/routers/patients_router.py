@@ -542,6 +542,56 @@ def get_patient_messages(
     return PatientMessagesResponse(items=items, total=len(items))
 
 
+# ── Medical History ───────────────────────────────────────────────────────────
+
+class MedicalHistoryBody(BaseModel):
+    medical_history: dict
+
+
+class MedicalHistoryResponse(BaseModel):
+    patient_id: str
+    medical_history: Optional[dict] = None
+
+
+@router.get("/{patient_id}/medical-history", response_model=MedicalHistoryResponse)
+def get_medical_history(
+    patient_id: str,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    session: Session = Depends(get_db_session),
+) -> MedicalHistoryResponse:
+    """Return structured medical history for a patient."""
+    require_minimum_role(actor, "clinician")
+    patient = get_patient(session, patient_id, actor.actor_id)
+    if patient is None:
+        raise ApiServiceError(code="not_found", message="Patient not found.", status_code=404)
+    data = None
+    try:
+        raw = patient.medical_history
+        if raw:
+            parsed = json.loads(raw)
+            data = parsed if isinstance(parsed, dict) else None
+    except Exception:
+        pass
+    return MedicalHistoryResponse(patient_id=patient_id, medical_history=data)
+
+
+@router.patch("/{patient_id}/medical-history", response_model=MedicalHistoryResponse)
+def update_medical_history(
+    patient_id: str,
+    body: MedicalHistoryBody,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    session: Session = Depends(get_db_session),
+) -> MedicalHistoryResponse:
+    """Persist structured medical history for a patient."""
+    require_minimum_role(actor, "clinician")
+    patient = get_patient(session, patient_id, actor.actor_id)
+    if patient is None:
+        raise ApiServiceError(code="not_found", message="Patient not found.", status_code=404)
+    patient.medical_history = json.dumps(body.medical_history)
+    session.commit()
+    return MedicalHistoryResponse(patient_id=patient_id, medical_history=body.medical_history)
+
+
 @router.post("/{patient_id}/messages", response_model=MessageOut, status_code=201)
 def send_patient_message(
     patient_id: str,

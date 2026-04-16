@@ -563,6 +563,50 @@ def list_assessments_endpoint(
     return AssessmentListResponse(items=items, total=len(items))
 
 
+class AssessmentAssignRequest(BaseModel):
+    patient_id: str
+    template_id: str
+    clinician_notes: Optional[str] = None
+    due_date: Optional[str] = None  # ISO date string; stored in notes until migration adds column
+
+
+@router.post("/assign", response_model=AssessmentOut, status_code=201)
+def assign_assessment_endpoint(
+    body: AssessmentAssignRequest,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    session: Session = Depends(get_db_session),
+) -> AssessmentOut:
+    """Assign an assessment to a patient with status=pending."""
+    require_minimum_role(actor, "clinician")
+    notes = body.clinician_notes or ""
+    if body.due_date:
+        notes = f"{notes}\nDue: {body.due_date}".strip()
+    template_title = next(
+        (t["id"] for t in [{"id": body.template_id}]),
+        body.template_id,
+    )
+    # Resolve a human-readable title from the template list if available
+    for tpl in ASSESSMENT_TEMPLATES:
+        if hasattr(tpl, "id") and tpl.id == body.template_id:
+            template_title = getattr(tpl, "title", body.template_id)
+            break
+        if isinstance(tpl, dict) and tpl.get("id") == body.template_id:
+            template_title = tpl.get("title", body.template_id)
+            break
+    record = create_assessment(
+        session,
+        clinician_id=actor.actor_id,
+        template_id=body.template_id,
+        template_title=template_title,
+        patient_id=body.patient_id,
+        data={},
+        clinician_notes=notes or None,
+        status="pending",
+        score=None,
+    )
+    return AssessmentOut.from_record(record)
+
+
 @router.post("", response_model=AssessmentOut, status_code=201)
 def create_assessment_endpoint(
     body: AssessmentCreate,

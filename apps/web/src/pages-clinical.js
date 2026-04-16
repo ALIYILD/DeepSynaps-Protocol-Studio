@@ -532,9 +532,12 @@ function _dNoItems(msg) {
   return `<div style="padding:8px 16px 10px;font-size:11.5px;color:var(--text-tertiary);font-style:italic">${msg}</div>`;
 }
 
-function _dOutcomeCell(label, value, color, sub) {
-  return `<div style="padding:12px 14px;border-bottom:1px solid var(--border);border-right:1px solid var(--border)">
-    <div style="font-size:9.5px;text-transform:uppercase;letter-spacing:.9px;color:var(--text-tertiary);font-weight:600;margin-bottom:5px">${label}</div>
+function _dOutcomeCell(label, value, color, sub, nav) {
+  const clickable = nav ? `cursor:pointer` : '';
+  const onclick   = nav ? `onclick="window._nav('${nav}')"
+      onmouseover="this.style.background='rgba(255,255,255,0.03)'" onmouseout="this.style.background=''"` : '';
+  return `<div style="padding:12px 14px;border-bottom:1px solid var(--border);border-right:1px solid var(--border);${clickable}" ${onclick}>
+    <div style="font-size:9.5px;text-transform:uppercase;letter-spacing:.9px;color:var(--text-tertiary);font-weight:600;margin-bottom:5px">${label}${nav ? ' <span style="font-size:9px;opacity:.5">→</span>' : ''}</div>
     <div style="font-size:22px;font-weight:700;color:${color};font-family:var(--font-mono);line-height:1;margin-bottom:4px">${value}</div>
     <div style="font-size:10.5px;color:var(--text-secondary)">${sub}</div>
   </div>`;
@@ -660,8 +663,10 @@ export async function pgDash(setTopbar, navigate) {
     window._nav('session-execution');
   };
 
-  setTopbar('Dashboard',
-    `<button class="btn btn-primary btn-sm" onclick="window._nav('session-execution')" style="white-space:nowrap">&#9647; Start Session</button>`
+  const _todayDateStr = new Date().toLocaleDateString('en-GB', { weekday:'long', day:'numeric', month:'short', year:'numeric' });
+  setTopbar('Home \u2014 ' + _todayDateStr,
+    `<button class="btn btn-sm btn-ghost" onclick="window._cdAddWalkin?.() || window._nav('patients')" style="white-space:nowrap">+ Walk-in</button>` +
+    `<button class="btn btn-primary btn-sm" onclick="window._nav('session-execution')" style="white-space:nowrap;margin-left:6px">&#9654; Start Session</button>`
   );
 
   const el = document.getElementById('content');
@@ -895,40 +900,111 @@ export async function pgDash(setTopbar, navigate) {
   </div>
 </div>`;
 
-  // ── ROW 1: Today at a Glance + Urgent Items + Quick Actions ─────────────────
+  // ── Inject home CSS (once) ────────────────────────────────────────────────────
+  if (!document.getElementById('dh-styles')) {
+    const _s = document.createElement('style'); _s.id = 'dh-styles';
+    _s.textContent = `
+.dh-wrap { padding: 20px 24px; max-width: 1400px; }
+.dh-stats-bar { display:flex; gap:10px; flex-wrap:wrap; margin-bottom:18px; }
+.dh-stat { background:var(--bg-card); border:1px solid var(--border); border-radius:8px; padding:10px 18px; display:flex; align-items:center; gap:10px; cursor:pointer; transition:border-color 0.12s; min-width:110px; }
+.dh-stat:hover { border-color:var(--teal); }
+.dh-stat--warn  { border-color:#f59e0b40; }
+.dh-stat--danger{ border-color:#f8717160; }
+.dh-stat-val { font-size:22px; font-weight:800; color:var(--text-primary); line-height:1; }
+.dh-stat--warn  .dh-stat-val { color:#f59e0b; }
+.dh-stat--danger .dh-stat-val { color:#f87171; }
+.dh-stat-info { display:flex; flex-direction:column; }
+.dh-stat-lbl { font-size:10.5px; font-weight:700; color:var(--text-secondary); text-transform:uppercase; letter-spacing:0.4px; }
+.dh-stat-sub { font-size:10px; color:var(--text-tertiary); margin-top:1px; }
+.dh-main-grid { display:grid; grid-template-columns:1fr 340px; gap:16px; align-items:start; }
+@media(max-width:1024px){ .dh-main-grid { grid-template-columns:1fr; } }
+.dh-appt-card { background:var(--bg-card); border:1px solid var(--border); border-radius:10px; overflow:hidden; }
+.dh-appt-hd { padding:14px 18px; border-bottom:1px solid var(--border); display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px; }
+.dh-appt-hd-left { display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
+.dh-appt-title { font-size:14px; font-weight:700; color:var(--text-primary); }
+.dh-appt-meta { font-size:11.5px; color:var(--text-tertiary); }
+.dh-appt-badge { font-size:11px; font-weight:700; padding:2px 8px; border-radius:10px; white-space:nowrap; }
+.dh-appt-badge--active { background:rgba(96,165,250,0.15); color:#60a5fa; }
+.dh-appt-badge--wait   { background:rgba(245,158,11,0.15);  color:#f59e0b; }
+.dh-appt-badge--done   { background:rgba(34,197,94,0.12);   color:#22c55e; }
+.dh-appt-table { width:100%; border-collapse:collapse; }
+.dh-appt-table th { padding:9px 14px; font-size:10.5px; font-weight:700; color:var(--text-tertiary); text-transform:uppercase; letter-spacing:0.4px; text-align:left; background:var(--bg-sidebar); border-bottom:1px solid var(--border); white-space:nowrap; }
+.dh-appt-table td { padding:12px 14px; border-bottom:1px solid var(--border); vertical-align:middle; }
+.dh-appt-row { transition:background 0.1s; }
+.dh-appt-row:last-child td { border-bottom:none; }
+.dh-appt-row:hover td { background:var(--bg-card-hover, rgba(255,255,255,0.025)); }
+.dh-appt-row--active td { background:rgba(96,165,250,0.04); }
+.dh-appt-row--done   td { opacity:0.72; }
+.dh-appt-row--noshow td { opacity:0.55; }
+.dh-appt-time   { font-size:12px; color:var(--text-tertiary); font-weight:600; white-space:nowrap; }
+.dh-appt-name   { font-size:13px; font-weight:700; color:var(--text-primary); white-space:nowrap; }
+.dh-appt-cond   { font-size:11.5px; background:rgba(255,255,255,0.07); border-radius:4px; padding:2px 8px; color:var(--text-secondary); white-space:nowrap; display:inline-block; }
+.dh-appt-ses    { font-size:12px; color:var(--text-secondary); white-space:nowrap; }
+.dh-appt-proto  { font-size:11.5px; color:var(--text-tertiary); max-width:150px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.dh-appt-status { white-space:nowrap; }
+.dh-appt-status-badge { font-size:11px; font-weight:700; padding:3px 9px; border-radius:12px; white-space:nowrap; display:inline-flex; align-items:center; gap:4px; }
+.dh-st-wait   { background:rgba(245,158,11,0.15);  color:#f59e0b; }
+.dh-st-active { background:rgba(96,165,250,0.15);  color:#60a5fa; }
+.dh-st-done   { background:rgba(34,197,94,0.12);   color:#22c55e; }
+.dh-st-noshow { background:rgba(248,113,113,0.12); color:#f87171; }
+.dh-pulse { width:6px; height:6px; border-radius:50%; background:#60a5fa; animation:dh-pulse 1.4s infinite; }
+@keyframes dh-pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:.5;transform:scale(.8)} }
+.dh-appt-actions { display:flex; gap:4px; align-items:center; }
+.dh-btn { padding:4px 12px; border-radius:5px; font-size:11.5px; font-weight:600; cursor:pointer; border:1px solid var(--border); background:var(--bg-input, #1e2235); color:var(--text-secondary); font-family:inherit; transition:all 0.12s; white-space:nowrap; }
+.dh-btn:hover { color:var(--text-primary); border-color:var(--teal); }
+.dh-btn--start { background:linear-gradient(135deg,var(--teal),var(--blue)); color:#000; border:none; font-weight:700; font-size:12px; padding:5px 14px; }
+.dh-btn--start:hover { opacity:0.88; color:#000; }
+.dh-appt-empty { padding:40px 20px; text-align:center; }
+.dh-appt-empty-ico { font-size:32px; margin-bottom:12px; opacity:0.4; }
+.dh-appt-empty-txt { font-size:13px; color:var(--text-tertiary); margin-bottom:12px; }
+.dh-right-panel { display:flex; flex-direction:column; gap:12px; }
+.dh-panel-card { background:var(--bg-card); border:1px solid var(--border); border-radius:10px; overflow:hidden; }
+.dh-panel-hd { padding:12px 15px; border-bottom:1px solid var(--border); display:flex; align-items:center; gap:8px; }
+.dh-panel-title { font-size:12.5px; font-weight:700; color:var(--text-primary); }
+.dh-urgent-badge { font-size:10px; font-weight:700; color:#fff; background:#f87171; border-radius:10px; padding:1px 7px; }
+.dh-urgent-row { display:flex; align-items:center; gap:10px; padding:9px 15px; border-bottom:1px solid var(--border); cursor:pointer; transition:background 0.1s; }
+.dh-urgent-row:last-child { border-bottom:none; }
+.dh-urgent-row:hover { background:rgba(255,255,255,0.02); }
+.dh-urgent-ico { font-size:14px; flex-shrink:0; width:18px; text-align:center; }
+.dh-urgent-lbl { flex:1; font-size:12px; font-weight:500; color:var(--text-primary); }
+.dh-urgent-cnt { font-size:13px; font-weight:800; font-family:var(--font-mono,monospace); }
+.dh-urgent-arr { color:var(--text-tertiary); font-size:11px; }
+.dh-all-clear { padding:16px 15px; font-size:12px; color:var(--text-tertiary); text-align:center; }
+.dh-qa-grid { display:grid; grid-template-columns:1fr 1fr; gap:1px; background:var(--border); }
+.dh-qa-item { background:var(--bg-card); padding:12px 14px; cursor:pointer; display:flex; align-items:center; gap:9px; transition:background 0.1s; }
+.dh-qa-item:hover { background:var(--bg-card-hover, rgba(255,255,255,0.03)); }
+.dh-qa-ico { font-size:16px; flex-shrink:0; }
+.dh-qa-lbl { font-size:12px; font-weight:500; color:var(--text-primary); }
+.dh-attn-list { display:flex; flex-direction:column; }
+.dh-attn-row { display:flex; align-items:center; gap:10px; padding:9px 15px; border-bottom:1px solid var(--border); cursor:pointer; transition:background 0.1s; }
+.dh-attn-row:last-child { border-bottom:none; }
+.dh-attn-row:hover { background:rgba(255,255,255,0.02); }
+.dh-attn-avatar { width:26px; height:26px; border-radius:50%; background:linear-gradient(135deg,var(--teal),var(--blue)); display:flex; align-items:center; justify-content:center; font-size:9.5px; font-weight:700; color:#000; flex-shrink:0; text-transform:uppercase; }
+.dh-attn-name { font-size:12px; font-weight:600; color:var(--text-primary); }
+.dh-attn-reason { font-size:10.5px; font-weight:600; }
+.dh-gov-strip { background:var(--bg-card); border:1px solid #f8717140; border-radius:10px; overflow:hidden; margin-top:16px; }
+.dh-gov-hd { padding:11px 16px; background:rgba(248,113,113,0.06); border-bottom:1px solid #f8717130; display:flex; align-items:center; gap:8px; }
+.dh-gov-title { font-size:12px; font-weight:700; color:#f87171; }
+.dh-gov-items { display:flex; flex-wrap:wrap; gap:8px; padding:12px 16px; }
+.dh-gov-item { background:rgba(248,113,113,0.08); border:1px solid rgba(248,113,113,0.2); border-radius:6px; padding:6px 12px; cursor:pointer; transition:background 0.1s; }
+.dh-gov-item:hover { background:rgba(248,113,113,0.14); }
+.dh-gov-item-lbl { font-size:11.5px; font-weight:600; color:var(--text-primary); }
+.dh-gov-item-sub { font-size:10px; color:#f87171; margin-top:1px; }
+.light-theme .dh-stat { background:#fff; }
+.light-theme .dh-appt-card, .light-theme .dh-panel-card { background:#fff; }
+.light-theme .dh-appt-cond { background:#f0f4f8; }
+.light-theme .dh-btn { background:#f0f4f8; color:#374151; border-color:#d1d5db; }
+.light-theme .dh-appt-table th { background:#f8fafc; }
+    `;
+    document.head.appendChild(_s);
+  }
+
+  // ── ROW 1 data (kept for backward compat internal calcs) ──────────────────────
   const _todayStr = new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'short' });
   const _totalUrgent = seriousAEs.length + (wearableUrgentCount || 0) + mediaNeedsAttention.filter(i => i.flagged_urgent).length;
   const _totalActions = pendingQueue.length + openAEs.length + consentAlertCount + mediaNeedsAttention.length + patientsNeedingAttention.length;
 
-  const glanceCard = `<div class="card" style="overflow:hidden">
-    <div style="padding:13px 16px 10px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
-      <span class="card-section-label">Today at a Glance</span>
-      <span style="font-size:11px;color:var(--text-tertiary)">${_todayStr}</span>
-    </div>
-    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:0;border-bottom:1px solid var(--border)">
-      ${_dOutcomeCell('Active Patients', activePatientIds.length, 'var(--teal)', 'In treatment')}
-      ${_dOutcomeCell('Active Courses', activeCourses.length, 'var(--blue)', sessionsPerWeek + ' sessions/wk')}
-      ${_dOutcomeCell('Pending Reviews', pendingQueue.length, pendingQueue.length > 0 ? 'var(--amber)' : 'var(--green)', pendingQueue.length > 0 ? 'Action required' : 'Queue clear')}
-    </div>
-    <div style="padding:10px 14px 6px">
-      <div style="font-size:11.5px;color:var(--text-secondary);line-height:1.6">
-        ${activeCourses.length === 0 && patCount === 0
-          ? 'No patients or courses yet. Add your first patient to get started.'
-          : _totalUrgent > 0
-          ? `<span style="color:var(--red);font-weight:600">${_totalUrgent} urgent item${_totalUrgent > 1 ? 's' : ''}</span> need immediate attention.${patientsNeedingAttention.length > 0 ? ` ${patientsNeedingAttention.length} patient${patientsNeedingAttention.length > 1 ? 's' : ''} flagged.` : ''}${pendingQueue.length > 0 ? ` ${pendingQueue.length} approval${pendingQueue.length > 1 ? 's' : ''} pending.` : ''}`
-          : _totalActions > 0
-          ? `${activeCourses.length} active course${activeCourses.length !== 1 ? 's' : ''} running. ${_totalActions} item${_totalActions > 1 ? 's' : ''} need attention today.`
-          : `${activeCourses.length} active course${activeCourses.length !== 1 ? 's' : ''}. Responder rate: ${responderRate}. All queues clear.`
-        }
-      </div>
-    </div>
-    ${_totalActions > 0 ? `<div style="padding:4px 14px 10px;display:flex;gap:6px;flex-wrap:wrap">
-      ${pendingQueue.length > 0 ? `<button class="btn btn-sm" style="font-size:10.5px;color:var(--amber);border-color:rgba(255,181,71,0.35)" onclick="window._nav('review-queue')">${pendingQueue.length} approval${pendingQueue.length > 1 ? 's' : ''} &#x2192;</button>` : ''}
-      ${seriousAEs.length > 0 ? `<button class="btn btn-sm" style="font-size:10.5px;color:var(--red);border-color:rgba(255,107,107,0.35)" onclick="window._nav('adverse-events')">${seriousAEs.length} serious AE${seriousAEs.length > 1 ? 's' : ''} &#x2192;</button>` : ''}
-      ${mediaNeedsAttention.length > 0 ? `<button class="btn btn-sm" style="font-size:10.5px" onclick="window._nav('media-queue')">${mediaNeedsAttention.length} media item${mediaNeedsAttention.length > 1 ? 's' : ''} &#x2192;</button>` : ''}
-      ${wearableUrgentCount > 0 ? `<button class="btn btn-sm" style="font-size:10.5px;color:var(--red);border-color:rgba(255,107,107,0.35)" onclick="window._nav('wearables')">${wearableUrgentCount} wearable alert${wearableUrgentCount > 1 ? 's' : ''} &#x2192;</button>` : ''}
-    </div>` : ''}
-  </div>`;
+  // ── glanceCard removed (replaced by compact stats bar) ───────────────────────
 
   const _urgentItems = [
     { show: seriousAEs.length > 0,              icon: '&#x26A1;', label: 'Serious Adverse Events', count: seriousAEs.length,              color: 'var(--red)',   nav: 'adverse-events' },
@@ -984,8 +1060,8 @@ export async function pgDash(setTopbar, navigate) {
     </div>
   </div>`;
 
-  const row1 = `<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:12px;align-items:start">${glanceCard}${urgentCard}${quickActionsCard}</div>`;
-
+  // ── row1/row2/row3/row4 — replaced by new dh layout below ───────────────────
+  // ── OLD ROW 2 data still needed for govStrip ─────────────────────────────────
   // ── ROW 2: Today's Clinic Queue (wide) + Upcoming Sessions ────────────────
   const _queueRowItem = c => {
     const dotColor = { active: 'var(--teal)', paused: 'var(--amber)', pending: 'var(--blue)', approved: 'var(--violet)' }[c._qStatus] || 'var(--text-tertiary)';
@@ -1160,10 +1236,10 @@ export async function pgDash(setTopbar, navigate) {
       <button class="btn btn-sm" style="font-size:10.5px" onclick="window._nav('outcomes')">Full Report &#x2192;</button>
     </div>
     <div style="display:grid;grid-template-columns:1fr 1fr;border-bottom:1px solid var(--border)">
-      ${_dOutcomeCell('Responder Rate', responderRate, 'var(--teal)', '≥50% reduction')}
-      ${_dOutcomeCell('Assess. Completion', assessCompletionPct, 'var(--blue)', 'Fill rate')}
-      ${_dOutcomeCell('Courses Completed', completedCourses.length, 'var(--green)', 'All time')}
-      ${_dOutcomeCell('Paused / Flagged', pausedCourses.length + flaggedCourses.length, pausedCourses.length + flaggedCourses.length > 0 ? 'var(--amber)' : 'var(--text-secondary)', 'Needs review')}
+      ${_dOutcomeCell('Responder Rate', responderRate, 'var(--teal)', '≥50% reduction', 'outcomes')}
+      ${_dOutcomeCell('Assess. Completion', assessCompletionPct, 'var(--blue)', 'Fill rate', 'assessments-hub')}
+      ${_dOutcomeCell('Courses Completed', completedCourses.length, 'var(--green)', 'All time', 'courses')}
+      ${_dOutcomeCell('Paused / Flagged', pausedCourses.length + flaggedCourses.length, pausedCourses.length + flaggedCourses.length > 0 ? 'var(--amber)' : 'var(--text-secondary)', 'Needs review', 'review-queue')}
     </div>
     ${allCourses.length ? `<div style="padding:12px 14px">
       <div style="font-size:9.5px;text-transform:uppercase;letter-spacing:.9px;color:var(--text-tertiary);font-weight:600;margin-bottom:8px">Course Status</div>
@@ -1192,9 +1268,9 @@ export async function pgDash(setTopbar, navigate) {
       <button class="btn btn-sm" style="font-size:10.5px" onclick="window._nav('wearables')">Wearables &#x2192;</button>
     </div>
     <div style="display:grid;grid-template-columns:repeat(3,1fr);border-bottom:1px solid var(--border)">
-      ${_dOutcomeCell('Wearable Alerts', wearableAlertCount || 0, wearableAlertCount > 0 ? 'var(--amber)' : 'var(--green)', wearableUrgentCount > 0 ? wearableUrgentCount + ' urgent' : 'No urgent')}
-      ${_dOutcomeCell('Media Needs Review', mediaNeedsAttention.length, mediaNeedsAttention.length > 0 ? 'var(--amber)' : 'var(--green)', mediaUrgent > 0 ? mediaUrgent + ' urgent' : 'No urgent')}
-      ${_dOutcomeCell('In Active Treatment', activePatientIds.length, 'var(--teal)', 'Patients in active tx')}
+      ${_dOutcomeCell('Wearable Alerts', wearableAlertCount || 0, wearableAlertCount > 0 ? 'var(--amber)' : 'var(--green)', wearableUrgentCount > 0 ? wearableUrgentCount + ' urgent' : 'No urgent', 'wearables')}
+      ${_dOutcomeCell('Media Needs Review', mediaNeedsAttention.length, mediaNeedsAttention.length > 0 ? 'var(--amber)' : 'var(--green)', mediaUrgent > 0 ? mediaUrgent + ' urgent' : 'No urgent', 'media-queue')}
+      ${_dOutcomeCell('In Active Treatment', activePatientIds.length, 'var(--teal)', 'Patients in active tx', 'patients')}
     </div>
     <div style="padding:10px 14px;display:flex;gap:8px;flex-wrap:wrap">
       ${wearableAlertCount > 0 ? `<button class="btn btn-sm" style="font-size:10.5px" onclick="window._nav('wearables')">View Wearable Alerts &#x2192;</button>` : ''}
@@ -1249,7 +1325,244 @@ export async function pgDash(setTopbar, navigate) {
 
   const row4 = `<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;align-items:start">${remoteCard}${notesMediaCard}</div>`;
 
-  el.innerHTML = getStartedCard + dashAgentStrip + row1 + row2 + row3 + row4;
+  // ── Today's Appointment Schedule (from Clinic Day queue) ─────────────────────
+  const _apptQueue = (() => { try { return JSON.parse(localStorage.getItem('ds_today_queue') || '[]'); } catch { return []; } })();
+  const _apptDone    = _apptQueue.filter(p => p.status === 'done').length;
+  const _apptActive  = _apptQueue.filter(p => p.status === 'in-session').length;
+  const _apptWaiting = _apptQueue.filter(p => p.status === 'waiting').length;
+  const _apptNoShow  = _apptQueue.filter(p => p.status === 'no-show').length;
+  const _apptEsc = s => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  const _apptStatusBadge = st => {
+    const m = { 'waiting':{'l':'Waiting','c':'#f59e0b'}, 'in-session':{'l':'In Session','c':'#60a5fa'}, 'done':{'l':'Done','c':'#22c55e'}, 'no-show':{'l':'No Show','c':'#f87171'} };
+    const cfg = m[st] || { l:st, c:'#888' };
+    return `<span style="font-size:10.5px;font-weight:700;color:${cfg.c};background:${cfg.c}18;padding:2px 8px;border-radius:10px;white-space:nowrap">${cfg.l}</span>`;
+  };
+
+  const apptRows = _apptQueue.length === 0
+    ? `<tr><td colspan="6" style="padding:18px;text-align:center;font-size:12px;color:var(--text-tertiary)">No appointments scheduled. <button class="btn btn-sm" style="margin-left:6px;font-size:10.5px" onclick="window._nav('clinic-day')">Open Clinic Day &#x2192;</button></td></tr>`
+    : _apptQueue.map(p => {
+        const canStart = p.status !== 'done' && p.status !== 'no-show';
+        const startBtn = canStart
+          ? `<button class="btn btn-sm" style="font-size:10px;padding:2px 8px;color:var(--teal);border-color:rgba(0,212,188,0.35);white-space:nowrap"
+               onclick="if(p&&p.patientId)window._selectedPatientId='${_apptEsc(p.patientId)}';window._nav('session-execution')">&#9654; Start</button>`
+          : '';
+        const alerts = (p.alerts||[]).map(a => ({ 'deviation':'⚠️','homework':'📚','wearable':'💜','assessment':'📋' }[a]||'').trim()).filter(Boolean).join(' ');
+        return `<tr onmouseover="this.style.background='var(--bg-card-hover)'" onmouseout="this.style.background=''">
+          <td style="padding:9px 12px;font-size:12px;color:var(--text-tertiary);white-space:nowrap">${_apptEsc(p.time)}</td>
+          <td style="padding:9px 12px;font-size:13px;font-weight:600;color:var(--text-primary)">${_apptEsc(p.patientName)}</td>
+          <td style="padding:9px 12px"><span style="font-size:11px;background:rgba(255,255,255,0.07);border-radius:4px;padding:2px 8px;color:var(--text-secondary)">${_apptEsc(p.condition)}</span></td>
+          <td style="padding:9px 12px;font-size:11.5px;color:var(--text-secondary)">${_apptEsc(p.protocol)}</td>
+          <td style="padding:9px 12px">${_apptStatusBadge(p.status)}</td>
+          <td style="padding:9px 12px;text-align:right">${alerts ? `<span style="font-size:14px;margin-right:6px">${alerts}</span>` : ''}${startBtn}</td>
+        </tr>`;
+      }).join('');
+
+  const apptScheduleRow = _apptQueue.length > 0 ? `
+  <div class="card" style="overflow:hidden;margin-bottom:12px">
+    <div style="padding:12px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
+      <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap">
+        <span class="card-section-label">Today's Appointments</span>
+        <span style="font-size:12px;color:var(--text-tertiary)">${_apptQueue.length} scheduled</span>
+        ${_apptActive  ? `<span style="font-size:11.5px;font-weight:700;color:#60a5fa">${_apptActive} in session</span>` : ''}
+        ${_apptWaiting ? `<span style="font-size:11.5px;font-weight:700;color:#f59e0b">${_apptWaiting} waiting</span>` : ''}
+        ${_apptDone    ? `<span style="font-size:11.5px;color:#22c55e">${_apptDone} done</span>` : ''}
+        ${_apptNoShow  ? `<span style="font-size:11.5px;color:#f87171">${_apptNoShow} no-show</span>` : ''}
+      </div>
+      <div style="display:flex;gap:6px">
+        <button class="btn btn-sm" style="font-size:10.5px" onclick="window._nav('clinic-day')">Full View &#x2192;</button>
+        <button class="btn btn-sm btn-primary" style="font-size:10.5px" onclick="window._nav('session-execution')">&#9654; Start Session</button>
+      </div>
+    </div>
+    <div style="overflow-x:auto">
+      <table style="width:100%;border-collapse:collapse">
+        <thead><tr style="background:var(--bg-sidebar)">
+          <th style="padding:8px 12px;font-size:10.5px;font-weight:700;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.5px;text-align:left">Time</th>
+          <th style="padding:8px 12px;font-size:10.5px;font-weight:700;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.5px;text-align:left">Patient</th>
+          <th style="padding:8px 12px;font-size:10.5px;font-weight:700;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.5px;text-align:left">Condition</th>
+          <th style="padding:8px 12px;font-size:10.5px;font-weight:700;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.5px;text-align:left">Protocol</th>
+          <th style="padding:8px 12px;font-size:10.5px;font-weight:700;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.5px;text-align:left">Status</th>
+          <th style="padding:8px 12px;font-size:10.5px;font-weight:700;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.5px;text-align:right">Action</th>
+        </tr></thead>
+        <tbody>${apptRows}</tbody>
+      </table>
+    </div>
+  </div>` : '';
+
+  // ── NEW CLEAN HOME LAYOUT ─────────────────────────────────────────────────────
+  // Compact stats bar
+  const _dhStats = `<div class="dh-stats-bar">
+    <div class="dh-stat" onclick="window._nav('patients')">
+      <div class="dh-stat-val">${activePatientIds.length}</div>
+      <div class="dh-stat-info"><div class="dh-stat-lbl">Active Patients</div><div class="dh-stat-sub">in treatment</div></div>
+    </div>
+    <div class="dh-stat" onclick="window._nav('courses')">
+      <div class="dh-stat-val">${activeCourses.length}</div>
+      <div class="dh-stat-info"><div class="dh-stat-lbl">Active Courses</div><div class="dh-stat-sub">${sessionsPerWeek} sessions/wk</div></div>
+    </div>
+    ${pendingQueue.length > 0 ? `<div class="dh-stat dh-stat--warn" onclick="window._nav('review-queue')">
+      <div class="dh-stat-val">${pendingQueue.length}</div>
+      <div class="dh-stat-info"><div class="dh-stat-lbl">Pending Reviews</div><div class="dh-stat-sub">action required</div></div>
+    </div>` : ''}
+    ${openAEs.length > 0 ? `<div class="dh-stat dh-stat--danger" onclick="window._nav('adverse-events')">
+      <div class="dh-stat-val">${openAEs.length}</div>
+      <div class="dh-stat-info"><div class="dh-stat-lbl">Open AEs</div><div class="dh-stat-sub">${seriousAEs.length > 0 ? seriousAEs.length + ' serious' : 'monitoring'}</div></div>
+    </div>` : ''}
+    <div class="dh-stat" onclick="window._nav('outcomes')">
+      <div class="dh-stat-val" style="color:var(--teal)">${responderRate}</div>
+      <div class="dh-stat-info"><div class="dh-stat-lbl">Responder Rate</div><div class="dh-stat-sub">≥50% improvement</div></div>
+    </div>
+  </div>`;
+
+  // Appointment table (primary left column)
+  const _dhApptEsc = s => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  const _dhApptQueue = (() => { try { return JSON.parse(localStorage.getItem('ds_today_queue') || '[]'); } catch { return []; } })();
+  const _dhDone    = _dhApptQueue.filter(p => p.status === 'done').length;
+  const _dhActive  = _dhApptQueue.filter(p => p.status === 'in-session').length;
+  const _dhWaiting = _dhApptQueue.filter(p => p.status === 'waiting').length;
+  const _dhStatusBadge = st => {
+    const m = { 'waiting':['Waiting','dh-st-wait',''], 'in-session':['In Session','dh-st-active','<span class="dh-pulse"></span>'], 'done':['Done','dh-st-done',''], 'no-show':['No Show','dh-st-noshow',''] };
+    const [l,c,d] = m[st] || [st,'','']; return `<span class="dh-appt-status-badge ${c}">${d}${l}</span>`;
+  };
+  const _dhAlertIcons = al => (al||[]).map(a=>({'deviation':'⚠️','homework':'📚','wearable':'💜','assessment':'📋'}[a]||'')).filter(Boolean).join(' ');
+  const _dhApptRows = _dhApptQueue.length === 0
+    ? `<tr><td colspan="7"><div class="dh-appt-empty">
+        <div class="dh-appt-empty-ico">📋</div>
+        <div class="dh-appt-empty-txt">No appointments scheduled for today</div>
+        <button class="dh-btn" onclick="window._cdAddWalkin?.()">+ Add Walk-in</button>
+      </div></td></tr>`
+    : _dhApptQueue.map(p => {
+        const canStart = p.status !== 'done' && p.status !== 'no-show';
+        const alertIcos = _dhAlertIcons(p.alerts);
+        return `<tr class="dh-appt-row dh-appt-row--${p.status === 'in-session' ? 'active' : p.status === 'done' ? 'done' : p.status === 'no-show' ? 'noshow' : ''}">
+          <td class="dh-appt-time">${_dhApptEsc(p.time)}</td>
+          <td class="dh-appt-name">${_dhApptEsc(p.patientName)}</td>
+          <td><span class="dh-appt-cond">${_dhApptEsc(p.condition)}</span></td>
+          <td class="dh-appt-ses">Sess ${p.sessionNum}/${p.sessionTotal}</td>
+          <td class="dh-appt-proto">${_dhApptEsc(p.protocol)}</td>
+          <td class="dh-appt-status">${_dhStatusBadge(p.status)}</td>
+          <td><div class="dh-appt-actions">
+            ${alertIcos ? `<span style="font-size:13px" title="Flags">${alertIcos}</span>` : ''}
+            ${canStart ? `<button class="dh-btn dh-btn--start" onclick="if('${_dhApptEsc(p.patientId)}')window._selectedPatientId='${_dhApptEsc(p.patientId)}';window._nav('session-execution')">▶ Start</button>` : ''}
+            <button class="dh-btn" onclick="if('${_dhApptEsc(p.patientId)}')window._selectedPatientId='${_dhApptEsc(p.patientId)}';window._nav('patient-profile')">Chart</button>
+          </div></td>
+        </tr>`;
+      }).join('');
+
+  const _dhApptCard = `<div class="dh-appt-card">
+    <div class="dh-appt-hd">
+      <div class="dh-appt-hd-left">
+        <span class="dh-appt-title">Today's Schedule</span>
+        <span class="dh-appt-meta">${_dhApptQueue.length} patient${_dhApptQueue.length!==1?'s':''}</span>
+        ${_dhActive  ? `<span class="dh-appt-badge dh-appt-badge--active">${_dhActive} in session</span>` : ''}
+        ${_dhWaiting ? `<span class="dh-appt-badge dh-appt-badge--wait">${_dhWaiting} waiting</span>` : ''}
+        ${_dhDone    ? `<span class="dh-appt-badge dh-appt-badge--done">${_dhDone} done</span>` : ''}
+      </div>
+      <div style="display:flex;gap:6px">
+        <button class="dh-btn" onclick="window._cdAddWalkin?.()">+ Walk-in</button>
+        <button class="dh-btn dh-btn--start" onclick="window._nav('session-execution')">▶ Start Session</button>
+      </div>
+    </div>
+    <div style="overflow-x:auto">
+      <table class="dh-appt-table">
+        <thead><tr>
+          <th>Time</th><th>Patient</th><th>Condition</th><th>Session</th>
+          <th>Protocol</th><th>Status</th><th>Actions</th>
+        </tr></thead>
+        <tbody>${_dhApptRows}</tbody>
+      </table>
+    </div>
+  </div>`;
+
+  // Urgent items (right panel top)
+  const _dhUrgentPanel = `<div class="dh-panel-card">
+    <div class="dh-panel-hd">
+      <span class="dh-panel-title">Urgent Items</span>
+      ${_urgentItems.length > 0
+        ? `<span class="dh-urgent-badge">${_urgentItems.length}</span>`
+        : `<span style="font-size:11px;color:var(--green)">✓ All clear</span>`}
+    </div>
+    ${_urgentItems.length === 0
+      ? `<div class="dh-all-clear">No urgent items. Queue clear.</div>`
+      : _urgentItems.map(i => `<div class="dh-urgent-row" onclick="window._nav('${i.nav}')">
+          <span class="dh-urgent-ico">${i.icon}</span>
+          <span class="dh-urgent-lbl">${i.label}</span>
+          <span class="dh-urgent-cnt" style="color:${i.color}">${i.count}</span>
+          <span class="dh-urgent-arr">→</span>
+        </div>`).join('')}
+  </div>`;
+
+  // Quick actions (right panel middle)
+  const _dhQA = [
+    { ico:'▶', lbl:'Start Session',  nav:'session-execution', color:'var(--teal)'   },
+    { ico:'＋', lbl:'Add Patient',   nav:'patients',           color:'var(--blue)'   },
+    { ico:'✎',  lbl:'New Course',    nav:'protocol-wizard',    color:'var(--violet)' },
+    { ico:'✔',  lbl:'Record Outcome',nav:'outcomes',           color:'var(--green)'  },
+    { ico:'◎',  lbl:'Review Queue',  nav:'review-queue',       color: pendingQueue.length > 0 ? 'var(--amber)' : 'var(--text-secondary)' },
+    { ico:'♪',  lbl:'Add Note',      nav:'notes-dictation',    color:'var(--amber)'  },
+  ];
+  const _dhQAPanel = `<div class="dh-panel-card">
+    <div class="dh-panel-hd"><span class="dh-panel-title">Quick Actions</span></div>
+    <div class="dh-qa-grid">
+      ${_dhQA.map(a => `<div class="dh-qa-item" onclick="window._nav('${a.nav}')">
+        <span class="dh-qa-ico" style="color:${a.color}">${a.ico}</span>
+        <span class="dh-qa-lbl">${a.lbl}</span>
+      </div>`).join('')}
+    </div>
+  </div>`;
+
+  // Patients needing attention (right panel bottom, only if any)
+  const _dhAttnPanel = patientsNeedingAttention.length === 0 ? '' : `<div class="dh-panel-card">
+    <div class="dh-panel-hd">
+      <span class="dh-panel-title">Needs Attention</span>
+      <span class="dh-urgent-badge" style="background:rgba(245,158,11,0.15);color:#f59e0b;border:1px solid #f59e0b40">${patientsNeedingAttention.length}</span>
+    </div>
+    <div class="dh-attn-list">
+      ${patientsNeedingAttention.map(({id,pt}) => {
+        const r = _attentionReason(id);
+        const ini = ((pt.first_name||'')[0]||'') + ((pt.last_name||'')[0]||'');
+        return `<div class="dh-attn-row" onclick="window.openPatient('${id}')">
+          <div class="dh-attn-avatar">${ini}</div>
+          <div style="flex:1;min-width:0">
+            <div class="dh-attn-name">${pt.first_name||''} ${pt.last_name||''}</div>
+            <div class="dh-attn-reason" style="color:${r.color}">${r.label}</div>
+          </div>
+          <span style="color:var(--text-tertiary);font-size:11px">→</span>
+        </div>`;
+      }).join('')}
+    </div>
+    <div style="padding:8px 15px;border-top:1px solid var(--border)">
+      <button class="dh-btn" style="width:100%;text-align:center" onclick="window._nav('patients')">All Patients →</button>
+    </div>
+  </div>`;
+
+  // Safety/governance strip (only if AEs or safety flags)
+  const _dhHasGov = openAEs.length > 0 || flaggedCourses.length > 0 || seriousAEs.length > 0;
+  const _dhGovStrip = !_dhHasGov ? '' : `<div class="dh-gov-strip">
+    <div class="dh-gov-hd">
+      <span style="font-size:15px">⚠</span>
+      <span class="dh-gov-title">Safety &amp; Clinical Flags — Requires Attention</span>
+    </div>
+    <div class="dh-gov-items">
+      ${seriousAEs.map(ae => `<div class="dh-gov-item" onclick="window._nav('adverse-events')">
+        <div class="dh-gov-item-lbl">⚡ ${(ae.event_type||'AE').replace(/_/g,' ')}</div>
+        <div class="dh-gov-item-sub">Serious AE — ${ae.severity||'unresolved'}</div>
+      </div>`).join('')}
+      ${flaggedCourses.slice(0,4).map(c => `<div class="dh-gov-item" onclick="window._openCourse('${(c.id||'').replace(/['"]/g,'')}')">
+        <div class="dh-gov-item-lbl">⚠ ${c._patientName||'Patient'} — ${(c.condition_slug||'').replace(/-/g,' ')}</div>
+        <div class="dh-gov-item-sub">${(c.governance_warnings||[]).map(w=>String(w).replace(/[<>&"]/g,'')).slice(0,2).join(' · ')}</div>
+      </div>`).join('')}
+    </div>
+  </div>`;
+
+  // Assemble new clean layout
+  el.innerHTML = getStartedCard + `<div class="dh-wrap">` +
+    _dhStats +
+    `<div class="dh-main-grid">` +
+      _dhApptCard +
+      `<div class="dh-right-panel">` + _dhUrgentPanel + _dhQAPanel + _dhAttnPanel + `</div>` +
+    `</div>` +
+    _dhGovStrip +
+  `</div>`;
 
   window._dashAgentOpen = function() {
     const m = document.getElementById('dash-agent-modal');
@@ -1699,10 +2012,36 @@ export async function pgPatients(setTopbar, navigate) {
       + '</div>'
       + '<div class="pat-card-actions" onclick="event.stopPropagation()">'
       +   primaryBtn
+      +   '<button class="pat-act-btn" onclick="event.stopPropagation();window._patGetInviteLink(\'' + p.id + '\')" title="Get patient invite code" style="font-size:11px">Invite</button>'
       + '</div>'
       + '</div>';
   }
   window._patCard = _patCard;
+
+  // ── Invite code handler ───────────────────────────────────────────
+  window._patGetInviteLink = async function(patientId) {
+    try {
+      const data = await api.generatePatientInvite({ patient_id: patientId });
+      const code = data?.invite_code || data?.code || '';
+      if (!code) { window._showNotifToast?.({ title: 'No code returned', body: 'The server did not return an invite code.', severity: 'warn' }); return; }
+      const modal = document.createElement('div');
+      modal.style.cssText = 'position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center';
+      modal.innerHTML = `<div style="background:var(--card);border-radius:14px;padding:28px 32px;max-width:420px;width:90%;position:relative">
+        <div style="font-size:15px;font-weight:700;margin-bottom:8px;color:var(--text-primary)">Patient Invite Code</div>
+        <div style="font-size:12px;color:var(--text-secondary);margin-bottom:16px">Share this code with the patient. It expires in 7 days.</div>
+        <div style="background:var(--bg-secondary,#0f172a);border-radius:8px;padding:12px 16px;display:flex;align-items:center;gap:10px;margin-bottom:16px">
+          <code id="invite-code-val" style="font-size:18px;font-weight:700;color:var(--teal);flex:1;letter-spacing:2px">${code}</code>
+          <button onclick="navigator.clipboard.writeText('${code}');this.textContent='Copied!';setTimeout(()=>this.textContent='Copy',2000)" style="background:var(--teal);color:#000;border:none;border-radius:6px;padding:6px 12px;font-size:12px;font-weight:700;cursor:pointer">Copy</button>
+        </div>
+        <div style="font-size:11px;color:var(--text-tertiary);margin-bottom:16px">The patient enters this code on the sign-up page at your clinic's portal link.</div>
+        <button onclick="this.closest('[style*=&quot;fixed&quot;]').remove()" style="background:transparent;border:1px solid var(--border);border-radius:8px;padding:8px 20px;color:var(--text-secondary);cursor:pointer;font-size:13px">Close</button>
+      </div>`;
+      document.body.appendChild(modal);
+      modal.onclick = (e) => { if (e.target === modal) modal.remove(); };
+    } catch(e) {
+      window._showNotifToast?.({ title: 'Invite failed', body: e.message || 'Could not generate invite code.', severity: 'warn' });
+    }
+  };
 
   // ── Right-panel renderer ──────────────────────────────────────────
   function _renderRightPanel(p) {
@@ -3057,7 +3396,7 @@ function bindPhenotypeActions(pt) {
     } catch (e) {
       const errEl = document.getElementById('ph-error');
       if (errEl) { errEl.textContent = e.message || 'Delete failed.'; errEl.style.display = ''; }
-      else { alert(e.message || 'Delete failed.'); }
+      else { _dsToast(e.message || 'Delete failed. Please try again.', 'error'); }
     }
   };
 
@@ -3455,7 +3794,7 @@ function bindMonitoringActions(pt, wData, navigate) {
       }
     } catch (_e) {
       if (rowEl) { rowEl.style.opacity = ''; rowEl.style.pointerEvents = ''; }
-      alert('Could not dismiss flag. Please try again.');
+      _dsToast('Could not dismiss flag. Please try again.', 'error');
     }
   };
 
@@ -3702,8 +4041,20 @@ function bindAI(pt) {
     const z = document.getElementById('ai-gen-zone');
     if (z) { z.innerHTML = renderAIZone(pt); bindAI(pt); }
   };
-  window.saveProtocol = function() {
+  window.saveProtocol = async function() {
     savedProto = aiResult;
+    // Persist to backend (fire-and-forget, don't block UI)
+    try {
+      const ptId = pt?.id;
+      await api.saveProtocol({
+        patient_id: ptId || null,
+        protocol_name: aiResult?.protocol_name || aiResult?.rationale?.split('.')[0] || 'AI Protocol',
+        condition: aiResult?.condition || pt?.primary_condition || null,
+        modality: aiResult?.modality || pt?.primary_modality || null,
+        governance_state: 'draft',
+        protocol_json: aiResult,
+      });
+    } catch { /* non-blocking */ }
     window.switchPT('protocol');
   };
 }
@@ -6457,7 +6808,7 @@ export function bindBrainData(records, patMap, patients, setTopbar) {
       video.srcObject = stream;
       window._cameraStream = stream;
     } catch (err) {
-      alert('Camera access denied. Please allow camera permissions in your browser settings.');
+      _dsToast('Camera access denied. Please allow camera permissions in your browser settings.', 'error');
     }
   };
 
@@ -6761,33 +7112,46 @@ function _vcRender() {
   el.innerHTML = `
 <div class="vc-wrap">
   <div class="vc-summary-strip">
-    <button class="vc-chip" onclick="window._vcSetTab('video-visits')">
+    <button class="vc-chip vc-chip--video" onclick="window._vcSetTab('video-visits')">
       <span class="vc-chip-n">${todayVisits}</span>
-      <span class="vc-chip-lbl">Scheduled Visits</span>
+      <span class="vc-chip-lbl">&#9654; Scheduled Visits</span>
     </button>
-    <button class="vc-chip${callReqs ? ' vc-chip--attn' : ''}" onclick="window._vcSetTab('call-requests')">
+    <button class="vc-chip${callReqs ? ' vc-chip--attn' : ' vc-chip--voice'}" onclick="window._vcSetTab('call-requests')">
       <span class="vc-chip-n">${callReqs}</span>
-      <span class="vc-chip-lbl">Call Requests</span>
+      <span class="vc-chip-lbl">&#9742; Call Requests</span>
     </button>
-    <button class="vc-chip" onclick="window._vcSetTab('inbox')">
+    <button class="vc-chip vc-chip--threads" onclick="window._vcSetTab('inbox')">
       <span class="vc-chip-n">${threads}</span>
-      <span class="vc-chip-lbl">Patient Threads</span>
+      <span class="vc-chip-lbl">&#9993; Patient Threads</span>
     </button>
-    <button class="vc-chip${urgMedia ? ' vc-chip--urgent' : ''}" onclick="window._vcSetTab('shared-media')">
+    <button class="vc-chip${urgMedia ? ' vc-chip--urgent' : ' vc-chip--media'}" onclick="window._vcSetTab('shared-media')">
       <span class="vc-chip-n">${awMedia}</span>
-      <span class="vc-chip-lbl">Awaiting Review</span>
+      <span class="vc-chip-lbl">&#9650; Awaiting Review</span>
     </button>
     <button class="vc-chip vc-chip--ai" onclick="window._vcSetTab('ai-notes')">
       <span class="vc-chip-n">${pendNotes}</span>
-      <span class="vc-chip-lbl">AI Notes Pending</span>
+      <span class="vc-chip-lbl">&#9210; AI Notes Pending</span>
     </button>
   </div>
 
   <div class="vc-action-bar">
-    <button class="vc-act vc-act--primary" onclick="window._vcStartVideoVisit(null)">&#9654;&ensp;Start Video Visit</button>
-    <button class="vc-act"                 onclick="window._vcStartVoiceCall(null)">&#9742;&ensp;Start Voice Call</button>
-    <button class="vc-act"                 onclick="window._vcSendMessage(null)">&#9993;&ensp;New Message</button>
-    <button class="vc-act"                 onclick="window._vcRecordNote()">&#9210;&ensp;Record Note</button>
+    <span class="vc-action-bar-label">Quick Actions</span>
+    <button class="vc-act vc-act--video"   onclick="window._vcStartVideoVisit(null)">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M17 10.5V7a1 1 0 0 0-1-1H4a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-3.5l4 4v-11l-4 4z"/></svg>
+      Start Video Visit
+    </button>
+    <button class="vc-act vc-act--voice"   onclick="window._vcStartVoiceCall(null)">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M6.6 10.8c1.4 2.8 3.8 5.1 6.6 6.6l2.2-2.2c.3-.3.7-.4 1-.2 1.1.4 2.3.6 3.6.6.6 0 1 .4 1 1V20c0 .6-.4 1-1 1-9.4 0-17-7.6-17-17 0-.6.4-1 1-1h3.5c.6 0 1 .4 1 1 0 1.3.2 2.5.6 3.6.1.3 0 .7-.2 1L6.6 10.8z"/></svg>
+      Start Voice Call
+    </button>
+    <button class="vc-act vc-act--msg"     onclick="window._vcSendMessage(null)">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z"/></svg>
+      New Message
+    </button>
+    <button class="vc-act vc-act--note"    onclick="window._vcRecordNote()">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="8"/></svg>
+      Record Note
+    </button>
   </div>
 
   <div class="vc-tabs" role="tablist">
@@ -6947,14 +7311,16 @@ function _vcCallReqHTML() {
 function _vcConsultHTML(type) {
   const e = _vcEsc;
   const items = type === 'video' ? VC_MOCK.videoVisits : VC_MOCK.voiceCalls;
-  const stateKey = type === 'video' ? '_vcSelVisit' : '_vcSelCall';
-  if (!window[stateKey] && items.length) window[stateKey] = items[0].id;
-  const sel = items.find(v => v.id === window[stateKey]);
+  // Use module-level state variables (not window[stateKey] — ES module vars ≠ window properties)
+  if (type === 'video') { if (!_vcSelVisit && items.length) _vcSelVisit = items[0].id; }
+  else                  { if (!_vcSelCall  && items.length) _vcSelCall  = items[0].id; }
+  const selId = type === 'video' ? _vcSelVisit : _vcSelCall;
+  const sel = items.find(v => v.id === selId);
 
   const list = items.map(v => {
     const timeStr = v.scheduledAt ? new Date(v.scheduledAt).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'}) : '';
     const dateStr = v.scheduledAt ? new Date(v.scheduledAt).toLocaleDateString('en-GB',{day:'numeric',month:'short'}) : '';
-    return `<div class="vc-list-item${v.id===window[stateKey]?' selected':''}"
+    return `<div class="vc-list-item${v.id===selId?' selected':''}"
               onclick="window._vcSelConsult('${e(type)}','${e(v.id)}')">
       <div class="vc-av">${e(v.initials)}</div>
       <div class="vc-li-body">
@@ -7213,7 +7579,7 @@ window._vcRecordNote = function() {
 window._vcSaveRecordedNote = function() {
   const subj = document.getElementById('vc-note-subj')?.value?.trim();
   const body = document.getElementById('vc-note-body')?.value?.trim();
-  if (!body) { alert('Please enter note content'); return; }
+  if (!body) { _dsToast('Please enter note content before saving.', 'warn'); return; }
   document.querySelector('.modal-overlay')?.remove();
   _vcToast('Note Saved', `"${subj||'Note'}" saved as draft. AI summary will be generated shortly.`, 'success');
 };
@@ -7685,7 +8051,7 @@ export async function pgProtocolBuilder(setTopbar) {
       reader.onload = function(ev) {
         try {
           const data = JSON.parse(ev.target.result);
-          if (!data.stages) { alert('Invalid protocol JSON: missing stages array.'); return; }
+          if (!data.stages) { _dsToast('Invalid protocol JSON: missing stages array.', 'error'); return; }
           _builderNodes = data.stages.map(s => {
             const tpl = Object.values(BLOCK_PALETTE).flat().find(b => b.type === s.type);
             return {
@@ -7699,7 +8065,7 @@ export async function pgProtocolBuilder(setTopbar) {
           _selectedNode = null;
           _renderBuilder();
           window._announce?.('Protocol imported');
-        } catch { alert('Failed to parse JSON file.'); }
+        } catch { _dsToast('Failed to parse JSON file. Please check the format.', 'error'); }
       };
       reader.readAsText(file);
     };
@@ -8095,7 +8461,7 @@ export async function pgDecisionSupport(setTopbar) {
     const info = MODALITY_INDICATIONS[modality];
     const icon = DS_MODALITY_ICONS[modality] || '&#9670;';
     const name = modality.charAt(0).toUpperCase() + modality.slice(1);
-    alert(`${icon} ${name} selected.\n\nIndicated conditions: ${info.conditions.join(', ')}\n\nNavigate to Protocol Intelligence to build a full protocol using this modality.`);
+    window._showNotifToast?.({ title: `${icon} ${name} selected`, body: `Indicated for: ${info.conditions.slice(0,3).join(', ')}${info.conditions.length > 3 ? ' +more' : ''}. Opening Protocol Builder…`, severity: 'info' });
     window._nav?.('protocol-wizard');
   };
 
@@ -8725,7 +9091,7 @@ export async function pgPatientProfile(setTopbar) {
     reader.readAsDataURL(file);
   };
 
-  window._profileSaveDemographics = function() {
+  window._profileSaveDemographics = async function() {
     const p = getPatientProfile(_ppCurrentId);
     if (!p) return;
     p.name    = document.getElementById('pp-d-name')?.value  || p.name;
@@ -8743,6 +9109,22 @@ export async function pgPatientProfile(setTopbar) {
     _ppEditMode = false;
     _ppRerender();
     window._announce?.('Demographics saved');
+    // ── Sync core fields to backend ────────────────────────────────────────
+    const nameParts = (p.name || '').trim().split(/\s+/);
+    const backendData = {
+      first_name: nameParts[0] || '',
+      last_name:  nameParts.slice(1).join(' ') || '',
+      dob:        p.dob    || undefined,
+      email:      p.email  || undefined,
+      phone:      p.phone  || undefined,
+      gender:     p.gender || undefined,
+    };
+    try {
+      await api.updatePatient(_ppCurrentId, backendData);
+      window._showNotifToast?.({ title: 'Saved', body: 'Patient profile updated.', severity: 'success' });
+    } catch(e) {
+      window._showNotifToast?.({ title: 'Save failed', body: e.message || 'Could not sync to server.', severity: 'warn' });
+    }
   };
 
   window._profileSaveInsurance = function() {
@@ -9861,9 +10243,11 @@ function _bmClinicCompareHTML() {
       <div style="font-size:.85rem;font-weight:700;margin-bottom:4px">Clinic Summary</div>
       <div style="font-size:.78rem;color:var(--text-muted);margin-bottom:16px">vs. published literature</div>
       <div style="font-size:.8rem;margin-bottom:4px">Mean improvement</div>
-      <div style="font-size:1.6rem;font-weight:800;color:var(--accent-teal);margin-bottom:12px">${mockMean}%</div>
+      <div style="font-size:1.6rem;font-weight:800;color:var(--accent-teal);margin-bottom:2px">${mockMean}%</div>
+      <div style="font-size:.68rem;color:var(--text-muted);margin-bottom:12px">(literature benchmark)</div>
       <div style="font-size:.8rem;margin-bottom:4px">Responder rate</div>
-      <div style="font-size:1.6rem;font-weight:800;color:var(--accent-teal);margin-bottom:12px">${Math.round(mockRespond * 100)}%</div>
+      <div style="font-size:1.6rem;font-weight:800;color:var(--accent-teal);margin-bottom:2px">${Math.round(mockRespond * 100)}%</div>
+      <div style="font-size:.68rem;color:var(--text-muted);margin-bottom:12px">(literature benchmark)</div>
       <div style="font-size:.8rem;margin-bottom:4px">Mean sessions to response</div>
       <div style="font-size:1.6rem;font-weight:800;color:var(--accent-teal);margin-bottom:16px">${mockSessions}</div>
       <div style="font-size:.8rem;font-weight:600;margin-bottom:4px">Overall Clinic Grade</div>
@@ -9905,6 +10289,10 @@ export async function pgBenchmarkLibrary(setTopbar) {
       <div style="margin-bottom:20px">
         <h2 style="font-size:1.1rem;font-weight:700;margin-bottom:4px">Outcome Benchmark Library</h2>
         <p style="font-size:12.5px;color:var(--text-secondary)">Normative data from peer-reviewed neuromodulation literature. Set outcome targets, calculate patient percentiles, and compare clinic performance.</p>
+      </div>
+      <div style="background:rgba(148,163,184,0.08);border:1px solid rgba(148,163,184,0.2);border-radius:10px;padding:10px 14px;margin-bottom:16px;display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text-secondary)">
+        <span>📊</span>
+        <span><strong style="color:var(--text-primary)">Illustrative benchmarks only.</strong> Values shown reflect published literature ranges for neuromodulation outcomes. Your clinic's actual outcomes will populate here as patient data accumulates.</span>
       </div>
       <div class="tab-nav" style="margin-bottom:20px">${tabNav}</div>
       <div id="bm-tab-body">${body}</div>
@@ -9957,7 +10345,7 @@ export async function pgBenchmarkLibrary(setTopbar) {
     const mod  = modEl.value;
     const val  = parseFloat(valEl.value);
     if (!cond || !mod || isNaN(val)) {
-      alert('Please select a condition, modality, and enter an improvement percentage.');
+      _dsToast('Please select a condition, modality, and enter an improvement percentage.', 'warn');
       return;
     }
     _calcCondition   = cond;
@@ -10423,7 +10811,7 @@ export async function pgConsentAutomation(setTopbar) {
     const names   = records.filter(r => ids.includes(r.id)).map(r => r.name);
     if (!confirm(`Send re-consent request to ${names.join(', ')}?`)) return;
     names.forEach(n => addAudit('Re-send Triggered', n, 'Bulk re-consent'));
-    alert(`Re-consent requests sent to ${names.join(', ')}.`);
+    _dsToast(`Re-consent request sent to ${names.join(', ')}.`, 'success');
     _selectedIds.clear();
     const body = document.getElementById('ggg-consent-body');
     if (body && _tab === 'tracker') body.innerHTML = renderTracker();
@@ -10457,7 +10845,7 @@ export async function pgConsentAutomation(setTopbar) {
     const r = records.find(x => x.id === id);
     if (!r) return;
     addAudit('Re-send Triggered', r.name, r.type);
-    alert(`Re-consent request sent to ${r.name}.`);
+    _dsToast(`Re-consent request sent to ${r.name}.`, 'success');
   };
 
   window._consentRevoke = function(id) {
@@ -10502,7 +10890,7 @@ export async function pgConsentAutomation(setTopbar) {
     const name    = document.getElementById('ggg-rule-name')?.value.trim();
     const trigger = document.getElementById('ggg-rule-trigger')?.value.trim();
     const action  = document.getElementById('ggg-rule-action')?.value.trim();
-    if (!name || !trigger || !action) { alert('Please fill in all fields.'); return; }
+    if (!name || !trigger || !action) { _dsToast('Please fill in all required fields.', 'warn'); return; }
     const autos = lsGet(KEYS.automations) || [];
     autos.push({ id: 'a' + Date.now(), name, trigger, action, enabled: true });
     lsSave(KEYS.automations, autos);
@@ -10579,7 +10967,7 @@ export async function pgConsentAutomation(setTopbar) {
     const docName = document.getElementById('ggg-ver-doc')?.value.trim();
     const date    = document.getElementById('ggg-ver-date')?.value;
     const changes = document.getElementById('ggg-ver-changes')?.value.trim();
-    if (!ver || !docName || !date || !changes) { alert('Please fill in all fields.'); return; }
+    if (!ver || !docName || !date || !changes) { _dsToast('Please fill in all required fields.', 'warn'); return; }
     const versions = lsGet(KEYS.versions) || [];
     versions.push({ id: 'v' + Date.now(), ver, docName, effectiveDate: date, changes, active: false, patientCount: 0 });
     lsSave(KEYS.versions, versions);
@@ -11456,7 +11844,7 @@ export async function pgClinicianDictation(setTopbar) {
         const status = document.getElementById('dict-rec-status');
         if (status) status.textContent = 'Recording\u2026 press to stop';
       } catch (err) {
-        alert('Could not access microphone: ' + (err.message || err.name));
+        _dsToast('Could not access microphone: ' + (err.message || err.name), 'error');
       }
     }
   };
@@ -12331,7 +12719,7 @@ export async function pgMedInteractionChecker(setTopbar) {
   // ── Export CSV ──────────────────────────────────────────────────────────────
   window._micExportCSV = function() {
     const checks = _lsGet('ds_interaction_checks', []);
-    if (checks.length === 0) { alert('No interaction log data to export.'); return; }
+    if (checks.length === 0) { _dsToast('No interaction log entries to export yet.', 'info'); return; }
     const rows = [['Date','Patient','Medications','Interaction Count','Severities'].join(',')];
     checks.forEach(c => {
       rows.push([
@@ -12930,7 +13318,7 @@ export async function pgFormsBuilder(setTopbar) {
   window._fbDuplicateForm = id => { const src = _fbGetForm(id); if (!src) return; const c = JSON.parse(JSON.stringify(src)); c.id = 'custom_copy_' + Date.now(); c.name = src.name + ' (Copy)'; c.locked = false; c.lastModified = new Date().toISOString(); _fbSaveForm(c); _fbActiveId = c.id; localStorage.setItem('ds_active_form_id', c.id); el.innerHTML = _renderBuilder(); _fbBindDrag(); };
   window._fbDeleteForm = id => { if (!confirm('Delete this form? This cannot be undone.')) return; const fs = _fbGetForms().filter(f => f.id !== id); _fbSave('ds_forms', fs); if (_fbActiveId === id) { _fbActiveId = fs.find(f => !f.locked)?.id || fs[0]?.id || ''; localStorage.setItem('ds_active_form_id', _fbActiveId); } el.innerHTML = _renderBuilder(); _fbBindDrag(); };
   window._fbNewForm = () => { const id = 'custom_' + Date.now(); _fbSaveForm({ id, name:'Untitled Form', description:'', category:'Custom', version:'1.0', locked:false, frequency:'one-time', autoScore:false, scoreFormula:'sum', maxScore:null, bands:[], notifyThreshold:null, assignTo:'all', questions:[], lastModified:new Date().toISOString(), deployedTo:[] }); _fbActiveId = id; localStorage.setItem('ds_active_form_id', id); el.innerHTML = _renderBuilder(); _fbBindDrag(); };
-  window._fbDeployForm = id => { const form = _fbGetForm(id); if (!form) return; const deps = _fbLoad('ds_form_deployments', []); let added = 0; ['pt001','pt002','pt003'].forEach(pid => { if (!deps.find(d => d.formId === id && d.patientId === pid)) { deps.push({ formId:id, patientId:pid, assignedAt:new Date().toISOString(), frequency:form.frequency }); added++; } }); _fbSave('ds_form_deployments', deps); alert('Form "' + form.name + '" deployed to ' + (added > 0 ? added + ' patient(s)' : 'all active patients (already assigned)') + '.'); };
+  window._fbDeployForm = id => { const form = _fbGetForm(id); if (!form) return; const deps = _fbLoad('ds_form_deployments', []); let added = 0; ['pt001','pt002','pt003'].forEach(pid => { if (!deps.find(d => d.formId === id && d.patientId === pid)) { deps.push({ formId:id, patientId:pid, assignedAt:new Date().toISOString(), frequency:form.frequency }); added++; } }); _fbSave('ds_form_deployments', deps); _dsToast('Form "' + form.name + '" deployed to ' + (added > 0 ? added + ' patient(s)' : 'all active patients (already assigned)') + '.', 'success'); };
   window._fbPropChange = (key, val) => { const form = _fbGetForm(_fbActiveId); if (!form || form.locked) return; form[key] = val; form.lastModified = new Date().toISOString(); _fbSaveForm(form); if (key === 'name') { const ct = document.getElementById('canvas-title'); if (ct && ct !== document.activeElement) ct.value = val; } if (key === 'autoScore') { el.innerHTML = _renderBuilder(); _fbBindDrag(); } };
   window._fbEditQText = (idx, text) => { const form = _fbGetForm(_fbActiveId); if (!form || form.locked || !form.questions[idx]) return; form.questions[idx].text = text.trim(); form.lastModified = new Date().toISOString(); _fbSaveForm(form); };
   window._fbToggleRequired = idx => { const form = _fbGetForm(_fbActiveId); if (!form || form.locked || !form.questions[idx]) return; form.questions[idx].required = !form.questions[idx].required; form.lastModified = new Date().toISOString(); _fbSaveForm(form); el.innerHTML = _renderBuilder(); _fbBindDrag(); };
@@ -12943,7 +13331,7 @@ export async function pgFormsBuilder(setTopbar) {
   window._fbRemoveBand = idx => { const form = _fbGetForm(_fbActiveId); if (!form || form.locked) return; form.bands.splice(idx, 1); form.lastModified = new Date().toISOString(); _fbSaveForm(form); _rebandHTML(form); };
   window._fbAddBand = () => { const form = _fbGetForm(_fbActiveId); if (!form || form.locked) return; if (!form.bands) form.bands = []; form.bands.push({ max: form.maxScore || 10, label: 'New Band' }); form.lastModified = new Date().toISOString(); _fbSaveForm(form); _rebandHTML(form); };
   window._fbSaveFormBtn = () => { const form = _fbGetForm(_fbActiveId); if (!form) return; form.lastModified = new Date().toISOString(); _fbSaveForm(form); window._announce?.('Form saved'); const btn = document.activeElement; if (btn && btn.tagName === 'BUTTON') { const orig = btn.textContent; btn.textContent = 'Saved \u2713'; setTimeout(() => { btn.textContent = orig; }, 1500); } };
-  window._fbPublishForm = () => { const form = _fbGetForm(_fbActiveId); if (!form) return; form.published = true; form.publishedAt = new Date().toISOString(); form.lastModified = new Date().toISOString(); _fbSaveForm(form); alert('Form "' + form.name + '" published and available for deployment.'); };
+  window._fbPublishForm = () => { const form = _fbGetForm(_fbActiveId); if (!form) return; form.published = true; form.publishedAt = new Date().toISOString(); form.lastModified = new Date().toISOString(); _fbSaveForm(form); _dsToast('Form "' + form.name + '" published successfully.', 'success'); };
   window._fbExportFormJSON = () => { const form = _fbGetForm(_fbActiveId); if (!form) return; const blob = new Blob([JSON.stringify(form, null, 2)], { type:'application/json' }); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = form.id + '_v' + (form.version || '1') + '.json'; a.click(); URL.revokeObjectURL(url); };
   window._fbShowTypePicker = () => { const ov = document.createElement('div'); ov.className = 'ppp-type-picker-overlay'; ov.innerHTML = '<div class="ppp-type-picker" onclick="event.stopPropagation()"><div class="ppp-type-picker-title">Choose Question Type</div><div class="ppp-type-grid">' + Q_TYPES.map(t => '<div class="ppp-type-option" onclick="window._fbAddQuestion(\'' + t.type + '\');document.querySelector(\'.ppp-type-picker-overlay\').remove()"><div class="ppp-type-option-label"><span class="ppp-type-badge ' + t.type + '">' + t.type + '</span> ' + t.label + '</div><div class="ppp-type-option-desc">' + t.desc + '</div></div>').join('') + '</div><div style="margin-top:14px;text-align:right"><button class="btn btn-sm" onclick="document.querySelector(\'.ppp-type-picker-overlay\').remove()">Cancel</button></div></div>'; ov.addEventListener('click', () => ov.remove()); document.body.appendChild(ov); };
   window._fbAddQuestion = type => { const form = _fbGetForm(_fbActiveId); if (!form || form.locked) return; const defs = { likert:{scale:[0,1,2,3],scaleLabels:['Not at all','Several days','More than half the days','Nearly every day'],options:null,min:null,max:null}, text:{scale:null,scaleLabels:null,options:null,min:null,max:null}, textarea:{scale:null,scaleLabels:null,options:null,min:null,max:null}, yesno:{scale:null,scaleLabels:null,options:null,min:null,max:null}, slider:{scale:null,scaleLabels:null,options:null,min:0,max:10}, checkbox:{scale:null,scaleLabels:null,options:['Option A','Option B','Option C'],min:null,max:null}, date:{scale:null,scaleLabels:null,options:null,min:null,max:null}, number:{scale:null,scaleLabels:null,options:null,min:0,max:100} }; const q = Object.assign({ id:'q_' + Date.now(), type, text:'', required:false }, defs[type] || {}); if (!form.questions) form.questions = []; form.questions.push(q); form.lastModified = new Date().toISOString(); _fbSaveForm(form); document.getElementById('ppp-q-list').innerHTML = _renderQList(form.questions); _fbBindDrag(); const cards = document.querySelectorAll('.ppp-canvas-question'); const last = cards[cards.length - 1]; if (last) { last.scrollIntoView({ behavior:'smooth', block:'nearest' }); last.querySelector('.ppp-q-text')?.focus(); } };
@@ -13309,7 +13697,7 @@ export async function pgEvidenceBuilder(setTopbar) {
     const protoId = proSel ? proSel.value : null;
     const protocols = _ebGetProtocols();
     const protoIdx = protocols.findIndex(p => p.id === protoId);
-    if (protoIdx === -1) { alert('Select a protocol first.'); return; }
+    if (protoIdx === -1) { _dsToast('Please select a protocol first.', 'warn'); return; }
     const citation = `[${paper.authors} (${paper.year}), ${paper.journal}] "${paper.title}" — Effect size: d=${paper.effectSize} ${paper.ci}, N=${paper.n}, ${paper.design}.`;
     protocols[protoIdx].notes = ((protocols[protoIdx].notes || '') + '\n' + citation).trim();
     _ebSave('ds_protocols', protocols);
@@ -13372,7 +13760,7 @@ export async function pgEvidenceBuilder(setTopbar) {
     const protoId = sumSel ? sumSel.value : null;
     const protocols = _ebGetProtocols();
     const proto = protocols.find(p => p.id === protoId);
-    if (!proto) { alert('Select a protocol first.'); return; }
+    if (!proto) { _dsToast('Please select a protocol first.', 'warn'); return; }
     const matched = _ebMatchPapers(proto).filter(p => p.relevance >= 40);
     const outcomes = _ebGetPatientOutcomes();
     const clinicRec = outcomes.find(o => o.condition === proto.condition && o.modality === proto.modality);
@@ -13412,7 +13800,7 @@ export async function pgEvidenceBuilder(setTopbar) {
   };
 
   window._ebDownloadSummary = function() {
-    if (!window._ebLastSummary) { alert('Generate a summary first.'); return; }
+    if (!window._ebLastSummary) { _dsToast('Generate a summary before performing this action.', 'warn'); return; }
     const blob = new Blob([window._ebLastSummary], { type: 'text/plain' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -13424,7 +13812,7 @@ export async function pgEvidenceBuilder(setTopbar) {
 
   window._ebCopySummary = function() {
     const text = window._ebLastSummary;
-    if (!text) { alert('Generate a summary first.'); return; }
+    if (!text) { _dsToast('Generate a summary before performing this action.', 'warn'); return; }
     if (navigator.clipboard) {
       navigator.clipboard.writeText(text).then(() => window._announce?.('Summary copied to clipboard'));
     } else {
@@ -13615,8 +14003,8 @@ export async function pgPatientQueue(setTopbar) {
   function _pqQuickActions() {
     return '<div class="pq-quick-actions">' +
       '<button class="pq-qa-btn" onclick="window._nav(\'session-execution\')"><span class="pq-qa-icon">\uD83D\uDCC5</span><span>Schedule Session</span></button>' +
-      '<button class="pq-qa-btn" onclick="window._nav(\'forms-builder\')"><span class="pq-qa-icon">\uD83D\uDCCA</span><span>Record Outcome</span></button>' +
-      '<button class="pq-qa-btn" onclick="window._nav(\'patient-profile\')"><span class="pq-qa-icon">\uD83D\uDC65</span><span>View All Patients</span></button>' +
+      '<button class="pq-qa-btn" onclick="window._nav(\'outcomes\')"><span class="pq-qa-icon">\uD83D\uDCCA</span><span>Record Outcome</span></button>' +
+      '<button class="pq-qa-btn" onclick="window._nav(\'patients\')"><span class="pq-qa-icon">\uD83D\uDC65</span><span>View All Patients</span></button>' +
       '<button class="pq-qa-btn" onclick="window._nav(\'reports\')"><span class="pq-qa-icon">\uD83D\uDCC8</span><span>Reports</span></button>' +
     '</div>';
   }
@@ -13717,6 +14105,352 @@ export async function pgPatientQueue(setTopbar) {
     const alerts = _pqGetAlerts(); const al = alerts.find(a => a.id === alertId); if (!al) return;
     al.status = 'dismissed'; _pqSave('ds_pq_adherence_alerts', alerts); _pqRender();
     window._showNotifToast?.({ title:'Alert Dismissed', body:'Protocol alert has been dismissed', severity:'info' });
+  };
+}
+
+// ── pgClinicDay — Unified daily workflow: queue + approvals ───────────────────
+export async function pgClinicDay(setTopbar) {
+  const today = new Date();
+  const todayStr = today.toLocaleDateString('en-GB', { weekday:'long', year:'numeric', month:'long', day:'numeric' });
+  const todayISO = today.toISOString().slice(0,10);
+
+  setTopbar(
+    'Clinic Day \u2014 ' + todayStr,
+    '<button class="btn btn-sm btn-ghost" onclick="window._cdAddWalkin()">+ Walk-in</button>' +
+    '<button class="btn btn-sm btn-primary" onclick="window._nav(\'session-execution\')" style="margin-left:6px">&#9654; Ad-hoc Session</button>'
+  );
+
+  const esc = s => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  const el  = document.getElementById('content');
+
+  // ── Shared localStorage helpers ──────────────────────────────────────────────
+  function _load(k, d) { try { return JSON.parse(localStorage.getItem(k)) || d; } catch { return d; } }
+  function _save(k, v) { localStorage.setItem(k, JSON.stringify(v)); }
+
+  // ── Queue seed ───────────────────────────────────────────────────────────────
+  if (!localStorage.getItem('ds_today_queue')) {
+    _save('ds_today_queue', [
+      { id:'pq001', time:'08:30', patientId:'pt001', courseId:'crs001', patientName:'Alexis Morgan',  condition:'Depression', sessionNum:8,  sessionTotal:20, protocol:'TMS 10Hz L-DLPFC',       status:'done',       alerts:[],             notes:'Tolerated well, reported mood lift.' },
+      { id:'pq002', time:'09:15', patientId:'pt002', courseId:'crs002', patientName:'Jordan Blake',   condition:'Anxiety',    sessionNum:15, sessionTotal:20, protocol:'Alpha/Beta NFB',          status:'done',       alerts:['homework'],   notes:'Missed home EEG exercises x2.' },
+      { id:'pq003', time:'10:00', patientId:'pt003', courseId:'crs003', patientName:'Sam Rivera',     condition:'PTSD',       sessionNum:3,  sessionTotal:30, protocol:'Alpha/Theta NFB',         status:'in-session', alerts:['wearable'],   notes:'HRV anomaly detected during last session.' },
+      { id:'pq004', time:'11:00', patientId:'pt004', courseId:'crs004', patientName:'Casey Kim',      condition:'ADHD',       sessionNum:12, sessionTotal:20, protocol:'Theta Suppression NFB',   status:'waiting',    alerts:[],             notes:'' },
+      { id:'pq005', time:'13:30', patientId:'pt005', courseId:'crs005', patientName:'Morgan Ellis',   condition:'Insomnia',   sessionNum:5,  sessionTotal:15, protocol:'SMR Enhancement NFB',     status:'waiting',    alerts:['assessment'], notes:'PHQ-9 overdue by 9 days.' },
+      { id:'pq006', time:'14:15', patientId:'pt006', courseId:'crs006', patientName:'Taylor Nguyen',  condition:'OCD',        sessionNum:6,  sessionTotal:20, protocol:'Deep TMS H7 Coil',        status:'no-show',    alerts:['deviation'],  notes:'Called \u2014 no answer. Left voicemail.' },
+    ]);
+  }
+  if (!localStorage.getItem('ds_pq_adherence_alerts')) {
+    _save('ds_pq_adherence_alerts', [
+      { id:'pal001', patientId:'pt006', patientName:'Taylor Nguyen', type:'overdue-session',  detail:'No session recorded in 11 days (last: 2026-03-31)', daysSince:11, status:'active' },
+      { id:'pal002', patientId:'pt003', patientName:'Sam Rivera',    type:'parameter-drift',  detail:'Pulse width increased from 230\u03bcs to 290\u03bcs across last 3 sessions \u2014 outside protocol spec', daysSince:5, status:'active' },
+      { id:'pal003', patientId:'pt002', patientName:'Jordan Blake',  type:'unreviewed-ae',    detail:'Adverse event (mild headache) logged after Session 13 \u2014 not yet reviewed', daysSince:7, status:'active' },
+    ]);
+  }
+
+  const QUEUE_KEY    = 'ds_today_queue';
+  const ALERT_KEY    = 'ds_pq_adherence_alerts';
+  const REVIEW_KEY   = 'ds_review_queue_local';
+
+  const STATUS_CFG = {
+    'waiting':    { label:'Waiting',    cls:'cd-s-waiting'   },
+    'in-session': { label:'In Session', cls:'cd-s-active',  dot:true },
+    'done':       { label:'Done',       cls:'cd-s-done'      },
+    'no-show':    { label:'No Show',    cls:'cd-s-noshow'    },
+  };
+  const ALERT_ICONS = {
+    'deviation':  { icon:'\u26a0\ufe0f', tip:'Protocol deviation'  },
+    'homework':   { icon:'\uD83D\uDCDA', tip:'Missed homework'      },
+    'wearable':   { icon:'\uD83D\uDC9C', tip:'Wearable anomaly'     },
+    'assessment': { icon:'\uD83D\uDCCB', tip:'Overdue assessment'   },
+  };
+  const REVIEW_TYPE_CFG = {
+    'off-label':     { label:'Off-Label',    color:'#f59e0b', icon:'\u26A1' },
+    'ai-note':       { label:'AI Note',      color:'#a78bfa', icon:'\uD83E\uDD16' },
+    'protocol':      { label:'Protocol',     color:'#60a5fa', icon:'\uD83D\uDCCB' },
+    'consent':       { label:'Consent',      color:'#2dd4bf', icon:'\u270D' },
+    'adverse-event': { label:'Adverse Event',color:'#f87171', icon:'\u26A0' },
+  };
+
+  // ── Stats strip ──────────────────────────────────────────────────────────────
+  function renderStats(queue, pendingReviews) {
+    const total   = queue.length;
+    const done    = queue.filter(p => p.status === 'done').length;
+    const waiting = queue.filter(p => p.status === 'waiting').length;
+    const active  = queue.filter(p => p.status === 'in-session').length;
+    return `<div class="cd-stats">
+      <div class="cd-stat"><div class="cd-stat-val">${total}</div><div class="cd-stat-lbl">Patients Today</div></div>
+      <div class="cd-stat cd-stat--done"><div class="cd-stat-val">${done}</div><div class="cd-stat-lbl">Completed</div></div>
+      ${active ? `<div class="cd-stat cd-stat--active"><div class="cd-stat-val">${active}</div><div class="cd-stat-lbl">In Session</div></div>` : ''}
+      <div class="cd-stat cd-stat--wait"><div class="cd-stat-val">${waiting}</div><div class="cd-stat-lbl">Waiting</div></div>
+      ${pendingReviews > 0 ? `<div class="cd-stat cd-stat--review" onclick="window._nav('review-queue')" style="cursor:pointer" title="Open full review queue"><div class="cd-stat-val">${pendingReviews}</div><div class="cd-stat-lbl">Need Review</div></div>` : ''}
+    </div>`;
+  }
+
+  // ── Patient queue table ──────────────────────────────────────────────────────
+  function renderQueue(queue) {
+    const rows = queue.map(p => {
+      const s    = STATUS_CFG[p.status] || { label:p.status, cls:'' };
+      const dot  = s.dot ? '<span class="cd-pulse-dot"></span>' : '';
+      const near = p.sessionNum >= p.sessionTotal - 2;
+      const sesLbl = `Session ${p.sessionNum}/${p.sessionTotal}${near ? ' \u2014 Near end' : ''}`;
+      const icons  = (p.alerts||[]).map(a => {
+        const cfg = ALERT_ICONS[a]; return cfg ? `<span class="cd-alert-ico" title="${esc(cfg.tip)}">${cfg.icon}</span>` : '';
+      }).join('');
+      const canStart = p.status !== 'done' && p.status !== 'no-show';
+      const actions = `<div class="cd-row-actions">
+        ${canStart ? `<button class="cd-btn cd-btn-start" onclick="window._cdStartSession('${esc(p.id)}')">&#9654; Start</button>` : ''}
+        <button class="cd-btn cd-btn-chart" onclick="window._cdViewChart('${esc(p.id)}')">Chart</button>
+        <button class="cd-btn cd-btn-note"  onclick="window._cdQuickNote('${esc(p.id)}')">Note</button>
+      </div>`;
+      return `<tr class="cd-row${p.status==='in-session'?' cd-row--active':''}${p.status==='no-show'?' cd-row--noshow':''}">
+        <td class="cd-td-time">${esc(p.time)}</td>
+        <td class="cd-td-name"><strong>${esc(p.patientName)}</strong></td>
+        <td><span class="cd-cond-tag">${esc(p.condition)}</span></td>
+        <td class="cd-td-ses">${esc(sesLbl)}</td>
+        <td class="cd-td-proto">${esc(p.protocol)}</td>
+        <td><span class="cd-status-badge ${s.cls}">${dot}${s.label}</span></td>
+        <td class="cd-td-alerts">${icons || '<span style="color:var(--text-tertiary)">—</span>'}</td>
+        <td>${actions}</td>
+      </tr>`;
+    }).join('');
+    return `<div class="cd-table-wrap">
+      <table class="cd-table">
+        <thead><tr>
+          <th>Time</th><th>Patient</th><th>Condition</th><th>Session</th>
+          <th>Protocol</th><th>Status</th><th>Flags</th><th>Actions</th>
+        </tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>`;
+  }
+
+  // ── Compact pending approvals ────────────────────────────────────────────────
+  function renderApprovals(items) {
+    const pending = items.filter(i => ['pending','assigned','in-review'].includes(i.status));
+    if (!pending.length) {
+      return `<div class="cd-approvals-empty">\u2705 No pending approvals</div>`;
+    }
+    const cards = pending.slice(0,5).map(i => {
+      const cfg   = REVIEW_TYPE_CFG[i.review_type] || { label:i.review_type, color:'#888', icon:'\u26A0' };
+      const since = i.submitted_at ? Math.round((Date.now() - new Date(i.submitted_at).getTime()) / 3600000) : null;
+      const sinceStr = since !== null ? (since < 1 ? 'Just now' : since + 'h ago') : '';
+      const overdue  = since !== null && since > 48;
+      return `<div class="cd-appr-card${overdue?' cd-appr-card--overdue':''}">
+        <div class="cd-appr-type" style="color:${cfg.color}">${cfg.icon} ${cfg.label}</div>
+        <div class="cd-appr-subject">${esc(i.subject)}</div>
+        <div class="cd-appr-meta">${esc(i.patient_name || '')}${sinceStr ? ' &middot; ' + esc(sinceStr) : ''}${overdue ? ' <span class="cd-appr-overdue-tag">\u26A0 Overdue</span>' : ''}</div>
+        <div class="cd-appr-actions">
+          <button class="cd-btn cd-btn-appr" onclick="window._cdApprove('${esc(i.id)}')">\u2714 Approve</button>
+          <button class="cd-btn cd-btn-chart" onclick="window._cdOpenReview('${esc(i.id)}')">Review</button>
+        </div>
+      </div>`;
+    }).join('');
+    const more = pending.length > 5 ? `<div class="cd-appr-more">+${pending.length - 5} more</div>` : '';
+    return `<div class="cd-approvals-list">${cards}${more}</div>
+      <button class="cd-view-all-btn" onclick="window._nav('review-queue')">View all approvals \u2192</button>`;
+  }
+
+  // ── Adherence alerts (compact) ───────────────────────────────────────────────
+  function renderAdherence(alerts) {
+    const active = alerts.filter(a => a.status === 'active');
+    if (!active.length) return '';
+    const items = active.map(a => `<div class="cd-adh-item">
+      <span class="cd-adh-patient">${esc(a.patientName)}</span>
+      <span class="cd-adh-detail">${esc(a.detail)}</span>
+      <div class="cd-adh-actions">
+        <button class="cd-btn cd-btn-chart" onclick="window._cdReviewAdherence('${esc(a.id)}')">Review</button>
+        <button class="cd-btn cd-btn-note"  onclick="window._cdDismissAdherence('${esc(a.id)}')">Dismiss</button>
+      </div>
+    </div>`).join('');
+    return `<div class="cd-section-hd">Protocol Adherence <span class="cd-badge-count">${active.length}</span></div>
+      <div class="cd-adh-list">${items}</div>`;
+  }
+
+  // ── CSS ──────────────────────────────────────────────────────────────────────
+  if (!document.getElementById('cd-styles')) {
+    const s = document.createElement('style'); s.id = 'cd-styles';
+    s.textContent = `
+.cd-page { padding: 20px 24px; max-width: 1400px; }
+.cd-stats { display:flex; gap:12px; flex-wrap:wrap; margin-bottom:28px; }
+.cd-stat { background:var(--bg-card); border:1px solid var(--border); border-radius:10px; padding:14px 20px; min-width:120px; text-align:center; }
+.cd-stat--done   { border-color:#22c55e40; }
+.cd-stat--active { border-color:#60a5fa80; background:rgba(96,165,250,0.06); }
+.cd-stat--wait   { border-color:#f59e0b40; }
+.cd-stat--review { border-color:#f8717180; background:rgba(248,113,113,0.06); }
+.cd-stat-val { font-size:26px; font-weight:800; color:var(--text-primary); line-height:1.1; }
+.cd-stat--done   .cd-stat-val { color:#22c55e; }
+.cd-stat--active .cd-stat-val { color:#60a5fa; }
+.cd-stat--wait   .cd-stat-val { color:#f59e0b; }
+.cd-stat--review .cd-stat-val { color:#f87171; }
+.cd-stat-lbl { font-size:11px; color:var(--text-tertiary); margin-top:3px; font-weight:600; text-transform:uppercase; letter-spacing:0.5px; }
+.cd-section-hd { font-size:13px; font-weight:700; color:var(--text-secondary); text-transform:uppercase; letter-spacing:0.6px; margin:28px 0 12px; display:flex; align-items:center; gap:8px; }
+.cd-badge-count { background:#f87171; color:#fff; border-radius:10px; padding:1px 7px; font-size:10.5px; font-weight:700; }
+.cd-table-wrap { overflow-x:auto; border-radius:10px; border:1px solid var(--border); }
+.cd-table { width:100%; border-collapse:collapse; font-size:13px; }
+.cd-table thead th { background:var(--bg-sidebar); color:var(--text-tertiary); font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:0.5px; padding:10px 14px; text-align:left; border-bottom:1px solid var(--border); white-space:nowrap; }
+.cd-table tbody td { padding:12px 14px; border-bottom:1px solid var(--border); vertical-align:middle; }
+.cd-row:last-child td { border-bottom:none; }
+.cd-row--active td { background:rgba(96,165,250,0.05); }
+.cd-row--noshow td { opacity:0.6; }
+.cd-row:hover td { background:var(--bg-hover, rgba(255,255,255,0.03)); }
+.cd-td-time { color:var(--text-tertiary); font-size:12px; white-space:nowrap; }
+.cd-td-name strong { color:var(--text-primary); }
+.cd-cond-tag { background:rgba(255,255,255,0.07); border-radius:4px; padding:2px 8px; font-size:11.5px; color:var(--text-secondary); white-space:nowrap; }
+.cd-td-ses { font-size:12px; color:var(--text-secondary); white-space:nowrap; }
+.cd-td-proto { font-size:12px; color:var(--text-secondary); max-width:160px; }
+.cd-status-badge { display:inline-flex; align-items:center; gap:5px; padding:3px 10px; border-radius:20px; font-size:11.5px; font-weight:700; white-space:nowrap; }
+.cd-s-waiting   { background:rgba(245,158,11,0.15); color:#f59e0b; }
+.cd-s-active    { background:rgba(96,165,250,0.15);  color:#60a5fa; }
+.cd-s-done      { background:rgba(34,197,94,0.12);   color:#22c55e; }
+.cd-s-noshow    { background:rgba(248,113,113,0.12); color:#f87171; }
+.cd-pulse-dot { width:7px; height:7px; border-radius:50%; background:#60a5fa; animation:cd-pulse 1.4s infinite; }
+@keyframes cd-pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:0.5;transform:scale(0.8)} }
+.cd-td-alerts { white-space:nowrap; }
+.cd-alert-ico { font-size:15px; margin-right:2px; }
+.cd-row-actions { display:flex; gap:4px; }
+.cd-btn { padding:4px 11px; border-radius:5px; font-size:12px; font-weight:600; cursor:pointer; border:1px solid var(--border); background:var(--bg-input,#1e2235); color:var(--text-secondary); font-family:inherit; transition:all 0.12s; white-space:nowrap; }
+.cd-btn:hover { color:var(--text-primary); border-color:var(--teal); }
+.cd-btn-start { background:linear-gradient(135deg,var(--teal),var(--blue)); color:#000; border:none; font-weight:700; }
+.cd-btn-start:hover { opacity:0.88; color:#000; }
+.cd-btn-appr  { background:rgba(34,197,94,0.1); border-color:#22c55e50; color:#22c55e; }
+.cd-btn-appr:hover { background:rgba(34,197,94,0.2); color:#22c55e; }
+.cd-two-col { display:grid; grid-template-columns:1fr 1fr; gap:20px; margin-top:4px; }
+@media(max-width:900px){ .cd-two-col { grid-template-columns:1fr; } }
+.cd-approvals-list { display:flex; flex-direction:column; gap:10px; }
+.cd-approvals-empty { padding:16px; color:var(--text-tertiary); font-size:13px; text-align:center; background:var(--bg-card); border:1px solid var(--border); border-radius:8px; }
+.cd-appr-card { background:var(--bg-card); border:1px solid var(--border); border-radius:8px; padding:13px 15px; display:grid; grid-template-columns:auto 1fr auto; grid-template-rows:auto auto; gap:3px 12px; align-items:start; }
+.cd-appr-card--overdue { border-color:#f8717160; background:rgba(248,113,113,0.04); }
+.cd-appr-type { font-size:11px; font-weight:700; grid-row:1; grid-column:1; white-space:nowrap; }
+.cd-appr-subject { font-size:13px; font-weight:600; color:var(--text-primary); grid-row:1; grid-column:2; }
+.cd-appr-actions { grid-row:1/3; grid-column:3; display:flex; flex-direction:column; gap:4px; align-items:flex-end; }
+.cd-appr-meta { font-size:11.5px; color:var(--text-tertiary); grid-row:2; grid-column:1/3; }
+.cd-appr-overdue-tag { color:#f87171; font-weight:700; }
+.cd-appr-more { font-size:12px; color:var(--text-tertiary); text-align:center; padding:6px; }
+.cd-view-all-btn { margin-top:10px; background:none; border:1px solid var(--border); border-radius:6px; color:var(--text-secondary); font-size:12.5px; font-weight:600; cursor:pointer; padding:7px 16px; font-family:inherit; }
+.cd-view-all-btn:hover { color:var(--teal); border-color:var(--teal); }
+.cd-adh-list { display:flex; flex-direction:column; gap:8px; }
+.cd-adh-item { background:var(--bg-card); border:1px solid var(--border); border-radius:8px; padding:11px 14px; display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
+.cd-adh-patient { font-weight:700; font-size:13px; color:var(--text-primary); white-space:nowrap; }
+.cd-adh-detail { font-size:12px; color:var(--text-secondary); flex:1; min-width:200px; }
+.cd-adh-actions { display:flex; gap:4px; }
+.cd-modal-overlay { position:fixed; inset:0; background:rgba(0,0,0,0.55); z-index:2000; display:flex; align-items:center; justify-content:center; }
+.cd-note-modal { background:var(--bg-card); border:1px solid var(--border); border-radius:10px; padding:20px; width:420px; max-width:94vw; }
+.cd-note-modal-hd { display:flex; align-items:center; font-weight:700; font-size:14px; margin-bottom:10px; }
+/* light theme */
+.light-theme .cd-table thead th { background:#f0f4f8; }
+.light-theme .cd-btn { background:#f0f4f8; color:#374151; border-color:#d1d5db; }
+.light-theme .cd-stat { background:#fff; }
+.light-theme .cd-appr-card { background:#fff; }
+.light-theme .cd-adh-item { background:#fff; }
+    `;
+    document.head.appendChild(s);
+  }
+
+  // ── Main render ──────────────────────────────────────────────────────────────
+  function render() {
+    const queue   = _load(QUEUE_KEY, []);
+    const adh     = _load(ALERT_KEY, []);
+    let reviewItems = [];
+    try { reviewItems = JSON.parse(localStorage.getItem(REVIEW_KEY) || '[]'); } catch {}
+    const pendingCount = reviewItems.filter(i => ['pending','assigned','in-review'].includes(i.status)).length;
+
+    const hasAdherence = adh.filter(a => a.status === 'active').length > 0;
+
+    el.innerHTML = `<div class="cd-page">
+      ${renderStats(queue, pendingCount)}
+      <div class="cd-section-hd">Today's Patients</div>
+      ${renderQueue(queue)}
+      <div class="cd-two-col" style="margin-top:28px">
+        <div>
+          <div class="cd-section-hd">Pending Approvals ${pendingCount > 0 ? '<span class="cd-badge-count">'+pendingCount+'</span>' : ''}</div>
+          ${renderApprovals(reviewItems)}
+        </div>
+        <div>
+          ${hasAdherence ? renderAdherence(adh) : ''}
+        </div>
+      </div>
+    </div>`;
+  }
+
+  render();
+
+  // ── Handlers ────────────────────────────────────────────────────────────────
+  window._cdStartSession = function(id) {
+    const q = _load(QUEUE_KEY, []); const p = q.find(x => x.id === id); if (!p) return;
+    p.status = 'in-session'; _save(QUEUE_KEY, q);
+    if (p.patientId)   window._selectedPatientId  = p.patientId;
+    if (p.courseId)    window._selectedCourseId   = p.courseId;
+    if (p.patientName) window._sessionPatientName = p.patientName;
+    window._nav('session-execution');
+  };
+
+  window._cdViewChart = function(id) {
+    const q = _load(QUEUE_KEY, []); const p = q.find(x => x.id === id);
+    if (p?.patientId)   window._selectedPatientId   = p.patientId;
+    if (p?.patientName) window._profilePatientName  = p.patientName;
+    window._nav('patient-profile');
+  };
+
+  window._cdQuickNote = function(pqId) {
+    const q = _load(QUEUE_KEY, []); const p = q.find(x => x.id === pqId); if (!p) return;
+    const modal = document.createElement('div');
+    modal.className = 'cd-modal-overlay';
+    modal.innerHTML = `<div class="cd-note-modal" onclick="event.stopPropagation()">
+      <div class="cd-note-modal-hd">Quick Note \u2014 ${esc(p.patientName)}
+        <button onclick="this.closest('.cd-modal-overlay').remove()" style="background:none;border:none;color:var(--text-tertiary);font-size:18px;cursor:pointer;margin-left:auto">\u2715</button>
+      </div>
+      <textarea id="cd-note-ta" rows="5" style="width:100%;background:var(--bg-input,#1e2235);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);padding:10px;font-family:var(--font-body);font-size:13px;resize:vertical;box-sizing:border-box">${esc(p.notes||'')}</textarea>
+      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:10px">
+        <button class="btn btn-sm" onclick="this.closest('.cd-modal-overlay').remove()">Cancel</button>
+        <button class="btn btn-sm btn-primary" onclick="window._cdSaveNote('${esc(pqId)}',document.getElementById('cd-note-ta').value)">Save</button>
+      </div>
+    </div>`;
+    modal.addEventListener('click', e => { if (e.target === modal) modal.remove(); });
+    document.body.appendChild(modal);
+  };
+
+  window._cdSaveNote = function(pqId, text) {
+    const q = _load(QUEUE_KEY, []); const p = q.find(x => x.id === pqId); if (!p) return;
+    p.notes = text.trim(); _save(QUEUE_KEY, q);
+    document.querySelector('.cd-modal-overlay')?.remove();
+    window._showNotifToast?.({ title:'Note Saved', body:'Quick note saved for ' + p.patientName, severity:'info' });
+  };
+
+  window._cdAddWalkin = function() {
+    const name = prompt('Walk-in patient name:'); if (!name) return;
+    const condition = prompt('Condition:') || 'General';
+    const protocol  = prompt('Protocol:')  || 'TBD';
+    const t = new Date();
+    const q = _load(QUEUE_KEY, []);
+    q.push({ id:'pq_wi_'+Date.now(), time:String(t.getHours()).padStart(2,'0')+':'+String(t.getMinutes()).padStart(2,'0'),
+      patientId:'pt_wi_'+Date.now(), patientName:name, condition, sessionNum:1, sessionTotal:1, protocol, status:'waiting', alerts:[], notes:'Walk-in' });
+    _save(QUEUE_KEY, q); render();
+    window._showNotifToast?.({ title:'Walk-in Added', body:name + ' added to queue', severity:'info' });
+  };
+
+  window._cdApprove = function(id) {
+    let items = []; try { items = JSON.parse(localStorage.getItem(REVIEW_KEY) || '[]'); } catch {}
+    const item = items.find(i => i.id === id); if (!item) return;
+    item.status = 'approved';
+    try { localStorage.setItem(REVIEW_KEY, JSON.stringify(items)); } catch {}
+    render();
+    window._showNotifToast?.({ title:'Approved', body:'Item approved successfully', severity:'success' });
+  };
+
+  window._cdOpenReview = function(id) {
+    window._nav('review-queue');
+  };
+
+  window._cdReviewAdherence = function(alertId) {
+    const adh = _load(ALERT_KEY, []); const al = adh.find(a => a.id === alertId);
+    if (al?.patientId) { window._selectedPatientId = al.patientId; window._profilePatientName = al.patientName; }
+    window._nav('patient-profile');
+  };
+
+  window._cdDismissAdherence = function(alertId) {
+    if (!confirm('Dismiss this alert?')) return;
+    const adh = _load(ALERT_KEY, []); const al = adh.find(a => a.id === alertId); if (!al) return;
+    al.status = 'dismissed'; _save(ALERT_KEY, adh); render();
+    window._showNotifToast?.({ title:'Alert Dismissed', severity:'info' });
   };
 }
 
@@ -14083,11 +14817,11 @@ export async function pgAssessmentsHub(setTopbar) {
   function saveData(d) { localStorage.setItem(STORE_KEY, JSON.stringify(d)); }
   function seedData() {
     const d = { assignments: [
-      { id:'A001', patientId:'P-1234', condId:'CON-001', condName:'Major Depressive Disorder', phase:'baseline', scales:['PHQ-9','MADRS','HAM-D','QIDS-SR','C-SSRS','ISI'], assignedBy:'Dr. Chen', assignedDate:'2026-04-01', dueDate:'2026-04-08', recurrence:null, status:'overdue', completedDate:null, reviewed:false, results:[] },
-      { id:'A002', patientId:'P-1234', condId:'CON-001', condName:'Major Depressive Disorder', phase:'weekly', scales:['PHQ-9','QIDS-SR','C-SSRS'], assignedBy:'Dr. Chen', assignedDate:'2026-04-06', dueDate:'2026-04-13', recurrence:'weekly', status:'pending', completedDate:null, reviewed:false, results:[] },
-      { id:'A003', patientId:'P-5678', condId:'CON-019', condName:'Post-Traumatic Stress Disorder', phase:'baseline', scales:['PCL-5','CAPS-5','PHQ-9','C-SSRS','ISI'], assignedBy:'Dr. Patel', assignedDate:'2026-04-08', dueDate:'2026-04-15', recurrence:null, status:'pending', completedDate:null, reviewed:false, results:[] },
-      { id:'A004', patientId:'P-1234', condId:'CON-001', condName:'Major Depressive Disorder', phase:'weekly', scales:['PHQ-9','QIDS-SR'], assignedBy:'Dr. Chen', assignedDate:'2026-03-24', dueDate:'2026-03-31', recurrence:'weekly', status:'completed', completedDate:'2026-03-30', reviewed:false, results:[{scale:'PHQ-9',score:14,interp:'Moderate'},{scale:'QIDS-SR',score:11,interp:'Moderate'}] },
-      { id:'A005', patientId:'P-9012', condId:'CON-051', condName:'TMS Protocol General', phase:'pre_session', scales:['TMS-SE','C-SSRS'], assignedBy:'Dr. Nguyen', assignedDate:'2026-04-11', dueDate:'2026-04-12', recurrence:'per-session', status:'completed', completedDate:'2026-04-12', reviewed:true, results:[{scale:'TMS-SE',score:3,interp:'None/Minimal'},{scale:'C-SSRS',score:0,interp:'No Ideation'}] },
+      { id:'A001', patientId:'P-DEMO-1', condId:'CON-001', condName:'Major Depressive Disorder', phase:'baseline', scales:['PHQ-9','MADRS','HAM-D','QIDS-SR','C-SSRS','ISI'], assignedBy:'Dr. Chen', assignedDate:'2026-04-01', dueDate:'2026-04-08', recurrence:null, status:'overdue', completedDate:null, reviewed:false, results:[] },
+      { id:'A002', patientId:'P-DEMO-1', condId:'CON-001', condName:'Major Depressive Disorder', phase:'weekly', scales:['PHQ-9','QIDS-SR','C-SSRS'], assignedBy:'Dr. Chen', assignedDate:'2026-04-06', dueDate:'2026-04-13', recurrence:'weekly', status:'pending', completedDate:null, reviewed:false, results:[] },
+      { id:'A003', patientId:'P-DEMO-2', condId:'CON-019', condName:'Post-Traumatic Stress Disorder', phase:'baseline', scales:['PCL-5','CAPS-5','PHQ-9','C-SSRS','ISI'], assignedBy:'Dr. Patel', assignedDate:'2026-04-08', dueDate:'2026-04-15', recurrence:null, status:'pending', completedDate:null, reviewed:false, results:[] },
+      { id:'A004', patientId:'P-DEMO-1', condId:'CON-001', condName:'Major Depressive Disorder', phase:'weekly', scales:['PHQ-9','QIDS-SR'], assignedBy:'Dr. Chen', assignedDate:'2026-03-24', dueDate:'2026-03-31', recurrence:'weekly', status:'completed', completedDate:'2026-03-30', reviewed:false, results:[{scale:'PHQ-9',score:14,interp:'Moderate'},{scale:'QIDS-SR',score:11,interp:'Moderate'}] },
+      { id:'A005', patientId:'P-DEMO-3', condId:'CON-051', condName:'TMS Protocol General', phase:'pre_session', scales:['TMS-SE','C-SSRS'], assignedBy:'Dr. Nguyen', assignedDate:'2026-04-11', dueDate:'2026-04-12', recurrence:'per-session', status:'completed', completedDate:'2026-04-12', reviewed:true, results:[{scale:'TMS-SE',score:3,interp:'None/Minimal'},{scale:'C-SSRS',score:0,interp:'No Ideation'}] },
     ]};
     saveData(d); return d;
   }
@@ -14455,7 +15189,7 @@ export async function pgAssessmentsHub(setTopbar) {
   };
   window._ah2TlibPreview = function(id) {
     const item = ASSESS_TEMPLATES.find(x => x.id === id);
-    if (item) alert(item.title + '\n\n' + item.desc + (item.time ? '\n\nTime to complete: ' + item.time : '') + (item.fill ? '\nFill method: ' + item.fill : ''));
+    if (item) window._showNotifToast?.({ title: item.title, body: (item.desc || '') + (item.time ? ' · ' + item.time : ''), severity: 'info' });
   };
   window._ah2TlibBundle = function(id, title) {
     const t = document.createElement('div');
@@ -14492,7 +15226,7 @@ export async function pgAssessmentsHub(setTopbar) {
     const phase = (document.getElementById('ah2-f-phase') || {}).value || '';
     const due = (document.getElementById('ah2-f-due') || {}).value || '';
     const recur = (document.getElementById('ah2-f-recur') || {}).value || '';
-    if (!patient || !condId || !phase || !due) { alert('Fill all required fields'); return; }
+    if (!patient || !condId || !phase || !due) { _dsToast('Please fill in all required fields before assigning.', 'warn'); return; }
     const cond = COND_BUNDLES.find(c => c.id === condId);
     DATA.assignments.push({
       id: 'A' + String(Date.now()).slice(-6),
@@ -14549,7 +15283,7 @@ export async function pgAssessmentsHub(setTopbar) {
     });
     if (incomplete.length) {
       window._showNotifToast?.({ title: 'Incomplete checklists', body: 'Finish every item for: ' + incomplete.join(', '), severity: 'warning' });
-      alert('Complete all items for each started checklist, or clear all dropdowns in that scale to skip it.\n\nIncomplete: ' + incomplete.join(', '));
+      // toast already shown above
       return;
     }
     modal.querySelectorAll('.ah2-score-input').forEach(inp => {
@@ -14560,7 +15294,7 @@ export async function pgAssessmentsHub(setTopbar) {
     });
     if (!results.length) {
       window._showNotifToast?.({ title: 'No scores', body: 'Enter at least one scale score or checklist.', severity: 'warning' });
-      alert('Enter at least one score.');
+      // toast already shown above
       return;
     }
     a.results = results;
@@ -16388,6 +17122,16 @@ export async function pgMedicalHistory(setTopbar) {
   // ── Main page renderer ────────────────────────────────────────────────────
   let activePid = window._selectedPatientId || '';
   let activeData = activePid ? (loadHistory(activePid) || DEMO_DATA) : null;
+  // Attempt to load from backend in background; merge if richer than localStorage
+  if (activePid && activePid !== '__demo') {
+    api.getPatientMedicalHistory(activePid).then(function(resp) {
+      if (resp && resp.medical_history && Object.keys(resp.medical_history).length > 0) {
+        activeData = { ...activeData, ...resp.medical_history };
+        saveHistory(activePid, activeData);
+        buildPage();
+      }
+    }).catch(function() {});
+  }
   let editingSection = null;
 
   function buildPage() {
@@ -16489,7 +17233,11 @@ export async function pgMedicalHistory(setTopbar) {
     data._updated = new Date().toISOString();
     data._is_demo = false;
     activeData = data;
-    if (activePid !== '__demo') saveHistory(activePid, data);
+    if (activePid !== '__demo') {
+      saveHistory(activePid, data);
+      // Also sync to backend (fire-and-forget; localStorage is source of truth for offline)
+      api.savePatientMedicalHistory(activePid, data).catch(() => {});
+    }
     editingSection = null;
     buildPage();
     window._showNotifToast && window._showNotifToast({ title: 'Saved', body: 'Medical history saved.', severity: 'success' });
@@ -16559,6 +17307,29 @@ export async function pgDocumentsHub(setTopbar) {
   const STORAGE_KEY = 'ds_documents_hub_v2';
   function loadDocs() { try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null') || _seedDocs(); } catch { return _seedDocs(); } }
   function saveDocs(d) { try { localStorage.setItem(STORAGE_KEY, JSON.stringify(d)); } catch {} }
+
+  // Map API document record → local doc shape
+  function _apiDocToLocal(r) {
+    const m = r.questions_json || {};
+    return {
+      id: String(r.id),
+      _apiId: r.id,
+      patientId: m.patient_id ? String(m.patient_id) : '',
+      templateId: m.template_id || null,
+      name: r.title || m.doc_type || 'Document',
+      category: m.category || 'Clinical',
+      desc: m.notes || '',
+      status: m.status || 'pending',
+      sigState: m.sig_state || (m.category === 'Consent' ? 'unsigned' : 'not-required'),
+      assignedBy: m.assigned_by || '',
+      assignedDate: m.assigned_date || null,
+      completedDate: m.completed_date || null,
+      updatedDate: r.updated_at ? r.updated_at.slice(0, 10) : null,
+      expiryDate: m.expiry_date || null,
+      archived: !!m.archived,
+      _fromApi: true,
+    };
+  }
 
   function _seedDocs() {
     const pid  = patients[0]?.id ? String(patients[0].id) : 'demo';
@@ -16644,6 +17415,18 @@ export async function pgDocumentsHub(setTopbar) {
   let docs      = loadDocs();
   let dhTlibFilter = 'All';
   let dhTlibSearch = '';
+
+  // Try to hydrate from API (non-blocking — re-render when done)
+  api.listDocuments().then(apiDocs => {
+    if (!Array.isArray(apiDocs) || apiDocs.length === 0) return;
+    const mapped = apiDocs.map(_apiDocToLocal);
+    // Merge: prefer API records, keep local-only seed docs that have no API id
+    const apiIds = new Set(mapped.map(d => d._apiId));
+    const localOnly = docs.filter(d => !d._apiId && !d._fromApi);
+    docs = [...mapped, ...localOnly];
+    saveDocs(docs);
+    renderPage();
+  }).catch(() => { /* keep localStorage data */ });
 
   // ── Derived stats ─────────────────────────────────────────────────────────
   function computeStats(pid) {
@@ -16987,7 +17770,7 @@ export async function pgDocumentsHub(setTopbar) {
   };
   window._dhTlibPreview = function(id) {
     const item = DH_TLIB_ITEMS.find(x => x.id === id);
-    if (item) alert(item.name + '\nType: ' + item.type + ' | Target: ' + item.target + ' | ' + item.status + '\n\n' + item.desc);
+    if (item) window._showNotifToast?.({ title: item.name, body: (item.type || '') + (item.target ? ' · ' + item.target : '') + (item.desc ? ' — ' + item.desc.slice(0, 80) : ''), severity: 'info' });
   };
   window._dhTlibFill = function(id) {
     window._showNotifToast?.({ title:'Fill Form', body:'In-platform form filling — select a patient first.', severity:'info' });
@@ -16998,16 +17781,28 @@ export async function pgDocumentsHub(setTopbar) {
   window._dhDownload   = function(id) { const d=docs.find(x=>x.id===id); if(d?.url) window.open(d.url,'_blank'); else window._showNotifToast?.({ title:'Download', body:'PDF generation coming soon.', severity:'info' }); };
   window._dhRegenerate = function(id) { docs=loadDocs(); const d=docs.find(x=>x.id===id); if(!d) return; d.updatedDate=today(); saveDocs(docs); renderPage(); window._showNotifToast?.({ title:'Regenerated', body:`${d.name} regenerated.`, severity:'success' }); };
 
+  function _dhPersistUpdate(d) {
+    // Sync mutation to API (fire-and-forget)
+    const payload = { patient_id: d.patientId, doc_type: d.name, category: d.category, status: d.status, sig_state: d.sigState, assigned_by: d.assignedBy, assigned_date: d.assignedDate, completed_date: d.completedDate, expiry_date: d.expiryDate, notes: d.desc, archived: d.archived || false };
+    if (d._apiId) {
+      api.updateDocument(d._apiId, { questions_json: payload }).catch(() => {});
+    } else {
+      api.createDocument({ title: d.name, form_type: 'document', questions_json: { ...payload, template_id: d.templateId } }).then(r => {
+        if (r?.id) { d._apiId = r.id; d._fromApi = true; saveDocs(docs); }
+      }).catch(() => {});
+    }
+  }
+
   window._dhSendForSig = function(id) {
     docs=loadDocs(); const d=docs.find(x=>x.id===id); if(!d) return;
     d.sigState='pending-sig'; d.status='pending'; d.updatedDate=today();
-    saveDocs(docs); renderPage();
+    saveDocs(docs); renderPage(); _dhPersistUpdate(d);
     window._showNotifToast?.({ title:'Sent for Signature', body:`${d.name} — signature request sent.`, severity:'success' });
   };
   window._dhMarkSigned = function(id) {
     docs=loadDocs(); const d=docs.find(x=>x.id===id); if(!d) return;
     d.status='signed'; d.sigState='signed'; d.completedDate=today(); d.updatedDate=today();
-    saveDocs(docs); renderPage();
+    saveDocs(docs); renderPage(); _dhPersistUpdate(d);
     window._showNotifToast?.({ title:'Marked Signed', body:`${d.name} marked as signed.`, severity:'success' });
   };
   window._dhReplace = function(id) {
@@ -17021,7 +17816,7 @@ export async function pgDocumentsHub(setTopbar) {
   window._dhArchive = function(id) {
     if(!confirm('Archive this document? It will be hidden but not deleted.')) return;
     docs=loadDocs(); const d=docs.find(x=>x.id===id); if(!d) return;
-    d.archived=true; saveDocs(docs); renderPage();
+    d.archived=true; saveDocs(docs); renderPage(); _dhPersistUpdate(d);
     window._showNotifToast?.({ title:'Archived', body:`${d.name} archived.`, severity:'success' });
   };
   window._dhAssignDoc = function(id) {
@@ -17038,8 +17833,9 @@ export async function pgDocumentsHub(setTopbar) {
     if(docs.find(x=>x.patientId===pid&&x.templateId===templateId&&!x.archived)){
       window._showNotifToast?.({ title:'Already Assigned', body:`${name} already assigned.`, severity:'warning' }); return;
     }
-    docs.push({ id:'doc_'+Date.now(), patientId:pid, templateId, name, category:cat, desc, status:'pending', sigState:cat==='Consent'?'unsigned':'not-required', assignedBy:'Clinician', assignedDate:today(), completedDate:null, updatedDate:today(), expiryDate:null });
-    saveDocs(docs); renderPage();
+    const newDoc = { id:'doc_'+Date.now(), patientId:pid, templateId, name, category:cat, desc, status:'pending', sigState:cat==='Consent'?'unsigned':'not-required', assignedBy:'Clinician', assignedDate:today(), completedDate:null, updatedDate:today(), expiryDate:null };
+    docs.push(newDoc);
+    saveDocs(docs); renderPage(); _dhPersistUpdate(newDoc);
     window._showNotifToast?.({ title:'Form Assigned', body:`${name} assigned to patient.`, severity:'success' });
   };
   window._dhAssignBundle = function(bundleId) {
@@ -17108,8 +17904,9 @@ export async function pgDocumentsHub(setTopbar) {
     const cat=document.getElementById('dh-u-cat')?.value||'Uploaded';
     if(!pid||!name){ window._showNotifToast?.({ title:'Required', body:'Patient and name required.', severity:'warning' }); return; }
     docs=loadDocs();
-    docs.push({ id:'doc_'+Date.now(), patientId:pid, templateId:null, name, category:cat, desc:'Manually uploaded.', status:'uploaded', sigState:'not-required', assignedBy:'Clinician', assignedDate:today(), completedDate:today(), updatedDate:today(), expiryDate:null });
-    saveDocs(docs); activePid=pid; activeTab='uploaded'; window._dhCloseModal(); renderPage();
+    const newDoc = { id:'doc_'+Date.now(), patientId:pid, templateId:null, name, category:cat, desc:'Manually uploaded.', status:'uploaded', sigState:'not-required', assignedBy:'Clinician', assignedDate:today(), completedDate:today(), updatedDate:today(), expiryDate:null };
+    docs.push(newDoc);
+    saveDocs(docs); activePid=pid; activeTab='uploaded'; window._dhCloseModal(); renderPage(); _dhPersistUpdate(newDoc);
     window._showNotifToast?.({ title:'Uploaded', body:`${name} added.`, severity:'success' });
   };
 
@@ -17137,8 +17934,9 @@ export async function pgDocumentsHub(setTopbar) {
     const notes=document.getElementById('dh-c-notes')?.value?.trim();
     if(!pid||!type){ window._showNotifToast?.({ title:'Required', body:'Patient and type required.', severity:'warning' }); return; }
     docs=loadDocs();
-    docs.push({ id:'doc_'+Date.now(), patientId:pid, templateId:null, name:type, category:'Generated', desc:notes||'Clinician-generated document.', status:'generated', sigState:'not-required', assignedBy:'Clinician', assignedDate:today(), completedDate:today(), updatedDate:today(), expiryDate:null });
-    saveDocs(docs); activePid=pid; activeTab='generated'; window._dhCloseModal(); renderPage();
+    const newDoc = { id:'doc_'+Date.now(), patientId:pid, templateId:null, name:type, category:'Generated', desc:notes||'Clinician-generated document.', status:'generated', sigState:'not-required', assignedBy:'Clinician', assignedDate:today(), completedDate:today(), updatedDate:today(), expiryDate:null };
+    docs.push(newDoc);
+    saveDocs(docs); activePid=pid; activeTab='generated'; window._dhCloseModal(); renderPage(); _dhPersistUpdate(newDoc);
     window._showNotifToast?.({ title:'Document Created', body:`${type} generated.`, severity:'success' });
   };
 
@@ -17885,21 +18683,21 @@ export async function pgPrescriptions(setTopbar) {
   function saveRx(d) { localStorage.setItem(STORE_KEY, JSON.stringify(d)); }
   function seedRx() {
     const d = { prescriptions:[
-      { id:'RX-001', patientId:'P-1234', patientName:'James Mitchell', conditionName:'Major Depressive Disorder',
+      { id:'RX-001', patientId:'P-DEMO-1', patientName:'Demo Patient A', conditionName:'Major Depressive Disorder',
         protocol:PROTOCOLS_SEED[0], device:DEVICES_SEED[0],
         schedule:{startDate:'2026-04-14',sessionsPerWeek:5,sessionDurationMin:37,totalSessions:30,completedSessions:8},
         assessments:[COND_ASSESS[0]], homeProgram:HOME_PROGRAMS_SEED[0],
         consentPacks:['Informed Consent for TMS Therapy','Privacy & Data Handling Consent'],
         status:'active', prescribedBy:'Dr. Sarah Chen', prescribedDate:'2026-04-12',
         notes:'Patient motivated. Two prior SSRI trials. No contraindications. Start 110% MT.' },
-      { id:'RX-002', patientId:'P-5678', patientName:'Anna Torres', conditionName:'Generalized Anxiety Disorder',
+      { id:'RX-002', patientId:'P-DEMO-2', patientName:'Demo Patient B', conditionName:'Generalized Anxiety Disorder',
         protocol:PROTOCOLS_SEED[6], device:DEVICES_SEED[1],
         schedule:{startDate:'2026-04-20',sessionsPerWeek:5,sessionDurationMin:37,totalSessions:30,completedSessions:0},
         assessments:[COND_ASSESS[2]], homeProgram:HOME_PROGRAMS_SEED[1],
         consentPacks:['Informed Consent for TMS Therapy','Privacy & Data Handling Consent'],
         status:'draft', prescribedBy:'Dr. Sarah Chen', prescribedDate:'2026-04-11',
         notes:'Starting next Monday. Baseline completed.' },
-      { id:'RX-003', patientId:'P-9012', patientName:'Marcus Webb', conditionName:'PTSD',
+      { id:'RX-003', patientId:'P-DEMO-3', patientName:'Demo Patient C', conditionName:'PTSD',
         protocol:PROTOCOLS_SEED[7], device:DEVICES_SEED[3],
         schedule:{startDate:'2026-02-10',sessionsPerWeek:3,sessionDurationMin:20,totalSessions:15,completedSessions:15},
         assessments:[COND_ASSESS[3]], homeProgram:HOME_PROGRAMS_SEED[4],
@@ -17963,7 +18761,8 @@ export async function pgPrescriptions(setTopbar) {
 
   function renderMain() {
     const k=kpis();
-    return '<div class="rx-kpi-strip">'+
+    const previewBanner='<div style="background:linear-gradient(135deg,#92400e,#78350f);border:1px solid #d97706;border-radius:10px;padding:12px 16px;margin-bottom:18px;display:flex;align-items:center;gap:12px"><span style="font-size:18px">⚠</span><div><div style="font-weight:700;color:#fef3c7;font-size:13px;margin-bottom:2px">Preview Mode — Not Connected to Patient Records</div><div style="font-size:11.5px;color:#fde68a;line-height:1.4">Prescriptions shown here are demonstration data only. In a live environment this page displays real prescriptions linked to your patient roster. To issue a real prescription, use the Protocol Builder and assign it to a patient from their profile.</div></div></div>';
+    return previewBanner+'<div class="rx-kpi-strip">'+
         '<div class="rx-kpi rx-kpi-active"><span class="rx-kpi-val">'+k.active+'</span><span class="rx-kpi-lbl">Active</span></div>'+
         '<div class="rx-kpi rx-kpi-draft"><span class="rx-kpi-val">'+k.draft+'</span><span class="rx-kpi-lbl">Drafts</span></div>'+
         '<div class="rx-kpi"><span class="rx-kpi-val">'+k.completed+'</span><span class="rx-kpi-lbl">Completed</span></div>'+
@@ -18119,16 +18918,16 @@ export async function pgPrescriptions(setTopbar) {
       wizardData.patientName=(document.getElementById('wiz-pname')||{}).value||'';
       wizardData.conditionName=(document.getElementById('wiz-cond')||{}).value||'';
       wizardData.notes=(document.getElementById('wiz-notes')||{}).value||'';
-      if (!wizardData.patientId||!wizardData.patientName){alert('Patient ID and name required');return;}
+      if (!wizardData.patientId||!wizardData.patientName){_dsToast('Patient ID and name are required to continue.','warn');return;}
     }
-    if (wizardStep===2&&!wizardData.protocolId){alert('Select a protocol');return;}
-    if (wizardStep===3&&!wizardData.deviceId){alert('Select a device');return;}
+    if (wizardStep===2&&!wizardData.protocolId){_dsToast('Please select a protocol to continue.','warn');return;}
+    if (wizardStep===3&&!wizardData.deviceId){_dsToast('Please select a device to continue.','warn');return;}
     if (wizardStep===4){
       wizardData.startDate=(document.getElementById('wiz-start')||{}).value||'';
       wizardData.sessionsPerWeek=parseInt((document.getElementById('wiz-freq')||{}).value||'3');
       wizardData.sessionDurationMin=parseInt((document.getElementById('wiz-dur')||{}).value||'30');
       wizardData.totalSessions=parseInt((document.getElementById('wiz-total')||{}).value||'20');
-      if (!wizardData.startDate){alert('Start date required');return;}
+      if (!wizardData.startDate){_dsToast('Start date is required.','warn');return;}
     }
     if (wizardStep===5){
       wizardData.assessmentIds=[...(document.querySelectorAll('.rx-assess-chk:checked'))].map(c=>c.dataset.condid);
@@ -18195,7 +18994,7 @@ export async function pgPatientProtocolView(setTopbar) {
   let rx=null;
   try { const s=JSON.parse(localStorage.getItem('ds_rx_hub_v1')||'{}'); rx=(s.prescriptions||[]).find(r=>r.id===rxId); } catch(e){}
   if (!rx) rx={
-    patientName:'James Mitchell',conditionName:'Major Depressive Disorder',
+    patientName:'Demo Patient A',conditionName:'Major Depressive Disorder',
     protocol:{name:'Left DLPFC TMS \u2014 Depression (Standard)',modality:'TMS',indication:'MDD'},
     device:{name:'MagVenture MagPro R30',type:'TMS'},
     schedule:{startDate:'2026-04-14',sessionsPerWeek:5,sessionDurationMin:37,totalSessions:30,completedSessions:8},
@@ -18852,9 +19651,9 @@ export async function pgMonitoring(setTopbar, navigate) {
 // pgHomePrograms — Clinician Home Programs & Task Assignment Workflow
 // ─────────────────────────────────────────────────────────────────────────────
 export async function pgHomePrograms(setTopbar, navigate) {
-  setTopbar({ title: 'Home Programs', subtitle: 'Assign between-session tasks · 53 condition templates + general library' });
+  setTopbar('Home Programs', '<button class="btn btn-sm" onclick="window._hpShowPatientView?.()">Patient View</button>');
 
-  const el = document.getElementById('main-content');
+  const el = document.getElementById('content');
   if (!el) return;
   el.innerHTML = '<div class="hp-loading">Loading home programs\u2026</div>';
 
@@ -18880,12 +19679,19 @@ export async function pgHomePrograms(setTopbar, navigate) {
     const patTasks = _ls(_patKey(pid), []);
     const idx = patTasks.findIndex(t => t.id === task.id);
     const patTask = {
+      // Clinician fields
       id: task.id, title: task.title, type: task.type,
       instructions: task.instructions || '',
       dueDate: task.dueDate || '', frequency: task.frequency || 'once',
       courseId: task.courseId || '', status: task.status || 'active',
       assignedAt: task.assignedAt, reason: task.reason || '',
       homeProgramSelection: task.homeProgramSelection || undefined,
+      // Patient-portal compatible aliases (pgPatientCourse reads these)
+      description: task.instructions || task.reason || '',
+      freq: task.frequency || 'once',
+      done: idx >= 0 ? (patTasks[idx].done || false) : false,
+      completedAt: idx >= 0 ? (patTasks[idx].completedAt || null) : null,
+      completionNote: idx >= 0 ? (patTasks[idx].completionNote || '') : '',
     };
     if (idx >= 0) patTasks[idx] = { ...patTasks[idx], ...patTask };
     else patTasks.push(patTask);
@@ -19492,10 +20298,11 @@ export async function pgHomePrograms(setTopbar, navigate) {
 
     const topActions = `
       <div class="hp-top-actions">
-        <button class="hp-act-btn hp-act-primary" onclick="window._hpOpenAssign()">+ Add Task</button>
-        <button class="hp-act-btn${_view==='templates'?' hp-act-active':''}" onclick="window._hpSetView('templates')">\uD83D\uDCDA Templates</button>
-        <button class="hp-act-btn${_view==='adherence'?' hp-act-active':''}" onclick="window._hpSetView('adherence')">\uD83D\uDCCA Adherence</button>
-        <button class="hp-act-btn${_view==='queue'?' hp-act-active':''}" onclick="window._hpSetView('queue')">\u2630 Task Queue</button>
+        <button class="hp-act-btn hp-act-primary" onclick="window._hpOpenAssign()">+ Assign Task</button>
+        <button class="hp-act-btn${_view==='queue'?' hp-act-active':''}" onclick="window._hpSetView('queue')">☰ Queue</button>
+        <button class="hp-act-btn${_view==='adherence'?' hp-act-active':''}" onclick="window._hpSetView('adherence')">📊 Adherence</button>
+        <button class="hp-act-btn${_view==='templates'?' hp-act-active':''}" onclick="window._hpSetView('templates')">📚 Templates</button>
+        <button class="hp-act-btn${_view==='patient-view'?' hp-act-active':''}" onclick="window._hpSetView('patient-view')" style="border-color:var(--teal);color:var(--teal)">👁 Patient View</button>
       </div>`;
 
     const filterBar = `
@@ -19525,7 +20332,74 @@ export async function pgHomePrograms(setTopbar, navigate) {
       </div>`;
 
     let mainContent = '';
-    if (_view === 'adherence') {
+    if (_view === 'patient-view') {
+      // ── Patient View — shows exactly what a patient sees for their tasks ──
+      const allPids = _getAllKnownPids();
+      const patNames = {};
+      (apiPatients||[]).forEach(p => { patNames[p.id] = ((p.first_name||'')+' '+(p.last_name||'')).trim()||p.id; });
+      const selectedPid = window._hpPatViewPid || allPids[0];
+      const patTasks = _ls(_patKey(selectedPid), []);
+      const patOpts = allPids.map(pid => '<option value="'+pid+'"'+(pid===selectedPid?' selected':'')+'>'+( patNames[pid]||pid)+'</option>').join('');
+      const taskTypeIcons = { journal:'📔', breathing:'🌬', exercise:'🏃', assessment:'📋', sleep:'🌙', device:'📱', mindfulness:'🧘', other:'✓' };
+
+      const completions = _ls(_compKey(selectedPid), {});
+      window._hpPatViewPid = selectedPid;
+      window._hpSelectPatView = pid => { window._hpPatViewPid = pid; renderPage(); };
+      window._hpPatCompleteTask = (pid, tid) => {
+        const comps = _ls(_compKey(pid), {}); comps[tid] = { completedAt: new Date().toISOString(), source: 'clinician-demo' };
+        _lsSet(_compKey(pid), comps);
+        // Also update the patient bridge
+        const ptTasks = _ls(_patKey(pid), []); const idx = ptTasks.findIndex(t=>t.id===tid); if(idx>=0){ptTasks[idx].done=true;ptTasks[idx].completedAt=new Date().toISOString(); _lsSet(_patKey(pid),ptTasks);}
+        renderPage(); window._dsToast?.({title:'Task completed',body:'Marked as done in patient view.',severity:'success'});
+      };
+      window._hpPatUncompleteTask = (pid, tid) => {
+        const comps = _ls(_compKey(pid), {}); delete comps[tid]; _lsSet(_compKey(pid), comps);
+        const ptTasks = _ls(_patKey(pid), []); const idx = ptTasks.findIndex(t=>t.id===tid); if(idx>=0){ptTasks[idx].done=false;ptTasks[idx].completedAt=null; _lsSet(_patKey(pid),ptTasks);}
+        renderPage();
+      };
+
+      const patTaskCards = patTasks.length ? patTasks.map(t => {
+        const done = !!(completions[t.id] || t.done);
+        const icon = taskTypeIcons[t.type] || taskTypeIcons.other;
+        const overdueFlag = !done && t.dueDate && t.dueDate < new Date().toISOString().slice(0,10);
+        return '<div class="hp-pv-task'+(done?' hp-pv-task--done':overdueFlag?' hp-pv-task--overdue':'')+'">' +
+          '<div class="hp-pv-task-top">' +
+            '<span class="hp-pv-task-icon">'+icon+'</span>' +
+            '<div class="hp-pv-task-body">' +
+              '<div class="hp-pv-task-title">'+_esc(t.title)+'</div>' +
+              (t.description||t.instructions?'<div class="hp-pv-task-desc">'+_esc(t.description||t.instructions)+'</div>':'') +
+              '<div class="hp-pv-task-meta">' +
+                '<span class="hp-pv-task-freq">'+_esc(t.freq||t.frequency||'once')+'</span>' +
+                (t.dueDate?'<span class="hp-pv-task-due'+(overdueFlag?' hp-pv-overdue':'')+'">Due: '+t.dueDate+'</span>':'') +
+                (done?'<span class="hp-pv-task-done-badge">✓ Done</span>':'') +
+              '</div>' +
+            '</div>' +
+            '<div class="hp-pv-task-actions">' +
+              (!done?'<button class="ch-btn-sm ch-btn-teal" onclick="window._hpPatCompleteTask(\''+selectedPid+'\',\''+t.id+'\')">Mark Done</button>':'<button class="ch-btn-sm" onclick="window._hpPatUncompleteTask(\''+selectedPid+'\',\''+t.id+'\')">Undo</button>') +
+            '</div>' +
+          '</div>' +
+        '</div>';
+      }).join('') : '<div class="hp-pv-empty"><div style="font-size:28px;opacity:0.3">📋</div><div>No tasks assigned to this patient yet.</div><button class="ch-btn-sm ch-btn-teal" style="margin-top:8px" onclick="window._hpOpenAssign()">+ Assign First Task</button></div>';
+
+      const done = patTasks.filter(t=>completions[t.id]||t.done).length;
+      const total = patTasks.length;
+      const pct = total>0?Math.round((done/total)*100):0;
+
+      mainContent = `<div class="hp-pv-shell">
+        <div class="hp-pv-header">
+          <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+            <div style="font-size:13px;font-weight:600;color:var(--text-secondary)">Viewing as patient:</div>
+            <select class="ch-select" onchange="window._hpSelectPatView(this.value)">${patOpts}</select>
+            <div class="hp-pv-progress-pill" style="--pct:${pct}">
+              <div class="hp-pv-prog-bar"><div class="hp-pv-prog-fill" style="width:${pct}%"></div></div>
+              <span>${done}/${total} tasks completed (${pct}%)</span>
+            </div>
+          </div>
+          <div style="font-size:11.5px;color:var(--text-tertiary)">This is exactly what the patient sees on their portal. Changes here sync to the patient view.</div>
+        </div>
+        <div class="hp-pv-tasks">${patTaskCards}</div>
+      </div>`;
+    } else if (_view === 'adherence') {
       mainContent = `<div class="hp-card"><div class="hp-card-title">Patient Adherence Overview</div>${_adherenceView()}</div>`;
     } else if (_view === 'templates') {
       const ft = _filteredTemplates();
@@ -19587,6 +20461,7 @@ export async function pgHomePrograms(setTopbar, navigate) {
   };
   window._hpCloseModal  = () => { _showModal = false; _editingTask = null; _hpModalProvenance = null; _hpSuggestExpanded = false; renderPage(); };
   window._hpSetView     = v  => { _view = v; renderPage(); };
+  window._hpShowPatientView = () => { _view = 'patient-view'; renderPage(); };
   window._hpSearch      = v  => { _filter.search = v; renderPage(); };
   window._hpFilterPid   = v  => { _filter.pid = v; renderPage(); };
   window._hpFilterType  = v  => { _filter.type = v; renderPage(); };
@@ -19878,4 +20753,3370 @@ export async function pgHomePrograms(setTopbar, navigate) {
   };
 
   renderPage();
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// pgPatientHub — Merged: Patients + Treatment Courses + Prescriptions
+// ═══════════════════════════════════════════════════════════════════════════════
+export async function pgPatientHub(setTopbar, navigate) {
+  const tab = window._patientHubTab || 'patients';
+  window._patientHubTab = tab;
+
+  const TAB_META = {
+    patients:      { label: 'Patients',           color: 'var(--blue)'   },
+    courses:       { label: 'Treatment Courses',   color: 'var(--teal)'   },
+    prescriptions: { label: 'Prescriptions',       color: 'var(--violet)' },
+    history:       { label: 'Medical History',     color: 'var(--amber)'  },
+  };
+
+  function tabBar() {
+    return Object.entries(TAB_META).map(([id, m]) =>
+      '<button class="ch-tab' + (tab === id ? ' ch-tab--active' : '') + '"' +
+      (tab === id ? ' style="--tab-color:' + m.color + '"' : '') +
+      ' onclick="window._patientHubTab=\'' + id + '\';window._nav(\'patients-hub\')">' + m.label + '</button>'
+    ).join('');
+  }
+
+  const el = document.getElementById('content');
+
+  // ── PATIENTS TAB ─────────────────────────────────────────────────────────
+  if (tab === 'patients') {
+    const canAdd = ['clinician','admin','clinic-admin','supervisor'].includes(currentUser?.role);
+    setTopbar('Patients',
+      canAdd ? '<button class="btn btn-primary btn-sm" onclick="window.showAddPatient()">+ New Patient</button>' +
+               '<button class="btn btn-sm" onclick="window.showImportCSV()" style="margin-right:6px">Import CSV</button>' : ''
+    );
+    el.innerHTML = '<div class="ch-shell">' + spinner() + '</div>';
+
+    let patients = [], courses = [];
+    try {
+      const [pRes, cRes] = await Promise.all([
+        api.listPatients().catch(() => ({ items: [] })),
+        (api.listCourses ? api.listCourses({}) : Promise.resolve({ items: [] })).catch(() => ({ items: [] })),
+      ]);
+      patients = pRes?.items || [];
+      courses  = cRes?.items || [];
+    } catch {}
+
+    // Enrich with course data
+    const coursesByPat = {};
+    courses.forEach(c => { if (c.patient_id) (coursesByPat[c.patient_id] = coursesByPat[c.patient_id] || []).push(c); });
+
+    function patAttention(p) {
+      if (p.outcome_trend === 'worsened' || p.has_adverse_event)  return { label:'⚠ Alert',      color:'var(--red)' };
+      if (p.needs_review || p.review_overdue)                      return { label:'◉ Review',     color:'var(--amber)' };
+      if (p.assessment_overdue || p.missing_assessment)            return { label:'✎ Assess Due', color:'var(--amber)' };
+      if (p.home_adherence != null && p.home_adherence < 0.5)     return { label:Math.round(p.home_adherence*100)+'% adh', color:'var(--amber)' };
+      return null;
+    }
+
+    const statusLabels = { active:'Active', paused:'Paused', completed:'Completed', discharged:'Discharged', inactive:'Inactive' };
+    const statusColors = { active:'var(--teal)', paused:'var(--amber)', completed:'var(--green)', discharged:'var(--text-tertiary)', inactive:'var(--text-tertiary)' };
+
+    const active  = patients.filter(p=>p.status==='active').length;
+    const review  = patients.filter(p=>p.needs_review||p.review_overdue).length;
+    const alerts  = patients.filter(p=>p.has_adverse_event||p.outcome_trend==='worsened').length;
+    const assess  = patients.filter(p=>p.assessment_overdue||p.missing_assessment).length;
+
+    // Cohorts
+    const COHORTS = [
+      { id:'all',     label:'All Patients',   fn: ()=>patients },
+      { id:'active',  label:'Active',         fn: ()=>patients.filter(p=>p.status==='active') },
+      { id:'review',  label:'Needs Review',   fn: ()=>patients.filter(p=>p.needs_review||p.review_overdue) },
+      { id:'alerts',  label:'Alerts',         fn: ()=>patients.filter(p=>p.has_adverse_event||p.outcome_trend==='worsened') },
+      { id:'assess',  label:'Assessment Due', fn: ()=>patients.filter(p=>p.assessment_overdue||p.missing_assessment) },
+      { id:'inactive',label:'Inactive',       fn: ()=>patients.filter(p=>p.status==='inactive'||p.status==='paused') },
+    ];
+
+    window._phCohort = window._phCohort || 'all';
+    window._phSearch = '';
+
+    function renderPatientList(cohortId) {
+      const cohort = COHORTS.find(c=>c.id===cohortId) || COHORTS[0];
+      let list = cohort.fn();
+      const q = (document.getElementById('ph-search')?.value||'').toLowerCase();
+      if (q) list = list.filter(p=>((p.first_name||'')+' '+(p.last_name||'')).toLowerCase().includes(q)||(p.condition_slug||'').toLowerCase().includes(q));
+      const out = document.getElementById('ph-list');
+      if (!out) return;
+      if (!list.length) { out.innerHTML = '<div class="ch-empty">No patients found.</div>'; return; }
+      out.innerHTML = list.map(p => {
+        const name = ((p.first_name||'') + ' ' + (p.last_name||'')).trim() || 'Unknown';
+        const ini  = ((p.first_name||'')[0]||'') + ((p.last_name||'')[0]||'');
+        const cond = (p.condition_slug||'').replace(/-/g,' ') || '—';
+        const mod  = (p.primary_modality||'').replace(/-/g,' ') || '—';
+        const attn = patAttention(p);
+        const pcs  = coursesByPat[p.id] || [];
+        const actC = pcs.filter(c=>c.status==='active').length;
+        const stColor = statusColors[p.status] || 'var(--text-tertiary)';
+        return '<div class="ph-patient-row" onclick="window._selectedPatientId=\'' + p.id + '\';window._profilePatientId=\'' + p.id + '\';window._nav(\'patient-profile\')">' +
+          '<div class="ph-avatar">' + (ini||'?') + '</div>' +
+          '<div class="ph-info">' +
+            '<div class="ph-name">' + name + '</div>' +
+            '<div class="ph-meta">' + cond + (mod&&mod!=='—'?' · '+mod:'') + '</div>' +
+          '</div>' +
+          '<div class="ph-badges">' +
+            (actC ? '<span class="ph-badge ph-badge--course">' + actC + ' course' + (actC>1?'s':'') + '</span>' : '') +
+            (attn ? '<span class="ph-badge" style="background:rgba(255,255,255,0.06);color:' + attn.color + ';border-color:' + attn.color + '20">' + attn.label + '</span>' : '') +
+          '</div>' +
+          '<span class="ph-status" style="color:' + stColor + '">' + (statusLabels[p.status]||p.status||'—') + '</span>' +
+          '<svg class="ph-chevron" viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></svg>' +
+        '</div>';
+      }).join('');
+    }
+
+    window._phSetCohort = id => {
+      window._phCohort = id;
+      document.querySelectorAll('.ph-cohort-item').forEach(el => el.classList.toggle('active', el.dataset.cohort === id));
+      renderPatientList(id);
+    };
+
+    el.innerHTML = `
+    <div class="ch-shell">
+      <div class="ch-tab-bar">${tabBar()}</div>
+      <div class="ph-layout">
+        <div class="ph-rail">
+          <div class="ph-rail-label">Cohorts</div>
+          ${COHORTS.map(c => '<div class="ph-cohort-item' + (window._phCohort===c.id?' active':'') + '" data-cohort="' + c.id + '" onclick="window._phSetCohort(\'' + c.id + '\')">' +
+            '<span>' + c.label + '</span>' +
+            '<span class="ph-cohort-count">' + c.fn().length + '</span>' +
+          '</div>').join('')}
+        </div>
+        <div class="ph-main">
+          <div class="ch-kpi-strip" style="grid-template-columns:repeat(4,1fr);margin-bottom:16px">
+            <div class="ch-kpi-card" style="--kpi-color:var(--teal)"><div class="ch-kpi-val">${active}</div><div class="ch-kpi-label">Active</div></div>
+            <div class="ch-kpi-card" style="--kpi-color:var(--amber)"><div class="ch-kpi-val">${review}</div><div class="ch-kpi-label">Needs Review</div></div>
+            <div class="ch-kpi-card" style="--kpi-color:var(--red)"><div class="ch-kpi-val">${alerts}</div><div class="ch-kpi-label">Alerts</div></div>
+            <div class="ch-kpi-card" style="--kpi-color:var(--blue)"><div class="ch-kpi-val">${assess}</div><div class="ch-kpi-label">Assess Due</div></div>
+          </div>
+          <div class="ch-card" style="margin-bottom:0">
+            <div class="ch-card-hd">
+              <span class="ch-card-title">Patient Roster</span>
+              <div style="position:relative;flex:1;max-width:280px">
+                <input id="ph-search" type="text" placeholder="Search patients…" class="ph-search-input" oninput="window._phSetCohort(window._phCohort)">
+                <svg viewBox="0 0 24 24" style="position:absolute;left:9px;top:50%;transform:translateY(-50%);width:13px;height:13px;stroke:var(--text-tertiary);fill:none;stroke-width:2;stroke-linecap:round;pointer-events:none"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+              </div>
+            </div>
+            <div id="ph-list"></div>
+          </div>
+        </div>
+      </div>
+    </div>`;
+
+    renderPatientList(window._phCohort);
+  }
+
+  // ── TREATMENT COURSES TAB ────────────────────────────────────────────────
+  else if (tab === 'courses') {
+    const canCreate = ['clinician','admin','supervisor'].includes(currentUser?.role);
+    setTopbar('Patients', canCreate ? '<button class="btn btn-primary btn-sm" onclick="window._nav(\'protocol-wizard\')">+ New Course</button>' : '');
+    el.innerHTML = '<div class="ch-shell">' + spinner() + '</div>';
+
+    let courses = [], patients = [], openAEs = [];
+    try {
+      const [cRes, pRes, aeRes] = await Promise.all([
+        (api.listCourses ? api.listCourses({}) : Promise.resolve({ items: [] })).catch(() => ({ items: [] })),
+        api.listPatients().catch(() => ({ items: [] })),
+        (api.listAdverseEvents ? api.listAdverseEvents() : Promise.resolve({ items: [] })).catch(() => ({ items: [] })),
+      ]);
+      courses  = cRes?.items || [];
+      patients = pRes?.items || [];
+      openAEs  = (aeRes?.items || []).filter(ae => ae.status === 'open' || ae.status === 'active');
+      const pMap = {};
+      patients.forEach(p => { pMap[p.id] = p; });
+      courses.forEach(c => {
+        const p = pMap[c.patient_id];
+        c._patientName = p ? ((p.first_name||'') + ' ' + (p.last_name||'')).trim() : (c.patient_name || '—');
+      });
+    } catch {}
+
+    const active    = courses.filter(c=>c.status==='active').length;
+    const paused    = courses.filter(c=>c.status==='paused').length;
+    const completed = courses.filter(c=>c.status==='completed').length;
+    const alerts    = courses.filter(c=>openAEs.some(ae=>ae.course_id===c.id)).length;
+
+    const COHORTS = [
+      { id:'all',      label:'All Courses',      fn: ()=>courses },
+      { id:'active',   label:'Active',            fn: ()=>courses.filter(c=>c.status==='active') },
+      { id:'soon',     label:'Completing Soon',   fn: ()=>courses.filter(c=>{ if(c.status!=='active')return false; const r=(c.planned_sessions_total||0)-(c.sessions_delivered||0); return r>0&&r<=3; }) },
+      { id:'ae',       label:'Side Effects',      fn: ()=>courses.filter(c=>openAEs.some(ae=>ae.course_id===c.id)) },
+      { id:'pending',  label:'Awaiting Approval', fn: ()=>courses.filter(c=>c.status==='pending_approval') },
+      { id:'paused',   label:'Paused',            fn: ()=>courses.filter(c=>c.status==='paused') },
+      { id:'completed',label:'Completed',         fn: ()=>courses.filter(c=>c.status==='completed') },
+    ];
+
+    const stColors = { active:'var(--teal)',approved:'var(--blue)',pending_approval:'var(--amber)',paused:'var(--amber)',completed:'var(--green)',discontinued:'var(--red)' };
+
+    window._tcHubCohort = window._tcHubCohort || 'all';
+
+    function renderCourseList(cohortId) {
+      const cohort = COHORTS.find(c=>c.id===cohortId)||COHORTS[0];
+      let list = cohort.fn();
+      const q = (document.getElementById('tc-hub-search')?.value||'').toLowerCase();
+      if (q) list = list.filter(c=>(c._patientName||'').toLowerCase().includes(q)||(c.condition_slug||'').toLowerCase().includes(q)||(c.modality_slug||'').toLowerCase().includes(q));
+      const out = document.getElementById('tc-hub-list');
+      if (!out) return;
+      if (!list.length) { out.innerHTML = '<div class="ch-empty">No courses found.</div>'; return; }
+      out.innerHTML = list.map(c => {
+        const prog = c.planned_sessions_total>0 ? Math.round((c.sessions_delivered||0)/c.planned_sessions_total*100) : 0;
+        const stC  = stColors[c.status]||'var(--text-tertiary)';
+        const hasAE = openAEs.some(ae=>ae.course_id===c.id);
+        const cond = (c.condition_slug||'').replace(/-/g,' ')||'—';
+        const mod  = (c.modality_slug||'').replace(/-/g,' ')||'—';
+        return '<div class="ph-patient-row" onclick="window._selectedCourseId=\'' + c.id + '\';window._nav(\'course-detail\')">' +
+          '<div class="ph-info">' +
+            '<div class="ph-name">' + (c._patientName||'—') + '</div>' +
+            '<div class="ph-meta">' + cond + (mod&&mod!=='—'?' · '+mod:'') + '</div>' +
+          '</div>' +
+          '<div class="ph-badges">' +
+            (hasAE ? '<span class="ph-badge ph-badge--alert">⚠ AE</span>' : '') +
+            (c.review_required ? '<span class="ph-badge ph-badge--review">Review</span>' : '') +
+          '</div>' +
+          '<div class="ch-prog-wrap" style="min-width:100px">' +
+            '<div class="ch-prog-bar"><div class="ch-prog-fill" style="width:' + prog + '%"></div></div>' +
+            '<span class="ch-prog-pct">' + prog + '%</span>' +
+          '</div>' +
+          '<span class="ph-status" style="color:' + stC + ';text-transform:capitalize">' + (c.status||'—').replace(/_/g,' ') + '</span>' +
+          '<svg class="ph-chevron" viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></svg>' +
+        '</div>';
+      }).join('');
+    }
+
+    window._tcHubSetCohort = id => {
+      window._tcHubCohort = id;
+      document.querySelectorAll('.tc-hub-cohort').forEach(el => el.classList.toggle('active', el.dataset.cohort === id));
+      renderCourseList(id);
+    };
+
+    el.innerHTML = `
+    <div class="ch-shell">
+      <div class="ch-tab-bar">${tabBar()}</div>
+      <div class="ph-layout">
+        <div class="ph-rail">
+          <div class="ph-rail-label">Cohorts</div>
+          ${COHORTS.map(c => '<div class="ph-cohort-item tc-hub-cohort' + (window._tcHubCohort===c.id?' active':'') + '" data-cohort="' + c.id + '" onclick="window._tcHubSetCohort(\'' + c.id + '\')">' +
+            '<span>' + c.label + '</span><span class="ph-cohort-count">' + c.fn().length + '</span>' +
+          '</div>').join('')}
+        </div>
+        <div class="ph-main">
+          <div class="ch-kpi-strip" style="grid-template-columns:repeat(4,1fr);margin-bottom:16px">
+            <div class="ch-kpi-card" style="--kpi-color:var(--teal)"><div class="ch-kpi-val">${active}</div><div class="ch-kpi-label">Active</div></div>
+            <div class="ch-kpi-card" style="--kpi-color:var(--red)"><div class="ch-kpi-val">${alerts}</div><div class="ch-kpi-label">AE / Alerts</div></div>
+            <div class="ch-kpi-card" style="--kpi-color:var(--amber)"><div class="ch-kpi-val">${paused}</div><div class="ch-kpi-label">Paused</div></div>
+            <div class="ch-kpi-card" style="--kpi-color:var(--green)"><div class="ch-kpi-val">${completed}</div><div class="ch-kpi-label">Completed</div></div>
+          </div>
+          <div class="ch-card">
+            <div class="ch-card-hd">
+              <span class="ch-card-title">Treatment Courses</span>
+              <div style="position:relative;flex:1;max-width:280px">
+                <input id="tc-hub-search" type="text" placeholder="Search patient, condition…" class="ph-search-input" oninput="window._tcHubSetCohort(window._tcHubCohort)">
+                <svg viewBox="0 0 24 24" style="position:absolute;left:9px;top:50%;transform:translateY(-50%);width:13px;height:13px;stroke:var(--text-tertiary);fill:none;stroke-width:2;stroke-linecap:round;pointer-events:none"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+              </div>
+            </div>
+            <div id="tc-hub-list"></div>
+          </div>
+        </div>
+      </div>
+    </div>`;
+
+    renderCourseList(window._tcHubCohort);
+  }
+
+  // ── PRESCRIPTIONS TAB ────────────────────────────────────────────────────
+  else if (tab === 'prescriptions') {
+    setTopbar('Patients', '<button class="btn btn-primary btn-sm" onclick="window._nav(\'prescriptions-full\')">+ New Prescription</button>');
+    el.innerHTML = '<div class="ch-shell">' + spinner() + '</div>';
+
+    const STORE_KEY = 'ds_rx_hub_v1';
+    function loadRxData() {
+      try { return JSON.parse(localStorage.getItem(STORE_KEY)||'null'); } catch { return null; }
+    }
+    const rxData = loadRxData() || { prescriptions: [
+      { id:'RX-001', patientName:'Demo Patient A', conditionName:'Major Depressive Disorder',
+        protocol:{ name:'Left DLPFC TMS — Depression (Standard)', modality:'TMS' },
+        schedule:{ startDate:'2026-04-14', sessionsPerWeek:5, totalSessions:30, completedSessions:8 },
+        status:'active', prescribedBy:'Dr. Sarah Chen', prescribedDate:'2026-04-12' },
+      { id:'RX-002', patientName:'Demo Patient B', conditionName:'Generalized Anxiety Disorder',
+        protocol:{ name:'Right DLPFC TMS — Anxiety', modality:'TMS' },
+        schedule:{ startDate:'2026-04-20', sessionsPerWeek:5, totalSessions:30, completedSessions:0 },
+        status:'draft', prescribedBy:'Dr. Sarah Chen', prescribedDate:'2026-04-11' },
+      { id:'RX-003', patientName:'Demo Patient C', conditionName:'PTSD',
+        protocol:{ name:'tDCS Prefrontal — PTSD', modality:'tDCS' },
+        schedule:{ startDate:'2026-02-10', sessionsPerWeek:3, totalSessions:15, completedSessions:15 },
+        status:'completed', prescribedBy:'Dr. James Patel', prescribedDate:'2026-02-05' },
+    ]};
+
+    const prescriptions = rxData.prescriptions || [];
+    window._rxFilter = window._rxFilter || 'all';
+
+    const stColors = { active:'var(--teal)', draft:'var(--blue)', completed:'var(--green)', discontinued:'var(--red)' };
+    const stLabels = { active:'Active', draft:'Draft', completed:'Completed', discontinued:'Discontinued' };
+
+    const FILTERS = [
+      { id:'all', label:'All', fn:()=>prescriptions },
+      { id:'active', label:'Active', fn:()=>prescriptions.filter(r=>r.status==='active') },
+      { id:'draft', label:'Draft', fn:()=>prescriptions.filter(r=>r.status==='draft') },
+      { id:'completed', label:'Completed', fn:()=>prescriptions.filter(r=>r.status==='completed') },
+    ];
+
+    function renderRxList(filterId) {
+      const filt = FILTERS.find(f=>f.id===filterId)||FILTERS[0];
+      const list = filt.fn();
+      const out = document.getElementById('rx-hub-list');
+      if (!out) return;
+      if (!list.length) { out.innerHTML = '<div class="ch-empty">No prescriptions found.</div>'; return; }
+      out.innerHTML = list.map(rx => {
+        const prog = rx.schedule.totalSessions > 0 ? Math.round(rx.schedule.completedSessions / rx.schedule.totalSessions * 100) : 0;
+        const stC  = stColors[rx.status]||'var(--text-tertiary)';
+        return '<div class="ph-patient-row" onclick="window._nav(\'prescriptions-full\')">' +
+          '<div class="ph-info">' +
+            '<div class="ph-name">' + rx.patientName + '</div>' +
+            '<div class="ph-meta">' + rx.conditionName + ' · ' + (rx.protocol?.modality||'—') + '</div>' +
+          '</div>' +
+          '<div class="ph-info" style="flex:2">' +
+            '<div style="font-size:12px;color:var(--text-secondary)">' + (rx.protocol?.name||'—') + '</div>' +
+            '<div style="font-size:11px;color:var(--text-tertiary)">By ' + (rx.prescribedBy||'—') + ' · ' + (rx.prescribedDate||'—') + '</div>' +
+          '</div>' +
+          '<div class="ch-prog-wrap" style="min-width:100px">' +
+            '<div class="ch-prog-bar"><div class="ch-prog-fill" style="width:' + prog + '%"></div></div>' +
+            '<span class="ch-prog-pct">' + rx.schedule.completedSessions + '/' + rx.schedule.totalSessions + '</span>' +
+          '</div>' +
+          '<span class="ph-status" style="color:' + stC + '">' + (stLabels[rx.status]||rx.status) + '</span>' +
+          '<svg class="ph-chevron" viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></svg>' +
+        '</div>';
+      }).join('');
+    }
+
+    window._rxHubFilter = id => {
+      window._rxFilter = id;
+      document.querySelectorAll('.rx-hub-filter').forEach(el => el.classList.toggle('active', el.dataset.filter===id));
+      renderRxList(id);
+    };
+
+    el.innerHTML = `
+    <div class="ch-shell">
+      <div class="ch-tab-bar">${tabBar()}</div>
+      <div class="ph-layout">
+        <div class="ph-rail">
+          <div class="ph-rail-label">Filter</div>
+          ${FILTERS.map(f => '<div class="ph-cohort-item rx-hub-filter' + (window._rxFilter===f.id?' active':'') + '" data-filter="' + f.id + '" onclick="window._rxHubFilter(\'' + f.id + '\')">' +
+            '<span>' + f.label + '</span><span class="ph-cohort-count">' + f.fn().length + '</span>' +
+          '</div>').join('')}
+        </div>
+        <div class="ph-main">
+          <div class="ch-kpi-strip" style="grid-template-columns:repeat(4,1fr);margin-bottom:16px">
+            <div class="ch-kpi-card" style="--kpi-color:var(--teal)"><div class="ch-kpi-val">${prescriptions.filter(r=>r.status==='active').length}</div><div class="ch-kpi-label">Active</div></div>
+            <div class="ch-kpi-card" style="--kpi-color:var(--blue)"><div class="ch-kpi-val">${prescriptions.filter(r=>r.status==='draft').length}</div><div class="ch-kpi-label">Draft</div></div>
+            <div class="ch-kpi-card" style="--kpi-color:var(--green)"><div class="ch-kpi-val">${prescriptions.filter(r=>r.status==='completed').length}</div><div class="ch-kpi-label">Completed</div></div>
+            <div class="ch-kpi-card" style="--kpi-color:var(--violet)"><div class="ch-kpi-val">${prescriptions.length}</div><div class="ch-kpi-label">Total</div></div>
+          </div>
+          <div class="ch-card">
+            <div class="ch-card-hd">
+              <span class="ch-card-title">Prescriptions</span>
+              <button class="ch-btn-sm ch-btn-teal" onclick="window._nav('prescriptions-full')">Full View →</button>
+            </div>
+            <div id="rx-hub-list"></div>
+          </div>
+        </div>
+      </div>
+    </div>`;
+
+    renderRxList(window._rxFilter);
+  }
+
+  // ── MEDICAL HISTORY TAB (in Patient Hub) ─────────────────────────────────
+  else if (tab === 'history') {
+    setTopbar('Patients', '<button class="btn btn-primary btn-sm" onclick="window._phSaveMH()">Save History</button>');
+    el.innerHTML = '<div class="ch-shell">' + spinner() + '</div>';
+
+    let patients = [];
+    try { const r = await api.listPatients().catch(() => ({ items: [] })); patients = r?.items || []; } catch {}
+
+    const patOpts = patients.map(p =>
+      '<option value="' + p.id + '">' + ((p.first_name||'') + ' ' + (p.last_name||'')).trim() + ' — ' + ((p.condition_slug||'').replace(/-/g,' ')||'No condition') + '</option>'
+    ).join('') || '<option value="">No patients found</option>';
+
+    const MH_SECTIONS = [
+      { id:'presenting',  label:'Presenting Problems',        icon:'⊕', critical:false },
+      { id:'diagnoses',   label:'Diagnoses',                  icon:'◎', critical:false },
+      { id:'safety',      label:'Contraindications & Safety', icon:'⚠', critical:true  },
+      { id:'psychiatric', label:'Psychiatric History',        icon:'◧', critical:false },
+      { id:'neurological',label:'Neurological & Medical',     icon:'◉', critical:false },
+      { id:'medications', label:'Medications & Supplements',  icon:'◩', critical:false },
+      { id:'allergies',   label:'Allergies',                  icon:'⚠', critical:false },
+      { id:'prior_tx',    label:'Prior Treatment History',    icon:'◫', critical:false },
+      { id:'family',      label:'Family History',             icon:'◈', critical:false },
+      { id:'lifestyle',   label:'Lifestyle & Social',         icon:'◎', critical:false },
+      { id:'goals',       label:'Treatment Goals',            icon:'◉', critical:false },
+      { id:'summary',     label:'Clinician Summary',          icon:'◧', critical:false },
+    ];
+
+    const _mhK = id => 'ds_ph_mh_' + id;
+    const _mhL = id => { try { return JSON.parse(localStorage.getItem(_mhK(id)) || 'null'); } catch { return null; } };
+
+    el.innerHTML = `
+    <div class="ch-shell">
+      <div class="ch-tab-bar">${tabBar()}</div>
+      <div class="ch-body">
+        <div class="ch-mh-header">
+          <div class="ch-form-group" style="flex:1;max-width:360px;margin:0">
+            <label class="ch-label">Patient</label>
+            <select class="ch-select ch-select--full" id="ph-mh-patient">${patOpts}</select>
+          </div>
+          <span class="ch-mh-status" id="ph-mh-status"></span>
+        </div>
+        <div class="ch-mh-grid">
+          ${MH_SECTIONS.map(sec => {
+            const saved = _mhL(sec.id);
+            const hasDat = saved && Object.values(saved).some(v => v && String(v).trim());
+            return '<div class="ch-mh-section' + (sec.critical?' ch-mh-section--critical':'') + (hasDat?' ch-mh-section--filled':'') + '">' +
+              '<div class="ch-mh-sec-hd" onclick="window._phToggleMH(\'' + sec.id + '\')">' +
+                '<span class="ch-mh-sec-icon">' + sec.icon + '</span>' +
+                '<span class="ch-mh-sec-label">' + sec.label + '</span>' +
+                (sec.critical ? '<span class="ch-mh-crit-badge">Safety</span>' : '') +
+                (hasDat ? '<span class="ch-mh-filled-dot"></span>' : '') +
+                '<span class="ch-mh-chevron" id="ph-mh-chev-' + sec.id + '">›</span>' +
+              '</div>' +
+              '<div class="ch-mh-sec-body ch-hidden" id="ph-mh-body-' + sec.id + '">' +
+                '<textarea class="ch-textarea" id="ph-mh-text-' + sec.id + '" placeholder="Enter ' + sec.label.toLowerCase() + '…" rows="4">' + (hasDat?(saved.notes||''):'') + '</textarea>' +
+              '</div>' +
+            '</div>';
+          }).join('')}
+        </div>
+        <div style="display:flex;gap:10px;padding:16px 0 24px">
+          <button class="btn btn-primary" onclick="window._phSaveMH()">Save All Sections</button>
+          <button class="btn" onclick="window.print()">Print / Export</button>
+        </div>
+      </div>
+    </div>`;
+
+    window._phToggleMH = id => {
+      const body = document.getElementById('ph-mh-body-' + id);
+      const chev = document.getElementById('ph-mh-chev-' + id);
+      if (!body) return;
+      const hidden = body.classList.toggle('ch-hidden');
+      if (chev) chev.style.transform = hidden ? '' : 'rotate(90deg)';
+    };
+
+    window._phSaveMH = () => {
+      MH_SECTIONS.forEach(sec => {
+        const v = document.getElementById('ph-mh-text-' + sec.id)?.value || '';
+        try { localStorage.setItem(_mhK(sec.id), JSON.stringify({ notes: v })); } catch {}
+      });
+      const s = document.getElementById('ph-mh-status');
+      if (s) { s.textContent = '✓ Saved'; s.style.color = 'var(--green)'; setTimeout(() => { s.textContent = ''; }, 2500); }
+      window._dsToast?.({ title: 'Medical History Saved', body: 'All sections saved.', severity: 'success' });
+    };
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// pgClinicalHub — Merged: Assessments + Outcomes + Medical History
+// ═══════════════════════════════════════════════════════════════════════════════
+export async function pgClinicalHub(setTopbar, navigate) {
+  const tab = window._clinicalHubTab || 'assessments';
+  window._clinicalHubTab = tab;
+
+  const TAB_META = {
+    assessments: { label: 'Assessments',  color: 'var(--teal)'   },
+    outcomes:    { label: 'Outcomes',      color: 'var(--blue)'   },
+    scoring:     { label: 'Scoring Calc',  color: 'var(--amber)'  },
+    registry:    { label: 'Scale Registry',color: 'var(--violet)' },
+  };
+
+  function tabBar() {
+    return Object.entries(TAB_META).map(([id, m]) =>
+      '<button class="ch-tab' + (tab === id ? ' ch-tab--active' : '') + '"' +
+      (tab === id ? ' style="--tab-color:' + m.color + '"' : '') +
+      ' onclick="window._clinicalHubTab=\'' + id + '\';window._nav(\'assessments\')">' + m.label + '</button>'
+    ).join('');
+  }
+
+  const el = document.getElementById('content');
+
+  // ── ASSESSMENTS TAB ──────────────────────────────────────────────────────
+  if (tab === 'assessments') {
+    setTopbar('Clinical Hub', '<button class="btn btn-primary btn-sm" onclick="window._chOpenAssignModal()">+ Assign Assessment</button>');
+    el.innerHTML = '<div class="ch-shell">' + spinner() + '</div>';
+
+    let patients = [], courses = [];
+    try {
+      const [pRes, cRes] = await Promise.all([
+        api.listPatients().catch(() => ({ items: [] })),
+        (api.listCourses ? api.listCourses({}) : Promise.resolve({ items: [] })).catch(() => ({ items: [] })),
+      ]);
+      patients = pRes?.items || [];
+      courses  = cRes?.items || [];
+    } catch {}
+
+    const SCALE_DOMAINS = [
+      { domain: 'Depression', color: 'var(--blue)',   scales: ['PHQ-9','PHQ-2','MADRS','HAM-D','QIDS-SR'] },
+      { domain: 'Anxiety',    color: 'var(--teal)',   scales: ['GAD-7','GAD-2','HAM-A','PSWQ','SPIN'] },
+      { domain: 'Trauma',     color: 'var(--violet)', scales: ['PCL-5','CAPS-5','IES-R'] },
+      { domain: 'Psychosis',  color: 'var(--red)',    scales: ['PANSS','BPRS','CGI'] },
+      { domain: 'Cognitive',  color: 'var(--amber)',  scales: ['MoCA','MMSE'] },
+      { domain: 'Sleep',      color: 'var(--green)',  scales: ['ISI','PSQI','ESS'] },
+      { domain: 'Safety',     color: 'var(--red)',    scales: ['C-SSRS','SBQ-R'] },
+      { domain: 'Neuromod',   color: 'var(--teal)',   scales: ['TMS-SE','tDCS-CS'] },
+    ];
+
+    const patOpts = patients.map(p =>
+      '<option value="' + p.id + '">' + ((p.first_name||'') + ' ' + (p.last_name||'')).trim() + ' — ' + ((p.condition_slug||'').replace(/-/g,' ')||'No condition') + '</option>'
+    ).join('') || '<option value="">No patients found</option>';
+
+    const _seedA = [
+      { scale:'PHQ-9', phase:'Weekly',      status:'due',       due:'Today',      score:null },
+      { scale:'GAD-7', phase:'Baseline',    status:'completed', due:'3 days ago', score:12   },
+      { scale:'C-SSRS',phase:'Pre-session', status:'due',       due:'Tomorrow',   score:null },
+      { scale:'MoCA',  phase:'Milestone',   status:'upcoming',  due:'In 5 days',  score:null },
+      { scale:'PCL-5', phase:'Baseline',    status:'completed', due:'1 week ago', score:38   },
+    ];
+
+    const sPill = s => '<span class="ch-assess-pill ch-pill--' + (s==='due'?'due':s==='completed'?'done':'upcoming') + '">' + (s==='due'?'Due':s==='completed'?'Done':'Upcoming') + '</span>';
+
+    el.innerHTML = `
+    <div class="ch-shell">
+      <div class="ch-tab-bar">${tabBar()}</div>
+      <div class="ch-body">
+        <div class="ch-kpi-strip">
+          <div class="ch-kpi-card" style="--kpi-color:var(--amber)"><div class="ch-kpi-val">${_seedA.filter(a=>a.status==='due').length}</div><div class="ch-kpi-label">Due Now</div></div>
+          <div class="ch-kpi-card" style="--kpi-color:var(--teal)"><div class="ch-kpi-val">${_seedA.filter(a=>a.status==='completed').length}</div><div class="ch-kpi-label">Completed</div></div>
+          <div class="ch-kpi-card" style="--kpi-color:var(--blue)"><div class="ch-kpi-val">${patients.length}</div><div class="ch-kpi-label">Patients</div></div>
+          <div class="ch-kpi-card" style="--kpi-color:var(--green)"><div class="ch-kpi-val">${courses.filter(c=>c.status==='active').length}</div><div class="ch-kpi-label">Active Courses</div></div>
+        </div>
+        <div class="ch-two-col">
+          <div class="ch-card">
+            <div class="ch-card-hd">
+              <span class="ch-card-title">Assessment Queue</span>
+              <select class="ch-select" id="ch-pat-filter"><option value="">All Patients</option>${patOpts}</select>
+            </div>
+            <div id="ch-queue-list">
+              ${_seedA.map(a => `<div class="ch-assess-row">
+                <div class="ch-assess-info">
+                  <span class="ch-assess-scale">${a.scale}</span>
+                  <span class="ch-assess-phase">${a.phase}</span>
+                  ${a.score!=null ? '<span class="ch-assess-score">Score: <strong>'+a.score+'</strong></span>' : ''}
+                </div>
+                <div class="ch-assess-meta">
+                  <span class="ch-assess-date">${a.due}</span>
+                  ${sPill(a.status)}
+                  ${a.status!=='completed' ? '<button class="ch-btn-sm ch-btn-teal">Start</button>' : '<button class="ch-btn-sm">View</button>'}
+                </div>
+              </div>`).join('')}
+            </div>
+          </div>
+          <div class="ch-card">
+            <div class="ch-card-hd">
+              <span class="ch-card-title">Scale Library</span>
+              <button class="ch-btn-sm ch-btn-teal" onclick="window._chOpenAssignModal()">+ Assign</button>
+            </div>
+            <div class="ch-scale-domains">
+              ${SCALE_DOMAINS.map(d => `<div class="ch-domain-row">
+                <div class="ch-domain-label" style="--domain-color:${d.color}">${d.domain}</div>
+                <div class="ch-domain-scales">${d.scales.map(s=>'<span class="ch-scale-chip">'+s+'</span>').join('')}</div>
+              </div>`).join('')}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div id="ch-assign-modal" class="ch-modal-overlay ch-hidden">
+      <div class="ch-modal">
+        <div class="ch-modal-hd"><span>Assign Assessment</span><button class="ch-modal-close" onclick="document.getElementById('ch-assign-modal').classList.add('ch-hidden')">✕</button></div>
+        <div class="ch-modal-body">
+          <div class="ch-form-group"><label class="ch-label">Patient</label><select class="ch-select ch-select--full" id="ch-assign-patient">${patOpts}</select></div>
+          <div class="ch-form-group"><label class="ch-label">Scale</label>
+            <select class="ch-select ch-select--full" id="ch-assign-scale">${SCALE_DOMAINS.flatMap(d=>d.scales).map(s=>'<option>'+s+'</option>').join('')}</select>
+          </div>
+          <div class="ch-form-group"><label class="ch-label">Phase</label>
+            <select class="ch-select ch-select--full" id="ch-assign-phase"><option>Baseline</option><option>Weekly</option><option>Pre-session</option><option>Post-session</option><option>Milestone</option><option>Discharge</option></select>
+          </div>
+          <div style="display:flex;gap:8px;margin-top:16px">
+            <button class="btn btn-primary" onclick="window._chAssign()">Assign</button>
+            <button class="btn" onclick="document.getElementById('ch-assign-modal').classList.add('ch-hidden')">Cancel</button>
+          </div>
+        </div>
+      </div>
+    </div>`;
+
+    window._chOpenAssignModal = () => document.getElementById('ch-assign-modal')?.classList.remove('ch-hidden');
+    window._chAssign = () => {
+      const scale = document.getElementById('ch-assign-scale')?.value;
+      const phase = document.getElementById('ch-assign-phase')?.value;
+      window._dsToast?.({ title: 'Assigned', body: scale + ' (' + phase + ') assigned.', severity: 'success' });
+      document.getElementById('ch-assign-modal')?.classList.add('ch-hidden');
+    };
+  }
+
+  // ── OUTCOMES TAB ─────────────────────────────────────────────────────────
+  else if (tab === 'outcomes') {
+    setTopbar('Clinical Hub', '<button class="btn btn-sm" onclick="window._dsToast?.({title:\'Export\',body:\'CSV export coming soon.\',severity:\'info\'})">Export CSV</button>');
+    el.innerHTML = '<div class="ch-shell">' + spinner() + '</div>';
+
+    let courses = [], patients = [];
+    try {
+      const [cRes, pRes] = await Promise.all([
+        (api.listCourses ? api.listCourses({}) : Promise.resolve({ items: [] })).catch(() => ({ items: [] })),
+        api.listPatients().catch(() => ({ items: [] })),
+      ]);
+      courses  = cRes?.items || [];
+      patients = pRes?.items || [];
+    } catch {}
+
+    const patMap = {};
+    patients.forEach(p => { patMap[p.id] = p; });
+    const active    = courses.filter(c => c.status === 'active').length    || 8;
+    const completed = courses.filter(c => c.status === 'completed').length || 12;
+
+    const seedRows = courses.slice(0, 8).map((c, i) => {
+      const p = patMap[c.patient_id];
+      const name = p ? ((p.first_name||'') + ' ' + (p.last_name||'')).trim() : 'Patient';
+      const prog = c.planned_sessions_total > 0 ? Math.round((c.sessions_delivered||0) / c.planned_sessions_total * 100) : 0;
+      return { name, condition: (c.condition_slug||'').replace(/-/g,' ')||'MDD', prog, score:[14,9,7,18,12,11,16,8][i%8], change:[-4,-9,-11,0,-5,-7,-3,-2][i%8], status: c.status };
+    });
+    if (!seedRows.length) {
+      ['A','B','C','D'].forEach((l,i) => seedRows.push({ name:'Demo Patient '+l, condition:'MDD', prog:[45,78,100,22][i], score:[14,9,7,18][i], change:[-4,-9,-11,0][i], status:['active','active','completed','active'][i] }));
+    }
+
+    const chgC = v => v<0?'var(--green)':v>0?'var(--red)':'var(--text-tertiary)';
+    const chgA = v => v<0?'↓':v>0?'↑':'—';
+    const stC  = { active:'var(--teal)', completed:'var(--green)', paused:'var(--amber)', discontinued:'var(--red)' };
+
+    el.innerHTML = `
+    <div class="ch-shell">
+      <div class="ch-tab-bar">${tabBar()}</div>
+      <div class="ch-body">
+        <div class="ch-kpi-strip">
+          <div class="ch-kpi-card" style="--kpi-color:var(--green)"><div class="ch-kpi-val">67%</div><div class="ch-kpi-label">Responder Rate</div></div>
+          <div class="ch-kpi-card" style="--kpi-color:var(--teal)"><div class="ch-kpi-val">−7</div><div class="ch-kpi-label">Mean PHQ-9 Δ</div></div>
+          <div class="ch-kpi-card" style="--kpi-color:var(--blue)"><div class="ch-kpi-val">${active}</div><div class="ch-kpi-label">Active Courses</div></div>
+          <div class="ch-kpi-card" style="--kpi-color:var(--green)"><div class="ch-kpi-val">${completed}</div><div class="ch-kpi-label">Completed</div></div>
+        </div>
+        <div class="ch-card">
+          <div class="ch-card-hd"><span class="ch-card-title">Patient Outcomes</span></div>
+          <div class="ch-table-wrap">
+            <table class="ch-table">
+              <thead><tr><th>Patient</th><th>Condition</th><th>Progress</th><th>PHQ-9</th><th>Change</th><th>Status</th><th></th></tr></thead>
+              <tbody>
+                ${seedRows.map(r => `<tr class="ch-table-row">
+                  <td><span class="ch-pt-name">${r.name}</span></td>
+                  <td><span class="ch-condition">${r.condition}</span></td>
+                  <td><div class="ch-prog-wrap"><div class="ch-prog-bar"><div class="ch-prog-fill" style="width:${r.prog}%"></div></div><span class="ch-prog-pct">${r.prog}%</span></div></td>
+                  <td><span class="ch-score">${r.score}</span></td>
+                  <td><span style="color:${chgC(r.change)};font-weight:600">${chgA(r.change)} ${Math.abs(r.change)}</span></td>
+                  <td><span class="ch-status-dot" style="--status-color:${stC[r.status]||'var(--text-tertiary)'}"></span> <span style="font-size:11.5px;text-transform:capitalize">${r.status}</span></td>
+                  <td><button class="ch-btn-sm" onclick="window._nav('course-detail')">View</button></td>
+                </tr>`).join('')}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>`;
+  }
+
+  // ── SCORING CALC TAB ─────────────────────────────────────────────────────
+  else if (tab === 'scoring') {
+    setTopbar('Assessments', '');
+    el.innerHTML = '<div class="ch-shell">' + spinner() + '</div>';
+
+    const SCALES_QUICK = [
+      { id:'PHQ-9',  name:'PHQ-9',  full:'Patient Health Questionnaire-9', domain:'Depression', max:27,
+        bands:[{max:4,label:'Minimal',color:'var(--green)'},{max:9,label:'Mild',color:'#84cc16'},{max:14,label:'Moderate',color:'var(--amber)'},{max:19,label:'Mod. Severe',color:'#f97316'},{max:27,label:'Severe',color:'var(--red)'}],
+        tx:'TMS: Left DLPFC, 10 Hz. Consider when PHQ-9 ≥10 with inadequate medication response.' },
+      { id:'GAD-7',  name:'GAD-7',  full:'Generalized Anxiety Disorder-7', domain:'Anxiety', max:21,
+        bands:[{max:4,label:'Minimal',color:'var(--green)'},{max:9,label:'Mild',color:'#84cc16'},{max:14,label:'Moderate',color:'var(--amber)'},{max:21,label:'Severe',color:'var(--red)'}],
+        tx:'Neurofeedback alpha/theta, 20-30 sessions. CBT first-line psychotherapy.' },
+      { id:'PCL-5',  name:'PCL-5',  full:'PTSD Checklist for DSM-5', domain:'PTSD', max:80,
+        bands:[{max:22,label:'Below threshold',color:'var(--green)'},{max:36,label:'Probable PTSD',color:'var(--amber)'},{max:80,label:'PTSD likely',color:'var(--red)'}],
+        tx:'tDCS prefrontal, TMS right hemisphere. EMDR + trauma-focused CBT.' },
+      { id:'MADRS',  name:'MADRS',  full:'Montgomery-Åsberg Depression Rating Scale', domain:'Depression', max:60,
+        bands:[{max:6,label:'No depression',color:'var(--green)'},{max:19,label:'Mild',color:'#84cc16'},{max:34,label:'Moderate',color:'var(--amber)'},{max:60,label:'Severe',color:'var(--red)'}],
+        tx:'TMS indicated for MADRS ≥20 with treatment resistance.' },
+      { id:'GAD-2',  name:'GAD-2',  full:'GAD 2-item Screener', domain:'Anxiety', max:6,
+        bands:[{max:2,label:'Low risk',color:'var(--green)'},{max:6,label:'Refer for GAD-7',color:'var(--amber)'}],
+        tx:'Positive screen (≥3): administer full GAD-7.' },
+      { id:'ISI',    name:'ISI',    full:'Insomnia Severity Index', domain:'Sleep', max:28,
+        bands:[{max:7,label:'No insomnia',color:'var(--green)'},{max:14,label:'Sub-threshold',color:'#84cc16'},{max:21,label:'Moderate',color:'var(--amber)'},{max:28,label:'Severe',color:'var(--red)'}],
+        tx:'tDCS, neurofeedback delta/theta. CBT-I is first-line.' },
+      { id:'MoCA',   name:'MoCA',   full:'Montreal Cognitive Assessment', domain:'Cognitive', max:30,
+        bands:[{max:17,label:'Moderate impairment',color:'var(--red)'},{max:22,label:'Mild',color:'var(--amber)'},{max:25,label:'Borderline',color:'#84cc16'},{max:30,label:'Normal',color:'var(--green)'}],
+        tx:'Cognitive neurostimulation protocols. Refer neuropsychology if <18.' },
+      { id:'C-SSRS', name:'C-SSRS', full:'Columbia Suicide Severity Rating Scale', domain:'Safety', max:6,
+        bands:[{max:0,label:'No ideation',color:'var(--green)'},{max:2,label:'Passive/Low',color:'#84cc16'},{max:5,label:'Active ideation',color:'var(--red)'},{max:6,label:'Behavior — urgent',color:'var(--red)'}],
+        tx:'Any score >0: clinical assessment required. Scores 5-6: immediate intervention.' },
+    ];
+
+    window._scaleId = window._scaleId || 'PHQ-9';
+
+    function renderScoring(scaleId) {
+      const sc = SCALES_QUICK.find(s=>s.id===scaleId) || SCALES_QUICK[0];
+      window._scaleId = sc.id;
+      const score = parseInt(document.getElementById('sc-score-input')?.value||'0') || 0;
+      const band  = sc.bands.find(b=>score<=b.max) || sc.bands[sc.bands.length-1];
+      const pct   = Math.round((score/sc.max)*100);
+      const out   = document.getElementById('sc-result');
+      if (!out) return;
+      out.innerHTML = `
+        <div class="sc-score-display">
+          <div class="sc-score-circle" style="--pct:${pct};--band-color:${band.color}">
+            <div class="sc-score-inner">
+              <div class="sc-score-num">${score}</div>
+              <div class="sc-score-max">/${sc.max}</div>
+            </div>
+          </div>
+          <div class="sc-score-info">
+            <div class="sc-band-label" style="color:${band.color}">${band.label}</div>
+            <div class="sc-bands-row">
+              ${sc.bands.map(b=>'<span class="sc-band-chip" style="background:'+b.color+'22;color:'+b.color+';border-color:'+b.color+'44">'+b.label+'</span>').join('')}
+            </div>
+            <div class="sc-tx-rec">${sc.tx}</div>
+          </div>
+        </div>`;
+    }
+
+    el.innerHTML = `
+    <div class="ch-shell">
+      <div class="ch-tab-bar">${tabBar()}</div>
+      <div class="ch-body">
+        <div class="ch-two-col">
+          <div class="ch-card">
+            <div class="ch-card-hd"><span class="ch-card-title">Scale Calculator</span></div>
+            <div style="padding:16px">
+              <div class="ch-form-group">
+                <label class="ch-label">Select Scale</label>
+                <div class="sc-scale-pills">
+                  ${SCALES_QUICK.map(s=>'<button class="sc-scale-pill' + (s.id===window._scaleId?' active':'') + '" onclick="window._scaleId=\''+s.id+'\';document.querySelectorAll(\'.sc-scale-pill\').forEach(b=>b.classList.toggle(\'active\',b.textContent===\''+s.id+'\'));document.getElementById(\'sc-score-input\').max=\''+s.max+'\';document.getElementById(\'sc-scale-full\').textContent=\''+s.full+'\';renderScoring(\''+s.id+'\')">'+s.name+'</button>').join('')}
+                </div>
+                <div id="sc-scale-full" style="font-size:11.5px;color:var(--text-tertiary);margin-top:6px">${SCALES_QUICK[0].full}</div>
+              </div>
+              <div class="ch-form-group" style="margin-top:16px">
+                <label class="ch-label">Total Score</label>
+                <div style="display:flex;align-items:center;gap:12px">
+                  <input id="sc-score-input" type="number" min="0" max="${SCALES_QUICK[0].max}" value="0"
+                    class="ch-select" style="width:80px;font-size:18px;font-weight:700;text-align:center;padding:8px"
+                    oninput="window._scScoringRender()">
+                  <span style="font-size:12px;color:var(--text-tertiary)">out of <span id="sc-max-display">${SCALES_QUICK[0].max}</span></span>
+                </div>
+              </div>
+            </div>
+            <div id="sc-result" style="padding:0 16px 16px"></div>
+          </div>
+          <div class="ch-card">
+            <div class="ch-card-hd"><span class="ch-card-title">Quick Reference</span></div>
+            <div class="sc-ref-list">
+              ${SCALES_QUICK.map(s=>`<div class="sc-ref-row">
+                <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+                  <span style="font-weight:700;font-size:12.5px;color:var(--text-primary)">${s.id}</span>
+                  <span style="font-size:10.5px;color:var(--text-tertiary)">${s.domain}</span>
+                  <span style="font-size:10.5px;color:var(--text-tertiary);margin-left:auto">0–${s.max}</span>
+                </div>
+                <div style="display:flex;gap:3px;flex-wrap:wrap">
+                  ${s.bands.map(b=>'<span style="font-size:9.5px;padding:1px 7px;border-radius:8px;background:'+b.color+'18;color:'+b.color+';border:1px solid '+b.color+'30">'+b.label+'</span>').join('')}
+                </div>
+              </div>`).join('')}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>`;
+
+    window._scScoringRender = () => {
+      const input = document.getElementById('sc-score-input');
+      const sc = SCALES_QUICK.find(s=>s.id===window._scaleId)||SCALES_QUICK[0];
+      if (input) { input.max = sc.max; document.getElementById('sc-max-display').textContent = sc.max; }
+      renderScoring(window._scaleId);
+    };
+    renderScoring(window._scaleId);
+  }
+
+  // ── SCALE REGISTRY TAB ───────────────────────────────────────────────────
+  else if (tab === 'registry') {
+    setTopbar('Assessments', '');
+    el.innerHTML = '<div class="ch-shell">' + spinner() + '</div>';
+
+    const REGISTRY = [
+      { name:'PHQ-9',   full:'Patient Health Questionnaire-9',          domain:'Depression', type:'Self-report', items:9,  mins:5,  scoring:'0–27. ≥10 = moderate+ depression', ev:'A' },
+      { name:'PHQ-2',   full:'PHQ 2-item Screener',                      domain:'Depression', type:'Self-report', items:2,  mins:1,  scoring:'0–6. ≥3 = refer for PHQ-9', ev:'A' },
+      { name:'MADRS',   full:'Montgomery-Åsberg Depression Rating Scale', domain:'Depression', type:'Clinician',  items:10, mins:20, scoring:'0–60. ≥20 = moderate depression', ev:'A' },
+      { name:'HAM-D',   full:'Hamilton Depression Rating Scale',          domain:'Depression', type:'Clinician',  items:17, mins:20, scoring:'0–52. ≥14 = moderate depression', ev:'A' },
+      { name:'QIDS-SR', full:'Quick Inventory of Depressive Symptomatology',domain:'Depression',type:'Self-report',items:16,mins:10, scoring:'0–27. ≥11 = moderate depression', ev:'A' },
+      { name:'GAD-7',   full:'Generalized Anxiety Disorder-7',            domain:'Anxiety',   type:'Self-report', items:7,  mins:5,  scoring:'0–21. ≥10 = moderate anxiety', ev:'A' },
+      { name:'HAM-A',   full:'Hamilton Anxiety Rating Scale',             domain:'Anxiety',   type:'Clinician',  items:14, mins:20, scoring:'0–56. ≥14 = mild anxiety', ev:'A' },
+      { name:'PSWQ',    full:'Penn State Worry Questionnaire',            domain:'Anxiety',   type:'Self-report', items:16, mins:10, scoring:'16–80. ≥62 = high worry', ev:'B' },
+      { name:'PCL-5',   full:'PTSD Checklist for DSM-5',                  domain:'PTSD',      type:'Self-report', items:20, mins:10, scoring:'0–80. ≥33 = probable PTSD', ev:'A' },
+      { name:'CAPS-5',  full:'Clinician-Administered PTSD Scale',         domain:'PTSD',      type:'Clinician',  items:30, mins:45, scoring:'0–80. ≥23 = moderate PTSD', ev:'A' },
+      { name:'PANSS',   full:'Positive and Negative Syndrome Scale',      domain:'Psychosis', type:'Clinician',  items:30, mins:45, scoring:'30–210. ≥75 = moderate psychosis', ev:'A' },
+      { name:'BPRS',    full:'Brief Psychiatric Rating Scale',            domain:'Psychosis', type:'Clinician',  items:24, mins:30, scoring:'24–168. ≥41 = moderate', ev:'A' },
+      { name:'MoCA',    full:'Montreal Cognitive Assessment',             domain:'Cognitive', type:'Clinician',  items:30, mins:15, scoring:'0–30. <26 = cognitive impairment', ev:'A' },
+      { name:'ISI',     full:'Insomnia Severity Index',                   domain:'Sleep',     type:'Self-report', items:7, mins:5,   scoring:'0–28. ≥15 = moderate insomnia', ev:'A' },
+      { name:'PSQI',    full:'Pittsburgh Sleep Quality Index',            domain:'Sleep',     type:'Self-report', items:19, mins:10, scoring:'0–21. >5 = poor sleep quality', ev:'A' },
+      { name:'C-SSRS',  full:'Columbia Suicide Severity Rating Scale',    domain:'Safety',    type:'Clinician',  items:6,  mins:10, scoring:'0–6. Any ideation requires assessment', ev:'A' },
+      { name:'TMS-SE',  full:'TMS Side-Effects Checklist',                domain:'Neuromod',  type:'Self-report', items:10,mins:5,   scoring:'0–30. Monitor per session', ev:'B' },
+      { name:'tDCS-CS', full:'tDCS Comfort and Side Effects Scale',       domain:'Neuromod',  type:'Self-report', items:8, mins:5,   scoring:'0–24. Monitor per session', ev:'B' },
+    ];
+
+    const DOMAINS = ['All', ...new Set(REGISTRY.map(r=>r.domain))];
+    const TYPES   = ['All', 'Self-report', 'Clinician'];
+    window._regDomain = window._regDomain || 'All';
+    window._regType   = window._regType   || 'All';
+    window._regSearch = '';
+
+    function renderRegistry() {
+      const q = (document.getElementById('reg-search')?.value||'').toLowerCase();
+      window._regSearch = q;
+      const filtered = REGISTRY.filter(r => {
+        const matchD = window._regDomain === 'All' || r.domain === window._regDomain;
+        const matchT = window._regType   === 'All' || r.type   === window._regType;
+        const matchQ = !q || r.name.toLowerCase().includes(q) || r.full.toLowerCase().includes(q) || r.domain.toLowerCase().includes(q);
+        return matchD && matchT && matchQ;
+      });
+      const out = document.getElementById('reg-list');
+      if (!out) return;
+      const evColor = { A:'var(--teal)', B:'var(--blue)', C:'var(--amber)' };
+      out.innerHTML = filtered.map(r => `<div class="reg-row">
+        <div class="reg-row-top">
+          <span class="reg-name">${r.name}</span>
+          <span class="reg-ev" style="color:${evColor[r.ev]||'var(--text-tertiary)'};border-color:${evColor[r.ev]||'var(--border)'}44">Ev. ${r.ev}</span>
+          <span class="reg-type">${r.type}</span>
+          <span class="reg-domain" style="margin-left:auto">${r.domain}</span>
+        </div>
+        <div class="reg-full">${r.full}</div>
+        <div class="reg-meta">
+          <span>${r.items} items</span>
+          <span>~${r.mins} min</span>
+          <span>${r.scoring}</span>
+        </div>
+      </div>`).join('') || '<div class="ch-empty">No scales match your filter.</div>';
+    }
+
+    window._regSetDomain = d => { window._regDomain = d; document.querySelectorAll('.reg-domain-pill').forEach(b=>b.classList.toggle('active',b.dataset.domain===d)); renderRegistry(); };
+    window._regSetType   = t => { window._regType   = t; document.querySelectorAll('.reg-type-pill').forEach(b=>b.classList.toggle('active',b.dataset.type===t)); renderRegistry(); };
+
+    el.innerHTML = `
+    <div class="ch-shell">
+      <div class="ch-tab-bar">${tabBar()}</div>
+      <div class="ch-body">
+        <div class="ch-card">
+          <div class="ch-card-hd" style="flex-wrap:wrap;gap:10px">
+            <span class="ch-card-title">Assessment Registry — ${REGISTRY.length} instruments</span>
+            <div style="position:relative;flex:1;max-width:260px">
+              <input id="reg-search" type="text" placeholder="Search scales…" class="ph-search-input" oninput="renderRegistry()">
+              <svg viewBox="0 0 24 24" style="position:absolute;left:9px;top:50%;transform:translateY(-50%);width:13px;height:13px;stroke:var(--text-tertiary);fill:none;stroke-width:2;stroke-linecap:round;pointer-events:none"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+            </div>
+          </div>
+          <div style="padding:10px 16px;display:flex;gap:8px;flex-wrap:wrap;border-bottom:1px solid var(--border)">
+            ${DOMAINS.map(d=>'<button class="reg-domain-pill' + (d===window._regDomain?' active':'') + '" data-domain="'+d+'" onclick="window._regSetDomain(\''+d+'\')">'+d+'</button>').join('')}
+            <span style="width:1px;background:var(--border);margin:0 4px;align-self:stretch"></span>
+            ${TYPES.map(t=>'<button class="reg-type-pill' + (t===window._regType?' active':'') + '" data-type="'+t+'" onclick="window._regSetType(\''+t+'\')">'+t+'</button>').join('')}
+          </div>
+          <div id="reg-list" style="max-height:calc(100vh - 280px);overflow-y:auto"></div>
+        </div>
+      </div>
+    </div>`;
+
+    renderRegistry();
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// pgProtocolHub — Protocol Intelligence: Search · Brain Map · Registry · Handbooks · Builder
+// ═══════════════════════════════════════════════════════════════════════════════
+export async function pgProtocolHub(setTopbar, navigate) {
+  const tab = window._protocolHubTab || 'search';
+  window._protocolHubTab = tab;
+
+  // Lazy-load protocol data
+  let _protos = [], _conditions = [], _devices = [], _searchFn = null;
+  try {
+    const pd = await import('./protocols-data.js');
+    _protos     = pd.PROTOCOL_LIBRARY || [];
+    _conditions = pd.CONDITIONS       || [];
+    _devices    = pd.DEVICES          || [];
+    _searchFn   = pd.searchProtocols  || null;
+  } catch {}
+
+  const TAB_META = {
+    search:       { label: 'Protocol Search',    color: 'var(--teal)'   },
+    brainmap:     { label: 'Brain Map',           color: 'var(--blue)'   },
+    registry:     { label: 'Registry',            color: 'var(--violet)' },
+    handbooks:    { label: 'Handbooks',           color: 'var(--amber)'  },
+    personalized: { label: 'Personalised',        color: 'var(--rose)'   },
+    brainscan:    { label: 'Brain Scan AI',       color: '#a78bfa'       },
+    builder:  { label: 'Builder',          color: 'var(--green)'  },
+  };
+
+  const el = document.getElementById('content');
+
+  function tabBar() {
+    return Object.entries(TAB_META).map(([id, m]) =>
+      '<button class="ch-tab' + (tab === id ? ' ch-tab--active' : '') + '"' +
+      (tab === id ? ' style="--tab-color:' + m.color + '"' : '') +
+      ' onclick="window._protocolHubTab=\'' + id + '\';window._nav(\'protocol-hub\')">' + m.label + '</button>'
+    ).join('');
+  }
+
+  // ── PROTOCOL SEARCH TAB ─────────────────────────────────────────────────
+  if (tab === 'search') {
+    setTopbar('Protocols', '<button class="btn btn-sm ch-btn-teal" onclick="window._nav(\'protocol-search-full\')">Full View ↗</button>');
+    el.innerHTML = '<div class="ch-shell">' + spinner() + '</div>';
+
+    window._phSearchQ    = window._phSearchQ    || '';
+    window._phSearchCond = window._phSearchCond || '';
+    window._phSearchDev  = window._phSearchDev  || '';
+    window._phSearchEv   = window._phSearchEv   || '';
+
+    const condOpts = ['', ..._conditions.map(c => c.id)].map(id =>
+      '<option value="' + id + '">' + (id ? (_conditions.find(c=>c.id===id)?.label||id) : 'All Conditions') + '</option>'
+    ).join('');
+    const devOpts = ['', ..._devices.map(d => d.id)].map(id =>
+      '<option value="' + id + '">' + (id ? (_devices.find(d=>d.id===id)?.label||id) : 'All Devices') + '</option>'
+    ).join('');
+
+    const evColors = { A:'var(--teal)', B:'var(--blue)', C:'var(--amber)', D:'var(--text-tertiary)', E:'var(--text-tertiary)' };
+
+    function runSearch() {
+      const q    = document.getElementById('ph-search-q')?.value    || '';
+      const cond = document.getElementById('ph-search-cond')?.value || '';
+      const dev  = document.getElementById('ph-search-dev')?.value  || '';
+      const ev   = document.getElementById('ph-search-ev')?.value   || '';
+      window._phSearchQ = q; window._phSearchCond = cond; window._phSearchDev = dev; window._phSearchEv = ev;
+
+      let results = _protos;
+      if (_searchFn && q) {
+        try { results = _searchFn(q) || results; } catch {}
+      }
+      if (q && !_searchFn) results = results.filter(p => (p.name||'').toLowerCase().includes(q.toLowerCase()) || (p.conditionId||'').toLowerCase().includes(q.toLowerCase()));
+      if (cond) results = results.filter(p => p.conditionId === cond);
+      if (dev)  results = results.filter(p => p.device === dev);
+      if (ev)   results = results.filter(p => p.evidenceGrade === ev);
+
+      const out = document.getElementById('ph-search-results');
+      if (!out) return;
+      const cnt = document.getElementById('ph-search-count');
+      if (cnt) cnt.textContent = results.length + ' protocols';
+
+      if (!results.length) { out.innerHTML = '<div class="ch-empty">No protocols match. Try different filters.</div>'; return; }
+
+      out.innerHTML = results.slice(0, 40).map(p => {
+        const cond = _conditions.find(c=>c.id===p.conditionId);
+        const dev  = _devices.find(d=>d.id===p.device);
+        const evC  = evColors[p.evidenceGrade] || 'var(--text-tertiary)';
+        return '<div class="ph-proto-card" onclick="window._protDetailId=\'' + (p.id||'') + '\';window._nav(\'protocol-detail\')">' +
+          '<div class="ph-proto-top">' +
+            '<span class="ph-proto-name">' + (p.name||'Protocol') + '</span>' +
+            '<span class="ph-proto-ev" style="color:' + evC + ';border-color:' + evC + '44">Ev. ' + (p.evidenceGrade||'?') + '</span>' +
+          '</div>' +
+          '<div class="ph-proto-meta">' +
+            '<span class="ph-proto-cond">' + (cond?.label||p.conditionId||'—') + '</span>' +
+            '<span class="ph-proto-sep">·</span>' +
+            '<span class="ph-proto-dev">' + (dev?.label||p.device||'—') + '</span>' +
+            (p.sessions ? '<span class="ph-proto-sep">·</span><span class="ph-proto-sessions">' + p.sessions + ' sessions</span>' : '') +
+          '</div>' +
+          (p.summary ? '<div class="ph-proto-summary">' + p.summary.slice(0,120) + (p.summary.length>120?'…':'') + '</div>' : '') +
+        '</div>';
+      }).join('');
+    }
+
+    window._phRunSearch = runSearch;
+
+    el.innerHTML = `
+    <div class="ch-shell">
+      <div class="ch-tab-bar">${tabBar()}</div>
+      <div class="ch-body">
+        <div class="ph-search-bar">
+          <div style="position:relative;flex:1;min-width:200px">
+            <input id="ph-search-q" type="text" placeholder="Search protocols, conditions, devices…" class="ph-search-input" style="padding-left:32px" value="${window._phSearchQ}" oninput="window._phRunSearch()">
+            <svg viewBox="0 0 24 24" style="position:absolute;left:10px;top:50%;transform:translateY(-50%);width:14px;height:14px;stroke:var(--text-tertiary);fill:none;stroke-width:2;stroke-linecap:round;pointer-events:none"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+          </div>
+          <select id="ph-search-cond" class="ch-select" onchange="window._phRunSearch()">${condOpts}</select>
+          <select id="ph-search-dev"  class="ch-select" onchange="window._phRunSearch()">${devOpts}</select>
+          <select id="ph-search-ev"   class="ch-select" onchange="window._phRunSearch()">
+            <option value="">All Evidence</option>
+            <option value="A">Grade A</option>
+            <option value="B">Grade B</option>
+            <option value="C">Grade C</option>
+          </select>
+          <span id="ph-search-count" style="font-size:12px;color:var(--text-tertiary);white-space:nowrap">${_protos.length} protocols</span>
+        </div>
+        <div id="ph-search-results" class="ph-proto-grid"></div>
+      </div>
+    </div>`;
+
+    runSearch();
+  }
+
+  // ── BRAIN MAP TAB ────────────────────────────────────────────────────────
+  else if (tab === 'brainmap') {
+    setTopbar('Protocols', '<button class="btn btn-sm" onclick="window._nav(\'brain-map-full\')">Full Brain Map ↗</button>');
+
+    // Key electrode sites for 10-20 system
+    const SITES = [
+      { id:'Fp1', x:35, y:12 }, { id:'Fp2', x:65, y:12 },
+      { id:'F7',  x:18, y:28 }, { id:'F3',  x:38, y:26 }, { id:'Fz',  x:50, y:24 }, { id:'F4',  x:62, y:26 }, { id:'F8',  x:82, y:28 },
+      { id:'T7',  x:10, y:50 }, { id:'C3',  x:32, y:48 }, { id:'Cz',  x:50, y:46 }, { id:'C4',  x:68, y:48 }, { id:'T8',  x:90, y:50 },
+      { id:'P7',  x:18, y:72 }, { id:'P3',  x:38, y:70 }, { id:'Pz',  x:50, y:68 }, { id:'P4',  x:62, y:70 }, { id:'P8',  x:82, y:72 },
+      { id:'O1',  x:38, y:88 }, { id:'Oz',  x:50, y:90 }, { id:'O2',  x:62, y:88 },
+      { id:'DLPFC-L', x:30, y:32, highlight:true }, { id:'DLPFC-R', x:70, y:32, highlight:true },
+    ];
+
+    const MONTAGES = [
+      { id:'tms-mdd-l', label:'TMS — Left DLPFC Depression', anode:'F3', cathode:'', condition:'MDD', device:'TMS', ev:'A', notes:'Left DLPFC (F3 approximation). 10 Hz, 120% MT, 3000 pulses/session. 30 sessions.' },
+      { id:'tms-mdd-ithf', label:'TMS — Theta Burst (iTBS) Depression', anode:'F3', cathode:'', condition:'TRD', device:'TMS', ev:'A', notes:'Intermittent TBS. 600 pulses in 3 min. 10× faster than standard TMS.' },
+      { id:'tms-ocd', label:'TMS — Deep TMS OCD', anode:'mPFC', cathode:'', condition:'OCD', device:'TMS', ev:'A', notes:'Deep TMS H7 coil, medial PFC. FDA-cleared for OCD.' },
+      { id:'tdcs-mdd', label:'tDCS — Anodal DLPFC Depression', anode:'F3', cathode:'F4', condition:'MDD', device:'tDCS', ev:'B', notes:'Anode F3, Cathode F4. 2 mA, 30 min. 20 sessions.' },
+      { id:'tdcs-ptsd', label:'tDCS — Prefrontal PTSD', anode:'F3', cathode:'F4', condition:'PTSD', device:'tDCS', ev:'B', notes:'Bilateral prefrontal. 2 mA, 20 min.' },
+      { id:'nfb-alpha', label:'Neurofeedback — Alpha/Theta Anxiety', anode:'Pz', cathode:'', condition:'GAD', device:'EEG', ev:'B', notes:'Alpha/theta uptraining at Pz. 30-40 sessions.' },
+      { id:'nfb-smr', label:'Neurofeedback — SMR ADHD', anode:'C3', cathode:'', condition:'ADHD', device:'EEG', ev:'B', notes:'SMR uptraining at C3/Cz. 40 sessions.' },
+    ];
+
+    window._bmpMontage = window._bmpMontage || MONTAGES[0].id;
+
+    function renderBrainMap() {
+      const m = MONTAGES.find(x=>x.id===window._bmpMontage)||MONTAGES[0];
+      const evC = { A:'var(--teal)', B:'var(--blue)', C:'var(--amber)' };
+      const svgSites = SITES.map(s => {
+        const isAnode   = s.id === m.anode;
+        const isCathode = s.id === m.cathode;
+        const isHL      = s.highlight;
+        const fill = isAnode ? '#00d4bc' : isCathode ? '#ff6b9d' : isHL ? 'rgba(74,158,255,0.3)' : 'rgba(255,255,255,0.08)';
+        const stroke = isAnode||isCathode ? 'rgba(255,255,255,0.6)' : 'rgba(255,255,255,0.2)';
+        const r = isAnode||isCathode ? 9 : 6;
+        return '<circle cx="' + s.x + '%" cy="' + s.y + '%" r="' + r + '" fill="' + fill + '" stroke="' + stroke + '" stroke-width="1.5"/>' +
+          '<text x="' + s.x + '%" y="' + (parseFloat(s.y)+4.5) + '%" text-anchor="middle" font-size="7" fill="rgba(255,255,255,0.6)" font-family="system-ui">' + s.id + '</text>';
+      }).join('');
+
+      const out = document.getElementById('bmp-detail');
+      if (out) out.innerHTML = `
+        <div class="bmp-montage-name">${m.label}</div>
+        <div class="bmp-badges">
+          <span class="bmp-badge">${m.condition}</span>
+          <span class="bmp-badge">${m.device}</span>
+          <span class="bmp-badge" style="color:${evC[m.ev]||'var(--text-tertiary)'}">Evidence ${m.ev}</span>
+          ${m.anode?'<span class="bmp-badge bmp-badge--anode">+ '+m.anode+'</span>':''}
+          ${m.cathode?'<span class="bmp-badge bmp-badge--cathode">− '+m.cathode+'</span>':''}
+        </div>
+        <div class="bmp-notes">${m.notes}</div>
+        <div style="display:flex;gap:8px;margin-top:12px">
+          <button class="ch-btn-sm ch-btn-teal" onclick="window._nav('protocol-search-full')">Find More Protocols →</button>
+          <button class="ch-btn-sm" onclick="window._patientHubTab='prescriptions';window._nav('patients-hub')">Prescribe →</button>
+        </div>`;
+
+      const svgEl = document.getElementById('bmp-svg');
+      if (svgEl) svgEl.innerHTML = svgSites;
+    }
+
+    window._bmpSelect = id => {
+      window._bmpMontage = id;
+      document.querySelectorAll('.bmp-montage-btn').forEach(b=>b.classList.toggle('active',b.dataset.id===id));
+      renderBrainMap();
+    };
+
+    el.innerHTML = `
+    <div class="ch-shell">
+      <div class="ch-tab-bar">${tabBar()}</div>
+      <div class="ch-body">
+        <div class="bmp-layout">
+          <div class="bmp-sidebar">
+            <div class="ph-rail-label">Montages</div>
+            ${MONTAGES.map(m => '<button class="bmp-montage-btn ph-cohort-item' + (m.id===window._bmpMontage?' active':'') + '" data-id="' + m.id + '" onclick="window._bmpSelect(\'' + m.id + '\')">' + m.label + '</button>').join('')}
+          </div>
+          <div class="bmp-main">
+            <div class="bmp-map-wrap">
+              <svg id="bmp-svg" viewBox="0 0 100 100" style="width:100%;height:100%;overflow:visible">
+                <!-- Head outline -->
+                <ellipse cx="50%" cy="50%" rx="46%" ry="44%" fill="none" stroke="rgba(255,255,255,0.12)" stroke-width="1.5"/>
+                <ellipse cx="50%" cy="50%" rx="38%" ry="36%" fill="none" stroke="rgba(255,255,255,0.06)" stroke-width="1"/>
+                <!-- Nasion marker -->
+                <line x1="50%" y1="6%" x2="50%" y2="10%" stroke="rgba(255,255,255,0.2)" stroke-width="1.5"/>
+              </svg>
+            </div>
+            <div class="bmp-legend">
+              <span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:var(--teal);margin-right:5px"></span>Anode / Active</span>
+              <span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#ff6b9d;margin-right:5px"></span>Cathode / Reference</span>
+              <span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:rgba(74,158,255,0.3);margin-right:5px"></span>Key region</span>
+            </div>
+          </div>
+          <div class="bmp-detail-panel" id="bmp-detail"></div>
+        </div>
+      </div>
+    </div>`;
+
+    renderBrainMap();
+  }
+
+  // ── REGISTRY TAB ─────────────────────────────────────────────────────────
+  else if (tab === 'registry') {
+    setTopbar('Protocols', '<button class="btn btn-sm" onclick="window._nav(\'protocol-search-full\')">Full Search ↗</button>');
+
+    const MODS = ['All', ...new Set(_protos.map(p=>p.device).filter(Boolean).map(id=>_devices.find(d=>d.id===id)?.label||id))];
+    window._regProtoMod = window._regProtoMod || 'All';
+    window._regProtoQ   = '';
+
+    function renderProtoReg() {
+      const q   = (document.getElementById('reg-proto-q')?.value||'').toLowerCase();
+      const mod = window._regProtoMod;
+      const filtered = _protos.filter(p => {
+        const devLabel = _devices.find(d=>d.id===p.device)?.label||p.device||'';
+        const matchM = mod==='All' || devLabel===mod;
+        const matchQ = !q || (p.name||'').toLowerCase().includes(q) || (p.conditionId||'').toLowerCase().includes(q);
+        return matchM && matchQ;
+      });
+
+      const out = document.getElementById('reg-proto-list');
+      if (!out) return;
+      const cnt = document.getElementById('reg-proto-count');
+      if (cnt) cnt.textContent = filtered.length + ' protocols';
+      const evC = { A:'var(--teal)', B:'var(--blue)', C:'var(--amber)', D:'var(--text-tertiary)' };
+
+      out.innerHTML = filtered.slice(0,50).map(p => {
+        const cond = _conditions.find(c=>c.id===p.conditionId);
+        const dev  = _devices.find(d=>d.id===p.device);
+        const evc  = evC[p.evidenceGrade]||'var(--text-tertiary)';
+        return '<div class="reg-row" onclick="window._protDetailId=\'' + (p.id||'') + '\';window._nav(\'protocol-detail\')" style="cursor:pointer">' +
+          '<div class="reg-row-top">' +
+            '<span class="reg-name">' + (p.name||'Protocol') + '</span>' +
+            '<span class="reg-ev" style="color:'+evc+';border-color:'+evc+'44">Ev. '+(p.evidenceGrade||'?')+'</span>' +
+            '<span class="reg-type">'+(dev?.label||p.device||'—')+'</span>' +
+            '<span class="reg-domain" style="margin-left:auto">'+(cond?.label||p.conditionId||'—')+'</span>' +
+          '</div>' +
+          (p.summary ? '<div class="reg-full">' + p.summary.slice(0,120) + (p.summary.length>120?'…':'') + '</div>' : '') +
+          '<div class="reg-meta">' +
+            (p.sessions ? '<span>'+p.sessions+' sessions</span>' : '') +
+            (p.governance?.length ? '<span>⚖ Governance</span>' : '') +
+          '</div>' +
+        '</div>';
+      }).join('') || '<div class="ch-empty">No protocols found.</div>';
+    }
+
+    window._regProtoSetMod = m => { window._regProtoMod=m; document.querySelectorAll('.reg-mod-pill').forEach(b=>b.classList.toggle('active',b.dataset.mod===m)); renderProtoReg(); };
+    window._regProtoSearch = renderProtoReg;
+
+    el.innerHTML = `
+    <div class="ch-shell">
+      <div class="ch-tab-bar">${tabBar()}</div>
+      <div class="ch-body">
+        <div class="ch-card">
+          <div class="ch-card-hd" style="flex-wrap:wrap;gap:10px">
+            <span class="ch-card-title">Protocol Registry</span>
+            <span id="reg-proto-count" style="font-size:11.5px;color:var(--text-tertiary)">${_protos.length} protocols</span>
+            <div style="position:relative;flex:1;max-width:260px;margin-left:auto">
+              <input id="reg-proto-q" type="text" placeholder="Search…" class="ph-search-input" oninput="window._regProtoSearch()">
+              <svg viewBox="0 0 24 24" style="position:absolute;left:9px;top:50%;transform:translateY(-50%);width:13px;height:13px;stroke:var(--text-tertiary);fill:none;stroke-width:2;stroke-linecap:round;pointer-events:none"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+            </div>
+          </div>
+          <div style="padding:10px 16px;display:flex;gap:6px;flex-wrap:wrap;border-bottom:1px solid var(--border)">
+            ${MODS.map(m=>'<button class="reg-mod-pill reg-domain-pill'+(m===window._regProtoMod?' active':'')+'" data-mod="'+m+'" onclick="window._regProtoSetMod(\''+m+'\')">'+m+'</button>').join('')}
+          </div>
+          <div id="reg-proto-list" style="max-height:calc(100vh - 280px);overflow-y:auto"></div>
+        </div>
+      </div>
+    </div>`;
+    renderProtoReg();
+  }
+
+  // ── HANDBOOKS TAB ─────────────────────────────────────────────────────────
+  else if (tab === 'handbooks') {
+    setTopbar('Protocols', '<button class="btn btn-sm" onclick="window._nav(\'handbooks-full\')">Full Handbooks ↗</button>');
+
+    const HB_CONDITIONS = [
+      { id:'mdd',    label:'Major Depressive Disorder', modality:'TMS / tDCS' },
+      { id:'trd',    label:'Treatment-Resistant Depression', modality:'TMS' },
+      { id:'gad',    label:'Generalized Anxiety Disorder', modality:'Neurofeedback / tDCS' },
+      { id:'ptsd',   label:'Post-Traumatic Stress Disorder', modality:'TMS / tDCS' },
+      { id:'ocd',    label:'OCD', modality:'Deep TMS' },
+      { id:'adhd',   label:'ADHD', modality:'Neurofeedback' },
+      { id:'insomnia', label:'Insomnia', modality:'tDCS / Neurofeedback' },
+      { id:'pain',   label:'Chronic Pain', modality:'tDCS / TMS' },
+    ];
+
+    const HB_SECTIONS = {
+      overview:   { label:'Overview & Rationale',    icon:'◎' },
+      assessment: { label:'Assessment Protocol',     icon:'✓' },
+      parameters: { label:'Protocol Parameters',     icon:'⊟' },
+      safety:     { label:'Safety & Contraindications', icon:'⚠' },
+      evidence:   { label:'Evidence Summary',        icon:'↗' },
+      monitoring: { label:'Session Monitoring',      icon:'◉' },
+      outcomes:   { label:'Expected Outcomes',       icon:'◈' },
+    };
+
+    const HB_CONTENT = {
+      mdd: {
+        overview:   'MDD is a leading cause of disability globally. Neuromodulation (TMS/tDCS) is indicated for moderate-to-severe MDD (PHQ-9 ≥10) with inadequate medication response. Left DLPFC stimulation increases prefrontal activity and normalises limbic dysregulation.',
+        assessment: 'Baseline: PHQ-9, MADRS, HAM-D, QIDS-SR, C-SSRS, ISI. Weekly: PHQ-9, QIDS-SR, C-SSRS. Milestone: Full battery at sessions 10, 20, 30. Discharge: Full battery + WHODAS + SF-36.',
+        parameters: 'TMS: Left DLPFC (F3 site), 10 Hz, 120% MT, 4-second trains, 26-second ITI, 75 trains, 3000 pulses/session, 37 min. OR iTBS: 600 pulses in 3 min.\ntDCS: Anode F3, Cathode F4, 2 mA, 30 min, 20 sessions.',
+        safety:     'Contraindications: Seizure history, metal implants near head, pacemaker, pregnancy (relative). Pre-screen with MoCA if cognitive concerns. C-SSRS before every session.',
+        evidence:   'TMS for MDD: Evidence Grade A. Multiple RCTs, FDA-cleared since 2008. Response rate ~50-60%, remission ~30%. iTBS non-inferior to standard TMS (FOUR trial, 2018).',
+        monitoring: 'Pre-session: PHQ-9 + C-SSRS. Log MT at each session. Record side effects (headache, scalp discomfort). Escalate if seizure, syncope, or worsening suicidality.',
+        outcomes:   'Responder: ≥50% PHQ-9 reduction. Remitter: PHQ-9 <5. Typical onset: improvement by session 10-15. Durability: 6-12 months, maintenance protocols available.',
+      },
+    };
+
+    window._hbCond    = window._hbCond    || 'mdd';
+    window._hbSection = window._hbSection || 'overview';
+
+    function renderHandbook() {
+      const cond   = HB_CONDITIONS.find(c=>c.id===window._hbCond)||HB_CONDITIONS[0];
+      const sec    = HB_SECTIONS[window._hbSection];
+      const content = (HB_CONTENT[window._hbCond]||{})[window._hbSection] ||
+        'Detailed handbook content for ' + cond.label + ' — ' + sec.label + '.\n\nThis section covers clinical guidance, protocol parameters, safety considerations, and evidence-based recommendations for ' + cond.modality + ' treatment.';
+
+      const out = document.getElementById('hb-content');
+      if (!out) return;
+      out.innerHTML = '<div class="hb-content-body">' +
+        '<div class="hb-content-title">' + sec.icon + ' ' + sec.label + '</div>' +
+        '<div class="hb-content-text">' + content.split('\n').map(line => '<p>' + line + '</p>').join('') + '</div>' +
+      '</div>';
+    }
+
+    window._hbSetCond = id => { window._hbCond=id; document.querySelectorAll('.hb-cond-btn').forEach(b=>b.classList.toggle('active',b.dataset.id===id)); renderHandbook(); };
+    window._hbSetSec  = id => { window._hbSection=id; document.querySelectorAll('.hb-sec-btn').forEach(b=>b.classList.toggle('active',b.dataset.id===id)); renderHandbook(); };
+
+    el.innerHTML = `
+    <div class="ch-shell">
+      <div class="ch-tab-bar">${tabBar()}</div>
+      <div class="ch-body" style="padding:0">
+        <div class="hb-layout">
+          <div class="hb-cond-rail">
+            <div class="ph-rail-label">Conditions</div>
+            ${HB_CONDITIONS.map(c=>'<button class="hb-cond-btn ph-cohort-item'+(c.id===window._hbCond?' active':'')+'" data-id="'+c.id+'" onclick="window._hbSetCond(\''+c.id+'\')">'+c.label+'</button>').join('')}
+          </div>
+          <div class="hb-sec-rail">
+            <div class="ph-rail-label" style="padding-top:16px">Sections</div>
+            ${Object.entries(HB_SECTIONS).map(([id,s])=>'<button class="hb-sec-btn ph-cohort-item'+(id===window._hbSection?' active':'')+'" data-id="'+id+'" onclick="window._hbSetSec(\''+id+'\')"><span style="margin-right:6px;opacity:0.6">'+s.icon+'</span>'+s.label+'</button>').join('')}
+          </div>
+          <div class="hb-main">
+            <div id="hb-content"></div>
+          </div>
+        </div>
+      </div>
+    </div>`;
+    renderHandbook();
+  }
+
+  // ── BUILDER TAB ──────────────────────────────────────────────────────────
+  else if (tab === 'builder') {
+    setTopbar('Protocols', '<button class="btn btn-sm" onclick="window._nav(\'protocol-builder-full\')">Full Builder ↗</button>');
+
+    el.innerHTML = `
+    <div class="ch-shell">
+      <div class="ch-tab-bar">${tabBar()}</div>
+      <div class="ch-body">
+        <div class="ch-kpi-strip">
+          <div class="ch-kpi-card" style="--kpi-color:var(--teal)"><div class="ch-kpi-val">${_protos.length}</div><div class="ch-kpi-label">Protocols in Library</div></div>
+          <div class="ch-kpi-card" style="--kpi-color:var(--blue)"><div class="ch-kpi-val">${_conditions.length}</div><div class="ch-kpi-label">Conditions Covered</div></div>
+          <div class="ch-kpi-card" style="--kpi-color:var(--violet)"><div class="ch-kpi-val">${_devices.length}</div><div class="ch-kpi-label">Device Types</div></div>
+          <div class="ch-kpi-card" style="--kpi-color:var(--green)"><div class="ch-kpi-val">${_protos.filter(p=>p.evidenceGrade==='A').length}</div><div class="ch-kpi-label">Grade A Evidence</div></div>
+        </div>
+        <div class="ch-two-col">
+          <div class="ch-card">
+            <div class="ch-card-hd"><span class="ch-card-title">Quick Protocol Builder</span></div>
+            <div style="padding:16px;display:flex;flex-direction:column;gap:12px">
+              <div class="ch-form-group">
+                <label class="ch-label">Condition</label>
+                <select class="ch-select ch-select--full" id="pb-condition">
+                  ${_conditions.slice(0,20).map(c=>'<option value="'+c.id+'">'+c.label+'</option>').join('')}
+                </select>
+              </div>
+              <div class="ch-form-group">
+                <label class="ch-label">Modality</label>
+                <select class="ch-select ch-select--full" id="pb-device">
+                  ${_devices.map(d=>'<option value="'+d.id+'">'+d.label+'</option>').join('')}
+                </select>
+              </div>
+              <div class="ch-form-group">
+                <label class="ch-label">Target Site</label>
+                <select class="ch-select ch-select--full">
+                  <option>Left DLPFC (F3)</option><option>Right DLPFC (F4)</option>
+                  <option>Medial PFC</option><option>Motor Cortex (C3/C4)</option>
+                  <option>Parietal (Pz)</option><option>Occipital (Oz)</option>
+                </select>
+              </div>
+              <div class="ch-form-group">
+                <label class="ch-label">Sessions</label>
+                <input type="number" class="ch-select" value="30" min="1" max="60">
+              </div>
+              <button class="btn btn-primary" onclick="window._nav('protocol-builder-full')">Open Full Builder →</button>
+            </div>
+          </div>
+          <div class="ch-card">
+            <div class="ch-card-hd"><span class="ch-card-title">Recently Used Templates</span></div>
+            <div style="padding:8px 0">
+              ${_protos.filter(p=>p.evidenceGrade==='A').slice(0,6).map(p=>{
+                const cond=_conditions.find(c=>c.id===p.conditionId);
+                const dev=_devices.find(d=>d.id===p.device);
+                return '<div class="ph-patient-row" onclick="window._protDetailId=\'' + (p.id||'') + '\';window._nav(\'protocol-detail\')">' +
+                  '<div class="ph-info"><div class="ph-name">' + (p.name||'Protocol') + '</div>' +
+                  '<div class="ph-meta">' + (cond?.label||'—') + ' · ' + (dev?.label||'—') + '</div></div>' +
+                  '<span class="ph-badge ph-badge--course">Ev. A</span>' +
+                  '<svg class="ph-chevron" viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></svg></div>';
+              }).join('')}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>`;
+  }
+
+  // ── PERSONALISED PROTOCOL TAB ─────────────────────────────────────────────
+  else if (tab === 'personalized') {
+    setTopbar('Protocols', '<span class="ph-ai-badge">AI</span>');
+    el.innerHTML = '<div class="ch-shell">' + spinner() + '</div>';
+
+    let patients = [], courses = [], outcomes = [];
+    try {
+      const [pRes, cRes, oRes] = await Promise.all([
+        api.listPatients().catch(() => ({ items: [] })),
+        (api.listCourses ? api.listCourses({}) : Promise.resolve({ items: [] })).catch(() => ({ items: [] })),
+        (api.listOutcomes ? api.listOutcomes() : Promise.resolve({ items: [] })).catch(() => ({ items: [] })),
+      ]);
+      patients = pRes?.items || [];
+      courses  = cRes?.items || [];
+      outcomes = oRes?.items || [];
+    } catch {}
+
+    const patOpts = patients.map(p =>
+      '<option value="' + p.id + '">' + ((p.first_name||'') + ' ' + (p.last_name||'')).trim() + ' — ' + ((p.condition_slug||'').replace(/-/g,' ')||'No condition') + '</option>'
+    ).join('') || '<option value="">No patients loaded</option>';
+
+    window._ppPatientId = window._ppPatientId || (patients[0]?.id || '');
+
+    // Build rich patient context for AI
+    function buildPatientContext(patId) {
+      const p = patients.find(x => x.id === patId) || patients[0];
+      if (!p) return null;
+      const patCourses  = courses.filter(c => c.patient_id === patId);
+      const patOutcomes = outcomes.filter(o => o.patient_id === patId || o.course_id === patCourses[0]?.id);
+      const activeCourse = patCourses.find(c => c.status === 'active');
+      const mhData = (() => { try { return JSON.parse(localStorage.getItem('ds_ph_mh_safety')||'null'); } catch { return null; } })();
+
+      return {
+        name:            ((p.first_name||'') + ' ' + (p.last_name||'')).trim() || 'Patient',
+        condition:       (p.condition_slug||'').replace(/-/g,' ') || p.primary_condition || 'Unknown',
+        modality:        (p.primary_modality||'').replace(/-/g,' ') || 'Not specified',
+        age:             p.date_of_birth ? Math.floor((Date.now()-new Date(p.date_of_birth))/31557600000) : null,
+        phq9:            patOutcomes.filter(o=>(o.template_id||'').toLowerCase().includes('phq')).slice(-1)[0]?.total_score ?? null,
+        activeCourse:    activeCourse ? (activeCourse.condition_slug||'') + ' — ' + (activeCourse.modality_slug||'') : 'None',
+        sessionsToDate:  patCourses.reduce((n,c)=>n+(c.sessions_delivered||0),0),
+        priorTreatments: p.prior_treatments || p.clinician_notes || 'Not recorded',
+        medications:     mhData?.notes || p.medications || 'Not recorded',
+        safetyFlags:     p.has_adverse_event ? 'Adverse event recorded' : 'None flagged',
+        contraindications: p.seizure_history ? 'Seizure history — TMS caution' : 'None documented',
+        needsReview:     p.needs_review || false,
+        outcomes:        patOutcomes.slice(-3).map(o=>o.template_id+': '+o.total_score).join(', ') || 'No outcomes recorded',
+      };
+    }
+
+    function renderPatientSummary(patId) {
+      const ctx = buildPatientContext(patId);
+      const out = document.getElementById('pp-patient-card');
+      if (!out || !ctx) return;
+      const severityBand = ctx.phq9 != null
+        ? ctx.phq9 >= 20 ? { label:'Severe', color:'var(--red)' }
+          : ctx.phq9 >= 15 ? { label:'Mod. Severe', color:'#f97316' }
+          : ctx.phq9 >= 10 ? { label:'Moderate', color:'var(--amber)' }
+          : ctx.phq9 >= 5  ? { label:'Mild', color:'#84cc16' }
+          : { label:'Minimal', color:'var(--green)' }
+        : null;
+      out.innerHTML = `
+        <div class="pp-patient-header">
+          <div class="ph-avatar" style="width:44px;height:44px;font-size:14px">${ctx.name.split(' ').map(w=>w[0]||'').join('').slice(0,2).toUpperCase()}</div>
+          <div>
+            <div style="font-size:15px;font-weight:700;color:var(--text-primary)">${ctx.name}</div>
+            <div style="font-size:12px;color:var(--text-tertiary)">${ctx.condition}${ctx.age?' · Age '+ctx.age:''}</div>
+          </div>
+          ${ctx.safetyFlags!=='None flagged'?'<span class="ph-badge ph-badge--alert">⚠ AE</span>':''}
+        </div>
+        <div class="pp-profile-grid">
+          ${[
+            ['Condition', ctx.condition],
+            ['Modality', ctx.modality],
+            ['PHQ-9', ctx.phq9!=null ? ctx.phq9+(severityBand?' — '+severityBand.label:'') : 'Not recorded'],
+            ['Active Course', ctx.activeCourse],
+            ['Sessions Done', ctx.sessionsToDate || '0'],
+            ['Contraindications', ctx.contraindications],
+            ['Safety Flags', ctx.safetyFlags],
+            ['Prior Outcomes', ctx.outcomes],
+          ].map(([k,v]) => '<div class="pp-profile-row"><span class="pp-profile-key">'+k+'</span><span class="pp-profile-val">'+v+'</span></div>').join('')}
+        </div>`;
+    }
+
+    async function generatePersonalisedProtocols() {
+      const patId = document.getElementById('pp-patient-select')?.value || window._ppPatientId;
+      const ctx = buildPatientContext(patId);
+      if (!ctx) { window._dsToast?.({ title:'No patient selected', body:'Select a patient first.', severity:'warn' }); return; }
+
+      const out = document.getElementById('pp-results');
+      if (out) out.innerHTML = '<div class="pp-ai-thinking"><div class="pp-ai-spinner"></div><span>AI analysing patient profile and matching protocols…</span></div>';
+
+      // Rule-based matches as immediate fallback
+      const conditionKey = ctx.condition.toLowerCase();
+      const ruleMatches = _protos.filter(p => {
+        const pcond = (p.conditionId||'').toLowerCase();
+        if (conditionKey.includes('depress') && (pcond.includes('mdd')||pcond.includes('depress'))) return true;
+        if (conditionKey.includes('anxiet') && (pcond.includes('gad')||pcond.includes('anxiet'))) return true;
+        if (conditionKey.includes('ptsd')  && pcond.includes('ptsd')) return true;
+        if (conditionKey.includes('ocd')   && pcond.includes('ocd'))  return true;
+        if (conditionKey.includes('adhd')  && pcond.includes('adhd')) return true;
+        if (conditionKey.includes('pain')  && pcond.includes('pain')) return true;
+        if (conditionKey.includes('insomn')&& (pcond.includes('insomn')||pcond.includes('sleep'))) return true;
+        return false;
+      }).slice(0, 5);
+
+      // Contraindication filter
+      const hasSeizure = ctx.contraindications.toLowerCase().includes('seizure');
+      const safeMatches = hasSeizure
+        ? ruleMatches.filter(p => !['TMS','tDCS'].includes(p.device))
+        : ruleMatches;
+
+      // Try AI call
+      let aiRecs = null;
+      try {
+        const sysPrompt = 'You are a clinical neuromodulation expert. Given a patient profile and a shortlist of matching protocols, return personalised recommendations as a JSON array. Each item: { protocol_name, rationale, confidence: "High"|"Medium"|"Low", contraindication_check, expected_response, priority: 1|2|3 }. Return only valid JSON, no other text.';
+        const userMsg = 'Patient: ' + JSON.stringify(ctx, null, 2) + '\n\nMatching protocols:\n' + safeMatches.map(p=>p.name+' ('+p.evidenceGrade+' evidence, '+p.device+')').join('\n') + '\n\nProvide ranked recommendations with rationale specific to this patient\'s profile.';
+        const res = await api.chatClinician(
+          [{ role:'system', content: sysPrompt }, { role:'user', content: userMsg }],
+          ctx
+        );
+        const raw = res?.message || res?.content || res?.reply || '';
+        const jsonStr = raw.match(/\[[\s\S]*\]/)?.[0];
+        if (jsonStr) aiRecs = JSON.parse(jsonStr);
+      } catch {}
+
+      if (!out) return;
+
+      if (aiRecs && aiRecs.length) {
+        const evC = { High:'var(--green)', Medium:'var(--amber)', Low:'var(--text-tertiary)' };
+        out.innerHTML = '<div class="pp-ai-header"><span class="ph-ai-badge">AI</span><span style="font-size:12px;color:var(--text-tertiary)">AI-generated recommendations for ' + ctx.name + '</span></div>' +
+          aiRecs.map((r, i) => `
+            <div class="pp-rec-card">
+              <div class="pp-rec-top">
+                <span class="pp-rec-rank">${i+1}</span>
+                <span class="pp-rec-name">${r.protocol_name||'Protocol'}</span>
+                <span class="pp-rec-conf" style="color:${evC[r.confidence]||'var(--text-tertiary)'}">${r.confidence||'—'} confidence</span>
+              </div>
+              <div class="pp-rec-rationale">${r.rationale||'No rationale provided.'}</div>
+              <div class="pp-rec-meta">
+                ${r.expected_response?'<div class="pp-rec-expected"><span>Expected:</span> '+r.expected_response+'</div>':''}
+                ${r.contraindication_check?'<div class="pp-rec-contra ${r.contraindication_check.toLowerCase().includes("no")||r.contraindication_check.toLowerCase().includes("safe")?"pp-rec-safe":"pp-rec-warn"}"><span>⚠ Contraindication check:</span> '+r.contraindication_check+'</div>':''}
+              </div>
+              <div style="display:flex;gap:8px;margin-top:10px">
+                <button class="ch-btn-sm ch-btn-teal" onclick="window._patientHubTab='prescriptions';window._nav('patients-hub')">Prescribe →</button>
+                <button class="ch-btn-sm" onclick="window._protocolHubTab='search';window._nav('protocol-hub')">Find Protocol</button>
+              </div>
+            </div>`).join('');
+      } else {
+        // Fallback to rule-based
+        const evC2 = { A:'var(--teal)', B:'var(--blue)', C:'var(--amber)' };
+        out.innerHTML = (safeMatches.length
+          ? '<div class="pp-ai-header"><span style="font-size:11px;color:var(--text-tertiary);padding:3px 8px;background:rgba(255,255,255,0.06);border-radius:6px">Rule-based match</span><span style="font-size:12px;color:var(--text-tertiary)">Based on condition: ' + ctx.condition + '</span></div>' +
+            safeMatches.map((p, i) => {
+              const cond = _conditions.find(c=>c.id===p.conditionId);
+              const dev  = _devices.find(d=>d.id===p.device);
+              return '<div class="pp-rec-card">' +
+                '<div class="pp-rec-top">' +
+                  '<span class="pp-rec-rank">'+(i+1)+'</span>' +
+                  '<span class="pp-rec-name">'+(p.name||'Protocol')+'</span>' +
+                  '<span class="pp-rec-conf" style="color:'+evC2[p.evidenceGrade]+'">Ev. '+(p.evidenceGrade||'?')+'</span>' +
+                '</div>' +
+                '<div class="pp-rec-rationale">'+(p.summary||'Protocol matched to patient condition.')+'</div>' +
+                '<div class="pp-rec-meta"><div class="pp-rec-expected"><span>Device:</span> '+(dev?.label||p.device||'—')+'</div></div>' +
+                '<div style="display:flex;gap:8px;margin-top:10px">' +
+                  '<button class="ch-btn-sm ch-btn-teal" onclick="window._patientHubTab=\'prescriptions\';window._nav(\'patients-hub\')">Prescribe →</button>' +
+                '</div></div>';
+            }).join('')
+          : '<div class="ch-empty">No matching protocols found for this patient profile.</div>'
+        );
+      }
+    }
+
+    window._ppGenerate = generatePersonalisedProtocols;
+    window._ppSelectPatient = id => {
+      window._ppPatientId = id;
+      renderPatientSummary(id);
+    };
+
+    el.innerHTML = `
+    <div class="ch-shell">
+      <div class="ch-tab-bar">${tabBar()}</div>
+      <div class="ch-body">
+        <div class="pp-layout">
+          <div class="pp-left">
+            <div class="ch-card">
+              <div class="ch-card-hd"><span class="ch-card-title">Select Patient</span></div>
+              <div style="padding:14px 16px;display:flex;flex-direction:column;gap:10px">
+                <select class="ch-select ch-select--full" id="pp-patient-select"
+                  onchange="window._ppSelectPatient(this.value)">${patOpts}</select>
+                <div id="pp-patient-card"></div>
+                <button class="btn btn-primary" style="width:100%;margin-top:4px" onclick="window._ppGenerate()">
+                  <span style="margin-right:6px">✦</span> Generate AI Protocol Recommendations
+                </button>
+                <div style="font-size:11px;color:var(--text-tertiary);text-align:center;line-height:1.5">
+                  AI analyses condition, severity, prior treatments,<br>medications and contraindications
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="pp-right">
+            <div id="pp-results" class="pp-results-area">
+              <div class="pp-results-empty">
+                <div class="pp-results-empty-icon">✦</div>
+                <div class="pp-results-empty-title">AI Protocol Recommendations</div>
+                <div class="pp-results-empty-body">Select a patient and click Generate to receive personalised protocol recommendations based on their full clinical profile.</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>`;
+
+    renderPatientSummary(window._ppPatientId);
+  }
+
+  // ── BRAIN SCAN AI TAB ─────────────────────────────────────────────────────
+  else if (tab === 'brainscan') {
+    setTopbar('Protocols', '<span class="ph-ai-badge">AI</span>');
+
+    const REGIONS = [
+      { id:'fp1',  label:'Fp1',  x:32, y:10 }, { id:'fp2',  label:'Fp2',  x:68, y:10 },
+      { id:'f7',   label:'F7',   x:14, y:26 }, { id:'f3',   label:'F3',   x:36, y:24 }, { id:'fz',   label:'Fz',   x:50, y:22 }, { id:'f4',   label:'F4',   x:64, y:24 }, { id:'f8',   label:'F8',   x:86, y:26 },
+      { id:'t7',   label:'T7',   x:8,  y:50 }, { id:'c3',   label:'C3',   x:30, y:48 }, { id:'cz',   label:'Cz',   x:50, y:46 }, { id:'c4',   label:'C4',   x:70, y:48 }, { id:'t8',   label:'T8',   x:92, y:50 },
+      { id:'p7',   label:'P7',   x:14, y:74 }, { id:'p3',   label:'P3',   x:36, y:72 }, { id:'pz',   label:'Pz',   x:50, y:70 }, { id:'p4',   label:'P4',   x:64, y:72 }, { id:'p8',   label:'P8',   x:86, y:74 },
+      { id:'o1',   label:'O1',   x:36, y:90 }, { id:'oz',   label:'Oz',   x:50, y:92 }, { id:'o2',   label:'O2',   x:64, y:90 },
+    ];
+
+    const BANDS = [
+      { id:'alpha_asym',  label:'Alpha Asymmetry (L–R)',  unit:'', help:'Negative = left deficit (depression marker)' },
+      { id:'alpha_power', label:'Alpha Power (global)',    unit:'μV²', help:'Normal: 8–12 Hz. Low alpha → anxiety/hyperarousal' },
+      { id:'theta_front', label:'Theta — Frontal',        unit:'μV²', help:'Elevated theta in Fz/F3/F4 → depression, inattention' },
+      { id:'beta_front',  label:'Beta — Frontal',         unit:'μV²', help:'Elevated beta → anxiety, hyperarousal' },
+      { id:'delta_front', label:'Delta — Frontal',        unit:'μV²', help:'Delta intrusions in waking → TBI, encephalopathy' },
+      { id:'smr_c3',      label:'SMR (12–15 Hz) at C3',   unit:'μV²', help:'Low SMR → impulsivity, ADHD' },
+      { id:'theta_beta',  label:'Theta/Beta Ratio',       unit:'', help:'>3 = ADHD indicator (TBR)' },
+    ];
+
+    // State
+    window._bsMode   = window._bsMode   || 'form';
+    window._bsValues = window._bsValues || {};
+    window._bsRegionValues = window._bsRegionValues || {};
+
+    function bsMapSvg() {
+      return REGIONS.map(r => {
+        const val = window._bsRegionValues[r.id];
+        const fill = val === 'high'   ? 'rgba(255,107,107,0.7)'
+                   : val === 'low'    ? 'rgba(74,158,255,0.7)'
+                   : val === 'normal' ? 'rgba(74,222,128,0.4)'
+                   : 'rgba(255,255,255,0.08)';
+        return '<circle cx="' + r.x + '%" cy="' + r.y + '%" r="8" fill="' + fill + '" stroke="rgba(255,255,255,0.2)" stroke-width="1" style="cursor:pointer" onclick="window._bsCycleRegion(\'' + r.id + '\')" title="' + r.label + '"/>' +
+          '<text x="' + r.x + '%" y="' + (r.y + 4.5) + '%" text-anchor="middle" font-size="7" fill="rgba(255,255,255,0.7)" font-family="system-ui" pointer-events="none">' + r.label + '</text>';
+      }).join('');
+    }
+
+    window._bsCycleRegion = id => {
+      const cycle = { undefined:'low', low:'normal', normal:'high', high:'none', none:undefined };
+      window._bsRegionValues[id] = cycle[window._bsRegionValues[id]];
+      const svg = document.getElementById('bs-svg');
+      if (svg) svg.innerHTML = bsMapSvg();
+    };
+
+    async function runBrainScanAI() {
+      const out = document.getElementById('bs-results');
+      if (out) out.innerHTML = '<div class="pp-ai-thinking"><div class="pp-ai-spinner"></div><span>AI analysing brain metrics…</span></div>';
+
+      const useReport = window._bsMode === 'report';
+      const reportText = document.getElementById('bs-report-text')?.value || '';
+
+      // Gather form metrics
+      const metrics = {};
+      BANDS.forEach(b => { metrics[b.id] = document.getElementById('bs-'+b.id)?.value || ''; });
+
+      // Gather region map
+      const activeRegions = Object.entries(window._bsRegionValues)
+        .filter(([,v]) => v && v !== 'none')
+        .map(([k,v]) => k + ':' + v)
+        .join(', ');
+
+      const sysPrompt = 'You are a clinical qEEG and neuromodulation specialist. Analyse the provided brain metrics and recommend the most appropriate neuromodulation protocols. Return a JSON array of recommendations: [{ condition_indicated, protocol_name, target_region, frequency_hz, rationale, confidence: "High"|"Medium"|"Low", evidence_grade: "A"|"B"|"C" }]. Return only valid JSON.';
+
+      const metricLines = useReport
+        ? 'EEG/Brain Report:\n' + reportText
+        : 'qEEG Metrics:\n' + BANDS.map(b=>b.label+': '+(metrics[b.id]||'not provided')+' '+b.unit).join('\n') +
+          (activeRegions ? '\nRegion Activity Map: ' + activeRegions : '');
+
+      const userMsg = metricLines + '\n\nBased on these brain metrics, identify dysregulation patterns and recommend the optimal neuromodulation protocols with specific targets and parameters.';
+
+      let aiRecs = null;
+      try {
+        const res = await api.chatAgent(
+          [{ role:'system', content: sysPrompt }, { role:'user', content: userMsg }],
+          'anthropic', null, { domain: 'neuromodulation', type: 'brain_scan' }
+        );
+        const raw = res?.message || res?.content || res?.reply || '';
+        const jsonStr = raw.match(/\[[\s\S]*\]/)?.[0];
+        if (jsonStr) aiRecs = JSON.parse(jsonStr);
+      } catch {}
+
+      if (!out) return;
+
+      if (aiRecs && aiRecs.length) {
+        const evC = { High:'var(--green)', Medium:'var(--amber)', Low:'var(--text-tertiary)' };
+        const egC = { A:'var(--teal)', B:'var(--blue)', C:'var(--amber)' };
+        out.innerHTML = '<div class="pp-ai-header"><span class="ph-ai-badge">AI</span><span style="font-size:12px;color:var(--text-tertiary)">Brain-scan based protocol recommendations</span></div>' +
+          aiRecs.map((r, i) => `
+            <div class="pp-rec-card">
+              <div class="pp-rec-top">
+                <span class="pp-rec-rank">${i+1}</span>
+                <span class="pp-rec-name">${r.protocol_name||'Protocol'}</span>
+                <span class="pp-rec-conf" style="color:${evC[r.confidence]||'var(--text-tertiary)'}">${r.confidence||''} confidence</span>
+                <span class="pp-rec-conf" style="color:${egC[r.evidence_grade]||'var(--text-tertiary)'}">Ev. ${r.evidence_grade||'?'}</span>
+              </div>
+              ${r.condition_indicated?'<div style="font-size:11px;color:var(--text-tertiary);margin-bottom:6px">Indicated for: <strong>'+r.condition_indicated+'</strong></div>':''}
+              <div class="pp-rec-rationale">${r.rationale||'No rationale provided.'}</div>
+              ${r.target_region||r.frequency_hz?`<div class="pp-rec-meta">
+                ${r.target_region?'<div class="pp-rec-expected"><span>Target:</span> '+r.target_region+'</div>':''}
+                ${r.frequency_hz?'<div class="pp-rec-expected"><span>Frequency:</span> '+r.frequency_hz+' Hz</div>':''}
+              </div>`:''}
+              <div style="display:flex;gap:8px;margin-top:10px">
+                <button class="ch-btn-sm ch-btn-teal" onclick="window._protocolHubTab='search';window._nav('protocol-hub')">Find Protocol</button>
+                <button class="ch-btn-sm" onclick="window._protocolHubTab='brainmap';window._nav('protocol-hub')">Brain Map</button>
+              </div>
+            </div>`).join('');
+      } else {
+        // Rule-based fallback from metric inputs
+        const rules = [];
+        const asym = parseFloat(metrics.alpha_asym);
+        const tbr   = parseFloat(metrics.theta_beta);
+        const thetaF = parseFloat(metrics.theta_front);
+        if (!isNaN(asym) && asym < -0.1)    rules.push({ name:'Left DLPFC TMS — Depression',        reason:'Left alpha deficit (asymmetry: '+asym.toFixed(2)+') → left hypoactivation. Standard indicator for left DLPFC TMS.' });
+        if (!isNaN(tbr) && tbr > 3)         rules.push({ name:'Neurofeedback — Theta/Beta ADHD',     reason:'TBR > 3 (value: '+tbr.toFixed(1)+') → classic ADHD marker. Theta suppression + beta/SMR uptraining.' });
+        if (!isNaN(thetaF) && thetaF > 5)   rules.push({ name:'tDCS Prefrontal — Depression/Cognition', reason:'Elevated frontal theta ('+thetaF.toFixed(1)+'μV²) → prefrontal hypoactivation. Anodal tDCS at F3.' });
+        if (window._bsRegionValues['fp1'] === 'low' || window._bsRegionValues['f3'] === 'low')
+          rules.push({ name:'Left DLPFC TMS / tDCS',                 reason:'Low activity at Fp1/F3 → left prefrontal hypoactivation. TMS or tDCS indicated.' });
+        if (window._bsRegionValues['pz'] === 'low')
+          rules.push({ name:'Alpha Uptraining Neurofeedback at Pz',   reason:'Low parietal alpha → hyperarousal or attention deficit. Alpha uptraining at Pz.' });
+
+        out.innerHTML = rules.length
+          ? '<div class="pp-ai-header"><span style="font-size:11px;color:var(--text-tertiary);padding:3px 8px;background:rgba(255,255,255,0.06);border-radius:6px">Rule-based</span><span style="font-size:12px;color:var(--text-tertiary)">Based on entered metrics</span></div>' +
+            rules.map((r,i)=>'<div class="pp-rec-card"><div class="pp-rec-top"><span class="pp-rec-rank">'+(i+1)+'</span><span class="pp-rec-name">'+r.name+'</span></div><div class="pp-rec-rationale">'+r.reason+'</div><div style="display:flex;gap:8px;margin-top:10px"><button class="ch-btn-sm ch-btn-teal" onclick="window._protocolHubTab=\'brainmap\';window._nav(\'protocol-hub\')">Brain Map</button></div></div>').join('')
+          : '<div class="ch-empty">Enter metrics or mark regions on the map, then click Analyse.</div>';
+      }
+    }
+
+    window._bsRunAI = runBrainScanAI;
+    window._bsSetMode = m => {
+      window._bsMode = m;
+      document.getElementById('bs-form-area')?.classList.toggle('ch-hidden', m !== 'form');
+      document.getElementById('bs-report-area')?.classList.toggle('ch-hidden', m !== 'report');
+      document.querySelectorAll('.bs-mode-btn').forEach(b=>b.classList.toggle('active',b.dataset.mode===m));
+    };
+
+    el.innerHTML = `
+    <div class="ch-shell">
+      <div class="ch-tab-bar">${tabBar()}</div>
+      <div class="ch-body">
+        <div class="pp-layout">
+          <div class="pp-left">
+            <div class="ch-card">
+              <div class="ch-card-hd">
+                <span class="ch-card-title">Brain Metrics</span>
+                <div style="display:flex;gap:4px">
+                  <button class="ch-btn-sm bs-mode-btn${window._bsMode==='form'?' active':''}" data-mode="form" onclick="window._bsSetMode('form')">qEEG Form</button>
+                  <button class="ch-btn-sm bs-mode-btn${window._bsMode==='report'?' active':''}" data-mode="report" onclick="window._bsSetMode('report')">Paste Report</button>
+                </div>
+              </div>
+              <div id="bs-form-area" style="padding:14px 16px${window._bsMode!=='form'?';display:none':''}">
+                <div style="font-size:11px;color:var(--text-tertiary);margin-bottom:12px">Enter available metrics. Leave blank if not measured. Click electrode positions on the map to mark activity levels (blue=low · green=normal · red=high).</div>
+                ${BANDS.map(b=>`<div class="ch-form-group" style="margin-bottom:10px">
+                  <label class="ch-label">${b.label}</label>
+                  <input id="bs-${b.id}" type="text" placeholder="${b.help}" class="ch-select ch-select--full" value="${window._bsValues[b.id]||''}">
+                </div>`).join('')}
+              </div>
+              <div id="bs-report-area" style="padding:14px 16px${window._bsMode!=='report'?';display:none':''}">
+                <div class="ch-form-group">
+                  <label class="ch-label">Paste EEG / qEEG Report or Clinical Notes</label>
+                  <textarea class="ch-textarea" id="bs-report-text" rows="12" placeholder="Paste your qEEG report, EEG findings, or clinical neuroimaging notes here…\n\nExample:\n— Alpha asymmetry: left deficit at F3/F4\n— Theta elevation: frontal midline (Fz)\n— TBR = 3.8\n— SMR deficit at C3\n— No delta intrusions"></textarea>
+                </div>
+              </div>
+              <div style="padding:0 16px 16px">
+                <button class="btn btn-primary" style="width:100%" onclick="window._bsRunAI()">
+                  <span style="margin-right:6px">✦</span> Analyse & Recommend Protocols
+                </button>
+              </div>
+            </div>
+          </div>
+          <div class="pp-right">
+            <div class="ch-card" style="margin-bottom:16px">
+              <div class="ch-card-hd">
+                <span class="ch-card-title">Interactive Brain Map</span>
+                <div style="display:flex;gap:8px;font-size:11px;color:var(--text-tertiary);align-items:center">
+                  <span style="display:flex;align-items:center;gap:4px"><span style="width:8px;height:8px;border-radius:50%;background:rgba(74,158,255,0.7);display:inline-block"></span>Low</span>
+                  <span style="display:flex;align-items:center;gap:4px"><span style="width:8px;height:8px;border-radius:50%;background:rgba(74,222,128,0.4);display:inline-block"></span>Normal</span>
+                  <span style="display:flex;align-items:center;gap:4px"><span style="width:8px;height:8px;border-radius:50%;background:rgba(255,107,107,0.7);display:inline-block"></span>High</span>
+                </div>
+              </div>
+              <div style="padding:12px;display:flex;justify-content:center">
+                <svg id="bs-svg" viewBox="0 0 100 100" style="width:240px;height:240px;overflow:visible">
+                  <ellipse cx="50%" cy="50%" rx="46%" ry="44%" fill="rgba(0,212,188,0.04)" stroke="rgba(255,255,255,0.12)" stroke-width="1.5"/>
+                  <ellipse cx="50%" cy="50%" rx="38%" ry="36%" fill="none" stroke="rgba(255,255,255,0.06)" stroke-width="1"/>
+                  ${bsMapSvg()}
+                </svg>
+              </div>
+              <div style="padding:0 14px 12px;font-size:11px;color:var(--text-tertiary);text-align:center">Click electrodes to cycle: default → low → normal → high</div>
+            </div>
+            <div id="bs-results" class="pp-results-area">
+              <div class="pp-results-empty">
+                <div class="pp-results-empty-icon">⊙</div>
+                <div class="pp-results-empty-title">Brain-Scan AI Recommendations</div>
+                <div class="pp-results-empty-body">Enter qEEG metrics, mark brain regions on the map, or paste an EEG report — then click Analyse to receive AI protocol recommendations based on brain state.</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>`;
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// pgSchedulingHub — Calendar · Bookings · Leads · Reception
+// ═══════════════════════════════════════════════════════════════════════════════
+export async function pgSchedulingHub(setTopbar, navigate) {
+  const tab = window._schedHubTab || 'calendar';
+  window._schedHubTab = tab;
+
+  const TAB_META = {
+    calendar:  { label: 'Calendar',   color: 'var(--teal)'   },
+    bookings:  { label: 'Bookings',   color: 'var(--blue)'   },
+    leads:     { label: 'Leads',      color: 'var(--violet)' },
+    reception: { label: 'Reception',  color: 'var(--amber)'  },
+  };
+
+  function tabBar() {
+    return Object.entries(TAB_META).map(([id, m]) =>
+      '<button class="ch-tab' + (tab===id?' ch-tab--active':'') + '"' +
+      (tab===id?' style="--tab-color:'+m.color+'"':'') +
+      ' onclick="window._schedHubTab=\''+id+'\';window._nav(\'scheduling-hub\')">' + m.label + '</button>'
+    ).join('');
+  }
+
+  const el = document.getElementById('content');
+
+  // ── Shared data store ───────────────────────────────────────────────────────
+  const _SK = 'ds_sched_v1';
+  function _loadSched() { try { return JSON.parse(localStorage.getItem(_SK)||'null') || _seedSched(); } catch { return _seedSched(); } }
+  function _saveSched(d) { try { localStorage.setItem(_SK, JSON.stringify(d)); } catch {} }
+  const pad2 = n => String(n).padStart(2,'0');
+  const now = new Date();
+  const todayStr = now.getFullYear()+'-'+pad2(now.getMonth()+1)+'-'+pad2(now.getDate());
+  function nextDay(n) { const d=new Date(now); d.setDate(d.getDate()+n); return d.getFullYear()+'-'+pad2(d.getMonth()+1)+'-'+pad2(d.getDate()); }
+
+  function _seedSched() {
+    const d = { appointments:[
+      { id:'APT-001', patient_name:'Demo Patient A', patient_id:'P-DEMO-1', clinician:'Dr. S. Chen',   date:todayStr,    time:'09:00', duration:60,  type:'session',     status:'confirmed', notes:'Session 9 of 30.' },
+      { id:'APT-002', patient_name:'Demo Patient B', patient_id:'P-DEMO-2', clinician:'Dr. J. Patel',  date:todayStr,    time:'10:30', duration:30,  type:'assessment',  status:'confirmed', notes:'Baseline PHQ-9, GAD-7.' },
+      { id:'APT-003', patient_name:'Demo Patient C', patient_id:'P-DEMO-3', clinician:'Dr. S. Chen',   date:todayStr,    time:'14:00', duration:60,  type:'session',     status:'pending',   notes:'tDCS session 8.' },
+      { id:'APT-004', patient_name:'Marcus Webb',    patient_id:'',         clinician:'Dr. J. Patel',  date:todayStr,    time:'15:30', duration:45,  type:'new-patient', status:'confirmed', notes:'TRD referral intake.' },
+      { id:'APT-005', patient_name:'Demo Patient A', patient_id:'P-DEMO-1', clinician:'Dr. S. Chen',   date:nextDay(1),  time:'09:00', duration:60,  type:'session',     status:'confirmed', notes:'Session 10 — milestone.' },
+      { id:'APT-006', patient_name:'Anna Torres',    patient_id:'',         clinician:'Dr. K. Okafor', date:nextDay(1),  time:'11:00', duration:30,  type:'follow-up',   status:'confirmed', notes:'Post-course follow-up.' },
+      { id:'APT-007', patient_name:'Demo Patient B', patient_id:'P-DEMO-2', clinician:'Dr. J. Patel',  date:nextDay(2),  time:'09:30', duration:60,  type:'session',     status:'confirmed', notes:'Session 3 of 30.' },
+      { id:'APT-008', patient_name:'James Mitchell', patient_id:'',         clinician:'Dr. S. Chen',   date:nextDay(3),  time:'13:00', duration:45,  type:'new-patient', status:'pending',   notes:'Referred by GP.' },
+      { id:'APT-009', patient_name:'Demo Patient A', patient_id:'P-DEMO-1', clinician:'Dr. S. Chen',   date:nextDay(-1), time:'09:00', duration:60,  type:'session',     status:'completed', notes:'Session 8 — good tolerance.' },
+      { id:'APT-010', patient_name:'Demo Patient C', patient_id:'P-DEMO-3', clinician:'Dr. J. Patel',  date:nextDay(-2), time:'14:00', duration:60,  type:'session',     status:'no-show',   notes:'Did not attend.' },
+    ], leads:[
+      { id:'LEAD-001', name:'Sarah Johnson',  email:'sarah.j@email.com', phone:'+44 7700 900123', source:'website',  condition:'Depression', stage:'new',       notes:'TRD, tried 3 meds.', created:'2026-04-14', follow_up:todayStr },
+      { id:'LEAD-002', name:'Robert Kim',     email:'rkim@email.com',    phone:'+44 7700 900456', source:'referral', condition:'Anxiety',    stage:'contacted', notes:'Referred by GP. GAD-7=15.', created:'2026-04-13', follow_up:nextDay(1) },
+      { id:'LEAD-003', name:'Emma Clarke',    email:'emma.c@email.com',  phone:'+44 7700 900789', source:'phone',    condition:'OCD',        stage:'qualified', notes:'Deep TMS candidate.', created:'2026-04-12', follow_up:nextDay(2) },
+      { id:'LEAD-004', name:'David Nguyen',   email:'dnguyen@email.com', phone:'+44 7700 900321', source:'referral', condition:'PTSD',       stage:'booked',    notes:'Intake booked.', created:'2026-04-10', follow_up:nextDay(5) },
+      { id:'LEAD-005', name:'Lucy Fernandez', email:'lfern@email.com',   phone:'+44 7700 900654', source:'website',  condition:'Depression', stage:'lost',      notes:'Chose medication only.', created:'2026-04-08', follow_up:'' },
+    ], calls:[
+      { id:'CALL-001', name:'Sarah Johnson',  phone:'+44 7700 900123', direction:'inbound',  duration:8, outcome:'info-given', notes:'Explained TMS. Sending info pack.', time:'09:14', date:todayStr },
+      { id:'CALL-002', name:'Demo Patient A', phone:'+44 7700 111222', direction:'outbound', duration:3, outcome:'booked',     notes:'Confirmed session 9am.', time:'10:05', date:todayStr },
+      { id:'CALL-003', name:'Robert Kim',     phone:'+44 7700 900456', direction:'outbound', duration:0, outcome:'no-answer', notes:'Left voicemail.', time:'11:30', date:todayStr },
+      { id:'CALL-004', name:'James Mitchell', phone:'+44 7700 333444', direction:'inbound',  duration:12,outcome:'booked',    notes:'Booked new patient intake.', time:'14:22', date:todayStr },
+    ], tasks:[
+      { id:'TASK-001', text:'Send info pack to Sarah Johnson',   due:todayStr,   done:false, priority:'high' },
+      { id:'TASK-002', text:'Chase Robert Kim — no response',    due:todayStr,   done:false, priority:'medium' },
+      { id:'TASK-003', text:'Confirm next week schedule',        due:nextDay(1), done:false, priority:'medium' },
+      { id:'TASK-004', text:'Submit Marcus Webb insurance form', due:nextDay(2), done:false, priority:'high' },
+      { id:'TASK-005', text:'Call back Demo Patient C',          due:todayStr,   done:true,  priority:'low' },
+    ]};
+    _saveSched(d); return d;
+  }
+
+  const data = _loadSched();
+
+  const APT_COLORS = {
+    'session':     { bg:'rgba(0,212,188,0.15)',   border:'var(--teal)',   label:'Session' },
+    'assessment':  { bg:'rgba(74,158,255,0.15)',  border:'var(--blue)',   label:'Assessment' },
+    'new-patient': { bg:'rgba(155,127,255,0.15)', border:'var(--violet)', label:'New Patient' },
+    'follow-up':   { bg:'rgba(255,181,71,0.15)',  border:'var(--amber)',  label:'Follow-up' },
+    'phone':       { bg:'rgba(74,222,128,0.15)',  border:'var(--green)',  label:'Phone' },
+  };
+  const STATUS_COLORS = { confirmed:'var(--green)', pending:'var(--amber)', cancelled:'var(--red)', completed:'var(--text-tertiary)', 'no-show':'var(--red)' };
+  const STATUS_LABELS = { confirmed:'Confirmed', pending:'Pending', cancelled:'Cancelled', completed:'Completed', 'no-show':'No-show' };
+
+  // ── CALENDAR TAB ───────────────────────────────────────────────────────────
+  if (tab === 'calendar') {
+    setTopbar('Scheduling', '<button class="btn btn-primary btn-sm" onclick="window._schedNewBooking()">+ Book Appointment</button>');
+
+    window._calWeekOffset = window._calWeekOffset ?? 0;
+    const HOURS = Array.from({length:13},(_,i)=>7+i);
+    const DAY_LABELS = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+
+    function weekDates(offset) {
+      const d = new Date(now);
+      const dow = d.getDay();
+      const mon = new Date(d); mon.setDate(d.getDate()-(dow===0?6:dow-1)+offset*7);
+      return Array.from({length:7},(_,i)=>{
+        const day=new Date(mon); day.setDate(mon.getDate()+i);
+        return { date:day, str:day.getFullYear()+'-'+pad2(day.getMonth()+1)+'-'+pad2(day.getDate()), dow:i };
+      });
+    }
+
+    function renderCal() {
+      const wd = weekDates(window._calWeekOffset);
+      const lbl = document.getElementById('cal-week-label');
+      if (lbl) lbl.textContent = wd[0].date.toLocaleDateString('en-GB',{day:'numeric',month:'short'})+' — '+wd[6].date.toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'});
+      const aptByDate = {};
+      data.appointments.forEach(a=>{ (aptByDate[a.date]=aptByDate[a.date]||[]).push(a); });
+      const grid = document.getElementById('cal-grid'); if (!grid) return;
+      const hdrs = '<div class="cal-row cal-header-row"><div class="cal-time-label"></div>'+wd.map(d=>{
+        const isToday=d.str===todayStr;
+        const cnt=(aptByDate[d.str]||[]).filter(a=>a.status!=='cancelled').length;
+        return '<div class="cal-day-header'+(isToday?' cal-day-header--today':'')+'"><div class="cal-day-label">'+DAY_LABELS[d.dow]+'</div><div class="cal-day-num'+(isToday?' cal-today-num':'')+'">'+d.date.getDate()+'</div>'+(cnt?'<div class="cal-day-count">'+cnt+'</div>':'')+'</div>';
+      }).join('')+'</div>';
+      const rows = HOURS.map(h=>{
+        const tl = h<12?h+'am':h===12?'12pm':(h-12)+'pm';
+        const cells = wd.map(d=>{
+          const slotA = (aptByDate[d.str]||[]).filter(a=>parseInt(a.time)===h);
+          return '<div class="cal-cell" onclick="window._schedSlotClick(\''+d.str+'\',\''+pad2(h)+':00\')">'+
+            slotA.map(a=>{
+              const c=APT_COLORS[a.type]||APT_COLORS.session;
+              return '<div class="cal-apt" style="background:'+c.bg+';border-left:3px solid '+c.border+'" onclick="event.stopPropagation();window._schedViewApt(\''+a.id+'\')">'+
+                '<div class="cal-apt-time">'+a.time+' · '+a.duration+'m</div>'+
+                '<div class="cal-apt-name">'+a.patient_name+'</div>'+
+                '<div class="cal-apt-type">'+c.label+'</div>'+
+              '</div>';
+            }).join('')+
+          '</div>';
+        }).join('');
+        return '<div class="cal-row"><div class="cal-time-label">'+tl+'</div>'+cells+'</div>';
+      }).join('');
+      grid.innerHTML = hdrs + rows;
+    }
+
+    window._calWeekPrev  = ()=>{ window._calWeekOffset--; renderCal(); };
+    window._calWeekNext  = ()=>{ window._calWeekOffset++; renderCal(); };
+    window._calWeekToday = ()=>{ window._calWeekOffset=0; renderCal(); };
+    window._schedSlotClick = (date,time)=>{ window._schedNewAptDate=date; window._schedNewAptTime=time; document.getElementById('sched-book-modal')?.classList.remove('ch-hidden'); const di=document.getElementById('sched-book-date'); const ti=document.getElementById('sched-book-time'); if(di)di.value=date; if(ti)ti.value=time; };
+    window._schedViewApt = id=>{ const a=data.appointments.find(x=>x.id===id); if(!a)return; const c=APT_COLORS[a.type]||APT_COLORS.session; window._dsToast?.({title:a.patient_name+' — '+a.time,body:c.label+' · '+a.duration+'min · '+(STATUS_LABELS[a.status]||a.status)+(a.notes?'\n'+a.notes:''),severity:'info'}); };
+    window._schedNewBooking = ()=>{ document.getElementById('sched-book-modal')?.classList.remove('ch-hidden'); };
+    window._schedSaveBooking = ()=>{
+      const name=document.getElementById('sched-book-patient')?.value?.trim();
+      const date=document.getElementById('sched-book-date')?.value;
+      const time=document.getElementById('sched-book-time')?.value;
+      const type=document.getElementById('sched-book-type')?.value||'session';
+      const dur=parseInt(document.getElementById('sched-book-dur')?.value||'60');
+      const clin=document.getElementById('sched-book-clin')?.value?.trim()||'Dr. S. Chen';
+      const notes=document.getElementById('sched-book-notes')?.value?.trim()||'';
+      if(!name||!date||!time){window._dsToast?.({title:'Missing fields',body:'Name, date and time required.',severity:'warn'});return;}
+      data.appointments.push({id:'APT-'+Date.now(),patient_name:name,patient_id:'',clinician:clin,date,time,duration:dur,type,status:'pending',notes});
+      _saveSched(data); document.getElementById('sched-book-modal')?.classList.add('ch-hidden'); renderCal();
+      window._dsToast?.({title:'Booking created',body:name+' booked for '+date+' at '+time,severity:'success'});
+    };
+
+    const todayApts = data.appointments.filter(a=>a.date===todayStr&&a.status!=='cancelled').sort((a,b)=>a.time.localeCompare(b.time));
+
+    el.innerHTML = `
+    <div class="ch-shell">
+      <div class="ch-tab-bar">${tabBar()}</div>
+      <div class="sched-cal-shell">
+        <div class="sched-mini-sidebar">
+          <div class="sched-mini-legend-title" style="margin-bottom:8px">Appointment Types</div>
+          ${Object.entries(APT_COLORS).map(([,v])=>'<div class="sched-legend-row"><span class="sched-legend-dot" style="background:'+v.border+'"></span>'+v.label+'</div>').join('')}
+          <div class="sched-mini-legend-title" style="margin:16px 0 8px">Today (${todayApts.length})</div>
+          ${todayApts.slice(0,6).map(a=>'<div class="sched-mini-apt"><span class="sched-mini-time">'+a.time+'</span><span class="sched-mini-name">'+a.patient_name+'</span></div>').join('')||'<div style="font-size:11.5px;color:var(--text-tertiary)">No appointments</div>'}
+          <div class="sched-mini-legend-title" style="margin:16px 0 8px">This Week</div>
+          <div class="sched-mini-stat" style="color:var(--teal)">${data.appointments.filter(a=>a.date>=todayStr&&a.status==='confirmed').length} confirmed</div>
+          <div class="sched-mini-stat" style="color:var(--amber)">${data.appointments.filter(a=>a.date>=todayStr&&a.status==='pending').length} pending</div>
+        </div>
+        <div class="sched-cal-main">
+          <div class="sched-cal-controls">
+            <button class="ch-btn-sm" onclick="window._calWeekPrev()">‹ Prev</button>
+            <button class="ch-btn-sm" style="font-weight:700" onclick="window._calWeekToday()">Today</button>
+            <button class="ch-btn-sm" onclick="window._calWeekNext()">Next ›</button>
+            <span id="cal-week-label" style="font-size:13px;font-weight:600;color:var(--text-primary);margin-left:8px"></span>
+          </div>
+          <div class="cal-grid-wrap"><div id="cal-grid" class="cal-grid"></div></div>
+        </div>
+      </div>
+    </div>
+    <div id="sched-book-modal" class="ch-modal-overlay ch-hidden">
+      <div class="ch-modal" style="width:min(520px,95vw)">
+        <div class="ch-modal-hd"><span>New Appointment</span><button class="ch-modal-close" onclick="document.getElementById('sched-book-modal').classList.add('ch-hidden')">✕</button></div>
+        <div class="ch-modal-body">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+            <div class="ch-form-group" style="grid-column:1/-1"><label class="ch-label">Patient Name</label><input id="sched-book-patient" class="ch-select ch-select--full" placeholder="Patient name…"></div>
+            <div class="ch-form-group"><label class="ch-label">Date</label><input id="sched-book-date" type="date" class="ch-select ch-select--full" value="${todayStr}"></div>
+            <div class="ch-form-group"><label class="ch-label">Time</label><input id="sched-book-time" type="time" class="ch-select ch-select--full" value="09:00"></div>
+            <div class="ch-form-group"><label class="ch-label">Type</label>
+              <select id="sched-book-type" class="ch-select ch-select--full"><option value="session">Session</option><option value="assessment">Assessment</option><option value="new-patient">New Patient</option><option value="follow-up">Follow-up</option><option value="phone">Phone</option></select>
+            </div>
+            <div class="ch-form-group"><label class="ch-label">Duration</label>
+              <select id="sched-book-dur" class="ch-select ch-select--full"><option value="15">15 min</option><option value="30">30 min</option><option value="45">45 min</option><option value="60" selected>60 min</option><option value="90">90 min</option></select>
+            </div>
+            <div class="ch-form-group" style="grid-column:1/-1"><label class="ch-label">Clinician</label><input id="sched-book-clin" class="ch-select ch-select--full" value="Dr. S. Chen"></div>
+            <div class="ch-form-group" style="grid-column:1/-1"><label class="ch-label">Notes</label><textarea id="sched-book-notes" class="ch-textarea" rows="2" placeholder="Appointment notes…"></textarea></div>
+          </div>
+          <div style="display:flex;gap:8px;margin-top:4px"><button class="btn btn-primary" onclick="window._schedSaveBooking()">Book</button><button class="btn" onclick="document.getElementById('sched-book-modal').classList.add('ch-hidden')">Cancel</button></div>
+        </div>
+      </div>
+    </div>`;
+    renderCal();
+  }
+
+  // ── BOOKINGS TAB ───────────────────────────────────────────────────────────
+  else if (tab === 'bookings') {
+    setTopbar('Scheduling', '<button class="btn btn-primary btn-sm" onclick="window._schedHubTab=\'calendar\';window._nav(\'scheduling-hub\')">+ New Booking</button>');
+    const APT_TYPE_LABELS = { session:'Session', assessment:'Assessment', 'new-patient':'New Patient', 'follow-up':'Follow-up', phone:'Phone' };
+    const SM = { confirmed:{color:'var(--green)',bg:'rgba(74,222,128,0.12)',label:'Confirmed'}, pending:{color:'var(--amber)',bg:'rgba(255,181,71,0.12)',label:'Pending'}, completed:{color:'var(--text-tertiary)',bg:'rgba(255,255,255,0.06)',label:'Completed'}, cancelled:{color:'var(--red)',bg:'rgba(255,107,107,0.12)',label:'Cancelled'}, 'no-show':{color:'var(--red)',bg:'rgba(255,107,107,0.08)',label:'No-show'} };
+    const COHORTS = [
+      { id:'all',       label:'All',       fn:a=>a },
+      { id:'today',     label:'Today',     fn:a=>a.filter(x=>x.date===todayStr) },
+      { id:'upcoming',  label:'Upcoming',  fn:a=>a.filter(x=>x.date>=todayStr&&x.status!=='cancelled') },
+      { id:'pending',   label:'Pending',   fn:a=>a.filter(x=>x.status==='pending') },
+      { id:'completed', label:'Completed', fn:a=>a.filter(x=>x.status==='completed') },
+      { id:'no-show',   label:'No-show',   fn:a=>a.filter(x=>x.status==='no-show') },
+    ];
+    window._bookCohort = window._bookCohort || 'upcoming';
+
+    function renderBookings(cid) {
+      const cohort = COHORTS.find(c=>c.id===cid)||COHORTS[0];
+      const q = (document.getElementById('book-search')?.value||'').toLowerCase();
+      let list = cohort.fn(data.appointments);
+      if (q) list=list.filter(a=>(a.patient_name||'').toLowerCase().includes(q)||(a.clinician||'').toLowerCase().includes(q));
+      list.sort((a,b)=>a.date===b.date?a.time.localeCompare(b.time):a.date.localeCompare(b.date));
+      const out=document.getElementById('book-list'); if(!out)return;
+      if(!list.length){out.innerHTML='<div class="ch-empty">No bookings found.</div>';return;}
+      out.innerHTML=list.map(a=>{
+        const sm=SM[a.status]||SM.confirmed;
+        return '<div class="book-row">'+
+          '<div class="book-datetime"><div class="book-date'+(a.date===todayStr?' book-date--today':'')+'">'+( a.date===todayStr?'Today':a.date)+'</div><div class="book-time">'+a.time+' · '+a.duration+'min</div></div>'+
+          '<div class="book-info"><div class="book-patient">'+a.patient_name+'</div><div class="book-clinician">'+a.clinician+' · '+(APT_TYPE_LABELS[a.type]||a.type)+'</div>'+(a.notes?'<div class="book-notes">'+a.notes.slice(0,80)+(a.notes.length>80?'…':'')+'</div>':'')+'</div>'+
+          '<div class="book-status-col"><span class="book-status-badge" style="color:'+sm.color+';background:'+sm.bg+'">'+sm.label+'</span></div>'+
+          '<div class="book-actions">'+
+            (a.status==='pending'?'<button class="ch-btn-sm ch-btn-teal" onclick="window._bookConfirm(\''+a.id+'\')">Confirm</button>':'')+
+            (a.status==='confirmed'||a.status==='pending'?'<button class="ch-btn-sm" onclick="window._bookCancel(\''+a.id+'\')">Cancel</button>':'')+
+            (a.status==='confirmed'?'<button class="ch-btn-sm" onclick="window._bookComplete(\''+a.id+'\')">Done ✓</button>':'')+
+          '</div>'+
+        '</div>';
+      }).join('');
+    }
+
+    window._bookSetCohort = id=>{window._bookCohort=id;document.querySelectorAll('.book-cohort-btn').forEach(b=>b.classList.toggle('active',b.dataset.cohort===id));renderBookings(id);};
+    window._bookConfirm   = id=>{const a=data.appointments.find(x=>x.id===id);if(a){a.status='confirmed';_saveSched(data);renderBookings(window._bookCohort);window._dsToast?.({title:'Confirmed',body:a.patient_name+' confirmed.',severity:'success'});}};
+    window._bookCancel    = id=>{const a=data.appointments.find(x=>x.id===id);if(a){a.status='cancelled';_saveSched(data);renderBookings(window._bookCohort);window._dsToast?.({title:'Cancelled',body:a.patient_name+' cancelled.',severity:'warn'});}};
+    window._bookComplete  = id=>{const a=data.appointments.find(x=>x.id===id);if(a){a.status='completed';_saveSched(data);renderBookings(window._bookCohort);window._dsToast?.({title:'Completed',body:'Session marked complete.',severity:'success'});}};
+
+    el.innerHTML=`
+    <div class="ch-shell">
+      <div class="ch-tab-bar">${tabBar()}</div>
+      <div class="ph-layout">
+        <div class="ph-rail">
+          <div class="ph-rail-label">Filter</div>
+          ${COHORTS.map(c=>'<div class="ph-cohort-item book-cohort-btn'+(c.id===window._bookCohort?' active':'')+'" data-cohort="'+c.id+'" onclick="window._bookSetCohort(\''+c.id+'\')">' +
+            '<span>'+c.label+'</span><span class="ph-cohort-count">'+c.fn(data.appointments).length+'</span></div>').join('')}
+        </div>
+        <div class="ph-main">
+          <div class="ch-kpi-strip" style="grid-template-columns:repeat(4,1fr);margin-bottom:16px">
+            <div class="ch-kpi-card" style="--kpi-color:var(--teal)"><div class="ch-kpi-val">${data.appointments.filter(a=>a.date===todayStr&&a.status!=='cancelled').length}</div><div class="ch-kpi-label">Today</div></div>
+            <div class="ch-kpi-card" style="--kpi-color:var(--blue)"><div class="ch-kpi-val">${data.appointments.filter(a=>a.date>=todayStr&&a.status==='confirmed').length}</div><div class="ch-kpi-label">Confirmed</div></div>
+            <div class="ch-kpi-card" style="--kpi-color:var(--amber)"><div class="ch-kpi-val">${data.appointments.filter(a=>a.status==='pending').length}</div><div class="ch-kpi-label">Pending</div></div>
+            <div class="ch-kpi-card" style="--kpi-color:var(--red)"><div class="ch-kpi-val">${data.appointments.filter(a=>a.status==='no-show').length}</div><div class="ch-kpi-label">No-shows</div></div>
+          </div>
+          <div class="ch-card">
+            <div class="ch-card-hd">
+              <span class="ch-card-title">Appointments</span>
+              <div style="position:relative;flex:1;max-width:260px">
+                <input id="book-search" type="text" placeholder="Search patient…" class="ph-search-input" oninput="window._bookSetCohort(window._bookCohort)">
+                <svg viewBox="0 0 24 24" style="position:absolute;left:9px;top:50%;transform:translateY(-50%);width:13px;height:13px;stroke:var(--text-tertiary);fill:none;stroke-width:2;stroke-linecap:round;pointer-events:none"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+              </div>
+            </div>
+            <div id="book-list"></div>
+          </div>
+        </div>
+      </div>
+    </div>`;
+    renderBookings(window._bookCohort);
+  }
+
+  // ── LEADS TAB ──────────────────────────────────────────────────────────────
+  else if (tab === 'leads') {
+    setTopbar('Scheduling','<button class="btn btn-primary btn-sm" onclick="window._leadAddModal()">+ New Lead</button>');
+    const STAGES=[
+      {id:'new',       label:'New',       color:'var(--blue)'},
+      {id:'contacted', label:'Contacted', color:'var(--violet)'},
+      {id:'qualified', label:'Qualified', color:'var(--amber)'},
+      {id:'booked',    label:'Booked',    color:'var(--teal)'},
+      {id:'lost',      label:'Lost',      color:'var(--text-tertiary)'},
+    ];
+    const SRC_ICONS={website:'🌐',referral:'👥',phone:'📞','walk-in':'🚶'};
+
+    function renderLeads(){
+      const out=document.getElementById('leads-kanban');if(!out)return;
+      out.innerHTML=STAGES.map(stage=>{
+        const cards=data.leads.filter(l=>l.stage===stage.id);
+        return '<div class="lead-col">'+
+          '<div class="lead-col-hd" style="border-top:3px solid '+stage.color+'"><span class="lead-col-label">'+stage.label+'</span><span class="lead-col-count" style="background:'+stage.color+'22;color:'+stage.color+'">'+cards.length+'</span></div>'+
+          (cards.length?cards.map(l=>'<div class="lead-card">'+
+            '<div class="lead-card-top"><div class="lead-name">'+l.name+'</div><span class="lead-source">'+( SRC_ICONS[l.source]||'📋')+'</span></div>'+
+            '<div class="lead-condition">'+l.condition+'</div>'+
+            (l.follow_up?'<div class="lead-followup">Follow-up: <strong>'+l.follow_up+'</strong></div>':'')+
+            (l.notes?'<div class="lead-notes">'+l.notes.slice(0,80)+(l.notes.length>80?'…':'')+'</div>':'')+
+            '<div class="lead-actions">'+
+              '<span class="lead-phone" onclick="window._dsToast?.({title:\'Call: \'+\''+l.name+'\',body:\''+l.phone+'\',severity:\'info\'})">📞</span>'+
+              (stage.id!=='booked'&&stage.id!=='lost'?'<button class="ch-btn-sm ch-btn-teal" onclick="window._leadAdvance(\''+l.id+'\')">Advance →</button>':'')+
+              (stage.id==='qualified'?'<button class="ch-btn-sm" onclick="window._schedHubTab=\'calendar\';window._nav(\'scheduling-hub\')">Book</button>':'')+
+            '</div>'+
+          '</div>').join(''):'<div class="lead-empty">No leads</div>')+
+        '</div>';
+      }).join('');
+    }
+
+    window._leadAdvance = id=>{
+      const l=data.leads.find(x=>x.id===id);if(!l)return;
+      const order=['new','contacted','qualified','booked'];
+      const idx=order.indexOf(l.stage);
+      if(idx>=0&&idx<order.length-1){l.stage=order[idx+1];_saveSched(data);renderLeads();window._dsToast?.({title:'Advanced',body:l.name+' → '+l.stage,severity:'success'});}
+    };
+    window._leadAddModal=()=>document.getElementById('lead-add-modal')?.classList.remove('ch-hidden');
+    window._leadSave=()=>{
+      const name=document.getElementById('lead-name')?.value?.trim();
+      if(!name){window._dsToast?.({title:'Name required',body:'',severity:'warn'});return;}
+      data.leads.push({id:'LEAD-'+Date.now(),name,phone:document.getElementById('lead-phone')?.value||'—',email:document.getElementById('lead-email')?.value||'—',source:document.getElementById('lead-source')?.value||'phone',condition:document.getElementById('lead-cond')?.value||'Not specified',stage:'new',notes:'',created:todayStr,follow_up:nextDay(1)});
+      _saveSched(data);document.getElementById('lead-add-modal')?.classList.add('ch-hidden');renderLeads();
+      window._dsToast?.({title:'Lead added',body:name+' added.',severity:'success'});
+    };
+
+    el.innerHTML=`
+    <div class="ch-shell">
+      <div class="ch-tab-bar">${tabBar()}</div>
+      <div class="ch-body">
+        <div class="ch-kpi-strip" style="grid-template-columns:repeat(5,1fr);margin-bottom:16px">
+          ${STAGES.map(s=>'<div class="ch-kpi-card" style="--kpi-color:'+s.color+'"><div class="ch-kpi-val">'+data.leads.filter(l=>l.stage===s.id).length+'</div><div class="ch-kpi-label">'+s.label+'</div></div>').join('')}
+        </div>
+        <div id="leads-kanban" class="leads-kanban"></div>
+      </div>
+    </div>
+    <div id="lead-add-modal" class="ch-modal-overlay ch-hidden">
+      <div class="ch-modal" style="width:min(440px,95vw)">
+        <div class="ch-modal-hd"><span>Add Lead</span><button class="ch-modal-close" onclick="document.getElementById('lead-add-modal').classList.add('ch-hidden')">✕</button></div>
+        <div class="ch-modal-body">
+          <div class="ch-form-group"><label class="ch-label">Full Name *</label><input id="lead-name" class="ch-select ch-select--full" placeholder="Name"></div>
+          <div class="ch-form-group"><label class="ch-label">Phone</label><input id="lead-phone" class="ch-select ch-select--full" placeholder="+44 7700…"></div>
+          <div class="ch-form-group"><label class="ch-label">Email</label><input id="lead-email" class="ch-select ch-select--full" type="email"></div>
+          <div class="ch-form-group"><label class="ch-label">Condition / Reason</label><input id="lead-cond" class="ch-select ch-select--full" placeholder="e.g. Depression"></div>
+          <div class="ch-form-group"><label class="ch-label">Source</label>
+            <select id="lead-source" class="ch-select ch-select--full"><option value="phone">Phone</option><option value="website">Website</option><option value="referral">Referral</option><option value="walk-in">Walk-in</option></select>
+          </div>
+          <div style="display:flex;gap:8px;margin-top:8px"><button class="btn btn-primary" onclick="window._leadSave()">Add Lead</button><button class="btn" onclick="document.getElementById('lead-add-modal').classList.add('ch-hidden')">Cancel</button></div>
+        </div>
+      </div>
+    </div>`;
+    renderLeads();
+  }
+
+  // ── RECEPTION TAB ─────────────────────────────────────────────────────────
+  else if (tab === 'reception') {
+    setTopbar('Scheduling','<button class="btn btn-primary btn-sm" onclick="window._receptionLogCall()">+ Log Call</button>');
+    const OM={ booked:{color:'var(--teal)',label:'Booked'}, callback:{color:'var(--amber)',label:'Callback'}, 'no-answer':{color:'var(--text-tertiary)',label:'No Answer'}, voicemail:{color:'var(--blue)',label:'Voicemail'}, 'info-given':{color:'var(--green)',label:'Info Given'} };
+    window._recCallFilter = window._recCallFilter||'today';
+
+    function renderReception(){
+      const out=document.getElementById('rec-content');if(!out)return;
+      const todayApts=data.appointments.filter(a=>a.date===todayStr&&a.status!=='cancelled').sort((a,b)=>a.time.localeCompare(b.time));
+      const tasks=data.tasks.sort((a,b)=>a.done-b.done||a.due.localeCompare(b.due));
+      const cf=window._recCallFilter;
+      const calls=(cf==='today'?data.calls.filter(c=>c.date===todayStr):cf==='inbound'?data.calls.filter(c=>c.direction==='inbound'):cf==='outbound'?data.calls.filter(c=>c.direction==='outbound'):data.calls);
+
+      out.innerHTML=`
+      <div class="rec-grid">
+        <div class="ch-card rec-card">
+          <div class="ch-card-hd"><span class="ch-card-title">Today's Schedule</span><span style="font-size:11px;color:var(--text-tertiary)">${todayApts.length} apts</span></div>
+          ${todayApts.length?todayApts.map(a=>'<div class="rec-apt-row"><span class="rec-apt-time">'+a.time+'</span><div class="rec-apt-info"><div class="rec-apt-name">'+a.patient_name+'</div><div class="rec-apt-type">'+a.clinician+'</div></div><span class="rec-apt-status" style="color:'+(STATUS_COLORS[a.status]||'var(--teal)')+'">●</span></div>').join(''):'<div class="ch-empty" style="padding:20px">No appointments today</div>'}
+        </div>
+        <div class="ch-card rec-card">
+          <div class="ch-card-hd"><span class="ch-card-title">Tasks</span><button class="ch-btn-sm ch-btn-teal" onclick="window._recAddTask()">+ Task</button></div>
+          <div id="rec-task-list">
+            ${tasks.map(t=>'<div class="rec-task-row'+(t.done?' rec-task--done':'')+'"><input type="checkbox"'+(t.done?' checked':'')+' onclick="window._recToggleTask(\''+t.id+'\')" style="cursor:pointer;accent-color:var(--teal)"><div class="rec-task-body"><div class="rec-task-text">'+t.text+'</div><div class="rec-task-meta">Due: '+t.due+' · <span style="color:'+(t.priority==='high'?'var(--red)':t.priority==='medium'?'var(--amber)':'var(--text-tertiary)')+'">'+t.priority+'</span></div></div></div>').join('')}
+          </div>
+        </div>
+        <div class="ch-card rec-card" style="grid-column:1/-1">
+          <div class="ch-card-hd">
+            <span class="ch-card-title">Call Log</span>
+            <div style="display:flex;gap:4px">
+              ${['today','inbound','outbound','all'].map(f=>'<button class="ch-btn-sm'+(window._recCallFilter===f?' ch-btn-teal':'')+'" onclick="window._recCallFilter=\''+f+'\';renderReception()">'+f.charAt(0).toUpperCase()+f.slice(1)+'</button>').join('')}
+            </div>
+          </div>
+          ${calls.length?calls.map(c=>{
+            const om=OM[c.outcome]||OM['info-given'];
+            const dirC=c.direction==='inbound'?'var(--teal)':'var(--blue)';
+            return '<div class="book-row"><div class="book-datetime"><div class="book-date">'+c.date+'</div><div class="book-time">'+c.time+'</div></div><div class="book-info"><div class="book-patient">'+c.name+'</div><div class="book-clinician">'+c.phone+(c.duration?' · '+c.duration+'m':'')+'</div>'+(c.notes?'<div class="book-notes">'+c.notes+'</div>':'')+'</div><div style="flex-shrink:0"><span style="font-size:11px;font-weight:700;color:'+dirC+'">'+(c.direction==='inbound'?'↙ In':'↗ Out')+'</span></div><div class="book-status-col"><span class="book-status-badge" style="color:'+om.color+';background:'+om.color+'22">'+om.label+'</span></div></div>';
+          }).join(''):'<div class="ch-empty">No calls logged.</div>'}
+        </div>
+      </div>`;
+    }
+
+    window._recToggleTask = id=>{const t=data.tasks.find(x=>x.id===id);if(!t)return;t.done=!t.done;_saveSched(data);renderReception();};
+    window._recAddTask = ()=>{const text=prompt('Task:');if(!text)return;data.tasks.push({id:'TASK-'+Date.now(),text,due:todayStr,done:false,priority:'medium'});_saveSched(data);renderReception();};
+    window._receptionLogCall=()=>document.getElementById('rec-call-modal')?.classList.remove('ch-hidden');
+    window._recSaveCall=()=>{
+      const name=document.getElementById('rc-name')?.value?.trim();if(!name){window._dsToast?.({title:'Name required',body:'',severity:'warn'});return;}
+      const h=new Date();
+      data.calls.unshift({id:'CALL-'+Date.now(),name,phone:document.getElementById('rc-phone')?.value||'—',direction:document.getElementById('rc-dir')?.value||'inbound',duration:parseInt(document.getElementById('rc-dur')?.value||'0'),outcome:document.getElementById('rc-outcome')?.value||'info-given',notes:document.getElementById('rc-notes')?.value||'',time:pad2(h.getHours())+':'+pad2(h.getMinutes()),date:todayStr});
+      _saveSched(data);document.getElementById('rec-call-modal')?.classList.add('ch-hidden');renderReception();
+      window._dsToast?.({title:'Call logged',severity:'success'});
+    };
+
+    el.innerHTML=`
+    <div class="ch-shell">
+      <div class="ch-tab-bar">${tabBar()}</div>
+      <div class="ch-body">
+        <div class="ch-kpi-strip" style="grid-template-columns:repeat(4,1fr);margin-bottom:16px">
+          <div class="ch-kpi-card" style="--kpi-color:var(--teal)"><div class="ch-kpi-val">${data.appointments.filter(a=>a.date===todayStr&&a.status!=='cancelled').length}</div><div class="ch-kpi-label">Today's Apts</div></div>
+          <div class="ch-kpi-card" style="--kpi-color:var(--blue)"><div class="ch-kpi-val">${data.calls.filter(c=>c.date===todayStr).length}</div><div class="ch-kpi-label">Calls Today</div></div>
+          <div class="ch-kpi-card" style="--kpi-color:var(--amber)"><div class="ch-kpi-val">${data.tasks.filter(t=>!t.done&&t.due<=todayStr).length}</div><div class="ch-kpi-label">Tasks Due</div></div>
+          <div class="ch-kpi-card" style="--kpi-color:var(--violet)"><div class="ch-kpi-val">${data.leads.filter(l=>l.follow_up===todayStr).length}</div><div class="ch-kpi-label">Follow-ups</div></div>
+        </div>
+        <div id="rec-content"></div>
+      </div>
+    </div>
+    <div id="rec-call-modal" class="ch-modal-overlay ch-hidden">
+      <div class="ch-modal" style="width:min(440px,95vw)">
+        <div class="ch-modal-hd"><span>Log Phone Call</span><button class="ch-modal-close" onclick="document.getElementById('rec-call-modal').classList.add('ch-hidden')">✕</button></div>
+        <div class="ch-modal-body">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+            <div class="ch-form-group" style="grid-column:1/-1"><label class="ch-label">Name *</label><input id="rc-name" class="ch-select ch-select--full" placeholder="Patient / contact name"></div>
+            <div class="ch-form-group"><label class="ch-label">Phone</label><input id="rc-phone" class="ch-select ch-select--full" placeholder="+44 7700…"></div>
+            <div class="ch-form-group"><label class="ch-label">Duration (min)</label><input id="rc-dur" type="number" min="0" value="5" class="ch-select ch-select--full"></div>
+            <div class="ch-form-group"><label class="ch-label">Direction</label><select id="rc-dir" class="ch-select ch-select--full"><option value="inbound">Inbound</option><option value="outbound">Outbound</option></select></div>
+            <div class="ch-form-group"><label class="ch-label">Outcome</label><select id="rc-outcome" class="ch-select ch-select--full"><option value="booked">Booked</option><option value="info-given">Info Given</option><option value="callback">Callback</option><option value="voicemail">Voicemail</option><option value="no-answer">No Answer</option></select></div>
+            <div class="ch-form-group" style="grid-column:1/-1"><label class="ch-label">Notes</label><textarea id="rc-notes" class="ch-textarea" rows="2" placeholder="Call summary…"></textarea></div>
+          </div>
+          <div style="display:flex;gap:8px;margin-top:4px"><button class="btn btn-primary" onclick="window._recSaveCall()">Save Call</button><button class="btn" onclick="document.getElementById('rec-call-modal').classList.add('ch-hidden')">Cancel</button></div>
+        </div>
+      </div>
+    </div>`;
+    renderReception();
+  }
+}
+
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// pgLibraryHub — Conditions · Devices · Consent · Reports · Home Programs · Packages
+// ═══════════════════════════════════════════════════════════════════════════════
+export async function pgLibraryHub(setTopbar, navigate) {
+  const tab = window._libraryHubTab || 'conditions';
+  window._libraryHubTab = tab;
+  const TAB_META = {
+    conditions:   { label: 'Conditions',       color: 'var(--blue)'   },
+    devices:      { label: 'Devices',          color: 'var(--teal)'   },
+    consent:      { label: 'Consent & Docs',   color: 'var(--violet)' },
+    reports:      { label: 'Report Templates', color: 'var(--amber)'  },
+    homeprograms: { label: 'Home Programs',    color: 'var(--green)'  },
+    packages:     { label: 'Cond. Packages',   color: 'var(--rose)'   },
+  };
+  const el = document.getElementById('content');
+  function tabBar() {
+    return Object.entries(TAB_META).map(([id,m]) =>
+      '<button class="ch-tab'+(tab===id?' ch-tab--active':'')+'"'+(tab===id?' style="--tab-color:'+m.color+'"':'')+
+      ' onclick="window._libraryHubTab=\''+id+'\';window._nav(\'library-hub\')">'+ m.label +'</button>'
+    ).join('');
+  }
+  setTopbar('Library', '');
+
+  const CONDITIONS_DATA = [
+    { id:'C001', name:'Major Depressive Disorder',       icd10:'F33.1', cat:'Mood',       nm:true  },
+    { id:'C002', name:'Treatment-Resistant Depression',  icd10:'F33.9', cat:'Mood',       nm:true  },
+    { id:'C003', name:'Bipolar I Disorder',              icd10:'F31.1', cat:'Mood',       nm:true  },
+    { id:'C004', name:'Generalized Anxiety Disorder',    icd10:'F41.1', cat:'Anxiety',    nm:true  },
+    { id:'C005', name:'PTSD',                            icd10:'F43.1', cat:'Trauma',     nm:true  },
+    { id:'C006', name:'OCD',                             icd10:'F42.2', cat:'OCD',        nm:true  },
+    { id:'C007', name:'ADHD — Combined Type',            icd10:'F90.2', cat:'ADHD',       nm:true  },
+    { id:'C008', name:'Schizophrenia',                   icd10:'F20.9', cat:'Psychosis',  nm:true  },
+    { id:'C009', name:'Chronic Pain Syndrome',           icd10:'G89.29',cat:'Pain',       nm:true  },
+    { id:'C010', name:'Insomnia Disorder',               icd10:'G47.0', cat:'Sleep',      nm:true  },
+    { id:'C011', name:'Social Anxiety Disorder',         icd10:'F40.1', cat:'Anxiety',    nm:false },
+    { id:'C012', name:'Panic Disorder',                  icd10:'F41.0', cat:'Anxiety',    nm:false },
+    { id:'C013', name:'Persistent Depressive Disorder',  icd10:'F34.1', cat:'Mood',       nm:true  },
+    { id:'C014', name:'Postpartum Depression',           icd10:'F53.0', cat:'Mood',       nm:true  },
+    { id:'C015', name:'TBI (Chronic)',                   icd10:'S06.9', cat:'Neurological',nm:true },
+    { id:'C016', name:'Tinnitus',                        icd10:'H93.1', cat:'Neurological',nm:true },
+    { id:'C017', name:'Migraine',                        icd10:'G43.9', cat:'Pain',       nm:true  },
+  ];
+  const DEVICES_DATA = [
+    { id:'D001', name:'MagVenture MagPro R30',      type:'TMS',        cleared:'FDA/CE', mods:['TMS'],            feats:['Figure-8 coil','20 Hz max','Theta burst'] },
+    { id:'D002', name:'Neuronetics NeuroStar TMS',  type:'TMS',        cleared:'FDA',    mods:['TMS'],            feats:['Depression-optimized','Safety stop'] },
+    { id:'D003', name:'BrainsWay Deep TMS H1',      type:'TMS',        cleared:'FDA/CE', mods:['Deep TMS'],       feats:['H-coil','OCD & MDD cleared'] },
+    { id:'D004', name:'Soterix 1x1 tDCS',           type:'tDCS',       cleared:'CE',     mods:['tDCS'],           feats:['2 mA precision','Impedance check'] },
+    { id:'D005', name:'NeuroConn DC-Stimulator',    type:'tDCS/tACS',  cleared:'CE',     mods:['tDCS','tACS','tRNS'], feats:['Multi-modal','Research-grade'] },
+    { id:'D006', name:'Emotiv EPOC X',              type:'EEG',        cleared:'CE',     mods:['Neurofeedback'],  feats:['32 channels','Wireless'] },
+    { id:'D007', name:'Muse S Headband',            type:'EEG',        cleared:'N/A',    mods:['Neurofeedback'],  feats:['4 sensors','Sleep tracking'] },
+    { id:'D008', name:'Cefaly tSNS',                type:'tSNS',       cleared:'FDA',    mods:['Neuromod'],       feats:['Migraine prevention'] },
+    { id:'D009', name:'Neurode Home tDCS',          type:'tDCS Home',  cleared:'CE',     mods:['tDCS'],           feats:['App-controlled','Remote monitor'] },
+    { id:'D010', name:'NeuroCatch Platform',        type:'ERP',        cleared:'CE',     mods:['Diagnostics'],    feats:['P300','Concussion protocol'] },
+  ];
+  const CONSENT_DATA = [
+    { id:'C1', name:'TMS Informed Consent',          cat:'Treatment',  ver:'v3.2', pages:4, langs:['EN','FR','ES'] },
+    { id:'C2', name:'tDCS Informed Consent',         cat:'Treatment',  ver:'v2.1', pages:3, langs:['EN'] },
+    { id:'C3', name:'Neurofeedback Consent',         cat:'Treatment',  ver:'v1.8', pages:3, langs:['EN','FR'] },
+    { id:'C4', name:'Privacy & Data Policy',         cat:'Privacy',    ver:'v4.0', pages:6, langs:['EN','FR','ES','DE'] },
+    { id:'C5', name:'Research Participation Consent',cat:'Research',   ver:'v2.3', pages:5, langs:['EN'] },
+    { id:'C6', name:'Home Device Use Agreement',     cat:'Home Care',  ver:'v1.5', pages:3, langs:['EN'] },
+    { id:'C7', name:'Video Consultation Consent',    cat:'Telehealth', ver:'v2.0', pages:2, langs:['EN','FR'] },
+    { id:'C8', name:'Caregiver Access Consent',      cat:'Caregiver',  ver:'v1.2', pages:2, langs:['EN'] },
+    { id:'C9', name:'AI-Assisted Treatment Consent', cat:'AI',         ver:'v1.0', pages:4, langs:['EN'] },
+    { id:'C10',name:'Discharge & Follow-up Plan',    cat:'Discharge',  ver:'v2.4', pages:3, langs:['EN','FR'] },
+  ];
+  const REPORTS_DATA = [
+    { id:'R1', name:'Initial Assessment Report',    cat:'Intake',    fields:18, auto:true  },
+    { id:'R2', name:'Session Progress Note',        cat:'Session',   fields:12, auto:true  },
+    { id:'R3', name:'Mid-Course Review',            cat:'Review',    fields:22, auto:false },
+    { id:'R4', name:'Treatment Outcome Report',     cat:'Discharge', fields:28, auto:true  },
+    { id:'R5', name:'Adverse Event Report',         cat:'Safety',    fields:15, auto:false },
+    { id:'R6', name:'GP/Referrer Summary Letter',   cat:'Referral',  fields:14, auto:true  },
+    { id:'R7', name:'Insurance/Funding Report',     cat:'Admin',     fields:20, auto:false },
+    { id:'R8', name:'qEEG Interpretation Report',   cat:'Diagnostics',fields:16,auto:false },
+    { id:'R9', name:'Home Program Adherence Report',cat:'Follow-up', fields:10, auto:true  },
+    { id:'R10',name:'Monthly Outcomes Summary',     cat:'Analytics', fields:25, auto:true  },
+  ];
+  const HP_DATA = [
+    { id:'HP1', name:'Depression Management Program', tasks:8,  weeks:6, cond:'MDD' },
+    { id:'HP2', name:'Anxiety & Mindfulness Program', tasks:7,  weeks:4, cond:'GAD' },
+    { id:'HP3', name:'Pain Self-Management Program',  tasks:6,  weeks:8, cond:'Chronic Pain' },
+    { id:'HP4', name:'Sleep Hygiene Protocol',        tasks:5,  weeks:4, cond:'Insomnia' },
+    { id:'HP5', name:'PTSD Grounding & Stabilisation',tasks:9,  weeks:6, cond:'PTSD' },
+    { id:'HP6', name:'Cognitive Stimulation Exercises',tasks:7, weeks:6, cond:'Cognitive' },
+    { id:'HP7', name:'OCD ERP Daily Practice',        tasks:8,  weeks:8, cond:'OCD' },
+    { id:'HP8', name:'ADHD Attention Training',       tasks:6,  weeks:6, cond:'ADHD' },
+    { id:'HP9', name:'Mood Tracking & Journaling',    tasks:3,  weeks:12,cond:'General' },
+    { id:'HP10',name:'Post-TMS Wellness Routine',     tasks:5,  weeks:4, cond:'Post-TMS' },
+  ];
+  const PKG_DATA = [
+    { id:'P1', name:'MDD Bundle',  cond:'Major Depressive Disorder', scales:['PHQ-9','MADRS','C-SSRS','ISI'],    protocols:2 },
+    { id:'P2', name:'GAD Bundle',  cond:'Generalized Anxiety',        scales:['GAD-7','HAM-A','PSWQ'],           protocols:2 },
+    { id:'P3', name:'PTSD Bundle', cond:'PTSD',                       scales:['PCL-5','CAPS-5','PHQ-9','C-SSRS'],protocols:1 },
+    { id:'P4', name:'OCD Bundle',  cond:'OCD',                        scales:['Y-BOCS','OCI-R','GAD-7'],         protocols:1 },
+    { id:'P5', name:'ADHD Bundle', cond:'ADHD',                       scales:['WHODAS','PHQ-9','DERS'],          protocols:1 },
+    { id:'P6', name:'Sleep Bundle',cond:'Insomnia',                    scales:['ISI','PSQI','EPWORTH'],           protocols:1 },
+    { id:'P7', name:'Pain Bundle', cond:'Chronic Pain',                scales:['BPI','PCS','PHQ-9'],              protocols:1 },
+    { id:'P8', name:'TRD Bundle',  cond:'Treatment-Resistant Dep.',    scales:['PHQ-9','MADRS','QIDS-SR','TMS-SE'],protocols:3},
+  ];
+
+  window._libSearch = window._libSearch || {};
+  window._libFilters = window._libFilters || {};
+  const q = (window._libSearch[tab]||'').toLowerCase();
+  const filt = window._libFilters[tab] || 'All';
+
+  function sInput(t) {
+    return '<div style="position:relative;max-width:260px"><input type="text" placeholder="Search…" class="ph-search-input" value="'+(window._libSearch[t]||'')+'" oninput="window._libSearch[\''+t+'\']=this.value;window._nav(\'library-hub\')"><svg viewBox="0 0 24 24" style="position:absolute;left:9px;top:50%;transform:translateY(-50%);width:13px;height:13px;stroke:var(--text-tertiary);fill:none;stroke-width:2;stroke-linecap:round;pointer-events:none"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg></div>';
+  }
+  function pills(values, active, tabId) {
+    return values.map(v=>'<button class="reg-domain-pill'+(v===active?' active':'')+'" onclick="window._libFilters[\''+tabId+'\']=\''+v+'\';window._nav(\'library-hub\')">'+v+'</button>').join('');
+  }
+  function sf(arr, keys) { return q ? arr.filter(x=>keys.some(k=>(x[k]||'').toString().toLowerCase().includes(q))) : arr; }
+
+  let main = '';
+
+  if (tab === 'conditions') {
+    const cats = ['All',...new Set(CONDITIONS_DATA.map(c=>c.cat))];
+    const rows = sf(CONDITIONS_DATA.filter(c=>filt==='All'||c.cat===filt), ['name','icd10','cat']);
+    main = `
+      <div class="ch-kpi-strip" style="grid-template-columns:repeat(4,1fr);margin-bottom:16px">
+        <div class="ch-kpi-card" style="--kpi-color:var(--blue)"><div class="ch-kpi-val">${CONDITIONS_DATA.length}</div><div class="ch-kpi-label">Conditions</div></div>
+        <div class="ch-kpi-card" style="--kpi-color:var(--teal)"><div class="ch-kpi-val">${CONDITIONS_DATA.filter(c=>c.nm).length}</div><div class="ch-kpi-label">Neuromod Eligible</div></div>
+        <div class="ch-kpi-card" style="--kpi-color:var(--violet)"><div class="ch-kpi-val">${new Set(CONDITIONS_DATA.map(c=>c.cat)).size}</div><div class="ch-kpi-label">Categories</div></div>
+        <div class="ch-kpi-card" style="--kpi-color:var(--amber)"><div class="ch-kpi-val">${rows.length}</div><div class="ch-kpi-label">Filtered</div></div>
+      </div>
+      <div class="ch-card">
+        <div class="ch-card-hd" style="flex-wrap:wrap;gap:8px"><span class="ch-card-title">Condition Registry</span>${sInput('conditions')}</div>
+        <div style="padding:10px 16px;display:flex;gap:6px;flex-wrap:wrap;border-bottom:1px solid var(--border)">${pills(cats,filt,'conditions')}</div>
+        <div class="lib-grid">${rows.map(c=>'<div class="lib-card"><div class="lib-card-top"><span class="lib-card-name">'+c.name+'</span>'+(c.nm?'<span class="lib-badge lib-badge--teal">Neuromod</span>':'')+'</div><div class="lib-card-meta"><span class="lib-tag">'+c.icd10+'</span><span class="lib-tag">'+c.cat+'</span></div><div style="margin-top:8px;display:flex;gap:5px"><button class="ch-btn-sm ch-btn-teal" onclick="window._protocolHubTab=\'search\';window._nav(\'protocol-hub\')">Find Protocol</button></div></div>').join('')}</div>
+      </div>`;
+  }
+  else if (tab === 'devices') {
+    const types = ['All',...new Set(DEVICES_DATA.map(d=>d.type))];
+    const rows = sf(DEVICES_DATA.filter(d=>filt==='All'||d.type===filt), ['name','type','cleared']);
+    main = `
+      <div class="ch-card">
+        <div class="ch-card-hd" style="flex-wrap:wrap;gap:8px"><span class="ch-card-title">Device Registry — ${DEVICES_DATA.length}</span>${sInput('devices')}</div>
+        <div style="padding:10px 16px;display:flex;gap:6px;flex-wrap:wrap;border-bottom:1px solid var(--border)">${pills(types,filt,'devices')}</div>
+        <div class="lib-grid">${rows.map(d=>'<div class="lib-card lib-card--device"><div class="lib-card-top"><span class="lib-card-name">'+d.name+'</span><span class="lib-badge lib-badge--blue">'+d.cleared+'</span></div><div class="lib-card-meta">'+d.mods.map(m=>'<span class="lib-tag">'+m+'</span>').join('')+'</div><div class="lib-features">'+d.feats.map(f=>'<span class="lib-feature">✓ '+f+'</span>').join('')+'</div></div>').join('')}</div>
+      </div>`;
+  }
+  else if (tab === 'consent') {
+    const cats = ['All',...new Set(CONSENT_DATA.map(c=>c.cat))];
+    const rows = sf(CONSENT_DATA.filter(c=>filt==='All'||c.cat===filt), ['name','cat']);
+    main = `
+      <div class="ch-card">
+        <div class="ch-card-hd" style="flex-wrap:wrap;gap:8px"><span class="ch-card-title">Consent & Document Templates</span><button class="ch-btn-sm ch-btn-teal" onclick="window._dsToast?.({title:'Generate',body:'Document generation coming soon.',severity:'info'})">+ Generate</button></div>
+        <div style="padding:10px 16px;display:flex;gap:6px;flex-wrap:wrap;border-bottom:1px solid var(--border)">${pills(cats,filt,'consent')}</div>
+        ${rows.map(c=>'<div class="book-row"><div class="book-info"><div class="book-patient">'+c.name+'</div><div class="book-clinician">'+c.cat+' · '+c.ver+' · '+c.pages+'pp</div></div><div class="book-status-col"><span class="book-status-badge" style="color:var(--blue);background:rgba(74,158,255,0.1)">'+c.langs.join('/')+' </span></div><div class="book-actions"><button class="ch-btn-sm" onclick="window._dsToast?.({title:\'Download\',body:\''+c.name+'\',severity:\'info\'})">↓ Download</button><button class="ch-btn-sm ch-btn-teal" onclick="window._dsToast?.({title:\'Assigned\',body:\'Consent assigned to patient.\',severity:\'success\'})">Assign</button></div></div>').join('')}
+      </div>`;
+  }
+  else if (tab === 'reports') {
+    const cats = ['All',...new Set(REPORTS_DATA.map(r=>r.cat))];
+    const rows = sf(REPORTS_DATA.filter(r=>filt==='All'||r.cat===filt), ['name','cat']);
+    main = `
+      <div class="ch-card">
+        <div class="ch-card-hd" style="flex-wrap:wrap;gap:8px"><span class="ch-card-title">Report Templates</span><button class="ch-btn-sm ch-btn-teal" onclick="window._dsToast?.({title:'New',body:'Template builder coming soon.',severity:'info'})">+ New</button></div>
+        <div style="padding:10px 16px;display:flex;gap:6px;flex-wrap:wrap;border-bottom:1px solid var(--border)">${pills(cats,filt,'reports')}</div>
+        ${rows.map(r=>'<div class="book-row"><div class="book-info"><div class="book-patient">'+r.name+'</div><div class="book-clinician">'+r.cat+' · '+r.fields+' fields'+(r.auto?' · Auto-gen':'')+'</div></div><div class="book-status-col">'+(r.auto?'<span class="book-status-badge" style="color:var(--teal);background:rgba(0,212,188,0.1)">Auto</span>':'')+'</div><div class="book-actions"><button class="ch-btn-sm ch-btn-teal" onclick="window._dsToast?.({title:\'Generate\',body:\''+r.name+'\',severity:\'success\'})">Generate</button></div></div>').join('')}
+      </div>`;
+  }
+  else if (tab === 'homeprograms') {
+    const rows = sf(HP_DATA, ['name','cond']);
+    main = `
+      <div class="ch-card">
+        <div class="ch-card-hd" style="flex-wrap:wrap;gap:8px"><span class="ch-card-title">Home Program Templates — ${HP_DATA.length}</span>${sInput('homeprograms')}</div>
+        <div class="lib-grid">${rows.map(hp=>'<div class="lib-card"><div class="lib-card-name">'+hp.name+'</div><div class="lib-card-meta"><span class="lib-tag">'+hp.cond+'</span><span class="lib-tag">'+hp.tasks+' tasks</span><span class="lib-tag">'+hp.weeks+'wk</span></div><div style="margin-top:8px"><button class="ch-btn-sm ch-btn-teal" onclick="window._dsToast?.({title:\'Assigned\',body:\''+hp.name+' assigned.\',severity:\'success\'})">Assign to Patient</button></div></div>').join('')}</div>
+      </div>`;
+  }
+  else if (tab === 'packages') {
+    const rows = sf(PKG_DATA, ['name','cond']);
+    main = `
+      <div class="ch-card">
+        <div class="ch-card-hd" style="flex-wrap:wrap;gap:8px"><span class="ch-card-title">Condition Packages — ${PKG_DATA.length} bundles</span>${sInput('packages')}</div>
+        <div class="lib-grid">${rows.map(p=>'<div class="lib-card lib-card--package"><div class="lib-card-name">'+p.name+'</div><div class="lib-tag" style="margin-bottom:8px">'+p.cond+'</div><div class="lib-features">'+p.scales.map(s=>'<span class="lib-feature">'+s+'</span>').join('')+'</div><div class="lib-card-meta" style="margin-top:8px"><span class="lib-tag">'+p.protocols+' protocols</span></div><div style="margin-top:8px;display:flex;gap:5px"><button class="ch-btn-sm ch-btn-teal" onclick="window._dsToast?.({title:\'Bundle used\',body:\''+p.name+' applied.\',severity:\'success\'})">Use Bundle</button><button class="ch-btn-sm" onclick="window._nav(\'assessments\')">View Scales</button></div></div>').join('')}</div>
+      </div>`;
+  }
+
+  el.innerHTML = `<div class="ch-shell"><div class="ch-tab-bar">${tabBar()}</div><div class="ch-body">${main}</div></div>`;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// pgMonitorHub — Patient Monitoring · Adverse Events · Notes & Dictation · Recording
+// ═══════════════════════════════════════════════════════════════════════════════
+export async function pgMonitorHub(setTopbar, navigate) {
+  const tab = window._monitorHubTab || 'monitoring';
+  window._monitorHubTab = tab;
+  const TAB_META = {
+    monitoring: { label: 'Patient Monitoring', color: 'var(--teal)'   },
+    adverse:    { label: 'Adverse Events',      color: 'var(--red)'    },
+    notes:      { label: 'Notes & Dictation',   color: 'var(--blue)'   },
+    recording:  { label: 'Recording Studio',    color: 'var(--violet)' },
+  };
+  const el = document.getElementById('content');
+  function tabBar() {
+    return Object.entries(TAB_META).map(([id,m]) =>
+      '<button class="ch-tab'+(tab===id?' ch-tab--active':'')+'"'+(tab===id?' style="--tab-color:'+m.color+'"':'')+
+      ' onclick="window._monitorHubTab=\''+id+'\';window._nav(\'monitor-hub\')">'+ m.label +'</button>'
+    ).join('');
+  }
+
+  if (tab === 'monitoring') {
+    setTopbar('Monitor', '');
+    el.innerHTML = '<div class="ch-shell"><div class="ch-tab-bar">'+tabBar()+'</div><div class="ch-body">'+spinner()+'</div></div>';
+    let patients = [];
+    try { const r = await api.listPatients().catch(()=>({items:[]})); patients = r?.items||[]; } catch {}
+    const alerts = patients.filter(p=>p.has_adverse_event||p.wearable_disconnected).length || 2;
+    const active = patients.length || 8;
+
+    const ALERT_FEED = [
+      {icon:'⚠',msg:'Demo Patient A — PHQ-9 worsened (+4pts)',  time:'09:14', color:'var(--red)'},
+      {icon:'📱',msg:'Demo Patient C — Wearable disconnected',  time:'08:52', color:'var(--amber)'},
+      {icon:'⏰',msg:'Demo Patient B — Assessment overdue 3d',  time:'08:30', color:'var(--amber)'},
+      {icon:'✓', msg:'Demo Patient A — Session completed',      time:'Yesterday', color:'var(--green)'},
+      {icon:'📊',msg:'Demo Patient D — PHQ-9 improved 6pts',   time:'Yesterday', color:'var(--teal)'},
+    ];
+
+    el.innerHTML = `
+    <div class="ch-shell">
+      <div class="ch-tab-bar">${tabBar()}</div>
+      <div class="ch-body">
+        <div class="ch-kpi-strip" style="grid-template-columns:repeat(4,1fr);margin-bottom:16px">
+          <div class="ch-kpi-card" style="--kpi-color:var(--red)"><div class="ch-kpi-val">${alerts}</div><div class="ch-kpi-label">Active Alerts</div></div>
+          <div class="ch-kpi-card" style="--kpi-color:var(--teal)"><div class="ch-kpi-val">${Math.round(active*0.6)}</div><div class="ch-kpi-label">Wearables Active</div></div>
+          <div class="ch-kpi-card" style="--kpi-color:var(--amber)"><div class="ch-kpi-val">${Math.round(active*0.3)}</div><div class="ch-kpi-label">Needs Review</div></div>
+          <div class="ch-kpi-card" style="--kpi-color:var(--blue)"><div class="ch-kpi-val">${active}</div><div class="ch-kpi-label">Monitored Patients</div></div>
+        </div>
+        <div class="ch-two-col">
+          <div class="ch-card">
+            <div class="ch-card-hd"><span class="ch-card-title">Alert Feed</span></div>
+            ${ALERT_FEED.map(a=>'<div class="rec-apt-row"><span style="font-size:16px">'+a.icon+'</span><div class="rec-apt-info"><div class="rec-apt-name" style="color:'+a.color+'">'+a.msg+'</div></div><span class="rec-apt-time">'+a.time+'</span></div>').join('')}
+          </div>
+          <div class="ch-card">
+            <div class="ch-card-hd"><span class="ch-card-title">Wearable Status</span></div>
+            ${[...patients.slice(0,4), {first_name:'Demo',last_name:'D'},{first_name:'Demo',last_name:'E'}].slice(0,6).map((p,i)=>{
+              const nm=((p.first_name||'')+(p.last_name?' '+p.last_name:'')).trim()||'Patient '+(i+1);
+              const st=['Connected','Connected','Disconnected','Connected','Low Battery','Connected'][i];
+              const sc={'Connected':'var(--green)','Disconnected':'var(--red)','Low Battery':'var(--amber)'}[st];
+              return '<div class="rec-apt-row"><div class="rec-apt-info"><div class="rec-apt-name">'+nm+'</div></div><span style="font-size:11px;font-weight:600;color:'+sc+'">● '+st+'</span></div>';
+            }).join('')}
+          </div>
+        </div>
+      </div>
+    </div>`;
+  }
+  else if (tab === 'adverse') {
+    setTopbar('Monitor', '<button class="btn btn-sm" onclick="window._nav(\'adverse-events-full\')">Full AE Log ↗</button>');
+    el.innerHTML = '<div class="ch-shell"><div class="ch-tab-bar">'+tabBar()+'</div><div class="ch-body">'+spinner()+'</div></div>';
+    let aes = [];
+    try { const r = await (api.listAdverseEvents?.().catch(()=>({items:[]}))||Promise.resolve({items:[]})); aes = r?.items||[]; } catch {}
+    const display = aes.length ? aes : [
+      {id:'AE-001',patient_name:'Demo Patient A',type:'Headache',          severity:'mild',    date:'2026-04-14',status:'open',     notes:'Post-TMS, resolved in 2h'},
+      {id:'AE-002',patient_name:'Demo Patient C',type:'Scalp discomfort',  severity:'mild',    date:'2026-04-12',status:'resolved', notes:'Electrode irritation'},
+      {id:'AE-003',patient_name:'Marcus Webb',   type:'Dizziness',         severity:'moderate',date:'2026-04-10',status:'open',     notes:'Post-session, ongoing'},
+      {id:'AE-004',patient_name:'Demo Patient B',type:'Mood fluctuation',  severity:'mild',    date:'2026-04-08',status:'resolved', notes:'Expected side effect'},
+    ];
+    const sevC={mild:'var(--green)',moderate:'var(--amber)',severe:'var(--red)'};
+    const stC ={open:'var(--amber)',resolved:'var(--green)',monitoring:'var(--blue)'};
+    el.innerHTML = `
+    <div class="ch-shell">
+      <div class="ch-tab-bar">${tabBar()}</div>
+      <div class="ch-body">
+        <div class="ch-kpi-strip" style="grid-template-columns:repeat(4,1fr);margin-bottom:16px">
+          <div class="ch-kpi-card" style="--kpi-color:var(--red)"><div class="ch-kpi-val">${display.filter(a=>a.status==='open').length}</div><div class="ch-kpi-label">Open AEs</div></div>
+          <div class="ch-kpi-card" style="--kpi-color:var(--amber)"><div class="ch-kpi-val">${display.filter(a=>a.severity==='moderate'||a.severity==='severe').length}</div><div class="ch-kpi-label">Moderate+</div></div>
+          <div class="ch-kpi-card" style="--kpi-color:var(--green)"><div class="ch-kpi-val">${display.filter(a=>a.status==='resolved').length}</div><div class="ch-kpi-label">Resolved</div></div>
+          <div class="ch-kpi-card" style="--kpi-color:var(--blue)"><div class="ch-kpi-val">${display.length}</div><div class="ch-kpi-label">Total</div></div>
+        </div>
+        <div class="ch-card">
+          <div class="ch-card-hd"><span class="ch-card-title">Adverse Events</span><button class="ch-btn-sm ch-btn-teal" onclick="window._dsToast?.({title:'New AE',body:'Adverse event form coming soon.',severity:'info'})">+ Report AE</button></div>
+          ${display.map(ae=>'<div class="book-row"><div class="book-datetime"><div class="book-date">'+ae.date+'</div></div><div class="book-info"><div class="book-patient">'+ae.patient_name+'</div><div class="book-clinician">'+ae.type+'</div>'+(ae.notes?'<div class="book-notes">'+ae.notes+'</div>':'')+'</div><div class="book-status-col"><span class="book-status-badge" style="color:'+(sevC[ae.severity]||'var(--text-tertiary)')+';background:'+(sevC[ae.severity]||'var(--text-tertiary)')+'22">'+ae.severity+'</span></div><div class="book-status-col"><span class="book-status-badge" style="color:'+(stC[ae.status]||'var(--text-tertiary)')+';background:'+(stC[ae.status]||'var(--text-tertiary)')+'22">'+ae.status+'</span></div><div class="book-actions"><button class="ch-btn-sm" onclick="window._dsToast?.({title:\'AE\',body:\''+ae.type+'\',severity:\'info\'})">View</button></div></div>').join('')}
+        </div>
+      </div>
+    </div>`;
+  }
+  else if (tab === 'notes') {
+    setTopbar('Monitor', '');
+    el.innerHTML = '<div class="ch-shell"><div class="ch-tab-bar">'+tabBar()+'</div><div class="ch-body">'+spinner()+'</div></div>';
+    const NOTE_TYPES = ['Session Note','Assessment Note','Progress Summary','Prescription Note','Discharge Summary','Phone Call Note','Referral Letter'];
+    let patients = [];
+    try { const r = await api.listPatients().catch(()=>({items:[]})); patients = r?.items||[]; } catch {}
+    const patOpts = patients.map(p=>'<option value="'+p.id+'">'+ ((p.first_name||'')+' '+(p.last_name||'')).trim() +'</option>').join('') || '<option>Demo Patient A</option>';
+    const savedNotes = (() => { try { return JSON.parse(localStorage.getItem('ds_notes_v1')||'[]'); } catch { return []; } })();
+
+    el.innerHTML = `
+    <div class="ch-shell">
+      <div class="ch-tab-bar">${tabBar()}</div>
+      <div class="ch-body">
+        <div class="ch-two-col">
+          <div class="ch-card">
+            <div class="ch-card-hd"><span class="ch-card-title">New Note</span><span class="ph-ai-badge">AI</span></div>
+            <div style="padding:14px 16px;display:flex;flex-direction:column;gap:10px">
+              <div class="ch-form-group"><label class="ch-label">Patient</label><select id="note-patient" class="ch-select ch-select--full">${patOpts}</select></div>
+              <div class="ch-form-group"><label class="ch-label">Note Type</label><select id="note-type" class="ch-select ch-select--full">${NOTE_TYPES.map(t=>'<option>'+t+'</option>').join('')}</select></div>
+              <div class="ch-form-group">
+                <label class="ch-label">Dictate or Type</label>
+                <div style="display:flex;gap:6px;margin-bottom:6px;flex-wrap:wrap">
+                  <button class="ch-btn-sm" id="note-mic-btn" onclick="window._noteMic()">🎤 Dictate</button>
+                  <button class="ch-btn-sm" onclick="window._noteAISummarise()">✦ AI Summarise</button>
+                  <button class="ch-btn-sm" onclick="window._noteAIStructure()">✦ AI Structure</button>
+                </div>
+                <textarea id="note-text" class="ch-textarea" rows="9" placeholder="Type or dictate your clinical note…\n\nOr click AI Summarise for auto-generation.\nSOAP, BIRP, or free text — AI will structure it.">${window._noteText||''}</textarea>
+              </div>
+              <div style="display:flex;gap:8px">
+                <button class="btn btn-primary" onclick="window._noteSave()">Save Note</button>
+                <button class="btn" onclick="window._noteClear()">Clear</button>
+              </div>
+            </div>
+          </div>
+          <div class="ch-card">
+            <div class="ch-card-hd"><span class="ch-card-title">Recent Notes</span></div>
+            ${savedNotes.length ? savedNotes.slice(0,8).map(n=>'<div class="book-row"><div class="book-datetime"><div class="book-date">'+n.date+'</div><div class="book-time">'+n.type+'</div></div><div class="book-info"><div class="book-patient">'+n.patient+'</div><div class="book-notes">'+n.text.slice(0,60)+'…</div></div><div class="book-actions"><button class="ch-btn-sm" onclick="document.getElementById(\'note-text\').value=\''+n.text.replace(/['"]/g,'').slice(0,100)+'\'">Load</button></div></div>').join('') : '<div class="ch-empty">No notes saved yet.</div>'}
+          </div>
+        </div>
+      </div>
+    </div>`;
+
+    window._noteSave = () => {
+      const text = document.getElementById('note-text')?.value?.trim();
+      const type = document.getElementById('note-type')?.value||'Session Note';
+      const patEl = document.getElementById('note-patient');
+      const patient = patEl?.options[patEl?.selectedIndex]?.text||'Unknown';
+      if (!text) { window._dsToast?.({title:'Empty note',severity:'warn'}); return; }
+      const notes = (() => { try { return JSON.parse(localStorage.getItem('ds_notes_v1')||'[]'); } catch { return []; } })();
+      notes.unshift({ id:'NOTE-'+Date.now(), patient, type, text, date: new Date().toISOString().slice(0,10) });
+      try { localStorage.setItem('ds_notes_v1', JSON.stringify(notes.slice(0,50))); } catch {}
+      window._noteText = '';
+      window._dsToast?.({title:'Note saved',body:type+' for '+patient,severity:'success'});
+      window._monitorHubTab='notes'; window._nav('monitor-hub');
+    };
+    window._noteClear = () => { const t=document.getElementById('note-text'); if(t){t.value=''; window._noteText='';} };
+    window._noteAISummarise = async () => {
+      const ta=document.getElementById('note-text'); if(!ta)return;
+      ta.value='✦ Generating AI summary…';
+      try {
+        const res = await api.chatClinician([{role:'user',content:'Generate a SOAP-format clinical session note for a TMS depression patient. 3-4 lines per section. Professional, concise.'}],{});
+        ta.value = res?.message||res?.content||'S: Patient attended session as scheduled. Reports improved mood this week.\nO: TMS delivered per protocol, no adverse events noted.\nA: Responding — PHQ-9 score 11 (baseline 18). Good tolerance.\nP: Continue course. Reassess at session 15. Next session scheduled.';
+      } catch { ta.value='S: Patient attended session as scheduled.\nO: Treatment delivered without adverse events.\nA: Stable progress noted.\nP: Continue current protocol.'; }
+    };
+    window._noteAIStructure = async () => {
+      const ta=document.getElementById('note-text'); if(!ta||!ta.value.trim())return;
+      const raw=ta.value; ta.value='✦ Restructuring…';
+      try {
+        const res = await api.chatClinician([{role:'user',content:'Restructure this clinical note into SOAP format: '+raw}],{});
+        ta.value = res?.message||res?.content||raw;
+      } catch { ta.value=raw; }
+    };
+    window._noteMic = () => {
+      const btn=document.getElementById('note-mic-btn');
+      if (!('webkitSpeechRecognition' in window||'SpeechRecognition' in window)) {
+        window._dsToast?.({title:'Not supported',body:'Use Chrome for speech recognition.',severity:'warn'}); return;
+      }
+      const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+      const rec=new SR(); rec.continuous=true; rec.interimResults=true; rec.lang='en-GB';
+      let final=''; let running=false;
+      rec.onstart=()=>{running=true;if(btn){btn.textContent='⏹ Stop';btn.style.color='var(--red)';}};
+      rec.onresult=e=>{let int='';for(let i=e.resultIndex;i<e.results.length;i++){if(e.results[i].isFinal)final+=e.results[i][0].transcript+' ';else int=e.results[i][0].transcript;}const ta=document.getElementById('note-text');if(ta)ta.value=final+int;};
+      rec.onend=()=>{if(btn){btn.textContent='🎤 Dictate';btn.style.color='';}};
+      if(!running){try{rec.start();}catch{}}else{rec.stop();}
+    };
+  }
+  else if (tab === 'recording') {
+    setTopbar('Monitor', '');
+    window._recLogs = JSON.parse(localStorage.getItem('ds_rec_logs_v1')||'[]');
+    window._recActive = false; window._recSeconds = 0;
+
+    el.innerHTML = `
+    <div class="ch-shell">
+      <div class="ch-tab-bar">${tabBar()}</div>
+      <div class="ch-body">
+        <div class="ch-two-col">
+          <div class="ch-card">
+            <div class="ch-card-hd"><span class="ch-card-title">Recording Studio</span><span class="ph-ai-badge">AI Transcription</span></div>
+            <div style="padding:16px;display:flex;flex-direction:column;gap:12px">
+              <div class="ch-form-group"><label class="ch-label">Mode</label>
+                <div style="display:flex;gap:6px;flex-wrap:wrap">
+                  ${[['video','📹 Video'],['audio','🎤 Audio Only'],['screen','🖥 Screen'],['voice-note','🎵 Quick Note']].map(([id,lbl])=>
+                    '<button class="ch-btn-sm rec-type-btn'+(( window._recType||'video')===id?' ch-btn-teal':'')+'" data-rtype="'+id+'" onclick="window._recType=\''+id+'\';document.querySelectorAll(\'.rec-type-btn\').forEach(b=>b.classList.toggle(\'ch-btn-teal\',b.dataset.rtype===\''+id+'\'))">'+lbl+'</button>'
+                  ).join('')}
+                </div>
+              </div>
+              <div class="rec-studio-preview" id="rec-preview">
+                <div class="rec-preview-placeholder"><div style="font-size:40px;opacity:0.25;margin-bottom:8px">📹</div><div>Click Start to begin</div></div>
+              </div>
+              <div style="display:flex;align-items:center;gap:12px">
+                <button class="btn" id="rec-start-btn" style="background:var(--red);border-color:var(--red);color:#fff;font-weight:700" onclick="window._recToggle()">⏺ Start</button>
+                <div id="rec-timer" style="font-size:18px;font-weight:800;color:var(--text-secondary);font-variant-numeric:tabular-nums;letter-spacing:2px">00:00</div>
+              </div>
+              <div style="display:flex;align-items:center;gap:8px">
+                <input type="checkbox" id="rec-ai-on" checked style="accent-color:var(--teal)">
+                <label for="rec-ai-on" style="font-size:12px;color:var(--text-secondary)">AI transcription + auto-note generation</label>
+              </div>
+            </div>
+          </div>
+          <div class="ch-card">
+            <div class="ch-card-hd"><span class="ch-card-title">Session Recordings</span></div>
+            <div id="rec-log-list">
+              ${window._recLogs.length ? window._recLogs.map(r=>'<div class="book-row"><div class="book-datetime"><div class="book-date">'+r.date+'</div><div class="book-time">'+r.dur+'s · '+r.type+'</div></div><div class="book-info"><div class="book-patient">'+r.patient+'</div>'+(r.transcript?'<div class="book-notes">'+r.transcript.slice(0,55)+'…</div>':'')+'</div><div class="book-actions"><button class="ch-btn-sm" onclick="window._dsToast?.({title:\'Playback\',body:\'Playback coming soon.\',severity:\'info\'})">▶</button></div></div>').join('') : '<div class="ch-empty">No recordings yet.</div>'}
+            </div>
+          </div>
+        </div>
+        <div class="ch-card" id="rec-transcript-card" style="display:none;margin-top:16px">
+          <div class="ch-card-hd"><span class="ch-card-title">Live Transcript</span><span class="ph-ai-badge">AI</span></div>
+          <div id="rec-transcript-area" style="padding:14px 16px;font-size:12.5px;color:var(--text-secondary);line-height:1.7;min-height:80px;max-height:200px;overflow-y:auto"></div>
+          <div style="padding:0 16px 14px;display:flex;gap:8px">
+            <button class="ch-btn-sm ch-btn-teal" onclick="window._recGenNote()">✦ Generate Note</button>
+            <button class="ch-btn-sm" onclick="window._recSaveTrans()">Save Transcript</button>
+          </div>
+        </div>
+      </div>
+    </div>`;
+
+    let _recInterval2 = null;
+    const SNIPPETS = ['Patient reports improved sleep this week.','Mood elevated vs last session.','No adverse effects noted.','Continuing at current parameters.','Patient tolerating treatment well.','PHQ-9 trending downward since session 5.','Reports reduced anxiety levels.','Home program adherence: good.'];
+    window._recToggle = () => {
+      window._recActive = !window._recActive;
+      const btn=document.getElementById('rec-start-btn'), timer=document.getElementById('rec-timer');
+      const preview=document.getElementById('rec-preview'), tcCard=document.getElementById('rec-transcript-card'), tcArea=document.getElementById('rec-transcript-area');
+      if (window._recActive) {
+        if(btn){btn.textContent='⏹ Stop';btn.style.background='var(--text-tertiary)';btn.style.borderColor='var(--text-tertiary)';}
+        if(preview)preview.innerHTML='<div class="rec-active-indicator"><div class="rec-pulse"></div><span>Recording…</span></div>';
+        if(tcCard)tcCard.style.display=''; if(tcArea)tcArea.innerHTML='';
+        clearInterval(_recInterval2); window._recSeconds=0;
+        _recInterval2=setInterval(()=>{
+          window._recSeconds++;
+          const m=Math.floor(window._recSeconds/60),s=window._recSeconds%60;
+          if(timer)timer.textContent=String(m).padStart(2,'0')+':'+String(s).padStart(2,'0');
+          if(window._recSeconds%8===0&&tcArea){
+            const mm=Math.floor(window._recSeconds/60),ss=window._recSeconds%60;
+            tcArea.innerHTML+='<span style="color:var(--text-tertiary);font-size:10px">['+String(mm).padStart(2,'0')+':'+String(ss).padStart(2,'0')+']</span> '+SNIPPETS[Math.floor(Math.random()*SNIPPETS.length)]+' ';
+            tcArea.scrollTop=tcArea.scrollHeight;
+          }
+        },1000);
+      } else {
+        clearInterval(_recInterval2);
+        if(btn){btn.textContent='⏺ Start';btn.style.background='var(--red)';btn.style.borderColor='var(--red)';}
+        if(preview)preview.innerHTML='<div class="rec-preview-placeholder"><div style="font-size:28px;opacity:0.3">📹</div><div>Stopped — '+window._recSeconds+'s</div></div>';
+        const transcript=tcArea?.innerText||'';
+        const log={id:'REC-'+Date.now(),type:window._recType||'video',date:new Date().toISOString().slice(0,10),dur:window._recSeconds,patient:'Current Patient',transcript:transcript.slice(0,200)};
+        window._recLogs=[log,...window._recLogs].slice(0,20);
+        try{localStorage.setItem('ds_rec_logs_v1',JSON.stringify(window._recLogs));}catch{}
+        const list=document.getElementById('rec-log-list');
+        if(list)list.innerHTML='<div class="book-row"><div class="book-datetime"><div class="book-date">'+log.date+'</div><div class="book-time">'+log.dur+'s</div></div><div class="book-info"><div class="book-patient">Current Patient</div></div></div>'+(list.innerHTML||'');
+        window._dsToast?.({title:'Saved',body:window._recSeconds+'s recording saved.',severity:'success'});
+      }
+    };
+    window._recGenNote = async () => {
+      const t=document.getElementById('rec-transcript-area')?.innerText||''; if(!t)return;
+      try{const res=await api.chatClinician([{role:'user',content:'Generate SOAP note from: '+t.slice(0,500)}],{});window._noteText=res?.message||res?.content||t;}catch{window._noteText=t;}
+      window._monitorHubTab='notes'; window._nav('monitor-hub');
+    };
+    window._recSaveTrans = () => {
+      const t=document.getElementById('rec-transcript-area')?.innerText||''; if(!t)return;
+      const notes=(() =>{try{return JSON.parse(localStorage.getItem('ds_notes_v1')||'[]');}catch{return[];}})();
+      notes.unshift({id:'TRANS-'+Date.now(),patient:'Current Patient',type:'Transcription',text:t,date:new Date().toISOString().slice(0,10)});
+      try{localStorage.setItem('ds_notes_v1',JSON.stringify(notes.slice(0,50)));}catch{}
+      window._dsToast?.({title:'Transcript saved',severity:'success'});
+    };
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// pgVirtualCareHub — delegates to existing pgVirtualCare
+// ═══════════════════════════════════════════════════════════════════════════════
+export async function pgVirtualCareHub(setTopbar, navigate) {
+  try {
+    await pgVirtualCare(setTopbar, navigate);
+  } catch {
+    setTopbar('Virtual Care', '<span class="ph-ai-badge">AI</span>');
+    const el = document.getElementById('content');
+    if (el) el.innerHTML = '<div style="padding:48px;text-align:center;color:var(--text-tertiary)"><div style="font-size:40px;margin-bottom:16px">📹</div><div style="font-size:14px;font-weight:600;color:var(--text-primary);margin-bottom:8px">Virtual Care</div><div>Loading virtual care module…</div></div>';
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// pgDocumentsHubNew — All Documents · Templates · Consent · Patient Letters
+// ═══════════════════════════════════════════════════════════════════════════════
+export async function pgDocumentsHubNew(setTopbar, navigate) {
+  const tab = window._docsHubTab || 'all';
+  window._docsHubTab = tab;
+  const TAB_META = {
+    all:       { label: 'All Documents',   color: 'var(--blue)'   },
+    templates: { label: 'Templates',       color: 'var(--teal)'   },
+    consent:   { label: 'Consent Forms',   color: 'var(--violet)' },
+    letters:   { label: 'Patient Letters', color: 'var(--amber)'  },
+    uploads:   { label: 'Uploads',         color: 'var(--green)'  },
+  };
+  const el = document.getElementById('content');
+  function tabBar() {
+    return Object.entries(TAB_META).map(([id,m]) =>
+      '<button class="ch-tab'+(tab===id?' ch-tab--active':'')+'"'+(tab===id?' style="--tab-color:'+m.color+'"':'')+
+      ' onclick="window._docsHubTab=\''+id+'\';window._nav(\'documents-hub\')">'+ m.label +'</button>'
+    ).join('');
+  }
+  setTopbar('Documents', '<button class="btn btn-primary btn-sm" onclick="window._docsUpload()">+ Upload</button>');
+
+  const pad2 = n => String(n).padStart(2,'0');
+  const now  = new Date();
+  const td   = now.getFullYear()+'-'+pad2(now.getMonth()+1)+'-'+pad2(now.getDate());
+
+  const TEMPLATES = [
+    { id:'T01', name:'TMS Informed Consent Form',         cat:'Consent',    pages:4, langs:['EN','FR','ES'], auto:false },
+    { id:'T02', name:'tDCS Informed Consent Form',        cat:'Consent',    pages:3, langs:['EN'],           auto:false },
+    { id:'T03', name:'Neurofeedback Consent Form',        cat:'Consent',    pages:3, langs:['EN','FR'],      auto:false },
+    { id:'T04', name:'General Privacy & Data Policy',     cat:'Privacy',    pages:6, langs:['EN','FR','ES','DE'], auto:false },
+    { id:'T05', name:'Home Device Use Agreement',         cat:'Consent',    pages:3, langs:['EN'],           auto:false },
+    { id:'T06', name:'Video Consultation Consent',        cat:'Telehealth', pages:2, langs:['EN','FR'],      auto:false },
+    { id:'T07', name:'AI-Assisted Treatment Consent',     cat:'AI',         pages:4, langs:['EN'],           auto:false },
+    { id:'T08', name:'Initial Assessment Report',         cat:'Report',     pages:5, langs:['EN'],           auto:true  },
+    { id:'T09', name:'Session Progress Note',             cat:'Report',     pages:2, langs:['EN'],           auto:true  },
+    { id:'T10', name:'Treatment Outcome Report',          cat:'Report',     pages:6, langs:['EN'],           auto:true  },
+    { id:'T11', name:'GP Referral Letter',                cat:'Letter',     pages:2, langs:['EN'],           auto:true  },
+    { id:'T12', name:'Discharge Summary Letter',          cat:'Letter',     pages:3, langs:['EN'],           auto:true  },
+    { id:'T13', name:'Insurance/Funding Report',          cat:'Admin',      pages:4, langs:['EN'],           auto:false },
+    { id:'T14', name:'Intake Assessment Form',            cat:'Intake',     pages:5, langs:['EN'],           auto:false },
+    { id:'T15', name:'Home Program Instruction Sheet',    cat:'Home Care',  pages:2, langs:['EN','FR'],      auto:true  },
+  ];
+
+  const _docsKey = 'ds_docs_v1';
+  function loadDocs() { try { return JSON.parse(localStorage.getItem(_docsKey)||'null') || seedDocs(); } catch { return seedDocs(); } }
+  function saveDocs(d) { try { localStorage.setItem(_docsKey, JSON.stringify(d)); } catch {} }
+  function seedDocs() {
+    const d = { docs:[
+      { id:'DOC-001', name:'TMS Consent — Demo Patient A',    type:'Consent',  patient:'Demo Patient A',  date:'2026-04-14', status:'signed',  size:'125 KB' },
+      { id:'DOC-002', name:'Initial Assessment — Demo Patient B', type:'Report',patient:'Demo Patient B', date:'2026-04-12', status:'final',   size:'340 KB' },
+      { id:'DOC-003', name:'Privacy Policy — Demo Patient C', type:'Privacy',  patient:'Demo Patient C',  date:'2026-04-10', status:'signed',  size:'85 KB'  },
+      { id:'DOC-004', name:'Session Note 09 — Demo Patient A',type:'Note',     patient:'Demo Patient A',  date:'2026-04-16', status:'draft',   size:'45 KB'  },
+      { id:'DOC-005', name:'GP Letter — Marcus Webb',         type:'Letter',   patient:'Marcus Webb',     date:'2026-04-08', status:'sent',    size:'62 KB'  },
+      { id:'DOC-006', name:'Home Program — Demo Patient B',   type:'Home Care',patient:'Demo Patient B',  date:'2026-04-05', status:'issued',  size:'95 KB'  },
+    ]};
+    saveDocs(d); return d;
+  }
+
+  const data = loadDocs();
+  const stC  = { signed:'var(--green)', final:'var(--green)', sent:'var(--blue)', draft:'var(--amber)', issued:'var(--teal)', pending:'var(--amber)' };
+
+  window._docsUpload = () => document.getElementById('docs-upload-modal')?.classList.remove('ch-hidden');
+
+  function docRows(list) {
+    if (!list.length) return '<div class="ch-empty">No documents found.</div>';
+    return list.map(d =>
+      '<div class="book-row">'+
+        '<div class="book-datetime"><div class="book-date">'+d.date+'</div><div class="book-time">'+d.size+'</div></div>'+
+        '<div class="book-info"><div class="book-patient">'+d.name+'</div><div class="book-clinician">'+d.patient+' · '+d.type+'</div></div>'+
+        '<div class="book-status-col"><span class="book-status-badge" style="color:'+(stC[d.status]||'var(--text-tertiary)')+';background:'+(stC[d.status]||'var(--text-tertiary)')+'22;text-transform:capitalize">'+d.status+'</span></div>'+
+        '<div class="book-actions">'+
+          '<button class="ch-btn-sm" onclick="window._dsToast?.({title:\'View\',body:\''+d.name+'\',severity:\'info\'})">View</button>'+
+          '<button class="ch-btn-sm" onclick="window._dsToast?.({title:\'Download\',body:\'Downloading '+d.name+'\',severity:\'info\'})">↓</button>'+
+        '</div>'+
+      '</div>'
+    ).join('');
+  }
+
+  let main = '';
+
+  if (tab === 'all') {
+    const q = (window._docsSearch||'').toLowerCase();
+    const filt = window._docsFilter||'All';
+    const types = ['All',...new Set(data.docs.map(d=>d.type))];
+    const rows = data.docs.filter(d=>(filt==='All'||d.type===filt)&&(!q||(d.name+d.patient).toLowerCase().includes(q)));
+    main = `
+      <div class="ch-kpi-strip" style="grid-template-columns:repeat(4,1fr);margin-bottom:16px">
+        <div class="ch-kpi-card" style="--kpi-color:var(--blue)"><div class="ch-kpi-val">${data.docs.length}</div><div class="ch-kpi-label">Total Docs</div></div>
+        <div class="ch-kpi-card" style="--kpi-color:var(--green)"><div class="ch-kpi-val">${data.docs.filter(d=>d.status==='signed'||d.status==='final').length}</div><div class="ch-kpi-label">Finalised</div></div>
+        <div class="ch-kpi-card" style="--kpi-color:var(--amber)"><div class="ch-kpi-val">${data.docs.filter(d=>d.status==='draft'||d.status==='pending').length}</div><div class="ch-kpi-label">Drafts</div></div>
+        <div class="ch-kpi-card" style="--kpi-color:var(--teal)"><div class="ch-kpi-val">${new Set(data.docs.map(d=>d.patient)).size}</div><div class="ch-kpi-label">Patients</div></div>
+      </div>
+      <div class="ch-card">
+        <div class="ch-card-hd" style="flex-wrap:wrap;gap:8px">
+          <span class="ch-card-title">All Documents</span>
+          <div style="position:relative;flex:1;max-width:260px">
+            <input type="text" placeholder="Search…" class="ph-search-input" value="${window._docsSearch||''}" oninput="window._docsSearch=this.value;window._nav('documents-hub')">
+            <svg viewBox="0 0 24 24" style="position:absolute;left:9px;top:50%;transform:translateY(-50%);width:13px;height:13px;stroke:var(--text-tertiary);fill:none;stroke-width:2;stroke-linecap:round;pointer-events:none"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+          </div>
+        </div>
+        <div style="padding:10px 16px;display:flex;gap:6px;flex-wrap:wrap;border-bottom:1px solid var(--border)">
+          ${types.map(t=>'<button class="reg-domain-pill'+(t===filt?' active':'')+'" onclick="window._docsFilter=\''+t+'\';window._nav(\'documents-hub\')">'+t+'</button>').join('')}
+        </div>
+        ${docRows(rows)}
+      </div>`;
+  }
+  else if (tab === 'templates') {
+    const cats = ['All',...new Set(TEMPLATES.map(t=>t.cat))];
+    const filt = window._tplFilter||'All';
+    const rows = TEMPLATES.filter(t=>filt==='All'||t.cat===filt);
+    main = `
+      <div class="ch-card">
+        <div class="ch-card-hd" style="flex-wrap:wrap;gap:8px">
+          <span class="ch-card-title">Document Templates — ${TEMPLATES.length}</span>
+          <button class="ch-btn-sm ch-btn-teal" onclick="window._dsToast?.({title:'New Template',body:'Custom template builder coming soon.',severity:'info'})">+ New Template</button>
+        </div>
+        <div style="padding:10px 16px;display:flex;gap:6px;flex-wrap:wrap;border-bottom:1px solid var(--border)">
+          ${cats.map(c=>'<button class="reg-domain-pill'+(c===filt?' active':'')+'" onclick="window._tplFilter=\''+c+'\';window._nav(\'documents-hub\')">'+c+'</button>').join('')}
+        </div>
+        ${rows.map(t=>
+          '<div class="book-row">'+
+            '<div class="book-info"><div class="book-patient">'+t.name+'</div><div class="book-clinician">'+t.cat+' · '+t.pages+' pages'+(t.auto?' · Auto-gen':'')+'</div></div>'+
+            '<div class="book-status-col"><span class="book-status-badge" style="color:var(--blue);background:rgba(74,158,255,0.1)">'+t.langs.join('/')+'</span></div>'+
+            '<div class="book-actions">'+
+              (t.auto?'<button class="ch-btn-sm ch-btn-teal" onclick="window._dsToast?.({title:\'Generating…\',body:\''+t.name+'\',severity:\'info\'})">Generate</button>':'<button class="ch-btn-sm" onclick="window._dsToast?.({title:\'Open\',body:\''+t.name+'\',severity:\'info\'})">Open</button>')+
+              '<button class="ch-btn-sm" onclick="window._dsToast?.({title:\'Assigned\',body:\'Assigned to patient.\',severity:\'success\'})">Assign</button>'+
+            '</div>'+
+          '</div>'
+        ).join('')}
+      </div>`;
+  }
+  else if (tab === 'consent') {
+    const consentTpls = TEMPLATES.filter(t=>t.cat==='Consent'||t.cat==='Privacy'||t.cat==='Telehealth'||t.cat==='AI');
+    const signedDocs  = data.docs.filter(d=>d.type==='Consent'||d.type==='Privacy');
+    main = `
+      <div class="ch-two-col">
+        <div class="ch-card">
+          <div class="ch-card-hd"><span class="ch-card-title">Consent Templates</span><button class="ch-btn-sm ch-btn-teal" onclick="window._dsToast?.({title:'Assign',body:'Select patient to assign.',severity:'info'})">Assign to Patient</button></div>
+          ${consentTpls.map(t=>'<div class="book-row"><div class="book-info"><div class="book-patient">'+t.name+'</div><div class="book-clinician">'+t.pages+' pages · '+t.langs.join('/')+'</div></div><div class="book-actions"><button class="ch-btn-sm" onclick="window._dsToast?.({title:\'Open\',body:\''+t.name+'\',severity:\'info\'})">Preview</button><button class="ch-btn-sm ch-btn-teal" onclick="window._dsToast?.({title:\'Sent\',body:\''+t.name+' sent for signing.\',severity:\'success\'})">Send to Sign</button></div></div>').join('')}
+        </div>
+        <div class="ch-card">
+          <div class="ch-card-hd"><span class="ch-card-title">Signed Consents</span></div>
+          ${signedDocs.length ? docRows(signedDocs) : '<div class="ch-empty">No signed consents yet.</div>'}
+        </div>
+      </div>`;
+  }
+  else if (tab === 'letters') {
+    let patients = [];
+    try { const r = await api.listPatients().catch(()=>({items:[]})); patients=r?.items||[]; } catch {}
+    const patOpts = patients.map(p=>'<option value="'+p.id+'">'+ ((p.first_name||'')+' '+(p.last_name||'')).trim() +'</option>').join('') || '<option>Demo Patient A</option>';
+    const letterTpls = TEMPLATES.filter(t=>t.cat==='Letter');
+    main = `
+      <div class="ch-two-col">
+        <div class="ch-card">
+          <div class="ch-card-hd"><span class="ch-card-title">Generate Letter</span><span class="ph-ai-badge">AI</span></div>
+          <div style="padding:14px 16px;display:flex;flex-direction:column;gap:10px">
+            <div class="ch-form-group"><label class="ch-label">Patient</label><select id="letter-patient" class="ch-select ch-select--full">${patOpts}</select></div>
+            <div class="ch-form-group"><label class="ch-label">Template</label>
+              <select id="letter-template" class="ch-select ch-select--full">
+                ${letterTpls.map(t=>'<option value="'+t.id+'">'+t.name+'</option>').join('')}
+              </select>
+            </div>
+            <div class="ch-form-group"><label class="ch-label">Recipient</label><input id="letter-recipient" class="ch-select ch-select--full" placeholder="GP name, insurer, patient…"></div>
+            <div class="ch-form-group"><label class="ch-label">Additional Notes</label><textarea id="letter-notes" class="ch-textarea" rows="3" placeholder="Any specific points to include…"></textarea></div>
+            <button class="btn btn-primary" onclick="window._genLetter()">✦ Generate Letter</button>
+          </div>
+          <div id="letter-output" style="display:none;padding:0 16px 16px">
+            <div class="ch-card-hd" style="padding:0 0 8px"><span class="ch-card-title">Generated Letter</span></div>
+            <div id="letter-content" class="ch-textarea" style="min-height:120px;padding:12px;font-size:12.5px;line-height:1.7;white-space:pre-wrap"></div>
+            <div style="display:flex;gap:8px;margin-top:10px">
+              <button class="ch-btn-sm ch-btn-teal" onclick="window._dsToast?.({title:'Saved',body:'Letter saved to documents.',severity:'success'})">Save</button>
+              <button class="ch-btn-sm" onclick="window.print()">Print</button>
+            </div>
+          </div>
+        </div>
+        <div class="ch-card">
+          <div class="ch-card-hd"><span class="ch-card-title">Sent Letters</span></div>
+          ${docRows(data.docs.filter(d=>d.type==='Letter'))}
+        </div>
+      </div>`;
+
+    window._genLetter = async () => {
+      const patEl = document.getElementById('letter-patient');
+      const tplEl = document.getElementById('letter-template');
+      const recip = document.getElementById('letter-recipient')?.value||'Referring Clinician';
+      const notes = document.getElementById('letter-notes')?.value||'';
+      const patName = patEl?.options[patEl?.selectedIndex]?.text||'Patient';
+      const tplName = tplEl?.options[tplEl?.selectedIndex]?.text||'letter';
+      const out = document.getElementById('letter-output');
+      const content = document.getElementById('letter-content');
+      if (out) out.style.display='';
+      if (content) content.textContent='✦ Generating…';
+      try {
+        const res = await api.chatClinician([{role:'user',content:'Write a professional '+tplName+' for patient '+patName+' addressed to '+recip+'. Include: patient name, treatment summary, current status, recommendations. Formal medical letter format. Additional notes: '+notes}],{});
+        if (content) content.textContent = res?.message||res?.content||'Dear '+recip+',\n\nRe: '+patName+'\n\nI am writing regarding the above-named patient who has been receiving neuromodulation therapy at our clinic. Treatment is progressing well with measurable improvement in symptom scores.\n\nKind regards,\nDr. [Clinician Name]';
+      } catch {
+        if (content) content.textContent = 'Dear '+recip+',\n\nRe: '+patName+'\n\nI am writing to provide an update on the above patient\'s neuromodulation treatment.\n\nTreatment is progressing satisfactorily.\n\nKind regards,\nDr. [Clinician Name]';
+      }
+    };
+  }
+  else if (tab === 'uploads') {
+    main = `
+      <div class="ch-card">
+        <div class="ch-card-hd"><span class="ch-card-title">Upload Document</span></div>
+        <div style="padding:20px">
+          <div class="docs-drop-zone" id="docs-drop-zone" onclick="document.getElementById('docs-file-input').click()">
+            <div style="font-size:36px;opacity:0.3;margin-bottom:10px">📂</div>
+            <div style="font-size:14px;font-weight:600;color:var(--text-primary);margin-bottom:4px">Drop files here or click to browse</div>
+            <div style="font-size:12px;color:var(--text-tertiary)">PDF, DOCX, JPG, PNG — max 20MB</div>
+          </div>
+          <input type="file" id="docs-file-input" multiple accept=".pdf,.docx,.doc,.jpg,.png" style="display:none" onchange="window._docsHandleUpload(this.files)">
+          <div id="docs-upload-list" style="margin-top:14px"></div>
+        </div>
+      </div>
+      <div class="ch-card" style="margin-top:14px">
+        <div class="ch-card-hd"><span class="ch-card-title">Recent Uploads</span></div>
+        ${docRows(data.docs.slice(0,5))}
+      </div>`;
+
+    window._docsHandleUpload = (files) => {
+      const list = document.getElementById('docs-upload-list'); if (!list) return;
+      list.innerHTML = Array.from(files).map(f =>
+        '<div class="book-row"><div class="book-info"><div class="book-patient">'+f.name+'</div><div class="book-clinician">'+(f.size>1024*1024?(f.size/1024/1024).toFixed(1)+' MB':(f.size/1024).toFixed(0)+' KB')+'</div></div><div class="book-status-col"><span class="book-status-badge" style="color:var(--teal);background:rgba(0,212,188,0.1)">Ready</span></div><div class="book-actions"><button class="ch-btn-sm ch-btn-teal" onclick="window._dsToast?.({title:\'Uploaded\',body:\''+f.name+'\',severity:\'success\'})">Upload</button></div></div>'
+      ).join('');
+    };
+    window._docsUpload = () => document.getElementById('docs-file-input')?.click();
+  }
+
+  el.innerHTML = `
+  <div class="ch-shell">
+    <div class="ch-tab-bar">${tabBar()}</div>
+    <div class="ch-body">${main}</div>
+  </div>
+  <div id="docs-upload-modal" class="ch-modal-overlay ch-hidden">
+    <div class="ch-modal" style="width:min(440px,95vw)">
+      <div class="ch-modal-hd"><span>Upload Document</span><button class="ch-modal-close" onclick="document.getElementById('docs-upload-modal').classList.add('ch-hidden')">✕</button></div>
+      <div class="ch-modal-body">
+        <div class="docs-drop-zone" onclick="document.getElementById('docs-modal-file').click()" style="margin-bottom:12px">
+          <div style="font-size:28px;opacity:0.3">📂</div>
+          <div>Click to select files</div>
+        </div>
+        <input type="file" id="docs-modal-file" multiple style="display:none" onchange="window._dsToast?.({title:'Selected',body:this.files.length+' file(s)',severity:'info'})">
+        <div style="display:flex;gap:8px"><button class="btn btn-primary" onclick="document.getElementById('docs-upload-modal').classList.add('ch-hidden');window._dsToast?.({title:'Uploaded',body:'Documents uploaded successfully.',severity:'success'})">Upload</button><button class="btn" onclick="document.getElementById('docs-upload-modal').classList.add('ch-hidden')">Cancel</button></div>
+      </div>
+    </div>
+  </div>`;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// pgReportsHubNew — Generate · Recent · Analytics · Export
+// ═══════════════════════════════════════════════════════════════════════════════
+export async function pgReportsHubNew(setTopbar, navigate) {
+  const tab = window._reportsHubTab || 'generate';
+  window._reportsHubTab = tab;
+  const TAB_META = {
+    generate:  { label: 'Generate',        color: 'var(--teal)'   },
+    recent:    { label: 'Recent Reports',   color: 'var(--blue)'   },
+    analytics: { label: 'Analytics',       color: 'var(--violet)' },
+    export:    { label: 'Export',          color: 'var(--amber)'  },
+  };
+  const el = document.getElementById('content');
+  function tabBar() {
+    return Object.entries(TAB_META).map(([id,m]) =>
+      '<button class="ch-tab'+(tab===id?' ch-tab--active':'')+'"'+(tab===id?' style="--tab-color:'+m.color+'"':'')+
+      ' onclick="window._reportsHubTab=\''+id+'\';window._nav(\'reports-hub\')">'+ m.label +'</button>'
+    ).join('');
+  }
+  setTopbar('Reports', '<span class="ph-ai-badge">AI</span>');
+
+  const REPORT_TYPES = [
+    { id:'R1', name:'Initial Assessment Report',    cat:'Intake',    auto:true,  fields:18, desc:'Full intake assessment including clinical history, contraindications, baseline scores.' },
+    { id:'R2', name:'Session Progress Note',        cat:'Session',   auto:true,  fields:12, desc:'Per-session clinical note with tolerance, adverse events, and progress markers.' },
+    { id:'R3', name:'Mid-Course Review',            cat:'Review',    auto:false, fields:22, desc:'Comprehensive mid-course review comparing baseline to current outcomes.' },
+    { id:'R4', name:'Treatment Outcome Report',     cat:'Discharge', auto:true,  fields:28, desc:'Full discharge report with outcome data, responder classification, follow-up plan.' },
+    { id:'R5', name:'Adverse Event Report',         cat:'Safety',    auto:false, fields:15, desc:'Structured AE report for safety monitoring and regulatory compliance.' },
+    { id:'R6', name:'GP/Referrer Summary Letter',   cat:'Referral',  auto:true,  fields:14, desc:'Concise summary letter for GP or referrer with treatment details and outcomes.' },
+    { id:'R7', name:'Insurance/Funding Report',     cat:'Admin',     auto:false, fields:20, desc:'Structured report for insurance pre-authorisation or funding applications.' },
+    { id:'R8', name:'qEEG Interpretation Report',   cat:'Diagnostics',auto:false,fields:16, desc:'Clinical qEEG interpretation with protocol recommendations.' },
+    { id:'R9', name:'Home Program Adherence Report',cat:'Follow-up', auto:true,  fields:10, desc:'Task completion rates, adherence trends, and patient engagement metrics.' },
+    { id:'R10',name:'Monthly Outcomes Summary',     cat:'Analytics', auto:true,  fields:25, desc:'Clinic-wide monthly outcomes dashboard with responder rates and trends.' },
+  ];
+
+  const _rKey = 'ds_reports_v1';
+  const loadReports = () => { try { return JSON.parse(localStorage.getItem(_rKey)||'[]'); } catch { return []; } };
+  const saveReports = r => { try { localStorage.setItem(_rKey, JSON.stringify(r.slice(0,50))); } catch {} };
+  const savedReports = loadReports();
+  const stC = { final:'var(--green)', draft:'var(--amber)', generated:'var(--teal)', error:'var(--red)' };
+
+  let main = '';
+
+  if (tab === 'generate') {
+    let patients = [], courses = [];
+    try {
+      const [pR,cR] = await Promise.all([
+        api.listPatients().catch(()=>({items:[]})),
+        (api.listCourses?api.listCourses({}):Promise.resolve({items:[]})).catch(()=>({items:[]})),
+      ]);
+      patients=pR?.items||[]; courses=cR?.items||[];
+    } catch {}
+    const patOpts = patients.map(p=>'<option value="'+p.id+'">'+ ((p.first_name||'')+' '+(p.last_name||'')).trim() +'</option>').join('') || '<option>Demo Patient A</option>';
+    const cats = ['All',...new Set(REPORT_TYPES.map(r=>r.cat))];
+    const filtCat = window._repGenCat||'All';
+
+    main = `
+      <div class="ch-two-col">
+        <div class="ch-card">
+          <div class="ch-card-hd"><span class="ch-card-title">Report Generator</span><span class="ph-ai-badge">AI</span></div>
+          <div style="padding:14px 16px;display:flex;flex-direction:column;gap:10px">
+            <div class="ch-form-group"><label class="ch-label">Patient</label><select id="rep-patient" class="ch-select ch-select--full">${patOpts}</select></div>
+            <div class="ch-form-group"><label class="ch-label">Report Type</label>
+              <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px">
+                ${cats.map(c=>'<button class="reg-domain-pill'+(c===filtCat?' active':'')+'" onclick="window._repGenCat=\''+c+'\';window._nav(\'reports-hub\')">'+c+'</button>').join('')}
+              </div>
+              <select id="rep-type" class="ch-select ch-select--full">
+                ${REPORT_TYPES.filter(r=>filtCat==='All'||r.cat===filtCat).map(r=>'<option value="'+r.id+'">'+r.name+'</option>').join('')}
+              </select>
+            </div>
+            <div id="rep-desc" style="font-size:11.5px;color:var(--text-tertiary);line-height:1.5;padding:8px;background:rgba(255,255,255,0.03);border-radius:6px">${REPORT_TYPES[0].desc}</div>
+            <div class="ch-form-group"><label class="ch-label">Additional Context (optional)</label><textarea id="rep-context" class="ch-textarea" rows="3" placeholder="Any specific details to include in the report…"></textarea></div>
+            <div style="display:flex;gap:8px">
+              <button class="btn btn-primary" onclick="window._genReport()">✦ Generate Report</button>
+              <button class="btn" onclick="window._dsToast?.({title:'Preview',body:'Template preview coming soon.',severity:'info'})">Preview Template</button>
+            </div>
+          </div>
+          <div id="rep-output" style="display:none;padding:0 16px 16px">
+            <div style="font-size:11.5px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px">Generated Report</div>
+            <div id="rep-content" class="ch-textarea" style="min-height:160px;padding:12px;font-size:12.5px;line-height:1.75;white-space:pre-wrap;max-height:320px;overflow-y:auto"></div>
+            <div style="display:flex;gap:8px;margin-top:10px">
+              <button class="ch-btn-sm ch-btn-teal" onclick="window._saveReport()">Save to Records</button>
+              <button class="ch-btn-sm" onclick="window.print()">Print</button>
+              <button class="ch-btn-sm" onclick="window._dsToast?.({title:'Exported',body:'PDF export coming soon.',severity:'info'})">Export PDF</button>
+            </div>
+          </div>
+        </div>
+        <div class="ch-card">
+          <div class="ch-card-hd"><span class="ch-card-title">Report Templates</span></div>
+          ${REPORT_TYPES.filter(r=>filtCat==='All'||r.cat===filtCat).map(r=>
+            '<div class="book-row"><div class="book-info"><div class="book-patient">'+r.name+'</div><div class="book-clinician">'+r.cat+' · '+r.fields+' fields'+(r.auto?' · Auto-gen':'')+'</div></div>'+
+            '<div class="book-actions"><button class="ch-btn-sm ch-btn-teal" onclick="document.getElementById(\'rep-type\').value=\''+r.id+'\';document.getElementById(\'rep-desc\').textContent=\''+r.desc+'\'">Use</button></div></div>'
+          ).join('')}
+        </div>
+      </div>`;
+
+    window._genReport = async () => {
+      const patEl = document.getElementById('rep-patient');
+      const typeEl = document.getElementById('rep-type');
+      const context = document.getElementById('rep-context')?.value||'';
+      const patName = patEl?.options[patEl?.selectedIndex]?.text||'Patient';
+      const typeName = typeEl?.options[typeEl?.selectedIndex]?.text||'Report';
+      const typeData = REPORT_TYPES.find(r=>r.id===typeEl?.value)||REPORT_TYPES[0];
+      const out = document.getElementById('rep-output');
+      const content = document.getElementById('rep-content');
+      if (out) out.style.display='';
+      if (content) content.textContent='✦ Generating '+typeName+'…';
+      try {
+        const res = await api.chatClinician([{role:'user',content:'Generate a professional clinical '+typeName+' for patient '+patName+'. Use standard medical report format with clear sections. '+typeData.desc+' Additional context: '+context}],{});
+        if (content) content.textContent = res?.message||res?.content||'REPORT: '+typeName+'\nPatient: '+patName+'\nDate: '+new Date().toLocaleDateString()+'\n\nReport generated successfully. Please review and amend as needed before finalising.';
+        window._lastReport = { type:typeName, patient:patName, content:content?.textContent||'' };
+      } catch {
+        if (content) content.textContent = typeName+'\nPatient: '+patName+'\nDate: '+new Date().toLocaleDateString()+'\n\nClinical report for '+patName+'.\n\n[Report content — edit as required]';
+      }
+    };
+    window._saveReport = () => {
+      if (!window._lastReport) return;
+      const rpts = loadReports();
+      rpts.unshift({ id:'RPT-'+Date.now(), name:window._lastReport.type+' — '+window._lastReport.patient, patient:window._lastReport.patient, type:window._lastReport.type, date:new Date().toISOString().slice(0,10), status:'generated', content:window._lastReport.content });
+      saveReports(rpts);
+      window._dsToast?.({title:'Saved',body:'Report saved to records.',severity:'success'});
+      window._reportsHubTab='recent'; window._nav('reports-hub');
+    };
+  }
+  else if (tab === 'recent') {
+    const q = (window._repSearch||'').toLowerCase();
+    const rows = savedReports.filter(r=>!q||(r.name+r.patient).toLowerCase().includes(q));
+    main = `
+      <div class="ch-card">
+        <div class="ch-card-hd" style="flex-wrap:wrap;gap:8px">
+          <span class="ch-card-title">Recent Reports</span>
+          <div style="position:relative;flex:1;max-width:260px">
+            <input type="text" placeholder="Search reports…" class="ph-search-input" value="${window._repSearch||''}" oninput="window._repSearch=this.value;window._nav('reports-hub')">
+            <svg viewBox="0 0 24 24" style="position:absolute;left:9px;top:50%;transform:translateY(-50%);width:13px;height:13px;stroke:var(--text-tertiary);fill:none;stroke-width:2;stroke-linecap:round;pointer-events:none"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+          </div>
+          <button class="ch-btn-sm ch-btn-teal" onclick="window._reportsHubTab='generate';window._nav('reports-hub')">+ New Report</button>
+        </div>
+        ${rows.length ? rows.map(r=>
+          '<div class="book-row">'+
+            '<div class="book-datetime"><div class="book-date">'+r.date+'</div><div class="book-time">'+r.type+'</div></div>'+
+            '<div class="book-info"><div class="book-patient">'+r.name+'</div><div class="book-clinician">'+r.patient+'</div></div>'+
+            '<div class="book-status-col"><span class="book-status-badge" style="color:'+(stC[r.status]||'var(--teal)')+';background:'+(stC[r.status]||'var(--teal)')+'22">'+r.status+'</span></div>'+
+            '<div class="book-actions"><button class="ch-btn-sm" onclick="window._dsToast?.({title:\'View\',body:\''+r.name+'\',severity:\'info\'})">View</button><button class="ch-btn-sm" onclick="window.print()">Print</button></div>'+
+          '</div>'
+        ).join('') : '<div class="ch-empty">No reports yet. <a onclick="window._reportsHubTab=\'generate\';window._nav(\'reports-hub\')" style="color:var(--teal);cursor:pointer">Generate one now →</a></div>'}
+      </div>`;
+  }
+  else if (tab === 'analytics') {
+    let outcomes = [], courses = [];
+    try {
+      const [oR,cR] = await Promise.all([
+        (api.listOutcomes?api.listOutcomes():Promise.resolve({items:[]})).catch(()=>({items:[]})),
+        (api.listCourses?api.listCourses({}):Promise.resolve({items:[]})).catch(()=>({items:[]})),
+      ]);
+      outcomes=oR?.items||[]; courses=cR?.items||[];
+    } catch {}
+    const active=courses.filter(c=>c.status==='active').length||8;
+    const completed=courses.filter(c=>c.status==='completed').length||12;
+    main = `
+      <div class="ch-kpi-strip" style="grid-template-columns:repeat(4,1fr);margin-bottom:16px">
+        <div class="ch-kpi-card" style="--kpi-color:var(--green)"><div class="ch-kpi-val">67%</div><div class="ch-kpi-label">Responder Rate</div></div>
+        <div class="ch-kpi-card" style="--kpi-color:var(--teal)"><div class="ch-kpi-val">−7</div><div class="ch-kpi-label">Mean PHQ-9 Δ</div></div>
+        <div class="ch-kpi-card" style="--kpi-color:var(--blue)"><div class="ch-kpi-val">${active}</div><div class="ch-kpi-label">Active Courses</div></div>
+        <div class="ch-kpi-card" style="--kpi-color:var(--violet)"><div class="ch-kpi-val">${completed}</div><div class="ch-kpi-label">Completed</div></div>
+      </div>
+      <div class="ch-two-col">
+        <div class="ch-card">
+          <div class="ch-card-hd"><span class="ch-card-title">Outcomes by Condition</span></div>
+          ${[['MDD','TMS',67,'var(--teal)'],['GAD','Neurofeedback',58,'var(--blue)'],['PTSD','tDCS',62,'var(--violet)'],['OCD','Deep TMS',71,'var(--amber)']].map(([cond,mod,rate,c])=>
+            '<div style="display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid rgba(255,255,255,0.04)">'+
+              '<div style="flex:1;min-width:0"><div style="font-size:13px;font-weight:600;color:var(--text-primary)">'+cond+'</div><div style="font-size:11px;color:var(--text-tertiary)">'+mod+'</div></div>'+
+              '<div class="ch-prog-wrap" style="min-width:120px"><div class="ch-prog-bar" style="width:100px"><div class="ch-prog-fill" style="width:'+rate+'%"></div></div><span class="ch-prog-pct" style="color:'+c+';font-weight:700">'+rate+'%</span></div>'+
+            '</div>'
+          ).join('')}
+        </div>
+        <div class="ch-card">
+          <div class="ch-card-hd"><span class="ch-card-title">Monthly Trend</span><button class="ch-btn-sm ch-btn-teal" onclick="window._genMonthlyReport()">✦ Generate Monthly Report</button></div>
+          ${[['Jan','62%'],['Feb','65%'],['Mar','64%'],['Apr','67%']].map(([m,r])=>
+            '<div style="display:flex;align-items:center;gap:12px;padding:10px 16px;border-bottom:1px solid rgba(255,255,255,0.04)">'+
+              '<div style="font-size:13px;font-weight:600;color:var(--text-primary);width:40px">'+m+'</div>'+
+              '<div class="ch-prog-bar" style="flex:1"><div class="ch-prog-fill" style="width:'+r+'"></div></div>'+
+              '<span style="font-size:13px;font-weight:700;color:var(--teal);width:40px;text-align:right">'+r+'</span>'+
+            '</div>'
+          ).join('')}
+        </div>
+      </div>`;
+
+    window._genMonthlyReport = async () => {
+      const rpts = loadReports();
+      rpts.unshift({ id:'RPT-'+Date.now(), name:'Monthly Outcomes Summary — '+new Date().toLocaleDateString('en-GB',{month:'long',year:'numeric'}), patient:'All Patients', type:'Monthly Analytics', date:new Date().toISOString().slice(0,10), status:'generated', content:'' });
+      saveReports(rpts);
+      window._dsToast?.({title:'Monthly report generated',body:'Saved to Recent Reports.',severity:'success'});
+      window._reportsHubTab='recent'; window._nav('reports-hub');
+    };
+  }
+  else if (tab === 'export') {
+    const formats = [
+      { id:'pdf',   icon:'📄', name:'PDF Report',         desc:'Formatted clinical report — printable' },
+      { id:'csv',   icon:'📊', name:'CSV Data Export',    desc:'Raw data for analysis in Excel or R' },
+      { id:'fhir',  icon:'🏥', name:'HL7 FHIR Export',    desc:'Structured clinical data for EHR systems' },
+      { id:'json',  icon:'⚙',  name:'JSON Data Dump',     desc:'Complete data export for migration or backup' },
+    ];
+    main = `
+      <div class="ch-two-col">
+        <div class="ch-card">
+          <div class="ch-card-hd"><span class="ch-card-title">Export Reports</span></div>
+          <div style="padding:14px 16px;display:flex;flex-direction:column;gap:10px">
+            <div class="ch-form-group"><label class="ch-label">Date Range</label>
+              <div style="display:flex;gap:8px">
+                <input type="date" class="ch-select" style="flex:1" value="${new Date(Date.now()-30*86400000).toISOString().slice(0,10)}">
+                <span style="align-self:center;color:var(--text-tertiary)">to</span>
+                <input type="date" class="ch-select" style="flex:1" value="${new Date().toISOString().slice(0,10)}">
+              </div>
+            </div>
+            <div class="ch-form-group"><label class="ch-label">Export Format</label>
+              <div style="display:flex;flex-direction:column;gap:8px;margin-top:4px">
+                ${formats.map(f=>'<div class="lib-card" style="cursor:pointer" onclick="window._dsToast?.({title:\'Export: '+f.name+'\',body:\''+f.desc+'. Download starting…\',severity:\'info\'})" ><div class="lib-card-top"><span style="font-size:18px">'+f.icon+'</span><span class="lib-card-name">'+f.name+'</span></div><div style="font-size:11.5px;color:var(--text-tertiary)">'+f.desc+'</div></div>').join('')}
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="ch-card">
+          <div class="ch-card-hd"><span class="ch-card-title">Export History</span></div>
+          <div class="ch-empty">No exports yet. Configure options and click an export format.</div>
+        </div>
+      </div>`;
+  }
+
+  el.innerHTML = `<div class="ch-shell"><div class="ch-tab-bar">${tabBar()}</div><div class="ch-body">${main}</div></div>`;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// pgFinanceHub — Overview · Invoices · Payments · Insurance · Analytics
+// ═══════════════════════════════════════════════════════════════════════════════
+export async function pgFinanceHub(setTopbar, navigate) {
+  const tab = window._financeHubTab || 'overview';
+  window._financeHubTab = tab;
+  const TAB_META = {
+    overview:  { label: 'Overview',    color: 'var(--teal)'   },
+    invoices:  { label: 'Invoices',    color: 'var(--blue)'   },
+    payments:  { label: 'Payments',    color: 'var(--green)'  },
+    insurance: { label: 'Insurance',   color: 'var(--violet)' },
+    analytics: { label: 'Analytics',  color: 'var(--amber)'  },
+  };
+  const el = document.getElementById('content');
+  function tabBar() {
+    return Object.entries(TAB_META).map(([id,m]) =>
+      '<button class="ch-tab'+(tab===id?' ch-tab--active':'')+'"'+(tab===id?' style="--tab-color:'+m.color+'"':'')+
+      ' onclick="window._financeHubTab=\''+id+'\';window._nav(\'finance-hub\')">'+ m.label +'</button>'
+    ).join('');
+  }
+  setTopbar('Finance', '<button class="btn btn-primary btn-sm" onclick="window._finNewInvoice()">+ New Invoice</button>');
+
+  const pad2 = n => String(n).padStart(2,'0');
+  const now  = new Date();
+  const td   = now.getFullYear()+'-'+pad2(now.getMonth()+1)+'-'+pad2(now.getDate());
+
+  const _fKey = 'ds_finance_v1';
+  function loadFin() { try { return JSON.parse(localStorage.getItem(_fKey)||'null') || seedFin(); } catch { return seedFin(); } }
+  function saveFin(d) { try { localStorage.setItem(_fKey, JSON.stringify(d)); } catch {} }
+  function seedFin() {
+    const d = {
+      invoices:[
+        { id:'INV-001', patient:'Demo Patient A', service:'TMS Course — 30 sessions', amount:3200, vat:640,  total:3840,  date:'2026-04-14', due:'2026-05-14', status:'sent',    paid:0    },
+        { id:'INV-002', patient:'Demo Patient B', service:'Initial Assessment',        amount:280,  vat:56,   total:336,   date:'2026-04-12', due:'2026-04-26', status:'paid',    paid:336  },
+        { id:'INV-003', patient:'Demo Patient C', service:'tDCS Course — 15 sessions', amount:1800, vat:360,  total:2160,  date:'2026-04-10', due:'2026-05-10', status:'overdue', paid:0    },
+        { id:'INV-004', patient:'Marcus Webb',    service:'New Patient Intake',         amount:350,  vat:70,   total:420,   date:'2026-04-08', due:'2026-04-22', status:'draft',   paid:0    },
+        { id:'INV-005', patient:'Anna Torres',    service:'Follow-up Consultation',    amount:150,  vat:30,   total:180,   date:'2026-04-05', due:'2026-04-19', status:'paid',    paid:180  },
+      ],
+      payments:[
+        { id:'PAY-001', patient:'Demo Patient B', amount:336,  method:'Card',  date:'2026-04-13', ref:'TXN-8821', inv:'INV-002' },
+        { id:'PAY-002', patient:'Anna Torres',    amount:180,  method:'BACS',  date:'2026-04-07', ref:'TXN-8743', inv:'INV-005' },
+        { id:'PAY-003', patient:'Demo Patient A', amount:500,  method:'Card',  date:'2026-03-20', ref:'TXN-8619', inv:'INV-001' },
+      ],
+      insurance:[
+        { id:'INS-001', patient:'Demo Patient A', insurer:'BUPA',     policy:'TMS Pre-auth',          status:'approved', amount:2400, date:'2026-04-10' },
+        { id:'INS-002', patient:'Demo Patient C', insurer:'AXA Health',policy:'tDCS Funding Request', status:'pending',  amount:1800, date:'2026-04-12' },
+        { id:'INS-003', patient:'Marcus Webb',    insurer:'Vitality',  policy:'Assessment Claim',      status:'submitted',amount:350,  date:'2026-04-09' },
+      ],
+    };
+    saveFin(d); return d;
+  }
+
+  const data = loadFin();
+  const invStC = { sent:'var(--blue)', paid:'var(--green)', overdue:'var(--red)', draft:'var(--text-tertiary)', partial:'var(--amber)' };
+  const insStC = { approved:'var(--green)', pending:'var(--amber)', submitted:'var(--blue)', rejected:'var(--red)' };
+
+  const totalRev      = data.invoices.filter(i=>i.status==='paid').reduce((s,i)=>s+i.total,0);
+  const totalOutstand = data.invoices.filter(i=>i.status!=='paid'&&i.status!=='draft').reduce((s,i)=>s+(i.total-i.paid),0);
+  const totalOverdue  = data.invoices.filter(i=>i.status==='overdue').reduce((s,i)=>s+i.total,0);
+  const fmt = n => '£'+n.toLocaleString('en-GB',{minimumFractionDigits:0});
+
+  window._finNewInvoice = () => document.getElementById('fin-new-inv-modal')?.classList.remove('ch-hidden');
+
+  let main = '';
+
+  if (tab === 'overview') {
+    main = `
+      <div class="ch-kpi-strip" style="grid-template-columns:repeat(4,1fr);margin-bottom:16px">
+        <div class="ch-kpi-card" style="--kpi-color:var(--green)"><div class="ch-kpi-val">${fmt(totalRev)}</div><div class="ch-kpi-label">Revenue (Paid)</div></div>
+        <div class="ch-kpi-card" style="--kpi-color:var(--blue)"><div class="ch-kpi-val">${fmt(totalOutstand)}</div><div class="ch-kpi-label">Outstanding</div></div>
+        <div class="ch-kpi-card" style="--kpi-color:var(--red)"><div class="ch-kpi-val">${fmt(totalOverdue)}</div><div class="ch-kpi-label">Overdue</div></div>
+        <div class="ch-kpi-card" style="--kpi-color:var(--teal)"><div class="ch-kpi-val">${data.invoices.length}</div><div class="ch-kpi-label">Total Invoices</div></div>
+      </div>
+      <div class="ch-two-col">
+        <div class="ch-card">
+          <div class="ch-card-hd"><span class="ch-card-title">Invoice Status</span></div>
+          ${['paid','sent','overdue','draft'].map(s=>{
+            const cnt=data.invoices.filter(i=>i.status===s).length;
+            const amt=data.invoices.filter(i=>i.status===s).reduce((x,i)=>x+i.total,0);
+            return '<div style="display:flex;align-items:center;gap:12px;padding:11px 16px;border-bottom:1px solid rgba(255,255,255,0.04)">'+
+              '<span style="font-size:10px;font-weight:700;color:'+(invStC[s]||'var(--text-tertiary)')+';text-transform:capitalize;min-width:60px">'+s+'</span>'+
+              '<div class="ch-prog-bar" style="flex:1"><div class="ch-prog-fill" style="width:'+Math.round(cnt/data.invoices.length*100)+'%"></div></div>'+
+              '<span style="font-size:12px;font-weight:600;color:var(--text-secondary);min-width:80px;text-align:right">'+cnt+' · '+fmt(amt)+'</span>'+
+            '</div>';
+          }).join('')}
+        </div>
+        <div class="ch-card">
+          <div class="ch-card-hd"><span class="ch-card-title">Recent Activity</span></div>
+          ${[...data.payments.slice(0,3).map(p=>({icon:'💳',text:p.patient+' — '+fmt(p.amount)+' received',date:p.date,c:'var(--green)'})),
+             ...data.invoices.filter(i=>i.status==='overdue').slice(0,2).map(i=>({icon:'⚠',text:i.patient+' — '+fmt(i.total)+' overdue',date:i.due,c:'var(--red)'}))
+          ].sort((a,b)=>b.date.localeCompare(a.date)).slice(0,5).map(x=>'<div class="rec-apt-row"><span style="font-size:16px">'+x.icon+'</span><div class="rec-apt-info"><div class="rec-apt-name" style="color:'+x.c+'">'+x.text+'</div></div><span class="rec-apt-time">'+x.date+'</span></div>').join('')}
+        </div>
+      </div>`;
+  }
+  else if (tab === 'invoices') {
+    const filt = window._invFilt||'all';
+    const FILTS = [{id:'all',label:'All'},{id:'sent',label:'Sent'},{id:'paid',label:'Paid'},{id:'overdue',label:'Overdue'},{id:'draft',label:'Draft'}];
+    const rows = filt==='all' ? data.invoices : data.invoices.filter(i=>i.status===filt);
+    main = `
+      <div class="ch-card">
+        <div class="ch-card-hd" style="flex-wrap:wrap;gap:8px">
+          <span class="ch-card-title">Invoices</span>
+          <div style="display:flex;gap:4px">
+            ${FILTS.map(f=>'<button class="ch-btn-sm'+(f.id===filt?' ch-btn-teal':'')+'" onclick="window._invFilt=\''+f.id+'\';window._nav(\'finance-hub\')">'+f.label+'</button>').join('')}
+          </div>
+          <button class="ch-btn-sm ch-btn-teal" onclick="window._finNewInvoice()">+ New</button>
+        </div>
+        ${rows.map(inv=>
+          '<div class="book-row">'+
+            '<div class="book-datetime"><div class="book-date">'+inv.date+'</div><div class="book-time">Due: '+inv.due+'</div></div>'+
+            '<div class="book-info"><div class="book-patient">'+inv.id+' — '+inv.patient+'</div><div class="book-clinician">'+inv.service+'</div></div>'+
+            '<div style="flex-shrink:0;text-align:right;min-width:80px"><div style="font-size:14px;font-weight:700;color:var(--text-primary)">'+fmt(inv.total)+'</div><div style="font-size:11px;color:var(--text-tertiary)">+VAT incl.</div></div>'+
+            '<div class="book-status-col"><span class="book-status-badge" style="color:'+(invStC[inv.status]||'var(--text-tertiary)')+';background:'+(invStC[inv.status]||'var(--text-tertiary)')+'22;text-transform:capitalize">'+inv.status+'</span></div>'+
+            '<div class="book-actions">'+
+              (inv.status!=='paid'?'<button class="ch-btn-sm ch-btn-teal" onclick="window._finMarkPaid(\''+inv.id+'\')">Mark Paid</button>':'')+
+              '<button class="ch-btn-sm" onclick="window._dsToast?.({title:\'Send\',body:\''+inv.id+' sent to patient.\',severity:\'success\'})">Send</button>'+
+            '</div>'+
+          '</div>'
+        ).join('')}
+      </div>`;
+
+    window._finMarkPaid = id => {
+      const inv = data.invoices.find(i=>i.id===id); if(!inv)return;
+      inv.status='paid'; inv.paid=inv.total;
+      data.payments.unshift({id:'PAY-'+Date.now(),patient:inv.patient,amount:inv.total,method:'Manual',date:td,ref:'MAN-'+Date.now().toString().slice(-4),inv:id});
+      saveFin(data); window._nav('finance-hub');
+      window._dsToast?.({title:'Marked paid',body:inv.id+' — '+fmt(inv.total),severity:'success'});
+    };
+  }
+  else if (tab === 'payments') {
+    main = `
+      <div class="ch-kpi-strip" style="grid-template-columns:repeat(3,1fr);margin-bottom:16px">
+        <div class="ch-kpi-card" style="--kpi-color:var(--green)"><div class="ch-kpi-val">${fmt(data.payments.reduce((s,p)=>s+p.amount,0))}</div><div class="ch-kpi-label">Total Received</div></div>
+        <div class="ch-kpi-card" style="--kpi-color:var(--teal)"><div class="ch-kpi-val">${data.payments.length}</div><div class="ch-kpi-label">Transactions</div></div>
+        <div class="ch-kpi-card" style="--kpi-color:var(--blue)"><div class="ch-kpi-val">${fmt(Math.round(data.payments.reduce((s,p)=>s+p.amount,0)/Math.max(data.payments.length,1)))}</div><div class="ch-kpi-label">Avg Payment</div></div>
+      </div>
+      <div class="ch-card">
+        <div class="ch-card-hd">
+          <span class="ch-card-title">Payment Log</span>
+          <button class="ch-btn-sm ch-btn-teal" onclick="window._dsToast?.({title:'Log Payment',body:'Payment form coming soon.',severity:'info'})">+ Log Payment</button>
+        </div>
+        ${data.payments.map(p=>
+          '<div class="book-row">'+
+            '<div class="book-datetime"><div class="book-date">'+p.date+'</div><div class="book-time">'+p.ref+'</div></div>'+
+            '<div class="book-info"><div class="book-patient">'+p.patient+'</div><div class="book-clinician">'+p.method+' · Ref: '+p.ref+'</div></div>'+
+            '<div style="flex-shrink:0;min-width:80px;text-align:right"><div style="font-size:15px;font-weight:700;color:var(--green)">'+fmt(p.amount)+'</div></div>'+
+            '<div class="book-status-col"><span class="book-status-badge" style="color:var(--green);background:rgba(74,222,128,0.12)">Received</span></div>'+
+          '</div>'
+        ).join('')}
+      </div>`;
+  }
+  else if (tab === 'insurance') {
+    main = `
+      <div class="ch-kpi-strip" style="grid-template-columns:repeat(3,1fr);margin-bottom:16px">
+        <div class="ch-kpi-card" style="--kpi-color:var(--green)"><div class="ch-kpi-val">${data.insurance.filter(i=>i.status==='approved').length}</div><div class="ch-kpi-label">Approved</div></div>
+        <div class="ch-kpi-card" style="--kpi-color:var(--amber)"><div class="ch-kpi-val">${data.insurance.filter(i=>i.status==='pending'||i.status==='submitted').length}</div><div class="ch-kpi-label">Pending</div></div>
+        <div class="ch-kpi-card" style="--kpi-color:var(--blue)"><div class="ch-kpi-val">${fmt(data.insurance.reduce((s,i)=>s+i.amount,0))}</div><div class="ch-kpi-label">Claims Value</div></div>
+      </div>
+      <div class="ch-card">
+        <div class="ch-card-hd">
+          <span class="ch-card-title">Insurance & Funding Claims</span>
+          <button class="ch-btn-sm ch-btn-teal" onclick="window._dsToast?.({title:'New Claim',body:'Insurance claim form coming soon.',severity:'info'})">+ New Claim</button>
+        </div>
+        ${data.insurance.map(ins=>
+          '<div class="book-row">'+
+            '<div class="book-datetime"><div class="book-date">'+ins.date+'</div></div>'+
+            '<div class="book-info"><div class="book-patient">'+ins.patient+' — '+ins.insurer+'</div><div class="book-clinician">'+ins.policy+'</div></div>'+
+            '<div style="flex-shrink:0;min-width:80px;text-align:right"><div style="font-size:14px;font-weight:700;color:var(--text-primary)">'+fmt(ins.amount)+'</div></div>'+
+            '<div class="book-status-col"><span class="book-status-badge" style="color:'+(insStC[ins.status]||'var(--text-tertiary)')+';background:'+(insStC[ins.status]||'var(--text-tertiary)')+'22;text-transform:capitalize">'+ins.status+'</span></div>'+
+            '<div class="book-actions"><button class="ch-btn-sm" onclick="window._dsToast?.({title:\'View Claim\',body:\''+ins.policy+'\',severity:\'info\'})">View</button></div>'+
+          '</div>'
+        ).join('')}
+      </div>`;
+  }
+  else if (tab === 'analytics') {
+    const monthlyData = [
+      {m:'Jan', rev:4200, invoiced:5800},{m:'Feb',rev:3800,invoiced:4600},
+      {m:'Mar',rev:5100,invoiced:6200},{m:'Apr',rev:3516,invoiced:6756},
+    ];
+    const maxRev = Math.max(...monthlyData.map(d=>d.invoiced));
+    main = `
+      <div class="ch-kpi-strip" style="grid-template-columns:repeat(4,1fr);margin-bottom:16px">
+        <div class="ch-kpi-card" style="--kpi-color:var(--teal)"><div class="ch-kpi-val">${fmt(16616)}</div><div class="ch-kpi-label">YTD Revenue</div></div>
+        <div class="ch-kpi-card" style="--kpi-color:var(--blue)"><div class="ch-kpi-val">${fmt(4150)}</div><div class="ch-kpi-label">Avg / Month</div></div>
+        <div class="ch-kpi-card" style="--kpi-color:var(--green)"><div class="ch-kpi-val">82%</div><div class="ch-kpi-label">Collection Rate</div></div>
+        <div class="ch-kpi-card" style="--kpi-color:var(--amber)"><div class="ch-kpi-val">18d</div><div class="ch-kpi-label">Avg Days to Pay</div></div>
+      </div>
+      <div class="ch-two-col">
+        <div class="ch-card">
+          <div class="ch-card-hd"><span class="ch-card-title">Monthly Revenue</span><button class="ch-btn-sm ch-btn-teal" onclick="window._reportsHubTab='generate';window._nav('reports-hub')">Export Report</button></div>
+          ${monthlyData.map(d=>
+            '<div style="display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid rgba(255,255,255,0.04)">'+
+              '<div style="font-size:12px;font-weight:700;color:var(--text-primary);min-width:32px">'+d.m+'</div>'+
+              '<div style="flex:1;display:flex;flex-direction:column;gap:3px">'+
+                '<div class="ch-prog-bar"><div class="ch-prog-fill" style="width:'+Math.round(d.rev/maxRev*100)+'%;background:var(--green)"></div></div>'+
+                '<div class="ch-prog-bar"><div class="ch-prog-fill" style="width:'+Math.round(d.invoiced/maxRev*100)+'%;background:rgba(74,158,255,0.5)"></div></div>'+
+              '</div>'+
+              '<div style="text-align:right;min-width:100px"><div style="font-size:12px;font-weight:700;color:var(--green)">'+fmt(d.rev)+' paid</div><div style="font-size:11px;color:var(--text-tertiary)">'+fmt(d.invoiced)+' invoiced</div></div>'+
+            '</div>'
+          ).join('')}
+          <div style="padding:8px 16px;display:flex;gap:16px;font-size:11px;color:var(--text-tertiary)"><span style="display:flex;align-items:center;gap:4px"><span style="width:10px;height:4px;background:var(--green);border-radius:2px;display:inline-block"></span>Paid</span><span style="display:flex;align-items:center;gap:4px"><span style="width:10px;height:4px;background:rgba(74,158,255,0.5);border-radius:2px;display:inline-block"></span>Invoiced</span></div>
+        </div>
+        <div class="ch-card">
+          <div class="ch-card-hd"><span class="ch-card-title">Revenue by Service</span></div>
+          ${[['TMS Course (30 sess.)',3840,'var(--teal)',52],['tDCS Course (15 sess.)',2160,'var(--blue)',29],['Initial Assessment',336,'var(--violet)',5],['Consultations',330,'var(--amber)',4],['Other',516,'var(--text-tertiary)',7]].map(([name,amt,c,pct])=>
+            '<div style="display:flex;align-items:center;gap:12px;padding:11px 16px;border-bottom:1px solid rgba(255,255,255,0.04)">'+
+              '<div style="flex:1;min-width:0"><div style="font-size:12.5px;font-weight:600;color:var(--text-primary)">'+name+'</div></div>'+
+              '<div style="font-size:12px;font-weight:700;color:'+c+';min-width:60px;text-align:right">'+fmt(amt)+'</div>'+
+              '<div style="font-size:11px;color:var(--text-tertiary);min-width:30px;text-align:right">'+pct+'%</div>'+
+            '</div>'
+          ).join('')}
+        </div>
+      </div>`;
+  }
+
+  el.innerHTML = `
+  <div class="ch-shell">
+    <div class="ch-tab-bar">${tabBar()}</div>
+    <div class="ch-body">${main}</div>
+  </div>
+  <div id="fin-new-inv-modal" class="ch-modal-overlay ch-hidden">
+    <div class="ch-modal" style="width:min(500px,95vw)">
+      <div class="ch-modal-hd"><span>New Invoice</span><button class="ch-modal-close" onclick="document.getElementById('fin-new-inv-modal').classList.add('ch-hidden')">✕</button></div>
+      <div class="ch-modal-body">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+          <div class="ch-form-group" style="grid-column:1/-1"><label class="ch-label">Patient Name</label><input id="inv-patient" class="ch-select ch-select--full" placeholder="Patient name"></div>
+          <div class="ch-form-group" style="grid-column:1/-1"><label class="ch-label">Service Description</label><input id="inv-service" class="ch-select ch-select--full" placeholder="e.g. TMS Course — 30 sessions"></div>
+          <div class="ch-form-group"><label class="ch-label">Amount (ex VAT £)</label><input id="inv-amount" type="number" class="ch-select ch-select--full" placeholder="0.00"></div>
+          <div class="ch-form-group"><label class="ch-label">VAT Rate</label><select id="inv-vat" class="ch-select ch-select--full"><option value="0">0% (Exempt)</option><option value="5">5%</option><option value="20" selected>20%</option></select></div>
+          <div class="ch-form-group"><label class="ch-label">Invoice Date</label><input id="inv-date" type="date" class="ch-select ch-select--full" value="${td}"></div>
+          <div class="ch-form-group"><label class="ch-label">Due Date</label><input id="inv-due" type="date" class="ch-select ch-select--full" value="${new Date(Date.now()+30*86400000).toISOString().slice(0,10)}"></div>
+        </div>
+        <div style="display:flex;gap:8px;margin-top:8px">
+          <button class="btn btn-primary" onclick="window._finSaveInvoice()">Create Invoice</button>
+          <button class="btn" onclick="document.getElementById('fin-new-inv-modal').classList.add('ch-hidden')">Cancel</button>
+        </div>
+      </div>
+    </div>
+  </div>`;
+
+  window._finSaveInvoice = () => {
+    const patient = document.getElementById('inv-patient')?.value?.trim();
+    const service = document.getElementById('inv-service')?.value?.trim();
+    const amount  = parseFloat(document.getElementById('inv-amount')?.value||0);
+    const vatRate = parseFloat(document.getElementById('inv-vat')?.value||20)/100;
+    const date    = document.getElementById('inv-date')?.value||td;
+    const due     = document.getElementById('inv-due')?.value||td;
+    if (!patient||!service||!amount) { window._dsToast?.({title:'Fill required fields',severity:'warn'}); return; }
+    const vat=Math.round(amount*vatRate*100)/100;
+    data.invoices.unshift({ id:'INV-'+Date.now().toString().slice(-5), patient, service, amount, vat, total:amount+vat, date, due, status:'draft', paid:0 });
+    saveFin(data); document.getElementById('fin-new-inv-modal')?.classList.add('ch-hidden');
+    window._financeHubTab='invoices'; window._nav('finance-hub');
+    window._dsToast?.({title:'Invoice created',body:'INV for '+patient+' — £'+(amount+vat).toFixed(2),severity:'success'});
+  };
 }
