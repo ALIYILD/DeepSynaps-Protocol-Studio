@@ -62,53 +62,35 @@ window._toggleHighContrast = function() {
 // Restore on boot
 if (localStorage.getItem('ds_high_contrast') === '1') document.body.classList.add('high-contrast');
 
-// ── Theme management ────────────────────────────────────────────────────────
+// ── Theme management (Dark mode only) ────────────────────────────────────────
 (function initTheme() {
-  const stored = localStorage.getItem('ds_theme');
-  const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-  const theme = stored || (prefersDark ? 'dark' : 'light');
-  if (theme === 'light') document.body.classList.add('light-theme');
+  const theme = 'dark'; // Force dark mode always
+  localStorage.setItem('ds_theme', theme);
   document.documentElement.classList.remove('light-theme-pending');
+  document.body.classList.remove('light-theme');
   window._currentTheme = theme;
 
   window._setTheme = function(t) {
-    window._currentTheme = t;
-    localStorage.setItem('ds_theme', t);
-    document.body.classList.toggle('light-theme', t === 'light');
-    const btn = document.getElementById('theme-toggle-btn');
-    if (btn) btn.textContent = t === 'light' ? '🌙' : '☀️';
-    const settingsToggle = document.getElementById('settings-theme-label');
-    if (settingsToggle) settingsToggle.textContent = t === 'light' ? 'Switch to Dark' : 'Switch to Light';
-    window._announce?.(`${t === 'light' ? 'Light' : 'Dark'} theme activated`);
+    // Dark mode only — no-op
+    window._currentTheme = 'dark';
+    localStorage.setItem('ds_theme', 'dark');
+    document.body.classList.remove('light-theme');
   };
 
   window._toggleTheme = function() {
-    window._setTheme(window._currentTheme === 'dark' ? 'light' : 'dark');
+    // Theme toggle disabled — dark mode only
   };
-
-  // Set initial topbar button icon (button may not exist yet if script runs before DOM)
-  requestAnimationFrame(() => {
-    const btn = document.getElementById('theme-toggle-btn');
-    if (btn) btn.textContent = theme === 'light' ? '🌙' : '☀️';
-  });
-
-  // Respond to OS theme changes (only if user hasn't set a preference)
-  window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (e) => {
-    if (!localStorage.getItem('ds_theme')) {
-      window._setTheme(e.matches ? 'dark' : 'light');
-    }
-  });
 })();
 
 (function initLangSwitcher() {
-  // Inject language switcher button into topbar after #theme-toggle-btn
-  const themeBtn = document.getElementById('theme-toggle-btn');
-  if (!themeBtn) return;
+  // Inject language switcher button into topbar
+  const searchBtn = document.getElementById('search-btn');
+  if (!searchBtn) return;
   const wrap = document.createElement('div');
   wrap.className = 'lang-switcher-wrap';
   wrap.style.cssText = 'position:relative;display:inline-block;';
   wrap.innerHTML = `
-    <button id="lang-btn" class="icon-btn" title="Language" aria-label="Switch language" onclick="window._toggleLangMenu()">
+    <button id="lang-btn" class="lang-btn" title="Language" aria-label="Switch language" onclick="window._toggleLangMenu()" style="background:rgba(255,255,255,0.05);border:1px solid var(--border);border-radius:8px;width:34px;height:34px;cursor:pointer;display:flex;align-items:center;justify-content:center;color:var(--text-secondary);font-size:0.9rem;flex-shrink:0;gap:4px;font-size:11px;font-weight:500;padding:0 6px;width:auto;white-space:nowrap;">
       🌐 <span id="lang-btn-label">${getLocale().toUpperCase()}</span>
     </button>
     <div id="lang-menu" class="lang-menu" style="display:none;" role="menu">
@@ -117,7 +99,7 @@ if (localStorage.getItem('ds_high_contrast') === '1') document.body.classList.ad
       ).join('')}
     </div>
   `;
-  themeBtn.parentNode.insertBefore(wrap, themeBtn.nextSibling);
+  searchBtn.parentNode.insertBefore(wrap, searchBtn.nextSibling);
 
   window._toggleLangMenu = function() {
     const m = document.getElementById('lang-menu');
