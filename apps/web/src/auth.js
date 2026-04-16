@@ -374,11 +374,16 @@ window.submitLogin = async function() {
   const email = document.getElementById('login-email').value.trim();
   const password = document.getElementById('login-password').value;
   const errEl = document.getElementById('login-error');
+  const btn = document.querySelector('#login-form .btn-primary');
   errEl.style.display = 'none';
+  errEl.style.color = 'var(--red)';
   if (!email || !password) { errEl.textContent = 'Email and password required.'; errEl.style.display = ''; return; }
+  // Loading state
+  const origLabel = btn?.textContent;
+  if (btn) { btn.textContent = 'Signing in...'; btn.disabled = true; }
   try {
     const res = await api.login(email, password);
-    if (!res || !res.access_token) { errEl.textContent = 'Invalid credentials.'; errEl.style.display = ''; return; }
+    if (!res || !res.access_token) { errEl.textContent = 'Invalid credentials.'; errEl.style.display = ''; if (btn) { btn.textContent = origLabel; btn.disabled = false; } return; }
     api.setToken(res.access_token);
     if (res.refresh_token) api.setRefreshToken(res.refresh_token);
     currentUser = res.user;
@@ -388,6 +393,7 @@ window.submitLogin = async function() {
     if (_intendedAfterLogin) setTimeout(() => window._nav?.(_intendedAfterLogin), 100);
     return;
   } catch (_) { /* fall through to offline demo */ }
+  if (btn) { btn.textContent = origLabel; btn.disabled = false; }
   // Offline demo credentials fallback — dev only
   if (import.meta.env.DEV) {
     const cred = DEMO_CREDENTIALS[email];
@@ -411,18 +417,22 @@ window.submitRegister = async function() {
   const email = document.getElementById('reg-email').value.trim();
   const password = document.getElementById('reg-password').value;
   const errEl = document.getElementById('reg-error');
+  const btn = document.querySelector('#register-form .btn-primary');
   errEl.style.display = 'none';
   if (!name || !email || !password) { errEl.textContent = 'All fields required.'; errEl.style.display = ''; return; }
+  if (password.length < 8) { errEl.textContent = 'Password must be at least 8 characters.'; errEl.style.display = ''; return; }
+  const origLabel = btn?.textContent;
+  if (btn) { btn.textContent = 'Creating account...'; btn.disabled = true; }
   try {
     const res = await api.register(email, name, password);
-    if (!res || !res.access_token) { errEl.textContent = 'Registration failed.'; errEl.style.display = ''; return; }
+    if (!res || !res.access_token) { errEl.textContent = 'Registration failed.'; errEl.style.display = ''; if (btn) { btn.textContent = origLabel; btn.disabled = false; } return; }
     api.setToken(res.access_token);
+    if (res.refresh_token) api.setRefreshToken(res.refresh_token);
     currentUser = res.user;
-    showApp();
-    updateUserBar();
-    window._bootApp?.();
+    bootUser(currentUser);
   } catch (e) {
     errEl.textContent = e.message || 'Registration failed.';
     errEl.style.display = '';
+    if (btn) { btn.textContent = origLabel; btn.disabled = false; }
   }
 };

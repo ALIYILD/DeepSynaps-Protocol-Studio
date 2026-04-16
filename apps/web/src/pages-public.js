@@ -2065,10 +2065,18 @@ export function pgSignupProfessional() {
       }
     } catch (_) {}
 
-    // Offline demo fallback
-    if (!user) {
+    // Offline demo fallback — dev only
+    if (!user && import.meta.env.DEV) {
       api.setToken('clinician-demo-token');
       user = { email, display_name: name, role: 'clinician', package_id: 'clinician_pro' };
+    }
+
+    if (!user) {
+      err.textContent = 'Registration failed. Please try again or contact support.';
+      err.style.display = '';
+      btn.textContent = 'Create Account \u2192';
+      btn.disabled = false;
+      return;
     }
 
     document.getElementById('prof-step-3').style.display = 'none';
