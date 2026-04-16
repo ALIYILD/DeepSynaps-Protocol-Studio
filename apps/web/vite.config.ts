@@ -1,6 +1,7 @@
 import { defineConfig } from "vite";
 
 export default defineConfig({
+  base: './',
   build: {
     // Raised from 500: pages-clinical (18 258 lines) and pages-knowledge
     // are single source files — they cannot be split further by manualChunks
