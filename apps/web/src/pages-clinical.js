@@ -22912,7 +22912,7 @@ export async function pgSchedulingHub(setTopbar, navigate) {
 
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// pgLibraryHub — Conditions · Devices · Consent · Reports · Home Programs · Packages
+// pgLibraryHub — Conditions · Devices · Home Programs · Packages
 // ═══════════════════════════════════════════════════════════════════════════════
 export async function pgLibraryHub(setTopbar, navigate) {
   const tab = window._libraryHubTab || 'conditions';
@@ -22920,8 +22920,6 @@ export async function pgLibraryHub(setTopbar, navigate) {
   const TAB_META = {
     conditions:   { label: 'Conditions',       color: 'var(--blue)'   },
     devices:      { label: 'Devices',          color: 'var(--teal)'   },
-    consent:      { label: 'Consent & Docs',   color: 'var(--violet)' },
-    reports:      { label: 'Report Templates', color: 'var(--amber)'  },
     homeprograms: { label: 'Home Programs',    color: 'var(--green)'  },
     packages:     { label: 'Cond. Packages',   color: 'var(--rose)'   },
   };
@@ -22964,30 +22962,6 @@ export async function pgLibraryHub(setTopbar, navigate) {
     { id:'D008', name:'Cefaly tSNS',                type:'tSNS',       cleared:'FDA',    mods:['Neuromod'],       feats:['Migraine prevention'] },
     { id:'D009', name:'Neurode Home tDCS',          type:'tDCS Home',  cleared:'CE',     mods:['tDCS'],           feats:['App-controlled','Remote monitor'] },
     { id:'D010', name:'NeuroCatch Platform',        type:'ERP',        cleared:'CE',     mods:['Diagnostics'],    feats:['P300','Concussion protocol'] },
-  ];
-  const CONSENT_DATA = [
-    { id:'C1', name:'TMS Informed Consent',          cat:'Treatment',  ver:'v3.2', pages:4, langs:['EN','FR','ES'] },
-    { id:'C2', name:'tDCS Informed Consent',         cat:'Treatment',  ver:'v2.1', pages:3, langs:['EN'] },
-    { id:'C3', name:'Neurofeedback Consent',         cat:'Treatment',  ver:'v1.8', pages:3, langs:['EN','FR'] },
-    { id:'C4', name:'Privacy & Data Policy',         cat:'Privacy',    ver:'v4.0', pages:6, langs:['EN','FR','ES','DE'] },
-    { id:'C5', name:'Research Participation Consent',cat:'Research',   ver:'v2.3', pages:5, langs:['EN'] },
-    { id:'C6', name:'Home Device Use Agreement',     cat:'Home Care',  ver:'v1.5', pages:3, langs:['EN'] },
-    { id:'C7', name:'Video Consultation Consent',    cat:'Telehealth', ver:'v2.0', pages:2, langs:['EN','FR'] },
-    { id:'C8', name:'Caregiver Access Consent',      cat:'Caregiver',  ver:'v1.2', pages:2, langs:['EN'] },
-    { id:'C9', name:'AI-Assisted Treatment Consent', cat:'AI',         ver:'v1.0', pages:4, langs:['EN'] },
-    { id:'C10',name:'Discharge & Follow-up Plan',    cat:'Discharge',  ver:'v2.4', pages:3, langs:['EN','FR'] },
-  ];
-  const REPORTS_DATA = [
-    { id:'R1', name:'Initial Assessment Report',    cat:'Intake',    fields:18, auto:true  },
-    { id:'R2', name:'Session Progress Note',        cat:'Session',   fields:12, auto:true  },
-    { id:'R3', name:'Mid-Course Review',            cat:'Review',    fields:22, auto:false },
-    { id:'R4', name:'Treatment Outcome Report',     cat:'Discharge', fields:28, auto:true  },
-    { id:'R5', name:'Adverse Event Report',         cat:'Safety',    fields:15, auto:false },
-    { id:'R6', name:'GP/Referrer Summary Letter',   cat:'Referral',  fields:14, auto:true  },
-    { id:'R7', name:'Insurance/Funding Report',     cat:'Admin',     fields:20, auto:false },
-    { id:'R8', name:'qEEG Interpretation Report',   cat:'Diagnostics',fields:16,auto:false },
-    { id:'R9', name:'Home Program Adherence Report',cat:'Follow-up', fields:10, auto:true  },
-    { id:'R10',name:'Monthly Outcomes Summary',     cat:'Analytics', fields:25, auto:true  },
   ];
   const HP_DATA = [
     { id:'HP1', name:'Depression Management Program', tasks:8,  weeks:6, cond:'MDD' },
@@ -23051,26 +23025,6 @@ export async function pgLibraryHub(setTopbar, navigate) {
         <div class="ch-card-hd" style="flex-wrap:wrap;gap:8px"><span class="ch-card-title">Device Registry — ${DEVICES_DATA.length}</span>${sInput('devices')}</div>
         <div style="padding:10px 16px;display:flex;gap:6px;flex-wrap:wrap;border-bottom:1px solid var(--border)">${pills(types,filt,'devices')}</div>
         <div class="lib-grid">${rows.map(d=>'<div class="lib-card lib-card--device"><div class="lib-card-top"><span class="lib-card-name">'+d.name+'</span><span class="lib-badge lib-badge--blue">'+d.cleared+'</span></div><div class="lib-card-meta">'+d.mods.map(m=>'<span class="lib-tag">'+m+'</span>').join('')+'</div><div class="lib-features">'+d.feats.map(f=>'<span class="lib-feature">✓ '+f+'</span>').join('')+'</div></div>').join('')}</div>
-      </div>`;
-  }
-  else if (tab === 'consent') {
-    const cats = ['All',...new Set(CONSENT_DATA.map(c=>c.cat))];
-    const rows = sf(CONSENT_DATA.filter(c=>filt==='All'||c.cat===filt), ['name','cat']);
-    main = `
-      <div class="ch-card">
-        <div class="ch-card-hd" style="flex-wrap:wrap;gap:8px"><span class="ch-card-title">Consent & Document Templates</span><button class="ch-btn-sm ch-btn-teal" onclick="window._dsToast?.({title:'Generate',body:'Document generation coming soon.',severity:'info'})">+ Generate</button></div>
-        <div style="padding:10px 16px;display:flex;gap:6px;flex-wrap:wrap;border-bottom:1px solid var(--border)">${pills(cats,filt,'consent')}</div>
-        ${rows.map(c=>'<div class="book-row"><div class="book-info"><div class="book-patient">'+c.name+'</div><div class="book-clinician">'+c.cat+' · '+c.ver+' · '+c.pages+'pp</div></div><div class="book-status-col"><span class="book-status-badge" style="color:var(--blue);background:rgba(74,158,255,0.1)">'+c.langs.join('/')+' </span></div><div class="book-actions"><button class="ch-btn-sm" onclick="window._dsToast?.({title:\'Download\',body:\''+c.name+'\',severity:\'info\'})">↓ Download</button><button class="ch-btn-sm ch-btn-teal" onclick="window._dsToast?.({title:\'Assigned\',body:\'Consent assigned to patient.\',severity:\'success\'})">Assign</button></div></div>').join('')}
-      </div>`;
-  }
-  else if (tab === 'reports') {
-    const cats = ['All',...new Set(REPORTS_DATA.map(r=>r.cat))];
-    const rows = sf(REPORTS_DATA.filter(r=>filt==='All'||r.cat===filt), ['name','cat']);
-    main = `
-      <div class="ch-card">
-        <div class="ch-card-hd" style="flex-wrap:wrap;gap:8px"><span class="ch-card-title">Report Templates</span><button class="ch-btn-sm ch-btn-teal" onclick="window._dsToast?.({title:'New',body:'Template builder coming soon.',severity:'info'})">+ New</button></div>
-        <div style="padding:10px 16px;display:flex;gap:6px;flex-wrap:wrap;border-bottom:1px solid var(--border)">${pills(cats,filt,'reports')}</div>
-        ${rows.map(r=>'<div class="book-row"><div class="book-info"><div class="book-patient">'+r.name+'</div><div class="book-clinician">'+r.cat+' · '+r.fields+' fields'+(r.auto?' · Auto-gen':'')+'</div></div><div class="book-status-col">'+(r.auto?'<span class="book-status-badge" style="color:var(--teal);background:rgba(0,212,188,0.1)">Auto</span>':'')+'</div><div class="book-actions"><button class="ch-btn-sm ch-btn-teal" onclick="window._dsToast?.({title:\'Generate\',body:\''+r.name+'\',severity:\'success\'})">Generate</button></div></div>').join('')}
       </div>`;
   }
   else if (tab === 'homeprograms') {
