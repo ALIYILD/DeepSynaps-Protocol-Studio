@@ -7025,6 +7025,17 @@ export async function pgHomeTaskManager(setTopbar) {
     { title:'Screen-free Hour',    cat:'Screen',    freq:'Daily',   evidence:'Improved sleep onset (Chang et al., 2015)',            instructions:'No screens 1 hour before intended sleep time.' },
     { title:'Social Activity',     cat:'Social',    freq:'Weekly',  evidence:'Depression buffer (Holt-Lunstad et al., 2015)',        instructions:'Meaningful social interaction with friend or family member.' },
     { title:'Sleep Hygiene',       cat:'Sleep',     freq:'Daily',   evidence:'TMS outcome improvement (Philip et al., 2021)',        instructions:'Consistent sleep/wake schedule within 30 min. No caffeine after noon.' },
+    // ── Home Programs ──
+    { title:'Depression Management Program', cat:'Program', freq:'6 weeks', evidence:'Evidence-based for MDD treatment',           instructions:'8-week structured program with daily tasks. Focus on behavioral activation, mood tracking, and coping strategies.' },
+    { title:'Anxiety & Mindfulness Program', cat:'Program', freq:'4 weeks', evidence:'Mindfulness reduces anxiety symptoms',        instructions:'7-task program combining mindfulness, breathing, and exposure techniques. Daily 15-20 min commitment.' },
+    { title:'Pain Self-Management Program',  cat:'Program', freq:'8 weeks', evidence:'Reduces pain perception and disability',      instructions:'6-task comprehensive program including activity pacing, relaxation, and cognitive restructuring.' },
+    { title:'Sleep Hygiene Protocol',        cat:'Program', freq:'4 weeks', evidence:'Improves sleep onset and quality',            instructions:'5-task protocol addressing sleep environment, behavioral patterns, and sleep restriction therapy.' },
+    { title:'PTSD Grounding & Stabilisation', cat:'Program', freq:'6 weeks', evidence:'Trauma-informed stabilization approach',     instructions:'9-task program focusing on grounding techniques, emotional regulation, and safety planning.' },
+    { title:'Cognitive Stimulation Exercises', cat:'Program', freq:'6 weeks', evidence:'Enhances cognitive reserve',                 instructions:'7 structured exercises targeting memory, attention, and executive function with daily engagement.' },
+    { title:'OCD ERP Daily Practice',        cat:'Program', freq:'8 weeks', evidence:'Gold standard for OCD treatment',             instructions:'8-task exposure and response prevention program with graduated difficulty levels.' },
+    { title:'ADHD Attention Training',       cat:'Program', freq:'6 weeks', evidence:'Improves executive function',                 instructions:'6 focused exercises improving attention, impulse control, and organizational skills.' },
+    { title:'Mood Tracking & Journaling',    cat:'Program', freq:'12 weeks',evidence:'Builds emotional awareness and stability',    instructions:'3 ongoing tasks: daily mood log, weekly reflection, and symptom monitoring.' },
+    { title:'Post-TMS Wellness Routine',     cat:'Program', freq:'4 weeks', evidence:'Maintains treatment gains post-intervention',  instructions:'5-task routine optimizing sleep, activity, mood tracking, and relapse prevention.' },
     { title:'Custom',              cat:'Custom',    freq:'',        evidence:'',                                                     instructions:'' },
   ];
 

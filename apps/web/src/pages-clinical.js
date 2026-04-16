@@ -22912,7 +22912,7 @@ export async function pgSchedulingHub(setTopbar, navigate) {
 
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// pgLibraryHub — Conditions · Devices · Home Programs · Packages
+// pgLibraryHub — Conditions · Devices · Packages
 // ═══════════════════════════════════════════════════════════════════════════════
 export async function pgLibraryHub(setTopbar, navigate) {
   const tab = window._libraryHubTab || 'conditions';
@@ -22920,7 +22920,6 @@ export async function pgLibraryHub(setTopbar, navigate) {
   const TAB_META = {
     conditions:   { label: 'Conditions',       color: 'var(--blue)'   },
     devices:      { label: 'Devices',          color: 'var(--teal)'   },
-    homeprograms: { label: 'Home Programs',    color: 'var(--green)'  },
     packages:     { label: 'Cond. Packages',   color: 'var(--rose)'   },
   };
   const el = document.getElementById('content');
@@ -22962,18 +22961,6 @@ export async function pgLibraryHub(setTopbar, navigate) {
     { id:'D008', name:'Cefaly tSNS',                type:'tSNS',       cleared:'FDA',    mods:['Neuromod'],       feats:['Migraine prevention'] },
     { id:'D009', name:'Neurode Home tDCS',          type:'tDCS Home',  cleared:'CE',     mods:['tDCS'],           feats:['App-controlled','Remote monitor'] },
     { id:'D010', name:'NeuroCatch Platform',        type:'ERP',        cleared:'CE',     mods:['Diagnostics'],    feats:['P300','Concussion protocol'] },
-  ];
-  const HP_DATA = [
-    { id:'HP1', name:'Depression Management Program', tasks:8,  weeks:6, cond:'MDD' },
-    { id:'HP2', name:'Anxiety & Mindfulness Program', tasks:7,  weeks:4, cond:'GAD' },
-    { id:'HP3', name:'Pain Self-Management Program',  tasks:6,  weeks:8, cond:'Chronic Pain' },
-    { id:'HP4', name:'Sleep Hygiene Protocol',        tasks:5,  weeks:4, cond:'Insomnia' },
-    { id:'HP5', name:'PTSD Grounding & Stabilisation',tasks:9,  weeks:6, cond:'PTSD' },
-    { id:'HP6', name:'Cognitive Stimulation Exercises',tasks:7, weeks:6, cond:'Cognitive' },
-    { id:'HP7', name:'OCD ERP Daily Practice',        tasks:8,  weeks:8, cond:'OCD' },
-    { id:'HP8', name:'ADHD Attention Training',       tasks:6,  weeks:6, cond:'ADHD' },
-    { id:'HP9', name:'Mood Tracking & Journaling',    tasks:3,  weeks:12,cond:'General' },
-    { id:'HP10',name:'Post-TMS Wellness Routine',     tasks:5,  weeks:4, cond:'Post-TMS' },
   ];
   const PKG_DATA = [
     { id:'P1', name:'MDD Bundle',  cond:'Major Depressive Disorder', scales:['PHQ-9','MADRS','C-SSRS','ISI'],    protocols:2 },
@@ -23025,14 +23012,6 @@ export async function pgLibraryHub(setTopbar, navigate) {
         <div class="ch-card-hd" style="flex-wrap:wrap;gap:8px"><span class="ch-card-title">Device Registry — ${DEVICES_DATA.length}</span>${sInput('devices')}</div>
         <div style="padding:10px 16px;display:flex;gap:6px;flex-wrap:wrap;border-bottom:1px solid var(--border)">${pills(types,filt,'devices')}</div>
         <div class="lib-grid">${rows.map(d=>'<div class="lib-card lib-card--device"><div class="lib-card-top"><span class="lib-card-name">'+d.name+'</span><span class="lib-badge lib-badge--blue">'+d.cleared+'</span></div><div class="lib-card-meta">'+d.mods.map(m=>'<span class="lib-tag">'+m+'</span>').join('')+'</div><div class="lib-features">'+d.feats.map(f=>'<span class="lib-feature">✓ '+f+'</span>').join('')+'</div></div>').join('')}</div>
-      </div>`;
-  }
-  else if (tab === 'homeprograms') {
-    const rows = sf(HP_DATA, ['name','cond']);
-    main = `
-      <div class="ch-card">
-        <div class="ch-card-hd" style="flex-wrap:wrap;gap:8px"><span class="ch-card-title">Home Program Templates — ${HP_DATA.length}</span>${sInput('homeprograms')}</div>
-        <div class="lib-grid">${rows.map(hp=>'<div class="lib-card"><div class="lib-card-name">'+hp.name+'</div><div class="lib-card-meta"><span class="lib-tag">'+hp.cond+'</span><span class="lib-tag">'+hp.tasks+' tasks</span><span class="lib-tag">'+hp.weeks+'wk</span></div><div style="margin-top:8px"><button class="ch-btn-sm ch-btn-teal" onclick="window._dsToast?.({title:\'Assigned\',body:\''+hp.name+' assigned.\',severity:\'success\'})">Assign to Patient</button></div></div>').join('')}</div>
       </div>`;
   }
   else if (tab === 'packages') {
