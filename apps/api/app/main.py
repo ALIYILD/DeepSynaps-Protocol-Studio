@@ -75,6 +75,7 @@ from app.routers.reminders_router import router as reminders_router
 from app.routers.irb_router import router as irb_router
 from app.routers.evidence_router import router as evidence_router
 from app.routers.literature_router import router as literature_router
+from app.routers.library_router import router as library_router
 from app.routers.reports_router import router as reports_router
 from app.routers.documents_router import router as documents_router
 from app.routers.documents_router import patient_docs_router
@@ -150,6 +151,7 @@ app.include_router(reminders_router)
 app.include_router(irb_router)
 app.include_router(literature_router)
 app.include_router(evidence_router)
+app.include_router(library_router)
 app.include_router(reports_router, prefix="/api/v1/reports", tags=["reports"])
 app.include_router(documents_router)
 app.include_router(patient_docs_router)

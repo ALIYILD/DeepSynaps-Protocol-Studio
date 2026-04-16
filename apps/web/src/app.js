@@ -138,10 +138,14 @@ let _modHandbooks  = null;
 let _modProtocols  = null;
 let _modVirtualCare   = null;
 let _modConditions    = null;
+let _modClinicalTools = null;
+let _modClinicalHubs  = null;
 
 async function loadPublic()     { return (_modPublic    ??= await import('./pages-public.js')); }
 async function loadPatient()    { return (_modPatient   ??= await import('./pages-patient.js')); }
 async function loadClinical()   { return (_modClinical  ??= await import('./pages-clinical.js')); }
+async function loadClinicalTools() { return (_modClinicalTools ??= await import('./pages-clinical-tools.js')); }
+async function loadClinicalHubs()  { return (_modClinicalHubs  ??= await import('./pages-clinical-hubs.js')); }
 async function loadKnowledge()  { return (_modKnowledge ??= await import('./pages-knowledge.js')); }
 async function loadPractice()   { return (_modPractice  ??= await import('./pages-practice.js')); }
 async function loadCourses()    { return (_modCourses   ??= await import('./pages-courses.js')); }
@@ -1076,7 +1080,7 @@ async function renderPage() {
     case 'patients':     { window._patientHubTab = 'patients';     window._nav('patients-hub'); break; }
     case 'courses-tab':  { window._patientHubTab = 'courses';      window._nav('patients-hub'); break; }
     case 'rx-tab':       { window._patientHubTab = 'prescriptions'; window._nav('patients-hub'); break; }
-    case 'patients-hub': { const m = await loadClinical(); await m.pgPatientHub(setTopbar, navigate); break; }
+    case 'patients-hub': { const m = await loadClinicalHubs(); await m.pgPatientHub(setTopbar, navigate); break; }
     case 'patients-full':{ const m = await loadClinical(); await m.pgPatients(setTopbar, navigate); break; }
     case 'patient':
     case 'patient-profile': { const m = await loadClinical(); await m.pgPatientProfile(setTopbar); break; }
@@ -1121,7 +1125,7 @@ async function renderPage() {
     case 'handbooks':
     case 'reg-handbooks':   { window._protocolHubTab = 'handbooks'; window._nav('protocol-hub'); break; }
     case 'protocol-builder':{ window._protocolHubTab = 'builder';   window._nav('protocol-hub'); break; }
-    case 'protocol-hub':      { const { pgProtocolHub } = await loadClinical(); await pgProtocolHub(setTopbar, navigate); break; }
+    case 'protocol-hub':      { const { pgProtocolHub } = await loadClinicalHubs(); await pgProtocolHub(setTopbar, navigate); break; }
     case 'personalized-protocol': { window._protocolHubTab = 'personalized'; window._nav('protocol-hub'); break; }
     case 'brain-scan-protocol':   { window._protocolHubTab = 'brainscan';    window._nav('protocol-hub'); break; }
     case 'protocol-detail': {
@@ -1149,7 +1153,7 @@ async function renderPage() {
       await m.pgDecisionSupport(setTopbar);
       break;
     }
-    case 'benchmark-library': { const m = await loadClinical(); await m.pgBenchmarkLibrary(setTopbar); break; }
+    case 'benchmark-library': { const m = await loadClinicalTools(); await m.pgBenchmarkLibrary(setTopbar); break; }
     case 'outcomes': { window._clinicalHubTab = 'outcomes'; window._nav('clinical-hub'); break; }
     case 'outcome-prediction': { const m = await loadCourses(); await m.pgOutcomePrediction(setTopbar); break; }
     case 'rules-engine': { const m = await loadCourses(); await m.pgRulesEngine(setTopbar); break; }
@@ -1229,7 +1233,7 @@ async function renderPage() {
       break;
     }
     case 'scheduling':      { window._schedHubTab = 'calendar'; window._nav('scheduling-hub'); break; }
-    case 'scheduling-hub':  { const { pgSchedulingHub } = await loadClinical(); await pgSchedulingHub(setTopbar, navigate); break; }
+    case 'scheduling-hub':  { const { pgSchedulingHub } = await loadClinicalHubs(); await pgSchedulingHub(setTopbar, navigate); break; }
     case 'scheduling-full': { const m = await loadPractice(); el.innerHTML = m.pgSchedule(setTopbar); break; }
     case 'telehealth': {
       const m = await loadPractice();
@@ -1239,41 +1243,41 @@ async function renderPage() {
     case 'telehealth-recorder': { const m = await loadPractice(); await m.pgTelehealthRecorder(setTopbar); break; }
     case 'monitoring': { window._monitorHubTab = 'monitoring'; window._nav('monitor-hub'); break; }
     case 'wearables':  { window._monitorHubTab = 'monitoring'; window._nav('monitor-hub'); break; }
-    case 'library-hub':    { const { pgLibraryHub }    = await loadClinical(); await pgLibraryHub(setTopbar, navigate);    break; }
-    case 'monitor-hub':    { const { pgMonitorHub }    = await loadClinical(); await pgMonitorHub(setTopbar, navigate);    break; }
-    case 'virtual-care-hub':{ const { pgVirtualCareHub } = await loadClinical(); await pgVirtualCareHub(setTopbar, navigate); break; }
-    case 'home-task-manager': { const m = await loadClinical(); await m.pgHomePrograms(setTopbar, navigate); break; }
+    case 'library-hub':    { const { pgLibraryHub }    = await loadClinicalHubs(); await pgLibraryHub(setTopbar, navigate);    break; }
+    case 'monitor-hub':    { const { pgMonitorHub }    = await loadClinicalHubs(); await pgMonitorHub(setTopbar, navigate);    break; }
+    case 'virtual-care-hub':{ const { pgVirtualCareHub } = await loadClinicalHubs(); await pgVirtualCareHub(setTopbar, navigate); break; }
+    case 'home-task-manager': { const m = await loadClinicalTools(); await m.pgHomePrograms(setTopbar, navigate); break; }
     case 'messaging': {
       const m = await loadVirtualCare();
       await m.pgVirtualCare(setTopbar, navigate);
       break;
     }
-    case 'advanced-search': { const m = await loadClinical(); await m.pgAdvancedSearch(setTopbar); break; }
+    case 'advanced-search': { const m = await loadClinicalTools(); await m.pgAdvancedSearch(setTopbar); break; }
     case 'programs': {
       const m = await loadPractice();
       m.pgPrograms(setTopbar);
       break;
     }
     case 'billing':            { window._financeHubTab = 'invoices'; window._nav('finance-hub'); break; }
-    case 'finance-hub':        { const { pgFinanceHub }   = await loadClinical(); await pgFinanceHub(setTopbar, navigate);   break; }
-    case 'documents-hub':      { const { pgDocumentsHubNew } = await loadClinical(); await pgDocumentsHubNew(setTopbar, navigate); break; }
-    case 'reports-hub':        { const { pgReportsHubNew }   = await loadClinical(); await pgReportsHubNew(setTopbar, navigate); break; }
+    case 'finance-hub':        { const { pgFinanceHub }   = await loadClinicalHubs(); await pgFinanceHub(setTopbar, navigate);   break; }
+    case 'documents-hub':      { const { pgDocumentsHubNew } = await loadClinicalHubs(); await pgDocumentsHubNew(setTopbar, navigate); break; }
+    case 'reports-hub':        { const { pgReportsHubNew }   = await loadClinicalHubs(); await pgReportsHubNew(setTopbar, navigate); break; }
     case 'insurance':          { window._financeHubTab = 'insurance'; window._nav('finance-hub'); break; }
     case 'referrals':          { const m = await loadPractice(); await m.pgReferrals(setTopbar); break; }
     case 'reports': {
-      const { pgReportsHub } = await loadClinical();
+      const { pgReportsHub } = await loadClinicalTools();
       await pgReportsHub(setTopbar);
       break;
     }
     case 'population-reports': {
       window._reportsHubTab = 'analytics'; window._nav('reports-hub'); break;
     }
-    case 'media-queue': { const m = await loadClinical(); await m.pgMediaReviewQueue(setTopbar); break; }
-    case 'media-detail': { const m = await loadClinical(); await m.pgMediaDetail(setTopbar); break; }
-    case 'clinician-dictation': { const m = await loadClinical(); await m.pgClinicianDictation(setTopbar); break; }
-    case 'clinic-day': { const { pgClinicDay } = await loadClinical(); await pgClinicDay(setTopbar); break; }
-    case 'patient-queue': { const { pgPatientQueue } = await loadClinical(); await pgPatientQueue(setTopbar); break; }
-    case 'clinician-draft-review': { const m = await loadClinical(); await m.pgClinicianDraftReview(setTopbar); break; }
+    case 'media-queue': { const m = await loadClinicalTools(); await m.pgMediaReviewQueue(setTopbar); break; }
+    case 'media-detail': { const m = await loadClinicalTools(); await m.pgMediaDetail(setTopbar); break; }
+    case 'clinician-dictation': { const m = await loadClinicalTools(); await m.pgClinicianDictation(setTopbar); break; }
+    case 'clinic-day': { const { pgClinicDay } = await loadClinicalTools(); await pgClinicDay(setTopbar); break; }
+    case 'patient-queue': { const { pgPatientQueue } = await loadClinicalTools(); await pgPatientQueue(setTopbar); break; }
+    case 'clinician-draft-review': { const m = await loadClinicalTools(); await m.pgClinicianDraftReview(setTopbar); break; }
     case 'clinical-notes': {
       const m = await loadCourses();
       await m.pgClinicalNotes(setTopbar);
@@ -1308,9 +1312,9 @@ async function renderPage() {
       await m.pgAuditTrail(setTopbar);
       break;
     }
-    case 'consent-automation': { const { pgConsentAutomation } = await loadClinical(); await pgConsentAutomation(setTopbar); break; }
-    case 'forms-builder': { const { pgFormsBuilder } = await loadClinical(); await pgFormsBuilder(setTopbar); break; }
-    case 'med-interactions': { const { pgMedInteractionChecker } = await loadClinical(); await pgMedInteractionChecker(setTopbar); break; }
+    case 'consent-automation': { const { pgConsentAutomation } = await loadClinicalTools(); await pgConsentAutomation(setTopbar); break; }
+    case 'forms-builder': { const { pgFormsBuilder } = await loadClinicalTools(); await pgFormsBuilder(setTopbar); break; }
+    case 'med-interactions': { const { pgMedInteractionChecker } = await loadClinicalTools(); await pgMedInteractionChecker(setTopbar); break; }
     case 'admin': {
       const m = await loadPractice();
       await m.pgAdmin(setTopbar, currentUser);
@@ -1325,18 +1329,18 @@ async function renderPage() {
       break;
     }
     case 'reminders': { const { pgReminderAutomation } = await loadPractice(); await pgReminderAutomation(setTopbar); break; }
-    case 'evidence-builder': { const { pgEvidenceBuilder } = await loadClinical(); await pgEvidenceBuilder(setTopbar); break; }
+    case 'evidence-builder': { const { pgEvidenceBuilder } = await loadClinicalTools(); await pgEvidenceBuilder(setTopbar); break; }
     case 'medical-history':  { window._clinicalHubTab = 'history';     window._nav('assessments'); break; }
     case 'assessments-hub':  { window._clinicalHubTab = 'assessments'; window._nav('assessments'); break; }
     case 'outcomes-redirect':{ window._clinicalHubTab = 'outcomes';    window._nav('assessments'); break; }
     case 'clinical-hub':
-    case 'assessments':      { const { pgClinicalHub } = await loadClinical(); await pgClinicalHub(setTopbar, navigate); break; }
-    case 'documents':        { const { pgDocumentsHub }   = await loadClinical(); await pgDocumentsHub(setTopbar);   break; }
-    case 'brain-map-full':    { const { pgBrainMapPlanner } = await loadClinical(); await pgBrainMapPlanner(setTopbar); break; }
+    case 'assessments':      { const { pgClinicalHub } = await loadClinicalHubs(); await pgClinicalHub(setTopbar, navigate); break; }
+    case 'documents':        { const { pgDocumentsHub }   = await loadClinicalTools(); await pgDocumentsHub(setTopbar);   break; }
+    case 'brain-map-full':    { const { pgBrainMapPlanner } = await loadClinicalTools(); await pgBrainMapPlanner(setTopbar); break; }
     case 'prescriptions':        { window._patientHubTab = 'prescriptions'; window._nav('patients-hub'); break; }
-    case 'prescriptions-full':   { const { pgPrescriptions } = await loadClinical(); await pgPrescriptions(setTopbar); break; }
-    case 'patient-protocol':    { const { pgPatientProtocolView }  = await loadClinical(); await pgPatientProtocolView(setTopbar); break; }
-    case 'protocol-detail':     { const { pgProtocolDetail }       = await loadClinical(); await pgProtocolDetail(setTopbar, navigate); break; }
+    case 'prescriptions-full':   { const { pgPrescriptions } = await loadClinicalTools(); await pgPrescriptions(setTopbar); break; }
+    case 'patient-protocol':    { const { pgPatientProtocolView }  = await loadClinicalTools(); await pgPatientProtocolView(setTopbar); break; }
+    case 'protocol-detail':     { const { pgProtocolDetail }       = await loadProtocols(); await pgProtocolDetail(setTopbar, navigate); break; }
     case 'condition-packages':   { window._libraryHubTab = 'packages'; window._nav('library-hub'); break; }
     case 'condition-package':   { const { pgConditionPackage }     = await loadKnowledge(); await pgConditionPackage(setTopbar, navigate);  break; }
     case 'notes-dictation': { window._monitorHubTab = 'notes'; window._nav('monitor-hub'); break; }

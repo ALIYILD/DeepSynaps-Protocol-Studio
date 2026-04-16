@@ -122,6 +122,9 @@ class Patient(Base):
     consent_date: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
     status: Mapped[str] = mapped_column(String(30), default="active")  # active, on_hold, discharged
     notes: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    # Structured medical-history blob — see routers/patients_router.py for shape.
+    # Holds sections, safety flags/ack, and meta (version, reviewed_by/at).
+    medical_history: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
     updated_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
@@ -162,8 +165,20 @@ class AssessmentRecord(Base):
     template_title: Mapped[str] = mapped_column(String(255), nullable=False)
     data_json: Mapped[str] = mapped_column(Text(), nullable=False, default="{}")
     clinician_notes: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
-    status: Mapped[str] = mapped_column(String(30), default="draft")  # draft, completed
+    status: Mapped[str] = mapped_column(String(30), default="draft")  # draft, pending, completed
     score: Mapped[Optional[str]] = mapped_column(String(30), nullable=True)
+    # Governance fields (migration 020): respondent type, phase, due date, scale version,
+    # bundle linkage, clinician approval trail, AI provenance, and source label.
+    respondent_type: Mapped[str] = mapped_column(String(30), nullable=False, default="patient")
+    phase: Mapped[Optional[str]] = mapped_column(String(30), nullable=True, index=True)
+    due_date: Mapped[Optional[datetime]] = mapped_column(DateTime(), nullable=True, index=True)
+    scale_version: Mapped[Optional[str]] = mapped_column(String(40), nullable=True)
+    bundle_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, index=True)
+    approved_status: Mapped[str] = mapped_column(String(30), nullable=False, default="unreviewed")
+    reviewed_by: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    reviewed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(), nullable=True)
+    ai_generated_at: Mapped[Optional[datetime]] = mapped_column(DateTime(), nullable=True)
+    source: Mapped[str] = mapped_column(String(40), nullable=False, default="manual")
     created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
     updated_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 

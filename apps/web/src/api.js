@@ -230,15 +230,39 @@ export const api = {
   deleteSession: (id) => apiFetch(`/api/v1/sessions/${id}`, { method: 'DELETE' }),
 
   // ── Assessments ─────────────────────────────────────────────────────────
-  listAssessments: () => apiFetchWithRetry('/api/v1/assessments'),
+  listAssessments: (patientId) => apiFetchWithRetry(`/api/v1/assessments${patientId ? `?patient_id=${encodeURIComponent(patientId)}` : ''}`),
   createAssessment: (data) => apiFetch('/api/v1/assessments', { method: 'POST', body: JSON.stringify(data) }),
   updateAssessment: (id, data) => apiFetch(`/api/v1/assessments/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   deleteAssessment: (id) => apiFetch(`/api/v1/assessments/${id}`, { method: 'DELETE' }),
   assignAssessment: (patientId, data) => apiFetch('/api/v1/assessments/assign', { method: 'POST', body: JSON.stringify({ patient_id: patientId, ...data }) }),
+  bulkAssignAssessments: (data) => apiFetch('/api/v1/assessments/bulk-assign', { method: 'POST', body: JSON.stringify(data) }),
+  listAssessmentTemplates: () => apiFetchWithRetry('/api/v1/assessments/templates'),
+  listAssessmentScales: () => apiFetchWithRetry('/api/v1/assessments/scales'),
+  getPatientAssessmentSummary: (patientId) => apiFetch(`/api/v1/assessments/summary/${encodeURIComponent(patientId)}`),
+  getPatientAssessmentAIContext: (patientId) => apiFetch(`/api/v1/assessments/ai-context/${encodeURIComponent(patientId)}`),
+  approveAssessment: (id, body) => apiFetch(`/api/v1/assessments/${id}/approve`, { method: 'POST', body: JSON.stringify(body || { approved: true }) }),
 
   // ── Medical History ─────────────────────────────────────────────────────
+  // Soft-fail load: returns null on error so non-critical consumers can keep rendering.
   getPatientMedicalHistory: (patientId) => apiFetch(`/api/v1/patients/${patientId}/medical-history`).catch(() => null),
-  savePatientMedicalHistory: (patientId, historyData) => apiFetch(`/api/v1/patients/${patientId}/medical-history`, { method: 'PATCH', body: JSON.stringify({ medical_history: historyData }) }).catch(e => { console.warn('Medical history sync failed:', e?.message); }),
+  // Soft-fail legacy write (kept for fire-and-forget autosave from non-critical pages).
+  savePatientMedicalHistory: (patientId, historyData) => apiFetch(`/api/v1/patients/${patientId}/medical-history`, { method: 'PATCH', body: JSON.stringify({ medical_history: historyData, mode: 'replace' }) }).catch(e => { console.warn('Medical history sync failed:', e?.message); }),
+  // Fail-loud merge save: used by the Patients Hub MH form so save failures surface.
+  patchPatientMedicalHistorySections: (patientId, payload) =>
+    apiFetch(`/api/v1/patients/${patientId}/medical-history`, {
+      method: 'PATCH',
+      body: JSON.stringify({ mode: 'merge_sections', ...payload }),
+    }),
+  // Fail-loud replace save: full-record save path (Save All).
+  replacePatientMedicalHistory: (patientId, payload) =>
+    apiFetch(`/api/v1/patients/${patientId}/medical-history`, {
+      method: 'PATCH',
+      body: JSON.stringify({ mode: 'replace', ...payload }),
+    }),
+  // Prompt-safe medical-history context preview for AI consumers.
+  // Permission-gated server-side (clinician + ownership). Returns null on error.
+  getPatientMedicalHistoryAIContext: (patientId) =>
+    apiFetch(`/api/v1/patients/${patientId}/medical-history/ai-context`).catch(() => null),
 
   // ── Documents Hub ───────────────────────────────────────────────────────
   listDocuments: (patientId) => apiFetchWithRetry(`/api/v1/documents${patientId ? '?patient_id=' + patientId : ''}`),
@@ -249,8 +273,31 @@ export const api = {
   listPatientDocuments: (patientId) => apiFetchWithRetry(`/api/v1/patients/${patientId}/documents`),
 
   // ── Clinical Knowledge ──────────────────────────────────────────────────
-  listEvidence: () => apiFetchWithRetry('/api/v1/evidence'),
-  listDevices: () => apiFetchWithRetry('/api/v1/devices'),
+  // Retargeted: the legacy stub endpoints were never implemented. These now
+  // point at the real curated sources so callers keep working.
+  listEvidence: () => apiFetchWithRetry('/api/v1/literature'),
+  listDevices: () => apiFetchWithRetry('/api/v1/registry/devices'),
+
+  // ── Library Hub (page-scoped aggregate, includes trust/eligibility) ─────
+  libraryOverview: () => apiFetchWithRetry('/api/v1/library/overview'),
+  libraryConditionSummary: (conditionId) =>
+    apiFetch(`/api/v1/library/conditions/${encodeURIComponent(conditionId)}/summary`),
+  libraryExternalSearch: ({ q, condition_id = null, limit = 15 } = {}) =>
+    apiFetch('/api/v1/library/external-search', {
+      method: 'POST',
+      body: JSON.stringify({ q, condition_id, limit }),
+    }),
+  librarySummarizeEvidence: ({ paper_ids, focus = null } = {}) =>
+    apiFetch('/api/v1/library/ai/summarize-evidence', {
+      method: 'POST',
+      body: JSON.stringify({ paper_ids, focus }),
+    }),
+
+  // Literature list alias for the Library page (same endpoint as getLiterature).
+  listLiterature: (params = {}) => {
+    const q = new URLSearchParams(params).toString();
+    return apiFetchWithRetry(`/api/v1/literature${q ? '?' + q : ''}`);
+  },
 
   // ── Live evidence pipeline (PubMed + OpenAlex + CT.gov + FDA) ───────────
   // Hits services/evidence-pipeline via the api's evidence_router.
