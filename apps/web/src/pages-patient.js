@@ -3,6 +3,14 @@
 import { api } from './api.js';
 import { currentUser } from './auth.js';
 import { t, getLocale, setLocale, LOCALES } from './i18n.js';
+import {
+  ffEmojiScale,
+  ffTextarea,
+  ffInput,
+  ffChipGroup,
+  ffActions,
+  ffNotice,
+} from './friendly-forms.js';
 
 // ── Nav definition ────────────────────────────────────────────────────────────
 function _patientNav() {
@@ -8008,41 +8016,99 @@ export async function pgSymptomJournal(setTopbarFn) {
 
   const unsyncedCount = entries.filter(e => !e.synced).length;
 
+  const todayLong = new Date().toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
   el.innerHTML = `
-    <div style="max-width:600px;margin:0 auto;padding:16px">
-      <div class="card" style="margin-bottom:16px">
-        <div class="card-header">
-          <h3 style="margin:0;font-size:1rem">How are you feeling today?</h3>
-          <span style="font-size:11px;color:var(--text-tertiary)">${new Date().toLocaleDateString(undefined,{weekday:'long',year:'numeric',month:'long',day:'numeric'})}</span>
-        </div>
-        <div class="card-body" style="padding:16px">
-          ${todayEntry ? `<div class="notice notice-success" style="margin-bottom:12px">You already logged today. You can update it below.</div>` : ''}
-          ${_emojiScaleRow('j-mood',    '😊 Mood',    ['😫','😟','😐','🙂','😊'], 1, 5)}
-          ${_emojiScaleRow('j-energy',  '⚡ Energy',  ['😴','🥱','😐','🙂','⚡'], 1, 5)}
-          ${_emojiScaleRow('j-anxiety', '😰 Anxiety', ['😰','😟','😐','🙂','😌'], 1, 5)}
-          ${_emojiScaleRow('j-sleep',   '💤 Sleep (hours)', ['0h','3h','6h','9h','12h'], 0, 12)}
-          <div style="margin-bottom:16px">
-            <label style="font-size:12px;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:4px">Notes (optional)</label>
-            <textarea id="j-notes" rows="3" placeholder="How was your day? Any symptoms to note?"
-              style="width:100%;border:1px solid var(--border);border-radius:6px;padding:8px;background:var(--input-bg,rgba(255,255,255,0.04));color:var(--text-primary);font-family:var(--font-body);font-size:13px;resize:vertical;box-sizing:border-box">${todayEntry?.notes || ''}</textarea>
+    <div class="ff-page">
+      <div class="ff-page-inner">
+        <header class="ff-page-head">
+          <div class="ff-page-icon" aria-hidden="true">📝</div>
+          <h1 class="ff-page-title">How are you feeling today?</h1>
+          <p class="ff-page-sub">${todayLong} — tap a face below for each question. You can always change your answers.</p>
+        </header>
+
+        ${todayEntry ? ffNotice({ tone: 'ok', text: "You've already logged today — feel free to update your entry below." }) : ''}
+
+        <div class="ff-card">
+          <div class="ff-card-title">Today's check-in</div>
+          <p class="ff-card-sub">There are no right or wrong answers. A quick 30-second rating is plenty.</p>
+
+          ${ffEmojiScale({
+            id: 'j-mood',
+            label: 'Mood',
+            emojis: ['😫','😟','😐','🙂','😊'],
+            min: 1, max: 5,
+            value: todayEntry?.mood,
+            leftLabel: 'Very low',
+            rightLabel: 'Great',
+            help: 'Overall, how did you feel most of the day?',
+          })}
+
+          ${ffEmojiScale({
+            id: 'j-energy',
+            label: 'Energy',
+            emojis: ['😴','🥱','😐','🙂','⚡'],
+            min: 1, max: 5,
+            value: todayEntry?.energy,
+            leftLabel: 'Exhausted',
+            rightLabel: 'Full of energy',
+          })}
+
+          ${ffEmojiScale({
+            id: 'j-anxiety',
+            label: 'Anxiety',
+            emojis: ['😰','😟','😐','🙂','😌'],
+            min: 1, max: 5,
+            value: todayEntry?.anxiety,
+            leftLabel: 'Very anxious',
+            rightLabel: 'Calm',
+            help: 'How tense or worried did you feel today? (5 = calm, 1 = very anxious)',
+          })}
+
+          ${ffInput({
+            id: 'j-sleep',
+            label: 'Sleep last night',
+            type: 'number',
+            icon: '💤',
+            value: todayEntry?.sleep ?? '',
+            placeholder: 'Hours (e.g. 7.5)',
+            min: 0, max: 24, step: 0.5,
+            inputmode: 'decimal',
+            help: 'Enter the number of hours you slept — decimals are fine.',
+          })}
+
+          ${ffTextarea({
+            id: 'j-notes',
+            label: 'Anything else to share?',
+            value: todayEntry?.notes || '',
+            placeholder: 'How was your day? Any symptoms, triggers, or wins to note?',
+            rows: 3,
+            optional: true,
+            help: 'Your notes go only to your clinical care team.',
+          })}
+
+          <button class="btn btn-primary" id="j-save-btn"
+            style="width:100%;min-height:52px;font-size:14px;font-weight:600;margin-top:8px">
+            ✓ Save today's check-in
+          </button>
+          <div id="j-save-msg" role="status" aria-live="polite"
+            style="display:none;margin-top:10px;font-size:13px;color:var(--green);text-align:center;font-weight:500">
+            Entry saved — thank you for checking in.
           </div>
-          <button class="btn btn-primary" style="width:100%" id="j-save-btn">Save Entry</button>
-          <div id="j-save-msg" style="display:none;margin-top:8px;font-size:12px;color:#10b981;text-align:center">Entry saved!</div>
         </div>
-      </div>
 
-      ${unsyncedCount > 0 ? `<div style="display:flex;justify-content:flex-end;margin-bottom:8px">
-        <button class="btn btn-ghost btn-sm" id="j-sync-btn">Sync All (${unsyncedCount} pending)</button>
-      </div>` : ''}
+        ${unsyncedCount > 0 ? `<div style="display:flex;justify-content:flex-end;margin-top:12px">
+          <button class="btn btn-ghost btn-sm" id="j-sync-btn">Sync all (${unsyncedCount} pending)</button>
+        </div>` : ''}
 
-      <div class="pt-trend-chart" style="margin-bottom:16px">
-        <div style="font-size:12px;font-weight:600;color:var(--text-secondary);margin-bottom:8px">7-Day Mood Trend</div>
-        <div style="overflow:hidden;display:flex;justify-content:center">${_journalTrendChart(entries)}</div>
-      </div>
+        <div class="pt-trend-chart" style="margin-top:18px">
+          <div style="font-size:12px;font-weight:700;color:var(--text-secondary);margin-bottom:8px;text-transform:uppercase;letter-spacing:.6px">7-day mood trend</div>
+          <div style="overflow:hidden;display:flex;justify-content:center">${_journalTrendChart(entries)}</div>
+        </div>
 
-      <div>
-        <div style="font-size:12px;font-weight:600;color:var(--text-secondary);margin-bottom:8px">Recent Entries</div>
-        ${historyHtml}
+        <div style="margin-top:18px">
+          <div style="font-size:12px;font-weight:700;color:var(--text-secondary);margin-bottom:8px;text-transform:uppercase;letter-spacing:.6px">Recent entries</div>
+          ${historyHtml}
+        </div>
       </div>
     </div>`;
 
