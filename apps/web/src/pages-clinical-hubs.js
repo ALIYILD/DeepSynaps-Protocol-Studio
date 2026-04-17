@@ -2149,16 +2149,16 @@ export async function pgSchedulingHub(setTopbar, navigate) {
 
   function _seedSched() {
     const d = { appointments:[
-      { id:'APT-001', patient_name:'Demo Patient A', patient_id:'P-DEMO-1', clinician:'Dr. S. Chen',   date:todayStr,    time:'09:00', duration:60,  type:'session',     status:'confirmed', notes:'Session 9 of 30.' },
-      { id:'APT-002', patient_name:'Demo Patient B', patient_id:'P-DEMO-2', clinician:'Dr. J. Patel',  date:todayStr,    time:'10:30', duration:30,  type:'assessment',  status:'confirmed', notes:'Baseline PHQ-9, GAD-7.' },
-      { id:'APT-003', patient_name:'Demo Patient C', patient_id:'P-DEMO-3', clinician:'Dr. S. Chen',   date:todayStr,    time:'14:00', duration:60,  type:'session',     status:'pending',   notes:'tDCS session 8.' },
-      { id:'APT-004', patient_name:'Marcus Webb',    patient_id:'',         clinician:'Dr. J. Patel',  date:todayStr,    time:'15:30', duration:45,  type:'new-patient', status:'confirmed', notes:'TRD referral intake.' },
-      { id:'APT-005', patient_name:'Demo Patient A', patient_id:'P-DEMO-1', clinician:'Dr. S. Chen',   date:nextDay(1),  time:'09:00', duration:60,  type:'session',     status:'confirmed', notes:'Session 10 — milestone.' },
-      { id:'APT-006', patient_name:'Anna Torres',    patient_id:'',         clinician:'Dr. K. Okafor', date:nextDay(1),  time:'11:00', duration:30,  type:'follow-up',   status:'confirmed', notes:'Post-course follow-up.' },
-      { id:'APT-007', patient_name:'Demo Patient B', patient_id:'P-DEMO-2', clinician:'Dr. J. Patel',  date:nextDay(2),  time:'09:30', duration:60,  type:'session',     status:'confirmed', notes:'Session 3 of 30.' },
-      { id:'APT-008', patient_name:'James Mitchell', patient_id:'',         clinician:'Dr. S. Chen',   date:nextDay(3),  time:'13:00', duration:45,  type:'new-patient', status:'pending',   notes:'Referred by GP.' },
-      { id:'APT-009', patient_name:'Demo Patient A', patient_id:'P-DEMO-1', clinician:'Dr. S. Chen',   date:nextDay(-1), time:'09:00', duration:60,  type:'session',     status:'completed', notes:'Session 8 — good tolerance.' },
-      { id:'APT-010', patient_name:'Demo Patient C', patient_id:'P-DEMO-3', clinician:'Dr. J. Patel',  date:nextDay(-2), time:'14:00', duration:60,  type:'session',     status:'no-show',   notes:'Did not attend.' },
+      { id:'APT-001', patient_name:'Demo Patient A', patient_id:'P-DEMO-1', clinician:'Dr. S. Chen',   date:todayStr,    time:'09:00', duration:60,  type:'session',     status:'confirmed', notes:'Session 9 of 30.', room_id:'TMS Suite', device_id:'TMS Coil A' },
+      { id:'APT-002', patient_name:'Demo Patient B', patient_id:'P-DEMO-2', clinician:'Dr. J. Patel',  date:todayStr,    time:'10:30', duration:30,  type:'assessment',  status:'confirmed', notes:'Baseline PHQ-9, GAD-7.', room_id:'Consultation Room', device_id:'' },
+      { id:'APT-003', patient_name:'Demo Patient C', patient_id:'P-DEMO-3', clinician:'Dr. S. Chen',   date:todayStr,    time:'14:00', duration:60,  type:'session',     status:'pending',   notes:'tDCS session 8.', room_id:'EEG Lab', device_id:'tDCS Unit' },
+      { id:'APT-004', patient_name:'Marcus Webb',    patient_id:'',         clinician:'Dr. J. Patel',  date:todayStr,    time:'15:30', duration:45,  type:'new-patient', status:'confirmed', notes:'TRD referral intake.', room_id:'Room 1', device_id:'' },
+      { id:'APT-005', patient_name:'Demo Patient A', patient_id:'P-DEMO-1', clinician:'Dr. S. Chen',   date:nextDay(1),  time:'09:00', duration:60,  type:'session',     status:'confirmed', notes:'Session 10 — milestone.', room_id:'TMS Suite', device_id:'TMS Coil A' },
+      { id:'APT-006', patient_name:'Anna Torres',    patient_id:'',         clinician:'Dr. K. Okafor', date:nextDay(1),  time:'11:00', duration:30,  type:'follow-up',   status:'confirmed', notes:'Post-course follow-up.', room_id:'Consultation Room', device_id:'' },
+      { id:'APT-007', patient_name:'Demo Patient B', patient_id:'P-DEMO-2', clinician:'Dr. J. Patel',  date:nextDay(2),  time:'09:30', duration:60,  type:'session',     status:'confirmed', notes:'Session 3 of 30.', room_id:'TMS Suite', device_id:'TMS Coil B' },
+      { id:'APT-008', patient_name:'James Mitchell', patient_id:'',         clinician:'Dr. S. Chen',   date:nextDay(3),  time:'13:00', duration:45,  type:'new-patient', status:'pending',   notes:'Referred by GP.', room_id:'Room 2', device_id:'' },
+      { id:'APT-009', patient_name:'Demo Patient A', patient_id:'P-DEMO-1', clinician:'Dr. S. Chen',   date:nextDay(-1), time:'09:00', duration:60,  type:'session',     status:'completed', notes:'Session 8 — good tolerance.', room_id:'TMS Suite', device_id:'TMS Coil A' },
+      { id:'APT-010', patient_name:'Demo Patient C', patient_id:'P-DEMO-3', clinician:'Dr. J. Patel',  date:nextDay(-2), time:'14:00', duration:60,  type:'session',     status:'no-show',   notes:'Did not attend.', room_id:'EEG Lab', device_id:'EEG Cap' },
     ], leads:[
       { id:'LEAD-001', name:'Sarah Johnson',  email:'sarah.j@email.com', phone:'+44 7700 900123', source:'website',  condition:'Depression', stage:'new',       notes:'TRD, tried 3 meds.', created:'2026-04-14', follow_up:todayStr },
       { id:'LEAD-002', name:'Robert Kim',     email:'rkim@email.com',    phone:'+44 7700 900456', source:'referral', condition:'Anxiety',    stage:'contacted', notes:'Referred by GP. GAD-7=15.', created:'2026-04-13', follow_up:nextDay(1) },
@@ -2275,6 +2275,8 @@ export async function pgSchedulingHub(setTopbar, navigate) {
           '<span style="color:var(--text-tertiary)">Duration</span><span>'+a.duration+' min</span>'+
           '<span style="color:var(--text-tertiary)">Clinician</span><span>'+a.clinician+'</span>'+
           (a.patient_id?'<span style="color:var(--text-tertiary)">Patient ID</span><span>'+a.patient_id+'</span>':'')+
+          (a.room_id?'<span style="color:var(--text-tertiary)">Room</span><span>'+a.room_id+'</span>':'')+
+          (a.device_id?'<span style="color:var(--text-tertiary)">Device</span><span>'+a.device_id+'</span>':'')+
           (a.notes?'<span style="color:var(--text-tertiary)">Notes</span><span>'+a.notes+'</span>':'')+
             '<span style="color:var(--text-tertiary)">Reminder</span><span>'+(a.reminder_sent?'<span style="color:var(--green)">&#10003; Sent</span>':'<span style="color:var(--text-tertiary)">Not sent</span>')+'</span>'+
         '</div>'+
@@ -2340,6 +2342,7 @@ export async function pgSchedulingHub(setTopbar, navigate) {
                 '<div class="cal-apt-time" style="display:flex;align-items:center;gap:4px"><span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:'+sDot+';flex-shrink:0"></span>'+a.time+' · '+a.duration+'m</div>'+
                 '<div class="cal-apt-name" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="'+a.patient_name+'">'+truncName+'</div>'+
                 '<div class="cal-apt-type"><span style="font-size:9px;font-weight:700;letter-spacing:.4px;text-transform:uppercase;padding:1px 5px;border-radius:3px;background:'+c.border+'22;color:'+c.border+'">'+c.label+'</span></div>'+
+                ((a.room_id||a.device_id)?'<div style="font-size:9px;color:var(--text-tertiary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+(a.room_id||'')+(a.room_id&&a.device_id?' · ':'')+(a.device_id||'')+'</div>':'')+
               '</div>';
             }).join('')+
           '</div>';
@@ -2354,6 +2357,21 @@ export async function pgSchedulingHub(setTopbar, navigate) {
     window._calWeekToday = ()=>{ window._calWeekOffset=0; renderCal(); };
     window._schedSlotClick = (date,time)=>{ window._schedNewAptDate=date; window._schedNewAptTime=time; document.getElementById('sched-book-modal')?.classList.remove('ch-hidden'); const di=document.getElementById('sched-book-date'); const ti=document.getElementById('sched-book-time'); if(di)di.value=date; if(ti)ti.value=time; };
     window._schedNewBooking = ()=>{ document.getElementById('sched-book-modal')?.classList.remove('ch-hidden'); };
+    function _checkConflicts(date,time,dur,clin,room,device,excludeId){
+      const startMin=parseInt(time.split(':')[0])*60+parseInt(time.split(':')[1]);
+      const endMin=startMin+dur;
+      const conflicts=[];
+      data.appointments.filter(a=>a.date===date&&a.status!=='cancelled'&&a.id!==excludeId).forEach(a=>{
+        const aStart=parseInt(a.time.split(':')[0])*60+parseInt(a.time.split(':')[1]);
+        const aEnd=aStart+(a.duration||60);
+        if(startMin<aEnd&&endMin>aStart){
+          if(clin&&a.clinician===clin)conflicts.push('Clinician '+clin+' already booked at '+a.time);
+          if(room&&a.room_id===room)conflicts.push('Room "'+room+'" in use at '+a.time);
+          if(device&&a.device_id===device)conflicts.push('Device "'+device+'" in use at '+a.time);
+        }
+      });
+      return conflicts;
+    }
     window._schedSaveBooking = ()=>{
       const name=document.getElementById('sched-book-patient')?.value?.trim();
       const date=document.getElementById('sched-book-date')?.value;
@@ -2361,10 +2379,19 @@ export async function pgSchedulingHub(setTopbar, navigate) {
       const type=document.getElementById('sched-book-type')?.value||'session';
       const dur=parseInt(document.getElementById('sched-book-dur')?.value||'60');
       const clin=document.getElementById('sched-book-clin')?.value?.trim()||'Dr. S. Chen';
+      const room=document.getElementById('sched-book-room')?.value||'';
+      const device=document.getElementById('sched-book-device')?.value||'';
       const notes=document.getElementById('sched-book-notes')?.value?.trim()||'';
       if(!name||!date||!time){window._dsToast?.({title:'Missing fields',body:'Name, date and time required.',severity:'warn'});return;}
-      data.appointments.push({id:'APT-'+Date.now(),patient_name:name,patient_id:'',clinician:clin,date,time,duration:dur,type,status:'pending',notes});
-      _saveSched(data); document.getElementById('sched-book-modal')?.classList.add('ch-hidden'); renderCal();
+      const conflicts=_checkConflicts(date,time,dur,clin,room,device);
+      const warnEl=document.getElementById('sched-conflict-warn');
+      if(conflicts.length&&warnEl&&!warnEl.dataset.overridden){
+        warnEl.style.display='block';
+        warnEl.innerHTML='<strong>Conflicts detected:</strong><br>'+conflicts.join('<br>')+'<br><label style="margin-top:6px;display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" onchange="document.getElementById(\'sched-conflict-warn\').dataset.overridden=this.checked?\'1\':\'\'"> Proceed despite conflicts</label>';
+        return;
+      }
+      data.appointments.push({id:'APT-'+Date.now(),patient_name:name,patient_id:'',clinician:clin,date,time,duration:dur,type,status:'pending',notes,room_id:room,device_id:device});
+      _saveSched(data); document.getElementById('sched-book-modal')?.classList.add('ch-hidden'); if(warnEl){warnEl.style.display='none';delete warnEl.dataset.overridden;} renderCal();
       window._dsToast?.({title:'Booking created',body:name+' booked for '+date+' at '+time,severity:'success'});
     };
 
@@ -2446,6 +2473,13 @@ export async function pgSchedulingHub(setTopbar, navigate) {
               <select id="sched-book-dur" class="ch-select ch-select--full"><option value="15">15 min</option><option value="30">30 min</option><option value="45">45 min</option><option value="60" selected>60 min</option><option value="90">90 min</option></select>
             </div>
             <div class="ch-form-group" style="grid-column:1/-1"><label class="ch-label">Clinician</label><input id="sched-book-clin" class="ch-select ch-select--full" value="Dr. S. Chen"></div>
+            <div class="ch-form-group"><label class="ch-label">Room</label>
+              <select id="sched-book-room" class="ch-select ch-select--full"><option value="">No room</option><option value="Room 1">Room 1</option><option value="Room 2">Room 2</option><option value="TMS Suite">TMS Suite</option><option value="EEG Lab">EEG Lab</option><option value="Consultation Room">Consultation Room</option></select>
+            </div>
+            <div class="ch-form-group"><label class="ch-label">Device</label>
+              <select id="sched-book-device" class="ch-select ch-select--full"><option value="">None</option><option value="TMS Coil A">TMS Coil A</option><option value="TMS Coil B">TMS Coil B</option><option value="EEG Cap">EEG Cap</option><option value="tDCS Unit">tDCS Unit</option></select>
+            </div>
+            <div id="sched-conflict-warn" style="display:none;grid-column:1/-1;padding:8px 12px;border-radius:6px;background:rgba(255,107,107,0.1);border:1px solid var(--red);font-size:12px;color:var(--red)"></div>
             <div class="ch-form-group" style="grid-column:1/-1"><label class="ch-label">Notes</label><textarea id="sched-book-notes" class="ch-textarea" rows="2" placeholder="Appointment notes…"></textarea></div>
           </div>
           <div style="display:flex;gap:8px;margin-top:4px"><button class="btn btn-primary" onclick="window._schedSaveBooking()">Book</button><button class="btn" onclick="document.getElementById('sched-book-modal').classList.add('ch-hidden')">Cancel</button></div>
@@ -2528,20 +2562,22 @@ export async function pgSchedulingHub(setTopbar, navigate) {
             (a.status==='pending'?'<button class="ch-btn-sm ch-btn-teal" onclick="window._bookConfirm(\''+a.id+'\')">Confirm</button>':'')+
             (a.status==='confirmed'||a.status==='pending'?'<button class="ch-btn-sm" onclick="window._bookCancel(\''+a.id+'\')">Cancel</button>':'')+
             (a.status==='confirmed'?'<button class="ch-btn-sm" onclick="window._bookComplete(\''+a.id+'\')">Done ✓</button>':'')+
+            ((a.status==='confirmed'||a.status==='pending')&&!a.reminder_sent?'<button class="ch-btn-sm" onclick="window._bookSendReminder(\''+a.id+'\')">Remind</button>':'')+
           '</div>'+
         '</div>';
       }).join('');
     }
 
     window._bookSetCohort = id=>{window._bookCohort=id;document.querySelectorAll('.book-cohort-btn').forEach(b=>b.classList.toggle('active',b.dataset.cohort===id));renderBookings(id);};
+    window._bookSendReminder = async id=>{const a=data.appointments.find(x=>x.id===id);if(!a||a.reminder_sent)return;try{await api.sendReminderMessage({patient_id:a.patient_id||a.patient_name,channel:'email',message_body:'Reminder: You have an appointment on '+a.date+' at '+a.time+'. Please confirm or reschedule.'});}catch{}a.reminder_sent=true;_saveSched(data);renderBookings(window._bookCohort);window._dsToast?.({title:'Reminder sent',body:a.patient_name+' — '+a.date,severity:'success'});};
     window._bookConfirm   = id=>{const a=data.appointments.find(x=>x.id===id);if(a){_apiUpdateStatus(id,'confirmed',()=>renderBookings(window._bookCohort),'Confirm');window._dsToast?.({title:'Confirmed',body:a.patient_name+' confirmed.',severity:'success'});}};
     window._bookCancel    = id=>{const a=data.appointments.find(x=>x.id===id);if(a){_apiUpdateStatus(id,'cancelled',()=>renderBookings(window._bookCohort),'Cancel');window._dsToast?.({title:'Cancelled',body:a.patient_name+' cancelled.',severity:'warn'});}};
     window._bookComplete  = id=>{const a=data.appointments.find(x=>x.id===id);if(a){_apiUpdateStatus(id,'completed',()=>renderBookings(window._bookCohort),'Complete');window._dsToast?.({title:'Completed',body:'Session marked complete.',severity:'success'});}};
 
     el.innerHTML=`
     <div class="ch-shell">
-      <div class="ch-tab-bar">${tabBar()}</div>
-      <div class="ph-layout">
+      <div class="ch-tab-bar" role="tablist" aria-label="Scheduling sections">${tabBar()}</div>
+      <div class="ph-layout" role="tabpanel" aria-label="Bookings">
         <div class="ph-rail">
           <div class="ph-rail-label">Filter</div>
           ${COHORTS.map(c=>'<div class="ph-cohort-item book-cohort-btn'+(c.id===window._bookCohort?' active':'')+'" data-cohort="'+c.id+'" onclick="window._bookSetCohort(\''+c.id+'\')">' +
@@ -2630,8 +2666,8 @@ export async function pgSchedulingHub(setTopbar, navigate) {
 
     el.innerHTML=`
     <div class="ch-shell">
-      <div class="ch-tab-bar">${tabBar()}</div>
-      <div class="ch-body">
+      <div class="ch-tab-bar" role="tablist" aria-label="Scheduling sections">${tabBar()}</div>
+      <div class="ch-body" role="tabpanel" aria-label="Leads">
         <div class="ch-kpi-strip" style="grid-template-columns:repeat(6,1fr);margin-bottom:16px">
           ${STAGES.map(s=>'<div class="ch-kpi-card" style="--kpi-color:'+s.color+'"><div class="ch-kpi-val">'+data.leads.filter(l=>l.stage===s.id).length+'</div><div class="ch-kpi-label">'+s.label+'</div></div>').join('')}
           <div class="ch-kpi-card" style="--kpi-color:var(--green)"><div class="ch-kpi-val">${(()=>{const b=data.leads.filter(l=>l.stage==='booked').length;const lo=data.leads.filter(l=>l.stage==='lost').length;return (b+lo)>0?Math.round(b/(b+lo)*100)+'%':'\u2014';})()}</div><div class="ch-kpi-label">Conversion Rate</div></div>
@@ -2731,8 +2767,8 @@ export async function pgSchedulingHub(setTopbar, navigate) {
 
     el.innerHTML=`
     <div class="ch-shell">
-      <div class="ch-tab-bar">${tabBar()}</div>
-      <div class="ch-body">
+      <div class="ch-tab-bar" role="tablist" aria-label="Scheduling sections">${tabBar()}</div>
+      <div class="ch-body" role="tabpanel" aria-label="Reception">
         <div class="ch-kpi-strip" style="grid-template-columns:repeat(4,1fr);margin-bottom:16px">
           <div class="ch-kpi-card" style="--kpi-color:var(--teal)"><div class="ch-kpi-val">${data.appointments.filter(a=>a.date===todayStr&&a.status!=='cancelled').length}</div><div class="ch-kpi-label">Today's Apts</div></div>
           <div class="ch-kpi-card" style="--kpi-color:var(--blue)"><div class="ch-kpi-val">${data.calls.filter(c=>c.date===todayStr).length}</div><div class="ch-kpi-label">Calls Today</div></div>
