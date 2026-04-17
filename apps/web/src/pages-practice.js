@@ -1027,6 +1027,56 @@ export async function pgSettings(setTopbar, currentUser) {
   const twoFAEnabled     = (typeof localStorage !== 'undefined' && localStorage.getItem('ds_2fa_enabled'))      === 'true';
   const savedSecret      = (typeof localStorage !== 'undefined' && localStorage.getItem('ds_2fa_secret'))       || '';
 
+  // Load persisted clinic profile (all localStorage-backed until api.updateClinicProfile is added)
+  const lsGet = (k) => { try { return (typeof localStorage !== 'undefined' && localStorage.getItem(k)) || ''; } catch { return ''; } };
+  const browserTZ = (() => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'; } catch { return 'UTC'; } });
+  const savedClinicName        = lsGet('ds_clinic_name');
+  const savedClinicAddress     = lsGet('ds_clinic_address');
+  const savedClinicPhone       = lsGet('ds_clinic_phone');
+  const savedClinicEmail       = lsGet('ds_clinic_email');
+  const savedClinicWebsite     = lsGet('ds_clinic_website');
+  const savedClinicTZ          = lsGet('ds_clinic_tz') || browserTZ();
+  const savedClinicLogo        = lsGet('ds_clinic_logo');
+  const savedClinicSpecialties = lsGet('ds_clinic_specialties');
+
+  // Timezone list — Intl.supportedValuesOf when available, else short fallback
+  const tzList = (() => {
+    try {
+      if (typeof Intl !== 'undefined' && typeof Intl.supportedValuesOf === 'function') {
+        return Intl.supportedValuesOf('timeZone');
+      }
+    } catch {}
+    return ['UTC', 'Europe/London', 'Europe/Istanbul', 'America/New_York', 'America/Los_Angeles', 'Asia/Dubai', 'Australia/Sydney'];
+  })();
+
+  // Working hours (7-day)
+  const defaultHours = {
+    mon: { open: true,  from: '09:00', to: '17:00' },
+    tue: { open: true,  from: '09:00', to: '17:00' },
+    wed: { open: true,  from: '09:00', to: '17:00' },
+    thu: { open: true,  from: '09:00', to: '17:00' },
+    fri: { open: true,  from: '09:00', to: '17:00' },
+    sat: { open: false, from: '09:00', to: '17:00' },
+    sun: { open: false, from: '09:00', to: '17:00' },
+  };
+  let savedHours = defaultHours;
+  try {
+    const raw = lsGet('ds_clinic_hours');
+    if (raw) { const parsed = JSON.parse(raw); if (parsed && typeof parsed === 'object') savedHours = { ...defaultHours, ...parsed }; }
+  } catch {}
+
+  // Team members — localStorage mock until api.listTeamMembers() is added
+  const defaultTeam = [
+    { id: 'u-self', name: (currentUser?.display_name || currentUser?.email || 'You'), email: (currentUser?.email || 'you@clinic.com'), role: 'admin',     last_active: 'Active now' },
+    { id: 'u-2',    name: 'Dr. Sarah Chen',   email: 'sarah.chen@clinic.com',   role: 'clinician',  last_active: '2 hours ago' },
+    { id: 'u-3',    name: 'Alex Morgan',      email: 'alex.morgan@clinic.com',  role: 'technician', last_active: 'Yesterday'   },
+  ];
+  let savedTeam = defaultTeam;
+  try {
+    const raw = lsGet('ds_team_members');
+    if (raw) { const parsed = JSON.parse(raw); if (Array.isArray(parsed) && parsed.length) savedTeam = parsed; }
+  } catch {}
+
   const escAttr = (s) => String(s || '').replace(/"/g, '&quot;').replace(/</g, '&lt;');
 
   el.innerHTML = `
@@ -1136,19 +1186,163 @@ export async function pgSettings(setTopbar, currentUser) {
       </div>
     </div>
 
-    <!-- Clinic Section -->
+    <!-- Clinic Section (editable) -->
     <div class="card" style="margin-bottom:16px">
       <div class="card-header" style="padding:12px 20px;border-bottom:1px solid var(--border)">
         <span style="font-size:13px;font-weight:600;color:var(--text-primary)">Clinic</span>
       </div>
       <div class="card-body">
-        ${[
-          ['Clinic Name',  '—'],
-          ['Address',      '—'],
-          ['Phone',        '—'],
-          ['Time Zone',    Intl.DateTimeFormat().resolvedOptions().timeZone || '—'],
-        ].map(([k, v]) => fr(k, v)).join('')}
-        <div style="margin-top:12px"><span style="font-size:11px;color:var(--text-tertiary);padding:4px 10px;border:1px solid var(--border);border-radius:var(--radius-md);display:inline-block">Clinic profile editing — coming soon</span></div>
+        <!-- Clinic Logo -->
+        <div class="form-group" style="display:flex;align-items:center;gap:16px">
+          <div id="clinic-logo-preview" style="width:64px;height:64px;border-radius:10px;background:${savedClinicLogo ? `url('${escAttr(savedClinicLogo)}') center/cover` : 'var(--surface-elev-1)'};border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:20px;color:var(--text-tertiary);flex-shrink:0">${savedClinicLogo ? '' : '🏥'}</div>
+          <div style="flex:1;min-width:0">
+            <label class="form-label">Clinic Logo</label>
+            <input type="file" id="clinic-logo-input" accept="image/*" class="form-control" style="padding:6px 10px">
+            <div style="font-size:11px;color:var(--text-tertiary);margin-top:4px">JPG/PNG, cropped to 512×512. Stored locally until backend endpoint exists.</div>
+          </div>
+          <button class="btn btn-sm" id="clinic-logo-clear" ${savedClinicLogo ? '' : 'disabled style="opacity:.5"'}>Remove</button>
+        </div>
+
+        <!-- Clinic Name -->
+        <div class="form-group">
+          <label class="form-label" for="clinic-name">Clinic Name</label>
+          <div style="display:flex;gap:8px;align-items:center">
+            <input type="text" id="clinic-name" class="form-control" value="${escAttr(savedClinicName)}" placeholder="e.g. DeepSynaps Neuro Clinic" style="flex:1">
+            <button class="btn btn-primary btn-sm" id="clinic-save-name">Save</button>
+          </div>
+        </div>
+
+        <!-- Address -->
+        <div class="form-group">
+          <label class="form-label" for="clinic-address">Address</label>
+          <textarea id="clinic-address" class="form-control" rows="3" placeholder="Street, city, postcode, country" style="resize:vertical">${escAttr(savedClinicAddress)}</textarea>
+          <div style="display:flex;justify-content:flex-end;margin-top:6px">
+            <button class="btn btn-sm" id="clinic-save-address">Save Address</button>
+          </div>
+        </div>
+
+        <!-- Phone -->
+        <div class="form-group">
+          <label class="form-label" for="clinic-phone">Phone</label>
+          <div style="display:flex;gap:8px;align-items:center">
+            <input type="tel" id="clinic-phone" class="form-control" value="${escAttr(savedClinicPhone)}" placeholder="+44 20 7123 4567" style="flex:1">
+            <button class="btn btn-sm" id="clinic-save-phone">Save</button>
+          </div>
+        </div>
+
+        <!-- Clinic Email -->
+        <div class="form-group">
+          <label class="form-label" for="clinic-email">Clinic Email</label>
+          <div style="display:flex;gap:8px;align-items:center">
+            <input type="email" id="clinic-email" class="form-control" value="${escAttr(savedClinicEmail)}" placeholder="hello@clinic.com" style="flex:1">
+            <button class="btn btn-sm" id="clinic-save-email">Save</button>
+          </div>
+        </div>
+
+        <!-- Website -->
+        <div class="form-group">
+          <label class="form-label" for="clinic-website">Website</label>
+          <div style="display:flex;gap:8px;align-items:center">
+            <input type="url" id="clinic-website" class="form-control" value="${escAttr(savedClinicWebsite)}" placeholder="https://clinic.com" style="flex:1">
+            <button class="btn btn-sm" id="clinic-save-website">Save</button>
+          </div>
+        </div>
+
+        <!-- Timezone -->
+        <div class="form-group">
+          <label class="form-label" for="clinic-tz">Timezone</label>
+          <div style="display:flex;gap:8px;align-items:center">
+            <select id="clinic-tz" class="form-control" style="flex:1">
+              ${tzList.map(tz => `<option value="${escAttr(tz)}" ${tz === savedClinicTZ ? 'selected' : ''}>${escAttr(tz)}</option>`).join('')}
+            </select>
+            <button class="btn btn-sm" id="clinic-save-tz">Save</button>
+          </div>
+          <div style="font-size:11px;color:var(--text-tertiary);margin-top:4px">Browser timezone: ${escAttr(browserTZ())}</div>
+        </div>
+
+        <!-- Practice Specialties -->
+        <div class="form-group">
+          <label class="form-label" for="clinic-specialties">Practice Specialties</label>
+          <div style="display:flex;gap:8px;align-items:center">
+            <input type="text" id="clinic-specialties" class="form-control" value="${escAttr(savedClinicSpecialties)}" placeholder="TMS, Neurofeedback, Ketamine" style="flex:1">
+            <button class="btn btn-sm" id="clinic-save-specialties">Save</button>
+          </div>
+          <div style="font-size:11px;color:var(--text-tertiary);margin-top:4px">Comma-separated list of modalities offered.</div>
+        </div>
+
+        <!-- Working Hours sub-card -->
+        ${cardWrap('🕒 Working Hours', `
+          <div style="overflow-x:auto">
+            <table style="width:100%;border-collapse:collapse;font-size:12.5px">
+              <thead>
+                <tr style="text-align:left;color:var(--text-secondary)">
+                  <th style="padding:6px 8px;font-weight:500">Day</th>
+                  <th style="padding:6px 8px;font-weight:500">Open</th>
+                  <th style="padding:6px 8px;font-weight:500">From</th>
+                  <th style="padding:6px 8px;font-weight:500">To</th>
+                </tr>
+              </thead>
+              <tbody id="clinic-hours-body">
+                ${[['mon','Monday'],['tue','Tuesday'],['wed','Wednesday'],['thu','Thursday'],['fri','Friday'],['sat','Saturday'],['sun','Sunday']].map(([k,label]) => {
+                  const h = savedHours[k] || defaultHours[k];
+                  return `
+                    <tr data-day="${k}" style="border-top:1px solid var(--border)">
+                      <td style="padding:8px">${label}</td>
+                      <td style="padding:8px"><input type="checkbox" class="clinic-hours-open" ${h.open ? 'checked' : ''}></td>
+                      <td style="padding:8px"><input type="time" class="form-control clinic-hours-from" value="${escAttr(h.from)}" style="padding:4px 8px;max-width:120px"></td>
+                      <td style="padding:8px"><input type="time" class="form-control clinic-hours-to"   value="${escAttr(h.to)}"   style="padding:4px 8px;max-width:120px"></td>
+                    </tr>`;
+                }).join('')}
+              </tbody>
+            </table>
+          </div>
+          <div style="display:flex;justify-content:flex-end;margin-top:10px">
+            <button class="btn btn-primary btn-sm" id="clinic-save-hours">Save Working Hours</button>
+          </div>
+        `)}
+
+        <!-- Save All -->
+        <div style="display:flex;justify-content:flex-end;margin-top:16px;padding-top:14px;border-top:1px solid var(--border);gap:8px">
+          <span id="clinic-save-all-msg" style="font-size:11.5px;color:var(--text-secondary);align-self:center"></span>
+          <button class="btn btn-primary btn-sm" id="clinic-save-all">Save All Clinic Changes</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Team Members Section -->
+    <div class="card" style="margin-bottom:16px">
+      <div class="card-header" style="padding:12px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px">
+        <span style="font-size:13px;font-weight:600;color:var(--text-primary)">Team Members</span>
+        <span id="team-count-chip" style="font-size:11px;padding:2px 9px;border-radius:10px;background:rgba(0,212,188,0.1);color:var(--teal);font-weight:500">${savedTeam.length}</span>
+      </div>
+      <div class="card-body">
+        <div id="team-list"></div>
+
+        <!-- Invite Member -->
+        ${cardWrap('✉️ Invite Member', `
+          <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap">
+            <div class="form-group" style="flex:2;min-width:220px;margin:0">
+              <label class="form-label" for="team-invite-email">Email</label>
+              <input type="email" id="team-invite-email" class="form-control" placeholder="colleague@clinic.com">
+            </div>
+            <div class="form-group" style="flex:1;min-width:150px;margin:0">
+              <label class="form-label" for="team-invite-role">Role</label>
+              <select id="team-invite-role" class="form-control">
+                <option value="admin">Admin</option>
+                <option value="clinician" selected>Clinician</option>
+                <option value="technician">Technician</option>
+                <option value="read-only">Read-only</option>
+              </select>
+            </div>
+            <div>
+              <button class="btn btn-primary btn-sm" id="team-invite-btn">Send invite</button>
+            </div>
+          </div>
+          <div id="team-invite-msg" style="font-size:11.5px;color:var(--text-secondary);margin-top:8px;min-height:14px"></div>
+        `)}
+
+        <!-- Pending Invites -->
+        <div id="team-pending-wrap"></div>
       </div>
     </div>
 
@@ -1595,6 +1789,243 @@ export async function pgSettings(setTopbar, currentUser) {
       try { window._nav('audittrail'); }
       catch { window._nav('reports'); }
     }
+  });
+
+  // ── Clinic profile wiring ──────────────────────────────────────────────────
+  // TODO: add api.updateClinicProfile(data) endpoint
+  const persist = (key, val) => { try { localStorage.setItem(key, val); } catch {} };
+
+  // Clinic Logo: crop to 512×512 via canvas, persist base64
+  const clinicLogoInput   = document.getElementById('clinic-logo-input');
+  const clinicLogoPreview = document.getElementById('clinic-logo-preview');
+  const clinicLogoClear   = document.getElementById('clinic-logo-clear');
+  if (clinicLogoInput) {
+    clinicLogoInput.addEventListener('change', (e) => {
+      const file = e.target.files && e.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        const img = new Image();
+        img.onload = () => {
+          try {
+            const MAX = 512;
+            const scale = Math.min(1, MAX / Math.max(img.width, img.height));
+            const w = Math.round(img.width * scale);
+            const h = Math.round(img.height * scale);
+            const canvas = document.createElement('canvas');
+            canvas.width = w; canvas.height = h;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(img, 0, 0, w, h);
+            const dataUrl = canvas.toDataURL('image/png');
+            persist('ds_clinic_logo', dataUrl);
+            if (clinicLogoPreview) { clinicLogoPreview.style.background = `url('${dataUrl}') center/cover`; clinicLogoPreview.textContent = ''; }
+            if (clinicLogoClear) { clinicLogoClear.disabled = false; clinicLogoClear.style.opacity = ''; }
+            toast('Clinic logo updated.');
+          } catch (err) {
+            persist('ds_clinic_logo', ev.target.result);
+            if (clinicLogoPreview) { clinicLogoPreview.style.background = `url('${ev.target.result}') center/cover`; clinicLogoPreview.textContent = ''; }
+            toast('Clinic logo updated (uncropped).');
+          }
+        };
+        img.src = ev.target.result;
+      };
+      reader.readAsDataURL(file);
+    });
+  }
+  if (clinicLogoClear) {
+    clinicLogoClear.addEventListener('click', () => {
+      localStorage.removeItem('ds_clinic_logo');
+      if (clinicLogoPreview) { clinicLogoPreview.style.background = 'var(--surface-elev-1)'; clinicLogoPreview.textContent = '🏥'; }
+      clinicLogoClear.disabled = true; clinicLogoClear.style.opacity = '.5';
+      toast('Clinic logo removed.', 'info');
+    });
+  }
+
+  // Per-field inline saves
+  const bindFieldSave = (btnId, fieldId, lsKey, label) => {
+    const btn = document.getElementById(btnId);
+    if (!btn) return;
+    btn.addEventListener('click', () => {
+      const v = (document.getElementById(fieldId)?.value || '').trim();
+      persist(lsKey, v);
+      toast(`${label} saved.`);
+    });
+  };
+  bindFieldSave('clinic-save-name',        'clinic-name',        'ds_clinic_name',        'Clinic name');
+  bindFieldSave('clinic-save-address',     'clinic-address',     'ds_clinic_address',     'Address');
+  bindFieldSave('clinic-save-phone',       'clinic-phone',       'ds_clinic_phone',       'Phone');
+  bindFieldSave('clinic-save-email',       'clinic-email',       'ds_clinic_email',       'Clinic email');
+  bindFieldSave('clinic-save-website',     'clinic-website',     'ds_clinic_website',     'Website');
+  bindFieldSave('clinic-save-tz',          'clinic-tz',          'ds_clinic_tz',          'Timezone');
+  bindFieldSave('clinic-save-specialties', 'clinic-specialties', 'ds_clinic_specialties', 'Specialties');
+
+  // Working Hours: collect from table rows → JSON
+  const collectHours = () => {
+    const out = {};
+    document.querySelectorAll('#clinic-hours-body tr').forEach(tr => {
+      const day  = tr.getAttribute('data-day');
+      const open = tr.querySelector('.clinic-hours-open')?.checked || false;
+      const from = tr.querySelector('.clinic-hours-from')?.value || '09:00';
+      const to   = tr.querySelector('.clinic-hours-to')?.value   || '17:00';
+      if (day) out[day] = { open, from, to };
+    });
+    return out;
+  };
+  const saveHoursBtn = document.getElementById('clinic-save-hours');
+  if (saveHoursBtn) saveHoursBtn.addEventListener('click', () => {
+    const data = collectHours();
+    persist('ds_clinic_hours', JSON.stringify(data));
+    toast('Working hours saved.');
+  });
+
+  // Save All
+  const saveAllBtn = document.getElementById('clinic-save-all');
+  if (saveAllBtn) saveAllBtn.addEventListener('click', () => {
+    const pairs = [
+      ['clinic-name',        'ds_clinic_name'],
+      ['clinic-address',     'ds_clinic_address'],
+      ['clinic-phone',       'ds_clinic_phone'],
+      ['clinic-email',       'ds_clinic_email'],
+      ['clinic-website',     'ds_clinic_website'],
+      ['clinic-tz',          'ds_clinic_tz'],
+      ['clinic-specialties', 'ds_clinic_specialties'],
+    ];
+    pairs.forEach(([id, key]) => {
+      const v = (document.getElementById(id)?.value || '').trim();
+      persist(key, v);
+    });
+    persist('ds_clinic_hours', JSON.stringify(collectHours()));
+    const msg = document.getElementById('clinic-save-all-msg');
+    if (msg) { msg.textContent = 'All clinic settings saved.'; msg.style.color = 'var(--green)'; setTimeout(() => { if (msg) msg.textContent = ''; }, 3000); }
+    toast('All clinic settings saved.', 'success');
+  });
+
+  // ── Team Members wiring ────────────────────────────────────────────────────
+  // TODO: add api.listTeamMembers() endpoint — using localStorage mock
+  // TODO: add api.inviteTeamMember(email, role) endpoint
+  // TODO: add api.revokeTeamMemberInvite(id) endpoint
+  const roleChipStyle = (role) => {
+    switch (role) {
+      case 'admin':      return 'background:rgba(239,68,68,0.1);color:var(--red)';
+      case 'clinician':  return 'background:rgba(0,212,188,0.1);color:var(--teal)';
+      case 'technician': return 'background:rgba(74,158,255,0.1);color:var(--blue)';
+      case 'read-only':  return 'background:rgba(148,163,184,0.12);color:var(--text-secondary)';
+      default:           return 'background:var(--surface-elev-1);color:var(--text-secondary)';
+    }
+  };
+  const avatarCircle = (name) => {
+    const letter = String(name || '?').trim().charAt(0).toUpperCase() || '?';
+    const palette = ['#0ea5e9','#14b8a6','#f59e0b','#ef4444','#8b5cf6','#22c55e','#ec4899'];
+    let hash = 0; for (let i = 0; i < (name || '').length; i++) hash = (hash * 31 + name.charCodeAt(i)) >>> 0;
+    const bg = palette[hash % palette.length];
+    return `<div style="width:34px;height:34px;border-radius:50%;background:${bg};color:#fff;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:600;flex-shrink:0">${letter}</div>`;
+  };
+
+  async function loadTeam() {
+    try {
+      if (typeof api !== 'undefined' && typeof api.listTeamMembers === 'function') {
+        const list = await api.listTeamMembers();
+        if (Array.isArray(list)) return list;
+      }
+    } catch {}
+    return savedTeam;
+  }
+
+  function persistTeam(list) {
+    try { localStorage.setItem('ds_team_members', JSON.stringify(list)); } catch {}
+    savedTeam = list;
+    const chip = document.getElementById('team-count-chip');
+    if (chip) chip.textContent = String(list.length);
+  }
+
+  function renderTeam() {
+    const host = document.getElementById('team-list');
+    if (!host) return;
+    const active  = savedTeam.filter(m => !m.pending_invite);
+    const pending = savedTeam.filter(m => m.pending_invite);
+
+    host.innerHTML = active.length
+      ? active.map((m, i) => `
+          <div style="display:flex;align-items:center;gap:12px;padding:12px 0;${i < active.length - 1 ? 'border-bottom:1px solid var(--border);' : ''}">
+            ${avatarCircle(m.name || m.email)}
+            <div style="min-width:0;flex:1">
+              <div style="font-size:13px;font-weight:500;color:var(--text-primary)">${escAttr(m.name || m.email)}</div>
+              <div style="font-size:11.5px;color:var(--text-secondary)">${escAttr(m.email || '')} · ${escAttr(m.last_active || '—')}</div>
+            </div>
+            <span style="font-size:11px;padding:3px 10px;border-radius:10px;${roleChipStyle(m.role)};text-transform:capitalize">${escAttr(m.role || 'member')}</span>
+            <button class="btn btn-sm team-menu-btn" data-tid="${escAttr(m.id)}" style="padding:4px 10px">⋯</button>
+          </div>
+        `).join('')
+      : '<div style="font-size:12px;color:var(--text-tertiary);padding:8px 0">No team members yet.</div>';
+
+    host.querySelectorAll('.team-menu-btn').forEach(b => {
+      b.addEventListener('click', () => alert('Coming soon'));
+    });
+
+    // Pending invites sub-section
+    const pendingWrap = document.getElementById('team-pending-wrap');
+    if (pendingWrap) {
+      if (!pending.length) { pendingWrap.innerHTML = ''; return; }
+      pendingWrap.innerHTML = cardWrap('⏳ Pending Invites', `
+        <div id="team-pending-list">
+          ${pending.map((p, i) => `
+            <div style="display:flex;align-items:center;gap:12px;padding:10px 0;${i < pending.length - 1 ? 'border-bottom:1px solid var(--border);' : ''}">
+              ${avatarCircle(p.email)}
+              <div style="min-width:0;flex:1">
+                <div style="font-size:13px;font-weight:500;color:var(--text-primary)">${escAttr(p.email)}</div>
+                <div style="font-size:11.5px;color:var(--text-secondary)">Invited ${p.invited_at ? new Date(p.invited_at).toLocaleString() : '—'}</div>
+              </div>
+              <span style="font-size:11px;padding:3px 10px;border-radius:10px;${roleChipStyle(p.role)};text-transform:capitalize">${escAttr(p.role)}</span>
+              <a href="#" data-tid="${escAttr(p.id)}" class="team-resend" style="font-size:12px;color:var(--teal);text-decoration:none">Resend</a>
+              <a href="#" data-tid="${escAttr(p.id)}" class="team-cancel" style="font-size:12px;color:var(--red);text-decoration:none">Cancel</a>
+            </div>
+          `).join('')}
+        </div>
+      `);
+      pendingWrap.querySelectorAll('.team-resend').forEach(a => a.addEventListener('click', (e) => {
+        e.preventDefault();
+        const id = a.getAttribute('data-tid');
+        const m = savedTeam.find(x => x.id === id);
+        if (m) { m.invited_at = Date.now(); persistTeam(savedTeam); renderTeam(); toast(`Invite re-sent to ${m.email}.`); }
+      }));
+      pendingWrap.querySelectorAll('.team-cancel').forEach(a => a.addEventListener('click', (e) => {
+        e.preventDefault();
+        const id = a.getAttribute('data-tid');
+        const next = savedTeam.filter(x => x.id !== id);
+        persistTeam(next); renderTeam(); toast('Invite cancelled.', 'info');
+      }));
+    }
+  }
+
+  (async () => {
+    savedTeam = await loadTeam();
+    persistTeam(savedTeam);
+    renderTeam();
+  })();
+
+  const inviteBtn = document.getElementById('team-invite-btn');
+  if (inviteBtn) inviteBtn.addEventListener('click', () => {
+    const emailEl = document.getElementById('team-invite-email');
+    const roleEl  = document.getElementById('team-invite-role');
+    const msgEl   = document.getElementById('team-invite-msg');
+    const email = (emailEl?.value || '').trim();
+    const role  = (roleEl?.value  || 'clinician').trim();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      if (msgEl) { msgEl.textContent = 'Enter a valid email address.'; msgEl.style.color = 'var(--amber)'; }
+      return;
+    }
+    if (savedTeam.some(m => (m.email || '').toLowerCase() === email.toLowerCase())) {
+      if (msgEl) { msgEl.textContent = 'That email is already on the team.'; msgEl.style.color = 'var(--amber)'; }
+      return;
+    }
+    const entry = { id: 'inv-' + Date.now().toString(36), name: email, email, role, pending_invite: true, invited_at: Date.now(), last_active: 'Pending' };
+    savedTeam.push(entry);
+    persistTeam(savedTeam);
+    renderTeam();
+    if (emailEl) emailEl.value = '';
+    if (msgEl)   { msgEl.textContent = ''; msgEl.style.color = 'var(--text-secondary)'; }
+    // TODO: replace alert with in-app toast (already using toast helper when available)
+    toast(`Invite sent to ${email}.`);
   });
 }
 
