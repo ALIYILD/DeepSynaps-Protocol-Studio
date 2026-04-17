@@ -6404,18 +6404,28 @@ export async function pgBrainMapPlanner(setTopbar) {
       + '<feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>'
       + '</filter></defs>');
     s('<g id="bmp-vp" transform="translate(' + panXS + ' ' + panYS + ') scale(' + zSafe + ')">');
+    // Head outline — made visibly stronger (0.25 → 0.55 stroke) so clinicians can
+    // actually see the head shape. Matches the new brain-map-svg.js helper.
     s('<ellipse cx="150" cy="155" rx="128" ry="148" fill="#0f1623"'
-      + ' stroke="rgba(148,163,184,0.25)" stroke-width="1.5"/>');
-    s('<path d="M143,8 Q150,2 157,8" fill="none" stroke="rgba(148,163,184,0.25)"'
-      + ' stroke-width="1.5" stroke-linecap="round"/>');
-    s('<path d="M22,148 Q15,155 22,162" fill="none" stroke="rgba(148,163,184,0.25)"'
-      + ' stroke-width="1.5" stroke-linecap="round"/>');
-    s('<path d="M278,148 Q285,155 278,162" fill="none" stroke="rgba(148,163,184,0.25)"'
-      + ' stroke-width="1.5" stroke-linecap="round"/>');
-    s('<line x1="150" y1="10" x2="150" y2="300" stroke="rgba(148,163,184,0.08)"'
-      + ' stroke-width="0.5" stroke-dasharray="4 4"/>');
-    s('<line x1="22" y1="155" x2="278" y2="155" stroke="rgba(148,163,184,0.08)"'
-      + ' stroke-width="0.5" stroke-dasharray="4 4"/>');
+      + ' stroke="rgba(255,255,255,0.55)" stroke-width="2"/>');
+    // Nose triangle pointing up at the nasion (instead of a tiny chevron)
+    s('<polygon points="150,4 140,22 160,22" fill="rgba(255,255,255,0.12)"'
+      + ' stroke="rgba(255,255,255,0.55)" stroke-width="1.5" stroke-linejoin="round"/>');
+    // Ear bumps (ellipses) on both sides — clearer front/back orientation
+    s('<ellipse cx="16" cy="155" rx="8" ry="22" fill="rgba(255,255,255,0.08)"'
+      + ' stroke="rgba(255,255,255,0.45)" stroke-width="1.5"/>');
+    s('<ellipse cx="284" cy="155" rx="8" ry="22" fill="rgba(255,255,255,0.08)"'
+      + ' stroke="rgba(255,255,255,0.45)" stroke-width="1.5"/>');
+    // Midline + coronal guides
+    s('<line x1="150" y1="10" x2="150" y2="300" stroke="rgba(255,255,255,0.08)"'
+      + ' stroke-width="0.6" stroke-dasharray="2 4"/>');
+    s('<line x1="22" y1="155" x2="278" y2="155" stroke="rgba(255,255,255,0.08)"'
+      + ' stroke-width="0.6" stroke-dasharray="2 4"/>');
+    // L/R hemisphere labels just outside the head
+    s('<text x="32" y="158" text-anchor="middle" font-size="10"'
+      + ' fill="rgba(255,255,255,0.35)" font-family="system-ui">L</text>');
+    s('<text x="268" y="158" text-anchor="middle" font-size="10"'
+      + ' fill="rgba(255,255,255,0.35)" font-family="system-ui">R</text>');
     if (patientView) {
       pp.forEach(function(site) {
         const pos = BMP_SITES[site]; if (!pos) return;

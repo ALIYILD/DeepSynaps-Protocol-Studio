@@ -5,6 +5,7 @@
 import { api } from './api.js';
 import { tag, spinner, emptyState } from './helpers.js';
 import { currentUser } from './auth.js';
+import { renderBrainMap10_20 } from './brain-map-svg.js';
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // pgPatientHub — Merged: Patients + Treatment Courses + Prescriptions
@@ -1335,24 +1336,18 @@ export async function pgProtocolHub(setTopbar, navigate) {
   else if (tab === 'brainmap') {
     setTopbar('Protocols', '<button class="btn btn-sm" onclick="window._nav(\'brain-map-full\')">Full Brain Map ↗</button>');
 
-    // Key electrode sites for 10-20 system
-    const SITES = [
-      { id:'Fp1', x:35, y:12 }, { id:'Fp2', x:65, y:12 },
-      { id:'F7',  x:18, y:28 }, { id:'F3',  x:38, y:26 }, { id:'Fz',  x:50, y:24 }, { id:'F4',  x:62, y:26 }, { id:'F8',  x:82, y:28 },
-      { id:'T7',  x:10, y:50 }, { id:'C3',  x:32, y:48 }, { id:'Cz',  x:50, y:46 }, { id:'C4',  x:68, y:48 }, { id:'T8',  x:90, y:50 },
-      { id:'P7',  x:18, y:72 }, { id:'P3',  x:38, y:70 }, { id:'Pz',  x:50, y:68 }, { id:'P4',  x:62, y:70 }, { id:'P8',  x:82, y:72 },
-      { id:'O1',  x:38, y:88 }, { id:'Oz',  x:50, y:90 }, { id:'O2',  x:62, y:88 },
-      { id:'DLPFC-L', x:30, y:32, highlight:true }, { id:'DLPFC-R', x:70, y:32, highlight:true },
-    ];
+    // Standard 10-20 electrode IDs — distinguishes real sites from region
+    // labels like "mPFC" (those become target-region overlays instead).
+    const STD_10_20 = ['Fp1','Fp2','F7','F3','Fz','F4','F8','T7','C3','Cz','C4','T8','P7','P3','Pz','P4','P8','O1','Oz','O2'];
 
     const MONTAGES = [
-      { id:'tms-mdd-l', label:'TMS — Left DLPFC Depression', anode:'F3', cathode:'', condition:'MDD', device:'TMS', ev:'A', notes:'Left DLPFC (F3 approximation). 10 Hz, 120% MT, 3000 pulses/session. 30 sessions.' },
-      { id:'tms-mdd-ithf', label:'TMS — Theta Burst (iTBS) Depression', anode:'F3', cathode:'', condition:'TRD', device:'TMS', ev:'A', notes:'Intermittent TBS. 600 pulses in 3 min. 10× faster than standard TMS.' },
-      { id:'tms-ocd', label:'TMS — Deep TMS OCD', anode:'mPFC', cathode:'', condition:'OCD', device:'TMS', ev:'A', notes:'Deep TMS H7 coil, medial PFC. FDA-cleared for OCD.' },
-      { id:'tdcs-mdd', label:'tDCS — Anodal DLPFC Depression', anode:'F3', cathode:'F4', condition:'MDD', device:'tDCS', ev:'B', notes:'Anode F3, Cathode F4. 2 mA, 30 min. 20 sessions.' },
-      { id:'tdcs-ptsd', label:'tDCS — Prefrontal PTSD', anode:'F3', cathode:'F4', condition:'PTSD', device:'tDCS', ev:'B', notes:'Bilateral prefrontal. 2 mA, 20 min.' },
-      { id:'nfb-alpha', label:'Neurofeedback — Alpha/Theta Anxiety', anode:'Pz', cathode:'', condition:'GAD', device:'EEG', ev:'B', notes:'Alpha/theta uptraining at Pz. 30-40 sessions.' },
-      { id:'nfb-smr', label:'Neurofeedback — SMR ADHD', anode:'C3', cathode:'', condition:'ADHD', device:'EEG', ev:'B', notes:'SMR uptraining at C3/Cz. 40 sessions.' },
+      { id:'tms-mdd-l',    label:'TMS — Left DLPFC Depression',        anode:'F3', cathode:'',   targetRegion:'DLPFC-L', condition:'MDD',  device:'TMS',  ev:'A', notes:'Left DLPFC (F3 approximation). 10 Hz, 120% MT, 3000 pulses/session. 30 sessions.' },
+      { id:'tms-mdd-ithf', label:'TMS — Theta Burst (iTBS) Depression', anode:'F3', cathode:'',   targetRegion:'DLPFC-L', condition:'TRD',  device:'TMS',  ev:'A', notes:'Intermittent TBS. 600 pulses in 3 min. 10× faster than standard TMS.' },
+      { id:'tms-ocd',      label:'TMS — Deep TMS OCD',                  anode:'Fz', cathode:'',   targetRegion:'mPFC',    condition:'OCD',  device:'TMS',  ev:'A', notes:'Deep TMS H7 coil, medial PFC. FDA-cleared for OCD.' },
+      { id:'tdcs-mdd',     label:'tDCS — Anodal DLPFC Depression',      anode:'F3', cathode:'F4', targetRegion:'DLPFC-L', condition:'MDD',  device:'tDCS', ev:'B', notes:'Anode F3, Cathode F4. 2 mA, 30 min. 20 sessions.' },
+      { id:'tdcs-ptsd',    label:'tDCS — Prefrontal PTSD',              anode:'F3', cathode:'F4', targetRegion:'DLPFC-L', condition:'PTSD', device:'tDCS', ev:'B', notes:'Bilateral prefrontal. 2 mA, 20 min.' },
+      { id:'nfb-alpha',    label:'Neurofeedback — Alpha/Theta Anxiety', anode:'Pz', cathode:'',   targetRegion:null,      condition:'GAD',  device:'EEG',  ev:'B', notes:'Alpha/theta uptraining at Pz. 30-40 sessions.' },
+      { id:'nfb-smr',      label:'Neurofeedback — SMR ADHD',            anode:'C3', cathode:'',   targetRegion:null,      condition:'ADHD', device:'EEG',  ev:'B', notes:'SMR uptraining at C3/Cz. 40 sessions.' },
     ];
 
     window._bmpMontage = window._bmpMontage || MONTAGES[0].id;
@@ -1360,16 +1355,20 @@ export async function pgProtocolHub(setTopbar, navigate) {
     function renderBrainMap() {
       const m = MONTAGES.find(x=>x.id===window._bmpMontage)||MONTAGES[0];
       const evC = { A:'var(--teal)', B:'var(--blue)', C:'var(--amber)' };
-      const svgSites = SITES.map(s => {
-        const isAnode   = s.id === m.anode;
-        const isCathode = s.id === m.cathode;
-        const isHL      = s.highlight;
-        const fill = isAnode ? '#00d4bc' : isCathode ? '#ff6b9d' : isHL ? 'rgba(74,158,255,0.3)' : 'rgba(255,255,255,0.08)';
-        const stroke = isAnode||isCathode ? 'rgba(255,255,255,0.6)' : 'rgba(255,255,255,0.2)';
-        const r = isAnode||isCathode ? 9 : 6;
-        return '<circle cx="' + s.x + '%" cy="' + s.y + '%" r="' + r + '" fill="' + fill + '" stroke="' + stroke + '" stroke-width="1.5"/>' +
-          '<text x="' + s.x + '%" y="' + (parseFloat(s.y)+4.5) + '%" text-anchor="middle" font-size="7" fill="rgba(255,255,255,0.6)" font-family="system-ui">' + s.id + '</text>';
-      }).join('');
+
+      // Only pass anode/cathode to the helper if they map to real 10-20 sites.
+      const anode   = STD_10_20.indexOf(m.anode)   !== -1 ? m.anode   : null;
+      const cathode = STD_10_20.indexOf(m.cathode) !== -1 ? m.cathode : null;
+
+      const svg = renderBrainMap10_20({
+        anode,
+        cathode,
+        targetRegion: m.targetRegion || null,
+        size: 380,
+      });
+
+      const wrap = document.getElementById('bmp-svg-wrap');
+      if (wrap) wrap.innerHTML = svg;
 
       const out = document.getElementById('bmp-detail');
       if (out) out.innerHTML = `
@@ -1386,9 +1385,6 @@ export async function pgProtocolHub(setTopbar, navigate) {
           <button class="ch-btn-sm ch-btn-teal" onclick="window._nav('protocol-search-full')">Find More Protocols →</button>
           <button class="ch-btn-sm" onclick="window._patientHubTab='prescriptions';window._nav('patients-hub')">Prescribe →</button>
         </div>`;
-
-      const svgEl = document.getElementById('bmp-svg');
-      if (svgEl) svgEl.innerHTML = svgSites;
     }
 
     window._bmpSelect = id => {
@@ -1407,19 +1403,11 @@ export async function pgProtocolHub(setTopbar, navigate) {
             ${MONTAGES.map(m => '<button class="bmp-montage-btn ph-cohort-item' + (m.id===window._bmpMontage?' active':'') + '" data-id="' + m.id + '" onclick="window._bmpSelect(\'' + m.id + '\')">' + m.label + '</button>').join('')}
           </div>
           <div class="bmp-main">
-            <div class="bmp-map-wrap">
-              <svg id="bmp-svg" viewBox="0 0 100 100" style="width:100%;height:100%;overflow:visible">
-                <!-- Head outline -->
-                <ellipse cx="50%" cy="50%" rx="46%" ry="44%" fill="none" stroke="rgba(255,255,255,0.12)" stroke-width="1.5"/>
-                <ellipse cx="50%" cy="50%" rx="38%" ry="36%" fill="none" stroke="rgba(255,255,255,0.06)" stroke-width="1"/>
-                <!-- Nasion marker -->
-                <line x1="50%" y1="6%" x2="50%" y2="10%" stroke="rgba(255,255,255,0.2)" stroke-width="1.5"/>
-              </svg>
-            </div>
+            <div id="bmp-svg-wrap" class="bmp-svg-wrap-new"></div>
             <div class="bmp-legend">
               <span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:var(--teal);margin-right:5px"></span>Anode / Active</span>
               <span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#ff6b9d;margin-right:5px"></span>Cathode / Reference</span>
-              <span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:rgba(74,158,255,0.3);margin-right:5px"></span>Key region</span>
+              <span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:rgba(74,158,255,0.25);border:1px dashed #4a9eff;margin-right:5px"></span>Target region</span>
             </div>
           </div>
           <div class="bmp-detail-panel" id="bmp-detail"></div>

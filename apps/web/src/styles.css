@@ -9964,6 +9964,46 @@ body.light-theme .ch-modal { background:#fff; }
 .bmp-notes { font-size:12px; color:var(--text-secondary); line-height:1.65; padding:10px; background:rgba(255,255,255,0.03); border-radius:7px; border-left:2px solid var(--blue); }
 .bmp-montage-btn { width:100%; text-align:left; }
 
+/* ─── Shared 10-20 EEG brain-map renderer (brain-map-svg.js) ──────────── */
+.bmp-svg-wrap-new {
+  width: 100%;
+  max-width: 420px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 8px;
+  background: radial-gradient(ellipse at center, rgba(0,212,188,0.035) 0%, rgba(0,0,0,0.18) 72%);
+  border-radius: 14px;
+  border: 1px solid rgba(255,255,255,0.06);
+  overflow: visible;
+}
+.ds-brain-map { width: 100%; max-width: 420px; height: auto; margin: 0 auto; display: block; }
+.ds-bm-electrode {
+  cursor: pointer;
+  transition: transform 0.15s ease;
+  transform-origin: center;
+  transform-box: fill-box;
+}
+.ds-bm-electrode:hover { transform: scale(1.08); }
+.ds-bm-electrode:hover .ds-bm-chip {
+  stroke: rgba(255,255,255,0.6);
+  stroke-width: 2;
+}
+.ds-bm-electrode.is-anode .ds-bm-chip,
+.ds-bm-electrode.is-cathode .ds-bm-chip {
+  filter: drop-shadow(0 0 8px currentColor);
+}
+.ds-bm-target-ring {
+  fill: none;
+  stroke: var(--blue, #4a9eff);
+  stroke-width: 2;
+  stroke-dasharray: 4,3;
+  opacity: 0.65;
+  pointer-events: none;
+}
+.ds-bm-target-leader,
+.ds-bm-target-caption { pointer-events: none; }
+
 /* Handbooks */
 .hb-layout { display:grid; grid-template-columns:200px 180px 1fr; gap:0; flex:1; min-height:0; height:calc(100vh - 120px); }
 .hb-cond-rail { border-right:1px solid rgba(255,255,255,0.05); padding:12px 6px; background:rgba(0,0,0,0.12); overflow-y:auto; }
