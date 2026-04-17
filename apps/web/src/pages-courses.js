@@ -7460,7 +7460,7 @@ window._calCompleteAppt = function(id) {
 };
 
 window._calDeleteAppt = function(id) {
-  if (!confirm('Permanently delete this appointment?')) return;
+  if (!confirm('Delete this appointment? This cannot be undone.')) return;
   deleteAppointment(id);
   _calSelectedAppt = null;
   _calRenderPage();
@@ -8816,7 +8816,7 @@ export async function pgOutcomePrediction(setTopbar) {
   };
 
   window._qqDeletePrediction = function(id) {
-    if (!confirm('Delete this prediction?')) return;
+    if (!confirm('Delete this prediction record? This cannot be undone.')) return;
     _deletePredictionRecord(id);
     const hc = document.getElementById('pred-history-content');
     if (hc) hc.innerHTML = _predHistoryTableHTML();

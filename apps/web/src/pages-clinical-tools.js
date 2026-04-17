@@ -2586,7 +2586,7 @@ export async function pgClinicianDraftReview(setTopbar) {
   };
 
   window._draftDiscard = function() {
-    if (!confirm('Discard this draft? The transcript will be kept — you can generate a new draft later from the Media Review Queue.')) return;
+    if (!confirm('Discard this draft? Unsaved note content will be lost.')) return;
     window._nav('media-queue');
   };
 }
@@ -8108,7 +8108,7 @@ export async function pgDocumentsHub(setTopbar) {
     if (['completed','signed','uploaded','generated'].includes(d.status))
       acts.push(`<button class="btn btn-sm dh-act" onclick="window._dhReplace('${id}')">Replace</button>`);
     if (d.status !== 'required')
-      acts.push(`<button class="btn btn-sm dh-act dh-act-danger" onclick="window._dhArchive('${id}')">Archive</button>`);
+      acts.push(`<button class="btn btn-sm dh-act" style="color:var(--amber,#f59e0b);border-color:rgba(245,158,11,0.35)" onclick="window._dhArchive('${id}')">Archive</button>`);
     return acts.length ? `<div class="dh-sec-actions">${acts.join('')}</div>` : '';
   }
 

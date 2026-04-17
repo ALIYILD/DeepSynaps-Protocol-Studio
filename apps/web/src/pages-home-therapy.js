@@ -206,9 +206,12 @@ export function bindHomeTherapyActions(patientId, apiObj) {
   };
 
   window._htRevokeAssignment = async function(id) {
-    const reason = prompt('Reason for revoking (required):');
-    if (!reason) return;
-    try { await a.updateHomeAssignment(id, { status: 'revoked', revoke_reason: reason }); window.switchPT('home-therapy'); }
+    const reason = prompt('Revoke home therapy assignment?\n\nThe patient will lose access to their home device program.\nPlease provide a clinical reason (minimum 10 characters):');
+    if (!reason || reason.trim().length < 10) {
+      alert('A clinical reason of at least 10 characters is required.');
+      return;
+    }
+    try { await a.updateHomeAssignment(id, { status: 'revoked', revoke_reason: reason.trim() }); window.switchPT('home-therapy'); }
     catch (_e) { alert('Could not revoke: ' + (_e?.message || '')); }
   };
 
