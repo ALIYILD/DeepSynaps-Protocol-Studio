@@ -352,12 +352,12 @@ export function pgHome() {
 
     <!-- ─── COMMERCIAL HERO ───────────────────────────────────────────────── -->
     <section class="phome-hero">
-      <div class="phome-hero-overline">Neuromodulation Clinic Software</div>
-      <h1 class="phome-hero-headline">Run your TMS &amp; neurofeedback clinic &mdash;<br>from first session to proven outcome</h1>
-      <p class="phome-hero-sub">Today&rsquo;s Queue. Quick Outcome Capture. Course Completion Reports. Built for TMS, Neurofeedback, and multi-modal practices.</p>
+      <div class="phome-hero-overline">${t('pub.hero.overline')}</div>
+      <h1 class="phome-hero-headline">${t('pub.hero.headline')}</h1>
+      <p class="phome-hero-sub">${t('pub.hero.sub')}</p>
       <div class="phome-hero-ctas">
-        <button class="phome-cta-primary" onclick="window._startDemoTour()">Start Demo Tour &rarr;</button>
-        <button class="phome-cta-secondary" onclick="window._nav('pricing')">View Pricing &rarr;</button>
+        <button class="phome-cta-primary" onclick="window._startDemoTour()">${t('pub.hero.cta.tour')}</button>
+        <button class="phome-cta-secondary" onclick="window._nav('pricing')">${t('pub.hero.cta.pricing')}</button>
       </div>
       <div class="phome-trust-strip">
         <span class="phome-trust-badge"><span class="phome-trust-badge-icon">🔒</span>HIPAA-Aligned</span>
