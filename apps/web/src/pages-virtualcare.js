@@ -229,6 +229,12 @@ export async function pgVirtualCare(setTopbar, navigate) {
       <button class="vc-action-btn vc-action-green" onclick="window._vcAction('followup','${_e(patientId)}','${_e(patientName)}','')" title="Schedule a follow-up">
         \uD83D\uDCC5 Schedule Follow-Up
       </button>
+      <button class="vc-action-btn" onclick="window._vcAction('monitor','${_e(patientId)}','${_e(patientName)}','')" title="View patient monitoring data">
+        \uD83D\uDCCA Monitoring
+      </button>
+      <button class="vc-action-btn" onclick="window._vcAction('hometasks','${_e(patientId)}','${_e(patientName)}','')" title="View patient home tasks">
+        \uD83C\uDFE0 Home Tasks
+      </button>
     </div>`;
 
   // ── Video call overlay ─────────────────────────────────────────────────
@@ -432,9 +438,11 @@ export async function pgVirtualCare(setTopbar, navigate) {
                 <div class="vc-msg-cond">${_e(selMeta.condition)}</div>
               </div>
               <div class="vc-msg-header-btns">
-                <button class="vc-hdr-btn" onclick="window._vcStartCall('video','${selThread}')">Video Call</button>
-                <button class="vc-hdr-btn" onclick="window._vcStartCall('voice','${selThread}')">Voice Call</button>
-                <button class="vc-hdr-btn" onclick="window._vcCaptureNote('${selThread}','${_e(selMeta.patientName)}')">Note</button>
+                <button class="vc-hdr-btn" onclick="window._vcStartCall('video','${selThread}')">📹 Video</button>
+                <button class="vc-hdr-btn" onclick="window._vcStartCall('voice','${selThread}')">📞 Voice</button>
+                <button class="vc-hdr-btn" onclick="window._vcCaptureNote('${selThread}','${_e(selMeta.patientName)}')">📝 Note</button>
+                <button class="vc-hdr-btn" onclick="window._vcAction('monitor','${selThread}','${_e(selMeta.patientName)}','')">📊 Monitor</button>
+                <button class="vc-hdr-btn" onclick="window._vcAction('hometasks','${selThread}','${_e(selMeta.patientName)}','')">🏠 Tasks</button>
               </div>
             </div>
             ${_actionBar(selThread, selMeta.patientName, 'messaging')}
@@ -1058,6 +1066,16 @@ export async function pgVirtualCare(setTopbar, navigate) {
       case 'followup':
         window._nav('calendar');
         window._showNotifToast?.({ title:'Schedule Follow-Up', body:`Open calendar to book follow-up for ${patientName}.`, severity:'info' });
+        break;
+      case 'monitor':
+        localStorage.setItem('ds_selected_patient_id', patientId);
+        window._nav('monitor-hub');
+        window._showNotifToast?.({ title:'Monitoring', body:`Viewing monitoring data for ${patientName}.`, severity:'info' });
+        break;
+      case 'hometasks':
+        localStorage.setItem('ds_selected_patient_id', patientId);
+        window._nav('home-task-manager');
+        window._showNotifToast?.({ title:'Home Tasks', body:`Viewing home tasks for ${patientName}.`, severity:'info' });
         break;
     }
   };
