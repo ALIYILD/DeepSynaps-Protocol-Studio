@@ -141,12 +141,12 @@ function renderLoginPage() {
 
     <div id="login-form">
       <div class="form-group">
-        <label class="form-label">Email</label>
+        <label class="form-label" for="login-email">Email</label>
         <input id="login-email" class="form-control" type="email" placeholder="your@email.com" autocomplete="username"
                onkeydown="if(event.key==='Enter')document.getElementById('login-password').focus()">
       </div>
       <div class="form-group">
-        <label class="form-label">Password</label>
+        <label class="form-label" for="login-password">Password</label>
         <input id="login-password" class="form-control" type="password" placeholder="••••••••" autocomplete="current-password"
                onkeydown="if(event.key==='Enter')submitLogin()">
       </div>
@@ -172,12 +172,12 @@ function renderLoginPage() {
 
     <div id="register-form" style="display:none">
       <div class="form-group">
-        <label class="form-label">Display Name</label>
+        <label class="form-label" for="reg-name">Display Name</label>
         <input id="reg-name" class="form-control" placeholder="Dr. Jane Smith"
                onkeydown="if(event.key==='Enter')document.getElementById('reg-email').focus()">
       </div>
       <div class="form-group">
-        <label class="form-label">Email</label>
+        <label class="form-label" for="reg-email">Email</label>
         <input id="reg-email" class="form-control" type="email" placeholder="clinician@clinic.com"
                onkeydown="if(event.key==='Enter')document.getElementById('reg-password').focus()">
       </div>

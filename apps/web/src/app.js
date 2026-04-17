@@ -447,6 +447,7 @@ const NAV = [
   { id: 'home-task-manager',  label: 'Home Tasks',         icon: '🏠' },
   { id: 'documents-hub',      label: 'Documents',          icon: '📄' },
   { id: 'virtual-care-hub',   label: 'Virtual Care',       icon: '📹', ai: true },
+  { id: 'ai-agents',          label: 'AI Agents',          icon: '🤖', ai: true },
 
   // ── OPERATIONS & REPORTING — Clinic administration ──────────────────────────
   { section: 'Operations', sectionId: 'operations', collapsed: false },
@@ -714,7 +715,7 @@ function renderNav() {
       const iconHtml = NAV_ICONS[n.id]
         ? `<span class="nav-icon" aria-hidden="true">${NAV_ICONS[n.id]}</span>`
         : `<span class="nav-icon" aria-hidden="true">${n.icon}</span>`;
-      itemsHtml.push(`<div class="nav-item ${currentPage === n.id ? 'active' : ''}" onclick="window._nav('${n.id}')" role="menuitem" tabindex="0" aria-current="${currentPage === n.id ? 'page' : 'false'}">
+      itemsHtml.push(`<div class="nav-item ${currentPage === n.id ? 'active' : ''}" onclick="window._nav('${n.id}')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();window._nav('${n.id}')}" role="menuitem" tabindex="0" aria-current="${currentPage === n.id ? 'page' : 'false'}">
         ${iconHtml}
         <span class="nav-label">${(()=>{ const _k='nav.'+n.id,_v=t(_k); return (_v&&_v!==_k)?_v:n.label; })()}</span>${badge}
       </div>`);
@@ -730,7 +731,7 @@ function renderNav() {
   });
 
   // Patient View demo button (outside section groups, always visible)
-  html.push(`<div class="nav-section-group nav-section-group--patient-view"><div class="nav-item nav-item--patient-view" onclick="window._previewPatientPortal()">
+  html.push(`<div class="nav-section-group nav-section-group--patient-view"><div class="nav-item nav-item--patient-view" onclick="window._previewPatientPortal()" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();window._previewPatientPortal()}" role="menuitem" tabindex="0">
     <span class="nav-icon" aria-hidden="true">${NAV_ICONS['patient-view']}</span>
     <span class="nav-label">Patient View</span>
     <span class="nav-badge-demo">demo</span>
@@ -798,7 +799,7 @@ const PAGE_TITLES = {
   courses: 'Treatment Courses', 'course-detail': 'Course Detail',
   'session-execution': 'Session Execution', 'review-queue': 'Clinical Review & Approvals',
   'protocol-wizard': 'Protocol Intelligence', 'protocols-registry': 'Protocol Registry',
-  outcomes: 'Outcomes & Progress', 'ai-assistant': 'AI Clinical Assistant', 'ai-agents': 'AI Practice Agent',
+  outcomes: 'Outcomes & Progress', 'ai-assistant': 'AI Clinical Assistant', 'ai-agents': 'AI Agents',
   braindata: 'qEEG / Brain Data', qeegmaps: 'qEEG Maps', assessments: 'Assessments',
   evidence: 'Evidence Library', devices: 'Device Registry', brainregions: 'Brain Regions',
   handbooks: 'Handbooks', 'report-builder': 'Report Builder & Exports', 'adverse-events': 'Adverse Events', audittrail: 'Audit Trail',

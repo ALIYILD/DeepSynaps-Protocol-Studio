@@ -36,7 +36,7 @@
 
   --text-primary:   #e8edf5;
   --text-secondary: #a8b3c1;
-  --text-tertiary:  #7a8594;
+  --text-tertiary:  #8b97a8;
   --text-teal:      var(--teal);
   --text-blue:      var(--blue);
   --text-green:     var(--green);
@@ -19761,3 +19761,66 @@ details > summary::marker { display: none; }
 @media (prefers-reduced-motion: reduce) {
   * { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
 }
+
+/* ── Agent Hub ────────────────────────────────────────────────────────────── */
+.agent-hub { padding: 20px 24px; }
+.agent-hub-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 20px; }
+@media (max-width: 768px) { .agent-hub-grid { grid-template-columns: 1fr; } }
+
+/* Agent cards */
+.agent-card { position: relative; transition: border-color 0.15s, transform 0.15s; }
+.agent-card:hover { border-color: var(--border-hover); transform: translateY(-1px); }
+.agent-card--clinician { border-left: 3px solid var(--violet); }
+.agent-card--patient { border-left: 3px solid var(--teal); }
+.agent-card__header { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+.agent-card__title { font-size: 14px; font-weight: 700; color: var(--text-primary); }
+.agent-card__status { display: inline-flex; align-items: center; gap: 5px; font-size: 10.5px; color: var(--text-secondary); }
+.agent-card__status-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+.agent-card__status-dot--active { background: var(--teal); box-shadow: 0 0 6px rgba(0,212,188,0.5); }
+.agent-card__status-dot--inactive { background: var(--text-tertiary); }
+.agent-card__desc { font-size: 11.5px; color: var(--text-secondary); line-height: 1.6; margin-bottom: 12px; }
+.agent-card__stats { display: flex; gap: 16px; margin-bottom: 12px; font-size: 11px; color: var(--text-tertiary); }
+.agent-card__stat-val { font-weight: 700; color: var(--text-primary); margin-right: 3px; }
+.agent-card__actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.agent-card__badge { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: 600; }
+.agent-card__badge--tg-on { background: rgba(74,222,128,0.12); color: var(--green); border: 1px solid rgba(74,222,128,0.2); }
+.agent-card__badge--tg-off { background: var(--bg-surface-2); color: var(--text-tertiary); border: 1px solid var(--border); }
+.agent-card__badge--privacy { background: rgba(0,212,188,0.08); color: var(--teal); border: 1px solid rgba(0,212,188,0.2); }
+
+/* Task board */
+.agent-tasks__tabs { display: flex; gap: 2px; margin-bottom: 12px; }
+.agent-tasks__tab { padding: 5px 14px; border-radius: 6px; border: 1px solid var(--border); background: transparent; color: var(--text-secondary); font-size: 11px; font-weight: 500; cursor: pointer; transition: all 0.15s; }
+.agent-tasks__tab:hover { background: rgba(255,255,255,0.04); }
+.agent-tasks__tab--active { background: rgba(155,127,255,0.12); color: var(--violet); border-color: rgba(155,127,255,0.3); }
+.agent-task-form { display: grid; grid-template-columns: 1fr auto auto auto; gap: 8px; align-items: end; margin-bottom: 12px; padding: 12px; background: var(--bg-surface); border-radius: var(--radius-md); border: 1px solid var(--border); }
+@media (max-width: 768px) { .agent-task-form { grid-template-columns: 1fr; } }
+
+/* Activity log */
+.agent-activity__item { display: flex; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--border); }
+.agent-activity__item:last-child { border-bottom: none; }
+.agent-activity__dot { width: 8px; height: 8px; border-radius: 50%; margin-top: 5px; flex-shrink: 0; }
+.agent-activity__dot--chat { background: var(--violet); }
+.agent-activity__dot--task_created { background: var(--teal); }
+.agent-activity__dot--task_completed { background: var(--green); }
+.agent-activity__dot--telegram_linked { background: var(--blue); }
+.agent-activity__content { flex: 1; min-width: 0; }
+.agent-activity__text { font-size: 12px; color: var(--text-secondary); line-height: 1.5; }
+.agent-activity__time { font-size: 10px; color: var(--text-tertiary); margin-top: 2px; }
+
+/* Telegram config */
+.agent-tg-code { font-family: var(--font-mono); font-size: 20px; font-weight: 700; color: var(--teal); background: rgba(0,212,188,0.08); padding: 12px 20px; border-radius: 8px; letter-spacing: 4px; text-align: center; border: 1px solid rgba(0,212,188,0.2); margin: 12px 0; }
+.agent-tg-status { display: flex; align-items: center; gap: 6px; font-size: 11.5px; padding: 6px 0; }
+.agent-tg-notif { display: flex; align-items: center; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid var(--border); font-size: 12px; color: var(--text-secondary); }
+.agent-tg-notif:last-child { border-bottom: none; }
+.agent-tg-notif label { display: flex; align-items: center; gap: 6px; cursor: pointer; }
+
+/* Hub KPI strip */
+.agent-kpi-strip { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 20px; }
+@media (max-width: 768px) { .agent-kpi-strip { grid-template-columns: repeat(2, 1fr); } }
+.agent-kpi { padding: 14px; border-radius: var(--radius-md); background: var(--bg-card); border: 1px solid var(--border); }
+.agent-kpi__label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-tertiary); font-weight: 600; margin-bottom: 4px; }
+.agent-kpi__value { font-size: 22px; font-weight: 700; font-family: var(--font-display); }
+.agent-kpi__value--violet { color: var(--violet); }
+.agent-kpi__value--teal { color: var(--teal); }
+.agent-kpi__value--amber { color: var(--amber); }
+.agent-kpi__value--green { color: var(--green); }
