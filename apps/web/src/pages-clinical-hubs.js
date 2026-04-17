@@ -1380,6 +1380,7 @@ export async function pgProtocolHub(setTopbar, navigate) {
     window._regProtoMod = window._regProtoMod || 'All';
     window._regProtoQ   = window._regProtoQ   || '';
     window._regSelectedId = window._regSelectedId || MONTAGES[0].id;
+    window._regElectrodeFilter = window._regElectrodeFilter || null;
 
     const evC = { A:'var(--teal)', B:'var(--blue)', C:'var(--amber)', D:'var(--text-tertiary)', E:'var(--text-tertiary)' };
     const _esc = s => String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
@@ -1447,7 +1448,25 @@ export async function pgProtocolHub(setTopbar, navigate) {
         showEarsAndNose: true,
       });
       const wrap = document.getElementById('reg-bmp-svg');
-      if (wrap) wrap.innerHTML = svgHtml;
+      if (wrap) {
+        wrap.innerHTML = svgHtml;
+        // Electrode-click → filter registry by that site.
+        wrap.querySelectorAll('[data-site]').forEach(el => {
+          el.style.cursor = 'pointer';
+          el.addEventListener('click', (e) => {
+            e.stopPropagation();
+            window._regSetSiteFilter(el.dataset.site);
+          });
+        });
+        // Reflect current filter with a subtle outline on the filtered chip.
+        if (window._regElectrodeFilter) {
+          const fSite = wrap.querySelector('[data-site="' + window._regElectrodeFilter + '"] .ds-bm-chip');
+          if (fSite) {
+            fSite.setAttribute('stroke', '#4a9eff');
+            fSite.setAttribute('stroke-width', '3');
+          }
+        }
+      }
 
       const evc = evC[sel.evidenceGrade] || 'var(--text-tertiary)';
       const detail = document.getElementById('reg-bmp-detail');
@@ -1483,18 +1502,30 @@ export async function pgProtocolHub(setTopbar, navigate) {
     function renderProtoReg() {
       const q   = (document.getElementById('reg-proto-q')?.value || '').toLowerCase();
       const mod = window._regProtoMod;
+      const siteFilter = window._regElectrodeFilter;
       window._regProtoQ = q;
       const filtered = _protos.filter(p => {
         const devLabel = _devices.find(d=>d.id===p.device)?.label||p.device||'';
         const matchM = mod==='All' || devLabel===mod;
         const matchQ = !q || (p.name||'').toLowerCase().includes(q) || (p.conditionId||'').toLowerCase().includes(q);
-        return matchM && matchQ;
+        if (!matchM || !matchQ) return false;
+        if (siteFilter) {
+          const inf = inferElectrodes(p);
+          if (inf.anode !== siteFilter && inf.cathode !== siteFilter) return false;
+        }
+        return true;
       });
 
       const out = document.getElementById('reg-proto-list');
       if (!out) return;
       const cnt = document.getElementById('reg-proto-count');
-      if (cnt) cnt.textContent = filtered.length + ' protocols';
+      if (cnt) cnt.textContent = filtered.length + ' protocols' + (siteFilter ? ' @ ' + siteFilter : '');
+
+      const chipEl = document.getElementById('reg-site-filter-chip');
+      if (chipEl) chipEl.innerHTML = siteFilter
+        ? '<span class="reg-site-chip">◉ Site: <b>' + _esc(siteFilter) + '</b>'
+          + '<button class="reg-site-chip-clear" onclick="window._regSetSiteFilter(null)" aria-label="Clear electrode filter" title="Clear filter">×</button></span>'
+        : '';
 
       out.innerHTML = filtered.slice(0,50).map(p => {
         const cond = _conditions.find(c=>c.id===p.conditionId);
@@ -1519,6 +1550,11 @@ export async function pgProtocolHub(setTopbar, navigate) {
 
     window._regSelect = id => {
       window._regSelectedId = id;
+      renderBrainPanel();
+    };
+    window._regSetSiteFilter = site => {
+      window._regElectrodeFilter = (site === window._regElectrodeFilter) ? null : (site || null);
+      renderProtoReg();
       renderBrainPanel();
     };
     window._regProtoSetMod = m => {
@@ -1561,7 +1597,9 @@ export async function pgProtocolHub(setTopbar, navigate) {
               <div style="padding:8px 16px 4px;display:flex;align-items:center;gap:8px;border-top:1px solid rgba(255,255,255,0.04)">
                 <span class="ph-rail-label" style="margin:0">Full Registry</span>
                 <span style="flex:1;height:1px;background:rgba(255,255,255,0.05)"></span>
+                <span style="font-size:10.5px;color:var(--text-tertiary);letter-spacing:0.3px">◉ Tip: click an electrode on the map to filter</span>
               </div>
+              <div id="reg-site-filter-chip" style="padding:0 16px"></div>
               <div id="reg-proto-list" style="max-height:calc(100vh - 380px);overflow-y:auto"></div>
             </div>
           </div>

@@ -19874,3 +19874,32 @@ details > summary::marker { display: none; }
 .agent-kpi__value--teal { color: var(--teal); }
 .agent-kpi__value--amber { color: var(--amber); }
 .agent-kpi__value--green { color: var(--green); }
+
+/* ── Registry & Brain Map — electrode filter chip ──────────────────────── */
+.reg-site-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 4px 6px 4px 10px;
+  margin: 8px 0 2px;
+  font-size: 11.5px; font-weight: 600;
+  color: var(--blue);
+  background: rgba(74,158,255,0.08);
+  border: 1px solid rgba(74,158,255,0.32);
+  border-radius: 999px;
+  letter-spacing: 0.2px;
+}
+.reg-site-chip b { font-weight: 700; letter-spacing: 0.4px; }
+.reg-site-chip-clear {
+  background: rgba(255,255,255,0.04);
+  border: none;
+  color: var(--text-secondary);
+  width: 18px; height: 18px;
+  border-radius: 50%;
+  font-size: 13px; line-height: 1;
+  cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center;
+  transition: background 0.12s, color 0.12s;
+}
+.reg-site-chip-clear:hover {
+  background: rgba(255,107,107,0.15);
+  color: var(--red);
+}
