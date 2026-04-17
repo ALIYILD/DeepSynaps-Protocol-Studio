@@ -424,9 +424,9 @@ let currentPage = 'dashboard';
 
 // ── Role-based nav visibility ─────────────────────────────────────────────────
 const ROLE_NAV_HIDE = {
-  technician: ['protocol-wizard', 'patients', 'evidence', 'handbooks', 'billing', 'pricing', 'audittrail', 'brainregions', 'qeegmaps', 'protocols-registry', 'outcomes', 'adverse-events', 'population-analytics', 'brain-map-planner', 'handbook-generator', 'notes-dictation', 'assessments-hub'],
+  technician: ['protocol-wizard', 'patients', 'evidence', 'handbooks', 'billing', 'pricing', 'audittrail', 'brainregions', 'qeegmaps', 'protocols-registry', 'outcomes', 'adverse-events', 'population-analytics', 'brain-map-planner', 'handbook-generator', 'notes-dictation', 'assessments-hub', 'data-export', 'irb-manager', 'quality-assurance', 'staff-scheduling', 'insurance', 'referrals', 'longitudinal-report'],
   reviewer:   ['session-execution', 'protocol-wizard', 'billing', 'pricing', 'population-analytics', 'brain-map-planner'],
-  guest:      ['session-execution', 'protocol-wizard', 'patients', 'courses', 'review-queue', 'braindata', 'assessments', 'assessments-hub', 'medical-history', 'documents', 'reports', 'outcomes', 'adverse-events', 'audittrail', 'billing', 'population-analytics', 'brain-map-planner', 'notes-dictation', 'reg-conditions', 'reg-assessments', 'reg-protocols', 'reg-devices', 'reg-targets', 'reg-handbooks', 'reg-virtual-care'],
+  guest:      ['session-execution', 'protocol-wizard', 'patients', 'courses', 'review-queue', 'braindata', 'assessments', 'assessments-hub', 'medical-history', 'documents', 'reports', 'outcomes', 'adverse-events', 'audittrail', 'billing', 'population-analytics', 'brain-map-planner', 'notes-dictation', 'reg-conditions', 'reg-assessments', 'reg-protocols', 'reg-devices', 'reg-targets', 'reg-handbooks', 'reg-virtual-care', 'data-export', 'irb-manager', 'quality-assurance', 'staff-scheduling', 'insurance', 'referrals', 'longitudinal-report'],
   clinician:  ['population-analytics'],
 };
 
@@ -452,6 +452,17 @@ const NAV = [
   { section: 'Operations', sectionId: 'operations', collapsed: false },
   { id: 'reports-hub',        label: 'Reports',            icon: '📈' },
   { id: 'finance-hub',        label: 'Finance',            icon: '💰' },
+  { id: 'insurance',          label: 'Insurance',          icon: '🛡️' },
+  { id: 'referrals',          label: 'Referrals',          icon: '🔗' },
+  { id: 'staff-scheduling',   label: 'Staff Scheduling',   icon: '👤' },
+  { id: 'population-analytics', label: 'Population Analytics', icon: '📊' },
+  { id: 'quality-assurance',  label: 'Quality Assurance',  icon: '✅' },
+  { id: 'longitudinal-report',label: 'Longitudinal Report',icon: '📉' },
+
+  // ── RESEARCH — Data export & IRB ─────────────────────────────────────────────
+  { section: 'Research', sectionId: 'research', collapsed: true },
+  { id: 'data-export',        label: 'Data Export',        icon: '📦' },
+  { id: 'irb-manager',        label: 'IRB Manager',        icon: '🔬' },
 
   // ── ADMIN — System settings ───────────────────────────────────────────────────
   { section: 'Admin', sectionId: 'admin', collapsed: true },
