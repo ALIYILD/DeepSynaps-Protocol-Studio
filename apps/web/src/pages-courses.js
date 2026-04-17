@@ -911,6 +911,32 @@ export async function pgClinicalNotes(setTopbar) {
   };
 }
 
+// ── Course Detail HTML-escape helper ──────────────────────────────────────
+// Patient names, clinician notes, AE descriptions, session subjective text
+// and audit-trail messages all flow into innerHTML strings here; escape any
+// user- or clinician-supplied string before concatenating into HTML.
+function _cdEscHtml(v) {
+  if (v === null || v === undefined) return '';
+  return String(v)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+// Highest-severity helper across assessment severity + adverse-event severity.
+// Returns one of: null | 'mild' | 'moderate' | 'severe' | 'critical'.
+function _cdHighestSeverity(assessmentSummary, aeSummary) {
+  const order = { mild: 1, moderate: 2, severe: 3, critical: 4 };
+  let bestKey = null, bestOrd = 0;
+  const consider = (sev) => {
+    if (!sev) return;
+    const o = order[sev] || 0;
+    if (o > bestOrd) { bestKey = sev; bestOrd = o; }
+  };
+  consider(assessmentSummary?.highest_severity);
+  consider(aeSummary?.highest_severity);
+  return bestKey;
+}
+
 // ── pgCourseDetail — Full course detail ──────────────────────────────────────
 export async function pgCourseDetail(setTopbar, navigate) {
   const id = window._selectedCourseId;
@@ -920,28 +946,48 @@ export async function pgCourseDetail(setTopbar, navigate) {
   el.innerHTML = spinner();
 
   let course = null, sessions = [], adverseEvents = [], patient = null, protocolDetail = null, outcomes = [], outcomeSummary = null;
+  const loadErrors = [];
   try {
     course = await api.getCourse(id);
-    [sessions, adverseEvents, outcomes] = await Promise.all([
-      api.listCourseSessions(id).then(r => r?.items || []).catch(() => []),
-      api.listAdverseEvents({ course_id: id }).then(r => r?.items || []).catch(() => []),
-      api.listOutcomes({ course_id: id }).then(r => r?.items || []).catch(() => []),
-    ]);
-    if (course?.patient_id) {
-      patient = await api.getPatient(course.patient_id).catch(() => null);
-    }
-    if (course?.protocol_id) {
-      protocolDetail = await api.protocolDetail(course.protocol_id).catch(() => null);
-    }
-    outcomeSummary = await api.courseOutcomeSummary(id).catch(() => null);
   } catch (e) {
-    el.innerHTML = `<div class="notice notice-warn">Could not load course: ${e.message}</div>`;
+    const msg = (e && e.status === 403) ? 'You do not have access to this course.' : (e && e.message) || 'Could not load course.';
+    el.innerHTML = `
+      <div class="notice notice-warn" role="status" style="margin:24px auto;max-width:560px;padding:18px 20px;border-radius:10px">
+        <strong>Could not load course</strong>
+        <div style="font-size:12.5px;margin-top:4px">${msg}</div>
+        <div style="margin-top:10px"><button class="btn btn-primary btn-sm" onclick="window._nav('courses')">← Back to Courses</button></div>
+      </div>`;
     return;
   }
-
   if (!course) { navigate('courses'); return; }
 
+  // Fetch supporting data. Any failure here is surfaced as a banner — we never
+  // silently show empty ("0 sessions") when the API actually errored.
+  try { sessions = (await api.listCourseSessions(id))?.items || []; }
+  catch (e) { loadErrors.push({ what: 'sessions', err: e }); sessions = []; }
+  try { adverseEvents = (await api.listAdverseEvents({ course_id: id }))?.items || []; }
+  catch (e) { loadErrors.push({ what: 'adverse events', err: e }); adverseEvents = []; }
+  try { outcomes = (await api.listOutcomes({ course_id: id }))?.items || []; }
+  catch (e) { loadErrors.push({ what: 'outcomes', err: e }); outcomes = []; }
+  if (course?.patient_id) {
+    try { patient = await api.getPatient(course.patient_id); }
+    catch (e) { loadErrors.push({ what: 'patient', err: e }); patient = null; }
+  }
+  if (course?.protocol_id) {
+    try { protocolDetail = await api.protocolDetail(course.protocol_id); }
+    catch { protocolDetail = null; } // protocol detail not critical for go-live
+  }
+  try { outcomeSummary = await api.courseOutcomeSummary(id); } catch { outcomeSummary = null; }
+
+  // Course-scoped normalized reads (assessment severity, audit trail, AE roll-up).
+  // Each is non-blocking; failures fall back to existing behavior.
+  let assessmentSummary = null, auditTrail = null, aeSummary = null;
+  try { assessmentSummary = await api.getCourseAssessmentSummary(id); } catch { assessmentSummary = null; }
+  try { auditTrail = await api.getCourseAuditTrail(id); } catch { auditTrail = null; }
+  try { aeSummary = await api.getCourseAdverseEventsSummary(id); } catch { aeSummary = null; }
+
   const patName   = patient ? `${patient.first_name} ${patient.last_name}` : 'Unknown Patient';
+  const patNameEsc = _cdEscHtml(patName);
   const progress  = course.planned_sessions_total > 0
     ? Math.min(100, Math.round((course.sessions_delivered / course.planned_sessions_total) * 100))
     : 0;
@@ -970,9 +1016,9 @@ export async function pgCourseDetail(setTopbar, navigate) {
               <span style="color:var(--teal)"> · ${course.modality_slug || '—'}</span>
             </div>
             <div style="font-size:12px;color:var(--text-secondary);margin-bottom:10px">
-              Patient: <strong style="color:var(--text-primary)">${patName}</strong>
-              ${course.device_slug ? ` · Device: <span class="tag">${course.device_slug}</span>` : ''}
-              ${course.target_region ? ` · Target: <span class="tag">${course.target_region}</span>` : ''}
+              Patient: <strong style="color:var(--text-primary)">${patNameEsc}</strong>
+              ${course.device_slug ? ` · Device: <span class="tag">${_cdEscHtml(course.device_slug)}</span>` : ''}
+              ${course.target_region ? ` · Target: <span class="tag">${_cdEscHtml(course.target_region)}</span>` : ''}
             </div>
             <div style="display:flex;gap:6px;flex-wrap:wrap">
               ${approvalBadge(course.status)}
@@ -1006,9 +1052,37 @@ export async function pgCourseDetail(setTopbar, navigate) {
       <div id="cd-exp-notice" style="display:none;margin-top:10px;font-size:12px;color:var(--text-secondary)"></div>
     </div>
 
-    <div class="tab-bar" style="margin-bottom:20px">
-      ${['overview','sessions','outcomes','protocol','adverse-events','governance','assessments','home-programs','reports','notes'].map(t =>
-        `<button class="tab-btn ${tab === t ? 'active' : ''}" onclick="window._cdSwitchTab('${t}')">${
+    ${loadErrors.length ? `
+    <div class="notice notice-warn" role="status" style="margin-bottom:16px;padding:10px 14px;border-radius:8px;font-size:12.5px" id="cd-load-err-banner">
+      ⚠ Some sections could not be loaded: <strong>${_cdEscHtml(loadErrors.map(e => e.what).join(', '))}</strong>. Counts shown reflect only what loaded.
+      <button class="btn btn-sm" style="margin-left:10px" onclick="window._nav('course-detail')">Retry</button>
+    </div>` : ''}
+    ${(() => {
+      const sev = _cdHighestSeverity(assessmentSummary, aeSummary);
+      if (!sev || (sev !== 'severe' && sev !== 'critical')) return '';
+      const critical = sev === 'critical';
+      const bg = critical ? 'rgba(255,107,107,0.12)' : 'rgba(245,158,11,0.12)';
+      const col = critical ? 'var(--red)' : 'var(--amber)';
+      const parts = [];
+      if (assessmentSummary?.highest_severity && (assessmentSummary.highest_severity === 'severe' || assessmentSummary.highest_severity === 'critical')) {
+        const tpls = Object.entries(assessmentSummary.aggregated_severity || {})
+          .filter(([,v]) => v === 'severe' || v === 'critical')
+          .map(([k]) => k.toUpperCase()).join(', ');
+        parts.push('Assessment severity: <strong>' + _cdEscHtml(assessmentSummary.highest_severity) + '</strong>' + (tpls ? ' (' + _cdEscHtml(tpls) + ')' : ''));
+      }
+      if (aeSummary && aeSummary.unresolved > 0 && (aeSummary.highest_severity === 'severe' || aeSummary.highest_severity === 'critical')) {
+        parts.push('Unresolved adverse events: <strong>' + aeSummary.unresolved + '</strong> (' + _cdEscHtml(aeSummary.highest_severity) + ')');
+      }
+      return `<div role="alert" aria-live="assertive" style="margin-bottom:16px;padding:12px 16px;border-radius:8px;background:${bg};border:1px solid ${col};color:${col};font-size:12.5px">
+        ${critical ? '🚨' : '⚠'} <strong>${critical ? 'SAFETY ALERT' : 'Safety flag'}:</strong> ${parts.join(' &middot; ')}.
+        <button class="btn btn-sm" style="margin-left:10px" onclick="window._cdSwitchTab('assessments')">Open Assessments</button>
+        <button class="btn btn-sm" style="margin-left:6px" onclick="window._cdSwitchTab('adverse-events')">Open Adverse Events</button>
+      </div>`;
+    })()}
+
+    <div class="tab-bar" role="tablist" aria-label="Course detail sections" style="margin-bottom:20px">
+      ${['overview','sessions','outcomes','protocol','adverse-events','governance','assessments','home-programs','reports','notes'].map((t, idx, arr) =>
+        `<button class="tab-btn ${tab === t ? 'active' : ''}" role="tab" id="cd-tab-${t}" aria-selected="${tab === t}" aria-controls="cd-tab-body" tabindex="${tab === t ? '0' : '-1'}" data-tab-id="${t}" data-tab-idx="${idx}" onclick="window._cdSwitchTab('${t}')" onkeydown="window._cdTabKey(event, ${idx}, ${arr.length})">${
           t === 'adverse-events' ? `Adverse Events${adverseEvents.length ? ` (${adverseEvents.length})` : ''}`
           : t === 'sessions'      ? `Sessions (${sessions.length})`
           : t === 'outcomes'      ? `Outcomes${outcomes.length ? ` (${outcomes.length})` : ''}`
@@ -1021,12 +1095,34 @@ export async function pgCourseDetail(setTopbar, navigate) {
       ).join('')}
     </div>
 
-    <div id="cd-tab-body">${renderCourseTab(course, sessions, adverseEvents, protocolDetail, tab, outcomes, outcomeSummary)}</div>`;
+    <div id="cd-tab-body" role="tabpanel" aria-labelledby="cd-tab-${tab}">${renderCourseTab(course, sessions, adverseEvents, protocolDetail, tab, outcomes, outcomeSummary, assessmentSummary, auditTrail)}</div>`;
 
   window._cdSwitchTab = function(t) {
     window._cdTab = t;
-    document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.getAttribute('onclick')?.includes(`'${t}'`)));
-    document.getElementById('cd-tab-body').innerHTML = renderCourseTab(course, sessions, adverseEvents, protocolDetail, t, outcomes, outcomeSummary);
+    document.querySelectorAll('.tab-btn').forEach(b => {
+      const isActive = b.getAttribute('data-tab-id') === t;
+      b.classList.toggle('active', isActive);
+      b.setAttribute('aria-selected', isActive ? 'true' : 'false');
+      b.setAttribute('tabindex', isActive ? '0' : '-1');
+    });
+    const body = document.getElementById('cd-tab-body');
+    if (body) {
+      body.innerHTML = renderCourseTab(course, sessions, adverseEvents, protocolDetail, t, outcomes, outcomeSummary);
+      body.setAttribute('aria-labelledby', 'cd-tab-' + t);
+    }
+  };
+
+  // Arrow-key / Home / End keyboard navigation for the tab bar (WAI-ARIA pattern).
+  window._cdTabKey = function(ev, idx, len) {
+    let next = idx;
+    if (ev.key === 'ArrowRight') next = (idx + 1) % len;
+    else if (ev.key === 'ArrowLeft') next = (idx - 1 + len) % len;
+    else if (ev.key === 'Home') next = 0;
+    else if (ev.key === 'End') next = len - 1;
+    else return;
+    ev.preventDefault();
+    const btn = document.querySelector(`.tab-btn[data-tab-idx="${next}"]`);
+    if (btn) { btn.focus(); btn.click(); }
   };
 
   window._showExportPanel = function() {
@@ -1097,17 +1193,116 @@ export async function pgCourseDetail(setTopbar, navigate) {
     if (chev) chev.textContent = open ? '›' : '↓';
   };
 
+  const _cdFlash = (msg, severity) => {
+    const banner = document.createElement('div');
+    banner.className = 'notice ' + (severity === 'error' ? 'notice-warn' : 'notice-info');
+    banner.setAttribute('role', 'status');
+    banner.style.cssText = 'position:fixed;top:16px;right:16px;z-index:9999;max-width:420px;padding:12px 16px;border-radius:8px';
+    banner.textContent = msg;
+    document.body.appendChild(banner);
+    setTimeout(() => banner.remove(), 5000);
+  };
+
+  const _cdEsc = (s) => String(s == null ? '' : s)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+
+  const _cdCloseSafetyModal = () => {
+    const m = document.getElementById('cd-safety-modal'); if (m) m.remove();
+  };
+  window._cdCloseSafetyModal = _cdCloseSafetyModal;
+
   window._activateCourseDetail = async function(courseId) {
+    // Step 1 — preflight the patient's medical-history safety flags.
+    let pre = null;
     try {
-      await api.activateCourse(courseId);
+      pre = await api.courseSafetyPreflight(courseId);
+    } catch (e) {
+      _cdFlash(e?.message || 'Safety preflight failed. Cannot activate.', 'error');
+      return;
+    }
+    // Step 2 — clear path: simple confirm then activate.
+    if (!pre?.override_required) {
+      if (!confirm('Approve and activate this course?\n\nThis will mark the course active and allow session logging.')) return;
+      try {
+        await api.activateCourse(courseId, { override_safety: false });
+        _cdFlash('Course activated.', 'info');
+        window._nav('course-detail');
+      } catch (e) {
+        _cdFlash(e?.message || 'Activation failed.', 'error');
+      }
+      return;
+    }
+    // Step 3 — override required: render structured modal with flags + reason field.
+    const flags = pre.blocking_flags || [];
+    const neverReviewed = !pre.source_meta?.reviewed_at;
+    const flagList = flags.length
+      ? '<ul style="margin:6px 0 0 18px;padding:0">' +
+        flags.map(f => `<li style="font-size:12.5px;color:var(--red)"><strong>${_cdEsc(f)}</strong></li>`).join('') +
+        '</ul>'
+      : '';
+    const overlay = document.createElement('div');
+    overlay.id = 'cd-safety-modal';
+    overlay.setAttribute('role', 'dialog');
+    overlay.setAttribute('aria-modal', 'true');
+    overlay.setAttribute('aria-labelledby', 'cd-sm-title');
+    overlay.style.cssText = 'position:fixed;inset:0;z-index:1400;background:rgba(0,0,0,0.6);display:flex;align-items:center;justify-content:center;backdrop-filter:blur(3px);padding:16px';
+    overlay.innerHTML = `
+      <div class="card" style="max-width:520px;width:100%;background:var(--bg-card);border:1px solid var(--border);border-radius:14px;box-shadow:0 24px 60px rgba(0,0,0,0.5);padding:22px 24px">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
+          <span style="font-size:22px;color:var(--red)" aria-hidden="true">⚠</span>
+          <div id="cd-sm-title" style="font-size:15px;font-weight:700;color:var(--text-primary)">Safety review required before activation</div>
+        </div>
+        <div style="font-size:12.5px;color:var(--text-secondary);line-height:1.55;margin-bottom:12px">
+          The patient's medical history has items that require clinician acknowledgement before this course can be activated.
+        </div>
+        ${flags.length ? `
+        <div style="padding:10px 12px;background:rgba(255,107,107,0.08);border:1px solid rgba(255,107,107,0.25);border-radius:8px;margin-bottom:12px">
+          <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--red);margin-bottom:4px">Blocking safety flags</div>
+          ${flagList}
+        </div>` : ''}
+        ${neverReviewed ? `
+        <div style="padding:10px 12px;background:rgba(255,180,70,0.1);border:1px solid rgba(255,180,70,0.25);border-radius:8px;margin-bottom:12px;font-size:12.5px;color:var(--amber)">
+          Medical history has never been reviewed for this patient. Consider completing the review in Patients → Medical History first.
+        </div>` : ''}
+        <label for="cd-sm-reason" style="display:block;font-size:11.5px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px">
+          Override justification (required, min 10 characters)
+        </label>
+        <textarea id="cd-sm-reason" rows="3" class="ch-textarea" aria-describedby="cd-sm-hint"
+          placeholder="e.g. Specialist cleared on 2026-04-12 (consult note CN-2451). Cardiology has approved safe use with pacemaker model X."></textarea>
+        <div id="cd-sm-hint" style="font-size:11px;color:var(--text-tertiary);margin-top:4px">This justification is audited with your actor ID and timestamp.</div>
+        <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:16px">
+          <button class="btn btn-ghost" onclick="window._cdCloseSafetyModal()">Cancel</button>
+          <button class="btn btn-primary" id="cd-sm-confirm" onclick="window._cdConfirmSafetyOverride('${_cdEsc(courseId)}')">Override &amp; Activate</button>
+        </div>
+      </div>`;
+    document.body.appendChild(overlay);
+    // Focus reason field for keyboard users.
+    const ta = overlay.querySelector('#cd-sm-reason'); if (ta) ta.focus();
+    // Esc closes.
+    overlay.addEventListener('keydown', (ev) => { if (ev.key === 'Escape') _cdCloseSafetyModal(); });
+    // Backdrop click closes.
+    overlay.addEventListener('click', (ev) => { if (ev.target === overlay) _cdCloseSafetyModal(); });
+  };
+
+  window._cdConfirmSafetyOverride = async function(courseId) {
+    const ta = document.getElementById('cd-sm-reason');
+    const reason = (ta?.value || '').trim();
+    if (reason.length < 10) {
+      _cdFlash('Justification must be at least 10 characters.', 'error');
+      if (ta) ta.focus();
+      return;
+    }
+    const btn = document.getElementById('cd-sm-confirm');
+    if (btn) { btn.disabled = true; btn.textContent = 'Activating…'; }
+    try {
+      await api.activateCourse(courseId, { override_safety: true, override_reason: reason });
+      _cdCloseSafetyModal();
+      _cdFlash('Course activated with safety override. Audit event logged.', 'info');
       window._nav('course-detail');
     } catch (e) {
-      const errBanner = document.createElement('div');
-      errBanner.className = 'notice notice-warn';
-      errBanner.style.cssText = 'position:fixed;top:16px;right:16px;z-index:9999;max-width:380px;animation:fadeIn 0.2s';
-      errBanner.textContent = e.message || 'Activation failed.';
-      document.body.appendChild(errBanner);
-      setTimeout(() => errBanner.remove(), 4000);
+      _cdFlash(e?.message || 'Activation failed.', 'error');
+      if (btn) { btn.disabled = false; btn.textContent = 'Override & Activate'; }
     }
   };
 
@@ -1169,7 +1364,7 @@ export async function pgCourseDetail(setTopbar, navigate) {
         </div>
       </div>
       <h2 style="font-size:14pt;color:#003366;margin-bottom:4px">${course.condition_slug?.replace(/-/g,' ') || '—'} &middot; ${course.modality_slug || '—'}</h2>
-      <div style="font-size:10pt;color:#555;margin-bottom:20px">Patient: <strong>${patName2}</strong> &nbsp;|&nbsp; Status: <strong>${statusLabel}</strong> &nbsp;|&nbsp; Progress: <strong>${course.sessions_delivered || 0} / ${course.planned_sessions_total || '?'} sessions</strong></div>
+      <div style="font-size:10pt;color:#555;margin-bottom:20px">Patient: <strong>${_cdEscHtml(patName2)}</strong> &nbsp;|&nbsp; Status: <strong>${_cdEscHtml(statusLabel)}</strong> &nbsp;|&nbsp; Progress: <strong>${course.sessions_delivered || 0} / ${course.planned_sessions_total || '?'} sessions</strong></div>
 
       <h3 style="font-size:12pt;color:#003366;border-bottom:1px solid #ccc;padding-bottom:4px;margin-bottom:10px">Treatment Parameters</h3>
       <table style="width:100%;border-collapse:collapse;margin-bottom:20px;font-size:10pt">
@@ -1410,7 +1605,7 @@ function outcomeTrajectoryChart(outcomes, goalScore = 7, width = 560, height = 1
   </div>`;
 }
 
-function renderCourseTab(course, sessions, adverseEvents, protocolDetail, tab, outcomes = [], outcomeSummary = null) {
+function renderCourseTab(course, sessions, adverseEvents, protocolDetail, tab, outcomes = [], outcomeSummary = null, assessmentSummary = null, auditTrail = null) {
   if (tab === 'overview') {
     const params = [
       ['Condition',        course.condition_slug?.replace(/-/g,' ') || '—'],
@@ -1461,29 +1656,48 @@ function renderCourseTab(course, sessions, adverseEvents, protocolDetail, tab, o
       </div>
     </div>
     ${(() => {
-      const mockChangelog = [
-        { date: '2026-04-08', actor: 'Dr. A. Smith', action: 'Protocol generated', version: 'v1', type: 'generate' },
-        { date: '2026-04-09', actor: 'Dr. A. Smith', action: `Parameters adjusted \u2014 frequency 10Hz \u2192 12Hz`, version: 'v2', type: 'edit' },
-        { date: '2026-04-10', actor: 'R. Brown (Reviewer)', action: 'Protocol approved for treatment', version: 'v2', type: 'approve' },
+      // Prefer real audit-trail data when the backend returned it. If the
+      // endpoint was not reachable (or the course has no audit entries yet),
+      // render an illustrative placeholder so the card is never silently
+      // populated with fake timestamps presented as real.
+      const trail = Array.isArray(auditTrail?.items) ? auditTrail.items : null;
+      const typeColor = { generate: 'var(--teal)', edit: 'var(--blue)', approve: 'var(--green)',
+                          'course.activate': 'var(--green)', 'course.activate.safety_override': 'var(--amber)',
+                          reject: 'var(--red)' };
+      const typeIcon  = { generate: '&#x2605;', edit: '&#x270E;', approve: '&#x2713;', reject: '&#x2715;',
+                          'course.activate': '&#x2713;', 'course.activate.safety_override': '&#x26A0;&#xFE0F;' };
+      const banner = (trail && trail.length === 0)
+        ? `<div style="font-size:11px;color:var(--text-tertiary);padding:8px 0">No audit events recorded yet for this course.</div>`
+        : (trail == null
+            ? `<div style="font-size:11px;color:var(--amber);padding:6px 10px;background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.2);border-radius:6px;margin-bottom:8px">⚠ Audit trail unavailable — showing illustrative examples.</div>`
+            : '');
+      const records = (trail && trail.length > 0) ? trail : [
+        { action: 'generate', actor_id: 'demo', role: 'clinician', note: 'Illustrative: Protocol generated', created_at: '2026-04-08' },
+        { action: 'edit',     actor_id: 'demo', role: 'clinician', note: 'Illustrative: Parameters adjusted', created_at: '2026-04-09' },
+        { action: 'approve',  actor_id: 'demo', role: 'reviewer',  note: 'Illustrative: Protocol approved', created_at: '2026-04-10' },
       ];
-      const typeColor = { generate: 'var(--teal)', edit: 'var(--blue)', approve: 'var(--green)', reject: 'var(--red)' };
-      const typeIcon  = { generate: '&#x2605;', edit: '&#x270E;', approve: '&#x2713;', reject: '&#x2715;' };
-      const entries = mockChangelog.map((e, i) => `
-        <div style="position:relative;padding-left:24px;margin-bottom:${i < mockChangelog.length - 1 ? '16' : '0'}px">
-          <div style="position:absolute;left:0;top:2px;width:14px;height:14px;border-radius:50%;background:${typeColor[e.type] || 'var(--text-tertiary)'};display:flex;align-items:center;justify-content:center;font-size:7px;color:#000;font-weight:700">${typeIcon[e.type] || '&#x25CF;'}</div>
-          ${i < mockChangelog.length - 1 ? `<div style="position:absolute;left:6px;top:16px;bottom:-16px;width:2px;background:var(--border)"></div>` : ''}
-          <div style="display:flex;align-items:baseline;gap:8px;flex-wrap:wrap">
-            <span style="font-size:12.5px;font-weight:500;color:var(--text-primary)">${e.action}</span>
-            <span style="font-size:10.5px;padding:1px 6px;border-radius:4px;background:rgba(255,255,255,0.05);color:var(--text-tertiary);font-family:'DM Mono',monospace">${e.version}</span>
-          </div>
-          <div style="font-size:11px;color:var(--text-tertiary);margin-top:2px">${e.date} &nbsp;&middot;&nbsp; ${e.actor}</div>
-        </div>`).join('');
+      const entries = records.map((e, i) => {
+        const col = typeColor[e.action] || 'var(--text-tertiary)';
+        const ic = typeIcon[e.action] || '&#x25CF;';
+        const dateStr = e.created_at ? String(e.created_at).split('T')[0] : '';
+        const actorStr = [e.actor_id, e.role].filter(Boolean).join(' · ');
+        return `
+          <div style="position:relative;padding-left:24px;margin-bottom:${i < records.length - 1 ? '16' : '0'}px">
+            <div style="position:absolute;left:0;top:2px;width:14px;height:14px;border-radius:50%;background:${col};display:flex;align-items:center;justify-content:center;font-size:7px;color:#000;font-weight:700">${ic}</div>
+            ${i < records.length - 1 ? `<div style="position:absolute;left:6px;top:16px;bottom:-16px;width:2px;background:var(--border)"></div>` : ''}
+            <div style="display:flex;align-items:baseline;gap:8px;flex-wrap:wrap">
+              <span style="font-size:12.5px;font-weight:500;color:var(--text-primary)">${_cdEscHtml(e.note || e.action || '—')}</span>
+              <span style="font-size:10.5px;padding:1px 6px;border-radius:4px;background:rgba(255,255,255,0.05);color:var(--text-tertiary);font-family:'DM Mono',monospace">${_cdEscHtml(e.action || '')}</span>
+            </div>
+            <div style="font-size:11px;color:var(--text-tertiary);margin-top:2px">${_cdEscHtml(dateStr)} ${actorStr ? '&nbsp;&middot;&nbsp; ' + _cdEscHtml(actorStr) : ''}</div>
+          </div>`;
+      }).join('');
       return `<div class="ds-card" style="margin-top:16px">
         <h4 style="margin-bottom:14px;font-size:13px;font-weight:600">Protocol Change Log</h4>
-        <div id="proto-changelog-${course.id}" style="position:relative">
+        ${banner}
+        <div id="proto-changelog-${_cdEscHtml(course.id)}" style="position:relative">
           ${entries}
         </div>
-        <div style="font-size:10.5px;color:var(--text-tertiary);margin-top:14px;padding-top:10px;border-top:1px solid var(--border)">Session-based history only &mdash; full audit log planned</div>
       </div>`;
     })()}
     ${renderPatientTrendsCard(sessions, outcomes)}
@@ -1818,7 +2032,7 @@ function renderCourseTab(course, sessions, adverseEvents, protocolDetail, tab, o
   }
 
   if (tab === 'assessments') {
-    return renderCourseAssessmentsTab(course);
+    return renderCourseAssessmentsTab(course, assessmentSummary);
   }
 
   if (tab === 'home-programs') {
@@ -1833,38 +2047,114 @@ function renderCourseTab(course, sessions, adverseEvents, protocolDetail, tab, o
 }
 
 // ── Course detail tab: Assessments ───────────────────────────────────────────
-function renderCourseAssessmentsTab(course) {
-  const assigned = course.assessments || [];
-  const hasDue   = assigned.some(a => a.status === 'due' || a.status === 'overdue');
+function renderCourseAssessmentsTab(course, assessmentSummary) {
+  // Prefer the normalized backend summary (patient-scoped) over the legacy
+  // course.assessments inline field. The summary snapshot carries severity,
+  // band labels, respondent type, AI provenance, and approval status — all
+  // straight from the `/treatment-courses/{id}/assessment-summary` endpoint.
+  const legacyAssigned = course.assessments || [];
+  const assessments = (assessmentSummary?.assessments || []).map(a => ({
+    id: a.id,
+    name: a.template_title || a.template_id,
+    template_id: a.template_id,
+    status: a.raw_status,
+    score: a.score_numeric,
+    severity: a.severity,
+    severity_label: a.severity_label,
+    respondent_type: a.respondent_type,
+    phase: a.phase,
+    approved_status: a.approved_status,
+    is_ai_generated: a.is_ai_generated,
+    clinician_reviewed: a.clinician_reviewed,
+    completed_at: a.completed_at,
+  }));
+  const hasSummary = assessmentSummary != null;
+  const fallback = !hasSummary && legacyAssigned.length > 0;
+  const items = hasSummary ? assessments : legacyAssigned.map(a => ({
+    id: a.id,
+    name: a.name || a.template_name,
+    template_id: a.template_id,
+    status: a.status,
+    score: a.score,
+    severity: null,
+    severity_label: null,
+    respondent_type: null,
+    phase: a.phase || null,
+    approved_status: null,
+    is_ai_generated: false,
+    clinician_reviewed: false,
+    completed_at: a.completed_at || null,
+  }));
+  const hasDue   = items.some(a => a.status === 'due' || a.status === 'overdue' || a.status === 'pending');
+  const highest  = assessmentSummary?.highest_severity || null;
+  const sevColor = (s) => s === 'critical' ? 'var(--red)' : s === 'severe' ? 'var(--red)' : s === 'moderate' ? 'var(--amber)' : s === 'mild' ? 'var(--blue)' : 'var(--teal)';
+  const statusPill = (status) => {
+    const color = status === 'completed' ? 'var(--green)'
+      : status === 'overdue' ? 'var(--red)'
+      : status === 'due' ? 'var(--amber)'
+      : status === 'pending' ? 'var(--amber)'
+      : 'var(--text-tertiary)';
+    const label = status === 'completed' ? 'Completed'
+      : status === 'overdue' ? 'Overdue'
+      : status === 'due' ? 'Due'
+      : status === 'pending' ? 'Pending'
+      : status === 'draft' ? 'Draft'
+      : 'Scheduled';
+    return `<span style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:8px;background:${color}18;color:${color}">${label}</span>`;
+  };
   return `<div>
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
       <div>
         <h3 style="margin:0 0 2px">Assessments</h3>
-        <div style="font-size:11.5px;color:var(--text-secondary)">Outcome tracking for this course · ${assigned.length} assigned</div>
+        <div style="font-size:11.5px;color:var(--text-secondary)">
+          Outcome tracking for this course · ${items.length} ${items.length === 1 ? 'record' : 'records'}
+          ${hasSummary && highest ? ` · highest severity: <strong style="color:${sevColor(highest)}">${_cdEscHtml(highest)}</strong>` : ''}
+        </div>
       </div>
       <button class="btn btn-primary btn-sm" onclick="window._nav('assessments-hub')">+ Assign Assessment</button>
     </div>
-    ${hasDue ? `<div style="padding:10px 14px;background:rgba(245,158,11,0.1);border:1px solid rgba(245,158,11,0.25);border-radius:var(--radius-md);margin-bottom:16px;font-size:12px;color:var(--amber)">
-      ⚠ One or more assessments are due or overdue for this course.
+    ${fallback ? `<div style="padding:8px 12px;background:rgba(74,158,255,0.08);border:1px solid rgba(74,158,255,0.25);border-radius:var(--radius-md);margin-bottom:12px;font-size:11.5px;color:var(--text-secondary)">
+      Live assessment summary unavailable; showing cached course list.
     </div>` : ''}
-    ${assigned.length === 0
+    ${hasDue ? `<div style="padding:10px 14px;background:rgba(245,158,11,0.1);border:1px solid rgba(245,158,11,0.25);border-radius:var(--radius-md);margin-bottom:16px;font-size:12px;color:var(--amber)">
+      ⚠ One or more assessments are due or pending for this patient.
+    </div>` : ''}
+    ${(highest === 'severe' || highest === 'critical') ? `<div role="alert" style="padding:10px 14px;background:rgba(255,107,107,0.1);border:1px solid rgba(255,107,107,0.3);border-radius:var(--radius-md);margin-bottom:16px;font-size:12.5px;color:var(--red)">
+      🚨 Highest severity is <strong>${_cdEscHtml(highest)}</strong>. Review flagged assessments and escalate per clinic protocol.
+    </div>` : ''}
+    ${items.length === 0
       ? `<div style="text-align:center;padding:40px;color:var(--text-secondary)">
           <div style="font-size:32px;margin-bottom:10px">📊</div>
-          <div style="font-weight:600;margin-bottom:4px">No assessments assigned</div>
-          <div style="font-size:12px;color:var(--text-tertiary);margin-bottom:16px">Assign standardized assessments to track outcomes objectively.</div>
+          <div style="font-weight:600;margin-bottom:4px">No assessments on file</div>
+          <div style="font-size:12px;color:var(--text-tertiary);margin-bottom:16px">Assign validated scales from the Assessments Hub to track outcomes for this course.</div>
           <button class="btn btn-primary btn-sm" onclick="window._nav('assessments-hub')">Browse Assessment Library</button>
         </div>`
       : `<div class="card" style="padding:0;overflow:hidden">
-          ${assigned.map(a => {
-            const statusColor = a.status === 'completed' ? 'var(--green)' : a.status === 'overdue' ? 'var(--red)' : a.status === 'due' ? 'var(--amber)' : 'var(--text-tertiary)';
-            const statusLabel = a.status === 'completed' ? 'Completed' : a.status === 'overdue' ? 'Overdue' : a.status === 'due' ? 'Due' : 'Scheduled';
-            return `<div style="display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid var(--border)">
-              <div style="flex:1;min-width:0">
-                <div style="font-size:13px;font-weight:600;color:var(--text-primary)">${a.name || a.template_name || '—'}</div>
-                <div style="font-size:11px;color:var(--text-secondary);margin-top:2px">${a.frequency || 'Once'} · ${a.due_date ? `Due ${new Date(a.due_date).toLocaleDateString()}` : 'No due date'}</div>
+          ${items.map(a => {
+            const sev = a.severity;
+            const sevLabel = a.severity_label;
+            const sevCol = sev ? sevColor(sev) : null;
+            const name = _cdEscHtml(a.name || a.template_id || '—');
+            const phase = a.phase ? `<span style="font-size:10.5px;padding:1px 6px;border-radius:4px;background:rgba(255,255,255,0.05);color:var(--text-tertiary)">${_cdEscHtml(a.phase)}</span>` : '';
+            const respondent = a.respondent_type ? `<span style="font-size:10.5px;color:var(--text-tertiary)">${_cdEscHtml(a.respondent_type)}</span>` : '';
+            const date = a.completed_at ? `<span style="font-size:11px;color:var(--text-secondary)">Completed ${new Date(a.completed_at).toLocaleDateString()}</span>` : '';
+            const approvalNote = a.approved_status && a.approved_status !== 'unreviewed'
+              ? `<span style="font-size:10px;padding:1px 6px;border-radius:4px;background:${a.approved_status === 'approved' ? 'rgba(74,222,128,0.12)' : 'rgba(245,158,11,0.15)'};color:${a.approved_status === 'approved' ? 'var(--green)' : 'var(--amber)'}">${_cdEscHtml(a.approved_status)}</span>`
+              : '';
+            const aiFlag = a.is_ai_generated
+              ? `<span title="Contains AI-generated draft content" style="font-size:10px;padding:1px 6px;border-radius:4px;background:rgba(74,158,255,0.12);color:var(--blue)">AI draft</span>`
+              : '';
+            return `<div style="display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid var(--border);flex-wrap:wrap">
+              <div style="flex:1;min-width:200px">
+                <div style="font-size:13px;font-weight:600;color:var(--text-primary)">${name}</div>
+                <div style="font-size:11px;color:var(--text-secondary);margin-top:2px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+                  ${phase} ${respondent} ${date} ${approvalNote} ${aiFlag}
+                </div>
               </div>
-              ${a.score != null ? `<div style="font-size:13px;font-weight:700;color:var(--teal)">Score: ${a.score}</div>` : ''}
-              <span style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:8px;background:${statusColor}18;color:${statusColor}">${statusLabel}</span>
+              ${a.score != null ? `<div style="font-size:13px;font-weight:700;color:${sevCol || 'var(--teal)'};min-width:100px;text-align:right">
+                Score: ${_cdEscHtml(a.score)}${sevLabel ? `<div style="font-size:10.5px;font-weight:500;color:${sevCol}">${_cdEscHtml(sevLabel)}</div>` : ''}
+              </div>` : ''}
+              ${statusPill(a.status)}
               <button style="font-size:11px;padding:5px 11px;border-radius:var(--radius-md);background:transparent;color:var(--teal);border:1px solid rgba(0,212,188,0.3);cursor:pointer;font-family:var(--font-body)"
                 onclick="window._nav('assessments-hub')">${a.status === 'completed' ? 'View' : 'Complete'}</button>
             </div>`;
@@ -1874,7 +2164,7 @@ function renderCourseAssessmentsTab(course) {
     <div style="margin-top:20px">
       <div style="font-size:12px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.6px;margin-bottom:10px">Outcome Trend</div>
       <div style="padding:20px;background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius-md);color:var(--text-tertiary);font-size:12px;text-align:center">
-        Outcome chart renders when 2+ assessments are completed.<br>
+        Outcome chart renders on the Outcomes tab.<br>
         <a style="color:var(--teal);cursor:pointer" onclick="window._cdSwitchTab('outcomes')">View Outcomes tab →</a>
       </div>
     </div>

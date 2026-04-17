@@ -146,10 +146,19 @@ class ClinicalSession(Base):
     protocol_ref: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     session_number: Mapped[Optional[int]] = mapped_column(Integer(), nullable=True)
     total_sessions: Mapped[Optional[int]] = mapped_column(Integer(), nullable=True)
-    status: Mapped[str] = mapped_column(String(30), default="scheduled")  # scheduled, completed, cancelled, no_show
+    appointment_type: Mapped[str] = mapped_column(String(50), default='session')  # session, assessment, new_patient, follow_up, phone, consultation
+    status: Mapped[str] = mapped_column(String(30), default="scheduled")  # scheduled, confirmed, checked_in, in_progress, completed, cancelled, no_show
     outcome: Mapped[Optional[str]] = mapped_column(String(30), nullable=True)  # positive, neutral, negative
     session_notes: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
     adverse_events: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    room_id: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    device_id: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    confirmed_at: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    checked_in_at: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    completed_at: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    cancelled_at: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    cancel_reason: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    rescheduled_from: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     billing_code: Mapped[Optional[str]] = mapped_column(String(30), nullable=True)
     billing_status: Mapped[str] = mapped_column(String(30), default='unbilled')
     created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))

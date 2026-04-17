@@ -30,10 +30,19 @@ import math
 import os
 import sqlite3
 import sys
+import tempfile
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
+
+
+# ── Cross-platform temp paths for admin-refresh lock + log ──────────────────
+# `/tmp` is POSIX-only; on Windows it resolves to C:\tmp which may not exist.
+# Using tempfile.gettempdir() makes local Windows dev and container Linux
+# behave the same way without changing the container behaviour (still /tmp).
+_REFRESH_LOCK = Path(tempfile.gettempdir()) / "deepsynaps_evidence_refresh.lock"
+_REFRESH_LOG = Path(tempfile.gettempdir()) / "deepsynaps_evidence_refresh.log"
 
 from fastapi import APIRouter, Depends, HTTPException, Path as PathParam, Query, status
 from fastapi.responses import FileResponse
@@ -456,7 +465,7 @@ def admin_refresh(
 
     require_minimum_role(actor, "admin", warnings=["Admin role is required to refresh the evidence pipeline."])
 
-    lock_path = Path("/tmp/deepsynaps_evidence_refresh.lock")
+    lock_path = _REFRESH_LOCK
     if lock_path.exists():
         pid_text = lock_path.read_text().strip()
         raise HTTPException(
@@ -468,7 +477,7 @@ def admin_refresh(
     if not script.exists():
         raise HTTPException(status_code=503, detail=f"Pipeline not present at {script}.")
 
-    logfile = Path("/tmp/deepsynaps_evidence_refresh.log")
+    logfile = _REFRESH_LOG
     # Detached subprocess so the HTTP request returns immediately.
     proc = subprocess.Popen(
         [
@@ -496,8 +505,8 @@ def admin_refresh_status(
 ) -> dict:
     """Admin-only: inspect the current refresh lock and log tail."""
     require_minimum_role(actor, "admin")
-    lock_path = Path("/tmp/deepsynaps_evidence_refresh.lock")
-    logfile = Path("/tmp/deepsynaps_evidence_refresh.log")
+    lock_path = _REFRESH_LOCK
+    logfile = _REFRESH_LOG
     if not lock_path.exists():
         return {"running": False, "log_tail": logfile.read_text().splitlines()[-25:] if logfile.exists() else []}
     pid_text = lock_path.read_text().strip()

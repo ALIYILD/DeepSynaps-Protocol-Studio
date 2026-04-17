@@ -1221,11 +1221,32 @@ export async function pgProtocolHub(setTopbar, navigate) {
     window._phSearchDev  = window._phSearchDev  || '';
     window._phSearchEv   = window._phSearchEv   || '';
 
+    // Cross-page context handoff (one-shot). Library Find Protocol sets
+    // window._protocolHubCondition = { id, name }. Registry IDs do not
+    // match protocols-data slugs, so we reconcile by label/shortLabel and
+    // fall back to a free-text query. The handoff is consumed on first
+    // read so later revisits do not silently re-filter.
+    let _preselectLabel = null;
+    const _handoff = window._protocolHubCondition;
+    if (_handoff && (_handoff.id || _handoff.name)) {
+      const needle = String(_handoff.name || '').toLowerCase().trim();
+      const match = _conditions.find(c =>
+        (c.label || '').toLowerCase() === needle ||
+        (c.shortLabel || '').toLowerCase() === needle ||
+        (c.id || '').toLowerCase() === String(_handoff.id || '').toLowerCase()
+      );
+      if (match) { window._phSearchCond = match.id; _preselectLabel = match.label || match.id; }
+      else if (_handoff.name) { window._phSearchQ = _handoff.name; _preselectLabel = _handoff.name + ' (name match)'; }
+      window._protocolHubCondition = null;
+    }
+
     const condOpts = ['', ..._conditions.map(c => c.id)].map(id =>
-      '<option value="' + id + '">' + (id ? (_conditions.find(c=>c.id===id)?.label||id) : 'All Conditions') + '</option>'
+      '<option value="' + id + '"' + (id === window._phSearchCond ? ' selected' : '') + '>' +
+      (id ? (_conditions.find(c=>c.id===id)?.label||id) : 'All Conditions') + '</option>'
     ).join('');
     const devOpts = ['', ..._devices.map(d => d.id)].map(id =>
-      '<option value="' + id + '">' + (id ? (_devices.find(d=>d.id===id)?.label||id) : 'All Devices') + '</option>'
+      '<option value="' + id + '"' + (id === window._phSearchDev ? ' selected' : '') + '>' +
+      (id ? (_devices.find(d=>d.id===id)?.label||id) : 'All Devices') + '</option>'
     ).join('');
 
     const evColors = { A:'var(--teal)', B:'var(--blue)', C:'var(--amber)', D:'var(--text-tertiary)', E:'var(--text-tertiary)' };
@@ -1274,23 +1295,32 @@ export async function pgProtocolHub(setTopbar, navigate) {
     }
 
     window._phRunSearch = runSearch;
+    window._phClearCondHandoff = () => { window._phSearchCond = ''; window._phSearchQ = ''; window._nav('protocol-hub'); };
+    const _escPh = s => String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    const preselectBanner = _preselectLabel
+      ? '<div class="ph-preselect" role="note" style="margin:0 0 10px;padding:8px 12px;border-radius:6px;background:rgba(0,212,188,0.08);border:1px solid rgba(0,212,188,0.25);font-size:12px;color:var(--text-secondary);display:flex;gap:8px;align-items:center;flex-wrap:wrap">' +
+        '<span>Filtered to <b>' + _escPh(_preselectLabel) + '</b> from Library</span>' +
+        '<button class="ch-btn-sm" onclick="window._phClearCondHandoff()" style="margin-left:auto">Clear</button>' +
+      '</div>'
+      : '';
 
     el.innerHTML = `
     <div class="ch-shell">
       <div class="ch-tab-bar">${tabBar()}</div>
       <div class="ch-body">
+        ${preselectBanner}
         <div class="ph-search-bar">
           <div style="position:relative;flex:1;min-width:200px">
-            <input id="ph-search-q" type="text" placeholder="Search protocols, conditions, devices…" class="ph-search-input" style="padding-left:32px" value="${window._phSearchQ}" oninput="window._phRunSearch()">
+            <input id="ph-search-q" type="text" placeholder="Search protocols, conditions, devices…" class="ph-search-input" style="padding-left:32px" value="${_escPh(window._phSearchQ)}" oninput="window._phRunSearch()">
             <svg viewBox="0 0 24 24" style="position:absolute;left:10px;top:50%;transform:translateY(-50%);width:14px;height:14px;stroke:var(--text-tertiary);fill:none;stroke-width:2;stroke-linecap:round;pointer-events:none"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
           </div>
           <select id="ph-search-cond" class="ch-select" onchange="window._phRunSearch()">${condOpts}</select>
           <select id="ph-search-dev"  class="ch-select" onchange="window._phRunSearch()">${devOpts}</select>
           <select id="ph-search-ev"   class="ch-select" onchange="window._phRunSearch()">
             <option value="">All Evidence</option>
-            <option value="A">Grade A</option>
-            <option value="B">Grade B</option>
-            <option value="C">Grade C</option>
+            <option value="A"${window._phSearchEv==="A"?" selected":""}>Grade A</option>
+            <option value="B"${window._phSearchEv==="B"?" selected":""}>Grade B</option>
+            <option value="C"${window._phSearchEv==="C"?" selected":""}>Grade C</option>
           </select>
           <span id="ph-search-count" style="font-size:12px;color:var(--text-tertiary);white-space:nowrap">${_protos.length} protocols</span>
         </div>
@@ -2046,15 +2076,67 @@ export async function pgSchedulingHub(setTopbar, navigate) {
     reception: { label: 'Reception',  color: 'var(--amber)'  },
   };
 
+  // -- Role-aware tab visibility --
+  const _role = (currentUser?.role || 'admin').toLowerCase();
+  const ROLE_TABS = {
+    technician:   ['calendar','bookings'],
+    receptionist: ['calendar','bookings','reception'],
+  };
+  const allowedTabs = ROLE_TABS[_role] || Object.keys(TAB_META); // clinician/admin see all
+
   function tabBar() {
-    return Object.entries(TAB_META).map(([id, m]) =>
-      '<button class="ch-tab' + (tab===id?' ch-tab--active':'') + '"' +
-      (tab===id?' style="--tab-color:'+m.color+'"':'') +
-      ' onclick="window._schedHubTab=\''+id+'\';window._nav(\'scheduling-hub\')">' + m.label + '</button>'
-    ).join('');
+    return Object.entries(TAB_META)
+      .filter(([id]) => allowedTabs.includes(id))
+      .map(([id, m]) =>
+        '<button role="tab" aria-selected="' + (tab===id) + '" tabindex="' + (tab===id?'0':'-1') + '"' +
+        ' class="ch-tab' + (tab===id?' ch-tab--active':'') + '"' +
+        (tab===id?' style="--tab-color:'+m.color+'"':'') +
+        ' onclick="window._schedHubTab=\''+id+'\';window._nav(\'scheduling-hub\')">' + m.label + '</button>'
+      ).join('');
   }
 
   const el = document.getElementById('content');
+
+  // ── Inject scheduling CSS (once) ────────────────────────────────────────────
+  if (!document.getElementById('sched-styles')) {
+    const _ss = document.createElement('style'); _ss.id = 'sched-styles';
+    _ss.textContent = `
+/* Scheduling — Accessibility focus rings */
+.cal-cell:focus-visible, .cal-apt:focus-visible { outline:2px solid var(--teal); outline-offset:1px; border-radius:4px; }
+.ch-tab:focus-visible { outline:2px solid var(--teal); outline-offset:2px; }
+.ch-btn-sm:focus-visible, .btn:focus-visible { outline:2px solid var(--teal); outline-offset:2px; }
+.sched-section-title { font-size:15px; font-weight:700; color:var(--text-primary); margin-bottom:12px; }
+.cal-apt-name { color:var(--text-primary); }
+.cal-apt-time { color:var(--text-secondary); }
+/* Scheduling — Responsive */
+@media (max-width:767px) {
+  .cal-grid { min-width:unset; }
+  .cal-row { grid-template-columns:52px 1fr; }
+  .cal-row .cal-cell:not(.cal-cell--active-day),
+  .cal-row .cal-day-header:not(.cal-day-header--active-day) { display:none; }
+  .sched-cal-controls { flex-wrap:wrap; }
+  .book-row { flex-wrap:wrap; gap:8px; }
+  .book-datetime { width:auto; }
+  .book-actions { width:100%; justify-content:flex-start; }
+  #book-list { overflow-x:auto; }
+  .leads-kanban { grid-template-columns:repeat(5, 200px) !important; overflow-x:auto; -webkit-overflow-scrolling:touch; scroll-snap-type:x mandatory; }
+  .lead-col { scroll-snap-align:start; min-width:200px; }
+  .ch-modal { max-width:100vw !important; margin:8px; border-radius:10px; }
+  .ch-modal-body { max-height:80vh; overflow-y:auto; }
+  .ch-btn-sm, .btn-sm { min-height:44px; min-width:44px; padding:10px 14px; }
+  .ch-tab { min-height:44px; }
+  .lead-phone { min-width:44px; min-height:44px; display:inline-flex; align-items:center; justify-content:center; }
+  .rec-task-row input[type="checkbox"] { min-width:20px; min-height:20px; }
+  .ch-kpi-strip { grid-template-columns:repeat(2,1fr) !important; }
+  .rec-grid { grid-template-columns:1fr; }
+}
+@media (max-width:480px) {
+  .leads-kanban { grid-template-columns:repeat(5, 170px) !important; }
+  .lead-col { min-width:170px; }
+}
+`;
+    document.head.appendChild(_ss);
+  }
 
   // ── Shared data store ───────────────────────────────────────────────────────
   const _SK = 'ds_sched_v1';
@@ -2100,6 +2182,65 @@ export async function pgSchedulingHub(setTopbar, navigate) {
 
   const data = _loadSched();
 
+  // ── Backend ↔ Frontend appointment mapping ──────────────────────────────────
+  const _backendToFrontend = (s) => ({
+    id: s.id,
+    patient_name: s.patient_name || s.patient_id || 'Unknown',
+    patient_id: s.patient_id || '',
+    date: s.scheduled_at?.split('T')[0] || '',
+    time: s.scheduled_at?.split('T')[1]?.slice(0,5) || '',
+    duration: s.duration_minutes || 60,
+    type: s.appointment_type || s.modality || 'session',
+    status: s.status || 'scheduled',
+    clinician: s.clinician_name || s.clinician_id || '',
+    notes: s.session_notes || '',
+    room_id: s.room_id || '',
+    device_id: s.device_id || '',
+    _from_api: true,
+  });
+
+  const _frontendToBackend = (f) => ({
+    patient_id: f.patient_id || f.patient_name || 'UNKNOWN',
+    scheduled_at: f.date && f.time ? f.date + 'T' + f.time + ':00' : '',
+    duration_minutes: parseInt(f.duration) || 60,
+    modality: f.type || 'session',
+    session_notes: f.notes || '',
+  });
+
+  // ── Fetch appointments from real API, fall back to localStorage ─────────────
+  let _apiFetchOk = false;
+  let _apiFetchErr = '';
+  try {
+    const res = await api.listSessions();
+    const apiApts = (res?.items || []).map(_backendToFrontend);
+    if (apiApts.length > 0) {
+      data.appointments = apiApts;
+      _saveSched(data);
+    }
+    _apiFetchOk = true;
+  } catch (err) {
+    _apiFetchErr = err?.message || 'Could not reach scheduling API';
+  }
+
+  // ── Helper: update appointment status via API then local ────────────────────
+  async function _apiUpdateStatus(id, newStatus, renderFn, label) {
+    const a = data.appointments.find(x => x.id === id);
+    if (!a) return;
+    const oldStatus = a.status;
+    a.status = newStatus;
+    _saveSched(data);
+    if (renderFn) renderFn();
+    if (a._from_api) {
+      try { await api.updateSession(id, { status: newStatus }); }
+      catch (err) {
+        a.status = oldStatus;
+        _saveSched(data);
+        if (renderFn) renderFn();
+        window._dsToast?.({ title: 'Sync failed', body: 'Could not update ' + (label||'status') + ' on server.', severity: 'error' });
+      }
+    }
+  }
+
   const APT_COLORS = {
     'session':     { bg:'rgba(0,212,188,0.15)',   border:'var(--teal)',   label:'Session' },
     'assessment':  { bg:'rgba(74,158,255,0.15)',  border:'var(--blue)',   label:'Assessment' },
@@ -2107,8 +2248,54 @@ export async function pgSchedulingHub(setTopbar, navigate) {
     'follow-up':   { bg:'rgba(255,181,71,0.15)',  border:'var(--amber)',  label:'Follow-up' },
     'phone':       { bg:'rgba(74,222,128,0.15)',  border:'var(--green)',  label:'Phone' },
   };
-  const STATUS_COLORS = { confirmed:'var(--green)', pending:'var(--amber)', cancelled:'var(--red)', completed:'var(--text-tertiary)', 'no-show':'var(--red)' };
-  const STATUS_LABELS = { confirmed:'Confirmed', pending:'Pending', cancelled:'Cancelled', completed:'Completed', 'no-show':'No-show' };
+  const STATUS_COLORS = { confirmed:'var(--green)', pending:'var(--amber)', cancelled:'var(--red)', completed:'var(--text-tertiary)', 'no-show':'var(--red)', 'checked-in':'var(--blue)' };
+  const STATUS_LABELS = { confirmed:'Confirmed', pending:'Pending', cancelled:'Cancelled', completed:'Completed', 'no-show':'No-show', 'checked-in':'Checked In' };
+
+
+  // ── Shared appointment detail modal (accessible from all tabs) ──────────
+  window._schedViewApt = id=>{
+    const a=data.appointments.find(x=>x.id===id); if(!a)return;
+    const c=APT_COLORS[a.type]||APT_COLORS.session;
+    const sDot=STATUS_COLORS[a.status]||'var(--teal)';
+    let existing=document.getElementById('sched-apt-detail'); if(existing)existing.remove();
+    const overlay=document.createElement('div');
+    overlay.id='sched-apt-detail';
+    overlay.className='ch-modal-overlay';
+    overlay.onclick=e=>{if(e.target===overlay)overlay.remove();};
+    overlay.innerHTML='<div class="ch-modal" style="width:min(440px,95vw)">'+
+      '<div class="ch-modal-hd"><span>'+a.patient_name+'</span><button class="ch-modal-close" onclick="document.getElementById(\'sched-apt-detail\')?.remove()">&#10005;</button></div>'+
+      '<div class="ch-modal-body" style="display:flex;flex-direction:column;gap:10px">'+
+        '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">'+
+          '<span style="font-size:10px;font-weight:700;letter-spacing:.4px;text-transform:uppercase;padding:2px 8px;border-radius:4px;background:'+c.border+'22;color:'+c.border+'">'+c.label+'</span>'+
+          '<span style="display:flex;align-items:center;gap:4px;font-size:11px;color:'+sDot+'"><span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:'+sDot+'"></span>'+(STATUS_LABELS[a.status]||a.status)+'</span>'+
+        '</div>'+
+        '<div style="display:grid;grid-template-columns:auto 1fr;gap:4px 12px;font-size:12px">'+
+          '<span style="color:var(--text-tertiary)">Date</span><span>'+a.date+'</span>'+
+          '<span style="color:var(--text-tertiary)">Time</span><span>'+a.time+'</span>'+
+          '<span style="color:var(--text-tertiary)">Duration</span><span>'+a.duration+' min</span>'+
+          '<span style="color:var(--text-tertiary)">Clinician</span><span>'+a.clinician+'</span>'+
+          (a.patient_id?'<span style="color:var(--text-tertiary)">Patient ID</span><span>'+a.patient_id+'</span>':'')+
+          (a.notes?'<span style="color:var(--text-tertiary)">Notes</span><span>'+a.notes+'</span>':'')+
+            '<span style="color:var(--text-tertiary)">Reminder</span><span>'+(a.reminder_sent?'<span style="color:var(--green)">&#10003; Sent</span>':'<span style="color:var(--text-tertiary)">Not sent</span>')+'</span>'+
+        '</div>'+
+        '<div style="display:flex;gap:8px;margin-top:4px;flex-wrap:wrap">'+
+          (a.status==='pending'?'<button class="btn btn-primary btn-sm" onclick="window._schedAptAction(\''+a.id+'\',\'confirmed\')">Confirm</button>':'')+
+          (a.status==='confirmed'?'<button class="btn btn-primary btn-sm" onclick="window._schedAptAction(\''+a.id+'\',\'completed\')">Mark Done</button>':'')+
+          (a.status==='confirmed'||a.status==='pending'?'<button class="btn btn-sm" style="color:var(--red)" onclick="window._schedAptAction(\''+a.id+'\',\'cancelled\')">Cancel</button>':'')+
+          (a.status==='confirmed'||a.status==='pending'?'<button class="btn btn-sm" style="color:var(--amber)" onclick="window._schedAptAction(\''+a.id+'\',\'no-show\')">No-show</button>':'')+
+          '<button class="btn btn-sm" onclick="document.getElementById(\'sched-apt-detail\')?.remove()">Close</button>'+
+        '</div>'+
+      '</div>'+
+    '</div>';
+    document.body.appendChild(overlay);
+  };
+  window._schedAptAction = (id,newStatus)=>{
+    const a=data.appointments.find(x=>x.id===id);if(!a)return;
+    a.status=newStatus;_saveSched(data);
+    document.getElementById('sched-apt-detail')?.remove();
+    window._dsToast?.({title:(STATUS_LABELS[newStatus]||newStatus),body:a.patient_name+' \u2014 '+a.date+' '+a.time,severity:newStatus==='cancelled'||newStatus==='no-show'?'warn':'success'});
+    window._schedHubTab=tab;window._nav('scheduling-hub');
+  };
 
   // ── CALENDAR TAB ───────────────────────────────────────────────────────────
   if (tab === 'calendar') {
@@ -2144,13 +2331,15 @@ export async function pgSchedulingHub(setTopbar, navigate) {
         const tl = h<12?h+'am':h===12?'12pm':(h-12)+'pm';
         const cells = wd.map(d=>{
           const slotA = (aptByDate[d.str]||[]).filter(a=>parseInt(a.time)===h);
-          return '<div class="cal-cell" onclick="window._schedSlotClick(\''+d.str+'\',\''+pad2(h)+':00\')">'+
+          return '<div class="cal-cell" tabindex="0" role="button" aria-label="Book slot '+d.str+' '+pad2(h)+':00" onkeydown="if(event.key===\'Enter\'||event.key===\' \'){event.preventDefault();this.click()}" onclick="window._schedSlotClick(\''+d.str+'\',\''+pad2(h)+':00\')">'+
             slotA.map(a=>{
               const c=APT_COLORS[a.type]||APT_COLORS.session;
-              return '<div class="cal-apt" style="background:'+c.bg+';border-left:3px solid '+c.border+'" onclick="event.stopPropagation();window._schedViewApt(\''+a.id+'\')">'+
-                '<div class="cal-apt-time">'+a.time+' · '+a.duration+'m</div>'+
-                '<div class="cal-apt-name">'+a.patient_name+'</div>'+
-                '<div class="cal-apt-type">'+c.label+'</div>'+
+              const sDot=a.status==='confirmed'?'var(--green)':a.status==='pending'?'var(--amber)':'var(--red)';
+              const truncName=a.patient_name.length>16?a.patient_name.slice(0,15)+'...':a.patient_name;
+              return '<div class="cal-apt" tabindex="0" role="button" aria-label="'+a.patient_name+' '+a.time+' '+c.label+'" onkeydown="if(event.key===\'Enter\'||event.key===\' \'){event.preventDefault();this.click()}" style="background:'+c.bg+';border-left:3px solid '+c.border+'" onclick="event.stopPropagation();window._schedViewApt(\''+a.id+'\')">'+
+                '<div class="cal-apt-time" style="display:flex;align-items:center;gap:4px"><span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:'+sDot+';flex-shrink:0"></span>'+a.time+' · '+a.duration+'m</div>'+
+                '<div class="cal-apt-name" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="'+a.patient_name+'">'+truncName+'</div>'+
+                '<div class="cal-apt-type"><span style="font-size:9px;font-weight:700;letter-spacing:.4px;text-transform:uppercase;padding:1px 5px;border-radius:3px;background:'+c.border+'22;color:'+c.border+'">'+c.label+'</span></div>'+
               '</div>';
             }).join('')+
           '</div>';
@@ -2164,7 +2353,6 @@ export async function pgSchedulingHub(setTopbar, navigate) {
     window._calWeekNext  = ()=>{ window._calWeekOffset++; renderCal(); };
     window._calWeekToday = ()=>{ window._calWeekOffset=0; renderCal(); };
     window._schedSlotClick = (date,time)=>{ window._schedNewAptDate=date; window._schedNewAptTime=time; document.getElementById('sched-book-modal')?.classList.remove('ch-hidden'); const di=document.getElementById('sched-book-date'); const ti=document.getElementById('sched-book-time'); if(di)di.value=date; if(ti)ti.value=time; };
-    window._schedViewApt = id=>{ const a=data.appointments.find(x=>x.id===id); if(!a)return; const c=APT_COLORS[a.type]||APT_COLORS.session; window._dsToast?.({title:a.patient_name+' — '+a.time,body:c.label+' · '+a.duration+'min · '+(STATUS_LABELS[a.status]||a.status)+(a.notes?'\n'+a.notes:''),severity:'info'}); };
     window._schedNewBooking = ()=>{ document.getElementById('sched-book-modal')?.classList.remove('ch-hidden'); };
     window._schedSaveBooking = ()=>{
       const name=document.getElementById('sched-book-patient')?.value?.trim();
@@ -2182,24 +2370,61 @@ export async function pgSchedulingHub(setTopbar, navigate) {
 
     const todayApts = data.appointments.filter(a=>a.date===todayStr&&a.status!=='cancelled').sort((a,b)=>a.time.localeCompare(b.time));
 
+    // -- Doctor-first: next upcoming appointment --
+    const nowHHMM = pad2(now.getHours())+':'+pad2(now.getMinutes());
+    const nextApt = todayApts.find(a=>a.time>=nowHHMM) || null;
+    const pendingCount = todayApts.filter(a=>a.status==='pending').length;
+    const blockers = todayApts.filter(a=>!a.patient_id);
+    let upNextCountdown = '';
+    if (nextApt) {
+      const _sp = nextApt.time.split(':').map(Number);
+      const diff = (_sp[0]*60+_sp[1]) - (now.getHours()*60+now.getMinutes());
+      upNextCountdown = diff<=0 ? 'Now' : diff<60 ? diff+'min' : Math.floor(diff/60)+'h '+diff%60+'m';
+    }
+    const typeBreakdown = {};
+    todayApts.forEach(a=>{ const c=APT_COLORS[a.type]||APT_COLORS.session; typeBreakdown[a.type]=typeBreakdown[a.type]||{count:0,label:c.label,color:c.border}; typeBreakdown[a.type].count++; });
+
     el.innerHTML = `
     <div class="ch-shell">
-      <div class="ch-tab-bar">${tabBar()}</div>
-      <div class="sched-cal-shell">
+      <div class="ch-tab-bar" role="tablist" aria-label="Scheduling sections">${tabBar()}</div>
+      ${!_apiFetchOk ? '<div style="display:flex;align-items:center;gap:10px;padding:8px 14px;margin:0 0 8px;border-radius:6px;background:rgba(255,181,71,0.12);border:1px solid var(--amber);font-size:12px;color:var(--amber)"><span>Could not load schedule from server. Showing cached data.</span><button class="ch-btn-sm" style="color:var(--amber);border-color:var(--amber)" onclick="window._nav(\'scheduling-hub\')">Retry</button></div>' : ''}
+      <div style="display:flex;align-items:center;gap:16px;padding:10px 16px;margin-bottom:2px;background:var(--surface-2);border-radius:10px;border:1px solid var(--border);flex-wrap:wrap">
+        <div style="display:flex;align-items:center;gap:8px;flex:1;min-width:200px">
+          <div style="width:32px;height:32px;border-radius:8px;background:var(--teal);display:flex;align-items:center;justify-content:center;flex-shrink:0">
+            <svg viewBox="0 0 24 24" style="width:16px;height:16px;fill:none;stroke:#fff;stroke-width:2;stroke-linecap:round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+          </div>
+          ${nextApt
+            ? '<div><div style="font-size:11px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.6px;font-weight:600">Next Patient</div><div style="font-size:13px;font-weight:700;color:var(--text-primary)">'+nextApt.patient_name+' <span style="color:var(--text-tertiary);font-weight:400">at '+nextApt.time+'</span></div><div style="font-size:11px;color:var(--text-secondary)">'+(APT_COLORS[nextApt.type]||APT_COLORS.session).label+'</div></div>'
+            : '<div style="font-size:12px;color:var(--text-tertiary)">No more appointments today</div>'}
+        </div>
+        <div style="display:flex;gap:20px;align-items:center;flex-wrap:wrap">
+          <div style="text-align:center"><div style="font-size:18px;font-weight:800;color:var(--teal)">${todayApts.length}</div><div style="font-size:10px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.4px">Today</div></div>
+          ${blockers.length ? '<div style="text-align:center"><div style="font-size:18px;font-weight:800;color:var(--red)">'+blockers.length+'</div><div style="font-size:10px;color:var(--red);text-transform:uppercase;letter-spacing:.4px">Blockers</div></div>' : ''}
+          ${pendingCount ? '<div style="text-align:center"><div style="font-size:18px;font-weight:800;color:var(--amber)">'+pendingCount+'</div><div style="font-size:10px;color:var(--amber);text-transform:uppercase;letter-spacing:.4px">Pending</div></div>' : ''}
+          ${nextApt ? '<button class="btn btn-primary btn-sm" onclick="window._dsToast?.({title:\'Session started\',body:\'Starting session now\',severity:\'success\'})">Start Session</button>' : ''}
+        </div>
+      </div>
+      <div class="sched-cal-shell" role="tabpanel" aria-label="Calendar">
         <div class="sched-mini-sidebar">
-          <div class="sched-mini-legend-title" style="margin-bottom:8px">Appointment Types</div>
+          ${nextApt ? '<div style="padding:10px;border-radius:8px;background:rgba(0,212,188,0.07);border:1px solid rgba(0,212,188,0.2);margin-bottom:12px"><div style="font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:var(--teal);font-weight:700;margin-bottom:4px">Up Next &mdash; '+upNextCountdown+'</div><div style="font-size:13px;font-weight:700;color:var(--text-primary)">'+nextApt.patient_name+'</div><div style="font-size:11px;color:var(--text-secondary)">'+nextApt.time+' &middot; '+(APT_COLORS[nextApt.type]||APT_COLORS.session).label+'</div></div>' : ''}
+          <div class="sched-mini-legend-title" role="heading" aria-level="2" style="margin-bottom:8px">Today's Breakdown</div>
+          ${Object.values(typeBreakdown).map(t=>'<div class="sched-legend-row" style="display:flex;align-items:center"><span class="sched-legend-dot" style="background:'+t.color+'"></span>'+t.label+' <span style="font-weight:700;margin-left:auto;color:var(--text-primary)">'+t.count+'</span></div>').join('')||'<div style="font-size:11px;color:var(--text-tertiary)">None today</div>'}
+          ${pendingCount ? '<div style="margin-top:12px;padding:8px 10px;border-radius:6px;background:rgba(255,181,71,0.07);border:1px solid rgba(255,181,71,0.2);font-size:11px"><span style="font-weight:700;color:var(--amber)">'+pendingCount+' pending</span><span style="color:var(--text-secondary)"> confirmation'+(pendingCount>1?'s':'')+'</span></div>' : ''}
+          ${blockers.length ? '<div style="margin-top:8px;padding:8px 10px;border-radius:6px;background:rgba(255,107,107,0.07);border:1px solid rgba(255,107,107,0.2);font-size:11px"><span style="font-weight:700;color:var(--red)">'+blockers.length+' blocker'+(blockers.length>1?'s':'')+'</span><div style="margin-top:4px;color:var(--text-secondary)">'+blockers.map(a=>a.patient_name+' &mdash; missing consent').join('<br>')+'</div></div>' : ''}
+          <div class="sched-mini-legend-title" role="heading" aria-level="2" style="margin:16px 0 8px">Appointment Types</div>
           ${Object.entries(APT_COLORS).map(([,v])=>'<div class="sched-legend-row"><span class="sched-legend-dot" style="background:'+v.border+'"></span>'+v.label+'</div>').join('')}
-          <div class="sched-mini-legend-title" style="margin:16px 0 8px">Today (${todayApts.length})</div>
-          ${todayApts.slice(0,6).map(a=>'<div class="sched-mini-apt"><span class="sched-mini-time">'+a.time+'</span><span class="sched-mini-name">'+a.patient_name+'</span></div>').join('')||'<div style="font-size:11.5px;color:var(--text-tertiary)">No appointments</div>'}
-          <div class="sched-mini-legend-title" style="margin:16px 0 8px">This Week</div>
+          <div class="sched-mini-legend-title" role="heading" aria-level="2" style="margin:16px 0 8px">This Week</div>
           <div class="sched-mini-stat" style="color:var(--teal)">${data.appointments.filter(a=>a.date>=todayStr&&a.status==='confirmed').length} confirmed</div>
           <div class="sched-mini-stat" style="color:var(--amber)">${data.appointments.filter(a=>a.date>=todayStr&&a.status==='pending').length} pending</div>
+          <div class="sched-mini-legend-title" style="margin:16px 0 8px;color:var(--violet)">Scheduling Hints</div>
+          <div id="sched-ai-hints" style="display:flex;flex-direction:column;gap:6px"></div>
+          <div style="font-size:9px;color:var(--text-tertiary);margin-top:6px;font-style:italic;line-height:1.3">AI Advisory &mdash; not auto-booked. Suggestions are advisory. All bookings require manual confirmation.</div>
         </div>
         <div class="sched-cal-main">
           <div class="sched-cal-controls">
-            <button class="ch-btn-sm" onclick="window._calWeekPrev()">‹ Prev</button>
-            <button class="ch-btn-sm" style="font-weight:700" onclick="window._calWeekToday()">Today</button>
-            <button class="ch-btn-sm" onclick="window._calWeekNext()">Next ›</button>
+            <button class="ch-btn-sm" aria-label="Previous week" onclick="window._calWeekPrev()">&#8249; Prev</button>
+            <button class="ch-btn-sm" style="font-weight:700" aria-label="Go to current week" onclick="window._calWeekToday()">Today</button>
+            <button class="ch-btn-sm" aria-label="Next week" onclick="window._calWeekNext()">Next &#8250;</button>
             <span id="cal-week-label" style="font-size:13px;font-weight:600;color:var(--text-primary);margin-left:8px"></span>
           </div>
           <div class="cal-grid-wrap"><div id="cal-grid" class="cal-grid"></div></div>
@@ -2228,6 +2453,46 @@ export async function pgSchedulingHub(setTopbar, navigate) {
       </div>
     </div>`;
     renderCal();
+    // -- AI Scheduling Hints (client-side advisory) ---------------------------
+    (function computeSchedulingHints(){
+      const hintsEl=document.getElementById('sched-ai-hints');if(!hintsEl)return;
+      const hints=[];
+      const byDate={};
+      data.appointments.filter(a=>a.date>=todayStr&&a.status!=='cancelled').forEach(a=>{(byDate[a.date]=byDate[a.date]||[]).push(a);});
+      // 1. Gap detection: >2h gap between same-day appointments
+      Object.entries(byDate).forEach(([date,apts])=>{
+        apts.sort((a,b)=>a.time.localeCompare(b.time));
+        for(let i=1;i<apts.length;i++){
+          const prev=apts[i-1],curr=apts[i];
+          const pEnd=parseInt(prev.time.split(':')[0])*60+parseInt(prev.time.split(':')[1])+prev.duration;
+          const cStart=parseInt(curr.time.split(':')[0])*60+parseInt(curr.time.split(':')[1]);
+          if(cStart-pEnd>120){
+            const gapStart=String(Math.floor(pEnd/60)).padStart(2,'0')+':'+String(pEnd%60).padStart(2,'0');
+            const gapEnd=curr.time;
+            hints.push({text:'Gap detected on '+(date===todayStr?'today':date)+': consider scheduling between '+gapStart+' and '+gapEnd,type:'gap'});
+          }
+        }
+      });
+      // 2. Follow-up overdue: completed >7 days ago with no future booking
+      const patientsWithFuture=new Set(data.appointments.filter(a=>a.date>=todayStr&&a.status!=='cancelled').map(a=>a.patient_name));
+      data.appointments.filter(a=>a.status==='completed').forEach(a=>{
+        const daysAgo=Math.floor((new Date(todayStr)-new Date(a.date))/(86400000));
+        if(daysAgo>7&&!patientsWithFuture.has(a.patient_name)){
+          hints.push({text:'Follow-up overdue for '+a.patient_name+' (completed '+daysAgo+' days ago)',type:'overdue'});
+        }
+      });
+      // 3. Heavy schedule: >=4 appointments on a single day
+      Object.entries(byDate).forEach(([date,apts])=>{
+        if(apts.length>=4){
+          hints.push({text:'Heavy schedule on '+(date===todayStr?'today':date)+' ('+apts.length+' appointments) \u2014 consider redistribution',type:'heavy'});
+        }
+      });
+      const show=hints.slice(0,3);
+      if(!show.length){hintsEl.innerHTML='<div style="font-size:11px;color:var(--text-tertiary)">No scheduling issues detected.</div>';return;}
+      const hColors={gap:'var(--amber)',overdue:'var(--red)',heavy:'var(--violet)'};
+      hintsEl.innerHTML=show.map((h,i)=>'<div id="sched-hint-'+i+'" style="font-size:11px;padding:6px 8px;border-radius:5px;background:'+hColors[h.type]+'15;border-left:3px solid '+hColors[h.type]+';display:flex;justify-content:space-between;align-items:flex-start;gap:4px"><span style="flex:1">'+h.text+'</span><button style="background:none;border:none;color:var(--text-tertiary);cursor:pointer;font-size:10px;padding:0 2px;flex-shrink:0" onclick="document.getElementById(\'sched-hint-'+i+'\')?.remove()">Dismiss</button></div>').join('');
+    })();
+
   }
 
   // ── BOOKINGS TAB ───────────────────────────────────────────────────────────
@@ -2257,7 +2522,7 @@ export async function pgSchedulingHub(setTopbar, navigate) {
         const sm=SM[a.status]||SM.confirmed;
         return '<div class="book-row">'+
           '<div class="book-datetime"><div class="book-date'+(a.date===todayStr?' book-date--today':'')+'">'+( a.date===todayStr?'Today':a.date)+'</div><div class="book-time">'+a.time+' · '+a.duration+'min</div></div>'+
-          '<div class="book-info"><div class="book-patient">'+a.patient_name+'</div><div class="book-clinician">'+a.clinician+' · '+(APT_TYPE_LABELS[a.type]||a.type)+'</div>'+(a.notes?'<div class="book-notes">'+a.notes.slice(0,80)+(a.notes.length>80?'…':'')+'</div>':'')+'</div>'+
+          '<div class="book-info" style="cursor:pointer" onclick="window._schedViewApt(\''+a.id+'\')"><div class="book-patient">'+a.patient_name+'</div><div class="book-clinician">'+a.clinician+' · '+(APT_TYPE_LABELS[a.type]||a.type)+'</div>'+(a.notes?'<div class="book-notes">'+a.notes.slice(0,80)+(a.notes.length>80?'…':'')+'</div>':'')+'</div>'+
           '<div class="book-status-col"><span class="book-status-badge" style="color:'+sm.color+';background:'+sm.bg+'">'+sm.label+'</span></div>'+
           '<div class="book-actions">'+
             (a.status==='pending'?'<button class="ch-btn-sm ch-btn-teal" onclick="window._bookConfirm(\''+a.id+'\')">Confirm</button>':'')+
@@ -2269,9 +2534,9 @@ export async function pgSchedulingHub(setTopbar, navigate) {
     }
 
     window._bookSetCohort = id=>{window._bookCohort=id;document.querySelectorAll('.book-cohort-btn').forEach(b=>b.classList.toggle('active',b.dataset.cohort===id));renderBookings(id);};
-    window._bookConfirm   = id=>{const a=data.appointments.find(x=>x.id===id);if(a){a.status='confirmed';_saveSched(data);renderBookings(window._bookCohort);window._dsToast?.({title:'Confirmed',body:a.patient_name+' confirmed.',severity:'success'});}};
-    window._bookCancel    = id=>{const a=data.appointments.find(x=>x.id===id);if(a){a.status='cancelled';_saveSched(data);renderBookings(window._bookCohort);window._dsToast?.({title:'Cancelled',body:a.patient_name+' cancelled.',severity:'warn'});}};
-    window._bookComplete  = id=>{const a=data.appointments.find(x=>x.id===id);if(a){a.status='completed';_saveSched(data);renderBookings(window._bookCohort);window._dsToast?.({title:'Completed',body:'Session marked complete.',severity:'success'});}};
+    window._bookConfirm   = id=>{const a=data.appointments.find(x=>x.id===id);if(a){_apiUpdateStatus(id,'confirmed',()=>renderBookings(window._bookCohort),'Confirm');window._dsToast?.({title:'Confirmed',body:a.patient_name+' confirmed.',severity:'success'});}};
+    window._bookCancel    = id=>{const a=data.appointments.find(x=>x.id===id);if(a){_apiUpdateStatus(id,'cancelled',()=>renderBookings(window._bookCohort),'Cancel');window._dsToast?.({title:'Cancelled',body:a.patient_name+' cancelled.',severity:'warn'});}};
+    window._bookComplete  = id=>{const a=data.appointments.find(x=>x.id===id);if(a){_apiUpdateStatus(id,'completed',()=>renderBookings(window._bookCohort),'Complete');window._dsToast?.({title:'Completed',body:'Session marked complete.',severity:'success'});}};
 
     el.innerHTML=`
     <div class="ch-shell">
@@ -2342,7 +2607,17 @@ export async function pgSchedulingHub(setTopbar, navigate) {
       const l=data.leads.find(x=>x.id===id);if(!l)return;
       const order=['new','contacted','qualified','booked'];
       const idx=order.indexOf(l.stage);
-      if(idx>=0&&idx<order.length-1){l.stage=order[idx+1];_saveSched(data);renderLeads();window._dsToast?.({title:'Advanced',body:l.name+' → '+l.stage,severity:'success'});}
+      if(idx>=0&&idx<order.length-1){
+        l.stage=order[idx+1];
+        if(l.stage==='booked'){
+          const aptDate=l.follow_up||todayStr;
+          data.appointments.push({id:'APT-'+Date.now(),patient_name:l.name,patient_id:'',clinician:'Dr. S. Chen',date:aptDate,time:'10:00',duration:45,type:'new-patient',status:'pending',notes:'Converted from lead: '+(l.condition||'General')});
+          window._dsToast?.({title:'Lead converted \u2014 booking created',body:l.name+' booked for '+aptDate+' at 10:00',severity:'success'});
+        } else {
+          window._dsToast?.({title:'Advanced',body:l.name+' \u2192 '+l.stage,severity:'success'});
+        }
+        _saveSched(data);renderLeads();
+      }
     };
     window._leadAddModal=()=>document.getElementById('lead-add-modal')?.classList.remove('ch-hidden');
     window._leadSave=()=>{
@@ -2357,8 +2632,9 @@ export async function pgSchedulingHub(setTopbar, navigate) {
     <div class="ch-shell">
       <div class="ch-tab-bar">${tabBar()}</div>
       <div class="ch-body">
-        <div class="ch-kpi-strip" style="grid-template-columns:repeat(5,1fr);margin-bottom:16px">
+        <div class="ch-kpi-strip" style="grid-template-columns:repeat(6,1fr);margin-bottom:16px">
           ${STAGES.map(s=>'<div class="ch-kpi-card" style="--kpi-color:'+s.color+'"><div class="ch-kpi-val">'+data.leads.filter(l=>l.stage===s.id).length+'</div><div class="ch-kpi-label">'+s.label+'</div></div>').join('')}
+          <div class="ch-kpi-card" style="--kpi-color:var(--green)"><div class="ch-kpi-val">${(()=>{const b=data.leads.filter(l=>l.stage==='booked').length;const lo=data.leads.filter(l=>l.stage==='lost').length;return (b+lo)>0?Math.round(b/(b+lo)*100)+'%':'\u2014';})()}</div><div class="ch-kpi-label">Conversion Rate</div></div>
         </div>
         <div id="leads-kanban" class="leads-kanban"></div>
       </div>
@@ -2387,6 +2663,7 @@ export async function pgSchedulingHub(setTopbar, navigate) {
     const OM={ booked:{color:'var(--teal)',label:'Booked'}, callback:{color:'var(--amber)',label:'Callback'}, 'no-answer':{color:'var(--text-tertiary)',label:'No Answer'}, voicemail:{color:'var(--blue)',label:'Voicemail'}, 'info-given':{color:'var(--green)',label:'Info Given'} };
     window._recCallFilter = window._recCallFilter||'today';
 
+    window._recRenderReception = function(){ renderReception(); };
     function renderReception(){
       const out=document.getElementById('rec-content');if(!out)return;
       const todayApts=data.appointments.filter(a=>a.date===todayStr&&a.status!=='cancelled').sort((a,b)=>a.time.localeCompare(b.time));
@@ -2398,7 +2675,22 @@ export async function pgSchedulingHub(setTopbar, navigate) {
       <div class="rec-grid">
         <div class="ch-card rec-card">
           <div class="ch-card-hd"><span class="ch-card-title">Today's Schedule</span><span style="font-size:11px;color:var(--text-tertiary)">${todayApts.length} apts</span></div>
-          ${todayApts.length?todayApts.map(a=>'<div class="rec-apt-row"><span class="rec-apt-time">'+a.time+'</span><div class="rec-apt-info"><div class="rec-apt-name">'+a.patient_name+'</div><div class="rec-apt-type">'+a.clinician+'</div></div><span class="rec-apt-status" style="color:'+(STATUS_COLORS[a.status]||'var(--teal)')+'">●</span></div>').join(''):'<div class="ch-empty" style="padding:20px">No appointments today</div>'}
+          ${todayApts.length?todayApts.map(a=>{
+            const nowHHMM=pad2(new Date().getHours())+':'+pad2(new Date().getMinutes());
+            const isPast=a.time<nowHHMM;
+            const canCheckIn=(a.status==='confirmed'||a.status==='pending');
+            const canNoShow=isPast&&(a.status==='confirmed'||a.status==='pending');
+            const isCheckedIn=(a.status==='checked-in');
+            const isCompleted=(a.status==='completed');
+            const sLabel=a.status==='checked-in'?'Checked In':(STATUS_LABELS[a.status]||a.status);
+            return '<div class="rec-apt-row" style="flex-wrap:wrap"><span class="rec-apt-time">'+a.time+'</span><div class="rec-apt-info"><div class="rec-apt-name">'+a.patient_name+'</div><div class="rec-apt-type">'+a.clinician+'</div></div><span class="rec-apt-status" style="color:'+(STATUS_COLORS[a.status]||'var(--teal)')+'">\u25cf '+sLabel+'</span>'+
+              '<div style="display:flex;gap:4px;margin-left:auto;margin-top:4px">'+
+              (canCheckIn?'<button class="ch-btn-sm ch-btn-teal" onclick="event.stopPropagation();window._recCheckIn(\''+a.id+'\')">Check In</button>':'')+
+              (canNoShow?'<button class="ch-btn-sm" style="color:var(--red)" onclick="event.stopPropagation();window._recNoShow(\''+a.id+'\')">No Show</button>':'')+
+              (isCheckedIn?'<button class="ch-btn-sm" onclick="event.stopPropagation();window._recMarkDone(\''+a.id+'\')">Complete</button>':'')+
+              (isCompleted?'<button class="ch-btn-sm ch-btn-teal" onclick="event.stopPropagation();window._recFollowUp(\''+a.id+'\')">Schedule Follow-up</button>':'')+
+              '</div></div>';
+          }).join(''):'<div class="ch-empty" style="padding:20px">No appointments today</div>'}
         </div>
         <div class="ch-card rec-card">
           <div class="ch-card-hd"><span class="ch-card-title">Tasks</span><button class="ch-btn-sm ch-btn-teal" onclick="window._recAddTask()">+ Task</button></div>
@@ -2410,7 +2702,7 @@ export async function pgSchedulingHub(setTopbar, navigate) {
           <div class="ch-card-hd">
             <span class="ch-card-title">Call Log</span>
             <div style="display:flex;gap:4px">
-              ${['today','inbound','outbound','all'].map(f=>'<button class="ch-btn-sm'+(window._recCallFilter===f?' ch-btn-teal':'')+'" onclick="window._recCallFilter=\''+f+'\';renderReception()">'+f.charAt(0).toUpperCase()+f.slice(1)+'</button>').join('')}
+              ${['today','inbound','outbound','all'].map(f=>'<button class="ch-btn-sm'+(window._recCallFilter===f?' ch-btn-teal':'')+'" onclick="window._recCallFilter=\''+f+'\';window._recRenderReception()">'+f.charAt(0).toUpperCase()+f.slice(1)+'</button>').join('')}
             </div>
           </div>
           ${calls.length?calls.map(c=>{
@@ -2424,6 +2716,10 @@ export async function pgSchedulingHub(setTopbar, navigate) {
 
     window._recToggleTask = id=>{const t=data.tasks.find(x=>x.id===id);if(!t)return;t.done=!t.done;_saveSched(data);renderReception();};
     window._recAddTask = ()=>{const text=prompt('Task:');if(!text)return;data.tasks.push({id:'TASK-'+Date.now(),text,due:todayStr,done:false,priority:'medium'});_saveSched(data);renderReception();};
+    window._recCheckIn = id=>{const a=data.appointments.find(x=>x.id===id);if(!a)return;a.status='checked-in';a.checked_in_at=new Date().toISOString();_saveSched(data);renderReception();window._dsToast?.({title:'Patient checked in',body:a.patient_name+' at '+new Date().toLocaleTimeString(),severity:'success'});};
+    window._recNoShow = id=>{const a=data.appointments.find(x=>x.id===id);if(!a)return;a.status='no-show';a.no_show_at=new Date().toISOString();_saveSched(data);renderReception();window._dsToast?.({title:'Marked no-show',body:a.patient_name,severity:'warn'});};
+    window._recMarkDone = id=>{const a=data.appointments.find(x=>x.id===id);if(!a)return;a.status='completed';a.completed_at=new Date().toISOString();_saveSched(data);renderReception();window._dsToast?.({title:'Session complete',body:a.patient_name+' session complete.',severity:'success'});};
+    window._recFollowUp = id=>{const a=data.appointments.find(x=>x.id===id);if(!a)return;const fuDate=nextDay(7);data.appointments.push({id:'APT-'+Date.now(),patient_name:a.patient_name,patient_id:a.patient_id||'',clinician:a.clinician,date:fuDate,time:a.time,duration:a.duration,type:'follow-up',status:'pending',notes:'Follow-up from '+todayStr});_saveSched(data);renderReception();window._dsToast?.({title:'Follow-up scheduled',body:a.patient_name+' on '+fuDate,severity:'success'});};
     window._receptionLogCall=()=>document.getElementById('rec-call-modal')?.classList.remove('ch-hidden');
     window._recSaveCall=()=>{
       const name=document.getElementById('rc-name')?.value?.trim();if(!name){window._dsToast?.({title:'Name required',body:'',severity:'warn'});return;}
@@ -2848,6 +3144,7 @@ export async function pgLibraryHub(setTopbar, navigate) {
                       (d.device_type ? '<span class="lib-tag">' + esc(d.device_type) + '</span>' : '') +
                       settingTag +
                       reviewPill(d.review_status) +
+                      (d.last_reviewed_at ? '<span class="lib-tag" title="Last reviewed by clinical team">Reviewed ' + esc(d.last_reviewed_at) + '</span>' : '') +
                     '</div>' +
                     '<div class="lib-features">' + indicationLine + '</div>' +
                   '</article>'

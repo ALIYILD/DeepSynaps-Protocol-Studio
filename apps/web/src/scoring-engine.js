@@ -246,8 +246,13 @@ export const SCORING_RULES = {
   },
 };
 
+// Band severity (minimal..critical) is used for interpretation bands.
+// Safety-flag severity (info|warn|critical) is a smaller set used by
+// `safety[].severity`. Both live in the same lookup so highestSafety can
+// compare mixed tokens without undefined arithmetic.
 const SEVERITY_ORDER = {
   minimal: 0, mild: 1, moderate: 2, severe: 3, critical: 4,
+  info: 0, warn: 2,
 };
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -449,9 +454,10 @@ export function scoreAssessment(scaleId, itemValues) {
 export function highestSafety(scoreResult) {
   if (!scoreResult || !scoreResult.safety || !scoreResult.safety.length) return null;
   let best = null;
+  let bestOrd = -1;
   for (const s of scoreResult.safety) {
     const ord = SEVERITY_ORDER[s.severity] ?? 0;
-    if (best == null || ord > SEVERITY_ORDER[best.severity]) best = s;
+    if (ord > bestOrd) { best = s; bestOrd = ord; }
   }
   return best;
 }

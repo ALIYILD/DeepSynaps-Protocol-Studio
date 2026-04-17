@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Optional
 
 from sqlalchemy import select
@@ -215,7 +215,7 @@ def get_patient_assessment_summary(
         latest_by_template=latest_by_template,
         aggregated_severity=aggregated,
         highest_severity=highest,
-        snapshot_at=datetime.utcnow().isoformat() + "Z",
+        snapshot_at=datetime.now(timezone.utc).isoformat(),
     )
 
 

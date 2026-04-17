@@ -186,8 +186,12 @@ def test_ai_context_is_clinician_authored_only(client: TestClient, auth_headers:
     assert "GAD-7" in body["context"]
     assert "18" in body["context"]
     assert "Severe" in body["context"]  # 18 → Severe band
-    # Guardrail: never leak AI provenance claims.
-    assert "AI" not in body["context"].split("\n")[0]
+    # Guardrail: the prompt header must be explicit about provenance.
+    assert "clinician-authored" in body["context"]
+    # Guardrail: never surface AI-draft wording (e.g. "suggests", "according to")
+    lower = body["context"].lower()
+    assert "ai suggestion" not in lower
+    assert "ai-generated summary" not in lower
 
 
 def test_c_ssrs_score_2_is_severe(client: TestClient, auth_headers: dict):

@@ -213,7 +213,7 @@ class ExternalSearchResponse(BaseModel):
 
 
 class AiSummarizeRequest(BaseModel):
-    paper_ids: list[int] = Field(..., min_items=1, max_items=25)
+    paper_ids: list[int] = Field(..., min_length=1, max_length=25)
     focus: Optional[str] = Field(default=None, max_length=200)
 
 
@@ -259,13 +259,24 @@ def _summarize_condition(
     except Exception:
         lit_count = 0
 
-    # Device compatibility: devices whose modality matches condition's relevant modalities
-    rel_modalities = (cond.get("relevant_modalities") or "").lower()
+    # Device compatibility: devices whose modality appears in the condition's
+    # Relevant_Modalities list. The CSV column is a delimited free-text list
+    # (commas, semicolons, slashes, " and ", " or "). We tokenize before
+    # comparing to avoid false positives from plain substring matching
+    # (e.g. "TMS" matching inside "tDCS/rTMS").
+    import re as _re
+    rel_raw = (cond.get("relevant_modalities") or "")
+    rel_tokens = {t.strip().lower() for t in _re.split(r"[,/;]|\band\b|\bor\b", rel_raw) if t.strip()}
     compat_devices = 0
-    if rel_modalities:
+    if rel_tokens:
         for d in list_devices():
-            mod = (d.get("modality") or "").lower()
-            if mod and mod in rel_modalities:
+            mod = (d.get("modality") or "").strip().lower()
+            if not mod:
+                continue
+            # Exact or normalised-token match
+            if mod in rel_tokens or mod.replace("-", "").replace(" ", "") in {
+                t.replace("-", "").replace(" ", "") for t in rel_tokens
+            }:
                 compat_devices += 1
 
     # Assessments — derived from package when present

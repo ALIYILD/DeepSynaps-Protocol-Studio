@@ -242,6 +242,11 @@ export const api = {
   getPatientAssessmentAIContext: (patientId) => apiFetch(`/api/v1/assessments/ai-context/${encodeURIComponent(patientId)}`),
   approveAssessment: (id, body) => apiFetch(`/api/v1/assessments/${id}/approve`, { method: 'POST', body: JSON.stringify(body || { approved: true }) }),
 
+  // ── Course-scoped reads (assessment severity, audit trail, AE roll-up) ──
+  getCourseAssessmentSummary: (courseId) => apiFetch(`/api/v1/treatment-courses/${encodeURIComponent(courseId)}/assessment-summary`),
+  getCourseAuditTrail: (courseId) => apiFetch(`/api/v1/treatment-courses/${encodeURIComponent(courseId)}/audit-trail`),
+  getCourseAdverseEventsSummary: (courseId) => apiFetch(`/api/v1/treatment-courses/${encodeURIComponent(courseId)}/adverse-events-summary`),
+
   // ── Medical History ─────────────────────────────────────────────────────
   // Soft-fail load: returns null on error so non-critical consumers can keep rendering.
   getPatientMedicalHistory: (patientId) => apiFetch(`/api/v1/patients/${patientId}/medical-history`).catch(() => null),
@@ -430,6 +435,10 @@ export const api = {
   updateCourse: (id, data) => apiFetch(`/api/v1/treatment-courses/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   activateCourse: (id, data = {}) =>
     apiFetch(`/api/v1/treatment-courses/${id}/activate`, { method: 'PATCH', body: JSON.stringify(data) }),
+  // Safety preflight — returns requires_review / blocking_flags / override_required so the
+  // UI can render a structured override modal instead of guessing.
+  courseSafetyPreflight: (id) =>
+    apiFetch(`/api/v1/treatment-courses/${id}/safety-preflight`),
   logSession: (courseId, data) =>
     apiFetch(`/api/v1/treatment-courses/${courseId}/sessions`, { method: 'POST', body: JSON.stringify(data) }),
   listCourseSessions: (courseId) => apiFetch(`/api/v1/treatment-courses/${courseId}/sessions`),
