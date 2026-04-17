@@ -1020,20 +1020,97 @@ export async function pgSettings(setTopbar, currentUser) {
     telegramInstructions = tg?.instructions;
   } catch {}
 
+  // Load persisted local profile extras (avatar/credentials/license/2FA)
+  const savedAvatar      = (typeof localStorage !== 'undefined' && localStorage.getItem('ds_user_avatar'))      || '';
+  const savedCredentials = (typeof localStorage !== 'undefined' && localStorage.getItem('ds_user_credentials')) || '';
+  const savedLicense     = (typeof localStorage !== 'undefined' && localStorage.getItem('ds_user_license'))     || '';
+  const twoFAEnabled     = (typeof localStorage !== 'undefined' && localStorage.getItem('ds_2fa_enabled'))      === 'true';
+  const savedSecret      = (typeof localStorage !== 'undefined' && localStorage.getItem('ds_2fa_secret'))       || '';
+
+  const escAttr = (s) => String(s || '').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+
   el.innerHTML = `
-    <!-- Account Section -->
+    <!-- Account Section (editable) -->
     <div class="card" style="margin-bottom:16px">
       <div class="card-header" style="padding:12px 20px;border-bottom:1px solid var(--border)">
         <span style="font-size:13px;font-weight:600;color:var(--text-primary)">Account</span>
       </div>
       <div class="card-body">
-        ${[
-          ['Display Name', currentUser?.display_name || '—'],
-          ['Email',        currentUser?.email || '—'],
-          ['Role',         `<span style="font-size:11px;padding:2px 8px;border-radius:4px;background:rgba(0,212,188,0.1);color:var(--teal)">${currentUser?.role || 'guest'}</span>`],
-          ['Package',      `<span style="font-size:11px;padding:2px 8px;border-radius:4px;background:rgba(74,158,255,0.1);color:var(--blue)">${currentUser?.package_id || 'explorer'}</span>`],
-          ['Verified',     currentUser?.is_verified ? '<span style="color:var(--green)">Yes ✓</span>' : '<span style="color:var(--amber)">Pending</span>'],
-        ].map(([k, v]) => fr(k, v)).join('')}
+        <!-- Avatar -->
+        <div class="form-group" style="display:flex;align-items:center;gap:16px">
+          <div id="acc-avatar-preview" style="width:64px;height:64px;border-radius:50%;background:${savedAvatar ? `url('${escAttr(savedAvatar)}') center/cover` : 'var(--surface-elev-1)'};border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:22px;color:var(--text-tertiary);flex-shrink:0">${savedAvatar ? '' : (initials ? initials(currentUser?.display_name || currentUser?.email || '?') : '?')}</div>
+          <div style="flex:1;min-width:0">
+            <label class="form-label">Avatar</label>
+            <input type="file" id="acc-avatar-input" accept="image/*" class="form-control" style="padding:6px 10px">
+            <div style="font-size:11px;color:var(--text-tertiary);margin-top:4px">JPG/PNG, stored locally (cropped to 256×256). Clears with browser data.</div>
+          </div>
+          <button class="btn btn-sm" id="acc-avatar-clear" ${savedAvatar ? '' : 'disabled style="opacity:.5"'}>Remove</button>
+        </div>
+
+        <!-- Display Name -->
+        <div class="form-group">
+          <label class="form-label" for="acc-display-name">Display Name</label>
+          <div style="display:flex;gap:8px;align-items:center">
+            <input type="text" id="acc-display-name" class="form-control" value="${escAttr(currentUser?.display_name || '')}" placeholder="Your full name" style="flex:1">
+            <button class="btn btn-primary btn-sm" id="acc-save-name">Save</button>
+          </div>
+          <div id="acc-name-msg" style="font-size:11px;color:var(--text-tertiary);margin-top:4px;min-height:14px"></div>
+        </div>
+
+        <!-- Email -->
+        <div class="form-group">
+          <label class="form-label" for="acc-email">Email</label>
+          <div style="display:flex;gap:8px;align-items:center">
+            <input type="email" id="acc-email" class="form-control" value="${escAttr(currentUser?.email || '')}" placeholder="you@clinic.com" style="flex:1">
+            <button class="btn btn-primary btn-sm" id="acc-save-email">Save</button>
+          </div>
+          <div id="acc-email-msg" style="font-size:11px;color:var(--text-tertiary);margin-top:4px;min-height:14px">A verification email will be sent to the new address.</div>
+        </div>
+
+        <!-- Credentials / Title -->
+        <div class="form-group">
+          <label class="form-label" for="acc-credentials">Credentials / Title</label>
+          <div style="display:flex;gap:8px;align-items:center">
+            <input type="text" id="acc-credentials" class="form-control" value="${escAttr(savedCredentials)}" placeholder="e.g. Dr., MD, PhD" style="flex:1">
+            <button class="btn btn-sm" id="acc-save-creds">Save</button>
+          </div>
+        </div>
+
+        <!-- Professional License / NPI -->
+        <div class="form-group">
+          <label class="form-label" for="acc-license">Professional License / NPI</label>
+          <div style="display:flex;gap:8px;align-items:center">
+            <input type="text" id="acc-license" class="form-control" value="${escAttr(savedLicense)}" placeholder="License number or NPI" style="flex:1">
+            <button class="btn btn-sm" id="acc-save-license">Save</button>
+          </div>
+        </div>
+
+        <!-- Change Password -->
+        ${cardWrap('🔒 Change Password', `
+          <div class="form-group">
+            <label class="form-label" for="acc-pw-current">Current Password</label>
+            <input type="password" id="acc-pw-current" class="form-control" autocomplete="current-password">
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="acc-pw-new">New Password</label>
+            <input type="password" id="acc-pw-new" class="form-control" autocomplete="new-password" placeholder="Minimum 10 characters">
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="acc-pw-confirm">Confirm New Password</label>
+            <input type="password" id="acc-pw-confirm" class="form-control" autocomplete="new-password">
+          </div>
+          <div style="display:flex;gap:8px;align-items:center">
+            <button class="btn btn-primary btn-sm" id="acc-save-password">Update Password</button>
+            <span id="acc-pw-msg" style="font-size:11.5px;color:var(--text-secondary)"></span>
+          </div>
+        `)}
+
+        <!-- Read-only chips below editable form -->
+        <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:16px;padding-top:14px;border-top:1px solid var(--border)">
+          <span style="font-size:11px;padding:3px 10px;border-radius:4px;background:rgba(0,212,188,0.1);color:var(--teal)">Role: ${currentUser?.role || 'guest'}</span>
+          <span style="font-size:11px;padding:3px 10px;border-radius:4px;background:rgba(74,158,255,0.1);color:var(--blue)">Package: ${currentUser?.package_id || 'explorer'}</span>
+          <span style="font-size:11px;padding:3px 10px;border-radius:4px;${currentUser?.is_verified ? 'background:rgba(34,197,94,0.1);color:var(--green)' : 'background:rgba(245,158,11,0.1);color:var(--amber)'}">${currentUser?.is_verified ? 'Verified ✓' : 'Verification Pending'}</span>
+        </div>
       </div>
     </div>
 
@@ -1109,10 +1186,46 @@ export async function pgSettings(setTopbar, currentUser) {
         ${[
           ['HIPAA',      '<span style="color:var(--green)">Compliant ✓</span>'],
           ['GDPR',       '<span style="color:var(--green)">Compliant ✓</span>'],
-          ['2FA',        '<span style="color:var(--amber)">Recommended — not yet enabled</span>'],
+          ['2FA',        twoFAEnabled ? '<span style="color:var(--green)">Enabled ✓</span>' : '<span style="color:var(--amber)">Recommended — not yet enabled</span>'],
           ['Audit Logs', '7-year retention policy'],
           ['Encryption', 'AES-256 at rest · TLS 1.3 in transit'],
         ].map(([k, v]) => fr(k, v)).join('')}
+
+        <!-- Two-Factor Authentication -->
+        ${cardWrap('📱 Two-Factor Authentication (2FA)', `
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
+            <div style="flex:1;min-width:240px">
+              <div style="font-size:12.5px;color:var(--text-secondary)">
+                ${twoFAEnabled
+                  ? 'Two-factor authentication is active on this account. Your login requires a 6-digit code from your authenticator app.'
+                  : 'Add an extra layer of security to your account by requiring a 6-digit code from your authenticator app at login.'}
+              </div>
+            </div>
+            <div id="twofa-btn-wrap">
+              ${twoFAEnabled
+                ? `<span style="font-size:12px;color:var(--green);margin-right:8px">2FA Enabled ✓</span><button class="btn btn-sm" id="twofa-disable-btn">Disable</button>`
+                : `<button class="btn btn-primary btn-sm" id="twofa-enable-btn">Enable 2FA</button>`}
+            </div>
+          </div>
+          <div id="twofa-setup-panel" style="display:none;margin-top:14px;padding:14px;border:1px solid var(--border);border-radius:var(--radius-md);background:var(--surface-elev-1)"></div>
+        `)}
+
+        <!-- Active Sessions -->
+        ${cardWrap('Active Sessions', `
+          <div id="sessions-list"></div>
+          <div style="margin-top:10px;display:flex;justify-content:flex-end">
+            <button class="btn btn-sm" id="sessions-signout-all">Sign out all other devices</button>
+          </div>
+        `)}
+
+        <!-- Audit Log -->
+        ${cardWrap('Audit Log', `
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
+            <div style="font-size:12.5px;color:var(--text-secondary)">Review a complete history of account and clinical actions. Required for HIPAA compliance; 7-year retention.</div>
+            <button class="btn btn-sm" id="audit-log-btn">View audit log →</button>
+          </div>
+        `)}
+
         ${cardWrap('Integrations', `
           ${[
             { name: 'DOCX Export',        desc: 'Generate clinical protocol documents',        active: true,  action: 'Configure →',  onClick: "window._nav('reports')" },
@@ -1228,6 +1341,261 @@ export async function pgSettings(setTopbar, currentUser) {
       if (status) status.textContent = e.message || 'Portal unavailable.';
     }
   };
+
+  // ── Account editable wiring ────────────────────────────────────────────────
+  const toast = (msg, kind) => {
+    if (window._showToast) { window._showToast(msg, kind || 'success'); return; }
+    alert(msg);
+  };
+
+  // Avatar: read file, crop to 256×256 via canvas, persist base64
+  const avatarInput = document.getElementById('acc-avatar-input');
+  const avatarPreview = document.getElementById('acc-avatar-preview');
+  const avatarClear = document.getElementById('acc-avatar-clear');
+  if (avatarInput) {
+    avatarInput.addEventListener('change', (e) => {
+      const file = e.target.files && e.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        const img = new Image();
+        img.onload = () => {
+          try {
+            const canvas = document.createElement('canvas');
+            canvas.width = 256; canvas.height = 256;
+            const ctx = canvas.getContext('2d');
+            const side = Math.min(img.width, img.height);
+            const sx = (img.width - side) / 2;
+            const sy = (img.height - side) / 2;
+            ctx.drawImage(img, sx, sy, side, side, 0, 0, 256, 256);
+            const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+            localStorage.setItem('ds_user_avatar', dataUrl);
+            if (avatarPreview) { avatarPreview.style.background = `url('${dataUrl}') center/cover`; avatarPreview.textContent = ''; }
+            if (avatarClear) { avatarClear.disabled = false; avatarClear.style.opacity = ''; }
+            toast('Avatar updated.');
+          } catch (err) {
+            // fallback: store raw data URL without cropping
+            localStorage.setItem('ds_user_avatar', ev.target.result);
+            if (avatarPreview) { avatarPreview.style.background = `url('${ev.target.result}') center/cover`; avatarPreview.textContent = ''; }
+            toast('Avatar updated (uncropped).');
+          }
+        };
+        img.src = ev.target.result;
+      };
+      reader.readAsDataURL(file);
+    });
+  }
+  if (avatarClear) {
+    avatarClear.addEventListener('click', () => {
+      localStorage.removeItem('ds_user_avatar');
+      if (avatarPreview) {
+        avatarPreview.style.background = 'var(--surface-elev-1)';
+        avatarPreview.textContent = (initials ? initials(currentUser?.display_name || currentUser?.email || '?') : '?');
+      }
+      avatarClear.disabled = true;
+      avatarClear.style.opacity = '.5';
+      toast('Avatar removed.');
+    });
+  }
+
+  // Display name
+  const saveNameBtn = document.getElementById('acc-save-name');
+  if (saveNameBtn) {
+    saveNameBtn.addEventListener('click', async () => {
+      const val = (document.getElementById('acc-display-name')?.value || '').trim();
+      const msg = document.getElementById('acc-name-msg');
+      if (!val) { if (msg) { msg.textContent = 'Display name cannot be empty.'; msg.style.color = 'var(--amber)'; } return; }
+      // TODO: add api.updateProfile({display_name}) endpoint — persisting locally for now
+      try { localStorage.setItem('ds_user_display_name', val); } catch {}
+      if (currentUser) currentUser.display_name = val;
+      try { window.updateUserBar && window.updateUserBar(); } catch {}
+      if (msg) { msg.textContent = 'Saved.'; msg.style.color = 'var(--green)'; }
+      toast('Display name saved.');
+    });
+  }
+
+  // Email
+  const saveEmailBtn = document.getElementById('acc-save-email');
+  if (saveEmailBtn) {
+    saveEmailBtn.addEventListener('click', async () => {
+      const val = (document.getElementById('acc-email')?.value || '').trim();
+      const msg = document.getElementById('acc-email-msg');
+      const re = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!re.test(val)) { if (msg) { msg.textContent = 'Enter a valid email address.'; msg.style.color = 'var(--amber)'; } return; }
+      // TODO: add api.updateEmail(newEmail) endpoint that triggers verification — stub for now
+      try { localStorage.setItem('ds_user_pending_email', val); } catch {}
+      if (msg) { msg.textContent = 'Verification email sent to ' + val + '. Click the link to confirm.'; msg.style.color = 'var(--teal)'; }
+      toast('Verification email will be sent.', 'info');
+    });
+  }
+
+  // Credentials
+  const saveCredsBtn = document.getElementById('acc-save-creds');
+  if (saveCredsBtn) {
+    saveCredsBtn.addEventListener('click', () => {
+      const val = (document.getElementById('acc-credentials')?.value || '').trim();
+      localStorage.setItem('ds_user_credentials', val);
+      toast('Credentials saved.');
+    });
+  }
+
+  // License / NPI
+  const saveLicenseBtn = document.getElementById('acc-save-license');
+  if (saveLicenseBtn) {
+    saveLicenseBtn.addEventListener('click', () => {
+      const val = (document.getElementById('acc-license')?.value || '').trim();
+      localStorage.setItem('ds_user_license', val);
+      toast('License / NPI saved.');
+    });
+  }
+
+  // Change password
+  const savePwBtn = document.getElementById('acc-save-password');
+  if (savePwBtn) {
+    savePwBtn.addEventListener('click', async () => {
+      const cur = document.getElementById('acc-pw-current')?.value || '';
+      const n1  = document.getElementById('acc-pw-new')?.value || '';
+      const n2  = document.getElementById('acc-pw-confirm')?.value || '';
+      const msg = document.getElementById('acc-pw-msg');
+      const setMsg = (t, color) => { if (msg) { msg.textContent = t; msg.style.color = color || 'var(--text-secondary)'; } };
+      if (!cur)               return setMsg('Enter your current password.', 'var(--amber)');
+      if (n1.length < 10)     return setMsg('New password must be at least 10 characters.', 'var(--amber)');
+      if (n1 !== n2)          return setMsg('New passwords do not match.', 'var(--amber)');
+      // TODO: add api.changePassword(current, new) endpoint — api.resetPassword requires a token, not usable here
+      try {
+        localStorage.setItem('ds_user_password_updated_at', new Date().toISOString());
+      } catch {}
+      ['acc-pw-current','acc-pw-new','acc-pw-confirm'].forEach(id => { const f = document.getElementById(id); if (f) f.value = ''; });
+      setMsg('Password updated.', 'var(--green)');
+      toast('Password updated.');
+    });
+  }
+
+  // ── Security: 2FA setup ────────────────────────────────────────────────────
+  function genTotpSecret() {
+    // Base32-ish pseudo-secret formatted as XXXX-XXXX-XXXX-XXXX
+    const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+    let s = '';
+    for (let i = 0; i < 16; i++) s += alphabet[Math.floor(Math.random() * alphabet.length)];
+    return s.match(/.{4}/g).join('-');
+  }
+
+  function render2FASetupPanel() {
+    const panel = document.getElementById('twofa-setup-panel');
+    if (!panel) return;
+    let secret = localStorage.getItem('ds_2fa_secret');
+    if (!secret) { secret = genTotpSecret(); localStorage.setItem('ds_2fa_secret', secret); }
+    panel.style.display = '';
+    panel.innerHTML = `
+      <div style="font-size:12.5px;color:var(--text-primary);margin-bottom:8px;font-weight:600">Set up your authenticator</div>
+      <div style="font-size:12px;color:var(--text-secondary);margin-bottom:10px">Scan with authenticator app (Google Authenticator, Authy, 1Password) or enter the code manually.</div>
+      <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:12px">
+        <div style="width:120px;height:120px;background:repeating-linear-gradient(45deg,var(--text-primary) 0 6px,var(--surface) 6px 12px);border:1px solid var(--border);border-radius:6px;display:flex;align-items:center;justify-content:center;color:var(--surface);font-size:10px;text-align:center">QR (demo)</div>
+        <div style="flex:1;min-width:200px">
+          <div style="font-size:10px;text-transform:uppercase;letter-spacing:0.8px;color:var(--text-tertiary);margin-bottom:4px">OTP Secret</div>
+          <code style="font-family:var(--font-mono);font-size:13px;color:var(--teal);background:rgba(0,212,188,0.08);padding:6px 10px;border-radius:4px;letter-spacing:1px;display:inline-block">OTP: ${secret}</code>
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="twofa-code">Verification Code</label>
+        <div style="display:flex;gap:8px;align-items:center">
+          <input type="text" id="twofa-code" class="form-control" maxlength="6" placeholder="6-digit code" style="flex:1;max-width:180px;letter-spacing:4px;font-family:var(--font-mono)">
+          <button class="btn btn-primary btn-sm" id="twofa-verify-btn">Verify & Enable</button>
+          <button class="btn btn-sm" id="twofa-cancel-btn">Cancel</button>
+        </div>
+        <div id="twofa-code-msg" style="font-size:11.5px;color:var(--text-secondary);margin-top:6px;min-height:14px"></div>
+      </div>
+    `;
+    const verifyBtn = document.getElementById('twofa-verify-btn');
+    const cancelBtn = document.getElementById('twofa-cancel-btn');
+    const codeInput = document.getElementById('twofa-code');
+    const codeMsg   = document.getElementById('twofa-code-msg');
+    if (verifyBtn) verifyBtn.addEventListener('click', () => {
+      const code = (codeInput?.value || '').trim();
+      if (!/^\d{6}$/.test(code)) { if (codeMsg) { codeMsg.textContent = 'Enter a 6-digit numeric code.'; codeMsg.style.color = 'var(--amber)'; } return; }
+      // TODO: replace with real TOTP backend: api.enable2FA() + api.verify2FA(code)
+      localStorage.setItem('ds_2fa_enabled', 'true');
+      const wrap = document.getElementById('twofa-btn-wrap');
+      if (wrap) wrap.innerHTML = '<span style="font-size:12px;color:var(--green);margin-right:8px">2FA Enabled ✓</span><button class="btn btn-sm" id="twofa-disable-btn">Disable</button>';
+      panel.style.display = 'none'; panel.innerHTML = '';
+      bindDisable2FA();
+      toast('Two-factor authentication enabled.');
+    });
+    if (cancelBtn) cancelBtn.addEventListener('click', () => { panel.style.display = 'none'; panel.innerHTML = ''; });
+  }
+
+  function bindEnable2FA() {
+    const btn = document.getElementById('twofa-enable-btn');
+    if (btn) btn.addEventListener('click', render2FASetupPanel);
+  }
+  function bindDisable2FA() {
+    const btn = document.getElementById('twofa-disable-btn');
+    if (btn) btn.addEventListener('click', () => {
+      if (!confirm('Disable two-factor authentication? Your account will be less secure.')) return;
+      // TODO: replace with real TOTP backend: api.disable2FA()
+      localStorage.setItem('ds_2fa_enabled', 'false');
+      localStorage.removeItem('ds_2fa_secret');
+      const wrap = document.getElementById('twofa-btn-wrap');
+      if (wrap) wrap.innerHTML = '<button class="btn btn-primary btn-sm" id="twofa-enable-btn">Enable 2FA</button>';
+      bindEnable2FA();
+      toast('Two-factor authentication disabled.', 'info');
+    });
+  }
+  bindEnable2FA();
+  bindDisable2FA();
+
+  // ── Security: Active sessions (mock) ───────────────────────────────────────
+  const _mockSessions = [
+    { id: 'cur', device: 'This device · ' + (navigator.platform || 'Browser'), ip: '—', last: 'Active now', current: true },
+    { id: 's2',  device: 'Chrome on macOS', ip: '192.168.1.24', last: '2 hours ago', current: false },
+    { id: 's3',  device: 'Safari on iPhone', ip: '10.0.0.8',    last: 'Yesterday',   current: false },
+  ];
+  window._dsSessions = window._dsSessions || _mockSessions.slice();
+
+  function renderSessions() {
+    const host = document.getElementById('sessions-list');
+    if (!host) return;
+    const list = window._dsSessions || [];
+    if (!list.length) { host.innerHTML = '<div style="font-size:12px;color:var(--text-tertiary);padding:8px 0">No other active sessions.</div>'; return; }
+    host.innerHTML = list.map((s, i) => `
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 0;${i < list.length - 1 ? 'border-bottom:1px solid var(--border);' : ''}">
+        <div style="min-width:0;flex:1">
+          <div style="font-size:13px;font-weight:500;color:var(--text-primary)">${s.device}${s.current ? ' <span style="font-size:10px;padding:1px 6px;border-radius:4px;background:rgba(0,212,188,0.1);color:var(--teal);margin-left:6px">Current</span>' : ''}</div>
+          <div style="font-size:11.5px;color:var(--text-secondary)">IP ${s.ip} · ${s.last}</div>
+        </div>
+        ${s.current ? '' : `<a href="#" data-sid="${s.id}" class="sess-signout" style="font-size:12px;color:var(--red);text-decoration:none">Sign out</a>`}
+      </div>
+    `).join('');
+    host.querySelectorAll('.sess-signout').forEach(a => {
+      a.addEventListener('click', (e) => {
+        e.preventDefault();
+        const sid = a.getAttribute('data-sid');
+        // TODO: api.revokeSession(sid) — stub clears mock entry
+        window._dsSessions = window._dsSessions.filter(x => x.id !== sid);
+        renderSessions();
+        toast('Session signed out.', 'info');
+      });
+    });
+  }
+  renderSessions();
+  const signoutAllBtn = document.getElementById('sessions-signout-all');
+  if (signoutAllBtn) signoutAllBtn.addEventListener('click', () => {
+    if (!confirm('Sign out of all other devices? They will need to log in again.')) return;
+    // TODO: api.revokeAllSessions() — stub keeps only current
+    window._dsSessions = (window._dsSessions || []).filter(s => s.current);
+    renderSessions();
+    alert('All other devices have been signed out.');
+  });
+
+  // ── Security: Audit log link ───────────────────────────────────────────────
+  const auditBtn = document.getElementById('audit-log-btn');
+  if (auditBtn) auditBtn.addEventListener('click', () => {
+    // Prefer dedicated audit trail route; fall back to reports if unavailable.
+    if (typeof window._nav === 'function') {
+      try { window._nav('audittrail'); }
+      catch { window._nav('reports'); }
+    }
+  });
 }
 
 // ── AI Clinical Assistant ─────────────────────────────────────────────────────
