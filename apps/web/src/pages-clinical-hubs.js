@@ -3244,7 +3244,9 @@ export async function pgLibraryHub(setTopbar, navigate) {
           ? '<div class="ch-empty" style="padding:30px 16px">Device registry is empty. Admin must import <code>data/clinical/devices.csv</code>.</div>'
           : rows.length
             ? '<div class="lib-grid">' + rows.map(d => {
-                const reg = [d.regulatory_status, d.regulatory_pathway].filter(Boolean).join(' · ');
+                const regStatus  = d.regulatory_status  || '';
+                const regPathway = d.regulatory_pathway || '';
+                const regTitle   = [regStatus, regPathway].filter(Boolean).join(' · ');
                 const settingTag = d.home_vs_clinic ? '<span class="lib-tag">' + esc(d.home_vs_clinic) + '</span>' : '';
                 const indicationLine = d.official_indication
                   ? '<div class="lib-feature" style="width:100%" title="Official indication">🎯 ' + esc(d.official_indication) + '</div>'
@@ -3253,7 +3255,7 @@ export async function pgLibraryHub(setTopbar, navigate) {
                   '<article class="lib-card lib-card--device" aria-label="' + esc(d.name || d.id) + '">' +
                     '<div class="lib-card-top">' +
                       '<span class="lib-card-name">' + esc(d.name || d.id) + '</span>' +
-                      (reg ? '<span class="lib-badge lib-badge--blue" title="Regulatory status">' + esc(reg) + '</span>' : '') +
+                      (regStatus ? '<span class="lib-badge lib-badge--blue" title="' + esc(regTitle) + '">' + esc(regStatus) + '</span>' : '') +
                     '</div>' +
                     (d.manufacturer ? '<div style="font-size:11px;color:var(--text-tertiary);margin-bottom:6px">' + esc(d.manufacturer) + '</div>' : '') +
                     '<div class="lib-card-meta">' +
@@ -3261,6 +3263,7 @@ export async function pgLibraryHub(setTopbar, navigate) {
                       (d.device_type ? '<span class="lib-tag">' + esc(d.device_type) + '</span>' : '') +
                       settingTag +
                       reviewPill(d.review_status) +
+                      (regPathway ? '<span class="lib-tag" title="Regulatory pathway">' + esc(regPathway) + '</span>' : '') +
                       (d.last_reviewed_at ? '<span class="lib-tag" title="Last reviewed by clinical team">Reviewed ' + esc(d.last_reviewed_at) + '</span>' : '') +
                     '</div>' +
                     '<div class="lib-features">' + indicationLine + '</div>' +
