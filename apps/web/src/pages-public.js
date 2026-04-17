@@ -566,6 +566,9 @@ export function pgHome() {
     a.style.display    = open ? 'none' : 'block';
     chev.style.transform = open ? '' : 'rotate(180deg)';
     chev.style.color     = open ? '' : 'var(--teal)';
+    const btn = document.getElementById(`faq-btn-${i}`);
+    if (btn) btn.setAttribute('aria-expanded', String(!open));
+    a.setAttribute('aria-hidden', String(open));
   };
 
   // ── Demo Tour ─────────────────────────────────────────────────────────────
@@ -1328,11 +1331,11 @@ export function pgHome() {
           },
         ].map((faq, i) => `
           <div class="pub-faq-item" id="faq-${i}">
-            <button class="pub-faq-q" onclick="window._faqToggle(${i})">
+            <button class="pub-faq-q" id="faq-btn-${i}" onclick="window._faqToggle(${i})" aria-expanded="false" aria-controls="faq-a-${i}">
               <span>${faq.q}</span>
               <span class="pub-faq-chevron" id="faq-chev-${i}">▾</span>
             </button>
-            <div class="pub-faq-a" id="faq-a-${i}" style="display:none">${faq.a}</div>
+            <div class="pub-faq-a" id="faq-a-${i}" style="display:none" role="region" aria-labelledby="faq-btn-${i}" aria-hidden="true">${faq.a}</div>
           </div>
         `).join('')}
       </div>
@@ -1642,6 +1645,9 @@ export function pgHome() {
     a.style.display    = open ? 'none' : 'block';
     chev.style.transform = open ? '' : 'rotate(180deg)';
     chev.style.color     = open ? '' : 'var(--teal)';
+    const btn = document.getElementById(`faq-btn-${i}`);
+    if (btn) btn.setAttribute('aria-expanded', String(!open));
+    a.setAttribute('aria-hidden', String(open));
   };
 
   // ── Evidence section interactivity ────────────────────────────────────────
