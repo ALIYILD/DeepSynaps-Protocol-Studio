@@ -668,7 +668,8 @@ export async function pgDash(setTopbar, navigate) {
   const _todayDateStr = new Date().toLocaleDateString('en-GB', { weekday:'long', day:'numeric', month:'short', year:'numeric' });
   setTopbar('Home \u2014 ' + _todayDateStr,
     `<button class="btn btn-sm btn-ghost" onclick="window._cdAddWalkin?.() || window._nav('clinic-day')" style="white-space:nowrap">+ Walk-in</button>` +
-    `<button class="btn btn-primary btn-sm" onclick="window._nav('session-execution')" style="white-space:nowrap;margin-left:6px">&#9654; Start Session</button>`
+    `<button class="btn btn-primary btn-sm" onclick="window._nav('session-execution')" style="white-space:nowrap;margin-left:6px">&#9654; Start Session</button>` +
+    `<button class="btn btn-sm" aria-label="Report adverse event during active session" onclick="window._nav('adverse-events')" style="white-space:nowrap;margin-left:6px;border-color:var(--red);color:var(--red)">&#9888; Report Adverse Event</button>`
   );
 
   const el = document.getElementById('content');
@@ -4062,6 +4063,13 @@ function renderWizStep4Result(result) {
         </div>
       </div>
       <div class="card-body">
+        <div class="clinical-disclaimer" role="note" style="background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.35);border-radius:var(--radius-md);padding:10px 14px;margin-bottom:14px;display:flex;gap:10px;align-items:flex-start">
+          <span style="font-size:16px;color:var(--amber);flex-shrink:0">&#9888;</span>
+          <div style="font-size:12px;line-height:1.55;color:var(--text-secondary)">
+            <strong style="color:var(--text-primary)">For qualified clinicians only.</strong>
+            These parameters are generated from evidence registries — verify every value against the current device label and the patient&rsquo;s contraindications before committing. Not a clinical recommendation.
+          </div>
+        </div>
         ${explainabilityBanner}
         ${govHtml}
         ${result?.device_resolution ? `<div class="notice notice-info" style="margin-bottom:12px;font-size:11px;line-height:1.55">
@@ -4085,12 +4093,41 @@ function renderWizStep4Result(result) {
         ${versionBtn}
       </div>
       <div style="display:flex;gap:8px">
+        ${(result?.citations?.length || result?.evidence_refs?.length) ? `<button class="btn btn-sm" style="border-color:var(--blue);color:var(--blue)" onclick="window._showProtoCitations(window._lastProtoResult)">&#128196; View Citations</button>` : `<button class="btn btn-sm" style="border-color:var(--text-tertiary);color:var(--text-tertiary);cursor:default" title="No citations were returned by the registry for this protocol — verify manually against the evidence registry." disabled>No Citations — Verify Manually</button>`}
         <button class="btn btn-sm" onclick="window._wizSave('draft')">Save as Draft Course &rarr;</button>
         <button class="btn btn-primary" onclick="window._wizSave('active')">Activate Course &rarr;</button>
       </div>
     </div>
   </div>`;
 }
+
+window._showProtoCitations = function(result) {
+  if (!result) return;
+  const refs = result.citations || result.evidence_refs || [];
+  const rows = refs.length
+    ? refs.map((c, i) => {
+        const url = c.url || c.pmid && `https://pubmed.ncbi.nlm.nih.gov/${c.pmid}/` || c.nct && `https://clinicaltrials.gov/ct2/show/${c.nct}` || c.pma && `https://www.accessdata.fda.gov/scripts/cdrh/cfdocs/cfpma/pma.cfm?id=${c.pma}` || '';
+        const label = c.title || c.pmid && `PMID ${c.pmid}` || c.nct || c.pma || `Reference ${i + 1}`;
+        return `<div style="padding:8px 0;border-bottom:1px solid var(--border);font-size:12px;color:var(--text-secondary)">
+          ${url ? `<a href="${url}" target="_blank" rel="noopener" style="color:var(--blue);text-decoration:none">${label}</a>` : `<span>${label}</span>`}
+        </div>`;
+      }).join('')
+    : `<div style="font-size:12.5px;color:var(--text-secondary);padding:12px 0">No citations were returned for this protocol — verify parameters manually against the evidence registry before committing.</div>`;
+  const overlay = document.createElement('div');
+  overlay.className = 'ds-modal-overlay';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:2000;display:flex;align-items:center;justify-content:center';
+  overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
+  overlay.innerHTML = `<div class="ds-modal" style="min-width:360px;max-width:540px;max-height:70vh;overflow-y:auto;background:var(--bg-surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:20px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+      <div style="font-size:14px;font-weight:700;color:var(--text-primary)">Protocol Citations</div>
+      <button onclick="this.closest('.ds-modal-overlay').remove()" style="background:none;border:none;color:var(--text-tertiary);font-size:18px;cursor:pointer">&#x2715;</button>
+    </div>
+    ${rows}
+    <div style="margin-top:14px;font-size:11px;color:var(--text-tertiary);line-height:1.5">Evidence grades are informed estimates. Always cross-check against the current device label and local protocols before prescribing.</div>
+    <div style="margin-top:14px;text-align:right"><button class="btn btn-sm" onclick="this.closest('.ds-modal-overlay').remove()">Close</button></div>
+  </div>`;
+  document.body.appendChild(overlay);
+};
 
 function renderWizStep5() {
   const ws = wizState();
@@ -4401,6 +4438,7 @@ function _wizBindActions() {
         : null;
       ws.generatedProtocolDebugPresent = !!dbg;
       ws.draftGenContextFingerprint = computeWizardDraftFingerprint(ws);
+      window._lastProtoResult = result;
       ws._step4Html = renderWizStep4Result(result);
     } catch (e) {
       ws._step4Html = renderWizStep4Error(e?.message || 'Generation failed.');
@@ -5035,7 +5073,23 @@ function renderProStep_UNUSED() {
            ${rp.Evidence_Grade ? `<span style="margin-left:8px;font-size:11px;color:var(--teal)">${rp.Evidence_Grade}</span>` : ''}
          </div>`
       : '';
+    const contraHtml = (rp.Contraindications || rp.contraindications || []).length
+      ? `<div style="background:rgba(239,68,68,0.06);border-left:4px solid var(--red);padding:10px 14px;margin-bottom:14px;font-size:12.5px;color:var(--text-secondary);border-radius:var(--radius-md)">
+           <strong style="color:var(--text-primary)">Contraindications for this registry protocol:</strong>
+           <ul style="margin:6px 0 0 16px;padding:0;font-size:12px;color:var(--red)">
+             ${(rp.Contraindications || rp.contraindications).map(c => `<li>${String(c).replace(/</g,'&lt;')}</li>`).join('')}
+           </ul>
+         </div>`
+      : '';
     return `<div>
+    <div class="clinical-disclaimer" role="note" style="background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.35);border-radius:var(--radius-md);padding:10px 14px;margin-bottom:14px;display:flex;gap:10px;align-items:flex-start">
+      <span style="font-size:16px;color:var(--amber);flex-shrink:0">&#9888;</span>
+      <div style="font-size:12px;line-height:1.55;color:var(--text-secondary)">
+        <strong style="color:var(--text-primary)">For qualified clinicians only.</strong>
+        These parameters are pre-filled from the evidence registry. Verify every value against the current device label and the patient&rsquo;s contraindications before proceeding. Not a clinical recommendation.
+      </div>
+    </div>
+    ${contraHtml}
     ${protocolBadge}
     <div class="g2">
     ${cardWrap('Stimulation Parameters', `
@@ -5103,7 +5157,7 @@ function renderProStep_UNUSED() {
       <button class="btn" onclick="window.prevStep()">← Back</button>
       <div style="display:flex;gap:8px">
         <button class="btn btn-sm" onclick="window.generateProtoAPI()">Generate DOCX only</button>
-        <button class="btn btn-primary" onclick="window.createTreatmentCourse()" id="gen-btn" ${hasProto ? '' : 'disabled'}>Create Treatment Course ◎</button>
+        <button class="btn btn-primary" onclick="window._confirmCreateCourse()" id="gen-btn" ${hasProto ? '' : 'disabled'}>Create Treatment Course ◎</button>
       </div>
     </div>
     <div id="proto-result" style="margin-top:20px"></div>
@@ -5112,6 +5166,56 @@ function renderProStep_UNUSED() {
 
   return '';
 }
+
+// ── Create Treatment Course — confirmation modal ──────────────────────────────
+window._confirmCreateCourse = function() {
+  const rp = window._registryProtocol || {};
+  const result = window._lastProtoResult || {};
+  const refs = result.citations || result.evidence_refs || [];
+  const citationRows = refs.length
+    ? refs.map((c, i) => {
+        const url = c.url || (c.pmid && `https://pubmed.ncbi.nlm.nih.gov/${c.pmid}/`) || (c.nct && `https://clinicaltrials.gov/ct2/show/${c.nct}`) || (c.pma && `https://www.accessdata.fda.gov/scripts/cdrh/cfdocs/cfpma/pma.cfm?id=${c.pma}`) || '';
+        const label = c.title || (c.pmid && `PMID ${c.pmid}`) || c.nct || c.pma || `Reference ${i + 1}`;
+        return `<li style="margin-bottom:4px">${url ? `<a href="${url}" target="_blank" rel="noopener" style="color:var(--blue);text-decoration:none;font-size:11.5px">${label}</a>` : `<span style="font-size:11.5px;color:var(--text-secondary)">${label}</span>`}</li>`;
+      }).join('')
+    : `<li style="font-size:11.5px;color:var(--text-tertiary)">No citations available — verify manually against the registry.</li>`;
+  const paramRows = [
+    ['Protocol', rp.Protocol_Name || rp.name || '—'],
+    ['Frequency', rp.Frequency_Hz ? `${rp.Frequency_Hz} Hz` : '—'],
+    ['Intensity', rp.Intensity ? `${rp.Intensity} mA / % RMT` : '—'],
+    ['Pulse Width', rp.Pulse_Width_us || rp.pulse_width || '—'],
+    ['Sessions / Week', rp.Sessions_per_Week || '—'],
+    ['Total Sessions', rp.Total_Course || rp.Total_Sessions || '—'],
+    ['Duration / Session', rp.Session_Duration ? `${rp.Session_Duration} min` : '—'],
+    ['Target Region', rp.Target_Region || '—'],
+  ].map(([k, v]) => `<tr><td style="padding:4px 8px 4px 0;font-size:11.5px;color:var(--text-tertiary);white-space:nowrap">${k}</td><td style="padding:4px 0;font-size:12px;color:var(--text-primary);font-family:var(--font-mono)">${String(v).replace(/</g,'&lt;')}</td></tr>`).join('');
+  const overlay = document.createElement('div');
+  overlay.className = 'ds-modal-overlay';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:2000;display:flex;align-items:center;justify-content:center';
+  overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
+  overlay.innerHTML = `<div class="ds-modal" style="min-width:380px;max-width:560px;max-height:80vh;overflow-y:auto;background:var(--bg-surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:22px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+      <div style="font-size:15px;font-weight:700;color:var(--text-primary)">Confirm Treatment Course</div>
+      <button onclick="this.closest('.ds-modal-overlay').remove()" style="background:none;border:none;color:var(--text-tertiary);font-size:18px;cursor:pointer">&#x2715;</button>
+    </div>
+    <div style="background:rgba(245,158,11,0.07);border:1px solid rgba(245,158,11,0.3);border-radius:var(--radius-md);padding:9px 12px;margin-bottom:14px;font-size:11.5px;color:var(--text-secondary);line-height:1.5">
+      &#9888; Review each parameter against the device label and patient contraindications before confirming.
+    </div>
+    <div style="font-size:12px;font-weight:600;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.7px;margin-bottom:8px">Generated Stim Parameters</div>
+    <table style="width:100%;border-collapse:collapse;margin-bottom:14px"><tbody>${paramRows}</tbody></table>
+    <div style="font-size:12px;font-weight:600;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.7px;margin-bottom:6px">Evidence Citations</div>
+    <ul style="margin:0 0 16px 16px;padding:0">${citationRows}</ul>
+    <label style="display:flex;align-items:flex-start;gap:10px;padding:10px 12px;background:rgba(255,255,255,0.04);border:1px solid var(--border);border-radius:var(--radius-md);cursor:pointer;margin-bottom:16px">
+      <input type="checkbox" id="_ctc-ack" style="margin-top:2px;flex-shrink:0" onchange="document.getElementById('_ctc-confirm-btn').disabled=!this.checked">
+      <span style="font-size:12px;color:var(--text-secondary);line-height:1.5">I have reviewed these parameters and the contraindications for this patient.</span>
+    </label>
+    <div style="display:flex;gap:8px;justify-content:flex-end">
+      <button class="btn btn-ghost btn-sm" onclick="this.closest('.ds-modal-overlay').remove()">Cancel</button>
+      <button class="btn btn-primary btn-sm" id="_ctc-confirm-btn" disabled onclick="this.closest('.ds-modal-overlay').remove();window.createTreatmentCourse()">Confirm &amp; Create Course</button>
+    </div>
+  </div>`;
+  document.body.appendChild(overlay);
+};
 
 // ── Registry integration for Protocol Wizard ──────────────────────────────────
 async function loadProtocolWizardRegistry() {
@@ -8105,6 +8209,14 @@ export async function pgDecisionSupport(setTopbar) {
   content.innerHTML = `
 <div style="max-width:1400px;margin:0 auto;padding:0 4px">
 
+  <div class="clinical-disclaimer" role="note" style="background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.35);border-radius:var(--radius-md);padding:10px 14px;margin-bottom:16px;display:flex;gap:10px;align-items:flex-start">
+    <span style="font-size:16px;color:var(--amber);flex-shrink:0">&#9888;</span>
+    <div style="font-size:12px;line-height:1.55;color:var(--text-secondary)">
+      <strong style="color:var(--text-primary)">For qualified clinicians only.</strong>
+      Rule-based recommendations derived from evidence mappings. <strong style="color:var(--text-primary)">This is not a clinical decision.</strong> Every output must be independently verified before informing care. Decision support only — not a substitute for clinical judgment. Always verify against the current device label and local protocols.
+    </div>
+  </div>
+
   <div style="margin-bottom:20px">
     <h2 style="font-size:1.1rem;font-weight:700;margin-bottom:4px">Clinical Decision Support</h2>
     <p style="font-size:12.5px;color:var(--text-secondary)">Rule-based protocol recommendations derived from modality-indication evidence mapping. All logic is deterministic &mdash; no external API calls.</p>
@@ -8121,6 +8233,9 @@ export async function pgDecisionSupport(setTopbar) {
         </div>
         <div style="margin-bottom:16px">
           <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.7px;color:var(--text-tertiary);margin-bottom:8px">Contraindication Flags</div>
+          <div style="background:rgba(239,68,68,0.06);border-left:4px solid var(--red);padding:10px 14px;margin-bottom:12px;font-size:12.5px;color:var(--text-secondary);border-radius:var(--radius-md)">
+            <strong style="color:var(--text-primary)">Flags are NOT auto-populated from the patient chart.</strong> Verify each against the medical-history record before generating recommendations.
+          </div>
           ${_dsCheckboxGroup(DS_CONTRA_LIST, 'contra')}
         </div>
         <button class="btn btn-primary" style="width:100%" onclick="window._generateRecommendations()">

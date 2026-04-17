@@ -4497,7 +4497,7 @@ export async function pgClinicalTrials(setTopbar) {
       var trial = getTrials().find(function(t) { return t.id === trialId; });
       var dataPoints = getTrialData(trialId);
       var participants = getTrialParticipants(trialId);
-      if (dataPoints.length === 0) { alert('No data points to export.'); return; }
+      if (dataPoints.length === 0) { window._showToast('No data points to export.', 'warning'); return; }
       var header = 'Trial,Participant,Arm,Visit Date,Measure,Value,Unit,Notes';
       var rows = dataPoints.map(function(d) {
         var p = participants.find(function(x) { return x.id === d.participantId; });
@@ -7935,37 +7935,81 @@ export async function pgDataExport(setTopbar) {
       alert('Please select at least one data domain in Step 1 before generating an export.');
       return;
     }
-    let blob, filename;
-    const ts = new Date().toISOString().slice(0,10);
-    if (_sel.format === 'json') {
-      blob = generateJSON(); filename = `deepsynaps_deid_export_${ts}.json`;
-    } else if (_sel.format === 'bids') {
-      blob = generateBIDS(); filename = `deepsynaps_bids_${ts}.json`;
-    } else if (_sel.format === 'redcap') {
-      blob = generateREDCap(); filename = `deepsynaps_redcap_${ts}.csv`;
-    } else {
-      blob = generateCSV(); filename = `deepsynaps_deid_export_${ts}.csv`;
-    }
-    // Trigger download
-    const url = URL.createObjectURL(blob);
-    const a   = document.createElement('a');
-    a.href     = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
-    // Write audit log
-    logExport(_sel.format);
-    // Refresh history panel
-    const hb = document.getElementById('nnnb-history-body');
-    if (hb) hb.innerHTML = renderHistoryTable();
-    // Show toast
-    const toast = document.createElement('div');
-    toast.style.cssText = 'position:fixed;bottom:24px;right:24px;max-width:340px;padding:14px 18px;border-radius:10px;background:var(--navy-800,#0f172a);border:1px solid var(--accent-teal,#00d4bc);z-index:9999;box-shadow:0 4px 24px rgba(0,0,0,0.5)';
-    toast.innerHTML = `<div style="font-size:13px;font-weight:600;color:var(--text,var(--text-primary));margin-bottom:3px">✓ Export generated</div><div style="font-size:12px;color:var(--text-muted,var(--text-secondary))">${filename} — audit entry recorded</div>`;
-    document.body.appendChild(toast);
-    setTimeout(() => { toast.style.opacity = '0'; toast.style.transition = 'opacity 0.3s'; setTimeout(() => toast.remove(), 300); }, 3500);
+    // ── Pre-download confirmation gate (clinical safety requirement) ──
+    const methodLabels = { 'safe-harbor': 'Safe Harbor', 'expert': 'Expert Determination', 'limited': 'Limited Dataset' };
+    const formatLabels = { 'csv': 'CSV', 'json': 'JSON', 'bids': 'BIDS JSON', 'redcap': 'REDCap CSV' };
+    const recordCount = PREVIEW_ROWS.length;
+    const overlay = document.createElement('div');
+    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:9000;display:flex;align-items:center;justify-content:center';
+    overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
+    overlay.innerHTML = `
+      <div style="min-width:380px;max-width:560px;max-height:85vh;overflow-y:auto;background:var(--bg-surface,#0d1a2b);border:1px solid var(--border,#1f2e4a);border-radius:12px;padding:22px;box-shadow:0 12px 48px rgba(0,0,0,0.5)">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+          <div style="font-size:15px;font-weight:700;color:var(--text-primary,#e5edf5)">Confirm Research Data Export</div>
+          <button onclick="this.closest('[style*=inset]').remove()" style="background:none;border:none;color:var(--text-tertiary,#7a8aa5);font-size:18px;cursor:pointer">&#x2715;</button>
+        </div>
+        <div style="background:rgba(245,158,11,0.07);border:1px solid rgba(245,158,11,0.3);border-radius:8px;padding:9px 12px;margin-bottom:14px;font-size:11.5px;color:var(--text-secondary,#b7c4d9);line-height:1.5">
+          &#9888; This export will include de-identified patient data. Ensure you have a valid active Data Sharing Agreement before distributing this file externally.
+        </div>
+        <table style="width:100%;border-collapse:collapse;margin-bottom:14px">
+          <tr><td style="padding:4px 8px 4px 0;font-size:11.5px;color:var(--text-tertiary,#7a8aa5)">Records</td><td style="font-size:12px;color:var(--text-primary,#e5edf5);font-weight:600">${recordCount} rows</td></tr>
+          <tr><td style="padding:4px 8px 4px 0;font-size:11.5px;color:var(--text-tertiary,#7a8aa5)">Domains</td><td style="font-size:12px;color:var(--text-primary,#e5edf5)">${_sel.domains.join(', ') || '—'}</td></tr>
+          <tr><td style="padding:4px 8px 4px 0;font-size:11.5px;color:var(--text-tertiary,#7a8aa5)">De-id method</td><td style="font-size:12px;color:var(--text-primary,#e5edf5)">${methodLabels[_sel.deidMethod] || _sel.deidMethod}</td></tr>
+          <tr><td style="padding:4px 8px 4px 0;font-size:11.5px;color:var(--text-tertiary,#7a8aa5)">Format</td><td style="font-size:12px;color:var(--text-primary,#e5edf5)">${formatLabels[_sel.format] || _sel.format}</td></tr>
+        </table>
+        <div style="margin-bottom:12px">
+          <label style="display:block;font-size:11.5px;color:var(--text-secondary,#b7c4d9);margin-bottom:5px;font-weight:600">Purpose / intended use <span style="color:var(--red,#ff6b6b)">*</span> <span style="font-weight:400;color:var(--text-tertiary,#7a8aa5)">(min 20 chars)</span></label>
+          <textarea id="_nnnb-purpose-note" style="width:100%;min-height:64px;background:var(--bg-surface-2,#0a1628);border:1px solid var(--border,#1f2e4a);border-radius:6px;padding:8px 10px;font-size:12px;color:var(--text-primary,#e5edf5);resize:vertical;box-sizing:border-box" placeholder="Describe the research purpose and how this data will be used…" oninput="window._nnnbUpdateConfirmBtn()"></textarea>
+        </div>
+        <label style="display:flex;align-items:flex-start;gap:10px;padding:10px 12px;background:rgba(255,255,255,0.03);border:1px solid var(--border,#1f2e4a);border-radius:8px;cursor:pointer;margin-bottom:16px">
+          <input type="checkbox" id="_nnnb-dsa-ack" style="margin-top:2px;flex-shrink:0" onchange="window._nnnbUpdateConfirmBtn()">
+          <span style="font-size:12px;color:var(--text-secondary,#b7c4d9);line-height:1.5">I confirm this export complies with our active Data Sharing Agreement (DSA).</span>
+        </label>
+        <div style="display:flex;gap:8px;justify-content:flex-end">
+          <button style="padding:7px 16px;font-size:12.5px;border-radius:6px;background:transparent;border:1px solid var(--border,#1f2e4a);color:var(--text-secondary,#b7c4d9);cursor:pointer" onclick="this.closest('[style*=inset]').remove()">Cancel</button>
+          <button id="_nnnb-export-confirm-btn" disabled style="padding:7px 16px;font-size:12.5px;border-radius:6px;background:var(--accent-teal,#00d4bc);color:#000;font-weight:700;cursor:pointer;opacity:0.45" onclick="window._nnnbDoExport(this)">Confirm &amp; Download</button>
+        </div>
+      </div>`;
+    document.body.appendChild(overlay);
+    window._nnnbUpdateConfirmBtn = function() {
+      const purposeEl = document.getElementById('_nnnb-purpose-note');
+      const ackEl = document.getElementById('_nnnb-dsa-ack');
+      const confirmBtn = document.getElementById('_nnnb-export-confirm-btn');
+      if (!purposeEl || !ackEl || !confirmBtn) return;
+      const valid = purposeEl.value.trim().length >= 20 && ackEl.checked;
+      confirmBtn.disabled = !valid;
+      confirmBtn.style.opacity = valid ? '1' : '0.45';
+    };
+    window._nnnbDoExport = function(btn) {
+      const purposeEl = document.getElementById('_nnnb-purpose-note');
+      const purposeNote = purposeEl ? purposeEl.value.trim() : '';
+      btn.closest('[style*=inset]').remove();
+      let blob, filename;
+      const ts = new Date().toISOString().slice(0,10);
+      const purposeSlug = purposeNote.slice(0, 30).toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
+      if (_sel.format === 'json') {
+        blob = generateJSON(); filename = `deepsynaps_deid_export_${ts}_${purposeSlug}.json`;
+      } else if (_sel.format === 'bids') {
+        blob = generateBIDS(); filename = `deepsynaps_bids_${ts}_${purposeSlug}.json`;
+      } else if (_sel.format === 'redcap') {
+        blob = generateREDCap(); filename = `deepsynaps_redcap_${ts}_${purposeSlug}.csv`;
+      } else {
+        blob = generateCSV(); filename = `deepsynaps_deid_export_${ts}_${purposeSlug}.csv`;
+      }
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = filename;
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      logExport(_sel.format, purposeNote);
+      const hb = document.getElementById('nnnb-history-body');
+      if (hb) hb.innerHTML = renderHistoryTable();
+      const toast = document.createElement('div');
+      toast.style.cssText = 'position:fixed;bottom:24px;right:24px;max-width:340px;padding:14px 18px;border-radius:10px;background:var(--navy-800,#0f172a);border:1px solid var(--accent-teal,#00d4bc);z-index:9999;box-shadow:0 4px 24px rgba(0,0,0,0.5)';
+      toast.innerHTML = `<div style="font-size:13px;font-weight:600;color:var(--text,var(--text-primary));margin-bottom:3px">&#x2713; Export generated</div><div style="font-size:12px;color:var(--text-muted,var(--text-secondary))">${filename} — audit entry recorded</div>`;
+      document.body.appendChild(toast);
+      setTimeout(() => { toast.style.opacity = '0'; toast.style.transition = 'opacity 0.3s'; setTimeout(() => toast.remove(), 300); }, 3500);
+    };
   };
 
   window._nnnbRefreshHistory = function() {
