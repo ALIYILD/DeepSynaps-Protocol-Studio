@@ -81,6 +81,8 @@ export const DEVICES = [
   { id:'pemf', label:'PEMF – Pulsed Electromagnetic Field', subtypes:['Low Frequency (1-50Hz)','High Frequency','Targeted PEMF'],             icon:'\uD83C\uDF00', category:'Electromagnetic' },
   { id:'nf',   label:'Neurofeedback',                subtypes:['Alpha NF','Theta/Beta NF','SMR NF','Alpha/Theta NF','LORETA NF','HRV NF'],     icon:'\uD83E\uDDE0', category:'Biofeedback' },
   { id:'tus',  label:'TUS – Transcranial Ultrasound',subtypes:['Low-Intensity TUS','Focused TUS'],                                            icon:'\uD83D\uDD0A', category:'Ultrasound' },
+  { id:'dbs',  label:'DBS (Deep Brain Stimulation)',  subtypes:['ANT (SANTE)','ALIC/BNST (Reclaim)','STN','GPi','VC/VS'],                       icon:'\uD83E\uDDE0', category:'Neuromodulation', modality:'DBS' },
+  { id:'vns',  label:'VNS (Vagus Nerve Stimulation — Implanted)', subtypes:['LivaNova (TRD / Epilepsy)','Vivistim (Stroke Rehab)'],            icon:'\uD83D\uDD17', category:'Neuromodulation', modality:'VNS' },
   { id:'other',label:'Other / Combination',          subtypes:['Multimodal','Custom'],                                                         icon:'\u25CE',  category:'Other' },
 ];
 
@@ -1186,6 +1188,124 @@ export const PROTOCOL_LIBRARY = [
   tags:['SCI','spinal-cord','central-pain','TMS','M1'],
 },
 
+// ══════════════════════════════════════════════════════════════════════════════
+// GRADE A/B GAP-FILL ADDITIONS — 2026-04-17
+// 8 new protocols filling cells with zero JS coverage. Evidence A or B per
+// COVERAGE-matrix-evidence.md §3. All carry governance:['unreviewed'].
+// ══════════════════════════════════════════════════════════════════════════════
+
+// ── VNS (Implanted) × Stroke Rehabilitation ────────────────────────────────
+{
+  id:'p-vns-stroke-001', conditionId:'post-stroke-motor', type:'classic', device:'vns', subtype:'Implanted VNS (Vivistim)',
+  name:'Paired Vivistim VNS for Upper-Limb Stroke Rehabilitation', target:'Left cervical vagus nerve (implanted cuff electrode)',
+  parameters:{ frequency_hz:30, pulse_width_us:250, intensity_ma_range:'0.5–1.6', burst_duration_s:0.5, sessions_total:18, sessions_per_week:3, session_duration_min:null },
+  evidenceGrade:'A', governance:['on-label','unreviewed'],
+  references:['Dawson et al. 2021 – Lancet Neurol (VNS-REHAB RCT) PMID 34115889','FDA PMA P200051 (Vivistim, approved 2021)','NCT05301140 – GRASP registry'],
+  notes:'FDA PMA P200051. Vivistim paired VNS: 0.5 s bursts triggered by therapist during active upper-limb movement. 18 sessions over 6 weeks (standard label). VNS-REHAB RCT: responder rate 47% vs 24% sham (p=0.003). Surgical implant required. On-label only for upper-limb motor deficit post-ischaemic stroke. NOT for haemorrhagic stroke without specialist review. Adverse events: hoarseness, dyspnoea, neck pain, infection (standard implanted VNS profile — see DB AE table PMID 34115889 supplementary).',
+  contraindications:['haemorrhagic stroke (caution)','bilateral vagotomy','cardiac arrhythmia','active infection','pregnancy','pacemaker'],
+  sideEffects:['hoarseness','cough','dyspnoea','neck pain','surgical site infection','bradycardia (0.4% — cardiac monitoring at implant)'],
+  aiPersonalization:null, scanGuidedNotes:null,
+  tags:['VNS','implanted','stroke-rehab','upper-limb','paired-VNS','FDA-approved','Vivistim'],
+},
+
+// ── NFB × Epilepsy ─────────────────────────────────────────────────────────
+{
+  id:'p-nfb-epi-001', conditionId:'epilepsy-adjunct', type:'off-label', device:'nf', subtype:'SMR NF',
+  name:'SMR Neurofeedback Adjunct for Drug-Resistant Epilepsy', target:'Sensorimotor cortex (C3/Cz/C4) — SMR uptraining',
+  parameters:{ session_duration_min:40, sessions_total:40, sessions_per_week:2, smr_target_hz:'12-15', theta_down_hz:'4-8' },
+  evidenceGrade:'B', governance:['off-label','unreviewed'],
+  references:['Sterman & Friar 1972 – Epilepsia (foundational SMR)','Tan et al. 2009 – Epilepsy Behav (meta-analysis) PMID 19027345','Monderer et al. 2002 – Curr Neurol Neurosci Rep PMID 10858337'],
+  notes:'SMR (12–15 Hz) uptraining at sensorimotor cortex reduces ictal activity. Tan et al. 2009 meta-analysis: ~30% seizure reduction in responders. SCP (slow cortical potential) training is the main alternative protocol. Grade B = moderate meta-analysis support; no FDA clearance. AED continuation mandatory. Minimum 40 sessions; 60–80 for consolidation. Adjunct only — do not reduce AED without neurologist approval. EVIDENCE NOTE: 243 DB papers; top DB citation PMID 29034226 is HRV-confounded — primary evidence per Tan 2009 and Sterman foundational work.',
+  contraindications:['active uncontrolled seizures without AED coverage','active psychosis','seizure threshold <2/week without neurologist co-management'],
+  sideEffects:['no direct AEs of NF itself','seizure risk during session — safety protocol required','fatigue','occasional headache'],
+  aiPersonalization:null, scanGuidedNotes:null,
+  tags:['neurofeedback','SMR','epilepsy','seizure-reduction','adjunct'],
+},
+
+// ── DBS × Epilepsy ANT ─────────────────────────────────────────────────────
+{
+  id:'p-dbs-epi-ant-001', conditionId:'epilepsy-adjunct', type:'classic', device:'dbs', subtype:'DBS – ANT (SANTE)',
+  name:'ANT-DBS for Drug-Resistant Epilepsy (SANTE Protocol)', target:'Anterior nucleus of thalamus (ANT), bilateral',
+  parameters:{ frequency_hz:145, pulse_width_us:90, intensity_v:5, stimulation_mode:'continuous', cycling:'on 1 min / off 5 min (initial titration)' },
+  evidenceGrade:'A', governance:['on-label','unreviewed'],
+  references:['FDA PMA P130005 (Medtronic Activa RC, approved 2018)','Fisher et al. 2010 – Epilepsia (SANTE RCT) PMID 19682126','Salanova et al. 2021 – Epilepsia (10-yr follow-up) PMID 33830503'],
+  notes:'FDA-approved 2018 (PMA P130005). SANTE RCT primary endpoint: 40.4% median seizure reduction vs sham at 3 months. 10-year follow-up (PMID 33830503): 75% median reduction; 68% responder rate. Parameters: 145 Hz, 90 µs, 5 V initial; titrate to response. Psychiatric monitoring required: SANTE reported 14.8% memory impairment, 12.7% depression. Surgical implant — bilateral ANT leads + IPG. NOT a JS duplicate of p-epi-001 (taVNS) — this is invasive DBS. On-label for partial-onset seizures ≥1/month despite ≥3 AEDs.',
+  contraindications:['<18 years (lack of paediatric data)','primary generalised epilepsy without partial component','severe psychiatric disorder','inability to tolerate MRI conditional device','active infection'],
+  sideEffects:['memory impairment (15%)','depression (13%)','surgical risks: haemorrhage 1.8%, infection 4.5%','stimulation-related paresthesia','SUDEP cases in MORE registry (background rate)'],
+  aiPersonalization:null, scanGuidedNotes:null,
+  tags:['DBS','ANT','epilepsy','SANTE','FDA-approved','thalamus','invasive'],
+},
+
+// ── taVNS × MDD ────────────────────────────────────────────────────────────
+{
+  id:'p-tavns-mdd-001', conditionId:'major-depressive-disorder', type:'off-label', device:'tavns', subtype:'Bilateral taVNS',
+  name:'Bilateral taVNS for MDD (Adjunctive)', target:'Bilateral auricular cymba concha (auricular vagus branch)',
+  parameters:{ frequency_hz:20, pulse_width_us:200, intensity_ma_range:'0.1–2', session_duration_min:30, sessions_per_day:2, sessions_per_week:7, total_weeks:8 },
+  evidenceGrade:'B', governance:['off-label','unreviewed'],
+  references:['Fang et al. 2016 – J Affect Disord PMID 29593576','Wang et al. 2023 meta-analysis PMID 37230264','PMID 37230264 (SMD=-0.74 HAMD vs sham)'],
+  notes:'2023 meta-analysis (PMID 37230264): HAMD SMD=-0.74 vs sham; GRADE evidence quality rated "low to very low." Multiple Chinese RCTs (Fang 2016 PMID 29593576 is most-cited, n=160, 4 wks, HAMD significant). Bilateral protocol used in majority of higher-quality trials. No FDA clearance for depression indication (Sparrow Ascent cleared for opioid withdrawal only — NOT depression). Adjunctive to standard antidepressant treatment. Distinguish from PRO-005/p-trd-003 (TRD taVNS — higher resistance threshold). On-label status: Off-label US; CE-marked devices used in EU trials. EVIDENCE CAUTION: GRADE low — do not present as established first-line treatment.',
+  contraindications:['bilateral vagotomy','active cardiac arrhythmia (atrial fibrillation or bradycardia)','active ear infection / otitis externa','implanted VNS device (interaction risk)'],
+  sideEffects:['ear discomfort','skin erythema at electrode site','occasional dizziness','cough reflex','rare vasovagal response'],
+  aiPersonalization:null, scanGuidedNotes:null,
+  tags:['taVNS','auricular','MDD','depression','adjunct','bilateral','GRADE-low'],
+},
+
+// ── VNS (Implanted) × TRD ──────────────────────────────────────────────────
+{
+  id:'p-vns-trd-001', conditionId:'treatment-resistant-depression', type:'classic', device:'vns', subtype:'Implanted VNS (LivaNova)',
+  name:'LivaNova VNS Therapy for Treatment-Resistant Depression', target:'Left cervical vagus nerve (implanted helical electrode)',
+  parameters:{ frequency_hz:30, pulse_width_us:500, intensity_ma_range:'0.25–3.5', duty_cycle:'30 s ON / 5 min OFF', mode:'continuous chronic stimulation' },
+  evidenceGrade:'B', governance:['on-label','unreviewed'],
+  references:['Rush et al. 2005 – Biol Psychiatry PMID 15820232 (pivotal)','FDA PMA P970003 approval Jul 2005','Aaronson et al. 2017 – J Clin Psychiatry PMID 29593576'],
+  notes:'FDA PMA-approved Jul 2005 for adjunct treatment of TRD (≥4 adequate antidepressant treatment failures). Response develops over 3–12 months — do not discontinue early. Pivotal RCT (Rush 2005 PMID 15820232) showed modest acute benefit; long-term registry (Aaronson 2017 PMID 29593576) showed sustained response rate 67% at 5 years in responders. Standard AE profile: hoarseness, cough, dyspnoea (voice alteration most common). Surgical implant — helical bipolar cuff on left cervical vagus + IPG. On-label: adjunct for chronic/recurrent MDD with ≥4 Rx failures including ECT.',
+  contraindications:['bilateral vagotomy','cardiac arrhythmia','pregnancy','active infection','pacemaker or other implanted stimulator'],
+  sideEffects:['hoarseness (voice alteration — most common, dose-dependent)','cough','dyspnoea','infection at surgical site','bradycardia'],
+  aiPersonalization:null, scanGuidedNotes:null,
+  tags:['VNS','implanted','TRD','depression','FDA-approved','LivaNova','chronic'],
+},
+
+// ── DBS × OCD (ALIC/BNST) ──────────────────────────────────────────────────
+{
+  id:'p-dbs-ocd-001', conditionId:'ocd', type:'classic', device:'dbs', subtype:'DBS – ALIC/BNST (Reclaim)',
+  name:'Medtronic Reclaim DBS for Severe Refractory OCD', target:'Anterior limb of internal capsule (ALIC) / ventral striatum, bilateral',
+  parameters:{ frequency_hz:130, pulse_width_us:90, intensity_v_range:'variable; titrate over months', stimulation_mode:'continuous' },
+  evidenceGrade:'B', governance:['on-label','unreviewed'],
+  references:['FDA HDE H050003 (Medtronic Reclaim, approved 2009)','Greenberg et al. 2010 – Mol Psychiatry PMID 19841624','Kisely et al. 2014 meta-analysis PMID 24953016'],
+  notes:'HDE (Humanitarian Device Exemption) approved 2009 — requires institutional oversight (IRB-equivalent). Patient must have failed ≥3 SSRIs and at least one adequate CBT trial. Meta-analysis (Kisely et al. 2014 PMID 24953016): ~46% responder rate (Y-BOCS ≥35% reduction). Target: ALIC/ventral striatum/BNST; also VSTM and STN targets in literature. Parameter optimization takes months. Psychiatric monitoring mandatory (hypomania risk, mood instability). Systematic review 131 citations in DB (PMID 30963971). NOT a contraindication for TMS — patients with refractory OCD who failed HDE can be considered for deep TMS H7 (PRO-007) if surgery refused.',
+  contraindications:['<18 years','severe cardiac comorbidity','pregnancy','active psychosis','inability to undergo neurosurgery','no prior adequate CBT trial'],
+  sideEffects:['hypomania or mood elevation (titration-related)','impulse control changes','surgical risks (haemorrhage, infection)','stimulation-induced anxiety or panic at high voltages','weight changes'],
+  aiPersonalization:null, scanGuidedNotes:null,
+  tags:['DBS','OCD','ALIC','refractory','HDE','FDA-approved','invasive','Reclaim'],
+},
+
+// ── tDCS × Post-Stroke Aphasia ─────────────────────────────────────────────
+{
+  id:'p-tdcs-aphasia-001', conditionId:'post-stroke-aphasia', type:'off-label', device:'tdcs', subtype:'Anodal',
+  name:'Anodal tDCS Left Broca for Post-Stroke Aphasia + Speech Therapy', target:'Left inferior frontal gyrus (Broca\'s area) anode / right homolog cathode',
+  parameters:{ current_ma:1, session_duration_min:20, sessions_total:15, sessions_per_week:5, concurrent_therapy:'speech-language therapy during stimulation' },
+  evidenceGrade:'B', governance:['off-label','unreviewed'],
+  references:['Lefaucheur et al. 2017 – Clin Neurophysiol PMID 27866120 (IFCN Level B)','Walker et al. 2021 – Neuropsychol Rehabil meta-analysis PMID 33197261','You et al. 2011 – Neurorehabil Neural Repair PMID 21515918'],
+  notes:'IFCN Level B. Anodal tDCS ipsilesional left hemisphere + concurrent speech-language therapy. Walker 2021 meta-analysis (g=0.39, p=0.003). tDCS alone without concurrent therapy shows no significant benefit — therapy pairing is required. 1 mA (not 2 mA) preferred for perilesional cortex to avoid suppressive spread into lesion. Position via 10-20 system F3/T3 junction or EEG-guided. Contralesional cathodal alternative (right F4) also studied. NOT a CSV duplicate of PRO-023/PRO-024 (motor recovery rTMS). CON-015 post-stroke-motor closest; post-stroke-aphasia is distinct JS conditionId.',
+  contraindications:['implanted devices','skull defects at stimulation site','severe aphasia without speech therapist access (therapy pairing required)','active haemorrhage'],
+  sideEffects:['tingling at electrode sites','mild headache','skin redness','phosphene (if near occipital)'],
+  aiPersonalization:null, scanGuidedNotes:null,
+  tags:['aphasia','stroke','tDCS','Broca','speech-therapy','IFCN','language-rehab'],
+},
+
+// ── HRV Biofeedback × GAD ──────────────────────────────────────────────────
+{
+  id:'p-hrv-gad-001', conditionId:'generalized-anxiety', type:'off-label', device:'nf', subtype:'HRV NF',
+  name:'HRV Resonance Frequency Biofeedback for GAD', target:'Cardiac autonomic regulation (resonance frequency breathing ~0.1 Hz / 6 breaths/min)',
+  parameters:{ breathing_frequency_hz:0.1, sessions_total:8, sessions_per_week:2, session_duration_min:20, home_practice_min_per_day:10 },
+  evidenceGrade:'B', governance:['off-label','unreviewed'],
+  references:['Goessl et al. 2017 – Psychol Med meta-analysis PMID 28264697 (g=0.81)','Lehrer & Gevirtz 2014 – Front Psychol PMID 28286374','Schwartz & Andrasik 2016 – Biofeedback (4th ed.)'],
+  notes:'Goessl 2017 meta-analysis (n=24 RCTs, g=0.81 for anxiety; Psychol Med PMID 28264697). Mechanism: resonance frequency breathing (~6 breaths/min) maximises HRV amplitude, enhances vagal tone, and reduces amygdala hyperactivity. Individual resonance frequency identification (5–7 breaths/min) is essential first step — performed at session 1. 8 clinic sessions + daily 10-min home practice standard course. Distinct from PRO-032 (stress/depression-focused). NOT suitable as sole treatment for severe GAD — pair with CBT. No FDA clearance for psychiatric use; biofeedback devices are 510(k)-cleared as Class II monitoring devices.',
+  contraindications:['severe cardiac arrhythmia (atrial fibrillation or pacemaker — consult cardiologist)','severe COPD (breathing retraining may be difficult)'],
+  sideEffects:['occasional dizziness during slow breathing training','mild anxiety during physiological awareness — normalises with practice'],
+  aiPersonalization:null, scanGuidedNotes:null,
+  tags:['HRV','biofeedback','GAD','anxiety','resonance-frequency','autonomic','adjunct'],
+},
+
 // ── Universal manual/custom templates for every device ────────────────────
 {
   id:'p-manual-tms', conditionId:'major-depressive-disorder', type:'manual', device:'tms', subtype:'HF-rTMS (10Hz)',
@@ -1204,6 +1324,191 @@ export const PROTOCOL_LIBRARY = [
   references:[], notes:'Fully editable manual tDCS protocol.',
   contraindications:[], sideEffects:[], aiPersonalization:null, scanGuidedNotes:null,
   tags:['manual','custom','tDCS','draft'],
+},
+
+// ══════════════════════════════════════════════════════════════════════════════
+// GAP-SEED ADDITIONS — tACS (MOD-004) + PBM (MOD-012) — 2026-04-17
+// Evidence-tier C/D. Added to close tACS/PBM search-result gaps per AUDIT-protocol-coverage.md
+// ══════════════════════════════════════════════════════════════════════════════
+{
+  id:'p-tacs-mdd-001', conditionId:'treatment-resistant-depression', type:'investigational', device:'tacs', subtype:'Alpha-tACS (10Hz)',
+  name:'tACS 10 Hz Left DLPFC for Treatment-Resistant Depression', target:'Left DLPFC (F3)',
+  parameters:{ frequency_hz:10, current_ma:2, session_duration_min:20, sessions_total:20, sessions_per_week:5, montage:'4x1-ring HD at F3 or 2-electrode F3-contralateral' },
+  evidenceGrade:'C', governance:['investigational','draft'],
+  references:['NCT06812923','PMID 39261427 – 2024 review tACS in MDD','PMID 33211157 – mechanistic review','PMID 30214966 – tACS safety review'],
+  notes:'RCT underway (NCT06812923, N=52, 4-wk course; 10 Hz vs 77.5 Hz arms). Alpha-band tACS rationale for MDD. No FDA clearance — investigational only.',
+  contraindications:['epilepsy history','implanted metallic/electronic devices','scalp lesions','pregnancy','pacemaker'],
+  sideEffects:['scalp tingling','phosphenes','skin redness'],
+  aiPersonalization:null, scanGuidedNotes:null,
+  tags:['tACS','alpha-10Hz','TRD','depression','investigational'],
+},
+{
+  id:'p-tacs-ad-001', conditionId:'alzheimers-dementia', type:'investigational', device:'tacs', subtype:'Gamma-tACS (40Hz)',
+  name:'tACS 40 Hz Gamma DLPFC for Alzheimer\'s Disease (Home-Based)', target:'Prefrontal cortex (bilateral)',
+  parameters:{ frequency_hz:40, current_ma:2, session_duration_min:60, sessions_total:40, sessions_per_week:5, montage:'Multichannel Starstim-home; model-optimised' },
+  evidenceGrade:'C', governance:['investigational','draft'],
+  references:['NCT06826261','PMID 40142358 – 2025 narrative review gamma-tACS for AD'],
+  notes:'Phase 2 pilot NCT06826261 (N=30, home-based, 8 wks). Intensity not explicitly stated in trial interventions_json — verify before clinical use. No powered RCT completed.',
+  contraindications:['pacemaker','implanted devices','uncontrolled seizure disorder','moderate-severe dementia without caregiver'],
+  sideEffects:['scalp warmth','tingling','phosphenes'],
+  aiPersonalization:null, scanGuidedNotes:null,
+  tags:['tACS','gamma-40Hz','Alzheimers','home-based','investigational'],
+},
+{
+  id:'p-tacs-scz-001', conditionId:'schizophrenia-negative', type:'investigational', device:'tacs', subtype:'Gamma-tACS (40Hz)',
+  name:'tACS 40 Hz Temporal Lobe for Schizophrenia Auditory Hallucinations', target:'Bilateral temporal lobe (T3/T4)',
+  parameters:{ frequency_hz:40, current_ma:2, session_duration_min:20, sessions_total:20, sessions_per_week:5, montage:'2-electrode bilateral temporal T3/T4' },
+  evidenceGrade:'C', governance:['investigational','draft'],
+  references:['NCT05282329 (completed RCT N=50)','NCT04545294 (pilot N=36)','PMID 38097566'],
+  notes:'Best-controlled tACS dataset for schizophrenia in DB. Gamma entrainment over temporal cortex targets 40 Hz dysregulation in auditory processing.',
+  contraindications:['active seizure disorder','pro-convulsant medication','implanted devices','pregnancy'],
+  sideEffects:['scalp tingling','phosphenes','extrapyramidal symptom check given antipsychotic co-use'],
+  aiPersonalization:null, scanGuidedNotes:null,
+  tags:['tACS','gamma-40Hz','schizophrenia','AVH','investigational'],
+},
+{
+  id:'p-tacs-mci-001', conditionId:'mild-cognitive-impairment', type:'investigational', device:'tacs', subtype:'Theta-tACS (6Hz)',
+  name:'tACS Theta (6 Hz) Frontoparietal for MCI Working Memory', target:'Left frontoparietal (F3/P3)',
+  parameters:{ frequency_hz:6, current_ma:null, session_duration_min:null, sessions_total:null, sessions_per_week:null, montage:'Multi-electrode online (NCT04545294)' },
+  evidenceGrade:'C', governance:['investigational','draft'],
+  references:['NCT04135742 (N=195, ongoing RCT)','NCT04545294','PMID 33211157'],
+  notes:'Largest tACS trial in MCI (NCT04135742) combines tACS + cognitive training. NCT04545294 interventions_json omits duration and intensity — verify via full ClinicalTrials.gov record before clinical use.',
+  contraindications:['epilepsy history','implanted devices','scalp lesions','pregnancy'],
+  sideEffects:['tingling','phosphenes'],
+  aiPersonalization:null, scanGuidedNotes:null,
+  tags:['tACS','theta-6Hz','MCI','working-memory','verify','investigational'],
+},
+{
+  id:'p-pbm-mdd-001', conditionId:'major-depressive-disorder', type:'investigational', device:'pbm', subtype:'Near-Infrared (810-850nm)',
+  name:'tPBM 823 nm Bilateral DLPFC for MDD (ELATED-2 Protocol)', target:'Bilateral DLPFC (forehead F3/F4)',
+  parameters:{ wavelength_nm:823, irradiance_mw_cm2:36.2, mode:'continuous wave', session_duration_min:25, sessions_total:16, sessions_per_week:2, probe_area_cm2:'28.7 x 2' },
+  evidenceGrade:'C', governance:['investigational','draft'],
+  references:['Cassano et al. 2018 – ELATED-2 pilot – PMID 30346890','Caldieraro et al. 2022 – ELATED-3 – PMID 35950904','NCT05573074'],
+  notes:'ELATED-2 verbatim: 823 nm, CW, 36.2 mW/cm², bilateral DLPFC, 2x/wk, 8 wks (N=21, d=0.90–1.5). ELATED-3 published Sept 2022 (J Clin Psych) established low-dose inefficacy threshold. NCT05573074 Phase 2 uses different device (tPBM-2.0, 291.7 mW/cm²) — parameters NOT interchangeable.',
+  contraindications:['photosensitising medications (amiodarone, tetracyclines, retinoids)','active malignancy at treatment site','implanted light-sensitive devices','pregnancy'],
+  sideEffects:['skin warmth','erythema at probe site'],
+  aiPersonalization:null, scanGuidedNotes:null,
+  tags:['PBM','NIR','DLPFC','depression','ELATED-2','investigational'],
+},
+{
+  id:'p-pbm-tbi-001', conditionId:'tbi', type:'investigational', device:'pbm', subtype:'Near-Infrared (810-850nm)',
+  name:'tPBM 808 nm Forehead for Chronic TBI Cognitive Rehabilitation', target:'Bilateral frontal cortex (forehead F3/F4/Fz)',
+  parameters:{ wavelength_nm:808, irradiance_mw_cm2:300, mode:'continuous wave', session_duration_min:12, sessions_total:18, sessions_per_week:3 },
+  evidenceGrade:'C', governance:['investigational','draft'],
+  references:['NCT06956404 (N=70, recruiting)','PMID 29131369 – NIH-funded review','PMID 28001756 – 2016 LED review'],
+  notes:'808 nm CW, ~300 mW/cm² via flexible optical fiber + custom cap (NCT06956404 tPBM-2.0 standard). Photosensitising drug screen required. No large RCT completed.',
+  contraindications:['photosensitising medications','open scalp wounds','light-sensitive implants','active malignancy at treatment site'],
+  sideEffects:['scalp warmth','mild headache'],
+  aiPersonalization:null, scanGuidedNotes:null,
+  tags:['PBM','NIR','TBI','cognitive-rehab','investigational'],
+},
+{
+  id:'p-pbm-anx-001', conditionId:'generalized-anxiety', type:'investigational', device:'pbm', subtype:'Near-Infrared (810-850nm)',
+  name:'tPBM 1064 nm Right Forehead for Anxiety Disorders', target:'Right prefrontal cortex (F4)',
+  parameters:{ wavelength_nm:1064, irradiance_mw_cm2:null, mode:'continuous wave', session_duration_min:8, sessions_total:null, sessions_per_week:null },
+  evidenceGrade:'D', governance:['investigational','draft'],
+  references:['NCT07133893 (N=280, not yet recruiting)','Maiello et al. 2019 – PMID 31647775 – GAD pilot','Schiffer et al. 2009 – PMID 19995444 – forehead NIR pilot'],
+  notes:'NCT07133893 irradiance and session count not in interventions_json — verify via full ClinicalTrials.gov record before clinical use. Comparator literature: ~250 mW/cm² typical for 1064 nm brain PBM. Evidence grade D — weakest set.',
+  contraindications:['photosensitising medications','active malignancy at site','implanted light-sensitive devices'],
+  sideEffects:['scalp warmth','mild headache'],
+  aiPersonalization:null, scanGuidedNotes:null,
+  tags:['PBM','NIR','1064nm','anxiety','verify','investigational'],
+},
+{
+  id:'p-pbm-pdm-001', conditionId:'parkinsons-motor', type:'investigational', device:'pbm', subtype:'Combination',
+  name:'tPBM 810 nm + 635 nm Helmet for Parkinson\'s Disease (Symbyx Neuro)', target:'Whole scalp (20-LED helmet: red + NIR)',
+  parameters:{ wavelength_nm:'810 NIR + 635 red', mode:'continuous wave sequential', session_duration_min:24, sessions_total:72, sessions_per_week:6, energy_j_per_session:1137 },
+  evidenceGrade:'C', governance:['investigational','draft'],
+  references:['NCT06036433 – Symbyx Neuro RCT','Liebert et al. 2021 – PMID 34215216 – proof-of-concept','Liebert et al. 2024 – PMID 39385144 – 5-yr follow-up'],
+  notes:'Symbyx Neuro LED helmet: 20 LED clusters each 810 nm NIR + 635 nm red; 12 min red + 12 min NIR per session; 1137 J total. NCT06036433 tested with exercise; 8-week and 12-week arms. Companion abdomen-neck 904 nm protocol is separate. No FDA clearance for transcranial PD indication.',
+  contraindications:['photosensitising medications','active intracranial hemorrhage','active scalp malignancy'],
+  sideEffects:['scalp warmth','mild transient headache'],
+  aiPersonalization:null, scanGuidedNotes:null,
+  tags:['PBM','NIR','red-light','Parkinsons','Symbyx','investigational'],
+},
+// ══════════════════════════════════════════════════════════════════════════════
+// BONUS tACS ADDITIONS — 2026-04-17 follow-up merge
+// PMID 38176353 (insomnia) + PMID 30921609 (Parkinson's). Parameters flagged 'verify'
+// where not directly confirmed from the primary abstract.
+// ══════════════════════════════════════════════════════════════════════════════
+{
+  id:'p-tacs-insomnia-001', conditionId:'insomnia', type:'investigational', device:'tacs', subtype:'Gamma-tACS (40Hz)',
+  name:'tACS 77.5 Hz Bilateral Forehead for Chronic Insomnia', target:'Bilateral forehead (prefrontal cortex)',
+  parameters:{ frequency_hz:77.5, current_ma:15, session_duration_min:20, sessions_total:20, sessions_per_week:5, montage:'Bilateral forehead prefrontal electrodes' },
+  evidenceGrade:'C', governance:['investigational','draft'],
+  references:['Zhu et al. 2024 – PMID 38176353 – multisite RCT N=120'],
+  notes:'Multisite RCT (Zhu et al. 2024, N=120, 77.5 Hz vs sham, 20 daily sessions × 4 wks). 77.5 Hz and 15 mA parameters from prior WebSearch summary (MERGE-tacs-pbm-summary.md) — verify directly against primary abstract/full-text before clinical use. Reported significant PSQI/ISI improvement at end of treatment and 8-wk follow-up. No FDA clearance.',
+  contraindications:['epilepsy history','implanted metallic/electronic devices','scalp lesions','pregnancy','pacemaker'],
+  sideEffects:['scalp tingling','phosphenes','skin redness'],
+  aiPersonalization:null, scanGuidedNotes:null,
+  tags:['tACS','77.5Hz','insomnia','sleep','verify','investigational'],
+},
+{
+  id:'p-tacs-pd-001', conditionId:'parkinsons-motor', type:'investigational', device:'tacs', subtype:'Theta-tACS (6Hz)',
+  name:'tACS Personalized Theta for Parkinson\'s Disease (Crossover RCT)', target:'Individualized per EEG (motor cortex / frontoparietal)',
+  parameters:{ frequency_hz:'individualized theta (verify — personalized per patient EEG)', current_ma:null, session_duration_min:null, sessions_total:null, sessions_per_week:null, montage:'EEG-guided individualized' },
+  evidenceGrade:'C', governance:['investigational','draft'],
+  references:['Del Felice et al. 2019 – PMID 30921609 – crossover RCT'],
+  notes:'Del Felice et al. 2019 crossover RCT: personalized theta-tACS frequency (individualized via patient EEG) combined with physical therapy vs sham+PT. Specific intensity, session duration, total sessions, and sessions/week NOT available from abstract summary — verify against full paper before clinical use. Small sample, emerging evidence. No FDA clearance for tACS in PD.',
+  contraindications:['epilepsy history','implanted metallic/electronic devices','scalp lesions','pregnancy','pacemaker'],
+  sideEffects:['scalp tingling','phosphenes','skin redness'],
+  aiPersonalization:null, scanGuidedNotes:null,
+  tags:['tACS','theta','Parkinsons','personalized','verify','investigational'],
+},
+
+// ══════════════════════════════════════════════════════════════════════════════
+// EXTERNAL E-CELLS MERGE — 2026-04-17 Consensus + PubMed draft pass (PRO-053..056)
+// PRO-EXT-001 (tACS-insomnia) SKIPPED — duplicate of p-tacs-insomnia-001 (same
+// study family, PMID 31786573 / PMID 38176353). See EXTRACT-ab-cells-summary.md.
+// All entries carry governance:['unreviewed']; Review_Status=Unreviewed.
+// ══════════════════════════════════════════════════════════════════════════════
+{
+  id:'p-pbm-fibromyalgia-001', conditionId:'fibromyalgia', type:'off-label', device:'pbm', subtype:'Combination',
+  name:'PBM Whole-Body + LLLT Tender-Point for Fibromyalgia', target:'Whole-body + local tender points (LED/laser cluster)',
+  parameters:{ wavelengths_nm:'660 + 850 (whole-body); 808–904 (local)', fluence_j_cm2:'25.2 per site (Navarro-Ledesma 2022); 6 J/point LLLT (de Carvalho 2012)', session_duration_min:20, sessions_per_week:3, sessions_total:12, weeks:4 },
+  evidenceGrade:'B', governance:['off-label','unreviewed'],
+  references:['Yeh et al. 2019 – Pain Physician meta-analysis PMID 31747571 (SMD=1.18 pain; SMD=1.16 FIQ)','Son et al. 2025 – umbrella review (moderate certainty, eSMD=1.25 fatigue)','Ribeiro et al. 2023 – PBMT+sMF RCT N=90','Navarro-Ledesma 2022 – whole-body protocol'],
+  notes:'Yeh 2019 meta-analysis (9 RCTs, N=325) is the anchor — Grade B. Son 2025 umbrella review graded moderate certainty for fatigue. Ribeiro 2023 (N=90, PBMT + static magnetic field, 9 sessions) and Navarro-Ledesma 2022 whole-body protocol provide reproducible parameters. Verify device-specific fluence. Distinct from p-fm-001 (rTMS). Pair with graded exercise. Eye protection mandatory.',
+  contraindications:['active malignancy at stimulation site','photosensitive medication','pregnancy','eye exposure without protection'],
+  sideEffects:['transient erythema','mild warmth','rare photosensitivity reaction'],
+  aiPersonalization:null, scanGuidedNotes:null,
+  tags:['PBM','fibromyalgia','LLLT','whole-body','tender-points','verify','unreviewed'],
+},
+{
+  id:'p-tcvns-ptsd-001', conditionId:'ptsd', type:'off-label', device:'tavns', subtype:'Standard taVNS',
+  name:'Cervical tcVNS for PTSD (Bremner Protocol)', target:'Cervical vagus (gammaCore-style) or left cymba conchae (auricular variant)',
+  parameters:{ frequency_hz:30, pulse_width_us:250, intensity:'start 0.4 V, titrate by 0.4 V to tingle threshold (Zhang 2025)', session_duration_min:120, sessions_per_day:2, weeks:12 },
+  evidenceGrade:'C', governance:['off-label','unreviewed'],
+  references:['Bremner et al. 2021 – J Affect Disord Reports PMID 33262253 (N=20 RCT, 31% PCL reduction vs sham p=0.013, DOI 10.1016/j.jadr.2020.100079)','Gurel et al. 2020 – PMID 32440524 (sympathetic attenuation N=25)','Benzouak et al. 2025 – BJPsych Open systematic review (very low certainty)','Zhang et al. 2025 – preoperative protocol N=350'],
+  notes:'Cervical tcVNS (transcutaneous cervical VNS) distinct from standard auricular taVNS (p-ptsd-002). Bremner 2021 RCT (N=20, tcVNS 3 mo twice daily) showed 31% greater PCL reduction vs sham (p=0.013). Benzouak 2025 systematic review notes "very low certainty" overall — Grade C. taVNS-specific RCTs mostly pilot. Zhang 2025 (N=350) is a preventive-surgery protocol, not established chronic therapy. `verify` parameters against individual RCT before clinical use. Auricular variant at left cymba concha available.',
+  contraindications:['bilateral vagotomy','cardiac arrhythmia (afib, bradycardia)','active ear infection (auricular variant)','implanted VNS device','active cervical lesion'],
+  sideEffects:['throat discomfort','voice alteration','skin erythema at stimulation site','rare vasovagal response','ear tingling (auricular variant)'],
+  aiPersonalization:null, scanGuidedNotes:null,
+  tags:['tcVNS','taVNS','PTSD','Bremner','cervical','auricular','verify','unreviewed'],
+},
+{
+  id:'p-hrv-ptsd-001', conditionId:'ptsd', type:'off-label', device:'nf', subtype:'HRV NF',
+  name:'HRV Resonance Frequency Biofeedback for PTSD', target:'Cardiac autonomic regulation (resonance frequency breathing ~0.1 Hz / 6 breaths/min)',
+  parameters:{ breathing_frequency_hz:0.1, session_duration_min:18, sessions_per_week:4, sessions_total:9, home_practice_min_per_day:10 },
+  evidenceGrade:'C', governance:['off-label','unreviewed'],
+  references:['Pyne et al. 2019 – Military Medicine PMID 30020511 (WAR study N=342, DOI 10.1093/milmed/usy171)','Schuman et al. 2022 – Appl Psychophysiol Biofeedback PMID 36331685','Burch et al. 2020 – PMID 32358782 (N=34 cancer survivors)'],
+  notes:'Pyne 2019 WAR study (N=342 National Guard) was largest RCT; overall non-significant but HRVB arm lowered PCL in older soldiers (effect size -0.97 to -1.03). Schuman 2022 pilot reduced Cluster B intrusion symptoms + depression. Burch 2020 (N=34 cancer survivors) reduced PTSD-spectrum symptoms. Grade C due to subgroup-only main-effect. Distinct from p-hrv-gad-001 (GAD — Grade B). Adjunctive to trauma-focused CBT; not sole therapy for severe PTSD. Identify individual resonance frequency (5–7 breaths/min) at session 1.',
+  contraindications:['severe cardiac arrhythmia (atrial fibrillation or pacemaker — consult cardiologist)','severe COPD','active dissociation episodes during baseline'],
+  sideEffects:['occasional dizziness during slow breathing','mild transient anxiety during physiological awareness','rare hyperventilation if pacing incorrect'],
+  aiPersonalization:null, scanGuidedNotes:null,
+  tags:['HRV','biofeedback','PTSD','resonance-frequency','autonomic','subgroup-effect','unreviewed'],
+},
+{
+  id:'p-tavns-cp-001', conditionId:'chronic-pain', type:'off-label', device:'tavns', subtype:'Standard taVNS',
+  name:'taVNS / tcVNS for Chronic Pain (Auricular and Cervical)', target:'Left cymba conchae (auricular) or cervical tcVNS',
+  parameters:{ frequency_hz:25, pulse_width_us:null, intensity_ma_range:'verify — heterogeneous across trials', session_duration_min:null, sessions_per_week:null, sessions_total:null },
+  evidenceGrade:'B', governance:['off-label','unreviewed'],
+  references:['Costa et al. 2024 – Pain Reports meta-analysis PMID 39131814 (k=15 RCTs, ES 0.41 95% CI 0.17–0.66; auricular subgroup ES=0.42 k=8, DOI 10.1097/PR9.0000000000001171)'],
+  notes:'Costa 2024 meta-analysis anchors Grade B: 15 RCTs, effect size 0.41 (95% CI 0.17–0.66) favoring tVNS over sham for chronic pain; auricular subgroup ES=0.42 (k=8). Device and parameter heterogeneity is high — `verify` intensity, session duration, frequency, sessions/week, and total course per specific sub-protocol. Recommend stratifying by pain phenotype (neuropathic vs nociplastic) before clinical rollout. Left cymba concha is most-studied target. Distinct from PRO-056 CSV row — JS entry intended for auricular home-use pathway.',
+  contraindications:['bilateral vagotomy','cardiac arrhythmia','active ear infection','implanted VNS'],
+  sideEffects:['ear discomfort','skin erythema','cough reflex','rare vasovagal response'],
+  aiPersonalization:null, scanGuidedNotes:null,
+  tags:['taVNS','chronic-pain','auricular','Costa-2024','heterogeneous','verify','unreviewed'],
 },
 ];
 

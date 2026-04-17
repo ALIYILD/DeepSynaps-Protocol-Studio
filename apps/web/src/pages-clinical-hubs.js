@@ -3060,25 +3060,45 @@ export const libraryHelpers = {
 export async function pgLibraryHub(setTopbar, navigate) {
   const tab = window._libraryHubTab || 'conditions';
   window._libraryHubTab = tab;
-  const TAB_META = {
-    conditions: { label: 'Conditions',         color: 'var(--blue)'   },
-    devices:    { label: 'Devices',            color: 'var(--teal)'   },
-    packages:   { label: 'Condition Packages', color: 'var(--rose)'   },
-    evidence:   { label: 'Evidence & Search',  color: 'var(--violet)' },
-  };
   const el = document.getElementById('content');
   const esc = libraryHelpers.esc;
   const actor = (typeof currentUser === 'function' ? currentUser() : null) || {};
   const actorRole = (actor?.role || actor?.actor_role || '').toLowerCase();
   const isAdmin = actorRole === 'admin' || actorRole === 'superadmin';
 
+  // Lazy-load PROTOCOL_LIBRARY so the Needs Review tab can surface unreviewed /
+  // verify-flagged entries. Failures degrade silently — count badge falls back to 0.
+  let _protosAll = [], _condsAll = [], _devsAll = [];
+  try {
+    const pd = await import('./protocols-data.js');
+    _protosAll = pd.PROTOCOL_LIBRARY || [];
+    _condsAll  = pd.CONDITIONS       || [];
+    _devsAll   = pd.DEVICES          || [];
+  } catch {}
+  const _needsReviewRows = _protosAll.filter(p =>
+    (Array.isArray(p.governance) && p.governance.includes('unreviewed')) ||
+    (typeof p.notes === 'string' && /verify/i.test(p.notes))
+  );
+  const _needsReviewCount = _needsReviewRows.length;
+
+  const TAB_META = {
+    conditions:    { label: 'Conditions',         color: 'var(--blue)'   },
+    devices:       { label: 'Devices',            color: 'var(--teal)'   },
+    packages:      { label: 'Condition Packages', color: 'var(--rose)'   },
+    evidence:      { label: 'Evidence & Search',  color: 'var(--violet)' },
+    'needs-review':{ label: 'Needs Review',       color: 'var(--amber)', badgeCount: _needsReviewCount },
+  };
+
   function tabBar() {
-    return Object.entries(TAB_META).map(([id, m]) =>
-      '<button role="tab" aria-selected="' + (tab === id) + '" tabindex="' + (tab === id ? '0' : '-1') + '"' +
-      ' class="ch-tab' + (tab === id ? ' ch-tab--active' : '') + '"' +
-      (tab === id ? ' style="--tab-color:' + m.color + '"' : '') +
-      ' onclick="window._libraryHubTab=\'' + id + '\';window._nav(\'library-hub\')">' + esc(m.label) + '</button>'
-    ).join('');
+    return Object.entries(TAB_META).map(([id, m]) => {
+      const badge = (m.badgeCount != null && m.badgeCount > 0)
+        ? ' <span style="display:inline-block;min-width:18px;padding:1px 6px;margin-left:4px;font-size:10px;font-weight:700;line-height:1.4;text-align:center;color:#fff;background:var(--amber);border-radius:10px;vertical-align:middle">' + esc(m.badgeCount) + '</span>'
+        : '';
+      return '<button role="tab" aria-selected="' + (tab === id) + '" tabindex="' + (tab === id ? '0' : '-1') + '"' +
+        ' class="ch-tab' + (tab === id ? ' ch-tab--active' : '') + '"' +
+        (tab === id ? ' style="--tab-color:' + m.color + '"' : '') +
+        ' onclick="window._libraryHubTab=\'' + id + '\';window._nav(\'library-hub\')">' + esc(m.label) + badge + '</button>';
+    }).join('');
   }
   setTopbar('Library', isAdmin
     ? '<button class="btn btn-sm" onclick="window._libAdminRefresh()" title="Admin-only: rebuild curated evidence index">↻ Refresh evidence</button>'
@@ -3495,6 +3515,97 @@ export async function pgLibraryHub(setTopbar, navigate) {
               '</article>'
             )).join('') + '</div>'
           : '<div class="ch-empty" style="padding:30px 16px">Your curated library is empty. Run a search above and click <b>Promote to Library</b> on relevant results.</div>') +
+      '</div>';
+  }
+
+  // ── TAB: NEEDS REVIEW ──────────────────────────────────────────────────
+  //  Surfaces PROTOCOL_LIBRARY entries that have governance:['unreviewed'] OR a
+  //  notes field mentioning "verify". Display-only: clinician clicks through to
+  //  the protocol detail page to promote / reject. No backend calls.
+  else if (tab === 'needs-review') {
+    const rows = _needsReviewRows.map(p => {
+      const gov = Array.isArray(p.governance) ? p.governance : [];
+      const isUnreviewed = gov.includes('unreviewed');
+      const hasVerify = typeof p.notes === 'string' && /verify/i.test(p.notes);
+      let reason = '—', reasonColor = 'var(--text-tertiary)';
+      if (isUnreviewed && hasVerify) { reason = 'Unreviewed + verify params'; reasonColor = 'var(--rose)'; }
+      else if (isUnreviewed)          { reason = 'Unreviewed';                 reasonColor = 'var(--amber)'; }
+      else if (hasVerify)             { reason = 'Verify parameters';          reasonColor = 'var(--blue)'; }
+      const cond = _condsAll.find(c => c.id === p.conditionId);
+      const dev  = _devsAll.find(d => d.id === p.device);
+      const topCite = Array.isArray(p.references) && p.references.length ? p.references[0] : '—';
+      return { p, gov, isUnreviewed, hasVerify, reason, reasonColor, cond, dev, topCite };
+    });
+
+    const filtQ = (window._libSearch['needs-review'] || '').toLowerCase();
+    const filtered = !filtQ ? rows : rows.filter(r =>
+      (r.p.name || '').toLowerCase().includes(filtQ) ||
+      (r.cond?.label || r.p.conditionId || '').toLowerCase().includes(filtQ) ||
+      (r.dev?.label || r.p.device || '').toLowerCase().includes(filtQ) ||
+      (r.topCite || '').toLowerCase().includes(filtQ) ||
+      (r.reason || '').toLowerCase().includes(filtQ)
+    );
+
+    const totalUnreviewed = rows.filter(r => r.isUnreviewed).length;
+    const totalVerify     = rows.filter(r => r.hasVerify).length;
+    const gradeABHighPri  = rows.filter(r => r.isUnreviewed && ['A','B'].includes(String(r.p.evidenceGrade || '').toUpperCase())).length;
+    // Added-this-week count — PROTOCOL_LIBRARY entries don't carry timestamps, so
+    //  treat "added this week" as every row flagged unreviewed (this batch landed
+    //  2026-04-17 per data/EXTRACT-ab-cells-summary.md). Clinician sees all as new.
+    const addedThisWeek = totalUnreviewed;
+
+    main =
+      '<div class="ch-card" role="note" style="border-left:3px solid var(--amber);padding:12px 16px;margin-bottom:14px;background:rgba(245,158,11,0.06)">' +
+        '<div style="font-size:12.5px;color:var(--text-secondary);line-height:1.55">' +
+          '<b style="color:var(--amber)">Disclaimer.</b> These protocols were drafted from literature and are ' +
+          '<b>NOT approved for clinical use</b> until a clinician reviews each one. Click <b>Review →</b> to open ' +
+          'the protocol detail page and promote, edit, or reject the draft.' +
+        '</div>' +
+      '</div>' +
+      '<div class="ch-kpi-strip" style="grid-template-columns:repeat(4,1fr);margin-bottom:16px">' +
+        kpi('var(--amber)',  totalUnreviewed, 'Unreviewed', 'governance array contains "unreviewed"') +
+        kpi('var(--blue)',   totalVerify,     'With verify flags', 'notes field mentions "verify"') +
+        kpi('var(--teal)',   gradeABHighPri,  'Grade A / B (priority)', 'Highest clinical priority — strong evidence awaiting review') +
+        kpi('var(--violet)', addedThisWeek,   'Added this week', 'Batch landed 2026-04-17') +
+      '</div>' +
+      '<div class="ch-card">' +
+        '<div class="ch-card-hd" style="flex-wrap:wrap;gap:8px">' +
+          '<span class="ch-card-title">Review Queue (' + filtered.length + (filtered.length !== rows.length ? ' of ' + rows.length : '') + ')</span>' +
+          '<span style="font-size:11px;color:var(--text-tertiary)">Click <b>Review →</b> to open protocol detail</span>' +
+          sInput('needs-review', 'Search name, condition, device, citation…') +
+        '</div>' +
+        (!rows.length
+          ? '<div class="ch-empty" style="padding:30px 16px">No protocols currently flagged as unreviewed or verify-needed. All drafts have been cleared.</div>'
+          : !filtered.length
+            ? '<div class="ch-empty" style="padding:30px 16px">No protocols match your search.</div>'
+            : '<div class="lib-grid">' + filtered.map(r => {
+                const p = r.p;
+                const evG = String(p.evidenceGrade || '').toUpperCase();
+                return (
+                  '<article class="lib-card" style="border-left:3px solid var(--amber)" aria-label="' + esc(p.name || 'Protocol') + '">' +
+                    '<div class="lib-card-top">' +
+                      '<span class="lib-card-name">' + esc(p.name || 'Protocol') + '</span>' +
+                      gradeBadge(p.evidenceGrade) +
+                    '</div>' +
+                    '<div class="lib-card-meta">' +
+                      (r.dev?.label ? '<span class="lib-tag" title="Modality / device">' + esc(r.dev.label) + '</span>' : (p.device ? '<span class="lib-tag">' + esc(p.device) + '</span>' : '')) +
+                      (p.subtype ? '<span class="lib-tag">' + esc(p.subtype) + '</span>' : '') +
+                      (r.cond?.label ? '<span class="lib-tag" title="Condition">' + esc(r.cond.label) + '</span>' : (p.conditionId ? '<span class="lib-tag">' + esc(p.conditionId) + '</span>' : '')) +
+                      '<span class="lib-tag" style="color:' + r.reasonColor + ';border:1px solid ' + r.reasonColor + '55" title="Why this protocol is in the review queue">' + esc(r.reason) + '</span>' +
+                      (r.gov.length ? '<span class="lib-tag" style="color:var(--text-tertiary)" title="Governance flags">' + esc(r.gov.join(' · ')) + '</span>' : '') +
+                    '</div>' +
+                    '<div class="lib-features">' +
+                      '<div class="lib-feature" style="width:100%" title="Top citation">📄 ' + esc(String(r.topCite).slice(0, 140)) + (String(r.topCite).length > 140 ? '…' : '') + '</div>' +
+                    '</div>' +
+                    '<div style="margin-top:10px;display:flex;gap:6px;flex-wrap:wrap">' +
+                      '<button class="ch-btn-sm ch-btn-teal" onclick="window._protDetailId=\'' + esc(p.id || '') + '\';window._nav(\'protocol-detail\')" title="Open protocol detail to review, edit, or promote">Review →</button>' +
+                      (evG === 'A' || evG === 'B'
+                        ? '<span class="lib-badge" style="background:rgba(20,184,166,0.14);color:var(--teal);border:1px solid rgba(20,184,166,0.3)" title="High-priority: strong evidence awaiting review">Priority</span>'
+                        : '') +
+                    '</div>' +
+                  '</article>'
+                );
+              }).join('') + '</div>') +
       '</div>';
   }
 
