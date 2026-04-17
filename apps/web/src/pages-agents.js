@@ -1,7 +1,12 @@
 import { api } from './api.js';
 
 // ── Agent state ───────────────────────────────────────────────────────────────
-let _agentHistory = [];   // { role, content }
+let _agentHistory = (() => {
+  try { return JSON.parse(localStorage.getItem('ds_agent_history') || '[]'); } catch { return []; }
+})();
+function _saveAgentHistory() {
+  try { localStorage.setItem('ds_agent_history', JSON.stringify(_agentHistory.slice(-50))); } catch {}
+}
 let _agentBusy = false;
 let _agentProvider = localStorage.getItem('ds_agent_provider') || 'anthropic';
 let _agentOAKey = localStorage.getItem('ds_agent_oa_key') || '';
@@ -53,6 +58,16 @@ export async function pgAgentChat(setTopbar) {
           </div>
           <div style="font-size:10px;color:var(--text-tertiary);line-height:1.6">
             Agent has no access to live patient data. Share context manually in chat for personalised answers.
+          </div>
+        </div>
+        <div class="agent-sidebar-info" style="margin-top:8px">
+          <div style="font-size:10px;color:var(--text-tertiary);line-height:1.6">
+            <strong style="color:var(--text-secondary)">Patient context:</strong>
+            <span id="agent-context-label">None — general mode</span>
+          </div>
+          <div style="font-size:10px;color:var(--text-tertiary);margin-top:4px">
+            <strong style="color:var(--text-secondary)">Messages:</strong>
+            <span id="agent-msg-count">${_agentHistory.length}</span>
           </div>
         </div>
       </div>
@@ -143,11 +158,13 @@ export async function pgAgentChat(setTopbar) {
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function _renderMsg(msg) {
   const isUser = msg.role === 'user';
+  const timeStr = msg.ts ? new Date(msg.ts).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) : '';
   return `
     <div class="agent-msg ${isUser ? 'agent-msg--user' : 'agent-msg--agent'}">
       <div class="agent-msg-bubble">
         ${isUser ? '' : '<div class="agent-msg-label">Practice Agent</div>'}
         <div class="agent-msg-text">${_formatAgentText(msg.content)}</div>
+        ${timeStr ? `<div style="font-size:9px;color:var(--text-tertiary);margin-top:4px;text-align:${isUser ? 'right' : 'left'}">${timeStr}</div>` : ''}
       </div>
     </div>
   `;
@@ -191,8 +208,9 @@ window._agentSend = async function() {
   input.value = '';
   input.style.height = 'auto';
 
-  const userMsg = { role: 'user', content: text };
+  const userMsg = { role: 'user', content: text, ts: new Date().toISOString() };
   _agentHistory.push(userMsg);
+  _saveAgentHistory();
   _appendMsg(userMsg);
 
   _agentBusy = true;
@@ -200,26 +218,49 @@ window._agentSend = async function() {
   document.getElementById('agent-typing').style.display = 'flex';
   _scrollAgentToBottom();
 
+  // Gather patient context if available
+  let context = null;
+  try {
+    const selPid = localStorage.getItem('ds_selected_patient_id');
+    if (selPid) {
+      const pRes = await api.getPatient(selPid).catch(() => null);
+      if (pRes) {
+        const cRes = await api.listCourses().catch(() => null);
+        const patientCourses = (cRes?.items || []).filter(c => c.patient_id === selPid);
+        context = {
+          patient: { id: pRes.id, name: pRes.name, condition: pRes.condition, modality: pRes.modality },
+          activeCourses: patientCourses.filter(c => c.status === 'active').map(c => ({
+            id: c.id, protocol: c.protocol_name || c.protocol, status: c.status, sessions: c.total_sessions
+          })),
+        };
+      }
+    }
+  } catch {}
+
   try {
     const result = await api.chatAgent(
       _agentHistory,
       _agentProvider,
       _agentProvider === 'openai' ? _agentOAKey : null,
-      null
+      context
     );
     const reply = result?.reply || 'No response.';
-    const assistantMsg = { role: 'assistant', content: reply };
+    const assistantMsg = { role: 'assistant', content: reply, ts: new Date().toISOString() };
     _agentHistory.push(assistantMsg);
+    _saveAgentHistory();
     _appendMsg(assistantMsg);
   } catch (err) {
-    const errMsg = { role: 'assistant', content: `Error: ${err.message || 'Failed to reach agent.'}` };
+    const errMsg = { role: 'assistant', content: `Error: ${err.message || 'Failed to reach agent.'}`, ts: new Date().toISOString() };
     _agentHistory.push(errMsg);
+    _saveAgentHistory();
     _appendMsg(errMsg);
   } finally {
     _agentBusy = false;
     document.getElementById('agent-send-btn').disabled = false;
     document.getElementById('agent-typing').style.display = 'none';
     document.getElementById('agent-input')?.focus();
+    const countEl = document.getElementById('agent-msg-count');
+    if (countEl) countEl.textContent = _agentHistory.length;
   }
 };
 
@@ -238,6 +279,9 @@ window._agentQuickAction = function(prompt) {
 
 window._agentClearHistory = function() {
   _agentHistory = [];
+  localStorage.removeItem('ds_agent_history');
+  const countEl = document.getElementById('agent-msg-count');
+  if (countEl) countEl.textContent = '0';
   const el = document.getElementById('agent-messages');
   if (el) el.innerHTML = `
     <div class="agent-welcome">

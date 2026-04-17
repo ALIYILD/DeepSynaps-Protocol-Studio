@@ -1968,7 +1968,8 @@ export async function pgReferrals(setTopbar) {
   let newTeamMembers = [{ name: '', role: 'Lead', assignedDate: new Date().toISOString().slice(0, 10) }];
   let editingTeamId = null;
 
-  const el = document.getElementById('page-content');
+  const el = document.getElementById('page-content') || document.getElementById('content');
+  if (!el) return;
 
   function renderKpis() {
     const refs = getReferrals();
