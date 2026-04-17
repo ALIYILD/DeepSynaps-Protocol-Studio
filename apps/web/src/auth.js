@@ -21,7 +21,7 @@ export function showApp() {
   document.getElementById('patient-shell')?.classList.remove('visible');
   document.getElementById('sidebar').classList.add('visible');
   document.getElementById('app-shell').classList.add('visible');
-  try { mountAppAgentWidget('clinician'); } catch {}
+  // Agent widget removed — use sidebar AI Agents page instead
 }
 
 export function showPublic() {

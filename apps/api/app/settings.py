@@ -89,6 +89,9 @@ class AppSettings(BaseModel):
     # OpenAI (optional — doctors can bring their own key)
     openai_api_key: str = Field(default="")
 
+    # GLM-4 (Zhipu AI free tier — OpenAI-compatible API)
+    glm_api_key: str = Field(default="")
+
     # Wearable token encryption (Fernet key — generate with:
     #   python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
     # Required before enabling real OAuth device connections. If absent, tokens
@@ -212,6 +215,8 @@ def load_settings() -> AppSettings:
                 "anthropic_api_key": os.getenv("ANTHROPIC_API_KEY", ""),
                 # OpenAI
                 "openai_api_key": os.getenv("OPENAI_API_KEY", ""),
+                # GLM-4
+                "glm_api_key": os.getenv("GLM_API_KEY", ""),
                 # Wearable token encryption
                 "wearable_token_enc_key": os.getenv("WEARABLE_TOKEN_ENC_KEY", ""),
                 # App URL

@@ -199,6 +199,26 @@ def chat_agent(
             {"role": "assistant", "content": "Understood. I have the dashboard context."},
         ] + messages
 
+    if provider == "glm-free":
+        try:
+            from openai import OpenAI
+            glm_key = getattr(settings, 'glm_api_key', None) or "free-tier"
+            client_glm = OpenAI(
+                api_key=glm_key,
+                base_url="https://open.bigmodel.cn/api/paas/v4",
+            )
+            msgs_glm = [{"role": "system", "content": system}] + messages
+            resp = client_glm.chat.completions.create(
+                model="glm-4-flash",
+                max_tokens=1024,
+                messages=msgs_glm,
+            )
+            return resp.choices[0].message.content
+        except ImportError:
+            return "OpenAI-compatible client not installed. Run: pip install openai"
+        except Exception as e:
+            return f"GLM-4 error: {str(e)}"
+
     if provider == "openai":
         key = openai_key or settings.openai_api_key
         if not key:
