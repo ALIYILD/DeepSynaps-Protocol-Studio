@@ -684,6 +684,11 @@ export const TRANSLATIONS = {
     'nav.adverse-events': 'Yönetişim',
     'nav.outcomes': 'Sonuçlar',
     'nav.messaging': 'Sanal Bakım',
+    'nav.reports-hub': 'Raporlar Merkezi',
+    'nav.finance-hub': 'Finans Merkezi',
+    'nav.longitudinal-report': 'Uzun Dönem Raporu',
+    'nav.data-export': 'Veri Dışa Aktarımı',
+    'nav.irb-manager': 'IRB Yöneticisi',
     // Common UI
     'common.save': 'Kaydet',
     'common.cancel': 'İptal',

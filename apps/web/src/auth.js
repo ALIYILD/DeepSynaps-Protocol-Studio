@@ -182,7 +182,7 @@ function renderLoginPage() {
                onkeydown="if(event.key==='Enter')document.getElementById('reg-password').focus()">
       </div>
       <div class="form-group">
-        <label class="form-label">Password</label>
+        <label class="form-label" for="reg-password">Password</label>
         <input id="reg-password" class="form-control" type="password" placeholder="Min 8 characters"
                onkeydown="if(event.key==='Enter')submitRegister()">
       </div>
@@ -195,7 +195,7 @@ function renderLoginPage() {
         Enter your registered email address. If an account exists, we'll send a password reset link.
       </div>
       <div class="form-group">
-        <label class="form-label">Email</label>
+        <label class="form-label" for="forgot-email">Email</label>
         <input id="forgot-email" class="form-control" type="email" placeholder="clinician@clinic.com"
                onkeydown="if(event.key==='Enter')submitForgotPassword()">
       </div>
@@ -212,12 +212,12 @@ function renderLoginPage() {
         Enter your new password below.
       </div>
       <div class="form-group">
-        <label class="form-label">New Password</label>
+        <label class="form-label" for="reset-password">New Password</label>
         <input id="reset-password" class="form-control" type="password" placeholder="Min 8 characters"
                onkeydown="if(event.key==='Enter')submitResetPassword()">
       </div>
       <div class="form-group">
-        <label class="form-label">Confirm Password</label>
+        <label class="form-label" for="reset-confirm">Confirm Password</label>
         <input id="reset-confirm" class="form-control" type="password" placeholder="Repeat password"
                onkeydown="if(event.key==='Enter')submitResetPassword()">
       </div>

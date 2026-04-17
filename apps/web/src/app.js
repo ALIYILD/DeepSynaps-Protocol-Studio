@@ -516,22 +516,11 @@ const NAV_ICONS = {
 
 // ── Section labels ────────────────────────────────────────────────────────────
 const SECTION_LABELS = {
-  'patient-care': 'Patient Care',
-  'clinical-tools': 'Clinical Tools',
-  operations:     'Operations',
-  admin:          'Admin',
-  today:          'Today',
-  protocols:      'Protocols',
-  clinical:       'Clinical',
-  courses:        'Sessions & Courses',
-  practice:       'Practice',
-  knowledge:      'Knowledge & Analytics',
-  patient:        'Patient Portal',
-  admin:          'Administration',
-  research:       'Research',
-  more:           'More',
-  clinic:         'Clinic',
-  registries:     'Registries',
+  'patient-care':  'Patient Care',
+  'clinical-tools':'Clinical Tools',
+  operations:      'Operations',
+  research:        'Research',
+  admin:           'Admin',
 };
 
 // ── Nav collapse state ────────────────────────────────────────────────────────
@@ -1083,8 +1072,7 @@ async function renderPage() {
     // ── Clinical ─────────────────────────────────────────────────────────
     case 'today':
     case 'home':
-    case 'dashboard':
-    case 'clinic-day': {
+    case 'dashboard': {
       const m = await loadClinical();
       await m.pgDash(setTopbar, navigate);
       break;
@@ -1140,11 +1128,6 @@ async function renderPage() {
     case 'protocol-hub':      { const { pgProtocolHub } = await loadClinicalHubs(); await pgProtocolHub(setTopbar, navigate); break; }
     case 'personalized-protocol': { window._protocolHubTab = 'personalized'; window._nav('protocol-hub'); break; }
     case 'brain-scan-protocol':   { window._protocolHubTab = 'brainscan';    window._nav('protocol-hub'); break; }
-    case 'protocol-detail': {
-      const m = await loadProtocols();
-      await m.pgProtocolDetail(setTopbar, navigate);
-      break;
-    }
     case 'protocol-search-full': {
       const m = await loadProtocols();
       await m.pgProtocolSearch(setTopbar, navigate);
@@ -2430,6 +2413,11 @@ window.addEventListener('popstate', (e) => {
     _renderResults('', defaultItems);
 
     _loadData(); // Warm cache in background
+
+    setTimeout(() => {
+      const modal = document.querySelector('.cmd-palette-modal');
+      if (modal && typeof window._trapFocus === 'function') window._trapFocus(modal);
+    }, 50);
   };
 
   window._closePalette = function(e) {
