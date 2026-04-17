@@ -3653,8 +3653,10 @@ export async function pgMonitorHub(setTopbar, navigate) {
 // ═══════════════════════════════════════════════════════════════════════════════
 export async function pgVirtualCareHub(setTopbar, navigate) {
   try {
+    const { pgVirtualCare } = await import('./pages-virtualcare.js');
     await pgVirtualCare(setTopbar, navigate);
-  } catch {
+  } catch (err) {
+    console.error('Virtual Care load error:', err);
     setTopbar('Virtual Care', '<span class="ph-ai-badge">AI</span>');
     const el = document.getElementById('content');
     if (el) el.innerHTML = '<div style="padding:48px;text-align:center;color:var(--text-tertiary)"><div style="font-size:40px;margin-bottom:16px">📹</div><div style="font-size:14px;font-weight:600;color:var(--text-primary);margin-bottom:8px">Virtual Care</div><div>Loading virtual care module…</div></div>';

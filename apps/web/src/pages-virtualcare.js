@@ -3,9 +3,50 @@
 // Video Visits · Voice Calls · Messaging · Note Capture · AI Transcription
 // ─────────────────────────────────────────────────────────────────────────────
 
+import { api } from './api.js';
+
 const _e = s => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 const _fmtTime = iso => { try { return new Date(iso).toLocaleString('en-GB',{hour:'2-digit',minute:'2-digit',day:'numeric',month:'short'}); } catch { return iso; } };
 const _ago = iso => { try { const diff = Date.now()-new Date(iso).getTime(); const m=Math.floor(diff/60000); if(m<60) return m+'m ago'; const h=Math.floor(m/60); if(h<24) return h+'h ago'; return Math.floor(h/24)+'d ago'; } catch { return ''; } };
+
+const _hasSpeech = 'SpeechRecognition' in window || 'webkitSpeechRecognition' in window;
+
+function _startLiveTranscription() {
+  if (!_hasSpeech || _vc.speechRec) return;
+  const Rec = window.SpeechRecognition || window.webkitSpeechRecognition;
+  const rec = new Rec();
+  rec.continuous = true;
+  rec.interimResults = true;
+  rec.lang = 'en-GB';
+  _vc.speechRec = rec;
+  _vc.liveTranscript = '';
+  _vc.interimText = '';
+
+  rec.onresult = function(e) {
+    let interim = '';
+    for (let i = e.resultIndex; i < e.results.length; i++) {
+      const t = e.results[i][0].transcript;
+      if (e.results[i].isFinal) {
+        _vc.liveTranscript += t + ' ';
+        const el = document.getElementById('vc-live-transcript');
+        if (el) el.innerHTML += `<div style="margin-bottom:4px"><span style="font-size:9px;color:var(--text-tertiary)">${new Date().toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})}</span> ${_e(t)}</div>`;
+      } else {
+        interim += t;
+      }
+    }
+    const intEl = document.getElementById('vc-interim-text');
+    if (intEl) intEl.textContent = interim;
+  };
+  rec.onend = function() {
+    if (_vc.activeCall?.phase === 'active') { try { rec.start(); } catch {} }
+  };
+  rec.onerror = function() {};
+  try { rec.start(); } catch {}
+}
+
+function _stopLiveTranscription() {
+  if (_vc.speechRec) { try { _vc.speechRec.stop(); } catch {} _vc.speechRec = null; }
+}
 
 // ── Seed data ────────────────────────────────────────────────────────────────
 const VC_DATA = {
@@ -126,6 +167,11 @@ let _vc = {
   messageText: '',
   recorder: null,
   chunks: [],
+  speechRec: null,
+  liveTranscript: '',
+  interimText: '',
+  callSummary: '',
+  apiMessages: {},
 };
 
 // =============================================================================
@@ -191,9 +237,14 @@ export async function pgVirtualCare(setTopbar, navigate) {
     const item = call.item;
     const isVideo = call.type === 'video';
     const phase = call.phase;
+    const hasSpeech = _hasSpeech;
+    const roomName = call.roomName || 'deepsynaps-session';
+    const jitsiUrl = call.type === 'video'
+      ? `https://meet.jit.si/${roomName}`
+      : `https://meet.jit.si/${roomName}#config.startWithVideoMuted=true`;
     return `
       <div class="vc-call-overlay">
-        <div class="vc-call-modal">
+        <div class="vc-call-modal" style="width:95vw;max-width:1400px;height:90vh;display:flex;flex-direction:column">
           <div class="vc-call-header">
             <div class="vc-call-patient">
               <div class="vc-avatar">${_e(item.initials)}</div>
@@ -207,27 +258,25 @@ export async function pgVirtualCare(setTopbar, navigate) {
             </span>
           </div>
 
-          ${isVideo ? `
-          <div class="vc-video-area">
-            <div class="vc-video-remote">
-              <div class="vc-avatar-lg">${_e(item.initials)}</div>
-              ${phase==='connecting'?'<div class="vc-call-connecting-txt">Connecting to patient\u2026</div>':''}
-              ${phase==='active'?'<div class="vc-call-live-txt">Patient video active</div>':''}
-            </div>
-            <div class="vc-video-self">You</div>
-          </div>` : `
-          <div class="vc-audio-area">
-            <div class="vc-audio-avatar">
-              <div class="vc-avatar-xl">${_e(item.initials)}</div>
-              <div class="vc-audio-name">${_e(item.patientName)}</div>
-              <div class="vc-audio-status">${phase==='connecting'?'Calling\u2026':phase==='active'?'\uD83D\uDD0A On call':'Call ended'}</div>
-            </div>
-          </div>`}
+          ${phase === 'connecting' ? `
+          <div style="flex:1;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:12px">
+            <div class="vc-spinner"></div>
+            <div style="font-size:14px;color:var(--text-secondary)">Loading meeting room\u2026</div>
+          </div>` : ''}
 
           ${phase === 'active' ? `
-          <div class="vc-call-transcript-strip">
-            <span class="vc-transcript-label">\uD83C\uDFA4 AI Transcription active</span>
-            <span class="vc-transcript-preview" id="vc-transcript-preview">Listening\u2026</span>
+          <div class="vc-call-layout" style="display:flex;flex:1;overflow:hidden">
+            <div style="flex:3;position:relative">
+              <iframe id="vc-jitsi-frame" src="${jitsiUrl}"
+                allow="camera;microphone;display-capture;autoplay;clipboard-write"
+                style="width:100%;height:100%;border:none;border-radius:8px"></iframe>
+            </div>
+            <div id="vc-transcript-sidebar" style="flex:1;min-width:260px;max-width:320px;border-left:1px solid var(--border);display:flex;flex-direction:column;padding:12px;overflow-y:auto">
+              <div style="font-size:11px;font-weight:700;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px">\uD83C\uDFA4 Live Transcription</div>
+              <div id="vc-live-transcript" style="flex:1;font-size:12px;color:var(--text-secondary);line-height:1.6;overflow-y:auto"></div>
+              <div id="vc-interim-text" style="font-size:12px;color:var(--text-tertiary);font-style:italic;margin-top:4px"></div>
+              ${!hasSpeech ? '<div style="font-size:11px;color:var(--amber);margin-top:8px;padding:6px 8px;background:rgba(255,181,71,0.08);border-radius:6px">Speech recognition requires Chrome or Edge.</div>' : ''}
+            </div>
           </div>` : ''}
 
           <div class="vc-call-controls">
@@ -249,6 +298,7 @@ export async function pgVirtualCare(setTopbar, navigate) {
           ${phase === 'ended' ? `
           <div class="vc-call-ended-panel">
             <div class="vc-ended-title">Call ended</div>
+            <div id="vc-call-summary" style="margin-top:12px"></div>
             ${_actionBar(item.patientId, item.patientName, item.purpose || 'Call')}
             <button class="vc-action-btn" onclick="window._vcCaptureNote('${_e(item.patientId)}','${_e(item.patientName)}')">Capture Call Note</button>
           </div>` : ''}
@@ -732,12 +782,24 @@ export async function pgVirtualCare(setTopbar, navigate) {
 
   // ── Window handlers ───────────────────────────────────────────────────
   window._vcTab = t => { _vc.tab = t; _vc.selectedItem = null; renderPage(); };
-  window._vcSelectThread = pid => { _vc.selectedPid = pid; renderPage(); };
+  window._vcSelectThread = async pid => {
+    _vc.selectedPid = pid;
+    renderPage();
+    // Fetch real messages if available
+    try {
+      const res = await api.getPatientMessages?.(pid);
+      if (res?.items?.length || res?.length) {
+        const msgs = (res.items || res).map(m => ({ from: m.sender === 'clinician' ? 'clinician' : 'patient', text: m.content || m.text || m.message, at: m.created_at || m.sent_at }));
+        VC_DATA.messageThreads[pid] = msgs;
+        renderPage();
+      }
+    } catch {}
+  };
   window._vcSelectUpdate = id => { _vc.selectedItem = id; renderPage(); };
   window._vcSelectNote   = id => { _vc.selectedItem = id; renderPage(); };
   window._vcCompose      = () => { _vc.compose = true; renderPage(); };
 
-  window._vcSendMsg = pid => {
+  window._vcSendMsg = async pid => {
     const inp = document.getElementById('vc-msg-input');
     const text = inp?.value?.trim();
     if (!text) return;
@@ -747,6 +809,7 @@ export async function pgVirtualCare(setTopbar, navigate) {
     if (meta) { meta.lastMsg = text; meta.lastAt = new Date().toISOString(); meta.unread = 0; }
     _vc.messageText = '';
     renderPage();
+    try { await api.sendPatientMessage?.(pid, text); } catch {}
     window._showNotifToast?.({ title:'Sent', body:'Message delivered to patient.', severity:'success' });
   };
 
@@ -755,8 +818,9 @@ export async function pgVirtualCare(setTopbar, navigate) {
     if (!meta) return;
     const item = { patientId:pid, patientName:meta.patientName, initials:meta.initials, condition:meta.condition, modality:'', purpose:'Ad-hoc call' };
     _vc.activeCall = { type, item, phase:'connecting' };
+    _vc.activeCall.roomName = 'ds-' + (window._clinicId || 'clinic') + '-' + pid.replace(/[^a-z0-9]/gi,'') + '-' + Date.now();
     renderPage();
-    setTimeout(() => { if(_vc.activeCall) { _vc.activeCall.phase = 'active'; renderPage(); _vcSimulateTranscript(); } }, 2000);
+    setTimeout(() => { if(_vc.activeCall) { _vc.activeCall.phase = 'active'; renderPage(); _startLiveTranscription(); } }, 2000);
   };
 
   window._vcJoinVisit = (id, type) => {
@@ -764,22 +828,39 @@ export async function pgVirtualCare(setTopbar, navigate) {
     const item = list.find(v => v.id === id);
     if (!item) return;
     _vc.activeCall = { type, item, phase:'connecting' };
+    _vc.activeCall.roomName = 'ds-' + (window._clinicId || 'clinic') + '-' + (item.patientId || id).replace(/[^a-z0-9]/gi,'') + '-' + Date.now();
     renderPage();
-    setTimeout(() => { if(_vc.activeCall) { _vc.activeCall.phase = 'active'; renderPage(); _vcSimulateTranscript(); } }, 2000);
+    setTimeout(() => { if(_vc.activeCall) { _vc.activeCall.phase = 'active'; renderPage(); _startLiveTranscription(); } }, 2000);
   };
 
   window._vcAcceptCall = (id, type) => {
     const cr = VC_DATA.callRequests.find(c => c.id === id);
     if (!cr) return;
     _vc.activeCall = { type, item:cr, phase:'connecting' };
+    _vc.activeCall.roomName = 'ds-' + (window._clinicId || 'clinic') + '-' + (cr.patientId || id).replace(/[^a-z0-9]/gi,'') + '-' + Date.now();
     renderPage();
-    setTimeout(() => { if(_vc.activeCall) { _vc.activeCall.phase = 'active'; renderPage(); _vcSimulateTranscript(); } }, 2000);
+    setTimeout(() => { if(_vc.activeCall) { _vc.activeCall.phase = 'active'; renderPage(); _startLiveTranscription(); } }, 2000);
   };
 
-  window._vcEndCall = () => {
+  window._vcEndCall = async () => {
     if (!_vc.activeCall) return;
+    _stopLiveTranscription();
     _vc.activeCall.phase = 'ended';
     renderPage();
+    // Auto-generate AI summary from transcript
+    if (_vc.liveTranscript.trim()) {
+      const summaryEl = document.getElementById('vc-call-summary');
+      if (summaryEl) summaryEl.innerHTML = '<div style="font-size:11px;color:var(--text-tertiary)">Generating AI summary...</div>';
+      try {
+        const res = await api.chatAgent?.([
+          { role: 'user', content: 'Summarize this clinical call transcript into a concise SOAP note:\n\n' + _vc.liveTranscript }
+        ], 'anthropic', null, null);
+        _vc.callSummary = res?.reply || '';
+        if (summaryEl && _vc.callSummary) summaryEl.innerHTML = `<div style="font-size:12px;color:var(--text-secondary);line-height:1.5;padding:8px;background:rgba(155,127,255,0.06);border-radius:6px;border:1px solid rgba(155,127,255,0.15)"><div style="font-size:10px;font-weight:700;color:var(--violet);margin-bottom:4px">AI Summary</div>${_e(_vc.callSummary)}</div>`;
+      } catch {}
+      // Auto-open note capture with transcript pre-filled
+      _vc.recording = { type: 'text', phase: 'done', patientId: _vc.activeCall.item.patientId, patientName: _vc.activeCall.item.patientName, initials: _vc.activeCall.item.initials, transcription: _vc.liveTranscript, aiSummary: _vc.callSummary };
+    }
   };
 
   window._vcCallCtrl = ctrl => {
@@ -853,6 +934,21 @@ export async function pgVirtualCare(setTopbar, navigate) {
       } catch {
         // No mic access — simulate recording
       }
+      // Start speech recognition in parallel
+      if (_hasSpeech) {
+        const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+        const sr = new SpeechRec();
+        sr.continuous = true; sr.interimResults = true; sr.lang = 'en-GB';
+        _vc.recording.transcription = '';
+        sr.onresult = function(e) {
+          let t = '';
+          for (let i = 0; i < e.results.length; i++) { if (e.results[i].isFinal) t += e.results[i][0].transcript + ' '; }
+          _vc.recording.transcription = t;
+        };
+        sr.onend = function() { if (_vc.recording?.phase === 'recording') { try { sr.start(); } catch {} } };
+        _vc.speechRec = sr;
+        try { sr.start(); } catch {}
+      }
     } else if (rec.phase === 'recording') {
       rec.phase = 'processing';
       renderPage();
@@ -861,13 +957,27 @@ export async function pgVirtualCare(setTopbar, navigate) {
         _vc.recorder.stop();
         _vc.recorder.stream?.getTracks().forEach(t => t.stop());
       }
-      // Simulate AI transcription (2-3s delay)
-      setTimeout(() => {
+      // Stop speech recognition for note capture
+      if (_vc.speechRec) { try { _vc.speechRec.stop(); } catch {} _vc.speechRec = null; }
+      // If we have speech recognition data, use it; otherwise prompt text input
+      if (rec.transcription) {
+        // Already captured via speech recognition during recording
+        try {
+          const res = await api.chatAgent?.([
+            { role: 'user', content: 'Summarize this clinical note transcription concisely:\n\n' + rec.transcription }
+          ], 'anthropic', null, null);
+          rec.aiSummary = res?.reply || 'Summary unavailable.';
+        } catch { rec.aiSummary = 'Summary unavailable — AI not connected.'; }
         rec.phase = 'done';
-        rec.transcription = 'Patient attended session. Reported moderate improvement in mood and energy levels since last visit. Tolerated today\'s protocol well. No adverse events noted. PHQ-9 trending downward. Plan to review dosage parameters at next session.';
-        rec.aiSummary = 'Session attended. Mood and energy improved. Protocol tolerated well. No AEs. PHQ-9 improving. Review parameters next session.';
         renderPage();
-      }, 2500);
+      } else {
+        // No speech data — prompt manual input
+        rec.phase = 'done';
+        rec.transcription = '';
+        rec.aiSummary = '';
+        renderPage();
+        window._showNotifToast?.({ title: 'No speech detected', body: 'Type your note manually below.', severity: 'info' });
+      }
     }
   };
 
@@ -877,10 +987,21 @@ export async function pgVirtualCare(setTopbar, navigate) {
     renderPage();
   };
 
-  window._vcSaveNote = () => {
+  window._vcSaveNote = async () => {
     if (!_vc.recording) return;
     const textEl = document.getElementById('vc-cap-text');
     const text = textEl ? textEl.value : _vc.recording.transcription;
+    try {
+      await api.createClinicianNote?.({
+        patient_id: _vc.recording.patientId,
+        note_type: _vc.recording.type || 'clinical_update',
+        text_content: text || _vc.recording.transcription || '',
+        course_id: null,
+        session_id: null,
+      });
+    } catch {
+      window._showNotifToast?.({ title: 'Saved locally', body: 'Note saved locally — API unavailable.', severity: 'warning' });
+    }
     VC_DATA.clinicianNotes.unshift({
       id: 'cn-' + Date.now(),
       patientId: _vc.recording.patientId,
