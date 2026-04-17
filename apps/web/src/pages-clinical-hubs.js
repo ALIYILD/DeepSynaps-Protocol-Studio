@@ -1179,6 +1179,9 @@ export async function pgClinicalHub(setTopbar, navigate) {
 // pgProtocolHub — Protocol Intelligence: Search · Brain Map · Registry · Handbooks · Builder
 // ═══════════════════════════════════════════════════════════════════════════════
 export async function pgProtocolHub(setTopbar, navigate) {
+  // Legacy redirect: the old standalone "Brain Map" tab was merged into Registry.
+  if (window._protocolHubTab === 'brainmap') window._protocolHubTab = 'registry';
+
   const tab = window._protocolHubTab || 'search';
   window._protocolHubTab = tab;
 
@@ -1192,14 +1195,51 @@ export async function pgProtocolHub(setTopbar, navigate) {
     _searchFn   = pd.searchProtocols  || null;
   } catch {}
 
+  // Standard 10-20 electrode IDs — distinguishes real sites from region
+  // labels like "mPFC" (those become target-region overlays instead).
+  const STD_10_20 = ['Fp1','Fp2','F7','F3','Fz','F4','F8','T7','C3','Cz','C4','T8','P7','P3','Pz','P4','P8','O1','Oz','O2'];
+
+  // Featured montages (quick-picks) rendered at the top of the merged
+  // Registry & Brain Map tab. Kept in sync with the old brain map tab.
+  const MONTAGES = [
+    { id:'tms-mdd-l',    label:'TMS — Left DLPFC Depression',        anode:'F3', cathode:'',   targetRegion:'DLPFC-L', condition:'MDD',  device:'TMS',  ev:'A', notes:'Left DLPFC (F3 approximation). 10 Hz, 120% MT, 3000 pulses/session. 30 sessions.' },
+    { id:'tms-mdd-ithf', label:'TMS — Theta Burst (iTBS) Depression', anode:'F3', cathode:'',   targetRegion:'DLPFC-L', condition:'TRD',  device:'TMS',  ev:'A', notes:'Intermittent TBS. 600 pulses in 3 min. 10× faster than standard TMS.' },
+    { id:'tms-ocd',      label:'TMS — Deep TMS OCD',                  anode:'Fz', cathode:'',   targetRegion:'mPFC',    condition:'OCD',  device:'TMS',  ev:'A', notes:'Deep TMS H7 coil, medial PFC. FDA-cleared for OCD.' },
+    { id:'tdcs-mdd',     label:'tDCS — Anodal DLPFC Depression',      anode:'F3', cathode:'F4', targetRegion:'DLPFC-L', condition:'MDD',  device:'tDCS', ev:'B', notes:'Anode F3, Cathode F4. 2 mA, 30 min. 20 sessions.' },
+    { id:'tdcs-ptsd',    label:'tDCS — Prefrontal PTSD',              anode:'F3', cathode:'F4', targetRegion:'DLPFC-L', condition:'PTSD', device:'tDCS', ev:'B', notes:'Bilateral prefrontal. 2 mA, 20 min.' },
+    { id:'nfb-alpha',    label:'Neurofeedback — Alpha/Theta Anxiety', anode:'Pz', cathode:'',   targetRegion:null,      condition:'GAD',  device:'EEG',  ev:'B', notes:'Alpha/theta uptraining at Pz. 30-40 sessions.' },
+    { id:'nfb-smr',      label:'Neurofeedback — SMR ADHD',            anode:'C3', cathode:'',   targetRegion:null,      condition:'ADHD', device:'EEG',  ev:'B', notes:'SMR uptraining at C3/Cz. 40 sessions.' },
+  ];
+
+  // Heuristic electrode inference for registry protocols (not in MONTAGES).
+  // Scans protocol name + summary for common 10-20 patterns, with a device-
+  // based fallback.
+  function inferElectrodes(p) {
+    const name = (p?.name || '').toLowerCase();
+    const summary = (p?.summary || '').toLowerCase();
+    const blob = name + ' ' + summary;
+    if (/anode\s*f3[\s\S]*cathode\s*f4/i.test(blob)) return { anode:'F3', cathode:'F4', targetRegion:'DLPFC-L' };
+    if (/left dlpfc|\bf3\b/i.test(blob)) return { anode:'F3', targetRegion:'DLPFC-L' };
+    if (/right dlpfc|\bf4\b/i.test(blob)) return { anode:'F4', targetRegion:'DLPFC-R' };
+    if (/vertex|\bcz\b/i.test(blob))      return { anode:'Cz' };
+    if (/occipital|\bo1\b|\bo2\b|\boz\b/i.test(blob)) return { anode:'Oz', targetRegion:'V1' };
+    if (/alpha.?theta|\bpz\b/i.test(blob)) return { anode:'Pz' };
+    if (/\bsmr\b|\bc3\b|\bc4\b/i.test(blob)) return { anode:'C3' };
+    if (/mpfc|medial pfc|\bfz\b/i.test(blob)) return { anode:'Fz', targetRegion:'mPFC' };
+    // Device-based fallback
+    if (p?.device === 'tms' || p?.device === 'deep_tms') return { anode:'F3', targetRegion:'DLPFC-L' };
+    if (p?.device === 'tdcs') return { anode:'F3', cathode:'F4', targetRegion:'DLPFC-L' };
+    if (p?.device === 'eeg')  return { anode:'Cz' };
+    return { anode: null };
+  }
+
   const TAB_META = {
-    search:       { label: 'Protocol Search',    color: 'var(--teal)'   },
-    brainmap:     { label: 'Brain Map',           color: 'var(--blue)'   },
-    registry:     { label: 'Registry',            color: 'var(--violet)' },
-    handbooks:    { label: 'Handbooks',           color: 'var(--amber)'  },
-    personalized: { label: 'Personalised',        color: 'var(--rose)'   },
-    brainscan:    { label: 'Brain Scan AI',       color: '#a78bfa'       },
-    builder:  { label: 'Builder',          color: 'var(--green)'  },
+    search:       { label: 'Protocol Search',      color: 'var(--teal)'   },
+    registry:     { label: 'Registry & Brain Map', color: 'var(--blue)'   },
+    handbooks:    { label: 'Handbooks',             color: 'var(--amber)'  },
+    personalized: { label: 'Personalised',          color: 'var(--rose)'   },
+    brainscan:    { label: 'Brain Scan AI',         color: '#a78bfa'       },
+    builder:      { label: 'Builder',               color: 'var(--green)'  },
   };
 
   const el = document.getElementById('content');
@@ -1332,103 +1372,118 @@ export async function pgProtocolHub(setTopbar, navigate) {
     runSearch();
   }
 
-  // ── BRAIN MAP TAB ────────────────────────────────────────────────────────
-  else if (tab === 'brainmap') {
-    setTopbar('Protocols', '<button class="btn btn-sm" onclick="window._nav(\'brain-map-full\')">Full Brain Map ↗</button>');
-
-    // Standard 10-20 electrode IDs — distinguishes real sites from region
-    // labels like "mPFC" (those become target-region overlays instead).
-    const STD_10_20 = ['Fp1','Fp2','F7','F3','Fz','F4','F8','T7','C3','Cz','C4','T8','P7','P3','Pz','P4','P8','O1','Oz','O2'];
-
-    const MONTAGES = [
-      { id:'tms-mdd-l',    label:'TMS — Left DLPFC Depression',        anode:'F3', cathode:'',   targetRegion:'DLPFC-L', condition:'MDD',  device:'TMS',  ev:'A', notes:'Left DLPFC (F3 approximation). 10 Hz, 120% MT, 3000 pulses/session. 30 sessions.' },
-      { id:'tms-mdd-ithf', label:'TMS — Theta Burst (iTBS) Depression', anode:'F3', cathode:'',   targetRegion:'DLPFC-L', condition:'TRD',  device:'TMS',  ev:'A', notes:'Intermittent TBS. 600 pulses in 3 min. 10× faster than standard TMS.' },
-      { id:'tms-ocd',      label:'TMS — Deep TMS OCD',                  anode:'Fz', cathode:'',   targetRegion:'mPFC',    condition:'OCD',  device:'TMS',  ev:'A', notes:'Deep TMS H7 coil, medial PFC. FDA-cleared for OCD.' },
-      { id:'tdcs-mdd',     label:'tDCS — Anodal DLPFC Depression',      anode:'F3', cathode:'F4', targetRegion:'DLPFC-L', condition:'MDD',  device:'tDCS', ev:'B', notes:'Anode F3, Cathode F4. 2 mA, 30 min. 20 sessions.' },
-      { id:'tdcs-ptsd',    label:'tDCS — Prefrontal PTSD',              anode:'F3', cathode:'F4', targetRegion:'DLPFC-L', condition:'PTSD', device:'tDCS', ev:'B', notes:'Bilateral prefrontal. 2 mA, 20 min.' },
-      { id:'nfb-alpha',    label:'Neurofeedback — Alpha/Theta Anxiety', anode:'Pz', cathode:'',   targetRegion:null,      condition:'GAD',  device:'EEG',  ev:'B', notes:'Alpha/theta uptraining at Pz. 30-40 sessions.' },
-      { id:'nfb-smr',      label:'Neurofeedback — SMR ADHD',            anode:'C3', cathode:'',   targetRegion:null,      condition:'ADHD', device:'EEG',  ev:'B', notes:'SMR uptraining at C3/Cz. 40 sessions.' },
-    ];
-
-    window._bmpMontage = window._bmpMontage || MONTAGES[0].id;
-
-    function renderBrainMap() {
-      const m = MONTAGES.find(x=>x.id===window._bmpMontage)||MONTAGES[0];
-      const evC = { A:'var(--teal)', B:'var(--blue)', C:'var(--amber)' };
-
-      // Only pass anode/cathode to the helper if they map to real 10-20 sites.
-      const anode   = STD_10_20.indexOf(m.anode)   !== -1 ? m.anode   : null;
-      const cathode = STD_10_20.indexOf(m.cathode) !== -1 ? m.cathode : null;
-
-      const svg = renderBrainMap10_20({
-        anode,
-        cathode,
-        targetRegion: m.targetRegion || null,
-        size: 380,
-      });
-
-      const wrap = document.getElementById('bmp-svg-wrap');
-      if (wrap) wrap.innerHTML = svg;
-
-      const out = document.getElementById('bmp-detail');
-      if (out) out.innerHTML = `
-        <div class="bmp-montage-name">${m.label}</div>
-        <div class="bmp-badges">
-          <span class="bmp-badge">${m.condition}</span>
-          <span class="bmp-badge">${m.device}</span>
-          <span class="bmp-badge" style="color:${evC[m.ev]||'var(--text-tertiary)'}">Evidence ${m.ev}</span>
-          ${m.anode?'<span class="bmp-badge bmp-badge--anode">+ '+m.anode+'</span>':''}
-          ${m.cathode?'<span class="bmp-badge bmp-badge--cathode">− '+m.cathode+'</span>':''}
-        </div>
-        <div class="bmp-notes">${m.notes}</div>
-        <div style="display:flex;gap:8px;margin-top:12px">
-          <button class="ch-btn-sm ch-btn-teal" onclick="window._nav('protocol-search-full')">Find More Protocols →</button>
-          <button class="ch-btn-sm" onclick="window._patientHubTab='prescriptions';window._nav('patients-hub')">Prescribe →</button>
-        </div>`;
-    }
-
-    window._bmpSelect = id => {
-      window._bmpMontage = id;
-      document.querySelectorAll('.bmp-montage-btn').forEach(b=>b.classList.toggle('active',b.dataset.id===id));
-      renderBrainMap();
-    };
-
-    el.innerHTML = `
-    <div class="ch-shell">
-      <div class="ch-tab-bar">${tabBar()}</div>
-      <div class="ch-body">
-        <div class="bmp-layout">
-          <div class="bmp-sidebar">
-            <div class="ph-rail-label">Montages</div>
-            ${MONTAGES.map(m => '<button class="bmp-montage-btn ph-cohort-item' + (m.id===window._bmpMontage?' active':'') + '" data-id="' + m.id + '" onclick="window._bmpSelect(\'' + m.id + '\')">' + m.label + '</button>').join('')}
-          </div>
-          <div class="bmp-main">
-            <div id="bmp-svg-wrap" class="bmp-svg-wrap-new"></div>
-            <div class="bmp-legend">
-              <span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:var(--teal);margin-right:5px"></span>Anode / Active</span>
-              <span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#ff6b9d;margin-right:5px"></span>Cathode / Reference</span>
-              <span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:rgba(74,158,255,0.25);border:1px dashed #4a9eff;margin-right:5px"></span>Target region</span>
-            </div>
-          </div>
-          <div class="bmp-detail-panel" id="bmp-detail"></div>
-        </div>
-      </div>
-    </div>`;
-
-    renderBrainMap();
-  }
-
-  // ── REGISTRY TAB ─────────────────────────────────────────────────────────
+  // ── REGISTRY & BRAIN MAP TAB (merged) ─────────────────────────────────────
   else if (tab === 'registry') {
     setTopbar('Protocols', '<button class="btn btn-sm" onclick="window._nav(\'protocol-search-full\')">Full Search ↗</button>');
 
     const MODS = ['All', ...new Set(_protos.map(p=>p.device).filter(Boolean).map(id=>_devices.find(d=>d.id===id)?.label||id))];
     window._regProtoMod = window._regProtoMod || 'All';
-    window._regProtoQ   = '';
+    window._regProtoQ   = window._regProtoQ   || '';
+    window._regSelectedId = window._regSelectedId || MONTAGES[0].id;
+
+    const evC = { A:'var(--teal)', B:'var(--blue)', C:'var(--amber)', D:'var(--text-tertiary)', E:'var(--text-tertiary)' };
+    const _esc = s => String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+
+    // Build a "selection descriptor" for either a montage or a registry protocol.
+    function getSelection(id) {
+      const m = MONTAGES.find(x => x.id === id);
+      if (m) {
+        return {
+          kind: 'montage',
+          id: m.id,
+          name: m.label,
+          condition: m.condition,
+          device: m.device,
+          evidenceGrade: m.ev,
+          sessions: null,
+          anode: m.anode || null,
+          cathode: m.cathode || null,
+          targetRegion: m.targetRegion || null,
+          summary: m.notes || '',
+          protoId: null,
+        };
+      }
+      const p = _protos.find(x => x.id === id);
+      if (p) {
+        const cond = _conditions.find(c=>c.id===p.conditionId);
+        const dev  = _devices.find(d=>d.id===p.device);
+        const inferred = inferElectrodes(p);
+        return {
+          kind: 'protocol',
+          id: p.id,
+          name: p.name || 'Protocol',
+          condition: cond?.label || p.conditionId || '—',
+          device: dev?.label || p.device || '—',
+          evidenceGrade: p.evidenceGrade || '?',
+          sessions: p.sessions || null,
+          anode: inferred.anode || null,
+          cathode: inferred.cathode || null,
+          targetRegion: inferred.targetRegion || null,
+          summary: p.summary || '',
+          protoId: p.id,
+        };
+      }
+      // Fallback to first montage if id unknown (e.g. after filter clears list).
+      const f = MONTAGES[0];
+      return {
+        kind: 'montage', id: f.id, name: f.label, condition: f.condition,
+        device: f.device, evidenceGrade: f.ev, sessions: null,
+        anode: f.anode || null, cathode: f.cathode || null,
+        targetRegion: f.targetRegion || null, summary: f.notes || '', protoId: null,
+      };
+    }
+
+    function renderBrainPanel() {
+      const sel = getSelection(window._regSelectedId);
+      const anode   = sel.anode   && STD_10_20.indexOf(sel.anode)   !== -1 ? sel.anode   : null;
+      const cathode = sel.cathode && STD_10_20.indexOf(sel.cathode) !== -1 ? sel.cathode : null;
+      const svgHtml = renderBrainMap10_20({
+        anode,
+        cathode,
+        targetRegion: sel.targetRegion || null,
+        size: 360,
+        showZones: true,
+        showConnection: true,
+        showEarsAndNose: true,
+      });
+      const wrap = document.getElementById('reg-bmp-svg');
+      if (wrap) wrap.innerHTML = svgHtml;
+
+      const evc = evC[sel.evidenceGrade] || 'var(--text-tertiary)';
+      const detail = document.getElementById('reg-bmp-detail');
+      if (detail) {
+        const fullDetailBtn = sel.protoId
+          ? `<button class="ch-btn-sm" onclick="window._protDetailId='${_esc(sel.protoId)}';window._nav('protocol-detail')">Full detail ↗</button>`
+          : '';
+        detail.innerHTML = `
+          <div class="bmp-montage-name">${_esc(sel.name)}</div>
+          <div class="bmp-badges">
+            <span class="bmp-badge">${_esc(sel.condition)}</span>
+            <span class="bmp-badge">${_esc(sel.device)}</span>
+            <span class="bmp-badge" style="color:${evc}">Evidence ${_esc(sel.evidenceGrade)}</span>
+            ${sel.sessions ? '<span class="bmp-badge">'+_esc(sel.sessions)+' sessions</span>' : ''}
+            ${sel.anode   ? '<span class="bmp-badge bmp-badge--anode">+ '+_esc(sel.anode)+'</span>' : ''}
+            ${sel.cathode ? '<span class="bmp-badge bmp-badge--cathode">− '+_esc(sel.cathode)+'</span>' : ''}
+            ${sel.targetRegion ? '<span class="bmp-badge">◎ '+_esc(sel.targetRegion)+'</span>' : ''}
+          </div>
+          ${sel.summary ? '<div class="bmp-notes">'+_esc(sel.summary)+'</div>' : ''}
+          <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">
+            <button class="ch-btn-sm ch-btn-teal" onclick="window._patientHubTab='prescriptions';window._nav('patients-hub')">Prescribe →</button>
+            ${fullDetailBtn}
+          </div>`;
+      }
+
+      // Reflect active state on list rows and featured montages.
+      document.querySelectorAll('.reg-bmp-row').forEach(r =>
+        r.classList.toggle('active', r.dataset.id === window._regSelectedId));
+      document.querySelectorAll('.bmp-montage-btn').forEach(b =>
+        b.classList.toggle('active', b.dataset.id === window._regSelectedId));
+    }
 
     function renderProtoReg() {
-      const q   = (document.getElementById('reg-proto-q')?.value||'').toLowerCase();
+      const q   = (document.getElementById('reg-proto-q')?.value || '').toLowerCase();
       const mod = window._regProtoMod;
+      window._regProtoQ = q;
       const filtered = _protos.filter(p => {
         const devLabel = _devices.find(d=>d.id===p.device)?.label||p.device||'';
         const matchM = mod==='All' || devLabel===mod;
@@ -1440,52 +1495,92 @@ export async function pgProtocolHub(setTopbar, navigate) {
       if (!out) return;
       const cnt = document.getElementById('reg-proto-count');
       if (cnt) cnt.textContent = filtered.length + ' protocols';
-      const evC = { A:'var(--teal)', B:'var(--blue)', C:'var(--amber)', D:'var(--text-tertiary)' };
 
       out.innerHTML = filtered.slice(0,50).map(p => {
         const cond = _conditions.find(c=>c.id===p.conditionId);
         const dev  = _devices.find(d=>d.id===p.device);
         const evc  = evC[p.evidenceGrade]||'var(--text-tertiary)';
-        return '<div class="reg-row" onclick="window._protDetailId=\'' + (p.id||'') + '\';window._nav(\'protocol-detail\')" style="cursor:pointer">' +
+        const active = p.id === window._regSelectedId ? ' active' : '';
+        return '<div class="reg-row reg-bmp-row' + active + '" data-id="' + _esc(p.id||'') + '" onclick="window._regSelect(\'' + _esc(p.id||'') + '\')" style="cursor:pointer">' +
           '<div class="reg-row-top">' +
-            '<span class="reg-name">' + (p.name||'Protocol') + '</span>' +
-            '<span class="reg-ev" style="color:'+evc+';border-color:'+evc+'44">Ev. '+(p.evidenceGrade||'?')+'</span>' +
-            '<span class="reg-type">'+(dev?.label||p.device||'—')+'</span>' +
-            '<span class="reg-domain" style="margin-left:auto">'+(cond?.label||p.conditionId||'—')+'</span>' +
+            '<span class="reg-name">' + _esc(p.name||'Protocol') + '</span>' +
+            '<span class="reg-ev" style="color:'+evc+';border-color:'+evc+'44">Ev. '+_esc(p.evidenceGrade||'?')+'</span>' +
+            '<span class="reg-type">'+_esc(dev?.label||p.device||'—')+'</span>' +
+            '<span class="reg-domain" style="margin-left:auto">'+_esc(cond?.label||p.conditionId||'—')+'</span>' +
           '</div>' +
-          (p.summary ? '<div class="reg-full">' + p.summary.slice(0,120) + (p.summary.length>120?'…':'') + '</div>' : '') +
+          (p.summary ? '<div class="reg-full">' + _esc(p.summary.slice(0,120)) + (p.summary.length>120?'…':'') + '</div>' : '') +
           '<div class="reg-meta">' +
-            (p.sessions ? '<span>'+p.sessions+' sessions</span>' : '') +
+            (p.sessions ? '<span>'+_esc(p.sessions)+' sessions</span>' : '') +
             (p.governance?.length ? '<span>⚖ Governance</span>' : '') +
           '</div>' +
         '</div>';
       }).join('') || '<div class="ch-empty">No protocols found.</div>';
     }
 
-    window._regProtoSetMod = m => { window._regProtoMod=m; document.querySelectorAll('.reg-mod-pill').forEach(b=>b.classList.toggle('active',b.dataset.mod===m)); renderProtoReg(); };
-    window._regProtoSearch = renderProtoReg;
+    window._regSelect = id => {
+      window._regSelectedId = id;
+      renderBrainPanel();
+    };
+    window._regProtoSetMod = m => {
+      window._regProtoMod = m;
+      document.querySelectorAll('.reg-mod-pill').forEach(b=>b.classList.toggle('active', b.dataset.mod===m));
+      renderProtoReg();
+      renderBrainPanel();
+    };
+    window._regProtoSearch = () => { renderProtoReg(); renderBrainPanel(); };
+
+    const featuredHtml = MONTAGES.map(m =>
+      '<button class="bmp-montage-btn ph-cohort-item' + (m.id===window._regSelectedId?' active':'') + '" data-id="' + _esc(m.id) + '" onclick="window._regSelect(\'' + _esc(m.id) + '\')">' + _esc(m.label) + '</button>'
+    ).join('');
 
     el.innerHTML = `
     <div class="ch-shell">
       <div class="ch-tab-bar">${tabBar()}</div>
       <div class="ch-body">
-        <div class="ch-card">
-          <div class="ch-card-hd" style="flex-wrap:wrap;gap:10px">
-            <span class="ch-card-title">Protocol Registry</span>
-            <span id="reg-proto-count" style="font-size:11.5px;color:var(--text-tertiary)">${_protos.length} protocols</span>
-            <div style="position:relative;flex:1;max-width:260px;margin-left:auto">
-              <input id="reg-proto-q" type="text" placeholder="Search…" class="ph-search-input" oninput="window._regProtoSearch()">
-              <svg viewBox="0 0 24 24" style="position:absolute;left:9px;top:50%;transform:translateY(-50%);width:13px;height:13px;stroke:var(--text-tertiary);fill:none;stroke-width:2;stroke-linecap:round;pointer-events:none"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+        <div class="reg-bmp-layout">
+          <div class="reg-bmp-left">
+            <div class="ch-card">
+              <div class="ch-card-hd" style="flex-wrap:wrap;gap:10px">
+                <span class="ch-card-title">Protocol Registry</span>
+                <span id="reg-proto-count" style="font-size:11.5px;color:var(--text-tertiary)">${_protos.length} protocols</span>
+                <div style="position:relative;flex:1;max-width:260px;margin-left:auto">
+                  <input id="reg-proto-q" type="text" placeholder="Search…" class="ph-search-input" value="${_esc(window._regProtoQ)}" oninput="window._regProtoSearch()">
+                  <svg viewBox="0 0 24 24" style="position:absolute;left:9px;top:50%;transform:translateY(-50%);width:13px;height:13px;stroke:var(--text-tertiary);fill:none;stroke-width:2;stroke-linecap:round;pointer-events:none"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+                </div>
+              </div>
+              <div style="padding:10px 16px;display:flex;gap:6px;flex-wrap:wrap;border-bottom:1px solid var(--border)">
+                ${MODS.map(m=>'<button class="reg-mod-pill reg-domain-pill'+(m===window._regProtoMod?' active':'')+'" data-mod="'+_esc(m)+'" onclick="window._regProtoSetMod(\''+_esc(m)+'\')">'+_esc(m)+'</button>').join('')}
+              </div>
+              <div style="padding:12px 16px 4px;display:flex;align-items:center;gap:8px">
+                <span class="ph-rail-label" style="margin:0">Featured Montages</span>
+                <span style="flex:1;height:1px;background:rgba(255,255,255,0.05)"></span>
+              </div>
+              <div style="padding:0 12px 10px;display:flex;flex-wrap:wrap;gap:6px">
+                ${featuredHtml}
+              </div>
+              <div style="padding:8px 16px 4px;display:flex;align-items:center;gap:8px;border-top:1px solid rgba(255,255,255,0.04)">
+                <span class="ph-rail-label" style="margin:0">Full Registry</span>
+                <span style="flex:1;height:1px;background:rgba(255,255,255,0.05)"></span>
+              </div>
+              <div id="reg-proto-list" style="max-height:calc(100vh - 380px);overflow-y:auto"></div>
             </div>
           </div>
-          <div style="padding:10px 16px;display:flex;gap:6px;flex-wrap:wrap;border-bottom:1px solid var(--border)">
-            ${MODS.map(m=>'<button class="reg-mod-pill reg-domain-pill'+(m===window._regProtoMod?' active':'')+'" data-mod="'+m+'" onclick="window._regProtoSetMod(\''+m+'\')">'+m+'</button>').join('')}
+          <div class="reg-bmp-right">
+            <div class="ch-card" style="padding:16px;display:flex;flex-direction:column;align-items:center;gap:10px">
+              <div id="reg-bmp-svg" class="bmp-svg-wrap-new" style="width:100%;display:flex;justify-content:center"></div>
+              <div class="bmp-legend">
+                <span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:var(--teal);margin-right:5px"></span>Anode</span>
+                <span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#ff6b9d;margin-right:5px"></span>Cathode</span>
+                <span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:rgba(74,158,255,0.25);border:1px dashed #4a9eff;margin-right:5px"></span>Target</span>
+              </div>
+            </div>
+            <div class="ch-card bmp-detail-panel" id="reg-bmp-detail" style="margin-top:12px;padding:16px"></div>
           </div>
-          <div id="reg-proto-list" style="max-height:calc(100vh - 280px);overflow-y:auto"></div>
         </div>
       </div>
     </div>`;
     renderProtoReg();
+    renderBrainPanel();
   }
 
   // ── HANDBOOKS TAB ─────────────────────────────────────────────────────────
