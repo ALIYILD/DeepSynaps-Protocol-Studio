@@ -519,15 +519,21 @@ export function pgHome() {
   `;
 
   // ── Live evidence counts for the landing Evidence Matrix header ──────────────
-  // Hits /api/v1/evidence/health. If the call fails (unauth'd, offline, or DB
+  // Hits /api/v1/evidence/stats. If the call fails (unauth'd, offline, or DB
   // not ingested yet) we silently keep the baked-in fallback numbers.
+  // NOTE: the browser itself logs "Failed to load resource: 500" on non-2xx
+  // responses and that cannot be suppressed from JS — but our own code must
+  // never emit console.error/console.warn on this path.
   (async () => {
     try {
       const res = await fetch('/api/v1/evidence/stats', {
         headers: { 'Accept': 'application/json' },
         cache: 'no-store',
       });
-      if (!res.ok) return;
+      if (!res.ok) {
+        console.debug('[evidence/stats] non-OK response; using fallback', res.status);
+        return;
+      }
       const body = await res.json();
       const c = (body && body.counts) || {};
       const fmt = n => Number(n).toLocaleString('en-US');
@@ -545,7 +551,10 @@ export function pgHome() {
       };
       setStrip('strip-stat-papers', c.papers, '+');
       setStrip('strip-stat-trials', c.trials, '');
-    } catch (_) { /* keep fallback */ }
+    } catch (_) {
+      // Silently keep fallback numbers; console.debug is filtered by default.
+      console.debug('[evidence/stats] fetch failed; using fallback');
+    }
   })();
 
   // ── FAQ accordion ──────────────────────────────────────────────────────────
