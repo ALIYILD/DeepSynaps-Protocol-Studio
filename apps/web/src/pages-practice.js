@@ -1,5 +1,6 @@
 import { cardWrap, fr, pillSt, tag, initials, spinner } from './helpers.js';
 import { api } from './api.js';
+import { LOCALES, setLocale, getLocale } from './i18n.js';
 
 // ── Scheduling ────────────────────────────────────────────────────────────────
 export function pgSchedule(setTopbar) {
@@ -1079,6 +1080,98 @@ export async function pgSettings(setTopbar, currentUser) {
 
   const escAttr = (s) => String(s || '').replace(/"/g, '&quot;').replace(/</g, '&lt;');
 
+  // ── Notification preferences (localStorage-backed) ─────────────────────────
+  // TODO: add api.updateNotificationPrefs() endpoint — localStorage for now
+  const DEFAULT_NOTIF_PREFS = {
+    sessionReminders:   { email: true,  inapp: true,  telegram: false },
+    protocolAlerts:     { email: false, inapp: true,  telegram: false },
+    adverseEventAlerts: { email: true,  inapp: true,  telegram: true  },
+    reviewQueueDigest:  { email: false, inapp: true,  telegram: false },
+    weeklySummary:      { email: true,  inapp: false, telegram: false },
+    patientMessages:    { email: false, inapp: true,  telegram: false },
+    systemUpdates:      { email: false, inapp: true,  telegram: false },
+  };
+  let notifPrefs = { ...DEFAULT_NOTIF_PREFS };
+  try {
+    const raw = lsGet('ds_notification_prefs');
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === 'object') {
+        notifPrefs = { ...DEFAULT_NOTIF_PREFS };
+        for (const k of Object.keys(DEFAULT_NOTIF_PREFS)) {
+          if (parsed[k] && typeof parsed[k] === 'object') {
+            notifPrefs[k] = { ...DEFAULT_NOTIF_PREFS[k], ...parsed[k] };
+          }
+        }
+      }
+    }
+  } catch {}
+
+  const DEFAULT_QUIET_HOURS = { enabled: false, from: '22:00', to: '07:00' };
+  let quietHours = { ...DEFAULT_QUIET_HOURS };
+  try {
+    const raw = lsGet('ds_quiet_hours');
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === 'object') quietHours = { ...DEFAULT_QUIET_HOURS, ...parsed };
+    }
+  } catch {}
+
+  const digestFreq = lsGet('ds_digest_freq') || 'daily';
+
+  const REMINDER_SLOTS = [
+    { id: '24h',      label: '24h before' },
+    { id: '2h',       label: '2h before' },
+    { id: '15min',    label: '15min before' },
+    { id: 'day-of',   label: 'Day-of morning summary' },
+  ];
+  const DEFAULT_REMINDER_TIMING = ['24h', '2h'];
+  let reminderTiming = [...DEFAULT_REMINDER_TIMING];
+  try {
+    const raw = lsGet('ds_reminder_timing');
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) reminderTiming = parsed.filter(x => REMINDER_SLOTS.some(s => s.id === x));
+    }
+  } catch {}
+
+  // ── User Preferences (localStorage-backed) ──────────────────────────────────
+  // TODO: add api.updateUserPreferences() endpoint — localStorage for now
+  const currentLocale = (() => { try { return getLocale() || 'en'; } catch { return 'en'; } })();
+  const dateFormat    = lsGet('ds_date_format')    || 'ISO';
+  const timeFormat    = lsGet('ds_time_format')    || '24h';
+  const firstDay      = lsGet('ds_first_day')      || 'monday';
+  const measureUnits  = lsGet('ds_units')          || 'metric';
+  const autoDetectedNumberFormat = (() => {
+    try {
+      const parts = new Intl.NumberFormat(navigator.language || 'en-US').formatToParts(1234.56);
+      const group = parts.find(p => p.type === 'group')?.value || ',';
+      const decimal = parts.find(p => p.type === 'decimal')?.value || '.';
+      if (group === ' ' || group === '\u202f' || group === '\u00a0') return 'FR';
+      if (group === '.' && decimal === ',') return 'EU';
+      return 'US';
+    } catch { return 'US'; }
+  })();
+  const numberFormat = lsGet('ds_number_format') || autoDetectedNumberFormat;
+  const sessionDefaultDuration = lsGet('ds_session_default_duration') || '45';
+  const autoLogout = lsGet('ds_auto_logout') || '30';
+
+  const NOTIF_EVENTS = [
+    { id: 'sessionReminders',   label: 'Session Reminders'   },
+    { id: 'protocolAlerts',     label: 'Protocol Alerts'     },
+    { id: 'adverseEventAlerts', label: 'Adverse Event Alerts'},
+    { id: 'reviewQueueDigest',  label: 'Review Queue Digest' },
+    { id: 'weeklySummary',      label: 'Weekly Summary'      },
+    { id: 'patientMessages',    label: 'Patient Messages'    },
+    { id: 'systemUpdates',      label: 'System Updates'      },
+  ];
+  const NOTIF_CHANNELS = [
+    { id: 'email',    label: 'Email',    always: true },
+    { id: 'inapp',    label: 'In-App',   always: true },
+    { id: 'telegram', label: 'Telegram', always: false },
+  ];
+  const telegramLinked = !!telegramCode;
+
   el.innerHTML = `
     <!-- Account Section (editable) -->
     <div class="card" style="margin-bottom:16px">
@@ -1352,12 +1445,76 @@ export async function pgSettings(setTopbar, currentUser) {
         <span style="font-size:13px;font-weight:600;color:var(--text-primary)">Notifications</span>
       </div>
       <div class="card-body">
-        ${[
-          ['Session Reminders', '24h + 2h before'],
-          ['Protocol Alerts',  'Enabled'],
-          ['AE Alerts',        'Immediate (Telegram + email)'],
-          ['Review Queue',     'Daily digest'],
-        ].map(([k, v]) => fr(k, v)).join('')}
+        <!-- Channel × Event matrix -->
+        <div style="overflow-x:auto">
+          <table style="width:100%;border-collapse:collapse;font-size:12.5px">
+            <thead>
+              <tr style="text-align:left;color:var(--text-secondary)">
+                <th style="padding:8px;font-weight:500">Event</th>
+                ${NOTIF_CHANNELS.map(ch => `<th style="padding:8px;font-weight:500;text-align:center;${!ch.always && !telegramLinked ? 'opacity:.5' : ''}">${escAttr(ch.label)}${!ch.always && !telegramLinked ? ' <span style="font-size:10px;color:var(--text-tertiary);font-weight:400">(link to enable)</span>' : ''}</th>`).join('')}
+              </tr>
+            </thead>
+            <tbody id="notif-matrix-body">
+              ${NOTIF_EVENTS.map(ev => `
+                <tr data-event="${ev.id}" style="border-top:1px solid var(--border)">
+                  <td style="padding:10px 8px;color:var(--text-primary)">${escAttr(ev.label)}</td>
+                  ${NOTIF_CHANNELS.map(ch => {
+                    const disabled = !ch.always && !telegramLinked;
+                    const checked = !!(notifPrefs[ev.id] && notifPrefs[ev.id][ch.id]);
+                    return `<td style="padding:10px 8px;text-align:center">
+                      <input type="checkbox" class="notif-cell" data-event="${ev.id}" data-channel="${ch.id}" ${checked ? 'checked' : ''} ${disabled ? 'disabled' : ''}>
+                    </td>`;
+                  }).join('')}
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        </div>
+        <div id="notif-matrix-msg" style="font-size:11px;color:var(--text-tertiary);margin-top:6px;min-height:14px"></div>
+
+        <!-- Quiet Hours -->
+        ${cardWrap('🌙 Quiet Hours', `
+          <div style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap">
+            <div class="form-group" style="margin:0">
+              <label class="form-label" for="quiet-from">From</label>
+              <input type="time" id="quiet-from" class="form-control" value="${escAttr(quietHours.from)}" style="max-width:140px">
+            </div>
+            <div class="form-group" style="margin:0">
+              <label class="form-label" for="quiet-to">To</label>
+              <input type="time" id="quiet-to" class="form-control" value="${escAttr(quietHours.to)}" style="max-width:140px">
+            </div>
+            <label style="display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--text-primary);margin-bottom:6px">
+              <input type="checkbox" id="quiet-enabled" ${quietHours.enabled ? 'checked' : ''}>
+              Respect quiet hours (defer non-urgent)
+            </label>
+          </div>
+          <div style="margin-top:10px;font-size:11.5px;color:var(--text-tertiary)">AE alerts and emergencies bypass quiet hours.</div>
+        `)}
+
+        <!-- Digest Frequency -->
+        ${cardWrap('📰 Digest Frequency', `
+          <div style="display:flex;gap:16px;flex-wrap:wrap">
+            ${[['daily','Daily'],['weekly','Weekly'],['off','Off']].map(([v,l]) => `
+              <label style="display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--text-primary);cursor:pointer">
+                <input type="radio" name="digest-freq" value="${v}" ${digestFreq === v ? 'checked' : ''}>
+                ${l}
+              </label>
+            `).join('')}
+          </div>
+        `)}
+
+        <!-- Session Reminder Timing -->
+        ${cardWrap('⏰ Session Reminder Timing', `
+          <div style="display:flex;gap:8px;flex-wrap:wrap" id="reminder-chip-wrap">
+            ${REMINDER_SLOTS.map(s => {
+              const on = reminderTiming.includes(s.id);
+              return `<button type="button" class="btn btn-sm reminder-chip" data-slot="${s.id}" data-on="${on ? '1' : '0'}" style="padding:5px 12px;${on ? 'background:rgba(0,212,188,0.12);border-color:var(--border-teal);color:var(--teal)' : ''}">${on ? '✓ ' : ''}${escAttr(s.label)}</button>`;
+            }).join('')}
+          </div>
+          <div style="margin-top:8px;font-size:11.5px;color:var(--text-tertiary)">Select one or more reminder slots. Empty = no reminders.</div>
+        `)}
+
+        <!-- Telegram Integration (preserved) -->
         ${cardWrap('Telegram Integration',
           telegramCode
             ? fr('Link Code', `<code style="font-family:var(--font-mono);font-size:14px;color:var(--teal);background:rgba(0,212,188,0.08);padding:4px 10px;border-radius:4px;letter-spacing:2px">${telegramCode}</code>`) +
@@ -1368,6 +1525,120 @@ export async function pgSettings(setTopbar, currentUser) {
             : fr('Status', '<span style="color:var(--text-tertiary)">Telegram service unavailable</span>') +
               fr('Setup', '<span style="font-size:11.5px;color:var(--text-secondary)">Configure TELEGRAM_BOT_TOKEN in environment to enable</span>')
         )}
+      </div>
+    </div>
+
+    <!-- Preferences Section -->
+    <div class="card" style="margin-bottom:16px">
+      <div class="card-header" style="padding:12px 20px;border-bottom:1px solid var(--border)">
+        <span style="font-size:13px;font-weight:600;color:var(--text-primary)">Preferences</span>
+      </div>
+      <div class="card-body">
+        <!-- Language -->
+        <div class="form-group">
+          <label class="form-label" for="pref-language">Language</label>
+          <select id="pref-language" class="form-control">
+            ${Object.entries(LOCALES).map(([code, label]) => `<option value="${escAttr(code)}" ${code === currentLocale ? 'selected' : ''}>${escAttr(label)}</option>`).join('')}
+          </select>
+          <div style="font-size:11px;color:var(--text-tertiary);margin-top:4px">Changing language reloads the app so all labels update.</div>
+        </div>
+
+        <!-- Date Format -->
+        <div class="form-group">
+          <label class="form-label">Date Format</label>
+          <div style="display:flex;gap:16px;flex-wrap:wrap">
+            ${[
+              ['ISO','ISO (2026-04-17)'],
+              ['US', 'US (04/17/2026)'],
+              ['EU', 'EU (17/04/2026)'],
+            ].map(([v,l]) => `
+              <label style="display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--text-primary);cursor:pointer">
+                <input type="radio" name="pref-date-format" value="${v}" ${dateFormat === v ? 'checked' : ''}>
+                ${l}
+              </label>
+            `).join('')}
+          </div>
+        </div>
+
+        <!-- Time Format -->
+        <div class="form-group">
+          <label class="form-label">Time Format</label>
+          <div style="display:flex;gap:16px;flex-wrap:wrap">
+            ${[['24h','24-hour'],['12h','12-hour']].map(([v,l]) => `
+              <label style="display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--text-primary);cursor:pointer">
+                <input type="radio" name="pref-time-format" value="${v}" ${timeFormat === v ? 'checked' : ''}>
+                ${l}
+              </label>
+            `).join('')}
+          </div>
+        </div>
+
+        <!-- First Day of Week -->
+        <div class="form-group">
+          <label class="form-label">First Day of Week</label>
+          <div style="display:flex;gap:16px;flex-wrap:wrap">
+            ${[['monday','Monday'],['sunday','Sunday']].map(([v,l]) => `
+              <label style="display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--text-primary);cursor:pointer">
+                <input type="radio" name="pref-first-day" value="${v}" ${firstDay === v ? 'checked' : ''}>
+                ${l}
+              </label>
+            `).join('')}
+          </div>
+        </div>
+
+        <!-- Measurement Units -->
+        <div class="form-group">
+          <label class="form-label">Measurement Units</label>
+          <div style="display:flex;gap:16px;flex-wrap:wrap">
+            ${[['metric','Metric (kg, cm)'],['imperial','Imperial (lb, in)']].map(([v,l]) => `
+              <label style="display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--text-primary);cursor:pointer">
+                <input type="radio" name="pref-units" value="${v}" ${measureUnits === v ? 'checked' : ''}>
+                ${l}
+              </label>
+            `).join('')}
+          </div>
+        </div>
+
+        <!-- Number Format -->
+        <div class="form-group">
+          <label class="form-label">Number Format</label>
+          <div style="display:flex;gap:16px;flex-wrap:wrap">
+            ${[
+              ['US','1,234.56 (US)'],
+              ['EU','1.234,56 (EU)'],
+              ['FR','1 234,56 (FR)'],
+            ].map(([v,l]) => `
+              <label style="display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--text-primary);cursor:pointer">
+                <input type="radio" name="pref-number-format" value="${v}" ${numberFormat === v ? 'checked' : ''}>
+                ${l}
+              </label>
+            `).join('')}
+          </div>
+          <div style="font-size:11px;color:var(--text-tertiary);margin-top:4px">Auto-detected from browser: ${escAttr(autoDetectedNumberFormat)}.</div>
+        </div>
+
+        <!-- Session Default Duration -->
+        <div class="form-group">
+          <label class="form-label" for="pref-session-duration">Session Default Duration (minutes)</label>
+          <input type="number" id="pref-session-duration" class="form-control" value="${escAttr(sessionDefaultDuration)}" min="5" max="240" step="5" style="max-width:160px">
+        </div>
+
+        <!-- Auto-logout -->
+        <div class="form-group">
+          <label class="form-label" for="pref-auto-logout">Auto-logout after inactivity</label>
+          <select id="pref-auto-logout" class="form-control" style="max-width:220px">
+            ${[
+              ['never','Never'],
+              ['15','15 min'],
+              ['30','30 min'],
+              ['60','1 hour'],
+              ['240','4 hours'],
+            ].map(([v,l]) => `<option value="${v}" ${autoLogout === v ? 'selected' : ''}>${l}</option>`).join('')}
+          </select>
+          <div style="font-size:11px;color:var(--text-tertiary);margin-top:4px">TODO: wire ds_auto_logout to idle-session watchdog</div>
+        </div>
+
+        <div id="pref-save-msg" style="font-size:11.5px;color:var(--text-tertiary);margin-top:6px;min-height:14px"></div>
       </div>
     </div>
 
@@ -2026,6 +2297,123 @@ export async function pgSettings(setTopbar, currentUser) {
     if (msgEl)   { msgEl.textContent = ''; msgEl.style.color = 'var(--text-secondary)'; }
     // TODO: replace alert with in-app toast (already using toast helper when available)
     toast(`Invite sent to ${email}.`);
+  });
+
+  // ── Notifications wiring ───────────────────────────────────────────────────
+  // TODO: add api.updateNotificationPrefs() endpoint — localStorage for now
+  const persistNotifPrefs = () => {
+    try { localStorage.setItem('ds_notification_prefs', JSON.stringify(notifPrefs)); } catch {}
+  };
+  const notifMsg = document.getElementById('notif-matrix-msg');
+  const flashNotifSaved = () => {
+    if (!notifMsg) return;
+    notifMsg.textContent = 'Saved.';
+    notifMsg.style.color = 'var(--teal)';
+    clearTimeout(flashNotifSaved._t);
+    flashNotifSaved._t = setTimeout(() => { notifMsg.textContent = ''; notifMsg.style.color = 'var(--text-tertiary)'; }, 1400);
+  };
+  document.querySelectorAll('.notif-cell').forEach(box => {
+    box.addEventListener('change', () => {
+      const ev = box.getAttribute('data-event');
+      const ch = box.getAttribute('data-channel');
+      if (!ev || !ch) return;
+      if (!notifPrefs[ev]) notifPrefs[ev] = { email: false, inapp: false, telegram: false };
+      notifPrefs[ev][ch] = box.checked;
+      persistNotifPrefs();
+      flashNotifSaved();
+    });
+  });
+
+  const persistQuiet = () => {
+    try { localStorage.setItem('ds_quiet_hours', JSON.stringify(quietHours)); } catch {}
+  };
+  const quietFrom    = document.getElementById('quiet-from');
+  const quietTo      = document.getElementById('quiet-to');
+  const quietEnabled = document.getElementById('quiet-enabled');
+  if (quietFrom)    quietFrom.addEventListener('change',    () => { quietHours.from    = quietFrom.value || '22:00'; persistQuiet(); });
+  if (quietTo)      quietTo.addEventListener('change',      () => { quietHours.to      = quietTo.value   || '07:00'; persistQuiet(); });
+  if (quietEnabled) quietEnabled.addEventListener('change', () => { quietHours.enabled = !!quietEnabled.checked;    persistQuiet(); });
+
+  document.querySelectorAll('input[name="digest-freq"]').forEach(r => {
+    r.addEventListener('change', () => {
+      if (r.checked) { try { localStorage.setItem('ds_digest_freq', r.value); } catch {} }
+    });
+  });
+
+  const persistReminderTiming = () => {
+    try { localStorage.setItem('ds_reminder_timing', JSON.stringify(reminderTiming)); } catch {}
+  };
+  document.querySelectorAll('.reminder-chip').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const slot = btn.getAttribute('data-slot');
+      if (!slot) return;
+      const idx = reminderTiming.indexOf(slot);
+      const turningOn = idx === -1;
+      if (turningOn) reminderTiming.push(slot);
+      else reminderTiming.splice(idx, 1);
+      persistReminderTiming();
+      // Update visual state
+      const label = REMINDER_SLOTS.find(s => s.id === slot)?.label || slot;
+      btn.setAttribute('data-on', turningOn ? '1' : '0');
+      btn.textContent = `${turningOn ? '✓ ' : ''}${label}`;
+      btn.style.cssText = `padding:5px 12px;${turningOn ? 'background:rgba(0,212,188,0.12);border-color:var(--border-teal);color:var(--teal)' : ''}`;
+      btn.className = 'btn btn-sm reminder-chip';
+    });
+  });
+
+  // ── Preferences wiring ─────────────────────────────────────────────────────
+  // TODO: add api.updateUserPreferences() endpoint — localStorage for now
+  const prefMsg = document.getElementById('pref-save-msg');
+  const flashPrefSaved = () => {
+    if (!prefMsg) return;
+    prefMsg.textContent = 'Saved.';
+    prefMsg.style.color = 'var(--teal)';
+    clearTimeout(flashPrefSaved._t);
+    flashPrefSaved._t = setTimeout(() => { prefMsg.textContent = ''; prefMsg.style.color = 'var(--text-tertiary)'; }, 1400);
+  };
+
+  const langSel = document.getElementById('pref-language');
+  if (langSel) langSel.addEventListener('change', () => {
+    const code = langSel.value;
+    try { localStorage.setItem('ds_lang', code); } catch {}
+    try {
+      if (typeof setLocale === 'function') setLocale(code);
+    } catch {}
+    flashPrefSaved();
+    // Reload so every label updates consistently
+    setTimeout(() => { try { window.location.reload(); } catch {} }, 300);
+  });
+
+  document.querySelectorAll('input[name="pref-date-format"]').forEach(r => {
+    r.addEventListener('change', () => { if (r.checked) { try { localStorage.setItem('ds_date_format', r.value); } catch {} flashPrefSaved(); } });
+  });
+  document.querySelectorAll('input[name="pref-time-format"]').forEach(r => {
+    r.addEventListener('change', () => { if (r.checked) { try { localStorage.setItem('ds_time_format', r.value); } catch {} flashPrefSaved(); } });
+  });
+  document.querySelectorAll('input[name="pref-first-day"]').forEach(r => {
+    r.addEventListener('change', () => { if (r.checked) { try { localStorage.setItem('ds_first_day', r.value); } catch {} flashPrefSaved(); } });
+  });
+  document.querySelectorAll('input[name="pref-units"]').forEach(r => {
+    r.addEventListener('change', () => { if (r.checked) { try { localStorage.setItem('ds_units', r.value); } catch {} flashPrefSaved(); } });
+  });
+  document.querySelectorAll('input[name="pref-number-format"]').forEach(r => {
+    r.addEventListener('change', () => { if (r.checked) { try { localStorage.setItem('ds_number_format', r.value); } catch {} flashPrefSaved(); } });
+  });
+
+  const durInput = document.getElementById('pref-session-duration');
+  if (durInput) durInput.addEventListener('change', () => {
+    const n = parseInt(durInput.value, 10);
+    if (Number.isFinite(n) && n >= 5 && n <= 240) {
+      try { localStorage.setItem('ds_session_default_duration', String(n)); } catch {}
+      flashPrefSaved();
+    }
+  });
+
+  const autoLogoutSel = document.getElementById('pref-auto-logout');
+  if (autoLogoutSel) autoLogoutSel.addEventListener('change', () => {
+    // TODO: wire ds_auto_logout to idle-session watchdog
+    try { localStorage.setItem('ds_auto_logout', autoLogoutSel.value); } catch {}
+    flashPrefSaved();
   });
 }
 
