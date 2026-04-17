@@ -827,6 +827,26 @@ export const api = {
 
   // ── Patient outcomes (portal alias) ─────────────────────────────────────
   patientOutcomes: () => apiFetch('/api/v1/patient-portal/outcomes'),
+
+  // ── Leads & Reception ──────────────────────────────────────────────────
+  listLeads: (params = {}) => {
+    const q = new URLSearchParams(params).toString();
+    return apiFetchWithRetry(`/api/v1/leads${q ? '?' + q : ''}`);
+  },
+  createLead: (data) => apiFetchWithRetry('/api/v1/leads', { method: 'POST', body: JSON.stringify(data) }),
+  updateLead: (id, data) => apiFetchWithRetry(`/api/v1/leads/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  deleteLead: (id) => apiFetchWithRetry(`/api/v1/leads/${id}`, { method: 'DELETE' }),
+  listReceptionCalls: (params = {}) => {
+    const q = new URLSearchParams(params).toString();
+    return apiFetchWithRetry(`/api/v1/reception/calls${q ? '?' + q : ''}`);
+  },
+  createReceptionCall: (data) => apiFetchWithRetry('/api/v1/reception/calls', { method: 'POST', body: JSON.stringify(data) }),
+  listReceptionTasks: (params = {}) => {
+    const q = new URLSearchParams(params).toString();
+    return apiFetchWithRetry(`/api/v1/reception/tasks${q ? '?' + q : ''}`);
+  },
+  createReceptionTask: (data) => apiFetchWithRetry('/api/v1/reception/tasks', { method: 'POST', body: JSON.stringify(data) }),
+  updateReceptionTask: (id, data) => apiFetchWithRetry(`/api/v1/reception/tasks/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
 };
 
 // Home program task mutation helpers (for web + future mobile/other bundles importing from `api.js`).

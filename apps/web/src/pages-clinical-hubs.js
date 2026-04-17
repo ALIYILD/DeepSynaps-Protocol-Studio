@@ -2196,6 +2196,7 @@ export async function pgSchedulingHub(setTopbar, navigate) {
     notes: s.session_notes || '',
     room_id: s.room_id || '',
     device_id: s.device_id || '',
+    recurrence_group: s.recurrence_group || '',
     _from_api: true,
   });
 
@@ -2207,17 +2208,52 @@ export async function pgSchedulingHub(setTopbar, navigate) {
     session_notes: f.notes || '',
   });
 
-  // ── Fetch appointments from real API, fall back to localStorage ─────────────
+  // ── Fetch appointments, leads, calls, tasks from API (parallel) ────────────
   let _apiFetchOk = false;
   let _apiFetchErr = '';
   try {
-    const res = await api.listSessions();
-    const apiApts = (res?.items || []).map(_backendToFrontend);
-    if (apiApts.length > 0) {
-      data.appointments = apiApts;
-      _saveSched(data);
+    const [sessRes, leadsRes, callsRes, tasksRes] = await Promise.allSettled([
+      api.listSessions(),
+      api.listLeads(),
+      api.listReceptionCalls(),
+      api.listReceptionTasks(),
+    ]);
+    // Appointments
+    if (sessRes.status === 'fulfilled') {
+      const apiApts = (sessRes.value?.items || []).map(_backendToFrontend);
+      if (apiApts.length > 0) { data.appointments = apiApts; }
+      _apiFetchOk = true;
+    } else {
+      _apiFetchErr = sessRes.reason?.message || 'Could not reach scheduling API';
     }
-    _apiFetchOk = true;
+    // Leads
+    if (leadsRes.status === 'fulfilled') {
+      const apiLeads = (leadsRes.value?.items || []).map(l => ({
+        id: l.id, name: l.name, email: l.email || '', phone: l.phone || '',
+        source: l.source || 'phone', condition: l.condition || '', stage: l.stage || 'new',
+        notes: l.notes || '', created: (l.created_at || '').slice(0,10), follow_up: l.follow_up || '',
+        _from_api: true,
+      }));
+      if (apiLeads.length > 0) { data.leads = apiLeads; }
+    }
+    // Calls
+    if (callsRes.status === 'fulfilled') {
+      const apiCalls = (callsRes.value?.items || []).map(c => ({
+        id: c.id, name: c.name, phone: c.phone || '', direction: c.direction || 'inbound',
+        duration: c.duration || 0, outcome: c.outcome || 'info-given', notes: c.notes || '',
+        time: c.call_time || '', date: c.call_date || '', _from_api: true,
+      }));
+      if (apiCalls.length > 0) { data.calls = apiCalls; }
+    }
+    // Tasks
+    if (tasksRes.status === 'fulfilled') {
+      const apiTasks = (tasksRes.value?.items || []).map(t => ({
+        id: t.id, text: t.text, due: t.due || '', done: !!t.done,
+        priority: t.priority || 'medium', _from_api: true,
+      }));
+      if (apiTasks.length > 0) { data.tasks = apiTasks; }
+    }
+    _saveSched(data);
   } catch (err) {
     _apiFetchErr = err?.message || 'Could not reach scheduling API';
   }
@@ -2341,7 +2377,7 @@ export async function pgSchedulingHub(setTopbar, navigate) {
               return '<div class="cal-apt" tabindex="0" role="button" aria-label="'+a.patient_name+' '+a.time+' '+c.label+'" onkeydown="if(event.key===\'Enter\'||event.key===\' \'){event.preventDefault();this.click()}" style="background:'+c.bg+';border-left:3px solid '+c.border+'" onclick="event.stopPropagation();window._schedViewApt(\''+a.id+'\')">'+
                 '<div class="cal-apt-time" style="display:flex;align-items:center;gap:4px"><span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:'+sDot+';flex-shrink:0"></span>'+a.time+' · '+a.duration+'m</div>'+
                 '<div class="cal-apt-name" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="'+a.patient_name+'">'+truncName+'</div>'+
-                '<div class="cal-apt-type"><span style="font-size:9px;font-weight:700;letter-spacing:.4px;text-transform:uppercase;padding:1px 5px;border-radius:3px;background:'+c.border+'22;color:'+c.border+'">'+c.label+'</span></div>'+
+                '<div class="cal-apt-type"><span style="font-size:9px;font-weight:700;letter-spacing:.4px;text-transform:uppercase;padding:1px 5px;border-radius:3px;background:'+c.border+'22;color:'+c.border+'">'+c.label+'</span>'+(a.recurrence_group?'<span title="Recurring appointment" style="margin-left:4px;font-size:11px;color:var(--text-tertiary);cursor:default">\u21BB</span>':'')+'</div>'+
                 ((a.room_id||a.device_id)?'<div style="font-size:9px;color:var(--text-tertiary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+(a.room_id||'')+(a.room_id&&a.device_id?' · ':'')+(a.device_id||'')+'</div>':'')+
               '</div>';
             }).join('')+
@@ -2390,9 +2426,32 @@ export async function pgSchedulingHub(setTopbar, navigate) {
         warnEl.innerHTML='<strong>Conflicts detected:</strong><br>'+conflicts.join('<br>')+'<br><label style="margin-top:6px;display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" onchange="document.getElementById(\'sched-conflict-warn\').dataset.overridden=this.checked?\'1\':\'\'"> Proceed despite conflicts</label>';
         return;
       }
-      data.appointments.push({id:'APT-'+Date.now(),patient_name:name,patient_id:'',clinician:clin,date,time,duration:dur,type,status:'pending',notes,room_id:room,device_id:device});
+      const recur=document.getElementById('sched-book-recur')?.value||'';
+      const recurEnd=document.getElementById('sched-book-recur-end')?.value||'';
+      const recurrenceGroup=recur?'RG-'+Date.now():'';
+      const baseApt={patient_name:name,patient_id:'',clinician:clin,time,duration:dur,type,status:'pending',notes,room_id:room,device_id:device};
+      if(!recur){
+        data.appointments.push(Object.assign({id:'APT-'+Date.now(),date},baseApt));
+      } else {
+        const MAX_OCCUR=52;
+        const endDate=recurEnd?new Date(recurEnd+'T23:59:59'):null;
+        let cursor=new Date(date+'T00:00:00');
+        let count=0;
+        while(count<MAX_OCCUR){
+          const dStr=cursor.getFullYear()+'-'+pad2(cursor.getMonth()+1)+'-'+pad2(cursor.getDate());
+          if(endDate&&cursor>endDate)break;
+          data.appointments.push(Object.assign({},baseApt,{id:'APT-'+Date.now()+'-'+count,date:dStr,recurrence_group:recurrenceGroup}));
+          count++;
+          if(recur==='daily'){cursor.setDate(cursor.getDate()+1);}
+          else if(recur==='weekly'){cursor.setDate(cursor.getDate()+7);}
+          else if(recur==='biweekly'){cursor.setDate(cursor.getDate()+14);}
+          else if(recur==='monthly'){cursor.setMonth(cursor.getMonth()+1);}
+          else break;
+        }
+      }
       _saveSched(data); document.getElementById('sched-book-modal')?.classList.add('ch-hidden'); if(warnEl){warnEl.style.display='none';delete warnEl.dataset.overridden;} renderCal();
-      window._dsToast?.({title:'Booking created',body:name+' booked for '+date+' at '+time,severity:'success'});
+      const countMsg=recur?(data.appointments.filter(a=>a.recurrence_group===recurrenceGroup).length+' recurring appointments created'):'';
+      window._dsToast?.({title:'Booking created',body:name+' booked for '+date+' at '+time+(countMsg?' — '+countMsg:''),severity:'success'});
     };
 
     const todayApts = data.appointments.filter(a=>a.date===todayStr&&a.status!=='cancelled').sort((a,b)=>a.time.localeCompare(b.time));
@@ -2471,6 +2530,18 @@ export async function pgSchedulingHub(setTopbar, navigate) {
             </div>
             <div class="ch-form-group"><label class="ch-label">Duration</label>
               <select id="sched-book-dur" class="ch-select ch-select--full"><option value="15">15 min</option><option value="30">30 min</option><option value="45">45 min</option><option value="60" selected>60 min</option><option value="90">90 min</option></select>
+            </div>
+            <div class="ch-form-group"><label class="ch-label">Repeat</label>
+              <select id="sched-book-recur" class="ch-select ch-select--full">
+                <option value="">No repeat</option>
+                <option value="daily">Daily</option>
+                <option value="weekly">Weekly</option>
+                <option value="biweekly">Every 2 weeks</option>
+                <option value="monthly">Monthly</option>
+              </select>
+            </div>
+            <div class="ch-form-group"><label class="ch-label">Repeat Until</label>
+              <input id="sched-book-recur-end" type="date" class="ch-select ch-select--full">
             </div>
             <div class="ch-form-group" style="grid-column:1/-1"><label class="ch-label">Clinician</label><input id="sched-book-clin" class="ch-select ch-select--full" value="Dr. S. Chen"></div>
             <div class="ch-form-group"><label class="ch-label">Room</label>
@@ -2639,12 +2710,13 @@ export async function pgSchedulingHub(setTopbar, navigate) {
       }).join('');
     }
 
-    window._leadAdvance = id=>{
+    window._leadAdvance = async id=>{
       const l=data.leads.find(x=>x.id===id);if(!l)return;
       const order=['new','contacted','qualified','booked'];
       const idx=order.indexOf(l.stage);
       if(idx>=0&&idx<order.length-1){
-        l.stage=order[idx+1];
+        const newStage=order[idx+1];
+        l.stage=newStage;
         if(l.stage==='booked'){
           const aptDate=l.follow_up||todayStr;
           data.appointments.push({id:'APT-'+Date.now(),patient_name:l.name,patient_id:'',clinician:'Dr. S. Chen',date:aptDate,time:'10:00',duration:45,type:'new-patient',status:'pending',notes:'Converted from lead: '+(l.condition||'General')});
@@ -2653,15 +2725,21 @@ export async function pgSchedulingHub(setTopbar, navigate) {
           window._dsToast?.({title:'Advanced',body:l.name+' \u2192 '+l.stage,severity:'success'});
         }
         _saveSched(data);renderLeads();
+        try { await api.updateLead(id, { stage: newStage }); } catch(e) { console.warn('Lead advance sync failed:', e?.message); }
       }
     };
     window._leadAddModal=()=>document.getElementById('lead-add-modal')?.classList.remove('ch-hidden');
-    window._leadSave=()=>{
+    window._leadSave=async()=>{
       const name=document.getElementById('lead-name')?.value?.trim();
       if(!name){window._dsToast?.({title:'Name required',body:'',severity:'warn'});return;}
-      data.leads.push({id:'LEAD-'+Date.now(),name,phone:document.getElementById('lead-phone')?.value||'—',email:document.getElementById('lead-email')?.value||'—',source:document.getElementById('lead-source')?.value||'phone',condition:document.getElementById('lead-cond')?.value||'Not specified',stage:'new',notes:'',created:todayStr,follow_up:nextDay(1)});
+      const newLead={id:'LEAD-'+Date.now(),name,phone:document.getElementById('lead-phone')?.value||'',email:document.getElementById('lead-email')?.value||'',source:document.getElementById('lead-source')?.value||'phone',condition:document.getElementById('lead-cond')?.value||'Not specified',stage:'new',notes:'',created:todayStr,follow_up:nextDay(1)};
+      data.leads.push(newLead);
       _saveSched(data);document.getElementById('lead-add-modal')?.classList.add('ch-hidden');renderLeads();
       window._dsToast?.({title:'Lead added',body:name+' added.',severity:'success'});
+      try {
+        const created = await api.createLead({name:newLead.name,phone:newLead.phone,email:newLead.email,source:newLead.source,condition:newLead.condition,stage:'new',follow_up:newLead.follow_up});
+        if(created?.id){newLead.id=created.id;newLead._from_api=true;_saveSched(data);}
+      } catch(e) { console.warn('Lead create sync failed:', e?.message); }
     };
 
     el.innerHTML=`
@@ -2750,19 +2828,22 @@ export async function pgSchedulingHub(setTopbar, navigate) {
       </div>`;
     }
 
-    window._recToggleTask = id=>{const t=data.tasks.find(x=>x.id===id);if(!t)return;t.done=!t.done;_saveSched(data);renderReception();};
-    window._recAddTask = ()=>{const text=prompt('Task:');if(!text)return;data.tasks.push({id:'TASK-'+Date.now(),text,due:todayStr,done:false,priority:'medium'});_saveSched(data);renderReception();};
+    window._recToggleTask = async id=>{const t=data.tasks.find(x=>x.id===id);if(!t)return;t.done=!t.done;_saveSched(data);renderReception();try{await api.updateReceptionTask(id,{done:t.done});}catch(e){console.warn('Task toggle sync failed:',e?.message);}};
+    window._recAddTask = async()=>{const text=prompt('Task:');if(!text)return;const newTask={id:'TASK-'+Date.now(),text,due:todayStr,done:false,priority:'medium'};data.tasks.push(newTask);_saveSched(data);renderReception();try{const created=await api.createReceptionTask({text,due:todayStr,priority:'medium'});if(created?.id){newTask.id=created.id;newTask._from_api=true;_saveSched(data);}}catch(e){console.warn('Task create sync failed:',e?.message);}};
     window._recCheckIn = id=>{const a=data.appointments.find(x=>x.id===id);if(!a)return;a.status='checked-in';a.checked_in_at=new Date().toISOString();_saveSched(data);renderReception();window._dsToast?.({title:'Patient checked in',body:a.patient_name+' at '+new Date().toLocaleTimeString(),severity:'success'});};
     window._recNoShow = id=>{const a=data.appointments.find(x=>x.id===id);if(!a)return;a.status='no-show';a.no_show_at=new Date().toISOString();_saveSched(data);renderReception();window._dsToast?.({title:'Marked no-show',body:a.patient_name,severity:'warn'});};
     window._recMarkDone = id=>{const a=data.appointments.find(x=>x.id===id);if(!a)return;a.status='completed';a.completed_at=new Date().toISOString();_saveSched(data);renderReception();window._dsToast?.({title:'Session complete',body:a.patient_name+' session complete.',severity:'success'});};
     window._recFollowUp = id=>{const a=data.appointments.find(x=>x.id===id);if(!a)return;const fuDate=nextDay(7);data.appointments.push({id:'APT-'+Date.now(),patient_name:a.patient_name,patient_id:a.patient_id||'',clinician:a.clinician,date:fuDate,time:a.time,duration:a.duration,type:'follow-up',status:'pending',notes:'Follow-up from '+todayStr});_saveSched(data);renderReception();window._dsToast?.({title:'Follow-up scheduled',body:a.patient_name+' on '+fuDate,severity:'success'});};
     window._receptionLogCall=()=>document.getElementById('rec-call-modal')?.classList.remove('ch-hidden');
-    window._recSaveCall=()=>{
+    window._recSaveCall=async()=>{
       const name=document.getElementById('rc-name')?.value?.trim();if(!name){window._dsToast?.({title:'Name required',body:'',severity:'warn'});return;}
       const h=new Date();
-      data.calls.unshift({id:'CALL-'+Date.now(),name,phone:document.getElementById('rc-phone')?.value||'—',direction:document.getElementById('rc-dir')?.value||'inbound',duration:parseInt(document.getElementById('rc-dur')?.value||'0'),outcome:document.getElementById('rc-outcome')?.value||'info-given',notes:document.getElementById('rc-notes')?.value||'',time:pad2(h.getHours())+':'+pad2(h.getMinutes()),date:todayStr});
+      const callTime=pad2(h.getHours())+':'+pad2(h.getMinutes());
+      const newCall={id:'CALL-'+Date.now(),name,phone:document.getElementById('rc-phone')?.value||'',direction:document.getElementById('rc-dir')?.value||'inbound',duration:parseInt(document.getElementById('rc-dur')?.value||'0'),outcome:document.getElementById('rc-outcome')?.value||'info-given',notes:document.getElementById('rc-notes')?.value||'',time:callTime,date:todayStr};
+      data.calls.unshift(newCall);
       _saveSched(data);document.getElementById('rec-call-modal')?.classList.add('ch-hidden');renderReception();
       window._dsToast?.({title:'Call logged',severity:'success'});
+      try{const created=await api.createReceptionCall({name:newCall.name,phone:newCall.phone,direction:newCall.direction,duration:newCall.duration,outcome:newCall.outcome,notes:newCall.notes,call_time:callTime,call_date:todayStr});if(created?.id){newCall.id=created.id;newCall._from_api=true;_saveSched(data);}}catch(e){console.warn('Call log sync failed:',e?.message);}
     };
 
     el.innerHTML=`

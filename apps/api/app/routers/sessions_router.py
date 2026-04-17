@@ -63,6 +63,7 @@ class SessionCreate(BaseModel):
     appointment_type: str = Field(default="session")
     room_id: Optional[str] = None
     device_id: Optional[str] = None
+    recurrence_group: Optional[str] = None
 
 
 class SessionUpdate(BaseModel):
@@ -82,6 +83,7 @@ class SessionUpdate(BaseModel):
     room_id: Optional[str] = None
     device_id: Optional[str] = None
     cancel_reason: Optional[str] = None
+    recurrence_group: Optional[str] = None
 
 
 class SessionOut(BaseModel):
@@ -109,6 +111,7 @@ class SessionOut(BaseModel):
     rescheduled_from: Optional[str]
     billing_code: Optional[str]
     billing_status: str
+    recurrence_group: Optional[str]
     created_at: str
     updated_at: str
 
@@ -139,6 +142,7 @@ class SessionOut(BaseModel):
             rescheduled_from=r.rescheduled_from,
             billing_code=r.billing_code,
             billing_status=r.billing_status,
+            recurrence_group=r.recurrence_group,
             created_at=r.created_at.isoformat(),
             updated_at=r.updated_at.isoformat(),
         )

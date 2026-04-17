@@ -161,6 +161,7 @@ class ClinicalSession(Base):
     rescheduled_from: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     billing_code: Mapped[Optional[str]] = mapped_column(String(30), nullable=True)
     billing_status: Mapped[str] = mapped_column(String(30), default='unbilled')
+    recurrence_group: Mapped[Optional[str]] = mapped_column(String(100), nullable=True, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
     updated_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
@@ -1137,3 +1138,49 @@ class SalesInquiry(Base):
     message: Mapped[str] = mapped_column(Text(), nullable=False)
     source: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)  # landing | dashboard | patient_portal | other
     created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc), index=True)
+
+
+# ── Leads & Reception Models ─────────────────────────────────────────────────
+
+
+class ClinicLead(Base):
+    __tablename__ = "clinic_leads"
+    id: Mapped[str] = mapped_column(String(100), primary_key=True, default=lambda: "LEAD-" + str(uuid.uuid4())[:8])
+    clinician_id: Mapped[str] = mapped_column(String(100), index=True)
+    name: Mapped[str] = mapped_column(String(200))
+    email: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    phone: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    source: Mapped[str] = mapped_column(String(50), default='phone')  # phone, website, referral, walk-in
+    condition: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    stage: Mapped[str] = mapped_column(String(50), default='new', index=True)  # new, contacted, qualified, booked, lost
+    notes: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    follow_up: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)  # ISO date
+    converted_appointment_id: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    created_at: Mapped[str] = mapped_column(String(50), default=lambda: datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"))
+    updated_at: Mapped[str] = mapped_column(String(50), default=lambda: datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"), onupdate=lambda: datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"))
+
+
+class ReceptionCall(Base):
+    __tablename__ = "reception_calls"
+    id: Mapped[str] = mapped_column(String(100), primary_key=True, default=lambda: "CALL-" + str(uuid.uuid4())[:8])
+    clinician_id: Mapped[str] = mapped_column(String(100), index=True)
+    name: Mapped[str] = mapped_column(String(200))
+    phone: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    direction: Mapped[str] = mapped_column(String(20), default='inbound')  # inbound, outbound
+    duration: Mapped[int] = mapped_column(Integer(), default=0)
+    outcome: Mapped[str] = mapped_column(String(50), default='info-given')
+    notes: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    call_time: Mapped[Optional[str]] = mapped_column(String(10), nullable=True)
+    call_date: Mapped[str] = mapped_column(String(20), index=True)
+    created_at: Mapped[str] = mapped_column(String(50), default=lambda: datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"))
+
+
+class ReceptionTask(Base):
+    __tablename__ = "reception_tasks"
+    id: Mapped[str] = mapped_column(String(100), primary_key=True, default=lambda: "TASK-" + str(uuid.uuid4())[:8])
+    clinician_id: Mapped[str] = mapped_column(String(100), index=True)
+    text: Mapped[str] = mapped_column(String(500))
+    due: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    done: Mapped[bool] = mapped_column(Boolean(), default=False)
+    priority: Mapped[str] = mapped_column(String(20), default='medium')
+    created_at: Mapped[str] = mapped_column(String(50), default=lambda: datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"))
