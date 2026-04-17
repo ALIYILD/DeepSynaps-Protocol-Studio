@@ -49,10 +49,10 @@ EXPECTED_COUNTS = {
     "governance_rules": 12,
     "modalities": 12,
     "devices": 19,
-    "conditions": 20,
+    "conditions": 52,
     "phenotypes": 30,
     "assessments": 42,
-    "protocols": 33,
+    "protocols": 43,
     "sources": 30,
     "personalization_rules": 3,
 }
