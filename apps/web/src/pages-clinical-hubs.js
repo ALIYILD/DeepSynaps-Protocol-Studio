@@ -6,6 +6,7 @@ import { api } from './api.js';
 import { tag, spinner, emptyState } from './helpers.js';
 import { currentUser } from './auth.js';
 import { renderBrainMap10_20 } from './brain-map-svg.js';
+import { DOCUMENT_TEMPLATES, renderTemplate } from './documents-templates.js';
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // pgPatientHub — Merged: Patients + Treatment Courses + Prescriptions
@@ -4170,23 +4171,7 @@ export async function pgDocumentsHubNew(setTopbar, navigate) {
   const now  = new Date();
   const td   = now.getFullYear()+'-'+pad2(now.getMonth()+1)+'-'+pad2(now.getDate());
 
-  const TEMPLATES = [
-    { id:'T01', name:'TMS Informed Consent Form',         cat:'Consent',    pages:4, langs:['EN','FR','ES'], auto:false },
-    { id:'T02', name:'tDCS Informed Consent Form',        cat:'Consent',    pages:3, langs:['EN'],           auto:false },
-    { id:'T03', name:'Neurofeedback Consent Form',        cat:'Consent',    pages:3, langs:['EN','FR'],      auto:false },
-    { id:'T04', name:'General Privacy & Data Policy',     cat:'Privacy',    pages:6, langs:['EN','FR','ES','DE'], auto:false },
-    { id:'T05', name:'Home Device Use Agreement',         cat:'Consent',    pages:3, langs:['EN'],           auto:false },
-    { id:'T06', name:'Video Consultation Consent',        cat:'Telehealth', pages:2, langs:['EN','FR'],      auto:false },
-    { id:'T07', name:'AI-Assisted Treatment Consent',     cat:'AI',         pages:4, langs:['EN'],           auto:false },
-    { id:'T08', name:'Initial Assessment Report',         cat:'Report',     pages:5, langs:['EN'],           auto:true  },
-    { id:'T09', name:'Session Progress Note',             cat:'Report',     pages:2, langs:['EN'],           auto:true  },
-    { id:'T10', name:'Treatment Outcome Report',          cat:'Report',     pages:6, langs:['EN'],           auto:true  },
-    { id:'T11', name:'GP Referral Letter',                cat:'Letter',     pages:2, langs:['EN'],           auto:true  },
-    { id:'T12', name:'Discharge Summary Letter',          cat:'Letter',     pages:3, langs:['EN'],           auto:true  },
-    { id:'T13', name:'Insurance/Funding Report',          cat:'Admin',      pages:4, langs:['EN'],           auto:false },
-    { id:'T14', name:'Intake Assessment Form',            cat:'Intake',     pages:5, langs:['EN'],           auto:false },
-    { id:'T15', name:'Home Program Instruction Sheet',    cat:'Home Care',  pages:2, langs:['EN','FR'],      auto:true  },
-  ];
+  const TEMPLATES = DOCUMENT_TEMPLATES;
 
   const _docsKey = 'ds_docs_v1';
   function loadDocs() { try { return JSON.parse(localStorage.getItem(_docsKey)||'null') || seedDocs(); } catch { return seedDocs(); } }
@@ -4203,25 +4188,87 @@ export async function pgDocumentsHubNew(setTopbar, navigate) {
     saveDocs(d); return d;
   }
 
-  const data = loadDocs();
-  const stC  = { signed:'var(--green)', final:'var(--green)', sent:'var(--blue)', draft:'var(--amber)', issued:'var(--teal)', pending:'var(--amber)' };
+  // Fetch real documents from backend; fall back to local seed so the UI still renders offline.
+  let backendDocs = null;
+  try {
+    const r = await api.listDocuments();
+    backendDocs = (r?.items || []).map(d => ({
+      id: d.id, name: d.title, type: d.doc_type, patient: d.patient_id || '—',
+      date: (d.updated_at||'').slice(0,10), status: d.status, size: '—',
+      template_id: d.template_id, notes: d.notes,
+    }));
+  } catch {}
+  const data = backendDocs ? { docs: backendDocs } : loadDocs();
+  const stC  = { signed:'var(--green)', final:'var(--green)', sent:'var(--blue)', draft:'var(--amber)', issued:'var(--teal)', pending:'var(--amber)', uploaded:'var(--teal)', completed:'var(--green)' };
 
   window._docsUpload = () => document.getElementById('docs-upload-modal')?.classList.remove('ch-hidden');
 
+  window._docsPreview = (templateId) => {
+    const tpl = DOCUMENT_TEMPLATES.find(t => t.id === templateId);
+    const sample = { patient_name:'Demo Patient', clinician_name:'Dr. Example', clinic_name:'DeepSynaps Clinic', date: td };
+    (tpl?.variables||[]).forEach(v => { if (!(v in sample)) sample[v] = ''; });
+    let body = '';
+    try { body = renderTemplate(templateId, sample) || ''; } catch {}
+    if (!body) body = (tpl?.body) || 'Preview unavailable for this template.';
+    const esc = (s) => String(s==null?'':s).replace(/[&<>]/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[ch]));
+    let host = document.getElementById('docs-preview-modal');
+    if (!host) { host = document.createElement('div'); host.id = 'docs-preview-modal'; document.body.appendChild(host); }
+    host.className = 'ch-modal-overlay';
+    host.innerHTML =
+      '<div class="ch-modal" style="width:min(720px,95vw);max-height:90vh;display:flex;flex-direction:column">'+
+        '<div class="ch-modal-hd"><span>'+esc(tpl?.name||'Template Preview')+'</span>'+
+          '<button class="ch-modal-close" onclick="document.getElementById(\'docs-preview-modal\')?.remove()">✕</button>'+
+        '</div>'+
+        '<div class="ch-modal-body" style="overflow-y:auto">'+
+          '<pre style="white-space:pre-wrap;font-family:inherit;font-size:12.5px;line-height:1.6;margin:0 0 14px 0">'+esc(body)+'</pre>'+
+          '<div style="display:flex;gap:8px">'+
+            '<button class="btn btn-primary" onclick="document.getElementById(\'docs-preview-modal\')?.remove();window._docsSendTemplate(\''+templateId+'\')">Send to Patient</button>'+
+            '<button class="btn" onclick="document.getElementById(\'docs-preview-modal\')?.remove()">Close</button>'+
+          '</div>'+
+        '</div>'+
+      '</div>';
+  };
+
+  window._docsSendTemplate = async (templateId) => {
+    const tpl = DOCUMENT_TEMPLATES.find(t => t.id === templateId);
+    if (!tpl) { window._dsToast?.({title:'Error',body:'Template not found.',severity:'error'}); return; }
+    const consentCats = ['Consent','Privacy','Telehealth','AI'];
+    const doc_type = consentCats.includes(tpl.cat) ? 'consent' : 'clinical';
+    try {
+      await api.createDocument({ title: tpl.name, doc_type, template_id: tpl.id, status: 'pending', notes: 'Sent from Documents Hub template' });
+      window._dsToast?.({title:'Sent',body:tpl.name+' created.',severity:'success'});
+      window._nav('documents-hub');
+    } catch {
+      window._dsToast?.({title:'Failed',body:'Could not create document. Try again.',severity:'error'});
+    }
+  };
+
   function docRows(list) {
     if (!list.length) return '<div class="ch-empty">No documents found.</div>';
-    return list.map(d =>
-      '<div class="book-row">'+
+    return list.map(d => {
+      const dlTpl = d.template_id ? String(d.template_id).replace(/'/g,"\\'") : '';
+      const dlName = String(d.name||'').replace(/'/g,"\\'");
+      return '<div class="book-row">'+
         '<div class="book-datetime"><div class="book-date">'+d.date+'</div><div class="book-time">'+d.size+'</div></div>'+
         '<div class="book-info"><div class="book-patient">'+d.name+'</div><div class="book-clinician">'+d.patient+' · '+d.type+'</div></div>'+
         '<div class="book-status-col"><span class="book-status-badge" style="color:'+(stC[d.status]||'var(--text-tertiary)')+';background:'+(stC[d.status]||'var(--text-tertiary)')+'22;text-transform:capitalize">'+d.status+'</span></div>'+
         '<div class="book-actions">'+
-          '<button class="ch-btn-sm" onclick="window._dsToast?.({title:\'View\',body:\''+d.name+'\',severity:\'info\'})">View</button>'+
-          '<button class="ch-btn-sm" onclick="window._dsToast?.({title:\'Download\',body:\'Downloading '+d.name+'\',severity:\'info\'})">↓</button>'+
+          '<button class="ch-btn-sm" onclick="window._dsToast?.({title:\'View\',body:\''+dlName+'\',severity:\'info\'})">View</button>'+
+          '<button class="ch-btn-sm" onclick="window._docsDownload(\''+dlTpl+'\',\''+dlName+'\')">↓</button>'+
         '</div>'+
-      '</div>'
-    ).join('');
+      '</div>';
+    }).join('');
   }
+
+  window._docsDownload = (templateId, docName) => {
+    let body = '';
+    if (templateId) { try { body = renderTemplate(templateId, {}) || ''; } catch {} }
+    if (!body) body = docName || 'document';
+    const blob = new Blob([body], {type:'text/plain'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href = url; a.download = (docName||'document') + '.txt'; a.click();
+    setTimeout(()=>URL.revokeObjectURL(url), 1000);
+  };
 
   let main = '';
 
@@ -4269,8 +4316,8 @@ export async function pgDocumentsHubNew(setTopbar, navigate) {
             '<div class="book-info"><div class="book-patient">'+t.name+'</div><div class="book-clinician">'+t.cat+' · '+t.pages+' pages'+(t.auto?' · Auto-gen':'')+'</div></div>'+
             '<div class="book-status-col"><span class="book-status-badge" style="color:var(--blue);background:rgba(74,158,255,0.1)">'+t.langs.join('/')+'</span></div>'+
             '<div class="book-actions">'+
-              (t.auto?'<button class="ch-btn-sm ch-btn-teal" onclick="window._dsToast?.({title:\'Generating…\',body:\''+t.name+'\',severity:\'info\'})">Generate</button>':'<button class="ch-btn-sm" onclick="window._dsToast?.({title:\'Open\',body:\''+t.name+'\',severity:\'info\'})">Open</button>')+
-              '<button class="ch-btn-sm" onclick="window._dsToast?.({title:\'Assigned\',body:\'Assigned to patient.\',severity:\'success\'})">Assign</button>'+
+              '<button class="ch-btn-sm" onclick="window._docsPreview(\''+t.id+'\')">'+(t.auto?'Generate':'Open')+'</button>'+
+              '<button class="ch-btn-sm ch-btn-teal" onclick="window._docsSendTemplate(\''+t.id+'\')">Assign</button>'+
             '</div>'+
           '</div>'
         ).join('')}
@@ -4283,7 +4330,7 @@ export async function pgDocumentsHubNew(setTopbar, navigate) {
       <div class="ch-two-col">
         <div class="ch-card">
           <div class="ch-card-hd"><span class="ch-card-title">Consent Templates</span><button class="ch-btn-sm ch-btn-teal" onclick="window._dsToast?.({title:'Assign',body:'Select patient to assign.',severity:'info'})">Assign to Patient</button></div>
-          ${consentTpls.map(t=>'<div class="book-row"><div class="book-info"><div class="book-patient">'+t.name+'</div><div class="book-clinician">'+t.pages+' pages · '+t.langs.join('/')+'</div></div><div class="book-actions"><button class="ch-btn-sm" onclick="window._dsToast?.({title:\'Open\',body:\''+t.name+'\',severity:\'info\'})">Preview</button><button class="ch-btn-sm ch-btn-teal" onclick="window._dsToast?.({title:\'Sent\',body:\''+t.name+' sent for signing.\',severity:\'success\'})">Send to Sign</button></div></div>').join('')}
+          ${consentTpls.map(t=>'<div class="book-row"><div class="book-info"><div class="book-patient">'+t.name+'</div><div class="book-clinician">'+t.pages+' pages · '+t.langs.join('/')+'</div></div><div class="book-actions"><button class="ch-btn-sm" onclick="window._docsPreview(\''+t.id+'\')">Preview</button><button class="ch-btn-sm ch-btn-teal" onclick="window._docsSendTemplate(\''+t.id+'\')">Send to Sign</button></div></div>').join('')}
         </div>
         <div class="ch-card">
           <div class="ch-card-hd"><span class="ch-card-title">Signed Consents</span></div>
@@ -4366,9 +4413,21 @@ export async function pgDocumentsHubNew(setTopbar, navigate) {
 
     window._docsHandleUpload = (files) => {
       const list = document.getElementById('docs-upload-list'); if (!list) return;
-      list.innerHTML = Array.from(files).map(f =>
-        '<div class="book-row"><div class="book-info"><div class="book-patient">'+f.name+'</div><div class="book-clinician">'+(f.size>1024*1024?(f.size/1024/1024).toFixed(1)+' MB':(f.size/1024).toFixed(0)+' KB')+'</div></div><div class="book-status-col"><span class="book-status-badge" style="color:var(--teal);background:rgba(0,212,188,0.1)">Ready</span></div><div class="book-actions"><button class="ch-btn-sm ch-btn-teal" onclick="window._dsToast?.({title:\'Uploaded\',body:\''+f.name+'\',severity:\'success\'})">Upload</button></div></div>'
+      window._docsPending = Array.from(files);
+      list.innerHTML = window._docsPending.map((f,i) =>
+        '<div class="book-row"><div class="book-info"><div class="book-patient">'+f.name+'</div><div class="book-clinician">'+(f.size>1024*1024?(f.size/1024/1024).toFixed(1)+' MB':(f.size/1024).toFixed(0)+' KB')+'</div></div><div class="book-status-col"><span class="book-status-badge" style="color:var(--teal);background:rgba(0,212,188,0.1)">Ready</span></div><div class="book-actions"><button class="ch-btn-sm ch-btn-teal" onclick="window._docsUploadOne('+i+')">Upload</button></div></div>'
       ).join('');
+    };
+    // TODO: wire to real file-upload endpoint once implemented
+    window._docsUploadOne = async (idx) => {
+      const f = (window._docsPending||[])[idx]; if (!f) return;
+      try {
+        await api.createDocument({ title: f.name, doc_type: 'uploaded', status: 'uploaded', file_ref: f.name, notes: 'File size: ' + f.size + ' bytes' });
+        window._dsToast?.({title:'Uploaded',body:f.name,severity:'success'});
+        window._nav('documents-hub');
+      } catch {
+        window._dsToast?.({title:'Upload failed',body:'Could not save '+f.name+'.',severity:'error'});
+      }
     };
     window._docsUpload = () => document.getElementById('docs-file-input')?.click();
   }
@@ -4387,7 +4446,7 @@ export async function pgDocumentsHubNew(setTopbar, navigate) {
           <div>Click to select files</div>
         </div>
         <input type="file" id="docs-modal-file" multiple style="display:none" onchange="window._dsToast?.({title:'Selected',body:this.files.length+' file(s)',severity:'info'})">
-        <div style="display:flex;gap:8px"><button class="btn btn-primary" onclick="document.getElementById('docs-upload-modal').classList.add('ch-hidden');window._dsToast?.({title:'Uploaded',body:'Documents uploaded successfully.',severity:'success'})">Upload</button><button class="btn" onclick="document.getElementById('docs-upload-modal').classList.add('ch-hidden')">Cancel</button></div>
+        <div style="display:flex;gap:8px"><button class="btn btn-primary" onclick="document.getElementById('docs-upload-modal').classList.add('ch-hidden');window._dsToast?.({title:'Uploads tab',body:'Use the Uploads tab to upload files.',severity:'info'});window._docsHubTab='uploads';window._nav('documents-hub')">Upload</button><button class="btn" onclick="document.getElementById('docs-upload-modal').classList.add('ch-hidden')">Cancel</button></div>
       </div>
     </div>
   </div>`;
