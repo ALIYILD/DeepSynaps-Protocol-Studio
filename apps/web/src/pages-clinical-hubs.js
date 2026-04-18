@@ -6,6 +6,7 @@ import { api } from './api.js';
 import { tag, spinner, emptyState } from './helpers.js';
 import { currentUser } from './auth.js';
 import { renderBrainMap10_20 } from './brain-map-svg.js';
+import { HANDBOOK_DATA } from './handbooks-data.js';
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // pgPatientHub — Merged: Patients + Treatment Courses + Prescriptions
@@ -1625,79 +1626,203 @@ export async function pgProtocolHub(setTopbar, navigate) {
   else if (tab === 'handbooks') {
     setTopbar('Protocols', '<button class="btn btn-sm" onclick="window._nav(\'handbooks-full\')">Full Handbooks ↗</button>');
 
-    const HB_CONDITIONS = [
-      { id:'mdd',    label:'Major Depressive Disorder', modality:'TMS / tDCS' },
-      { id:'trd',    label:'Treatment-Resistant Depression', modality:'TMS' },
-      { id:'gad',    label:'Generalized Anxiety Disorder', modality:'Neurofeedback / tDCS' },
-      { id:'ptsd',   label:'Post-Traumatic Stress Disorder', modality:'TMS / tDCS' },
-      { id:'ocd',    label:'OCD', modality:'Deep TMS' },
-      { id:'adhd',   label:'ADHD', modality:'Neurofeedback' },
-      { id:'insomnia', label:'Insomnia', modality:'tDCS / Neurofeedback' },
-      { id:'pain',   label:'Chronic Pain', modality:'tDCS / TMS' },
+    const HB_GROUPS = [
+      { id:'mood',      label:'Mood & Anxiety',      keys:['mdd','trd','bpd','ppd','sad','pdd','gad','panic','social-anx','specific-ph','agoraphobia'] },
+      { id:'ocd',       label:'OCD & Compulsive',    keys:['ocd','bdd','hoarding','trich'] },
+      { id:'trauma',    label:'Trauma',              keys:['ptsd','cptsd','asd-trauma'] },
+      { id:'psychotic', label:'Psychotic Disorders', keys:['schizo','schizo-aff','fep','bpd-psy'] },
+      { id:'neurodev',  label:'Neurodevelopmental',  keys:['adhd-i','adhd-hi','adhd-c','asd'] },
+      { id:'eating',    label:'Eating Disorders',    keys:['anorexia','bulimia','bed'] },
+      { id:'addiction', label:'Addiction',           keys:['aud','nic-dep','oud','cud'] },
+      { id:'sleep',     label:'Sleep',               keys:['insomnia','hypersomn'] },
+      { id:'pain',      label:'Pain',                keys:['pain-neuro','pain-msk','fibro','migraine','tinnitus'] },
+      { id:'neuro',     label:'Neurological',        keys:['stroke-mtr','stroke-aph','tbi','alzheimer','vasc-dem','parkinsons','ms','epilepsy','essential-t','dystonia','tourette'] },
+      { id:'other',     label:'Other',               keys:['long-covid','fnd'] },
+      { id:'protocols', label:'Protocol-Specific',   keys:['tms-mdd-dlpfc-hf','tms-mdd-itbs','tms-trd-bilateral','tms-ocd-sma','tms-ptsd-dlpfc','tms-stroke-m1-hf','tdcs-mdd-dlpfc','tdcs-pain-m1','tavns-epilepsy','nfb-adhd-theta-beta','tms-migraine-occ','dbs-parkinsons-stn'] },
     ];
 
-    const HB_SECTIONS = {
-      overview:   { label:'Overview & Rationale',    icon:'◎' },
-      assessment: { label:'Assessment Protocol',     icon:'✓' },
-      parameters: { label:'Protocol Parameters',     icon:'⊟' },
-      safety:     { label:'Safety & Contraindications', icon:'⚠' },
-      evidence:   { label:'Evidence Summary',        icon:'↗' },
-      monitoring: { label:'Session Monitoring',      icon:'◉' },
-      outcomes:   { label:'Expected Outcomes',       icon:'◈' },
+    const HB_LABELS = {
+      'mdd':'Major Depressive Disorder','trd':'Treatment-Resistant Depression',
+      'bpd':'Bipolar Disorder','ppd':'Postpartum Depression','sad':'Seasonal Affective Disorder',
+      'pdd':'Persistent Depressive (Dysthymia)','gad':'Generalized Anxiety Disorder',
+      'panic':'Panic Disorder','social-anx':'Social Anxiety Disorder','specific-ph':'Specific Phobia',
+      'agoraphobia':'Agoraphobia','ocd':'OCD','bdd':'Body Dysmorphic Disorder',
+      'hoarding':'Hoarding Disorder','trich':'Trichotillomania','ptsd':'PTSD','cptsd':'Complex PTSD',
+      'asd-trauma':'Acute Stress Disorder','schizo':'Schizophrenia','schizo-aff':'Schizoaffective Disorder',
+      'fep':'First-Episode Psychosis','bpd-psy':'Psychotic Depression',
+      'adhd-i':'ADHD — Inattentive','adhd-hi':'ADHD — Hyperactive-Impulsive','adhd-c':'ADHD — Combined',
+      'asd':'Autism Spectrum Disorder','anorexia':'Anorexia Nervosa','bulimia':'Bulimia Nervosa',
+      'bed':'Binge Eating Disorder','aud':'Alcohol Use Disorder','nic-dep':'Nicotine Dependence',
+      'oud':'Opioid Use Disorder','cud':'Cannabis Use Disorder','insomnia':'Insomnia',
+      'hypersomn':'Hypersomnia','pain-neuro':'Neuropathic Pain','pain-msk':'Musculoskeletal Pain',
+      'fibro':'Fibromyalgia','migraine':'Migraine','tinnitus':'Tinnitus',
+      'stroke-mtr':'Stroke (Motor)','stroke-aph':'Stroke (Aphasia)','tbi':'Traumatic Brain Injury',
+      'alzheimer':"Alzheimer's Disease",'vasc-dem':'Vascular Dementia','parkinsons':"Parkinson's Disease",
+      'ms':'Multiple Sclerosis','epilepsy':'Epilepsy','essential-t':'Essential Tremor',
+      'dystonia':'Dystonia','tourette':'Tourette Syndrome','long-covid':'Long COVID',
+      'fnd':'Functional Neurological Disorder',
+      'tms-mdd-dlpfc-hf':'TMS — MDD Left DLPFC HF','tms-mdd-itbs':'TMS — MDD iTBS',
+      'tms-trd-bilateral':'TMS — TRD Bilateral','tms-ocd-sma':'TMS — OCD SMA',
+      'tms-ptsd-dlpfc':'TMS — PTSD DLPFC','tms-stroke-m1-hf':'TMS — Stroke M1 HF',
+      'tdcs-mdd-dlpfc':'tDCS — MDD DLPFC','tdcs-pain-m1':'tDCS — Pain M1',
+      'tavns-epilepsy':'taVNS — Epilepsy','nfb-adhd-theta-beta':'NFB — ADHD Theta/Beta',
+      'tms-migraine-occ':'TMS — Migraine Occipital','dbs-parkinsons-stn':"DBS — Parkinson's STN",
     };
 
-    const HB_CONTENT = {
-      mdd: {
-        overview:   'MDD is a leading cause of disability globally. Neuromodulation (TMS/tDCS) is indicated for moderate-to-severe MDD (PHQ-9 ≥10) with inadequate medication response. Left DLPFC stimulation increases prefrontal activity and normalises limbic dysregulation.',
-        assessment: 'Baseline: PHQ-9, MADRS, HAM-D, QIDS-SR, C-SSRS, ISI. Weekly: PHQ-9, QIDS-SR, C-SSRS. Milestone: Full battery at sessions 10, 20, 30. Discharge: Full battery + WHODAS + SF-36.',
-        parameters: 'TMS: Left DLPFC (F3 site), 10 Hz, 120% MT, 4-second trains, 26-second ITI, 75 trains, 3000 pulses/session, 37 min. OR iTBS: 600 pulses in 3 min.\ntDCS: Anode F3, Cathode F4, 2 mA, 30 min, 20 sessions.',
-        safety:     'Contraindications: Seizure history, metal implants near head, pacemaker, pregnancy (relative). Pre-screen with MoCA if cognitive concerns. C-SSRS before every session.',
-        evidence:   'TMS for MDD: Evidence Grade A. Multiple RCTs, FDA-cleared since 2008. Response rate ~50-60%, remission ~30%. iTBS non-inferior to standard TMS (FOUR trial, 2018).',
-        monitoring: 'Pre-session: PHQ-9 + C-SSRS. Log MT at each session. Record side effects (headache, scalp discomfort). Escalate if seizure, syncope, or worsening suicidality.',
-        outcomes:   'Responder: ≥50% PHQ-9 reduction. Remitter: PHQ-9 <5. Typical onset: improvement by session 10-15. Durability: 6-12 months, maintenance protocols available.',
-      },
-    };
+    const HB_TABS = [
+      { id:'overview',  label:'Overview',          icon:'◎' },
+      { id:'evidence',  label:'Evidence',          icon:'◈' },
+      { id:'patient',   label:'Patient Guide',     icon:'◉' },
+      { id:'clinical',  label:'Clinical Protocol', icon:'⊟' },
+      { id:'safety',    label:'Safety',            icon:'⚠' },
+      { id:'faq',       label:'FAQ',               icon:'?' },
+    ];
 
-    window._hbCond    = window._hbCond    || 'mdd';
-    window._hbSection = window._hbSection || 'overview';
+    window._hbCondV2  = window._hbCondV2  || 'mdd';
+    window._hbTabV2   = window._hbTabV2   || 'overview';
+    window._hbQueryV2 = window._hbQueryV2 || '';
 
-    function renderHandbook() {
-      const cond   = HB_CONDITIONS.find(c=>c.id===window._hbCond)||HB_CONDITIONS[0];
-      const sec    = HB_SECTIONS[window._hbSection];
-      const content = (HB_CONTENT[window._hbCond]||{})[window._hbSection] ||
-        'Detailed handbook content for ' + cond.label + ' — ' + sec.label + '.\n\nThis section covers clinical guidance, protocol parameters, safety considerations, and evidence-based recommendations for ' + cond.modality + ' treatment.';
+    const esc = s => String(s == null ? '' : s)
+      .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+      .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
 
-      const out = document.getElementById('hb-content');
-      if (!out) return;
-      out.innerHTML = '<div class="hb-content-body">' +
-        '<div class="hb-content-title">' + sec.icon + ' ' + sec.label + '</div>' +
-        '<div class="hb-content-text">' + content.split('\n').map(line => '<p>' + line + '</p>').join('') + '</div>' +
-      '</div>';
+    // Bold-style citations in evidence text, e.g. "(OReardon 2007)", "(Cole 2020)", "FOUR trial, 2018"
+    function emphasizeCitations(text) {
+      if (!text) return '';
+      let html = esc(text);
+      html = html.replace(/\(([A-Z][A-Za-z\-']+(?:\s+[A-Z][A-Za-z\-']+)?\s+\d{4}(?:[a-z])?)\)/g,
+        '(<strong class="hb-cite">$1</strong>)');
+      return html;
     }
 
-    window._hbSetCond = id => { window._hbCond=id; document.querySelectorAll('.hb-cond-btn').forEach(b=>b.classList.toggle('active',b.dataset.id===id)); renderHandbook(); };
-    window._hbSetSec  = id => { window._hbSection=id; document.querySelectorAll('.hb-sec-btn').forEach(b=>b.classList.toggle('active',b.dataset.id===id)); renderHandbook(); };
+    function renderCondList() {
+      const q = (window._hbQueryV2 || '').toLowerCase().trim();
+      return HB_GROUPS.map(g => {
+        const items = g.keys.filter(k => {
+          if (!HANDBOOK_DATA[k]) return false;
+          if (!q) return true;
+          const lab = (HB_LABELS[k] || k).toLowerCase();
+          return lab.includes(q) || k.toLowerCase().includes(q);
+        });
+        if (!items.length) return '';
+        return '<div class="hb-v2-group">' +
+          '<div class="hb-v2-group-label">' + esc(g.label) + '</div>' +
+          items.map(k => {
+            const lab = HB_LABELS[k] || k;
+            const active = k === window._hbCondV2 ? ' active' : '';
+            return '<button class="hb-v2-cond' + active + '" data-key="' + esc(k) + '" onclick="window._hbSelectCond(\'' + esc(k) + '\')">' + esc(lab) + '</button>';
+          }).join('') +
+        '</div>';
+      }).join('');
+    }
+
+    function renderTabs() {
+      return HB_TABS.map(t => {
+        const active = t.id === window._hbTabV2 ? ' active' : '';
+        return '<button class="hb-v2-tab' + active + '" data-tab="' + t.id + '" onclick="window._hbSelectTab(\'' + t.id + '\')">' +
+          '<span style="margin-right:6px;opacity:0.85">' + t.icon + '</span>' + esc(t.label) + '</button>';
+      }).join('');
+    }
+
+    function renderBody() {
+      const key = window._hbCondV2;
+      const data = HANDBOOK_DATA[key];
+      const title = HB_LABELS[key] || key;
+      if (!data) {
+        return '<div class="hb-v2-title">' + esc(title) + '</div>' +
+          '<div class="hb-card"><div class="hb-card-body">No handbook data available for this entry.</div></div>';
+      }
+      const tab = window._hbTabV2;
+      let body = '';
+      if (tab === 'overview') {
+        body =
+          (data.epidemiology ? '<div class="hb-card hb-card--stat"><div class="hb-card-head">◉ Epidemiology</div><div class="hb-card-body">' + esc(data.epidemiology) + '</div></div>' : '') +
+          (data.neuroBasis   ? '<div class="hb-card hb-card--neuro"><div class="hb-card-head">◈ Neurobiological Basis</div><div class="hb-card-body">' + esc(data.neuroBasis) + '</div></div>' : '');
+      } else if (tab === 'evidence') {
+        body = data.responseData
+          ? '<div class="hb-card hb-card--evidence"><div class="hb-card-head">◈ Response Data</div><div class="hb-card-body">' + emphasizeCitations(data.responseData) + '</div></div>'
+          : '<div class="hb-card"><div class="hb-card-body">No evidence data recorded for this entry.</div></div>';
+      } else if (tab === 'patient') {
+        body =
+          (data.patientExplain ? '<div class="hb-card"><div class="hb-card-head">◉ How to explain to patients</div><div class="hb-card-body">' + esc(data.patientExplain) + '</div></div>' : '') +
+          (data.timeline       ? '<div class="hb-card"><div class="hb-card-head">⏱ Timeline</div><div class="hb-card-body">' + esc(data.timeline) + '</div></div>' : '') +
+          (Array.isArray(data.selfCare) && data.selfCare.length
+            ? '<div class="hb-card hb-card--list"><div class="hb-card-head">✓ Self-care recommendations</div><ul class="hb-bullet-list">' +
+              data.selfCare.map(i => '<li>' + esc(i) + '</li>').join('') +
+              '</ul></div>' : '');
+      } else if (tab === 'clinical') {
+        body =
+          (data.techSetup ? '<div class="hb-card hb-card--tech"><div class="hb-card-head">⊟ Technical setup</div><div class="hb-card-body hb-mono">' + esc(data.techSetup) + '</div></div>' : '') +
+          (data.homeNote  ? '<div class="hb-card"><div class="hb-card-head">◩ Home / adjunct therapy</div><div class="hb-card-body">' + esc(data.homeNote) + '</div></div>' : '');
+      } else if (tab === 'safety') {
+        body = data.escalation
+          ? '<div class="hb-card hb-card--warn"><div class="hb-card-head">⚠ Escalation criteria</div><div class="hb-card-body">' + esc(data.escalation) + '</div></div>'
+          : '<div class="hb-card"><div class="hb-card-body">No escalation criteria recorded for this entry.</div></div>';
+      } else if (tab === 'faq') {
+        body = Array.isArray(data.faq) && data.faq.length
+          ? '<div class="hb-faq-list">' + data.faq.map((qa, i) =>
+              '<details class="hb-faq-item"' + (i === 0 ? ' open' : '') + '>' +
+                '<summary><span class="hb-faq-q-mark">Q</span> ' + esc(qa.q) + '</summary>' +
+                '<div class="hb-faq-a">' + esc(qa.a) + '</div>' +
+              '</details>').join('') +
+            '</div>'
+          : '<div class="hb-card"><div class="hb-card-body">No FAQ entries recorded for this entry.</div></div>';
+      }
+      if (!body) body = '<div class="hb-card"><div class="hb-card-body">No content recorded for this section.</div></div>';
+      return '<div class="hb-v2-title">' + esc(title) + '</div>' + body;
+    }
+
+    function rerenderLeft() {
+      const left = document.getElementById('hb-v2-cond-list');
+      if (left) left.innerHTML = renderCondList();
+    }
+    function rerenderTabs() {
+      const t = document.getElementById('hb-v2-tabs');
+      if (t) t.innerHTML = renderTabs();
+    }
+    function rerenderBody() {
+      const b = document.getElementById('hb-v2-body');
+      if (b) b.innerHTML = renderBody();
+    }
+    function rerenderAll() {
+      rerenderLeft();
+      rerenderTabs();
+      rerenderBody();
+    }
+
+    window._hbSelectCond = key => {
+      if (!HANDBOOK_DATA[key]) return;
+      window._hbCondV2 = key;
+      rerenderLeft();
+      rerenderBody();
+    };
+    window._hbSelectTab = id => {
+      window._hbTabV2 = id;
+      rerenderTabs();
+      rerenderBody();
+    };
+    window._hbSearchV2 = v => {
+      window._hbQueryV2 = v || '';
+      rerenderLeft();
+    };
+    window._hbRerender = rerenderAll;
 
     el.innerHTML = `
     <div class="ch-shell">
       <div class="ch-tab-bar">${tabBar()}</div>
       <div class="ch-body" style="padding:0">
-        <div class="hb-layout">
-          <div class="hb-cond-rail">
-            <div class="ph-rail-label">Conditions</div>
-            ${HB_CONDITIONS.map(c=>'<button class="hb-cond-btn ph-cohort-item'+(c.id===window._hbCond?' active':'')+'" data-id="'+c.id+'" onclick="window._hbSetCond(\''+c.id+'\')">'+c.label+'</button>').join('')}
-          </div>
-          <div class="hb-sec-rail">
-            <div class="ph-rail-label" style="padding-top:16px">Sections</div>
-            ${Object.entries(HB_SECTIONS).map(([id,s])=>'<button class="hb-sec-btn ph-cohort-item'+(id===window._hbSection?' active':'')+'" data-id="'+id+'" onclick="window._hbSetSec(\''+id+'\')"><span style="margin-right:6px;opacity:0.6">'+s.icon+'</span>'+s.label+'</button>').join('')}
-          </div>
-          <div class="hb-main">
-            <div id="hb-content"></div>
-          </div>
+        <div class="hb-layout-v2">
+          <aside class="hb-v2-left">
+            <input type="text" class="hb-v2-search" placeholder="Search conditions…" value="${esc(window._hbQueryV2)}" oninput="window._hbSearchV2(this.value)" />
+            <div id="hb-v2-cond-list">${renderCondList()}</div>
+          </aside>
+          <section class="hb-v2-right">
+            <div class="hb-v2-tabs" id="hb-v2-tabs">${renderTabs()}</div>
+            <div class="hb-v2-body" id="hb-v2-body">${renderBody()}</div>
+          </section>
         </div>
       </div>
     </div>`;
-    renderHandbook();
   }
 
   // ── BUILDER TAB ──────────────────────────────────────────────────────────
