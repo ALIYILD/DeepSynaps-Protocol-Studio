@@ -53,6 +53,7 @@ from app.routers.export_router import router as export_router
 from app.routers.personalization_router import router as personalization_router
 from app.routers.patients_router import router as patients_router
 from app.routers.payments_router import router as payments_router
+from app.routers.finance_router import router as finance_router
 from app.routers.sessions_router import router as sessions_router
 from app.routers.treatment_courses_router import router as treatment_courses_router
 from app.routers.treatment_courses_router import review_router as review_queue_router
@@ -75,6 +76,7 @@ from app.routers.reminders_router import router as reminders_router
 from app.routers.irb_router import router as irb_router
 from app.routers.evidence_router import router as evidence_router
 from app.routers.literature_router import router as literature_router
+from app.routers.literature_watch_router import router as literature_watch_router
 from app.routers.library_router import router as library_router
 from app.routers.reports_router import router as reports_router
 from app.routers.documents_router import router as documents_router
@@ -130,6 +132,7 @@ async def lifespan(app_instance: FastAPI) -> AsyncIterator[None]:
 app = FastAPI(title=settings.api_title, version=settings.api_version, lifespan=lifespan)
 app.include_router(auth_router)
 app.include_router(payments_router)
+app.include_router(finance_router)
 app.include_router(export_router)
 app.include_router(personalization_router)
 app.include_router(patients_router)
@@ -158,6 +161,7 @@ app.include_router(home_program_tasks_router)
 app.include_router(reminders_router)
 app.include_router(irb_router)
 app.include_router(literature_router)
+app.include_router(literature_watch_router)
 app.include_router(evidence_router)
 app.include_router(library_router)
 app.include_router(reports_router, prefix="/api/v1/reports", tags=["reports"])
@@ -431,6 +435,16 @@ def audit_trail(
 ) -> AuditTrailResponse:
     return get_audit_trail(actor, session)
 
+
+# ── Static asset mounts ──────────────────────────────────────────────────────
+# `/static` serves user-uploaded avatars + clinic logos (written by
+# profile_router + clinic_router). Must be mounted BEFORE the `/` frontend
+# catch-all so the static-file routes take precedence.
+_DATA_DIR = Path(__file__).resolve().parent.parent / "data"
+_DATA_DIR.mkdir(exist_ok=True)
+(_DATA_DIR / "avatars").mkdir(exist_ok=True)
+(_DATA_DIR / "clinics").mkdir(exist_ok=True)
+app.mount("/static", StaticFiles(directory=str(_DATA_DIR)), name="static")
 
 # Serve React frontend — must be mounted after all API routes
 _frontend_dist = Path(__file__).resolve().parents[3] / "apps" / "web" / "dist"
