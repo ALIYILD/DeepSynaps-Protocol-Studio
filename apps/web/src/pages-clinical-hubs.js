@@ -1183,6 +1183,17 @@ export async function pgProtocolHub(setTopbar, navigate) {
   // Legacy redirect: the old standalone "Brain Map" tab was merged into Registry.
   if (window._protocolHubTab === 'brainmap') window._protocolHubTab = 'registry';
 
+  // Legacy redirect: Personalised + Brain Scan AI + Builder merged into a
+  // single "Protocol Designer" tab with a 3-mode segmented control. Preserve
+  // which mode the user was on so deep links still land in the right place.
+  if (['personalized', 'brainscan', 'builder'].includes(window._protocolHubTab)) {
+    window._designerMode = (
+      window._protocolHubTab === 'personalized' ? 'patient' :
+      window._protocolHubTab === 'brainscan'    ? 'brainscan' : 'scratch'
+    );
+    window._protocolHubTab = 'designer';
+  }
+
   const tab = window._protocolHubTab || 'search';
   window._protocolHubTab = tab;
 
@@ -1238,9 +1249,7 @@ export async function pgProtocolHub(setTopbar, navigate) {
     search:       { label: 'Protocol Search',      color: 'var(--teal)'   },
     registry:     { label: 'Registry & Brain Map', color: 'var(--blue)'   },
     handbooks:    { label: 'Handbooks',             color: 'var(--amber)'  },
-    personalized: { label: 'Personalised',          color: 'var(--rose)'   },
-    brainscan:    { label: 'Brain Scan AI',         color: '#a78bfa'       },
-    builder:      { label: 'Builder',               color: 'var(--green)'  },
+    designer:     { label: 'Protocol Designer',     color: 'var(--violet)' },
   };
 
   const el = document.getElementById('content');
@@ -1825,75 +1834,27 @@ export async function pgProtocolHub(setTopbar, navigate) {
     </div>`;
   }
 
-  // ── BUILDER TAB ──────────────────────────────────────────────────────────
-  else if (tab === 'builder') {
-    setTopbar('Protocols', '<button class="btn btn-sm" onclick="window._nav(\'protocol-builder-full\')">Full Builder ↗</button>');
+  // ── PROTOCOL DESIGNER TAB (merged: Patient · Brain Scan · Scratch) ────────
+  else if (tab === 'designer') {
+    // Mode state — drives the whole tab. 'patient' | 'brainscan' | 'scratch'.
+    window._designerMode    = window._designerMode    || 'patient';
+    window._designerOutput  = window._designerOutput  || null;
+    window._designerHistory = window._designerHistory || [];
 
-    el.innerHTML = `
-    <div class="ch-shell">
-      <div class="ch-tab-bar">${tabBar()}</div>
-      <div class="ch-body">
-        <div class="ch-kpi-strip">
-          <div class="ch-kpi-card" style="--kpi-color:var(--teal)"><div class="ch-kpi-val">${_protos.length}</div><div class="ch-kpi-label">Protocols in Library</div></div>
-          <div class="ch-kpi-card" style="--kpi-color:var(--blue)"><div class="ch-kpi-val">${_conditions.length}</div><div class="ch-kpi-label">Conditions Covered</div></div>
-          <div class="ch-kpi-card" style="--kpi-color:var(--violet)"><div class="ch-kpi-val">${_devices.length}</div><div class="ch-kpi-label">Device Types</div></div>
-          <div class="ch-kpi-card" style="--kpi-color:var(--green)"><div class="ch-kpi-val">${_protos.filter(p=>p.evidenceGrade==='A').length}</div><div class="ch-kpi-label">Grade A Evidence</div></div>
-        </div>
-        <div class="ch-two-col">
-          <div class="ch-card">
-            <div class="ch-card-hd"><span class="ch-card-title">Quick Protocol Builder</span></div>
-            <div style="padding:16px;display:flex;flex-direction:column;gap:12px">
-              <div class="ch-form-group">
-                <label class="ch-label">Condition</label>
-                <select class="ch-select ch-select--full" id="pb-condition">
-                  ${_conditions.slice(0,20).map(c=>'<option value="'+c.id+'">'+c.label+'</option>').join('')}
-                </select>
-              </div>
-              <div class="ch-form-group">
-                <label class="ch-label">Modality</label>
-                <select class="ch-select ch-select--full" id="pb-device">
-                  ${_devices.map(d=>'<option value="'+d.id+'">'+d.label+'</option>').join('')}
-                </select>
-              </div>
-              <div class="ch-form-group">
-                <label class="ch-label">Target Site</label>
-                <select class="ch-select ch-select--full">
-                  <option>Left DLPFC (F3)</option><option>Right DLPFC (F4)</option>
-                  <option>Medial PFC</option><option>Motor Cortex (C3/C4)</option>
-                  <option>Parietal (Pz)</option><option>Occipital (Oz)</option>
-                </select>
-              </div>
-              <div class="ch-form-group">
-                <label class="ch-label">Sessions</label>
-                <input type="number" class="ch-select" value="30" min="1" max="60">
-              </div>
-              <button class="btn btn-primary" onclick="window._nav('protocol-builder-full')">Open Full Builder →</button>
-            </div>
-          </div>
-          <div class="ch-card">
-            <div class="ch-card-hd"><span class="ch-card-title">Recently Used Templates</span></div>
-            <div style="padding:8px 0">
-              ${_protos.filter(p=>p.evidenceGrade==='A').slice(0,6).map(p=>{
-                const cond=_conditions.find(c=>c.id===p.conditionId);
-                const dev=_devices.find(d=>d.id===p.device);
-                return '<div class="ph-patient-row" onclick="window._protDetailId=\'' + (p.id||'') + '\';window._nav(\'protocol-detail\')">' +
-                  '<div class="ph-info"><div class="ph-name">' + (p.name||'Protocol') + '</div>' +
-                  '<div class="ph-meta">' + (cond?.label||'—') + ' · ' + (dev?.label||'—') + '</div></div>' +
-                  '<span class="ph-badge ph-badge--course">Ev. A</span>' +
-                  '<svg class="ph-chevron" viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></svg></div>';
-              }).join('')}
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>`;
-  }
+    // AI badge topbar ornament is shown when the user is in a mode that
+    // produces AI-derived output (Patient chart, Brain Scan rules). In
+    // Scratch mode we surface a Full Builder shortcut instead.
+    const _topbarAiBadge = (window._designerMode !== 'scratch')
+      ? '<span class="ph-ai-badge">AI</span>'
+      : '<button class="btn btn-sm" onclick="window._nav(\'protocol-builder-full\')">Full Builder ↗</button>';
+    setTopbar('Protocol Designer', _topbarAiBadge);
 
-  // ── PERSONALISED PROTOCOL TAB ─────────────────────────────────────────────
-  else if (tab === 'personalized') {
-    setTopbar('Protocols', '<span class="ph-ai-badge">AI</span>');
     el.innerHTML = '<div class="ch-shell">' + spinner() + '</div>';
 
+    const _escD = s => String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    const evColorsD = { A:'var(--teal)', B:'var(--blue)', C:'var(--amber)', D:'var(--text-tertiary)', E:'var(--text-tertiary)' };
+
+    // Fetch patient context once — same fields as the old Personalised tab.
     let patients = [], courses = [], outcomes = [];
     try {
       const [pRes, cRes, oRes] = await Promise.all([
@@ -1906,13 +1867,9 @@ export async function pgProtocolHub(setTopbar, navigate) {
       outcomes = oRes?.items || [];
     } catch {}
 
-    const patOpts = patients.map(p =>
-      '<option value="' + p.id + '">' + ((p.first_name||'') + ' ' + (p.last_name||'')).trim() + ' — ' + ((p.condition_slug||'').replace(/-/g,' ')||'No condition') + '</option>'
-    ).join('') || '<option value="">No patients loaded</option>';
+    window._designerPatientId = window._designerPatientId || (patients[0]?.id || '');
 
-    window._ppPatientId = window._ppPatientId || (patients[0]?.id || '');
-
-    // Build rich patient context for AI
+    // ── Patient mode: build rich context (ported from personalized tab) ──
     function buildPatientContext(patId) {
       const p = patients.find(x => x.id === patId) || patients[0];
       if (!p) return null;
@@ -1920,7 +1877,6 @@ export async function pgProtocolHub(setTopbar, navigate) {
       const patOutcomes = outcomes.filter(o => o.patient_id === patId || o.course_id === patCourses[0]?.id);
       const activeCourse = patCourses.find(c => c.status === 'active');
       const mhData = (() => { try { return JSON.parse(localStorage.getItem('ds_ph_mh_safety')||'null'); } catch { return null; } })();
-
       return {
         name:            ((p.first_name||'') + ' ' + (p.last_name||'')).trim() || 'Patient',
         condition:       (p.condition_slug||'').replace(/-/g,' ') || p.primary_condition || 'Unknown',
@@ -1938,49 +1894,351 @@ export async function pgProtocolHub(setTopbar, navigate) {
       };
     }
 
-    function renderPatientSummary(patId) {
-      const ctx = buildPatientContext(patId);
-      const out = document.getElementById('pp-patient-card');
-      if (!out || !ctx) return;
-      const severityBand = ctx.phq9 != null
-        ? ctx.phq9 >= 20 ? { label:'Severe', color:'var(--red)' }
-          : ctx.phq9 >= 15 ? { label:'Mod. Severe', color:'#f97316' }
-          : ctx.phq9 >= 10 ? { label:'Moderate', color:'var(--amber)' }
-          : ctx.phq9 >= 5  ? { label:'Mild', color:'#84cc16' }
-          : { label:'Minimal', color:'var(--green)' }
-        : null;
-      out.innerHTML = `
-        <div class="pp-patient-header">
-          <div class="ph-avatar" style="width:44px;height:44px;font-size:14px">${ctx.name.split(' ').map(w=>w[0]||'').join('').slice(0,2).toUpperCase()}</div>
-          <div>
-            <div style="font-size:15px;font-weight:700;color:var(--text-primary)">${ctx.name}</div>
-            <div style="font-size:12px;color:var(--text-tertiary)">${ctx.condition}${ctx.age?' · Age '+ctx.age:''}</div>
-          </div>
-          ${ctx.safetyFlags!=='None flagged'?'<span class="ph-badge ph-badge--alert">⚠ AE</span>':''}
-        </div>
-        <div class="pp-profile-grid">
-          ${[
-            ['Condition', ctx.condition],
-            ['Modality', ctx.modality],
-            ['PHQ-9', ctx.phq9!=null ? ctx.phq9+(severityBand?' — '+severityBand.label:'') : 'Not recorded'],
-            ['Active Course', ctx.activeCourse],
-            ['Sessions Done', ctx.sessionsToDate || '0'],
-            ['Contraindications', ctx.contraindications],
-            ['Safety Flags', ctx.safetyFlags],
-            ['Prior Outcomes', ctx.outcomes],
-          ].map(([k,v]) => '<div class="pp-profile-row"><span class="pp-profile-key">'+k+'</span><span class="pp-profile-val">'+v+'</span></div>').join('')}
-        </div>`;
+    // ── Brain Scan mode: rule-engine on qEEG z-scores (ported) ──────────
+    // Z-score inputs are more clinically explicit than raw μV² levels.
+    const QEEG_FIELDS = [
+      { id:'alpha_asym', label:'Alpha Asymmetry (L–R)',    help:'Negative = left deficit (depression marker)'  },
+      { id:'alpha_z',    label:'Alpha Power (z)',           help:'Global alpha z-score (−2…+2)'                 },
+      { id:'theta_z',    label:'Theta Frontal (z)',         help:'Frontal theta z-score — elevated in MDD/ADHD' },
+      { id:'beta_z',     label:'Beta Frontal (z)',          help:'Low beta at F3 → hypoarousal; high → anxiety' },
+      { id:'smr_z',      label:'SMR (12–15 Hz) at C3 (z)',  help:'Low SMR → ADHD impulsivity'                   },
+      { id:'tbr',        label:'Theta/Beta Ratio',          help:'>3 = ADHD indicator'                          },
+    ];
+
+    // qEEG → (targetRegion, anode, cathode) rule. Picks the strongest single
+    // recommendation; users can stack alternates via the history panel.
+    function brainScanRecommend(vals) {
+      const asym   = parseFloat(vals.alpha_asym);
+      const thetaZ = parseFloat(vals.theta_z);
+      const betaZ  = parseFloat(vals.beta_z);
+      const smrZ   = parseFloat(vals.smr_z);
+      const tbr    = parseFloat(vals.tbr);
+
+      if (!isNaN(tbr) && tbr > 3) {
+        return {
+          name: 'SMR Neurofeedback — ADHD',
+          condition: 'ADHD', device: 'EEG',
+          evidenceGrade: 'B', sessions: 40,
+          anode: 'C3', cathode: null, targetRegion: null,
+          summary: 'TBR > 3 (value: ' + tbr.toFixed(1) + ') — classic ADHD marker. Theta suppression + SMR uptraining at C3/Cz.',
+          params: { frequency_band:'12–15 Hz (SMR)', protocol:'Uptrain SMR, downtrain theta', sessions_per_week:'2–3' },
+        };
+      }
+      if (!isNaN(smrZ) && smrZ < -1) {
+        return {
+          name: 'SMR Neurofeedback — C3 Deficit',
+          condition: 'ADHD', device: 'EEG',
+          evidenceGrade: 'B', sessions: 40,
+          anode: 'C3', cathode: null, targetRegion: null,
+          summary: 'SMR z = ' + smrZ.toFixed(2) + ' → sensorimotor rhythm deficit. Uptrain SMR at C3.',
+          params: { frequency_band:'12–15 Hz', protocol:'Uptrain SMR at C3', sessions_per_week:'2–3' },
+        };
+      }
+      if (!isNaN(asym) && asym < -0.1) {
+        return {
+          name: 'Left DLPFC TMS — Depression',
+          condition: 'MDD', device: 'TMS',
+          evidenceGrade: 'A', sessions: 30,
+          anode: 'F3', cathode: null, targetRegion: 'DLPFC-L',
+          summary: 'Left alpha deficit (asymmetry: ' + asym.toFixed(2) + ') → left hypoactivation. Standard indicator for left DLPFC TMS.',
+          params: { frequency:'10 Hz', intensity:'120% MT', pulses_per_session:3000, sessions_per_week:5 },
+        };
+      }
+      if (!isNaN(thetaZ) && thetaZ > 1) {
+        return {
+          name: 'Anodal tDCS — Left DLPFC',
+          condition: 'MDD', device: 'tDCS',
+          evidenceGrade: 'B', sessions: 20,
+          anode: 'F3', cathode: 'F4', targetRegion: 'DLPFC-L',
+          summary: 'Frontal theta z = ' + thetaZ.toFixed(2) + ' → prefrontal hypoactivation. Anodal tDCS F3 / cathodal F4.',
+          params: { current:'2 mA', duration:'30 min', sessions_per_week:5 },
+        };
+      }
+      if (!isNaN(betaZ) && betaZ < -1) {
+        return {
+          name: 'Prefrontal tDCS — Cognitive Support',
+          condition: 'Cognitive impairment', device: 'tDCS',
+          evidenceGrade: 'C', sessions: 15,
+          anode: 'F3', cathode: 'F4', targetRegion: 'DLPFC-L',
+          summary: 'Low frontal beta (z = ' + betaZ.toFixed(2) + ') → prefrontal hypoactivation.',
+          params: { current:'2 mA', duration:'20 min' },
+        };
+      }
+      return null;
     }
 
-    async function generatePersonalisedProtocols() {
-      const patId = document.getElementById('pp-patient-select')?.value || window._ppPatientId;
+    // ── Scratch mode: target-site metadata ──────────────────────────────
+    const SCRATCH_SITES = [
+      { id:'F3', label:'F3 — Left DLPFC',         anode:'F3', cathode:null, targetRegion:'DLPFC-L' },
+      { id:'F4', label:'F4 — Right DLPFC',        anode:'F4', cathode:null, targetRegion:'DLPFC-R' },
+      { id:'Fz', label:'Fz — Medial PFC',         anode:'Fz', cathode:null, targetRegion:'mPFC'    },
+      { id:'Cz', label:'Cz — Vertex / SMA',       anode:'Cz', cathode:null, targetRegion:'SMA'     },
+      { id:'C3', label:'C3 — Left Motor Cortex',  anode:'C3', cathode:null, targetRegion:'M1-L'    },
+      { id:'C4', label:'C4 — Right Motor Cortex', anode:'C4', cathode:null, targetRegion:'M1-R'    },
+      { id:'T7', label:'T7 — Left Temporal',      anode:'T7', cathode:null, targetRegion:'TEMPORAL-L' },
+      { id:'T8', label:'T8 — Right Temporal',     anode:'T8', cathode:null, targetRegion:'TEMPORAL-R' },
+      { id:'P3', label:'P3 — Left Parietal',      anode:'P3', cathode:null, targetRegion:null      },
+      { id:'P4', label:'P4 — Right Parietal',     anode:'P4', cathode:null, targetRegion:null      },
+      { id:'Pz', label:'Pz — Parietal Midline',   anode:'Pz', cathode:null, targetRegion:null      },
+      { id:'Oz', label:'Oz — Occipital',          anode:'Oz', cathode:null, targetRegion:'V1'      },
+    ];
+
+    // ── Output render helpers ───────────────────────────────────────────
+    function renderBrainPanel(output) {
+      const wrap = document.getElementById('design-bmp-svg');
+      if (!wrap) return;
+      wrap.innerHTML = renderBrainMap10_20({
+        anode:        output?.anode        || null,
+        cathode:      output?.cathode      || null,
+        targetRegion: output?.targetRegion || null,
+        size: 340,
+        showZones: true,
+        showConnection: true,
+        showEarsAndNose: true,
+      });
+    }
+
+    function renderOutputCard(output) {
+      const host = document.getElementById('design-output-card');
+      if (!host) return;
+      if (!output) {
+        const modeHint = {
+          patient:   'Pick a patient on the left, then click <b>Generate AI Recommendations</b> to produce a protocol from the chart.',
+          brainscan: 'Enter qEEG metrics on the left, then click <b>Analyse &amp; Recommend</b> to generate a rule-based protocol and update the brain map.',
+          scratch:   'Fill in the form on the left — the brain map updates live as you change the target site. Click <b>Build Protocol</b> to materialise the output.',
+        }[window._designerMode] || '';
+        host.innerHTML = '<div class="design-output-card"><div class="bmp-montage-name">No output yet</div>' +
+          '<div class="bmp-notes">' + modeHint + '</div></div>';
+        return;
+      }
+      const evc = evColorsD[output.evidenceGrade] || 'var(--text-tertiary)';
+      const params = output.params || {};
+      const paramRows = Object.keys(params).length
+        ? Object.entries(params).map(([k,v]) =>
+            '<div class="design-param"><span class="design-param-label">' + _escD(k.replace(/_/g,' ')) + '</span>' +
+            '<span class="design-param-value">' + _escD(v) + '</span></div>'
+          ).join('')
+        : '';
+      host.innerHTML =
+        '<div class="design-output-card">' +
+          '<div class="bmp-montage-name">' + _escD(output.name || 'Protocol') + '</div>' +
+          '<div class="bmp-badges">' +
+            (output.condition     ? '<span class="bmp-badge">' + _escD(output.condition) + '</span>' : '') +
+            (output.device        ? '<span class="bmp-badge">' + _escD(output.device)    + '</span>' : '') +
+            (output.evidenceGrade ? '<span class="bmp-badge" style="color:' + evc + '">Evidence ' + _escD(output.evidenceGrade) + '</span>' : '') +
+            (output.sessions      ? '<span class="bmp-badge">' + _escD(output.sessions) + ' sessions</span>' : '') +
+            (output.anode         ? '<span class="bmp-badge bmp-badge--anode">+ ' + _escD(output.anode) + '</span>' : '') +
+            (output.cathode       ? '<span class="bmp-badge bmp-badge--cathode">− ' + _escD(output.cathode) + '</span>' : '') +
+            (output.targetRegion  ? '<span class="bmp-badge">◎ ' + _escD(output.targetRegion) + '</span>' : '') +
+          '</div>' +
+          (output.summary ? '<div class="bmp-notes">' + _escD(output.summary) + '</div>' : '') +
+          (paramRows ? '<div class="design-params-grid">' + paramRows + '</div>' : '') +
+          '<div class="design-actions">' +
+            '<button class="ch-btn-sm ch-btn-teal" onclick="window._prescribeFromDesigner()">Prescribe →</button>' +
+            '<button class="ch-btn-sm" onclick="window._saveDesignerPreset()">Save as preset</button>' +
+            '<button class="ch-btn-sm" onclick="window._exportDesignerResult()">Export</button>' +
+          '</div>' +
+        '</div>';
+    }
+
+    function renderHistory() {
+      const host = document.getElementById('design-history');
+      if (!host) return;
+      const hist = (window._designerHistory || []).slice(-3).reverse();
+      if (!hist.length) { host.innerHTML = ''; return; }
+      host.innerHTML =
+        '<div class="design-history-label">Recent Generations</div>' +
+        hist.map((h, i) =>
+          '<div class="design-history-row" onclick="window._loadDesignerHistory(' + i + ')">' +
+            '<span style="color:var(--text-secondary);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + _escD(h.name || 'Protocol') + '</span>' +
+            (h.condition ? '<span style="color:var(--text-tertiary);font-size:11px">' + _escD(h.condition) + '</span>' : '') +
+            (h.anode     ? '<span class="bmp-badge bmp-badge--anode">+ ' + _escD(h.anode) + '</span>' : '') +
+          '</div>'
+        ).join('');
+    }
+
+    function setOutput(out, { pushHistory = true } = {}) {
+      window._designerOutput = out;
+      if (pushHistory && out) {
+        window._designerHistory.push(out);
+        if (window._designerHistory.length > 10) window._designerHistory.shift();
+      }
+      renderBrainPanel(out);
+      renderOutputCard(out);
+      renderHistory();
+    }
+
+    // ── Left-pane renderers (mode-specific) ─────────────────────────────
+    function renderPatientLeft() {
+      const patOpts = patients.map(p =>
+        '<option value="' + p.id + '"' + (p.id === window._designerPatientId ? ' selected' : '') + '>' +
+          _escD(((p.first_name||'') + ' ' + (p.last_name||'')).trim()) + ' — ' +
+          _escD((p.condition_slug||'').replace(/-/g,' ')||'No condition') +
+        '</option>'
+      ).join('') || '<option value="">No patients loaded</option>';
+
+      const ctx = buildPatientContext(window._designerPatientId);
+      const severityBand = ctx && ctx.phq9 != null
+        ? ctx.phq9 >= 20 ? { label:'Severe' }
+          : ctx.phq9 >= 15 ? { label:'Mod. Severe' }
+          : ctx.phq9 >= 10 ? { label:'Moderate' }
+          : ctx.phq9 >= 5  ? { label:'Mild' }
+          : { label:'Minimal' }
+        : null;
+      const profile = ctx
+        ? '<div class="pp-patient-header">' +
+            '<div class="ph-avatar" style="width:44px;height:44px;font-size:14px">' + _escD(ctx.name.split(' ').map(w=>w[0]||'').join('').slice(0,2).toUpperCase()) + '</div>' +
+            '<div>' +
+              '<div style="font-size:15px;font-weight:700;color:var(--text-primary)">' + _escD(ctx.name) + '</div>' +
+              '<div style="font-size:12px;color:var(--text-tertiary)">' + _escD(ctx.condition) + (ctx.age?' · Age '+ctx.age:'') + '</div>' +
+            '</div>' +
+            (ctx.safetyFlags!=='None flagged'?'<span class="ph-badge ph-badge--alert">⚠ AE</span>':'') +
+          '</div>' +
+          '<div class="pp-profile-grid">' +
+            [
+              ['Condition', ctx.condition],
+              ['Modality', ctx.modality],
+              ['PHQ-9', ctx.phq9!=null ? ctx.phq9+(severityBand?' — '+severityBand.label:'') : 'Not recorded'],
+              ['Active Course', ctx.activeCourse],
+              ['Sessions Done', ctx.sessionsToDate || '0'],
+              ['Contraindications', ctx.contraindications],
+              ['Safety Flags', ctx.safetyFlags],
+              ['Prior Outcomes', ctx.outcomes],
+            ].map(([k,v]) => '<div class="pp-profile-row"><span class="pp-profile-key">' + _escD(k) + '</span><span class="pp-profile-val">' + _escD(v) + '</span></div>').join('') +
+          '</div>'
+        : '<div style="padding:16px;font-size:12px;color:var(--text-tertiary);text-align:center">Pick a patient to begin.</div>';
+
+      return '<div class="ch-card">' +
+        '<div class="ch-card-hd"><span class="ch-card-title">Select Patient</span></div>' +
+        '<div style="padding:14px 16px;display:flex;flex-direction:column;gap:10px">' +
+          '<select class="ch-select ch-select--full" id="design-pat-select" onchange="window._designerSelectPatient(this.value)">' + patOpts + '</select>' +
+          profile +
+          '<button class="btn btn-primary" style="width:100%;margin-top:4px" onclick="window._designerGeneratePatient()">' +
+            '<span style="margin-right:6px">✦</span> Generate AI Recommendations' +
+          '</button>' +
+          '<div style="font-size:11px;color:var(--text-tertiary);text-align:center;line-height:1.5">AI analyses condition, severity, prior treatments,<br>medications and contraindications.</div>' +
+        '</div></div>';
+    }
+
+    function renderBrainscanLeft() {
+      const vals = window._designerBsVals || {};
+      return '<div class="ch-card">' +
+        '<div class="ch-card-hd"><span class="ch-card-title">qEEG Metrics</span></div>' +
+        '<div style="padding:14px 16px">' +
+          '<div style="font-size:11px;color:var(--text-tertiary);margin-bottom:12px">Enter available qEEG z-scores (or values). Leave blank if not measured. Rules engine matches dysregulation patterns to the most appropriate protocol.</div>' +
+          QEEG_FIELDS.map(f =>
+            '<div class="ch-form-group" style="margin-bottom:10px">' +
+              '<label class="ch-label">' + _escD(f.label) + '</label>' +
+              '<input id="design-bs-' + f.id + '" type="number" step="0.01" placeholder="' + _escD(f.help) + '" class="ch-select ch-select--full" value="' + _escD(vals[f.id] || '') + '">' +
+            '</div>'
+          ).join('') +
+          '<button class="btn btn-primary" style="width:100%;margin-top:4px" onclick="window._designerGenerateBrainScan()">' +
+            '<span style="margin-right:6px">◉</span> Analyse &amp; Recommend' +
+          '</button>' +
+        '</div></div>';
+    }
+
+    function renderScratchLeft() {
+      const selSite = window._designerScratchSite || 'F3';
+      return '<div class="design-stat-row">' +
+          '<div class="design-stat-card"><div class="design-stat-value">' + _protos.length + '</div><div class="design-stat-label">Protocols in Library</div></div>' +
+          '<div class="design-stat-card"><div class="design-stat-value" style="color:var(--blue)">' + _conditions.length + '</div><div class="design-stat-label">Conditions Covered</div></div>' +
+          '<div class="design-stat-card"><div class="design-stat-value" style="color:var(--violet)">' + _devices.length + '</div><div class="design-stat-label">Device Types</div></div>' +
+          '<div class="design-stat-card"><div class="design-stat-value" style="color:var(--green)">' + _protos.filter(p=>p.evidenceGrade==='A').length + '</div><div class="design-stat-label">Grade A Evidence</div></div>' +
+        '</div>' +
+        '<div class="ch-card">' +
+          '<div class="ch-card-hd"><span class="ch-card-title">Quick Protocol Builder</span></div>' +
+          '<div style="padding:16px;display:flex;flex-direction:column;gap:12px">' +
+            '<div class="ch-form-group">' +
+              '<label class="ch-label">Condition</label>' +
+              '<select class="ch-select ch-select--full" id="design-sc-condition">' +
+                _conditions.slice(0,30).map(c=>'<option value="'+_escD(c.id)+'">'+_escD(c.label)+'</option>').join('') +
+              '</select>' +
+            '</div>' +
+            '<div class="ch-form-group">' +
+              '<label class="ch-label">Modality</label>' +
+              '<select class="ch-select ch-select--full" id="design-sc-device">' +
+                _devices.map(d=>'<option value="'+_escD(d.id)+'">'+_escD(d.label)+'</option>').join('') +
+              '</select>' +
+            '</div>' +
+            '<div class="ch-form-group">' +
+              '<label class="ch-label">Target Site</label>' +
+              '<select class="ch-select ch-select--full" id="design-sc-site" onchange="window._designerScratchSitePreview(this.value)">' +
+                SCRATCH_SITES.map(s => '<option value="'+s.id+'"' + (s.id===selSite?' selected':'') + '>'+_escD(s.label)+'</option>').join('') +
+              '</select>' +
+            '</div>' +
+            '<div class="ch-form-group">' +
+              '<label class="ch-label">Sessions</label>' +
+              '<input type="number" class="ch-select ch-select--full" id="design-sc-sessions" value="30" min="1" max="60">' +
+            '</div>' +
+            '<button class="btn btn-primary" onclick="window._designerBuildScratch()">Build Protocol</button>' +
+          '</div>' +
+        '</div>' +
+        '<details class="ch-card" style="padding:0">' +
+          '<summary style="padding:12px 16px;cursor:pointer;font-size:13px;font-weight:600;color:var(--text-primary);list-style:none">Recently Used Templates ▾</summary>' +
+          '<div style="padding:0 0 8px">' +
+            _protos.filter(p=>p.evidenceGrade==='A').slice(0,6).map(p => {
+              const cond = _conditions.find(c=>c.id===p.conditionId);
+              const dev  = _devices.find(d=>d.id===p.device);
+              return '<div class="ph-patient-row" onclick="window._protDetailId=\'' + _escD(p.id||'') + '\';window._nav(\'protocol-detail\')">' +
+                '<div class="ph-info"><div class="ph-name">' + _escD(p.name||'Protocol') + '</div>' +
+                '<div class="ph-meta">' + _escD(cond?.label||'—') + ' · ' + _escD(dev?.label||'—') + '</div></div>' +
+                '<span class="ph-badge ph-badge--course">Ev. A</span>' +
+                '<svg class="ph-chevron" viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></svg></div>';
+            }).join('') +
+          '</div>' +
+        '</details>';
+    }
+
+    function leftPaneHtml() {
+      if (window._designerMode === 'patient')   return renderPatientLeft();
+      if (window._designerMode === 'brainscan') return renderBrainscanLeft();
+      return renderScratchLeft();
+    }
+
+    function rerenderLeft() {
+      const left = document.getElementById('design-left');
+      if (left) left.innerHTML = leftPaneHtml();
+      document.querySelectorAll('.design-mode').forEach(b => {
+        b.classList.toggle('active', b.dataset.mode === window._designerMode);
+      });
+    }
+
+    function rerenderAll() {
+      rerenderLeft();
+      // In scratch mode with no committed output, seed a live preview from
+      // the currently selected target site so the brain map is never empty.
+      if (window._designerMode === 'scratch' && !window._designerOutput) {
+        window._designerScratchSitePreview(window._designerScratchSite || 'F3');
+      } else {
+        renderBrainPanel(window._designerOutput);
+      }
+      renderOutputCard(window._designerOutput);
+      renderHistory();
+    }
+    window._designerRerender = rerenderAll;
+
+    // ── Event handlers (exposed on window for inline onclick) ────────────
+    window._designerSetMode = m => {
+      window._designerMode = m;
+      const _badge = (m !== 'scratch')
+        ? '<span class="ph-ai-badge">AI</span>'
+        : '<button class="btn btn-sm" onclick="window._nav(\'protocol-builder-full\')">Full Builder ↗</button>';
+      setTopbar('Protocol Designer', _badge);
+      rerenderAll();
+    };
+
+    window._designerSelectPatient = id => {
+      window._designerPatientId = id;
+      rerenderLeft();
+    };
+
+    window._designerGeneratePatient = async () => {
+      const patId = document.getElementById('design-pat-select')?.value || window._designerPatientId;
       const ctx = buildPatientContext(patId);
-      if (!ctx) { window._dsToast?.({ title:'No patient selected', body:'Select a patient first.', severity:'warn' }); return; }
+      if (!ctx) { window._dsToast?.({ title:'No patient selected', body:'Pick a patient to begin.', severity:'warn' }); return; }
 
-      const out = document.getElementById('pp-results');
-      if (out) out.innerHTML = '<div class="pp-ai-thinking"><div class="pp-ai-spinner"></div><span>AI analysing patient profile and matching protocols…</span></div>';
-
-      // Rule-based matches as immediate fallback
+      // Rule-based shortlist (ported from old personalized tab)
       const conditionKey = ctx.condition.toLowerCase();
       const ruleMatches = _protos.filter(p => {
         const pcond = (p.conditionId||'').toLowerCase();
@@ -1994,13 +2252,10 @@ export async function pgProtocolHub(setTopbar, navigate) {
         return false;
       }).slice(0, 5);
 
-      // Contraindication filter
       const hasSeizure = ctx.contraindications.toLowerCase().includes('seizure');
-      const safeMatches = hasSeizure
-        ? ruleMatches.filter(p => !['TMS','tDCS'].includes(p.device))
-        : ruleMatches;
+      const safeMatches = hasSeizure ? ruleMatches.filter(p => !['TMS','tDCS'].includes(p.device)) : ruleMatches;
 
-      // Try AI call
+      // Try AI call (unchanged from personalized tab)
       let aiRecs = null;
       try {
         const sysPrompt = 'You are a clinical neuromodulation expert. Given a patient profile and a shortlist of matching protocols, return personalised recommendations as a JSON array. Each item: { protocol_name, rationale, confidence: "High"|"Medium"|"Low", contraindication_check, expected_response, priority: 1|2|3 }. Return only valid JSON, no other text.';
@@ -2014,298 +2269,167 @@ export async function pgProtocolHub(setTopbar, navigate) {
         if (jsonStr) aiRecs = JSON.parse(jsonStr);
       } catch {}
 
-      if (!out) return;
-
+      // Collapse to a single top-ranked output object (unified designer schema).
+      let output = null;
       if (aiRecs && aiRecs.length) {
-        const evC = { High:'var(--green)', Medium:'var(--amber)', Low:'var(--text-tertiary)' };
-        out.innerHTML = '<div class="pp-ai-header"><span class="ph-ai-badge">AI</span><span style="font-size:12px;color:var(--text-tertiary)">AI-generated recommendations for ' + ctx.name + '</span></div>' +
-          aiRecs.map((r, i) => `
-            <div class="pp-rec-card">
-              <div class="pp-rec-top">
-                <span class="pp-rec-rank">${i+1}</span>
-                <span class="pp-rec-name">${r.protocol_name||'Protocol'}</span>
-                <span class="pp-rec-conf" style="color:${evC[r.confidence]||'var(--text-tertiary)'}">${r.confidence||'—'} confidence</span>
-              </div>
-              <div class="pp-rec-rationale">${r.rationale||'No rationale provided.'}</div>
-              <div class="pp-rec-meta">
-                ${r.expected_response?'<div class="pp-rec-expected"><span>Expected:</span> '+r.expected_response+'</div>':''}
-                ${r.contraindication_check?'<div class="pp-rec-contra ${r.contraindication_check.toLowerCase().includes("no")||r.contraindication_check.toLowerCase().includes("safe")?"pp-rec-safe":"pp-rec-warn"}"><span>⚠ Contraindication check:</span> '+r.contraindication_check+'</div>':''}
-              </div>
-              <div style="display:flex;gap:8px;margin-top:10px">
-                <button class="ch-btn-sm ch-btn-teal" onclick="window._patientHubTab='prescriptions';window._nav('patients-hub')">Prescribe →</button>
-                <button class="ch-btn-sm" onclick="window._protocolHubTab='search';window._nav('protocol-hub')">Find Protocol</button>
-              </div>
-            </div>`).join('');
-      } else {
-        // Fallback to rule-based
-        const evC2 = { A:'var(--teal)', B:'var(--blue)', C:'var(--amber)' };
-        out.innerHTML = (safeMatches.length
-          ? '<div class="pp-ai-header"><span style="font-size:11px;color:var(--text-tertiary);padding:3px 8px;background:rgba(255,255,255,0.06);border-radius:6px">Rule-based match</span><span style="font-size:12px;color:var(--text-tertiary)">Based on condition: ' + ctx.condition + '</span></div>' +
-            safeMatches.map((p, i) => {
-              const cond = _conditions.find(c=>c.id===p.conditionId);
-              const dev  = _devices.find(d=>d.id===p.device);
-              return '<div class="pp-rec-card">' +
-                '<div class="pp-rec-top">' +
-                  '<span class="pp-rec-rank">'+(i+1)+'</span>' +
-                  '<span class="pp-rec-name">'+(p.name||'Protocol')+'</span>' +
-                  '<span class="pp-rec-conf" style="color:'+evC2[p.evidenceGrade]+'">Ev. '+(p.evidenceGrade||'?')+'</span>' +
-                '</div>' +
-                '<div class="pp-rec-rationale">'+(p.summary||'Protocol matched to patient condition.')+'</div>' +
-                '<div class="pp-rec-meta"><div class="pp-rec-expected"><span>Device:</span> '+(dev?.label||p.device||'—')+'</div></div>' +
-                '<div style="display:flex;gap:8px;margin-top:10px">' +
-                  '<button class="ch-btn-sm ch-btn-teal" onclick="window._patientHubTab=\'prescriptions\';window._nav(\'patients-hub\')">Prescribe →</button>' +
-                '</div></div>';
-            }).join('')
-          : '<div class="ch-empty">No matching protocols found for this patient profile.</div>'
-        );
+        const top = aiRecs[0];
+        const matched = safeMatches.find(p => p.name === top.protocol_name) || safeMatches[0] || null;
+        const inf = matched ? inferElectrodes(matched) : { anode: null };
+        output = {
+          name: top.protocol_name || matched?.name || 'AI Recommendation',
+          condition: ctx.condition,
+          device: matched ? (_devices.find(d=>d.id===matched.device)?.label || matched.device) : '—',
+          evidenceGrade: matched?.evidenceGrade || '?',
+          sessions: matched?.sessions || null,
+          anode: inf.anode || null,
+          cathode: inf.cathode || null,
+          targetRegion: inf.targetRegion || null,
+          summary: top.rationale || matched?.summary || '',
+          params: {
+            confidence: top.confidence || '—',
+            contraindication_check: top.contraindication_check || 'No specific concern',
+            expected_response: top.expected_response || '—',
+          },
+        };
+      } else if (safeMatches.length) {
+        const m = safeMatches[0];
+        const inf = inferElectrodes(m);
+        output = {
+          name: m.name || 'Protocol',
+          condition: ctx.condition,
+          device: _devices.find(d=>d.id===m.device)?.label || m.device || '—',
+          evidenceGrade: m.evidenceGrade || '?',
+          sessions: m.sessions || null,
+          anode: inf.anode || null,
+          cathode: inf.cathode || null,
+          targetRegion: inf.targetRegion || null,
+          summary: m.summary || 'Protocol matched to patient condition.',
+          params: { match_source: 'rule-based (AI offline)' },
+        };
       }
-    }
-
-    window._ppGenerate = generatePersonalisedProtocols;
-    window._ppSelectPatient = id => {
-      window._ppPatientId = id;
-      renderPatientSummary(id);
+      if (!output) { window._dsToast?.({ title:'No matching protocols', body:'No library protocols match this condition.', severity:'warn' }); return; }
+      setOutput(output);
     };
 
-    el.innerHTML = `
-    <div class="ch-shell">
-      <div class="ch-tab-bar">${tabBar()}</div>
-      <div class="ch-body">
-        <div class="pp-layout">
-          <div class="pp-left">
-            <div class="ch-card">
-              <div class="ch-card-hd"><span class="ch-card-title">Select Patient</span></div>
-              <div style="padding:14px 16px;display:flex;flex-direction:column;gap:10px">
-                <select class="ch-select ch-select--full" id="pp-patient-select"
-                  onchange="window._ppSelectPatient(this.value)">${patOpts}</select>
-                <div id="pp-patient-card"></div>
-                <button class="btn btn-primary" style="width:100%;margin-top:4px" onclick="window._ppGenerate()">
-                  <span style="margin-right:6px">✦</span> Generate AI Protocol Recommendations
-                </button>
-                <div style="font-size:11px;color:var(--text-tertiary);text-align:center;line-height:1.5">
-                  AI analyses condition, severity, prior treatments,<br>medications and contraindications
-                </div>
-              </div>
-            </div>
-          </div>
-          <div class="pp-right">
-            <div id="pp-results" class="pp-results-area">
-              <div class="pp-results-empty">
-                <div class="pp-results-empty-icon">✦</div>
-                <div class="pp-results-empty-title">AI Protocol Recommendations</div>
-                <div class="pp-results-empty-body">Select a patient and click Generate to receive personalised protocol recommendations based on their full clinical profile.</div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>`;
-
-    renderPatientSummary(window._ppPatientId);
-  }
-
-  // ── BRAIN SCAN AI TAB ─────────────────────────────────────────────────────
-  else if (tab === 'brainscan') {
-    setTopbar('Protocols', '<span class="ph-ai-badge">AI</span>');
-
-    const REGIONS = [
-      { id:'fp1',  label:'Fp1',  x:32, y:10 }, { id:'fp2',  label:'Fp2',  x:68, y:10 },
-      { id:'f7',   label:'F7',   x:14, y:26 }, { id:'f3',   label:'F3',   x:36, y:24 }, { id:'fz',   label:'Fz',   x:50, y:22 }, { id:'f4',   label:'F4',   x:64, y:24 }, { id:'f8',   label:'F8',   x:86, y:26 },
-      { id:'t7',   label:'T7',   x:8,  y:50 }, { id:'c3',   label:'C3',   x:30, y:48 }, { id:'cz',   label:'Cz',   x:50, y:46 }, { id:'c4',   label:'C4',   x:70, y:48 }, { id:'t8',   label:'T8',   x:92, y:50 },
-      { id:'p7',   label:'P7',   x:14, y:74 }, { id:'p3',   label:'P3',   x:36, y:72 }, { id:'pz',   label:'Pz',   x:50, y:70 }, { id:'p4',   label:'P4',   x:64, y:72 }, { id:'p8',   label:'P8',   x:86, y:74 },
-      { id:'o1',   label:'O1',   x:36, y:90 }, { id:'oz',   label:'Oz',   x:50, y:92 }, { id:'o2',   label:'O2',   x:64, y:90 },
-    ];
-
-    const BANDS = [
-      { id:'alpha_asym',  label:'Alpha Asymmetry (L–R)',  unit:'', help:'Negative = left deficit (depression marker)' },
-      { id:'alpha_power', label:'Alpha Power (global)',    unit:'μV²', help:'Normal: 8–12 Hz. Low alpha → anxiety/hyperarousal' },
-      { id:'theta_front', label:'Theta — Frontal',        unit:'μV²', help:'Elevated theta in Fz/F3/F4 → depression, inattention' },
-      { id:'beta_front',  label:'Beta — Frontal',         unit:'μV²', help:'Elevated beta → anxiety, hyperarousal' },
-      { id:'delta_front', label:'Delta — Frontal',        unit:'μV²', help:'Delta intrusions in waking → TBI, encephalopathy' },
-      { id:'smr_c3',      label:'SMR (12–15 Hz) at C3',   unit:'μV²', help:'Low SMR → impulsivity, ADHD' },
-      { id:'theta_beta',  label:'Theta/Beta Ratio',       unit:'', help:'>3 = ADHD indicator (TBR)' },
-    ];
-
-    // State
-    window._bsMode   = window._bsMode   || 'form';
-    window._bsValues = window._bsValues || {};
-    window._bsRegionValues = window._bsRegionValues || {};
-
-    function bsMapSvg() {
-      return REGIONS.map(r => {
-        const val = window._bsRegionValues[r.id];
-        const fill = val === 'high'   ? 'rgba(255,107,107,0.7)'
-                   : val === 'low'    ? 'rgba(74,158,255,0.7)'
-                   : val === 'normal' ? 'rgba(74,222,128,0.4)'
-                   : 'rgba(255,255,255,0.08)';
-        return '<circle cx="' + r.x + '%" cy="' + r.y + '%" r="8" fill="' + fill + '" stroke="rgba(255,255,255,0.2)" stroke-width="1" style="cursor:pointer" onclick="window._bsCycleRegion(\'' + r.id + '\')" title="' + r.label + '"/>' +
-          '<text x="' + r.x + '%" y="' + (r.y + 4.5) + '%" text-anchor="middle" font-size="7" fill="rgba(255,255,255,0.7)" font-family="system-ui" pointer-events="none">' + r.label + '</text>';
-      }).join('');
-    }
-
-    window._bsCycleRegion = id => {
-      const cycle = { undefined:'low', low:'normal', normal:'high', high:'none', none:undefined };
-      window._bsRegionValues[id] = cycle[window._bsRegionValues[id]];
-      const svg = document.getElementById('bs-svg');
-      if (svg) svg.innerHTML = bsMapSvg();
+    window._designerGenerateBrainScan = () => {
+      const vals = {};
+      QEEG_FIELDS.forEach(f => { vals[f.id] = document.getElementById('design-bs-'+f.id)?.value || ''; });
+      window._designerBsVals = vals;
+      const out = brainScanRecommend(vals);
+      if (!out) {
+        window._dsToast?.({ title:'No rule triggered', body:'Enter z-scores/TBR that hit thresholds (e.g. TBR > 3 or alpha asym < −0.1).', severity:'warn' });
+        return;
+      }
+      setOutput(out);
     };
 
-    async function runBrainScanAI() {
-      const out = document.getElementById('bs-results');
-      if (out) out.innerHTML = '<div class="pp-ai-thinking"><div class="pp-ai-spinner"></div><span>AI analysing brain metrics…</span></div>';
+    window._designerScratchSitePreview = siteId => {
+      window._designerScratchSite = siteId;
+      const s = SCRATCH_SITES.find(x => x.id === siteId) || SCRATCH_SITES[0];
+      // Live preview — just update the brain map, don't commit an output.
+      const wrap = document.getElementById('design-bmp-svg');
+      if (wrap) {
+        wrap.innerHTML = renderBrainMap10_20({
+          anode: s.anode, cathode: s.cathode, targetRegion: s.targetRegion,
+          size: 340, showZones: true, showConnection: true, showEarsAndNose: true,
+        });
+      }
+    };
 
-      const useReport = window._bsMode === 'report';
-      const reportText = document.getElementById('bs-report-text')?.value || '';
+    window._designerBuildScratch = () => {
+      const condId  = document.getElementById('design-sc-condition')?.value || '';
+      const devId   = document.getElementById('design-sc-device')?.value   || '';
+      const siteId  = document.getElementById('design-sc-site')?.value     || (window._designerScratchSite || 'F3');
+      const sessions = parseInt(document.getElementById('design-sc-sessions')?.value, 10) || 30;
+      const cond = _conditions.find(c=>c.id===condId);
+      const dev  = _devices.find(d=>d.id===devId);
+      const site = SCRATCH_SITES.find(s=>s.id===siteId) || SCRATCH_SITES[0];
+      const out = {
+        name: 'Custom — ' + (dev?.label || devId || 'Protocol') + ' @ ' + site.id,
+        condition: cond?.label || condId || '—',
+        device: dev?.label || devId || '—',
+        evidenceGrade: 'C',
+        sessions,
+        anode: site.anode,
+        cathode: site.cathode,
+        targetRegion: site.targetRegion,
+        summary: 'User-built protocol: ' + (dev?.label || devId) + ' targeting ' + site.label + ' for ' + (cond?.label || condId) + '.',
+        params: { target_site: site.id, sessions_total: sessions },
+      };
+      setOutput(out);
+    };
 
-      // Gather form metrics
-      const metrics = {};
-      BANDS.forEach(b => { metrics[b.id] = document.getElementById('bs-'+b.id)?.value || ''; });
+    window._loadDesignerHistory = idx => {
+      const hist = (window._designerHistory || []).slice(-3).reverse();
+      const out = hist[idx];
+      if (out) setOutput(out, { pushHistory: false });
+    };
 
-      // Gather region map
-      const activeRegions = Object.entries(window._bsRegionValues)
-        .filter(([,v]) => v && v !== 'none')
-        .map(([k,v]) => k + ':' + v)
-        .join(', ');
+    window._prescribeFromDesigner = () => {
+      if (!window._designerOutput) return;
+      window._patientHubTab = 'prescriptions';
+      window._nav('patients-hub');
+    };
 
-      const sysPrompt = 'You are a clinical qEEG and neuromodulation specialist. Analyse the provided brain metrics and recommend the most appropriate neuromodulation protocols. Return a JSON array of recommendations: [{ condition_indicated, protocol_name, target_region, frequency_hz, rationale, confidence: "High"|"Medium"|"Low", evidence_grade: "A"|"B"|"C" }]. Return only valid JSON.';
-
-      const metricLines = useReport
-        ? 'EEG/Brain Report:\n' + reportText
-        : 'qEEG Metrics:\n' + BANDS.map(b=>b.label+': '+(metrics[b.id]||'not provided')+' '+b.unit).join('\n') +
-          (activeRegions ? '\nRegion Activity Map: ' + activeRegions : '');
-
-      const userMsg = metricLines + '\n\nBased on these brain metrics, identify dysregulation patterns and recommend the optimal neuromodulation protocols with specific targets and parameters.';
-
-      let aiRecs = null;
+    window._saveDesignerPreset = () => {
+      if (!window._designerOutput) return;
       try {
-        const res = await api.chatAgent(
-          [{ role:'system', content: sysPrompt }, { role:'user', content: userMsg }],
-          'anthropic', null, { domain: 'neuromodulation', type: 'brain_scan' }
-        );
-        const raw = res?.message || res?.content || res?.reply || '';
-        const jsonStr = raw.match(/\[[\s\S]*\]/)?.[0];
-        if (jsonStr) aiRecs = JSON.parse(jsonStr);
+        const key = 'ds_designer_presets';
+        const list = JSON.parse(localStorage.getItem(key) || '[]');
+        list.push({ ts: Date.now(), ...window._designerOutput });
+        localStorage.setItem(key, JSON.stringify(list.slice(-20)));
+        window._dsToast?.({ title:'Preset saved', body: window._designerOutput.name, severity:'ok' });
       } catch {}
-
-      if (!out) return;
-
-      if (aiRecs && aiRecs.length) {
-        const evC = { High:'var(--green)', Medium:'var(--amber)', Low:'var(--text-tertiary)' };
-        const egC = { A:'var(--teal)', B:'var(--blue)', C:'var(--amber)' };
-        out.innerHTML = '<div class="pp-ai-header"><span class="ph-ai-badge">AI</span><span style="font-size:12px;color:var(--text-tertiary)">Brain-scan based protocol recommendations</span></div>' +
-          aiRecs.map((r, i) => `
-            <div class="pp-rec-card">
-              <div class="pp-rec-top">
-                <span class="pp-rec-rank">${i+1}</span>
-                <span class="pp-rec-name">${r.protocol_name||'Protocol'}</span>
-                <span class="pp-rec-conf" style="color:${evC[r.confidence]||'var(--text-tertiary)'}">${r.confidence||''} confidence</span>
-                <span class="pp-rec-conf" style="color:${egC[r.evidence_grade]||'var(--text-tertiary)'}">Ev. ${r.evidence_grade||'?'}</span>
-              </div>
-              ${r.condition_indicated?'<div style="font-size:11px;color:var(--text-tertiary);margin-bottom:6px">Indicated for: <strong>'+r.condition_indicated+'</strong></div>':''}
-              <div class="pp-rec-rationale">${r.rationale||'No rationale provided.'}</div>
-              ${r.target_region||r.frequency_hz?`<div class="pp-rec-meta">
-                ${r.target_region?'<div class="pp-rec-expected"><span>Target:</span> '+r.target_region+'</div>':''}
-                ${r.frequency_hz?'<div class="pp-rec-expected"><span>Frequency:</span> '+r.frequency_hz+' Hz</div>':''}
-              </div>`:''}
-              <div style="display:flex;gap:8px;margin-top:10px">
-                <button class="ch-btn-sm ch-btn-teal" onclick="window._protocolHubTab='search';window._nav('protocol-hub')">Find Protocol</button>
-                <button class="ch-btn-sm" onclick="window._protocolHubTab='brainmap';window._nav('protocol-hub')">Brain Map</button>
-              </div>
-            </div>`).join('');
-      } else {
-        // Rule-based fallback from metric inputs
-        const rules = [];
-        const asym = parseFloat(metrics.alpha_asym);
-        const tbr   = parseFloat(metrics.theta_beta);
-        const thetaF = parseFloat(metrics.theta_front);
-        if (!isNaN(asym) && asym < -0.1)    rules.push({ name:'Left DLPFC TMS — Depression',        reason:'Left alpha deficit (asymmetry: '+asym.toFixed(2)+') → left hypoactivation. Standard indicator for left DLPFC TMS.' });
-        if (!isNaN(tbr) && tbr > 3)         rules.push({ name:'Neurofeedback — Theta/Beta ADHD',     reason:'TBR > 3 (value: '+tbr.toFixed(1)+') → classic ADHD marker. Theta suppression + beta/SMR uptraining.' });
-        if (!isNaN(thetaF) && thetaF > 5)   rules.push({ name:'tDCS Prefrontal — Depression/Cognition', reason:'Elevated frontal theta ('+thetaF.toFixed(1)+'μV²) → prefrontal hypoactivation. Anodal tDCS at F3.' });
-        if (window._bsRegionValues['fp1'] === 'low' || window._bsRegionValues['f3'] === 'low')
-          rules.push({ name:'Left DLPFC TMS / tDCS',                 reason:'Low activity at Fp1/F3 → left prefrontal hypoactivation. TMS or tDCS indicated.' });
-        if (window._bsRegionValues['pz'] === 'low')
-          rules.push({ name:'Alpha Uptraining Neurofeedback at Pz',   reason:'Low parietal alpha → hyperarousal or attention deficit. Alpha uptraining at Pz.' });
-
-        out.innerHTML = rules.length
-          ? '<div class="pp-ai-header"><span style="font-size:11px;color:var(--text-tertiary);padding:3px 8px;background:rgba(255,255,255,0.06);border-radius:6px">Rule-based</span><span style="font-size:12px;color:var(--text-tertiary)">Based on entered metrics</span></div>' +
-            rules.map((r,i)=>'<div class="pp-rec-card"><div class="pp-rec-top"><span class="pp-rec-rank">'+(i+1)+'</span><span class="pp-rec-name">'+r.name+'</span></div><div class="pp-rec-rationale">'+r.reason+'</div><div style="display:flex;gap:8px;margin-top:10px"><button class="ch-btn-sm ch-btn-teal" onclick="window._protocolHubTab=\'brainmap\';window._nav(\'protocol-hub\')">Brain Map</button></div></div>').join('')
-          : '<div class="ch-empty">Enter metrics or mark regions on the map, then click Analyse.</div>';
-      }
-    }
-
-    window._bsRunAI = runBrainScanAI;
-    window._bsSetMode = m => {
-      window._bsMode = m;
-      document.getElementById('bs-form-area')?.classList.toggle('ch-hidden', m !== 'form');
-      document.getElementById('bs-report-area')?.classList.toggle('ch-hidden', m !== 'report');
-      document.querySelectorAll('.bs-mode-btn').forEach(b=>b.classList.toggle('active',b.dataset.mode===m));
     };
 
-    el.innerHTML = `
-    <div class="ch-shell">
-      <div class="ch-tab-bar">${tabBar()}</div>
-      <div class="ch-body">
-        <div class="pp-layout">
-          <div class="pp-left">
-            <div class="ch-card">
-              <div class="ch-card-hd">
-                <span class="ch-card-title">Brain Metrics</span>
-                <div style="display:flex;gap:4px">
-                  <button class="ch-btn-sm bs-mode-btn${window._bsMode==='form'?' active':''}" data-mode="form" onclick="window._bsSetMode('form')">qEEG Form</button>
-                  <button class="ch-btn-sm bs-mode-btn${window._bsMode==='report'?' active':''}" data-mode="report" onclick="window._bsSetMode('report')">Paste Report</button>
-                </div>
-              </div>
-              <div id="bs-form-area" style="padding:14px 16px${window._bsMode!=='form'?';display:none':''}">
-                <div style="font-size:11px;color:var(--text-tertiary);margin-bottom:12px">Enter available metrics. Leave blank if not measured. Click electrode positions on the map to mark activity levels (blue=low · green=normal · red=high).</div>
-                ${BANDS.map(b=>`<div class="ch-form-group" style="margin-bottom:10px">
-                  <label class="ch-label">${b.label}</label>
-                  <input id="bs-${b.id}" type="text" placeholder="${b.help}" class="ch-select ch-select--full" value="${window._bsValues[b.id]||''}">
-                </div>`).join('')}
-              </div>
-              <div id="bs-report-area" style="padding:14px 16px${window._bsMode!=='report'?';display:none':''}">
-                <div class="ch-form-group">
-                  <label class="ch-label">Paste EEG / qEEG Report or Clinical Notes</label>
-                  <textarea class="ch-textarea" id="bs-report-text" rows="12" placeholder="Paste your qEEG report, EEG findings, or clinical neuroimaging notes here…\n\nExample:\n— Alpha asymmetry: left deficit at F3/F4\n— Theta elevation: frontal midline (Fz)\n— TBR = 3.8\n— SMR deficit at C3\n— No delta intrusions"></textarea>
-                </div>
-              </div>
-              <div style="padding:0 16px 16px">
-                <button class="btn btn-primary" style="width:100%" onclick="window._bsRunAI()">
-                  <span style="margin-right:6px">✦</span> Analyse & Recommend Protocols
-                </button>
-              </div>
-            </div>
-          </div>
-          <div class="pp-right">
-            <div class="ch-card" style="margin-bottom:16px">
-              <div class="ch-card-hd">
-                <span class="ch-card-title">Interactive Brain Map</span>
-                <div style="display:flex;gap:8px;font-size:11px;color:var(--text-tertiary);align-items:center">
-                  <span style="display:flex;align-items:center;gap:4px"><span style="width:8px;height:8px;border-radius:50%;background:rgba(74,158,255,0.7);display:inline-block"></span>Low</span>
-                  <span style="display:flex;align-items:center;gap:4px"><span style="width:8px;height:8px;border-radius:50%;background:rgba(74,222,128,0.4);display:inline-block"></span>Normal</span>
-                  <span style="display:flex;align-items:center;gap:4px"><span style="width:8px;height:8px;border-radius:50%;background:rgba(255,107,107,0.7);display:inline-block"></span>High</span>
-                </div>
-              </div>
-              <div style="padding:12px;display:flex;justify-content:center">
-                <svg id="bs-svg" viewBox="0 0 100 100" style="width:240px;height:240px;overflow:visible">
-                  <ellipse cx="50%" cy="50%" rx="46%" ry="44%" fill="rgba(0,212,188,0.04)" stroke="rgba(255,255,255,0.12)" stroke-width="1.5"/>
-                  <ellipse cx="50%" cy="50%" rx="38%" ry="36%" fill="none" stroke="rgba(255,255,255,0.06)" stroke-width="1"/>
-                  ${bsMapSvg()}
-                </svg>
-              </div>
-              <div style="padding:0 14px 12px;font-size:11px;color:var(--text-tertiary);text-align:center">Click electrodes to cycle: default → low → normal → high</div>
-            </div>
-            <div id="bs-results" class="pp-results-area">
-              <div class="pp-results-empty">
-                <div class="pp-results-empty-icon">⊙</div>
-                <div class="pp-results-empty-title">Brain-Scan AI Recommendations</div>
-                <div class="pp-results-empty-body">Enter qEEG metrics, mark brain regions on the map, or paste an EEG report — then click Analyse to receive AI protocol recommendations based on brain state.</div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>`;
+    window._exportDesignerResult = () => {
+      if (!window._designerOutput) return;
+      try {
+        const blob = new Blob([JSON.stringify(window._designerOutput, null, 2)], { type:'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'protocol-' + (window._designerOutput.name || 'output').replace(/[^a-z0-9]+/gi,'-').toLowerCase() + '.json';
+        document.body.appendChild(a); a.click(); document.body.removeChild(a);
+        setTimeout(()=>URL.revokeObjectURL(url), 2000);
+      } catch {}
+    };
+
+    // ── Shell render ────────────────────────────────────────────────────
+    el.innerHTML =
+      '<div class="ch-shell">' +
+        '<div class="ch-tab-bar">' + tabBar() + '</div>' +
+        '<div class="ch-body">' +
+          '<div class="design-modes" role="tablist" aria-label="Input source">' +
+            '<button class="design-mode' + (window._designerMode==='patient'?' active':'')   + '" data-mode="patient"   onclick="window._designerSetMode(\'patient\')"><span class="mode-icon">◉</span>From Patient</button>' +
+            '<button class="design-mode' + (window._designerMode==='brainscan'?' active':'') + '" data-mode="brainscan" onclick="window._designerSetMode(\'brainscan\')"><span class="mode-icon">◎</span>From Brain Scan</button>' +
+            '<button class="design-mode' + (window._designerMode==='scratch'?' active':'')   + '" data-mode="scratch"   onclick="window._designerSetMode(\'scratch\')"><span class="mode-icon">⊟</span>From Scratch</button>' +
+          '</div>' +
+          '<div class="design-layout">' +
+            '<div class="design-left" id="design-left">' + leftPaneHtml() + '</div>' +
+            '<div class="design-right">' +
+              '<div class="ch-card">' +
+                '<div class="ch-card-hd"><span class="ch-card-title">Brain Map &amp; Output</span></div>' +
+                '<div style="padding:12px 12px 4px;display:flex;justify-content:center" id="design-bmp-svg"></div>' +
+                '<div style="padding:0 14px 14px" id="design-output-card"></div>' +
+              '</div>' +
+              '<div class="design-history" id="design-history"></div>' +
+            '</div>' +
+          '</div>' +
+        '</div>' +
+      '</div>';
+
+    // Initial paint — scratch pre-seeds a live preview; other modes show
+    // either prior output or the empty-state hint card.
+    if (window._designerMode === 'scratch' && !window._designerOutput) {
+      window._designerScratchSitePreview(window._designerScratchSite || 'F3');
+    } else {
+      renderBrainPanel(window._designerOutput);
+    }
+    renderOutputCard(window._designerOutput);
+    renderHistory();
   }
+
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
