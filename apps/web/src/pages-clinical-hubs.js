@@ -12,6 +12,7 @@ import {
   SCALE_TO_FORM_KEY,
   getAssessmentConfig,
 } from './assessment-forms.js';
+import { DOCUMENT_TEMPLATES, renderTemplate } from './documents-templates.js';
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // pgPatientHub — Merged: Patients + Treatment Courses + Prescriptions
@@ -4593,23 +4594,7 @@ export async function pgDocumentsHubNew(setTopbar, navigate) {
   const now  = new Date();
   const td   = now.getFullYear()+'-'+pad2(now.getMonth()+1)+'-'+pad2(now.getDate());
 
-  const TEMPLATES = [
-    { id:'T01', name:'TMS Informed Consent Form',         cat:'Consent',    pages:4, langs:['EN','FR','ES'], auto:false },
-    { id:'T02', name:'tDCS Informed Consent Form',        cat:'Consent',    pages:3, langs:['EN'],           auto:false },
-    { id:'T03', name:'Neurofeedback Consent Form',        cat:'Consent',    pages:3, langs:['EN','FR'],      auto:false },
-    { id:'T04', name:'General Privacy & Data Policy',     cat:'Privacy',    pages:6, langs:['EN','FR','ES','DE'], auto:false },
-    { id:'T05', name:'Home Device Use Agreement',         cat:'Consent',    pages:3, langs:['EN'],           auto:false },
-    { id:'T06', name:'Video Consultation Consent',        cat:'Telehealth', pages:2, langs:['EN','FR'],      auto:false },
-    { id:'T07', name:'AI-Assisted Treatment Consent',     cat:'AI',         pages:4, langs:['EN'],           auto:false },
-    { id:'T08', name:'Initial Assessment Report',         cat:'Report',     pages:5, langs:['EN'],           auto:true  },
-    { id:'T09', name:'Session Progress Note',             cat:'Report',     pages:2, langs:['EN'],           auto:true  },
-    { id:'T10', name:'Treatment Outcome Report',          cat:'Report',     pages:6, langs:['EN'],           auto:true  },
-    { id:'T11', name:'GP Referral Letter',                cat:'Letter',     pages:2, langs:['EN'],           auto:true  },
-    { id:'T12', name:'Discharge Summary Letter',          cat:'Letter',     pages:3, langs:['EN'],           auto:true  },
-    { id:'T13', name:'Insurance/Funding Report',          cat:'Admin',      pages:4, langs:['EN'],           auto:false },
-    { id:'T14', name:'Intake Assessment Form',            cat:'Intake',     pages:5, langs:['EN'],           auto:false },
-    { id:'T15', name:'Home Program Instruction Sheet',    cat:'Home Care',  pages:2, langs:['EN','FR'],      auto:true  },
-  ];
+  const TEMPLATES = DOCUMENT_TEMPLATES;
 
   const _docsKey = 'ds_docs_v1';
   function loadDocs() { try { return JSON.parse(localStorage.getItem(_docsKey)||'null') || seedDocs(); } catch { return seedDocs(); } }
@@ -4626,24 +4611,105 @@ export async function pgDocumentsHubNew(setTopbar, navigate) {
     saveDocs(d); return d;
   }
 
-  const data = loadDocs();
-  const stC  = { signed:'var(--green)', final:'var(--green)', sent:'var(--blue)', draft:'var(--amber)', issued:'var(--teal)', pending:'var(--amber)' };
+  let backendDocs = null;
+  try {
+    const r = await api.listDocuments();
+    backendDocs = (r?.items || []).map(d => ({
+      id: d.id, name: d.title, type: d.doc_type, patient: d.patient_id || '—',
+      date: (d.updated_at||'').slice(0,10), status: d.status, size: '—',
+      template_id: d.template_id, notes: d.notes,
+    }));
+  } catch {}
+  const data = backendDocs ? { docs: backendDocs } : loadDocs();
+  const stC  = { signed:'var(--green)', final:'var(--green)', sent:'var(--blue)', draft:'var(--amber)', issued:'var(--teal)', pending:'var(--amber)', uploaded:'var(--teal)', completed:'var(--green)' };
 
   window._docsUpload = () => document.getElementById('docs-upload-modal')?.classList.remove('ch-hidden');
 
+  // Preview a template in a modal (rendered client-side via renderTemplate)
+  window._docsPreview = (templateId) => {
+    const tpl = TEMPLATES.find(t => t.id === templateId);
+    if (!tpl) { window._dsToast?.({title:'Not found',body:'Template unavailable.',severity:'error'}); return; }
+    let rendered;
+    try {
+      rendered = renderTemplate(templateId, {
+        patient_name: 'Demo Patient',
+        patient_dob: '1980-01-01',
+        clinician_name: 'Dr. Example',
+        clinic_name: 'DeepSynaps Clinic',
+        date: new Date().toISOString().slice(0,10),
+      });
+    } catch {
+      rendered = tpl?.body || '';
+    }
+    if (rendered == null) rendered = tpl?.body || '';
+    document.getElementById('docs-preview-modal')?.remove();
+    const esc = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    const safeTplId = String(templateId).replace(/'/g,"\\'");
+    const overlay = document.createElement('div');
+    overlay.id = 'docs-preview-modal';
+    overlay.className = 'ch-modal-overlay';
+    overlay.innerHTML =
+      '<div class="ch-modal" style="width:min(720px,95vw)">'+
+        '<div class="ch-modal-hd"><span>'+esc(tpl.name)+'</span><button class="ch-modal-close" onclick="document.getElementById(\'docs-preview-modal\')?.remove()">✕</button></div>'+
+        '<div class="ch-modal-body">'+
+          '<pre style="white-space:pre-wrap;font-family:inherit;font-size:12.5px;line-height:1.55;max-height:60vh;overflow-y:auto">'+esc(rendered)+'</pre>'+
+          '<div style="display:flex;gap:8px;margin-top:12px;justify-content:flex-end">'+
+            '<button class="btn" onclick="document.getElementById(\'docs-preview-modal\')?.remove()">Close</button>'+
+            '<button class="btn btn-primary" onclick="document.getElementById(\'docs-preview-modal\')?.remove();window._docsSendTemplate(\''+safeTplId+'\')">Send to Patient</button>'+
+          '</div>'+
+        '</div>'+
+      '</div>';
+    document.body.appendChild(overlay);
+  };
+
+  // Send template to backend as a pending document (acts as Send to Sign / Assign)
+  window._docsSendTemplate = async (templateId) => {
+    const tpl = TEMPLATES.find(t => t.id === templateId);
+    if (!tpl) { window._dsToast?.({title:'Not found',body:'Template unavailable.',severity:'error'}); return; }
+    const consentCats = { Consent:1, Privacy:1, Telehealth:1, AI:1 };
+    const doc_type = consentCats[tpl.cat] ? 'consent' : 'clinical';
+    try {
+      await api.createDocument({
+        title: tpl.name,
+        doc_type,
+        template_id: tpl.id,
+        status: 'pending',
+        notes: 'Sent from Documents Hub template',
+      });
+      window._dsToast?.({title:'Sent',body:tpl.name+' — pending signature.',severity:'success'});
+      window._nav('documents-hub');
+    } catch {
+      window._dsToast?.({title:'Failed',body:'Could not save document.',severity:'error'});
+    }
+  };
+
+  // Client-side download fallback — renders template or uses doc name as a .txt
+  window._docsDownload = (templateId, docName) => {
+    let text;
+    try { text = (templateId ? renderTemplate(templateId, {}) : null) || docName || 'document'; }
+    catch { text = docName || 'document'; }
+    const blob = new Blob([text], {type:'text/plain'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href = url; a.download = (docName||'document') + '.txt'; a.click();
+    setTimeout(()=>URL.revokeObjectURL(url), 1000);
+  };
+
   function docRows(list) {
     if (!list.length) return '<div class="ch-empty">No documents found.</div>';
-    return list.map(d =>
-      '<div class="book-row">'+
+    const esc = s => String(s==null?'':s).replace(/'/g,"\\'");
+    return list.map(d => {
+      const tplArg = d.template_id ? "'"+esc(d.template_id)+"'" : 'null';
+      const nameArg = "'"+esc(d.name)+"'";
+      return '<div class="book-row">'+
         '<div class="book-datetime"><div class="book-date">'+d.date+'</div><div class="book-time">'+d.size+'</div></div>'+
         '<div class="book-info"><div class="book-patient">'+d.name+'</div><div class="book-clinician">'+d.patient+' · '+d.type+'</div></div>'+
         '<div class="book-status-col"><span class="book-status-badge" style="color:'+(stC[d.status]||'var(--text-tertiary)')+';background:'+(stC[d.status]||'var(--text-tertiary)')+'22;text-transform:capitalize">'+d.status+'</span></div>'+
         '<div class="book-actions">'+
-          '<button class="ch-btn-sm" onclick="window._dsToast?.({title:\'View\',body:\''+d.name+'\',severity:\'info\'})">View</button>'+
-          '<button class="ch-btn-sm" onclick="window._dsToast?.({title:\'Download\',body:\'Downloading '+d.name+'\',severity:\'info\'})">↓</button>'+
+          '<button class="ch-btn-sm" onclick="window._dsToast?.({title:\'View\',body:'+nameArg+',severity:\'info\'})">View</button>'+
+          '<button class="ch-btn-sm" onclick="window._docsDownload('+tplArg+','+nameArg+')">↓</button>'+
         '</div>'+
-      '</div>'
-    ).join('');
+      '</div>';
+    }).join('');
   }
 
   let main = '';
@@ -4687,16 +4753,17 @@ export async function pgDocumentsHubNew(setTopbar, navigate) {
         <div style="padding:10px 16px;display:flex;gap:6px;flex-wrap:wrap;border-bottom:1px solid var(--border)">
           ${cats.map(c=>'<button class="reg-domain-pill'+(c===filt?' active':'')+'" onclick="window._tplFilter=\''+c+'\';window._nav(\'documents-hub\')">'+c+'</button>').join('')}
         </div>
-        ${rows.map(t=>
-          '<div class="book-row">'+
+        ${rows.map(t=>{
+          const safeId = String(t.id).replace(/'/g,"\\'");
+          return '<div class="book-row">'+
             '<div class="book-info"><div class="book-patient">'+t.name+'</div><div class="book-clinician">'+t.cat+' · '+t.pages+' pages'+(t.auto?' · Auto-gen':'')+'</div></div>'+
             '<div class="book-status-col"><span class="book-status-badge" style="color:var(--blue);background:rgba(74,158,255,0.1)">'+t.langs.join('/')+'</span></div>'+
             '<div class="book-actions">'+
-              (t.auto?'<button class="ch-btn-sm ch-btn-teal" onclick="window._dsToast?.({title:\'Generating…\',body:\''+t.name+'\',severity:\'info\'})">Generate</button>':'<button class="ch-btn-sm" onclick="window._dsToast?.({title:\'Open\',body:\''+t.name+'\',severity:\'info\'})">Open</button>')+
-              '<button class="ch-btn-sm" onclick="window._dsToast?.({title:\'Assigned\',body:\'Assigned to patient.\',severity:\'success\'})">Assign</button>'+
+              '<button class="ch-btn-sm" onclick="window._docsPreview(\''+safeId+'\')">'+(t.auto?'Generate':'Open')+'</button>'+
+              '<button class="ch-btn-sm ch-btn-teal" onclick="window._docsSendTemplate(\''+safeId+'\')">Assign</button>'+
             '</div>'+
-          '</div>'
-        ).join('')}
+          '</div>';
+        }).join('')}
       </div>`;
   }
   else if (tab === 'consent') {
@@ -4706,7 +4773,10 @@ export async function pgDocumentsHubNew(setTopbar, navigate) {
       <div class="ch-two-col">
         <div class="ch-card">
           <div class="ch-card-hd"><span class="ch-card-title">Consent Templates</span><button class="ch-btn-sm ch-btn-teal" onclick="window._dsToast?.({title:'Assign',body:'Select patient to assign.',severity:'info'})">Assign to Patient</button></div>
-          ${consentTpls.map(t=>'<div class="book-row"><div class="book-info"><div class="book-patient">'+t.name+'</div><div class="book-clinician">'+t.pages+' pages · '+t.langs.join('/')+'</div></div><div class="book-actions"><button class="ch-btn-sm" onclick="window._dsToast?.({title:\'Open\',body:\''+t.name+'\',severity:\'info\'})">Preview</button><button class="ch-btn-sm ch-btn-teal" onclick="window._dsToast?.({title:\'Sent\',body:\''+t.name+' sent for signing.\',severity:\'success\'})">Send to Sign</button></div></div>').join('')}
+          ${consentTpls.map(t=>{
+            const safeId = String(t.id).replace(/'/g,"\\'");
+            return '<div class="book-row"><div class="book-info"><div class="book-patient">'+t.name+'</div><div class="book-clinician">'+t.pages+' pages · '+t.langs.join('/')+'</div></div><div class="book-actions"><button class="ch-btn-sm" onclick="window._docsPreview(\''+safeId+'\')">Preview</button><button class="ch-btn-sm ch-btn-teal" onclick="window._docsSendTemplate(\''+safeId+'\')">Send to Sign</button></div></div>';
+          }).join('')}
         </div>
         <div class="ch-card">
           <div class="ch-card-hd"><span class="ch-card-title">Signed Consents</span></div>
