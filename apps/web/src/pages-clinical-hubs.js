@@ -1267,6 +1267,20 @@ export async function pgProtocolHub(setTopbar, navigate) {
     setTopbar('Protocols', '<button class="btn btn-sm ch-btn-teal" onclick="window._nav(\'protocol-search-full\')">Full View ↗</button>');
     el.innerHTML = '<div class="ch-shell">' + spinner() + '</div>';
 
+    // Live Literature Watch snapshot (static JSON written by
+    // services/evidence-pipeline/literature_watch_cron.py). Cached on
+    // window so we only fetch once per session. A 404 in dev (before the
+    // cron has ever run) silently falls back to no badges — clinicians
+    // never see a fetch error.
+    if (window._litWatchData === undefined) {
+      window._litWatchData = null;
+      try {
+        const _lwResp = await fetch('/literature-watch.json', { cache: 'no-cache' });
+        if (_lwResp.ok) window._litWatchData = await _lwResp.json();
+      } catch { /* offline / dev — silent */ }
+    }
+    const _litByProto = (window._litWatchData && window._litWatchData.by_protocol) || {};
+
     window._phSearchQ    = window._phSearchQ    || '';
     window._phSearchCond = window._phSearchCond || '';
     window._phSearchDev  = window._phSearchDev  || '';
@@ -1329,6 +1343,14 @@ export async function pgProtocolHub(setTopbar, navigate) {
         const cond = _conditions.find(c=>c.id===p.conditionId);
         const dev  = _devices.find(d=>d.id===p.device);
         const evC  = evColors[p.evidenceGrade] || 'var(--text-tertiary)';
+        // Literature Watch badge — amber pill when the cron found new
+        // papers in the last 30 days for this protocol. Silently omitted
+        // when the snapshot is missing or the count is 0.
+        const _lw = _litByProto[p.id];
+        const _lwN = _lw && _lw.new_count_30d ? _lw.new_count_30d : 0;
+        const litBadge = _lwN > 0
+          ? '<span class="ph-proto-sep">·</span><span class="ph-proto-lit-badge" title="New literature in last 30 days — click the card for details">📄 ' + _lwN + ' new</span>'
+          : '';
         return '<div class="ph-proto-card" onclick="window._protDetailId=\'' + (p.id||'') + '\';window._nav(\'protocol-detail\')">' +
           '<div class="ph-proto-top">' +
             '<span class="ph-proto-name">' + (p.name||'Protocol') + '</span>' +
@@ -1339,6 +1361,7 @@ export async function pgProtocolHub(setTopbar, navigate) {
             '<span class="ph-proto-sep">·</span>' +
             '<span class="ph-proto-dev">' + (dev?.label||p.device||'—') + '</span>' +
             (p.sessions ? '<span class="ph-proto-sep">·</span><span class="ph-proto-sessions">' + p.sessions + ' sessions</span>' : '') +
+            litBadge +
           '</div>' +
           (p.summary ? '<div class="ph-proto-summary">' + p.summary.slice(0,120) + (p.summary.length>120?'…':'') + '</div>' : '') +
         '</div>';
@@ -3768,10 +3791,31 @@ export async function pgLibraryHub(setTopbar, navigate) {
   }
 
   // ── TAB: NEEDS REVIEW ──────────────────────────────────────────────────
-  //  Surfaces PROTOCOL_LIBRARY entries that have governance:['unreviewed'] OR a
-  //  notes field mentioning "verify". Display-only: clinician clicks through to
-  //  the protocol detail page to promote / reject. No backend calls.
+  //  SECTION 1: PROTOCOL_LIBRARY entries flagged governance:['unreviewed'] OR
+  //             with `notes` mentioning "verify". Display-only → click through.
+  //  SECTION 2: Cross-protocol pending papers from /literature-watch.json
+  //             (emitted by literature_watch_cron.py --export-only), deduped
+  //             by PMID. Action buttons are TODO stubs that log to console;
+  //             no backend writes yet.
   else if (tab === 'needs-review') {
+    // Fetch the static Literature Watch snapshot once per session. 404 in dev
+    // (before cron has run) silently falls back to an empty-state message.
+    if (window._litWatchData === undefined) {
+      window._litWatchData = null;
+      try {
+        const _lwResp = await fetch('/literature-watch.json', { cache: 'no-cache' });
+        if (_lwResp.ok) window._litWatchData = await _lwResp.json();
+      } catch { /* offline / dev — silent */ }
+    }
+    const _litSnap  = window._litWatchData || null;
+    const _litQueue = (_litSnap && Array.isArray(_litSnap.pending_queue)) ? _litSnap.pending_queue : [];
+
+    // TODO-log stub for the three paper action buttons. Spec calls these
+    // display-only until the backend `/verdict` endpoint lands.
+    window._litPaperAction = (action, pmid) => {
+      try { console.log('[literature-watch] TODO ' + action + ' pmid=' + pmid + ' (no backend wired)'); } catch {}
+    };
+
     const rows = _needsReviewRows.map(p => {
       const gov = Array.isArray(p.governance) ? p.governance : [];
       const isUnreviewed = gov.includes('unreviewed');
@@ -3798,28 +3842,13 @@ export async function pgLibraryHub(setTopbar, navigate) {
     const totalUnreviewed = rows.filter(r => r.isUnreviewed).length;
     const totalVerify     = rows.filter(r => r.hasVerify).length;
     const gradeABHighPri  = rows.filter(r => r.isUnreviewed && ['A','B'].includes(String(r.p.evidenceGrade || '').toUpperCase())).length;
-    // Added-this-week count — PROTOCOL_LIBRARY entries don't carry timestamps, so
-    //  treat "added this week" as every row flagged unreviewed (this batch landed
-    //  2026-04-17 per data/EXTRACT-ab-cells-summary.md). Clinician sees all as new.
-    const addedThisWeek = totalUnreviewed;
+    const pendingPapers   = _litQueue.length;
 
-    main =
-      '<div class="ch-card" role="note" style="border-left:3px solid var(--amber);padding:12px 16px;margin-bottom:14px;background:rgba(245,158,11,0.06)">' +
-        '<div style="font-size:12.5px;color:var(--text-secondary);line-height:1.55">' +
-          '<b style="color:var(--amber)">Disclaimer.</b> These protocols were drafted from literature and are ' +
-          '<b>NOT approved for clinical use</b> until a clinician reviews each one. Click <b>Review →</b> to open ' +
-          'the protocol detail page and promote, edit, or reject the draft.' +
-        '</div>' +
-      '</div>' +
-      '<div class="ch-kpi-strip" style="grid-template-columns:repeat(4,1fr);margin-bottom:16px">' +
-        kpi('var(--amber)',  totalUnreviewed, 'Unreviewed', 'governance array contains "unreviewed"') +
-        kpi('var(--blue)',   totalVerify,     'With verify flags', 'notes field mentions "verify"') +
-        kpi('var(--teal)',   gradeABHighPri,  'Grade A / B (priority)', 'Highest clinical priority — strong evidence awaiting review') +
-        kpi('var(--violet)', addedThisWeek,   'Added this week', 'Batch landed 2026-04-17') +
-      '</div>' +
+    // Section 1 — Protocols requiring review (was the entire tab pre-lit-watch).
+    const protosSection =
       '<div class="ch-card">' +
         '<div class="ch-card-hd" style="flex-wrap:wrap;gap:8px">' +
-          '<span class="ch-card-title">Review Queue (' + filtered.length + (filtered.length !== rows.length ? ' of ' + rows.length : '') + ')</span>' +
+          '<span class="ch-card-title">Protocols requiring review (' + filtered.length + (filtered.length !== rows.length ? ' of ' + rows.length : '') + ')</span>' +
           '<span style="font-size:11px;color:var(--text-tertiary)">Click <b>Review →</b> to open protocol detail</span>' +
           sInput('needs-review', 'Search name, condition, device, citation…') +
         '</div>' +
@@ -3856,6 +3885,83 @@ export async function pgLibraryHub(setTopbar, navigate) {
                 );
               }).join('') + '</div>') +
       '</div>';
+
+    // Section 2 — Cross-protocol Live-Literature triage queue. Dedup-by-PMID
+    // is done server-side in literature_watch_cron.export_snapshot(); each
+    // row carries an array of linked protocol_ids that render as chips.
+    const protoChip = (pid) =>
+      '<button class="lib-tag" title="Open protocol detail for ' + esc(pid) + '"' +
+      ' style="cursor:pointer;color:var(--teal);border:1px solid rgba(20,184,166,0.35)"' +
+      ' onclick="window._protDetailId=\'' + esc(pid) + '\';window._nav(\'protocol-detail\')">' +
+      esc(pid) + '</button>';
+
+    const paperRow = (paper) => {
+      const pmid = String(paper.pmid || '');
+      const title = String(paper.title || '(untitled)');
+      const titleTrim = title.length > 120 ? title.slice(0, 120) + '…' : title;
+      const authors = paper.authors || '—';
+      const metaBits = [];
+      if (authors) metaBits.push(esc(authors));
+      if (paper.year) metaBits.push(esc(paper.year));
+      if (paper.journal) metaBits.push('<i>' + esc(paper.journal) + '</i>');
+      const chips = Array.isArray(paper.protocol_ids) ? paper.protocol_ids.map(protoChip).join(' ') : '';
+      const seen = paper.first_seen_at ? esc(String(paper.first_seen_at).slice(0, 10)) : '—';
+      return (
+        '<article class="lib-card" style="border-left:3px solid var(--violet)" aria-label="' + esc(titleTrim) + '">' +
+          '<div class="lib-card-top">' +
+            '<span class="lib-card-name" title="' + esc(title) + '">' + esc(titleTrim) + '</span>' +
+            '<span class="lib-badge" style="background:rgba(139,92,246,0.14);color:var(--violet);border:1px solid rgba(139,92,246,0.35)" title="PubMed ID">PMID ' + esc(pmid) + '</span>' +
+          '</div>' +
+          '<div class="lib-card-meta" style="color:var(--text-tertiary)">' + metaBits.join(' · ') + '</div>' +
+          (chips ? '<div class="lib-card-meta" style="margin-top:4px">Linked protocols: ' + chips + '</div>' : '') +
+          '<div class="lib-features">' +
+            '<div class="lib-feature" style="width:100%;color:var(--text-tertiary)" title="When Literature Watch first saw this paper">⏱ First seen ' + seen + '</div>' +
+          '</div>' +
+          '<div style="margin-top:10px;display:flex;gap:6px;flex-wrap:wrap">' +
+            '<button class="ch-btn-sm ch-btn-teal" onclick="window._litPaperAction(\'mark-relevant\',\'' + esc(pmid) + '\')" title="TODO: mark this paper relevant (not yet wired to backend)">Mark relevant</button>' +
+            '<button class="ch-btn-sm" onclick="window._litPaperAction(\'promote\',\'' + esc(pmid) + '\')" title="TODO: promote to protocol references (not yet wired)">Promote to references</button>' +
+            '<button class="ch-btn-sm" onclick="window._litPaperAction(\'not-relevant\',\'' + esc(pmid) + '\')" title="TODO: mark not relevant (not yet wired)">Not relevant</button>' +
+          '</div>' +
+        '</article>'
+      );
+    };
+
+    const emptyLitMsg = !_litSnap
+      ? 'No new literature found yet. Run <code>python services/evidence-pipeline/literature_watch_cron.py</code> or wait for the nightly cron at 03:00.'
+      : 'Pending queue is empty. All recent papers have been triaged.';
+    const generatedStamp = _litSnap && _litSnap.generated_at
+      ? '<span style="font-size:11px;color:var(--text-tertiary)">Snapshot: ' + esc(String(_litSnap.generated_at).replace('T',' ').slice(0,16)) + ' UTC</span>'
+      : '';
+
+    const papersSection =
+      '<div class="ch-card" style="margin-top:18px">' +
+        '<div class="ch-card-hd" style="flex-wrap:wrap;gap:8px">' +
+          '<span class="ch-card-title">New literature awaiting triage (last 30 days)</span>' +
+          generatedStamp +
+          '<span style="font-size:11px;color:var(--text-tertiary);margin-left:auto">Deduped by PMID across protocols · cap 200</span>' +
+        '</div>' +
+        (!_litQueue.length
+          ? '<div class="ch-empty" style="padding:30px 16px">' + emptyLitMsg + '</div>'
+          : '<div class="lib-grid">' + _litQueue.map(paperRow).join('') + '</div>') +
+      '</div>';
+
+    main =
+      '<div class="ch-card" role="note" style="border-left:3px solid var(--amber);padding:12px 16px;margin-bottom:14px;background:rgba(245,158,11,0.06)">' +
+        '<div style="font-size:12.5px;color:var(--text-secondary);line-height:1.55">' +
+          '<b style="color:var(--amber)">Disclaimer.</b> These protocols and papers were drafted from literature and are ' +
+          '<b>NOT approved for clinical use</b> until a clinician reviews each one. Click <b>Review →</b> on a protocol card, ' +
+          'or use the triage buttons on a paper row.' +
+        '</div>' +
+      '</div>' +
+      '<div class="ch-kpi-strip" style="grid-template-columns:repeat(5,1fr);margin-bottom:16px">' +
+        kpi('var(--amber)',  totalUnreviewed, 'Unreviewed', 'governance array contains "unreviewed"') +
+        kpi('var(--blue)',   totalVerify,     'With verify flags', 'notes field mentions "verify"') +
+        kpi('var(--teal)',   gradeABHighPri,  'Grade A / B (priority)', 'Highest clinical priority — strong evidence awaiting review') +
+        kpi('var(--violet)', pendingPapers,   'Pending papers', 'Cross-protocol literature_watch rows (verdict=pending), deduped by PMID') +
+        kpi('var(--rose)',   totalUnreviewed, 'Added this week', 'Batch landed 2026-04-17') +
+      '</div>' +
+      protosSection +
+      papersSection;
   }
 
   el.innerHTML = '<div class="ch-shell"><div class="ch-tab-bar" role="tablist" aria-label="Library sections">' + tabBar() + '</div><div class="ch-body">' + main + '</div></div>';

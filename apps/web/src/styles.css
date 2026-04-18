@@ -2652,6 +2652,72 @@ select.form-control { background-image: url("data:image/svg+xml,%3Csvg xmlns='ht
   .g2, .g3, .g4 { grid-template-columns: 1fr !important; }
 }
 
+/* ── Mobile topbar — 375 px / iPhone SE fix ────────────────────────────────────────────────────
+   Strategy: shrink + hide secondary chrome so three safety-critical items
+   remain fully reachable in one tap:
+     1. + Run Assessment  (primary action)
+     2. ⚠ Report Adverse Event  (patient-safety — never hidden)
+     3. #notif-bell  (retained)
+
+   Hidden at ≤ 480 px:
+     • #clinic-switcher    — site selector; clinic context lives in sidebar
+     • .lang-switcher-wrap — language toggle; accessible via Settings
+     • #search-btn         — duplicate of Cmd-K palette; not needed at 375 px
+
+   Shrunk but visible:
+     • #topbar             — padding tightened to 0 8px
+     • #page-title         — max-width reduced; truncates gracefully
+     • #topbar-right       — gap reduced, border-left removed (reclaims 13 px)
+     • #topbar-actions .btn — padding and font-size compressed
+   ───────────────────────────────────────────────────────────────────────────────── */
+@media (max-width: 480px) {
+  /* Tighten overall topbar padding */
+  #topbar {
+    padding: 0 8px !important;
+    gap: 6px !important;
+  }
+
+  /* Give page-title a tighter budget so right-side items are not squeezed off */
+  #page-title {
+    font-size: 13px !important;
+    max-width: calc(100vw - 260px) !important;
+  }
+
+  /* Hide secondary chrome: site selector and language toggle */
+  #clinic-switcher,
+  .lang-switcher-wrap {
+    display: none !important;
+  }
+
+  /* Hide the duplicate search icon button */
+  #search-btn {
+    display: none !important;
+  }
+
+  /* Right-side group: remove decorative border-left, tighten gap */
+  #topbar-right {
+    gap: 4px !important;
+    border-left: none !important;
+    padding-left: 0 !important;
+  }
+
+  /* Shrink all action buttons in the topbar-actions slot */
+  #topbar-actions {
+    gap: 4px !important;
+  }
+
+  #topbar-actions .btn {
+    padding: 5px 8px !important;
+    font-size: 11px !important;
+    white-space: nowrap !important;
+  }
+
+  /* Keep the primary button identifiable by colour */
+  #topbar-actions .btn-primary {
+    padding: 5px 10px !important;
+  }
+}
+
 /* ── App shell layout — sidebar hidden, content full-width ── */
 @media (max-width: 768px) {
   #sidebar {
@@ -2684,6 +2750,14 @@ select.form-control { background-image: url("data:image/svg+xml,%3Csvg xmlns='ht
   }
   #content {
     padding: 12px !important;
+  }
+}
+
+/* Override: at 480px, tighten topbar padding below the 768px value above */
+@media (max-width: 480px) {
+  #topbar {
+    padding: 0 8px !important;
+    gap: 6px !important;
   }
 }
 
@@ -9939,6 +10013,7 @@ body.light-theme .ch-modal { background:#fff; }
 .ph-proto-sep  { opacity:0.4; }
 .ph-proto-sessions { color:var(--text-tertiary); }
 .ph-proto-summary { font-size:11.5px; color:var(--text-tertiary); line-height:1.5; }
+.ph-proto-lit-badge { font-size:10.5px; font-weight:600; padding:1px 7px; border-radius:8px; background:rgba(255,181,71,0.14); color:var(--amber); border:1px solid rgba(255,181,71,0.35); white-space:nowrap; }
 
 /* Brain Map */
 .bmp-layout { display:grid; grid-template-columns:200px 1fr 260px; gap:0; flex:1; min-height:0; }
