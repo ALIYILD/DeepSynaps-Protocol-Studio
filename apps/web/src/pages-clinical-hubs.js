@@ -3189,6 +3189,7 @@ export async function pgLibraryHub(setTopbar, navigate) {
     devices:    { label: 'Devices',            color: 'var(--teal)'   },
     packages:   { label: 'Condition Packages', color: 'var(--rose)'   },
     evidence:   { label: 'Evidence & Search',  color: 'var(--violet)' },
+    review:     { label: 'Needs Review',       color: 'var(--amber)'  },
   };
   const el = document.getElementById('content');
   const esc = libraryHelpers.esc;
@@ -3204,10 +3205,39 @@ export async function pgLibraryHub(setTopbar, navigate) {
       ' onclick="window._libraryHubTab=\'' + id + '\';window._nav(\'library-hub\')">' + esc(m.label) + '</button>'
     ).join('');
   }
-  setTopbar('Library', isAdmin
+  // Spend gauge pill (spec §6-D). Rendered next to the admin refresh button.
+  // Populated async on first paint so the topbar is never held up by a
+  // literature-watch fetch failure.
+  const spendPillId = 'lib-spend-pill';
+  const spendPillHtml =
+    '<span id="' + spendPillId + '" class="lib-spend-pill" ' +
+    'title="Monthly paid literature-watch spend — PubMed is free and not counted" ' +
+    'style="display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:999px;' +
+    'background:rgba(0,212,188,0.10);color:var(--teal);border:1px solid rgba(0,212,188,0.25);' +
+    'font-size:11px;font-weight:600;margin-right:8px">Literature spend: loading…</span>';
+  const adminBtn = isAdmin
     ? '<button class="btn btn-sm" onclick="window._libAdminRefresh()" title="Admin-only: rebuild curated evidence index">↻ Refresh evidence</button>'
-    : ''
-  );
+    : '';
+  setTopbar('Library', spendPillHtml + adminBtn);
+  // Fire the spend query after render — colour ambers >80%, red >95%.
+  setTimeout(async () => {
+    try {
+      const s = await api.litWatchSpend();
+      const pill = document.getElementById(spendPillId);
+      if (!pill) return;
+      const cap = Number(s?.budget_cap_usd || 100);
+      const spent = Number(s?.total_usd || 0);
+      const pct = cap > 0 ? (spent / cap) * 100 : 0;
+      let bg = 'rgba(0,212,188,0.10)', fg = 'var(--teal)', bd = 'rgba(0,212,188,0.25)';
+      if (pct > 95) { bg = 'rgba(239,68,68,0.12)'; fg = 'var(--red)'; bd = 'rgba(239,68,68,0.35)'; }
+      else if (pct > 80) { bg = 'rgba(245,158,11,0.14)'; fg = 'var(--amber)'; bd = 'rgba(245,158,11,0.35)'; }
+      pill.style.background = bg; pill.style.color = fg; pill.style.borderColor = bd;
+      pill.textContent = 'Literature spend this month: $' + spent.toFixed(2) + ' / $' + cap.toFixed(0) + ' limit';
+    } catch {
+      const pill = document.getElementById(spendPillId);
+      if (pill) pill.textContent = 'Literature spend: —';
+    }
+  }, 0);
 
   window._libSearch = window._libSearch || {};
   window._libFilters = window._libFilters || {};
@@ -3282,6 +3312,90 @@ export async function pgLibraryHub(setTopbar, navigate) {
       window._dsToast?.({ title: 'Promoted to library', body: String(title || '').slice(0, 80), severity: 'success' });
     } catch (e) {
       window._dsToast?.({ title: 'Promote failed', body: e?.message || 'Unknown error', severity: 'error' });
+    }
+  };
+
+  // ── Literature Watch review handlers (spec §6-C, §7) ────────────────────
+  // These wire up the Needs Review tab row actions + the per-protocol
+  // "Refresh literature (PubMed)" button. All three row actions hit
+  // POST /api/v1/literature-watch/{pmid}/review and re-render on success.
+  window._litwReview = async (pmid, protocolId, verdict, rowEl) => {
+    const safePmid = String(pmid || '');
+    if (!safePmid) return;
+    try {
+      if (verdict === 'not-relevant' && rowEl) {
+        // Optimistic hide with a short fade-out — the row stays in the DB
+        // for audit (spec §7: "never deleted").
+        rowEl.style.transition = 'opacity 200ms ease, transform 200ms ease';
+        rowEl.style.opacity = '0';
+        rowEl.style.transform = 'translateX(-8px)';
+      }
+      const res = await api.litWatchReview(safePmid, { verdict, protocol_id: protocolId });
+      if (verdict === 'promoted') {
+        window._dsToast?.({
+          title: 'Queued for promotion',
+          body: 'PMID ' + safePmid + ' queued for promotion to references (clinician-only; applied on next build)',
+          severity: 'success',
+        });
+      } else if (verdict === 'relevant') {
+        window._dsToast?.({ title: 'Marked relevant', body: 'PMID ' + safePmid, severity: 'success' });
+      } else if (verdict === 'not-relevant') {
+        window._dsToast?.({ title: 'Hidden from queue', body: 'PMID ' + safePmid, severity: 'info' });
+      }
+      // Re-render the queue so the row reflects the updated verdict.
+      if (verdict !== 'not-relevant') {
+        // short delay so the toast is visible before the redraw
+        setTimeout(() => window._nav('library-hub'), 200);
+      } else if (rowEl) {
+        setTimeout(() => { rowEl.remove(); }, 220);
+      }
+      return res;
+    } catch (e) {
+      if (rowEl && verdict === 'not-relevant') {
+        rowEl.style.opacity = ''; rowEl.style.transform = '';
+      }
+      window._dsToast?.({ title: 'Review failed', body: e?.message || 'Unknown error', severity: 'error' });
+    }
+  };
+
+  window._litwRefreshProtocol = async (protocolId, btnId) => {
+    const btn = document.getElementById(btnId);
+    if (!btn) return;
+    const orig = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = 'Refreshing…';
+    try {
+      const res = await api.litWatchRefresh(protocolId, { source: 'pubmed' });
+      const jobId = res?.job_id;
+      if (!jobId) throw new Error('no job id returned');
+      // Poll /jobs every 2s until status is not queued/running (max ~60s).
+      for (let i = 0; i < 30; i++) {
+        await new Promise((r) => setTimeout(r, 2000));
+        try {
+          const jl = await api.litWatchJobs(protocolId);
+          const job = (jl?.items || []).find((j) => j.id === jobId);
+          if (!job) continue;
+          if (job.status === 'done' || job.status === 'succeeded') {
+            btn.textContent = '✓ ' + (job.new_papers_count || 0) + ' new paper' + (job.new_papers_count === 1 ? '' : 's');
+            window._dsToast?.({
+              title: 'Refresh complete',
+              body: protocolId + ' — ' + (job.new_papers_count || 0) + ' new paper(s)',
+              severity: 'success',
+            });
+            break;
+          }
+          if (job.status === 'failed') {
+            btn.textContent = 'Failed';
+            window._dsToast?.({ title: 'Refresh failed', body: job.error || 'adapter missing', severity: 'error' });
+            break;
+          }
+        } catch { /* keep polling */ }
+      }
+    } catch (e) {
+      btn.textContent = 'Failed';
+      window._dsToast?.({ title: 'Refresh failed', body: e?.message || 'Unknown error', severity: 'error' });
+    } finally {
+      setTimeout(() => { btn.textContent = orig; btn.disabled = false; }, 4000);
     }
   };
   window._libExternalSearch = async () => {
@@ -3619,6 +3733,116 @@ export async function pgLibraryHub(setTopbar, navigate) {
               '</article>'
             )).join('') + '</div>'
           : '<div class="ch-empty" style="padding:30px 16px">Your curated library is empty. Run a search above and click <b>Promote to Library</b> on relevant results.</div>') +
+      '</div>';
+  }
+
+  // ── TAB: NEEDS REVIEW (spec §6-C) ──────────────────────────────────────
+  // Cross-protocol pending queue from literature_watch. Three row actions
+  // per paper: Mark relevant / Promote to references / Not relevant.
+  // A "Protocols requiring review" card lists the top protocols with
+  // pending items and exposes a "Refresh literature (PubMed)" button per
+  // protocol (spec §5).
+  else if (tab === 'review') {
+    let pending = { items: [], total: 0 };
+    let pendingErr = null;
+    try {
+      pending = await api.litWatchPending({ limit: 100, offset: 0 });
+    } catch (e) {
+      pendingErr = e?.message || 'Could not load review queue';
+    }
+    const items = Array.isArray(pending?.items) ? pending.items : [];
+
+    // Group by protocol_id so we can surface a "requires review" list of
+    // protocols and let clinicians refresh them individually.
+    const byProtocol = {};
+    for (const it of items) {
+      for (const pid of (it.protocol_ids || [])) {
+        (byProtocol[pid] = byProtocol[pid] || []).push(it);
+      }
+    }
+    const protoEntries = Object.entries(byProtocol)
+      .sort((a, b) => b[1].length - a[1].length)
+      .slice(0, 20);
+
+    const rowHtml = items.length
+      ? items.slice(0, 50).map((it, idx) => {
+          const safePmid = esc(it.pmid || '');
+          const firstProto = (it.protocol_ids && it.protocol_ids[0]) || '';
+          const safeProto = esc(firstProto);
+          const rowId = 'litw-row-' + (it.id || idx);
+          const authorLine = (it.authors || []).slice(0, 3).join(', ') +
+            ((it.authors || []).length > 3 ? ' et al.' : '');
+          return (
+            '<div id="' + rowId + '" class="lib-card" style="border-left:3px solid var(--amber)">' +
+              '<div class="lib-card-top">' +
+                '<span class="lib-card-name">' + esc(it.title || '(no title)') + '</span>' +
+                '<span class="lib-badge" style="background:rgba(245,158,11,0.14);color:var(--amber);border:1px solid rgba(245,158,11,0.3)" title="Unreviewed — clinician must verify before clinical use">Unreviewed</span>' +
+              '</div>' +
+              '<div class="lib-card-meta">' +
+                (it.year ? '<span class="lib-tag">' + esc(it.year) + '</span>' : '') +
+                (it.journal ? '<span class="lib-tag">' + esc(it.journal) + '</span>' : '') +
+                (it.source ? '<span class="lib-tag" title="Source adapter">' + esc(it.source) + '</span>' : '') +
+                (it.pmid ? '<span class="lib-tag">PMID ' + esc(it.pmid) + '</span>' : '') +
+                (it.protocol_ids && it.protocol_ids.length
+                  ? '<span class="lib-tag" title="Protocols this paper was surfaced for">◎ ' + esc(it.protocol_ids.join(', ')) + '</span>'
+                  : '') +
+              '</div>' +
+              (authorLine ? '<div style="font-size:11px;color:var(--text-tertiary);margin-top:4px">' + esc(authorLine) + '</div>' : '') +
+              '<div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap">' +
+                (it.pmid
+                  ? '<a class="ch-btn-sm" target="_blank" rel="noopener noreferrer" href="https://pubmed.ncbi.nlm.nih.gov/' + esc(it.pmid) + '">PubMed ↗</a>'
+                  : '') +
+                '<button class="ch-btn-sm ch-btn-teal" onclick="window._litwReview(\'' + safePmid + '\',\'' + safeProto + '\',\'relevant\', document.getElementById(\'' + rowId + '\'))">Mark relevant</button>' +
+                '<button class="ch-btn-sm" style="color:var(--violet);border:1px solid rgba(139,92,246,0.4)" onclick="window._litwReview(\'' + safePmid + '\',\'' + safeProto + '\',\'promoted\', document.getElementById(\'' + rowId + '\'))">Promote to references</button>' +
+                '<button class="ch-btn-sm" style="color:var(--text-tertiary)" onclick="window._litwReview(\'' + safePmid + '\',\'' + safeProto + '\',\'not-relevant\', document.getElementById(\'' + rowId + '\'))">Not relevant</button>' +
+              '</div>' +
+            '</div>'
+          );
+        }).join('')
+      : '<div class="ch-empty" style="padding:30px 16px">Review queue is empty. Run the nightly cron or click "Refresh literature" on a protocol below.</div>';
+
+    const protoListHtml = protoEntries.length
+      ? protoEntries.map(([pid, rows], i) => {
+          const btnId = 'litw-refresh-' + i;
+          return (
+            '<div class="book-row">' +
+              '<div class="book-info">' +
+                '<div class="book-patient">' + esc(pid) + '</div>' +
+                '<div class="book-notes">' + rows.length + ' pending paper' + (rows.length === 1 ? '' : 's') + ' awaiting review</div>' +
+              '</div>' +
+              '<div class="book-actions">' +
+                '<button id="' + btnId + '" class="ch-btn-sm ch-btn-teal" onclick="window._litwRefreshProtocol(\'' + esc(pid) + '\',\'' + btnId + '\')">↻ Refresh literature (PubMed)</button>' +
+              '</div>' +
+            '</div>'
+          );
+        }).join('')
+      : '<div class="ch-empty" style="padding:24px 16px">No protocols currently have pending literature. Every nightly cron pass populates the queue.</div>';
+
+    main =
+      (pendingErr
+        ? '<div class="lib-trust-banner" role="alert" style="background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.3);padding:10px 14px;border-radius:8px;font-size:12px;margin-bottom:14px;color:var(--red)">Could not load review queue: ' + esc(pendingErr) + '</div>'
+        : '') +
+      '<div class="lib-trust-banner" role="note" style="background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.25);padding:10px 14px;border-radius:8px;font-size:12px;margin-bottom:14px">' +
+        '<b style="color:var(--amber)">Unreviewed literature — clinicians must verify before clinical use.</b> ' +
+        'Papers are surfaced by PubMed cron + on-demand search. Promote to references after verifying PMID + relevance.' +
+      '</div>' +
+      '<div class="ch-kpi-strip" style="grid-template-columns:repeat(4,1fr);margin-bottom:16px">' +
+        kpi('var(--amber)', pending.total || items.length, 'Pending papers', 'Deduped by PMID across protocols') +
+        kpi('var(--violet)', Object.keys(byProtocol).length, 'Protocols with pending', '') +
+        kpi('var(--teal)', items.filter(i => (i.citation_count || 0) >= 10).length, 'High-impact (≥10 cites)', '') +
+        kpi('var(--blue)', items.length ? (items[0].first_seen_at || '').slice(0, 10) : '—', 'Most recent', '') +
+      '</div>' +
+      '<div class="ch-card" style="margin-bottom:16px">' +
+        '<div class="ch-card-hd"><span class="ch-card-title">Protocols requiring review</span>' +
+          '<span style="font-size:11px;color:var(--text-tertiary)">Click to refresh PubMed for the top 30 most-recent papers</span>' +
+        '</div>' +
+        protoListHtml +
+      '</div>' +
+      '<div class="ch-card">' +
+        '<div class="ch-card-hd"><span class="ch-card-title">Review queue (' + items.length + ')</span>' +
+          '<span style="font-size:11px;color:var(--text-tertiary)">Sorted by first-seen; deduped by PMID</span>' +
+        '</div>' +
+        '<div class="lib-grid">' + rowHtml + '</div>' +
       '</div>';
   }
 
@@ -4191,16 +4415,32 @@ export async function pgReportsHubNew(setTopbar, navigate) {
   setTopbar('Reports', '<span class="ph-ai-badge">AI</span>');
 
   const REPORT_TYPES = [
-    { id:'R1', name:'Initial Assessment Report',    cat:'Intake',    auto:true,  fields:18, desc:'Full intake assessment including clinical history, contraindications, baseline scores.' },
-    { id:'R2', name:'Session Progress Note',        cat:'Session',   auto:true,  fields:12, desc:'Per-session clinical note with tolerance, adverse events, and progress markers.' },
-    { id:'R3', name:'Mid-Course Review',            cat:'Review',    auto:false, fields:22, desc:'Comprehensive mid-course review comparing baseline to current outcomes.' },
-    { id:'R4', name:'Treatment Outcome Report',     cat:'Discharge', auto:true,  fields:28, desc:'Full discharge report with outcome data, responder classification, follow-up plan.' },
-    { id:'R5', name:'Adverse Event Report',         cat:'Safety',    auto:false, fields:15, desc:'Structured AE report for safety monitoring and regulatory compliance.' },
-    { id:'R6', name:'GP/Referrer Summary Letter',   cat:'Referral',  auto:true,  fields:14, desc:'Concise summary letter for GP or referrer with treatment details and outcomes.' },
-    { id:'R7', name:'Insurance/Funding Report',     cat:'Admin',     auto:false, fields:20, desc:'Structured report for insurance pre-authorisation or funding applications.' },
-    { id:'R8', name:'qEEG Interpretation Report',   cat:'Diagnostics',auto:false,fields:16, desc:'Clinical qEEG interpretation with protocol recommendations.' },
-    { id:'R9', name:'Home Program Adherence Report',cat:'Follow-up', auto:true,  fields:10, desc:'Task completion rates, adherence trends, and patient engagement metrics.' },
-    { id:'R10',name:'Monthly Outcomes Summary',     cat:'Analytics', auto:true,  fields:25, desc:'Clinic-wide monthly outcomes dashboard with responder rates and trends.' },
+    // ── Clinical ────────────────────────────────────────────────────────────
+    { id:'R1',  name:'Initial Assessment Report',    cat:'Intake',     category:'Clinical',    audience:'referring-physician', auto:true,  fields:18, desc:'Full intake assessment including clinical history, contraindications, baseline scores.' },
+    { id:'R2',  name:'Session Progress Note',        cat:'Session',    category:'Clinical',    audience:'internal',            auto:true,  fields:12, desc:'Per-session clinical note with tolerance, adverse events, and progress markers.' },
+    { id:'R3',  name:'Mid-Course Review',            cat:'Review',     category:'Clinical',    audience:'referring-physician', auto:false, fields:22, desc:'Comprehensive mid-course review comparing baseline to current outcomes.' },
+    { id:'R4',  name:'Treatment Outcome Report',     cat:'Discharge',  category:'Clinical',    audience:'referring-physician', auto:true,  fields:28, desc:'Full discharge report with outcome data, responder classification, follow-up plan.' },
+    { id:'R5',  name:'Adverse Event Report',         cat:'Safety',     category:'Regulatory',  audience:'internal',            auto:false, fields:15, desc:'Structured AE report for safety monitoring and regulatory compliance.' },
+    { id:'R6',  name:'GP/Referrer Summary Letter',   cat:'Referral',   category:'Clinical',    audience:'referring-physician', auto:true,  fields:14, desc:'Concise summary letter for GP or referrer with treatment details and outcomes.' },
+    { id:'R7',  name:'Insurance Pre-Auth Letter',    cat:'Admin',      category:'Financial',   audience:'insurer',             auto:false, fields:20, desc:'Medical-necessity justification letter for insurance pre-authorisation or funding applications.' },
+    { id:'R8',  name:'qEEG Interpretation Report',   cat:'Diagnostics',category:'Clinical',    audience:'internal',            auto:false, fields:16, desc:'Clinical qEEG interpretation with protocol recommendations.' },
+    { id:'R9',  name:'Home Program Adherence Report',cat:'Follow-up',  category:'Clinical',    audience:'internal',            auto:true,  fields:10, desc:'Task completion rates, adherence trends, and patient engagement metrics.' },
+    { id:'R10', name:'Monthly Outcomes Summary',     cat:'Analytics',  category:'Clinical',    audience:'executive',           auto:true,  fields:25, desc:'Clinic-wide monthly outcomes dashboard with responder rates and trends.' },
+    // ── Financial ──────────────────────────────────────────────────────────
+    { id:'F1',  name:'Monthly Revenue Summary',      cat:'Finance',    category:'Financial',   audience:'executive',           auto:true,  fields:14, desc:'Revenue by modality, insurer mix, and payment method — month-over-month comparison.' },
+    { id:'F2',  name:'Invoice Ageing Report',        cat:'Finance',    category:'Financial',   audience:'internal',            auto:true,  fields:10, desc:'Outstanding invoices by age bucket (0–30, 31–60, 61–90, 90+ days) with collection priorities.' },
+    { id:'F3',  name:'Insurance Claim Ledger',       cat:'Finance',    category:'Financial',   audience:'internal',            auto:true,  fields:12, desc:'Pending, approved, denied claims by insurer with denial reasons and appeal status.' },
+    { id:'F4',  name:'Cost-of-Care Per Course',      cat:'Finance',    category:'Financial',   audience:'executive',           auto:false, fields:16, desc:'Per-patient and per-course cost analysis: consumables, clinician time, device depreciation.' },
+    { id:'F5',  name:'Annual Tax & VAT Summary',     cat:'Finance',    category:'Financial',   audience:'executive',           auto:false, fields:12, desc:'Annual revenue, VAT collected, deductible expenses — for accountant handoff.' },
+    // ── Operational ────────────────────────────────────────────────────────
+    { id:'O1',  name:'Clinic-Day Throughput',        cat:'Operations', category:'Operational', audience:'internal',            auto:true,  fields:10, desc:'Daily patient throughput, session duration, no-show rate, waiting-room time.' },
+    { id:'O2',  name:'Staff Utilisation Report',     cat:'Operations', category:'Operational', audience:'executive',           auto:true,  fields:12, desc:'Clinician billable hours vs scheduled hours, workload distribution, overtime.' },
+    { id:'O3',  name:'Equipment Maintenance Log',    cat:'Operations', category:'Operational', audience:'internal',            auto:false, fields:14, desc:'Device uptime, calibration dates, maintenance incidents, warranty status.' },
+    { id:'O4',  name:'Protocol Adherence Audit',     cat:'Operations', category:'Operational', audience:'internal',            auto:true,  fields:16, desc:'% of sessions delivered per protocol spec vs deviations and reasons.' },
+    { id:'O5',  name:'Supply & Consumables Usage',   cat:'Operations', category:'Operational', audience:'internal',            auto:false, fields:10, desc:'Electrode pads, gels, single-use items — usage rate, reorder thresholds.' },
+    // ── Regulatory / Governance ────────────────────────────────────────────
+    { id:'G1',  name:'Consent Status Audit',         cat:'Compliance', category:'Regulatory',  audience:'internal',            auto:true,  fields:10, desc:'Patient consent status, expiring consents, missing-signature queue.' },
+    { id:'G2',  name:'Governance Review',            cat:'Compliance', category:'Regulatory',  audience:'executive',           auto:false, fields:20, desc:'Periodic governance review: incidents, training, equipment, complaints.' },
   ];
 
   const _rKey = 'ds_reports_v1';
@@ -4240,18 +4480,22 @@ export async function pgReportsHubNew(setTopbar, navigate) {
             </div>
             <div id="rep-desc" style="font-size:11.5px;color:var(--text-tertiary);line-height:1.5;padding:8px;background:rgba(255,255,255,0.03);border-radius:6px">${REPORT_TYPES[0].desc}</div>
             <div class="ch-form-group"><label class="ch-label">Additional Context (optional)</label><textarea id="rep-context" class="ch-textarea" rows="3" placeholder="Any specific details to include in the report…"></textarea></div>
-            <div style="display:flex;gap:8px">
+            <div style="display:flex;gap:8px;align-items:center">
               <button class="btn btn-primary" onclick="window._genReport()">✦ Generate Report</button>
               <button class="btn" onclick="window._dsToast?.({title:'Preview',body:'Template preview coming soon.',severity:'info'})">Preview Template</button>
+              <span id="rep-model-badge" style="margin-left:auto;font-size:10.5px;color:var(--text-tertiary);display:inline-flex;align-items:center;gap:6px">
+                <span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--green)"></span>
+                GLM-4.5-Flash · free API
+              </span>
             </div>
           </div>
           <div id="rep-output" style="display:none;padding:0 16px 16px">
             <div style="font-size:11.5px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px">Generated Report</div>
-            <div id="rep-content" class="ch-textarea" style="min-height:160px;padding:12px;font-size:12.5px;line-height:1.75;white-space:pre-wrap;max-height:320px;overflow-y:auto"></div>
+            <div id="rep-content" style="min-height:160px;padding:14px 16px;font-size:12.5px;line-height:1.55;max-height:460px;overflow-y:auto;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);border-radius:6px"></div>
             <div style="display:flex;gap:8px;margin-top:10px">
               <button class="ch-btn-sm ch-btn-teal" onclick="window._saveReport()">Save to Records</button>
               <button class="ch-btn-sm" onclick="window.print()">Print</button>
-              <button class="ch-btn-sm" onclick="window._dsToast?.({title:'Exported',body:'PDF export coming soon.',severity:'info'})">Export PDF</button>
+              <button class="ch-btn-sm" onclick="window._exportReportPdf()">Export PDF</button>
             </div>
           </div>
         </div>
@@ -4264,32 +4508,153 @@ export async function pgReportsHubNew(setTopbar, navigate) {
         </div>
       </div>`;
 
+    // Render a structured report into #rep-content. Stored as window._lastReport
+    // so Save/Print/Export can consume it.
+    function _renderReport(rep) {
+      const content = document.getElementById('rep-content');
+      if (!content) return;
+      const esc = (s) => String(s == null ? '' : s).replace(/[&<>]/g, (ch) => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[ch]));
+      const header = `
+        <div style="font-family:var(--font-display);font-size:15px;font-weight:700;color:var(--text-primary);margin-bottom:4px">${esc(rep.title||'Report')}</div>
+        <div style="font-size:11.5px;color:var(--text-tertiary);margin-bottom:12px">
+          ${esc(rep.patient_or_subject||'')} · ${esc(rep.date||'')} · ${esc(rep.provider||'glm-free')} (${esc(rep.model||'')})
+        </div>`;
+      const sections = (rep.sections||[]).map((s) => `
+        <div style="margin-bottom:12px">
+          <div style="font-size:12px;font-weight:600;color:var(--teal);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">${esc(s.heading||'')}</div>
+          <div style="font-size:12.5px;line-height:1.6;color:var(--text-primary);white-space:pre-wrap">${esc(s.body||'')}</div>
+        </div>`).join('');
+      const actions = (rep.next_actions||[]).length
+        ? `<div style="margin-top:12px"><div style="font-size:12px;font-weight:600;color:var(--amber);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Next Actions</div>
+           <ul style="margin:0;padding-left:18px;font-size:12.5px;line-height:1.6;color:var(--text-primary)">${(rep.next_actions||[]).map(a=>'<li>'+esc(a)+'</li>').join('')}</ul></div>`
+        : '';
+      const disclaimer = rep.disclaimer
+        ? `<div style="margin-top:12px;padding:8px 10px;background:rgba(245,158,11,0.08);border-left:3px solid var(--amber);border-radius:4px;font-size:11.5px;color:var(--text-secondary)">${esc(rep.disclaimer)}</div>`
+        : '';
+      content.innerHTML = header + sections + actions + disclaimer;
+    }
+
+    // Convert a structured report to a plain-text blob for save/print fallback.
+    function _reportToText(rep) {
+      const lines = [];
+      lines.push(rep.title || 'Report');
+      lines.push((rep.patient_or_subject || '') + ' · ' + (rep.date || ''));
+      lines.push('');
+      (rep.sections||[]).forEach((s) => {
+        lines.push((s.heading||'').toUpperCase());
+        lines.push(s.body||'');
+        lines.push('');
+      });
+      if ((rep.next_actions||[]).length) {
+        lines.push('NEXT ACTIONS');
+        rep.next_actions.forEach(a => lines.push('- ' + a));
+        lines.push('');
+      }
+      if (rep.disclaimer) lines.push(rep.disclaimer);
+      return lines.join('\n');
+    }
+
     window._genReport = async () => {
       const patEl = document.getElementById('rep-patient');
       const typeEl = document.getElementById('rep-type');
-      const context = document.getElementById('rep-context')?.value||'';
-      const patName = patEl?.options[patEl?.selectedIndex]?.text||'Patient';
-      const typeName = typeEl?.options[typeEl?.selectedIndex]?.text||'Report';
-      const typeData = REPORT_TYPES.find(r=>r.id===typeEl?.value)||REPORT_TYPES[0];
+      const context = document.getElementById('rep-context')?.value || '';
+      const patName = patEl?.options[patEl?.selectedIndex]?.text || 'Patient';
+      const typeName = typeEl?.options[typeEl?.selectedIndex]?.text || 'Report';
+      const typeData = REPORT_TYPES.find(r => r.id === typeEl?.value) || REPORT_TYPES[0];
       const out = document.getElementById('rep-output');
       const content = document.getElementById('rep-content');
-      if (out) out.style.display='';
-      if (content) content.textContent='✦ Generating '+typeName+'…';
+      if (out) out.style.display = '';
+      if (content) content.innerHTML = '<div style="color:var(--text-tertiary);padding:12px 0">✦ Generating ' + typeName + ' via GLM-4.5-Flash…</div>';
+
       try {
-        const res = await api.chatClinician([{role:'user',content:'Generate a professional clinical '+typeName+' for patient '+patName+'. Use standard medical report format with clear sections. '+typeData.desc+' Additional context: '+context}],{});
-        if (content) content.textContent = res?.message||res?.content||'REPORT: '+typeName+'\nPatient: '+patName+'\nDate: '+new Date().toLocaleDateString()+'\n\nReport generated successfully. Please review and amend as needed before finalising.';
-        window._lastReport = { type:typeName, patient:patName, content:content?.textContent||'' };
-      } catch {
-        if (content) content.textContent = typeName+'\nPatient: '+patName+'\nDate: '+new Date().toLocaleDateString()+'\n\nClinical report for '+patName+'.\n\n[Report content — edit as required]';
+        const rep = await api.generateReport({
+          template_id: typeData.id,
+          template_name: typeData.name,
+          category: typeData.category || 'Clinical',
+          audience: typeData.audience || 'internal',
+          tone: 'professional',
+          patient_name: patName,
+          patient_context: null,
+          additional_context: context ? (typeData.desc + '\n\n' + context) : typeData.desc,
+          provider: 'glm-free',  // GLM-4.5-Flash free tier via open.bigmodel.cn
+        });
+        _renderReport(rep);
+        window._lastReport = {
+          type: typeName,
+          patient: patName,
+          category: typeData.category || 'Clinical',
+          structured: rep,
+          content: _reportToText(rep),
+        };
+        const badge = document.getElementById('rep-model-badge');
+        if (badge && rep?.provider) {
+          const isLocal = rep.provider === 'ollama';
+          badge.innerHTML =
+            '<span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:' + (isLocal ? 'var(--green)' : 'var(--teal)') + '"></span>' +
+            (isLocal ? '🔒 Local · ' : '') + String(rep.model || rep.provider);
+        }
+      } catch (err) {
+        // Surface configuration errors clearly (e.g. missing GLM_API_KEY).
+        const msg = err?.message || String(err);
+        if (content) {
+          content.innerHTML =
+            '<div style="color:var(--red);padding:10px 12px;background:rgba(239,68,68,0.08);border-left:3px solid var(--red);border-radius:4px;font-size:12.5px">' +
+            '<strong>Report generation failed.</strong><br>' + msg.replace(/</g,'&lt;') +
+            '<br><br>If you see a 503 "llm_unconfigured" error, add <code>GLM_API_KEY</code> to the API service environment. ' +
+            'Get a free key at <a href="https://open.bigmodel.cn/" target="_blank" rel="noopener" style="color:var(--teal)">open.bigmodel.cn</a>.' +
+            '</div>';
+        }
+        window._dsToast?.({ title:'Generation failed', body: msg, severity:'error' });
       }
     };
+
     window._saveReport = () => {
       if (!window._lastReport) return;
       const rpts = loadReports();
-      rpts.unshift({ id:'RPT-'+Date.now(), name:window._lastReport.type+' — '+window._lastReport.patient, patient:window._lastReport.patient, type:window._lastReport.type, date:new Date().toISOString().slice(0,10), status:'generated', content:window._lastReport.content });
+      rpts.unshift({
+        id: 'RPT-' + Date.now(),
+        name: window._lastReport.type + ' — ' + window._lastReport.patient,
+        patient: window._lastReport.patient,
+        type: window._lastReport.type,
+        category: window._lastReport.category,
+        date: new Date().toISOString().slice(0,10),
+        status: 'generated',
+        content: window._lastReport.content,
+        structured: window._lastReport.structured,
+      });
       saveReports(rpts);
-      window._dsToast?.({title:'Saved',body:'Report saved to records.',severity:'success'});
-      window._reportsHubTab='recent'; window._nav('reports-hub');
+      window._dsToast?.({ title:'Saved', body:'Report saved to records.', severity:'success' });
+      window._reportsHubTab = 'recent'; window._nav('reports-hub');
+    };
+
+    // Print-friendly export: open a new window with just the report HTML and
+    // call window.print(). User can "Save as PDF" from the browser print dialog.
+    window._exportReportPdf = () => {
+      const rep = window._lastReport?.structured;
+      if (!rep) { window._dsToast?.({ title:'Nothing to export', body:'Generate a report first.', severity:'info' }); return; }
+      const esc = (s) => String(s == null ? '' : s).replace(/[&<>]/g, (ch) => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[ch]));
+      const sectionsHtml = (rep.sections||[]).map(s =>
+        '<h2 style="font-size:13px;text-transform:uppercase;letter-spacing:.5px;color:#0891b2;margin:18px 0 4px">' + esc(s.heading||'') + '</h2>' +
+        '<p style="white-space:pre-wrap;line-height:1.55;margin:0 0 10px">' + esc(s.body||'') + '</p>'
+      ).join('');
+      const nextHtml = (rep.next_actions||[]).length
+        ? '<h2 style="font-size:13px;text-transform:uppercase;letter-spacing:.5px;color:#b45309;margin:18px 0 4px">Next Actions</h2><ul>' +
+          (rep.next_actions||[]).map(a=>'<li>'+esc(a)+'</li>').join('') + '</ul>'
+        : '';
+      const disc = rep.disclaimer
+        ? '<p style="margin-top:20px;padding:10px;border-left:3px solid #b45309;background:#fef3c7;font-size:11px">' + esc(rep.disclaimer) + '</p>'
+        : '';
+      const html = '<!doctype html><html><head><meta charset="utf-8"><title>' + esc(rep.title||'Report') + '</title>' +
+        '<style>body{font-family:Inter,Arial,sans-serif;max-width:800px;margin:32px auto;padding:0 24px;color:#1f2937}' +
+        'h1{font-size:20px;margin:0 0 4px}.meta{color:#6b7280;font-size:12px;margin-bottom:18px}</style></head><body>' +
+        '<h1>' + esc(rep.title||'Report') + '</h1>' +
+        '<div class="meta">' + esc(rep.patient_or_subject||'') + ' · ' + esc(rep.date||'') + '</div>' +
+        sectionsHtml + nextHtml + disc +
+        '<script>window.onload=function(){setTimeout(function(){window.print();},300);};</script>' +
+        '</body></html>';
+      const w = window.open('', '_blank');
+      if (!w) { window._dsToast?.({ title:'Pop-up blocked', body:'Allow pop-ups to export.', severity:'warn' }); return; }
+      w.document.open(); w.document.write(html); w.document.close();
     };
   }
   else if (tab === 'recent') {
@@ -4401,6 +4766,7 @@ export async function pgReportsHubNew(setTopbar, navigate) {
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // pgFinanceHub — Overview · Invoices · Payments · Insurance · Analytics
+// Backed by /api/v1/finance/* (no more localStorage).
 // ═══════════════════════════════════════════════════════════════════════════════
 export async function pgFinanceHub(setTopbar, navigate) {
   const tab = window._financeHubTab || 'overview';
@@ -4410,7 +4776,7 @@ export async function pgFinanceHub(setTopbar, navigate) {
     invoices:  { label: 'Invoices',    color: 'var(--blue)'   },
     payments:  { label: 'Payments',    color: 'var(--green)'  },
     insurance: { label: 'Insurance',   color: 'var(--violet)' },
-    analytics: { label: 'Analytics',  color: 'var(--amber)'  },
+    analytics: { label: 'Analytics',   color: 'var(--amber)'  },
   };
   const el = document.getElementById('content');
   function tabBar() {
@@ -4424,192 +4790,277 @@ export async function pgFinanceHub(setTopbar, navigate) {
   const pad2 = n => String(n).padStart(2,'0');
   const now  = new Date();
   const td   = now.getFullYear()+'-'+pad2(now.getMonth()+1)+'-'+pad2(now.getDate());
+  const dueDefault = new Date(Date.now()+30*86400000).toISOString().slice(0,10);
 
-  const _fKey = 'ds_finance_v1';
-  function loadFin() { try { return JSON.parse(localStorage.getItem(_fKey)||'null') || seedFin(); } catch { return seedFin(); } }
-  function saveFin(d) { try { localStorage.setItem(_fKey, JSON.stringify(d)); } catch {} }
-  function seedFin() {
-    const d = {
-      invoices:[
-        { id:'INV-001', patient:'Demo Patient A', service:'TMS Course — 30 sessions', amount:3200, vat:640,  total:3840,  date:'2026-04-14', due:'2026-05-14', status:'sent',    paid:0    },
-        { id:'INV-002', patient:'Demo Patient B', service:'Initial Assessment',        amount:280,  vat:56,   total:336,   date:'2026-04-12', due:'2026-04-26', status:'paid',    paid:336  },
-        { id:'INV-003', patient:'Demo Patient C', service:'tDCS Course — 15 sessions', amount:1800, vat:360,  total:2160,  date:'2026-04-10', due:'2026-05-10', status:'overdue', paid:0    },
-        { id:'INV-004', patient:'Marcus Webb',    service:'New Patient Intake',         amount:350,  vat:70,   total:420,   date:'2026-04-08', due:'2026-04-22', status:'draft',   paid:0    },
-        { id:'INV-005', patient:'Anna Torres',    service:'Follow-up Consultation',    amount:150,  vat:30,   total:180,   date:'2026-04-05', due:'2026-04-19', status:'paid',    paid:180  },
-      ],
-      payments:[
-        { id:'PAY-001', patient:'Demo Patient B', amount:336,  method:'Card',  date:'2026-04-13', ref:'TXN-8821', inv:'INV-002' },
-        { id:'PAY-002', patient:'Anna Torres',    amount:180,  method:'BACS',  date:'2026-04-07', ref:'TXN-8743', inv:'INV-005' },
-        { id:'PAY-003', patient:'Demo Patient A', amount:500,  method:'Card',  date:'2026-03-20', ref:'TXN-8619', inv:'INV-001' },
-      ],
-      insurance:[
-        { id:'INS-001', patient:'Demo Patient A', insurer:'BUPA',     policy:'TMS Pre-auth',          status:'approved', amount:2400, date:'2026-04-10' },
-        { id:'INS-002', patient:'Demo Patient C', insurer:'AXA Health',policy:'tDCS Funding Request', status:'pending',  amount:1800, date:'2026-04-12' },
-        { id:'INS-003', patient:'Marcus Webb',    insurer:'Vitality',  policy:'Assessment Claim',      status:'submitted',amount:350,  date:'2026-04-09' },
-      ],
-    };
-    saveFin(d); return d;
+  const invStC = { sent:'var(--blue)', paid:'var(--green)', overdue:'var(--red)', draft:'var(--text-tertiary)', partial:'var(--amber)' };
+  const insStC = { approved:'var(--green)', pending:'var(--amber)', submitted:'var(--blue)', rejected:'var(--red)', draft:'var(--text-tertiary)' };
+
+  const CURRENCY_SYMBOLS = { GBP:'£', USD:'$', EUR:'€' };
+  const curSym = (c) => CURRENCY_SYMBOLS[(c||'GBP').toUpperCase()] || '£';
+  const fmtC = (n, cur) => curSym(cur) + Number(n||0).toLocaleString('en-GB',{minimumFractionDigits:0, maximumFractionDigits:2});
+  // Most UI surfaces (totals, KPIs) are clinic-level; assume clinic default GBP
+  // unless an item carries its own currency.
+  const fmt = n => fmtC(n, 'GBP');
+
+  // Initial paint: loading shimmer while we fetch all endpoints in parallel.
+  el.innerHTML = `
+    <div class="ch-shell">
+      <div class="ch-tab-bar">${tabBar()}</div>
+      <div class="ch-body">
+        <div class="ch-card" style="padding:28px;text-align:center;color:var(--text-tertiary);font-size:12.5px">
+          ${typeof spinner==='function' ? spinner() : '<span>Loading finance data…</span>'}
+        </div>
+      </div>
+    </div>`;
+
+  const invFilt   = window._invFilt   || 'all';
+  const invSearch = window._invSearch || '';
+
+  const [summary, invoicesResp, paymentsResp, claimsResp, monthlyResp] = await Promise.all([
+    api.finance.summary(),
+    api.finance.listInvoices({ status: invFilt === 'all' ? null : invFilt, search: invSearch }),
+    api.finance.listPayments(),
+    api.finance.listClaims(),
+    api.finance.monthlyAnalytics(6),
+  ]).catch(err => { console.error('[FinanceHub] load failed', err); return [null,null,null,null,null]; });
+
+  if (!summary || !invoicesResp || !paymentsResp || !claimsResp || !monthlyResp) {
+    el.innerHTML = `
+      <div class="ch-shell">
+        <div class="ch-tab-bar">${tabBar()}</div>
+        <div class="ch-body">
+          <div class="ch-card" style="padding:28px;text-align:center">
+            <div style="font-size:14px;font-weight:600;color:var(--red);margin-bottom:6px">Failed to load finance data</div>
+            <div style="font-size:12px;color:var(--text-tertiary);margin-bottom:14px">The server returned an error. Please retry.</div>
+            <button class="btn btn-primary btn-sm" onclick="window._nav('finance-hub')">Retry</button>
+          </div>
+        </div>
+      </div>`;
+    return;
   }
 
-  const data = loadFin();
-  const invStC = { sent:'var(--blue)', paid:'var(--green)', overdue:'var(--red)', draft:'var(--text-tertiary)', partial:'var(--amber)' };
-  const insStC = { approved:'var(--green)', pending:'var(--amber)', submitted:'var(--blue)', rejected:'var(--red)' };
+  const invoices = Array.isArray(invoicesResp.items) ? invoicesResp.items : [];
+  const payments = Array.isArray(paymentsResp.items) ? paymentsResp.items : [];
+  const claims   = Array.isArray(claimsResp.items)   ? claimsResp.items   : [];
+  const months   = Array.isArray(monthlyResp.items)  ? monthlyResp.items  : [];
 
-  const totalRev      = data.invoices.filter(i=>i.status==='paid').reduce((s,i)=>s+i.total,0);
-  const totalOutstand = data.invoices.filter(i=>i.status!=='paid'&&i.status!=='draft').reduce((s,i)=>s+(i.total-i.paid),0);
-  const totalOverdue  = data.invoices.filter(i=>i.status==='overdue').reduce((s,i)=>s+i.total,0);
-  const fmt = n => '£'+n.toLocaleString('en-GB',{minimumFractionDigits:0});
+  const totalRev      = Number(summary.revenue_paid || 0);
+  const totalOutstand = Number(summary.outstanding || 0);
+  const totalOverdue  = Number(summary.overdue || 0);
+  const totalInvoices = Number(summary.total_invoices ?? invoices.length);
+  const totalPayments = Number(summary.total_payments ?? payments.length);
+  const claimsApproved = Number(summary.claims_approved ?? 0);
+  const claimsPending  = Number(summary.claims_pending  ?? 0);
+  const claimsValue    = Number(summary.claims_value    ?? 0);
 
   window._finNewInvoice = () => document.getElementById('fin-new-inv-modal')?.classList.remove('ch-hidden');
+  window._finLogPayment = () => document.getElementById('fin-log-pay-modal')?.classList.remove('ch-hidden');
+  window._finNewClaim   = () => document.getElementById('fin-new-claim-modal')?.classList.remove('ch-hidden');
 
   let main = '';
 
   if (tab === 'overview') {
+    const statusCounts = ['paid','sent','overdue','draft'].map(s => {
+      const list = invoices.filter(i => i.status === s);
+      return { s, cnt: list.length, amt: list.reduce((x,i) => x + Number(i.total||0), 0) };
+    });
+    const invDenom = Math.max(invoices.length, 1);
+    const recentPay = payments.slice(0, 3).map(p => ({
+      icon: '💳',
+      text: (p.patient_name || '—') + ' — ' + fmt(p.amount) + ' received',
+      date: p.payment_date || p.created_at || '',
+      c: 'var(--green)',
+    }));
+    const recentOverdue = invoices.filter(i => i.status === 'overdue').slice(0, 2).map(i => ({
+      icon: '⚠',
+      text: (i.patient_name || '—') + ' — ' + fmtC(i.total, i.currency) + ' overdue',
+      date: i.due_date || '',
+      c: 'var(--red)',
+    }));
+    const recent = [...recentPay, ...recentOverdue]
+      .sort((a,b) => String(b.date).localeCompare(String(a.date)))
+      .slice(0, 5);
+
     main = `
       <div class="ch-kpi-strip" style="grid-template-columns:repeat(4,1fr);margin-bottom:16px">
         <div class="ch-kpi-card" style="--kpi-color:var(--green)"><div class="ch-kpi-val">${fmt(totalRev)}</div><div class="ch-kpi-label">Revenue (Paid)</div></div>
         <div class="ch-kpi-card" style="--kpi-color:var(--blue)"><div class="ch-kpi-val">${fmt(totalOutstand)}</div><div class="ch-kpi-label">Outstanding</div></div>
         <div class="ch-kpi-card" style="--kpi-color:var(--red)"><div class="ch-kpi-val">${fmt(totalOverdue)}</div><div class="ch-kpi-label">Overdue</div></div>
-        <div class="ch-kpi-card" style="--kpi-color:var(--teal)"><div class="ch-kpi-val">${data.invoices.length}</div><div class="ch-kpi-label">Total Invoices</div></div>
+        <div class="ch-kpi-card" style="--kpi-color:var(--teal)"><div class="ch-kpi-val">${totalInvoices}</div><div class="ch-kpi-label">Total Invoices</div></div>
       </div>
       <div class="ch-two-col">
         <div class="ch-card">
           <div class="ch-card-hd"><span class="ch-card-title">Invoice Status</span></div>
-          ${['paid','sent','overdue','draft'].map(s=>{
-            const cnt=data.invoices.filter(i=>i.status===s).length;
-            const amt=data.invoices.filter(i=>i.status===s).reduce((x,i)=>x+i.total,0);
-            return '<div style="display:flex;align-items:center;gap:12px;padding:11px 16px;border-bottom:1px solid rgba(255,255,255,0.04)">'+
+          ${statusCounts.map(({s,cnt,amt}) =>
+            '<div style="display:flex;align-items:center;gap:12px;padding:11px 16px;border-bottom:1px solid rgba(255,255,255,0.04)">'+
               '<span style="font-size:10px;font-weight:700;color:'+(invStC[s]||'var(--text-tertiary)')+';text-transform:capitalize;min-width:60px">'+s+'</span>'+
-              '<div class="ch-prog-bar" style="flex:1"><div class="ch-prog-fill" style="width:'+Math.round(cnt/data.invoices.length*100)+'%"></div></div>'+
+              '<div class="ch-prog-bar" style="flex:1"><div class="ch-prog-fill" style="width:'+Math.round(cnt/invDenom*100)+'%"></div></div>'+
               '<span style="font-size:12px;font-weight:600;color:var(--text-secondary);min-width:80px;text-align:right">'+cnt+' · '+fmt(amt)+'</span>'+
-            '</div>';
-          }).join('')}
+            '</div>'
+          ).join('')}
         </div>
         <div class="ch-card">
           <div class="ch-card-hd"><span class="ch-card-title">Recent Activity</span></div>
-          ${[...data.payments.slice(0,3).map(p=>({icon:'💳',text:p.patient+' — '+fmt(p.amount)+' received',date:p.date,c:'var(--green)'})),
-             ...data.invoices.filter(i=>i.status==='overdue').slice(0,2).map(i=>({icon:'⚠',text:i.patient+' — '+fmt(i.total)+' overdue',date:i.due,c:'var(--red)'}))
-          ].sort((a,b)=>b.date.localeCompare(a.date)).slice(0,5).map(x=>'<div class="rec-apt-row"><span style="font-size:16px">'+x.icon+'</span><div class="rec-apt-info"><div class="rec-apt-name" style="color:'+x.c+'">'+x.text+'</div></div><span class="rec-apt-time">'+x.date+'</span></div>').join('')}
+          ${recent.length
+            ? recent.map(x =>
+                '<div class="rec-apt-row"><span style="font-size:16px">'+x.icon+'</span>'+
+                '<div class="rec-apt-info"><div class="rec-apt-name" style="color:'+x.c+'">'+x.text+'</div></div>'+
+                '<span class="rec-apt-time">'+x.date+'</span></div>'
+              ).join('')
+            : '<div style="padding:24px;text-align:center;color:var(--text-tertiary);font-size:12px">No recent activity.</div>'}
         </div>
       </div>`;
   }
   else if (tab === 'invoices') {
-    const filt = window._invFilt||'all';
     const FILTS = [{id:'all',label:'All'},{id:'sent',label:'Sent'},{id:'paid',label:'Paid'},{id:'overdue',label:'Overdue'},{id:'draft',label:'Draft'}];
-    const rows = filt==='all' ? data.invoices : data.invoices.filter(i=>i.status===filt);
+    const rows = invoices;
     main = `
       <div class="ch-card">
         <div class="ch-card-hd" style="flex-wrap:wrap;gap:8px">
           <span class="ch-card-title">Invoices</span>
-          <div style="display:flex;gap:4px">
-            ${FILTS.map(f=>'<button class="ch-btn-sm'+(f.id===filt?' ch-btn-teal':'')+'" onclick="window._invFilt=\''+f.id+'\';window._nav(\'finance-hub\')">'+f.label+'</button>').join('')}
+          <div style="display:flex;gap:4px;flex-wrap:wrap">
+            ${FILTS.map(f=>'<button class="ch-btn-sm'+(f.id===invFilt?' ch-btn-teal':'')+'" onclick="window._invFilt=\''+f.id+'\';window._nav(\'finance-hub\')">'+f.label+'</button>').join('')}
+          </div>
+          <div style="position:relative;flex:1;max-width:240px;min-width:140px">
+            <input type="text" placeholder="Search invoices…" class="ph-search-input" value="${(invSearch||'').replace(/"/g,'&quot;')}" oninput="window._invSearch=this.value" onchange="window._nav('finance-hub')" onkeydown="if(event.key==='Enter'){window._invSearch=this.value;window._nav('finance-hub')}">
           </div>
           <button class="ch-btn-sm ch-btn-teal" onclick="window._finNewInvoice()">+ New</button>
         </div>
-        ${rows.map(inv=>
-          '<div class="book-row">'+
-            '<div class="book-datetime"><div class="book-date">'+inv.date+'</div><div class="book-time">Due: '+inv.due+'</div></div>'+
-            '<div class="book-info"><div class="book-patient">'+inv.id+' — '+inv.patient+'</div><div class="book-clinician">'+inv.service+'</div></div>'+
-            '<div style="flex-shrink:0;text-align:right;min-width:80px"><div style="font-size:14px;font-weight:700;color:var(--text-primary)">'+fmt(inv.total)+'</div><div style="font-size:11px;color:var(--text-tertiary)">+VAT incl.</div></div>'+
-            '<div class="book-status-col"><span class="book-status-badge" style="color:'+(invStC[inv.status]||'var(--text-tertiary)')+';background:'+(invStC[inv.status]||'var(--text-tertiary)')+'22;text-transform:capitalize">'+inv.status+'</span></div>'+
-            '<div class="book-actions">'+
-              (inv.status!=='paid'?'<button class="ch-btn-sm ch-btn-teal" onclick="window._finMarkPaid(\''+inv.id+'\')">Mark Paid</button>':'')+
-              '<button class="ch-btn-sm" onclick="window._dsToast?.({title:\'Send\',body:\''+inv.id+' sent to patient.\',severity:\'success\'})">Send</button>'+
-            '</div>'+
-          '</div>'
-        ).join('')}
+        ${rows.length === 0
+          ? '<div style="padding:28px;text-align:center;color:var(--text-tertiary);font-size:12.5px">No invoices found.</div>'
+          : rows.map(inv => {
+              const symTotal = fmtC(inv.total, inv.currency);
+              const safeId   = String(inv.id).replace(/'/g, "\\'");
+              const safeNum  = String(inv.invoice_number || inv.id).replace(/'/g, "\\'");
+              return '<div class="book-row">'+
+                '<div class="book-datetime"><div class="book-date">'+(inv.issue_date||'')+'</div><div class="book-time">Due: '+(inv.due_date||'—')+'</div></div>'+
+                '<div class="book-info"><div class="book-patient">'+(inv.invoice_number||inv.id)+' — '+(inv.patient_name||'—')+'</div><div class="book-clinician">'+(inv.service||'')+'</div></div>'+
+                '<div style="flex-shrink:0;text-align:right;min-width:80px"><div style="font-size:14px;font-weight:700;color:var(--text-primary)">'+symTotal+'</div><div style="font-size:11px;color:var(--text-tertiary)">+VAT incl.</div></div>'+
+                '<div class="book-status-col"><span class="book-status-badge" style="color:'+(invStC[inv.status]||'var(--text-tertiary)')+';background:'+(invStC[inv.status]||'var(--text-tertiary)')+'22;text-transform:capitalize">'+(inv.status||'')+'</span></div>'+
+                '<div class="book-actions">'+
+                  (inv.status!=='paid'?'<button class="ch-btn-sm ch-btn-teal" onclick="window._finMarkPaid(\''+safeId+'\')">Mark Paid</button>':'')+
+                  '<button class="ch-btn-sm" onclick="window._dsToast?.({title:\'Send\',body:\''+safeNum+' sent to patient.\',severity:\'success\'})">Send</button>'+
+                '</div>'+
+              '</div>';
+            }).join('')}
       </div>`;
 
-    window._finMarkPaid = id => {
-      const inv = data.invoices.find(i=>i.id===id); if(!inv)return;
-      inv.status='paid'; inv.paid=inv.total;
-      data.payments.unshift({id:'PAY-'+Date.now(),patient:inv.patient,amount:inv.total,method:'Manual',date:td,ref:'MAN-'+Date.now().toString().slice(-4),inv:id});
-      saveFin(data); window._nav('finance-hub');
-      window._dsToast?.({title:'Marked paid',body:inv.id+' — '+fmt(inv.total),severity:'success'});
+    window._finMarkPaid = async (id) => {
+      try {
+        const inv = await api.finance.markInvoicePaid(id, { method: 'manual' });
+        window._dsToast?.({
+          title: 'Marked paid',
+          body: (inv?.invoice_number || id) + ' — ' + fmtC(inv?.total, inv?.currency),
+          severity: 'success',
+        });
+        window._nav('finance-hub');
+      } catch (err) {
+        window._dsToast?.({ title:'Mark paid failed', body: err?.message || 'Server error', severity:'warn' });
+      }
     };
   }
   else if (tab === 'payments') {
+    const totalReceived = payments.reduce((s,p) => s + Number(p.amount||0), 0);
+    const avgPayment   = payments.length ? Math.round(totalReceived / payments.length) : 0;
     main = `
       <div class="ch-kpi-strip" style="grid-template-columns:repeat(3,1fr);margin-bottom:16px">
-        <div class="ch-kpi-card" style="--kpi-color:var(--green)"><div class="ch-kpi-val">${fmt(data.payments.reduce((s,p)=>s+p.amount,0))}</div><div class="ch-kpi-label">Total Received</div></div>
-        <div class="ch-kpi-card" style="--kpi-color:var(--teal)"><div class="ch-kpi-val">${data.payments.length}</div><div class="ch-kpi-label">Transactions</div></div>
-        <div class="ch-kpi-card" style="--kpi-color:var(--blue)"><div class="ch-kpi-val">${fmt(Math.round(data.payments.reduce((s,p)=>s+p.amount,0)/Math.max(data.payments.length,1)))}</div><div class="ch-kpi-label">Avg Payment</div></div>
+        <div class="ch-kpi-card" style="--kpi-color:var(--green)"><div class="ch-kpi-val">${fmt(totalReceived)}</div><div class="ch-kpi-label">Total Received</div></div>
+        <div class="ch-kpi-card" style="--kpi-color:var(--teal)"><div class="ch-kpi-val">${totalPayments}</div><div class="ch-kpi-label">Transactions</div></div>
+        <div class="ch-kpi-card" style="--kpi-color:var(--blue)"><div class="ch-kpi-val">${fmt(avgPayment)}</div><div class="ch-kpi-label">Avg Payment</div></div>
       </div>
       <div class="ch-card">
         <div class="ch-card-hd">
           <span class="ch-card-title">Payment Log</span>
-          <button class="ch-btn-sm ch-btn-teal" onclick="window._dsToast?.({title:'Log Payment',body:'Payment form coming soon.',severity:'info'})">+ Log Payment</button>
+          <button class="ch-btn-sm ch-btn-teal" onclick="window._finLogPayment()">+ Log Payment</button>
         </div>
-        ${data.payments.map(p=>
-          '<div class="book-row">'+
-            '<div class="book-datetime"><div class="book-date">'+p.date+'</div><div class="book-time">'+p.ref+'</div></div>'+
-            '<div class="book-info"><div class="book-patient">'+p.patient+'</div><div class="book-clinician">'+p.method+' · Ref: '+p.ref+'</div></div>'+
-            '<div style="flex-shrink:0;min-width:80px;text-align:right"><div style="font-size:15px;font-weight:700;color:var(--green)">'+fmt(p.amount)+'</div></div>'+
-            '<div class="book-status-col"><span class="book-status-badge" style="color:var(--green);background:rgba(74,222,128,0.12)">Received</span></div>'+
-          '</div>'
-        ).join('')}
+        ${payments.length === 0
+          ? '<div style="padding:28px;text-align:center;color:var(--text-tertiary);font-size:12.5px">No payments recorded yet.</div>'
+          : payments.map(p =>
+              '<div class="book-row">'+
+                '<div class="book-datetime"><div class="book-date">'+(p.payment_date||'')+'</div><div class="book-time">'+(p.reference||'')+'</div></div>'+
+                '<div class="book-info"><div class="book-patient">'+(p.patient_name||'—')+'</div><div class="book-clinician">'+(p.method||'')+(p.reference?(' · Ref: '+p.reference):'')+'</div></div>'+
+                '<div style="flex-shrink:0;min-width:80px;text-align:right"><div style="font-size:15px;font-weight:700;color:var(--green)">'+fmt(p.amount)+'</div></div>'+
+                '<div class="book-status-col"><span class="book-status-badge" style="color:var(--green);background:rgba(74,222,128,0.12)">Received</span></div>'+
+              '</div>'
+            ).join('')}
       </div>`;
   }
   else if (tab === 'insurance') {
     main = `
       <div class="ch-kpi-strip" style="grid-template-columns:repeat(3,1fr);margin-bottom:16px">
-        <div class="ch-kpi-card" style="--kpi-color:var(--green)"><div class="ch-kpi-val">${data.insurance.filter(i=>i.status==='approved').length}</div><div class="ch-kpi-label">Approved</div></div>
-        <div class="ch-kpi-card" style="--kpi-color:var(--amber)"><div class="ch-kpi-val">${data.insurance.filter(i=>i.status==='pending'||i.status==='submitted').length}</div><div class="ch-kpi-label">Pending</div></div>
-        <div class="ch-kpi-card" style="--kpi-color:var(--blue)"><div class="ch-kpi-val">${fmt(data.insurance.reduce((s,i)=>s+i.amount,0))}</div><div class="ch-kpi-label">Claims Value</div></div>
+        <div class="ch-kpi-card" style="--kpi-color:var(--green)"><div class="ch-kpi-val">${claimsApproved}</div><div class="ch-kpi-label">Approved</div></div>
+        <div class="ch-kpi-card" style="--kpi-color:var(--amber)"><div class="ch-kpi-val">${claimsPending}</div><div class="ch-kpi-label">Pending</div></div>
+        <div class="ch-kpi-card" style="--kpi-color:var(--blue)"><div class="ch-kpi-val">${fmt(claimsValue)}</div><div class="ch-kpi-label">Claims Value</div></div>
       </div>
       <div class="ch-card">
         <div class="ch-card-hd">
           <span class="ch-card-title">Insurance & Funding Claims</span>
-          <button class="ch-btn-sm ch-btn-teal" onclick="window._dsToast?.({title:'New Claim',body:'Insurance claim form coming soon.',severity:'info'})">+ New Claim</button>
+          <button class="ch-btn-sm ch-btn-teal" onclick="window._finNewClaim()">+ New Claim</button>
         </div>
-        ${data.insurance.map(ins=>
-          '<div class="book-row">'+
-            '<div class="book-datetime"><div class="book-date">'+ins.date+'</div></div>'+
-            '<div class="book-info"><div class="book-patient">'+ins.patient+' — '+ins.insurer+'</div><div class="book-clinician">'+ins.policy+'</div></div>'+
-            '<div style="flex-shrink:0;min-width:80px;text-align:right"><div style="font-size:14px;font-weight:700;color:var(--text-primary)">'+fmt(ins.amount)+'</div></div>'+
-            '<div class="book-status-col"><span class="book-status-badge" style="color:'+(insStC[ins.status]||'var(--text-tertiary)')+';background:'+(insStC[ins.status]||'var(--text-tertiary)')+'22;text-transform:capitalize">'+ins.status+'</span></div>'+
-            '<div class="book-actions"><button class="ch-btn-sm" onclick="window._dsToast?.({title:\'View Claim\',body:\''+ins.policy+'\',severity:\'info\'})">View</button></div>'+
-          '</div>'
-        ).join('')}
+        ${claims.length === 0
+          ? '<div style="padding:28px;text-align:center;color:var(--text-tertiary);font-size:12.5px">No claims yet.</div>'
+          : claims.map(ins => {
+              const safeDesc = String(ins.description||'').replace(/'/g,"\\'").replace(/"/g,'&quot;');
+              return '<div class="book-row">'+
+                '<div class="book-datetime"><div class="book-date">'+(ins.submitted_date||ins.created_at||'')+'</div></div>'+
+                '<div class="book-info"><div class="book-patient">'+(ins.patient_name||'—')+' — '+(ins.insurer||'—')+'</div><div class="book-clinician">'+(ins.description||'')+'</div></div>'+
+                '<div style="flex-shrink:0;min-width:80px;text-align:right"><div style="font-size:14px;font-weight:700;color:var(--text-primary)">'+fmt(ins.amount)+'</div></div>'+
+                '<div class="book-status-col"><span class="book-status-badge" style="color:'+(insStC[ins.status]||'var(--text-tertiary)')+';background:'+(insStC[ins.status]||'var(--text-tertiary)')+'22;text-transform:capitalize">'+(ins.status||'')+'</span></div>'+
+                '<div class="book-actions"><button class="ch-btn-sm" onclick="window._dsToast?.({title:\'View Claim\',body:\''+safeDesc+'\',severity:\'info\'})">View</button></div>'+
+              '</div>';
+            }).join('')}
       </div>`;
   }
   else if (tab === 'analytics') {
-    const monthlyData = [
-      {m:'Jan', rev:4200, invoiced:5800},{m:'Feb',rev:3800,invoiced:4600},
-      {m:'Mar',rev:5100,invoiced:6200},{m:'Apr',rev:3516,invoiced:6756},
-    ];
-    const maxRev = Math.max(...monthlyData.map(d=>d.invoiced));
+    // Prefer server-supplied monthly series. Fall back to empty state.
+    const monthlyData = months.map(m => ({
+      m: (m.month || '').slice(5),     // "YYYY-MM" -> "MM"
+      label: m.month || '',
+      rev: Number(m.revenue || 0),
+      invoiced: Number(m.invoiced || 0),
+    }));
+    const maxRev = Math.max(1, ...monthlyData.map(d => d.invoiced || d.rev || 0));
+    const seriesSum = monthlyData.reduce((s,d) => s + d.rev, 0);
+    const seriesInv = monthlyData.reduce((s,d) => s + d.invoiced, 0);
+    const avgMonth  = monthlyData.length ? Math.round(seriesSum / monthlyData.length) : 0;
+    const collectionRate = seriesInv > 0 ? Math.round((seriesSum / seriesInv) * 100) : 0;
+
     main = `
       <div class="ch-kpi-strip" style="grid-template-columns:repeat(4,1fr);margin-bottom:16px">
-        <div class="ch-kpi-card" style="--kpi-color:var(--teal)"><div class="ch-kpi-val">${fmt(16616)}</div><div class="ch-kpi-label">YTD Revenue</div></div>
-        <div class="ch-kpi-card" style="--kpi-color:var(--blue)"><div class="ch-kpi-val">${fmt(4150)}</div><div class="ch-kpi-label">Avg / Month</div></div>
-        <div class="ch-kpi-card" style="--kpi-color:var(--green)"><div class="ch-kpi-val">82%</div><div class="ch-kpi-label">Collection Rate</div></div>
-        <div class="ch-kpi-card" style="--kpi-color:var(--amber)"><div class="ch-kpi-val">18d</div><div class="ch-kpi-label">Avg Days to Pay</div></div>
+        <div class="ch-kpi-card" style="--kpi-color:var(--teal)"><div class="ch-kpi-val">${fmt(totalRev)}</div><div class="ch-kpi-label">YTD Revenue</div></div>
+        <div class="ch-kpi-card" style="--kpi-color:var(--blue)"><div class="ch-kpi-val">${fmt(avgMonth)}</div><div class="ch-kpi-label">Avg / Month</div></div>
+        <div class="ch-kpi-card" style="--kpi-color:var(--green)"><div class="ch-kpi-val">${collectionRate}%</div><div class="ch-kpi-label">Collection Rate</div></div>
+        <div class="ch-kpi-card" style="--kpi-color:var(--amber)"><div class="ch-kpi-val">${monthlyData.length}</div><div class="ch-kpi-label">Months Tracked</div></div>
       </div>
       <div class="ch-two-col">
         <div class="ch-card">
           <div class="ch-card-hd"><span class="ch-card-title">Monthly Revenue</span><button class="ch-btn-sm ch-btn-teal" onclick="window._reportsHubTab='generate';window._nav('reports-hub')">Export Report</button></div>
-          ${monthlyData.map(d=>
-            '<div style="display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid rgba(255,255,255,0.04)">'+
-              '<div style="font-size:12px;font-weight:700;color:var(--text-primary);min-width:32px">'+d.m+'</div>'+
-              '<div style="flex:1;display:flex;flex-direction:column;gap:3px">'+
-                '<div class="ch-prog-bar"><div class="ch-prog-fill" style="width:'+Math.round(d.rev/maxRev*100)+'%;background:var(--green)"></div></div>'+
-                '<div class="ch-prog-bar"><div class="ch-prog-fill" style="width:'+Math.round(d.invoiced/maxRev*100)+'%;background:rgba(74,158,255,0.5)"></div></div>'+
-              '</div>'+
-              '<div style="text-align:right;min-width:100px"><div style="font-size:12px;font-weight:700;color:var(--green)">'+fmt(d.rev)+' paid</div><div style="font-size:11px;color:var(--text-tertiary)">'+fmt(d.invoiced)+' invoiced</div></div>'+
-            '</div>'
-          ).join('')}
+          ${monthlyData.length === 0
+            ? '<div style="padding:28px;text-align:center;color:var(--text-tertiary);font-size:12.5px">No monthly data yet.</div>'
+            : monthlyData.map(d =>
+                '<div style="display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid rgba(255,255,255,0.04)">'+
+                  '<div style="font-size:12px;font-weight:700;color:var(--text-primary);min-width:54px">'+d.label+'</div>'+
+                  '<div style="flex:1;display:flex;flex-direction:column;gap:3px">'+
+                    '<div class="ch-prog-bar"><div class="ch-prog-fill" style="width:'+Math.round(d.rev/maxRev*100)+'%;background:var(--green)"></div></div>'+
+                    '<div class="ch-prog-bar"><div class="ch-prog-fill" style="width:'+Math.round(d.invoiced/maxRev*100)+'%;background:rgba(74,158,255,0.5)"></div></div>'+
+                  '</div>'+
+                  '<div style="text-align:right;min-width:120px"><div style="font-size:12px;font-weight:700;color:var(--green)">'+fmt(d.rev)+' paid</div><div style="font-size:11px;color:var(--text-tertiary)">'+fmt(d.invoiced)+' invoiced</div></div>'+
+                '</div>'
+              ).join('')}
           <div style="padding:8px 16px;display:flex;gap:16px;font-size:11px;color:var(--text-tertiary)"><span style="display:flex;align-items:center;gap:4px"><span style="width:10px;height:4px;background:var(--green);border-radius:2px;display:inline-block"></span>Paid</span><span style="display:flex;align-items:center;gap:4px"><span style="width:10px;height:4px;background:rgba(74,158,255,0.5);border-radius:2px;display:inline-block"></span>Invoiced</span></div>
         </div>
         <div class="ch-card">
-          <div class="ch-card-hd"><span class="ch-card-title">Revenue by Service</span></div>
-          ${[['TMS Course (30 sess.)',3840,'var(--teal)',52],['tDCS Course (15 sess.)',2160,'var(--blue)',29],['Initial Assessment',336,'var(--violet)',5],['Consultations',330,'var(--amber)',4],['Other',516,'var(--text-tertiary)',7]].map(([name,amt,c,pct])=>
-            '<div style="display:flex;align-items:center;gap:12px;padding:11px 16px;border-bottom:1px solid rgba(255,255,255,0.04)">'+
-              '<div style="flex:1;min-width:0"><div style="font-size:12.5px;font-weight:600;color:var(--text-primary)">'+name+'</div></div>'+
-              '<div style="font-size:12px;font-weight:700;color:'+c+';min-width:60px;text-align:right">'+fmt(amt)+'</div>'+
-              '<div style="font-size:11px;color:var(--text-tertiary);min-width:30px;text-align:right">'+pct+'%</div>'+
-            '</div>'
-          ).join('')}
+          <div class="ch-card-hd"><span class="ch-card-title">Revenue by Status</span></div>
+          ${['paid','sent','overdue','draft'].map(s => {
+            const list = invoices.filter(i => i.status === s);
+            const amt  = list.reduce((x,i) => x + Number(i.total||0), 0);
+            const pct  = totalInvoices ? Math.round(list.length / Math.max(totalInvoices,1) * 100) : 0;
+            return '<div style="display:flex;align-items:center;gap:12px;padding:11px 16px;border-bottom:1px solid rgba(255,255,255,0.04)">'+
+              '<div style="flex:1;min-width:0"><div style="font-size:12.5px;font-weight:600;color:var(--text-primary);text-transform:capitalize">'+s+'</div></div>'+
+              '<div style="font-size:12px;font-weight:700;color:'+(invStC[s]||'var(--text-tertiary)')+';min-width:80px;text-align:right">'+fmt(amt)+'</div>'+
+              '<div style="font-size:11px;color:var(--text-tertiary);min-width:40px;text-align:right">'+pct+'%</div>'+
+            '</div>';
+          }).join('')}
         </div>
       </div>`;
   }
@@ -4629,7 +5080,7 @@ export async function pgFinanceHub(setTopbar, navigate) {
           <div class="ch-form-group"><label class="ch-label">Amount (ex VAT £)</label><input id="inv-amount" type="number" class="ch-select ch-select--full" placeholder="0.00"></div>
           <div class="ch-form-group"><label class="ch-label">VAT Rate</label><select id="inv-vat" class="ch-select ch-select--full"><option value="0">0% (Exempt)</option><option value="5">5%</option><option value="20" selected>20%</option></select></div>
           <div class="ch-form-group"><label class="ch-label">Invoice Date</label><input id="inv-date" type="date" class="ch-select ch-select--full" value="${td}"></div>
-          <div class="ch-form-group"><label class="ch-label">Due Date</label><input id="inv-due" type="date" class="ch-select ch-select--full" value="${new Date(Date.now()+30*86400000).toISOString().slice(0,10)}"></div>
+          <div class="ch-form-group"><label class="ch-label">Due Date</label><input id="inv-due" type="date" class="ch-select ch-select--full" value="${dueDefault}"></div>
         </div>
         <div style="display:flex;gap:8px;margin-top:8px">
           <button class="btn btn-primary" onclick="window._finSaveInvoice()">Create Invoice</button>
@@ -4637,20 +5088,125 @@ export async function pgFinanceHub(setTopbar, navigate) {
         </div>
       </div>
     </div>
+  </div>
+  <div id="fin-log-pay-modal" class="ch-modal-overlay ch-hidden">
+    <div class="ch-modal" style="width:min(500px,95vw)">
+      <div class="ch-modal-hd"><span>Log Payment</span><button class="ch-modal-close" onclick="document.getElementById('fin-log-pay-modal').classList.add('ch-hidden')">✕</button></div>
+      <div class="ch-modal-body">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+          <div class="ch-form-group" style="grid-column:1/-1"><label class="ch-label">Patient Name</label><input id="pay-patient" class="ch-select ch-select--full" placeholder="Patient name"></div>
+          <div class="ch-form-group"><label class="ch-label">Amount</label><input id="pay-amount" type="number" class="ch-select ch-select--full" placeholder="0.00"></div>
+          <div class="ch-form-group"><label class="ch-label">Method</label><select id="pay-method" class="ch-select ch-select--full"><option value="card">Card</option><option value="bacs">BACS</option><option value="cash">Cash</option><option value="manual">Manual</option><option value="other">Other</option></select></div>
+          <div class="ch-form-group"><label class="ch-label">Reference (optional)</label><input id="pay-ref" class="ch-select ch-select--full" placeholder="e.g. TXN-8821"></div>
+          <div class="ch-form-group"><label class="ch-label">Payment Date</label><input id="pay-date" type="date" class="ch-select ch-select--full" value="${td}"></div>
+          <div class="ch-form-group" style="grid-column:1/-1"><label class="ch-label">Invoice ID (optional)</label><input id="pay-invoice" class="ch-select ch-select--full" placeholder="Link to an invoice (optional)"></div>
+        </div>
+        <div style="display:flex;gap:8px;margin-top:8px">
+          <button class="btn btn-primary" onclick="window._finSavePayment()">Log Payment</button>
+          <button class="btn" onclick="document.getElementById('fin-log-pay-modal').classList.add('ch-hidden')">Cancel</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div id="fin-new-claim-modal" class="ch-modal-overlay ch-hidden">
+    <div class="ch-modal" style="width:min(520px,95vw)">
+      <div class="ch-modal-hd"><span>New Insurance Claim</span><button class="ch-modal-close" onclick="document.getElementById('fin-new-claim-modal').classList.add('ch-hidden')">✕</button></div>
+      <div class="ch-modal-body">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+          <div class="ch-form-group" style="grid-column:1/-1"><label class="ch-label">Patient Name</label><input id="clm-patient" class="ch-select ch-select--full" placeholder="Patient name"></div>
+          <div class="ch-form-group"><label class="ch-label">Insurer</label><input id="clm-insurer" class="ch-select ch-select--full" placeholder="e.g. BUPA, AXA"></div>
+          <div class="ch-form-group"><label class="ch-label">Policy / Reference</label><input id="clm-policy" class="ch-select ch-select--full" placeholder="Policy number"></div>
+          <div class="ch-form-group" style="grid-column:1/-1"><label class="ch-label">Description</label><input id="clm-desc" class="ch-select ch-select--full" placeholder="e.g. TMS Pre-auth"></div>
+          <div class="ch-form-group"><label class="ch-label">Amount</label><input id="clm-amount" type="number" class="ch-select ch-select--full" placeholder="0.00"></div>
+          <div class="ch-form-group"><label class="ch-label">Status</label><select id="clm-status" class="ch-select ch-select--full"><option value="draft" selected>Draft</option><option value="submitted">Submitted</option><option value="pending">Pending</option><option value="approved">Approved</option><option value="rejected">Rejected</option></select></div>
+        </div>
+        <div style="display:flex;gap:8px;margin-top:8px">
+          <button class="btn btn-primary" onclick="window._finSaveClaim()">Create Claim</button>
+          <button class="btn" onclick="document.getElementById('fin-new-claim-modal').classList.add('ch-hidden')">Cancel</button>
+        </div>
+      </div>
+    </div>
   </div>`;
 
-  window._finSaveInvoice = () => {
-    const patient = document.getElementById('inv-patient')?.value?.trim();
-    const service = document.getElementById('inv-service')?.value?.trim();
-    const amount  = parseFloat(document.getElementById('inv-amount')?.value||0);
-    const vatRate = parseFloat(document.getElementById('inv-vat')?.value||20)/100;
-    const date    = document.getElementById('inv-date')?.value||td;
-    const due     = document.getElementById('inv-due')?.value||td;
-    if (!patient||!service||!amount) { window._dsToast?.({title:'Fill required fields',severity:'warn'}); return; }
-    const vat=Math.round(amount*vatRate*100)/100;
-    data.invoices.unshift({ id:'INV-'+Date.now().toString().slice(-5), patient, service, amount, vat, total:amount+vat, date, due, status:'draft', paid:0 });
-    saveFin(data); document.getElementById('fin-new-inv-modal')?.classList.add('ch-hidden');
-    window._financeHubTab='invoices'; window._nav('finance-hub');
-    window._dsToast?.({title:'Invoice created',body:'INV for '+patient+' — £'+(amount+vat).toFixed(2),severity:'success'});
+  window._finSaveInvoice = async () => {
+    const patient_name = document.getElementById('inv-patient')?.value?.trim();
+    const service      = document.getElementById('inv-service')?.value?.trim();
+    const amount       = parseFloat(document.getElementById('inv-amount')?.value || 0);
+    const vatPct       = parseFloat(document.getElementById('inv-vat')?.value || 20);
+    const issue_date   = document.getElementById('inv-date')?.value || td;
+    const due_date     = document.getElementById('inv-due')?.value || dueDefault;
+    if (!patient_name || !service || !amount) {
+      window._dsToast?.({ title:'Fill required fields', severity:'warn' });
+      return;
+    }
+    try {
+      const inv = await api.finance.createInvoice({
+        patient_name,
+        service,
+        amount,
+        vat_rate: vatPct / 100,
+        issue_date,
+        due_date,
+        status: 'draft',
+      });
+      document.getElementById('fin-new-inv-modal')?.classList.add('ch-hidden');
+      window._financeHubTab = 'invoices';
+      window._nav('finance-hub');
+      window._dsToast?.({
+        title:'Invoice created',
+        body: (inv?.invoice_number || 'Invoice') + ' — ' + fmtC(inv?.total, inv?.currency),
+        severity:'success',
+      });
+    } catch (err) {
+      window._dsToast?.({ title:'Create failed', body: err?.message || 'Server error', severity:'warn' });
+    }
+  };
+
+  window._finSavePayment = async () => {
+    const patient_name = document.getElementById('pay-patient')?.value?.trim();
+    const amount       = parseFloat(document.getElementById('pay-amount')?.value || 0);
+    const method       = document.getElementById('pay-method')?.value || 'manual';
+    const reference    = document.getElementById('pay-ref')?.value?.trim() || null;
+    const payment_date = document.getElementById('pay-date')?.value || td;
+    const invoice_id   = document.getElementById('pay-invoice')?.value?.trim() || null;
+    if (!patient_name || !amount) {
+      window._dsToast?.({ title:'Fill required fields', severity:'warn' });
+      return;
+    }
+    try {
+      await api.finance.createPayment({
+        invoice_id, patient_name, amount, method, reference, payment_date,
+      });
+      document.getElementById('fin-log-pay-modal')?.classList.add('ch-hidden');
+      window._financeHubTab = 'payments';
+      window._nav('finance-hub');
+      window._dsToast?.({ title:'Payment logged', body: patient_name + ' — ' + fmt(amount), severity:'success' });
+    } catch (err) {
+      window._dsToast?.({ title:'Log payment failed', body: err?.message || 'Server error', severity:'warn' });
+    }
+  };
+
+  window._finSaveClaim = async () => {
+    const patient_name  = document.getElementById('clm-patient')?.value?.trim();
+    const insurer       = document.getElementById('clm-insurer')?.value?.trim();
+    const policy_number = document.getElementById('clm-policy')?.value?.trim() || null;
+    const description   = document.getElementById('clm-desc')?.value?.trim();
+    const amount        = parseFloat(document.getElementById('clm-amount')?.value || 0);
+    const status        = document.getElementById('clm-status')?.value || 'draft';
+    if (!patient_name || !insurer || !description || !amount) {
+      window._dsToast?.({ title:'Fill required fields', severity:'warn' });
+      return;
+    }
+    try {
+      await api.finance.createClaim({
+        patient_name, insurer, policy_number, description, amount, status,
+      });
+      document.getElementById('fin-new-claim-modal')?.classList.add('ch-hidden');
+      window._financeHubTab = 'insurance';
+      window._nav('finance-hub');
+      window._dsToast?.({ title:'Claim created', body: patient_name + ' — ' + insurer, severity:'success' });
+    } catch (err) {
+      window._dsToast?.({ title:'Create claim failed', body: err?.message || 'Server error', severity:'warn' });
+    }
   };
 }
