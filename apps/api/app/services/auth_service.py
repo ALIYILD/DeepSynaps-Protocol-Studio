@@ -5,7 +5,12 @@ import hashlib
 import base64
 import bcrypt as _bcrypt_lib
 from cryptography.fernet import Fernet, InvalidToken
+from fastapi import Depends, Header
 from jose import jwt, JWTError
+from sqlalchemy.orm import Session
+
+from ..database import get_db_session
+from ..errors import ApiServiceError
 from ..settings import get_settings
 
 settings = get_settings()
@@ -104,3 +109,99 @@ def decrypt_secret(ciphertext: str) -> Optional[str]:
     except (InvalidToken, ValueError):
         return None
     return plain.decode("utf-8")
+
+
+# ── FastAPI dependencies ──────────────────────────────────────────────────────
+#
+# `current_user` resolves the authenticated user's DB row from the Bearer
+# token. Demo tokens (which don't map to a real `users` row) are rejected —
+# Settings endpoints always need a real DB user to mutate.
+#
+# `current_clinic_admin` additionally requires that the user is associated
+# with a clinic and has `role == "admin"`.
+
+
+def _extract_bearer_token(authorization: str | None) -> str | None:
+    if authorization is None:
+        return None
+    scheme, _, token = authorization.partition(" ")
+    if scheme.lower() != "bearer" or not token:
+        raise ApiServiceError(
+            code="invalid_auth_header",
+            message="Authorization header must use the Bearer scheme.",
+            warnings=["Format the header as 'Authorization: Bearer <token>'."],
+            status_code=401,
+        )
+    return token.strip()
+
+
+def current_user(
+    authorization: str | None = Header(default=None),
+    db: Session = Depends(get_db_session),
+):
+    """FastAPI dependency — returns the authenticated `User` ORM row.
+
+    Raises 401 when the token is missing, malformed, a demo token, or the
+    user row no longer exists. Import the model lazily to avoid a circular
+    import with `persistence.models` (which imports from other services).
+    """
+    from ..registries.auth import DEMO_ACTOR_TOKENS
+    from ..repositories.users import get_user_by_id
+
+    token = _extract_bearer_token(authorization)
+    if token is None:
+        raise ApiServiceError(
+            code="missing_auth_token",
+            message="Authentication is required.",
+            warnings=["Provide an 'Authorization: Bearer <token>' header."],
+            status_code=401,
+        )
+    payload = decode_token(token)
+    if payload is None or payload.get("type") != "access":
+        raise ApiServiceError(
+            code="invalid_auth_token",
+            message="The provided authentication token is invalid or has expired.",
+            warnings=["Log in again to obtain a fresh token."],
+            status_code=401,
+        )
+    user_id = payload.get("sub") or ""
+    if not user_id or user_id in {a.actor_id for a in DEMO_ACTOR_TOKENS.values()}:
+        raise ApiServiceError(
+            code="not_a_real_user",
+            message="Demo tokens cannot access this endpoint.",
+            warnings=["Log in with a real account."],
+            status_code=401,
+        )
+    user = get_user_by_id(db, user_id)
+    if user is None:
+        raise ApiServiceError(
+            code="user_not_found",
+            message="The user associated with this token no longer exists.",
+            warnings=["Please log in again."],
+            status_code=401,
+        )
+    return user
+
+
+def current_clinic_admin(
+    user=Depends(current_user),
+    db: Session = Depends(get_db_session),
+):
+    """FastAPI dependency — returns the authenticated `User` ONLY if they are
+    a clinic admin (role == 'admin' AND user.clinic_id is not null).
+
+    404 when no clinic is associated, 403 when the user is not an admin.
+    """
+    if not user.clinic_id:
+        raise ApiServiceError(
+            code="no_clinic",
+            message="User is not associated with a clinic.",
+            status_code=404,
+        )
+    if user.role != "admin":
+        raise ApiServiceError(
+            code="forbidden",
+            message="Clinic admin role required.",
+            status_code=403,
+        )
+    return user
