@@ -1,7 +1,7 @@
 """
 AI analysis service for patient media uploads and clinician notes.
 All outputs are DRAFT only — require clinician review before clinical use.
-Uses claude-opus-4-6 (clinician-grade model).
+Default model: GLM-4.5-Flash (Anthropic fallback).
 """
 
 from __future__ import annotations
@@ -11,15 +11,13 @@ import json
 import logging
 from dataclasses import dataclass, field
 
-import anthropic
-
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Shared constants
 # ---------------------------------------------------------------------------
 
-_MODEL = "claude-opus-4-6"
+_MODEL = "glm-4.5-flash"
 
 _SYSTEM_PROMPT = (
     "You are a clinical documentation assistant for a neuromodulation clinic.\n"
@@ -67,13 +65,12 @@ class ClinicianNoteDraftResult:
 
 
 def _require_anthropic_key(settings) -> str:
-    """Return the API key or raise RuntimeError if absent."""
-    key: str = getattr(settings, "anthropic_api_key", "") or ""
-    if not key:
-        raise RuntimeError(
-            "AI analysis not available: ANTHROPIC_API_KEY not configured"
-        )
-    return key
+    """Require SOME LLM provider (GLM or Anthropic). Name kept for callers."""
+    glm_key: str = getattr(settings, "glm_api_key", "") or ""
+    anthropic_key: str = getattr(settings, "anthropic_api_key", "") or ""
+    if not glm_key and not anthropic_key:
+        raise RuntimeError("AI analysis not available: set GLM_API_KEY (free tier) or ANTHROPIC_API_KEY")
+    return glm_key or anthropic_key
 
 
 def _hash_prompt(prompt: str) -> str:
@@ -212,23 +209,22 @@ All text values are DRAFT ONLY. Return only the JSON object, no extra commentary
     full_prompt = _SYSTEM_PROMPT + "\n\n" + user_prompt
     prompt_hash = _hash_prompt(full_prompt)
 
-    # ---- call Claude -------------------------------------------------------
-    client = anthropic.AsyncAnthropic(api_key=api_key)
+    # ---- call LLM ----------------------------------------------------------
+    from app.services.chat_service import _llm_chat_async
     try:
         logger.info(
-            "Calling %s for patient upload analysis (prompt_hash=%s)", _MODEL, prompt_hash[:12]
+            "Calling LLM for patient upload analysis (prompt_hash=%s)", prompt_hash[:12]
         )
-        response = await client.messages.create(
-            model=_MODEL,
-            max_tokens=2048,
+        raw_text = await _llm_chat_async(
             system=_SYSTEM_PROMPT,
             messages=[{"role": "user", "content": user_prompt}],
+            max_tokens=2048,
+            not_configured_message="",
         )
-    except anthropic.APIError as exc:
-        logger.error("Anthropic API error during patient upload analysis: %s", exc)
+    except Exception as exc:
+        logger.error("LLM API error during patient upload analysis: %s", exc)
         raise RuntimeError(f"AI analysis failed: {exc}") from exc
 
-    raw_text = response.content[0].text if response.content else ""
     parsed = _safe_parse_json_response(raw_text)
 
     # ---- assemble result with safe fallbacks ------------------------------
@@ -346,26 +342,24 @@ Return only the JSON object, no extra commentary."""
     full_prompt = _SYSTEM_PROMPT + "\n\n" + user_prompt
     prompt_hash = _hash_prompt(full_prompt)
 
-    # ---- call Claude -------------------------------------------------------
-    client = anthropic.AsyncAnthropic(api_key=api_key)
+    # ---- call LLM ----------------------------------------------------------
+    from app.services.chat_service import _llm_chat_async
     try:
         logger.info(
-            "Calling %s for clinician note draft: note_type=%s prompt_hash=%s",
-            _MODEL,
+            "Calling LLM for clinician note draft: note_type=%s prompt_hash=%s",
             note_type,
             prompt_hash[:12],
         )
-        response = await client.messages.create(
-            model=_MODEL,
-            max_tokens=1500,
+        raw_text = await _llm_chat_async(
             system=_SYSTEM_PROMPT,
             messages=[{"role": "user", "content": user_prompt}],
+            max_tokens=1500,
+            not_configured_message="",
         )
-    except anthropic.APIError as exc:
-        logger.error("Anthropic API error during clinician note draft: %s", exc)
+    except Exception as exc:
+        logger.error("LLM API error during clinician note draft: %s", exc)
         raise RuntimeError(f"AI note drafting failed: {exc}") from exc
 
-    raw_text = response.content[0].text if response.content else ""
     parsed = _safe_parse_json_response(raw_text)
 
     # ---- assemble result with safe fallbacks ------------------------------

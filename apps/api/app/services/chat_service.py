@@ -1,7 +1,11 @@
+import logging
+import os
 import re
 
 from anthropic import Anthropic
 from app.settings import get_settings
+
+_llm_log = logging.getLogger(__name__)
 
 
 # ── LLM output sanitization ───────────────────────────────────────────────────
@@ -20,6 +24,88 @@ def _sanitize_llm_output(text: str) -> str:
     text = _JS_URI_RE.sub("", text)
     text = _ONEVT_RE.sub("", text)
     return text
+
+
+# ── Unified LLM caller ────────────────────────────────────────────────────────
+# All chat + draft paths go through `_llm_chat` (sync) / `_llm_chat_async`.
+# Order: GLM-4.5-Flash via open.bigmodel.cn (free), Anthropic fallback.
+# Override via env: GLM_MODEL, ANTHROPIC_MODEL.
+
+_GLM_BASE_URL = "https://open.bigmodel.cn/api/paas/v4"
+
+def _glm_model() -> str:
+    return os.getenv("GLM_MODEL", "glm-4.5-flash")
+
+def _anthropic_fallback_model() -> str:
+    return os.getenv("ANTHROPIC_MODEL", "claude-haiku-4-5-20251001")
+
+
+def _llm_chat(
+    system: str,
+    messages: list[dict],
+    max_tokens: int = 1024,
+    temperature: float = 0.3,
+    not_configured_message: str = "AI assistant is not configured. Set GLM_API_KEY or ANTHROPIC_API_KEY to enable this feature.",
+) -> str:
+    settings = get_settings()
+    if settings.glm_api_key:
+        try:
+            from openai import OpenAI
+            client = OpenAI(api_key=settings.glm_api_key, base_url=_GLM_BASE_URL)
+            resp = client.chat.completions.create(
+                model=_glm_model(),
+                max_tokens=max_tokens,
+                temperature=temperature,
+                messages=[{"role": "system", "content": system}] + messages,
+            )
+            return _sanitize_llm_output(resp.choices[0].message.content or "")
+        except Exception as exc:
+            _llm_log.warning("GLM call failed, trying fallback: %s", exc)
+    if settings.anthropic_api_key:
+        client = Anthropic(api_key=settings.anthropic_api_key)
+        resp = client.messages.create(
+            model=_anthropic_fallback_model(),
+            max_tokens=max_tokens,
+            system=system,
+            messages=messages,
+        )
+        return _sanitize_llm_output(resp.content[0].text)
+    return not_configured_message
+
+
+async def _llm_chat_async(
+    system: str,
+    messages: list[dict],
+    max_tokens: int = 1024,
+    temperature: float = 0.3,
+    not_configured_message: str = "AI assistant is not configured.",
+) -> str:
+    settings = get_settings()
+    if settings.glm_api_key:
+        try:
+            from openai import AsyncOpenAI
+            client = AsyncOpenAI(api_key=settings.glm_api_key, base_url=_GLM_BASE_URL)
+            resp = await client.chat.completions.create(
+                model=_glm_model(),
+                max_tokens=max_tokens,
+                temperature=temperature,
+                messages=[{"role": "system", "content": system}] + messages,
+            )
+            return _sanitize_llm_output(resp.choices[0].message.content or "")
+        except Exception as exc:
+            _llm_log.warning("GLM async call failed, trying fallback: %s", exc)
+    if settings.anthropic_api_key:
+        import anthropic as _anthropic
+        client = _anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
+        resp = await client.messages.create(
+            model=_anthropic_fallback_model(),
+            max_tokens=max_tokens,
+            system=system,
+            messages=messages,
+        )
+        return _sanitize_llm_output(resp.content[0].text if resp.content else "")
+    return not_configured_message
+
 
 PUBLIC_FAQ_SYSTEM = """You are DeepSynaps AI, a helpful assistant on the DeepSynaps Protocol Studio website.
 Visitors may be asking about pricing, enterprise sales, demos, or how to reach the team.
@@ -105,14 +191,6 @@ def chat_clinician(messages: list[dict], patient_context: str | None = None) -> 
     patient_context: optional injected context about the patient being discussed
     Returns the assistant reply string.
     """
-    settings = get_settings()
-    if not settings.anthropic_api_key:
-        return "AI assistant is not configured. Set ANTHROPIC_API_KEY to enable this feature."
-
-    client = Anthropic(api_key=settings.anthropic_api_key)
-
-    system = CLINICIAN_SYSTEM
-
     # Add patient context as a user message, not system prompt, to prevent
     # prompt injection via patient-supplied data overriding system instructions.
     if patient_context:
@@ -121,13 +199,12 @@ def chat_clinician(messages: list[dict], patient_context: str | None = None) -> 
             {"role": "assistant", "content": "Understood. I have the patient context."},
         ] + messages
 
-    response = client.messages.create(
-        model="claude-opus-4-6",
-        max_tokens=1024,
-        system=system,
+    return _llm_chat(
+        system=CLINICIAN_SYSTEM,
         messages=messages,
+        max_tokens=1024,
+        not_configured_message="AI assistant is not configured. Set GLM_API_KEY or ANTHROPIC_API_KEY.",
     )
-    return _sanitize_llm_output(response.content[0].text)
 
 
 def chat_patient(
@@ -135,10 +212,6 @@ def chat_patient(
     language: str = "en",
     dashboard_context: str | None = None,
 ) -> str:
-    settings = get_settings()
-    if not settings.anthropic_api_key:
-        return "Health assistant is not configured. Please contact your clinician directly."
-
     lang_map = {"tr": "Turkish", "es": "Spanish", "fr": "French", "de": "German", "pt": "Portuguese"}
     lang_name = lang_map.get(language, "English")
     system = PATIENT_SYSTEM
@@ -152,41 +225,35 @@ def chat_patient(
             {"role": "assistant", "content": "Understood. I will use this snapshot to tailor my replies."},
         ] + messages
 
-    client = Anthropic(api_key=settings.anthropic_api_key)
-    response = client.messages.create(
-        model="claude-haiku-4-5-20251001",
-        max_tokens=512,
+    return _llm_chat(
         system=system,
         messages=messages,
+        max_tokens=512,
+        not_configured_message="Health assistant is not configured. Please contact your clinician directly.",
     )
-    return _sanitize_llm_output(response.content[0].text)
 
 
 def chat_public_faq(messages: list[dict]) -> str:
-    """Public FAQ chatbot — no auth required. Uses system Anthropic key."""
-    settings = get_settings()
-    if not settings.anthropic_api_key:
-        return "Our AI assistant is temporarily unavailable. Please contact us directly at hello@deepsynaps.com or use the sign-up form above."
-
-    client = Anthropic(api_key=settings.anthropic_api_key)
-    response = client.messages.create(
-        model="claude-haiku-4-5-20251001",
-        max_tokens=400,
+    """Public FAQ chatbot — no auth required. Uses system GLM/Anthropic key."""
+    return _llm_chat(
         system=PUBLIC_FAQ_SYSTEM,
         messages=messages,
+        max_tokens=400,
+        not_configured_message="Our AI assistant is temporarily unavailable. Please contact us directly at hello@deepsynaps.com or use the sign-up form above.",
     )
-    return _sanitize_llm_output(response.content[0].text)
 
 
 def chat_agent(
     messages: list[dict],
-    provider: str = "anthropic",
+    provider: str = "auto",
     openai_key: str | None = None,
     context: str | None = None,
 ) -> str:
     """
     Doctor practice management agent.
-    provider: "anthropic" uses system key; "openai" uses doctor's own key.
+    provider: "auto"/"glm-free" (default) → GLM with Anthropic fallback;
+              "openai" uses doctor's own key;
+              "anthropic" forces Anthropic directly.
     """
     settings = get_settings()
     system = AGENT_SYSTEM
@@ -198,26 +265,6 @@ def chat_agent(
             {"role": "user", "content": f"[Dashboard context for this session]\n{context}"},
             {"role": "assistant", "content": "Understood. I have the dashboard context."},
         ] + messages
-
-    if provider == "glm-free":
-        try:
-            from openai import OpenAI
-            glm_key = getattr(settings, 'glm_api_key', None) or "free-tier"
-            client_glm = OpenAI(
-                api_key=glm_key,
-                base_url="https://open.bigmodel.cn/api/paas/v4",
-            )
-            msgs_glm = [{"role": "system", "content": system}] + messages
-            resp = client_glm.chat.completions.create(
-                model="glm-4-flash",
-                max_tokens=1024,
-                messages=msgs_glm,
-            )
-            return resp.choices[0].message.content
-        except ImportError:
-            return "OpenAI-compatible client not installed. Run: pip install openai"
-        except Exception as e:
-            return f"GLM-4 error: {str(e)}"
 
     if provider == "openai":
         key = openai_key or settings.openai_api_key
@@ -234,21 +281,27 @@ def chat_agent(
             )
             return resp.choices[0].message.content
         except ImportError:
-            return "OpenAI package not installed on this server. Use Anthropic provider instead."
+            return "OpenAI package not installed on this server. Use the default provider instead."
         except Exception as e:
             return f"OpenAI error: {str(e)}"
 
-    # Default: Anthropic
-    if not settings.anthropic_api_key:
-        return "AI agent is not configured. Set ANTHROPIC_API_KEY to enable this feature."
-    client = Anthropic(api_key=settings.anthropic_api_key)
-    response = client.messages.create(
-        model="claude-sonnet-4-6",
-        max_tokens=1024,
+    if provider == "anthropic" and settings.anthropic_api_key:
+        client = Anthropic(api_key=settings.anthropic_api_key)
+        response = client.messages.create(
+            model=_anthropic_fallback_model(),
+            max_tokens=1024,
+            system=system,
+            messages=messages,
+        )
+        return _sanitize_llm_output(response.content[0].text)
+
+    # Default: GLM-first with Anthropic fallback.
+    return _llm_chat(
         system=system,
         messages=messages,
+        max_tokens=1024,
+        not_configured_message="AI agent is not configured. Set GLM_API_KEY or ANTHROPIC_API_KEY.",
     )
-    return _sanitize_llm_output(response.content[0].text)
 
 
 # ── Wearable copilot system prompts ──────────────────────────────────────────
@@ -294,13 +347,6 @@ Rules:
 
 def chat_wearable_patient(messages: list[dict], wearable_context: str | None = None) -> str:
     """Patient-facing AI that answers questions about their own wearable data."""
-    settings = get_settings()
-    if not settings.anthropic_api_key:
-        return "Health assistant is not available. Please contact your clinician directly."
-
-    client = Anthropic(api_key=settings.anthropic_api_key)
-    system = WEARABLE_PATIENT_SYSTEM
-
     # Add wearable context as a user message, not system prompt.
     if wearable_context:
         messages = [
@@ -308,24 +354,16 @@ def chat_wearable_patient(messages: list[dict], wearable_context: str | None = N
             {"role": "assistant", "content": "Understood. I have the patient health data."},
         ] + messages
 
-    response = client.messages.create(
-        model="claude-haiku-4-5-20251001",
-        max_tokens=768,
-        system=system,
+    return _llm_chat(
+        system=WEARABLE_PATIENT_SYSTEM,
         messages=messages,
+        max_tokens=768,
+        not_configured_message="Health assistant is not available. Please contact your clinician directly.",
     )
-    return _sanitize_llm_output(response.content[0].text)
 
 
 def chat_wearable_clinician(messages: list[dict], patient_context: str | None = None) -> str:
     """Clinician-facing AI that summarizes wearable + treatment data for a patient."""
-    settings = get_settings()
-    if not settings.anthropic_api_key:
-        return "AI assistant is not configured. Set ANTHROPIC_API_KEY to enable this feature."
-
-    client = Anthropic(api_key=settings.anthropic_api_key)
-    system = WEARABLE_CLINICIAN_SYSTEM
-
     # Add patient context as a user message, not system prompt.
     if patient_context:
         messages = [
@@ -333,10 +371,9 @@ def chat_wearable_clinician(messages: list[dict], patient_context: str | None = 
             {"role": "assistant", "content": "Understood. I have the patient context and data."},
         ] + messages
 
-    response = client.messages.create(
-        model="claude-opus-4-6",
-        max_tokens=1536,
-        system=system,
+    return _llm_chat(
+        system=WEARABLE_CLINICIAN_SYSTEM,
         messages=messages,
+        max_tokens=1536,
+        not_configured_message="AI assistant is not configured. Set GLM_API_KEY or ANTHROPIC_API_KEY.",
     )
-    return _sanitize_llm_output(response.content[0].text)

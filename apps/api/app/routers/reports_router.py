@@ -11,15 +11,14 @@ import uuid
 from datetime import datetime, timezone
 from typing import Optional
 
-from anthropic import Anthropic
 from fastapi import APIRouter, Depends, Form, UploadFile
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.auth import AuthenticatedActor, get_authenticated_actor, require_minimum_role
 from app.database import get_db_session
 from app.errors import ApiServiceError
 from app.persistence.models import PatientMediaUpload
-from app.services.chat_service import _sanitize_llm_output
 from app.settings import get_settings
 
 router = APIRouter(tags=["reports"])
@@ -48,29 +47,34 @@ Rules:
 
 
 def _ai_summarize_report(title: str, report_type: str, content_hint: str) -> dict:
-    """Call Claude Haiku to produce a structured report summary."""
+    """Produce a structured report summary via GLM (Anthropic fallback)."""
     settings = get_settings()
-    if not settings.anthropic_api_key:
+    if not settings.glm_api_key and not settings.anthropic_api_key:
         return _fallback_summary(title, report_type)
 
-    client = Anthropic(api_key=settings.anthropic_api_key)
+    from app.services.chat_service import _llm_chat
     prompt = (
         f"Report title: {title}\n"
         f"Report type: {report_type}\n"
         f"Additional context: {content_hint or 'No further context provided.'}\n\n"
         "Please summarise this clinical report as instructed."
     )
-
     try:
-        response = client.messages.create(
-            model="claude-haiku-4-5-20251001",
-            max_tokens=600,
+        raw = _llm_chat(
             system=_REPORT_SUMMARY_SYSTEM,
             messages=[{"role": "user", "content": prompt}],
+            max_tokens=600,
+            not_configured_message="",
         )
-        raw = _sanitize_llm_output(response.content[0].text)
+        if not raw:
+            return _fallback_summary(title, report_type)
         import json as _json
-        data = _json.loads(raw)
+        s = raw.strip()
+        if s.startswith("```"):
+            s = s.split("\n", 1)[1] if "\n" in s else s[3:]
+            if s.endswith("```"): s = s[:-3]
+            if s.lstrip().lower().startswith("json"): s = s.lstrip()[4:]
+        data = _json.loads(s.strip())
         return {
             "summary": data.get("summary", "Summary not available."),
             "findings": data.get("findings", []),
