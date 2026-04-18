@@ -81,6 +81,13 @@ from app.routers.documents_router import router as documents_router
 from app.routers.documents_router import patient_docs_router
 from app.routers.protocols_saved_router import router as protocols_saved_router
 from app.routers.leads_reception_router import router as leads_reception_router
+# Settings API routers (foundation scaffolded by backend subagent #1; endpoints
+# fleshed out by backend subagents #3–#6). See apps/api/SETTINGS_API_DESIGN.md.
+from app.routers.profile_router import router as profile_router
+from app.routers.clinic_router import router as clinic_router
+from app.routers.team_router import router as team_router
+from app.routers.preferences_router import router as preferences_router
+from app.routers.data_privacy_router import router as data_privacy_router
 from app.sentry_setup import init_sentry
 from app.settings import get_settings
 from app.services.audit import get_audit_trail
@@ -158,6 +165,13 @@ app.include_router(documents_router)
 app.include_router(patient_docs_router)
 app.include_router(protocols_saved_router)
 app.include_router(leads_reception_router)
+# Settings API (scaffolded 024_settings_schema) — stubs; endpoints arrive in
+# follow-up subagents. Grouped together for discoverability.
+app.include_router(profile_router)
+app.include_router(clinic_router)
+app.include_router(team_router)
+app.include_router(preferences_router)
+app.include_router(data_privacy_router)
 
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
