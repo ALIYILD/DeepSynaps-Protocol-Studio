@@ -3998,6 +3998,8 @@ export async function pgReferrals(setTopbar) {
   }
 
   function fullRender() {
+    // Guard: the page may have been unmounted between async callbacks.
+    if (!el) return;
     let tabContent = '';
     if (activeTab === 'referrals') tabContent = renderReferralsTab();
     else if (activeTab === 'providers') tabContent = renderProvidersTab();
