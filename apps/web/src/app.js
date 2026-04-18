@@ -1881,6 +1881,20 @@ async function bootApp() {
     const entry = ROLE_ENTRY_PAGE[role];
     if (entry && entry !== 'dashboard') currentPage = entry;
   }
+  // ── Deep-link: honour ?page= query param or #hash so reloads and bookmarks
+  //    land where the user expects. Falls back to role-based entry above if
+  //    the requested id doesn't pass a safe-slug check.
+  {
+    let deepLinkId = null;
+    try {
+      const qp = new URL(location.href).searchParams.get('page');
+      if (qp) deepLinkId = qp;
+      else if (location.hash && location.hash.length > 1) deepLinkId = location.hash.slice(1);
+    } catch {}
+    if (deepLinkId && /^[a-z0-9][a-z0-9-]{0,63}$/i.test(deepLinkId)) {
+      currentPage = deepLinkId;
+    }
+  }
   // Initialise clinic switcher for multi-clinic roles
   window._initClinicSwitcher(currentUser);
   renderNav();
