@@ -1205,12 +1205,6 @@ async function renderPage() {
     case 'irb-manager': { const { pgIRBManager } = await loadKnowledge(); await pgIRBManager(setTopbar); break; }
     case 'longitudinal-report': { const { pgLongitudinalReport } = await loadKnowledge(); await pgLongitudinalReport(setTopbar); break; }
     case 'scoring-calc': { window._clinicalHubTab = 'scoring'; window._nav('assessments'); break; }
-    // ── Legacy pages (kept functional) ───────────────────────────────────
-    case 'assessments': {
-      const m = await loadClinical();
-      await m.pgAssess(setTopbar);
-      break;
-    }
     // ── Deprioritised scaffolds (kept functional, not in primary nav) ────
     case 'charting': {
       const m = await loadClinical();
