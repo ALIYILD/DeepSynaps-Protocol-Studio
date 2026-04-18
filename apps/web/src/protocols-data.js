@@ -1344,11 +1344,11 @@ export const PROTOCOL_LIBRARY = [
 },
 {
   id:'p-tacs-ad-001', conditionId:'alzheimers-dementia', type:'investigational', device:'tacs', subtype:'Gamma-tACS (40Hz)',
-  name:'tACS 40 Hz Gamma DLPFC for Alzheimer\'s Disease (Home-Based)', target:'Prefrontal cortex (bilateral)',
-  parameters:{ frequency_hz:40, current_ma:2, session_duration_min:60, sessions_total:40, sessions_per_week:5, montage:'Multichannel Starstim-home; model-optimised' },
-  evidenceGrade:'C', governance:['investigational','draft'],
-  references:['NCT06826261','PMID 40142358 – 2025 narrative review gamma-tACS for AD'],
-  notes:'Phase 2 pilot NCT06826261 (N=30, home-based, 8 wks). Intensity not explicitly stated in trial interventions_json — verify before clinical use. No powered RCT completed.',
+  name:'tACS 40 Hz Gamma DLPFC for Alzheimer\'s Disease (Home-Based)', target:'Prefrontal + temporal cortex bilateral (model-optimised)',
+  parameters:{ frequency_hz:40, current_ma:'NCT opaque on current_ma — verify against Starstim-home protocol paper', session_duration_min:60, sessions_total:40, sessions_per_week:5, ramp_seconds:30, montage:'Neuroelectrics Starstim-home; model-optimised individualized; bilateral DLPFC + temporal cortex' },
+  evidenceGrade:'C', governance:['investigational','unreviewed'],
+  references:['NCT06826261','https://clinicaltrials.gov/study/NCT06826261','PMID 40142358 – 2025 narrative review gamma-tACS for AD'],
+  notes:'Phase 2 pilot NCT06826261 (N=30, home-based crossover, 8 wks). Frequency (40 Hz), session duration (1 h with 30 s ramp up/down), 5 d/wk x 8 wk = 40 sessions confirmed from NCT06826261 arm description (ClinicalTrials.gov v2 API). NCT opaque on current_ma — check Starstim-home protocol paper before clinical use. No powered RCT completed.',
   contraindications:['pacemaker','implanted devices','uncontrolled seizure disorder','moderate-severe dementia without caregiver'],
   sideEffects:['scalp warmth','tingling','phosphenes'],
   aiPersonalization:null, scanGuidedNotes:null,
@@ -1369,14 +1369,14 @@ export const PROTOCOL_LIBRARY = [
 {
   id:'p-tacs-mci-001', conditionId:'mild-cognitive-impairment', type:'investigational', device:'tacs', subtype:'Theta-tACS (6Hz)',
   name:'tACS Theta (6 Hz) Frontoparietal for MCI Working Memory', target:'Left frontoparietal (F3/P3)',
-  parameters:{ frequency_hz:6, current_ma:null, session_duration_min:null, sessions_total:null, sessions_per_week:null, montage:'Multi-electrode online (NCT04545294)' },
-  evidenceGrade:'C', governance:['investigational','draft'],
-  references:['NCT04135742 (N=195, ongoing RCT)','NCT04545294','PMID 33211157'],
-  notes:'Largest tACS trial in MCI (NCT04135742) combines tACS + cognitive training. NCT04545294 interventions_json omits duration and intensity — verify via full ClinicalTrials.gov record before clinical use.',
+  parameters:{ frequency_hz:6, current_ma:2, session_duration_min:20, sessions_total:10, sessions_per_week:10, montage:'4x1 HD ring multi-electrode; 10 carbon rubber electrodes (1 cm radius); Eldith DC stimulator Plus + Equalizer Box (NeuroConn); 100-cycle ramp up/down; 0 deg relative phase', schedule:'twice-daily x 5 consecutive weekdays' },
+  evidenceGrade:'C', governance:['investigational','unreviewed'],
+  references:['NCT04135742 (N=195, ongoing RCT — 40 Hz/2 mA/20 min/24 sessions over 3 mo, 2/wk, with cognitive training)','NCT04545294 (N=36, 6 Hz/2 mA/20 min, twice-daily x 5 weekdays = 10 sessions)','https://clinicaltrials.gov/study/NCT04545294','https://clinicaltrials.gov/study/NCT04135742','PMID 33211157'],
+  notes:'Parameters confirmed from NCT04545294 arm description (ClinicalTrials.gov v2 API): 6 Hz, 2 mA, 20 min, twice-daily x 5 consecutive weekdays = 10 sessions; 4x1 HD ring montage on Eldith DC stimulator Plus + Equalizer Box (NeuroConn). NCT04135742 confirms a separate 40 Hz/2 mA/20 min arm (24 sessions over 3 mo, 2/wk) combined with cognitive training. Choose sub-protocol based on target oscillation.',
   contraindications:['epilepsy history','implanted devices','scalp lesions','pregnancy'],
   sideEffects:['tingling','phosphenes'],
   aiPersonalization:null, scanGuidedNotes:null,
-  tags:['tACS','theta-6Hz','MCI','working-memory','verify','investigational'],
+  tags:['tACS','theta-6Hz','MCI','working-memory','investigational'],
 },
 {
   id:'p-pbm-mdd-001', conditionId:'major-depressive-disorder', type:'investigational', device:'pbm', subtype:'Near-Infrared (810-850nm)',
@@ -1404,11 +1404,11 @@ export const PROTOCOL_LIBRARY = [
 },
 {
   id:'p-pbm-anx-001', conditionId:'generalized-anxiety', type:'investigational', device:'pbm', subtype:'Near-Infrared (810-850nm)',
-  name:'tPBM 1064 nm Right Forehead for Anxiety Disorders', target:'Right prefrontal cortex (F4)',
-  parameters:{ wavelength_nm:1064, irradiance_mw_cm2:null, mode:'continuous wave', session_duration_min:8, sessions_total:null, sessions_per_week:null },
-  evidenceGrade:'D', governance:['investigational','draft'],
-  references:['NCT07133893 (N=280, not yet recruiting)','Maiello et al. 2019 – PMID 31647775 – GAD pilot','Schiffer et al. 2009 – PMID 19995444 – forehead NIR pilot'],
-  notes:'NCT07133893 irradiance and session count not in interventions_json — verify via full ClinicalTrials.gov record before clinical use. Comparator literature: ~250 mW/cm² typical for 1064 nm brain PBM. Evidence grade D — weakest set.',
+  name:'tPBM 1064 nm Right Forehead for Anxiety Disorders', target:'Right prefrontal cortex (right forehead F4)',
+  parameters:{ wavelength_nm:1064, irradiance_mw_cm2:'NCT opaque — verify against published protocol paper / Schiffer device spec (~250 mW/cm² typical for 1064 nm brain PBM)', mode:'continuous wave', session_duration_min:8, sessions_total:'NCT opaque on total — 3 in-person visits per arm (NCT07133893) — verify against published protocol paper', sessions_per_week:'NCT opaque on sessions/wk — verify' },
+  evidenceGrade:'D', governance:['investigational','unreviewed'],
+  references:['NCT07133893 (N=280, not yet recruiting)','https://clinicaltrials.gov/study/NCT07133893','Maiello et al. 2019 – PMID 31647775 – GAD pilot','Schiffer et al. 2009 – PMID 19995444 – forehead NIR pilot'],
+  notes:'Wavelength (1064 nm), region (right forehead), and 8-min session duration confirmed from NCT07133893 device intervention description (ClinicalTrials.gov v2 API). NCT07133893 design = 3 in-person visits with 1-week online follow-up (single-blind sham-controlled). NCT opaque on irradiance and total session count — check published protocol paper / Schiffer 2009 device spec. Comparator literature: ~250 mW/cm² typical for 1064 nm brain PBM. Evidence grade D — weakest set.',
   contraindications:['photosensitising medications','active malignancy at site','implanted light-sensitive devices'],
   sideEffects:['scalp warmth','mild headache'],
   aiPersonalization:null, scanGuidedNotes:null,
@@ -1501,10 +1501,10 @@ export const PROTOCOL_LIBRARY = [
 {
   id:'p-tavns-cp-001', conditionId:'chronic-pain', type:'off-label', device:'tavns', subtype:'Standard taVNS',
   name:'taVNS / tcVNS for Chronic Pain (Auricular and Cervical)', target:'Left cymba conchae (auricular) or cervical tcVNS',
-  parameters:{ frequency_hz:25, pulse_width_us:null, intensity_ma_range:'verify — heterogeneous across trials', session_duration_min:null, sessions_per_week:null, sessions_total:null },
+  parameters:{ frequency_hz:25, pulse_width_us:null, intensity_ma_range:'NCT opaque on intensity — Costa 2024 pooled k=15 trials with heterogeneous mA; checked NCT04777500/NCT04503889/NCT06689345 arm descriptions, none expose mA — verify against published sub-protocol papers', session_duration_min:'NCT06689345 = 30 min; other underlying NCTs opaque on duration — verify per sub-protocol', sessions_per_week:'NCT opaque on sessions/wk — verify per sub-protocol', sessions_total:'NCT04777500 = 4 weeks total; other underlying NCTs opaque on total — verify per sub-protocol' },
   evidenceGrade:'B', governance:['off-label','unreviewed'],
-  references:['Costa et al. 2024 – Pain Reports meta-analysis PMID 39131814 (k=15 RCTs, ES 0.41 95% CI 0.17–0.66; auricular subgroup ES=0.42 k=8, DOI 10.1097/PR9.0000000000001171)'],
-  notes:'Costa 2024 meta-analysis anchors Grade B: 15 RCTs, effect size 0.41 (95% CI 0.17–0.66) favoring tVNS over sham for chronic pain; auricular subgroup ES=0.42 (k=8). Device and parameter heterogeneity is high — `verify` intensity, session duration, frequency, sessions/week, and total course per specific sub-protocol. Recommend stratifying by pain phenotype (neuropathic vs nociplastic) before clinical rollout. Left cymba concha is most-studied target. Distinct from PRO-056 CSV row — JS entry intended for auricular home-use pathway.',
+  references:['Costa et al. 2024 – Pain Reports meta-analysis PMID 39131814 (k=15 RCTs, ES 0.41 95% CI 0.17–0.66; auricular subgroup ES=0.42 k=8, DOI 10.1097/PR9.0000000000001171)','https://clinicaltrials.gov/study/NCT04777500 (taVNS fibromyalgia, 4-wk)','https://clinicaltrials.gov/study/NCT04503889 (taVNS bilateral cymba conchae, ECO2-TENS device)','https://clinicaltrials.gov/study/NCT06689345 (30 min taVNS chronic pain + post-COVID)'],
+  notes:'Costa 2024 meta-analysis anchors Grade B: 15 RCTs, effect size 0.41 (95% CI 0.17–0.66) favoring tVNS over sham for chronic pain; auricular subgroup ES=0.42 (k=8). Cross-checked 3 underlying NCTs via ClinicalTrials.gov v2 API (NCT04777500 fibromyalgia 4-wk, NCT04503889 bilateral cymba conchae ECO2-TENS, NCT06689345 30-min taVNS for chronic pain + post-COVID). NCT records opaque on mA intensity — verify flag retained for intensity, frequency, sessions/week, total course per specific sub-protocol. Recommend stratifying by pain phenotype (neuropathic vs nociplastic) before clinical rollout. Left cymba concha is most-studied target.',
   contraindications:['bilateral vagotomy','cardiac arrhythmia','active ear infection','implanted VNS'],
   sideEffects:['ear discomfort','skin erythema','cough reflex','rare vasovagal response'],
   aiPersonalization:null, scanGuidedNotes:null,
@@ -1552,3 +1552,5 @@ export function searchProtocols(query, filters = {}) {
   }
   return results;
 }
+
+// TEST_MARKER_DEEPSYNAPS_AGENT_ALI_8475
