@@ -4,6 +4,7 @@ import secrets
 import hashlib
 import base64
 import bcrypt as _bcrypt_lib
+from cryptography.fernet import Fernet, InvalidToken
 from jose import jwt, JWTError
 from ..settings import get_settings
 
@@ -66,3 +67,40 @@ def generate_password_reset_token() -> tuple[str, str]:
 
 def hash_reset_token(raw: str) -> str:
     return hashlib.sha256(raw.encode()).hexdigest()
+
+
+# ── Settings API helpers (session tracking + 2FA secret encryption) ────────────
+
+
+def hash_refresh_token(raw: str) -> str:
+    """SHA-256 hex digest of a refresh token string. Used as the unique lookup
+    key for the `user_sessions` row so we never store the raw JWT at rest."""
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+def _fernet() -> Fernet:
+    """Build a Fernet from the configured secrets_key. Raises if unset."""
+    key = get_settings().secrets_key
+    if not key:
+        raise RuntimeError(
+            "DEEPSYNAPS_SECRETS_KEY is not configured — cannot encrypt "
+            "2FA secrets. Set the env var and restart."
+        )
+    # Fernet accepts bytes or str; ensure bytes.
+    return Fernet(key.encode("utf-8") if isinstance(key, str) else key)
+
+
+def encrypt_secret(plaintext: str) -> str:
+    """Fernet-encrypt a string (e.g. pyotp base32 secret). Returns a
+    URL-safe token suitable for storage in a VARCHAR column."""
+    token = _fernet().encrypt(plaintext.encode("utf-8"))
+    return token.decode("utf-8")
+
+
+def decrypt_secret(ciphertext: str) -> Optional[str]:
+    """Reverse of encrypt_secret. Returns None on invalid/expired token."""
+    try:
+        plain = _fernet().decrypt(ciphertext.encode("utf-8"))
+    except (InvalidToken, ValueError):
+        return None
+    return plain.decode("utf-8")
