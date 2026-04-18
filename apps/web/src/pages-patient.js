@@ -3,6 +3,7 @@
 import { api } from './api.js';
 import { currentUser } from './auth.js';
 import { t, getLocale, setLocale, LOCALES } from './i18n.js';
+import { SUPPORTED_FORMS, getAssessmentConfig } from './assessment-forms.js';
 
 // ── Nav definition ────────────────────────────────────────────────────────────
 function _patientNav() {
@@ -2266,35 +2267,58 @@ function getPHQ9Options() {
   ];
 }
 
-function phq9Severity(score) {
-  if (score <= 4)  return { label: t('patient.phq9.sev.minimal'),    color: 'var(--green)' };
-  if (score <= 9)  return { label: t('patient.phq9.sev.mild'),       color: 'var(--teal)'  };
-  if (score <= 14) return { label: t('patient.phq9.sev.moderate'),   color: 'var(--blue)'  };
-  if (score <= 19) return { label: t('patient.phq9.sev.mod_severe'), color: 'var(--amber)' };
-  return               { label: t('patient.phq9.sev.severe'),       color: '#ff6b6b'      };
-}
-
-function renderPHQ9Form(containerId, patientId) {
+// Generic Likert-scale form renderer — PHQ-9, GAD-7, PCL-5, DASS-21, ISI, etc.
+// Reuses the pt-phq9-* CSS classes (they are visually correct for any
+// Likert grid, and renaming would churn the stylesheet without benefit).
+//
+// Per-form state is kept on window under a namespaced key so multiple forms
+// can coexist (in theory — the portal only opens one at a time, but scoping
+// is still the right call).
+function renderLikertForm(containerId, patientId, config) {
   const formEl = document.getElementById(containerId);
   if (!formEl) return;
-  const _phq9Questions = getPHQ9Questions();
-  const _phq9Options   = getPHQ9Options();
+  if (!config || !Array.isArray(config.questions) || !Array.isArray(config.options)) return;
+
+  const key       = config.formKey;
+  const questions = config.questions;
+  const options   = config.options;
+  const maxScore  = config.maxScore != null
+    ? config.maxScore
+    : questions.length * (options[options.length - 1]?.value ?? 0);
+  const severityFn = typeof config.severityFn === 'function'
+    ? config.severityFn
+    : () => ({ label: 'Recorded', color: 'var(--teal)' });
+
+  // IDs are namespaced by formKey so two rendered forms cannot collide.
+  const qId  = (i)        => `${key}-q${i}`;
+  const rId  = (i, v)     => `${key}-r${i}-${v}`;
+  const liveId  = `${key}-live-score`;
+  const resId   = `${key}-result`;
+  const wrapId  = `${key}-form-wrap`;
+
+  // Running-score label: reuse the PHQ-9 i18n string when available, fall
+  // back to a neutral English label for the other scales.
+  const runLabel = (key === 'phq9') ? t('patient.phq9.running_score') : 'Your score so far';
+  const submitLabel = (key === 'phq9') ? t('patient.phq9.submit') : 'Submit';
+  const headerText  = config.header || '';
+
   formEl.innerHTML = `
-    <div class="pt-assessment-form" id="phq9-form-wrap">
-      <div style="font-size:10.5px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.8px;margin-bottom:14px">
-        ${t('patient.phq9.header')}
-      </div>
-      ${_phq9Questions.map((q, i) => `
-        <div class="pt-phq9-question" id="phq9-q${i}">
+    <div class="pt-assessment-form" id="${wrapId}">
+      ${headerText ? `
+        <div style="font-size:10.5px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.8px;margin-bottom:14px">
+          ${headerText}
+        </div>` : ''}
+      ${questions.map((q, i) => `
+        <div class="pt-phq9-question" id="${qId(i)}">
           <div style="font-size:12.5px;color:var(--text-primary);margin-bottom:8px;line-height:1.5">
             <span style="color:var(--text-tertiary);margin-right:6px">${i + 1}.</span>${q}
           </div>
           <div class="pt-phq9-options">
-            ${_phq9Options.map((opt, v) => `
-              <label class="pt-phq9-option" onclick="window._ptPHQ9Pick(${i}, ${v})">
-                <input type="radio" name="phq9_q${i}" value="${v}" style="display:none">
-                <span class="pt-phq9-radio" id="phq9-r${i}-${v}"></span>
-                <span style="font-size:11.5px;color:var(--text-secondary)">${opt}</span>
+            ${options.map((opt) => `
+              <label class="pt-phq9-option" onclick="window._ptLikertPick('${key}', ${i}, ${opt.value})">
+                <input type="radio" name="${key}_q${i}" value="${opt.value}" style="display:none">
+                <span class="pt-phq9-radio" id="${rId(i, opt.value)}"></span>
+                <span style="font-size:11.5px;color:var(--text-secondary)">${opt.label}</span>
               </label>
             `).join('')}
           </div>
@@ -2302,79 +2326,140 @@ function renderPHQ9Form(containerId, patientId) {
       `).join('')}
       <div style="display:flex;align-items:center;gap:16px;margin-top:20px;padding-top:16px;border-top:1px solid var(--border)">
         <div style="flex:1">
-          <div style="font-size:11px;color:var(--text-tertiary)">${t('patient.phq9.running_score')}</div>
-          <div style="font-size:20px;font-weight:700;font-family:var(--font-display);color:var(--teal)" id="phq9-live-score">0 / 27</div>
+          <div style="font-size:11px;color:var(--text-tertiary)">${runLabel}</div>
+          <div style="font-size:20px;font-weight:700;font-family:var(--font-display);color:var(--teal)" id="${liveId}">0 / ${maxScore}</div>
         </div>
-        <button class="btn btn-primary" onclick="window._ptPHQ9Submit()">${t('patient.phq9.submit')}</button>
+        <button class="btn btn-primary" onclick="window._ptLikertSubmit('${key}')">${submitLabel}</button>
       </div>
-      <div id="phq9-result" style="display:none"></div>
+      <div id="${resId}" style="display:none"></div>
     </div>
   `;
 
-  window._phq9Answers = new Array(9).fill(null);
-
-  window._ptPHQ9Pick = function(q, v) {
-    window._phq9Answers[q] = v;
-    for (let opt = 0; opt < 4; opt++) {
-      const r = document.getElementById(`phq9-r${q}-${opt}`);
-      if (r) r.classList.toggle('selected', opt === v);
-    }
-    const qEl = document.getElementById(`phq9-q${q}`);
-    if (qEl) qEl.classList.add('answered');
-    const score  = window._phq9Answers.reduce((sum, a) => sum + (a ?? 0), 0);
-    const liveEl = document.getElementById('phq9-live-score');
-    if (liveEl) liveEl.textContent = `${score} / 27`;
+  // Per-form state registry on window.
+  window._likertState = window._likertState || {};
+  window._likertState[key] = {
+    answers:    new Array(questions.length).fill(null),
+    options,
+    questions,
+    maxScore,
+    severityFn,
+    templateId: config.templateId || key,
+    patientId,
   };
 
-  window._ptPHQ9Submit = async function() {
-    const unanswered = window._phq9Answers.findIndex(a => a === null);
-    if (unanswered !== -1) {
-      const qEl = document.getElementById(`phq9-q${unanswered}`);
-      if (qEl) { qEl.scrollIntoView({ behavior: 'smooth', block: 'center' }); qEl.classList.add('pt-phq9-highlight'); }
-      return;
-    }
-    const score    = window._phq9Answers.reduce((sum, a) => sum + a, 0);
-    const severity = phq9Severity(score);
-    const pct      = Math.round((score / 27) * 100);
+  // Keep the legacy PHQ-9 mirror so any external code or tests that still
+  // read window._phq9Answers continue to work.
+  if (key === 'phq9') window._phq9Answers = window._likertState.phq9.answers;
 
-    // Submit to API
-    const resultEl = document.getElementById('phq9-result');
-    if (!patientId) {
-      if (resultEl) { resultEl.style.display = ''; resultEl.innerHTML = '<div class="notice notice-error" style="margin-top:12px">Unable to identify patient. Please refresh and try again.</div>'; }
-      return;
-    }
-    try {
-      await api.submitAssessment(patientId, {
-        template_id:       'PHQ-9',
-        score,
-        measurement_point: 'post',
-        notes:             '',
-      });
-    } catch (_e) {
-      if (resultEl) { resultEl.style.display = ''; resultEl.innerHTML = `<div class="notice notice-error" style="margin-top:12px">Submission failed: ${_e?.message || 'Please try again.'}</div>`; }
-      return;
-    }
+  if (typeof window._ptLikertPick !== 'function') {
+    window._ptLikertPick = function(formKey, q, v) {
+      const st = window._likertState && window._likertState[formKey];
+      if (!st) return;
+      st.answers[q] = v;
+      for (const opt of st.options) {
+        const r = document.getElementById(`${formKey}-r${q}-${opt.value}`);
+        if (r) r.classList.toggle('selected', opt.value === v);
+      }
+      const qEl = document.getElementById(`${formKey}-q${q}`);
+      if (qEl) qEl.classList.add('answered');
+      const score  = st.answers.reduce((sum, a) => sum + (a ?? 0), 0);
+      const liveEl = document.getElementById(`${formKey}-live-score`);
+      if (liveEl) liveEl.textContent = `${score} / ${st.maxScore}`;
+      if (formKey === 'phq9') window._phq9Answers = st.answers;
+    };
+  }
 
-    if (!resultEl) return;
-    resultEl.style.display = '';
-    resultEl.innerHTML = `
-      <div style="margin-top:20px;padding:20px;border-radius:var(--radius-lg);border:1px solid var(--border-teal);background:rgba(0,212,188,0.04)">
-        <div style="font-size:10.5px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.8px;margin-bottom:10px">${t('patient.assess.result.title')}</div>
-        <div style="display:flex;align-items:baseline;gap:10px;margin-bottom:12px">
-          <div style="font-size:32px;font-weight:700;font-family:var(--font-display);color:${severity.color}">${score}</div>
-          <div style="font-size:13px;color:var(--text-secondary)">${t('patient.assess.result.out_of')}</div>
-          <div style="margin-left:auto;font-size:14px;font-weight:600;color:${severity.color}">${severity.label}</div>
+  if (typeof window._ptLikertSubmit !== 'function') {
+    window._ptLikertSubmit = async function(formKey) {
+      const st = window._likertState && window._likertState[formKey];
+      if (!st) return;
+      const unanswered = st.answers.findIndex(a => a === null);
+      const resultEl   = document.getElementById(`${formKey}-result`);
+      if (unanswered !== -1) {
+        const qEl = document.getElementById(`${formKey}-q${unanswered}`);
+        if (qEl) { qEl.scrollIntoView({ behavior: 'smooth', block: 'center' }); qEl.classList.add('pt-phq9-highlight'); }
+        return;
+      }
+      const score    = st.answers.reduce((sum, a) => sum + a, 0);
+      const severity = st.severityFn(score);
+      const pct      = Math.round((score / st.maxScore) * 100);
+
+      if (!st.patientId) {
+        if (resultEl) { resultEl.style.display = ''; resultEl.innerHTML = '<div class="notice notice-error" style="margin-top:12px">Unable to identify patient. Please refresh and try again.</div>'; }
+        return;
+      }
+      try {
+        await api.submitAssessment(st.patientId, {
+          template_id:       st.templateId,
+          score,
+          measurement_point: 'post',
+          notes:             '',
+        });
+      } catch (_e) {
+        if (resultEl) { resultEl.style.display = ''; resultEl.innerHTML = `<div class="notice notice-error" style="margin-top:12px">Submission failed: ${_e?.message || 'Please try again.'}</div>`; }
+        return;
+      }
+
+      if (!resultEl) return;
+      resultEl.style.display = '';
+      // Result body text: keep the PHQ-9 translated copy; fall back to a
+      // generic message for other scales (it talks about clinician review,
+      // which applies to any measure).
+      const bodyText = (formKey === 'phq9')
+        ? t('patient.assess.result.body')
+        : 'Your score has been recorded. Your care team will review these results before your next session. If you are experiencing thoughts of self-harm, please contact your clinician immediately or call a crisis line.';
+      const titleText = (formKey === 'phq9')
+        ? t('patient.assess.result.title')
+        : 'Assessment Result';
+      resultEl.innerHTML = `
+        <div style="margin-top:20px;padding:20px;border-radius:var(--radius-lg);border:1px solid var(--border-teal);background:rgba(0,212,188,0.04)">
+          <div style="font-size:10.5px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.8px;margin-bottom:10px">${titleText}</div>
+          <div style="display:flex;align-items:baseline;gap:10px;margin-bottom:12px">
+            <div style="font-size:32px;font-weight:700;font-family:var(--font-display);color:${severity.color}">${score}</div>
+            <div style="font-size:13px;color:var(--text-secondary)">out of ${st.maxScore}</div>
+            <div style="margin-left:auto;font-size:14px;font-weight:600;color:${severity.color}">${severity.label}</div>
+          </div>
+          <div class="progress-bar" style="height:8px;margin-bottom:8px">
+            <div style="height:100%;width:${pct}%;background:${severity.color};border-radius:4px;transition:width 0.8s ease"></div>
+          </div>
+          <div style="font-size:11.5px;color:var(--text-secondary);line-height:1.6;margin-top:12px">
+            ${bodyText}
+          </div>
         </div>
-        <div class="progress-bar" style="height:8px;margin-bottom:8px">
-          <div style="height:100%;width:${pct}%;background:${severity.color};border-radius:4px;transition:width 0.8s ease"></div>
-        </div>
-        <div style="font-size:11.5px;color:var(--text-secondary);line-height:1.6;margin-top:12px">
-          ${t('patient.assess.result.body')}
-        </div>
-      </div>
-    `;
-    setTimeout(() => resultEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' }), 50);
-  };
+      `;
+      setTimeout(() => resultEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' }), 50);
+    };
+  }
+}
+
+// Dispatcher — map a formKey to its config and render. Used by the
+// assessments page to open the right form inline.
+function renderAssessmentForm(formKey, containerId, patientId) {
+  if (!SUPPORTED_FORMS[formKey]) return;
+  // Prefer the shared config bank. PHQ-9 overrides questions/header with
+  // the i18n-backed runtime versions so existing translations still apply.
+  const base = getAssessmentConfig(formKey);
+  if (!base) return;
+  const config = (formKey === 'phq9')
+    ? { ...base,
+        header:    t('patient.phq9.header'),
+        questions: getPHQ9Questions(),
+        options:   base.options.map((o, i) => ({ value: o.value, label: getPHQ9Options()[i] || o.label })),
+        severityFn: (score) => {
+          if (score <= 4)  return { label: t('patient.phq9.sev.minimal'),    color: 'var(--green)' };
+          if (score <= 9)  return { label: t('patient.phq9.sev.mild'),       color: 'var(--teal)'  };
+          if (score <= 14) return { label: t('patient.phq9.sev.moderate'),   color: 'var(--blue)'  };
+          if (score <= 19) return { label: t('patient.phq9.sev.mod_severe'), color: 'var(--amber)' };
+          return               { label: t('patient.phq9.sev.severe'),       color: '#ff6b6b'      };
+        },
+      }
+    : base;
+  renderLikertForm(containerId, patientId, config);
+}
+
+// Thin PHQ-9 wrapper — kept so any older call site (and tests) still works.
+function renderPHQ9Form(containerId, patientId) {
+  renderAssessmentForm('phq9', containerId, patientId);
 }
 
 // ── Assessments ────────────────────────────────────────────────────────────────
@@ -2445,7 +2530,7 @@ export async function pgPatientAssessments() {
       timeMin: 2,
       whyItMatters: 'A fast check to catch any mood concerns between fuller assessments.',
       scoreRanges: [],
-      formKey: null,
+      formKey: 'phq2',
     },
     gad7: {
       name: 'Anxiety Check-In (GAD-7)',
@@ -2453,7 +2538,7 @@ export async function pgPatientAssessments() {
       timeMin: 5,
       whyItMatters: 'Helps your care team understand how anxiety is affecting you and whether your treatment is helping.',
       scoreRanges: [{max:4,label:'Minimal',note:'Low anxiety levels'},{max:9,label:'Mild',note:'Mild anxiety \u2014 your team is tracking this'},{max:14,label:'Moderate',note:'Moderate anxiety \u2014 your clinician is monitoring closely'},{max:99,label:'Severe',note:'Significant anxiety \u2014 your team is focused on this'}],
-      formKey: null,
+      formKey: 'gad7',
     },
     gad2: {
       name: 'Quick Anxiety Check (GAD-2)',
@@ -2461,7 +2546,7 @@ export async function pgPatientAssessments() {
       timeMin: 2,
       whyItMatters: 'A fast check on anxiety levels.',
       scoreRanges: [],
-      formKey: null,
+      formKey: 'gad2',
     },
     pcl5: {
       name: 'Stress & Trauma Check-In (PCL-5)',
@@ -2469,7 +2554,7 @@ export async function pgPatientAssessments() {
       timeMin: 10,
       whyItMatters: 'Tracks how past experiences may be affecting your sleep, mood, and daily life so your team can tailor your treatment.',
       scoreRanges: [],
-      formKey: null,
+      formKey: 'pcl5',
     },
     hdrs: {
       name: 'Depression Assessment (HDRS)',
@@ -2517,7 +2602,7 @@ export async function pgPatientAssessments() {
       timeMin: 10,
       whyItMatters: 'Gives your care team a broad view of how you have been feeling across three areas.',
       scoreRanges: [],
-      formKey: null,
+      formKey: 'dass21',
     },
     isi: {
       name: 'Sleep Check (ISI)',
@@ -2525,7 +2610,7 @@ export async function pgPatientAssessments() {
       timeMin: 5,
       whyItMatters: 'Tracks how much sleep problems are affecting your daily life.',
       scoreRanges: [],
-      formKey: null,
+      formKey: 'isi',
     },
     qids: {
       name: 'Depression Check (QIDS)',
@@ -2690,7 +2775,7 @@ export async function pgPatientAssessments() {
 
     let ctaHtml = '';
     const ctaLabel = isInProgress ? 'Continue →' : 'Start →';
-    if (item.formKey === 'phq9') {
+    if (SUPPORTED_FORMS[item.formKey]) {
       ctaHtml = '<button class="btn btn-primary btn-sm" id="pt-assess-cta-' + esc(item.id) + '"' +
         ' onclick="window._ptToggleAssessForm(\'' + esc(item.id) + '\')"' +
         ' aria-expanded="false" aria-controls="pt-assess-form-' + esc(item.id) + '">' + ctaLabel + '</button>';
@@ -2913,7 +2998,7 @@ export async function pgPatientAssessments() {
     // CTA
     let ctaHtml = '';
     if (isDue) {
-      if (item.formKey === 'phq9') {
+      if (SUPPORTED_FORMS[item.formKey]) {
         ctaHtml = `<button class="btn btn-primary btn-sm pt-assess-cta"
                            id="pt-assess-cta-${esc(item.id)}"
                            onclick="window._ptToggleAssessForm('${esc(item.id)}')"
@@ -2929,7 +3014,7 @@ export async function pgPatientAssessments() {
                            aria-label="Ask about ${esc(item.name)}">Ask your clinic \u2192</button>`;
       }
     } else if (isInProgress) {
-      if (item.formKey === 'phq9') {
+      if (SUPPORTED_FORMS[item.formKey]) {
         ctaHtml = `<button class="btn btn-primary btn-sm pt-assess-cta"
                            id="pt-assess-cta-${esc(item.id)}"
                            onclick="window._ptToggleAssessForm('${esc(item.id)}')"
@@ -3009,7 +3094,9 @@ export async function pgPatientAssessments() {
     if (opening) {
       formEl.removeAttribute('hidden');
       if (btn) { btn.textContent = 'Close ×'; btn.setAttribute('aria-expanded', 'true'); }
-      if (item.formKey === 'phq9') renderPHQ9Form('pt-assess-form-' + CSS.escape(itemId), currentUser?.id);
+      if (SUPPORTED_FORMS[item.formKey]) {
+        renderAssessmentForm(item.formKey, 'pt-assess-form-' + CSS.escape(itemId), currentUser?.id);
+      }
       setTimeout(function() { formEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); }, 50);
     } else {
       formEl.setAttribute('hidden', '');
