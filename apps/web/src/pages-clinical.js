@@ -5658,7 +5658,7 @@ export async function pgAssess(setTopbar) {
           <div id="ah-inline-questions"></div>
           <div class="form-group" style="margin-top:14px"><label class="form-label">Clinician Notes</label>
             <textarea id="ah-inline-notes" class="form-control" rows="2" placeholder="Optional notes…"></textarea></div>
-          <div id="ah-inline-err" style="color:var(--red);font-size:12px;display:none;margin-bottom:8px"></div>
+          <div id="ah-inline-err" role="alert" aria-live="polite" style="color:var(--red);font-size:12px;display:none;margin-bottom:8px"></div>
           <button class="btn btn-primary" onclick="window._ahSaveInline()">Save Assessment →</button>
         </div></div>
       </div>
@@ -5674,7 +5674,7 @@ export async function pgAssess(setTopbar) {
           <div id="ah-score-interp" style="font-size:12px;font-weight:600;padding:6px 10px;border-radius:var(--radius-sm);margin-bottom:10px;display:none"></div>
           <div class="form-group"><label class="form-label">Clinician Notes</label>
             <textarea id="ah-score-notes" class="form-control" rows="2" placeholder="Notes…"></textarea></div>
-          <div id="ah-score-err" style="color:var(--red);font-size:12px;display:none;margin-bottom:8px"></div>
+          <div id="ah-score-err" role="alert" aria-live="polite" style="color:var(--red);font-size:12px;display:none;margin-bottom:8px"></div>
           <button class="btn btn-primary" onclick="window._ahSaveScore()">Save →</button>
         </div></div>
       </div>
@@ -5775,6 +5775,7 @@ export async function pgAssess(setTopbar) {
             <input type="radio" name="ahq${qi}" value="${vi}" onchange="window._ahInlineChange(${qi},${vi})" ${vi===0?'checked':''}> ${opt}</label>`).join('')}</div>
       </div>`).join('');
     window._ahUpdateInline();
+    _ahA11yAttach(document.getElementById('ah-inline-panel'), window._ahCloseInline);
   };
   window._ahInlineChange = function(qi, val) { _ahInlineAnswers[qi] = val; window._ahUpdateInline(); };
   window._ahUpdateInline = function() {
@@ -5785,7 +5786,35 @@ export async function pgAssess(setTopbar) {
     const el = document.getElementById('ah-inline-interp');
     if (el) { el.textContent=interp.label; el.style.color=interp.color; el.style.borderLeft=`3px solid ${interp.color}`; el.style.background=`${interp.color}15`; }
   };
+  // ── A11y helper for the inline + score entry panels: ESC to close, auto-focus
+  //    first interactive element on open, Tab-cycle focus trap. Only one panel
+  //    is open at a time, so a shared detach slot is enough. ───────────────
+  let _ahPanelDetach = null;
+  function _ahA11yAttach(panelEl, onEscape) {
+    if (!panelEl) return;
+    if (_ahPanelDetach) { _ahPanelDetach(); _ahPanelDetach = null; }
+    const focusables = () => Array.from(panelEl.querySelectorAll(
+      'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+    )).filter(e => e.offsetParent !== null);
+    const first = focusables()[0];
+    if (first) first.focus();
+    const onKey = (e) => {
+      if (e.key === 'Escape') { e.stopPropagation(); onEscape(); return; }
+      if (e.key !== 'Tab') return;
+      const list = focusables();
+      if (!list.length) return;
+      const firstEl = list[0], lastEl = list[list.length - 1];
+      if (e.shiftKey && document.activeElement === firstEl) { e.preventDefault(); lastEl.focus(); }
+      else if (!e.shiftKey && document.activeElement === lastEl) { e.preventDefault(); firstEl.focus(); }
+    };
+    document.addEventListener('keydown', onKey);
+    _ahPanelDetach = () => { document.removeEventListener('keydown', onKey); };
+  }
+  function _ahA11yDetach() {
+    if (_ahPanelDetach) { _ahPanelDetach(); _ahPanelDetach = null; }
+  }
   window._ahCloseInline = function() {
+    _ahA11yDetach();
     const p=document.getElementById('ah-inline-panel'); if(p) p.style.display='none';
     const l=document.getElementById('ah-run-scale-list'); if(l) l.style.display=''; _ahInlineTpl=null;
   };
@@ -5803,6 +5832,7 @@ export async function pgAssess(setTopbar) {
     document.getElementById('ah-score-title').textContent = `${_ahScoreTpl.t} (max ${_ahScoreTpl.max})`;
     document.getElementById('ah-score-val').value=''; document.getElementById('ah-score-notes').value='';
     document.getElementById('ah-score-interp').style.display='none'; document.getElementById('ah-score-err').style.display='none';
+    _ahA11yAttach(document.getElementById('ah-score-panel'), window._ahCloseScore);
   };
   window._ahScorePreview = function() {
     if (!_ahScoreTpl?.interpret) return;
@@ -5813,6 +5843,7 @@ export async function pgAssess(setTopbar) {
     el.textContent=interp.label; el.style.color=interp.color; el.style.borderLeft=`3px solid ${interp.color}`; el.style.background=`${interp.color}15`; el.style.display='inline-block';
   };
   window._ahCloseScore = function() {
+    _ahA11yDetach();
     const p=document.getElementById('ah-score-panel'); if(p) p.style.display='none';
     const l=document.getElementById('ah-run-scale-list'); if(l) l.style.display='';
     const n=document.getElementById('ah-score-notice'); if(n) n.innerHTML='';
