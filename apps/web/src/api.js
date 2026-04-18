@@ -33,9 +33,15 @@ function _extractTransport(res, extractor) {
 async function apiFetch(path, opts = {}) {
   let res;
   const fetchFn = opts._fetch || globalThis.fetch;
+  // Detect multipart uploads: when body is FormData, omit the JSON content-type
+  // so the browser can set the correct multipart/form-data boundary automatically.
+  const _isFormData = (typeof FormData !== 'undefined') && (opts.body instanceof FormData);
   try {
     const token = getToken();
-    const headers = { 'Content-Type': 'application/json', ...(opts.headers || {}) };
+    const headers = { ...(opts.headers || {}) };
+    if (!_isFormData && !('Content-Type' in headers) && !('content-type' in headers)) {
+      headers['Content-Type'] = 'application/json';
+    }
     if (token) headers['Authorization'] = `Bearer ${token}`;
     res = await fetchFn(`${API_BASE}${path}`, { ...opts, headers });
   } catch (networkErr) {
@@ -60,7 +66,10 @@ async function apiFetch(path, opts = {}) {
         setToken(refreshResult.access_token);
         if (refreshResult.refresh_token) setRefreshToken(refreshResult.refresh_token);
         // Retry original request once with new token
-        const retryHeaders = { 'Content-Type': 'application/json', ...(opts.headers || {}) };
+        const retryHeaders = { ...(opts.headers || {}) };
+        if (!_isFormData && !('Content-Type' in retryHeaders) && !('content-type' in retryHeaders)) {
+          retryHeaders['Content-Type'] = 'application/json';
+        }
         retryHeaders['Authorization'] = `Bearer ${refreshResult.access_token}`;
         let retryRes;
         try {
@@ -916,6 +925,71 @@ export const api = {
     monthlyAnalytics: (months = 6) =>
       apiFetch('/api/v1/finance/analytics/monthly?months=' + encodeURIComponent(months)),
   },
+
+  // ── Profile ────────────────────────────────────────────────────────────────
+  getProfile: () => apiFetch('/api/v1/profile'),
+  updateProfile: (data) => apiFetch('/api/v1/profile', { method: 'PATCH', body: JSON.stringify(data) }),
+  requestEmailChange: (new_email, current_password) =>
+    apiFetch('/api/v1/profile/email', { method: 'PATCH', body: JSON.stringify({ new_email, current_password }) }),
+  verifyEmailChange: (token) =>
+    apiFetch('/api/v1/profile/email/verify', { method: 'POST', body: JSON.stringify({ token }) }),
+  uploadAvatar: (file) => {  // multipart
+    const form = new FormData();
+    form.append('file', file);
+    return apiFetch('/api/v1/profile/avatar', { method: 'POST', body: form });
+  },
+  deleteAvatar: () => apiFetch('/api/v1/profile/avatar', { method: 'DELETE' }),
+
+  // ── Auth extensions (password, 2FA, sessions) ─────────────────────────────
+  changePassword: (current_password, new_password) =>
+    apiFetch('/api/v1/auth/password', { method: 'PATCH', body: JSON.stringify({ current_password, new_password }) }),
+  setup2FA: () => apiFetch('/api/v1/auth/2fa/setup', { method: 'POST', body: '{}' }),
+  verify2FA: (code) =>
+    apiFetch('/api/v1/auth/2fa/verify', { method: 'POST', body: JSON.stringify({ code }) }),
+  disable2FA: (password, code) =>
+    apiFetch('/api/v1/auth/2fa/disable', { method: 'POST', body: JSON.stringify({ password, code }) }),
+  // NOTE: named `listAuthSessions` (not `listSessions`) to avoid colliding with the
+  // existing `listSessions(patient_id)` method used for treatment sessions.
+  listAuthSessions: () => apiFetch('/api/v1/auth/sessions'),
+  revokeAuthSession: (sid) => apiFetch(`/api/v1/auth/sessions/${encodeURIComponent(sid)}`, { method: 'DELETE' }),
+  revokeOtherAuthSessions: () => apiFetch('/api/v1/auth/sessions/others', { method: 'DELETE' }),
+
+  // ── Clinic ─────────────────────────────────────────────────────────────────
+  getClinic: () => apiFetch('/api/v1/clinic').catch(() => null),  // 404 if no clinic
+  createClinic: (data) => apiFetch('/api/v1/clinic', { method: 'POST', body: JSON.stringify(data) }),
+  updateClinic: (data) => apiFetch('/api/v1/clinic', { method: 'PATCH', body: JSON.stringify(data) }),
+  uploadClinicLogo: (file) => {
+    const form = new FormData();
+    form.append('file', file);
+    return apiFetch('/api/v1/clinic/logo', { method: 'POST', body: form });
+  },
+  updateWorkingHours: (hours) =>
+    apiFetch('/api/v1/clinic/working-hours', { method: 'PUT', body: JSON.stringify(hours) }),
+
+  // ── Team ───────────────────────────────────────────────────────────────────
+  listTeam: () => apiFetch('/api/v1/team'),
+  inviteTeamMember: (email, role) =>
+    apiFetch('/api/v1/team/invite', { method: 'POST', body: JSON.stringify({ email, role }) }),
+  revokeTeamInvite: (id) => apiFetch(`/api/v1/team/invite/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  updateTeamMemberRole: (user_id, role) =>
+    apiFetch(`/api/v1/team/${encodeURIComponent(user_id)}/role`, { method: 'PATCH', body: JSON.stringify({ role }) }),
+  removeTeamMember: (user_id) =>
+    apiFetch(`/api/v1/team/${encodeURIComponent(user_id)}`, { method: 'DELETE' }),
+  acceptTeamInvite: (token, password, display_name) =>
+    apiFetch('/api/v1/team/accept-invite', { method: 'POST', body: JSON.stringify({ token, password, display_name }) }),
+
+  // ── Preferences ────────────────────────────────────────────────────────────
+  getPreferences: () => apiFetch('/api/v1/preferences'),
+  updatePreferences: (data) => apiFetch('/api/v1/preferences', { method: 'PATCH', body: JSON.stringify(data) }),
+  getClinicalDefaults: () => apiFetch('/api/v1/preferences/clinical-defaults'),
+  updateClinicalDefaults: (data) =>
+    apiFetch('/api/v1/preferences/clinical-defaults', { method: 'PATCH', body: JSON.stringify(data) }),
+
+  // ── Privacy / Data Export ──────────────────────────────────────────────────
+  requestDataExport: () => apiFetch('/api/v1/privacy/export', { method: 'POST', body: '{}' }),
+  listDataExports: () => apiFetch('/api/v1/privacy/exports'),
+  getDataExport: (id) => apiFetch(`/api/v1/privacy/exports/${encodeURIComponent(id)}`),
+  deleteDataExport: (id) => apiFetch(`/api/v1/privacy/exports/${encodeURIComponent(id)}`, { method: 'DELETE' }),
 };
 
 // Home program task mutation helpers (for web + future mobile/other bundles importing from `api.js`).

@@ -1021,24 +1021,71 @@ export async function pgSettings(setTopbar, currentUser) {
     telegramInstructions = tg?.instructions;
   } catch {}
 
-  // Load persisted local profile extras (avatar/credentials/license/2FA)
-  const savedAvatar      = (typeof localStorage !== 'undefined' && localStorage.getItem('ds_user_avatar'))      || '';
-  const savedCredentials = (typeof localStorage !== 'undefined' && localStorage.getItem('ds_user_credentials')) || '';
-  const savedLicense     = (typeof localStorage !== 'undefined' && localStorage.getItem('ds_user_license'))     || '';
-  const twoFAEnabled     = (typeof localStorage !== 'undefined' && localStorage.getItem('ds_2fa_enabled'))      === 'true';
-  const savedSecret      = (typeof localStorage !== 'undefined' && localStorage.getItem('ds_2fa_secret'))       || '';
-
-  // Load persisted clinic profile (all localStorage-backed until api.updateClinicProfile is added)
+  // ── Pull server-side state (best-effort, fall back to localStorage) ─────────
   const lsGet = (k) => { try { return (typeof localStorage !== 'undefined' && localStorage.getItem(k)) || ''; } catch { return ''; } };
+  let serverProfile = null, serverPrefs = null, serverClinical = null, serverClinic = null;
+  try { serverProfile  = await api.getProfile();          } catch (e) { console.debug('[settings] getProfile unavailable', e?.message); }
+  try { serverPrefs    = await api.getPreferences();      } catch (e) { console.debug('[settings] getPreferences unavailable', e?.message); }
+  try { serverClinical = await api.getClinicalDefaults(); } catch (e) { console.debug('[settings] getClinicalDefaults unavailable', e?.message); }
+  try { serverClinic   = await api.getClinic();           } catch (e) { console.debug('[settings] getClinic unavailable', e?.message); }
+
+  // Pick server value if present, otherwise localStorage, otherwise fallback.
+  const pref = (serverVal, lsKey, fallback = '') => {
+    if (serverVal !== undefined && serverVal !== null && serverVal !== '') return serverVal;
+    const v = lsGet(lsKey);
+    return v || fallback;
+  };
+
+  // One-time seed: push any existing ds_* client state to backend so users who
+  // had local-only settings don't lose them on first API-backed render.
+  (async () => {
+    try {
+      if (localStorage.getItem('ds_seed_prefs_complete')) return;
+      if (!serverPrefs) return; // only seed when prefs API is alive
+      const patch = {};
+      const pick = (k, apiKey) => { const v = lsGet(k); if (v) patch[apiKey] = v; };
+      pick('ds_lang',          'language');
+      pick('ds_date_format',   'date_format');
+      pick('ds_time_format',   'time_format');
+      pick('ds_first_day',     'first_day');
+      pick('ds_units',         'units');
+      pick('ds_number_format', 'number_format');
+      const dur = parseInt(lsGet('ds_session_default_duration'), 10);
+      if (Number.isFinite(dur)) patch.session_default_duration_min = dur;
+      const al = lsGet('ds_auto_logout');
+      if (al === 'never') patch.auto_logout_min = 0;
+      else { const n = parseInt(al, 10); if (Number.isFinite(n)) patch.auto_logout_min = n; }
+      try { const np = lsGet('ds_notification_prefs'); if (np) patch.notification_prefs = JSON.parse(np); } catch {}
+      try { const qh = lsGet('ds_quiet_hours');        if (qh) patch.quiet_hours        = JSON.parse(qh); } catch {}
+      const df = lsGet('ds_digest_freq'); if (df) patch.digest_freq = df;
+      try { const rt = lsGet('ds_reminder_timing');    if (rt) patch.reminder_timing    = JSON.parse(rt); } catch {}
+      const ai = lsGet('ds_analytics_opt_in');     if (ai === 'true' || ai === 'false') patch.analytics_opt_in     = (ai === 'true');
+      const er = lsGet('ds_error_reports_opt_in'); if (er === 'true' || er === 'false') patch.error_reports_opt_in = (er === 'true');
+      if (Object.keys(patch).length > 0) await api.updatePreferences(patch);
+      localStorage.setItem('ds_seed_prefs_complete', '1');
+    } catch (e) { /* silent — retry next session */ }
+  })();
+
+  // Server-preferred profile fields; localStorage fallback/mirror.
+  const savedAvatar      = pref(serverProfile?.avatar_url,      'ds_user_avatar');
+  const savedCredentials = pref(serverProfile?.credentials,     'ds_user_credentials');
+  const savedLicense     = pref(serverProfile?.license_number,  'ds_user_license');
+  const twoFAEnabled     = !!(serverProfile?.two_factor_enabled) || lsGet('ds_2fa_enabled') === 'true';
+  const savedSecret      = lsGet('ds_2fa_secret');
+
   const browserTZ = (() => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'; } catch { return 'UTC'; } });
-  const savedClinicName        = lsGet('ds_clinic_name');
-  const savedClinicAddress     = lsGet('ds_clinic_address');
-  const savedClinicPhone       = lsGet('ds_clinic_phone');
-  const savedClinicEmail       = lsGet('ds_clinic_email');
-  const savedClinicWebsite     = lsGet('ds_clinic_website');
-  const savedClinicTZ          = lsGet('ds_clinic_tz') || browserTZ();
-  const savedClinicLogo        = lsGet('ds_clinic_logo');
-  const savedClinicSpecialties = lsGet('ds_clinic_specialties');
+  const savedClinicName        = pref(serverClinic?.name,     'ds_clinic_name');
+  const savedClinicAddress     = pref(serverClinic?.address,  'ds_clinic_address');
+  const savedClinicPhone       = pref(serverClinic?.phone,    'ds_clinic_phone');
+  const savedClinicEmail       = pref(serverClinic?.email,    'ds_clinic_email');
+  const savedClinicWebsite     = pref(serverClinic?.website,  'ds_clinic_website');
+  const savedClinicTZ          = pref(serverClinic?.timezone, 'ds_clinic_tz') || browserTZ();
+  const savedClinicLogo        = pref(serverClinic?.logo_url, 'ds_clinic_logo');
+  const savedClinicSpecialties = (() => {
+    if (Array.isArray(serverClinic?.specialties)) return serverClinic.specialties.join(', ');
+    if (typeof serverClinic?.specialties === 'string') return serverClinic.specialties;
+    return lsGet('ds_clinic_specialties');
+  })();
 
   // Timezone list — Intl.supportedValuesOf when available, else short fallback
   const tzList = (() => {
@@ -1061,10 +1108,14 @@ export async function pgSettings(setTopbar, currentUser) {
     sun: { open: false, from: '09:00', to: '17:00' },
   };
   let savedHours = defaultHours;
-  try {
-    const raw = lsGet('ds_clinic_hours');
-    if (raw) { const parsed = JSON.parse(raw); if (parsed && typeof parsed === 'object') savedHours = { ...defaultHours, ...parsed }; }
-  } catch {}
+  if (serverClinic?.working_hours && typeof serverClinic.working_hours === 'object') {
+    savedHours = { ...defaultHours, ...serverClinic.working_hours };
+  } else {
+    try {
+      const raw = lsGet('ds_clinic_hours');
+      if (raw) { const parsed = JSON.parse(raw); if (parsed && typeof parsed === 'object') savedHours = { ...defaultHours, ...parsed }; }
+    } catch {}
+  }
 
   // Team members — localStorage mock until api.listTeamMembers() is added
   const defaultTeam = [
@@ -1080,8 +1131,7 @@ export async function pgSettings(setTopbar, currentUser) {
 
   const escAttr = (s) => String(s || '').replace(/"/g, '&quot;').replace(/</g, '&lt;');
 
-  // ── Notification preferences (localStorage-backed) ─────────────────────────
-  // TODO: add api.updateNotificationPrefs() endpoint — localStorage for now
+  // ── Notification preferences (server-backed with localStorage fallback) ───
   const DEFAULT_NOTIF_PREFS = {
     sessionReminders:   { email: true,  inapp: true,  telegram: false },
     protocolAlerts:     { email: false, inapp: true,  telegram: false },
@@ -1092,58 +1142,55 @@ export async function pgSettings(setTopbar, currentUser) {
     systemUpdates:      { email: false, inapp: true,  telegram: false },
   };
   let notifPrefs = { ...DEFAULT_NOTIF_PREFS };
-  try {
-    const raw = lsGet('ds_notification_prefs');
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      if (parsed && typeof parsed === 'object') {
-        notifPrefs = { ...DEFAULT_NOTIF_PREFS };
-        for (const k of Object.keys(DEFAULT_NOTIF_PREFS)) {
-          if (parsed[k] && typeof parsed[k] === 'object') {
-            notifPrefs[k] = { ...DEFAULT_NOTIF_PREFS[k], ...parsed[k] };
-          }
-        }
+  const _applyNotifPrefs = (parsed) => {
+    if (!parsed || typeof parsed !== 'object') return;
+    notifPrefs = { ...DEFAULT_NOTIF_PREFS };
+    for (const k of Object.keys(DEFAULT_NOTIF_PREFS)) {
+      if (parsed[k] && typeof parsed[k] === 'object') {
+        notifPrefs[k] = { ...DEFAULT_NOTIF_PREFS[k], ...parsed[k] };
       }
     }
-  } catch {}
+  };
+  if (serverPrefs?.notification_prefs && typeof serverPrefs.notification_prefs === 'object') {
+    _applyNotifPrefs(serverPrefs.notification_prefs);
+  } else {
+    try { const raw = lsGet('ds_notification_prefs'); if (raw) _applyNotifPrefs(JSON.parse(raw)); } catch {}
+  }
 
   const DEFAULT_QUIET_HOURS = { enabled: false, from: '22:00', to: '07:00' };
   let quietHours = { ...DEFAULT_QUIET_HOURS };
-  try {
-    const raw = lsGet('ds_quiet_hours');
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      if (parsed && typeof parsed === 'object') quietHours = { ...DEFAULT_QUIET_HOURS, ...parsed };
-    }
-  } catch {}
+  if (serverPrefs?.quiet_hours && typeof serverPrefs.quiet_hours === 'object') {
+    quietHours = { ...DEFAULT_QUIET_HOURS, ...serverPrefs.quiet_hours };
+  } else {
+    try { const raw = lsGet('ds_quiet_hours'); if (raw) { const p = JSON.parse(raw); if (p && typeof p === 'object') quietHours = { ...DEFAULT_QUIET_HOURS, ...p }; } } catch {}
+  }
 
-  const digestFreq = lsGet('ds_digest_freq') || 'daily';
+  const digestFreq = serverPrefs?.digest_freq || lsGet('ds_digest_freq') || 'daily';
 
-  // ── Data & Privacy (localStorage-backed) ───────────────────────────────────
-  // TODO: add api.requestDataExport() endpoint — localStorage bundle is a stop-gap
+  // ── Data & Privacy (server-backed with localStorage fallback) ──────────────
   const lastExport         = lsGet('ds_last_export');
-  const analyticsOptIn     = (lsGet('ds_analytics_opt_in')      || 'true') === 'true';
-  const errorReportsOptIn  = (lsGet('ds_error_reports_opt_in')  || 'true') === 'true';
+  const analyticsOptIn     = (serverPrefs?.analytics_opt_in     != null) ? !!serverPrefs.analytics_opt_in     : ((lsGet('ds_analytics_opt_in')     || 'true') === 'true');
+  const errorReportsOptIn  = (serverPrefs?.error_reports_opt_in != null) ? !!serverPrefs.error_reports_opt_in : ((lsGet('ds_error_reports_opt_in') || 'true') === 'true');
   const cookieFunctional   = (lsGet('ds_cookie_functional')     || 'true') === 'true';
   const cookieAnalytics    = (lsGet('ds_cookie_analytics')      || 'true') === 'true';
 
-  // ── Clinical Defaults (localStorage-backed) ────────────────────────────────
-  // TODO: add api.updateClinicalDefaults() endpoint
-  const defaultProtocol         = lsGet('ds_default_protocol')          || 'none';
-  const defaultSessionDuration  = lsGet('ds_default_session_duration')  || '45';
-  const defaultFollowupWeeks    = lsGet('ds_default_followup_weeks')    || '4';
-  const defaultCourseLength     = lsGet('ds_default_course_length')     || '20';
-  const defaultConsentTemplate  = lsGet('ds_default_consent_template')  || 'Standard TMS consent';
-  const customConsentText       = lsGet('ds_custom_consent_text')       || '';
+  // ── Clinical Defaults (server-backed with localStorage fallback) ───────────
+  const defaultProtocol         = pref(serverClinical?.default_protocol_id,          'ds_default_protocol')         || 'none';
+  const defaultSessionDuration  = String(serverClinical?.default_session_duration_min ?? lsGet('ds_default_session_duration') ?? '45');
+  const defaultFollowupWeeks    = String(serverClinical?.default_followup_weeks     ?? lsGet('ds_default_followup_weeks') ?? '4');
+  const defaultCourseLength     = String(serverClinical?.default_course_length      ?? lsGet('ds_default_course_length')  ?? '20');
+  const defaultConsentTemplate  = pref(serverClinical?.default_consent_template_id,  'ds_default_consent_template') || 'Standard TMS consent';
+  const customConsentText       = pref(serverClinical?.custom_consent_text,          'ds_custom_consent_text');
   const DEFAULT_DISCLAIMER_TEXT = "This report is generated by DeepSynaps Protocol Studio based on current evidence and clinical guidelines. It is intended as clinical decision support only; final treatment decisions remain the clinician's responsibility.";
-  const defaultDisclaimer       = lsGet('ds_default_disclaimer')        || DEFAULT_DISCLAIMER_TEXT;
+  const defaultDisclaimer       = pref(serverClinical?.default_disclaimer,           'ds_default_disclaimer')       || DEFAULT_DISCLAIMER_TEXT;
   const ASSESSMENT_OPTIONS      = ['PHQ-9', 'GAD-7', 'YBOCS', 'MADRS', 'HAM-D', 'PCL-5', 'AIMS', 'CGI-S'];
   let defaultAssessments = ['PHQ-9', 'GAD-7'];
-  try {
-    const raw = lsGet('ds_default_assessments');
-    if (raw) { const parsed = JSON.parse(raw); if (Array.isArray(parsed)) defaultAssessments = parsed.filter(x => ASSESSMENT_OPTIONS.includes(x)); }
-  } catch {}
-  const aeProtocol = lsGet('ds_ae_protocol') || 'auto-notify';
+  if (Array.isArray(serverClinical?.default_assessments)) {
+    defaultAssessments = serverClinical.default_assessments.filter(x => ASSESSMENT_OPTIONS.includes(x));
+  } else {
+    try { const raw = lsGet('ds_default_assessments'); if (raw) { const p = JSON.parse(raw); if (Array.isArray(p)) defaultAssessments = p.filter(x => ASSESSMENT_OPTIONS.includes(x)); } } catch {}
+  }
+  const aeProtocol = pref(serverClinical?.ae_protocol, 'ds_ae_protocol') || 'auto-notify';
 
   const PROTOCOL_OPTIONS = [
     ['none',              'None (choose per patient)'],
@@ -1174,21 +1221,18 @@ export async function pgSettings(setTopbar, currentUser) {
   ];
   const DEFAULT_REMINDER_TIMING = ['24h', '2h'];
   let reminderTiming = [...DEFAULT_REMINDER_TIMING];
-  try {
-    const raw = lsGet('ds_reminder_timing');
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed)) reminderTiming = parsed.filter(x => REMINDER_SLOTS.some(s => s.id === x));
-    }
-  } catch {}
+  if (Array.isArray(serverPrefs?.reminder_timing)) {
+    reminderTiming = serverPrefs.reminder_timing.filter(x => REMINDER_SLOTS.some(s => s.id === x));
+  } else {
+    try { const raw = lsGet('ds_reminder_timing'); if (raw) { const p = JSON.parse(raw); if (Array.isArray(p)) reminderTiming = p.filter(x => REMINDER_SLOTS.some(s => s.id === x)); } } catch {}
+  }
 
-  // ── User Preferences (localStorage-backed) ──────────────────────────────────
-  // TODO: add api.updateUserPreferences() endpoint — localStorage for now
+  // ── User Preferences (server-backed with localStorage fallback) ─────────────
   const currentLocale = (() => { try { return getLocale() || 'en'; } catch { return 'en'; } })();
-  const dateFormat    = lsGet('ds_date_format')    || 'ISO';
-  const timeFormat    = lsGet('ds_time_format')    || '24h';
-  const firstDay      = lsGet('ds_first_day')      || 'monday';
-  const measureUnits  = lsGet('ds_units')          || 'metric';
+  const dateFormat    = pref(serverPrefs?.date_format,  'ds_date_format') || 'ISO';
+  const timeFormat    = pref(serverPrefs?.time_format,  'ds_time_format') || '24h';
+  const firstDay      = pref(serverPrefs?.first_day,    'ds_first_day')   || 'monday';
+  const measureUnits  = pref(serverPrefs?.units,        'ds_units')       || 'metric';
   const autoDetectedNumberFormat = (() => {
     try {
       const parts = new Intl.NumberFormat(navigator.language || 'en-US').formatToParts(1234.56);
@@ -1199,9 +1243,14 @@ export async function pgSettings(setTopbar, currentUser) {
       return 'US';
     } catch { return 'US'; }
   })();
-  const numberFormat = lsGet('ds_number_format') || autoDetectedNumberFormat;
-  const sessionDefaultDuration = lsGet('ds_session_default_duration') || '45';
-  const autoLogout = lsGet('ds_auto_logout') || '30';
+  const numberFormat = pref(serverPrefs?.number_format, 'ds_number_format') || autoDetectedNumberFormat;
+  const sessionDefaultDuration = String(serverPrefs?.session_default_duration_min ?? lsGet('ds_session_default_duration') ?? '45');
+  const autoLogout = (() => {
+    if (serverPrefs?.auto_logout_min != null) {
+      return serverPrefs.auto_logout_min === 0 ? 'never' : String(serverPrefs.auto_logout_min);
+    }
+    return lsGet('ds_auto_logout') || '30';
+  })();
 
   const NOTIF_EVENTS = [
     { id: 'sessionReminders',   label: 'Session Reminders'   },
@@ -2040,18 +2089,20 @@ export async function pgSettings(setTopbar, currentUser) {
     alert(msg);
   };
 
-  // Avatar: read file, crop to 256×256 via canvas, persist base64
+  // Avatar: upload via multipart to backend; on failure, keep client-side crop
+  // + localStorage mirror so the user still sees their image.
   const avatarInput = document.getElementById('acc-avatar-input');
   const avatarPreview = document.getElementById('acc-avatar-preview');
   const avatarClear = document.getElementById('acc-avatar-clear');
   if (avatarInput) {
-    avatarInput.addEventListener('change', (e) => {
+    avatarInput.addEventListener('change', async (e) => {
       const file = e.target.files && e.target.files[0];
       if (!file) return;
       const reader = new FileReader();
       reader.onload = (ev) => {
         const img = new Image();
-        img.onload = () => {
+        img.onload = async () => {
+          let dataUrl = ev.target.result;
           try {
             const canvas = document.createElement('canvas');
             canvas.width = 256; canvas.height = 256;
@@ -2060,16 +2111,23 @@ export async function pgSettings(setTopbar, currentUser) {
             const sx = (img.width - side) / 2;
             const sy = (img.height - side) / 2;
             ctx.drawImage(img, sx, sy, side, side, 0, 0, 256, 256);
-            const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
-            localStorage.setItem('ds_user_avatar', dataUrl);
-            if (avatarPreview) { avatarPreview.style.background = `url('${dataUrl}') center/cover`; avatarPreview.textContent = ''; }
-            if (avatarClear) { avatarClear.disabled = false; avatarClear.style.opacity = ''; }
+            dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+          } catch {}
+          if (avatarPreview) { avatarPreview.style.background = `url('${dataUrl}') center/cover`; avatarPreview.textContent = ''; }
+          if (avatarClear) { avatarClear.disabled = false; avatarClear.style.opacity = ''; }
+          try {
+            const res = await api.uploadAvatar(file);
+            const remoteUrl = res?.avatar_url || res?.url;
+            if (remoteUrl) {
+              if (avatarPreview) { avatarPreview.style.background = `url('${remoteUrl}') center/cover`; }
+              try { localStorage.setItem('ds_user_avatar', remoteUrl); } catch {}
+            } else {
+              try { localStorage.setItem('ds_user_avatar', dataUrl); } catch {}
+            }
             toast('Avatar updated.');
           } catch (err) {
-            // fallback: store raw data URL without cropping
-            localStorage.setItem('ds_user_avatar', ev.target.result);
-            if (avatarPreview) { avatarPreview.style.background = `url('${ev.target.result}') center/cover`; avatarPreview.textContent = ''; }
-            toast('Avatar updated (uncropped).');
+            try { localStorage.setItem('ds_user_avatar', dataUrl); } catch {}
+            toast('Avatar saved locally (upload failed: ' + (err?.message || 'retry') + ')', 'warning');
           }
         };
         img.src = ev.target.result;
@@ -2078,7 +2136,8 @@ export async function pgSettings(setTopbar, currentUser) {
     });
   }
   if (avatarClear) {
-    avatarClear.addEventListener('click', () => {
+    avatarClear.addEventListener('click', async () => {
+      try { await api.deleteAvatar(); } catch {}
       localStorage.removeItem('ds_user_avatar');
       if (avatarPreview) {
         avatarPreview.style.background = 'var(--surface-elev-1)';
@@ -2090,23 +2149,31 @@ export async function pgSettings(setTopbar, currentUser) {
     });
   }
 
-  // Display name
+  // Display name — server-first, localStorage mirror.
   const saveNameBtn = document.getElementById('acc-save-name');
   if (saveNameBtn) {
     saveNameBtn.addEventListener('click', async () => {
       const val = (document.getElementById('acc-display-name')?.value || '').trim();
       const msg = document.getElementById('acc-name-msg');
       if (!val) { if (msg) { msg.textContent = 'Display name cannot be empty.'; msg.style.color = 'var(--amber)'; } return; }
-      // TODO: add api.updateProfile({display_name}) endpoint — persisting locally for now
-      try { localStorage.setItem('ds_user_display_name', val); } catch {}
-      if (currentUser) currentUser.display_name = val;
-      try { window.updateUserBar && window.updateUserBar(); } catch {}
-      if (msg) { msg.textContent = 'Saved.'; msg.style.color = 'var(--green)'; }
-      toast('Display name saved.');
+      saveNameBtn.disabled = true;
+      try {
+        await api.updateProfile({ display_name: val });
+        try { localStorage.setItem('ds_user_display_name', val); } catch {}
+        if (currentUser) currentUser.display_name = val;
+        try { window.updateUserBar && window.updateUserBar(); } catch {}
+        if (msg) { msg.textContent = 'Saved.'; msg.style.color = 'var(--green)'; }
+        toast('Display name saved.');
+      } catch (e) {
+        if (msg) { msg.textContent = 'Not saved — retry. (' + (e?.message || 'network') + ')'; msg.style.color = 'var(--amber)'; }
+        toast('Could not save display name.', 'warning');
+      } finally {
+        saveNameBtn.disabled = false;
+      }
     });
   }
 
-  // Email
+  // Email — request verification via backend.
   const saveEmailBtn = document.getElementById('acc-save-email');
   if (saveEmailBtn) {
     saveEmailBtn.addEventListener('click', async () => {
@@ -2114,34 +2181,61 @@ export async function pgSettings(setTopbar, currentUser) {
       const msg = document.getElementById('acc-email-msg');
       const re = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
       if (!re.test(val)) { if (msg) { msg.textContent = 'Enter a valid email address.'; msg.style.color = 'var(--amber)'; } return; }
-      // TODO: add api.updateEmail(newEmail) endpoint that triggers verification — stub for now
-      try { localStorage.setItem('ds_user_pending_email', val); } catch {}
-      if (msg) { msg.textContent = 'Verification email sent to ' + val + '. Click the link to confirm.'; msg.style.color = 'var(--teal)'; }
-      toast('Verification email will be sent.', 'info');
+      const pw = prompt('Confirm your current password to change email:');
+      if (!pw) return;
+      saveEmailBtn.disabled = true;
+      try {
+        await api.requestEmailChange(val, pw);
+        try { localStorage.setItem('ds_user_pending_email', val); } catch {}
+        if (msg) { msg.textContent = 'Verification email sent to ' + val + '. Click the link to confirm.'; msg.style.color = 'var(--teal)'; }
+        toast('Verification email sent.', 'info');
+      } catch (e) {
+        if (msg) { msg.textContent = 'Not saved — ' + (e?.message || 'retry'); msg.style.color = 'var(--amber)'; }
+      } finally {
+        saveEmailBtn.disabled = false;
+      }
     });
   }
 
-  // Credentials
+  // Credentials — server-first, localStorage mirror.
   const saveCredsBtn = document.getElementById('acc-save-creds');
   if (saveCredsBtn) {
-    saveCredsBtn.addEventListener('click', () => {
+    saveCredsBtn.addEventListener('click', async () => {
       const val = (document.getElementById('acc-credentials')?.value || '').trim();
-      localStorage.setItem('ds_user_credentials', val);
-      toast('Credentials saved.');
+      saveCredsBtn.disabled = true;
+      try {
+        await api.updateProfile({ credentials: val });
+        try { localStorage.setItem('ds_user_credentials', val); } catch {}
+        toast('Credentials saved.');
+      } catch (e) {
+        try { localStorage.setItem('ds_user_credentials', val); } catch {}
+        toast('Not saved to server — cached locally. (' + (e?.message || 'retry') + ')', 'warning');
+      } finally {
+        saveCredsBtn.disabled = false;
+      }
     });
   }
 
-  // License / NPI
+  // License / NPI — server-first, localStorage mirror.
   const saveLicenseBtn = document.getElementById('acc-save-license');
   if (saveLicenseBtn) {
-    saveLicenseBtn.addEventListener('click', () => {
+    saveLicenseBtn.addEventListener('click', async () => {
       const val = (document.getElementById('acc-license')?.value || '').trim();
-      localStorage.setItem('ds_user_license', val);
-      toast('License / NPI saved.');
+      saveLicenseBtn.disabled = true;
+      try {
+        await api.updateProfile({ license_number: val });
+        try { localStorage.setItem('ds_user_license', val); } catch {}
+        toast('License / NPI saved.');
+      } catch (e) {
+        try { localStorage.setItem('ds_user_license', val); } catch {}
+        toast('Not saved to server — cached locally. (' + (e?.message || 'retry') + ')', 'warning');
+      } finally {
+        saveLicenseBtn.disabled = false;
+      }
     });
   }
 
-  // Change password
+  // Change password — real server call.
   const savePwBtn = document.getElementById('acc-save-password');
   if (savePwBtn) {
     savePwBtn.addEventListener('click', async () => {
@@ -2153,41 +2247,56 @@ export async function pgSettings(setTopbar, currentUser) {
       if (!cur)               return setMsg('Enter your current password.', 'var(--amber)');
       if (n1.length < 10)     return setMsg('New password must be at least 10 characters.', 'var(--amber)');
       if (n1 !== n2)          return setMsg('New passwords do not match.', 'var(--amber)');
-      // TODO: add api.changePassword(current, new) endpoint — api.resetPassword requires a token, not usable here
+      savePwBtn.disabled = true;
       try {
-        localStorage.setItem('ds_user_password_updated_at', new Date().toISOString());
-      } catch {}
-      ['acc-pw-current','acc-pw-new','acc-pw-confirm'].forEach(id => { const f = document.getElementById(id); if (f) f.value = ''; });
-      setMsg('Password updated.', 'var(--green)');
-      toast('Password updated.');
+        await api.changePassword(cur, n1);
+        try { localStorage.setItem('ds_user_password_updated_at', new Date().toISOString()); } catch {}
+        ['acc-pw-current','acc-pw-new','acc-pw-confirm'].forEach(id => { const f = document.getElementById(id); if (f) f.value = ''; });
+        setMsg('Password updated.', 'var(--green)');
+        toast('Password updated.');
+      } catch (e) {
+        setMsg('Not updated: ' + (e?.message || 'retry'), 'var(--red)');
+        toast('Password change failed.', 'warning');
+      } finally {
+        savePwBtn.disabled = false;
+      }
     });
   }
 
-  // ── Security: 2FA setup ────────────────────────────────────────────────────
-  function genTotpSecret() {
-    // Base32-ish pseudo-secret formatted as XXXX-XXXX-XXXX-XXXX
-    const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
-    let s = '';
-    for (let i = 0; i < 16; i++) s += alphabet[Math.floor(Math.random() * alphabet.length)];
-    return s.match(/.{4}/g).join('-');
-  }
-
-  function render2FASetupPanel() {
+  // ── Security: 2FA setup (real backend) ─────────────────────────────────────
+  async function render2FASetupPanel() {
     const panel = document.getElementById('twofa-setup-panel');
     if (!panel) return;
-    let secret = localStorage.getItem('ds_2fa_secret');
-    if (!secret) { secret = genTotpSecret(); localStorage.setItem('ds_2fa_secret', secret); }
     panel.style.display = '';
+    panel.innerHTML = `<div style="font-size:12px;color:var(--text-secondary)">Preparing setup…</div>`;
+    let setup;
+    try {
+      setup = await api.setup2FA();
+    } catch (e) {
+      panel.innerHTML = `<div style="font-size:12px;color:var(--red)">Could not start 2FA setup: ${escAttr(e?.message || 'retry')}</div>`;
+      return;
+    }
+    const secret = setup?.secret || setup?.otp_secret || '';
+    const qrUrl  = setup?.qr_url || setup?.otpauth_url || '';
+    const backupCodes = Array.isArray(setup?.backup_codes) ? setup.backup_codes : [];
+    if (secret) { try { localStorage.setItem('ds_2fa_secret', secret); } catch {} }
     panel.innerHTML = `
       <div style="font-size:12.5px;color:var(--text-primary);margin-bottom:8px;font-weight:600">Set up your authenticator</div>
-      <div style="font-size:12px;color:var(--text-secondary);margin-bottom:10px">Scan with authenticator app (Google Authenticator, Authy, 1Password) or enter the code manually.</div>
+      <div style="font-size:12px;color:var(--text-secondary);margin-bottom:10px">Scan the QR code with Google Authenticator / Authy / 1Password, or enter the secret manually.</div>
       <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:12px">
-        <div style="width:120px;height:120px;background:repeating-linear-gradient(45deg,var(--text-primary) 0 6px,var(--surface) 6px 12px);border:1px solid var(--border);border-radius:6px;display:flex;align-items:center;justify-content:center;color:var(--surface);font-size:10px;text-align:center">QR (demo)</div>
+        <div style="width:120px;height:120px;background:${qrUrl ? `#fff url('${escAttr(qrUrl)}') center/contain no-repeat` : 'repeating-linear-gradient(45deg,var(--text-primary) 0 6px,var(--surface) 6px 12px)'};border:1px solid var(--border);border-radius:6px;display:flex;align-items:center;justify-content:center;color:var(--surface);font-size:10px;text-align:center">${qrUrl ? '' : 'QR unavailable'}</div>
         <div style="flex:1;min-width:200px">
           <div style="font-size:10px;text-transform:uppercase;letter-spacing:0.8px;color:var(--text-tertiary);margin-bottom:4px">OTP Secret</div>
-          <code style="font-family:var(--font-mono);font-size:13px;color:var(--teal);background:rgba(0,212,188,0.08);padding:6px 10px;border-radius:4px;letter-spacing:1px;display:inline-block">OTP: ${secret}</code>
+          <code style="font-family:var(--font-mono);font-size:13px;color:var(--teal);background:rgba(0,212,188,0.08);padding:6px 10px;border-radius:4px;letter-spacing:1px;display:inline-block;user-select:all">${escAttr(secret) || '—'}</code>
         </div>
       </div>
+      ${backupCodes.length ? `
+        <div style="margin-bottom:12px;padding:10px;background:rgba(245,158,11,0.08);border:1px solid var(--amber);border-radius:6px">
+          <div style="font-size:11.5px;font-weight:600;color:var(--amber);margin-bottom:6px">Backup Codes — save these now</div>
+          <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:4px;font-family:var(--font-mono);font-size:12px">
+            ${backupCodes.map(c => `<code style="padding:3px 6px;background:rgba(0,0,0,0.15);border-radius:3px;user-select:all">${escAttr(c)}</code>`).join('')}
+          </div>
+        </div>` : ''}
       <div class="form-group">
         <label class="form-label" for="twofa-code">Verification Code</label>
         <div style="display:flex;gap:8px;align-items:center">
@@ -2202,16 +2311,23 @@ export async function pgSettings(setTopbar, currentUser) {
     const cancelBtn = document.getElementById('twofa-cancel-btn');
     const codeInput = document.getElementById('twofa-code');
     const codeMsg   = document.getElementById('twofa-code-msg');
-    if (verifyBtn) verifyBtn.addEventListener('click', () => {
+    if (verifyBtn) verifyBtn.addEventListener('click', async () => {
       const code = (codeInput?.value || '').trim();
       if (!/^\d{6}$/.test(code)) { if (codeMsg) { codeMsg.textContent = 'Enter a 6-digit numeric code.'; codeMsg.style.color = 'var(--amber)'; } return; }
-      // TODO: replace with real TOTP backend: api.enable2FA() + api.verify2FA(code)
-      localStorage.setItem('ds_2fa_enabled', 'true');
-      const wrap = document.getElementById('twofa-btn-wrap');
-      if (wrap) wrap.innerHTML = '<span style="font-size:12px;color:var(--green);margin-right:8px">2FA Enabled ✓</span><button class="btn btn-sm" id="twofa-disable-btn">Disable</button>';
-      panel.style.display = 'none'; panel.innerHTML = '';
-      bindDisable2FA();
-      toast('Two-factor authentication enabled.');
+      verifyBtn.disabled = true;
+      try {
+        await api.verify2FA(code);
+        try { localStorage.setItem('ds_2fa_enabled', 'true'); } catch {}
+        const wrap = document.getElementById('twofa-btn-wrap');
+        if (wrap) wrap.innerHTML = '<span style="font-size:12px;color:var(--green);margin-right:8px">2FA Enabled ✓</span><button class="btn btn-sm" id="twofa-disable-btn">Disable</button>';
+        panel.style.display = 'none'; panel.innerHTML = '';
+        bindDisable2FA();
+        toast('Two-factor authentication enabled.');
+      } catch (e) {
+        if (codeMsg) { codeMsg.textContent = 'Verification failed: ' + (e?.message || 'retry'); codeMsg.style.color = 'var(--red)'; }
+      } finally {
+        verifyBtn.disabled = false;
+      }
     });
     if (cancelBtn) cancelBtn.addEventListener('click', () => { panel.style.display = 'none'; panel.innerHTML = ''; });
   }
@@ -2222,27 +2338,49 @@ export async function pgSettings(setTopbar, currentUser) {
   }
   function bindDisable2FA() {
     const btn = document.getElementById('twofa-disable-btn');
-    if (btn) btn.addEventListener('click', () => {
+    if (btn) btn.addEventListener('click', async () => {
       if (!confirm('Disable two-factor authentication? Your account will be less secure.')) return;
-      // TODO: replace with real TOTP backend: api.disable2FA()
-      localStorage.setItem('ds_2fa_enabled', 'false');
-      localStorage.removeItem('ds_2fa_secret');
-      const wrap = document.getElementById('twofa-btn-wrap');
-      if (wrap) wrap.innerHTML = '<button class="btn btn-primary btn-sm" id="twofa-enable-btn">Enable 2FA</button>';
-      bindEnable2FA();
-      toast('Two-factor authentication disabled.', 'info');
+      const pw = prompt('Confirm your password to disable 2FA:');
+      if (!pw) return;
+      const code = prompt('Enter a current 6-digit authenticator code:');
+      if (!code) return;
+      try {
+        await api.disable2FA(pw, code);
+        try { localStorage.setItem('ds_2fa_enabled', 'false'); } catch {}
+        try { localStorage.removeItem('ds_2fa_secret'); } catch {}
+        const wrap = document.getElementById('twofa-btn-wrap');
+        if (wrap) wrap.innerHTML = '<button class="btn btn-primary btn-sm" id="twofa-enable-btn">Enable 2FA</button>';
+        bindEnable2FA();
+        toast('Two-factor authentication disabled.', 'info');
+      } catch (e) {
+        toast('Could not disable 2FA: ' + (e?.message || 'retry'), 'warning');
+      }
     });
   }
   bindEnable2FA();
   bindDisable2FA();
 
-  // ── Security: Active sessions (mock) ───────────────────────────────────────
-  const _mockSessions = [
+  // ── Security: Active sessions (API-backed with minimal fallback) ───────────
+  const _fallbackSessions = [
     { id: 'cur', device: 'This device · ' + (navigator.platform || 'Browser'), ip: '—', last: 'Active now', current: true },
-    { id: 's2',  device: 'Chrome on macOS', ip: '192.168.1.24', last: '2 hours ago', current: false },
-    { id: 's3',  device: 'Safari on iPhone', ip: '10.0.0.8',    last: 'Yesterday',   current: false },
   ];
-  window._dsSessions = window._dsSessions || _mockSessions.slice();
+  function formatSessionRow(s) {
+    return {
+      id: s.id,
+      device:  s.device || s.user_agent || 'Unknown device',
+      ip:      s.ip || s.ip_address || '—',
+      last:    s.last || s.last_seen_at || s.last_seen || '—',
+      current: !!(s.current ?? s.is_current),
+    };
+  }
+  async function loadSessions() {
+    try {
+      const res = await api.listAuthSessions();
+      const list = Array.isArray(res) ? res : (res?.items || res?.sessions || []);
+      if (Array.isArray(list)) return list.map(formatSessionRow);
+    } catch {}
+    return _fallbackSessions.slice();
+  }
 
   function renderSessions() {
     const host = document.getElementById('sessions-list');
@@ -2252,31 +2390,39 @@ export async function pgSettings(setTopbar, currentUser) {
     host.innerHTML = list.map((s, i) => `
       <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 0;${i < list.length - 1 ? 'border-bottom:1px solid var(--border);' : ''}">
         <div style="min-width:0;flex:1">
-          <div style="font-size:13px;font-weight:500;color:var(--text-primary)">${s.device}${s.current ? ' <span style="font-size:10px;padding:1px 6px;border-radius:4px;background:rgba(0,212,188,0.1);color:var(--teal);margin-left:6px">Current</span>' : ''}</div>
-          <div style="font-size:11.5px;color:var(--text-secondary)">IP ${s.ip} · ${s.last}</div>
+          <div style="font-size:13px;font-weight:500;color:var(--text-primary)">${escAttr(s.device)}${s.current ? ' <span style="font-size:10px;padding:1px 6px;border-radius:4px;background:rgba(0,212,188,0.1);color:var(--teal);margin-left:6px">Current</span>' : ''}</div>
+          <div style="font-size:11.5px;color:var(--text-secondary)">IP ${escAttr(s.ip)} · ${escAttr(s.last)}</div>
         </div>
-        ${s.current ? '' : `<a href="#" data-sid="${s.id}" class="sess-signout" style="font-size:12px;color:var(--red);text-decoration:none">Sign out</a>`}
+        ${s.current ? '' : `<a href="#" data-sid="${escAttr(s.id)}" class="sess-signout" style="font-size:12px;color:var(--red);text-decoration:none">Sign out</a>`}
       </div>
     `).join('');
     host.querySelectorAll('.sess-signout').forEach(a => {
-      a.addEventListener('click', (e) => {
+      a.addEventListener('click', async (e) => {
         e.preventDefault();
         const sid = a.getAttribute('data-sid');
-        // TODO: api.revokeSession(sid) — stub clears mock entry
-        window._dsSessions = window._dsSessions.filter(x => x.id !== sid);
-        renderSessions();
-        toast('Session signed out.', 'info');
+        try {
+          await api.revokeAuthSession(sid);
+          window._dsSessions = (window._dsSessions || []).filter(x => x.id !== sid);
+          renderSessions();
+          toast('Session signed out.', 'info');
+        } catch (err) {
+          toast('Could not sign out session: ' + (err?.message || 'retry'), 'warning');
+        }
       });
     });
   }
-  renderSessions();
+  (async () => { window._dsSessions = await loadSessions(); renderSessions(); })();
   const signoutAllBtn = document.getElementById('sessions-signout-all');
-  if (signoutAllBtn) signoutAllBtn.addEventListener('click', () => {
+  if (signoutAllBtn) signoutAllBtn.addEventListener('click', async () => {
     if (!confirm('Sign out of all other devices? They will need to log in again.')) return;
-    // TODO: api.revokeAllSessions() — stub keeps only current
-    window._dsSessions = (window._dsSessions || []).filter(s => s.current);
-    renderSessions();
-    alert('All other devices have been signed out.');
+    try {
+      await api.revokeOtherAuthSessions();
+      window._dsSessions = (window._dsSessions || []).filter(s => s.current);
+      renderSessions();
+      toast('All other devices have been signed out.', 'success');
+    } catch (e) {
+      toast('Could not sign out other devices: ' + (e?.message || 'retry'), 'warning');
+    }
   });
 
   // ── Security: Audit log link ───────────────────────────────────────────────
@@ -2289,22 +2435,36 @@ export async function pgSettings(setTopbar, currentUser) {
     }
   });
 
-  // ── Clinic profile wiring ──────────────────────────────────────────────────
-  // TODO: add api.updateClinicProfile(data) endpoint
+  // ── Clinic profile wiring (API-backed with localStorage mirror) ────────────
   const persist = (key, val) => { try { localStorage.setItem(key, val); } catch {} };
 
-  // Clinic Logo: crop to 512×512 via canvas, persist base64
+  // If server has no clinic row yet, create on first save.
+  let _clinicExists = !!(serverClinic?.id || serverClinic?.name);
+  async function _saveClinicField(fields) {
+    try {
+      if (_clinicExists) await api.updateClinic(fields);
+      else { await api.createClinic(fields); _clinicExists = true; }
+      return true;
+    } catch (e) {
+      console.warn('[settings] clinic save failed', e?.message);
+      toast(`Not saved to server — cached locally. (${e?.message || 'retry'})`, 'warning');
+      return false;
+    }
+  }
+
+  // Clinic Logo: upload via multipart to backend; fall back to client-side crop.
   const clinicLogoInput   = document.getElementById('clinic-logo-input');
   const clinicLogoPreview = document.getElementById('clinic-logo-preview');
   const clinicLogoClear   = document.getElementById('clinic-logo-clear');
   if (clinicLogoInput) {
-    clinicLogoInput.addEventListener('change', (e) => {
+    clinicLogoInput.addEventListener('change', async (e) => {
       const file = e.target.files && e.target.files[0];
       if (!file) return;
       const reader = new FileReader();
       reader.onload = (ev) => {
         const img = new Image();
-        img.onload = () => {
+        img.onload = async () => {
+          let dataUrl = ev.target.result;
           try {
             const MAX = 512;
             const scale = Math.min(1, MAX / Math.max(img.width, img.height));
@@ -2314,15 +2474,23 @@ export async function pgSettings(setTopbar, currentUser) {
             canvas.width = w; canvas.height = h;
             const ctx = canvas.getContext('2d');
             ctx.drawImage(img, 0, 0, w, h);
-            const dataUrl = canvas.toDataURL('image/png');
-            persist('ds_clinic_logo', dataUrl);
-            if (clinicLogoPreview) { clinicLogoPreview.style.background = `url('${dataUrl}') center/cover`; clinicLogoPreview.textContent = ''; }
-            if (clinicLogoClear) { clinicLogoClear.disabled = false; clinicLogoClear.style.opacity = ''; }
+            dataUrl = canvas.toDataURL('image/png');
+          } catch {}
+          if (clinicLogoPreview) { clinicLogoPreview.style.background = `url('${dataUrl}') center/cover`; clinicLogoPreview.textContent = ''; }
+          if (clinicLogoClear) { clinicLogoClear.disabled = false; clinicLogoClear.style.opacity = ''; }
+          try {
+            const res = await api.uploadClinicLogo(file);
+            const remoteUrl = res?.logo_url || res?.url;
+            if (remoteUrl) {
+              if (clinicLogoPreview) { clinicLogoPreview.style.background = `url('${remoteUrl}') center/cover`; }
+              persist('ds_clinic_logo', remoteUrl);
+            } else {
+              persist('ds_clinic_logo', dataUrl);
+            }
             toast('Clinic logo updated.');
           } catch (err) {
-            persist('ds_clinic_logo', ev.target.result);
-            if (clinicLogoPreview) { clinicLogoPreview.style.background = `url('${ev.target.result}') center/cover`; clinicLogoPreview.textContent = ''; }
-            toast('Clinic logo updated (uncropped).');
+            persist('ds_clinic_logo', dataUrl);
+            toast('Logo saved locally (upload failed: ' + (err?.message || 'retry') + ')', 'warning');
           }
         };
         img.src = ev.target.result;
@@ -2339,23 +2507,40 @@ export async function pgSettings(setTopbar, currentUser) {
     });
   }
 
-  // Per-field inline saves
-  const bindFieldSave = (btnId, fieldId, lsKey, label) => {
+  // Per-field inline saves — PATCH clinic, mirror to localStorage.
+  const bindFieldSave = (btnId, fieldId, lsKey, label, apiKey, transform) => {
     const btn = document.getElementById(btnId);
     if (!btn) return;
-    btn.addEventListener('click', () => {
-      const v = (document.getElementById(fieldId)?.value || '').trim();
-      persist(lsKey, v);
-      toast(`${label} saved.`);
+    btn.addEventListener('click', async () => {
+      const raw = (document.getElementById(fieldId)?.value || '').trim();
+      const apiVal = transform ? transform(raw) : raw;
+      btn.disabled = true;
+      try {
+        await _saveClinicField({ [apiKey]: apiVal });
+        persist(lsKey, raw);
+        toast(`${label} saved.`);
+      } catch {
+        persist(lsKey, raw);
+      } finally {
+        btn.disabled = false;
+      }
     });
   };
-  bindFieldSave('clinic-save-name',        'clinic-name',        'ds_clinic_name',        'Clinic name');
-  bindFieldSave('clinic-save-address',     'clinic-address',     'ds_clinic_address',     'Address');
-  bindFieldSave('clinic-save-phone',       'clinic-phone',       'ds_clinic_phone',       'Phone');
-  bindFieldSave('clinic-save-email',       'clinic-email',       'ds_clinic_email',       'Clinic email');
-  bindFieldSave('clinic-save-website',     'clinic-website',     'ds_clinic_website',     'Website');
-  bindFieldSave('clinic-save-tz',          'clinic-tz',          'ds_clinic_tz',          'Timezone');
-  bindFieldSave('clinic-save-specialties', 'clinic-specialties', 'ds_clinic_specialties', 'Specialties');
+  bindFieldSave('clinic-save-name',        'clinic-name',        'ds_clinic_name',        'Clinic name',  'name');
+  bindFieldSave('clinic-save-address',     'clinic-address',     'ds_clinic_address',     'Address',      'address');
+  bindFieldSave('clinic-save-phone',       'clinic-phone',       'ds_clinic_phone',       'Phone',        'phone');
+  bindFieldSave('clinic-save-email',       'clinic-email',       'ds_clinic_email',       'Clinic email', 'email');
+  bindFieldSave('clinic-save-website',     'clinic-website',     'ds_clinic_website',     'Website',      'website');
+  bindFieldSave('clinic-save-tz',          'clinic-tz',          'ds_clinic_tz',          'Timezone',     'timezone');
+  // Specialties: CSV in UI → array on server.
+  bindFieldSave(
+    'clinic-save-specialties',
+    'clinic-specialties',
+    'ds_clinic_specialties',
+    'Specialties',
+    'specialties',
+    (csv) => csv.split(',').map(s => s.trim()).filter(Boolean),
+  );
 
   // Working Hours: collect from table rows → JSON
   const collectHours = () => {
@@ -2370,38 +2555,65 @@ export async function pgSettings(setTopbar, currentUser) {
     return out;
   };
   const saveHoursBtn = document.getElementById('clinic-save-hours');
-  if (saveHoursBtn) saveHoursBtn.addEventListener('click', () => {
+  if (saveHoursBtn) saveHoursBtn.addEventListener('click', async () => {
     const data = collectHours();
-    persist('ds_clinic_hours', JSON.stringify(data));
-    toast('Working hours saved.');
+    saveHoursBtn.disabled = true;
+    try {
+      await api.updateWorkingHours(data);
+      persist('ds_clinic_hours', JSON.stringify(data));
+      toast('Working hours saved.');
+    } catch (e) {
+      persist('ds_clinic_hours', JSON.stringify(data));
+      toast('Working hours saved locally (server sync failed: ' + (e?.message || 'retry') + ')', 'warning');
+    } finally {
+      saveHoursBtn.disabled = false;
+    }
   });
 
-  // Save All
+  // Save All — PATCH whole clinic + working hours in parallel.
   const saveAllBtn = document.getElementById('clinic-save-all');
-  if (saveAllBtn) saveAllBtn.addEventListener('click', () => {
-    const pairs = [
-      ['clinic-name',        'ds_clinic_name'],
-      ['clinic-address',     'ds_clinic_address'],
-      ['clinic-phone',       'ds_clinic_phone'],
-      ['clinic-email',       'ds_clinic_email'],
-      ['clinic-website',     'ds_clinic_website'],
-      ['clinic-tz',          'ds_clinic_tz'],
-      ['clinic-specialties', 'ds_clinic_specialties'],
-    ];
-    pairs.forEach(([id, key]) => {
-      const v = (document.getElementById(id)?.value || '').trim();
-      persist(key, v);
-    });
-    persist('ds_clinic_hours', JSON.stringify(collectHours()));
+  if (saveAllBtn) saveAllBtn.addEventListener('click', async () => {
+    const g = (id) => (document.getElementById(id)?.value || '').trim();
+    const patch = {
+      name:        g('clinic-name'),
+      address:     g('clinic-address'),
+      phone:       g('clinic-phone'),
+      email:       g('clinic-email'),
+      website:     g('clinic-website'),
+      timezone:    g('clinic-tz'),
+      specialties: g('clinic-specialties').split(',').map(s => s.trim()).filter(Boolean),
+    };
+    persist('ds_clinic_name',        patch.name);
+    persist('ds_clinic_address',     patch.address);
+    persist('ds_clinic_phone',       patch.phone);
+    persist('ds_clinic_email',       patch.email);
+    persist('ds_clinic_website',     patch.website);
+    persist('ds_clinic_tz',          patch.timezone);
+    persist('ds_clinic_specialties', g('clinic-specialties'));
+    const hours = collectHours();
+    persist('ds_clinic_hours', JSON.stringify(hours));
+
+    saveAllBtn.disabled = true;
     const msg = document.getElementById('clinic-save-all-msg');
-    if (msg) { msg.textContent = 'All clinic settings saved.'; msg.style.color = 'var(--green)'; setTimeout(() => { if (msg) msg.textContent = ''; }, 3000); }
-    toast('All clinic settings saved.', 'success');
+    let ok = true;
+    try {
+      if (_clinicExists) await api.updateClinic(patch);
+      else { await api.createClinic(patch); _clinicExists = true; }
+    } catch (e) {
+      ok = false;
+      if (msg) { msg.textContent = 'Clinic save failed: ' + (e?.message || 'retry'); msg.style.color = 'var(--amber)'; }
+    }
+    try { await api.updateWorkingHours(hours); } catch (e) { ok = false; if (msg) { msg.textContent = 'Hours save failed: ' + (e?.message || 'retry'); msg.style.color = 'var(--amber)'; } }
+    saveAllBtn.disabled = false;
+    if (ok) {
+      if (msg) { msg.textContent = 'All clinic settings saved.'; msg.style.color = 'var(--green)'; setTimeout(() => { if (msg) msg.textContent = ''; }, 3000); }
+      toast('All clinic settings saved.', 'success');
+    } else {
+      toast('Some clinic settings did not sync to server — cached locally.', 'warning');
+    }
   });
 
-  // ── Team Members wiring ────────────────────────────────────────────────────
-  // TODO: add api.listTeamMembers() endpoint — using localStorage mock
-  // TODO: add api.inviteTeamMember(email, role) endpoint
-  // TODO: add api.revokeTeamMemberInvite(id) endpoint
+  // ── Team Members wiring (API-backed with localStorage fallback) ────────────
   const roleChipStyle = (role) => {
     switch (role) {
       case 'admin':      return 'background:rgba(239,68,68,0.1);color:var(--red)';
@@ -2421,9 +2633,22 @@ export async function pgSettings(setTopbar, currentUser) {
 
   async function loadTeam() {
     try {
-      if (typeof api !== 'undefined' && typeof api.listTeamMembers === 'function') {
-        const list = await api.listTeamMembers();
-        if (Array.isArray(list)) return list;
+      if (typeof api.listTeam === 'function') {
+        const res = await api.listTeam();
+        if (Array.isArray(res)) return res;
+        if (res && typeof res === 'object') {
+          const members = Array.isArray(res.members) ? res.members.map(m => ({ ...m, pending_invite: false })) : [];
+          const invites = Array.isArray(res.invites) ? res.invites.map(i => ({
+            id: i.id,
+            name: i.email,
+            email: i.email,
+            role: i.role || 'clinician',
+            pending_invite: true,
+            invited_at: i.invited_at || i.created_at || Date.now(),
+            last_active: 'Pending',
+          })) : [];
+          return [...members, ...invites];
+        }
       }
     } catch {}
     return savedTeam;
@@ -2480,15 +2705,29 @@ export async function pgSettings(setTopbar, currentUser) {
           `).join('')}
         </div>
       `);
-      pendingWrap.querySelectorAll('.team-resend').forEach(a => a.addEventListener('click', (e) => {
+      pendingWrap.querySelectorAll('.team-resend').forEach(a => a.addEventListener('click', async (e) => {
         e.preventDefault();
         const id = a.getAttribute('data-tid');
         const m = savedTeam.find(x => x.id === id);
-        if (m) { m.invited_at = Date.now(); persistTeam(savedTeam); renderTeam(); toast(`Invite re-sent to ${m.email}.`); }
+        if (!m) return;
+        try {
+          // "Resend" re-invites with same email+role; backend team router refreshes TTL.
+          await api.inviteTeamMember(m.email, m.role);
+          m.invited_at = Date.now();
+          persistTeam(savedTeam);
+          renderTeam();
+          toast(`Invite re-sent to ${m.email}.`);
+        } catch (err) {
+          toast('Could not resend invite: ' + (err?.message || 'retry'), 'warning');
+        }
       }));
-      pendingWrap.querySelectorAll('.team-cancel').forEach(a => a.addEventListener('click', (e) => {
+      pendingWrap.querySelectorAll('.team-cancel').forEach(a => a.addEventListener('click', async (e) => {
         e.preventDefault();
         const id = a.getAttribute('data-tid');
+        try { await api.revokeTeamInvite(id); } catch (err) {
+          toast('Could not revoke invite: ' + (err?.message || 'retry'), 'warning');
+          return;
+        }
         const next = savedTeam.filter(x => x.id !== id);
         persistTeam(next); renderTeam(); toast('Invite cancelled.', 'info');
       }));
@@ -2502,7 +2741,7 @@ export async function pgSettings(setTopbar, currentUser) {
   })();
 
   const inviteBtn = document.getElementById('team-invite-btn');
-  if (inviteBtn) inviteBtn.addEventListener('click', () => {
+  if (inviteBtn) inviteBtn.addEventListener('click', async () => {
     const emailEl = document.getElementById('team-invite-email');
     const roleEl  = document.getElementById('team-invite-role');
     const msgEl   = document.getElementById('team-invite-msg');
@@ -2516,20 +2755,36 @@ export async function pgSettings(setTopbar, currentUser) {
       if (msgEl) { msgEl.textContent = 'That email is already on the team.'; msgEl.style.color = 'var(--amber)'; }
       return;
     }
-    const entry = { id: 'inv-' + Date.now().toString(36), name: email, email, role, pending_invite: true, invited_at: Date.now(), last_active: 'Pending' };
-    savedTeam.push(entry);
-    persistTeam(savedTeam);
-    renderTeam();
-    if (emailEl) emailEl.value = '';
-    if (msgEl)   { msgEl.textContent = ''; msgEl.style.color = 'var(--text-secondary)'; }
-    // TODO: replace alert with in-app toast (already using toast helper when available)
-    toast(`Invite sent to ${email}.`);
+    inviteBtn.disabled = true;
+    try {
+      const res = await api.inviteTeamMember(email, role);
+      const newId = res?.id || ('inv-' + Date.now().toString(36));
+      const entry = { id: newId, name: email, email, role, pending_invite: true, invited_at: Date.now(), last_active: 'Pending' };
+      savedTeam.push(entry);
+      persistTeam(savedTeam);
+      renderTeam();
+      if (emailEl) emailEl.value = '';
+      if (msgEl)   { msgEl.textContent = ''; msgEl.style.color = 'var(--text-secondary)'; }
+      toast(`Invite sent to ${email}.`);
+    } catch (err) {
+      if (msgEl) { msgEl.textContent = 'Invite failed: ' + (err?.message || 'retry'); msgEl.style.color = 'var(--red)'; }
+      toast('Invite failed.', 'warning');
+    } finally {
+      inviteBtn.disabled = false;
+    }
   });
 
-  // ── Notifications wiring ───────────────────────────────────────────────────
-  // TODO: add api.updateNotificationPrefs() endpoint — localStorage for now
+  // ── Notifications wiring (API-backed with localStorage mirror) ─────────────
+  // Debounce: the matrix changes in bursts, so coalesce PATCH calls.
+  let _notifPatchTimer = null;
   const persistNotifPrefs = () => {
     try { localStorage.setItem('ds_notification_prefs', JSON.stringify(notifPrefs)); } catch {}
+    clearTimeout(_notifPatchTimer);
+    _notifPatchTimer = setTimeout(() => {
+      api.updatePreferences({ notification_prefs: notifPrefs }).catch((e) => {
+        console.warn('[settings] notif prefs sync failed', e?.message);
+      });
+    }, 400);
   };
   const notifMsg = document.getElementById('notif-matrix-msg');
   const flashNotifSaved = () => {
@@ -2551,8 +2806,15 @@ export async function pgSettings(setTopbar, currentUser) {
     });
   });
 
+  let _quietPatchTimer = null;
   const persistQuiet = () => {
     try { localStorage.setItem('ds_quiet_hours', JSON.stringify(quietHours)); } catch {}
+    clearTimeout(_quietPatchTimer);
+    _quietPatchTimer = setTimeout(() => {
+      api.updatePreferences({ quiet_hours: quietHours }).catch((e) => {
+        console.warn('[settings] quiet hours sync failed', e?.message);
+      });
+    }, 400);
   };
   const quietFrom    = document.getElementById('quiet-from');
   const quietTo      = document.getElementById('quiet-to');
@@ -2563,12 +2825,20 @@ export async function pgSettings(setTopbar, currentUser) {
 
   document.querySelectorAll('input[name="digest-freq"]').forEach(r => {
     r.addEventListener('change', () => {
-      if (r.checked) { try { localStorage.setItem('ds_digest_freq', r.value); } catch {} }
+      if (r.checked) {
+        try { localStorage.setItem('ds_digest_freq', r.value); } catch {}
+        api.updatePreferences({ digest_freq: r.value }).catch((e) => {
+          console.warn('[settings] digest_freq sync failed', e?.message);
+        });
+      }
     });
   });
 
   const persistReminderTiming = () => {
     try { localStorage.setItem('ds_reminder_timing', JSON.stringify(reminderTiming)); } catch {}
+    api.updatePreferences({ reminder_timing: reminderTiming }).catch((e) => {
+      console.warn('[settings] reminder_timing sync failed', e?.message);
+    });
   };
   document.querySelectorAll('.reminder-chip').forEach(btn => {
     btn.addEventListener('click', () => {
@@ -2588,8 +2858,7 @@ export async function pgSettings(setTopbar, currentUser) {
     });
   });
 
-  // ── Preferences wiring ─────────────────────────────────────────────────────
-  // TODO: add api.updateUserPreferences() endpoint — localStorage for now
+  // ── Preferences wiring (API-backed with localStorage mirror) ───────────────
   const prefMsg = document.getElementById('pref-save-msg');
   const flashPrefSaved = () => {
     if (!prefMsg) return;
@@ -2597,6 +2866,15 @@ export async function pgSettings(setTopbar, currentUser) {
     prefMsg.style.color = 'var(--teal)';
     clearTimeout(flashPrefSaved._t);
     flashPrefSaved._t = setTimeout(() => { prefMsg.textContent = ''; prefMsg.style.color = 'var(--text-tertiary)'; }, 1400);
+  };
+  const flashPrefFailed = (msg) => {
+    if (!prefMsg) return;
+    prefMsg.textContent = 'Not saved — retry. ' + (msg || '');
+    prefMsg.style.color = 'var(--amber)';
+  };
+  const _syncPref = (patch, lsKey, lsVal) => {
+    try { localStorage.setItem(lsKey, String(lsVal)); } catch {}
+    api.updatePreferences(patch).then(flashPrefSaved).catch((e) => flashPrefFailed(e?.message || ''));
   };
 
   const langSel = document.getElementById('pref-language');
@@ -2606,45 +2884,44 @@ export async function pgSettings(setTopbar, currentUser) {
     try {
       if (typeof setLocale === 'function') setLocale(code);
     } catch {}
+    // Fire-and-forget — reload below will re-fetch anyway.
+    api.updatePreferences({ language: code }).catch(() => {});
     flashPrefSaved();
-    // Reload so every label updates consistently
     setTimeout(() => { try { window.location.reload(); } catch {} }, 300);
   });
 
   document.querySelectorAll('input[name="pref-date-format"]').forEach(r => {
-    r.addEventListener('change', () => { if (r.checked) { try { localStorage.setItem('ds_date_format', r.value); } catch {} flashPrefSaved(); } });
+    r.addEventListener('change', () => { if (r.checked) _syncPref({ date_format: r.value }, 'ds_date_format', r.value); });
   });
   document.querySelectorAll('input[name="pref-time-format"]').forEach(r => {
-    r.addEventListener('change', () => { if (r.checked) { try { localStorage.setItem('ds_time_format', r.value); } catch {} flashPrefSaved(); } });
+    r.addEventListener('change', () => { if (r.checked) _syncPref({ time_format: r.value }, 'ds_time_format', r.value); });
   });
   document.querySelectorAll('input[name="pref-first-day"]').forEach(r => {
-    r.addEventListener('change', () => { if (r.checked) { try { localStorage.setItem('ds_first_day', r.value); } catch {} flashPrefSaved(); } });
+    r.addEventListener('change', () => { if (r.checked) _syncPref({ first_day: r.value }, 'ds_first_day', r.value); });
   });
   document.querySelectorAll('input[name="pref-units"]').forEach(r => {
-    r.addEventListener('change', () => { if (r.checked) { try { localStorage.setItem('ds_units', r.value); } catch {} flashPrefSaved(); } });
+    r.addEventListener('change', () => { if (r.checked) _syncPref({ units: r.value }, 'ds_units', r.value); });
   });
   document.querySelectorAll('input[name="pref-number-format"]').forEach(r => {
-    r.addEventListener('change', () => { if (r.checked) { try { localStorage.setItem('ds_number_format', r.value); } catch {} flashPrefSaved(); } });
+    r.addEventListener('change', () => { if (r.checked) _syncPref({ number_format: r.value }, 'ds_number_format', r.value); });
   });
 
   const durInput = document.getElementById('pref-session-duration');
   if (durInput) durInput.addEventListener('change', () => {
     const n = parseInt(durInput.value, 10);
     if (Number.isFinite(n) && n >= 5 && n <= 240) {
-      try { localStorage.setItem('ds_session_default_duration', String(n)); } catch {}
-      flashPrefSaved();
+      _syncPref({ session_default_duration_min: n }, 'ds_session_default_duration', String(n));
     }
   });
 
   const autoLogoutSel = document.getElementById('pref-auto-logout');
   if (autoLogoutSel) autoLogoutSel.addEventListener('change', () => {
-    // TODO: wire ds_auto_logout to idle-session watchdog
-    try { localStorage.setItem('ds_auto_logout', autoLogoutSel.value); } catch {}
-    flashPrefSaved();
+    const v = autoLogoutSel.value;
+    const minutes = v === 'never' ? 0 : parseInt(v, 10);
+    _syncPref({ auto_logout_min: Number.isFinite(minutes) ? minutes : 30 }, 'ds_auto_logout', v);
   });
 
-  // ── Data & Privacy wiring ──────────────────────────────────────────────────
-  // TODO: add api.requestDataExport() endpoint — localStorage bundle is a stop-gap
+  // ── Data & Privacy wiring (API-backed) ─────────────────────────────────────
   const dpMsg = document.getElementById('dp-save-msg');
   const flashDpSaved = () => {
     if (!dpMsg) return;
@@ -2697,11 +2974,13 @@ export async function pgSettings(setTopbar, currentUser) {
   const analyticsOpt = document.getElementById('dp-analytics-opt');
   if (analyticsOpt) analyticsOpt.addEventListener('change', () => {
     try { localStorage.setItem('ds_analytics_opt_in', analyticsOpt.checked ? 'true' : 'false'); } catch {}
+    api.updatePreferences({ analytics_opt_in: !!analyticsOpt.checked }).catch((e) => console.warn('[settings] analytics opt-in sync failed', e?.message));
     flashDpSaved();
   });
   const errorsOpt = document.getElementById('dp-errors-opt');
   if (errorsOpt) errorsOpt.addEventListener('change', () => {
     try { localStorage.setItem('ds_error_reports_opt_in', errorsOpt.checked ? 'true' : 'false'); } catch {}
+    api.updatePreferences({ error_reports_opt_in: !!errorsOpt.checked }).catch((e) => console.warn('[settings] error reports opt-in sync failed', e?.message));
     flashDpSaved();
   });
 
@@ -2724,8 +3003,7 @@ export async function pgSettings(setTopbar, currentUser) {
     flashDpSaved();
   });
 
-  // ── Clinical Defaults wiring ───────────────────────────────────────────────
-  // TODO: add api.updateClinicalDefaults() endpoint
+  // ── Clinical Defaults wiring (API-backed with localStorage mirror) ─────────
   const cdMsg = document.getElementById('cd-save-msg');
   const flashCdSaved = () => {
     if (!cdMsg) return;
@@ -2734,20 +3012,26 @@ export async function pgSettings(setTopbar, currentUser) {
     clearTimeout(flashCdSaved._t);
     flashCdSaved._t = setTimeout(() => { cdMsg.textContent = ''; cdMsg.style.color = 'var(--text-tertiary)'; }, 1400);
   };
+  const flashCdFailed = (msg) => {
+    if (!cdMsg) return;
+    cdMsg.textContent = 'Not saved — retry. ' + (msg || '');
+    cdMsg.style.color = 'var(--amber)';
+  };
+  const _syncCd = (patch, lsKey, lsVal) => {
+    try { localStorage.setItem(lsKey, String(lsVal)); } catch {}
+    api.updateClinicalDefaults(patch).then(flashCdSaved).catch((e) => flashCdFailed(e?.message || ''));
+  };
 
   const cdProto = document.getElementById('cd-default-protocol');
   if (cdProto) cdProto.addEventListener('change', () => {
-    // TODO: wire ds_default_protocol to intake flow's protocol picker
-    try { localStorage.setItem('ds_default_protocol', cdProto.value); } catch {}
-    flashCdSaved();
+    _syncCd({ default_protocol_id: cdProto.value }, 'ds_default_protocol', cdProto.value);
   });
 
   const cdDur = document.getElementById('cd-session-duration');
   if (cdDur) cdDur.addEventListener('change', () => {
     const n = parseInt(cdDur.value, 10);
     if (Number.isFinite(n) && n >= 5 && n <= 240) {
-      try { localStorage.setItem('ds_default_session_duration', String(n)); } catch {}
-      flashCdSaved();
+      _syncCd({ default_session_duration_min: n }, 'ds_default_session_duration', String(n));
     }
   });
 
@@ -2755,8 +3039,7 @@ export async function pgSettings(setTopbar, currentUser) {
   if (cdFup) cdFup.addEventListener('change', () => {
     const n = parseInt(cdFup.value, 10);
     if (Number.isFinite(n) && n >= 1 && n <= 52) {
-      try { localStorage.setItem('ds_default_followup_weeks', String(n)); } catch {}
-      flashCdSaved();
+      _syncCd({ default_followup_weeks: n }, 'ds_default_followup_weeks', String(n));
     }
   });
 
@@ -2764,8 +3047,7 @@ export async function pgSettings(setTopbar, currentUser) {
   if (cdCourse) cdCourse.addEventListener('change', () => {
     const n = parseInt(cdCourse.value, 10);
     if (Number.isFinite(n) && n >= 1 && n <= 200) {
-      try { localStorage.setItem('ds_default_course_length', String(n)); } catch {}
-      flashCdSaved();
+      _syncCd({ default_course_length: n }, 'ds_default_course_length', String(n));
     }
   });
 
@@ -2773,38 +3055,31 @@ export async function pgSettings(setTopbar, currentUser) {
   const cdCustomWrap = document.getElementById('cd-custom-consent-wrap');
   const cdCustom = document.getElementById('cd-custom-consent');
   if (cdConsent) cdConsent.addEventListener('change', () => {
-    try { localStorage.setItem('ds_default_consent_template', cdConsent.value); } catch {}
     if (cdCustomWrap) cdCustomWrap.style.display = (cdConsent.value === 'Custom (edit below)') ? 'block' : 'none';
-    flashCdSaved();
+    _syncCd({ default_consent_template_id: cdConsent.value }, 'ds_default_consent_template', cdConsent.value);
   });
   if (cdCustom) cdCustom.addEventListener('change', () => {
-    try { localStorage.setItem('ds_custom_consent_text', cdCustom.value); } catch {}
-    flashCdSaved();
+    _syncCd({ custom_consent_text: cdCustom.value }, 'ds_custom_consent_text', cdCustom.value);
   });
 
   const cdDisclaimer = document.getElementById('cd-disclaimer');
   if (cdDisclaimer) cdDisclaimer.addEventListener('change', () => {
-    try { localStorage.setItem('ds_default_disclaimer', cdDisclaimer.value); } catch {}
-    flashCdSaved();
+    _syncCd({ default_disclaimer: cdDisclaimer.value }, 'ds_default_disclaimer', cdDisclaimer.value);
   });
 
   document.querySelectorAll('.cd-assessment').forEach(cb => {
     cb.addEventListener('change', () => {
-      // TODO: wire ds_default_assessments to intake auto-assign
       const selected = Array.from(document.querySelectorAll('.cd-assessment'))
         .filter(x => x.checked)
         .map(x => x.value);
       try { localStorage.setItem('ds_default_assessments', JSON.stringify(selected)); } catch {}
-      flashCdSaved();
+      api.updateClinicalDefaults({ default_assessments: selected }).then(flashCdSaved).catch((e) => flashCdFailed(e?.message || ''));
     });
   });
 
   document.querySelectorAll('input[name="cd-ae-protocol"]').forEach(r => {
     r.addEventListener('change', () => {
-      if (r.checked) {
-        try { localStorage.setItem('ds_ae_protocol', r.value); } catch {}
-        flashCdSaved();
-      }
+      if (r.checked) _syncCd({ ae_protocol: r.value }, 'ds_ae_protocol', r.value);
     });
   });
 }
