@@ -2753,12 +2753,37 @@ select.form-control { background-image: url("data:image/svg+xml,%3Csvg xmlns='ht
   }
 }
 
-/* Override: at 480px, tighten topbar padding below the 768px value above */
+/* ── Topbar at iPhone SE / 375px — hide secondary chrome so primary actions
+      (+ Run Assessment / Assign) and the Adverse Event safety button stay
+      reachable without horizontal scroll. ──────────────────────────────── */
 @media (max-width: 480px) {
   #topbar {
     padding: 0 8px !important;
     gap: 6px !important;
   }
+  #page-title {
+    font-size: 13px !important;
+    max-width: calc(100vw - 260px) !important;
+  }
+  /* Hide non-essential chrome — clinic switcher lives in sidebar; language
+     and global search remain available through Settings / command palette. */
+  #clinic-switcher,
+  .lang-switcher-wrap,
+  #search-btn {
+    display: none !important;
+  }
+  #topbar-right {
+    gap: 4px !important;
+    border-left: none !important;
+    padding-left: 0 !important;
+  }
+  #topbar-actions { gap: 4px !important; }
+  #topbar-actions .btn {
+    padding: 5px 8px !important;
+    font-size: 11px !important;
+    white-space: nowrap !important;
+  }
+  #topbar-actions .btn-primary { padding: 5px 10px !important; }
 }
 
 /* ── Patient shell mobile ── */
