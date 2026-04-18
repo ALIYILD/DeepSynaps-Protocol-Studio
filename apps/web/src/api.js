@@ -344,6 +344,25 @@ export const api = {
   adminRefreshEvidenceStatus: () =>
     apiFetch('/api/v1/evidence/admin/refresh/status'),
 
+  // ── Live Literature Watch (spec: docs/SPEC-live-literature-watch.md) ────
+  // Per-protocol on-demand refresh + cross-protocol review queue + monthly
+  // spend gauge. PubMed is free; Consensus/Apify are stubs in v1.
+  litWatchRefresh: (protocolId, { source = 'pubmed', requested_by = null } = {}) =>
+    apiFetch(`/api/v1/protocols/${encodeURIComponent(protocolId)}/refresh-literature`, {
+      method: 'POST',
+      body: JSON.stringify({ source, requested_by }),
+    }),
+  litWatchJobs: (protocolId) =>
+    apiFetch(`/api/v1/protocols/${encodeURIComponent(protocolId)}/refresh-literature/jobs`),
+  litWatchPending: ({ limit = 50, offset = 0 } = {}) =>
+    apiFetch(`/api/v1/literature-watch/pending?limit=${limit}&offset=${offset}`),
+  litWatchReview: (pmid, { verdict, protocol_id }) =>
+    apiFetch(`/api/v1/literature-watch/${encodeURIComponent(pmid)}/review`, {
+      method: 'POST',
+      body: JSON.stringify({ verdict, protocol_id }),
+    }),
+  litWatchSpend: () => apiFetch('/api/v1/literature-watch/spend'),
+
   listBrainRegions: () => apiFetchWithRetry('/api/v1/brain-regions'),
   listQEEGBiomarkers: () => apiFetch('/api/v1/qeeg/biomarkers'),
   listQEEGConditionMap: () => apiFetch('/api/v1/qeeg/condition-map'),
@@ -825,6 +844,11 @@ export const api = {
   aiSummarizeReport: (reportId) =>
     apiFetch(`/api/v1/reports/${encodeURIComponent(reportId)}/ai-summary`, { method: 'POST' }),
 
+  // AI draft generator for Reports hub. Defaults to GLM-4.5-Flash (free tier)
+  // via BigModel/Z.AI. Returns structured sections.
+  generateReport: (payload) =>
+    apiFetch('/api/v1/reports/generate', { method: 'POST', body: JSON.stringify(payload) }),
+
   // ── Patient outcomes (portal alias) ─────────────────────────────────────
   patientOutcomes: () => apiFetch('/api/v1/patient-portal/outcomes'),
 
@@ -847,6 +871,51 @@ export const api = {
   },
   createReceptionTask: (data) => apiFetchWithRetry('/api/v1/reception/tasks', { method: 'POST', body: JSON.stringify(data) }),
   updateReceptionTask: (id, data) => apiFetchWithRetry(`/api/v1/reception/tasks/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+
+  // ── Finance Hub ─────────────────────────────────────────────────────────
+  // Invoices, payments, insurance claims, and analytics. All endpoints are
+  // auth-gated and clinician-scoped server-side.
+  finance: {
+    listInvoices: (params = {}) => {
+      const q = new URLSearchParams(
+        Object.entries(params).filter(([, v]) => v != null && v !== '')
+      ).toString();
+      return apiFetch('/api/v1/finance/invoices' + (q ? '?' + q : ''));
+    },
+    createInvoice: (body) =>
+      apiFetch('/api/v1/finance/invoices', { method: 'POST', body: JSON.stringify(body) }),
+    getInvoice: (id) =>
+      apiFetch('/api/v1/finance/invoices/' + encodeURIComponent(id)),
+    updateInvoice: (id, body) =>
+      apiFetch('/api/v1/finance/invoices/' + encodeURIComponent(id), { method: 'PATCH', body: JSON.stringify(body) }),
+    deleteInvoice: (id) =>
+      apiFetch('/api/v1/finance/invoices/' + encodeURIComponent(id), { method: 'DELETE' }),
+    markInvoicePaid: (id, body) =>
+      apiFetch('/api/v1/finance/invoices/' + encodeURIComponent(id) + '/mark-paid', { method: 'POST', body: JSON.stringify(body) }),
+
+    listPayments: () => apiFetch('/api/v1/finance/payments'),
+    createPayment: (body) =>
+      apiFetch('/api/v1/finance/payments', { method: 'POST', body: JSON.stringify(body) }),
+
+    listClaims: (params = {}) => {
+      const q = new URLSearchParams(
+        Object.entries(params).filter(([, v]) => v != null && v !== '')
+      ).toString();
+      return apiFetch('/api/v1/finance/claims' + (q ? '?' + q : ''));
+    },
+    createClaim: (body) =>
+      apiFetch('/api/v1/finance/claims', { method: 'POST', body: JSON.stringify(body) }),
+    getClaim: (id) =>
+      apiFetch('/api/v1/finance/claims/' + encodeURIComponent(id)),
+    updateClaim: (id, body) =>
+      apiFetch('/api/v1/finance/claims/' + encodeURIComponent(id), { method: 'PATCH', body: JSON.stringify(body) }),
+    deleteClaim: (id) =>
+      apiFetch('/api/v1/finance/claims/' + encodeURIComponent(id), { method: 'DELETE' }),
+
+    summary: () => apiFetch('/api/v1/finance/summary'),
+    monthlyAnalytics: (months = 6) =>
+      apiFetch('/api/v1/finance/analytics/monthly?months=' + encodeURIComponent(months)),
+  },
 };
 
 // Home program task mutation helpers (for web + future mobile/other bundles importing from `api.js`).

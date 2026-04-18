@@ -1,5 +1,6 @@
-// Patient-fillable self-report assessment forms.
-// Each entry is a config consumed by renderLikertForm() in pages-patient.js.
+// Patient-fillable self-report assessment forms + clinician-rated scales.
+// Each entry is a config consumed by renderLikertForm() in pages-patient.js
+// and the clinician administration modal in pages-clinical-hubs.js.
 //
 // Shape:
 //   {
@@ -9,7 +10,9 @@
 //     questions:   string[]
 //     options:     [{ value, label }]  // shared across all questions
 //     maxScore:    number              // for the "N / max" live counter
-//     severityFn:  (score) => ({ label, color })
+//     severityFn:  (score, answers?) => ({ label, color })
+//     clinicianRated?: boolean         // renders in clinician modal only
+//     safetyCritical?: boolean         // red-coded severity bands
 //   }
 //
 // Severity colors use the same CSS variable palette as PHQ-9:
@@ -54,6 +57,55 @@ const OPTS_DASS21 = [
   { value: 1, label: 'Applied to me to some degree' },
   { value: 2, label: 'Applied to me to a considerable degree' },
   { value: 3, label: 'Applied to me very much' },
+];
+
+// MADRS: 7-point 0–6 scale. Anchors on even steps; odd steps are
+// interpolated severities per the scale authors' intent.
+const OPTS_MADRS = [
+  { value: 0, label: '0 — None' },
+  { value: 1, label: '1' },
+  { value: 2, label: '2 — Mild' },
+  { value: 3, label: '3' },
+  { value: 4, label: '4 — Moderate' },
+  { value: 5, label: '5' },
+  { value: 6, label: '6 — Severe' },
+];
+
+// HDRS (HAM-D) simplified: 0–4 uniform on all 17 items. Original uses mixed
+// 0–2 and 0–4 ranges; platform build uses 0–4 throughout — see commit.
+const OPTS_HDRS = [
+  { value: 0, label: '0 — Absent' },
+  { value: 1, label: '1 — Mild / doubtful' },
+  { value: 2, label: '2 — Moderate' },
+  { value: 3, label: '3 — Severe' },
+  { value: 4, label: '4 — Very severe / incapacitating' },
+];
+
+// BPRS: 1–7 ("not present" → "extremely severe"). Value 0 is unused.
+const OPTS_BPRS = [
+  { value: 1, label: '1 — Not present' },
+  { value: 2, label: '2 — Very mild' },
+  { value: 3, label: '3 — Mild' },
+  { value: 4, label: '4 — Moderate' },
+  { value: 5, label: '5 — Moderately severe' },
+  { value: 6, label: '6 — Severe' },
+  { value: 7, label: '7 — Extremely severe' },
+];
+
+// YMRS simplified: 0–4 on all 11 items. Original uses 0–4 / 0–8 mix —
+// see commit notes for the simplification.
+const OPTS_YMRS = [
+  { value: 0, label: '0 — Absent' },
+  { value: 1, label: '1 — Mild' },
+  { value: 2, label: '2 — Moderate' },
+  { value: 3, label: '3 — Marked' },
+  { value: 4, label: '4 — Severe' },
+];
+
+// C-SSRS screening: binary Yes / No per item.
+const OPTS_CSSRS = [
+  { value: 0, label: 'No' },
+  { value: 1, label: 'Yes' },
 ];
 
 // ── Question banks ────────────────────────────────────────────────────────
@@ -149,6 +201,88 @@ const Q_DASS21 = [
   'I felt that life was meaningless',
 ];
 
+// MADRS — 10 items, clinician-rated.
+const Q_MADRS = [
+  'Apparent sadness',
+  'Reported sadness',
+  'Inner tension',
+  'Reduced sleep',
+  'Reduced appetite',
+  'Concentration difficulties',
+  'Lassitude (difficulty getting started)',
+  'Inability to feel',
+  'Pessimistic thoughts',
+  'Suicidal thoughts',
+];
+
+// HDRS (HAM-D) — 17-item classic.
+const Q_HDRS = [
+  'Depressed mood',
+  'Feelings of guilt',
+  'Suicide',
+  'Insomnia — early',
+  'Insomnia — middle',
+  'Insomnia — late',
+  'Work and activities',
+  'Retardation',
+  'Agitation',
+  'Anxiety — psychic',
+  'Anxiety — somatic',
+  'Somatic symptoms (GI)',
+  'Somatic symptoms (general)',
+  'Genital symptoms',
+  'Hypochondriasis',
+  'Loss of weight',
+  'Insight',
+];
+
+// BPRS — 18 items, clinician-rated.
+const Q_BPRS = [
+  'Somatic concern',
+  'Anxiety',
+  'Emotional withdrawal',
+  'Conceptual disorganization',
+  'Guilt feelings',
+  'Tension',
+  'Mannerisms and posturing',
+  'Grandiosity',
+  'Depressive mood',
+  'Hostility',
+  'Suspiciousness',
+  'Hallucinatory behavior',
+  'Motor retardation',
+  'Uncooperativeness',
+  'Unusual thought content',
+  'Blunted affect',
+  'Excitement',
+  'Disorientation',
+];
+
+// YMRS — 11 items, clinician-rated.
+const Q_YMRS = [
+  'Elevated mood',
+  'Increased motor activity-energy',
+  'Sexual interest',
+  'Sleep',
+  'Irritability',
+  'Speech (rate and amount)',
+  'Language — thought disorder',
+  'Content',
+  'Disruptive-aggressive behavior',
+  'Appearance',
+  'Insight',
+];
+
+// C-SSRS — 6-item screener (lifetime/recent ideation + behavior).
+const Q_CSSRS = [
+  'Have you wished you were dead or wished you could go to sleep and not wake up?',
+  'Have you actually had any thoughts of killing yourself?',
+  'Have you been thinking about how you might do this?',
+  'Have you had these thoughts and had some intention of acting on them?',
+  'Have you started to work out or worked out the details of how to kill yourself? Do you intend to carry out this plan?',
+  'Have you ever done anything, started to do anything, or prepared to do anything to end your life?',
+];
+
 // ── Severity bands ────────────────────────────────────────────────────────
 
 function sevPHQ9(score) {
@@ -195,6 +329,61 @@ function sevDASS21(score) {
   if (score <= 20) return { label: 'Moderate',           color: 'var(--blue)'  };
   if (score <= 27) return { label: 'Severe',             color: 'var(--amber)' };
   return               { label: 'Extremely severe',    color: '#ff6b6b'        };
+}
+
+// MADRS: 0–6 normal · 7–19 mild · 20–34 moderate · 35–60 severe.
+function sevMADRS(score) {
+  if (score <= 6)  return { label: 'Normal',   color: 'var(--green)' };
+  if (score <= 19) return { label: 'Mild',     color: 'var(--teal)'  };
+  if (score <= 34) return { label: 'Moderate', color: 'var(--blue)'  };
+  return               { label: 'Severe',    color: '#ff6b6b'        };
+}
+
+// HDRS (0–4 uniform simplification, max 68):
+//   0–7 normal · 8–16 mild · 17–23 moderate · 24+ severe.
+function sevHDRS(score) {
+  if (score <= 7)  return { label: 'Normal',   color: 'var(--green)' };
+  if (score <= 16) return { label: 'Mild',     color: 'var(--teal)'  };
+  if (score <= 23) return { label: 'Moderate', color: 'var(--blue)'  };
+  return               { label: 'Severe',    color: '#ff6b6b'        };
+}
+
+// BPRS: <31 mild · 31–40 moderate · 41+ severe (approximate clinical bands).
+function sevBPRS(score) {
+  if (score < 31)  return { label: 'Mild',     color: 'var(--teal)'  };
+  if (score <= 40) return { label: 'Moderate', color: 'var(--blue)'  };
+  return               { label: 'Severe',    color: '#ff6b6b'        };
+}
+
+// YMRS (0–4 uniform, max 44):
+//   ≤12 remission · 13–19 mild · 20–25 moderate · 26+ severe.
+function sevYMRS(score) {
+  if (score <= 12) return { label: 'Remission', color: 'var(--green)' };
+  if (score <= 19) return { label: 'Mild',      color: 'var(--teal)'  };
+  if (score <= 25) return { label: 'Moderate',  color: 'var(--blue)'  };
+  return               { label: 'Severe',     color: '#ff6b6b'        };
+}
+
+// C-SSRS safety triage:
+//   items 4–6 ("yes" to any) → HIGH risk
+//   items 2–3 positive → MODERATE
+//   only item 1 positive → LOW
+//   all "no" → NEGATIVE
+// Uses per-item answers when provided — falls back to sum when the
+// renderer hands a scalar only.
+function sevCSSRS(score, answers) {
+  if (Array.isArray(answers)) {
+    const hi  = (answers[3] === 1) || (answers[4] === 1) || (answers[5] === 1);
+    const mod = (answers[1] === 1) || (answers[2] === 1);
+    const low = (answers[0] === 1);
+    if (hi)  return { label: 'HIGH risk — immediate safety plan required', color: '#ff6b6b'      };
+    if (mod) return { label: 'MODERATE risk — clinician review',            color: 'var(--amber)' };
+    if (low) return { label: 'LOW risk — passive ideation',                 color: 'var(--teal)'  };
+    return       { label: 'Negative screen',                               color: 'var(--green)' };
+  }
+  if (score >= 3) return { label: 'Elevated risk — review', color: '#ff6b6b'      };
+  if (score >= 1) return { label: 'Positive screen',         color: 'var(--amber)' };
+  return              { label: 'Negative screen',           color: 'var(--green)' };
 }
 
 // ── Exported config registry ──────────────────────────────────────────────
@@ -263,10 +452,63 @@ export const ASSESSMENT_FORMS = {
     maxScore:   63,
     severityFn: sevDASS21,
   },
+
+  // ── Clinician-administered scales ───────────────────────────────────────
+  madrs: {
+    formKey:    'madrs',
+    templateId: 'MADRS',
+    header:     'Montgomery-Åsberg Depression Rating Scale — rate each item 0–6 based on the interview.',
+    questions:  Q_MADRS,
+    options:    OPTS_MADRS,
+    maxScore:   60,
+    severityFn: sevMADRS,
+    clinicianRated: true,
+  },
+  hdrs: {
+    formKey:    'hdrs',
+    templateId: 'HDRS',
+    header:     'Hamilton Depression Rating Scale (17-item). Uniform 0–4 rating — see platform notes.',
+    questions:  Q_HDRS,
+    options:    OPTS_HDRS,
+    maxScore:   68, // 17 × 4 (simplified uniform scale)
+    severityFn: sevHDRS,
+    clinicianRated: true,
+  },
+  bprs: {
+    formKey:    'bprs',
+    templateId: 'BPRS',
+    header:     'Brief Psychiatric Rating Scale — rate each of 18 items 1 (not present) to 7 (extremely severe).',
+    questions:  Q_BPRS,
+    options:    OPTS_BPRS,
+    maxScore:   126,
+    severityFn: sevBPRS,
+    clinicianRated: true,
+  },
+  ymrs: {
+    formKey:    'ymrs',
+    templateId: 'YMRS',
+    header:     'Young Mania Rating Scale — uniform 0–4 rating across 11 items (simplified, see platform notes).',
+    questions:  Q_YMRS,
+    options:    OPTS_YMRS,
+    maxScore:   44,
+    severityFn: sevYMRS,
+    clinicianRated: true,
+  },
+  cssrs: {
+    formKey:    'cssrs',
+    templateId: 'C-SSRS',
+    header:     'Columbia Suicide Severity Rating Scale — 6-item screener. Answer Yes or No for each item.',
+    questions:  Q_CSSRS,
+    options:    OPTS_CSSRS,
+    maxScore:   6,
+    severityFn: sevCSSRS,
+    clinicianRated: true,
+    safetyCritical: true,
+  },
 };
 
 // Forms the patient can fill in-app. Used as a gate by the renderer
-// dispatcher in pages-patient.js.
+// dispatcher in pages-patient.js and by the clinician administer modal.
 export const SUPPORTED_FORMS = Object.freeze({
   phq9:   true,
   gad7:   true,
@@ -275,6 +517,31 @@ export const SUPPORTED_FORMS = Object.freeze({
   pcl5:   true,
   isi:    true,
   dass21: true,
+  // Clinician-administered
+  madrs:  true,
+  hdrs:   true,
+  bprs:   true,
+  ymrs:   true,
+  cssrs:  true,
+});
+
+// Display name / abbreviation → internal formKey. Used by the clinician-side
+// "Start" button to map scale strings (from the queue seed or Scale Library
+// chips) onto the form bank above. Includes common aliases.
+export const SCALE_TO_FORM_KEY = Object.freeze({
+  'PHQ-9':   'phq9',
+  'GAD-7':   'gad7',
+  'PHQ-2':   'phq2',
+  'GAD-2':   'gad2',
+  'PCL-5':   'pcl5',
+  'ISI':     'isi',
+  'DASS-21': 'dass21',
+  'MADRS':   'madrs',
+  'HDRS':    'hdrs',
+  'HAM-D':   'hdrs',
+  'BPRS':    'bprs',
+  'YMRS':    'ymrs',
+  'C-SSRS':  'cssrs',
 });
 
 export function getAssessmentConfig(formKey) {

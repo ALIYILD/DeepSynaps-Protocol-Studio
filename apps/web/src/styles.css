@@ -10014,6 +10014,7 @@ body.light-theme .ch-modal { background:#fff; }
 .ph-proto-sessions { color:var(--text-tertiary); }
 .ph-proto-summary { font-size:11.5px; color:var(--text-tertiary); line-height:1.5; }
 .ph-proto-lit-badge { font-size:10.5px; font-weight:600; padding:1px 7px; border-radius:8px; background:rgba(255,181,71,0.14); color:var(--amber); border:1px solid rgba(255,181,71,0.35); white-space:nowrap; }
+.ph-lit-row { display:flex; gap:12px; align-items:flex-start; padding:10px 12px; border-bottom:1px solid rgba(255,255,255,0.05); font-size:12px; color:var(--text-secondary); }
 
 /* Brain Map */
 .bmp-layout { display:grid; grid-template-columns:200px 1fr 260px; gap:0; flex:1; min-height:0; }
@@ -20146,4 +20147,41 @@ details > summary::marker { display: none; }
 @media (max-width: 900px) {
   .design-layout { grid-template-columns: 1fr; }
   .design-stat-row { grid-template-columns: repeat(2, 1fr); }
+}
+
+
+/* Clinician assessment administration modal */
+.ch-assess-modal { width: min(720px, 92vw); max-height: 86vh; overflow-y: auto; }
+.ch-assess-modal-hd {
+  display: flex; align-items: center; gap: 12px;
+  padding: 14px 20px; border-bottom: 1px solid var(--border);
+  background: linear-gradient(180deg, rgba(0,212,188,0.06), transparent);
+}
+.ch-assess-modal-hd .ch-assess-scale-name {
+  font-family: var(--font-display); font-size: 16px; font-weight: 700;
+  color: var(--text-primary);
+}
+.ch-assess-modal-hd .ch-assess-patient-chip {
+  background: var(--bg-surface); border: 1px solid var(--border);
+  border-radius: 999px; padding: 4px 10px; font-size: 11.5px;
+  color: var(--text-secondary);
+}
+.ch-assess-modal-body { padding: 18px 20px; }
+.ch-scale-chip--btn {
+  cursor: pointer; transition: transform 0.12s, border-color 0.12s, color 0.12s;
+  border: 1px solid var(--border); background: var(--bg-surface);
+  color: var(--text-secondary); font-family: var(--font-body);
+}
+.ch-scale-chip--btn:hover {
+  border-color: var(--border-teal); color: var(--teal); transform: translateY(-1px);
+}
+.ch-assess-result-card {
+  margin-top: 14px; padding: 16px 18px; border-radius: var(--radius-lg);
+  border: 1px solid var(--border);
+}
+.ch-assess-result-card .ch-result-score {
+  font-family: var(--font-display); font-size: 32px; font-weight: 700;
+}
+.ch-assess-result-card .ch-result-band {
+  font-size: 14px; font-weight: 600; margin-left: auto;
 }

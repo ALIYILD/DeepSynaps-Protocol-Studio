@@ -7,6 +7,11 @@ import { tag, spinner, emptyState } from './helpers.js';
 import { currentUser } from './auth.js';
 import { renderBrainMap10_20 } from './brain-map-svg.js';
 import { HANDBOOK_DATA } from './handbooks-data.js';
+import {
+  SUPPORTED_FORMS as ASSESSMENT_SUPPORTED_FORMS,
+  SCALE_TO_FORM_KEY,
+  getAssessmentConfig,
+} from './assessment-forms.js';
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // pgPatientHub — Merged: Patients + Treatment Courses + Prescriptions
@@ -828,6 +833,10 @@ export async function pgClinicalHub(setTopbar, navigate) {
       { scale:'MoCA',  phase:'Milestone',   status:'upcoming',  due:'In 5 days',  score:null },
       { scale:'PCL-5', phase:'Baseline',    status:'completed', due:'1 week ago', score:38   },
     ];
+    // Share the queue + patient list with the Start/View handlers so they
+    // can refresh rows in place without a full re-render.
+    window._chAssessQueue    = _seedA;
+    window._chAssessPatients = patients;
 
     const sPill = s => '<span class="ch-assess-pill ch-pill--' + (s==='due'?'due':s==='completed'?'done':'upcoming') + '">' + (s==='due'?'Due':s==='completed'?'Done':'Upcoming') + '</span>';
 
@@ -848,7 +857,7 @@ export async function pgClinicalHub(setTopbar, navigate) {
               <select class="ch-select" id="ch-pat-filter"><option value="">All Patients</option>${patOpts}</select>
             </div>
             <div id="ch-queue-list">
-              ${_seedA.map(a => `<div class="ch-assess-row">
+              ${_seedA.map((a, idx) => `<div class="ch-assess-row" data-queue-idx="${idx}">
                 <div class="ch-assess-info">
                   <span class="ch-assess-scale">${a.scale}</span>
                   <span class="ch-assess-phase">${a.phase}</span>
@@ -857,7 +866,9 @@ export async function pgClinicalHub(setTopbar, navigate) {
                 <div class="ch-assess-meta">
                   <span class="ch-assess-date">${a.due}</span>
                   ${sPill(a.status)}
-                  ${a.status!=='completed' ? '<button class="ch-btn-sm ch-btn-teal">Start</button>' : '<button class="ch-btn-sm">View</button>'}
+                  ${a.status!=='completed'
+                    ? `<button class="ch-btn-sm ch-btn-teal" onclick="window._chStartAssessment('${a.scale}', ${idx}, null)">Start</button>`
+                    : `<button class="ch-btn-sm" onclick="window._chViewAssessment(${idx})">View</button>`}
                 </div>
               </div>`).join('')}
             </div>
@@ -870,7 +881,9 @@ export async function pgClinicalHub(setTopbar, navigate) {
             <div class="ch-scale-domains">
               ${SCALE_DOMAINS.map(d => `<div class="ch-domain-row">
                 <div class="ch-domain-label" style="--domain-color:${d.color}">${d.domain}</div>
-                <div class="ch-domain-scales">${d.scales.map(s=>'<span class="ch-scale-chip">'+s+'</span>').join('')}</div>
+                <div class="ch-domain-scales">${d.scales.map(s =>
+                  `<button type="button" class="ch-scale-chip ch-scale-chip--btn" onclick="window._chStartAssessment('${s}', null, null)">${s}</button>`
+                ).join('')}</div>
               </div>`).join('')}
             </div>
           </div>
@@ -894,6 +907,26 @@ export async function pgClinicalHub(setTopbar, navigate) {
           </div>
         </div>
       </div>
+    </div>
+    <div id="ch-administer-modal" class="ch-modal-overlay ch-hidden">
+      <div class="ch-modal ch-assess-modal" id="ch-administer-modal-card"></div>
+    </div>
+    <div id="ch-result-modal" class="ch-modal-overlay ch-hidden">
+      <div class="ch-modal ch-assess-modal" id="ch-result-modal-card"></div>
+    </div>
+    <div id="ch-pickpatient-modal" class="ch-modal-overlay ch-hidden">
+      <div class="ch-modal">
+        <div class="ch-modal-hd"><span>Pick a patient</span><button class="ch-modal-close" onclick="document.getElementById('ch-pickpatient-modal').classList.add('ch-hidden')">✕</button></div>
+        <div class="ch-modal-body">
+          <div class="ch-form-group"><label class="ch-label">Patient</label>
+            <select class="ch-select ch-select--full" id="ch-pickpatient-select">${patOpts}</select>
+          </div>
+          <div style="display:flex;gap:8px;margin-top:16px">
+            <button class="btn btn-primary" onclick="window._chPickPatientContinue()">Continue</button>
+            <button class="btn" onclick="document.getElementById('ch-pickpatient-modal').classList.add('ch-hidden')">Cancel</button>
+          </div>
+        </div>
+      </div>
     </div>`;
 
     window._chOpenAssignModal = () => document.getElementById('ch-assign-modal')?.classList.remove('ch-hidden');
@@ -903,6 +936,278 @@ export async function pgClinicalHub(setTopbar, navigate) {
       window._dsToast?.({ title: 'Assigned', body: scale + ' (' + phase + ') assigned.', severity: 'success' });
       document.getElementById('ch-assign-modal')?.classList.add('ch-hidden');
     };
+
+    // ── Clinician assessment administration ───────────────────────────────
+    // "Start" on a queue row, or a Scale Library chip → open a modal with
+    // the scale's Likert form. Submit writes via api.submitAssessment and
+    // flips the queue row to Completed + Score.
+    window._chStartAssessment = function(scaleName, queueIndex, patientId) {
+      const formKey = SCALE_TO_FORM_KEY[scaleName];
+      if (!formKey || !ASSESSMENT_SUPPORTED_FORMS[formKey]) {
+        window._dsToast?.({
+          title:    scaleName,
+          body:     'This scale uses an external form — coming soon.',
+          severity: 'info',
+        });
+        return;
+      }
+
+      const pats       = window._chAssessPatients || [];
+      const filterEl   = document.getElementById('ch-pat-filter');
+      const filterVal  = filterEl && filterEl.value ? filterEl.value : '';
+      const resolvedId = patientId || filterVal || (pats[0] && pats[0].id) || null;
+
+      if (!resolvedId) {
+        window._dsToast?.({ title: 'No patient', body: 'Please add a patient first.', severity: 'warning' });
+        return;
+      }
+
+      // Scale Library chip (no queue row, no explicit patient) with many
+      // patients → prompt to confirm who this is being administered to.
+      if (patientId == null && queueIndex == null && pats.length > 1) {
+        const sel = document.getElementById('ch-pickpatient-select');
+        if (sel) sel.value = resolvedId;
+        window._chPendingScale = scaleName;
+        document.getElementById('ch-pickpatient-modal')?.classList.remove('ch-hidden');
+        return;
+      }
+
+      _chOpenAdministerModal(scaleName, formKey, resolvedId, queueIndex);
+    };
+
+    window._chPickPatientContinue = function() {
+      const sel   = document.getElementById('ch-pickpatient-select');
+      const pid   = sel?.value || null;
+      const scale = window._chPendingScale;
+      document.getElementById('ch-pickpatient-modal')?.classList.add('ch-hidden');
+      if (!pid || !scale) return;
+      const formKey = SCALE_TO_FORM_KEY[scale];
+      if (!formKey) return;
+      _chOpenAdministerModal(scale, formKey, pid, null);
+    };
+
+    window._chViewAssessment = function(queueIndex) {
+      const row = (window._chAssessQueue || [])[queueIndex];
+      if (!row) return;
+      const formKey = SCALE_TO_FORM_KEY[row.scale];
+      const cfg     = formKey ? getAssessmentConfig(formKey) : null;
+      const score   = row.score;
+      const sev     = (cfg && typeof cfg.severityFn === 'function' && score != null)
+        ? cfg.severityFn(score, row.answers || null)
+        : { label: 'Recorded', color: 'var(--teal)' };
+      const max  = cfg?.maxScore ?? '—';
+      const card = document.getElementById('ch-result-modal-card');
+      if (!card) return;
+      card.innerHTML = `
+        <div class="ch-assess-modal-hd">
+          <span class="ch-assess-scale-name">${row.scale} — Result</span>
+          <span class="ch-assess-patient-chip">${row.phase}</span>
+          <button class="ch-modal-close" style="margin-left:auto" onclick="document.getElementById('ch-result-modal').classList.add('ch-hidden')">✕</button>
+        </div>
+        <div class="ch-assess-modal-body">
+          <div class="ch-assess-result-card" style="border-color:${sev.color}">
+            <div style="display:flex;align-items:baseline;gap:12px">
+              <div class="ch-result-score" style="color:${sev.color}">${score ?? '—'}</div>
+              <div style="font-size:13px;color:var(--text-secondary)">out of ${max}</div>
+              <div class="ch-result-band" style="color:${sev.color}">${sev.label}</div>
+            </div>
+            <div style="font-size:11.5px;color:var(--text-tertiary);margin-top:10px">Administered: ${row.due || 'previously'}</div>
+          </div>
+        </div>
+      `;
+      document.getElementById('ch-result-modal')?.classList.remove('ch-hidden');
+    };
+
+    // Internal — render + mount the administer modal for a given scale.
+    function _chOpenAdministerModal(scaleName, formKey, patientId, queueIndex) {
+      const cfg = getAssessmentConfig(formKey);
+      if (!cfg) return;
+      const pats    = window._chAssessPatients || [];
+      const pat     = pats.find(p => p.id === patientId) || null;
+      const patName = pat
+        ? ((pat.first_name||'') + ' ' + (pat.last_name||'')).trim() || ('Patient ' + patientId)
+        : ('Patient ' + (patientId || '—'));
+      const clinName = ((currentUser?.first_name||'') + ' ' + (currentUser?.last_name||'')).trim()
+                    || currentUser?.email
+                    || (currentUser?.role === 'clinician' ? 'Clinician' : 'User');
+
+      const formContainerId = 'ch-administer-form-' + formKey;
+      const card            = document.getElementById('ch-administer-modal-card');
+      if (!card) return;
+
+      card.innerHTML = `
+        <div class="ch-assess-modal-hd">
+          <span class="ch-assess-scale-name">${scaleName}</span>
+          <span class="ch-assess-patient-chip">Patient: ${patName}</span>
+          <span class="ch-assess-patient-chip">Administered by: ${clinName}</span>
+          <button class="ch-modal-close" style="margin-left:auto" onclick="window._chCloseAdministerModal()">✕</button>
+        </div>
+        <div class="ch-assess-modal-body">
+          <div id="${formContainerId}"></div>
+        </div>
+      `;
+      document.getElementById('ch-administer-modal')?.classList.remove('ch-hidden');
+
+      _chRenderAdminLikertForm(formContainerId, patientId, cfg, { scaleName, queueIndex });
+    }
+
+    window._chCloseAdministerModal = function() {
+      document.getElementById('ch-administer-modal')?.classList.add('ch-hidden');
+    };
+
+    // Mini Likert renderer used inside the administer modal. Mirrors the
+    // patient-side renderLikertForm shape but keeps its own state on
+    // window._chLikertState so it can't collide with the patient portal.
+    function _chRenderAdminLikertForm(containerId, patientId, config, meta) {
+      const formEl = document.getElementById(containerId);
+      if (!formEl) return;
+      const key       = 'ch_' + config.formKey;
+      const questions = config.questions || [];
+      const options   = config.options   || [];
+      const maxScore  = config.maxScore != null
+        ? config.maxScore
+        : questions.length * (options[options.length - 1]?.value ?? 0);
+
+      const qId    = (i)    => `${key}-q${i}`;
+      const rId    = (i, v) => `${key}-r${i}-${v}`;
+      const liveId = `${key}-live-score`;
+      const resId  = `${key}-result`;
+
+      formEl.innerHTML = `
+        <div class="pt-assessment-form" id="${key}-form-wrap">
+          ${config.header ? `
+            <div style="font-size:10.5px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.8px;margin-bottom:14px">
+              ${config.header}
+            </div>` : ''}
+          ${questions.map((q, i) => `
+            <div class="pt-phq9-question" id="${qId(i)}">
+              <div style="font-size:12.5px;color:var(--text-primary);margin-bottom:8px;line-height:1.5">
+                <span style="color:var(--text-tertiary);margin-right:6px">${i + 1}.</span>${q}
+              </div>
+              <div class="pt-phq9-options">
+                ${options.map(opt => `
+                  <label class="pt-phq9-option" onclick="window._chLikertPick('${key}', ${i}, ${opt.value})">
+                    <input type="radio" name="${key}_q${i}" value="${opt.value}" style="display:none">
+                    <span class="pt-phq9-radio" id="${rId(i, opt.value)}"></span>
+                    <span style="font-size:11.5px;color:var(--text-secondary)">${opt.label}</span>
+                  </label>
+                `).join('')}
+              </div>
+            </div>
+          `).join('')}
+          <div style="display:flex;align-items:center;gap:16px;margin-top:20px;padding-top:16px;border-top:1px solid var(--border)">
+            <div style="flex:1">
+              <div style="font-size:11px;color:var(--text-tertiary)">Running score</div>
+              <div style="font-size:20px;font-weight:700;font-family:var(--font-display);color:var(--teal)" id="${liveId}">0 / ${maxScore}</div>
+            </div>
+            <button class="btn" onclick="window._chCloseAdministerModal()">Cancel</button>
+            <button class="btn btn-primary" onclick="window._chLikertSubmit('${key}')">Submit</button>
+          </div>
+          <div id="${resId}" style="display:none"></div>
+        </div>
+      `;
+
+      window._chLikertState = window._chLikertState || {};
+      window._chLikertState[key] = {
+        formKey:    config.formKey,
+        templateId: config.templateId || config.formKey,
+        answers:    new Array(questions.length).fill(null),
+        options,
+        questions,
+        maxScore,
+        severityFn: typeof config.severityFn === 'function'
+          ? config.severityFn
+          : ((s) => ({ label: 'Recorded', color: 'var(--teal)' })),
+        patientId,
+        scaleName:  meta?.scaleName || config.templateId || config.formKey,
+        queueIndex: (meta?.queueIndex != null) ? meta.queueIndex : null,
+      };
+
+      if (typeof window._chLikertPick !== 'function') {
+        window._chLikertPick = function(formKey, q, v) {
+          const st = window._chLikertState?.[formKey];
+          if (!st) return;
+          st.answers[q] = v;
+          for (const opt of st.options) {
+            const r = document.getElementById(`${formKey}-r${q}-${opt.value}`);
+            if (r) r.classList.toggle('selected', opt.value === v);
+          }
+          const qEl = document.getElementById(`${formKey}-q${q}`);
+          if (qEl) qEl.classList.add('answered');
+          const score  = st.answers.reduce((sum, a) => sum + (a ?? 0), 0);
+          const liveEl = document.getElementById(`${formKey}-live-score`);
+          if (liveEl) liveEl.textContent = `${score} / ${st.maxScore}`;
+        };
+      }
+
+      if (typeof window._chLikertSubmit !== 'function') {
+        window._chLikertSubmit = async function(formKey) {
+          const st = window._chLikertState?.[formKey];
+          if (!st) return;
+          const unanswered = st.answers.findIndex(a => a === null);
+          const resultEl   = document.getElementById(`${formKey}-result`);
+          if (unanswered !== -1) {
+            const qEl = document.getElementById(`${formKey}-q${unanswered}`);
+            if (qEl) { qEl.scrollIntoView({ behavior: 'smooth', block: 'center' }); qEl.classList.add('pt-phq9-highlight'); }
+            return;
+          }
+          const score    = st.answers.reduce((sum, a) => sum + a, 0);
+          const severity = st.severityFn(score, st.answers.slice());
+
+          if (!st.patientId) {
+            if (resultEl) { resultEl.style.display = ''; resultEl.innerHTML = '<div class="notice notice-error" style="margin-top:12px">Unable to identify patient. Please refresh and try again.</div>'; }
+            return;
+          }
+          try {
+            await api.submitAssessment(st.patientId, {
+              template_id:       st.templateId,
+              score,
+              measurement_point: 'post',
+              notes:             'Administered by clinician on-platform.',
+            });
+          } catch (e) {
+            if (resultEl) { resultEl.style.display = ''; resultEl.innerHTML = `<div class="notice notice-error" style="margin-top:12px">Submission failed: ${e?.message || 'Please try again.'}</div>`; }
+            return;
+          }
+
+          if (st.queueIndex != null && window._chAssessQueue?.[st.queueIndex]) {
+            const row = window._chAssessQueue[st.queueIndex];
+            row.status  = 'completed';
+            row.score   = score;
+            row.answers = st.answers.slice();
+            row.due     = 'Just now';
+            _chRefreshQueueList();
+          }
+
+          window._dsToast?.({
+            title:    st.scaleName,
+            body:     `Submitted — score ${score}/${st.maxScore} (${severity.label}).`,
+            severity: 'success',
+          });
+          window._chCloseAdministerModal();
+        };
+      }
+    }
+
+    function _chRefreshQueueList() {
+      const host = document.getElementById('ch-queue-list');
+      const rows = window._chAssessQueue || [];
+      if (!host) return;
+      host.innerHTML = rows.map((a, idx) => `<div class="ch-assess-row" data-queue-idx="${idx}">
+        <div class="ch-assess-info">
+          <span class="ch-assess-scale">${a.scale}</span>
+          <span class="ch-assess-phase">${a.phase}</span>
+          ${a.score!=null ? '<span class="ch-assess-score">Score: <strong>'+a.score+'</strong></span>' : ''}
+        </div>
+        <div class="ch-assess-meta">
+          <span class="ch-assess-date">${a.due}</span>
+          ${sPill(a.status)}
+          ${a.status!=='completed'
+            ? `<button class="ch-btn-sm ch-btn-teal" onclick="window._chStartAssessment('${a.scale}', ${idx}, null)">Start</button>`
+            : `<button class="ch-btn-sm" onclick="window._chViewAssessment(${idx})">View</button>`}
+        </div>
+      </div>`).join('');
+    }
   }
 
   // ── OUTCOMES TAB ─────────────────────────────────────────────────────────
