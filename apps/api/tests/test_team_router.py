@@ -41,7 +41,7 @@ def test_admin_can_invite_and_list_pending(client: TestClient) -> None:
         headers={"Authorization": f"Bearer {admin_token}"},
         json={"email": "pending-invite@example.com", "role": "clinician"},
     )
-    assert resp.status_code == 200, resp.text
+    assert resp.status_code == 201, resp.text
     invite = resp.json()
     assert invite["email"] == "pending-invite@example.com"
     assert invite["role"] == "clinician"
@@ -62,7 +62,7 @@ def test_duplicate_active_invite_rejected(client: TestClient) -> None:
         headers={"Authorization": f"Bearer {admin_token}"},
         json={"email": "dup@example.com", "role": "clinician"},
     )
-    assert first.status_code == 200
+    assert first.status_code == 201
 
     second = client.post(
         "/api/v1/team/invite",
@@ -86,7 +86,7 @@ def test_accept_invite_creates_user_and_returns_token(client: TestClient) -> Non
         "/api/v1/team/accept-invite",
         json={"token": invite["token"], "password": "newuserpass123", "display_name": "Dr. Colleague"},
     )
-    assert accept.status_code == 200, accept.text
+    assert accept.status_code == 201, accept.text
     assert "access_token" in accept.json()
 
 
