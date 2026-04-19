@@ -1,4 +1,4 @@
-const CACHE_NAME = 'deepsynaps-v1';
+const CACHE_NAME = 'deepsynaps-v2-dashboard';
 const STATIC_ASSETS = [
   '/',
   '/index.html',
