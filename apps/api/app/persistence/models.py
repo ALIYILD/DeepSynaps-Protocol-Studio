@@ -196,6 +196,20 @@ class AssessmentRecord(Base):
     reviewed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(), nullable=True)
     ai_generated_at: Mapped[Optional[datetime]] = mapped_column(DateTime(), nullable=True)
     source: Mapped[str] = mapped_column(String(40), nullable=False, default="manual")
+    # Go-live additions (migration 026_assessments_golive) — all nullable for backward compatibility.
+    completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(), nullable=True, index=True)
+    score_numeric: Mapped[Optional[float]] = mapped_column(Float(), nullable=True)
+    severity: Mapped[Optional[str]] = mapped_column(String(30), nullable=True)
+    subscales_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)  # JSON obj, e.g. Y-BOCS {obsessions:..., compulsions:...}
+    items_json: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)  # JSON {item_id: response}
+    interpretation: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    ai_summary: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    ai_model: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    ai_confidence: Mapped[Optional[float]] = mapped_column(Float(), nullable=True)
+    escalated: Mapped[bool] = mapped_column(Boolean(), nullable=False, default=False, index=True)
+    escalated_at: Mapped[Optional[datetime]] = mapped_column(DateTime(), nullable=True)
+    escalation_reason: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    escalated_by: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
     updated_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 

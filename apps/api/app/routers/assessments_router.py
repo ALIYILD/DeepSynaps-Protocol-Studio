@@ -1,15 +1,19 @@
 from __future__ import annotations
 
 import json
-from typing import Optional
+import logging
+from datetime import datetime, timezone
+from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, Field
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.auth import AuthenticatedActor, get_authenticated_actor, require_minimum_role
 from app.database import get_db_session
 from app.errors import ApiServiceError
+from app.persistence.models import AssessmentRecord
 from app.repositories.assessments import (
     create_assessment,
     delete_assessment,
@@ -18,11 +22,19 @@ from app.repositories.assessments import (
     list_assessments_for_patient,
     update_assessment,
 )
+from app.services.assessment_scoring import (
+    compute_canonical_score,
+    detect_red_flags,
+    severity_for_score,
+    validate_submitted_score,
+)
 from app.services.assessment_summary import (
     get_patient_assessment_summary,
     normalize_assessment_score,
     extract_ai_assessment_context,
 )
+
+_log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/assessments", tags=["assessments"])
 
@@ -30,16 +42,25 @@ router = APIRouter(prefix="/api/v1/assessments", tags=["assessments"])
 # ── Schemas ────────────────────────────────────────────────────────────────────
 
 class AssessmentCreate(BaseModel):
-    template_id: str
-    template_title: str
+    template_id: Optional[str] = None
+    template_title: Optional[str] = None
+    # Frontend Library form-filler uses `scale_id` as alias for template_id.
+    scale_id: Optional[str] = None
     patient_id: Optional[str] = None
     data: dict = {}
     clinician_notes: Optional[str] = None
     status: str = "draft"
     score: Optional[str] = None
+    score_numeric: Optional[float] = None
+    items: Optional[dict] = None
+    subscales: Optional[dict] = None
+    interpretation: Optional[str] = None
+    severity: Optional[str] = None
     respondent_type: Optional[str] = None  # 'patient' | 'clinician' | 'caregiver'
     phase: Optional[str] = None  # 'baseline' | 'mid' | 'post' | 'follow_up' | 'weekly' | 'pre_session' | 'post_session'
     due_date: Optional[str] = None  # ISO date
+    due_at: Optional[str] = None  # alias used by new frontend
+    completed_at: Optional[str] = None
     scale_version: Optional[str] = None
     bundle_id: Optional[str] = None
 
@@ -50,11 +71,21 @@ class AssessmentUpdate(BaseModel):
     clinician_notes: Optional[str] = None
     status: Optional[str] = None
     score: Optional[str] = None
+    score_numeric: Optional[float] = None
+    items: Optional[dict] = None
+    subscales: Optional[dict] = None
+    interpretation: Optional[str] = None
+    severity: Optional[str] = None
     respondent_type: Optional[str] = None
     phase: Optional[str] = None
     due_date: Optional[str] = None
+    due_at: Optional[str] = None
+    completed_at: Optional[str] = None
     scale_version: Optional[str] = None
     bundle_id: Optional[str] = None
+    # When True, skip server-side canonical score validation (for rare
+    # clinician-override cases where item text is copyrighted and not submitted).
+    override_score_validation: Optional[bool] = None
 
 
 class AssessmentOut(BaseModel):
@@ -63,21 +94,37 @@ class AssessmentOut(BaseModel):
     patient_id: Optional[str]
     template_id: str
     template_title: str
+    # scale_id: alias of template_id for new frontend (pgAssessmentsHub + Library)
+    scale_id: str
     data: dict
+    items: Optional[dict] = None
+    subscales: Optional[dict] = None
     clinician_notes: Optional[str]
     status: str
     score: Optional[str]
     score_numeric: Optional[float] = None
     severity: Optional[str] = None
     severity_label: Optional[str] = None
+    interpretation: Optional[str] = None
     respondent_type: Optional[str] = None
     phase: Optional[str] = None
     due_date: Optional[str] = None
+    due_at: Optional[str] = None
+    completed_at: Optional[str] = None
     scale_version: Optional[str] = None
     bundle_id: Optional[str] = None
     approved_status: Optional[str] = None
     reviewed_by: Optional[str] = None
+    reviewed_at: Optional[str] = None
+    ai_summary: Optional[str] = None
+    ai_model: Optional[str] = None
+    ai_confidence: Optional[float] = None
     ai_generated: bool = False
+    ai_generated_at: Optional[str] = None
+    escalated: bool = False
+    escalated_at: Optional[str] = None
+    escalation_reason: Optional[str] = None
+    escalated_by: Optional[str] = None
     created_at: str
     updated_at: str
 
@@ -88,34 +135,75 @@ class AssessmentOut(BaseModel):
             data = json.loads(r.data_json or "{}")
         except Exception:
             pass
-        score_numeric = None
-        try:
-            score_numeric = float(r.score) if r.score is not None and r.score != "" else None
-        except (ValueError, TypeError):
-            score_numeric = None
+        items = None
+        items_raw = getattr(r, "items_json", None)
+        if items_raw:
+            try:
+                items = json.loads(items_raw)
+            except Exception:
+                items = None
+        subscales = None
+        subs_raw = getattr(r, "subscales_json", None)
+        if subs_raw:
+            try:
+                subscales = json.loads(subs_raw)
+            except Exception:
+                subscales = None
+        stored_score_numeric = getattr(r, "score_numeric", None)
+        score_numeric: Optional[float]
+        if stored_score_numeric is not None:
+            score_numeric = float(stored_score_numeric)
+        else:
+            try:
+                score_numeric = float(r.score) if r.score is not None and r.score != "" else None
+            except (ValueError, TypeError):
+                score_numeric = None
         severity_info = normalize_assessment_score(r.template_id, score_numeric) if score_numeric is not None else {"severity": None, "label": None}
+        stored_severity = getattr(r, "severity", None)
+        severity_val = stored_severity or severity_info.get("severity")
         ai_ts = getattr(r, "ai_generated_at", None)
+        due_date_obj = getattr(r, "due_date", None)
+        due_iso = due_date_obj.isoformat() if due_date_obj else None
+        completed_obj = getattr(r, "completed_at", None)
+        completed_iso = completed_obj.isoformat() if completed_obj else None
+        reviewed_at_obj = getattr(r, "reviewed_at", None)
+        escalated_at_obj = getattr(r, "escalated_at", None)
         return cls(
             id=r.id,
             clinician_id=r.clinician_id,
             patient_id=r.patient_id,
             template_id=r.template_id,
             template_title=r.template_title,
+            scale_id=r.template_id,
             data=data,
+            items=items,
+            subscales=subscales,
             clinician_notes=r.clinician_notes,
             status=r.status,
             score=r.score,
             score_numeric=score_numeric,
-            severity=severity_info.get("severity"),
+            severity=severity_val,
             severity_label=severity_info.get("label"),
+            interpretation=getattr(r, "interpretation", None),
             respondent_type=getattr(r, "respondent_type", None),
             phase=getattr(r, "phase", None),
-            due_date=(getattr(r, "due_date", None).isoformat() if getattr(r, "due_date", None) else None),
+            due_date=due_iso,
+            due_at=due_iso,
+            completed_at=completed_iso,
             scale_version=getattr(r, "scale_version", None),
             bundle_id=getattr(r, "bundle_id", None),
             approved_status=getattr(r, "approved_status", None),
             reviewed_by=getattr(r, "reviewed_by", None),
+            reviewed_at=(reviewed_at_obj.isoformat() if reviewed_at_obj else None),
+            ai_summary=getattr(r, "ai_summary", None),
+            ai_model=getattr(r, "ai_model", None),
+            ai_confidence=getattr(r, "ai_confidence", None),
             ai_generated=ai_ts is not None,
+            ai_generated_at=(ai_ts.isoformat() if ai_ts else None),
+            escalated=bool(getattr(r, "escalated", False)),
+            escalated_at=(escalated_at_obj.isoformat() if escalated_at_obj else None),
+            escalation_reason=getattr(r, "escalation_reason", None),
+            escalated_by=getattr(r, "escalated_by", None),
             created_at=r.created_at.isoformat(),
             updated_at=r.updated_at.isoformat(),
         )
@@ -671,13 +759,29 @@ def assign_assessment_endpoint(
     return AssessmentOut.from_record(record)
 
 
-class BulkAssignRequest(BaseModel):
+class BulkAssignmentItem(BaseModel):
+    """Per-assignment payload used by the new pgAssessmentsHub frontend."""
     patient_id: str
-    template_ids: list[str]
+    scale_id: Optional[str] = None  # alias of template_id
+    template_id: Optional[str] = None
+    due_at: Optional[str] = None  # alias of due_date
+    due_date: Optional[str] = None
+    phase: Optional[str] = None
+    bundle_id: Optional[str] = None
+    recurrence: Optional[str] = None
+    clinician_notes: Optional[str] = None
+
+
+class BulkAssignRequest(BaseModel):
+    # Legacy shape (pages-clinical-tools.js): one patient, many templates.
+    patient_id: Optional[str] = None
+    template_ids: Optional[list[str]] = None
     phase: Optional[str] = None
     due_date: Optional[str] = None
     bundle_id: Optional[str] = None
     clinician_notes: Optional[str] = None
+    # New shape (design-v2 Hub): list of per-patient assignments.
+    assignments: Optional[list[BulkAssignmentItem]] = None
 
 
 class BulkAssignResponse(BaseModel):
@@ -686,43 +790,109 @@ class BulkAssignResponse(BaseModel):
     total: int
 
 
+def _lookup_template(tpl_id: str) -> tuple[str, str]:
+    """Return (template_title, default_respondent_type) for a template id."""
+    for tpl in ASSESSMENT_TEMPLATES:
+        if tpl.id == tpl_id:
+            return tpl.title, tpl.respondent_type
+    return tpl_id, "patient"
+
+
+def _create_one_assignment(
+    session: Session,
+    clinician_id: str,
+    *,
+    patient_id: str,
+    template_id: str,
+    due_date: Optional[str],
+    phase: Optional[str],
+    bundle_id: Optional[str],
+    clinician_notes: Optional[str],
+    recurrence: Optional[str] = None,
+) -> AssessmentRecord:
+    template_title, respondent_type = _lookup_template(template_id)
+    extra: dict = {"respondent_type": respondent_type}
+    if due_date:
+        extra["due_date"] = due_date
+    if phase:
+        extra["phase"] = phase
+    if bundle_id:
+        extra["bundle_id"] = bundle_id
+    data: dict = {}
+    if recurrence:
+        data["recurrence"] = recurrence
+    return create_assessment(
+        session,
+        clinician_id=clinician_id,
+        template_id=template_id,
+        template_title=template_title,
+        patient_id=patient_id,
+        data=data,
+        clinician_notes=clinician_notes or None,
+        status="pending",
+        score=None,
+        **extra,
+    )
+
+
 @router.post("/bulk-assign", response_model=BulkAssignResponse, status_code=201)
 def bulk_assign_assessments(
     body: BulkAssignRequest,
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
     session: Session = Depends(get_db_session),
 ) -> BulkAssignResponse:
-    """Assign a bundle of scales to a patient in a single phase."""
+    """Assign a bundle of scales. Supports both legacy and new payload shapes.
+
+    Legacy shape (pages-clinical-tools.js, PR #8):
+        { patient_id, template_ids: [...], phase, due_date, bundle_id, clinician_notes }
+    New shape (design-v2 pgAssessmentsHub):
+        { assignments: [{patient_id, scale_id, due_at, recurrence, phase, bundle_id}, ...] }
+    """
     require_minimum_role(actor, "clinician")
     created: list[AssessmentOut] = []
     failed: list[dict] = []
+
+    if body.assignments:
+        for item in body.assignments:
+            tpl_id = (item.template_id or item.scale_id or "").strip()
+            if not tpl_id:
+                failed.append({"template_id": None, "reason": "scale_id/template_id missing"})
+                continue
+            try:
+                record = _create_one_assignment(
+                    session,
+                    actor.actor_id,
+                    patient_id=item.patient_id,
+                    template_id=tpl_id,
+                    due_date=item.due_at or item.due_date,
+                    phase=item.phase,
+                    bundle_id=item.bundle_id,
+                    clinician_notes=item.clinician_notes,
+                    recurrence=item.recurrence,
+                )
+                created.append(AssessmentOut.from_record(record))
+            except Exception as exc:  # noqa: BLE001
+                failed.append({"template_id": tpl_id, "reason": str(exc)})
+        return BulkAssignResponse(created=created, failed=failed, total=len(created))
+
+    # Legacy path — one patient, many templates.
+    if not body.patient_id or not body.template_ids:
+        raise ApiServiceError(
+            code="invalid_request",
+            message="Provide either `assignments` or both `patient_id` and `template_ids`.",
+            status_code=400,
+        )
     for tpl_id in body.template_ids:
-        template_title = tpl_id
-        respondent_type = "patient"
-        for tpl in ASSESSMENT_TEMPLATES:
-            if tpl.id == tpl_id:
-                template_title = tpl.title
-                respondent_type = tpl.respondent_type
-                break
         try:
-            extra: dict = {"respondent_type": respondent_type}
-            if body.due_date:
-                extra["due_date"] = body.due_date
-            if body.phase:
-                extra["phase"] = body.phase
-            if body.bundle_id:
-                extra["bundle_id"] = body.bundle_id
-            record = create_assessment(
+            record = _create_one_assignment(
                 session,
-                clinician_id=actor.actor_id,
-                template_id=tpl_id,
-                template_title=template_title,
+                actor.actor_id,
                 patient_id=body.patient_id,
-                data={},
-                clinician_notes=body.clinician_notes or None,
-                status="pending",
-                score=None,
-                **extra,
+                template_id=tpl_id,
+                due_date=body.due_date,
+                phase=body.phase,
+                bundle_id=body.bundle_id,
+                clinician_notes=body.clinician_notes,
             )
             created.append(AssessmentOut.from_record(record))
         except Exception as exc:  # noqa: BLE001 — record rather than abort
@@ -760,8 +930,46 @@ def create_assessment_endpoint(
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
     session: Session = Depends(get_db_session),
 ) -> AssessmentOut:
+    """Create a single assessment — supports both legacy `template_id` and new `scale_id` fields."""
     require_minimum_role(actor, "clinician")
     payload = body.model_dump(exclude_none=True)
+    # Resolve scale_id → template_id.
+    if "scale_id" in payload and "template_id" not in payload:
+        payload["template_id"] = payload.pop("scale_id")
+    else:
+        payload.pop("scale_id", None)
+    if "due_at" in payload and "due_date" not in payload:
+        payload["due_date"] = payload.pop("due_at")
+    else:
+        payload.pop("due_at", None)
+    if "template_id" not in payload:
+        raise ApiServiceError(
+            code="invalid_request",
+            message="template_id (or scale_id) is required.",
+            status_code=400,
+        )
+    # Default template_title from registry if not provided.
+    if not payload.get("template_title"):
+        title, _ = _lookup_template(payload["template_id"])
+        payload["template_title"] = title
+
+    # If items are provided, compute canonical score + severity server-side.
+    items = payload.get("items")
+    if items:
+        canon = compute_canonical_score(payload["template_id"], items)
+        if canon is not None:
+            canonical_score = float(canon["score"])
+            if payload.get("score") in (None, ""):
+                payload["score"] = str(canonical_score)
+            if payload.get("score_numeric") is None:
+                payload["score_numeric"] = canonical_score
+            if canon.get("subscales") and not payload.get("subscales"):
+                payload["subscales"] = canon["subscales"]
+    # Derive severity if missing.
+    if payload.get("score_numeric") is not None and not payload.get("severity"):
+        sev = severity_for_score(payload["template_id"], payload["score_numeric"])
+        if sev.get("severity") and sev["severity"] != "unknown":
+            payload["severity"] = sev["severity"]
     record = create_assessment(session, clinician_id=actor.actor_id, **payload)
     return AssessmentOut.from_record(record)
 
@@ -786,8 +994,70 @@ def update_assessment_endpoint(
     actor: AuthenticatedActor = Depends(get_authenticated_actor),
     session: Session = Depends(get_db_session),
 ) -> AssessmentOut:
+    """Update an assessment. Validates submitted score against canonical server
+    score when `items` are provided (tolerance: 5% of instrument max, min 1pt).
+    """
     require_minimum_role(actor, "clinician")
     updates = {k: v for k, v in body.model_dump().items() if v is not None}
+    if "due_at" in updates and "due_date" not in updates:
+        updates["due_date"] = updates.pop("due_at")
+    else:
+        updates.pop("due_at", None)
+    override = bool(updates.pop("override_score_validation", False))
+
+    # Load existing record to resolve template_id for validation.
+    existing = get_assessment(session, assessment_id, actor.actor_id)
+    if existing is None:
+        raise ApiServiceError(code="not_found", message="Assessment not found.", status_code=404)
+    template_id = existing.template_id
+
+    items = updates.get("items")
+    submitted_score = updates.get("score_numeric")
+    if submitted_score is None and updates.get("score") not in (None, ""):
+        try:
+            submitted_score = float(updates["score"])
+        except (ValueError, TypeError):
+            submitted_score = None
+
+    if items and not override:
+        verdict = validate_submitted_score(template_id, submitted_score, items, tolerance_pct=5.0)
+        if not verdict["ok"]:
+            raise ApiServiceError(
+                code="score_mismatch",
+                message=verdict["reason"] or "Submitted score does not match server-computed canonical score.",
+                status_code=400,
+                details={
+                    "canonical_score": verdict["canonical_score"],
+                    "submitted_score": verdict["submitted_score"],
+                    "delta_pct": verdict["delta_pct"],
+                    "tolerance_pct": 5.0,
+                    "subscales": verdict.get("subscales"),
+                },
+            )
+        # If client didn't supply a score but canonical computed one, fill it.
+        if verdict["canonical_score"] is not None:
+            if "score" not in updates and updates.get("score_numeric") is None:
+                updates["score"] = str(verdict["canonical_score"])
+            if updates.get("score_numeric") is None:
+                updates["score_numeric"] = verdict["canonical_score"]
+            if verdict.get("subscales") and not updates.get("subscales"):
+                updates["subscales"] = verdict["subscales"]
+
+    # Keep score_numeric in sync with string score when only one provided.
+    if updates.get("score_numeric") is None and updates.get("score") not in (None, ""):
+        try:
+            updates["score_numeric"] = float(updates["score"])
+        except (ValueError, TypeError):
+            pass
+    if updates.get("score") in (None, "") and updates.get("score_numeric") is not None:
+        updates["score"] = str(updates["score_numeric"])
+
+    # Derive severity from computed numeric score if the client didn't send one.
+    if updates.get("score_numeric") is not None and not updates.get("severity"):
+        sev = severity_for_score(template_id, updates["score_numeric"])
+        if sev.get("severity") and sev["severity"] != "unknown":
+            updates["severity"] = sev["severity"]
+
     record = update_assessment(session, assessment_id, actor.actor_id, **updates)
     if record is None:
         raise ApiServiceError(code="not_found", message="Assessment not found.", status_code=404)
@@ -830,3 +1100,290 @@ def delete_assessment_endpoint(
     deleted = delete_assessment(session, assessment_id, actor.actor_id)
     if not deleted:
         raise ApiServiceError(code="not_found", message="Assessment not found.", status_code=404)
+
+
+# ── Escalation ─────────────────────────────────────────────────────────────────
+
+class AssessmentEscalateRequest(BaseModel):
+    reason: Optional[str] = None
+    severity: Optional[str] = None  # optional override, usually "critical"
+    notes: Optional[str] = None
+
+
+@router.post("/{assessment_id}/escalate", response_model=AssessmentOut)
+def escalate_assessment_endpoint(
+    assessment_id: str,
+    body: AssessmentEscalateRequest,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    session: Session = Depends(get_db_session),
+) -> AssessmentOut:
+    """Flag an assessment as clinically escalated (crisis protocol).
+
+    Appends an audit event line to `clinician_notes` and stamps
+    `escalated=true`, `escalated_at`, `escalated_by`, and `escalation_reason`.
+    """
+    require_minimum_role(actor, "clinician")
+    existing = get_assessment(session, assessment_id, actor.actor_id)
+    if existing is None:
+        raise ApiServiceError(code="not_found", message="Assessment not found.", status_code=404)
+
+    reason = body.reason
+    if not reason:
+        # Auto-detect from item-level responses if available.
+        items: Optional[dict] = None
+        if existing.items_json:
+            try:
+                items = json.loads(existing.items_json)
+            except Exception:
+                items = None
+        score_num = existing.score_numeric
+        if score_num is None:
+            try:
+                score_num = float(existing.score) if existing.score else None
+            except (ValueError, TypeError):
+                score_num = None
+        flags = detect_red_flags(existing.template_id, items, score_num)
+        reason = " | ".join(flags) if flags else "Clinician-initiated escalation."
+
+    stamp = datetime.now(timezone.utc).isoformat()
+    audit_line = f"[ESCALATED {stamp} by {actor.actor_id}] {reason}"
+    if body.notes:
+        audit_line += f" — {body.notes}"
+    new_notes = (existing.clinician_notes + "\n" + audit_line) if existing.clinician_notes else audit_line
+
+    updates: dict[str, Any] = {
+        "escalated": True,
+        "escalation_reason": reason,
+        "escalated_by": actor.actor_id,
+        "clinician_notes": new_notes,
+        "status": "escalated",
+    }
+    if body.severity:
+        updates["severity"] = body.severity
+    record = update_assessment(session, assessment_id, actor.actor_id, **updates)
+    if record is None:
+        raise ApiServiceError(code="not_found", message="Assessment not found.", status_code=404)
+    return AssessmentOut.from_record(record)
+
+
+# ── AI summary generation ─────────────────────────────────────────────────────
+
+class AiSummaryResponse(BaseModel):
+    summary: str
+    model: str
+    confidence: float
+    red_flags: list[str] = Field(default_factory=list)
+    source: str  # "llm" | "deterministic_stub"
+
+
+_AI_SYSTEM_PROMPT = (
+    "You are a clinical assistant for a neuromodulation clinic. Summarize the "
+    "completed assessment in 3-4 sentences for the treating clinician. Include: "
+    "(1) current severity interpretation, (2) change vs prior score if applicable, "
+    "(3) any red flags (suicidality on PHQ-9 item 9, worsening trends, C-SSRS >=2), "
+    "(4) one suggested clinical action. Be clinically accurate, non-diagnostic, "
+    "and flag concerning patterns. Never invent data not present in the input."
+)
+
+
+def _build_ai_user_prompt(
+    template_id: str,
+    template_title: str,
+    score: Optional[float],
+    severity_label: Optional[str],
+    prior_scores: list[tuple[str, Optional[float], Optional[str]]],
+    items: Optional[dict],
+    patient_initials: str,
+    condition: Optional[str],
+    red_flags: list[str],
+) -> str:
+    trend = ", ".join(
+        f"{when} {s if s is not None else '?'}"
+        + (f" ({label})" if label else "")
+        for when, s, label in prior_scores
+    ) or "(none on file)"
+    items_preview = json.dumps(items, sort_keys=True)[:1200] if items else "(not provided)"
+    flags_line = "; ".join(red_flags) if red_flags else "(none auto-detected)"
+    return (
+        f"Instrument: {template_title} ({template_id})\n"
+        f"Patient: {patient_initials}, condition: {condition or 'unspecified'}\n"
+        f"Current score: {score} ({severity_label or 'unknown'})\n"
+        f"Prior scores: {trend}\n"
+        f"Item-level responses: {items_preview}\n"
+        f"Auto-detected red flags: {flags_line}\n"
+    )
+
+
+def _deterministic_stub(severity: Optional[str], template_title: str, score: Optional[float], red_flags: list[str]) -> str:
+    band_narrative = {
+        "minimal": "suggests minimal symptom burden; continue monitoring at the usual interval.",
+        "mild": "reflects a mild symptom profile; reinforce current treatment plan and re-screen at next visit.",
+        "moderate": "indicates moderate symptoms; consider protocol optimization or adjunctive intervention review.",
+        "severe": "indicates severe symptoms; escalate clinical review, tighten monitoring cadence, and reassess treatment plan.",
+        "critical": "meets critical-severity criteria; initiate crisis protocol and contact patient for safety screening.",
+    }.get((severity or "").lower(), "interpretation pending clinician review.")
+    rf_line = f" Red flags: {'; '.join(red_flags)}." if red_flags else ""
+    score_str = f"{score}" if score is not None else "(unrecorded)"
+    return (
+        f"{template_title} score {score_str} {band_narrative}"
+        f"{rf_line} Recommended action: review in next clinical contact and document rationale. "
+        "This deterministic summary is a stub; replace with an AI-generated summary once the LLM proxy is configured."
+    )
+
+
+def _resolve_patient_initials_and_condition(session: Session, patient_id: Optional[str]) -> tuple[str, Optional[str]]:
+    if not patient_id:
+        return ("—", None)
+    try:
+        from app.persistence.models import Patient  # lazy import to avoid cycles
+    except Exception:
+        return ("—", None)
+    try:
+        p = session.get(Patient, patient_id)
+    except Exception:
+        return ("—", None)
+    if p is None:
+        return ("—", None)
+    first = getattr(p, "first_name", "") or ""
+    last = getattr(p, "last_name", "") or ""
+    initials = f"{(first[:1] or '?').upper()}. {(last[:1] or '?').upper()}."
+    condition = getattr(p, "primary_condition", None) or getattr(p, "condition", None)
+    return initials, condition
+
+
+def _prior_same_instrument_scores(
+    session: Session,
+    patient_id: Optional[str],
+    template_id: str,
+    current_assessment_id: str,
+    limit: int = 3,
+) -> list[tuple[str, Optional[float], Optional[str]]]:
+    if not patient_id:
+        return []
+    stmt = (
+        select(AssessmentRecord)
+        .where(
+            AssessmentRecord.patient_id == patient_id,
+            AssessmentRecord.template_id == template_id,
+            AssessmentRecord.id != current_assessment_id,
+            AssessmentRecord.status == "completed",
+        )
+        .order_by(AssessmentRecord.updated_at.desc())
+        .limit(limit)
+    )
+    rows = list(session.scalars(stmt).all())
+    out: list[tuple[str, Optional[float], Optional[str]]] = []
+    for r in rows:
+        score_num: Optional[float] = r.score_numeric
+        if score_num is None:
+            try:
+                score_num = float(r.score) if r.score else None
+            except (ValueError, TypeError):
+                score_num = None
+        sev = normalize_assessment_score(r.template_id, score_num)
+        when = r.updated_at.strftime("%Y-%m-%d") if r.updated_at else ""
+        out.append((when, score_num, sev.get("label")))
+    return out
+
+
+@router.post("/{assessment_id}/ai-summary", response_model=AiSummaryResponse)
+def ai_summary_assessment_endpoint(
+    assessment_id: str,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    session: Session = Depends(get_db_session),
+) -> AiSummaryResponse:
+    """Generate an AI clinical summary for a completed assessment.
+
+    Pulls the last 3 same-instrument completed results for context, calls the
+    shared GLM/Anthropic proxy in `chat_service`, stores the summary +
+    model + timestamp on the assessment row, and returns the summary.
+
+    If no LLM is configured, falls back to a deterministic severity-based stub
+    (clearly labelled `source: "deterministic_stub"`).
+    """
+    require_minimum_role(actor, "clinician")
+    existing = get_assessment(session, assessment_id, actor.actor_id)
+    if existing is None:
+        raise ApiServiceError(code="not_found", message="Assessment not found.", status_code=404)
+
+    # Resolve current score/severity.
+    score_num: Optional[float] = existing.score_numeric
+    if score_num is None:
+        try:
+            score_num = float(existing.score) if existing.score else None
+        except (ValueError, TypeError):
+            score_num = None
+    sev_info = normalize_assessment_score(existing.template_id, score_num)
+    severity_label = sev_info.get("label")
+    severity = existing.severity or sev_info.get("severity")
+
+    items: Optional[dict] = None
+    if existing.items_json:
+        try:
+            items = json.loads(existing.items_json)
+        except Exception:
+            items = None
+
+    red_flags = detect_red_flags(existing.template_id, items, score_num)
+    prior = _prior_same_instrument_scores(session, existing.patient_id, existing.template_id, existing.id)
+    initials, condition = _resolve_patient_initials_and_condition(session, existing.patient_id)
+
+    user_prompt = _build_ai_user_prompt(
+        existing.template_id,
+        existing.template_title,
+        score_num,
+        severity_label,
+        prior,
+        items,
+        initials,
+        condition,
+        red_flags,
+    )
+
+    summary_text: str = ""
+    model_used: str = "deterministic_stub"
+    source: str = "deterministic_stub"
+    confidence: float = 0.5
+    try:
+        # Lazy import — chat_service pulls the anthropic SDK at import time.
+        from app.services.chat_service import _llm_chat, _anthropic_fallback_model  # type: ignore
+        from app.settings import get_settings
+
+        settings = get_settings()
+        if settings.glm_api_key or settings.anthropic_api_key:
+            summary_text = _llm_chat(
+                system=_AI_SYSTEM_PROMPT,
+                messages=[{"role": "user", "content": user_prompt}],
+                max_tokens=400,
+                temperature=0.2,
+                not_configured_message="",
+            ).strip()
+            if summary_text:
+                model_used = _anthropic_fallback_model() if settings.anthropic_api_key and not settings.glm_api_key else (
+                    "glm-4.5-flash" if settings.glm_api_key else _anthropic_fallback_model()
+                )
+                source = "llm"
+                confidence = 0.78
+    except Exception as exc:  # noqa: BLE001 — never fail the endpoint because of LLM issues
+        _log.warning("ai-summary LLM call failed: %s", exc)
+
+    if not summary_text:
+        summary_text = _deterministic_stub(severity, existing.template_title, score_num, red_flags)
+        model_used = "deterministic_stub"
+        source = "deterministic_stub"
+        confidence = 0.4 if red_flags else 0.55
+
+    updates: dict[str, Any] = {
+        "ai_summary": summary_text,
+        "ai_model": model_used,
+        "ai_confidence": confidence,
+    }
+    update_assessment(session, assessment_id, actor.actor_id, **updates)
+
+    return AiSummaryResponse(
+        summary=summary_text,
+        model=model_used,
+        confidence=confidence,
+        red_flags=red_flags,
+        source=source,
+    )
