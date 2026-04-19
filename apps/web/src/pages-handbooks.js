@@ -5,7 +5,128 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { HANDBOOK_DATA } from './handbooks-data.js';
-import { CONDITION_REGISTRY, PROTOCOL_REGISTRY } from './registries.js';
+import { CONDITION_REGISTRY, PROTOCOL_REGISTRY, DEVICE_REGISTRY } from './registries.js';
+import { api } from './api.js';
+import { currentUser } from './auth.js';
+
+// ── AI Handbook generator: state, mappings, helpers ──────────────────────────
+// Per-session cache of generated handbooks keyed by `${condId}|${modality}|${proto}|${device}|${kind}`.
+const _aiCache = {};
+// Per-condition selector state so switching off and back preserves choices.
+const _aiSel = {};
+
+// Frontend condition id → backend `Condition_Name` (clinical dataset CSV).
+// Listed only when the registry display name differs from the CSV row.
+const _BACKEND_COND = {
+  mdd: 'Major Depressive Disorder',
+  trd: 'Treatment-Resistant Depression',
+  bpd: 'Bipolar Depression',
+  ppd: 'Postpartum Depression',
+  sad: 'Seasonal Affective Disorder',
+  pdd: 'Dysthymia / Persistent Depressive Disorder',
+  gad: 'Generalized Anxiety Disorder',
+  panic: 'Panic Disorder',
+  'social-anx': 'Social Anxiety Disorder',
+  ocd: 'Obsessive-Compulsive Disorder',
+  ptsd: 'PTSD',
+  cptsd: 'PTSD',
+  'asd-trauma': 'PTSD',
+  'adhd-i': 'ADHD',
+  'adhd-hi': 'ADHD',
+  'adhd-c': 'ADHD',
+  asd: 'Autism Spectrum Disorder',
+  aud: 'Alcohol Use Disorder',
+  'nic-dep': 'Smoking Cessation',
+  oud: 'Opioid Withdrawal',
+  cud: 'Substance Use Disorder',
+  insomnia: 'Insomnia',
+  hypersomn: 'Hypersomnia / Narcolepsy',
+  'pain-neuro': 'Neuropathic Pain',
+  'pain-msk': 'Chronic Pain / Fibromyalgia',
+  fibro: 'Chronic Pain / Fibromyalgia',
+  migraine: 'Migraine',
+  tinnitus: 'Tinnitus',
+  'stroke-mtr': 'Stroke Rehabilitation',
+  'stroke-aph': 'Stroke Rehabilitation',
+  tbi: 'Cognitive Impairment / TBI',
+  alzheimer: "Alzheimer's Disease / Dementia",
+  'vasc-dem': "Alzheimer's Disease / Dementia",
+  parkinsons: "Parkinson's Disease",
+  ms: 'Multiple Sclerosis — Fatigue',
+  epilepsy: 'Epilepsy',
+  'essential-t': 'Essential Tremor',
+  dystonia: 'Dystonia',
+  tourette: 'Tics / Tourette Syndrome',
+  'long-covid': 'Long COVID Fatigue',
+  'bpd-psy': 'Borderline Personality Disorder',
+  schizo: 'Schizophrenia (Negative Symptoms / AVH)',
+  'schizo-aff': 'Schizophrenia (Negative Symptoms / AVH)',
+  fep: 'Schizophrenia (Negative Symptoms / AVH)',
+  anorexia: 'Eating Disorders',
+  bulimia: 'Eating Disorders',
+  bed: 'Eating Disorders',
+};
+
+// Fuzzy mappings for OCD-spectrum / anxiety-umbrella conditions with no exact CSV row.
+const _BACKEND_COND_FUZZY = {
+  bdd: 'Obsessive-Compulsive Disorder',
+  hoarding: 'Obsessive-Compulsive Disorder',
+  trich: 'Obsessive-Compulsive Disorder',
+  'specific-ph': 'Generalized Anxiety Disorder',
+  agoraphobia: 'Panic Disorder',
+  // fnd: deliberately omitted — no clinically appropriate proxy
+};
+
+function _backendConditionFor(cond) {
+  if (_BACKEND_COND[cond.id]) return { name: _BACKEND_COND[cond.id], fuzzy: false };
+  if (_BACKEND_COND_FUZZY[cond.id]) return { name: _BACKEND_COND_FUZZY[cond.id], fuzzy: true };
+  return { name: cond.name, fuzzy: false, unmapped: true };
+}
+
+function _modalityForBackend(label) {
+  if (!label) return 'TMS';
+  const l = label.toLowerCase();
+  if (l.includes('itbs')) return 'iTBS';
+  if (l.includes('rtms') || l.includes('tms')) return 'TMS';
+  if (l.includes('tdcs')) return 'tDCS';
+  if (l.includes('tacs')) return 'tACS';
+  if (l.includes('tavns') || (l.includes('vns') && l.includes('aur'))) return 'taVNS';
+  if (l.includes('vns')) return 'VNS';
+  if (l.includes('dbs')) return 'DBS';
+  if (l.includes('ces')) return 'CES';
+  if (l.includes('pbm')) return 'PBM';
+  if (l.includes('neurofeedback') || l.includes('nfb')) return 'Neurofeedback';
+  if (l.includes('tps')) return 'TPS';
+  return label;
+}
+
+function _modalityMatches(deviceModality, sel) {
+  if (!deviceModality || !sel) return false;
+  const a = deviceModality.toLowerCase();
+  const b = sel.toLowerCase();
+  if (a === b) return true;
+  const parts = (s) => s.split(/[\/,]/).map(x => x.trim()).filter(Boolean);
+  const ap = parts(a), bp = parts(b);
+  return ap.some(x => bp.includes(x));
+}
+
+function _aiSelFor(cond) {
+  const id = cond.id;
+  if (!_aiSel[id]) {
+    const protos = PROTOCOL_REGISTRY.filter(p => p.condition === id);
+    const modality = (cond.modalities && cond.modalities[0]) || 'TMS/rTMS';
+    const protoId  = protos.length ? protos[0].id : '';
+    const devices  = DEVICE_REGISTRY.filter(d => _modalityMatches(d.modality, modality));
+    const deviceId = devices.length ? devices[0].id : '';
+    _aiSel[id] = { modality, protoId, deviceId, kind: 'clinician_handbook' };
+  }
+  return _aiSel[id];
+}
+
+function _canGenerate() {
+  const role = (currentUser && currentUser.role) || 'guest';
+  return role === 'clinician' || role === 'admin';
+}
 
 // ── Tokens (with fallbacks to existing vars) ─────────────────────────────────
 const T = {
@@ -117,6 +238,155 @@ function buildEntries() {
   return out;
 }
 
+// ── AI Handbook section ──────────────────────────────────────────────────────
+// Renders modality/protocol/device/audience selectors plus a Generate button.
+// On generate, calls /api/v1/handbooks/generate and renders the structured
+// HandbookDocument (overview → eligibility → setup → workflow → safety →
+// troubleshooting → escalation → docs → outcomes/discharge → references).
+function aiHandbookSection(cond) {
+  return {
+    id: 'ai-handbook',
+    title: 'AI handbook (generated from evidence)',
+    render: () => {
+      const sel = _aiSelFor(cond);
+      const protos = PROTOCOL_REGISTRY.filter(p => p.condition === cond.id);
+      const devices = DEVICE_REGISTRY.filter(d => _modalityMatches(d.modality, sel.modality));
+      const cacheKey = `${cond.id}|${sel.modality}|${sel.protoId}|${sel.deviceId}|${sel.kind}`;
+      const gen = _aiCache[cacheKey];
+      const proto = sel.protoId ? protos.find(p => p.id === sel.protoId) : null;
+      const device = sel.deviceId ? devices.find(d => d.id === sel.deviceId) : null;
+      const mapped = _backendConditionFor(cond);
+      const allowed = _canGenerate();
+
+      const opt = (v, l, on) => `<option value="${esc(v)}"${on?' selected':''}>${esc(l)}</option>`;
+      const selectStyle = `padding:6px 10px;border-radius:${T.rsm};background:${T.surface};color:${T.text1};border:1px solid ${T.border};font-size:12px;font-family:inherit;min-width:180px`;
+
+      const selRow = `
+        <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin:0 0 12px">
+          <label style="display:flex;flex-direction:column;gap:3px;font-size:9.5px;color:${T.text3};text-transform:uppercase;letter-spacing:0.06em;font-family:${T.fmono};font-weight:600">Modality
+            <select onchange="window._hbAiSet('modality', this.value)" style="${selectStyle}">
+              ${(cond.modalities||[]).map(m => opt(m, m, m === sel.modality)).join('')}
+            </select>
+          </label>
+          <label style="display:flex;flex-direction:column;gap:3px;font-size:9.5px;color:${T.text3};text-transform:uppercase;letter-spacing:0.06em;font-family:${T.fmono};font-weight:600">Protocol
+            <select onchange="window._hbAiSet('protoId', this.value)" style="${selectStyle}">
+              ${opt('', protos.length ? '— No specific protocol —' : 'No registered protocols', !sel.protoId)}
+              ${protos.map(p => opt(p.id, `${p.name} (${p.modality})`, p.id === sel.protoId)).join('')}
+            </select>
+          </label>
+          <label style="display:flex;flex-direction:column;gap:3px;font-size:9.5px;color:${T.text3};text-transform:uppercase;letter-spacing:0.06em;font-family:${T.fmono};font-weight:600">Device
+            <select onchange="window._hbAiSet('deviceId', this.value)" style="${selectStyle}">
+              ${opt('', devices.length ? '— Any device —' : 'No matching devices', !sel.deviceId)}
+              ${devices.map(d => opt(d.id, `${d.name} · ${d.clearance}`, d.id === sel.deviceId)).join('')}
+            </select>
+          </label>
+          <label style="display:flex;flex-direction:column;gap:3px;font-size:9.5px;color:${T.text3};text-transform:uppercase;letter-spacing:0.06em;font-family:${T.fmono};font-weight:600">Audience
+            <select onchange="window._hbAiSet('kind', this.value)" style="${selectStyle}">
+              ${[['clinician_handbook','Clinician Handbook'],['patient_guide','Patient Guide'],['technician_sop','Technician SOP']]
+                .map(([v,l]) => opt(v, l, v === sel.kind)).join('')}
+            </select>
+          </label>
+        </div>`;
+
+      const button = `
+        <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+          <button id="hb-ai-gen" onclick="window._hbAiGenerate()" ${allowed ? '' : 'disabled'}
+            style="padding:7px 16px;border-radius:${T.rsm};font-size:12px;font-weight:700;background:${allowed ? T.teal : T.surface};color:${allowed ? '#04121c' : T.text3};border:none;cursor:${allowed ? 'pointer' : 'not-allowed'};font-family:inherit">
+            ${gen ? '↻ Regenerate from evidence' : '✦ Generate handbook'}
+          </button>
+          <span id="hb-ai-status" style="font-size:11px;color:${T.text3};font-family:${T.fmono}">${
+            !allowed
+              ? 'Generation requires a clinician or admin role.'
+              : (gen ? 'Generated · cached for this session.' : 'Backend draws from imported clinical dataset.')
+          }</span>
+        </div>`;
+
+      const coverageHint = mapped.unmapped
+        ? `<div style="margin:10px 0 0;padding:9px 12px;background:rgba(255,181,71,0.08);border:1px solid rgba(255,181,71,0.32);border-radius:${T.rsm};font-size:11.5px;color:${T.amber};line-height:1.5">
+            Not yet in the imported clinical dataset. Curated sections below remain authoritative; generation will return a coverage error.
+          </div>`
+        : mapped.fuzzy
+        ? `<div style="margin:10px 0 0;padding:9px 12px;background:rgba(74,158,255,0.08);border:1px solid rgba(74,158,255,0.32);border-radius:${T.rsm};font-size:11.5px;color:${T.blue};line-height:1.5">
+            Generated content will be synthesised from a related dataset row: <strong>${esc(mapped.name)}</strong>. Apply clinical judgement.
+          </div>`
+        : '';
+
+      const intro = `<p style="margin:0 0 14px;color:${T.text2}">Pick a modality + (optional) protocol and device, then generate a structured handbook from the imported clinical dataset.</p>`;
+
+      if (!gen) {
+        return `${intro}${selRow}${button}${coverageHint}`;
+      }
+
+      const d = gen.document || gen;
+      const list = (items) => Array.isArray(items) && items.length
+        ? `<ul style="margin:8px 0 0;padding-left:20px;display:flex;flex-direction:column;gap:6px;color:${T.text2};line-height:1.55">${items.map(i => `<li>${esc(i)}</li>`).join('')}</ul>`
+        : `<p style="color:${T.text3}">No data.</p>`;
+      const numList = (items) => Array.isArray(items) && items.length
+        ? `<ol style="margin:8px 0 0;padding-left:22px;display:flex;flex-direction:column;gap:7px;color:${T.text2};line-height:1.55">${items.map(i => `<li>${esc(i)}</li>`).join('')}</ol>`
+        : `<p style="color:${T.text3}">No data.</p>`;
+      const sub = (title, body) => `<h3 style="font-family:${T.fdisp};font-size:14px;font-weight:600;color:${T.text1};margin:18px 0 4px">${esc(title)}</h3>${body}`;
+
+      // Build dynamic discharge / outcomes notes from the curated condition assessments
+      // and escalation triggers — this gives the clinician a clear next-step workflow.
+      const dischargeNotes = [];
+      if ((cond.assessments || []).includes('drs')) dischargeNotes.push('Run Discharge Readiness Screen (DRS) before final session.');
+      if ((cond.assessments || []).includes('wpc')) dischargeNotes.push('Compare final scores with weekly progress check (WPC) trajectory.');
+      dischargeNotes.push('Schedule follow-up at 4 and 12 weeks post-course; document remission/response status.');
+      const hb = entry => entry; // placeholder; we use cond directly below
+      const escTrigger = HANDBOOK_DATA[cond.id]?.escalation;
+      if (escTrigger) dischargeNotes.push('Re-screen against escalation triggers: ' + escTrigger);
+
+      const docChecklist = [
+        'Document baseline assessment scores (' + ((cond.assessments||[]).map(a => a.toUpperCase()).join(', ') || 'per condition standard') + ').',
+        'Record motor threshold / dosing parameters at session 1' + (proto ? ` (target ${proto.target}, ${proto.intensity})` : '') + '.',
+        'Log per-session tolerability via SES + STC.',
+        'Capture weekly progress (WPC) and any AE reports in patient chart.',
+        device ? `Record device serial / lot for ${device.name} per ${device.clearance} traceability.` : 'Record device identifier per clinic SOP.',
+      ];
+
+      return `
+        ${intro}${selRow}${button}${coverageHint}
+        <div style="margin-top:18px;padding:18px 18px 4px;border-radius:${T.rmd};background:${T.bg};border:1px solid rgba(0,212,188,0.32)">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap;font-family:${T.fmono};font-size:10px;color:${T.teal};text-transform:uppercase;letter-spacing:0.06em;font-weight:700">
+            AI · ${esc(d.document_type || sel.kind)} · ${esc(sel.modality)}${proto ? ' · ' + esc(proto.name) : ''}${device ? ' · ' + esc(device.name) : ''}
+          </div>
+          <h3 style="font-family:${T.fdisp};font-size:18px;font-weight:600;margin:0 0 8px;color:${T.text1}">${esc(d.title || 'Generated handbook')}</h3>
+          ${d.overview ? `<p style="margin:0 0 6px;color:${T.text2}">${esc(d.overview)}</p>` : ''}
+          ${sub('Patient selection / eligibility', list(d.eligibility))}
+          ${proto ? sub('Protocol parameters', paramTable([
+            ['Target', proto.target || '—'],
+            ['Frequency', proto.freq || '—'],
+            ['Intensity', proto.intensity || '—'],
+            ['Sessions', `${proto.sessions||'—'} (${proto.sessPerWeek||'?'}×/wk)`],
+            ['Duration', proto.duration || '—'],
+            ['Laterality', proto.laterality || '—'],
+          ])) : ''}
+          ${device ? sub('Device profile', `
+            <div style="font-size:13px;color:${T.text2};line-height:1.55;padding:12px 14px;background:${T.panel};border:1px solid ${T.border};border-radius:${T.rsm};margin-top:8px">
+              <div><strong style="color:${T.text1}">${esc(device.name)}</strong> — ${esc(device.mfr)}</div>
+              <div>${esc(device.type)} · ${esc(device.clearance)} · ${esc(device.region)}</div>
+              ${device.notes ? `<div style="margin-top:4px;color:${T.text3}">${esc(device.notes)}</div>` : ''}
+            </div>`) : ''}
+          ${sub('Initial assessment & setup', numList(d.setup))}
+          ${sub('Session workflow / protocol application', numList(d.session_workflow))}
+          ${sub('Safety / contraindications', list(d.safety))}
+          ${sub('Monitoring & troubleshooting', list(d.troubleshooting))}
+          ${sub('Escalation pathways', list(d.escalation))}
+          ${sub('Documentation checklist', list(docChecklist))}
+          ${sub('Outcomes review & discharge', list(dischargeNotes))}
+          ${Array.isArray(d.references) && d.references.length ? sub('References', `
+            <ul style="margin:8px 0 0;padding-left:20px;display:flex;flex-direction:column;gap:6px">
+              ${d.references.map(r => `<li><a href="${esc(r)}" target="_blank" rel="noopener" style="color:${T.teal};word-break:break-all">${esc(r)}</a></li>`).join('')}
+            </ul>`) : ''}
+          ${(gen.disclaimers && (gen.disclaimers.protocol || gen.disclaimers.governance || gen.disclaimers.off_label)) ? `
+            <div style="margin:14px 0 14px;padding:10px 12px;background:rgba(255,181,71,0.08);border:1px solid rgba(255,181,71,0.32);border-radius:${T.rsm};font-size:11.5px;color:${T.amber};line-height:1.55">
+              ${[gen.disclaimers.protocol, gen.disclaimers.governance, gen.disclaimers.off_label].filter(Boolean).map(esc).join('<br/>')}
+            </div>` : '<div style="height:8px"></div>'}
+        </div>`;
+    },
+  };
+}
+
 // ── Section model: turn raw HANDBOOK_DATA into a normalised section list ─────
 // Each section has { id, num, title, render() -> string } and is what powers
 // both the center reading pane and the right-rail TOC.
@@ -129,6 +399,9 @@ function sectionsFor(entry) {
     const cond = entry.reg;
     const evGrade = (cond?.ev || 'C').toUpperCase();
     const sections = [];
+
+    // AI Handbook generator goes first so clinicians see it on entry.
+    sections.push(aiHandbookSection(cond));
 
     if (d.epidemiology || cond) sections.push({
       id: 'overview',
@@ -804,6 +1077,71 @@ export async function pgHandbooks(setTopbar /*, navigate */) {
     else console.info('[handbook]', title, body);
   };
   window._hbPrint = () => { try { window.print(); } catch (_) { /* noop */ } };
+
+  // ── AI Handbook handlers ───────────────────────────────────────────────────
+  window._hbAiSet = (field, value) => {
+    if (!_id) return;
+    const cond = CONDITION_REGISTRY.find(c => c.id === _id);
+    if (!cond) return;
+    const sel = _aiSelFor(cond);
+    sel[field] = value;
+    if (field === 'modality') {
+      const protos = PROTOCOL_REGISTRY.filter(p => p.condition === cond.id);
+      const devices = DEVICE_REGISTRY.filter(d => _modalityMatches(d.modality, value));
+      sel.deviceId = devices.length ? devices[0].id : '';
+      const protoStillValid = protos.find(p => p.id === sel.protoId && _modalityMatches(p.modality, value));
+      if (!protoStillValid) {
+        const newProto = protos.find(p => _modalityMatches(p.modality, value));
+        sel.protoId = newProto ? newProto.id : '';
+      }
+    }
+    _section = 'ai-handbook';
+    render();
+  };
+
+  window._hbAiGenerate = async () => {
+    if (!_id) return;
+    if (!_canGenerate()) {
+      window._dsToast?.({ title: 'Permission required', body: 'Handbook generation needs clinician or admin role.', severity: 'warn' });
+      return;
+    }
+    const cond = CONDITION_REGISTRY.find(c => c.id === _id);
+    if (!cond) return;
+    const sel = _aiSelFor(cond);
+    const cacheKey = `${cond.id}|${sel.modality}|${sel.protoId}|${sel.deviceId}|${sel.kind}`;
+    const btn  = document.getElementById('hb-ai-gen');
+    const stat = document.getElementById('hb-ai-status');
+    if (btn)  btn.disabled = true;
+    if (stat) stat.textContent = 'Generating from clinical dataset…';
+    try {
+      const mapped = _backendConditionFor(cond);
+      const deviceObj = sel.deviceId ? DEVICE_REGISTRY.find(d => d.id === sel.deviceId) : null;
+      const res = await api.generateHandbook({
+        handbook_kind: sel.kind,
+        condition: mapped.name,
+        modality: _modalityForBackend(sel.modality),
+        device: deviceObj ? deviceObj.name : '',
+      });
+      _aiCache[cacheKey] = {
+        document: res?.document || res,
+        disclaimers: res?.disclaimers,
+        modality: sel.modality,
+        protoId: sel.protoId,
+        deviceId: sel.deviceId,
+        kind: sel.kind,
+        ts: Date.now(),
+      };
+      window._dsToast?.({ title: 'Handbook generated', body: cond.name + ' · ' + sel.modality, severity: 'ok' });
+    } catch (e) {
+      const msg = e?.body?.message || e?.message || 'Backend error';
+      if (stat) stat.textContent = 'Failed: ' + msg;
+      window._dsToast?.({ title: 'Generate failed', body: msg, severity: 'warn' });
+      if (btn) btn.disabled = false;
+      return;
+    }
+    _section = 'ai-handbook';
+    render();
+  };
 
   render();
 }
