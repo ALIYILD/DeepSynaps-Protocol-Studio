@@ -4,6 +4,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { api } from './api.js';
+import { CONDITION_HOME_TEMPLATES } from './home-program-condition-templates.js';
 
 const _e = s => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 const _fmtTime = iso => { try { return new Date(iso).toLocaleString('en-GB',{hour:'2-digit',minute:'2-digit',day:'numeric',month:'short'}); } catch { return iso; } };
@@ -1178,6 +1179,13 @@ export async function pgLiveSession(setTopbar, navigate) {
     keyHandler: null,
     navHandler: null,
     unloadHandler: null,
+    activeTab: 'session',
+    tasks: [],
+    completions: {},
+    taskFilter: { category: 'all', status: 'all', overdueOnly: false },
+    tasksLoaded: false,
+    taskSelectedPid: null,
+    tasksRefreshInt: null,
   };
 
   try {
@@ -1204,6 +1212,21 @@ export async function pgLiveSession(setTopbar, navigate) {
   window._lsEndVideo = _lsEndVideo;
   window._lsSnapMonitor = _lsSnapMonitor;
   window._lsSetImpedance = _lsSetImpedance;
+  window._lsSetTab = _lsSetTab;
+  window._lsTasksTab = _lsTasksTab;
+  window._lsAssignTask = _lsAssignTask;
+  window._lsCycleTaskStatus = _lsCycleTaskStatus;
+  window._lsEditTask = _lsEditTask;
+  window._lsDeleteTask = _lsDeleteTask;
+  window._lsRemindTask = _lsRemindTask;
+  window._lsBulkAssignTemplate = _lsBulkAssignTemplate;
+  window._lsOpenAssignModal = _lsOpenAssignModal;
+  window._lsCloseModal = _lsCloseModal;
+  window._lsSubmitAssign = _lsSubmitAssign;
+  window._lsSubmitEdit = _lsSubmitEdit;
+  window._lsSetTaskFilter = _lsSetTaskFilter;
+  window._lsPickTemplate = _lsPickTemplate;
+  window._lsPickPatient = _lsPickPatient;
 }
 
 function _lsInitials(name) {
@@ -1344,7 +1367,65 @@ function _lsRender() {
       </div>
     </div>`;
 
+  const activeTab = s.activeTab || 'session';
+  const tabStrip = `
+    <div class="dv2l-ht-tabstrip">
+      <button class="dv2l-ht-tabbtn${activeTab==='session'?' on':''}" onclick="window._lsSetTab('session')">Session</button>
+      <button class="dv2l-ht-tabbtn${activeTab==='tasks'?' on':''}" onclick="window._lsSetTab('tasks')">Home Tasks</button>
+      <button class="dv2l-ht-tabbtn${activeTab==='log'?' on':''}" onclick="window._lsSetTab('log')">Event Log</button>
+      <span class="dv2l-ht-tabspacer"></span>
+      <span class="dv2l-ht-tabctx">${_e(patient.display_name || '')} &middot; ${_e(session.modality || '')} &middot; Session ${session.session_no || 1}/${session.session_total || 20}</span>
+    </div>`;
+
   mount.innerHTML = `
+    <style id="dv2l-hometasks-styles">
+      .dv2l-ht-tabstrip { display:flex;align-items:center;gap:4px;padding:10px 16px 0;max-width:1600px;margin:0 auto }
+      .dv2l-ht-tabbtn { background:transparent;border:1px solid var(--border);border-bottom:none;padding:8px 14px;color:var(--text-secondary);font-size:12px;font-weight:600;cursor:pointer;border-radius:6px 6px 0 0;letter-spacing:0.3px }
+      .dv2l-ht-tabbtn:hover { color:var(--text-primary) }
+      .dv2l-ht-tabbtn.on { background:var(--bg-card,rgba(15,23,32,0.6));border-color:rgba(0,212,188,0.35);color:var(--teal,#00d4bc) }
+      .dv2l-ht-tabspacer { flex:1 }
+      .dv2l-ht-tabctx { font-size:11px;color:var(--text-tertiary);font-family:var(--dv2-font-mono,var(--font-mono)) }
+      .dv2l-ht-wrap { padding:16px;max-width:1600px;margin:0 auto;display:grid;grid-template-columns:minmax(0,1.25fr) minmax(0,1fr);gap:16px }
+      @media (max-width:1080px){ .dv2l-ht-wrap { grid-template-columns:1fr } }
+      .dv2l-ht-kpis { display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:12px }
+      .dv2l-ht-kpi { padding:12px;background:var(--bg-card,rgba(15,23,32,0.6));border:1px solid var(--border);border-radius:8px }
+      .dv2l-ht-kpi-v { font-family:var(--dv2-font-display,var(--font-display));font-size:22px;font-weight:600;line-height:1 }
+      .dv2l-ht-kpi-l { font-size:10px;color:var(--text-tertiary);letter-spacing:0.8px;text-transform:uppercase;margin-top:4px }
+      .dv2l-ht-filters { display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px }
+      .dv2l-ht-chip { padding:5px 10px;border-radius:999px;background:rgba(255,255,255,0.03);border:1px solid var(--border);font-size:11px;color:var(--text-secondary);cursor:pointer }
+      .dv2l-ht-chip.on { background:rgba(0,212,188,0.12);border-color:rgba(0,212,188,0.4);color:var(--teal,#00d4bc) }
+      .dv2l-ht-row { display:grid;grid-template-columns:24px 1fr auto auto auto auto;gap:10px;align-items:center;padding:10px 12px;border:1px solid var(--border);border-radius:8px;background:var(--bg-card,rgba(15,23,32,0.6));margin-bottom:8px }
+      .dv2l-ht-row.demo { border-style:dashed;opacity:0.92 }
+      .dv2l-ht-ico { font-size:18px }
+      .dv2l-ht-title { font-size:13px;font-weight:600;color:var(--text-primary);font-family:var(--dv2-font-display,var(--font-display)) }
+      .dv2l-ht-sub { font-size:11px;color:var(--text-tertiary);margin-top:2px }
+      .dv2l-ht-meta { font-family:var(--dv2-font-mono,var(--font-mono));font-size:10px;color:var(--text-tertiary) }
+      .dv2l-ht-status { padding:3px 9px;border-radius:999px;font-size:10px;font-weight:700;letter-spacing:0.4px;text-transform:uppercase;cursor:pointer;border:1px solid transparent }
+      .dv2l-ht-status.assigned    { background:rgba(74,158,255,0.12);color:#4a9eff;border-color:rgba(74,158,255,0.35) }
+      .dv2l-ht-status.in-progress { background:rgba(0,212,188,0.12);color:#00d4bc;border-color:rgba(0,212,188,0.35) }
+      .dv2l-ht-status.completed   { background:rgba(74,222,128,0.12);color:#4ade80;border-color:rgba(74,222,128,0.35) }
+      .dv2l-ht-status.skipped     { background:rgba(124,134,153,0.14);color:#7c8699;border-color:rgba(124,134,153,0.35) }
+      .dv2l-ht-status.overdue     { background:rgba(255,107,107,0.12);color:#ff6b6b;border-color:rgba(255,107,107,0.35) }
+      .dv2l-ht-spark { display:inline-flex;gap:2px;align-items:flex-end;height:18px }
+      .dv2l-ht-spark i { display:block;width:4px;background:rgba(0,212,188,0.35);border-radius:1px }
+      .dv2l-ht-spark i.on { background:var(--teal,#00d4bc) }
+      .dv2l-ht-iconbtn { background:transparent;border:1px solid var(--border);color:var(--text-secondary);border-radius:6px;padding:4px 8px;font-size:11px;cursor:pointer }
+      .dv2l-ht-iconbtn:hover { color:var(--text-primary);border-color:rgba(0,212,188,0.35) }
+      .dv2l-ht-empty { text-align:center;padding:36px 12px;color:var(--text-tertiary);font-size:12px;border:1px dashed var(--border);border-radius:8px }
+      .dv2l-ht-tag-demo { font-size:9px;padding:2px 6px;border-radius:4px;background:rgba(124,134,153,0.15);color:#7c8699;margin-left:6px;letter-spacing:0.5px }
+      .dv2l-ht-tag-offline { font-size:9px;padding:2px 6px;border-radius:4px;background:rgba(245,158,11,0.15);color:#f59e0b;margin-left:6px;letter-spacing:0.5px }
+      .dv2l-ht-panel { padding:14px }
+      .dv2l-ht-input,.dv2l-ht-select,.dv2l-ht-textarea { width:100%;background:rgba(255,255,255,0.02);border:1px solid var(--border);border-radius:6px;padding:8px 10px;color:var(--text-primary);font-size:12px;font-family:inherit }
+      .dv2l-ht-textarea { min-height:60px;resize:vertical }
+      .dv2l-ht-label { font-size:10px;color:var(--text-tertiary);letter-spacing:0.6px;text-transform:uppercase;display:block;margin-bottom:4px;font-weight:600 }
+      .dv2l-ht-fgroup { margin-bottom:10px }
+      .dv2l-ht-modal-bg { position:fixed;inset:0;background:rgba(4,12,20,0.65);z-index:1000;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(4px) }
+      .dv2l-ht-modal { background:var(--bg-card,rgba(15,23,32,0.95));border:1px solid var(--border);border-radius:10px;max-width:520px;width:92%;max-height:85vh;overflow:auto;padding:18px }
+    </style>
+    ${tabStrip}
+    <div id="dv2l-ht-panel-tasks" style="display:${activeTab==='tasks'?'block':'none'}"></div>
+    <div id="dv2l-ht-panel-log" style="display:${activeTab==='log'?'block':'none'}"></div>
+    <div id="ls-session-panel" style="display:${activeTab==='session'?'block':'none'}">
     <style>
       .ls-root { display:grid; grid-template-columns:minmax(0,1.4fr) minmax(0,1fr); gap:16px; padding:16px; max-width:1600px; margin:0 auto; }
       .ls-col-right { display:grid; grid-template-rows:auto auto; gap:16px; }
@@ -1507,9 +1588,12 @@ function _lsRender() {
         </div>
       </div>
     </div>
+    </div>
   `;
 
   _lsLoadBrainMapLazy();
+  if (activeTab === 'tasks') _lsRenderTasks();
+  if (activeTab === 'log') _lsRenderLogPanel();
 }
 
 function _lsBrainMapFallback(anode, cathode) {
@@ -1642,10 +1726,13 @@ function _lsTeardown() {
   if (!s) return;
   try { if (s.timerInt) clearInterval(s.timerInt); } catch {}
   try { if (s.traceInt) clearInterval(s.traceInt); } catch {}
+  try { if (s.tasksRefreshInt) clearInterval(s.tasksRefreshInt); } catch {}
   try { if (s.keyHandler) document.removeEventListener('keydown', s.keyHandler); } catch {}
   try { if (s.unloadHandler) window.removeEventListener('beforeunload', s.unloadHandler); } catch {}
+  try { const m = document.querySelector('.dv2l-ht-modal-bg'); if (m) m.remove(); } catch {}
   s.timerInt = null;
   s.traceInt = null;
+  s.tasksRefreshInt = null;
   s.keyHandler = null;
   s.unloadHandler = null;
   _lsState = null;
@@ -1765,3 +1852,558 @@ function _lsSetImpedance(kohm) {
   const b = document.getElementById('ls-imp-bar');
   if (b) b.style.width = Math.min(100, (kohm / 20) * 100).toFixed(0) + '%';
 }
+
+// ── Home Task Manager (embedded inside Live Session) ──────────────────────
+const LS_HT_TASK_TYPES = [
+  { id:'breathing',    icon:'\uD83D\uDCA8', label:'Breathing / Relaxation' },
+  { id:'sleep',        icon:'\uD83C\uDF19', label:'Sleep Routine' },
+  { id:'mood-journal', icon:'\uD83D\uDCD3', label:'Mood Journal' },
+  { id:'activity',     icon:'\uD83C\uDFC3', label:'Walking / Activity' },
+  { id:'assessment',   icon:'\uD83D\uDCCB', label:'Assessment / Check-in' },
+  { id:'media',        icon:'\uD83C\uDFAC', label:'Watch / Listen Guide' },
+  { id:'home-device',  icon:'\uD83E\uDDE0', label:'Home Device Session' },
+  { id:'caregiver',    icon:'\uD83E\uDD1D', label:'Caregiver Task' },
+  { id:'pre-session',  icon:'\u26A1',       label:'Pre-Session Prep' },
+  { id:'post-session', icon:'\uD83C\uDF3F', label:'Post-Session Care' },
+];
+const LS_HT_STATUSES = ['assigned','in-progress','completed','skipped','overdue'];
+const LS_HT_CYCLE = { 'assigned':'in-progress', 'in-progress':'completed', 'completed':'assigned', 'skipped':'assigned', 'overdue':'in-progress' };
+
+function _lsHtTypeIcon(id) { return (LS_HT_TASK_TYPES.find(t => t.id === id) || {}).icon || '\uD83D\uDCDD'; }
+function _lsHtTypeLabel(id) { return (LS_HT_TASK_TYPES.find(t => t.id === id) || {}).label || (id || 'Task'); }
+function _lsHtClinKey(pid) { return 'ds_clinician_tasks_' + pid; }
+function _lsHtCompKey(pid) { return 'ds_task_completions_' + pid; }
+function _lsHtRead(k, d) { try { return JSON.parse(localStorage.getItem(k) || 'null') ?? d; } catch { return d; } }
+function _lsHtWrite(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} }
+
+function _lsSetTab(tab) {
+  const s = _lsState; if (!s) return;
+  s.activeTab = tab;
+  const panels = {
+    session: document.getElementById('ls-session-panel'),
+    tasks:   document.getElementById('dv2l-ht-panel-tasks'),
+    log:     document.getElementById('dv2l-ht-panel-log'),
+  };
+  Object.entries(panels).forEach(([k, el]) => { if (el) el.style.display = (k === tab) ? 'block' : 'none'; });
+  const strip = document.querySelectorAll('.dv2l-ht-tabbtn');
+  strip.forEach((b, idx) => {
+    const key = ['session','tasks','log'][idx];
+    b.classList.toggle('on', key === tab);
+  });
+  if (tab === 'tasks') _lsRenderTasks();
+  if (tab === 'log') _lsRenderLogPanel();
+}
+
+function _lsTasksTab() { _lsSetTab('tasks'); }
+
+function _lsRenderLogPanel() {
+  const el = document.getElementById('dv2l-ht-panel-log'); if (!el) return;
+  const s = _lsState; if (!s) return;
+  const rows = s.events.map(ev => {
+    const type = (ev.type || 'INFO').toUpperCase();
+    const col = type === 'STIM' ? 'var(--teal,#00d4bc)' : type === 'CHECK' ? 'var(--blue,#4a9eff)' : type === 'RAMP' ? 'var(--amber,#f59e0b)' : type === 'OPER' ? 'var(--violet,#a78bfa)' : type === 'CLEAR' ? 'var(--green,#4ade80)' : type === 'AE' ? '#ff6b6b' : 'var(--text-secondary)';
+    return `<div class="ls-log-row"><span class="ls-log-ts">${_lsFmtTs(ev.ts)}</span><span class="ls-log-type" style="color:${col}">${_e(type)}</span><span class="ls-log-msg">${_e(ev.note || ev.message || '')}</span></div>`;
+  }).join('');
+  el.innerHTML = `
+    <div class="dv2l-ht-wrap" style="grid-template-columns:1fr">
+      <div class="dv2-card dv2l-ht-panel">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px">
+          <div>
+            <div style="font-family:var(--dv2-font-display,var(--font-display));font-size:14px;font-weight:600">Event log</div>
+            <div style="font-size:11px;color:var(--text-tertiary);margin-top:2px">Append-only \u00B7 newest first \u00B7 session ${_e(s.session.id)}</div>
+          </div>
+          <span class="chip">${s.events.length} entries</span>
+        </div>
+        <div style="max-height:62vh;overflow-y:auto;padding-right:4px">${rows}</div>
+      </div>
+    </div>`;
+}
+
+async function _lsLoadTasks() {
+  const s = _lsState; if (!s) return;
+  const pid = s.taskSelectedPid || s.session.patient_id;
+  if (!pid) { s.tasks = []; s.completions = {}; s.tasksLoaded = true; return; }
+  let tasks = null; let offline = false;
+  try {
+    const res = await (api.listHomeProgramTasks?.({ patientId: pid }));
+    if (res && Array.isArray(res.items)) tasks = res.items;
+    else if (Array.isArray(res)) tasks = res;
+  } catch { offline = true; }
+  if (!tasks) {
+    tasks = _lsHtRead(_lsHtClinKey(pid), null);
+    if (!tasks || !tasks.length) {
+      tasks = _lsHtSeedTasks(pid);
+      _lsHtWrite(_lsHtClinKey(pid), tasks);
+      offline = true;
+    } else {
+      offline = true;
+    }
+  }
+  let compMap = {};
+  try {
+    const comps = await (api.listHomeProgramTaskCompletions?.({ patientId: pid }));
+    if (Array.isArray(comps)) {
+      comps.forEach(c => { if (c && c.server_task_id) compMap[c.server_task_id] = c; });
+    }
+  } catch {}
+  if (!Object.keys(compMap).length) {
+    const saved = _lsHtRead(_lsHtCompKey(pid), {});
+    Object.keys(saved || {}).forEach(k => { compMap[k] = saved[k]; });
+  }
+  s.tasks = (tasks || []).map(t => ({ ...t, _offline: offline || !!t._demo }));
+  s.completions = compMap;
+  s.tasksLoaded = true;
+}
+
+function _lsHtSeedTasks(pid) {
+  const today = new Date();
+  const iso = (d) => d.toISOString();
+  const addDays = (n) => { const d = new Date(today); d.setDate(d.getDate() + n); return d; };
+  return [
+    { id:`demo-${pid}-1`, patientId:pid, title:'Daily mood check-in', type:'mood-journal', category:'mood-journal',
+      instructions:'Rate mood 0-10 with one-line note', frequency:'daily', dueDate:iso(addDays(0)),
+      status:'in-progress', assignedAt:iso(addDays(-5)), lastActivityAt:iso(addDays(0)),
+      _demo:true, _history:[1,1,0,1,1,1,0,1,1,1,1,1,0,1] },
+    { id:`demo-${pid}-2`, patientId:pid, title:'Coherent breathing 10 min', type:'breathing', category:'breathing',
+      instructions:'4s in / 6s out, 10 minutes', frequency:'daily', dueDate:iso(addDays(0)),
+      status:'assigned', assignedAt:iso(addDays(-3)), lastActivityAt:iso(addDays(-1)),
+      _demo:true, _history:[0,1,1,1,0,1,1,0,1,1,0,1,1,0] },
+    { id:`demo-${pid}-3`, patientId:pid, title:'Walk 20 minutes', type:'activity', category:'activity',
+      instructions:'Brisk walk in daylight', frequency:'3x-week', dueDate:iso(addDays(-1)),
+      status:'overdue', assignedAt:iso(addDays(-10)), lastActivityAt:iso(addDays(-3)),
+      _demo:true, _history:[1,0,1,0,0,1,0,0,1,0,1,0,0,0] },
+    { id:`demo-${pid}-4`, patientId:pid, title:'Read handbook section 2', type:'media', category:'media',
+      instructions:'Read tDCS safety handbook pp.8-14', frequency:'once', dueDate:iso(addDays(2)),
+      status:'assigned', assignedAt:iso(addDays(-2)), lastActivityAt:null,
+      _demo:true, _history:[0,0,0,0,0,0,0,0,0,0,0,0,0,0] },
+    { id:`demo-${pid}-5`, patientId:pid, title:'Pre-session prep checklist', type:'pre-session', category:'pre-session',
+      instructions:'Hydrate, no caffeine 2h pre, remove metallics', frequency:'before-session', dueDate:iso(addDays(1)),
+      status:'completed', assignedAt:iso(addDays(-7)), lastActivityAt:iso(addDays(-1)),
+      _demo:true, _history:[1,1,1,1,1,1,1,1,1,1,1,1,1,1] },
+  ];
+}
+
+function _lsHtAdherence(task) {
+  const h = Array.isArray(task._history) ? task._history : [];
+  if (!h.length) {
+    if (task.status === 'completed') return { pct: 100, num: 1, den: 1 };
+    if (task.status === 'skipped' || task.status === 'overdue') return { pct: 0, num: 0, den: 1 };
+    return { pct: 50, num: 0, den: 0 };
+  }
+  const num = h.filter(x => x).length;
+  const den = h.length;
+  return { pct: Math.round((num/den)*100), num, den };
+}
+
+function _lsHtOverallAdherence(tasks) {
+  let num = 0, den = 0;
+  tasks.forEach(t => { const a = _lsHtAdherence(t); num += a.num; den += a.den; });
+  return den ? Math.round((num/den)*100) : 0;
+}
+
+function _lsHtSparkline(history) {
+  const h = Array.isArray(history) ? history.slice(-14) : [];
+  if (!h.length) return '<span class="dv2l-ht-meta">no data</span>';
+  return '<span class="dv2l-ht-spark">' + h.map(v => `<i class="${v ? 'on' : ''}" style="height:${v ? 14 : 4}px"></i>`).join('') + '</span>';
+}
+
+async function _lsRenderTasks() {
+  const s = _lsState; if (!s) return;
+  const el = document.getElementById('dv2l-ht-panel-tasks'); if (!el) return;
+  if (!s.taskSelectedPid) s.taskSelectedPid = s.session.patient_id || null;
+  if (!s.tasksLoaded) { el.innerHTML = `<div class="dv2l-ht-wrap"><div class="dv2l-ht-empty">Loading home tasks\u2026</div><div></div></div>`; await _lsLoadTasks(); }
+  const tasks = Array.isArray(s.tasks) ? s.tasks : [];
+  const f = s.taskFilter || { category:'all', status:'all', overdueOnly:false };
+  const now = Date.now();
+  const decorated = tasks.map(t => {
+    const status = (t.status === 'assigned' && t.dueDate && new Date(t.dueDate).getTime() < now - 86400000) ? 'overdue' : (t.status || 'assigned');
+    return { ...t, _effectiveStatus: status };
+  });
+  const filtered = decorated.filter(t => {
+    if (f.category !== 'all' && (t.type || t.category) !== f.category) return false;
+    if (f.status !== 'all' && t._effectiveStatus !== f.status) return false;
+    if (f.overdueOnly && t._effectiveStatus !== 'overdue') return false;
+    return true;
+  });
+  const total = decorated.length;
+  const completed = decorated.filter(t => t._effectiveStatus === 'completed').length;
+  const overdue = decorated.filter(t => t._effectiveStatus === 'overdue').length;
+  const pct = _lsHtOverallAdherence(decorated);
+  const patient = s.patient || {};
+  const offlineAny = decorated.some(t => t._offline);
+  const categoryChips = ['all', ...LS_HT_TASK_TYPES.map(t => t.id)].map(c => {
+    const lbl = c === 'all' ? 'All types' : _lsHtTypeLabel(c);
+    return `<span class="dv2l-ht-chip${f.category===c?' on':''}" onclick="window._lsSetTaskFilter('category','${c}')">${_e(lbl)}</span>`;
+  }).join('');
+  const statusChips = ['all', ...LS_HT_STATUSES].map(c => {
+    const lbl = c === 'all' ? 'Any status' : c.replace('-',' ');
+    return `<span class="dv2l-ht-chip${f.status===c?' on':''}" onclick="window._lsSetTaskFilter('status','${c}')">${_e(lbl)}</span>`;
+  }).join('');
+  const overdueChip = `<span class="dv2l-ht-chip${f.overdueOnly?' on':''}" onclick="window._lsSetTaskFilter('overdueOnly','toggle')">Overdue only</span>`;
+  const rows = filtered.length ? filtered.map(t => {
+    const st = t._effectiveStatus;
+    const icon = _lsHtTypeIcon(t.type || t.category);
+    const adh = _lsHtAdherence(t);
+    const due = t.dueDate ? new Date(t.dueDate).toLocaleDateString('en-GB',{day:'2-digit',month:'short'}) : '—';
+    const last = t.lastActivityAt ? _ago(t.lastActivityAt) : (t.assignedAt ? _ago(t.assignedAt) : '—');
+    const demoTag = t._demo ? '<span class="dv2l-ht-tag-demo">demo</span>' : '';
+    const offTag = (t._offline && !t._demo) ? '<span class="dv2l-ht-tag-offline">offline</span>' : '';
+    return `
+      <div class="dv2l-ht-row${t._demo?' demo':''}">
+        <div class="dv2l-ht-ico">${icon}</div>
+        <div>
+          <div class="dv2l-ht-title">${_e(t.title || 'Untitled task')}${demoTag}${offTag}</div>
+          <div class="dv2l-ht-sub">${_e(_lsHtTypeLabel(t.type || t.category))} \u00B7 ${_e(t.frequency || 'once')} \u00B7 due ${_e(due)} \u00B7 last ${_e(last)}</div>
+        </div>
+        <div class="dv2l-ht-meta">${adh.pct}%<br><span style="color:var(--text-tertiary)">${adh.num}/${adh.den || 0}</span></div>
+        <div>${_lsHtSparkline(t._history)}</div>
+        <span class="dv2l-ht-status ${st}" onclick="window._lsCycleTaskStatus('${_e(t.id)}')" title="Click to cycle status">${_e(st)}</span>
+        <div style="display:flex;gap:4px;flex-wrap:nowrap">
+          <button class="dv2l-ht-iconbtn" onclick="window._lsEditTask('${_e(t.id)}')" title="Edit">Edit</button>
+          <button class="dv2l-ht-iconbtn" onclick="window._lsRemindTask('${_e(t.id)}')" title="Send reminder">Remind</button>
+          <button class="dv2l-ht-iconbtn" onclick="window._lsDeleteTask('${_e(t.id)}')" title="Remove">\u00D7</button>
+        </div>
+      </div>`;
+  }).join('') : `<div class="dv2l-ht-empty">No home tasks match this filter. Use <b>Assign</b> to create one.</div>`;
+
+  const patHeader = `
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:12px;flex-wrap:wrap">
+      <div style="display:flex;align-items:center;gap:10px">
+        <div style="width:36px;height:36px;border-radius:50%;background:linear-gradient(135deg,#00d4bc,#4a9eff);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:12px;color:#04121c">${_e(patient.initials || _lsInitials(patient.display_name || ''))}</div>
+        <div>
+          <div style="font-size:13px;font-weight:600;font-family:var(--dv2-font-display,var(--font-display))">${_e(patient.display_name || 'Patient')}</div>
+          <div style="font-size:11px;color:var(--text-tertiary)">${_e(patient.condition || '')} \u00B7 session ${s.session.session_no || 1}/${s.session.session_total || 20} ${offlineAny?'\u00B7 <span style=\"color:#f59e0b\">offline data</span>':''}</div>
+        </div>
+      </div>
+      <div style="display:flex;gap:6px">
+        <button class="btn btn-sm" onclick="window._lsPickPatient()">Change patient</button>
+        <button class="btn btn-primary btn-sm" onclick="window._lsOpenAssignModal()">Assign task</button>
+      </div>
+    </div>`;
+
+  const kpis = `
+    <div class="dv2l-ht-kpis">
+      <div class="dv2l-ht-kpi"><div class="dv2l-ht-kpi-v">${pct}%</div><div class="dv2l-ht-kpi-l">Adherence</div></div>
+      <div class="dv2l-ht-kpi"><div class="dv2l-ht-kpi-v">${completed}/${total}</div><div class="dv2l-ht-kpi-l">Completed</div></div>
+      <div class="dv2l-ht-kpi"><div class="dv2l-ht-kpi-v" style="color:${overdue?'#ff6b6b':'var(--text-primary)'}">${overdue}</div><div class="dv2l-ht-kpi-l">Overdue</div></div>
+      <div class="dv2l-ht-kpi"><div class="dv2l-ht-kpi-v">${decorated.filter(t=>t._effectiveStatus==='in-progress').length}</div><div class="dv2l-ht-kpi-l">In progress</div></div>
+    </div>`;
+
+  const templates = CONDITION_HOME_TEMPLATES;
+  const patientCondId = (patient.condition_id || patient.conditionId || null);
+  const suggested = patientCondId ? templates.filter(t => t.conditionId === patientCondId).slice(0, 3)
+                                  : templates.slice(0, 3);
+  const templatePanel = `
+    <div class="dv2-card dv2l-ht-panel" style="margin-top:12px">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px">
+        <div>
+          <div style="font-family:var(--dv2-font-display,var(--font-display));font-size:13px;font-weight:600">Quick templates</div>
+          <div style="font-size:11px;color:var(--text-tertiary);margin-top:2px">Condition-matched home tasks \u00B7 tap to assign now</div>
+        </div>
+      </div>
+      <div style="display:grid;gap:8px">
+        ${suggested.map(tpl => `
+          <div style="display:flex;justify-content:space-between;gap:8px;align-items:flex-start;padding:8px;border:1px solid var(--border);border-radius:6px">
+            <div style="min-width:0">
+              <div style="font-size:12px;font-weight:600">${_e(tpl.title)}</div>
+              <div style="font-size:10.5px;color:var(--text-tertiary);margin-top:2px">${_e(tpl.conditionName)} \u00B7 ${_e(tpl.category)} \u00B7 ${_e(tpl.frequency)}</div>
+            </div>
+            <button class="btn btn-sm" onclick="window._lsPickTemplate('${_e(tpl.id)}')">Assign</button>
+          </div>`).join('')}
+      </div>
+      <div style="margin-top:10px">
+        <button class="btn btn-sm" onclick="window._lsBulkAssignTemplate()" style="width:100%">Bulk-assign by condition\u2026</button>
+      </div>
+    </div>`;
+
+  const kpiCard = `
+    <div class="dv2-card dv2l-ht-panel" style="margin-top:12px">
+      <div style="font-family:var(--dv2-font-display,var(--font-display));font-size:13px;font-weight:600;margin-bottom:8px">Patient context</div>
+      <div style="font-size:11.5px;color:var(--text-secondary);line-height:1.55">
+        <div><b>Patient:</b> ${_e(patient.display_name || '—')} ${patient.age?'\u00B7 '+patient.age:''} ${patient.sex?'\u00B7 '+patient.sex:''}</div>
+        <div><b>Condition:</b> ${_e(patient.condition || '—')}</div>
+        <div><b>Modality:</b> ${_e(s.session.modality || '—')}</div>
+        <div><b>Course:</b> session ${s.session.session_no || 1} of ${s.session.session_total || 20}</div>
+      </div>
+      <div style="margin-top:10px;display:flex;gap:6px;flex-wrap:wrap">
+        <button class="btn btn-sm" onclick="window._nav?.('patient',{id:'${_e(s.session.patient_id || '')}'})">Open profile</button>
+        <button class="btn btn-sm" onclick="window._nav?.('home-tasks-v2')">Full manager</button>
+      </div>
+    </div>`;
+
+  el.innerHTML = `
+    <div class="dv2l-ht-wrap">
+      <div>
+        ${patHeader}
+        ${kpis}
+        <div class="dv2l-ht-filters">${categoryChips}</div>
+        <div class="dv2l-ht-filters">${statusChips}${overdueChip}</div>
+        <div>${rows}</div>
+      </div>
+      <div>
+        ${kpiCard}
+        ${templatePanel}
+      </div>
+    </div>`;
+}
+
+function _lsSetTaskFilter(key, val) {
+  const s = _lsState; if (!s) return;
+  s.taskFilter = s.taskFilter || { category:'all', status:'all', overdueOnly:false };
+  if (key === 'overdueOnly') s.taskFilter.overdueOnly = !s.taskFilter.overdueOnly;
+  else s.taskFilter[key] = val;
+  _lsRenderTasks();
+}
+
+function _lsPickPatient() {
+  const s = _lsState; if (!s) return;
+  const cur = s.taskSelectedPid || s.session.patient_id || '';
+  const v = window.prompt('Enter patient id (e.g. p001):', cur);
+  if (!v) return;
+  s.taskSelectedPid = v.trim();
+  s.tasksLoaded = false;
+  _lsRenderTasks();
+}
+
+async function _lsAssignTask(payload) {
+  const s = _lsState; if (!s) return null;
+  const pid = payload.patientId || s.taskSelectedPid || s.session.patient_id;
+  if (!pid) { window.alert('No patient selected.'); return null; }
+  const now = new Date().toISOString();
+  const id = payload.id || `ht-${Date.now()}-${Math.random().toString(36).slice(2,7)}`;
+  const task = {
+    id,
+    patientId: pid,
+    title: payload.title,
+    type: payload.type || 'activity',
+    category: payload.type || 'activity',
+    instructions: payload.instructions || '',
+    dueDate: payload.dueDate || '',
+    frequency: payload.frequency || 'once',
+    reason: payload.reason || '',
+    courseId: payload.courseId || '',
+    status: 'assigned',
+    assignedAt: now,
+    lastActivityAt: now,
+    clientUpdatedAt: now,
+    _history: new Array(14).fill(0),
+  };
+  let persisted = false;
+  try {
+    if (typeof api.mutateHomeProgramTask === 'function') {
+      const res = await api.mutateHomeProgramTask(task);
+      if (res) { Object.assign(task, res.task || res); persisted = true; }
+    } else if (typeof api.createHomeProgramTask === 'function') {
+      const res = await api.createHomeProgramTask(task);
+      if (res) { Object.assign(task, res); persisted = true; }
+    }
+  } catch { persisted = false; }
+  if (!persisted) task._offline = true;
+  const arr = _lsHtRead(_lsHtClinKey(pid), []);
+  arr.push(task);
+  _lsHtWrite(_lsHtClinKey(pid), arr);
+  s.tasks = [...(s.tasks || []), task];
+  _lsLogEvent('OPER', `Home task assigned: ${task.title}`);
+  try { window.dispatchEvent(new CustomEvent('ds:home-task-updated', { detail: { taskId: task.id, patientId: pid, action: 'assigned' } })); } catch {}
+  _lsRenderTasks();
+  return task;
+}
+
+async function _lsCycleTaskStatus(id) {
+  const s = _lsState; if (!s) return;
+  const t = (s.tasks || []).find(x => x.id === id); if (!t) return;
+  const cur = t.status || 'assigned';
+  const next = LS_HT_CYCLE[cur] || 'assigned';
+  t.status = next;
+  t.lastActivityAt = new Date().toISOString();
+  t.clientUpdatedAt = t.lastActivityAt;
+  if (Array.isArray(t._history)) { t._history.push(next === 'completed' ? 1 : 0); if (t._history.length > 14) t._history.shift(); }
+  let synced = false;
+  try {
+    if (typeof api.mutateHomeProgramTask === 'function') { await api.mutateHomeProgramTask(t); synced = true; }
+    else if (typeof api.upsertHomeProgramTask === 'function') { await api.upsertHomeProgramTask(t); synced = true; }
+  } catch {}
+  if (!synced) t._offline = true;
+  const pid = t.patientId || s.taskSelectedPid || s.session.patient_id;
+  if (pid) {
+    const arr = _lsHtRead(_lsHtClinKey(pid), []);
+    const idx = arr.findIndex(x => x.id === t.id);
+    if (idx >= 0) arr[idx] = t; else arr.push(t);
+    _lsHtWrite(_lsHtClinKey(pid), arr);
+  }
+  _lsLogEvent('OPER', `Home task ${t.title} \u2192 ${next}`);
+  try { window.dispatchEvent(new CustomEvent('ds:home-task-updated', { detail: { taskId: t.id, patientId: pid, action: 'status', status: next } })); } catch {}
+  _lsRenderTasks();
+}
+
+function _lsEditTask(id) {
+  const s = _lsState; if (!s) return;
+  const t = (s.tasks || []).find(x => x.id === id); if (!t) return;
+  const typeOpts = LS_HT_TASK_TYPES.map(tp => `<option value="${tp.id}"${(t.type||t.category)===tp.id?' selected':''}>${_e(tp.label)}</option>`).join('');
+  const stOpts = LS_HT_STATUSES.map(st => `<option value="${st}"${(t.status||'assigned')===st?' selected':''}>${_e(st)}</option>`).join('');
+  _lsOpenModal(`
+    <div style="font-family:var(--dv2-font-display,var(--font-display));font-size:16px;font-weight:700;margin-bottom:12px">Edit task</div>
+    <div class="dv2l-ht-fgroup"><label class="dv2l-ht-label">Title</label><input id="ls-ht-ed-title" class="dv2l-ht-input" value="${_e(t.title || '')}"></div>
+    <div class="dv2l-ht-fgroup"><label class="dv2l-ht-label">Type</label><select id="ls-ht-ed-type" class="dv2l-ht-select">${typeOpts}</select></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+      <div class="dv2l-ht-fgroup"><label class="dv2l-ht-label">Frequency</label><input id="ls-ht-ed-freq" class="dv2l-ht-input" value="${_e(t.frequency || 'once')}"></div>
+      <div class="dv2l-ht-fgroup"><label class="dv2l-ht-label">Due date</label><input type="date" id="ls-ht-ed-due" class="dv2l-ht-input" value="${_e((t.dueDate || '').slice(0,10))}"></div>
+    </div>
+    <div class="dv2l-ht-fgroup"><label class="dv2l-ht-label">Status</label><select id="ls-ht-ed-status" class="dv2l-ht-select">${stOpts}</select></div>
+    <div class="dv2l-ht-fgroup"><label class="dv2l-ht-label">Instructions</label><textarea id="ls-ht-ed-inst" class="dv2l-ht-textarea">${_e(t.instructions || '')}</textarea></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:10px">
+      <button class="btn btn-sm" onclick="window._lsCloseModal()">Cancel</button>
+      <button class="btn btn-primary btn-sm" onclick="window._lsSubmitEdit('${_e(id)}')">Save</button>
+    </div>`);
+}
+
+async function _lsSubmitEdit(id) {
+  const s = _lsState; if (!s) return;
+  const t = (s.tasks || []).find(x => x.id === id); if (!t) return;
+  const title = (document.getElementById('ls-ht-ed-title')?.value || '').trim();
+  if (!title) { window.alert('Title required.'); return; }
+  t.title = title;
+  t.type = document.getElementById('ls-ht-ed-type')?.value || t.type;
+  t.category = t.type;
+  t.frequency = (document.getElementById('ls-ht-ed-freq')?.value || t.frequency || 'once').trim();
+  const due = document.getElementById('ls-ht-ed-due')?.value;
+  t.dueDate = due ? new Date(due).toISOString() : '';
+  t.status = document.getElementById('ls-ht-ed-status')?.value || t.status;
+  t.instructions = document.getElementById('ls-ht-ed-inst')?.value || '';
+  t.clientUpdatedAt = new Date().toISOString();
+  t.lastActivityAt = t.clientUpdatedAt;
+  let synced = false;
+  try {
+    if (typeof api.mutateHomeProgramTask === 'function') { await api.mutateHomeProgramTask(t); synced = true; }
+    else if (typeof api.upsertHomeProgramTask === 'function') { await api.upsertHomeProgramTask(t); synced = true; }
+  } catch {}
+  if (!synced) t._offline = true;
+  const pid = t.patientId || s.taskSelectedPid || s.session.patient_id;
+  if (pid) {
+    const arr = _lsHtRead(_lsHtClinKey(pid), []);
+    const idx = arr.findIndex(x => x.id === t.id);
+    if (idx >= 0) arr[idx] = t; else arr.push(t);
+    _lsHtWrite(_lsHtClinKey(pid), arr);
+  }
+  _lsLogEvent('OPER', `Home task edited: ${t.title}`);
+  try { window.dispatchEvent(new CustomEvent('ds:home-task-updated', { detail: { taskId: t.id, patientId: pid, action: 'edit' } })); } catch {}
+  _lsCloseModal();
+  _lsRenderTasks();
+}
+
+async function _lsDeleteTask(id) {
+  const s = _lsState; if (!s) return;
+  const t = (s.tasks || []).find(x => x.id === id); if (!t) return;
+  if (!window.confirm(`Remove task "${t.title}"?`)) return;
+  try { await (api.deleteHomeProgramTask?.(t.id)); } catch {}
+  s.tasks = (s.tasks || []).filter(x => x.id !== id);
+  const pid = t.patientId || s.taskSelectedPid || s.session.patient_id;
+  if (pid) {
+    const arr = _lsHtRead(_lsHtClinKey(pid), []).filter(x => x.id !== id);
+    _lsHtWrite(_lsHtClinKey(pid), arr);
+  }
+  _lsLogEvent('OPER', `Home task removed: ${t.title}`);
+  try { window.dispatchEvent(new CustomEvent('ds:home-task-updated', { detail: { taskId: id, patientId: pid, action: 'delete' } })); } catch {}
+  _lsRenderTasks();
+}
+
+async function _lsRemindTask(id) {
+  const s = _lsState; if (!s) return;
+  const t = (s.tasks || []).find(x => x.id === id); if (!t) return;
+  let sent = false;
+  try {
+    const res = await (api.remindHomeProgramTask?.(t.id, { channel: 'default' }));
+    if (res) sent = true;
+  } catch {}
+  if (!sent) {
+    try {
+      const res = await (api.sendReminderNow?.({ taskId: t.id, patientId: t.patientId }));
+      if (res) sent = true;
+    } catch {}
+  }
+  _lsLogEvent('OPER', sent ? `Reminder sent: ${t.title}` : `Reminder queued locally (offline): ${t.title}`);
+  if (!sent) {
+    const key = `ds_home_task_reminders_queue`;
+    const q = _lsHtRead(key, []);
+    q.push({ taskId: t.id, patientId: t.patientId, queuedAt: new Date().toISOString() });
+    _lsHtWrite(key, q);
+  }
+  try { window.dispatchEvent(new CustomEvent('ds:home-task-updated', { detail: { taskId: t.id, patientId: t.patientId, action: 'remind', sent } })); } catch {}
+}
+
+function _lsOpenAssignModal() {
+  const s = _lsState; if (!s) return;
+  const typeOpts = LS_HT_TASK_TYPES.map(tp => `<option value="${tp.id}">${_e(tp.label)}</option>`).join('');
+  const tplOpts = ['<option value="">Custom task</option>'].concat(
+    CONDITION_HOME_TEMPLATES.map(tpl => `<option value="${_e(tpl.id)}">${_e(tpl.conditionName)} \u2014 ${_e(tpl.title)}</option>`)
+  ).join('');
+  const pid = s.taskSelectedPid || s.session.patient_id || '';
+  _lsOpenModal(`
+    <div style="font-family:var(--dv2-font-display,var(--font-display));font-size:16px;font-weight:700;margin-bottom:12px">Assign home task</div>
+    <div class="dv2l-ht-fgroup"><label class="dv2l-ht-label">Patient id</label><input id="ls-ht-a-pid" class="dv2l-ht-input" value="${_e(pid)}"></div>
+    <div class="dv2l-ht-fgroup"><label class="dv2l-ht-label">Template</label><select id="ls-ht-a-tpl" class="dv2l-ht-select" onchange="(function(){var v=document.getElementById('ls-ht-a-tpl').value;if(!v)return;var t=window.__dv2lTplById&&window.__dv2lTplById(v);if(!t)return;document.getElementById('ls-ht-a-title').value=t.title||'';document.getElementById('ls-ht-a-type').value=t.type||'activity';document.getElementById('ls-ht-a-freq').value=t.frequency||'once';document.getElementById('ls-ht-a-inst').value=t.instructions||'';})()">${tplOpts}</select></div>
+    <div class="dv2l-ht-fgroup"><label class="dv2l-ht-label">Title</label><input id="ls-ht-a-title" class="dv2l-ht-input" placeholder="e.g. Evening breathing 10 min"></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+      <div class="dv2l-ht-fgroup"><label class="dv2l-ht-label">Type</label><select id="ls-ht-a-type" class="dv2l-ht-select">${typeOpts}</select></div>
+      <div class="dv2l-ht-fgroup"><label class="dv2l-ht-label">Frequency</label><input id="ls-ht-a-freq" class="dv2l-ht-input" value="daily"></div>
+    </div>
+    <div class="dv2l-ht-fgroup"><label class="dv2l-ht-label">Due date</label><input id="ls-ht-a-due" type="date" class="dv2l-ht-input"></div>
+    <div class="dv2l-ht-fgroup"><label class="dv2l-ht-label">Instructions</label><textarea id="ls-ht-a-inst" class="dv2l-ht-textarea" placeholder="Step-by-step guidance for patient"></textarea></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:10px">
+      <button class="btn btn-sm" onclick="window._lsCloseModal()">Cancel</button>
+      <button class="btn btn-primary btn-sm" onclick="window._lsSubmitAssign()">Assign</button>
+    </div>`);
+  window.__dv2lTplById = (id) => CONDITION_HOME_TEMPLATES.find(t => t.id === id) || null;
+}
+
+async function _lsSubmitAssign() {
+  const title = (document.getElementById('ls-ht-a-title')?.value || '').trim();
+  if (!title) { window.alert('Title required.'); return; }
+  const payload = {
+    patientId: (document.getElementById('ls-ht-a-pid')?.value || '').trim(),
+    title,
+    type: document.getElementById('ls-ht-a-type')?.value || 'activity',
+    frequency: (document.getElementById('ls-ht-a-freq')?.value || 'once').trim(),
+    instructions: document.getElementById('ls-ht-a-inst')?.value || '',
+    dueDate: (function(){ const v = document.getElementById('ls-ht-a-due')?.value; return v ? new Date(v).toISOString() : ''; })(),
+  };
+  await _lsAssignTask(payload);
+  _lsCloseModal();
+}
+
+async function _lsPickTemplate(tplId) {
+  const tpl = CONDITION_HOME_TEMPLATES.find(t => t.id === tplId); if (!tpl) return;
+  await _lsAssignTask({
+    title: tpl.title, type: tpl.type || 'activity', frequency: tpl.frequency || 'daily',
+    instructions: tpl.instructions || '', reason: tpl.reason || '', courseId: tpl.conditionId || '',
+  });
+}
+
+async function _lsBulkAssignTemplate() {
+  const s = _lsState; if (!s) return;
+  const cond = window.prompt('Condition id to bulk-assign (e.g. CON-001) or bundle name:', (s.patient && (s.patient.condition_id || '')) || '');
+  if (!cond) return;
+  const tpls = CONDITION_HOME_TEMPLATES.filter(t => t.conditionId === cond || t.conditionName.toLowerCase().includes(cond.toLowerCase()));
+  if (!tpls.length) { window.alert('No templates matched.'); return; }
+  if (!window.confirm(`Assign ${tpls.length} template task(s)?`)) return;
+  for (const tpl of tpls) {
+    await _lsAssignTask({
+      title: tpl.title, type: tpl.type || 'activity', frequency: tpl.frequency || 'daily',
+      instructions: tpl.instructions || '', reason: tpl.reason || '', courseId: tpl.conditionId || '',
+    });
+  }
+}
+
+function _lsOpenModal(html) {
+  _lsCloseModal();
+  const bg = document.createElement('div');
+  bg.className = 'dv2l-ht-modal-bg';
+  bg.onclick = (ev) => { if (ev.target === bg) _lsCloseModal(); };
+  bg.innerHTML = `<div class="dv2l-ht-modal" role="dialog">${html}</div>`;
+  document.body.appendChild(bg);
+}
+
+function _lsCloseModal() {
+  try { document.querySelectorAll('.dv2l-ht-modal-bg').forEach(n => n.remove()); } catch {}
+}
+
