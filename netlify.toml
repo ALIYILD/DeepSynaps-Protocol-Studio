@@ -42,8 +42,22 @@
   to     = "/index.html"
   status = 200
 
-# Sensible defaults for static assets.
+# Sensible defaults for static assets. Hashed filenames can be cached
+# forever; index.html must NOT be cached so every visit picks up the
+# latest bundle hash (otherwise patients see the old bundle until their
+# browser cache expires, which is what prompted the "can't see changes"
+# reports).
 [[headers]]
   for = "/assets/*"
   [headers.values]
     Cache-Control = "public, max-age=31536000, immutable"
+
+[[headers]]
+  for = "/"
+  [headers.values]
+    Cache-Control = "no-cache, no-store, must-revalidate"
+
+[[headers]]
+  for = "/index.html"
+  [headers.values]
+    Cache-Control = "no-cache, no-store, must-revalidate"
