@@ -52,7 +52,7 @@ EXPECTED_COUNTS = {
     "conditions": 52,
     "phenotypes": 30,
     "assessments": 42,
-    "protocols": 43,
+    "protocols": 59,
     "sources": 30,
     "personalization_rules": 3,
 }
