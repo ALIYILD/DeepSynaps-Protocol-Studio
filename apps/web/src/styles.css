@@ -2893,6 +2893,16 @@ select.form-control { background-image: url("data:image/svg+xml,%3Csvg xmlns='ht
 }
 .print-header { display: none; }
 
+/* ── Handbooks print: keep only the reading article, drop both side rails ── */
+@media print {
+  #hb-reading-pane { overflow: visible !important; max-height: none !important; }
+  #hb-reading-pane article { padding: 0 !important; max-width: 100% !important; }
+  /* Hide the left + right rails and the center-header action row */
+  body:has(#hb-reading-pane) aside,
+  body:has(#hb-reading-pane) section > header { display: none !important; }
+  body:has(#hb-reading-pane) section { border: none !important; background: white !important; }
+}
+
 /* ── Command Palette ── */
 .cmd-palette-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.7); z-index: 500; display: flex; align-items: flex-start; justify-content: center; padding-top: 15vh; backdrop-filter: blur(4px); }
 .cmd-palette-modal { width: 600px; max-width: calc(100vw - 32px); background: var(--navy-800); border: 1px solid var(--border); border-radius: 16px; box-shadow: 0 24px 64px rgba(0,0,0,0.6); overflow: hidden; animation: cmdPaletteIn 0.15s ease; }
