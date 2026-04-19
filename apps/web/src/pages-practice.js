@@ -9276,17 +9276,83 @@ export async function pgGovernance(setTopbar, _navigate) {
 
   const _escG = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
 
+  // ── Real backend loads ────────────────────────────────────────────────────
+  // Each call falls back gracefully so non-admin / non-clinician roles still see
+  // a usable page. Sources: literature (evidence), adverse-events, review-queue,
+  // audit-trail (admin only), registries/governance-rules.
   let evidence = [];
   let aes = [];
-  let approvals = null;
-  let compliance = null;
-  let audit = null;
+  let reviewItems = [];
+  let auditItems = [];
+  let governanceRules = [];
 
-  try { const r = await api.listEvidence?.(); evidence = r?.items || r || []; } catch (_) { evidence = []; }
-  try { const r = await api.listAdverseEvents?.(); aes = r?.items || r || []; } catch (_) { aes = []; }
-  try { approvals = await api.listApprovals?.(); } catch (_) { approvals = null; }
-  try { compliance = await api.complianceScore?.(); } catch (_) { compliance = null; }
-  try { audit = await api.auditLog?.(); } catch (_) { audit = null; }
+  try { const r = await api.listEvidence?.();         evidence = r?.items || r || []; } catch (_) { evidence = []; }
+  try { const r = await api.listAdverseEvents?.();    aes = r?.items || r || []; } catch (_) { aes = []; }
+  try { const r = await api.listReviewQueue?.();      reviewItems = r?.items || r || []; } catch (_) { reviewItems = []; }
+  try { const r = await api.auditTrail?.();           auditItems  = r?.items || r || []; } catch (_) { auditItems  = []; }
+  try { const r = await api.listGovernanceRules?.();  governanceRules = r?.items || r || []; } catch (_) { governanceRules = []; }
+
+  // Filter state for client-side controls.
+  let _mineOnly  = false;
+  let _majorOnly = false;
+  let _aeFilter  = 'all';   // 'all' | 'open' | 'closed'
+  let _evGrade   = 'all';   // 'all' | 'A' | 'B' | 'C' | 'D'
+  const _myActorId = (typeof window !== 'undefined' && window.currentUser?.id) || null;
+
+  // Build approval pipeline columns from real review-queue items.
+  function _buildPipelineColumns() {
+    const items = reviewItems
+      .filter(it => !_mineOnly || (_myActorId && it.assigned_to === _myActorId))
+      .filter(it => !_majorOnly || (it.severity || '').toLowerCase() === 'major' || (it.priority || '').toLowerCase() === 'major');
+
+    const bucket = (statuses) => items.filter(it => statuses.includes((it.status || 'pending').toLowerCase()));
+    const _itemToCard = (it) => {
+      const sevLow = (it.severity || it.priority || '').toLowerCase();
+      const flag = sevLow === 'major' ? 'maj' : sevLow === 'minor' ? 'min' : 'routine';
+      const owner = it.assigned_to_name || it.assigned_to || '—';
+      const ini = String(owner).split(/\s+/).map(p => p[0] || '').slice(0, 2).join('').toUpperCase() || '··';
+      const signersTotal = it.required_signoffs ?? 3;
+      const signersDone  = it.completed_signoffs ?? (it.status === 'approved' || it.status === 'completed' ? signersTotal : 0);
+      const complete = signersDone >= signersTotal && signersTotal > 0;
+      return {
+        flag,
+        title: it.title || it.target_id || `Review ${it.id || ''}`,
+        tag: [it.target_type, it.id].filter(Boolean).join(' · '),
+        owner, initials: ini,
+        signers: complete ? `${signersDone} / ${signersTotal} ✓` : `${signersDone} / ${signersTotal}`,
+        complete,
+      };
+    };
+
+    return [
+      { key:'draft',     label:'Draft',          accent:'var(--text-tertiary)', cards: bucket(['draft']).map(_itemToCard) },
+      { key:'review',    label:'In review',      accent:'var(--amber)',         cards: bucket(['pending','in_review']).map(_itemToCard) },
+      { key:'signoff',   label:'Sign-off',       accent:'var(--blue)',          cards: bucket(['escalated']).map(_itemToCard) },
+      { key:'published', label:'Published · 30d',accent:'var(--teal)',          cards: bucket(['approved','completed']).map(_itemToCard) },
+    ];
+  }
+
+  // Compute compliance score from real signals (no backend score endpoint).
+  // Mix: AE close-rate (40%) + review-completion-rate (40%) + evidence quality (20%).
+  function _computeCompliance() {
+    const aeTotal  = aes.length;
+    const aeClosed = aes.filter(a => /closed|resolved/i.test(a.status || '')).length;
+    const aeRate   = aeTotal ? aeClosed / aeTotal : 1;
+
+    const rqTotal  = reviewItems.length;
+    const rqDone   = reviewItems.filter(r => /approved|completed/i.test(r.status || '')).length;
+    const rqRate   = rqTotal ? rqDone / rqTotal : 1;
+
+    const evGood   = evidence.filter(e => /^(A|B|Guideline|Systematic Review)/i.test(e.grade || e.evidence_level || '')).length;
+    const evRate   = evidence.length ? evGood / evidence.length : 1;
+
+    return Math.round((aeRate * 0.4 + rqRate * 0.4 + evRate * 0.2) * 1000) / 10;
+  }
+
+  // Synthesised approvals/compliance/audit objects keep the existing render shape.
+  const approvals  = { openCount: reviewItems.filter(r => /pending|in_review|escalated|draft/i.test(r.status || '')).length, columns: _buildPipelineColumns() };
+  const compliance = { score: _computeCompliance() };
+  const audit      = { count: auditItems.length, events: auditItems };
 
   const _complianceScore = compliance?.score ?? 98.4;
   const _auditEvents7d   = audit?.count ?? 2841;

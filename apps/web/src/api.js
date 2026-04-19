@@ -465,6 +465,9 @@ export const api = {
     return apiFetch('/api/v1/review-queue/actions', { method: 'POST', body: JSON.stringify(body) });
   },
   auditTrail: () => apiFetch('/api/v1/audit-trail'),
+  // Authoritative governance rules (registry-backed). Used by the Governance
+  // page to surface real policy items in the regulatory checklist.
+  listGovernanceRules: () => apiFetchWithRetry('/api/v1/registries/governance-rules'),
 
   // ── Payments ────────────────────────────────────────────────────────────
   paymentConfig: () => apiFetch('/api/v1/payments/config'),
