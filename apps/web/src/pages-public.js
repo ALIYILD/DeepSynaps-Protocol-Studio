@@ -1876,7 +1876,7 @@ export function pgHome() {
     <div class="pub-footer">
       <div class="pub-footer-logo">
         <div class="logo-icon" style="width:24px;height:24px;font-size:11px">🧠</div>
-        DeepSynaps Studio
+        DeepSynaps Protocol Studio
       </div>
       <div class="pub-footer-links">
         <span class="pub-footer-link">Privacy Policy</span>
@@ -2212,7 +2212,7 @@ export function pgSignupProfessional() {
         <div style="display:flex;align-items:center;gap:10px;margin-bottom:20px">
           <div class="logo-icon" style="width:36px;height:36px;font-size:15px">🧠</div>
           <div>
-            <div style="font-size:10px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:1px">DeepSynaps Studio</div>
+            <div style="font-size:10px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:1px">DeepSynaps Protocol Studio</div>
             <div style="font-size:11px;color:var(--teal);font-weight:600">Professional Registration</div>
           </div>
         </div>
@@ -2317,7 +2317,7 @@ export function pgSignupProfessional() {
         <div id="prof-step-done" style="display:none;text-align:center;padding:24px 0">
           <div style="width:56px;height:56px;border-radius:50%;background:rgba(0,212,188,0.1);border:1px solid var(--border-teal);display:flex;align-items:center;justify-content:center;margin:0 auto 16px;font-size:22px;color:var(--teal)">&#10003;</div>
           <div style="font-family:var(--font-display);font-size:18px;font-weight:700;color:var(--text-primary);margin-bottom:8px">Account Created</div>
-          <div style="font-size:12.5px;color:var(--text-secondary);line-height:1.6">Welcome to DeepSynaps Studio. Signing you in now&hellip;</div>
+          <div style="font-size:12.5px;color:var(--text-secondary);line-height:1.6">Welcome to DeepSynaps Protocol Studio. Signing you in now&hellip;</div>
         </div>
       </div>
       <div style="text-align:center;margin-top:20px;font-size:12px;color:var(--text-tertiary)">
@@ -2420,7 +2420,7 @@ export function pgSignupPatient() {
         <div style="display:flex;align-items:center;gap:10px;margin-bottom:20px">
           <div class="logo-icon" style="width:36px;height:36px;font-size:16px;background:linear-gradient(135deg,var(--blue-dim),var(--violet))">&#9673;</div>
           <div>
-            <div style="font-size:10px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:1px">DeepSynaps Studio</div>
+            <div style="font-size:10px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:1px">DeepSynaps Protocol Studio</div>
             <div style="font-size:11px;color:var(--blue);font-weight:600">Patient Portal Access</div>
           </div>
         </div>
