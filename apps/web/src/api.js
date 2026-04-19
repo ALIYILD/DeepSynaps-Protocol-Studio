@@ -990,6 +990,20 @@ export const api = {
   listDataExports: () => apiFetch('/api/v1/privacy/exports'),
   getDataExport: (id) => apiFetch(`/api/v1/privacy/exports/${encodeURIComponent(id)}`),
   deleteDataExport: (id) => apiFetch(`/api/v1/privacy/exports/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+
+  // ── Schedule stubs (endpoints not yet implemented in backend) ───────────
+  // These return rejecting promises so callers can try/catch and fall back
+  // to demo/seed data. When the real endpoint ships, replace the stub.
+  listClinicians: () => Promise.reject(new Error('not_implemented')),
+  listRooms: () => Promise.reject(new Error('not_implemented')),
+  listReferrals: () => Promise.reject(new Error('not_implemented')),
+  listStaffSchedule: (_params) => Promise.reject(new Error('not_implemented')),
+  createStaffShift: (_data) => Promise.reject(new Error('not_implemented')),
+  checkSlotConflicts: (_slot) => Promise.reject(new Error('not_implemented')),
+  cancelSession: (_id, _data) => Promise.reject(new Error('not_implemented')),
+  bookSession: (_data) => Promise.reject(new Error('not_implemented')),
+  triageReferral: (_id, _data) => Promise.reject(new Error('not_implemented')),
+  dismissReferral: (_id) => Promise.reject(new Error('not_implemented')),
 };
 
 // Home program task mutation helpers (for web + future mobile/other bundles importing from `api.js`).
