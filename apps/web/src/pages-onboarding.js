@@ -1,37 +1,25 @@
 import { api } from './api.js';
 import { currentUser } from './auth.js';
 import { spinner } from './helpers.js';
+import {
+  ffInput,
+  ffTextarea,
+  ffSelect,
+  ffChipGroup,
+  ffStepper,
+  ffActions,
+  ffNotice,
+} from './friendly-forms.js';
 
 // ── Module-level wizard state ─────────────────────────────────────────────────
 let onboardingStep = 1;
 let onboardingData = {};
 
-// ── Step indicator pips + progress bar ───────────────────────────────────────
-function pipHtml(step) {
-  const pips = [1, 2, 3, 4].map(i => {
-    let cls = 'step-pip';
-    if (i < step)  cls += ' done';
-    if (i === step) cls += ' active';
-    const inner = i < step ? '✓' : i;
-    return `<div style="display:flex;flex-direction:column;align-items:center;gap:4px">
-      <div class="${cls}" style="width:28px;height:28px;border-radius:50%;flex:none;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;
-        ${i < step ? 'background:var(--teal);color:#fff;border:none;' : i === step ? 'background:var(--teal);color:#fff;box-shadow:0 0 12px var(--teal-glow);border:none;' : 'background:none;color:var(--text-tertiary);border:2px solid var(--border);'}">${inner}</div>
-      <div style="font-size:9.5px;color:${i <= step ? 'var(--teal)' : 'var(--text-tertiary)'};text-transform:uppercase;letter-spacing:.5px;white-space:nowrap">
-        ${['Practice', 'Patient', 'Protocol', 'Ready'][i - 1]}
-      </div>
-    </div>`;
-  }).join(`<div style="flex:1;height:2px;background:${step > 1 ? 'var(--border)' : 'var(--border)'};margin-top:-14px;position:relative">
-    <div style="position:absolute;top:0;left:0;height:100%;background:var(--teal);transition:width .4s;width:100%"></div>
-  </div>`);
+const ONB_STEP_LABELS = ['Practice', 'Patient', 'Protocol', 'Ready'];
 
-  const pct = (step - 1) / 3 * 100;
-  return `
-    <div style="display:flex;align-items:center;gap:0;margin-bottom:24px">
-      ${pips}
-    </div>
-    <div style="height:3px;border-radius:2px;background:var(--border);margin-bottom:32px;overflow:hidden">
-      <div style="height:100%;width:${pct}%;background:linear-gradient(90deg,var(--teal),var(--blue));border-radius:2px;transition:width .4s"></div>
-    </div>`;
+// ── Step indicator (friendly-forms stepper) ──────────────────────────────────
+function pipHtml(step) {
+  return ffStepper({ steps: ONB_STEP_LABELS, current: step });
 }
 
 // ── Step 1 — Welcome & Practice Setup ────────────────────────────────────────
@@ -40,48 +28,45 @@ function step1Html() {
   return `
     <div id="onb-step-1" style="${onboardingStep === 1 ? '' : 'display:none'}">
       ${pipHtml(1)}
-      <div style="text-align:center;margin-bottom:28px">
-        <div style="font-size:36px;margin-bottom:10px">🧠</div>
-        <div style="font-size:24px;font-weight:700;color:var(--text-primary);margin-bottom:8px">
-          Welcome to DeepSynaps Protocol Studio
-        </div>
-        <div style="font-size:14px;color:var(--text-secondary);max-width:480px;margin:0 auto;line-height:1.6">
-          Let's set up your clinic in a few quick steps so you can start managing patients and protocols right away.
-        </div>
+      <div class="ff-page-head">
+        <div class="ff-page-icon" aria-hidden="true">🧠</div>
+        <h1 class="ff-page-title">Welcome to DeepSynaps Protocol Studio</h1>
+        <p class="ff-page-sub">Let's set up your clinic in a few quick steps so you can start treating patients right away.</p>
       </div>
 
-      <div class="card" style="margin-bottom:20px">
-        <div class="card-body" style="display:flex;flex-direction:column;gap:16px">
-          <div class="form-group">
-            <label class="form-label">Practice Name</label>
-            <input id="onb-practice-name" class="form-control" type="text"
-              value="${saved.practiceName || ''}"
-              placeholder="e.g. Synapse Wellness Clinic" />
-          </div>
-          <div class="form-group">
-            <label class="form-label">Specialty</label>
-            <select id="onb-specialty" class="form-control">
-              <option value="">Select specialty…</option>
-              ${['Neurofeedback', 'TMS', 'tDCS', 'Multi-modal', 'Other'].map(s =>
-                `<option value="${s}" ${saved.specialty === s ? 'selected' : ''}>${s}</option>`
-              ).join('')}
-            </select>
-          </div>
-          <div class="form-group">
-            <label class="form-label">Number of Clinicians</label>
-            <select id="onb-clinician-count" class="form-control">
-              <option value="">Select…</option>
-              ${['1', '2-5', '6-15', '15+'].map(s =>
-                `<option value="${s}" ${saved.clinicianCount === s ? 'selected' : ''}>${s}</option>`
-              ).join('')}
-            </select>
-          </div>
-        </div>
+      <div class="ff-card">
+        <div class="ff-card-title">About your practice</div>
+        <p class="ff-card-sub">These details personalise the app and show up on patient-facing screens.</p>
+        ${ffInput({
+          id: 'onb-practice-name',
+          label: 'Practice name',
+          icon: '🏥',
+          value: saved.practiceName || '',
+          placeholder: 'e.g. Synapse Wellness Clinic',
+          help: 'This appears on patient handouts and receipts.',
+          required: true,
+          autocomplete: 'organization',
+        })}
+        ${ffSelect({
+          id: 'onb-specialty',
+          label: 'Primary specialty',
+          options: ['Neurofeedback', 'TMS', 'tDCS', 'Multi-modal', 'Other'],
+          value: saved.specialty || '',
+          help: 'Pick the modality you use most — you can add more later.',
+          required: true,
+        })}
+        ${ffSelect({
+          id: 'onb-clinician-count',
+          label: 'Number of clinicians',
+          options: ['1', '2-5', '6-15', '15+'],
+          value: saved.clinicianCount || '',
+          help: 'Helps us size seat licenses and reporting.',
+        })}
       </div>
 
-      <div style="display:flex;justify-content:flex-end">
-        <button class="btn btn-primary" style="padding:10px 28px" onclick="window._onbNext(1)">Continue →</button>
-      </div>
+      ${ffActions({
+        primary: { label: 'Continue →', onclick: 'window._onbNext(1)' },
+      })}
     </div>`;
 }
 
@@ -96,54 +81,64 @@ function step2Html() {
   return `
     <div id="onb-step-2" style="${onboardingStep === 2 ? '' : 'display:none'}">
       ${pipHtml(2)}
-      <div style="text-align:center;margin-bottom:24px">
-        <div style="font-size:20px;font-weight:600;color:var(--text-primary);margin-bottom:6px">
-          Add your first patient
-        </div>
-        <div style="font-size:13px;color:var(--text-secondary)">
-          You can always add more patients later from the Patients section.
-        </div>
+      <div class="ff-page-head">
+        <div class="ff-page-icon" aria-hidden="true">👤</div>
+        <h1 class="ff-page-title">Add your first patient</h1>
+        <p class="ff-page-sub">Only the basics for now — you can always expand their record later from the Patients section.</p>
       </div>
 
-      <div class="card" style="margin-bottom:20px">
-        <div class="card-body" style="display:flex;flex-direction:column;gap:16px">
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
-            <div class="form-group">
-              <label class="form-label">First Name</label>
-              <input id="onb-pt-first" class="form-control" type="text"
-                value="${p.first_name || ''}" placeholder="First name" />
-            </div>
-            <div class="form-group">
-              <label class="form-label">Last Name</label>
-              <input id="onb-pt-last" class="form-control" type="text"
-                value="${p.last_name || ''}" placeholder="Last name" />
-            </div>
-          </div>
-          <div class="form-group">
-            <label class="form-label">Date of Birth</label>
-            <input id="onb-pt-dob" class="form-control" type="date"
-              value="${p.dob || ''}" />
-          </div>
-          <div class="form-group">
-            <label class="form-label">Primary Condition</label>
-            <select id="onb-pt-condition" class="form-control">
-              <option value="">Select condition…</option>
-              ${CONDITIONS.map(c =>
-                `<option value="${c}" ${p.primary_condition === c ? 'selected' : ''}>${c}</option>`
-              ).join('')}
-            </select>
-          </div>
+      <div class="ff-card">
+        <div class="ff-card-title">Patient profile</div>
+        <p class="ff-card-sub">Use the legal name on file for billing and documentation.</p>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+          ${ffInput({
+            id: 'onb-pt-first',
+            label: 'First name',
+            value: p.first_name || '',
+            placeholder: 'First name',
+            required: true,
+            autocomplete: 'given-name',
+          })}
+          ${ffInput({
+            id: 'onb-pt-last',
+            label: 'Last name',
+            value: p.last_name || '',
+            placeholder: 'Last name',
+            autocomplete: 'family-name',
+          })}
         </div>
+        ${ffInput({
+          id: 'onb-pt-dob',
+          label: 'Date of birth',
+          type: 'date',
+          icon: '📅',
+          value: p.dob || '',
+          help: 'Used for age-based dosing and reporting.',
+          optional: true,
+          autocomplete: 'bday',
+        })}
+        ${ffSelect({
+          id: 'onb-pt-condition',
+          label: 'Primary condition',
+          options: CONDITIONS,
+          value: p.primary_condition || '',
+          placeholder: 'Select condition…',
+          help: 'We will use this to suggest evidence-backed protocols in the next step.',
+        })}
       </div>
 
-      <div id="onb-step2-err" style="display:none;color:var(--rose,var(--red));font-size:12.5px;margin-bottom:12px;text-align:center"></div>
-      <div id="onb-step2-saving" style="display:none;text-align:center;margin-bottom:12px;color:var(--text-secondary);font-size:13px">Creating patient…</div>
-
-      <div style="display:flex;gap:12px;justify-content:flex-end">
-        <button class="btn" onclick="window._onbBack(2)">← Back</button>
-        <button class="btn" style="color:var(--text-secondary)" onclick="window._onbSkipPatient()">Skip for now</button>
-        <button class="btn btn-primary" id="onb-add-patient-btn" onclick="window._onbAddPatient()">Add Patient &amp; Continue →</button>
+      <div id="onb-step2-err" role="alert" aria-live="polite"
+        style="display:none;margin-top:14px;padding:12px 14px;border-radius:var(--radius-md);border:1px solid rgba(255,107,107,0.25);background:rgba(255,107,107,0.08);color:var(--red);font-size:13px"></div>
+      <div id="onb-step2-saving" role="status"
+        style="display:none;margin-top:14px;padding:12px 14px;border-radius:var(--radius-md);border:1px solid rgba(74,158,255,0.25);background:rgba(74,158,255,0.08);color:var(--blue);font-size:13px;text-align:center">
+        Saving patient…
       </div>
+
+      ${ffActions({
+        tertiary: { label: '← Back', onclick: 'window._onbBack(2)' },
+        secondary: { label: 'Skip for now', onclick: 'window._onbSkipPatient()' },
+        primary: { id: 'onb-add-patient-btn', label: 'Save &amp; continue →', onclick: 'window._onbAddPatient()' },
+      })}
     </div>`;
 }
 
@@ -154,57 +149,67 @@ function step3Html() {
   const patientName = p ? `${p.first_name || ''} ${p.last_name || ''}`.trim() : '';
   const MODALITIES = ['tDCS', 'TMS', 'tACS', 'PEMF', 'Neurofeedback', 'PBM'];
 
+  const subtitle = patientName
+    ? `For ${patientName}. We'll suggest an evidence-backed protocol based on the condition and modality you select.`
+    : "We'll suggest an evidence-backed protocol based on the condition and modality you select.";
+
   return `
     <div id="onb-step-3" style="${onboardingStep === 3 ? '' : 'display:none'}">
       ${pipHtml(3)}
-      <div style="text-align:center;margin-bottom:24px">
-        <div style="font-size:20px;font-weight:600;color:var(--text-primary);margin-bottom:6px">
-          Generate your first protocol
-        </div>
-        <div style="font-size:13px;color:var(--text-secondary)">
-          ${patientName ? `For <strong style="color:var(--text-primary)">${patientName}</strong>. We'll` : "We'll"} generate an evidence-backed protocol recommendation based on the condition and modality.
-        </div>
+      <div class="ff-page-head">
+        <div class="ff-page-icon" aria-hidden="true">✦</div>
+        <h1 class="ff-page-title">Generate your first protocol</h1>
+        <p class="ff-page-sub">${subtitle}</p>
       </div>
 
-      <div class="card" style="margin-bottom:20px">
-        <div class="card-body" style="display:flex;flex-direction:column;gap:16px">
-          <div class="form-group">
-            <label class="form-label">Condition</label>
-            <input id="onb-proto-condition" class="form-control" type="text"
-              value="${prefillCond}" placeholder="e.g. Depression" />
-          </div>
-          <div class="form-group">
-            <label class="form-label">Modality</label>
-            <select id="onb-proto-modality" class="form-control">
-              <option value="">Select modality…</option>
-              ${MODALITIES.map(m => `<option value="${m}">${m}</option>`).join('')}
-            </select>
-          </div>
-          <div class="form-group">
-            <label class="form-label">Brief Symptoms / Notes <span style="color:var(--text-tertiary)">(optional)</span></label>
-            <textarea id="onb-proto-symptoms" class="form-control" rows="3"
-              placeholder="Describe key symptoms, severity, or relevant history…" style="resize:vertical"></textarea>
-          </div>
-        </div>
+      <div class="ff-card">
+        <div class="ff-card-title">Protocol basics</div>
+        <p class="ff-card-sub">We use these to seed recommendations — you can refine every parameter afterwards.</p>
+        ${ffInput({
+          id: 'onb-proto-condition',
+          label: 'Condition',
+          icon: '🎯',
+          value: prefillCond,
+          placeholder: 'e.g. Depression',
+          required: true,
+          help: 'Condition being treated. You can use common names like "Depression" or "ADHD".',
+        })}
+        ${ffSelect({
+          id: 'onb-proto-modality',
+          label: 'Modality',
+          options: MODALITIES,
+          placeholder: 'Select modality…',
+          help: 'Choose the neuromodulation method you plan to use for this patient.',
+        })}
+        ${ffTextarea({
+          id: 'onb-proto-symptoms',
+          label: 'Brief symptoms / notes',
+          rows: 3,
+          placeholder: 'Describe key symptoms, severity, or relevant history…',
+          optional: true,
+          help: 'Free-text notes help the recommender prioritise the right targets.',
+        })}
       </div>
 
-      <div id="onb-proto-spinner" style="display:none;text-align:center;padding:12px;color:var(--text-secondary);font-size:13px">
-        <div style="display:inline-flex;align-items:center;gap:10px">
-          <div style="width:16px;height:16px;border:2px solid var(--border);border-top-color:var(--teal);border-radius:50%;animation:spin .8s linear infinite"></div>
+      <div id="onb-proto-spinner" role="status" aria-live="polite"
+        style="display:none;margin-top:14px;padding:12px 14px;border-radius:var(--radius-md);border:1px solid var(--border);background:var(--bg-surface);color:var(--text-secondary);font-size:13px;text-align:center">
+        <span style="display:inline-flex;align-items:center;gap:10px">
+          <span style="width:16px;height:16px;border:2px solid var(--border);border-top-color:var(--teal);border-radius:50%;animation:spin .8s linear infinite"></span>
           Generating protocol recommendation…
-        </div>
+        </span>
       </div>
-      <div id="onb-proto-preview" style="display:none;margin-bottom:16px">
-        <div style="font-size:10.5px;font-weight:600;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.8px;margin-bottom:8px">Protocol Preview</div>
-        <div id="onb-proto-preview-text" style="background:rgba(0,212,188,0.04);border:1px solid var(--border-teal);border-radius:8px;padding:14px;font-size:12.5px;color:var(--text-secondary);line-height:1.7;white-space:pre-wrap;max-height:160px;overflow-y:auto"></div>
+      <div id="onb-proto-preview" style="display:none;margin-top:14px">
+        <div style="font-size:11px;font-weight:700;color:var(--teal);text-transform:uppercase;letter-spacing:.8px;margin-bottom:8px">Protocol preview</div>
+        <div id="onb-proto-preview-text" style="background:var(--teal-ghost);border:1px solid var(--border-teal);border-radius:var(--radius-md);padding:14px 16px;font-size:13px;color:var(--text-primary);line-height:1.65;white-space:pre-wrap;max-height:180px;overflow-y:auto"></div>
       </div>
-      <div id="onb-step3-err" style="display:none;color:var(--rose,var(--red));font-size:12.5px;margin-bottom:12px;text-align:center"></div>
+      <div id="onb-step3-err" role="alert" aria-live="polite"
+        style="display:none;margin-top:14px;padding:12px 14px;border-radius:var(--radius-md);border:1px solid rgba(255,107,107,0.25);background:rgba(255,107,107,0.08);color:var(--red);font-size:13px"></div>
 
-      <div style="display:flex;gap:12px;justify-content:flex-end">
-        <button class="btn" onclick="window._onbBack(3)">← Back</button>
-        <button class="btn" style="color:var(--text-secondary)" onclick="window._onbSkipProtocol()">Skip for now</button>
-        <button class="btn btn-primary" id="onb-gen-btn" onclick="window._onbGenerateProtocol()">Generate Protocol →</button>
-      </div>
+      ${ffActions({
+        tertiary: { label: '← Back', onclick: 'window._onbBack(3)' },
+        secondary: { label: 'Skip for now', onclick: 'window._onbSkipProtocol()' },
+        primary: { id: 'onb-gen-btn', label: 'Generate protocol →', onclick: 'window._onbGenerateProtocol()' },
+      })}
     </div>`;
 }
 
@@ -213,34 +218,33 @@ function step4Html() {
   return `
     <div id="onb-step-4" style="${onboardingStep === 4 ? '' : 'display:none'}">
       ${pipHtml(4)}
-      <div style="text-align:center;margin-bottom:32px">
-        <div style="width:72px;height:72px;border-radius:50%;background:rgba(0,212,188,0.12);border:2px solid var(--border-teal);display:flex;align-items:center;justify-content:center;font-size:32px;margin:0 auto 16px;box-shadow:0 0 24px var(--teal-glow)">✓</div>
-        <div style="font-size:24px;font-weight:700;color:var(--teal);margin-bottom:8px">Your clinic is set up!</div>
-        <div style="font-size:14px;color:var(--text-secondary)">Here's where to go next.</div>
+      <div class="ff-page-head">
+        <div class="ff-page-icon" aria-hidden="true" style="background:var(--teal-ghost);border-color:var(--teal);color:var(--teal)">✓</div>
+        <h1 class="ff-page-title" style="color:var(--teal)">Your clinic is ready</h1>
+        <p class="ff-page-sub">Here's where most clinicians go first — everything is reachable from the sidebar too.</p>
       </div>
 
-      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:28px">
-        <div class="onb-next-card" onclick="window._nav('patients')">
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:8px">
+        <div class="onb-next-card" onclick="window._nav('patients')" role="button" tabindex="0">
           <div class="onb-next-icon">👥</div>
-          <div class="onb-next-title">View Patients →</div>
+          <div class="onb-next-title">View patients →</div>
           <div class="onb-next-desc">Manage patient records and treatment histories.</div>
         </div>
-        <div class="onb-next-card" onclick="window._nav('protocols-registry')">
+        <div class="onb-next-card" onclick="window._nav('protocols-registry')" role="button" tabindex="0">
           <div class="onb-next-icon">◇</div>
-          <div class="onb-next-title">Browse Protocols →</div>
+          <div class="onb-next-title">Browse protocols →</div>
           <div class="onb-next-desc">Explore the evidence-backed protocol registry.</div>
         </div>
-        <div class="onb-next-card" onclick="window._nav('ai-assistant')">
+        <div class="onb-next-card" onclick="window._nav('ai-assistant')" role="button" tabindex="0">
           <div class="onb-next-icon">✦</div>
-          <div class="onb-next-title">Open AI Assistant →</div>
+          <div class="onb-next-title">Open AI assistant →</div>
           <div class="onb-next-desc">Get AI-powered clinical decision support.</div>
         </div>
       </div>
 
-      <div style="text-align:center">
-        <button class="btn btn-primary" style="padding:13px 40px;font-size:15px"
-          onclick="window._onbFinish()">Go to Dashboard →</button>
-      </div>
+      ${ffActions({
+        primary: { label: 'Go to dashboard →', onclick: 'window._onbFinish()' },
+      })}
     </div>`;
 }
 
@@ -249,8 +253,8 @@ function renderOnboarding(setTopbar) {
   setTopbar('Welcome to DeepSynaps', '');
   const el = document.getElementById('content');
   el.innerHTML = `
-    <div style="max-width:640px;margin:0 auto;padding:40px 24px">
-      <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:16px;padding:40px 36px;box-shadow:0 8px 40px rgba(0,0,0,0.3)">
+    <div class="ff-page">
+      <div class="ff-page-inner">
         ${step1Html()}
         ${step2Html()}
         ${step3Html()}
