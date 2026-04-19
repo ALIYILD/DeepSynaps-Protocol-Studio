@@ -1,0 +1,133 @@
+"""Agent skills router — admin-configurable AI Practice Agent catalogue.
+
+Skill rows are seeded by the lifespan startup hook
+(`seed_default_agent_skills`). The TestClient context manager triggers
+lifespan startup, so each test starts with the seeded default rows.
+"""
+from __future__ import annotations
+
+from fastapi.testclient import TestClient
+
+from app.services.agent_skills_seed import DEFAULT_AGENT_SKILLS
+
+
+_DEFAULT_COUNT = len(DEFAULT_AGENT_SKILLS)
+
+
+class TestAgentSkillsAuth:
+    def test_clinician_can_list(self, client: TestClient, auth_headers: dict) -> None:
+        resp = client.get("/api/v1/agent-skills", headers=auth_headers["clinician"])
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["total"] == _DEFAULT_COUNT
+        assert len(data["items"]) == _DEFAULT_COUNT
+
+    def test_guest_denied(self, client: TestClient, auth_headers: dict) -> None:
+        resp = client.get("/api/v1/agent-skills", headers=auth_headers["guest"])
+        assert resp.status_code == 403
+
+    def test_clinician_cannot_create(self, client: TestClient, auth_headers: dict) -> None:
+        resp = client.post(
+            "/api/v1/agent-skills",
+            json={"category_id": "comms", "label": "Sneaky"},
+            headers=auth_headers["clinician"],
+        )
+        assert resp.status_code == 403
+
+
+class TestAgentSkillsListVisibility:
+    def test_clinician_excludes_disabled_admin_includes_them(
+        self, client: TestClient, auth_headers: dict
+    ) -> None:
+        # Use admin to flip a row off.
+        listing = client.get("/api/v1/agent-skills", headers=auth_headers["admin"]).json()
+        first = listing["items"][0]
+        patch = client.patch(
+            f"/api/v1/agent-skills/{first['id']}",
+            json={"enabled": False},
+            headers=auth_headers["admin"],
+        )
+        assert patch.status_code == 200
+        assert patch.json()["enabled"] is False
+
+        admin_listing = client.get("/api/v1/agent-skills", headers=auth_headers["admin"]).json()
+        clinician_listing = client.get("/api/v1/agent-skills", headers=auth_headers["clinician"]).json()
+        admin_ids = {row["id"] for row in admin_listing["items"]}
+        clinician_ids = {row["id"] for row in clinician_listing["items"]}
+        assert first["id"] in admin_ids
+        assert first["id"] not in clinician_ids
+        assert clinician_listing["total"] == _DEFAULT_COUNT - 1
+
+
+class TestAgentSkillsCrud:
+    def test_admin_can_create_and_patch_and_soft_delete(
+        self, client: TestClient, auth_headers: dict
+    ) -> None:
+        create = client.post(
+            "/api/v1/agent-skills",
+            json={
+                "category_id": "comms",
+                "label": "Send Birthday Card",
+                "description": "Mail a card to the patient.",
+                "icon": "🎂",
+                "run_payload": {"prompt": "Draft a warm birthday note."},
+                "sort_order": 99,
+            },
+            headers=auth_headers["admin"],
+        )
+        assert create.status_code == 201, create.text
+        created = create.json()
+        assert created["category_id"] == "comms"
+        assert created["run_payload"]["prompt"] == "Draft a warm birthday note."
+        assert created["enabled"] is True
+
+        patch = client.patch(
+            f"/api/v1/agent-skills/{created['id']}",
+            json={"label": "Send Anniversary Card"},
+            headers=auth_headers["admin"],
+        )
+        assert patch.status_code == 200
+        assert patch.json()["label"] == "Send Anniversary Card"
+
+        # Soft delete sets enabled=false; row is still visible to admin.
+        delete = client.delete(
+            f"/api/v1/agent-skills/{created['id']}", headers=auth_headers["admin"]
+        )
+        assert delete.status_code == 204
+        admin_listing = client.get(
+            "/api/v1/agent-skills", headers=auth_headers["admin"]
+        ).json()
+        target = next(r for r in admin_listing["items"] if r["id"] == created["id"])
+        assert target["enabled"] is False
+
+    def test_blank_label_rejected(self, client: TestClient, auth_headers: dict) -> None:
+        resp = client.post(
+            "/api/v1/agent-skills",
+            json={"category_id": "comms", "label": "   "},
+            headers=auth_headers["admin"],
+        )
+        assert resp.status_code == 422
+
+
+class TestAgentSkillsSortOrder:
+    def test_list_respects_sort_order(self, client: TestClient, auth_headers: dict) -> None:
+        # Push a freshly created skill to sort_order=0 and confirm it leads.
+        create = client.post(
+            "/api/v1/agent-skills",
+            json={
+                "category_id": "reports",
+                "label": "AAA First",
+                "sort_order": -10,
+                "run_payload": {"prompt": "lead"},
+            },
+            headers=auth_headers["admin"],
+        )
+        assert create.status_code == 201
+        created_id = create.json()["id"]
+
+        listing = client.get(
+            "/api/v1/agent-skills", headers=auth_headers["clinician"]
+        ).json()
+        assert listing["items"][0]["id"] == created_id
+        # And the original seed rows still come after.
+        assert listing["total"] == _DEFAULT_COUNT + 1

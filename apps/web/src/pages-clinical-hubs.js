@@ -4314,9 +4314,14 @@ export async function pgMonitorHub(setTopbar, navigate) {
             </div>
           </div>
           <div class="ch-card">
-            <div class="ch-card-hd"><span class="ch-card-title">Session Recordings</span></div>
+            <div class="ch-card-hd">
+              <span class="ch-card-title">Session Recordings</span>
+              <button class="ch-btn-sm ch-btn-teal" id="rec-upload-btn" onclick="window._recUpload()">+ Upload Recording</button>
+            </div>
+            <input type="file" id="rec-upload-input" accept="audio/mpeg,audio/wav,audio/webm,video/mp4,video/webm" style="display:none" onchange="window._recUploadPick(event)">
+            <div id="rec-server-player" style="padding:10px 14px 0;display:none"></div>
             <div id="rec-log-list">
-              ${window._recLogs.length ? window._recLogs.map(r=>'<div class="book-row"><div class="book-datetime"><div class="book-date">'+r.date+'</div><div class="book-time">'+r.dur+'s · '+r.type+'</div></div><div class="book-info"><div class="book-patient">'+r.patient+'</div>'+(r.transcript?'<div class="book-notes">'+r.transcript.slice(0,55)+'…</div>':'')+'</div><div class="book-actions"><button class="ch-btn-sm" disabled title="Recording playback requires media-storage backend (not yet wired)" style="opacity:.55;cursor:not-allowed">▶</button><span style="margin-left:6px;font-size:10px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.5px">soon</span></div></div>').join('') : '<div class="ch-empty">No recordings yet.</div>'}
+              <div class="ch-empty">Loading recordings…</div>
             </div>
           </div>
         </div>
@@ -4377,6 +4382,94 @@ export async function pgMonitorHub(setTopbar, navigate) {
       try{localStorage.setItem('ds_notes_v1',JSON.stringify(notes.slice(0,50)));}catch{}
       window._dsToast?.({title:'Transcript saved',severity:'success'});
     };
+
+    // ── Server-backed recordings (media-storage MVP) ────────────────────────
+    // The local _recLogs (above) is a transient in-browser session log. The
+    // server list is the durable record — persisted to the Fly volume and
+    // streamed back through /api/v1/recordings/{id}/file.
+    const _fmtBytes = (n) => {
+      if (n == null) return '';
+      if (n < 1024) return n + ' B';
+      if (n < 1024 * 1024) return (n / 1024).toFixed(1) + ' KB';
+      return (n / (1024 * 1024)).toFixed(1) + ' MB';
+    };
+    window._recPlayingBlobUrl = null;
+    window._recRefreshServer = async () => {
+      const list = document.getElementById('rec-log-list');
+      if (!list) return;
+      try {
+        const res = await api.listRecordings();
+        const items = res?.items || [];
+        if (!items.length) {
+          list.innerHTML = '<div class="ch-empty">No recordings yet. Click + Upload Recording to add one.</div>';
+          return;
+        }
+        list.innerHTML = items.map(r => {
+          const date = (r.uploaded_at || '').slice(0, 10);
+          const dur = r.duration_seconds != null ? (r.duration_seconds + 's · ') : '';
+          const safeTitle = String(r.title || 'Untitled').replace(/'/g, "\\'");
+          return '<div class="book-row" data-rec-id="' + r.id + '">'
+            + '<div class="book-datetime"><div class="book-date">' + date + '</div><div class="book-time">' + dur + _fmtBytes(r.byte_size) + '</div></div>'
+            + '<div class="book-info"><div class="book-patient">' + safeTitle + '</div><div class="book-notes">' + (r.mime_type || '') + '</div></div>'
+            + '<div class="book-actions">'
+            +   '<button class="ch-btn-sm" title="Play" onclick="window._recPlay(\'' + r.id + '\',\'' + (r.mime_type || '') + '\')">▶</button>'
+            +   '<button class="ch-btn-sm" title="Delete" style="margin-left:6px" onclick="window._recDelete(\'' + r.id + '\')">✕</button>'
+            + '</div></div>';
+        }).join('');
+      } catch (err) {
+        list.innerHTML = '<div class="ch-empty">Could not load recordings: ' + (err?.message || 'unknown error') + '</div>';
+      }
+    };
+    window._recPlay = async (id, mime) => {
+      const slot = document.getElementById('rec-server-player');
+      if (!slot) return;
+      try {
+        if (window._recPlayingBlobUrl) {
+          try { URL.revokeObjectURL(window._recPlayingBlobUrl); } catch {}
+          window._recPlayingBlobUrl = null;
+        }
+        slot.innerHTML = '<div style="font-size:12px;color:var(--text-tertiary);padding:4px 0">Loading…</div>';
+        slot.style.display = '';
+        const url = await api.recordingPlaybackUrl(id);
+        window._recPlayingBlobUrl = url;
+        const tag = (mime || '').startsWith('video/') ? 'video' : 'audio';
+        slot.innerHTML = '<' + tag + ' controls autoplay style="width:100%;max-height:240px;border-radius:6px;background:#000" src="' + url + '"></' + tag + '>';
+      } catch (err) {
+        slot.innerHTML = '<div style="font-size:12px;color:var(--red);padding:4px 0">Playback failed: ' + (err?.message || 'unknown error') + '</div>';
+      }
+    };
+    window._recUpload = () => {
+      document.getElementById('rec-upload-input')?.click();
+    };
+    window._recUploadPick = async (ev) => {
+      const file = ev?.target?.files?.[0];
+      if (!file) return;
+      const btn = document.getElementById('rec-upload-btn');
+      const prev = btn?.textContent;
+      if (btn) { btn.disabled = true; btn.textContent = 'Uploading…'; }
+      try {
+        await api.uploadRecording(file, { title: file.name });
+        window._dsToast?.({ title: 'Uploaded', body: file.name, severity: 'success' });
+        await window._recRefreshServer();
+      } catch (err) {
+        window._dsToast?.({ title: 'Upload failed', body: err?.message || 'Unknown error', severity: 'error' });
+      } finally {
+        if (btn) { btn.disabled = false; btn.textContent = prev || '+ Upload Recording'; }
+        ev.target.value = '';
+      }
+    };
+    window._recDelete = async (id) => {
+      if (!confirm('Delete this recording? This cannot be undone.')) return;
+      try {
+        await api.deleteRecording(id);
+        window._dsToast?.({ title: 'Recording deleted', severity: 'success' });
+        await window._recRefreshServer();
+      } catch (err) {
+        window._dsToast?.({ title: 'Delete failed', body: err?.message || 'Unknown error', severity: 'error' });
+      }
+    };
+    // Kick off the initial load.
+    window._recRefreshServer();
   }
 }
 

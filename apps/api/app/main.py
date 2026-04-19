@@ -73,6 +73,7 @@ from app.routers.medications_router import router as medications_router
 from app.routers.consent_management_router import router as consent_management_router
 from app.routers.home_program_tasks_router import router as home_program_tasks_router
 from app.routers.home_task_templates_router import router as home_task_templates_router
+from app.routers.agent_skills_router import router as agent_skills_router
 from app.routers.reminders_router import router as reminders_router
 from app.routers.irb_router import router as irb_router
 from app.routers.evidence_router import router as evidence_router
@@ -82,6 +83,7 @@ from app.routers.library_router import router as library_router
 from app.routers.reports_router import router as reports_router
 from app.routers.documents_router import router as documents_router
 from app.routers.documents_router import patient_docs_router
+from app.routers.recordings_router import router as recordings_router
 from app.routers.protocols_saved_router import router as protocols_saved_router
 from app.routers.leads_reception_router import router as leads_reception_router
 # Settings API routers (foundation scaffolded by backend subagent #1; endpoints
@@ -95,6 +97,7 @@ from app.sentry_setup import init_sentry
 from app.settings import get_settings
 from app.services.audit import get_audit_trail
 from app.services.brain_regions import list_brain_regions
+from app.services.agent_skills_seed import seed_default_agent_skills
 from app.services.clinical_data import seed_clinical_dataset
 from app.services.devices import list_devices
 from app.services.evidence import list_evidence
@@ -120,6 +123,10 @@ async def lifespan(app_instance: FastAPI) -> AsyncIterator[None]:
     session = SessionLocal()
     try:
         snapshot = seed_clinical_dataset(session)
+        # Seed AI Practice Agent skill catalogue when the table is empty.
+        # Idempotent — covers schemas bootstrapped via Base.metadata.create_all
+        # (e.g. tests) where alembic seed didn't run.
+        seed_default_agent_skills(session)
         app_instance.state.clinical_snapshot_id = snapshot.snapshot_id
         logger.info(
             "application startup complete",
@@ -160,6 +167,7 @@ app.include_router(medications_router)
 app.include_router(consent_management_router)
 app.include_router(home_program_tasks_router)
 app.include_router(home_task_templates_router)
+app.include_router(agent_skills_router)
 app.include_router(reminders_router)
 app.include_router(irb_router)
 app.include_router(literature_router)
@@ -169,6 +177,7 @@ app.include_router(library_router)
 app.include_router(reports_router, prefix="/api/v1/reports", tags=["reports"])
 app.include_router(documents_router)
 app.include_router(patient_docs_router)
+app.include_router(recordings_router)
 app.include_router(protocols_saved_router)
 app.include_router(leads_reception_router)
 # Settings API (scaffolded 024_settings_schema) — stubs; endpoints arrive in

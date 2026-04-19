@@ -190,14 +190,20 @@ function _logActivity(type, agent, summary) {
 }
 
 // ── Skills (receptionist-style) ──────────────────────────────────────────────
-const SKILL_CATEGORIES = [
+// SKILL_CATEGORIES and CLINICIAN_SKILLS are the bundled defaults — they
+// double as the offline / API-down fallback when /api/v1/agent-skills
+// returns empty or fails. The live arrays (`SKILL_CATEGORIES`,
+// `CLINICIAN_SKILLS`) are reassigned in `_hydrateAgentSkills` below once the
+// server responds. PATIENT_SKILLS is unchanged — only the clinician catalogue
+// is server-managed in this PR.
+const SKILL_CATEGORIES_DEFAULT = [
   { id: 'comms', label: 'Communication', icon: '💬' },
   { id: 'clinical', label: 'Clinical', icon: '🩺' },
   { id: 'admin', label: 'Administration', icon: '📋' },
   { id: 'reports', label: 'Reports & Data', icon: '📊' },
 ];
 
-const CLINICIAN_SKILLS = [
+const CLINICIAN_SKILLS_DEFAULT = [
   // Communication
   { id: 'msg-patient',    cat: 'comms',    icon: '💬', label: 'Message Patient',       desc: 'Draft and send a message to a patient', prompt: 'I need to send a message to a patient. Help me draft a professional, caring message. Ask me which patient and what the message is about.' },
   { id: 'call-patient',   cat: 'comms',    icon: '📞', label: 'Call Patient',           desc: 'Prepare talking points for a patient call', prompt: 'I need to call a patient. Help me prepare talking points and key items to discuss. Ask me which patient and the purpose of the call.' },
@@ -225,6 +231,70 @@ const CLINICIAN_SKILLS = [
   { id: 'clinic-stats',   cat: 'reports',  icon: '📊', label: 'Clinic Statistics',     desc: 'View clinic performance metrics', prompt: 'Give me the key clinic statistics: patient volume, treatment completion rates, average improvement scores, revenue trends, and any KPIs that need attention.' },
   { id: 'compare-protocols', cat: 'reports', icon: '🔬', label: 'Compare Protocols', desc: 'Compare protocol effectiveness', prompt: 'Help me compare treatment protocols across my patient cohort. Which protocols have the best response rates? Any patterns by condition or demographics?' },
 ];
+
+// Live skill catalogue — initialised to the bundled defaults, replaced by
+// the server response in `_hydrateAgentSkills`. Existing render code reads
+// SKILL_CATEGORIES / CLINICIAN_SKILLS, so reassigning these via `let`
+// transparently switches the source of truth.
+let SKILL_CATEGORIES = SKILL_CATEGORIES_DEFAULT.slice();
+let CLINICIAN_SKILLS = CLINICIAN_SKILLS_DEFAULT.slice();
+let _agentSkillsHydrated = false;
+let _agentSkillsHydrating = false;
+
+// Map a server AgentSkillOut into the in-memory shape the render code expects.
+function _mapServerSkill(row) {
+  const payload = (row && row.run_payload) || {};
+  return {
+    id: row.id,
+    cat: row.category_id,
+    icon: row.icon || '',
+    label: row.label || '',
+    desc: row.description || '',
+    prompt: typeof payload.prompt === 'string' ? payload.prompt : '',
+  };
+}
+
+// Derive the SKILL_CATEGORIES list from the server skills. Preserves the
+// bundled order/labels for known categories; appends any new server-defined
+// category at the end with a default label.
+function _deriveCategories(skills) {
+  const seen = new Set(skills.map(s => s.cat).filter(Boolean));
+  const known = SKILL_CATEGORIES_DEFAULT.filter(c => seen.has(c.id));
+  const knownIds = new Set(known.map(c => c.id));
+  const extra = [];
+  for (const s of skills) {
+    if (s.cat && !knownIds.has(s.cat)) {
+      knownIds.add(s.cat);
+      extra.push({ id: s.cat, label: s.cat, icon: '' });
+    }
+  }
+  return known.concat(extra);
+}
+
+async function _hydrateAgentSkills() {
+  if (_agentSkillsHydrated || _agentSkillsHydrating) return;
+  _agentSkillsHydrating = true;
+  try {
+    const resp = await api.listAgentSkills();
+    const items = Array.isArray(resp && resp.items) ? resp.items : [];
+    if (items.length > 0) {
+      CLINICIAN_SKILLS = items.map(_mapServerSkill).filter(s => s.id && s.label);
+      SKILL_CATEGORIES = _deriveCategories(CLINICIAN_SKILLS);
+    }
+    // Empty / 404 → leave the bundled defaults in place (already populated).
+    _agentSkillsHydrated = true;
+    // Re-render so the hub picks up the freshly hydrated catalogue.
+    if (_agentView === 'hub' || _agentView === 'chat-clinician') {
+      try { pgAgentChat(_lastSetTopbar); } catch {}
+    }
+  } catch (_) {
+    // Network failure / 401 / 403 → keep bundled defaults so the page stays
+    // usable. The next mount will retry hydration.
+    try { console.debug('[agent-skills] using bundled defaults (API unavailable)'); } catch {}
+  } finally {
+    _agentSkillsHydrating = false;
+  }
+}
 
 const PATIENT_SKILLS = [
   { id: 'my-progress',    cat: 'clinical', icon: '📈', label: 'My Progress',           desc: 'See how your treatment is going', prompt: 'How is my treatment going? Show me my progress, latest scores, and what to expect next.' },
@@ -282,6 +352,11 @@ let _lastSetTopbar = () => {};
 // ── Main Export ──────────────────────────────────────────────────────────────
 export async function pgAgentChat(setTopbar) {
   _lastSetTopbar = setTopbar;
+  if (!_agentSkillsHydrated && !_agentSkillsHydrating) {
+    // Fire-and-forget hydration; bundled defaults render immediately while
+    // this resolves. `_hydrateAgentSkills` re-renders on success.
+    _hydrateAgentSkills();
+  }
   if (!_tasksLoaded && !_tasksRefreshing) {
     _refreshTasks().then(() => {
       if (_agentView === 'hub' || _agentView === 'config') {
