@@ -307,12 +307,13 @@ import {
   groupOutcomesByTemplate,
   pickTodaysFocus,
   isDemoPatient,
+  DEMO_PATIENT,
   pickCallTier,
   demoMessagesSeed,
 } from './patient-dashboard-helpers.js';
 export {
   computeCountdown, phaseLabel, outcomeGoalMarker, groupOutcomesByTemplate,
-  pickTodaysFocus, isDemoPatient, pickCallTier, demoMessagesSeed,
+  pickTodaysFocus, isDemoPatient, DEMO_PATIENT, pickCallTier, demoMessagesSeed,
 };
 
 // ── Dashboard ─────────────────────────────────────────────────────────────────────────────
