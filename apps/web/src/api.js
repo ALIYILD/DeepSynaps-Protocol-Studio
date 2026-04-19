@@ -51,8 +51,28 @@ async function apiFetch(path, opts = {}) {
     throw err;
   }
   if (res.status === 401) {
-    // Avoid infinite loop — never attempt refresh when the refresh call itself 401s
-    if (path === '/api/v1/auth/refresh') { clearToken(); _on401(); const e = new Error('API error 401'); e.status = 401; return Promise.reject(e); }
+    // Avoid infinite loop — never attempt refresh when the refresh call itself 401s.
+    // If that 401 is user_not_found / not_a_real_user (demo session — refresh
+    // requires a DB user), don't clear tokens: access token is still valid for
+    // every other endpoint.
+    if (path === '/api/v1/auth/refresh') {
+      let rb = null; try { rb = await res.clone().json(); } catch {}
+      if (rb && (rb.code === 'user_not_found' || rb.code === 'not_a_real_user')) {
+        const e = new Error(rb.message || 'Refresh not available for demo account');
+        e.status = 401; e.code = rb.code; e.body = rb; return Promise.reject(e);
+      }
+      clearToken(); _on401();
+      const e = new Error('API error 401'); e.status = 401; return Promise.reject(e);
+    }
+    // Peek at the original 401 first. If the endpoint explicitly rejects the
+    // demo actor, skip the refresh dance (refresh will also fail) and surface
+    // the error without clearing tokens.
+    let origBody = null; try { origBody = await res.clone().json(); } catch {}
+    if (origBody && origBody.code === 'not_a_real_user') {
+      const err = new Error(origBody.message || 'Not available for demo account');
+      err.status = 401; err.code = 'not_a_real_user'; err.body = origBody;
+      return Promise.reject(err);
+    }
     const storedRefresh = getRefreshToken();
     if (storedRefresh) {
       let refreshResult;
