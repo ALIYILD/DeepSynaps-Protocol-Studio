@@ -156,6 +156,8 @@ async function loadHandbooks()  { return (_modHandbooks  ??= await import('./pag
 async function loadProtocols()   { return (_modProtocols   ??= await import('./pages-protocols.js')); }
 async function loadVirtualCare()  { return (_modVirtualCare  ??= await import('./pages-virtualcare.js')); }
 async function loadConditions()   { return (_modConditions   ??= await import('./pages-conditions.js')); }
+let _modResearch = null;
+async function loadResearch()     { return (_modResearch ??= await import('./pages-research.js')); }
 
 // ── Helpers that delegate to the clinical module once loaded ──────────────────
 // Called synchronously in navigate() before renderPage(); safe to no-op until
@@ -1368,22 +1370,8 @@ async function renderPage() {
     case 'reports-v2':         { const m = await loadClinicalHubs(); await m.pgReportsHubNew(setTopbar, navigate); break; }
     case 'finance-v2':         { const m = await loadClinicalHubs(); await m.pgFinanceHub(setTopbar, navigate); break; }
     case 'ai-agent-v2':        { const m = await loadAgents(); await m.pgAgentChat(setTopbar); break; }
-    case 'research-v2':        {
-      setTopbar('Research', 'QA · Longitudinal · Data Export · IRB');
-      el.innerHTML = `<div style="max-width:640px;margin:48px auto;padding:32px;border:1px solid var(--border);border-radius:14px;background:var(--bg-card);text-align:center">
-        <div style="font-family:var(--font-display);font-size:20px;font-weight:600;color:var(--text-primary);margin-bottom:8px">Research Hub</div>
-        <div style="font-size:13px;color:var(--text-secondary);line-height:1.6">Coming in Phase 11 — will merge Quality Assurance, Longitudinal Report, Data Export, and IRB Manager into a single research workbench.</div>
-      </div>`;
-      break;
-    }
-    case 'governance-v2':      {
-      setTopbar('Governance', 'Evidence grading · AE register · Audit log');
-      el.innerHTML = `<div style="max-width:640px;margin:48px auto;padding:32px;border:1px solid var(--border);border-radius:14px;background:var(--bg-card);text-align:center">
-        <div style="font-family:var(--font-display);font-size:20px;font-weight:600;color:var(--text-primary);margin-bottom:8px">Governance</div>
-        <div style="font-size:13px;color:var(--text-secondary);line-height:1.6">Coming in Phase 10 — compliance dial, approval pipeline, evidence ledger, AE register, and audit log.</div>
-      </div>`;
-      break;
-    }
+    case 'research-v2':        { const m = await loadResearch(); await m.pgResearch(setTopbar, navigate); break; }
+    case 'governance-v2':      { const m = await loadPractice(); await m.pgGovernance(setTopbar, navigate); break; }
     default:
       el.innerHTML = `<div style="text-align:center;padding:48px;color:var(--text-tertiary)">Page not found.</div>`;
   }

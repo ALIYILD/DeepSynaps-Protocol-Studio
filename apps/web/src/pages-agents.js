@@ -164,7 +164,7 @@ function _renderHub(setTopbar) {
   const hour = new Date().getHours();
   const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
 
-  el.innerHTML = `<div class="agent-hub">
+  el.innerHTML = `<div class="dv2-hub-shell" style="padding:20px;display:flex;flex-direction:column;gap:16px"><div class="agent-hub">
 
     <!-- Welcome banner -->
     <div class="card" style="padding:20px 24px;margin-bottom:20px;border-left:3px solid var(--violet);background:linear-gradient(135deg,rgba(155,127,255,0.05),rgba(0,212,188,0.03))">
@@ -257,7 +257,7 @@ function _renderHub(setTopbar) {
       </div>
     ` : ''}
 
-  </div>`;
+  </div></div>`;
 }
 
 // ── Chat View ────────────────────────────────────────────────────────────────

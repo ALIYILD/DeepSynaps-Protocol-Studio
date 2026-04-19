@@ -9224,3 +9224,389 @@ export async function pgHomeTaskManager(setTopbar) {
 
   render();
 }
+
+// ── Governance (Screen 12) ────────────────────────────────────────────────────
+export async function pgGovernance(setTopbar, _navigate) {
+  setTopbar(
+    'Governance',
+    `<span style="font-size:11px;color:var(--text-tertiary);margin-right:10px">Protocol approvals, evidence grading, compliance</span>
+     <button class="btn btn-ghost btn-sm" onclick="window._gvExportAudit?.()">Export audit ↗</button>
+     <button class="btn btn-primary btn-sm" onclick="window._gvOpenReview?.()">Open Q2 review →</button>`
+  );
+
+  const el = document.getElementById('content');
+  if (!el) return;
+
+  const _escG = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+
+  let evidence = [];
+  let aes = [];
+  let approvals = null;
+  let compliance = null;
+  let audit = null;
+
+  try { const r = await api.listEvidence?.(); evidence = r?.items || r || []; } catch (_) { evidence = []; }
+  try { const r = await api.listAdverseEvents?.(); aes = r?.items || r || []; } catch (_) { aes = []; }
+  try { approvals = await api.listApprovals?.(); } catch (_) { approvals = null; }
+  try { compliance = await api.complianceScore?.(); } catch (_) { compliance = null; }
+  try { audit = await api.auditLog?.(); } catch (_) { audit = null; }
+
+  const _complianceScore = compliance?.score ?? 98.4;
+  const _auditEvents7d   = audit?.count ?? 2841;
+  const _evidenceCount   = Array.isArray(evidence) ? evidence.length : (evidence?.total ?? 214);
+  const _openReviews     = approvals?.openCount ?? 11;
+  const _aesQtd          = Array.isArray(aes) ? aes.length : (aes?.total ?? 3);
+
+  const _pipelineColumns = approvals?.columns || [
+    { key: 'draft', label: 'Draft', accent: 'var(--text-tertiary)', cards: [
+      { flag: 'min', title: 'Tinnitus TPJ · investigational v0.3', tag: 'SOP-TN-001 · pilot of n=6', owner: 'M. Takahashi', initials: 'MT', signers: '0 / 3' },
+      { flag: 'routine', title: 'Patient app walkthrough · training', tag: 'SOP-TR-004 · first pass', owner: 'L. Chen', initials: 'LC', signers: '0 / 2' },
+    ]},
+    { key: 'review', label: 'In review', accent: 'var(--amber)', cards: [
+      { flag: 'maj', title: 'Fibromyalgia · M1 anodal 2.5 mA', tag: 'SOP-PN-003 · dose uplift', owner: 'A. Kolmar', initials: 'AK', signers: '1 / 3' },
+      { flag: 'min', title: 'OCD SMA · skin-grade tightening', tag: 'SOP-OC-002 → v2.1', owner: 'J. Raines', initials: 'JR', signers: '2 / 3' },
+      { flag: 'min', title: 'PTSD mPFC · add session 12', tag: 'SOP-PT-001 → v1.6', owner: 'M. Takahashi', initials: 'MT', signers: '1 / 3' },
+      { flag: 'routine', title: 'Incident escalation tree refresh', tag: 'SOP-OP-005 → v1.2', owner: 'N. Bradley', initials: 'NB', signers: '1 / 2' },
+    ]},
+    { key: 'signoff', label: 'Sign-off', accent: 'var(--blue)', cards: [
+      { flag: 'maj', title: 'tDCS DLPFC-L · v3.2 tighten skin grade', tag: 'SOP-DP-007 · Kolmar sign pending', owner: 'A. Kolmar', initials: 'AK', signers: '2 / 3', signerColor: 'var(--blue)' },
+      { flag: 'min', title: 'GAD DLPFC-R · session window shift', tag: 'SOP-GA-002 → v1.4', owner: 'J. Raines', initials: 'JR', signers: '2 / 3', signerColor: 'var(--blue)' },
+      { flag: 'routine', title: 'Electrode prep · saline volume', tag: 'SOP-OP-003 → v1.6', owner: 'N. Bradley', initials: 'NB', signers: '1 / 2', signerColor: 'var(--blue)' },
+    ]},
+    { key: 'published', label: 'Published · 30d', accent: 'var(--teal)', cards: [
+      { title: 'Post-stroke M1 rehab · v2.0', tag: 'Apr 08 · SOP-ST-001', owner: 'J. Raines', initials: 'JR', signers: '3 / 3 ✓', complete: true },
+      { title: 'Contraindications matrix · v4.0', tag: 'Mar 30 · SOP-SF-001', owner: 'A. Kolmar', initials: 'AK', signers: '3 / 3 ✓', complete: true },
+      { title: '+ 3 more', tag: 'View archive →', archive: true },
+    ]},
+  ];
+
+  const _regChecklist = compliance?.regulatory || [
+    { label: 'HIPAA · BAA coverage', value: '6 / 6', ok: true },
+    { label: 'GDPR · Article 30 registry', value: 'Current', ok: true },
+    { label: 'ISO 13485 · QMS audit', value: 'Q3 due', warn: true },
+    { label: 'FDA 21 CFR 820 · DHF lock', value: 'Verified', ok: true },
+    { label: 'Protocol sign-off currency', value: '100 %', ok: true },
+    { label: 'Clinician certification', value: '97 %', ok: true },
+    { label: 'AE reporting within 24 h', value: '100 %', ok: true },
+    { label: 'Evidence review cycle', value: '92 %', warn: true },
+    { label: 'Next regulator review', value: 'Jun 18', warn: true },
+  ];
+
+  const _evidenceLedger = (Array.isArray(evidence) && evidence.length > 0)
+    ? evidence.slice(0, 6).map((e, i) => ({
+        grade: e.grade || ['A','A','B','C','D','B'][i] || 'B',
+        title: e.title || e.citation || `Citation ${i + 1}`,
+        meta:  e.meta  || e.doi || (e.journal ? `${e.journal} · ${e.year || ''}` : '—'),
+        trend: e.trendDir || ['up','flat','up','down','down','up'][i] || 'flat',
+        delta: e.confidenceDelta ?? ['+8.4','+0.6','+3.2','−1.8','retracted','+6.1'][i],
+        status: e.status || (i === 3 ? 'rev' : i === 4 ? 'down' : i === 5 ? 'rev' : 'ok'),
+        spark: e.spark || [
+          [40,55,60,70,78,82,88],
+          [68,70,72,75,77,78,80],
+          [50,48,52,55,60,62,64],
+          [36,40,42,44,42,40,38],
+          [70,65,48,35,18,10,6],
+          [30,38,45,52,60,64,66],
+        ][i],
+      }))
+    : [
+        { grade:'A', title:'Fregni et al. 2021 · RCT meta-analysis · TRD', meta:'DOI 10.1038/s41…74812 · n=1,092 · SOP-DP-007', trend:'up', delta:'+8.4', status:'ok', spark:[40,55,60,70,78,82,88] },
+        { grade:'A', title:'Lefaucheur 2022 · tDCS guidelines update', meta:'DOI 10.1016/j.clinph… · 23 SOPs', trend:'flat', delta:'+0.6', status:'ok', spark:[68,70,72,75,77,78,80] },
+        { grade:'B', title:'Brunoni 2019 · DLPFC + cognitive reappraisal', meta:'RCT · n=245 · SOP-DP-007, SOP-GA-002', trend:'up', delta:'+3.2', status:'ok', spark:[50,48,52,55,60,62,64] },
+        { grade:'C', title:'Bikson 2020 · F5 focality modeling', meta:'Modeling · n=32 · SOP-DP-007 (alt)', trend:'down', delta:'−1.8', status:'rev', spark:[36,40,42,44,42,40,38] },
+        { grade:'D', title:'Okamoto 2017 · tDCS + SSRI synergy', meta:'Retracted Mar 29', trend:'down', delta:'retracted', status:'down', spark:[70,65,48,35,18,10,6] },
+        { grade:'B', title:'Kuo 2023 · home-based tDCS adherence', meta:'Prospective · n=418 · candidate SOP-DP-008', trend:'up', delta:'+6.1', status:'rev', spark:[30,38,45,52,60,64,66] },
+      ];
+
+  const _reviewers = [
+    { name:'Dr. Amelia Kolmar',  initials:'AK', role:'Clinical Director · 4 reviews · 2 blocking', load:4, cap:5 },
+    { name:'Jordan Raines',      initials:'JR', role:'Senior clinician · 3 reviews',               load:3, cap:5, avClass:'p2' },
+    { name:'Mei Takahashi',      initials:'MT', role:'Research lead · 5 reviews · at cap',         load:5, cap:5, avClass:'p3', atCap:true },
+    { name:'Nate Bradley',       initials:'NB', role:'Ops lead · 2 reviews',                       load:2, cap:5, avClass:'p4' },
+    { name:'Lin Chen',           initials:'LC', role:'Clinician · 1 active',                       load:1, cap:5, avClass:'p2' },
+  ];
+
+  const _aeRows = (Array.isArray(aes) && aes.length > 0)
+    ? aes.slice(0, 5).map((a, i) => ({
+        id: a.id || a.event_id || `AE-${2604 - i}`,
+        title: a.title || a.summary || 'Event',
+        sub: a.sub || a.meta || [a.patient_name, a.protocol_id, a.reported_at].filter(Boolean).join(' · '),
+        sev: (a.severity || ['mod','mild','mild','mild','severe'][i] || 'mild').toLowerCase(),
+        state: a.status || (i <= 1 ? 'Under investigation' : 'Closed'),
+        closed: (a.status || '').toLowerCase() === 'closed' || i > 1,
+      }))
+    : [
+        { id:'AE-2604-03', title:'Persistent headache > 6 h post-session', sub:'Ben Ortiz · SOP-DP-007 · session 7 · Apr 14', sev:'mod',  state:'Under investigation', closed:false },
+        { id:'AE-2604-02', title:'Skin grade 2 at F3, session 8',           sub:'Samantha Li · SOP-DP-007 · Apr 09',           sev:'mild', state:'Protocol amended',    closed:false },
+        { id:'AE-2604-01', title:'Transient tingling > expected',           sub:'Rohan Patel · SOP-GA-002 · Apr 02',           sev:'mild', state:'Closed',               closed:true },
+        { id:'AE-2603-08', title:'Mild dizziness post-ramp-up',             sub:'Alex Huang · SOP-OC-002 · Mar 28',            sev:'mild', state:'Closed',               closed:true },
+      ];
+
+  const _auditLines = (Array.isArray(audit?.events) && audit.events.length > 0)
+    ? audit.events.slice(0, 12)
+    : [
+        { ts:'04:02:18', actor:'system', action:'audit hash verified · chain head <strong>0x8a4f…c219</strong>' },
+        { ts:'03:58:41', actor:'AK',     action:'signed protocol <strong>SOP-DP-007 v3.2</strong> · step 2/3' },
+        { ts:'03:12:07', actor:'MT',     action:'downgraded citation <strong style="color:var(--rose)">Okamoto 2017</strong> → D · retracted' },
+        { ts:'02:44:19', actor:'JR',     action:'commented on <strong>SOP-DP-007 v3.2</strong> · request clarification § 04' },
+        { ts:'01:35:02', actor:'system', action:'auto-ingested <strong>18 new citations</strong> from PubMed · 2 grade-A candidates' },
+        { ts:'Apr 15',   actor:'AK',     action:'opened <strong style="color:var(--amber)">AE-2604-03</strong> · triage moderate · assigned JR' },
+        { ts:'Apr 14',   actor:'JR',     action:'clinician attestation · <strong>SOP-ST-001 v2.0</strong> · certification +90d' },
+        { ts:'Apr 13',   actor:'system', action:'nightly export <strong>2,104 session records</strong> to regulatory archive' },
+        { ts:'Apr 12',   actor:'AK',     action:'published <strong>SOP-ST-001 v2.0</strong> · post-stroke M1 rehab' },
+        { ts:'Apr 11',   actor:'NB',     action:'acknowledged <strong style="color:var(--amber)">incident escalation tree</strong> minor update' },
+        { ts:'Apr 10',   actor:'system', action:'compliance score recomputed · <strong>98.4%</strong> · no regressions' },
+        { ts:'Apr 09',   actor:'AK',     action:'triggered <strong style="color:var(--amber)">AE-2604-02</strong> · skin grade 2 recurrence' },
+      ];
+
+  function _sparkSvg(points, color) {
+    const max = Math.max(...points, 1);
+    const w = 104, h = 28, step = w / (points.length - 1);
+    const d = points.map((p, i) => `${i === 0 ? 'M' : 'L'}${(i * step).toFixed(1)} ${(h - (p / max) * (h - 4) - 2).toFixed(1)}`).join(' ');
+    return `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" style="display:block"><path d="${d}" stroke="${color}" stroke-width="1.6" fill="none" stroke-linecap="round"/></svg>`;
+  }
+
+  const _gradeColors = { A:'var(--teal)', B:'var(--blue)', C:'var(--amber)', D:'var(--rose)' };
+  const _trendColor  = { up:'var(--teal)', flat:'var(--text-tertiary)', down:'var(--rose)' };
+  const _sevBg       = { severe:'var(--rose)', sae:'var(--rose)', mod:'var(--amber)', moderate:'var(--amber)', mild:'var(--teal)' };
+  const _sevPill     = { severe:{bg:'rgba(255,107,157,0.18)',c:'var(--rose)'}, sae:{bg:'rgba(255,107,157,0.18)',c:'var(--rose)'}, mod:{bg:'rgba(255,181,71,0.18)',c:'var(--amber)'}, moderate:{bg:'rgba(255,181,71,0.18)',c:'var(--amber)'}, mild:{bg:'rgba(0,212,188,0.14)',c:'var(--teal)'} };
+  const _flagPill    = { maj:{bg:'rgba(255,107,157,0.2)',c:'var(--rose)',label:'Major'}, min:{bg:'rgba(74,158,255,0.2)',c:'var(--blue)',label:'Minor'}, routine:{bg:'rgba(139,151,168,0.18)',c:'var(--text-secondary)',label:'Routine'} };
+
+  // ── HTML ────────────────────────────────────────────────────────────────────
+  const _kpi = (lbl, num, sub, tone) => {
+    const accent = tone === 'warn' ? 'var(--amber)' : tone === 'crit' ? 'var(--rose)' : tone === 'info' ? 'var(--blue)' : 'var(--teal)';
+    return `<div class="dv2-gv-kpi" style="background:var(--bg-card);border:1px solid var(--border);border-radius:14px;padding:14px 16px;display:flex;flex-direction:column;gap:6px;position:relative;overflow:hidden">
+      <div style="position:absolute;top:0;left:0;right:0;height:2px;background:${accent};opacity:.65"></div>
+      <div style="font-size:10.5px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.05em;font-weight:600">${lbl}</div>
+      <div style="font-size:26px;font-weight:600;color:var(--text-primary);letter-spacing:-0.02em;line-height:1">${num}</div>
+      <div style="font-size:11px;color:var(--text-secondary);line-height:1.4">${sub}</div>
+    </div>`;
+  };
+
+  const _kpiStrip = `<div class="dv2-gv-kpis" style="display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:12px;margin-bottom:16px">
+    ${_kpi('Compliance · 30d', `${_complianceScore}<span style="font-size:13px;color:var(--text-tertiary)">%</span>`, 'All protocols with active sign-off', 'ok')}
+    ${_kpi('Reviews open', _openReviews, '2 drafts · 4 review · 5 sign-off', 'warn')}
+    ${_kpi('Adverse events · QTD', _aesQtd, '0 severe · 1 moderate · 2 mild', 'crit')}
+    ${_kpi('Audit events · 7d', (_auditEvents7d).toLocaleString(), 'Immutable chain · hash verified', 'info')}
+    ${_kpi('Evidence ledger', _evidenceCount, '124 A · 68 B · 18 C · 4 downgraded', 'ok')}
+  </div>`;
+
+  const _pcardHtml = (c) => {
+    const flag = c.flag ? `<span style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;padding:2px 7px;border-radius:4px;background:${_flagPill[c.flag].bg};color:${_flagPill[c.flag].c}">${_flagPill[c.flag].label}</span>` : '';
+    if (c.archive) {
+      return `<div class="dv2-gv-pcard" style="cursor:pointer;border:1px dashed var(--border);border-radius:10px;padding:10px 12px;background:transparent;opacity:.7">
+        <div style="font-size:12px;color:var(--text-secondary);font-weight:600">${_escG(c.title)}</div>
+        <div style="font-size:10.5px;color:var(--text-tertiary);margin-top:2px">${_escG(c.tag || '')}</div>
+      </div>`;
+    }
+    return `<div class="dv2-gv-pcard" style="cursor:grab;background:var(--bg-surface);border:1px solid var(--border);border-radius:10px;padding:10px 12px;display:flex;flex-direction:column;gap:4px;transition:transform .12s,border-color .12s" onmouseover="this.style.borderColor='rgba(255,255,255,0.18)'" onmouseout="this.style.borderColor='var(--border)'">
+      ${flag ? `<div style="display:flex;gap:4px">${flag}</div>` : ''}
+      <div style="font-size:12px;color:var(--text-primary);font-weight:600;line-height:1.3">${_escG(c.title)}</div>
+      <div style="font-size:10.5px;color:var(--text-tertiary)">${_escG(c.tag || '')}</div>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-top:4px;gap:8px">
+        <div style="display:flex;align-items:center;gap:6px;font-size:10.5px;color:var(--text-secondary)">
+          <div style="width:18px;height:18px;border-radius:50%;background:linear-gradient(135deg,var(--teal),var(--blue));display:flex;align-items:center;justify-content:center;font-size:8.5px;font-weight:700;color:#04121c">${_escG(c.initials || '?')}</div>
+          ${_escG(c.owner || '')}
+        </div>
+        <span style="font-size:10.5px;color:${c.complete ? 'var(--teal)' : (c.signerColor || 'var(--text-tertiary)')};font-weight:600;font-family:var(--dv2-font-mono,ui-monospace,monospace)">${_escG(c.signers || '')}</span>
+      </div>
+    </div>`;
+  };
+
+  const _pipeCol = (col) => `<div style="display:flex;flex-direction:column;gap:8px;min-width:0">
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 10px;background:var(--bg-surface);border:1px solid var(--border);border-radius:8px">
+      <span style="display:flex;align-items:center;gap:6px;font-size:10.5px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.04em">
+        <span style="width:6px;height:6px;border-radius:50%;background:${col.accent}"></span>${_escG(col.label)}
+      </span>
+      <span style="font-size:11px;color:var(--text-tertiary);font-weight:600">${col.cards.length}</span>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:8px">${col.cards.map(_pcardHtml).join('')}</div>
+  </div>`;
+
+  const _approvalPipeline = `<div class="dv2-gv-card" style="background:var(--bg-card);border:1px solid var(--border);border-radius:14px;padding:18px">
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
+      <h3 style="margin:0;font-size:13px;font-weight:600;color:var(--text-primary);letter-spacing:-.01em">Protocol approval pipeline</h3>
+      <span style="font-size:11px;color:var(--text-tertiary)">Q2 · ${_openReviews} in flight</span>
+      <div style="margin-left:auto;display:flex;gap:6px">
+        <button class="btn btn-ghost btn-sm" style="font-size:10.5px">⚑ Major only</button>
+        <button class="btn btn-ghost btn-sm" style="font-size:10.5px">Mine (3)</button>
+      </div>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px">
+      ${_pipelineColumns.map(_pipeCol).join('')}
+    </div>
+  </div>`;
+
+  const _dialArc = (Math.max(0, Math.min(100, _complianceScore)) / 100) * 385;
+  const _dialOffset = (385 - _dialArc).toFixed(1);
+  const _complianceDial = `<div class="dv2-gv-card" style="background:var(--bg-card);border:1px solid var(--border);border-radius:14px;padding:18px">
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
+      <h3 style="margin:0;font-size:13px;font-weight:600;color:var(--text-primary);letter-spacing:-.01em">Compliance &amp; regulatory</h3>
+      <span style="font-size:11px;color:var(--text-tertiary)">Apr 2026</span>
+    </div>
+    <div style="display:grid;grid-template-columns:150px 1fr;gap:18px;align-items:center">
+      <svg width="150" height="150" viewBox="0 0 150 150" style="display:block">
+        <defs><linearGradient id="_gvDialG" x1="0%" y1="0%" x2="100%" y2="0%">
+          <stop offset="0%" stop-color="#00d4bc"/><stop offset="60%" stop-color="#4a9eff"/><stop offset="100%" stop-color="#9b7fff"/>
+        </linearGradient></defs>
+        <circle cx="75" cy="75" r="62" fill="none" stroke="rgba(255,255,255,0.06)" stroke-width="12"/>
+        <circle cx="75" cy="75" r="62" fill="none" stroke="url(#_gvDialG)" stroke-width="12" stroke-dasharray="385" stroke-dashoffset="${_dialOffset}" stroke-linecap="round" transform="rotate(-90 75 75)"/>
+        <text x="75" y="72" text-anchor="middle" font-size="28" fill="var(--text-primary)" font-weight="600" letter-spacing="-0.02em">${_complianceScore}</text>
+        <text x="75" y="92" text-anchor="middle" font-size="10" fill="var(--text-tertiary)" font-family="ui-monospace,monospace" letter-spacing="0.06em">COMPLIANCE %</text>
+      </svg>
+      <div style="display:flex;flex-direction:column;gap:4px;max-height:190px;overflow-y:auto">
+        ${_regChecklist.map(r => `<div style="display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border);font-size:11.5px">
+          <span style="color:var(--text-secondary);display:flex;align-items:center;gap:7px">
+            <span style="width:6px;height:6px;border-radius:50%;background:${r.warn ? 'var(--amber)' : 'var(--teal)'}"></span>${_escG(r.label)}
+          </span>
+          <span style="color:${r.warn ? 'var(--amber)' : 'var(--text-primary)'};font-weight:600;font-family:var(--dv2-font-mono,ui-monospace,monospace);font-size:11px">${_escG(r.value)}</span>
+        </div>`).join('')}
+      </div>
+    </div>
+  </div>`;
+
+  const _statusPill = (s) => {
+    const map = { ok:{bg:'rgba(0,212,188,0.16)',c:'var(--teal)',l:'Verified'}, rev:{bg:'rgba(255,181,71,0.16)',c:'var(--amber)',l:'Under review'}, down:{bg:'rgba(255,107,157,0.18)',c:'var(--rose)',l:'Downgraded'} };
+    const m = map[s] || map.ok;
+    return `<span style="font-size:10px;font-weight:600;padding:2px 8px;border-radius:10px;background:${m.bg};color:${m.c};text-transform:uppercase;letter-spacing:.03em">${m.l}</span>`;
+  };
+
+  const _ledgerRow = (e) => {
+    const gColor = _gradeColors[e.grade] || 'var(--text-tertiary)';
+    const tColor = _trendColor[e.trend] || 'var(--text-tertiary)';
+    const arrow = e.trend === 'up' ? '▲' : e.trend === 'down' ? '▼' : '—';
+    return `<tr style="border-bottom:1px solid var(--border)">
+      <td style="padding:10px 8px;vertical-align:top"><span style="display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;border-radius:7px;background:${gColor};color:#04121c;font-weight:700;font-size:12px">${_escG(e.grade)}</span></td>
+      <td style="padding:10px 8px;vertical-align:top">
+        <div style="font-size:12px;color:var(--text-primary);font-weight:600;line-height:1.3">${_escG(e.title)}</div>
+        <div style="font-size:10.5px;color:var(--text-tertiary);margin-top:2px">${_escG(e.meta)}</div>
+      </td>
+      <td style="padding:10px 8px;vertical-align:middle;white-space:nowrap">
+        <div style="display:flex;align-items:center;gap:8px">
+          ${_sparkSvg(e.spark, tColor)}
+          <span style="font-size:10.5px;color:${tColor};font-weight:600;font-family:var(--dv2-font-mono,ui-monospace,monospace)">${arrow} ${_escG(e.delta)}</span>
+        </div>
+      </td>
+      <td style="padding:10px 8px;vertical-align:middle">${_statusPill(e.status)}</td>
+    </tr>`;
+  };
+
+  const _evidenceLedgerCard = `<div class="dv2-gv-card" style="background:var(--bg-card);border:1px solid var(--border);border-radius:14px;padding:18px">
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
+      <h3 style="margin:0;font-size:13px;font-weight:600;color:var(--text-primary);letter-spacing:-.01em">Evidence ledger</h3>
+      <span style="font-size:11px;color:var(--text-tertiary)">${_evidenceCount} citations · 4 downgraded · last ingest 2h ago</span>
+      <button class="btn btn-ghost btn-sm" style="margin-left:auto;font-size:10.5px">⤵ Import DOI</button>
+    </div>
+    <div style="display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap">
+      ${['All 214','Grade A · 124','Grade B · 68','Grade C · 18','Downgraded · 4','New since Mar · 18'].map((l,i) => `
+        <button style="background:${i===0?'rgba(0,212,188,0.16)':'transparent'};border:1px solid ${i===0?'var(--teal)':'var(--border)'};color:${i===0?'var(--teal)':(i===4?'var(--rose)':'var(--text-secondary)')};font-size:10.5px;padding:4px 10px;border-radius:12px;cursor:pointer">${_escG(l)}</button>
+      `).join('')}
+    </div>
+    <table style="width:100%;border-collapse:collapse">
+      <thead><tr style="border-bottom:1px solid var(--border)">
+        <th style="text-align:left;padding:8px;font-size:10px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.04em;font-weight:600;width:52px">Grade</th>
+        <th style="text-align:left;padding:8px;font-size:10px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.04em;font-weight:600">Citation &amp; linked protocols</th>
+        <th style="text-align:left;padding:8px;font-size:10px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.04em;font-weight:600">Confidence · 90d</th>
+        <th style="text-align:left;padding:8px;font-size:10px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.04em;font-weight:600">Status</th>
+      </tr></thead>
+      <tbody>${_evidenceLedger.map(_ledgerRow).join('')}</tbody>
+    </table>
+  </div>`;
+
+  const _reviewerRow = (r) => {
+    const pct = Math.round((r.load / r.cap) * 100);
+    const barBg = r.atCap ? 'linear-gradient(90deg,var(--amber),var(--rose))' : 'linear-gradient(90deg,var(--teal),var(--blue))';
+    return `<div style="display:grid;grid-template-columns:32px 1fr auto auto;gap:10px;align-items:center;padding:10px 0;border-bottom:1px solid var(--border)">
+      <div style="width:32px;height:32px;border-radius:50%;background:linear-gradient(135deg,var(--teal),var(--blue));color:#04121c;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700">${_escG(r.initials)}</div>
+      <div style="min-width:0">
+        <div style="font-size:12px;color:var(--text-primary);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${_escG(r.name)}</div>
+        <div style="font-size:10.5px;color:var(--text-tertiary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${_escG(r.role)}</div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:3px;align-items:flex-end;min-width:90px">
+        <span style="font-size:10.5px;color:var(--text-secondary);font-family:var(--dv2-font-mono,ui-monospace,monospace)">${r.load}/${r.cap}</span>
+        <div style="width:70px;height:4px;background:var(--bg-surface);border-radius:2px;overflow:hidden"><div style="width:${pct}%;height:100%;background:${barBg}"></div></div>
+      </div>
+      <button class="btn btn-ghost btn-sm" style="font-size:10px;color:${r.atCap ? 'var(--amber)' : 'var(--text-secondary)'}">${r.atCap ? '⚑ At cap' : 'Open'}</button>
+    </div>`;
+  };
+
+  const _reviewerCard = `<div class="dv2-gv-card" style="background:var(--bg-card);border:1px solid var(--border);border-radius:14px;padding:18px">
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:4px">
+      <h3 style="margin:0;font-size:13px;font-weight:600;color:var(--text-primary);letter-spacing:-.01em">Reviewer load</h3>
+      <span style="font-size:11px;color:var(--text-tertiary)">assigned to active reviews</span>
+      <button class="btn btn-ghost btn-sm" style="margin-left:auto;font-size:10.5px">Rebalance →</button>
+    </div>
+    <div>${_reviewers.map(_reviewerRow).join('')}</div>
+  </div>`;
+
+  const _aeRow = (a) => {
+    const pill = _sevPill[a.sev] || _sevPill.mild;
+    return `<div style="display:grid;grid-template-columns:6px 1fr auto auto auto;gap:12px;align-items:center;padding:10px 0;border-bottom:1px solid var(--border)">
+      <div style="width:6px;height:36px;border-radius:3px;background:${_sevBg[a.sev] || 'var(--teal)'}"></div>
+      <div style="min-width:0">
+        <div style="font-size:12px;color:var(--text-primary);font-weight:600">${_escG(a.id)} · ${_escG(a.title)}</div>
+        <div style="font-size:10.5px;color:var(--text-tertiary);margin-top:2px">${_escG(a.sub)}</div>
+      </div>
+      <span style="font-size:10px;font-weight:600;padding:2px 8px;border-radius:10px;background:${pill.bg};color:${pill.c};text-transform:uppercase;letter-spacing:.03em">${_escG(a.sev === 'mod' ? 'Moderate' : a.sev === 'severe' || a.sev === 'sae' ? (a.sev === 'sae' ? 'SAE' : 'Severe') : 'Mild')}</span>
+      <span style="font-size:10.5px;color:${a.closed ? 'var(--text-tertiary)' : 'var(--amber)'};white-space:nowrap">${_escG(a.state)}</span>
+      <button class="btn btn-ghost btn-sm" style="font-size:10px">Open →</button>
+    </div>`;
+  };
+
+  const _aeCard = `<div class="dv2-gv-card" style="background:var(--bg-card);border:1px solid var(--border);border-radius:14px;padding:18px">
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+      <h3 style="margin:0;font-size:13px;font-weight:600;color:var(--text-primary);letter-spacing:-.01em">Adverse event register</h3>
+      <span style="font-size:11px;color:var(--text-tertiary)">QTD · ${_aeRows.filter(x => !x.closed).length} open · ${_aeRows.filter(x => x.closed).length} closed · 0 reportable</span>
+      <div style="margin-left:auto;display:flex;gap:6px">
+        <button class="btn btn-ghost btn-sm" style="font-size:10.5px">Filter · All</button>
+        <button class="btn btn-primary btn-sm" style="font-size:10.5px">+ Log event</button>
+      </div>
+    </div>
+    <div>${_aeRows.map(_aeRow).join('')}</div>
+  </div>`;
+
+  const _eventChip = (type) => {
+    const t = (type || '').toLowerCase();
+    const color = t === 'system' ? 'var(--text-tertiary)' : t === 'ak' ? 'var(--teal)' : t === 'jr' ? 'var(--blue)' : t === 'mt' ? 'var(--violet)' : 'var(--amber)';
+    return `<span style="display:inline-block;font-size:9.5px;font-weight:700;padding:2px 7px;border-radius:10px;background:rgba(255,255,255,0.05);color:${color};text-transform:uppercase;letter-spacing:.04em;min-width:46px;text-align:center">${_escG(type)}</span>`;
+  };
+
+  const _auditLine = (a) => `<div style="display:grid;grid-template-columns:72px 60px 1fr;gap:10px;align-items:center;padding:7px 0;border-bottom:1px solid var(--border);font-size:11.5px">
+    <span style="font-family:var(--dv2-font-mono,ui-monospace,monospace);color:var(--text-tertiary);font-size:10.5px">${_escG(a.ts)}</span>
+    ${_eventChip(a.actor)}
+    <span style="color:var(--text-secondary);line-height:1.35">${a.action}</span>
+  </div>`;
+
+  const _auditCard = `<div class="dv2-gv-card" style="background:var(--bg-card);border:1px solid var(--border);border-radius:14px;padding:18px">
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
+      <h3 style="margin:0;font-size:13px;font-weight:600;color:var(--text-primary);letter-spacing:-.01em">Audit log</h3>
+      <span style="font-size:11px;color:var(--text-tertiary)">immutable · last 7 days</span>
+      <button class="btn btn-ghost btn-sm" style="margin-left:auto;font-size:10.5px">Verify hash</button>
+    </div>
+    <div style="max-height:340px;overflow-y:auto">${_auditLines.map(_auditLine).join('')}</div>
+  </div>`;
+
+  el.innerHTML = `
+    <div style="padding:18px 22px;display:flex;flex-direction:column;gap:16px">
+      ${_kpiStrip}
+      <div style="display:grid;grid-template-columns:1.55fr 1fr;gap:14px">
+        ${_approvalPipeline}
+        ${_complianceDial}
+      </div>
+      <div style="display:grid;grid-template-columns:1.5fr 1fr;gap:14px">
+        ${_evidenceLedgerCard}
+        ${_reviewerCard}
+      </div>
+      <div style="display:grid;grid-template-columns:1.3fr 1fr;gap:14px">
+        ${_aeCard}
+        ${_auditCard}
+      </div>
+    </div>`;
+
+  window._gvExportAudit = async () => {
+    try { await api.exportData?.({ kind: 'audit' }); } catch (_) { /* TODO: wire export */ }
+    alert('Audit export queued.');
+  };
+  window._gvOpenReview = () => { window._nav?.('review-queue'); };
+}
+

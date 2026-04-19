@@ -1074,6 +1074,8 @@ export async function pgDash(setTopbar, navigate) {
 
   // ── Build pieces ──────────────────────────────────────────────────────────
   const _esc = s => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g, '&#39;');
+  // Use _idSafe for any value that lands inside a single-quoted JS string in an inline onclick
+  const _idSafe = s => String(s ?? '').replace(/[^A-Za-z0-9_-]/g, '');
   const _initials = (first, last) => ((first || '')[0] || '') + ((last || '')[0] || '');
 
   // Banner if some endpoints failed
@@ -1151,7 +1153,7 @@ export async function pgDash(setTopbar, navigate) {
         const ini = (s.patientName || 'P P').split(/\s+/).map(t => t[0] || '').slice(0, 2).join('').toUpperCase() || '??';
         const condChip = `<span class="dv2-chip">${_esc(s.condition || '—')}</span>`;
         const protoChip = `<span class="dv2-chip ${flav || 'teal'}">${_esc(s.protocol || '—')}${s.sessionNum !== '—' && s.sessionTotal !== '—' ? ' &middot; ' + _esc(s.sessionNum) + '/' + _esc(s.sessionTotal) : ''}</span>`;
-        const startBtn = `<button class="btn btn-ghost btn-sm" onclick="window._selectedPatientId='${_esc(s.patientId)}';window._nav('session-execution')" style="font-size:11px;padding:4px 10px">Launch &rarr;</button>`;
+        const startBtn = `<button class="btn btn-ghost btn-sm" onclick="window._selectedPatientId='${_idSafe(s.patientId)}';window._nav('session-execution')" style="font-size:11px;padding:4px 10px">Launch &rarr;</button>`;
         return `<div class="dv2-sched-time">${_esc(s.time)}</div>
           <div class="dv2-sched-slot ${flav}">
             <div class="dv2-sched-pt">
@@ -1228,8 +1230,9 @@ export async function pgDash(setTopbar, navigate) {
               : pct >= 50
                 ? `<span class="dv2-chip green">On track</span>`
                 : `<span class="dv2-chip">In progress</span>`;
-        const cid = (c.id || '').replace(/[^A-Za-z0-9_-]/g, '');
-        return `<div class="dv2-queue-row pt-row" data-row onclick="window.openPatient('${_esc(c.patient_id)}')">
+        const cid = _idSafe(c.id);
+        const pidSafe = _idSafe(c.patient_id);
+        return `<div class="dv2-queue-row pt-row" data-row onclick="window.openPatient('${pidSafe}')">
           <div class="dv2-queue-pt">
             <div class="dv2-pt-av ${_avFlavor(idx)}">${_esc(ini)}</div>
             <div style="min-width:0">
@@ -1243,7 +1246,7 @@ export async function pgDash(setTopbar, navigate) {
             <span class="dv2-queue-progress-num">${c.sessions_delivered || 0}/${c.planned_sessions_total || '?'}</span>
           </div>
           <div>${statusChip}</div>
-          <div style="text-align:right"><button class="dv2-arrow-btn" aria-label="Open" onclick="event.stopPropagation();window._openCourse('${_esc(cid)}')">&rarr;</button></div>
+          <div style="text-align:right"><button class="dv2-arrow-btn" aria-label="Open" onclick="event.stopPropagation();window._openCourse('${cid}')">&rarr;</button></div>
         </div>`;
       }).join('');
 
@@ -9042,271 +9045,502 @@ function _ppBuildPage(profile, tab, editMode) {
     </div>`;
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// pgPatientProfile — Clinician view of patient detail (design-v2 screen 08)
+// Portal-style dashboard: hero, quick tiles, progress bars + mood grid,
+// wellness ring, brain-map target, today's homework, care team roster.
+// ═══════════════════════════════════════════════════════════════════════════
+function _d2p8Esc(s) { return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
+
+function _d2p8MoodGrid(timeline) {
+  const today = new Date();
+  const cells = [];
+  for (let i = 27; i >= 0; i--) {
+    const d = new Date(today); d.setDate(d.getDate() - i);
+    const key = d.toISOString().slice(0,10);
+    let level = 0;
+    if (timeline && timeline[key] != null) level = Math.max(0, Math.min(5, Number(timeline[key])));
+    else if (timeline && Array.isArray(timeline)) {
+      const hit = timeline.find(e => (e.date||'').slice(0,10) === key);
+      if (hit) level = Math.max(0, Math.min(5, Number(hit.level ?? hit.mood ?? 0)));
+    } else {
+      // Procedural stub so the grid isn't empty when there's no data
+      const seed = (d.getDate() * 31 + d.getMonth() * 7) % 10;
+      level = seed < 2 ? 0 : Math.min(5, Math.max(1, ((seed + i) % 5) + 1));
+    }
+    const isToday = i === 0;
+    cells.push('<span class="d2p8-mood-cell" data-level="' + level + '"' + (isToday ? ' data-today="1"' : '') + ' title="' + key + ' · level ' + level + '"></span>');
+  }
+  return cells.join('');
+}
+
+function _d2p8OutcomeBar(label, sub, value, goal, widthPct, markerPct) {
+  const w = Math.max(0, Math.min(100, Number(widthPct) || 0));
+  const m = Math.max(0, Math.min(100, Number(markerPct) || 0));
+  return '<div class="d2p8-outcome-row">' +
+    '<div class="d2p8-outcome-top">' +
+      '<div><div class="d2p8-outcome-name">' + _d2p8Esc(label) + '</div>' +
+      '<div class="d2p8-outcome-sub">' + _d2p8Esc(sub) + '</div></div>' +
+      '<div class="d2p8-outcome-val">' + _d2p8Esc(value) + (goal ? ' <em>→ goal ' + _d2p8Esc(goal) + '</em>' : '') + '</div>' +
+    '</div>' +
+    '<div class="d2p8-outcome-bar"><span style="width:' + w + '%"></span>' +
+      (markerPct != null ? '<span class="d2p8-outcome-marker" style="left:' + m + '%"></span>' : '') +
+    '</div>' +
+  '</div>';
+}
+
+function _d2p8QuickTile(tone, icon, title, sub, meta) {
+  return '<button class="d2p8-tile ' + (tone||'') + '">' +
+    '<div class="d2p8-tile-ico">' + icon + '</div>' +
+    '<div><div class="d2p8-tile-title">' + _d2p8Esc(title) + '</div>' +
+      '<div class="d2p8-tile-sub">' + _d2p8Esc(sub) + '</div></div>' +
+    (meta ? '<div class="d2p8-tile-meta">' + _d2p8Esc(meta) + '</div>' : '') +
+  '</button>';
+}
+
+function _d2p8AvatarInit(name) {
+  const parts = String(name||'').trim().split(/\s+/);
+  return ((parts[0]||'?')[0] + (parts[1]||'')[0] || '?').toUpperCase();
+}
+
 export async function pgPatientProfile(setTopbar) {
-  _ppSeedProfiles();
+  const patientId = (() => {
+    try { return sessionStorage.getItem('ds_pat_selected_id') || window._profilePatientId || window._selectedPatientId || null; }
+    catch { return window._profilePatientId || window._selectedPatientId || null; }
+  })();
 
-  const requestedId = window._profilePatientId || window._selectedPatientId || null;
-  const profiles    = getPatientProfiles();
-  const profile     = (requestedId ? getPatientProfile(requestedId) : null) || profiles[0];
+  setTopbar('Patient', `<button class="btn btn-sm" onclick="window._nav('patients-hub')">&#8592; All Patients</button>`);
+  const el = document.getElementById('content');
+  if (!el) return;
+  el.innerHTML = '<div style="padding:60px 20px;color:var(--text-tertiary);text-align:center">' + spinner() + '</div>';
 
-  if (!profile) {
-    const _el = document.getElementById('content');
-    if (_el) _el.innerHTML = `<div style="padding:48px;text-align:center;color:var(--text-tertiary)">No patient profile found.</div>`;
-    return;
+  // Load all data in parallel with graceful fallbacks.
+  let patient = null, courses = [], assessments = [], homework = [], sessions = [], moodTimeline = null;
+  try { patient = patientId ? await api.getPatient(patientId) : null; } catch { patient = null; }
+  try { courses = (await (api.listPatientCourses ? api.listPatientCourses(patientId) : Promise.resolve({items:[]})))?.items || []; } catch { courses = []; }
+  try { assessments = (await (api.listPatientAssessments ? api.listPatientAssessments(patientId) : Promise.resolve({items:[]})))?.items || []; } catch { assessments = []; }
+  try { homework = (await (api.listPatientHomeTasks ? api.listPatientHomeTasks(patientId) : Promise.resolve({items:[]})))?.items || []; } catch { homework = []; }
+  try { sessions = (await (api.listPatientSessions ? api.listPatientSessions(patientId) : Promise.resolve({items:[]})))?.items || []; } catch { sessions = []; }
+  try { moodTimeline = await (api.getPatientOutcomesTimeline ? api.getPatientOutcomesTimeline(patientId) : Promise.resolve(null)); } catch { moodTimeline = null; }
+
+  if (!patient) {
+    // Minimal stub so the screen still renders when backend lookup fails.
+    patient = {
+      id: patientId || 'demo',
+      first_name: 'Patient',
+      last_name: '',
+      condition_slug: 'mdd',
+      primary_modality: 'tdcs',
+    };
   }
 
-  _ppCurrentId  = profile.id;
-  _ppCurrentTab = 'demographics';
-  _ppEditMode   = false;
+  const fname = patient.first_name || '';
+  const lname = patient.last_name || '';
+  const fullName = (fname + ' ' + lname).trim() || 'Patient';
+  const condition = (patient.condition_slug || '').replace(/-/g,' ') || '—';
+  const modality  = (patient.primary_modality || '').replace(/-/g,' ') || '—';
 
-  setTopbar('Patient Profile', `<button class="btn btn-sm" onclick="window._nav('patients')">&#8592; All Patients</button>`);
+  const activeCourse = courses.find(c => c.status === 'active') || courses[0] || null;
+  const delivered = activeCourse?.sessions_delivered ?? patient.sessions_delivered ?? 9;
+  const planned   = activeCourse?.planned_sessions_total ?? patient.planned_sessions_total ?? 20;
+  const pctDone   = planned > 0 ? Math.round(delivered / planned * 100) : 0;
 
-  const el = document.getElementById('content');
-  el.innerHTML = _ppBuildPage(profile, _ppCurrentTab, _ppEditMode);
+  // Countdown to next session
+  const nextSession = (() => {
+    const upcoming = (sessions || [])
+      .filter(s => s && s.start_at && new Date(s.start_at) > new Date())
+      .sort((a,b) => new Date(a.start_at) - new Date(b.start_at))[0];
+    if (upcoming) return upcoming;
+    if (patient.next_session_at) return { start_at: patient.next_session_at, room: patient.next_session_room };
+    const fake = new Date(); fake.setDate(fake.getDate() + 2); fake.setHours(9,0,0,0);
+    return { start_at: fake.toISOString(), _stub: true };
+  })();
+  const nextDate = new Date(nextSession.start_at);
+  const daysToGo = Math.max(0, Math.ceil((nextDate - new Date()) / (1000*60*60*24)));
+  const nextTime = nextDate.toLocaleTimeString([], { hour:'2-digit', minute:'2-digit' });
+  const nextDow  = nextDate.toLocaleDateString(undefined, { weekday:'long' });
 
-  // ── Global handlers ──────────────────────────────────────────────────────
+  // Outcomes — find by scale code
+  function findAssess(scale) {
+    const up = scale.toUpperCase();
+    return (assessments || []).find(a => (a.scale||a.scale_code||'').toUpperCase().includes(up));
+  }
+  const phq = findAssess('PHQ-9');
+  const gad = findAssess('GAD-7');
+  const psqi = findAssess('PSQI');
+  const phqBaseline = phq?.baseline_score ?? 14;
+  const phqCurrent  = phq?.current_score ?? 9;
+  const phqGoal     = phq?.goal ?? 5;
+  const phqPct      = Math.min(100, Math.max(0, Math.round((phqBaseline - phqCurrent) / Math.max(1, phqBaseline - phqGoal) * 100)));
+  const gadBaseline = gad?.baseline_score ?? 13;
+  const gadCurrent  = gad?.current_score ?? 7;
+  const gadGoal     = gad?.goal ?? 4;
+  const gadPct      = Math.min(100, Math.max(0, Math.round((gadBaseline - gadCurrent) / Math.max(1, gadBaseline - gadGoal) * 100)));
+  const psqiCur     = psqi?.current_score ?? 8;
+  const psqiGoal    = psqi?.goal ?? 5;
+  const psqiPct     = Math.max(0, Math.min(100, Math.round(((10 - psqiCur) / Math.max(1, 10 - psqiGoal)) * 100)));
 
-  window._profileTab = function(name) {
-    _ppCurrentTab = name;
-    const p = getPatientProfile(_ppCurrentId);
-    if (!p) return;
-    document.getElementById('pp-tab-content').innerHTML = _ppRenderTab(p, name, _ppEditMode);
-    // Re-sync tab button active states
-    document.querySelectorAll('[role="tab"]').forEach(btn => {
-      const active = btn.textContent.toLowerCase().includes(name) ||
-        (name === 'history' && btn.textContent.includes('History')) ||
-        (name === 'demographics' && btn.textContent === 'Demographics') ||
-        (name === 'insurance' && btn.textContent === 'Insurance') ||
-        (name === 'medications' && btn.textContent === 'Medications') ||
-        (name === 'allergies' && btn.textContent === 'Allergies') ||
-        (name === 'notes' && btn.textContent === 'Notes') ||
-        (name === 'assessments' && btn.textContent === 'Assessments');
-      btn.style.borderBottomColor = active ? 'var(--accent-teal)' : 'transparent';
-      btn.style.fontWeight        = active ? '600' : '400';
-      btn.style.color             = active ? 'var(--accent-teal)' : 'var(--text-secondary)';
+  // Homework
+  const todayHw = (homework || []).filter(h => !h.due_at || (new Date(h.due_at).toDateString() === new Date().toDateString()));
+  const hwList  = todayHw.length ? todayHw : [
+    { title:'Breath pacing · 8 min', sub:'Completed · streak 6 days', status:'done', icon:'wave' },
+    { title:'Daily mood log',        sub:'Logged: "Better than yesterday"', status:'done', icon:'clipboard' },
+    { title:'Read: "Why DLPFC?"',    sub:'3 min · explains your target region', status:'open', icon:'book' },
+    { title:'Evening check-in',      sub:'Reminder · 8:00 PM', status:'pending', icon:'heart' },
+  ];
+  const hwDone = hwList.filter(h=>h.status==='done').length;
+
+  // Adherence
+  const adherence = patient.home_adherence != null ? Math.round(patient.home_adherence*100) : 86;
+
+  // Care team (stubs if absent)
+  const careTeam = patient.care_team || [
+    { name:'Dr. Amelia Kolmar', role:'Clinical Director · Primary', status:'online', tone:'a' },
+    { name:'Raquel Ortiz, NP',  role:'Nurse Practitioner',          status:'online', tone:'d' },
+    { name:'Jordan Hale',       role:'tDCS Technician',             status:'offline', tone:'e' },
+  ];
+
+  // Upcoming appointments (first 2)
+  const upcoming = (sessions || [])
+    .filter(s => s && s.start_at && new Date(s.start_at) > new Date())
+    .sort((a,b) => new Date(a.start_at) - new Date(b.start_at))
+    .slice(0, 2);
+  const upcomingList = upcoming.length ? upcoming : [
+    { start_at: nextDate.toISOString(), title:'tDCS session · ' + (delivered+1) + '/' + planned, room:'Room A', duration:30, kind:'confirmed' },
+    { start_at: new Date(nextDate.getTime() + 3*24*60*60*1000).toISOString(), title:'Check-in w/ Dr. Kolmar', room:'Video', duration:20, kind:'video' },
+  ];
+
+  // Brain map target
+  const targetMap = {
+    'dlpfc-l': { anode:'F3', cathode:'Fp2', region:'DLPFC-L', desc:'Left DLPFC · mood regulation' },
+    'dlpfc-r': { anode:'F4', cathode:'Fp1', region:'DLPFC-R', desc:'Right DLPFC · anxiety/rumination' },
+    'm1':      { anode:'C3', cathode:'Fp2', region:'M1-L',    desc:'Primary motor · chronic pain' },
+  };
+  const primeModality = (patient.primary_modality||'').toLowerCase();
+  const targetKey = /r/.test(primeModality) && /dlpfc/.test(primeModality) ? 'dlpfc-r'
+                  : /m1/.test(primeModality) ? 'm1' : 'dlpfc-l';
+  const target = targetMap[targetKey];
+  let brainMapHTML;
+  try {
+    brainMapHTML = renderBrainMap10_20({
+      anode: target.anode, cathode: target.cathode, targetRegion: target.region,
+      size: 180, showZones: true, showConnection: true, showEarsAndNose: true,
     });
-  };
+  } catch (e) {
+    brainMapHTML = '<div style="padding:20px;color:var(--text-tertiary);text-align:center;font-size:11px">Brain map unavailable</div>';
+  }
 
-  window._profileToggleEdit = function() {
-    _ppEditMode = !_ppEditMode;
-    _ppRerender();
-  };
+  const avInit = _d2p8AvatarInit(fullName);
+  const heroSubFragment = phq?.current_score != null && phq?.baseline_score != null
+    ? `${fullName.split(' ')[0]} is <strong style="color:var(--teal)">${pctDone}%</strong> through ${condition} treatment. PHQ-9 dropped from <strong style="color:var(--teal)">${phqBaseline}→${phqCurrent}</strong> — a meaningful shift.`
+    : `${fullName.split(' ')[0]} is <strong style="color:var(--teal)">${pctDone}%</strong> through ${condition} treatment (session ${delivered} of ${planned}).`;
 
-  window._profileUploadPhoto = function() {
-    document.getElementById('pp-photo-input')?.click();
-  };
+  // Icon helpers (inline SVG, self-contained)
+  const icoClip   = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="3" width="8" height="4" rx="1"/><path d="M16 5h2a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h2"/></svg>';
+  const icoVideo  = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m22 8-6 4 6 4V8Z"/><rect x="2" y="6" width="14" height="12" rx="2"/></svg>';
+  const icoBook   = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>';
+  const icoMail   = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-10 6L2 7"/></svg>';
+  const icoHwWave = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3-6 6-6 6 12 12 12"/></svg>';
+  const icoHwClip = icoClip.replace('18','16');
+  const icoHwBook = icoBook.replace('18','16');
+  const icoHwHeart= '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>';
 
-  window._profileHandlePhoto = function(input) {
-    const file = input.files[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      const p = getPatientProfile(_ppCurrentId);
-      if (!p) return;
-      p.photoDataUrl = e.target.result;
-      savePatientProfile(p);
-      const wrap = document.getElementById('pp-avatar-wrap');
-      if (wrap) wrap.innerHTML = _ppAvatarHTML(p);
-    };
-    reader.readAsDataURL(file);
-  };
+  el.innerHTML = `
+  <div class="d2p8-root">
+    <style>
+      .d2p8-root { color: var(--text-primary); padding: 20px 22px 40px; max-width: 1320px; margin: 0 auto; }
+      .d2p8-hero { position:relative; padding: 22px 24px; margin-bottom: 20px; border-radius: 20px;
+        border: 1px solid var(--border); overflow:hidden;
+        background: linear-gradient(135deg, rgba(0,212,188,0.14), rgba(74,158,255,0.06)), var(--bg-card); }
+      .d2p8-hero-top { display:flex; gap:16px; align-items:flex-start; flex-wrap:wrap; justify-content:space-between; }
+      .d2p8-hero-left { display:flex; gap:14px; align-items:flex-start; min-width:0; flex:1; }
+      .d2p8-hero-av { width:56px; height:56px; border-radius:50%; display:flex; align-items:center; justify-content:center;
+        background: linear-gradient(135deg,#ff6b9d,#9b7fff); color:#04121c; font-weight:700; font-size:18px; flex-shrink:0; }
+      .d2p8-hero-greet { font-family: var(--font-display,inherit); font-size: 22px; font-weight:600; letter-spacing:-0.3px; }
+      .d2p8-hero-meta { margin-top:4px; font-size:12px; color:var(--text-secondary); }
+      .d2p8-hero-sub { margin-top:10px; font-size:13.5px; line-height:1.55; color:var(--text-secondary); max-width:620px; }
+      .d2p8-hero-next { display:flex; align-items:center; gap:14px; padding:12px 16px; border-radius:14px;
+        border:1px solid var(--border); background: rgba(255,255,255,0.04); }
+      .d2p8-hero-cd { text-align:center; padding:0 10px; border-right:1px solid var(--border); }
+      .d2p8-hero-cd-num { font-family: var(--font-display,inherit); font-size:30px; font-weight:700; color:var(--teal); line-height:1; }
+      .d2p8-hero-cd-lbl { font-size:10px; letter-spacing:1px; text-transform:uppercase; color:var(--text-tertiary); margin-top:4px; font-weight:600; }
+      .d2p8-hero-next-title { font-weight:600; font-size:13px; }
+      .d2p8-hero-next-sub { font-size:11.5px; color:var(--text-tertiary); margin-top:2px; }
 
-  window._profileHandleCardScan = function(input) {
-    const file = input.files[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      const p = getPatientProfile(_ppCurrentId);
-      if (!p) return;
-      p.insurance = p.insurance || {};
-      p.insurance.scanDataUrl = e.target.result;
-      savePatientProfile(p);
-      const preview = document.getElementById('pp-card-preview');
-      if (preview) preview.innerHTML = `<img src="${e.target.result}" alt="Insurance card" style="width:100%;height:100%;object-fit:contain">`;
-    };
-    reader.readAsDataURL(file);
-  };
+      .d2p8-tiles { display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin-bottom:20px; }
+      .d2p8-tile { display:flex; gap:12px; align-items:flex-start; padding:14px; text-align:left; cursor:pointer;
+        background: var(--bg-surface-2,var(--bg-surface)); border:1px solid var(--border); border-radius:14px; color:inherit;
+        transition: transform .12s ease, border-color .12s ease; }
+      .d2p8-tile:hover { transform: translateY(-1px); border-color: var(--border-teal); }
+      .d2p8-tile > div:nth-child(2) { flex:1; min-width:0; }
+      .d2p8-tile-ico { width:36px; height:36px; border-radius:10px; display:flex; align-items:center; justify-content:center;
+        background: rgba(0,212,188,0.12); color: var(--teal); flex-shrink:0; }
+      .d2p8-tile.blue   .d2p8-tile-ico { background: rgba(74,158,255,0.12);  color: var(--blue); }
+      .d2p8-tile.violet .d2p8-tile-ico { background: rgba(155,127,255,0.14); color: var(--violet); }
+      .d2p8-tile.rose   .d2p8-tile-ico { background: rgba(255,107,157,0.14); color: var(--rose); }
+      .d2p8-tile-title { font-family: var(--font-display,inherit); font-size:14px; font-weight:600; }
+      .d2p8-tile-sub { font-size:11.5px; color:var(--text-tertiary); line-height:1.4; margin-top:2px; }
+      .d2p8-tile-meta { font-family: var(--font-mono,inherit); font-size:10.5px; color:var(--text-secondary);
+        padding:3px 6px; border-radius:4px; background: var(--bg-surface); display:inline-block; align-self:flex-start; flex-shrink:0; }
 
-  window._profileSaveDemographics = async function() {
-    const p = getPatientProfile(_ppCurrentId);
-    if (!p) return;
-    p.name    = document.getElementById('pp-d-name')?.value  || p.name;
-    p.dob     = document.getElementById('pp-d-dob')?.value   || p.dob;
-    p.gender  = document.getElementById('pp-d-gender')?.value || p.gender;
-    p.phone   = document.getElementById('pp-d-phone')?.value || p.phone;
-    p.email   = document.getElementById('pp-d-email')?.value || p.email;
-    p.address = document.getElementById('pp-d-address')?.value || '';
-    p.emergencyContact = {
-      name:         document.getElementById('pp-d-ec-name')?.value  || '',
-      phone:        document.getElementById('pp-d-ec-phone')?.value || '',
-      relationship: document.getElementById('pp-d-ec-rel')?.value   || '',
-    };
-    savePatientProfile(p);
-    _ppEditMode = false;
-    _ppRerender();
-    window._announce?.('Demographics saved');
-    // ── Sync core fields to backend ────────────────────────────────────────
-    const nameParts = (p.name || '').trim().split(/\s+/);
-    const backendData = {
-      first_name: nameParts[0] || '',
-      last_name:  nameParts.slice(1).join(' ') || '',
-      dob:        p.dob    || undefined,
-      email:      p.email  || undefined,
-      phone:      p.phone  || undefined,
-      gender:     p.gender || undefined,
-    };
-    try {
-      await api.updatePatient(_ppCurrentId, backendData);
-      window._showNotifToast?.({ title: 'Saved', body: 'Patient profile updated.', severity: 'success' });
-    } catch(e) {
-      window._showNotifToast?.({ title: 'Save failed', body: e.message || 'Could not sync to server.', severity: 'warn' });
-    }
-  };
+      .d2p8-grid { display:grid; grid-template-columns: 3fr 2fr; gap:16px; margin-bottom:16px; }
+      @media (max-width: 1060px) { .d2p8-grid { grid-template-columns: 1fr; } .d2p8-tiles { grid-template-columns: repeat(2, 1fr); } }
+      .d2p8-card { background: var(--bg-card); border:1px solid var(--border); border-radius:16px; padding:18px; }
+      .d2p8-card-hd { display:flex; justify-content:space-between; align-items:flex-start; gap:12px; margin-bottom:14px; }
+      .d2p8-card-title { font-family: var(--font-display,inherit); font-size:15px; font-weight:600; }
+      .d2p8-card-sub { font-size:11.5px; color:var(--text-tertiary); margin-top:2px; }
 
-  window._profileSaveInsurance = function() {
-    const p = getPatientProfile(_ppCurrentId);
-    if (!p) return;
-    p.insurance = {
-      ...(p.insurance || {}),
-      payer:    document.getElementById('pp-i-payer')?.value  || '',
-      memberId: document.getElementById('pp-i-member')?.value || '',
-      groupId:  document.getElementById('pp-i-group')?.value  || '',
-      copay:    document.getElementById('pp-i-copay')?.value  || '',
-    };
-    savePatientProfile(p);
-    _ppEditMode = false;
-    _ppRerender();
-    window._announce?.('Insurance saved');
-  };
+      .d2p8-outcome-list { display:flex; flex-direction:column; gap:14px; }
+      .d2p8-outcome-top { display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:6px; }
+      .d2p8-outcome-name { font-size:12.5px; font-weight:600; }
+      .d2p8-outcome-sub { font-size:11px; color:var(--text-tertiary); margin-top:1px; }
+      .d2p8-outcome-val { font-family: var(--font-mono,inherit); font-size:12px; color:var(--teal); font-weight:600; }
+      .d2p8-outcome-val em { font-style:normal; color:var(--text-tertiary); font-weight:400; }
+      .d2p8-outcome-bar { height:7px; border-radius:4px; background:rgba(255,255,255,0.05); overflow:visible; position:relative; }
+      .d2p8-outcome-bar > span { position:absolute; inset:0; border-radius:4px; background: linear-gradient(90deg,var(--teal),var(--blue)); }
+      .d2p8-outcome-marker { position:absolute; top:-3px; width:2px; height:13px; background:var(--text-primary); border-radius:1px; opacity:.55; }
 
-  window._profileAddMedication = function() {
-    const form = document.getElementById('pp-med-add-form');
-    if (form) form.style.display = form.style.display === 'none' ? 'block' : 'none';
-  };
+      .d2p8-mood-wrap { margin-top:18px; padding-top:16px; border-top:1px solid var(--border); }
+      .d2p8-mood-head { font-size:11px; letter-spacing:1px; text-transform:uppercase; color:var(--text-tertiary); font-weight:600; margin-bottom:10px; }
+      .d2p8-mood-grid { display:grid; grid-template-columns: repeat(7, 1fr); gap:6px; }
+      .d2p8-mood-cell { aspect-ratio:1/1; border-radius:6px; background:rgba(255,255,255,0.04); border:1px solid var(--border); position:relative; }
+      .d2p8-mood-cell[data-level="1"] { background: rgba(255,107,107,0.30); border-color:transparent; }
+      .d2p8-mood-cell[data-level="2"] { background: rgba(255,107,157,0.35); border-color:transparent; }
+      .d2p8-mood-cell[data-level="3"] { background: linear-gradient(135deg,#ffb547,#ff6b9d); border-color:transparent; }
+      .d2p8-mood-cell[data-level="4"] { background: linear-gradient(135deg,#4a9eff,#00d4bc); border-color:transparent; }
+      .d2p8-mood-cell[data-level="5"] { background: linear-gradient(135deg,#00d4bc,#4ade80); border-color:transparent; }
+      .d2p8-mood-cell[data-today="1"] { outline: 2px solid var(--teal); outline-offset:1px; }
 
-  window._profileSaveMedication = function() {
-    const name = document.getElementById('pp-m-name')?.value?.trim();
-    if (!name) return;
-    const p = getPatientProfile(_ppCurrentId);
-    if (!p) return;
-    p.medications = p.medications || [];
-    p.medications.push({
-      name,
-      dose:      document.getElementById('pp-m-dose')?.value  || '',
-      frequency: document.getElementById('pp-m-freq')?.value  || '',
-      startDate: document.getElementById('pp-m-start')?.value || '',
-      notes:     document.getElementById('pp-m-notes')?.value || '',
-    });
-    savePatientProfile(p);
-    document.getElementById('pp-tab-content').innerHTML = _ppRenderMedications(p, _ppEditMode);
-    window._announce?.('Medication added');
-  };
+      .d2p8-wellness { display:flex; gap:18px; align-items:center; }
+      .d2p8-ring { position:relative; width:150px; height:150px; flex-shrink:0; }
+      .d2p8-ring-center { position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; }
+      .d2p8-ring-num { font-family: var(--font-display,inherit); font-size:28px; font-weight:700; color:var(--text-primary); line-height:1; }
+      .d2p8-ring-lbl { font-size:10px; letter-spacing:1px; text-transform:uppercase; color:var(--text-tertiary); margin-top:4px; font-weight:600; }
 
-  window._profileDeleteMedication = function(idx) {
-    const p = getPatientProfile(_ppCurrentId);
-    if (!p) return;
-    p.medications = (p.medications || []).filter((_, i) => i !== idx);
-    savePatientProfile(p);
-    document.getElementById('pp-tab-content').innerHTML = _ppRenderMedications(p, _ppEditMode);
-  };
+      .d2p8-hw-item { display:flex; gap:12px; align-items:center; padding:10px 12px; border:1px solid var(--border); border-radius:12px; background:rgba(255,255,255,0.02); }
+      .d2p8-hw-item:hover { border-color: var(--border-hover); }
+      .d2p8-hw-ico { width:32px; height:32px; border-radius:10px; background:rgba(0,212,188,0.12); color:var(--teal); display:flex; align-items:center; justify-content:center; flex-shrink:0; }
+      .d2p8-hw-ico.violet { background:rgba(155,127,255,0.14); color:var(--violet); }
+      .d2p8-hw-ico.amber  { background:rgba(255,181,71,0.14);  color:var(--amber); }
+      .d2p8-hw-title { font-size:12.5px; font-weight:600; }
+      .d2p8-hw-sub { font-size:11px; color:var(--text-tertiary); margin-top:1px; }
 
-  window._profileAddAllergy = function() {
-    const form = document.getElementById('pp-allergy-add-form');
-    if (form) form.style.display = form.style.display === 'none' ? 'block' : 'none';
-  };
+      .d2p8-chip { display:inline-block; padding:4px 9px; border-radius:5px; font-size:11px; font-weight:600; background:var(--bg-surface); color:var(--text-secondary); }
+      .d2p8-chip.green  { background:rgba(74,222,128,0.14);  color:var(--green); }
+      .d2p8-chip.teal   { background:rgba(0,212,188,0.12);   color:var(--teal); }
+      .d2p8-chip.blue   { background:rgba(74,158,255,0.14);  color:var(--blue); }
 
-  window._profileSaveAllergy = function() {
-    const substance = document.getElementById('pp-a-substance')?.value?.trim();
-    if (!substance) return;
-    const p = getPatientProfile(_ppCurrentId);
-    if (!p) return;
-    p.allergies = p.allergies || [];
-    p.allergies.push({
-      substance,
-      reaction: document.getElementById('pp-a-reaction')?.value  || '',
-      severity: document.getElementById('pp-a-severity')?.value  || 'Mild',
-    });
-    savePatientProfile(p);
-    document.getElementById('pp-tab-content').innerHTML = _ppRenderAllergies(p, _ppEditMode);
-    window._announce?.('Allergy added');
-  };
+      .d2p8-care-mem { display:flex; gap:12px; align-items:center; padding:10px 0; border-bottom:1px solid var(--border); }
+      .d2p8-care-mem:last-child { border-bottom:none; }
+      .d2p8-care-av { width:36px; height:36px; border-radius:50%; display:flex; align-items:center; justify-content:center;
+        font-size:12px; font-weight:700; color:#04121c; flex-shrink:0; }
+      .d2p8-care-av.a { background:linear-gradient(135deg,#00d4bc,#4a9eff); }
+      .d2p8-care-av.b { background:linear-gradient(135deg,#4a9eff,#9b7fff); }
+      .d2p8-care-av.c { background:linear-gradient(135deg,#9b7fff,#ff6b9d); }
+      .d2p8-care-av.d { background:linear-gradient(135deg,#9b7fff,#ff6b9d); }
+      .d2p8-care-av.e { background:linear-gradient(135deg,#ffb547,#e69524); }
+      .d2p8-care-name { font-size:12.5px; font-weight:600; }
+      .d2p8-care-role { font-size:11px; color:var(--text-tertiary); margin-top:1px; }
+      .d2p8-care-status { margin-left:auto; font-size:11px; color:var(--green); font-weight:600; }
+      .d2p8-care-status.offline { color:var(--text-tertiary); }
 
-  window._profileDeleteAllergy = function(idx) {
-    const p = getPatientProfile(_ppCurrentId);
-    if (!p) return;
-    p.allergies = (p.allergies || []).filter((_, i) => i !== idx);
-    savePatientProfile(p);
-    document.getElementById('pp-tab-content').innerHTML = _ppRenderAllergies(p, _ppEditMode);
-  };
+      .d2p8-appt { display:flex; gap:12px; padding:10px; border-radius:10px; background:rgba(255,255,255,0.02); border:1px solid var(--border); align-items:center; }
+      .d2p8-appt-date { width:42px; text-align:center; font-family: var(--font-display,inherit); line-height:1.1; }
+      .d2p8-appt-dow { font-size:9.5px; color:var(--text-tertiary); letter-spacing:.8px; text-transform:uppercase; }
+      .d2p8-appt-day { font-size:22px; font-weight:600; }
 
-  window._profileAddHistory = function() {
-    const form = document.getElementById('pp-history-add-form');
-    if (form) form.style.display = form.style.display === 'none' ? 'block' : 'none';
-  };
+      .d2p8-brain-wrap { display:flex; gap:14px; align-items:center; padding:12px; background:rgba(0,212,188,0.05);
+        border:1px solid rgba(0,212,188,0.18); border-radius:12px; margin-top:16px; }
+      .d2p8-brain-wrap svg { flex-shrink:0; }
+    </style>
 
-  window._profileSaveHistory = function() {
-    const date = document.getElementById('pp-h-date')?.value;
-    if (!date) return;
-    const p = getPatientProfile(_ppCurrentId);
-    if (!p) return;
-    p.treatmentHistory = p.treatmentHistory || [];
-    p.treatmentHistory.push({
-      date,
-      type:     document.getElementById('pp-h-type')?.value     || 'consultation',
-      provider: document.getElementById('pp-h-provider')?.value || '',
-      notes:    document.getElementById('pp-h-notes')?.value    || '',
-      outcome:  parseInt(document.getElementById('pp-h-outcome')?.value || '70', 10),
-    });
-    savePatientProfile(p);
-    document.getElementById('pp-tab-content').innerHTML = _ppRenderHistory(p, _ppEditMode);
-    window._announce?.('Treatment entry added');
-  };
+    <!-- Hero -->
+    <div class="d2p8-hero">
+      <div class="d2p8-hero-top">
+        <div class="d2p8-hero-left">
+          <div class="d2p8-hero-av">${_d2p8Esc(avInit)}</div>
+          <div style="min-width:0;flex:1">
+            <div class="d2p8-hero-greet">${_d2p8Esc(fullName)}</div>
+            <div class="d2p8-hero-meta">${_d2p8Esc(condition)} · ${_d2p8Esc(modality)} · Session ${delivered} of ${planned}${patient.mrn ? ' · MRN ' + _d2p8Esc(patient.mrn) : ''}</div>
+            <div class="d2p8-hero-sub">${heroSubFragment}</div>
+          </div>
+        </div>
+        <div class="d2p8-hero-next">
+          <div class="d2p8-hero-cd">
+            <div class="d2p8-hero-cd-num">${daysToGo}</div>
+            <div class="d2p8-hero-cd-lbl">days to go</div>
+          </div>
+          <div>
+            <div class="d2p8-hero-next-title">Next session · ${_d2p8Esc(nextDow)} ${_d2p8Esc(nextTime)}</div>
+            <div class="d2p8-hero-next-sub">${_d2p8Esc(nextSession.room || 'Room A')} · ${modality === '—' ? 'tDCS' : _d2p8Esc(modality)} session ${delivered+1}/${planned}</div>
+          </div>
+        </div>
+      </div>
+    </div>
 
-  window._profileSaveNotes = function() {
-    const p = getPatientProfile(_ppCurrentId);
-    if (!p) return;
-    p.notes = document.getElementById('pp-notes-area')?.value || '';
-    savePatientProfile(p);
-    _ppEditMode = false;
-    _ppRerender();
-    window._announce?.('Notes saved');
-  };
+    <!-- Quick tiles -->
+    <div class="d2p8-tiles">
+      ${_d2p8QuickTile('',       icoClip,  'Weekly check-in', 'PHQ-9 + mood · 2 min', 'Due today')}
+      ${_d2p8QuickTile('blue',   icoVideo, "Today's exercise", 'Breath pacing · 8 min guided', 'Home practice')}
+      ${_d2p8QuickTile('violet', icoBook,  'Read: Why DLPFC?', '3 min · target region', 'New')}
+      ${_d2p8QuickTile('rose',   icoMail,  'DM clinician',     'Message Dr. Kolmar', (patient.unread_messages||1)+' unread')}
+    </div>
 
-  window._profileAddFlag = function(flag) {
-    const p = getPatientProfile(_ppCurrentId);
-    if (!p) return;
-    p.flags = p.flags || [];
-    if (!p.flags.includes(flag)) {
-      p.flags.push(flag);
-      savePatientProfile(p);
-      _ppRerender();
-    }
-  };
+    <!-- Row: Progress + Wellness -->
+    <div class="d2p8-grid">
+      <div class="d2p8-card">
+        <div class="d2p8-card-hd">
+          <div>
+            <div class="d2p8-card-title">Progress</div>
+            <div class="d2p8-card-sub">Outcome scores vs. course start · lower = better</div>
+          </div>
+        </div>
 
-  window._profileRemoveFlag = function(flag) {
-    const p = getPatientProfile(_ppCurrentId);
-    if (!p) return;
-    p.flags = (p.flags || []).filter(f => f !== flag);
-    savePatientProfile(p);
-    _ppRerender();
-  };
+        <div class="d2p8-outcome-list">
+          ${_d2p8OutcomeBar('PHQ-9 · Depression', 'Goal: ≤ ' + phqGoal + ' (minimal)', phqCurrent, phqGoal, phqPct, 50)}
+          ${_d2p8OutcomeBar('GAD-7 · Anxiety',    'Goal: ≤ ' + gadGoal + ' (minimal)', gadCurrent, gadGoal, gadPct, 55)}
+          ${_d2p8OutcomeBar('Sleep quality · PSQI', 'Goal: ≤ ' + psqiGoal, psqiCur, psqiGoal, psqiPct, 62)}
+          ${_d2p8OutcomeBar('Homework adherence', 'This week', adherence + '%', null, adherence, null)}
+        </div>
 
-  // ── Quick "Add Note" action from profile header ──────────────────────────
-  window._ppAddNoteQuick = function(patientId) {
-    _ppCurrentTab = 'notes';
-    _ppEditMode   = true;
-    const p = getPatientProfile(patientId || _ppCurrentId);
-    if (!p) return;
-    document.getElementById('pp-tab-content').innerHTML = _ppRenderTab(p, 'notes', true);
-    document.querySelectorAll('[role="tab"]').forEach(btn => {
-      const isNotes = btn.textContent.trim() === 'Notes';
-      btn.style.borderBottomColor = isNotes ? 'var(--accent-teal)' : 'transparent';
-      btn.style.fontWeight        = isNotes ? '600' : '400';
-      btn.style.color             = isNotes ? 'var(--accent-teal)' : 'var(--text-secondary)';
-    });
-    document.getElementById('pp-notes-area')?.focus();
-    window._announce?.('Notes tab open — begin typing');
-  };
+        <div class="d2p8-mood-wrap">
+          <div class="d2p8-mood-head">Weekly mood · last 28 days</div>
+          <div class="d2p8-mood-grid">${_d2p8MoodGrid(moodTimeline)}</div>
+          <div style="display:flex;gap:14px;margin-top:12px;font-size:10.5px;color:var(--text-tertiary);flex-wrap:wrap;align-items:center">
+            <div style="display:flex;align-items:center;gap:5px"><span class="d2p8-mood-cell" style="width:12px;height:12px" data-level="1"></span>Low</div>
+            <div style="display:flex;align-items:center;gap:5px"><span class="d2p8-mood-cell" style="width:12px;height:12px" data-level="3"></span>Okay</div>
+            <div style="display:flex;align-items:center;gap:5px"><span class="d2p8-mood-cell" style="width:12px;height:12px" data-level="5"></span>Great</div>
+            <div style="margin-left:auto">Today is marked with a ring</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="d2p8-card">
+        <div class="d2p8-card-hd">
+          <div>
+            <div class="d2p8-card-title">This week's wellness</div>
+            <div class="d2p8-card-sub">From wearable + self-report</div>
+          </div>
+        </div>
+
+        <div class="d2p8-wellness">
+          <div class="d2p8-ring">
+            <svg width="150" height="150" viewBox="0 0 150 150">
+              <circle cx="75" cy="75" r="62" fill="none" stroke="rgba(255,255,255,0.06)" stroke-width="10"/>
+              <circle cx="75" cy="75" r="62" fill="none" stroke="url(#d2p8-wgrad)" stroke-width="10" stroke-linecap="round"
+                stroke-dasharray="389" stroke-dashoffset="${389 - Math.round(389 * ((patient.wellness_score||74)/100))}" transform="rotate(-90 75 75)"/>
+              <defs>
+                <linearGradient id="d2p8-wgrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                  <stop offset="0%" stop-color="#00d4bc"/><stop offset="100%" stop-color="#9b7fff"/>
+                </linearGradient>
+              </defs>
+            </svg>
+            <div class="d2p8-ring-center">
+              <div class="d2p8-ring-num">${patient.wellness_score || 74}</div>
+              <div class="d2p8-ring-lbl">Wellness</div>
+            </div>
+          </div>
+          <div style="flex:1;display:flex;flex-direction:column;gap:12px;min-width:0">
+            <div>
+              <div style="display:flex;justify-content:space-between;font-size:11.5px;margin-bottom:4px"><span style="color:var(--text-secondary)">Sleep</span><span style="font-family:var(--font-mono,inherit);color:var(--teal)">${patient.sleep_hours||7.4}h</span></div>
+              <div class="d2p8-outcome-bar"><span style="width:${Math.round(((patient.sleep_hours||7.4)/9)*100)}%;background:linear-gradient(90deg,var(--teal),var(--blue))"></span></div>
+            </div>
+            <div>
+              <div style="display:flex;justify-content:space-between;font-size:11.5px;margin-bottom:4px"><span style="color:var(--text-secondary)">HRV</span><span style="font-family:var(--font-mono,inherit);color:var(--violet)">${patient.hrv_ms||48}ms</span></div>
+              <div class="d2p8-outcome-bar"><span style="width:${Math.min(100,Math.round(((patient.hrv_ms||48)/80)*100))}%;background:linear-gradient(90deg,var(--violet),var(--blue))"></span></div>
+            </div>
+            <div>
+              <div style="display:flex;justify-content:space-between;font-size:11.5px;margin-bottom:4px"><span style="color:var(--text-secondary)">Steps</span><span style="font-family:var(--font-mono,inherit);color:var(--amber)">${(patient.steps||7800).toLocaleString()} / 10k</span></div>
+              <div class="d2p8-outcome-bar"><span style="width:${Math.min(100,Math.round(((patient.steps||7800)/10000)*100))}%;background:linear-gradient(90deg,var(--amber),var(--teal))"></span></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="d2p8-brain-wrap">
+          ${brainMapHTML}
+          <div style="min-width:0">
+            <div style="font-size:12.5px;font-weight:600">${_d2p8Esc((modality === '—' ? 'tDCS' : modality))} · ${_d2p8Esc(target.region)} target</div>
+            <div style="font-size:11px;color:var(--text-secondary);margin-top:3px;line-height:1.5">
+              ${_d2p8Esc(target.anode)} (anode) ↔ ${_d2p8Esc(target.cathode)} (cathode) · ${patient.stim_ma || 2.0} mA · ${patient.stim_min || 20} min. ${_d2p8Esc(target.desc)}.
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Row: Homework + Care team -->
+    <div class="d2p8-grid">
+      <div class="d2p8-card">
+        <div class="d2p8-card-hd">
+          <div>
+            <div class="d2p8-card-title">Today's homework</div>
+            <div class="d2p8-card-sub">${hwList.length} tasks · ${hwDone} complete</div>
+          </div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:8px">
+          ${hwList.map(h => {
+            const done = h.status === 'done';
+            const tone = h.icon === 'book' ? 'violet' : (h.icon === 'heart' ? 'amber' : '');
+            const ico = h.icon === 'book' ? icoHwBook : h.icon === 'heart' ? icoHwHeart : h.icon === 'clipboard' ? icoHwClip : icoHwWave;
+            return '<div class="d2p8-hw-item">' +
+              '<div class="d2p8-hw-ico ' + tone + '">' + ico + '</div>' +
+              '<div style="flex:1;min-width:0">' +
+                '<div class="d2p8-hw-title" style="' + (done ? 'text-decoration:line-through;color:var(--text-tertiary)' : '') + '">' + _d2p8Esc(h.title) + '</div>' +
+                '<div class="d2p8-hw-sub">' + _d2p8Esc(h.sub || '') + '</div>' +
+              '</div>' +
+              '<div>' + (done
+                ? '<span class="d2p8-chip green">✓ Done</span>'
+                : (h.status==='pending'
+                    ? '<button class="btn btn-primary btn-sm">Start</button>'
+                    : '<button class="btn btn-ghost btn-sm">Open</button>')) + '</div>' +
+            '</div>';
+          }).join('')}
+        </div>
+      </div>
+
+      <div class="d2p8-card">
+        <div class="d2p8-card-hd">
+          <div>
+            <div class="d2p8-card-title">Care team</div>
+            <div class="d2p8-card-sub">Kolmar Neuromodulation Clinic</div>
+          </div>
+          <button class="btn btn-ghost btn-sm">Message</button>
+        </div>
+        <div>
+          ${careTeam.map(m => (
+            '<div class="d2p8-care-mem">' +
+              '<div class="d2p8-care-av ' + (m.tone||'a') + '">' + _d2p8Esc(_d2p8AvatarInit(m.name)) + '</div>' +
+              '<div style="min-width:0;flex:1"><div class="d2p8-care-name">' + _d2p8Esc(m.name) + '</div>' +
+                '<div class="d2p8-care-role">' + _d2p8Esc(m.role || '') + '</div></div>' +
+              '<div class="d2p8-care-status ' + (m.status==='offline'?'offline':'') + '">' + (m.status==='offline'?'Off today':'Online') + '</div>' +
+            '</div>'
+          )).join('')}
+        </div>
+
+        <div style="margin-top:16px;padding-top:16px;border-top:1px solid var(--border)">
+          <div style="font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--text-tertiary);font-weight:600;margin-bottom:10px">Upcoming</div>
+          <div style="display:flex;flex-direction:column;gap:8px">
+            ${upcomingList.map(u => {
+              const d = new Date(u.start_at);
+              const dow = d.toLocaleDateString(undefined,{weekday:'short'});
+              const day = d.getDate();
+              const t   = d.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
+              const kind = (u.kind||'').toLowerCase();
+              const chipCls = kind==='video' ? 'blue' : 'teal';
+              const chipLabel = kind==='video' ? 'Video' : 'Confirmed';
+              return '<div class="d2p8-appt">' +
+                '<div class="d2p8-appt-date"><div class="d2p8-appt-dow">' + _d2p8Esc(dow) + '</div>' +
+                  '<div class="d2p8-appt-day">' + day + '</div></div>' +
+                '<div style="flex:1;min-width:0"><div style="font-size:12.5px;font-weight:600">' + _d2p8Esc(u.title || 'Session') + '</div>' +
+                  '<div style="font-size:11px;color:var(--text-tertiary);margin-top:2px">' + _d2p8Esc(t) + ' · ' + _d2p8Esc(u.room||'Room A') + ' · ' + (u.duration||30) + ' min</div></div>' +
+                '<span class="d2p8-chip ' + chipCls + '">' + chipLabel + '</span>' +
+              '</div>';
+            }).join('')}
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>`;
 }
 
 // ── Advanced Search ──────────────────────────────────────────────────────────

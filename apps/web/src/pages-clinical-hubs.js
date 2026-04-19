@@ -38,7 +38,7 @@ export async function pgPatientHub(setTopbar, navigate) {
 
   const el = document.getElementById('content');
 
-  // ── PATIENTS TAB ─────────────────────────────────────────────────────────
+  // ── PATIENTS TAB (design-v2 screen 07) ──────────────────────────────────
   if (tab === 'patients') {
     const canAdd = ['clinician','admin','clinic-admin','supervisor'].includes(currentUser?.role);
     setTopbar('Patients',
@@ -57,111 +57,291 @@ export async function pgPatientHub(setTopbar, navigate) {
       courses  = cRes?.items || [];
     } catch {}
 
-    // Enrich with course data
     const coursesByPat = {};
     courses.forEach(c => { if (c.patient_id) (coursesByPat[c.patient_id] = coursesByPat[c.patient_id] || []).push(c); });
 
-    function patAttention(p) {
-      if (p.outcome_trend === 'worsened' || p.has_adverse_event)  return { label:'⚠ Alert',      color:'var(--red)' };
-      if (p.needs_review || p.review_overdue)                      return { label:'◉ Review',     color:'var(--amber)' };
-      if (p.assessment_overdue || p.missing_assessment)            return { label:'✎ Assess Due', color:'var(--amber)' };
-      if (p.home_adherence != null && p.home_adherence < 0.5)     return { label:Math.round(p.home_adherence*100)+'% adh', color:'var(--amber)' };
-      return null;
+    function esc(s) { return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
+
+    const AVATAR_TONES = ['a','b','c','d','e'];
+    const CONDITION_CHIPS = {
+      mdd:'teal', depression:'teal', tms:'blue', tdcs:'teal', adhd:'amber',
+      anxiety:'blue', gad:'blue', ptsd:'rose', ocd:'violet',
+      insomnia:'blue', pain:'teal', migraine:'teal', stroke:'amber',
+    };
+    function protocolChip(p) {
+      const mod  = (p.primary_modality||'').toLowerCase();
+      const cond = (p.condition_slug||'').toLowerCase();
+      let tone = 'teal';
+      for (const k in CONDITION_CHIPS) { if (mod.includes(k) || cond.includes(k)) { tone = CONDITION_CHIPS[k]; break; } }
+      const label = [mod, cond].filter(Boolean).map(s=>s.replace(/-/g,' ')).join(' · ') || 'Intake';
+      return '<span class="chip ' + tone + '">' + esc(label) + '</span>';
     }
 
-    const statusLabels = { active:'Active', paused:'Paused', completed:'Completed', discharged:'Discharged', inactive:'Inactive' };
-    const statusColors = { active:'var(--teal)', paused:'var(--amber)', completed:'var(--green)', discharged:'var(--text-tertiary)', inactive:'var(--text-tertiary)' };
+    function outcomeCell(p) {
+      const scale = p.primary_scale || 'PHQ-9';
+      const base  = p.baseline_score;
+      const cur   = p.current_score;
+      if (base != null && cur != null) {
+        const down = cur < base;
+        const color = down ? 'var(--teal)' : (cur > base ? 'var(--amber)' : 'var(--text-secondary)');
+        return '<span style="font-family:var(--font-mono);font-size:11.5px;color:' + color + '">' + esc(scale) + ' · ' + base + ' → ' + cur + '</span>';
+      }
+      if (p.outcome_trend === 'worsened') return '<span style="font-family:var(--font-mono);font-size:11.5px;color:var(--amber)">Trend ↓</span>';
+      return '<span style="font-family:var(--font-mono);font-size:11.5px;color:var(--text-tertiary)">No data</span>';
+    }
 
-    const active  = patients.filter(p=>p.status==='active').length;
-    const review  = patients.filter(p=>p.needs_review||p.review_overdue).length;
-    const alerts  = patients.filter(p=>p.has_adverse_event||p.outcome_trend==='worsened').length;
-    const assess  = patients.filter(p=>p.assessment_overdue||p.missing_assessment).length;
+    function nextStepChip(p) {
+      if (p.has_adverse_event) return '<span class="chip rose">Review AE</span>';
+      if (p.next_session_at) {
+        const d = new Date(p.next_session_at); const now = new Date();
+        const isToday = d.toDateString() === now.toDateString();
+        const t = d.toTimeString().slice(0,5);
+        return '<span class="chip green">' + (isToday ? 'Session today ' + t : 'Session ' + d.toLocaleDateString(undefined,{weekday:'short'}) + ' ' + t) + '</span>';
+      }
+      if (p.assessment_overdue || p.missing_assessment) return '<span class="chip amber">Assessment due</span>';
+      if (p.needs_review || p.review_overdue)           return '<span class="chip">Review due</span>';
+      if (p.status === 'intake')                         return '<span class="chip violet">Intake</span>';
+      if (p.home_adherence != null && p.home_adherence >= 0.8) return '<span class="chip green">Homework ' + Math.round(p.home_adherence*100) + '%</span>';
+      return '<span class="chip">Weekly check-in</span>';
+    }
 
-    // Cohorts
-    const COHORTS = [
-      { id:'all',     label:'All Patients',   fn: ()=>patients },
-      { id:'active',  label:'Active',         fn: ()=>patients.filter(p=>p.status==='active') },
-      { id:'review',  label:'Needs Review',   fn: ()=>patients.filter(p=>p.needs_review||p.review_overdue) },
-      { id:'alerts',  label:'Alerts',         fn: ()=>patients.filter(p=>p.has_adverse_event||p.outcome_trend==='worsened') },
-      { id:'assess',  label:'Assessment Due', fn: ()=>patients.filter(p=>p.assessment_overdue||p.missing_assessment) },
-      { id:'inactive',label:'Inactive',       fn: ()=>patients.filter(p=>p.status==='inactive'||p.status==='paused') },
+    const counts = {
+      all:         patients.length,
+      active:      patients.filter(p=>p.status==='active').length,
+      intake:      patients.filter(p=>p.status==='intake' || p.status==='new').length,
+      discharging: patients.filter(p=>p.status==='discharging' || p.discharge_plan).length,
+      on_hold:     patients.filter(p=>p.status==='paused' || p.status==='on-hold').length,
+      archived:    patients.filter(p=>p.status==='archived' || p.status==='discharged' || p.status==='inactive').length,
+    };
+
+    const STATUS_TABS = [
+      { id:'all',         label:'All' },
+      { id:'active',      label:'Active' },
+      { id:'intake',      label:'Intake' },
+      { id:'discharging', label:'Discharging' },
+      { id:'on_hold',     label:'On hold' },
+      { id:'archived',    label:'Archived' },
     ];
 
-    window._phCohort = window._phCohort || 'all';
-    window._phSearch = '';
+    const activeCourses = courses.filter(c=>c.status==='active').length;
+    let phqTotal = 0, phqN = 0;
+    patients.forEach(p => {
+      if ((p.primary_scale||'PHQ-9').toUpperCase().startsWith('PHQ') && p.baseline_score != null && p.current_score != null) {
+        phqTotal += (p.current_score - p.baseline_score); phqN++;
+      }
+    });
+    const phqDeltaRaw = phqN ? (phqTotal / phqN) : null;
+    const phqDelta    = phqDeltaRaw == null ? '—' : phqDeltaRaw.toFixed(1);
+    let adhTotal = 0, adhN = 0;
+    patients.forEach(p => { if (p.home_adherence != null) { adhTotal += p.home_adherence; adhN++; } });
+    const adhPct = adhN ? Math.round((adhTotal / adhN) * 100) : 0;
+    const followup = patients.filter(p=>p.needs_review||p.review_overdue||p.missing_assessment||p.assessment_overdue).length;
+    const followupOver7d = patients.filter(p=>p.review_overdue_days>7).length;
 
-    function renderPatientList(cohortId) {
-      const cohort = COHORTS.find(c=>c.id===cohortId) || COHORTS[0];
-      let list = cohort.fn();
-      const q = (document.getElementById('ph-search')?.value||'').toLowerCase();
-      if (q) list = list.filter(p=>((p.first_name||'')+' '+(p.last_name||'')).toLowerCase().includes(q)||(p.condition_slug||'').toLowerCase().includes(q));
-      const out = document.getElementById('ph-list');
-      if (!out) return;
-      if (!list.length) { out.innerHTML = '<div class="ch-empty">No patients found.</div>'; return; }
-      out.innerHTML = list.map(p => {
-        const name = ((p.first_name||'') + ' ' + (p.last_name||'')).trim() || 'Unknown';
-        const ini  = ((p.first_name||'')[0]||'') + ((p.last_name||'')[0]||'');
-        const cond = (p.condition_slug||'').replace(/-/g,' ') || '—';
-        const mod  = (p.primary_modality||'').replace(/-/g,' ') || '—';
-        const attn = patAttention(p);
-        const pcs  = coursesByPat[p.id] || [];
-        const actC = pcs.filter(c=>c.status==='active').length;
-        const stColor = statusColors[p.status] || 'var(--text-tertiary)';
-        return '<div class="ph-patient-row" onclick="window._selectedPatientId=\'' + p.id + '\';window._profilePatientId=\'' + p.id + '\';window._nav(\'patient-profile\')">' +
-          '<div class="ph-avatar">' + (ini||'?') + '</div>' +
-          '<div class="ph-info">' +
-            '<div class="ph-name">' + name + '</div>' +
-            '<div class="ph-meta">' + cond + (mod&&mod!=='—'?' · '+mod:'') + '</div>' +
-          '</div>' +
-          '<div class="ph-badges">' +
-            (actC ? '<span class="ph-badge ph-badge--course">' + actC + ' course' + (actC>1?'s':'') + '</span>' : '') +
-            (attn ? '<span class="ph-badge" style="background:rgba(255,255,255,0.06);color:' + attn.color + ';border-color:' + attn.color + '20">' + attn.label + '</span>' : '') +
-          '</div>' +
-          '<span class="ph-status" style="color:' + stColor + '">' + (statusLabels[p.status]||p.status||'—') + '</span>' +
-          '<svg class="ph-chevron" viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></svg>' +
-        '</div>';
-      }).join('');
+    window._phStatus = window._phStatus || 'all';
+    window._phPage   = 1;
+    const PAGE_SIZE  = 10;
+
+    function cohortFilter(status) {
+      if (status === 'all') return patients;
+      if (status === 'active')      return patients.filter(p=>p.status==='active');
+      if (status === 'intake')      return patients.filter(p=>p.status==='intake'||p.status==='new');
+      if (status === 'discharging') return patients.filter(p=>p.status==='discharging'||p.discharge_plan);
+      if (status === 'on_hold')     return patients.filter(p=>p.status==='paused'||p.status==='on-hold');
+      if (status === 'archived')    return patients.filter(p=>p.status==='archived'||p.status==='discharged'||p.status==='inactive');
+      return patients;
     }
 
-    window._phSetCohort = id => {
-      window._phCohort = id;
-      document.querySelectorAll('.ph-cohort-item').forEach(el => el.classList.toggle('active', el.dataset.cohort === id));
-      renderPatientList(id);
+    function applySearch(list) {
+      const q = (document.getElementById('d2p7-search')?.value || '').toLowerCase();
+      if (!q) return list;
+      return list.filter(p =>
+        ((p.first_name||'')+' '+(p.last_name||'')).toLowerCase().includes(q) ||
+        (p.condition_slug||'').toLowerCase().includes(q) ||
+        (p.mrn||'').toLowerCase().includes(q) ||
+        (p.primary_modality||'').toLowerCase().includes(q)
+      );
+    }
+
+    function renderList() {
+      const filtered = applySearch(cohortFilter(window._phStatus));
+      const total = filtered.length;
+      const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+      if (window._phPage > pages) window._phPage = 1;
+      const start = (window._phPage - 1) * PAGE_SIZE;
+      const page  = filtered.slice(start, start + PAGE_SIZE);
+
+      const out = document.getElementById('d2p7-list');
+      if (!out) return;
+      if (!page.length) {
+        out.innerHTML = '<div style="padding:40px;text-align:center;color:var(--text-tertiary)">No patients found.</div>';
+      } else {
+        out.innerHTML = page.map(p => {
+          const fname = p.first_name || '';
+          const lname = p.last_name || '';
+          const name  = (fname + ' ' + lname).trim() || 'Unknown';
+          const ini   = ((fname[0]||'') + (lname[0]||'')).toUpperCase() || '?';
+          const av    = AVATAR_TONES[Math.abs(String(p.id||name).split('').reduce((a,c)=>a+c.charCodeAt(0),0)) % AVATAR_TONES.length];
+          const cond  = (p.condition_slug||'').replace(/-/g,' ') || '—';
+          const age   = p.age || (p.dob ? (new Date().getFullYear() - new Date(p.dob).getFullYear()) : null);
+          const sex   = (p.gender||'').charAt(0).toUpperCase();
+          const sub   = (age ? age + (sex||'') + ' · ' : '') + cond + (p.mrn ? ' · MRN ' + esc(p.mrn) : '');
+          const delivered = p.sessions_delivered ?? 0;
+          const planned   = p.planned_sessions_total ?? 0;
+          const prog = planned > 0 ? Math.min(100, Math.round(delivered / planned * 100)) : 0;
+          return '<div class="queue-row pt-row" style="grid-template-columns:1.8fr 1.1fr 1fr 1fr 1fr 90px" ' +
+            'onclick="window._selectedPatientId=\'' + esc(p.id) + '\';window._profilePatientId=\'' + esc(p.id) + '\';try{sessionStorage.setItem(\'ds_pat_selected_id\',\'' + esc(p.id) + '\')}catch(e){}window._nav(\'patient-profile\')">' +
+              '<div class="queue-pt"><div class="pt-av ' + av + '">' + esc(ini) + '</div>' +
+                '<div><div class="queue-pt-name">' + esc(name) + '</div>' +
+                  '<div class="queue-pt-cond">' + esc(sub) + '</div></div></div>' +
+              '<div>' + protocolChip(p) + '</div>' +
+              '<div class="queue-progress"><div class="queue-progress-bar"><div style="width:' + prog + '%"></div></div>' +
+                '<span style="font-family:var(--font-mono);font-size:10.5px;color:var(--text-tertiary)">' + delivered + '/' + (planned||'—') + '</span></div>' +
+              '<div>' + outcomeCell(p) + '</div>' +
+              '<div>' + nextStepChip(p) + '</div>' +
+              '<div style="text-align:right"><button class="topbar-btn d2p7-chev" style="width:26px;height:26px" onclick="event.stopPropagation()">' +
+                '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg></button></div>' +
+            '</div>';
+        }).join('');
+      }
+
+      const foot = document.getElementById('d2p7-foot');
+      if (foot) {
+        const statusLbl = (STATUS_TABS.find(s=>s.id===window._phStatus)||STATUS_TABS[0]).label;
+        foot.innerHTML =
+          '<span>Showing ' + (total ? (start+1) : 0) + '–' + Math.min(start+PAGE_SIZE,total) + ' of ' + total + ' · filtered by "' + esc(statusLbl) + '"</span>' +
+          '<div style="display:flex;gap:6px;align-items:center">' +
+            '<button class="topbar-btn" style="width:26px;height:26px" onclick="window._phGoPage(-1)">‹</button>' +
+            '<span style="font-family:var(--font-mono)">' + window._phPage + ' / ' + pages + '</span>' +
+            '<button class="topbar-btn" style="width:26px;height:26px" onclick="window._phGoPage(1)">›</button>' +
+          '</div>';
+      }
+    }
+
+    window._phSetStatus = id => { window._phStatus = id; window._phPage = 1;
+      document.querySelectorAll('.d2p7-tabrow button').forEach(b => b.classList.toggle('active', b.dataset.st === id));
+      renderList();
     };
+    window._phGoPage = delta => {
+      const filtered = applySearch(cohortFilter(window._phStatus));
+      const pages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+      window._phPage = Math.min(pages, Math.max(1, window._phPage + delta));
+      renderList();
+    };
+    window._phOnSearch = () => { window._phPage = 1; renderList(); };
 
     el.innerHTML = `
     <div class="ch-shell">
+      <style>
+        .d2p7-wrap { color: var(--text-primary); }
+        .d2p7-tabrow { display:flex; gap:4px; background:var(--bg-surface); padding:3px; border-radius:8px; border:1px solid var(--border); flex-wrap:wrap; }
+        .d2p7-tabrow button { padding:5px 10px; font-size:11.5px; font-weight:600; color:var(--text-secondary); border-radius:5px; background:transparent; border:none; cursor:pointer; }
+        .d2p7-tabrow button.active { background:rgba(255,255,255,0.08); color:var(--text-primary); }
+        .d2p7-chip-btn { padding:5px 10px; font-size:11.5px; border-radius:6px; background:transparent; border:1px solid var(--border); color:var(--text-secondary); cursor:pointer; }
+        .d2p7-chip-btn:hover { border-color:var(--border-hover); color:var(--text-primary); }
+        .d2p7-kpi-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:14px; margin-bottom:18px; }
+        .d2p7-kpi { padding:14px 16px; border:1px solid var(--border); background:var(--bg-card); border-radius:14px; }
+        .d2p7-kpi-lbl { font-size:10.5px; letter-spacing:1px; text-transform:uppercase; color:var(--text-tertiary); font-weight:600; display:flex; align-items:center; gap:6px; }
+        .d2p7-kpi-lbl .dot { width:6px; height:6px; border-radius:50%; background:var(--teal); }
+        .d2p7-kpi-lbl.blue .dot   { background:var(--blue); }
+        .d2p7-kpi-lbl.violet .dot { background:var(--violet); }
+        .d2p7-kpi-lbl.amber .dot  { background:var(--amber); }
+        .d2p7-kpi-num { font-family:var(--font-display,inherit); font-size:26px; font-weight:600; margin-top:4px; color:var(--text-primary); }
+        .d2p7-kpi-num .unit { font-size:14px; color:var(--text-tertiary); margin-left:2px; }
+        .d2p7-kpi-delta { font-size:11px; color:var(--text-tertiary); margin-top:3px; }
+        .d2p7-kpi-delta.up   { color:var(--teal); }
+        .d2p7-kpi-delta.down { color:var(--amber); }
+        .d2p7-card { background:var(--bg-card); border:1px solid var(--border); border-radius:14px; padding:8px 16px 16px; }
+        .d2p7-wrap .queue-row { display:grid; align-items:center; gap:12px; padding:10px 4px; border-bottom:1px solid var(--border); }
+        .d2p7-wrap .queue-row:last-child { border-bottom:none; }
+        .d2p7-wrap .queue-row.head { color:var(--text-tertiary); font-size:10.5px; letter-spacing:1px; text-transform:uppercase; font-weight:600; padding:4px 4px 10px; }
+        .d2p7-wrap .queue-row.pt-row { cursor:pointer; transition: background .1s ease; border-radius:8px; }
+        .d2p7-wrap .queue-row.pt-row:hover { background: rgba(0,212,188,0.05); }
+        .d2p7-wrap .queue-pt { display:flex; align-items:center; gap:10px; }
+        .d2p7-wrap .queue-pt-name { font-weight:600; font-size:13px; color:var(--text-primary); }
+        .d2p7-wrap .queue-pt-cond { font-size:10.5px; color:var(--text-tertiary); margin-top:1px; }
+        .d2p7-wrap .pt-av { width:26px; height:26px; border-radius:50%; flex-shrink:0; display:flex; align-items:center; justify-content:center; font-size:10.5px; font-weight:600; color:#04121c; }
+        .d2p7-wrap .pt-av.a { background:linear-gradient(135deg,#00d4bc,#00a896); }
+        .d2p7-wrap .pt-av.b { background:linear-gradient(135deg,#4a9eff,#2d7fe0); }
+        .d2p7-wrap .pt-av.c { background:linear-gradient(135deg,#9b7fff,#7c5fe0); }
+        .d2p7-wrap .pt-av.d { background:linear-gradient(135deg,#ff6b9d,#e04880); }
+        .d2p7-wrap .pt-av.e { background:linear-gradient(135deg,#ffb547,#e69524); }
+        .d2p7-wrap .queue-progress { display:flex; align-items:center; gap:8px; }
+        .d2p7-wrap .queue-progress-bar { flex:1; height:5px; background:rgba(255,255,255,0.06); border-radius:3px; overflow:hidden; }
+        .d2p7-wrap .queue-progress-bar > div { height:100%; background:linear-gradient(90deg,var(--teal),var(--blue)); border-radius:3px; }
+        .d2p7-wrap .chip { display:inline-block; padding:4px 9px; border-radius:5px; font-size:11px; font-weight:600; background:var(--bg-surface); color:var(--text-secondary); }
+        .d2p7-wrap .chip.teal   { background:rgba(0,212,188,0.12);   color:var(--teal); }
+        .d2p7-wrap .chip.blue   { background:rgba(74,158,255,0.12);  color:var(--blue); }
+        .d2p7-wrap .chip.violet { background:rgba(155,127,255,0.14); color:var(--violet); }
+        .d2p7-wrap .chip.rose   { background:rgba(255,107,157,0.14); color:var(--rose); }
+        .d2p7-wrap .chip.amber  { background:rgba(255,181,71,0.14);  color:var(--amber); }
+        .d2p7-wrap .chip.green  { background:rgba(74,222,128,0.14);  color:var(--green); }
+        .d2p7-wrap .topbar-btn { background:transparent; border:1px solid var(--border); color:var(--text-secondary); border-radius:6px; display:inline-flex; align-items:center; justify-content:center; cursor:pointer; }
+        .d2p7-wrap .topbar-btn:hover { border-color:var(--border-hover); color:var(--text-primary); }
+        .d2p7-search-wrap { position:relative; flex:1; max-width:280px; }
+        .d2p7-search-wrap input { width:100%; background:var(--bg-surface); border:1px solid var(--border); border-radius:8px; padding:7px 10px 7px 28px; color:var(--text-primary); font-size:12.5px; }
+        .d2p7-search-wrap svg { position:absolute; left:9px; top:50%; transform:translateY(-50%); width:13px; height:13px; stroke:var(--text-tertiary); fill:none; stroke-width:2; stroke-linecap:round; pointer-events:none; }
+      </style>
+
       <div class="ch-tab-bar">${tabBar()}</div>
-      <div class="ph-layout">
-        <div class="ph-rail">
-          <div class="ph-rail-label">Cohorts</div>
-          ${COHORTS.map(c => '<div class="ph-cohort-item' + (window._phCohort===c.id?' active':'') + '" data-cohort="' + c.id + '" onclick="window._phSetCohort(\'' + c.id + '\')">' +
-            '<span>' + c.label + '</span>' +
-            '<span class="ph-cohort-count">' + c.fn().length + '</span>' +
-          '</div>').join('')}
+
+      <div class="d2p7-wrap">
+        <div style="display:flex;gap:12px;margin-bottom:18px;align-items:center;flex-wrap:wrap">
+          <div class="d2p7-tabrow">
+            ${STATUS_TABS.map(s =>
+              '<button data-st="' + s.id + '" class="' + (window._phStatus===s.id?'active':'') + '" onclick="window._phSetStatus(\'' + s.id + '\')">' +
+                s.label + ' · ' + (counts[s.id]||0) +
+              '</button>').join('')}
+          </div>
+          <div style="margin-left:auto;display:flex;gap:8px">
+            <button class="d2p7-chip-btn">Condition</button>
+            <button class="d2p7-chip-btn">Protocol</button>
+            <button class="d2p7-chip-btn">Clinician</button>
+            <button class="d2p7-chip-btn">Sort: Last activity</button>
+          </div>
         </div>
-        <div class="ph-main">
-          <div class="ch-kpi-strip" style="grid-template-columns:repeat(4,1fr);margin-bottom:16px">
-            <div class="ch-kpi-card" style="--kpi-color:var(--teal)"><div class="ch-kpi-val">${active}</div><div class="ch-kpi-label">Active</div></div>
-            <div class="ch-kpi-card" style="--kpi-color:var(--amber)"><div class="ch-kpi-val">${review}</div><div class="ch-kpi-label">Needs Review</div></div>
-            <div class="ch-kpi-card" style="--kpi-color:var(--red)"><div class="ch-kpi-val">${alerts}</div><div class="ch-kpi-label">Alerts</div></div>
-            <div class="ch-kpi-card" style="--kpi-color:var(--blue)"><div class="ch-kpi-val">${assess}</div><div class="ch-kpi-label">Assess Due</div></div>
+
+        <div class="d2p7-kpi-grid">
+          <div class="d2p7-kpi">
+            <div class="d2p7-kpi-lbl"><span class="dot"></span>Active courses</div>
+            <div class="d2p7-kpi-num">${activeCourses}</div>
+            <div class="d2p7-kpi-delta up">${counts.active} patients</div>
           </div>
-          <div class="ch-card" style="margin-bottom:0">
-            <div class="ch-card-hd">
-              <span class="ch-card-title">Patient Roster</span>
-              <div style="position:relative;flex:1;max-width:280px">
-                <input id="ph-search" type="text" placeholder="Search patients…" class="ph-search-input" oninput="window._phSetCohort(window._phCohort)">
-                <svg viewBox="0 0 24 24" style="position:absolute;left:9px;top:50%;transform:translateY(-50%);width:13px;height:13px;stroke:var(--text-tertiary);fill:none;stroke-width:2;stroke-linecap:round;pointer-events:none"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
-              </div>
+          <div class="d2p7-kpi">
+            <div class="d2p7-kpi-lbl blue"><span class="dot"></span>Avg PHQ-9 Δ</div>
+            <div class="d2p7-kpi-num">${phqDelta === '—' ? '—' : ((phqDeltaRaw > 0 ? '+' : '') + phqDelta)}<span class="unit">pts</span></div>
+            <div class="d2p7-kpi-delta ${phqN && phqDeltaRaw < 0 ? 'up' : ''}">${phqN ? phqN + ' scored' : 'No data'}</div>
+          </div>
+          <div class="d2p7-kpi">
+            <div class="d2p7-kpi-lbl violet"><span class="dot"></span>Homework adherence</div>
+            <div class="d2p7-kpi-num">${adhN ? adhPct : '—'}${adhN ? '<span class="unit">%</span>' : ''}</div>
+            <div class="d2p7-kpi-delta">${adhN ? 'across ' + adhN + ' patients' : 'No data'}</div>
+          </div>
+          <div class="d2p7-kpi">
+            <div class="d2p7-kpi-lbl amber"><span class="dot"></span>Needs follow-up</div>
+            <div class="d2p7-kpi-num">${followup}</div>
+            <div class="d2p7-kpi-delta ${followupOver7d ? 'down' : ''}">${followupOver7d ? followupOver7d + ' overdue >7d' : 'All on track'}</div>
+          </div>
+        </div>
+
+        <div class="d2p7-card">
+          <div style="display:flex;align-items:center;gap:12px;padding:8px 4px;margin-bottom:4px">
+            <div style="font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--text-tertiary);font-weight:600">Patient roster</div>
+            <div class="d2p7-search-wrap" style="margin-left:auto">
+              <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+              <input id="d2p7-search" type="text" placeholder="Search by name, MRN, condition…" oninput="window._phOnSearch()">
             </div>
-            <div id="ph-list"></div>
           </div>
+          <div class="queue-row head" style="grid-template-columns:1.8fr 1.1fr 1fr 1fr 1fr 90px">
+            <div>Patient</div><div>Protocol</div><div>Progress</div><div>Last outcome</div><div>Next step</div><div></div>
+          </div>
+          <div id="d2p7-list"></div>
+          <div id="d2p7-foot" style="display:flex;justify-content:space-between;align-items:center;padding:12px 4px 4px;font-size:11.5px;color:var(--text-tertiary);border-top:1px solid var(--border);margin-top:4px"></div>
         </div>
       </div>
     </div>`;
 
-    renderPatientList(window._phCohort);
+    renderList();
   }
 
   // ── TREATMENT COURSES TAB ────────────────────────────────────────────────
@@ -3871,7 +4051,7 @@ export async function pgLibraryHub(setTopbar, navigate) {
       papersSection;
   }
 
-  el.innerHTML = '<div class="ch-shell"><div class="ch-tab-bar" role="tablist" aria-label="Library sections">' + tabBar() + '</div><div class="ch-body">' + main + '</div></div>';
+  el.innerHTML = '<div class="dv2-hub-shell" style="padding:20px;display:flex;flex-direction:column;gap:16px"><div class="ch-shell"><div class="ch-tab-bar" role="tablist" aria-label="Library sections">' + tabBar() + '</div><div class="ch-body">' + main + '</div></div></div>';
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -4322,7 +4502,7 @@ export async function pgDocumentsHubNew(setTopbar, navigate) {
     const rows = data.docs.filter(d=>(filt==='All'||d.type===filt)&&(!q||(d.name+d.patient).toLowerCase().includes(q)));
     main = `
       <div class="ch-kpi-strip" style="grid-template-columns:repeat(4,1fr);margin-bottom:16px">
-        <div class="ch-kpi-card" style="--kpi-color:var(--blue)"><div class="ch-kpi-val">${data.docs.length}</div><div class="ch-kpi-label">Total Docs</div></div>
+        <div class="ch-kpi-card dv2-kpi-card" style="--kpi-color:var(--blue)"><div class="ch-kpi-val dv2-kpi-val">${data.docs.length}</div><div class="ch-kpi-label dv2-kpi-label">Total Docs</div></div>
         <div class="ch-kpi-card" style="--kpi-color:var(--green)"><div class="ch-kpi-val">${data.docs.filter(d=>d.status==='signed'||d.status==='final').length}</div><div class="ch-kpi-label">Finalised</div></div>
         <div class="ch-kpi-card" style="--kpi-color:var(--amber)"><div class="ch-kpi-val">${data.docs.filter(d=>d.status==='draft'||d.status==='pending').length}</div><div class="ch-kpi-label">Drafts</div></div>
         <div class="ch-kpi-card" style="--kpi-color:var(--teal)"><div class="ch-kpi-val">${new Set(data.docs.map(d=>d.patient)).size}</div><div class="ch-kpi-label">Patients</div></div>
@@ -4468,9 +4648,11 @@ export async function pgDocumentsHubNew(setTopbar, navigate) {
   }
 
   el.innerHTML = `
+  <div class="dv2-hub-shell" style="padding:20px;display:flex;flex-direction:column;gap:16px">
   <div class="ch-shell">
     <div class="ch-tab-bar">${tabBar()}</div>
     <div class="ch-body">${main}</div>
+  </div>
   </div>
   <div id="docs-upload-modal" class="ch-modal-overlay ch-hidden">
     <div class="ch-modal" style="width:min(440px,95vw)">
@@ -4646,7 +4828,7 @@ export async function pgReportsHubNew(setTopbar, navigate) {
     const completed=courses.filter(c=>c.status==='completed').length||12;
     main = `
       <div class="ch-kpi-strip" style="grid-template-columns:repeat(4,1fr);margin-bottom:16px">
-        <div class="ch-kpi-card" style="--kpi-color:var(--green)"><div class="ch-kpi-val">67%</div><div class="ch-kpi-label">Responder Rate</div></div>
+        <div class="ch-kpi-card dv2-kpi-card" style="--kpi-color:var(--green)"><div class="ch-kpi-val dv2-kpi-val">67%</div><div class="ch-kpi-label dv2-kpi-label">Responder Rate</div></div>
         <div class="ch-kpi-card" style="--kpi-color:var(--teal)"><div class="ch-kpi-val">−7</div><div class="ch-kpi-label">Mean PHQ-9 Δ</div></div>
         <div class="ch-kpi-card" style="--kpi-color:var(--blue)"><div class="ch-kpi-val">${active}</div><div class="ch-kpi-label">Active Courses</div></div>
         <div class="ch-kpi-card" style="--kpi-color:var(--violet)"><div class="ch-kpi-val">${completed}</div><div class="ch-kpi-label">Completed</div></div>
@@ -4714,7 +4896,7 @@ export async function pgReportsHubNew(setTopbar, navigate) {
       </div>`;
   }
 
-  el.innerHTML = `<div class="ch-shell"><div class="ch-tab-bar">${tabBar()}</div><div class="ch-body">${main}</div></div>`;
+  el.innerHTML = `<div class="dv2-hub-shell" style="padding:20px;display:flex;flex-direction:column;gap:16px"><div class="ch-shell"><div class="ch-tab-bar">${tabBar()}</div><div class="ch-body">${main}</div></div></div>`;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -4836,7 +5018,7 @@ export async function pgFinanceHub(setTopbar, navigate) {
 
     main = `
       <div class="ch-kpi-strip" style="grid-template-columns:repeat(4,1fr);margin-bottom:16px">
-        <div class="ch-kpi-card" style="--kpi-color:var(--green)"><div class="ch-kpi-val">${fmt(totalRev)}</div><div class="ch-kpi-label">Revenue (Paid)</div></div>
+        <div class="ch-kpi-card dv2-kpi-card" style="--kpi-color:var(--green)"><div class="ch-kpi-val dv2-kpi-val">${fmt(totalRev)}</div><div class="ch-kpi-label dv2-kpi-label">Revenue (Paid)</div></div>
         <div class="ch-kpi-card" style="--kpi-color:var(--blue)"><div class="ch-kpi-val">${fmt(totalOutstand)}</div><div class="ch-kpi-label">Outstanding</div></div>
         <div class="ch-kpi-card" style="--kpi-color:var(--red)"><div class="ch-kpi-val">${fmt(totalOverdue)}</div><div class="ch-kpi-label">Overdue</div></div>
         <div class="ch-kpi-card" style="--kpi-color:var(--teal)"><div class="ch-kpi-val">${totalInvoices}</div><div class="ch-kpi-label">Total Invoices</div></div>
@@ -5019,9 +5201,11 @@ export async function pgFinanceHub(setTopbar, navigate) {
   }
 
   el.innerHTML = `
+  <div class="dv2-hub-shell" style="padding:20px;display:flex;flex-direction:column;gap:16px">
   <div class="ch-shell">
     <div class="ch-tab-bar">${tabBar()}</div>
     <div class="ch-body">${main}</div>
+  </div>
   </div>
   <div id="fin-new-inv-modal" class="ch-modal-overlay ch-hidden">
     <div class="ch-modal" style="width:min(500px,95vw)">
