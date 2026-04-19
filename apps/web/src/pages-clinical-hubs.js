@@ -5636,10 +5636,59 @@ export async function pgAssessmentsHub(setTopbar, navigate) {
   window._assessSelect = (id) => { window._assessSelectedId = id; window._nav('assessments-v2'); };
   window._assessTab = (t) => { window._assessHubTab = t; window._nav('assessments-v2'); };
   window._assessCloseSide = () => { window._assessSelectedId = null; window._nav('assessments-v2'); };
-  window._assessBatch = () => window._dsToast?.({ title:'Batch send', body:'Select patients from the queue to send in bulk.', severity:'info' });
-  window._assessNew = () => window._dsToast?.({ title:'New assessment', body:'Assessment assignment flow.', severity:'info' });
-  window._assessReschedule = (id) => window._dsToast?.({ title:'Reschedule', body:'Assessment '+id+' — pick a new date.', severity:'info' });
-  window._assessExportPdf = (id) => window._dsToast?.({ title:'Export PDF', body:'Generating PDF for '+id+'…', severity:'info' });
+  // Batch send → jump to Cohort tab where the real _ahBulkAssign flow lives.
+  window._assessBatch = () => { window._assessHubTab = 'cohort'; window._nav('assessments-v2'); };
+  // New assessment → jump to Library tab (clinician picks the instrument then Submit/Assign).
+  window._assessNew = () => { window._assessHubTab = 'library'; window._nav('assessments-v2'); };
+  // Reschedule → date-picker modal, PATCH due_date; localStorage fallback when offline.
+  window._assessReschedule = (id) => {
+    const row = queueRows.find(r => r.id === id);
+    const bid = row?.backendId || id;
+    const def = new Date(Date.now() + 7*86400000).toISOString().slice(0,10);
+    document.getElementById('dv2a-resched-overlay')?.remove();
+    const overlay = document.createElement('div');
+    overlay.id = 'dv2a-resched-overlay';
+    overlay.style.cssText = 'position:fixed;inset:0;z-index:1200;background:rgba(4,18,28,0.55);display:flex;align-items:center;justify-content:center;backdrop-filter:blur(4px)';
+    overlay.innerHTML =
+      '<div style="background:var(--bg-panel,#0d1b22);border:1px solid var(--border);border-radius:10px;padding:18px 20px;width:360px;font-family:var(--font-body,system-ui)">'+
+        '<div style="font-size:14px;font-weight:600;margin-bottom:4px">Reschedule assessment</div>'+
+        '<div style="font-size:11.5px;color:var(--text-tertiary,#7c8699);margin-bottom:14px">'+esc(row?.patient||'Patient')+' · '+esc(row?.inst||'assessment')+'</div>'+
+        '<label style="font-size:11px;color:var(--text-tertiary);display:block;margin-bottom:4px">New due date</label>'+
+        '<input id="dv2a-resched-date" type="date" value="'+def+'" min="'+new Date().toISOString().slice(0,10)+'" style="width:100%;padding:8px 10px;background:var(--bg-surface,#11222a);border:1px solid var(--border);border-radius:6px;font-size:13px;color:var(--text-primary);font-family:var(--font-mono,ui-monospace,monospace)"/>'+
+        '<div style="display:flex;gap:8px;margin-top:14px;justify-content:flex-end">'+
+          '<button class="btn btn-ghost btn-sm" onclick="document.getElementById(\'dv2a-resched-overlay\').remove()">Cancel</button>'+
+          '<button class="btn btn-primary btn-sm" onclick="window._assessReschedConfirm(\''+esc(bid)+'\')">Save</button>'+
+        '</div>'+
+      '</div>';
+    document.body.appendChild(overlay);
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+    setTimeout(() => document.getElementById('dv2a-resched-date')?.focus(), 30);
+  };
+  window._assessReschedConfirm = async (bid) => {
+    const next = document.getElementById('dv2a-resched-date')?.value;
+    document.getElementById('dv2a-resched-overlay')?.remove();
+    if (!next || !/^\d{4}-\d{2}-\d{2}$/.test(next)) return;
+    try {
+      await api.updateAssessment(bid, { due_date: next });
+      window._dsToast?.({ title:'Rescheduled', body:'New due date: '+next, severity:'success' });
+      window._nav('assessments-v2');
+    } catch {
+      try {
+        const raw = localStorage.getItem('ds_assessment_reschedules') || '[]';
+        const arr = JSON.parse(raw);
+        arr.push({ id: bid, new_due_date: next, at: new Date().toISOString() });
+        localStorage.setItem('ds_assessment_reschedules', JSON.stringify(arr));
+      } catch {}
+      window._dsToast?.({ title:'Rescheduled (offline)', body:'Saved locally; will sync.', severity:'info' });
+    }
+  };
+  // Export PDF → open print dialog on the detail panel so clinician can save to PDF
+  // (no server-side PDF endpoint — browser handles it via "Save as PDF" in print).
+  window._assessExportPdf = (id) => {
+    const row = queueRows.find(r => r.id === id);
+    window._dsToast?.({ title:'Printing', body:(row?.patient||'Assessment')+' · use "Save as PDF" in the print dialog.', severity:'info' });
+    try { window.print(); } catch {}
+  };
   window._assessCosign = async (id) => {
     // `id` here is the row id ("be-<backendId>" or mock "as-X"). Use backendId when present.
     const row = queueRows.find(r => r.id === id);
@@ -6028,16 +6077,42 @@ export async function pgAssessmentsHub(setTopbar, navigate) {
       };
 
       let savedId = s.backendId;
-      try {
+      const _persist = async (overrideVal) => {
+        const p = overrideVal ? { ...payload, data: { ...payload.data, override_score_validation: true }, override_score_validation: true } : payload;
         if (s.backendId) {
-          await api.updateAssessment(s.backendId, payload);
+          await api.updateAssessment(s.backendId, p);
         } else {
-          const res = await api.createAssessment(payload);
+          const res = await api.createAssessment(p);
           savedId = res?.id || null;
         }
+      };
+      try {
+        await _persist(false);
         window._dsToast?.({ title:'Submitted', body:(inst.abbr||instId)+' · '+total+(inst.max?'/'+inst.max:'')+' · '+(interp?.label||'scored'), severity:'success' });
-      } catch {
-        window._dsToast?.({ title:'Saved offline', body:'Will sync when backend is available.', severity:'info' });
+      } catch (err) {
+        // Server-side canonical-score validation rejected the submit (±5% tolerance).
+        // Surface the delta + offer clinician-override retry so we don't block on minor
+        // rounding but still audit. Otherwise fall through to offline toast.
+        if (err && err.code === 'score_mismatch' && err.details) {
+          const d = err.details;
+          const ok = window.confirm(
+            'Score mismatch: clinician entered '+d.submitted_score+' · server computed '+d.canonical_score+
+            ' (Δ '+(d.delta_pct!=null?d.delta_pct.toFixed(1)+'%':'n/a')+'). Submit with clinician override?'
+          );
+          if (ok) {
+            try {
+              await _persist(true);
+              window._dsToast?.({ title:'Submitted (override)', body:'Canonical '+d.canonical_score+' · clinician '+d.submitted_score, severity:'success' });
+            } catch {
+              window._dsToast?.({ title:'Saved offline', body:'Will sync when backend is available.', severity:'info' });
+            }
+          } else {
+            window._dsToast?.({ title:'Submit cancelled', body:'Adjust score or items then resubmit.', severity:'warn' });
+            return;
+          }
+        } else {
+          window._dsToast?.({ title:'Saved offline', body:'Will sync when backend is available.', severity:'info' });
+        }
       }
 
       // Fire-and-forget AI summary
@@ -6156,11 +6231,23 @@ export async function pgAssessmentsHub(setTopbar, navigate) {
         return '<button class="dv2a-chip'+(activeFilter===code?' active':'')+'" onclick="window._assessSetFilter(\''+esc(code)+'\')">'+esc(code)+(n?' · '+n:'')+'</button>';
       }).join('') +
       '<div style="margin-left:auto;display:flex;gap:6px">'+
-      '<button class="btn btn-ghost btn-sm" style="font-size:10.5px" onclick="window._dsToast?.({title:\'Sort\',body:\'Sorting options coming soon.\',severity:\'info\'})">Sort: Oldest due ↑</button>'+
+      '<button class="btn btn-ghost btn-sm" style="font-size:10.5px" onclick="window._assessCycleSort()">Sort: '+(window._assessSort||'due-asc')+'</button>'+
       '</div>' +
     '</div>';
 
-    const filtered = activeFilter === 'all' ? queueRows : queueRows.filter(r => (r.inst || '').includes(activeFilter));
+    const _sortMode = window._assessSort || 'due-asc';
+    const _sortKey = {
+      'due-asc':    (a,b) => String(a.dueISO||a.due||'').localeCompare(String(b.dueISO||b.due||'')),
+      'due-desc':   (a,b) => String(b.dueISO||b.due||'').localeCompare(String(a.dueISO||a.due||'')),
+      'severity':   (a,b) => ({critical:4,severe:3,moderate:2,mild:1,minimal:0}[b.sev]||0) - ({critical:4,severe:3,moderate:2,mild:1,minimal:0}[a.sev]||0),
+      'patient':    (a,b) => String(a.patient||'').localeCompare(String(b.patient||'')),
+    }[_sortMode] || ((a,b)=>0);
+    const filteredRaw = activeFilter === 'all' ? queueRows : queueRows.filter(r => (r.inst || '').includes(activeFilter));
+    const filtered = filteredRaw.slice().sort(_sortKey);
+    if (!window._assessCycleSort) {
+      const _SORTS = ['due-asc','due-desc','severity','patient'];
+      window._assessCycleSort = () => { const cur = window._assessSort || 'due-asc'; const next = _SORTS[(_SORTS.indexOf(cur)+1) % _SORTS.length]; window._assessSort = next; window._nav('assessments-v2'); };
+    }
 
     const rowHtml = filtered.map(r => {
       const selected = r.id === selectedId;
@@ -6441,7 +6528,6 @@ export async function pgAssessmentsHub(setTopbar, navigate) {
         '</div>' +
       '</div>';
     }).join('');
-    window._assessOpenIndividual = (id) => { window._assessIndividualId = id; window._assessHubTab = 'individual'; window._nav('assessments-v2'); };
     return '<div style="font-size:12px;color:var(--text-tertiary);margin-bottom:6px">Validated instruments across depression, anxiety, OCD, trauma, sleep, mania, pain, language, and QoL. <strong>Click a card to open its fillable form and compute the score on-platform.</strong></div>' +
       catBar +
       '<div class="dv2a-lib-grid">'+cards+'</div>';
