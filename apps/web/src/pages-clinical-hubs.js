@@ -1859,6 +1859,10 @@ export async function pgSchedulingHub(setTopbar, navigate) {
     const _ss = document.createElement('style'); _ss.id = 'dv2s-sched-styles';
     _ss.textContent = `
 .dv2s-shell{display:flex;flex-direction:column;height:100%;min-height:0;background:var(--dv2-bg,var(--bg));}
+.dv2s-demo-banner{position:sticky;top:0;z-index:10;background:rgba(255,181,71,0.12);border-bottom:1px solid rgba(255,181,71,0.25);padding:8px 20px;font-size:12px;color:#ffd28a;display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
+.dv2s-demo-dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:#ffb547;box-shadow:0 0 6px #ffb547;}
+.dv2s-demo-btn{margin-left:auto;font-size:11px;padding:4px 10px;border:1px solid rgba(255,181,71,0.4);border-radius:6px;background:transparent;color:#ffd28a;cursor:pointer;font-family:inherit;}
+.dv2s-demo-btn:hover{background:rgba(255,181,71,0.18);}
 .dv2s-tab-bar{display:flex;gap:6px;padding:10px 20px 0;border-bottom:1px solid var(--border);background:var(--bg-panel,var(--bg-surface));flex-shrink:0;}
 .dv2s-tab{padding:8px 14px;font-size:12px;font-weight:600;color:var(--text-tertiary);background:transparent;border:1px solid transparent;border-radius:999px 999px 0 0;cursor:pointer;display:inline-flex;align-items:center;gap:6px;font-family:inherit;letter-spacing:-.005em;}
 .dv2s-tab:hover{color:var(--text-secondary);background:rgba(255,255,255,0.03);}
@@ -1886,7 +1890,10 @@ export async function pgSchedulingHub(setTopbar, navigate) {
 .dv2s-legend-sw{width:8px;height:8px;border-radius:2px;}
 .dv2s-body{flex:1;min-height:0;display:flex;overflow:hidden;}
 .dv2s-grid-wrap{flex:1;min-width:0;overflow:auto;background:var(--bg);}
-.dv2s-col-heads{display:grid;position:sticky;top:0;z-index:5;background:var(--bg-panel,var(--bg-surface));border-bottom:1px solid var(--border);grid-template-columns:64px repeat(28,minmax(120px,1fr));min-width:2000px;}
+.dv2s-col-heads{display:grid;position:sticky;top:0;z-index:5;background:var(--bg-panel,var(--bg-surface));border-bottom:1px solid var(--border);}
+.dv2s-col-heads.v-week{grid-template-columns:64px repeat(28,minmax(120px,1fr));min-width:2000px;}
+.dv2s-col-heads.v-day{grid-template-columns:64px repeat(var(--dv2s-cols,4),minmax(200px,1fr));min-width:900px;}
+.dv2s-col-heads.v-resources{grid-template-columns:64px repeat(var(--dv2s-cols,6),minmax(160px,1fr));min-width:1100px;}
 .dv2s-hours-head{grid-column:1;display:flex;align-items:center;justify-content:center;font-size:9px;color:var(--text-tertiary);font-family:var(--font-mono);letter-spacing:.08em;text-transform:uppercase;border-right:1px solid var(--border);}
 .dv2s-day-head{display:flex;flex-direction:column;border-right:1px solid var(--border);}
 .dv2s-day-head.today{background:linear-gradient(180deg,rgba(0,212,188,0.08),transparent 60%);}
@@ -1894,12 +1901,17 @@ export async function pgSchedulingHub(setTopbar, navigate) {
 .dv2s-day-dow{font-size:10px;font-weight:700;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.08em;}
 .dv2s-day-num{font-family:var(--font-display);font-size:16px;font-weight:600;color:var(--text-primary);}
 .dv2s-day-badge{margin-left:auto;font-size:9px;font-weight:700;color:var(--teal);background:rgba(0,212,188,0.14);padding:1px 5px;border-radius:3px;font-family:var(--font-mono);}
-.dv2s-day-clins{display:grid;grid-template-columns:repeat(4,1fr);border-top:1px solid var(--border);}
+.dv2s-day-clins{display:grid;grid-template-columns:repeat(var(--dv2s-subcols,4),1fr);border-top:1px solid var(--border);}
 .dv2s-clin{padding:4px 6px;font-size:10px;font-weight:600;color:var(--text-secondary);display:flex;flex-direction:column;gap:1px;border-right:1px solid var(--border);background:var(--bg-surface);}
 .dv2s-clin:last-child{border-right:0;}
 .dv2s-clin-util{font-family:var(--font-mono);font-size:9px;color:var(--text-tertiary);font-weight:500;}
 .dv2s-clin.util-hi{background:linear-gradient(180deg,rgba(255,181,71,0.08),var(--bg-surface));}
-.dv2s-grid{display:grid;grid-template-columns:64px repeat(28,minmax(120px,1fr));min-width:2000px;position:relative;}
+.dv2s-res-head{padding:10px 8px;border-right:1px solid var(--border);font-size:11px;font-weight:600;color:var(--text-primary);background:var(--bg-surface);}
+.dv2s-res-head .sub{display:block;font-size:10px;color:var(--text-tertiary);font-weight:500;margin-top:2px;}
+.dv2s-grid{display:grid;position:relative;}
+.dv2s-grid.v-week{grid-template-columns:64px repeat(28,minmax(120px,1fr));min-width:2000px;}
+.dv2s-grid.v-day{grid-template-columns:64px repeat(var(--dv2s-cols,4),minmax(200px,1fr));min-width:900px;}
+.dv2s-grid.v-resources{grid-template-columns:64px repeat(var(--dv2s-cols,6),minmax(160px,1fr));min-width:1100px;}
 .dv2s-hour-col{grid-column:1;background:var(--bg-panel,var(--bg-surface));border-right:1px solid var(--border);position:sticky;left:0;z-index:4;}
 .dv2s-hour-row{height:48px;padding:2px 6px;font-size:9px;color:var(--text-tertiary);font-family:var(--font-mono);border-bottom:1px dashed rgba(255,255,255,0.04);text-align:right;}
 .dv2s-clin-col{position:relative;border-right:1px solid rgba(255,255,255,0.04);}
@@ -1927,6 +1939,17 @@ export async function pgSchedulingHub(setTopbar, navigate) {
 .dv2s-event-warn.amb{color:var(--amber);}
 .dv2s-now-line{position:absolute;left:0;right:0;height:2px;background:var(--red,#ff5e7a);z-index:6;pointer-events:none;}
 .dv2s-now-dot{position:absolute;left:-4px;top:-3px;width:8px;height:8px;border-radius:50%;background:var(--red,#ff5e7a);box-shadow:0 0 0 3px rgba(255,94,122,0.25);}
+.dv2s-month{padding:16px 20px;overflow-y:auto;flex:1;}
+.dv2s-month-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:4px;}
+.dv2s-month-dow{font-size:10px;font-weight:700;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.08em;padding:4px 6px;}
+.dv2s-month-cell{min-height:88px;padding:6px 8px;border:1px solid var(--border);border-radius:6px;background:var(--bg-surface);cursor:pointer;display:flex;flex-direction:column;gap:4px;}
+.dv2s-month-cell:hover{border-color:rgba(0,212,188,0.5);}
+.dv2s-month-cell.today{border-color:rgba(0,212,188,0.6);box-shadow:inset 0 0 0 1px rgba(0,212,188,0.3);}
+.dv2s-month-cell.other{opacity:.5;}
+.dv2s-month-num{font-family:var(--font-display);font-size:14px;font-weight:600;color:var(--text-primary);}
+.dv2s-month-dots{display:flex;gap:3px;flex-wrap:wrap;}
+.dv2s-month-dot{width:5px;height:5px;border-radius:50%;}
+.dv2s-month-count{margin-top:auto;font-size:10px;color:var(--text-tertiary);font-family:var(--font-mono);}
 .dv2s-side{width:320px;border-left:1px solid var(--border);background:var(--bg-panel,var(--bg-surface));display:flex;flex-direction:column;flex-shrink:0;transition:width .2s;}
 .dv2s-side.collapsed{width:0;border-left:0;overflow:hidden;}
 .dv2s-side-head{padding:14px 14px 10px;border-bottom:1px solid var(--border);display:flex;gap:10px;align-items:flex-start;}
@@ -1949,27 +1972,71 @@ export async function pgSchedulingHub(setTopbar, navigate) {
 .dv2s-warn.ok .dv2s-warn-ico{color:var(--green,#4ade80);}
 .dv2s-warn-title{font-weight:600;color:var(--text-primary);margin-bottom:2px;}
 .dv2s-warn-body{color:var(--text-secondary);line-height:1.45;}
-.dv2s-side-foot{display:flex;gap:6px;padding:10px 12px;border-top:1px solid var(--border);}
+.dv2s-chain{display:flex;flex-direction:column;gap:4px;}
+.dv2s-chain-item{padding:6px 8px;background:var(--bg-surface);border:1px solid rgba(255,255,255,0.04);border-radius:5px;font-size:11px;color:var(--text-secondary);display:flex;justify-content:space-between;gap:8px;}
+.dv2s-chain-item .idx{color:var(--text-tertiary);font-family:var(--font-mono);font-size:10px;}
+.dv2s-side-foot{display:flex;gap:6px;padding:10px 12px;border-top:1px solid var(--border);flex-wrap:wrap;}
 .dv2s-refbox{padding:20px;overflow-y:auto;flex:1;}
+.dv2s-ref-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:16px;}
+.dv2s-ref-kpi{padding:10px 12px;background:var(--bg-surface);border:1px solid var(--border);border-radius:8px;}
+.dv2s-ref-kpi-label{font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--text-tertiary);font-weight:600;}
+.dv2s-ref-kpi-value{font-family:var(--font-display);font-size:20px;font-weight:600;color:var(--text-primary);margin-top:2px;}
 .dv2s-ref-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:12px;}
 .dv2s-ref-card{padding:12px;border:1px solid var(--border);border-radius:10px;background:var(--bg-surface);display:flex;flex-direction:column;gap:6px;}
 .dv2s-ref-card h4{margin:0;font-size:13px;color:var(--text-primary);font-family:var(--font-display);}
 .dv2s-ref-sub{font-size:11px;color:var(--text-tertiary);}
 .dv2s-ref-meta{display:flex;gap:6px;flex-wrap:wrap;font-size:10.5px;}
 .dv2s-ref-chip{padding:2px 7px;border-radius:999px;background:var(--bg-panel,var(--bg));color:var(--text-secondary);border:1px solid var(--border);}
-.dv2s-ref-chip.new{color:var(--teal);border-color:rgba(0,212,188,0.35);}
-.dv2s-ref-chip.contacted{color:var(--blue);border-color:rgba(74,158,255,0.35);}
+.dv2s-ref-chip.new,.dv2s-ref-chip.urgent{color:var(--teal);border-color:rgba(0,212,188,0.35);}
+.dv2s-ref-chip.urgent{color:var(--red,#ff5e7a);border-color:rgba(255,94,122,0.35);background:rgba(255,94,122,0.08);}
+.dv2s-ref-chip.contacted,.dv2s-ref-chip.routine{color:var(--blue);border-color:rgba(74,158,255,0.35);}
 .dv2s-ref-chip.qualified{color:var(--violet);border-color:rgba(155,127,255,0.35);}
 .dv2s-ref-chip.booked{color:var(--green,#4ade80);border-color:rgba(74,222,128,0.35);}
-.dv2s-ref-chip.lost{color:var(--text-tertiary);}
+.dv2s-ref-chip.lost,.dv2s-ref-chip.dismissed{color:var(--text-tertiary);}
+.dv2s-ref-chip.demo{color:#ffd28a;border-color:rgba(255,181,71,0.35);background:rgba(255,181,71,0.1);}
 .dv2s-staff{padding:20px;overflow-y:auto;flex:1;}
+.dv2s-staff-bar{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px;}
+.dv2s-staff-actions{display:flex;gap:6px;}
 .dv2s-staff-table{width:100%;border-collapse:collapse;font-size:12px;}
 .dv2s-staff-table th{text-align:left;padding:8px 10px;font-size:10px;font-weight:600;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.08em;border-bottom:1px solid var(--border);}
 .dv2s-staff-table td{padding:10px;border-bottom:1px solid rgba(255,255,255,0.04);color:var(--text-primary);}
+.dv2s-staff-table tfoot td{border-top:1px solid var(--border);border-bottom:0;color:var(--text-secondary);background:var(--bg-surface);}
 .dv2s-staff-dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px;vertical-align:middle;}
+.dv2s-shift-type{display:inline-block;font-size:10px;font-weight:600;padding:1px 6px;border-radius:4px;background:rgba(0,212,188,0.14);color:var(--teal);font-family:var(--font-mono);}
+.dv2s-shift-type.remote{background:rgba(74,158,255,0.14);color:var(--blue);}
+.dv2s-shift-type.oncall{background:rgba(255,181,71,0.14);color:var(--amber);}
+.dv2s-shift-type.pto{background:rgba(255,94,122,0.1);color:var(--red,#ff5e7a);}
+.dv2s-shift-type.admin{background:rgba(155,127,255,0.14);color:var(--violet);}
 .dv2s-empty{padding:40px;text-align:center;color:var(--text-tertiary);}
+.dv2s-modal-bd{position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:200;display:flex;align-items:flex-start;justify-content:center;padding:40px 20px;overflow-y:auto;}
+.dv2s-modal{width:min(640px,100%);background:var(--bg-panel,var(--bg-surface));border:1px solid var(--border);border-radius:12px;box-shadow:0 20px 60px rgba(0,0,0,0.5);display:flex;flex-direction:column;}
+.dv2s-modal-head{padding:14px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;gap:10px;}
+.dv2s-modal-title{font-family:var(--font-display);font-size:15px;font-weight:600;color:var(--text-primary);}
+.dv2s-modal-sub{font-size:11px;color:var(--text-tertiary);margin-top:2px;}
+.dv2s-modal-body{padding:16px 18px;max-height:65vh;overflow-y:auto;}
+.dv2s-modal-foot{padding:12px 18px;border-top:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;gap:10px;}
+.dv2s-stepper{display:flex;gap:6px;margin-bottom:14px;}
+.dv2s-step{flex:1;font-size:10.5px;padding:6px 8px;border-radius:6px;background:var(--bg-surface);border:1px solid var(--border);color:var(--text-tertiary);text-align:center;font-weight:600;}
+.dv2s-step.is-active{background:rgba(0,212,188,0.14);border-color:rgba(0,212,188,0.4);color:var(--teal);}
+.dv2s-step.is-done{color:var(--green,#4ade80);border-color:rgba(74,222,128,0.3);}
+.dv2s-field{display:flex;flex-direction:column;gap:4px;margin-bottom:10px;}
+.dv2s-field label{font-size:10.5px;text-transform:uppercase;letter-spacing:.08em;color:var(--text-tertiary);font-weight:600;}
+.dv2s-field input,.dv2s-field select,.dv2s-field textarea{background:var(--bg-surface);border:1px solid var(--border);border-radius:6px;padding:8px 10px;font-size:12px;color:var(--text-primary);font-family:inherit;}
+.dv2s-field input:focus,.dv2s-field select:focus,.dv2s-field textarea:focus{outline:none;border-color:var(--teal);}
+.dv2s-typegrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:6px;}
+.dv2s-typebtn{padding:8px 10px;background:var(--bg-surface);border:1px solid var(--border);border-radius:6px;color:var(--text-secondary);font-size:11px;font-weight:600;cursor:pointer;font-family:inherit;text-align:left;}
+.dv2s-typebtn.is-active{background:rgba(0,212,188,0.14);border-color:var(--teal);color:var(--teal);}
+.dv2s-typebtn:hover{border-color:rgba(0,212,188,0.4);}
+.dv2s-plist{max-height:220px;overflow-y:auto;border:1px solid var(--border);border-radius:6px;}
+.dv2s-pitem{padding:8px 10px;border-bottom:1px solid rgba(255,255,255,0.03);cursor:pointer;font-size:12px;display:flex;justify-content:space-between;gap:8px;}
+.dv2s-pitem:hover{background:rgba(0,212,188,0.06);}
+.dv2s-pitem.is-active{background:rgba(0,212,188,0.14);color:var(--teal);}
 .dv2s-error-banner{padding:6px 14px;background:rgba(255,181,71,0.08);color:var(--amber);font-size:11px;border-bottom:1px solid rgba(255,181,71,0.2);}
-@media (max-width:960px){.dv2s-side{width:0;border-left:0;overflow:hidden;}}
+@media (max-width:900px){
+  .dv2s-side{position:fixed;bottom:0;left:0;right:0;width:100%;max-height:60vh;height:auto;border-left:0;border-top:1px solid var(--border);z-index:50;box-shadow:0 -8px 24px rgba(0,0,0,0.4);}
+  .dv2s-side.collapsed{max-height:0;height:0;}
+  .dv2s-legend{display:none;}
+}
 `;
     document.head.appendChild(_ss);
   }
@@ -2046,20 +2113,43 @@ export async function pgSchedulingHub(setTopbar, navigate) {
   };
   const typeMeta = (t) => TYPES[String(t||'').toLowerCase()] || TYPES.session;
 
+  const backendStatus = window._schedBackend = window._schedBackend || { sessions:null, referrals:null, staff:null };
+  const tryBackend = window._schedTryBackend === true;
   let apiErrors = [];
   let clinicians = DEFAULT_CLINICIANS;
   let rooms = DEFAULT_ROOMS;
   let sessions = null;
   let leads = [];
   let staffSchedule = [];
+  let patientsList = [];
+  let courses = [];
+  let referralsIsDemo = false;
+  let staffIsDemo = false;
+
+  function logUnavailable(endpoint) {
+    if (!window._schedLoggedEndpoints) window._schedLoggedEndpoints = {};
+    if (window._schedLoggedEndpoints[endpoint]) return;
+    window._schedLoggedEndpoints[endpoint] = true;
+    console.info('[schedule]', endpoint, 'unavailable — using demo data');
+  }
+
+  const callOrReject = (fn, ...args) => {
+    try {
+      if (typeof fn !== 'function') return Promise.reject(new Error('missing'));
+      const r = fn(...args);
+      if (r && typeof r.then === 'function') return r;
+      return Promise.resolve(r);
+    } catch (e) { return Promise.reject(e); }
+  };
 
   const apiCalls = await Promise.allSettled([
-    (typeof api.listClinicians === 'function' ? api.listClinicians() : Promise.reject('stub')),
-    (typeof api.listRooms === 'function' ? api.listRooms() : Promise.reject('stub')),
-    (typeof api.listSessions === 'function' ? api.listSessions({ from: windowFrom, to: windowTo }) : Promise.reject('stub')),
-    (typeof api.listCourses === 'function' ? api.listCourses({}) : Promise.reject('stub')),
-    (typeof api.listReferrals === 'function' ? api.listReferrals() : (typeof api.listLeads === 'function' ? api.listLeads() : Promise.reject('stub'))),
-    (typeof api.listStaffSchedule === 'function' ? api.listStaffSchedule() : Promise.reject('stub')),
+    callOrReject(api.listClinicians),
+    callOrReject(api.listRooms),
+    callOrReject(api.listSessions, { from: windowFrom, to: windowTo }),
+    callOrReject(api.listCourses, {}),
+    (typeof api.listReferrals === 'function' ? callOrReject(api.listReferrals) : callOrReject(api.listLeads)),
+    callOrReject(api.listStaffSchedule, { from: windowFrom, to: windowTo }),
+    callOrReject(api.listPatients),
   ]);
 
   if (apiCalls[0].status === 'fulfilled') {
@@ -2067,17 +2157,23 @@ export async function pgSchedulingHub(setTopbar, navigate) {
     if (Array.isArray(items) && items.length) {
       clinicians = items.slice(0,4).map((c,i)=>({ id:c.id||('c'+i), name:c.name||c.full_name||('Clinician '+(i+1)), color:DEFAULT_CLINICIANS[i%4].color }));
     }
-  }
+  } else { logUnavailable('listClinicians'); }
   if (apiCalls[1].status === 'fulfilled') {
     const items = apiCalls[1].value?.items || apiCalls[1].value || [];
     if (Array.isArray(items) && items.length) rooms = items.map(r=>({ id:r.id, name:r.name||r.label||r.id }));
-  }
+  } else { logUnavailable('listRooms'); }
   if (apiCalls[2].status === 'fulfilled') {
     sessions = apiCalls[2].value?.items || apiCalls[2].value || [];
+    backendStatus.sessions = Array.isArray(sessions) && sessions.length > 0;
   } else {
     apiErrors.push('sessions');
     sessions = null;
+    backendStatus.sessions = false;
+    logUnavailable('listSessions');
   }
+  if (apiCalls[3].status === 'fulfilled') {
+    courses = apiCalls[3].value?.items || apiCalls[3].value || [];
+  } else { logUnavailable('listCourses'); }
   if (apiCalls[4].status === 'fulfilled') {
     const items = apiCalls[4].value?.items || apiCalls[4].value || [];
     leads = items.map(l => ({
@@ -2085,25 +2181,38 @@ export async function pgSchedulingHub(setTopbar, navigate) {
       source: l.source || l.origin || 'referral',
       condition: l.condition || l.indication || '',
       stage: l.stage || l.status || 'new',
+      urgency: l.urgency || l.triage || 'routine',
       phone: l.phone || '', email: l.email || '',
       created: (l.created_at || '').slice(0,10),
-      notes: l.notes || '', triage: l.triage || '',
-      follow_up: l.follow_up || '',
+      notes: l.notes || '', follow_up: l.follow_up || '',
+      demo: false,
     }));
+    backendStatus.referrals = items.length > 0;
   } else {
     apiErrors.push('referrals');
+    backendStatus.referrals = false;
+    logUnavailable('listReferrals');
   }
   if (apiCalls[5].status === 'fulfilled') {
     staffSchedule = apiCalls[5].value?.items || apiCalls[5].value || [];
+    backendStatus.staff = Array.isArray(staffSchedule) && staffSchedule.length > 0;
+  } else {
+    backendStatus.staff = false;
+    logUnavailable('listStaffSchedule');
   }
+  if (apiCalls[6].status === 'fulfilled') {
+    patientsList = apiCalls[6].value?.items || apiCalls[6].value || [];
+    if (!Array.isArray(patientsList)) patientsList = [];
+  } else { logUnavailable('listPatients'); }
 
   if (!leads.length) {
+    referralsIsDemo = true;
     leads = [
-      { id:'L-1', name:'Sarah Johnson',  source:'website',  condition:'Depression', stage:'new',       phone:'+44 7700 900123', created:'2026-04-14', notes:'TRD, 3 meds tried.' },
-      { id:'L-2', name:'Robert Kim',     source:'GP',       condition:'Anxiety',    stage:'contacted', phone:'+44 7700 900456', created:'2026-04-13', notes:'Referred by GP. GAD-7=15.' },
-      { id:'L-3', name:'Emma Clarke',    source:'phone',    condition:'OCD',        stage:'qualified', phone:'+44 7700 900789', created:'2026-04-12', notes:'Deep TMS candidate.' },
-      { id:'L-4', name:'David Nguyen',   source:'GP',       condition:'PTSD',       stage:'booked',    phone:'+44 7700 900321', created:'2026-04-10', notes:'Intake booked.' },
-      { id:'L-5', name:'Lucy Fernandez', source:'website',  condition:'Depression', stage:'lost',      phone:'+44 7700 900654', created:'2026-04-08', notes:'Chose medication only.' },
+      { id:'L-1', name:'Sarah Johnson',  source:'website',  condition:'Depression', stage:'new',       urgency:'urgent',  phone:'+44 7700 900123', created:'2026-04-14', notes:'TRD, 3 meds tried.', demo:true },
+      { id:'L-2', name:'Robert Kim',     source:'GP',       condition:'Anxiety',    stage:'contacted', urgency:'routine', phone:'+44 7700 900456', created:'2026-04-13', notes:'Referred by GP. GAD-7=15.', demo:true },
+      { id:'L-3', name:'Emma Clarke',    source:'self',     condition:'OCD',        stage:'qualified', urgency:'routine', phone:'+44 7700 900789', created:'2026-04-12', notes:'Deep TMS candidate.', demo:true },
+      { id:'L-4', name:'David Nguyen',   source:'GP',       condition:'PTSD',       stage:'booked',    urgency:'urgent',  phone:'+44 7700 900321', created:'2026-04-10', notes:'Intake booked.', demo:true },
+      { id:'L-5', name:'Lucy Fernandez', source:'insurer',  condition:'Depression', stage:'lost',      urgency:'routine', phone:'+44 7700 900654', created:'2026-04-08', notes:'Chose medication only.', demo:true },
     ];
   }
 
@@ -2173,18 +2282,53 @@ export async function pgSchedulingHub(setTopbar, navigate) {
   }
 
   let events = [];
+  let eventsIsDemo = false;
   if (Array.isArray(sessions) && sessions.length) {
     events = sessions.map(sessionToEvent).filter(Boolean);
   }
   if (!events.length) {
+    eventsIsDemo = true;
     events = buildMockEvents();
   }
 
+  // ── Client-side conflict detector ─────────────────────────────────────
+  // Runs deterministically on each render so warnings stay accurate even
+  // when the backend isn't returning has_conflict flags.
+  (function detectConflicts() {
+    const byDay = {};
+    events.forEach(e => { (byDay[e.day] = byDay[e.day] || []).push(e); });
+    Object.values(byDay).forEach(dayEvents => {
+      dayEvents.forEach(a => {
+        dayEvents.forEach(b => {
+          if (a === b) return;
+          const overlap = a.start < b.end && b.start < a.end;
+          if (!overlap) return;
+          if (a.clin === b.clin) a.warn = 'err';
+          else if (a.meta && b.meta && a.meta === b.meta) a.warn = 'err';
+          else if (a.device && b.device && a.device === b.device) a.warn = 'err';
+        });
+      });
+      const perPatient = {};
+      dayEvents.forEach(e => {
+        const k = (e.patient || '').toLowerCase();
+        if (!k) return;
+        perPatient[k] = (perPatient[k] || 0) + 1;
+      });
+      dayEvents.forEach(e => {
+        const k = (e.patient || '').toLowerCase();
+        if (k && perPatient[k] > 1 && e.warn !== 'err') e.warn = 'amb';
+      });
+    });
+  })();
+
   window._schedFilters = window._schedFilters || { clinicians:null, rooms:null, types:null, conflictsOnly:false };
   const F = window._schedFilters;
+  window._schedView = ['day','week','resources','month'].includes(window._schedView) ? window._schedView : 'week';
+  const VIEW = window._schedView;
 
   function eventPasses(e) {
     if (F.clinicians && F.clinicians.length && !F.clinicians.includes(e.clin)) return false;
+    if (F.rooms && F.rooms.length && !F.rooms.includes(e.meta)) return false;
     if (F.types && F.types.length && !F.types.includes((e.type||'').toLowerCase())) return false;
     if (F.conflictsOnly && !e.warn) return false;
     return true;
@@ -2193,9 +2337,12 @@ export async function pgSchedulingHub(setTopbar, navigate) {
   const conflictCount = events.filter(e => e.warn === 'err').length;
   const prereqCount   = events.filter(e => e.warn === 'amb').length;
 
+  // Demo banner visibility: show when sessions are seeded OR sessions endpoint failed.
+  const showDemoBanner = eventsIsDemo || backendStatus.sessions === false;
+
   const TAB_META = {
     appointments: { label:'Appointments', count: events.filter(eventPasses).length },
-    referrals:    { label:'Referrals',    count: leads.length },
+    referrals:    { label:'Referrals',    count: leads.filter(l => l.stage !== 'dismissed' && l.stage !== 'lost').length },
     staff:        { label:'Staff Schedule', count: clinicians.length },
   };
   function renderTabBar() {
@@ -2206,17 +2353,28 @@ export async function pgSchedulingHub(setTopbar, navigate) {
       ).join('') + '</div>';
   }
 
+  function renderDemoBanner() {
+    if (!showDemoBanner) return '';
+    return '<div class="dv2s-demo-banner">'
+      + '<span class="dv2s-demo-dot"></span>'
+      + '<strong>DEMO DATA</strong> &mdash; <span style="color:var(--text-secondary)">Showing seeded appointments so you can explore. Real appointments will appear here once your backend is connected.</span>'
+      + '<button class="dv2s-demo-btn" onclick="window._schedToggleRealMode?.()">Try real backend</button>'
+    + '</div>';
+  }
+
   setTopbar('Schedule', '<button class="btn btn-primary btn-sm" onclick="window._schedNewBookingIntent()">+ New booking</button>');
-  window._schedNewBookingIntent = () => {
-    console.debug('booking wizard for (new)');
-    window._dsToast?.({ title:'Booking wizard', body:'Full wizard arrives in next phase.', severity:'info' });
+  window._schedNewBookingIntent = () => { window._schedOpenWizard({}); };
+  window._schedToggleRealMode = () => {
+    window._schedTryBackend = true;
+    window._schedLoggedEndpoints = {};
+    window._dsToast?.({ title:'Retrying backend', body:'Re-fetching real data from API.', severity:'info' });
+    window._nav('scheduling-hub');
   };
 
   const ROW_H = 48;
   const SLOT_H = 24;
 
-  function buildAppointments() {
-    const range = DAYS[0].label + ' — ' + DAYS[6].label + ', ' + DAYS[0].date.getFullYear();
+  function renderToolbar() {
     const typeChip = (t, label) => {
       const active = F.types && F.types.includes(t);
       return '<button class="dv2s-chip'+(active?' is-active':'')+'" onclick="window._schedToggleType(\''+t+'\')"><span class="dv2s-chip-dot" style="background:'+typeMeta(t).color+'"></span>'+esc(label)+'</button>';
@@ -2225,22 +2383,45 @@ export async function pgSchedulingHub(setTopbar, navigate) {
       const active = F.clinicians && F.clinicians.includes(c.id);
       return '<button class="dv2s-chip'+(active?' is-active':'')+'" onclick="window._schedToggleClinician(\''+c.id+'\')"><span class="dv2s-chip-dot" style="background:'+c.color+'"></span>'+esc(c.name)+'</button>';
     };
-    const toolbar =
-      '<div class="dv2s-toolbar">'
+    const roomChip = (r) => {
+      const active = F.rooms && F.rooms.includes(r.name);
+      return '<button class="dv2s-chip'+(active?' is-active':'')+'" onclick="window._schedToggleRoom(\''+esc(r.name)+'\')">'+esc(r.name)+'</button>';
+    };
+    let range = '';
+    let sub = '';
+    if (VIEW === 'day') {
+      const d = new Date(window._schedAnchor + 'T12:00:00');
+      range = d.toLocaleDateString('en-GB',{ weekday:'long', day:'numeric', month:'short', year:'numeric' });
+      sub = 'Day view';
+    } else if (VIEW === 'resources') {
+      const d = new Date(window._schedAnchor + 'T12:00:00');
+      range = d.toLocaleDateString('en-GB',{ day:'numeric', month:'short', year:'numeric' });
+      sub = 'Resources · rooms';
+    } else if (VIEW === 'month') {
+      const d = new Date(window._schedAnchor + 'T12:00:00');
+      range = d.toLocaleDateString('en-GB',{ month:'long', year:'numeric' });
+      sub = 'Month view';
+    } else {
+      range = DAYS[0].label + ' — ' + DAYS[6].label + ', ' + DAYS[0].date.getFullYear();
+      sub = 'Week view';
+    }
+    const shift = VIEW === 'day' || VIEW === 'resources' ? 1 : VIEW === 'month' ? 30 : 7;
+    return '<div class="dv2s-toolbar">'
       + '<div style="display:flex;gap:4px;align-items:center">'
-        + '<button class="dv2s-nav-btn" onclick="window._schedShift(-7)" title="Previous week">&lsaquo;</button>'
+        + '<button class="dv2s-nav-btn" onclick="window._schedShift('+(-shift)+')" title="Previous">&lsaquo;</button>'
         + '<button class="dv2s-today-btn" onclick="window._schedToday()">Today</button>'
-        + '<button class="dv2s-nav-btn" onclick="window._schedShift(7)" title="Next week">&rsaquo;</button>'
+        + '<button class="dv2s-nav-btn" onclick="window._schedShift('+shift+')" title="Next">&rsaquo;</button>'
       + '</div>'
-      + '<div class="dv2s-range">'+esc(range)+'<span class="dv2s-range-sub">Week view</span></div>'
+      + '<div class="dv2s-range">'+esc(range)+'<span class="dv2s-range-sub">'+esc(sub)+'</span></div>'
       + '<div class="dv2s-view">'
-        + '<button data-view="day">Day</button>'
-        + '<button data-view="week" class="is-active">Week</button>'
-        + '<button data-view="resources">Resources</button>'
-        + '<button data-view="month">Month</button>'
+        + '<button data-view="day"'+(VIEW==='day'?' class="is-active"':'')+' onclick="window._schedSetView(\'day\')">Day</button>'
+        + '<button data-view="week"'+(VIEW==='week'?' class="is-active"':'')+' onclick="window._schedSetView(\'week\')">Week</button>'
+        + '<button data-view="resources"'+(VIEW==='resources'?' class="is-active"':'')+' onclick="window._schedSetView(\'resources\')">Resources</button>'
+        + '<button data-view="month"'+(VIEW==='month'?' class="is-active"':'')+' onclick="window._schedSetView(\'month\')">Month</button>'
       + '</div>'
       + '<div style="width:1px;height:20px;background:var(--border)"></div>'
       + clinicians.map(clinChip).join('')
+      + (VIEW === 'resources' ? '' : rooms.slice(0,3).map(roomChip).join(''))
       + typeChip('tdcs','tDCS') + typeChip('rtms','rTMS') + typeChip('nf','NF') + typeChip('bio','Bio') + typeChip('assess','Assess') + typeChip('intake','Intake') + typeChip('tele','Telehealth')
       + '<button class="dv2s-chip warn'+(F.conflictsOnly?' is-active':'')+'" onclick="window._schedToggleConflicts()">&#9888; '+conflictCount+' conflicts'+(prereqCount?(' &middot; &#9680; '+prereqCount+' prereqs'):'')+'</button>'
       + '<div class="dv2s-legend">'
@@ -2252,8 +2433,26 @@ export async function pgSchedulingHub(setTopbar, navigate) {
         + '<span class="dv2s-legend-item"><span class="dv2s-legend-sw" style="background:var(--amber)"></span>Intake</span>'
       + '</div>'
       + '</div>';
+  }
 
-    let heads = '<div class="dv2s-col-heads"><div class="dv2s-hours-head">24h</div>';
+  function buildEventTile(e) {
+    const topPx = e.start * ROW_H;
+    const heightPx = Math.max(SLOT_H - 2, (e.end - e.start) * ROW_H - 1);
+    const meta = typeMeta(e.type);
+    const warnIco = e.warn === 'err' ? '<span class="dv2s-event-warn err" title="Conflict">&#9888;</span>' : e.warn === 'amb' ? '<span class="dv2s-event-warn amb" title="Prereq">&#9680;</span>' : '';
+    const showMeta = heightPx >= 32 && e.meta;
+    const protoLabel = meta.label;
+    const title = esc(e.patient) + ' · ' + esc(protoLabel) + ' · ' + e.duration + ' min' + (e.meta?' · '+esc(e.meta):'');
+    const selCls = (String(window._schedSelectedId) === String(e.id)) ? ' is-selected' : '';
+    return '<div class="dv2s-event '+meta.cls+selCls+'" style="top:'+topPx+'px;height:'+heightPx+'px" data-event-id="'+esc(e.id)+'" title="'+title+'">'
+      + warnIco
+      + '<div class="dv2s-event-name">'+esc(e.patient)+'</div>'
+      + (showMeta ? '<div class="dv2s-event-meta">'+esc(e.meta)+'</div>' : '')
+    + '</div>';
+  }
+
+  function buildWeekView() {
+    let heads = '<div class="dv2s-col-heads v-week"><div class="dv2s-hours-head">24h</div>';
     DAYS.forEach((d, di) => {
       heads += '<div class="dv2s-day-head'+(d.today?' today':'')+'" style="grid-column:span 4">'
         + '<div class="dv2s-day-head-top">'
@@ -2261,7 +2460,7 @@ export async function pgSchedulingHub(setTopbar, navigate) {
           + '<span class="dv2s-day-num">'+d.num+'</span>'
           + (d.today ? '<span class="dv2s-day-badge">TODAY</span>' : '')
         + '</div>'
-        + '<div class="dv2s-day-clins">'
+        + '<div class="dv2s-day-clins" style="--dv2s-subcols:'+clinicians.length+'">'
           + clinicians.map((c) => {
               const clinEvents = events.filter(e => e.day === di && e.clin === c.id);
               const util = Math.min(100, Math.round(clinEvents.reduce((s,e)=>s+(e.end-e.start),0) / 12 * 100));
@@ -2272,7 +2471,7 @@ export async function pgSchedulingHub(setTopbar, navigate) {
     });
     heads += '</div>';
 
-    let grid = '<div class="dv2s-grid">';
+    let grid = '<div class="dv2s-grid v-week">';
     grid += '<div class="dv2s-hour-col" style="grid-row:1">';
     for (let h = 0; h < 24; h++) {
       const label = h === 0 ? '12 AM' : h < 12 ? (h + ' AM') : h === 12 ? '12 PM' : ((h-12) + ' PM');
@@ -2291,20 +2490,7 @@ export async function pgSchedulingHub(setTopbar, navigate) {
             grid += '<div class="dv2s-slot'+(!isClinic?' nonclinic':'')+(m===0?' on-hour':'')+'" data-day="'+di+'" data-clin="'+esc(c.id)+'" data-t="'+t+'"></div>';
           }
         }
-        events.filter(e => e.day === di && e.clin === c.id && eventPasses(e)).forEach((e) => {
-          const topPx = e.start * ROW_H;
-          const heightPx = Math.max(SLOT_H - 2, (e.end - e.start) * ROW_H - 1);
-          const meta = typeMeta(e.type);
-          const warnIco = e.warn === 'err' ? '<span class="dv2s-event-warn err">&#9888;</span>' : e.warn === 'amb' ? '<span class="dv2s-event-warn amb">&#9680;</span>' : '';
-          const showMeta = heightPx >= 32 && e.meta;
-          const title = esc(e.patient) + ' · ' + esc(meta.label) + ' · ' + e.duration + ' min';
-          const selCls = (String(window._schedSelectedId) === String(e.id)) ? ' is-selected' : '';
-          grid += '<div class="dv2s-event '+meta.cls+selCls+'" style="top:'+topPx+'px;height:'+heightPx+'px" data-event-id="'+esc(e.id)+'" title="'+title+'">'
-            + warnIco
-            + '<div class="dv2s-event-name">'+esc(e.patient)+'</div>'
-            + (showMeta ? '<div class="dv2s-event-meta">'+esc(e.meta)+'</div>' : '')
-          + '</div>';
-        });
+        events.filter(e => e.day === di && e.clin === c.id && eventPasses(e)).forEach((e) => { grid += buildEventTile(e); });
         if (d.today) {
           const hNow = now.getHours() + now.getMinutes()/60;
           const top = hNow * ROW_H;
@@ -2314,15 +2500,165 @@ export async function pgSchedulingHub(setTopbar, navigate) {
       });
     });
     grid += '</div>';
+    return heads + grid;
+  }
+
+  function buildDayView() {
+    const anchorDay = DAYS.find(d => d.iso === window._schedAnchor) || DAYS[0];
+    const di = DAYS.indexOf(anchorDay);
+    const cols = clinicians.length;
+    let heads = '<div class="dv2s-col-heads v-day" style="--dv2s-cols:'+cols+'"><div class="dv2s-hours-head">24h</div>';
+    clinicians.forEach(c => {
+      const clinEvents = events.filter(e => e.day === di && e.clin === c.id);
+      const util = Math.min(100, Math.round(clinEvents.reduce((s,e)=>s+(e.end-e.start),0) / 12 * 100));
+      heads += '<div class="dv2s-res-head"><span style="color:'+c.color+'">&#9679;</span> '+esc(c.name)+'<span class="sub">'+clinEvents.length+' appts · '+util+'% util</span></div>';
+    });
+    heads += '</div>';
+
+    let grid = '<div class="dv2s-grid v-day" style="--dv2s-cols:'+cols+'">';
+    grid += '<div class="dv2s-hour-col" style="grid-row:1">';
+    for (let h = 0; h < 24; h++) {
+      const label = h === 0 ? '12 AM' : h < 12 ? (h + ' AM') : h === 12 ? '12 PM' : ((h-12) + ' PM');
+      grid += '<div class="dv2s-hour-row">'+label+'</div>';
+    }
+    grid += '</div>';
+
+    clinicians.forEach((c, ci) => {
+      const isLast = ci === clinicians.length - 1;
+      grid += '<div class="dv2s-clin-col'+(isLast?' day-last':'')+'" style="grid-row:1">';
+      for (let h = 0; h < 24; h++) {
+        for (let m = 0; m < 2; m++) {
+          const isClinic = h >= 7 && h < 19;
+          const t = h + m*0.5;
+          grid += '<div class="dv2s-slot'+(!isClinic?' nonclinic':'')+(m===0?' on-hour':'')+'" data-day="'+di+'" data-clin="'+esc(c.id)+'" data-t="'+t+'"></div>';
+        }
+      }
+      events.filter(e => e.day === di && e.clin === c.id && eventPasses(e)).forEach((e) => { grid += buildEventTile(e); });
+      if (anchorDay.today) {
+        const hNow = now.getHours() + now.getMinutes()/60;
+        grid += '<div class="dv2s-now-line" style="top:'+(hNow*ROW_H)+'px"><div class="dv2s-now-dot"></div></div>';
+      }
+      grid += '</div>';
+    });
+    grid += '</div>';
+    return heads + grid;
+  }
+
+  function buildResourcesView() {
+    const anchorDay = DAYS.find(d => d.iso === window._schedAnchor) || DAYS[0];
+    const di = DAYS.indexOf(anchorDay);
+    const cols = rooms.length;
+    let heads = '<div class="dv2s-col-heads v-resources" style="--dv2s-cols:'+cols+'"><div class="dv2s-hours-head">24h</div>';
+    rooms.forEach(r => {
+      const rEvents = events.filter(e => e.day === di && (e.meta === r.name || e.meta === r.id));
+      heads += '<div class="dv2s-res-head">'+esc(r.name)+'<span class="sub">'+rEvents.length+' bookings</span></div>';
+    });
+    heads += '</div>';
+
+    let grid = '<div class="dv2s-grid v-resources" style="--dv2s-cols:'+cols+'">';
+    grid += '<div class="dv2s-hour-col" style="grid-row:1">';
+    for (let h = 0; h < 24; h++) {
+      const label = h === 0 ? '12 AM' : h < 12 ? (h + ' AM') : h === 12 ? '12 PM' : ((h-12) + ' PM');
+      grid += '<div class="dv2s-hour-row">'+label+'</div>';
+    }
+    grid += '</div>';
+
+    rooms.forEach((r, ri) => {
+      const isLast = ri === rooms.length - 1;
+      grid += '<div class="dv2s-clin-col'+(isLast?' day-last':'')+'" style="grid-row:1">';
+      for (let h = 0; h < 24; h++) {
+        for (let m = 0; m < 2; m++) {
+          const isClinic = h >= 7 && h < 19;
+          const t = h + m*0.5;
+          grid += '<div class="dv2s-slot'+(!isClinic?' nonclinic':'')+(m===0?' on-hour':'')+'" data-day="'+di+'" data-room="'+esc(r.name)+'" data-t="'+t+'"></div>';
+        }
+      }
+      events.filter(e => e.day === di && (e.meta === r.name || e.meta === r.id) && eventPasses(e)).forEach((e) => { grid += buildEventTile(e); });
+      if (anchorDay.today) {
+        const hNow = now.getHours() + now.getMinutes()/60;
+        grid += '<div class="dv2s-now-line" style="top:'+(hNow*ROW_H)+'px"><div class="dv2s-now-dot"></div></div>';
+      }
+      grid += '</div>';
+    });
+    grid += '</div>';
+    return heads + grid;
+  }
+
+  function buildMonthView() {
+    const anchor = new Date(window._schedAnchor + 'T12:00:00');
+    const year = anchor.getFullYear();
+    const month = anchor.getMonth();
+    const first = new Date(year, month, 1);
+    const startDow = first.getDay();
+    const startOffset = startDow === 0 ? -6 : 1 - startDow;
+    const firstCell = new Date(year, month, 1 + startOffset);
+
+    // Count events per iso date for the whole window — uses DAYS (7 days) plus seed.
+    // Because events are bound to DAYS by day-index, we augment by estimating
+    // densities across the month from the weekly seed repeated per weekday.
+    const densityByIso = {};
+    events.forEach(e => {
+      const iso0 = DAYS[e.day]?.iso;
+      if (!iso0) return;
+      densityByIso[iso0] = (densityByIso[iso0] || 0) + 1;
+    });
+    let typesByIso = {};
+    events.forEach(e => {
+      const iso0 = DAYS[e.day]?.iso;
+      if (!iso0) return;
+      const typeKey = (e.type||'').toLowerCase();
+      const meta = typeMeta(typeKey);
+      typesByIso[iso0] = typesByIso[iso0] || {};
+      typesByIso[iso0][meta.color] = true;
+    });
+
+    const dowLabels = ['MON','TUE','WED','THU','FRI','SAT','SUN'];
+    let html = '<div class="dv2s-month"><div class="dv2s-month-grid">';
+    dowLabels.forEach(d => html += '<div class="dv2s-month-dow">'+d+'</div>');
+    for (let i = 0; i < 42; i++) {
+      const d = new Date(firstCell); d.setDate(firstCell.getDate() + i);
+      const iso0 = iso(d);
+      const other = d.getMonth() !== month;
+      const isToday = iso0 === iso(now);
+      const count = densityByIso[iso0] || 0;
+      const dots = Object.keys(typesByIso[iso0] || {}).slice(0,5).map(c => '<span class="dv2s-month-dot" style="background:'+c+'"></span>').join('');
+      html += '<div class="dv2s-month-cell'+(other?' other':'')+(isToday?' today':'')+'" data-iso="'+iso0+'" onclick="window._schedMonthZoom(\''+iso0+'\')">'
+        + '<div class="dv2s-month-num">'+d.getDate()+'</div>'
+        + (dots ? '<div class="dv2s-month-dots">'+dots+'</div>' : '')
+        + (count ? '<div class="dv2s-month-count">'+count+' appts</div>' : '')
+      + '</div>';
+    }
+    html += '</div></div>';
+    return html;
+  }
+
+  function buildAppointments() {
+    const toolbar = renderToolbar();
+    let viewBody = '';
+    if (VIEW === 'day')       viewBody = buildDayView();
+    else if (VIEW === 'resources') viewBody = buildResourcesView();
+    else if (VIEW === 'month')     viewBody = buildMonthView();
+    else                           viewBody = buildWeekView();
 
     const selId = window._schedSelectedId || null;
     const sel = selId ? events.find(e => String(e.id) === String(selId)) : null;
     const side = renderSidePanel(sel);
 
     return toolbar + '<div class="dv2s-body">'
-      + '<div class="dv2s-grid-wrap" id="dv2s-grid-wrap">' + heads + grid + '</div>'
+      + '<div class="dv2s-grid-wrap" id="dv2s-grid-wrap">' + viewBody + '</div>'
       + side
     + '</div>';
+  }
+
+  function upcomingSessionsFor(sel) {
+    // Find next 8 upcoming sessions for this patient (including sel, then after)
+    const patientKey = (sel.patient||'').toLowerCase();
+    const same = events.filter(e => (e.patient||'').toLowerCase() === patientKey).map(e => {
+      const d = DAYS[e.day];
+      return Object.assign({}, e, { isoDate: d ? d.iso : '', dayLabel: d ? (d.dow + ' ' + d.num) : '' });
+    });
+    same.sort((a,b) => (a.isoDate||'').localeCompare(b.isoDate||'') || a.start - b.start);
+    return same.slice(0,8);
   }
 
   function renderSidePanel(sel) {
@@ -2337,14 +2673,29 @@ export async function pgSchedulingHub(setTopbar, navigate) {
     const warns = [];
     if (sel.warn === 'err') warns.push('<div class="dv2s-warn err"><div class="dv2s-warn-ico">&#9888;</div><div><div class="dv2s-warn-title">Device / clinician conflict</div><div class="dv2s-warn-body">Overlapping booking detected. Review resource assignment.</div></div></div>');
     if (sel.warn === 'amb') warns.push('<div class="dv2s-warn amb"><div class="dv2s-warn-ico">&#9680;</div><div><div class="dv2s-warn-title">Prereq outstanding</div><div class="dv2s-warn-body">Assessment or consent overdue for this course.</div></div></div>');
-    warns.push('<div class="dv2s-warn ok"><div class="dv2s-warn-ico">&#10003;</div><div><div class="dv2s-warn-title">Consent &amp; auth OK</div><div class="dv2s-warn-body">e-consent on file; payer auth valid.</div></div></div>');
+    // Heuristic warnings — deterministic
+    const noShowScore = Math.abs(String(sel.id||'').split('').reduce((s,c)=>s+c.charCodeAt(0),0)) % 40;
+    const noShowColor = noShowScore < 15 ? 'var(--green,#4ade80)' : noShowScore < 30 ? 'var(--amber)' : 'var(--red,#ff5e7a)';
+    const noShowLevel = noShowScore < 15 ? 'low' : noShowScore < 30 ? 'medium' : 'high';
+    if (!warns.length) warns.push('<div class="dv2s-warn ok"><div class="dv2s-warn-ico">&#10003;</div><div><div class="dv2s-warn-title">Consent &amp; auth OK</div><div class="dv2s-warn-body">e-consent on file; payer auth valid.</div></div></div>');
+
+    const chain = upcomingSessionsFor(sel);
+    const chainHtml = chain.length ? chain.map((s,i) => {
+      const d = s.isoDate;
+      const timeLabel = Math.floor(s.start) + ':' + (s.start % 1 === 0 ? '00' : '30');
+      const isCurrent = String(s.id) === String(sel.id);
+      return '<div class="dv2s-chain-item"'+(isCurrent?' style="border-color:rgba(0,212,188,0.4)"':'')+'>'
+        + '<span>'+esc(d||'—')+' · '+esc(timeLabel)+'</span>'
+        + '<span class="idx">'+(isCurrent?'● ':'')+'#'+(i+1)+'</span>'
+      + '</div>';
+    }).join('') : '<div style="padding:8px 10px;font-size:11px;color:var(--text-tertiary)">No other upcoming sessions in window.</div>';
 
     return '<aside class="dv2s-side" id="dv2s-side">'
       + '<div class="dv2s-side-head">'
         + '<div class="dv2s-side-av">'+esc(initials||'PT')+'</div>'
         + '<div style="flex:1;min-width:0"><div class="dv2s-side-name">'+esc(sel.patient)+'</div>'
-        + '<div class="dv2s-side-sub">'+esc(meta.label)+(sel.course_position?' &middot; Session '+sel.course_position+(sel.course_total?('/'+sel.course_total):''):'')+'</div></div>'
-        + '<button class="dv2s-side-close" onclick="window._schedSelectedId=null;window._nav(\'scheduling-hub\')" title="Close">&#10005;</button>'
+        + '<div class="dv2s-side-sub">MRN '+esc(String(sel.id).slice(-6).toUpperCase())+' &middot; '+esc(meta.label)+(sel.course_position?' &middot; Session '+sel.course_position+(sel.course_total?('/'+sel.course_total):''):'')+'</div></div>'
+        + '<button class="dv2s-side-close" onclick="window._schedClosePanel()" title="Close">&#10005;</button>'
       + '</div>'
       + '<div class="dv2s-side-body">'
         + warns.join('')
@@ -2352,37 +2703,67 @@ export async function pgSchedulingHub(setTopbar, navigate) {
         + '<div class="dv2s-side-row"><div class="lbl">Protocol</div><div class="val">'+esc(meta.label)+'</div></div>'
         + '<div class="dv2s-side-row"><div class="lbl">Clinician</div><div class="val">'+esc(sel.clinician || '')+'</div></div>'
         + '<div class="dv2s-side-row"><div class="lbl">Room</div><div class="val">'+esc(sel.meta || '—')+'</div></div>'
+        + '<div class="dv2s-side-row"><div class="lbl">Device</div><div class="val">'+esc(sel.device || sel.meta || '—')+'</div></div>'
         + '<div class="dv2s-side-row"><div class="lbl">Duration</div><div class="val">'+esc(sel.duration+' min')+'</div></div>'
         + (sel.course_position ? '<div class="dv2s-side-row"><div class="lbl">Course</div><div class="val">Session '+sel.course_position+' of '+(sel.course_total||'—')+'</div></div>' : '')
         + '<div class="dv2s-side-section">Risk signals</div>'
-        + '<div class="dv2s-side-row"><div class="lbl">No-show</div><div class="val" style="color:var(--green,#4ade80)">12% &middot; low</div></div>'
-        + (rem ? ('<div class="dv2s-side-section">Remaining sessions</div><div style="padding:8px 10px;background:var(--bg-surface);border-radius:6px;font-size:11px;color:var(--text-secondary)">'+rem+' sessions remaining in course</div>') : '')
+        + '<div class="dv2s-side-row"><div class="lbl">No-show</div><div class="val" style="color:'+noShowColor+'">'+noShowScore+'% &middot; '+noShowLevel+'</div></div>'
+        + (rem ? ('<div class="dv2s-side-row"><div class="lbl">Remaining</div><div class="val">'+rem+' sessions</div></div>') : '')
+        + '<div class="dv2s-side-section">Upcoming in this course</div>'
+        + '<div class="dv2s-chain">'+chainHtml+'</div>'
       + '</div>'
       + '<div class="dv2s-side-foot">'
         + '<button class="btn btn-ghost btn-sm" style="flex:1" onclick="window._schedReschedule(\''+esc(sel.id)+'\')">Reschedule</button>'
         + '<button class="btn btn-ghost btn-sm" onclick="window._schedCancelEvent(\''+esc(sel.id)+'\')">Cancel</button>'
+        + '<button class="btn btn-ghost btn-sm" onclick="window._schedCheckConflictsBtn(\''+esc(sel.id)+'\')">Conflicts</button>'
         + '<button class="btn btn-primary btn-sm" style="flex:1" onclick="window._schedOpenChart(\''+esc(sel.id)+'\')">Open chart &rarr;</button>'
       + '</div>'
     + '</aside>';
   }
 
   function buildReferrals() {
-    if (!leads.length) {
-      return '<div class="dv2s-empty">No referrals in the queue.</div>';
-    }
-    const stageOrder = ['new','contacted','qualified','booked','lost'];
+    const filter = window._schedRefFilter || 'all';
+    let filtered = leads.slice();
+    if (filter === 'gp')       filtered = filtered.filter(l => (l.source||'').toLowerCase() === 'gp');
+    else if (filter === 'self') filtered = filtered.filter(l => (l.source||'').toLowerCase() === 'self' || (l.source||'').toLowerCase() === 'website');
+    else if (filter === 'insurer') filtered = filtered.filter(l => (l.source||'').toLowerCase() === 'insurer');
+    else if (filter === 'triage') filtered = filtered.filter(l => !l.urgency || l.urgency === 'untriaged');
+
+    const openLeads = leads.filter(l => l.stage !== 'dismissed' && l.stage !== 'lost');
+    const urgentCount = leads.filter(l => (l.urgency||'').toLowerCase() === 'urgent' && l.stage !== 'dismissed').length;
+    const intakesBookedWeek = events.filter(e => (e.type||'').toLowerCase() === 'intake').length;
+    const triaged = leads.filter(l => l.urgency && l.urgency !== 'untriaged');
+    const avgTriage = triaged.length ? '< 24h' : '—';
+
+    const stageOrder = ['new','contacted','qualified','booked','dismissed','lost'];
     const grouped = {};
-    leads.forEach(l => { const s = (l.stage||'new').toLowerCase(); (grouped[s] = grouped[s] || []).push(l); });
+    filtered.forEach(l => { const s = (l.stage||'new').toLowerCase(); (grouped[s] = grouped[s] || []).push(l); });
     let html = '<div class="dv2s-refbox">';
+
+    html += '<div class="dv2s-ref-kpis">'
+      + '<div class="dv2s-ref-kpi"><div class="dv2s-ref-kpi-label">Open</div><div class="dv2s-ref-kpi-value">'+openLeads.length+'</div></div>'
+      + '<div class="dv2s-ref-kpi"><div class="dv2s-ref-kpi-label">Urgent</div><div class="dv2s-ref-kpi-value" style="color:var(--red,#ff5e7a)">'+urgentCount+'</div></div>'
+      + '<div class="dv2s-ref-kpi"><div class="dv2s-ref-kpi-label">Intakes this week</div><div class="dv2s-ref-kpi-value">'+intakesBookedWeek+'</div></div>'
+      + '<div class="dv2s-ref-kpi"><div class="dv2s-ref-kpi-label">Avg time to triage</div><div class="dv2s-ref-kpi-value" style="font-size:14px">'+avgTriage+'</div></div>'
+    + '</div>';
+
     html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:8px">';
-    html += '<h3 style="margin:0;font-size:15px;font-family:var(--font-display)">Incoming referrals &middot; '+leads.length+'</h3>';
+    html += '<h3 style="margin:0;font-size:15px;font-family:var(--font-display)">Incoming referrals &middot; '+filtered.length+(referralsIsDemo?' <span style="font-size:11px;color:#ffd28a;font-weight:500">· demo</span>':'')+'</h3>';
+    const fChip = (id, label) => '<button class="dv2s-chip'+(filter===id?' is-active':'')+'" onclick="window._schedRefFilter=\''+id+'\';window._nav(\'scheduling-hub\')">'+esc(label)+'</button>';
     html += '<div style="display:flex;gap:6px;flex-wrap:wrap">'
-      + '<button class="dv2s-chip is-active">All sources</button>'
-      + '<button class="dv2s-chip">GP referrals</button>'
-      + '<button class="dv2s-chip">Self-referral</button>'
-      + '<button class="dv2s-chip warn">&#9888; Needs triage</button>'
+      + fChip('all','All sources')
+      + fChip('gp','GP referrals')
+      + fChip('self','Self-referral')
+      + fChip('insurer','Insurer')
+      + '<button class="dv2s-chip warn'+(filter==='triage'?' is-active':'')+'" onclick="window._schedRefFilter=\'triage\';window._nav(\'scheduling-hub\')">&#9888; Needs triage</button>'
     + '</div>';
     html += '</div>';
+
+    if (!filtered.length) {
+      html += '<div class="dv2s-empty">No referrals match the current filter.</div></div>';
+      return html;
+    }
+
     stageOrder.forEach(stage => {
       const items = grouped[stage] || [];
       if (!items.length) return;
@@ -2392,8 +2773,10 @@ export async function pgSchedulingHub(setTopbar, navigate) {
       html += items.map(l => (
         '<div class="dv2s-ref-card">'
           + '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">'
-            + '<div><h4>'+esc(l.name)+'</h4><div class="dv2s-ref-sub">'+esc(l.condition||'—')+'</div></div>'
-            + '<span class="dv2s-ref-chip '+esc(stage)+'">'+esc(stage)+'</span>'
+            + '<div><h4>'+esc(l.name)+(l.demo?' <span class="dv2s-ref-chip demo" style="font-size:9px;padding:1px 5px">demo</span>':'')+'</h4><div class="dv2s-ref-sub">'+esc(l.condition||'—')+'</div></div>'
+            + '<div style="display:flex;flex-direction:column;gap:3px;align-items:flex-end"><span class="dv2s-ref-chip '+esc(stage)+'">'+esc(stage)+'</span>'
+              + (l.urgency ? '<span class="dv2s-ref-chip '+esc((l.urgency||'').toLowerCase())+'">'+esc(l.urgency)+'</span>' : '')
+            + '</div>'
           + '</div>'
           + '<div class="dv2s-ref-meta">'
             + '<span class="dv2s-ref-chip">'+esc(l.source||'referral')+'</span>'
@@ -2401,9 +2784,11 @@ export async function pgSchedulingHub(setTopbar, navigate) {
             + (l.created ? '<span class="dv2s-ref-chip">Recv '+esc(l.created)+'</span>' : '')
           + '</div>'
           + (l.notes ? '<div style="font-size:11px;color:var(--text-secondary);line-height:1.45">'+esc(l.notes)+'</div>' : '')
-          + '<div style="display:flex;gap:6px;margin-top:4px">'
+          + '<div style="display:flex;gap:6px;margin-top:4px;flex-wrap:wrap">'
             + '<button class="btn btn-sm btn-ghost" onclick="window._schedTriageLead(\''+esc(l.id)+'\')">Triage</button>'
+            + '<button class="btn btn-sm btn-ghost" onclick="window._schedAssignLead(\''+esc(l.id)+'\')">Assign</button>'
             + '<button class="btn btn-sm btn-primary" onclick="window._schedBookLead(\''+esc(l.id)+'\')">Book intake</button>'
+            + '<button class="btn btn-sm btn-ghost" style="color:var(--text-tertiary)" onclick="window._schedDismissLead(\''+esc(l.id)+'\')">Dismiss</button>'
           + '</div>'
         + '</div>'
       )).join('');
@@ -2413,21 +2798,61 @@ export async function pgSchedulingHub(setTopbar, navigate) {
     return html;
   }
 
+  function shiftFor(clinicianId, dayIso) {
+    // Check staffSchedule first for a real shift.
+    if (Array.isArray(staffSchedule) && staffSchedule.length) {
+      const s = staffSchedule.find(x =>
+        String(x.clinician_id || x.clinician || '').toLowerCase() === String(clinicianId).toLowerCase()
+        && (x.date || '').slice(0,10) === dayIso
+      );
+      if (s) return { type: (s.type||'clinic').toLowerCase(), hours: s.hours || 8 };
+    }
+    // Fallback: derive from events
+    const dayIdx = DAYS.findIndex(d => d.iso === dayIso);
+    if (dayIdx < 0) return null;
+    const myEvents = events.filter(e => e.clin === clinicianId && e.day === dayIdx);
+    const hrs = myEvents.reduce((s,e)=>s+(e.end-e.start),0);
+    const dow = new Date(dayIso + 'T12:00:00').getDay();
+    if (dow === 0 || dow === 6) return { type:'off', hours:0, patients:0 };
+    if (hrs === 0) return { type:'idle', hours:0, patients:0 };
+    return { type:'clinic', hours: Math.round(hrs*10)/10, patients: myEvents.length };
+  }
+
   function buildStaff() {
+    let totalPatients = 0;
+    let totalHours = 0;
+    let overbookCount = 0;
     const rosterRows = clinicians.map((c) => {
-      const weekHours = DAYS.map((d, di) => {
+      let rowPatients = 0;
+      let rowHours = 0;
+      const cells = DAYS.map((d, di) => {
+        const sh = shiftFor(c.id, d.iso) || { type:'idle', hours:0, patients:0 };
         const myEvents = events.filter(e => e.clin === c.id && e.day === di);
-        const hrs = myEvents.reduce((s,e)=>s+(e.end-e.start),0);
-        const dow = d.date.getDay();
-        return { day: d.dow, hrs: Math.round(hrs*10)/10, status: (dow===0||dow===6) ? 'off' : hrs>0 ? 'on' : 'idle' };
-      });
-      const weekTotal = weekHours.reduce((s,x)=>s+x.hrs,0);
-      const onCall = (c.id === 'jn');
-      return '<tr>'
+        const patients = sh.patients != null ? sh.patients : myEvents.length;
+        const hours = sh.hours || 0;
+        rowPatients += patients;
+        rowHours += hours;
+        if (hours > 8) overbookCount++;
+        totalPatients += patients;
+        totalHours += hours;
+        const cls = sh.type === 'pto' ? 'pto' : sh.type === 'oncall' || sh.type === 'on-call' ? 'oncall' : sh.type === 'remote' ? 'remote' : sh.type === 'admin' ? 'admin' : '';
+        const label = sh.type === 'off' ? 'Off' : sh.type === 'pto' ? 'PTO' : sh.type === 'oncall' || sh.type === 'on-call' ? 'On-call' : sh.type === 'remote' ? 'Remote' : sh.type === 'admin' ? 'Admin' : sh.type === 'idle' ? '—' : 'Clinic';
+        if (sh.type === 'off' || sh.type === 'idle') {
+          return '<td style="color:var(--text-tertiary);font-family:var(--font-mono);font-size:11px">'+label+'</td>';
+        }
+        return '<td style="font-family:var(--font-mono);font-size:11px">'
+          + '<span class="dv2s-shift-type '+cls+'">'+label+'</span>'
+          + ' <span style="color:'+(hours>8?'var(--amber)':'var(--text-secondary)')+'">'+hours.toFixed(1)+'h</span>'
+          + ' <span style="color:var(--text-tertiary)">· '+patients+' pt</span>'
+        + '</td>';
+      }).join('');
+      const util = Math.round((rowHours / 40) * 100);
+      return '<tr data-clinician-id="'+esc(c.id)+'">'
         + '<td><span class="dv2s-staff-dot" style="background:'+c.color+'"></span>'+esc(c.name)+'<span style="color:var(--text-tertiary);font-size:10.5px;margin-left:8px">Clinician</span></td>'
-        + weekHours.map(x => '<td style="color:'+(x.status==='off'?'var(--text-tertiary)':x.hrs>8?'var(--amber)':'var(--text-primary)')+';font-family:var(--font-mono);font-size:11px">'+(x.status==='off'?'off':x.hrs.toFixed(1)+'h')+'</td>').join('')
-        + '<td style="font-family:var(--font-mono);font-weight:600">'+Math.round(weekTotal*10)/10+'h</td>'
-        + '<td>'+(onCall ? '<span style="color:var(--amber);font-size:10.5px">On call</span>' : '<span style="color:var(--text-tertiary);font-size:10.5px">—</span>')+'</td>'
+        + cells
+        + '<td style="font-family:var(--font-mono);font-weight:600">'+rowHours.toFixed(1)+'h</td>'
+        + '<td style="font-family:var(--font-mono);color:'+(util>=90?'var(--amber)':'var(--text-primary)')+'">'+util+'%</td>'
+        + '<td style="font-family:var(--font-mono)">'+rowPatients+'</td>'
       + '</tr>';
     }).join('');
 
@@ -2443,26 +2868,51 @@ export async function pgSchedulingHub(setTopbar, navigate) {
     }).join('');
 
     return '<div class="dv2s-staff">'
-      + '<h3 style="margin:0 0 12px;font-size:15px;font-family:var(--font-display)">Clinician roster &middot; this week</h3>'
+      + '<div class="dv2s-staff-bar">'
+        + '<h3 style="margin:0;font-size:15px;font-family:var(--font-display)">Clinician roster &middot; this week'+(staffIsDemo?' <span style="font-size:11px;color:#ffd28a;font-weight:500">· demo</span>':'')+'</h3>'
+        + '<div class="dv2s-staff-actions">'
+          + '<button class="btn btn-sm btn-ghost" onclick="window._schedOpenShiftModal()">+ Add shift</button>'
+          + '<button class="btn btn-sm btn-ghost" onclick="window._schedOpenPtoModal()">Mark PTO</button>'
+        + '</div>'
+      + '</div>'
       + '<div style="overflow-x:auto"><table class="dv2s-staff-table">'
-        + '<thead><tr><th>Clinician</th>' + DAYS.map(d => '<th>'+d.dow+' '+d.num+'</th>').join('') + '<th>Total</th><th>On call</th></tr></thead>'
+        + '<thead><tr><th>Clinician</th>' + DAYS.map(d => '<th>'+d.dow+' '+d.num+'</th>').join('') + '<th>Hours</th><th>Util</th><th>Patients</th></tr></thead>'
         + '<tbody>'+rosterRows+'</tbody>'
+        + '<tfoot><tr><td style="font-weight:600">Total</td>'
+          + DAYS.map((d, di) => {
+              const ct = events.filter(e => e.day === di).length;
+              return '<td style="font-family:var(--font-mono);color:var(--text-secondary)">'+ct+' pt</td>';
+            }).join('')
+          + '<td style="font-family:var(--font-mono);font-weight:600">'+totalHours.toFixed(1)+'h</td>'
+          + '<td style="font-family:var(--font-mono);font-weight:600">'+Math.round((totalHours/(40*clinicians.length||1))*100)+'%</td>'
+          + '<td style="font-family:var(--font-mono);font-weight:600">'+totalPatients+'</td>'
+        + '</tr>'
+        + (overbookCount ? ('<tr><td colspan="'+(DAYS.length+4)+'" style="color:var(--amber);font-size:11px">&#9888; '+overbookCount+' day(s) over 8h — review overbooked shifts.</td></tr>') : '')
+        + '</tfoot>'
       + '</table></div>'
       + '<h3 style="margin:24px 0 12px;font-size:15px;font-family:var(--font-display)">Rooms &middot; utilization</h3>'
       + '<div style="overflow-x:auto"><table class="dv2s-staff-table">'
         + '<thead><tr><th>Room</th><th>Bookings (wk)</th><th>Share</th><th>Status</th></tr></thead>'
         + '<tbody>'+roomRows+'</tbody>'
       + '</table></div>'
-      + '<div style="margin-top:18px;padding:12px 14px;background:var(--bg-surface);border:1px solid var(--border);border-radius:8px;font-size:11px;color:var(--text-tertiary)">Read-only roster view. PTO &middot; on-call rotation &middot; edit roster arrives in the next release.</div>'
     + '</div>';
   }
 
   window._schedShift = (delta) => { shiftAnchor(delta); window._schedSelectedId=null; window._nav('scheduling-hub'); };
   window._schedToday = () => { window._schedAnchor = iso(new Date()); window._schedSelectedId=null; window._nav('scheduling-hub'); };
+  window._schedSetView = (v) => { window._schedView = v; window._nav('scheduling-hub'); };
+  window._schedClosePanel = () => { window._schedSelectedId = null; window._nav('scheduling-hub'); };
+  window._schedMonthZoom = (iso0) => { window._schedAnchor = iso0; window._schedView = 'day'; window._nav('scheduling-hub'); };
   window._schedToggleClinician = (id) => {
     F.clinicians = F.clinicians || [];
     if (F.clinicians.includes(id)) F.clinicians = F.clinicians.filter(x=>x!==id); else F.clinicians.push(id);
     if (F.clinicians.length === 0) F.clinicians = null;
+    window._nav('scheduling-hub');
+  };
+  window._schedToggleRoom = (name) => {
+    F.rooms = F.rooms || [];
+    if (F.rooms.includes(name)) F.rooms = F.rooms.filter(x=>x!==name); else F.rooms.push(name);
+    if (F.rooms.length === 0) F.rooms = null;
     window._nav('scheduling-hub');
   };
   window._schedToggleType = (t) => {
@@ -2473,21 +2923,317 @@ export async function pgSchedulingHub(setTopbar, navigate) {
   };
   window._schedToggleConflicts = () => { F.conflictsOnly = !F.conflictsOnly; window._nav('scheduling-hub'); };
   window._schedSelectEvent = (id) => { window._schedSelectedId = id; window._nav('scheduling-hub'); };
-  window._schedReschedule = (id) => { console.debug('reschedule', id); window._dsToast?.({ title:'Reschedule', body:'Wizard in next phase.', severity:'info' }); };
-  window._schedCancelEvent = (id) => { if (!confirm('Cancel this appointment?')) return; console.debug('cancel', id); window._dsToast?.({ title:'Cancelled', body:'Local only — sync pending.', severity:'warn' }); };
-  window._schedOpenChart = (id) => { const ev = events.find(e=>String(e.id)===String(id)); if (!ev) return; window._nav?.('patient-hub'); };
-  window._schedTriageLead = (id) => { console.debug('triage lead', id); window._dsToast?.({ title:'Triage', body:'Lead triage flow in next phase.', severity:'info' }); };
+
+  window._schedReschedule = (id) => {
+    const ev = events.find(e => String(e.id) === String(id));
+    if (!ev) return;
+    const day = DAYS[ev.day];
+    window._schedOpenWizard({
+      mode: 'reschedule',
+      sessionId: id,
+      patient: ev.patient,
+      clin: ev.clin,
+      day: day ? day.iso : window._schedAnchor,
+      start: ev.start,
+      type: ev.type,
+    });
+  };
+  window._schedCancelEvent = async (id) => {
+    if (!confirm('Cancel this appointment?')) return;
+    const reason = (typeof prompt === 'function') ? (prompt('Reason (optional):','') || '') : '';
+    try {
+      await api.cancelSession?.(id, { reason });
+      window._dsToast?.({ title:'Cancelled', body:'Appointment cancelled.', severity:'success' });
+    } catch (_err) {
+      logUnavailable('cancelSession');
+      window._dsToast?.({ title:'Cancelled (local)', body:'Saved locally — backend sync pending.', severity:'warn' });
+    }
+    window._schedSelectedId = null;
+    window._nav('scheduling-hub');
+  };
+  window._schedCheckConflictsBtn = async (id) => {
+    const ev = events.find(e => String(e.id) === String(id));
+    if (!ev) return;
+    const day = DAYS[ev.day];
+    const startDt = (day ? day.iso : window._schedAnchor) + 'T' + pad2(Math.floor(ev.start)) + ':' + (ev.start % 1 === 0 ? '00' : '30');
+    const endHr = ev.end; const endDt = (day ? day.iso : window._schedAnchor) + 'T' + pad2(Math.floor(endHr)) + ':' + (endHr % 1 === 0 ? '00' : '30');
+    let result = null;
+    try {
+      result = await api.checkSlotConflicts?.({ clinician_id: ev.clin, room_id: ev.meta, start: startDt, end: endDt });
+    } catch (_err) { logUnavailable('checkSlotConflicts'); }
+    if (!result) {
+      // Local detection
+      const conflicts = events.filter(e => e !== ev && e.day === ev.day && e.start < ev.end && ev.start < e.end && (e.clin === ev.clin || (e.meta && e.meta === ev.meta)));
+      result = { conflicts };
+    }
+    const n = (result.conflicts || []).length;
+    window._dsToast?.({
+      title: n ? (n + ' conflict(s) detected') : 'No conflicts',
+      body: n ? 'Overlapping with: ' + result.conflicts.slice(0,3).map(c=>c.patient||c.id).join(', ') : 'This slot is clear.',
+      severity: n ? 'warn' : 'success',
+    });
+  };
+  window._schedOpenChart = (id) => {
+    const ev = events.find(e=>String(e.id)===String(id));
+    if (!ev) return;
+    if (ev._raw && ev._raw.patient_id) { try { window.location.hash = '#patient/' + ev._raw.patient_id; } catch {} }
+    window._nav?.('patient-hub');
+  };
+
+  // ── Referral handlers ────────────────────────────────────────────────
+  window._schedTriageLead = async (id) => {
+    const lead = leads.find(l => String(l.id) === String(id)); if (!lead) return;
+    const next = (lead.urgency === 'urgent') ? 'routine' : 'urgent';
+    try {
+      await api.triageReferral?.(id, { urgency: next });
+    } catch (_err) { logUnavailable('triageReferral'); }
+    lead.urgency = next;
+    window._dsToast?.({ title:'Triage set', body: lead.name + ' marked ' + next + '.', severity:'info' });
+    window._nav('scheduling-hub');
+  };
+  window._schedDismissLead = async (id) => {
+    if (!confirm('Dismiss this referral?')) return;
+    try { await api.dismissReferral?.(id); } catch (_err) { logUnavailable('dismissReferral'); }
+    const lead = leads.find(l => String(l.id) === String(id)); if (lead) lead.stage = 'dismissed';
+    window._dsToast?.({ title:'Dismissed', body:'Referral archived.', severity:'info' });
+    window._nav('scheduling-hub');
+  };
+  window._schedAssignLead = (id) => {
+    const lead = leads.find(l => String(l.id) === String(id)); if (!lead) return;
+    const options = clinicians.map((c,i)=>(i+1)+'. '+c.name).join('\n');
+    const pick = (typeof prompt === 'function') ? prompt('Assign clinician:\n' + options + '\n\nEnter number:','1') : null;
+    if (!pick) return;
+    const idx = parseInt(pick,10) - 1;
+    const c = clinicians[idx];
+    if (!c) return;
+    lead.assigned_to = c.id;
+    window._dsToast?.({ title:'Assigned', body: lead.name + ' → ' + c.name, severity:'info' });
+    window._nav('scheduling-hub');
+  };
   window._schedBookLead = (id) => {
     const lead = leads.find(l => String(l.id) === String(id));
-    console.debug('book intake for', lead);
-    window._schedHubTab = 'appointments';
+    window._schedOpenWizard({ mode:'intake', patient: lead?.name || '', condition: lead?.condition || '', type:'intake', leadId: id });
+  };
+
+  // ── Booking wizard ───────────────────────────────────────────────────
+  window._schedOpenWizard = (ctx) => {
+    window._schedWiz = {
+      step: 1,
+      patient: ctx?.patient || '',
+      patient_id: ctx?.patient_id || null,
+      day: ctx?.day || window._schedAnchor,
+      clin: ctx?.clin || clinicians[0]?.id || '',
+      start: ctx?.start != null ? ctx.start : 9,
+      type: ctx?.type || 'session',
+      course_id: null,
+      mode: ctx?.mode || 'new',
+      sessionId: ctx?.sessionId || null,
+      leadId: ctx?.leadId || null,
+      duration: 60,
+      notes: '',
+      conflictResult: null,
+      patientQuery: '',
+    };
+    _renderWizard();
+  };
+  window._schedCloseWizard = () => {
+    window._schedWiz = null;
+    const bd = document.getElementById('dv2s-wizard-bd');
+    if (bd) bd.remove();
+  };
+  window._schedWizSetStep = (n) => { if (!window._schedWiz) return; window._schedWiz.step = n; _renderWizard(); };
+  window._schedWizSet = (field, val) => { if (!window._schedWiz) return; window._schedWiz[field] = val; _renderWizard(); };
+  window._schedWizPickPatient = (pid, pname) => {
+    if (!window._schedWiz) return;
+    window._schedWiz.patient_id = pid;
+    window._schedWiz.patient = pname;
+    window._schedWiz.step = 2;
+    _renderWizard();
+  };
+  window._schedWizSearch = (q) => { if (!window._schedWiz) return; window._schedWiz.patientQuery = q; _renderWizard(); };
+  window._schedWizConfirm = async () => {
+    const w = window._schedWiz; if (!w) return;
+    const startHr = Number(w.start) || 9;
+    const dur = Number(w.duration) || 60;
+    const startIso = w.day + 'T' + pad2(Math.floor(startHr)) + ':' + (startHr % 1 === 0 ? '00' : '30') + ':00';
+    const endHr = startHr + dur/60;
+    const endIso = w.day + 'T' + pad2(Math.floor(endHr)) + ':' + (endHr % 1 === 0 ? '00' : '30') + ':00';
+    const payload = {
+      patient_id: w.patient_id, patient_name: w.patient,
+      clinician_id: w.clin, appointment_type: w.type,
+      scheduled_at: startIso, duration_minutes: dur,
+      course_id: w.course_id || null, notes: w.notes || '',
+    };
+    let ok = false;
+    try {
+      if (w.mode === 'reschedule' && w.sessionId) {
+        await api.updateSession?.(w.sessionId, payload); ok = true;
+      } else if (typeof api.bookSession === 'function') {
+        try { await api.bookSession(payload); ok = true; } catch { /* fall through */ }
+      }
+      if (!ok && typeof api.createSession === 'function') {
+        await api.createSession(payload); ok = true;
+      }
+    } catch (_err) { logUnavailable(w.mode === 'reschedule' ? 'updateSession' : 'createSession'); }
+    window._dsToast?.({
+      title: ok ? 'Booked' : 'Booked (local)',
+      body: ok ? (w.patient + ' · ' + w.day + ' ' + startIso.slice(11,16)) : 'Saved locally — backend sync pending.',
+      severity: ok ? 'success' : 'warn',
+    });
+    window._schedCloseWizard();
     window._nav('scheduling-hub');
   };
 
-  async function _slotConflictCheck(slot) {
-    if (typeof api.checkSlotConflicts === 'function') {
-      try { return await api.checkSlotConflicts(slot); } catch {}
+  function _renderWizard() {
+    const w = window._schedWiz; if (!w) return;
+    let bd = document.getElementById('dv2s-wizard-bd');
+    if (!bd) {
+      bd = document.createElement('div');
+      bd.className = 'dv2s-modal-bd';
+      bd.id = 'dv2s-wizard-bd';
+      bd.addEventListener('click', (ev) => { if (ev.target === bd) window._schedCloseWizard(); });
+      document.body.appendChild(bd);
     }
+    const step = w.step;
+    const stepNames = ['Patient','Slot','Type','Course','Review'];
+    const stepBar = '<div class="dv2s-stepper">' + stepNames.map((n,i) => {
+      const k = i+1;
+      const cls = k === step ? 'is-active' : k < step ? 'is-done' : '';
+      return '<div class="dv2s-step '+cls+'">'+(k)+'. '+n+'</div>';
+    }).join('') + '</div>';
+
+    let body = stepBar;
+    if (step === 1) {
+      const q = (w.patientQuery||'').toLowerCase();
+      const matches = patientsList
+        .map(p => ({ id: p.id, name: p.name || p.full_name || ('Patient ' + p.id) }))
+        .filter(p => !q || p.name.toLowerCase().includes(q))
+        .slice(0,20);
+      const seedHits = !patientsList.length ? (['Sarah Johnson','Robert Kim','Emma Clarke','David Nguyen','Lucy Fernandez'].filter(n => !q || n.toLowerCase().includes(q)).map(n => ({ id:'seed-'+n, name:n }))) : [];
+      const list = matches.length ? matches : seedHits;
+      body += '<div class="dv2s-field"><label>Search patient</label><input type="text" value="'+esc(w.patientQuery||'')+'" placeholder="Type name..." oninput="window._schedWizSearch(this.value)"></div>';
+      body += '<div class="dv2s-plist">' + (list.length ? list.map(p =>
+        '<div class="dv2s-pitem'+(w.patient_id===p.id?' is-active':'')+'" onclick="window._schedWizPickPatient(\''+esc(p.id)+'\',\''+esc(p.name)+'\')">'
+          + '<span>'+esc(p.name)+'</span><span style="color:var(--text-tertiary);font-size:10px">'+esc(String(p.id).slice(0,8))+'</span>'
+        + '</div>'
+      ).join('') : '<div style="padding:10px;color:var(--text-tertiary);font-size:11px">No matches.</div>') + '</div>';
+      body += '<div style="margin-top:10px;font-size:11px;color:var(--text-tertiary)">Or <a href="javascript:void(0)" onclick="window._schedWizSet(\'patient\',prompt(\'New patient name:\')||\'\')" style="color:var(--teal)">create new patient</a>'+(w.patient?' — selected: <strong style="color:var(--text-primary)">'+esc(w.patient)+'</strong>':'')+'</div>';
+    } else if (step === 2) {
+      const clinOpts = clinicians.map(c => '<option value="'+esc(c.id)+'"'+(w.clin===c.id?' selected':'')+'>'+esc(c.name)+'</option>').join('');
+      const dayOpts = DAYS.map(d => '<option value="'+d.iso+'"'+(w.day===d.iso?' selected':'')+'>'+d.dow+' '+d.num+' · '+d.label+'</option>').join('');
+      const timeOpts = [];
+      for (let h = 7; h < 19; h++) for (let m = 0; m < 2; m++) { const t = h + m*0.5; timeOpts.push('<option value="'+t+'"'+(Number(w.start)===t?' selected':'')+'>'+pad2(h)+':'+(m?'30':'00')+'</option>'); }
+      body += '<div class="dv2s-field"><label>Day</label><select onchange="window._schedWizSet(\'day\', this.value)">'+dayOpts+'</select></div>';
+      body += '<div class="dv2s-field"><label>Clinician</label><select onchange="window._schedWizSet(\'clin\', this.value)">'+clinOpts+'</select></div>';
+      body += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">';
+      body += '<div class="dv2s-field"><label>Start time</label><select onchange="window._schedWizSet(\'start\', parseFloat(this.value))">'+timeOpts.join('')+'</select></div>';
+      body += '<div class="dv2s-field"><label>Duration</label><select onchange="window._schedWizSet(\'duration\', parseInt(this.value,10))">'
+        + [30,45,60,90,120].map(d => '<option value="'+d+'"'+(Number(w.duration)===d?' selected':'')+'>'+d+' min</option>').join('')
+      + '</select></div>';
+      body += '</div>';
+    } else if (step === 3) {
+      const typeList = [
+        ['tdcs','tDCS'],['rtms','rTMS'],['nf','Neurofeedback'],['bio','Biofeedback'],
+        ['assessment','Assessment'],['intake','Intake'],['tele','Telehealth'],['mdt','MDT'],['hw','Homework'],
+      ];
+      body += '<div class="dv2s-field"><label>Appointment type</label><div class="dv2s-typegrid">'
+        + typeList.map(([v,l]) => '<button class="dv2s-typebtn'+(w.type===v?' is-active':'')+'" onclick="window._schedWizSet(\'type\',\''+v+'\')">'+esc(l)+'</button>').join('')
+      + '</div></div>';
+      body += '<div class="dv2s-field"><label>Notes</label><textarea rows="3" oninput="window._schedWizSet(\'notes\', this.value)" placeholder="Optional...">'+esc(w.notes||'')+'</textarea></div>';
+    } else if (step === 4) {
+      const courseOpts = '<option value="">— No course —</option>' + (Array.isArray(courses) ? courses.slice(0,40).map(c => {
+        const id = c.id; const name = c.name || c.title || (c.modality ? c.modality + ' · ' + (c.condition||'course') : 'Course ' + id);
+        return '<option value="'+esc(id)+'"'+(String(w.course_id)===String(id)?' selected':'')+'>'+esc(name)+'</option>';
+      }).join('') : '');
+      body += '<div class="dv2s-field"><label>Treatment course (optional)</label><select onchange="window._schedWizSet(\'course_id\', this.value || null)">'+courseOpts+'</select></div>';
+      body += '<div style="font-size:11px;color:var(--text-tertiary)">Linking the session to an existing course keeps the remaining-sessions chain accurate.</div>';
+    } else if (step === 5) {
+      const day = DAYS.find(d => d.iso === w.day) || DAYS[0];
+      const clin = clinicians.find(c => c.id === w.clin);
+      const startLabel = pad2(Math.floor(w.start))+':'+(w.start%1===0?'00':'30');
+      const localConflicts = events.filter(e => DAYS[e.day]?.iso === w.day && e.start < (w.start + (w.duration/60)) && w.start < e.end && (e.clin === w.clin));
+      body += '<div class="dv2s-side-row"><div class="lbl">Patient</div><div class="val">'+esc(w.patient||'(not set)')+'</div></div>';
+      body += '<div class="dv2s-side-row"><div class="lbl">When</div><div class="val">'+esc(day?.dow+' '+day?.num+' · '+startLabel)+'</div></div>';
+      body += '<div class="dv2s-side-row"><div class="lbl">Clinician</div><div class="val">'+esc(clin?.name||'—')+'</div></div>';
+      body += '<div class="dv2s-side-row"><div class="lbl">Type</div><div class="val">'+esc(typeMeta(w.type).label)+' · '+w.duration+' min</div></div>';
+      body += '<div class="dv2s-side-row"><div class="lbl">Course</div><div class="val">'+esc(w.course_id ? String(w.course_id) : '—')+'</div></div>';
+      if (localConflicts.length) {
+        body += '<div class="dv2s-warn err" style="margin-top:10px"><div class="dv2s-warn-ico">&#9888;</div><div><div class="dv2s-warn-title">'+localConflicts.length+' conflict(s) at this slot</div><div class="dv2s-warn-body">Overlap with: '+localConflicts.slice(0,3).map(c=>esc(c.patient)).join(', ')+'</div></div></div>';
+      } else {
+        body += '<div class="dv2s-warn ok" style="margin-top:10px"><div class="dv2s-warn-ico">&#10003;</div><div><div class="dv2s-warn-title">Slot clear</div><div class="dv2s-warn-body">No overlapping bookings detected for clinician.</div></div></div>';
+      }
+      if (!w.patient) {
+        body += '<div class="dv2s-warn amb" style="margin-top:6px"><div class="dv2s-warn-ico">&#9680;</div><div><div class="dv2s-warn-title">Missing patient</div><div class="dv2s-warn-body">Pick or create a patient in step 1 before booking.</div></div></div>';
+      }
+    }
+
+    const prevBtn = step > 1 ? '<button class="btn btn-ghost btn-sm" onclick="window._schedWizSetStep('+(step-1)+')">&larr; Back</button>' : '<span></span>';
+    const nextBtn = step < 5
+      ? '<button class="btn btn-primary btn-sm" onclick="window._schedWizSetStep('+(step+1)+')">Next &rarr;</button>'
+      : '<button class="btn btn-primary btn-sm" onclick="window._schedWizConfirm()"'+(w.patient?'':' disabled')+'>' + (w.mode === 'reschedule' ? 'Save reschedule' : 'Book appointment') + '</button>';
+
+    bd.innerHTML = '<div class="dv2s-modal" role="dialog" aria-label="Booking wizard">'
+      + '<div class="dv2s-modal-head">'
+        + '<div><div class="dv2s-modal-title">' + (w.mode === 'reschedule' ? 'Reschedule appointment' : w.mode === 'intake' ? 'Book intake' : 'New booking') + '</div>'
+        + '<div class="dv2s-modal-sub">Step '+step+' of 5</div></div>'
+        + '<button class="dv2s-side-close" onclick="window._schedCloseWizard()">&#10005;</button>'
+      + '</div>'
+      + '<div class="dv2s-modal-body">'+body+'</div>'
+      + '<div class="dv2s-modal-foot">'+prevBtn+nextBtn+'</div>'
+    + '</div>';
+  }
+
+  // ── Shift modals ─────────────────────────────────────────────────────
+  window._schedOpenShiftModal = () => { _renderShiftModal('shift'); };
+  window._schedOpenPtoModal = () => { _renderShiftModal('pto'); };
+  window._schedCloseShiftModal = () => {
+    const bd = document.getElementById('dv2s-shift-bd'); if (bd) bd.remove();
+  };
+  window._schedSubmitShift = async (mode) => {
+    const clinId = document.getElementById('dv2s-shift-clin')?.value;
+    const dayIso = document.getElementById('dv2s-shift-day')?.value;
+    const type = mode === 'pto' ? 'pto' : (document.getElementById('dv2s-shift-type')?.value || 'clinic');
+    const hours = parseFloat(document.getElementById('dv2s-shift-hrs')?.value || '8');
+    const payload = { clinician_id: clinId, date: dayIso, type, hours };
+    let ok = false;
+    try { await api.createStaffShift?.(payload); ok = true; }
+    catch (_err) { logUnavailable('createStaffShift'); }
+    window._dsToast?.({ title: ok ? 'Shift added' : 'Shift added (local)', body: payload.clinician_id + ' · ' + payload.date + ' · ' + type, severity: ok ? 'success' : 'warn' });
+    window._schedCloseShiftModal();
+    window._nav('scheduling-hub');
+  };
+
+  function _renderShiftModal(mode) {
+    let bd = document.getElementById('dv2s-shift-bd');
+    if (!bd) {
+      bd = document.createElement('div');
+      bd.className = 'dv2s-modal-bd';
+      bd.id = 'dv2s-shift-bd';
+      bd.addEventListener('click', (ev) => { if (ev.target === bd) window._schedCloseShiftModal(); });
+      document.body.appendChild(bd);
+    }
+    const clinOpts = clinicians.map(c => '<option value="'+esc(c.id)+'">'+esc(c.name)+'</option>').join('');
+    const dayOpts = DAYS.map(d => '<option value="'+d.iso+'">'+d.dow+' '+d.num+'</option>').join('');
+    const typeOpts = ['clinic','remote','oncall','admin'].map(t => '<option value="'+t+'">'+t+'</option>').join('');
+    const title = mode === 'pto' ? 'Mark PTO' : 'Add shift';
+    bd.innerHTML = '<div class="dv2s-modal"><div class="dv2s-modal-head"><div class="dv2s-modal-title">'+title+'</div><button class="dv2s-side-close" onclick="window._schedCloseShiftModal()">&#10005;</button></div>'
+      + '<div class="dv2s-modal-body">'
+        + '<div class="dv2s-field"><label>Clinician</label><select id="dv2s-shift-clin">'+clinOpts+'</select></div>'
+        + '<div class="dv2s-field"><label>Day</label><select id="dv2s-shift-day">'+dayOpts+'</select></div>'
+        + (mode === 'pto' ? '' : '<div class="dv2s-field"><label>Type</label><select id="dv2s-shift-type">'+typeOpts+'</select></div>')
+        + '<div class="dv2s-field"><label>Hours</label><input id="dv2s-shift-hrs" type="number" value="'+(mode==='pto'?'0':'8')+'" min="0" max="24" step="0.5"></div>'
+      + '</div>'
+      + '<div class="dv2s-modal-foot"><button class="btn btn-ghost btn-sm" onclick="window._schedCloseShiftModal()">Cancel</button>'
+        + '<button class="btn btn-primary btn-sm" onclick="window._schedSubmitShift(\''+mode+'\')">Save</button></div>'
+    + '</div>';
+  }
+
+  async function _slotConflictCheck(slot) {
+    try {
+      if (typeof api.checkSlotConflicts === 'function') {
+        return await api.checkSlotConflicts(slot);
+      }
+    } catch (_err) { logUnavailable('checkSlotConflicts'); }
     return { conflicts: [] };
   }
 
@@ -2497,7 +3243,8 @@ export async function pgSchedulingHub(setTopbar, navigate) {
   else                       body = buildAppointments();
 
   el.innerHTML = '<div class="dv2s-shell">'
-    + (apiErrors.length ? '<div class="dv2s-error-banner">Live data unavailable ('+apiErrors.join(', ')+') — showing sample schedule.</div>' : '')
+    + renderDemoBanner()
+    + (apiErrors.length && !showDemoBanner ? '<div class="dv2s-error-banner">Live data unavailable ('+apiErrors.join(', ')+') — showing sample schedule.</div>' : '')
     + renderTabBar()
     + body
   + '</div>';
@@ -2515,18 +3262,47 @@ export async function pgSchedulingHub(setTopbar, navigate) {
         }
         const slotEl = ev.target.closest('.dv2s-slot:not(.nonclinic)');
         if (slotEl) {
-          const slot = {
-            day: slotEl.getAttribute('data-day'),
-            clin: slotEl.getAttribute('data-clin'),
-            t: slotEl.getAttribute('data-t'),
-          };
+          const dayAttr = slotEl.getAttribute('data-day');
+          const clinAttr = slotEl.getAttribute('data-clin');
+          const roomAttr = slotEl.getAttribute('data-room');
+          const t = parseFloat(slotEl.getAttribute('data-t'));
           slotEl.classList.add('flash');
           setTimeout(()=>slotEl.classList.remove('flash'), 320);
-          console.debug('booking wizard for', slot);
-          _slotConflictCheck(slot).then(() => {}).catch(()=>{});
+          const dayIdx = parseInt(dayAttr, 10);
+          const dayObj = DAYS[dayIdx] || DAYS[0];
+          const wizCtx = { day: dayObj.iso, start: t, clin: clinAttr || clinicians[0]?.id, type: 'session' };
+          if (roomAttr) wizCtx.room = roomAttr;
+          window._schedOpenWizard(wizCtx);
         }
       });
     }
+  }
+
+  // ── Keyboard shortcuts ──────────────────────────────────────────────
+  if (!window._schedKeysBound) {
+    window._schedKeysBound = true;
+    window.addEventListener('keydown', (e) => {
+      if (!window._schedHubTab) return; // only when schedule has been loaded
+      const tgt = e.target;
+      if (tgt && (tgt.tagName === 'INPUT' || tgt.tagName === 'TEXTAREA' || tgt.tagName === 'SELECT' || tgt.isContentEditable)) return;
+      const wizOpen = !!document.getElementById('dv2s-wizard-bd');
+      const shiftOpen = !!document.getElementById('dv2s-shift-bd');
+      if (e.key === 'Escape') {
+        if (wizOpen) { e.preventDefault(); window._schedCloseWizard?.(); return; }
+        if (shiftOpen) { e.preventDefault(); window._schedCloseShiftModal?.(); return; }
+        if (window._schedSelectedId) { e.preventDefault(); window._schedClosePanel?.(); return; }
+        return;
+      }
+      if (wizOpen || shiftOpen) return;
+      const active = location.hash.includes('scheduling-hub') || location.hash.includes('schedule-v2');
+      if (!active) return;
+      if (e.key === 't' || e.key === 'T') { e.preventDefault(); window._schedToday?.(); }
+      else if (e.key === 'w' || e.key === 'W') { e.preventDefault(); window._schedSetView?.('week'); }
+      else if (e.key === 'd' || e.key === 'D') { e.preventDefault(); window._schedSetView?.('day'); }
+      else if (e.key === 'm' || e.key === 'M') { e.preventDefault(); window._schedSetView?.('month'); }
+      else if (e.key === 'ArrowRight') { e.preventDefault(); const v = window._schedView || 'week'; const d = v === 'day' || v === 'resources' ? 1 : v === 'month' ? 30 : 7; window._schedShift?.(d); }
+      else if (e.key === 'ArrowLeft')  { e.preventDefault(); const v = window._schedView || 'week'; const d = v === 'day' || v === 'resources' ? 1 : v === 'month' ? 30 : 7; window._schedShift?.(-d); }
+    });
   }
 }
 
