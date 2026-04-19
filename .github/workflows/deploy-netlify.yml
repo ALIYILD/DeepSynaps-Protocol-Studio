@@ -1,0 +1,68 @@
+# Auto-deploy the web app to Netlify on every push to main.
+#
+# Also usable on-demand via the "Run workflow" button on GitHub Actions.
+#
+# Requires one repo secret:
+#   NETLIFY_AUTH_TOKEN — Netlify personal access token, create at:
+#                         https://app.netlify.com/user/applications#personal-access-tokens
+#
+# The Netlify site ID is pinned in the workflow (and matches netlify.toml
+# at the repo root). API base URL is fixed to the Fly preview deployment.
+
+name: Deploy web → Netlify
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "apps/web/**"
+      - "netlify.toml"
+      - ".github/workflows/deploy-netlify.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: netlify-prod
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    env:
+      NETLIFY_SITE_ID: 13baea11-07e8-4ab3-9c25-af1f045c845b
+      VITE_ENABLE_DEMO: "1"
+      VITE_API_BASE_URL: https://deepsynaps-studio.fly.dev
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+
+      - name: Install web dependencies
+        working-directory: apps/web
+        run: npm ci --no-audit --no-fund
+
+      - name: Build (demo flag on, API → Fly)
+        working-directory: apps/web
+        run: npx vite build
+
+      - name: Deploy to Netlify
+        env:
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+        run: |
+          if [ -z "$NETLIFY_AUTH_TOKEN" ]; then
+            echo "::error::NETLIFY_AUTH_TOKEN secret is missing."
+            echo "Create one at https://app.netlify.com/user/applications#personal-access-tokens"
+            echo "then add it at Settings → Secrets and variables → Actions → New repository secret."
+            exit 1
+          fi
+          npx --yes netlify-cli@17 deploy \
+            --dir apps/web/dist \
+            --prod \
+            --site "$NETLIFY_SITE_ID" \
+            --message "GHA ${GITHUB_SHA::7}"
