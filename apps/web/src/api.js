@@ -873,6 +873,15 @@ export const api = {
   getLiteraturePaper: (id) => apiFetch(`/api/v1/literature/${id}`),
   tagPaperToProtocol: (paperId, protocolId) =>
     apiFetch('/api/v1/literature/tag-protocol', { method: 'POST', body: JSON.stringify({ paper_id: paperId, protocol_id: protocolId }) }),
+  /** Persist a per-user curation verdict on a PMID surfaced by literature-watch.
+   *  @param {string} pmid    PubMed ID (string).
+   *  @param {'mark-relevant'|'promote'|'not-relevant'} action
+   *  @param {string} [note]  Optional clinician note (≤2000 chars). */
+  curateLiteraturePaper: (pmid, action, note) =>
+    apiFetch(`/api/v1/literature/papers/${encodeURIComponent(pmid)}/curate`, {
+      method: 'POST',
+      body: JSON.stringify(note ? { action, note } : { action }),
+    }),
   getReadingList: () => apiFetchWithRetry('/api/v1/literature/reading-list'),
   addToReadingList: (paperId, data = {}) =>
     apiFetch(`/api/v1/literature/reading-list/${paperId}`, { method: 'POST', body: JSON.stringify(data) }),

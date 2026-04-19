@@ -3906,20 +3906,33 @@ export async function pgLibraryHub(setTopbar, navigate) {
     const _litSnap  = window._litWatchData || null;
     const _litQueue = (_litSnap && Array.isArray(_litSnap.pending_queue)) ? _litSnap.pending_queue : [];
 
-    // Literature verdicts persist to localStorage (ds_lit_verdicts) + dispatch
-    // ds:literature-verdict. Optional api.submitLiteratureVerdict is called
-    // fire-and-forget if it ever lands; result survives either way.
-    window._litPaperAction = (action, pmid) => {
+    // Literature verdicts now persist server-side via
+    // POST /api/v1/literature/papers/{pmid}/curate. We also keep a local
+    // mirror in ds_lit_verdicts + dispatch ds:literature-verdict so existing
+    // listeners (snapshot refresh, badge counters) keep working.
+    window._litPaperAction = async (action, pmid) => {
       const entry = { pmid, action, ts: new Date().toISOString() };
+      const label = action === 'mark-relevant'
+        ? 'Marked relevant'
+        : action === 'promote'
+          ? 'Promoted to references'
+          : action === 'not-relevant'
+            ? 'Marked not relevant'
+            : action;
+      try {
+        await api.curateLiteraturePaper(pmid, action);
+      } catch (e) {
+        const msg = e?.body?.message || e?.message || 'Backend error';
+        window._dsToast?.({ title: 'Curation failed', body: 'PMID ' + pmid + ' · ' + msg, severity: 'error' });
+        return;
+      }
       try {
         const raw = localStorage.getItem('ds_lit_verdicts') || '[]';
         const arr = JSON.parse(raw);
         arr.push(entry);
         localStorage.setItem('ds_lit_verdicts', JSON.stringify(arr.slice(-500)));
       } catch {}
-      try { api.submitLiteratureVerdict?.(pmid, action); } catch {}
       try { window.dispatchEvent(new CustomEvent('ds:literature-verdict', { detail: entry })); } catch {}
-      const label = action === 'mark-relevant' ? 'Marked relevant' : action === 'promote' ? 'Promoted to references' : action === 'not-relevant' ? 'Marked not relevant' : action;
       window._dsToast?.({ title: label, body: 'PMID ' + pmid, severity: 'success' });
     };
 
@@ -4025,9 +4038,9 @@ export async function pgLibraryHub(setTopbar, navigate) {
             '<div class="lib-feature" style="width:100%;color:var(--text-tertiary)" title="When Literature Watch first saw this paper">⏱ First seen ' + seen + '</div>' +
           '</div>' +
           '<div style="margin-top:10px;display:flex;gap:6px;flex-wrap:wrap">' +
-            '<button class="ch-btn-sm ch-btn-teal" disabled title="Literature curation actions require literature-watch backend (not yet wired)" style="opacity:.55;cursor:not-allowed">Mark relevant</button>' +
-            '<button class="ch-btn-sm" disabled title="Promotion to protocol references requires literature-watch backend (not yet wired)" style="opacity:.55;cursor:not-allowed">Promote to references</button>' +
-            '<button class="ch-btn-sm" disabled title="Literature curation actions require literature-watch backend (not yet wired)" style="opacity:.55;cursor:not-allowed">Not relevant</button>' +
+            '<button class="ch-btn-sm ch-btn-teal" title="Flag this paper as worth a closer review" onclick="window._litPaperAction(\'mark-relevant\', \'' + esc(pmid) + '\')">Mark relevant</button>' +
+            '<button class="ch-btn-sm" title="Promote this paper to formal protocol references" onclick="window._litPaperAction(\'promote\', \'' + esc(pmid) + '\')">Promote to references</button>' +
+            '<button class="ch-btn-sm" title="Exclude this paper from future surfacing" onclick="window._litPaperAction(\'not-relevant\', \'' + esc(pmid) + '\')">Not relevant</button>' +
           '</div>' +
         '</article>'
       );

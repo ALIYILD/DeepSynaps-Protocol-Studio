@@ -2,28 +2,34 @@
 
 Endpoints
 ---------
-GET    /api/v1/literature                       — list papers (filterable)
-POST   /api/v1/literature                       — add paper to library
-GET    /api/v1/literature/{id}                  — get paper detail
-POST   /api/v1/literature/tag-protocol          — tag paper to protocol
-GET    /api/v1/literature/reading-list          — user's reading list
-POST   /api/v1/literature/reading-list/{id}     — add to reading list
-DELETE /api/v1/literature/reading-list/{id}     — remove from reading list
+GET    /api/v1/literature                            — list papers (filterable)
+POST   /api/v1/literature                            — add paper to library
+GET    /api/v1/literature/{id}                       — get paper detail
+POST   /api/v1/literature/tag-protocol               — tag paper to protocol
+POST   /api/v1/literature/papers/{pmid}/curate       — curation verdict on PMID
+GET    /api/v1/literature/reading-list               — user's reading list
+POST   /api/v1/literature/reading-list/{id}          — add to reading list
+DELETE /api/v1/literature/reading-list/{id}          — remove from reading list
 """
 from __future__ import annotations
 
 import json
 from datetime import datetime
-from typing import Optional
+from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.auth import AuthenticatedActor, get_authenticated_actor, require_minimum_role
 from app.database import get_db_session
 from app.errors import ApiServiceError
-from app.persistence.models import LiteraturePaper, LiteratureProtocolTag, LiteratureReadingList
+from app.persistence.models import (
+    LiteratureCuration,
+    LiteraturePaper,
+    LiteratureProtocolTag,
+    LiteratureReadingList,
+)
 
 router = APIRouter(prefix="/api/v1/literature", tags=["Literature Library"])
 
@@ -304,6 +310,74 @@ def get_paper(
     require_minimum_role(actor, "clinician")
     paper = _get_paper_or_404(db, paper_id)
     return PaperOut.from_record(paper)
+
+
+CurationAction = Literal["mark-relevant", "promote", "not-relevant"]
+
+
+class PaperCurateRequest(BaseModel):
+    action: CurationAction = Field(..., description="Curation verdict for the paper.")
+    note: Optional[str] = Field(default=None, max_length=2000)
+
+
+class PaperCurateResponse(BaseModel):
+    pmid: str
+    user_id: str
+    action: CurationAction
+    note: Optional[str]
+    created_at: str
+    updated_at: str
+
+
+@router.post("/papers/{pmid}/curate", response_model=PaperCurateResponse)
+def curate_paper(
+    pmid: str,
+    body: PaperCurateRequest,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> PaperCurateResponse:
+    """Persist (or update) the current user's curation verdict for a PMID.
+
+    PMID is treated as the cross-system identifier emitted by literature-watch
+    snapshots; rows are unique per (pmid, user_id) so re-clicking a button on
+    the Library "Needs review" tab updates the existing verdict in place.
+    """
+    require_minimum_role(actor, "clinician")
+    pmid = (pmid or "").strip()
+    if not pmid:
+        raise ApiServiceError(code="invalid_pmid", message="PMID is required.", status_code=400)
+
+    existing = (
+        db.query(LiteratureCuration)
+        .filter_by(pmid=pmid, user_id=actor.actor_id)
+        .first()
+    )
+    if existing is not None:
+        existing.action = body.action
+        existing.note = body.note
+        db.add(existing)
+        db.commit()
+        db.refresh(existing)
+        record = existing
+    else:
+        record = LiteratureCuration(
+            pmid=pmid,
+            user_id=actor.actor_id,
+            action=body.action,
+            note=body.note,
+        )
+        db.add(record)
+        db.commit()
+        db.refresh(record)
+
+    return PaperCurateResponse(
+        pmid=record.pmid,
+        user_id=record.user_id,
+        action=record.action,  # type: ignore[arg-type]
+        note=record.note,
+        created_at=record.created_at.isoformat(),
+        updated_at=record.updated_at.isoformat(),
+    )
 
 
 @router.post("/tag-protocol", response_model=TagProtocolResponse, status_code=201)
