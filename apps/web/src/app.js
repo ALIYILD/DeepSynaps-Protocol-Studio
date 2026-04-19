@@ -1139,8 +1139,11 @@ async function renderPage() {
     case 'brain-map-full':
     case 'protocols-registry':
     case 'reg-protocols':   { const { pgBrainMapPlanner } = await loadClinicalTools(); await pgBrainMapPlanner(setTopbar); break; }
+    // Legacy aliases — the Handbooks tab moved out of Protocol Hub into its
+    // own page (pgHandbooks). Route both short aliases to the canonical
+    // handbooks-v2 module so deep links keep working.
     case 'handbooks':
-    case 'reg-handbooks':   { window._protocolHubTab = 'handbooks'; window._nav('protocol-hub'); break; }
+    case 'reg-handbooks':   { const m = await loadHandbooks(); await m.pgHandbooks(setTopbar); break; }
     case 'protocol-builder':{ window._protocolHubTab = 'builder';   window._nav('protocol-hub'); break; }
     case 'protocol-hub':      { const { pgProtocolHub } = await loadClinicalHubs(); await pgProtocolHub(setTopbar, navigate); break; }
     case 'personalized-protocol': { window._protocolHubTab = 'personalized'; window._nav('protocol-hub'); break; }
