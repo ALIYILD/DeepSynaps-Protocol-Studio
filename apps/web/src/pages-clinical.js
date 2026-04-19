@@ -1431,6 +1431,11 @@ export async function pgPatients(setTopbar, navigate) {
     return;
   }
 
+  // ── Detect demo-seeded patients (server prefixes notes with "[DEMO]" and
+  //    sets a demo_seed flag on PatientOut). A visible banner informs
+  //    clinicians they're looking at sample data, not real records.
+  const _demoPatientCount = items.filter(p => p.demo_seed || (p.notes || '').startsWith('[DEMO]')).length;
+
   // ── Enrich patients with course data + attention signals ─────────────────
   const _coursesByPat = {};
   for (const c of allCourses) {
@@ -1659,6 +1664,13 @@ export async function pgPatients(setTopbar, navigate) {
     </div>
   </div>
 
+  ${_demoPatientCount > 0 ? `
+  <div id="pat-demo-banner" role="status" style="display:flex;align-items:center;gap:10px;padding:8px 14px;margin:0 0 12px 0;background:linear-gradient(90deg,rgba(245,158,11,0.12),rgba(245,158,11,0.04));border:1px solid rgba(245,158,11,0.45);border-radius:8px;font-size:12px;color:var(--amber,#f59e0b)">
+    <span style="font-size:14px">&#9888;</span>
+    <strong style="font-weight:700;letter-spacing:.4px;text-transform:uppercase;font-size:11px">Demo Data</strong>
+    <span style="color:var(--text-secondary)">${_demoPatientCount} sample patient${_demoPatientCount === 1 ? '' : 's'} shown for demonstration. Records with a <code style="background:rgba(0,0,0,0.2);padding:1px 4px;border-radius:3px">[DEMO]</code> note prefix are not real and will be excluded from clinical reports.</span>
+  </div>` : ''}
+
   <!-- ── 3-Column Master-Detail Layout ──────────────────────────────────── -->
   <div class="pat-master-detail">
 
@@ -1846,9 +1858,9 @@ export async function pgPatients(setTopbar, navigate) {
       <div class="pat-rp-actions">
         <button class="pat-rp-action-btn pat-rp-action-btn--primary" onclick="window.openPatient('${pid}')">&#128196; Open Chart</button>
         <button class="pat-rp-action-btn" onclick="window._patStartSession('${pid}')">&#9654; Start Session</button>
-        <button class="pat-rp-action-btn" onclick="navigate('messaging')">&#128222; Virtual Care</button>
-        <button class="pat-rp-action-btn" onclick="navigate('outcomes')">&#128200; Log Outcome</button>
-        <button class="pat-rp-action-btn" onclick="navigate('review-queue')">&#128064; Review Update</button>
+        <button class="pat-rp-action-btn" onclick="window._patNavWithCtx('${pid}','messaging')">&#128222; Virtual Care</button>
+        <button class="pat-rp-action-btn" onclick="window._patNavWithCtx('${pid}','outcomes')">&#128200; Log Outcome</button>
+        <button class="pat-rp-action-btn" onclick="window._patNavWithCtx('${pid}','review-queue')">&#128064; Review Update</button>
       </div>`;
   }
 
@@ -1883,6 +1895,18 @@ export async function pgPatients(setTopbar, navigate) {
     window._selectedPatientId = id;
     window._profilePatientId  = id;
     window._nav('patient-profile');
+  };
+
+  // Carry the selected patient id into downstream hubs (messaging, outcomes,
+  // review-queue) so those pages can scope/pre-filter to this patient rather
+  // than loading unbounded.
+  window._patNavWithCtx = function(id, route) {
+    if (id) {
+      window._selectedPatientId = id;
+      window._profilePatientId  = id;
+      try { sessionStorage.setItem('ds_pat_selected_id', id); } catch {}
+    }
+    (window._nav || navigate)(route);
   };
 
   window._patAddNote = function(id) {
