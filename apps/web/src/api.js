@@ -265,8 +265,21 @@ export const api = {
     apiFetch('/api/v1/assessments', { method: 'POST', body: JSON.stringify({ ...assessmentData, patient_id: patientId }) }),
 
   // ── Sessions ────────────────────────────────────────────────────────────
-  listSessions: (patient_id) =>
-    apiFetchWithRetry(`/api/v1/sessions${patient_id ? `?patient_id=${patient_id}` : ''}`),
+  // Accepts either a string patient_id (legacy) or a query-params object.
+  // Examples:
+  //   api.listSessions('pt-123')
+  //   api.listSessions({ from: '2026-04-01', to: '2026-04-30' })
+  //   api.listSessions({ patient_id: 'pt-123', status: 'scheduled' })
+  listSessions: (arg) => {
+    let qs = '';
+    if (arg && typeof arg === 'object') {
+      const entries = Object.entries(arg).filter(([_, v]) => v != null && v !== '');
+      if (entries.length) qs = '?' + new URLSearchParams(entries.map(([k, v]) => [k, String(v)])).toString();
+    } else if (arg) {
+      qs = `?patient_id=${encodeURIComponent(arg)}`;
+    }
+    return apiFetchWithRetry(`/api/v1/sessions${qs}`);
+  },
   createSession: (data) => apiFetch('/api/v1/sessions', { method: 'POST', body: JSON.stringify(data) }),
   updateSession: (id, data) => apiFetch(`/api/v1/sessions/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   deleteSession: (id) => apiFetch(`/api/v1/sessions/${id}`, { method: 'DELETE' }),
@@ -1137,17 +1150,27 @@ export const api = {
   getDataExport: (id) => apiFetch(`/api/v1/privacy/exports/${encodeURIComponent(id)}`),
   deleteDataExport: (id) => apiFetch(`/api/v1/privacy/exports/${encodeURIComponent(id)}`, { method: 'DELETE' }),
 
-  // ── Schedule stubs (endpoints not yet implemented in backend) ───────────
-  // These return rejecting promises so callers can try/catch and fall back
-  // to demo/seed data. When the real endpoint ships, replace the stub.
+  // ── Scheduling hub helpers ───────────────────────────────────────────────
+  // Cancel an appointment by setting status=cancelled via the sessions PATCH
+  // endpoint. This preserves history (DELETE is also available but destructive).
+  cancelSession: (id, data = {}) => {
+    const body = { status: 'cancelled' };
+    if (data && data.reason) body.session_notes = '[Cancelled] ' + String(data.reason);
+    return apiFetch(`/api/v1/sessions/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
+  },
+  // Booking alias — backend uses POST /api/v1/sessions (createSession).
+  bookSession: (data) =>
+    apiFetch('/api/v1/sessions', { method: 'POST', body: JSON.stringify(data) }),
+
+  // Endpoints not yet implemented in backend — these reject so callers can
+  // try/catch and fall back to demo/seed data. When the real endpoint ships,
+  // replace the stub with the real call.
   listClinicians: () => Promise.reject(new Error('not_implemented')),
   listRooms: () => Promise.reject(new Error('not_implemented')),
   listReferrals: () => Promise.reject(new Error('not_implemented')),
   listStaffSchedule: (_params) => Promise.reject(new Error('not_implemented')),
   createStaffShift: (_data) => Promise.reject(new Error('not_implemented')),
   checkSlotConflicts: (_slot) => Promise.reject(new Error('not_implemented')),
-  cancelSession: (_id, _data) => Promise.reject(new Error('not_implemented')),
-  bookSession: (_data) => Promise.reject(new Error('not_implemented')),
   triageReferral: (_id, _data) => Promise.reject(new Error('not_implemented')),
   dismissReferral: (_id) => Promise.reject(new Error('not_implemented')),
 

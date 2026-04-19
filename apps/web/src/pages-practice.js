@@ -3,10 +3,37 @@ import { api } from './api.js';
 import { LOCALES, setLocale, getLocale } from './i18n.js';
 
 // ── Scheduling ────────────────────────────────────────────────────────────────
+// Full-view Schedule page. This is the simple "month + today list" view — the
+// rich calendar lives in pgSchedulingHub (pages-clinical-hubs.js). Appointments
+// are fetched from /api/v1/sessions and bookings are delegated to the primary
+// hub (via window._nav('scheduling-hub')). Empty states are honest: if no
+// sessions are returned, the UI says so rather than showing seed rows.
 export function pgSchedule(setTopbar) {
-  setTopbar('Scheduling', `<button class="btn btn-ghost btn-sm" onclick="window._toggleCalSync()">Sync Calendar</button><button class="btn btn-primary btn-sm" onclick="window._nav('profile')">+ Appointment</button>`);
+  setTopbar('Scheduling', `<button class="btn btn-ghost btn-sm" onclick="window._toggleCalSync()">Sync Calendar</button><button class="btn btn-primary btn-sm" onclick="window._nav('scheduling-hub')">+ Appointment</button>`);
 
   if (window._calOffset == null) window._calOffset = 0;
+  if (!window._schedFullState) window._schedFullState = { sessions: null, error: null, loading: true };
+
+  // Kick off a fetch for the currently-displayed month + today.
+  const _loadFullSchedule = async () => {
+    const now = new Date();
+    const displayDate = new Date(now.getFullYear(), now.getMonth() + window._calOffset, 1);
+    const pad2 = (n) => String(n).padStart(2, '0');
+    const fromIso = displayDate.getFullYear() + '-' + pad2(displayDate.getMonth() + 1) + '-01';
+    const lastDay = new Date(displayDate.getFullYear(), displayDate.getMonth() + 1, 0).getDate();
+    const toIso = displayDate.getFullYear() + '-' + pad2(displayDate.getMonth() + 1) + '-' + pad2(lastDay);
+    try {
+      // listSessions signature in api.js accepts patient_id as its first arg,
+      // but the backend also accepts arbitrary query-string params — the hub
+      // page calls with { from, to }, so we match that convention here.
+      const res = await api.listSessions({ from: fromIso, to: toIso });
+      const items = (res && (res.items || res)) || [];
+      window._schedFullState = { sessions: Array.isArray(items) ? items : [], error: null, loading: false };
+    } catch (err) {
+      window._schedFullState = { sessions: [], error: err, loading: false };
+    }
+    if (typeof window._renderSchedule === 'function') window._renderSchedule();
+  };
 
   function buildScheduleHTML() {
     const now = new Date();
@@ -22,6 +49,41 @@ export function pgSchedule(setTopbar) {
     const today = isCurrentMonth ? now.getDate() : -1;
 
     const todayLabel = now.toLocaleString('en-US', { weekday: 'long', day: 'numeric', month: 'long' });
+
+    // Build per-day counts from real sessions.
+    const st = window._schedFullState || { sessions: [], loading: true, error: null };
+    const daysWithAppts = new Set();
+    const todaysAppts = [];
+    const pad2 = (n) => String(n).padStart(2, '0');
+    const todayIso = now.getFullYear() + '-' + pad2(now.getMonth() + 1) + '-' + pad2(now.getDate());
+    (st.sessions || []).forEach(s => {
+      const at = s.scheduled_at || s.date || '';
+      if (!at) return;
+      const iso = String(at).slice(0, 10);
+      const d = new Date(iso + 'T12:00:00');
+      if (d.getFullYear() === displayDate.getFullYear() && d.getMonth() === displayDate.getMonth()) {
+        daysWithAppts.add(d.getDate());
+      }
+      if (iso === todayIso) {
+        const hhmm = String(at).slice(11, 16) || '00:00';
+        const startH = parseInt(hhmm.slice(0, 2), 10);
+        const startM = parseInt(hhmm.slice(3, 5), 10) || 0;
+        const dur = Number(s.duration_minutes || s.duration || 60);
+        const endMin = startH * 60 + startM + dur;
+        const endH = Math.floor(endMin / 60);
+        const endMm = endMin % 60;
+        const end = pad2(endH) + ':' + pad2(endMm);
+        todaysAppts.push({
+          t: hhmm, e: end,
+          n: s.patient_name || s.patient_id || 'Patient',
+          d: s.appointment_type || s.modality || 'Session',
+          m: s.room_id || (s.telehealth ? 'Video' : 'In-clinic'),
+          c: 'var(--teal)',
+          status: s.status || 'scheduled',
+        });
+      }
+    });
+    todaysAppts.sort((a, b) => a.t.localeCompare(b.t));
 
     return `<div id="cal-sync-panel" style="display:none;margin-bottom:16px">
   <div class="card">
@@ -62,26 +124,29 @@ export function pgSchedule(setTopbar) {
           const day = i - firstDow + 1;
           const d = day < 1 || day > daysInMonth ? null : day;
           const isToday = d === today;
-          const hasAppt = [2,3,5,9,12,14,16,17,21,22,24,28].includes(d);
+          const hasAppt = d != null && daysWithAppts.has(d);
           return `<div style="aspect-ratio:1;display:flex;align-items:center;justify-content:center;font-size:12px;border-radius:var(--radius-md);cursor:pointer;transition:all var(--transition);${isToday ? 'background:var(--teal-ghost);color:var(--teal);font-weight:700;border:1px solid var(--border-teal);box-shadow:0 0 10px var(--teal-glow);' : hasAppt ? 'background:var(--bg-surface-2);color:var(--text-primary);border:1px solid var(--border);' : !d ? 'color:var(--text-tertiary)' : 'color:var(--text-secondary);'}">${d || ''}</div>`;
         }).join('')}
       </div>
     `, `<div style="display:flex;gap:5px">
-      <button class="btn btn-ghost btn-sm" onclick="window._calOffset--;window._renderSchedule()">‹</button>
-      <button class="btn btn-ghost btn-sm" onclick="window._calOffset++;window._renderSchedule()">›</button>
+      <button class="btn btn-ghost btn-sm" onclick="window._calOffset--;window._renderSchedule();window._schedFullReload&&window._schedFullReload()">‹</button>
+      <button class="btn btn-ghost btn-sm" onclick="window._calOffset++;window._renderSchedule();window._schedFullReload&&window._schedFullReload()">›</button>
     </div>`)}
-    ${cardWrap(`Today · ${todayLabel}`, [
-      { t: '09:00', e: '09:30', n: 'Session 7 — Patient', d: 'tDCS DLPFC', m: 'In-clinic', c: 'var(--blue)' },
-      { t: '11:00', e: '12:00', n: 'New Patient Intake', d: 'Assessment + qEEG', m: 'In-clinic', c: 'var(--rose)' },
-      { t: '14:00', e: '14:30', n: 'Telehealth Review', d: 'Protocol Review', m: 'Video', c: 'var(--violet)' },
-      { t: '15:30', e: '16:00', n: 'Session Follow-up', d: 'taVNS Session 3', m: 'In-clinic', c: 'var(--teal)' },
-    ].map(s => `<div style="display:flex;gap:12px;padding:9px 0;border-bottom:1px solid var(--border);align-items:center">
-      <div style="width:3px;height:36px;border-radius:2px;background:${s.c};flex-shrink:0;box-shadow:0 0 8px ${s.c}60"></div>
-      <div style="flex:1"><div style="font-size:12.5px;font-weight:500;color:var(--text-primary)">${s.n}</div><div style="font-size:11px;color:var(--text-secondary)">${s.d}</div></div>
-      <div style="text-align:right"><div style="font-size:11.5px;font-weight:600;color:var(--teal);font-family:var(--font-mono)">${s.t}–${s.e}</div><div style="font-size:10px;color:var(--text-tertiary)">${s.m}</div></div>
-    </div>`).join(''))}
+    ${cardWrap(`Today · ${todayLabel}`,
+      st.loading
+        ? '<div style="padding:18px 6px;font-size:12px;color:var(--text-secondary)">Loading appointments…</div>'
+        : st.error
+          ? '<div style="padding:18px 6px;font-size:12px;color:var(--amber)">Could not load appointments from backend — check your connection.</div>'
+          : todaysAppts.length === 0
+            ? '<div style="padding:18px 6px;font-size:12px;color:var(--text-secondary)">No appointments scheduled for today. <a href="javascript:void(0)" onclick="window._nav(\'scheduling-hub\')" style="color:var(--teal)">Open calendar →</a></div>'
+            : todaysAppts.map(s => `<div style="display:flex;gap:12px;padding:9px 0;border-bottom:1px solid var(--border);align-items:center">
+                <div style="width:3px;height:36px;border-radius:2px;background:${s.c};flex-shrink:0;box-shadow:0 0 8px ${s.c}60"></div>
+                <div style="flex:1"><div style="font-size:12.5px;font-weight:500;color:var(--text-primary)">${s.n}</div><div style="font-size:11px;color:var(--text-secondary)">${s.d}${s.status && s.status !== 'scheduled' ? ' · ' + s.status : ''}</div></div>
+                <div style="text-align:right"><div style="font-size:11.5px;font-weight:600;color:var(--teal);font-family:var(--font-mono)">${s.t}–${s.e}</div><div style="font-size:10px;color:var(--text-tertiary)">${s.m || ''}</div></div>
+              </div>`).join(''))}
   </div>`;
   }
+  window._schedFullReload = _loadFullSchedule;
 
   window._renderSchedule = function() {
     const el = document.getElementById('content');
@@ -107,6 +172,12 @@ export function pgSchedule(setTopbar) {
       const t = document.createElement('div'); t.className = 'notice notice-info'; t.style.cssText = 'position:fixed;top:16px;right:16px;z-index:9999;max-width:420px;padding:14px 18px'; t.textContent = 'Calendar sync with ' + provider + ' requires OAuth setup — add GOOGLE_CLIENT_ID / MICROSOFT_CLIENT_ID to your environment config.'; document.body.appendChild(t); setTimeout(() => t.remove(), 6000);
     }, 1500);
   };
+
+  // Kick off the real fetch after the shell renders.
+  // We mark loading true so the initial render shows a placeholder,
+  // then _loadFullSchedule() triggers _renderSchedule() when data arrives.
+  window._schedFullState = { sessions: null, error: null, loading: true };
+  setTimeout(() => { _loadFullSchedule(); }, 0);
 
   return buildScheduleHTML();
 }
@@ -7680,11 +7751,87 @@ export async function pgReminderAutomation(setTopbar) {
     });
   }
 
-  // Seed on first load
+  // Seed on first load (used only as fallback when backend is unavailable)
   if (!localStorage.getItem('ds_reminder_campaigns')) lsSet('ds_reminder_campaigns', CAMPAIGN_SEED);
   if (!localStorage.getItem('ds_reminder_outbox'))    lsSet('ds_reminder_outbox', seedOutbox());
   if (!localStorage.getItem('ds_message_templates'))  lsSet('ds_message_templates', TEMPLATE_SEED);
   if (!localStorage.getItem('ds_adherence_scores'))   lsSet('ds_adherence_scores', seedAdherenceScores());
+
+  // ── Backend loader ─────────────────────────────────────────────────────────
+  // The reminders router (/api/v1/reminders/*) is fully implemented. We try to
+  // pull real campaigns + outbox + adherence on every render. When available,
+  // we mirror them into the same localStorage keys so existing render code
+  // "just works" and future renders don't flicker back to seed. When the
+  // backend is unreachable, the UI keeps working against the local seed and
+  // flags "backend sync pending" on writes.
+  //
+  // Note: SMS/push delivery is NOT yet wired to a real provider. The outbox
+  // POST endpoint records the message as status=queued but no provider
+  // dispatches it. We mark those channels "queued only (no provider)" in the
+  // New Campaign / Manual Send dialogs so we don't falsely claim "sent".
+  window._remBackend = { campaigns: false, outbox: false, adherence: false, smsProvider: false, emailProvider: false, pushProvider: false };
+  async function _remLoadFromBackend() {
+    try {
+      const campaignsRes = await api.getReminderCampaigns();
+      const items = (campaignsRes && (campaignsRes.items || campaignsRes)) || [];
+      if (Array.isArray(items)) {
+        // Translate backend shape → UI shape
+        const mapped = items.map(c => ({
+          id: c.id,
+          name: c.name,
+          trigger: (c.schedule && c.schedule.trigger) || c.campaign_type || '24h_before',
+          channels: [c.channel].filter(Boolean),
+          active: !!c.active,
+          sentMonth: 0, openRate: null, confirmRate: null,
+          template: c.message_template || '',
+          _backend: true,
+        }));
+        lsSet('ds_reminder_campaigns', mapped);
+        window._remBackend.campaigns = true;
+      }
+    } catch (_e) { /* backend offline — keep seed */ }
+    try {
+      const outboxRes = await api.getReminderOutbox();
+      const items = (outboxRes && (outboxRes.items || outboxRes)) || [];
+      if (Array.isArray(items)) {
+        const STATUS_MAP = { queued:'Queued', sent:'Sent', delivered:'Delivered', failed:'Failed', opened:'Opened' };
+        const mapped = items.map(m => ({
+          id: m.id,
+          patientId: m.patient_id,
+          patientName: m.patient_id,  // name is not in outbox response; show id until patient lookup is added
+          channel: m.channel,
+          campaignId: m.campaign_id || 'manual',
+          campaignName: m.campaign_id || 'Manual Reminder',
+          scheduledAt: m.scheduled_at || m.created_at,
+          status: STATUS_MAP[String(m.status || '').toLowerCase()] || m.status || 'Queued',
+          preview: (m.message_body || '').slice(0, 80) + ((m.message_body || '').length > 80 ? '…' : ''),
+          _backend: true,
+        }));
+        lsSet('ds_reminder_outbox', mapped);
+        window._remBackend.outbox = true;
+      }
+    } catch (_e) { /* keep seed */ }
+    try {
+      const adhRes = await api.getAdherenceScores();
+      const items = (adhRes && (adhRes.items || adhRes)) || [];
+      if (Array.isArray(items) && items.length) {
+        const mapped = items.map(s => ({
+          patientId: s.patient_id,
+          patientName: s.patient_id,
+          condition: '',
+          score: Math.round(s.delivery_rate_pct || 0),
+          prev: Math.round(s.delivery_rate_pct || 0),
+          appt: Math.round(s.delivery_rate_pct || 0),
+          hw: Math.round(s.delivery_rate_pct || 0),
+          login: Math.round(s.delivery_rate_pct || 0),
+          trend: 'stable',
+          _backend: true,
+        }));
+        lsSet('ds_adherence_scores', mapped);
+        window._remBackend.adherence = true;
+      }
+    } catch (_e) { /* keep seed */ }
+  }
 
   // ── Tab state ──────────────────────────────────────────────────────────────
   let activeTab = 'campaigns';
@@ -7693,6 +7840,9 @@ export async function pgReminderAutomation(setTopbar) {
   const _remEl = document.getElementById('content') || document.getElementById('app-content');
   _remEl.innerHTML = `
     <div style="max-width:1200px;margin:0 auto;padding:20px 24px">
+      <div class="notice notice-info" style="margin-bottom:12px;font-size:12px">
+        <strong>Reminder delivery:</strong> No SMS / email / push provider is wired yet. Campaigns and manual sends are recorded on the backend and stay in <em>Queued</em> status until a provider (e.g. Twilio, SendGrid) is configured. Nothing is actually dispatched to patients.
+      </div>
       <div style="display:flex;gap:6px;margin-bottom:20px;border-bottom:1px solid var(--border);padding-bottom:0;flex-wrap:wrap">
         ${['campaigns','outbox','adherence','templates'].map(tab =>
           `<button id="remtab-${tab}" class="tab-btn ${tab === 'campaigns' ? 'active' : ''}" onclick="window._remSwitchTab('${tab}')">${
@@ -8102,7 +8252,7 @@ export async function pgReminderAutomation(setTopbar) {
     `);
   };
 
-  window._remSaveCampaign = function() {
+  window._remSaveCampaign = async function() {
     const name     = (document.getElementById('nc-name')?.value || '').trim();
     const trigger  = document.getElementById('nc-trigger')?.value || '24h_before';
     const template = (document.getElementById('nc-tpl')?.value || '').trim();
@@ -8110,9 +8260,29 @@ export async function pgReminderAutomation(setTopbar) {
     const errEl    = document.getElementById('nc-err');
     if (!name) { if (errEl) { errEl.style.display = 'block'; errEl.textContent = 'Campaign name is required.'; } return; }
     if (!channels.length) { if (errEl) { errEl.style.display = 'block'; errEl.textContent = 'Select at least one channel.'; } return; }
-    const campaigns = lsGet('ds_reminder_campaigns', []);
-    campaigns.push({ id: 'rc-' + Date.now(), name, trigger, channels, active: true, sentMonth: 0, openRate: 0, confirmRate: 0, template });
-    lsSet('ds_reminder_campaigns', campaigns);
+    // Backend campaigns allow one channel each — create one campaign per selected
+    // channel so every channel surface has a real backend-side record rather than
+    // a fake multi-channel row that no provider can dispatch.
+    let backendOk = false;
+    try {
+      for (const ch of channels) {
+        await api.createReminderCampaign({
+          name: channels.length > 1 ? `${name} (${ch.toUpperCase()})` : name,
+          campaign_type: 'session',
+          channel: ch,
+          schedule: { trigger },
+          message_template: template,
+          active: true,
+        });
+      }
+      backendOk = true;
+      await _remLoadFromBackend();
+    } catch (_e) { /* fall through to local */ }
+    if (!backendOk) {
+      const campaigns = lsGet('ds_reminder_campaigns', []);
+      campaigns.push({ id: 'rc-' + Date.now(), name, trigger, channels, active: true, sentMonth: 0, openRate: 0, confirmRate: 0, template });
+      lsSet('ds_reminder_campaigns', campaigns);
+    }
     window._remCloseModal();
     renderCampaigns();
   };
@@ -8122,20 +8292,33 @@ export async function pgReminderAutomation(setTopbar) {
     if (el) el.style.display = el.style.display === 'none' ? 'block' : 'none';
   };
 
-  window._remSaveCampaignTemplate = function(id) {
+  window._remSaveCampaignTemplate = async function(id) {
     const tplEl = document.getElementById('cc-tpl-' + id);
     if (!tplEl) return;
     const campaigns = lsGet('ds_reminder_campaigns', []);
     const c = campaigns.find(c => c.id === id);
     if (c) { c.template = tplEl.value; lsSet('ds_reminder_campaigns', campaigns); }
+    if (c && c._backend) {
+      try {
+        await api.updateReminderCampaign(id, { message_template: tplEl.value });
+        await _remLoadFromBackend();
+      } catch (_e) { /* keep local */ }
+    }
     const editEl = document.getElementById('cc-edit-' + id);
     if (editEl) editEl.style.display = 'none';
+    renderCampaigns();
   };
 
-  window._remToggleCampaign = function(id, active) {
+  window._remToggleCampaign = async function(id, active) {
     const campaigns = lsGet('ds_reminder_campaigns', []);
     const c = campaigns.find(c => c.id === id);
     if (c) { c.active = active; lsSet('ds_reminder_campaigns', campaigns); }
+    if (c && c._backend) {
+      try {
+        await api.updateReminderCampaign(id, { active });
+        await _remLoadFromBackend();
+      } catch (_e) { /* keep local */ }
+    }
     renderCampaigns();
   };
 
@@ -8146,13 +8329,36 @@ export async function pgReminderAutomation(setTopbar) {
     renderOutbox();
   };
 
-  window._remSendNow = function(id) {
-    setTimeout(() => {
-      const outbox = lsGet('ds_reminder_outbox', []);
-      const m = outbox.find(m => m.id === id);
-      if (m) { m.status = 'Delivered'; lsSet('ds_reminder_outbox', outbox); }
-      renderOutbox();
-    }, 800);
+  window._remSendNow = async function(id) {
+    // NOTE: no provider is currently wired for SMS/email/push delivery. The
+    // backend records the message in the outbox with status=queued, and an
+    // operator must later flip it to sent/delivered manually (or wire a real
+    // provider). We do not falsely mark it "Delivered" on the client.
+    const outbox = lsGet('ds_reminder_outbox', []);
+    const m = outbox.find(x => x.id === id);
+    if (!m) return;
+    if (m._backend) {
+      // Re-queue a fresh send of the same body. Backend will keep the original
+      // record for audit and append a new queued message.
+      try {
+        await api.sendReminderMessage({
+          patient_id: m.patientId,
+          campaign_id: m.campaignId === 'manual' ? null : m.campaignId,
+          channel: m.channel,
+          message_body: m.preview || '(resend)',
+        });
+        await _remLoadFromBackend();
+        window.alert('Re-queued on backend. No delivery provider is configured yet — message will stay in Queued until a provider is wired.');
+      } catch (_e) {
+        m.status = 'Failed';
+        lsSet('ds_reminder_outbox', outbox);
+      }
+    } else {
+      // Local-only mode: flip to Queued (not Delivered — no provider exists).
+      m.status = 'Queued';
+      lsSet('ds_reminder_outbox', outbox);
+    }
+    renderOutbox();
   };
 
   window._remRetryFailed = function() {
@@ -8163,21 +8369,32 @@ export async function pgReminderAutomation(setTopbar) {
   };
 
   // ── Adherence handlers ─────────────────────────────────────────────────────
-  window._remSendAdherenceBoost = function() {
+  window._remSendAdherenceBoost = async function() {
     const scores  = lsGet('ds_adherence_scores', []);
     const atRisk  = scores.filter(s => s.score < 60);
-    const outbox  = lsGet('ds_reminder_outbox', []);
-    atRisk.forEach(s => {
-      outbox.unshift({
-        id: 'ob-boost-' + Date.now() + '-' + s.patientId,
-        patientId: s.patientId, patientName: s.patientName,
-        channel: 'email', campaignId: 'manual', campaignName: 'Adherence Boost',
-        scheduledAt: new Date().toISOString(), status: 'Queued',
-        preview: 'Hi ' + s.patientName + ', we noticed your recent attendance has been lower. We are here to help.',
-      });
-    });
-    lsSet('ds_reminder_outbox', outbox);
-    alert('Queued adherence boost reminders for ' + atRisk.length + ' at-risk patient' + (atRisk.length > 1 ? 's' : '') + '.');
+    let backendCount = 0;
+    for (const s of atRisk) {
+      const body = 'Hi ' + s.patientName + ', we noticed your recent attendance has been lower. We are here to help.';
+      try {
+        await api.sendReminderMessage({
+          patient_id: s.patientId, campaign_id: null, channel: 'email', message_body: body,
+        });
+        backendCount++;
+      } catch (_e) {
+        const outbox = lsGet('ds_reminder_outbox', []);
+        outbox.unshift({
+          id: 'ob-boost-' + Date.now() + '-' + s.patientId,
+          patientId: s.patientId, patientName: s.patientName,
+          channel: 'email', campaignId: 'manual', campaignName: 'Adherence Boost',
+          scheduledAt: new Date().toISOString(), status: 'Queued',
+          preview: body.slice(0, 80) + '…',
+        });
+        lsSet('ds_reminder_outbox', outbox);
+      }
+    }
+    if (backendCount) await _remLoadFromBackend();
+    alert('Queued adherence boost reminders for ' + atRisk.length + ' at-risk patient' + (atRisk.length > 1 ? 's' : '') + '.' +
+      (backendCount ? ' (' + backendCount + ' on backend — provider not wired, will stay Queued.)' : ' (local only — backend sync pending.)'));
     window._remSwitchTab('outbox');
   };
 
@@ -8204,21 +8421,37 @@ export async function pgReminderAutomation(setTopbar) {
     `);
   };
 
-  window._remSendManual = function(patientId, patientName) {
+  window._remSendManual = async function(patientId, patientName) {
     const ch   = document.getElementById('mc-ch')?.value || 'email';
     const body = (document.getElementById('mc-body')?.value || '').trim();
     if (!body) return;
-    const outbox = lsGet('ds_reminder_outbox', []);
-    outbox.unshift({
-      id: 'ob-manual-' + Date.now(),
-      patientId, patientName, channel: ch,
-      campaignId: 'manual', campaignName: 'Manual Reminder',
-      scheduledAt: new Date().toISOString(), status: 'Queued',
-      preview: body.slice(0, 80) + '...',
-    });
-    lsSet('ds_reminder_outbox', outbox);
+    let backendOk = false;
+    try {
+      await api.sendReminderMessage({
+        patient_id: patientId,
+        campaign_id: null,
+        channel: ch,
+        message_body: body,
+      });
+      backendOk = true;
+      await _remLoadFromBackend();
+    } catch (_e) { /* fall through */ }
+    if (!backendOk) {
+      const outbox = lsGet('ds_reminder_outbox', []);
+      outbox.unshift({
+        id: 'ob-manual-' + Date.now(),
+        patientId, patientName, channel: ch,
+        campaignId: 'manual', campaignName: 'Manual Reminder',
+        scheduledAt: new Date().toISOString(), status: 'Queued',
+        preview: body.slice(0, 80) + '...',
+      });
+      lsSet('ds_reminder_outbox', outbox);
+    }
     window._remCloseModal();
-    alert('Reminder queued for ' + patientName + '.');
+    alert(backendOk
+      ? 'Reminder queued on backend for ' + patientName + '. Note: no delivery provider is wired yet — message will stay in Queued.'
+      : 'Reminder queued locally for ' + patientName + ' — backend sync pending.');
+    renderOutbox();
   };
 
   // ── Template handlers ──────────────────────────────────────────────────────
@@ -8312,15 +8545,24 @@ export async function pgReminderAutomation(setTopbar) {
     else if (tab === 'templates')  renderTemplates();
   };
 
-  window._remRefresh = function() { window._remSwitchTab(activeTab); };
+  window._remRefresh = async function() {
+    await _remLoadFromBackend();
+    window._remSwitchTab(activeTab);
+  };
 
   // Close modal on backdrop click
   document.getElementById('rem-modal-overlay')?.addEventListener('click', function(e) {
     if (e.target === this) window._remCloseModal();
   });
 
-  // Initial render
+  // Initial render (seed data) then kick off a backend refresh in the
+  // background. When it resolves it swaps in the real records and re-renders.
   renderCampaigns();
+  _remLoadFromBackend().then(() => {
+    if (window._remBackend && (window._remBackend.campaigns || window._remBackend.outbox || window._remBackend.adherence)) {
+      window._remSwitchTab(activeTab);
+    }
+  });
 }
 
 // ── Media Queue (clinician review) ────────────────────────────────────────────

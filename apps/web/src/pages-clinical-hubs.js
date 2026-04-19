@@ -2340,12 +2340,18 @@ export async function pgSchedulingHub(setTopbar, navigate) {
 
   let events = [];
   let eventsIsDemo = false;
-  if (Array.isArray(sessions) && sessions.length) {
+  // Honest empty-state rule:
+  //   - sessions === null  → backend call errored → OK to show demo data so the
+  //                          UI layout doesn't collapse (banner explains it).
+  //   - sessions === []    → backend returned zero results for the week → this
+  //                          is a real "no appointments scheduled" state and we
+  //                          must NOT fabricate mock rows to fill the grid.
+  if (Array.isArray(sessions)) {
     events = sessions.map(sessionToEvent).filter(Boolean);
-  }
-  if (!events.length) {
-    eventsIsDemo = true;
+    eventsIsDemo = false;
+  } else {
     events = buildMockEvents();
+    eventsIsDemo = true;
   }
 
   // ── Client-side conflict detector ─────────────────────────────────────
