@@ -23,6 +23,8 @@ from app.database import SessionLocal, init_database
 from app.persistence.models import (
     AdverseEvent,
     AssessmentRecord,
+    ClinicianHomeProgramTask,
+    DeliveredSessionParameters,
     DeviceSessionLog,
     HomeDeviceAssignment,
     OutcomeSeries,
@@ -31,6 +33,7 @@ from app.persistence.models import (
     PatientMedication,
     TreatmentCourse,
     User,
+    WearableDailySummary,
 )
 
 _CLINICIAN_EMAIL = "demo@deepsynaps.com"
@@ -90,11 +93,92 @@ def _seed_primary_portal_patient(session, clinician_id: str, patient_user_id: st
         planned_sessions_total=20,
         planned_sessions_per_week=5,
         planned_session_duration_minutes=30,
+        planned_frequency_hz="0 (DC)",
+        planned_intensity="2 mA",
         status="active",
         sessions_delivered=3,
         review_required=False,
+        clinician_notes=(
+            "Great response to the first three sessions. Mood scores are "
+            "trending down on PHQ-9 (18 → 12) and tolerance has been excellent. "
+            "Continuing the current anodal-DLPFC protocol — no parameter changes "
+            "needed. Keep up the sleep hygiene work and the daily mood log."
+        ),
     )
     session.add(course)
+
+    # ── Delivered sessions (so PortalCourseOut.session_count matches) ─────────
+    for i, days_ago in enumerate((10, 6, 2)):
+        session.add(DeliveredSessionParameters(
+            id=_make_id(),
+            session_id=_make_id(),
+            course_id=course_id,
+            device_slug="starstim-home",
+            frequency_hz="0 (DC)",
+            intensity_pct_rmt="2 mA",
+            duration_minutes=30,
+            tech_id=clinician_id,
+            tolerance_rating="well-tolerated",
+            interruptions=False,
+            post_session_notes=f"Session {i + 1} delivered without incident.",
+            created_at=now - timedelta(days=days_ago),
+        ))
+
+    # ── Clinician-assigned home-program tasks ────────────────────────────────
+    for task in (
+        {
+            "title": "Daily mindfulness (10 min)",
+            "category": "mindfulness",
+            "instructions": "Use the timer in Sessions. Morning is preferred.",
+            "frequency": "Daily",
+        },
+        {
+            "title": "Sleep hygiene checklist",
+            "category": "sleep",
+            "instructions": "No screens one hour before bed; keep a consistent wake time.",
+            "frequency": "Daily",
+        },
+        {
+            "title": "Mood + energy diary",
+            "category": "tracking",
+            "instructions": "Rate mood and energy each evening (0–10).",
+            "frequency": "Daily",
+        },
+    ):
+        server_task_id = _make_id()
+        session.add(ClinicianHomeProgramTask(
+            id=server_task_id,
+            server_task_id=server_task_id,
+            patient_id=patient_id,
+            clinician_id=clinician_id,
+            task_json=json.dumps({
+                "title": task["title"],
+                "category": task["category"],
+                "instructions": task["instructions"],
+                "frequency": task["frequency"],
+                "source": "demo_seed",
+            }),
+            revision=1,
+            created_at=now - timedelta(days=14),
+            updated_at=now - timedelta(days=14),
+        ))
+
+    # ── 7-day wearable summary (Devices & biometrics tile) ───────────────────
+    for days_ago in range(6, -1, -1):
+        date_str = (now - timedelta(days=days_ago)).date().isoformat()
+        session.add(WearableDailySummary(
+            id=_make_id(),
+            patient_id=patient_id,
+            source="demo_wearable",
+            date=date_str,
+            rhr_bpm=62.0 + days_ago * 0.2,
+            hrv_ms=40.0 + (6 - days_ago) * 0.5,
+            sleep_duration_h=7.1 + (days_ago % 3) * 0.1,
+            steps=6500 + (6 - days_ago) * 120,
+            anxiety_score=3.0 if days_ago > 3 else 2.0,
+            mood_score=5.0 + (6 - days_ago) * 0.1,
+            synced_at=now - timedelta(days=days_ago),
+        ))
 
     assignment_id = _make_id()
     assignment = HomeDeviceAssignment(
