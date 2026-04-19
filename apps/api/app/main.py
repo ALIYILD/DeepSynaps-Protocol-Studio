@@ -82,6 +82,7 @@ from app.routers.library_router import router as library_router
 from app.routers.reports_router import router as reports_router
 from app.routers.documents_router import router as documents_router
 from app.routers.documents_router import patient_docs_router
+from app.routers.recordings_router import router as recordings_router
 from app.routers.protocols_saved_router import router as protocols_saved_router
 from app.routers.leads_reception_router import router as leads_reception_router
 # Settings API routers (foundation scaffolded by backend subagent #1; endpoints
@@ -169,6 +170,7 @@ app.include_router(library_router)
 app.include_router(reports_router, prefix="/api/v1/reports", tags=["reports"])
 app.include_router(documents_router)
 app.include_router(patient_docs_router)
+app.include_router(recordings_router)
 app.include_router(protocols_saved_router)
 app.include_router(leads_reception_router)
 # Settings API (scaffolded 024_settings_schema) — stubs; endpoints arrive in

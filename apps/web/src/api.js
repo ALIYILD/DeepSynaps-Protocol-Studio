@@ -341,6 +341,38 @@ export const api = {
   // Absolute URL for a document's stored file — used as <a href=> for downloads.
   documentDownloadUrl: (id) => `${API_BASE}/api/v1/documents/${encodeURIComponent(id)}/download`,
 
+  // ── Session Recordings (Virtual Care Recording Studio) ──────────────────
+  // Backs the ▶ button in the Recording Studio. Bytes live on the local Fly
+  // volume — see apps/api/app/routers/recordings_router.py.
+  listRecordings: (patientId) =>
+    apiFetchWithRetry(`/api/v1/recordings${patientId ? '?patient_id=' + encodeURIComponent(patientId) : ''}`),
+  uploadRecording: (file, { title, patientId, durationSeconds } = {}) => {
+    const form = new FormData();
+    form.append('file', file);
+    if (title) form.append('title', title);
+    if (patientId) form.append('patient_id', patientId);
+    if (durationSeconds != null) form.append('duration_seconds', String(durationSeconds));
+    return apiFetch('/api/v1/recordings', { method: 'POST', body: form });
+  },
+  deleteRecording: (id) =>
+    apiFetch(`/api/v1/recordings/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  // Authenticated fetch → blob URL the HTML5 <audio>/<video> element can src=
+  // (browsers can't attach Authorization to <audio src>, so we fetch the file
+  // and hand off an object URL the caller is expected to revokeObjectURL).
+  recordingPlaybackUrl: async (id) => {
+    const token = getToken();
+    const headers = {};
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    const res = await fetch(`${API_BASE}/api/v1/recordings/${encodeURIComponent(id)}/file`, { headers });
+    if (!res.ok) {
+      const err = new Error(`Recording playback failed (${res.status})`);
+      err.status = res.status;
+      throw err;
+    }
+    const blob = await res.blob();
+    return URL.createObjectURL(blob);
+  },
+
   // Custom document templates (clinician-authored, distinct from the bundled
   // DOCUMENT_TEMPLATES read-only set in apps/web/src/documents-templates.js).
   // Backed by /api/v1/documents/templates* in documents_router.py.

@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Optional
 
-from sqlalchemy import Boolean, CheckConstraint, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import BigInteger, Boolean, CheckConstraint, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
@@ -937,6 +937,28 @@ class HomeTaskTemplate(Base):
         default=lambda: datetime.now(timezone.utc),
         onupdate=lambda: datetime.now(timezone.utc),
     )
+
+
+class SessionRecording(Base):
+    """Clinician-owned session recording (audio/video) — minimal media-storage MVP.
+
+    Bytes live on the local Fly volume under
+    `{media_storage_root}/recordings/{owner_clinician_id}/{id}` (the storage
+    layout is partitioned by clinician so a directory delete cleans up an
+    owner's blobs). The DB row is the source of truth — `file_path` is the
+    storage-relative path so reads don't need the absolute disk root.
+    """
+    __tablename__ = "session_recordings"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    owner_clinician_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    patient_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    file_path: Mapped[str] = mapped_column(String(512), nullable=False)
+    mime_type: Mapped[str] = mapped_column(String(80), nullable=False)
+    byte_size: Mapped[int] = mapped_column(BigInteger(), nullable=False)
+    duration_seconds: Mapped[Optional[int]] = mapped_column(Integer(), nullable=True)
+    uploaded_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
 
 
 class FormSubmission(Base):
