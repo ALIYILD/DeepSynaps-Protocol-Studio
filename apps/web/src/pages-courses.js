@@ -2339,8 +2339,9 @@ function renderAEForm(courseId, patientId) {
       <div>
         <label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:4px">Severity</label>
         <select id="ae-severity" class="form-control" style="font-size:12px">
-          <option value="minor">Minor</option>
+          <option value="mild">Mild</option>
           <option value="moderate">Moderate</option>
+          <option value="severe">Severe</option>
           <option value="serious">Serious</option>
         </select>
       </div>
@@ -2402,8 +2403,19 @@ window._cdSaveOutcome = async function(courseId, patientId) {
   const showErr  = msg => { if (errEl) { errEl.textContent = msg; errEl.style.display = ''; } };
   if (errEl) errEl.style.display = 'none';
   if (!template || isNaN(score)) { showErr('Template and numeric score are required.'); return; }
+  if (!patientId) { showErr('Patient not resolved — cannot record outcome without patient_id.'); return; }
   try {
-    await api.recordOutcome({ course_id: courseId, patient_id: patientId || null, template_name: template, score, measurement_point: point });
+    // Backend OutcomeCreate requires patient_id, course_id, template_id; score_numeric
+    // is preferred over stringly-typed score. See outcomes_router.OutcomeCreate.
+    await api.recordOutcome({
+      course_id:         courseId,
+      patient_id:        patientId,
+      template_id:       template,
+      template_title:    template,
+      score:             String(score),
+      score_numeric:     score,
+      measurement_point: point,
+    });
     window._cdTab = 'outcomes';
     window._nav('course-detail');
   } catch (e) { showErr(e.message || 'Save failed.'); }
@@ -2414,16 +2426,22 @@ window._submitAE = async function(courseId, patientId) {
   if (errEl) errEl.style.display = 'none';
   const type = document.getElementById('ae-type')?.value;
   if (!type) { if (errEl) { errEl.textContent = 'Select event type.'; errEl.style.display = ''; } return; }
+  if (!patientId) {
+    if (errEl) { errEl.textContent = 'Patient not resolved — cannot report adverse event without patient_id.'; errEl.style.display = ''; }
+    return;
+  }
   try {
+    // Backend AdverseEventCreate requires: patient_id, event_type, severity ∈
+    // {mild,moderate,severe,serious}, and accepts `description` (not `notes`).
     await api.reportAdverseEvent({
       course_id:    courseId,
-      patient_id:   patientId || null,
+      patient_id:   patientId,
       event_type:   type,
-      severity:     document.getElementById('ae-severity')?.value || 'minor',
+      severity:     document.getElementById('ae-severity')?.value || 'mild',
       onset_timing: document.getElementById('ae-onset')?.value || null,
       resolution:   document.getElementById('ae-resolution')?.value || null,
       action_taken: document.getElementById('ae-action')?.value || null,
-      notes:        document.getElementById('ae-notes')?.value || null,
+      description:  document.getElementById('ae-notes')?.value || null,
     });
     window._cdTab = 'adverse-events';
     window._nav('course-detail');
@@ -3825,17 +3843,42 @@ export async function pgReviewQueue(setTopbar, navigate) {
     api.listReviewQueue({}).catch(() => ({ items: [] })),
     api.listAdverseEvents({ resolved: false }).catch(() => ({ items: [] })),
   ]);
-  let items   = queueRes?.items || [];
+  // Normalize backend review-queue shape to the UI card shape.
+  // Backend `item_type` values include `protocol_approval`, `off_label`,
+  // `adverse_event`, `consent`, `ai_note`; the UI expects `type` values
+  // `protocol`, `off-label`, `adverse-event`, `consent`, `ai-note`.
+  const _rqTypeFromBackend = (t) => {
+    const s = String(t || '').toLowerCase();
+    if (s.includes('off') && s.includes('label')) return 'off-label';
+    if (s.includes('ai') && s.includes('note')) return 'ai-note';
+    if (s.includes('adverse')) return 'adverse-event';
+    if (s.includes('consent')) return 'consent';
+    return 'protocol';
+  };
+  let items = (queueRes?.items || []).map((r) => ({
+    ...r,
+    type: r.type || _rqTypeFromBackend(r.item_type),
+    subject: r.subject
+      || (r.course_name ? `Protocol — ${r.course_name}` : null)
+      || (r.condition_slug ? `${String(r.condition_slug).replace(/-/g, ' ')}${r.modality_slug ? ' · ' + r.modality_slug : ''}` : null)
+      || r.item_type
+      || 'Review item',
+    submitted_by: r.submitted_by || r.created_by,
+    submitted_at: r.submitted_at || r.created_at,
+  }));
   const openAEs = aeRes?.items  || [];
 
   const localQueue = readLocalQueue();
   if (items.length === 0) {
-    items = localQueue || DEMO_SEED;
+    items = (localQueue || DEMO_SEED).map((i) => ({
+      ...i,
+      type: i.type || i.review_type,
+    }));
     if (!localQueue) writeLocalQueue(DEMO_SEED);
   } else {
     if (localQueue) {
       const localById = Object.fromEntries(localQueue.map(i => [i.id, i]));
-      items = items.map(i => localById[i.id] ? { ...i, ...localById[i.id] } : i);
+      items = items.map(i => localById[i.id] ? { ...i, ...localById[i.id], type: i.type || localById[i.id].type || localById[i.id].review_type } : i);
     }
   }
 
@@ -5487,15 +5530,15 @@ export async function pgAdverseEvents(setTopbar, navigate) {
               const sc = SEV_COLOR[sev] || 'var(--text-secondary)';
               const course = courseMap[ae.course_id] || {};
               const patName = patMap[ae.patient_id] || (course.patient_id ? patMap[course.patient_id] : '') || '—';
-              return `<tr data-sev="${sev}" data-text="${(ae.event_type||'') + ' ' + (ae.notes||'')}">
-                <td style="font-size:11.5px;color:var(--text-secondary);white-space:nowrap">${ae.occurred_at ? ae.occurred_at.split('T')[0] : ae.created_at?.split('T')[0] || '—'}</td>
+              return `<tr data-sev="${sev}" data-text="${(ae.event_type||'') + ' ' + (ae.description||ae.notes||'')}">
+                <td style="font-size:11.5px;color:var(--text-secondary);white-space:nowrap">${ae.reported_at ? ae.reported_at.split('T')[0] : ae.occurred_at ? ae.occurred_at.split('T')[0] : ae.created_at?.split('T')[0] || '—'}</td>
                 <td style="font-size:12px">${patName}</td>
                 <td style="font-size:12px">${course.condition_slug ? course.condition_slug.replace(/-/g,' ') + ' · ' + (course.modality_slug||'') : '—'}</td>
                 <td style="font-size:12.5px;font-weight:500">${ae.event_type || '—'}</td>
                 <td><span style="font-size:11px;padding:2px 8px;border-radius:4px;background:${sc}22;color:${sc};font-weight:600">${sev}</span></td>
                 <td style="font-size:11.5px">${ae.onset_timing || '—'}</td>
                 <td style="font-size:11.5px">${ae.action_taken || '—'}</td>
-                <td style="font-size:11.5px">${ae.resolution || ae.resolved ? '<span style="color:var(--green)">Resolved</span>' : '<span style="color:var(--amber)">Ongoing</span>'}</td>
+                <td style="font-size:11.5px">${ae.resolved_at || ae.resolution === 'resolved' ? '<span style="color:var(--green)">Resolved</span>' : '<span style="color:var(--amber)">Ongoing</span>'}</td>
                 <td>${ae.course_id ? `<button class="btn btn-sm" onclick="window._openCourse('${ae.course_id}')">View →</button>` : ''}</td>
               </tr>`;
             }).join('')}
@@ -7843,20 +7886,19 @@ window._monitorSaveSession = async function() {
     aborted: _monitorSession.aborted || false,
   };
 
+  // NOTE: session-monitor is a local simulation (mock patients, no course link),
+  // so we cannot call `api.logSession(courseId, data)` — the backend requires a
+  // real course_id plus an active course status. Persist locally and surface a
+  // clear "local-only" indicator. Real session logging lives on the Session
+  // Execution page (pgSessionExecution → _logSession), which IS wired to the
+  // POST /treatment-courses/{id}/sessions endpoint.
   let saved = false;
   try {
-    await api.logSession(payload);
+    const sessions = JSON.parse(localStorage.getItem('ds_completed_sessions') || '[]');
+    sessions.unshift(payload);
+    localStorage.setItem('ds_completed_sessions', JSON.stringify(sessions.slice(0, 100)));
     saved = true;
   } catch (_) {}
-
-  if (!saved) {
-    try {
-      const sessions = JSON.parse(localStorage.getItem('ds_completed_sessions') || '[]');
-      sessions.unshift(payload);
-      localStorage.setItem('ds_completed_sessions', JSON.stringify(sessions.slice(0, 100)));
-      saved = true;
-    } catch (_) {}
-  }
 
   const overlay = document.getElementById('monitor-completion-overlay');
   if (overlay) {
@@ -10180,10 +10222,11 @@ function _ccrBuildSvgChart(outcomes) {
     </div>`;
   }
 
-  // Group by template
+  // Group by template — prefer backend shape (template_title/template_id) and
+  // fall back to legacy `template_name` for older cached shapes.
   const byTemplate = {};
   outcomes.forEach(o => {
-    const key = o.template_name || 'Unknown';
+    const key = o.template_title || o.template_id || o.template_name || 'Unknown';
     if (!byTemplate[key]) byTemplate[key] = [];
     byTemplate[key].push(o);
   });
@@ -10264,12 +10307,14 @@ export async function pgCourseCompletionReport(setTopbar, navigate) {
   const el = document.getElementById('content');
   el.innerHTML = spinner();
 
-  // Parallel fetch
-  const [course, sessionsRaw, outcomesRaw, summaryRaw] = await Promise.all([
+  // Parallel fetch — pull real AE records, don't derive from session rows (delivered
+  // sessions have no `status` or `adverse_event` column; see adverse_events table).
+  const [course, sessionsRaw, outcomesRaw, summaryRaw, adverseRaw] = await Promise.all([
     api.getCourse(id).catch(() => null),
     api.listCourseSessions(id).catch(() => null),
     api.listOutcomes({ course_id: id }).catch(() => null),
     api.courseOutcomeSummary(id).catch(() => null),
+    api.listAdverseEvents({ course_id: id }).catch(() => null),
   ]);
 
   if (!course) { navigate('courses'); return; }
@@ -10284,19 +10329,25 @@ export async function pgCourseCompletionReport(setTopbar, navigate) {
   // Normalize data
   const sessions = Array.isArray(sessionsRaw) ? sessionsRaw : (sessionsRaw?.items || []);
   const outcomes = Array.isArray(outcomesRaw) ? outcomesRaw : (outcomesRaw?.items || []);
+  const adverseEvents = Array.isArray(adverseRaw) ? adverseRaw : (adverseRaw?.items || []);
 
-  // Stats
-  const sessionsCompleted = sessions.filter(s => s.status === 'completed').length;
-  const sessionsPlanned = course.planned_sessions || course.total_sessions || sessions.length || 0;
-  const pctComplete = sessionsPlanned > 0 ? Math.round((sessionsCompleted / sessionsPlanned) * 100) : 0;
+  // Stats — every delivered-session row is a completed session (backend only
+  // writes the row after the clinician commits the log). `planned_sessions_total`
+  // is the authoritative denominator from TreatmentCourse; `sessions_delivered`
+  // is the canonical counter. Falling back to `sessions.length` also works when
+  // the course record has drifted but the list is truthy.
+  const sessionsCompleted = course.sessions_delivered ?? sessions.length ?? 0;
+  const sessionsPlanned =
+    course.planned_sessions_total ??
+    course.planned_sessions ??
+    course.total_sessions ??
+    0;
+  const pctComplete = sessionsPlanned > 0 ? Math.min(100, Math.round((sessionsCompleted / sessionsPlanned) * 100)) : 0;
 
-  const sortedSessions = [...sessions].sort((a, b) => new Date(a.scheduled_at || a.date || 0) - new Date(b.scheduled_at || b.date || 0));
-  const startDate = sortedSessions[0]?.scheduled_at || sortedSessions[0]?.date || course.start_date;
-  const endDate = course.end_date || (course.status === 'completed' ? (sortedSessions[sortedSessions.length - 1]?.scheduled_at || null) : null);
+  const sortedSessions = [...sessions].sort((a, b) => new Date(a.created_at || a.scheduled_at || a.date || 0) - new Date(b.created_at || b.scheduled_at || b.date || 0));
+  const startDate = course.started_at || sortedSessions[0]?.created_at || sortedSessions[0]?.scheduled_at || sortedSessions[0]?.date || course.start_date;
+  const endDate = course.completed_at || course.end_date || (course.status === 'completed' ? (sortedSessions[sortedSessions.length - 1]?.created_at || null) : null);
   const durationWeeks = _ccrWeeksBetween(startDate, endDate || new Date().toISOString());
-
-  // Adverse events from sessions
-  const adverseEvents = sessions.filter(s => s.adverse_event || s.adverse_event_note);
 
   // Soap notes count
   let soapCount = 0;
@@ -10306,8 +10357,9 @@ export async function pgCourseCompletionReport(setTopbar, navigate) {
     soapCount = Object.keys(courseNotes).length;
   } catch { soapCount = 0; }
 
-  // Responder status: look at the first outcome measure with pct_change
-  const summaryOutcomes = summaryRaw?.outcomes || [];
+  // Responder status: the backend summary payload exposes `summaries` (per template);
+  // each summary has baseline/latest/pct_change/is_responder.
+  const summaryOutcomes = summaryRaw?.summaries || summaryRaw?.outcomes || [];
   const firstWithPct = summaryOutcomes.find(o => o.pct_change != null) || null;
   const responderBadge = _ccrResponderBadge(firstWithPct?.pct_change ?? null);
 
@@ -10321,8 +10373,10 @@ export async function pgCourseCompletionReport(setTopbar, navigate) {
   const reportDate = new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
 
   // Topbar
+  const _condLabel = (course.condition_slug || course.condition || 'Course').replace(/-/g, ' ');
+  const _modLabel  = course.modality_slug || course.modality || 'Protocol';
   setTopbar(
-    `${course.condition || 'Course'} — ${course.modality || 'Protocol'}`,
+    `${_condLabel} — ${_modLabel}`,
     [
       { label: '← Back', action: () => navigate('courses') },
       { label: 'Record Outcome', action: () => window._openQuickOutcomeCapture?.(id, null, patientName) },
@@ -10342,7 +10396,7 @@ export async function pgCourseCompletionReport(setTopbar, navigate) {
         <div class="ccr-header-left">
           <div class="ccr-clinic-name">${clinicName}</div>
           <h1 class="ccr-title">Course Completion Report</h1>
-          <div class="ccr-subtitle">${course.condition || '—'} &nbsp;·&nbsp; ${course.modality || '—'}</div>
+          <div class="ccr-subtitle">${_condLabel} &nbsp;·&nbsp; ${_modLabel}</div>
         </div>
         <div class="ccr-header-right">
           <div class="ccr-patient-block">
@@ -10350,7 +10404,7 @@ export async function pgCourseCompletionReport(setTopbar, navigate) {
             <div class="ccr-patient-name">${patientName}</div>
           </div>
           <div class="ccr-meta-block">
-            <div><span class="ccr-meta-label">Protocol:</span> ${course.protocol_name || course.name || '—'}</div>
+            <div><span class="ccr-meta-label">Protocol:</span> ${course.protocol_id || course.protocol_name || course.name || '—'}</div>
             <div><span class="ccr-meta-label">Report Date:</span> ${reportDate}</div>
           </div>
         </div>
@@ -10389,7 +10443,7 @@ export async function pgCourseCompletionReport(setTopbar, navigate) {
         <div class="ccr-section-title">Responder Status</div>
         <div class="ccr-responder-row">
           ${responderBadge}
-          ${firstWithPct ? `<span class="ccr-responder-detail">Based on ${firstWithPct.template_name || 'outcome measure'}: ${firstWithPct.pct_change > 0 ? '+' : ''}${Math.round(firstWithPct.pct_change)}% change</span>` : '<span class="ccr-responder-detail">No outcome comparison data available</span>'}
+          ${firstWithPct ? `<span class="ccr-responder-detail">Based on ${firstWithPct.template_title || firstWithPct.template_id || firstWithPct.template_name || 'outcome measure'}: ${firstWithPct.pct_change > 0 ? '+' : ''}${Math.round(firstWithPct.pct_change)}% change</span>` : '<span class="ccr-responder-detail">No outcome comparison data available</span>'}
         </div>
       </div>
 
@@ -10413,17 +10467,17 @@ export async function pgCourseCompletionReport(setTopbar, navigate) {
                   <th>Date</th>
                   <th>Duration</th>
                   <th>Tolerance</th>
-                  <th>Mood Before → After</th>
-                  <th>Adverse Event</th>
+                  <th>Interruption</th>
+                  <th>Deviation</th>
                 </tr>
               </thead>
               <tbody>
                 ${sortedSessions.map(s => `<tr>
-                  <td>${_ccrFmtDate(s.scheduled_at || s.date)}</td>
+                  <td>${_ccrFmtDate(s.created_at || s.scheduled_at || s.date)}</td>
                   <td>${s.duration_minutes != null ? s.duration_minutes + ' min' : '—'}</td>
-                  <td>${s.tolerance_rating != null ? s.tolerance_rating + '/5' : '—'}</td>
-                  <td>${s.mood_before != null || s.mood_after != null ? (s.mood_before ?? '—') + ' → ' + (s.mood_after ?? '—') : '—'}</td>
-                  <td>${(s.adverse_event || s.adverse_event_note) ? '<span class="ccr-ae-yes">Yes</span>' : '<span class="ccr-ae-no">No</span>'}</td>
+                  <td>${s.tolerance_rating || '—'}</td>
+                  <td>${s.interruptions ? '<span class="ccr-ae-yes">Yes</span>' : '<span class="ccr-ae-no">No</span>'}</td>
+                  <td>${s.protocol_deviation ? '<span class="ccr-ae-yes">Yes</span>' : '<span class="ccr-ae-no">No</span>'}</td>
                 </tr>`).join('')}
               </tbody>
             </table>
@@ -10434,12 +10488,12 @@ export async function pgCourseCompletionReport(setTopbar, navigate) {
       <!-- Adverse Events -->
       ${adverseEvents.length > 0 ? `
       <div class="ccr-section">
-        <div class="ccr-section-title">Adverse Events</div>
+        <div class="ccr-section-title">Adverse Events (${adverseEvents.length})</div>
         <div class="ccr-adverse-card">
-          ${adverseEvents.map(s => `
+          ${adverseEvents.map(ae => `
             <div class="ccr-adverse-item">
-              <span class="ccr-adverse-date">${_ccrFmtDate(s.scheduled_at || s.date)}</span>
-              <span class="ccr-adverse-note">${s.adverse_event_note || s.adverse_event || 'Adverse event noted'}</span>
+              <span class="ccr-adverse-date">${_ccrFmtDate(ae.reported_at || ae.created_at)}</span>
+              <span class="ccr-adverse-note">${(ae.event_type || 'Adverse event').replace(/_/g, ' ')} · <strong>${ae.severity || '—'}</strong>${ae.description ? ' — ' + ae.description : ''}</span>
             </div>`).join('')}
         </div>
       </div>` : ''}
@@ -10595,13 +10649,23 @@ window._qocSave = async function(courseId, sessionId) {
     return;
   }
 
+  // Resolve patient_id — OutcomeCreate requires it. We pull it from the course
+  // if it isn't already known to the caller.
+  let patientId = null;
+  try {
+    const course = await api.getCourse(courseId).catch(() => null);
+    if (course?.patient_id) patientId = course.patient_id;
+  } catch (_) {}
+
   const payload = {
     course_id: courseId,
+    patient_id: patientId,
     session_id: sessionId,
-    template_name: measure,
+    template_id: measure,
+    template_title: measure,
+    score: String(score),
     score_numeric: score,
     measurement_point: point,
-    notes,
     administered_at: new Date().toISOString(),
   };
 
@@ -10611,16 +10675,21 @@ window._qocSave = async function(courseId, sessionId) {
 
   let saved = false;
   try {
-    const result = await api.recordOutcome(payload);
-    if (result) saved = true;
+    // Without a patient_id the backend will 422. Fall through to localStorage
+    // below (offline capture) rather than firing a doomed request.
+    if (patientId) {
+      const result = await api.recordOutcome(payload);
+      if (result) saved = true;
+    }
   } catch (_) { saved = false; }
 
   if (!saved) {
-    // Fallback: localStorage
+    // Fallback: localStorage (keeps the clinician's free-text notes even though
+    // OutcomeCreate doesn't persist them server-side).
     try {
       const localKey = 'ds_local_outcomes';
       const existing = JSON.parse(localStorage.getItem(localKey) || '[]');
-      existing.push({ ...payload, _local: true, _saved_at: new Date().toISOString() });
+      existing.push({ ...payload, notes, _local: true, _saved_at: new Date().toISOString() });
       localStorage.setItem(localKey, JSON.stringify(existing));
       saved = true;
     } catch (_) { /* ignore */ }
