@@ -1,85 +1,48 @@
-const CACHE_NAME = 'deepsynaps-v2-dashboard';
-const STATIC_ASSETS = [
-  '/',
-  '/index.html',
-];
+// Self-unregistering kill-switch service worker.
+//
+// Replaces the previous `deepsynaps-v2-dashboard` SW which cached the
+// app shell aggressively. That cache repeatedly blocked clinicians /
+// patients from seeing fresh Netlify deploys (3 incidents this week).
+//
+// On install + activate, this SW:
+//   1. Deletes every cache (including the old `deepsynaps-v2-dashboard`)
+//   2. Unregisters itself
+//   3. Reloads every open client tab so they fetch the latest bundle
+//      from the network
+//
+// `index.html` no longer registers a service worker. Once existing
+// browsers have run this kill switch once, no SW is registered.
 
-// Install: pre-cache the app shell
-self.addEventListener('install', (event) => {
-  event.waitUntil(
-    caches.open(CACHE_NAME).then(cache => cache.addAll(STATIC_ASSETS))
-  );
+self.addEventListener('install', () => {
   self.skipWaiting();
 });
 
-// Activate: remove old caches
 self.addEventListener('activate', (event) => {
-  event.waitUntil(
-    caches.keys().then(keys =>
-      Promise.all(keys.filter(k => k !== CACHE_NAME).map(k => caches.delete(k)))
-    )
-  );
-  self.clients.claim();
-});
-
-// Fetch strategy:
-// - API calls / SSE: network-only (never cache)
-// - Hashed assets (/assets/*, *.js, *.css, fonts): cache-first
-// - HTML and everything else: network-first with offline fallback
-self.addEventListener('fetch', (event) => {
-  const url = new URL(event.request.url);
-
-  // Never cache API calls or SSE streams
-  if (url.pathname.startsWith('/api/') || url.pathname.includes('/notifications/stream')) {
-    return; // Let the browser handle normally
-  }
-
-  // Cache-first for hashed assets (content-hashed filenames never change)
-  if (
-    url.pathname.startsWith('/assets/') ||
-    url.pathname.match(/\.(js|css|woff2?|ttf|otf)$/)
-  ) {
-    event.respondWith(
-      caches.match(event.request).then(cached => {
-        if (cached) return cached;
-        return fetch(event.request).then(response => {
-          if (response.ok) {
-            const clone = response.clone();
-            caches.open(CACHE_NAME).then(cache => cache.put(event.request, clone));
-          }
-          return response;
-        });
-      })
-    );
-    return;
-  }
-
-  // Network-first for HTML navigation and everything else
-  event.respondWith(
-    fetch(event.request)
-      .then(response => {
-        if (response.ok) {
-          const clone = response.clone();
-          caches.open(CACHE_NAME).then(cache => cache.put(event.request, clone));
+  event.waitUntil((async () => {
+    try {
+      const keys = await caches.keys();
+      await Promise.all(keys.map((k) => caches.delete(k)));
+    } catch (_) { /* ignore — best effort */ }
+    try {
+      await self.registration.unregister();
+    } catch (_) { /* ignore */ }
+    try {
+      const clients = await self.clients.matchAll({ type: 'window' });
+      clients.forEach((c) => {
+        // navigate() bypasses any in-flight SW intercept and forces a
+        // fresh request from the network.
+        if (typeof c.navigate === 'function') {
+          c.navigate(c.url).catch(() => {});
+        } else if (typeof c.postMessage === 'function') {
+          c.postMessage({ type: 'SW_KILLED_RELOAD' });
         }
-        return response;
-      })
-      .catch(() =>
-        caches.match(event.request).then(cached => cached || caches.match('/'))
-      )
-  );
+      });
+    } catch (_) { /* ignore */ }
+  })());
 });
 
-// Background Sync
-self.addEventListener('sync', (event) => {
-  if (event.tag === 'sync-offline-queue') {
-    event.waitUntil(syncQueue());
-  }
+// Pass every fetch through to the network — no caching, no offline
+// fallback. This SW exists only to evict the previous one.
+self.addEventListener('fetch', (event) => {
+  event.respondWith(fetch(event.request));
 });
-
-async function syncQueue() {
-  // The actual sync happens in the main page via window._syncOfflineQueue
-  // SW just sends a message to all clients
-  const clients = await self.clients.matchAll({ type: 'window' });
-  clients.forEach(client => client.postMessage({ type: 'SYNC_OFFLINE_QUEUE' }));
-}
