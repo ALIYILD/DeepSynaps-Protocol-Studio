@@ -5245,7 +5245,8 @@ const PHASE2_CSS = `
 export async function pgAssessmentsHub(setTopbar) {
   setTopbar('Assessments Hub', `
     <button class="btn btn-primary btn-sm" onclick="document.getElementById('ah2-assign-modal') && document.getElementById('ah2-assign-modal').classList.remove('ah2-hidden')">+ Assign Bundle</button>
-    <button class="btn btn-sm" onclick="alert('Export coming soon')">Export Results</button>
+    <button class="btn btn-sm" onclick="window._ah2Refresh && window._ah2Refresh()">Refresh</button>
+    <button class="btn btn-sm" onclick="window._ah2Export && window._ah2Export()">Export Results</button>
   `);
 
   const EXTRA_SCALES = [
@@ -5325,24 +5326,106 @@ export async function pgAssessmentsHub(setTopbar) {
   const PHASES = ['baseline','weekly','pre_session','post_session','milestone','discharge'];
   const PHASE_LABELS = { baseline:'Baseline', weekly:'Weekly', pre_session:'Pre-Session', post_session:'Post-Session', milestone:'Milestone', discharge:'Discharge' };
 
-  const STORE_KEY = 'ds_assess_hub_v4';
-  function loadData() {
-    try { return JSON.parse(localStorage.getItem(STORE_KEY) || 'null') || seedData(); }
-    catch(e) { return seedData(); }
-  }
-  function saveData(d) { localStorage.setItem(STORE_KEY, JSON.stringify(d)); }
-  function seedData() {
-    const d = { assignments: [
-      { id:'A001', patientId:'P-DEMO-1', condId:'CON-001', condName:'Major Depressive Disorder', phase:'baseline', scales:['PHQ-9','MADRS','HAM-D','QIDS-SR','C-SSRS','ISI'], assignedBy:'Dr. Chen', assignedDate:'2026-04-01', dueDate:'2026-04-08', recurrence:null, status:'overdue', completedDate:null, reviewed:false, results:[] },
-      { id:'A002', patientId:'P-DEMO-1', condId:'CON-001', condName:'Major Depressive Disorder', phase:'weekly', scales:['PHQ-9','QIDS-SR','C-SSRS'], assignedBy:'Dr. Chen', assignedDate:'2026-04-06', dueDate:'2026-04-13', recurrence:'weekly', status:'pending', completedDate:null, reviewed:false, results:[] },
-      { id:'A003', patientId:'P-DEMO-2', condId:'CON-019', condName:'Post-Traumatic Stress Disorder', phase:'baseline', scales:['PCL-5','CAPS-5','PHQ-9','C-SSRS','ISI'], assignedBy:'Dr. Patel', assignedDate:'2026-04-08', dueDate:'2026-04-15', recurrence:null, status:'pending', completedDate:null, reviewed:false, results:[] },
-      { id:'A004', patientId:'P-DEMO-1', condId:'CON-001', condName:'Major Depressive Disorder', phase:'weekly', scales:['PHQ-9','QIDS-SR'], assignedBy:'Dr. Chen', assignedDate:'2026-03-24', dueDate:'2026-03-31', recurrence:'weekly', status:'completed', completedDate:'2026-03-30', reviewed:false, results:[{scale:'PHQ-9',score:14,interp:'Moderate'},{scale:'QIDS-SR',score:11,interp:'Moderate'}] },
-      { id:'A005', patientId:'P-DEMO-3', condId:'CON-051', condName:'TMS Protocol General', phase:'pre_session', scales:['TMS-SE','C-SSRS'], assignedBy:'Dr. Nguyen', assignedDate:'2026-04-11', dueDate:'2026-04-12', recurrence:'per-session', status:'completed', completedDate:'2026-04-12', reviewed:true, results:[{scale:'TMS-SE',score:3,interp:'None/Minimal'},{scale:'C-SSRS',score:0,interp:'No Ideation'}] },
-    ]};
-    saveData(d); return d;
+  // DATA is now hydrated from the /api/v1/assessments backend. One UI "assignment"
+  // maps to N backend records (one per scale) grouped by (patient, bundle, phase,
+  // assigned day). No localStorage source-of-truth — the backend is authoritative.
+  let DATA = { assignments: [], loading: true, error: null };
+
+  function _groupKey(r) {
+    const d = (r.created_at || '').slice(0, 10);
+    return [r.patient_id || '', r.bundle_id || '', r.phase || '', d].join('|');
   }
 
-  let DATA = loadData();
+  function _scaleIdFromRecord(r) {
+    // Prefer the raw scale id we stashed in data.scale_id when assigning; fall
+    // back to template_title (user-facing) or template_id (normalized slug).
+    return (r.data && r.data.scale_id) || r.template_title || r.template_id || '';
+  }
+
+  function _groupToAssignment(records) {
+    const first = records[0];
+    const today = new Date().toISOString().slice(0, 10);
+    const dueDate = (first.due_date || '').slice(0, 10) || today;
+    const assignedDate = (first.created_at || '').slice(0, 10) || today;
+    const condId = first.bundle_id || '';
+    const cond = COND_BUNDLES.find(c => c.id === condId);
+    // Build the scale list in bundle order (stable display) with any extras.
+    const bundleScales = cond && cond.phases && cond.phases[first.phase]
+      ? cond.phases[first.phase].slice()
+      : [];
+    const recordByScale = {};
+    records.forEach(r => { recordByScale[_scaleIdFromRecord(r)] = r; });
+    const scales = bundleScales.length
+      ? bundleScales.filter(s => recordByScale[s]).concat(
+          Object.keys(recordByScale).filter(s => !bundleScales.includes(s)))
+      : Object.keys(recordByScale);
+    const results = [];
+    scales.forEach(sid => {
+      const r = recordByScale[sid];
+      if (!r) return;
+      if (r.status === 'completed') {
+        const d = r.data || {};
+        const score = d.score != null ? d.score
+          : (r.score_numeric != null ? r.score_numeric
+          : (r.score != null ? parseFloat(r.score) : null));
+        if (score != null && !Number.isNaN(score)) {
+          results.push({
+            scale: sid,
+            score,
+            interp: d.interpretation || r.severity_label || interpretScore(sid, score),
+            items: d.items || null,
+          });
+        }
+      }
+    });
+    const allCompleted = records.every(r => r.status === 'completed');
+    const allApproved = records.every(r => r.approved_status === 'approved');
+    let status = allCompleted ? 'completed' : 'pending';
+    if (!allCompleted && dueDate < today) status = 'overdue';
+    const latestCompleted = records
+      .filter(r => r.status === 'completed')
+      .map(r => (r.updated_at || r.created_at || '').slice(0, 10))
+      .sort().pop() || null;
+    return {
+      id: 'G-' + _groupKey(first).replace(/\|/g, '-'),
+      patientId: first.patient_id || '',
+      condId,
+      condName: cond ? cond.name : (condId || 'Unassigned'),
+      phase: first.phase || 'baseline',
+      scales,
+      assignedBy: first.clinician_id || 'Clinician',
+      assignedDate,
+      dueDate,
+      recurrence: (first.data && first.data.recurrence) || null,
+      status,
+      completedDate: allCompleted ? latestCompleted : null,
+      reviewed: allApproved && allCompleted,
+      results,
+      safetyAlerts: (first.data && first.data.safetyAlerts) || [],
+      _backendIds: Object.fromEntries(Object.entries(recordByScale).map(([s, r]) => [s, r.id])),
+    };
+  }
+
+  async function hydrate() {
+    DATA.loading = true;
+    DATA.error = null;
+    try {
+      const resp = await api.listAssessments();
+      const items = Array.isArray(resp) ? resp : (resp && resp.items) || [];
+      const groups = {};
+      items.forEach(r => {
+        const k = _groupKey(r);
+        (groups[k] = groups[k] || []).push(r);
+      });
+      DATA.assignments = Object.values(groups).map(_groupToAssignment);
+    } catch (err) {
+      DATA.assignments = [];
+      DATA.error = (err && err.message) || 'Failed to load assessments';
+      console.warn('[assessments-hub] hydrate failed:', err);
+    } finally {
+      DATA.loading = false;
+    }
+  }
   let activeTab = 'dashboard';
   let activeCat = 'all';
   let tlibFilter = 'All';
@@ -5465,9 +5548,22 @@ export async function pgAssessmentsHub(setTopbar) {
   }
 
   function render() {
-    const k = kpis();
     const root = document.getElementById('ah2-root');
     if (!root) return;
+    if (DATA.loading) {
+      root.innerHTML = '<div class="ah2-loading" style="padding:48px;text-align:center;color:var(--text-secondary)">Loading assessments…</div>';
+      return;
+    }
+    if (DATA.error) {
+      root.innerHTML =
+        '<div class="ah2-error" style="padding:32px;text-align:center;border:1px solid var(--border);border-radius:12px;margin:16px">' +
+          '<div style="font-weight:700;margin-bottom:8px;color:var(--danger,#ff6b6b)">Could not load assessments</div>' +
+          '<div style="font-size:12.5px;color:var(--text-secondary);margin-bottom:12px">' + _hubEscHtml(DATA.error) + '</div>' +
+          '<button class="ah2-btn" onclick="window._ah2Refresh && window._ah2Refresh()">Retry</button>' +
+        '</div>';
+      return;
+    }
+    const k = kpis();
     root.innerHTML =
       '<div class="ah2-kpi-strip">' +
         '<div class="ah2-kpi ' + (k.overdue > 0 ? 'ah2-kpi-danger' : '') + '"><span class="ah2-kpi-val">' + k.overdue + '</span><span class="ah2-kpi-lbl">Overdue</span></div>' +
@@ -5748,54 +5844,83 @@ export async function pgAssessmentsHub(setTopbar) {
     modal.classList.remove('ah2-hidden');
   };
 
-  window._ah2SaveAssign = function() {
+  window._ah2SaveAssign = async function() {
     const patient = ((document.getElementById('ah2-f-patient') || {}).value || '').trim();
     const condId = (document.getElementById('ah2-f-cond') || {}).value || '';
     const phase = (document.getElementById('ah2-f-phase') || {}).value || '';
     const due = (document.getElementById('ah2-f-due') || {}).value || '';
     const recur = (document.getElementById('ah2-f-recur') || {}).value || '';
     if (!patient || !condId || !phase || !due) { _dsToast('Please fill in all required fields before assigning.', 'warn'); return; }
-    // Patient id format: expect the UUID-like patient key used elsewhere. Reject
-    // obvious typos (empty, too short, HTML-like) before saving or sending to API.
     if (patient.length < 3 || /[<>"]/.test(patient)) {
       _dsToast('Patient ID looks invalid. Pick a patient from the list or enter the clinic-issued ID.', 'warn');
       return;
     }
     const cond = COND_BUNDLES.find(c => c.id === condId);
-    DATA.assignments.push({
-      id: 'A' + String(Date.now()).slice(-6),
-      patientId: patient, condId, condName: cond.name, phase,
-      scales: cond.phases[phase] || [],
-      assignedBy: 'Current Clinician',
-      assignedDate: new Date().toISOString().slice(0,10),
-      dueDate: due, recurrence: recur || null,
-      status: 'pending', completedDate: null, reviewed: false, results: []
-    });
-    saveData(DATA);
-    // Fire-and-forget bundle assignment to the backend so other clinicians /
-    // the patient portal see the same assignment state. UI falls back to the
-    // local list if the backend call fails (offline-tolerant).
+    if (!cond) { _dsToast('Unknown condition bundle.', 'warn'); return; }
+    const scales = cond.phases[phase] || [];
+    if (!scales.length) { _dsToast('No scales defined for this phase.', 'warn'); return; }
+
+    // Disable the Assign button while the request is in flight so a double-click
+    // can't create two bundles. The hub re-renders on success; failure re-enables.
+    const btn = document.querySelector('#ah2-assign-modal .ah2-btn:not(.ah2-btn-ghost)');
+    if (btn) { btn.disabled = true; btn.textContent = 'Assigning…'; }
     try {
-      if (api && api.bulkAssignAssessments) {
-        const scales = cond.phases[phase] || [];
-        const templateIds = scales.map(sid => _hubResolveTemplateId?.(sid) || String(sid).toLowerCase().replace(/[^a-z0-9]/g, ''));
-        api.bulkAssignAssessments({
-          patient_id: patient,
-          template_ids: templateIds,
-          phase,
-          due_date: due,
-          bundle_id: condId,
-          clinician_notes: recur ? 'Recurrence: ' + recur : null,
-        }).catch(err => {
-          console.warn('[assessments-hub] bundle sync failed:', err?.message || err);
-          window._showNotifToast?.({ title: 'Bundle saved locally', body: 'Server sync will retry on next refresh.', severity: 'warning' });
-        });
+      // Backend wants one record per scale. We ship the human-readable scale id
+      // in `data.scale_id` so hydrate() can round-trip it back to the UI label
+      // the clinician recognises (PHQ-9, C-SSRS, etc.).
+      const items = scales.map(sid => {
+        const tpl = _hubResolveRegistryScale(sid);
+        const templateId = (tpl?.scoringKey || tpl?.id || sid || '').toString().toLowerCase().replace(/[^a-z0-9]/g, '') || String(sid).toLowerCase();
+        const templateTitle = tpl?.t || tpl?.abbr || sid;
+        return { sid, templateId, templateTitle, scoringKey: tpl?.scoringKey, inline: !!tpl?.inline };
+      });
+      // bulk-assign takes one template list; we call it once and then PATCH each
+      // record with the right data.scale_id (so hydrate() can map it back).
+      const resp = await api.bulkAssignAssessments({
+        patient_id: patient,
+        template_ids: items.map(i => i.templateId),
+        phase,
+        due_date: due,
+        bundle_id: condId,
+        clinician_notes: recur ? 'Recurrence: ' + recur : null,
+      });
+      const created = (resp && resp.created) || [];
+      // Stamp each newly-created record with its scale id + recurrence so the
+      // grouping/round-trip in hydrate() lines up cleanly.
+      await Promise.all(created.map(async (rec, idx) => {
+        const item = items[idx] || items.find(i => i.templateId === rec.template_id);
+        if (!item) return;
+        try {
+          await api.updateAssessment(rec.id, {
+            data: {
+              ...(rec.data || {}),
+              scale_id: item.sid,
+              scale_label: item.templateTitle,
+              recurrence: recur || null,
+            },
+            scale_version: item.scoringKey ? item.scoringKey + '@1' : null,
+            respondent_type: item.inline ? 'patient' : 'clinician',
+          });
+        } catch (err) {
+          console.warn('[assessments-hub] stamp failed for', item.sid, err);
+        }
+      }));
+      const failed = (resp && resp.failed) || [];
+      if (failed.length) {
+        window._showNotifToast?.({ title: 'Some scales failed', body: failed.map(f => f.template_id + ': ' + f.reason).join(' | '), severity: 'warning' });
+      } else {
+        window._showNotifToast?.({ title: 'Bundle assigned', body: scales.length + ' scales queued for ' + patient, severity: 'success' });
       }
+      document.getElementById('ah2-assign-modal').classList.add('ah2-hidden');
+      await hydrate();
+      render();
     } catch (err) {
-      console.warn('[assessments-hub] bundle sync threw:', err);
+      const msg = (err && err.message) || 'Network error';
+      console.warn('[assessments-hub] assign failed:', err);
+      window._showNotifToast?.({ title: 'Assignment failed', body: msg, severity: 'critical' });
+    } finally {
+      if (btn) { btn.disabled = false; btn.textContent = 'Assign'; }
     }
-    document.getElementById('ah2-assign-modal').classList.add('ah2-hidden');
-    render();
   };
 
   window._ah2Score = function(id) {
@@ -5818,7 +5943,7 @@ export async function pgAssessmentsHub(setTopbar) {
     modal.classList.remove('ah2-hidden');
   };
 
-  window._ah2SaveScores = function() {
+  window._ah2SaveScores = async function() {
     const modal = document.getElementById('ah2-score-modal');
     const a = DATA.assignments.find(x => x.id === modal.dataset.assignId);
     if (!a) return;
@@ -5838,8 +5963,8 @@ export async function pgAssessmentsHub(setTopbar) {
       const numeric = vals.map(v => parseInt(v, 10));
       const sum = numeric.reduce((acc, n) => acc + n, 0);
       results.push({ scale: sid, score: sum, interp: interpretScore(sid, sum), items: numeric });
-      // PHQ-9 item 9 (thoughts of self-harm). Any non-zero answer triggers the
-      // clinic's suicide-safety protocol before the patient leaves.
+      // PHQ-9 item 9 (self-harm) — any non-zero answer triggers the clinic's
+      // suicide-safety protocol before the patient leaves.
       if (/^PHQ-?9$/i.test(sid) && numeric.length >= 9 && numeric[8] >= 1) {
         safetyAlerts.push({
           scale: 'PHQ-9',
@@ -5856,8 +5981,7 @@ export async function pgAssessmentsHub(setTopbar) {
       if (inp.value !== '') {
         const score = parseInt(inp.value, 10);
         results.push({ scale: inp.dataset.scale, score, interp: interpretScore(inp.dataset.scale, score) });
-        // C-SSRS is entered as a single numeric score (0-6). ≥2 = active
-        // ideation (warn); ≥4 = behavior/plan (critical).
+        // C-SSRS numeric (0-6). ≥2 = active ideation (warn); ≥4 = behavior/plan (critical).
         if (/^C-?SSRS$/i.test(inp.dataset.scale) && !Number.isNaN(score) && score >= 2) {
           safetyAlerts.push({
             scale: 'C-SSRS',
@@ -5873,33 +5997,109 @@ export async function pgAssessmentsHub(setTopbar) {
       window._showNotifToast?.({ title: 'No scores', body: 'Enter at least one scale score or checklist.', severity: 'warning' });
       return;
     }
-    a.results = results;
-    a.status = 'completed';
-    a.completedDate = new Date().toISOString().slice(0, 10);
-    a.safetyAlerts = safetyAlerts;
-    saveData(DATA);
-    _syncAssessHubResultsToPlatform(a, results);
-    modal.classList.add('ah2-hidden');
-    if (safetyAlerts.length) {
-      const critical = safetyAlerts.some(s => s.severity === 'critical');
-      window._showNotifToast?.({
-        title: critical ? 'SAFETY ALERT — immediate review required' : 'Safety flag — clinician review required',
-        body: safetyAlerts.map(s => s.scale + ': ' + s.message).join(' | '),
-        severity: critical ? 'critical' : 'warning',
-      });
-    } else {
-      window._showNotifToast?.({ title: 'Scores saved', body: 'Totals synced to patient assessments and clinic metrics.', severity: 'success' });
+
+    const saveBtn = modal.querySelector('.ah2-btn:not(.ah2-btn-ghost)');
+    if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'Saving…'; }
+    const failures = [];
+    try {
+      // PATCH each backend record for the scales we just scored. Unscored scales
+      // in the bundle stay `pending` — the clinician can finish them later.
+      await Promise.all(results.map(async r => {
+        const backendId = a._backendIds && a._backendIds[r.scale];
+        if (!backendId) {
+          failures.push({ scale: r.scale, reason: 'No backend id — was this assignment created offline?' });
+          return;
+        }
+        try {
+          await api.updateAssessment(backendId, {
+            status: 'completed',
+            score: String(r.score),
+            data: {
+              score: r.score,
+              interpretation: r.interp,
+              items: r.items || null,
+              scale_id: r.scale,
+              source: 'assessments-hub',
+              safetyAlerts: safetyAlerts.filter(s => s.scale === r.scale),
+            },
+          });
+        } catch (err) {
+          failures.push({ scale: r.scale, reason: (err && err.message) || 'Network error' });
+        }
+      }));
+
+      // Legacy sidecar: ds_assessment_runs localStorage keeps the patient-profile
+      // Assessments tab + dashboard widgets working. We write directly so we don't
+      // re-trigger the old fire-and-forget api.createAssessment path (would dupe).
+      try {
+        const runs = JSON.parse(localStorage.getItem('ds_assessment_runs') || '[]');
+        const ts = new Date().toISOString();
+        results.forEach(r => {
+          const tpl = _hubResolveRegistryScale(r.scale);
+          const sm = getScaleMeta(r.scale);
+          runs.push({
+            patient_id: a.patientId,
+            scale_id: r.scale,
+            scale_name: (!sm.unknown && sm.display_name) ? sm.display_name : (tpl?.abbr || tpl?.t || r.scale),
+            score: r.score,
+            interpretation: r.interp || '',
+            completed_at: ts,
+            status: 'completed',
+            timing_window: a.phase || '',
+            source: 'assessments-hub',
+            assignment_id: a.id,
+            condition_name: a.condName || '',
+          });
+        });
+        localStorage.setItem('ds_assessment_runs', JSON.stringify(runs));
+        window.dispatchEvent(new CustomEvent('ds-assessment-runs-updated', { detail: { patientId: a.patientId } }));
+      } catch {}
+
+      modal.classList.add('ah2-hidden');
+      if (failures.length) {
+        window._showNotifToast?.({
+          title: 'Some scores did not save',
+          body: failures.map(f => f.scale + ': ' + f.reason).join(' | '),
+          severity: 'warning',
+        });
+      }
+      if (safetyAlerts.length) {
+        const critical = safetyAlerts.some(s => s.severity === 'critical');
+        window._showNotifToast?.({
+          title: critical ? 'SAFETY ALERT — immediate review required' : 'Safety flag — clinician review required',
+          body: safetyAlerts.map(s => s.scale + ': ' + s.message).join(' | '),
+          severity: critical ? 'critical' : 'warning',
+        });
+      } else if (!failures.length) {
+        window._showNotifToast?.({ title: 'Scores saved', body: 'Totals synced to patient assessments and clinic metrics.', severity: 'success' });
+      }
+      await hydrate();
+      render();
+    } finally {
+      if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = 'Save & Complete'; }
     }
-    render();
   };
 
-  window._ah2Review = function(id) {
+  window._ah2Review = async function(id) {
     const a = DATA.assignments.find(x => x.id === id);
     if (!a) return;
-    a.reviewed = true;
-    saveData(DATA);
-    render();
-    window._ah2Detail(id);
+    const ids = Object.values(a._backendIds || {});
+    if (!ids.length) { _dsToast('Nothing to review — assignment has no backend records.', 'warn'); return; }
+    try {
+      await Promise.all(ids.map(bid =>
+        api.approveAssessment(bid, { approved: true }).catch(err => {
+          console.warn('[assessments-hub] approve failed for', bid, err);
+          throw err;
+        })
+      ));
+      window._showNotifToast?.({ title: 'Reviewed', body: 'Assignment marked approved.', severity: 'success' });
+      await hydrate();
+      render();
+      window._ah2Detail(id);
+    } catch (err) {
+      const msg = (err && err.message) || 'Network error';
+      window._showNotifToast?.({ title: 'Review failed', body: msg, severity: 'critical' });
+    }
   };
 
   window._ah2Detail = function(id) {
@@ -6043,10 +6243,57 @@ export async function pgAssessmentsHub(setTopbar) {
     document.getElementById('ah2-condinfo-modal')?.classList.remove('ah2-hidden');
   };
 
+  window._ah2Refresh = async function() {
+    await hydrate();
+    render();
+  };
+
+  window._ah2Export = function() {
+    const rows = [['Patient', 'Condition', 'Phase', 'Scale', 'Score', 'Interpretation', 'Assigned', 'Due', 'Completed', 'Status', 'Reviewed']];
+    DATA.assignments.forEach(a => {
+      if (a.results && a.results.length) {
+        a.results.forEach(r => {
+          rows.push([
+            a.patientId, a.condName, PHASE_LABELS[a.phase] || a.phase,
+            r.scale, r.score, r.interp,
+            a.assignedDate, a.dueDate, a.completedDate || '',
+            a.status, a.reviewed ? 'Yes' : 'No',
+          ]);
+        });
+      } else {
+        a.scales.forEach(sid => {
+          rows.push([
+            a.patientId, a.condName, PHASE_LABELS[a.phase] || a.phase,
+            sid, '', '',
+            a.assignedDate, a.dueDate, '',
+            a.status, 'No',
+          ]);
+        });
+      }
+    });
+    const csv = rows.map(row => row.map(v => {
+      const s = v == null ? '' : String(v);
+      return /[,"\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+    }).join(',')).join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    const ts = new Date().toISOString().slice(0, 10);
+    link.href = url;
+    link.download = 'assessments-' + ts + '.csv';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+    window._showNotifToast?.({ title: 'Export ready', body: rows.length - 1 + ' rows exported.', severity: 'success' });
+  };
+
   const el = document.getElementById('content');
   if (!el) return;
   el.innerHTML = '<div class="ah2-wrap" id="ah2-root"></div>' + assignModalHtml + scoreModalHtml + detailModalHtml + condInfoModalHtml;
-  render();
+  render();          // shows loading skeleton immediately
+  await hydrate();   // fetches live data from /api/v1/assessments
+  render();          // swaps in real assignments
 }
 
 export async function pgBrainMapPlanner(setTopbar) {
