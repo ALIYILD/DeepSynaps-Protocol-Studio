@@ -133,9 +133,18 @@
 
 <script type="module" src="/src/main.js"></script>
 <script>
+  // Service worker registration is intentionally disabled. The previous SW
+  // (sw.js) cached the app shell aggressively and blocked clinicians/patients
+  // from seeing fresh deploys. sw.js is now a self-unregistering kill switch
+  // that wipes caches on activate. Once existing browsers have run the kill
+  // switch, no SW is registered. Re-add a properly-scoped SW later if needed.
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('./sw.js').catch(err => console.warn('SW registration failed:', err));
+      // Defensive: also unregister any stale SW the browser may have kept
+      // around (e.g. from a tab opened before the kill-switch deploy).
+      navigator.serviceWorker.getRegistrations().then(regs => {
+        regs.forEach(r => r.unregister().catch(() => {}));
+      }).catch(() => {});
     });
   }
 </script>
