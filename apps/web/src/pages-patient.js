@@ -1063,24 +1063,25 @@ export async function pgPatientSessions() {
   const el = document.getElementById('patient-content');
   el.innerHTML = spinner();
 
+  // Local timeout helpers — a half-open Fly backend can leave fetch() hanging
+  // forever, which shows as a stuck spinner. Race every call against a 3s
+  // timeout; a null result falls through to empty / demo handling below.
+  const _timeout = (ms) => new Promise(r => setTimeout(() => r(null), ms));
+  const _raceNull = (p) => Promise.race([
+    Promise.resolve(p).catch(() => null),
+    _timeout(3000),
+  ]);
+
   let sessionsRaw, coursesRaw, outcomesRaw, assessmentsRaw;
   try {
     [sessionsRaw, coursesRaw, outcomesRaw, assessmentsRaw] = await Promise.all([
-      api.patientPortalSessions().catch(() => null),
-      api.patientPortalCourses().catch(() => null),
-      api.patientPortalOutcomes().catch(() => null),
-      api.patientPortalAssessments().catch(() => null),
+      _raceNull(api.patientPortalSessions()),
+      _raceNull(api.patientPortalCourses()),
+      _raceNull(api.patientPortalOutcomes()),
+      _raceNull(api.patientPortalAssessments()),
     ]);
   } catch (_e) {
-    el.innerHTML = `
-      <div class="pt-portal-empty" style="margin-top:32px">
-        <div class="pt-portal-empty-ico">⚠</div>
-        <div class="pt-portal-empty-title">${t('patient.sess.err.title')}</div>
-        <div class="pt-portal-empty-body">${t('patient.sess.err.body')}</div>
-        <button class="btn btn-ghost btn-sm" style="margin-top:12px"
-                onclick="window._navPatient('patient-sessions')">${t('patient.sess.err.retry')}</button>
-      </div>`;
-    return;
+    sessionsRaw = coursesRaw = outcomesRaw = assessmentsRaw = null;
   }
 
   const sessions     = Array.isArray(sessionsRaw)     ? sessionsRaw     : [];
@@ -1961,10 +1962,11 @@ async function _pgPatientCourseImpl() {
   };
 
   // ── Data loading ─────────────────────────────────────────────────────────
-  // Every endpoint is wrapped in .catch() + a hard 3s timeout so a dead or
-  // half-open Fly connection never leaves the spinner hanging. If any call
-  // doesn't complete in time, we treat it as "no data" and fall through to
-  // the demo overlay below.
+  // Every endpoint is wrapped in a 3s _raceNull timeout so a dead/slow Fly
+  // backend never leaves the user staring at a stuck spinner. Worst case
+  // each promise resolves to null and we fall through to the demo overlay
+  // below. `api.patientOutcomes?.()` guards against the legacy method name
+  // not existing on the bundled api object.
   const _timeout = (ms) => new Promise(r => setTimeout(() => r(null), ms));
   const _raceNull = (p) => Promise.race([
     Promise.resolve(p).catch(() => null),
@@ -2696,9 +2698,8 @@ export async function pgPatientAssessments() {
       .replace(/'/g, '&#x27;');
   }
 
-  // ── Fetch in parallel (3s hard timeout on each) ──────────────────────────
-  // Half-open connections to Fly would otherwise leave the spinner visible
-  // forever. Race each call against a 3s timeout that resolves to null.
+  // ── Fetch in parallel ────────────────────────────────────────────────────
+  // Local 3s timeout so a half-open Fly backend can never wedge the page.
   const _timeout = (ms) => new Promise(r => setTimeout(() => r(null), ms));
   const _raceNull = (p) => Promise.race([
     Promise.resolve(p).catch(() => null),
@@ -2715,26 +2716,26 @@ export async function pgPatientAssessments() {
     assessmentsRaw = null;
   }
 
-  // If the assessments call errored or timed out, `assessmentsRaw` is null.
-  // We let it fall through to the empty/demo path rather than showing a
-  // scary error card — the empty state already has Message/Home CTAs, and
-  // the demo overlay below handles the preview-build case.
-  let rawItems   = Array.isArray(assessmentsRaw) ? assessmentsRaw : [];
-  const courses  = Array.isArray(coursesRaw)     ? coursesRaw     : [];
-  const sessions = Array.isArray(sessionsRaw)    ? sessionsRaw    : [];
+  let rawItems  = Array.isArray(assessmentsRaw) ? assessmentsRaw : [];
+  const courses   = Array.isArray(coursesRaw)     ? coursesRaw     : [];
+  const sessions  = Array.isArray(sessionsRaw)    ? sessionsRaw    : [];
 
-  // Demo overlay — when the list is empty AND this is either a demo
-  // patient or a demo-flagged build (Netlify preview), surface the
-  // bundled demoAssessmentSeed() so reviewers see a populated page
-  // instead of the "nothing here" empty state.
-  const _assessDemoBuild =
+  // Demo overlay — when the demo patient's assessments list is empty
+  // (preview build, fresh API DB, seed not yet run), surface the bundled
+  // demoAssessmentSeed() so reviewers see a populated page instead of
+  // the "nothing here" empty state. Same pattern as the Treatment Plan
+  // fallback. Fires on:
+  //   - the demo build (Netlify preview, VITE_ENABLE_DEMO=1)
+  //   - a signed-in user that looks like a demo patient
+  //   - the offline demo token
+  const _demoBuild =
     (typeof import.meta !== 'undefined'
       && import.meta.env
       && (import.meta.env.DEV || import.meta.env.VITE_ENABLE_DEMO === '1'));
-  const _assessLooksDemo = _assessDemoBuild
+  const _looksDemo = _demoBuild
     || isDemoPatient(currentUser, { getToken: api.getToken })
     || (() => { try { return String(api.getToken?.() || '').includes('demo'); } catch { return false; } })();
-  if (rawItems.length === 0 && _assessLooksDemo) {
+  if (rawItems.length === 0 && _looksDemo) {
     rawItems = demoAssessmentSeed();
   }
 
@@ -3375,22 +3376,26 @@ export async function pgPatientReports() {
   el.innerHTML = spinner();
 
   // ── Fetch in parallel ────────────────────────────────────────────────────
+  // 3s timeout so a hung Fly backend can never wedge the page on a spinner.
+  const _timeout = (ms) => new Promise(r => setTimeout(() => r(null), ms));
+  const _raceNull = (p) => Promise.race([
+    Promise.resolve(p).catch(() => null),
+    _timeout(3000),
+  ]);
   let outcomesRaw, assessmentsRaw, coursesRaw, sessionsRaw;
   try {
     [outcomesRaw, assessmentsRaw, coursesRaw, sessionsRaw] = await Promise.all([
-      api.patientPortalOutcomes().catch(() => null),
-      api.patientPortalAssessments().catch(() => null),
-      api.patientPortalCourses().catch(() => null),
-      api.patientPortalSessions().catch(() => null),
+      _raceNull(api.patientPortalOutcomes()),
+      _raceNull(api.patientPortalAssessments()),
+      _raceNull(api.patientPortalCourses()),
+      _raceNull(api.patientPortalSessions()),
     ]);
   } catch (_e) {
-    el.innerHTML = _docsErrState();
-    return;
+    outcomesRaw = assessmentsRaw = coursesRaw = sessionsRaw = null;
   }
-  if (outcomesRaw === null && assessmentsRaw === null) {
-    el.innerHTML = _docsErrState();
-    return;
-  }
+  // Soft-error: fall through to an empty docs list (which renders an
+  // empty-state card) instead of the hard "Could not load" state when
+  // the backend is merely hanging.
 
   // ── Safe HTML escaper ────────────────────────────────────────────────────
   function esc(v) {
@@ -3996,15 +4001,27 @@ export async function pgPatientMessages() {
   const SVG_REFRESH = '<svg class="ptmsg-ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="currentColor" d="M12 4a8 8 0 1 1-7.45 10.91l1.87-.74A6 6 0 1 0 12 6V9L7 5l5-4v3z"/></svg>';
   const SVG_SEND = '<svg class="ptmsg-ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="currentColor" d="M3 20.5V13l13-1L3 11V3.5l19 8.5-19 8.5z"/></svg>';
 
-  const inDemo = isDemoPatient(currentUser, { getToken: api.getToken });
+  const _demoBuild =
+    (typeof import.meta !== 'undefined'
+      && import.meta.env
+      && (import.meta.env.DEV || import.meta.env.VITE_ENABLE_DEMO === '1'));
+  const inDemo = _demoBuild
+    || isDemoPatient(currentUser, { getToken: api.getToken })
+    || (() => { try { return String(api.getToken?.() || '').includes('demo'); } catch { return false; } })();
 
   // ── Fetch messages + course + portal me (all three parallel) ──────────────
+  // 3s timeout so a hung Fly backend never wedges the inbox on a spinner.
+  const _timeout = (ms) => new Promise(r => setTimeout(() => r(null), ms));
+  const _raceNull = (p) => Promise.race([
+    Promise.resolve(p).catch(() => null),
+    _timeout(3000),
+  ]);
   let messagesRaw, coursesRaw, meRaw;
   try {
     [messagesRaw, coursesRaw, meRaw] = await Promise.all([
-      api.patientPortalMessages().catch(() => null),
-      api.patientPortalCourses().catch(() => null),
-      api.patientPortalMe().catch(() => null),
+      _raceNull(api.patientPortalMessages()),
+      _raceNull(api.patientPortalCourses()),
+      _raceNull(api.patientPortalMe()),
     ]);
   } catch (_e) {
     messagesRaw = null; coursesRaw = null; meRaw = null;
@@ -4014,15 +4031,15 @@ export async function pgPatientMessages() {
   const activeCourse = courses.find(c => c.status === 'active') || courses[0] || null;
   const me           = meRaw && typeof meRaw === 'object' ? meRaw : null;
 
-  // Demo seed: if demo-mode AND the real endpoint returned empty, overlay
-  // a 3-exchange seeded thread (not "load failed" — only true emptiness).
+  // Demo seed: if demo-mode AND the real endpoint returned empty *or* the
+  // Fly backend timed out (messagesRaw === null), overlay the 3-exchange
+  // seeded thread so reviewers see something realistic. Outside demo mode
+  // we fall through to the empty/"couldn't load" path instead.
   let rawMessages;
-  if (Array.isArray(messagesRaw)) {
-    if (messagesRaw.length === 0 && inDemo) {
-      rawMessages = demoMessagesSeed();
-    } else {
-      rawMessages = messagesRaw;
-    }
+  if (Array.isArray(messagesRaw) && messagesRaw.length > 0) {
+    rawMessages = messagesRaw;
+  } else if (inDemo) {
+    rawMessages = demoMessagesSeed();
   } else {
     rawMessages = [];
   }
@@ -4082,7 +4099,10 @@ export async function pgPatientMessages() {
   const threads = rebuildThreadsFromMap();
 
   // ── Page state ───────────────────────────────────────────────────────────
-  const loadFailed = messagesRaw === null;
+  // Only surface a hard "load failed" banner when we genuinely have no
+  // fallback — i.e. the endpoint errored or timed out AND we're not in a
+  // demo build that just overlaid seeded threads for the reviewer.
+  const loadFailed = messagesRaw === null && !inDemo;
   const uid        = currentUser?.id;
 
   let activeThreadIdx = threads.length > 0 ? 0 : -1;
@@ -4844,11 +4864,34 @@ export async function pgPatientWellness() {
   const todayStr  = new Date().toISOString().slice(0, 10);
   const todayFmt  = new Date().toLocaleDateString(getLocale() === 'tr' ? 'tr-TR' : 'en-US', { weekday: 'long', month: 'long', day: 'numeric' });
   let _serverHomeProgramTasks = null;
+  // 3s timeout so a hung Fly backend can never wedge the Tasks page on a
+  // spinner. On timeout `items` is null and we fall through to the local
+  // task catalog + demo overlay below.
+  const _timeout = (ms) => new Promise(r => setTimeout(() => r(null), ms));
+  const _raceNull = (p) => Promise.race([
+    Promise.resolve(p).catch(() => null),
+    _timeout(3000),
+  ]);
   try {
     const { api } = await import('./api.js');
-    const items = await api.portalListHomeProgramTasks().catch(() => null);
+    const items = await _raceNull(api.portalListHomeProgramTasks());
     _serverHomeProgramTasks = Array.isArray(items) ? items : null;
   } catch { /* offline / no token */ }
+
+  // Demo overlay — when we're on a preview build (VITE_ENABLE_DEMO=1) or the
+  // signed-in user looks like a demo patient, seed DEMO_PATIENT.tasks if the
+  // server has no tasks. Keeps the Tasks page populated for reviewers even
+  // when the backend is half-open.
+  const _demoBuild =
+    (typeof import.meta !== 'undefined'
+      && import.meta.env
+      && (import.meta.env.DEV || import.meta.env.VITE_ENABLE_DEMO === '1'));
+  const _looksDemo = _demoBuild
+    || isDemoPatient(currentUser, { getToken: api.getToken })
+    || (() => { try { return String(api.getToken?.() || '').includes('demo'); } catch { return false; } })();
+  if ((!_serverHomeProgramTasks || _serverHomeProgramTasks.length === 0) && _looksDemo) {
+    _serverHomeProgramTasks = DEMO_PATIENT.tasks.map(t => ({ ...t, _isDemoData: true }));
+  }
 
   // ── Build page ──────────────────────────────────────────────────────────────
   function _tasksRenderPage() {
@@ -5722,13 +5765,15 @@ export async function pgPatientMediaConsent() {
   const el = document.getElementById('patient-content');
   el.innerHTML = spinner();
 
-  // Load current consent state
-  let consentData = null;
-  try {
-    consentData = await _mediaFetch(`/api/v1/media/consent/${patientId}`);
-  } catch (_e) {
-    consentData = null;
-  }
+  // Load current consent state — 3s timeout so a hung Fly backend can never
+  // wedge the consent page on a spinner. On timeout consentData is null and
+  // we fall through to the "no consents yet" path.
+  const _timeout = (ms) => new Promise(r => setTimeout(() => r(null), ms));
+  const _raceNull = (p) => Promise.race([
+    Promise.resolve(p).catch(() => null),
+    _timeout(3000),
+  ]);
+  const consentData = await _raceNull(_mediaFetch(`/api/v1/media/consent/${patientId}`));
 
   const consents = Array.isArray(consentData) ? consentData : (consentData?.consents || []);
 
@@ -5883,13 +5928,19 @@ export async function pgPatientMediaUpload() {
   const el = document.getElementById('patient-content');
   el.innerHTML = spinner();
 
-  // Load consent state and courses in parallel
+  // Load consent state and courses in parallel — 3s timeout so a hung Fly
+  // backend can never wedge the upload page on a spinner.
+  const _timeout = (ms) => new Promise(r => setTimeout(() => r(null), ms));
+  const _raceNull = (p) => Promise.race([
+    Promise.resolve(p).catch(() => null),
+    _timeout(3000),
+  ]);
   let consentData = null;
   let coursesRaw  = null;
   try {
     [consentData, coursesRaw] = await Promise.all([
-      _mediaFetch(`/api/v1/media/consent/${patientId}`).catch(() => null),
-      api.patientPortalCourses().catch(() => null),
+      _raceNull(_mediaFetch(`/api/v1/media/consent/${patientId}`)),
+      _raceNull(api.patientPortalCourses()),
     ]);
   } catch (_e) { /* non-fatal */ }
 
@@ -6247,24 +6298,15 @@ export async function pgPatientMediaHistory() {
   const el = document.getElementById('patient-content');
   el.innerHTML = spinner();
 
-  let uploadsRaw = null;
-  try {
-    uploadsRaw = await _mediaFetch('/api/v1/media/patient/uploads');
-  } catch (_e) {
-    uploadsRaw = null;
-  }
-
-  if (uploadsRaw === null) {
-    el.innerHTML = `
-      <div class="card">
-        <div class="card-body" style="text-align:center;padding:48px;color:var(--text-tertiary)">
-          <div style="font-size:24px;margin-bottom:12px;opacity:.4">📋</div>
-          Could not load your updates. Please check your connection and try again.<br>
-          <button class="btn btn-ghost btn-sm" style="margin-top:14px" onclick="window._navPatient('pt-media-history')">Retry →</button>
-        </div>
-      </div>`;
-    return;
-  }
+  // 3s timeout so a hung Fly backend can never wedge the page on a spinner.
+  // On timeout uploadsRaw is null and we fall through to the empty-history
+  // state instead of a hard "Could not load" card.
+  const _timeout = (ms) => new Promise(r => setTimeout(() => r(null), ms));
+  const _raceNull = (p) => Promise.race([
+    Promise.resolve(p).catch(() => null),
+    _timeout(3000),
+  ]);
+  const uploadsRaw = await _raceNull(_mediaFetch('/api/v1/media/patient/uploads'));
 
   let uploads = Array.isArray(uploadsRaw) ? uploadsRaw : (uploadsRaw?.uploads || []);
 
@@ -6571,14 +6613,22 @@ export async function pgPatientWearables() {
   }
 
   // ── Fetch API data ────────────────────────────────────────────────────────
+  // 3s timeout so a hung Fly backend can never wedge Devices & Wearables on
+  // a spinner. On timeout each value is null and we fall through to the
+  // local/demo overlays below.
+  const _timeout = (ms) => new Promise(r => setTimeout(() => r(null), ms));
+  const _raceNull = (p) => Promise.race([
+    Promise.resolve(p).catch(() => null),
+    _timeout(3000),
+  ]);
   const [wearableData, _summaryData, homeDeviceData] = await Promise.all([
-    api.patientPortalWearables().catch(() => null),
-    api.patientPortalWearableSummary(7).catch(() => null),
+    _raceNull(api.patientPortalWearables()),
+    _raceNull(api.patientPortalWearableSummary(7)),
     // Real home-device assignment from /api/v1/patient-portal/home-device.
     // Used by _pdwSaveSession below to decide whether it can POST the
     // log to the live backend (requires an active assignment) or must
     // fall back to local-only storage and an honest "saved locally" toast.
-    (api.portalGetHomeDevice ? api.portalGetHomeDevice().catch(() => null) : Promise.resolve(null)),
+    _raceNull(api.portalGetHomeDevice ? api.portalGetHomeDevice() : null),
   ]);
 
   const connections  = wearableData?.connections   || [];
@@ -8787,9 +8837,14 @@ export async function pgPatientNotificationSettings(setTopbarFn) {
 
   // Server is source of truth for notification preferences. These toggles map
   // to the `notification_prefs` channel matrix on /api/v1/preferences — we
-  // store the in-app channel (`inapp`) boolean per event key.
-  let serverPrefs = null;
-  try { serverPrefs = await api.getPreferences(); } catch {}
+  // store the in-app channel (`inapp`) boolean per event key. A 3s timeout
+  // keeps a hung Fly backend from leaving the page blank on a spinner.
+  const _timeout = (ms) => new Promise(r => setTimeout(() => r(null), ms));
+  const _raceNull = (p) => Promise.race([
+    Promise.resolve(p).catch(() => null),
+    _timeout(3000),
+  ]);
+  const serverPrefs = await _raceNull(api.getPreferences());
   const localPrefs = getNotifPrefs();
   const serverMatrix = (serverPrefs && typeof serverPrefs.notification_prefs === 'object')
     ? serverPrefs.notification_prefs
@@ -10386,8 +10441,16 @@ function _ptoLoad() { return _ptoSeed(); }
 
 // ── Live API loader: tries backend first, falls back to seed ──────────────────
 async function _ptoLoadLive() {
+  // 3s timeout so a hung Fly backend can never wedge the Progress page on a
+  // spinner. On timeout `resp` is null and we fall through to the seeded
+  // outcomes (which are already a sensible demo).
+  const _timeout = (ms) => new Promise(r => setTimeout(() => r(null), ms));
+  const _raceNull = (p) => Promise.race([
+    Promise.resolve(p).catch(() => null),
+    _timeout(3000),
+  ]);
   try {
-    const resp = await api.patientPortalOutcomes().catch(() => null);
+    const resp = await _raceNull(api.patientPortalOutcomes());
     const items = Array.isArray(resp) ? resp : (resp && Array.isArray(resp.items) ? resp.items : null);
     if (!items || !items.length) return _ptoSeed();
 
@@ -11310,21 +11373,26 @@ export async function pgPatientHomeDevice() {
   if (!el) return;
   el.innerHTML = spinner();
 
-  // Backend returns { assignment: {...} | null }. Unwrap so the empty state fires honestly.
+  // Backend returns { assignment: {...} | null }. Unwrap so the empty state
+  // fires honestly. 3s timeout per call so a hung Fly backend never wedges
+  // the Home Device page on a spinner.
+  const _timeout = (ms) => new Promise(r => setTimeout(() => r(null), ms));
+  const _raceNull = (p) => Promise.race([
+    Promise.resolve(p).catch(() => null),
+    _timeout(3000),
+  ]);
   let assignment = null;
   let adherence  = null;
-  try {
-    const res = await api.portalGetHomeDevice();
-    if (res && typeof res === 'object' && 'assignment' in res) {
-      assignment = res.assignment || null;
-    } else {
-      assignment = res || null;
-    }
-  } catch (_e) { assignment = null; }
-  try {
-    const sum = await api.portalHomeAdherenceSummary();
-    adherence = (sum && typeof sum === 'object') ? (sum.adherence || null) : null;
-  } catch (_e) { adherence = null; }
+  const [resHD, sumHD] = await Promise.all([
+    _raceNull(api.portalGetHomeDevice()),
+    _raceNull(api.portalHomeAdherenceSummary()),
+  ]);
+  if (resHD && typeof resHD === 'object' && 'assignment' in resHD) {
+    assignment = resHD.assignment || null;
+  } else {
+    assignment = resHD || null;
+  }
+  adherence = (sumHD && typeof sumHD === 'object') ? (sumHD.adherence || null) : null;
 
   if (!assignment) {
     el.innerHTML = `
@@ -11436,20 +11504,22 @@ export async function pgPatientHomeSessionLog() {
   if (!el) return;
   el.innerHTML = spinner();
 
-  // Check assignment so we can honestly tell the patient if no device is assigned.
-  // Backend will 404 on POST /home-sessions with no_active_assignment — surface it up front.
-  let hasAssignment = false;
-  try {
-    const res = await api.portalGetHomeDevice();
-    const a = (res && typeof res === 'object' && 'assignment' in res) ? res.assignment : res;
-    hasAssignment = !!a;
-  } catch (_e) { hasAssignment = false; }
-
-  let sessions = [];
-  try {
-    const raw = await api.portalListHomeSessions();
-    sessions = Array.isArray(raw) ? raw : [];
-  } catch (_e) { sessions = []; }
+  // Check assignment so we can honestly tell the patient if no device is
+  // assigned. Backend will 404 on POST /home-sessions with
+  // no_active_assignment — surface it up front. 3s timeout per call so a
+  // hung Fly backend never wedges the page on a spinner.
+  const _timeout = (ms) => new Promise(r => setTimeout(() => r(null), ms));
+  const _raceNull = (p) => Promise.race([
+    Promise.resolve(p).catch(() => null),
+    _timeout(3000),
+  ]);
+  const [resHD, rawSessions] = await Promise.all([
+    _raceNull(api.portalGetHomeDevice()),
+    _raceNull(api.portalListHomeSessions()),
+  ]);
+  const a = (resHD && typeof resHD === 'object' && 'assignment' in resHD) ? resHD.assignment : resHD;
+  const hasAssignment = !!a;
+  const sessions = Array.isArray(rawSessions) ? rawSessions : [];
 
   if (!hasAssignment) {
     el.innerHTML = `
@@ -11635,11 +11705,15 @@ export async function pgPatientAdherenceEvents() {
   if (!el) return;
   el.innerHTML = spinner();
 
-  let events = [];
-  try {
-    const raw = await api.portalListAdherenceEvents();
-    events = Array.isArray(raw) ? raw : [];
-  } catch (_e) { events = []; }
+  // 3s timeout so a hung Fly backend can never wedge the Adherence Events
+  // form on a spinner. On timeout `raw` is null and events stays [].
+  const _timeout = (ms) => new Promise(r => setTimeout(() => r(null), ms));
+  const _raceNull = (p) => Promise.race([
+    Promise.resolve(p).catch(() => null),
+    _timeout(3000),
+  ]);
+  const raw = await _raceNull(api.portalListAdherenceEvents());
+  const events = Array.isArray(raw) ? raw : [];
 
   const todayStr = new Date().toISOString().slice(0, 10);
 
@@ -11780,13 +11854,22 @@ export async function pgPatientAdherenceHistory() {
   if (!el) return;
   el.innerHTML = spinner();
 
+  // 3s timeout so a hung Fly backend can never wedge Adherence History on
+  // a spinner. Null / [] from timeout falls through to the local/empty
+  // rendering path below.
+  const _timeout = (ms) => new Promise(r => setTimeout(() => r(null), ms));
+  const _raceNull = (p) => Promise.race([
+    Promise.resolve(p).catch(() => null),
+    _timeout(3000),
+  ]);
   let summary = null;
   let sessions = [];
   try {
     [summary, sessions] = await Promise.all([
-      api.portalHomeAdherenceSummary().catch(() => null),
-      api.portalListHomeSessions().catch(() => []),
+      _raceNull(api.portalHomeAdherenceSummary()),
+      _raceNull(api.portalListHomeSessions()),
     ]);
+    if (!Array.isArray(sessions)) sessions = [];
   } catch (_e) { /* handled below */ }
 
   const sessArr = Array.isArray(sessions) ? sessions : [];
