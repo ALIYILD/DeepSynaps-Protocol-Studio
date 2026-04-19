@@ -9333,20 +9333,26 @@ export async function pgGovernance(setTopbar, _navigate) {
   }
 
   // Compute compliance score from real signals (no backend score endpoint).
-  // Mix: AE close-rate (40%) + review-completion-rate (40%) + evidence quality (20%).
+  // Weight only the populated buckets — empty buckets must not silently inflate
+  // the score to 100. Returns null when nothing is loaded so the dial can render
+  // an honest "—" instead of a fake number.
   function _computeCompliance() {
     const aeTotal  = aes.length;
     const aeClosed = aes.filter(a => /closed|resolved/i.test(a.status || '')).length;
-    const aeRate   = aeTotal ? aeClosed / aeTotal : 1;
-
     const rqTotal  = reviewItems.length;
     const rqDone   = reviewItems.filter(r => /approved|completed/i.test(r.status || '')).length;
-    const rqRate   = rqTotal ? rqDone / rqTotal : 1;
-
+    const evTotal  = evidence.length;
     const evGood   = evidence.filter(e => /^(A|B|Guideline|Systematic Review)/i.test(e.grade || e.evidence_level || '')).length;
-    const evRate   = evidence.length ? evGood / evidence.length : 1;
 
-    return Math.round((aeRate * 0.4 + rqRate * 0.4 + evRate * 0.2) * 1000) / 10;
+    const buckets = [];
+    if (aeTotal) buckets.push({ rate: aeClosed / aeTotal, w: 0.4 });
+    if (rqTotal) buckets.push({ rate: rqDone   / rqTotal, w: 0.4 });
+    if (evTotal) buckets.push({ rate: evGood   / evTotal, w: 0.2 });
+    if (!buckets.length) return null;
+
+    const totalW = buckets.reduce((s, b) => s + b.w, 0);
+    const score  = buckets.reduce((s, b) => s + b.rate * b.w, 0) / totalW * 100;
+    return Math.round(score * 10) / 10;
   }
 
   // Synthesised approvals/compliance/audit objects keep the existing render shape.
@@ -9354,7 +9360,8 @@ export async function pgGovernance(setTopbar, _navigate) {
   const compliance = { score: _computeCompliance() };
   const audit      = { count: auditItems.length, events: auditItems };
 
-  const _complianceScore = compliance?.score ?? 98.4;
+  // null score → show "—" (no real signals); otherwise the computed number.
+  const _complianceScore = (compliance?.score == null) ? null : compliance.score;
   const _auditEvents7d   = audit?.count ?? 2841;
   const _evidenceCount   = Array.isArray(evidence) ? evidence.length : (evidence?.total ?? 214);
   const _openReviews     = approvals?.openCount ?? 11;
@@ -9509,12 +9516,25 @@ export async function pgGovernance(setTopbar, _navigate) {
     </div>`;
   };
 
+  // KPI strip — every line uses real loaded counts; no fabricated breakdowns.
+  const _aeOpen     = aes.filter(a => /open|under|investig|active/i.test(a.status||'') || !/closed|resolved/i.test(a.status||'')).length;
+  const _aeMod      = aes.filter(a => /mod/i.test(a.severity||'')).length;
+  const _aeSev      = aes.filter(a => /severe|sae/i.test(a.severity||'')).length;
+  const _evABreak   = `${_evCounts.A} A · ${_evCounts.B} B · ${_evCounts.C} C · ${_evCounts.D} downgraded`;
+  const _scoreLabel = _complianceScore == null
+    ? `<span style="color:var(--text-tertiary)">—</span>`
+    : `${_complianceScore}<span style="font-size:13px;color:var(--text-tertiary)">%</span>`;
+  const _scoreSub   = _complianceScore == null
+    ? 'No live signals · waiting on AE / review / evidence data'
+    : 'Weighted from AE close-rate, review completion, evidence quality';
+  // Real grade counts from loaded evidence — used by KPI strip and ledger card.
+  const _evCounts = (() => { const c={A:0,B:0,C:0,D:0}; _evidenceLedger.forEach(r=>{ if(c[r.grade]!=null) c[r.grade]++; }); return c; })();
   const _kpiStrip = `<div class="dv2-gv-kpis" style="display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:12px;margin-bottom:16px">
-    ${_kpi('Compliance · 30d', `${_complianceScore}<span style="font-size:13px;color:var(--text-tertiary)">%</span>`, 'All protocols with active sign-off', 'ok')}
-    ${_kpi('Reviews open', _openReviews, '2 drafts · 4 review · 5 sign-off', 'warn')}
-    ${_kpi('Adverse events · QTD', _aesQtd, '0 severe · 1 moderate · 2 mild', 'crit')}
-    ${_kpi('Audit events · 7d', (_auditEvents7d).toLocaleString(), 'Immutable chain · hash verified', 'info')}
-    ${_kpi('Evidence ledger', _evidenceCount, '124 A · 68 B · 18 C · 4 downgraded', 'ok')}
+    ${_kpi('Compliance · live', _scoreLabel, _scoreSub, _complianceScore == null ? 'warn' : 'ok')}
+    ${_kpi('Reviews open', _openReviews, `${reviewItems.length} total in queue`, 'warn')}
+    ${_kpi('Adverse events · live', _aesQtd, `${_aeSev} severe · ${_aeMod} moderate · ${_aeOpen} open`, 'crit')}
+    ${_kpi('Audit events', (_auditEvents7d).toLocaleString(), auditItems.length ? 'live · audit-trail loaded' : 'sample · audit-trail admin-only', 'info')}
+    ${_kpi('Evidence ledger', _evidenceCount, _evABreak, 'ok')}
   </div>`;
 
   const _pcardHtml = (c) => {
@@ -9563,8 +9583,11 @@ export async function pgGovernance(setTopbar, _navigate) {
     </div>
   </div>`;
 
-  const _dialArc = (Math.max(0, Math.min(100, _complianceScore)) / 100) * 385;
+  // When no live signals exist, render a neutral dial with no arc + an em-dash
+  // centre — never invent a fake 100%.
+  const _dialArc    = _complianceScore == null ? 0 : (Math.max(0, Math.min(100, _complianceScore)) / 100) * 385;
   const _dialOffset = (385 - _dialArc).toFixed(1);
+  const _dialCentre = _complianceScore == null ? '—' : String(_complianceScore);
   const _complianceDial = `<div class="dv2-gv-card" style="background:var(--bg-card);border:1px solid var(--border);border-radius:14px;padding:18px">
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
       <h3 style="margin:0;font-size:13px;font-weight:600;color:var(--text-primary);letter-spacing:-.01em">Compliance &amp; regulatory</h3>
@@ -9577,7 +9600,7 @@ export async function pgGovernance(setTopbar, _navigate) {
         </linearGradient></defs>
         <circle cx="75" cy="75" r="62" fill="none" stroke="rgba(255,255,255,0.06)" stroke-width="12"/>
         <circle cx="75" cy="75" r="62" fill="none" stroke="url(#_gvDialG)" stroke-width="12" stroke-dasharray="385" stroke-dashoffset="${_dialOffset}" stroke-linecap="round" transform="rotate(-90 75 75)"/>
-        <text x="75" y="72" text-anchor="middle" font-size="28" fill="var(--text-primary)" font-weight="600" letter-spacing="-0.02em">${_complianceScore}</text>
+        <text x="75" y="72" text-anchor="middle" font-size="28" fill="var(--text-primary)" font-weight="600" letter-spacing="-0.02em">${_dialCentre}</text>
         <text x="75" y="92" text-anchor="middle" font-size="10" fill="var(--text-tertiary)" font-family="ui-monospace,monospace" letter-spacing="0.06em">COMPLIANCE %</text>
       </svg>
       <div style="display:flex;flex-direction:column;gap:4px;max-height:190px;overflow-y:auto">
@@ -9617,8 +9640,7 @@ export async function pgGovernance(setTopbar, _navigate) {
     </tr>`;
   };
 
-  // Real grade counts from loaded evidence.
-  const _evCounts = (() => { const c={A:0,B:0,C:0,D:0}; _evidenceLedger.forEach(r=>{ if(c[r.grade]!=null) c[r.grade]++; }); return c; })();
+  // _evCounts is hoisted above the KPI strip; see definition near _evidenceLedger.
   const _evChips = [
     { key:'all', label:`All ${_evidenceLedger.length}` },
     { key:'A',   label:`Grade A · ${_evCounts.A}` },
@@ -9673,13 +9695,27 @@ export async function pgGovernance(setTopbar, _navigate) {
   // Falls back to the demo list when the queue carries no assignment data.
   const _reviewersFromQueue = (() => {
     const map = new Map();
+    // UUIDs and database ids look noisy in the UI — when we don't have a real
+    // human name from the backend, surface a neutral "Unknown reviewer" label
+    // and a short id suffix so admins can still distinguish two unknowns.
+    const _looksLikeOpaqueId = (s) =>
+      /^[0-9a-f-]{16,}$/i.test(s) || /^\d+$/.test(s) || s.includes('-') && s.length >= 12;
     for (const it of reviewItems) {
       const id = it.assigned_to;
       if (!id) continue;
       if (!map.has(id)) {
-        const name = it.assigned_to_name || id;
-        const initials = String(name).split(/\s+/).map(p => p[0] || '').slice(0, 2).join('').toUpperCase() || '··';
-        map.set(id, { name, initials, role: 'Reviewer · live queue', load: 0, cap: 5 });
+        const realName = it.assigned_to_name && String(it.assigned_to_name).trim();
+        const idSuffix = String(id).slice(-4);
+        const name = realName
+          ? realName
+          : `Unknown reviewer · #${idSuffix}`;
+        const initials = realName
+          ? realName.split(/\s+/).map(p => p[0] || '').slice(0, 2).join('').toUpperCase() || '··'
+          : '··';
+        const role = realName
+          ? 'Reviewer · live queue'
+          : 'Backend reviewer record missing display name';
+        map.set(id, { name, initials, role, load: 0, cap: 5 });
       }
       map.get(id).load++;
     }
@@ -9706,7 +9742,7 @@ export async function pgGovernance(setTopbar, _navigate) {
       </div>
       <span style="font-size:10px;font-weight:600;padding:2px 8px;border-radius:10px;background:${pill.bg};color:${pill.c};text-transform:uppercase;letter-spacing:.03em">${_escG(a.sev === 'mod' ? 'Moderate' : a.sev === 'severe' || a.sev === 'sae' ? (a.sev === 'sae' ? 'SAE' : 'Severe') : 'Mild')}</span>
       <span style="font-size:10.5px;color:${a.closed ? 'var(--text-tertiary)' : 'var(--amber)'};white-space:nowrap">${_escG(a.state)}</span>
-      <button class="btn btn-ghost btn-sm" style="font-size:10px" onclick="window._gvOpenAE?.('${_escG(a.id)}')">Open →</button>
+      <button class="btn btn-ghost btn-sm" style="font-size:10px" onclick="window._gvOpenAE?.('${_escG(a.id)}')" title="Opens the Adverse Events tab in Monitor (per-id deep-link pending)">Find in log →</button>
     </div>`;
   };
 
@@ -9806,8 +9842,18 @@ export async function pgGovernance(setTopbar, _navigate) {
     _aeFilter = _aeFilter === 'all' ? 'open' : _aeFilter === 'open' ? 'closed' : 'all';
     _rerender();
   };
-  window._gvOpenAE       = () => { window._nav?.('adverse-events'); };
-  window._gvLogAE        = () => { window._nav?.('adverse-events'); };
+  window._gvOpenAE       = (id) => {
+    // Deposit the requested id on the window so any future per-id consumer in
+    // monitor-hub can pick it up. Adverse-events tab does not yet honour this
+    // — the navigation lands the clinician in the right list to find the row.
+    if (id) window._monitorHubAEId = id;
+    window._monitorHubTab = 'adverse';
+    window._nav?.('adverse-events');
+  };
+  window._gvLogAE        = () => {
+    window._monitorHubTab = 'adverse';
+    window._nav?.('adverse-events');
+  };
   window._gvRefreshAudit = async () => { _rerender(); };
 }
 
