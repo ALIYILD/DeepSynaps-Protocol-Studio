@@ -4350,7 +4350,7 @@ export async function pgDocumentsHubNew(setTopbar, navigate) {
     backendDocs = (r?.items || []).map(d => ({
       id: d.id, name: d.title, type: d.doc_type, patient: d.patient_id || '—',
       date: (d.updated_at||'').slice(0,10), status: d.status, size: '—',
-      template_id: d.template_id, notes: d.notes,
+      template_id: d.template_id, notes: d.notes, file_ref: d.file_ref,
     }));
   } catch {}
   const data = backendDocs ? { docs: backendDocs } : loadDocs();
@@ -4416,10 +4416,20 @@ export async function pgDocumentsHubNew(setTopbar, navigate) {
     }
   };
 
-  // Client-side download fallback — renders template or uses doc name as a .txt
-  window._docsDownload = (templateId, docName) => {
+  // Download a document. If the doc id refers to a real backend record with
+  // an uploaded file blob, point the browser at the streaming download URL so
+  // the real file is delivered. Otherwise (template-only or demo row), fall
+  // back to a client-side render of the template as a .txt.
+  window._docsDownload = (templateIdOrDocId, docName, hasFile) => {
+    if (hasFile && templateIdOrDocId) {
+      const a = document.createElement('a');
+      a.href = api.documentDownloadUrl(templateIdOrDocId);
+      a.download = docName || 'document';
+      document.body.appendChild(a); a.click(); a.remove();
+      return;
+    }
     let text;
-    try { text = (templateId ? renderTemplate(templateId, {}) : null) || docName || 'document'; }
+    try { text = (templateIdOrDocId ? renderTemplate(templateIdOrDocId, {}) : null) || docName || 'document'; }
     catch { text = docName || 'document'; }
     const blob = new Blob([text], {type:'text/plain'});
     const url = URL.createObjectURL(blob);
@@ -4427,19 +4437,66 @@ export async function pgDocumentsHubNew(setTopbar, navigate) {
     setTimeout(()=>URL.revokeObjectURL(url), 1000);
   };
 
+  // POST the contents of a multi-file input to the documents upload endpoint.
+  // Used by both the topbar modal and the uploads-tab file picker.
+  window._docsUploadFiles = async (files, onDone) => {
+    if (!files || !files.length) return;
+    const results = { ok:0, fail:0, errors:[] };
+    for (const f of Array.from(files)) {
+      try {
+        const fd = new FormData();
+        fd.append('file', f, f.name);
+        fd.append('title', f.name);
+        fd.append('doc_type', 'uploaded');
+        await api.uploadDocument(fd);
+        results.ok += 1;
+      } catch (e) {
+        results.fail += 1;
+        results.errors.push(f.name + ': ' + (e?.message || 'upload failed'));
+      }
+    }
+    if (results.ok) window._dsToast?.({title:'Uploaded', body: results.ok + ' file(s) saved.', severity:'success'});
+    if (results.fail) window._dsToast?.({title:'Some uploads failed', body: results.errors.join('; '), severity:'error'});
+    if (typeof onDone === 'function') onDone(results);
+  };
+
+  // Persist an AI-generated letter/report as a "generated" Documents record.
+  window._docsSaveGenerated = async (kind, title, content, patientId, templateId) => {
+    if (!content || !content.trim()) {
+      window._dsToast?.({title:'Nothing to save',body:'Generate first, then save.',severity:'info'});
+      return;
+    }
+    try {
+      await api.createDocument({
+        title: title || (kind === 'letter' ? 'Patient Letter' : 'Clinical Document'),
+        doc_type: 'generated',
+        patient_id: patientId || null,
+        template_id: templateId || null,
+        status: 'completed',
+        notes: content,
+      });
+      window._dsToast?.({title:'Saved',body:(kind==='letter'?'Letter':'Document')+' saved to records.',severity:'success'});
+      window._nav('documents-hub');
+    } catch {
+      window._dsToast?.({title:'Failed',body:'Could not save document.',severity:'error'});
+    }
+  };
+
   function docRows(list) {
     if (!list.length) return '<div class="ch-empty">No documents found.</div>';
     const esc = s => String(s==null?'':s).replace(/'/g,"\\'");
     return list.map(d => {
-      const tplArg = d.template_id ? "'"+esc(d.template_id)+"'" : 'null';
+      const hasFile = !!(d.file_ref || d.status === 'uploaded');
+      // Downloadable records key on document id; template previews key on template_id.
+      const downloadArg = hasFile ? "'"+esc(d.id)+"'" : (d.template_id ? "'"+esc(d.template_id)+"'" : 'null');
       const nameArg = "'"+esc(d.name)+"'";
+      const hasFileArg = hasFile ? 'true' : 'false';
       return '<div class="book-row">'+
         '<div class="book-datetime"><div class="book-date">'+d.date+'</div><div class="book-time">'+d.size+'</div></div>'+
         '<div class="book-info"><div class="book-patient">'+d.name+'</div><div class="book-clinician">'+d.patient+' · '+d.type+'</div></div>'+
         '<div class="book-status-col"><span class="book-status-badge" style="color:'+(stC[d.status]||'var(--text-tertiary)')+';background:'+(stC[d.status]||'var(--text-tertiary)')+'22;text-transform:capitalize">'+d.status+'</span></div>'+
         '<div class="book-actions">'+
-          '<button class="ch-btn-sm" onclick="window._dsToast?.({title:\'View\',body:'+nameArg+',severity:\'info\'})">View</button>'+
-          '<button class="ch-btn-sm" onclick="window._docsDownload('+tplArg+','+nameArg+')">↓</button>'+
+          '<button class="ch-btn-sm" onclick="window._docsDownload('+downloadArg+','+nameArg+','+hasFileArg+')">↓</button>'+
         '</div>'+
       '</div>';
     }).join('');
@@ -4505,7 +4562,7 @@ export async function pgDocumentsHubNew(setTopbar, navigate) {
     main = `
       <div class="ch-two-col">
         <div class="ch-card">
-          <div class="ch-card-hd"><span class="ch-card-title">Consent Templates</span><button class="ch-btn-sm ch-btn-teal" onclick="window._dsToast?.({title:'Assign',body:'Select patient to assign.',severity:'info'})">Assign to Patient</button></div>
+          <div class="ch-card-hd"><span class="ch-card-title">Consent Templates</span><button class="ch-btn-sm ch-btn-teal" onclick="window._docsHubTab='templates';window._nav('documents-hub')">Browse All Templates →</button></div>
           ${consentTpls.map(t=>{
             const safeId = String(t.id).replace(/'/g,"\\'");
             return '<div class="book-row"><div class="book-info"><div class="book-patient">'+t.name+'</div><div class="book-clinician">'+t.pages+' pages · '+t.langs.join('/')+'</div></div><div class="book-actions"><button class="ch-btn-sm" onclick="window._docsPreview(\''+safeId+'\')">Preview</button><button class="ch-btn-sm ch-btn-teal" onclick="window._docsSendTemplate(\''+safeId+'\')">Send to Sign</button></div></div>';
@@ -4541,7 +4598,7 @@ export async function pgDocumentsHubNew(setTopbar, navigate) {
             <div class="ch-card-hd" style="padding:0 0 8px"><span class="ch-card-title">Generated Letter</span></div>
             <div id="letter-content" class="ch-textarea" style="min-height:120px;padding:12px;font-size:12.5px;line-height:1.7;white-space:pre-wrap"></div>
             <div style="display:flex;gap:8px;margin-top:10px">
-              <button class="ch-btn-sm ch-btn-teal" onclick="window._dsToast?.({title:'Saved',body:'Letter saved to documents.',severity:'success'})">Save</button>
+              <button class="ch-btn-sm ch-btn-teal" onclick="window._docsSaveGenerated('letter', document.getElementById('letter-template')?.options[document.getElementById('letter-template')?.selectedIndex]?.text, document.getElementById('letter-content')?.textContent || '', document.getElementById('letter-patient')?.value, document.getElementById('letter-template')?.value)">Save</button>
               <button class="ch-btn-sm" onclick="window.print()">Print</button>
             </div>
           </div>
@@ -4590,11 +4647,16 @@ export async function pgDocumentsHubNew(setTopbar, navigate) {
         ${docRows(data.docs.slice(0,5))}
       </div>`;
 
-    window._docsHandleUpload = (files) => {
-      const list = document.getElementById('docs-upload-list'); if (!list) return;
-      list.innerHTML = Array.from(files).map(f =>
-        '<div class="book-row"><div class="book-info"><div class="book-patient">'+f.name+'</div><div class="book-clinician">'+(f.size>1024*1024?(f.size/1024/1024).toFixed(1)+' MB':(f.size/1024).toFixed(0)+' KB')+'</div></div><div class="book-status-col"><span class="book-status-badge" style="color:var(--teal);background:rgba(0,212,188,0.1)">Ready</span></div><div class="book-actions"><button class="ch-btn-sm ch-btn-teal" onclick="window._dsToast?.({title:\'Uploaded\',body:\''+f.name+'\',severity:\'success\'})">Upload</button></div></div>'
-      ).join('');
+    // Real upload: render preview rows while the POSTs are in flight, then
+    // refresh the hub so the new records show up in the list.
+    window._docsHandleUpload = async (files) => {
+      const list = document.getElementById('docs-upload-list');
+      if (list) {
+        list.innerHTML = Array.from(files).map(f =>
+          '<div class="book-row"><div class="book-info"><div class="book-patient">'+f.name+'</div><div class="book-clinician">'+(f.size>1024*1024?(f.size/1024/1024).toFixed(1)+' MB':(f.size/1024).toFixed(0)+' KB')+'</div></div><div class="book-status-col"><span class="book-status-badge" style="color:var(--amber);background:rgba(245,158,11,0.1)">Uploading…</span></div><div class="book-actions"></div></div>'
+        ).join('');
+      }
+      await window._docsUploadFiles(files, () => { window._nav('documents-hub'); });
     };
     window._docsUpload = () => document.getElementById('docs-file-input')?.click();
   }
@@ -4612,10 +4674,13 @@ export async function pgDocumentsHubNew(setTopbar, navigate) {
       <div class="ch-modal-body">
         <div class="docs-drop-zone" onclick="document.getElementById('docs-modal-file').click()" style="margin-bottom:12px">
           <div style="font-size:28px;opacity:0.3">📂</div>
-          <div>Click to select files</div>
+          <div id="docs-modal-file-hint">Click to select files</div>
         </div>
-        <input type="file" id="docs-modal-file" multiple style="display:none" onchange="window._dsToast?.({title:'Selected',body:this.files.length+' file(s)',severity:'info'})">
-        <div style="display:flex;gap:8px"><button class="btn btn-primary" onclick="document.getElementById('docs-upload-modal').classList.add('ch-hidden');window._dsToast?.({title:'Uploaded',body:'Documents uploaded successfully.',severity:'success'})">Upload</button><button class="btn" onclick="document.getElementById('docs-upload-modal').classList.add('ch-hidden')">Cancel</button></div>
+        <input type="file" id="docs-modal-file" multiple accept=".pdf,.docx,.doc,.jpg,.jpeg,.png,.webp,.txt" style="display:none" onchange="var h=document.getElementById('docs-modal-file-hint');if(h)h.textContent=this.files.length+' file(s) selected'">
+        <div style="display:flex;gap:8px">
+          <button class="btn btn-primary" id="docs-modal-upload-btn" onclick="(async()=>{const inp=document.getElementById('docs-modal-file');if(!inp||!inp.files||!inp.files.length){window._dsToast?.({title:'No files',body:'Select one or more files first.',severity:'info'});return;}const btn=document.getElementById('docs-modal-upload-btn');if(btn){btn.disabled=true;btn.textContent='Uploading…';}await window._docsUploadFiles(inp.files,()=>{document.getElementById('docs-upload-modal')?.classList.add('ch-hidden');window._nav('documents-hub');});if(btn){btn.disabled=false;btn.textContent='Upload';}})()">Upload</button>
+          <button class="btn" onclick="document.getElementById('docs-upload-modal').classList.add('ch-hidden')">Cancel</button>
+        </div>
       </div>
     </div>
   </div>`;
