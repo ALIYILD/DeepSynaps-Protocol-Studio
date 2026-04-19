@@ -308,12 +308,14 @@ import {
   pickTodaysFocus,
   isDemoPatient,
   DEMO_PATIENT,
+  demoAssessmentSeed,
   pickCallTier,
   demoMessagesSeed,
 } from './patient-dashboard-helpers.js';
 export {
   computeCountdown, phaseLabel, outcomeGoalMarker, groupOutcomesByTemplate,
-  pickTodaysFocus, isDemoPatient, DEMO_PATIENT, pickCallTier, demoMessagesSeed,
+  pickTodaysFocus, isDemoPatient, DEMO_PATIENT, demoAssessmentSeed,
+  pickCallTier, demoMessagesSeed,
 };
 
 // ── Dashboard ─────────────────────────────────────────────────────────────────────────────
@@ -2671,9 +2673,18 @@ export async function pgPatientAssessments() {
     return;
   }
 
-  const rawItems  = Array.isArray(assessmentsRaw) ? assessmentsRaw : [];
+  let rawItems  = Array.isArray(assessmentsRaw) ? assessmentsRaw : [];
   const courses   = Array.isArray(coursesRaw)     ? coursesRaw     : [];
   const sessions  = Array.isArray(sessionsRaw)    ? sessionsRaw    : [];
+
+  // Demo overlay — when the demo patient's assessments list is empty
+  // (preview build, fresh API DB, seed not yet run), surface the bundled
+  // demoAssessmentSeed() so reviewers see a populated page instead of
+  // the "nothing here" empty state. Same pattern as the Treatment Plan
+  // fallback.
+  if (rawItems.length === 0 && isDemoPatient(currentUser, { getToken: api.getToken })) {
+    rawItems = demoAssessmentSeed();
+  }
 
   const courseById  = {};
   courses.forEach(c => { if (c.id) courseById[c.id] = c; });
