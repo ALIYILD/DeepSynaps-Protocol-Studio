@@ -19,6 +19,8 @@ import {
   isDemoPatient,
   DEMO_PATIENT,
   demoOverlay,
+  pickCallTier,
+  demoMessagesSeed,
 } from './patient-dashboard-helpers.js';
 
 // ── computeCountdown ─────────────────────────────────────────────────────────
@@ -497,4 +499,145 @@ test('demoOverlay: zero-number is kept as real (not treated as empty)', () => {
   const { value, usedDemo } = demoOverlay(0, 42);
   assert.equal(usedDemo, false);
   assert.equal(value, 0);
+});
+
+// ── pickCallTier (voice/video call selector) ─────────────────────────────────
+
+test('pickCallTier: Tier A when course has a clinician_meeting_url', () => {
+  const r = pickCallTier({
+    activeCourse: {
+      clinician_meeting_url: 'https://meet.example.com/room-abc',
+      primary_clinician_name: 'Dr. Kolmar',
+    },
+    mode: 'video',
+  });
+  assert.equal(r.tier, 'A');
+  assert.equal(r.mode, 'video');
+  assert.equal(r.url, 'https://meet.example.com/room-abc');
+  assert.equal(r.demo, false);
+});
+
+test('pickCallTier: Tier A falls back to care_team_meeting_url / meeting_url', () => {
+  const r1 = pickCallTier({
+    activeCourse: { care_team_meeting_url: 'https://meet.example.com/teamroom' },
+    mode: 'voice',
+  });
+  assert.equal(r1.tier, 'A');
+  assert.equal(r1.url, 'https://meet.example.com/teamroom');
+  assert.equal(r1.mode, 'voice');
+
+  const r2 = pickCallTier({
+    activeCourse: { meeting_url: 'https://meet.example.com/generic' },
+  });
+  assert.equal(r2.tier, 'A');
+  assert.equal(r2.url, 'https://meet.example.com/generic');
+});
+
+test('pickCallTier: rejects non-http(s) meeting URLs', () => {
+  // Defensive — if the backend ever serves a javascript: URL we must not
+  // open it. We downgrade to the next tier.
+  const r = pickCallTier({
+    activeCourse: {
+      clinician_meeting_url: 'javascript:alert(1)',
+      primary_clinician_name: 'Dr. Kolmar',
+    },
+  });
+  assert.notEqual(r.tier, 'A');
+});
+
+test('pickCallTier: Tier B when clinician assigned but no meeting URL', () => {
+  const r = pickCallTier({
+    activeCourse: { primary_clinician_name: 'Dr. Kolmar' },
+    mode: 'video',
+  });
+  assert.equal(r.tier, 'B');
+  assert.equal(r.mode, 'video');
+  assert.ok(/video call request/i.test(r.subject));
+  assert.ok(/video call/i.test(r.body));
+  assert.ok(/Recent check-in/i.test(r.body));
+  assert.equal(r.demo, false);
+});
+
+test('pickCallTier: Tier B from /me clinician_id works too', () => {
+  const r = pickCallTier({
+    activeCourse: null,
+    me: { patient_id: 'pat-1', clinician_id: 'cln-abc' },
+    mode: 'voice',
+  });
+  assert.equal(r.tier, 'B');
+  assert.equal(r.mode, 'voice');
+  assert.ok(/Voice call request/i.test(r.subject));
+});
+
+test('pickCallTier: Tier C when no clinician is available anywhere', () => {
+  const r = pickCallTier({
+    activeCourse: { status: 'active' },
+    me: { patient_id: 'pat-2' },
+    mode: 'video',
+  });
+  assert.equal(r.tier, 'C');
+  assert.equal(r.mode, 'video');
+});
+
+test('pickCallTier: demo mode always returns Tier A pointing at Jitsi', () => {
+  // No activeCourse, no me, no clinician — demo mode should still resolve
+  // to a real openable URL so the button never silently fails.
+  const r = pickCallTier({ mode: 'video' }, { demo: true, patientId: 'demo-sam-li' });
+  assert.equal(r.tier, 'A');
+  assert.equal(r.demo, true);
+  assert.ok(/^https:\/\/meet\.jit\.si\/deepsynaps-demo-/.test(r.url));
+  assert.ok(r.url.includes('demo-sam-li'));
+});
+
+test('pickCallTier: defaults mode to video when mode param is missing/invalid', () => {
+  const r = pickCallTier({ activeCourse: { primary_clinician_name: 'Dr. X' } });
+  assert.equal(r.mode, 'video');
+  const r2 = pickCallTier({ activeCourse: { primary_clinician_name: 'Dr. X' }, mode: 'bogus' });
+  assert.equal(r2.mode, 'video');
+});
+
+// ── demoMessagesSeed ────────────────────────────────────────────────────────
+
+test('demoMessagesSeed: returns exactly 3 messages, all tagged _demo', () => {
+  const seed = demoMessagesSeed();
+  assert.equal(seed.length, 3);
+  for (const m of seed) {
+    assert.equal(m._demo, true);
+    assert.ok(m.id);
+    assert.ok(m.body);
+    assert.ok(m.created_at);
+  }
+});
+
+test('demoMessagesSeed: alternates clinician → patient → clinician', () => {
+  const seed = demoMessagesSeed();
+  assert.equal(seed[0].sender_type, 'clinician');
+  assert.equal(seed[1].sender_type, 'patient');
+  assert.equal(seed[2].sender_type, 'clinician');
+  // All three share the same thread so they render as one conversation.
+  const threadIds = new Set(seed.map(m => m.thread_id));
+  assert.equal(threadIds.size, 1);
+});
+
+test('demoMessagesSeed: chronology is oldest → newest; latest clinician unread', () => {
+  const now = Date.parse('2026-04-19T18:00:00Z');
+  const seed = demoMessagesSeed(now);
+  const t0 = new Date(seed[0].created_at).getTime();
+  const t1 = new Date(seed[1].created_at).getTime();
+  const t2 = new Date(seed[2].created_at).getTime();
+  assert.ok(t0 < t1, 'msg 0 older than msg 1');
+  assert.ok(t1 < t2, 'msg 1 older than msg 2');
+  // Newest (clinician) is unread so the read-receipt flow has something to do.
+  assert.equal(seed[2].is_read, false);
+  // Older two are already read.
+  assert.equal(seed[0].is_read, true);
+  assert.equal(seed[1].is_read, true);
+});
+
+test('demoMessagesSeed: content matches Dr. Kolmar / Samantha thread', () => {
+  const seed = demoMessagesSeed();
+  assert.ok(/Kolmar/i.test(seed[0].sender_name));
+  assert.ok(/Samantha/i.test(seed[0].body));
+  assert.ok(/session 10|headache|sleep/i.test(seed[1].body));
+  assert.ok(/scalp|electrode|saline/i.test(seed[2].body));
 });

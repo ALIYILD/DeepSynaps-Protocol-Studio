@@ -553,3 +553,126 @@ export function demoAssessmentSeed(now = Date.now()) {
     },
   ];
 }
+
+/**
+ * Select the call-tier for the patient Messages voice/video buttons.
+ *
+ *   Tier A — meeting URL is available. Open it in a new tab.
+ *   Tier B — no URL but a clinician is assigned. Show "Request a call"
+ *            inline panel that will POST a call-request message.
+ *   Tier C — no clinician assigned. The /messages POST will return
+ *            422/400; caller should surface that message in a toast.
+ *
+ * In demo mode we always return Tier A pointed at a public Jitsi room so
+ * the button does something real without pinging a real clinician.
+ *
+ * @param {object} ctx
+ * @param {object|null} [ctx.activeCourse]  patient-portal course row
+ * @param {object|null} [ctx.me]            patient-portal /me response
+ * @param {'video'|'voice'} [ctx.mode]      call mode (defaults to 'video')
+ * @param {object} [opts]
+ * @param {boolean} [opts.demo]             true when isDemoPatient() fired
+ * @param {string}  [opts.patientId]        used to shape the demo Jitsi room
+ */
+export function pickCallTier(ctx = {}, opts = {}) {
+  const mode = ctx.mode === 'voice' ? 'voice' : 'video';
+  const course = ctx.activeCourse || null;
+  const me = ctx.me || null;
+
+  // Demo mode → always Tier A with a public Jitsi room. No backend needed.
+  if (opts.demo) {
+    const pid = String(opts.patientId || me?.patient_id || 'demo').replace(/[^a-z0-9-]/gi, '').slice(0, 32) || 'demo';
+    return {
+      tier: 'A',
+      mode,
+      url: `https://meet.jit.si/deepsynaps-demo-${pid}`,
+      demo: true,
+    };
+  }
+
+  // Tier A — a real meeting URL is already provisioned on the course row.
+  const url = course && (
+    course.clinician_meeting_url
+    || course.care_team_meeting_url
+    || course.meeting_url
+  );
+  if (url && typeof url === 'string' && /^https?:\/\//i.test(url)) {
+    return { tier: 'A', mode, url, demo: false };
+  }
+
+  // Tier B — a clinician is assigned; we can send a call-request message.
+  const hasClinician = !!(
+    (course && (course.clinician_id || course.primary_clinician_id || course.primary_clinician_name))
+    || (me && (me.clinician_id || me.primary_clinician_name))
+  );
+  if (hasClinician) {
+    return {
+      tier: 'B',
+      mode,
+      subject: `${mode === 'voice' ? 'Voice' : 'Video'} call request`,
+      body: `Please let me know a time that works for a ${mode} call. Recent check-in data attached for context.`,
+      demo: false,
+    };
+  }
+
+  // Tier C — no clinician. The POST will 422; caller surfaces as toast.
+  return {
+    tier: 'C',
+    mode,
+    demo: false,
+  };
+}
+
+/**
+ * 3-exchange demo thread for the patient Messages page, shown only when
+ * `isDemoPatient()` is true AND the portal returned 0 messages.
+ *
+ * Shape mirrors the portal `PortalMessageOut` contract well enough for the
+ * thread renderer to bucket / date / attribute each row:
+ *   { id, thread_id, sender_type, sender_name, body, created_at, is_read, _demo }
+ *
+ * Each row carries `_demo: true` so the renderer can append a
+ * `.pth-demo-tag` chip per PR #42 convention.
+ *
+ * @param {number} [now] epoch ms (defaults to Date.now()) — lets tests fix time
+ */
+export function demoMessagesSeed(now = Date.now()) {
+  const HOUR = 3600000;
+  const iso = (ms) => new Date(ms).toISOString();
+  const TH = 'demo-thread-kolmar';
+  return [
+    {
+      id: 'demo-msg-1',
+      thread_id: TH,
+      sender_type: 'clinician',
+      sender_name: 'Dr. Kolmar',
+      subject: 'Check-in notes',
+      body: "Hi Samantha, your check-ins look great this week. Let me know if you have any questions about Tuesday's session.",
+      is_read: true,
+      created_at: iso(now - 48 * HOUR),
+      _demo: true,
+    },
+    {
+      id: 'demo-msg-2',
+      thread_id: TH,
+      sender_type: 'patient',
+      sender_name: 'You',
+      subject: 'Check-in notes',
+      body: 'Thanks — sleep has been better since I moved the session to morning. Small headache after session 10, gone within an hour.',
+      is_read: true,
+      created_at: iso(now - 24 * HOUR),
+      _demo: true,
+    },
+    {
+      id: 'demo-msg-3',
+      thread_id: TH,
+      sender_type: 'clinician',
+      sender_name: 'Dr. Kolmar',
+      subject: 'Check-in notes',
+      body: 'Good to hear. Scalp tingling is common, we can adjust the electrode saline if it repeats.',
+      is_read: false,
+      created_at: iso(now - 4 * HOUR),
+      _demo: true,
+    },
+  ];
+}

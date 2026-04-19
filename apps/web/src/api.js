@@ -801,6 +801,11 @@ export const api = {
   patientPortalMessages: () => apiFetch('/api/v1/patient-portal/messages'),
   patientPortalSendMessage: (data) =>
     apiFetch('/api/v1/patient-portal/messages', { method: 'POST', body: JSON.stringify(data) }),
+  // Alias used by the Messages page polish (Tier B call-request + composer).
+  // Spec asks for `api.sendPortalMessage`; keep both names wired so older
+  // call sites don't break.
+  sendPortalMessage: (data) =>
+    apiFetch('/api/v1/patient-portal/messages', { method: 'POST', body: JSON.stringify(data) }),
   patientPortalMarkMessageRead: (messageId) =>
     apiFetch(`/api/v1/patient-portal/messages/${encodeURIComponent(messageId)}/read`, { method: 'PATCH' }),
 

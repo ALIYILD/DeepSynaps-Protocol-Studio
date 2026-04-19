@@ -306,8 +306,14 @@ import {
   outcomeGoalMarker,
   groupOutcomesByTemplate,
   pickTodaysFocus,
+  isDemoPatient,
+  pickCallTier,
+  demoMessagesSeed,
 } from './patient-dashboard-helpers.js';
-export { computeCountdown, phaseLabel, outcomeGoalMarker, groupOutcomesByTemplate, pickTodaysFocus };
+export {
+  computeCountdown, phaseLabel, outcomeGoalMarker, groupOutcomesByTemplate,
+  pickTodaysFocus, isDemoPatient, pickCallTier, demoMessagesSeed,
+};
 
 // ── Dashboard ─────────────────────────────────────────────────────────────────────────────
 export async function pgPatientDashboard(user) {
@@ -3848,55 +3854,64 @@ export async function pgPatientMessages() {
       .replace(/'/g, '&#x27;');
   }
 
-  // ── Fetch messages and course context ────────────────────────────────────
-  let messagesRaw, coursesRaw;
+  // Inline SVGs for call CTAs — the sprite has no phone/video icon.
+  const SVG_VIDEO = '<svg class="ptmsg-ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="currentColor" d="M4 6a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v2.5l3.4-2.2a1 1 0 0 1 1.6.8v9.8a1 1 0 0 1-1.6.8L17 15.5V18a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6z"/></svg>';
+  const SVG_PHONE = '<svg class="ptmsg-ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="currentColor" d="M6.6 10.8a15.5 15.5 0 0 0 6.6 6.6l2.2-2.2a1 1 0 0 1 1-.25 11.5 11.5 0 0 0 3.6.6 1 1 0 0 1 1 1V20a1 1 0 0 1-1 1A17 17 0 0 1 3 4a1 1 0 0 1 1-1h3.5a1 1 0 0 1 1 1 11.5 11.5 0 0 0 .6 3.6 1 1 0 0 1-.25 1L6.6 10.8z"/></svg>';
+  const SVG_REFRESH = '<svg class="ptmsg-ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="currentColor" d="M12 4a8 8 0 1 1-7.45 10.91l1.87-.74A6 6 0 1 0 12 6V9L7 5l5-4v3z"/></svg>';
+  const SVG_SEND = '<svg class="ptmsg-ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="currentColor" d="M3 20.5V13l13-1L3 11V3.5l19 8.5-19 8.5z"/></svg>';
+
+  const inDemo = isDemoPatient(currentUser, { getToken: api.getToken });
+
+  // ── Fetch messages + course + portal me (all three parallel) ──────────────
+  let messagesRaw, coursesRaw, meRaw;
   try {
-    [messagesRaw, coursesRaw] = await Promise.all([
+    [messagesRaw, coursesRaw, meRaw] = await Promise.all([
       api.patientPortalMessages().catch(() => null),
       api.patientPortalCourses().catch(() => null),
+      api.patientPortalMe().catch(() => null),
     ]);
   } catch (_e) {
-    messagesRaw = null;
-    coursesRaw  = null;
+    messagesRaw = null; coursesRaw = null; meRaw = null;
   }
 
-  const rawMessages = Array.isArray(messagesRaw) ? messagesRaw : [];
-  const courses     = Array.isArray(coursesRaw)  ? coursesRaw  : [];
+  const courses      = Array.isArray(coursesRaw) ? coursesRaw : [];
   const activeCourse = courses.find(c => c.status === 'active') || courses[0] || null;
+  const me           = meRaw && typeof meRaw === 'object' ? meRaw : null;
+
+  // Demo seed: if demo-mode AND the real endpoint returned empty, overlay
+  // a 3-exchange seeded thread (not "load failed" — only true emptiness).
+  let rawMessages;
+  if (Array.isArray(messagesRaw)) {
+    if (messagesRaw.length === 0 && inDemo) {
+      rawMessages = demoMessagesSeed();
+    } else {
+      rawMessages = messagesRaw;
+    }
+  } else {
+    rawMessages = [];
+  }
 
   // ── Message category metadata ────────────────────────────────────────────
-  // Extension point: add categories here as the backend supports them.
-  // category_key maps to compose form <select> values and thread labels.
   const MSG_CATEGORIES = [
-    { key: 'treatment-plan', label: t('patient.msg.cat.treatment_plan'), icon: '&#9678;' },
-    { key: 'session',        label: t('patient.msg.cat.session'),        icon: '&#9671;' },
-    { key: 'side-effects',   label: t('patient.msg.cat.side_effects'),   icon: '&#9680;' },
-    { key: 'documents',      label: t('patient.msg.cat.documents'),      icon: '&#9649;' },
-    { key: 'billing',        label: t('patient.msg.cat.billing'),        icon: '&#9643;' },
-    { key: 'other',          label: t('patient.msg.cat.other'),          icon: '&#9672;' },
+    { key: 'general',        label: 'General' },
+    { key: 'treatment-plan', label: t('patient.msg.cat.treatment_plan') },
+    { key: 'session',        label: t('patient.msg.cat.session') },
+    { key: 'side-effects',   label: t('patient.msg.cat.side_effects') },
+    { key: 'documents',      label: t('patient.msg.cat.documents') },
+    { key: 'billing',        label: t('patient.msg.cat.billing') },
+    { key: 'other',          label: t('patient.msg.cat.other') },
   ];
-  const catByKey = {};
-  MSG_CATEGORIES.forEach(c => { catByKey[c.key] = c; });
-
-  function catMeta(key) {
-    return catByKey[(key || '').toLowerCase()] || catByKey['other'];
-  }
-
-  // ── Priority helpers ─────────────────────────────────────────────────────
-  function isUrgent(m) {
-    return (m.priority || '').toLowerCase() === 'urgent';
-  }
 
   // ── Thread grouping ──────────────────────────────────────────────────────
-  // Group flat messages by thread_id if present, otherwise by subject,
-  // otherwise each message is its own thread.
-  // Extension point: backend can supply thread_id to properly group replies.
+  // Backend now stamps thread_id on every message (PR #50). We group by
+  // thread_id and fall back to a single "All messages" bucket for any
+  // legacy rows with a null thread_id.
   const threadMap = new Map();
   rawMessages
     .slice()
     .sort((a, b) => new Date(a.created_at || 0) - new Date(b.created_at || 0))
     .forEach(m => {
-      const key = m.thread_id || m.subject || m.id || String(Math.random());
+      const key = m.thread_id || 'all';
       if (!threadMap.has(key)) {
         threadMap.set(key, { key, messages: [], unreadCount: 0 });
       }
@@ -3907,458 +3922,461 @@ export async function pgPatientMessages() {
       }
     });
 
-  // Derive thread-level metadata from most-recent message
-  const threads = [...threadMap.values()].map(t => {
-    const latest  = t.messages[t.messages.length - 1];
-    const first   = t.messages[0];
-    const fromClinician = t.messages.filter(m => (m.sender_type || '').toLowerCase() !== 'patient');
-    const lastIncoming  = fromClinician[fromClinician.length - 1] || null;
-    return {
-      key:          t.key,
-      messages:     t.messages,
-      unreadCount:  t.unreadCount,
-      subject:      esc(first.subject || first.category_label || 'Message from your clinic'),
-      latestBody:   latest.body || latest.message || latest.text || '',
-      latestDate:   latest.created_at || latest.sent_at,
-      latestSender: lastIncoming
-        ? (lastIncoming.sender_name || lastIncoming.sender?.display_name || 'Care Team')
-        : (first.sender_name || 'Care Team'),
-      category:     first.category || null,
-      priority:     latest.priority || first.priority || null,
-      courseRef:    activeCourse ? { title: activeCourse.condition_name || activeCourse.protocol_name || 'Your treatment' } : null,
-    };
-  }).sort((a, b) => new Date(b.latestDate || 0) - new Date(a.latestDate || 0));
+  function rebuildThreadsFromMap() {
+    return [...threadMap.values()].map(th => {
+      const latest = th.messages[th.messages.length - 1];
+      const first  = th.messages[0];
+      const incoming = th.messages.filter(m => (m.sender_type || '').toLowerCase() !== 'patient');
+      const lastIncoming = incoming[incoming.length - 1] || null;
+      const subject = first.subject || first.category_label
+        || (th.key === 'all' ? 'All messages' : 'Message from your clinic');
+      return {
+        key: th.key, messages: th.messages, unreadCount: th.unreadCount,
+        subject,
+        latestBody: latest.body || latest.message || latest.text || '',
+        latestDate: latest.created_at || latest.sent_at,
+        latestSender: lastIncoming
+          ? (lastIncoming.sender_name || lastIncoming.sender?.display_name || 'Care Team')
+          : (first.sender_name || 'Care Team'),
+        category: first.category || null,
+        hasDemo:  th.messages.some(m => m._demo === true),
+      };
+    }).sort((a, b) => new Date(b.latestDate || 0) - new Date(a.latestDate || 0));
+  }
+  const threads = rebuildThreadsFromMap();
+
+  // ── Page state ───────────────────────────────────────────────────────────
+  const loadFailed = messagesRaw === null;
+  const uid        = currentUser?.id;
+
+  let activeThreadIdx = threads.length > 0 ? 0 : -1;
+  const _readFired = new Set();
 
   // ── Message bubble HTML ──────────────────────────────────────────────────
-  // Extension point: pass { showAttachments: true } when attachment support is added.
-  function bubbleHTML(m, uid) {
+  function bubbleHTML(m) {
     const isOutgoing = m.sender_id === uid || (m.sender_type || '').toLowerCase() === 'patient';
     const body       = esc(m.body || m.message || m.text || '');
     const rel        = fmtRelative(m.created_at || m.sent_at);
     const fullDate   = fmtDate(m.created_at || m.sent_at);
     const senderName = esc(m.sender_name || m.sender?.display_name || (isOutgoing ? 'You' : 'Care Team'));
-    const urgent     = isUrgent(m);
+    const urgent     = (m.priority || '').toLowerCase() === 'urgent';
+    const demoChip   = m._demo
+      ? '<span class="pth-demo-tag" title="Demo data shown while real data is unavailable">demo</span>'
+      : '';
+    const readMark = isOutgoing && m.is_read === true
+      ? '<span class="ptmsg-read-mark" aria-label="Read">Read &#10003;</span>'
+      : '';
 
     if (isOutgoing) {
       return `
-        <div class="pt-msg-bubble-row pt-msg-row-out">
-          <div class="pt-msg-bubble pt-msg-bubble-out">
-            <div class="pt-msg-bubble-body">${body}</div>
-            <div class="pt-msg-bubble-meta pt-msg-meta-out" title="${esc(fullDate)}">${esc(rel)}</div>
+        <div class="ptmsg-bubble-row ptmsg-row-out">
+          <div class="ptmsg-bubble ptmsg-bubble-out">
+            <div class="ptmsg-bubble-body">${body}</div>
+            <div class="ptmsg-bubble-meta" title="${esc(fullDate)}">${esc(rel)} ${readMark}</div>
           </div>
-          <div class="pt-msg-avatar pt-msg-avatar-you" aria-hidden="true">You</div>
+          <div class="ptmsg-avatar ptmsg-avatar-you" aria-hidden="true">You</div>
         </div>`;
     }
 
-    const initials = (senderName || '').replace(/&[^;]+;/g, '').split(' ').map(w => w[0] || '').join('').slice(0, 2).toUpperCase() || 'CT';
+    const initials = (senderName || '').replace(/&[^;]+;/g, '').split(' ')
+      .map(w => w[0] || '').join('').slice(0, 2).toUpperCase() || 'CT';
     return `
-      <div class="pt-msg-bubble-row pt-msg-row-in${urgent ? ' pt-msg-row-urgent' : ''}">
-        <div class="pt-msg-avatar pt-msg-avatar-clinic" aria-hidden="true">${initials}</div>
-        <div class="pt-msg-bubble pt-msg-bubble-in${urgent ? ' pt-msg-bubble-urgent' : ''}">
-          <div class="pt-msg-sender-name">${senderName}</div>
-          <div class="pt-msg-bubble-body">${body}</div>
-          <div class="pt-msg-bubble-meta" title="${esc(fullDate)}">${esc(rel)}</div>
+      <div class="ptmsg-bubble-row ptmsg-row-in${urgent ? ' ptmsg-row-urgent' : ''}">
+        <div class="ptmsg-avatar ptmsg-avatar-clinic" aria-hidden="true">${initials}</div>
+        <div class="ptmsg-bubble ptmsg-bubble-in${urgent ? ' ptmsg-bubble-urgent' : ''}">
+          <div class="ptmsg-sender-name">${senderName} ${demoChip}</div>
+          <div class="ptmsg-bubble-body">${body}</div>
+          <div class="ptmsg-bubble-meta" title="${esc(fullDate)}">${esc(rel)}</div>
         </div>
       </div>`;
   }
 
-  // ── Thread card HTML (list view) ─────────────────────────────────────────
-  function threadCardHTML(th, idx) {
-    const preview  = esc((th.latestBody || '').slice(0, 100).trim());
-    const date     = fmtRelative(th.latestDate);
-    const cm       = catMeta(th.category);
-    const hasUnread = th.unreadCount > 0;
-    const urgentBadge = (th.priority || '').toLowerCase() === 'urgent'
-      ? `<span class="pt-msg-urgent-badge">Urgent</span>`
-      : '';
-    const unreadDot = hasUnread
-      ? `<span class="pt-msg-unread-dot" aria-label="${th.unreadCount} unread"></span>`
-      : '';
-    const catBadge = th.category
-      ? `<span class="pt-msg-cat-badge">${esc(cm.label)}</span>`
-      : '';
-    const courseChip = th.courseRef
-      ? `<span class="pt-msg-ctx-chip">${esc(th.courseRef.title)}</span>`
-      : '';
-
-    return `
-      <div class="pt-msg-thread-card${hasUnread ? ' pt-msg-thread-unread' : ''}"
-           role="button" tabindex="0"
-           aria-label="Message thread: ${th.subject}${hasUnread ? ', ' + th.unreadCount + ' unread' : ''}"
-           data-thread-idx="${idx}"
-           onclick="window._ptOpenThread(${idx})"
-           onkeydown="if(event.key==='Enter'||event.key===' ')window._ptOpenThread(${idx})">
-        <div class="pt-msg-thread-top">
-          <div class="pt-msg-thread-who">
-            <span class="pt-msg-thread-sender">${esc(th.latestSender)}</span>
-            ${urgentBadge}
-            ${unreadDot}
+  // ── Thread list (left pane) ──────────────────────────────────────────────
+  function threadListHTML() {
+    if (loadFailed) {
+      return `<div class="ptmsg-load-error">
+        <span aria-hidden="true">&#9680;</span>
+        ${t('patient.msg.load_error')}
+        <button class="btn btn-ghost btn-sm" style="margin-left:10px;margin-top:6px"
+                onclick="window._navPatient('patient-messages')">${t('common.retry')} \u2192</button>
+      </div>`;
+    }
+    if (threads.length === 0) {
+      return `<div class="ptmsg-empty">
+        <div class="ptmsg-empty-title">No messages yet</div>
+        <div class="ptmsg-empty-body">Send your care team a message below \u2014 or start a call above.</div>
+      </div>`;
+    }
+    return threads.map((th, i) => {
+      const preview = esc((th.latestBody || '').slice(0, 70).trim());
+      const rel     = fmtRelative(th.latestDate);
+      const demoTag = th.hasDemo
+        ? '<span class="pth-demo-tag" title="Demo data shown while real data is unavailable">demo</span>'
+        : '';
+      const unreadBadge = th.unreadCount > 0
+        ? `<span class="ptmsg-unread-badge" aria-label="${th.unreadCount} unread">${th.unreadCount}</span>`
+        : '';
+      const selClass = (i === activeThreadIdx) ? ' ptmsg-thread-selected' : '';
+      return `
+        <button type="button" class="ptmsg-thread-item${selClass}"
+                aria-pressed="${i === activeThreadIdx}"
+                aria-label="Open thread with ${esc(th.latestSender)}"
+                onclick="window._ptmsgSelectThread(${i})">
+          <div class="ptmsg-thread-top">
+            <span class="ptmsg-thread-sender">${esc(th.latestSender)}</span>
+            <span class="ptmsg-thread-date">${esc(rel)}</span>
           </div>
-          <span class="pt-msg-thread-date">${esc(date)}</span>
-        </div>
-        <div class="pt-msg-thread-subject">${esc(th.subject || '')}</div>
-        <div class="pt-msg-thread-preview">${preview || '<em>No content</em>'}${th.messages.length > 1 ? ` <span class="pt-msg-reply-count">${th.messages.length} messages</span>` : ''}</div>
-        <div class="pt-msg-thread-chips">${catBadge}${courseChip}</div>
-      </div>`;
+          <div class="ptmsg-thread-subject">${esc(th.subject || '')} ${demoTag}</div>
+          <div class="ptmsg-thread-preview">${preview || '<em>No content</em>'}</div>
+          <div class="ptmsg-thread-meta">${unreadBadge}</div>
+        </button>`;
+    }).join('');
   }
 
-  // ── Thread detail HTML ───────────────────────────────────────────────────
-  function threadDetailHTML(th, uid) {
-    const cm     = catMeta(th.category);
-    const urgent = (th.priority || '').toLowerCase() === 'urgent';
-    const contextBanner = th.courseRef
-      ? `<div class="pt-msg-ctx-banner">
-           <span class="pt-msg-ctx-banner-ico" aria-hidden="true">&#9678;</span>
-           Re: ${esc(th.courseRef.title)}
-         </div>`
-      : '';
-    const urgentBanner = urgent
-      ? `<div class="pt-msg-urgent-banner">
-           <strong>Urgent message</strong> \u2014 your care team has marked this as urgent.
-           If you are in immediate distress please call your clinic or emergency services.
-         </div>`
-      : '';
-    const bubbles = th.messages.length > 0
-      ? th.messages.map(m => bubbleHTML(m, uid)).join('')
-      : `<div class="pt-msg-thread-empty">No messages in this thread yet.</div>`;
+  // ── Conversation pane (right) ────────────────────────────────────────────
+  function conversationHTML() {
+    if (activeThreadIdx < 0 || !threads[activeThreadIdx]) {
+      return `<div class="ptmsg-conversation-empty">
+        <div class="ptmsg-conversation-empty-title">Pick a conversation</div>
+        <div class="ptmsg-conversation-empty-body">Select a thread on the left, or use the composer below to start a new one.</div>
+      </div>`;
+    }
+    const th = threads[activeThreadIdx];
+    return th.messages.length > 0
+      ? th.messages.map(m => bubbleHTML(m)).join('')
+      : `<div class="ptmsg-conversation-empty-body">No messages in this thread yet.</div>`;
+  }
 
+  // ── Call-request inline panel (Tier B) ───────────────────────────────────
+  function callRequestPanelHTML(tier) {
+    if (!tier || tier.tier !== 'B') return '';
     return `
-      <div class="pt-msg-detail-wrap">
-        <button class="pt-msg-back-btn"
-                onclick="window._ptCloseThread()"
-                aria-label="Back to message list">
-          \u2190 Back to messages
-        </button>
-        <div class="pt-msg-detail-header">
-          <div class="pt-msg-detail-subject">${esc(th.subject || '')}</div>
-          ${th.category ? `<span class="pt-msg-cat-badge pt-msg-cat-badge-lg">${esc(cm.icon)} ${esc(cm.label)}</span>` : ''}
-        </div>
-        ${urgentBanner}
-        ${contextBanner}
-        <div class="pt-msg-thread-body" id="pt-msg-thread-body">
-          ${bubbles}
-        </div>
-        <div class="pt-msg-reply-wrap">
-          <div class="pt-msg-reply-label">Reply</div>
-          <textarea id="pt-msg-reply-input" class="form-control pt-msg-reply-input"
-                    rows="3" placeholder="Type your reply\u2026"
-                    aria-label="Reply to this message thread"></textarea>
-          <div class="pt-msg-reply-footer">
-            <span class="pt-msg-reply-hint">Your care team will respond within 1\u20132 business days.</span>
-            <button class="btn btn-primary btn-sm"
-                    id="pt-msg-reply-btn"
-                    onclick="window._ptSendReply('${esc(th.key)}')">Send Reply \u2192</button>
+      <div class="ptmsg-call-request" id="ptmsg-call-request" role="region"
+           aria-label="Request a ${tier.mode} call">
+        <div class="ptmsg-call-request-hd">Request a ${tier.mode} call</div>
+        <div class="ptmsg-call-request-body">
+          <div class="form-group">
+            <label class="form-label" for="ptmsg-call-body">What should your care team know?</label>
+            <textarea id="ptmsg-call-body" class="form-control" rows="3"
+                      aria-label="Call request body">${esc(tier.body)}</textarea>
           </div>
-          <div id="pt-msg-reply-status" class="pt-msg-send-status" hidden></div>
+          <div class="ptmsg-call-request-footer">
+            <button class="btn btn-ghost btn-sm" type="button"
+                    onclick="window._ptmsgCancelCallRequest()">Cancel</button>
+            <button class="btn btn-primary btn-sm" type="button"
+                    id="ptmsg-call-send-btn"
+                    onclick="window._ptmsgSendCallRequest()">Send request \u2192</button>
+          </div>
+          <div id="ptmsg-call-request-status" class="ptmsg-send-status" hidden></div>
         </div>
       </div>`;
   }
 
-  // ── New message form HTML ────────────────────────────────────────────────
-  function newMsgFormHTML() {
+  // ── Header (title + call buttons + refresh) ──────────────────────────────
+  function headerHTML() {
+    return `
+      <header class="ptmsg-header">
+        <div class="ptmsg-header-title">
+          <div class="ptmsg-title">Your care team</div>
+          <div class="ptmsg-subtitle">Send a message, or jump on a call.</div>
+        </div>
+        <div class="ptmsg-header-actions">
+          <button type="button"
+                  class="btn btn-primary btn-sm ptmsg-btn-call ptmsg-btn-call-video"
+                  aria-label="Start video call"
+                  onclick="window._ptmsgStartCall('video')">
+            ${SVG_VIDEO} <span>Start video call</span>
+          </button>
+          <button type="button"
+                  class="btn btn-ghost btn-sm ptmsg-btn-call ptmsg-btn-call-voice"
+                  aria-label="Start voice call"
+                  onclick="window._ptmsgStartCall('voice')">
+            ${SVG_PHONE} <span>Start voice call</span>
+          </button>
+          <button type="button"
+                  class="btn btn-ghost btn-sm ptmsg-btn-refresh"
+                  aria-label="Refresh messages"
+                  onclick="window._navPatient('patient-messages')">
+            ${SVG_REFRESH} <span>Refresh</span>
+          </button>
+        </div>
+      </header>`;
+  }
+
+  // ── Composer (bottom) ────────────────────────────────────────────────────
+  function composerHTML() {
     const categoryOptions = MSG_CATEGORIES.map(c =>
-      `<option value="${esc(c.key)}">${esc(c.label)}</option>`
+      `<option value="${esc(c.key)}"${c.key === 'general' ? ' selected' : ''}>${esc(c.label)}</option>`
     ).join('');
-    const courseOption = activeCourse
-      ? `<option value="${esc(activeCourse.id)}">${esc(activeCourse.condition_name || activeCourse.protocol_name || 'Your treatment')}</option>`
+    return `
+      <form class="ptmsg-composer" id="ptmsg-composer"
+            aria-label="Send a message to your care team"
+            onsubmit="event.preventDefault(); window._ptmsgSend();">
+        <div id="ptmsg-composer-err" class="ptmsg-composer-err" hidden role="alert"></div>
+        <div class="ptmsg-composer-row">
+          <label class="ptmsg-sr-only" for="ptmsg-category">Category</label>
+          <select id="ptmsg-category" class="form-control ptmsg-category-select"
+                  aria-label="Message category">
+            ${categoryOptions}
+          </select>
+          <label class="ptmsg-sr-only" for="ptmsg-body">Message</label>
+          <textarea id="ptmsg-body" class="form-control ptmsg-body-input"
+                    rows="2" maxlength="2000" placeholder="Type your message\u2026 (Enter to send, Shift+Enter for newline)"
+                    aria-label="Message body"></textarea>
+          <button type="submit" class="btn btn-primary btn-sm ptmsg-send-btn"
+                  id="ptmsg-send-btn"
+                  aria-label="Send message">${SVG_SEND} <span>Send</span></button>
+        </div>
+      </form>`;
+  }
+
+  // ── Full page render ─────────────────────────────────────────────────────
+  function renderPage() {
+    const threadCountLine = threads.length > 0
+      ? `<span class="ptmsg-list-count">${threads.length === 1 ? t('patient.msg.thread_count_one') : t('patient.msg.thread_count', { n: threads.length })}</span>`
       : '';
-
-    return `
-      <div class="pt-msg-compose" id="pt-msg-compose">
-        <div class="pt-docs-section-hd" style="margin-bottom:12px">
-          <span class="pt-docs-section-title">${t('patient.messages.new')}</span>
-        </div>
-        <div class="pt-msg-compose-body">
-          <div class="form-group">
-            <label class="form-label" for="pt-msg-category">${t('patient.msg.compose.topic_label')}</label>
-            <select id="pt-msg-category" class="form-control" aria-required="true">
-              <option value="">${t('patient.msg.compose.topic_placeholder')}</option>
-              ${categoryOptions}
-            </select>
-          </div>
-          <div class="form-group">
-            <label class="form-label" for="pt-msg-subject">${t('patient.msg.compose.subject_label')}</label>
-            <input id="pt-msg-subject" class="form-control"
-                   type="text" maxlength="120"
-                   placeholder="${t('patient.msg.compose.subject_placeholder')}"
-                   aria-required="true">
-          </div>
-          <div class="form-group">
-            <label class="form-label" for="pt-msg-body">${t('patient.msg.compose.body_label')}</label>
-            <textarea id="pt-msg-body" class="form-control"
-                      rows="4" maxlength="2000"
-                      placeholder="${t('patient.msg.compose.body_placeholder')}"
-                      aria-required="true"></textarea>
-          </div>
-          <div class="pt-msg-compose-footer">
-            <span class="pt-msg-compose-hint">${t('patient.msg.compose.hint')}</span>
-            <button class="btn btn-primary btn-sm" id="pt-msg-send-btn"
-                    onclick="window._ptSendNewMessage()">${t('patient.msg.compose.send')} \u2192</button>
-          </div>
-          <div id="pt-msg-send-status" class="pt-msg-send-status" hidden></div>
+    el.innerHTML = `
+      <div class="ptmsg-wrap" id="ptmsg-wrap">
+        ${headerHTML()}
+        <div class="ptmsg-body-grid">
+          <aside class="ptmsg-pane ptmsg-pane-list" aria-label="Conversations">
+            <div class="ptmsg-pane-hd">
+              <span>Conversations</span>
+              ${threadCountLine}
+            </div>
+            <div class="ptmsg-thread-list" id="ptmsg-thread-list">${threadListHTML()}</div>
+          </aside>
+          <section class="ptmsg-pane ptmsg-pane-conv" aria-label="Conversation"
+                   aria-live="polite">
+            <div class="ptmsg-conv-body" id="ptmsg-conv-body">${conversationHTML()}</div>
+            <div id="ptmsg-call-request-slot"></div>
+            ${composerHTML()}
+          </section>
         </div>
       </div>`;
-  }
 
-  // ── Care team contacts HTML ──────────────────────────────────────────────
-  // Extension point: populate from api.patientPortalMe() or a dedicated
-  // /patient-portal/care-team endpoint when that becomes available.
-  function careTeamHTML() {
-    const teamMembers = [];
-    if (activeCourse?.primary_clinician_name) {
-      teamMembers.push({
-        name: activeCourse.primary_clinician_name,
-        role: activeCourse.primary_clinician_role || 'Clinician',
-      });
+    // Pre-fill compose from the "Ask about this" CTA on Reports.
+    if (window._ptPendingAsk) {
+      const pendingPrompt = window._ptPendingAsk;
+      window._ptPendingAsk = null;
+      setTimeout(() => {
+        const bodyTA = el.querySelector('#ptmsg-body');
+        const catSel = el.querySelector('#ptmsg-category');
+        if (catSel) { catSel.value = 'documents'; }
+        if (bodyTA) { bodyTA.value = pendingPrompt; bodyTA.focus(); }
+      }, 60);
     }
 
-    const memberCards = teamMembers.length > 0
-      ? teamMembers.map(m => `
-          <div class="pt-msg-contact-card">
-            <div class="pt-msg-contact-avatar" aria-hidden="true">
-              ${esc(m.name.split(' ').map(w => w[0] || '').join('').slice(0, 2).toUpperCase())}
-            </div>
-            <div class="pt-msg-contact-info">
-              <div class="pt-msg-contact-name">${esc(m.name)}</div>
-              <div class="pt-msg-contact-role">${esc(m.role)}</div>
-            </div>
-          </div>`).join('')
-      : `<div class="pt-msg-contact-placeholder">
-           Your care team information will appear here once your treatment is underway.
-         </div>`;
+    // Fire-and-forget read-receipt PATCH for any unread clinician messages
+    // visible in the current conversation. Runs after each render.
+    if (activeThreadIdx >= 0 && threads[activeThreadIdx]) {
+      for (const m of threads[activeThreadIdx].messages) {
+        const senderIsClinician = (m.sender_type || '').toLowerCase() !== 'patient'
+          && m.sender_id !== uid;
+        if (senderIsClinician && m.is_read === false && m.id && !_readFired.has(m.id) && !m._demo) {
+          _readFired.add(m.id);
+          try {
+            if (typeof api.patientPortalMarkMessageRead === 'function') {
+              api.patientPortalMarkMessageRead(m.id)
+                .then(() => { m.is_read = true; })
+                .catch(() => {/* endpoint may be absent on older API */});
+            }
+          } catch (_e) { /* swallow */ }
+        }
+      }
+    }
 
-    return `
-      <div class="pt-msg-care-team">
-        <div class="pt-docs-section-hd" style="margin-bottom:12px">
-          <span class="pt-docs-section-title">${t('patient.msg.care_team_title')}</span>
-        </div>
-        ${memberCards}
-      </div>`;
+    // Wire Enter-to-send on the composer body (shift+Enter = newline).
+    const bodyEl = el.querySelector('#ptmsg-body');
+    if (bodyEl) {
+      bodyEl.addEventListener('keydown', (ev) => {
+        if (ev.key === 'Enter' && !ev.shiftKey) {
+          ev.preventDefault();
+          window._ptmsgSend();
+        }
+      });
+    }
   }
 
-  // ── Guidance box HTML ────────────────────────────────────────────────────
-  function guidanceHTML() {
-    return `
-      <div class="pt-msg-guidance">
-        <div class="pt-msg-guidance-row">
-          <span class="pt-msg-guidance-ico" aria-hidden="true">&#9678;</span>
-          <span><strong>Response time:</strong> Your care team aims to reply within 1\u20132 business days. Messages sent after hours or on weekends will be seen on the next working day.</span>
-        </div>
-        <div class="pt-msg-guidance-row">
-          <span class="pt-msg-guidance-ico pt-msg-guidance-ico-warn" aria-hidden="true">&#9650;</span>
-          <span><strong>Not for emergencies.</strong> This messaging system is for non-urgent questions only. If you are experiencing a medical emergency, call 000 or go to your nearest emergency department.</span>
-        </div>
-        <div class="pt-msg-guidance-row">
-          <span class="pt-msg-guidance-ico" aria-hidden="true">&#128222;</span>
-          <span><strong>Need to speak to someone sooner?</strong> Call your clinic directly during business hours.</span>
-        </div>
-      </div>`;
-  }
+  // ── Handlers (exposed on window for inline onclick) ──────────────────────
 
-  // ── Page state: load error with messages unavailable ────────────────────
-  // Still shows compose + guidance even when messages fail to load.
-  const loadFailed = messagesRaw === null;
+  window._ptmsgSelectThread = function(idx) {
+    if (!threads[idx]) return;
+    activeThreadIdx = idx;
+    renderPage();
+  };
 
-  // ── Render full page ─────────────────────────────────────────────────────
-  const uid = currentUser?.id;
-
-  const threadListHTML = !loadFailed
-    ? (threads.length > 0
-        ? threads.map((th, i) => threadCardHTML(th, i)).join('')
-        : `<div class="pt-msg-empty">
-             <div class="pt-msg-empty-ico" aria-hidden="true">&#9643;</div>
-             <div class="pt-msg-empty-title">No messages yet</div>
-             <div class="pt-msg-empty-body">When your care team sends you a message, or you send one below, it will appear here.</div>
-           </div>`)
-    : `<div class="pt-msg-load-error">
-         <span class="pt-msg-load-error-ico" aria-hidden="true">&#9680;</span>
-         ${t('patient.msg.load_error')}
-         <button class="btn btn-ghost btn-sm" style="margin-left:10px;margin-top:6px"
-                 onclick="window._navPatient('patient-messages')">${t('common.retry')} \u2192</button>
-       </div>`;
-
-  el.innerHTML = `
-    <div class="pt-msg-wrap" id="pt-msg-wrap">
-      ${guidanceHTML()}
-
-      <div class="pt-msg-section" id="pt-msg-list-section">
-        <div class="pt-docs-section-hd" style="margin-bottom:10px">
-          <span class="pt-docs-section-title">${t('patient.messages.title')}</span>
-          ${threads.length > 0 ? `<span class="pt-docs-section-count">${threads.length === 1 ? t('patient.msg.thread_count_one') : t('patient.msg.thread_count', { n: threads.length })}</span>` : ''}
-        </div>
-        <div id="pt-msg-thread-list">${threadListHTML}</div>
-      </div>
-
-      <div id="pt-msg-thread-detail" hidden></div>
-
-      ${newMsgFormHTML()}
-
-      ${careTeamHTML()}
-    </div>`;
-
-  // ── Pre-fill compose from "Ask about this" CTA on Reports page ─────────
-  if (window._ptPendingAsk) {
-    const pendingPrompt = window._ptPendingAsk;
-    window._ptPendingAsk = null;
-    // Give the DOM a tick to settle before filling + scrolling
-    setTimeout(() => {
-      const catSel  = el.querySelector('#pt-msg-category');
-      const subjInp = el.querySelector('#pt-msg-subject');
-      const bodyTA  = el.querySelector('#pt-msg-body');
-      const compose = el.querySelector('#pt-msg-compose');
-      if (catSel)  catSel.value  = 'documents';
-      if (subjInp && !subjInp.value) subjInp.value = 'Question about my report';
-      if (bodyTA)  { bodyTA.value = pendingPrompt; bodyTA.focus(); }
-      if (compose) compose.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    }, 80);
-  }
-
-  // ── Handlers ─────────────────────────────────────────────────────────────
-
-  // Open a thread and show detail view
-  window._ptOpenThread = function(idx) {
-    const th  = threads[idx];
-    if (!th) return;
-    const listSection   = el.querySelector('#pt-msg-list-section');
-    const detailSection = el.querySelector('#pt-msg-thread-detail');
-    if (!listSection || !detailSection) return;
-    detailSection.innerHTML = threadDetailHTML(th, uid);
-    detailSection.removeAttribute('hidden');
-    listSection.setAttribute('hidden', '');
-    // Scroll to top of detail
-    detailSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    // Honest read receipts: only mark incoming unread messages (not patient-sent) as read.
-    const unreadIncoming = (th.messages || []).filter(m =>
-      m && m.id
-      && m.is_read === false
-      && (m.sender_type || '').toLowerCase() !== 'patient'
-      && m.sender_id !== uid
+  window._ptmsgStartCall = async function(mode) {
+    const tier = pickCallTier(
+      { activeCourse, me, mode },
+      { demo: inDemo, patientId: me?.patient_id || currentUser?.id },
     );
-    if (unreadIncoming.length && api.patientPortalMarkMessageRead) {
-      Promise.all(unreadIncoming.map(m =>
-        api.patientPortalMarkMessageRead(m.id).catch(() => null)
-      )).then(() => {
-        unreadIncoming.forEach(m => { m.is_read = true; });
-        th.unreadCount = 0;
-      });
+
+    // Tier A — open the meeting URL in a new tab.
+    if (tier.tier === 'A') {
+      try { window.open(tier.url, '_blank', 'noopener,noreferrer'); }
+      catch (_e) { /* popup blocked */ }
+
+      // Log a structured message to the thread, but ONLY if the POST
+      // succeeds. Skip this log entirely in demo mode (no backend
+      // clinician to send to).
+      if (!tier.demo) {
+        try {
+          const created = await api.sendPortalMessage({
+            body:     `You started a ${mode} call.`,
+            subject:  `${mode === 'voice' ? 'Voice' : 'Video'} call started`,
+            category: 'call_log',
+            priority: 'normal',
+          });
+          if (created && typeof created === 'object') {
+            const key = created.thread_id || 'all';
+            let thread = threadMap.get(key);
+            if (!thread) {
+              thread = { key, messages: [], unreadCount: 0 };
+              threadMap.set(key, thread);
+            }
+            thread.messages.push(created);
+            const rebuilt = rebuildThreadsFromMap();
+            threads.length = 0; rebuilt.forEach(r => threads.push(r));
+            activeThreadIdx = threads.findIndex(r => r.key === key);
+            renderPage();
+          }
+        } catch (_e) { /* silent — user already sees the open tab */ }
+      }
+      return;
     }
-  };
 
-  // Close thread detail and return to list
-  window._ptCloseThread = function() {
-    const listSection   = el.querySelector('#pt-msg-list-section');
-    const detailSection = el.querySelector('#pt-msg-thread-detail');
-    if (!listSection || !detailSection) return;
-    detailSection.setAttribute('hidden', '');
-    detailSection.innerHTML = '';
-    listSection.removeAttribute('hidden');
-  };
+    // Tier B — inline "Request a call" panel.
+    if (tier.tier === 'B') {
+      const slot = el.querySelector('#ptmsg-call-request-slot');
+      if (slot) {
+        slot.innerHTML = callRequestPanelHTML(tier);
+        const ta = slot.querySelector('#ptmsg-call-body');
+        if (ta) ta.focus();
+        window._ptmsgPendingCallTier = tier;
+      }
+      return;
+    }
 
-  // Send a reply to an existing thread
-  window._ptSendReply = async function(threadKey) {
-    const input  = el.querySelector('#pt-msg-reply-input');
-    const btn    = el.querySelector('#pt-msg-reply-btn');
-    const status = el.querySelector('#pt-msg-reply-status');
-    if (!input) return;
-    const text = input.value.trim();
-    if (!text) { input.focus(); return; }
-
-    if (btn) { btn.disabled = true; btn.textContent = t('patient.msg.sending'); }
-
+    // Tier C — no clinician. Honest toast.
     try {
-      const activeThread = threads.find(th => th.key === threadKey);
-      // Only forward thread_id when the grouping key looks like a real backend
-      // id (uuid-ish); otherwise the thread was a subject-based fallback group,
-      // so prefer the first message's server-assigned thread_id when present.
-      const looksLikeThreadId = typeof threadKey === 'string'
-        && /^[a-f0-9-]{16,}$/i.test(threadKey);
-      const realThreadId = looksLikeThreadId
-        ? threadKey
-        : (activeThread?.messages?.[0]?.thread_id || null);
-      await api.patientPortalSendMessage({
-        thread_id: realThreadId,
-        body:      text,
-        subject:   activeThread?.messages?.[0]?.subject || null,
-        category:  activeThread?.category || null,
+      if (typeof showToast === 'function') {
+        showToast('Your clinic will add your clinician soon. Please contact your clinic to schedule a call.', 'warning');
+      }
+    } catch (_e) { /* ignore */ }
+  };
+
+  window._ptmsgCancelCallRequest = function() {
+    const slot = el.querySelector('#ptmsg-call-request-slot');
+    if (slot) slot.innerHTML = '';
+    window._ptmsgPendingCallTier = null;
+  };
+
+  window._ptmsgSendCallRequest = async function() {
+    const tier   = window._ptmsgPendingCallTier || null;
+    const ta     = el.querySelector('#ptmsg-call-body');
+    const btn    = el.querySelector('#ptmsg-call-send-btn');
+    const status = el.querySelector('#ptmsg-call-request-status');
+    if (!tier || !ta) return;
+    const text = (ta.value || '').trim();
+    if (!text) { ta.focus(); return; }
+    if (btn) { btn.disabled = true; btn.textContent = 'Sending…'; }
+    try {
+      await api.sendPortalMessage({
+        body:     text,
+        subject:  tier.subject,
+        category: 'call_request',
+        priority: 'normal',
       });
-      input.value = '';
       if (status) {
         status.removeAttribute('hidden');
-        status.className = 'pt-msg-send-status pt-msg-send-ok';
-        status.textContent = t('patient.msg.reply_sent');
+        status.className = 'ptmsg-send-status ptmsg-send-ok';
+        status.textContent = 'Your care team will get back to you shortly.';
       }
-      if (btn) { btn.disabled = false; btn.textContent = t('patient.msg.send_reply'); }
-      // Refetch the thread so the reply renders with its real id / timestamp.
-      try { await pgPatientMessages(); } catch (_err) { /* best-effort */ }
-    } catch (_e) {
+      if (btn) { btn.disabled = true; btn.textContent = 'Sent'; }
+      window._ptmsgPendingCallTier = null;
+    } catch (e) {
+      const msg = (e && e.data && e.data.message) || (e && e.message)
+        || 'Could not send your call request.';
       if (status) {
         status.removeAttribute('hidden');
-        status.className = 'pt-msg-send-status pt-msg-send-fail';
-        status.textContent = t('patient.msg.reply_failed');
+        status.className = 'ptmsg-send-status ptmsg-send-fail';
+        status.textContent = String(msg);
       }
-      if (btn) { btn.disabled = false; btn.textContent = t('patient.msg.send_reply'); }
+      if (btn) { btn.disabled = false; btn.textContent = 'Send request \u2192'; }
     }
   };
 
-  // Send a new message (new thread)
-  window._ptSendNewMessage = async function() {
-    const catEl  = el.querySelector('#pt-msg-category');
-    const subjEl = el.querySelector('#pt-msg-subject');
-    const bodyEl = el.querySelector('#pt-msg-body');
-    const btn    = el.querySelector('#pt-msg-send-btn');
-    const status = el.querySelector('#pt-msg-send-status');
-
-    const category = catEl?.value || '';
-    const subject  = subjEl?.value.trim() || '';
-    const body     = bodyEl?.value.trim() || '';
-
-    // Validate — show inline error and focus the offending field
-    function _showComposeErr(fieldEl, msg) {
-      if (status) {
-        status.removeAttribute('hidden');
-        status.className = 'pt-msg-send-status pt-msg-send-fail';
-        status.textContent = msg;
-      }
-      fieldEl?.focus();
+  // Composer send — Enter-to-send / Shift+Enter for newline.
+  window._ptmsgSend = async function() {
+    const errBox = el.querySelector('#ptmsg-composer-err');
+    const catEl  = el.querySelector('#ptmsg-category');
+    const bodyEl = el.querySelector('#ptmsg-body');
+    const btn    = el.querySelector('#ptmsg-send-btn');
+    if (!bodyEl) return;
+    const body     = (bodyEl.value || '').trim();
+    const category = catEl?.value || 'general';
+    if (errBox) { errBox.hidden = true; errBox.textContent = ''; }
+    if (!body)  {
+      if (errBox) { errBox.hidden = false; errBox.textContent = 'Type a message before sending.'; }
+      bodyEl.focus();
+      return;
     }
-    if (!category) { _showComposeErr(catEl, t('patient.msg.err.select_topic')); return; }
-    if (!subject)  { _showComposeErr(subjEl, t('patient.msg.err.enter_subject')); return; }
-    if (!body)     { _showComposeErr(bodyEl, t('patient.msg.err.enter_message')); return; }
-
-    if (btn) { btn.disabled = true; btn.textContent = t('patient.msg.sending'); }
-
+    if (btn) btn.disabled = true;
     try {
-      // Extension point: add attachment_ids[], course_id, session_id as backend supports them.
-      await api.patientPortalSendMessage({
-        category,
-        subject,
+      const active = threads[activeThreadIdx] || null;
+      const payload = {
         body,
+        category,
         course_id: activeCourse?.id || null,
-      });
-      // Confirmation state: replace compose form body with success notice
-      const compose = el.querySelector('#pt-msg-compose');
-      if (compose) {
-        compose.innerHTML = `
-          <div class="pt-docs-section-hd" style="margin-bottom:12px">
-            <span class="pt-docs-section-title">${t('patient.messages.new')}</span>
-          </div>
-          <div class="pt-msg-sent-confirm">
-            <div class="pt-msg-sent-ico" aria-hidden="true">&#10003;</div>
-            <div class="pt-msg-sent-title">${t('patient.msg.sent.title')}</div>
-            <div class="pt-msg-sent-body">${t('patient.msg.sent.body')}</div>
-            <button class="btn btn-ghost btn-sm" style="margin-top:14px"
-                    onclick="window._navPatient('patient-messages')">${t('patient.msg.sent.again')} \u2192</button>
-          </div>`;
+      };
+      // Propagate thread_id only when it looks like a real backend id
+      // (uuid-ish). Never post the 'all' bucket key back to the server —
+      // let the backend stamp a new thread_id on the server side.
+      if (active && active.key && active.key !== 'all') {
+        const looksLikeId = typeof active.key === 'string' && /^[a-f0-9-]{16,}$/i.test(active.key);
+        if (looksLikeId) payload.thread_id = active.key;
+        else if (active.messages?.[0]?.thread_id) payload.thread_id = active.messages[0].thread_id;
       }
-    } catch (_e) {
-      if (status) {
-        status.removeAttribute('hidden');
-        status.className = 'pt-msg-send-status pt-msg-send-fail';
-        status.textContent = t('patient.msg.send_failed');
+      const created = await api.sendPortalMessage(payload);
+      bodyEl.value = '';
+      if (created && typeof created === 'object') {
+        const key = created.thread_id || (active?.key) || 'all';
+        let thread = threadMap.get(key);
+        if (!thread) {
+          thread = { key, messages: [], unreadCount: 0 };
+          threadMap.set(key, thread);
+        }
+        thread.messages.push(created);
+        const rebuilt = rebuildThreadsFromMap();
+        threads.length = 0; rebuilt.forEach(r => threads.push(r));
+        activeThreadIdx = threads.findIndex(r => r.key === key);
       }
-      if (btn) { btn.disabled = false; btn.textContent = t('patient.msg.compose.send') + ' \u2192'; }
+      // Background refresh of unread counts (never steals selection).
+      try {
+        api.patientPortalMessages().then(fresh => {
+          if (!Array.isArray(fresh)) return;
+          const byThread = new Map();
+          for (const m of fresh) {
+            const k = m.thread_id || 'all';
+            if (!byThread.has(k)) byThread.set(k, 0);
+            if (m.is_read === false) byThread.set(k, byThread.get(k) + 1);
+          }
+          for (const th of threads) {
+            th.unreadCount = byThread.get(th.key) || 0;
+          }
+          renderPage();
+        }).catch(() => {});
+      } catch (_e) { /* ignore */ }
+      renderPage();
+    } catch (e) {
+      const msg = (e && e.data && e.data.message) || (e && e.message) || t('patient.msg.send_failed');
+      if (errBox) { errBox.hidden = false; errBox.textContent = String(msg); }
+      if (btn) btn.disabled = false;
     }
   };
+
+  renderPage();
 }
 
 // ── Profile & Settings ────────────────────────────────────────────────────────
