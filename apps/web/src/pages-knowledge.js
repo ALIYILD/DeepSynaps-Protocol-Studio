@@ -9469,10 +9469,67 @@ function _lsGetLit(key) { try { return JSON.parse(localStorage.getItem(key)||'[]
 function _lsSetLit(key, val) { try { localStorage.setItem(key, JSON.stringify(val)); } catch {} }
 function _seedLit() { if (!localStorage.getItem('ds_literature')) _lsSetLit('ds_literature', LITERATURE_DB); }
 
+/** Normalise an API literature row (/api/v1/literature) to the shape the
+ * Literature Library page expects. Unknown fields degrade to safe defaults so
+ * the existing filters / evidence-map visualisation keep working when we
+ * blend live + fixture data. */
+function _normalizeApiLiteraturePaper(r) {
+  const yr = Number(r.year) || 0;
+  const grade = String(r.evidence_grade || '').toUpperCase();
+  // Map A/B/C/D/E grade to the page's Level I/II/III ordering so the existing
+  // "Evidence Level" sidebar filter keeps matching.
+  const evLevel = grade === 'A' ? 'I' : grade === 'B' ? 'II' : grade === 'C' ? 'III' : '';
+  const design = (r.study_type || '').trim() || '';
+  const tags = Array.isArray(r.tags) ? r.tags : [];
+  return {
+    id: r.id || r.pubmed_id || r.doi || ('lib_' + Math.random().toString(36).slice(2, 10)),
+    title: r.title || '',
+    authors: r.authors || '',
+    year: yr,
+    journal: r.journal || '',
+    doi: r.doi || '',
+    modality: r.modality || 'Multi-modal',
+    condition: r.condition || '',
+    design: design || 'RCT',
+    evidenceLevel: evLevel || 'II',
+    effectSize: 0,   // not tracked at the library layer
+    n: 0,
+    citations: 0,
+    tags,
+    abstract: r.abstract || '',
+    _source: 'api',
+  };
+}
+
+/** Fetch the per-clinician curated library from /api/v1/literature and
+ * union it with the seed LITERATURE_DB. API rows win on id collisions so
+ * real curated data is authoritative; fixtures remain visible so the page
+ * still looks populated on a brand-new workspace. */
+async function _loadLiteratureFromApi() {
+  try {
+    const res = await api.getLiterature();
+    const items = res?.items || [];
+    if (!items.length) return LITERATURE_DB;
+    const normalised = items.map(_normalizeApiLiteraturePaper);
+    const byId = new Map(LITERATURE_DB.map(p => [p.id, p]));
+    for (const row of normalised) byId.set(row.id, row);
+    return Array.from(byId.values());
+  } catch (_) {
+    // offline / 401 / 5xx → degrade silently to fixtures so the page still
+    // renders. The library-hub "Evidence" tab surfaces the backend error
+    // with its own banner; we don't need to duplicate that here.
+    return LITERATURE_DB;
+  }
+}
+
 export async function pgLiteratureLibrary(setTopbar) {
   setTopbar('Evidence Library', '');
   _seedLit();
   const el = document.getElementById('content');
+  // Wire live literature data. If the backend has curated papers, they merge
+  // with the seed so counts on this page stay in sync with the API rather
+  // than lagging behind a stale localStorage snapshot.
+  const LIVE_LIT = await _loadLiteratureFromApi();
 
   let _tab      = 'library';
   let _q        = '';
@@ -9485,7 +9542,10 @@ export async function pgLiteratureLibrary(setTopbar) {
   let _sort     = 'recent';
   let _protoDD  = null;
 
-  const lib     = () => { const d=_lsGetLit('ds_literature'); return d.length?d:LITERATURE_DB; };
+  // Library source: live API first (LIVE_LIT), then the localStorage mirror,
+  // then the in-repo LITERATURE_DB seed. This keeps counts truthful when the
+  // backend is up and never shows a blank page when it isn't.
+  const lib     = () => { if (Array.isArray(LIVE_LIT) && LIVE_LIT.length) return LIVE_LIT; const d=_lsGetLit('ds_literature'); return d.length?d:LITERATURE_DB; };
   const rl      = () => _lsGetLit('ds_literature_reading_list');
   const ptags   = () => _lsGetLit('ds_literature_protocol_tags');
   const inRl    = id => rl().some(r=>r.id===id);
@@ -9584,7 +9644,7 @@ export async function pgLiteratureLibrary(setTopbar) {
       return `<circle cx="${xp(p.year)}" cy="${yp(p.effectSize)}" r="${br(p.n)}" fill="${c}" fill-opacity="0.7" stroke="${c}" stroke-width="1.5" style="cursor:pointer" onmouseenter="window._litTT(event,'${p.id}')" onmouseleave="window._litTTO()" onclick="window._litAbs('${p.id}')"/>`;}).join('');
     const legend=Object.entries(MODALITY_COLORS).map(([m,c])=>`<div class="nnnd-legend-item"><div class="nnnd-legend-dot" style="background:${c}"></div>${m}</div>`).join('');
     return `<div class="nnnd-evidence-map">
-      <div class="nnnd-map-header"><div class="nnnd-map-title">Evidence Map — 52 Studies</div><div class="nnnd-legend">${legend}</div></div>
+      <div class="nnnd-map-header"><div class="nnnd-map-title">Evidence Map — ${pp.length} Studies</div><div class="nnnd-legend">${legend}</div></div>
       <div class="nnnd-map-svg-wrap">
         <svg width="100%" viewBox="0 0 ${W} ${H}" style="display:block;max-width:100%">
           ${xg}${yg}

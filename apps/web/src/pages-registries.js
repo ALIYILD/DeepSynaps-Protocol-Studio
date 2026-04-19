@@ -18,6 +18,93 @@ import {
   VIRTUAL_CARE_REGISTRY,
 } from './registries.js';
 import { renderRegistryInfoModal } from './registry-widget-info.js';
+import { api } from './api.js';
+
+// ── Live data merge helpers ───────────────────────────────────────────────────
+// Each registry page below calls these to pull authoritative data from the
+// backend registry router. If the API is unreachable (offline dev, 401, 5xx),
+// we silently fall back to the in-repo fixture registry so the page still
+// renders. This keeps counts truthful when the backend is up and never blocks
+// the UI if it isn't.
+
+/** Map API condition row → page's CONDITION_REGISTRY shape. Tolerates missing
+ * fields. When the API row only carries a subset of the legacy fixture shape,
+ * we preserve the original fixture entry for known ids so downstream filters
+ * (modalities, assessments, targets) keep working. */
+function _mergeConditionsFromApi(apiItems) {
+  if (!Array.isArray(apiItems) || apiItems.length === 0) return CONDITION_REGISTRY;
+  const byId = Object.fromEntries(CONDITION_REGISTRY.map(c => [c.id, c]));
+  return apiItems.map(row => {
+    const id = (row.id || '').toLowerCase();
+    const fallback = byId[id] || {};
+    const modalities = (row.relevant_modalities || '').split(/[;,|]/).map(s => s.trim()).filter(Boolean);
+    return {
+      id: id || fallback.id,
+      name: row.name || fallback.name || id,
+      icd10: fallback.icd10 || '',
+      cat: row.category || fallback.cat || 'Other',
+      ev: (row.highest_evidence_level || fallback.ev || '').replace(/^EV-/i, '').toUpperCase() || 'C',
+      modalities: modalities.length ? modalities : (fallback.modalities || []),
+      onLabel: fallback.onLabel || [],
+      assessments: fallback.assessments || [],
+      targets: fallback.targets || [],
+      flags: fallback.flags || (row.contraindication_alerts ? ['safety-check'] : []),
+      notes: fallback.notes || '',
+    };
+  });
+}
+
+/** Map API device row → page's DEVICE_REGISTRY shape. */
+function _mergeDevicesFromApi(apiItems) {
+  if (!Array.isArray(apiItems) || apiItems.length === 0) return DEVICE_REGISTRY;
+  const byId = Object.fromEntries(DEVICE_REGISTRY.map(d => [d.id, d]));
+  return apiItems.map(row => {
+    const id = row.id || '';
+    const fb = byId[id] || {};
+    return {
+      id,
+      name: row.name || fb.name || id,
+      mfr: row.manufacturer || fb.mfr || '',
+      modality: row.modality || fb.modality || '',
+      type: row.device_type || fb.type || '',
+      clearance: row.regulatory_status || fb.clearance || '',
+      indication: row.official_indication || fb.indication || '',
+      channels: fb.channels || '—',
+      homeClinic: row.home_vs_clinic || fb.homeClinic || 'Clinic',
+      notes: row.notes || fb.notes || '',
+    };
+  });
+}
+
+/** Map API protocol row → page's PROTOCOL_REGISTRY shape. */
+function _mergeProtocolsFromApi(apiItems) {
+  if (!Array.isArray(apiItems) || apiItems.length === 0) return PROTOCOL_REGISTRY;
+  return apiItems.map(row => ({
+    id: row.id || '',
+    name: row.name || row.id || '',
+    modality: row.modality_id || '',
+    condition: row.condition_id || '',
+    target: row.target_region || '',
+    laterality: row.laterality || '',
+    freq: row.frequency_hz || '',
+    intensity: row.intensity || '',
+    sessions: row.total_course || '',
+    sessPerWeek: row.sessions_per_week || '',
+    duration: row.session_duration || '',
+    ev: (row.evidence_grade || '').replace(/^EV-/i, '').toUpperCase() || 'C',
+    onLabel: /on.?label/i.test(row.on_label_vs_off_label || ''),
+    notes: row.notes || row.evidence_summary || '',
+  }));
+}
+
+async function _fetchRegistry(fetcher) {
+  try {
+    const res = await fetcher();
+    return res?.items || [];
+  } catch (_) {
+    return [];
+  }
+}
 
 function esc(s) {
   return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
@@ -113,9 +200,16 @@ function filterBar(items, activeId, handlerName) {
 
 // ── 1. CONDITION REGISTRY ─────────────────────────────────────────────────────
 export async function pgConditionRegistry(setTopbar) {
+  // Live data first: /api/v1/registry/conditions returns the backend-curated
+  // list of conditions from data/imports/clinical-database/conditions.csv.
+  // Fall back to CONDITION_REGISTRY when offline. The header count reflects
+  // whichever source is actually rendering so UI and backend never disagree.
+  const apiItems = await _fetchRegistry(() => api.conditions());
+  const DATA = _mergeConditionsFromApi(apiItems);
+
   setTopbar('Condition Registry', `
     <div style="display:flex;gap:8px">
-      <span style="font-size:0.8rem;color:var(--text-secondary);align-self:center">53 conditions</span>
+      <span style="font-size:0.8rem;color:var(--text-secondary);align-self:center">${DATA.length} conditions</span>
       <button class="btn btn-sm" onclick="window._regAbout?.('conditions')">ℹ About</button>
     </div>
   `);
@@ -123,12 +217,12 @@ export async function pgConditionRegistry(setTopbar) {
   if (!el) return;
   window._regAbout = (k) => mountRegistryInfoModal(k);
 
-  const cats = ['All', ...new Set(CONDITION_REGISTRY.map(c => c.cat))];
+  const cats = ['All', ...new Set(DATA.map(c => c.cat))];
   let activeCat = 'All';
   let query = '';
 
   function render() {
-    const data = CONDITION_REGISTRY.filter(c => {
+    const data = DATA.filter(c => {
       const matchCat = activeCat === 'All' || c.cat === activeCat;
       const q = query.toLowerCase();
       const matchQ = !q || c.name.toLowerCase().includes(q) || c.id.toLowerCase().includes(q) || c.icd10.toLowerCase().includes(q) || (c.notes||'').toLowerCase().includes(q);
@@ -246,20 +340,26 @@ export async function pgAssessmentRegistry(setTopbar) {
 
 // ── 3. PROTOCOL REGISTRY ──────────────────────────────────────────────────────
 export async function pgProtocolRegistryPage(setTopbar) {
+  // Live data first: /api/v1/registry/protocols returns the curated protocol
+  // catalogue with evidence grades and modality/condition links. Fixture
+  // fallback keeps the page usable offline.
+  const apiItems = await _fetchRegistry(() => api.protocols({}));
+  const DATA = _mergeProtocolsFromApi(apiItems);
+
   setTopbar('Protocol Registry', `
-    <span style="font-size:0.8rem;color:var(--text-secondary);align-self:center">${PROTOCOL_REGISTRY.length} templates</span>
+    <span style="font-size:0.8rem;color:var(--text-secondary);align-self:center">${DATA.length} templates</span>
     <button class="btn btn-sm" onclick="window._regAbout?.('protocols')">ℹ About</button>
   `);
   const el = document.getElementById('content');
   if (!el) return;
   window._regAbout = (k) => mountRegistryInfoModal(k);
 
-  const modalities = ['All', ...new Set(PROTOCOL_REGISTRY.map(p => p.modality))];
+  const modalities = ['All', ...new Set(DATA.map(p => p.modality).filter(Boolean))];
   let activeMod = 'All';
   let query = '';
 
   function render() {
-    const data = PROTOCOL_REGISTRY.filter(p => {
+    const data = DATA.filter(p => {
       const matchM = activeMod === 'All' || p.modality === activeMod;
       const q = query.toLowerCase();
       const matchQ = !q || p.name.toLowerCase().includes(q) || p.condition.toLowerCase().includes(q) || p.target.toLowerCase().includes(q);
@@ -313,22 +413,29 @@ export async function pgProtocolRegistryPage(setTopbar) {
 
 // ── 4. DEVICE REGISTRY ────────────────────────────────────────────────────────
 export async function pgDeviceRegistry(setTopbar) {
+  // Live data first: /api/v1/registry/devices returns the authoritative
+  // device catalogue from data/imports/clinical-database/devices.csv. Fall
+  // back to the in-repo DEVICE_REGISTRY fixture only when the API is
+  // unreachable, so the header count matches backend truth when online.
+  const apiItems = await _fetchRegistry(() => api.devices_registry());
+  const DATA = _mergeDevicesFromApi(apiItems);
+
   setTopbar('Device Registry', `
-    <span style="font-size:0.8rem;color:var(--text-secondary);align-self:center">${DEVICE_REGISTRY.length} devices</span>
+    <span style="font-size:0.8rem;color:var(--text-secondary);align-self:center">${DATA.length} devices</span>
     <button class="btn btn-sm" onclick="window._regAbout?.('devices')">ℹ About</button>
   `);
   const el = document.getElementById('content');
   if (!el) return;
   window._regAbout = (k) => mountRegistryInfoModal(k);
 
-  const modalities = ['All', ...new Set(DEVICE_REGISTRY.map(d => d.modality))];
+  const modalities = ['All', ...new Set(DATA.map(d => d.modality).filter(Boolean))];
   const settings   = ['All', 'Clinic', 'Home', 'Both'];
   let activeMod = 'All';
   let activeSetting = 'All';
   let query = '';
 
   function render() {
-    const data = DEVICE_REGISTRY.filter(d => {
+    const data = DATA.filter(d => {
       const matchM = activeMod === 'All' || d.modality === activeMod;
       const matchS = activeSetting === 'All' || d.homeClinic === activeSetting;
       const q = query.toLowerCase();
