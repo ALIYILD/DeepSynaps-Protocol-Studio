@@ -891,6 +891,29 @@ class FormDefinition(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
 
+class DocumentTemplate(Base):
+    """Clinician-authored document template (letter / consent / handout / ...).
+
+    Stored as plain markdown so the modal builder is a single textarea. The
+    Documents Hub renders these alongside the bundled DOCUMENT_TEMPLATES
+    from `apps/web/src/documents-templates.js` — the bundled set is read-only
+    starter content; rows here are user-customisable.
+    """
+    __tablename__ = "document_templates"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    owner_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    doc_type: Mapped[str] = mapped_column(String(40), nullable=False, default="letter")
+    body_markdown: Mapped[str] = mapped_column(Text(), nullable=False, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
+
+
 class FormSubmission(Base):
     """Patient's completed form submission."""
     __tablename__ = "form_submissions"

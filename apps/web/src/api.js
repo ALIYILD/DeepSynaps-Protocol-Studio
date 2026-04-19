@@ -341,6 +341,17 @@ export const api = {
   // Absolute URL for a document's stored file — used as <a href=> for downloads.
   documentDownloadUrl: (id) => `${API_BASE}/api/v1/documents/${encodeURIComponent(id)}/download`,
 
+  // Custom document templates (clinician-authored, distinct from the bundled
+  // DOCUMENT_TEMPLATES read-only set in apps/web/src/documents-templates.js).
+  // Backed by /api/v1/documents/templates* in documents_router.py.
+  listDocumentTemplates: () => apiFetchWithRetry('/api/v1/documents/templates'),
+  createDocumentTemplate: (data) =>
+    apiFetch('/api/v1/documents/templates', { method: 'POST', body: JSON.stringify(data) }),
+  updateDocumentTemplate: (id, data) =>
+    apiFetch(`/api/v1/documents/templates/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  deleteDocumentTemplate: (id) =>
+    apiFetch(`/api/v1/documents/templates/${id}`, { method: 'DELETE' }),
+
   // ── Clinical Knowledge ──────────────────────────────────────────────────
   // Retargeted: the legacy stub endpoints were never implemented. These now
   // point at the real curated sources so callers keep working.

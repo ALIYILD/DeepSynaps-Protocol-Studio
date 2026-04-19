@@ -4435,25 +4435,139 @@ export async function pgDocumentsHubNew(setTopbar, navigate) {
     }));
   } catch {}
   const data = backendDocs ? { docs: backendDocs } : loadDocs();
+
+  // Custom (clinician-authored) templates from the backend, shaped to match
+  // the bundled DOCUMENT_TEMPLATES rows the templates list already renders.
+  let customTemplates = [];
+  try {
+    const r = await api.listDocumentTemplates?.();
+    customTemplates = (r?.items || []).map(t => ({
+      id: t.id,
+      name: t.name,
+      cat: (t.doc_type || 'other').charAt(0).toUpperCase() + (t.doc_type || 'other').slice(1),
+      pages: 1,
+      langs: ['EN'],
+      auto: false,
+      body: t.body_markdown || '',
+      _custom: true,
+    }));
+  } catch {}
   const stC  = { signed:'var(--green)', final:'var(--green)', sent:'var(--blue)', draft:'var(--amber)', issued:'var(--teal)', pending:'var(--amber)', uploaded:'var(--teal)', completed:'var(--green)' };
 
   window._docsUpload = () => document.getElementById('docs-upload-modal')?.classList.remove('ch-hidden');
 
+  // Open the inline custom template builder modal. POSTs to
+  // /api/v1/documents/templates on Save and refreshes the Templates tab.
+  window._docOpenTemplateBuilder = () => {
+    document.getElementById('docs-template-builder-modal')?.remove();
+    const overlay = document.createElement('div');
+    overlay.id = 'docs-template-builder-modal';
+    overlay.className = 'ch-modal-overlay';
+    overlay.innerHTML =
+      '<div class="ch-modal" style="width:min(640px,95vw)">'+
+        '<div class="ch-modal-hd"><span>New Document Template</span>'+
+          '<button class="ch-modal-close" onclick="document.getElementById(\'docs-template-builder-modal\')?.remove()">✕</button>'+
+        '</div>'+
+        '<div class="ch-modal-body">'+
+          '<div class="ch-form-group" style="margin-bottom:10px">'+
+            '<label class="ch-label">Name</label>'+
+            '<input id="tpl-builder-name" class="ch-select ch-select--full" placeholder="e.g. GP Discharge Letter" maxlength="255">'+
+          '</div>'+
+          '<div class="ch-form-group" style="margin-bottom:10px">'+
+            '<label class="ch-label">Type</label>'+
+            '<select id="tpl-builder-type" class="ch-select ch-select--full">'+
+              '<option value="letter">Letter</option>'+
+              '<option value="consent">Consent</option>'+
+              '<option value="handout">Handout</option>'+
+              '<option value="report">Report</option>'+
+              '<option value="note">Note</option>'+
+              '<option value="other">Other</option>'+
+            '</select>'+
+          '</div>'+
+          '<div class="ch-form-group" style="margin-bottom:10px">'+
+            '<label class="ch-label">Body (markdown — supports {{patient_name}} merge fields when assigned)</label>'+
+            '<textarea id="tpl-builder-body" class="ch-textarea" rows="10" style="font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px" placeholder="# Title\n\nDear {{patient_name}},\n\n…"></textarea>'+
+          '</div>'+
+          '<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:6px">'+
+            '<button class="btn" onclick="document.getElementById(\'docs-template-builder-modal\')?.remove()">Cancel</button>'+
+            '<button class="btn btn-primary" id="tpl-builder-save" onclick="window._docSaveTemplate?.()">Save Template</button>'+
+          '</div>'+
+        '</div>'+
+      '</div>';
+    document.body.appendChild(overlay);
+    setTimeout(() => document.getElementById('tpl-builder-name')?.focus(), 50);
+  };
+
+  window._docSaveTemplate = async () => {
+    const nameEl = document.getElementById('tpl-builder-name');
+    const typeEl = document.getElementById('tpl-builder-type');
+    const bodyEl = document.getElementById('tpl-builder-body');
+    const btn    = document.getElementById('tpl-builder-save');
+    const name = (nameEl?.value || '').trim();
+    if (!name) {
+      window._dsToast?.({title:'Name required',body:'Give your template a name.',severity:'info'});
+      nameEl?.focus();
+      return;
+    }
+    const payload = {
+      name,
+      doc_type: typeEl?.value || 'letter',
+      body_markdown: bodyEl?.value || '',
+    };
+    if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+    try {
+      await api.createDocumentTemplate(payload);
+      window._dsToast?.({title:'Template saved',body:name+' is now available.',severity:'success'});
+      document.getElementById('docs-template-builder-modal')?.remove();
+      window._docsHubTab = 'templates';
+      window._nav('documents-hub');  // refresh — re-fetches templates list
+    } catch (err) {
+      const msg = (err && (err.message || err.detail)) || 'Failed to save template.';
+      window._dsToast?.({title:'Save failed',body:String(msg),severity:'error'});
+      if (btn) { btn.disabled = false; btn.textContent = 'Save Template'; }
+    }
+  };
+
+  window._docDeleteTemplate = async (id) => {
+    const tpl = customTemplates.find(t => t.id === id);
+    if (!tpl) return;
+    if (!window.confirm('Delete template "'+tpl.name+'"? This cannot be undone.')) return;
+    try {
+      await api.deleteDocumentTemplate(id);
+      window._dsToast?.({title:'Template deleted',body:tpl.name+' removed.',severity:'success'});
+      window._nav('documents-hub');
+    } catch (err) {
+      const msg = (err && (err.message || err.detail)) || 'Failed to delete template.';
+      window._dsToast?.({title:'Delete failed',body:String(msg),severity:'error'});
+    }
+  };
+
+  // Resolve a template id against both bundled DOCUMENT_TEMPLATES and the
+  // clinician's custom templates (the latter only exist client-side after
+  // listDocumentTemplates() completes).
+  const _findTpl = (id) => TEMPLATES.find(t => t.id === id) || customTemplates.find(t => t.id === id);
+
   // Preview a template in a modal (rendered client-side via renderTemplate)
   window._docsPreview = (templateId) => {
-    const tpl = TEMPLATES.find(t => t.id === templateId);
+    const tpl = _findTpl(templateId);
     if (!tpl) { window._dsToast?.({title:'Not found',body:'Template unavailable.',severity:'error'}); return; }
     let rendered;
-    try {
-      rendered = renderTemplate(templateId, {
-        patient_name: 'Demo Patient',
-        patient_dob: '1980-01-01',
-        clinician_name: 'Dr. Example',
-        clinic_name: 'DeepSynaps Clinic',
-        date: new Date().toISOString().slice(0,10),
-      });
-    } catch {
-      rendered = tpl?.body || '';
+    if (tpl._custom) {
+      // Custom templates aren't registered with renderTemplate; fall back to
+      // the raw markdown body the user authored.
+      rendered = tpl.body || '';
+    } else {
+      try {
+        rendered = renderTemplate(templateId, {
+          patient_name: 'Demo Patient',
+          patient_dob: '1980-01-01',
+          clinician_name: 'Dr. Example',
+          clinic_name: 'DeepSynaps Clinic',
+          date: new Date().toISOString().slice(0,10),
+        });
+      } catch {
+        rendered = tpl?.body || '';
+      }
     }
     if (rendered == null) rendered = tpl?.body || '';
     document.getElementById('docs-preview-modal')?.remove();
@@ -4478,7 +4592,7 @@ export async function pgDocumentsHubNew(setTopbar, navigate) {
 
   // Send template to backend as a pending document (acts as Send to Sign / Assign)
   window._docsSendTemplate = async (templateId) => {
-    const tpl = TEMPLATES.find(t => t.id === templateId);
+    const tpl = _findTpl(templateId);
     if (!tpl) { window._dsToast?.({title:'Not found',body:'Template unavailable.',severity:'error'}); return; }
     const consentCats = { Consent:1, Privacy:1, Telehealth:1, AI:1 };
     const doc_type = consentCats[tpl.cat] ? 'consent' : 'clinical';
@@ -4612,26 +4726,32 @@ export async function pgDocumentsHubNew(setTopbar, navigate) {
       </div>`;
   }
   else if (tab === 'templates') {
-    const cats = ['All',...new Set(TEMPLATES.map(t=>t.cat))];
+    const ALL_TPLS = TEMPLATES.concat(customTemplates);
+    const cats = ['All',...new Set(ALL_TPLS.map(t=>t.cat))];
     const filt = window._tplFilter||'All';
-    const rows = TEMPLATES.filter(t=>filt==='All'||t.cat===filt);
+    const rows = ALL_TPLS.filter(t=>filt==='All'||t.cat===filt);
     main = `
       <div class="ch-card">
         <div class="ch-card-hd" style="flex-wrap:wrap;gap:8px">
-          <span class="ch-card-title">Document Templates — ${TEMPLATES.length}</span>
-          <button class="ch-btn-sm ch-btn-teal" disabled title="Custom template builder requires document-template editor (not yet wired)" style="opacity:.55;cursor:not-allowed">+ New Template</button>
+          <span class="ch-card-title">Document Templates — ${ALL_TPLS.length}</span>
+          <button class="ch-btn-sm ch-btn-teal" onclick="window._docOpenTemplateBuilder?.()">+ New Template</button>
         </div>
         <div style="padding:10px 16px;display:flex;gap:6px;flex-wrap:wrap;border-bottom:1px solid var(--border)">
           ${cats.map(c=>'<button class="reg-domain-pill'+(c===filt?' active':'')+'" onclick="window._tplFilter=\''+c+'\';window._nav(\'documents-hub\')">'+c+'</button>').join('')}
         </div>
         ${rows.map(t=>{
           const safeId = String(t.id).replace(/'/g,"\\'");
+          const customBadge = t._custom ? '<span class="book-status-badge" style="color:var(--teal);background:rgba(46,196,182,0.12);margin-right:6px">Custom</span>' : '';
+          const deleteBtn = t._custom
+            ? '<button class="ch-btn-sm" title="Delete template" onclick="window._docDeleteTemplate(\''+safeId+'\')">Delete</button>'
+            : '';
           return '<div class="book-row">'+
             '<div class="book-info"><div class="book-patient">'+t.name+'</div><div class="book-clinician">'+t.cat+' · '+t.pages+' pages'+(t.auto?' · Auto-gen':'')+'</div></div>'+
-            '<div class="book-status-col"><span class="book-status-badge" style="color:var(--blue);background:rgba(74,158,255,0.1)">'+t.langs.join('/')+'</span></div>'+
+            '<div class="book-status-col">'+customBadge+'<span class="book-status-badge" style="color:var(--blue);background:rgba(74,158,255,0.1)">'+t.langs.join('/')+'</span></div>'+
             '<div class="book-actions">'+
               '<button class="ch-btn-sm" onclick="window._docsPreview(\''+safeId+'\')">'+(t.auto?'Generate':'Open')+'</button>'+
               '<button class="ch-btn-sm ch-btn-teal" onclick="window._docsSendTemplate(\''+safeId+'\')">Assign</button>'+
+              deleteBtn+
             '</div>'+
           '</div>';
         }).join('')}

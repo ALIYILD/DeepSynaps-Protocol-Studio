@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 from app.auth import AuthenticatedActor, get_authenticated_actor, require_minimum_role
 from app.database import get_db_session
 from app.errors import ApiServiceError
-from app.persistence.models import FormDefinition
+from app.persistence.models import DocumentTemplate, FormDefinition
 from app.settings import get_settings
 
 router = APIRouter(prefix="/api/v1/documents", tags=["documents"])
@@ -162,6 +162,168 @@ def create_document(
     session.commit()
     session.refresh(record)
     return _record_to_out(record)
+
+
+# ── Custom document templates (clinician-authored) ────────────────────────────
+# IMPORTANT: these `/templates...` routes are registered BEFORE the dynamic
+# `/{doc_id}` routes below; FastAPI matches in declaration order, so swapping
+# this block past the `{doc_id}` routes would route GET /templates into
+# get_document(doc_id="templates").
+
+_TEMPLATE_ALLOWED_TYPES = {"letter", "consent", "handout", "report", "note", "other"}
+_TEMPLATE_NAME_MAX = 255
+_TEMPLATE_BODY_MAX = 200_000  # 200 KB of markdown is plenty for a template.
+
+
+class DocumentTemplateCreate(BaseModel):
+    name: str
+    doc_type: str = "letter"
+    body_markdown: str = ""
+
+
+class DocumentTemplateUpdate(BaseModel):
+    name: Optional[str] = None
+    doc_type: Optional[str] = None
+    body_markdown: Optional[str] = None
+
+
+class DocumentTemplateOut(BaseModel):
+    id: str
+    owner_id: str
+    name: str
+    doc_type: str
+    body_markdown: str
+    created_at: str
+    updated_at: str
+
+
+class DocumentTemplateListResponse(BaseModel):
+    items: list[DocumentTemplateOut]
+    total: int
+
+
+def _template_to_out(r: DocumentTemplate) -> DocumentTemplateOut:
+    return DocumentTemplateOut(
+        id=r.id,
+        owner_id=r.owner_id,
+        name=r.name,
+        doc_type=r.doc_type,
+        body_markdown=r.body_markdown or "",
+        created_at=r.created_at.isoformat(),
+        updated_at=r.updated_at.isoformat(),
+    )
+
+
+def _validate_template_payload(name: Optional[str], doc_type: Optional[str], body: Optional[str]) -> None:
+    if name is not None:
+        cleaned = name.strip()
+        if not cleaned:
+            raise ApiServiceError(code="invalid_name", message="Template name is required.", status_code=422)
+        if len(cleaned) > _TEMPLATE_NAME_MAX:
+            raise ApiServiceError(
+                code="invalid_name",
+                message=f"Template name exceeds {_TEMPLATE_NAME_MAX} characters.",
+                status_code=422,
+            )
+    if doc_type is not None and doc_type not in _TEMPLATE_ALLOWED_TYPES:
+        raise ApiServiceError(
+            code="invalid_doc_type",
+            message=f"doc_type must be one of {sorted(_TEMPLATE_ALLOWED_TYPES)}.",
+            status_code=422,
+        )
+    if body is not None and len(body) > _TEMPLATE_BODY_MAX:
+        raise ApiServiceError(
+            code="body_too_large",
+            message=f"Template body exceeds {_TEMPLATE_BODY_MAX} characters.",
+            status_code=422,
+        )
+
+
+@router.get("/templates", response_model=DocumentTemplateListResponse)
+def list_document_templates(
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    session: Session = Depends(get_db_session),
+) -> DocumentTemplateListResponse:
+    """List custom document templates owned by the authenticated clinician."""
+    require_minimum_role(actor, "clinician")
+    rows = session.scalars(
+        select(DocumentTemplate)
+        .where(DocumentTemplate.owner_id == actor.actor_id)
+        .order_by(DocumentTemplate.updated_at.desc())
+    ).all()
+    items = [_template_to_out(r) for r in rows]
+    return DocumentTemplateListResponse(items=items, total=len(items))
+
+
+@router.post("/templates", response_model=DocumentTemplateOut, status_code=201)
+def create_document_template(
+    body: DocumentTemplateCreate,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    session: Session = Depends(get_db_session),
+) -> DocumentTemplateOut:
+    """Create a custom document template owned by the caller."""
+    require_minimum_role(actor, "clinician")
+    _validate_template_payload(body.name, body.doc_type, body.body_markdown)
+    record = DocumentTemplate(
+        owner_id=actor.actor_id,
+        name=body.name.strip(),
+        doc_type=body.doc_type,
+        body_markdown=body.body_markdown or "",
+    )
+    session.add(record)
+    session.commit()
+    session.refresh(record)
+    return _template_to_out(record)
+
+
+@router.patch("/templates/{template_id}", response_model=DocumentTemplateOut)
+def update_document_template(
+    template_id: str,
+    body: DocumentTemplateUpdate,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    session: Session = Depends(get_db_session),
+) -> DocumentTemplateOut:
+    """Update name / doc_type / body of a template owned by the caller."""
+    require_minimum_role(actor, "clinician")
+    record = session.scalar(
+        select(DocumentTemplate).where(
+            DocumentTemplate.id == template_id,
+            DocumentTemplate.owner_id == actor.actor_id,
+        )
+    )
+    if record is None:
+        raise ApiServiceError(code="not_found", message="Template not found.", status_code=404)
+    _validate_template_payload(body.name, body.doc_type, body.body_markdown)
+    if body.name is not None:
+        record.name = body.name.strip()
+    if body.doc_type is not None:
+        record.doc_type = body.doc_type
+    if body.body_markdown is not None:
+        record.body_markdown = body.body_markdown
+    record.updated_at = datetime.now(timezone.utc)
+    session.commit()
+    session.refresh(record)
+    return _template_to_out(record)
+
+
+@router.delete("/templates/{template_id}", status_code=204)
+def delete_document_template(
+    template_id: str,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    session: Session = Depends(get_db_session),
+) -> None:
+    """Hard-delete a template owned by the caller."""
+    require_minimum_role(actor, "clinician")
+    record = session.scalar(
+        select(DocumentTemplate).where(
+            DocumentTemplate.id == template_id,
+            DocumentTemplate.owner_id == actor.actor_id,
+        )
+    )
+    if record is None:
+        raise ApiServiceError(code="not_found", message="Template not found.", status_code=404)
+    session.delete(record)
+    session.commit()
 
 
 @router.get("/{doc_id}", response_model=DocumentOut)
