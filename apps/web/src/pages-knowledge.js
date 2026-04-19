@@ -4833,6 +4833,18 @@ export async function pgStaffScheduling(setTopbar) {
   if (!window._staffWeekStart) window._staffWeekStart = _mondayOf(_todayIso());
   if (!window._staffActiveTab) window._staffActiveTab = 'schedule';
 
+  // Attempt a real-backend probe for staff rotas. The endpoint is not yet
+  // implemented (see apps/api/app/routers — no staff/shift router), so we
+  // surface an honest "local-only" banner rather than pretending shifts are
+  // persisted server-side.
+  var staffBackendOk = false;
+  try {
+    if (typeof api.listStaffSchedule === 'function') {
+      var _probe = await api.listStaffSchedule({ from: window._staffWeekStart, to: _addDays(window._staffWeekStart, 6) });
+      staffBackendOk = !!(_probe && (_probe.items || _probe.length));
+    }
+  } catch (_e) { staffBackendOk = false; }
+
   function render() {
     var ws = window._staffWeekStart;
     var staff = getStaffRoster();
@@ -4848,7 +4860,13 @@ export async function pgStaffScheduling(setTopbar) {
       { id: 'swaps',    label: '🔄 Shift Swaps' },
     ];
 
+    var banner = staffBackendOk ? '' :
+      '<div class="notice notice-info" style="margin-bottom:12px;font-size:12px">' +
+        '<strong>Local scheduling (no backend):</strong> staff rotas, PTO, and shift swaps are stored in this browser only. The staff-schedule API is not yet wired, so changes will not sync across devices or persist after clearing local data.' +
+      '</div>';
+
     el.innerHTML =
+      banner +
       '<div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap">' +
       tabs.map(function(t) {
         return '<button class="btn btn-sm ' + (activeTab === t.id ? '' : 'btn-ghost') + '" onclick="window._staffTab(\'' + t.id + '\')">' + t.label + '</button>';
