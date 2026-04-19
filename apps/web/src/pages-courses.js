@@ -2202,7 +2202,7 @@ function renderCourseHomeProgramsTab(course) {
             ${PROGRAM_TYPES.map(pt => `
               <div style="padding:14px;border:1px solid var(--border);border-radius:var(--radius-md);cursor:pointer;text-align:center;transition:border-color 0.15s;background:var(--bg-card)"
                 onmouseover="this.style.borderColor='rgba(0,212,188,0.4)'" onmouseout="this.style.borderColor='var(--border)'"
-                onclick="alert('Program template: ${pt.label}')">
+                onclick="window._htmPrefillTemplate=${JSON.stringify(pt.label)};window._nav?.('home-tasks-v2')">
                 <div style="font-size:24px;margin-bottom:6px">${pt.icon}</div>
                 <div style="font-size:12px;font-weight:600;color:var(--text-primary)">${pt.label}</div>
               </div>

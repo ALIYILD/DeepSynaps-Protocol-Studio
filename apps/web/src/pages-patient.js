@@ -6957,7 +6957,7 @@ export async function pgPatientWearables() {
         <span class="pdw-ble-center-icon">◌</span>
       </div>
       <div class="pdw-ble-copy">
-        <div class="pdw-ble-badge">Coming soon</div>
+        <div class="pdw-ble-badge">Roadmap</div>
         <div class="pdw-ble-heading">Direct Bluetooth connection</div>
         <p class="pdw-ble-text">Your home device will connect directly via Bluetooth — automatically importing session logs, device diagnostics, and usage data to your care record.</p>
       </div>
