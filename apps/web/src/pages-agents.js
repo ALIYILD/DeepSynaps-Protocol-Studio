@@ -297,7 +297,7 @@ export async function pgAgentChat(setTopbar) {
 
 // ── Hub View ─────────────────────────────────────────────────────────────────
 function _renderHub(setTopbar) {
-  setTopbar('AI Practice Agent', `
+  setTopbar('AI Practice Agents', `
     <button class="btn btn-sm btn-ghost" onclick="window._agentOpenConfig()" style="font-size:11.5px">⚙ Settings</button>
   `);
 

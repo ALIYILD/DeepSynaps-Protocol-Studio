@@ -453,7 +453,7 @@ const NAV = [
 
   // ── SESSIONS ─────────────────────────────────────────────────────────────────
   { section: 'Sessions', sectionId: 'sessions', collapsed: false },
-  { id: 'live-session',       label: 'Live Session',      icon: '📹', ai: true },
+  { id: 'live-session',       label: 'Virtual Care',      icon: '📹', ai: true },
   { id: 'home-tasks-v2',      label: 'Home Task Manager', icon: '🏠' },
 
   // ── ADMIN ────────────────────────────────────────────────────────────────────
@@ -461,7 +461,7 @@ const NAV = [
   { id: 'documents-v2',       label: 'Documents',         icon: '📄' },
   { id: 'reports-v2',         label: 'Reports',           icon: '📈' },
   { id: 'finance-v2',         label: 'Finance',           icon: '💰' },
-  { id: 'ai-agent-v2',        label: 'AI Practice Agent', icon: '🤖', ai: true },
+  { id: 'ai-agent-v2',        label: 'AI Practice Agents', icon: '🤖', ai: true },
   { id: 'research-v2',        label: 'Research',          icon: '🔬' },
   { id: 'governance-v2',      label: 'Governance',        icon: '🛡️' },
 ];
@@ -735,10 +735,10 @@ function renderNav() {
     html.push(`</div>`); // close nav-section-group
   });
 
-  // Patient View demo button (outside section groups, always visible)
+  // Patient Dashboard demo button (outside section groups, always visible)
   html.push(`<div class="nav-section-group nav-section-group--patient-view"><div class="nav-item nav-item--patient-view" onclick="window._previewPatientPortal()" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();window._previewPatientPortal()}" role="menuitem" tabindex="0">
     <span class="nav-icon" aria-hidden="true">${NAV_ICONS['patient-view']}</span>
-    <span class="nav-label">Patient View</span>
+    <span class="nav-label">Patient Dashboard</span>
     <span class="nav-badge-demo">demo</span>
   </div></div>`);
 

@@ -602,7 +602,7 @@ export const TRANSLATIONS = {
     'nav.protocols-registry': 'Protocol Registry',
     'nav.outcome-prediction': 'Outcome Prediction',
     'nav.ai-assistant': 'AI Clinical Assistant',
-    'nav.ai-agents': 'AI Practice Agent',
+    'nav.ai-agents': 'AI Practice Agents',
     'nav.braindata': 'qEEG / Brain Data',
     'nav.qeegmaps': 'qEEG Maps',
     'nav.assessments': 'Assessments',
