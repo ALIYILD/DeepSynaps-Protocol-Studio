@@ -1,19 +1,22 @@
 """Literature curation table — per-user verdicts on PubMed papers (mark-relevant / promote / not-relevant)
 
-Revision ID: 027_literature_curation
-Revises: 026_assessments_golive
+Revision ID: 028_literature_curation
+Revises: 027_document_templates
 Create Date: 2026-04-19
 
 Backs the Library "Needs review" tab triage buttons. Keyed on PMID rather than
 LiteraturePaper.id because most rows surfaced by literature_watch_cron live in
 the snapshot JSON only and have no LiteraturePaper row yet.
+
+Renumbered from 027 → 028 to resolve a parallel-development collision with
+027_document_templates.py (both originally branched off 026).
 """
 from alembic import op
 import sqlalchemy as sa
 
 
-revision = "027_literature_curation"
-down_revision = "026_assessments_golive"
+revision = "028_literature_curation"
+down_revision = "027_document_templates"
 branch_labels = None
 depends_on = None
 
