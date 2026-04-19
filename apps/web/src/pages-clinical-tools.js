@@ -941,6 +941,17 @@ export async function pgBenchmarkLibrary(setTopbar) {
 }
 
 // ── pgConsentAutomation ───────────────────────────────────────────────────────
+//
+// Wiring contract (feat/docs-reports-go-live):
+//   • Records     → GET /api/v1/consent/records      (hydrate on mount)
+//   • Audit log   → GET /api/v1/consent/audit-log
+//   • Automations → GET /api/v1/consent/automation-rules
+//   • Compliance  → POST /api/v1/consent/compliance-score
+//   • Versions    → localStorage only (no server schema yet, labelled "local")
+//   • Deletions   → localStorage only (no server schema yet, labelled "local")
+//
+// When the backend call fails or returns []), the tab shows an honest empty
+// state — NEVER auto-seed demo patient names into the consent tracker.
 export async function pgConsentAutomation(setTopbar) {
   setTopbar('Consent & Compliance',
     `<button class="btn btn-primary btn-sm" onclick="window._consentExportAudit()">Export Audit Log</button>`
@@ -948,72 +959,142 @@ export async function pgConsentAutomation(setTopbar) {
 
   const ROOT_ID = 'ggg-consent-root';
 
-  // ── localStorage helpers ──────────────────────────────────────────────────
-  const KEYS = {
-    records:     'ds_consent_records',
-    versions:    'ds_consent_versions',
-    automations: 'ds_consent_automations',
-    audit:       'ds_consent_audit_log',
-    deletions:   'ds_deletion_requests',
+  // Local-only stores (no server equivalent today).
+  const LOCAL_KEYS = {
+    versions:  'ds_consent_versions',
+    deletions: 'ds_deletion_requests',
   };
-
+  // Legacy localStorage keys we now IGNORE so stale demo rows can't reappear.
+  // (Kept in localStorage so users don't lose data, but never read here.)
+  //   ds_consent_records, ds_consent_automations, ds_consent_audit_log
   function lsGet(key) {
     try { return JSON.parse(localStorage.getItem(key) || 'null'); } catch { return null; }
   }
   function lsSave(key, val) { localStorage.setItem(key, JSON.stringify(val)); }
 
+  // In-memory backend caches populated by hydrateServer().
+  let _srvRecords   = [];
+  let _srvAudit     = [];
+  let _srvAutomations = [];
+  let _srvLoaded    = { records: false, audit: false, automations: false };
+  let _srvError     = null;
+  let _patientsById = {};
+
+  // Patient resolver — consent records reference patient_id; the UI surfaces
+  // names, so we hydrate a name map once.
+  async function _loadPatientsMap() {
+    try {
+      const pr = await api.listPatients?.();
+      const items = pr?.items || pr || [];
+      items.forEach(p => {
+        _patientsById[String(p.id)] = `${p.first_name||''} ${p.last_name||p.name||''}`.trim() || `Patient #${p.id}`;
+      });
+    } catch (_) { /* ignore — patient names fall back to ids */ }
+  }
+
+  // Project a server ConsentRecord into the row shape the tracker table uses.
+  // status mapping: if backend says active but expires_at is <30d away we
+  // surface as 'expiring' so the same filter chips keep working.
+  function _rowFromServer(r) {
+    const pname = _patientsById[String(r.patient_id)] || r.patient_id || '—';
+    const now = Date.now();
+    let status = r.status || 'active';
+    if (status === 'active' && r.expires_at) {
+      const exp = Date.parse(r.expires_at);
+      if (!isNaN(exp)) {
+        if (exp < now) status = 'expired';
+        else if (exp - now < 30 * 86400000) status = 'expiring';
+      }
+    }
+    if (!r.signed && status === 'active') status = 'pending';
+    return {
+      id: r.id, name: pname, patient_id: r.patient_id,
+      type: r.consent_type || 'General',
+      version: r.modality_slug || null,
+      signed: r.signed_at ? r.signed_at.slice(0, 10) : null,
+      expiry: r.expires_at ? r.expires_at.slice(0, 10) : null,
+      status,
+      notes: r.notes || '',
+      document_ref: r.document_ref || null,
+    };
+  }
+
+  function _auditRowFromServer(l) {
+    const pname = _patientsById[String(l.patient_id)] || l.patient_id || 'System';
+    return {
+      id: l.id,
+      ts: l.created_at || l.timestamp || new Date().toISOString(),
+      event: l.event || l.action || 'Event',
+      patient: pname,
+      extra: l.details || l.notes || '',
+    };
+  }
+
+  async function hydrateServer() {
+    _srvError = null;
+    await _loadPatientsMap();
+    const [rR, aR, ruR] = await Promise.allSettled([
+      api.listConsentRecords ? api.listConsentRecords() : Promise.resolve(null),
+      api.getConsentAuditLog ? api.getConsentAuditLog() : Promise.resolve(null),
+      api.listConsentAutomationRules ? api.listConsentAutomationRules() : Promise.resolve(null),
+    ]);
+    if (rR.status === 'fulfilled' && rR.value) {
+      const items = rR.value?.items || rR.value || [];
+      _srvRecords = Array.isArray(items) ? items.map(_rowFromServer) : [];
+      _srvLoaded.records = true;
+    } else {
+      _srvError = (rR.reason && rR.reason.message) || 'Consent records unavailable';
+    }
+    if (aR.status === 'fulfilled' && aR.value) {
+      const items = aR.value?.items || aR.value || [];
+      _srvAudit = Array.isArray(items) ? items.map(_auditRowFromServer) : [];
+      _srvLoaded.audit = true;
+    }
+    if (ruR.status === 'fulfilled' && ruR.value) {
+      const items = ruR.value?.items || ruR.value || [];
+      _srvAutomations = Array.isArray(items) ? items : [];
+      _srvLoaded.automations = true;
+    }
+  }
+
+  // Seed ONLY the local-only tabs (versions, deletions). Records / audit /
+  // automations come from the server — no demo-patient fabrication.
+  function seedLocalIfNeeded() {
+    if (!lsGet(LOCAL_KEYS.versions)) {
+      lsSave(LOCAL_KEYS.versions, [
+        { id:'v1', ver:'v1.0', docName:'General Consent Form', effectiveDate:'2023-01-01', changes:'Initial version. Covers standard neuromodulation treatments, data use, and risk disclosure.', active:false, patientCount:0 },
+        { id:'v2', ver:'v1.1', docName:'General Consent Form', effectiveDate:'2024-03-15', changes:'Added EEG biofeedback clause. Updated HIPAA section 3.2 to reflect new data-sharing policy. Minor wording clarifications throughout.', active:false, patientCount:0 },
+        { id:'v3', ver:'v2.0', docName:'General Consent Form', effectiveDate:'2025-07-01', changes:'Major revision: Added TMS and neurofeedback-specific risk disclosures. Incorporated GDPR Article 7 explicit consent language. Added guardian consent section for minors. Removed deprecated HITECH references.', active:true, patientCount:0 },
+      ]);
+    }
+    if (!lsGet(LOCAL_KEYS.deletions)) {
+      lsSave(LOCAL_KEYS.deletions, []);
+    }
+  }
+
+  // Unified record-list accessor — server-preferred, never invents patients.
+  function loadRecords() { return _srvRecords; }
+  function loadAutomations() { return _srvAutomations; }
+  function loadAudit() { return _srvAudit; }
+  function loadVersions() { return lsGet(LOCAL_KEYS.versions) || []; }
+  function loadDeletions() { return lsGet(LOCAL_KEYS.deletions) || []; }
+
+  // Audit mutation: best-effort local prepend (so UI shows immediate feedback).
+  // Server-side audit rows come from the backend on next hydrate; this local
+  // row is cosmetic only and does not persist across reloads.
   function addAudit(event, patientName, extra) {
-    const log = lsGet(KEYS.audit) || [];
-    log.unshift({ id: Math.random().toString(36).slice(2), ts: new Date().toISOString(), event, patient: patientName, extra: extra || '' });
-    lsSave(KEYS.audit, log.slice(0, 200));
+    _srvAudit.unshift({
+      id: 'pending-' + Math.random().toString(36).slice(2),
+      ts: new Date().toISOString(),
+      event, patient: patientName || 'System',
+      extra: extra || '',
+      _pending: true,
+    });
+    if (_srvAudit.length > 200) _srvAudit.length = 200;
   }
 
-  // ── Seed data ─────────────────────────────────────────────────────────────
-  function seedIfNeeded() {
-    if (!lsGet(KEYS.records)) {
-      lsSave(KEYS.records, [
-        { id:'c1', name:'Sarah M.',  type:'General Treatment', version:'v2.0', signed:'2025-10-15', expiry:'2026-10-15', status:'active' },
-        { id:'c2', name:'James K.',  type:'EEG Biofeedback',   version:'v1.1', signed:'2025-04-01', expiry:'2026-04-01', status:'expiring' },
-        { id:'c3', name:'Liu W.',    type:'TMS Protocol',      version:'v2.0', signed:'2024-09-20', expiry:'2025-09-20', status:'expired' },
-        { id:'c4', name:'Aisha B.',  type:'General Treatment', version:'v1.0', signed:'2025-01-10', expiry:'2026-01-10', status:'active' },
-        { id:'c5', name:'Marcus T.', type:'Neurofeedback',     version:'v2.0', signed:'2025-11-30', expiry:'2026-11-30', status:'active' },
-        { id:'c6', name:'Elena V.',  type:'General Treatment', version:null,   signed:null,         expiry:null,         status:'pending' },
-      ]);
-    }
-    if (!lsGet(KEYS.versions)) {
-      lsSave(KEYS.versions, [
-        { id:'v1', ver:'v1.0', docName:'General Consent Form', effectiveDate:'2023-01-01', changes:'Initial version. Covers standard neuromodulation treatments, data use, and risk disclosure.', active:false, patientCount:1 },
-        { id:'v2', ver:'v1.1', docName:'General Consent Form', effectiveDate:'2024-03-15', changes:'Added EEG biofeedback clause. Updated HIPAA section 3.2 to reflect new data-sharing policy. Minor wording clarifications throughout.', active:false, patientCount:1 },
-        { id:'v3', ver:'v2.0', docName:'General Consent Form', effectiveDate:'2025-07-01', changes:'Major revision: Added TMS and neurofeedback-specific risk disclosures. Incorporated GDPR Article 7 explicit consent language. Added guardian consent section for minors. Removed deprecated HITECH references.', active:true, patientCount:3 },
-      ]);
-    }
-    if (!lsGet(KEYS.automations)) {
-      lsSave(KEYS.automations, [
-        { id:'a1', name:'Annual Consent Renewal',  trigger:'30 days before consent expiry',          action:'Send reminder email to patient',           enabled:true  },
-        { id:'a2', name:'New Treatment Modality',  trigger:'New modality added to treatment protocol', action:'Require patient to sign new consent form',  enabled:true  },
-        { id:'a3', name:'Minor Patient Check',     trigger:'Patient date of birth indicates age < 18', action:'Require guardian/parental consent form',    enabled:false },
-        { id:'a4', name:'HIPAA Policy Update',     trigger:'Consent policy version changes globally',  action:'Queue all active patients for re-consent',  enabled:true  },
-      ]);
-    }
-    if (!lsGet(KEYS.audit)) {
-      lsSave(KEYS.audit, [
-        { id:'l1', ts:'2026-04-10T14:32:00Z', event:'Consent Signed',    patient:'Marcus T.', extra:'v2.0 Neurofeedback' },
-        { id:'l2', ts:'2026-04-09T09:15:00Z', event:'Re-send Triggered', patient:'James K.',  extra:'Expiring Soon reminder' },
-        { id:'l3', ts:'2026-04-08T11:05:00Z', event:'Consent Expired',   patient:'Liu W.',    extra:'TMS Protocol v2.0' },
-        { id:'l4', ts:'2026-04-07T16:44:00Z', event:'Consent Signed',    patient:'Sarah M.',  extra:'v2.0 General Treatment' },
-        { id:'l5', ts:'2026-04-05T10:20:00Z', event:'Consent Revoked',   patient:'Aisha B.',  extra:'Patient requested revocation then re-signed' },
-        { id:'l6', ts:'2026-04-05T10:35:00Z', event:'Consent Signed',    patient:'Aisha B.',  extra:'v1.0 General Treatment' },
-      ]);
-    }
-    if (!lsGet(KEYS.deletions)) {
-      lsSave(KEYS.deletions, [
-        { id:'d1', patient:'Liu W.',   requestDate:'2026-04-08', status:'pending',   dataTypes:'Session records, qEEG data, treatment notes' },
-        { id:'d2', patient:'Elena V.', requestDate:'2026-03-22', status:'completed', dataTypes:'Contact information, intake form' },
-      ]);
-    }
-  }
-
-  seedIfNeeded();
+  seedLocalIfNeeded();
+  await hydrateServer();
 
   // ── Tab / filter state ────────────────────────────────────────────────────
   let _tab          = 'tracker';
@@ -1042,7 +1123,7 @@ export async function pgConsentAutomation(setTopbar) {
 
   // ── Tab 1: Consent Tracker ────────────────────────────────────────────────
   function renderTracker() {
-    const records  = lsGet(KEYS.records) || [];
+    const records  = loadRecords();
     const filtered = _statusFilter === 'all' ? records : records.filter(r => r.status === _statusFilter);
     const bulkBtn  = _selectedIds.size > 0
       ? `<button class="btn btn-primary btn-sm" onclick="window._consentBulkReconsent()">Bulk Re-consent (${_selectedIds.size})</button>`
@@ -1087,15 +1168,22 @@ export async function pgConsentAutomation(setTopbar) {
             <th>Patient</th><th>Consent Type</th><th>Version</th>
             <th>Signed Date</th><th>Expiry Date</th><th>Status</th><th>Actions</th>
           </tr></thead>
-          <tbody>${rows || '<tr><td colspan="8" style="text-align:center;padding:24px;color:var(--text-muted)">No records match the filter.</td></tr>'}</tbody>
+          <tbody>${rows || (records.length === 0
+            ? '<tr><td colspan="8" style="text-align:center;padding:24px;color:var(--text-muted)">'
+                + (_srvError
+                    ? 'Could not load consent records from the server. <button class="btn btn-xs" style="margin-left:6px" onclick="window._consentReloadAll()">Retry</button>'
+                    : 'No consent records yet. Create a consent from the patient record or the Documents hub.')
+                + '</td></tr>'
+            : '<tr><td colspan="8" style="text-align:center;padding:24px;color:var(--text-muted)">No records match the filter.</td></tr>'
+          )}</tbody>
         </table>
       </div>`;
   }
 
   // ── Tab 2: Automation Workflows ───────────────────────────────────────────
   function renderAutomation() {
-    const autos = lsGet(KEYS.automations) || [];
-    const audit  = (lsGet(KEYS.audit) || []).slice(0, 10);
+    const autos = loadAutomations();
+    const audit  = loadAudit().slice(0, 10);
     const rules  = autos.map(a => `
       <div class="ggg-automation-rule">
         <div class="rule-body">
@@ -1124,7 +1212,7 @@ export async function pgConsentAutomation(setTopbar) {
             <h3 style="font-size:.95rem;font-weight:700;margin:0">Automation Rules</h3>
             <button class="btn btn-primary btn-sm" onclick="window._consentAddRule()">+ Add Rule</button>
           </div>
-          ${rules}
+          ${rules || '<div style="padding:16px;border:1px dashed var(--border);border-radius:10px;color:var(--text-muted);font-size:.82rem;text-align:center">No automation rules configured yet.</div>'}
         </div>
         <div>
           <h3 style="font-size:.95rem;font-weight:700;margin-bottom:14px">Run Log (Last 10 Events)</h3>
@@ -1137,7 +1225,7 @@ export async function pgConsentAutomation(setTopbar) {
 
   // ── Tab 3: Version Control ────────────────────────────────────────────────
   function renderVersions() {
-    const versions = lsGet(KEYS.versions) || [];
+    const versions = loadVersions();
     const cards    = versions.map(v => `
       <div class="ggg-version-card ${v.active ? 'active-version' : ''}">
         <span class="ggg-version-badge ${v.active ? 'current' : ''}">${v.ver}</span>
@@ -1164,6 +1252,9 @@ export async function pgConsentAutomation(setTopbar) {
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
           <h3 style="font-size:.95rem;font-weight:700;margin:0">Document Versions</h3>
           <button class="btn btn-primary btn-sm" onclick="window._consentNewVersion()">+ New Version</button>
+        </div>
+        <div style="font-size:.72rem;color:var(--text-muted);margin-bottom:10px;padding:8px 12px;background:rgba(245,158,11,0.06);border:1px solid rgba(245,158,11,0.18);border-radius:8px">
+          Consent-template versions are stored locally in this browser. Server-side consent versioning is not yet wired.
         </div>
         ${cards}
       </div>
@@ -1197,7 +1288,7 @@ export async function pgConsentAutomation(setTopbar) {
 
   // ── Tab 4: GDPR / HIPAA ───────────────────────────────────────────────────
   function complianceScore() {
-    const records = lsGet(KEYS.records) || [];
+    const records = loadRecords();
     if (!records.length) return 0;
     return Math.round((records.filter(r => r.status === 'active').length / records.length) * 100);
   }
@@ -1223,9 +1314,9 @@ export async function pgConsentAutomation(setTopbar) {
   }
 
   function renderGDPR() {
-    const deletions = lsGet(KEYS.deletions) || [];
-    const audit     = lsGet(KEYS.audit)     || [];
-    const records   = lsGet(KEYS.records)   || [];
+    const deletions = loadDeletions();
+    const audit     = loadAudit();
+    const records   = loadRecords();
     const score     = complianceScore();
 
     const delRows = deletions.map(d => `<tr>
@@ -1347,17 +1438,26 @@ export async function pgConsentAutomation(setTopbar) {
   };
 
   window._consentSelectAll = function(checked) {
-    const records  = lsGet(KEYS.records) || [];
+    const records  = loadRecords();
     const filtered = _statusFilter === 'all' ? records : records.filter(r => r.status === _statusFilter);
     filtered.forEach(r => { if (checked) _selectedIds.add(r.id); else _selectedIds.delete(r.id); });
     const body = document.getElementById('ggg-consent-body');
     if (body && _tab === 'tracker') body.innerHTML = renderTracker();
   };
 
+  // Retry button for the tracker table when server hydration fails.
+  window._consentReloadAll = async function() {
+    await hydrateServer();
+    const body = document.getElementById('ggg-consent-body');
+    if (body && _tab === 'tracker')      body.innerHTML = renderTracker();
+    else if (body && _tab === 'automation') body.innerHTML = renderAutomation();
+    else if (body && _tab === 'gdpr')       body.innerHTML = renderGDPR();
+  };
+
   window._consentBulkReconsent = function() {
     const ids = [..._selectedIds];
     if (!ids.length) return;
-    const records = lsGet(KEYS.records) || [];
+    const records = loadRecords();
     const names   = records.filter(r => ids.includes(r.id)).map(r => r.name);
     if (!confirm(`Send re-consent request to ${names.join(', ')}?`)) return;
     names.forEach(n => addAudit('Re-send Triggered', n, 'Bulk re-consent'));
@@ -1368,7 +1468,7 @@ export async function pgConsentAutomation(setTopbar) {
   };
 
   window._consentView = function(id) {
-    const records = lsGet(KEYS.records) || [];
+    const records = loadRecords();
     const r = records.find(x => x.id === id);
     if (!r) return;
     const overlay = document.createElement('div');
@@ -1391,32 +1491,42 @@ export async function pgConsentAutomation(setTopbar) {
   };
 
   window._consentResend = function(id) {
-    const records = lsGet(KEYS.records) || [];
+    const records = loadRecords();
     const r = records.find(x => x.id === id);
     if (!r) return;
     addAudit('Re-send Triggered', r.name, r.type);
     _dsToast(`Re-consent request sent to ${r.name}.`, 'success');
   };
 
-  window._consentRevoke = function(id) {
-    const records = lsGet(KEYS.records) || [];
-    const idx = records.findIndex(x => x.id === id);
+  // Revoke: persist via PATCH so the change survives a reload. If the API call
+  // fails we keep the UI optimistic change but surface an error toast.
+  window._consentRevoke = async function(id) {
+    const idx = _srvRecords.findIndex(x => x.id === id);
     if (idx < 0) return;
-    if (!confirm(`Revoke consent for ${records[idx].name}? They will need to sign a new consent form.`)) return;
-    addAudit('Consent Revoked', records[idx].name, records[idx].type);
-    records[idx].status = 'expired';
-    lsSave(KEYS.records, records);
+    const target = _srvRecords[idx];
+    if (!confirm(`Revoke consent for ${target.name}? They will need to sign a new consent form.`)) return;
+    try {
+      if (api.updateConsentRecord) {
+        await api.updateConsentRecord(id, { status: 'withdrawn' });
+      }
+      addAudit('Consent Revoked', target.name, target.type);
+      _srvRecords[idx] = { ...target, status: 'expired' };
+      _dsToast(`Consent revoked for ${target.name}.`, 'success');
+    } catch (e) {
+      _dsToast(`Revoke failed: ${e?.message || 'server error'}`, 'warn');
+    }
     const body = document.getElementById('ggg-consent-body');
     if (body && _tab === 'tracker') body.innerHTML = renderTracker();
   };
 
+  // Toggle rule: local-only right now (the GET endpoint exists but there's
+  // no PATCH). We update the in-memory cache so the UI feels responsive.
   window._consentToggleRule = function(id, enabled) {
-    const autos = lsGet(KEYS.automations) || [];
-    const idx   = autos.findIndex(a => a.id === id);
+    const idx = _srvAutomations.findIndex(a => a.id === id);
     if (idx < 0) return;
-    autos[idx].enabled = enabled;
-    lsSave(KEYS.automations, autos);
-    addAudit(enabled ? 'Rule Enabled' : 'Rule Disabled', 'System', autos[idx].name);
+    _srvAutomations[idx] = { ..._srvAutomations[idx], enabled };
+    addAudit(enabled ? 'Rule Enabled' : 'Rule Disabled', 'System', _srvAutomations[idx].name);
+    _dsToast('Rule state updated (client-side only — backend patch not yet wired).', 'info');
   };
 
   window._consentAddRule = function() {
@@ -1436,14 +1546,22 @@ export async function pgConsentAutomation(setTopbar) {
     overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
   };
 
-  window._consentSaveRule = function() {
+  window._consentSaveRule = async function() {
     const name    = document.getElementById('ggg-rule-name')?.value.trim();
     const trigger = document.getElementById('ggg-rule-trigger')?.value.trim();
     const action  = document.getElementById('ggg-rule-action')?.value.trim();
     if (!name || !trigger || !action) { _dsToast('Please fill in all required fields.', 'warn'); return; }
-    const autos = lsGet(KEYS.automations) || [];
-    autos.push({ id: 'a' + Date.now(), name, trigger, action, enabled: true });
-    lsSave(KEYS.automations, autos);
+    // Server-persisted create. Fall back to in-memory if the endpoint fails.
+    let saved = null;
+    try {
+      if (api.createConsentAutomationRule) {
+        saved = await api.createConsentAutomationRule({ name, trigger, action, enabled: true });
+      }
+    } catch (e) {
+      _dsToast(`Save failed (rule kept in memory): ${e?.message || 'server error'}`, 'warn');
+    }
+    const row = saved || { id: 'local-' + Date.now(), name, trigger, action, enabled: true };
+    _srvAutomations.push(row);
     addAudit('Rule Created', 'System', name);
     document.querySelector('.ggg-modal-overlay')?.remove();
     const body = document.getElementById('ggg-consent-body');
@@ -1464,7 +1582,7 @@ export async function pgConsentAutomation(setTopbar) {
   window._consentDiffB = function(v) { _diffB = v; };
 
   window._consentRunDiff = function() {
-    const versions = lsGet(KEYS.versions) || [];
+    const versions = loadVersions();
     const vA = versions.find(v => v.id === _diffA);
     const vB = versions.find(v => v.id === _diffB);
     const out = document.getElementById('ggg-diff-output');
@@ -1483,12 +1601,12 @@ export async function pgConsentAutomation(setTopbar) {
   };
 
   window._consentActivateVersion = function(id) {
-    const versions = lsGet(KEYS.versions) || [];
+    const versions = loadVersions();
     const v = versions.find(x => x.id === id);
     if (!v) return;
     if (!confirm(`Activate ${v.ver} as the current consent version? All new consents will use this version.`)) return;
     versions.forEach(x => { x.active = (x.id === id); });
-    lsSave(KEYS.versions, versions);
+    lsSave(LOCAL_KEYS.versions, versions);
     addAudit('Version Activated', 'System', `${v.ver} \u2014 ${v.docName}`);
     const body = document.getElementById('ggg-consent-body');
     if (body && _tab === 'versions') body.innerHTML = renderVersions();
@@ -1518,9 +1636,9 @@ export async function pgConsentAutomation(setTopbar) {
     const date    = document.getElementById('ggg-ver-date')?.value;
     const changes = document.getElementById('ggg-ver-changes')?.value.trim();
     if (!ver || !docName || !date || !changes) { _dsToast('Please fill in all required fields.', 'warn'); return; }
-    const versions = lsGet(KEYS.versions) || [];
+    const versions = loadVersions();
     versions.push({ id: 'v' + Date.now(), ver, docName, effectiveDate: date, changes, active: false, patientCount: 0 });
-    lsSave(KEYS.versions, versions);
+    lsSave(LOCAL_KEYS.versions, versions);
     addAudit('Version Created', 'System', `${ver} \u2014 ${docName}`);
     document.querySelector('.ggg-modal-overlay')?.remove();
     const body = document.getElementById('ggg-consent-body');
@@ -1528,13 +1646,13 @@ export async function pgConsentAutomation(setTopbar) {
   };
 
   window._consentProcessDeletion = function(id) {
-    const deletions = lsGet(KEYS.deletions) || [];
+    const deletions = loadDeletions();
     const idx = deletions.findIndex(d => d.id === id);
     if (idx < 0) return;
     const d = deletions[idx];
     if (!confirm(`Process data deletion request for ${d.patient}?\n\nData to be deleted:\n${d.dataTypes}\n\nThis action is irreversible and will be logged.`)) return;
     deletions[idx].status = 'completed';
-    lsSave(KEYS.deletions, deletions);
+    lsSave(LOCAL_KEYS.deletions, deletions);
     addAudit('Deletion Completed', d.patient, d.dataTypes);
     const body = document.getElementById('ggg-consent-body');
     if (body && _tab === 'gdpr') body.innerHTML = renderGDPR();
@@ -1542,10 +1660,10 @@ export async function pgConsentAutomation(setTopbar) {
 
   window._consentGenerateExport = function() {
     const ptId    = document.getElementById('ggg-export-pt')?.value;
-    const records = lsGet(KEYS.records) || [];
+    const records = loadRecords();
     const r = records.find(x => x.id === ptId);
     if (!r) return;
-    const auditAll = lsGet(KEYS.audit) || [];
+    const auditAll = loadAudit();
     const payload  = {
       exportDate: new Date().toISOString(),
       exportedBy: 'DeepSynaps Protocol Studio',
@@ -1565,10 +1683,10 @@ export async function pgConsentAutomation(setTopbar) {
   };
 
   window._consentDownloadExport = function(ptId) {
-    const records  = lsGet(KEYS.records) || [];
+    const records  = loadRecords();
     const r = records.find(x => x.id === ptId);
     if (!r) return;
-    const auditAll = lsGet(KEYS.audit) || [];
+    const auditAll = loadAudit();
     const payload  = {
       exportDate: new Date().toISOString(),
       exportedBy: 'DeepSynaps Protocol Studio',
@@ -1595,7 +1713,7 @@ export async function pgConsentAutomation(setTopbar) {
   };
 
   window._consentExportAudit = function() {
-    const audit = lsGet(KEYS.audit) || [];
+    const audit = loadAudit();
     const rows  = [['Timestamp','Event','Patient','Details']];
     audit.forEach(l => rows.push([l.ts, l.event, l.patient, l.extra || '']));
     const csv  = rows.map(r => r.map(c => `"${String(c).replace(/"/g,'""')}"`).join(',')).join('\n');
@@ -3635,13 +3753,17 @@ export async function pgFormsBuilder(setTopbar) {
   }
 
   // Responses view HTML
+  // Submissions are stored in localStorage (ds_form_submissions) and seeded
+  // with demo rows on first mount. Real patient submissions (once the backend
+  // /api/v1/forms/responses endpoint is wired) would replace or augment these.
   function _renderResponses() {
     const subs = _fbGetSubs();
-    if (!subs.length) return '<div style="height:100%;display:flex;align-items:center;justify-content:center;color:var(--text-tertiary);font-size:13px">No submissions yet.</div>';
+    const banner = '<div style="background:rgba(245,158,11,0.07);border:1px solid rgba(245,158,11,0.25);border-radius:8px;padding:8px 12px;margin:16px 24px 0;font-size:12px;color:var(--accent-amber,#ffb547)">Form submissions shown here are stored locally in this browser. Server-side responses collection is not yet wired to this view.</div>';
+    if (!subs.length) return banner + '<div style="flex:1;display:flex;align-items:center;justify-content:center;color:var(--text-tertiary);font-size:13px">No submissions yet.</div>';
     const rows = subs.map(s =>
       '<tr class="' + (s.flagged ? 'flagged' : '') + '" onclick="window._fbShowSubDetail(\'' + _e(s.id) + '\')" style="cursor:pointer"><td>' + _e(s.patientName) + '</td><td>' + _e(s.formName) + '</td><td>' + _fbFmt(s.date) + '</td><td>' + (s.score != null ? s.score : '\u2014') + '</td><td>' + (s.severity ? '<span class="ppp-severity-pill ' + _fbSevClass(s.severity) + '">' + _e(s.severity) + '</span>' : '\u2014') + '</td><td>' + (s.flagged ? '<span style="color:var(--red);font-size:11px">\uD83D\uDEA9</span>' : '<button class="ppp-lib-btn" style="flex:none" onclick="event.stopPropagation();window._fbFlagSub(\'' + _e(s.id) + '\')">Flag</button>') + '</td></tr>'
     ).join('');
-    return '<div style="height:100%;overflow:hidden;display:flex;flex-direction:column"><div style="flex:1;overflow-y:auto;padding:20px 24px"><div style="margin-bottom:14px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px"><div style="font-size:13px;font-weight:500;color:var(--text-primary)">' + subs.length + ' submission' + (subs.length !== 1 ? 's' : '') + '</div><button class="btn btn-sm" onclick="window._fbExportCSV()">Export CSV</button></div><div style="overflow-x:auto"><table class="ppp-subs-table"><thead><tr><th>Patient</th><th>Form</th><th>Date</th><th>Score</th><th>Severity</th><th>Actions</th></tr></thead><tbody>' + rows + '</tbody></table></div></div></div>';
+    return '<div style="height:100%;overflow:hidden;display:flex;flex-direction:column">' + banner + '<div style="flex:1;overflow-y:auto;padding:20px 24px"><div style="margin-bottom:14px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px"><div style="font-size:13px;font-weight:500;color:var(--text-primary)">' + subs.length + ' submission' + (subs.length !== 1 ? 's' : '') + '</div><button class="btn btn-sm" onclick="window._fbExportCSV()">Export CSV</button></div><div style="overflow-x:auto"><table class="ppp-subs-table"><thead><tr><th>Patient</th><th>Form</th><th>Date</th><th>Score</th><th>Severity</th><th>Actions</th></tr></thead><tbody>' + rows + '</tbody></table></div></div></div>';
   }
 
   // SVG score trend chart
@@ -9868,33 +9990,59 @@ export async function pgReportsHub(setTopbar) {
   const protocolMap = {}; protocols.forEach(p => { protocolMap[p.id]  = p.name || p.id; });
   const outcomeMap  = {}; outcomes.forEach(o  => { outcomeMap[o.id]   = o.label || o.name || `Outcome #${o.id}`; });
 
-  // ── Seed demo reports ────────────────────────────────────────────────────
-  let reports = loadReports();
-  if (!reports.length) {
-    const pid1 = String(patients[0]?.id || 'demo-1');
-    const pid2 = String(patients[1]?.id || patients[0]?.id || 'demo-1');
-    reports = [
-      { id:'rh-s1', patientId:pid1, type:'eeg',       title:'Baseline qEEG — DLPFC Alpha Power',          date:'2026-02-10', source:'NeuroGuide Lab',       summary:'Elevated alpha at Fp1-Fp2. DLPFC alpha asymmetry (right>left) consistent with depression phenotype. Theta burst pattern at F3/F4.', file_url:'', status:'final' },
-      { id:'rh-s2', patientId:pid1, type:'eeg',       title:'Post-Session 10 qEEG — Alpha Re-assessment', date:'2026-03-20', source:'NeuroGuide Lab',       summary:'Alpha asymmetry reduced. Fp1-Fp2 power difference within 1.2 dB of symmetry. Consistent with treatment response.', file_url:'', status:'final' },
-      { id:'rh-s3', patientId:pid1, type:'lab',       title:'Pre-Treatment Full Blood Panel',              date:'2026-02-08', source:'PathLab Central',     summary:'TSH 2.1 mIU/L (normal). CBC normal. CMP normal. Vitamin D 28 ng/mL (borderline low — supplement recommended). No contraindications flagged.', file_url:'', status:'final' },
-      { id:'rh-s4', patientId:pid1, type:'lab',       title:'8-Week Labs — Thyroid & CBC',                 date:'2026-04-02', source:'PathLab Central',     summary:'TSH 2.3 mIU/L. CBC unchanged. Vitamin D improved to 36 ng/mL following supplementation.', file_url:'', status:'final' },
-      { id:'rh-s5', patientId:pid1, type:'imaging',   title:'Structural Brain MRI — Baseline',            date:'2026-02-12', source:'City Radiology',      summary:'No structural abnormalities. No contraindications to TMS. Cortical thinning absent. No white matter lesions.', file_url:'', status:'final' },
-      { id:'rh-s6', patientId:pid1, type:'external',  title:'Psychiatry Referral — Dr. K. Mehta',         date:'2026-01-28', source:'Dr. K. Mehta (Psych)', summary:'Referred for TMS evaluation following two failed SSRI trials (escitalopram, sertraline). GAD-7 15, PHQ-9 22 at referral. Suitable candidate for neuromodulation.', file_url:'', status:'final' },
-      { id:'rh-s7', patientId:pid1, type:'external',  title:'GP Clearance Letter',                        date:'2026-02-05', source:'Dr. A. Rashid (GP)',   summary:'Medical clearance for TMS. No cardiac device, no metal implants, no seizure history. Patient informed of risks and consented.', file_url:'', status:'final' },
-      { id:'rh-s8', patientId:pid1, type:'progress',  title:'4-Week Progress Note — Session 10',          date:'2026-03-14', source:'Internal',            summary:'PHQ-9 dropped from 22 to 14 (36% reduction). Session tolerance excellent. No adverse effects reported. Patient reports improved sleep and reduced anhedonia.', file_url:'', status:'final' },
-      { id:'rh-s9', patientId:pid1, type:'progress',  title:'8-Week Progress Note — Session 20',          date:'2026-04-05', source:'Internal',            summary:'PHQ-9 score 8 (remission threshold). GAD-7 dropped from 15 to 7. Patient returned to part-time work. Strong treatment response.', file_url:'', status:'final' },
-      { id:'rh-s10',patientId:pid1, type:'clinician', title:'Course 1 Treatment Summary — TMS Depression', date:'2026-04-08', source:'Dr. S. Okonkwo',     summary:'20-session left DLPFC rTMS completed. Final PHQ-9: 8 (remission). Patient achieved 64% symptom reduction. Recommend maintenance protocol.', file_url:'', status:'final' },
-      { id:'rh-s11',patientId:pid1, type:'ai',        title:'AI Analysis — Course 1 Response Pattern',    date:'2026-04-08', source:'AI Engine',            summary:'Trajectory modelling: consistent responder. Symptom onset at session 6-8. Sustained response curve. High probability of durable remission at 6 months based on response pattern.', file_url:'', status:'final' },
-      { id:'rh-s12',patientId:pid2, type:'eeg',       title:'Baseline qEEG — Frontal Asymmetry Screening',date:'2026-03-15', source:'NeuroGuide Lab',       summary:'Mild right-frontal alpha asymmetry. Theta elevation at Fz. Pattern consistent with anxiety-predominant presentation.', file_url:'', status:'final' },
-    ];
-    // Seed some links
-    const links = loadLinks();
-    links['rh-s1']  = { courses:[], protocols:[], outcomes:[], notes:'Baseline before TMS Course 1' };
-    links['rh-s8']  = { courses:['c1'], protocols:[], outcomes:[], notes:'Session 10 progress check' };
-    links['rh-s9']  = { courses:['c1'], protocols:[], outcomes:['o1'], notes:'End-of-course outcome assessment' };
-    links['rh-s10'] = { courses:['c1'], protocols:['p1'], outcomes:['o1'], notes:'Course completion summary' };
-    saveLinks(links);
-    saveReports(reports);
+  // ── Hydrate reports from the backend ─────────────────────────────────────
+  // Primary source: /api/v1/reports (clinician-scoped). Each row can carry a
+  // patient_id so per-patient filtering works. Local cache is kept as a
+  // fallback for offline/reload resilience — backend rows always win on merge.
+  // NO demo-patient seeding: if the server returns nothing and local is empty
+  // the hub shows an honest "no reports yet" state.
+  function _mapSrvReport(r) {
+    const dateStr = (r.date || r.report_date || r.created_at || '').slice(0, 10);
+    const rtype = (r.type || 'other').toLowerCase();
+    const mappedType =
+      ['eeg','lab','imaging','external','progress','clinician','ai','other'].includes(rtype)
+        ? rtype
+        : (rtype.includes('eeg') ? 'eeg'
+          : rtype.includes('lab') ? 'lab'
+          : rtype.includes('mri') || rtype.includes('imag') ? 'imaging'
+          : rtype.includes('prog') ? 'progress'
+          : rtype.includes('summ') || rtype.includes('note') ? 'clinician'
+          : 'other');
+    return {
+      id: r.id,
+      patientId: r.patient_id ? String(r.patient_id) : '',
+      type: mappedType,
+      title: r.title || r.name || 'Untitled Report',
+      date: dateStr,
+      source: r.source || '',
+      summary: r.summary || r.content || '',
+      file_url: r.file_url || '',
+      status: r.status || 'final',
+      _source: 'backend',
+    };
+  }
+
+  let reports = [];
+  let _rhLoadErr = null;
+  try {
+    const srv = api.listMyReports ? await api.listMyReports() : null;
+    const items = srv?.items || srv || [];
+    if (Array.isArray(items) && items.length) {
+      reports = items.map(_mapSrvReport);
+    }
+  } catch (err) {
+    _rhLoadErr = err?.message || 'Failed to load reports from server';
+    console.warn('[pgReportsHub] listMyReports failed; falling back to local cache:', err);
+  }
+  // Merge with local cache — local rows (offline uploads) stay visible until
+  // the next successful sync. Backend rows win on id collision.
+  const _rhLocal = loadReports();
+  if (reports.length === 0 && _rhLocal.length) {
+    reports = _rhLocal.map(r => ({ ...r, _source: r._source || 'local' }));
+  } else if (_rhLocal.length) {
+    const byId = new Map(reports.map(r => [r.id, r]));
+    _rhLocal.forEach(r => { if (!byId.has(r.id)) byId.set(r.id, { ...r, _source: 'local' }); });
+    reports = Array.from(byId.values());
   }
 
   // ── Filter & sort ────────────────────────────────────────────────────────
@@ -10226,16 +10374,35 @@ export async function pgReportsHub(setTopbar) {
   }
 
   // ── Main render ──────────────────────────────────────────────────────────
+  // Error banner surfaces when /api/v1/reports was unreachable. We still
+  // render whatever local cache survived — never fabricate.
   function renderPage() {
+    const hasLocal = reports.some(r => r._source === 'local');
+    const errBanner = _rhLoadErr
+      ? `<div style="background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.25);border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:12.5px;color:#ef4444">
+          ⚠ Could not load reports from the server (${esc(_rhLoadErr)}).${hasLocal ? ' Showing locally cached rows only.' : ''}
+        </div>`
+      : (hasLocal && reports.every(r => r._source === 'local')
+          ? `<div style="background:rgba(245,158,11,0.07);border:1px solid rgba(245,158,11,0.25);border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:12.5px;color:var(--amber,#ffb547)">
+              These reports are saved locally in this browser. They will sync once the server persistence wiring is completed.
+            </div>`
+          : '');
+    const emptyBody = reports.length === 0
+      ? `<div style="padding:40px;text-align:center;color:var(--text-tertiary)">
+          <div style="font-size:14px;font-weight:600;color:var(--text-secondary);margin-bottom:6px">No reports yet</div>
+          <div style="font-size:12px">Use <b>+ Upload Report</b> to add a patient report, or generate one from the Reports hub.</div>
+        </div>`
+      : '';
     el.innerHTML = `
       <div class="rh-layout">
         ${sidebarHTML()}
         <div class="rh-main">
+          ${errBanner}
           ${kpiHTML()}
           ${toolbarHTML()}
           ${comparePanelHTML()}
           <div id="rh-content">
-            ${window._rhTimeline ? timelineHTML() : listHTML()}
+            ${emptyBody || (window._rhTimeline ? timelineHTML() : listHTML())}
           </div>
         </div>
       </div>

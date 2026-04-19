@@ -5756,6 +5756,10 @@ export async function pgClinicAnalytics(setTopbar) {
   // ── Render page HTML ───────────────────────────────────────────────────────
   document.getElementById('app-content').innerHTML = `
     <div id="fff-root" style="padding:20px;max-width:1400px;margin:0 auto">
+      <div style="background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.3);border-radius:10px;padding:10px 14px;margin-bottom:16px;font-size:12.5px;color:var(--accent-amber,#ffb547);display:flex;align-items:center;gap:10px">
+        <span style="font-size:14px">&#9888;</span>
+        <span><b>Preview data.</b> Revenue trend, acquisition funnel, clinician productivity, session heatmap, and churn segments on this page are seeded demo values. Wire-up to <code>/api/v1/finance/monthly</code>, <code>/api/v1/sessions</code>, and <code>/api/v1/leads</code> is tracked separately.</span>
+      </div>
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:18px;flex-wrap:wrap;gap:8px">
         <div>
           <h1 style="font-size:1.3rem;font-weight:800;color:var(--text);margin:0">Clinic Analytics</h1>
@@ -10248,6 +10252,10 @@ export async function pgLongitudinalReport(setTopbar) {
       + '</div>';
 
     el.innerHTML = '<div class="lrpt-page">'
+      + '<div style="background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.3);border-radius:10px;padding:10px 14px;margin-bottom:16px;font-size:12.5px;color:var(--accent-amber,#ffb547);display:flex;align-items:center;gap:10px">'
+      + '<span style="font-size:14px">&#9888;</span>'
+      + '<span><b>Preview data.</b> This longitudinal report is using a fixed demo dataset. Real cohort aggregation from <code>/api/v1/outcomes/aggregate</code> is pending the longitudinal aggregator endpoint. Do not rely on the figures below for clinical or regulatory decisions.</span>'
+      + '</div>'
       + kpiCards
       + '<div class="lrpt-section-title">Outcome by Condition &amp; Modality</div>'
       + _lrptBarChart(rows)
