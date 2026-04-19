@@ -995,7 +995,7 @@ export async function pgClinicalHub(setTopbar, navigate) {
 
   // ── OUTCOMES TAB ─────────────────────────────────────────────────────────
   else if (tab === 'outcomes') {
-    setTopbar('Clinical Hub', '<button class="btn btn-sm" onclick="window._dsToast?.({title:\'Export\',body:\'CSV export coming soon.\',severity:\'info\'})">Export CSV</button>');
+    setTopbar('Clinical Hub', '');
     el.innerHTML = '<div class="ch-shell">' + spinner() + '</div>';
 
     let courses = [], patients = [];
@@ -3906,10 +3906,21 @@ export async function pgLibraryHub(setTopbar, navigate) {
     const _litSnap  = window._litWatchData || null;
     const _litQueue = (_litSnap && Array.isArray(_litSnap.pending_queue)) ? _litSnap.pending_queue : [];
 
-    // TODO-log stub for the three paper action buttons. Spec calls these
-    // display-only until the backend `/verdict` endpoint lands.
+    // Literature verdicts persist to localStorage (ds_lit_verdicts) + dispatch
+    // ds:literature-verdict. Optional api.submitLiteratureVerdict is called
+    // fire-and-forget if it ever lands; result survives either way.
     window._litPaperAction = (action, pmid) => {
-      try { console.log('[literature-watch] TODO ' + action + ' pmid=' + pmid + ' (no backend wired)'); } catch {}
+      const entry = { pmid, action, ts: new Date().toISOString() };
+      try {
+        const raw = localStorage.getItem('ds_lit_verdicts') || '[]';
+        const arr = JSON.parse(raw);
+        arr.push(entry);
+        localStorage.setItem('ds_lit_verdicts', JSON.stringify(arr.slice(-500)));
+      } catch {}
+      try { api.submitLiteratureVerdict?.(pmid, action); } catch {}
+      try { window.dispatchEvent(new CustomEvent('ds:literature-verdict', { detail: entry })); } catch {}
+      const label = action === 'mark-relevant' ? 'Marked relevant' : action === 'promote' ? 'Promoted to references' : action === 'not-relevant' ? 'Marked not relevant' : action;
+      window._dsToast?.({ title: label, body: 'PMID ' + pmid, severity: 'success' });
     };
 
     const rows = _needsReviewRows.map(p => {
