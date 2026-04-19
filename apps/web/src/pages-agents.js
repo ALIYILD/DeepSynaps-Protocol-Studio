@@ -13,6 +13,10 @@ const PROVIDERS = [
 let _taskFilter = 'all';
 let _configAgent = 'clinician';
 let _activeSkill = null;
+let _tasksCache = [];
+let _tasksApiWarned = false;
+let _tasksRefreshing = false;
+let _tasksLoaded = false;
 
 // ── Data helpers ─────────────────────────────────────────────────────────────
 function _loadHistory(agent) {
@@ -21,22 +25,158 @@ function _loadHistory(agent) {
 function _saveHistory(agent, msgs) {
   try { localStorage.setItem(`ds_agent_history_${agent}`, JSON.stringify(msgs.slice(-50))); } catch {}
 }
+function _tasksFallbackNotice() {
+  if (_tasksApiWarned) return;
+  _tasksApiWarned = true;
+  try { console.debug('[agent-tasks] API unavailable'); } catch {}
+}
+function _shapeAgentTask(r) {
+  if (!r || typeof r !== 'object') return null;
+  return {
+    id: r.id,
+    title: r.title,
+    status: r.status || 'pending',
+    agent: r.agent || 'clinician',
+    patient: r.patient_id || r.patient || '',
+    due: r.due_date || r.due || '',
+    priority: r.priority || 'normal',
+    source: r.source || 'agent',
+    tags: Array.isArray(r.tags) ? r.tags.slice() : [],
+    createdAt: r.created_at || r.createdAt,
+    updatedAt: r.updated_at || r.updatedAt,
+    completedAt: r.completed_at || r.completedAt || null,
+    _backend: !String(r.id || '').startsWith('t_'),
+  };
+}
+function _isAgentTaskRecord(r) {
+  if (!r) return false;
+  if (r.source === 'agent') return true;
+  if (Array.isArray(r.tags) && r.tags.includes('agent')) return true;
+  return false;
+}
+function _mirrorTasksToLocal() {
+  try { localStorage.setItem('ds_agent_tasks', JSON.stringify(_tasksCache.slice(-200))); } catch {}
+}
+function _dispatchTaskEvent(action, task) {
+  try {
+    window.dispatchEvent(new CustomEvent('ds:home-task-updated', {
+      detail: { taskId: task?.id, patientId: task?.patient || task?.patient_id || null, action, source: 'agent' },
+    }));
+  } catch {}
+}
+async function _refreshTasks() {
+  if (_tasksRefreshing) return _tasksCache;
+  _tasksRefreshing = true;
+  try {
+    try {
+      const res = await api.listHomeProgramTasks({ source: 'agent' });
+      const items = (res?.items || []).filter(_isAgentTaskRecord);
+      _tasksCache = items.map(_shapeAgentTask).filter(Boolean);
+      _mirrorTasksToLocal();
+      _tasksLoaded = true;
+      return _tasksCache;
+    } catch {
+      _tasksFallbackNotice();
+      if (!_tasksCache.length) {
+        try { _tasksCache = JSON.parse(localStorage.getItem('ds_agent_tasks') || '[]') || []; }
+        catch { _tasksCache = []; }
+      }
+      _tasksLoaded = true;
+      return _tasksCache;
+    }
+  } finally {
+    _tasksRefreshing = false;
+  }
+}
 function _loadTasks() {
-  try { return JSON.parse(localStorage.getItem('ds_agent_tasks') || '[]'); } catch { return []; }
+  if (_tasksCache.length) return _tasksCache;
+  try {
+    const stored = JSON.parse(localStorage.getItem('ds_agent_tasks') || '[]');
+    if (Array.isArray(stored)) _tasksCache = stored;
+  } catch { _tasksCache = []; }
+  return _tasksCache;
 }
-function _saveTasks(tasks) { localStorage.setItem('ds_agent_tasks', JSON.stringify(tasks.slice(-200))); }
-function _addTask(task) {
-  const tasks = _loadTasks();
-  tasks.push({ ...task, id: 't_' + Date.now(), createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), completedAt: null });
-  _saveTasks(tasks);
-  _logActivity('task_created', task.agent || 'clinician', task.title);
+function _saveTasks(tasks) {
+  _tasksCache = Array.isArray(tasks) ? tasks : [];
+  _mirrorTasksToLocal();
 }
-function _updateTaskStatus(id, status) {
-  const tasks = _loadTasks();
-  const t = tasks.find(x => x.id === id);
-  if (t) { t.status = status; t.updatedAt = new Date().toISOString(); if (status === 'done') t.completedAt = t.updatedAt; }
-  _saveTasks(tasks);
-  if (status === 'done') _logActivity('task_completed', t?.agent || 'clinician', t?.title || id);
+async function _addTask(task) {
+  const now = new Date().toISOString();
+  const localEntry = {
+    ...task,
+    id: 't_' + Date.now(),
+    status: task.status || 'pending',
+    agent: task.agent || 'clinician',
+    source: 'agent',
+    tags: Array.isArray(task.tags) ? Array.from(new Set([...task.tags, 'agent'])) : ['agent'],
+    createdAt: now,
+    updatedAt: now,
+    completedAt: null,
+    _backend: false,
+  };
+  let saved = null;
+  try {
+    const payload = {
+      title: task.title,
+      status: localEntry.status,
+      patient_id: task.patient || '',
+      due_date: task.due || '',
+      source: 'agent',
+      agent: localEntry.agent,
+      priority: task.priority || 'normal',
+      tags: localEntry.tags,
+    };
+    const res = await api.createHomeProgramTask(payload);
+    const rec = res?.item || res?.task || res;
+    saved = _shapeAgentTask(rec);
+  } catch {
+    _tasksFallbackNotice();
+  }
+  const entry = saved || localEntry;
+  _tasksCache.push(entry);
+  _mirrorTasksToLocal();
+  _logActivity('task_created', entry.agent || 'clinician', entry.title);
+  _dispatchTaskEvent('assigned', entry);
+  return entry;
+}
+async function _updateTaskStatus(id, status) {
+  const now = new Date().toISOString();
+  const idx = _tasksCache.findIndex(x => x.id === id);
+  const existing = idx >= 0 ? _tasksCache[idx] : null;
+  const isLocalOnly = String(id).startsWith('t_') || !existing?._backend;
+  let updated = existing ? { ...existing, status, updatedAt: now } : null;
+  if (updated && status === 'done') updated.completedAt = now;
+
+  if (!isLocalOnly) {
+    try {
+      const res = typeof api.mutateHomeProgramTask === 'function'
+        ? await api.mutateHomeProgramTask({ id, status, serverTaskId: existing?.serverTaskId || id })
+        : await api.upsertHomeProgramTask({ id, status });
+      const rec = res?.task || res?.item || res;
+      const shaped = _shapeAgentTask(rec);
+      if (shaped) updated = { ...updated, ...shaped };
+    } catch {
+      _tasksFallbackNotice();
+    }
+  }
+
+  if (idx >= 0 && updated) _tasksCache[idx] = updated;
+  _mirrorTasksToLocal();
+  if (status === 'done') _logActivity('task_completed', updated?.agent || 'clinician', updated?.title || id);
+  if (updated) _dispatchTaskEvent('status', updated);
+  return updated;
+}
+async function _deleteTask(id) {
+  const idx = _tasksCache.findIndex(x => x.id === id);
+  const existing = idx >= 0 ? _tasksCache[idx] : null;
+  const isLocalOnly = String(id).startsWith('t_') || !existing?._backend;
+  if (!isLocalOnly) {
+    try { await api.deleteHomeProgramTask(id); }
+    catch { _tasksFallbackNotice(); }
+  }
+  if (idx >= 0) _tasksCache.splice(idx, 1);
+  _mirrorTasksToLocal();
+  if (existing) _dispatchTaskEvent('delete', existing);
 }
 function _loadActivity() {
   try { return JSON.parse(localStorage.getItem('ds_agent_activity') || '[]'); } catch { return []; }
@@ -142,6 +282,13 @@ let _lastSetTopbar = () => {};
 // ── Main Export ──────────────────────────────────────────────────────────────
 export async function pgAgentChat(setTopbar) {
   _lastSetTopbar = setTopbar;
+  if (!_tasksLoaded && !_tasksRefreshing) {
+    _refreshTasks().then(() => {
+      if (_agentView === 'hub' || _agentView === 'config') {
+        try { pgAgentChat(_lastSetTopbar); } catch {}
+      }
+    }).catch(() => {});
+  }
   if (_agentView === 'hub') return _renderHub(setTopbar);
   if (_agentView === 'chat-clinician') return _renderChat(setTopbar, 'clinician');
   if (_agentView === 'chat-patient') return _renderChat(setTopbar, 'patient');
@@ -581,7 +728,7 @@ window._agentSend = async function(agent) {
     // Auto-create tasks from TASK: lines
     reply.split('\n').filter(l => l.trim().startsWith('TASK:')).forEach(line => {
       const title = line.replace(/^TASK:\s*/, '').trim();
-      if (title) _addTask({ title, agent, status: 'pending', patient: '', due: '', priority: 'normal' });
+      if (title) { _addTask({ title, agent, status: 'pending', patient: '', due: '', priority: 'normal' }).catch(() => {}); }
     });
   } catch (err) {
     const errMsg = { role: 'assistant', content: `Error: ${err.message || 'Failed to reach agent.'}`, ts: new Date().toISOString() };
@@ -604,15 +751,24 @@ window._agentClearHistory = function(agent) {
   pgAgentChat(_lastSetTopbar);
 };
 
-window._agentAddTask = function() {
+window._agentAddTask = async function() {
   const title = document.getElementById('task-title')?.value.trim();
   if (!title) return;
-  _addTask({ title, patient: document.getElementById('task-patient')?.value.trim() || '', due: document.getElementById('task-due')?.value || '', priority: 'normal', agent: 'clinician', status: 'pending' });
+  try {
+    await _addTask({ title, patient: document.getElementById('task-patient')?.value.trim() || '', due: document.getElementById('task-due')?.value || '', priority: 'normal', agent: 'clinician', status: 'pending' });
+  } catch {}
   window._showNotifToast?.({ title: 'Task created', body: title, severity: 'success' });
   _agentView = 'config'; pgAgentChat(_lastSetTopbar);
 };
-window._agentCompleteTask = function(id) { _updateTaskStatus(id, 'done'); window._showNotifToast?.({ title: 'Done', body: '', severity: 'success' }); pgAgentChat(_lastSetTopbar); };
-window._agentDeleteTask = function(id) { const t = _loadTasks().filter(x => x.id !== id); _saveTasks(t); pgAgentChat(_lastSetTopbar); };
+window._agentCompleteTask = async function(id) {
+  try { await _updateTaskStatus(id, 'done'); } catch {}
+  window._showNotifToast?.({ title: 'Done', body: '', severity: 'success' });
+  pgAgentChat(_lastSetTopbar);
+};
+window._agentDeleteTask = async function(id) {
+  try { await _deleteTask(id); } catch {}
+  pgAgentChat(_lastSetTopbar);
+};
 window._agentSetTaskFilter = function(f) { _taskFilter = f; pgAgentChat(_lastSetTopbar); };
 
 window._agentSetProvider = function(provider) {
