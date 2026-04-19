@@ -22173,3 +22173,119 @@ body.dv2-accent-amber  { --dv2-accent: var(--amber);  --dv2-accent-2: var(--rose
     align-self: flex-end;
   }
 }
+
+/* ── Patient sidebar — colourful tile icons ───────────────────────────────
+   Each nav item gets a small rounded tile behind its emoji with a per-
+   area accent colour, so patients can recognise sections at a glance.
+   Overrides the monochrome .nav-icon styling used by the clinician app. */
+.pt-nav-item {
+  gap: 12px;
+  padding: 8px 16px;
+  border-radius: 10px;
+  margin: 2px 8px;
+}
+.pt-nav-item:hover { background: rgba(255,255,255,0.04); }
+.pt-nav-item.active {
+  background: rgba(0,212,188,0.08);
+  color: var(--text-primary);
+}
+.pt-nav-item.active::before { left: -8px; }
+.pt-nav-tile {
+  flex-shrink: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 30px; height: 30px;
+  border-radius: 9px;
+  font-size: 15px;
+  line-height: 1;
+  background: var(--_tile-bg, rgba(0,212,188,0.10));
+  border: 1px solid var(--_tile-border, rgba(0,212,188,0.22));
+  transition: transform 0.12s ease, background 0.15s ease, border-color 0.15s ease;
+}
+.pt-nav-item:hover .pt-nav-tile { transform: scale(1.08); }
+.pt-nav-item.active .pt-nav-tile {
+  background: var(--_tile-bg-active, rgba(0,212,188,0.22));
+  border-color: var(--_tile-border-active, rgba(0,212,188,0.5));
+  box-shadow: 0 0 0 3px var(--_tile-glow, rgba(0,212,188,0.08));
+}
+.pt-nav-label {
+  flex: 1;
+  font-size: 12.5px;
+  font-weight: 500;
+  letter-spacing: 0.1px;
+}
+
+/* Tone palette — each area gets its own colour */
+.pt-nav-tile--teal {
+  --_tile-bg: rgba(0,212,188,0.10);
+  --_tile-border: rgba(0,212,188,0.25);
+  --_tile-bg-active: rgba(0,212,188,0.22);
+  --_tile-border-active: rgba(0,212,188,0.55);
+  --_tile-glow: rgba(0,212,188,0.10);
+}
+.pt-nav-tile--blue {
+  --_tile-bg: rgba(96,165,250,0.12);
+  --_tile-border: rgba(96,165,250,0.28);
+  --_tile-bg-active: rgba(96,165,250,0.24);
+  --_tile-border-active: rgba(96,165,250,0.55);
+  --_tile-glow: rgba(96,165,250,0.10);
+}
+.pt-nav-tile--violet {
+  --_tile-bg: rgba(167,139,250,0.14);
+  --_tile-border: rgba(167,139,250,0.30);
+  --_tile-bg-active: rgba(167,139,250,0.26);
+  --_tile-border-active: rgba(167,139,250,0.58);
+  --_tile-glow: rgba(167,139,250,0.10);
+}
+.pt-nav-tile--green {
+  --_tile-bg: rgba(74,222,128,0.12);
+  --_tile-border: rgba(74,222,128,0.28);
+  --_tile-bg-active: rgba(74,222,128,0.24);
+  --_tile-border-active: rgba(74,222,128,0.55);
+  --_tile-glow: rgba(74,222,128,0.10);
+}
+.pt-nav-tile--amber {
+  --_tile-bg: rgba(251,191,36,0.14);
+  --_tile-border: rgba(251,191,36,0.30);
+  --_tile-bg-active: rgba(251,191,36,0.26);
+  --_tile-border-active: rgba(251,191,36,0.58);
+  --_tile-glow: rgba(251,191,36,0.10);
+}
+.pt-nav-tile--rose {
+  --_tile-bg: rgba(251,113,133,0.14);
+  --_tile-border: rgba(251,113,133,0.30);
+  --_tile-bg-active: rgba(251,113,133,0.26);
+  --_tile-border-active: rgba(251,113,133,0.58);
+  --_tile-glow: rgba(251,113,133,0.10);
+}
+.pt-nav-tile--slate {
+  --_tile-bg: rgba(148,163,184,0.12);
+  --_tile-border: rgba(148,163,184,0.25);
+  --_tile-bg-active: rgba(148,163,184,0.22);
+  --_tile-border-active: rgba(148,163,184,0.48);
+  --_tile-glow: rgba(148,163,184,0.10);
+}
+
+/* Bottom nav (mobile) — smaller tile, same tones */
+.pt-bottom-nav-tile {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 28px; height: 28px;
+  border-radius: 8px;
+  font-size: 14px;
+  line-height: 1;
+  background: var(--_tile-bg, rgba(0,212,188,0.10));
+  border: 1px solid var(--_tile-border, rgba(0,212,188,0.22));
+  margin-bottom: 3px;
+  transition: transform 0.12s ease;
+}
+.pt-bottom-nav-item.active .pt-bottom-nav-tile {
+  background: var(--_tile-bg-active, rgba(0,212,188,0.22));
+  border-color: var(--_tile-border-active, rgba(0,212,188,0.55));
+  transform: scale(1.05);
+}
+
+/* Light-theme tweaks — patient portal isn't primarily light-mode, but the
+   tiles still need to be readable if a clinic ever flips the theme. */
+@media (prefers-color-scheme: light) {
+  .pt-nav-item.active { background: rgba(0,212,188,0.10); }
+  .pt-nav-item:hover  { background: rgba(15,23,42,0.04); }
+}
