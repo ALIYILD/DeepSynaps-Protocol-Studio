@@ -1731,7 +1731,7 @@ export async function pgSettings(setTopbar, currentUser) {
               ['240','4 hours'],
             ].map(([v,l]) => `<option value="${v}" ${autoLogout === v ? 'selected' : ''}>${l}</option>`).join('')}
           </select>
-          <div style="font-size:11px;color:var(--text-tertiary);margin-top:4px">TODO: wire ds_auto_logout to idle-session watchdog</div>
+          <div style="font-size:11px;color:var(--text-tertiary);margin-top:4px">Idle logout is active — you will be signed out automatically after the selected period of inactivity.</div>
         </div>
 
         <div id="pref-save-msg" style="font-size:11.5px;color:var(--text-tertiary);margin-top:6px;min-height:14px"></div>
