@@ -9615,23 +9615,11 @@ function buildSearchIndex() {
   } catch (_e) { /* resilient */ }
 
   // ── Invoices ───────────────────────────────────────────────────────────────
-  try {
-    const invoices = JSON.parse(localStorage.getItem('ds_invoices') || '[]');
-    invoices.forEach(inv => {
-      if (!inv) return;
-      records.push({
-        id: 'inv_' + (inv.id || Math.random()),
-        type: 'invoice',
-        title: inv.patientName ? ('Invoice: ' + inv.patientName) : ('Invoice #' + (inv.id || inv.number)),
-        subtitle: [inv.status, inv.amount ? ('$' + inv.amount) : null].filter(Boolean).join(' · '),
-        tags: [inv.status, inv.type].filter(Boolean),
-        preview: inv.description || inv.notes || '',
-        navTarget: 'billing',
-        navParam: {},
-        date: inv.date || inv.createdAt || '',
-      });
-    });
-  } catch (_e) { /* resilient */ }
+  // Invoices live in the Finance Hub (server-backed at /api/v1/finance/*),
+  // not in localStorage. The global search indexer is synchronous and
+  // localStorage-only by design, so invoices are intentionally excluded
+  // here rather than indexed from a stale legacy key (`ds_invoices`).
+  // Users search invoices directly from the Finance Hub.
 
   // ── QA Reviews ─────────────────────────────────────────────────────────────
   try {

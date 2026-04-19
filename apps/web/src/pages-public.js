@@ -1578,7 +1578,7 @@ export function pgHome() {
           },
           {
             q: 'Can multiple clinicians share the same clinic account?',
-            a: 'Yes. The Clinic Team plan (from $699/mo) supports up to 5 professional seats with shared review queues, a team audit trail, and role-scoped access. The Enterprise plan supports unlimited seats across multiple sites.',
+            a: 'Yes. The Clinic Team plan (from $699/mo) supports up to 10 professional seats with shared review queues, a team audit trail, and role-scoped access. The Enterprise plan supports unlimited seats across multiple sites.',
           },
         ].map((faq, i) => `
           <div class="pub-faq-item" id="faq-${i}">
@@ -1733,7 +1733,7 @@ export function pgHome() {
             <div class="pub-plan-price"><span class="pub-plan-amount">$699</span><span class="pub-plan-period">/mo</span></div>
           </div>
           <ul class="pub-plan-features">
-            <li>Up to 5 professional seats</li>
+            <li>Up to 10 professional seats</li>
             <li>Clinician + Technician + Reviewer roles</li>
             <li>Shared protocol &amp; review queue</li>
             <li>Device-aware session execution</li>
