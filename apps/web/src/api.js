@@ -294,6 +294,20 @@ export const api = {
   deleteDocument: (id) => apiFetch(`/api/v1/documents/${id}`, { method: 'DELETE' }),
   listPatientDocuments: (patientId) => apiFetchWithRetry(`/api/v1/patients/${patientId}/documents`),
 
+  // Multipart upload for clinician-owned document files. Pass in a FormData
+  // holding at minimum `file` and optionally `title`, `doc_type`, `patient_id`,
+  // `notes`. Returns the created DocumentOut.
+  uploadDocument: (formData) => {
+    const token = getToken();
+    const headers = {};
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    return fetch(`${API_BASE}/api/v1/documents/upload`, { method: 'POST', headers, body: formData })
+      .then(r => { if (!r.ok) throw new Error(`API error ${r.status}`); return r.json(); });
+  },
+
+  // Absolute URL for a document's stored file — used as <a href=> for downloads.
+  documentDownloadUrl: (id) => `${API_BASE}/api/v1/documents/${encodeURIComponent(id)}/download`,
+
   // ── Clinical Knowledge ──────────────────────────────────────────────────
   // Retargeted: the legacy stub endpoints were never implemented. These now
   // point at the real curated sources so callers keep working.
