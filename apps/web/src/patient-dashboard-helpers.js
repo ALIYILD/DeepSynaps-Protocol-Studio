@@ -112,12 +112,13 @@ export function pickTodaysFocus(state = {}) {
   const now = Number.isFinite(state.now) ? state.now : Date.now();
   const EY = "TODAY'S FOCUS";
   const SEC = 'Later';
-  function card(kind, headline, caption, primaryLabel, primaryTarget, { hide = false } = {}) {
+  function card(kind, headline, caption, primaryLabel, primaryTarget, icon, { hide = false } = {}) {
     return {
       kind,
       eyebrow: EY,
       headline,
       caption,
+      icon,
       primary: { label: primaryLabel, target: primaryTarget },
       secondaryLabel: SEC,
       hide,
@@ -141,6 +142,7 @@ export function pickTodaysFocus(state = {}) {
           'A short review the night before helps you get the most from it.',
           'Open session notes',
           'patient-sessions',
+          'calendar',
         );
       }
     }
@@ -154,6 +156,7 @@ export function pickTodaysFocus(state = {}) {
       "Your care team uses this to see how you're doing day-to-day.",
       'Start check-in',
       'pt-wellness',
+      'clipboard',
     );
   }
 
@@ -172,6 +175,7 @@ export function pickTodaysFocus(state = {}) {
       caption,
       'Open task',
       'pt-wellness',
+      'check',
     );
   }
 
@@ -187,6 +191,7 @@ export function pickTodaysFocus(state = {}) {
       preview || 'Tap to read your latest message.',
       'Open message',
       'patient-messages',
+      'mail',
     );
   }
 
@@ -198,6 +203,7 @@ export function pickTodaysFocus(state = {}) {
       'Rest helps treatment work. Try an earlier wind-down tonight.',
       'Log how you feel',
       'pt-wellness',
+      'moon',
     );
   }
 
@@ -208,8 +214,175 @@ export function pickTodaysFocus(state = {}) {
     'Nothing is waiting on you. Small, consistent steps are what matter.',
     'See your progress',
     'pt-outcomes',
+    'sparkle',
     { hide: !!state.snoozed },
   );
+}
+
+/**
+ * Demo-mode detection for the Patient Dashboard. Pure helper — safe for
+ * server-side tests; reads from injected accessors so `localStorage` and
+ * `getToken` calls can be mocked.
+ *
+ * Returns true when ANY of the following holds:
+ *   - user.role === 'patient' AND user.email includes 'demo' or 'example'
+ *   - getToken() looks like the seeded 'patient-demo-token'
+ *   - localStorage 'ds_force_demo_patient' === '1'
+ * Safe: returns false when user is null/undefined.
+ *
+ * @param {object|null} user
+ * @param {object} [deps]
+ * @param {() => string|null} [deps.getToken]
+ * @param {{ getItem: (k: string) => string|null }} [deps.storage]
+ */
+export function isDemoPatient(user, deps = {}) {
+  const getToken = typeof deps.getToken === 'function' ? deps.getToken : null;
+  const storage = deps.storage || (typeof localStorage !== 'undefined' ? localStorage : null);
+  // 1. Explicit force flag via localStorage.
+  try {
+    if (storage && storage.getItem && storage.getItem('ds_force_demo_patient') === '1') return true;
+  } catch (_e) { /* ignore */ }
+  // 2. Seeded demo token.
+  try {
+    if (getToken) {
+      const tok = getToken();
+      if (typeof tok === 'string' && tok.indexOf('patient-demo-token') >= 0) return true;
+    }
+  } catch (_e) { /* ignore */ }
+  // 3. Role+email heuristic.
+  if (!user || typeof user !== 'object') return false;
+  if (user.role !== 'patient') return false;
+  const email = String(user.email || '').toLowerCase();
+  if (!email) return false;
+  return email.indexOf('demo') >= 0 || email.indexOf('example') >= 0;
+}
+
+/**
+ * Patient-friendly demo seed — Samantha Li (34F · MDD · tDCS · Course 3/20).
+ * Used only when `isDemoPatient()` returns true, and only overlaid into empty
+ * fields. Kept as a deep-frozen-ish plain object so tests + renderer share the
+ * same reference shape.
+ *
+ * `administered_at` / `scheduled_at` values are computed at import time so the
+ * demo looks chronologically sensible from "today" regardless of clock.
+ */
+function _demoDates() {
+  const ONE_DAY = 86400000;
+  const now = Date.now();
+  // Anchor weekly cadence back 8 weeks; final entry ~this week (just past).
+  const weeksAgo = n => new Date(now - n * 7 * ONE_DAY).toISOString();
+  const daysAhead = n => new Date(now + n * ONE_DAY).toISOString();
+  return {
+    // PHQ-9: 6 dated entries dropping 22 → 14 over 8 weeks (weekly cadence).
+    phq9: [
+      { template_name: 'PHQ-9', score_numeric: 22, administered_at: weeksAgo(8) },
+      { template_name: 'PHQ-9', score_numeric: 20, administered_at: weeksAgo(7) },
+      { template_name: 'PHQ-9', score_numeric: 19, administered_at: weeksAgo(5) },
+      { template_name: 'PHQ-9', score_numeric: 17, administered_at: weeksAgo(3) },
+      { template_name: 'PHQ-9', score_numeric: 15, administered_at: weeksAgo(1) },
+      { template_name: 'PHQ-9', score_numeric: 14, administered_at: new Date(now - 2 * ONE_DAY).toISOString() },
+    ],
+    // GAD-7: 4 dated entries dropping 15 → 10.
+    gad7: [
+      { template_name: 'GAD-7', score_numeric: 15, administered_at: weeksAgo(7) },
+      { template_name: 'GAD-7', score_numeric: 13, administered_at: weeksAgo(4) },
+      { template_name: 'GAD-7', score_numeric: 11, administered_at: weeksAgo(2) },
+      { template_name: 'GAD-7', score_numeric: 10, administered_at: new Date(now - 3 * ONE_DAY).toISOString() },
+    ],
+    // Next session: 2 days out at 09:00.
+    nextSessionAt: (() => {
+      const d = new Date(now + 2 * ONE_DAY);
+      d.setHours(9, 0, 0, 0);
+      return d.toISOString();
+    })(),
+    daysAhead,
+  };
+}
+
+const _DEMO_D = _demoDates();
+
+export const DEMO_PATIENT = Object.freeze({
+  profile: Object.freeze({
+    first_name: 'Samantha',
+    last_name: 'Li',
+    age: 34,
+    condition: 'Major Depressive Disorder',
+    modality: 'tDCS',
+  }),
+  activeCourse: Object.freeze({
+    id: 'demo-crs-sam-li',
+    name: 'tDCS Course — Left DLPFC · Depression',
+    total_sessions_planned: 20,
+    session_count: 12,
+    modality_slug: 'tDCS',
+    condition_slug: 'depression-mdd',
+    condition: 'mood',
+    status: 'active',
+    phase: 'Active Treatment',
+    primary_clinician_name: 'Dr. Amelia Kolmar',
+    care_team: [
+      { name: 'Dr. Amelia Kolmar', role: 'Clinical Director',    avatar: 'AK', color: 'teal' },
+      { name: 'Raquel Ortiz, NP',  role: 'Nurse Practitioner',   avatar: 'RO', color: 'violet' },
+      { name: 'Jordan Hale',       role: 'tDCS Technician',      avatar: 'JH', color: 'amber' },
+    ],
+  }),
+  nextSession: Object.freeze({
+    id: 'demo-sess-13',
+    session_number: 13,
+    scheduled_at: _DEMO_D.nextSessionAt,
+    status: 'scheduled',
+    location: 'Room A',
+    modality_slug: 'tDCS',
+    duration_minutes: 30,
+    time_label: '9:00 AM',
+  }),
+  outcomes: Object.freeze([..._DEMO_D.phq9, ..._DEMO_D.gad7]),
+  tasks: Object.freeze([
+    { id: 'demo-task-1', title: 'Breath pacing (4–7–8 × 3)', category: 'breathwork',   completed: true,  task_type: 'exercise' },
+    { id: 'demo-task-2', title: 'Daily mood log',             category: 'reflection',  completed: true,  task_type: 'checkin' },
+    { id: 'demo-task-3', title: 'Read: "Why DLPFC?"',        category: 'learning',    completed: false, task_type: 'reading' },
+    { id: 'demo-task-4', title: 'Evening check-in',           category: 'reflection',  completed: false, task_type: 'checkin' },
+  ]),
+  messages: Object.freeze([
+    {
+      id: 'demo-msg-1',
+      sender_name: 'Dr. Amelia Kolmar',
+      sender_type: 'clinician',
+      subject: 'Great progress this week',
+      body: 'Great progress this week — your PHQ-9 dropped 3 points. See you Tuesday.',
+      is_read: false,
+      created_at: new Date(Date.now() - 5 * 3600000).toISOString(),
+    },
+  ]),
+  wearables: Object.freeze({
+    hrv: 48,
+    sleep: 7.4,
+    rhr: 62,
+    steps: 7800,
+    sleep_trend_7d: [6.2, 7.0, 6.8, 7.5, 7.1, 7.4, 7.4],
+  }),
+  streak: 6,
+  mood_7d: [6, 5, 7, 6, 8, 7, 7],
+});
+
+/**
+ * Overlay a demo value into `real` only when `real` is "empty". Never
+ * overwrites real data the endpoint returned.
+ * Rules for "empty":
+ *   - null / undefined / '' → empty
+ *   - array of length 0     → empty
+ *   - everything else       → NOT empty (keep real)
+ * Returns `{ value, usedDemo }` — the truthy `usedDemo` flag lets callers
+ * tag the rendered card with `.pth-demo-tag`.
+ */
+export function demoOverlay(real, demo) {
+  const isEmpty = (
+    real == null
+    || real === ''
+    || (Array.isArray(real) && real.length === 0)
+  );
+  if (isEmpty) return { value: demo, usedDemo: true };
+  return { value: real, usedDemo: false };
 }
 
 /**

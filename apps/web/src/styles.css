@@ -21418,3 +21418,212 @@ body.dv2-accent-amber  { --dv2-accent: var(--amber);  --dv2-accent-2: var(--rose
   .pth-focus-caption { color: #2dd4bf; }
   .pth-focus-btn--ghost { color: #475569; border-color: rgba(0,0,0,0.12); }
 }
+
+/* ── Patient Home demo + visuals (.pth-demo-*, .pth-viz-*) ─────────────── */
+
+/* Demo banner */
+.pth-demo-banner {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 14px; margin-bottom: 14px;
+  background: linear-gradient(135deg, rgba(251,191,36,0.10), rgba(251,191,36,0.04));
+  border: 1px solid rgba(251,191,36,0.25);
+  border-radius: 12px;
+  color: #fbbf24;
+  font-size: 12.5px; font-weight: 500; line-height: 1.45;
+}
+.pth-demo-banner-ico {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 22px; height: 22px; border-radius: 999px;
+  background: rgba(251,191,36,0.16); color: #fbbf24; flex-shrink: 0;
+  animation: pth-viz-float 3.6s ease-in-out infinite;
+}
+.pth-demo-banner-text { flex: 1; color: rgba(251,191,36,0.92); }
+.pth-demo-banner-btn {
+  appearance: none; background: transparent; border: 1px solid rgba(251,191,36,0.30);
+  color: #fbbf24; border-radius: 8px; padding: 5px 10px;
+  font-size: 11.5px; font-weight: 600; cursor: pointer;
+  transition: background 160ms ease, border-color 160ms ease;
+}
+.pth-demo-banner-btn:hover { background: rgba(251,191,36,0.10); border-color: rgba(251,191,36,0.55); }
+
+/* Demo-tag chip (appears next to card titles when that card uses demo data) */
+.pth-demo-tag {
+  display: inline-block; margin-left: 8px;
+  padding: 1px 7px; border-radius: 999px;
+  background: rgba(251,191,36,0.14); color: #fbbf24;
+  border: 1px solid rgba(251,191,36,0.28);
+  font-size: 9.5px; font-weight: 700; letter-spacing: 0.6px;
+  text-transform: uppercase; vertical-align: middle;
+  font-family: var(--font-mono, ui-monospace, 'SF Mono', monospace);
+}
+
+/* Hero icon — soft-gradient sparkle next to the greeting */
+.pth-hero-ico {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 28px; height: 28px; margin-right: 6px; vertical-align: -6px;
+  border-radius: 999px;
+  background: linear-gradient(135deg, rgba(0,212,188,0.18), rgba(155,127,255,0.16));
+  color: #2dd4bf;
+}
+
+/* Focus card — icon circle next to eyebrow */
+.pth-focus-eyebrow-row {
+  display: flex; align-items: center; gap: 8px;
+  margin-bottom: 8px;
+}
+.pth-focus-eyebrow-row .pth-focus-eyebrow { margin-bottom: 0; }
+.pth-viz-iconcircle {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 26px; height: 26px; border-radius: 999px;
+  background: rgba(0,212,188,0.12); color: #2dd4bf;
+  border: 1px solid rgba(0,212,188,0.22); flex-shrink: 0;
+}
+.pth-viz-iconcircle--teal   { background: rgba(0,212,188,0.12);  border-color: rgba(0,212,188,0.22);  color: #2dd4bf; }
+.pth-viz-iconcircle--violet { background: rgba(155,127,255,0.14); border-color: rgba(155,127,255,0.26); color: #a78bfa; }
+.pth-viz-iconcircle--amber  { background: rgba(251,191,36,0.14);  border-color: rgba(251,191,36,0.28);  color: #fbbf24; }
+.pth-viz-iconcircle--rose   { background: rgba(251,113,133,0.14); border-color: rgba(251,113,133,0.28); color: #fb7185; }
+.pth-viz-iconcircle--blue   { background: rgba(96,165,250,0.14);  border-color: rgba(96,165,250,0.28);  color: #60a5fa; }
+
+/* Progress card — ring + sparkline row */
+.pth-viz-row {
+  display: flex; align-items: center; gap: 14px;
+  margin-bottom: 10px;
+}
+.pth-viz-ring {
+  position: relative; width: 60px; height: 60px; flex-shrink: 0;
+}
+.pth-viz-ring-num {
+  position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+  font-size: 13px; font-weight: 700; color: var(--text-primary); letter-spacing: 0.2px;
+}
+.pth-viz-spark {
+  flex: 1; min-width: 0; display: flex; align-items: center;
+  padding: 4px 6px; border-radius: 10px;
+  background: rgba(255,255,255,0.02);
+  border: 1px solid rgba(255,255,255,0.05);
+}
+.pth-viz-spark svg { display: block; width: 100%; max-width: 140px; height: 28px; }
+
+/* Homework 7-dot streak strip */
+.pth-viz-streak {
+  display: flex; gap: 6px; margin: 4px 0 12px;
+}
+.pth-viz-streak-dot {
+  position: relative;
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 22px; height: 22px; border-radius: 999px;
+  background: transparent; border: 1px solid rgba(255,255,255,0.12);
+  flex-shrink: 0;
+}
+.pth-viz-streak-dot--done {
+  background: rgba(0,212,188,0.22); border-color: rgba(0,212,188,0.55);
+}
+.pth-viz-streak-dot--missed {
+  background: transparent; border-color: rgba(251,113,133,0.28);
+}
+.pth-viz-streak-dot--today {
+  background: transparent; border: 2px solid rgba(0,212,188,0.75);
+  box-shadow: 0 0 0 2px rgba(0,212,188,0.12);
+}
+.pth-viz-streak-day {
+  font-size: 9px; font-weight: 700; color: rgba(255,255,255,0.72);
+  letter-spacing: 0.3px; text-transform: uppercase;
+}
+
+/* Unread pulse dot on the Care team "Message your team →" button */
+.pth-viz-pulse-dot {
+  display: inline-block; width: 8px; height: 8px;
+  border-radius: 999px; background: #22c55e;
+  margin-right: 8px; vertical-align: middle;
+  box-shadow: 0 0 0 0 rgba(34,197,94,0.55);
+  animation: pth-viz-pulsedot 1.8s ease-out infinite;
+}
+
+/* Wellness micro-stat pills */
+.pth-viz-pills {
+  display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 8px;
+}
+.pth-viz-pill {
+  display: inline-flex; align-items: baseline; gap: 6px;
+  padding: 6px 10px; border-radius: 999px;
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.07);
+  font-size: 12px; color: var(--text-secondary);
+}
+.pth-viz-pill-ico {
+  display: inline-flex; align-items: center; justify-content: center;
+  color: #2dd4bf; transform: translateY(2px);
+}
+.pth-viz-pill-val { font-weight: 700; color: var(--text-primary); }
+.pth-viz-pill-sub { font-size: 10.5px; color: var(--text-tertiary); letter-spacing: 0.2px; }
+.pth-wellness-hrv { font-size: 11.5px; color: var(--text-tertiary); }
+
+/* Empty-state icon (honest empty cards) */
+.pth-empty-ico {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 28px; height: 28px; border-radius: 999px;
+  background: rgba(255,255,255,0.04);
+  color: var(--text-tertiary);
+  margin-bottom: 6px;
+}
+
+/* Micro-animations — pulse on focus primary, float on demo-banner sparkle */
+.pth-viz-pulse { position: relative; }
+.pth-viz-pulse::after {
+  content: ''; position: absolute; inset: 0; border-radius: inherit;
+  box-shadow: 0 0 0 0 rgba(0,212,188,0.55);
+  animation: pth-viz-btnpulse 2.4s ease-out infinite;
+  pointer-events: none;
+}
+.pth-viz-float { animation: pth-viz-float 3.6s ease-in-out infinite; }
+
+@keyframes pth-viz-btnpulse {
+  0%   { box-shadow: 0 0 0 0 rgba(0,212,188,0.38); }
+  70%  { box-shadow: 0 0 0 10px rgba(0,212,188,0); }
+  100% { box-shadow: 0 0 0 0 rgba(0,212,188,0); }
+}
+@keyframes pth-viz-pulsedot {
+  0%   { box-shadow: 0 0 0 0 rgba(34,197,94,0.55); }
+  70%  { box-shadow: 0 0 0 8px rgba(34,197,94,0); }
+  100% { box-shadow: 0 0 0 0 rgba(34,197,94,0); }
+}
+@keyframes pth-viz-float {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(-3px); }
+}
+
+/* Respect prefers-reduced-motion: disable all new animations */
+@media (prefers-reduced-motion: reduce) {
+  .pth-viz-pulse::after,
+  .pth-viz-pulse-dot,
+  .pth-viz-float,
+  .pth-demo-banner-ico { animation: none !important; }
+}
+
+/* Ghost-variant footer button for the dev demo toggle */
+.pth-footer-btn--ghost {
+  background: transparent; border-color: rgba(255,255,255,0.08);
+  color: var(--text-secondary);
+}
+.pth-footer-btn--ghost:hover {
+  background: rgba(255,255,255,0.04); border-color: rgba(255,255,255,0.14);
+}
+
+/* Light theme tweaks */
+@media (prefers-color-scheme: light) {
+  .pth-viz-iconcircle--teal   { background: rgba(0,212,188,0.14); }
+  .pth-viz-spark { background: rgba(0,0,0,0.02); border-color: rgba(0,0,0,0.05); }
+  .pth-viz-streak-dot { border-color: rgba(0,0,0,0.14); }
+  .pth-viz-streak-dot--missed { border-color: rgba(251,113,133,0.35); }
+  .pth-viz-pill { background: rgba(0,0,0,0.03); border-color: rgba(0,0,0,0.06); }
+  .pth-empty-ico { background: rgba(0,0,0,0.04); }
+  .pth-viz-streak-day { color: rgba(15,23,42,0.62); }
+}
+
+/* Responsive tweaks for the new visuals */
+@media (max-width: 900px) {
+  .pth-viz-row { flex-wrap: wrap; }
+  .pth-viz-spark svg { max-width: 100%; }
+  .pth-viz-pills { gap: 6px; }
+  .pth-demo-banner { flex-wrap: wrap; }
+}

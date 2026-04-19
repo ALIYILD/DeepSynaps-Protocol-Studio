@@ -16,6 +16,9 @@ import {
   outcomeGoalMarker,
   groupOutcomesByTemplate,
   pickTodaysFocus,
+  isDemoPatient,
+  DEMO_PATIENT,
+  demoOverlay,
 } from './patient-dashboard-helpers.js';
 
 // ── computeCountdown ─────────────────────────────────────────────────────────
@@ -276,4 +279,222 @@ test('pickTodaysFocus: snooze does NOT hide a real actionable card', () => {
   });
   assert.equal(focus.kind, 'task');
   assert.equal(focus.hide, false);
+});
+
+// ── pickTodaysFocus: icon field ──────────────────────────────────────────────
+
+test('pickTodaysFocus: returns an icon field for every branch', () => {
+  const now = Date.parse('2026-04-19T10:00:00Z');
+
+  // session
+  assert.equal(
+    pickTodaysFocus({ now, nextSessionAt: '2026-04-20T09:00:00Z' }).icon,
+    'calendar',
+  );
+  // checkin
+  assert.equal(
+    pickTodaysFocus({ checkedInToday: false }).icon,
+    'clipboard',
+  );
+  // task
+  assert.equal(
+    pickTodaysFocus({ checkedInToday: true, openTasks: [{ title: 'Walk' }] }).icon,
+    'check',
+  );
+  // message
+  assert.equal(
+    pickTodaysFocus({
+      checkedInToday: true, openTasks: [],
+      unreadMessage: { sender_name: 'Dr. X', body: 'hi' },
+    }).icon,
+    'mail',
+  );
+  // sleep
+  assert.equal(
+    pickTodaysFocus({
+      checkedInToday: true, openTasks: [], unreadMessage: null,
+      lastNightSleepHours: 4.5,
+    }).icon,
+    'moon',
+  );
+  // fallback
+  assert.equal(
+    pickTodaysFocus({
+      checkedInToday: true, openTasks: [], unreadMessage: null,
+      lastNightSleepHours: 8,
+    }).icon,
+    'sparkle',
+  );
+});
+
+// ── isDemoPatient ─────────────────────────────────────────────────────────────
+
+function _mockStorage(map = {}) {
+  return { getItem: (k) => (k in map ? map[k] : null) };
+}
+
+test('isDemoPatient: null/undefined user with no token/flag → false', () => {
+  assert.equal(
+    isDemoPatient(null, { getToken: () => null, storage: _mockStorage() }),
+    false,
+  );
+  assert.equal(
+    isDemoPatient(undefined, { getToken: () => null, storage: _mockStorage() }),
+    false,
+  );
+});
+
+test('isDemoPatient: detects seeded patient-demo-token', () => {
+  const r = isDemoPatient(
+    { role: 'patient', email: 'real@hospital.com' },
+    { getToken: () => 'patient-demo-token', storage: _mockStorage() },
+  );
+  assert.equal(r, true);
+});
+
+test('isDemoPatient: detects demo email (case-insensitive)', () => {
+  const r = isDemoPatient(
+    { role: 'patient', email: 'Demo.User@Example.com' },
+    { getToken: () => 'real-token', storage: _mockStorage() },
+  );
+  assert.equal(r, true);
+});
+
+test('isDemoPatient: detects ds_force_demo_patient flag', () => {
+  const r = isDemoPatient(
+    { role: 'clinician', email: 'anyone@corp.com' },
+    {
+      getToken: () => 'real-token',
+      storage: _mockStorage({ ds_force_demo_patient: '1' }),
+    },
+  );
+  assert.equal(r, true);
+});
+
+test('isDemoPatient: non-patient role with normal email → false', () => {
+  const r = isDemoPatient(
+    { role: 'clinician', email: 'real@clinic.com' },
+    { getToken: () => null, storage: _mockStorage() },
+  );
+  assert.equal(r, false);
+});
+
+test('isDemoPatient: patient with non-demo email → false', () => {
+  const r = isDemoPatient(
+    { role: 'patient', email: 'samantha@hospital.com' },
+    { getToken: () => null, storage: _mockStorage() },
+  );
+  assert.equal(r, false);
+});
+
+// ── DEMO_PATIENT seed ─────────────────────────────────────────────────────────
+
+test('DEMO_PATIENT: profile matches Samantha Li · MDD · tDCS', () => {
+  assert.equal(DEMO_PATIENT.profile.first_name, 'Samantha');
+  assert.equal(DEMO_PATIENT.profile.last_name, 'Li');
+  assert.equal(DEMO_PATIENT.profile.age, 34);
+  assert.equal(DEMO_PATIENT.profile.condition, 'Major Depressive Disorder');
+  assert.equal(DEMO_PATIENT.profile.modality, 'tDCS');
+});
+
+test('DEMO_PATIENT: activeCourse has 20 planned / 12 done with full 3-member care team', () => {
+  assert.equal(DEMO_PATIENT.activeCourse.total_sessions_planned, 20);
+  assert.equal(DEMO_PATIENT.activeCourse.session_count, 12);
+  assert.equal(DEMO_PATIENT.activeCourse.modality_slug, 'tDCS');
+  assert.equal(DEMO_PATIENT.activeCourse.status, 'active');
+  assert.equal(DEMO_PATIENT.activeCourse.care_team.length, 3);
+  const roles = DEMO_PATIENT.activeCourse.care_team.map(m => m.role);
+  assert.ok(roles.includes('Clinical Director'));
+  assert.ok(roles.includes('Nurse Practitioner'));
+  assert.ok(roles.includes('tDCS Technician'));
+});
+
+test('DEMO_PATIENT.outcomes: ≥5 dated PHQ-9 entries with non-null score_numeric', () => {
+  const phq = DEMO_PATIENT.outcomes.filter(o => o.template_name === 'PHQ-9');
+  assert.ok(phq.length >= 5, 'at least 5 PHQ-9 entries');
+  for (const o of phq) {
+    assert.ok(o.administered_at, 'each entry has administered_at');
+    assert.equal(typeof o.score_numeric, 'number');
+    assert.ok(o.score_numeric != null && Number.isFinite(o.score_numeric));
+  }
+  // Trend drops 22 → 14 over the series.
+  const sorted = phq.slice().sort(
+    (a, b) => new Date(a.administered_at) - new Date(b.administered_at),
+  );
+  assert.equal(sorted[0].score_numeric, 22);
+  assert.equal(sorted[sorted.length - 1].score_numeric, 14);
+});
+
+test('DEMO_PATIENT.outcomes: GAD-7 has ≥4 dated entries dropping 15 → 10', () => {
+  const gad = DEMO_PATIENT.outcomes.filter(o => o.template_name === 'GAD-7');
+  assert.ok(gad.length >= 4);
+  const sorted = gad.slice().sort(
+    (a, b) => new Date(a.administered_at) - new Date(b.administered_at),
+  );
+  assert.equal(sorted[0].score_numeric, 15);
+  assert.equal(sorted[sorted.length - 1].score_numeric, 10);
+});
+
+test('DEMO_PATIENT.tasks: 4 items, 2 complete + 2 pending', () => {
+  assert.equal(DEMO_PATIENT.tasks.length, 4);
+  const done = DEMO_PATIENT.tasks.filter(t => t.completed).length;
+  assert.equal(done, 2);
+  assert.equal(DEMO_PATIENT.tasks.length - done, 2);
+});
+
+test('DEMO_PATIENT.messages: 1 unread clinician message from Dr. Kolmar', () => {
+  assert.equal(DEMO_PATIENT.messages.length, 1);
+  const m = DEMO_PATIENT.messages[0];
+  assert.equal(m.is_read, false);
+  assert.ok(/Kolmar/.test(m.sender_name));
+  assert.ok(/PHQ-9/.test(m.body));
+});
+
+test('DEMO_PATIENT.wearables: patient-friendly values (HRV 48, sleep 7.4h, RHR 62, 7.8k steps)', () => {
+  const w = DEMO_PATIENT.wearables;
+  assert.equal(w.hrv, 48);
+  assert.equal(w.sleep, 7.4);
+  assert.equal(w.rhr, 62);
+  assert.equal(w.steps, 7800);
+  assert.equal(w.sleep_trend_7d.length, 7);
+});
+
+test('DEMO_PATIENT: streak = 6 and mood_7d is a 7-day 1–10 array', () => {
+  assert.equal(DEMO_PATIENT.streak, 6);
+  assert.equal(DEMO_PATIENT.mood_7d.length, 7);
+  for (const v of DEMO_PATIENT.mood_7d) {
+    assert.ok(v >= 1 && v <= 10);
+  }
+});
+
+// ── demoOverlay ────────────────────────────────────────────────────────────
+
+test('demoOverlay: real data wins over demo when real is non-empty', () => {
+  const realCourse = { id: 'real-1', status: 'active', total_sessions_planned: 6 };
+  const { value, usedDemo } = demoOverlay(realCourse, DEMO_PATIENT.activeCourse);
+  assert.equal(value.id, 'real-1');
+  assert.equal(usedDemo, false);
+});
+
+test('demoOverlay: demo fills when real is null/undefined/empty-string/empty-array', () => {
+  const d = { hello: 'world' };
+  assert.deepEqual(demoOverlay(null, d),      { value: d, usedDemo: true });
+  assert.deepEqual(demoOverlay(undefined, d), { value: d, usedDemo: true });
+  assert.deepEqual(demoOverlay('', d),        { value: d, usedDemo: true });
+  assert.deepEqual(demoOverlay([], d),        { value: d, usedDemo: true });
+});
+
+test('demoOverlay: non-empty array keeps real (does not overwrite)', () => {
+  const real = [{ id: 1, is_read: false }];
+  const demo = [{ id: 99, is_read: true }];
+  const { value, usedDemo } = demoOverlay(real, demo);
+  assert.equal(usedDemo, false);
+  assert.equal(value[0].id, 1);
+});
+
+test('demoOverlay: zero-number is kept as real (not treated as empty)', () => {
+  // 0 is not "empty" — it's a valid value (e.g. session_count = 0).
+  const { value, usedDemo } = demoOverlay(0, 42);
+  assert.equal(usedDemo, false);
+  assert.equal(value, 0);
 });
