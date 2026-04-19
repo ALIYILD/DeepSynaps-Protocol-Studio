@@ -9383,17 +9383,23 @@ export async function pgGovernance(setTopbar, _navigate) {
     ]},
   ];
 
-  const _regChecklist = compliance?.regulatory || [
-    { label: 'HIPAA · BAA coverage', value: '6 / 6', ok: true },
-    { label: 'GDPR · Article 30 registry', value: 'Current', ok: true },
-    { label: 'ISO 13485 · QMS audit', value: 'Q3 due', warn: true },
-    { label: 'FDA 21 CFR 820 · DHF lock', value: 'Verified', ok: true },
-    { label: 'Protocol sign-off currency', value: '100 %', ok: true },
-    { label: 'Clinician certification', value: '97 %', ok: true },
-    { label: 'AE reporting within 24 h', value: '100 %', ok: true },
-    { label: 'Evidence review cycle', value: '92 %', warn: true },
-    { label: 'Next regulator review', value: 'Jun 18', warn: true },
-  ];
+  // Regulatory checklist — sourced from registry-backed governance rules where
+  // available. Falls back to a minimal computed view drawn from real loaded data
+  // so non-admin viewers still see something honest.
+  const _regChecklist = (Array.isArray(governanceRules) && governanceRules.length > 0)
+    ? governanceRules.slice(0, 9).map(g => ({
+        label: g.label || g.name || g.rule_name || g.id || 'Governance rule',
+        value: (g.status || g.review_status || (g.active ? 'Active' : 'Pending')),
+        ok:   /active|verified|current|approved|reviewed/i.test(g.status || g.review_status || (g.active ? 'active' : '')),
+        warn: /due|pending|warn|escalate/i.test(g.status || g.review_status || ''),
+      }))
+    : [
+        { label: 'Adverse events · close rate', value: aes.length ? `${aes.filter(a=>/closed|resolved/i.test(a.status||'')).length} / ${aes.length}` : '0 / 0', ok: true },
+        { label: 'Review queue · completion',   value: reviewItems.length ? `${reviewItems.filter(r=>/approved|completed/i.test(r.status||'')).length} / ${reviewItems.length}` : '0 / 0', ok: true },
+        { label: 'Audit trail visibility',      value: auditItems.length ? 'Active' : 'Restricted', warn: !auditItems.length },
+        { label: 'Evidence ledger size',        value: `${evidence.length} citations`, ok: evidence.length > 0 },
+        { label: 'Governance rules registry',   value: 'Not loaded', warn: true },
+      ];
 
   const _evidenceLedger = (Array.isArray(evidence) && evidence.length > 0)
     ? evidence.slice(0, 6).map((e, i) => ({
@@ -9445,8 +9451,25 @@ export async function pgGovernance(setTopbar, _navigate) {
         { id:'AE-2603-08', title:'Mild dizziness post-ramp-up',             sub:'Alex Huang · SOP-OC-002 · Mar 28',            sev:'mild', state:'Closed',               closed:true },
       ];
 
+  // Normalise real backend AuditEvent ({event_id,target_id,target_type,action,role,note,created_at})
+  // into the {ts, actor, action} shape the line renderer expects.
+  const _normaliseAuditEvent = (e) => {
+    if (!e) return { ts:'—', actor:'system', action:'' };
+    if (e.ts && e.actor && e.action && !e.event_id) return e;
+    let ts = '—';
+    if (e.created_at) {
+      const d = new Date(e.created_at);
+      ts = isNaN(d) ? String(e.created_at) : d.toISOString().slice(11, 19);
+    }
+    const actor = (e.role || 'system').toLowerCase();
+    const targetTxt = [e.target_type, e.target_id].filter(Boolean).join(' · ');
+    const noteTxt   = e.note ? ` — ${_escG(e.note)}` : '';
+    const action    = `${_escG(e.action || 'event')}${targetTxt ? ` · <strong>${_escG(targetTxt)}</strong>` : ''}${noteTxt}`;
+    return { ts, actor, action };
+  };
+
   const _auditLines = (Array.isArray(audit?.events) && audit.events.length > 0)
-    ? audit.events.slice(0, 12)
+    ? audit.events.slice(0, 12).map(_normaliseAuditEvent)
     : [
         { ts:'04:02:18', actor:'system', action:'audit hash verified · chain head <strong>0x8a4f…c219</strong>' },
         { ts:'03:58:41', actor:'AK',     action:'signed protocol <strong>SOP-DP-007 v3.2</strong> · step 2/3' },
