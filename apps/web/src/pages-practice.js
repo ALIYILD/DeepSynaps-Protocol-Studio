@@ -3076,7 +3076,8 @@ let _chatMessages = [];
 let _chatPatientCtx = null;
 
 export async function pgAIAssistant(setTopbar) {
-  setTopbar('AI Clinical Assistant', '<span style="font-size:11px;color:var(--teal);padding:4px 10px;background:rgba(0,212,188,0.1);border-radius:var(--radius-sm)">✦ Powered by Claude</span>');
+  // Topbar: stay model-agnostic — backend picks the provider/model.
+  setTopbar('AI Clinical Assistant', '<span style="font-size:11px;color:var(--teal);padding:4px 10px;background:rgba(0,212,188,0.1);border-radius:var(--radius-sm)">✦ Evidence-grounded AI</span>');
 
   const el = document.getElementById('content');
 

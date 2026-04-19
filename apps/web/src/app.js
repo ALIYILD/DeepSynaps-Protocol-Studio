@@ -2096,54 +2096,20 @@ window.addEventListener('popstate', (e) => {
 });
 
 // ── AI Clinical Co-pilot ─────────────────────────────────────────────────────
+// Wired to the real backend `/api/v1/chat/clinician` endpoint. No hardcoded
+// AI responses — the model choice is made server-side. Clinician-only surface.
 (function initAICopilot() {
 
-  // ── Response knowledge base ───────────────────────────────────────────────
-  const AI_RESPONSES = {
-    tms: [
-      'TMS (Transcranial Magnetic Stimulation) protocols typically run 20–30 sessions over 4–6 weeks. Standard parameters for depression: 10 Hz, 120% MT, left DLPFC, 3000 pulses/session.',
-      'For TMS safety screening, always check: metal implants, seizure history, medication interactions (especially lithium, clozapine, bupropion at high doses).',
-    ],
-    neurofeedback: [
-      'Neurofeedback protocols for ADHD typically target SMR (12–15 Hz) reward and theta (4–8 Hz) inhibit at Cz. Expect 20–40 sessions for sustained benefit.',
-      'For PTSD, alpha-theta training (cross-over point protocol) at Pz is well-supported in the literature. Sessions run 20–30 min.',
-    ],
-    phq: [
-      'PHQ-9 scoring: 0–4 Minimal, 5–9 Mild, 10–14 Moderate, 15–19 Moderately Severe, 20–27 Severe. A 5-point change is considered clinically meaningful.',
-    ],
-    gad: [
-      'GAD-7 scoring: 0–4 Minimal, 5–9 Mild, 10–14 Moderate, 15–21 Severe. A 5-point change is clinically meaningful.',
-    ],
-    medication: [
-      'For TMS safety: lithium requires monitoring (keep <0.8 mEq/L), clozapine is a relative contraindication, bupropion >300 mg/day requires conservative parameters.',
-    ],
-    session: [
-      'Session compliance below 80% is associated with reduced outcomes. Consider reaching out to patients with 2+ missed sessions.',
-    ],
-    evidence: [
-      'Effect sizes for neuromodulation: TMS for depression d=0.55 (George 2010), Neurofeedback for ADHD d=0.59 (Arns 2009), tDCS for depression d=0.37–0.43.',
-    ],
-    tdcs: [
-      'tDCS (transcranial direct current stimulation) for depression: anode at F3 (left DLPFC), cathode at right supraorbital. Typical: 2 mA, 20 min, 5 sessions/week for 3 weeks. Effect sizes range d=0.37–0.43.',
-    ],
-    adhd: [
-      'ADHD neurofeedback: SMR/theta ratio training at Cz is the most replicated protocol. Typical course: 30–40 sessions, 2–3×/week. Combined with slow cortical potential (SCP) training for non-responders.',
-    ],
-    ptsd: [
-      'For PTSD: alpha-theta training at Pz (Peniston protocol) shows strong evidence. TMS to right DLPFC (inhibitory, 1 Hz) is also used. Both typically require 20+ sessions.',
-    ],
-    anxiety: [
-      'Anxiety disorders: alpha asymmetry NFB (increase left frontal alpha) is commonly used. GAD-7 should be tracked every 4 sessions. Consider HRV biofeedback as adjunct.',
-    ],
-    contraindication: [
-      'Absolute TMS contraindications: cochlear implants, cardiac pacemaker, deep brain stimulator, intracranial metal clips, pregnancy (relative). Relative: history of epilepsy, severe head injury.',
-    ],
-    default: [
-      'I can help with protocol parameters, evidence summaries, medication interactions, scoring interpretation, and clinical decision support. What would you like to know?',
-      'For clinical questions, I can reference our evidence library with 52 neuromodulation studies. Try asking about a specific modality or condition.',
-      'Tip: Open the Evidence Library to browse peer-reviewed neuromodulation papers with effect sizes and clinical summaries.',
-    ],
-  };
+  // Role gate — only clinical staff get the co-pilot. Patients use the
+  // dedicated patient chat in the portal shell.
+  const _CLINICAL_ROLES = new Set(['clinician', 'admin', 'clinic-admin', 'supervisor', 'reviewer']);
+  function _canUseCopilot() {
+    const role = currentUser?.role;
+    // Allow anonymous/guest in dev (no currentUser yet); block only explicit non-clinical roles
+    // like 'patient' / 'technician' which have their own surfaces.
+    if (!role) return true;
+    return _CLINICAL_ROLES.has(role);
+  }
 
   const AI_CONV_KEY  = 'ds_ai_conversations';
   const AI_STATE_KEY = 'ds_ai_panel_open';
@@ -2164,6 +2130,10 @@ window.addEventListener('popstate', (e) => {
   // ── Inject DOM ────────────────────────────────────────────────────────────
   function _injectAIPanel() {
     if (document.getElementById('ai-copilot-panel')) return;
+    // Hide FAB/panel entirely for non-clinical roles (patients, technicians).
+    // Role may not be known yet at first call; in that case inject and let the
+    // role gate in _aiSend/_aiToggle handle access.
+    if (currentUser && !_canUseCopilot()) return;
 
     const panel = document.createElement('div');
     panel.id = 'ai-copilot-panel';
@@ -2224,47 +2194,32 @@ window.addEventListener('popstate', (e) => {
     el.scrollTop = el.scrollHeight;
   }
 
-  // ── Match response ────────────────────────────────────────────────────────
-  function _matchResponse(input) {
-    const q = input.toLowerCase();
-    const keywordMap = [
-      ['tms', 'transcranial magnetic', 'rtms', 'repetitive tms'],
-      ['neurofeedback', 'nfb', 'eeg biofeedback', 'brain training'],
-      ['phq', 'phq-9', 'depression score', 'patient health questionnaire'],
-      ['gad', 'gad-7', 'anxiety score', 'generalised anxiety'],
-      ['medication', 'drug', 'lithium', 'clozapine', 'bupropion', 'med interaction'],
-      ['session', 'compliance', 'attendance', 'adherence', 'missed'],
-      ['evidence', 'effect size', 'study', 'literature', 'research', 'rct'],
-      ['tdcs', 'direct current', 'tcs'],
-      ['adhd', 'attention deficit', 'hyperactivity'],
-      ['ptsd', 'post-traumatic', 'trauma'],
-      ['anxiety', 'anxious', 'worry', 'gad'],
-      ['contraindication', 'contraindicated', 'safety', 'risk', 'unsafe'],
-    ];
-    const responseKeys = ['tms', 'neurofeedback', 'phq', 'gad', 'medication', 'session', 'evidence', 'tdcs', 'adhd', 'ptsd', 'anxiety', 'contraindication'];
-
-    for (let i = 0; i < keywordMap.length; i++) {
-      if (keywordMap[i].some(kw => q.includes(kw))) {
-        const pool = AI_RESPONSES[responseKeys[i]];
-        return pool[Math.floor(Math.random() * pool.length)];
-      }
-    }
-    const pool = AI_RESPONSES.default;
-    return pool[Math.floor(Math.random() * pool.length)];
-  }
-
   // ── Send message ──────────────────────────────────────────────────────────
-  window._aiSend = function() {
+  // Calls /api/v1/chat/clinician with the rolling conversation. Backend owns
+  // model selection and safety. No hardcoded replies.
+  let _aiSending = false;
+  window._aiSend = async function() {
+    if (_aiSending) return;
     const input = document.getElementById('ai-input');
     if (!input) return;
     const text = input.value.trim();
     if (!text) return;
     input.value = '';
 
+    if (!_canUseCopilot()) {
+      const msgEl0 = document.getElementById('ai-messages');
+      if (msgEl0) {
+        msgEl0.innerHTML += `<div class="ai-msg-bot">This assistant is for clinical staff. Please use the patient portal chat instead.</div>`;
+        msgEl0.scrollTop = msgEl0.scrollHeight;
+      }
+      return;
+    }
+
     _aiMessages.push({ role: 'user', text });
     _saveConversation();
 
-    // Show user message + typing indicator
+    // Show user message + live "Thinking…" indicator (NOT a fake response — it
+    // is removed as soon as the real reply arrives).
     const msgEl = document.getElementById('ai-messages');
     if (msgEl) {
       msgEl.innerHTML += `<div class="ai-msg-user">${esc(text)}</div>`;
@@ -2272,9 +2227,21 @@ window.addEventListener('popstate', (e) => {
       msgEl.scrollTop = msgEl.scrollHeight;
     }
 
-    // Simulate typing delay
-    setTimeout(() => {
-      const reply = _matchResponse(text);
+    _aiSending = true;
+    try {
+      // Chat endpoint expects {role: 'user' | 'assistant', content}. We store
+      // as {role: 'user' | 'bot', text} locally, so translate.
+      const apiMessages = _aiMessages.map(m => ({
+        role: m.role === 'user' ? 'user' : 'assistant',
+        content: m.text,
+      }));
+      const patientId = window._selectedPatientId || null;
+      const result = await api.chatClinician(
+        apiMessages,
+        patientId ? { patient_id: patientId } : null,
+      );
+      const reply = result?.reply || result?.content || result?.message
+        || 'No reply from AI service.';
       _aiMessages.push({ role: 'bot', text: reply });
       _saveConversation();
       const typing = document.getElementById('ai-typing');
@@ -2284,7 +2251,20 @@ window.addEventListener('popstate', (e) => {
         msgEl2.innerHTML += `<div class="ai-msg-bot">${esc(reply)}</div>`;
         msgEl2.scrollTop = msgEl2.scrollHeight;
       }
-    }, 800);
+    } catch (e) {
+      const typing = document.getElementById('ai-typing');
+      if (typing) typing.remove();
+      const errText = e?.message ? `Error: ${e.message}` : 'Could not reach AI service.';
+      _aiMessages.push({ role: 'bot', text: errText });
+      _saveConversation();
+      const msgEl2 = document.getElementById('ai-messages');
+      if (msgEl2) {
+        msgEl2.innerHTML += `<div class="ai-msg-bot">${esc(errText)}</div>`;
+        msgEl2.scrollTop = msgEl2.scrollHeight;
+      }
+    } finally {
+      _aiSending = false;
+    }
   };
 
   // ── Quick prompt ──────────────────────────────────────────────────────────
