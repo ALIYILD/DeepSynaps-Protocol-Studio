@@ -2681,8 +2681,45 @@ export async function pgSettings(setTopbar, currentUser) {
         `).join('')
       : '<div style="font-size:12px;color:var(--text-tertiary);padding:8px 0">No team members yet.</div>';
 
-    host.querySelectorAll('.team-menu-btn').forEach(b => {
-      b.addEventListener('click', () => alert('Coming soon'));
+    // Team member menu — change role + remove, wired to real backend.
+    host.querySelectorAll('.team-menu-btn').forEach(btn => {
+      btn.addEventListener('click', async (ev) => {
+        ev.stopPropagation();
+        document.getElementById('team-member-menu')?.remove();
+        const tid = btn.getAttribute('data-tid');
+        if (!tid) return;
+        const rect = btn.getBoundingClientRect();
+        const menu = document.createElement('div');
+        menu.id = 'team-member-menu';
+        menu.style.cssText = 'position:fixed;z-index:1100;top:'+(rect.bottom+4)+'px;left:'+(Math.max(rect.right-180,8))+'px;width:180px;background:var(--bg-panel,#0d1b22);border:1px solid var(--border);border-radius:8px;box-shadow:0 10px 32px rgba(0,0,0,0.45);overflow:hidden';
+        menu.innerHTML =
+          '<button data-role="clinician" style="width:100%;text-align:left;padding:8px 12px;border:0;background:transparent;color:var(--text-primary);font-size:12px;cursor:pointer">Set role: Clinician</button>'+
+          '<button data-role="admin"     style="width:100%;text-align:left;padding:8px 12px;border:0;background:transparent;color:var(--text-primary);font-size:12px;cursor:pointer">Set role: Admin</button>'+
+          '<button data-role="reviewer"  style="width:100%;text-align:left;padding:8px 12px;border:0;background:transparent;color:var(--text-primary);font-size:12px;cursor:pointer">Set role: Reviewer</button>'+
+          '<button data-act="remove"     style="width:100%;text-align:left;padding:8px 12px;border:0;border-top:1px solid var(--border);background:transparent;color:var(--red,#ef4444);font-size:12px;cursor:pointer">Remove from team</button>';
+        document.body.appendChild(menu);
+        const close = () => { menu.remove(); document.removeEventListener('click', close, true); };
+        setTimeout(() => document.addEventListener('click', close, true), 10);
+        menu.addEventListener('click', async (e) => {
+          const t = e.target.closest('button'); if (!t) return;
+          const role = t.getAttribute('data-role');
+          const act = t.getAttribute('data-act');
+          close();
+          try {
+            if (role) {
+              await api.updateTeamMemberRole(tid, role);
+              toast('Role updated', 'success');
+            } else if (act === 'remove') {
+              if (!window.confirm('Remove this team member? They will lose clinic access.')) return;
+              await api.removeTeamMember(tid);
+              toast('Team member removed', 'success');
+            }
+            loadTeam();
+          } catch (err) {
+            toast(err?.message || 'Action failed', 'error');
+          }
+        });
+      });
     });
 
     // Pending invites sub-section
