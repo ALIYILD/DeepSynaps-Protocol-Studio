@@ -7,6 +7,85 @@ import {
   PROTOCOL_LIBRARY, searchProtocols, getProtocolsByCondition, getCondition, getDevice,
 } from './protocols-data.js';
 import { renderLiveEvidencePanel } from './live-evidence.js';
+import { api } from './api.js';
+
+// Normalise a /api/v1/registry/protocols row into the shape pgProtocolSearch
+// renders (matches PROTOCOL_LIBRARY entries). Keeps the backend as the
+// authoritative source for ids the curated library hasn't registered.
+function _backendToStudio(row) {
+  const grade = String(row.evidence_grade || '').replace(/^EV-/, '') || 'E';
+  const sessTotalMatch = String(row.total_course || '').match(/\d+/);
+  const sessions_total = sessTotalMatch ? parseInt(sessTotalMatch[0], 10) : null;
+  const freqMatch = String(row.frequency_hz || '').match(/[\d.]+/);
+  const frequency_hz = freqMatch ? parseFloat(freqMatch[0]) : null;
+  const governance = [];
+  const ol = String(row.on_label_vs_off_label || '').toLowerCase();
+  if (ol.startsWith('on'))  governance.push('on-label');
+  if (ol.startsWith('off')) governance.push('off-label');
+  if (String(row.review_status || '').toLowerCase().includes('review')) governance.push('reviewed');
+  return {
+    id: row.id,
+    name: row.name || row.id,
+    conditionId: row.condition_id || '',
+    device: (row.modality_id || '').toLowerCase() || (row.device_id_if_specific || '').toLowerCase() || '',
+    subtype: row.coil_or_electrode_placement || '',
+    target: row.target_region || '',
+    evidenceGrade: grade,
+    type: 'classic',
+    governance,
+    parameters: {
+      frequency_hz,
+      intensity: row.intensity || undefined,
+      session_duration_min: sessions_total ? undefined : undefined,
+      sessions_total,
+      sessions_per_week: parseInt(String(row.sessions_per_week || '').match(/\d+/)?.[0] || '', 10) || null,
+    },
+    notes: row.evidence_summary || '',
+    contraindications: row.contraindication_check_required
+      ? [String(row.contraindication_check_required)] : [],
+    references: [row.source_url_primary, row.source_url_secondary].filter(Boolean),
+    tags: [],
+    _source: 'backend',
+  };
+}
+
+// Build a merged protocol library by layering backend registry rows on top
+// of the curated PROTOCOL_LIBRARY. Dedup by id; curated wins on collision.
+async function _loadMergedLibrary() {
+  const merged = [...PROTOCOL_LIBRARY];
+  try {
+    const res = await api.protocols();
+    const items = Array.isArray(res?.items) ? res.items : Array.isArray(res) ? res : [];
+    if (items.length) {
+      const have = new Set(merged.map(p => p.id));
+      for (const row of items) {
+        if (!row?.id || have.has(row.id)) continue;
+        merged.push(_backendToStudio(row));
+        have.add(row.id);
+      }
+    }
+  } catch { /* backend offline — curated library still renders */ }
+  return merged;
+}
+
+// Mirror of protocols-data.js searchProtocols, but scoped to a caller-supplied
+// library so we can search the merged (curated + backend) set.
+function _searchIn(library, query, filters = {}) {
+  const q = String(query || '').toLowerCase().trim();
+  return library.filter(p => {
+    if (filters.conditionId && p.conditionId !== filters.conditionId) return false;
+    if (filters.device && p.device !== filters.device) return false;
+    if (filters.type && p.type !== filters.type) return false;
+    if (filters.evidenceGrade && p.evidenceGrade !== filters.evidenceGrade) return false;
+    if (filters.governance && !(p.governance || []).includes(filters.governance)) return false;
+    if (!q) return true;
+    const hay = [
+      p.name, p.id, p.conditionId, p.device, p.subtype, p.target,
+      ...(p.tags || []), ...(p.governance || []),
+    ].filter(Boolean).join(' ').toLowerCase();
+    return hay.includes(q);
+  });
+}
 
 // ── Shared helpers ────────────────────────────────────────────────────────────
 const _esc = s => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
@@ -45,6 +124,10 @@ export async function pgProtocolSearch(setTopbar, navigate) {
   if (!el) return;
   el.innerHTML = '<div class="prot-loading">Loading protocol library\u2026</div>';
 
+  // Merged library — curated PROTOCOL_LIBRARY layered with backend
+  // /api/v1/registry/protocols. See _loadMergedLibrary above.
+  const LIBRARY = await _loadMergedLibrary();
+
   // ── State ─────────────────────────────────────────────────────────────────
   let _state = {
     query: '',
@@ -55,27 +138,42 @@ export async function pgProtocolSearch(setTopbar, navigate) {
     governance: '',
     view: 'grid', // 'grid' | 'list' | 'by-condition'
     category: '',
+    classification: 'all', // quick-filter chip: all|on-label|off-label|ai|scan
   };
 
   // ── Category list ─────────────────────────────────────────────────────────
   const categories = [...new Set(CONDITIONS.map(c => c.category))];
 
   // ── Stats ─────────────────────────────────────────────────────────────────
-  const totalProtocols = PROTOCOL_LIBRARY.length;
+  const totalProtocols = LIBRARY.length;
   const totalConditions = CONDITIONS.length;
-  const onLabelCount = PROTOCOL_LIBRARY.filter(p => (p.governance||[]).includes('on-label')).length;
-  const aiCount = PROTOCOL_LIBRARY.filter(p => p.type === 'ai-personalized').length;
-  const gradeACount = PROTOCOL_LIBRARY.filter(p => p.evidenceGrade === 'A').length;
+  const onLabelCount  = LIBRARY.filter(p => (p.governance||[]).includes('on-label')).length;
+  const offLabelCount = LIBRARY.filter(p => (p.governance||[]).includes('off-label')).length;
+  const aiCount       = LIBRARY.filter(p => p.type === 'ai-personalized').length;
+  const scanCount     = LIBRARY.filter(p => p.type === 'scan-guided' || p.type === 'brain-scan').length;
+  const gradeACount   = LIBRARY.filter(p => p.evidenceGrade === 'A').length;
+  const backendCount  = LIBRARY.filter(p => p._source === 'backend').length;
 
   // ── Render ────────────────────────────────────────────────────────────────
   const renderPage = () => {
-    const results = searchProtocols(_state.query, {
+    let results = _searchIn(LIBRARY, _state.query, {
       conditionId: _state.conditionId || undefined,
       device: _state.device || undefined,
       type: _state.type || undefined,
       evidenceGrade: _state.evidenceGrade || undefined,
       governance: _state.governance || undefined,
     });
+    // Classification quick-filter chip (independent of the governance dropdown)
+    if (_state.classification && _state.classification !== 'all') {
+      const c = _state.classification;
+      results = results.filter(p => {
+        if (c === 'on-label')  return (p.governance || []).includes('on-label');
+        if (c === 'off-label') return (p.governance || []).includes('off-label');
+        if (c === 'ai')        return p.type === 'ai-personalized' || p.type === 'ai';
+        if (c === 'scan')      return p.type === 'scan-guided' || p.type === 'brain-scan';
+        return true;
+      });
+    }
 
     const summaryStrip = `
       <div class="prot-summary-strip">
@@ -84,6 +182,22 @@ export async function pgProtocolSearch(setTopbar, navigate) {
         <div class="prot-chip prot-chip-green"><span class="prot-chip-val">${gradeACount}</span><span class="prot-chip-lbl">Grade A</span></div>
         <div class="prot-chip prot-chip-blue"><span class="prot-chip-val">${onLabelCount}</span><span class="prot-chip-lbl">On-Label</span></div>
         <div class="prot-chip prot-chip-purple"><span class="prot-chip-val">${aiCount}</span><span class="prot-chip-lbl">AI-Personalized</span></div>
+        ${backendCount ? `<div class="prot-chip" title="Live from /api/v1/registry/protocols"><span class="prot-chip-val">${backendCount}</span><span class="prot-chip-lbl">Registry</span></div>` : ''}
+      </div>`;
+
+    // Classification quick-filter chips — complement the governance/type
+    // dropdowns in filterBar. Each chip carries a live count.
+    const _clsChip = (id, label, count) =>
+      `<button class="prot-cls-chip${_state.classification === id ? ' active' : ''}" onclick="window._protSetClassification('${id}')" data-cls="${id}">
+        ${_esc(label)}<span class="prot-cls-count">${count}</span>
+      </button>`;
+    const classificationChips = `
+      <div class="prot-cls-row">
+        ${_clsChip('all', 'All', totalProtocols)}
+        ${_clsChip('on-label', 'On-Label', onLabelCount)}
+        ${_clsChip('off-label', 'Off-Label', offLabelCount)}
+        ${_clsChip('ai', 'AI-Personalized', aiCount)}
+        ${_clsChip('scan', 'Scan-Guided', scanCount)}
       </div>`;
 
     const filterBar = `
@@ -208,6 +322,7 @@ export async function pgProtocolSearch(setTopbar, navigate) {
             <div class="prot-results-header">
               <span class="prot-results-count">${results.length} protocol${results.length!==1?'s':''} found</span>
             </div>
+            ${classificationChips}
             ${filterBar}
             <div id="prot-live-evidence"></div>
             ${mainContent}
@@ -236,7 +351,8 @@ export async function pgProtocolSearch(setTopbar, navigate) {
   window._protFilterGov = v => { _state.governance = v; renderPage(); };
   window._protView = v => { _state.view = v; renderPage(); };
   window._protFilterCategory = cat => { _state.category = cat; _state.conditionId = ''; renderPage(); };
-  window._protClearFilters = () => { _state = { query:'', conditionId:'', device:'', type:'', evidenceGrade:'', governance:'', view:'grid', category:'' }; renderPage(); };
+  window._protSetClassification = v => { _state.classification = v || 'all'; renderPage(); };
+  window._protClearFilters = () => { _state = { query:'', conditionId:'', device:'', type:'', evidenceGrade:'', governance:'', view:'grid', category:'', classification:'all' }; renderPage(); };
 
   window._protOpenDetail = id => {
     window._protDetailId = id;
@@ -245,7 +361,7 @@ export async function pgProtocolSearch(setTopbar, navigate) {
 
   window._protUseProtocol = id => {
     window._protDetailId = id;
-    const proto = PROTOCOL_LIBRARY.find(p => p.id === id);
+    const proto = LIBRARY.find(p => p.id === id);
     if (proto) {
       window._wizardProtocolId = id;
       window._nav('courses');
