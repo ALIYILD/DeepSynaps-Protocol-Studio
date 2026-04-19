@@ -123,4 +123,3 @@ Sensitive backend behavior uses the server-side Bearer token role, not a client-
 ## Verification artifacts
 - `data/snapshots/clinical-database/runtime-readiness.json`
 - `data/backups/`
-- `LIVE_READINESS_REPORT.md`
