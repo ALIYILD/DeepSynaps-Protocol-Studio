@@ -390,8 +390,7 @@ function _injectAuthDv2Styles() {
   const s = document.createElement('style');
   s.id = 'dv2-auth-styles';
   s.textContent = `
-    #login-overlay.visible { background: var(--bg-base, #080d1a); padding: 0; }
-    #login-overlay { display: block; }
+    #login-overlay.visible { background: var(--bg-base, #080d1a); padding: 0; display: block; }
     .dv2-auth-wrap { min-height: 100vh; width: 100%; display: grid; grid-template-columns: 1.1fr 1fr;
       font-family: var(--font-body, 'DM Sans', system-ui, sans-serif); }
     @media (max-width: 960px) { .dv2-auth-wrap { grid-template-columns: 1fr; } .dv2-auth-aside { display: none; } }
