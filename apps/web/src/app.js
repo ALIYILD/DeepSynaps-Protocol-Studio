@@ -722,7 +722,7 @@ function renderNav() {
         : `<span class="nav-icon" aria-hidden="true">${n.icon}</span>`;
       itemsHtml.push(`<div class="nav-item ${currentPage === n.id ? 'active' : ''}" onclick="window._nav('${n.id}')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();window._nav('${n.id}')}" role="menuitem" tabindex="0" aria-current="${currentPage === n.id ? 'page' : 'false'}">
         ${iconHtml}
-        <span class="nav-label">${(()=>{ const _k='nav.'+n.id,_v=t(_k); return (_v&&_v!==_k)?_v:n.label; })()}</span>${badge}
+        <span class="nav-label">${n.label}</span>${badge}
       </div>`);
     });
 
@@ -1975,94 +1975,9 @@ async function bootApp() {
   }, 30000);
   // Warm patient roster cache for command palette (fire-and-forget)
   _warmPatientRoster();
-
-  // design-v2 dev-only screen switcher (no-op in production)
-  _mountDesignV2Switcher();
 }
 
 window._bootApp = bootApp;
-
-// ── design-v2 dev-only bottom screen switcher ───────────────────────────────
-function _mountDesignV2Switcher() {
-  if (!import.meta.env?.DEV) return;
-  if (document.getElementById('dv2-switcher')) return;
-  const screens = [
-    { id: 'home',            label: '03 · Clinic' },
-    { id: 'schedule-v2',     label: '04 · Schedule' },
-    { id: 'assessments-v2',  label: '05 · Assessments' },
-    { id: 'brainmap-v2',     label: '06 · Brain map' },
-    { id: 'patients-v2',     label: '07 · Patients' },
-    { id: 'patient',         label: '08 · Patient' },
-    { id: 'protocol-studio', label: '09 · Studio' },
-    { id: 'live-session',    label: '10 · Live' },
-    { id: 'handbooks-v2',    label: '11 · Handbooks' },
-    { id: 'governance-v2',   label: '12 · Governance' },
-  ];
-  // Landing + Sign-in are public/auth — bootstrapped via navigatePublic / showLogin
-  const publicScreens = [
-    { fn: "window._navPublic && window._navPublic('home')", label: '01 · Landing' },
-    { fn: "window._showSignIn && window._showSignIn()",     label: '02 · Sign in' },
-  ];
-  const wrap = document.createElement('div');
-  wrap.className = 'dv2-screen-switcher';
-  wrap.id = 'dv2-switcher';
-  const btns = [
-    ...publicScreens.map(s => `<button onclick="${s.fn}">${s.label}</button>`),
-    ...screens.map(s => `<button data-dv2-route="${s.id}" onclick="window._nav && window._nav('${s.id}')">${s.label}</button>`),
-    `<div class="divider"></div>`,
-    `<button id="dv2-tweaks-toggle" style="color:var(--teal)">⚙ Tweaks</button>`,
-  ].join('');
-  wrap.innerHTML = btns;
-  document.body.appendChild(wrap);
-
-  const tweaks = document.createElement('div');
-  tweaks.className = 'dv2-tweaks';
-  tweaks.id = 'dv2-tweaks';
-  tweaks.innerHTML = `
-    <div class="dv2-tweaks-hd">
-      <div class="dv2-tweaks-title">Tweaks</div>
-      <button class="dv2-tweaks-close" onclick="document.getElementById('dv2-tweaks').classList.remove('open')">×</button>
-    </div>
-    <div class="dv2-tweaks-field">
-      <div class="dv2-tweaks-lbl">Accent</div>
-      <div class="dv2-tweaks-color">
-        <button style="background:#00d4bc" class="active" data-dv2-accent="teal" title="Teal"></button>
-        <button style="background:#4a9eff" data-dv2-accent="blue" title="Blue"></button>
-        <button style="background:#9b7fff" data-dv2-accent="violet" title="Violet"></button>
-        <button style="background:#ffb547" data-dv2-accent="amber" title="Amber"></button>
-      </div>
-    </div>`;
-  document.body.appendChild(tweaks);
-
-  document.getElementById('dv2-tweaks-toggle').addEventListener('click', () => {
-    tweaks.classList.toggle('open');
-  });
-  tweaks.querySelectorAll('.dv2-tweaks-color button').forEach(b => {
-    b.addEventListener('click', () => {
-      tweaks.querySelectorAll('.dv2-tweaks-color button').forEach(x => x.classList.remove('active'));
-      b.classList.add('active');
-      document.body.classList.remove('dv2-accent-blue','dv2-accent-violet','dv2-accent-amber');
-      const a = b.dataset.dv2Accent;
-      if (a && a !== 'teal') document.body.classList.add('dv2-accent-' + a);
-    });
-  });
-
-  // Highlight active route on nav changes
-  const _origNav = window._nav;
-  if (typeof _origNav === 'function' && !window._nav.__dv2Patched) {
-    window._nav = async function(id, params) {
-      const r = await _origNav(id, params);
-      try {
-        document.querySelectorAll('#dv2-switcher button[data-dv2-route]').forEach(b => {
-          b.classList.toggle('active', b.dataset.dv2Route === id);
-        });
-      } catch {}
-      return r;
-    };
-    window._nav.__dv2Patched = true;
-  }
-}
-window._mountDesignV2Switcher = _mountDesignV2Switcher;
 
 // ── Backend health check ──────────────────────────────────────────────────────
 async function checkBackendHealth() {

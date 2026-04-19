@@ -915,7 +915,7 @@ export async function pgDash(setTopbar, navigate) {
   <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px">
     ${[
       { icon: '&#9673;', title: 'Add First Patient', sub: 'Register a patient to get started', nav: 'patients', color: 'var(--blue)' },
-      { icon: '&#9678;', title: 'Create Treatment Course', sub: 'Set up an evidence-based treatment plan', nav: 'protocol-wizard', color: 'var(--teal)' },
+      { icon: '&#9678;', title: 'Create Treatment Course', sub: 'Set up an evidence-based treatment plan', nav: 'protocol-studio', color: 'var(--teal)' },
       { icon: '&#9671;', title: 'Browse Protocols', sub: 'Explore the evidence registry', nav: 'protocols-registry', color: 'var(--violet)' },
       { icon: '&#9881;', title: 'Configure Clinic', sub: 'Settings, branding, team members', nav: 'settings', color: 'var(--text-secondary)' },
     ].map(s => `<div onclick="window._nav('${s.nav}')" style="padding:14px;border:1px solid var(--border);border-radius:8px;background:var(--bg-card);cursor:pointer;transition:border-color 0.15s" onmouseover="this.style.borderColor='var(--teal)'" onmouseout="this.style.borderColor='var(--border)'">
@@ -1078,6 +1078,16 @@ export async function pgDash(setTopbar, navigate) {
   const _idSafe = s => String(s ?? '').replace(/[^A-Za-z0-9_-]/g, '');
   const _initials = (first, last) => ((first || '')[0] || '') + ((last || '')[0] || '');
 
+  // ── Dashboard filter state (persist in-memory across re-renders) ──────────
+  window._cdPeriod   = window._cdPeriod   || 'Week';
+  window._cdRoom     = window._cdRoom     || 'All';
+  window._cdCohort   = window._cdCohort   || 'All';
+  window._cdOutcomes = window._cdOutcomes || '4W';
+  if (!window._cdSetFilter) {
+    window._cdSetFilter = (key, val) => { window['_cd' + key] = val; window._nav('home'); };
+  }
+  const _cdActive = (key, val) => window['_cd' + key] === val ? 'active' : '';
+
   // Banner if some endpoints failed
   const _dataBanner = _apiFailCount > 0
     ? `<div class="dv2-data-banner">&#9888; Some live data could not be loaded. Showing available information.</div>` : '';
@@ -1094,10 +1104,10 @@ export async function pgDash(setTopbar, navigate) {
       <div class="dv2-dash-sub">You have <strong style="color:var(--teal,#00d4bc)">${_todayCount} session${_todayCount === 1 ? '' : 's'}</strong> scheduled today &middot; ${_reviewSub}.</div>
     </div>
     <div class="dv2-dash-tabs" role="tablist" aria-label="Period">
-      <button role="tab">Day</button>
-      <button role="tab" class="active">Week</button>
-      <button role="tab">Month</button>
-      <button role="tab">Quarter</button>
+      <button role="tab" class="${_cdActive('Period','Day')}"     onclick="window._cdSetFilter('Period','Day')">Day</button>
+      <button role="tab" class="${_cdActive('Period','Week')}"    onclick="window._cdSetFilter('Period','Week')">Week</button>
+      <button role="tab" class="${_cdActive('Period','Month')}"   onclick="window._cdSetFilter('Period','Month')">Month</button>
+      <button role="tab" class="${_cdActive('Period','Quarter')}" onclick="window._cdSetFilter('Period','Quarter')">Quarter</button>
     </div>
   </div>`;
 
@@ -1174,10 +1184,10 @@ export async function pgDash(setTopbar, navigate) {
         <div class="dv2-card-sub">${scheduleRows.length} session${scheduleRows.length === 1 ? '' : 's'}${activeCourses.length ? ' &middot; ' + activeCourses.length + ' active course' + (activeCourses.length === 1 ? '' : 's') : ''}</div>
       </div>
       <div class="dv2-dash-tabs" role="tablist">
-        <button class="active">All</button>
-        <button>Room A</button>
-        <button>Room B</button>
-        <button>Remote</button>
+        <button class="${_cdActive('Room','All')}"    onclick="window._cdSetFilter('Room','All')">All</button>
+        <button class="${_cdActive('Room','Room A')}" onclick="window._cdSetFilter('Room','Room A')">Room A</button>
+        <button class="${_cdActive('Room','Room B')}" onclick="window._cdSetFilter('Room','Room B')">Room B</button>
+        <button class="${_cdActive('Room','Remote')}" onclick="window._cdSetFilter('Room','Remote')">Remote</button>
       </div>
     </div>
     <div class="dv2-sched">${_scheduleBody}</div>
@@ -1202,7 +1212,7 @@ export async function pgDash(setTopbar, navigate) {
         <div class="dv2-card-title">Live brain-map targets</div>
         <div class="dv2-card-sub">10-20 overlay &middot; ${scheduleRows.length} session${scheduleRows.length === 1 ? '' : 's'} &middot; ${_activeMontages} montage${_activeMontages === 1 ? '' : 's'}</div>
       </div>
-      <button class="btn btn-ghost btn-sm" onclick="window._nav('brain-map-planner')" style="font-size:11px;padding:4px 10px">Open planner &rarr;</button>
+      <button class="btn btn-ghost btn-sm" onclick="window._nav('brainmap-v2')" style="font-size:11px;padding:4px 10px">Open planner &rarr;</button>
     </div>
     <div class="dv2-brainmap-wrap">${_brainSvg || '<div style="color:var(--text-tertiary);font-size:12px">Brain map unavailable</div>'}</div>
     <div class="dv2-brainmap-legend">
@@ -1215,7 +1225,7 @@ export async function pgDash(setTopbar, navigate) {
 
   // Caseload table
   const _caseloadBody = caseloadRows.length === 0
-    ? `<div style="padding:24px 18px;text-align:center;color:var(--text-tertiary);font-size:12px">No active cases &middot; <button class="btn btn-ghost btn-sm" style="margin-left:8px" onclick="window._nav('protocol-wizard')">+ Create course</button></div>`
+    ? `<div style="padding:24px 18px;text-align:center;color:var(--text-tertiary);font-size:12px">No active cases &middot; <button class="btn btn-ghost btn-sm" style="margin-left:8px" onclick="window._nav('protocol-studio')">+ Create course</button></div>`
     : caseloadRows.map((c, idx) => {
         const pt = patientMap[c.patient_id] || {};
         const ini = _initials(pt.first_name, pt.last_name).toUpperCase() || '??';
@@ -1257,10 +1267,10 @@ export async function pgDash(setTopbar, navigate) {
         <div class="dv2-card-sub">Sorted by next-action urgency</div>
       </div>
       <div class="dv2-dash-tabs" role="tablist">
-        <button class="active">All</button>
-        <button>Urgent</button>
-        <button>New</button>
-        <button>Discharging</button>
+        <button class="${_cdActive('Cohort','All')}"         onclick="window._cdSetFilter('Cohort','All')">All</button>
+        <button class="${_cdActive('Cohort','Urgent')}"      onclick="window._cdSetFilter('Cohort','Urgent')">Urgent</button>
+        <button class="${_cdActive('Cohort','New')}"         onclick="window._cdSetFilter('Cohort','New')">New</button>
+        <button class="${_cdActive('Cohort','Discharging')}" onclick="window._cdSetFilter('Cohort','Discharging')">Discharging</button>
       </div>
     </div>
     <div class="dv2-queue-row head">
@@ -1356,9 +1366,9 @@ export async function pgDash(setTopbar, navigate) {
         <div class="dv2-card-sub">PHQ-9 trend &middot; lower is better</div>
       </div>
       <div class="dv2-dash-tabs" role="tablist">
-        <button class="active">4W</button>
-        <button>12W</button>
-        <button>1Y</button>
+        <button class="${_cdActive('Outcomes','4W')}"  onclick="window._cdSetFilter('Outcomes','4W')">4W</button>
+        <button class="${_cdActive('Outcomes','12W')}" onclick="window._cdSetFilter('Outcomes','12W')">12W</button>
+        <button class="${_cdActive('Outcomes','1Y')}"  onclick="window._cdSetFilter('Outcomes','1Y')">1Y</button>
       </div>
     </div>
     <div class="dv2-outcomes-card">
