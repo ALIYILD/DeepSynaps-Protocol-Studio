@@ -307,12 +307,15 @@ import {
   groupOutcomesByTemplate,
   pickTodaysFocus,
   isDemoPatient,
+  DEMO_PATIENT,
+  demoAssessmentSeed,
   pickCallTier,
   demoMessagesSeed,
 } from './patient-dashboard-helpers.js';
 export {
   computeCountdown, phaseLabel, outcomeGoalMarker, groupOutcomesByTemplate,
-  pickTodaysFocus, isDemoPatient, pickCallTier, demoMessagesSeed,
+  pickTodaysFocus, isDemoPatient, DEMO_PATIENT, demoAssessmentSeed,
+  pickCallTier, demoMessagesSeed,
 };
 
 // ── Dashboard ─────────────────────────────────────────────────────────────────────────────
@@ -581,10 +584,15 @@ export async function pgPatientDashboard(user) {
     const tiles = [];
     // 1. Check-in
     const checkinPending = !checkedInToday;
-    tiles.push(`<button class="pth-tile${checkinPending ? ' pth-tile--pending' : ''}" id="pth-tile-checkin" onclick="window._ptdOpenCheckin()">
-      <span class="pth-tile-ico pth-tile-ico--teal" aria-hidden="true">◉</span>
+    const checkinMeta = checkinPending
+      ? '1 pending'
+      : (streak >= 2
+          ? `Done today · <span class="pth-tile-streak" aria-label="${streak} day streak">🔥 ${streak}d</span>`
+          : 'Done today');
+    tiles.push(`<button class="pth-tile${checkinPending ? ' pth-tile--pending' : ' pth-tile--done'}" id="pth-tile-checkin" onclick="window._ptdOpenCheckin()">
+      <span class="pth-tile-ico pth-tile-ico--teal" aria-hidden="true">${checkinPending ? '◉' : '✓'}</span>
       <span class="pth-tile-title">Daily check-in</span>
-      <span class="pth-tile-meta">${checkinPending ? '1 pending' : 'Done today'}</span>
+      <span class="pth-tile-meta">${checkinMeta}</span>
     </button>`);
     // 2. Homework
     const openCount = openTasks.length;
@@ -710,11 +718,45 @@ export async function pgPatientDashboard(user) {
           </div>
         </div>`;
     }
-    const sleepTxt = wearable.sleepAvg != null ? wearable.sleepAvg.toFixed(1) + 'h avg sleep' : 'Sleep: —';
-    const hrvTxt   = wearable.hrvAvg   != null ? Math.round(wearable.hrvAvg)   + 'ms HRV'     : 'HRV: —';
-    const rhrTxt   = wearable.rhrAvg   != null ? Math.round(wearable.rhrAvg)   + ' bpm RHR'   : 'RHR: —';
+    // Inline target bands let patients self-interpret the numbers without
+    // guessing whether their sleep / HRV / RHR is in a typical range.
+    // Conservative, non-alarming copy — we surface the band, not a verdict.
+    const sleepStat = wearable.sleepAvg != null
+      ? { val: wearable.sleepAvg.toFixed(1) + 'h avg sleep',   band: 'target 7–9h',     tip: 'Most adults feel best on 7 to 9 hours.' }
+      : { val: 'Sleep: —',                                     band: '',                tip: '' };
+    const hrvStat = wearable.hrvAvg != null
+      ? { val: Math.round(wearable.hrvAvg) + 'ms HRV',         band: 'typical 20–80ms', tip: 'Heart-rate variability varies by age and fitness; higher is generally better.' }
+      : { val: 'HRV: —',                                       band: '',                tip: '' };
+    const rhrStat = wearable.rhrAvg != null
+      ? { val: Math.round(wearable.rhrAvg) + ' bpm RHR',       band: 'typical 60–100',  tip: 'Resting heart rate below 80 is generally healthy; trained athletes run lower.' }
+      : { val: 'RHR: —',                                       band: '',                tip: '' };
+    const renderStat = (s) => s.band
+      ? `<div class="pth-wellness-stat" title="${esc(s.tip)}">
+           <span class="pth-wellness-stat-val">${esc(s.val)}</span>
+           <span class="pth-wellness-stat-band">${esc(s.band)}</span>
+         </div>`
+      : `<div class="pth-wellness-stat">${esc(s.val)}</div>`;
     const ringValDisplay = wellnessVal || '—';
     const ringOffset = Math.max(0, 389 - (wellnessVal / 100) * 389).toFixed(1);
+    const ringAriaLabel = wellnessVal
+      ? `Wellness score ${wellnessVal} out of 100, based on check-ins and wearable averages`
+      : 'Wellness score not yet available';
+    // Freshness chip — how recent is the latest wearable reading?
+    const freshness = (() => {
+      if (!wearable.lastDate) return null;
+      const d = new Date(wearable.lastDate);
+      if (!Number.isFinite(d.getTime())) return null;
+      const days = Math.floor((Date.now() - d.getTime()) / 86400000);
+      if (days <= 0) return { label: 'Synced today',     tone: 'fresh' };
+      if (days === 1) return { label: 'Synced yesterday', tone: 'fresh' };
+      if (days <= 3)  return { label: `Synced ${days}d ago`, tone: 'ok'   };
+      return { label: `Last sync ${days}d ago`,          tone: 'stale' };
+    })();
+    const freshnessChip = freshness
+      ? `<span class="pth-wellness-sync pth-wellness-sync--${freshness.tone}" title="Most recent wearable reading">
+           <span class="pth-wellness-sync-dot" aria-hidden="true"></span>${esc(freshness.label)}
+         </span>`
+      : '';
     return `
       <div class="pth-card pth-card--wellness">
         <div class="pth-card-head">
@@ -722,23 +764,24 @@ export async function pgPatientDashboard(user) {
           <button class="pth-ghost-btn" onclick="window._navPatient('pt-wellness')">Details →</button>
         </div>
         <div class="pth-wellness-body">
-          <div class="pth-ring" aria-hidden="true">
-            <svg width="110" height="110" viewBox="0 0 150 150">
+          <div class="pth-ring" role="img" aria-label="${esc(ringAriaLabel)}">
+            <svg width="110" height="110" viewBox="0 0 150 150" aria-hidden="true" focusable="false">
               <circle cx="75" cy="75" r="62" fill="none" stroke="rgba(255,255,255,0.06)" stroke-width="10"/>
               <circle cx="75" cy="75" r="62" fill="none" stroke="url(#pth-ring-grad)" stroke-width="10" stroke-linecap="round" stroke-dasharray="389" stroke-dashoffset="${ringOffset}"/>
               <defs>
                 <linearGradient id="pth-ring-grad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#00d4bc"/><stop offset="100%" stop-color="#9b7fff"/></linearGradient>
               </defs>
             </svg>
-            <div class="pth-ring-center">
+            <div class="pth-ring-center" aria-hidden="true">
               <div class="pth-ring-num">${ringValDisplay}</div>
               <div class="pth-ring-lbl">Wellness</div>
             </div>
           </div>
           <div class="pth-wellness-stats">
-            <div class="pth-wellness-stat">${esc(sleepTxt)}</div>
-            <div class="pth-wellness-stat">${esc(hrvTxt)}</div>
-            <div class="pth-wellness-stat">${esc(rhrTxt)}</div>
+            ${freshnessChip}
+            ${renderStat(sleepStat)}
+            ${renderStat(hrvStat)}
+            ${renderStat(rhrStat)}
           </div>
         </div>
       </div>`;
@@ -2630,9 +2673,18 @@ export async function pgPatientAssessments() {
     return;
   }
 
-  const rawItems  = Array.isArray(assessmentsRaw) ? assessmentsRaw : [];
+  let rawItems  = Array.isArray(assessmentsRaw) ? assessmentsRaw : [];
   const courses   = Array.isArray(coursesRaw)     ? coursesRaw     : [];
   const sessions  = Array.isArray(sessionsRaw)    ? sessionsRaw    : [];
+
+  // Demo overlay — when the demo patient's assessments list is empty
+  // (preview build, fresh API DB, seed not yet run), surface the bundled
+  // demoAssessmentSeed() so reviewers see a populated page instead of
+  // the "nothing here" empty state. Same pattern as the Treatment Plan
+  // fallback.
+  if (rawItems.length === 0 && isDemoPatient(currentUser, { getToken: api.getToken })) {
+    rawItems = demoAssessmentSeed();
+  }
 
   const courseById  = {};
   courses.forEach(c => { if (c.id) courseById[c.id] = c; });
@@ -2762,8 +2814,16 @@ export async function pgPatientAssessments() {
     if (score == null || score === '' || !meta || !meta.scoreRanges || !meta.scoreRanges.length) return null;
     const n = Number(score);
     if (!Number.isFinite(n)) return null;
-    for (const band of meta.scoreRanges) {
-      if (n <= band.max) return { label: band.label, note: band.note };
+    const ranges = meta.scoreRanges;
+    for (let i = 0; i < ranges.length; i++) {
+      const band = ranges[i];
+      if (n <= band.max) {
+        // Severity signals whether to surface a reach-out CTA.
+        // First 2 bands (Minimal/Mild) → low; 3rd band (Moderate) → moderate;
+        // any band beyond that → high.
+        const severity = i <= 1 ? 'low' : i === 2 ? 'moderate' : 'high';
+        return { label: band.label, note: band.note, severity };
+      }
     }
     return null;
   }
@@ -2979,6 +3039,12 @@ export async function pgPatientAssessments() {
     if (item.score != null) {
       const ctx = item.scoreCtx;
       const bandClass = ctx ? ctx.label.toLowerCase().replace(/\s+/g, '-') : '';
+      const needsReachOut = ctx && (ctx.severity === 'moderate' || ctx.severity === 'high');
+      const reachOutHtml = needsReachOut
+        ? '<button class="pt-assess-reach-btn" onclick="window._navPatient(\'patient-messages\')">' +
+            '<span aria-hidden="true">✉</span> Message your care team' +
+          '</button>'
+        : '';
       resultHtml =
         '<div class="pt-assess-result-row">' +
           '<span class="pt-assess-score-label">Your result</span>' +
@@ -2987,7 +3053,8 @@ export async function pgPatientAssessments() {
             : '<span class="pt-assess-score-num">' + esc(String(item.score)) + '</span>') +
           (isReviewed ? '<span class="pt-assess-reviewed-badge">✓ Reviewed by your team</span>' : '') +
         '</div>' +
-        (ctx ? '<div class="pt-assess-score-note">' + esc(ctx.note) + '</div>' : '');
+        (ctx ? '<div class="pt-assess-score-note">' + esc(ctx.note) + '</div>' : '') +
+        reachOutHtml;
     } else if (isReviewed) {
       resultHtml = '<div class="pt-assess-result-row"><span class="pt-assess-reviewed-badge">✓ Reviewed by your team</span></div>';
     }
@@ -3113,6 +3180,7 @@ export async function pgPatientAssessments() {
     let scoreHtml = '';
     if (isCompleted && item.score != null) {
       const ctx = item.scoreCtx;
+      const needsReachOut = ctx && (ctx.severity === 'moderate' || ctx.severity === 'high');
       scoreHtml = `
         <div class="pt-assess-score-row">
           <span class="pt-assess-score-label">Your result</span>
@@ -3120,7 +3188,8 @@ export async function pgPatientAssessments() {
             ? `<span class="pt-assess-score-band ${esc(ctx.label.toLowerCase().replace(/\s+/g,'-'))}">${esc(ctx.label)}</span>`
             : `<span class="pt-assess-score-num">${(item.score != null && !isNaN(Number(item.score))) ? esc(String(item.score)) : '—'}</span>`}
         </div>
-        ${ctx ? `<div class="pt-assess-score-note">${esc(ctx.note)}</div>` : ''}`;
+        ${ctx ? `<div class="pt-assess-score-note">${esc(ctx.note)}</div>` : ''}
+        ${needsReachOut ? `<button class="pt-assess-reach-btn" onclick="window._navPatient('patient-messages')"><span aria-hidden="true">✉</span> Message your care team</button>` : ''}`;
     }
 
     // CTA
@@ -3530,7 +3599,14 @@ export async function pgPatientReports() {
   // ── Document card HTML ───────────────────────────────────────────────────
   // Extension point: pass { showSharing: true } to add caregiver/proxy share UI.
   function docCardHTML(doc, opts = {}) {
-    const { expandPl = false } = opts;
+    // Compute delta once — re-used below for first-report detection and
+    // the "What changed" row.
+    const delta = _ptComputeDelta(doc, docs);
+    // Auto-expand the plain-language explanation the first time a patient
+    // sees a given template — they need the band + meaning, not just the
+    // number.
+    const _firstReport = doc.score != null && doc.templateKey && delta === null;
+    const { expandPl = _firstReport } = opts;
     const cm = CAT_META[doc.category] || CAT_META['outcome'];
     const plId = `pt-doc-pl-${esc(doc.id)}`;
 
@@ -3561,8 +3637,8 @@ export async function pgPatientReports() {
       ? `<span class="pt-doc-status-badge">${esc(doc.status)}</span>`
       : '';
 
-    // Delta — what changed since the most recent prior report of same template type
-    const delta = _ptComputeDelta(doc, docs);
+    // Delta row — what changed since the most recent prior report of
+    // same template type. Uses `delta` computed at the top of the fn.
     let deltaRow = '';
     if (delta !== null) {
       const abs = Math.abs(delta.delta);
@@ -10807,11 +10883,12 @@ function _renderOutcomePortal_LEGACY() {
     '<button id="overlay-toggle-btn" style="font-size:0.78rem;padding:6px 14px;border-radius:10px;border:1px solid rgba(255,255,255,0.1);background:transparent;color:var(--text-muted,#94a3b8);cursor:pointer" onclick="window._outcomeToggleOverlay()">Show Session Dates</button>' +
     '</div>' +
     '<div id="overlay-session-dates" style="display:none;margin-bottom:12px;font-size:0.78rem;color:var(--accent-teal,#2dd4bf);padding:8px 12px;background:rgba(45,212,191,0.07);border-radius:8px;border:1px solid rgba(45,212,191,0.2)">Session dates: ' + sdates + '</div>' +
+    '<p style="font-size:0.78rem;color:var(--text-muted,#94a3b8);margin:4px 0 10px;line-height:1.5">Each tile is one day. Colour shows how strong your symptoms were — <strong style="color:var(--accent-teal,#2dd4bf)">teal means a calmer day</strong>, rose means a tougher one. Tap a tile to see details.</p>' +
     '<div class="iii-calendar-dots">' + _calendarDots30() + '</div>' +
-    '<div style="display:flex;gap:14px;margin-top:10px;flex-wrap:wrap">' +
-    '<span style="font-size:0.72rem;color:var(--text-muted,#94a3b8);display:inline-flex;align-items:center;gap:5px"><span style="width:10px;height:10px;border-radius:3px;background:var(--accent-teal,#2dd4bf);display:inline-block;opacity:0.7"></span>Low</span>' +
-    '<span style="font-size:0.72rem;color:var(--text-muted,#94a3b8);display:inline-flex;align-items:center;gap:5px"><span style="width:10px;height:10px;border-radius:3px;background:var(--accent-amber,#fbbf24);display:inline-block;opacity:0.7"></span>Moderate</span>' +
-    '<span style="font-size:0.72rem;color:var(--text-muted,#94a3b8);display:inline-flex;align-items:center;gap:5px"><span style="width:10px;height:10px;border-radius:3px;background:var(--accent-rose,#f43f5e);display:inline-block;opacity:0.7"></span>High</span>' +
+    '<div style="display:flex;gap:14px;margin-top:10px;flex-wrap:wrap" role="list" aria-label="Symptom intensity legend">' +
+    '<span role="listitem" style="font-size:0.72rem;color:var(--text-muted,#94a3b8);display:inline-flex;align-items:center;gap:5px"><span style="width:10px;height:10px;border-radius:3px;background:var(--accent-teal,#2dd4bf);display:inline-block;opacity:0.7" aria-hidden="true"></span>Low symptoms &mdash; calmer day</span>' +
+    '<span role="listitem" style="font-size:0.72rem;color:var(--text-muted,#94a3b8);display:inline-flex;align-items:center;gap:5px"><span style="width:10px;height:10px;border-radius:3px;background:var(--accent-amber,#fbbf24);display:inline-block;opacity:0.7" aria-hidden="true"></span>Moderate</span>' +
+    '<span role="listitem" style="font-size:0.72rem;color:var(--text-muted,#94a3b8);display:inline-flex;align-items:center;gap:5px"><span style="width:10px;height:10px;border-radius:3px;background:var(--accent-rose,#f43f5e);display:inline-block;opacity:0.7" aria-hidden="true"></span>High symptoms &mdash; tougher day</span>' +
     '</div>' +
     '<div id="day-detail-popup" style="display:none;margin-top:12px;padding:14px 16px;background:var(--card-bg,rgba(255,255,255,0.05));border:1px solid var(--border,rgba(255,255,255,0.1));border-radius:12px;font-size:0.83rem;color:var(--text-muted,#94a3b8)"></div>' +
     '</div>' +
