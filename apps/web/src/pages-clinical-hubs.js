@@ -1285,9 +1285,22 @@ export async function pgProtocolStudio(setTopbar, navigate) {
   };
   const S = window._studioState;
 
-  try { setTopbar('Protocol Studio',
-    '<button class="btn btn-sm btn-ghost" onclick="window._nav(\'handbooks-v2\')">Handbooks ↗</button>' +
-    '<button class="btn btn-sm btn-ghost" onclick="window._nav(\'brain-map-planner\')">Brain Map Planner ↗</button>'); } catch {}
+  // Preserve the caller's deep-link hint (personalized-protocol vs brain-scan-protocol)
+  // so the wizard can surface a "coming from …" note without forking routes.
+  const _hubHint = window._protocolHubTab || 'wizard';
+  try {
+    const hintMap = {
+      personalized: 'Personalized',
+      brainscan:    'Brain-scan',
+      builder:      'Builder',
+      handbooks:    'Handbooks',
+    };
+    const hintLabel = hintMap[_hubHint] || 'Studio';
+    setTopbar('Protocol Studio · ' + hintLabel,
+      '<button class="btn btn-sm btn-ghost" onclick="window._nav(\'handbooks-v2\')">Handbooks ↗</button>' +
+      '<button class="btn btn-sm btn-ghost" onclick="window._nav(\'protocol-builder-full\')">Builder ↗</button>' +
+      '<button class="btn btn-sm btn-ghost" onclick="window._nav(\'brain-map-planner\')">Brain Map Planner ↗</button>');
+  } catch {}
 
   let CONDITIONS = [], MODALITIES = [], DEVICES = [], TARGETS = [];
   try {
@@ -1820,13 +1833,38 @@ export async function pgProtocolStudio(setTopbar, navigate) {
     paint();
   };
   window._studioSave = async () => {
+    // Validate against the SavedProtocolCreate schema (apps/api/app/routers/
+    // protocols_saved_router.py): `patient_id` and `condition` are required.
+    // If the studio was opened without a patient context, we surface that
+    // honestly rather than silently firing a 4xx.
+    if (!S.patientId) {
+      try { alert('Select a patient before saving a protocol draft.'); } catch {}
+      return;
+    }
+    if (!S.condition) {
+      try { alert('Pick a condition before saving.'); } catch {}
+      return;
+    }
     try {
       if (typeof api?.saveProtocol === 'function') {
+        const name = [
+          (MODALITIES.find(m => m.id === S.modality) || {}).name,
+          (targetList().find(t => t.id === S.target) || {}).name,
+          (CONDITIONS.find(c => c.id === S.condition) || {}).name ||
+            (CONDITIONS.find(c => c.id === S.condition) || {}).label,
+        ].filter(Boolean).join(' · ') || 'Protocol draft';
         await api.saveProtocol({
           patient_id: S.patientId,
-          condition: S.condition, phenotype: S.phenotype,
-          modality: S.modality, device: S.device,
-          target: S.target, montage: S.montage,
+          name,
+          condition: S.condition,
+          modality: S.modality || 'tdcs',
+          device_slug: S.device || null,
+          parameters_json: {
+            phenotype: S.phenotype,
+            target: S.target,
+            montage: S.montage,
+          },
+          governance_state: 'draft',
         });
       }
       try { alert('Protocol saved.'); } catch {}
@@ -1834,7 +1872,7 @@ export async function pgProtocolStudio(setTopbar, navigate) {
       // sees their save land without having to reload.
       window._studioDraftsCache = null;
       try { window._studioRenderDrafts?.(); } catch {}
-    } catch { try { alert('Could not save (endpoint offline). State preserved locally.'); } catch {} }
+    } catch (e) { try { alert('Could not save: ' + (e?.message || 'endpoint error') + '. State preserved locally.'); } catch {} }
   };
 
   // ── My Drafts panel — /api/v1/protocols/saved ─────────────────────────────
@@ -1880,14 +1918,36 @@ export async function pgProtocolStudio(setTopbar, navigate) {
     paint();
   };
   window._studioExport = async () => {
+    // CourseCreate (apps/api/app/routers/treatment_courses_router.py) requires
+    // both patient_id and a registry protocol_id. The studio is a phenotype /
+    // modality / target picker — it doesn't know a registry protocol yet —
+    // so we save-as-draft via /api/v1/protocols/saved and leave course
+    // creation to the review-queue → activate path downstream.
+    if (!S.patientId || !S.condition) {
+      try { alert('Select a patient and condition before exporting.'); } catch {}
+      return;
+    }
     try {
-      if (typeof api?.createTreatmentCourse === 'function') {
-        await api.createTreatmentCourse({ patient_id: S.patientId, protocol: { ...S } });
-      } else if (typeof api?.generateProtocol === 'function') {
-        await api.generateProtocol({ ...S });
+      if (typeof api?.saveProtocol === 'function') {
+        await api.saveProtocol({
+          patient_id: S.patientId,
+          name: (targetList().find(t => t.id === S.target) || {}).name || 'Course draft',
+          condition: S.condition,
+          modality: S.modality || 'tdcs',
+          device_slug: S.device || null,
+          parameters_json: {
+            phenotype: S.phenotype,
+            target: S.target,
+            montage: S.montage,
+            export_target: 'treatment-course',
+          },
+          governance_state: 'submitted',
+        });
+        window._studioDraftsCache = null;
+        try { window._studioRenderDrafts?.(); } catch {}
       }
-      try { alert('Exported to patient course.'); } catch {}
-    } catch { try { alert('Export endpoint offline — saved as draft.'); } catch {} }
+      try { alert('Draft submitted for review. Promote to a treatment course from the review queue.'); } catch {}
+    } catch (e) { try { alert('Export failed: ' + (e?.message || 'endpoint error') + '. Draft preserved locally.'); } catch {} }
   };
 
   paint();

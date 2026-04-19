@@ -1137,15 +1137,33 @@ async function renderPage() {
     case 'protocols':       { window._protocolHubTab = 'search';   window._nav('protocol-hub'); break; }
     case 'brain-map-planner':
     case 'brain-map-full':
-    case 'protocols-registry':
     case 'reg-protocols':   { const { pgBrainMapPlanner } = await loadClinicalTools(); await pgBrainMapPlanner(setTopbar); break; }
+    // protocols-registry routes to the real protocol search/registry browser,
+    // not the brain-map planner. Previously this alias pointed at
+    // pgBrainMapPlanner which mislabelled the surface.
+    case 'protocols-registry': {
+      const m = await loadProtocols();
+      await m.pgProtocolSearch(setTopbar, navigate);
+      break;
+    }
     // Legacy aliases — the Handbooks tab moved out of Protocol Hub into its
     // own page (pgHandbooks). Route both short aliases to the canonical
     // handbooks-v2 module so deep links keep working.
     case 'handbooks':
     case 'reg-handbooks':   { const m = await loadHandbooks(); await m.pgHandbooks(setTopbar); break; }
-    case 'protocol-builder':{ window._protocolHubTab = 'builder';   window._nav('protocol-hub'); break; }
+    // protocol-builder deep-links to the full builder (pgProtocolBuilderV2)
+    // rather than silently landing on the studio wizard step 1. The wizard
+    // never consumed `_protocolHubTab`, so the prior indirection was a dead
+    // redirect.
+    case 'protocol-builder': {
+      const m = await loadProtocols();
+      await m.pgProtocolBuilderV2(setTopbar, navigate);
+      break;
+    }
     case 'protocol-hub':      { const { pgProtocolHub } = await loadClinicalHubs(); await pgProtocolHub(setTopbar, navigate); break; }
+    // personalized + brain-scan protocols now route to the studio wizard with
+    // explicit hints; until the wizard grows those tabs this at least keeps
+    // the label meaningful.
     case 'personalized-protocol': { window._protocolHubTab = 'personalized'; window._nav('protocol-hub'); break; }
     case 'brain-scan-protocol':   { window._protocolHubTab = 'brainscan';    window._nav('protocol-hub'); break; }
     case 'protocol-search-full': {
