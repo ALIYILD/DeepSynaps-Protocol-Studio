@@ -1135,9 +1135,10 @@ async function renderPage() {
     // ── Protocol Intelligence ────────────────────────────────────────────
     case 'protocol-wizard':
     case 'protocols':       { window._protocolHubTab = 'search';   window._nav('protocol-hub'); break; }
-    case 'brain-map-planner':{ window._protocolHubTab = 'brainmap'; window._nav('protocol-hub'); break; }
+    case 'brain-map-planner':
+    case 'brain-map-full':
     case 'protocols-registry':
-    case 'reg-protocols':   { window._protocolHubTab = 'registry';  window._nav('protocol-hub'); break; }
+    case 'reg-protocols':   { const { pgBrainMapPlanner } = await loadClinicalTools(); await pgBrainMapPlanner(setTopbar); break; }
     case 'handbooks':
     case 'reg-handbooks':   { window._protocolHubTab = 'handbooks'; window._nav('protocol-hub'); break; }
     case 'protocol-builder':{ window._protocolHubTab = 'builder';   window._nav('protocol-hub'); break; }
