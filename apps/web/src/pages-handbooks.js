@@ -795,7 +795,7 @@ function renderLeftRail(entries) {
     <aside style="border:1px solid ${T.border};border-radius:${T.rmd};background:${T.panel};display:flex;flex-direction:column;overflow:hidden;position:sticky;top:0;align-self:start;max-height:calc(100vh - 120px)">
       <div style="padding:14px 14px 10px;border-bottom:1px solid ${T.border}">
         <div style="position:relative">
-          <input id="hb-filter" placeholder="Filter handbooks…" value="${esc(_query)}"
+          <input id="hb-filter" placeholder="Filter handbooks…  ( / )" value="${esc(_query)}"
             oninput="window._hbFilter(this.value)"
             style="width:100%;padding:7px 10px;background:${T.surface};border:1px solid ${T.border};border-radius:${T.rsm};font-size:11.5px;color:${T.text1};font-family:inherit;box-sizing:border-box" />
         </div>
@@ -811,9 +811,46 @@ function renderLeftRail(entries) {
 // ── Center reading pane ──────────────────────────────────────────────────────
 function renderCenter(entry, sections) {
   if (!entry) {
-    return `<section style="border:1px solid ${T.border};border-radius:${T.rmd};background:${T.panel};padding:64px;text-align:center;color:${T.text3}">
-      <div style="font-family:${T.fdisp};font-size:18px;color:${T.text2};margin-bottom:6px">Select a handbook</div>
-      <div style="font-size:13px">Pick a document from the left rail to start reading.</div>
+    // Build a welcoming overview: one "suggested" card per collection + the
+    // total per-collection count. Clicking a suggestion opens that handbook.
+    const entries = buildEntries();
+    const byCat = new Map();
+    for (const e of entries) {
+      if (!byCat.has(e.collection)) byCat.set(e.collection, []);
+      byCat.get(e.collection).push(e);
+    }
+    const catOrder = [...new Set(CONDITION_REGISTRY.map(c => c.cat))];
+    const ordered = [...catOrder, 'Protocols', 'Safety & Ops', 'Training']
+      .filter(c => byCat.has(c))
+      .map(c => [c, byCat.get(c)]);
+    for (const [k, v] of byCat) if (!ordered.find(([x]) => x === k)) ordered.push([k, v]);
+
+    const cards = ordered.slice(0, 9).map(([cat, items]) => {
+      const sample = items[0];
+      return `<button onclick="window._hbOpen('${esc(sample.id)}')"
+        style="text-align:left;padding:14px 16px;border-radius:${T.rmd};background:${T.panel};border:1px solid ${T.border};cursor:pointer;font-family:inherit;display:flex;flex-direction:column;gap:5px;transition:border-color 0.15s"
+        onmouseover="this.style.borderColor='${T.teal}'" onmouseout="this.style.borderColor='${T.border}'">
+        <div style="font-size:9.5px;text-transform:uppercase;letter-spacing:0.08em;color:${T.text3};font-family:${T.fmono};font-weight:600;display:flex;align-items:center;justify-content:space-between">
+          <span>${esc(cat)}</span>
+          <span style="color:${T.text3};font-weight:500">${items.length} doc${items.length===1?'':'s'}</span>
+        </div>
+        <div style="font-size:14px;color:${T.text1};font-weight:600;font-family:${T.fdisp}">${esc(sample.title)}</div>
+        <div style="font-size:11.5px;color:${T.text3};overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical">${esc(sample.subtitle || '')}</div>
+      </button>`;
+    }).join('');
+
+    const total = entries.length;
+    return `<section style="border:1px solid ${T.border};border-radius:${T.rmd};background:${T.panel};padding:42px clamp(20px, 4vw, 56px);min-height:calc(100vh - 180px);overflow-y:auto;max-height:calc(100vh - 120px)">
+      <div style="max-width:900px;margin:0 auto">
+        <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:${T.teal};font-family:${T.fmono};font-weight:600;margin-bottom:8px">Handbooks · ${total} documents</div>
+        <h1 style="font-family:${T.fdisp};font-size:32px;font-weight:600;letter-spacing:-0.02em;margin:0 0 8px;color:${T.text1}">Clinical knowledge base</h1>
+        <p style="font-size:14.5px;color:${T.text2};line-height:1.6;margin:0 0 20px;max-width:640px">Condition and protocol handbooks, safety SOPs, and training materials — each ready to read, generate a tailored draft from evidence, or export to DOCX. Pick any document from the left rail, or start from one of the collections below.</p>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;margin:0 0 28px">
+          <button onclick="document.getElementById('hb-filter')?.focus()" style="padding:8px 14px;border-radius:${T.rsm};font-size:12px;font-weight:600;color:${T.teal};background:rgba(0,212,188,0.08);border:1px solid rgba(0,212,188,0.32);cursor:pointer;font-family:inherit">⌕ Search all (press <kbd style="font-family:${T.fmono};background:${T.surface};border:1px solid ${T.border};border-radius:3px;padding:1px 5px;font-size:10.5px">/</kbd>)</button>
+          <button onclick="window._hbOpen('mdd')" style="padding:8px 14px;border-radius:${T.rsm};font-size:12px;color:${T.text2};background:${T.surface};border:1px solid ${T.border};cursor:pointer;font-family:inherit">Jump to MDD · flagship condition</button>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fill, minmax(220px, 1fr));gap:12px">${cards}</div>
+      </div>
     </section>`;
   }
 
@@ -834,12 +871,13 @@ function renderCenter(entry, sections) {
         <span style="padding:2px 8px;border-radius:4px;font-size:9.5px;font-weight:700;font-family:${T.fmono};letter-spacing:0.04em;text-transform:uppercase;background:rgba(0,212,188,0.15);color:${T.teal};margin-left:6px">● Published</span>
       </div>
       <div style="margin-left:auto;display:flex;gap:6px">
+        <button id="hb-export-docx-btn" onclick="window._hbExportDocx('${esc(entry.id)}')" style="padding:5px 11px;border-radius:5px;font-size:11px;color:${T.text2};background:transparent;border:1px solid ${T.border};cursor:pointer;font-family:inherit" title="Export as Word document">⬇ DOCX</button>
         <button onclick="window._hbPrint()" style="padding:5px 11px;border-radius:5px;font-size:11px;color:${T.text2};background:transparent;border:1px solid ${T.border};cursor:pointer;font-family:inherit">↗ Print</button>
         <button onclick="window._hbToast('History','${esc(version)} is current. 4 prior revisions on file.')" style="padding:5px 11px;border-radius:5px;font-size:11px;color:${T.text2};background:transparent;border:1px solid ${T.border};cursor:pointer;font-family:inherit">◴ History</button>
       </div>
     </header>
     <div id="hb-reading-pane" style="flex:1;overflow-y:auto;padding:0;max-height:calc(100vh - 180px)">
-      <article style="max-width:760px;margin:0 auto;padding:42px 56px 96px;font-family:${T.fbody};color:${T.text2};line-height:1.65;font-size:15px">
+      <article style="max-width:min(900px, 100%);margin:0 auto;padding:42px clamp(20px, 5vw, 56px) 96px;font-family:${T.fbody};color:${T.text2};line-height:1.65;font-size:15px">
         <div style="display:inline-flex;align-items:center;gap:7px;padding:4px 10px;background:rgba(0,212,188,0.08);border:1px solid rgba(0,212,188,0.22);border-radius:999px;font-size:10.5px;color:${T.teal};font-weight:600;letter-spacing:0.04em;font-family:${T.fmono};text-transform:uppercase">
           <span style="background:${T.teal};color:#04121c;padding:1px 5px;border-radius:3px;font-weight:700">${esc(sopNum)}</span>${esc(heroTag)}
         </div>
@@ -1077,6 +1115,84 @@ export async function pgHandbooks(setTopbar /*, navigate */) {
     else console.info('[handbook]', title, body);
   };
   window._hbPrint = () => { try { window.print(); } catch (_) { /* noop */ } };
+
+  // ── DOCX export — posts current handbook to /api/v1/export/handbook-docx ────
+  // Works with or without an AI-generated cache. When the entry has been
+  // generated in-session (via the AI handbook section), the generated
+  // document is sent; otherwise the server assembles from curated sources.
+  window._hbExportDocx = async (entryId) => {
+    if (!entryId) return;
+    const btn = document.getElementById('hb-export-docx-btn');
+    if (btn) { btn.disabled = true; btn.textContent = '⬇ …'; }
+    const cached = Object.entries(_aiCache || {}).find(([k]) => k.startsWith(entryId + '|'));
+    const genDoc = cached ? cached[1] : null;
+    const cond = (CONDITION_REGISTRY || []).find(c => c.id === entryId);
+    const prot = (PROTOCOL_REGISTRY || []).find(p => p.id === entryId);
+    const condLabel = cond?.name || prot?.condition || prot?.name || entryId;
+    const sel = _aiSel[entryId] || {};
+    const modality = sel.modality || prot?.modality || 'TMS';
+    const kind     = sel.kind || 'clinician_handbook';
+    try {
+      const blob = await api.exportHandbookDocx({
+        handbook_kind: kind,
+        condition: condLabel,
+        modality,
+        document: genDoc?.document || genDoc,
+      });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'handbook-' + String(entryId).toLowerCase() + '.docx';
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(url), 2000);
+      window._dsToast?.({ title: 'Exported', body: condLabel + ' · handbook.docx', severity: 'info' });
+    } catch (e) {
+      window._dsToast?.({ title: 'Export failed', body: (e?.body?.message || e?.message || 'Backend error'), severity: 'error' });
+    }
+    if (btn) { btn.disabled = false; btn.textContent = '⬇ DOCX'; }
+  };
+
+  // ── Keyboard shortcuts — /, Esc, j, k, ? ───────────────────────────────────
+  // `/` focus search; `Esc` clear + blur when focused; `j`/`k` step through
+  // the currently-visible rail entries; `?` show help toast. Input fields are
+  // skipped except the `/` binding (which opens/focuses search intentionally).
+  if (!window._hbKbInstalled) {
+    window._hbKbInstalled = true;
+    document.addEventListener('keydown', (ev) => {
+      if (!document.querySelector('#hb-filter')) return; // not on Handbooks page
+      const inField = ev.target && (ev.target.tagName === 'INPUT' || ev.target.tagName === 'TEXTAREA' || ev.target.tagName === 'SELECT' || ev.target.isContentEditable);
+      if (ev.key === '/' && !inField) {
+        ev.preventDefault();
+        const f = document.getElementById('hb-filter');
+        if (f) { f.focus(); f.select?.(); }
+        return;
+      }
+      if (ev.key === 'Escape' && ev.target?.id === 'hb-filter') {
+        ev.target.value = '';
+        window._hbFilter('');
+        ev.target.blur();
+        return;
+      }
+      if ((ev.key === 'j' || ev.key === 'k') && !inField) {
+        ev.preventDefault();
+        const rail = document.querySelectorAll('aside [onclick^="window._hbOpen"]');
+        if (!rail.length) return;
+        const ids = Array.from(rail).map(el => {
+          const m = String(el.getAttribute('onclick') || '').match(/_hbOpen\('([^']+)'/);
+          return m ? m[1] : null;
+        }).filter(Boolean);
+        const cur = ids.indexOf(_id);
+        const next = ev.key === 'j' ? Math.min(ids.length - 1, cur + 1) : Math.max(0, cur - 1);
+        const pick = ids[cur < 0 ? 0 : next];
+        if (pick) window._hbOpen(pick);
+        return;
+      }
+      if (ev.key === '?' && !inField) {
+        ev.preventDefault();
+        window._dsToast?.({ title: 'Handbook shortcuts', body: '/ focus search · Esc clear · j next · k previous · ? this help', severity: 'info' });
+      }
+    });
+  }
 
   // ── AI Handbook handlers ───────────────────────────────────────────────────
   window._hbAiSet = (field, value) => {
