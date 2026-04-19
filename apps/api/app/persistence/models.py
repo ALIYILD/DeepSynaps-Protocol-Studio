@@ -891,6 +891,29 @@ class FormDefinition(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
 
+class DocumentTemplate(Base):
+    """Clinician-authored document template (letter / consent / handout / ...).
+
+    Stored as plain markdown so the modal builder is a single textarea. The
+    Documents Hub renders these alongside the bundled DOCUMENT_TEMPLATES
+    from `apps/web/src/documents-templates.js` — the bundled set is read-only
+    starter content; rows here are user-customisable.
+    """
+    __tablename__ = "document_templates"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    owner_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    doc_type: Mapped[str] = mapped_column(String(40), nullable=False, default="letter")
+    body_markdown: Mapped[str] = mapped_column(Text(), nullable=False, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
+
+
 class FormSubmission(Base):
     """Patient's completed form submission."""
     __tablename__ = "form_submissions"
@@ -1087,6 +1110,29 @@ class LiteratureReadingList(Base):
     notes: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
     read_at: Mapped[Optional[datetime]] = mapped_column(DateTime(), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
+
+
+class LiteratureCuration(Base):
+    """Per-user curation verdict on a literature-watch paper, keyed by PMID.
+
+    Used by the Library "Needs review" tab triage buttons:
+      - mark-relevant      → flag the paper as worth a closer look
+      - promote            → promote the paper to formal protocol references
+      - not-relevant       → exclude from future surfacing
+    Keyed on PMID (not LiteraturePaper.id) because most rows surfaced by
+    literature_watch_cron have no LiteraturePaper row yet — they live in the
+    snapshot JSON, not the curated library.
+    """
+    __tablename__ = "literature_curation"
+    __table_args__ = (UniqueConstraint("pmid", "user_id", name="uq_literature_curation_pmid_user"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    pmid: Mapped[str] = mapped_column(String(60), nullable=False, index=True)
+    user_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    action: Mapped[str] = mapped_column(String(32), nullable=False)  # mark-relevant | promote | not-relevant
+    note: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
 
 class ClinicianHomeProgramTask(Base):

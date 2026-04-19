@@ -9742,7 +9742,7 @@ export async function pgGovernance(setTopbar, _navigate) {
       </div>
       <span style="font-size:10px;font-weight:600;padding:2px 8px;border-radius:10px;background:${pill.bg};color:${pill.c};text-transform:uppercase;letter-spacing:.03em">${_escG(a.sev === 'mod' ? 'Moderate' : a.sev === 'severe' || a.sev === 'sae' ? (a.sev === 'sae' ? 'SAE' : 'Severe') : 'Mild')}</span>
       <span style="font-size:10.5px;color:${a.closed ? 'var(--text-tertiary)' : 'var(--amber)'};white-space:nowrap">${_escG(a.state)}</span>
-      <button class="btn btn-ghost btn-sm" style="font-size:10px" onclick="window._gvOpenAE?.('${_escG(a.id)}')" title="Opens the Adverse Events tab in Monitor (per-id deep-link pending)">Find in log →</button>
+      <button class="btn btn-ghost btn-sm" style="font-size:10px" onclick="window._gvOpenAE?.('${_escG(a.id)}')" title="Open this AE in the Monitor → Adverse log">Open →</button>
     </div>`;
   };
 

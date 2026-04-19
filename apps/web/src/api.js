@@ -341,6 +341,17 @@ export const api = {
   // Absolute URL for a document's stored file — used as <a href=> for downloads.
   documentDownloadUrl: (id) => `${API_BASE}/api/v1/documents/${encodeURIComponent(id)}/download`,
 
+  // Custom document templates (clinician-authored, distinct from the bundled
+  // DOCUMENT_TEMPLATES read-only set in apps/web/src/documents-templates.js).
+  // Backed by /api/v1/documents/templates* in documents_router.py.
+  listDocumentTemplates: () => apiFetchWithRetry('/api/v1/documents/templates'),
+  createDocumentTemplate: (data) =>
+    apiFetch('/api/v1/documents/templates', { method: 'POST', body: JSON.stringify(data) }),
+  updateDocumentTemplate: (id, data) =>
+    apiFetch(`/api/v1/documents/templates/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  deleteDocumentTemplate: (id) =>
+    apiFetch(`/api/v1/documents/templates/${id}`, { method: 'DELETE' }),
+
   // ── Clinical Knowledge ──────────────────────────────────────────────────
   // Retargeted: the legacy stub endpoints were never implemented. These now
   // point at the real curated sources so callers keep working.
@@ -873,6 +884,15 @@ export const api = {
   getLiteraturePaper: (id) => apiFetch(`/api/v1/literature/${id}`),
   tagPaperToProtocol: (paperId, protocolId) =>
     apiFetch('/api/v1/literature/tag-protocol', { method: 'POST', body: JSON.stringify({ paper_id: paperId, protocol_id: protocolId }) }),
+  /** Persist a per-user curation verdict on a PMID surfaced by literature-watch.
+   *  @param {string} pmid    PubMed ID (string).
+   *  @param {'mark-relevant'|'promote'|'not-relevant'} action
+   *  @param {string} [note]  Optional clinician note (≤2000 chars). */
+  curateLiteraturePaper: (pmid, action, note) =>
+    apiFetch(`/api/v1/literature/papers/${encodeURIComponent(pmid)}/curate`, {
+      method: 'POST',
+      body: JSON.stringify(note ? { action, note } : { action }),
+    }),
   getReadingList: () => apiFetchWithRetry('/api/v1/literature/reading-list'),
   addToReadingList: (paperId, data = {}) =>
     apiFetch(`/api/v1/literature/reading-list/${paperId}`, { method: 'POST', body: JSON.stringify(data) }),
