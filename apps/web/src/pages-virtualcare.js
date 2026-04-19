@@ -2182,6 +2182,7 @@ async function _lsAssignTask(payload) {
     frequency: payload.frequency || 'once',
     reason: payload.reason || '',
     courseId: payload.courseId || '',
+    course_id: payload.courseId || '',
     status: 'assigned',
     assignedAt: now,
     lastActivityAt: now,
@@ -2236,11 +2237,15 @@ async function _lsCycleTaskStatus(id) {
   _lsRenderTasks();
 }
 
-function _lsEditTask(id) {
+async function _lsEditTask(id) {
   const s = _lsState; if (!s) return;
   const t = (s.tasks || []).find(x => x.id === id); if (!t) return;
   const typeOpts = LS_HT_TASK_TYPES.map(tp => `<option value="${tp.id}"${(t.type||t.category)===tp.id?' selected':''}>${_e(tp.label)}</option>`).join('');
   const stOpts = LS_HT_STATUSES.map(st => `<option value="${st}"${(t.status||'assigned')===st?' selected':''}>${_e(st)}</option>`).join('');
+  const pid = t.patientId || s.taskSelectedPid || s.session.patient_id || '';
+  const { list: courses, unavailable } = pid ? await _lsFetchPatientCourses(pid) : { list: [], unavailable: false };
+  const selectedCourseId = t.course_id || t.courseId || '';
+  const courseHtml = _lsCourseSelectHtml('ls-ht-ed-course', courses, unavailable, selectedCourseId);
   _lsOpenModal(`
     <div style="font-family:var(--dv2-font-display,var(--font-display));font-size:16px;font-weight:700;margin-bottom:12px">Edit task</div>
     <div class="dv2l-ht-fgroup"><label class="dv2l-ht-label">Title</label><input id="ls-ht-ed-title" class="dv2l-ht-input" value="${_e(t.title || '')}"></div>
@@ -2251,10 +2256,12 @@ function _lsEditTask(id) {
     </div>
     <div class="dv2l-ht-fgroup"><label class="dv2l-ht-label">Status</label><select id="ls-ht-ed-status" class="dv2l-ht-select">${stOpts}</select></div>
     <div class="dv2l-ht-fgroup"><label class="dv2l-ht-label">Instructions</label><textarea id="ls-ht-ed-inst" class="dv2l-ht-textarea">${_e(t.instructions || '')}</textarea></div>
+    ${courseHtml}
     <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:10px">
       <button class="btn btn-sm" onclick="window._lsCloseModal()">Cancel</button>
       <button class="btn btn-primary btn-sm" onclick="window._lsSubmitEdit('${_e(id)}')">Save</button>
     </div>`);
+  try { const el = document.getElementById('ls-ht-ed-course'); if (el && selectedCourseId) el.value = selectedCourseId; } catch {}
 }
 
 async function _lsSubmitEdit(id) {
@@ -2270,6 +2277,12 @@ async function _lsSubmitEdit(id) {
   t.dueDate = due ? new Date(due).toISOString() : '';
   t.status = document.getElementById('ls-ht-ed-status')?.value || t.status;
   t.instructions = document.getElementById('ls-ht-ed-inst')?.value || '';
+  const courseSel = document.getElementById('ls-ht-ed-course');
+  if (courseSel) {
+    const cv = (courseSel.value || '').trim();
+    t.courseId = cv;
+    t.course_id = cv;
+  }
   t.clientUpdatedAt = new Date().toISOString();
   t.lastActivityAt = t.clientUpdatedAt;
   let synced = false;
@@ -2331,13 +2344,73 @@ async function _lsRemindTask(id) {
   try { window.dispatchEvent(new CustomEvent('ds:home-task-updated', { detail: { taskId: t.id, patientId: t.patientId, action: 'remind', sent } })); } catch {}
 }
 
-function _lsOpenAssignModal() {
+async function _lsFetchPatientCourses(pid) {
+  const s = _lsState; if (!s || !pid) return { list: [], unavailable: false };
+  s.patientCourses = s.patientCourses || {};
+  if (s.patientCourses[pid]) return s.patientCourses[pid];
+  let list = [];
+  let unavailable = false;
+  try {
+    let res = null;
+    if (typeof api.listPatientCourses === 'function') {
+      res = await api.listPatientCourses(pid);
+    } else if (typeof api.listCourses === 'function') {
+      res = await api.listCourses({ patient_id: pid });
+    } else {
+      unavailable = true;
+    }
+    if (res) {
+      const raw = Array.isArray(res) ? res : (res.courses || res.items || res.data || []);
+      list = raw.filter(c => {
+        const st = String(c.status || c.state || 'active').toLowerCase();
+        return st === 'active' || st === 'in_progress' || st === 'in-progress' || st === 'running';
+      });
+    }
+  } catch {
+    unavailable = true;
+  }
+  const cached = { list, unavailable };
+  s.patientCourses[pid] = cached;
+  return cached;
+}
+
+function _lsCourseLabel(c) {
+  const name = c.protocol_name || c.protocolName || c.name || c.title || c.protocol || (c.id ? `Course ${c.id}` : 'Course');
+  const cur = c.session_number ?? c.current_session ?? c.sessionsCompleted ?? c.sessions_completed ?? c.completed_sessions;
+  const tot = c.total_sessions ?? c.sessions_total ?? c.sessionsTotal ?? c.planned_sessions ?? c.target_sessions;
+  if (cur != null && tot != null) return `${name} \u00B7 Session ${cur}/${tot}`;
+  if (tot != null) return `${name} \u00B7 ${tot} sessions`;
+  return name;
+}
+
+function _lsCourseSelectHtml(selectId, courses, unavailable, selectedId) {
+  const sel = selectedId || '';
+  if (unavailable) {
+    return `<div class="dv2l-ht-fgroup"><label class="dv2l-ht-label">Link to treatment course</label>`
+      + `<select id="${selectId}" class="dv2l-ht-select"><option value="">\u2014 None \u2014</option></select>`
+      + `<div style="font-size:11px;opacity:0.65;margin-top:4px">Courses unavailable</div></div>`;
+  }
+  if (!courses || !courses.length) {
+    return `<div class="dv2l-ht-fgroup"><label class="dv2l-ht-label">Link to treatment course</label>`
+      + `<select id="${selectId}" class="dv2l-ht-select"><option value="">\u2014 None \u2014</option></select>`
+      + `<div style="font-size:11px;opacity:0.65;margin-top:4px">No active courses</div></div>`;
+  }
+  const opts = ['<option value="">\u2014 None \u2014</option>'].concat(
+    courses.map(c => `<option value="${_e(c.id)}"${sel === c.id ? ' selected' : ''}>${_e(_lsCourseLabel(c))}</option>`)
+  ).join('');
+  return `<div class="dv2l-ht-fgroup"><label class="dv2l-ht-label">Link to treatment course</label>`
+    + `<select id="${selectId}" class="dv2l-ht-select">${opts}</select></div>`;
+}
+
+async function _lsOpenAssignModal() {
   const s = _lsState; if (!s) return;
   const typeOpts = LS_HT_TASK_TYPES.map(tp => `<option value="${tp.id}">${_e(tp.label)}</option>`).join('');
   const tplOpts = ['<option value="">Custom task</option>'].concat(
     CONDITION_HOME_TEMPLATES.map(tpl => `<option value="${_e(tpl.id)}">${_e(tpl.conditionName)} \u2014 ${_e(tpl.title)}</option>`)
   ).join('');
   const pid = s.taskSelectedPid || s.session.patient_id || '';
+  const { list: courses, unavailable } = pid ? await _lsFetchPatientCourses(pid) : { list: [], unavailable: false };
+  const courseHtml = _lsCourseSelectHtml('ls-ht-a-course', courses, unavailable, '');
   _lsOpenModal(`
     <div style="font-family:var(--dv2-font-display,var(--font-display));font-size:16px;font-weight:700;margin-bottom:12px">Assign home task</div>
     <div class="dv2l-ht-fgroup"><label class="dv2l-ht-label">Patient id</label><input id="ls-ht-a-pid" class="dv2l-ht-input" value="${_e(pid)}"></div>
@@ -2349,6 +2422,7 @@ function _lsOpenAssignModal() {
     </div>
     <div class="dv2l-ht-fgroup"><label class="dv2l-ht-label">Due date</label><input id="ls-ht-a-due" type="date" class="dv2l-ht-input"></div>
     <div class="dv2l-ht-fgroup"><label class="dv2l-ht-label">Instructions</label><textarea id="ls-ht-a-inst" class="dv2l-ht-textarea" placeholder="Step-by-step guidance for patient"></textarea></div>
+    ${courseHtml}
     <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:10px">
       <button class="btn btn-sm" onclick="window._lsCloseModal()">Cancel</button>
       <button class="btn btn-primary btn-sm" onclick="window._lsSubmitAssign()">Assign</button>
@@ -2359,6 +2433,7 @@ function _lsOpenAssignModal() {
 async function _lsSubmitAssign() {
   const title = (document.getElementById('ls-ht-a-title')?.value || '').trim();
   if (!title) { window.alert('Title required.'); return; }
+  const courseId = (document.getElementById('ls-ht-a-course')?.value || '').trim();
   const payload = {
     patientId: (document.getElementById('ls-ht-a-pid')?.value || '').trim(),
     title,
@@ -2366,6 +2441,7 @@ async function _lsSubmitAssign() {
     frequency: (document.getElementById('ls-ht-a-freq')?.value || 'once').trim(),
     instructions: document.getElementById('ls-ht-a-inst')?.value || '',
     dueDate: (function(){ const v = document.getElementById('ls-ht-a-due')?.value; return v ? new Date(v).toISOString() : ''; })(),
+    courseId,
   };
   await _lsAssignTask(payload);
   _lsCloseModal();

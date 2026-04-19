@@ -1975,6 +1975,37 @@ async function bootApp() {
   }, 30000);
   // Warm patient roster cache for command palette (fire-and-forget)
   _warmPatientRoster();
+  // Idle-logout watchdog consumes the ds_auto_logout preference written by Settings.
+  _mountIdleLogoutWatchdog();
+}
+
+// Reads ds_auto_logout ("never" | minutes) and signs the clinician out on idle.
+// Reset by pointer / key / scroll / visibility events; re-reads pref on each
+// reset so new values take effect without reboot. No-op when "never" / 0.
+function _mountIdleLogoutWatchdog() {
+  if (window.__idleLogoutMounted) return;
+  window.__idleLogoutMounted = true;
+  let t = null;
+  const mins = () => {
+    try {
+      const v = localStorage.getItem('ds_auto_logout');
+      if (!v || v === 'never' || v === '0') return 0;
+      const n = parseInt(v, 10);
+      return Number.isFinite(n) && n > 0 ? n : 0;
+    } catch { return 0; }
+  };
+  const reset = () => {
+    if (t) { clearTimeout(t); t = null; }
+    const m = mins(); if (!m) return;
+    t = setTimeout(() => {
+      try { window._showNotifToast?.({ title: 'Signed out', body: 'Idle timeout reached.', severity: 'info' }); } catch {}
+      try { window.doLogout?.(); } catch {}
+    }, m * 60000);
+  };
+  ['pointermove','pointerdown','keydown','wheel','scroll','visibilitychange','focus'].forEach(ev => {
+    window.addEventListener(ev, reset, { passive: true });
+  });
+  reset();
 }
 
 window._bootApp = bootApp;
