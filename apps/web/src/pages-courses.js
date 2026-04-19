@@ -2188,7 +2188,7 @@ function renderCourseHomeProgramsTab(course) {
         <h3 style="margin:0 0 2px">Home Programs</h3>
         <div style="font-size:11.5px;color:var(--text-secondary)">Between-session activities for this patient · ${programs.length} active</div>
       </div>
-      <button class="btn btn-primary btn-sm" onclick="alert('Home program builder coming soon.')">+ Add Program</button>
+      <button class="btn btn-primary btn-sm" onclick="window._nav?.('home-tasks-v2')" title="Open the Home Task Manager to build / assign a home program">+ Add Program</button>
     </div>
     ${programs.length === 0
       ? `<div>
@@ -2243,7 +2243,7 @@ function renderCourseReportsTab(course, sessions, outcomes) {
       </div>
       <div style="display:flex;gap:8px">
         <button class="btn btn-sm" style="font-size:12px" onclick="window.print()">🖨 Print</button>
-        <button class="btn btn-sm" style="font-size:12px" onclick="alert('PDF export coming soon.')">⬇ Export PDF</button>
+        <button class="btn btn-sm" style="font-size:12px;opacity:.55;cursor:not-allowed" disabled title="Course-report PDF export requires document-render backend (not yet wired); use Print for now">⬇ Export PDF</button>
       </div>
     </div>
 

@@ -9572,7 +9572,7 @@ export async function pgDocumentsHub(setTopbar) {
     window._showNotifToast?.({ title:'Fill Form', body:'In-platform form filling — select a patient first.', severity:'info' });
   };
 
-  window._dhFill       = function(id) { window._showNotifToast?.({ title:'Open Form', body:'In-platform form filling coming soon. Form sent to patient portal.', severity:'info' }); };
+  window._dhFill       = function(id) { window._showNotifToast?.({ title:'Open Form', body:'In-platform form filling not yet wired — patients can complete this form via the patient portal.', severity:'info' }); };
   window._dhOpen       = function(id) { const d=docs.find(x=>x.id===id); if(d?.url) window.open(d.url,'_blank'); else window._showNotifToast?.({ title:'No file attached', body:'No URL or file attached yet.', severity:'info' }); };
   window._dhDownload   = function(id) { const d=docs.find(x=>x.id===id); if(d?.url) window.open(d.url,'_blank'); else window._showNotifToast?.({ title:'Download', body:'PDF generation coming soon.', severity:'info' }); };
   window._dhRegenerate = function(id) { docs=loadDocs(); const d=docs.find(x=>x.id===id); if(!d) return; d.updatedDate=today(); saveDocs(docs); renderPage(); window._showNotifToast?.({ title:'Regenerated', body:`${d.name} regenerated.`, severity:'success' }); };
