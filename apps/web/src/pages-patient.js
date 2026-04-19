@@ -581,10 +581,15 @@ export async function pgPatientDashboard(user) {
     const tiles = [];
     // 1. Check-in
     const checkinPending = !checkedInToday;
-    tiles.push(`<button class="pth-tile${checkinPending ? ' pth-tile--pending' : ''}" id="pth-tile-checkin" onclick="window._ptdOpenCheckin()">
-      <span class="pth-tile-ico pth-tile-ico--teal" aria-hidden="true">◉</span>
+    const checkinMeta = checkinPending
+      ? '1 pending'
+      : (streak >= 2
+          ? `Done today · <span class="pth-tile-streak" aria-label="${streak} day streak">🔥 ${streak}d</span>`
+          : 'Done today');
+    tiles.push(`<button class="pth-tile${checkinPending ? ' pth-tile--pending' : ' pth-tile--done'}" id="pth-tile-checkin" onclick="window._ptdOpenCheckin()">
+      <span class="pth-tile-ico pth-tile-ico--teal" aria-hidden="true">${checkinPending ? '◉' : '✓'}</span>
       <span class="pth-tile-title">Daily check-in</span>
-      <span class="pth-tile-meta">${checkinPending ? '1 pending' : 'Done today'}</span>
+      <span class="pth-tile-meta">${checkinMeta}</span>
     </button>`);
     // 2. Homework
     const openCount = openTasks.length;
@@ -715,6 +720,25 @@ export async function pgPatientDashboard(user) {
     const rhrTxt   = wearable.rhrAvg   != null ? Math.round(wearable.rhrAvg)   + ' bpm RHR'   : 'RHR: —';
     const ringValDisplay = wellnessVal || '—';
     const ringOffset = Math.max(0, 389 - (wellnessVal / 100) * 389).toFixed(1);
+    const ringAriaLabel = wellnessVal
+      ? `Wellness score ${wellnessVal} out of 100, based on check-ins and wearable averages`
+      : 'Wellness score not yet available';
+    // Freshness chip — how recent is the latest wearable reading?
+    const freshness = (() => {
+      if (!wearable.lastDate) return null;
+      const d = new Date(wearable.lastDate);
+      if (!Number.isFinite(d.getTime())) return null;
+      const days = Math.floor((Date.now() - d.getTime()) / 86400000);
+      if (days <= 0) return { label: 'Synced today',     tone: 'fresh' };
+      if (days === 1) return { label: 'Synced yesterday', tone: 'fresh' };
+      if (days <= 3)  return { label: `Synced ${days}d ago`, tone: 'ok'   };
+      return { label: `Last sync ${days}d ago`,          tone: 'stale' };
+    })();
+    const freshnessChip = freshness
+      ? `<span class="pth-wellness-sync pth-wellness-sync--${freshness.tone}" title="Most recent wearable reading">
+           <span class="pth-wellness-sync-dot" aria-hidden="true"></span>${esc(freshness.label)}
+         </span>`
+      : '';
     return `
       <div class="pth-card pth-card--wellness">
         <div class="pth-card-head">
@@ -722,20 +746,21 @@ export async function pgPatientDashboard(user) {
           <button class="pth-ghost-btn" onclick="window._navPatient('pt-wellness')">Details →</button>
         </div>
         <div class="pth-wellness-body">
-          <div class="pth-ring" aria-hidden="true">
-            <svg width="110" height="110" viewBox="0 0 150 150">
+          <div class="pth-ring" role="img" aria-label="${esc(ringAriaLabel)}">
+            <svg width="110" height="110" viewBox="0 0 150 150" aria-hidden="true" focusable="false">
               <circle cx="75" cy="75" r="62" fill="none" stroke="rgba(255,255,255,0.06)" stroke-width="10"/>
               <circle cx="75" cy="75" r="62" fill="none" stroke="url(#pth-ring-grad)" stroke-width="10" stroke-linecap="round" stroke-dasharray="389" stroke-dashoffset="${ringOffset}"/>
               <defs>
                 <linearGradient id="pth-ring-grad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#00d4bc"/><stop offset="100%" stop-color="#9b7fff"/></linearGradient>
               </defs>
             </svg>
-            <div class="pth-ring-center">
+            <div class="pth-ring-center" aria-hidden="true">
               <div class="pth-ring-num">${ringValDisplay}</div>
               <div class="pth-ring-lbl">Wellness</div>
             </div>
           </div>
           <div class="pth-wellness-stats">
+            ${freshnessChip}
             <div class="pth-wellness-stat">${esc(sleepTxt)}</div>
             <div class="pth-wellness-stat">${esc(hrvTxt)}</div>
             <div class="pth-wellness-stat">${esc(rhrTxt)}</div>
