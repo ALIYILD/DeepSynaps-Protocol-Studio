@@ -306,23 +306,8 @@ import {
   outcomeGoalMarker,
   groupOutcomesByTemplate,
   pickTodaysFocus,
-  isDemoPatient,
-  DEMO_PATIENT,
-  demoOverlay,
-  classifyAssessmentStatus,
-  scoreContext as scoreContextHelper,
-  draftStorageKey,
-  loadDraft,
-  saveDraft,
-  clearDraft,
-  demoAssessmentSeed,
 } from './patient-dashboard-helpers.js';
-export {
-  computeCountdown, phaseLabel, outcomeGoalMarker, groupOutcomesByTemplate,
-  pickTodaysFocus, isDemoPatient, DEMO_PATIENT, demoOverlay,
-  classifyAssessmentStatus, scoreContextHelper, draftStorageKey,
-  loadDraft, saveDraft, clearDraft, demoAssessmentSeed,
-};
+export { computeCountdown, phaseLabel, outcomeGoalMarker, groupOutcomesByTemplate, pickTodaysFocus };
 
 // ── Dashboard ─────────────────────────────────────────────────────────────────────────────
 export async function pgPatientDashboard(user) {
@@ -353,48 +338,11 @@ export async function pgPatientDashboard(user) {
     (api.portalListHomeProgramTasks ? api.portalListHomeProgramTasks().catch(() => null) : Promise.resolve(null)),
   ]);
 
-  let sessions       = Array.isArray(portalSessions) ? portalSessions : [];
-  let outcomes       = Array.isArray(portalOutcomes) ? portalOutcomes : [];
-  let coursesArr     = Array.isArray(portalCourses) ? portalCourses : [];
-  let activeCourse   = coursesArr.find(c => c.status === 'active') || coursesArr[0] || null;
-  let messages       = Array.isArray(portalMessagesRaw) ? portalMessagesRaw : [];
-
-  // ── Demo-mode overlay ────────────────────────────────────────────────────
-  // Only fills empty fields — never overwrites real data from the API.
-  // When a field gets filled from the demo seed, the matching card carries
-  // a small `.pth-demo-tag` in its title so the patient sees it's demo data.
-  const inDemo = isDemoPatient(user, { getToken: api.getToken });
-  const demoTags = {
-    focus: false, tiles: false, progress: false, homework: false,
-    team: false, wellness: false, messages: false, outcomes: false,
-  };
-  let demoStreak = null;
-  let demoMood7d = null;
-  let demoWearableRaw = null;
-  if (inDemo) {
-    // activeCourse
-    const coverCourse = demoOverlay(activeCourse, DEMO_PATIENT.activeCourse);
-    if (coverCourse.usedDemo) { activeCourse = coverCourse.value; demoTags.progress = true; demoTags.team = true; }
-    // sessions — use demo next session only if the list is empty
-    const coverSess = demoOverlay(sessions, [DEMO_PATIENT.nextSession]);
-    if (coverSess.usedDemo) { sessions = coverSess.value; demoTags.focus = true; demoTags.tiles = true; }
-    // outcomes
-    const coverOut = demoOverlay(outcomes, DEMO_PATIENT.outcomes.slice());
-    if (coverOut.usedDemo) { outcomes = coverOut.value; demoTags.outcomes = true; demoTags.progress = true; }
-    // messages
-    const coverMsg = demoOverlay(messages, DEMO_PATIENT.messages.slice());
-    if (coverMsg.usedDemo) { messages = coverMsg.value; demoTags.messages = true; demoTags.focus = true; }
-    // wearables — real arg is wearableDays; filled below when empty
-    if (!Array.isArray(wearableSummaryRaw) || wearableSummaryRaw.length === 0) {
-      demoWearableRaw = DEMO_PATIENT.wearables;
-      demoTags.wellness = true;
-    }
-    // streak + mood_7d are client-side localStorage today; fill only when missing
-    try {
-      if (!localStorage.getItem('ds_wellness_streak')) demoStreak = DEMO_PATIENT.streak;
-    } catch (_e) { /* ignore */ }
-    demoMood7d = DEMO_PATIENT.mood_7d;
-  }
+  const sessions     = Array.isArray(portalSessions) ? portalSessions : [];
+  const outcomes     = Array.isArray(portalOutcomes) ? portalOutcomes : [];
+  const coursesArr   = Array.isArray(portalCourses) ? portalCourses : [];
+  const activeCourse = coursesArr.find(c => c.status === 'active') || coursesArr[0] || null;
+  const messages     = Array.isArray(portalMessagesRaw) ? portalMessagesRaw : [];
 
   // Wearable daily summary → flatten to latest-valued metrics.
   const wearableDays = Array.isArray(wearableSummaryRaw) ? wearableSummaryRaw : [];
@@ -403,33 +351,15 @@ export async function pgPatientDashboard(user) {
     if (!xs.length) return null;
     return xs.reduce((a, b) => a + b, 0) / xs.length;
   }
-  const _realWearable = {
+  const wearable = {
     hasData:  wearableDays.length > 0,
     sleepAvg: _avg(wearableDays.map(d => d.sleep_duration_h)),
     hrvAvg:   _avg(wearableDays.map(d => d.hrv_ms)),
     rhrAvg:   _avg(wearableDays.map(d => d.rhr_bpm)),
-    stepsAvg: _avg(wearableDays.map(d => d.steps)),
-    sleepTrend7d: wearableDays.slice(-7).map(d => Number(d.sleep_duration_h) || 0).filter(v => v > 0),
     lastDate: wearableDays.length ? (wearableDays[wearableDays.length - 1]?.date || null) : null,
   };
-  // Fill wearable fields from demo seed only when empty.
-  const wearable = demoWearableRaw
-    ? {
-        hasData:  true,
-        sleepAvg: demoWearableRaw.sleep,
-        hrvAvg:   demoWearableRaw.hrv,
-        rhrAvg:   demoWearableRaw.rhr,
-        stepsAvg: demoWearableRaw.steps,
-        sleepTrend7d: (demoWearableRaw.sleep_trend_7d || []).slice(),
-        lastDate: new Date().toISOString().slice(0, 10),
-      }
-    : _realWearable;
   // Last-night sleep (prefer the most recent day's raw sample, fall back to avg).
   const lastNightSleepHours = (() => {
-    if (demoWearableRaw) {
-      const arr = demoWearableRaw.sleep_trend_7d || [];
-      return arr.length ? Number(arr[arr.length - 1]) : Number(demoWearableRaw.sleep);
-    }
     if (!wearableDays.length) return null;
     const last = wearableDays[wearableDays.length - 1] || {};
     const v = last.sleep_duration_h;
@@ -454,11 +384,6 @@ export async function pgPatientDashboard(user) {
       task_type: r.task?.task_type || r.task?.type || null,
       raw: r,
     }));
-  }
-  // Demo overlay — only if homeTasks is empty.
-  if (inDemo && homeTasks.length === 0) {
-    homeTasks = DEMO_PATIENT.tasks.map(t => ({ ...t }));
-    demoTags.homework = true;
   }
   const openTasks = homeTasks.filter(t => !(t.completed || t.done));
 
@@ -558,9 +483,8 @@ export async function pgPatientDashboard(user) {
     return unread[0] || null;
   })();
 
-  // ── Streak (persisted client-side; demo fill if empty) ─────────────────────
-  const _rawStreak = parseInt(localStorage.getItem('ds_wellness_streak') || '0', 10) || 0;
-  const streak = _rawStreak > 0 ? _rawStreak : (demoStreak != null ? demoStreak : 0);
+  // ── Streak (persisted client-side) ─────────────────────────────────────────
+  const streak = parseInt(localStorage.getItem('ds_wellness_streak') || '0', 10) || 0;
 
   // ── Alt-variant soft line (patient-friendly wording only) ──────────────────
   const altVariant = activeCourse?.alt_variant
@@ -619,52 +543,7 @@ export async function pgPatientDashboard(user) {
   }
   const targetAreaLine = _patientTargetAreaLine();
 
-  // ── Inline SVG icon set (no external sprite available) ────────────────────
-  // Tiny, stroke-only icons so they inherit currentColor and scale cleanly.
-  function _icon(name, size) {
-    size = size || 16;
-    const s = Number(size);
-    const sw = s <= 14 ? 1.6 : 1.8;
-    const common = `width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="${sw}" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"`;
-    switch (name) {
-      case 'sparkle':   return `<svg ${common}><path d="M12 3v4M12 17v4M3 12h4M17 12h4M5.6 5.6l2.8 2.8M15.6 15.6l2.8 2.8M5.6 18.4l2.8-2.8M15.6 8.4l2.8-2.8"/></svg>`;
-      case 'calendar':  return `<svg ${common}><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>`;
-      case 'clipboard': return `<svg ${common}><rect x="6" y="4" width="12" height="17" rx="2"/><path d="M9 3h6v4H9z"/><path d="M9 12h6M9 16h4"/></svg>`;
-      case 'check':     return `<svg ${common}><path d="M4 12l5 5L20 6"/></svg>`;
-      case 'mail':      return `<svg ${common}><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 7 9-7"/></svg>`;
-      case 'moon':      return `<svg ${common}><path d="M20 15.5A8 8 0 018.5 4 8 8 0 1020 15.5z"/></svg>`;
-      case 'heart':     return `<svg ${common}><path d="M12 20s-7-4.35-7-10a4 4 0 017-2.65A4 4 0 0119 10c0 5.65-7 10-7 10z"/></svg>`;
-      case 'bolt':      return `<svg ${common}><path d="M13 2L3 14h7l-1 8 10-12h-7l1-8z"/></svg>`;
-      case 'wave':      return `<svg ${common}><path d="M3 12c2 0 2-4 4-4s2 8 4 8 2-8 4-8 2 4 4 4"/></svg>`;
-      case 'user':      return `<svg ${common}><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-7 8-7s8 3 8 7"/></svg>`;
-      case 'arrow':     return `<svg ${common}><path d="M5 12h14M13 5l7 7-7 7"/></svg>`;
-      default:          return '';
-    }
-  }
-
-  // ── Demo-tag chip ─────────────────────────────────────────────────────────
-  function _demoTag(show) {
-    if (!show) return '';
-    return '<span class="pth-demo-tag" title="Demo data shown while real data is unavailable">demo</span>';
-  }
-
   // ── Render helpers ─────────────────────────────────────────────────────────
-  function _demoBannerHtml() {
-    if (!inDemo) return '';
-    return `
-      <div class="pth-demo-banner" role="status">
-        <span class="pth-demo-banner-ico" aria-hidden="true">${_icon('sparkle', 16)}</span>
-        <span class="pth-demo-banner-text">You're viewing a demo patient (Samantha Li). Real patient data will replace this once signed in as a real patient.</span>
-        <button class="pth-demo-banner-btn" onclick="window._ptdExitDemo()" aria-label="Exit demo mode">Exit demo <span aria-hidden="true">→</span></button>
-      </div>`;
-  }
-
-  // Icon-circle colour per focus kind.
-  const _focusIconTone = {
-    session: 'teal', checkin: 'violet', task: 'amber',
-    message: 'rose', sleep: 'blue', fallback: 'teal',
-  };
-
   function _focusCardHtml() {
     if (focus.hide) return '';
     const hl = esc(focus.headline);
@@ -673,8 +552,6 @@ export async function pgPatientDashboard(user) {
     const pt = esc(focus.primary.target);
     const pl = esc(focus.primary.label);
     const sl = esc(focus.secondaryLabel);
-    const iconName = focus.icon || 'sparkle';
-    const tone = _focusIconTone[focus.kind] || 'teal';
     const altLine = altVariant
       ? `<div class="pth-focus-alt">Your care team is reviewing a small adjustment to your setup.</div>`
       : '';
@@ -682,14 +559,11 @@ export async function pgPatientDashboard(user) {
       <div class="pth-focus" data-focus-kind="${esc(focus.kind)}">
         <div class="pth-focus-glow" aria-hidden="true"></div>
         <div class="pth-focus-body">
-          <div class="pth-focus-eyebrow-row">
-            <span class="pth-viz-iconcircle pth-viz-iconcircle--${tone}" aria-hidden="true">${_icon(iconName, 16)}</span>
-            <span class="pth-focus-eyebrow">${ey}${_demoTag(demoTags.focus)}</span>
-          </div>
+          <div class="pth-focus-eyebrow">${ey}</div>
           <div class="pth-focus-headline">${hl}</div>
           <div class="pth-focus-caption">${cp}</div>
           <div class="pth-focus-actions">
-            <button class="pth-focus-btn pth-focus-btn--primary pth-viz-pulse" onclick="window._navPatient('${pt}')">${pl} <span class="pth-focus-btn-arrow" aria-hidden="true">→</span></button>
+            <button class="pth-focus-btn pth-focus-btn--primary" onclick="window._navPatient('${pt}')">${pl} <span class="pth-focus-btn-arrow" aria-hidden="true">→</span></button>
             <button class="pth-focus-btn pth-focus-btn--ghost" onclick="window._ptdSnoozeFocus()">${sl}</button>
           </div>
           ${altLine}
@@ -723,44 +597,6 @@ export async function pgPatientDashboard(user) {
     return tiles.join('');
   }
 
-  // Circular percentage ring SVG (60px). Returns empty when pct is null.
-  function _progressRingSVG(pct) {
-    if (pct == null || !Number.isFinite(pct)) return '';
-    const v = Math.max(0, Math.min(100, Math.round(pct)));
-    const r = 24, c = 2 * Math.PI * r;
-    const off = c - (v / 100) * c;
-    return `
-      <div class="pth-viz-ring" aria-hidden="true">
-        <svg width="60" height="60" viewBox="0 0 60 60">
-          <circle cx="30" cy="30" r="${r}" fill="none" stroke="rgba(255,255,255,0.08)" stroke-width="6"/>
-          <circle cx="30" cy="30" r="${r}" fill="none" stroke="url(#pth-viz-ring-grad)" stroke-width="6" stroke-linecap="round"
-            stroke-dasharray="${c.toFixed(2)}" stroke-dashoffset="${off.toFixed(2)}"
-            transform="rotate(-90 30 30)"/>
-          <defs>
-            <linearGradient id="pth-viz-ring-grad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#00d4bc"/><stop offset="100%" stop-color="#9b7fff"/></linearGradient>
-          </defs>
-        </svg>
-        <div class="pth-viz-ring-num">${v}%</div>
-      </div>`;
-  }
-
-  // Mini-sparkline of the dominant outcome template's last 6 scores.
-  function _progressSparklineHtml() {
-    const g = outcomeGroups[0];
-    if (!g) return '';
-    const gm = outcomeGoalMarker(g.latest, g.baseline);
-    const scores = (g.allScores || []).slice(-6);
-    if (scores.length < 2) return '';
-    // Colour intent: teal=improving, amber=worse, violet=neutral/flat.
-    const first = Number(scores[0]);
-    const last  = Number(scores[scores.length - 1]);
-    const delta = last - first;
-    const improving = gm.down ? delta < -0.5 : delta > 0.5;
-    const worsening = gm.down ? delta >  0.5 : delta < -0.5;
-    const color = improving ? '#2dd4bf' : worsening ? '#fbbf24' : '#a78bfa';
-    return `<div class="pth-viz-spark" aria-hidden="true">${sparklineSVG(scores, color, 110, 28)}</div>`;
-  }
-
   function _progressCardHtml() {
     // Headline metric
     let metricLine;
@@ -774,56 +610,16 @@ export async function pgPatientDashboard(user) {
     const deltaHtml = outcomeDelta
       ? `<div class="pth-progress-delta">${outcomeDelta}</div>`
       : `<div class="pth-progress-delta pth-progress-delta--muted">Complete your first assessment to see how your scores change over time.</div>`;
-    const ringHtml = _progressRingSVG(progressPct);
-    const sparkHtml = _progressSparklineHtml();
-    const visualsRow = (ringHtml || sparkHtml)
-      ? `<div class="pth-viz-row">${ringHtml}${sparkHtml}</div>`
-      : '';
     return `
       <div class="pth-card pth-card--progress">
         <div class="pth-card-head">
-          <div class="pth-card-title">Your progress${_demoTag(demoTags.progress)}</div>
+          <div class="pth-card-title">Your progress</div>
           <button class="pth-ghost-btn" onclick="window._navPatient('pt-outcomes')">See details →</button>
         </div>
-        ${visualsRow}
         <div class="pth-progress-metric">${metricLine}</div>
         ${deltaHtml}
         ${targetAreaLine ? `<div class="pth-target-line">${esc(targetAreaLine)}</div>` : ''}
       </div>`;
-  }
-
-  // 7-dot completion strip (Mon → today). Reads the last 7 days of
-  // ds_checkin_YYYY-MM-DD localStorage entries. Solid = done, empty = missed,
-  // ring = today. Pure-read; safe when localStorage is untouched.
-  function _streakStripHtml() {
-    const ONE_DAY = 86400000;
-    const days = [];
-    for (let i = 6; i >= 0; i--) {
-      const d  = new Date(Date.now() - i * ONE_DAY);
-      const iso = d.toISOString().slice(0, 10);
-      let done = false;
-      try { done = !!localStorage.getItem('ds_checkin_' + iso); } catch (_e) { /* ignore */ }
-      days.push({ iso, isToday: i === 0, done });
-    }
-    // In demo mode, paint a sensible pattern when localStorage is empty.
-    if (inDemo) {
-      const anyLogged = days.some(d => d.done);
-      if (!anyLogged) {
-        days.forEach((d, idx) => {
-          if (d.isToday) d.done = false;
-          else if (idx >= 1) d.done = true; // last 6 days all completed
-        });
-      }
-    }
-    const cells = days.map(d => {
-      let cls = 'pth-viz-streak-dot';
-      if (d.isToday) cls += ' pth-viz-streak-dot--today';
-      else if (d.done) cls += ' pth-viz-streak-dot--done';
-      else cls += ' pth-viz-streak-dot--missed';
-      const dayInitial = new Date(d.iso + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'narrow' });
-      return `<span class="${cls}" title="${esc(d.iso)}"><span class="pth-viz-streak-day">${esc(dayInitial)}</span></span>`;
-    }).join('');
-    return `<div class="pth-viz-streak" aria-label="Last 7 days">${cells}</div>`;
   }
 
   function _homeworkCardHtml() {
@@ -834,10 +630,8 @@ export async function pgPatientDashboard(user) {
             <div class="pth-card-title">Your homework</div>
           </div>
           <div class="pth-empty">
-            <div class="pth-empty-ico" aria-hidden="true">${_icon('clipboard', 18)}</div>
             <div class="pth-empty-title">No tasks yet</div>
             <div class="pth-empty-sub">Your care team will add tasks here.</div>
-            <button class="pth-inline-btn" onclick="window._navPatient('patient-messages')">Ask your care team →</button>
           </div>
         </div>`;
     }
@@ -856,17 +650,15 @@ export async function pgPatientDashboard(user) {
           </div>`;
         }).join('')
       : `<div class="pth-empty">
-          <div class="pth-empty-ico" aria-hidden="true">${_icon('check', 18)}</div>
           <div class="pth-empty-title">All caught up</div>
           <div class="pth-empty-sub">Nice work — nothing left for today.</div>
         </div>`;
     return `
       <div class="pth-card pth-card--homework">
         <div class="pth-card-head">
-          <div class="pth-card-title">Your homework${_demoTag(demoTags.homework)}</div>
+          <div class="pth-card-title">Your homework</div>
           <button class="pth-ghost-btn" onclick="window._navPatient('pt-wellness')">View all →</button>
         </div>
-        ${_streakStripHtml()}
         <div class="pth-hw-list">${rows}</div>
       </div>`;
   }
@@ -879,10 +671,8 @@ export async function pgPatientDashboard(user) {
             <div class="pth-card-title">Care team</div>
           </div>
           <div class="pth-empty">
-            <div class="pth-empty-ico" aria-hidden="true">${_icon('user', 18)}</div>
             <div class="pth-empty-title">No team assigned yet</div>
             <div class="pth-empty-sub">Once assigned, your clinicians will appear here.</div>
-            <button class="pth-inline-btn" onclick="window._navPatient('patient-profile')">View your profile →</button>
           </div>
         </div>`;
     }
@@ -890,17 +680,13 @@ export async function pgPatientDashboard(user) {
       <div class="pth-avatar" title="${esc(m.name)} · ${esc(m.role)}">
         <span class="pth-avatar-inner" style="background:${m.accent}">${esc(m.avatar)}</span>
       </div>`).join('');
-    const unreadCount = messages.filter(m => !m.is_read && m.sender_type !== 'patient').length;
-    const pulse = unreadCount
-      ? `<span class="pth-viz-pulse-dot" aria-label="${unreadCount} unread"></span>`
-      : '';
     return `
       <div class="pth-card pth-card--team">
         <div class="pth-card-head">
-          <div class="pth-card-title">Care team${_demoTag(demoTags.team)}</div>
+          <div class="pth-card-title">Care team</div>
         </div>
         <div class="pth-team-avatars">${avatars}</div>
-        <button class="pth-team-btn" onclick="window._navPatient('patient-messages')">${pulse}Message your team →</button>
+        <button class="pth-team-btn" onclick="window._navPatient('patient-messages')">Message your team →</button>
       </div>`;
   }
 
@@ -912,35 +698,21 @@ export async function pgPatientDashboard(user) {
             <div class="pth-card-title">Wellness snapshot</div>
           </div>
           <div class="pth-empty">
-            <div class="pth-empty-ico" aria-hidden="true">${_icon('heart', 18)}</div>
             <div class="pth-empty-title">No wearable data yet</div>
             <div class="pth-empty-sub">Connect a device to see sleep, HRV, and resting HR trends.</div>
             <button class="pth-inline-btn" onclick="window._navPatient('patient-wearables')">Connect your device →</button>
           </div>
         </div>`;
     }
-    const sleepTxt = wearable.sleepAvg != null ? wearable.sleepAvg.toFixed(1) + 'h' : '—';
-    const rhrTxt   = wearable.rhrAvg   != null ? Math.round(wearable.rhrAvg)   + ' bpm' : '—';
-    const stepsTxt = wearable.stepsAvg != null
-      ? (Math.round(wearable.stepsAvg / 100) / 10).toFixed(1) + 'k'
-      : '—';
-    const hrvTxt = wearable.hrvAvg != null ? Math.round(wearable.hrvAvg) + 'ms' : '—';
+    const sleepTxt = wearable.sleepAvg != null ? wearable.sleepAvg.toFixed(1) + 'h avg sleep' : 'Sleep: —';
+    const hrvTxt   = wearable.hrvAvg   != null ? Math.round(wearable.hrvAvg)   + 'ms HRV'     : 'HRV: —';
+    const rhrTxt   = wearable.rhrAvg   != null ? Math.round(wearable.rhrAvg)   + ' bpm RHR'   : 'RHR: —';
     const ringValDisplay = wellnessVal || '—';
     const ringOffset = Math.max(0, 389 - (wellnessVal / 100) * 389).toFixed(1);
-    const pills = [
-      { icon: 'moon',  label: sleepTxt, sub: 'sleep' },
-      { icon: 'heart', label: rhrTxt,   sub: 'RHR' },
-      { icon: 'bolt',  label: stepsTxt, sub: 'steps' },
-    ].map(p => `
-      <div class="pth-viz-pill">
-        <span class="pth-viz-pill-ico" aria-hidden="true">${_icon(p.icon, 14)}</span>
-        <span class="pth-viz-pill-val">${esc(p.label)}</span>
-        <span class="pth-viz-pill-sub">${esc(p.sub)}</span>
-      </div>`).join('');
     return `
       <div class="pth-card pth-card--wellness">
         <div class="pth-card-head">
-          <div class="pth-card-title">Wellness snapshot${_demoTag(demoTags.wellness)}</div>
+          <div class="pth-card-title">Wellness snapshot</div>
           <button class="pth-ghost-btn" onclick="window._navPatient('pt-wellness')">Details →</button>
         </div>
         <div class="pth-wellness-body">
@@ -958,43 +730,21 @@ export async function pgPatientDashboard(user) {
             </div>
           </div>
           <div class="pth-wellness-stats">
-            <div class="pth-viz-pills">${pills}</div>
-            <div class="pth-wellness-stat pth-wellness-hrv" title="7-day average HRV">Heart-rate variability: ${esc(hrvTxt)}</div>
+            <div class="pth-wellness-stat">${esc(sleepTxt)}</div>
+            <div class="pth-wellness-stat">${esc(hrvTxt)}</div>
+            <div class="pth-wellness-stat">${esc(rhrTxt)}</div>
           </div>
         </div>
       </div>`;
   }
 
-  // ── Footer demo toggle (dev hosts only) ──────────────────────────────────
-  const _isDevHost = (() => {
-    try {
-      const h = String(location && location.hostname || '');
-      return h === 'localhost' || h === '127.0.0.1';
-    } catch (_e) { return false; }
-  })();
-  const _footerDevLinkHtml = (!inDemo && _isDevHost)
-    ? `<button class="pth-footer-btn pth-footer-btn--ghost" onclick="window._ptdEnterDemo()" title="Developer only">
-        <span class="pth-footer-btn-ico" aria-hidden="true">${_icon('sparkle', 14)}</span>
-        <span>Try demo patient view →</span>
-      </button>`
-    : '';
-
-  // Greeting name from demo profile when in demo + no real display name.
-  const demoFirstName = inDemo && (!user || !user.display_name)
-    ? esc(DEMO_PATIENT.profile.first_name) : firstName;
-
   // ── Render ────────────────────────────────────────────────────────────────
   el.innerHTML = `
     <div class="ptd-dashboard pth-dashboard">
 
-      ${_demoBannerHtml()}
-
       <!-- 1. Greeting hero (simpler) -->
       <div class="pth-hero">
-        <div class="pth-hero-greet">
-          <span class="pth-hero-ico pth-viz-float" aria-hidden="true">${_icon('sparkle', 22)}</span>
-          ${greeting}, ${demoFirstName} <span class="pth-hero-wave" aria-hidden="true">👋</span>
-        </div>
+        <div class="pth-hero-greet">${greeting}, ${firstName} <span class="pth-hero-wave" aria-hidden="true">👋</span></div>
         <div class="pth-hero-date">${esc(dateLabel)}</div>
         <span class="pth-hero-badge">Care team & specialist AI agents available anytime</span>
       </div>
@@ -1049,7 +799,6 @@ export async function pgPatientDashboard(user) {
             <span class="pth-footer-btn-ico" aria-hidden="true">✉</span>
             <span>Message care team</span>
           </button>
-          ${_footerDevLinkHtml}
         </div>
       </div>
 
@@ -1180,16 +929,6 @@ export async function pgPatientDashboard(user) {
       card.classList.add('pth-focus--snoozing');
       setTimeout(() => { if (card && card.parentNode) card.parentNode.removeChild(card); }, 240);
     }
-  };
-
-  // ── Demo-mode toggles (dev helpers) ───────────────────────────────────────
-  window._ptdEnterDemo = function() {
-    try { localStorage.setItem('ds_force_demo_patient', '1'); } catch (_e) {}
-    try { location.reload(); } catch (_e) {}
-  };
-  window._ptdExitDemo = function() {
-    try { localStorage.removeItem('ds_force_demo_patient'); } catch (_e) {}
-    try { location.reload(); } catch (_e) {}
   };
 }
 
@@ -2145,12 +1884,10 @@ export async function pgPatientCourse() {
   };
 
   // ── Data loading ─────────────────────────────────────────────────────────
-  const [coursesRaw, sessionsRaw, outcomesRaw, hpTasksRaw, wearableSummaryRaw] = await Promise.all([
+  const [coursesRaw, sessionsRaw, outcomesRaw] = await Promise.all([
     api.patientPortalCourses().catch(() => null),
     api.patientPortalSessions().catch(() => null),
     api.patientOutcomes?.().catch(() => null),
-    api.portalListHomeProgramTasks?.().catch(() => null),
-    api.patientPortalWearableSummary?.(7).catch(() => null),
   ]);
 
   const coursesArr  = Array.isArray(coursesRaw)  ? coursesRaw  : [];
@@ -2171,9 +1908,7 @@ export async function pgPatientCourse() {
 
   // ── Derived values ────────────────────────────────────────────────────────
   const delivered  = course.session_count ?? 0;
-  // Real value from backend (TreatmentCourse.planned_sessions_total); no silent
-  // default — if the backend ever returns null, show 0 rather than fabricating.
-  const total      = course.total_sessions_planned ?? 0;
+  const total      = course.total_sessions_planned ?? 20;
   const remaining  = Math.max(total - delivered, 0);
   const pct        = total > 0 ? Math.round((delivered / total) * 100) : 0;
   const startedStr = fmtDate(course.started_at || course.created_at);
@@ -2187,77 +1922,68 @@ export async function pgPatientCourse() {
     'Reduce primary symptoms', 'Improve daily functioning', 'Support overall wellbeing',
   ];
 
-  // ── Outcome trend (real data only — no fabricated percentages) ─────────────
+  // ── Outcome trend ─────────────────────────────────────────────────────────
   let outcomePct = null;
   let outcomeLabel = '';
   const outcomes = Array.isArray(outcomesRaw) ? outcomesRaw : [];
-  const phq = outcomes.filter(o => (o.scale || o.template_id || '').toLowerCase().includes('phq'));
+  const phq = outcomes.filter(o => (o.scale || '').toLowerCase().includes('phq'));
   if (phq.length >= 2) {
-    const first = phq[0].total_score ?? phq[0].score_numeric ?? phq[0].score;
-    const last  = phq[phq.length - 1].total_score ?? phq[phq.length - 1].score_numeric ?? phq[phq.length - 1].score;
-    if (Number(first) > 0 && last != null) {
-      outcomePct = Math.round(((Number(first) - Number(last)) / Number(first)) * 100);
-      outcomeLabel = `PHQ-9: ${first} → ${last}`;
-    }
+    const first = phq[0].total_score ?? phq[0].score;
+    const last  = phq[phq.length - 1].total_score ?? phq[phq.length - 1].score;
+    if (first > 0) { outcomePct = Math.round(((first - last) / first) * 100); }
+    outcomeLabel = `PHQ-9: ${first} → ${last}`;
+  }
+  // Demo seed
+  if (outcomePct === null && (course._isDemoData || !outcomes.length)) {
+    outcomePct   = 44;
+    outcomeLabel = 'PHQ-9: 18 → 10';
   }
 
-  // ── Clinician feedback — uses course.clinician_notes (real backend field) ──
-  const clinicianNote = (course.clinician_notes || '').trim();
-  const feedback = clinicianNote
-    ? { note: clinicianNote, date: course.updated_at || course.started_at || course.created_at }
-    : null;
+  // ── Clinician feedback ────────────────────────────────────────────────────
+  let feedback = null;
+  try { feedback = JSON.parse(localStorage.getItem('ds_clinician_feedback') || 'null'); } catch (_e) {}
+  if (!feedback) {
+    feedback = {
+      _isDemoData: true,
+      reviewer: 'Dr. Sarah Mitchell',
+      date: new Date(Date.now() - 2 * 86400000).toISOString(),
+      note: 'Great response to sessions 8–10. Mood scores improving steadily. Maintaining current protocol parameters — no changes needed. Keep up the sleep hygiene work.',
+    };
+  }
 
-  // ── Safety / tolerance — start empty; real adverse events are surfaced by
-  //    the session-level flow. The patient reports new effects via the
-  //    "Report a new side effect" button below.
-  const reportedEffects = [];
+  // ── Safety / tolerance data ───────────────────────────────────────────────
+  let safetyItems = [];
+  try { safetyItems = JSON.parse(localStorage.getItem('ds_safety_' + uid) || '[]'); } catch (_e) {}
+  const _SIDE_EFFECTS = ['Mild headache', 'Scalp tingling', 'Fatigue after sessions', 'Jaw tension'];
+  const reportedEffects = safetyItems.length
+    ? safetyItems
+    : [{ effect: 'Mild headache', sessions: 'Sessions 1–3', resolved: true }];
 
-  // ── Wearable / biometric snapshot (7-day summary from backend) ────────────
-  const wearableDays = Array.isArray(wearableSummaryRaw) ? wearableSummaryRaw : [];
-  const latestDay = wearableDays.length ? wearableDays[wearableDays.length - 1] : null;
-  const wearable = latestDay
-    ? {
-        hrv:    latestDay.hrv_ms != null           ? `${latestDay.hrv_ms} ms`                  : '—',
-        sleep:  latestDay.sleep_duration_h != null ? `${latestDay.sleep_duration_h.toFixed(1)} h` : '—',
-        steps:  latestDay.steps != null            ? latestDay.steps.toLocaleString()           : '—',
-        stress: latestDay.anxiety_score != null    ? (latestDay.anxiety_score >= 6 ? 'Elevated' : latestDay.anxiety_score >= 3 ? 'Moderate' : 'Low') : '—',
-        hasData: true,
-      }
-    : { hrv: '—', sleep: '—', steps: '—', stress: '—', hasData: false };
+  // ── Wearable / biometric snapshot ────────────────────────────────────────
+  let wearable = null;
+  try { wearable = JSON.parse(localStorage.getItem('ds_wearable_summary') || 'null'); } catch (_e) {}
+  if (!wearable) {
+    wearable = { _isDemoData: true, hrv: '42 ms', sleep: '7h 12m', steps: '6,840', stress: 'Moderate' };
+  }
 
-  // ── Homework tasks (clinician-assigned via real API + optional patient
-  //    personal notes stored locally, clearly labelled). ─────────────────────
-  const hpTasksArr = Array.isArray(hpTasksRaw) ? hpTasksRaw : [];
-  const personalKey = 'ds_homework_personal_' + (uid || 'default');
-  function loadPersonal() {
-    try { return JSON.parse(localStorage.getItem(personalKey) || '[]'); } catch { return []; }
-  }
-  function savePersonal(items) {
-    try { localStorage.setItem(personalKey, JSON.stringify(items)); } catch {}
-  }
-  // Local completion state for clinician-assigned tasks, synced to the backend
-  // via api.portalCompleteHomeProgramTask. Keyed by server_task_id.
-  const assignedCompletionKey = 'ds_hp_task_done_' + (uid || 'default');
-  function loadAssignedDone() {
-    try { return JSON.parse(localStorage.getItem(assignedCompletionKey) || '{}'); } catch { return {}; }
-  }
-  function saveAssignedDone(m) {
-    try { localStorage.setItem(assignedCompletionKey, JSON.stringify(m)); } catch {}
-  }
+  // ── Homework tasks ────────────────────────────────────────────────────────
+  const hwKey = 'ds_homework_tasks_' + (uid || 'default');
+  const HW_DEFAULTS = [
+    { id: 'hw1', title: 'Daily mindfulness (10 min)', description: 'Morning preferred — use the timer in Sessions', freq: 'Daily', done: false },
+    { id: 'hw2', title: 'Sleep hygiene checklist',    description: 'No screens 1 hr before bed; consistent wake time', freq: 'Daily', done: false },
+    { id: 'hw3', title: 'Symptom diary',              description: 'Rate mood (0–10) and energy each evening', freq: 'Daily', done: false },
+  ];
   function loadHW() {
-    const done = loadAssignedDone();
-    const assigned = hpTasksArr.map(t => ({
-      id:          t.server_task_id,
-      server_task_id: t.server_task_id,
-      title:       t.title || t.task?.title || 'Assigned task',
-      description: t.instructions || t.task?.instructions || t.task?.notes || '',
-      freq:        t.task?.frequency || t.category || 'Assigned',
-      assignedAt:  t.task?.assignedAt || true,
-      done:        !!done[t.server_task_id],
-    }));
-    const personal = loadPersonal().map(p => ({ ...p, personal: true }));
-    return [...assigned, ...personal];
+    let s = null;
+    try { s = JSON.parse(localStorage.getItem(hwKey)); } catch (_e) {}
+    if (!s) return HW_DEFAULTS.map(h => ({ ...h }));
+    const map = {}; s.forEach(h => { map[h.id] = h; });
+    const merged = HW_DEFAULTS.map(h => map[h.id] ? { ...h, ...map[h.id] } : { ...h });
+    // Include: personal tasks added by patient + clinician-assigned tasks (have assignedAt/status)
+    const extras = s.filter(h => !merged.find(m => m.id === h.id) && (h.personal || h.assignedAt || h.status === 'active' || h.status === 'pending'));
+    return [...merged, ...extras];
   }
+  function saveHW(items) { try { localStorage.setItem(hwKey, JSON.stringify(items)); } catch (_e) {} }
 
   // ── Session milestones ────────────────────────────────────────────────────
   const MILESTONE_SESSIONS = [total * 0.25, total * 0.5, total * 0.75, total].map(Math.round);
@@ -2488,19 +2214,20 @@ export async function pgPatientCourse() {
       ${outcomePct >= 50 ? '<div class="ptcp-outcome-note">Clinically significant response — keep going</div>' : ''}
     </div>` : `
     <p class="ptcp-body-text ptcp-muted">Outcome data will appear here after your first formal assessment.</p>`}
-    <button class="ptcp-link-btn" style="margin-top:10px" onclick="window._navPatient('patient-reports')">View full progress charts</button>
+    <button class="ptcp-link-btn" style="margin-top:10px" onclick="window._navPatient('patient-outcomes')">View full progress charts</button>
   </div>
 
   <!-- ⑦ CLINICIAN FEEDBACK -->
   <div class="ptcp-section">
     <div class="ptcp-section-header">
       <h3 class="ptcp-section-title">From your clinician</h3>
-      ${feedback ? '<span class="ptcp-reviewed-badge">Reviewed</span>' : ''}
+      <span class="ptcp-reviewed-badge">Reviewed</span>
     </div>
     ${feedback ? `
     <div class="ptcp-feedback-block">
+      ${feedback._isDemoData ? '<div class="ptcp-demo-notice">Showing example feedback</div>' : ''}
       <div class="ptcp-feedback-text">${esc(feedback.note)}</div>
-      <div class="ptcp-feedback-meta">${fmtDate(feedback.date)}</div>
+      <div class="ptcp-feedback-meta">${esc(feedback.reviewer)} · ${fmtDate(feedback.date)}</div>
     </div>` : `
     <p class="ptcp-body-text ptcp-muted">No feedback yet. Your clinician will leave notes after reviewing your progress.</p>`}
   </div>
@@ -2514,7 +2241,6 @@ export async function pgPatientCourse() {
       ${esc(modality || 'This treatment')} is well tolerated. The most common experiences are mild and temporary.
       Always tell your clinician about any new or worsening effects.
     </p>
-    ${reportedEffects.length ? `
     <div class="ptcp-safety-grid">
       ${reportedEffects.map(item => {
         const resolved = typeof item === 'object' ? item.resolved : false;
@@ -2526,8 +2252,7 @@ export async function pgPatientCourse() {
           ${sessions ? `<div class="ptcp-safety-when">${esc(sessions)}</div>` : ''}
         </div>`;
       }).join('')}
-    </div>` : `
-    <p class="ptcp-body-text ptcp-muted" style="margin-bottom:12px">No side effects reported so far.</p>`}
+    </div>
     <button class="ptcp-link-btn" style="margin-top:12px" onclick="window._navPatient('patient-messages')">Report a new side effect</button>
   </div>
 
@@ -2535,15 +2260,14 @@ export async function pgPatientCourse() {
   <div class="ptcp-section">
     <div class="ptcp-section-header">
       <h3 class="ptcp-section-title">Devices &amp; biometrics</h3>
+      ${wearable._isDemoData ? '<span class="ptcp-demo-tag">Example data</span>' : ''}
     </div>
-    ${wearable.hasData ? `
     <div class="ptcp-bio-row">
       <div class="ptcp-bio-tile"><div class="ptcp-bio-val">${esc(wearable.hrv)}</div><div class="ptcp-bio-lbl">HRV</div></div>
       <div class="ptcp-bio-tile"><div class="ptcp-bio-val">${esc(wearable.sleep)}</div><div class="ptcp-bio-lbl">Sleep last night</div></div>
       <div class="ptcp-bio-tile"><div class="ptcp-bio-val">${esc(wearable.steps)}</div><div class="ptcp-bio-lbl">Steps today</div></div>
       <div class="ptcp-bio-tile"><div class="ptcp-bio-val">${esc(wearable.stress)}</div><div class="ptcp-bio-lbl">Stress level</div></div>
-    </div>` : `
-    <p class="ptcp-body-text ptcp-muted">Connect a wearable to see your HRV, sleep and activity alongside your treatment.</p>`}
+    </div>
     <button class="ptcp-link-btn" style="margin-top:10px" onclick="window._navPatient('patient-wearables')">Manage connected devices</button>
   </div>
 
@@ -2592,40 +2316,22 @@ export async function pgPatientCourse() {
     }).join('');
   }
 
-  window._ptcpToggleHW = async function(id) {
+  window._ptcpToggleHW = function(id) {
     const items = loadHW();
     const item  = items.find(h => h.id === id);
     if (!item) return;
-    const nextDone = !item.done;
-
-    if (item.personal) {
-      // Patient's own note — local-only.
-      const personal = loadPersonal();
-      const p = personal.find(x => x.id === id);
-      if (p) { p.done = nextDone; p.completedAt = nextDone ? new Date().toISOString() : null; }
-      savePersonal(personal);
-      renderHW();
-      return;
-    }
-
-    // Clinician-assigned task — persist via the real completion API.
-    const doneMap = loadAssignedDone();
-    if (nextDone) doneMap[id] = { completedAt: new Date().toISOString() };
-    else delete doneMap[id];
-    saveAssignedDone(doneMap);
-    renderHW();
-
+    item.done = !item.done;
+    item.completedAt = item.done ? new Date().toISOString() : null;
+    saveHW(items);
+    // Write completion back so doctor's Adherence view sees it
     try {
-      await api.portalCompleteHomeProgramTask(item.server_task_id || id, { completed: nextDone });
-    } catch (err) {
-      // Roll back local state so the UI stays honest about what the backend has.
-      const rollback = loadAssignedDone();
-      if (nextDone) delete rollback[id];
-      else rollback[id] = { completedAt: new Date().toISOString() };
-      saveAssignedDone(rollback);
-      renderHW();
-      try { alert('Could not save completion. Please try again.'); } catch {}
-    }
+      const compKey = 'ds_task_completions_' + (uid || 'default');
+      const comps = JSON.parse(localStorage.getItem(compKey) || '{}');
+      if (item.done) comps[id] = { completedAt: item.completedAt, source: 'patient' };
+      else delete comps[id];
+      localStorage.setItem(compKey, JSON.stringify(comps));
+    } catch {}
+    renderHW();
   };
   window._ptcpShowAddHW = function() {
     document.getElementById('ptcp-hw-add-form').style.display = '';
@@ -2635,9 +2341,9 @@ export async function pgPatientCourse() {
     const inp = document.getElementById('ptcp-hw-input');
     const val = inp?.value?.trim();
     if (!val) return;
-    const personal = loadPersonal();
-    personal.push({ id: 'p_' + Date.now(), title: val, description: 'Personal note (only visible to you)', freq: 'Personal', done: false });
-    savePersonal(personal);
+    const items = loadHW();
+    items.push({ id: 'p_' + Date.now(), title: val, description: 'Personal note', freq: 'Personal', done: false, personal: true });
+    saveHW(items);
     if (inp) inp.value = '';
     document.getElementById('ptcp-hw-add-form').style.display = 'none';
     renderHW();
@@ -2905,26 +2611,12 @@ export async function pgPatientAssessments() {
         <div class="pt-assess-empty-title">Could not load your assessments</div>
         <div class="pt-assess-empty-body">Please check your connection and try again.</div>
         <button class="btn btn-ghost btn-sm" style="margin-top:14px"
-                id="pt-assess-retry-btn"
-                aria-label="Reload your assessments">Try again \u2192</button>
+                onclick="window._navPatient('patient-assessments')">Try again \u2192</button>
       </div>`;
-    const retry = el.querySelector('#pt-assess-retry-btn');
-    if (retry) retry.addEventListener('click', function() { pgPatientAssessments(); });
     return;
   }
 
-  // ── Demo parity: when demo mode is ON and real API returned [], overlay
-  //    a 3-row seed (due today, completed yesterday, upcoming in 3 days).
-  //    Uses isDemoPatient() from PR #42 and never mutates the demo flag.
-  const _inDemoAssess = isDemoPatient(currentUser, { getToken: api.getToken });
-  let _assessDemoUsed = false;
-  let rawItems;
-  if (Array.isArray(assessmentsRaw) && assessmentsRaw.length === 0 && _inDemoAssess) {
-    rawItems = demoAssessmentSeed();
-    _assessDemoUsed = true;
-  } else {
-    rawItems = Array.isArray(assessmentsRaw) ? assessmentsRaw : [];
-  }
+  const rawItems  = Array.isArray(assessmentsRaw) ? assessmentsRaw : [];
   const courses   = Array.isArray(coursesRaw)     ? coursesRaw     : [];
   const sessions  = Array.isArray(sessionsRaw)    ? sessionsRaw    : [];
 
@@ -3052,11 +2744,32 @@ export async function pgPatientAssessments() {
     return ASSESS_META[key] || null;
   }
 
-  // Thin wrappers around the shared pure helpers (imported from
-  // patient-dashboard-helpers.js so node --test can exercise them directly).
-  function scoreContext(meta, score) { return scoreContextHelper(meta, score); }
+  function scoreContext(meta, score) {
+    if (score == null || score === '' || !meta || !meta.scoreRanges || !meta.scoreRanges.length) return null;
+    const n = Number(score);
+    if (!Number.isFinite(n)) return null;
+    for (const band of meta.scoreRanges) {
+      if (n <= band.max) return { label: band.label, note: band.note };
+    }
+    return null;
+  }
+
+  // ── Status classification ────────────────────────────────────────────────
+  // Extension point: backend can supply status field directly.
+  // Falls back to date-based inference.
   const now = Date.now();
-  function statusClassify(a) { return classifyAssessmentStatus(a, now); }
+  function statusClassify(a) {
+    const st = (a.status || '').toLowerCase().replace(/[^a-z_]/g, '');
+    if (['completed','done','submitted'].includes(st))          return 'completed';
+    if (['in_progress','inprogress','started','partial'].includes(st)) return 'in-progress';
+    if (a.completed_at || a.administered_at)                    return 'completed';
+    if (['scheduled','upcoming'].includes(st))                  return 'upcoming';
+    if (a.due_date) {
+      return new Date(a.due_date).getTime() <= now ? 'due' : 'upcoming';
+    }
+    // No due date and no status → treat as due
+    return 'due';
+  }
 
   // ── Normalise assessments ────────────────────────────────────────────────
   const items = rawItems.map(a => {
@@ -3158,13 +2871,6 @@ export async function pgPatientAssessments() {
     '</div>';
   }
 
-  // Small "(demo)" chip reused from PR #42 when the row came from the seed.
-  function demoTagHTML(item) {
-    return item && item.raw && item.raw._demo
-      ? '<span class="pth-demo-tag" title="Demo data shown while real data is unavailable">demo</span>'
-      : '';
-  }
-
   // ── Due / in-progress card ───────────────────────────────────────────────
   function dueCardHTML(item) {
     const cat = itemCat(item);
@@ -3208,14 +2914,14 @@ export async function pgPatientAssessments() {
         '<div class="pt-assess-cta-col">' + ctaHtml + '</div>' +
       '</div>' +
       '<div class="pt-assess-card-body">' +
-        '<div class="pt-assess-name">' + esc(item.name) + demoTagHTML(item) + '</div>' +
+        '<div class="pt-assess-name">' + esc(item.name) + '</div>' +
         (item.whyItMatters
           ? '<div class="pt-assess-why-inline">' + esc(item.whyItMatters) + '</div>'
           : (item.purpose ? '<div class="pt-assess-why-inline">' + esc(item.purpose) + '</div>' : '')) +
         (chips ? '<div class="pt-assess-chips">' + chips + '</div>' : '') +
         progressHtml +
       '</div>' +
-      '<div class="pt-assess-inline-form" id="pt-assess-form-' + esc(item.id) + '" hidden aria-live="polite"></div>' +
+      '<div class="pt-assess-inline-form" id="pt-assess-form-' + esc(item.id) + '" hidden></div>' +
     '</div>';
   }
 
@@ -3237,7 +2943,7 @@ export async function pgPatientAssessments() {
         '</div>' +
       '</div>' +
       '<div class="pt-assess-card-body">' +
-        '<div class="pt-assess-name" style="font-size:.85rem">' + esc(item.name) + demoTagHTML(item) + '</div>' +
+        '<div class="pt-assess-name" style="font-size:.85rem">' + esc(item.name) + '</div>' +
         (item.purpose ? '<div class="pt-assess-purpose">' + esc(item.purpose) + '</div>' : '') +
         (chips ? '<div class="pt-assess-chips">' + chips + '</div>' : '') +
       '</div>' +
@@ -3272,26 +2978,18 @@ export async function pgPatientAssessments() {
       resultHtml = '<div class="pt-assess-result-row"><span class="pt-assess-reviewed-badge">✓ Reviewed by your team</span></div>';
     }
 
-    // Completed cards hide the "View details" link for demo rows (reports
-    // page would show real data, so the link would mislead).
-    const reviewCta = (item.raw && item.raw._demo)
-      ? ''
-      : '<div class="pt-assess-cta-col">' +
-          '<button class="btn btn-ghost btn-sm"' +
-          ' onclick="window._ptAssessReview(\'' + esc(item.id) + '\')"' +
-          ' aria-label="View details for ' + esc(item.name) + '">View details</button>' +
-        '</div>';
-
     return '<div class="pt-assess-card pt-assess-card-done" data-id="' + esc(item.id) + '" data-status="completed">' +
       '<div class="pt-assess-card-hd">' +
         '<div class="pt-assess-card-hd-left">' +
           '<span class="pt-assess-cat-chip" style="background:' + catBg + ';color:' + cat.color + '">' + cat.icon + ' ' + cat.label + '</span>' +
           '<span class="pt-assess-pill pt-assess-pill-done">Completed</span>' +
         '</div>' +
-        reviewCta +
+        '<div class="pt-assess-cta-col">' +
+          '<button class="btn btn-ghost btn-sm" onclick="window._ptAssessReview(\'' + esc(item.id) + '\')">Review result</button>' +
+        '</div>' +
       '</div>' +
       '<div class="pt-assess-card-body">' +
-        '<div class="pt-assess-name" style="font-size:.85rem">' + esc(item.name) + demoTagHTML(item) + '</div>' +
+        '<div class="pt-assess-name" style="font-size:.85rem">' + esc(item.name) + '</div>' +
         resultHtml +
         (chips ? '<div class="pt-assess-chips" style="margin-top:8px">' + chips + '</div>' : '') +
       '</div>' +
@@ -3343,8 +3041,128 @@ export async function pgPatientAssessments() {
     '</div>';
   }
 
-  // (Legacy assessCardHTML has been removed — it was dead code replaced by
-  //  dueCardHTML / upcomingCardHTML / completedCardHTML.)
+  // ── DEAD CODE kept for reference — replaced below ─────────────────────────
+  // Old assessCardHTML is replaced by dueCardHTML / upcomingCardHTML / completedCardHTML.
+  // Old whyCalloutHTML is replaced by whySection().
+  // Old sectionHTML is replaced by inline section builders + sectionHd().
+  function assessCardHTML(item) {
+    const isDue       = item.status === 'due';
+    const isInProgress = item.status === 'in-progress';
+    const isUpcoming  = item.status === 'upcoming';
+    const isCompleted = item.status === 'completed';
+
+    // Status pill
+    let pillHtml = '';
+    if (isDue)        pillHtml = `<span class="pt-assess-pill pt-assess-pill-due">Due now</span>`;
+    else if (isInProgress) pillHtml = `<span class="pt-assess-pill pt-assess-pill-progress">In progress</span>`;
+    else if (isUpcoming)   pillHtml = `<span class="pt-assess-pill pt-assess-pill-upcoming">Upcoming</span>`;
+    else if (isCompleted)  pillHtml = `<span class="pt-assess-pill pt-assess-pill-done">Completed</span>`;
+
+    // Time estimate
+    const timeHtml = item.timeMin
+      ? `<span class="pt-assess-chip">~${item.timeMin} min</span>`
+      : '';
+
+    // Due date
+    const dueDateHtml = item.dueDate && !isCompleted
+      ? `<span class="pt-assess-chip">Due ${esc(fmtDate(item.dueDate))}</span>`
+      : '';
+
+    // Completed date
+    const completedHtml = isCompleted && item.completedAt
+      ? `<span class="pt-assess-chip">Done ${esc(fmtDate(item.completedAt))}</span>`
+      : '';
+
+    // Measurement point
+    const mpHtml = item.measurePoint
+      ? `<span class="pt-assess-chip">${esc(item.measurePoint)}</span>`
+      : '';
+
+    // Course / session context
+    const courseChip = item.courseRef
+      ? `<span class="pt-assess-chip">${esc(item.courseRef.title)}</span>`
+      : '';
+    const sessionChip = item.sessionRef
+      ? `<span class="pt-assess-chip">Session${item.sessionRef.number ? ' #' + item.sessionRef.number : ''} \u00b7 ${esc(item.sessionRef.date)}</span>`
+      : '';
+
+    const chips = [timeHtml, dueDateHtml, completedHtml, mpHtml, courseChip, sessionChip].filter(Boolean).join('');
+
+    // Progress bar for in-progress
+    const progressHtml = isInProgress && item.progress != null
+      ? `<div class="pt-assess-progress-bar" role="progressbar" aria-valuenow="${item.progress}" aria-valuemin="0" aria-valuemax="100" aria-label="Assessment ${item.progress}% complete">
+           <div class="pt-assess-progress-fill" style="width:${Math.min(100, item.progress)}%"></div>
+         </div>`
+      : '';
+
+    // Score for completed (patient-friendly, not alarming)
+    let scoreHtml = '';
+    if (isCompleted && item.score != null) {
+      const ctx = item.scoreCtx;
+      scoreHtml = `
+        <div class="pt-assess-score-row">
+          <span class="pt-assess-score-label">Your result</span>
+          ${ctx
+            ? `<span class="pt-assess-score-band ${esc(ctx.label.toLowerCase().replace(/\s+/g,'-'))}">${esc(ctx.label)}</span>`
+            : `<span class="pt-assess-score-num">${(item.score != null && !isNaN(Number(item.score))) ? esc(String(item.score)) : '—'}</span>`}
+        </div>
+        ${ctx ? `<div class="pt-assess-score-note">${esc(ctx.note)}</div>` : ''}`;
+    }
+
+    // CTA
+    let ctaHtml = '';
+    if (isDue) {
+      if (SUPPORTED_FORMS[item.formKey]) {
+        ctaHtml = `<button class="btn btn-primary btn-sm pt-assess-cta"
+                           id="pt-assess-cta-${esc(item.id)}"
+                           onclick="window._ptToggleAssessForm('${esc(item.id)}')"
+                           aria-expanded="false"
+                           aria-controls="pt-assess-form-${esc(item.id)}">Start \u2192</button>`;
+      } else if (item.formUrl) {
+        ctaHtml = `<a class="btn btn-primary btn-sm pt-assess-cta"
+                      href="${esc(item.formUrl)}" target="_blank" rel="noopener noreferrer"
+                      aria-label="Open ${esc(item.name)} form">Start \u2192</a>`;
+      } else {
+        ctaHtml = `<button class="btn btn-ghost btn-sm pt-assess-cta"
+                           onclick="window._ptAssessContactClinic('${esc(item.id)}')"
+                           aria-label="Ask about ${esc(item.name)}">Ask your clinic \u2192</button>`;
+      }
+    } else if (isInProgress) {
+      if (SUPPORTED_FORMS[item.formKey]) {
+        ctaHtml = `<button class="btn btn-primary btn-sm pt-assess-cta"
+                           id="pt-assess-cta-${esc(item.id)}"
+                           onclick="window._ptToggleAssessForm('${esc(item.id)}')"
+                           aria-expanded="false"
+                           aria-controls="pt-assess-form-${esc(item.id)}">Continue \u2192</button>`;
+      } else if (item.formUrl) {
+        ctaHtml = `<a class="btn btn-primary btn-sm pt-assess-cta"
+                      href="${esc(item.formUrl)}" target="_blank" rel="noopener noreferrer">Continue \u2192</a>`;
+      }
+    } else if (isCompleted) {
+      ctaHtml = `<button class="btn btn-ghost btn-sm pt-assess-cta"
+                         onclick="window._ptAssessReview('${esc(item.id)}')"
+                         aria-label="Review ${esc(item.name)}">Review</button>`;
+    }
+
+    return `
+      <div class="pt-assess-card${isDue || isInProgress ? ' pt-assess-card-due' : isCompleted ? ' pt-assess-card-done' : ''}"
+           data-id="${esc(item.id)}" data-status="${esc(item.status)}">
+        <div class="pt-assess-card-top">
+          <div class="pt-assess-main">
+            <div class="pt-assess-name-row">
+              <span class="pt-assess-name">${esc(item.name)}</span>
+              ${pillHtml}
+            </div>
+            ${item.purpose ? `<div class="pt-assess-purpose">${esc(item.purpose)}</div>` : ''}
+            ${chips ? `<div class="pt-assess-chips">${chips}</div>` : ''}
+            ${progressHtml}
+            ${scoreHtml}
+          </div>
+          ${ctaHtml ? `<div class="pt-assess-cta-col">${ctaHtml}</div>` : ''}
+        </div>
+        <div class="pt-assess-inline-form" id="pt-assess-form-${esc(item.id)}" hidden></div>
+      </div>`;
+  }
 
   // ── Empty page state ─────────────────────────────────────────────────────
   if (items.length === 0) {
@@ -3380,57 +3198,6 @@ export async function pgPatientAssessments() {
 
   // ── Handlers ─────────────────────────────────────────────────────────────
 
-  // Hydrate existing likert state from a draft (per assessment id).
-  function _hydrateDraft(item) {
-    if (!item || !item.formKey) return;
-    const draft = loadDraft(item.id);
-    if (!draft || !draft.answers) return;
-    try {
-      const st = window._likertState && window._likertState[item.formKey];
-      if (!st || !Array.isArray(st.answers)) return;
-      const arr = Array.isArray(draft.answers)
-        ? draft.answers
-        : Object.keys(draft.answers)
-            .map(function(k) { return [Number(k), draft.answers[k]]; })
-            .reduce(function(acc, [k, v]) { acc[k] = v; return acc; }, []);
-      for (let i = 0; i < st.answers.length; i++) {
-        const v = arr[i];
-        if (v != null && typeof window._ptLikertPick === 'function') {
-          window._ptLikertPick(item.formKey, i, v);
-        }
-      }
-      _showDraftSaved(item.id, draft.savedAt);
-    } catch (_e) { /* ignore corrupt drafts */ }
-  }
-
-  // Debounce map per assessment id.
-  const _draftDebounce = Object.create(null);
-  function _saveDraftDebounced(item) {
-    if (!item || item.raw?._demo) return; // never persist demo drafts
-    if (_draftDebounce[item.id]) clearTimeout(_draftDebounce[item.id]);
-    _draftDebounce[item.id] = setTimeout(function() {
-      const st = window._likertState && window._likertState[item.formKey];
-      if (!st) return;
-      const ok = saveDraft(item.id, st.answers);
-      if (ok) _showDraftSaved(item.id, new Date().toISOString());
-    }, 600);
-  }
-
-  function _showDraftSaved(itemId, iso) {
-    const card = el.querySelector('[data-id="' + CSS.escape(itemId) + '"]');
-    if (!card) return;
-    let badge = card.querySelector('.pt-assess-draft-saved');
-    if (!badge) {
-      badge = document.createElement('div');
-      badge.className = 'pt-assess-draft-saved';
-      badge.setAttribute('aria-live', 'polite');
-      const formEl = card.querySelector('.pt-assess-inline-form');
-      if (formEl && formEl.parentNode) formEl.parentNode.insertBefore(badge, formEl);
-    }
-    badge.textContent = '\u2713 Saved just now';
-    if (iso) badge.setAttribute('title', 'Last saved ' + iso);
-  }
-
   window._ptToggleAssessForm = function(itemId) {
     const item = items.find(function(i) { return i.id === itemId; });
     if (!item) return;
@@ -3440,102 +3207,19 @@ export async function pgPatientAssessments() {
     const opening = formEl.hasAttribute('hidden');
     if (opening) {
       formEl.removeAttribute('hidden');
-      if (btn) { btn.textContent = 'Close \u00D7'; btn.setAttribute('aria-expanded', 'true'); }
+      if (btn) { btn.textContent = 'Close ×'; btn.setAttribute('aria-expanded', 'true'); }
       if (SUPPORTED_FORMS[item.formKey]) {
-        const cid = 'pt-assess-form-' + CSS.escape(itemId);
-        // Demo rows: render a read-only banner instead of collecting live data.
-        if (item.raw && item.raw._demo) {
-          formEl.innerHTML = '<div class="pt-assess-demo-form-note">'
-            + 'This is a demo assessment. Submitting isn\u2019t wired to your clinic in demo mode.'
-            + '</div>';
-        } else {
-          renderAssessmentForm(item.formKey, cid, currentUser?.id);
-          // Hydrate from a saved draft (if any) and wrap the picker to save
-          // a draft on every answer change.
-          _hydrateDraft(item);
-          const origPick = window._ptLikertPick;
-          window._ptLikertPick = function(formKey, q, v) {
-            origPick(formKey, q, v);
-            if (formKey === item.formKey) _saveDraftDebounced(item);
-          };
-          // Wrap submit to clear the draft + show confirmation in-place.
-          const origSubmit = window._ptLikertSubmit;
-          window._ptLikertSubmit = async function(formKey) {
-            await origSubmit(formKey);
-            // After the generic submit runs, detect success by looking for
-            // the result block we just populated.
-            const resultEl = document.getElementById(formKey + '-result');
-            if (resultEl && resultEl.style.display !== 'none'
-                && !resultEl.querySelector('.notice-error')) {
-              // Success: clear draft + swap card into the completed bucket.
-              clearDraft(item.id);
-              _renderCompletionConfirm(item, resultEl);
-            }
-          };
-        }
+        renderAssessmentForm(item.formKey, 'pt-assess-form-' + CSS.escape(itemId), currentUser?.id);
       }
       setTimeout(function() { formEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); }, 50);
     } else {
       formEl.setAttribute('hidden', '');
-      if (btn) {
-        btn.textContent = (item.status === 'in-progress' ? 'Continue' : 'Start') + ' \u2192';
-        btn.setAttribute('aria-expanded', 'false');
-      }
+      if (btn) { btn.textContent = (item.status === 'in-progress' ? 'Continue' : 'Start') + ' →'; btn.setAttribute('aria-expanded', 'false'); }
     }
   };
 
-  // After a successful submit, replace the form area with a friendly
-  // confirmation card and move the card into the Completed section without
-  // a hard navigation. On refresh, the real API will reflect the new state.
-  function _renderCompletionConfirm(item, resultEl) {
-    const card = el.querySelector('[data-id="' + CSS.escape(item.id) + '"]');
-    if (!card) return;
-    // Replace the form body with the confirmation card.
-    const confirmHTML =
-      '<div class="pt-assess-confirm" role="status" aria-live="polite">' +
-        '<div class="pt-assess-confirm-ico" aria-hidden="true">\u2713</div>' +
-        '<div class="pt-assess-confirm-body">' +
-          '<div class="pt-assess-confirm-title">Thanks \u2014 your answers are with your care team</div>' +
-          '<div class="pt-assess-confirm-sub">You\u2019ll hear from your clinician if anything needs follow-up. Check the Completed list below for your result.</div>' +
-        '</div>' +
-      '</div>';
-    const formEl = card.querySelector('.pt-assess-inline-form');
-    if (formEl) {
-      formEl.innerHTML = confirmHTML + (resultEl ? resultEl.outerHTML : '');
-    }
-    // Repaint the card as completed: swap pill, strip CTA, drop draft badge.
-    card.classList.remove('pt-assess-card-due');
-    card.classList.add('pt-assess-card-done');
-    card.setAttribute('data-status', 'completed');
-    const pill = card.querySelector('.pt-assess-pill-due, .pt-assess-pill-progress');
-    if (pill) {
-      pill.classList.remove('pt-assess-pill-due', 'pt-assess-pill-progress');
-      pill.classList.add('pt-assess-pill-done');
-      pill.textContent = 'Completed';
-    }
-    const cta = card.querySelector('.pt-assess-cta-col');
-    if (cta) cta.remove();
-    const draftBadge = card.querySelector('.pt-assess-draft-saved');
-    if (draftBadge) draftBadge.remove();
-    // Move to completed section if present; else fall back to a soft refresh.
-    const sections = el.querySelectorAll('.pt-assess-section');
-    let completedSection = null;
-    for (const s of sections) {
-      const t = s.querySelector('.pt-assess-section-title');
-      if (t && /completed/i.test(t.textContent || '')) { completedSection = s; break; }
-    }
-    if (completedSection) completedSection.appendChild(card);
-  }
-
-  window._ptAssessReview = function(itemId) {
-    const item = items.find(function(i) { return i.id === itemId; });
-    // Demo rows have no real record in the reports page — keep them local.
-    if (item && item.raw && item.raw._demo) return;
-    if (typeof window._navPatient === 'function') window._navPatient('patient-reports');
-  };
-  window._ptAssessContactClinic = function(_itemId) {
-    if (typeof window._navPatient === 'function') window._navPatient('patient-messages');
-  };
+  window._ptAssessReview = function(_itemId) { window._navPatient('patient-reports'); };
+  window._ptAssessContactClinic = function(_itemId) { window._navPatient('patient-messages'); };
 
   window._assessAskAI = function(prompt) {
     if (typeof window._navPatient === 'function') {

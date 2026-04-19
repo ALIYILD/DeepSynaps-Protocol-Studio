@@ -472,8 +472,14 @@ class MessageOut(BaseModel):
     recipient_id: str
     patient_id: Optional[str]
     body: str
+    subject: Optional[str] = None
+    category: Optional[str] = None
+    thread_id: Optional[str] = None
+    priority: Optional[str] = None
+    sender_type: Optional[str] = None  # 'patient' | 'clinician'
     created_at: str
     read_at: Optional[str]
+    is_read: bool = False
 
 
 class PatientMessagesResponse(BaseModel):
@@ -483,6 +489,10 @@ class PatientMessagesResponse(BaseModel):
 
 class SendMessageRequest(BaseModel):
     body: str
+    subject: Optional[str] = None
+    category: Optional[str] = None
+    thread_id: Optional[str] = None
+    priority: Optional[str] = None
 
 
 def _session_to_dict(s) -> dict:
@@ -688,6 +698,27 @@ def get_patient_reports(
     return PatientReportsResponse(items=items, total=len(items))
 
 
+def _assert_clinician_owns_patient(session: Session, actor: AuthenticatedActor, patient_id: str) -> None:
+    """Authorise a non-patient actor for a patient's messaging thread.
+
+    Admins bypass; other roles must be the Patient.clinician_id. Raises 403/404
+    otherwise. Prevents cross-clinic message leakage.
+    """
+    from app.persistence.models import Patient as _Patient
+
+    if actor.role == "admin":
+        return
+    patient = session.query(_Patient).filter_by(id=patient_id).first()
+    if patient is None:
+        raise ApiServiceError(code="not_found", message="Patient not found.", status_code=404)
+    if patient.clinician_id != actor.actor_id:
+        raise ApiServiceError(
+            code="forbidden",
+            message="You are not authorised for this patient's messages.",
+            status_code=403,
+        )
+
+
 @router.get("/{patient_id}/messages", response_model=PatientMessagesResponse)
 def get_patient_messages(
     patient_id: str,
@@ -697,8 +728,8 @@ def get_patient_messages(
     """List messages associated with a patient thread."""
     from app.persistence.models import Message
 
-    # Patients see messages where they are sender or recipient
-    # Clinicians see messages for their own patients
+    # Patients see messages where they are sender or recipient.
+    # Clinicians must be the assigned clinician on the Patient record.
     if actor.role == "patient":
         rows = session.scalars(
             select(Message).where(
@@ -709,6 +740,7 @@ def get_patient_messages(
         ).all()
     else:
         require_minimum_role(actor, "clinician")
+        _assert_clinician_owns_patient(session, actor, patient_id)
         rows = session.scalars(
             select(Message)
             .where(Message.patient_id == patient_id)
@@ -722,8 +754,14 @@ def get_patient_messages(
             recipient_id=r.recipient_id,
             patient_id=r.patient_id,
             body=r.body,
+            subject=r.subject,
+            category=r.category,
+            thread_id=r.thread_id,
+            priority=r.priority,
+            sender_type=("patient" if r.sender_id == patient_id else "clinician"),
             created_at=r.created_at.isoformat(),
             read_at=r.read_at.isoformat() if r.read_at else None,
+            is_read=r.read_at is not None,
         )
         for r in rows
     ]
@@ -973,7 +1011,7 @@ def send_patient_message(
     session: Session = Depends(get_db_session),
 ) -> MessageOut:
     """Send a message in a patient thread."""
-    from app.persistence.models import Message
+    from app.persistence.models import Message, Patient as _Patient
 
     if not body.body.strip():
         raise ApiServiceError(
@@ -983,14 +1021,15 @@ def send_patient_message(
         )
 
     # For patient senders, route to the patient's assigned clinician.
-    # For clinician senders, recipient is the patient.
+    # For clinician senders, enforce ownership so a clinician cannot post
+    # into another clinician's thread.
     if actor.role == "patient":
         sender_id = actor.actor_id
-        from app.persistence.models import Patient as _Patient
         _patient_rec = session.query(_Patient).filter_by(id=patient_id).first()
         recipient_id = _patient_rec.clinician_id if _patient_rec and _patient_rec.clinician_id else patient_id
     else:
         require_minimum_role(actor, "clinician")
+        _assert_clinician_owns_patient(session, actor, patient_id)
         sender_id = actor.actor_id
         recipient_id = patient_id
 
@@ -999,8 +1038,16 @@ def send_patient_message(
         recipient_id=recipient_id,
         patient_id=patient_id,
         body=body.body.strip(),
+        subject=body.subject,
+        category=body.category,
+        thread_id=body.thread_id,
+        priority=body.priority,
     )
     session.add(msg)
+    session.flush()  # populate msg.id before we reference it
+    # Stamp thread_id on thread-starters so replies can group deterministically.
+    if not msg.thread_id:
+        msg.thread_id = msg.id
     session.commit()
     session.refresh(msg)
 
@@ -1010,6 +1057,68 @@ def send_patient_message(
         recipient_id=msg.recipient_id,
         patient_id=msg.patient_id,
         body=msg.body,
+        subject=msg.subject,
+        category=msg.category,
+        thread_id=msg.thread_id,
+        priority=msg.priority,
+        sender_type=("patient" if actor.role == "patient" else "clinician"),
         created_at=msg.created_at.isoformat(),
         read_at=None,
+        is_read=False,
+    )
+
+
+@router.patch("/{patient_id}/messages/{message_id}/read", response_model=MessageOut)
+def mark_patient_message_read(
+    patient_id: str,
+    message_id: str,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    session: Session = Depends(get_db_session),
+) -> MessageOut:
+    """Mark an incoming message as read for the authenticated recipient.
+
+    Only the recipient may stamp read; honest receipts only.
+    """
+    from app.persistence.models import Message
+
+    msg = session.query(Message).filter_by(id=message_id, patient_id=patient_id).first()
+    if msg is None:
+        raise ApiServiceError(code="not_found", message="Message not found.", status_code=404)
+
+    if actor.role == "patient":
+        if msg.recipient_id != actor.actor_id:
+            raise ApiServiceError(
+                code="forbidden",
+                message="You may only mark messages addressed to you as read.",
+                status_code=403,
+            )
+    else:
+        require_minimum_role(actor, "clinician")
+        _assert_clinician_owns_patient(session, actor, patient_id)
+        if msg.recipient_id != actor.actor_id:
+            raise ApiServiceError(
+                code="forbidden",
+                message="Only the recipient may mark a message as read.",
+                status_code=403,
+            )
+
+    if msg.read_at is None:
+        msg.read_at = datetime.now(timezone.utc)
+        session.commit()
+        session.refresh(msg)
+
+    return MessageOut(
+        id=msg.id,
+        sender_id=msg.sender_id,
+        recipient_id=msg.recipient_id,
+        patient_id=msg.patient_id,
+        body=msg.body,
+        subject=msg.subject,
+        category=msg.category,
+        thread_id=msg.thread_id,
+        priority=msg.priority,
+        sender_type=("patient" if msg.sender_id == patient_id else "clinician"),
+        created_at=msg.created_at.isoformat(),
+        read_at=msg.read_at.isoformat() if msg.read_at else None,
+        is_read=msg.read_at is not None,
     )
