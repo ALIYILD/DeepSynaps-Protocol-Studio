@@ -719,16 +719,16 @@ function relatedCards(entry) {
   const related = [];
   if (entry.kind === 'condition') {
     const protos = PROTOCOL_REGISTRY.filter(p => p.condition === entry.id).slice(0, 4);
-    for (const p of protos) related.push({ kind: `PROTOCOL · v${(Math.random()*2+1).toFixed(1)}`, title: HANDBOOK_DATA[p.id]?.name || p.name, meta: `${p.modality||''} · ${p.target||''}`, id: p.id });
+    for (const p of protos) related.push({ kind: 'PROTOCOL', title: HANDBOOK_DATA[p.id]?.name || p.name, meta: `${p.modality||''} · ${p.target||''}`, id: p.id });
   } else if (entry.kind === 'protocol') {
     const cond = CONDITION_REGISTRY.find(c => c.id === entry.reg?.condition);
     if (cond) related.push({ kind: 'CONDITION', title: cond.name, meta: `${cond.icd10||''} · ${cond.cat||''}`, id: cond.id });
-    related.push({ kind: 'SAFETY · v1.8', title: 'Pre-session safety screen', meta: 'required before every run', id: 'ops-safety-screen' });
-    related.push({ kind: 'OPS · v1.5', title: 'Electrode preparation & saline SOP', meta: '6 mL per pad · 0.9 % saline', id: 'ops-electrode-prep' });
-    related.push({ kind: 'OPS · v2.1', title: 'Adverse event response tree', meta: 'triage + on-call paging', id: 'ops-ae-response' });
+    related.push({ kind: 'SAFETY', title: 'Pre-session safety screen', meta: 'required before every run', id: 'ops-safety-screen' });
+    related.push({ kind: 'OPS', title: 'Electrode preparation & saline SOP', meta: '6 mL per pad · 0.9 % saline', id: 'ops-electrode-prep' });
+    related.push({ kind: 'OPS', title: 'Adverse event response tree', meta: 'triage + on-call paging', id: 'ops-ae-response' });
   } else {
-    related.push({ kind: 'SAFETY · v1.8', title: 'Pre-session safety screen', meta: 'required before every run', id: 'ops-safety-screen' });
-    related.push({ kind: 'OPS · v4.0', title: 'Contraindications matrix', meta: 'cross-modality', id: 'ops-contra-matrix' });
+    related.push({ kind: 'SAFETY', title: 'Pre-session safety screen', meta: 'required before every run', id: 'ops-safety-screen' });
+    related.push({ kind: 'OPS', title: 'Contraindications matrix', meta: 'cross-modality', id: 'ops-contra-matrix' });
   }
   if (!related.length) return `<p style="color:${T.text3}">No cross-links yet.</p>`;
   return `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px;margin:8px 0 0">
@@ -744,12 +744,33 @@ function relatedCards(entry) {
 // ── Left rail: collections tree ──────────────────────────────────────────────
 function renderLeftRail(entries) {
   const q = _query.trim().toLowerCase();
-  const visible = q ? entries.filter(e =>
-    e.title.toLowerCase().includes(q) ||
-    e.subtitle.toLowerCase().includes(q) ||
-    e.id.toLowerCase().includes(q) ||
-    e.collection.toLowerCase().includes(q)
-  ) : entries;
+  const favs = new Set(_loadFavs());
+  const visible = entries.filter(e => {
+    // Text query
+    if (q && !(
+      e.title.toLowerCase().includes(q) ||
+      e.subtitle.toLowerCase().includes(q) ||
+      e.id.toLowerCase().includes(q) ||
+      e.collection.toLowerCase().includes(q)
+    )) return false;
+    // Modality filter — only applies to entries with a declared modality
+    if (_fModality !== 'All') {
+      if (!(e.modalities || []).some(m => _modalityMatches(m, _fModality))) return false;
+    }
+    // Protocol filter — matches by protocol id
+    if (_fProtocol !== 'All') {
+      if (!(e.protocolIds || []).includes(_fProtocol)) return false;
+    }
+    // Device filter — match against any device whose modality fits any modality on this entry
+    if (_fDevice !== 'All') {
+      const d = DEVICE_REGISTRY.find(x => x.id === _fDevice);
+      if (!d) return false;
+      if (!(e.modalities || []).some(m => _modalityMatches(d.modality, m))) return false;
+    }
+    // Favourites-only
+    if (_favOnly && !favs.has(e.id)) return false;
+    return true;
+  });
 
   // Pinned = first 3 condition entries (canonical examples) + active doc if not present
   const pinnedIds = new Set(['mdd', 'ops-safety-screen', 'ops-ae-response']);
@@ -774,11 +795,14 @@ function renderLeftRail(entries) {
     const active = e.id === _id ? `background:rgba(0,212,188,0.07);color:${T.text1};border-left-color:${T.teal}` : '';
     const status = e.kind === 'ops' || e.kind === 'train' ? (e.version === 'draft' ? 'draft' : 'ok') : 'ok';
     const meta = e.kind === 'condition' ? (e.reg?.icd10 || '') : e.kind === 'protocol' ? (e.reg?.modality || '') : (e.version || '');
+    const isFav = favs.has(e.id);
     return `<div onclick="window._hbOpen('${esc(e.id)}')"
-      style="padding:6px 14px 6px 22px;cursor:pointer;display:flex;align-items:center;gap:8px;font-size:12px;color:${T.text2};border-left:2px solid transparent;line-height:1.35;${active}">
+      style="padding:6px 8px 6px 18px;cursor:pointer;display:flex;align-items:center;gap:8px;font-size:12px;color:${T.text2};border-left:2px solid transparent;line-height:1.35;${active}">
       ${statusDot(status)}
       <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500">${esc(e.title)}</span>
       <span style="font-size:9.5px;color:${T.text3};font-family:${T.fmono};flex-shrink:0">${esc(meta)}</span>
+      <button aria-label="${isFav ? 'Unfavourite' : 'Favourite'}" onclick="event.stopPropagation(); window._hbToggleFav('${esc(e.id)}')"
+        style="background:transparent;border:0;cursor:pointer;padding:0 2px;color:${isFav ? T.amber : T.text3};font-size:13px;line-height:1;flex-shrink:0">${isFav ? '★' : '☆'}</button>
     </div>`;
   }
 
@@ -791,6 +815,42 @@ function renderLeftRail(entries) {
       ${items.map(row).join('')}`;
   }
 
+  // Build facet option lists from real entries (entries = full set, not filtered).
+  const allModalities = [...new Set(entries.flatMap(e => e.modalities || []))].filter(Boolean).sort();
+  const allProtocolIds = [...new Set(entries.flatMap(e => e.protocolIds || []))].filter(Boolean);
+  const allDevices = [...new Set(DEVICE_REGISTRY.map(d => d.id))].filter(Boolean);
+
+  const selStyle = `flex:1;min-width:0;padding:5px 7px;border-radius:${T.rsm};background:${T.surface};color:${T.text1};border:1px solid ${T.border};font-size:11px;font-family:inherit;box-sizing:border-box`;
+  const facetRow = `
+    <div style="display:flex;gap:6px;margin-top:8px">
+      <select onchange="window._hbSetFacet('modality', this.value)" style="${selStyle}" title="Filter by modality">
+        <option value="All"${_fModality==='All'?' selected':''}>Any modality</option>
+        ${allModalities.map(m => `<option value="${esc(m)}"${m===_fModality?' selected':''}>${esc(m)}</option>`).join('')}
+      </select>
+      <select onchange="window._hbSetFacet('protocol', this.value)" style="${selStyle}" title="Filter by protocol">
+        <option value="All"${_fProtocol==='All'?' selected':''}>Any protocol</option>
+        ${allProtocolIds.map(pid => {
+          const p = PROTOCOL_REGISTRY.find(x => x.id === pid);
+          return `<option value="${esc(pid)}"${pid===_fProtocol?' selected':''}>${esc(p?.name || pid)}</option>`;
+        }).join('')}
+      </select>
+    </div>
+    <div style="display:flex;gap:6px;margin-top:6px">
+      <select onchange="window._hbSetFacet('device', this.value)" style="${selStyle}" title="Filter by device">
+        <option value="All"${_fDevice==='All'?' selected':''}>Any device</option>
+        ${allDevices.map(did => {
+          const d = DEVICE_REGISTRY.find(x => x.id === did);
+          return `<option value="${esc(did)}"${did===_fDevice?' selected':''}>${esc((d?.name || did) + ' · ' + (d?.modality || ''))}</option>`;
+        }).join('')}
+      </select>
+      <button onclick="window._hbToggleFavOnly()"
+        title="${_favOnly ? 'Show all' : 'Favourites only'}"
+        style="padding:5px 10px;border-radius:${T.rsm};background:${_favOnly ? 'rgba(255,181,71,0.12)' : T.surface};border:1px solid ${_favOnly ? T.amber : T.border};color:${_favOnly ? T.amber : T.text2};font-size:11px;cursor:pointer;font-family:inherit;flex-shrink:0">${_favOnly ? '★ Favs' : '☆ All'}</button>
+    </div>
+    ${(_fModality!=='All' || _fProtocol!=='All' || _fDevice!=='All' || _favOnly) ? `
+      <button onclick="window._hbResetFacets()" style="margin-top:6px;padding:3px 8px;border-radius:${T.rsm};background:transparent;border:1px solid ${T.border};color:${T.text3};font-size:10.5px;cursor:pointer;font-family:${T.fmono}">× Reset filters</button>
+    ` : ''}`;
+
   return `
     <aside style="border:1px solid ${T.border};border-radius:${T.rmd};background:${T.panel};display:flex;flex-direction:column;overflow:hidden;position:sticky;top:0;align-self:start;max-height:calc(100vh - 120px)">
       <div style="padding:14px 14px 10px;border-bottom:1px solid ${T.border}">
@@ -799,6 +859,7 @@ function renderLeftRail(entries) {
             oninput="window._hbFilter(this.value)"
             style="width:100%;padding:7px 10px;background:${T.surface};border:1px solid ${T.border};border-radius:${T.rsm};font-size:11.5px;color:${T.text1};font-family:inherit;box-sizing:border-box" />
         </div>
+        ${facetRow}
       </div>
       <div style="flex:1;overflow-y:auto;padding:4px 0 16px">
         ${group('Pinned', pinned, pinned.length)}
@@ -854,13 +915,17 @@ function renderCenter(entry, sections) {
     </section>`;
   }
 
-  const reviewed = entry.kind === 'protocol' || entry.kind === 'condition' ? 'Apr 02, 2026' : 'Mar 14, 2026';
-  const version = entry.version || (entry.kind === 'protocol' ? 'v3.2' : 'v2.1');
+  const version = entry.version || 'v1.0';
   const minutes = readTime(JSON.stringify(entry.data || {}));
   const tldr = (entry.data?.responseData || entry.data?.expectedResponse || entry.data?.patientExplain || `Canonical clinic handbook for ${entry.title}.`);
 
   const heroTag = entry.kind === 'protocol' ? 'Protocol handbook' : entry.kind === 'condition' ? 'Condition handbook' : 'Operations handbook';
   const sopNum = `SOP-${(entry.id||'').toUpperCase().slice(0,8)}`;
+  const isFav = _isFav(entry.id);
+  // DOCX export backend only supports condition / protocol entries — Ops / Training
+  // have no clinical-dataset row. Disable the export button in those cases so the
+  // UI doesn't lie about the capability.
+  const docxDisabled = entry.kind !== 'condition' && entry.kind !== 'protocol';
 
   return `<section style="border:1px solid ${T.border};border-radius:${T.rmd};background:${T.panel};display:flex;flex-direction:column;overflow:hidden;min-width:0">
     <header style="padding:10px 22px;border-bottom:1px solid ${T.border};background:${T.bg};display:flex;align-items:center;gap:12px;flex-wrap:wrap">
@@ -868,12 +933,14 @@ function renderCenter(entry, sections) {
         <span>${esc(heroTag)}</span><span style="opacity:.4">/</span>
         <span>${esc(entry.collection || '—')}</span><span style="opacity:.4">/</span>
         <strong style="color:${T.text1};font-weight:600">${esc(entry.title)}</strong>
-        <span style="padding:2px 8px;border-radius:4px;font-size:9.5px;font-weight:700;font-family:${T.fmono};letter-spacing:0.04em;text-transform:uppercase;background:rgba(0,212,188,0.15);color:${T.teal};margin-left:6px">● Published</span>
       </div>
       <div style="margin-left:auto;display:flex;gap:6px">
-        <button id="hb-export-docx-btn" onclick="window._hbExportDocx('${esc(entry.id)}')" style="padding:5px 11px;border-radius:5px;font-size:11px;color:${T.text2};background:transparent;border:1px solid ${T.border};cursor:pointer;font-family:inherit" title="Export as Word document">⬇ DOCX</button>
+        <button onclick="window._hbToggleFav('${esc(entry.id)}')" title="${isFav ? 'Remove from favourites' : 'Add to favourites'}"
+          style="padding:5px 11px;border-radius:5px;font-size:11px;color:${isFav ? T.amber : T.text2};background:transparent;border:1px solid ${isFav ? T.amber : T.border};cursor:pointer;font-family:inherit">${isFav ? '★ Favourited' : '☆ Favourite'}</button>
+        <button id="hb-export-docx-btn" onclick="window._hbExportDocx('${esc(entry.id)}')" ${docxDisabled ? 'disabled' : ''}
+          style="padding:5px 11px;border-radius:5px;font-size:11px;color:${docxDisabled ? T.text3 : T.text2};background:transparent;border:1px solid ${T.border};cursor:${docxDisabled ? 'not-allowed' : 'pointer'};font-family:inherit"
+          title="${docxDisabled ? 'DOCX export is only available for condition and protocol handbooks.' : 'Export as Word document'}">⬇ DOCX</button>
         <button onclick="window._hbPrint()" style="padding:5px 11px;border-radius:5px;font-size:11px;color:${T.text2};background:transparent;border:1px solid ${T.border};cursor:pointer;font-family:inherit">↗ Print</button>
-        <button onclick="window._hbToast('History','${esc(version)} is current. 4 prior revisions on file.')" style="padding:5px 11px;border-radius:5px;font-size:11px;color:${T.text2};background:transparent;border:1px solid ${T.border};cursor:pointer;font-family:inherit">◴ History</button>
       </div>
     </header>
     <div id="hb-reading-pane" style="flex:1;overflow-y:auto;padding:0;max-height:calc(100vh - 180px)">
@@ -885,9 +952,8 @@ function renderCenter(entry, sections) {
         <p style="font-size:16px;color:${T.text2};line-height:1.55;max-width:620px;margin:0">${esc(entry.subtitle)}</p>
         <div style="display:flex;align-items:center;gap:18px;margin-top:20px;padding:12px 0;border-top:1px solid ${T.border};border-bottom:1px solid ${T.border};font-size:11px;color:${T.text3};font-family:${T.fmono};flex-wrap:wrap">
           <span>Version <strong style="color:${T.text1}">${esc(version)}</strong></span>
-          <span>Last reviewed <strong style="color:${T.text1}">${esc(reviewed)}</strong></span>
           <span>${esc(String(minutes))} min read</span>
-          <span style="margin-left:auto;display:inline-flex;align-items:center;gap:6px"><span style="width:6px;height:6px;border-radius:50%;background:${T.teal}"></span>Review status: current</span>
+          <span style="margin-left:auto;display:inline-flex;align-items:center;gap:6px"><span style="width:6px;height:6px;border-radius:50%;background:${T.text3}"></span>Governance review: not yet wired</span>
         </div>
 
         <div style="margin-top:28px">
@@ -912,27 +978,15 @@ function renderRightRail(entry, sections) {
     return `<aside style="border:1px solid ${T.border};border-radius:${T.rmd};background:${T.panel};padding:18px;color:${T.text3};font-size:12px;position:sticky;top:0;align-self:start">No handbook open.</aside>`;
   }
 
-  const version = entry.version || (entry.kind === 'protocol' ? 'v3.2' : 'v2.1');
-  const reviewStatus = 'Current';
-  const reviewColor = T.teal;
+  const version = entry.version || 'v1.0';
+  const reviewStatus = 'Unassigned';
+  const reviewColor = T.text3;
 
-  const versions = [
-    { v: version, text: 'Tightened skin-grade threshold (≥ 2 → ≥ 1) after Q1 AE review.', date: 'Apr 02, 2026', who: 'AK' },
-    { v: 'v3.1', text: 'Added F5 focal variant cross-link; Bikson 2020 cited.', date: 'Feb 14, 2026', who: 'JR' },
-    { v: 'v3.0', text: 'Major: unified with safety screen SOP-SF-001. Required 2FA on session sign.', date: 'Nov 18, 2025', who: 'AK' },
-    { v: 'v2.4', text: 'Dose raised from 1.5 to 2.0 mA per Fregni 2021 update.', date: 'Aug 03, 2025', who: 'MT' },
-    { v: 'v2.3', text: 'Initial governance sign-off.', date: 'Jun 11, 2025', who: 'AK' },
-  ].slice(0, 5);
-
-  const contributors = [
-    { name: 'Amelia Kolmar',  role: 'Clinical Director · owner', count: 41 },
-    { name: 'Jordan Raines',  role: 'Senior clinician',          count: 19 },
-    { name: 'Mei Takahashi',  role: 'Research lead',             count: 12 },
-  ];
-
+  // Back-references are real (derived from the protocol registry); governance
+  // sign-offs and per-handbook revision history are not yet wired to a service.
   const protocolRefCount = entry.kind === 'condition'
     ? PROTOCOL_REGISTRY.filter(p => p.condition === entry.id).length
-    : 7;
+    : 0;
 
   return `<aside style="border:1px solid ${T.border};border-radius:${T.rmd};background:${T.panel};display:flex;flex-direction:column;overflow:hidden;position:sticky;top:0;align-self:start;max-height:calc(100vh - 120px)">
     <div style="flex:1;overflow-y:auto">
@@ -952,52 +1006,35 @@ function renderRightRail(entry, sections) {
           Review status
           <span style="font-family:${T.fmono};font-size:9.5px;color:${reviewColor};border:1px solid ${reviewColor};padding:1px 7px;border-radius:999px">● ${esc(reviewStatus)}</span>
         </div>
-        <div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:7px;color:${T.text3}"><span>Owner</span><strong style="color:${T.text1};font-weight:600;font-family:${T.fmono}">A. Kolmar</strong></div>
-        <div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:7px;color:${T.text3}"><span>Last reviewed</span><strong style="color:${T.text1};font-weight:600;font-family:${T.fmono}">Apr 02, 2026</strong></div>
-        <div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:7px;color:${T.text3}"><span>Next review due</span><strong style="color:${T.amber};font-weight:600;font-family:${T.fmono}">Jul 02, 2026</strong></div>
-        <div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:7px;color:${T.text3}"><span>Sign-offs</span><strong style="color:${T.text1};font-weight:600;font-family:${T.fmono}">3 / 3</strong></div>
-        <div style="height:4px;background:${T.surface};border-radius:2px;overflow:hidden;margin-top:10px"><div style="height:100%;width:72%;background:linear-gradient(90deg, ${T.teal}, ${T.blue})"></div></div>
-        <div style="font-size:10px;color:${T.text3};margin-top:6px;font-family:${T.fmono}">72d since review · 89d to next</div>
+        <div style="font-size:11px;color:${T.text3};line-height:1.5">
+          Governance sign-off is not yet wired to handbooks. Owner, reviewer, and due dates will appear here once the review queue is connected.
+        </div>
       </div>
 
       <div style="padding:16px;border-bottom:1px solid ${T.border}">
         <div style="font-size:9.5px;text-transform:uppercase;letter-spacing:0.08em;color:${T.text3};font-weight:600;margin-bottom:10px;font-family:${T.fmono};display:flex;align-items:center;justify-content:space-between">
           Version history <span style="color:${T.text3};font-weight:500">${esc(version)}</span>
         </div>
-        ${versions.map(v=>`
-          <div style="display:grid;grid-template-columns:auto 1fr;gap:9px;padding:7px 0;font-size:11px;color:${T.text3};border-bottom:1px solid rgba(255,255,255,0.04)">
-            <span style="font-family:${T.fmono};color:${T.teal};font-weight:600;padding:1px 6px;background:rgba(0,212,188,0.08);border-radius:3px;font-size:10px;align-self:start">${esc(v.v)}</span>
-            <div>
-              <div style="color:${T.text2};line-height:1.4">${esc(v.text)}</div>
-              <div style="font-size:9.5px;color:${T.text3};margin-top:2px;font-family:${T.fmono}">${esc(v.date)} · ${esc(v.who)}</div>
-            </div>
-          </div>`).join('')}
-        <button onclick="window._hbToast('Diff','Diff viewer not wired in this build.')" style="margin-top:10px;padding:5px 10px;border-radius:5px;font-size:10.5px;color:${T.teal};background:transparent;border:1px solid rgba(0,212,188,0.3);cursor:pointer;font-family:${T.fmono}">▾ Toggle diff</button>
+        <div style="font-size:11px;color:${T.text3};line-height:1.5">
+          No revision history on file. Handbook revisions will appear here after the content service goes live.
+        </div>
       </div>
 
       <div style="padding:16px;border-bottom:1px solid ${T.border}">
         <div style="font-size:9.5px;text-transform:uppercase;letter-spacing:0.08em;color:${T.text3};font-weight:600;margin-bottom:10px;font-family:${T.fmono}">Contributors</div>
-        ${contributors.map((c,i)=>{
-          const grad = i===0 ? 'linear-gradient(135deg,#00d4bc,#4a9eff)' : i===1 ? 'linear-gradient(135deg,#9b7fff,#4a9eff)' : 'linear-gradient(135deg,#ffb547,#ff6b9d)';
-          return `<div style="display:flex;align-items:center;gap:9px;padding:6px 0">
-            <div style="width:26px;height:26px;border-radius:50%;background:${grad};color:#04121c;font-size:10px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-family:${T.fdisp}">${esc(initials(c.name))}</div>
-            <div style="flex:1;min-width:0">
-              <div style="font-size:11.5px;color:${T.text1};font-weight:600">${esc(c.name)}</div>
-              <div style="font-size:10px;color:${T.text3}">${esc(c.role)}</div>
-            </div>
-            <div style="font-size:10px;color:${T.text3};font-family:${T.fmono}">${c.count}</div>
-          </div>`;
-        }).join('')}
+        <div style="font-size:11px;color:${T.text3};line-height:1.5">No contributor list on file yet.</div>
       </div>
 
       <div style="padding:16px">
         <div style="font-size:9.5px;text-transform:uppercase;letter-spacing:0.08em;color:${T.text3};font-weight:600;margin-bottom:10px;font-family:${T.fmono};display:flex;align-items:center;justify-content:space-between">
           Back-references <span style="color:${T.text3};font-weight:500">${protocolRefCount}</span>
         </div>
-        <button onclick="window._hbToast('Back-references','Used in ${protocolRefCount} active records. See Reports → Cross-reference for the full list.')"
-          style="width:100%;padding:8px 10px;border-radius:6px;font-size:11.5px;color:${T.text2};background:${T.surface};border:1px solid ${T.border};cursor:pointer;font-family:inherit;text-align:left">
-          → Used in ${protocolRefCount} ${entry.kind==='condition' ? 'protocols' : 'records'} · expand
-        </button>
+        ${protocolRefCount > 0
+          ? `<button onclick="window._hbToast('Back-references','${protocolRefCount} linked record${protocolRefCount===1?'':'s'} in the protocol registry.')"
+              style="width:100%;padding:8px 10px;border-radius:6px;font-size:11.5px;color:${T.text2};background:${T.surface};border:1px solid ${T.border};cursor:pointer;font-family:inherit;text-align:left">
+              → Linked to ${protocolRefCount} ${entry.kind==='condition' ? 'protocol' + (protocolRefCount===1?'':'s') : 'record' + (protocolRefCount===1?'':'s')}
+            </button>`
+          : `<div style="font-size:11px;color:${T.text3};line-height:1.5">No back-references in the registry for this handbook.</div>`}
       </div>
     </div>
   </aside>`;
@@ -1064,9 +1101,7 @@ export async function pgHandbooks(setTopbar /*, navigate */) {
 
   // Window-scoped handlers (string event handlers are the page convention)
   window._hbOpen = (id) => { _id = id; _section = null; render(); };
-  window._hbFilter = (v) => {
-    _query = v || '';
-    // Re-render only the left rail for snappier filtering
+  const _repaintRail = () => {
     const entries = buildEntries();
     const left = _el.querySelector(':scope > div > div > aside:first-of-type');
     if (left && left.parentElement) {
@@ -1075,6 +1110,25 @@ export async function pgHandbooks(setTopbar /*, navigate */) {
       left.replaceWith(tmp.firstElementChild);
     }
   };
+  window._hbFilter = (v) => {
+    _query = v || '';
+    _repaintRail();
+    // Keep input focus on the filter input after repaint so typing is uninterrupted.
+    const f = document.getElementById('hb-filter');
+    if (f) { f.focus(); try { f.setSelectionRange(f.value.length, f.value.length); } catch (_) {} }
+  };
+  window._hbSetFacet = (field, value) => {
+    if (field === 'modality') _fModality = value || 'All';
+    else if (field === 'protocol') _fProtocol = value || 'All';
+    else if (field === 'device') _fDevice = value || 'All';
+    _repaintRail();
+  };
+  window._hbToggleFavOnly = () => { _favOnly = !_favOnly; _repaintRail(); };
+  window._hbResetFacets = () => {
+    _fModality = 'All'; _fProtocol = 'All'; _fDevice = 'All'; _favOnly = false;
+    _repaintRail();
+  };
+  window._hbToggleFav = (id) => { _toggleFav(id); render(); };
   window._hbScroll = (ev, secId) => {
     if (ev?.preventDefault) ev.preventDefault();
     const el = document.getElementById(`hb-${secId}`);
@@ -1124,20 +1178,28 @@ export async function pgHandbooks(setTopbar /*, navigate */) {
     if (!entryId) return;
     const btn = document.getElementById('hb-export-docx-btn');
     if (btn) { btn.disabled = true; btn.textContent = '⬇ …'; }
-    const cached = Object.entries(_aiCache || {}).find(([k]) => k.startsWith(entryId + '|'));
-    const genDoc = cached ? cached[1] : null;
+    // The backend ExportHandbookDocxRequest schema expects
+    //   { condition_name, modality_name, device_name }
+    // and re-runs the clinical-dataset generator; the AI-generated cache is
+    // discarded server-side, so we do not ship it.
     const cond = (CONDITION_REGISTRY || []).find(c => c.id === entryId);
     const prot = (PROTOCOL_REGISTRY || []).find(p => p.id === entryId);
-    const condLabel = cond?.name || prot?.condition || prot?.name || entryId;
+    const parentCond = prot ? (CONDITION_REGISTRY || []).find(c => c.id === prot.condition) : null;
+    if (!cond && !parentCond) {
+      if (btn) { btn.disabled = false; btn.textContent = '⬇ DOCX'; }
+      window._dsToast?.({ title: 'Export unavailable', body: 'Ops / training handbooks are not yet wired to the DOCX backend.', severity: 'warn' });
+      return;
+    }
+    const mapped = cond ? _backendConditionFor(cond) : _backendConditionFor(parentCond);
     const sel = _aiSel[entryId] || {};
-    const modality = sel.modality || prot?.modality || 'TMS';
-    const kind     = sel.kind || 'clinician_handbook';
+    const modalityRaw = sel.modality || prot?.modality || (cond?.modalities || [])[0] || 'TMS/rTMS';
+    const modality = _modalityForBackend(modalityRaw);
+    const deviceObj = sel.deviceId ? DEVICE_REGISTRY.find(d => d.id === sel.deviceId) : null;
     try {
       const blob = await api.exportHandbookDocx({
-        handbook_kind: kind,
-        condition: condLabel,
-        modality,
-        document: genDoc?.document || genDoc,
+        condition_name: mapped.name,
+        modality_name: modality,
+        device_name: deviceObj ? deviceObj.name : '',
       });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -1145,7 +1207,7 @@ export async function pgHandbooks(setTopbar /*, navigate */) {
       a.download = 'handbook-' + String(entryId).toLowerCase() + '.docx';
       document.body.appendChild(a); a.click(); document.body.removeChild(a);
       setTimeout(() => URL.revokeObjectURL(url), 2000);
-      window._dsToast?.({ title: 'Exported', body: condLabel + ' · handbook.docx', severity: 'info' });
+      window._dsToast?.({ title: 'Exported', body: mapped.name + ' · handbook.docx', severity: 'info' });
     } catch (e) {
       window._dsToast?.({ title: 'Export failed', body: (e?.body?.message || e?.message || 'Backend error'), severity: 'error' });
     }
@@ -1194,10 +1256,21 @@ export async function pgHandbooks(setTopbar /*, navigate */) {
     });
   }
 
+  // Resolve the "effective condition" for the currently-open entry. For a
+  // condition handbook this is the condition itself; for a protocol handbook
+  // we follow the protocol's `condition` field back to the condition registry.
+  const _effectiveCondition = () => {
+    if (!_id) return null;
+    const cond = CONDITION_REGISTRY.find(c => c.id === _id);
+    if (cond) return cond;
+    const prot = PROTOCOL_REGISTRY.find(p => p.id === _id);
+    if (prot) return CONDITION_REGISTRY.find(c => c.id === prot.condition) || null;
+    return null;
+  };
+
   // ── AI Handbook handlers ───────────────────────────────────────────────────
   window._hbAiSet = (field, value) => {
-    if (!_id) return;
-    const cond = CONDITION_REGISTRY.find(c => c.id === _id);
+    const cond = _effectiveCondition();
     if (!cond) return;
     const sel = _aiSelFor(cond);
     sel[field] = value;
@@ -1216,12 +1289,11 @@ export async function pgHandbooks(setTopbar /*, navigate */) {
   };
 
   window._hbAiGenerate = async () => {
-    if (!_id) return;
     if (!_canGenerate()) {
       window._dsToast?.({ title: 'Permission required', body: 'Handbook generation needs clinician or admin role.', severity: 'warn' });
       return;
     }
-    const cond = CONDITION_REGISTRY.find(c => c.id === _id);
+    const cond = _effectiveCondition();
     if (!cond) return;
     const sel = _aiSelFor(cond);
     const cacheKey = `${cond.id}|${sel.modality}|${sel.protoId}|${sel.deviceId}|${sel.kind}`;
