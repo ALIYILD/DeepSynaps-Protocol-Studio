@@ -914,6 +914,31 @@ class DocumentTemplate(Base):
     )
 
 
+class HomeTaskTemplate(Base):
+    """Clinician-authored home task template (mood journal / breathing / etc.).
+
+    Backs the Tasks page (`pgHomePrograms` in `apps/web/src/pages-clinical-tools.js`)
+    Templates tab. Templates carry a free-form JSON payload so the schema can
+    evolve without migrations — current shape mirrors the in-memory template
+    object: `{title, type, frequency, instructions, reason, conditionId?,
+    conditionName?, category?}`. The bundled DEFAULT_TEMPLATES + condition
+    library remain read-only starter content; rows in this table are
+    clinician-customisable and survive device switches.
+    """
+    __tablename__ = "home_task_templates"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    owner_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    payload_json: Mapped[str] = mapped_column(Text(), nullable=False, default="{}")
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=lambda: datetime.now(timezone.utc))
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
+
+
 class FormSubmission(Base):
     """Patient's completed form submission."""
     __tablename__ = "form_submissions"

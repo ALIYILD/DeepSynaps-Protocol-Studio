@@ -352,6 +352,20 @@ export const api = {
   deleteDocumentTemplate: (id) =>
     apiFetch(`/api/v1/documents/templates/${id}`, { method: 'DELETE' }),
 
+  // Custom home task templates (clinician-authored, distinct from the bundled
+  // DEFAULT_TEMPLATES + CONDITION_HOME_TEMPLATES read-only set in
+  // pages-clinical-tools.js / home-program-condition-templates.js).
+  // Backed by /api/v1/home-task-templates* in home_task_templates_router.py.
+  // Source of truth — localStorage('ds_home_task_templates') is now a
+  // write-through cache for offline UX only.
+  listHomeTaskTemplates: () => apiFetchWithRetry('/api/v1/home-task-templates'),
+  createHomeTaskTemplate: (data) =>
+    apiFetch('/api/v1/home-task-templates', { method: 'POST', body: JSON.stringify(data) }),
+  updateHomeTaskTemplate: (id, data) =>
+    apiFetch(`/api/v1/home-task-templates/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  deleteHomeTaskTemplate: (id) =>
+    apiFetch(`/api/v1/home-task-templates/${id}`, { method: 'DELETE' }),
+
   // ── Clinical Knowledge ──────────────────────────────────────────────────
   // Retargeted: the legacy stub endpoints were never implemented. These now
   // point at the real curated sources so callers keep working.

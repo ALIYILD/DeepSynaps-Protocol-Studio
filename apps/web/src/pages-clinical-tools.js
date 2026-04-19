@@ -11758,6 +11758,114 @@ export async function pgHomePrograms(setTopbar, navigate) {
     return merged;
   };
 
+  // ── Template persistence (backend-backed; localStorage = write-through cache) ──
+  // Backend is source of truth via /api/v1/home-task-templates.
+  // Server row → cached template shape: { id (local), serverTemplateId, ...payload }.
+  // The local `id` is preserved across save so default-template overrides keep
+  // their well-known id (e.g. 'tpl-1') and bundled defaults remain replaced.
+  const _serverRowToCacheItem = row => {
+    const payload = (row && typeof row.payload === 'object' && row.payload) || {};
+    const localId = payload.id || row.id;
+    return {
+      ...payload,
+      id: localId,
+      serverTemplateId: row.id,
+      _syncedAt: row.updated_at || new Date().toISOString(),
+    };
+  };
+
+  const _hydrateTemplatesFromServer = async () => {
+    try {
+      const { api: sdk } = await import('./api.js');
+      if (typeof sdk.listHomeTaskTemplates !== 'function') return;
+      const res = await sdk.listHomeTaskTemplates().catch(() => null);
+      const items = res && Array.isArray(res.items) ? res.items : [];
+      // Server wins on conflicts. Local-only rows (no serverTemplateId) are
+      // kept so an offline-saved template is preserved until it can sync.
+      const serverItems = items.map(_serverRowToCacheItem);
+      const serverIds = new Set(serverItems.map(t => t.id));
+      const local = _ls(_tplKey, []);
+      const localOnly = local.filter(t => !t.serverTemplateId && !serverIds.has(t.id));
+      _lsSet(_tplKey, [...serverItems, ...localOnly]);
+    } catch (_) { /* offline or no token — bundled + cached templates still render */ }
+  };
+
+  /**
+   * Save (create or update) a clinician template. Optimistically writes to
+   * localStorage, fires the backend call, and rolls back on failure with a toast.
+   *
+   * `tpl` shape: { id, title, type, frequency, instructions, reason, conditionId?, conditionName?, category? }
+   * If `tpl.serverTemplateId` is set, the server row is PATCHed; otherwise POSTed.
+   */
+  window._hpSaveTemplate = async (tpl) => {
+    if (!tpl || !tpl.id || !tpl.title) return;
+    const before = _ls(_tplKey, []);
+    const optimistic = { ...tpl };
+    const next = before.slice();
+    const idx = next.findIndex(t => t.id === optimistic.id);
+    if (idx >= 0) next[idx] = { ...next[idx], ...optimistic };
+    else next.push(optimistic);
+    _lsSet(_tplKey, next);
+    renderPage();
+
+    try {
+      const { api: sdk } = await import('./api.js');
+      if (typeof sdk.createHomeTaskTemplate !== 'function') return; // no backend wired (legacy bundle)
+      const { id: _localId, serverTemplateId, _syncedAt, ...rest } = optimistic;
+      const payload = { ...rest, id: _localId };
+      let row;
+      if (serverTemplateId && typeof sdk.updateHomeTaskTemplate === 'function') {
+        row = await sdk.updateHomeTaskTemplate(serverTemplateId, { name: optimistic.title, payload });
+      } else {
+        row = await sdk.createHomeTaskTemplate({ name: optimistic.title, payload });
+      }
+      const synced = _serverRowToCacheItem(row);
+      const arr = _ls(_tplKey, []);
+      const j = arr.findIndex(t => t.id === synced.id);
+      if (j >= 0) arr[j] = synced; else arr.push(synced);
+      _lsSet(_tplKey, arr);
+      renderPage();
+    } catch (err) {
+      // Rollback to pre-save snapshot.
+      _lsSet(_tplKey, before);
+      renderPage();
+      window._showNotifToast?.({
+        title: 'Template not saved',
+        body: 'Could not save the template to the server. Please try again.',
+        severity: 'warn',
+      });
+    }
+  };
+
+  /**
+   * Delete a clinician-saved template. Optimistically removes from localStorage,
+   * fires the backend DELETE, restores on failure.
+   */
+  window._hpDeleteTemplate = async (tplId) => {
+    if (!tplId) return;
+    const before = _ls(_tplKey, []);
+    const target = before.find(t => t.id === tplId);
+    if (!target) return;
+    _lsSet(_tplKey, before.filter(t => t.id !== tplId));
+    renderPage();
+
+    try {
+      const { api: sdk } = await import('./api.js');
+      if (typeof sdk.deleteHomeTaskTemplate !== 'function') return;
+      if (target.serverTemplateId) {
+        await sdk.deleteHomeTaskTemplate(target.serverTemplateId);
+      }
+    } catch (err) {
+      _lsSet(_tplKey, before);
+      renderPage();
+      window._showNotifToast?.({
+        title: 'Template not deleted',
+        body: 'Could not delete the template on the server. Please try again.',
+        severity: 'warn',
+      });
+    }
+  };
+
   let _tplFilter = { cond: 'all', q: '' };
   const _filteredTemplates = () => {
     let list = _getTemplates();
@@ -11827,6 +11935,10 @@ export async function pgHomePrograms(setTopbar, navigate) {
       await _retryPendingSyncs();
     }
   } catch (_) { /* offline or no token */ }
+
+  // Hydrate clinician-saved task templates from the backend (server wins on
+  // conflicts; localStorage stays as a write-through cache for offline UX).
+  await _hydrateTemplatesFromServer();
 
   // ── State ────────────────────────────────────────────────────────────────
   let _allTasks = _loadAllTasks();
