@@ -6521,6 +6521,9 @@ export async function pgProtocolMarketplace(setTopbar) {
         <button class="kkk-tab ${_activeTab==='published'?'active':''}" onclick="window._mpTab('published')">My Published</button>
         <button class="kkk-tab ${_activeTab==='publish'?'active':''}" onclick="window._mpTab('publish')">Publish Protocol</button>
       </div>
+      <div style="margin:-4px 0 10px;padding:6px 10px;border-radius:6px;background:rgba(245,158,11,0.10);border:1px solid rgba(245,158,11,0.30);font-size:11px;color:var(--amber,#f59e0b)">
+        Demo marketplace bundle — published-protocol feed is not yet backed by the registry. Applying a protocol attaches it to a patient via /api/v1/protocols/saved when a patient context is set.
+      </div>
       <div class="kkk-results-bar">
         <span>${filtered.length} protocol${filtered.length!==1?'s':''} found</span>
         <select style="background:var(--bg-secondary);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:.78rem;padding:4px 8px" onchange="window._mpSort(this.value)">
@@ -6989,7 +6992,7 @@ export async function pgProtocolMarketplace(setTopbar) {
     document.body.style.overflow = 'hidden';
   };
 
-  window._mpImport = function(id) {
+  window._mpImport = async function(id) {
     const protos = getProtocols();
     const p = protos.find(x => x.id === id);
     if (!p) return;
@@ -7016,7 +7019,38 @@ export async function pgProtocolMarketplace(setTopbar) {
       });
       lsSet('ds_protocols', userProts);
     }
-    showToast(`"${p.name}" imported to your protocols`);
+    // When a patient context is available (set by the Rx hub / studio flow),
+    // also POST to /api/v1/protocols/saved so the import is a real backend
+    // draft attached to the patient — not just a localStorage bundle.
+    const patientId = window._mpPatientId || null;
+    let backendNote = '';
+    if (patientId) {
+      try {
+        const { api } = await import('./api.js');
+        await api.saveProtocol({
+          patient_id: patientId,
+          name: p.name,
+          condition: (p.conditions && p.conditions[0]) || 'unspecified',
+          modality: String(p.modality || 'tms').toLowerCase(),
+          device_slug: null,
+          parameters_json: {
+            source: 'marketplace',
+            marketplaceId: id,
+            params: p.params || {},
+            author: p.author || '',
+            institution: p.institution || '',
+          },
+          evidence_refs: p.refs || [],
+          governance_state: 'draft',
+        });
+        backendNote = ' · attached to patient ' + patientId;
+      } catch (e) {
+        backendNote = ' · backend sync failed (' + (e?.message || 'offline') + ') — saved locally';
+      }
+    } else {
+      backendNote = ' · demo bundle (attach a patient to sync)';
+    }
+    showToast(`"${p.name}" imported${backendNote}`);
     // Refresh card in grid
     const cardEl = document.getElementById('card-' + id);
     if (cardEl) {

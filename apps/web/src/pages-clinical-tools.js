@@ -8136,20 +8136,93 @@ export async function pgBrainMapPlanner(setTopbar) {
   _wireTabs();
   _wireCanvasToolbar();
 
-  // New top-bar button handlers
+  // New top-bar button handlers. When a patient context is present, the
+  // Import button will fall back to loading the most-recent backend planner
+  // draft (round-trip). Without a patient it simply focuses the protocol
+  // picker as before.
   window._bmpImportFromProtocol = function() {
     const sel = document.getElementById('bmp-proto-sel');
     if (sel) {
       try { sel.focus(); sel.scrollIntoView({ behavior:'smooth', block:'center' }); } catch (_) {}
     }
+    const patientId = bmpState.patientId || window._bmpPatientId || null;
+    if (patientId && typeof window._bmpLoadFromBackend === 'function') {
+      window._bmpLoadFromBackend();
+    }
   };
-  window._bmpSaveToProtocol = function() {
-    if (bmpState.protoId) {
-      window._bmpPrescribeProto(bmpState.protoId);
-    } else {
-      window._showNotifToast?.({ title:'Select a protocol first', body:'Pick a protocol from the strip above to save this montage.', severity:'warn' });
-      const sel = document.getElementById('bmp-proto-sel');
-      if (sel) { try { sel.focus(); } catch (_) {} }
+  // Save current planner state to the backend as a draft against the
+  // authenticated clinician. Round-trips through /api/v1/protocols/saved —
+  // the full bmpState blob is stored in parameters_json so the planner can
+  // re-hydrate (see _bmpLoadFromBackend below).
+  window._bmpSaveToProtocol = async function() {
+    const patientId = bmpState.patientId || window._bmpPatientId || null;
+    if (!patientId) {
+      window._showNotifToast?.({
+        title:'Attach a patient',
+        body:'Set a patient label (top-right) before saving the montage to backend. The local plan has been preserved.',
+        severity:'warn',
+      });
+      return;
+    }
+    const conditionId = bmpState.protoId && BMP_PROTO_MAP[bmpState.protoId]
+      ? (BMP_PROTO_LABELS[bmpState.protoId] || bmpState.protoId)
+      : (bmpState.region || 'custom');
+    try {
+      const res = await api.saveProtocol({
+        patient_id: patientId,
+        name: 'Planner · ' + (BMP_PROTO_LABELS[bmpState.protoId] || bmpState.region || bmpState.selectedSite || 'custom montage'),
+        condition: conditionId,
+        modality: (bmpState.modality || 'TMS').toLowerCase().split('/')[0],
+        device_slug: null,
+        parameters_json: {
+          source: 'brain-map-planner',
+          bmpState: { ...bmpState },
+        },
+        clinician_notes: bmpState.notes || null,
+        governance_state: 'draft',
+      });
+      // Cache id so subsequent edits PATCH instead of creating duplicates.
+      if (res?.id) {
+        try { localStorage.setItem('ds_bmp_saved_id', String(res.id)); } catch (_) {}
+      }
+      window._showNotifToast?.({
+        title:'Saved to backend',
+        body:'Planner state round-trip saved for patient ' + patientId + '.',
+        severity:'success',
+      });
+    } catch (e) {
+      window._showNotifToast?.({
+        title:'Save failed',
+        body:(e?.message || 'backend offline') + ' — local plan preserved.',
+        severity:'warn',
+      });
+    }
+  };
+
+  // Load most-recent planner state back from backend drafts (opposite of
+  // _bmpSaveToProtocol). Triggered by the Import from protocol button when
+  // no protocol select is visible.
+  window._bmpLoadFromBackend = async function() {
+    const patientId = bmpState.patientId || window._bmpPatientId || null;
+    if (!patientId) {
+      window._showNotifToast?.({ title:'Attach a patient', body:'Set a patient to load saved planner state.', severity:'warn' });
+      return;
+    }
+    try {
+      const r = await api.listSavedProtocols(patientId);
+      const items = Array.isArray(r?.items) ? r.items : [];
+      const match = items.reverse().find(d => (d.parameters_json || {}).source === 'brain-map-planner');
+      if (!match) {
+        window._showNotifToast?.({ title:'No saved planner', body:'No backend planner drafts for this patient.', severity:'warn' });
+        return;
+      }
+      const prior = (match.parameters_json || {}).bmpState || {};
+      Object.assign(bmpState, prior);
+      _persist();
+      if (typeof _updateMap === 'function') _updateMap();
+      window._showNotifToast?.({ title:'Planner restored', body:'Loaded saved planner state from backend.', severity:'success' });
+    } catch (e) {
+      window._showNotifToast?.({ title:'Load failed', body: e?.message || 'backend offline', severity:'warn' });
     }
   };
   window._bmpToggleCompare = function() {
@@ -11003,7 +11076,45 @@ export async function pgPatientProtocolView(setTopbar) {
   const rxId=localStorage.getItem('ds_ppv_rx_id');
   let rx=null;
   try { const s=JSON.parse(localStorage.getItem('ds_rx_hub_v1')||'{}'); rx=(s.prescriptions||[]).find(r=>r.id===rxId); } catch(e){}
+  // Prefer backend-sourced prescribed protocol when patient context is set.
+  // Falls through to the local demo shape below if the backend is offline or
+  // no rows match. This makes "Push to patient" a real round-trip: the studio
+  // saves to /api/v1/protocols/saved; the patient view reads it back.
+  if (!rx) {
+    try {
+      const patientId = window._ppvPatientId || localStorage.getItem('ds_ppv_patient_id') || '';
+      if (patientId) {
+        const res = await api.listSavedProtocols(patientId);
+        const items = Array.isArray(res?.items) ? res.items : [];
+        const latest = items.slice().reverse().find(d => d.governance_state === 'approved') || items[items.length - 1];
+        if (latest) {
+          const pj = latest.parameters_json || {};
+          rx = {
+            _source: 'backend',
+            patientName: 'Patient ' + (latest.patient_id || ''),
+            conditionName: latest.condition || pj.condition || '',
+            protocol: { name: latest.name || 'Prescribed Protocol', modality: (latest.modality || '').toUpperCase(), indication: latest.condition || '' },
+            device: { name: latest.device_slug || '—', type: (latest.modality || '').toUpperCase() },
+            schedule: {
+              startDate: new Date().toISOString().slice(0, 10),
+              sessionsPerWeek: pj?.parameters?.sessions_per_week || 5,
+              sessionDurationMin: pj?.parameters?.session_duration_min || 30,
+              totalSessions: pj?.parameters?.sessions_total || 20,
+              completedSessions: 0,
+            },
+            assessments: [],
+            homeProgram: null,
+            consentPacks: [],
+            notes: latest.clinician_notes || '',
+            prescribedBy: 'Your clinician',
+            prescribedDate: (latest.created_at || '').slice(0, 10),
+          };
+        }
+      }
+    } catch (_) { /* backend offline — demo fallback below */ }
+  }
   if (!rx) rx={
+    _source: 'demo',
     patientName:'Demo Patient A',conditionName:'Major Depressive Disorder',
     protocol:{name:'Left DLPFC TMS \u2014 Depression (Standard)',modality:'TMS',indication:'MDD'},
     device:{name:'MagVenture MagPro R30',type:'TMS'},
@@ -11082,6 +11193,9 @@ export async function pgPatientProtocolView(setTopbar) {
 
   el.innerHTML=
     '<div class="ppv-wrap">'+
+    (rx._source === 'demo'
+      ? '<div style="margin:-4px 0 10px;padding:6px 10px;border-radius:6px;background:rgba(245,158,11,0.10);border:1px solid rgba(245,158,11,0.30);font-size:11px;color:var(--amber,#f59e0b)">Demo plan — no prescribed protocol found for this patient. Ask your clinician to save one from the Protocol Studio.</div>'
+      : '') +
     '<div class="ppv-hero">'+
       '<div class="ppv-hero-l">'+
         '<div class="ppv-greeting">Your treatment plan</div>'+

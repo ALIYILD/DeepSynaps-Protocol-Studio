@@ -877,12 +877,12 @@ export async function pgProtocolBuilderV2(setTopbar, navigate) {
   window._protBScan = v => { _b.scanGuidedNotes = v; };
   window._protGovToggle = g => _govToggle(g);
 
-  window._protBSave = () => {
-    if (!_b.name || !_b.conditionId) {
-      window._showNotifToast?.({ title:'Required', body:'Protocol name and condition required.', severity:'warn' }); return;
-    }
-    const saved = JSON.parse(localStorage.getItem('ds_custom_protocols') || '[]');
-    const custom = {
+  // Builder drafts persist locally by default. When a patient context has been
+  // stashed by pgPatients / rx flow (window._builderPatientId), the draft is
+  // also POSTed to /api/v1/protocols/saved so it lands in the backend review
+  // queue. Payload matches SavedProtocolCreate in protocols_saved_router.py.
+  function _buildCustomRecord(governanceState) {
+    return {
       id: 'custom-' + Date.now(), conditionId: _b.conditionId, type: _b.type, device: _b.device,
       subtype: _b.subtype, name: _b.name, target: _b.target, parameters: { ..._b.params },
       evidenceGrade: _b.evidenceGrade, governance: [..._b.governance],
@@ -894,25 +894,76 @@ export async function pgProtocolBuilderV2(setTopbar, navigate) {
       aiPersonalization: _b.aiPersonalization ? (() => { try { return JSON.parse(_b.aiPersonalization); } catch { return null; } })() : null,
       scanGuidedNotes: _b.scanGuidedNotes ? (() => { try { return JSON.parse(_b.scanGuidedNotes); } catch { return null; } })() : null,
       savedAt: new Date().toISOString(),
+      governance_state: governanceState,
     };
+  }
+
+  async function _pushCustomToBackend(custom, governanceState) {
+    const patientId = window._builderPatientId || null;
+    if (!patientId) return { pushed: false, reason: 'no-patient-context' };
+    try {
+      await api.saveProtocol({
+        patient_id: patientId,
+        name: custom.name,
+        condition: custom.conditionId,
+        modality: custom.device || 'tms',
+        device_slug: custom.device || null,
+        parameters_json: {
+          subtype: custom.subtype,
+          target: custom.target,
+          evidenceGrade: custom.evidenceGrade,
+          type: custom.type,
+          parameters: custom.parameters,
+          aiPersonalization: custom.aiPersonalization,
+          scanGuidedNotes: custom.scanGuidedNotes,
+          contraindications: custom.contraindications,
+          sideEffects: custom.sideEffects,
+          tags: custom.tags,
+        },
+        evidence_refs: custom.references || [],
+        governance_state: governanceState,
+        clinician_notes: custom.notes || null,
+      });
+      return { pushed: true };
+    } catch (e) {
+      return { pushed: false, reason: e?.message || 'endpoint-error' };
+    }
+  }
+
+  window._protBSave = async () => {
+    if (!_b.name || !_b.conditionId) {
+      window._showNotifToast?.({ title:'Required', body:'Protocol name and condition required.', severity:'warn' }); return;
+    }
+    const custom = _buildCustomRecord('draft');
+    const saved = JSON.parse(localStorage.getItem('ds_custom_protocols') || '[]');
     saved.push(custom);
     localStorage.setItem('ds_custom_protocols', JSON.stringify(saved));
+    const backend = await _pushCustomToBackend(custom, 'draft');
     _b.saved = true;
     renderBuilder();
-    window._showNotifToast?.({ title:'Saved', body:`"${_b.name}" saved to local protocol library.`, severity:'success' });
+    const suffix = backend.pushed ? ' (synced to backend)' : ' (local-only — attach a patient to sync)';
+    window._showNotifToast?.({ title:'Saved', body:`"${_b.name}" saved to protocol library${suffix}.`, severity:'success' });
   };
 
-  window._protBSubmit = () => {
+  window._protBSubmit = async () => {
     if (!_b.name || !_b.conditionId) {
       window._showNotifToast?.({ title:'Required', body:'Complete required fields before submitting.', severity:'warn' }); return;
     }
     const gov = [..._b.governance];
     if (!gov.includes('reviewed')) gov.push('reviewed');
     _b.governance = gov;
+    const custom = _buildCustomRecord('submitted');
+    const saved = JSON.parse(localStorage.getItem('ds_custom_protocols') || '[]');
+    saved.push(custom);
+    localStorage.setItem('ds_custom_protocols', JSON.stringify(saved));
+    const backend = await _pushCustomToBackend(custom, 'submitted');
     _b.submitted = true;
     _b.saved = false;
-    window._protBSave();
-    window._showNotifToast?.({ title:'Submitted for Review', body:`"${_b.name}" queued for clinical governance review.`, severity:'success' });
+    renderBuilder();
+    const body = backend.pushed
+      ? `"${_b.name}" submitted to backend review queue.`
+      : `"${_b.name}" saved locally. Attach a patient and resubmit to route to review.`;
+    window._showNotifToast?.({ title:'Submitted for Review', body, severity:'success' });
   };
 
   renderBuilder();
