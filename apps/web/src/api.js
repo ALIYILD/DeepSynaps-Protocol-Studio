@@ -398,6 +398,18 @@ export const api = {
   deleteHomeTaskTemplate: (id) =>
     apiFetch(`/api/v1/home-task-templates/${id}`, { method: 'DELETE' }),
 
+  // AI Practice Agent skills (admin-configurable, replaces the hard-coded
+  // CLINICIAN_SKILLS constant in pages-agents.js). The bundled constant is
+  // kept as a fallback for offline / API-down rendering.
+  // Backed by /api/v1/agent-skills* in agent_skills_router.py.
+  listAgentSkills: () => apiFetchWithRetry('/api/v1/agent-skills'),
+  createAgentSkill: (data) =>
+    apiFetch('/api/v1/agent-skills', { method: 'POST', body: JSON.stringify(data) }),
+  updateAgentSkill: (id, data) =>
+    apiFetch(`/api/v1/agent-skills/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  deleteAgentSkill: (id) =>
+    apiFetch(`/api/v1/agent-skills/${id}`, { method: 'DELETE' }),
+
   // ── Clinical Knowledge ──────────────────────────────────────────────────
   // Retargeted: the legacy stub endpoints were never implemented. These now
   // point at the real curated sources so callers keep working.
