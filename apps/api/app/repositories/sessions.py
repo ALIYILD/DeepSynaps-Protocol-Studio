@@ -25,6 +25,7 @@ def create_session(
     appointment_type: str = "session",
     room_id: Optional[str] = None,
     device_id: Optional[str] = None,
+    recurrence_group: Optional[str] = None,
 ) -> ClinicalSession:
     record = ClinicalSession(
         patient_id=patient_id,
@@ -40,6 +41,7 @@ def create_session(
         appointment_type=appointment_type,
         room_id=room_id,
         device_id=device_id,
+        recurrence_group=recurrence_group,
     )
     session.add(record)
     session.commit()

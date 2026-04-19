@@ -156,6 +156,43 @@ class TestPortalSessions:
         resp = client.get("/api/v1/patient-portal/sessions", headers=auth_headers["clinician"])
         assert resp.status_code == 403
 
+    def test_returns_upcoming_booking_with_scheduled_at(
+        self, client: TestClient, patient_headers: dict, auth_headers: dict
+    ) -> None:
+        """Patient sees their upcoming clinical-session bookings with scheduled_at —
+        the field the Patient Dashboard relies on for "next session" + countdown.
+        Pre-fix this endpoint returned only delivered telemetry (no scheduled_at)
+        so the patient saw "No upcoming sessions" forever."""
+        # Resolve patient id
+        patients = client.get("/api/v1/patients", headers=auth_headers["clinician"])
+        pid = next(p["id"] for p in patients.json()["items"] if p["email"] == PATIENT_EMAIL)
+
+        # Book a future session via the clinician /api/v1/sessions endpoint
+        future_iso = "2099-04-30T10:00:00Z"
+        booking = client.post(
+            "/api/v1/sessions",
+            json={
+                "patient_id": pid,
+                "scheduled_at": future_iso,
+                "duration_minutes": 45,
+                "modality": "tms",
+                "session_number": 4,
+                "total_sessions": 20,
+            },
+            headers=auth_headers["clinician"],
+        )
+        assert booking.status_code == 201, booking.json()
+
+        resp = client.get("/api/v1/patient-portal/sessions", headers=patient_headers)
+        assert resp.status_code == 200
+        rows = resp.json()
+        upcoming = [r for r in rows if r.get("scheduled_at") and r.get("status") == "scheduled"]
+        assert len(upcoming) == 1
+        assert upcoming[0]["scheduled_at"] == future_iso
+        assert upcoming[0]["session_number"] == 4
+        assert upcoming[0]["total_sessions"] == 20
+        assert upcoming[0]["modality"] == "tms"
+
 
 # ── /assessments ───────────────────────────────────────────────────────────────
 
