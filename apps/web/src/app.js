@@ -156,6 +156,10 @@ async function loadHandbooks()  { return (_modHandbooks  ??= await import('./pag
 async function loadProtocols()   { return (_modProtocols   ??= await import('./pages-protocols.js')); }
 async function loadVirtualCare()  { return (_modVirtualCare  ??= await import('./pages-virtualcare.js')); }
 async function loadConditions()   { return (_modConditions   ??= await import('./pages-conditions.js')); }
+let _modResearch = null;
+async function loadResearch()     { return (_modResearch ??= await import('./pages-research.js')); }
+let _modBrainMap = null;
+async function loadBrainMap()     { return (_modBrainMap ??= await import('./pages-brainmap.js')); }
 
 // ── Helpers that delegate to the clinical module once loaded ──────────────────
 // Called synchronously in navigate() before renderPage(); safe to no-op until
@@ -430,44 +434,36 @@ const ROLE_NAV_HIDE = {
   clinician:  ['population-analytics'],
 };
 
-// ── Nav definition — organised around neuromodulation clinic workflow ─────────
+// ── Nav definition — design-v2 grouping (CLINICAL / PROTOCOL / SESSIONS / ADMIN)
+// design-v2 nav IDs — new routes alongside legacy; per-phase migration reparents bodies.
 const NAV = [
-  // ── PATIENT CARE — Primary clinical workflows ────────────────────────────────
-  { section: 'Patient Care', sectionId: 'patient-care', collapsed: false },
-  { id: 'home',               label: 'Dashboard',          icon: '🏠' },
-  { id: 'patients-hub',       label: 'Patients',           icon: '👥' },
-  { id: 'assessments',        label: 'Assessments',        icon: '◉' },
-  { id: 'library-hub',        label: 'Protocols',          icon: '🧠' },
-  { id: 'scheduling-hub',     label: 'Schedule',           icon: '🗓️' },
-  { id: 'monitor-hub',        label: 'Monitoring',         icon: '📊' },
+  // ── CLINICAL ─────────────────────────────────────────────────────────────────
+  { section: 'Clinical', sectionId: 'clinical', collapsed: false },
+  { id: 'home',               label: 'Dashboard',         icon: '🏠' },
+  { id: 'schedule-v2',        label: 'Schedule',          icon: '🗓️' },
+  { id: 'assessments-v2',     label: 'Assessments',       icon: '◉' },
+  { id: 'patients-v2',        label: 'Patients',          icon: '👥' },
 
-  // ── CLINICAL TOOLS — Assessment & decision support ──────────────────────────
-  { section: 'Clinical Tools', sectionId: 'clinical-tools', collapsed: false },
-  { id: 'protocol-hub',       label: 'Protocol Library',   icon: '🧠', ai: true },
-  { id: 'home-task-manager',  label: 'Home Tasks',         icon: '🏠' },
-  { id: 'documents-hub',      label: 'Documents',          icon: '📄' },
-  { id: 'virtual-care-hub',   label: 'Virtual Care',       icon: '📹', ai: true },
-  { id: 'ai-agents',          label: 'AI Agents',          icon: '🤖', ai: true },
+  // ── PROTOCOL ─────────────────────────────────────────────────────────────────
+  { section: 'Protocol', sectionId: 'protocol', collapsed: false },
+  { id: 'protocol-studio',    label: 'Studio',            icon: '🧪', ai: true },
+  { id: 'brainmap-v2',        label: 'Brain Map Planner', icon: '🧠' },
+  { id: 'handbooks-v2',       label: 'Handbooks',         icon: '📚' },
+  { id: 'library-v2',         label: 'Library',           icon: '📖' },
 
-  // ── OPERATIONS & REPORTING — Clinic administration ──────────────────────────
-  { section: 'Operations', sectionId: 'operations', collapsed: false },
-  { id: 'reports-hub',        label: 'Reports',            icon: '📈' },
-  { id: 'finance-hub',        label: 'Finance',            icon: '💰' },
-  { id: 'insurance',          label: 'Insurance',          icon: '🛡️' },
-  { id: 'referrals',          label: 'Referrals',          icon: '🔗' },
-  { id: 'staff-scheduling',   label: 'Staff Scheduling',   icon: '👤' },
-  { id: 'population-analytics', label: 'Population Analytics', icon: '📊' },
-  { id: 'quality-assurance',  label: 'Quality Assurance',  icon: '✅' },
-  { id: 'longitudinal-report',label: 'Longitudinal Report',icon: '📉' },
+  // ── SESSIONS ─────────────────────────────────────────────────────────────────
+  { section: 'Sessions', sectionId: 'sessions', collapsed: false },
+  { id: 'live-session',       label: 'Live Session',      icon: '📹', ai: true },
+  { id: 'home-tasks-v2',      label: 'Home Task Manager', icon: '🏠' },
 
-  // ── RESEARCH — Data export & IRB ─────────────────────────────────────────────
-  { section: 'Research', sectionId: 'research', collapsed: true },
-  { id: 'data-export',        label: 'Data Export',        icon: '📦' },
-  { id: 'irb-manager',        label: 'IRB Manager',        icon: '🔬' },
-
-  // ── ADMIN — System settings ───────────────────────────────────────────────────
-  { section: 'Admin', sectionId: 'admin', collapsed: true },
-  { id: 'settings',           label: 'Settings',           icon: '⚙️' },
+  // ── ADMIN ────────────────────────────────────────────────────────────────────
+  { section: 'Admin', sectionId: 'admin', collapsed: false },
+  { id: 'documents-v2',       label: 'Documents',         icon: '📄' },
+  { id: 'reports-v2',         label: 'Reports',           icon: '📈' },
+  { id: 'finance-v2',         label: 'Finance',           icon: '💰' },
+  { id: 'ai-agent-v2',        label: 'AI Practice Agent', icon: '🤖', ai: true },
+  { id: 'research-v2',        label: 'Research',          icon: '🔬' },
+  { id: 'governance-v2',      label: 'Governance',        icon: '🛡️' },
 ];
 
 // ── Lucide-style SVG icons for nav items ──────────────────────────────────────
@@ -513,14 +509,34 @@ const NAV_ICONS = {
   'settings':          `<svg viewBox="0 0 24 24"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>`,
   'patient-view':      `<svg viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>`,
 };
+// design-v2 nav IDs reuse legacy icon SVGs (same look during transition)
+NAV_ICONS['schedule-v2']     = NAV_ICONS['scheduling-hub'];
+NAV_ICONS['assessments-v2']  = NAV_ICONS['assessments-hub'];
+NAV_ICONS['patients-v2']     = NAV_ICONS['patients-hub'];
+NAV_ICONS['protocol-studio'] = NAV_ICONS['protocol-builder'];
+NAV_ICONS['brainmap-v2']     = NAV_ICONS['brain-map-planner'];
+NAV_ICONS['handbooks-v2']    = NAV_ICONS['handbooks'];
+NAV_ICONS['library-v2']      = NAV_ICONS['library-hub'];
+NAV_ICONS['live-session']    = NAV_ICONS['virtual-care-hub'];
+NAV_ICONS['home-tasks-v2']   = NAV_ICONS['home-task-manager'];
+NAV_ICONS['documents-v2']    = NAV_ICONS['documents-hub'];
+NAV_ICONS['reports-v2']      = NAV_ICONS['reports-hub'];
+NAV_ICONS['finance-v2']      = NAV_ICONS['finance-hub'];
+NAV_ICONS['ai-agent-v2']     = NAV_ICONS['protocol-hub'];
+NAV_ICONS['research-v2']     = NAV_ICONS['protocol-wizard'];
+NAV_ICONS['governance-v2']   = NAV_ICONS['adverse-events'];
 
 // ── Section labels ────────────────────────────────────────────────────────────
 const SECTION_LABELS = {
+  clinical:        'Clinical',
+  protocol:        'Protocol',
+  sessions:        'Sessions',
+  admin:           'Admin',
+  // Legacy section ids retained so any other consumer that looks them up still works.
   'patient-care':  'Patient Care',
   'clinical-tools':'Clinical Tools',
   operations:      'Operations',
   research:        'Research',
-  admin:           'Admin',
 };
 
 // ── Nav collapse state ────────────────────────────────────────────────────────
@@ -706,7 +722,7 @@ function renderNav() {
         : `<span class="nav-icon" aria-hidden="true">${n.icon}</span>`;
       itemsHtml.push(`<div class="nav-item ${currentPage === n.id ? 'active' : ''}" onclick="window._nav('${n.id}')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();window._nav('${n.id}')}" role="menuitem" tabindex="0" aria-current="${currentPage === n.id ? 'page' : 'false'}">
         ${iconHtml}
-        <span class="nav-label">${(()=>{ const _k='nav.'+n.id,_v=t(_k); return (_v&&_v!==_k)?_v:n.label; })()}</span>${badge}
+        <span class="nav-label">${n.label}</span>${badge}
       </div>`);
     });
 
@@ -1342,6 +1358,22 @@ async function renderPage() {
     case 'reg-targets':        { window._libraryHubTab = 'targets'; window._nav('library-hub'); break; }
     case 'reg-handbooks-full':{ const m = await loadRegistries(); await m.pgHandbookRegistry(setTopbar);       break; }
     case 'reg-virtual-care':   { window._nav('virtual-care-hub'); break; }
+    // ── design-v2 routes — alias new IDs onto existing page renderers ────
+    case 'schedule-v2':        { const m = await loadClinicalHubs(); await m.pgSchedulingHub(setTopbar, navigate); break; }
+    case 'assessments-v2':     { const m = await loadClinicalHubs(); await m.pgAssessmentsHub(setTopbar, navigate); break; }
+    case 'patients-v2':        { const m = await loadClinicalHubs(); await m.pgPatientHub(setTopbar, navigate); break; }
+    case 'protocol-studio':    { const m = await loadClinicalHubs(); await m.pgProtocolHub(setTopbar, navigate); break; }
+    case 'brainmap-v2':        { const m = await loadBrainMap(); await m.pgBrainMapPlanner(setTopbar, navigate); break; }
+    case 'handbooks-v2':       { const m = await loadHandbooks(); await m.pgHandbooks(setTopbar); break; }
+    case 'library-v2':         { const m = await loadClinicalHubs(); await m.pgLibraryHub(setTopbar, navigate); break; }
+    case 'live-session':       { const m = await loadClinicalHubs(); await m.pgVirtualCareHub(setTopbar, navigate); break; }
+    case 'home-tasks-v2':      { const m = await loadClinicalTools(); await m.pgHomePrograms(setTopbar, navigate); break; }
+    case 'documents-v2':       { const m = await loadClinicalHubs(); await m.pgDocumentsHubNew(setTopbar, navigate); break; }
+    case 'reports-v2':         { const m = await loadClinicalHubs(); await m.pgReportsHubNew(setTopbar, navigate); break; }
+    case 'finance-v2':         { const m = await loadClinicalHubs(); await m.pgFinanceHub(setTopbar, navigate); break; }
+    case 'ai-agent-v2':        { const m = await loadAgents(); await m.pgAgentChat(setTopbar); break; }
+    case 'research-v2':        { const m = await loadResearch(); await m.pgResearch(setTopbar, navigate); break; }
+    case 'governance-v2':      { const m = await loadPractice(); await m.pgGovernance(setTopbar, navigate); break; }
     default:
       el.innerHTML = `<div style="text-align:center;padding:48px;color:var(--text-tertiary)">Page not found.</div>`;
   }

@@ -175,9 +175,36 @@ let _vc = {
 };
 
 // =============================================================================
-// pgVirtualCare
+// pgVirtualCare — legacy entry. Delegates to pgLiveSession for the live-session
+// route; renders a redirect card for the old virtual-care-hub / messaging routes.
 // =============================================================================
 export async function pgVirtualCare(setTopbar, navigate) {
+  let currentRoute = '';
+  try { currentRoute = new URLSearchParams(location.search).get('page') || ''; } catch {}
+
+  if (currentRoute === 'live-session') {
+    return pgLiveSession(setTopbar, navigate);
+  }
+
+  const stubEl = document.getElementById('main-content') || document.getElementById('content');
+  if (stubEl) {
+    try { setTopbar({ title: 'Virtual Care', subtitle: 'Moved to Live Session' }); } catch { try { setTopbar('Virtual Care', ''); } catch {} }
+    stubEl.innerHTML = `
+      <div class="dv2-card" style="padding:24px;text-align:center;max-width:520px;margin:48px auto">
+        <div style="font-family:var(--dv2-font-display,var(--font-display));font-size:18px;font-weight:600">Virtual Care moved</div>
+        <div style="color:var(--dv2-text-secondary,var(--text-secondary));margin:8px 0 16px">This is now part of Live Session.</div>
+        <button class="btn btn-primary" onclick="window._nav('live-session')">Open Live Session \u2192</button>
+      </div>`;
+    return;
+  }
+  return;
+}
+
+// =============================================================================
+// pgVirtualCareLegacyFull — Original VC inbox retained internally (unreachable
+// from nav after the merge, but kept to preserve working implementation).
+// =============================================================================
+async function pgVirtualCareLegacyFull(setTopbar, navigate) {
   setTopbar({ title: 'Virtual Care', subtitle: 'Inbox · video visits · voice calls · shared media · AI notes' });
 
   const el = document.getElementById('main-content') || document.getElementById('content');
@@ -1081,4 +1108,660 @@ export async function pgVirtualCare(setTopbar, navigate) {
   };
 
   renderPage();
+}
+
+// =============================================================================
+// pgLiveSession — Screen 10 · Unified Live Session
+// Merges: session runtime + Virtual Care (telehealth) + Monitor Hub telemetry.
+// =============================================================================
+let _lsState = null;
+
+export async function pgLiveSession(setTopbar, navigate) {
+  const mount = document.getElementById('main-content') || document.getElementById('content');
+  if (!mount) return;
+
+  _lsTeardown();
+
+  let session = null;
+  let patient = null;
+  let events = [];
+  try { session = await (api.getCurrentSession?.() ?? Promise.resolve(null)); } catch {}
+  if (!session) {
+    session = {
+      id: 'sess-' + Date.now(),
+      patient_id: 'p001',
+      patient_name: 'Samantha Li',
+      modality: 'tDCS',
+      montage: 'F3 \u2192 Fp2',
+      target_region: 'DLPFC-L',
+      intensity_mA: 2.0,
+      duration_min: 20,
+      session_no: 12,
+      session_total: 20,
+      session_type: 'in-person',
+      phase: 'stimulation',
+      impedance_kohm: 4.8,
+      started_at: new Date(Date.now() - 6 * 60 * 1000).toISOString(),
+    };
+  }
+  try { if (session.patient_id && api.getPatient) patient = await api.getPatient(session.patient_id); } catch {}
+  if (!patient) {
+    patient = { id: session.patient_id, display_name: session.patient_name || 'Patient', initials: _lsInitials(session.patient_name || 'P'), condition: 'MDD', age: 34, sex: 'F' };
+  }
+  try { const r = await (api.listSessionEvents?.(session.id) ?? Promise.resolve(null)); events = r?.items || (Array.isArray(r) ? r : []); } catch {}
+  if (!events.length) {
+    events = _lsSeedEvents();
+  }
+
+  const durationSec = (session.duration_min || 20) * 60;
+  const elapsedSec = Math.min(durationSec, Math.max(0, Math.floor((Date.now() - new Date(session.started_at).getTime()) / 1000)) || 378);
+  const isTelehealth = (session.session_type || session.type || '').toLowerCase() === 'telehealth';
+
+  _lsState = {
+    mount,
+    session,
+    patient,
+    events,
+    durationSec,
+    elapsedSec,
+    paused: false,
+    isTelehealth,
+    videoActive: false,
+    currentMA: session.intensity_mA || 2.0,
+    impedanceKohm: session.impedance_kohm || 4.8,
+    trace: _lsInitTrace(session.intensity_mA || 2.0),
+    phase: session.phase || 'stimulation',
+    checklist: _lsInitChecklist(),
+    sideEffects: { tingling: 2, itching: 1, headache: 0, discomfort: 0, mood: 4 },
+    timerInt: null,
+    traceInt: null,
+    keyHandler: null,
+    navHandler: null,
+    unloadHandler: null,
+  };
+
+  try {
+    setTopbar({
+      title: 'Live Session',
+      subtitle: `${_e(patient.display_name || session.patient_name || '')} \u00B7 ${_e(session.modality || '')} ${session.intensity_mA || ''} mA ${_e(session.montage || '')} \u00B7 Session ${session.session_no || 1}/${session.session_total || 20}`,
+      right: `<button class="btn btn-ghost btn-sm" onclick="window._lsPauseResume()" id="ls-pause-btn">${_lsState.paused ? 'Resume' : 'Pause'}</button><button class="btn btn-sm" style="color:#ff6b6b;border:1px solid rgba(255,107,107,0.3);background:transparent;margin-left:6px" onclick="window._lsEndSession()">End Session</button>`,
+    });
+  } catch {
+    try { setTopbar('Live Session', `<button class="btn btn-sm" onclick="window._lsPauseResume()" id="ls-pause-btn">Pause</button> <button class="btn btn-sm" style="color:#ff6b6b" onclick="window._lsEndSession()">End Session</button>`); } catch {}
+  }
+
+  _lsRender();
+  _lsStartTimers();
+  _lsBindKeys();
+  _lsBindNavCleanup();
+
+  window._lsCheckToggle = _lsCheckToggle;
+  window._lsReportAE = _lsReportAE;
+  window._lsPauseResume = _lsPauseResume;
+  window._lsEndSession = _lsEndSession;
+  window._lsPhase = _lsPhase;
+  window._lsStartVideo = _lsStartVideo;
+  window._lsEndVideo = _lsEndVideo;
+  window._lsSnapMonitor = _lsSnapMonitor;
+  window._lsSetImpedance = _lsSetImpedance;
+}
+
+function _lsInitials(name) {
+  return String(name || '').split(/\s+/).map(s => s[0] || '').join('').slice(0,2).toUpperCase() || 'P';
+}
+
+function _lsInitTrace(target) {
+  const arr = [];
+  for (let i = 0; i < 60; i++) arr.push(target + (Math.random() - 0.5) * 0.06);
+  return arr;
+}
+
+function _lsInitChecklist() {
+  return [
+    { id:'consent',  label:'Consent verified', done:true },
+    { id:'skin',     label:'Skin inspection clear', done:true },
+    { id:'electrodes', label:'Electrode saturation \u00B7 saline', done:true },
+    { id:'placement', label:'F3 / Fp2 placement verified', done:true },
+    { id:'impedance', label:'Impedance < 10 k\u03A9', done:true },
+    { id:'previtals', label:'Pre-stim vitals logged', done:true },
+    { id:'ramp',      label:'Ramp up \u00B7 no discomfort', done:true },
+    { id:'check5',    label:'Side-effect check \u00B7 5 min', done:true },
+    { id:'check10',   label:'Mid-session check \u00B7 10 min', done:false },
+    { id:'postvitals',label:'Post-stim vitals + debrief', done:false },
+  ];
+}
+
+function _lsSeedEvents() {
+  const now = Date.now();
+  const mk = (ago, type, msg) => ({ ts: new Date(now - ago * 1000).toISOString(), type, note: msg });
+  return [
+    mk(10,  'STIM',  'Current stable at 2.00 mA'),
+    mk(120, 'CHECK', '5-min side-effect check \u00B7 tingling 2, itch 1, headache 0'),
+    mk(228, 'STIM',  'Ramp complete \u00B7 stimulation phase started'),
+    mk(258, 'RAMP',  'Ramp up 0 \u2192 2.00 mA over 30s \u00B7 no discomfort'),
+    mk(273, 'OPER',  'Operator started stimulation'),
+    mk(306, 'CHECK', 'Impedance 4.8 k\u03A9 \u00B7 within limit'),
+    mk(348, 'OPER',  'Electrodes mounted F3/Fp2'),
+    mk(588, 'CLEAR', 'Consent reviewed \u00B7 no new contraindications'),
+  ];
+}
+
+function _lsFmtClock(sec) {
+  sec = Math.max(0, Math.floor(sec));
+  const m = Math.floor(sec / 60), s = sec % 60;
+  return String(m).padStart(2,'0') + ':' + String(s).padStart(2,'0');
+}
+
+function _lsFmtTs(iso) {
+  try { const d = new Date(iso); return d.toLocaleTimeString('en-GB', { hour:'2-digit', minute:'2-digit', second:'2-digit' }); } catch { return ''; }
+}
+
+function _lsRender() {
+  const s = _lsState; if (!s) return;
+  const { mount, session, patient, events, durationSec, elapsedSec, paused, isTelehealth, impedanceKohm, currentMA, phase, checklist, sideEffects } = s;
+  if (!mount) return;
+  const remaining = Math.max(0, durationSec - elapsedSec);
+  const frac = durationSec > 0 ? Math.min(1, elapsedSec / durationSec) : 0;
+  const circ = 2 * Math.PI * 92;
+  const dashOffset = circ * (1 - frac);
+  const impedancePct = Math.min(100, Math.max(0, (impedanceKohm / 20) * 100));
+  const impColor = impedanceKohm < 10 ? 'var(--green,#4ade80)' : impedanceKohm < 15 ? 'var(--amber,#f59e0b)' : '#ff6b6b';
+  const anode = (session.montage || '').split(/\s*[\u2192\->]+\s*/)[0]?.trim() || 'F3';
+  const cathode = (session.montage || '').split(/\s*[\u2192\->]+\s*/)[1]?.trim() || 'Fp2';
+
+  let brainMapSvg = '';
+  try {
+    const mod = window.__brainMap || null;
+    if (mod && typeof mod.renderBrainMap10_20 === 'function') {
+      brainMapSvg = mod.renderBrainMap10_20({ anode, cathode, targetRegion: session.target_region || null, size: 320 });
+    }
+  } catch {}
+  if (!brainMapSvg) {
+    brainMapSvg = _lsBrainMapFallback(anode, cathode);
+  }
+
+  const phaseDef = [
+    { id:'setup',  label:'Setup',        target:120 },
+    { id:'ramp_up',label:'Ramp \u2191',  target:30 },
+    { id:'stim',   label:'Stimulation',  target:durationSec },
+    { id:'ramp_dn',label:'Ramp \u2193',  target:30 },
+  ];
+  const phaseHtml = phaseDef.map(p => {
+    const st = p.id === phase ? 'active' : (_lsPhaseDoneBefore(phase, p.id) ? 'done' : '');
+    const mins = Math.floor(p.target / 60), secs = p.target % 60;
+    return `<div class="ls-phase-cell ${st}" onclick="window._lsPhase?.('${p.id}')"><span>${p.label}</span><em>${mins}:${String(secs).padStart(2,'0')}</em></div>`;
+  }).join('');
+
+  const checklistHtml = checklist.map(c => `
+    <label class="ls-check${c.done ? ' done' : ''}" for="ls-ck-${c.id}">
+      <input type="checkbox" id="ls-ck-${c.id}" ${c.done ? 'checked' : ''} onchange="window._lsCheckToggle('${c.id}')">
+      <span class="ls-check-box"></span>
+      <span class="ls-check-lbl">${_e(c.label)}</span>
+    </label>`).join('');
+
+  const eventsHtml = events.map(ev => {
+    const type = (ev.type || 'INFO').toUpperCase();
+    const col = type === 'STIM' ? 'var(--teal,#00d4bc)' : type === 'CHECK' ? 'var(--blue,#4a9eff)' : type === 'RAMP' ? 'var(--amber,#f59e0b)' : type === 'OPER' ? 'var(--violet,#a78bfa)' : type === 'CLEAR' ? 'var(--green,#4ade80)' : type === 'AE' ? '#ff6b6b' : 'var(--text-secondary)';
+    return `<div class="ls-log-row"><span class="ls-log-ts">${_lsFmtTs(ev.ts)}</span><span class="ls-log-type" style="color:${col}">${_e(type)}</span><span class="ls-log-msg">${_e(ev.note || ev.message || '')}</span></div>`;
+  }).join('');
+
+  const tracePathD = _lsTraceD(s.trace, 500, 160, 2.0);
+
+  const videoPanel = isTelehealth ? `
+    <div class="dv2-card" style="padding:14px;margin-bottom:12px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+        <div>
+          <div style="font-family:var(--dv2-font-display,var(--font-display));font-size:14px;font-weight:600">Video consult</div>
+          <div style="font-size:11px;color:var(--text-tertiary)">Telehealth session \u00B7 patient connected remotely</div>
+        </div>
+        <span class="chip ${s.videoActive ? 'teal' : ''}" style="${s.videoActive ? '' : 'color:var(--text-tertiary)'}">${s.videoActive ? '\u25CF Live' : 'Idle'}</span>
+      </div>
+      <div style="aspect-ratio:16/9;border-radius:8px;overflow:hidden;background:rgba(0,0,0,0.35);border:1px solid var(--border);display:flex;align-items:center;justify-content:center">
+        ${s.videoActive
+          ? `<iframe id="ls-video-iframe" src="https://meet.jit.si/ds-live-${_e(session.id)}" allow="camera;microphone;autoplay" style="width:100%;height:100%;border:none"></iframe>`
+          : `<div style="text-align:center;color:var(--text-tertiary);font-size:12px"><div style="font-size:28px;margin-bottom:6px">\uD83D\uDCF9</div>Video not started</div>`}
+      </div>
+      <div style="display:flex;gap:6px;margin-top:10px">
+        ${s.videoActive
+          ? `<button class="btn btn-sm" onclick="window._lsEndVideo()" style="flex:1">End call</button>`
+          : `<button class="btn btn-primary btn-sm" onclick="window._lsStartVideo()" style="flex:1">Start video</button>`}
+      </div>
+    </div>` : '';
+
+  const monitorWidget = `
+    <div class="dv2-card" style="padding:14px;margin-top:12px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+        <div>
+          <div style="font-family:var(--dv2-font-display,var(--font-display));font-size:13px;font-weight:600">Remote telemetry</div>
+          <div style="font-size:11px;color:var(--text-tertiary)">HRV \u00B7 impedance \u00B7 adherence beacons</div>
+        </div>
+        <button class="btn btn-sm" onclick="window._lsSnapMonitor()">Snapshot</button>
+      </div>
+      <div id="ls-monitor-grid" style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;font-size:11px">
+        <div><div style="color:var(--text-tertiary);font-size:10px;letter-spacing:0.8px;text-transform:uppercase">HRV</div><div style="font-family:var(--dv2-font-mono,var(--font-mono));font-size:16px;font-weight:600">58<span style="font-size:10px;color:var(--text-tertiary);margin-left:3px">ms</span></div></div>
+        <div><div style="color:var(--text-tertiary);font-size:10px;letter-spacing:0.8px;text-transform:uppercase">Impedance</div><div style="font-family:var(--dv2-font-mono,var(--font-mono));font-size:16px;font-weight:600">${impedanceKohm.toFixed(1)}<span style="font-size:10px;color:var(--text-tertiary);margin-left:3px">k\u03A9</span></div></div>
+        <div><div style="color:var(--text-tertiary);font-size:10px;letter-spacing:0.8px;text-transform:uppercase">Adherence</div><div style="font-family:var(--dv2-font-mono,var(--font-mono));font-size:16px;font-weight:600;color:var(--green,#4ade80)">OK</div></div>
+      </div>
+    </div>`;
+
+  mount.innerHTML = `
+    <style>
+      .ls-root { display:grid; grid-template-columns:minmax(0,1.4fr) minmax(0,1fr); gap:16px; padding:16px; max-width:1600px; margin:0 auto; }
+      .ls-col-right { display:grid; grid-template-rows:auto auto; gap:16px; }
+      @media (max-width:1080px){ .ls-root { grid-template-columns:1fr; } }
+      .ls-timer-card { padding:22px;background:linear-gradient(135deg, rgba(0,212,188,0.08), rgba(74,158,255,0.04)), var(--bg-card, rgba(15,23,32,0.6));border:1px solid rgba(0,212,188,0.18);border-radius:12px;position:relative;overflow:hidden;margin-bottom:12px }
+      .ls-ring-wrap { position:relative;width:210px;height:210px;flex-shrink:0 }
+      .ls-ring-center { position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center }
+      .ls-ring-time { font-family:var(--dv2-font-mono,var(--font-mono));font-size:48px;font-weight:600;letter-spacing:-1px;line-height:1;color:var(--text-primary) }
+      .ls-phase-cell { display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;padding:8px 6px;border-radius:6px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.05);font-size:10.5px;color:var(--text-tertiary);cursor:pointer;transition:all .15s }
+      .ls-phase-cell em { font-style:normal;font-family:var(--dv2-font-mono,var(--font-mono));font-size:10px;color:var(--text-tertiary) }
+      .ls-phase-cell.done { background:rgba(74,222,128,0.08);border-color:rgba(74,222,128,0.25);color:var(--green,#4ade80) }
+      .ls-phase-cell.done em { color:var(--green,#4ade80) }
+      .ls-phase-cell.active { background:rgba(0,212,188,0.1);border-color:rgba(0,212,188,0.35);color:var(--teal,#00d4bc) }
+      .ls-phase-cell.active em { color:var(--teal,#00d4bc) }
+      .ls-check { display:flex;align-items:center;gap:10px;padding:7px 2px;cursor:pointer;font-size:12px;color:var(--text-secondary) }
+      .ls-check input { position:absolute;opacity:0;pointer-events:none }
+      .ls-check-box { width:14px;height:14px;border-radius:3px;border:1.5px solid var(--border);flex-shrink:0;display:inline-flex;align-items:center;justify-content:center;background:rgba(255,255,255,0.02) }
+      .ls-check.done .ls-check-box { background:var(--teal,#00d4bc);border-color:var(--teal,#00d4bc);color:#04121c }
+      .ls-check.done .ls-check-box::after { content:'\u2713';font-size:10px;font-weight:700;color:#04121c }
+      .ls-check.done .ls-check-lbl { color:var(--text-tertiary);text-decoration:line-through }
+      .ls-log-row { display:grid;grid-template-columns:80px 64px 1fr;gap:10px;padding:4px 0;font-family:var(--dv2-font-mono,var(--font-mono));font-size:11px;line-height:1.7;animation:lsFadeIn .25s ease-out }
+      .ls-log-ts { color:var(--text-tertiary) }
+      .ls-log-type { font-weight:700 }
+      .ls-log-msg { color:var(--text-secondary);word-break:break-word }
+      .ls-ae-btn { padding:8px 12px;border-radius:6px;background:rgba(255,181,71,0.08);border:1px solid rgba(255,181,71,0.25);color:var(--amber,#f59e0b);font-size:12px;cursor:pointer;transition:all .15s }
+      .ls-ae-btn:hover { background:rgba(255,181,71,0.14) }
+      @keyframes lsFadeIn { from { opacity:0;transform:translateY(-2px) } to { opacity:1;transform:none } }
+    </style>
+
+    <div class="ls-root">
+      <div class="ls-col-left">
+        <div class="ls-timer-card">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px">
+            <div>
+              <div style="font-family:var(--dv2-font-mono,var(--font-mono));font-size:10px;color:var(--teal,#00d4bc);letter-spacing:1.4px;text-transform:uppercase;margin-bottom:4px">${paused ? 'Paused' : 'Session timer'}</div>
+              <div style="font-size:12px;color:var(--text-secondary)">${_e((phase || 'stimulation').replace(/_/g,' '))} phase</div>
+            </div>
+            <div style="display:flex;align-items:center;gap:6px;padding:3px 9px;border-radius:999px;background:${paused?'rgba(255,181,71,0.12)':'rgba(74,222,128,0.12)'};border:1px solid ${paused?'rgba(255,181,71,0.3)':'rgba(74,222,128,0.3)'};font-size:11px;color:${paused?'var(--amber,#f59e0b)':'var(--green,#4ade80)'};font-weight:600"><span style="width:6px;height:6px;border-radius:50%;background:currentColor"></span>${paused ? 'Paused' : 'Device nominal'}</div>
+          </div>
+
+          <div style="display:flex;align-items:center;gap:28px;flex-wrap:wrap">
+            <div class="ls-ring-wrap">
+              <svg width="210" height="210" style="transform:rotate(-90deg)">
+                <circle cx="105" cy="105" r="92" fill="none" stroke="rgba(255,255,255,0.06)" stroke-width="10"/>
+                <circle id="ls-ring-prog" cx="105" cy="105" r="92" fill="none" stroke="url(#ls-ring-grad)" stroke-width="10" stroke-linecap="round" stroke-dasharray="${circ.toFixed(2)}" stroke-dashoffset="${dashOffset.toFixed(2)}"/>
+                <defs><linearGradient id="ls-ring-grad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#00d4bc"/><stop offset="100%" stop-color="#4a9eff"/></linearGradient></defs>
+              </svg>
+              <div class="ls-ring-center">
+                <div class="ls-ring-time" id="ls-ring-time">${_lsFmtClock(remaining)}</div>
+                <div style="font-size:10px;letter-spacing:1.4px;text-transform:uppercase;color:var(--text-tertiary);margin-top:4px">Remaining of ${_lsFmtClock(durationSec)}</div>
+              </div>
+            </div>
+
+            <div style="flex:1;min-width:220px;display:flex;flex-direction:column;gap:14px">
+              <div>
+                <div style="font-size:10px;letter-spacing:1.2px;text-transform:uppercase;color:var(--text-tertiary);font-weight:600;margin-bottom:4px">Current output</div>
+                <div id="ls-ma-readout" style="font-family:var(--dv2-font-display,var(--font-display));font-size:42px;font-weight:600;letter-spacing:-1.2px;line-height:1;color:var(--teal,#00d4bc)">${currentMA.toFixed(2)}<span style="font-size:18px;color:var(--text-tertiary);font-weight:500;margin-left:6px">mA</span></div>
+                <div id="ls-ma-meta" style="font-size:11px;color:var(--text-tertiary);margin-top:4px;font-family:var(--dv2-font-mono,var(--font-mono))">target ${(session.intensity_mA || 2).toFixed(2)} \u00B7 \u0394 \u00B10.02</div>
+              </div>
+              <div>
+                <div style="font-size:10px;letter-spacing:1.2px;text-transform:uppercase;color:var(--text-tertiary);font-weight:600;margin-bottom:4px">Impedance</div>
+                <div style="font-family:var(--dv2-font-display,var(--font-display));font-size:26px;font-weight:600;letter-spacing:-0.6px;line-height:1" id="ls-imp-readout">${impedanceKohm.toFixed(1)}<span style="font-size:14px;color:var(--text-tertiary);font-weight:500;margin-left:3px">k\u03A9</span></div>
+                <div style="height:6px;border-radius:3px;background:rgba(255,255,255,0.05);overflow:hidden;margin-top:6px;width:200px"><div id="ls-imp-bar" style="height:100%;width:${impedancePct.toFixed(0)}%;background:${impColor};border-radius:3px;transition:width .3s"></div></div>
+                <div style="font-size:10px;color:var(--text-tertiary);margin-top:4px">${impedanceKohm < 10 ? 'good' : impedanceKohm < 15 ? 'elevated' : 'high'} \u00B7 limit 20 k\u03A9</div>
+              </div>
+            </div>
+          </div>
+
+          <div style="margin-top:18px;display:grid;grid-template-columns:repeat(4,1fr);gap:4px">${phaseHtml}</div>
+        </div>
+
+        <div class="dv2-card" style="padding:16px;margin-bottom:12px">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">
+            <div>
+              <div style="font-family:var(--dv2-font-display,var(--font-display));font-size:14px;font-weight:600">Current trace \u00B7 last 60s</div>
+              <div style="font-size:11px;color:var(--text-tertiary);margin-top:2px">Target ${(session.intensity_mA || 2).toFixed(1)} mA \u00B7 drift-corrected</div>
+            </div>
+            <span class="chip teal">${paused ? 'Paused' : 'Live'}</span>
+          </div>
+          <svg id="ls-trace-svg" viewBox="0 0 500 160" style="width:100%;height:170px" aria-hidden="true">
+            <defs><linearGradient id="ls-wf-g" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#00d4bc" stop-opacity="0.35"/><stop offset="100%" stop-color="#00d4bc" stop-opacity="0"/></linearGradient></defs>
+            <g stroke="rgba(255,255,255,0.05)"><line x1="0" y1="40" x2="500" y2="40"/><line x1="0" y1="80" x2="500" y2="80"/><line x1="0" y1="120" x2="500" y2="120"/></g>
+            <line x1="0" y1="80" x2="500" y2="80" stroke="rgba(0,212,188,0.35)" stroke-width="1" stroke-dasharray="3,3"/>
+            <text x="8" y="36" font-size="9" fill="#7c8699" font-family="var(--dv2-font-mono,monospace)">${((session.intensity_mA||2)+0.2).toFixed(1)} mA</text>
+            <text x="8" y="84" font-size="9" fill="#00d4bc" font-family="var(--dv2-font-mono,monospace)">${(session.intensity_mA||2).toFixed(1)} mA</text>
+            <text x="8" y="124" font-size="9" fill="#7c8699" font-family="var(--dv2-font-mono,monospace)">${((session.intensity_mA||2)-0.2).toFixed(1)} mA</text>
+            <path id="ls-trace-fill" d="${tracePathD.fill}" fill="url(#ls-wf-g)"/>
+            <path id="ls-trace-line" d="${tracePathD.line}" stroke="#00d4bc" stroke-width="1.8" fill="none"/>
+            <circle id="ls-trace-dot" cx="500" cy="${tracePathD.lastY.toFixed(1)}" r="4" fill="#00d4bc"/>
+          </svg>
+          <div style="display:flex;justify-content:space-between;font-family:var(--dv2-font-mono,var(--font-mono));font-size:10px;color:var(--text-tertiary);margin-top:2px"><span>\u221260s</span><span>\u221230s</span><span>now</span></div>
+        </div>
+
+        ${monitorWidget}
+
+        <div class="dv2-card" style="padding:16px;margin-top:12px">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px">
+            <div>
+              <div style="font-family:var(--dv2-font-display,var(--font-display));font-size:14px;font-weight:600">Operator checklist</div>
+              <div style="font-size:11px;color:var(--text-tertiary);margin-top:2px">Click to mark done \u00B7 logged to event record</div>
+            </div>
+            <span class="chip teal" id="ls-check-count">${checklist.filter(c=>c.done).length}/${checklist.length}</span>
+          </div>
+          <div>${checklistHtml}</div>
+        </div>
+      </div>
+
+      <div class="ls-col-right">
+        <div>
+          ${videoPanel}
+
+          <div class="dv2-card" style="padding:16px;margin-bottom:12px">
+            <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px">
+              <div>
+                <div style="font-family:var(--dv2-font-display,var(--font-display));font-size:14px;font-weight:600">Patient \u00B7 side-effect report</div>
+                <div style="font-size:11px;color:var(--text-tertiary);margin-top:2px">Self-report or operator-entered</div>
+              </div>
+              <span class="chip green">OK</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;padding-bottom:10px;border-bottom:1px solid var(--border)">
+              <div style="width:40px;height:40px;border-radius:50%;background:linear-gradient(135deg,#00d4bc,#4a9eff);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;color:#04121c">${_e(patient.initials || _lsInitials(patient.display_name))}</div>
+              <div>
+                <div style="font-size:14px;font-weight:600;font-family:var(--dv2-font-display,var(--font-display))">${_e(patient.display_name || '')}</div>
+                <div style="font-size:11px;color:var(--text-tertiary)">${patient.age ? patient.age : ''}${patient.sex ? patient.sex : ''} \u00B7 ${_e(patient.condition || '')} \u00B7 session ${session.session_no || 1}/${session.session_total || 20}</div>
+              </div>
+            </div>
+            <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:6px">
+              ${['tingling','itching','headache','discomfort','other'].map(ae => `
+                <button class="ls-ae-btn" onclick="window._lsReportAE('${ae}')">Report ${ae}</button>
+              `).join('')}
+            </div>
+            <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:12px">
+              ${['tingling','itching','headache','discomfort'].map(k => `
+                <div><div style="font-size:9px;color:var(--text-tertiary);letter-spacing:0.8px;text-transform:uppercase;font-weight:600;margin-bottom:3px">${k}</div><div id="ls-ae-${k}" style="font-family:var(--dv2-font-display,var(--font-display));font-size:18px;font-weight:600">${sideEffects[k]}<span style="font-size:10px;color:var(--text-tertiary);margin-left:3px">/10</span></div></div>
+              `).join('')}
+            </div>
+          </div>
+
+          <div class="dv2-card" style="padding:16px">
+            <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px">
+              <div>
+                <div style="font-family:var(--dv2-font-display,var(--font-display));font-size:14px;font-weight:600">Montage</div>
+                <div style="font-size:11px;color:var(--text-tertiary);margin-top:2px">${_e(session.modality || 'tDCS')} \u00B7 ${_e(anode)} \u2192 ${_e(cathode)}</div>
+              </div>
+              <span class="chip teal">${_e(anode)} / ${_e(cathode)}</span>
+            </div>
+            <div style="aspect-ratio:1/1;display:flex;align-items:center;justify-content:center" id="ls-brain-mount">${brainMapSvg}</div>
+          </div>
+        </div>
+
+        <div class="dv2-card" style="padding:16px;display:flex;flex-direction:column;min-height:280px">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px">
+            <div>
+              <div style="font-family:var(--dv2-font-display,var(--font-display));font-size:14px;font-weight:600">Event log</div>
+              <div style="font-size:11px;color:var(--text-tertiary);margin-top:2px">Append-only \u00B7 newest first \u00B7 session ${_e(session.id)}</div>
+            </div>
+            <span class="chip" id="ls-log-count">${events.length} entries</span>
+          </div>
+          <div id="ls-log-body" style="max-height:380px;overflow-y:auto;padding-right:4px">${eventsHtml}</div>
+        </div>
+      </div>
+    </div>
+  `;
+
+  _lsLoadBrainMapLazy();
+}
+
+function _lsBrainMapFallback(anode, cathode) {
+  const sites = { 'Fp1':[160,60],'Fp2':[240,60],'F3':[150,140],'F4':[250,140],'Fz':[200,135],'C3':[130,200],'Cz':[200,200],'C4':[270,200],'P3':[150,260],'Pz':[200,265],'P4':[250,260],'O1':[170,330],'O2':[230,330] };
+  const dots = Object.entries(sites).map(([k,[x,y]]) => {
+    const isA = k === anode, isC = k === cathode;
+    if (isA) return `<circle cx="${x}" cy="${y}" r="12" fill="rgba(255,107,107,0.2)" stroke="#ff6b6b" stroke-width="2"/><circle cx="${x}" cy="${y}" r="4" fill="#ff6b6b"/><text x="${x}" y="${y-18}" text-anchor="middle" font-size="10" fill="#ff6b6b" font-weight="700">${k} (+)</text>`;
+    if (isC) return `<circle cx="${x}" cy="${y}" r="12" fill="rgba(0,212,188,0.2)" stroke="#00d4bc" stroke-width="2"/><circle cx="${x}" cy="${y}" r="4" fill="#00d4bc"/><text x="${x}" y="${y-18}" text-anchor="middle" font-size="10" fill="#00d4bc" font-weight="700">${k} (-)</text>`;
+    return `<circle cx="${x}" cy="${y}" r="4" fill="rgba(255,255,255,0.15)" stroke="rgba(255,255,255,0.25)" stroke-width="1"/><text x="${x}" y="${y-8}" text-anchor="middle" font-size="8" fill="rgba(255,255,255,0.35)">${k}</text>`;
+  }).join('');
+  const a = sites[anode], c = sites[cathode];
+  const line = a && c ? `<line x1="${a[0]}" y1="${a[1]}" x2="${c[0]}" y2="${c[1]}" stroke="url(#ls-bm-grad)" stroke-width="2" stroke-dasharray="4,3"/>` : '';
+  return `<svg viewBox="0 0 400 400" style="width:100%;height:100%;max-width:320px">
+    <defs><linearGradient id="ls-bm-grad" x1="0%" x2="100%"><stop offset="0%" stop-color="#ff6b6b"/><stop offset="100%" stop-color="#00d4bc"/></linearGradient></defs>
+    <ellipse cx="200" cy="200" rx="165" ry="180" fill="rgba(14,22,40,0.45)" stroke="rgba(255,255,255,0.15)" stroke-width="2"/>
+    <polygon points="200,20 188,40 212,40" fill="rgba(255,255,255,0.08)"/>
+    ${line}${dots}
+  </svg>`;
+}
+
+async function _lsLoadBrainMapLazy() {
+  if (window.__brainMap) return;
+  try {
+    const mod = await import('./brain-map-svg.js');
+    window.__brainMap = mod;
+    const s = _lsState; if (!s || !s.session) return;
+    const mount = document.getElementById('ls-brain-mount');
+    if (!mount) return;
+    const anode = (s.session.montage || '').split(/\s*[\u2192\->]+\s*/)[0]?.trim() || 'F3';
+    const cathode = (s.session.montage || '').split(/\s*[\u2192\->]+\s*/)[1]?.trim() || 'Fp2';
+    mount.innerHTML = mod.renderBrainMap10_20({ anode, cathode, targetRegion: s.session.target_region || null, size: 320 });
+  } catch {}
+}
+
+function _lsPhaseDoneBefore(current, candidate) {
+  const order = ['setup','ramp_up','stim','ramp_dn','done'];
+  return order.indexOf(candidate) < order.indexOf(current);
+}
+
+function _lsTraceD(arr, w, h, target) {
+  const N = arr.length;
+  const xs = i => (i / (N - 1)) * w;
+  const ys = v => {
+    const ymid = h / 2;
+    const px = (v - target) / 0.4;
+    return Math.max(6, Math.min(h - 6, ymid - px * (h / 2 - 12)));
+  };
+  let line = '', fill = '';
+  arr.forEach((v, i) => { const x = xs(i).toFixed(1), y = ys(v).toFixed(1); line += (i === 0 ? 'M' : 'L') + x + ' ' + y + ' '; });
+  fill = 'M0 ' + h + ' L' + line.slice(1) + 'L' + w + ' ' + h + ' Z';
+  const lastY = ys(arr[N - 1]);
+  return { line: line.trim(), fill, lastY };
+}
+
+function _lsStartTimers() {
+  const s = _lsState; if (!s) return;
+  if (s.timerInt) clearInterval(s.timerInt);
+  if (s.traceInt) clearInterval(s.traceInt);
+
+  s.timerInt = setInterval(() => {
+    if (!_lsState || _lsState.paused) return;
+    _lsState.elapsedSec = Math.min(_lsState.durationSec, _lsState.elapsedSec + 1);
+    const remaining = Math.max(0, _lsState.durationSec - _lsState.elapsedSec);
+    const frac = _lsState.durationSec > 0 ? Math.min(1, _lsState.elapsedSec / _lsState.durationSec) : 0;
+    const circ = 2 * Math.PI * 92;
+    const dashOffset = circ * (1 - frac);
+    const ringEl = document.getElementById('ls-ring-prog');
+    const timeEl = document.getElementById('ls-ring-time');
+    if (ringEl) ringEl.setAttribute('stroke-dashoffset', dashOffset.toFixed(2));
+    if (timeEl) timeEl.textContent = _lsFmtClock(remaining);
+    if (remaining === 0 && _lsState.phase !== 'done') {
+      _lsState.phase = 'done';
+      _lsLogEvent('STIM', 'Session complete \u00B7 auto-transition to post-stim');
+    }
+  }, 1000);
+
+  s.traceInt = setInterval(() => {
+    if (!_lsState) return;
+    if (_lsState.paused) return;
+    const target = _lsState.session.intensity_mA || 2.0;
+    const drift = (Math.random() - 0.5) * 0.05;
+    const next = target + drift;
+    _lsState.currentMA = next;
+    _lsState.trace.push(next);
+    if (_lsState.trace.length > 60) _lsState.trace.shift();
+    const { line, fill, lastY } = _lsTraceD(_lsState.trace, 500, 160, target);
+    const l = document.getElementById('ls-trace-line'); if (l) l.setAttribute('d', line);
+    const f = document.getElementById('ls-trace-fill'); if (f) f.setAttribute('d', fill);
+    const d = document.getElementById('ls-trace-dot'); if (d) d.setAttribute('cy', lastY.toFixed(1));
+    const r = document.getElementById('ls-ma-readout');
+    if (r) r.innerHTML = `${next.toFixed(2)}<span style="font-size:18px;color:var(--text-tertiary);font-weight:500;margin-left:6px">mA</span>`;
+  }, 1000);
+}
+
+function _lsBindKeys() {
+  const s = _lsState; if (!s) return;
+  const handler = ev => {
+    const t = ev.target;
+    const inField = t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable);
+    if (inField) return;
+    if (ev.code === 'Space' || ev.key === ' ') {
+      ev.preventDefault();
+      _lsPauseResume();
+    } else if (ev.key === 'Escape') {
+      _lsEndSession();
+    }
+  };
+  document.addEventListener('keydown', handler);
+  s.keyHandler = handler;
+}
+
+function _lsBindNavCleanup() {
+  const s = _lsState; if (!s) return;
+  const orig = window._nav;
+  if (typeof orig === 'function' && !window._nav.__lsPatched) {
+    window._nav = async function(id, params) {
+      if (id !== 'live-session') _lsTeardown();
+      return orig(id, params);
+    };
+    window._nav.__lsPatched = true;
+    s.navHandler = { orig };
+  }
+  const ul = () => _lsTeardown();
+  window.addEventListener('beforeunload', ul);
+  s.unloadHandler = ul;
+}
+
+function _lsTeardown() {
+  const s = _lsState;
+  if (!s) return;
+  try { if (s.timerInt) clearInterval(s.timerInt); } catch {}
+  try { if (s.traceInt) clearInterval(s.traceInt); } catch {}
+  try { if (s.keyHandler) document.removeEventListener('keydown', s.keyHandler); } catch {}
+  try { if (s.unloadHandler) window.removeEventListener('beforeunload', s.unloadHandler); } catch {}
+  s.timerInt = null;
+  s.traceInt = null;
+  s.keyHandler = null;
+  s.unloadHandler = null;
+  _lsState = null;
+}
+
+function _lsLogEvent(type, note) {
+  const s = _lsState; if (!s) return;
+  const ev = { ts: new Date().toISOString(), type, note };
+  s.events.unshift(ev);
+  const body = document.getElementById('ls-log-body');
+  if (body) {
+    const col = type === 'STIM' ? 'var(--teal,#00d4bc)' : type === 'CHECK' ? 'var(--blue,#4a9eff)' : type === 'RAMP' ? 'var(--amber,#f59e0b)' : type === 'OPER' ? 'var(--violet,#a78bfa)' : type === 'AE' ? '#ff6b6b' : type === 'CLEAR' ? 'var(--green,#4ade80)' : 'var(--text-secondary)';
+    const row = document.createElement('div');
+    row.className = 'ls-log-row';
+    row.innerHTML = `<span class="ls-log-ts">${_lsFmtTs(ev.ts)}</span><span class="ls-log-type" style="color:${col}">${_e(type)}</span><span class="ls-log-msg">${_e(note)}</span>`;
+    body.insertBefore(row, body.firstChild);
+    body.scrollTop = 0;
+  }
+  const cnt = document.getElementById('ls-log-count');
+  if (cnt) cnt.textContent = `${s.events.length} entries`;
+  try { api.logSessionEvent?.(s.session.id, { type, note }); } catch {}
+}
+
+function _lsCheckToggle(id) {
+  const s = _lsState; if (!s) return;
+  const c = s.checklist.find(x => x.id === id); if (!c) return;
+  c.done = !c.done;
+  const doneCount = s.checklist.filter(x => x.done).length;
+  const row = document.querySelector(`#ls-ck-${id}`)?.closest('.ls-check');
+  if (row) row.classList.toggle('done', c.done);
+  const cnt = document.getElementById('ls-check-count');
+  if (cnt) cnt.textContent = `${doneCount}/${s.checklist.length}`;
+  _lsLogEvent('OPER', `${c.done ? 'Completed' : 'Reopened'}: ${c.label}`);
+}
+
+function _lsReportAE(kind) {
+  const s = _lsState; if (!s) return;
+  if (kind === 'other') {
+    const v = window.prompt('Describe adverse event or observation:');
+    if (!v) return;
+    _lsLogEvent('AE', 'Other: ' + v);
+    return;
+  }
+  const cur = s.sideEffects[kind] || 0;
+  s.sideEffects[kind] = Math.min(10, cur + 1);
+  const el = document.getElementById('ls-ae-' + kind);
+  if (el) el.innerHTML = `${s.sideEffects[kind]}<span style="font-size:10px;color:var(--text-tertiary);margin-left:3px">/10</span>`;
+  _lsLogEvent('AE', `${kind} reported \u00B7 level ${s.sideEffects[kind]}/10`);
+  try { api.logSessionEvent?.(s.session.id, { type: 'AE', note: `${kind} ${s.sideEffects[kind]}/10` }); } catch {}
+}
+
+function _lsPauseResume() {
+  const s = _lsState; if (!s) return;
+  s.paused = !s.paused;
+  const btn = document.getElementById('ls-pause-btn');
+  if (btn) btn.textContent = s.paused ? 'Resume' : 'Pause';
+  _lsLogEvent('OPER', s.paused ? 'Session paused by operator' : 'Session resumed');
+}
+
+function _lsEndSession() {
+  const s = _lsState; if (!s) return;
+  if (!window.confirm('End this session? This will stop stimulation and finalise the record.')) return;
+  _lsLogEvent('OPER', 'Session ended by operator');
+  try { api.sessionPhaseTransition?.(s.session.id, 'ended'); } catch {}
+  _lsTeardown();
+  try { window._nav?.('courses') || window._nav?.('dashboard'); } catch {}
+}
+
+function _lsPhase(id) {
+  const s = _lsState; if (!s) return;
+  s.phase = id;
+  _lsLogEvent('STIM', `Phase transition \u2192 ${id}`);
+  try { api.sessionPhaseTransition?.(s.session.id, id); } catch {}
+  _lsRender();
+  _lsStartTimers();
+}
+
+async function _lsStartVideo() {
+  const s = _lsState; if (!s) return;
+  s.videoActive = true;
+  try { await (api.startVideoConsult?.(s.session.id)); } catch {}
+  _lsLogEvent('OPER', 'Video consult started');
+  _lsRender();
+  _lsStartTimers();
+}
+
+async function _lsEndVideo() {
+  const s = _lsState; if (!s) return;
+  s.videoActive = false;
+  try { await (api.endVideoConsult?.(s.session.id)); } catch {}
+  _lsLogEvent('OPER', 'Video consult ended');
+  _lsRender();
+  _lsStartTimers();
+}
+
+async function _lsSnapMonitor() {
+  const s = _lsState; if (!s) return;
+  let snap = null;
+  try { snap = await (api.remoteMonitorSnapshot?.(s.session.patient_id || s.session.id)); } catch {}
+  if (!snap) snap = { hrv: Math.round(50 + Math.random() * 20), impedance: s.impedanceKohm, adherence: 'OK' };
+  const grid = document.getElementById('ls-monitor-grid');
+  if (grid) {
+    grid.innerHTML = `
+      <div><div style="color:var(--text-tertiary);font-size:10px;letter-spacing:0.8px;text-transform:uppercase">HRV</div><div style="font-family:var(--dv2-font-mono,var(--font-mono));font-size:16px;font-weight:600">${snap.hrv}<span style="font-size:10px;color:var(--text-tertiary);margin-left:3px">ms</span></div></div>
+      <div><div style="color:var(--text-tertiary);font-size:10px;letter-spacing:0.8px;text-transform:uppercase">Impedance</div><div style="font-family:var(--dv2-font-mono,var(--font-mono));font-size:16px;font-weight:600">${Number(snap.impedance || 0).toFixed(1)}<span style="font-size:10px;color:var(--text-tertiary);margin-left:3px">k\u03A9</span></div></div>
+      <div><div style="color:var(--text-tertiary);font-size:10px;letter-spacing:0.8px;text-transform:uppercase">Adherence</div><div style="font-family:var(--dv2-font-mono,var(--font-mono));font-size:16px;font-weight:600;color:var(--green,#4ade80)">${_e(snap.adherence || 'OK')}</div></div>`;
+  }
+  _lsLogEvent('CHECK', `Telemetry snapshot \u00B7 HRV ${snap.hrv}ms`);
+}
+
+function _lsSetImpedance(kohm) {
+  const s = _lsState; if (!s) return;
+  s.impedanceKohm = kohm;
+  try { api.setSessionImpedance?.(s.session.id, kohm); } catch {}
+  const r = document.getElementById('ls-imp-readout');
+  if (r) r.innerHTML = `${kohm.toFixed(1)}<span style="font-size:14px;color:var(--text-tertiary);font-weight:500;margin-left:3px">k\u03A9</span>`;
+  const b = document.getElementById('ls-imp-bar');
+  if (b) b.style.width = Math.min(100, (kohm / 20) * 100).toFixed(0) + '%';
 }

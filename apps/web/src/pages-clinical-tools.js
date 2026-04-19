@@ -10885,7 +10885,7 @@ export async function pgHomePrograms(setTopbar, navigate) {
 
     const summaryStrip = `
       <div class="hp-summary-strip">
-        <div class="hp-chip"><span class="hp-chip-val">${s.active}</span><span class="hp-chip-lbl">Active Programs</span></div>
+        <div class="hp-chip dv2-kpi-card"><span class="hp-chip-val dv2-kpi-val">${s.active}</span><span class="hp-chip-lbl dv2-kpi-label">Active Programs</span></div>
         <div class="hp-chip hp-chip-amber"><span class="hp-chip-val">${s.dueToday}</span><span class="hp-chip-lbl">Due Today</span></div>
         <div class="hp-chip hp-chip-red"><span class="hp-chip-val">${s.overdue}</span><span class="hp-chip-lbl">Overdue</span></div>
         <div class="hp-chip hp-chip-green"><span class="hp-chip-val">${s.rate}%</span><span class="hp-chip-lbl">Completion Rate</span></div>
@@ -11039,11 +11039,13 @@ export async function pgHomePrograms(setTopbar, navigate) {
     }
 
     el.innerHTML = `
+      <div class="dv2-hub-shell" style="padding:20px;display:flex;flex-direction:column;gap:16px">
       <div class="hp-page">
         ${summaryStrip}
         ${topActions}
         ${mainContent}
         ${_showModal ? _modalHtml(_editingTask, '') : ''}
+      </div>
       </div>`;
     if (_showModal) queueMicrotask(() => window._hpSyncSuggestPanel?.());
   };

@@ -1,6 +1,7 @@
 import { api } from './api.js';
 import { setCurrentUser, showApp, showPatient, updateUserBar, updatePatientBar } from './auth.js';
 import { t, getLocale, setLocale, LOCALES } from './i18n.js';
+import { renderBrainMap10_20 } from './brain-map-svg.js';
 
 // ── Shared: public topbar ─────────────────────────────────────────────────────
 function _pubLangMenu() {
@@ -348,175 +349,425 @@ export function pgHome() {
   }
 
   el.innerHTML = `
+    <div class="public-bg"></div>
+    <div class="public-grid"></div>
     ${pubTopbar()}
 
-    <!-- ─── COMMERCIAL HERO ───────────────────────────────────────────────── -->
-    <section class="phome-hero">
-      <div class="phome-hero-overline">${t('pub.hero.overline')}</div>
-      <h1 class="phome-hero-headline">${t('pub.hero.headline')}</h1>
-      <p class="phome-hero-sub">${t('pub.hero.sub')}</p>
-      <div class="phome-hero-ctas">
-        <button class="phome-cta-primary" onclick="window._startDemoTour()">${t('pub.hero.cta.tour')}</button>
-        <button class="phome-cta-secondary" onclick="window._nav('pricing')">${t('pub.hero.cta.pricing')}</button>
-      </div>
-      <div class="phome-trust-strip">
-        <span class="phome-trust-badge"><span class="phome-trust-badge-icon">🔒</span>HIPAA-Aligned</span>
-        <span class="phome-trust-badge"><span class="phome-trust-badge-icon">🇪🇺</span>GDPR-Conscious</span>
-        <span class="phome-trust-badge"><span class="phome-trust-badge-icon">🔐</span>TLS&nbsp;1.3 Encrypted</span>
-        <span class="phome-trust-badge"><span class="phome-trust-badge-icon">★</span>Evidence-Graded Protocols</span>
-      </div>
-    </section>
+    <div class="public-inner dv2-public" style="position:relative;z-index:1">
 
-    <!-- ─── Stats strip ────────────────────────────────────────────────────── -->
-    <div class="phome-stats-strip">
-      <div class="phome-stat-item">
-        <span class="phome-stat-num" id="strip-stat-papers">8,699</span>
-        <span class="phome-stat-label">Peer-Reviewed Papers</span>
-      </div>
-      <div class="phome-stat-sep"></div>
-      <div class="phome-stat-item">
-        <span class="phome-stat-num" id="strip-stat-trials">1,922</span>
-        <span class="phome-stat-label">Clinical Trials Indexed</span>
-      </div>
-      <div class="phome-stat-sep"></div>
-      <div class="phome-stat-item">
-        <span class="phome-stat-num">1,324</span>
-        <span class="phome-stat-label">FDA Device Records</span>
-      </div>
-      <div class="phome-stat-sep"></div>
-      <div class="phome-stat-item">
-        <span class="phome-stat-num">18</span>
-        <span class="phome-stat-label">Neuromodulation Modalities</span>
-      </div>
-    </div>
-
-    <!-- ─── 3 FEATURE CARDS ───────────────────────────────────────────────── -->
-    <section class="phome-features-section">
-      <div class="phome-features-eyebrow">Why clinics choose DeepSynaps</div>
-      <div class="phome-features-grid">
-
-        <div class="phome-feature-card">
-          <div class="phome-feature-icon">&#9335;</div>
-          <div class="phome-feature-title">Today&rsquo;s Queue</div>
-          <div class="phome-feature-desc">See every patient, session status, overdue assessment, and missed homework in one screen. Start sessions in one click.</div>
-          <ul class="phome-feature-bullets">
-            <li>Waiting &middot; In Session &middot; Done status at a glance</li>
-            <li>Protocol adherence alerts surfaced automatically</li>
-            <li>Walk-in patients added in seconds</li>
-          </ul>
-          <button class="phome-feature-link" onclick="window._nav('patient-queue')">Open Queue &rarr;</button>
-          <div class="phome-feature-mockup queue-mock">
-            <div class="mock-bar">
-              <span class="mock-dot green"></span><span class="mock-label">3 Waiting</span>
-              <span class="mock-dot amber" style="margin-left:auto"></span><span class="mock-label">1 Overdue</span>
-            </div>
-            <div class="mock-row"><span class="mock-avatar">JD</span><span class="mock-name">J. Doe</span><span class="mock-tag tms">TMS</span><span class="mock-status waiting">Waiting</span></div>
-            <div class="mock-row"><span class="mock-avatar">SM</span><span class="mock-name">S. Miller</span><span class="mock-tag nf">NF</span><span class="mock-status session">In Session</span></div>
-            <div class="mock-row"><span class="mock-avatar">AK</span><span class="mock-name">A. Khan</span><span class="mock-tag tdcs">tDCS</span><span class="mock-status done">Done</span></div>
+    <!-- ─── HERO (design-v2) ─────────────────────────────────────────────── -->
+    <section class="pub-hero dv2-hero">
+      <div class="pub-hero-inner">
+        <div>
+          <div class="pub-hero-overline">${t('pub.hero.overline')}</div>
+          <h1>Run your TMS &amp; neurofeedback clinic — <em>from first session to proven outcome.</em></h1>
+          <p class="pub-hero-sub">${t('pub.hero.sub')}</p>
+          <div class="pub-hero-ctas">
+            <button class="btn btn-primary btn-lg" onclick="window._startDemoTour()">${t('pub.hero.cta.tour')}</button>
+            <button class="btn btn-ghost btn-lg" onclick="window._nav('pricing')">${t('pub.hero.cta.pricing')}</button>
+          </div>
+          <div class="dv2-trust-chips">
+            <span class="dv2-chip"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>HIPAA-Aligned</span>
+            <span class="dv2-chip"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15 15 0 010 20M12 2a15 15 0 000 20"/></svg>GDPR-Conscious</span>
+            <span class="dv2-chip"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>TLS 1.3</span>
+            <span class="dv2-chip"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l3 7h7l-5.5 4.5L18 21l-6-4-6 4 1.5-7.5L2 9h7z"/></svg>Evidence-Graded</span>
           </div>
         </div>
 
-        <div class="phome-feature-card">
-          <div class="phome-feature-icon">&#9649;</div>
-          <div class="phome-feature-title">Outcome Proof. In 30 Seconds.</div>
-          <div class="phome-feature-desc">Record PHQ-9, GAD-7, MADRS, and 6 other validated scales during or after sessions. Auto-generate a printable treatment summary with trend charts, responder status, and SOAP notes.</div>
-          <ul class="phome-feature-bullets">
-            <li>9 validated outcome measures built in</li>
-            <li>Responder / Partial Responder / Non-Responder classification</li>
-            <li>Export PDF for insurance and EMR documentation</li>
-          </ul>
-          <button class="phome-feature-link" onclick="window._nav('outcomes')">View Outcome Reports &rarr;</button>
-          <div class="phome-feature-mockup outcome-mock">
-            <div class="mock-bar"><span class="mock-label" style="font-weight:600;color:var(--teal)">PHQ-9 Trend</span><span class="mock-label" style="margin-left:auto;color:#22c55e;font-weight:700">Responder ✓</span></div>
-            <div class="mock-trend-line">
-              <svg viewBox="0 0 160 48" fill="none" style="width:100%;height:48px">
-                <polyline points="8,40 28,36 48,30 68,22 88,18 108,12 128,8 148,6" stroke="var(--teal)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                <polyline points="8,40 28,36 48,30 68,22 88,18 108,12 128,8 148,6" stroke="rgba(0,212,188,0.15)" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
-              </svg>
-            </div>
-            <div class="mock-bar" style="margin-top:4px"><span class="mock-label" style="color:var(--text-tertiary)">Baseline: 18</span><span class="mock-label" style="margin-left:auto;color:var(--text-tertiary)">Session 20: 6</span></div>
+        <div class="pub-hero-visual">
+          <div class="chrome">
+            <div><span class="chrome-dot"></span>brainmap.live / session_218</div>
+            <div>10-20 · DLPFC-L</div>
+          </div>
+          <div class="brain-wrap" id="dv2-hero-brain"></div>
+          <div class="readouts">
+            <div class="readout"><div class="readout-lbl">Anode</div><div class="readout-val"><em>F3</em></div></div>
+            <div class="readout"><div class="readout-lbl">Cathode</div><div class="readout-val rose"><em>FP2</em></div></div>
+            <div class="readout"><div class="readout-lbl">Current</div><div class="readout-val blue"><em>2.0</em><span style="font-size:11px;color:var(--text-tertiary);font-weight:500"> mA</span></div></div>
           </div>
         </div>
-
-        <div class="phome-feature-card">
-          <div class="phome-feature-icon">&#9671;</div>
-          <div class="phome-feature-title">Clinical Scoring Calculator</div>
-          <div class="phome-feature-desc">Compute PHQ-9, GAD-7, PCL-5, HAM-D, MADRS, MoCA, and more with live scoring, severity interpretation, and crisis flagging.</div>
-          <ul class="phome-feature-bullets">
-            <li>All 12 validated scales &mdash; full item entry</li>
-            <li>PHQ-9 item 9 crisis flag with 988 Lifeline prompt</li>
-            <li>Decision support &mdash; not autonomous diagnosis</li>
-          </ul>
-          <button class="phome-feature-link" onclick="window._nav('scoring-calc')">Open Calculator &rarr;</button>
-          <div class="phome-feature-mockup calc-mock">
-            <div class="mock-bar"><span class="mock-label" style="font-weight:600;">PHQ-9</span><span class="mock-label mock-score severe" style="margin-left:auto;">Score: 18 · Severe</span></div>
-            <div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:8px;">
-              ${[2,3,2,1,2,3,2,1,2].map((v,i) => `<div class="mock-item-chip">${i+1}<span>${v}</span></div>`).join('')}
-            </div>
-            <div class="mock-bar" style="margin-top:8px;"><span class="mock-crisis">⚠ Item 9 flagged — crisis screening prompted</span></div>
-          </div>
-        </div>
-
       </div>
     </section>
 
-    <!-- ─── POSITIONING STRIP ──────────────────────────────────────────────── -->
-    <div class="phome-proof-strip">
-      <div class="phome-proof-headline">Purpose-built for neuromodulation &mdash; not adapted from generic EHR software.</div>
-      <div class="phome-proof-points">
-        <div class="phome-proof-point">TMS + Neurofeedback + tDCS + 8 more modalities</div>
-        <div class="phome-proof-sep">|</div>
-        <div class="phome-proof-point">PHQ-9, GAD-7, PCL-5, HAM-D, MADRS &mdash; validated and scored</div>
-        <div class="phome-proof-sep">|</div>
-        <div class="phome-proof-point">Treatment courses, sessions, outcomes &mdash; all connected</div>
+    <!-- ─── Trust stats row (4 big numbers, design-v2) ───────────────────── -->
+    <div class="dv2-trust-stats">
+      <div class="dv2-tstat">
+        <div class="dv2-tstat-num" id="strip-stat-papers">8,699</div>
+        <div class="dv2-tstat-lbl">Peer-Reviewed Papers</div>
+      </div>
+      <div class="dv2-tstat">
+        <div class="dv2-tstat-num" id="strip-stat-trials">1,922</div>
+        <div class="dv2-tstat-lbl">Clinical Trials Indexed</div>
+      </div>
+      <div class="dv2-tstat">
+        <div class="dv2-tstat-num">1,324</div>
+        <div class="dv2-tstat-lbl">FDA Device Records</div>
+      </div>
+      <div class="dv2-tstat">
+        <div class="dv2-tstat-num">18</div>
+        <div class="dv2-tstat-lbl">Neuromodulation Modalities</div>
       </div>
     </div>
 
-    <!-- ─── EVIDENCE MATRIX (Section 4) ───────────────────────────────────── -->
-    <section id="evidence-matrix" class="pub-section pub-ev-section phome-ev-section">
-      <div class="phome-ev-header">
-        <div class="phome-ev-title">Evidence Base: What the research shows by modality</div>
-        <div class="phome-ev-subtitle">Sourced from peer-reviewed RCTs and meta-analyses. For reference &mdash; not a clinical recommendation.</div>
+    <!-- ─── FEATURES (4 cards w/ inline SVG icons) ──────────────────────── -->
+    <section class="pub-section dv2-features-section">
+      <div class="pub-section-head">
+        <div class="pub-section-kicker">${t('pub.section.features')}</div>
+        <h2>Everything a neuromodulation practice needs.</h2>
+        <p class="lead">Conditions, modalities, devices and safety rules live in one registry — every protocol, assessment, and patient guide stays consistent.</p>
       </div>
-      <!-- Live counts from /api/v1/evidence/stats (public endpoint). Static
-           fallback numbers from the 2026-04-13 ingest if the call fails. -->
-      <div id="phome-ev-live-stats" class="phome-ev-live-stats" style="display:flex;gap:18px;flex-wrap:wrap;justify-content:center;margin:14px auto 22px;max-width:880px">
-        <div class="phome-ev-stat" style="flex:1;min-width:180px;padding:14px 18px;border:1px solid var(--border,#1f2e4a);border-radius:10px;background:var(--surface-1,#0d1a2b);text-align:center">
-          <div class="phome-ev-stat-n" id="phome-ev-stat-papers" style="font-size:28px;font-weight:700;color:var(--teal,#00d4bc)">8,699</div>
-          <div class="phome-ev-stat-l" style="font-size:12px;color:var(--text-secondary,#b7c4d9);margin-top:4px">peer-reviewed papers</div>
+      <div class="pub-features dv2-features-4">
+        <div class="pub-feature" onclick="window._nav('patient-queue')" style="cursor:pointer">
+          <div class="pub-feature-tag">Live</div>
+          <div class="pub-feature-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M3 12h18M3 18h12"/></svg></div>
+          <div class="pub-feature-title">Today&rsquo;s Queue</div>
+          <div class="pub-feature-body">Every patient, session status, overdue assessment, and missed homework in one screen. Start sessions in one click.</div>
         </div>
-        <div class="phome-ev-stat" style="flex:1;min-width:180px;padding:14px 18px;border:1px solid var(--border,#1f2e4a);border-radius:10px;background:var(--surface-1,#0d1a2b);text-align:center">
-          <div class="phome-ev-stat-n" id="phome-ev-stat-trials" style="font-size:28px;font-weight:700;color:var(--teal,#00d4bc)">1,922</div>
-          <div class="phome-ev-stat-l" style="font-size:12px;color:var(--text-secondary,#b7c4d9);margin-top:4px">registered clinical trials</div>
+        <div class="pub-feature" onclick="window._nav('protocols')" style="cursor:pointer">
+          <div class="pub-feature-tag">10-20 · fMRI</div>
+          <div class="pub-feature-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 3v18M3 12h18"/></svg></div>
+          <div class="pub-feature-title">Protocol Studio</div>
+          <div class="pub-feature-body">DLPFC, SMA, mPFC — every target mapped to anchor electrodes with a live 10-20 preview that updates as you change montage.</div>
         </div>
-        <div class="phome-ev-stat" style="flex:1;min-width:180px;padding:14px 18px;border:1px solid var(--border,#1f2e4a);border-radius:10px;background:var(--surface-1,#0d1a2b);text-align:center">
-          <div class="phome-ev-stat-n" id="phome-ev-stat-indications" style="font-size:28px;font-weight:700;color:var(--teal,#00d4bc)">1,324</div>
-          <div class="phome-ev-stat-l" style="font-size:12px;color:var(--text-secondary,#b7c4d9);margin-top:4px">FDA device records</div>
+        <div class="pub-feature" onclick="window._nav('scoring-calc')" style="cursor:pointer">
+          <div class="pub-feature-tag">42 instruments</div>
+          <div class="pub-feature-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="3" width="14" height="18" rx="2"/><path d="M9 7h6M9 11h6M9 15h4"/></svg></div>
+          <div class="pub-feature-title">Assessments</div>
+          <div class="pub-feature-body">PHQ-9, GAD-7, AQ-10, ACE-Q and 38 more — automated scoring, longitudinal views, and patient-portal form delivery.</div>
+        </div>
+        <div class="pub-feature" onclick="window._nav('outcomes')" style="cursor:pointer">
+          <div class="pub-feature-tag">Course-level</div>
+          <div class="pub-feature-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 17l6-6 4 4 8-8"/><path d="M14 7h7v7"/></svg></div>
+          <div class="pub-feature-title">Reports</div>
+          <div class="pub-feature-body">Auto-generated treatment summaries with trend charts, responder status, and SOAP notes — exportable for insurance and EMR.</div>
         </div>
       </div>
-      <div id="phome-ev-stat-note" style="text-align:center;font-size:10.5px;color:var(--text-tertiary,#7a8aa5);margin-bottom:6px">PubMed · OpenAlex · ClinicalTrials.gov · FDA · Unpaywall</div>
-      ${_buildEvMatrix()}
     </section>
 
-    <!-- ─── Mid-page CTA band ──────────────────────────────────────────────── -->
-    <div class="phome-mid-cta-band">
-      <div class="phome-mid-cta-text">Built on the same evidence base you just reviewed.</div>
-      <div class="phome-mid-cta-actions">
-        <button class="phome-cta-primary" onclick="window._navPublic('signup-professional')">Start Free Trial &rarr;</button>
-        <button class="phome-cta-secondary" onclick="window._nav('pricing')">See Pricing &rarr;</button>
+    <!-- ─── EVIDENCE PREVIEW: bars + protocol code snippet ────────────────── -->
+    <section class="pub-section dv2-split-section" style="padding-top:0">
+      <div class="pub-section-head">
+        <div class="pub-section-kicker">Evidence graded</div>
+        <h2>From condition to current. Every decision, traced.</h2>
+        <p class="lead">Protocols surface their evidence grade inline. Clinicians see not just what to do — but why, where the evidence comes from, and what changed.</p>
       </div>
-      <div style="font-size:11px;color:var(--text-tertiary);margin-top:8px;">No credit card required &middot; 14-day free trial</div>
-    </div>
 
-    <!-- ─── PAGE FOOTER STRIP ─────────────────────────────────────────────── -->
-    <div class="phome-footer-strip">
-      <span class="phome-footer-copy">DeepSynaps Protocol Studio &nbsp;&middot;&nbsp; Questions? <a href="mailto:team@deepsynaps.com" class="phome-footer-link">team@deepsynaps.com</a></span>
-      <div class="phome-footer-actions">
-        <button class="phome-footer-btn" onclick="window._nav('login')">Sign In &rarr;</button>
-        <button class="phome-footer-btn" onclick="window._nav('pricing')">Pricing &rarr;</button>
+      <div class="pub-split">
+        <div class="pub-split-panel">
+          <div class="panel-hd">
+            <div class="panel-hd-label">Evidence matrix · Major Depressive Disorder</div>
+            <div class="chip teal">A / B grade</div>
+          </div>
+          <div class="evidence-chart">
+            <div class="evidence-bars">
+              <div class="evidence-row"><span class="evidence-row-lbl">tDCS · DLPFC-L</span><div class="evidence-row-bar"><div class="evidence-row-fill" style="width:92%"></div></div><span class="evidence-row-val">A · 32</span></div>
+              <div class="evidence-row"><span class="evidence-row-lbl">rTMS · DLPFC-L</span><div class="evidence-row-bar"><div class="evidence-row-fill" style="width:96%"></div></div><span class="evidence-row-val">A · 41</span></div>
+              <div class="evidence-row"><span class="evidence-row-lbl">tACS · 10Hz</span><div class="evidence-row-bar"><div class="evidence-row-fill" style="width:68%"></div></div><span class="evidence-row-val">B · 12</span></div>
+              <div class="evidence-row"><span class="evidence-row-lbl">Neurofeedback</span><div class="evidence-row-bar"><div class="evidence-row-fill" style="width:54%"></div></div><span class="evidence-row-val">B · 9</span></div>
+              <div class="evidence-row"><span class="evidence-row-lbl">HD-tDCS</span><div class="evidence-row-bar"><div class="evidence-row-fill" style="width:38%"></div></div><span class="evidence-row-val">C · 4</span></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="pub-split-panel code-snippet">
+          <div class="panel-hd">
+            <div class="panel-dots"><span></span><span></span><span></span></div>
+            <div class="panel-hd-label">protocol.generate() · v2.4</div>
+          </div>
+          <div>
+            <div class="code-line"><span class="code-muted">// canonical schema, validated pre-render</span></div>
+            <div class="code-line"><span class="code-key">const</span> <span style="color:var(--text-primary)">protocol</span> = <span class="code-key">generate</span>({</div>
+            <div class="code-line" style="padding-left:18px"><span class="code-key">condition</span>: <span class="code-str">'mdd.treatment_resistant'</span>,</div>
+            <div class="code-line" style="padding-left:18px"><span class="code-key">phenotype</span>:  <span class="code-str">'anxious_depression'</span>,</div>
+            <div class="code-line" style="padding-left:18px"><span class="code-key">modality</span>:   <span class="code-str">'tDCS'</span>,</div>
+            <div class="code-line" style="padding-left:18px"><span class="code-key">target</span>:     <span class="code-str">'DLPFC-L'</span>, <span class="code-muted">// → F3 anchor</span></div>
+            <div class="code-line" style="padding-left:18px"><span class="code-key">device</span>:     <span class="code-str">'soterix.mini1x1'</span>,</div>
+            <div class="code-line" style="padding-left:18px"><span class="code-key">current_ma</span>: <span class="code-num">2.0</span>,</div>
+            <div class="code-line" style="padding-left:18px"><span class="code-key">duration_min</span>: <span class="code-num">20</span>,</div>
+            <div class="code-line" style="padding-left:18px"><span class="code-key">sessions</span>:    <span class="code-num">20</span>,</div>
+            <div class="code-line"><span style="color:var(--text-primary)">});</span></div>
+            <div class="code-line" style="margin-top:10px"><span class="code-muted">// ✓ safety_engine: 0 violations</span></div>
+            <div class="code-line"><span class="code-muted">// ✓ evidence_grade: A</span></div>
+            <div class="code-line"><span class="code-muted">// → renders: clinician_pdf, patient_guide</span></div>
+          </div>
+        </div>
       </div>
+    </section>
+
+    <!-- ─── CONDITION BROWSER (tabs) ─────────────────────────────────────── -->
+    <section class="pub-section dv2-cond-section" id="evidence-matrix">
+      <div class="pub-section-head">
+        <div class="pub-section-kicker">${t('pub.section.conditions')}</div>
+        <h2>Browse by condition.</h2>
+        <p class="lead">${t('pub.section.conditions.sub')}</p>
+      </div>
+      <div class="dv2-cond-tabs" role="tablist">
+        <button class="dv2-cond-tab active" data-cond="ALL" onclick="window._dv2CondFilter('ALL', this)">All</button>
+        <button class="dv2-cond-tab" data-cond="Psychiatric" onclick="window._dv2CondFilter('Psychiatric', this)">Psychiatric</button>
+        <button class="dv2-cond-tab" data-cond="OCD &amp; Compulsive" onclick="window._dv2CondFilter('OCD &amp; Compulsive', this)">OCD</button>
+        <button class="dv2-cond-tab" data-cond="Neurological" onclick="window._dv2CondFilter('Neurological', this)">Neurological</button>
+        <button class="dv2-cond-tab" data-cond="Pain" onclick="window._dv2CondFilter('Pain', this)">Pain</button>
+        <button class="dv2-cond-tab" data-cond="Cognitive" onclick="window._dv2CondFilter('Cognitive', this)">Cognitive</button>
+        <button class="dv2-cond-tab" data-cond="Sleep &amp; Autonomic" onclick="window._dv2CondFilter('Sleep &amp; Autonomic', this)">Sleep</button>
+      </div>
+
+      <!-- Live counts from /api/v1/evidence/stats (public endpoint) -->
+      <div id="phome-ev-live-stats" class="dv2-ev-mini-stats">
+        <div class="dv2-ev-mini">
+          <div class="dv2-ev-mini-n" id="phome-ev-stat-papers">8,699</div>
+          <div class="dv2-ev-mini-l">peer-reviewed papers</div>
+        </div>
+        <div class="dv2-ev-mini">
+          <div class="dv2-ev-mini-n" id="phome-ev-stat-trials">1,922</div>
+          <div class="dv2-ev-mini-l">registered clinical trials</div>
+        </div>
+        <div class="dv2-ev-mini">
+          <div class="dv2-ev-mini-n" id="phome-ev-stat-indications">1,324</div>
+          <div class="dv2-ev-mini-l">FDA device records</div>
+        </div>
+      </div>
+      <div id="phome-ev-stat-note" style="text-align:center;font-size:10.5px;color:var(--text-tertiary);margin-bottom:18px">PubMed · OpenAlex · ClinicalTrials.gov · FDA · Unpaywall</div>
+
+      <div class="pub-ev-section phome-ev-section">
+        ${_buildEvMatrix()}
+      </div>
+    </section>
+
+    <!-- ─── FOOTER CTA panel + footer ────────────────────────────────────── -->
+    <section class="pub-section" style="padding-top:0">
+      <div class="pub-cta">
+        <div class="pub-section-kicker" style="display:inline-block">${t('pub.cta.headline').toUpperCase ? '' : ''}Ready when you are</div>
+        <h2>${t('pub.cta.headline')}</h2>
+        <p>${t('pub.cta.sub')} 14-day trial on production-parity infrastructure. No credit card required.</p>
+        <div class="pub-cta-ctas">
+          <button class="btn btn-primary btn-lg" onclick="window._navPublic('signup-professional')">${t('pub.cta.trial')}</button>
+          <button class="btn btn-ghost btn-lg" onclick="window._nav('pricing')">${t('pub.cta.demo')}</button>
+        </div>
+      </div>
+
+      <div class="pub-footer">
+        <div>© 2026 DeepSynaps. ${t('pub.footer.tagline')}</div>
+        <div class="pub-footer-links">
+          <a href="#" onclick="window._nav('pricing');return false">Pricing</a>
+          <a href="#" onclick="window._showSignIn();return false">Sign In</a>
+          <a href="mailto:team@deepsynaps.com">Contact</a>
+          <a href="#" onclick="window._navPublic('signup-patient');return false">Patient portal</a>
+        </div>
+      </div>
+    </section>
+
     </div>
   `;
+
+  // ── Inject design-v2 landing styles (one-time, scoped to .dv2-public + .pub-*) ──
+  if (!document.getElementById('dv2-landing-styles')) {
+    const style = document.createElement('style');
+    style.id = 'dv2-landing-styles';
+    style.textContent = `
+      #public-shell { font-family: var(--font-body, 'DM Sans', system-ui, sans-serif); }
+      .public-bg { position: absolute; inset: 0; z-index: 0; pointer-events: none;
+        background:
+          radial-gradient(ellipse 70% 60% at 20% 10%, rgba(0,212,188,0.10) 0%, transparent 55%),
+          radial-gradient(ellipse 50% 50% at 90% 30%, rgba(74,158,255,0.08) 0%, transparent 55%),
+          radial-gradient(ellipse 60% 40% at 60% 90%, rgba(155,127,255,0.05) 0%, transparent 55%); }
+      .public-grid { position: absolute; inset: 0; z-index: 0; pointer-events: none; opacity: 0.35;
+        background-image:
+          linear-gradient(rgba(255,255,255,0.025) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(255,255,255,0.025) 1px, transparent 1px);
+        background-size: 80px 80px;
+        mask-image: radial-gradient(ellipse 80% 80% at 50% 30%, black 40%, transparent 90%); }
+      .dv2-public { max-width: 1280px; margin: 0 auto; padding: 0 40px; }
+      @media (max-width: 768px) { .dv2-public { padding: 0 20px; } }
+
+      .dv2-hero { padding: 70px 0 80px; position: relative; }
+      .dv2-hero .pub-hero-inner { display: grid; grid-template-columns: 1.15fr 1fr; gap: 56px; align-items: center; }
+      @media (max-width: 900px) { .dv2-hero .pub-hero-inner { grid-template-columns: 1fr; gap: 40px; } }
+      .dv2-hero .pub-hero-overline { display: inline-flex; align-items: center; gap: 8px;
+        font-family: var(--font-mono, 'JetBrains Mono', monospace); font-size: 11px; font-weight: 500;
+        color: var(--teal); letter-spacing: 1.2px; text-transform: uppercase;
+        padding: 6px 12px; border-radius: 999px;
+        background: var(--teal-ghost, rgba(0,212,188,0.06)); border: 1px solid var(--border-teal);
+        margin-bottom: 22px; }
+      .dv2-hero .pub-hero-overline::before { content:''; width:6px; height:6px; border-radius:50%;
+        background: var(--teal); box-shadow: 0 0 8px var(--teal); }
+      .dv2-hero h1 { font-family: var(--font-display, 'Outfit', system-ui, sans-serif); font-weight: 600;
+        font-size: clamp(38px, 5vw, 64px); line-height: 1.02; letter-spacing: -2.4px;
+        color: var(--text-primary); margin-bottom: 22px; }
+      .dv2-hero h1 em { font-style: normal;
+        background: linear-gradient(135deg, var(--teal) 0%, var(--blue) 70%, var(--violet, #9b7fff) 100%);
+        -webkit-background-clip: text; background-clip: text; color: transparent; }
+      .dv2-hero .pub-hero-sub { font-size: 17px; line-height: 1.55; color: var(--text-secondary);
+        max-width: 540px; margin: 0 0 32px; }
+      .dv2-hero .pub-hero-ctas { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+
+      .dv2-trust-chips { margin-top: 28px; display: flex; gap: 10px; flex-wrap: wrap; }
+      .dv2-chip { display: inline-flex; align-items: center; gap: 6px;
+        padding: 6px 12px; border-radius: 999px; font-size: 11.5px; font-weight: 500;
+        background: var(--bg-surface, rgba(255,255,255,0.04)); color: var(--text-secondary);
+        border: 1px solid var(--border); }
+      .dv2-chip svg { color: var(--teal); }
+
+      .dv2-hero .pub-hero-visual { position: relative; aspect-ratio: 1/1; border-radius: 24px;
+        background: linear-gradient(160deg, rgba(14,22,40,0.9), rgba(8,13,26,0.95));
+        border: 1px solid var(--border); padding: 28px; overflow: hidden;
+        box-shadow: 0 40px 120px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.06); }
+      .dv2-hero .chrome { display: flex; align-items: center; justify-content: space-between;
+        font-family: var(--font-mono, monospace); font-size: 10.5px; color: var(--text-tertiary);
+        letter-spacing: 0.8px; position: relative; z-index: 2; }
+      .dv2-hero .chrome-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%;
+        margin-right: 5px; background: var(--teal); box-shadow: 0 0 8px var(--teal);
+        animation: dv2pulse 2s infinite; }
+      @keyframes dv2pulse { 0%,100% { opacity: 1 } 50% { opacity: 0.4 } }
+      .dv2-hero .brain-wrap { position: absolute; inset: 50px 28px 90px; z-index: 2;
+        display: flex; align-items: center; justify-content: center; }
+      .dv2-hero .brain-wrap svg { width: 100%; height: 100%; max-width: 100%; max-height: 100%; }
+      .dv2-hero .readouts { position: absolute; bottom: 24px; left: 28px; right: 28px; z-index: 2;
+        display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+      .dv2-hero .readout { padding: 10px 12px; border-radius: 10px;
+        background: rgba(255,255,255,0.03); border: 1px solid var(--border); }
+      .dv2-hero .readout-lbl { font-family: var(--font-mono, monospace); font-size: 9.5px;
+        color: var(--text-tertiary); letter-spacing: 1px; text-transform: uppercase; margin-bottom: 6px; }
+      .dv2-hero .readout-val { font-family: var(--font-display, sans-serif); font-size: 18px;
+        font-weight: 600; letter-spacing: -0.4px; }
+      .dv2-hero .readout-val em { font-style: normal; color: var(--teal); }
+      .dv2-hero .readout-val.blue em { color: var(--blue); }
+      .dv2-hero .readout-val.rose em { color: var(--rose, #ff6b9d); }
+
+      .dv2-trust-stats { padding: 32px 0; margin-top: -10px;
+        border-top: 1px solid var(--border); border-bottom: 1px solid var(--border);
+        display: grid; grid-template-columns: repeat(4, 1fr); gap: 28px; }
+      @media (max-width: 700px) { .dv2-trust-stats { grid-template-columns: repeat(2, 1fr); } }
+      .dv2-tstat-num { font-family: var(--font-mono, monospace); font-size: 32px; font-weight: 600;
+        letter-spacing: -1px; color: var(--text-primary); line-height: 1; }
+      .dv2-tstat-lbl { margin-top: 8px; font-size: 11px; color: var(--text-tertiary);
+        letter-spacing: 0.8px; text-transform: uppercase; }
+
+      .pub-section { padding: 96px 0; position: relative; }
+      .pub-section-head { max-width: 680px; margin-bottom: 52px; }
+      .pub-section-kicker { font-family: var(--font-mono, monospace); font-size: 11px;
+        color: var(--teal); letter-spacing: 1.6px; text-transform: uppercase; margin-bottom: 14px; display:block; }
+      .pub-section h2 { font-family: var(--font-display, sans-serif); font-size: clamp(28px,3.4vw,44px);
+        font-weight: 500; line-height: 1.1; letter-spacing: -1.4px; }
+      .pub-section p.lead { font-size: 16px; color: var(--text-secondary); margin-top: 16px; line-height: 1.55; }
+
+      .pub-features { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+      .dv2-features-4 { grid-template-columns: repeat(4, 1fr); }
+      @media (max-width: 1100px) { .dv2-features-4 { grid-template-columns: repeat(2, 1fr); } }
+      @media (max-width: 600px)  { .dv2-features-4 { grid-template-columns: 1fr; } }
+      .pub-feature { padding: 28px 26px; border-radius: var(--radius-xl, 20px);
+        background: var(--bg-card); border: 1px solid var(--border);
+        position: relative; overflow: hidden; transition: all 0.2s ease; }
+      .pub-feature:hover { border-color: var(--border-teal); transform: translateY(-2px); }
+      .pub-feature-icon { width: 40px; height: 40px; border-radius: 11px; margin-bottom: 22px;
+        background: linear-gradient(135deg, rgba(0,212,188,0.2), rgba(74,158,255,0.12));
+        border: 1px solid var(--border-teal);
+        display: flex; align-items: center; justify-content: center; color: var(--teal); }
+      .pub-feature-title { font-family: var(--font-display, sans-serif); font-size: 18px;
+        font-weight: 600; letter-spacing: -0.3px; margin-bottom: 10px; }
+      .pub-feature-body { font-size: 13.5px; line-height: 1.6; color: var(--text-secondary); }
+      .pub-feature-tag { position: absolute; top: 20px; right: 20px;
+        font-family: var(--font-mono, monospace); font-size: 9px; letter-spacing: 1px;
+        text-transform: uppercase; padding: 3px 7px; border-radius: 5px;
+        background: var(--bg-surface, rgba(255,255,255,0.04)); color: var(--text-tertiary); }
+
+      .pub-split { display: grid; grid-template-columns: 1fr 1.1fr; gap: 56px; align-items: stretch; }
+      @media (max-width: 900px) { .pub-split { grid-template-columns: 1fr; gap: 24px; } }
+      .pub-split-panel { border-radius: 20px; background: var(--bg-card); border: 1px solid var(--border);
+        padding: 26px; position: relative; overflow: hidden; }
+      .pub-split-panel .panel-hd { display: flex; align-items: center; justify-content: space-between;
+        padding-bottom: 14px; margin-bottom: 18px; border-bottom: 1px solid var(--border); }
+      .panel-hd-label { font-family: var(--font-mono, monospace); font-size: 10.5px;
+        letter-spacing: 1.3px; text-transform: uppercase; color: var(--text-tertiary); }
+      .panel-dots { display: flex; gap: 6px; }
+      .panel-dots span { width: 8px; height: 8px; border-radius: 50%; background: rgba(255,255,255,0.15); }
+      .panel-dots span:first-child { background: var(--rose, #ff6b9d); }
+      .panel-dots span:nth-child(2) { background: var(--amber, #ffb547); }
+      .panel-dots span:last-child { background: var(--green, #4ade80); }
+      .code-snippet .code-line { font-family: var(--font-mono, monospace); font-size: 12.5px; line-height: 1.8; }
+      .code-muted { color: var(--text-tertiary); }
+      .code-key { color: var(--violet, #9b7fff); }
+      .code-str { color: var(--teal); }
+      .code-num { color: var(--amber, #ffb547); }
+      .evidence-bars { display: grid; grid-template-rows: repeat(5, 1fr); gap: 18px; padding: 6px 0; }
+      .evidence-row { display: grid; grid-template-columns: 120px 1fr 48px; gap: 14px; align-items: center; }
+      .evidence-row-lbl { font-size: 12px; color: var(--text-secondary); font-weight: 500; }
+      .evidence-row-bar { height: 10px; border-radius: 5px; background: rgba(255,255,255,0.04); overflow: hidden; }
+      .evidence-row-fill { height: 100%; border-radius: 5px;
+        background: linear-gradient(90deg, var(--teal), var(--blue)); }
+      .evidence-row-val { font-family: var(--font-mono, monospace); font-size: 11px;
+        color: var(--text-secondary); text-align: right; }
+
+      .dv2-cond-tabs { display: flex; gap: 6px; flex-wrap: wrap; padding: 4px;
+        background: var(--bg-surface, rgba(255,255,255,0.04)); border: 1px solid var(--border);
+        border-radius: 12px; margin-bottom: 20px; max-width: max-content; }
+      .dv2-cond-tab { padding: 8px 14px; border-radius: 9px; font-size: 12.5px; font-weight: 600;
+        color: var(--text-secondary); transition: all 0.15s ease; }
+      .dv2-cond-tab:hover { color: var(--text-primary); }
+      .dv2-cond-tab.active { background: linear-gradient(135deg, rgba(0,212,188,0.15), rgba(74,158,255,0.08));
+        color: var(--text-primary); border: 1px solid var(--border-teal); }
+      .dv2-ev-mini-stats { display: flex; gap: 18px; flex-wrap: wrap; justify-content: center;
+        margin: 14px auto 8px; max-width: 880px; }
+      .dv2-ev-mini { flex: 1; min-width: 180px; padding: 14px 18px;
+        border: 1px solid var(--border); border-radius: 10px;
+        background: var(--bg-card); text-align: center; }
+      .dv2-ev-mini-n { font-family: var(--font-mono, monospace); font-size: 28px;
+        font-weight: 700; color: var(--teal); }
+      .dv2-ev-mini-l { font-size: 12px; color: var(--text-secondary); margin-top: 4px; }
+
+      .pub-cta { padding: 64px; border-radius: 28px;
+        background:
+          radial-gradient(ellipse 60% 80% at 20% 20%, rgba(0,212,188,0.12), transparent 60%),
+          radial-gradient(ellipse 50% 80% at 80% 80%, rgba(74,158,255,0.10), transparent 60%),
+          linear-gradient(160deg, var(--navy-800, #0e1628), var(--navy-850, #0b1120));
+        border: 1px solid var(--border); margin: 40px 0; text-align: center; }
+      @media (max-width: 700px) { .pub-cta { padding: 36px 24px; } }
+      .pub-cta h2 { font-family: var(--font-display, sans-serif); font-size: clamp(26px,3vw,40px);
+        font-weight: 500; letter-spacing: -1.2px; margin-bottom: 14px; }
+      .pub-cta p { color: var(--text-secondary); max-width: 520px; margin: 0 auto 28px;
+        font-size: 15px; line-height: 1.55; }
+      .pub-cta-ctas { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+      .pub-footer { padding: 36px 0 56px; border-top: 1px solid var(--border); margin-top: 40px;
+        display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 20px;
+        color: var(--text-tertiary); font-size: 12px; }
+      .pub-footer-links { display: flex; gap: 24px; flex-wrap: wrap; }
+      .pub-footer a { color: inherit; }
+      .pub-footer a:hover { color: var(--text-primary); }
+
+      /* btn-lg used by hero CTAs */
+      .dv2-public .btn-lg { padding: 13px 22px; font-size: 14px; border-radius: 12px; }
+    `;
+    document.head.appendChild(style);
+  }
+
+  // ── Inject 10-20 brain map into hero panel (graceful fallback if module fails) ──
+  try {
+    const wrap = document.getElementById('dv2-hero-brain');
+    if (wrap) {
+      wrap.innerHTML = renderBrainMap10_20({
+        anode: 'F3',
+        cathode: 'FP2',
+        targetRegion: 'DLPFC-L',
+        size: 360,
+        showZones: true,
+        showConnection: true,
+        showEarsAndNose: true,
+      });
+    }
+  } catch (_) {
+    // brain-map module unavailable — leave hero panel empty rather than block render
+  }
+
+  // ── Condition browser tab handler ────────────────────────────────────────
+  window._dv2CondFilter = function(cat, btn) {
+    document.querySelectorAll('.dv2-cond-tab').forEach(b => b.classList.toggle('active', b === btn));
+    // Reuse evidence-matrix filter if it's mounted
+    if (typeof window._evCatFilter === 'function') {
+      const norm = (cat === 'OCD &amp; Compulsive') ? 'OCD & Compulsive'
+                 : (cat === 'Sleep &amp; Autonomic') ? 'Sleep & Autonomic'
+                 : cat;
+      window._evCatFilter(norm);
+    }
+  };
 
   // ── Live evidence counts for the landing Evidence Matrix header ──────────────
   // Hits /api/v1/evidence/stats. If the call fails (unauth'd, offline, or DB
