@@ -867,7 +867,7 @@ window._wizSkip = function(e) {
   window._nav?.('dashboard');
 };
 
-window._wizSaveClinic = function() {
+window._wizSaveClinic = async function() {
   _wiz.clinicName      = document.getElementById('wiz-clinic-name')?.value.trim() || '';
   _wiz.clinicType      = document.getElementById('wiz-clinic-type')?.value || '';
   _wiz.clinicianCount  = document.getElementById('wiz-clinician-count')?.value || '';
@@ -879,7 +879,7 @@ window._wizSaveClinic = function() {
   });
   _wiz.modalities = mods;
 
-  // Persist to ds_clinic_config (merged)
+  // Local mirror (used as offline fallback by pgClinicSettings read path).
   try {
     const existing = JSON.parse(localStorage.getItem('ds_clinic_config') || '{}');
     localStorage.setItem('ds_clinic_config', JSON.stringify({
@@ -891,6 +891,27 @@ window._wizSaveClinic = function() {
       updatedAt:       new Date().toISOString(),
     }));
   } catch {}
+
+  // Round-trip to backend: upsert clinic row via create/update. Silent on
+  // network failure so unauthenticated visitors (public pre-signup flow) can
+  // still progress through the wizard — the real save happens on next entry
+  // once their session is live.
+  if (_wiz.clinicName) {
+    try {
+      const existing = await api.getClinic().catch(() => null);
+      const payload = {
+        name:        _wiz.clinicName,
+        specialties: _wiz.modalities,
+      };
+      if (existing && (existing.id || existing.name)) {
+        await api.updateClinic(payload);
+      } else {
+        await api.createClinic(payload);
+      }
+    } catch (err) {
+      console.warn('[wiz] clinic save skipped:', err?.message || err);
+    }
+  }
 
   _renderWizStep(3);
 };

@@ -112,168 +112,47 @@ export function pgSchedule(setTopbar) {
 }
 
 // ── Telehealth ────────────────────────────────────────────────────────────────
+// The live video consult path lives in Live Session (pgLiveSession) which
+// embeds a Jitsi Meet iframe. This legacy Telehealth page used to render a
+// placeholder "camera emoji" UI with simulated connection checks and no real
+// video pipe — that fake-working UI has been removed and replaced with an
+// honest landing card that routes the user into Live Session (the only
+// wired-up video surface).
 export function pgTelehealth(setTopbar) {
   setTopbar('Telehealth', '');
   const el = document.getElementById('content');
-
-  const mockSessions = [
-    { id: 's1', patient: 'Alex M.', time: 'Today 09:00', protocol: 'tDCS · DLPFC · 2mA · 20 min', session: '7 of 20', video_url: null },
-    { id: 's2', patient: 'Jordan K.', time: 'Today 11:30', protocol: 'rTMS · DLPFC · 10Hz · 30 min', session: '3 of 30', video_url: null },
-    { id: 's3', patient: 'Sam T.', time: 'Tomorrow 14:00', protocol: 'taVNS · Auricular · 0.5mA · 25 min', session: '12 of 20', video_url: null },
-  ];
+  if (!el) return;
 
   el.innerHTML = `
-  <!-- Pre-join panel (hidden by default) -->
-  <div id="th-prejoin-panel" style="display:none;margin-bottom:16px">
-    <div class="card">
-      <div class="card-header" style="display:flex;justify-content:space-between;align-items:center">
-        <span>Pre-Session Check</span>
-        <button class="btn btn-sm" onclick="document.getElementById('th-prejoin-panel').style.display='none'">Close</button>
-      </div>
-      <div class="card-body">
-        <div id="th-checks" style="display:flex;flex-direction:column;gap:10px;margin-bottom:16px">
-          <div id="th-check-conn" style="display:flex;align-items:center;gap:10px;font-size:13px">
-            <span id="th-icon-conn" style="font-size:16px">⏳</span>
-            <span>Testing connection…</span>
-          </div>
-          <div id="th-check-mic" style="display:flex;align-items:center;gap:10px;font-size:13px">
-            <span id="th-icon-mic" style="font-size:16px">⏳</span>
-            <span>Checking microphone…</span>
-          </div>
-          <div id="th-check-cam" style="display:flex;align-items:center;gap:10px;font-size:13px">
-            <span id="th-icon-cam" style="font-size:16px">⏳</span>
-            <span>Checking camera…</span>
-          </div>
-        </div>
-        <button id="th-enter-btn" class="btn btn-primary" disabled onclick="window._enterVideoSession()" style="opacity:.5">Enter Session →</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- Upcoming Sessions -->
-  <div class="card" style="margin-bottom:16px">
-    <div class="card-header">Upcoming Telehealth Sessions</div>
-    <div class="card-body">
-      ${mockSessions.map(s => `
-      <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 0;border-bottom:1px solid var(--border)">
-        <div style="display:flex;align-items:center;gap:14px">
-          <div style="width:38px;height:38px;border-radius:10px;background:var(--teal-ghost);border:1px solid var(--border-teal);display:flex;align-items:center;justify-content:center;font-size:18px">📹</div>
+    <div style="max-width:720px;margin:48px auto;padding:0 24px">
+      <div class="card" style="padding:28px">
+        <div style="display:flex;align-items:center;gap:14px;margin-bottom:16px">
+          <div style="width:44px;height:44px;border-radius:12px;background:var(--teal-ghost);border:1px solid var(--border-teal);display:flex;align-items:center;justify-content:center;font-size:20px">📹</div>
           <div>
-            <div style="font-size:13px;font-weight:600;color:var(--text-primary)">${s.patient}</div>
-            <div style="font-size:11.5px;color:var(--text-secondary)">${s.protocol}</div>
-            <div style="font-size:11px;color:var(--text-tertiary)">Session ${s.session} · ${s.time}</div>
+            <div style="font-family:var(--font-display);font-size:18px;font-weight:600;color:var(--text-primary)">Telehealth video consults</div>
+            <div style="font-size:12px;color:var(--text-secondary);margin-top:2px">Live video lives in Live Session</div>
           </div>
         </div>
-        <button class="btn btn-sm" onclick="window._joinTelehealth('${s.id}', ${s.video_url ? "'" + s.video_url + "'" : 'null'}, '${s.patient}', '${s.protocol}', '${s.session}')">Join Session →</button>
-      </div>`).join('')}
-    </div>
-  </div>
-
-  <!-- Feature tiles -->
-  <div style="display:flex;gap:12px;flex-wrap:wrap">
-    ${[
-      ['HIPAA-Compliant Video', 'E2E encrypted, no data retention', '🔐'],
-      ['In-session Protocol View', 'Display and annotate protocols live', '📋'],
-      ['Real-time Assessment', 'Send assessments during session', '📊'],
-    ].map(([t, d, ic]) => `
-      <div class="card" style="text-align:left;padding:16px 20px;min-width:180px;flex:1;max-width:240px">
-        <div style="font-size:22px;margin-bottom:8px">${ic}</div>
-        <div style="font-size:13px;font-weight:600;color:var(--text-primary);margin-bottom:4px">${t}</div>
-        <div style="font-size:11.5px;color:var(--text-secondary)">${d}</div>
-      </div>`).join('')}
-  </div>
-  `;
-
-  window._joinTelehealth = function(sessionId, videoUrl, patientName, protocol, sessionNum) {
-    if (videoUrl) { window.open(videoUrl, '_blank'); return; }
-    // Store session context for video UI
-    window._thSession = { sessionId, patientName, protocol, sessionNum };
-    const panel = document.getElementById('th-prejoin-panel');
-    if (!panel) return;
-    panel.style.display = 'block';
-    panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    // Reset checks
-    ['conn','mic','cam'].forEach(k => {
-      const icon = document.getElementById('th-icon-' + k);
-      if (icon) icon.textContent = '⏳';
-    });
-    const btn = document.getElementById('th-enter-btn');
-    if (btn) { btn.disabled = true; btn.style.opacity = '.5'; }
-
-    // Simulate checks
-    setTimeout(() => {
-      const ic = document.getElementById('th-icon-conn');
-      if (ic) { ic.textContent = '✅'; ic.style.color = 'var(--green)'; }
-    }, 1500);
-    setTimeout(() => {
-      const ic = document.getElementById('th-icon-mic');
-      if (ic) { ic.textContent = '✅'; ic.style.color = 'var(--green)'; }
-    }, 2500);
-    setTimeout(() => {
-      const ic = document.getElementById('th-icon-cam');
-      if (ic) { ic.textContent = '✅'; ic.style.color = 'var(--green)'; }
-      if (btn) { btn.disabled = false; btn.style.opacity = '1'; }
-    }, 3500);
-  };
-
-  window._enterVideoSession = function() {
-    const s = window._thSession || { patientName: 'Patient', protocol: 'tDCS · DLPFC\n2mA · 20 min\nAnode: F3\nCathode: Fp2', sessionNum: '1 of 20' };
-    const protoLines = (s.protocol || '').replace(/·/g, '·').replace(/\n/g, '<br>');
-    // Clear any interval
-    if (window._thTimerInterval) clearInterval(window._thTimerInterval);
-    let elapsed = 0;
-    const content = document.getElementById('content');
-    if (!content) return;
-    content.innerHTML = `<div id="th-video-ui" style="position:fixed;inset:0;background:#0a0a0f;z-index:2000;display:flex;flex-direction:column">
-  <!-- Timer bar -->
-  <div style="height:36px;background:#0d1117;display:flex;align-items:center;justify-content:center;border-bottom:1px solid rgba(255,255,255,0.08)">
-    <span id="th-timer" style="font-family:var(--font-mono);font-size:14px;color:var(--teal);letter-spacing:1px">00:00:00</span>
-  </div>
-  <!-- Video area -->
-  <div style="flex:1;display:grid;grid-template-columns:1fr 240px;gap:8px;padding:8px;overflow:hidden">
-    <!-- Main video (patient) -->
-    <div style="background:#1a1a2e;border-radius:12px;display:flex;align-items:center;justify-content:center;position:relative">
-      <div style="text-align:center;color:rgba(255,255,255,0.3)">
-        <div style="font-size:64px;margin-bottom:16px">👤</div>
-        <div style="font-size:14px">Patient Camera</div>
-        <div style="font-size:12px;margin-top:4px;color:var(--teal)">● Connected</div>
+        <div style="font-size:13px;color:var(--text-secondary);line-height:1.65;margin-bottom:18px">
+          Telehealth video visits are handled inside <strong>Live Session</strong>, which embeds the meeting room,
+          captures side-effects, signs the event log, and (optionally) records the consult.
+          This standalone Telehealth page no longer renders a video placeholder.
+        </div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap">
+          <button class="btn btn-primary btn-sm" onclick="window._nav('live-session')">Open Live Session →</button>
+          <button class="btn btn-sm" onclick="window._nav('telehealth-recorder')">Session Recorder</button>
+          <button class="btn btn-sm btn-ghost" onclick="window._nav('scheduling')">Schedule a visit</button>
+        </div>
+        <div style="margin-top:18px;padding:12px 14px;border-radius:8px;background:rgba(245,158,11,0.06);border:1px solid rgba(245,158,11,0.25);font-size:12px;color:var(--text-secondary);line-height:1.55">
+          <strong style="color:#f59e0b">No managed provider configured.</strong>
+          Live Session falls back to the public <code>meet.jit.si</code> room for each session.
+          Room names are deterministic per session id; nothing is persisted server-side until a telehealth
+          provider (e.g. Twilio Video, Daily, or a self-hosted Jitsi) is wired in.
+        </div>
       </div>
-      <div style="position:absolute;bottom:12px;left:12px;font-size:12px;color:#fff;background:rgba(0,0,0,0.5);padding:4px 10px;border-radius:4px">${s.patientName || 'Patient'}</div>
-      <div style="position:absolute;top:12px;right:12px;font-size:11px;color:var(--green);background:rgba(0,0,0,0.5);padding:3px 8px;border-radius:4px">HD ●</div>
-    </div>
-    <!-- Self view + protocol panel -->
-    <div style="display:flex;flex-direction:column;gap:8px">
-      <div style="background:#1a1a2e;border-radius:8px;height:160px;display:flex;align-items:center;justify-content:center;color:rgba(255,255,255,0.3);font-size:12px">You (Camera off)</div>
-      <div style="background:#12172b;border-radius:8px;flex:1;padding:12px;overflow-y:auto">
-        <div style="font-size:10px;text-transform:uppercase;letter-spacing:.8px;color:var(--teal);margin-bottom:8px">Session Protocol</div>
-        <div style="font-size:12px;color:#cdd6f4">${protoLines}</div>
-        <div style="margin-top:12px;font-size:10px;color:rgba(255,255,255,0.4)">Session ${s.sessionNum || ''}</div>
-      </div>
-    </div>
-  </div>
-  <!-- Controls bar -->
-  <div style="height:72px;background:#0d1117;display:flex;align-items:center;justify-content:center;gap:16px;border-top:1px solid rgba(255,255,255,0.1)">
-    <button onclick="this.style.background=this.style.background?'':'rgba(255,107,107,0.3)'" style="width:44px;height:44px;border-radius:50%;background:rgba(255,255,255,0.1);border:none;cursor:pointer;color:#fff;font-size:18px" title="Mute">🎤</button>
-    <button onclick="this.style.background=this.style.background?'':'rgba(255,107,107,0.3)'" style="width:44px;height:44px;border-radius:50%;background:rgba(255,255,255,0.1);border:none;cursor:pointer;color:#fff;font-size:18px" title="Camera">📷</button>
-    <button onclick="this.style.background=this.style.background?'':'rgba(74,158,255,0.3)'" style="width:44px;height:44px;border-radius:50%;background:rgba(255,255,255,0.1);border:none;cursor:pointer;color:#fff;font-size:18px" title="Share Screen">🖥</button>
-    <button onclick="if(window._thTimerInterval)clearInterval(window._thTimerInterval);window._nav('telehealth')" style="width:56px;height:44px;border-radius:22px;background:#dc2626;border:none;cursor:pointer;color:#fff;font-size:13px;font-weight:600">End</button>
-    <button onclick="this.style.background=this.style.background?'':'rgba(74,158,255,0.3)'" style="width:44px;height:44px;border-radius:50%;background:rgba(255,255,255,0.1);border:none;cursor:pointer;color:#fff;font-size:16px" title="Chat">💬</button>
-    <button onclick="this.style.background=this.style.background?'':'rgba(74,158,255,0.3)'" style="width:44px;height:44px;border-radius:50%;background:rgba(255,255,255,0.1);border:none;cursor:pointer;color:#fff;font-size:16px" title="Notes">📝</button>
-  </div>
-</div>`;
-
-    // Start timer
-    window._thTimerInterval = setInterval(() => {
-      elapsed++;
-      const h = String(Math.floor(elapsed / 3600)).padStart(2, '0');
-      const m = String(Math.floor((elapsed % 3600) / 60)).padStart(2, '0');
-      const sc = String(elapsed % 60).padStart(2, '0');
-      const timerEl = document.getElementById('th-timer');
-      if (timerEl) timerEl.textContent = h + ':' + m + ':' + sc;
-      else clearInterval(window._thTimerInterval);
-    }, 1000);
-  };
+    </div>`;
 }
+
 
 // ── Messaging ─────────────────────────────────────────────────────────────────
 export function pgMsg(setTopbar) {
@@ -4656,7 +4535,30 @@ export async function pgClinicSettings(setTopbar) {
     render();
   };
 
-  window._csSaveIdentity = function() {
+  // Upsert the backend-modeled core clinic row (name/address/phone/email/website).
+  // Branding extras (colors, tagline, NPI, taxId, customDomain, licenseNumber,
+  // templates, legal text, customCss) have no clinic-schema columns yet and
+  // therefore remain local-only until a dedicated endpoint lands.
+  async function _csPersistCoreClinic() {
+    try {
+      const existing = await api.getClinic().catch(() => null);
+      const payload = {
+        name:    cfg.name,
+        address: cfg.address,
+        phone:   cfg.phone,
+        email:   cfg.email,
+        website: cfg.website,
+      };
+      if (existing && (existing.id || existing.name)) await api.updateClinic(payload);
+      else await api.createClinic(payload);
+      return true;
+    } catch (err) {
+      console.warn('[cs] core clinic save failed:', err?.message || err);
+      return false;
+    }
+  }
+
+  window._csSaveIdentity = async function() {
     cfg.address       = document.getElementById('cs-address')?.value       ?? cfg.address;
     cfg.phone         = document.getElementById('cs-phone')?.value         ?? cfg.phone;
     cfg.email         = document.getElementById('cs-email')?.value         ?? cfg.email;
@@ -4666,7 +4568,9 @@ export async function pgClinicSettings(setTopbar) {
     cfg.taxId         = document.getElementById('cs-tax-id')?.value        ?? cfg.taxId;
     cfg.licenseNumber = document.getElementById('cs-license')?.value       ?? cfg.licenseNumber;
     saveClinicConfig(cfg);
-    window._showToast?.('Identity saved.') || alert('Identity saved.');
+    const ok = await _csPersistCoreClinic();
+    const msg = ok ? 'Identity saved.' : 'Identity cached locally — server sync failed.';
+    window._showToast?.(msg, ok ? 'success' : 'warning') || alert(msg);
   };
 
   window._csSaveTemplates = function() {
@@ -4728,7 +4632,7 @@ export async function pgClinicSettings(setTopbar) {
     openTextModal('Privacy Policy Preview', document.getElementById('cs-privacy')?.value || cfg.privacyPolicy);
   };
 
-  window._csSaveAll = function() {
+  window._csSaveAll = async function() {
     const v   = id => document.getElementById(id)?.value;
     const chk = id => document.getElementById(id)?.checked;
     cfg.name                        = v('cs-name')             ?? cfg.name;
@@ -4755,7 +4659,11 @@ export async function pgClinicSettings(setTopbar) {
     cfg.tosLastUpdated              = v('cs-tos-date')         ?? cfg.tosLastUpdated;
     cfg.privacyLastUpdated          = v('cs-privacy-date')     ?? cfg.privacyLastUpdated;
     saveClinicConfig(cfg);
-    window._showToast?.('All clinic settings saved successfully!', 'success') || alert('All clinic settings saved!');
+    const ok = await _csPersistCoreClinic();
+    const msg = ok
+      ? 'Clinic identity saved to server. Branding/templates/legal stored locally until a server endpoint exists.'
+      : 'Not saved to server — cached locally, please retry.';
+    window._showToast?.(msg, ok ? 'success' : 'warning') || alert(msg);
   };
 }
 
@@ -4850,28 +4758,11 @@ let _recTranscript = [];   // { time, text }
 let _recScreenStream = null;
 let _recIsScreenSharing = false;
 
-const _REC_PHRASES = [
-  'Patient reports reduced anxiety symptoms.',
-  'Reviewing EEG feedback from last session.',
-  'Adjusting alpha training threshold to 11 Hz.',
-  'SMR amplitude trending upward — good progress.',
-  'Patient demonstrates increased relaxation response.',
-  'Theta suppression protocol component introduced.',
-  'Discussing homework compliance between sessions.',
-  'Patient confirms no adverse effects since last visit.',
-  'Baseline qEEG shows improvement in coherence scores.',
-  'tDCS anode placement confirmed at F3 per protocol.',
-  'Heart rate variability biofeedback initiated.',
-  'Patient reports improved sleep quality this week.',
-  'Reviewing PHQ-9 scores — down 4 points from last visit.',
-  'Adjusting reward threshold — beta amplitude at 18 Hz.',
-  'Session goal met: 20 min sustained focus achieved.',
-  'Clinician note: consider advancing to Phase 2 next visit.',
-  'Patient completing session without breaks — milestone.',
-  'Discussing neurofeedback rationale with patient.',
-  'Informed consent reviewed and re-confirmed.',
-  'Scheduling follow-up appointment in 5 days.',
-];
+// Live transcription uses the Web Speech API (Chrome/Edge) where available.
+// There is no canned/simulated transcript — if speech recognition is not
+// supported, the transcript panel shows an honest "not available" notice and
+// remains empty rather than inventing clinical content.
+let _recSpeechRec = null;
 
 function _recFormatTime(ms) {
   const total = Math.floor(ms / 1000);
@@ -4880,17 +4771,71 @@ function _recFormatTime(ms) {
   return `${m}:${s}`;
 }
 
-function _recSimulateLine() {
+function _recHasSpeech() {
+  return typeof window !== 'undefined' && ('SpeechRecognition' in window || 'webkitSpeechRecognition' in window);
+}
+
+function _recEscape(s) {
+  return String(s).replace(/[<>&]/g, c => ({ '<':'&lt;', '>':'&gt;', '&':'&amp;' }[c]));
+}
+
+function _recAppendTranscriptLine(text) {
   const elapsed = _recStartTime ? _recFormatTime(Date.now() - _recStartTime) : '00:00';
-  const phrase = _REC_PHRASES[Math.floor(Math.random() * _REC_PHRASES.length)];
-  _recTranscript.push({ time: elapsed, text: phrase });
+  _recTranscript.push({ time: elapsed, text });
   const panel = document.getElementById('rec-transcript-panel');
   if (panel) {
     const line = document.createElement('div');
     line.className = 'rec-transcript-line';
-    line.innerHTML = `<span class="rec-transcript-time">[${elapsed}]</span><span class="rec-transcript-clinician">Clinician:</span><span>${phrase}</span>`;
+    line.innerHTML = `<span class="rec-transcript-time">[${elapsed}]</span><span class="rec-transcript-clinician">Speech:</span><span>${_recEscape(text)}</span>`;
     panel.appendChild(line);
     panel.scrollTop = panel.scrollHeight;
+  }
+}
+
+function _recStartSpeechRecognition() {
+  if (!_recHasSpeech()) {
+    const panel = document.getElementById('rec-transcript-panel');
+    if (panel) {
+      panel.innerHTML = `<div style="color:var(--text-tertiary);font-size:.8rem;padding:4px 0;line-height:1.5">
+        Live transcript unavailable — browser Web Speech API not supported here.<br>
+        Recording still works; add notes manually using the note input below.</div>`;
+    }
+    return;
+  }
+  try {
+    const Rec = window.SpeechRecognition || window.webkitSpeechRecognition;
+    const rec = new Rec();
+    rec.continuous = true;
+    rec.interimResults = false;
+    rec.lang = 'en-GB';
+    rec.onresult = function(e) {
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        if (e.results[i].isFinal) {
+          const text = e.results[i][0].transcript.trim();
+          if (text) _recAppendTranscriptLine(text);
+        }
+      }
+    };
+    rec.onend = function() {
+      // Auto-restart while recording (some browsers end the session periodically).
+      if (_recMediaRecorder && _recMediaRecorder.state === 'recording') {
+        try { rec.start(); } catch {}
+      }
+    };
+    rec.onerror = function() {};
+    _recSpeechRec = rec;
+    try { rec.start(); } catch {}
+    const panel = document.getElementById('rec-transcript-panel');
+    if (panel && !panel.children.length) {
+      panel.innerHTML = `<div style="color:var(--text-tertiary);font-size:.8rem;padding:4px 0">Listening for speech…</div>`;
+    }
+  } catch {}
+}
+
+function _recStopSpeechRecognition() {
+  if (_recSpeechRec) {
+    try { _recSpeechRec.onend = null; _recSpeechRec.stop(); } catch {}
+    _recSpeechRec = null;
   }
 }
 
@@ -4900,7 +4845,7 @@ function _recUpdateTimer() {
   if (!el) {
     // Page has been navigated away — stop the interval to prevent leaks.
     clearInterval(_recTimerInterval); _recTimerInterval = null;
-    clearInterval(window._recSimInterval); window._recSimInterval = null;
+    _recStopSpeechRecognition();
     return;
   }
   el.textContent = _recFormatTime(Date.now() - _recStartTime);
@@ -5030,7 +4975,7 @@ export async function pgTelehealthRecorder(setTopbar) {
     <!-- Live transcript -->
     <div class="card" style="margin-bottom:16px">
       <div class="card-header" style="display:flex;align-items:center;justify-content:space-between">
-        <span>Live Transcript</span>
+        <span>Live Transcript <span style="font-size:.7rem;color:var(--text-tertiary);font-weight:400;margin-left:6px">${_recHasSpeech() ? 'browser speech-to-text' : 'unavailable — browser lacks Web Speech API'}</span></span>
         <div style="display:flex;gap:8px;align-items:center">
           <input id="rec-note-input" class="input input-sm" placeholder="Add a timestamped note…" style="width:240px;display:none" onkeydown="if(event.key==='Enter')window._recAddNote()" />
           <button class="btn btn-sm btn-ghost" id="btn-add-note" onclick="window._recToggleNoteInput()">Add Note</button>
@@ -5038,7 +4983,7 @@ export async function pgTelehealthRecorder(setTopbar) {
       </div>
       <div class="card-body" style="padding:0">
         <div id="rec-transcript-panel" class="rec-transcript-panel" style="border-radius:0">
-          <div style="color:var(--text-tertiary);font-size:.8rem;padding:4px 0">Transcript will appear here once recording starts…</div>
+          <div style="color:var(--text-tertiary);font-size:.8rem;padding:4px 0">${_recHasSpeech() ? 'Transcript will appear here once recording starts…' : 'Transcript is not available in this browser. Recording and manual notes still work.'}</div>
         </div>
       </div>
     </div>
@@ -5056,8 +5001,9 @@ export async function pgTelehealthRecorder(setTopbar) {
           <div id="rec-save-confirm" style="margin-bottom:12px;display:none;padding:10px 14px;background:var(--teal-ghost,rgba(0,212,188,.08));border-radius:8px;border:1px solid var(--border-teal,rgba(0,212,188,.25));font-size:.85rem">
             Recording saved for <strong id="rec-save-patient"></strong> — <strong id="rec-save-title"></strong>
           </div>
-          <div style="display:flex;gap:8px;flex-wrap:wrap">
-            <button class="btn btn-primary btn-sm" onclick="window._recUpload()">Upload to Cloud</button>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+            <button class="btn btn-primary btn-sm" onclick="window._recUpload()">Download recording</button>
+            <span style="font-size:.72rem;color:var(--text-tertiary)">Cloud upload not configured in this deployment</span>
           </div>
         </div>
       </div>
@@ -5207,9 +5153,8 @@ export async function pgTelehealthRecorder(setTopbar) {
       _recStartTime = Date.now();
       _recTimerInterval = setInterval(_recUpdateTimer, 500);
 
-      // Simulate transcript every 8 seconds
-      window._recSimInterval = setInterval(_recSimulateLine, 8000);
-      _recSimulateLine(); // immediate first line
+      // Real speech-to-text via Web Speech API where available; no simulation.
+      _recStartSpeechRecognition();
 
       _recSetStatus('recording');
       _recRefreshButtons();
@@ -5231,7 +5176,7 @@ export async function pgTelehealthRecorder(setTopbar) {
     if (_recMediaRecorder && _recMediaRecorder.state === 'recording') {
       _recMediaRecorder.pause();
       clearInterval(_recTimerInterval);
-      clearInterval(window._recSimInterval);
+      _recStopSpeechRecognition();
       _recSetStatus('paused');
       _recRefreshButtons();
     }
@@ -5242,7 +5187,7 @@ export async function pgTelehealthRecorder(setTopbar) {
     if (_recMediaRecorder && _recMediaRecorder.state === 'paused') {
       _recMediaRecorder.resume();
       _recTimerInterval = setInterval(_recUpdateTimer, 500);
-      window._recSimInterval = setInterval(_recSimulateLine, 8000);
+      _recStartSpeechRecognition();
       _recSetStatus('recording');
       _recRefreshButtons();
     }
@@ -5253,7 +5198,7 @@ export async function pgTelehealthRecorder(setTopbar) {
     if (!_recMediaRecorder || _recMediaRecorder.state === 'inactive') return;
 
     clearInterval(_recTimerInterval);
-    clearInterval(window._recSimInterval);
+    _recStopSpeechRecognition();
 
     const durationMs = _recStartTime ? Date.now() - _recStartTime : 0;
     const durationFmt = _recFormatTime(durationMs);
