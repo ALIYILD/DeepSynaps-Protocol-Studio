@@ -696,8 +696,10 @@ window.demoLogin = async function(token) {
     }
   } catch (_) {}
 
-  // Dev-only offline fallback
-  if (import.meta.env.DEV) {
+  // Offline demo fallback — active in local dev OR when the build was
+  // produced with VITE_ENABLE_DEMO=1 (used for preview / Netlify demo deploys).
+  const _demoEnabled = import.meta.env.DEV || import.meta.env.VITE_ENABLE_DEMO === '1';
+  if (_demoEnabled) {
     const demoUser = DEMO_USERS[token];
     if (demoUser) {
       api.setToken(token);

@@ -1,0 +1,36 @@
+# Netlify config for the `deepsynaps-studio-preview` site.
+#
+# The build happens inside apps/web. VITE_ENABLE_DEMO=1 lets the
+# landing-page demo buttons short-circuit into the offline demo user
+# map — so reviewers can sign in as Clinician / Patient without the
+# backend needing the newer /auth/demo-login endpoint.
+#
+# VITE_API_BASE_URL points at the production Fly API; real GET requests
+# (health, openapi-discoverable endpoints) still work against it.
+#
+# Site: https://deepsynaps-studio-preview.netlify.app
+# Site ID: 13baea11-07e8-4ab3-9c25-af1f045c845b
+
+[build]
+  base    = "apps/web"
+  command = "npm install --no-audit --no-fund && npx vite build"
+  publish = "dist"
+
+[build.environment]
+  NODE_VERSION        = "20"
+  NPM_FLAGS           = "--prefix=/dev/null"
+  VITE_ENABLE_DEMO    = "1"
+  VITE_API_BASE_URL   = "https://deepsynaps-studio.fly.dev"
+
+# SPA routing: every unknown path falls back to index.html so the Vite
+# hash router owns navigation.
+[[redirects]]
+  from   = "/*"
+  to     = "/index.html"
+  status = 200
+
+# Sensible defaults for static assets.
+[[headers]]
+  for = "/assets/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
