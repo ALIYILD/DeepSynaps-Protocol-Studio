@@ -4176,10 +4176,23 @@ export async function pgMonitorHub(setTopbar, navigate) {
         </div>
         <div class="ch-card">
           <div class="ch-card-hd"><span class="ch-card-title">Adverse Events</span><button class="ch-btn-sm ch-btn-teal" onclick="window._nav?.('adverse-events')" title="Open the Adverse Events page to report a new AE">+ Report AE</button></div>
-          ${display.map(ae=>'<div class="book-row"><div class="book-datetime"><div class="book-date">'+ae.date+'</div></div><div class="book-info"><div class="book-patient">'+ae.patient_name+'</div><div class="book-clinician">'+ae.type+'</div>'+(ae.notes?'<div class="book-notes">'+ae.notes+'</div>':'')+'</div><div class="book-status-col"><span class="book-status-badge" style="color:'+(sevC[ae.severity]||'var(--text-tertiary)')+';background:'+(sevC[ae.severity]||'var(--text-tertiary)')+'22">'+ae.severity+'</span></div><div class="book-status-col"><span class="book-status-badge" style="color:'+(stC[ae.status]||'var(--text-tertiary)')+';background:'+(stC[ae.status]||'var(--text-tertiary)')+'22">'+ae.status+'</span></div><div class="book-actions"><button class="ch-btn-sm" onclick="window._dsToast?.({title:\'AE\',body:\''+ae.type+'\',severity:\'info\'})">View</button></div></div>').join('')}
+          ${display.map(ae=>'<div class="book-row" id="ae-row-'+ae.id+'"><div class="book-datetime"><div class="book-date">'+ae.date+'</div></div><div class="book-info"><div class="book-patient">'+ae.patient_name+'</div><div class="book-clinician">'+ae.type+'</div>'+(ae.notes?'<div class="book-notes">'+ae.notes+'</div>':'')+'</div><div class="book-status-col"><span class="book-status-badge" style="color:'+(sevC[ae.severity]||'var(--text-tertiary)')+';background:'+(sevC[ae.severity]||'var(--text-tertiary)')+'22">'+ae.severity+'</span></div><div class="book-status-col"><span class="book-status-badge" style="color:'+(stC[ae.status]||'var(--text-tertiary)')+';background:'+(stC[ae.status]||'var(--text-tertiary)')+'22">'+ae.status+'</span></div><div class="book-actions"><button class="ch-btn-sm" onclick="window._dsToast?.({title:\'AE\',body:\''+ae.type+'\',severity:\'info\'})">View</button></div></div>').join('')}
         </div>
       </div>
     </div>`;
+    const _aeDeepId = window._monitorHubAEId;
+    if (_aeDeepId) {
+      requestAnimationFrame(() => {
+        const row = document.getElementById('ae-row-' + _aeDeepId);
+        if (row) {
+          row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          row.style.transition = 'background-color 1.4s';
+          row.style.backgroundColor = 'rgba(255, 181, 71, 0.18)';
+          setTimeout(() => { row.style.backgroundColor = ''; }, 1600);
+        }
+      });
+      window._monitorHubAEId = null;
+    }
   }
   else if (tab === 'notes') {
     setTopbar('Monitor', '');
