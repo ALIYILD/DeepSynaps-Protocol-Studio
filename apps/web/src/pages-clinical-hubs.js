@@ -5314,7 +5314,10 @@ export async function pgAssessmentsHub(setTopbar, navigate) {
 
   setTopbar(
     'Assessments',
+    '<span id="dv2a-demo-chip" style="display:none;font-size:10px;font-weight:700;color:var(--amber,#ffb547);background:rgba(255,181,71,0.14);border:1px solid rgba(255,181,71,0.35);padding:2px 8px;border-radius:999px;margin-right:8px;letter-spacing:0.04em">DEMO DATA</span>' +
     '<span style="font-size:11px;color:var(--text-tertiary);margin-right:10px">14 instruments · <strong style="color:var(--rose)">2 red flags</strong> · <strong style="color:var(--amber)">8 overdue</strong></span>' +
+    '<button class="btn btn-ghost btn-sm" title="Refresh queue" onclick="window._ahRefresh()">↻ Refresh</button>' +
+    '<button class="btn btn-ghost btn-sm" title="Export CSV" onclick="window._ahExportCsv()">Export CSV</button>' +
     '<button class="btn btn-ghost btn-sm" onclick="window._assessBatch()">Batch send</button>' +
     '<button class="btn btn-primary btn-sm" onclick="window._assessNew()">+ New assessment</button>'
   );
@@ -5485,6 +5488,47 @@ export async function pgAssessmentsHub(setTopbar, navigate) {
 .dv2a-crisis-body strong { color:var(--text-primary); }
 .dv2a-crisis-actions { display:flex; gap:10px; justify-content:flex-end; }
 
+/* Fillable assessment form modal */
+.dv2a-form-overlay { position:fixed; inset:0; background:rgba(0,0,0,0.72); backdrop-filter:blur(4px); z-index:9998; display:flex; align-items:flex-start; justify-content:center; padding:40px 16px; overflow-y:auto; }
+.dv2a-form-modal { width:min(780px,95vw); background:var(--bg-panel,#0d1b22); border:1px solid var(--border); border-radius:12px; box-shadow:0 20px 60px rgba(0,0,0,0.5); display:flex; flex-direction:column; max-height:calc(100vh - 80px); }
+.dv2a-form-hd { display:flex; justify-content:space-between; align-items:flex-start; padding:18px 22px 14px; border-bottom:1px solid var(--border); }
+.dv2a-form-hd h2 { margin:0; font-size:16px; font-weight:700; color:var(--text-primary); letter-spacing:-0.01em; }
+.dv2a-form-hd .sub { font-size:11px; color:var(--text-tertiary); margin-top:3px; }
+.dv2a-form-close { width:30px; height:30px; border-radius:6px; background:transparent; border:1px solid var(--border); color:var(--text-tertiary); cursor:pointer; font-size:14px; line-height:1; display:inline-flex; align-items:center; justify-content:center; font-family:inherit; }
+.dv2a-form-close:hover { color:var(--text-primary); background:var(--bg-surface,#11222a); }
+.dv2a-form-body { flex:1; padding:18px 22px; overflow-y:auto; }
+.dv2a-form-license { font-size:10.5px; color:var(--text-tertiary); padding:8px 12px; background:rgba(74,158,255,0.06); border:1px solid rgba(74,158,255,0.25); border-radius:6px; margin-bottom:14px; line-height:1.5; }
+.dv2a-form-license.warn { background:rgba(255,181,71,0.08); border-color:rgba(255,181,71,0.3); color:var(--amber,#ffb547); }
+.dv2a-form-pt { display:flex; gap:8px; align-items:center; padding:10px 12px; background:var(--bg-surface,#11222a); border:1px solid var(--border); border-radius:8px; margin-bottom:14px; }
+.dv2a-form-pt input { flex:1; background:transparent; border:0; outline:none; font-size:13px; color:var(--text-primary); font-family:inherit; }
+.dv2a-form-pt .dv2a-form-pt-results { position:absolute; background:var(--bg-panel,#0d1b22); border:1px solid var(--border); border-radius:6px; max-height:180px; overflow-y:auto; z-index:1; }
+.dv2a-form-item { padding:12px 0; border-bottom:1px solid rgba(255,255,255,0.04); }
+.dv2a-form-item:last-child { border-bottom:0; }
+.dv2a-form-item.suicide { background:rgba(255,107,157,0.04); border:1px solid rgba(255,107,157,0.35); border-radius:6px; padding:12px 14px; margin:6px 0; }
+.dv2a-form-item-q { font-size:12.5px; color:var(--text-primary); line-height:1.5; margin-bottom:8px; display:flex; gap:6px; }
+.dv2a-form-item-num { font-family:var(--font-mono,ui-monospace,monospace); font-size:11px; color:var(--text-tertiary); flex-shrink:0; width:22px; }
+.dv2a-form-opts { display:flex; flex-wrap:wrap; gap:6px; padding-left:26px; }
+.dv2a-form-opt { flex:1 1 auto; min-width:90px; padding:7px 10px; font-size:11.5px; color:var(--text-secondary); background:var(--bg-surface,#11222a); border:1px solid var(--border); border-radius:5px; cursor:pointer; font-family:inherit; transition:all 0.1s; text-align:center; }
+.dv2a-form-opt:hover { border-color:rgba(0,212,188,0.35); color:var(--teal,#00d4bc); }
+.dv2a-form-opt.sel { background:rgba(0,212,188,0.16); border-color:var(--teal,#00d4bc); color:var(--teal,#00d4bc); font-weight:600; }
+.dv2a-form-item.suicide .dv2a-form-opt.sel { background:rgba(255,107,157,0.18); border-color:var(--rose,#ff6b9d); color:var(--rose,#ff6b9d); }
+.dv2a-form-foot { padding:14px 22px; border-top:1px solid var(--border); background:var(--bg-surface,#11222a); display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+.dv2a-form-preview { flex:1; min-width:220px; display:flex; flex-direction:column; gap:4px; font-size:11.5px; }
+.dv2a-form-preview .row { display:flex; justify-content:space-between; gap:8px; }
+.dv2a-form-preview .row .lbl { color:var(--text-tertiary); }
+.dv2a-form-preview .row .val { font-family:var(--font-mono,ui-monospace,monospace); color:var(--text-primary); font-weight:600; }
+.dv2a-form-preview .row .val.sev { color:var(--rose,#ff6b9d); }
+.dv2a-form-preview .row .val.mods { color:var(--amber,#ffb547); }
+.dv2a-form-preview .row .val.mod { color:var(--blue,#4a9eff); }
+.dv2a-form-preview .row .val.mild { color:var(--teal,#00d4bc); }
+.dv2a-form-suicide-warn { padding:10px 14px; background:rgba(255,107,157,0.08); border:1px solid rgba(255,107,157,0.35); color:var(--rose,#ff6b9d); font-size:11.5px; border-radius:6px; margin:0 22px 10px; display:flex; gap:8px; align-items:center; }
+.dv2a-form-submit { padding:9px 16px; font-size:12px; font-weight:700; background:var(--teal,#00d4bc); color:#04121c; border:0; border-radius:6px; cursor:pointer; font-family:inherit; letter-spacing:0.02em; }
+.dv2a-form-submit:hover { background:#3fe3d0; }
+.dv2a-form-submit.amber { background:var(--amber,#ffb547); }
+.dv2a-form-submit:disabled { opacity:0.5; cursor:not-allowed; }
+.dv2a-form-draft { padding:9px 14px; font-size:11.5px; font-weight:600; background:transparent; color:var(--text-secondary); border:1px solid var(--border); border-radius:6px; cursor:pointer; font-family:inherit; }
+.dv2a-form-draft:hover { border-color:rgba(0,212,188,0.35); color:var(--teal,#00d4bc); }
+
 @media (max-width:1180px) {
   .dv2a-side { width:340px; min-width:320px; }
   .dv2a-kpi-row { grid-template-columns:repeat(3,1fr); }
@@ -5514,37 +5558,79 @@ export async function pgAssessmentsHub(setTopbar, navigate) {
     { id:'as-10', patient:'Jamal Thompson', mrn:'10539', avInit:'JT', avCls:'d', dx:'14M · ADHD · guardian co-complete', inst:'Vanderbilt (peds)', instSub:'parent + teacher', score:18, max:54, sev:'mod', sevLabel:'Stable', trend:'−1 pt · plateau', trendCls:'flat', sparkline:[19,19,19,18,18,19,18], due:'Fri Apr 18', dueCls:'soon', mode:'ASYNC', modeSub:'guardian portal', sendLabel:'Send' },
   ];
 
+  // Load scoring engine (soft-fail — falls back to sum-based scoring if unavailable)
+  let scoringEngine = null;
+  try { scoringEngine = await import('./scoring-engine.js'); } catch {}
+
+  // Hydrate queue from backend, transforming records into the Queue row shape.
+  // Port of the legacy `hydrate()` in pages-clinical-tools.js — preserves backend
+  // ids so Submit/Approve/Score later can round-trip.
   let queueRows = MOCK_QUEUE;
+  let usingDemoData = true;
   try {
     const apiRes = await (api.listAssessments?.() || Promise.reject());
-    if (apiRes && Array.isArray(apiRes.items) && apiRes.items.length) {
-      const merged = apiRes.items.slice(0, 14).map((a, i) => ({
-        id: a.id || ('as-be-' + i),
-        patient: a.patient_name || a.patient_id || 'Patient',
-        mrn: a.mrn || '—',
-        avInit: (a.patient_name || 'P').split(' ').map(x => x[0]).slice(0,2).join(''),
-        avCls: ['a','b','c','d','e'][i % 5],
-        dx: a.diagnosis || '—',
-        inst: a.instrument || a.scale || 'PHQ-9',
-        instSub: a.cadence || '',
-        score: a.score ?? null,
-        max: a.max_score ?? 27,
-        item9: a.item9 ?? 0,
-        sev: 'mod',
-        sevLabel: a.severity_label || '—',
-        trend: a.trend_label || '',
-        trendCls: 'flat',
-        sparkline: a.sparkline || [],
-        due: a.due_label || '—',
-        dueCls: a.overdue ? 'overdue' : (a.due_today ? 'today' : 'soon'),
-        mode: a.delivery_mode || 'ASYNC',
-        modeSub: a.delivery_sub || '',
-        redflag: (a.item9 ?? 0) >= 1,
-        sendLabel: a.overdue ? 'Resend' : 'Open',
-      }));
-      if (merged.length) queueRows = merged;
+    const items = Array.isArray(apiRes) ? apiRes : ((apiRes && apiRes.items) || []);
+    if (items.length) {
+      const merged = items.slice(0, 40).map((a, i) => {
+        const sid = a.scale_id || a.scale || a.instrument || a.template_id || 'PHQ-9';
+        const score = (a.score == null ? (a.data && a.data.score) : a.score);
+        const itemsArr = (a.data && a.data.items) || a.items || null;
+        const item9 = (Array.isArray(itemsArr) && itemsArr.length >= 9) ? Number(itemsArr[8]) || 0 : (a.item9 ?? 0);
+        const max = a.max_score ?? (ASSESS_REGISTRY.find(x => x.id === sid || x.abbr === sid)?.max ?? 27);
+        // Severity band
+        let sev = 'mod', sevLabel = a.severity_label || '—';
+        if (score != null && scoringEngine?.interpretScore) {
+          const interp = scoringEngine.interpretScore(sid, Number(score));
+          if (interp) {
+            sev = ({ minimal:'mild', mild:'mild', moderate:'mod', severe:'mods', critical:'sev' })[interp.severity] || 'mod';
+            sevLabel = interp.label;
+          }
+        }
+        const overdue = !!a.overdue || (a.due_date && new Date(a.due_date) < new Date());
+        const patientName = a.patient_name || a.patient_id || 'Patient';
+        return {
+          id: 'be-' + (a.id || i),
+          backendId: a.id,
+          patientId: a.patient_id || a.patientId || '',
+          scaleId: sid,
+          patient: patientName,
+          mrn: a.mrn || (a.patient_id ? String(a.patient_id).slice(0, 8) : '—'),
+          avInit: patientName.split(' ').map(x => x[0]).slice(0,2).join('').toUpperCase() || 'PT',
+          avCls: ['a','b','c','d','e'][i % 5],
+          dx: a.diagnosis || a.condition_name || '—',
+          inst: sid,
+          instSub: a.cadence || a.phase || '',
+          score: (score == null ? null : Number(score)),
+          max,
+          item9,
+          sev,
+          sevLabel,
+          trend: a.trend_label || (a.status === 'completed' ? 'Completed' : 'Pending'),
+          trendCls: overdue ? 'up' : 'flat',
+          sparkline: a.sparkline || [],
+          due: a.due_label || (a.due_date ? new Date(a.due_date).toLocaleDateString() : '—'),
+          dueCls: overdue ? 'overdue' : (a.due_today ? 'today' : 'soon'),
+          overdue,
+          mode: a.delivery_mode || (a.respondent_type === 'patient' ? 'TABLET' : 'ASYNC'),
+          modeSub: a.delivery_sub || (a.respondent_type || ''),
+          redflag: item9 >= 1,
+          flagLabel: overdue ? 'OVERDUE' : null,
+          flagCls: overdue ? 'amber' : null,
+          sendLabel: (a.status === 'completed' && !a.reviewed) ? 'Review' : (overdue ? 'Resend' : 'Open'),
+          status: a.status,
+          reviewed: !!a.reviewed,
+          items: Array.isArray(itemsArr) ? itemsArr.map(Number) : null,
+        };
+      });
+      if (merged.length) { queueRows = merged; usingDemoData = false; }
     }
   } catch {}
+
+  // Reveal DEMO chip now that load has settled.
+  setTimeout(() => {
+    const chip = document.getElementById('dv2a-demo-chip');
+    if (chip) chip.style.display = usingDemoData ? 'inline-block' : 'none';
+  }, 0);
 
   // ── State & handlers ─────────────────────────────────────────────────────────
   window._assessSelect = (id) => { window._assessSelectedId = id; window._nav('assessments-v2'); };
@@ -5555,12 +5641,60 @@ export async function pgAssessmentsHub(setTopbar, navigate) {
   window._assessReschedule = (id) => window._dsToast?.({ title:'Reschedule', body:'Assessment '+id+' — pick a new date.', severity:'info' });
   window._assessExportPdf = (id) => window._dsToast?.({ title:'Export PDF', body:'Generating PDF for '+id+'…', severity:'info' });
   window._assessCosign = async (id) => {
+    // `id` here is the row id ("be-<backendId>" or mock "as-X"). Use backendId when present.
+    const row = queueRows.find(r => r.id === id);
+    const bid = row?.backendId || id;
     try {
-      await (api.approveAssessment?.(id, { approved:true }) || Promise.resolve());
-      window._dsToast?.({ title:'Co-signed', body:'Assessment '+id+' signed.', severity:'success' });
-    } catch {
+      await (api.approveAssessment?.(bid, { approved:true }) || Promise.resolve());
+      window._dsToast?.({ title:'Co-signed', body:'Assessment signed.', severity:'success' });
+      window._nav('assessments-v2');
+    } catch (err) {
+      try {
+        const raw = localStorage.getItem('ds_assessment_approvals') || '[]';
+        const arr = JSON.parse(raw);
+        arr.push({ id: bid, approved_at: new Date().toISOString(), user: (currentUser?.email || 'clinician') });
+        localStorage.setItem('ds_assessment_approvals', JSON.stringify(arr));
+      } catch {}
       window._dsToast?.({ title:'Co-signed (offline)', body:'Saved locally; will sync.', severity:'success' });
     }
+  };
+
+  // ── Refresh button ───────────────────────────────────────────────────────────
+  window._ahRefresh = () => {
+    window._dsToast?.({ title:'Refreshing', body:'Re-loading assessments from server…', severity:'info' });
+    window._nav('assessments-v2');
+  };
+
+  // ── CSV export ───────────────────────────────────────────────────────────────
+  window._ahExportCsv = async () => {
+    // Prefer backend CSV if endpoint is present; fall back to building locally from current queueRows.
+    try {
+      const res = await (api.exportAssessmentsCSV?.() || Promise.reject());
+      if (res && res.csv) {
+        const blob = new Blob([res.csv], { type:'text/csv' });
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = 'assessments-' + new Date().toISOString().slice(0,10) + '.csv';
+        a.click();
+        setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+        window._dsToast?.({ title:'Export complete', body:'Saved '+(res.csv.split('\n').length-1)+' rows.', severity:'success' });
+        return;
+      }
+    } catch {}
+    // Local fallback
+    const headers = ['id','patient','mrn','instrument','score','max','severity','due','status'];
+    const lines = [headers.join(',')];
+    queueRows.forEach(r => {
+      const row = [r.backendId || r.id, r.patient, r.mrn, r.inst, (r.score==null?'':r.score), r.max, r.sevLabel, r.due, r.status || ''];
+      lines.push(row.map(v => '"' + String(v == null ? '' : v).replace(/"/g,'""') + '"').join(','));
+    });
+    const blob = new Blob([lines.join('\n')], { type:'text/csv' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'assessments-' + new Date().toISOString().slice(0,10) + '.csv';
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+    window._dsToast?.({ title:'Export complete (local)', body:'Exported '+queueRows.length+' rows from current view.', severity:'success' });
   };
 
   // ── Crisis escalation (real behavior) ────────────────────────────────────────
@@ -5598,6 +5732,358 @@ export async function pgAssessmentsHub(setTopbar, navigate) {
     }
     document.getElementById('dv2a-crisis-modal')?.remove();
     window._dsToast?.({ title:'Crisis escalated', body:'Supervisor notified · audit logged', severity:'error' });
+  };
+
+  // ── Scoring helper (uses scoring-engine.js when available, else sum) ─────────
+  function _ahScore(instId, itemValues) {
+    const inst = ASSESS_REGISTRY.find(x => x.id === instId || x.abbr === instId);
+    if (scoringEngine?.scoreAssessment) {
+      const res = scoringEngine.scoreAssessment(instId, itemValues);
+      if (res && res.raw != null) {
+        return {
+          total: res.raw,
+          max: inst?.max || 0,
+          interpretation: res.interpretation || null,
+          subscales: res.subscales || {},
+          subscaleInterp: res.subscaleInterpretations || {},
+          complete: res.complete,
+          missing: res.missingItems || [],
+          safety: res.safety || [],
+        };
+      }
+    }
+    // Sum fallback
+    const vals = (itemValues || []).map(v => (v == null || v === '' || Number.isNaN(Number(v))) ? null : Number(v));
+    const total = vals.reduce((a,b) => a + (b == null ? 0 : b), 0);
+    const missing = [];
+    const expected = (inst?.questions?.length) || vals.length;
+    for (let i = 0; i < expected; i++) if (vals[i] == null) missing.push(i+1);
+    let interpretation = null;
+    if (typeof inst?.interpret === 'function') {
+      try { interpretation = inst.interpret(total); } catch {}
+    }
+    return {
+      total,
+      max: inst?.max || 0,
+      interpretation: interpretation ? { label: interpretation.label, severity: null } : null,
+      subscales: {},
+      subscaleInterp: {},
+      complete: missing.length === 0,
+      missing,
+      safety: [],
+    };
+  }
+  // Map severity token → css class used in preview rows.
+  function _ahSevClass(sev) {
+    return ({ minimal:'mild', mild:'mild', moderate:'mod', severe:'mods', critical:'sev' })[sev] || '';
+  }
+
+  // ── Open fillable form modal ─────────────────────────────────────────────────
+  // Stores current form state on window._ahForm so re-renders (patient search)
+  // can read it back. Values are 1-indexed in UI but stored 0-indexed in array.
+  window._ahOpenForm = async (instrumentId, patientId, backendId) => {
+    const inst = ASSESS_REGISTRY.find(x => x.id === instrumentId || x.abbr === instrumentId);
+    if (!inst) {
+      window._dsToast?.({ title:'Unknown instrument', body:'Instrument '+instrumentId+' not found.', severity:'warn' });
+      return;
+    }
+    const existing = document.getElementById('dv2a-form-overlay');
+    if (existing) existing.remove();
+
+    // Determine item count + option scale
+    const rule = scoringEngine?.getScoringRule?.(inst.id) || null;
+    const itemCount = Array.isArray(inst.questions) ? inst.questions.length : (rule?.items || 0);
+    const scale = rule?.itemScale || (() => {
+      // Infer from inst.options like "Not at all (0)" → "Nearly every day (3)"
+      const opts = inst.options || [];
+      const nums = opts.map(o => { const m = String(o).match(/\((\d+)\)\s*$/); return m ? Number(m[1]) : null; }).filter(n => n != null);
+      if (nums.length) return [Math.min(...nums), Math.max(...nums)];
+      return [0, 3];
+    })();
+
+    const licenseAllowed = !!inst.licensing?.embedded_text_allowed && Array.isArray(inst.questions) && inst.questions.length > 0;
+
+    // Seed patient — from row if backendId provided, else let user pick.
+    let patientName = '';
+    if (backendId) {
+      const row = queueRows.find(r => r.backendId === backendId || r.id === backendId || r.id === 'be-'+backendId);
+      if (row) { patientId = patientId || row.patientId; patientName = row.patient; }
+    } else if (patientId) {
+      const row = queueRows.find(r => r.patientId === patientId);
+      if (row) patientName = row.patient;
+    }
+
+    window._ahForm = {
+      instrumentId: inst.id,
+      itemCount,
+      scale,
+      values: new Array(itemCount).fill(null),
+      patientId: patientId || '',
+      patientName: patientName || '',
+      backendId: backendId || null,
+    };
+
+    const renderForm = () => {
+      const state = window._ahForm;
+      const safeItemIdxs = (rule?.safetyItems || []).map(i => i - 1);
+      const phqSuicideIdx = /^PHQ-?9$/i.test(inst.id) ? 8 : -1;
+      if (phqSuicideIdx >= 0 && !safeItemIdxs.includes(phqSuicideIdx)) safeItemIdxs.push(phqSuicideIdx);
+
+      const itemsHtml = licenseAllowed ? inst.questions.map((q, i) => {
+        const sel = state.values[i];
+        const isSafety = safeItemIdxs.includes(i);
+        const opts = (inst.options || []).map((opt, oi) => {
+          const m = String(opt).match(/\((\d+)\)\s*$/);
+          const v = m ? Number(m[1]) : oi;
+          const selCls = sel === v ? ' sel' : '';
+          return '<button class="dv2a-form-opt'+selCls+'" onclick="window._ahSetItem('+i+','+v+')">'+esc(opt)+'</button>';
+        }).join('');
+        return '<div class="dv2a-form-item'+(isSafety?' suicide':'')+'">' +
+          '<div class="dv2a-form-item-q"><span class="dv2a-form-item-num">'+(i+1)+'.</span><span>'+esc(q)+(isSafety?' <span style="color:var(--rose,#ff6b9d);font-weight:700"> · safety item</span>':'')+'</span></div>' +
+          '<div class="dv2a-form-opts">'+opts+'</div>' +
+        '</div>';
+      }).join('') : (
+        // Score-entry fallback for licensed/restricted instruments
+        '<div class="dv2a-form-license warn">This is a <strong>'+(inst.licensing?.tier||'licensed')+'</strong> instrument. Administer the scale via your authorized copy, then enter the total below.</div>' +
+        '<div style="display:flex;gap:10px;align-items:center">'+
+          '<label style="font-size:12px;color:var(--text-secondary);flex:1">Total score (0–'+(inst.max||'—')+')</label>'+
+          '<input id="dv2a-form-total-direct" type="number" min="0" max="'+(inst.max||'')+'" style="width:120px;padding:8px 10px;background:var(--bg-surface,#11222a);border:1px solid var(--border);border-radius:6px;font-size:13px;color:var(--text-primary);font-family:var(--font-mono,ui-monospace,monospace)" oninput="window._ahSetDirect(this.value)" value="'+(state.directTotal!=null?state.directTotal:'')+'"/>'+
+        '</div>'
+      );
+
+      const licenseHtml = inst.licensing?.attribution
+        ? '<div class="dv2a-form-license">'+esc(inst.licensing.attribution)+(inst.licensing.source ? ' · '+esc(inst.licensing.source) : '')+'</div>'
+        : '';
+
+      // Score preview
+      let total = 0, interp = null, missing = [], safety = [], subscales = {}, maxVal = inst.max || 0;
+      if (licenseAllowed) {
+        const res = _ahScore(inst.id, state.values);
+        total = res.total || 0;
+        interp = res.interpretation;
+        missing = res.missing;
+        safety = res.safety;
+        subscales = res.subscales;
+        maxVal = res.max || maxVal;
+      } else if (state.directTotal != null && state.directTotal !== '') {
+        total = Number(state.directTotal) || 0;
+        try { interp = typeof inst.interpret === 'function' ? inst.interpret(total) : null; } catch {}
+        if (interp && !interp.severity && scoringEngine?.interpretScore) {
+          const i2 = scoringEngine.interpretScore(inst.id, total);
+          if (i2) interp = i2;
+        }
+      }
+
+      const sevCls = _ahSevClass(interp?.severity);
+      const item9 = phqSuicideIdx >= 0 ? state.values[phqSuicideIdx] : null;
+      const suicideFlagged = (item9 != null && item9 >= 1) || safety.some(s => s.flagged);
+
+      const previewRows =
+        '<div class="row"><span class="lbl">Total</span><span class="val">'+total+(maxVal?' / '+maxVal:'')+'</span></div>' +
+        (interp ? '<div class="row"><span class="lbl">Severity</span><span class="val '+sevCls+'">'+esc(interp.label || '—')+'</span></div>' : '') +
+        (Object.keys(subscales).length ? '<div class="row"><span class="lbl">Subscales</span><span class="val" style="text-align:right">'+Object.entries(subscales).map(([k,v]) => esc(k)+': '+(v==null?'—':v)).join(' · ')+'</span></div>' : '') +
+        (missing.length ? '<div class="row"><span class="lbl" style="color:var(--amber,#ffb547)">Missing</span><span class="val" style="color:var(--amber,#ffb547)">items '+missing.join(', ')+'</span></div>' : '');
+
+      const warnBanner = suicideFlagged
+        ? '<div class="dv2a-form-suicide-warn"><span>⚠</span><span>Patient indicated <strong>suicidality</strong> — crisis protocol will be triggered on submit.</span></div>'
+        : '';
+
+      const canSubmit = licenseAllowed ? missing.length === 0 : (state.directTotal != null && state.directTotal !== '');
+
+      return '<div class="dv2a-form-modal" role="dialog" aria-labelledby="dv2a-form-title">' +
+        '<div class="dv2a-form-hd">' +
+          '<div><h2 id="dv2a-form-title">'+esc(inst.abbr || inst.id)+' · '+esc(inst.t || '')+'</h2><div class="sub">v'+esc(inst.scoringKey || inst.id)+'@1 · '+esc(inst.cat||'—')+' · '+itemCount+' items · max '+(inst.max||'—')+'</div></div>' +
+          '<button class="dv2a-form-close" onclick="window._ahCloseForm()" aria-label="Close">✕</button>' +
+        '</div>' +
+        '<div class="dv2a-form-body">' +
+          licenseHtml +
+          // Patient picker
+          '<div class="dv2a-form-pt">' +
+            '<label style="font-size:10px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.06em;font-weight:700;margin-right:4px">Patient</label>' +
+            '<input id="dv2a-form-pt" placeholder="Search patient name or MRN" value="'+esc(state.patientName || state.patientId || '')+'" oninput="window._ahSetPatient(this.value)"/>' +
+          '</div>' +
+          itemsHtml +
+        '</div>' +
+        warnBanner +
+        '<div class="dv2a-form-foot">' +
+          '<div class="dv2a-form-preview">'+previewRows+'</div>' +
+          '<button class="dv2a-form-draft" onclick="window._ahSaveDraft()">Save draft</button>' +
+          '<button class="dv2a-form-submit'+(suicideFlagged?' amber':'')+'" onclick="window._ahSubmit()"'+(canSubmit?'':' disabled')+'>'+(suicideFlagged?'Submit + escalate →':'Submit →')+'</button>' +
+        '</div>' +
+      '</div>';
+    };
+
+    const overlay = document.createElement('div');
+    overlay.id = 'dv2a-form-overlay';
+    overlay.className = 'dv2a-form-overlay';
+    overlay.innerHTML = renderForm();
+    document.body.appendChild(overlay);
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) window._ahCloseForm(); });
+
+    window._ahRender = () => {
+      const o = document.getElementById('dv2a-form-overlay');
+      if (!o) return;
+      // Preserve focused input so typing in patient field isn't disrupted
+      const focused = document.activeElement;
+      const focusedId = focused?.id;
+      const caret = (focusedId === 'dv2a-form-pt') ? focused.selectionStart : null;
+      o.innerHTML = renderForm();
+      if (focusedId) {
+        const n = document.getElementById(focusedId);
+        if (n) { n.focus(); if (caret != null && n.setSelectionRange) try { n.setSelectionRange(caret, caret); } catch {} }
+      }
+    };
+
+    window._ahSetItem = (idx, v) => {
+      const s = window._ahForm; if (!s) return;
+      s.values[idx] = (s.values[idx] === v) ? null : v;
+      window._ahRender();
+    };
+    window._ahSetDirect = (v) => {
+      const s = window._ahForm; if (!s) return;
+      s.directTotal = v;
+      window._ahRender();
+    };
+    window._ahSetPatient = (v) => {
+      const s = window._ahForm; if (!s) return;
+      s.patientName = v;
+      // If the typed text matches a known queue row, latch the id.
+      const match = queueRows.find(r => r.patient && r.patient.toLowerCase() === v.toLowerCase());
+      if (match) s.patientId = match.patientId || match.id;
+      // Don't re-render on every keystroke — patient field handles its own value.
+    };
+    window._ahCloseForm = () => {
+      document.getElementById('dv2a-form-overlay')?.remove();
+      window._ahForm = null;
+    };
+
+    window._ahSaveDraft = async () => {
+      const s = window._ahForm; if (!s) return;
+      const payload = {
+        patient_id: s.patientId || null,
+        scale_id: s.instrumentId,
+        status: 'draft',
+        data: { items: s.values, scale_id: s.instrumentId, source: 'assessments-hub-v2' },
+      };
+      try {
+        if (s.backendId) {
+          await api.updateAssessment(s.backendId, payload);
+        } else {
+          const res = await api.createAssessment(payload);
+          if (res && res.id) s.backendId = res.id;
+        }
+        window._dsToast?.({ title:'Draft saved', body:'Progress saved — return later to finish.', severity:'success' });
+      } catch {
+        // Local fallback — stash in localStorage so it's not lost.
+        try {
+          const key = 'ds_assessment_drafts';
+          const arr = JSON.parse(localStorage.getItem(key) || '[]');
+          arr.push({ ...payload, saved_at: new Date().toISOString() });
+          localStorage.setItem(key, JSON.stringify(arr));
+        } catch {}
+        window._dsToast?.({ title:'Draft saved (offline)', body:'Saved locally; will sync.', severity:'info' });
+      }
+    };
+
+    window._ahSubmit = async () => {
+      const s = window._ahForm; if (!s) return;
+      const instId = s.instrumentId;
+      const licensedInline = licenseAllowed;
+      let total, interp, itemsArr, safety = [];
+      if (licensedInline) {
+        const res = _ahScore(instId, s.values);
+        if (!res.complete) {
+          window._dsToast?.({ title:'Incomplete', body:'Please answer all items (missing: '+res.missing.join(', ')+').', severity:'warn' });
+          return;
+        }
+        total = res.total;
+        interp = res.interpretation;
+        itemsArr = s.values.slice();
+        safety = res.safety;
+      } else {
+        if (s.directTotal == null || s.directTotal === '') {
+          window._dsToast?.({ title:'No score', body:'Enter a total score first.', severity:'warn' });
+          return;
+        }
+        total = Number(s.directTotal);
+        try { interp = typeof inst.interpret === 'function' ? inst.interpret(total) : null; } catch {}
+        if ((!interp || !interp.severity) && scoringEngine?.interpretScore) interp = scoringEngine.interpretScore(instId, total) || interp;
+        itemsArr = null;
+      }
+
+      const payload = {
+        patient_id: s.patientId || null,
+        scale_id: instId,
+        status: 'completed',
+        score: String(total),
+        data: {
+          score: total,
+          interpretation: interp?.label || null,
+          severity: interp?.severity || null,
+          items: itemsArr,
+          scale_id: instId,
+          source: 'assessments-hub-v2',
+          safety,
+        },
+      };
+
+      let savedId = s.backendId;
+      try {
+        if (s.backendId) {
+          await api.updateAssessment(s.backendId, payload);
+        } else {
+          const res = await api.createAssessment(payload);
+          savedId = res?.id || null;
+        }
+        window._dsToast?.({ title:'Submitted', body:(inst.abbr||instId)+' · '+total+(inst.max?'/'+inst.max:'')+' · '+(interp?.label||'scored'), severity:'success' });
+      } catch {
+        window._dsToast?.({ title:'Saved offline', body:'Will sync when backend is available.', severity:'info' });
+      }
+
+      // Fire-and-forget AI summary
+      if (savedId) { try { api.generateAssessmentSummary?.(savedId); } catch {} }
+
+      // Legacy sidecar for dashboard activity feed
+      try {
+        const runs = JSON.parse(localStorage.getItem('ds_assessment_runs') || '[]');
+        runs.push({
+          id: savedId,
+          patient_id: s.patientId || null,
+          patient_name: s.patientName || '',
+          scale_id: instId,
+          scale_name: inst.t || inst.abbr || instId,
+          score: total,
+          severity: interp?.severity || null,
+          interpretation: interp?.label || '',
+          completed_at: new Date().toISOString(),
+          clinician_id: (currentUser?.id || currentUser?.email || null),
+          status: 'completed',
+          source: 'assessments-hub-v2',
+        });
+        localStorage.setItem('ds_assessment_runs', JSON.stringify(runs));
+      } catch {}
+
+      // Dispatch event so dashboard can refresh its activity feed
+      try {
+        window.dispatchEvent(new CustomEvent('ds:assessment-submitted', {
+          detail: { id: savedId, patient_id: s.patientId, scale_id: instId, score: total, severity: interp?.severity || null },
+        }));
+        // Back-compat with legacy event name used by patient profile
+        window.dispatchEvent(new CustomEvent('ds-assessment-runs-updated', { detail: { patientId: s.patientId } }));
+      } catch {}
+
+      // Crisis escalation — PHQ-9 item 9 ≥ 1 or any safety flag
+      const item9 = /^PHQ-?9$/i.test(instId) && Array.isArray(itemsArr) && itemsArr.length >= 9 ? itemsArr[8] : null;
+      if ((item9 != null && item9 >= 1) || safety.some(x => x.flagged)) {
+        window._assessCrisis(s.patientId || 'unknown', s.patientName || 'Patient');
+      }
+
+      window._ahCloseForm();
+      window._nav('assessments-v2');
+    };
+
+    // Trigger an initial render of the footer preview (values already applied).
+    window._ahRender();
   };
 
   // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -5837,7 +6323,7 @@ export async function pgAssessmentsHub(setTopbar, navigate) {
       '</div>' +
       '<div class="dv2a-footer-actions">' +
         '<button class="btn btn-ghost btn-sm" style="flex:1" onclick="window._assessReschedule(\''+esc(row.id)+'\')">Reschedule</button>' +
-        '<button class="btn btn-ghost btn-sm" style="flex:1" onclick="window._assessExportPdf(\''+esc(row.id)+'\')">Export PDF</button>' +
+        '<button class="btn btn-ghost btn-sm" style="flex:1" onclick="window._ahOpenForm(\''+esc(row.scaleId || row.inst || 'PHQ-9')+'\',\''+esc(row.patientId||'')+'\',\''+esc(row.backendId||'')+'\')">Score now</button>' +
         '<button class="btn btn-primary btn-sm" style="flex:1.3" onclick="window._assessCosign(\''+esc(row.id)+'\')">Co-sign →</button>' +
       '</div>' +
     '</div>';
@@ -5880,7 +6366,36 @@ export async function pgAssessmentsHub(setTopbar, navigate) {
       '</tr>'
     ).join('');
 
-    return '<div class="dv2a-filter-bar"><button class="dv2a-chip">Instrument: any</button><button class="dv2a-chip">Window: last 30d</button><div style="margin-left:auto"><button class="btn btn-primary btn-sm" onclick="window._dsToast?.({title:\'Batch send\',body:\'Sending '+active.inst+' to '+active.n+' patients in '+active.label+'.\',severity:\'success\'})">Batch send to '+active.n+' →</button></div></div>' +
+    window._ahBulkAssign = async (cohortId, label, n, instruments) => {
+      const rows = queueRows.filter(r => r.patientId).slice(0, n);
+      if (!rows.length) {
+        window._dsToast?.({ title:'No patients', body:'No patients with IDs found in current queue for bulk assign.', severity:'warn' });
+        return;
+      }
+      // Pick the first instrument in the cohort config
+      const firstInstrument = (instruments || '').split(/[·,]/)[0].trim() || 'PHQ-9';
+      const dueDate = new Date(Date.now() + 7 * 864e5).toISOString().slice(0, 10);
+      try {
+        let succeeded = 0;
+        await Promise.all(rows.map(async r => {
+          try {
+            await api.bulkAssignAssessments({
+              patient_id: r.patientId,
+              template_ids: [firstInstrument.toLowerCase().replace(/[^a-z0-9]/g, '')],
+              phase: 'monitoring',
+              due_date: dueDate,
+              bundle_id: cohortId,
+            });
+            succeeded++;
+          } catch {}
+        }));
+        window._dsToast?.({ title:'Bulk assigned', body:firstInstrument+' sent to '+succeeded+' patients in '+label+'.', severity:'success' });
+        window._nav('assessments-v2');
+      } catch (err) {
+        window._dsToast?.({ title:'Bulk assign failed', body:(err && err.message) || 'Network error. Saved locally.', severity:'error' });
+      }
+    };
+    return '<div class="dv2a-filter-bar"><button class="dv2a-chip">Instrument: any</button><button class="dv2a-chip">Window: last 30d</button><div style="margin-left:auto"><button class="btn btn-primary btn-sm" onclick="window._ahBulkAssign(\''+esc(active.id)+'\',\''+esc(active.label)+'\','+active.n+',\''+esc(active.inst)+'\')">Batch send to '+active.n+' →</button></div></div>' +
       '<div class="dv2a-cohort-grid">' +
         '<div style="display:flex;flex-direction:column;gap:8px">' + cohortListHtml + '</div>' +
         '<div class="dv2a-card">' +
@@ -5892,26 +6407,43 @@ export async function pgAssessmentsHub(setTopbar, navigate) {
 
   // ── Library tab ──────────────────────────────────────────────────────────────
   function renderLibrary() {
-    const entries = ASSESS_REGISTRY.slice(0, 24);
+    const cat = (window._assessLibCat || 'all');
+    window._assessSetLibCat = (c) => { window._assessLibCat = c; window._nav('assessments-v2'); };
+    const allCats = Array.from(new Set(ASSESS_REGISTRY.map(e => e.cat || 'Other'))).sort();
+    const entries = cat === 'all' ? ASSESS_REGISTRY : ASSESS_REGISTRY.filter(e => (e.cat || 'Other') === cat);
+    const catBar = '<div class="dv2a-filter-bar" style="margin-bottom:10px">' +
+      '<button class="dv2a-chip'+(cat==='all'?' active':'')+'" onclick="window._assessSetLibCat(\'all\')">All · '+ASSESS_REGISTRY.length+'</button>' +
+      allCats.map(c => {
+        const n = ASSESS_REGISTRY.filter(e => (e.cat||'Other')===c).length;
+        return '<button class="dv2a-chip'+(cat===c?' active':'')+'" onclick="window._assessSetLibCat(\''+esc(c)+'\')">'+esc(c)+' · '+n+'</button>';
+      }).join('') + '</div>';
     const cards = entries.map(e => {
-      const cat = esc(e.cat || '—');
-      const items = Array.isArray(e.questions) ? e.questions.length : '—';
+      const catL = esc(e.cat || '—');
+      const nItems = Array.isArray(e.questions) ? e.questions.length : (scoringEngine?.getScoringRule?.(e.id)?.items || '—');
       const max = e.max != null ? e.max : '—';
-      const lic = e.licensing?.tier === 'public_domain' ? 'Public domain' : (e.licensing?.tier === 'licensed' ? 'Licensed' : '—');
-      return '<div class="dv2a-lib-card" onclick="window._assessOpenIndividual(\''+esc(e.id)+'\')">' +
+      const inlineOk = !!e.inline && Array.isArray(e.questions) && e.questions.length > 0;
+      const lic = e.licensing?.tier === 'public_domain' ? 'Public domain' :
+                  e.licensing?.tier === 'us_gov' ? 'US Gov' :
+                  e.licensing?.tier === 'academic' ? 'Academic' :
+                  e.licensing?.tier === 'licensed' ? 'Licensed' :
+                  e.licensing?.tier === 'restricted' ? 'Restricted' : '—';
+      const scored = scoringEngine?.getScoringRule?.(e.id) ? '<span style="color:var(--teal,#00d4bc)">✓ scored</span>' : (inlineOk ? '<span style="color:var(--blue,#4a9eff)">sum</span>' : '<span style="color:var(--text-tertiary)">score-entry</span>');
+      return '<div class="dv2a-lib-card" onclick="window._ahOpenForm(\''+esc(e.id)+'\')" title="Click to open fillable form">' +
         '<div class="dv2a-lib-abbr">'+esc(e.abbr||e.id)+'</div>' +
         '<div class="dv2a-lib-name">'+esc(e.t||e.abbr)+'</div>' +
-        '<div style="font-size:10px;color:var(--text-tertiary);margin-top:6px;line-height:1.4">'+esc(e.sub||'')+'</div>' +
+        '<div style="font-size:10px;color:var(--text-tertiary);margin-top:6px;line-height:1.4;min-height:26px">'+esc(e.sub||'')+'</div>' +
         '<div class="dv2a-lib-meta">' +
-          '<span>'+cat+'</span>' +
-          '<span>'+items+' items</span>' +
+          '<span>'+catL+'</span>' +
+          '<span>'+nItems+' items</span>' +
           '<span>max '+max+'</span>' +
           '<span>'+esc(lic)+'</span>' +
+          '<span style="background:transparent;padding:0">'+scored+'</span>' +
         '</div>' +
       '</div>';
     }).join('');
     window._assessOpenIndividual = (id) => { window._assessIndividualId = id; window._assessHubTab = 'individual'; window._nav('assessments-v2'); };
-    return '<div style="font-size:12px;color:var(--text-tertiary);margin-bottom:6px">Validated instruments across depression, anxiety, OCD, trauma, sleep, mania, pain, language, and QoL. Click a card to open its template.</div>' +
+    return '<div style="font-size:12px;color:var(--text-tertiary);margin-bottom:6px">Validated instruments across depression, anxiety, OCD, trauma, sleep, mania, pain, language, and QoL. <strong>Click a card to open its fillable form and compute the score on-platform.</strong></div>' +
+      catBar +
       '<div class="dv2a-lib-grid">'+cards+'</div>';
   }
 
@@ -5929,7 +6461,9 @@ export async function pgAssessmentsHub(setTopbar, navigate) {
     })();
 
     window._assessAssignForm = () => {
-      window._dsToast?.({ title:'Assigned', body:inst.abbr+' assigned to current patient.', severity:'success' });
+      // Open the fillable form directly so clinician can either complete now
+      // or use "Save draft" to assign for later.
+      window._ahOpenForm(inst.id);
     };
 
     return '<div class="dv2a-ind-wrap">' +

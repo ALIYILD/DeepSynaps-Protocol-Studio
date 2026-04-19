@@ -250,6 +250,14 @@ export const api = {
   getPatientAssessmentSummary: (patientId) => apiFetch(`/api/v1/assessments/summary/${encodeURIComponent(patientId)}`),
   getPatientAssessmentAIContext: (patientId) => apiFetch(`/api/v1/assessments/ai-context/${encodeURIComponent(patientId)}`),
   approveAssessment: (id, body) => apiFetch(`/api/v1/assessments/${id}/approve`, { method: 'POST', body: JSON.stringify(body || { approved: true }) }),
+  // Best-effort stubs consumed by the design-v2 Assessments Hub. The hub wraps
+  // every call in try/catch and falls back to mock/local state if the endpoint
+  // is missing, so these reject cleanly on a 404.
+  generateAssessmentSummary: (id) => apiFetch(`/api/v1/assessments/${encodeURIComponent(id)}/ai-summary`, { method: 'POST' }),
+  exportAssessmentsCSV: (params) => apiFetch(`/api/v1/assessments/export${params ? '?' + new URLSearchParams(params).toString() : ''}`),
+  getAssessmentDetail: (id) => apiFetch(`/api/v1/assessments/${encodeURIComponent(id)}`),
+  escalateCrisis: (patientId, payload) => apiFetch(`/api/v1/crisis-escalations`, { method: 'POST', body: JSON.stringify({ patient_id: patientId, ...(payload || {}) }) }),
+  listCohorts: () => apiFetchWithRetry('/api/v1/cohorts'),
 
   // ── Course-scoped reads (assessment severity, audit trail, AE roll-up) ──
   getCourseAssessmentSummary: (courseId) => apiFetch(`/api/v1/treatment-courses/${encodeURIComponent(courseId)}/assessment-summary`),

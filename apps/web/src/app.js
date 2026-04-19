@@ -1340,7 +1340,6 @@ async function renderPage() {
     case 'outcomes-redirect':{ window._clinicalHubTab = 'outcomes';    window._nav('assessments'); break; }
     case 'clinical-hub':
     case 'assessments':      { const { pgClinicalHub } = await loadClinicalHubs(); await pgClinicalHub(setTopbar, navigate); break; }
-    case 'assessments-v2':   { const { pgAssessmentsHub } = await loadClinicalTools(); await pgAssessmentsHub(setTopbar, navigate); break; }
     case 'documents':        { const { pgDocumentsHub }   = await loadClinicalTools(); await pgDocumentsHub(setTopbar);   break; }
     case 'brain-map-full':    { const { pgBrainMapPlanner } = await loadClinicalTools(); await pgBrainMapPlanner(setTopbar); break; }
     case 'prescriptions':        { window._patientHubTab = 'prescriptions'; window._nav('patients-hub'); break; }
