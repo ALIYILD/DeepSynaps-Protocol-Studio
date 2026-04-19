@@ -4780,7 +4780,40 @@ export async function pgReportsHubNew(setTopbar, navigate) {
   const _rKey = 'ds_reports_v1';
   const loadReports = () => { try { return JSON.parse(localStorage.getItem(_rKey)||'[]'); } catch { return []; } };
   const saveReports = r => { try { localStorage.setItem(_rKey, JSON.stringify(r.slice(0,50))); } catch {} };
-  const savedReports = loadReports();
+
+  // Merge backend-persisted reports with the local cache. Backend rows are
+  // authoritative (same id == same report); local-only rows (saved offline)
+  // stay visible until their next sync. Newest first by date.
+  async function fetchSavedReports() {
+    let backend = [];
+    if (api.listMyReports) {
+      try {
+        const res = await api.listMyReports();
+        const items = res?.items || res || [];
+        backend = items.map(r => ({
+          id: r.id,
+          name: r.title || ((r.type || 'clinician') + ' report'),
+          patient: r.patient_id || 'All Patients',
+          type: r.type || 'clinician',
+          date: (r.date || r.created_at || '').slice(0, 10),
+          status: r.status || 'generated',
+          content: r.content || '',
+          _source: 'backend',
+        }));
+      } catch (err) {
+        console.warn('[reports-hub] listMyReports failed; using local cache only:', err?.message || err);
+      }
+    }
+    const local = loadReports().map(r => ({ ...r, _source: r._source || 'local' }));
+    const byId = new Map();
+    backend.forEach(r => byId.set(r.id, r));
+    local.forEach(r => { if (!byId.has(r.id)) byId.set(r.id, r); });
+    const merged = Array.from(byId.values());
+    merged.sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')));
+    return merged;
+  }
+
+  const savedReports = await fetchSavedReports();
   const stC = { final:'var(--green)', draft:'var(--amber)', generated:'var(--teal)', error:'var(--red)' };
 
   let main = '';
@@ -4855,10 +4888,38 @@ export async function pgReportsHubNew(setTopbar, navigate) {
         if (content) content.textContent = typeName+'\nPatient: '+patName+'\nDate: '+new Date().toLocaleDateString()+'\n\nClinical report for '+patName+'.\n\n[Report content — edit as required]';
       }
     };
-    window._saveReport = () => {
+    window._saveReport = async () => {
       if (!window._lastReport) return;
+      const lr = window._lastReport;
+      const today = new Date().toISOString().slice(0,10);
+      const local = {
+        id: 'RPT-' + Date.now(),
+        name: lr.type + ' — ' + lr.patient,
+        patient: lr.patient,
+        type: lr.type,
+        date: today,
+        status: 'generated',
+        content: lr.content,
+      };
+      // Persist to backend first so the row survives across devices. Fall
+      // back to localStorage-only if the endpoint is unreachable. Either way
+      // the user lands on Recent; the next hydrate reconciles.
+      try {
+        const patId = document.getElementById('rep-patient')?.value || null;
+        const saved = api.createReport ? await api.createReport({
+          patient_id: patId,
+          type: lr.type,
+          title: lr.type + ' — ' + lr.patient,
+          content: lr.content,
+          report_date: today,
+          status: 'generated',
+        }) : null;
+        if (saved && saved.id) local.id = saved.id;
+      } catch (err) {
+        console.warn('[reports-hub] createReport failed (localStorage-only):', err?.message || err);
+      }
       const rpts = loadReports();
-      rpts.unshift({ id:'RPT-'+Date.now(), name:window._lastReport.type+' — '+window._lastReport.patient, patient:window._lastReport.patient, type:window._lastReport.type, date:new Date().toISOString().slice(0,10), status:'generated', content:window._lastReport.content });
+      rpts.unshift(local);
       saveReports(rpts);
       window._dsToast?.({title:'Saved',body:'Report saved to records.',severity:'success'});
       window._reportsHubTab='recent'; window._nav('reports-hub');

@@ -205,6 +205,139 @@ async def upload_report(
     }
 
 
+class ReportCreateRequest(BaseModel):
+    """JSON body for persisting a text-only clinical report (no file upload)."""
+    patient_id: Optional[str] = None
+    type: str = Field(default="clinician", max_length=40)
+    title: str = Field(..., max_length=240)
+    content: Optional[str] = None
+    report_date: Optional[str] = None
+    source: Optional[str] = None
+    summary: Optional[str] = None
+    status: str = Field(default="generated", max_length=40)
+
+
+class ReportOut(BaseModel):
+    id: str
+    patient_id: Optional[str] = None
+    type: str
+    title: str
+    content: Optional[str] = None
+    date: Optional[str] = None
+    source: Optional[str] = None
+    summary: Optional[str] = None
+    status: str
+    created_at: str
+
+
+class ReportListResponse(BaseModel):
+    items: list[ReportOut]
+    total: int
+
+
+def _deserialize_report(record: PatientMediaUpload) -> ReportOut:
+    """Unpack the JSON metadata we stored in patient_note on create."""
+    import json as _json
+    title = record.id
+    rtype = "clinician"
+    source: Optional[str] = None
+    report_date: Optional[str] = None
+    if record.patient_note:
+        try:
+            meta = _json.loads(record.patient_note)
+            title = meta.get("title", title)
+            rtype = meta.get("report_type", rtype)
+            source = meta.get("source")
+            report_date = meta.get("report_date")
+        except (ValueError, KeyError):
+            pass
+    return ReportOut(
+        id=record.id,
+        patient_id=record.patient_id,
+        type=rtype,
+        title=title,
+        content=record.text_content,
+        date=report_date,
+        source=source,
+        summary=None,
+        status=record.status or "generated",
+        created_at=(record.created_at or datetime.now(timezone.utc)).isoformat(),
+    )
+
+
+@router.post("", response_model=ReportOut, status_code=201)
+def create_report(
+    body: ReportCreateRequest,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> ReportOut:
+    """Persist a text-only generated report (no file upload).
+
+    Backs the Reports hub Save flow. Uses the same PatientMediaUpload table as
+    ``/upload`` with ``media_type="text"`` and ``file_ref=None``. Clinician-only.
+    """
+    require_minimum_role(actor, "clinician")
+
+    import json as _json
+    note_meta = _json.dumps({
+        "report_type": body.type,
+        "title": body.title,
+        "source": body.source,
+        "report_date": body.report_date,
+    })
+
+    record = PatientMediaUpload(
+        id=str(uuid.uuid4()),
+        patient_id=body.patient_id or actor.actor_id,   # fallback: self-scope
+        uploaded_by=actor.actor_id,
+        media_type="text",
+        file_ref=None,
+        file_size_bytes=None,
+        text_content=body.content,
+        patient_note=note_meta[:512],
+        status=body.status or "generated",
+    )
+    db.add(record)
+    db.commit()
+    db.refresh(record)
+
+    _logger.info(
+        "report_create id=%s patient=%s type=%s by=%s",
+        record.id, record.patient_id, body.type, actor.actor_id,
+    )
+    return _deserialize_report(record)
+
+
+@router.get("", response_model=ReportListResponse)
+def list_reports(
+    since: Optional[str] = None,
+    actor: AuthenticatedActor = Depends(get_authenticated_actor),
+    db: Session = Depends(get_db_session),
+) -> ReportListResponse:
+    """List generated reports owned by the current clinician.
+
+    Returns most recent first. ``since`` is an optional ISO-8601 date/datetime
+    cutoff (inclusive). Admins see all clinicians' reports; clinicians see
+    only their own.
+    """
+    require_minimum_role(actor, "clinician")
+
+    q = db.query(PatientMediaUpload).filter(PatientMediaUpload.media_type == "text")
+    if actor.role != "admin":
+        q = q.filter(PatientMediaUpload.uploaded_by == actor.actor_id)
+    if since:
+        try:
+            cutoff = datetime.fromisoformat(since.replace("Z", "+00:00"))
+            q = q.filter(PatientMediaUpload.created_at >= cutoff)
+        except ValueError:
+            # Invalid date string → ignore the filter rather than 400.
+            pass
+    q = q.order_by(PatientMediaUpload.created_at.desc()).limit(200)
+
+    items = [_deserialize_report(r) for r in q.all()]
+    return ReportListResponse(items=items, total=len(items))
+
+
 @router.post("/{report_id}/ai-summary")
 def ai_summarize_report(
     report_id: str,
