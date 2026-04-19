@@ -1,4 +1,5 @@
 import json
+from datetime import datetime, timezone
 
 from app.persistence.models import ClinicianHomeProgramTask, Patient, PatientHomeProgramTaskCompletion
 
@@ -118,6 +119,7 @@ def test_clinician_can_list_completions(client, auth_headers):
             patient_id=p.id,
             clinician_id="actor-clinician-demo",
             completed=True,
+            completed_at=datetime.now(timezone.utc),
             feedback_text="ok",
             feedback_json="{}",
         )
@@ -132,6 +134,7 @@ def test_clinician_can_list_completions(client, auth_headers):
     assert items and items[0]["server_task_id"] == "11111111-1111-1111-1111-111111111111"
 
 import json
+from datetime import datetime, timezone
 
 from app.persistence.models import ClinicianHomeProgramTask, Patient, PatientHomeProgramTaskCompletion
 
@@ -251,6 +254,7 @@ def test_clinician_can_list_completions(client, auth_headers):
             patient_id=p.id,
             clinician_id="actor-clinician-demo",
             completed=True,
+            completed_at=datetime.now(timezone.utc),
             feedback_text="ok",
             feedback_json="{}",
         )
@@ -265,6 +269,7 @@ def test_clinician_can_list_completions(client, auth_headers):
     assert items and items[0]["server_task_id"] == "11111111-1111-1111-1111-111111111111"
 
 import json
+from datetime import datetime, timezone
 
 from app.persistence.models import ClinicianHomeProgramTask, Patient, PatientHomeProgramTaskCompletion
 
@@ -384,6 +389,7 @@ def test_clinician_can_list_completions(client, auth_headers):
             patient_id=p.id,
             clinician_id="actor-clinician-demo",
             completed=True,
+            completed_at=datetime.now(timezone.utc),
             feedback_text="ok",
             feedback_json="{}",
         )
