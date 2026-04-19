@@ -43,8 +43,10 @@ function _loadActivity() {
 }
 function _logActivity(type, agent, summary) {
   const log = _loadActivity();
-  log.unshift({ type, agent, summary, ts: new Date().toISOString() });
+  const entry = { type, agent, summary, ts: new Date().toISOString() };
+  log.unshift(entry);
   localStorage.setItem('ds_agent_activity', JSON.stringify(log.slice(0, 100)));
+  try { window.dispatchEvent(new CustomEvent('ds:agent-activity', { detail: entry })); } catch {}
 }
 
 // ── Skills (receptionist-style) ──────────────────────────────────────────────
@@ -148,7 +150,7 @@ export async function pgAgentChat(setTopbar) {
 
 // ── Hub View ─────────────────────────────────────────────────────────────────
 function _renderHub(setTopbar) {
-  setTopbar('OpenClaw Agents', `
+  setTopbar('AI Practice Agent', `
     <button class="btn btn-sm btn-ghost" onclick="window._agentOpenConfig()" style="font-size:11.5px">⚙ Settings</button>
   `);
 
@@ -424,9 +426,19 @@ function _renderConfig(setTopbar) {
           </div>
         </div>
         ${(() => {
-          const tasks = _loadTasks();
-          if (!tasks.length) return '<div style="padding:20px;text-align:center;font-size:12px;color:var(--text-tertiary)">No tasks yet. Create one above or let the agent create tasks from chat.</div>';
-          return `<div style="padding:8px 16px">${tasks.slice(0, 20).map(t => `
+          const tasksAll = _loadTasks();
+          if (!tasksAll.length) return '<div style="padding:20px;text-align:center;font-size:12px;color:var(--text-tertiary)">No tasks yet. Create one above or let the agent create tasks from chat.</div>';
+          const _FILTERS = [
+            { id: 'all', label: 'All' },
+            { id: 'pending', label: 'Pending' },
+            { id: 'in_progress', label: 'In progress' },
+            { id: 'done', label: 'Done' },
+          ];
+          const filterBar = '<div style="padding:8px 16px;display:flex;gap:6px;border-bottom:1px solid var(--border)">' +
+            _FILTERS.map(f => '<button class="btn btn-sm '+(_taskFilter===f.id?'btn-primary':'btn-ghost')+'" style="font-size:10px;padding:3px 10px" onclick="window._agentSetTaskFilter(\''+f.id+'\')">'+f.label+' ('+(f.id==='all'?tasksAll.length:tasksAll.filter(x=>x.status===f.id).length)+')</button>').join('') + '</div>';
+          const tasks = _taskFilter === 'all' ? tasksAll : tasksAll.filter(t => t.status === _taskFilter);
+          if (!tasks.length) return filterBar + '<div style="padding:20px;text-align:center;font-size:12px;color:var(--text-tertiary)">No tasks match this filter.</div>';
+          return filterBar + `<div style="padding:8px 16px">${tasks.slice(0, 20).map(t => `
             <div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border)">
               <button style="width:18px;height:18px;border-radius:4px;border:1.5px solid ${t.status==='done'?'var(--green,#22c55e)':'var(--text-tertiary)'};background:${t.status==='done'?'rgba(74,222,128,0.2)':'none'};cursor:pointer;flex-shrink:0;font-size:10px;color:${t.status==='done'?'var(--green)':'var(--text-tertiary)'};display:flex;align-items:center;justify-content:center"
                 onclick="window._agentCompleteTask('${t.id}')">${t.status==='done'?'✓':''}</button>
@@ -617,10 +629,15 @@ window._agentConnectTelegram = async function() {
   try {
     const res = await api.telegramLinkCode('clinician');
     const code = res?.code || res?.link_code || 'N/A';
+    // Backend supplies the canonical bot handle + instructions; never hardcode.
+    const instr = res?.instructions || '';
+    const m = instr.match(/@([A-Za-z0-9_]+)/);
+    const handle = m ? m[1] : 'DeepSynapsClinicBot';
     area.innerHTML = `
       <div style="font-family:var(--font-mono);font-size:22px;font-weight:700;color:var(--teal);background:rgba(0,212,188,0.08);padding:14px;border-radius:8px;text-align:center;letter-spacing:4px;border:1px solid rgba(0,212,188,0.2);margin-bottom:10px">${_esc(code)}</div>
-      <div style="font-size:11px;color:var(--text-secondary);margin-bottom:10px">Send this code to <strong>@DeepSynapsBot</strong> on Telegram.</div>
-      <button class="btn btn-primary btn-sm" onclick="window._agentConfirmTelegram()">I've sent the code ✓</button>`;
+      <div style="font-size:11px;color:var(--text-secondary);margin-bottom:10px">Open Telegram → <strong>@${_esc(handle)}</strong> → send <code style="background:rgba(255,255,255,0.08);padding:1px 5px;border-radius:4px">LINK ${_esc(code)}</code></div>
+      <div style="font-size:10.5px;color:var(--text-tertiary);margin-bottom:10px">Linking completes automatically once the bot receives your code. Tap below to mark it done on this device.</div>
+      <button class="btn btn-primary btn-sm" onclick="window._agentConfirmTelegram()">Mark as linked ✓</button>`;
   } catch (err) {
     area.innerHTML = `<div style="font-size:12px;color:var(--red,#ef4444)">Failed: ${_esc(err.message)}</div>
       <button class="btn btn-sm btn-ghost" style="margin-top:6px" onclick="window._agentConnectTelegram()">Retry</button>`;
