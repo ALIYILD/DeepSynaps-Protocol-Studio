@@ -18,7 +18,7 @@ def _create_clinic_as_admin(client: TestClient, token: str, name: str = "Test Cl
         headers={"Authorization": f"Bearer {token}"},
         json={"name": name, "timezone": "UTC"},
     )
-    assert resp.status_code == 200, resp.text
+    assert resp.status_code == 201, resp.text
     return resp.json()
 
 
