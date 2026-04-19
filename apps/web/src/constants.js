@@ -126,26 +126,6 @@ export const COURSE_STATUS_COLORS = {
   discontinued:     'var(--red)',
 };
 
-export const EVIDENCE_GRADE_COLORS = {
-  'EV-A': 'var(--teal)',
-  'EV-B': 'var(--blue)',
-  'EV-C': 'var(--amber)',
-  'EV-D': 'var(--red)',
-};
-
-// Role display labels
-export const ROLE_LABELS = {
-  admin:          'Administrator',
-  clinician:      'Clinician',
-  resident:       'Resident',
-  'clinic-admin': 'Clinic Admin',
-  reviewer:       'Reviewer',
-  supervisor:     'Supervisor',
-  technician:     'Technician',
-  guest:          'Guest',
-  patient:        'Patient',
-};
-
 // Role-based nav entry points (first page shown after login)
 export const ROLE_ENTRY_PAGE = {
   admin:          'home',

@@ -12,29 +12,3 @@ export { default as REPORT_TEMPLATES, REPORT_BY_ID } from './reports.js';
 export { default as HANDBOOK_TEMPLATES, HANDBOOK_BY_ID } from './handbooks.js';
 export { default as HOME_PROGRAM_TEMPLATES, HOME_PROGRAM_BY_ID, HOME_PROGRAMS_BY_CATEGORY } from './home-programs.js';
 export { default as VIRTUAL_CARE_TEMPLATES, VC_TEMPLATE_BY_ID } from './virtual-care.js';
-
-// ── Registry loader (API-first, falls back to static registry data) ──────────
-// Usage: const conditions = await loadRegistry('conditions');
-export async function loadRegistry(name, apiFn) {
-  try {
-    if (apiFn) {
-      const res = await apiFn().catch(() => null);
-      if (res?.items?.length) return res.items;
-    }
-  } catch {}
-  // Fall back to static registry
-  const registries = {
-    conditions: () => import('./conditions.js').then(m => m.default),
-    assessments: () => import('./assessments.js').then(m => m.default),
-    devices: () => import('./devices.js').then(m => m.default),
-    protocols: () => import('./protocols.js').then(m => m.default),
-    'brain-targets': () => import('./brain-targets.js').then(m => m.default),
-    consents: () => import('./consents.js').then(m => m.default),
-    reports: () => import('./reports.js').then(m => m.default),
-    handbooks: () => import('./handbooks.js').then(m => m.default),
-    'home-programs': () => import('./home-programs.js').then(m => m.default),
-    'virtual-care': () => import('./virtual-care.js').then(m => m.default),
-  };
-  const loader = registries[name];
-  return loader ? loader() : [];
-}

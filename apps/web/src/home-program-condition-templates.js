@@ -468,9 +468,3 @@ export function buildRankedHomeSuggestions(pool, options = {}) {
   });
 }
 
-/**
- * @deprecated Use buildRankedHomeSuggestions — kept for callers expecting template[] only.
- */
-export function suggestedTemplatesForPatientCourses(courses) {
-  return buildRankedHomeSuggestions(courses, {}).map((r) => r.template);
-}
