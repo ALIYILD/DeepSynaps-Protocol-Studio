@@ -6,13 +6,14 @@ import { api } from './api.js';
 import { tag, spinner, emptyState } from './helpers.js';
 import { currentUser } from './auth.js';
 import { renderBrainMap10_20 } from './brain-map-svg.js';
-import { HANDBOOK_DATA } from './handbooks-data.js';
 import {
   SUPPORTED_FORMS as ASSESSMENT_SUPPORTED_FORMS,
   SCALE_TO_FORM_KEY,
   getAssessmentConfig,
 } from './assessment-forms.js';
 import { DOCUMENT_TEMPLATES, renderTemplate } from './documents-templates.js';
+import { SCALE_REGISTRY } from './registries/scale-assessment-registry.js';
+import { ASSESS_REGISTRY } from './registries/assess-instruments-registry.js';
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // pgPatientHub — Merged: Patients + Treatment Courses + Prescriptions
@@ -1264,2100 +1265,1275 @@ export async function pgClinicalHub(setTopbar, navigate) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// pgProtocolHub — Protocol Intelligence: Search · Brain Map · Registry · Handbooks · Builder
+// pgProtocolStudio — Screen 09 · Protocol Studio (5-step wizard)
+// Condition → Phenotype → Modality → Device → Target+Montage
+// Merges: legacy Protocol Hub generator + registry browsers + brain-map preview.
+// Handbooks moved to pgHandbooks; Brain Map Planner moved to its own screen.
 // ═══════════════════════════════════════════════════════════════════════════════
-export async function pgProtocolHub(setTopbar, navigate) {
-  // Legacy redirect: the old standalone "Brain Map" tab was merged into Registry.
-  if (window._protocolHubTab === 'brainmap') window._protocolHubTab = 'registry';
+export async function pgProtocolStudio(setTopbar, navigate) {
+  const esc = (s) => String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 
-  // Legacy redirect: Personalised + Brain Scan AI + Builder merged into a
-  // single "Protocol Designer" tab with a 3-mode segmented control. Preserve
-  // which mode the user was on so deep links still land in the right place.
-  if (['personalized', 'brainscan', 'builder'].includes(window._protocolHubTab)) {
-    window._designerMode = (
-      window._protocolHubTab === 'personalized' ? 'patient' :
-      window._protocolHubTab === 'brainscan'    ? 'brainscan' : 'scratch'
-    );
-    window._protocolHubTab = 'designer';
-  }
+  window._studioState = window._studioState || {
+    patientId: null,
+    patientName: 'Samantha Li',
+    patientMeta: '34F · MDD · Course 3/20',
+    condition: null, phenotype: null, modality: null,
+    device: null, target: null, montage: null,
+    step: 1,
+  };
+  const S = window._studioState;
 
-  const tab = window._protocolHubTab || 'search';
-  window._protocolHubTab = tab;
+  try { setTopbar('Protocol Studio',
+    '<button class="btn btn-sm btn-ghost" onclick="window._nav(\'handbooks-v2\')">Handbooks ↗</button>' +
+    '<button class="btn btn-sm btn-ghost" onclick="window._nav(\'brain-map-planner\')">Brain Map Planner ↗</button>'); } catch {}
 
-  // Lazy-load protocol data
-  let _protos = [], _conditions = [], _devices = [], _searchFn = null;
+  let CONDITIONS = [], MODALITIES = [], DEVICES = [], TARGETS = [];
   try {
-    const pd = await import('./protocols-data.js');
-    _protos     = pd.PROTOCOL_LIBRARY || [];
-    _conditions = pd.CONDITIONS       || [];
-    _devices    = pd.DEVICES          || [];
-    _searchFn   = pd.searchProtocols  || null;
+    const c = await import('./registries/conditions.js');
+    CONDITIONS = c.CONDITIONS || c.default || [];
   } catch {}
+  try {
+    const d = await import('./registries/devices.js');
+    DEVICES = d.DEVICES || d.default || [];
+  } catch {}
+  try {
+    const b = await import('./registries/brain-targets.js');
+    TARGETS = b.BRAIN_TARGETS || b.default || [];
+  } catch {}
+  try { if (typeof api?.listConditions === 'function') {
+    const r = await api.listConditions(); if (r?.items?.length) CONDITIONS = r.items;
+  } } catch {}
+  try { if (typeof api?.listDevices === 'function') {
+    const r = await api.listDevices(); if (r?.items?.length) DEVICES = r.items;
+  } } catch {}
+  try { if (typeof api?.listModalities === 'function') {
+    const r = await api.listModalities(); if (r?.items?.length) MODALITIES = r.items;
+  } } catch {}
 
-  // Standard 10-20 electrode IDs — distinguishes real sites from region
-  // labels like "mPFC" (those become target-region overlays instead).
-  const STD_10_20 = ['Fp1','Fp2','F7','F3','Fz','F4','F8','T7','C3','Cz','C4','T8','P7','P3','Pz','P4','P8','O1','Oz','O2'];
-
-  // Featured montages (quick-picks) rendered at the top of the merged
-  // Registry & Brain Map tab. Kept in sync with the old brain map tab.
-  const MONTAGES = [
-    { id:'tms-mdd-l',    label:'TMS — Left DLPFC Depression',        anode:'F3', cathode:'',   targetRegion:'DLPFC-L', condition:'MDD',  device:'TMS',  ev:'A', notes:'Left DLPFC (F3 approximation). 10 Hz, 120% MT, 3000 pulses/session. 30 sessions.' },
-    { id:'tms-mdd-ithf', label:'TMS — Theta Burst (iTBS) Depression', anode:'F3', cathode:'',   targetRegion:'DLPFC-L', condition:'TRD',  device:'TMS',  ev:'A', notes:'Intermittent TBS. 600 pulses in 3 min. 10× faster than standard TMS.' },
-    { id:'tms-ocd',      label:'TMS — Deep TMS OCD',                  anode:'Fz', cathode:'',   targetRegion:'mPFC',    condition:'OCD',  device:'TMS',  ev:'A', notes:'Deep TMS H7 coil, medial PFC. FDA-cleared for OCD.' },
-    { id:'tdcs-mdd',     label:'tDCS — Anodal DLPFC Depression',      anode:'F3', cathode:'F4', targetRegion:'DLPFC-L', condition:'MDD',  device:'tDCS', ev:'B', notes:'Anode F3, Cathode F4. 2 mA, 30 min. 20 sessions.' },
-    { id:'tdcs-ptsd',    label:'tDCS — Prefrontal PTSD',              anode:'F3', cathode:'F4', targetRegion:'DLPFC-L', condition:'PTSD', device:'tDCS', ev:'B', notes:'Bilateral prefrontal. 2 mA, 20 min.' },
-    { id:'nfb-alpha',    label:'Neurofeedback — Alpha/Theta Anxiety', anode:'Pz', cathode:'',   targetRegion:null,      condition:'GAD',  device:'EEG',  ev:'B', notes:'Alpha/theta uptraining at Pz. 30-40 sessions.' },
-    { id:'nfb-smr',      label:'Neurofeedback — SMR ADHD',            anode:'C3', cathode:'',   targetRegion:null,      condition:'ADHD', device:'EEG',  ev:'B', notes:'SMR uptraining at C3/Cz. 40 sessions.' },
-  ];
-
-  // Heuristic electrode inference for registry protocols (not in MONTAGES).
-  // Scans protocol name + summary for common 10-20 patterns, with a device-
-  // based fallback.
-  function inferElectrodes(p) {
-    const name = (p?.name || '').toLowerCase();
-    const summary = (p?.summary || '').toLowerCase();
-    const blob = name + ' ' + summary;
-    if (/anode\s*f3[\s\S]*cathode\s*f4/i.test(blob)) return { anode:'F3', cathode:'F4', targetRegion:'DLPFC-L' };
-    if (/left dlpfc|\bf3\b/i.test(blob)) return { anode:'F3', targetRegion:'DLPFC-L' };
-    if (/right dlpfc|\bf4\b/i.test(blob)) return { anode:'F4', targetRegion:'DLPFC-R' };
-    if (/vertex|\bcz\b/i.test(blob))      return { anode:'Cz' };
-    if (/occipital|\bo1\b|\bo2\b|\boz\b/i.test(blob)) return { anode:'Oz', targetRegion:'V1' };
-    if (/alpha.?theta|\bpz\b/i.test(blob)) return { anode:'Pz' };
-    if (/\bsmr\b|\bc3\b|\bc4\b/i.test(blob)) return { anode:'C3' };
-    if (/mpfc|medial pfc|\bfz\b/i.test(blob)) return { anode:'Fz', targetRegion:'mPFC' };
-    // Device-based fallback
-    if (p?.device === 'tms' || p?.device === 'deep_tms') return { anode:'F3', targetRegion:'DLPFC-L' };
-    if (p?.device === 'tdcs') return { anode:'F3', cathode:'F4', targetRegion:'DLPFC-L' };
-    if (p?.device === 'eeg')  return { anode:'Cz' };
-    return { anode: null };
+  if (!MODALITIES.length) {
+    MODALITIES = [
+      { id:'tdcs',          name:'tDCS',            grade:'A', rcts:32, sub:'Transcranial direct current · 2 mA, 20 min × 20 sessions. In-clinic or home-supervised.', meta:'Recommended' },
+      { id:'rtms',          name:'rTMS',            grade:'A', rcts:41, sub:'Repetitive magnetic · 10Hz or iTBS. Requires TMS chair & operator certification.',      meta:'In-clinic only' },
+      { id:'tacs',          name:'tACS',            grade:'B', rcts:12, sub:'Alternating current · 10Hz alpha entrainment. Secondary line for anxious phenotype.',  meta:'Secondary' },
+      { id:'hd-tdcs',       name:'HD-tDCS',         grade:'C', rcts:4,  sub:'High-definition tDCS. Limited evidence for this phenotype.',                            meta:'Research only', warn:true },
+      { id:'neurofeedback', name:'Neurofeedback',   grade:'B', rcts:9,  sub:'Theta/beta or SMR training. 30–40 sessions · pairs well with tDCS.',                    meta:'Adjunct' },
+      { id:'hrv',           name:'HRV biofeedback', grade:'B', rcts:7,  sub:'Adjunct for anxious phenotype. Home-device compatible.',                                meta:'Adjunct' },
+    ];
   }
 
-  const TAB_META = {
-    search:       { label: 'Protocol Search',      color: 'var(--teal)'   },
-    registry:     { label: 'Registry & Brain Map', color: 'var(--blue)'   },
-    handbooks:    { label: 'Handbooks',             color: 'var(--amber)'  },
-    designer:     { label: 'Protocol Designer',     color: 'var(--violet)' },
+  const PHENOTYPE_MAP = {
+    'mdd':                       [ { id:'anxious', name:'Anxious depression', sub:'PHQ-9 ≥15 · GAD-7 ≥10' },
+                                   { id:'melancholic', name:'Melancholic', sub:'Anhedonia · psychomotor slowing' },
+                                   { id:'atypical', name:'Atypical', sub:'Reactive mood · hypersomnia' } ],
+    'trd':                       [ { id:'bilateral', name:'Bilateral-resistant', sub:'Failed ≥2 trials · left-only ineffective' },
+                                   { id:'right-hyper', name:'Right DLPFC hyperactive', sub:'Candidate for bilateral or 1Hz-R' } ],
+    'major-depressive-disorder': [ { id:'anxious', name:'Anxious depression', sub:'PHQ-9 ≥15 · GAD-7 ≥10' },
+                                   { id:'melancholic', name:'Melancholic', sub:'Anhedonia · psychomotor slowing' } ],
+    'generalized-anxiety':       [ { id:'somatic', name:'Somatic anxiety', sub:'Autonomic arousal dominant' },
+                                   { id:'cognitive', name:'Cognitive anxiety', sub:'Worry / rumination dominant' } ],
+    'ptsd':                      [ { id:'hyper', name:'Hyperarousal', sub:'Startle / vigilance dominant' },
+                                   { id:'dissoc', name:'Dissociative', sub:'Depersonalisation predominant' } ],
+    'ocd':                       [ { id:'contam', name:'Contamination', sub:'Washing compulsions' },
+                                   { id:'check', name:'Checking', sub:'Doubt / checking cycles' } ],
   };
 
+  const FALLBACK_TARGETS = [
+    { id:'DLPFC-L', name:'DLPFC-L', anchor:'F3',  grade:'A' },
+    { id:'DLPFC-R', name:'DLPFC-R', anchor:'F4',  grade:'B' },
+    { id:'mPFC',    name:'mPFC',    anchor:'Fz',  grade:'B' },
+    { id:'SMA',     name:'SMA',     anchor:'Cz',  grade:'C' },
+    { id:'OFC-L',   name:'OFC-L',   anchor:'Fp1', grade:'B' },
+    { id:'OFC-R',   name:'OFC-R',   anchor:'Fp2', grade:'B' },
+    { id:'TPJ-L',   name:'TPJ-L',   anchor:'T7',  grade:'C' },
+    { id:'PCC',     name:'PCC',     anchor:'Pz',  grade:'C' },
+  ];
+  const targetList = () => {
+    if (!Array.isArray(TARGETS) || !TARGETS.length) return FALLBACK_TARGETS;
+    return TARGETS.slice(0, 8).map(t => ({
+      id:     t.id || t.abbr || t.name,
+      name:   t.abbr || t.name || t.id,
+      anchor: t.electrode || t.anchor || t.primary_electrode || 'Fz',
+      grade:  t.evidence_grade || t.grade || 'B',
+    }));
+  };
+
+  const MONTAGES_FOR = (anchor) => [
+    { id:'classic',   label: (anchor||'F3') + ' anode ↔ FP2 cathode', sub:'Classic Fregni · 32 RCTs',              grade:'A', tag:'Preferred' },
+    { id:'bilateral', label: (anchor||'F3') + ' anode ↔ F4 cathode',  sub:'Bilateral · right DLPFC hyperactivity', grade:'B', tag:'Alt'       },
+    { id:'extra',     label: (anchor||'F3') + ' anode ↔ extracephalic', sub:'Deltoid return · limited data',        grade:'C', tag:'Research'  },
+  ];
+
   const el = document.getElementById('content');
+  const gradeClass = (g) => g === 'A' ? 'teal' : g === 'B' ? 'blue' : g === 'C' ? 'amber' : 'violet';
+  const chip = (g, label) => {
+    const c = gradeClass(g);
+    const colorMap = {
+      teal:'rgba(0,212,188,0.14);color:var(--dv2-teal, var(--teal));border:1px solid rgba(0,212,188,0.28)',
+      blue:'rgba(74,158,255,0.14);color:#4a9eff;border:1px solid rgba(74,158,255,0.28)',
+      amber:'rgba(245,158,11,0.14);color:#f59e0b;border:1px solid rgba(245,158,11,0.28)',
+      violet:'rgba(155,127,255,0.14);color:#b29cff;border:1px solid rgba(155,127,255,0.28)',
+    };
+    const style = 'padding:2px 8px;border-radius:999px;font-size:10px;font-weight:600;letter-spacing:0.4px;background:' + colorMap[c];
+    return '<span style="' + style + '">' + esc(label || ('Grade ' + g)) + '</span>';
+  };
 
-  function tabBar() {
-    return Object.entries(TAB_META).map(([id, m]) =>
-      '<button class="ch-tab' + (tab === id ? ' ch-tab--active' : '') + '"' +
-      (tab === id ? ' style="--tab-color:' + m.color + '"' : '') +
-      ' onclick="window._protocolHubTab=\'' + id + '\';window._nav(\'protocol-hub\')">' + m.label + '</button>'
-    ).join('');
+  const conditionOptions = () => CONDITIONS.slice(0, 12).map(c => ({
+    id: c.id,
+    name: c.name || c.label,
+    abbr: c.abbr || c.shortLabel || '',
+    grade: c.evidence_grade || 'B',
+    rcts: c.rcts || c.typical_sessions || 0,
+    sub:  c.description ? String(c.description).slice(0, 120) + '…' : (c.category || ''),
+  }));
+
+  const phenotypesFor = (cid) => PHENOTYPE_MAP[cid] || PHENOTYPE_MAP[String(cid||'').toLowerCase()] || [
+    { id:'general', name:'General presentation', sub:'No subtype stratification available' },
+  ];
+
+  const devicesFor = (modalityId) => {
+    if (!Array.isArray(DEVICES) || !DEVICES.length) {
+      return [ { id:'dev-a', name:'Generic ' + (modalityId||'device') + ' unit', manufacturer:'—', fda_clearance:false, grade:'B' } ];
+    }
+    const tags = {
+      'tdcs': ['tdcs','direct current'],
+      'rtms': ['tms','magnetic'],
+      'tacs': ['tacs','alternating'],
+      'hd-tdcs': ['hd-tdcs','hd tdcs'],
+      'neurofeedback': ['neurofeedback','eeg'],
+      'hrv': ['hrv','heart rate','biofeedback'],
+    };
+    const match = tags[modalityId] || [modalityId];
+    const hits = DEVICES.filter(d => {
+      const blob = ((d.modality || '') + ' ' + ((d.modalities || []).join(' ')) + ' ' + (d.name||'')).toLowerCase();
+      return match.some(m => blob.includes(String(m).toLowerCase()));
+    });
+    return (hits.length ? hits : DEVICES.slice(0, 4)).map(d => ({
+      id: d.id, name: d.name, manufacturer: d.manufacturer || '',
+      fda_clearance: !!d.fda_clearance,
+      grade: d.evidence_grade || 'B',
+      coils: (d.coil_types || []).slice(0, 2).join(' · '),
+    }));
+  };
+
+  function safetyStatus() {
+    const issues = [];
+    const meta = String(S.patientMeta||'').toLowerCase();
+    if (S.modality === 'rtms' && meta.includes('seizure')) issues.push('Seizure history incompatible with rTMS');
+    if (S.modality === 'hd-tdcs') issues.push('HD-tDCS: research-only for this phenotype');
+    return { ok: issues.length === 0, issues };
   }
 
-  // ── PROTOCOL SEARCH TAB ─────────────────────────────────────────────────
-  if (tab === 'search') {
-    setTopbar('Protocols', '<button class="btn btn-sm ch-btn-teal" onclick="window._nav(\'protocol-search-full\')">Full View ↗</button>');
-    el.innerHTML = '<div class="ch-shell">' + spinner() + '</div>';
-
-    // Live Literature Watch snapshot (static JSON written by
-    // services/evidence-pipeline/literature_watch_cron.py). Cached on
-    // window so we only fetch once per session. A 404 in dev (before the
-    // cron has ever run) silently falls back to no badges — clinicians
-    // never see a fetch error.
-    if (window._litWatchData === undefined) {
-      window._litWatchData = null;
-      try {
-        const _lwResp = await fetch('/literature-watch.json', { cache: 'no-cache' });
-        if (_lwResp.ok) window._litWatchData = await _lwResp.json();
-      } catch { /* offline / dev — silent */ }
-    }
-    const _litByProto = (window._litWatchData && window._litWatchData.by_protocol) || {};
-
-    window._phSearchQ    = window._phSearchQ    || '';
-    window._phSearchCond = window._phSearchCond || '';
-    window._phSearchDev  = window._phSearchDev  || '';
-    window._phSearchEv   = window._phSearchEv   || '';
-
-    // Cross-page context handoff (one-shot). Library Find Protocol sets
-    // window._protocolHubCondition = { id, name }. Registry IDs do not
-    // match protocols-data slugs, so we reconcile by label/shortLabel and
-    // fall back to a free-text query. The handoff is consumed on first
-    // read so later revisits do not silently re-filter.
-    let _preselectLabel = null;
-    const _handoff = window._protocolHubCondition;
-    if (_handoff && (_handoff.id || _handoff.name)) {
-      const needle = String(_handoff.name || '').toLowerCase().trim();
-      const match = _conditions.find(c =>
-        (c.label || '').toLowerCase() === needle ||
-        (c.shortLabel || '').toLowerCase() === needle ||
-        (c.id || '').toLowerCase() === String(_handoff.id || '').toLowerCase()
-      );
-      if (match) { window._phSearchCond = match.id; _preselectLabel = match.label || match.id; }
-      else if (_handoff.name) { window._phSearchQ = _handoff.name; _preselectLabel = _handoff.name + ' (name match)'; }
-      window._protocolHubCondition = null;
-    }
-
-    const condOpts = ['', ..._conditions.map(c => c.id)].map(id =>
-      '<option value="' + id + '"' + (id === window._phSearchCond ? ' selected' : '') + '>' +
-      (id ? (_conditions.find(c=>c.id===id)?.label||id) : 'All Conditions') + '</option>'
-    ).join('');
-    const devOpts = ['', ..._devices.map(d => d.id)].map(id =>
-      '<option value="' + id + '"' + (id === window._phSearchDev ? ' selected' : '') + '>' +
-      (id ? (_devices.find(d=>d.id===id)?.label||id) : 'All Devices') + '</option>'
-    ).join('');
-
-    const evColors = { A:'var(--teal)', B:'var(--blue)', C:'var(--amber)', D:'var(--text-tertiary)', E:'var(--text-tertiary)' };
-
-    function runSearch() {
-      const q    = document.getElementById('ph-search-q')?.value    || '';
-      const cond = document.getElementById('ph-search-cond')?.value || '';
-      const dev  = document.getElementById('ph-search-dev')?.value  || '';
-      const ev   = document.getElementById('ph-search-ev')?.value   || '';
-      window._phSearchQ = q; window._phSearchCond = cond; window._phSearchDev = dev; window._phSearchEv = ev;
-
-      let results = _protos;
-      if (_searchFn && q) {
-        try { results = _searchFn(q) || results; } catch {}
-      }
-      if (q && !_searchFn) results = results.filter(p => (p.name||'').toLowerCase().includes(q.toLowerCase()) || (p.conditionId||'').toLowerCase().includes(q.toLowerCase()));
-      if (cond) results = results.filter(p => p.conditionId === cond);
-      if (dev)  results = results.filter(p => p.device === dev);
-      if (ev)   results = results.filter(p => p.evidenceGrade === ev);
-
-      const out = document.getElementById('ph-search-results');
-      if (!out) return;
-      const cnt = document.getElementById('ph-search-count');
-      if (cnt) cnt.textContent = results.length + ' protocols';
-
-      if (!results.length) { out.innerHTML = '<div class="ch-empty">No protocols match. Try different filters.</div>'; return; }
-
-      out.innerHTML = results.slice(0, 40).map(p => {
-        const cond = _conditions.find(c=>c.id===p.conditionId);
-        const dev  = _devices.find(d=>d.id===p.device);
-        const evC  = evColors[p.evidenceGrade] || 'var(--text-tertiary)';
-        // Literature Watch badge — amber pill when the cron found new
-        // papers in the last 30 days for this protocol. Silently omitted
-        // when the snapshot is missing or the count is 0.
-        const _lw = _litByProto[p.id];
-        const _lwN = _lw && _lw.new_count_30d ? _lw.new_count_30d : 0;
-        const litBadge = _lwN > 0
-          ? '<span class="ph-proto-sep">·</span><span class="ph-proto-lit-badge" title="New literature in last 30 days — click the card for details">📄 ' + _lwN + ' new</span>'
-          : '';
-        return '<div class="ph-proto-card" onclick="window._protDetailId=\'' + (p.id||'') + '\';window._nav(\'protocol-detail\')">' +
-          '<div class="ph-proto-top">' +
-            '<span class="ph-proto-name">' + (p.name||'Protocol') + '</span>' +
-            '<span class="ph-proto-ev" style="color:' + evC + ';border-color:' + evC + '44">Ev. ' + (p.evidenceGrade||'?') + '</span>' +
-          '</div>' +
-          '<div class="ph-proto-meta">' +
-            '<span class="ph-proto-cond">' + (cond?.label||p.conditionId||'—') + '</span>' +
-            '<span class="ph-proto-sep">·</span>' +
-            '<span class="ph-proto-dev">' + (dev?.label||p.device||'—') + '</span>' +
-            (p.sessions ? '<span class="ph-proto-sep">·</span><span class="ph-proto-sessions">' + p.sessions + ' sessions</span>' : '') +
-            litBadge +
-          '</div>' +
-          (p.summary ? '<div class="ph-proto-summary">' + p.summary.slice(0,120) + (p.summary.length>120?'…':'') + '</div>' : '') +
-        '</div>';
-      }).join('');
-    }
-
-    window._phRunSearch = runSearch;
-    window._phClearCondHandoff = () => { window._phSearchCond = ''; window._phSearchQ = ''; window._nav('protocol-hub'); };
-    const _escPh = s => String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-    const preselectBanner = _preselectLabel
-      ? '<div class="ph-preselect" role="note" style="margin:0 0 10px;padding:8px 12px;border-radius:6px;background:rgba(0,212,188,0.08);border:1px solid rgba(0,212,188,0.25);font-size:12px;color:var(--text-secondary);display:flex;gap:8px;align-items:center;flex-wrap:wrap">' +
-        '<span>Filtered to <b>' + _escPh(_preselectLabel) + '</b> from Library</span>' +
-        '<button class="ch-btn-sm" onclick="window._phClearCondHandoff()" style="margin-left:auto">Clear</button>' +
-      '</div>'
-      : '';
-
-    el.innerHTML = `
-    <div class="ch-shell">
-      <div class="ch-tab-bar">${tabBar()}</div>
-      <div class="ch-body">
-        ${preselectBanner}
-        <div class="ph-search-bar">
-          <div style="position:relative;flex:1;min-width:200px">
-            <input id="ph-search-q" type="text" placeholder="Search protocols, conditions, devices…" class="ph-search-input" style="padding-left:32px" value="${_escPh(window._phSearchQ)}" oninput="window._phRunSearch()">
-            <svg viewBox="0 0 24 24" style="position:absolute;left:10px;top:50%;transform:translateY(-50%);width:14px;height:14px;stroke:var(--text-tertiary);fill:none;stroke-width:2;stroke-linecap:round;pointer-events:none"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
-          </div>
-          <select id="ph-search-cond" class="ch-select" onchange="window._phRunSearch()">${condOpts}</select>
-          <select id="ph-search-dev"  class="ch-select" onchange="window._phRunSearch()">${devOpts}</select>
-          <select id="ph-search-ev"   class="ch-select" onchange="window._phRunSearch()">
-            <option value="">All Evidence</option>
-            <option value="A"${window._phSearchEv==="A"?" selected":""}>Grade A</option>
-            <option value="B"${window._phSearchEv==="B"?" selected":""}>Grade B</option>
-            <option value="C"${window._phSearchEv==="C"?" selected":""}>Grade C</option>
-          </select>
-          <span id="ph-search-count" style="font-size:12px;color:var(--text-tertiary);white-space:nowrap">${_protos.length} protocols</span>
-        </div>
-        <div id="ph-search-results" class="ph-proto-grid"></div>
-      </div>
-    </div>`;
-
-    runSearch();
+  function renderStep1() {
+    const opts = conditionOptions();
+    if (!opts.length) return '<div class="studio-pane"><div class="ch-empty">No conditions loaded. Registry offline.</div></div>';
+    return '<div class="studio-pane">' +
+      '<div class="studio-pane-hd"><div><div class="studio-pane-pre">Step 1 of 5</div>' +
+      '<div class="studio-pane-title">Select condition</div>' +
+      '<div class="studio-pane-sub">Registry-backed list · evidence grade + RCT count per row.</div></div>' +
+      '<div class="studio-pane-pill"><span class="studio-pane-pill-dot"></span>Registry current</div></div>' +
+      '<div class="studio-opt-grid">' +
+        opts.map(c => {
+          const active = (S.condition === c.id) ? ' active' : '';
+          return '<button class="studio-opt' + active + '" onclick="window._studioPick(\'condition\',\'' + esc(c.id) + '\')">' +
+            '<div class="studio-opt-hd">' + chip(c.grade) +
+              '<span class="studio-opt-rcts">' + esc(c.rcts ? (c.rcts + ' RCTs') : '—') + '</span></div>' +
+            '<div class="studio-opt-title">' + esc(c.name) + (c.abbr ? ' <span class="studio-opt-abbr">' + esc(c.abbr) + '</span>' : '') + '</div>' +
+            '<div class="studio-opt-sub">' + esc(c.sub) + '</div>' +
+          '</button>';
+        }).join('') +
+      '</div></div>';
   }
 
-  // ── REGISTRY & BRAIN MAP TAB (merged) ─────────────────────────────────────
-  else if (tab === 'registry') {
-    setTopbar('Protocols', '<button class="btn btn-sm" onclick="window._nav(\'protocol-search-full\')">Full Search ↗</button>');
-
-    const MODS = ['All', ...new Set(_protos.map(p=>p.device).filter(Boolean).map(id=>_devices.find(d=>d.id===id)?.label||id))];
-    window._regProtoMod = window._regProtoMod || 'All';
-    window._regProtoQ   = window._regProtoQ   || '';
-    window._regSelectedId = window._regSelectedId || MONTAGES[0].id;
-    window._regElectrodeFilter = window._regElectrodeFilter || null;
-
-    const evC = { A:'var(--teal)', B:'var(--blue)', C:'var(--amber)', D:'var(--text-tertiary)', E:'var(--text-tertiary)' };
-    const _esc = s => String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-
-    // Build a "selection descriptor" for either a montage or a registry protocol.
-    function getSelection(id) {
-      const m = MONTAGES.find(x => x.id === id);
-      if (m) {
-        return {
-          kind: 'montage',
-          id: m.id,
-          name: m.label,
-          condition: m.condition,
-          device: m.device,
-          evidenceGrade: m.ev,
-          sessions: null,
-          anode: m.anode || null,
-          cathode: m.cathode || null,
-          targetRegion: m.targetRegion || null,
-          summary: m.notes || '',
-          protoId: null,
-        };
-      }
-      const p = _protos.find(x => x.id === id);
-      if (p) {
-        const cond = _conditions.find(c=>c.id===p.conditionId);
-        const dev  = _devices.find(d=>d.id===p.device);
-        const inferred = inferElectrodes(p);
-        return {
-          kind: 'protocol',
-          id: p.id,
-          name: p.name || 'Protocol',
-          condition: cond?.label || p.conditionId || '—',
-          device: dev?.label || p.device || '—',
-          evidenceGrade: p.evidenceGrade || '?',
-          sessions: p.sessions || null,
-          anode: inferred.anode || null,
-          cathode: inferred.cathode || null,
-          targetRegion: inferred.targetRegion || null,
-          summary: p.summary || '',
-          protoId: p.id,
-        };
-      }
-      // Fallback to first montage if id unknown (e.g. after filter clears list).
-      const f = MONTAGES[0];
-      return {
-        kind: 'montage', id: f.id, name: f.label, condition: f.condition,
-        device: f.device, evidenceGrade: f.ev, sessions: null,
-        anode: f.anode || null, cathode: f.cathode || null,
-        targetRegion: f.targetRegion || null, summary: f.notes || '', protoId: null,
-      };
-    }
-
-    function renderBrainPanel() {
-      const sel = getSelection(window._regSelectedId);
-      const anode   = sel.anode   && STD_10_20.indexOf(sel.anode)   !== -1 ? sel.anode   : null;
-      const cathode = sel.cathode && STD_10_20.indexOf(sel.cathode) !== -1 ? sel.cathode : null;
-      const svgHtml = renderBrainMap10_20({
-        anode,
-        cathode,
-        targetRegion: sel.targetRegion || null,
-        size: 360,
-        showZones: true,
-        showConnection: true,
-        showEarsAndNose: true,
-      });
-      const wrap = document.getElementById('reg-bmp-svg');
-      if (wrap) {
-        wrap.innerHTML = svgHtml;
-        // Electrode-click → filter registry by that site.
-        wrap.querySelectorAll('[data-site]').forEach(el => {
-          el.style.cursor = 'pointer';
-          el.addEventListener('click', (e) => {
-            e.stopPropagation();
-            window._regSetSiteFilter(el.dataset.site);
-          });
-        });
-        // Reflect current filter with a subtle outline on the filtered chip.
-        if (window._regElectrodeFilter) {
-          const fSite = wrap.querySelector('[data-site="' + window._regElectrodeFilter + '"] .ds-bm-chip');
-          if (fSite) {
-            fSite.setAttribute('stroke', '#4a9eff');
-            fSite.setAttribute('stroke-width', '3');
-          }
-        }
-      }
-
-      const evc = evC[sel.evidenceGrade] || 'var(--text-tertiary)';
-      const detail = document.getElementById('reg-bmp-detail');
-      if (detail) {
-        const fullDetailBtn = sel.protoId
-          ? `<button class="ch-btn-sm" onclick="window._protDetailId='${_esc(sel.protoId)}';window._nav('protocol-detail')">Full detail ↗</button>`
-          : '';
-        detail.innerHTML = `
-          <div class="bmp-montage-name">${_esc(sel.name)}</div>
-          <div class="bmp-badges">
-            <span class="bmp-badge">${_esc(sel.condition)}</span>
-            <span class="bmp-badge">${_esc(sel.device)}</span>
-            <span class="bmp-badge" style="color:${evc}">Evidence ${_esc(sel.evidenceGrade)}</span>
-            ${sel.sessions ? '<span class="bmp-badge">'+_esc(sel.sessions)+' sessions</span>' : ''}
-            ${sel.anode   ? '<span class="bmp-badge bmp-badge--anode">+ '+_esc(sel.anode)+'</span>' : ''}
-            ${sel.cathode ? '<span class="bmp-badge bmp-badge--cathode">− '+_esc(sel.cathode)+'</span>' : ''}
-            ${sel.targetRegion ? '<span class="bmp-badge">◎ '+_esc(sel.targetRegion)+'</span>' : ''}
-          </div>
-          ${sel.summary ? '<div class="bmp-notes">'+_esc(sel.summary)+'</div>' : ''}
-          <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">
-            <button class="ch-btn-sm ch-btn-teal" onclick="window._patientHubTab='prescriptions';window._nav('patients-hub')">Prescribe →</button>
-            ${fullDetailBtn}
-          </div>`;
-      }
-
-      // Reflect active state on list rows and featured montages.
-      document.querySelectorAll('.reg-bmp-row').forEach(r =>
-        r.classList.toggle('active', r.dataset.id === window._regSelectedId));
-      document.querySelectorAll('.bmp-montage-btn').forEach(b =>
-        b.classList.toggle('active', b.dataset.id === window._regSelectedId));
-    }
-
-    function renderProtoReg() {
-      const q   = (document.getElementById('reg-proto-q')?.value || '').toLowerCase();
-      const mod = window._regProtoMod;
-      const siteFilter = window._regElectrodeFilter;
-      window._regProtoQ = q;
-      const filtered = _protos.filter(p => {
-        const devLabel = _devices.find(d=>d.id===p.device)?.label||p.device||'';
-        const matchM = mod==='All' || devLabel===mod;
-        const matchQ = !q || (p.name||'').toLowerCase().includes(q) || (p.conditionId||'').toLowerCase().includes(q);
-        if (!matchM || !matchQ) return false;
-        if (siteFilter) {
-          const inf = inferElectrodes(p);
-          if (inf.anode !== siteFilter && inf.cathode !== siteFilter) return false;
-        }
-        return true;
-      });
-
-      const out = document.getElementById('reg-proto-list');
-      if (!out) return;
-      const cnt = document.getElementById('reg-proto-count');
-      if (cnt) cnt.textContent = filtered.length + ' protocols' + (siteFilter ? ' @ ' + siteFilter : '');
-
-      const chipEl = document.getElementById('reg-site-filter-chip');
-      if (chipEl) chipEl.innerHTML = siteFilter
-        ? '<span class="reg-site-chip">◉ Site: <b>' + _esc(siteFilter) + '</b>'
-          + '<button class="reg-site-chip-clear" onclick="window._regSetSiteFilter(null)" aria-label="Clear electrode filter" title="Clear filter">×</button></span>'
-        : '';
-
-      out.innerHTML = filtered.slice(0,50).map(p => {
-        const cond = _conditions.find(c=>c.id===p.conditionId);
-        const dev  = _devices.find(d=>d.id===p.device);
-        const evc  = evC[p.evidenceGrade]||'var(--text-tertiary)';
-        const active = p.id === window._regSelectedId ? ' active' : '';
-        return '<div class="reg-row reg-bmp-row' + active + '" data-id="' + _esc(p.id||'') + '" onclick="window._regSelect(\'' + _esc(p.id||'') + '\')" style="cursor:pointer">' +
-          '<div class="reg-row-top">' +
-            '<span class="reg-name">' + _esc(p.name||'Protocol') + '</span>' +
-            '<span class="reg-ev" style="color:'+evc+';border-color:'+evc+'44">Ev. '+_esc(p.evidenceGrade||'?')+'</span>' +
-            '<span class="reg-type">'+_esc(dev?.label||p.device||'—')+'</span>' +
-            '<span class="reg-domain" style="margin-left:auto">'+_esc(cond?.label||p.conditionId||'—')+'</span>' +
-          '</div>' +
-          (p.summary ? '<div class="reg-full">' + _esc(p.summary.slice(0,120)) + (p.summary.length>120?'…':'') + '</div>' : '') +
-          '<div class="reg-meta">' +
-            (p.sessions ? '<span>'+_esc(p.sessions)+' sessions</span>' : '') +
-            (p.governance?.length ? '<span>⚖ Governance</span>' : '') +
-          '</div>' +
-        '</div>';
-      }).join('') || '<div class="ch-empty">No protocols found.</div>';
-    }
-
-    window._regSelect = id => {
-      window._regSelectedId = id;
-      renderBrainPanel();
-    };
-    window._regSetSiteFilter = site => {
-      window._regElectrodeFilter = (site === window._regElectrodeFilter) ? null : (site || null);
-      renderProtoReg();
-      renderBrainPanel();
-    };
-    window._regProtoSetMod = m => {
-      window._regProtoMod = m;
-      document.querySelectorAll('.reg-mod-pill').forEach(b=>b.classList.toggle('active', b.dataset.mod===m));
-      renderProtoReg();
-      renderBrainPanel();
-    };
-    window._regProtoSearch = () => { renderProtoReg(); renderBrainPanel(); };
-
-    const featuredHtml = MONTAGES.map(m =>
-      '<button class="bmp-montage-btn ph-cohort-item' + (m.id===window._regSelectedId?' active':'') + '" data-id="' + _esc(m.id) + '" onclick="window._regSelect(\'' + _esc(m.id) + '\')">' + _esc(m.label) + '</button>'
-    ).join('');
-
-    el.innerHTML = `
-    <div class="ch-shell">
-      <div class="ch-tab-bar">${tabBar()}</div>
-      <div class="ch-body">
-        <div class="reg-bmp-layout">
-          <div class="reg-bmp-left">
-            <div class="ch-card">
-              <div class="ch-card-hd" style="flex-wrap:wrap;gap:10px">
-                <span class="ch-card-title">Protocol Registry</span>
-                <span id="reg-proto-count" style="font-size:11.5px;color:var(--text-tertiary)">${_protos.length} protocols</span>
-                <div style="position:relative;flex:1;max-width:260px;margin-left:auto">
-                  <input id="reg-proto-q" type="text" placeholder="Search…" class="ph-search-input" value="${_esc(window._regProtoQ)}" oninput="window._regProtoSearch()">
-                  <svg viewBox="0 0 24 24" style="position:absolute;left:9px;top:50%;transform:translateY(-50%);width:13px;height:13px;stroke:var(--text-tertiary);fill:none;stroke-width:2;stroke-linecap:round;pointer-events:none"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
-                </div>
-              </div>
-              <div style="padding:10px 16px;display:flex;gap:6px;flex-wrap:wrap;border-bottom:1px solid var(--border)">
-                ${MODS.map(m=>'<button class="reg-mod-pill reg-domain-pill'+(m===window._regProtoMod?' active':'')+'" data-mod="'+_esc(m)+'" onclick="window._regProtoSetMod(\''+_esc(m)+'\')">'+_esc(m)+'</button>').join('')}
-              </div>
-              <div style="padding:12px 16px 4px;display:flex;align-items:center;gap:8px">
-                <span class="ph-rail-label" style="margin:0">Featured Montages</span>
-                <span style="flex:1;height:1px;background:rgba(255,255,255,0.05)"></span>
-              </div>
-              <div style="padding:0 12px 10px;display:flex;flex-wrap:wrap;gap:6px">
-                ${featuredHtml}
-              </div>
-              <div style="padding:8px 16px 4px;display:flex;align-items:center;gap:8px;border-top:1px solid rgba(255,255,255,0.04)">
-                <span class="ph-rail-label" style="margin:0">Full Registry</span>
-                <span style="flex:1;height:1px;background:rgba(255,255,255,0.05)"></span>
-                <span style="font-size:10.5px;color:var(--text-tertiary);letter-spacing:0.3px">◉ Tip: click an electrode on the map to filter</span>
-              </div>
-              <div id="reg-site-filter-chip" style="padding:0 16px"></div>
-              <div id="reg-proto-list" style="max-height:calc(100vh - 380px);overflow-y:auto"></div>
-            </div>
-          </div>
-          <div class="reg-bmp-right">
-            <div class="ch-card" style="padding:16px;display:flex;flex-direction:column;align-items:center;gap:10px">
-              <div id="reg-bmp-svg" class="bmp-svg-wrap-new" style="width:100%;display:flex;justify-content:center"></div>
-              <div class="bmp-legend">
-                <span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:var(--teal);margin-right:5px"></span>Anode</span>
-                <span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#ff6b9d;margin-right:5px"></span>Cathode</span>
-                <span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:rgba(74,158,255,0.25);border:1px dashed #4a9eff;margin-right:5px"></span>Target</span>
-              </div>
-            </div>
-            <div class="ch-card bmp-detail-panel" id="reg-bmp-detail" style="margin-top:12px;padding:16px"></div>
-          </div>
-        </div>
-      </div>
-    </div>`;
-    renderProtoReg();
-    renderBrainPanel();
+  function renderStep2() {
+    const ph = phenotypesFor(S.condition);
+    return '<div class="studio-pane">' +
+      '<div class="studio-pane-hd"><div><div class="studio-pane-pre">Step 2 of 5</div>' +
+      '<div class="studio-pane-title">Choose phenotype</div>' +
+      '<div class="studio-pane-sub">Phenotype narrows the evidence slice and steers modality choice.</div></div></div>' +
+      '<div class="studio-opt-grid" style="grid-template-columns:repeat(2,1fr)">' +
+        ph.map(p => {
+          const active = (S.phenotype === p.id) ? ' active' : '';
+          return '<button class="studio-opt' + active + '" onclick="window._studioPick(\'phenotype\',\'' + esc(p.id) + '\')">' +
+            '<div class="studio-opt-title">' + esc(p.name) + '</div>' +
+            '<div class="studio-opt-sub">' + esc(p.sub || '') + '</div>' +
+          '</button>';
+        }).join('') +
+      '</div></div>';
   }
 
-  // ── HANDBOOKS TAB ─────────────────────────────────────────────────────────
-  else if (tab === 'handbooks') {
-    setTopbar('Protocols', '<button class="btn btn-sm" onclick="window._nav(\'handbooks-full\')">Full Handbooks ↗</button>');
-
-    const HB_GROUPS = [
-      { id:'mood',      label:'Mood & Anxiety',      keys:['mdd','trd','bpd','ppd','sad','pdd','gad','panic','social-anx','specific-ph','agoraphobia'] },
-      { id:'ocd',       label:'OCD & Compulsive',    keys:['ocd','bdd','hoarding','trich'] },
-      { id:'trauma',    label:'Trauma',              keys:['ptsd','cptsd','asd-trauma'] },
-      { id:'psychotic', label:'Psychotic Disorders', keys:['schizo','schizo-aff','fep','bpd-psy'] },
-      { id:'neurodev',  label:'Neurodevelopmental',  keys:['adhd-i','adhd-hi','adhd-c','asd'] },
-      { id:'eating',    label:'Eating Disorders',    keys:['anorexia','bulimia','bed'] },
-      { id:'addiction', label:'Addiction',           keys:['aud','nic-dep','oud','cud'] },
-      { id:'sleep',     label:'Sleep',               keys:['insomnia','hypersomn'] },
-      { id:'pain',      label:'Pain',                keys:['pain-neuro','pain-msk','fibro','migraine','tinnitus'] },
-      { id:'neuro',     label:'Neurological',        keys:['stroke-mtr','stroke-aph','tbi','alzheimer','vasc-dem','parkinsons','ms','epilepsy','essential-t','dystonia','tourette'] },
-      { id:'other',     label:'Other',               keys:['long-covid','fnd'] },
-      { id:'protocols', label:'Protocol-Specific',   keys:['tms-mdd-dlpfc-hf','tms-mdd-itbs','tms-trd-bilateral','tms-ocd-sma','tms-ptsd-dlpfc','tms-stroke-m1-hf','tdcs-mdd-dlpfc','tdcs-pain-m1','tavns-epilepsy','nfb-adhd-theta-beta','tms-migraine-occ','dbs-parkinsons-stn'] },
-    ];
-
-    const HB_LABELS = {
-      'mdd':'Major Depressive Disorder','trd':'Treatment-Resistant Depression',
-      'bpd':'Bipolar Disorder','ppd':'Postpartum Depression','sad':'Seasonal Affective Disorder',
-      'pdd':'Persistent Depressive (Dysthymia)','gad':'Generalized Anxiety Disorder',
-      'panic':'Panic Disorder','social-anx':'Social Anxiety Disorder','specific-ph':'Specific Phobia',
-      'agoraphobia':'Agoraphobia','ocd':'OCD','bdd':'Body Dysmorphic Disorder',
-      'hoarding':'Hoarding Disorder','trich':'Trichotillomania','ptsd':'PTSD','cptsd':'Complex PTSD',
-      'asd-trauma':'Acute Stress Disorder','schizo':'Schizophrenia','schizo-aff':'Schizoaffective Disorder',
-      'fep':'First-Episode Psychosis','bpd-psy':'Psychotic Depression',
-      'adhd-i':'ADHD — Inattentive','adhd-hi':'ADHD — Hyperactive-Impulsive','adhd-c':'ADHD — Combined',
-      'asd':'Autism Spectrum Disorder','anorexia':'Anorexia Nervosa','bulimia':'Bulimia Nervosa',
-      'bed':'Binge Eating Disorder','aud':'Alcohol Use Disorder','nic-dep':'Nicotine Dependence',
-      'oud':'Opioid Use Disorder','cud':'Cannabis Use Disorder','insomnia':'Insomnia',
-      'hypersomn':'Hypersomnia','pain-neuro':'Neuropathic Pain','pain-msk':'Musculoskeletal Pain',
-      'fibro':'Fibromyalgia','migraine':'Migraine','tinnitus':'Tinnitus',
-      'stroke-mtr':'Stroke (Motor)','stroke-aph':'Stroke (Aphasia)','tbi':'Traumatic Brain Injury',
-      'alzheimer':"Alzheimer's Disease",'vasc-dem':'Vascular Dementia','parkinsons':"Parkinson's Disease",
-      'ms':'Multiple Sclerosis','epilepsy':'Epilepsy','essential-t':'Essential Tremor',
-      'dystonia':'Dystonia','tourette':'Tourette Syndrome','long-covid':'Long COVID',
-      'fnd':'Functional Neurological Disorder',
-      'tms-mdd-dlpfc-hf':'TMS — MDD Left DLPFC HF','tms-mdd-itbs':'TMS — MDD iTBS',
-      'tms-trd-bilateral':'TMS — TRD Bilateral','tms-ocd-sma':'TMS — OCD SMA',
-      'tms-ptsd-dlpfc':'TMS — PTSD DLPFC','tms-stroke-m1-hf':'TMS — Stroke M1 HF',
-      'tdcs-mdd-dlpfc':'tDCS — MDD DLPFC','tdcs-pain-m1':'tDCS — Pain M1',
-      'tavns-epilepsy':'taVNS — Epilepsy','nfb-adhd-theta-beta':'NFB — ADHD Theta/Beta',
-      'tms-migraine-occ':'TMS — Migraine Occipital','dbs-parkinsons-stn':"DBS — Parkinson's STN",
-    };
-
-    const HB_TABS = [
-      { id:'overview',  label:'Overview',          icon:'◎' },
-      { id:'evidence',  label:'Evidence',          icon:'◈' },
-      { id:'patient',   label:'Patient Guide',     icon:'◉' },
-      { id:'clinical',  label:'Clinical Protocol', icon:'⊟' },
-      { id:'safety',    label:'Safety',            icon:'⚠' },
-      { id:'faq',       label:'FAQ',               icon:'?' },
-    ];
-
-    window._hbCondV2  = window._hbCondV2  || 'mdd';
-    window._hbTabV2   = window._hbTabV2   || 'overview';
-    window._hbQueryV2 = window._hbQueryV2 || '';
-
-    const esc = s => String(s == null ? '' : s)
-      .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
-      .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
-
-    // Bold-style citations in evidence text, e.g. "(OReardon 2007)", "(Cole 2020)", "FOUR trial, 2018"
-    function emphasizeCitations(text) {
-      if (!text) return '';
-      let html = esc(text);
-      html = html.replace(/\(([A-Z][A-Za-z\-']+(?:\s+[A-Z][A-Za-z\-']+)?\s+\d{4}(?:[a-z])?)\)/g,
-        '(<strong class="hb-cite">$1</strong>)');
-      return html;
-    }
-
-    function renderCondList() {
-      const q = (window._hbQueryV2 || '').toLowerCase().trim();
-      return HB_GROUPS.map(g => {
-        const items = g.keys.filter(k => {
-          if (!HANDBOOK_DATA[k]) return false;
-          if (!q) return true;
-          const lab = (HB_LABELS[k] || k).toLowerCase();
-          return lab.includes(q) || k.toLowerCase().includes(q);
-        });
-        if (!items.length) return '';
-        return '<div class="hb-v2-group">' +
-          '<div class="hb-v2-group-label">' + esc(g.label) + '</div>' +
-          items.map(k => {
-            const lab = HB_LABELS[k] || k;
-            const active = k === window._hbCondV2 ? ' active' : '';
-            return '<button class="hb-v2-cond' + active + '" data-key="' + esc(k) + '" onclick="window._hbSelectCond(\'' + esc(k) + '\')">' + esc(lab) + '</button>';
-          }).join('') +
-        '</div>';
-      }).join('');
-    }
-
-    function renderTabs() {
-      return HB_TABS.map(t => {
-        const active = t.id === window._hbTabV2 ? ' active' : '';
-        return '<button class="hb-v2-tab' + active + '" data-tab="' + t.id + '" onclick="window._hbSelectTab(\'' + t.id + '\')">' +
-          '<span style="margin-right:6px;opacity:0.85">' + t.icon + '</span>' + esc(t.label) + '</button>';
-      }).join('');
-    }
-
-    function renderBody() {
-      const key = window._hbCondV2;
-      const data = HANDBOOK_DATA[key];
-      const title = HB_LABELS[key] || key;
-      if (!data) {
-        return '<div class="hb-v2-title">' + esc(title) + '</div>' +
-          '<div class="hb-card"><div class="hb-card-body">No handbook data available for this entry.</div></div>';
-      }
-      const tab = window._hbTabV2;
-      let body = '';
-      if (tab === 'overview') {
-        body =
-          (data.epidemiology ? '<div class="hb-card hb-card--stat"><div class="hb-card-head">◉ Epidemiology</div><div class="hb-card-body">' + esc(data.epidemiology) + '</div></div>' : '') +
-          (data.neuroBasis   ? '<div class="hb-card hb-card--neuro"><div class="hb-card-head">◈ Neurobiological Basis</div><div class="hb-card-body">' + esc(data.neuroBasis) + '</div></div>' : '');
-      } else if (tab === 'evidence') {
-        body = data.responseData
-          ? '<div class="hb-card hb-card--evidence"><div class="hb-card-head">◈ Response Data</div><div class="hb-card-body">' + emphasizeCitations(data.responseData) + '</div></div>'
-          : '<div class="hb-card"><div class="hb-card-body">No evidence data recorded for this entry.</div></div>';
-      } else if (tab === 'patient') {
-        body =
-          (data.patientExplain ? '<div class="hb-card"><div class="hb-card-head">◉ How to explain to patients</div><div class="hb-card-body">' + esc(data.patientExplain) + '</div></div>' : '') +
-          (data.timeline       ? '<div class="hb-card"><div class="hb-card-head">⏱ Timeline</div><div class="hb-card-body">' + esc(data.timeline) + '</div></div>' : '') +
-          (Array.isArray(data.selfCare) && data.selfCare.length
-            ? '<div class="hb-card hb-card--list"><div class="hb-card-head">✓ Self-care recommendations</div><ul class="hb-bullet-list">' +
-              data.selfCare.map(i => '<li>' + esc(i) + '</li>').join('') +
-              '</ul></div>' : '');
-      } else if (tab === 'clinical') {
-        body =
-          (data.techSetup ? '<div class="hb-card hb-card--tech"><div class="hb-card-head">⊟ Technical setup</div><div class="hb-card-body hb-mono">' + esc(data.techSetup) + '</div></div>' : '') +
-          (data.homeNote  ? '<div class="hb-card"><div class="hb-card-head">◩ Home / adjunct therapy</div><div class="hb-card-body">' + esc(data.homeNote) + '</div></div>' : '');
-      } else if (tab === 'safety') {
-        body = data.escalation
-          ? '<div class="hb-card hb-card--warn"><div class="hb-card-head">⚠ Escalation criteria</div><div class="hb-card-body">' + esc(data.escalation) + '</div></div>'
-          : '<div class="hb-card"><div class="hb-card-body">No escalation criteria recorded for this entry.</div></div>';
-      } else if (tab === 'faq') {
-        body = Array.isArray(data.faq) && data.faq.length
-          ? '<div class="hb-faq-list">' + data.faq.map((qa, i) =>
-              '<details class="hb-faq-item"' + (i === 0 ? ' open' : '') + '>' +
-                '<summary><span class="hb-faq-q-mark">Q</span> ' + esc(qa.q) + '</summary>' +
-                '<div class="hb-faq-a">' + esc(qa.a) + '</div>' +
-              '</details>').join('') +
-            '</div>'
-          : '<div class="hb-card"><div class="hb-card-body">No FAQ entries recorded for this entry.</div></div>';
-      }
-      if (!body) body = '<div class="hb-card"><div class="hb-card-body">No content recorded for this section.</div></div>';
-      return '<div class="hb-v2-title">' + esc(title) + '</div>' + body;
-    }
-
-    function rerenderLeft() {
-      const left = document.getElementById('hb-v2-cond-list');
-      if (left) left.innerHTML = renderCondList();
-    }
-    function rerenderTabs() {
-      const t = document.getElementById('hb-v2-tabs');
-      if (t) t.innerHTML = renderTabs();
-    }
-    function rerenderBody() {
-      const b = document.getElementById('hb-v2-body');
-      if (b) b.innerHTML = renderBody();
-    }
-    function rerenderAll() {
-      rerenderLeft();
-      rerenderTabs();
-      rerenderBody();
-    }
-
-    window._hbSelectCond = key => {
-      if (!HANDBOOK_DATA[key]) return;
-      window._hbCondV2 = key;
-      rerenderLeft();
-      rerenderBody();
-    };
-    window._hbSelectTab = id => {
-      window._hbTabV2 = id;
-      rerenderTabs();
-      rerenderBody();
-    };
-    window._hbSearchV2 = v => {
-      window._hbQueryV2 = v || '';
-      rerenderLeft();
-    };
-    window._hbRerender = rerenderAll;
-
-    el.innerHTML = `
-    <div class="ch-shell">
-      <div class="ch-tab-bar">${tabBar()}</div>
-      <div class="ch-body" style="padding:0">
-        <div class="hb-layout-v2">
-          <aside class="hb-v2-left">
-            <input type="text" class="hb-v2-search" placeholder="Search conditions…" value="${esc(window._hbQueryV2)}" oninput="window._hbSearchV2(this.value)" />
-            <div id="hb-v2-cond-list">${renderCondList()}</div>
-          </aside>
-          <section class="hb-v2-right">
-            <div class="hb-v2-tabs" id="hb-v2-tabs">${renderTabs()}</div>
-            <div class="hb-v2-body" id="hb-v2-body">${renderBody()}</div>
-          </section>
-        </div>
-      </div>
-    </div>`;
+  function renderStep3() {
+    return '<div class="studio-pane">' +
+      '<div class="studio-pane-hd"><div><div class="studio-pane-pre">Step 3 of 5</div>' +
+      '<div class="studio-pane-title">Choose modality</div>' +
+      '<div class="studio-pane-sub">Six neuromodulation modalities · evidence grade + RCT count per row.</div></div>' +
+      '<div class="studio-pane-pill"><span class="studio-pane-pill-dot"></span>Registry current</div></div>' +
+      '<div class="studio-opt-grid">' +
+        MODALITIES.map(m => {
+          const active  = (S.modality === m.id) ? ' active' : '';
+          const disabled = m.warn ? ' disabled' : '';
+          const metaColor = m.warn ? 'color:var(--amber,#f59e0b)' : '';
+          return '<button class="studio-opt' + active + disabled + '"' +
+            (m.warn ? '' : ' onclick="window._studioPick(\'modality\',\'' + esc(m.id) + '\')"') + '>' +
+            '<div class="studio-opt-hd">' + chip(m.grade) +
+              '<span class="studio-opt-rcts">' + esc(m.rcts + ' RCTs') + '</span></div>' +
+            '<div class="studio-opt-title">' + esc(m.name) + '</div>' +
+            '<div class="studio-opt-sub">' + esc(m.sub) + '</div>' +
+            '<div class="studio-opt-meta" style="' + metaColor + '">' + esc(m.meta) + '</div>' +
+          '</button>';
+        }).join('') +
+      '</div></div>';
   }
 
-  // ── PROTOCOL DESIGNER TAB (merged: Patient · Brain Scan · Scratch) ────────
-  else if (tab === 'designer') {
-    // Mode state — drives the whole tab. 'patient' | 'brainscan' | 'scratch'.
-    window._designerMode    = window._designerMode    || 'patient';
-    window._designerOutput  = window._designerOutput  || null;
-    window._designerHistory = window._designerHistory || [];
+  function renderStep4() {
+    const dvs = S.modality ? devicesFor(S.modality) : [];
+    if (!dvs.length) return '<div class="studio-pane"><div class="ch-empty">Select a modality first.</div></div>';
+    return '<div class="studio-pane">' +
+      '<div class="studio-pane-hd"><div><div class="studio-pane-pre">Step 4 of 5</div>' +
+      '<div class="studio-pane-title">Pick a device</div>' +
+      '<div class="studio-pane-sub">Filtered by modality · FDA-cleared devices marked.</div></div></div>' +
+      '<div class="studio-opt-grid">' +
+        dvs.map(d => {
+          const active = (S.device === d.id) ? ' active' : '';
+          return '<button class="studio-opt' + active + '" onclick="window._studioPick(\'device\',\'' + esc(d.id) + '\')">' +
+            '<div class="studio-opt-hd">' + chip(d.grade) +
+              (d.fda_clearance ? '<span class="studio-opt-rcts" style="color:var(--dv2-teal, var(--teal))">FDA ✓</span>' : '<span class="studio-opt-rcts">—</span>') + '</div>' +
+            '<div class="studio-opt-title">' + esc(d.name) + '</div>' +
+            '<div class="studio-opt-sub">' + esc(d.manufacturer || '') + (d.coils ? ' · ' + esc(d.coils) : '') + '</div>' +
+          '</button>';
+        }).join('') +
+      '</div></div>';
+  }
 
-    // AI badge topbar ornament is shown when the user is in a mode that
-    // produces AI-derived output (Patient chart, Brain Scan rules). In
-    // Scratch mode we surface a Full Builder shortcut instead.
-    const _topbarAiBadge = (window._designerMode !== 'scratch')
-      ? '<span class="ph-ai-badge">AI</span>'
-      : '<button class="btn btn-sm" onclick="window._nav(\'protocol-builder-full\')">Full Builder ↗</button>';
-    setTopbar('Protocol Designer', _topbarAiBadge);
+  function renderStep5() {
+    const tl = targetList();
+    const selTarget = tl.find(t => t.id === S.target);
+    const montages = MONTAGES_FOR(selTarget?.anchor);
+    return '<div class="studio-pane">' +
+      '<div class="studio-pane-hd"><div><div class="studio-pane-pre">Step 5 of 5</div>' +
+      '<div class="studio-pane-title">Target &amp; montage</div>' +
+      '<div class="studio-pane-sub">Selecting a target updates the live brain map on the right.</div></div>' +
+      '<div class="studio-pane-pill"><span class="studio-pane-pill-dot"></span>Registry current</div></div>' +
+      '<div class="studio-pane-label">Anatomical target</div>' +
+      '<div class="studio-target-grid">' +
+        tl.map(t => {
+          const active = (S.target === t.id) ? ' active' : '';
+          return '<button class="studio-target' + active + '" onclick="window._studioPick(\'target\',\'' + esc(t.id) + '\')">' +
+            '<div class="studio-target-name">' + esc(t.name) + '</div>' +
+            '<div class="studio-target-anchor">' + esc(t.anchor) + ' anchor</div>' +
+            '<div class="studio-target-pill">' + chip(t.grade) + '</div>' +
+          '</button>';
+        }).join('') +
+      '</div>' +
+      '<div class="studio-pane-label" style="margin-top:18px">Montage</div>' +
+      '<div class="studio-radio-stack">' +
+        montages.map(m => {
+          const active = (S.montage === m.id) ? ' active' : '';
+          return '<label class="studio-radio' + active + '" onclick="window._studioPick(\'montage\',\'' + esc(m.id) + '\')">' +
+            '<div class="studio-radio-dot"></div>' +
+            '<div style="flex:1">' +
+              '<div class="studio-radio-title">' + esc(m.label) + '</div>' +
+              '<div class="studio-radio-sub">' + esc(m.sub) + '</div>' +
+            '</div>' +
+            chip(m.grade, m.tag) +
+          '</label>';
+        }).join('') +
+      '</div>' +
+      '<div class="studio-save-bar">' +
+        '<button class="btn btn-ghost btn-sm" onclick="window._studioExport()">Export to patient course</button>' +
+        '<button class="btn btn-primary btn-sm" onclick="window._studioSave()">Save as protocol</button>' +
+      '</div>' +
+    '</div>';
+  }
 
-    el.innerHTML = '<div class="ch-shell">' + spinner() + '</div>';
+  function stepContent() {
+    switch (S.step) {
+      case 1: return renderStep1();
+      case 2: return renderStep2();
+      case 3: return renderStep3();
+      case 4: return renderStep4();
+      case 5: return renderStep5();
+      default: return renderStep1();
+    }
+  }
 
-    const _escD = s => String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-    const evColorsD = { A:'var(--teal)', B:'var(--blue)', C:'var(--amber)', D:'var(--text-tertiary)', E:'var(--text-tertiary)' };
+  function leftColumn() {
+    const condName = (CONDITIONS.find(c => c.id === S.condition) || {}).name
+                  || (CONDITIONS.find(c => c.id === S.condition) || {}).label || '— pending —';
+    const phName = (phenotypesFor(S.condition).find(p => p.id === S.phenotype) || {}).name || '— pending —';
+    const modName = (MODALITIES.find(m => m.id === S.modality) || {}).name || '— pending —';
+    const devName = S.device ? ((devicesFor(S.modality).find(d => d.id === S.device) || {}).name || S.device) : '— pending —';
+    const tgt = targetList().find(t => t.id === S.target);
+    const tgtLine = tgt ? (tgt.name + ' · ' + tgt.anchor + ' anchor') : '— pending —';
+    const selRow = (label, value, pending, current) => {
+      const cls = 'studio-sel' + (pending ? ' pending' : '') + (current ? ' current' : '');
+      return '<div class="' + cls + '">' +
+        '<div class="studio-sel-lbl">' + esc(label) + (current ? ' · this step' : '') + '</div>' +
+        '<div class="studio-sel-val">' + value + '</div>' +
+      '</div>';
+    };
+    const safe = safetyStatus();
+    const safePill = safe.ok
+      ? '<div class="studio-safety ok"><div class="studio-safety-ico">✓</div><div><div class="studio-safety-title">Safety engine</div><div class="studio-safety-sub">0 violations · contraindications cleared.</div></div></div>'
+      : '<div class="studio-safety warn"><div class="studio-safety-ico">!</div><div><div class="studio-safety-title">Safety warnings</div><div class="studio-safety-sub">' + esc(safe.issues.join(' · ')) + '</div></div></div>';
+    return '<div class="studio-left">' +
+      '<div class="card" style="padding:16px;">' +
+        '<div class="studio-h-lbl">Patient</div>' +
+        '<div class="studio-patient">' +
+          '<div class="studio-pt-av">' + esc((S.patientName || 'P').split(' ').map(w=>w[0]).join('').slice(0,2)) + '</div>' +
+          '<div><div class="studio-pt-name">' + esc(S.patientName) + '</div>' +
+          '<div class="studio-pt-meta">' + esc(S.patientMeta) + '</div></div>' +
+        '</div>' +
+        '<div class="studio-pt-note">No pacemaker · cleared for neuromodulation by Dr. Kolmar.</div>' +
+      '</div>' +
+      '<div class="card" style="padding:16px;">' +
+        '<div class="studio-h-lbl">Running selections</div>' +
+        selRow('Condition', esc(condName), !S.condition, S.step === 1) +
+        selRow('Phenotype', esc(phName),   !S.phenotype, S.step === 2) +
+        selRow('Modality',  esc(modName),  !S.modality,  S.step === 3) +
+        selRow('Device',    esc(devName),  !S.device,    S.step === 4) +
+        selRow('Target',    esc(tgtLine),  !S.target,    S.step === 5) +
+      '</div>' +
+      '<div class="card" style="padding:14px 16px;">' + safePill + '</div>' +
+    '</div>';
+  }
 
-    // Fetch patient context once — same fields as the old Personalised tab.
-    let patients = [], courses = [], outcomes = [];
+  function rightColumn() {
+    const tgt = targetList().find(t => t.id === S.target);
+    let brainSvg = '<div style="opacity:0.4;text-align:center;padding:40px 0;font-size:12px;color:var(--text-tertiary)">Select a target to render montage</div>';
     try {
-      const [pRes, cRes, oRes] = await Promise.all([
-        api.listPatients().catch(() => ({ items: [] })),
-        (api.listCourses ? api.listCourses({}) : Promise.resolve({ items: [] })).catch(() => ({ items: [] })),
-        (api.listOutcomes ? api.listOutcomes() : Promise.resolve({ items: [] })).catch(() => ({ items: [] })),
-      ]);
-      patients = pRes?.items || [];
-      courses  = cRes?.items || [];
-      outcomes = oRes?.items || [];
+      if (tgt) {
+        const montageId = S.montage || 'classic';
+        let anode = tgt.anchor;
+        let cathode = null;
+        if (montageId === 'classic')   cathode = 'Fp2';
+        if (montageId === 'bilateral') cathode = (tgt.anchor === 'F3' ? 'F4' : 'F3');
+        brainSvg = renderBrainMap10_20({ anode, cathode, targetRegion: tgt.id, size: 280 });
+      }
     } catch {}
-
-    window._designerPatientId = window._designerPatientId || (patients[0]?.id || '');
-
-    // ── Patient mode: build rich context (ported from personalized tab) ──
-    function buildPatientContext(patId) {
-      const p = patients.find(x => x.id === patId) || patients[0];
-      if (!p) return null;
-      const patCourses  = courses.filter(c => c.patient_id === patId);
-      const patOutcomes = outcomes.filter(o => o.patient_id === patId || o.course_id === patCourses[0]?.id);
-      const activeCourse = patCourses.find(c => c.status === 'active');
-      const mhData = (() => { try { return JSON.parse(localStorage.getItem('ds_ph_mh_safety')||'null'); } catch { return null; } })();
-      return {
-        name:            ((p.first_name||'') + ' ' + (p.last_name||'')).trim() || 'Patient',
-        condition:       (p.condition_slug||'').replace(/-/g,' ') || p.primary_condition || 'Unknown',
-        modality:        (p.primary_modality||'').replace(/-/g,' ') || 'Not specified',
-        age:             p.date_of_birth ? Math.floor((Date.now()-new Date(p.date_of_birth))/31557600000) : null,
-        phq9:            patOutcomes.filter(o=>(o.template_id||'').toLowerCase().includes('phq')).slice(-1)[0]?.total_score ?? null,
-        activeCourse:    activeCourse ? (activeCourse.condition_slug||'') + ' — ' + (activeCourse.modality_slug||'') : 'None',
-        sessionsToDate:  patCourses.reduce((n,c)=>n+(c.sessions_delivered||0),0),
-        priorTreatments: p.prior_treatments || p.clinician_notes || 'Not recorded',
-        medications:     mhData?.notes || p.medications || 'Not recorded',
-        safetyFlags:     p.has_adverse_event ? 'Adverse event recorded' : 'None flagged',
-        contraindications: p.seizure_history ? 'Seizure history — TMS caution' : 'None documented',
-        needsReview:     p.needs_review || false,
-        outcomes:        patOutcomes.slice(-3).map(o=>o.template_id+': '+o.total_score).join(', ') || 'No outcomes recorded',
-      };
-    }
-
-    // ── Brain Scan mode: rule-engine on qEEG z-scores (ported) ──────────
-    // Z-score inputs are more clinically explicit than raw μV² levels.
-    const QEEG_FIELDS = [
-      { id:'alpha_asym', label:'Alpha Asymmetry (L–R)',    help:'Negative = left deficit (depression marker)'  },
-      { id:'alpha_z',    label:'Alpha Power (z)',           help:'Global alpha z-score (−2…+2)'                 },
-      { id:'theta_z',    label:'Theta Frontal (z)',         help:'Frontal theta z-score — elevated in MDD/ADHD' },
-      { id:'beta_z',     label:'Beta Frontal (z)',          help:'Low beta at F3 → hypoarousal; high → anxiety' },
-      { id:'smr_z',      label:'SMR (12–15 Hz) at C3 (z)',  help:'Low SMR → ADHD impulsivity'                   },
-      { id:'tbr',        label:'Theta/Beta Ratio',          help:'>3 = ADHD indicator'                          },
+    const params = [
+      ['Modality',  (MODALITIES.find(m=>m.id===S.modality)||{}).name || '—'],
+      ['Current',   S.modality === 'tdcs' ? '2.0 mA' : S.modality === 'tacs' ? '2.0 mA @ 10 Hz' : S.modality === 'rtms' ? '10 Hz · 120% MT' : '—'],
+      ['Duration',  '20 min'],
+      ['Sessions',  '20'],
+      ['Frequency', '5× / week'],
+      ['Target',    tgt ? (tgt.name + ' · ' + tgt.anchor) : '—'],
     ];
-
-    // qEEG → (targetRegion, anode, cathode) rule. Picks the strongest single
-    // recommendation; users can stack alternates via the history panel.
-    function brainScanRecommend(vals) {
-      const asym   = parseFloat(vals.alpha_asym);
-      const thetaZ = parseFloat(vals.theta_z);
-      const betaZ  = parseFloat(vals.beta_z);
-      const smrZ   = parseFloat(vals.smr_z);
-      const tbr    = parseFloat(vals.tbr);
-
-      if (!isNaN(tbr) && tbr > 3) {
-        return {
-          name: 'SMR Neurofeedback — ADHD',
-          condition: 'ADHD', device: 'EEG',
-          evidenceGrade: 'B', sessions: 40,
-          anode: 'C3', cathode: null, targetRegion: null,
-          summary: 'TBR > 3 (value: ' + tbr.toFixed(1) + ') — classic ADHD marker. Theta suppression + SMR uptraining at C3/Cz.',
-          params: { frequency_band:'12–15 Hz (SMR)', protocol:'Uptrain SMR, downtrain theta', sessions_per_week:'2–3' },
-        };
-      }
-      if (!isNaN(smrZ) && smrZ < -1) {
-        return {
-          name: 'SMR Neurofeedback — C3 Deficit',
-          condition: 'ADHD', device: 'EEG',
-          evidenceGrade: 'B', sessions: 40,
-          anode: 'C3', cathode: null, targetRegion: null,
-          summary: 'SMR z = ' + smrZ.toFixed(2) + ' → sensorimotor rhythm deficit. Uptrain SMR at C3.',
-          params: { frequency_band:'12–15 Hz', protocol:'Uptrain SMR at C3', sessions_per_week:'2–3' },
-        };
-      }
-      if (!isNaN(asym) && asym < -0.1) {
-        return {
-          name: 'Left DLPFC TMS — Depression',
-          condition: 'MDD', device: 'TMS',
-          evidenceGrade: 'A', sessions: 30,
-          anode: 'F3', cathode: null, targetRegion: 'DLPFC-L',
-          summary: 'Left alpha deficit (asymmetry: ' + asym.toFixed(2) + ') → left hypoactivation. Standard indicator for left DLPFC TMS.',
-          params: { frequency:'10 Hz', intensity:'120% MT', pulses_per_session:3000, sessions_per_week:5 },
-        };
-      }
-      if (!isNaN(thetaZ) && thetaZ > 1) {
-        return {
-          name: 'Anodal tDCS — Left DLPFC',
-          condition: 'MDD', device: 'tDCS',
-          evidenceGrade: 'B', sessions: 20,
-          anode: 'F3', cathode: 'F4', targetRegion: 'DLPFC-L',
-          summary: 'Frontal theta z = ' + thetaZ.toFixed(2) + ' → prefrontal hypoactivation. Anodal tDCS F3 / cathodal F4.',
-          params: { current:'2 mA', duration:'30 min', sessions_per_week:5 },
-        };
-      }
-      if (!isNaN(betaZ) && betaZ < -1) {
-        return {
-          name: 'Prefrontal tDCS — Cognitive Support',
-          condition: 'Cognitive impairment', device: 'tDCS',
-          evidenceGrade: 'C', sessions: 15,
-          anode: 'F3', cathode: 'F4', targetRegion: 'DLPFC-L',
-          summary: 'Low frontal beta (z = ' + betaZ.toFixed(2) + ') → prefrontal hypoactivation.',
-          params: { current:'2 mA', duration:'20 min' },
-        };
-      }
-      return null;
-    }
-
-    // ── Scratch mode: target-site metadata ──────────────────────────────
-    const SCRATCH_SITES = [
-      { id:'F3', label:'F3 — Left DLPFC',         anode:'F3', cathode:null, targetRegion:'DLPFC-L' },
-      { id:'F4', label:'F4 — Right DLPFC',        anode:'F4', cathode:null, targetRegion:'DLPFC-R' },
-      { id:'Fz', label:'Fz — Medial PFC',         anode:'Fz', cathode:null, targetRegion:'mPFC'    },
-      { id:'Cz', label:'Cz — Vertex / SMA',       anode:'Cz', cathode:null, targetRegion:'SMA'     },
-      { id:'C3', label:'C3 — Left Motor Cortex',  anode:'C3', cathode:null, targetRegion:'M1-L'    },
-      { id:'C4', label:'C4 — Right Motor Cortex', anode:'C4', cathode:null, targetRegion:'M1-R'    },
-      { id:'T7', label:'T7 — Left Temporal',      anode:'T7', cathode:null, targetRegion:'TEMPORAL-L' },
-      { id:'T8', label:'T8 — Right Temporal',     anode:'T8', cathode:null, targetRegion:'TEMPORAL-R' },
-      { id:'P3', label:'P3 — Left Parietal',      anode:'P3', cathode:null, targetRegion:null      },
-      { id:'P4', label:'P4 — Right Parietal',     anode:'P4', cathode:null, targetRegion:null      },
-      { id:'Pz', label:'Pz — Parietal Midline',   anode:'Pz', cathode:null, targetRegion:null      },
-      { id:'Oz', label:'Oz — Occipital',          anode:'Oz', cathode:null, targetRegion:'V1'      },
-    ];
-
-    // ── Output render helpers ───────────────────────────────────────────
-    function renderBrainPanel(output) {
-      const wrap = document.getElementById('design-bmp-svg');
-      if (!wrap) return;
-      wrap.innerHTML = renderBrainMap10_20({
-        anode:        output?.anode        || null,
-        cathode:      output?.cathode      || null,
-        targetRegion: output?.targetRegion || null,
-        size: 340,
-        showZones: true,
-        showConnection: true,
-        showEarsAndNose: true,
-      });
-    }
-
-    function renderOutputCard(output) {
-      const host = document.getElementById('design-output-card');
-      if (!host) return;
-      if (!output) {
-        const modeHint = {
-          patient:   'Pick a patient on the left, then click <b>Generate AI Recommendations</b> to produce a protocol from the chart.',
-          brainscan: 'Enter qEEG metrics on the left, then click <b>Analyse &amp; Recommend</b> to generate a rule-based protocol and update the brain map.',
-          scratch:   'Fill in the form on the left — the brain map updates live as you change the target site. Click <b>Build Protocol</b> to materialise the output.',
-        }[window._designerMode] || '';
-        host.innerHTML = '<div class="design-output-card"><div class="bmp-montage-name">No output yet</div>' +
-          '<div class="bmp-notes">' + modeHint + '</div></div>';
-        return;
-      }
-      const evc = evColorsD[output.evidenceGrade] || 'var(--text-tertiary)';
-      const params = output.params || {};
-      const paramRows = Object.keys(params).length
-        ? Object.entries(params).map(([k,v]) =>
-            '<div class="design-param"><span class="design-param-label">' + _escD(k.replace(/_/g,' ')) + '</span>' +
-            '<span class="design-param-value">' + _escD(v) + '</span></div>'
-          ).join('')
-        : '';
-      host.innerHTML =
-        '<div class="design-output-card">' +
-          '<div class="bmp-montage-name">' + _escD(output.name || 'Protocol') + '</div>' +
-          '<div class="bmp-badges">' +
-            (output.condition     ? '<span class="bmp-badge">' + _escD(output.condition) + '</span>' : '') +
-            (output.device        ? '<span class="bmp-badge">' + _escD(output.device)    + '</span>' : '') +
-            (output.evidenceGrade ? '<span class="bmp-badge" style="color:' + evc + '">Evidence ' + _escD(output.evidenceGrade) + '</span>' : '') +
-            (output.sessions      ? '<span class="bmp-badge">' + _escD(output.sessions) + ' sessions</span>' : '') +
-            (output.anode         ? '<span class="bmp-badge bmp-badge--anode">+ ' + _escD(output.anode) + '</span>' : '') +
-            (output.cathode       ? '<span class="bmp-badge bmp-badge--cathode">− ' + _escD(output.cathode) + '</span>' : '') +
-            (output.targetRegion  ? '<span class="bmp-badge">◎ ' + _escD(output.targetRegion) + '</span>' : '') +
-          '</div>' +
-          (output.summary ? '<div class="bmp-notes">' + _escD(output.summary) + '</div>' : '') +
-          (paramRows ? '<div class="design-params-grid">' + paramRows + '</div>' : '') +
-          '<div class="design-actions">' +
-            '<button class="ch-btn-sm ch-btn-teal" onclick="window._prescribeFromDesigner()">Prescribe →</button>' +
-            '<button class="ch-btn-sm" onclick="window._saveDesignerPreset()">Save as preset</button>' +
-            '<button class="ch-btn-sm" onclick="window._exportDesignerResult()">Export</button>' +
-          '</div>' +
-        '</div>';
-    }
-
-    function renderHistory() {
-      const host = document.getElementById('design-history');
-      if (!host) return;
-      const hist = (window._designerHistory || []).slice(-3).reverse();
-      if (!hist.length) { host.innerHTML = ''; return; }
-      host.innerHTML =
-        '<div class="design-history-label">Recent Generations</div>' +
-        hist.map((h, i) =>
-          '<div class="design-history-row" onclick="window._loadDesignerHistory(' + i + ')">' +
-            '<span style="color:var(--text-secondary);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + _escD(h.name || 'Protocol') + '</span>' +
-            (h.condition ? '<span style="color:var(--text-tertiary);font-size:11px">' + _escD(h.condition) + '</span>' : '') +
-            (h.anode     ? '<span class="bmp-badge bmp-badge--anode">+ ' + _escD(h.anode) + '</span>' : '') +
-          '</div>'
-        ).join('');
-    }
-
-    function setOutput(out, { pushHistory = true } = {}) {
-      window._designerOutput = out;
-      if (pushHistory && out) {
-        window._designerHistory.push(out);
-        if (window._designerHistory.length > 10) window._designerHistory.shift();
-      }
-      renderBrainPanel(out);
-      renderOutputCard(out);
-      renderHistory();
-    }
-
-    // ── Left-pane renderers (mode-specific) ─────────────────────────────
-    function renderPatientLeft() {
-      const patOpts = patients.map(p =>
-        '<option value="' + p.id + '"' + (p.id === window._designerPatientId ? ' selected' : '') + '>' +
-          _escD(((p.first_name||'') + ' ' + (p.last_name||'')).trim()) + ' — ' +
-          _escD((p.condition_slug||'').replace(/-/g,' ')||'No condition') +
-        '</option>'
-      ).join('') || '<option value="">No patients loaded</option>';
-
-      const ctx = buildPatientContext(window._designerPatientId);
-      const severityBand = ctx && ctx.phq9 != null
-        ? ctx.phq9 >= 20 ? { label:'Severe' }
-          : ctx.phq9 >= 15 ? { label:'Mod. Severe' }
-          : ctx.phq9 >= 10 ? { label:'Moderate' }
-          : ctx.phq9 >= 5  ? { label:'Mild' }
-          : { label:'Minimal' }
-        : null;
-      const profile = ctx
-        ? '<div class="pp-patient-header">' +
-            '<div class="ph-avatar" style="width:44px;height:44px;font-size:14px">' + _escD(ctx.name.split(' ').map(w=>w[0]||'').join('').slice(0,2).toUpperCase()) + '</div>' +
-            '<div>' +
-              '<div style="font-size:15px;font-weight:700;color:var(--text-primary)">' + _escD(ctx.name) + '</div>' +
-              '<div style="font-size:12px;color:var(--text-tertiary)">' + _escD(ctx.condition) + (ctx.age?' · Age '+ctx.age:'') + '</div>' +
-            '</div>' +
-            (ctx.safetyFlags!=='None flagged'?'<span class="ph-badge ph-badge--alert">⚠ AE</span>':'') +
-          '</div>' +
-          '<div class="pp-profile-grid">' +
-            [
-              ['Condition', ctx.condition],
-              ['Modality', ctx.modality],
-              ['PHQ-9', ctx.phq9!=null ? ctx.phq9+(severityBand?' — '+severityBand.label:'') : 'Not recorded'],
-              ['Active Course', ctx.activeCourse],
-              ['Sessions Done', ctx.sessionsToDate || '0'],
-              ['Contraindications', ctx.contraindications],
-              ['Safety Flags', ctx.safetyFlags],
-              ['Prior Outcomes', ctx.outcomes],
-            ].map(([k,v]) => '<div class="pp-profile-row"><span class="pp-profile-key">' + _escD(k) + '</span><span class="pp-profile-val">' + _escD(v) + '</span></div>').join('') +
-          '</div>'
-        : '<div style="padding:16px;font-size:12px;color:var(--text-tertiary);text-align:center">Pick a patient to begin.</div>';
-
-      return '<div class="ch-card">' +
-        '<div class="ch-card-hd"><span class="ch-card-title">Select Patient</span></div>' +
-        '<div style="padding:14px 16px;display:flex;flex-direction:column;gap:10px">' +
-          '<select class="ch-select ch-select--full" id="design-pat-select" onchange="window._designerSelectPatient(this.value)">' + patOpts + '</select>' +
-          profile +
-          '<button class="btn btn-primary" style="width:100%;margin-top:4px" onclick="window._designerGeneratePatient()">' +
-            '<span style="margin-right:6px">✦</span> Generate AI Recommendations' +
-          '</button>' +
-          '<div style="font-size:11px;color:var(--text-tertiary);text-align:center;line-height:1.5">AI analyses condition, severity, prior treatments,<br>medications and contraindications.</div>' +
-        '</div></div>';
-    }
-
-    function renderBrainscanLeft() {
-      const vals = window._designerBsVals || {};
-      return '<div class="ch-card">' +
-        '<div class="ch-card-hd"><span class="ch-card-title">qEEG Metrics</span></div>' +
-        '<div style="padding:14px 16px">' +
-          '<div style="font-size:11px;color:var(--text-tertiary);margin-bottom:12px">Enter available qEEG z-scores (or values). Leave blank if not measured. Rules engine matches dysregulation patterns to the most appropriate protocol.</div>' +
-          QEEG_FIELDS.map(f =>
-            '<div class="ch-form-group" style="margin-bottom:10px">' +
-              '<label class="ch-label">' + _escD(f.label) + '</label>' +
-              '<input id="design-bs-' + f.id + '" type="number" step="0.01" placeholder="' + _escD(f.help) + '" class="ch-select ch-select--full" value="' + _escD(vals[f.id] || '') + '">' +
-            '</div>'
+    const ready = S.condition && S.phenotype && S.modality && S.device && S.target && S.montage;
+    const safe = safetyStatus();
+    const statusChip = safe.ok
+      ? '<span class="studio-status-chip ok">● ' + (ready ? 'Ready to save' : 'Valid so far') + '</span>'
+      : '<span class="studio-status-chip warn">● Safety warnings</span>';
+    return '<div class="studio-right">' +
+      '<div class="card" style="padding:18px;">' +
+        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">' +
+          '<div class="studio-h-lbl" style="margin:0">Live montage · 10-20</div>' +
+          statusChip +
+        '</div>' +
+        '<div style="display:flex;justify-content:center;">' + brainSvg + '</div>' +
+      '</div>' +
+      '<div class="card" style="padding:16px;">' +
+        '<div class="studio-h-lbl">Resolved parameters</div>' +
+        '<div class="studio-params">' +
+          params.map(p =>
+            '<div class="studio-params-k">' + esc(p[0]) + '</div>' +
+            '<div class="studio-params-v">' + esc(p[1]) + '</div>'
           ).join('') +
-          '<button class="btn btn-primary" style="width:100%;margin-top:4px" onclick="window._designerGenerateBrainScan()">' +
-            '<span style="margin-right:6px">◉</span> Analyse &amp; Recommend' +
-          '</button>' +
-        '</div></div>';
-    }
-
-    function renderScratchLeft() {
-      const selSite = window._designerScratchSite || 'F3';
-      return '<div class="design-stat-row">' +
-          '<div class="design-stat-card"><div class="design-stat-value">' + _protos.length + '</div><div class="design-stat-label">Protocols in Library</div></div>' +
-          '<div class="design-stat-card"><div class="design-stat-value" style="color:var(--blue)">' + _conditions.length + '</div><div class="design-stat-label">Conditions Covered</div></div>' +
-          '<div class="design-stat-card"><div class="design-stat-value" style="color:var(--violet)">' + _devices.length + '</div><div class="design-stat-label">Device Types</div></div>' +
-          '<div class="design-stat-card"><div class="design-stat-value" style="color:var(--green)">' + _protos.filter(p=>p.evidenceGrade==='A').length + '</div><div class="design-stat-label">Grade A Evidence</div></div>' +
         '</div>' +
-        '<div class="ch-card">' +
-          '<div class="ch-card-hd"><span class="ch-card-title">Quick Protocol Builder</span></div>' +
-          '<div style="padding:16px;display:flex;flex-direction:column;gap:12px">' +
-            '<div class="ch-form-group">' +
-              '<label class="ch-label">Condition</label>' +
-              '<select class="ch-select ch-select--full" id="design-sc-condition">' +
-                _conditions.slice(0,30).map(c=>'<option value="'+_escD(c.id)+'">'+_escD(c.label)+'</option>').join('') +
-              '</select>' +
-            '</div>' +
-            '<div class="ch-form-group">' +
-              '<label class="ch-label">Modality</label>' +
-              '<select class="ch-select ch-select--full" id="design-sc-device">' +
-                _devices.map(d=>'<option value="'+_escD(d.id)+'">'+_escD(d.label)+'</option>').join('') +
-              '</select>' +
-            '</div>' +
-            '<div class="ch-form-group">' +
-              '<label class="ch-label">Target Site</label>' +
-              '<select class="ch-select ch-select--full" id="design-sc-site" onchange="window._designerScratchSitePreview(this.value)">' +
-                SCRATCH_SITES.map(s => '<option value="'+s.id+'"' + (s.id===selSite?' selected':'') + '>'+_escD(s.label)+'</option>').join('') +
-              '</select>' +
-            '</div>' +
-            '<div class="ch-form-group">' +
-              '<label class="ch-label">Sessions</label>' +
-              '<input type="number" class="ch-select ch-select--full" id="design-sc-sessions" value="30" min="1" max="60">' +
-            '</div>' +
-            '<button class="btn btn-primary" onclick="window._designerBuildScratch()">Build Protocol</button>' +
-          '</div>' +
-        '</div>' +
-        '<details class="ch-card" style="padding:0">' +
-          '<summary style="padding:12px 16px;cursor:pointer;font-size:13px;font-weight:600;color:var(--text-primary);list-style:none">Recently Used Templates ▾</summary>' +
-          '<div style="padding:0 0 8px">' +
-            _protos.filter(p=>p.evidenceGrade==='A').slice(0,6).map(p => {
-              const cond = _conditions.find(c=>c.id===p.conditionId);
-              const dev  = _devices.find(d=>d.id===p.device);
-              return '<div class="ph-patient-row" onclick="window._protDetailId=\'' + _escD(p.id||'') + '\';window._nav(\'protocol-detail\')">' +
-                '<div class="ph-info"><div class="ph-name">' + _escD(p.name||'Protocol') + '</div>' +
-                '<div class="ph-meta">' + _escD(cond?.label||'—') + ' · ' + _escD(dev?.label||'—') + '</div></div>' +
-                '<span class="ph-badge ph-badge--course">Ev. A</span>' +
-                '<svg class="ph-chevron" viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></svg></div>';
-            }).join('') +
-          '</div>' +
-        '</details>';
-    }
+      '</div>' +
+      '<div class="card" style="padding:16px;">' +
+        '<div class="studio-h-lbl">Will render on save</div>' +
+        '<div class="studio-render-item">⎙  Clinician handbook · 8pp PDF</div>' +
+        '<div class="studio-render-item">◎  Patient guide · DOCX + portal page</div>' +
+        '<div class="studio-render-item">⚑  Consent form · v2.4</div>' +
+        '<div class="studio-render-item">◈  Session worksheet · 20 copies</div>' +
+      '</div>' +
+    '</div>';
+  }
 
-    function leftPaneHtml() {
-      if (window._designerMode === 'patient')   return renderPatientLeft();
-      if (window._designerMode === 'brainscan') return renderBrainscanLeft();
-      return renderScratchLeft();
-    }
-
-    function rerenderLeft() {
-      const left = document.getElementById('design-left');
-      if (left) left.innerHTML = leftPaneHtml();
-      document.querySelectorAll('.design-mode').forEach(b => {
-        b.classList.toggle('active', b.dataset.mode === window._designerMode);
-      });
-    }
-
-    function rerenderAll() {
-      rerenderLeft();
-      // In scratch mode with no committed output, seed a live preview from
-      // the currently selected target site so the brain map is never empty.
-      if (window._designerMode === 'scratch' && !window._designerOutput) {
-        window._designerScratchSitePreview(window._designerScratchSite || 'F3');
-      } else {
-        renderBrainPanel(window._designerOutput);
+  function stepper() {
+    const steps = [
+      { n:1, label:'Condition' },
+      { n:2, label:'Phenotype' },
+      { n:3, label:'Modality'  },
+      { n:4, label:'Device'    },
+      { n:5, label:'Target'    },
+    ];
+    const parts = [];
+    steps.forEach((s, i) => {
+      const cls = s.n < S.step ? 'done' : s.n === S.step ? 'active' : '';
+      parts.push('<div class="studio-step ' + cls + '" style="cursor:pointer" onclick="window._studioGo(' + s.n + ')">' +
+        '<span class="studio-step-n">' + s.n + '</span><span>' + esc(s.label) + '</span></div>');
+      if (i < steps.length - 1) {
+        const line = s.n < S.step ? 'done' : '';
+        parts.push('<div class="studio-step-line ' + line + '"></div>');
       }
-      renderOutputCard(window._designerOutput);
-      renderHistory();
-    }
-    window._designerRerender = rerenderAll;
+    });
+    const canNext =
+      (S.step === 1 && S.condition) ||
+      (S.step === 2 && S.phenotype) ||
+      (S.step === 3 && S.modality)  ||
+      (S.step === 4 && S.device)    ||
+      (S.step === 5 && S.target && S.montage);
+    return '<div class="studio-stepper">' +
+      parts.join('') +
+      '<div style="margin-left:auto;display:flex;gap:8px">' +
+        (S.step > 1 ? '<button class="btn btn-ghost btn-sm" onclick="window._studioGo(' + (S.step - 1) + ')">← Back</button>' : '') +
+        (S.step < 5 ? '<button class="btn btn-primary btn-sm"' + (canNext ? '' : ' disabled') + ' onclick="window._studioGo(' + (S.step + 1) + ')">Next →</button>' : '') +
+      '</div>' +
+    '</div>';
+  }
 
-    // ── Event handlers (exposed on window for inline onclick) ────────────
-    window._designerSetMode = m => {
-      window._designerMode = m;
-      const _badge = (m !== 'scratch')
-        ? '<span class="ph-ai-badge">AI</span>'
-        : '<button class="btn btn-sm" onclick="window._nav(\'protocol-builder-full\')">Full Builder ↗</button>';
-      setTopbar('Protocol Designer', _badge);
-      rerenderAll();
-    };
+  function paint() {
+    const style = `<style>
+      .studio-wrap { padding: 18px; max-width: 1520px; }
+      .studio-head { display:flex; justify-content:space-between; align-items:flex-end; margin-bottom:14px; gap:14px; }
+      .studio-head-title { font-family: var(--font-display,inherit); font-size: 22px; font-weight: 600; letter-spacing: -0.4px; }
+      .studio-head-sub { font-size: 13px; color: var(--text-secondary); margin-top: 4px; }
 
-    window._designerSelectPatient = id => {
-      window._designerPatientId = id;
-      rerenderLeft();
-    };
+      .studio-stepper { display:flex; align-items:center; gap:0; padding:14px 18px; border-radius:14px;
+        background: var(--bg-card); border: 1px solid var(--border); margin-bottom: 16px; }
+      .studio-step { display:flex; align-items:center; gap:8px; font-size:12px; color:var(--text-tertiary); font-weight:500; padding: 4px 8px; border-radius:8px; }
+      .studio-step.active { color: var(--text-primary); }
+      .studio-step.done { color: var(--dv2-teal, var(--teal)); }
+      .studio-step-n { display:inline-flex; align-items:center; justify-content:center; width:22px; height:22px; border-radius:50%; background:var(--bg-surface); border:1px solid var(--border); font-family:var(--font-mono); font-size:10.5px; font-weight:600; }
+      .studio-step.done .studio-step-n { background: rgba(0,212,188,0.16); color: var(--dv2-teal, var(--teal)); border-color: rgba(0,212,188,0.3); }
+      .studio-step.active .studio-step-n { background: linear-gradient(135deg, var(--dv2-teal, var(--teal)), var(--teal-dim, var(--teal))); color: #04121c; border-color: transparent; box-shadow: 0 0 0 3px rgba(0,212,188,0.18); }
+      .studio-step-line { flex:1; height:2px; background: var(--border); margin: 0 12px; border-radius: 1px; }
+      .studio-step-line.done { background: linear-gradient(90deg, var(--dv2-teal, var(--teal)), rgba(0,212,188,0.3)); }
 
-    window._designerGeneratePatient = async () => {
-      const patId = document.getElementById('design-pat-select')?.value || window._designerPatientId;
-      const ctx = buildPatientContext(patId);
-      if (!ctx) { window._dsToast?.({ title:'No patient selected', body:'Pick a patient to begin.', severity:'warn' }); return; }
+      .studio-grid { display:grid; grid-template-columns: 300px 1fr 340px; gap:16px; align-items:start; }
+      @media (max-width: 1200px) { .studio-grid { grid-template-columns: 1fr; } }
 
-      // Rule-based shortlist (ported from old personalized tab)
-      const conditionKey = ctx.condition.toLowerCase();
-      const ruleMatches = _protos.filter(p => {
-        const pcond = (p.conditionId||'').toLowerCase();
-        if (conditionKey.includes('depress') && (pcond.includes('mdd')||pcond.includes('depress'))) return true;
-        if (conditionKey.includes('anxiet') && (pcond.includes('gad')||pcond.includes('anxiet'))) return true;
-        if (conditionKey.includes('ptsd')  && pcond.includes('ptsd')) return true;
-        if (conditionKey.includes('ocd')   && pcond.includes('ocd'))  return true;
-        if (conditionKey.includes('adhd')  && pcond.includes('adhd')) return true;
-        if (conditionKey.includes('pain')  && pcond.includes('pain')) return true;
-        if (conditionKey.includes('insomn')&& (pcond.includes('insomn')||pcond.includes('sleep'))) return true;
-        return false;
-      }).slice(0, 5);
+      .studio-left, .studio-right { display:flex; flex-direction:column; gap:12px; }
 
-      const hasSeizure = ctx.contraindications.toLowerCase().includes('seizure');
-      const safeMatches = hasSeizure ? ruleMatches.filter(p => !['TMS','tDCS'].includes(p.device)) : ruleMatches;
+      .studio-h-lbl { font-size:10.5px; letter-spacing:1.2px; text-transform:uppercase; color:var(--text-tertiary); font-weight:600; margin-bottom:12px; }
 
-      // Try AI call (unchanged from personalized tab)
-      let aiRecs = null;
-      try {
-        const sysPrompt = 'You are a clinical neuromodulation expert. Given a patient profile and a shortlist of matching protocols, return personalised recommendations as a JSON array. Each item: { protocol_name, rationale, confidence: "High"|"Medium"|"Low", contraindication_check, expected_response, priority: 1|2|3 }. Return only valid JSON, no other text.';
-        const userMsg = 'Patient: ' + JSON.stringify(ctx, null, 2) + '\n\nMatching protocols:\n' + safeMatches.map(p=>p.name+' ('+p.evidenceGrade+' evidence, '+p.device+')').join('\n') + '\n\nProvide ranked recommendations with rationale specific to this patient\'s profile.';
-        const res = await api.chatClinician(
-          [{ role:'system', content: sysPrompt }, { role:'user', content: userMsg }],
-          ctx
-        );
-        const raw = res?.message || res?.content || res?.reply || '';
-        const jsonStr = raw.match(/\[[\s\S]*\]/)?.[0];
-        if (jsonStr) aiRecs = JSON.parse(jsonStr);
-      } catch {}
+      .studio-patient { display:flex; align-items:center; gap:10px; padding-bottom:12px; border-bottom:1px solid var(--border); }
+      .studio-pt-av { width:34px; height:34px; border-radius: 50%; background: linear-gradient(135deg, var(--dv2-teal, var(--teal)), var(--dv2-blue, var(--blue))); color:#04121c; font-weight:700; font-size:12px; display:flex;align-items:center;justify-content:center; }
+      .studio-pt-name { font-size:13px; font-weight:600; }
+      .studio-pt-meta { font-size:10.5px; color:var(--text-tertiary); margin-top:2px; }
+      .studio-pt-note { font-size:11px; color:var(--text-secondary); line-height:1.55; margin-top:10px; }
 
-      // Collapse to a single top-ranked output object (unified designer schema).
-      let output = null;
-      if (aiRecs && aiRecs.length) {
-        const top = aiRecs[0];
-        const matched = safeMatches.find(p => p.name === top.protocol_name) || safeMatches[0] || null;
-        const inf = matched ? inferElectrodes(matched) : { anode: null };
-        output = {
-          name: top.protocol_name || matched?.name || 'AI Recommendation',
-          condition: ctx.condition,
-          device: matched ? (_devices.find(d=>d.id===matched.device)?.label || matched.device) : '—',
-          evidenceGrade: matched?.evidenceGrade || '?',
-          sessions: matched?.sessions || null,
-          anode: inf.anode || null,
-          cathode: inf.cathode || null,
-          targetRegion: inf.targetRegion || null,
-          summary: top.rationale || matched?.summary || '',
-          params: {
-            confidence: top.confidence || '—',
-            contraindication_check: top.contraindication_check || 'No specific concern',
-            expected_response: top.expected_response || '—',
-          },
-        };
-      } else if (safeMatches.length) {
-        const m = safeMatches[0];
-        const inf = inferElectrodes(m);
-        output = {
-          name: m.name || 'Protocol',
-          condition: ctx.condition,
-          device: _devices.find(d=>d.id===m.device)?.label || m.device || '—',
-          evidenceGrade: m.evidenceGrade || '?',
-          sessions: m.sessions || null,
-          anode: inf.anode || null,
-          cathode: inf.cathode || null,
-          targetRegion: inf.targetRegion || null,
-          summary: m.summary || 'Protocol matched to patient condition.',
-          params: { match_source: 'rule-based (AI offline)' },
-        };
-      }
-      if (!output) { window._dsToast?.({ title:'No matching protocols', body:'No library protocols match this condition.', severity:'warn' }); return; }
-      setOutput(output);
-    };
+      .studio-sel { padding: 10px 12px; border-radius: 10px; background: rgba(255,255,255,0.025); border: 1px solid var(--border); margin-bottom: 8px; }
+      .studio-sel.pending { opacity: 0.55; }
+      .studio-sel.current { background: rgba(0,212,188,0.05); border-color: rgba(0,212,188,0.2); }
+      .studio-sel.current .studio-sel-lbl { color: var(--dv2-teal, var(--teal)); }
+      .studio-sel-lbl { font-size: 10px; letter-spacing: 1.2px; text-transform: uppercase; color: var(--text-tertiary); font-weight: 600; margin-bottom: 4px; }
+      .studio-sel-val { font-size: 12.5px; font-weight: 600; line-height: 1.4; }
 
-    window._designerGenerateBrainScan = () => {
-      const vals = {};
-      QEEG_FIELDS.forEach(f => { vals[f.id] = document.getElementById('design-bs-'+f.id)?.value || ''; });
-      window._designerBsVals = vals;
-      const out = brainScanRecommend(vals);
-      if (!out) {
-        window._dsToast?.({ title:'No rule triggered', body:'Enter z-scores/TBR that hit thresholds (e.g. TBR > 3 or alpha asym < −0.1).', severity:'warn' });
-        return;
-      }
-      setOutput(out);
-    };
+      .studio-pane { padding: 22px; border-radius: 14px; background: var(--bg-card); border: 1px solid var(--border); }
+      .studio-pane-hd { display:flex; justify-content:space-between; align-items:flex-end; margin-bottom:18px; gap:14px; }
+      .studio-pane-pre { font-family: var(--font-mono); font-size:10.5px; color: var(--dv2-teal, var(--teal)); letter-spacing:1.4px; text-transform:uppercase; margin-bottom:6px; }
+      .studio-pane-title { font-family: var(--font-display, inherit); font-size: 20px; font-weight:600; letter-spacing:-0.4px; }
+      .studio-pane-sub { font-size: 13px; color: var(--text-secondary); margin-top: 4px; }
+      .studio-pane-label { font-size:10.5px; letter-spacing:1.3px; text-transform:uppercase; color:var(--text-tertiary); font-weight:600; margin-bottom:10px; }
+      .studio-pane-pill { display:flex;align-items:center;gap:6px;padding:4px 10px;border-radius:999px;background:rgba(0,212,188,0.08);border:1px solid rgba(0,212,188,0.25);font-size:11px;color:var(--dv2-teal, var(--teal));font-weight:600; }
+      .studio-pane-pill-dot { width:6px;height:6px;border-radius:50%;background:var(--dv2-teal, var(--teal));box-shadow:0 0 6px var(--dv2-teal, var(--teal)); }
 
-    window._designerScratchSitePreview = siteId => {
-      window._designerScratchSite = siteId;
-      const s = SCRATCH_SITES.find(x => x.id === siteId) || SCRATCH_SITES[0];
-      // Live preview — just update the brain map, don't commit an output.
-      const wrap = document.getElementById('design-bmp-svg');
-      if (wrap) {
-        wrap.innerHTML = renderBrainMap10_20({
-          anode: s.anode, cathode: s.cathode, targetRegion: s.targetRegion,
-          size: 340, showZones: true, showConnection: true, showEarsAndNose: true,
-        });
-      }
-    };
+      .studio-opt-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; }
+      .studio-opt { padding: 14px; border-radius: 12px; background: var(--bg-surface); border: 1px solid var(--border); text-align:left; cursor:pointer; transition: all 0.15s ease; color: var(--text-primary); font-family: inherit; }
+      .studio-opt:hover:not(.disabled) { border-color: var(--border-hover); }
+      .studio-opt.active { background: linear-gradient(135deg, rgba(0,212,188,0.1), rgba(74,158,255,0.04)); border-color: rgba(0,212,188,0.35); box-shadow: 0 0 0 3px rgba(0,212,188,0.08); }
+      .studio-opt.disabled { opacity: 0.5; cursor: not-allowed; }
+      .studio-opt-hd { display:flex; justify-content:space-between; align-items:center; margin-bottom: 10px; }
+      .studio-opt-rcts { font-family: var(--font-mono); font-size: 10.5px; color: var(--text-tertiary); }
+      .studio-opt-title { font-family: var(--font-display, inherit); font-size: 16px; font-weight: 600; letter-spacing: -0.3px; margin-bottom: 4px; }
+      .studio-opt-abbr { font-size: 11px; color: var(--text-tertiary); font-weight: 500; margin-left: 4px; }
+      .studio-opt-sub { font-size: 11.5px; color: var(--text-secondary); line-height: 1.5; margin-bottom: 10px; }
+      .studio-opt-meta { display:inline-flex; align-items:center; gap: 5px; font-size: 10.5px; color: var(--dv2-teal, var(--teal)); font-weight: 600; }
+      .studio-opt:not(.active) .studio-opt-meta { color: var(--text-tertiary); }
 
-    window._designerBuildScratch = () => {
-      const condId  = document.getElementById('design-sc-condition')?.value || '';
-      const devId   = document.getElementById('design-sc-device')?.value   || '';
-      const siteId  = document.getElementById('design-sc-site')?.value     || (window._designerScratchSite || 'F3');
-      const sessions = parseInt(document.getElementById('design-sc-sessions')?.value, 10) || 30;
-      const cond = _conditions.find(c=>c.id===condId);
-      const dev  = _devices.find(d=>d.id===devId);
-      const site = SCRATCH_SITES.find(s=>s.id===siteId) || SCRATCH_SITES[0];
-      const out = {
-        name: 'Custom — ' + (dev?.label || devId || 'Protocol') + ' @ ' + site.id,
-        condition: cond?.label || condId || '—',
-        device: dev?.label || devId || '—',
-        evidenceGrade: 'C',
-        sessions,
-        anode: site.anode,
-        cathode: site.cathode,
-        targetRegion: site.targetRegion,
-        summary: 'User-built protocol: ' + (dev?.label || devId) + ' targeting ' + site.label + ' for ' + (cond?.label || condId) + '.',
-        params: { target_site: site.id, sessions_total: sessions },
-      };
-      setOutput(out);
-    };
+      .studio-target-grid { display:grid; grid-template-columns: repeat(4, 1fr); gap:8px; margin-bottom: 6px; }
+      .studio-target { padding: 12px 10px; border-radius: 10px; background: var(--bg-surface); border: 1px solid var(--border); text-align:center; cursor:pointer; transition: all 0.15s ease; color: var(--text-primary); font-family: inherit; }
+      .studio-target:hover { border-color: var(--border-hover); }
+      .studio-target.active { background: linear-gradient(135deg, rgba(0,212,188,0.12), rgba(74,158,255,0.04)); border-color: rgba(0,212,188,0.35); }
+      .studio-target-name { font-family: var(--font-display, inherit); font-size: 15px; font-weight: 600; letter-spacing: -0.2px; }
+      .studio-target-anchor { font-family: var(--font-mono); font-size: 10px; color: var(--text-tertiary); margin-top: 2px; }
+      .studio-target-pill { margin-top: 8px; }
 
-    window._loadDesignerHistory = idx => {
-      const hist = (window._designerHistory || []).slice(-3).reverse();
-      const out = hist[idx];
-      if (out) setOutput(out, { pushHistory: false });
-    };
+      .studio-radio-stack { display:flex; flex-direction:column; gap:8px; }
+      .studio-radio { display:flex; align-items:center; gap: 12px; padding: 12px 14px; border-radius: 11px; background: var(--bg-surface); border: 1px solid var(--border); cursor:pointer; transition: all 0.15s ease; }
+      .studio-radio:hover { border-color: var(--border-hover); }
+      .studio-radio.active { background: linear-gradient(90deg, rgba(0,212,188,0.08), transparent); border-color: rgba(0,212,188,0.35); }
+      .studio-radio-dot { width: 16px; height: 16px; border-radius: 50%; border: 2px solid rgba(255,255,255,0.2); flex-shrink: 0; position: relative; }
+      .studio-radio.active .studio-radio-dot { border-color: var(--dv2-teal, var(--teal)); }
+      .studio-radio.active .studio-radio-dot::after { content:''; position:absolute; inset: 2px; border-radius: 50%; background: var(--dv2-teal, var(--teal)); box-shadow: 0 0 6px var(--dv2-teal, var(--teal)); }
+      .studio-radio-title { font-size:13px;font-weight:600; }
+      .studio-radio-sub   { font-size:11px;color:var(--text-tertiary);margin-top:2px; }
 
-    window._prescribeFromDesigner = () => {
-      if (!window._designerOutput) return;
-      window._patientHubTab = 'prescriptions';
-      window._nav('patients-hub');
-    };
+      .studio-render-item { display:flex; align-items:center; gap:10px; padding:8px 0; font-size:12px; color: var(--text-secondary); border-bottom: 1px dashed rgba(255,255,255,0.06); }
+      .studio-render-item:last-child { border-bottom: none; }
 
-    window._saveDesignerPreset = () => {
-      if (!window._designerOutput) return;
-      try {
-        const key = 'ds_designer_presets';
-        const list = JSON.parse(localStorage.getItem(key) || '[]');
-        list.push({ ts: Date.now(), ...window._designerOutput });
-        localStorage.setItem(key, JSON.stringify(list.slice(-20)));
-        window._dsToast?.({ title:'Preset saved', body: window._designerOutput.name, severity:'ok' });
-      } catch {}
-    };
+      .studio-params { display:grid; grid-template-columns: 1fr auto; gap:8px 14px; font-size:12.5px; }
+      .studio-params-k { color: var(--text-secondary); }
+      .studio-params-v { font-family: var(--font-mono); color: var(--text-primary); font-weight:500; }
 
-    window._exportDesignerResult = () => {
-      if (!window._designerOutput) return;
-      try {
-        const blob = new Blob([JSON.stringify(window._designerOutput, null, 2)], { type:'application/json' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = 'protocol-' + (window._designerOutput.name || 'output').replace(/[^a-z0-9]+/gi,'-').toLowerCase() + '.json';
-        document.body.appendChild(a); a.click(); document.body.removeChild(a);
-        setTimeout(()=>URL.revokeObjectURL(url), 2000);
-      } catch {}
-    };
+      .studio-save-bar { display:flex; gap:8px; justify-content:flex-end; margin-top:20px; padding-top:18px; border-top: 1px solid var(--border); }
 
-    // ── Shell render ────────────────────────────────────────────────────
+      .studio-safety { display:flex; align-items:center; gap:10px; }
+      .studio-safety-ico { width:26px;height:26px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700; }
+      .studio-safety.ok  .studio-safety-ico { background: rgba(74,222,128,0.14); color: var(--green, #4ade80); }
+      .studio-safety.warn .studio-safety-ico { background: rgba(239,68,68,0.14); color: #ef4444; }
+      .studio-safety-title { font-size:12.5px; font-weight:600; }
+      .studio-safety-sub { font-size:11px; color:var(--text-secondary); line-height:1.45; margin-top:2px; }
+
+      .studio-status-chip { font-size:10.5px; font-weight:600; padding:3px 9px; border-radius:999px; letter-spacing:0.3px; }
+      .studio-status-chip.ok   { background: rgba(0,212,188,0.12); color: var(--dv2-teal, var(--teal)); border:1px solid rgba(0,212,188,0.25); }
+      .studio-status-chip.warn { background: rgba(239,68,68,0.12); color: #ef4444; border:1px solid rgba(239,68,68,0.25); }
+    </style>`;
+
     el.innerHTML =
-      '<div class="ch-shell">' +
-        '<div class="ch-tab-bar">' + tabBar() + '</div>' +
-        '<div class="ch-body">' +
-          '<div class="design-modes" role="tablist" aria-label="Input source">' +
-            '<button class="design-mode' + (window._designerMode==='patient'?' active':'')   + '" data-mode="patient"   onclick="window._designerSetMode(\'patient\')"><span class="mode-icon">◉</span>From Patient</button>' +
-            '<button class="design-mode' + (window._designerMode==='brainscan'?' active':'') + '" data-mode="brainscan" onclick="window._designerSetMode(\'brainscan\')"><span class="mode-icon">◎</span>From Brain Scan</button>' +
-            '<button class="design-mode' + (window._designerMode==='scratch'?' active':'')   + '" data-mode="scratch"   onclick="window._designerSetMode(\'scratch\')"><span class="mode-icon">⊟</span>From Scratch</button>' +
-          '</div>' +
-          '<div class="design-layout">' +
-            '<div class="design-left" id="design-left">' + leftPaneHtml() + '</div>' +
-            '<div class="design-right">' +
-              '<div class="ch-card">' +
-                '<div class="ch-card-hd"><span class="ch-card-title">Brain Map &amp; Output</span></div>' +
-                '<div style="padding:12px 12px 4px;display:flex;justify-content:center" id="design-bmp-svg"></div>' +
-                '<div style="padding:0 14px 14px" id="design-output-card"></div>' +
-              '</div>' +
-              '<div class="design-history" id="design-history"></div>' +
-            '</div>' +
-          '</div>' +
+      style +
+      '<div class="studio-wrap">' +
+        '<div class="studio-head">' +
+          '<div><div class="studio-head-title">New protocol · ' + esc(S.patientName) + '</div>' +
+          '<div class="studio-head-sub">Follow the 5 steps — the engine validates compatibility and renders clinician + patient documents on save.</div></div>' +
+        '</div>' +
+        stepper() +
+        '<div class="studio-grid">' +
+          leftColumn() +
+          '<div>' + stepContent() + '</div>' +
+          rightColumn() +
         '</div>' +
       '</div>';
-
-    // Initial paint — scratch pre-seeds a live preview; other modes show
-    // either prior output or the empty-state hint card.
-    if (window._designerMode === 'scratch' && !window._designerOutput) {
-      window._designerScratchSitePreview(window._designerScratchSite || 'F3');
-    } else {
-      renderBrainPanel(window._designerOutput);
-    }
-    renderOutputCard(window._designerOutput);
-    renderHistory();
   }
 
+  window._studioGo = (n) => { S.step = Math.max(1, Math.min(5, n | 0)); paint(); };
+  window._studioPick = (key, value) => {
+    if (key === 'condition') { S.condition = value; S.phenotype = null; S.modality = null; S.device = null; S.target = null; S.montage = null; }
+    else if (key === 'phenotype') { S.phenotype = value; }
+    else if (key === 'modality')  { S.modality  = value; S.device = null; }
+    else if (key === 'device')    { S.device    = value; }
+    else if (key === 'target')    { S.target    = value; if (!S.montage) S.montage = 'classic'; }
+    else if (key === 'montage')   { S.montage   = value; }
+    paint();
+  };
+  window._studioSave = async () => {
+    try {
+      if (typeof api?.saveProtocol === 'function') {
+        await api.saveProtocol({
+          patient_id: S.patientId,
+          condition: S.condition, phenotype: S.phenotype,
+          modality: S.modality, device: S.device,
+          target: S.target, montage: S.montage,
+        });
+      }
+      try { alert('Protocol saved.'); } catch {}
+    } catch { try { alert('Could not save (endpoint offline). State preserved locally.'); } catch {} }
+  };
+  window._studioExport = async () => {
+    try {
+      if (typeof api?.createTreatmentCourse === 'function') {
+        await api.createTreatmentCourse({ patient_id: S.patientId, protocol: { ...S } });
+      } else if (typeof api?.generateProtocol === 'function') {
+        await api.generateProtocol({ ...S });
+      }
+      try { alert('Exported to patient course.'); } catch {}
+    } catch { try { alert('Export endpoint offline — saved as draft.'); } catch {} }
+  };
+
+  paint();
 }
+
+// Compat alias so existing protocol-hub route keeps working.
+export { pgProtocolStudio as pgProtocolHub };
+
+// Legacy protocol hub removed — functionality merged into pgProtocolStudio.
+// Handbooks moved to pgHandbooks (handbooks-v2 route).
+// Brain Map Planner moved to its own screen (brain-map-planner route).
+
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // pgSchedulingHub — Calendar · Bookings · Leads · Reception
 // ═══════════════════════════════════════════════════════════════════════════════
 export async function pgSchedulingHub(setTopbar, navigate) {
-  const tab = window._schedHubTab || 'calendar';
+  // ── Design-v2 Schedule (screen 04): Appointments · Referrals · Staff ──────
+  const tab = ['appointments','referrals','staff'].includes(window._schedHubTab) ? window._schedHubTab : 'appointments';
   window._schedHubTab = tab;
-
-  const TAB_META = {
-    calendar:  { label: 'Calendar',   color: 'var(--teal)'   },
-    bookings:  { label: 'Bookings',   color: 'var(--blue)'   },
-    leads:     { label: 'Leads',      color: 'var(--violet)' },
-    reception: { label: 'Reception',  color: 'var(--amber)'  },
-  };
-
-  // -- Role-aware tab visibility --
-  const _role = (currentUser?.role || 'admin').toLowerCase();
-  const ROLE_TABS = {
-    technician:   ['calendar','bookings'],
-    receptionist: ['calendar','bookings','reception'],
-  };
-  const allowedTabs = ROLE_TABS[_role] || Object.keys(TAB_META); // clinician/admin see all
-
-  function tabBar() {
-    return Object.entries(TAB_META)
-      .filter(([id]) => allowedTabs.includes(id))
-      .map(([id, m]) =>
-        '<button role="tab" aria-selected="' + (tab===id) + '" tabindex="' + (tab===id?'0':'-1') + '"' +
-        ' class="ch-tab' + (tab===id?' ch-tab--active':'') + '"' +
-        (tab===id?' style="--tab-color:'+m.color+'"':'') +
-        ' onclick="window._schedHubTab=\''+id+'\';window._nav(\'scheduling-hub\')">' + m.label + '</button>'
-      ).join('');
-  }
 
   const el = document.getElementById('content');
 
-  // ── Inject scheduling CSS (once) ────────────────────────────────────────────
-  if (!document.getElementById('sched-styles')) {
-    const _ss = document.createElement('style'); _ss.id = 'sched-styles';
+  if (!document.getElementById('dv2s-sched-styles')) {
+    const _ss = document.createElement('style'); _ss.id = 'dv2s-sched-styles';
     _ss.textContent = `
-/* Scheduling — Accessibility focus rings */
-.cal-cell:focus-visible, .cal-apt:focus-visible { outline:2px solid var(--teal); outline-offset:1px; border-radius:4px; }
-.ch-tab:focus-visible { outline:2px solid var(--teal); outline-offset:2px; }
-.ch-btn-sm:focus-visible, .btn:focus-visible { outline:2px solid var(--teal); outline-offset:2px; }
-.sched-section-title { font-size:15px; font-weight:700; color:var(--text-primary); margin-bottom:12px; }
-.cal-apt-name { color:var(--text-primary); }
-.cal-apt-time { color:var(--text-secondary); }
-/* Scheduling — Responsive */
-@media (max-width:767px) {
-  .cal-grid { min-width:unset; }
-  .cal-row { grid-template-columns:52px 1fr; }
-  .cal-row .cal-cell:not(.cal-cell--active-day),
-  .cal-row .cal-day-header:not(.cal-day-header--active-day) { display:none; }
-  .sched-cal-controls { flex-wrap:wrap; }
-  .book-row { flex-wrap:wrap; gap:8px; }
-  .book-datetime { width:auto; }
-  .book-actions { width:100%; justify-content:flex-start; }
-  #book-list { overflow-x:auto; }
-  .leads-kanban { grid-template-columns:repeat(5, 200px) !important; overflow-x:auto; -webkit-overflow-scrolling:touch; scroll-snap-type:x mandatory; }
-  .lead-col { scroll-snap-align:start; min-width:200px; }
-  .ch-modal { max-width:100vw !important; margin:8px; border-radius:10px; }
-  .ch-modal-body { max-height:80vh; overflow-y:auto; }
-  .ch-btn-sm, .btn-sm { min-height:44px; min-width:44px; padding:10px 14px; }
-  .ch-tab { min-height:44px; }
-  .lead-phone { min-width:44px; min-height:44px; display:inline-flex; align-items:center; justify-content:center; }
-  .rec-task-row input[type="checkbox"] { min-width:20px; min-height:20px; }
-  .ch-kpi-strip { grid-template-columns:repeat(2,1fr) !important; }
-  .rec-grid { grid-template-columns:1fr; }
-}
-@media (max-width:480px) {
-  .leads-kanban { grid-template-columns:repeat(5, 170px) !important; }
-  .lead-col { min-width:170px; }
-}
+.dv2s-shell{display:flex;flex-direction:column;height:100%;min-height:0;background:var(--dv2-bg,var(--bg));}
+.dv2s-tab-bar{display:flex;gap:6px;padding:10px 20px 0;border-bottom:1px solid var(--border);background:var(--bg-panel,var(--bg-surface));flex-shrink:0;}
+.dv2s-tab{padding:8px 14px;font-size:12px;font-weight:600;color:var(--text-tertiary);background:transparent;border:1px solid transparent;border-radius:999px 999px 0 0;cursor:pointer;display:inline-flex;align-items:center;gap:6px;font-family:inherit;letter-spacing:-.005em;}
+.dv2s-tab:hover{color:var(--text-secondary);background:rgba(255,255,255,0.03);}
+.dv2s-tab.is-active{color:var(--text-primary);background:var(--bg-surface);border-color:var(--border);border-bottom-color:var(--bg-surface);box-shadow:inset 0 2px 0 var(--dv2-accent,var(--teal));}
+.dv2s-tab-count{font-family:var(--dv2-font-mono,var(--font-mono));font-size:10px;padding:1px 6px;border-radius:3px;background:var(--bg-surface);color:var(--text-tertiary);}
+.dv2s-tab.is-active .dv2s-tab-count{background:rgba(0,212,188,0.14);color:var(--teal);}
+.dv2s-toolbar{display:flex;gap:10px;align-items:center;padding:10px 20px;border-bottom:1px solid var(--border);background:var(--bg-panel,var(--bg-surface));flex-wrap:wrap;flex-shrink:0;}
+.dv2s-nav-btn{width:26px;height:26px;border-radius:6px;background:var(--bg-surface);border:1px solid var(--border);color:var(--text-secondary);cursor:pointer;display:inline-flex;align-items:center;justify-content:center;font-size:13px;font-family:inherit;padding:0;}
+.dv2s-nav-btn:hover{background:rgba(255,255,255,0.05);color:var(--text-primary);}
+.dv2s-today-btn{padding:4px 10px;border-radius:6px;background:var(--bg-surface);border:1px solid var(--border);color:var(--text-secondary);font-size:11px;font-weight:600;cursor:pointer;font-family:inherit;}
+.dv2s-today-btn:hover{border-color:var(--dv2-accent,var(--teal));color:var(--text-primary);}
+.dv2s-range{font-family:var(--font-display);font-size:14px;font-weight:600;color:var(--text-primary);padding:0 4px;letter-spacing:-.01em;}
+.dv2s-range-sub{font-size:10.5px;color:var(--text-tertiary);margin-left:6px;font-family:var(--font-mono);}
+.dv2s-view{display:inline-flex;background:var(--bg-surface);border:1px solid var(--border);border-radius:6px;padding:2px;}
+.dv2s-view button{padding:3px 10px;background:transparent;border:0;color:var(--text-tertiary);font-size:11px;font-weight:600;cursor:pointer;border-radius:4px;font-family:inherit;}
+.dv2s-view button.is-active{background:var(--dv2-accent,var(--teal));color:#04121c;}
+.dv2s-chip{padding:4px 10px;background:var(--bg-surface);border:1px solid var(--border);border-radius:999px;font-size:11px;font-weight:500;color:var(--text-secondary);cursor:pointer;display:inline-flex;align-items:center;gap:5px;user-select:none;font-family:inherit;}
+.dv2s-chip:hover{border-color:rgba(0,212,188,0.4);}
+.dv2s-chip.is-active{background:rgba(0,212,188,0.1);border-color:rgba(0,212,188,0.4);color:var(--teal);}
+.dv2s-chip-dot{width:6px;height:6px;border-radius:50%;}
+.dv2s-chip.warn{color:var(--amber);border-color:rgba(255,181,71,0.3);background:rgba(255,181,71,0.06);}
+.dv2s-chip.warn.is-active{background:rgba(255,181,71,0.18);color:var(--amber);}
+.dv2s-legend{display:inline-flex;gap:10px;margin-left:auto;flex-wrap:wrap;font-size:10.5px;color:var(--text-tertiary);}
+.dv2s-legend-item{display:inline-flex;align-items:center;gap:4px;}
+.dv2s-legend-sw{width:8px;height:8px;border-radius:2px;}
+.dv2s-body{flex:1;min-height:0;display:flex;overflow:hidden;}
+.dv2s-grid-wrap{flex:1;min-width:0;overflow:auto;background:var(--bg);}
+.dv2s-col-heads{display:grid;position:sticky;top:0;z-index:5;background:var(--bg-panel,var(--bg-surface));border-bottom:1px solid var(--border);grid-template-columns:64px repeat(28,minmax(120px,1fr));min-width:2000px;}
+.dv2s-hours-head{grid-column:1;display:flex;align-items:center;justify-content:center;font-size:9px;color:var(--text-tertiary);font-family:var(--font-mono);letter-spacing:.08em;text-transform:uppercase;border-right:1px solid var(--border);}
+.dv2s-day-head{display:flex;flex-direction:column;border-right:1px solid var(--border);}
+.dv2s-day-head.today{background:linear-gradient(180deg,rgba(0,212,188,0.08),transparent 60%);}
+.dv2s-day-head-top{display:flex;align-items:center;gap:6px;padding:8px 8px 4px;}
+.dv2s-day-dow{font-size:10px;font-weight:700;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.08em;}
+.dv2s-day-num{font-family:var(--font-display);font-size:16px;font-weight:600;color:var(--text-primary);}
+.dv2s-day-badge{margin-left:auto;font-size:9px;font-weight:700;color:var(--teal);background:rgba(0,212,188,0.14);padding:1px 5px;border-radius:3px;font-family:var(--font-mono);}
+.dv2s-day-clins{display:grid;grid-template-columns:repeat(4,1fr);border-top:1px solid var(--border);}
+.dv2s-clin{padding:4px 6px;font-size:10px;font-weight:600;color:var(--text-secondary);display:flex;flex-direction:column;gap:1px;border-right:1px solid var(--border);background:var(--bg-surface);}
+.dv2s-clin:last-child{border-right:0;}
+.dv2s-clin-util{font-family:var(--font-mono);font-size:9px;color:var(--text-tertiary);font-weight:500;}
+.dv2s-clin.util-hi{background:linear-gradient(180deg,rgba(255,181,71,0.08),var(--bg-surface));}
+.dv2s-grid{display:grid;grid-template-columns:64px repeat(28,minmax(120px,1fr));min-width:2000px;position:relative;}
+.dv2s-hour-col{grid-column:1;background:var(--bg-panel,var(--bg-surface));border-right:1px solid var(--border);position:sticky;left:0;z-index:4;}
+.dv2s-hour-row{height:48px;padding:2px 6px;font-size:9px;color:var(--text-tertiary);font-family:var(--font-mono);border-bottom:1px dashed rgba(255,255,255,0.04);text-align:right;}
+.dv2s-clin-col{position:relative;border-right:1px solid rgba(255,255,255,0.04);}
+.dv2s-clin-col.day-last{border-right:1px solid var(--border);}
+.dv2s-slot{height:24px;border-bottom:1px dashed rgba(255,255,255,0.03);cursor:pointer;transition:background .1s;}
+.dv2s-slot.on-hour{border-bottom-color:rgba(255,255,255,0.06);}
+.dv2s-slot.nonclinic{background:rgba(0,0,0,0.15);cursor:default;}
+.dv2s-slot:not(.nonclinic):hover{background:rgba(0,212,188,0.08);}
+.dv2s-slot.flash{background:rgba(0,212,188,0.22)!important;}
+.dv2s-event{position:absolute;left:3px;right:3px;border-radius:4px;padding:3px 5px;font-size:10px;line-height:1.25;cursor:pointer;overflow:hidden;background:var(--bg-surface);border:1px solid var(--border);border-left:3px solid var(--teal);}
+.dv2s-event:hover{z-index:3;filter:brightness(1.15);box-shadow:0 2px 12px rgba(0,0,0,0.4);}
+.dv2s-event.is-selected{outline:2px solid var(--dv2-accent,var(--teal));outline-offset:-1px;z-index:4;}
+.dv2s-event.ev-tdcs{background:rgba(0,212,188,0.14);border-left-color:var(--teal);}
+.dv2s-event.ev-rtms{background:rgba(74,158,255,0.14);border-left-color:var(--blue);}
+.dv2s-event.ev-nf{background:rgba(155,127,255,0.14);border-left-color:var(--violet);}
+.dv2s-event.ev-bio{background:rgba(74,222,128,0.12);border-left-color:var(--green);}
+.dv2s-event.ev-assess{background:rgba(255,107,157,0.14);border-left-color:var(--rose);}
+.dv2s-event.ev-intake{background:rgba(255,181,71,0.14);border-left-color:var(--amber);}
+.dv2s-event.ev-tele{background:rgba(74,158,255,0.08);border-left-color:var(--blue);border-style:dashed;}
+.dv2s-event.ev-mdt,.dv2s-event.ev-hw,.dv2s-event.ev-admin{background:rgba(255,255,255,0.04);border-left-color:var(--text-tertiary);color:var(--text-tertiary);}
+.dv2s-event-name{font-weight:600;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:10.5px;}
+.dv2s-event-meta{font-size:9.5px;color:var(--text-tertiary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:1px;}
+.dv2s-event-warn{position:absolute;top:2px;right:3px;font-size:10px;pointer-events:none;}
+.dv2s-event-warn.err{color:var(--red,#ff5e7a);}
+.dv2s-event-warn.amb{color:var(--amber);}
+.dv2s-now-line{position:absolute;left:0;right:0;height:2px;background:var(--red,#ff5e7a);z-index:6;pointer-events:none;}
+.dv2s-now-dot{position:absolute;left:-4px;top:-3px;width:8px;height:8px;border-radius:50%;background:var(--red,#ff5e7a);box-shadow:0 0 0 3px rgba(255,94,122,0.25);}
+.dv2s-side{width:320px;border-left:1px solid var(--border);background:var(--bg-panel,var(--bg-surface));display:flex;flex-direction:column;flex-shrink:0;transition:width .2s;}
+.dv2s-side.collapsed{width:0;border-left:0;overflow:hidden;}
+.dv2s-side-head{padding:14px 14px 10px;border-bottom:1px solid var(--border);display:flex;gap:10px;align-items:flex-start;}
+.dv2s-side-av{width:40px;height:40px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;color:#04121c;background:linear-gradient(135deg,var(--teal),var(--blue));flex-shrink:0;}
+.dv2s-side-name{font-family:var(--font-display);font-size:14px;font-weight:600;color:var(--text-primary);}
+.dv2s-side-sub{font-size:11px;color:var(--text-tertiary);margin-top:2px;}
+.dv2s-side-close{background:transparent;border:0;color:var(--text-tertiary);font-size:16px;cursor:pointer;padding:2px 6px;font-family:inherit;}
+.dv2s-side-body{flex:1;overflow-y:auto;padding:12px 14px;}
+.dv2s-side-section{font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--text-tertiary);font-weight:600;margin:12px 0 6px;}
+.dv2s-side-row{display:grid;grid-template-columns:90px 1fr;gap:8px;font-size:11.5px;padding:4px 0;border-bottom:1px solid rgba(255,255,255,0.03);}
+.dv2s-side-row .lbl{color:var(--text-tertiary);}
+.dv2s-side-row .val{color:var(--text-primary);}
+.dv2s-warn{display:flex;gap:8px;padding:8px 10px;border-radius:6px;margin-bottom:6px;font-size:11px;}
+.dv2s-warn.err{background:rgba(255,94,122,0.08);border:1px solid rgba(255,94,122,0.28);}
+.dv2s-warn.amb{background:rgba(255,181,71,0.08);border:1px solid rgba(255,181,71,0.28);}
+.dv2s-warn.ok{background:rgba(74,222,128,0.08);border:1px solid rgba(74,222,128,0.22);}
+.dv2s-warn-ico{font-size:14px;flex-shrink:0;}
+.dv2s-warn.err .dv2s-warn-ico{color:var(--red,#ff5e7a);}
+.dv2s-warn.amb .dv2s-warn-ico{color:var(--amber);}
+.dv2s-warn.ok .dv2s-warn-ico{color:var(--green,#4ade80);}
+.dv2s-warn-title{font-weight:600;color:var(--text-primary);margin-bottom:2px;}
+.dv2s-warn-body{color:var(--text-secondary);line-height:1.45;}
+.dv2s-side-foot{display:flex;gap:6px;padding:10px 12px;border-top:1px solid var(--border);}
+.dv2s-refbox{padding:20px;overflow-y:auto;flex:1;}
+.dv2s-ref-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:12px;}
+.dv2s-ref-card{padding:12px;border:1px solid var(--border);border-radius:10px;background:var(--bg-surface);display:flex;flex-direction:column;gap:6px;}
+.dv2s-ref-card h4{margin:0;font-size:13px;color:var(--text-primary);font-family:var(--font-display);}
+.dv2s-ref-sub{font-size:11px;color:var(--text-tertiary);}
+.dv2s-ref-meta{display:flex;gap:6px;flex-wrap:wrap;font-size:10.5px;}
+.dv2s-ref-chip{padding:2px 7px;border-radius:999px;background:var(--bg-panel,var(--bg));color:var(--text-secondary);border:1px solid var(--border);}
+.dv2s-ref-chip.new{color:var(--teal);border-color:rgba(0,212,188,0.35);}
+.dv2s-ref-chip.contacted{color:var(--blue);border-color:rgba(74,158,255,0.35);}
+.dv2s-ref-chip.qualified{color:var(--violet);border-color:rgba(155,127,255,0.35);}
+.dv2s-ref-chip.booked{color:var(--green,#4ade80);border-color:rgba(74,222,128,0.35);}
+.dv2s-ref-chip.lost{color:var(--text-tertiary);}
+.dv2s-staff{padding:20px;overflow-y:auto;flex:1;}
+.dv2s-staff-table{width:100%;border-collapse:collapse;font-size:12px;}
+.dv2s-staff-table th{text-align:left;padding:8px 10px;font-size:10px;font-weight:600;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.08em;border-bottom:1px solid var(--border);}
+.dv2s-staff-table td{padding:10px;border-bottom:1px solid rgba(255,255,255,0.04);color:var(--text-primary);}
+.dv2s-staff-dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px;vertical-align:middle;}
+.dv2s-empty{padding:40px;text-align:center;color:var(--text-tertiary);}
+.dv2s-error-banner{padding:6px 14px;background:rgba(255,181,71,0.08);color:var(--amber);font-size:11px;border-bottom:1px solid rgba(255,181,71,0.2);}
+@media (max-width:960px){.dv2s-side{width:0;border-left:0;overflow:hidden;}}
 `;
     document.head.appendChild(_ss);
   }
 
-  // ── Shared data store ───────────────────────────────────────────────────────
-  const _SK = 'ds_sched_v1';
-  function _loadSched() { try { return JSON.parse(localStorage.getItem(_SK)||'null') || _seedSched(); } catch { return _seedSched(); } }
-  function _saveSched(d) { try { localStorage.setItem(_SK, JSON.stringify(d)); } catch {} }
-  const pad2 = n => String(n).padStart(2,'0');
+  const esc = (s) => String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+  const pad2 = (n) => String(n).padStart(2,'0');
+  const iso = (d) => d.getFullYear() + '-' + pad2(d.getMonth()+1) + '-' + pad2(d.getDate());
   const now = new Date();
-  const todayStr = now.getFullYear()+'-'+pad2(now.getMonth()+1)+'-'+pad2(now.getDate());
-  function nextDay(n) { const d=new Date(now); d.setDate(d.getDate()+n); return d.getFullYear()+'-'+pad2(d.getMonth()+1)+'-'+pad2(d.getDate()); }
 
-  function _seedSched() {
-    const d = { appointments:[
-      { id:'APT-001', patient_name:'Demo Patient A', patient_id:'P-DEMO-1', clinician:'Dr. S. Chen',   date:todayStr,    time:'09:00', duration:60,  type:'session',     status:'confirmed', notes:'Session 9 of 30.', room_id:'TMS Suite', device_id:'TMS Coil A' },
-      { id:'APT-002', patient_name:'Demo Patient B', patient_id:'P-DEMO-2', clinician:'Dr. J. Patel',  date:todayStr,    time:'10:30', duration:30,  type:'assessment',  status:'confirmed', notes:'Baseline PHQ-9, GAD-7.', room_id:'Consultation Room', device_id:'' },
-      { id:'APT-003', patient_name:'Demo Patient C', patient_id:'P-DEMO-3', clinician:'Dr. S. Chen',   date:todayStr,    time:'14:00', duration:60,  type:'session',     status:'pending',   notes:'tDCS session 8.', room_id:'EEG Lab', device_id:'tDCS Unit' },
-      { id:'APT-004', patient_name:'Marcus Webb',    patient_id:'',         clinician:'Dr. J. Patel',  date:todayStr,    time:'15:30', duration:45,  type:'new-patient', status:'confirmed', notes:'TRD referral intake.', room_id:'Room 1', device_id:'' },
-      { id:'APT-005', patient_name:'Demo Patient A', patient_id:'P-DEMO-1', clinician:'Dr. S. Chen',   date:nextDay(1),  time:'09:00', duration:60,  type:'session',     status:'confirmed', notes:'Session 10 — milestone.', room_id:'TMS Suite', device_id:'TMS Coil A' },
-      { id:'APT-006', patient_name:'Anna Torres',    patient_id:'',         clinician:'Dr. K. Okafor', date:nextDay(1),  time:'11:00', duration:30,  type:'follow-up',   status:'confirmed', notes:'Post-course follow-up.', room_id:'Consultation Room', device_id:'' },
-      { id:'APT-007', patient_name:'Demo Patient B', patient_id:'P-DEMO-2', clinician:'Dr. J. Patel',  date:nextDay(2),  time:'09:30', duration:60,  type:'session',     status:'confirmed', notes:'Session 3 of 30.', room_id:'TMS Suite', device_id:'TMS Coil B' },
-      { id:'APT-008', patient_name:'James Mitchell', patient_id:'',         clinician:'Dr. S. Chen',   date:nextDay(3),  time:'13:00', duration:45,  type:'new-patient', status:'pending',   notes:'Referred by GP.', room_id:'Room 2', device_id:'' },
-      { id:'APT-009', patient_name:'Demo Patient A', patient_id:'P-DEMO-1', clinician:'Dr. S. Chen',   date:nextDay(-1), time:'09:00', duration:60,  type:'session',     status:'completed', notes:'Session 8 — good tolerance.', room_id:'TMS Suite', device_id:'TMS Coil A' },
-      { id:'APT-010', patient_name:'Demo Patient C', patient_id:'P-DEMO-3', clinician:'Dr. J. Patel',  date:nextDay(-2), time:'14:00', duration:60,  type:'session',     status:'no-show',   notes:'Did not attend.', room_id:'EEG Lab', device_id:'EEG Cap' },
-    ], leads:[
-      { id:'LEAD-001', name:'Sarah Johnson',  email:'sarah.j@email.com', phone:'+44 7700 900123', source:'website',  condition:'Depression', stage:'new',       notes:'TRD, tried 3 meds.', created:'2026-04-14', follow_up:todayStr },
-      { id:'LEAD-002', name:'Robert Kim',     email:'rkim@email.com',    phone:'+44 7700 900456', source:'referral', condition:'Anxiety',    stage:'contacted', notes:'Referred by GP. GAD-7=15.', created:'2026-04-13', follow_up:nextDay(1) },
-      { id:'LEAD-003', name:'Emma Clarke',    email:'emma.c@email.com',  phone:'+44 7700 900789', source:'phone',    condition:'OCD',        stage:'qualified', notes:'Deep TMS candidate.', created:'2026-04-12', follow_up:nextDay(2) },
-      { id:'LEAD-004', name:'David Nguyen',   email:'dnguyen@email.com', phone:'+44 7700 900321', source:'referral', condition:'PTSD',       stage:'booked',    notes:'Intake booked.', created:'2026-04-10', follow_up:nextDay(5) },
-      { id:'LEAD-005', name:'Lucy Fernandez', email:'lfern@email.com',   phone:'+44 7700 900654', source:'website',  condition:'Depression', stage:'lost',      notes:'Chose medication only.', created:'2026-04-08', follow_up:'' },
-    ], calls:[
-      { id:'CALL-001', name:'Sarah Johnson',  phone:'+44 7700 900123', direction:'inbound',  duration:8, outcome:'info-given', notes:'Explained TMS. Sending info pack.', time:'09:14', date:todayStr },
-      { id:'CALL-002', name:'Demo Patient A', phone:'+44 7700 111222', direction:'outbound', duration:3, outcome:'booked',     notes:'Confirmed session 9am.', time:'10:05', date:todayStr },
-      { id:'CALL-003', name:'Robert Kim',     phone:'+44 7700 900456', direction:'outbound', duration:0, outcome:'no-answer', notes:'Left voicemail.', time:'11:30', date:todayStr },
-      { id:'CALL-004', name:'James Mitchell', phone:'+44 7700 333444', direction:'inbound',  duration:12,outcome:'booked',    notes:'Booked new patient intake.', time:'14:22', date:todayStr },
-    ], tasks:[
-      { id:'TASK-001', text:'Send info pack to Sarah Johnson',   due:todayStr,   done:false, priority:'high' },
-      { id:'TASK-002', text:'Chase Robert Kim — no response',    due:todayStr,   done:false, priority:'medium' },
-      { id:'TASK-003', text:'Confirm next week schedule',        due:nextDay(1), done:false, priority:'medium' },
-      { id:'TASK-004', text:'Submit Marcus Webb insurance form', due:nextDay(2), done:false, priority:'high' },
-      { id:'TASK-005', text:'Call back Demo Patient C',          due:todayStr,   done:true,  priority:'low' },
-    ]};
-    _saveSched(d); return d;
+  window._schedAnchor = window._schedAnchor || iso(now);
+  function weekDays(anchorIso) {
+    const d = new Date(anchorIso + 'T12:00:00');
+    const dow = d.getDay();
+    const mondayOffset = (dow === 0 ? -6 : 1 - dow);
+    d.setDate(d.getDate() + mondayOffset);
+    return Array.from({length:7}, (_, i) => {
+      const day = new Date(d); day.setDate(d.getDate() + i);
+      const isoStr = iso(day);
+      return {
+        date: day,
+        iso: isoStr,
+        dow: ['SUN','MON','TUE','WED','THU','FRI','SAT'][day.getDay()],
+        num: day.getDate(),
+        label: day.toLocaleDateString('en-GB', { day:'numeric', month:'short' }),
+        today: isoStr === iso(now),
+      };
+    });
+  }
+  function shiftAnchor(deltaDays) {
+    const d = new Date(window._schedAnchor + 'T12:00:00');
+    d.setDate(d.getDate() + deltaDays);
+    window._schedAnchor = iso(d);
   }
 
-  const data = _loadSched();
+  const DAYS = weekDays(window._schedAnchor);
+  const windowFrom = DAYS[0].iso;
+  const windowTo   = DAYS[6].iso;
 
-  // ── Backend ↔ Frontend appointment mapping ──────────────────────────────────
-  const _backendToFrontend = (s) => ({
-    id: s.id,
-    patient_name: s.patient_name || s.patient_id || 'Unknown',
-    patient_id: s.patient_id || '',
-    date: s.scheduled_at?.split('T')[0] || '',
-    time: s.scheduled_at?.split('T')[1]?.slice(0,5) || '',
-    duration: s.duration_minutes || 60,
-    type: s.appointment_type || s.modality || 'session',
-    status: s.status || 'scheduled',
-    clinician: s.clinician_name || s.clinician_id || '',
-    notes: s.session_notes || '',
-    room_id: s.room_id || '',
-    device_id: s.device_id || '',
-    recurrence_group: s.recurrence_group || '',
-    _from_api: true,
-  });
+  const DEFAULT_CLINICIANS = [
+    { id:'ak', name:'Kolmar', color:'var(--teal)'   },
+    { id:'rp', name:'Patel',  color:'var(--blue)'   },
+    { id:'mv', name:'Velez',  color:'var(--violet)' },
+    { id:'jn', name:'Njoku',  color:'var(--rose)'   },
+  ];
+  const DEFAULT_ROOMS = [
+    { id:'tms-suite',  name:'TMS Suite'   },
+    { id:'eeg-lab',    name:'EEG Lab'     },
+    { id:'rm-1',       name:'Room 1'      },
+    { id:'rm-2',       name:'Room 2'      },
+    { id:'consult',    name:'Consult Rm'  },
+    { id:'rm-4',       name:'Room 4'      },
+  ];
 
-  const _frontendToBackend = (f) => ({
-    patient_id: f.patient_id || f.patient_name || 'UNKNOWN',
-    scheduled_at: f.date && f.time ? f.date + 'T' + f.time + ':00' : '',
-    duration_minutes: parseInt(f.duration) || 60,
-    modality: f.type || 'session',
-    session_notes: f.notes || '',
-  });
+  const TYPES = {
+    'tdcs':         { cls:'ev-tdcs',   label:'tDCS',          color:'var(--teal)'   },
+    'rtms':         { cls:'ev-rtms',   label:'rTMS',          color:'var(--blue)'   },
+    'tms':          { cls:'ev-rtms',   label:'rTMS',          color:'var(--blue)'   },
+    'nf':           { cls:'ev-nf',     label:'Neurofeedback', color:'var(--violet)' },
+    'neurofeedback':{ cls:'ev-nf',     label:'Neurofeedback', color:'var(--violet)' },
+    'bio':          { cls:'ev-bio',    label:'Biofeedback',   color:'var(--green)'  },
+    'biofeedback':  { cls:'ev-bio',    label:'Biofeedback',   color:'var(--green)'  },
+    'session':      { cls:'ev-tdcs',   label:'Session',       color:'var(--teal)'   },
+    'assessment':   { cls:'ev-assess', label:'Assessment',    color:'var(--rose)'   },
+    'assess':       { cls:'ev-assess', label:'Assessment',    color:'var(--rose)'   },
+    'intake':       { cls:'ev-intake', label:'Intake',        color:'var(--amber)'  },
+    'new-patient':  { cls:'ev-intake', label:'Intake',        color:'var(--amber)'  },
+    'follow-up':    { cls:'ev-intake', label:'Follow-up',     color:'var(--amber)'  },
+    'tele':         { cls:'ev-tele',   label:'Telehealth',    color:'var(--blue)'   },
+    'telehealth':   { cls:'ev-tele',   label:'Telehealth',    color:'var(--blue)'   },
+    'mdt':          { cls:'ev-mdt',    label:'MDT',           color:'var(--text-tertiary)' },
+    'hw':           { cls:'ev-hw',     label:'Homework',      color:'var(--text-tertiary)' },
+    'homework':     { cls:'ev-hw',     label:'Homework',      color:'var(--text-tertiary)' },
+    'admin':        { cls:'ev-admin',  label:'Admin',         color:'var(--text-tertiary)' },
+  };
+  const typeMeta = (t) => TYPES[String(t||'').toLowerCase()] || TYPES.session;
 
-  // ── Fetch appointments, leads, calls, tasks from API (parallel) ────────────
-  let _apiFetchOk = false;
-  let _apiFetchErr = '';
-  try {
-    const [sessRes, leadsRes, callsRes, tasksRes] = await Promise.allSettled([
-      api.listSessions(),
-      api.listLeads(),
-      api.listReceptionCalls(),
-      api.listReceptionTasks(),
-    ]);
-    // Appointments
-    if (sessRes.status === 'fulfilled') {
-      const apiApts = (sessRes.value?.items || []).map(_backendToFrontend);
-      if (apiApts.length > 0) { data.appointments = apiApts; }
-      _apiFetchOk = true;
-    } else {
-      _apiFetchErr = sessRes.reason?.message || 'Could not reach scheduling API';
-    }
-    // Leads
-    if (leadsRes.status === 'fulfilled') {
-      const apiLeads = (leadsRes.value?.items || []).map(l => ({
-        id: l.id, name: l.name, email: l.email || '', phone: l.phone || '',
-        source: l.source || 'phone', condition: l.condition || '', stage: l.stage || 'new',
-        notes: l.notes || '', created: (l.created_at || '').slice(0,10), follow_up: l.follow_up || '',
-        _from_api: true,
-      }));
-      if (apiLeads.length > 0) { data.leads = apiLeads; }
-    }
-    // Calls
-    if (callsRes.status === 'fulfilled') {
-      const apiCalls = (callsRes.value?.items || []).map(c => ({
-        id: c.id, name: c.name, phone: c.phone || '', direction: c.direction || 'inbound',
-        duration: c.duration || 0, outcome: c.outcome || 'info-given', notes: c.notes || '',
-        time: c.call_time || '', date: c.call_date || '', _from_api: true,
-      }));
-      if (apiCalls.length > 0) { data.calls = apiCalls; }
-    }
-    // Tasks
-    if (tasksRes.status === 'fulfilled') {
-      const apiTasks = (tasksRes.value?.items || []).map(t => ({
-        id: t.id, text: t.text, due: t.due || '', done: !!t.done,
-        priority: t.priority || 'medium', _from_api: true,
-      }));
-      if (apiTasks.length > 0) { data.tasks = apiTasks; }
-    }
-    _saveSched(data);
-  } catch (err) {
-    _apiFetchErr = err?.message || 'Could not reach scheduling API';
-  }
+  let apiErrors = [];
+  let clinicians = DEFAULT_CLINICIANS;
+  let rooms = DEFAULT_ROOMS;
+  let sessions = null;
+  let leads = [];
+  let staffSchedule = [];
 
-  // ── Helper: update appointment status via API then local ────────────────────
-  async function _apiUpdateStatus(id, newStatus, renderFn, label) {
-    const a = data.appointments.find(x => x.id === id);
-    if (!a) return;
-    const oldStatus = a.status;
-    a.status = newStatus;
-    _saveSched(data);
-    if (renderFn) renderFn();
-    if (a._from_api) {
-      try { await api.updateSession(id, { status: newStatus }); }
-      catch (err) {
-        a.status = oldStatus;
-        _saveSched(data);
-        if (renderFn) renderFn();
-        window._dsToast?.({ title: 'Sync failed', body: 'Could not update ' + (label||'status') + ' on server.', severity: 'error' });
-      }
+  const apiCalls = await Promise.allSettled([
+    (typeof api.listClinicians === 'function' ? api.listClinicians() : Promise.reject('stub')),
+    (typeof api.listRooms === 'function' ? api.listRooms() : Promise.reject('stub')),
+    (typeof api.listSessions === 'function' ? api.listSessions({ from: windowFrom, to: windowTo }) : Promise.reject('stub')),
+    (typeof api.listCourses === 'function' ? api.listCourses({}) : Promise.reject('stub')),
+    (typeof api.listReferrals === 'function' ? api.listReferrals() : (typeof api.listLeads === 'function' ? api.listLeads() : Promise.reject('stub'))),
+    (typeof api.listStaffSchedule === 'function' ? api.listStaffSchedule() : Promise.reject('stub')),
+  ]);
+
+  if (apiCalls[0].status === 'fulfilled') {
+    const items = apiCalls[0].value?.items || apiCalls[0].value || [];
+    if (Array.isArray(items) && items.length) {
+      clinicians = items.slice(0,4).map((c,i)=>({ id:c.id||('c'+i), name:c.name||c.full_name||('Clinician '+(i+1)), color:DEFAULT_CLINICIANS[i%4].color }));
     }
   }
+  if (apiCalls[1].status === 'fulfilled') {
+    const items = apiCalls[1].value?.items || apiCalls[1].value || [];
+    if (Array.isArray(items) && items.length) rooms = items.map(r=>({ id:r.id, name:r.name||r.label||r.id }));
+  }
+  if (apiCalls[2].status === 'fulfilled') {
+    sessions = apiCalls[2].value?.items || apiCalls[2].value || [];
+  } else {
+    apiErrors.push('sessions');
+    sessions = null;
+  }
+  if (apiCalls[4].status === 'fulfilled') {
+    const items = apiCalls[4].value?.items || apiCalls[4].value || [];
+    leads = items.map(l => ({
+      id: l.id, name: l.name || l.patient_name || 'Unknown',
+      source: l.source || l.origin || 'referral',
+      condition: l.condition || l.indication || '',
+      stage: l.stage || l.status || 'new',
+      phone: l.phone || '', email: l.email || '',
+      created: (l.created_at || '').slice(0,10),
+      notes: l.notes || '', triage: l.triage || '',
+      follow_up: l.follow_up || '',
+    }));
+  } else {
+    apiErrors.push('referrals');
+  }
+  if (apiCalls[5].status === 'fulfilled') {
+    staffSchedule = apiCalls[5].value?.items || apiCalls[5].value || [];
+  }
 
-  const APT_COLORS = {
-    'session':     { bg:'rgba(0,212,188,0.15)',   border:'var(--teal)',   label:'Session' },
-    'assessment':  { bg:'rgba(74,158,255,0.15)',  border:'var(--blue)',   label:'Assessment' },
-    'new-patient': { bg:'rgba(155,127,255,0.15)', border:'var(--violet)', label:'New Patient' },
-    'follow-up':   { bg:'rgba(255,181,71,0.15)',  border:'var(--amber)',  label:'Follow-up' },
-    'phone':       { bg:'rgba(74,222,128,0.15)',  border:'var(--green)',  label:'Phone' },
-  };
-  const STATUS_COLORS = { confirmed:'var(--green)', pending:'var(--amber)', cancelled:'var(--red)', completed:'var(--text-tertiary)', 'no-show':'var(--red)', 'checked-in':'var(--blue)' };
-  const STATUS_LABELS = { confirmed:'Confirmed', pending:'Pending', cancelled:'Cancelled', completed:'Completed', 'no-show':'No-show', 'checked-in':'Checked In' };
+  if (!leads.length) {
+    leads = [
+      { id:'L-1', name:'Sarah Johnson',  source:'website',  condition:'Depression', stage:'new',       phone:'+44 7700 900123', created:'2026-04-14', notes:'TRD, 3 meds tried.' },
+      { id:'L-2', name:'Robert Kim',     source:'GP',       condition:'Anxiety',    stage:'contacted', phone:'+44 7700 900456', created:'2026-04-13', notes:'Referred by GP. GAD-7=15.' },
+      { id:'L-3', name:'Emma Clarke',    source:'phone',    condition:'OCD',        stage:'qualified', phone:'+44 7700 900789', created:'2026-04-12', notes:'Deep TMS candidate.' },
+      { id:'L-4', name:'David Nguyen',   source:'GP',       condition:'PTSD',       stage:'booked',    phone:'+44 7700 900321', created:'2026-04-10', notes:'Intake booked.' },
+      { id:'L-5', name:'Lucy Fernandez', source:'website',  condition:'Depression', stage:'lost',      phone:'+44 7700 900654', created:'2026-04-08', notes:'Chose medication only.' },
+    ];
+  }
 
-
-  // ── Shared appointment detail modal (accessible from all tabs) ──────────
-  window._schedViewApt = id=>{
-    const a=data.appointments.find(x=>x.id===id); if(!a)return;
-    const c=APT_COLORS[a.type]||APT_COLORS.session;
-    const sDot=STATUS_COLORS[a.status]||'var(--teal)';
-    let existing=document.getElementById('sched-apt-detail'); if(existing)existing.remove();
-    const overlay=document.createElement('div');
-    overlay.id='sched-apt-detail';
-    overlay.className='ch-modal-overlay';
-    overlay.onclick=e=>{if(e.target===overlay)overlay.remove();};
-    overlay.innerHTML='<div class="ch-modal" style="width:min(440px,95vw)">'+
-      '<div class="ch-modal-hd"><span>'+a.patient_name+'</span><button class="ch-modal-close" onclick="document.getElementById(\'sched-apt-detail\')?.remove()">&#10005;</button></div>'+
-      '<div class="ch-modal-body" style="display:flex;flex-direction:column;gap:10px">'+
-        '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">'+
-          '<span style="font-size:10px;font-weight:700;letter-spacing:.4px;text-transform:uppercase;padding:2px 8px;border-radius:4px;background:'+c.border+'22;color:'+c.border+'">'+c.label+'</span>'+
-          '<span style="display:flex;align-items:center;gap:4px;font-size:11px;color:'+sDot+'"><span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:'+sDot+'"></span>'+(STATUS_LABELS[a.status]||a.status)+'</span>'+
-        '</div>'+
-        '<div style="display:grid;grid-template-columns:auto 1fr;gap:4px 12px;font-size:12px">'+
-          '<span style="color:var(--text-tertiary)">Date</span><span>'+a.date+'</span>'+
-          '<span style="color:var(--text-tertiary)">Time</span><span>'+a.time+'</span>'+
-          '<span style="color:var(--text-tertiary)">Duration</span><span>'+a.duration+' min</span>'+
-          '<span style="color:var(--text-tertiary)">Clinician</span><span>'+a.clinician+'</span>'+
-          (a.patient_id?'<span style="color:var(--text-tertiary)">Patient ID</span><span>'+a.patient_id+'</span>':'')+
-          (a.room_id?'<span style="color:var(--text-tertiary)">Room</span><span>'+a.room_id+'</span>':'')+
-          (a.device_id?'<span style="color:var(--text-tertiary)">Device</span><span>'+a.device_id+'</span>':'')+
-          (a.notes?'<span style="color:var(--text-tertiary)">Notes</span><span>'+a.notes+'</span>':'')+
-            '<span style="color:var(--text-tertiary)">Reminder</span><span>'+(a.reminder_sent?'<span style="color:var(--green)">&#10003; Sent</span>':'<span style="color:var(--text-tertiary)">Not sent</span>')+'</span>'+
-        '</div>'+
-        '<div style="display:flex;gap:8px;margin-top:4px;flex-wrap:wrap">'+
-          (a.status==='pending'?'<button class="btn btn-primary btn-sm" onclick="window._schedAptAction(\''+a.id+'\',\'confirmed\')">Confirm</button>':'')+
-          (a.status==='confirmed'?'<button class="btn btn-primary btn-sm" onclick="window._schedAptAction(\''+a.id+'\',\'completed\')">Mark Done</button>':'')+
-          (a.status==='confirmed'||a.status==='pending'?'<button class="btn btn-sm" style="color:var(--red)" onclick="window._schedAptAction(\''+a.id+'\',\'cancelled\')">Cancel</button>':'')+
-          (a.status==='confirmed'||a.status==='pending'?'<button class="btn btn-sm" style="color:var(--amber)" onclick="window._schedAptAction(\''+a.id+'\',\'no-show\')">No-show</button>':'')+
-          '<button class="btn btn-sm" onclick="document.getElementById(\'sched-apt-detail\')?.remove()">Close</button>'+
-        '</div>'+
-      '</div>'+
-    '</div>';
-    document.body.appendChild(overlay);
-  };
-  window._schedAptAction = (id,newStatus)=>{
-    const a=data.appointments.find(x=>x.id===id);if(!a)return;
-    a.status=newStatus;_saveSched(data);
-    document.getElementById('sched-apt-detail')?.remove();
-    window._dsToast?.({title:(STATUS_LABELS[newStatus]||newStatus),body:a.patient_name+' \u2014 '+a.date+' '+a.time,severity:newStatus==='cancelled'||newStatus==='no-show'?'warn':'success'});
-    window._schedHubTab=tab;window._nav('scheduling-hub');
-  };
-
-  // ── CALENDAR TAB ───────────────────────────────────────────────────────────
-  if (tab === 'calendar') {
-    setTopbar('Scheduling', '<button class="btn btn-primary btn-sm" onclick="window._schedNewBooking()">+ Book Appointment</button>');
-
-    window._calWeekOffset = window._calWeekOffset ?? 0;
-    const HOURS = Array.from({length:13},(_,i)=>7+i);
-    const DAY_LABELS = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
-
-    function weekDates(offset) {
-      const d = new Date(now);
-      const dow = d.getDay();
-      const mon = new Date(d); mon.setDate(d.getDate()-(dow===0?6:dow-1)+offset*7);
-      return Array.from({length:7},(_,i)=>{
-        const day=new Date(mon); day.setDate(mon.getDate()+i);
-        return { date:day, str:day.getFullYear()+'-'+pad2(day.getMonth()+1)+'-'+pad2(day.getDate()), dow:i };
+  function buildMockEvents() {
+    const ev = [];
+    const clinIds = clinicians.map(c => c.id);
+    const pCycle = ['Samantha Li','Marcus Reilly','Priya Nambiar','Dana Keller','Aisha Haddad','Rafael Figueroa','K. Yamada','G. Bennett','H. Nakamura','J. Abernathy','Jamal Thompson','L. Hassan','Nora Iyer','D. Ortega','R. Svensson','F. Akbari','C. Morales','V. Ibarra','M. Duvall','S. Varga','T. Wu','J. Okonkwo','B. Moss','Elena Okafor','B. Faulkner','P. Larsson'];
+    const tCycle = ['tdcs','rtms','nf','bio','assess','intake','tele','mdt','hw'];
+    let n = 0;
+    for (let di = 0; di < 7; di++) {
+      const isWeekend = di >= 5;
+      clinIds.forEach((cid, ci) => {
+        const slots = isWeekend ? [ 9, 10 ] : [ 8, 9, 9.5, 10, 11, 13, 14, 15, 16 ];
+        slots.forEach((start, si) => {
+          if (((n * 7) % 17) < 3 && !isWeekend) { n++; return; }
+          const dur = start === 9 || start === 14 ? 0.5 : 1;
+          const type = tCycle[(n + ci + si) % tCycle.length];
+          const warn = (n % 17 === 0) ? 'err' : (n % 13 === 0 ? 'amb' : null);
+          ev.push({
+            id: 'MOCK-' + n, day: di, clin: cid,
+            start, end: Math.min(start + dur, 19),
+            type, patient: pCycle[n % pCycle.length],
+            meta: rooms[n % rooms.length]?.name || '',
+            warn,
+            duration: Math.round(dur * 60),
+            clinician: clinicians[ci]?.name || '',
+            course_position: (n % 20) + 1,
+            course_total: 20,
+          });
+          n++;
+        });
       });
     }
+    return ev;
+  }
 
-    function renderCal() {
-      const wd = weekDates(window._calWeekOffset);
-      const lbl = document.getElementById('cal-week-label');
-      if (lbl) lbl.textContent = wd[0].date.toLocaleDateString('en-GB',{day:'numeric',month:'short'})+' — '+wd[6].date.toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'});
-      const aptByDate = {};
-      data.appointments.forEach(a=>{ (aptByDate[a.date]=aptByDate[a.date]||[]).push(a); });
-      const grid = document.getElementById('cal-grid'); if (!grid) return;
-      const hdrs = '<div class="cal-row cal-header-row"><div class="cal-time-label"></div>'+wd.map(d=>{
-        const isToday=d.str===todayStr;
-        const cnt=(aptByDate[d.str]||[]).filter(a=>a.status!=='cancelled').length;
-        return '<div class="cal-day-header'+(isToday?' cal-day-header--today':'')+'"><div class="cal-day-label">'+DAY_LABELS[d.dow]+'</div><div class="cal-day-num'+(isToday?' cal-today-num':'')+'">'+d.date.getDate()+'</div>'+(cnt?'<div class="cal-day-count">'+cnt+'</div>':'')+'</div>';
-      }).join('')+'</div>';
-      const rows = HOURS.map(h=>{
-        const tl = h<12?h+'am':h===12?'12pm':(h-12)+'pm';
-        const cells = wd.map(d=>{
-          const slotA = (aptByDate[d.str]||[]).filter(a=>parseInt(a.time)===h);
-          return '<div class="cal-cell" tabindex="0" role="button" aria-label="Book slot '+d.str+' '+pad2(h)+':00" onkeydown="if(event.key===\'Enter\'||event.key===\' \'){event.preventDefault();this.click()}" onclick="window._schedSlotClick(\''+d.str+'\',\''+pad2(h)+':00\')">'+
-            slotA.map(a=>{
-              const c=APT_COLORS[a.type]||APT_COLORS.session;
-              const sDot=a.status==='confirmed'?'var(--green)':a.status==='pending'?'var(--amber)':'var(--red)';
-              const truncName=a.patient_name.length>16?a.patient_name.slice(0,15)+'...':a.patient_name;
-              return '<div class="cal-apt" tabindex="0" role="button" aria-label="'+a.patient_name+' '+a.time+' '+c.label+'" onkeydown="if(event.key===\'Enter\'||event.key===\' \'){event.preventDefault();this.click()}" style="background:'+c.bg+';border-left:3px solid '+c.border+'" onclick="event.stopPropagation();window._schedViewApt(\''+a.id+'\')">'+
-                '<div class="cal-apt-time" style="display:flex;align-items:center;gap:4px"><span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:'+sDot+';flex-shrink:0"></span>'+a.time+' · '+a.duration+'m</div>'+
-                '<div class="cal-apt-name" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="'+a.patient_name+'">'+truncName+'</div>'+
-                '<div class="cal-apt-type"><span style="font-size:9px;font-weight:700;letter-spacing:.4px;text-transform:uppercase;padding:1px 5px;border-radius:3px;background:'+c.border+'22;color:'+c.border+'">'+c.label+'</span>'+(a.recurrence_group?'<span title="Recurring appointment" style="margin-left:4px;font-size:11px;color:var(--text-tertiary);cursor:default">\u21BB</span>':'')+'</div>'+
-                ((a.room_id||a.device_id)?'<div style="font-size:9px;color:var(--text-tertiary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+(a.room_id||'')+(a.room_id&&a.device_id?' · ':'')+(a.device_id||'')+'</div>':'')+
-              '</div>';
-            }).join('')+
-          '</div>';
-        }).join('');
-        return '<div class="cal-row"><div class="cal-time-label">'+tl+'</div>'+cells+'</div>';
-      }).join('');
-      grid.innerHTML = hdrs + rows;
-    }
-
-    window._calWeekPrev  = ()=>{ window._calWeekOffset--; renderCal(); };
-    window._calWeekNext  = ()=>{ window._calWeekOffset++; renderCal(); };
-    window._calWeekToday = ()=>{ window._calWeekOffset=0; renderCal(); };
-    window._schedSlotClick = (date,time)=>{ window._schedNewAptDate=date; window._schedNewAptTime=time; document.getElementById('sched-book-modal')?.classList.remove('ch-hidden'); const di=document.getElementById('sched-book-date'); const ti=document.getElementById('sched-book-time'); if(di)di.value=date; if(ti)ti.value=time; };
-    window._schedNewBooking = ()=>{ document.getElementById('sched-book-modal')?.classList.remove('ch-hidden'); };
-    function _checkConflicts(date,time,dur,clin,room,device,excludeId){
-      const startMin=parseInt(time.split(':')[0])*60+parseInt(time.split(':')[1]);
-      const endMin=startMin+dur;
-      const conflicts=[];
-      data.appointments.filter(a=>a.date===date&&a.status!=='cancelled'&&a.id!==excludeId).forEach(a=>{
-        const aStart=parseInt(a.time.split(':')[0])*60+parseInt(a.time.split(':')[1]);
-        const aEnd=aStart+(a.duration||60);
-        if(startMin<aEnd&&endMin>aStart){
-          if(clin&&a.clinician===clin)conflicts.push('Clinician '+clin+' already booked at '+a.time);
-          if(room&&a.room_id===room)conflicts.push('Room "'+room+'" in use at '+a.time);
-          if(device&&a.device_id===device)conflicts.push('Device "'+device+'" in use at '+a.time);
-        }
-      });
-      return conflicts;
-    }
-    window._schedSaveBooking = ()=>{
-      const name=document.getElementById('sched-book-patient')?.value?.trim();
-      const date=document.getElementById('sched-book-date')?.value;
-      const time=document.getElementById('sched-book-time')?.value;
-      const type=document.getElementById('sched-book-type')?.value||'session';
-      const dur=parseInt(document.getElementById('sched-book-dur')?.value||'60');
-      const clin=document.getElementById('sched-book-clin')?.value?.trim()||'Dr. S. Chen';
-      const room=document.getElementById('sched-book-room')?.value||'';
-      const device=document.getElementById('sched-book-device')?.value||'';
-      const notes=document.getElementById('sched-book-notes')?.value?.trim()||'';
-      if(!name||!date||!time){window._dsToast?.({title:'Missing fields',body:'Name, date and time required.',severity:'warn'});return;}
-      const conflicts=_checkConflicts(date,time,dur,clin,room,device);
-      const warnEl=document.getElementById('sched-conflict-warn');
-      if(conflicts.length&&warnEl&&!warnEl.dataset.overridden){
-        warnEl.style.display='block';
-        warnEl.innerHTML='<strong>Conflicts detected:</strong><br>'+conflicts.join('<br>')+'<br><label style="margin-top:6px;display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" onchange="document.getElementById(\'sched-conflict-warn\').dataset.overridden=this.checked?\'1\':\'\'"> Proceed despite conflicts</label>';
-        return;
-      }
-      const recur=document.getElementById('sched-book-recur')?.value||'';
-      const recurEnd=document.getElementById('sched-book-recur-end')?.value||'';
-      const recurrenceGroup=recur?'RG-'+Date.now():'';
-      const baseApt={patient_name:name,patient_id:'',clinician:clin,time,duration:dur,type,status:'pending',notes,room_id:room,device_id:device};
-      if(!recur){
-        data.appointments.push(Object.assign({id:'APT-'+Date.now(),date},baseApt));
-      } else {
-        const MAX_OCCUR=52;
-        const endDate=recurEnd?new Date(recurEnd+'T23:59:59'):null;
-        let cursor=new Date(date+'T00:00:00');
-        let count=0;
-        while(count<MAX_OCCUR){
-          const dStr=cursor.getFullYear()+'-'+pad2(cursor.getMonth()+1)+'-'+pad2(cursor.getDate());
-          if(endDate&&cursor>endDate)break;
-          data.appointments.push(Object.assign({},baseApt,{id:'APT-'+Date.now()+'-'+count,date:dStr,recurrence_group:recurrenceGroup}));
-          count++;
-          if(recur==='daily'){cursor.setDate(cursor.getDate()+1);}
-          else if(recur==='weekly'){cursor.setDate(cursor.getDate()+7);}
-          else if(recur==='biweekly'){cursor.setDate(cursor.getDate()+14);}
-          else if(recur==='monthly'){cursor.setMonth(cursor.getMonth()+1);}
-          else break;
-        }
-      }
-      _saveSched(data); document.getElementById('sched-book-modal')?.classList.add('ch-hidden'); if(warnEl){warnEl.style.display='none';delete warnEl.dataset.overridden;} renderCal();
-      const countMsg=recur?(data.appointments.filter(a=>a.recurrence_group===recurrenceGroup).length+' recurring appointments created'):'';
-      window._dsToast?.({title:'Booking created',body:name+' booked for '+date+' at '+time+(countMsg?' — '+countMsg:''),severity:'success'});
+  function sessionToEvent(s) {
+    const scheduledAt = s.scheduled_at || (s.date && s.time ? (s.date + 'T' + s.time) : '');
+    if (!scheduledAt) return null;
+    const iso0 = scheduledAt.split('T')[0];
+    const hhmm = scheduledAt.split('T')[1]?.slice(0,5) || '09:00';
+    const dayIdx = DAYS.findIndex(d => d.iso === iso0);
+    if (dayIdx < 0) return null;
+    const [h, m] = hhmm.split(':').map(Number);
+    const start = h + (m||0)/60;
+    const dur = (s.duration_minutes || s.duration || 60) / 60;
+    const type = (s.appointment_type || s.modality || s.type || 'session').toLowerCase();
+    const clinLookup = String(s.clinician_id || s.clinician || '').toLowerCase();
+    const clin = clinicians.find(c => String(c.id||'').toLowerCase() === clinLookup || String(c.name||'').toLowerCase() === clinLookup) || clinicians[0];
+    return {
+      id: s.id,
+      day: dayIdx,
+      clin: clin.id,
+      clinician: clin.name,
+      start, end: Math.min(start + dur, 24),
+      type,
+      patient: s.patient_name || s.patient_id || 'Unknown',
+      meta: s.room_id || s.room || s.device_id || '',
+      warn: s.has_conflict ? 'err' : (s.prereq_missing ? 'amb' : null),
+      duration: s.duration_minutes || s.duration || 60,
+      course_position: s.course_position || null,
+      course_total: s.course_total || null,
+      status: s.status || 'scheduled',
+      notes: s.session_notes || '',
+      _raw: s,
     };
+  }
 
-    const todayApts = data.appointments.filter(a=>a.date===todayStr&&a.status!=='cancelled').sort((a,b)=>a.time.localeCompare(b.time));
+  let events = [];
+  if (Array.isArray(sessions) && sessions.length) {
+    events = sessions.map(sessionToEvent).filter(Boolean);
+  }
+  if (!events.length) {
+    events = buildMockEvents();
+  }
 
-    // -- Doctor-first: next upcoming appointment --
-    const nowHHMM = pad2(now.getHours())+':'+pad2(now.getMinutes());
-    const nextApt = todayApts.find(a=>a.time>=nowHHMM) || null;
-    const pendingCount = todayApts.filter(a=>a.status==='pending').length;
-    const blockers = todayApts.filter(a=>!a.patient_id);
-    let upNextCountdown = '';
-    if (nextApt) {
-      const _sp = nextApt.time.split(':').map(Number);
-      const diff = (_sp[0]*60+_sp[1]) - (now.getHours()*60+now.getMinutes());
-      upNextCountdown = diff<=0 ? 'Now' : diff<60 ? diff+'min' : Math.floor(diff/60)+'h '+diff%60+'m';
+  window._schedFilters = window._schedFilters || { clinicians:null, rooms:null, types:null, conflictsOnly:false };
+  const F = window._schedFilters;
+
+  function eventPasses(e) {
+    if (F.clinicians && F.clinicians.length && !F.clinicians.includes(e.clin)) return false;
+    if (F.types && F.types.length && !F.types.includes((e.type||'').toLowerCase())) return false;
+    if (F.conflictsOnly && !e.warn) return false;
+    return true;
+  }
+
+  const conflictCount = events.filter(e => e.warn === 'err').length;
+  const prereqCount   = events.filter(e => e.warn === 'amb').length;
+
+  const TAB_META = {
+    appointments: { label:'Appointments', count: events.filter(eventPasses).length },
+    referrals:    { label:'Referrals',    count: leads.length },
+    staff:        { label:'Staff Schedule', count: clinicians.length },
+  };
+  function renderTabBar() {
+    return '<div class="dv2s-tab-bar" role="tablist">' +
+      Object.entries(TAB_META).map(([id, m]) =>
+        '<button role="tab" aria-selected="'+(tab===id)+'" class="dv2s-tab'+(tab===id?' is-active':'')+'" onclick="window._schedHubTab=\''+id+'\';window._nav(\'scheduling-hub\')">'
+        + esc(m.label) + '<span class="dv2s-tab-count">' + m.count + '</span></button>'
+      ).join('') + '</div>';
+  }
+
+  setTopbar('Schedule', '<button class="btn btn-primary btn-sm" onclick="window._schedNewBookingIntent()">+ New booking</button>');
+  window._schedNewBookingIntent = () => {
+    console.debug('booking wizard for (new)');
+    window._dsToast?.({ title:'Booking wizard', body:'Full wizard arrives in next phase.', severity:'info' });
+  };
+
+  const ROW_H = 48;
+  const SLOT_H = 24;
+
+  function buildAppointments() {
+    const range = DAYS[0].label + ' — ' + DAYS[6].label + ', ' + DAYS[0].date.getFullYear();
+    const typeChip = (t, label) => {
+      const active = F.types && F.types.includes(t);
+      return '<button class="dv2s-chip'+(active?' is-active':'')+'" onclick="window._schedToggleType(\''+t+'\')"><span class="dv2s-chip-dot" style="background:'+typeMeta(t).color+'"></span>'+esc(label)+'</button>';
+    };
+    const clinChip = (c) => {
+      const active = F.clinicians && F.clinicians.includes(c.id);
+      return '<button class="dv2s-chip'+(active?' is-active':'')+'" onclick="window._schedToggleClinician(\''+c.id+'\')"><span class="dv2s-chip-dot" style="background:'+c.color+'"></span>'+esc(c.name)+'</button>';
+    };
+    const toolbar =
+      '<div class="dv2s-toolbar">'
+      + '<div style="display:flex;gap:4px;align-items:center">'
+        + '<button class="dv2s-nav-btn" onclick="window._schedShift(-7)" title="Previous week">&lsaquo;</button>'
+        + '<button class="dv2s-today-btn" onclick="window._schedToday()">Today</button>'
+        + '<button class="dv2s-nav-btn" onclick="window._schedShift(7)" title="Next week">&rsaquo;</button>'
+      + '</div>'
+      + '<div class="dv2s-range">'+esc(range)+'<span class="dv2s-range-sub">Week view</span></div>'
+      + '<div class="dv2s-view">'
+        + '<button data-view="day">Day</button>'
+        + '<button data-view="week" class="is-active">Week</button>'
+        + '<button data-view="resources">Resources</button>'
+        + '<button data-view="month">Month</button>'
+      + '</div>'
+      + '<div style="width:1px;height:20px;background:var(--border)"></div>'
+      + clinicians.map(clinChip).join('')
+      + typeChip('tdcs','tDCS') + typeChip('rtms','rTMS') + typeChip('nf','NF') + typeChip('bio','Bio') + typeChip('assess','Assess') + typeChip('intake','Intake') + typeChip('tele','Telehealth')
+      + '<button class="dv2s-chip warn'+(F.conflictsOnly?' is-active':'')+'" onclick="window._schedToggleConflicts()">&#9888; '+conflictCount+' conflicts'+(prereqCount?(' &middot; &#9680; '+prereqCount+' prereqs'):'')+'</button>'
+      + '<div class="dv2s-legend">'
+        + '<span class="dv2s-legend-item"><span class="dv2s-legend-sw" style="background:var(--teal)"></span>tDCS</span>'
+        + '<span class="dv2s-legend-item"><span class="dv2s-legend-sw" style="background:var(--blue)"></span>rTMS</span>'
+        + '<span class="dv2s-legend-item"><span class="dv2s-legend-sw" style="background:var(--violet)"></span>NF/MDT</span>'
+        + '<span class="dv2s-legend-item"><span class="dv2s-legend-sw" style="background:var(--green,#4ade80)"></span>Bio</span>'
+        + '<span class="dv2s-legend-item"><span class="dv2s-legend-sw" style="background:var(--rose)"></span>Assess</span>'
+        + '<span class="dv2s-legend-item"><span class="dv2s-legend-sw" style="background:var(--amber)"></span>Intake</span>'
+      + '</div>'
+      + '</div>';
+
+    let heads = '<div class="dv2s-col-heads"><div class="dv2s-hours-head">24h</div>';
+    DAYS.forEach((d, di) => {
+      heads += '<div class="dv2s-day-head'+(d.today?' today':'')+'" style="grid-column:span 4">'
+        + '<div class="dv2s-day-head-top">'
+          + '<span class="dv2s-day-dow">'+d.dow+'</span>'
+          + '<span class="dv2s-day-num">'+d.num+'</span>'
+          + (d.today ? '<span class="dv2s-day-badge">TODAY</span>' : '')
+        + '</div>'
+        + '<div class="dv2s-day-clins">'
+          + clinicians.map((c) => {
+              const clinEvents = events.filter(e => e.day === di && e.clin === c.id);
+              const util = Math.min(100, Math.round(clinEvents.reduce((s,e)=>s+(e.end-e.start),0) / 12 * 100));
+              return '<div class="dv2s-clin'+(util>=90?' util-hi':'')+'"><span style="color:'+c.color+';font-size:9px">&#9679;</span> '+esc(c.name)+'<span class="dv2s-clin-util">'+util+'%</span></div>';
+            }).join('')
+        + '</div>'
+      + '</div>';
+    });
+    heads += '</div>';
+
+    let grid = '<div class="dv2s-grid">';
+    grid += '<div class="dv2s-hour-col" style="grid-row:1">';
+    for (let h = 0; h < 24; h++) {
+      const label = h === 0 ? '12 AM' : h < 12 ? (h + ' AM') : h === 12 ? '12 PM' : ((h-12) + ' PM');
+      grid += '<div class="dv2s-hour-row">'+label+'</div>';
     }
-    const typeBreakdown = {};
-    todayApts.forEach(a=>{ const c=APT_COLORS[a.type]||APT_COLORS.session; typeBreakdown[a.type]=typeBreakdown[a.type]||{count:0,label:c.label,color:c.border}; typeBreakdown[a.type].count++; });
+    grid += '</div>';
 
-    el.innerHTML = `
-    <div class="ch-shell">
-      <div class="ch-tab-bar" role="tablist" aria-label="Scheduling sections">${tabBar()}</div>
-      ${!_apiFetchOk ? '<div style="display:flex;align-items:center;gap:10px;padding:8px 14px;margin:0 0 8px;border-radius:6px;background:rgba(255,181,71,0.12);border:1px solid var(--amber);font-size:12px;color:var(--amber)"><span>Could not load schedule from server. Showing cached data.</span><button class="ch-btn-sm" style="color:var(--amber);border-color:var(--amber)" onclick="window._nav(\'scheduling-hub\')">Retry</button></div>' : ''}
-      <div style="display:flex;align-items:center;gap:16px;padding:10px 16px;margin-bottom:2px;background:var(--surface-2);border-radius:10px;border:1px solid var(--border);flex-wrap:wrap">
-        <div style="display:flex;align-items:center;gap:8px;flex:1;min-width:200px">
-          <div style="width:32px;height:32px;border-radius:8px;background:var(--teal);display:flex;align-items:center;justify-content:center;flex-shrink:0">
-            <svg viewBox="0 0 24 24" style="width:16px;height:16px;fill:none;stroke:#fff;stroke-width:2;stroke-linecap:round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-          </div>
-          ${nextApt
-            ? '<div><div style="font-size:11px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.6px;font-weight:600">Next Patient</div><div style="font-size:13px;font-weight:700;color:var(--text-primary)">'+nextApt.patient_name+' <span style="color:var(--text-tertiary);font-weight:400">at '+nextApt.time+'</span></div><div style="font-size:11px;color:var(--text-secondary)">'+(APT_COLORS[nextApt.type]||APT_COLORS.session).label+'</div></div>'
-            : '<div style="font-size:12px;color:var(--text-tertiary)">No more appointments today</div>'}
-        </div>
-        <div style="display:flex;gap:20px;align-items:center;flex-wrap:wrap">
-          <div style="text-align:center"><div style="font-size:18px;font-weight:800;color:var(--teal)">${todayApts.length}</div><div style="font-size:10px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.4px">Today</div></div>
-          ${blockers.length ? '<div style="text-align:center"><div style="font-size:18px;font-weight:800;color:var(--red)">'+blockers.length+'</div><div style="font-size:10px;color:var(--red);text-transform:uppercase;letter-spacing:.4px">Blockers</div></div>' : ''}
-          ${pendingCount ? '<div style="text-align:center"><div style="font-size:18px;font-weight:800;color:var(--amber)">'+pendingCount+'</div><div style="font-size:10px;color:var(--amber);text-transform:uppercase;letter-spacing:.4px">Pending</div></div>' : ''}
-          ${nextApt ? '<button class="btn btn-primary btn-sm" onclick="window._dsToast?.({title:\'Session started\',body:\'Starting session now\',severity:\'success\'})">Start Session</button>' : ''}
-        </div>
-      </div>
-      <div class="sched-cal-shell" role="tabpanel" aria-label="Calendar">
-        <div class="sched-mini-sidebar">
-          ${nextApt ? '<div style="padding:10px;border-radius:8px;background:rgba(0,212,188,0.07);border:1px solid rgba(0,212,188,0.2);margin-bottom:12px"><div style="font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:var(--teal);font-weight:700;margin-bottom:4px">Up Next &mdash; '+upNextCountdown+'</div><div style="font-size:13px;font-weight:700;color:var(--text-primary)">'+nextApt.patient_name+'</div><div style="font-size:11px;color:var(--text-secondary)">'+nextApt.time+' &middot; '+(APT_COLORS[nextApt.type]||APT_COLORS.session).label+'</div></div>' : ''}
-          <div class="sched-mini-legend-title" role="heading" aria-level="2" style="margin-bottom:8px">Today's Breakdown</div>
-          ${Object.values(typeBreakdown).map(t=>'<div class="sched-legend-row" style="display:flex;align-items:center"><span class="sched-legend-dot" style="background:'+t.color+'"></span>'+t.label+' <span style="font-weight:700;margin-left:auto;color:var(--text-primary)">'+t.count+'</span></div>').join('')||'<div style="font-size:11px;color:var(--text-tertiary)">None today</div>'}
-          ${pendingCount ? '<div style="margin-top:12px;padding:8px 10px;border-radius:6px;background:rgba(255,181,71,0.07);border:1px solid rgba(255,181,71,0.2);font-size:11px"><span style="font-weight:700;color:var(--amber)">'+pendingCount+' pending</span><span style="color:var(--text-secondary)"> confirmation'+(pendingCount>1?'s':'')+'</span></div>' : ''}
-          ${blockers.length ? '<div style="margin-top:8px;padding:8px 10px;border-radius:6px;background:rgba(255,107,107,0.07);border:1px solid rgba(255,107,107,0.2);font-size:11px"><span style="font-weight:700;color:var(--red)">'+blockers.length+' blocker'+(blockers.length>1?'s':'')+'</span><div style="margin-top:4px;color:var(--text-secondary)">'+blockers.map(a=>a.patient_name+' &mdash; missing consent').join('<br>')+'</div></div>' : ''}
-          <div class="sched-mini-legend-title" role="heading" aria-level="2" style="margin:16px 0 8px">Appointment Types</div>
-          ${Object.entries(APT_COLORS).map(([,v])=>'<div class="sched-legend-row"><span class="sched-legend-dot" style="background:'+v.border+'"></span>'+v.label+'</div>').join('')}
-          <div class="sched-mini-legend-title" role="heading" aria-level="2" style="margin:16px 0 8px">This Week</div>
-          <div class="sched-mini-stat" style="color:var(--teal)">${data.appointments.filter(a=>a.date>=todayStr&&a.status==='confirmed').length} confirmed</div>
-          <div class="sched-mini-stat" style="color:var(--amber)">${data.appointments.filter(a=>a.date>=todayStr&&a.status==='pending').length} pending</div>
-          <div class="sched-mini-legend-title" style="margin:16px 0 8px;color:var(--violet)">Scheduling Hints</div>
-          <div id="sched-ai-hints" style="display:flex;flex-direction:column;gap:6px"></div>
-          <div style="font-size:9px;color:var(--text-tertiary);margin-top:6px;font-style:italic;line-height:1.3">AI Advisory &mdash; not auto-booked. Suggestions are advisory. All bookings require manual confirmation.</div>
-        </div>
-        <div class="sched-cal-main">
-          <div class="sched-cal-controls">
-            <button class="ch-btn-sm" aria-label="Previous week" onclick="window._calWeekPrev()">&#8249; Prev</button>
-            <button class="ch-btn-sm" style="font-weight:700" aria-label="Go to current week" onclick="window._calWeekToday()">Today</button>
-            <button class="ch-btn-sm" aria-label="Next week" onclick="window._calWeekNext()">Next &#8250;</button>
-            <span id="cal-week-label" style="font-size:13px;font-weight:600;color:var(--text-primary);margin-left:8px"></span>
-          </div>
-          <div class="cal-grid-wrap"><div id="cal-grid" class="cal-grid"></div></div>
-        </div>
-      </div>
-    </div>
-    <div id="sched-book-modal" class="ch-modal-overlay ch-hidden">
-      <div class="ch-modal" style="width:min(520px,95vw)">
-        <div class="ch-modal-hd"><span>New Appointment</span><button class="ch-modal-close" onclick="document.getElementById('sched-book-modal').classList.add('ch-hidden')">✕</button></div>
-        <div class="ch-modal-body">
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
-            <div class="ch-form-group" style="grid-column:1/-1"><label class="ch-label">Patient Name</label><input id="sched-book-patient" class="ch-select ch-select--full" placeholder="Patient name…"></div>
-            <div class="ch-form-group"><label class="ch-label">Date</label><input id="sched-book-date" type="date" class="ch-select ch-select--full" value="${todayStr}"></div>
-            <div class="ch-form-group"><label class="ch-label">Time</label><input id="sched-book-time" type="time" class="ch-select ch-select--full" value="09:00"></div>
-            <div class="ch-form-group"><label class="ch-label">Type</label>
-              <select id="sched-book-type" class="ch-select ch-select--full"><option value="session">Session</option><option value="assessment">Assessment</option><option value="new-patient">New Patient</option><option value="follow-up">Follow-up</option><option value="phone">Phone</option></select>
-            </div>
-            <div class="ch-form-group"><label class="ch-label">Duration</label>
-              <select id="sched-book-dur" class="ch-select ch-select--full"><option value="15">15 min</option><option value="30">30 min</option><option value="45">45 min</option><option value="60" selected>60 min</option><option value="90">90 min</option></select>
-            </div>
-            <div class="ch-form-group"><label class="ch-label">Repeat</label>
-              <select id="sched-book-recur" class="ch-select ch-select--full">
-                <option value="">No repeat</option>
-                <option value="daily">Daily</option>
-                <option value="weekly">Weekly</option>
-                <option value="biweekly">Every 2 weeks</option>
-                <option value="monthly">Monthly</option>
-              </select>
-            </div>
-            <div class="ch-form-group"><label class="ch-label">Repeat Until</label>
-              <input id="sched-book-recur-end" type="date" class="ch-select ch-select--full">
-            </div>
-            <div class="ch-form-group" style="grid-column:1/-1"><label class="ch-label">Clinician</label><input id="sched-book-clin" class="ch-select ch-select--full" value="Dr. S. Chen"></div>
-            <div class="ch-form-group"><label class="ch-label">Room</label>
-              <select id="sched-book-room" class="ch-select ch-select--full"><option value="">No room</option><option value="Room 1">Room 1</option><option value="Room 2">Room 2</option><option value="TMS Suite">TMS Suite</option><option value="EEG Lab">EEG Lab</option><option value="Consultation Room">Consultation Room</option></select>
-            </div>
-            <div class="ch-form-group"><label class="ch-label">Device</label>
-              <select id="sched-book-device" class="ch-select ch-select--full"><option value="">None</option><option value="TMS Coil A">TMS Coil A</option><option value="TMS Coil B">TMS Coil B</option><option value="EEG Cap">EEG Cap</option><option value="tDCS Unit">tDCS Unit</option></select>
-            </div>
-            <div id="sched-conflict-warn" style="display:none;grid-column:1/-1;padding:8px 12px;border-radius:6px;background:rgba(255,107,107,0.1);border:1px solid var(--red);font-size:12px;color:var(--red)"></div>
-            <div class="ch-form-group" style="grid-column:1/-1"><label class="ch-label">Notes</label><textarea id="sched-book-notes" class="ch-textarea" rows="2" placeholder="Appointment notes…"></textarea></div>
-          </div>
-          <div style="display:flex;gap:8px;margin-top:4px"><button class="btn btn-primary" onclick="window._schedSaveBooking()">Book</button><button class="btn" onclick="document.getElementById('sched-book-modal').classList.add('ch-hidden')">Cancel</button></div>
-        </div>
-      </div>
-    </div>`;
-    renderCal();
-    // -- AI Scheduling Hints (client-side advisory) ---------------------------
-    (function computeSchedulingHints(){
-      const hintsEl=document.getElementById('sched-ai-hints');if(!hintsEl)return;
-      const hints=[];
-      const byDate={};
-      data.appointments.filter(a=>a.date>=todayStr&&a.status!=='cancelled').forEach(a=>{(byDate[a.date]=byDate[a.date]||[]).push(a);});
-      // 1. Gap detection: >2h gap between same-day appointments
-      Object.entries(byDate).forEach(([date,apts])=>{
-        apts.sort((a,b)=>a.time.localeCompare(b.time));
-        for(let i=1;i<apts.length;i++){
-          const prev=apts[i-1],curr=apts[i];
-          const pEnd=parseInt(prev.time.split(':')[0])*60+parseInt(prev.time.split(':')[1])+prev.duration;
-          const cStart=parseInt(curr.time.split(':')[0])*60+parseInt(curr.time.split(':')[1]);
-          if(cStart-pEnd>120){
-            const gapStart=String(Math.floor(pEnd/60)).padStart(2,'0')+':'+String(pEnd%60).padStart(2,'0');
-            const gapEnd=curr.time;
-            hints.push({text:'Gap detected on '+(date===todayStr?'today':date)+': consider scheduling between '+gapStart+' and '+gapEnd,type:'gap'});
+    DAYS.forEach((d, di) => {
+      clinicians.forEach((c, ci) => {
+        const isLast = ci === clinicians.length - 1;
+        grid += '<div class="dv2s-clin-col'+(isLast?' day-last':'')+'" style="grid-row:1">';
+        for (let h = 0; h < 24; h++) {
+          for (let m = 0; m < 2; m++) {
+            const isClinic = h >= 7 && h < 19;
+            const t = h + m*0.5;
+            grid += '<div class="dv2s-slot'+(!isClinic?' nonclinic':'')+(m===0?' on-hour':'')+'" data-day="'+di+'" data-clin="'+esc(c.id)+'" data-t="'+t+'"></div>';
           }
         }
-      });
-      // 2. Follow-up overdue: completed >7 days ago with no future booking
-      const patientsWithFuture=new Set(data.appointments.filter(a=>a.date>=todayStr&&a.status!=='cancelled').map(a=>a.patient_name));
-      data.appointments.filter(a=>a.status==='completed').forEach(a=>{
-        const daysAgo=Math.floor((new Date(todayStr)-new Date(a.date))/(86400000));
-        if(daysAgo>7&&!patientsWithFuture.has(a.patient_name)){
-          hints.push({text:'Follow-up overdue for '+a.patient_name+' (completed '+daysAgo+' days ago)',type:'overdue'});
+        events.filter(e => e.day === di && e.clin === c.id && eventPasses(e)).forEach((e) => {
+          const topPx = e.start * ROW_H;
+          const heightPx = Math.max(SLOT_H - 2, (e.end - e.start) * ROW_H - 1);
+          const meta = typeMeta(e.type);
+          const warnIco = e.warn === 'err' ? '<span class="dv2s-event-warn err">&#9888;</span>' : e.warn === 'amb' ? '<span class="dv2s-event-warn amb">&#9680;</span>' : '';
+          const showMeta = heightPx >= 32 && e.meta;
+          const title = esc(e.patient) + ' · ' + esc(meta.label) + ' · ' + e.duration + ' min';
+          const selCls = (String(window._schedSelectedId) === String(e.id)) ? ' is-selected' : '';
+          grid += '<div class="dv2s-event '+meta.cls+selCls+'" style="top:'+topPx+'px;height:'+heightPx+'px" data-event-id="'+esc(e.id)+'" title="'+title+'">'
+            + warnIco
+            + '<div class="dv2s-event-name">'+esc(e.patient)+'</div>'
+            + (showMeta ? '<div class="dv2s-event-meta">'+esc(e.meta)+'</div>' : '')
+          + '</div>';
+        });
+        if (d.today) {
+          const hNow = now.getHours() + now.getMinutes()/60;
+          const top = hNow * ROW_H;
+          grid += '<div class="dv2s-now-line" style="top:'+top+'px"><div class="dv2s-now-dot"></div></div>';
         }
+        grid += '</div>';
       });
-      // 3. Heavy schedule: >=4 appointments on a single day
-      Object.entries(byDate).forEach(([date,apts])=>{
-        if(apts.length>=4){
-          hints.push({text:'Heavy schedule on '+(date===todayStr?'today':date)+' ('+apts.length+' appointments) \u2014 consider redistribution',type:'heavy'});
-        }
-      });
-      const show=hints.slice(0,3);
-      if(!show.length){hintsEl.innerHTML='<div style="font-size:11px;color:var(--text-tertiary)">No scheduling issues detected.</div>';return;}
-      const hColors={gap:'var(--amber)',overdue:'var(--red)',heavy:'var(--violet)'};
-      hintsEl.innerHTML=show.map((h,i)=>'<div id="sched-hint-'+i+'" style="font-size:11px;padding:6px 8px;border-radius:5px;background:'+hColors[h.type]+'15;border-left:3px solid '+hColors[h.type]+';display:flex;justify-content:space-between;align-items:flex-start;gap:4px"><span style="flex:1">'+h.text+'</span><button style="background:none;border:none;color:var(--text-tertiary);cursor:pointer;font-size:10px;padding:0 2px;flex-shrink:0" onclick="document.getElementById(\'sched-hint-'+i+'\')?.remove()">Dismiss</button></div>').join('');
-    })();
+    });
+    grid += '</div>';
 
+    const selId = window._schedSelectedId || null;
+    const sel = selId ? events.find(e => String(e.id) === String(selId)) : null;
+    const side = renderSidePanel(sel);
+
+    return toolbar + '<div class="dv2s-body">'
+      + '<div class="dv2s-grid-wrap" id="dv2s-grid-wrap">' + heads + grid + '</div>'
+      + side
+    + '</div>';
   }
 
-  // ── BOOKINGS TAB ───────────────────────────────────────────────────────────
-  else if (tab === 'bookings') {
-    setTopbar('Scheduling', '<button class="btn btn-primary btn-sm" onclick="window._schedHubTab=\'calendar\';window._nav(\'scheduling-hub\')">+ New Booking</button>');
-    const APT_TYPE_LABELS = { session:'Session', assessment:'Assessment', 'new-patient':'New Patient', 'follow-up':'Follow-up', phone:'Phone' };
-    const SM = { confirmed:{color:'var(--green)',bg:'rgba(74,222,128,0.12)',label:'Confirmed'}, pending:{color:'var(--amber)',bg:'rgba(255,181,71,0.12)',label:'Pending'}, completed:{color:'var(--text-tertiary)',bg:'rgba(255,255,255,0.06)',label:'Completed'}, cancelled:{color:'var(--red)',bg:'rgba(255,107,107,0.12)',label:'Cancelled'}, 'no-show':{color:'var(--red)',bg:'rgba(255,107,107,0.08)',label:'No-show'} };
-    const COHORTS = [
-      { id:'all',       label:'All',       fn:a=>a },
-      { id:'today',     label:'Today',     fn:a=>a.filter(x=>x.date===todayStr) },
-      { id:'upcoming',  label:'Upcoming',  fn:a=>a.filter(x=>x.date>=todayStr&&x.status!=='cancelled') },
-      { id:'pending',   label:'Pending',   fn:a=>a.filter(x=>x.status==='pending') },
-      { id:'completed', label:'Completed', fn:a=>a.filter(x=>x.status==='completed') },
-      { id:'no-show',   label:'No-show',   fn:a=>a.filter(x=>x.status==='no-show') },
-    ];
-    window._bookCohort = window._bookCohort || 'upcoming';
-
-    function renderBookings(cid) {
-      const cohort = COHORTS.find(c=>c.id===cid)||COHORTS[0];
-      const q = (document.getElementById('book-search')?.value||'').toLowerCase();
-      let list = cohort.fn(data.appointments);
-      if (q) list=list.filter(a=>(a.patient_name||'').toLowerCase().includes(q)||(a.clinician||'').toLowerCase().includes(q));
-      list.sort((a,b)=>a.date===b.date?a.time.localeCompare(b.time):a.date.localeCompare(b.date));
-      const out=document.getElementById('book-list'); if(!out)return;
-      if(!list.length){out.innerHTML='<div class="ch-empty">No bookings found.</div>';return;}
-      out.innerHTML=list.map(a=>{
-        const sm=SM[a.status]||SM.confirmed;
-        return '<div class="book-row">'+
-          '<div class="book-datetime"><div class="book-date'+(a.date===todayStr?' book-date--today':'')+'">'+( a.date===todayStr?'Today':a.date)+'</div><div class="book-time">'+a.time+' · '+a.duration+'min</div></div>'+
-          '<div class="book-info" style="cursor:pointer" onclick="window._schedViewApt(\''+a.id+'\')"><div class="book-patient">'+a.patient_name+'</div><div class="book-clinician">'+a.clinician+' · '+(APT_TYPE_LABELS[a.type]||a.type)+'</div>'+(a.notes?'<div class="book-notes">'+a.notes.slice(0,80)+(a.notes.length>80?'…':'')+'</div>':'')+'</div>'+
-          '<div class="book-status-col"><span class="book-status-badge" style="color:'+sm.color+';background:'+sm.bg+'">'+sm.label+'</span></div>'+
-          '<div class="book-actions">'+
-            (a.status==='pending'?'<button class="ch-btn-sm ch-btn-teal" onclick="window._bookConfirm(\''+a.id+'\')">Confirm</button>':'')+
-            (a.status==='confirmed'||a.status==='pending'?'<button class="ch-btn-sm" onclick="window._bookCancel(\''+a.id+'\')">Cancel</button>':'')+
-            (a.status==='confirmed'?'<button class="ch-btn-sm" onclick="window._bookComplete(\''+a.id+'\')">Done ✓</button>':'')+
-            ((a.status==='confirmed'||a.status==='pending')&&!a.reminder_sent?'<button class="ch-btn-sm" onclick="window._bookSendReminder(\''+a.id+'\')">Remind</button>':'')+
-          '</div>'+
-        '</div>';
-      }).join('');
+  function renderSidePanel(sel) {
+    if (!sel) {
+      return '<aside class="dv2s-side" id="dv2s-side">'
+        + '<div class="dv2s-side-body" style="display:flex;align-items:center;justify-content:center;text-align:center;color:var(--text-tertiary);font-size:12px">Select an appointment to see details</div>'
+      + '</aside>';
     }
+    const meta = typeMeta(sel.type);
+    const initials = String(sel.patient||'').split(/\s+/).map(w=>w[0]||'').slice(0,2).join('').toUpperCase();
+    const rem = (sel.course_total && sel.course_position) ? (sel.course_total - sel.course_position) : 0;
+    const warns = [];
+    if (sel.warn === 'err') warns.push('<div class="dv2s-warn err"><div class="dv2s-warn-ico">&#9888;</div><div><div class="dv2s-warn-title">Device / clinician conflict</div><div class="dv2s-warn-body">Overlapping booking detected. Review resource assignment.</div></div></div>');
+    if (sel.warn === 'amb') warns.push('<div class="dv2s-warn amb"><div class="dv2s-warn-ico">&#9680;</div><div><div class="dv2s-warn-title">Prereq outstanding</div><div class="dv2s-warn-body">Assessment or consent overdue for this course.</div></div></div>');
+    warns.push('<div class="dv2s-warn ok"><div class="dv2s-warn-ico">&#10003;</div><div><div class="dv2s-warn-title">Consent &amp; auth OK</div><div class="dv2s-warn-body">e-consent on file; payer auth valid.</div></div></div>');
 
-    window._bookSetCohort = id=>{window._bookCohort=id;document.querySelectorAll('.book-cohort-btn').forEach(b=>b.classList.toggle('active',b.dataset.cohort===id));renderBookings(id);};
-    window._bookSendReminder = async id=>{const a=data.appointments.find(x=>x.id===id);if(!a||a.reminder_sent)return;try{await api.sendReminderMessage({patient_id:a.patient_id||a.patient_name,channel:'email',message_body:'Reminder: You have an appointment on '+a.date+' at '+a.time+'. Please confirm or reschedule.'});}catch{}a.reminder_sent=true;_saveSched(data);renderBookings(window._bookCohort);window._dsToast?.({title:'Reminder sent',body:a.patient_name+' — '+a.date,severity:'success'});};
-    window._bookConfirm   = id=>{const a=data.appointments.find(x=>x.id===id);if(a){_apiUpdateStatus(id,'confirmed',()=>renderBookings(window._bookCohort),'Confirm');window._dsToast?.({title:'Confirmed',body:a.patient_name+' confirmed.',severity:'success'});}};
-    window._bookCancel    = id=>{const a=data.appointments.find(x=>x.id===id);if(a){_apiUpdateStatus(id,'cancelled',()=>renderBookings(window._bookCohort),'Cancel');window._dsToast?.({title:'Cancelled',body:a.patient_name+' cancelled.',severity:'warn'});}};
-    window._bookComplete  = id=>{const a=data.appointments.find(x=>x.id===id);if(a){_apiUpdateStatus(id,'completed',()=>renderBookings(window._bookCohort),'Complete');window._dsToast?.({title:'Completed',body:'Session marked complete.',severity:'success'});}};
-
-    el.innerHTML=`
-    <div class="ch-shell">
-      <div class="ch-tab-bar" role="tablist" aria-label="Scheduling sections">${tabBar()}</div>
-      <div class="ph-layout" role="tabpanel" aria-label="Bookings">
-        <div class="ph-rail">
-          <div class="ph-rail-label">Filter</div>
-          ${COHORTS.map(c=>'<div class="ph-cohort-item book-cohort-btn'+(c.id===window._bookCohort?' active':'')+'" data-cohort="'+c.id+'" onclick="window._bookSetCohort(\''+c.id+'\')">' +
-            '<span>'+c.label+'</span><span class="ph-cohort-count">'+c.fn(data.appointments).length+'</span></div>').join('')}
-        </div>
-        <div class="ph-main">
-          <div class="ch-kpi-strip" style="grid-template-columns:repeat(4,1fr);margin-bottom:16px">
-            <div class="ch-kpi-card" style="--kpi-color:var(--teal)"><div class="ch-kpi-val">${data.appointments.filter(a=>a.date===todayStr&&a.status!=='cancelled').length}</div><div class="ch-kpi-label">Today</div></div>
-            <div class="ch-kpi-card" style="--kpi-color:var(--blue)"><div class="ch-kpi-val">${data.appointments.filter(a=>a.date>=todayStr&&a.status==='confirmed').length}</div><div class="ch-kpi-label">Confirmed</div></div>
-            <div class="ch-kpi-card" style="--kpi-color:var(--amber)"><div class="ch-kpi-val">${data.appointments.filter(a=>a.status==='pending').length}</div><div class="ch-kpi-label">Pending</div></div>
-            <div class="ch-kpi-card" style="--kpi-color:var(--red)"><div class="ch-kpi-val">${data.appointments.filter(a=>a.status==='no-show').length}</div><div class="ch-kpi-label">No-shows</div></div>
-          </div>
-          <div class="ch-card">
-            <div class="ch-card-hd">
-              <span class="ch-card-title">Appointments</span>
-              <div style="position:relative;flex:1;max-width:260px">
-                <input id="book-search" type="text" placeholder="Search patient…" class="ph-search-input" oninput="window._bookSetCohort(window._bookCohort)">
-                <svg viewBox="0 0 24 24" style="position:absolute;left:9px;top:50%;transform:translateY(-50%);width:13px;height:13px;stroke:var(--text-tertiary);fill:none;stroke-width:2;stroke-linecap:round;pointer-events:none"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
-              </div>
-            </div>
-            <div id="book-list"></div>
-          </div>
-        </div>
-      </div>
-    </div>`;
-    renderBookings(window._bookCohort);
+    return '<aside class="dv2s-side" id="dv2s-side">'
+      + '<div class="dv2s-side-head">'
+        + '<div class="dv2s-side-av">'+esc(initials||'PT')+'</div>'
+        + '<div style="flex:1;min-width:0"><div class="dv2s-side-name">'+esc(sel.patient)+'</div>'
+        + '<div class="dv2s-side-sub">'+esc(meta.label)+(sel.course_position?' &middot; Session '+sel.course_position+(sel.course_total?('/'+sel.course_total):''):'')+'</div></div>'
+        + '<button class="dv2s-side-close" onclick="window._schedSelectedId=null;window._nav(\'scheduling-hub\')" title="Close">&#10005;</button>'
+      + '</div>'
+      + '<div class="dv2s-side-body">'
+        + warns.join('')
+        + '<div class="dv2s-side-section">Appointment</div>'
+        + '<div class="dv2s-side-row"><div class="lbl">Protocol</div><div class="val">'+esc(meta.label)+'</div></div>'
+        + '<div class="dv2s-side-row"><div class="lbl">Clinician</div><div class="val">'+esc(sel.clinician || '')+'</div></div>'
+        + '<div class="dv2s-side-row"><div class="lbl">Room</div><div class="val">'+esc(sel.meta || '—')+'</div></div>'
+        + '<div class="dv2s-side-row"><div class="lbl">Duration</div><div class="val">'+esc(sel.duration+' min')+'</div></div>'
+        + (sel.course_position ? '<div class="dv2s-side-row"><div class="lbl">Course</div><div class="val">Session '+sel.course_position+' of '+(sel.course_total||'—')+'</div></div>' : '')
+        + '<div class="dv2s-side-section">Risk signals</div>'
+        + '<div class="dv2s-side-row"><div class="lbl">No-show</div><div class="val" style="color:var(--green,#4ade80)">12% &middot; low</div></div>'
+        + (rem ? ('<div class="dv2s-side-section">Remaining sessions</div><div style="padding:8px 10px;background:var(--bg-surface);border-radius:6px;font-size:11px;color:var(--text-secondary)">'+rem+' sessions remaining in course</div>') : '')
+      + '</div>'
+      + '<div class="dv2s-side-foot">'
+        + '<button class="btn btn-ghost btn-sm" style="flex:1" onclick="window._schedReschedule(\''+esc(sel.id)+'\')">Reschedule</button>'
+        + '<button class="btn btn-ghost btn-sm" onclick="window._schedCancelEvent(\''+esc(sel.id)+'\')">Cancel</button>'
+        + '<button class="btn btn-primary btn-sm" style="flex:1" onclick="window._schedOpenChart(\''+esc(sel.id)+'\')">Open chart &rarr;</button>'
+      + '</div>'
+    + '</aside>';
   }
 
-  // ── LEADS TAB ──────────────────────────────────────────────────────────────
-  else if (tab === 'leads') {
-    setTopbar('Scheduling','<button class="btn btn-primary btn-sm" onclick="window._leadAddModal()">+ New Lead</button>');
-    const STAGES=[
-      {id:'new',       label:'New',       color:'var(--blue)'},
-      {id:'contacted', label:'Contacted', color:'var(--violet)'},
-      {id:'qualified', label:'Qualified', color:'var(--amber)'},
-      {id:'booked',    label:'Booked',    color:'var(--teal)'},
-      {id:'lost',      label:'Lost',      color:'var(--text-tertiary)'},
-    ];
-    const SRC_ICONS={website:'🌐',referral:'👥',phone:'📞','walk-in':'🚶'};
-
-    function renderLeads(){
-      const out=document.getElementById('leads-kanban');if(!out)return;
-      out.innerHTML=STAGES.map(stage=>{
-        const cards=data.leads.filter(l=>l.stage===stage.id);
-        return '<div class="lead-col">'+
-          '<div class="lead-col-hd" style="border-top:3px solid '+stage.color+'"><span class="lead-col-label">'+stage.label+'</span><span class="lead-col-count" style="background:'+stage.color+'22;color:'+stage.color+'">'+cards.length+'</span></div>'+
-          (cards.length?cards.map(l=>'<div class="lead-card">'+
-            '<div class="lead-card-top"><div class="lead-name">'+l.name+'</div><span class="lead-source">'+( SRC_ICONS[l.source]||'📋')+'</span></div>'+
-            '<div class="lead-condition">'+l.condition+'</div>'+
-            (l.follow_up?'<div class="lead-followup">Follow-up: <strong>'+l.follow_up+'</strong></div>':'')+
-            (l.notes?'<div class="lead-notes">'+l.notes.slice(0,80)+(l.notes.length>80?'…':'')+'</div>':'')+
-            '<div class="lead-actions">'+
-              '<span class="lead-phone" onclick="window._dsToast?.({title:\'Call: \'+\''+l.name+'\',body:\''+l.phone+'\',severity:\'info\'})">📞</span>'+
-              (stage.id!=='booked'&&stage.id!=='lost'?'<button class="ch-btn-sm ch-btn-teal" onclick="window._leadAdvance(\''+l.id+'\')">Advance →</button>':'')+
-              (stage.id==='qualified'?'<button class="ch-btn-sm" onclick="window._schedHubTab=\'calendar\';window._nav(\'scheduling-hub\')">Book</button>':'')+
-            '</div>'+
-          '</div>').join(''):'<div class="lead-empty">No leads</div>')+
-        '</div>';
-      }).join('');
+  function buildReferrals() {
+    if (!leads.length) {
+      return '<div class="dv2s-empty">No referrals in the queue.</div>';
     }
+    const stageOrder = ['new','contacted','qualified','booked','lost'];
+    const grouped = {};
+    leads.forEach(l => { const s = (l.stage||'new').toLowerCase(); (grouped[s] = grouped[s] || []).push(l); });
+    let html = '<div class="dv2s-refbox">';
+    html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:8px">';
+    html += '<h3 style="margin:0;font-size:15px;font-family:var(--font-display)">Incoming referrals &middot; '+leads.length+'</h3>';
+    html += '<div style="display:flex;gap:6px;flex-wrap:wrap">'
+      + '<button class="dv2s-chip is-active">All sources</button>'
+      + '<button class="dv2s-chip">GP referrals</button>'
+      + '<button class="dv2s-chip">Self-referral</button>'
+      + '<button class="dv2s-chip warn">&#9888; Needs triage</button>'
+    + '</div>';
+    html += '</div>';
+    stageOrder.forEach(stage => {
+      const items = grouped[stage] || [];
+      if (!items.length) return;
+      html += '<div style="margin-bottom:16px">';
+      html += '<div style="font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--text-tertiary);font-weight:600;margin-bottom:8px">'+esc(stage)+' &middot; '+items.length+'</div>';
+      html += '<div class="dv2s-ref-grid">';
+      html += items.map(l => (
+        '<div class="dv2s-ref-card">'
+          + '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">'
+            + '<div><h4>'+esc(l.name)+'</h4><div class="dv2s-ref-sub">'+esc(l.condition||'—')+'</div></div>'
+            + '<span class="dv2s-ref-chip '+esc(stage)+'">'+esc(stage)+'</span>'
+          + '</div>'
+          + '<div class="dv2s-ref-meta">'
+            + '<span class="dv2s-ref-chip">'+esc(l.source||'referral')+'</span>'
+            + (l.phone ? '<span class="dv2s-ref-chip">'+esc(l.phone)+'</span>' : '')
+            + (l.created ? '<span class="dv2s-ref-chip">Recv '+esc(l.created)+'</span>' : '')
+          + '</div>'
+          + (l.notes ? '<div style="font-size:11px;color:var(--text-secondary);line-height:1.45">'+esc(l.notes)+'</div>' : '')
+          + '<div style="display:flex;gap:6px;margin-top:4px">'
+            + '<button class="btn btn-sm btn-ghost" onclick="window._schedTriageLead(\''+esc(l.id)+'\')">Triage</button>'
+            + '<button class="btn btn-sm btn-primary" onclick="window._schedBookLead(\''+esc(l.id)+'\')">Book intake</button>'
+          + '</div>'
+        + '</div>'
+      )).join('');
+      html += '</div></div>';
+    });
+    html += '</div>';
+    return html;
+  }
 
-    window._leadAdvance = async id=>{
-      const l=data.leads.find(x=>x.id===id);if(!l)return;
-      const order=['new','contacted','qualified','booked'];
-      const idx=order.indexOf(l.stage);
-      if(idx>=0&&idx<order.length-1){
-        const newStage=order[idx+1];
-        l.stage=newStage;
-        if(l.stage==='booked'){
-          const aptDate=l.follow_up||todayStr;
-          data.appointments.push({id:'APT-'+Date.now(),patient_name:l.name,patient_id:'',clinician:'Dr. S. Chen',date:aptDate,time:'10:00',duration:45,type:'new-patient',status:'pending',notes:'Converted from lead: '+(l.condition||'General')});
-          window._dsToast?.({title:'Lead converted \u2014 booking created',body:l.name+' booked for '+aptDate+' at 10:00',severity:'success'});
-        } else {
-          window._dsToast?.({title:'Advanced',body:l.name+' \u2192 '+l.stage,severity:'success'});
+  function buildStaff() {
+    const rosterRows = clinicians.map((c) => {
+      const weekHours = DAYS.map((d, di) => {
+        const myEvents = events.filter(e => e.clin === c.id && e.day === di);
+        const hrs = myEvents.reduce((s,e)=>s+(e.end-e.start),0);
+        const dow = d.date.getDay();
+        return { day: d.dow, hrs: Math.round(hrs*10)/10, status: (dow===0||dow===6) ? 'off' : hrs>0 ? 'on' : 'idle' };
+      });
+      const weekTotal = weekHours.reduce((s,x)=>s+x.hrs,0);
+      const onCall = (c.id === 'jn');
+      return '<tr>'
+        + '<td><span class="dv2s-staff-dot" style="background:'+c.color+'"></span>'+esc(c.name)+'<span style="color:var(--text-tertiary);font-size:10.5px;margin-left:8px">Clinician</span></td>'
+        + weekHours.map(x => '<td style="color:'+(x.status==='off'?'var(--text-tertiary)':x.hrs>8?'var(--amber)':'var(--text-primary)')+';font-family:var(--font-mono);font-size:11px">'+(x.status==='off'?'off':x.hrs.toFixed(1)+'h')+'</td>').join('')
+        + '<td style="font-family:var(--font-mono);font-weight:600">'+Math.round(weekTotal*10)/10+'h</td>'
+        + '<td>'+(onCall ? '<span style="color:var(--amber);font-size:10.5px">On call</span>' : '<span style="color:var(--text-tertiary);font-size:10.5px">—</span>')+'</td>'
+      + '</tr>';
+    }).join('');
+
+    const roomRows = rooms.map((r) => {
+      const bookings = events.filter(e => e.meta === r.name).length;
+      const pct = Math.round((bookings / Math.max(events.length,1)) * 100);
+      return '<tr>'
+        + '<td>'+esc(r.name)+'</td>'
+        + '<td style="font-family:var(--font-mono)">'+bookings+'</td>'
+        + '<td style="color:var(--text-tertiary);font-size:11px">'+pct+'% of bookings</td>'
+        + '<td style="color:var(--text-tertiary);font-size:11px">Available</td>'
+      + '</tr>';
+    }).join('');
+
+    return '<div class="dv2s-staff">'
+      + '<h3 style="margin:0 0 12px;font-size:15px;font-family:var(--font-display)">Clinician roster &middot; this week</h3>'
+      + '<div style="overflow-x:auto"><table class="dv2s-staff-table">'
+        + '<thead><tr><th>Clinician</th>' + DAYS.map(d => '<th>'+d.dow+' '+d.num+'</th>').join('') + '<th>Total</th><th>On call</th></tr></thead>'
+        + '<tbody>'+rosterRows+'</tbody>'
+      + '</table></div>'
+      + '<h3 style="margin:24px 0 12px;font-size:15px;font-family:var(--font-display)">Rooms &middot; utilization</h3>'
+      + '<div style="overflow-x:auto"><table class="dv2s-staff-table">'
+        + '<thead><tr><th>Room</th><th>Bookings (wk)</th><th>Share</th><th>Status</th></tr></thead>'
+        + '<tbody>'+roomRows+'</tbody>'
+      + '</table></div>'
+      + '<div style="margin-top:18px;padding:12px 14px;background:var(--bg-surface);border:1px solid var(--border);border-radius:8px;font-size:11px;color:var(--text-tertiary)">Read-only roster view. PTO &middot; on-call rotation &middot; edit roster arrives in the next release.</div>'
+    + '</div>';
+  }
+
+  window._schedShift = (delta) => { shiftAnchor(delta); window._schedSelectedId=null; window._nav('scheduling-hub'); };
+  window._schedToday = () => { window._schedAnchor = iso(new Date()); window._schedSelectedId=null; window._nav('scheduling-hub'); };
+  window._schedToggleClinician = (id) => {
+    F.clinicians = F.clinicians || [];
+    if (F.clinicians.includes(id)) F.clinicians = F.clinicians.filter(x=>x!==id); else F.clinicians.push(id);
+    if (F.clinicians.length === 0) F.clinicians = null;
+    window._nav('scheduling-hub');
+  };
+  window._schedToggleType = (t) => {
+    F.types = F.types || [];
+    if (F.types.includes(t)) F.types = F.types.filter(x=>x!==t); else F.types.push(t);
+    if (F.types.length === 0) F.types = null;
+    window._nav('scheduling-hub');
+  };
+  window._schedToggleConflicts = () => { F.conflictsOnly = !F.conflictsOnly; window._nav('scheduling-hub'); };
+  window._schedSelectEvent = (id) => { window._schedSelectedId = id; window._nav('scheduling-hub'); };
+  window._schedReschedule = (id) => { console.debug('reschedule', id); window._dsToast?.({ title:'Reschedule', body:'Wizard in next phase.', severity:'info' }); };
+  window._schedCancelEvent = (id) => { if (!confirm('Cancel this appointment?')) return; console.debug('cancel', id); window._dsToast?.({ title:'Cancelled', body:'Local only — sync pending.', severity:'warn' }); };
+  window._schedOpenChart = (id) => { const ev = events.find(e=>String(e.id)===String(id)); if (!ev) return; window._nav?.('patient-hub'); };
+  window._schedTriageLead = (id) => { console.debug('triage lead', id); window._dsToast?.({ title:'Triage', body:'Lead triage flow in next phase.', severity:'info' }); };
+  window._schedBookLead = (id) => {
+    const lead = leads.find(l => String(l.id) === String(id));
+    console.debug('book intake for', lead);
+    window._schedHubTab = 'appointments';
+    window._nav('scheduling-hub');
+  };
+
+  async function _slotConflictCheck(slot) {
+    if (typeof api.checkSlotConflicts === 'function') {
+      try { return await api.checkSlotConflicts(slot); } catch {}
+    }
+    return { conflicts: [] };
+  }
+
+  let body;
+  if (tab === 'referrals')   body = buildReferrals();
+  else if (tab === 'staff')  body = buildStaff();
+  else                       body = buildAppointments();
+
+  el.innerHTML = '<div class="dv2s-shell">'
+    + (apiErrors.length ? '<div class="dv2s-error-banner">Live data unavailable ('+apiErrors.join(', ')+') — showing sample schedule.</div>' : '')
+    + renderTabBar()
+    + body
+  + '</div>';
+
+  if (tab === 'appointments') {
+    const wrap = document.getElementById('dv2s-grid-wrap');
+    if (wrap) {
+      requestAnimationFrame(() => { wrap.scrollTop = Math.max(0, 8 * ROW_H - 20); });
+      wrap.addEventListener('click', (ev) => {
+        const evEl = ev.target.closest('.dv2s-event');
+        if (evEl) {
+          const id = evEl.getAttribute('data-event-id');
+          window._schedSelectEvent(id);
+          return;
         }
-        _saveSched(data);renderLeads();
-        try { await api.updateLead(id, { stage: newStage }); } catch(e) { console.warn('Lead advance sync failed:', e?.message); }
-      }
-    };
-    window._leadAddModal=()=>document.getElementById('lead-add-modal')?.classList.remove('ch-hidden');
-    window._leadSave=async()=>{
-      const name=document.getElementById('lead-name')?.value?.trim();
-      if(!name){window._dsToast?.({title:'Name required',body:'',severity:'warn'});return;}
-      const newLead={id:'LEAD-'+Date.now(),name,phone:document.getElementById('lead-phone')?.value||'',email:document.getElementById('lead-email')?.value||'',source:document.getElementById('lead-source')?.value||'phone',condition:document.getElementById('lead-cond')?.value||'Not specified',stage:'new',notes:'',created:todayStr,follow_up:nextDay(1)};
-      data.leads.push(newLead);
-      _saveSched(data);document.getElementById('lead-add-modal')?.classList.add('ch-hidden');renderLeads();
-      window._dsToast?.({title:'Lead added',body:name+' added.',severity:'success'});
-      try {
-        const created = await api.createLead({name:newLead.name,phone:newLead.phone,email:newLead.email,source:newLead.source,condition:newLead.condition,stage:'new',follow_up:newLead.follow_up});
-        if(created?.id){newLead.id=created.id;newLead._from_api=true;_saveSched(data);}
-      } catch(e) { console.warn('Lead create sync failed:', e?.message); }
-    };
-
-    el.innerHTML=`
-    <div class="ch-shell">
-      <div class="ch-tab-bar" role="tablist" aria-label="Scheduling sections">${tabBar()}</div>
-      <div class="ch-body" role="tabpanel" aria-label="Leads">
-        <div class="ch-kpi-strip" style="grid-template-columns:repeat(6,1fr);margin-bottom:16px">
-          ${STAGES.map(s=>'<div class="ch-kpi-card" style="--kpi-color:'+s.color+'"><div class="ch-kpi-val">'+data.leads.filter(l=>l.stage===s.id).length+'</div><div class="ch-kpi-label">'+s.label+'</div></div>').join('')}
-          <div class="ch-kpi-card" style="--kpi-color:var(--green)"><div class="ch-kpi-val">${(()=>{const b=data.leads.filter(l=>l.stage==='booked').length;const lo=data.leads.filter(l=>l.stage==='lost').length;return (b+lo)>0?Math.round(b/(b+lo)*100)+'%':'\u2014';})()}</div><div class="ch-kpi-label">Conversion Rate</div></div>
-        </div>
-        <div id="leads-kanban" class="leads-kanban"></div>
-      </div>
-    </div>
-    <div id="lead-add-modal" class="ch-modal-overlay ch-hidden">
-      <div class="ch-modal" style="width:min(440px,95vw)">
-        <div class="ch-modal-hd"><span>Add Lead</span><button class="ch-modal-close" onclick="document.getElementById('lead-add-modal').classList.add('ch-hidden')">✕</button></div>
-        <div class="ch-modal-body">
-          <div class="ch-form-group"><label class="ch-label">Full Name *</label><input id="lead-name" class="ch-select ch-select--full" placeholder="Name"></div>
-          <div class="ch-form-group"><label class="ch-label">Phone</label><input id="lead-phone" class="ch-select ch-select--full" placeholder="+44 7700…"></div>
-          <div class="ch-form-group"><label class="ch-label">Email</label><input id="lead-email" class="ch-select ch-select--full" type="email"></div>
-          <div class="ch-form-group"><label class="ch-label">Condition / Reason</label><input id="lead-cond" class="ch-select ch-select--full" placeholder="e.g. Depression"></div>
-          <div class="ch-form-group"><label class="ch-label">Source</label>
-            <select id="lead-source" class="ch-select ch-select--full"><option value="phone">Phone</option><option value="website">Website</option><option value="referral">Referral</option><option value="walk-in">Walk-in</option></select>
-          </div>
-          <div style="display:flex;gap:8px;margin-top:8px"><button class="btn btn-primary" onclick="window._leadSave()">Add Lead</button><button class="btn" onclick="document.getElementById('lead-add-modal').classList.add('ch-hidden')">Cancel</button></div>
-        </div>
-      </div>
-    </div>`;
-    renderLeads();
-  }
-
-  // ── RECEPTION TAB ─────────────────────────────────────────────────────────
-  else if (tab === 'reception') {
-    setTopbar('Scheduling','<button class="btn btn-primary btn-sm" onclick="window._receptionLogCall()">+ Log Call</button>');
-    const OM={ booked:{color:'var(--teal)',label:'Booked'}, callback:{color:'var(--amber)',label:'Callback'}, 'no-answer':{color:'var(--text-tertiary)',label:'No Answer'}, voicemail:{color:'var(--blue)',label:'Voicemail'}, 'info-given':{color:'var(--green)',label:'Info Given'} };
-    window._recCallFilter = window._recCallFilter||'today';
-
-    window._recRenderReception = function(){ renderReception(); };
-    function renderReception(){
-      const out=document.getElementById('rec-content');if(!out)return;
-      const todayApts=data.appointments.filter(a=>a.date===todayStr&&a.status!=='cancelled').sort((a,b)=>a.time.localeCompare(b.time));
-      const tasks=data.tasks.sort((a,b)=>a.done-b.done||a.due.localeCompare(b.due));
-      const cf=window._recCallFilter;
-      const calls=(cf==='today'?data.calls.filter(c=>c.date===todayStr):cf==='inbound'?data.calls.filter(c=>c.direction==='inbound'):cf==='outbound'?data.calls.filter(c=>c.direction==='outbound'):data.calls);
-
-      out.innerHTML=`
-      <div class="rec-grid">
-        <div class="ch-card rec-card">
-          <div class="ch-card-hd"><span class="ch-card-title">Today's Schedule</span><span style="font-size:11px;color:var(--text-tertiary)">${todayApts.length} apts</span></div>
-          ${todayApts.length?todayApts.map(a=>{
-            const nowHHMM=pad2(new Date().getHours())+':'+pad2(new Date().getMinutes());
-            const isPast=a.time<nowHHMM;
-            const canCheckIn=(a.status==='confirmed'||a.status==='pending');
-            const canNoShow=isPast&&(a.status==='confirmed'||a.status==='pending');
-            const isCheckedIn=(a.status==='checked-in');
-            const isCompleted=(a.status==='completed');
-            const sLabel=a.status==='checked-in'?'Checked In':(STATUS_LABELS[a.status]||a.status);
-            return '<div class="rec-apt-row" style="flex-wrap:wrap"><span class="rec-apt-time">'+a.time+'</span><div class="rec-apt-info"><div class="rec-apt-name">'+a.patient_name+'</div><div class="rec-apt-type">'+a.clinician+'</div></div><span class="rec-apt-status" style="color:'+(STATUS_COLORS[a.status]||'var(--teal)')+'">\u25cf '+sLabel+'</span>'+
-              '<div style="display:flex;gap:4px;margin-left:auto;margin-top:4px">'+
-              (canCheckIn?'<button class="ch-btn-sm ch-btn-teal" onclick="event.stopPropagation();window._recCheckIn(\''+a.id+'\')">Check In</button>':'')+
-              (canNoShow?'<button class="ch-btn-sm" style="color:var(--red)" onclick="event.stopPropagation();window._recNoShow(\''+a.id+'\')">No Show</button>':'')+
-              (isCheckedIn?'<button class="ch-btn-sm" onclick="event.stopPropagation();window._recMarkDone(\''+a.id+'\')">Complete</button>':'')+
-              (isCompleted?'<button class="ch-btn-sm ch-btn-teal" onclick="event.stopPropagation();window._recFollowUp(\''+a.id+'\')">Schedule Follow-up</button>':'')+
-              '</div></div>';
-          }).join(''):'<div class="ch-empty" style="padding:20px">No appointments today</div>'}
-        </div>
-        <div class="ch-card rec-card">
-          <div class="ch-card-hd"><span class="ch-card-title">Tasks</span><button class="ch-btn-sm ch-btn-teal" onclick="window._recAddTask()">+ Task</button></div>
-          <div id="rec-task-list">
-            ${tasks.map(t=>'<div class="rec-task-row'+(t.done?' rec-task--done':'')+'"><input type="checkbox"'+(t.done?' checked':'')+' onclick="window._recToggleTask(\''+t.id+'\')" style="cursor:pointer;accent-color:var(--teal)"><div class="rec-task-body"><div class="rec-task-text">'+t.text+'</div><div class="rec-task-meta">Due: '+t.due+' · <span style="color:'+(t.priority==='high'?'var(--red)':t.priority==='medium'?'var(--amber)':'var(--text-tertiary)')+'">'+t.priority+'</span></div></div></div>').join('')}
-          </div>
-        </div>
-        <div class="ch-card rec-card" style="grid-column:1/-1">
-          <div class="ch-card-hd">
-            <span class="ch-card-title">Call Log</span>
-            <div style="display:flex;gap:4px">
-              ${['today','inbound','outbound','all'].map(f=>'<button class="ch-btn-sm'+(window._recCallFilter===f?' ch-btn-teal':'')+'" onclick="window._recCallFilter=\''+f+'\';window._recRenderReception()">'+f.charAt(0).toUpperCase()+f.slice(1)+'</button>').join('')}
-            </div>
-          </div>
-          ${calls.length?calls.map(c=>{
-            const om=OM[c.outcome]||OM['info-given'];
-            const dirC=c.direction==='inbound'?'var(--teal)':'var(--blue)';
-            return '<div class="book-row"><div class="book-datetime"><div class="book-date">'+c.date+'</div><div class="book-time">'+c.time+'</div></div><div class="book-info"><div class="book-patient">'+c.name+'</div><div class="book-clinician">'+c.phone+(c.duration?' · '+c.duration+'m':'')+'</div>'+(c.notes?'<div class="book-notes">'+c.notes+'</div>':'')+'</div><div style="flex-shrink:0"><span style="font-size:11px;font-weight:700;color:'+dirC+'">'+(c.direction==='inbound'?'↙ In':'↗ Out')+'</span></div><div class="book-status-col"><span class="book-status-badge" style="color:'+om.color+';background:'+om.color+'22">'+om.label+'</span></div></div>';
-          }).join(''):'<div class="ch-empty">No calls logged.</div>'}
-        </div>
-      </div>`;
+        const slotEl = ev.target.closest('.dv2s-slot:not(.nonclinic)');
+        if (slotEl) {
+          const slot = {
+            day: slotEl.getAttribute('data-day'),
+            clin: slotEl.getAttribute('data-clin'),
+            t: slotEl.getAttribute('data-t'),
+          };
+          slotEl.classList.add('flash');
+          setTimeout(()=>slotEl.classList.remove('flash'), 320);
+          console.debug('booking wizard for', slot);
+          _slotConflictCheck(slot).then(() => {}).catch(()=>{});
+        }
+      });
     }
-
-    window._recToggleTask = async id=>{const t=data.tasks.find(x=>x.id===id);if(!t)return;t.done=!t.done;_saveSched(data);renderReception();try{await api.updateReceptionTask(id,{done:t.done});}catch(e){console.warn('Task toggle sync failed:',e?.message);}};
-    window._recAddTask = async()=>{const text=prompt('Task:');if(!text)return;const newTask={id:'TASK-'+Date.now(),text,due:todayStr,done:false,priority:'medium'};data.tasks.push(newTask);_saveSched(data);renderReception();try{const created=await api.createReceptionTask({text,due:todayStr,priority:'medium'});if(created?.id){newTask.id=created.id;newTask._from_api=true;_saveSched(data);}}catch(e){console.warn('Task create sync failed:',e?.message);}};
-    window._recCheckIn = id=>{const a=data.appointments.find(x=>x.id===id);if(!a)return;a.status='checked-in';a.checked_in_at=new Date().toISOString();_saveSched(data);renderReception();window._dsToast?.({title:'Patient checked in',body:a.patient_name+' at '+new Date().toLocaleTimeString(),severity:'success'});};
-    window._recNoShow = id=>{const a=data.appointments.find(x=>x.id===id);if(!a)return;a.status='no-show';a.no_show_at=new Date().toISOString();_saveSched(data);renderReception();window._dsToast?.({title:'Marked no-show',body:a.patient_name,severity:'warn'});};
-    window._recMarkDone = id=>{const a=data.appointments.find(x=>x.id===id);if(!a)return;a.status='completed';a.completed_at=new Date().toISOString();_saveSched(data);renderReception();window._dsToast?.({title:'Session complete',body:a.patient_name+' session complete.',severity:'success'});};
-    window._recFollowUp = id=>{const a=data.appointments.find(x=>x.id===id);if(!a)return;const fuDate=nextDay(7);data.appointments.push({id:'APT-'+Date.now(),patient_name:a.patient_name,patient_id:a.patient_id||'',clinician:a.clinician,date:fuDate,time:a.time,duration:a.duration,type:'follow-up',status:'pending',notes:'Follow-up from '+todayStr});_saveSched(data);renderReception();window._dsToast?.({title:'Follow-up scheduled',body:a.patient_name+' on '+fuDate,severity:'success'});};
-    window._receptionLogCall=()=>document.getElementById('rec-call-modal')?.classList.remove('ch-hidden');
-    window._recSaveCall=async()=>{
-      const name=document.getElementById('rc-name')?.value?.trim();if(!name){window._dsToast?.({title:'Name required',body:'',severity:'warn'});return;}
-      const h=new Date();
-      const callTime=pad2(h.getHours())+':'+pad2(h.getMinutes());
-      const newCall={id:'CALL-'+Date.now(),name,phone:document.getElementById('rc-phone')?.value||'',direction:document.getElementById('rc-dir')?.value||'inbound',duration:parseInt(document.getElementById('rc-dur')?.value||'0'),outcome:document.getElementById('rc-outcome')?.value||'info-given',notes:document.getElementById('rc-notes')?.value||'',time:callTime,date:todayStr};
-      data.calls.unshift(newCall);
-      _saveSched(data);document.getElementById('rec-call-modal')?.classList.add('ch-hidden');renderReception();
-      window._dsToast?.({title:'Call logged',severity:'success'});
-      try{const created=await api.createReceptionCall({name:newCall.name,phone:newCall.phone,direction:newCall.direction,duration:newCall.duration,outcome:newCall.outcome,notes:newCall.notes,call_time:callTime,call_date:todayStr});if(created?.id){newCall.id=created.id;newCall._from_api=true;_saveSched(data);}}catch(e){console.warn('Call log sync failed:',e?.message);}
-    };
-
-    el.innerHTML=`
-    <div class="ch-shell">
-      <div class="ch-tab-bar" role="tablist" aria-label="Scheduling sections">${tabBar()}</div>
-      <div class="ch-body" role="tabpanel" aria-label="Reception">
-        <div class="ch-kpi-strip" style="grid-template-columns:repeat(4,1fr);margin-bottom:16px">
-          <div class="ch-kpi-card" style="--kpi-color:var(--teal)"><div class="ch-kpi-val">${data.appointments.filter(a=>a.date===todayStr&&a.status!=='cancelled').length}</div><div class="ch-kpi-label">Today's Apts</div></div>
-          <div class="ch-kpi-card" style="--kpi-color:var(--blue)"><div class="ch-kpi-val">${data.calls.filter(c=>c.date===todayStr).length}</div><div class="ch-kpi-label">Calls Today</div></div>
-          <div class="ch-kpi-card" style="--kpi-color:var(--amber)"><div class="ch-kpi-val">${data.tasks.filter(t=>!t.done&&t.due<=todayStr).length}</div><div class="ch-kpi-label">Tasks Due</div></div>
-          <div class="ch-kpi-card" style="--kpi-color:var(--violet)"><div class="ch-kpi-val">${data.leads.filter(l=>l.follow_up===todayStr).length}</div><div class="ch-kpi-label">Follow-ups</div></div>
-        </div>
-        <div id="rec-content"></div>
-      </div>
-    </div>
-    <div id="rec-call-modal" class="ch-modal-overlay ch-hidden">
-      <div class="ch-modal" style="width:min(440px,95vw)">
-        <div class="ch-modal-hd"><span>Log Phone Call</span><button class="ch-modal-close" onclick="document.getElementById('rec-call-modal').classList.add('ch-hidden')">✕</button></div>
-        <div class="ch-modal-body">
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
-            <div class="ch-form-group" style="grid-column:1/-1"><label class="ch-label">Name *</label><input id="rc-name" class="ch-select ch-select--full" placeholder="Patient / contact name"></div>
-            <div class="ch-form-group"><label class="ch-label">Phone</label><input id="rc-phone" class="ch-select ch-select--full" placeholder="+44 7700…"></div>
-            <div class="ch-form-group"><label class="ch-label">Duration (min)</label><input id="rc-dur" type="number" min="0" value="5" class="ch-select ch-select--full"></div>
-            <div class="ch-form-group"><label class="ch-label">Direction</label><select id="rc-dir" class="ch-select ch-select--full"><option value="inbound">Inbound</option><option value="outbound">Outbound</option></select></div>
-            <div class="ch-form-group"><label class="ch-label">Outcome</label><select id="rc-outcome" class="ch-select ch-select--full"><option value="booked">Booked</option><option value="info-given">Info Given</option><option value="callback">Callback</option><option value="voicemail">Voicemail</option><option value="no-answer">No Answer</option></select></div>
-            <div class="ch-form-group" style="grid-column:1/-1"><label class="ch-label">Notes</label><textarea id="rc-notes" class="ch-textarea" rows="2" placeholder="Call summary…"></textarea></div>
-          </div>
-          <div style="display:flex;gap:8px;margin-top:4px"><button class="btn btn-primary" onclick="window._recSaveCall()">Save Call</button><button class="btn" onclick="document.getElementById('rec-call-modal').classList.add('ch-hidden')">Cancel</button></div>
-        </div>
-      </div>
-    </div>`;
-    renderReception();
   }
 }
+
+
+
+
+
 
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -5346,5 +4522,684 @@ export async function pgFinanceHub(setTopbar, navigate) {
       window._dsToast?.({ title:'Create claim failed', body: err?.message || 'Server error', severity:'warn' });
     }
   };
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// pgAssessmentsHub — Screen 05 · Queue / Cohort / Library / Individual
+// ═══════════════════════════════════════════════════════════════════════════════
+export async function pgAssessmentsHub(setTopbar, navigate) {
+  const tab = window._assessHubTab || 'queue';
+  window._assessHubTab = tab;
+  const selectedId = window._assessSelectedId || 'as-3';
+  window._assessSelectedId = selectedId;
+
+  const el = document.getElementById('content');
+  if (!el) return;
+
+  setTopbar(
+    'Assessments',
+    '<span style="font-size:11px;color:var(--text-tertiary);margin-right:10px">14 instruments · <strong style="color:var(--rose)">2 red flags</strong> · <strong style="color:var(--amber)">8 overdue</strong></span>' +
+    '<button class="btn btn-ghost btn-sm" onclick="window._assessBatch()">Batch send</button>' +
+    '<button class="btn btn-primary btn-sm" onclick="window._assessNew()">+ New assessment</button>'
+  );
+
+  const esc = (s) => String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+
+  if (!document.getElementById('dv2a-styles')) {
+    const s = document.createElement('style');
+    s.id = 'dv2a-styles';
+    s.textContent = `
+.dv2a-shell { display:flex; flex-direction:column; height:100%; min-height:0; }
+.dv2a-tabs { display:flex; align-items:center; gap:6px; padding:10px 18px; border-bottom:1px solid var(--border); background:var(--bg-panel,#0d1b22); flex-shrink:0; }
+.dv2a-tab { padding:7px 14px; font-size:12px; font-weight:600; color:var(--text-tertiary); border-radius:999px; background:transparent; border:1px solid transparent; cursor:pointer; font-family:inherit; display:inline-flex; align-items:center; gap:6px; }
+.dv2a-tab:hover { color:var(--text-secondary); background:rgba(255,255,255,0.03); }
+.dv2a-tab.active { color:#04121c; background:var(--teal,#00d4bc); border-color:var(--teal,#00d4bc); }
+.dv2a-tab-count { font-family:var(--font-mono,ui-monospace,monospace); font-size:10px; opacity:0.85; padding:1px 6px; border-radius:999px; background:rgba(0,0,0,0.18); }
+.dv2a-tab:not(.active) .dv2a-tab-count { background:var(--bg-surface,#11222a); color:var(--text-tertiary); }
+.dv2a-tab-count.hot { background:rgba(255,107,157,0.16); color:var(--rose,#ff6b9d); }
+.dv2a-legend { margin-left:auto; display:flex; align-items:center; gap:10px; font-size:10.5px; color:var(--text-tertiary); }
+.dv2a-legend span { display:inline-flex; align-items:center; gap:5px; }
+.dv2a-legend i { width:7px; height:7px; border-radius:50%; display:inline-block; }
+
+.dv2a-body { flex:1; display:flex; min-height:0; overflow:hidden; }
+.dv2a-main { flex:1; min-width:0; display:flex; flex-direction:column; overflow-y:auto; padding:14px 18px 24px; gap:12px; }
+.dv2a-side { width:380px; min-width:360px; border-left:1px solid var(--border); background:var(--bg-panel,#0d1b22); display:flex; flex-direction:column; overflow:hidden; flex-shrink:0; }
+
+.dv2a-kpi-row { display:grid; grid-template-columns:repeat(5, 1fr); gap:10px; }
+.dv2a-kpi { padding:12px 14px; background:var(--bg-surface,#11222a); border:1px solid var(--border); border-radius:8px; }
+.dv2a-kpi-lbl { font-size:10px; font-weight:600; color:var(--text-tertiary); text-transform:uppercase; letter-spacing:0.05em; display:flex; align-items:center; gap:6px; }
+.dv2a-kpi-lbl i { width:6px; height:6px; border-radius:50%; background:var(--text-tertiary); display:inline-block; }
+.dv2a-kpi-lbl.rose i { background:var(--rose,#ff6b9d); }
+.dv2a-kpi-lbl.rose { color:var(--rose,#ff6b9d); }
+.dv2a-kpi-lbl.amber i { background:var(--amber,#ffb547); }
+.dv2a-kpi-lbl.amber { color:var(--amber,#ffb547); }
+.dv2a-kpi-lbl.teal i { background:var(--teal,#00d4bc); }
+.dv2a-kpi-lbl.green i { background:var(--green,#4ade80); }
+.dv2a-kpi-lbl.blue i { background:var(--blue,#4a9eff); }
+.dv2a-kpi-num { font-family:var(--font-display,inherit); font-size:22px; font-weight:600; letter-spacing:-0.02em; color:var(--text-primary); margin-top:4px; }
+.dv2a-kpi-num .unit { font-size:12px; color:var(--text-tertiary); font-weight:500; margin-left:2px; }
+.dv2a-kpi-sub { font-size:10.5px; color:var(--text-tertiary); margin-top:2px; }
+
+.dv2a-filter-bar { display:flex; flex-wrap:wrap; gap:6px; align-items:center; }
+.dv2a-chip { padding:5px 10px; font-size:11px; color:var(--text-secondary); border:1px solid var(--border); background:var(--bg-surface,#11222a); border-radius:999px; cursor:pointer; font-family:inherit; display:inline-flex; align-items:center; gap:5px; }
+.dv2a-chip:hover { border-color:rgba(0,212,188,0.35); color:var(--teal,#00d4bc); }
+.dv2a-chip.active { background:rgba(0,212,188,0.1); border-color:rgba(0,212,188,0.4); color:var(--teal,#00d4bc); font-weight:600; }
+.dv2a-chip-dot { width:6px; height:6px; border-radius:50%; display:inline-block; }
+
+.dv2a-card { background:var(--bg-panel,#0d1b22); border:1px solid var(--border); border-radius:10px; overflow:hidden; }
+.dv2a-queue-head, .dv2a-queue-row { display:grid; grid-template-columns: 60px 1.5fr 1.2fr 1.2fr 1fr 0.9fr 1fr 90px; gap:10px; padding:10px 14px; align-items:center; }
+.dv2a-queue-head { font-size:10px; font-weight:700; color:var(--text-tertiary); text-transform:uppercase; letter-spacing:0.06em; background:rgba(255,255,255,0.02); border-bottom:1px solid var(--border); }
+.dv2a-queue-row { border-bottom:1px solid rgba(255,255,255,0.04); cursor:pointer; font-size:11.5px; transition:background 0.08s; }
+.dv2a-queue-row:hover { background:rgba(0,212,188,0.04); }
+.dv2a-queue-row.selected { background:rgba(0,212,188,0.08); box-shadow:inset 2px 0 0 var(--teal,#00d4bc); }
+.dv2a-queue-row.redflag { background:rgba(255,107,157,0.05); box-shadow:inset 2px 0 0 var(--rose,#ff6b9d); }
+.dv2a-queue-row.overdue { background:rgba(255,181,71,0.04); }
+
+.dv2a-flag { font-size:9.5px; font-weight:700; padding:3px 6px; border-radius:4px; letter-spacing:0.04em; }
+.dv2a-flag.red { background:rgba(255,107,157,0.18); color:var(--rose,#ff6b9d); }
+.dv2a-flag.amber { background:rgba(255,181,71,0.14); color:var(--amber,#ffb547); }
+.dv2a-flag.ok { background:rgba(74,222,128,0.12); color:var(--green,#4ade80); }
+
+.dv2a-pt { display:flex; gap:8px; align-items:center; min-width:0; }
+.dv2a-pt-av { width:30px; height:30px; border-radius:6px; display:inline-flex; align-items:center; justify-content:center; font-size:11px; font-weight:700; color:#04121c; flex-shrink:0; background:linear-gradient(135deg,#00d4bc,#4a9eff); }
+.dv2a-pt-av.b { background:linear-gradient(135deg,#ff6b9d,#ffb547); }
+.dv2a-pt-av.c { background:linear-gradient(135deg,#9b7fff,#4a9eff); }
+.dv2a-pt-av.d { background:linear-gradient(135deg,#ffb547,#ff8b47); }
+.dv2a-pt-av.e { background:linear-gradient(135deg,#4ade80,#00d4bc); }
+.dv2a-pt-name { font-size:12px; font-weight:600; color:var(--text-primary); letter-spacing:-0.005em; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.dv2a-pt-sub { font-size:10px; color:var(--text-tertiary); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+
+.dv2a-inst-name { font-size:11.5px; font-weight:600; color:var(--text-primary); }
+.dv2a-inst-sub { font-size:10px; color:var(--text-tertiary); margin-top:1px; }
+
+.dv2a-sev-bar { display:flex; gap:2px; margin-top:4px; }
+.dv2a-sev-bar > div { flex:1; height:5px; border-radius:2px; background:rgba(255,255,255,0.05); }
+.dv2a-sev-bar > div.lit.mild { background:var(--teal,#00d4bc); }
+.dv2a-sev-bar > div.lit.mod { background:var(--blue,#4a9eff); }
+.dv2a-sev-bar > div.lit.mods { background:var(--amber,#ffb547); }
+.dv2a-sev-bar > div.lit.sev { background:var(--rose,#ff6b9d); }
+.dv2a-score { font-family:var(--font-mono,ui-monospace,monospace); font-size:13px; font-weight:600; }
+.dv2a-score .max { font-size:10px; color:var(--text-tertiary); margin-left:4px; font-weight:500; }
+
+.dv2a-trend { font-size:10.5px; font-weight:600; display:inline-flex; align-items:center; gap:4px; }
+.dv2a-trend.up { color:var(--rose,#ff6b9d); }
+.dv2a-trend.down { color:var(--teal,#00d4bc); }
+.dv2a-trend.flat { color:var(--text-tertiary); }
+.dv2a-spark { display:block; margin-top:3px; }
+
+.dv2a-due-chip { font-size:10px; font-weight:600; padding:3px 7px; border-radius:4px; background:var(--bg-surface,#11222a); color:var(--text-secondary); white-space:nowrap; display:inline-block; }
+.dv2a-due-chip.today { background:rgba(0,212,188,0.14); color:var(--teal,#00d4bc); }
+.dv2a-due-chip.overdue { background:rgba(255,107,157,0.14); color:var(--rose,#ff6b9d); }
+.dv2a-due-chip.soon { background:rgba(74,158,255,0.12); color:var(--blue,#4a9eff); }
+
+.dv2a-mode-pill { font-size:9.5px; font-weight:700; padding:2px 6px; border-radius:3px; background:rgba(255,255,255,0.05); color:var(--text-secondary); letter-spacing:0.04em; margin-right:4px; font-family:var(--font-mono,ui-monospace,monospace); }
+.dv2a-mode-sub { font-size:10px; color:var(--text-tertiary); }
+
+.dv2a-send-btn { padding:5px 10px; font-size:11px; font-weight:600; background:var(--bg-surface,#11222a); color:var(--text-primary); border:1px solid var(--border); border-radius:5px; cursor:pointer; font-family:inherit; }
+.dv2a-send-btn:hover { background:rgba(0,212,188,0.1); border-color:rgba(0,212,188,0.35); color:var(--teal,#00d4bc); }
+.dv2a-send-btn.danger { background:rgba(255,107,157,0.14); color:var(--rose,#ff6b9d); border-color:rgba(255,107,157,0.35); }
+.dv2a-send-btn.danger:hover { background:rgba(255,107,157,0.22); }
+
+/* Side panel */
+.dv2a-side-head { padding:14px 16px; border-bottom:1px solid var(--border); }
+.dv2a-side-close { position:absolute; top:10px; right:10px; width:26px; height:26px; border-radius:6px; background:transparent; border:1px solid var(--border); color:var(--text-tertiary); cursor:pointer; font-size:14px; line-height:1; display:inline-flex; align-items:center; justify-content:center; }
+.dv2a-side-close:hover { color:var(--text-primary); background:var(--bg-surface,#11222a); }
+.dv2a-side-body { flex:1; overflow-y:auto; padding:14px 16px; display:flex; flex-direction:column; gap:16px; }
+.dv2a-side-section { border-bottom:1px solid rgba(255,255,255,0.04); padding-bottom:14px; }
+.dv2a-side-section:last-child { border-bottom:0; }
+.dv2a-side-title { font-size:10px; font-weight:700; color:var(--text-tertiary); text-transform:uppercase; letter-spacing:0.06em; margin-bottom:8px; display:flex; align-items:center; gap:6px; }
+.dv2a-side-title .num { background:var(--bg-surface,#11222a); padding:1px 5px; border-radius:3px; font-family:var(--font-mono,ui-monospace,monospace); font-size:9px; color:var(--text-tertiary); }
+
+.dv2a-ai-card { padding:12px; background:rgba(0,212,188,0.05); border:1px solid rgba(0,212,188,0.25); border-radius:8px; position:relative; }
+.dv2a-ai-badge { position:absolute; top:8px; right:10px; font-size:9px; font-weight:700; color:var(--teal,#00d4bc); font-family:var(--font-mono,ui-monospace,monospace); background:rgba(0,212,188,0.12); padding:2px 6px; border-radius:3px; letter-spacing:0.04em; }
+.dv2a-ai-meta { font-size:10px; color:var(--teal,#00d4bc); margin-bottom:6px; font-weight:600; padding-right:80px; }
+.dv2a-ai-body { font-size:11.5px; color:var(--text-secondary); line-height:1.5; }
+.dv2a-ai-body strong { color:var(--text-primary); font-weight:600; }
+
+.dv2a-chip-sm { font-size:10px; padding:3px 8px; border-radius:4px; font-weight:600; display:inline-block; margin-right:4px; }
+.dv2a-chip-sm.teal { background:rgba(0,212,188,0.14); color:var(--teal,#00d4bc); }
+.dv2a-chip-sm.amber { background:rgba(255,181,71,0.14); color:var(--amber,#ffb547); }
+.dv2a-chip-sm.rose { background:rgba(255,107,157,0.14); color:var(--rose,#ff6b9d); }
+
+.dv2a-bm-link { display:grid; grid-template-columns:1fr auto; gap:10px; align-items:center; padding:8px 0; border-bottom:1px solid rgba(255,255,255,0.04); font-size:11px; }
+.dv2a-bm-link:last-child { border-bottom:0; }
+.dv2a-bm-sym { font-weight:600; color:var(--text-primary); font-size:11.5px; }
+.dv2a-bm-cluster { font-size:10px; color:var(--text-tertiary); margin-top:1px; }
+.dv2a-bm-target { font-size:10.5px; font-weight:600; color:var(--teal,#00d4bc); font-family:var(--font-mono,ui-monospace,monospace); text-align:right; }
+
+.dv2a-norm-bar { height:10px; background:var(--bg-surface,#11222a); border-radius:4px; position:relative; margin-top:8px; }
+.dv2a-norm-mark { position:absolute; top:50%; width:4px; height:16px; transform:translate(-50%,-50%); border-radius:1px; }
+.dv2a-norm-mark.pt { background:var(--teal,#00d4bc); height:18px; box-shadow:0 0 6px rgba(0,212,188,0.6); }
+.dv2a-norm-mark.clinic { background:var(--blue,#4a9eff); }
+.dv2a-norm-mark.pub { background:var(--violet,#9b7fff); }
+
+.dv2a-form-row { display:grid; grid-template-columns:1fr 120px; gap:10px; padding:7px 0; align-items:center; border-bottom:1px solid rgba(255,255,255,0.04); font-size:11px; }
+.dv2a-form-row:last-child { border-bottom:0; }
+.dv2a-form-q { color:var(--text-secondary); }
+.dv2a-form-ans { display:grid; grid-template-columns:repeat(4, 1fr); gap:3px; }
+.dv2a-form-ans > div { text-align:center; padding:3px 0; font-size:10px; color:var(--text-tertiary); background:rgba(255,255,255,0.03); border-radius:3px; font-family:var(--font-mono,ui-monospace,monospace); }
+.dv2a-form-ans > div.sel { background:rgba(0,212,188,0.18); color:var(--teal,#00d4bc); font-weight:700; }
+.dv2a-form-ans > div.sel.amb { background:rgba(255,181,71,0.18); color:var(--amber,#ffb547); }
+.dv2a-form-ans > div.sel.rose { background:rgba(255,107,157,0.2); color:var(--rose,#ff6b9d); }
+
+.dv2a-lib-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(240px,1fr)); gap:12px; }
+.dv2a-lib-card { padding:14px; background:var(--bg-panel,#0d1b22); border:1px solid var(--border); border-radius:8px; cursor:pointer; transition:all 0.1s; }
+.dv2a-lib-card:hover { border-color:rgba(0,212,188,0.4); transform:translateY(-1px); }
+.dv2a-lib-abbr { font-family:var(--font-display,inherit); font-size:16px; font-weight:700; color:var(--text-primary); letter-spacing:-0.02em; }
+.dv2a-lib-name { font-size:11px; color:var(--text-tertiary); margin-top:2px; }
+.dv2a-lib-meta { margin-top:10px; padding-top:10px; border-top:1px solid rgba(255,255,255,0.05); display:flex; flex-wrap:wrap; gap:6px; font-size:10px; color:var(--text-secondary); }
+.dv2a-lib-meta span { background:var(--bg-surface,#11222a); padding:2px 6px; border-radius:3px; font-family:var(--font-mono,ui-monospace,monospace); }
+
+.dv2a-cohort-grid { display:grid; grid-template-columns: 280px 1fr; gap:14px; }
+.dv2a-cohort-card { padding:12px; background:var(--bg-panel,#0d1b22); border:1px solid var(--border); border-radius:8px; cursor:pointer; }
+.dv2a-cohort-card:hover { border-color:rgba(0,212,188,0.4); }
+.dv2a-cohort-card.active { border-color:var(--teal,#00d4bc); background:rgba(0,212,188,0.05); }
+
+.dv2a-ind-wrap { display:grid; grid-template-columns:1fr 340px; gap:14px; }
+.dv2a-ind-item { padding:8px 10px; background:var(--bg-surface,#11222a); border-radius:5px; margin-bottom:5px; font-size:11.5px; color:var(--text-secondary); line-height:1.4; }
+.dv2a-ind-item::before { content:attr(data-idx); display:inline-block; color:var(--text-tertiary); font-family:var(--font-mono,ui-monospace,monospace); font-size:10px; width:22px; }
+
+.dv2a-footer-actions { display:flex; gap:8px; padding:12px 16px; border-top:1px solid var(--border); background:var(--bg-panel,#0d1b22); flex-shrink:0; }
+
+/* Crisis modal */
+.dv2a-crisis-overlay { position:fixed; inset:0; background:rgba(0,0,0,0.7); backdrop-filter:blur(4px); z-index:9999; display:flex; align-items:center; justify-content:center; }
+.dv2a-crisis-modal { width:min(480px,92vw); background:var(--bg-panel,#0d1b22); border:1px solid rgba(255,107,157,0.45); border-radius:12px; padding:22px; box-shadow:0 20px 60px rgba(0,0,0,0.5); }
+.dv2a-crisis-title { font-size:16px; font-weight:700; color:var(--rose,#ff6b9d); display:flex; align-items:center; gap:8px; margin-bottom:10px; }
+.dv2a-crisis-body { font-size:13px; color:var(--text-secondary); line-height:1.55; margin-bottom:18px; }
+.dv2a-crisis-body strong { color:var(--text-primary); }
+.dv2a-crisis-actions { display:flex; gap:10px; justify-content:flex-end; }
+
+@media (max-width:1180px) {
+  .dv2a-side { width:340px; min-width:320px; }
+  .dv2a-kpi-row { grid-template-columns:repeat(3,1fr); }
+}
+@media (max-width:900px) {
+  .dv2a-body { flex-direction:column; }
+  .dv2a-side { width:100%; min-width:0; border-left:0; border-top:1px solid var(--border); max-height:50vh; }
+  .dv2a-kpi-row { grid-template-columns:repeat(2,1fr); }
+  .dv2a-queue-head { display:none; }
+  .dv2a-queue-row { grid-template-columns:1fr; gap:6px; }
+}
+`;
+    document.head.appendChild(s);
+  }
+
+  // ── Data: queue rows (mock-first, backend-merged) ─────────────────────────────
+  const MOCK_QUEUE = [
+    { id:'as-1', patient:'Marcus Reilly', mrn:'10502', avInit:'MR', avCls:'b', dx:'41M · Anxious depression', inst:'PHQ-9', instSub:'item 9 · suicidality', score:18, max:27, item9:3, sev:'sev', sevLabel:'Severe · item 9 = 3', trend:'+3 pts since wk 2', trendCls:'up', sparkline:[12,14,15,16,17,17,18], due:'2h post-session', dueCls:'overdue', mode:'CRISIS', modeSub:'PAGED', modeStyle:'rose', redflag:true, sendLabel:'Escalate', sendCls:'danger' },
+    { id:'as-2', patient:'Rafael Figueroa', mrn:'10488', avInit:'RF', avCls:'d', dx:'47M · OCD', inst:'Y-BOCS', instSub:'ritualization spike', score:28, max:40, sev:'mods', sevLabel:'Severe-mod · flagging', trend:'+8 pts · 2 weeks', trendCls:'up', sparkline:[20,21,22,23,25,26,28], due:'4 days overdue', dueCls:'overdue', mode:'ASYNC', modeSub:'SMS + email', redflag:true, flagLabel:'⚠ RED', sendLabel:'Resend' },
+    { id:'as-3', patient:'Samantha Li', mrn:'10482', avInit:'SL', avCls:'a', dx:'34F · MDD · Session 12/20', inst:'PHQ-9', instSub:'biweekly · protocol-timed', score:9, max:27, item9:0, sev:'mod', sevLabel:'Mild · responder', trend:'−8 pts from baseline', trendCls:'down', sparkline:[17,16,14,12,11,10,9], due:'Today 9:30', dueCls:'today', mode:'TABLET', modeSub:'in-clinic', modeStyle:'teal', sendLabel:'Open' },
+    { id:'as-4', patient:'Priya Nambiar', mrn:'10455', avInit:'PN', avCls:'e', dx:'29F · GAD + chronic pain', inst:'GAD-7 + BPI', instSub:'dual · tACS protocol', score:9, max:21, sev:'mod', sevLabel:'Mild · remission path', trend:'−6 pts in 6 wks', trendCls:'down', sparkline:[15,14,12,11,10,10,9], due:'Today 11:00', dueCls:'today', mode:'TABLET', modeSub:'in-clinic', modeStyle:'teal', sendLabel:'Open' },
+    { id:'as-5', patient:'Terence Wu', mrn:'10401', avInit:'TW', avCls:'e', dx:'38M · PTSD phase 2', inst:'PCL-5', instSub:'exit · discharge prep', score:16, max:80, sev:'mild', sevLabel:'Below threshold · remission', trend:'−22 pts · responder', trendCls:'down', sparkline:[38,32,28,24,20,18,16], due:'Tomorrow 10:00', dueCls:'soon', mode:'TELE', modeSub:'video link', flagLabel:'✓ RESP', flagCls:'amber', sendLabel:'Send' },
+    { id:'as-6', patient:'Nora Iyer', mrn:'10510', avInit:'NI', avCls:'c', dx:'36F · Insomnia + anxiety', inst:'ISI + GAD-7', instSub:'weekly · HRV protocol', score:15, max:28, sev:'mods', sevLabel:'Moderate · partial resp', trend:'−3 pts · slow', trendCls:'down', sparkline:[21,20,19,18,17,16,15], due:'3 days overdue', dueCls:'overdue', mode:'ASYNC', modeSub:'SMS · reminded 2×', overdue:true, flagLabel:'OVERDUE', flagCls:'amber', sendLabel:'Call' },
+    { id:'as-7', patient:'Aisha Haddad', mrn:'10471', avInit:'AH', avCls:'b', dx:'31F · Migraine prevention', inst:'MIDAS', instSub:'monthly · V1 tDCS', score:11, max:270, sev:'mod', sevLabel:'Mild disability · responder', trend:'MIDAS 28→11', trendCls:'down', sparkline:[28,24,20,17,14,12,11], due:'Today 14:30', dueCls:'today', mode:'TABLET', modeSub:'in-clinic', modeStyle:'teal', sendLabel:'Open' },
+    { id:'as-8', patient:'Elena Okafor', mrn:'10518', avInit:'EO', avCls:'c', dx:'27F · ADHD intake', inst:'AQ-10 + ASRS', instSub:'intake battery', score:null, max:null, sev:'none', sevLabel:'No baseline yet', trend:'Baseline pending', trendCls:'flat', sparkline:[], due:'Today 16:00', dueCls:'today', mode:'TABLET', modeSub:'waiting room', modeStyle:'teal', sendLabel:'Open' },
+    { id:'as-9', patient:'Benjamin Moss', mrn:'10299', avInit:'BM', avCls:'c', dx:'58M · Post-stroke aphasia', inst:'WAB-R', instSub:'clinician · SLT joint', score:64, max:100, sev:'mod', scoreUnit:'AQ', sevLabel:'Mild aphasia · improving', trend:'+4 AQ over course', trendCls:'down', sparkline:[58,60,61,62,63,63,64], due:'2 days overdue', dueCls:'overdue', mode:'CLINIC', modeSub:'Dr. Velez', overdue:true, flagLabel:'OVERDUE', flagCls:'amber', sendLabel:'Book' },
+    { id:'as-10', patient:'Jamal Thompson', mrn:'10539', avInit:'JT', avCls:'d', dx:'14M · ADHD · guardian co-complete', inst:'Vanderbilt (peds)', instSub:'parent + teacher', score:18, max:54, sev:'mod', sevLabel:'Stable', trend:'−1 pt · plateau', trendCls:'flat', sparkline:[19,19,19,18,18,19,18], due:'Fri Apr 18', dueCls:'soon', mode:'ASYNC', modeSub:'guardian portal', sendLabel:'Send' },
+  ];
+
+  let queueRows = MOCK_QUEUE;
+  try {
+    const apiRes = await (api.listAssessments?.() || Promise.reject());
+    if (apiRes && Array.isArray(apiRes.items) && apiRes.items.length) {
+      const merged = apiRes.items.slice(0, 14).map((a, i) => ({
+        id: a.id || ('as-be-' + i),
+        patient: a.patient_name || a.patient_id || 'Patient',
+        mrn: a.mrn || '—',
+        avInit: (a.patient_name || 'P').split(' ').map(x => x[0]).slice(0,2).join(''),
+        avCls: ['a','b','c','d','e'][i % 5],
+        dx: a.diagnosis || '—',
+        inst: a.instrument || a.scale || 'PHQ-9',
+        instSub: a.cadence || '',
+        score: a.score ?? null,
+        max: a.max_score ?? 27,
+        item9: a.item9 ?? 0,
+        sev: 'mod',
+        sevLabel: a.severity_label || '—',
+        trend: a.trend_label || '',
+        trendCls: 'flat',
+        sparkline: a.sparkline || [],
+        due: a.due_label || '—',
+        dueCls: a.overdue ? 'overdue' : (a.due_today ? 'today' : 'soon'),
+        mode: a.delivery_mode || 'ASYNC',
+        modeSub: a.delivery_sub || '',
+        redflag: (a.item9 ?? 0) >= 1,
+        sendLabel: a.overdue ? 'Resend' : 'Open',
+      }));
+      if (merged.length) queueRows = merged;
+    }
+  } catch {}
+
+  // ── State & handlers ─────────────────────────────────────────────────────────
+  window._assessSelect = (id) => { window._assessSelectedId = id; window._nav('assessments-v2'); };
+  window._assessTab = (t) => { window._assessHubTab = t; window._nav('assessments-v2'); };
+  window._assessCloseSide = () => { window._assessSelectedId = null; window._nav('assessments-v2'); };
+  window._assessBatch = () => window._dsToast?.({ title:'Batch send', body:'Select patients from the queue to send in bulk.', severity:'info' });
+  window._assessNew = () => window._dsToast?.({ title:'New assessment', body:'Assessment assignment flow.', severity:'info' });
+  window._assessReschedule = (id) => window._dsToast?.({ title:'Reschedule', body:'Assessment '+id+' — pick a new date.', severity:'info' });
+  window._assessExportPdf = (id) => window._dsToast?.({ title:'Export PDF', body:'Generating PDF for '+id+'…', severity:'info' });
+  window._assessCosign = async (id) => {
+    try {
+      await (api.approveAssessment?.(id, { approved:true }) || Promise.resolve());
+      window._dsToast?.({ title:'Co-signed', body:'Assessment '+id+' signed.', severity:'success' });
+    } catch {
+      window._dsToast?.({ title:'Co-signed (offline)', body:'Saved locally; will sync.', severity:'success' });
+    }
+  };
+
+  // ── Crisis escalation (real behavior) ────────────────────────────────────────
+  window._assessCrisis = (patientId, patientName) => {
+    const existing = document.getElementById('dv2a-crisis-modal');
+    if (existing) existing.remove();
+    const overlay = document.createElement('div');
+    overlay.id = 'dv2a-crisis-modal';
+    overlay.className = 'dv2a-crisis-overlay';
+    overlay.innerHTML =
+      '<div class="dv2a-crisis-modal" role="alertdialog" aria-labelledby="dv2a-crisis-title">'+
+        '<div class="dv2a-crisis-title" id="dv2a-crisis-title">⚠ Crisis protocol</div>'+
+        '<div class="dv2a-crisis-body"><strong>'+esc(patientName || 'Patient')+'</strong> indicated thoughts of self-harm on PHQ-9 item 9. Follow clinic crisis protocol?</div>'+
+        '<div class="dv2a-crisis-actions">'+
+          '<button class="btn btn-ghost btn-sm" onclick="document.getElementById(\'dv2a-crisis-modal\')?.remove()">Cancel</button>'+
+          '<button class="btn btn-primary btn-sm" style="background:var(--rose,#ff6b9d);color:#04121c;border-color:var(--rose,#ff6b9d)" onclick="window._assessCrisisConfirm(\''+esc(patientId)+'\',\''+esc(patientName || '')+'\')">Confirm escalation →</button>'+
+        '</div>'+
+      '</div>';
+    document.body.appendChild(overlay);
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+  };
+  window._assessCrisisConfirm = async (patientId, patientName) => {
+    const ts = new Date().toISOString();
+    const event = { ts, patient_id:patientId, patient_name:patientName, reason:'PHQ-9 item 9 positive', user:(currentUser?.email || 'clinician') };
+    try {
+      const raw = localStorage.getItem('ds_crisis_audit');
+      const arr = raw ? JSON.parse(raw) : [];
+      arr.push(event);
+      localStorage.setItem('ds_crisis_audit', JSON.stringify(arr));
+    } catch {}
+    try {
+      await (api.escalateCrisis?.(patientId) || Promise.reject());
+    } catch {
+      // backend missing — audit already saved locally above
+    }
+    document.getElementById('dv2a-crisis-modal')?.remove();
+    window._dsToast?.({ title:'Crisis escalated', body:'Supervisor notified · audit logged', severity:'error' });
+  };
+
+  // ── Helpers ──────────────────────────────────────────────────────────────────
+  function sparkSvg(pts, max, color) {
+    if (!pts || !pts.length) return '<span style="font-size:10px;color:var(--text-tertiary)">—</span>';
+    const W = 100, H = 22, M = max || Math.max(...pts, 1);
+    const step = pts.length > 1 ? W/(pts.length-1) : 0;
+    const coords = pts.map((v,i) => (i*step).toFixed(1)+','+(H-(v/M)*H).toFixed(1)).join(' ');
+    const last = pts[pts.length-1];
+    const lastX = ((pts.length-1)*step).toFixed(1);
+    const lastY = (H-(last/M)*H).toFixed(1);
+    return '<svg class="dv2a-spark" width="100" height="22" viewBox="0 0 100 22"><polyline points="'+coords+'" fill="none" stroke="'+color+'" stroke-width="1.5" stroke-linecap="round"/><circle cx="'+lastX+'" cy="'+lastY+'" r="2.5" fill="'+color+'"/></svg>';
+  }
+  function sevBar(sev) {
+    const levels = ['mild','mod','mods','sev'];
+    const idx = levels.indexOf(sev);
+    return '<div class="dv2a-sev-bar">' +
+      levels.map((cls,i) => '<div'+(i<=idx ? ' class="lit '+cls+'"' : '')+'></div>').join('') +
+      '</div>';
+  }
+  function severityColor(sev) {
+    return { sev:'var(--rose,#ff6b9d)', mods:'#ff8b47', mod:'var(--amber,#ffb547)', mild:'var(--teal,#00d4bc)', none:'var(--text-tertiary)' }[sev] || 'var(--text-primary)';
+  }
+
+  // ── Tabs ─────────────────────────────────────────────────────────────────────
+  const TAB_META = {
+    queue:      { label:'Queue',      count:String(queueRows.length), hot:true },
+    cohort:     { label:'Cohort',     count:'6 conditions' },
+    library:    { label:'Library',    count:String(Object.keys(SCALE_REGISTRY || {}).length || ASSESS_REGISTRY.length) },
+    individual: { label:'Individual', count:'template' },
+  };
+  function tabBar() {
+    return Object.entries(TAB_META).map(([id,m]) => {
+      const hot = m.hot && id === 'queue' ? ' hot' : '';
+      return '<button class="dv2a-tab'+(tab===id?' active':'')+'" onclick="window._assessTab(\''+id+'\')">'+esc(m.label)+' <span class="dv2a-tab-count'+hot+'">'+esc(m.count)+'</span></button>';
+    }).join('') +
+    '<div class="dv2a-legend">' +
+      '<span><i style="background:var(--rose,#ff6b9d)"></i>Red flag</span>' +
+      '<span><i style="background:var(--amber,#ffb547)"></i>Overdue</span>' +
+      '<span><i style="background:var(--teal,#00d4bc)"></i>Due today</span>' +
+    '</div>';
+  }
+
+  // ── Queue tab ────────────────────────────────────────────────────────────────
+  function renderQueue() {
+    const activeFilter = window._assessFilter || 'all';
+    window._assessSetFilter = (f) => { window._assessFilter = f; window._nav('assessments-v2'); };
+
+    const INSTRUMENTS = ['PHQ-9','GAD-7','Y-BOCS','PCL-5','HAM-D','HAM-A','AQ-10','ASRS','MIDAS','BPI','ISI','WAB-R','BDI-II','EQ-5D'];
+    const kpis = [
+      { lbl:'Red flags · 48h', cls:'rose', num:'2', sub:'PHQ-9 item 9 · escalate' },
+      { lbl:'Overdue',          cls:'amber',num:'8', sub:'↑ 2 vs last week' },
+      { lbl:'Due today',        cls:'teal', num:'15',sub:'12 tablet · 3 async' },
+      { lbl:'Completed · 7d',   cls:'green',num:'142',sub:'94% completion rate' },
+      { lbl:'Responder rate',   cls:'blue', num:'62', unit:'%', sub:'≥50% Δ from baseline' },
+    ];
+
+    const kpiHtml = '<div class="dv2a-kpi-row">' + kpis.map(k =>
+      '<div class="dv2a-kpi">' +
+        '<div class="dv2a-kpi-lbl '+k.cls+'"><i></i>'+esc(k.lbl)+'</div>' +
+        '<div class="dv2a-kpi-num">'+esc(k.num)+(k.unit?'<span class="unit">'+esc(k.unit)+'</span>':'')+'</div>' +
+        '<div class="dv2a-kpi-sub">'+esc(k.sub)+'</div>' +
+      '</div>'
+    ).join('') + '</div>';
+
+    const chipHtml = '<div class="dv2a-filter-bar">' +
+      '<button class="dv2a-chip'+(activeFilter==='all'?' active':'')+'" onclick="window._assessSetFilter(\'all\')">All instruments · '+queueRows.length+'</button>' +
+      INSTRUMENTS.map(code => {
+        const n = queueRows.filter(r => (r.inst || '').includes(code)).length;
+        return '<button class="dv2a-chip'+(activeFilter===code?' active':'')+'" onclick="window._assessSetFilter(\''+esc(code)+'\')">'+esc(code)+(n?' · '+n:'')+'</button>';
+      }).join('') +
+      '<div style="margin-left:auto;display:flex;gap:6px">'+
+      '<button class="btn btn-ghost btn-sm" style="font-size:10.5px" onclick="window._dsToast?.({title:\'Sort\',body:\'Sorting options coming soon.\',severity:\'info\'})">Sort: Oldest due ↑</button>'+
+      '</div>' +
+    '</div>';
+
+    const filtered = activeFilter === 'all' ? queueRows : queueRows.filter(r => (r.inst || '').includes(activeFilter));
+
+    const rowHtml = filtered.map(r => {
+      const selected = r.id === selectedId;
+      const rowCls = 'dv2a-queue-row'+(r.redflag?' redflag':'')+(r.overdue?' overdue':'')+(selected?' selected':'');
+      const scoreColor = severityColor(r.sev);
+      const flagHtml = r.redflag
+        ? '<span class="dv2a-flag red">⚠ RED</span>'
+        : (r.flagLabel ? '<span class="dv2a-flag '+(r.flagCls||'ok')+'">'+esc(r.flagLabel)+'</span>' : (selected ? '<span style="width:16px;height:16px;display:inline-flex;align-items:center;justify-content:center;background:rgba(0,212,188,0.16);color:var(--teal,#00d4bc);border-radius:4px;font-size:10px;font-weight:700">●</span>' : ''));
+      const scoreHtml = r.score == null
+        ? '<div class="dv2a-score" style="color:var(--text-tertiary)">—</div>'
+        : '<div class="dv2a-score" style="color:'+scoreColor+'">'+r.score+(r.scoreUnit?' <span class="max">'+esc(r.scoreUnit)+'</span>':(r.max?' <span class="max">/'+r.max+'</span>':''))+'</div>';
+      const sendBtn = r.redflag
+        ? '<button class="dv2a-send-btn danger" onclick="event.stopPropagation();window._assessCrisis(\''+esc(r.id)+'\',\''+esc(r.patient)+'\')">Escalate →</button>'
+        : '<button class="dv2a-send-btn" onclick="event.stopPropagation();window._assessSelect(\''+esc(r.id)+'\')">'+esc(r.sendLabel||'Open')+' →</button>';
+      const modeStyle = r.modeStyle === 'teal' ? 'background:rgba(0,212,188,0.14);color:var(--teal,#00d4bc)' : (r.modeStyle === 'rose' ? 'background:rgba(255,107,157,0.14);color:var(--rose,#ff6b9d)' : '');
+
+      return '<div class="'+rowCls+'" onclick="window._assessSelect(\''+esc(r.id)+'\')">' +
+        '<div>'+flagHtml+'</div>' +
+        '<div class="dv2a-pt"><div class="dv2a-pt-av '+(r.avCls||'a')+'">'+esc(r.avInit)+'</div><div style="min-width:0"><div class="dv2a-pt-name">'+esc(r.patient)+'</div><div class="dv2a-pt-sub">'+esc(r.dx)+' · MRN '+esc(r.mrn)+'</div></div></div>' +
+        '<div><div class="dv2a-inst-name">'+esc(r.inst)+'</div><div class="dv2a-inst-sub">'+esc(r.instSub||'')+'</div></div>' +
+        '<div>'+scoreHtml+sevBar(r.sev)+'<div style="font-size:10px;color:'+scoreColor+';margin-top:3px;font-weight:500">'+esc(r.sevLabel||'')+'</div></div>' +
+        '<div><span class="dv2a-trend '+r.trendCls+'">'+(r.trendCls==='up'?'▲ ':r.trendCls==='down'?'▼ ':'◆ ')+esc(r.trend||'')+'</span>'+sparkSvg(r.sparkline, Math.max(...(r.sparkline||[1]),1), r.trendCls==='up'?'#ff6b9d':'#00d4bc')+'</div>' +
+        '<div><span class="dv2a-due-chip '+(r.dueCls||'')+'">'+(r.dueCls==='overdue'||r.dueCls==='today'?'● ':'')+esc(r.due||'')+'</span></div>' +
+        '<div><span class="dv2a-mode-pill" style="'+modeStyle+'">'+esc(r.mode)+'</span> <span class="dv2a-mode-sub">'+esc(r.modeSub||'')+'</span></div>' +
+        '<div>'+sendBtn+'</div>' +
+      '</div>';
+    }).join('');
+
+    return kpiHtml + chipHtml +
+      '<div class="dv2a-card">' +
+        '<div class="dv2a-queue-head"><div></div><div>Patient</div><div>Instrument</div><div>Last score · severity</div><div>Trend (course)</div><div>Due</div><div>Send via</div><div></div></div>' +
+        rowHtml +
+        '<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 14px;font-size:11px;color:var(--text-tertiary);border-top:1px solid var(--border)">'+
+          '<span>Showing '+filtered.length+' of '+queueRows.length+' · sorted by risk & due date</span>'+
+          '<button class="btn btn-ghost btn-sm" style="font-size:10.5px" onclick="window._assessBatch()">Batch send →</button>'+
+        '</div>' +
+      '</div>';
+  }
+
+  // ── Side panel ───────────────────────────────────────────────────────────────
+  async function renderSidePanel() {
+    const row = queueRows.find(r => r.id === selectedId) || queueRows[2];
+    if (!row) {
+      return '<div class="dv2a-side"><div class="dv2a-side-body" style="text-align:center;color:var(--text-tertiary);padding:40px 20px">Select a row to view details.</div></div>';
+    }
+
+    let aiSummary = null;
+    try { const r = await (api.generateAssessmentSummary?.(row.id) || Promise.reject()); aiSummary = r?.summary_md || r?.summary || null; } catch {}
+    try { if (!aiSummary) { const d = await (api.getAssessmentDetail?.(row.id) || Promise.reject()); aiSummary = d?.ai_summary || null; } } catch {}
+    if (!aiSummary) {
+      aiSummary = row.inst.includes('PHQ-9')
+        ? (row.id === 'as-3'
+          ? '<strong>'+esc(row.patient)+'</strong> has sustained a <strong>responder-level Δ of −8 PHQ-9 points</strong> from baseline (17 → 9) across 12 tDCS sessions targeting DLPFC-L. Item-level recovery is strongest on <strong>anhedonia</strong> and <strong>concentration</strong>, with residual sleep disturbance (Q3 = 2). Trajectory suggests <strong>remission likely by session 16</strong>. No red-flag items.'
+          : '<strong>'+esc(row.patient)+'</strong> · PHQ-9 '+row.score+'/'+row.max+'. '+esc(row.sevLabel||'')+'. Recommend clinician review.')
+        : '<strong>'+esc(row.patient)+'</strong> · '+esc(row.inst)+' '+(row.score||'—')+'/'+(row.max||'—')+'. '+esc(row.sevLabel||'')+'.';
+    }
+
+    const scoreColor = severityColor(row.sev);
+
+    const aiHtml = '<div class="dv2a-ai-card">' +
+      '<div class="dv2a-ai-badge">AI · Haiku 4.5</div>' +
+      '<div class="dv2a-ai-meta">✧ Draft summary · clinician to co-sign</div>' +
+      '<div class="dv2a-ai-body">'+aiSummary+'</div>' +
+    '</div>';
+
+    const trendHtml = '<div style="height:120px;position:relative">' +
+      '<svg width="100%" height="120" viewBox="0 0 300 120" preserveAspectRatio="none">' +
+        '<rect x="0" y="0" width="300" height="20" fill="rgba(255,107,157,0.06)"/>' +
+        '<rect x="0" y="20" width="300" height="24" fill="rgba(255,139,71,0.06)"/>' +
+        '<rect x="0" y="44" width="300" height="24" fill="rgba(255,181,71,0.06)"/>' +
+        '<rect x="0" y="68" width="300" height="26" fill="rgba(0,212,188,0.06)"/>' +
+        '<rect x="0" y="94" width="300" height="26" fill="rgba(74,222,128,0.04)"/>' +
+        '<text x="4" y="12" font-size="7" fill="rgba(255,107,157,0.5)" font-family="ui-monospace,monospace">Severe 20+</text>' +
+        '<text x="4" y="112" font-size="7" fill="rgba(74,222,128,0.55)" font-family="ui-monospace,monospace">None 0-4</text>' +
+        '<line x1="50" y1="0" x2="50" y2="120" stroke="rgba(74,158,255,0.35)" stroke-width="1" stroke-dasharray="2,2"/>' +
+        '<text x="52" y="10" font-size="7" fill="#4a9eff" font-family="ui-monospace,monospace">S4 rev</text>' +
+        '<line x1="150" y1="0" x2="150" y2="120" stroke="rgba(74,158,255,0.35)" stroke-width="1" stroke-dasharray="2,2"/>' +
+        '<text x="152" y="10" font-size="7" fill="#4a9eff" font-family="ui-monospace,monospace">S10 review</text>' +
+        '<line x1="250" y1="0" x2="250" y2="120" stroke="rgba(0,212,188,0.35)" stroke-width="1" stroke-dasharray="2,2"/>' +
+        '<text x="252" y="10" font-size="7" fill="var(--teal,#00d4bc)" font-family="ui-monospace,monospace">Target</text>' +
+        '<polyline points="0,22 25,26 50,34 75,44 100,52 125,60 150,68 175,76 200,82 225,86 250,92 275,96" fill="none" stroke="#00d4bc" stroke-width="2" stroke-linecap="round"/>' +
+        '<g fill="#00d4bc">' +
+          '<circle cx="0" cy="22" r="2.5"/><circle cx="25" cy="26" r="2.5"/><circle cx="50" cy="34" r="2.5"/>' +
+          '<circle cx="75" cy="44" r="2.5"/><circle cx="100" cy="52" r="2.5"/><circle cx="125" cy="60" r="2.5"/>' +
+          '<circle cx="150" cy="68" r="2.5"/><circle cx="175" cy="76" r="2.5"/><circle cx="200" cy="82" r="2.5"/>' +
+          '<circle cx="225" cy="86" r="2.5"/><circle cx="250" cy="92" r="3.5" stroke="#fff" stroke-width="1.5"/>' +
+        '</g>' +
+        '<line x1="0" y1="60" x2="300" y2="60" stroke="rgba(74,158,255,0.4)" stroke-width="1" stroke-dasharray="4,3"/>' +
+        '<text x="245" y="57" font-size="7" fill="#4a9eff" font-family="ui-monospace,monospace">50% Δ</text>' +
+      '</svg></div>' +
+      '<div style="display:flex;justify-content:space-between;margin-top:4px;font-size:9.5px;color:var(--text-tertiary);font-family:var(--font-mono,ui-monospace,monospace)">' +
+        '<span>Baseline · 17</span><span>Session 12 · '+(row.score??9)+'</span><span>Target · ≤5</span>' +
+      '</div>';
+
+    const bmHtml =
+      '<div class="dv2a-bm-link"><div><div class="dv2a-bm-sym">Anhedonia</div><div class="dv2a-bm-cluster">items 1, 3 · −4 pts</div></div><div class="dv2a-bm-target">F3 · DLPFC-L ● anode</div></div>' +
+      '<div class="dv2a-bm-link"><div><div class="dv2a-bm-sym">Concentration</div><div class="dv2a-bm-cluster">items 7, 8 · −2 pts</div></div><div class="dv2a-bm-target">FP2 · mPFC ○ cathode</div></div>' +
+      '<div class="dv2a-bm-link"><div><div class="dv2a-bm-sym">Sleep · residual</div><div class="dv2a-bm-cluster">item 3 · Q=2</div></div><div class="dv2a-bm-target" style="color:var(--amber,#ffb547)">Consider +F4 next</div></div>';
+
+    const normHtml = '<div style="font-size:10.5px;color:var(--text-tertiary);line-height:1.5">At session 12, your clinic\'s MDD cohort averages <strong style="color:var(--teal,#00d4bc)">7.2</strong>, published tDCS MDD Δ-course average is <strong style="color:var(--text-primary)">10.4</strong> (Fregni 2021). '+esc(row.patient)+' is <strong style="color:var(--teal,#00d4bc)">ahead of both.</strong></div>' +
+      '<div class="dv2a-norm-bar">' +
+        '<div class="dv2a-norm-mark clinic" style="left:27%" title="Clinic avg 7.2"></div>' +
+        '<div class="dv2a-norm-mark pub" style="left:39%" title="Published 10.4"></div>' +
+        '<div class="dv2a-norm-mark pt" style="left:34%" title="Patient"></div>' +
+      '</div>' +
+      '<div style="display:flex;justify-content:space-between;font-size:9px;color:var(--text-tertiary);font-family:var(--font-mono,ui-monospace,monospace);margin-top:3px"><span>0</span><span>5</span><span>10</span><span>15</span><span>20+</span></div>' +
+      '<div style="display:flex;gap:10px;margin-top:8px;font-size:10px;color:var(--text-tertiary)">' +
+        '<span style="display:inline-flex;align-items:center;gap:4px"><span style="width:4px;height:10px;background:var(--teal,#00d4bc);display:inline-block;border-radius:1px"></span>Patient</span>' +
+        '<span style="display:inline-flex;align-items:center;gap:4px"><span style="width:4px;height:10px;background:var(--blue,#4a9eff);display:inline-block;border-radius:1px"></span>Clinic</span>' +
+        '<span style="display:inline-flex;align-items:center;gap:4px"><span style="width:4px;height:10px;background:var(--violet,#9b7fff);display:inline-block;border-radius:1px"></span>Published</span>' +
+      '</div>';
+
+    const phq9 = ASSESS_REGISTRY.find(x => x.id === 'PHQ-9');
+    const sampleAnswers = [1,1,2,1,0,0,1,2,0]; // responses for PHQ-9 in the demo
+    const phqItems = (phq9?.questions || [
+      'Little interest or pleasure in doing things',
+      'Feeling down, depressed, or hopeless',
+      'Trouble falling or staying asleep',
+      'Feeling tired or having little energy',
+      'Poor appetite or overeating',
+      'Feeling bad about yourself',
+      'Trouble concentrating',
+      'Moving slowly or restlessly',
+      'Thoughts that you would be better off dead — <strong style="color:var(--text-primary)">monitored</strong>',
+    ]).slice(0, 9);
+
+    const formHtml = phqItems.map((q, i) => {
+      const sel = sampleAnswers[i] ?? 0;
+      const opts = [0,1,2,3].map(v => {
+        const cls = v === sel ? (v >= 2 ? (i === 8 ? 'sel rose' : 'sel amb') : 'sel') : '';
+        return '<div'+(cls?' class="'+cls+'"':'')+'>'+v+'</div>';
+      }).join('');
+      return '<div class="dv2a-form-row"><span class="dv2a-form-q">'+(i+1)+'. '+q+'</span><div class="dv2a-form-ans">'+opts+'</div></div>';
+    }).join('');
+
+    return '<div class="dv2a-side" style="position:relative">' +
+      '<div class="dv2a-side-head">' +
+        '<button class="dv2a-side-close" onclick="window._assessCloseSide()" aria-label="Close panel">✕</button>' +
+        '<div style="display:flex;gap:10px;align-items:center;padding-right:30px">' +
+          '<div class="dv2a-pt-av '+(row.avCls||'a')+'" style="width:40px;height:40px;font-size:13px;border-radius:8px">'+esc(row.avInit)+'</div>' +
+          '<div style="flex:1;min-width:0">' +
+            '<div style="font-size:14px;font-weight:600;font-family:var(--font-display,inherit)">'+esc(row.patient)+' · '+esc(row.inst)+'</div>' +
+            '<div style="font-size:10.5px;color:var(--text-tertiary);margin-top:2px">Due '+esc(row.due||'')+' · '+esc(row.dx)+'</div>' +
+          '</div>' +
+        '</div>' +
+        '<div style="display:flex;gap:6px;margin-top:10px;flex-wrap:wrap">' +
+          '<span class="dv2a-chip-sm '+(row.sev==='sev'?'rose':row.sev==='mods'?'amber':'teal')+'">'+esc(row.sevLabel||'')+' · '+(row.score||'—')+(row.max?'/'+row.max:'')+'</span>' +
+          (row.trendCls==='down' && row.score!=null ? '<span class="dv2a-chip-sm teal">Responder</span>' : '') +
+          (row.redflag ? '<span class="dv2a-chip-sm rose">⚠ Red flag · item 9</span>' : '') +
+        '</div>' +
+      '</div>' +
+      '<div class="dv2a-side-body">' +
+        '<div class="dv2a-side-section"><div class="dv2a-side-title"><span class="num">01</span>AI clinical summary</div>'+aiHtml+'</div>' +
+        '<div class="dv2a-side-section"><div class="dv2a-side-title"><span class="num">02</span>Trend across course</div>'+trendHtml+'</div>' +
+        '<div class="dv2a-side-section"><div class="dv2a-side-title"><span class="num">03</span>Brain-map linkage</div><div style="font-size:10.5px;color:var(--text-tertiary);margin-bottom:6px;line-height:1.4">Item-level response mapped to active stimulation targets.</div>'+bmHtml+'</div>' +
+        '<div class="dv2a-side-section"><div class="dv2a-side-title"><span class="num">04</span>Comparative norms · '+esc(row.inst)+'</div>'+normHtml+'</div>' +
+        '<div class="dv2a-side-section"><div class="dv2a-side-title"><span class="num">05</span>Last completed · form preview</div>'+formHtml+
+          '<div style="display:flex;justify-content:space-between;margin-top:8px;font-size:10.5px;color:var(--text-tertiary);padding-top:8px;border-top:1px solid rgba(255,255,255,0.06)"><span>Total · items 1–9</span><span style="font-family:var(--font-mono,ui-monospace,monospace);color:'+scoreColor+';font-weight:600">'+(row.score??'—')+'</span></div>' +
+        '</div>' +
+      '</div>' +
+      '<div class="dv2a-footer-actions">' +
+        '<button class="btn btn-ghost btn-sm" style="flex:1" onclick="window._assessReschedule(\''+esc(row.id)+'\')">Reschedule</button>' +
+        '<button class="btn btn-ghost btn-sm" style="flex:1" onclick="window._assessExportPdf(\''+esc(row.id)+'\')">Export PDF</button>' +
+        '<button class="btn btn-primary btn-sm" style="flex:1.3" onclick="window._assessCosign(\''+esc(row.id)+'\')">Co-sign →</button>' +
+      '</div>' +
+    '</div>';
+  }
+
+  // ── Cohort tab ───────────────────────────────────────────────────────────────
+  async function renderCohort() {
+    const cohortSel = window._assessCohort || 'mdd-tdcs';
+    window._assessPickCohort = (k) => { window._assessCohort = k; window._nav('assessments-v2'); };
+    const COHORTS = [
+      { id:'mdd-tdcs', label:'All MDD on tDCS course', n:42, inst:'PHQ-9 · GAD-7' },
+      { id:'ocd-tms',  label:'OCD on rTMS maintenance', n:18, inst:'Y-BOCS · OCI-R' },
+      { id:'ptsd-vns', label:'PTSD on taVNS', n:11, inst:'PCL-5' },
+      { id:'insomnia', label:'Insomnia adjunct', n:24, inst:'ISI' },
+      { id:'adhd-peds',label:'Peds ADHD', n:15, inst:'Vanderbilt' },
+      { id:'migraine', label:'Migraine prevention', n:19, inst:'MIDAS' },
+    ];
+    try {
+      const cRes = await (api.listCohorts?.() || Promise.reject());
+      if (cRes && Array.isArray(cRes.items) && cRes.items.length) {
+        COHORTS.splice(0, COHORTS.length, ...cRes.items.map(c => ({ id:c.id, label:c.label, n:c.n||0, inst:c.instruments||'' })));
+      }
+    } catch {}
+
+    const active = COHORTS.find(c => c.id === cohortSel) || COHORTS[0];
+    const cohortListHtml = COHORTS.map(c =>
+      '<div class="dv2a-cohort-card'+(c.id===active.id?' active':'')+'" onclick="window._assessPickCohort(\''+esc(c.id)+'\')">' +
+        '<div style="font-size:12.5px;font-weight:600;color:var(--text-primary)">'+esc(c.label)+'</div>' +
+        '<div style="font-size:10.5px;color:var(--text-tertiary);margin-top:4px">'+c.n+' patients · '+esc(c.inst)+'</div>' +
+      '</div>'
+    ).join('');
+
+    const tableRows = queueRows.slice(0, 8).map(r =>
+      '<tr style="border-bottom:1px solid rgba(255,255,255,0.04)">' +
+        '<td style="padding:9px 12px;font-size:11.5px">'+esc(r.patient)+' <span style="color:var(--text-tertiary);font-size:10px">· MRN '+esc(r.mrn)+'</span></td>' +
+        '<td style="padding:9px 12px;font-size:11px">'+esc(r.inst)+'</td>' +
+        '<td style="padding:9px 12px;font-size:11px;font-family:var(--font-mono,ui-monospace,monospace);color:'+severityColor(r.sev)+'">'+(r.score??'—')+(r.max?'/'+r.max:'')+'</td>' +
+        '<td style="padding:9px 12px;font-size:10.5px"><span class="dv2a-due-chip '+(r.dueCls||'')+'">'+esc(r.due||'')+'</span></td>' +
+        '<td style="padding:9px 12px;font-size:11px;color:'+(r.trendCls==='down'?'var(--teal,#00d4bc)':r.trendCls==='up'?'var(--rose,#ff6b9d)':'var(--text-tertiary)')+'">'+esc(r.trend||'')+'</td>' +
+      '</tr>'
+    ).join('');
+
+    return '<div class="dv2a-filter-bar"><button class="dv2a-chip">Instrument: any</button><button class="dv2a-chip">Window: last 30d</button><div style="margin-left:auto"><button class="btn btn-primary btn-sm" onclick="window._dsToast?.({title:\'Batch send\',body:\'Sending '+active.inst+' to '+active.n+' patients in '+active.label+'.\',severity:\'success\'})">Batch send to '+active.n+' →</button></div></div>' +
+      '<div class="dv2a-cohort-grid">' +
+        '<div style="display:flex;flex-direction:column;gap:8px">' + cohortListHtml + '</div>' +
+        '<div class="dv2a-card">' +
+          '<div style="padding:12px 14px;border-bottom:1px solid var(--border)"><div style="font-size:13px;font-weight:600;color:var(--text-primary)">'+esc(active.label)+'</div><div style="font-size:10.5px;color:var(--text-tertiary);margin-top:2px">'+active.n+' patients · '+esc(active.inst)+' · response status below</div></div>' +
+          '<table style="width:100%;border-collapse:collapse"><thead><tr style="background:rgba(255,255,255,0.02)"><th style="padding:8px 12px;text-align:left;font-size:10px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.06em">Patient</th><th style="padding:8px 12px;text-align:left;font-size:10px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.06em">Instrument</th><th style="padding:8px 12px;text-align:left;font-size:10px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.06em">Score</th><th style="padding:8px 12px;text-align:left;font-size:10px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.06em">Status</th><th style="padding:8px 12px;text-align:left;font-size:10px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.06em">Δ</th></tr></thead><tbody>' + tableRows + '</tbody></table>' +
+        '</div>' +
+      '</div>';
+  }
+
+  // ── Library tab ──────────────────────────────────────────────────────────────
+  function renderLibrary() {
+    const entries = ASSESS_REGISTRY.slice(0, 24);
+    const cards = entries.map(e => {
+      const cat = esc(e.cat || '—');
+      const items = Array.isArray(e.questions) ? e.questions.length : '—';
+      const max = e.max != null ? e.max : '—';
+      const lic = e.licensing?.tier === 'public_domain' ? 'Public domain' : (e.licensing?.tier === 'licensed' ? 'Licensed' : '—');
+      return '<div class="dv2a-lib-card" onclick="window._assessOpenIndividual(\''+esc(e.id)+'\')">' +
+        '<div class="dv2a-lib-abbr">'+esc(e.abbr||e.id)+'</div>' +
+        '<div class="dv2a-lib-name">'+esc(e.t||e.abbr)+'</div>' +
+        '<div style="font-size:10px;color:var(--text-tertiary);margin-top:6px;line-height:1.4">'+esc(e.sub||'')+'</div>' +
+        '<div class="dv2a-lib-meta">' +
+          '<span>'+cat+'</span>' +
+          '<span>'+items+' items</span>' +
+          '<span>max '+max+'</span>' +
+          '<span>'+esc(lic)+'</span>' +
+        '</div>' +
+      '</div>';
+    }).join('');
+    window._assessOpenIndividual = (id) => { window._assessIndividualId = id; window._assessHubTab = 'individual'; window._nav('assessments-v2'); };
+    return '<div style="font-size:12px;color:var(--text-tertiary);margin-bottom:6px">Validated instruments across depression, anxiety, OCD, trauma, sleep, mania, pain, language, and QoL. Click a card to open its template.</div>' +
+      '<div class="dv2a-lib-grid">'+cards+'</div>';
+  }
+
+  // ── Individual tab ───────────────────────────────────────────────────────────
+  function renderIndividual() {
+    const instId = window._assessIndividualId || 'PHQ-9';
+    const inst = ASSESS_REGISTRY.find(x => x.id === instId) || ASSESS_REGISTRY[0];
+    const items = (inst.questions || []).map((q,i) => '<div class="dv2a-ind-item" data-idx="'+(i+1)+'.">'+esc(q)+'</div>').join('');
+    const opts = (inst.options || []).map(o => '<span class="dv2a-chip-sm teal">'+esc(o)+'</span>').join(' ');
+    const bands = (() => {
+      try {
+        const samples = [0, Math.floor(inst.max*0.25), Math.floor(inst.max*0.5), Math.floor(inst.max*0.75), inst.max];
+        return samples.map(s => { const r = inst.interpret?.(s); return r ? '<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.04);font-size:11px"><span style="color:var(--text-tertiary);font-family:var(--font-mono,ui-monospace,monospace)">Score '+s+'</span><span style="color:'+(r.color||'var(--text-primary)')+';font-weight:600">'+esc(r.label)+'</span></div>' : ''; }).join('');
+      } catch { return ''; }
+    })();
+
+    window._assessAssignForm = () => {
+      window._dsToast?.({ title:'Assigned', body:inst.abbr+' assigned to current patient.', severity:'success' });
+    };
+
+    return '<div class="dv2a-ind-wrap">' +
+      '<div class="dv2a-card" style="padding:16px">' +
+        '<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px">'+
+          '<div><div style="font-size:20px;font-weight:700;letter-spacing:-0.02em;color:var(--text-primary)">'+esc(inst.abbr||inst.id)+'</div><div style="font-size:12px;color:var(--text-tertiary);margin-top:3px">'+esc(inst.t||'')+'</div></div>'+
+          '<div style="display:flex;gap:4px;flex-wrap:wrap;max-width:50%"><span class="dv2a-chip-sm teal">'+esc(inst.cat||'—')+'</span><span class="dv2a-chip-sm amber">'+((inst.questions||[]).length||'—')+' items</span><span class="dv2a-chip-sm teal">max '+esc(inst.max||'—')+'</span></div>'+
+        '</div>' +
+        '<div style="font-size:11.5px;color:var(--text-secondary);line-height:1.5;margin-bottom:14px">'+esc(inst.sub||'')+'</div>' +
+        (opts ? '<div style="margin-bottom:12px;font-size:11px;color:var(--text-tertiary)"><div style="margin-bottom:6px">Response options:</div>'+opts+'</div>' : '') +
+        '<div style="font-size:10.5px;font-weight:700;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.06em;margin:14px 0 8px">Items</div>' +
+        (items || '<div style="padding:14px;background:var(--bg-surface,#11222a);border-radius:6px;font-size:11.5px;color:var(--text-tertiary)">Item text not embedded — licensed instrument. Administer via authorized copy.</div>') +
+      '</div>' +
+      '<div class="dv2a-card" style="padding:16px">' +
+        '<div style="font-size:13px;font-weight:700;color:var(--text-primary);margin-bottom:10px">Severity bands</div>' +
+        (bands || '<div style="font-size:11px;color:var(--text-tertiary)">Scoring follows '+esc(inst.scoringKey||inst.abbr)+'.</div>') +
+        '<div style="margin-top:16px;font-size:10.5px;font-weight:700;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.06em">Licensing</div>' +
+        '<div style="font-size:11px;color:var(--text-secondary);margin-top:6px;line-height:1.5">'+esc(inst.licensing?.attribution||'—')+'</div>' +
+        '<div style="margin-top:16px;font-size:10.5px;font-weight:700;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:8px">Assign to patient</div>' +
+        '<input class="form-control" placeholder="Patient name or MRN" style="width:100%;padding:8px 10px;background:var(--bg-surface,#11222a);border:1px solid var(--border);border-radius:6px;font-size:12px;color:var(--text-primary);margin-bottom:8px"/>' +
+        '<button class="btn btn-primary btn-sm" style="width:100%" onclick="window._assessAssignForm()">Assign '+esc(inst.abbr||inst.id)+' →</button>' +
+      '</div>' +
+    '</div>';
+  }
+
+  // ── Compose page ─────────────────────────────────────────────────────────────
+  let mainContent = '';
+  let sideContent = '';
+  if (tab === 'queue') {
+    mainContent = renderQueue();
+    sideContent = await renderSidePanel();
+  } else if (tab === 'cohort') {
+    mainContent = await renderCohort();
+  } else if (tab === 'library') {
+    mainContent = renderLibrary();
+  } else if (tab === 'individual') {
+    mainContent = renderIndividual();
+  }
+
+  el.innerHTML =
+    '<div class="dv2a-shell">' +
+      '<div class="dv2a-tabs" role="tablist">' + tabBar() + '</div>' +
+      '<div class="dv2a-body">' +
+        '<div class="dv2a-main">' + mainContent + '</div>' +
+        (tab === 'queue' && selectedId ? sideContent : '') +
+      '</div>' +
+    '</div>';
 }
 

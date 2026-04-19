@@ -158,6 +158,8 @@ async function loadVirtualCare()  { return (_modVirtualCare  ??= await import('.
 async function loadConditions()   { return (_modConditions   ??= await import('./pages-conditions.js')); }
 let _modResearch = null;
 async function loadResearch()     { return (_modResearch ??= await import('./pages-research.js')); }
+let _modBrainMap = null;
+async function loadBrainMap()     { return (_modBrainMap ??= await import('./pages-brainmap.js')); }
 
 // ── Helpers that delegate to the clinical module once loaded ──────────────────
 // Called synchronously in navigate() before renderPage(); safe to no-op until
@@ -1358,10 +1360,10 @@ async function renderPage() {
     case 'reg-virtual-care':   { window._nav('virtual-care-hub'); break; }
     // ── design-v2 routes — alias new IDs onto existing page renderers ────
     case 'schedule-v2':        { const m = await loadClinicalHubs(); await m.pgSchedulingHub(setTopbar, navigate); break; }
-    case 'assessments-v2':     { const m = await loadClinicalHubs(); await m.pgClinicalHub(setTopbar, navigate); break; }
+    case 'assessments-v2':     { const m = await loadClinicalHubs(); await m.pgAssessmentsHub(setTopbar, navigate); break; }
     case 'patients-v2':        { const m = await loadClinicalHubs(); await m.pgPatientHub(setTopbar, navigate); break; }
     case 'protocol-studio':    { const m = await loadClinicalHubs(); await m.pgProtocolHub(setTopbar, navigate); break; }
-    case 'brainmap-v2':        { const m = await loadClinicalTools(); await m.pgBrainMapPlanner(setTopbar); break; }
+    case 'brainmap-v2':        { const m = await loadBrainMap(); await m.pgBrainMapPlanner(setTopbar, navigate); break; }
     case 'handbooks-v2':       { const m = await loadHandbooks(); await m.pgHandbooks(setTopbar); break; }
     case 'library-v2':         { const m = await loadClinicalHubs(); await m.pgLibraryHub(setTopbar, navigate); break; }
     case 'live-session':       { const m = await loadClinicalHubs(); await m.pgVirtualCareHub(setTopbar, navigate); break; }
