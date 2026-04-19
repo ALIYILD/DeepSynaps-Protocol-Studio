@@ -4316,7 +4316,7 @@ export async function pgMonitorHub(setTopbar, navigate) {
           <div class="ch-card">
             <div class="ch-card-hd"><span class="ch-card-title">Session Recordings</span></div>
             <div id="rec-log-list">
-              ${window._recLogs.length ? window._recLogs.map(r=>'<div class="book-row"><div class="book-datetime"><div class="book-date">'+r.date+'</div><div class="book-time">'+r.dur+'s · '+r.type+'</div></div><div class="book-info"><div class="book-patient">'+r.patient+'</div>'+(r.transcript?'<div class="book-notes">'+r.transcript.slice(0,55)+'…</div>':'')+'</div><div class="book-actions"><button class="ch-btn-sm" disabled title="Recording playback requires media-storage backend (not yet wired)" style="opacity:.55;cursor:not-allowed">▶</button></div></div>').join('') : '<div class="ch-empty">No recordings yet.</div>'}
+              ${window._recLogs.length ? window._recLogs.map(r=>'<div class="book-row"><div class="book-datetime"><div class="book-date">'+r.date+'</div><div class="book-time">'+r.dur+'s · '+r.type+'</div></div><div class="book-info"><div class="book-patient">'+r.patient+'</div>'+(r.transcript?'<div class="book-notes">'+r.transcript.slice(0,55)+'…</div>':'')+'</div><div class="book-actions"><button class="ch-btn-sm" disabled title="Recording playback requires media-storage backend (not yet wired)" style="opacity:.55;cursor:not-allowed">▶</button><span style="margin-left:6px;font-size:10px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.5px">soon</span></div></div>').join('') : '<div class="ch-empty">No recordings yet.</div>'}
             </div>
           </div>
         </div>

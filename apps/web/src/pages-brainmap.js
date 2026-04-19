@@ -403,7 +403,8 @@ function viewPlaceholder(mode) {
     <div class="dv2bm-placeholder">
       <div class="dv2bm-placeholder-icon">◎</div>
       <div class="dv2bm-placeholder-title">${esc(label)}</div>
-      <div class="dv2bm-placeholder-sub">Coming soon — Research tab has the early model.</div>
+      <div class="dv2bm-placeholder-sub">Roadmap · early prototype available in Research tab</div>
+      <button type="button" class="dv2bm-placeholder-link" style="margin-top:10px;background:transparent;border:1px solid var(--border);color:var(--text-secondary);font-size:12px;padding:6px 12px;border-radius:6px;cursor:pointer" onclick="window._nav?.('research-v2')">Open Research →</button>
     </div>
   `;
 }
