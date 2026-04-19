@@ -716,9 +716,24 @@ export async function pgPatientDashboard(user) {
           </div>
         </div>`;
     }
-    const sleepTxt = wearable.sleepAvg != null ? wearable.sleepAvg.toFixed(1) + 'h avg sleep' : 'Sleep: —';
-    const hrvTxt   = wearable.hrvAvg   != null ? Math.round(wearable.hrvAvg)   + 'ms HRV'     : 'HRV: —';
-    const rhrTxt   = wearable.rhrAvg   != null ? Math.round(wearable.rhrAvg)   + ' bpm RHR'   : 'RHR: —';
+    // Inline target bands let patients self-interpret the numbers without
+    // guessing whether their sleep / HRV / RHR is in a typical range.
+    // Conservative, non-alarming copy — we surface the band, not a verdict.
+    const sleepStat = wearable.sleepAvg != null
+      ? { val: wearable.sleepAvg.toFixed(1) + 'h avg sleep',   band: 'target 7–9h',     tip: 'Most adults feel best on 7 to 9 hours.' }
+      : { val: 'Sleep: —',                                     band: '',                tip: '' };
+    const hrvStat = wearable.hrvAvg != null
+      ? { val: Math.round(wearable.hrvAvg) + 'ms HRV',         band: 'typical 20–80ms', tip: 'Heart-rate variability varies by age and fitness; higher is generally better.' }
+      : { val: 'HRV: —',                                       band: '',                tip: '' };
+    const rhrStat = wearable.rhrAvg != null
+      ? { val: Math.round(wearable.rhrAvg) + ' bpm RHR',       band: 'typical 60–100',  tip: 'Resting heart rate below 80 is generally healthy; trained athletes run lower.' }
+      : { val: 'RHR: —',                                       band: '',                tip: '' };
+    const renderStat = (s) => s.band
+      ? `<div class="pth-wellness-stat" title="${esc(s.tip)}">
+           <span class="pth-wellness-stat-val">${esc(s.val)}</span>
+           <span class="pth-wellness-stat-band">${esc(s.band)}</span>
+         </div>`
+      : `<div class="pth-wellness-stat">${esc(s.val)}</div>`;
     const ringValDisplay = wellnessVal || '—';
     const ringOffset = Math.max(0, 389 - (wellnessVal / 100) * 389).toFixed(1);
     const ringAriaLabel = wellnessVal
@@ -762,9 +777,9 @@ export async function pgPatientDashboard(user) {
           </div>
           <div class="pth-wellness-stats">
             ${freshnessChip}
-            <div class="pth-wellness-stat">${esc(sleepTxt)}</div>
-            <div class="pth-wellness-stat">${esc(hrvTxt)}</div>
-            <div class="pth-wellness-stat">${esc(rhrTxt)}</div>
+            ${renderStat(sleepStat)}
+            ${renderStat(hrvStat)}
+            ${renderStat(rhrStat)}
           </div>
         </div>
       </div>`;
